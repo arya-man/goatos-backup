@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/vgoats/goatos/backend/internal/workboard/domain"
 	"github.com/vgoats/goatos/backend/internal/workboard/ports"
@@ -211,4 +212,51 @@ func (s *Service) FindRow(ctx context.Context, q domain.Query, rowKey string) (d
 		after = rows[len(rows)-1].SourceID
 	}
 	return domain.Row{}, false, nil
+}
+
+// ErrRowNotFound is returned when a subtask read names a row the caller's board does not
+// hold: a module outside the query's visibility, or a source that is not registered.
+var ErrRowNotFound = errors.New("workboard: row not found")
+
+// ListSubtasks serves one page of a row's subtasks from the source the row key names. The
+// module must be inside q.Modules -- a caller cannot drill into a module they cannot see --
+// and the page size is bounded to [DefaultSubtaskLimit, MaxSubtaskLimit]. The read is one
+// bounded call on ONE source; the transport is expected to have resolved the row through
+// FindRow first, so the owner clamp of an operator lens has already been applied.
+func (s *Service) ListSubtasks(ctx context.Context, q domain.Query, rowKey, afterKey string, limit int) (domain.SubtaskPage, error) {
+	q, err := q.Normalize()
+	if err != nil {
+		return domain.SubtaskPage{}, err
+	}
+	key, err := domain.ParseCursor(rowKey)
+	if err != nil || key.IsZero() {
+		return domain.SubtaskPage{}, domain.ErrInvalidRowKey
+	}
+	if !q.WantsModule(key.Module) {
+		return domain.SubtaskPage{}, ErrRowNotFound
+	}
+	if _, _, err := domain.ParseSubtaskKey(afterKey); err != nil {
+		return domain.SubtaskPage{}, err
+	}
+	var src ports.Source
+	for _, candidate := range s.sources {
+		if candidate.Module() == key.Module && candidate.SourceType() == key.SourceType {
+			src = candidate
+			break
+		}
+	}
+	if src == nil {
+		return domain.SubtaskPage{}, ErrRowNotFound
+	}
+	page, err := src.ListSubtasks(ctx, ports.SubtaskQuery{
+		TenantID: q.TenantID, ParkID: q.ParkID, BusinessDate: q.BusinessDate,
+		SourceID: key.SourceID, AfterKey: strings.TrimSpace(afterKey), Limit: domain.BoundSubtaskLimit(limit),
+	})
+	if err != nil {
+		return domain.SubtaskPage{}, fmt.Errorf("workboard: %s/%s subtasks: %w", src.Module(), src.SourceType(), err)
+	}
+	if page.Subtasks == nil {
+		page.Subtasks = []domain.Subtask{}
+	}
+	return page, nil
 }

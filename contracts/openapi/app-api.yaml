@@ -8126,6 +8126,67 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "500":
           $ref: "#/components/responses/ServerError"
+  /work-board/rows/{row_key}/subtasks:
+    get:
+      tags:
+        - Work Board
+      operationId: listWorkBoardRowSubtasks
+      summary: One page of a Work Board row's subtasks, worst first, for the issue view.
+      description: >-
+        The units of work behind ONE board row, each with a name (an animal tag, a pen, a bag,
+        a session, a step, a proof), a short subtitle, an owner, a derived work state and lane,
+        a needs-attention flag and its chain of STEPS (scan, submit, verify, close ...). The grain
+        is the module's own: weighing lists scanned animals (or the whole pen for a lump-sum
+        bucket), feed transport its attempts, verification its proofs, counts the request,
+        milk feeding the session, health its treatment steps, PC care its scanned animals, and
+        vaccination the animals in the pen for that drive. A row with no finer grain returns
+        itself as one subtask; a live row never returns an empty list. Sorted worst first
+        (needs attention, to do, in progress, in review, done) and keyset-paged on the opaque
+        subtask key. Scope is IDENTICAL to /work-board/rows: park through the grants, modules
+        through the caller's permissions, owner through work_board.oversee; the row is first
+        resolved on the caller's own board, and one it does not hold is 404 row_not_found.
+      parameters:
+        - name: row_key
+          in: path
+          required: true
+          schema: { type: string }
+          description: The row's key from /work-board/rows (module|source_type|source_id), URL-encoded.
+        - name: park
+          in: query
+          required: true
+          schema: { type: string, format: uuid }
+        - name: business_date
+          in: query
+          required: false
+          schema: { type: string, format: date }
+          description: The board day the row was seen on (Asia/Kolkata). Absent means today.
+        - name: cursor
+          in: query
+          required: false
+          schema: { type: string }
+          description: Keyset cursor from a previous page's next_cursor (an opaque subtask key).
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 50, default: 10 }
+          description: Page size, clamped into [10, 50] on the server.
+      responses:
+        "200":
+          description: One page of the row's subtasks.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkBoardSubtaskPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "500":
+          $ref: "#/components/responses/ServerError"
   /work-board/flags:
     post:
       tags:
@@ -17901,6 +17962,58 @@ components:
         own_rows_only:
           type: boolean
           description: True when the read was clamped to the caller's own rows (no work_board.oversee).
+    WorkBoardStepState:
+      type: string
+      description: The state of one step in a subtask's chain. `locked` means it cannot start yet (an earlier step has not landed, or a hold keeps it closed).
+      enum: [todo, in_progress, in_review, done, rework, needs_attention, locked]
+    WorkBoardStep:
+      type: object
+      required: [name, state]
+      properties:
+        name:
+          type: string
+          description: Farm wording, rendered verbatim (Scan, Verify, Give).
+        state: { $ref: "#/components/schemas/WorkBoardStepState" }
+        detail:
+          type: string
+          description: Optional farm wording beside the state (a weight, a rejection reason).
+    WorkBoardSubtask:
+      type: object
+      required: [key, name, work_state, lane, owner, needs_attention, steps]
+      properties:
+        key:
+          type: string
+          description: Opaque keyset value that sorts worst first. Never parsed by a client.
+        name:
+          type: string
+          description: The unit's name (an animal tag verbatim, the whole pen, a session, a medicine, a video).
+        subtitle: { type: string }
+        work_state: { $ref: "#/components/schemas/WorkBoardWorkState" }
+        lane: { $ref: "#/components/schemas/WorkBoardLane" }
+        owner: { $ref: "#/components/schemas/WorkBoardOwner" }
+        needs_attention: { type: boolean }
+        steps:
+          type: array
+          items:
+            $ref: "#/components/schemas/WorkBoardStep"
+        href: { type: string, description: Where the module's own screen opens this unit. Absent when the module has none. }
+    WorkBoardSubtaskPage:
+      type: object
+      required: [subtasks, total, row_key, business_date, park_id]
+      properties:
+        subtasks:
+          type: array
+          items:
+            $ref: "#/components/schemas/WorkBoardSubtask"
+        next_cursor:
+          type: string
+          description: Keyset cursor for the next page. Absent on the last page.
+        total:
+          type: integer
+          description: The WHOLE count of the row's subtasks, never the page length.
+        row_key: { type: string }
+        business_date: { type: string, format: date }
+        park_id: { type: string }
     WorkBoardFlagRequest:
       type: object
       required: [row_key, park_id]

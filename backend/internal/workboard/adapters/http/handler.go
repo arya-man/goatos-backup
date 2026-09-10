@@ -30,6 +30,10 @@ type Service interface {
 	List(ctx context.Context, q domain.Query) (domain.Page, error)
 	Summary(ctx context.Context, q domain.Query) (domain.Summary, error)
 	RegisteredModules() []domain.Module
+	// FindRow resolves one row on the caller's board; the subtask read is gated on it.
+	FindRow(ctx context.Context, q domain.Query, rowKey string) (domain.Row, bool, error)
+	// ListSubtasks serves one page of that row's subtasks.
+	ListSubtasks(ctx context.Context, q domain.Query, rowKey, afterKey string, limit int) (domain.SubtaskPage, error)
 }
 
 // Handler serves the board routes.
@@ -52,6 +56,7 @@ func NewHandler(service Service, log *slog.Logger) *Handler {
 func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("GET /work-board/rows", h.Rows)
 	mux.HandleFunc("GET /work-board/summary", h.Summary)
+	mux.HandleFunc("GET /work-board/rows/{row_key}/subtasks", h.Subtasks)
 	mux.HandleFunc("POST /work-board/flags", h.Flag)
 }
 
@@ -117,6 +122,65 @@ func (h *Handler) Summary(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httpresponse.WriteJSON(w, http.StatusOK, summaryPayload{Summary: sum, BusinessDate: q.BusinessDate, ParkID: q.ParkID, OwnRowsOnly: own})
+}
+
+// subtasksPayload is the wire shape of one subtask page.
+type subtasksPayload struct {
+	Subtasks     []domain.Subtask `json:"subtasks"`
+	NextCursor   string           `json:"next_cursor,omitempty"`
+	Total        int              `json:"total"`
+	RowKey       string           `json:"row_key"`
+	BusinessDate string           `json:"business_date"`
+	ParkID       string           `json:"park_id"`
+}
+
+// Subtasks serves GET /work-board/rows/{row_key}/subtasks: the issue view's list of the
+// row's units of work, worst first. Scope is the SAME as /work-board/rows -- park through
+// the grants, modules through the caller's permissions, owner through work_board.oversee --
+// and the row is first resolved on that board through FindRow, so a caller cannot drill into
+// a row their own board would not have shown them (404 row_not_found, never a leak).
+func (h *Handler) Subtasks(w http.ResponseWriter, r *http.Request) {
+	q, _, ok := h.query(w, r)
+	if !ok {
+		return
+	}
+	rowKey := strings.TrimSpace(r.PathValue("row_key"))
+	if _, err := domain.ParseCursor(rowKey); err != nil || rowKey == "" {
+		h.writeErr(w, r, http.StatusBadRequest, "invalid_row_key", "That work is not on the board.")
+		return
+	}
+	limit := 0
+	if raw := strings.TrimSpace(r.URL.Query().Get("limit")); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < 1 {
+			h.writeErr(w, r, http.StatusBadRequest, "invalid_limit", "That page size is not valid.")
+			return
+		}
+		limit = n
+	}
+	cursor := strings.TrimSpace(r.URL.Query().Get("cursor"))
+	if _, _, err := domain.ParseSubtaskKey(cursor); err != nil {
+		h.writeErr(w, r, http.StatusBadRequest, "invalid_cursor", "That page marker is not valid. Start from the first page.")
+		return
+	}
+	// The row must be on the CALLER's board: their park, that day, the modules their
+	// permissions open, and -- without oversee -- their own rows only.
+	if _, found, err := h.service.FindRow(r.Context(), q, rowKey); err != nil {
+		h.writeServiceErr(w, r, err)
+		return
+	} else if !found {
+		h.writeErr(w, r, http.StatusNotFound, "row_not_found", "That work is not on your board for this park and day. Refresh and try again.")
+		return
+	}
+	page, err := h.service.ListSubtasks(r.Context(), q, rowKey, cursor, limit)
+	if err != nil {
+		h.writeServiceErr(w, r, err)
+		return
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, subtasksPayload{
+		Subtasks: page.Subtasks, NextCursor: page.NextCursor, Total: page.Total,
+		RowKey: rowKey, BusinessDate: q.BusinessDate, ParkID: q.ParkID,
+	})
 }
 
 // query parses and SCOPES the request. Every rule that decides what a caller sees is
@@ -249,8 +313,12 @@ func splitCSV(raw string) []string {
 
 func (h *Handler) writeServiceErr(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
-	case errors.Is(err, domain.ErrInvalidCursor):
+	case errors.Is(err, domain.ErrInvalidCursor), errors.Is(err, domain.ErrInvalidSubtaskCursor):
 		h.writeErr(w, r, http.StatusBadRequest, "invalid_cursor", "That page marker is not valid. Start from the first page.")
+	case errors.Is(err, domain.ErrInvalidRowKey):
+		h.writeErr(w, r, http.StatusBadRequest, "invalid_row_key", "That work is not on the board.")
+	case errors.Is(err, app.ErrRowNotFound):
+		h.writeErr(w, r, http.StatusNotFound, "row_not_found", "That work is not on your board for this park and day. Refresh and try again.")
 	case errors.Is(err, domain.ErrInvalidQuery):
 		h.writeErr(w, r, http.StatusBadRequest, "invalid_query", "That board request is not valid.")
 	case errors.Is(err, context.DeadlineExceeded):

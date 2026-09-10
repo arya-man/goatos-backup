@@ -3054,6 +3054,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/work-board/rows/{row_key}/subtasks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * One page of a Work Board row's subtasks, worst first, for the issue view.
+         * @description The units of work behind ONE board row, each with a name (an animal tag, a pen, a bag, a session, a step, a proof), a short subtitle, an owner, a derived work state and lane, a needs-attention flag and its chain of STEPS (scan, submit, verify, close ...). The grain is the module's own: weighing lists scanned animals (or the whole pen for a lump-sum bucket), feed transport its attempts, verification its proofs, counts the request, milk feeding the session, health its treatment steps, PC care its scanned animals, and vaccination the animals in the pen for that drive. A row with no finer grain returns itself as one subtask; a live row never returns an empty list. Sorted worst first (needs attention, to do, in progress, in review, done) and keyset-paged on the opaque subtask key. Scope is IDENTICAL to /work-board/rows: park through the grants, modules through the caller's permissions, owner through work_board.oversee; the row is first resolved on the caller's own board, and one it does not hold is 404 row_not_found.
+         */
+        get: operations["listWorkBoardRowSubtasks"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/work-board/flags": {
         parameters: {
             query?: never;
@@ -7446,6 +7466,43 @@ export interface components {
             modules: components["schemas"]["WorkBoardModule"][];
             /** @description True when the read was clamped to the caller's own rows (no work_board.oversee). */
             own_rows_only: boolean;
+        };
+        /**
+         * @description The state of one step in a subtask's chain. `locked` means it cannot start yet (an earlier step has not landed, or a hold keeps it closed).
+         * @enum {string}
+         */
+        WorkBoardStepState: "todo" | "in_progress" | "in_review" | "done" | "rework" | "needs_attention" | "locked";
+        WorkBoardStep: {
+            /** @description Farm wording, rendered verbatim (Scan, Verify, Give). */
+            name: string;
+            state: components["schemas"]["WorkBoardStepState"];
+            /** @description Optional farm wording beside the state (a weight, a rejection reason). */
+            detail?: string;
+        };
+        WorkBoardSubtask: {
+            /** @description Opaque keyset value that sorts worst first. Never parsed by a client. */
+            key: string;
+            /** @description The unit's name (an animal tag verbatim, the whole pen, a session, a medicine, a video). */
+            name: string;
+            subtitle?: string;
+            work_state: components["schemas"]["WorkBoardWorkState"];
+            lane: components["schemas"]["WorkBoardLane"];
+            owner: components["schemas"]["WorkBoardOwner"];
+            needs_attention: boolean;
+            steps: components["schemas"]["WorkBoardStep"][];
+            /** @description Where the module's own screen opens this unit. Absent when the module has none. */
+            href?: string;
+        };
+        WorkBoardSubtaskPage: {
+            subtasks: components["schemas"]["WorkBoardSubtask"][];
+            /** @description Keyset cursor for the next page. Absent on the last page. */
+            next_cursor?: string;
+            /** @description The WHOLE count of the row's subtasks, never the page length. */
+            total: number;
+            row_key: string;
+            /** Format: date */
+            business_date: string;
+            park_id: string;
         };
         /** @description Names WHICH row on WHICH board. The row's title, pen and clock are resolved by the backend from the caller's own board, never accepted from the client; a row the caller cannot see is 404 row_not_found. */
         WorkBoardFlagRequest: {
@@ -22505,6 +22562,42 @@ export interface operations {
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    listWorkBoardRowSubtasks: {
+        parameters: {
+            query: {
+                park: string;
+                /** @description The board day the row was seen on (Asia/Kolkata). Absent means today. */
+                business_date?: string;
+                /** @description Keyset cursor from a previous page's next_cursor (an opaque subtask key). */
+                cursor?: string;
+                /** @description Page size, clamped into [10, 50] on the server. */
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                /** @description The row's key from /work-board/rows (module|source_type|source_id), URL-encoded. */
+                row_key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of the row's subtasks. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkBoardSubtaskPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
             500: components["responses"]["ServerError"];
         };
     };

@@ -20,6 +20,9 @@ type fakeSource struct {
 	kind   string
 	rows   []domain.Row
 	calls  []ports.SourceQuery
+
+	subtasks     []domain.Subtask
+	subtaskCalls []ports.SubtaskQuery
 }
 
 func (f *fakeSource) Module() domain.Module { return f.module }
@@ -50,6 +53,24 @@ func (f *fakeSource) CountByState(_ context.Context, q ports.SourceQuery) (map[d
 		out[r.WorkState]++
 	}
 	return out, nil
+}
+
+// ListSubtasks serves the fake's subtasks (set by a test), recording the query.
+func (f *fakeSource) ListSubtasks(_ context.Context, q ports.SubtaskQuery) (domain.SubtaskPage, error) {
+	f.subtaskCalls = append(f.subtaskCalls, q)
+	out := []domain.Subtask{}
+	for _, st := range f.subtasks {
+		if q.AfterKey != "" && st.Key <= q.AfterKey {
+			continue
+		}
+		out = append(out, st)
+	}
+	page := domain.SubtaskPage{Subtasks: out, Total: len(f.subtasks)}
+	if len(out) > q.Limit {
+		page.Subtasks = out[:q.Limit]
+		page.NextCursor = out[q.Limit-1].Key
+	}
+	return page, nil
 }
 
 func mk(module domain.Module, kind string, n int, state domain.WorkState, owner string) *fakeSource {
@@ -295,5 +316,107 @@ func TestFindRowStaysInsideTheCallersBoard(t *testing.T) {
 	}
 	if _, _, err := svc.FindRow(context.Background(), q, "not-a-key"); !errors.Is(err, domain.ErrInvalidRowKey) {
 		t.Fatalf("a bad key is refused, got %v", err)
+	}
+}
+
+// TestListSubtasksResolvesTheRowsSourceAndBoundsThePage: the key names the source, the
+// module must be visible on the caller's board, and the page size is clamped to [10, 50].
+func TestListSubtasksResolvesTheRowsSourceAndBoundsThePage(t *testing.T) {
+	feed := mk(domain.ModuleFeed, "feed_transport_task", 1, domain.WorkStateDue, "u1")
+	weighing := mk(domain.ModuleWeighing, "weighing_work_item", 1, domain.WorkStateDue, "u1")
+	for i := 0; i < 12; i++ {
+		weighing.subtasks = append(weighing.subtasks, domain.Subtask{
+			Key: domain.SubtaskKey(domain.RankToDo, fmt.Sprintf("obs-%02d", i)), Name: fmt.Sprintf("tag-%02d", i),
+			WorkState: domain.WorkStateDue, Steps: []domain.Step{{Name: "Scan", State: domain.StepTodo}},
+		}.Finalize())
+	}
+	svc := NewService(feed, weighing)
+
+	page, err := svc.ListSubtasks(context.Background(), baseQuery(), "weighing|weighing_work_item|weighing_work_item-001", "", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(weighing.subtaskCalls) != 1 || len(feed.subtaskCalls) != 0 {
+		t.Fatalf("exactly the named source is asked: weighing=%d feed=%d", len(weighing.subtaskCalls), len(feed.subtaskCalls))
+	}
+	got := weighing.subtaskCalls[0]
+	if got.SourceID != "weighing_work_item-001" || got.TenantID != "t" || got.ParkID != "p" || got.BusinessDate != "2026-09-10" {
+		t.Fatalf("query %+v", got)
+	}
+	if got.Limit != domain.DefaultSubtaskLimit {
+		t.Fatalf("a zero limit is the default page of %d, got %d", domain.DefaultSubtaskLimit, got.Limit)
+	}
+	if len(page.Subtasks) != 10 || page.Total != 12 || page.NextCursor != page.Subtasks[9].Key {
+		t.Fatalf("page: %d subtasks, total %d, next %q", len(page.Subtasks), page.Total, page.NextCursor)
+	}
+	// The cursor is handed to the source verbatim; the next page starts after it.
+	page2, err := svc.ListSubtasks(context.Background(), baseQuery(), "weighing|weighing_work_item|weighing_work_item-001", page.NextCursor, 999)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if weighing.subtaskCalls[1].AfterKey != page.NextCursor || weighing.subtaskCalls[1].Limit != domain.MaxSubtaskLimit {
+		t.Fatalf("second call %+v", weighing.subtaskCalls[1])
+	}
+	if len(page2.Subtasks) != 2 || page2.NextCursor != "" {
+		t.Fatalf("second page: %d subtasks, next %q", len(page2.Subtasks), page2.NextCursor)
+	}
+
+	// A module outside the caller's board is not found, and the source is never asked.
+	q := baseQuery()
+	q.Modules = []domain.Module{domain.ModuleFeed}
+	if _, err := svc.ListSubtasks(context.Background(), q, "weighing|weighing_work_item|weighing_work_item-001", "", 0); !errors.Is(err, ErrRowNotFound) {
+		t.Fatalf("invisible module must be not found, got %v", err)
+	}
+	if len(weighing.subtaskCalls) != 2 {
+		t.Fatalf("an invisible module's source must not be asked, calls=%d", len(weighing.subtaskCalls))
+	}
+	// An unregistered source is not found; a malformed key and a malformed cursor are refused.
+	if _, err := svc.ListSubtasks(context.Background(), baseQuery(), "toxin|toxin_task|x", "", 0); !errors.Is(err, ErrRowNotFound) {
+		t.Fatalf("unregistered source: %v", err)
+	}
+	if _, err := svc.ListSubtasks(context.Background(), baseQuery(), "garbage", "", 0); !errors.Is(err, domain.ErrInvalidRowKey) {
+		t.Fatalf("bad key: %v", err)
+	}
+	if _, err := svc.ListSubtasks(context.Background(), baseQuery(), "weighing|weighing_work_item|weighing_work_item-001", "nope", 0); !errors.Is(err, domain.ErrInvalidSubtaskCursor) {
+		t.Fatalf("bad cursor: %v", err)
+	}
+}
+
+// TestSubtaskKeysSortWorstFirst pins the rank table the sources' SQL mirrors.
+func TestSubtaskKeysSortWorstFirst(t *testing.T) {
+	cases := []struct {
+		state     domain.WorkState
+		attention bool
+		want      int
+	}{
+		{domain.WorkStateRejected, true, domain.RankNeedsAttention},
+		{domain.WorkStateDue, false, domain.RankToDo},
+		{domain.WorkStateScheduled, false, domain.RankToDo},
+		{domain.WorkStateInProgress, false, domain.RankInProgress},
+		{domain.WorkStateVerificationPending, false, domain.RankInReview},
+		{domain.WorkStateCompleted, false, domain.RankDone},
+	}
+	prev := ""
+	for _, c := range cases {
+		key := domain.SubtaskKey(domain.RankFor(c.state, c.attention), "x")
+		if domain.RankFor(c.state, c.attention) != c.want {
+			t.Errorf("%s/%v: rank %d want %d", c.state, c.attention, domain.RankFor(c.state, c.attention), c.want)
+		}
+		if key < prev {
+			t.Errorf("keys must sort worst first: %q before %q", prev, key)
+		}
+		prev = key
+		rank, id, err := domain.ParseSubtaskKey(key)
+		if err != nil || rank != c.want || id != "x" {
+			t.Errorf("round trip %q: %d %q %v", key, rank, id, err)
+		}
+	}
+	for _, bad := range []string{"x", "9:x", "1:", ":x"} {
+		if _, _, err := domain.ParseSubtaskKey(bad); err == nil {
+			t.Errorf("%q must be refused", bad)
+		}
+	}
+	if domain.BoundSubtaskLimit(3) != domain.DefaultSubtaskLimit || domain.BoundSubtaskLimit(500) != domain.MaxSubtaskLimit || domain.BoundSubtaskLimit(25) != 25 {
+		t.Error("limit bounds")
 	}
 }

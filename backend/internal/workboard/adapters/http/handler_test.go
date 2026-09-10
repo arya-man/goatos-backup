@@ -26,7 +26,30 @@ const (
 
 // fakeService records the query the handler built, which is the whole point of these
 // tests: every scope rule lives in the handler, and the service must receive its result.
-type fakeService struct{ last domain.Query }
+type fakeService struct {
+	last domain.Query
+	// found is what FindRow answers; lastRowKey / lastAfter / lastLimit record the subtask read.
+	found      bool
+	lastRowKey string
+	lastAfter  string
+	lastLimit  int
+}
+
+func (f *fakeService) FindRow(_ context.Context, q domain.Query, rowKey string) (domain.Row, bool, error) {
+	f.last = q
+	f.lastRowKey = rowKey
+	if !f.found {
+		return domain.Row{}, false, nil
+	}
+	return domain.Row{RowKey: rowKey}, true, nil
+}
+
+func (f *fakeService) ListSubtasks(_ context.Context, q domain.Query, rowKey, afterKey string, limit int) (domain.SubtaskPage, error) {
+	f.last = q
+	f.lastRowKey, f.lastAfter, f.lastLimit = rowKey, afterKey, limit
+	st := domain.Subtask{Key: "1:a", Name: "Tag 1", WorkState: domain.WorkStateDue, Steps: []domain.Step{{Name: "Scan", State: domain.StepTodo}}}.Finalize()
+	return domain.SubtaskPage{Subtasks: []domain.Subtask{st}, Total: 1}, nil
+}
 
 func (f *fakeService) List(_ context.Context, q domain.Query) (domain.Page, error) {
 	f.last = q
@@ -275,5 +298,68 @@ func TestFlagRefusalsCarryStableCodes(t *testing.T) {
 	// Without a flag service the route answers 404, never a panic.
 	if rec, _ := post(t, NewHandler(&fakeService{}, nil), good, actorCEO, tenantGrant(permissions.RoleCEOInternal), "k"); rec.Code != http.StatusNotFound {
 		t.Fatalf("no service: %d", rec.Code)
+	}
+}
+
+// TestSubtasksAreServedOnlyForARowOnTheCallersBoard: the row is resolved through FindRow on
+// the same scoped query the rows read uses (park, modules, owner clamp), a row the board does
+// not hold is 404, and the page parameters reach the service.
+func TestSubtasksAreServedOnlyForARowOnTheCallersBoard(t *testing.T) {
+	const key = "weighing|weighing_work_item|00000000-0000-4000-8000-000000009101"
+	svc := &fakeService{found: true}
+	h := NewHandler(svc, nil)
+	rec, body := get(t, h, "/work-board/rows/"+key+"/subtasks?limit=20&cursor=1:abc", actorOp, operatorGrant(parkCBE))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status %d %v", rec.Code, body)
+	}
+	if svc.last.OwnerUserID != actorOp || svc.last.ParkID != parkCBE {
+		t.Fatalf("the operator lens must clamp the row lookup to their own rows in their park: %+v", svc.last)
+	}
+	if svc.lastRowKey != key || svc.lastAfter != "1:abc" || svc.lastLimit != 20 {
+		t.Fatalf("service received %q %q %d", svc.lastRowKey, svc.lastAfter, svc.lastLimit)
+	}
+	if body["row_key"] != key || body["total"] != float64(1) || body["park_id"] != parkCBE {
+		t.Fatalf("payload %v", body)
+	}
+	subs, _ := body["subtasks"].([]any)
+	if len(subs) != 1 {
+		t.Fatalf("subtasks %v", body["subtasks"])
+	}
+	first, _ := subs[0].(map[string]any)
+	if first["name"] != "Tag 1" || first["lane"] != "todo" {
+		t.Fatalf("subtask %v", first)
+	}
+
+	// Not on the caller's board: 404 with a stable code, never a leak of the row.
+	missing := &fakeService{found: false}
+	rec, body = get(t, NewHandler(missing, nil), "/work-board/rows/"+key+"/subtasks", actorCEO, tenantGrant(permissions.RoleCEOInternal))
+	if rec.Code != http.StatusBadRequest || body["error"] != "park_required" {
+		t.Fatalf("a tenant-wide caller still names the park: %d %v", rec.Code, body)
+	}
+	rec, body = get(t, NewHandler(missing, nil), "/work-board/rows/"+key+"/subtasks?park="+parkCBE, actorCEO, tenantGrant(permissions.RoleCEOInternal))
+	if rec.Code != http.StatusNotFound || body["error"] != "row_not_found" {
+		t.Fatalf("want 404 row_not_found, got %d %v", rec.Code, body)
+	}
+	if missing.lastLimit != 0 {
+		t.Fatal("the subtask read must not run for a row the board does not hold")
+	}
+
+	// Bad inputs carry stable codes.
+	cases := map[string]string{
+		"/work-board/rows/garbage/subtasks?park=" + parkCBE:                    "invalid_row_key",
+		"/work-board/rows/" + key + "/subtasks?park=" + parkCBE + "&cursor=zz": "invalid_cursor",
+		"/work-board/rows/" + key + "/subtasks?park=" + parkCBE + "&limit=0":   "invalid_limit",
+		"/work-board/rows/" + key + "/subtasks?park=not-a-uuid":                "invalid_park_id",
+	}
+	for path, code := range cases {
+		rec, body := get(t, NewHandler(&fakeService{found: true}, nil), path, actorCEO, tenantGrant(permissions.RoleCEOInternal))
+		if body["error"] != code {
+			t.Errorf("%s: want %s, got %d %v", path, code, rec.Code, body)
+		}
+	}
+	// A park head outside their park is refused before the row is looked up.
+	rec, body = get(t, NewHandler(&fakeService{found: true}, nil), "/work-board/rows/"+key+"/subtasks?park="+parkCPT, actorOp, parkHeadGrant(parkCBE))
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("other park must be refused: %d %v", rec.Code, body)
 	}
 }
