@@ -3332,6 +3332,16 @@ select:disabled { opacity: .45; }
 .sales-vendor-search input{flex:1 1 auto;min-width:0}
 .sales-vendor-search .btn{flex:0 0 auto;white-space:nowrap}
 .sales-kpi-row .kpi .dl{color:var(--muted)}
+  /* Sales splits into two named blocks -- Farm value, then Sold (maintainer decision 2026-09-10).
+     The heading is a rule-and-label, not another card: the tiles under it already carry the card
+     edges, and wrapping a headed group in a second box would nest a card inside a card. */
+  .sales-block{display:flex;flex-direction:column;gap:10px}
+  .sales-block-hd{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;padding-bottom:6px;border-bottom:1px solid var(--line)}
+  .sales-block-hd h3{margin:0;font-size:15px;font-weight:700;letter-spacing:-.01em}
+  .sales-block-hd span{flex:1 1 auto;min-width:0}
+  /* The second block's heading follows a card rather than opening the page, so it needs the
+     breathing room the page grid's own gap does not give a bare heading row. */
+  .sales-block-hd-spaced{margin-top:8px}
 @media(max-width:760px){.sales-ready-tolerance{width:100%;grid-template-columns:1fr}.sales-ready-tolerance-head{justify-content:space-between}}
 .main table.sales-market-table{min-width:1720px}
 .main table.sales-market-table th,.main table.sales-market-table td{white-space:nowrap;overflow-wrap:normal;word-break:normal}

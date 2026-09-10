@@ -130,20 +130,92 @@ function OverviewSections({
   const notValuedLabel = farmValuationNotValuedLabel(overview, pageContract);
   return (
     <>
-          {/* 1 — headline figures, verbatim from the overview summary. */}
-          <section className="grid g5 kpi-row sales-kpi-row" aria-label={copy(pageContract, "section.headline.aria")}>
-            <div className="kpi">
-              <div className="lab">{copy(pageContract, "kpi.farm_value")}</div>
-              <div className="val">{inr(overview.farm_valuation.total_value_rupees)}</div>
-              <div className="dl">{copy(pageContract, "kpi.farm_value.detail")}</div>
+          {/* FARM VALUE — what is standing on the farm right now (maintainer decision 2026-09-10).
+              Its own block, headed, and immediately followed by the category breakdown that
+              divides the same total. It used to open a single strip that ran straight on into the
+              sold tiles, putting the herd valuation next to the sales revenue — two figures about
+              different herds, inviting a subtraction that means nothing. */}
+          <section className="sales-block" aria-label={copy(pageContract, "section.farm_value.aria")}>
+            <div className="sales-block-hd">
+              <h3>{copy(pageContract, "section.farm_value.title")}</h3>
+              <span className="muted small">{copy(pageContract, "section.farm_value.sub")}</span>
             </div>
-            <div className="kpi">
-              <div className="lab">{copy(pageContract, "kpi.total_meat")}</div>
-              <div className="val">
-                {num(overview.farm_valuation.total_meat_kg, 1)} {kgSuffix}
+            <div className="grid g3 kpi-row sales-kpi-row">
+              <div className="kpi">
+                <div className="lab">{copy(pageContract, "kpi.farm_value")}</div>
+                <div className="val">{inr(overview.farm_valuation.total_value_rupees)}</div>
+                <div className="dl">{copy(pageContract, "kpi.farm_value.detail")}</div>
               </div>
-              <div className="dl">{copy(pageContract, "kpi.total_meat.detail")}</div>
+              <div className="kpi">
+                <div className="lab">{copy(pageContract, "kpi.total_meat")}</div>
+                <div className="val">
+                  {num(overview.farm_valuation.total_meat_kg, 1)} {kgSuffix}
+                </div>
+                <div className="dl">{copy(pageContract, "kpi.total_meat.detail")}</div>
+              </div>
+              {/* Over 35 kg belongs with the valuation, not the ledger (maintainer decision
+                  2026-09-10). It counts animals STANDING ON THE FARM that have reached sale
+                  weight — inventory ready to go, not anything that has gone. Sitting in the Sold
+                  strip it read as a count of animals already sold at that weight.
+                  Gated by the page contract: a role that may not read weights sees the backend's
+                  reason, never a zero. */}
+              <div className="kpi">
+                <div className="lab">{copy(pageContract, "kpi.over35")}</div>
+                <div className="val">{over35.count == null ? none : num(over35.count)}</div>
+                <div className="dl">
+                  {!over35.enabled
+                    ? over35.disabledReason
+                    : over35.count == null
+                      ? copy(pageContract, "kpi.over35.none")
+                      : `${copy(pageContract, "kpi.over35.sub")} · ${num(over35.thresholdKg, 1)}+`}
+                </div>
+              </div>
             </div>
+            {/* The tolerance control tunes the tile above it, so it travels with it. */}
+            {over35.enabled ? (
+              <SalesReadyToleranceControl
+                key={over35.toleranceG}
+                valueG={over35.toleranceG}
+                maxG={OVER35_MAX_TOLERANCE_G}
+                preserveQuery={over35.preserveQuery}
+                label={copy(pageContract, "kpi.over35.tolerance")}
+                applyLabel={copy(pageContract, "kpi.over35.apply")}
+              />
+            ) : null}
+          </section>
+
+          <section className="card sales-card" aria-label={copy(pageContract, "section.farm_value.breakdown")}>
+            <div className="hd">
+              <h3>{copy(pageContract, "section.farm_value.breakdown")}</h3>
+              <Tag tone={overview.farm_valuation.total_value_rupees > 0 ? "info" : "mut"}>
+                {num(overview.farm_valuation.valued_animals)} {copy(pageContract, "value.valued_animals")}
+                {notValuedLabel ? ` · ${notValuedLabel}` : ""}
+                {" · "}
+                {num(overview.farm_valuation.total_animals)} {copy(pageContract, "value.live_animals")}
+              </Tag>
+            </div>
+            <div className="grid g4">
+              {overview.farm_valuation.buckets.map((bucket) => (
+                <div className="kpi mini" key={bucket.bucket}>
+                  <div className="lab">{bucket.label}</div>
+                  <div className="val">{inr(bucket.value_rupees)}</div>
+                  <div className="dl">
+                    {num(bucket.meat_kg, 1)} {kgSuffix} · {num(bucket.animal_count)}{" "}
+                    {copy(pageContract, "value.live_animals")}
+                    {bucket.actual_weight ? ` · ${num(bucket.weighed_animals)} ${copy(pageContract, "value.weighed")}` : ""}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          {/* SOLD — what has already left the farm. Same tiles as before, minus the two valuation
+              ones that moved up into their own block. */}
+          <div className="sales-block-hd sales-block-hd-spaced" role="presentation">
+            <h3>{copy(pageContract, "section.sold.title")}</h3>
+            <span className="muted small">{copy(pageContract, "section.sold.sub")}</span>
+          </div>
+          <section className="grid g4 kpi-row sales-kpi-row" aria-label={copy(pageContract, "section.sold.aria")}>
             <div className="kpi">
               <div className="lab">{copy(pageContract, "kpi.revenue")}</div>
               <div className="val">{inr(summary.revenue)}</div>
@@ -176,57 +248,7 @@ function OverviewSections({
                 {inr(summary.manure_revenue)} · {copy(pageContract, "kpi.manure.detail")}
               </div>
             </div>
-            {/* Over 35 kg: the Weights pages' sale-weight count on the backend's reliable weighing
-                window. Gated by the page contract: a role that may not read weights sees the
-                backend's reason, never a zero. */}
-            <div className="kpi">
-              <div className="lab">{copy(pageContract, "kpi.over35")}</div>
-              <div className="val">{over35.count == null ? none : num(over35.count)}</div>
-              <div className="dl">
-                {!over35.enabled
-                  ? over35.disabledReason
-                  : over35.count == null
-                    ? copy(pageContract, "kpi.over35.none")
-                    : `${copy(pageContract, "kpi.over35.sub")} · ${num(over35.thresholdKg, 1)}+`}
-              </div>
-            </div>
           </section>
-          {over35.enabled ? (
-            <SalesReadyToleranceControl
-              key={over35.toleranceG}
-              valueG={over35.toleranceG}
-              maxG={OVER35_MAX_TOLERANCE_G}
-              preserveQuery={over35.preserveQuery}
-              label={copy(pageContract, "kpi.over35.tolerance")}
-              applyLabel={copy(pageContract, "kpi.over35.apply")}
-            />
-          ) : null}
-
-          <section className="card sales-card" aria-label={copy(pageContract, "kpi.farm_value")}>
-            <div className="hd">
-              <h3>{copy(pageContract, "kpi.farm_value")}</h3>
-              <Tag tone={overview.farm_valuation.total_value_rupees > 0 ? "info" : "mut"}>
-                {num(overview.farm_valuation.valued_animals)} {copy(pageContract, "value.valued_animals")}
-                {notValuedLabel ? ` · ${notValuedLabel}` : ""}
-                {" · "}
-                {num(overview.farm_valuation.total_animals)} {copy(pageContract, "value.live_animals")}
-              </Tag>
-            </div>
-            <div className="grid g4">
-              {overview.farm_valuation.buckets.map((bucket) => (
-                <div className="kpi mini" key={bucket.bucket}>
-                  <div className="lab">{bucket.label}</div>
-                  <div className="val">{inr(bucket.value_rupees)}</div>
-                  <div className="dl">
-                    {num(bucket.meat_kg, 1)} {kgSuffix} · {num(bucket.animal_count)}{" "}
-                    {copy(pageContract, "value.live_animals")}
-                    {bucket.actual_weight ? ` · ${num(bucket.weighed_animals)} ${copy(pageContract, "value.weighed")}` : ""}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </section>
-
 
           {/* Sold animals by weight (maintainer decision 2026-09-08; placed ABOVE the monthly charts at the maintainer's request): the weight recorded when
               each animal was tagged to its sale, in the maintainer's four bands, whole register.

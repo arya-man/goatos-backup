@@ -3499,23 +3499,39 @@ func pageSpecificCopy(id string) map[string]string {
 			"crumb": "Sales",
 
 			// Section headings.
-			"section.headline.title":    "Sales at a glance",
-			"section.headline.aria":     "Sales headline figures",
-			"section.monthly.title":     "Month by month",
-			"section.monthly.aria":      "Monthly sales trend",
-			"section.price_bands.title": "Price per kg by breed",
-			"section.price_bands.aria":  "Realized price bands",
-			"section.market.title":      "Market check",
-			"section.market.subtitle":   "What other sellers quote per kg, next to our own realized price.",
-			"section.buyers.title":      "Buyers",
-			"section.buyers.subtitle":   "Who buys from us, what they buy, and how much of the revenue they carry.",
-			"section.pipeline.title":    "Demand pipeline",
-			"section.pipeline.subtitle": "Buyers and farmer groups we are talking to, and where the calls stand.",
-			"section.evidence.title":    "Sale evidence",
-			"section.evidence.subtitle": "Tag lists handed over at sale, and video weight checked against the book.",
-			"section.ledger.title":      "Deals",
-			"section.ledger.aria":       "Sales ledger",
-			"section.ledger.row_hint":   "click a row to see full details",
+			//
+			// FARM VALUE AND SOLD ARE TWO BLOCKS, NOT ONE ROW (maintainer decision 2026-09-10).
+			// They were read side by side in a single headline strip, where "Total farm value"
+			// sat next to "Recorded sales revenue" -- two figures about DIFFERENT herds. Farm
+			// value is what is standing on the farm right now; the sales figures are what has
+			// already left it. Read together they invite a subtraction that means nothing, so
+			// each block now names what it is about before its first number.
+			"section.headline.title":   "Sales at a glance",
+			"section.headline.aria":    "Sales headline figures",
+			"section.farm_value.title": "Farm value",
+			"section.farm_value.sub":   "What the live herd is worth today, at Sales target rates.",
+			"section.farm_value.aria":  "Live herd valuation",
+			// The breakdown card's own title. It divides the total above it, so repeating
+			// "Total farm value" here would name the block twice and say nothing about the card.
+			"section.farm_value.breakdown": "By category",
+			"section.sold.title":           "Sold",
+			"section.sold.sub":             "What has actually left the farm, and what it fetched.",
+			"section.sold.aria":            "Sales and sold figures",
+			"section.monthly.title":        "Month by month",
+			"section.monthly.aria":         "Monthly sales trend",
+			"section.price_bands.title":    "Price per kg by breed",
+			"section.price_bands.aria":     "Realized price bands",
+			"section.market.title":         "Market check",
+			"section.market.subtitle":      "What other sellers quote per kg, next to our own realized price.",
+			"section.buyers.title":         "Buyers",
+			"section.buyers.subtitle":      "Who buys from us, what they buy, and how much of the revenue they carry.",
+			"section.pipeline.title":       "Demand pipeline",
+			"section.pipeline.subtitle":    "Buyers and farmer groups we are talking to, and where the calls stand.",
+			"section.evidence.title":       "Sale evidence",
+			"section.evidence.subtitle":    "Tag lists handed over at sale, and video weight checked against the book.",
+			"section.ledger.title":         "Deals",
+			"section.ledger.aria":          "Sales ledger",
+			"section.ledger.row_hint":      "click a row to see full details",
 
 			// Headline KPI labels.
 			"kpi.revenue":             "Recorded sales revenue",
@@ -4653,9 +4669,15 @@ func pageSpecificCopy(id string) map[string]string {
 			// separate stages sitting end to end.
 			"chart.stage_sex.title":   "Count by stage and sex",
 			"chart.stage_sex.caption": "each bar is one stage, split female and male",
-			"chart.gender.title":      "Gender split",
-			"chart.gender.caption":    "animals by sex",
-			"chart.shed.title":        "Pen occupancy",
+			"label.sex_female":        "Female",
+			"label.sex_male":          "Male",
+			// The third segment. Named for what it IS -- a sex the register does not hold as
+			// female or male -- rather than "unknown", which reads as a system failure when the
+			// truthful answer is that nobody recorded it.
+			"label.sex_other":      "Not recorded",
+			"chart.gender.title":   "Gender split",
+			"chart.gender.caption": "animals by sex",
+			"chart.shed.title":     "Pen occupancy",
 			// PENS, not sheds (maintainer decision 2026-08-12): each bar is one pen, named with its
 			// park because 66 of 154 shed names exist in both. The caption has to say so — a reader
 			// counting twelve bars against a 44-shed estate would otherwise draw the wrong conclusion
