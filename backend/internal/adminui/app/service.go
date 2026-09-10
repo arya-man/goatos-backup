@@ -4578,7 +4578,7 @@ func pageSpecificCopy(id string) map[string]string {
 	case "counts-breakdown":
 		return map[string]string{
 			"crumb":                     "Counts",
-			"section.breakdown.title":   "Head count by pen",
+			"section.breakdown.title":   "Counts Breakdown",
 			"section.breakdown.aria":    "Counts breakdown",
 			"section.breakdown.caption": "One line per pen with its breed, gender and stage mix. Open a pen for the exact split.",
 			// The pen line and its drill-down. Every string the pens table renders is here.
@@ -4599,21 +4599,34 @@ func pageSpecificCopy(id string) map[string]string {
 			// Short forms for the Female · Male column. Lower case and unabbreviated: the column
 			// is narrow but "F"/"M" beside a bare number reads as a code, and the farm says
 			// female and male.
-			"label.female_short":       "female",
-			"label.male_short":         "male",
-			"label.sex_other_short":    "not recorded",
-			"label.mixed_stages":       "Mixed",
-			"section.breakdown.note":   "Counts live animals only (lifecycle status alive), matching Herd Register. Stage is the raw source value recorded against each animal — near-duplicate labels are shown exactly as stored rather than merged, so source data issues stay visible.",
-			"section.charts.title":     "Distribution",
-			"section.charts.aria":      "Count distribution charts",
-			"kpi.matching.label":       "Matching count",
-			"kpi.matching.sub":         "Live animals matching the current filters",
-			"kpi.matching.unavailable": "Count unavailable",
-			"kpi.age.label":            "Kids · Adults",
-			"kpi.age.aria":             "Kid and adult split",
-			"label.kids":               "kids",
-			"label.adults":             "adults",
-			"table.breakdown.aria":     "Detail breakdown rows",
+			"label.female_short":                "female",
+			"label.male_short":                  "male",
+			"label.sex_other_short":             "not recorded",
+			"label.mixed_stages":                "Mixed",
+			"section.breakdown.note":            "Counts live animals only (lifecycle status alive), matching Herd Register. Stage is the raw source value recorded against each animal — near-duplicate labels are shown exactly as stored rather than merged, so source data issues stay visible.",
+			"section.charts.title":              "Distribution",
+			"section.charts.aria":               "Count distribution charts",
+			"kpi.matching.label":                "Matching count",
+			"kpi.matching.sub":                  "Live animals matching the current filters",
+			"kpi.matching.unavailable":          "Count unavailable",
+			"kpi.age.label":                     "Kids · Adults",
+			"kpi.age.aria":                      "Kid and adult split",
+			"label.kids":                        "kids",
+			"label.adults":                      "adults",
+			"summary_card.total_animals.label":  "Total animals",
+			"summary_card.total_animals.kids":   "kids",
+			"summary_card.total_animals.adults": "adults",
+			"summary_card.fattening.label":      "Fattening",
+			"summary_card.bucks.label":          "Bucks",
+			"summary_card.breeding.label":       "Breeding stock",
+			"summary_card.icu.label":            "ICU",
+			"summary_card.k0.label":             "K0",
+			"summary_card.k1.label":             "K1",
+			"summary_card.k2.label":             "K2",
+			"summary_card.k3.label":             "K3",
+			"summary_card.k4.label":             "K4",
+			"summary_card.group.aria":           "Stage summary cards",
+			"table.breakdown.aria":              "Detail breakdown rows",
 			// Says WHAT it totals (maintainer report, 2026-08-12). The value is the whole-filter sum —
 			// 1,670 live animals across all 213 grain rows — sitting under a page of 10 rows that add
 			// up to 463, so "Total (rows)" read as a number that did not match the table above it. The

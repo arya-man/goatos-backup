@@ -300,6 +300,16 @@ blocker; do not start another blind long run.
 and Codex must not call a UI fix done from code/tests alone. For any
 `apps/admin-web` browser-visible change, reload Chrome on the exact target URL
 after the last code edit and verify the changed UI is actually rendered there.
+Chrome proof must use the actual frontend and backend servers running from the
+checkout/branch being coded or reviewed; opening a generated PNG, HTML mock,
+fixture, local file, or previously captured artifact in Chrome is not proof of
+the live app. When the proof depends on production-like counts, sales, or other
+analytics data, first verify the selected proof database contains the same
+relevant rows/aggregates as the authoritative staging database for that feature,
+then capture the live route against that database. The proof packet must include
+desktop and mobile/narrow Chrome screenshots from the running route, visually
+inspected for copy, alignment, colors, spacing, overflow, and table/card
+consistency.
 For any Android/operator-mobile change, open the app on the physical phone or
 emulator target required by the task and verify the changed screen there.
 Static tests, typecheck, backend API checks, and screenshots from before the

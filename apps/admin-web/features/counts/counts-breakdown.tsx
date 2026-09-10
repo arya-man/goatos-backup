@@ -23,6 +23,7 @@ import {
 import { CountsBreakdownFilters, type BreakdownFilterField } from "./counts-breakdown-filters";
 import { CountsBreakdownPensTable } from "./counts-breakdown-pens-table";
 import { buildShedFilterOptions } from "./counts-breakdown-sheds";
+import { buildCountsSummaryCards } from "./counts-summary-cards";
 import type { StageOption } from "./shed-stage-actions";
 import type { InlineChoice } from "./inline-cell-editor";
 
@@ -333,7 +334,35 @@ export async function CountsBreakdownPage({
   const totalCount = breakdown?.total_count ?? 0;
   const totalKids = breakdown?.total_kids ?? 0;
   const totalAdults = breakdown?.total_adults ?? 0;
+  const totalFemale = (breakdown?.charts.stage_sex ?? []).reduce((sum, point) => sum + (point.female ?? 0), 0);
+  const totalMale = (breakdown?.charts.stage_sex ?? []).reduce((sum, point) => sum + (point.male ?? 0), 0);
   const pct = (part: number) => (totalCount > 0 ? Math.round((part / totalCount) * 100) : 0);
+
+  const stageSummaryCards = buildCountsSummaryCards(breakdown?.charts.stage_sex ?? [], {
+    female: copy(pageContract, "label.sex_female"),
+    male: copy(pageContract, "label.sex_male"),
+    other: copy(pageContract, "label.sex_other"),
+  }, {
+    fattening: copy(pageContract, "summary_card.fattening.label"),
+    bucks: copy(pageContract, "summary_card.bucks.label"),
+    breeding: copy(pageContract, "summary_card.breeding.label"),
+    icu: copy(pageContract, "summary_card.icu.label"),
+    k0: copy(pageContract, "summary_card.k0.label"),
+    k1: copy(pageContract, "summary_card.k1.label"),
+    k2: copy(pageContract, "summary_card.k2.label"),
+    k3: copy(pageContract, "summary_card.k3.label"),
+    k4: copy(pageContract, "summary_card.k4.label"),
+  });
+  const summaryCards = [
+    {
+      key: "total-animals",
+      label: copy(pageContract, "summary_card.total_animals.label"),
+      count: totalCount,
+      detail: `${totalFemale.toLocaleString("en-IN")} ${copy(pageContract, "label.female_short")} · ${totalMale.toLocaleString("en-IN")} ${copy(pageContract, "label.male_short")}`,
+      tone: "brand" as const,
+    },
+    ...stageSummaryCards,
+  ];
 
   // The tenant's active stage vocabulary, business-managed in Postgres. `name` is the human label
   // and `stage_code` is what the write sends.
@@ -396,19 +425,18 @@ export async function CountsBreakdownPage({
         </div>
       ) : null}
 
-      <section className="card" style={{ marginBottom: 16 }}>
-        <div className="hd">
-          <h3>{copy(pageContract, "section.breakdown.title")}</h3>
-          <span className="small muted">{copy(pageContract, "section.breakdown.caption")}</span>
-          {/* Double-click is invisible as an affordance, so the page says it out loud -- and only
-              to a principal who may actually use it, since the backend decides that. */}
-          {stageChangeEnabled ? (
-            <span className="small muted" style={{ marginLeft: "auto" }}>
-              {copy(pageContract, "action.retag.hint")}
-            </span>
-          ) : null}
+      <section className="card counts-breakdown-card" style={{ marginBottom: 16 }}>
+        <div className="counts-breakdown-summary-cards" aria-label={copy(pageContract, "summary_card.group.aria")}>
+          {summaryCards.map((card) => (
+            <div className={`counts-breakdown-summary-card ${card.tone}`} key={card.key}>
+              <div className="lab">{card.label}</div>
+              <div className="val">{breakdown ? card.count.toLocaleString("en-IN") : dash(null)}</div>
+              <div className="dl">
+                {breakdown ? card.detail || copy(pageContract, "chart.empty") : copy(pageContract, "kpi.matching.unavailable")}
+              </div>
+            </div>
+          ))}
         </div>
-        <CountsBreakdownFilters fields={filterFields} pageContract={pageContract} />
 
         {/* Headline totals for the CURRENT filter selection, read from the response's
             whole-result window totals — never recomputed from the visible page, which would
@@ -439,6 +467,8 @@ export async function CountsBreakdownPage({
             <Users className="ic kpiic" aria-hidden="true" />
           </div>
         </div>
+
+        <CountsBreakdownFilters fields={filterFields} pageContract={pageContract} />
 
         <div
           className="bd"

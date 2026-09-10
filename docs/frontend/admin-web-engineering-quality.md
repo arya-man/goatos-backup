@@ -285,6 +285,15 @@ screen in the same user lens: active sidebar item, right-edge/status columns,
 chip text, table overflow, drawer outside-click/back/X close, drilldown
 destination, and scoped records. If this cannot be rendered locally, the handoff
 must say that explicitly; otherwise do not claim the frontend issue is fixed.
+Chrome proof must come from the real admin-web route served by the frontend and
+backend running from the current PR/feature checkout. Do not use Chrome to open a
+PNG, static HTML mock, fixture, or stale screenshot as evidence for a live UI
+change. When the visual proof depends on production-like analytics data, verify
+the selected proof database has the same relevant data or aggregates as the
+authoritative staging database before treating the screenshot numbers as valid.
+Capture and inspect both desktop and mobile/narrow Chrome views for text
+alignment, color, spacing, overflow, card/table consistency, and responsive
+behavior.
 
 ## Static/CI Recurrence Checks
 

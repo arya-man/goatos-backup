@@ -171,6 +171,15 @@ test("stage labels stay backend-owned across filter, table and retag options", (
   assert.match(tableSource, /\(stageLabels\.get\(row\.management_stage\) \?\? row\.management_stage\) \|\| noStageLabel/);
 });
 
+test("counts breakdown renders requested business summary cards before filters", () => {
+  const source = readFileSync(new URL("./counts-breakdown.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /copy\(pageContract, "summary_card\.total_animals\.label"\)/);
+  assert.match(source, /copy\(pageContract, "summary_card\.fattening\.label"\)/);
+  assert.match(source, /buildCountsSummaryCards\(breakdown\?\.charts\.stage_sex \?\? \[\]/);
+  assert.ok(source.indexOf("counts-breakdown-summary-cards") < source.indexOf("<CountsBreakdownFilters"));
+});
+
 test("inline retag confirmation displays the choice label, not the raw stored value", () => {
   const source = readFileSync(new URL("./inline-cell-editor.tsx", import.meta.url), "utf8");
   assert.match(source, /const choiceLabel = \(value: string\) => choices\.find\(\(choice\) => choice\.value === value\)\?\.label \?\? value/);
