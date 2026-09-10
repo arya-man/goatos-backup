@@ -134,7 +134,10 @@ export async function VerificationReviewPage({
   const sheds = queue.ok ? queue.data.filter_options.sheds : [];
   const selectedModuleLabel = modules.find((option) => option.key === selectedModuleKey)?.label ?? selectedModuleKey;
   const selectedModuleActionTypes = selectedModuleKey
-    ? actionTypes.filter((option) => option.module_key === selectedModuleKey)
+    ? actionTypes
+        .filter((option) => option.module_key === selectedModuleKey)
+        .map((option) => ({ ...option, label: childActionTypeLabel(option.label, selectedModuleLabel) }))
+        .filter((option) => option.label)
     : [];
   // Park grouping for the shed picker. The backend already returns the options park-first, so this
   // preserves arrival order instead of re-sorting: the park order and the shed order inside it are
@@ -460,14 +463,6 @@ export async function VerificationReviewPage({
 
         {moduleFilterOffered && oversightFiltersEnabled && selectedModuleActionTypes.length > 1 ? (
           <div className="vr-legend vr-sublegend" role="group" aria-label={`${copy(pageContract, "filter.module")} ${selectedModuleLabel}`}>
-            <Link
-              href={hrefWith(sp, { category: null, nav_module: selectedModuleKey, ...RESET_ON_FILTER })}
-              replace
-              scroll={false}
-              className={`vr-lg${category ? "" : " on"}`}
-            >
-              {selectedModuleLabel}
-            </Link>
             {selectedModuleActionTypes.map((option) => (
               <Link
                 key={option.category}
@@ -987,6 +982,18 @@ function verificationStatus(value: string | undefined): VerificationItemStatus |
 function verificationSort(value: string | undefined): "captured_at_asc" | "captured_at_desc" {
   if (value === "captured_at_desc") return "captured_at_desc";
   return "captured_at_asc";
+}
+
+function childActionTypeLabel(label: string, moduleLabel: string): string {
+  const cleanLabel = label.trim();
+  const cleanModuleLabel = moduleLabel.trim();
+  if (!cleanLabel || !cleanModuleLabel) return cleanLabel;
+  if (cleanLabel.toLocaleLowerCase() === cleanModuleLabel.toLocaleLowerCase()) return "";
+  const prefix = `${cleanModuleLabel} `;
+  if (cleanLabel.toLocaleLowerCase().startsWith(prefix.toLocaleLowerCase())) {
+    return cleanLabel.slice(prefix.length).trim();
+  }
+  return cleanLabel;
 }
 
 function hrefWith(params: RouteSearchParams, updates: Record<string, string | null | undefined>): string {
