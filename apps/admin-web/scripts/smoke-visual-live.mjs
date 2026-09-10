@@ -228,9 +228,24 @@ const browser = await chromium.launch({ channel: process.env.GOATOS_SMOKE_BROWSE
 try {
   for (const viewport of [
     { label: "laptop", width: 1440, height: 1000 },
-    { label: "mobile", width: 390, height: 900 },
+    {
+      label: "mobile",
+      width: 390,
+      height: 900,
+      isMobile: true,
+      hasTouch: true,
+      deviceScaleFactor: 3,
+      userAgent:
+        "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1",
+    },
   ]) {
-    const context = await browser.newContext({ viewport: { width: viewport.width, height: viewport.height } });
+    const context = await browser.newContext({
+      viewport: { width: viewport.width, height: viewport.height },
+      isMobile: Boolean(viewport.isMobile),
+      hasTouch: Boolean(viewport.hasTouch),
+      deviceScaleFactor: viewport.deviceScaleFactor ?? 1,
+      userAgent: viewport.userAgent,
+    });
     const cookieUrl = new URL(appBaseUrl);
     await context.addCookies([
       {
@@ -261,6 +276,7 @@ try {
       const html = await page.content();
       assertHealthyHTML(route.name, html, bearerToken);
       await assertLayoutHealthy(page, route.name, viewport.label);
+      await assertMobileWideTableGestures(page, route.name, viewport.label, screenshotDir);
       await assertA11y(page, route.name, viewport.label);
       await assertTruncationContracts(page, route.name, viewport.label);
       await assertPaginationControls(page, route.name, viewport.label);
@@ -528,6 +544,7 @@ async function assertLayoutHealthy(page, routeName, viewportLabel) {
       })
       .slice(0, 5)
       .map(describeElement);
+    const mobileScrollProblems = root.clientWidth < 600 ? assertMobileWideContentScrolls(root) : [];
 
     return {
       overflow,
@@ -540,6 +557,7 @@ async function assertLayoutHealthy(page, routeName, viewportLabel) {
       overlaps,
       truncationTitleProblems,
       truncationStyleProblems,
+      mobileScrollProblems,
     };
 
     function isVisible(element) {
@@ -569,6 +587,42 @@ async function assertLayoutHealthy(page, routeName, viewportLabel) {
       if (own) return own;
       const labelled = element.closest("[title], [aria-label]");
       return labelled?.getAttribute("title") || labelled?.getAttribute("aria-label") || "";
+    }
+
+    function assertMobileWideContentScrolls(rootElement) {
+      const problems = [];
+      const wideTables = Array.from(document.querySelectorAll("table"))
+        .filter(isVisible)
+        .filter((table) => table.scrollWidth > rootElement.clientWidth + 2);
+      for (const table of wideTables) {
+        const scroller = table.closest(".tablewrap,.twrap,.cfgtablewrap,.feed-stock-tablewrap,.pa-gridwrap,.lt-tablewrap,.sales-market-wrap,.cbm-future-table-wrap,.vplan .scroll,.card .bd");
+        if (!(scroller instanceof HTMLElement)) {
+          problems.push({ kind: "missing-scroll-owner", table: describeElement(table) });
+          continue;
+        }
+        const style = window.getComputedStyle(scroller);
+        const canOverflow = /(auto|scroll)/.test(style.overflowX);
+        const hasRoom = scroller.scrollWidth > scroller.clientWidth + 2;
+        const before = scroller.scrollLeft;
+        scroller.scrollLeft = Math.min(64, scroller.scrollWidth - scroller.clientWidth);
+        const moved = scroller.scrollLeft !== before || before > 0;
+        scroller.scrollLeft = before;
+        const touchAction = style.touchAction;
+        const allowsTouchPan = touchAction === "auto" || touchAction === "manipulation" || touchAction.includes("pan-x");
+        if (!canOverflow || !hasRoom || !moved || !allowsTouchPan) {
+          problems.push({
+            kind: "bad-scroll-owner",
+            scroller: describeElement(scroller),
+            table: describeElement(table),
+            overflowX: style.overflowX,
+            touchAction,
+            hasRoom,
+            moved,
+          });
+        }
+        if (problems.length >= 5) break;
+      }
+      return problems;
     }
   });
 
@@ -601,6 +655,61 @@ async function assertLayoutHealthy(page, routeName, viewportLabel) {
   }
   if (layout.truncationStyleProblems.length > 0) {
     throw new Error(`${routeName} ${viewportLabel} has malformed truncation styling: ${JSON.stringify(layout.truncationStyleProblems)}`);
+  }
+  if (layout.mobileScrollProblems.length > 0) {
+    throw new Error(`${routeName} ${viewportLabel} has wide tables that cannot be horizontally scrolled on mobile: ${JSON.stringify(layout.mobileScrollProblems)}`);
+  }
+}
+
+async function assertMobileWideTableGestures(page, routeName, viewportLabel, screenshotRoot) {
+  if (viewportLabel !== "mobile") return;
+  const scrollOwners = await page.locator(
+    ".tablewrap,.twrap,.cfgtablewrap,.feed-stock-tablewrap,.pa-gridwrap,.lt-tablewrap,.sales-market-wrap,.cbm-future-table-wrap,.vplan .scroll,.card .bd",
+  ).evaluateAll((elements) =>
+    elements
+      .map((element, index) => {
+        if (!(element instanceof HTMLElement)) return null;
+        const table = element.querySelector("table");
+        if (!table) return null;
+        const rect = element.getBoundingClientRect();
+        const style = window.getComputedStyle(element);
+        if (rect.width <= 0 || rect.height <= 0 || style.visibility === "hidden" || style.display === "none") return null;
+        if (element.scrollWidth <= element.clientWidth + 2) return null;
+        return {
+          index,
+          label: element.getAttribute("aria-label") || table.getAttribute("aria-label") || table.textContent?.trim().replace(/\s+/g, " ").slice(0, 60) || "wide table",
+        };
+      })
+      .filter(Boolean),
+  );
+
+  for (const owner of scrollOwners.slice(0, 8)) {
+    const locator = page.locator(
+      ".tablewrap,.twrap,.cfgtablewrap,.feed-stock-tablewrap,.pa-gridwrap,.lt-tablewrap,.sales-market-wrap,.cbm-future-table-wrap,.vplan .scroll,.card .bd",
+    ).nth(owner.index);
+    await locator.evaluate((element) => {
+      element.scrollLeft = 0;
+      element.scrollIntoView({ block: "center", inline: "nearest" });
+    });
+    const box = await locator.boundingBox();
+    if (!box) {
+      throw new Error(`${routeName} mobile wide table scroll owner ${owner.label} has no bounding box`);
+    }
+    const before = await locator.evaluate((element) => element.scrollLeft);
+    await page.mouse.move(box.x + box.width * 0.82, box.y + Math.min(box.height * 0.55, box.height - 8));
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.width * 0.18, box.y + Math.min(box.height * 0.55, box.height - 8), { steps: 8 });
+    await page.mouse.up();
+    const afterDrag = await locator.evaluate((element) => element.scrollLeft);
+    if (afterDrag <= before) {
+      throw new Error(`${routeName} mobile wide table did not respond to horizontal drag: ${JSON.stringify(owner)}`);
+    }
+    await locator.evaluate((element) => {
+      element.scrollLeft = element.scrollWidth;
+    });
+    await locator.screenshot({
+      path: join(screenshotRoot, `${viewportLabel}-${routeName}-wide-table-${owner.index}-right.png`),
+    });
   }
 }
 
