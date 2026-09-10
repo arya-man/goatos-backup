@@ -6,6 +6,7 @@ import { useLocalOverlaySelection } from "@/components/local-overlay-link";
 import { control, controlEnabled, copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { WorkBoardRow } from "@/lib/api/work-board-server";
 import { flagParkHeadAction } from "./actions";
+import { WorkBoardSubtasks } from "./work-board-subtasks";
 import { barSegments, clockClass, dayLabel, findOption, initials, lanes, moduleClass, moduleOptions, needsAttention, ownerStack, PARAM_ROW, parkLabel, parkOptions, stateOptions } from "./work-board-model";
 
 // The card's detail in the mock's Jira issue-view shape: a centred dialog over a scrim, the
@@ -119,17 +120,7 @@ export function WorkBoardModal({ pageContract, rows, initialSelectedRowKey, clos
             </div>
             <div className="sec">
               <h4>{copy(pageContract, "drawer.subtasks")}</h4>
-              <div className="note">
-                {copy(pageContract, "drawer.subtasks.in_module")}
-                {row.href ? (
-                  <>
-                    {" "}
-                    <Link href={row.href} style={{ color: "var(--brand)", fontWeight: 650 }}>
-                      {copy(pageContract, "drawer.open_module")} →
-                    </Link>
-                  </>
-                ) : null}
-              </div>
+              {open ? <WorkBoardSubtasks key={row.row_key} pageContract={pageContract} row={row} /> : null}
             </div>
           </div>
           <div className="rail">
