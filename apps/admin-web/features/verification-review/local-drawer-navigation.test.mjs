@@ -45,9 +45,9 @@ test("Actions filters and video links are backend-contract driven", () => {
   assert.match(pageSource, /selectedModuleActionTypes = selectedModuleKey[\s\S]*option\.module_key === selectedModuleKey/);
   assert.match(pageSource, /const selectedCategories = all\(sp, "category"\)/);
   assert.match(pageSource, /categories: selectedCategories\.length > 1 \? selectedCategories : undefined/);
-  assert.match(pageSource, /category: toggleCategory\(selectedCategories, option\.category\)/);
-  assert.match(pageSource, /className=\{`vr-lg vr-subchip\$\{selectedCategories\.includes\(option\.category\) \? " on" : ""\}`\}/);
-  assert.match(pageSource, /function toggleCategory\(selected: string\[\], category: string\): string\[\] \| null/);
+  assert.match(pageSource, /<form action=\{PATHNAME\} className="vr-filter-form">/);
+  assert.match(pageSource, /<input type="checkbox" name="category" value=\{option\.category\} defaultChecked=\{selectedCategories\.includes\(option\.category\)\} \/>/);
+  assert.match(pageSource, /className="vr-lg vr-subchip"/);
   // The mock has no verdict explainer card: the proof is the video player the verifier watches.
   // The player is only mounted after the verifier explicitly opens that one proof, then it uses the
   // click-resolved media URL and emits telemetry/block-forward-seek events.

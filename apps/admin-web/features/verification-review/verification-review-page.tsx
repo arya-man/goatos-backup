@@ -473,30 +473,10 @@ export async function VerificationReviewPage({
           </div>
         ) : null}
 
-        {moduleFilterOffered && oversightFiltersEnabled && selectedModuleActionTypes.length > 1 ? (
-          <div className="vr-subfilter">
-            <div className="vr-subfilter-head">
-              <span>{selectedModuleLabel} subcategories</span>
-            </div>
-            <div className="vr-legend vr-sublegend" role="group" aria-label={`${copy(pageContract, "filter.module")} ${selectedModuleLabel}`}>
-              {selectedModuleActionTypes.map((option) => (
-                <Link
-                  key={option.category}
-                  href={hrefWith(sp, {
-                    category: toggleCategory(selectedCategories, option.category),
-                    nav_module: selectedModuleKey,
-                    ...RESET_ON_FILTER,
-                  })}
-                  replace
-                  scroll={false}
-                  className={`vr-lg vr-subchip${selectedCategories.includes(option.category) ? " on" : ""}`}
-                >
-                  {option.label}
-                </Link>
-              ))}
-            </div>
-          </div>
-        ) : null}
+        <form action={PATHNAME} className="vr-filter-form">
+          {/* vd_from / vd_to are NOT excluded: Apply must preserve the selected capture date.
+              category is rendered by the subcategory checkboxes below so multi-select stays real. */}
+          {hiddenInputs(sp, ["category", "shed_id", "vi_row", "vi_cursor", "vi_trail", "va_status", "va_code", "va_fields", "va_entries"])}
 
         {/* The action-type select was REMOVED (maintainer decision 2026-08-07). The left nav
             already scopes this screen -- every leaf sets ?category= -- so the dropdown was a
@@ -511,6 +491,25 @@ export async function VerificationReviewPage({
             unlike Shed, which is conditional on the selected module having sheds to choose
             between (Birth and Death have none, and an Apply button with nothing to apply is
             worse than no row). */}
+        {moduleFilterOffered && oversightFiltersEnabled && selectedModuleActionTypes.length > 1 ? (
+          <div className="vr-subfilter">
+            <div className="vr-subfilter-head">
+              <span>{selectedModuleLabel} subcategories</span>
+            </div>
+            <div className="vr-legend vr-sublegend" role="group" aria-label={`${copy(pageContract, "filter.module")} ${selectedModuleLabel}`}>
+              {selectedModuleActionTypes.map((option) => (
+                <label
+                  key={option.category}
+                  className="vr-lg vr-subchip"
+                >
+                  <input type="checkbox" name="category" value={option.category} defaultChecked={selectedCategories.includes(option.category)} />
+                  {option.label}
+                </label>
+              ))}
+            </div>
+          </div>
+        ) : null}
+
         <div className="vr-frow">
           {captureDateFilterEnabled ? (
             <ActionsDateFilter
@@ -535,13 +534,6 @@ export async function VerificationReviewPage({
           ) : null}
           {sheds.length ? (
             <>
-            <form action={PATHNAME} style={{ display: "contents" }}>
-              {/* vd_from / vd_to are NOT excluded: the shed submit must preserve the selected
-                  capture date, or applying a shed filter would silently reset the board to today. */}
-              {hiddenInputs(sp, ["category", "shed_id", "vi_row", "vi_cursor", "vi_trail", "va_status", "va_code", "va_fields", "va_entries"])}
-              {/* Carries the sidebar's scope through the submit; without it, filtering by shed
-                  would silently widen the queue back to every module. */}
-              {category ? <input type="hidden" name="category" value={category} /> : null}
               <div className="vr-fld fld" style={{ marginBottom: 0 }}>
                 <label htmlFor="verification-shed">{copy(pageContract, "filter.shed")}</label>
                 {/* Grouped by park, because a shed NAME is not unique across the farm: Castro,
@@ -577,7 +569,6 @@ export async function VerificationReviewPage({
                 <Filter className="ic" aria-hidden="true" />
                 {copy(pageContract, "filter.apply")}
               </button>
-            </form>
             {/* Deliberately does NOT clear `category`: that is the sidebar's selection, not a
                 filter the verifier set here. Clearing it stranded her on every module's queue at
                 once while the nav still highlighted the one she had picked. It DOES clear the
@@ -598,8 +589,14 @@ export async function VerificationReviewPage({
               {copy(pageContract, "filter.clear_all")}
             </Link>
             </>
+          ) : selectedModuleActionTypes.length > 1 ? (
+            <button type="submit" className="btn sm">
+              <Filter className="ic" aria-hidden="true" />
+              {copy(pageContract, "filter.apply")}
+            </button>
           ) : null}
         </div>
+        </form>
 
         {statuses.length ? (
           <div className="vr-legend">
@@ -997,13 +994,6 @@ function childActionTypeLabel(label: string, moduleLabel: string): string {
     return cleanLabel.slice(prefix.length).trim();
   }
   return cleanLabel;
-}
-
-function toggleCategory(selected: string[], category: string): string[] | null {
-  const next = selected.includes(category)
-    ? selected.filter((value) => value !== category)
-    : [...selected, category];
-  return next.length ? next : null;
 }
 
 function hrefWith(params: RouteSearchParams, updates: Record<string, string | string[] | null | undefined>): string {

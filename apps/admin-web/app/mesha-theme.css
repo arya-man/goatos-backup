@@ -721,8 +721,9 @@
   .vr-subfilter-head{display:flex;align-items:center;gap:10px;color:color-mix(in srgb,var(--muted) 86%,var(--ink));font-size:10px;font-weight:800;text-transform:uppercase}
   .vr-subfilter-head:after{content:"";height:1px;min-width:42px;flex:1;background:var(--line)}
   .vr-sublegend{margin-top:0;gap:6px}
-  .vr-sublegend .vr-lg.vr-subchip{min-height:28px;padding:6px 10px;border-radius:6px;background:transparent;border-color:color-mix(in srgb,var(--line) 82%,transparent);font-size:10.5px;font-weight:700;color:color-mix(in srgb,var(--muted) 88%,var(--ink))}
-  .vr-sublegend .vr-lg.vr-subchip.on{background:color-mix(in srgb,var(--brand-soft) 46%,transparent);border-color:color-mix(in srgb,var(--brand) 68%,var(--line));color:var(--brand)}
+  .vr-sublegend .vr-lg.vr-subchip{min-height:28px;padding:6px 10px;border-radius:6px;background:transparent;border-color:color-mix(in srgb,var(--line) 82%,transparent);font-size:10.5px;font-weight:700;color:color-mix(in srgb,var(--muted) 88%,var(--ink));cursor:pointer}
+  .vr-sublegend .vr-lg.vr-subchip input{position:absolute;opacity:0;pointer-events:none}
+  .vr-sublegend .vr-lg.vr-subchip:has(input:checked){background:color-mix(in srgb,var(--brand-soft) 46%,transparent);border-color:color-mix(in srgb,var(--brand) 68%,var(--line));color:var(--brand)}
   /* "In queue" column age tone: amber past 4h, red past 7d (see IN_QUEUE_AMBER_MS/IN_QUEUE_RED_MS
      in verification-review-page.tsx). Applied only to a still-pending row's age span. */
   .vr-age-amber{color:var(--amber);font-weight:650}
