@@ -235,9 +235,12 @@ func proofDownloadRoute(proofID string) string {
 }
 
 func thumbnailURL(metadata map[string]any) string {
-	for _, key := range []string{"thumbnail_url", "poster_url", "thumbnail_download_url", "poster_download_url"} {
+	for _, key := range []string{"thumbnail_url", "poster_url"} {
 		value, _ := metadata[key].(string)
 		if value = strings.TrimSpace(value); value != "" {
+			if strings.Contains(value, "/app/proofs/") || strings.Contains(value, "X-Goog-Signature=") || strings.Contains(value, "X-Goog-Credential=") {
+				continue
+			}
 			return value
 		}
 	}

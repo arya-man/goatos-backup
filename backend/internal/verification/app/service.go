@@ -512,15 +512,22 @@ func (s *Service) ListReadyVaccinationBatchClosures(ctx context.Context, params 
 func (s *Service) resolveMedia(ctx context.Context, tenantID string, items []domain.Item) []domain.QueueRow {
 	rows := make([]domain.QueueRow, len(items))
 	for i, it := range items {
-		media := make([]domain.MediaItem, 0, len(it.MediaRefs))
+		refs := make([]string, 0, len(it.MediaRefs))
 		for _, id := range it.MediaRefs {
-			id = strings.TrimSpace(id)
-			if id == "" {
-				continue
+			if id = strings.TrimSpace(id); id != "" {
+				refs = append(refs, id)
 			}
-			media = append(media, domain.MediaItem{ProofID: id, DownloadURL: "/app/proofs/" + id + "/download"})
 		}
-		labelMedia(media, s.categoryFor(it.Category))
+		def := s.categoryFor(it.Category)
+		media := make([]domain.MediaItem, 0, len(refs))
+		for j, id := range refs {
+			media = append(media, domain.MediaItem{
+				ProofID:     id,
+				DownloadURL: "/app/proofs/" + id + "/download",
+				MimeType:    declaredMimeType(def, j),
+			})
+		}
+		labelMedia(media, def)
 		rows[i] = domain.QueueRow{Item: it, Media: media, EvidenceLinkResolved: len(media) > 0}
 	}
 	return rows
@@ -548,6 +555,21 @@ func labelMedia(media []domain.MediaItem, def domain.CategoryDefinition) {
 			continue
 		}
 		media[i].Label = def.MediaLabelFor(i, len(media))
+	}
+}
+
+func declaredMimeType(def domain.CategoryDefinition, index int) string {
+	if index < 0 || index >= len(def.ExpectedMedia) {
+		return ""
+	}
+	expected := strings.ToLower(strings.TrimSpace(def.ExpectedMedia[index]))
+	switch {
+	case strings.Contains(expected, "video"):
+		return "video/mp4"
+	case strings.Contains(expected, "photo"), strings.Contains(expected, "image"):
+		return "image/jpeg"
+	default:
+		return ""
 	}
 }
 

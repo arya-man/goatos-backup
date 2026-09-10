@@ -282,6 +282,7 @@ func (h *Handler) DownloadAttachment(w http.ResponseWriter, r *http.Request) {
 		"client_app_version_code", clientHeader(r, "X-GoatOS-App-Version-Code"),
 		"client_platform", clientHeader(r, "X-GoatOS-Platform"),
 		"client_os_version", clientHeader(r, "X-GoatOS-OS-Version"),
+		"device_id", httpmiddleware.DeviceIDFromContext(r.Context()),
 		"client_device_model", clientHeader(r, "X-GoatOS-Device-Model"),
 		"remote_ip", clientRemoteIP(r),
 		"user_agent", r.UserAgent(),

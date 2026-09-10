@@ -80,10 +80,8 @@ import sg.mesha.goatos.core.ui.LoadingSkeletonList
 import sg.mesha.goatos.core.ui.EmptyTone
 import sg.mesha.goatos.core.ui.RefreshOnResume
 import sg.mesha.goatos.core.ui.SyncStatusIndicator
+import sg.mesha.goatos.core.common.datetime.GoatOsDates
 import java.time.Instant
-import java.time.ZoneId
-import java.time.format.DateTimeFormatter
-import java.time.format.FormatStyle
 
 // telemetry:exempt: pure stateless renderer — AnalyticsPort/funnel wiring (including the
 // PLAY_INTENT/PLAY_OUTCOME dead-control watchdog) lives in VerifyDetailViewModel (:app), which
@@ -1007,6 +1005,10 @@ private fun VerifyProofPhoto(
     // enlarged is a proof the verifier has to approve on faith.
     var loadPhoto by rememberSaveable(media.proofSubject) { mutableStateOf(false) }
     var isFullscreen by rememberSaveable(media.proofSubject) { mutableStateOf(false) }
+    LaunchedEffect(media.signedUrl) {
+        loadPhoto = false
+        isFullscreen = false
+    }
     Box(
         modifier = modifier
             .clip(RoundedCornerShape(14.dp))
@@ -2007,7 +2009,6 @@ private fun Long.safeMediaMs(): Long = takeIf { it > 0 } ?: 0L
 @Composable
 private fun ContextCard(rows: List<VerifyContextRow>) {
     if (rows.isEmpty()) return
-    val locale = LocalContext.current.resources.configuration.locales[0]
     Column(
         modifier = Modifier
             .padding(horizontal = 16.dp, vertical = 8.dp)
@@ -2024,9 +2025,9 @@ private fun ContextCard(rows: List<VerifyContextRow>) {
         )
         rows.forEachIndexed { index, row ->
             val label = contextRowLabel(row)
-            val displayValue = remember(row.value, row.kind, locale) {
+            val displayValue = remember(row.value, row.kind) {
                 if (row.kind == VerifyContextKind.CAPTURED_AT) {
-                    formatCapturedAt(row.value, locale, ZoneId.of("Asia/Kolkata"))
+                    formatCapturedAt(row.value)
                 } else {
                     row.value
                 }
@@ -2062,13 +2063,10 @@ private fun ContextCard(rows: List<VerifyContextRow>) {
     }
 }
 
-internal fun formatCapturedAt(raw: String, locale: java.util.Locale, zoneId: ZoneId): String =
+internal fun formatCapturedAt(raw: String): String =
     runCatching {
         // exception:exempt timestamp display; unparseable instant shows raw ISO string
-        DateTimeFormatter.ofLocalizedDateTime(FormatStyle.MEDIUM, FormatStyle.SHORT)
-            .withLocale(locale)
-            .withZone(zoneId)
-            .format(Instant.parse(raw))
+        GoatOsDates.dateTime12h(Instant.parse(raw))
     }.getOrDefault(raw)
 
 @Composable

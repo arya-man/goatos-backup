@@ -11,7 +11,7 @@ import { useCallback, useEffect, useRef, useState, useMemo, useTransition } from
 import { controlEnabled, copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { VerificationQueueItem } from "@/lib/api/server";
 import { fmtDateTime, shortId } from "@/lib/format";
-import type { RouteSearchParams } from "@/lib/search-params";
+import { one, type RouteSearchParams } from "@/lib/search-params";
 import { recordVerificationVerdictAction, resolveVerificationProofMediaUrl } from "./actions";
 import { VerificationReviewActionTelemetry } from "./verification-review-telemetry";
 import { ReviewVideoPlayer } from "./review-video-player";
@@ -78,7 +78,7 @@ export function VerificationReviewDrawer({
   const closeTimerRef = useRef<number | null>(null);
   const item = items.find((candidate) => candidate.item_id === displayedId);
   const drawerOpen = Boolean(activeId && item);
-  const closeHref = hrefWithout(searchParams, ["vi_row", "vi_open_first"]);
+  const closeHref = hrefWithout(searchParams, ["vi_row", "vi_open_first", "vi_play"]);
   const currentIndex = item ? items.findIndex((i) => i.item_id === item.item_id) : -1;
   const canGoBack = currentIndex > 0;
   const canGoForward = currentIndex >= 0 && currentIndex < items.length - 1;
@@ -195,6 +195,7 @@ export function VerificationReviewDrawer({
         onClose={closeDrawer}
         closeButtonRef={closeButtonRef}
         pageContract={pageContract}
+        searchParams={searchParams}
         statusLabels={statusLabels}
         currentIndex={currentIndex}
         totalItems={items.length}
@@ -218,6 +219,7 @@ function VerificationReviewDrawerPanel({
   onClose,
   closeButtonRef,
   pageContract,
+  searchParams,
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   statusLabels,
   currentIndex,
@@ -239,6 +241,7 @@ function VerificationReviewDrawerPanel({
   onClose: () => void;
   closeButtonRef: React.RefObject<HTMLButtonElement | null>;
   pageContract: AdminUiPageContract;
+  searchParams: RouteSearchParams;
   statusLabels: Record<string, string>;
   currentIndex: number;
   totalItems: number;
@@ -252,6 +255,7 @@ function VerificationReviewDrawerPanel({
     itemId: item.item_id,
     index: 0,
   });
+  const [playIntent, setPlayIntent] = useState(one(searchParams, "vi_play") === "1");
   // Two-step reject, mirroring the mock: the footer's Reject reveals the reason field first, and a
   // second press submits — so a rejection can never be recorded without a reason being asked for.
   //
@@ -367,6 +371,24 @@ function VerificationReviewDrawerPanel({
       }));
     });
   }, [activeProofId, item.item_id, resolvedMediaUrls]);
+  useEffect(() => {
+    const syncPlayIntent = (): void => {
+      const currentParams = new URL(window.location.href).searchParams;
+      setPlayIntent(currentParams.get("vi_play") === "1");
+    };
+    window.addEventListener(LOCAL_OVERLAY_URL_CHANGE_EVENT, syncPlayIntent);
+    window.addEventListener("popstate", syncPlayIntent);
+    syncPlayIntent();
+    return () => {
+      window.removeEventListener(LOCAL_OVERLAY_URL_CHANGE_EVENT, syncPlayIntent);
+      window.removeEventListener("popstate", syncPlayIntent);
+    };
+  }, []);
+  useEffect(() => {
+    if (!open || !playIntent || !activeProofId || resolvedMediaUrls[activeProofId]) return;
+    const timeout = window.setTimeout(resolveActiveMedia, 0);
+    return () => window.clearTimeout(timeout);
+  }, [open, playIntent, activeProofId, resolvedMediaUrls, resolveActiveMedia]);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const playerRef = useRef<HTMLDivElement>(null);
 
@@ -596,31 +618,32 @@ function VerificationReviewDrawerPanel({
                     eventBuffer={eventBuffer}
                     // Backend-owned copy for the double-speed control; the player renders it and
                     // composes none of it. It only appears on clips longer than 20 seconds.
-                    speedLabels={{
+	                    speedLabels={{
                       normal: text("player.speed_normal"),
                       fast: text("player.speed_fast"),
                       hint: text("player.speed_hint"),
-                    }}
-                  />
-                ) : (
-                  <button type="button" className="btn vr-media-open" onClick={resolveActiveMedia} disabled={mediaPending}>
-                    <PlayCircle className="ic" aria-hidden="true" />
-                    {text("drawer.media.open")}
-                  </button>
-                )
-              ) : activeMedia?.mime_type?.startsWith("image/") ? (
+	                    }}
+	                    autoPlay={playIntent}
+	                  />
+	                ) : (
+	                  <button type="button" className="vr-media-open" onClick={resolveActiveMedia} disabled={mediaPending}>
+	                    <span className="vr-media-open-mark"><PlayCircle className="ic" aria-hidden="true" /></span>
+	                    {text("drawer.media.play_video")}
+	                  </button>
+	                )
+	              ) : activeMedia?.mime_type?.startsWith("image/") ? (
                 resolvedMediaUrls[activeMedia.proof_id] ? (
                   // admin-proof-media-egress:ignore reviewer clicked open for this one image proof; no image bytes move on drawer render.
                   <a key={activeMedia.proof_id} href={resolvedMediaUrls[activeMedia.proof_id]} target="_blank" rel="noreferrer" className="vr-image-link">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img className="vr-image-proof" src={resolvedMediaUrls[activeMedia.proof_id]} alt={activeMedia.label || subjectHeading || text("drawer.media.title")} />
                   </a>
-                ) : (
-                  <button type="button" className="btn vr-media-open" onClick={resolveActiveMedia} disabled={mediaPending}>
-                    <ImageIcon className="ic" aria-hidden="true" />
-                    {text("drawer.media.open")}
-                  </button>
-                )
+	                ) : (
+	                  <button type="button" className="vr-media-open" onClick={resolveActiveMedia} disabled={mediaPending}>
+	                    <span className="vr-media-open-mark"><ImageIcon className="ic" aria-hidden="true" /></span>
+	                    {text("drawer.media.open_photo")}
+	                  </button>
+	                )
               ) : (
                 <div className="vr-player-empty">{text("drawer.media.empty")}</div>
               )}
@@ -1013,7 +1036,7 @@ function hrefWithout(params: RouteSearchParams, exclude: string[]): string {
 function hrefWithRow(params: RouteSearchParams, itemId: string): string {
   const next = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) {
-    if (key === "vi_row" || key === "va_status" || key === "va_code" || key === "va_fields" || key === "va_entries") continue;
+    if (key === "vi_row" || key === "vi_play" || key === "va_status" || key === "va_code" || key === "va_fields" || key === "va_entries") continue;
     if (Array.isArray(value)) {
       for (const item of value) if (item) next.append(key, item);
     } else if (value) {

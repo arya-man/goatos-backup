@@ -69,7 +69,7 @@ test("approving a video advances to the next one instead of closing to the list"
   assert.match(pageSource, /one\(sp, "vi_open_first"\) === "1" \? items\[0\]\?\.item_id : undefined/);
   assert.match(drawerSource, /name="next_cursor" value=\{nextCursor\}/);
   assert.match(drawerSource, /name="next_trail" value=\{nextTrail\}/);
-  assert.match(drawerSource, /hrefWithout\(searchParams, \["vi_row", "vi_open_first"\]\)/);
+  assert.match(drawerSource, /hrefWithout\(searchParams, \["vi_row", "vi_open_first", "vi_play"\]\)/);
   assert.match(actionsSource, /url\.searchParams\.delete\("vi_open_first"\);/);
 });
 

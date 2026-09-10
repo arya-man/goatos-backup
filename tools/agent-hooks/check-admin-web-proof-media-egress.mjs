@@ -82,11 +82,13 @@ function functionRanges(source) {
 }
 
 const hotReadName = /^(load|get|list|fetch|search|review|render|hydrate|open.*Drawer|.*Detail)/i;
-const explicitOpenName = /^(resolve|open|download|play|share).*(Proof|VoiceNote).*(Url|Route|Media)?(Action)?$/i;
+const explicitOpenName = /^(resolve|open|download|play|share|get).*(Proof|VoiceNote).*(Url|Route|Media)?(Action)?$/i;
 
 function scanText(rel, source) {
-  if (rel === "apps/admin-web/lib/api/server.ts") return [];
   if (rel === "apps/admin-web/app/api/proof-media/[proof_id]/route.ts") return [];
+  if (rel === "apps/admin-web/lib/api/server.ts") {
+    return scanServerApiText(rel, source);
+  }
   if (/^\s*["']use client["']/m.test(source)) {
     return scanClientText(rel, source);
   }
@@ -110,6 +112,30 @@ function scanText(rel, source) {
         if (hasSuppressionNear(source, index)) continue;
         findings.push({ rel, line: lineNo(source, index), reason, snippet: line.trim().slice(0, 180) });
       }
+    }
+  }
+  return findings;
+}
+
+function scanServerApiText(rel, source) {
+  const findings = [];
+  for (const fn of functionRanges(source)) {
+    if (!explicitOpenName.test(fn.name) && !hotReadName.test(fn.name)) continue;
+    const proofDownloadCall = /client\.request\s*<[^>]*>\s*\(\s*path\s*,\s*\{[\s\S]{0,500}\}\s*\)/g;
+    for (const match of fn.body.matchAll(proofDownloadCall)) {
+      const call = match[0];
+      const index = fn.start + (match.index ?? 0);
+      if (!fn.body.includes("/app/proofs/") && !source.slice(Math.max(0, fn.start - 500), fn.end).includes("/app/proofs/")) continue;
+      if (/headers\s*:\s*\{[\s\S]{0,160}Accept\s*:\s*["']application\/json["']/.test(call)) continue;
+      if (/redirect\s*:\s*["']manual["']/.test(call)) continue;
+      if (hasSuppressionNear(source, index)) continue;
+      const line = source.split("\n")[lineNo(source, index) - 1] ?? "";
+      findings.push({
+        rel,
+        line: lineNo(source, index),
+        reason: "admin explicit proof download must request JSON or use manual redirect; otherwise Node can follow the 307 and stream GCS bytes",
+        snippet: line.trim().slice(0, 180),
+      });
     }
   }
   return findings;
@@ -159,6 +185,14 @@ function selfTest() {
 export async function resolveVendorVoiceNoteUrlAction(id: string) {
   return getProofDownloadUrl(id);
 }`;
+  const serverApiBad = `export async function getProofDownloadUrl(proofRef: string) {
+  const path = \`/app/proofs/\${encodeURIComponent(proofRef)}/download\`;
+  return client.request<{ download_url: string }>(path, { cache: "no-store" });
+}`;
+  const serverApiGood = `export async function getProofDownloadUrl(proofRef: string) {
+  const path = \`/app/proofs/\${encodeURIComponent(proofRef)}/download\`;
+  return client.request<{ download_url: string }>(path, { cache: "no-store", headers: { Accept: "application/json" } });
+}`;
   const clientBad = `'use client';
 export function Drawer({ loaded, task }) {
   return <img src={loaded.proofUrls[task.strip_photo_ref] ?? undefined} />;
@@ -175,6 +209,8 @@ export function Drawer({ loaded, task }) {
     ["server-bad", scanText("apps/admin-web/features/x/actions.ts", serverBad).length, 1],
     ["server-arrow-bad", scanText("apps/admin-web/features/x/actions.ts", serverBad.replace("export async function loadToxinTaskDetailAction(id: string)", "export const loadToxinTaskDetailAction = async (id: string) =>")).length, 1],
     ["server-good", scanText("apps/admin-web/features/x/actions.ts", serverGood).length, 0],
+    ["server-api-bad", scanText("apps/admin-web/lib/api/server.ts", serverApiBad).length, 1],
+    ["server-api-good", scanText("apps/admin-web/lib/api/server.ts", serverApiGood).length, 0],
     ["client-bad", scanText("apps/admin-web/features/x/drawer.tsx", clientBad).length, 1],
     ["client-wrapper-bad", scanText("apps/admin-web/features/x/drawer.tsx", clientWrapperBad).length, 1],
     ["client-good", scanText("apps/admin-web/features/x/drawer.tsx", clientGood).length, 0],
