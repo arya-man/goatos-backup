@@ -19243,9 +19243,12 @@ components:
     FeedAnalyticsStockFarmItem:
       type: object
       description: >-
-        One (farm, Mesha concentrate) row of the Stock tab's per-farm purchase/consumption table.
-        Covers the four in-house Mesha concentrate feeds only (maintainer decision 2026-08-21).
-        Consumption figures come from LOCKED GoatOS feed sheets.
+        One (farm, Mesha concentrate FAMILY) row of the Stock tab's per-farm purchase/consumption
+        table. Covers the in-house Mesha concentrate feeds only (maintainer decision 2026-08-21),
+        folded to the two the farm buys today: the retired split feeds are counted inside their
+        successor, stock as the sum of the members' balances and the rate as the family's kg per
+        calendar day (maintainer decision 2026-09-10). Consumption figures come from LOCKED GoatOS
+        feed sheets.
       required:
         - farm_label
         - feed_item_label

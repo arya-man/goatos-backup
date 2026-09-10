@@ -734,20 +734,35 @@ type LowStockFeed struct {
 // MeshaConcentrateStockKeys is the fixed set of in-house Mesha concentrate
 // feeds the per-farm purchase/consumption table covers (maintainer decision
 // 2026-08-21: a named set, not every ledger item; the species-less
-// mesha_adult_concentrate added by maintainer request 2026-09-06). Keys are
-// feed_config_norm outputs of the ledger's feed_item_label values.
+// mesha_adult_concentrate added by maintainer request 2026-09-06, and
+// mesha_kids_concentrate on 2026-09-10 when the table moved to family grain).
+// Keys are feed_config_norm outputs of the ledger's feed_item_label values.
+//
+// This is what the table READS, not what it SHOWS. The retired split feeds stay
+// named here so their leftover stock is still counted; StockFamilyMerge then
+// folds them into the two successors the farm buys today. BOTH successors must
+// be named -- an unnamed family would drop its own loads and report a store
+// assembled from the retired members alone.
 var MeshaConcentrateStockKeys = []string{
 	"mesha_adult_concentrate",
 	"mesha_adult_concentrate_goat",
 	"mesha_adult_concentrate_sheep",
+	"mesha_kids_concentrate",
 	"mesha_kids_goat_concentrate",
 	"mesha_kids_sheep_concentrate",
 }
 
-// StockFarmItem is one (farm, Mesha concentrate) row of the per-farm
+// StockFarmItem is one (farm, Mesha concentrate FAMILY) row of the per-farm
 // purchase/consumption table on the Stock tab. Consumption figures come from
 // LOCKED GoatOS feed sheets only, so a bootstrapped item's consumption start
 // is the ledger cutoff, not the sheet era before it.
+//
+// The grain is the FAMILY (maintainer decision 2026-09-10): the retired split
+// concentrates are folded into their successor by StockFamilyMerge, exactly as
+// the stock cards fold them, so the table shows the two feeds the farm buys
+// today and its figures match the card above it. Stock is the sum of the
+// members' balances; the rate is the family's kg per calendar day and never the
+// sum of the members' rates, because the members substitute for each other.
 type StockFarmItem struct {
 	FarmLabel     string
 	FeedItemLabel string
@@ -869,7 +884,8 @@ type SpendSummary struct {
 type StockAnalytics struct {
 	Items []StockItem
 	// FarmItems is the per-farm Mesha-concentrate purchase/consumption table
-	// (MeshaConcentrateStockKeys only), ordered by feed item then farm.
+	// (MeshaConcentrateStockKeys only, folded to family grain by
+	// StockFamilyMerge), ordered by feed item then farm.
 	FarmItems []StockFarmItem
 	// Forecast is the next-7-days requirement/cost table at (farm, feed item)
 	// grain over every fed feed, ordered by farm then item.

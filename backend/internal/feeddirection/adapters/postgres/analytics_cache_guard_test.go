@@ -42,7 +42,10 @@ func TestFeedAnalyticsCacheOneToManyPageBoundaryParkScopeStatusMatrix(t *testing
 		"array_agg(batch_no ORDER BY depletes_from DESC, purchase_date DESC, batch_no DESC)",
 		"round(ll.stock_kg, 1)::text AS last_quantity_kg",
 		"ORDER BY p.depletes_from DESC, p.purchase_date DESC, p.batch_no DESC",
-		"ORDER BY farm_label, feed_item_key, depletes_from DESC, purchase_date DESC, batch_no DESC",
+		// The per-farm table picks a family's newest sack by DEPLETION date
+		// first (maintainer decision 2026-09-10 moved the key from the item to
+		// the family; the ordering rule itself is unchanged).
+		"ORDER BY farm_label, family_key, depletes_from DESC, purchase_date DESC, batch_no DESC",
 		"feedAnalyticsCacheTTL = 30 * time.Second",
 		"setReadCacheIfEpoch",
 	} {

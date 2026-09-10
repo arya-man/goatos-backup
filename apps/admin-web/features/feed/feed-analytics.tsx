@@ -1567,7 +1567,7 @@ function StockCards({
                       <span className="feed-stock-info" tabIndex={0} aria-label="How average per day is calculated">
                         i
                         <span className="feed-stock-info-pop" role="tooltip">
-                          Avg / Day is the average kg from the latest 3 locked feed days for this farm and item. The top card days-left uses Ledger stock divided by this same average.
+                          Avg / Day is the average kg from the latest 3 locked feed days for this farm and feed. A feed that replaced older ones is counted as one feed here, so a day the farm fed the old sack counts once, not twice. The top card days-left uses Ledger stock divided by this same average.
                         </span>
                       </span>
                     </span>
@@ -1578,7 +1578,7 @@ function StockCards({
                       <span className="feed-stock-info" tabIndex={0} aria-label="How weekly requirement is calculated">
                         i
                         <span className="feed-stock-info-pop" role="tooltip">
-                          Week need = Avg / Day times 7, using the latest 3 locked feed days for this farm and item.
+                          Week need = Avg / Day times 7, using the latest 3 locked feed days for this farm and feed.
                         </span>
                       </span>
                     </span>
@@ -1589,7 +1589,7 @@ function StockCards({
                       <span className="feed-stock-info" tabIndex={0} aria-label="How stock is calculated">
                         i
                         <span className="feed-stock-info-pop" role="tooltip">
-                          Ledger = purchased kg minus consumed-at-import kg, minus locked directed kg from the purchase depletion date onward.
+                          Ledger = purchased kg minus consumed-at-import kg, minus locked directed kg from the purchase depletion date onward. A feed that replaced older ones also carries whatever is left of their sacks.
                         </span>
                       </span>
                     </span>
@@ -1600,7 +1600,7 @@ function StockCards({
                       <span className="feed-stock-info" tabIndex={0} aria-label="How days left is calculated">
                         i
                         <span className="feed-stock-info-pop" role="tooltip">
-                          Days left = ledger stock divided by Avg / Day. Avg / Day uses the latest 3 locked feed days for this farm and item.
+                          Days left = ledger stock divided by Avg / Day. Avg / Day uses the latest 3 locked feed days for this farm and feed.
                         </span>
                       </span>
                     </span>

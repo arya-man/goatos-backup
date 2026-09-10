@@ -112,11 +112,47 @@ an empty list is the behaviour without it. Pinned by
 `TestStockCardRateOverridePinsOneFarmFeedOnly`, which feeds the same item at the
 same daily kg at both farms so a leak shows as two identical cards.
 
+## The per-farm table folds too (maintainer decision 2026-09-10)
+
+This section originally said the per-farm Mesha concentrate table stays per ITEM,
+because it was the audit view -- the only place the split was still visible. The
+maintainer asked on 2026-09-10 for the table to show the two feeds the farm buys
+today, one row per park, and that supersedes the audit-view reasoning: a table
+listing "29.2 kg of adult sheep" beside "1,830.6 kg of adult" made the reader add
+up his own store, and it sat directly under a CARD that had already added them up.
+Two surfaces disagreeing about one feed's runway is the defect the fold exists to
+fix, one grain down.
+
+The table now reads the SAME family as the card: stock is the sum of the members'
+balances, and the rate is the family's kg per calendar day. Every rule above holds
+unchanged -- each member keeps its own ledger arithmetic before the fold, a
+negative member is subtracted rather than floored, and an empty mapping restores
+the per-item table exactly.
+
+Two consequences worth stating:
+
+- **`MeshaConcentrateStockKeys` now names SIX keys**, both successors and all four
+  retired members. It is what the table READS, not what it SHOWS. `mesha_kids_concentrate`
+  was missing before this and the asymmetry was invisible while every key had its
+  own row; under the fold it would have produced a kids row assembled from the
+  retired members alone, with the successor's own loads filtered out before the
+  sum. `domain.TestMeshaConcentrateStockKeys…` now asserts every fold target and
+  every member is readable.
+- **The audit view is gone from the screen.** Which member sack was bought and
+  drawn is still in `feed_purchases` and on the Feed Purchases screen; it is no
+  longer on this tab. That is the trade the maintainer accepted, and it expires
+  with the fold: once the members are empty, the table is per item again by
+  construction.
+
+`last load` is the FAMILY's newest sack by depletion date, whichever member it is
+-- in a store feeding the members interchangeably, that is the sack just opened --
+and `consumption from` reads the same FIFO crossing at family grain, so a sibling
+member's sacks correctly count as earlier stock.
+
 ## What is deliberately NOT folded
 
 | surface | why |
 |---|---|
-| the per-farm Mesha concentrate table (`MeshaConcentrateStockKeys`) | it is the audit view: which sacks were bought and drawn, per feed. Folding it would delete the only place the split is still visible |
 | the 7-day requirement/forecast table | keyed on consumption, and it answers "what will be directed", which is still per item until the grid switches |
 | the expenditure series and money charts | priced per load per item; a family has no purchase price |
 | feed sheets, ration grid, packing, transport, distribution | the operational feed chain is untouched. This is a **reporting** fold, and no write path reads it |
@@ -182,3 +218,12 @@ live data, so it was not needed here.
   makes the naive sum-of-rates read 240 kg/day against a true 120. Asserts 8 days,
   which neither the sum-of-rates (4) nor the floored-negative (9) variant reaches.
 - Live read-only STG comparison, both directions, recorded in the table above.
+- `postgres.TestStockFarmItemsMeshaTablePerFarm` — the per-farm table at family
+  grain: three rows for four (farm, item) pairs, the fold's summed stock
+  (2596.0 + 400.0), the family FIFO crossing gated by the load's own depletion
+  date, and the table asserted equal to the card above it.
+- `postgres.TestStockCardsFoldSplitConcentratesOneToManyAcrossEveryStatusBucket`
+  → `TheFarmTableReadsTheSameFamilyAsTheCard` — the table pinned on the
+  SUBSTITUTION fixture, where a per-item average reads 240 (summed) or 80
+  (unregrouped) against a true family draw of 120. Mutation-tested by grouping
+  `family_day` by member as well as family: goes red at 80.0.

@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"reflect"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -480,8 +482,13 @@ VALUES ($1, $2, $3, $4, $5, $6::date, $7::numeric, 41.5266, 1000, 0, DATE '2026-
 	if err != nil {
 		t.Fatalf("StockAnalytics: %v", err)
 	}
-	if len(got.FarmItems) != 4 {
-		t.Fatalf("want 4 farm rows (Mesha only, non-Mesha excluded), got %d: %+v", len(got.FarmItems), got.FarmItems)
+	// FAMILY GRAIN (maintainer decision 2026-09-10): the table folds the retired
+	// split concentrates into the successors the farm buys today, exactly as the
+	// cards above it do. The fixture's five Mesha loads are FOUR (farm, item)
+	// pairs and THREE (farm, family) rows: CBE adult, CBE kids (goat + sheep
+	// folded together), and the park-less XYZ kids.
+	if len(got.FarmItems) != 3 {
+		t.Fatalf("want 3 farm rows (two families at CBE, one at XYZ; non-Mesha excluded), got %d: %+v", len(got.FarmItems), got.FarmItems)
 	}
 	emptyScope, err := repo.StockAnalytics(ctx, fdiTenant, domain.DirectedAnalyticsQuery{ParkIDs: []uuid.UUID{}})
 	if err != nil {
@@ -490,78 +497,85 @@ VALUES ($1, $2, $3, $4, $5, $6::date, $7::numeric, 41.5266, 1000, 0, DATE '2026-
 	if len(emptyScope.FarmItems) != len(got.FarmItems) || len(emptyScope.Items) != len(got.Items) {
 		t.Fatalf("empty park scope must mean unrestricted, got farm/items %d/%d want %d/%d", len(emptyScope.FarmItems), len(emptyScope.Items), len(got.FarmItems), len(got.Items))
 	}
-	// Ordered by feed item then farm.
-	sheep := got.FarmItems[0]
-	if sheep.FeedItemLabel != "Mesha Adult Concentrate Sheep" || sheep.FarmLabel != "CBE" {
-		t.Fatalf("row 0: %+v", sheep)
+	// Ordered by family label then farm.
+	adult := got.FarmItems[0]
+	if adult.FeedItemLabel != "Mesha Adult Concentrate" || adult.FeedItemKey != "mesha_adult_concentrate" || adult.FarmLabel != "CBE" {
+		t.Fatalf("row 0 must be the adult family, titled by the successor the farm buys: %+v", adult)
 	}
-	if sheep.LastLoadConsumptionFrom != "" || sheep.AvgDailyKg != "" {
-		t.Errorf("never-directed item must serve empty consumption fields, got %q / %q", sheep.LastLoadConsumptionFrom, sheep.AvgDailyKg)
+	if adult.LastLoadConsumptionFrom != "" || adult.AvgDailyKg != "" {
+		t.Errorf("never-directed family must serve empty consumption fields, got %q / %q", adult.LastLoadConsumptionFrom, adult.AvgDailyKg)
+	}
+	if adult.LedgerStockKg != "400.0" {
+		t.Errorf("the retired adult sheep load is the whole adult store here: want 400.0, got %+v", adult)
 	}
 	kids := got.FarmItems[1]
-	if kids.FeedItemLabel != "Mesha Kids Goat Concentrate" || kids.FarmLabel != "CBE" {
-		t.Fatalf("row 1: %+v", kids)
+	if kids.FeedItemLabel != "Mesha Kids Concentrate" || kids.FeedItemKey != "mesha_kids_concentrate" || kids.FarmLabel != "CBE" {
+		t.Fatalf("row 1 must be the kids family: %+v", kids)
 	}
-	// FIFO: the latest load (batch 330) sits behind batch 298's 1550 kg, and only
-	// 104 kg has been directed — the previous stock is still being fed, so the
-	// latest load has NOT started. Buying a load never starts consuming it.
+	// FIFO at family grain: the latest load (batch 330) sits behind 2,750 kg of
+	// earlier family stock and only 904 kg has been directed — the previous
+	// stock is still being fed, so the latest load has NOT started. Buying a
+	// load never starts consuming it.
 	if kids.LastLoadConsumptionFrom != "" {
-		t.Errorf("latest load must not start while 1550 kg of earlier stock remains (104 kg directed): got %q", kids.LastLoadConsumptionFrom)
+		t.Errorf("latest load must not start while 2750 kg of earlier family stock remains (904 kg directed): got %q", kids.LastLoadConsumptionFrom)
 	}
-	if kids.AvgDailyKg != "28.0" {
-		t.Errorf("avg over the 3 most recent locked days: want 28.0 ((22+30+32)/3, day 1 outside the window), got %q", kids.AvgDailyKg)
+	// The family's kg per calendar day over the 3 most recent locked days:
+	// (22+200 + 30+200 + 32+200)/3 = 228.0. The Aug 11 day falls OUT of the
+	// window while remaining the consumption-start candidate.
+	if kids.AvgDailyKg != "228.0" {
+		t.Errorf("family rate over the 3 most recent locked days: want 228.0, got %q", kids.AvgDailyKg)
+	}
+	if kids.WeeklyRequiredKg != "1596.0" {
+		t.Errorf("week need is the same family rate x 7: want 1596.0, got %q", kids.WeeklyRequiredKg)
 	}
 	if kids.LastLoadBatchNo != 330 || kids.LastLoadDate != "2026-08-08" ||
 		kids.LastLoadQuantityKg != "1150.0" || kids.LastLoadVendor != "Navaladi" {
-		t.Errorf("last load details: %+v", kids)
+		t.Errorf("last load is the family's newest sack, whichever member it is: %+v", kids)
 	}
-	if kids.LedgerStockKg != "2596.0" {
-		t.Errorf("ledger stock: want 2596.0, got %+v", kids)
+	// THE FOLD: 2,596.0 kg of kids goat (2700 purchased - 104 directed) plus
+	// 400.0 kg of kids sheep (1200 - 800). Each member keeps its OWN ledger
+	// arithmetic and only the finished balances are summed, so a member's
+	// consumption is never counted from before its own load arrived.
+	if kids.LedgerStockKg != "2996.0" {
+		t.Errorf("family stock is the sum of the members' balances (2596.0 + 400.0): want 2996.0, got %+v", kids)
 	}
 	orphan := got.FarmItems[2]
 	if orphan.FarmLabel != "XYZ" || orphan.LastLoadConsumptionFrom != "" {
 		t.Errorf("park-less farm must serve with empty consumption, got %+v", orphan)
 	}
-	kidsSheep := got.FarmItems[3]
-	if kidsSheep.FeedItemLabel != "Mesha Kids Sheep Concentrate" || kidsSheep.FarmLabel != "CBE" {
-		t.Fatalf("row 3: %+v", kidsSheep)
-	}
-	if kidsSheep.LedgerStockKg != "400.0" {
-		t.Errorf("ledger stock must remain the current purchase-ledger balance, got %+v", kidsSheep)
-	}
-	// A first-ever load has no earlier stock, so FIFO starts it on the first
-	// locked day on/after its depletion date.
-	if kidsSheep.LastLoadConsumptionFrom != "2026-08-11" {
-		t.Errorf("single-load item starts on the first locked day on/after depletion (2026-08-11), got %q", kidsSheep.LastLoadConsumptionFrom)
+	if orphan.LedgerStockKg != "10.0" {
+		t.Errorf("park-less farm keeps its whole load: %+v", orphan)
 	}
 
 	t.Run("FarmItemsOneToManyMultipleDimensionsLoadsStayOneRowPerFarmItemAgainstLedgerStock", func(t *testing.T) {
 		if kids.LastLoadBatchNo != 330 {
 			t.Fatalf("multi-load row must collapse to the latest load: %+v", kids)
 		}
-		if kids.LastLoadQuantityKg != "1150.0" || kids.LedgerStockKg != "2596.0" {
+		if kids.LastLoadQuantityKg != "1150.0" || kids.LedgerStockKg != "2996.0" {
 			t.Fatalf("ledger stock must keep all purchased stock while last load shows only the latest purchase: %+v", kids)
 		}
 	})
 
 	t.Run("FarmItemsPaginationMultiPageBoundaryReturnsAllMeshaRowsWithDaysLeft", func(t *testing.T) {
-		if len(got.FarmItems) != 4 {
-			t.Fatalf("farm item table is unpaginated and bounded; want all 4 Mesha rows, got %d", len(got.FarmItems))
+		if len(got.FarmItems) != 3 {
+			t.Fatalf("farm item table is unpaginated and bounded; want all 3 family rows, got %d", len(got.FarmItems))
 		}
 	})
 
 	t.Run("FarmItemsParkScopeScopeHierarchyKeepsUnresolvedFarmBareAgainstLedgerStock", func(t *testing.T) {
-		if orphan.FarmLabel != "XYZ" || orphan.FeedItemKey != "mesha_kids_goat_concentrate" || orphan.LastLoadConsumptionFrom != "" {
+		if orphan.FarmLabel != "XYZ" || orphan.FeedItemKey != "mesha_kids_concentrate" || orphan.LastLoadConsumptionFrom != "" {
 			t.Fatalf("park scope join must not borrow CBE directed rows for unresolved farms: %+v", orphan)
 		}
 	})
 
 	// Stock cards are PER FARM: the same item bought at two farms must never
-	// collapse into one combined balance (maintainer decision 2026-08-21).
+	// collapse into one combined balance (maintainer decision 2026-08-21). The
+	// card and the table now read the SAME family, so a farm can no longer see
+	// one runway on the card and a different one in the table below it.
 	t.Run("StockCardsAreParkScopedNeverCombined", func(t *testing.T) {
 		var kidsCards []domain.StockItem
 		for _, it := range got.Items {
-			if it.FeedItemKey == "mesha_kids_goat_concentrate" {
+			if it.FeedItemKey == "mesha_kids_concentrate" {
 				kidsCards = append(kidsCards, it)
 			}
 		}
@@ -573,12 +587,13 @@ VALUES ($1, $2, $3, $4, $5, $6::date, $7::numeric, 41.5266, 1000, 0, DATE '2026-
 			byFarm[it.FarmLabel] = it
 		}
 		cbe, xyz := byFarm["CBE"], byFarm["XYZ"]
-		// CBE: 1550+1150 purchased, 104 kg locked-directed -> 2596.0 in store.
-		if cbe.BalanceKg != "2596.0" || cbe.AvgDailyKg != "28.0" {
+		// CBE: 2596.0 of goat + 400.0 of sheep -> 2996.0 in one store.
+		if cbe.BalanceKg != "2996.0" || cbe.AvgDailyKg != "228.0" {
 			t.Errorf("CBE card must hold only CBE's store: %+v", cbe)
 		}
-		if kids.LedgerStockKg != cbe.BalanceKg {
-			t.Errorf("farm table ledger must match stock card balance, table=%q card=%q", kids.LedgerStockKg, cbe.BalanceKg)
+		if kids.LedgerStockKg != cbe.BalanceKg || kids.AvgDailyKg != cbe.AvgDailyKg {
+			t.Errorf("farm table must agree with the card above it, table=%q/%q card=%q/%q",
+				kids.LedgerStockKg, kids.AvgDailyKg, cbe.BalanceKg, cbe.AvgDailyKg)
 		}
 		// XYZ resolves to no park: its 10 kg stays whole, no burn rate.
 		if xyz.BalanceKg != "10.000" && xyz.BalanceKg != "10.0" {
@@ -598,7 +613,7 @@ VALUES ($1, $2, $3, $4, $5, $6::date, $7::numeric, 41.5266, 1000, 0, DATE '2026-
 		if err != nil {
 			t.Fatalf("StockAnalytics: %v", err)
 		}
-		if len(again.FarmItems) != 4 {
+		if len(again.FarmItems) != 3 {
 			t.Fatalf("a third load must not add a row: %+v", again.FarmItems)
 		}
 		if again.FarmItems[1].LastLoadBatchNo != 340 {
@@ -607,21 +622,31 @@ VALUES ($1, $2, $3, $4, $5, $6::date, $7::numeric, 41.5266, 1000, 0, DATE '2026-
 	})
 
 	// PageBoundary/window independence: the farm table is a whole-ledger
-	// aggregate — the page's expenditure date window must not move it.
+	// aggregate — the page's expenditure date window must not move it. Compared
+	// against a full-window read taken at the SAME moment, because the subtests
+	// above have since added a load.
 	t.Run("PageBoundaryFreeWindowIndependence", func(t *testing.T) {
 		day := time.Date(2026, 8, 12, 0, 0, 0, 0, biztime.DefaultLocation())
 		narrow, err := repo.StockAnalytics(ctx, fdiTenant, domain.DirectedAnalyticsQuery{DateFrom: day, DateTo: day})
 		if err != nil {
 			t.Fatalf("StockAnalytics narrow: %v", err)
 		}
-		if len(narrow.FarmItems) != 4 || narrow.FarmItems[3].LastLoadConsumptionFrom != "2026-08-11" {
-			t.Errorf("date window must not change the farm table: %+v", narrow.FarmItems)
+		full, err := repo.StockAnalytics(ctx, fdiTenant, domain.DirectedAnalyticsQuery{})
+		if err != nil {
+			t.Fatalf("StockAnalytics full: %v", err)
+		}
+		if !reflect.DeepEqual(narrow.FarmItems, full.FarmItems) {
+			t.Errorf("date window must not change the farm table:\nnarrow=%+v\nfull=%+v", narrow.FarmItems, full.FarmItems)
+		}
+		if len(narrow.FarmItems) != 3 {
+			t.Errorf("want 3 family rows, got %+v", narrow.FarmItems)
 		}
 	})
 
 	// FIFO both ways: a new load stays un-started while earlier stock remains,
 	// and once the earlier stock is small enough to be crossed, the start day is
-	// the crossing day — but never before the load's own depletion date.
+	// the crossing day — but never before the load's own depletion date. Both
+	// sides read the FAMILY, so a sibling member's sacks count as earlier stock.
 	t.Run("ConsumptionFromStartsOnlyWhenEarlierStockRunsOut", func(t *testing.T) {
 		if _, err := pool.Exec(ctx, `
 INSERT INTO feed_purchases (tenant_id, park_id, farm_label, feed_item_label, batch_no,
@@ -641,17 +666,18 @@ VALUES ($1, $2, 'CBE', 'Mesha Kids Goat Concentrate', 350,
 			t.Fatalf("newest purchase date must win last-load: %+v", row)
 		}
 		if row.LastLoadConsumptionFrom != "" {
-			t.Errorf("2700 kg of earlier stock remains, the new load must show not-started: got %q", row.LastLoadConsumptionFrom)
+			t.Errorf("3950 kg of earlier family stock remains, the new load must show not-started: got %q", row.LastLoadConsumptionFrom)
 		}
 
-		// Shrink the earlier stock to 40 kg (and drop the interim loads): the
-		// cumulative directed crosses 40 kg on 2026-08-12 (20+22), but the load
-		// only depletes from 2026-08-13 — the start day must be gated by the
-		// load's own arrival, not just the crossing.
+		// Shrink the earlier family stock to 80 kg (40 kg of each member, and
+		// drop the interim goat loads): the cumulative family draw crosses 80 kg
+		// on 2026-08-11, but the load only depletes from 2026-08-13 — the start
+		// day must be gated by the load's own arrival, not just the crossing.
 		if _, err := pool.Exec(ctx, `
 UPDATE feed_purchases SET quantity_kg = 40 WHERE tenant_id = $1 AND farm_label = 'CBE'
-  AND feed_item_key = 'mesha_kids_goat_concentrate' AND batch_no = 298`, fdiTenant); err != nil {
-			t.Fatalf("shrink first load: %v", err)
+  AND feed_item_key IN ('mesha_kids_goat_concentrate', 'mesha_kids_sheep_concentrate')
+  AND batch_no IN (298, 329)`, fdiTenant); err != nil {
+			t.Fatalf("shrink earlier family loads: %v", err)
 		}
 		if _, err := pool.Exec(ctx, `
 DELETE FROM feed_purchases WHERE tenant_id = $1 AND farm_label = 'CBE'
@@ -2336,6 +2362,10 @@ VALUES ($1, $2, 'CBE', $3, $4, DATE '2026-08-09', $5::numeric, 40, 1000, 0, DATE
 // reads as ONE card whose stock is the sum of its members' balances and whose
 // burn rate is the family's kg per CALENDAR DAY.
 //
+// It pins the per-farm TABLE on the same fixture (maintainer decision
+// 2026-09-10), because the two surfaces sit one above the other and a farm that
+// reads two different runways for one feed has no true number on the tab.
+//
 // The fixture is adversarial on the three ways this can be got wrong:
 //
 //  1. SUBSTITUTION. Day one feeds the two old adult feeds; day two feeds the
@@ -2516,6 +2546,108 @@ VALUES ($1, $2, 'CBE', $3, $4, DATE '2026-08-09', $5::numeric, 40, 1000, 0, DATE
 			t.Errorf("`not started` and `low stock` are disjoint: %+v", it)
 		}
 	}
+
+	// The per-farm table under the cards reads the SAME family (maintainer
+	// decision 2026-09-10). It is asserted on THIS fixture rather than its own
+	// because the substitution day is what separates a family rate from a sum of
+	// member rates: a table that folded stock but kept per-item averages would
+	// pass every assertion above and still print 240 kg/day here.
+	t.Run("FarmTableOneToManyPageBoundaryParkScopeStatusBucketsReadTheSameFamilyAsTheCard", func(t *testing.T) {
+		byFamily := map[string]domain.StockFarmItem{}
+		for _, fi := range got.FarmItems {
+			if _, dup := byFamily[fi.FeedItemKey]; dup {
+				t.Fatalf("a family must serve ONE table row per farm, got a second %q: %+v", fi.FeedItemKey, got.FarmItems)
+			}
+			byFamily[fi.FeedItemKey] = fi
+		}
+		if len(byFamily) != 2 {
+			t.Fatalf("want exactly the 2 family rows (the retired members folded in, non-Mesha excluded), got %d: %+v", len(byFamily), got.FarmItems)
+		}
+		for _, gone := range []string{
+			"mesha_adult_concentrate_goat", "mesha_adult_concentrate_sheep",
+			"mesha_kids_goat_concentrate", "hedge_lucerne",
+		} {
+			if fi, ok := byFamily[gone]; ok {
+				t.Errorf("%q must not hold a row of its own: %+v", gone, fi)
+			}
+		}
+
+		adultRow := byFamily["mesha_adult_concentrate"]
+		if adultRow.FeedItemLabel != "Mesha Adult Concentrate" || adultRow.FarmLabel != "CBE" {
+			t.Errorf("the row is titled with the feed the farm buys NOW: %+v", adultRow)
+		}
+		if adultRow.LedgerStockKg != adult.BalanceKg {
+			t.Errorf("table stock must equal the card above it: table=%q card=%q", adultRow.LedgerStockKg, adult.BalanceKg)
+		}
+		if adultRow.AvgDailyKg != "120.0" {
+			t.Errorf("family kg per CALENDAR DAY: want 120.0, got %q (240 means the members' rates were summed)", adultRow.AvgDailyKg)
+		}
+		if adultRow.WeeklyRequiredKg != "840.0" {
+			t.Errorf("week need is that same rate x 7: want 840.0, got %q", adultRow.WeeklyRequiredKg)
+		}
+		// Every member was bought on one date, so the family's newest sack is
+		// decided by batch: the successor's own load, not a retired member's.
+		if adultRow.LastLoadBatchNo != 402 || adultRow.LastLoadQuantityKg != "1000.0" {
+			t.Errorf("last load is the family's newest sack: %+v", adultRow)
+		}
+
+		kidsRow := byFamily["mesha_kids_concentrate"]
+		if kidsRow.LedgerStockKg != kids.BalanceKg || kidsRow.AvgDailyKg != kids.AvgDailyKg {
+			t.Errorf("kids table row must equal its card: table=%q/%q card=%q/%q",
+				kidsRow.LedgerStockKg, kidsRow.AvgDailyKg, kids.BalanceKg, kids.AvgDailyKg)
+		}
+		if kidsRow.LastLoadBatchNo != 404 {
+			t.Errorf("kids last load: %+v", kidsRow)
+		}
+
+		// STATUS BUCKETS on the folded row, each decided by the FAMILY. The
+		// buckets a table row can sit in are: a rate to divide by, no rate at
+		// all, and absent. A retired MEMBER stays inside its family; a retired
+		// feed with no successor, and a non-Mesha feed, stay absent.
+		for _, member := range []string{"Mesha Adult Concentrate Sheep", "Mesha Kids Goat Concentrate"} {
+			if strings.Contains(adultRow.FeedItemLabel+kidsRow.FeedItemLabel, member) {
+				t.Errorf("a member must never title a row: %q", member)
+			}
+		}
+		if adultRow.AvgDailyKg == "" || kidsRow.AvgDailyKg == "" {
+			t.Errorf("both families are being fed and must carry a rate: adult=%q kids=%q", adultRow.AvgDailyKg, kidsRow.AvgDailyKg)
+		}
+		// The retired sheep member is overdrawn (bought 10, fed 20). Its -10 kg
+		// is inside the family total, so the row can only be right if the fold
+		// subtracted rather than floored it.
+		if adultRow.LedgerStockKg != "1070.0" {
+			t.Errorf("family stock must subtract the overdrawn member, not floor it: want 1070.0, got %q", adultRow.LedgerStockKg)
+		}
+
+		// PAGE BOUNDARY: the table is unpaginated and bounded, and the page's
+		// own expenditure window must not move it — the whole family set comes
+		// back on a one-day window exactly as on the default one.
+		day := time.Date(2026, 8, 12, 0, 0, 0, 0, biztime.DefaultLocation())
+		narrow, err := repo.StockAnalytics(ctx, fdiTenant, domain.DirectedAnalyticsQuery{DateFrom: day, DateTo: day})
+		if err != nil {
+			t.Fatalf("StockAnalytics narrow: %v", err)
+		}
+		if !reflect.DeepEqual(narrow.FarmItems, got.FarmItems) {
+			t.Errorf("a date window must not change the family table:\nnarrow=%+v\nfull=%+v", narrow.FarmItems, got.FarmItems)
+		}
+
+		// PARK SCOPE: the fold must not leak a family across the scope filter.
+		// A foreign park serves nothing; this park serves the same two rows.
+		foreign, err := repo.StockAnalytics(ctx, fdiTenant, domain.DirectedAnalyticsQuery{ParkIDs: []uuid.UUID{uuid.New()}})
+		if err != nil {
+			t.Fatalf("StockAnalytics foreign scope: %v", err)
+		}
+		if len(foreign.FarmItems) != 0 {
+			t.Errorf("foreign park scope must serve zero family rows, got %+v", foreign.FarmItems)
+		}
+		scoped, err := repo.StockAnalytics(ctx, fdiTenant, domain.DirectedAnalyticsQuery{ParkIDs: []uuid.UUID{uuid.MustParse(fdiPark)}})
+		if err != nil {
+			t.Fatalf("StockAnalytics scoped: %v", err)
+		}
+		if !reflect.DeepEqual(scoped.FarmItems, got.FarmItems) {
+			t.Errorf("this park's scope must serve exactly its own families:\nscoped=%+v\nall=%+v", scoped.FarmItems, got.FarmItems)
+		}
+	})
 }
 
 // TestStockCardsFoldHoldsUnderParkScopeWithNoPageBoundary pins the two grain

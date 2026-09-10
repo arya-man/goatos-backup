@@ -8277,7 +8277,7 @@ export interface components {
             /** @description Stock on hand that has never been drawn -- a positive balance with no burn rate. The card names the kg in store and says feeding has not begun. Rows are already scoped to the farm's ACTIVE feed vocabulary (feed_item_catalog), so a retired feed is absent from this list rather than arriving as a card the client must know to drop. */
             not_started: boolean;
         };
-        /** @description One (farm, Mesha concentrate) row of the Stock tab's per-farm purchase/consumption table. Covers the four in-house Mesha concentrate feeds only (maintainer decision 2026-08-21). Consumption figures come from LOCKED GoatOS feed sheets. */
+        /** @description One (farm, Mesha concentrate FAMILY) row of the Stock tab's per-farm purchase/consumption table. Covers the in-house Mesha concentrate feeds only (maintainer decision 2026-08-21), folded to the two the farm buys today: the retired split feeds are counted inside their successor, stock as the sum of the members' balances and the rate as the family's kg per calendar day (maintainer decision 2026-09-10). Consumption figures come from LOCKED GoatOS feed sheets. */
         FeedAnalyticsStockFarmItem: {
             farm_label: string;
             feed_item_label: string;

@@ -2064,12 +2064,33 @@ FROM priced`
 
 // Per-farm Mesha-concentrate purchase/consumption table (Stock tab).
 //
-// projection-review: membership=feed_purchases at its (tenant, farm_label, feed_item_key, batch_no) natural key, filtered to MeshaConcentrateStockKeys; group_key=(farm_label, feed_item_key) on both purchase sides — loads GROUP BY that pair and last_load is DISTINCT ON the same pair so they meet exactly 1:1, while the directed side collapses locked issue-row cells to (park_id, feed_item_key) before joining and one farm_label resolves to exactly one park (the importer maps CBE/CPT to the tenant's park locations) -- load_consumption is a FIFO crossing: locked_cells is one row per (park, feed_item_key, feed_day), so the running SUM window per (farm_label, feed_item_key) sees each day once, and MIN(feed_day) over the crossing days collapses back to one row per pair; join_cardinality=loads JOIN last_load 1:1, LEFT JOIN directed 1:0..1, LEFT JOIN load_consumption 1:0..1, no side left unaggregated; pagination=none — a handful of named items across a tenant's farms is a bounded table with no limit/offset input; scope=tenant_id everywhere plus the caller's authorized park set on both purchases and sheets.
+// FAMILY GRAIN (maintainer decision 2026-09-10): the row grain is (farm_label,
+// family_key) -- the SAME transitional fold the stock cards above the table use
+// (domain.StockFamilyMerge) -- so the table lists exactly the two concentrates
+// the farm buys today, one row per farm, and its stock and burn rate agree with
+// the card above it. Before this it listed each retired split feed on its own
+// row, and a farm reading "29.2 kg of adult sheep" beside "1,830.6 kg of adult"
+// had to add them up itself to learn its adult runway.
 //
-// scale-guard:ignore: 5k-50k-envelope — bounded four-item aggregate over the
+// The retired members are still READ -- they are named in
+// MeshaConcentrateStockKeys precisely so their leftover stock is counted -- they
+// simply no longer get a row of their own. An EMPTY mapping leaves every item
+// its own family and restores the per-item table exactly, which is how this
+// reverts along with the cards.
+//
+// projection-review: membership=feed_purchases at its (tenant, farm_label, feed_item_key, batch_no) natural key, filtered to MeshaConcentrateStockKeys and folded to (farm_label, family_key); group_key=(farm_label, feed_item_key) on both purchase sides — loads GROUP BY that pair and last_load is DISTINCT ON the same pair so they meet exactly 1:1, while the directed side collapses locked issue-row cells to (park_id, feed_item_key) before joining and one farm_label resolves to exactly one park (the importer maps CBE/CPT to the tenant's park locations) -- load_consumption is a FIFO crossing: locked_cells is one row per (park, feed_item_key, feed_day), so the running SUM window per (farm_label, feed_item_key) sees each day once, and MIN(feed_day) over the crossing days collapses back to one row per pair; join_cardinality=loads JOIN last_load 1:1, LEFT JOIN directed 1:0..1, LEFT JOIN load_consumption 1:0..1, no side left unaggregated; pagination=none — a handful of named items across a tenant's farms is a bounded table with no limit/offset input; scope=tenant_id everywhere plus the caller's authorized park set on both purchases and sheets.
+//
+// scale-guard:ignore: 5k-50k-envelope — bounded named-item aggregate over the
 // small purchase ledger and locked sheets, canonical-indexed-SQL default.
 const stockFarmItemsSQL = `
-WITH loads AS (
+WITH merge_map AS (
+    -- TRANSITIONAL split-concentrate merge (domain.StockFamilyMerge), the SAME
+    -- fold the stock cards use. An EMPTY mapping leaves every item its own
+    -- family and reduces this query to the per-item shape it had before.
+    SELECT m.member_key, m.family_key, m.family_label
+    FROM unnest($4::text[], $5::text[], $6::text[]) AS m(member_key, family_key, family_label)
+),
+loads AS (
     SELECT farm_label, feed_item_key,
            MAX(feed_item_label) AS feed_item_label,
            MIN(park_id::text)   AS park_id_text,
@@ -2081,18 +2102,6 @@ WITH loads AS (
 	  AND (coalesce(cardinality($2::uuid[]), 0) = 0 OR park_id = ANY ($2::uuid[]))
       AND feed_item_key = ANY ($3::text[])
     GROUP BY farm_label, feed_item_key
-),
-last_load AS (
-    SELECT DISTINCT ON (farm_label, feed_item_key)
-           farm_label, feed_item_key,
-           batch_no, purchase_date, stock_kg, vendor, total_cost, per_kg_cost,
-           depletes_from, ` + feedPurchaseStockKgSQL + ` - consumed_at_import_kg AS net_kg
-	FROM feed_purchases
-	WHERE tenant_id = $1
-	  AND delivery_status = 'reached'
-	  AND (coalesce(cardinality($2::uuid[]), 0) = 0 OR park_id = ANY ($2::uuid[]))
-      AND feed_item_key = ANY ($3::text[])
-    ORDER BY farm_label, feed_item_key, depletes_from DESC, purchase_date DESC, batch_no DESC
 ),
 locked_cells AS (
     SELECT i.park_id, r.feed_item_key, i.feed_day, SUM(r.quantity_kg) AS kg
@@ -2106,43 +2115,6 @@ locked_cells AS (
       AND r.quantity_kg IS NOT NULL
     GROUP BY i.park_id, r.feed_item_key, i.feed_day
 ),
-directed AS (
-    SELECT park_id, feed_item_key,
-           AVG(kg) FILTER (WHERE rn <= 3) AS recent_avg_kg
-    FROM (
-        SELECT park_id, feed_item_key, feed_day, kg,
-               ROW_NUMBER() OVER (PARTITION BY park_id, feed_item_key ORDER BY feed_day DESC) AS rn
-        FROM locked_cells
-    ) ranked
-    GROUP BY park_id, feed_item_key
-),
--- FIFO: a load is consumed only after every EARLIER load's stock is used up.
--- The latest load's consumption therefore starts on the first locked feed day
--- whose cumulative directed kg (since the ledger start) exceeds the net kg of
--- all earlier loads — and never before the load's own depletion date. No
--- crossing yet means the previous stock is still being fed: empty, not a date.
-load_consumption AS (
-    SELECT farm_label, feed_item_key, MIN(feed_day) AS consumption_from
-    FROM (
-        SELECT l.farm_label, l.feed_item_key, lc.feed_day,
-               ll.depletes_from                AS last_load_from,
-               l.net_kg - ll.net_kg            AS prior_net_kg,
-               SUM(lc.kg) OVER (PARTITION BY l.farm_label, l.feed_item_key
-                                ORDER BY lc.feed_day) AS cum_kg
-        FROM loads l
-        JOIN last_load ll
-          ON ll.farm_label = l.farm_label
-         AND ll.feed_item_key = l.feed_item_key
-        JOIN locked_cells lc
-          ON l.park_id_text IS NOT NULL
-         AND lc.park_id = l.park_id_text::uuid
-         AND lc.feed_item_key = l.feed_item_key
-         AND lc.feed_day >= l.depletes_from
-    ) fifo
-    WHERE cum_kg > prior_net_kg
-      AND feed_day >= last_load_from
-    GROUP BY farm_label, feed_item_key
-),
 depletion AS (
     SELECT l.farm_label,
            l.feed_item_key,
@@ -2155,27 +2127,128 @@ depletion AS (
      AND lc.feed_day >= l.depletes_from
     GROUP BY l.farm_label, l.feed_item_key
 ),
+-- Each MEMBER keeps its OWN ledger arithmetic — net purchased minus everything
+-- directed since ITS depletion date — and only the finished balance is folded
+-- into the family, exactly as the cards do it. Merging the purchases first
+-- would collapse the members' differing depletes_from into one MIN and count
+-- consumption that predates a member's own load.
 stock_balance AS (
     SELECT l.farm_label,
            l.feed_item_key,
+           COALESCE(mm.family_key, l.feed_item_key)     AS family_key,
+           COALESCE(mm.family_label, l.feed_item_label) AS family_label,
+           l.park_id_text,
+           l.net_kg,
+           l.depletes_from,
            round(l.net_kg - COALESCE(dep.total_directed_kg, 0), 1) AS ledger_stock_kg
     FROM loads l
+    LEFT JOIN merge_map mm ON mm.member_key = l.feed_item_key
     LEFT JOIN depletion dep
       ON dep.farm_label = l.farm_label
      AND dep.feed_item_key = l.feed_item_key
+),
+families AS (
+    -- SUM, not SUM of GREATEST(...,0): a member's negative balance means the
+    -- farm fed more than the ledger bought, and in a merged store that feed
+    -- physically came out of a sibling sack — so subtracting it is both the
+    -- truer figure and the more conservative one, the same rule the cards apply.
+    SELECT farm_label, family_key,
+           MAX(family_label)     AS family_label,
+           MIN(park_id_text)     AS park_id_text,
+           SUM(net_kg)           AS net_kg,
+           MIN(depletes_from)    AS depletes_from,
+           SUM(ledger_stock_kg)  AS ledger_stock_kg
+    FROM stock_balance
+    GROUP BY farm_label, family_key
+),
+last_load AS (
+    -- The family's newest sack, whichever member it is: in a store feeding the
+    -- members interchangeably that is the load the farm just opened.
+    SELECT DISTINCT ON (farm_label, family_key) *
+    FROM (
+        SELECT fp.farm_label,
+               COALESCE(mm.family_key, fp.feed_item_key) AS family_key,
+               fp.batch_no, fp.purchase_date, fp.stock_kg, fp.vendor,
+               fp.total_cost, fp.per_kg_cost, fp.depletes_from,
+               ` + feedPurchaseStockKgSQL + ` - fp.consumed_at_import_kg AS net_kg
+	    FROM feed_purchases fp
+	    LEFT JOIN merge_map mm ON mm.member_key = fp.feed_item_key
+	    WHERE fp.tenant_id = $1
+	      AND fp.delivery_status = 'reached'
+	      AND (coalesce(cardinality($2::uuid[]), 0) = 0 OR fp.park_id = ANY ($2::uuid[]))
+          AND fp.feed_item_key = ANY ($3::text[])
+    ) fam
+    ORDER BY farm_label, family_key, depletes_from DESC, purchase_date DESC, batch_no DESC
+),
+family_day AS (
+    -- Consumption re-grouped to the FAMILY before the daily average, so two
+    -- members feeding the same pens on the same day count once and a member
+    -- SUBSTITUTED for another does not inflate the rate.
+    SELECT lc.park_id,
+           COALESCE(mm.family_key, lc.feed_item_key) AS family_key,
+           lc.feed_day,
+           SUM(lc.kg)                                AS kg
+    FROM locked_cells lc
+    LEFT JOIN merge_map mm ON mm.member_key = lc.feed_item_key
+    GROUP BY lc.park_id, COALESCE(mm.family_key, lc.feed_item_key), lc.feed_day
+),
+directed AS (
+    SELECT park_id, family_key,
+           AVG(kg) FILTER (WHERE rn <= 3) AS recent_avg_kg
+    FROM (
+        SELECT park_id, family_key, feed_day, kg,
+               ROW_NUMBER() OVER (PARTITION BY park_id, family_key ORDER BY feed_day DESC) AS rn
+        FROM family_day
+    ) ranked
+    GROUP BY park_id, family_key
+),
+-- FIFO: a load is consumed only after every EARLIER load's stock is used up.
+-- The latest load's consumption therefore starts on the first locked feed day
+-- whose cumulative directed kg (since the ledger start) exceeds the net kg of
+-- all earlier loads — and never before the load's own depletion date. No
+-- crossing yet means the previous stock is still being fed: empty, not a date.
+-- Both sides read the FAMILY, so a sibling member's sacks count as earlier
+-- stock — which is what the store actually holds.
+load_consumption AS (
+    SELECT farm_label, family_key, MIN(feed_day) AS consumption_from
+    FROM (
+        SELECT f.farm_label, f.family_key, fd.feed_day,
+               ll.depletes_from                AS last_load_from,
+               f.net_kg - ll.net_kg            AS prior_net_kg,
+               SUM(fd.kg) OVER (PARTITION BY f.farm_label, f.family_key
+                                ORDER BY fd.feed_day) AS cum_kg
+        FROM families f
+        JOIN last_load ll
+          ON ll.farm_label = f.farm_label
+         AND ll.family_key = f.family_key
+        JOIN family_day fd
+          ON f.park_id_text IS NOT NULL
+         AND fd.park_id = f.park_id_text::uuid
+         AND fd.family_key = f.family_key
+         AND fd.feed_day >= f.depletes_from
+    ) fifo
+    WHERE cum_kg > prior_net_kg
+      AND feed_day >= last_load_from
+    GROUP BY farm_label, family_key
 )
 -- projection-review: membership=feed_purchases at (tenant, farm_label, feed_item_key, batch_no)
--- filtered to MeshaConcentrateStockKeys; group_key=(farm_label, feed_item_key) on every side,
--- loads GROUP BY that pair, last_load is DISTINCT ON the same pair, and load_consumption
--- pre-aggregates its FIFO crossing days to MIN(feed_day) per pair; join_cardinality=loads
--- JOIN last_load 1:1, LEFT JOIN directed 1:0..1, LEFT JOIN load_consumption 1:0..1, LEFT JOIN
--- stock_balance 1:0..1, no side left unaggregated, and weekly_required_kg is a scalar multiple
--- of the same recent_avg_kg rather than a differently-grouped sum; pagination=none, a handful of named items
--- across a tenant's farms is bounded with no limit/offset input; scope=tenant_id everywhere
--- plus the caller's authorized park set.
-SELECT l.farm_label,
-       l.feed_item_label,
-       l.feed_item_key,
+-- filtered to MeshaConcentrateStockKeys and folded to (farm_label, family_key) by merge_map, which
+-- is unique on member_key so no LEFT JOIN mm can fan a purchase or a locked cell out;
+-- group_key=(farm_label, family_key) on every side — families GROUPs the per-member balances by
+-- that pair, last_load is DISTINCT ON the same pair, directed reaches it through (park_id,
+-- family_key) and one farm_label resolves to exactly one park, and load_consumption pre-aggregates
+-- its FIFO crossing days to MIN(feed_day) per pair; join_cardinality=families JOIN last_load 1:1,
+-- LEFT JOIN directed 1:0..1, LEFT JOIN load_consumption 1:0..1, no side left unaggregated, and
+-- weekly_required_kg is a scalar multiple of the same recent_avg_kg rather than a differently-
+-- grouped sum; the stock numerator (summed member balances) and the rate denominator (family kg
+-- per calendar day) range over the IDENTICAL family key set, which is the point of the fold —
+-- summing the members' separate 3-day averages instead ranged the denominator over a per-ITEM key
+-- set and read 40% high on a substituted day; pagination=none, a handful of named families across
+-- a tenant's farms is bounded with no limit/offset input; scope=tenant_id everywhere plus the
+-- caller's authorized park set.
+SELECT f.farm_label,
+       f.family_label,
+       f.family_key,
        COALESCE(lcons.consumption_from::text, '')    AS last_load_consumption_from,
        COALESCE(round(d.recent_avg_kg, 1)::text, '') AS avg_daily_kg,
        COALESCE(round(d.recent_avg_kg * 7, 1)::text, '') AS weekly_required_kg,
@@ -2185,22 +2258,19 @@ SELECT l.farm_label,
        ll.vendor,
        COALESCE(round(ll.total_cost, 0)::text, '') AS last_total_cost,
        COALESCE(round(ll.per_kg_cost, 2)::text, '') AS last_per_kg_cost,
-       sb.ledger_stock_kg::text
-FROM loads l
+       round(f.ledger_stock_kg, 1)::text AS ledger_stock_kg
+FROM families f
 JOIN last_load ll
-  ON ll.farm_label = l.farm_label
- AND ll.feed_item_key = l.feed_item_key
+  ON ll.farm_label = f.farm_label
+ AND ll.family_key = f.family_key
 LEFT JOIN directed d
-  ON l.park_id_text IS NOT NULL
- AND d.park_id = l.park_id_text::uuid
- AND d.feed_item_key = l.feed_item_key
+  ON f.park_id_text IS NOT NULL
+ AND d.park_id = f.park_id_text::uuid
+ AND d.family_key = f.family_key
 LEFT JOIN load_consumption lcons
-  ON lcons.farm_label = l.farm_label
- AND lcons.feed_item_key = l.feed_item_key
-LEFT JOIN stock_balance sb
-  ON sb.farm_label = l.farm_label
- AND sb.feed_item_key = l.feed_item_key
-ORDER BY l.feed_item_label, l.farm_label`
+  ON lcons.farm_label = f.farm_label
+ AND lcons.family_key = f.family_key
+ORDER BY f.family_label, f.farm_label`
 
 const stockRevisionSQL = `
 WITH purchase_rev AS (
@@ -2396,7 +2466,9 @@ func (r *Repository) stockItems(ctx context.Context, tenantID string, parkIDs []
 }
 
 func (r *Repository) stockFarmItems(ctx context.Context, tenantID string, parkIDs []uuid.UUID) ([]domain.StockFarmItem, error) {
-	rows, err := r.pool.Query(ctx, stockFarmItemsSQL, tenantID, parkIDs, domain.MeshaConcentrateStockKeys)
+	mergeMembers, mergeFamilies, mergeLabels := domain.StockFamilyMergeArrays()
+	rows, err := r.pool.Query(ctx, stockFarmItemsSQL, tenantID, parkIDs, domain.MeshaConcentrateStockKeys,
+		mergeMembers, mergeFamilies, mergeLabels)
 	if err != nil {
 		return nil, fmt.Errorf("feed analytics stock farm items: %w", err)
 	}
