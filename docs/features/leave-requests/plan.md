@@ -24,7 +24,7 @@ assumptions the maintainer has not yet confirmed.
 
 ## 2. Shape
 
-### 2.1 Storage (migration `000287_workforce_leave_requests.sql`)
+### 2.1 Storage (migration `000288_workforce_leave_requests.sql`)
 
 `workforce_leave_requests` — one row per request, the two approver slots as columns
 because the slots are fixed by decision 2, not a variable list:

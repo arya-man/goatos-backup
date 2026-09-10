@@ -123,7 +123,7 @@ no other job role, and NOTHING park-scoped. Nobody is named yet; when the mainta
 acting HR, add them to `perPersonGrants` in `backend/cmd/seed-stg-login-grants/approvers.go`
 and run `make seed-stg-9-person-login`. The park head signs the other line through the
 `park_head` job (tenant-scoped grant seated by `workforce_members.primary_location_id`).
-Catalog row and designation: migration `000287`. Canonical prose:
+Catalog row and designation: migration `000288`. Canonical prose:
 `docs/decisions/leave-requests.md`.
 
 ## Dormant Catalog Roles
