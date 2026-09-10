@@ -2810,7 +2810,7 @@ LIMIT $9 OFFSET $10`
 
 // scale-guard:ignore: 5k-50k-envelope — same canonical read as countsBreakdownPageSQL.
 //
-// projection-review: membership=identical to countsBreakdownPageSQL by construction (shared CTE const), re-rolled into four one-dimensional series plus the stage x sex cross-tab; group_key=one of breed | management_stage | sex | shed_id | (management_stage, sex) per UNION branch -- the cross-tab groups one key DEEPER than the stage branch over the same rows, so summing its sex rows for a stage reproduces that stage's own bar exactly; join_cardinality=only the shed branch joins locations, on the (tenant_id, location_id) primary key, so 1:{0,1} with no fan-out, the other three branches join nothing; pagination=every series is a whole-result rollup of the full grouped set, independent of the detail table limit/offset; scope=same tenant plus farm/park/shed/stage/breed/sex predicates as the page query
+// projection-review: membership=identical to countsBreakdownPageSQL by construction (shared CTE const), re-rolled into four one-dimensional series plus the stage x sex cross-tab; the two stage branches LEFT JOIN animal_stage_lookup on its unique (tenant_id, stage_code) for a LABEL ONLY -- strict 1:{0,1}, no identity, cannot multiply a count, and sl.name is functionally dependent on the stage so adding it to the GROUP BY cannot split one stage into two bars; group_key=one of breed | management_stage | sex | shed_id | (management_stage, sex) per UNION branch -- the cross-tab groups one key DEEPER than the stage branch over the same rows, so summing its sex rows for a stage reproduces that stage's own bar exactly; join_cardinality=only the shed branch joins locations, on the (tenant_id, location_id) primary key, so 1:{0,1} with no fan-out, the other three branches join nothing; pagination=every series is a whole-result rollup of the full grouped set, independent of the detail table limit/offset; scope=same tenant plus farm/park/shed/stage/breed/sex predicates as the page query
 //
 // GRAIN (maintainer decision 2026-08-12), SUPERSEDING the parent-shed roll-up this branch used to
 // carry ("rolled up ACROSS partitions so the chart never fragments one physical shed into N tiny
@@ -2840,8 +2840,11 @@ SELECT 'breed' AS dimension, gr.breed AS series_key, gr.breed AS series_label, s
        '' AS park_label, '' AS partition_label, '' AS series_sex
 FROM grouped gr GROUP BY gr.breed
 UNION ALL
-SELECT 'stage', gr.management_stage, gr.management_stage, sum(gr.animal_count), '', '', ''
-FROM grouped gr GROUP BY gr.management_stage
+SELECT 'stage', gr.management_stage, COALESCE(sl.name, ''), sum(gr.animal_count), '', '', ''
+FROM grouped gr
+LEFT JOIN animal_stage_lookup sl
+       ON sl.tenant_id = $1::uuid AND sl.stage_code = gr.management_stage
+GROUP BY gr.management_stage, sl.name
 UNION ALL
 SELECT 'sex', gr.sex, gr.sex, sum(gr.animal_count), '', '', ''
 FROM grouped gr GROUP BY gr.sex
@@ -2854,8 +2857,11 @@ UNION ALL
 -- The SEX travels in its own column rather than being folded into series_key. A composite key
 -- would have to be split apart again in Go, and a stage label containing the separator would
 -- split in the wrong place; the guard against that is not encoding it in the first place.
-SELECT 'stage_sex', gr.management_stage, gr.management_stage, sum(gr.animal_count), '', '', gr.sex
-FROM grouped gr GROUP BY gr.management_stage, gr.sex
+SELECT 'stage_sex', gr.management_stage, COALESCE(sl.name, ''), sum(gr.animal_count), '', '', gr.sex
+FROM grouped gr
+LEFT JOIN animal_stage_lookup sl
+       ON sl.tenant_id = $1::uuid AND sl.stage_code = gr.management_stage
+GROUP BY gr.management_stage, sl.name, gr.sex
 UNION ALL
 SELECT * FROM (
   -- One bar PER PEN. The label is NOT composed here: this returns the shed name, the raw partition
@@ -2957,14 +2963,17 @@ WHERE g.tenant_id = $1::uuid
   AND g.merged_into_goat_id IS NULL
 GROUP BY g.lifecycle_status
 UNION ALL
+-- projection-review: membership=canonical live goats for the tenant, deliberately WITHOUT a stage predicate (a facet must never filter by its own dimension); group_key=COALESCE(management_stage,'') plus sl.name, which is FUNCTIONALLY DEPENDENT on it -- animal_stage_lookup is unique on (tenant_id, stage_code), so adding the name to the GROUP BY cannot split one stage into two rows; join_cardinality=animal_stage_lookup LEFT JOINed once on that unique key, a strict 1:{0,1} LABEL-ONLY lookup that supplies no identity and cannot multiply the COUNT (a stage with no lookup row keeps its code, which is what StageDisplayLabel falls back to); pagination=whole-result rollup, never paged and never capped; scope=tenant_id plus the lifecycle predicate shared by every facet branch
 SELECT 'stage' AS dimension, COALESCE(g.management_stage, '') AS series_key,
-       COALESCE(g.management_stage, '') AS series_label, count(*) AS series_count,
+       COALESCE(sl.name, '') AS series_label, count(*) AS series_count,
        ''::text AS park_key, ''::text AS partition_key
 FROM goats g
+LEFT JOIN animal_stage_lookup sl
+       ON sl.tenant_id = $1::uuid AND sl.stage_code = g.management_stage
 WHERE g.tenant_id = $1::uuid
   AND g.merged_into_goat_id IS NULL
   AND ($2 = '' OR g.lifecycle_status = $2)
-GROUP BY COALESCE(g.management_stage, '')
+GROUP BY COALESCE(g.management_stage, ''), sl.name
 UNION ALL
 -- projection-review: membership=canonical live goats for the tenant, deliberately WITHOUT a breed predicate (a facet must never filter by its own dimension); group_key=breed alone -- this branch carries no location grain at all, and the two trailing ''::text columns exist only to keep every UNION branch the same arity now that the shed branches also emit a partition label; join_cardinality=no joins in this branch, so nothing can fan out; pagination=whole-result rollup, never paged and never capped; scope=tenant_id plus the lifecycle predicate shared by every facet branch
 SELECT 'breed', COALESCE(g.breed, ''), COALESCE(g.breed, ''), count(*), ''::text, ''::text
@@ -3226,6 +3235,12 @@ func (r *Repository) GetCountsBreakdown(ctx context.Context, req domain.CountsBr
 			chartRows.Close()
 			return domain.CountsBreakdown{}, fmt.Errorf("counts breakdown: charts scan: %w", err)
 		}
+		if dimension == "stage" || dimension == "stage_sex" {
+			// `label` arrived as the CONFIGURED NAME; the reader's label is decided by
+			// domain.StageDisplayLabel, which keeps the code for everything but the fattening
+			// family. Key stays the raw code, so the filter this bar drives is unchanged.
+			label = domain.StageDisplayLabel(key, label)
+		}
 		if dimension == "stage_sex" {
 			point, seen := stageSex[key]
 			if !seen {
@@ -3298,6 +3313,12 @@ func (r *Repository) GetCountsBreakdown(ctx context.Context, req domain.CountsBr
 		if err := facetRows.Scan(&dimension, &key, &label, &count, &parkKey, &partitionLabel); err != nil {
 			facetRows.Close()
 			return domain.CountsBreakdown{}, fmt.Errorf("counts breakdown: facets scan: %w", err)
+		}
+		if dimension == "stage" {
+			// Same rule as the chart branch: `label` arrived as the configured name and the
+			// reader's label is decided by domain.StageDisplayLabel. The dropdown and the bars
+			// must read alike, or a reader filters on a word the chart never showed them.
+			label = domain.StageDisplayLabel(key, label)
 		}
 		point := domain.CountsBreakdownSeriesPoint{Key: key, Label: label, Count: count}
 		switch dimension {

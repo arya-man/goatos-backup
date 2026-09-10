@@ -2375,3 +2375,94 @@ ON CONFLICT (location_id) DO NOTHING`, countsTenant, otherPark, otherShed); err 
 		t.Error("the other park's chart carries this park's Mother bar")
 	}
 }
+
+// The label join must change WORDS and nothing else. It is a LEFT JOIN added to two branches that
+// carry a lifecycle predicate, so this walks the whole status matrix: the stage facet and the
+// stage bars must count exactly the animals they counted before the join existed, and a stage the
+// lookup does not know must keep its own code rather than going blank.
+func TestCountsBreakdownStageLabelsAcrossTheStatusMatrixLeaveCountsAlone(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := newBreakdownRepo(t, ctx)
+
+	if _, err := pool.Exec(ctx, `
+INSERT INTO animal_stage_lookup (tenant_id, stage_code, name, age_band, status, sort_order)
+VALUES
+  ($1::uuid, 'F2-Male',   'Fattening male',   'kid',   'active', 1),
+  ($1::uuid, 'F2-Female', 'Fattening female', 'kid',   'active', 2),
+  ($1::uuid, 'K3',        'Weaned kids',      'kid',   'active', 3),
+  ($1::uuid, 'Mother',    'Mother',           'adult', 'active', 4)
+ON CONFLICT (tenant_id, stage_code) DO NOTHING`, countsTenant); err != nil {
+		t.Fatalf("seed stage lookup: %v", err)
+	}
+
+	// Every lifecycle the page can be asked for, plus a stage the lookup has never heard of.
+	seed := []struct{ stage, sex, lifecycle string }{
+		{"F2-Male", "male", "alive"},
+		{"F2-Male", "male", "alive"},
+		{"F2-Female", "female", "alive"},
+		{"K3", "female", "alive"},
+		{"Mother", "female", "alive"},
+		{"F2-Trial", "male", "alive"}, // no lookup row
+		{"F2-Male", "male", "dead"},
+		{"F2-Female", "female", "sold"},
+		{"K3", "male", "culled"},
+	}
+	for i, s := range seed {
+		insertBreakdownGoat(t, ctx, pool, goatUUID(i), goatDisplayID(i),
+			s.sex, "Beetal", s.lifecycle, s.stage, strp(countsPark), strp(countsShedA), nil)
+	}
+
+	got, err := repo.GetCountsBreakdown(ctx, domain.CountsBreakdownQuery{TenantID: countsTenant, Limit: 50})
+	if err != nil {
+		t.Fatalf("GetCountsBreakdown: %v", err)
+	}
+
+	// Only the six live animals are counted, exactly as before the join.
+	if got.TotalCount != 6 {
+		t.Fatalf("total_count=%d, want 6 — the label join must not change membership", got.TotalCount)
+	}
+
+	wantLabel := map[string]string{
+		"F2-Male":   "Fattening male",
+		"F2-Female": "Fattening female",
+		"K3":        "K3",       // has a lookup name ("Weaned kids") and deliberately keeps its code
+		"Mother":    "Mother",   // name equals code
+		"F2-Trial":  "F2-Trial", // no lookup row at all
+	}
+	wantCount := map[string]int64{"F2-Male": 2, "F2-Female": 1, "K3": 1, "Mother": 1, "F2-Trial": 1}
+
+	for _, series := range []struct {
+		name   string
+		points []domain.CountsBreakdownSeriesPoint
+	}{
+		{"facets.stages", got.Facets.Stages},
+		{"charts.stage", got.Charts.Stage},
+	} {
+		seen := map[string]bool{}
+		for _, point := range series.points {
+			want, known := wantLabel[point.Key]
+			if !known {
+				continue // the facet branch ignores the lifecycle filter for other statuses
+			}
+			seen[point.Key] = true
+			if point.Label != want {
+				t.Errorf("%s[%q].Label = %q, want %q", series.name, point.Key, point.Label, want)
+			}
+			if series.name == "charts.stage" && point.Count != wantCount[point.Key] {
+				t.Errorf("%s[%q].Count = %d, want %d", series.name, point.Key, point.Count, wantCount[point.Key])
+			}
+		}
+		for key := range wantLabel {
+			if !seen[key] {
+				t.Errorf("%s is missing stage %q", series.name, key)
+			}
+		}
+	}
+
+	// The cross-tab reads the same words, so the bar and the filter it drives cannot disagree.
+	for _, point := range got.Charts.StageSex {
+		if want, known := wantLabel[point.Key]; known && point.Label != want {
+			t.Errorf("charts.stage_sex[%q].Label = %q, want %q", point.Key, point.Label, want)
+		}
+	}
+}

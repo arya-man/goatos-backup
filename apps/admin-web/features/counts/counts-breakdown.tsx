@@ -149,6 +149,10 @@ export async function CountsBreakdownPage({
   // True when the herd carries no recorded stage at all (every animal blank), which makes both
   // the Stage column and the stage chart uniformly empty.
   const stageFacets = breakdown?.facets.stages ?? [];
+  // Stage code -> the label the BACKEND decided for it, taken from the response's own facet.
+  // Reading it here rather than re-deriving one means the table, the chart and the Stage filter
+  // are three renderings of one answer and cannot spell a stage three ways.
+  const stageLabels = new Map(stageFacets.filter((point) => point.key).map((point) => [point.key, point.label || point.key] as const));
   const stageUnrecorded = stageFacets.length > 0 && stageFacets.every((point) => point.key === "");
 
   // The shed dropdown cascades to the currently selected park: the top-bar park scope wins,
@@ -461,6 +465,7 @@ export async function CountsBreakdownPage({
             noStageLabel={noStageLabel}
             noBreedLabel={noBreedLabel}
             noShedLabel={noShedLabel}
+            stageLabels={stageLabels}
             empty={
               <div className="muted small" style={{ padding: "18px 4px", textAlign: "center", lineHeight: 1.6 }}>
                 {breakdownResult.ok

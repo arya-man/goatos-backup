@@ -61,6 +61,7 @@ export function CountsBreakdownPensTable({
   noBreedLabel,
   noShedLabel,
   stages,
+  stageLabels,
   breeds,
   genders,
   retagEnabled,
@@ -77,6 +78,15 @@ export function CountsBreakdownPensTable({
   noBreedLabel: string;
   noShedLabel: string;
   stages: StageOption[];
+  /**
+   * Stage code -> the label a reader sees, built from the response's own stage facet.
+   *
+   * The decision of which codes read as words lives in the BACKEND
+   * (counts/domain.StageDisplayLabel); this map just carries its answer, so the table, the chart
+   * and the Stage filter cannot drift into three spellings of one stage. A code missing from the
+   * map renders as itself.
+   */
+  stageLabels: ReadonlyMap<string, string>;
   breeds: InlineChoice[];
   genders: InlineChoice[];
   retagEnabled: boolean;
@@ -107,14 +117,19 @@ export function CountsBreakdownPensTable({
 
   // One composition cell. A single bucket reads as plain text (its count IS the pen's count);
   // several read as chips, each carrying its own count, largest first as the backend orders them.
-  function composition(points: CountsBreakdownPoint[], emptyLabel: string, tone?: (key: string) => string) {
+  function composition(
+    points: CountsBreakdownPoint[],
+    emptyLabel: string,
+    tone?: (key: string) => string,
+    vocabulary: ReadonlyMap<string, string> = genderLabels,
+  ) {
     if (points.length === 0) return <span className="muted">{emptyLabel}</span>;
-    if (points.length === 1) return <span>{pointLabel(points[0], emptyLabel, genderLabels)}</span>;
+    if (points.length === 1) return <span>{pointLabel(points[0], emptyLabel, vocabulary)}</span>;
     return (
       <span className="dimchips">
         {points.map((point) => (
           <span key={point.key || "__blank"} className={`dimchip${tone ? ` ${tone(point.key)}` : ""}`}>
-            <span>{pointLabel(point, emptyLabel, genderLabels)}</span>
+            <span>{pointLabel(point, emptyLabel, vocabulary)}</span>
             <b>{point.count}</b>
           </span>
         ))}
@@ -173,6 +188,7 @@ export function CountsBreakdownPensTable({
                   shedId={pen.shed_id}
                   partitionLabel={pen.partition_label ?? ""}
                   currentTag={pen.stages[0].key}
+                  currentTagLabel={stageLabels.get(pen.stages[0].key) ?? pen.stages[0].label}
                   emptyLabel={noStageLabel}
                   stages={stages}
                   enabled={retagEnabled}
@@ -180,7 +196,7 @@ export function CountsBreakdownPensTable({
                 />
               </span>
             ) : (
-              composition(pen.stages, noStageLabel)
+              composition(pen.stages, noStageLabel, undefined, stageLabels)
             ),
           sortValue: (pen) => dominantKey(pen.stages) || noStageLabel,
         },
@@ -240,7 +256,7 @@ export function CountsBreakdownPensTable({
       }),
     // `open` is read inside the shed cell for the caret state, so the columns rebuild on toggle.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [contract, pageContract, open, noParkLabel, noStageLabel, noBreedLabel, penLabel, stages, retagEnabled, retagDisabledReason, genderLabels],
+    [contract, pageContract, open, noParkLabel, noStageLabel, noBreedLabel, penLabel, stages, retagEnabled, retagDisabledReason, genderLabels, stageLabels],
   );
 
   return (
@@ -283,13 +299,14 @@ export function CountsBreakdownPensTable({
                     shedId={row.shed_id}
                     partitionLabel={row.partition_label ?? ""}
                     currentTag={row.management_stage}
+                    currentTagLabel={stageLabels.get(row.management_stage) ?? row.management_stage}
                     emptyLabel={noStageLabel}
                     stages={stages}
                     enabled={retagEnabled}
                     disabledReason={retagDisabledReason}
                   />
                 ) : (
-                  row.management_stage || noStageLabel
+                  stageLabels.get(row.management_stage) ?? row.management_stage ?? noStageLabel
                 ),
                 breed: row.shed_id ? (
                   <CensusValueEditor
