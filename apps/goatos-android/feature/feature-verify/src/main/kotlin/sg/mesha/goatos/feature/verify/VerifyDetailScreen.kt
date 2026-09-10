@@ -79,6 +79,7 @@ import sg.mesha.goatos.core.media.LocalProofPlayerFactory
 import sg.mesha.goatos.core.media.LocalProofRemoteImageLoader
 import sg.mesha.goatos.core.media.ProofRemoteImageLoader
 import androidx.media3.ui.PlayerView
+import sg.mesha.goatos.core.common.datetime.GoatOsDates
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 import sg.mesha.goatos.core.designsystem.theme.MeshaType
@@ -88,9 +89,6 @@ import sg.mesha.goatos.core.ui.EmptyTone
 import sg.mesha.goatos.core.ui.RefreshOnResume
 import sg.mesha.goatos.core.ui.SyncStatusIndicator
 import java.time.Instant
-import java.time.ZoneId
-import java.time.format.DateTimeFormatter
-import java.time.format.FormatStyle
 
 private const val VERIFY_REMOTE_PHOTO_LOAD_TIMEOUT_MS = 15_000L
 
@@ -2074,7 +2072,6 @@ private fun Long.safeMediaMs(): Long = takeIf { it > 0 } ?: 0L
 @Composable
 private fun ContextCard(rows: List<VerifyContextRow>) {
     if (rows.isEmpty()) return
-    val locale = LocalContext.current.resources.configuration.locales[0]
     Column(
         modifier = Modifier
             .padding(horizontal = 16.dp, vertical = 8.dp)
@@ -2091,9 +2088,9 @@ private fun ContextCard(rows: List<VerifyContextRow>) {
         )
         rows.forEachIndexed { index, row ->
             val label = contextRowLabel(row)
-            val displayValue = remember(row.value, row.kind, locale) {
+            val displayValue = remember(row.value, row.kind) {
                 if (row.kind == VerifyContextKind.CAPTURED_AT) {
-                    formatCapturedAt(row.value, locale, ZoneId.of("Asia/Kolkata"))
+                    formatCapturedAt(row.value)
                 } else {
                     row.value
                 }
@@ -2129,13 +2126,10 @@ private fun ContextCard(rows: List<VerifyContextRow>) {
     }
 }
 
-internal fun formatCapturedAt(raw: String, locale: java.util.Locale, zoneId: ZoneId): String =
+internal fun formatCapturedAt(raw: String): String =
     runCatching {
         // exception:exempt timestamp display; unparseable instant shows raw ISO string
-        DateTimeFormatter.ofLocalizedDateTime(FormatStyle.MEDIUM, FormatStyle.SHORT)
-            .withLocale(locale)
-            .withZone(zoneId)
-            .format(Instant.parse(raw))
+        GoatOsDates.dateTime12h(Instant.parse(raw))
     }.getOrDefault(raw)
 
 @Composable

@@ -37,12 +37,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
+import sg.mesha.goatos.core.designsystem.theme.MeshaType
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneOffset
@@ -75,7 +74,7 @@ internal fun FeedDropdownField(
 ) {
     var expanded by remember { mutableStateOf(false) }
     Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text(text = label, color = MeshaColors.Muted, fontSize = 12.sp)
+        Text(text = label, color = MeshaColors.Muted, style = MeshaType.cardSubtitle)
         Box(modifier = Modifier.fillMaxWidth()) {
             Row(
                 modifier = Modifier
@@ -91,8 +90,7 @@ internal fun FeedDropdownField(
                 Text(
                     text = selectedLabel ?: placeholder,
                     color = if (selectedLabel != null) MeshaColors.Ink else MeshaColors.Faint,
-                    fontSize = 14.sp,
-                    fontWeight = if (selectedLabel != null) FontWeight.W600 else FontWeight.W400,
+                    style = if (selectedLabel != null) MeshaType.listTitle else MeshaType.body,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
@@ -114,7 +112,7 @@ internal fun FeedDropdownField(
                         text = {
                             Text(
                                 text = option.label,
-                                fontSize = 14.sp,
+                                style = MeshaType.body,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                                 modifier = Modifier.widthIn(min = 180.dp),
@@ -141,8 +139,8 @@ internal fun FeedStatTile(label: String, value: String, accent: androidx.compose
             .padding(horizontal = 12.dp, vertical = 10.dp),
         verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
-        Text(text = value, color = accent, fontSize = 18.sp, fontWeight = FontWeight.W800, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        Text(text = label, color = MeshaColors.Muted, fontSize = 11.sp, fontWeight = FontWeight.W600)
+        Text(text = value, color = accent, style = MeshaType.avatarInitials, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(text = label, color = MeshaColors.Muted, style = MeshaType.caption)
     }
 }
 
@@ -152,7 +150,7 @@ internal fun FeedSectionCaption(text: String, modifier: Modifier = Modifier) {
     Text(
         text = text,
         color = MeshaColors.Faint,
-        fontSize = 11.sp,
+        style = MeshaType.rowCaption,
         modifier = modifier.padding(horizontal = 16.dp),
     )
 }
@@ -225,15 +223,13 @@ internal fun FeedDateBar(
             Text(
                 text = selected.format(FEED_DATE_LABEL_FORMATTER),
                 color = MeshaColors.Ink,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.W700,
+                style = MeshaType.listTitle,
             )
             if (isToday) {
                 Text(
                     text = stringResource(R.string.feed_date_today_chip),
                     color = MeshaColors.Ok,
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.W700,
+                    style = MeshaType.overline,
                     modifier = Modifier
                         .clip(RoundedCornerShape(999.dp))
                         .background(MeshaColors.OkX)
@@ -315,8 +311,7 @@ internal fun FeedReadOnlyBanner(modifier: Modifier = Modifier) {
         Text(
             text = stringResource(R.string.feed_date_read_only_banner),
             color = MeshaColors.Muted,
-            fontSize = 12.sp,
-            fontWeight = FontWeight.W600,
+            style = MeshaType.caption,
         )
     }
 }
@@ -325,8 +320,8 @@ private val FEED_DATE_LABEL_FORMATTER: DateTimeFormatter = DateTimeFormatter.ofP
 private val FEED_ISO_DATE_FORMATTER: DateTimeFormatter = DateTimeFormatter.ISO_LOCAL_DATE
 
 /**
- * Formats an ISO `YYYY-MM-DD` business date as the short "EEE, d MMM" label the Feed date bar uses,
- * so the "This feed is for …" caption reads the same way as the date chip. Falls back to the raw
+ * Formats an ISO `YYYY-MM-DD` business date as the "EEE, dd/MM/yyyy" label the Feed date bar uses,
+ * so the "This feed is for ..." caption reads the same way as the date chip. Falls back to the raw
  * string if it cannot be parsed.
  */
 internal fun formatFeedDayLabel(iso: String): String =
@@ -337,4 +332,3 @@ private fun String.toLocalDateOrNull(): LocalDate? = runCatching { LocalDate.par
 private fun LocalDate.toEpochMillisUtc(): Long = atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
 
 private fun Long.toLocalDateUtc(): LocalDate = Instant.ofEpochMilli(this).atZone(ZoneOffset.UTC).toLocalDate()
-

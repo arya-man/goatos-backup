@@ -200,7 +200,7 @@ export async function CountsBreakdownPage({
       values: stages,
       options: (breakdown?.facets.stages ?? [])
         .filter((point) => point.key !== "")
-        .map((point) => ({ value: point.key, label: point.key })),
+        .map((point) => ({ value: point.key, label: point.label || point.key })),
     },
     {
       param: "bd_breed",
@@ -343,9 +343,9 @@ export async function CountsBreakdownPage({
     .filter((item: AnimalStageOptionItem) => item.assignable_as_cohort !== false)
     .map((item: AnimalStageOptionItem) => ({
       code: item.stage_code,
-      // The CODE is the tag: it is what the table cell shows, what the farm's own sheet uses, and
-      // what the write stores. The lookup's descriptive name rides along as context.
-      label: item.stage_code,
+      // The VALUE is still the code, but the option text must match the backend-decided display
+      // label used by the filter, chart, table cell and current retag chip.
+      label: stageLabels.get(item.stage_code) ?? item.stage_code,
       // Case-insensitive: "Non-Pregnant" and "Non-pregnant" are the same word, and repeating it
       // under the tag is noise rather than help.
       description:

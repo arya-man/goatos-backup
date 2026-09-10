@@ -47,14 +47,13 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import sg.mesha.goatos.core.common.datetime.GoatOsDates
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 import sg.mesha.goatos.core.designsystem.theme.MeshaType
 import java.time.OffsetDateTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
-import java.time.format.FormatStyle
-import java.util.Locale
 
 /** Render kind for one SOP form field (maps from core-data `FormFieldType` in the :app layer). */
 enum class FieldKindUi { BOOLEAN, NUMBER, TEXT, DATE_TIME, GOAT_SCAN, PICKER, VIDEO_PROOF, UNKNOWN }
@@ -308,15 +307,10 @@ private fun TextControl(field: FormFieldUi, numeric: Boolean, onText: (String, S
  * repo's business-day timezone — never the device's local zone (NEW-7). */
 @Composable
 private fun DateTimeControl(field: FormFieldUi, onText: (String, String) -> Unit) {
-    val displayValue = remember(field.text, Locale.getDefault()) {
+    val displayValue = remember(field.text) {
         field.text.takeIf(String::isNotBlank)?.let { raw ->
             runCatching {
-                OffsetDateTime.parse(raw)
-                    .atZoneSameInstant(ZoneId.of("Asia/Kolkata"))
-                    .format(
-                        DateTimeFormatter.ofLocalizedDateTime(FormatStyle.MEDIUM, FormatStyle.SHORT)
-                            .withLocale(Locale.getDefault()),
-                    )
+                GoatOsDates.dateTime12h(OffsetDateTime.parse(raw).toInstant())
             }.getOrElse { raw }
         }
     }

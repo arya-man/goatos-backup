@@ -51,6 +51,7 @@ import sg.mesha.goatos.core.designsystem.nav.LocalDrawerCarriesModules
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
+import sg.mesha.goatos.core.common.datetime.GoatOsDates
 import sg.mesha.goatos.core.designsystem.theme.MeshaType
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 import sg.mesha.goatos.core.ui.EmptyState
@@ -64,8 +65,6 @@ import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.ZoneOffset
-import java.time.format.DateTimeFormatter
-import java.time.format.FormatStyle
 
 // telemetry:exempt: pure stateless renderer — AnalyticsPort/funnel wiring lives in
 // VerifyQueueViewModel (:app), which owns every side effect this screen triggers.
@@ -760,7 +759,7 @@ private fun BusinessDateRow(
             Icon(MeshaIcons.Calendar, contentDescription = null, tint = MeshaColors.Muted, modifier = Modifier.size(17.dp))
             Spacer(Modifier.size(7.dp))
             Text(
-                text = if (missedOnly) stringResource(R.string.verify_missed_before_today) else selected?.format(DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM)).orEmpty(),
+                text = if (missedOnly) stringResource(R.string.verify_missed_before_today) else selected?.let(GoatOsDates::date).orEmpty(),
                 color = MeshaColors.Ink,
                 fontSize = 13.sp,
                 fontWeight = FontWeight.W700,

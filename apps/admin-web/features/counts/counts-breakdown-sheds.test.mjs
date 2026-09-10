@@ -158,3 +158,21 @@ test("shed filter is sourced from the backend facet, not the locations master", 
   assert.doesNotMatch(source, /locations\.sheds/);
   assert.doesNotMatch(source, /getCensusLocations/);
 });
+
+test("stage labels stay backend-owned across filter, table and retag options", () => {
+  const source = readFileSync(new URL("./counts-breakdown.tsx", import.meta.url), "utf8");
+  const tableSource = readFileSync(new URL("./counts-breakdown-pens-table.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /const stageLabels = new Map\(stageFacets/);
+  assert.match(source, /\.map\(\(point\) => \(\{ value: point\.key, label: point\.label \|\| point\.key \}\)\)/);
+  assert.match(source, /label: stageLabels\.get\(item\.stage_code\) \?\? item\.stage_code/);
+  assert.match(tableSource, /currentTagLabel=\{stageLabels\.get\(pen\.stages\[0\]\.key\) \?\? pen\.stages\[0\]\.label\}/);
+  assert.match(tableSource, /currentTagLabel=\{stageLabels\.get\(row\.management_stage\) \?\? row\.management_stage\}/);
+  assert.match(tableSource, /\(stageLabels\.get\(row\.management_stage\) \?\? row\.management_stage\) \|\| noStageLabel/);
+});
+
+test("inline retag confirmation displays the choice label, not the raw stored value", () => {
+  const source = readFileSync(new URL("./inline-cell-editor.tsx", import.meta.url), "utf8");
+  assert.match(source, /const choiceLabel = \(value: string\) => choices\.find\(\(choice\) => choice\.value === value\)\?\.label \?\? value/);
+  assert.match(source, /<b>\{choiceLabel\(phase\.value\)\}<\/b>/);
+});

@@ -306,7 +306,7 @@ export function CountsBreakdownPensTable({
                     disabledReason={retagDisabledReason}
                   />
                 ) : (
-                  stageLabels.get(row.management_stage) ?? row.management_stage ?? noStageLabel
+                  (stageLabels.get(row.management_stage) ?? row.management_stage) || noStageLabel
                 ),
                 breed: row.shed_id ? (
                   <CensusValueEditor

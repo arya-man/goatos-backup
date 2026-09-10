@@ -790,6 +790,17 @@ composition continue to resolve through the already-covered
 
 | counts_shed_stage_reclassification | func:PreviewReclassifyShedStage, func:CommitReclassifyShedStage, func:ReclassifyShedStage | Explicit exclusion: admin-only correction write path over existing identity facts; current herd composition remains covered by `ceo_ai.animal_current_scope` and existing Counts reads. |
 
+`func:StageDisplayLabel` and `func:IsFatteningStage` are pure Counts Breakdown
+presentation helpers. They let the F2/Fattening stage family read from
+tenant-configured `animal_stage_lookup.name` while preserving the raw
+`stage_code` for filters and correction writes. They add NO leadership KPI,
+read API route, Cube metric, `ceo_ai.*` view, MCP Toolbox tool, or read-only SQL
+fallback surface; leadership questions about current stage composition continue
+to resolve through the already-covered `ceo_ai.animal_current_scope` and Counts
+breakdown/read APIs.
+
+| counts_stage_display_labels | func:StageDisplayLabel, func:IsFatteningStage | Explicit exclusion: presentation-only label helpers for existing Counts reads; current herd composition remains covered by `ceo_ai.animal_current_scope` and existing Counts breakdown/read APIs. |
+
 ## Explicit exclusion: one-time vaccination drive recompute (ops tool, 2026-07-23)
 
 `func:RecomputeFutureVaccinationDrives`

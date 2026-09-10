@@ -2380,7 +2380,7 @@ ON CONFLICT (location_id) DO NOTHING`, countsTenant, otherPark, otherShed); err 
 // carry a lifecycle predicate, so this walks the whole status matrix: the stage facet and the
 // stage bars must count exactly the animals they counted before the join existed, and a stage the
 // lookup does not know must keep its own code rather than going blank.
-func TestCountsBreakdownStageLabelsAcrossTheStatusMatrixLeaveCountsAlone(t *testing.T) {
+func TestCountsBreakdownStageLabelsOneToManyAcrossTheStatusMatrixLeaveCountsAlone(t *testing.T) {
 	ctx := context.Background()
 	repo, pool := newBreakdownRepo(t, ctx)
 
@@ -2464,5 +2464,111 @@ ON CONFLICT (tenant_id, stage_code) DO NOTHING`, countsTenant); err != nil {
 		if want, known := wantLabel[point.Key]; known && point.Label != want {
 			t.Errorf("charts.stage_sex[%q].Label = %q, want %q", point.Key, point.Label, want)
 		}
+	}
+}
+
+func TestCountsBreakdownStageLabelsPageBoundaryPaginationLeavesTheSeriesWhole(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := newBreakdownRepo(t, ctx)
+
+	if _, err := pool.Exec(ctx, `
+INSERT INTO animal_stage_lookup (tenant_id, stage_code, name, age_band, status, sort_order)
+VALUES
+  ($1::uuid, 'F2-Male',   'Fattening male',   'kid',   'active', 1),
+  ($1::uuid, 'F2-Female', 'Fattening female', 'kid',   'active', 2)
+ON CONFLICT (tenant_id, stage_code) DO NOTHING`, countsTenant); err != nil {
+		t.Fatalf("seed stage lookup: %v", err)
+	}
+	for i, stage := range []string{"F2-Male", "F2-Female", "K3"} {
+		insertBreakdownGoat(t, ctx, pool, goatUUID(300+i), goatDisplayID(300+i),
+			"female", "Beetal", "alive", stage, strp(countsPark), strp(countsShedA), nil)
+	}
+
+	read := func(limit, offset int32) map[string]string {
+		t.Helper()
+		got, err := repo.GetCountsBreakdown(ctx, domain.CountsBreakdownQuery{
+			TenantID: countsTenant,
+			Limit:    limit,
+			Offset:   offset,
+		})
+		if err != nil {
+			t.Fatalf("GetCountsBreakdown(limit=%d offset=%d): %v", limit, offset, err)
+		}
+		out := make(map[string]string, len(got.Charts.Stage))
+		for _, point := range got.Charts.Stage {
+			out[point.Key] = point.Label
+		}
+		return out
+	}
+
+	whole := read(50, 0)
+	for _, page := range []struct{ limit, offset int32 }{{1, 0}, {1, 1}, {1, 2}} {
+		got := read(page.limit, page.offset)
+		if len(got) != len(whole) {
+			t.Fatalf("limit=%d offset=%d: %d stage labels, want %d", page.limit, page.offset, len(got), len(whole))
+		}
+		for key, want := range whole {
+			if got[key] != want {
+				t.Errorf("limit=%d offset=%d: stage %q label=%q, want %q", page.limit, page.offset, key, got[key], want)
+			}
+		}
+	}
+}
+
+func TestCountsBreakdownStageLabelsParkScopeHierarchyKeepsRawCodesScoped(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := newBreakdownRepo(t, ctx)
+
+	const otherPark = "00000000-0000-4000-8000-000000003012"
+	const otherShed = "00000000-0000-4000-8000-000000004112"
+	if _, err := pool.Exec(ctx, `
+INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, status)
+VALUES
+  ($2::uuid, $1::uuid, 'park', 'CBE-P12', 'CBE Park 12', 'active'),
+  ($3::uuid, $1::uuid, 'shed', 'CBE-S12', 'Castro', 'active')
+ON CONFLICT (location_id) DO NOTHING;
+INSERT INTO animal_stage_lookup (tenant_id, stage_code, name, age_band, status, sort_order)
+VALUES ($1::uuid, 'F2-Male', 'Fattening male', 'kid', 'active', 1)
+ON CONFLICT (tenant_id, stage_code) DO NOTHING`, countsTenant, otherPark, otherShed); err != nil {
+		t.Fatalf("seed scoped locations and stage lookup: %v", err)
+	}
+
+	insertBreakdownGoat(t, ctx, pool, goatUUID(350), goatDisplayID(350), "male", "Beetal", "alive", "F2-Male", strp(countsPark), strp(countsShedA), nil)
+	insertBreakdownGoat(t, ctx, pool, goatUUID(351), goatDisplayID(351), "female", "Beetal", "alive", "K3", strp(countsPark), strp(countsShedA), nil)
+	insertBreakdownGoat(t, ctx, pool, goatUUID(352), goatDisplayID(352), "male", "Beetal", "alive", "F2-Male", strp(otherPark), strp(otherShed), nil)
+
+	scoped := func(park string) (map[string]domain.CountsBreakdownSeriesPoint, int64) {
+		t.Helper()
+		got, err := repo.GetCountsBreakdown(ctx, domain.CountsBreakdownQuery{
+			TenantID: countsTenant,
+			ParkIDs:  []string{park},
+			Limit:    50,
+		})
+		if err != nil {
+			t.Fatalf("GetCountsBreakdown(park=%s): %v", park, err)
+		}
+		out := map[string]domain.CountsBreakdownSeriesPoint{}
+		for _, point := range got.Charts.Stage {
+			out[point.Key] = point
+		}
+		return out, got.TotalCount
+	}
+
+	here, hereTotal := scoped(countsPark)
+	there, thereTotal := scoped(otherPark)
+	if hereTotal != 2 || thereTotal != 1 {
+		t.Fatalf("park totals here=%d there=%d, want 2/1", hereTotal, thereTotal)
+	}
+	if point := here["F2-Male"]; point.Label != "Fattening male" || point.Count != 1 {
+		t.Errorf("this park F2-Male = %+v, want Fattening male count 1", point)
+	}
+	if point := here["K3"]; point.Label != "K3" || point.Count != 1 {
+		t.Errorf("this park K3 = %+v, want raw-code label count 1", point)
+	}
+	if point := there["F2-Male"]; point.Label != "Fattening male" || point.Count != 1 {
+		t.Errorf("other park F2-Male = %+v, want Fattening male count 1", point)
+	}
+	if _, ok := there["K3"]; ok {
+		t.Error("other park stage chart leaked this park's K3 bar")
 	}
 }

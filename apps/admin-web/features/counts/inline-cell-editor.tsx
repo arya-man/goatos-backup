@@ -141,6 +141,7 @@ export function InlineCellEditor({
         (choice.description ?? "").toLowerCase().includes(needle),
     );
   }, [filter, choices]);
+  const choiceLabel = (value: string) => choices.find((choice) => choice.value === value)?.label ?? value;
 
   // matches.length is a dependency because narrowing the list changes the popup's height, which
   // can change whether it still fits below the anchor.
@@ -281,7 +282,7 @@ export function InlineCellEditor({
               {/* Subject and count come from the PREVIEW, never from the row: the two can differ,
                   and the operator must confirm what the write will actually do. */}
               <div className="tagedit-confirm-title">
-                <b>{phase.value}</b> · {phase.preview.subject}
+                <b>{choiceLabel(phase.value)}</b> · {phase.preview.subject}
               </div>
               <div className="muted small">
                 {phase.preview.count === 0

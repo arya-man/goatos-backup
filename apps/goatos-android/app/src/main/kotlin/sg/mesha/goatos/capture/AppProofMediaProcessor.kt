@@ -42,6 +42,7 @@ import java.net.URI
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.TimeZone
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.coroutines.resume
@@ -519,7 +520,9 @@ class AppProofMediaProcessor @Inject constructor(
     // this stamp is evidence of WHEN a clip was shot, and a verifier compares it against a
     // submission time.
     private fun localTimestamp(ms: Long): String =
-        SimpleDateFormat("dd/MM/yyyy h:mm:ss a", Locale.US).format(Date(ms.takeIf { it > 0L } ?: System.currentTimeMillis()))
+        SimpleDateFormat("dd/MM/yyyy h:mm:ss a", Locale.US)
+            .apply { timeZone = TimeZone.getTimeZone("Asia/Kolkata") }
+            .format(Date(ms.takeIf { it > 0L } ?: System.currentTimeMillis()))
 
     private data class VideoMetadata(val width: Int, val height: Int, val bitrate: Int?)
 

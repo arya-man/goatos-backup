@@ -157,6 +157,19 @@ export function androidPatternFailures(source) {
   return failures;
 }
 
+export function androidLocalizedDateFailures(source) {
+  const failures = [];
+  const lines = source.split("\n");
+  const re = /DateTimeFormatter\.ofLocalizedDate(?:Time)?\s*\(/g;
+  let match;
+  while ((match = re.exec(source)) !== null) {
+    const lineNo = source.slice(0, match.index).split("\n").length;
+    if (ignored(lines, lineNo)) continue;
+    failures.push({ line: lineNo, factory: match[0].replace(/\s+/g, "") });
+  }
+  return failures;
+}
+
 // A Compose state field whose name ends in "Label" is BY NAME something a person
 // reads, so it must not be assigned a wire/ISO value. This is the trap that put a
 // raw "2026-07-29" under the Feed Packing title: the field was called
@@ -341,6 +354,9 @@ function selfTest() {
     androidPatternFailures(`// unrelated comment\n// another unrelated comment\nofPattern("d MMM")`).length === 1,
     "unmarked comment block wrongly treated as an exemption",
   );
+  assert(androidLocalizedDateFailures("DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM)").length === 1, "localized Android date factory not flagged");
+  assert(androidLocalizedDateFailures("DateTimeFormatter.ofLocalizedDateTime(FormatStyle.MEDIUM, FormatStyle.SHORT)").length === 1, "localized Android date-time factory not flagged");
+  assert(androidLocalizedDateFailures(`DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM) // ${IGNORE} legacy export`).length === 0, "localized Android ignore marker not honoured");
   assert(androidCanaryFailures('const val DATE_PATTERN: String = "dd/MM/yyyy"\nconst val WIRE_DATE_PATTERN: String = "yyyy-MM-dd"').length === 0, "good GoatOsDates canary flagged");
   assert(androidCanaryFailures('const val DATE_PATTERN: String = "dd-MM-yyyy"\nconst val WIRE_DATE_PATTERN: String = "yyyy-MM-dd"').length === 1, "dashed DATE_PATTERN not caught");
   assert(androidCanaryFailures('const val DATE_PATTERN: String = "dd/MM/yyyy"\nconst val WIRE_DATE_PATTERN: String = "dd/MM/yyyy"').length === 1, "wire pattern switched to display not caught");
@@ -422,6 +438,9 @@ function main() {
     const androidSource = readFileSync(resolve(repo, file), "utf8");
     for (const hit of androidPatternFailures(androidSource)) {
       failures.push(`${file}:${hit.line}: date pattern "${hit.pattern}" — render DD/MM/YYYY via GoatOsDates (or mark ${IGNORE} <reason> for a wire format)`);
+    }
+    for (const hit of androidLocalizedDateFailures(androidSource)) {
+      failures.push(`${file}:${hit.line}: localized date formatter ${hit.factory} is device-locale display — render DD/MM/YYYY via GoatOsDates (or mark ${IGNORE} <reason>)`);
     }
     for (const hit of androidLabelFieldFailures(androidSource)) {
       failures.push(`${file}:${hit.line}: ${hit.field} is named for a reader but holds a wire/ISO value — rename it (…Iso) and format at the point it becomes visible`);
