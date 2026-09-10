@@ -84,18 +84,23 @@ func (s *Service) bootstrapCached(ctx context.Context, input BootstrapInput) dom
 		// Sales > Vendors is the one page here that follows the person's own HRMS tick
 		// (maintainer instruction 2026-09-08): it shows only when ticked on /people.
 		_, salesVendorsTicked := access.Pages["sales-vendors"]
+		// The Work Board is a command lens over every module's work, and a director who
+		// cannot see it cannot flag it (maintainer sprint instruction 2026-09-10: every
+		// director checks the board). It joins the fixed set; the four pages above stand.
 		access = permissions.PageAccess{
 			Pages: map[string]struct{}{
 				"sales-config":               {},
 				"feed-analytics":             {},
 				"procurement-vendors":        {},
 				"procurement-feed-purchases": {},
+				"work-board":                 {},
 			},
 			Modules: map[string]struct{}{
 				"sales":          {},
 				"feed_direction": {},
 				"vendors":        {},
 				"feed_purchases": {},
+				"work_board":     {},
 			},
 		}
 		if salesVendorsTicked {
