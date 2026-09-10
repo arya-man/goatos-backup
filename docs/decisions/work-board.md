@@ -91,8 +91,17 @@ afterwards. "All parks" on the web is one request per park.
   sorts by row id (bounded, ≤20 pages); a native row-id keyset on that read would make
   it one query.
 - Counts approval requests carry no park of their own; birth and pen-move requests resolve
-  the park from their payload, but a DEATH request carries only the animal and so is not
-  on any park's board until counts snapshots the park at raise time.
+  the park from their payload, and a DEATH request from its subject animal's own
+  `goats.park_id` (an animal never changes park, and a death is the terminal exit), read
+  the way the counts module already reads it for the park-scoped death decision.
+- Withdrawn verification items are not on the board: nobody owes a verdict on a proof the
+  producer took back.
+- A weighing bucket reads its own status alongside the item's, because CLOSE writes only
+  the bucket and the kernel sweep never moves a submitted item to `closed`.
+- A feed transport row is owned by the task's operator, else by the operator of its
+  current attempt: the materializer names nobody and the submit lands on the attempt.
+- Vaccination cards are titled by the vaccine/dose label; the wrapped read's `drive_name`
+  is a synthesised "<protocol name> - <dose label>" and is never shown.
 - Health rows are titled by disease and day, not by the animal's tag: the case table
   stores only the goat id, and this source may not read the herd register.
 - Milk feeding is farm-grain since migration 000097, so its "pen" is the park.
