@@ -22,6 +22,7 @@ import {
   parkOptions,
   PARAM_CURSOR,
   PARAM_MODULE,
+  PARAM_MODULE_NONE,
   PARAM_OWNER,
   type OwnerOption,
 } from "./work-board-model";
@@ -146,11 +147,12 @@ function AssigneePicker({ pageContract, owners, cardsByOwner, selected, onSelect
 
 // The mock's Module menu: a checkbox list of epic tags, "Clear all" / "Select all" at the foot,
 // and the trigger reading "Module · all" or the first chosen tag "+N".
-function ModuleMenu({ pageContract, options, selected, onChange }: { pageContract: AdminUiPageContract; options: AdminUiOption[]; selected: string[]; onChange: (next: string[]) => void }) {
+// `selected` empty means every module; `none` is the explicit empty selection after "Clear all".
+function ModuleMenu({ pageContract, options, selected, none, onChange }: { pageContract: AdminUiPageContract; options: AdminUiOption[]; selected: string[]; none: boolean; onChange: (next: string[]) => void }) {
   const [open, setOpen] = useState(false);
   const ref = useOutsideClose(open, () => setOpen(false));
-  const all = selected.length === 0 || selected.length === options.length;
-  const chosen = all ? options.map((o) => o.key) : selected;
+  const all = !none && (selected.length === 0 || selected.length === options.length);
+  const chosen = none ? [] : all ? options.map((o) => o.key) : selected;
   return (
     <div ref={ref} style={{ position: "relative", display: "inline-flex" }}>
       <button type="button" className="sel" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
@@ -173,14 +175,14 @@ function ModuleMenu({ pageContract, options, selected, onChange }: { pageContrac
             return (
               <button type="button" key={option.key} role="menuitemcheckbox" aria-checked={on} className={`opt${on ? " on" : ""}`} onClick={() => {
                 const next = on ? chosen.filter((k) => k !== option.key) : [...chosen, option.key];
-                onChange(next.length === options.length ? [] : next);
+                onChange(next.length === options.length ? [] : next.length === 0 ? [PARAM_MODULE_NONE] : next);
               }}>
                 <span className="cb">{on ? "✓" : ""}</span>
                 <span className={moduleClass(option.key)}>{option.label}</span>
               </button>
             );
           })}
-          <button type="button" className="opt foot" onClick={() => onChange(all ? ["__none__"] : [])}>
+          <button type="button" className="opt foot" onClick={() => onChange(all ? [PARAM_MODULE_NONE] : [])}>
             {all ? copy(pageContract, "filter.assignee.clear") : copy(pageContract, "filter.assignee.select_all")}
           </button>
         </div>
@@ -242,6 +244,7 @@ export function WorkBoardBoard({
   summary,
   moduleOptions: visibleModules,
   selectedModules,
+  noneSelected,
   owners,
   selectedOwner,
   ownRowsOnly,
@@ -259,6 +262,7 @@ export function WorkBoardBoard({
   summary: WorkBoardSummary | null;
   moduleOptions: AdminUiOption[];
   selectedModules: string[];
+  noneSelected: boolean;
   owners: OwnerOption[];
   selectedOwner?: string;
   ownRowsOnly: boolean;
@@ -312,7 +316,7 @@ export function WorkBoardBoard({
           </span>
           <Link href={nextDayHref} aria-label={copy(pageContract, "action.next")}>›</Link>
         </div>
-        <ModuleMenu pageContract={pageContract} options={visibleModules} selected={selectedModules} onChange={(next) => write((p) => setParam(p, PARAM_MODULE, next.length ? next.join(",") : undefined))} />
+        <ModuleMenu pageContract={pageContract} options={visibleModules} selected={selectedModules} none={noneSelected} onChange={(next) => write((p) => setParam(p, PARAM_MODULE, next.length ? next.join(",") : undefined))} />
       </div>
       <div className="rule">
         <span>{copy(pageContract, "board.rule")}</span>

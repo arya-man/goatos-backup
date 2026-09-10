@@ -1834,6 +1834,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"crumb":                               "Work Board",
 			"board.title":                         "Board",
 			"roleline.all_modules":                "All modules",
+			"roleline.none":                       "No module selected",
 			"section.board.aria":                  "Work board",
 			"drawer.subtasks.in_module":           "Each subtask opens in its own module for now.",
 			"card.total":                          "subtasks",
