@@ -98,7 +98,7 @@ func (r *Resolver) setCachedMedia(tenantID, proofID string, item domain.MediaIte
 // whose own refs all resolved to keep their media and evidence_available=true while items with
 // unresolvable refs get marked evidence_available=false. The verifier UI and verdict path use this
 // per-ID granularity to fail-closed only on the items that actually have missing evidence.
-func (r *Resolver) ResolveMedia(ctx context.Context, tenantID string, proofIDs []string) ([]domain.MediaItem, error) {
+func (r *Resolver) ResolveMediaMetadata(ctx context.Context, tenantID string, proofIDs []string) ([]domain.MediaItem, error) {
 	if r == nil || r.proof == nil {
 		return nil, fmt.Errorf("verification proof resolver is unavailable")
 	}
@@ -220,6 +220,10 @@ func (r *Resolver) ResolveMedia(ctx context.Context, tenantID string, proofIDs [
 		}
 	}
 	return out, nil
+}
+
+func (r *Resolver) ResolveMedia(ctx context.Context, tenantID string, proofIDs []string) ([]domain.MediaItem, error) {
+	return r.ResolveMediaMetadata(ctx, tenantID, proofIDs)
 }
 
 func proofDownloadRoute(proofID string) string {

@@ -205,3 +205,25 @@ Landing-gate follow-up on 2026-09-10:
 Code exists for the GoatOS cost alert bridge and Terraform wiring, but live Slack delivery is not complete
 until a reusable Slack webhook/bot token for channel `C0C1HLFEYAU` is stored as the expected GCP secret
 and Terraform/deploy is applied. ChatGPT connector test messages do not count as live GoatOS/GCP alerts.
+
+## 2026-09-10 Admin Verifier Regression
+
+After the first staging deployment, Jyothi's verifier screen and the CEO/CXO verify drawer showed
+`No proof media is attached to this action` even though staging `verification_items.media_refs` still
+contained the uploaded proof ids. Live DB checks confirmed:
+
+- `feed_wastage` item `7eccf3ed-eb4e-4a33-bd8d-896daf413edd` had one media ref.
+- `feed_distribution` item `c2b93719-3558-4340-a8a9-d4fb7582c51e` had three media refs.
+
+Root cause: the anti-egress queue change stopped eager signed URL resolution correctly, but it also
+returned route-only media without `mime_type`. Admin-web chooses image vs video rendering from
+`mime_type`, so real uploaded proofs looked empty. The hotfix restores metadata-only proof resolution
+for queue reads through `ResolveMediaMetadata`: it batch-reads proof artifact rows for MIME/duration and
+returns stable `/app/proofs/{id}/download` routes. It still does not sign GCS URLs, stat objects, open
+objects, or stream bytes on drawer/list hydration.
+
+Regression coverage:
+
+- `TestResolveMediaKeepsMimeMetadataWithoutSignedURLs`
+- `go test ./internal/verification/app ./internal/verification/adapters/proofmedia ./internal/verification/adapters/http ./internal/proof/adapters/http`
+- `node tools/agent-hooks/check-backend-proof-media-egress.mjs --self-test && node tools/agent-hooks/check-backend-proof-media-egress.mjs --all`

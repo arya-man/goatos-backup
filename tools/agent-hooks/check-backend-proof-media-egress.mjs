@@ -119,13 +119,17 @@ function functionUsesForbiddenSigner(body) {
   if (forbiddenMethodNames.some((name) => forbiddenCallRegex(name).test(body))) return true;
   return forbiddenMethodNames.some((name) => {
     const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    return new RegExp(`\\b(?:var\\s+)?[A-Za-z_][A-Za-z0-9_]*\\s*(?::=|=)\\s*[^\\n;]*\\.${escaped}\\b(?!\\s*\\()`).test(body);
+    return methodValueCaptureRegex(escaped).test(body);
   });
 }
 
 function forbiddenCallRegex(name) {
   const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   return new RegExp(`\\b${escaped}\\s*\\(`, "g");
+}
+
+function methodValueCaptureRegex(escapedName, flags = "") {
+  return new RegExp(`\\b(?:var\\s+)?[A-Za-z_][A-Za-z0-9_]*\\s*(?::=|(?<![=!<>])=(?!=))\\s*[^\\n;]*\\.${escapedName}\\b(?!\\s*\\()`, flags);
 }
 
 function scanFile(rel) {
@@ -151,7 +155,7 @@ function scanFile(rel) {
       }
     }
     for (const name of forbiddenMethodNames) {
-      const re = new RegExp(`\\b(?:var\\s+)?[A-Za-z_][A-Za-z0-9_]*\\s*(?::=|=)\\s*[^\\n;]*\\.${name}\\b(?!\\s*\\()`, "g");
+      const re = methodValueCaptureRegex(name, "g");
       for (const match of body.matchAll(re)) {
         const index = fnStart + (match.index ?? 0);
         const line = source.split("\n")[lineNo(source, index) - 1] ?? "";
@@ -182,7 +186,7 @@ function scanBroadFile(rel, packageHelpers = new Map()) {
       }
     }
     for (const name of forbiddenMethodNames) {
-      const re = new RegExp(`\\b(?:var\\s+)?[A-Za-z_][A-Za-z0-9_]*\\s*(?::=|=)\\s*[^\\n;]*\\.${name}\\b(?!\\s*\\()`, "g");
+      const re = methodValueCaptureRegex(name, "g");
       for (const match of fn.body.matchAll(re)) {
         const index = fn.start + (match.index ?? 0);
         const line = source.split("\n")[lineNo(source, index) - 1] ?? "";
@@ -214,7 +218,7 @@ function scanBroadText(source, rel = "backend/internal/example/app/service.go") 
       if (forbiddenCallRegex(name).test(fn.body)) findings.push(`${rel}: ${fn.name}: ${name}`);
     }
     for (const name of forbiddenMethodNames) {
-      if (new RegExp(`\\b(?:var\\s+)?[A-Za-z_][A-Za-z0-9_]*\\s*(?::=|=)\\s*[^\\n;]*\\.${name}\\b(?!\\s*\\()`).test(fn.body)) findings.push(`${rel}: ${fn.name}: method value ${name}`);
+      if (methodValueCaptureRegex(name).test(fn.body)) findings.push(`${rel}: ${fn.name}: method value ${name}`);
     }
     for (const helper of helpers) {
       if (helper !== fn.name && new RegExp(`\\b${helper}\\s*\\(`).test(fn.body)) findings.push(`${rel}: ${fn.name}: helper ${helper}`);

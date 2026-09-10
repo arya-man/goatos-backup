@@ -1350,6 +1350,28 @@ func (failingMedia) ResolveMedia(_ context.Context, _ string, _ []string) ([]dom
 	return nil, errors.New("proof resolver unavailable")
 }
 
+type metadataMedia struct{}
+
+func (metadataMedia) ResolveMedia(_ context.Context, _ string, _ []string) ([]domain.MediaItem, error) {
+	return nil, errors.New("hot queue reads must call ResolveMediaMetadata")
+}
+
+func (metadataMedia) ResolveMediaMetadata(_ context.Context, _ string, proofIDs []string) ([]domain.MediaItem, error) {
+	out := make([]domain.MediaItem, 0, len(proofIDs))
+	for i, id := range proofIDs {
+		mime := "video/mp4"
+		if i == 0 {
+			mime = "image/jpeg"
+		}
+		out = append(out, domain.MediaItem{
+			ProofID:     id,
+			DownloadURL: "/app/proofs/" + id + "/download",
+			MimeType:    mime,
+		})
+	}
+	return out, nil
+}
+
 // evidence_available (domain: EvidenceLinkResolved) is a MediaRefsPresent claim by design. Queue
 // reads must NOT mint signed GCS URLs or stat stored objects; missing bytes are caught terminally
 // by the explicit download route (410 proof_object_missing, retryable=false).
@@ -1374,6 +1396,28 @@ func TestEvidenceLinkResolvedUsesMediaRefsWithoutEagerSigning(t *testing.T) {
 	rows = svc.resolveMedia(context.Background(), testTenant, []domain.Item{{ItemID: "item-2", TenantID: testTenant}})
 	if rows[0].EvidenceLinkResolved {
 		t.Fatal("EvidenceLinkResolved = true for an item with no media_refs, want false")
+	}
+}
+
+func TestResolveMediaKeepsMimeMetadataWithoutSignedURLs(t *testing.T) {
+	item := domain.Item{ItemID: "item-1", TenantID: testTenant, MediaRefs: []string{"proof-photo", "proof-video"}}
+
+	svc := NewService(newFakeRepo(), metadataMedia{})
+	rows := svc.resolveMedia(context.Background(), testTenant, []domain.Item{item})
+	if len(rows) != 1 || len(rows[0].Media) != 2 {
+		t.Fatalf("media = %#v, want two resolved media items", rows)
+	}
+	if rows[0].Media[0].MimeType != "image/jpeg" {
+		t.Fatalf("photo mime_type = %q, want image/jpeg", rows[0].Media[0].MimeType)
+	}
+	if rows[0].Media[1].MimeType != "video/mp4" {
+		t.Fatalf("video mime_type = %q, want video/mp4", rows[0].Media[1].MimeType)
+	}
+	for _, media := range rows[0].Media {
+		want := "/app/proofs/" + media.ProofID + "/download"
+		if media.DownloadURL != want {
+			t.Fatalf("DownloadURL = %q, want route %q, not a signed GCS URL", media.DownloadURL, want)
+		}
 	}
 }
 

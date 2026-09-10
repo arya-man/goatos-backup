@@ -500,10 +500,11 @@ func (s *Service) ListReadyVaccinationBatchClosures(ctx context.Context, params 
 // resolveMedia attaches stable proof download API paths without minting signed GCS URLs on a
 // queue/list read. The signed URL is created only when the client explicitly opens
 // /app/proofs/{proof_id}/download.
-// Resolution is per-item: an item whose own media refs all resolve keeps its media and
-// evidence_available=true; an item with any unresolvable ref of its OWN gets empty media +
-// evidence_available=false. The resolver reports per-ID failures as empty MediaItems with DownloadURL="",
-// which the service layer detects to fail-close only that item (not the whole page).
+//
+// Queue reads still need cheap proof-row metadata. The admin drawer decides whether to render a
+// video player or image opener from mime_type; returning route-only media would make real uploaded
+// proofs look missing. The media resolver's post-PR226 contract is metadata-only here: it batch
+// reads proof_artifacts and returns backend routes, never signed GCS URLs and never object bytes.
 //
 // It deliberately does NOT verify that each stored object is retrievable. Doing so would cost one
 // stat/HEAD per proof per row. The honest contract is therefore MediaRefsPresent ("there are proof
@@ -511,11 +512,32 @@ func (s *Service) ListReadyVaccinationBatchClosures(ctx context.Context, params 
 // proof_object_missing / retryable=false for the client to render as "evidence unavailable".
 func (s *Service) resolveMedia(ctx context.Context, tenantID string, items []domain.Item) []domain.QueueRow {
 	rows := make([]domain.QueueRow, len(items))
+	allRefs := make([]string, 0)
+	for _, it := range items {
+		allRefs = append(allRefs, it.MediaRefs...)
+	}
+	resolved := map[string]domain.MediaItem{}
+	if resolver, ok := s.media.(interface {
+		ResolveMediaMetadata(context.Context, string, []string) ([]domain.MediaItem, error)
+	}); ok && len(allRefs) > 0 {
+		if media, err := resolver.ResolveMediaMetadata(ctx, tenantID, allRefs); err == nil {
+			for _, item := range media {
+				if item.ProofID == "" || item.DownloadURL == "" {
+					continue
+				}
+				resolved[item.ProofID] = item
+			}
+		}
+	}
 	for i, it := range items {
 		media := make([]domain.MediaItem, 0, len(it.MediaRefs))
 		for _, id := range it.MediaRefs {
 			id = strings.TrimSpace(id)
 			if id == "" {
+				continue
+			}
+			if item, ok := resolved[id]; ok {
+				media = append(media, item)
 				continue
 			}
 			media = append(media, domain.MediaItem{ProofID: id, DownloadURL: "/app/proofs/" + id + "/download"})
@@ -536,17 +558,12 @@ func (s *Service) categoryFor(category string) domain.CategoryDefinition {
 	return def
 }
 
-// labelMedia guarantees every proof carries a header before it reaches a renderer.
-//
-// A label already resolved from workflow task truth is the most specific thing available and is
-// left alone; only blanks are filled from the category's registry copy. Doing this here rather than
-// in the client is what keeps the rule in verifier-app-and-flow.md true — the backend owns the
-// label and the client never derives one from category or list position.
+// labelMedia guarantees every proof carries a header before it reaches a renderer. Verification
+// queue media are slot-based: "Feed weight photo", "Feed distribution video", "Water distribution
+// video". Metadata lookups may supply action/task labels, but they are not the queue's proof-slot
+// contract, so the registered category labels win here. MIME/duration from metadata stay intact.
 func labelMedia(media []domain.MediaItem, def domain.CategoryDefinition) {
 	for i := range media {
-		if strings.TrimSpace(media[i].Label) != "" {
-			continue
-		}
 		media[i].Label = def.MediaLabelFor(i, len(media))
 	}
 }
