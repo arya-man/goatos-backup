@@ -28,6 +28,7 @@ import (
 	ceoai "github.com/vgoats/goatos/backend/internal/ceoai"
 	ceoobs "github.com/vgoats/goatos/backend/internal/ceoai/adapters/observability"
 	ceoreadtools "github.com/vgoats/goatos/backend/internal/ceoai/adapters/readtools"
+	countsboard "github.com/vgoats/goatos/backend/internal/counts/adapters/boardsource"
 	countshttp "github.com/vgoats/goatos/backend/internal/counts/adapters/http"
 	countspg "github.com/vgoats/goatos/backend/internal/counts/adapters/postgres"
 	countsproof "github.com/vgoats/goatos/backend/internal/counts/adapters/proof"
@@ -52,6 +53,7 @@ import (
 	growthdirectorhttp "github.com/vgoats/goatos/backend/internal/growthdirector/adapters/http"
 	growthdirectorpg "github.com/vgoats/goatos/backend/internal/growthdirector/adapters/postgres"
 	growthdirectorapp "github.com/vgoats/goatos/backend/internal/growthdirector/app"
+	healthboard "github.com/vgoats/goatos/backend/internal/health/adapters/boardsource"
 	healthhttp "github.com/vgoats/goatos/backend/internal/health/adapters/http"
 	healthpg "github.com/vgoats/goatos/backend/internal/health/adapters/postgres"
 	healthverificationbridge "github.com/vgoats/goatos/backend/internal/health/adapters/verificationbridge"
@@ -86,6 +88,7 @@ import (
 	outboxpg "github.com/vgoats/goatos/backend/internal/outbox/adapters/postgres"
 	passporthttp "github.com/vgoats/goatos/backend/internal/passport/adapters/http"
 	passportapp "github.com/vgoats/goatos/backend/internal/passport/app"
+	pccareboard "github.com/vgoats/goatos/backend/internal/pccare/adapters/boardsource"
 	pccarehttp "github.com/vgoats/goatos/backend/internal/pccare/adapters/http"
 	pccarepg "github.com/vgoats/goatos/backend/internal/pccare/adapters/postgres"
 	pccareproof "github.com/vgoats/goatos/backend/internal/pccare/adapters/proof"
@@ -103,6 +106,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/platform/authaudit"
 	"github.com/vgoats/goatos/backend/internal/platform/buildinfo"
 	"github.com/vgoats/goatos/backend/internal/platform/eventbus"
+	piboard "github.com/vgoats/goatos/backend/internal/processintegrity/adapters/boardsource"
 	toxinhttp "github.com/vgoats/goatos/backend/internal/toxin/adapters/http"
 	toxinpg "github.com/vgoats/goatos/backend/internal/toxin/adapters/postgres"
 	toxinproof "github.com/vgoats/goatos/backend/internal/toxin/adapters/proof"
@@ -528,7 +532,8 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	outboxHandler := outboxhttp.NewHandler(outboxRepo, businessAuditRecorder, log)
 	operationsAuditService := operationsauditapp.NewService(operationsauditpg.NewRepository(pool, cfg.Postgres.QueryTimeout))
 	operationsAuditHandler := operationsaudithttp.NewHandler(operationsAuditService, log)
-	processIntegrityService := processintegrityapp.NewService(processintegritypg.NewRepository(pool, cfg.Postgres.QueryTimeout))
+	processIntegrityRepo := processintegritypg.NewRepository(pool, cfg.Postgres.QueryTimeout)
+	processIntegrityService := processintegrityapp.NewService(processIntegrityRepo)
 	processIntegrityHandler := processintegrityhttp.NewHandler(processIntegrityService, log)
 	vaccExecOwnership := vaccexecroster.NewOwnershipAdapter(rosterService)
 	vaccExecService := vaccexecapp.NewService(vaccexecpg.NewRepository(pool, cfg.Postgres.QueryTimeout), vaccExecOwnership).
@@ -747,6 +752,13 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 		weighingboard.New(pool, cfg.Postgres.QueryTimeout),
 		feedboard.New(pool, cfg.Postgres.QueryTimeout),
 		verificationboard.New(pool, cfg.Postgres.QueryTimeout),
+		countsboard.NewApprovals(pool, cfg.Postgres.QueryTimeout),
+		countsboard.NewMilkFeeding(pool, cfg.Postgres.QueryTimeout),
+		healthboard.New(pool, cfg.Postgres.QueryTimeout),
+		pccareboard.New(pool, cfg.Postgres.QueryTimeout),
+		// Vaccination reuses the process-integrity read behind the port; the member
+		// resolver is what lets the operator lens narrow it by user id.
+		piboard.New(processIntegrityRepo).WithMemberResolver(piboard.NewPoolMemberResolver(pool, cfg.Postgres.QueryTimeout)),
 	), log)
 	// Pen visits (maintainer decision 2026-09-07): the Tasks module's "For me" tab. The kernel
 	// raises them; this serves the park head's list and the submit that carries the live video.
