@@ -90,6 +90,12 @@ afterwards. "All parks" on the web is one request per park.
 - The vaccination source walks the park-day through the process-integrity cursor and
   sorts by row id (bounded, ≤20 pages); a native row-id keyset on that read would make
   it one query.
+- Counts approval requests carry no park of their own; birth and pen-move requests resolve
+  the park from their payload, but a DEATH request carries only the animal and so is not
+  on any park's board until counts snapshots the park at raise time.
+- Health rows are titled by disease and day, not by the animal's tag: the case table
+  stores only the goat id, and this source may not read the herd register.
+- Milk feeding is farm-grain since migration 000097, so its "pen" is the park.
 - No "not moving" signal yet: that is the second half of the plan's phase 5.
 
 ## The flag (phase 5, first half)
