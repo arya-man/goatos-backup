@@ -7,10 +7,10 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { copy, type AdminUiOption, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { WorkBoardRow, WorkBoardSummary } from "@/lib/api/work-board-server";
-import { fmtDate } from "@/lib/format";
 import {
   barSegments,
   clockClass,
+  dayLabel,
   findOption,
   initials,
   lanes,
@@ -18,6 +18,8 @@ import {
   moduleOptions,
   needsAttention,
   ownerStack,
+  parkLabel,
+  parkOptions,
   PARAM_CURSOR,
   PARAM_MODULE,
   PARAM_OWNER,
@@ -198,7 +200,7 @@ function WorkCard({ pageContract, row, href }: { pageContract: AdminUiPageContra
     <LocalOverlayLink href={href} scroll={false} className={`card${hot ? " hot" : ""}`} aria-label={row.title} title={`${row.title} · ${ownerLabel}`} data-filter-row>
       <div className="t">{row.title}</div>
       <span className={moduleClass(row.module)}>{moduleOpt?.label ?? row.module}</span>
-      <span className="etag park">{row.park_name || row.park_id}</span>
+      <span className="etag park" title={row.park_name || undefined}>{parkLabel(parkOptions(pageContract), row)}</span>
       {total > 0 ? (
         <div className="prog" aria-hidden="true">
           <i className="ok" style={{ width: `${seg.ok}%` }} />
@@ -305,7 +307,7 @@ export function WorkBoardBoard({
           <Link href={previousDayHref} aria-label={copy(pageContract, "action.previous")}>‹</Link>
           <span className="d">
             <Calendar className="ic" aria-hidden="true" />
-            <span>{fmtDate(businessDate)}</span>
+            <span>{dayLabel(businessDate)}</span>
             {isToday ? <span className="pill">{copy(pageContract, "filter.date.today")}</span> : null}
           </span>
           <Link href={nextDayHref} aria-label={copy(pageContract, "action.next")}>›</Link>

@@ -1,13 +1,12 @@
 "use client";
 
-import { X } from "lucide-react";
+import { Settings, X } from "lucide-react";
 import Link from "@/components/no-prefetch-link";
 import { useLocalOverlaySelection } from "@/components/local-overlay-link";
 import { control, controlEnabled, copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { WorkBoardRow } from "@/lib/api/work-board-server";
-import { fmtDate } from "@/lib/format";
 import { flagParkHeadAction } from "./actions";
-import { barSegments, clockClass, findOption, initials, lanes, moduleClass, moduleOptions, needsAttention, ownerStack, PARAM_ROW, stateOptions } from "./work-board-model";
+import { barSegments, clockClass, dayLabel, findOption, initials, lanes, moduleClass, moduleOptions, needsAttention, ownerStack, PARAM_ROW, parkLabel, parkOptions, stateOptions } from "./work-board-model";
 
 // The card's detail in the mock's Jira issue-view shape: a centred dialog over a scrim, the
 // module and key as breadcrumb, the title, a description with the progress bar and the three
@@ -145,14 +144,18 @@ export function WorkBoardModal({ pageContract, rows, initialSelectedRowKey, clos
               ) : null}
             </div>
             <div className="dets">
-              <div className="dh">{copy(pageContract, "drawer.details")}</div>
+              <div className="dh">
+                {copy(pageContract, "drawer.details")}
+                <span className="sp" />
+                <Settings className="ic" aria-hidden="true" />
+              </div>
               {kv(copy(pageContract, "detail.status"), <><span className={`status sm ${row.lane}`}>{stateOpt?.label ?? row.work_state}</span><span className="muted small">{copy(pageContract, "drawer.status_auto")}</span></>)}
               {kv(copy(pageContract, "detail.module"), <span className={moduleClass(row.module)}>{moduleOpt?.label ?? row.module}</span>)}
-              {kv(copy(pageContract, "detail.park"), row.park_name || row.park_id)}
+              {kv(copy(pageContract, "detail.park"), <span title={row.park_name || undefined}>{parkLabel(parkOptions(pageContract), row)}</span>)}
               {kv(copy(pageContract, "detail.pen"), row.pen.operational_location_display || "—")}
               {kv(copy(pageContract, "detail.owner"), <><span className="stack">{stack.names.map((name) => <span key={name} className="av" title={name}>{initials(name)}</span>)}{stack.extra > 0 ? <span className="av more">+{stack.extra}</span> : null}</span><span className={stack.names.length ? "" : "muted"}>{ownerLabel}</span></>)}
               {kv(copy(pageContract, "detail.clock"), row.clock_label ? <span className={`clk ${clockClass(row)}`.trim()}>{row.clock_label}</span> : "—")}
-              {kv(copy(pageContract, "detail.business_date"), fmtDate(row.business_date))}
+              {kv(copy(pageContract, "detail.business_date"), dayLabel(row.business_date))}
             </div>
             <FlagForm pageContract={pageContract} row={row} returnTo={returnToByRow[row.row_key] ?? closeHref} hot={hot} />
           </div>
