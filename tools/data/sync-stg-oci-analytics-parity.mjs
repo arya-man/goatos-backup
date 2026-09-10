@@ -52,10 +52,24 @@ const weighingTables = [
   "verification_items",
 ];
 
+const countsTables = [
+  "locations",
+  "animal_stage_lookup",
+  "count_dimension_aliases",
+  "shed_partitions",
+  "goats",
+  "goat_shed_partitions",
+];
+
 const tables = scope === "feed" ? feedTables
+  : scope === "counts" ? countsTables
   : scope === "weighing" ? weighingTables
-  : scope === "all" ? [...feedTables, ...weighingTables.filter((table) => !feedTables.includes(table))]
-  : fail(`unknown --scope=${scope}; expected all, feed, or weighing`);
+  : scope === "all" ? [
+    ...feedTables,
+    ...weighingTables.filter((table) => !feedTables.includes(table)),
+    ...countsTables.filter((table) => !feedTables.includes(table) && !weighingTables.includes(table)),
+  ]
+  : fail(`unknown --scope=${scope}; expected all, counts, feed, or weighing`);
 
 const verificationFilter = `(tenant_id = '${tenantId}' AND ((module = 'weighing' AND category = 'weighing_proof') OR (module = 'feed' AND category IN ('feed_distribution', 'feed_transport', 'feed_wastage', 'feed_packing'))))`;
 

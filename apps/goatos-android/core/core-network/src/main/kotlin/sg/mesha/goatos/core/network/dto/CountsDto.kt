@@ -80,7 +80,18 @@ data class CountsBreakdownRowDto(
             breed,
             sex,
         ).joinToString("|")
+
+    val displayManagementStage: String
+        get() = managementStage.toFatteningDisplayStage()
 }
+
+fun String.toFatteningDisplayStage(): String =
+    when (trim().lowercase()) {
+        "f2" -> "Fattening"
+        "f2-male" -> "Fattening male"
+        "f2-female" -> "Fattening female"
+        else -> this
+    }
 
 @Serializable
 data class CountsBreakdownSeriesPointDto(

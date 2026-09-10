@@ -47,6 +47,22 @@ test("process integrity enum skew renders a neutral label instead of crashing th
   assert.equal(optionTone(page, "work_state_filter_chips", "waiting_on_director_review"), "mut");
 });
 
+test("fattening stage codes never render as F2 in web fallback labels", () => {
+  const page = pageWithCopy();
+  assert.equal(optionLabel(page, "command_board_cohort_ladder", "F2"), "Fattening");
+  assert.equal(optionLabel(page, "command_board_cohort_stage_map", "F2-FEMALE"), "Fattening female");
+  assert.equal(optionLabel(page, "command_board_cohort_stage_map", "F2-MALE"), "Fattening male");
+});
+
+test("counts breakdown summary card copy tolerates stale backend page contracts", () => {
+  const page = pageWithCopy({}, "counts-breakdown");
+  assert.equal(copy(page, "summary_card.total_animals.label"), "Total animals");
+  assert.equal(copy(page, "summary_card.fattening.label"), "Fattening");
+  assert.equal(copy(page, "summary_card.bucks.label"), "Bucks");
+  assert.equal(copy(page, "summary_card.breeding.label"), "Breeding stock");
+  assert.equal(copy(page, "summary_card.icu.label"), "ICU");
+});
+
 test("fixed missing copy keys still fail loudly", () => {
   assert.throws(
     () => copy(pageWithCopy({}, "protocol-adherence"), "label.this_key_is_required"),

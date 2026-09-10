@@ -43,6 +43,7 @@ import sg.mesha.goatos.core.data.capture.ProofCaptureRepository
 import sg.mesha.goatos.core.data.capture.ProofFlow
 import sg.mesha.goatos.core.data.capture.ProofIdentity
 import sg.mesha.goatos.core.data.capture.ProofSubject
+import sg.mesha.goatos.core.network.dto.toFatteningDisplayStage
 import sg.mesha.goatos.core.data.forms.ProofPolicy
 import sg.mesha.goatos.core.data.sync.SubmittedGrainsSource
 import sg.mesha.goatos.core.data.sync.MilkPreparationAnswersPayload
@@ -365,7 +366,7 @@ class MilkPreparationViewModel @Inject constructor(
             citricAcidLabel = task?.let { "${formatDecimal(it.citricAcidGrams)} g citric acid" }.orEmpty(),
             citricAcidGrams = task?.citricAcidGrams ?: 0.0,
             milkDirectionLines = task?.milkDirection.orEmpty().map { line ->
-                "${line.managementStage}: ${line.headCount} kids × ${line.perHeadMl}ml × ${line.sessionCount} sessions = ${formatLitres(line.requiredMl)}"
+                "${line.managementStage.toFatteningDisplayStage()}: ${line.headCount} kids × ${line.perHeadMl}ml × ${line.sessionCount} sessions = ${formatLitres(line.requiredMl)}"
             },
             citricAcidRateLabel = task?.let { "${formatDecimal(it.citricAcidGramsPerLitre)} g/L" }.orEmpty(),
             isRefreshing = syncState.isRefreshing,

@@ -6,6 +6,21 @@ export type AdminUiOption = AdminWebPageContract["option_groups"][number]["optio
 export type AdminUiControl = AdminWebPageContract["controls"][number];
 
 const COPY_FALLBACKS: Record<string, Record<string, string>> = {
+  "counts-breakdown": {
+    "summary_card.total_animals.label": "Total animals",
+    "summary_card.total_animals.kids": "kids",
+    "summary_card.total_animals.adults": "adults",
+    "summary_card.fattening.label": "Fattening",
+    "summary_card.bucks.label": "Bucks",
+    "summary_card.breeding.label": "Breeding stock",
+    "summary_card.icu.label": "ICU",
+    "summary_card.k0.label": "K0",
+    "summary_card.k1.label": "K1",
+    "summary_card.k2.label": "K2",
+    "summary_card.k3.label": "K3",
+    "summary_card.k4.label": "K4",
+    "summary_card.group.aria": "Stage summary cards",
+  },
   // SALES overview. These fixed keys ship with the farm-value card; keep the page alive if
   // admin-web deploys one release before the backend copy contract.
   sales: {
@@ -636,7 +651,7 @@ const OPTION_GROUP_FALLBACKS: Record<string, Record<string, AdminUiOption[]>> = 
       { key: "K3", label: "K3", title: "", tone: "", enabled: true, disabled_reason: "" },
       { key: "Kid", label: "Kid", title: "", tone: "", enabled: true, disabled_reason: "" },
       { key: "Fattening", label: "Fattening", title: "", tone: "", enabled: true, disabled_reason: "" },
-      { key: "F2", label: "F2", title: "", tone: "", enabled: true, disabled_reason: "" },
+      { key: "F2", label: "Fattening", title: "", tone: "", enabled: true, disabled_reason: "" },
       { key: "Adults", label: "Adults", title: "", tone: "", enabled: true, disabled_reason: "" },
     ],
     // Mirrors the backend membership map: Adults is a declared rung, never a catch-all, and an
@@ -654,8 +669,8 @@ const OPTION_GROUP_FALLBACKS: Record<string, Record<string, AdminUiOption[]>> = 
       { key: "ICU-KID", label: "Kid", title: "", tone: "", enabled: true, disabled_reason: "" },
       { key: "ICU-KIDS", label: "Kid", title: "", tone: "", enabled: true, disabled_reason: "" },
       { key: "QUARANTINE KIDS", label: "Kid", title: "", tone: "", enabled: true, disabled_reason: "" },
-      { key: "F2-FEMALE", label: "F2", title: "", tone: "", enabled: true, disabled_reason: "" },
-      { key: "F2-MALE", label: "F2", title: "", tone: "", enabled: true, disabled_reason: "" },
+      { key: "F2-FEMALE", label: "Fattening female", title: "", tone: "", enabled: true, disabled_reason: "" },
+      { key: "F2-MALE", label: "Fattening male", title: "", tone: "", enabled: true, disabled_reason: "" },
       { key: "FATTENING", label: "Fattening", title: "", tone: "", enabled: true, disabled_reason: "" },
     ],
     schedule_status_legend: [
