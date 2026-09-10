@@ -35,6 +35,8 @@ const screenshotDir = join(
 const diffDir = join(screenshotDir, "diffs");
 let baselineCompared = 0;
 let baselineUpdated = 0;
+const wideTableScrollOwnerSelector =
+  ".tablewrap,.twrap,.cfgtablewrap,.feed-stock-tablewrap,.pa-gridwrap,.lt-tablewrap,.sales-market-wrap,.health-analytics-scroll,.cbm-future-table-wrap,.vplan .scroll";
 
 // Optional focused run: GOATOS_SMOKE_ONLY_ROUTES=calendar,counts-herd restricts the sweep to those
 // routes so a targeted assertion (e.g. calendar identity) can run without an unrelated earlier route
@@ -455,7 +457,7 @@ async function assertLayoutHealthy(page, routeName, viewportLabel) {
   // settle so the measurement reflects the resting layout. This does NOT touch the horizontal overflow or
   // card-clipping checks (they measure the same resting layout) — it only removes the main.top false positive.
   await settleAtTop(page);
-  const layout = await page.evaluate(() => {
+  const layout = await page.evaluate((scrollOwnerSelector) => {
     window.scrollTo(0, 0);
     const root = document.documentElement;
     const overflow = root.scrollWidth - root.clientWidth;
@@ -595,7 +597,7 @@ async function assertLayoutHealthy(page, routeName, viewportLabel) {
         .filter(isVisible)
         .filter((table) => table.scrollWidth > rootElement.clientWidth + 2);
       for (const table of wideTables) {
-        const scroller = table.closest(".tablewrap,.twrap,.cfgtablewrap,.feed-stock-tablewrap,.pa-gridwrap,.lt-tablewrap,.sales-market-wrap,.cbm-future-table-wrap,.vplan .scroll");
+        const scroller = table.closest(scrollOwnerSelector);
         if (!(scroller instanceof HTMLElement)) {
           problems.push({ kind: "missing-scroll-owner", table: describeElement(table) });
           continue;
@@ -624,7 +626,7 @@ async function assertLayoutHealthy(page, routeName, viewportLabel) {
       }
       return problems;
     }
-  });
+  }, wideTableScrollOwnerSelector);
 
   if (layout.overflow > 2) {
     throw new Error(`${routeName} ${viewportLabel} has horizontal overflow of ${layout.overflow}px`);
@@ -663,9 +665,7 @@ async function assertLayoutHealthy(page, routeName, viewportLabel) {
 
 async function assertMobileWideTableGestures(page, routeName, viewportLabel, screenshotRoot) {
   if (viewportLabel !== "mobile") return;
-  const scrollOwners = await page.locator(
-    ".tablewrap,.twrap,.cfgtablewrap,.feed-stock-tablewrap,.pa-gridwrap,.lt-tablewrap,.sales-market-wrap,.cbm-future-table-wrap,.vplan .scroll",
-  ).evaluateAll((elements) =>
+  const scrollOwners = await page.locator(wideTableScrollOwnerSelector).evaluateAll((elements) =>
     elements
       .map((element, index) => {
         if (!(element instanceof HTMLElement)) return null;
@@ -683,10 +683,8 @@ async function assertMobileWideTableGestures(page, routeName, viewportLabel, scr
       .filter(Boolean),
   );
 
-  for (const owner of scrollOwners.slice(0, 8)) {
-    const locator = page.locator(
-      ".tablewrap,.twrap,.cfgtablewrap,.feed-stock-tablewrap,.pa-gridwrap,.lt-tablewrap,.sales-market-wrap,.cbm-future-table-wrap,.vplan .scroll",
-    ).nth(owner.index);
+  for (const owner of scrollOwners) {
+    const locator = page.locator(wideTableScrollOwnerSelector).nth(owner.index);
     await locator.evaluate((element) => {
       element.scrollLeft = 0;
       element.scrollIntoView({ block: "center", inline: "nearest" });
@@ -696,10 +694,7 @@ async function assertMobileWideTableGestures(page, routeName, viewportLabel, scr
       throw new Error(`${routeName} mobile wide table scroll owner ${owner.label} has no bounding box`);
     }
     const before = await locator.evaluate((element) => element.scrollLeft);
-    await page.mouse.move(box.x + box.width * 0.82, box.y + Math.min(box.height * 0.55, box.height - 8));
-    await page.mouse.down();
-    await page.mouse.move(box.x + box.width * 0.18, box.y + Math.min(box.height * 0.55, box.height - 8), { steps: 8 });
-    await page.mouse.up();
+    await dispatchTouchDrag(page, box);
     const afterDrag = await locator.evaluate((element) => element.scrollLeft);
     if (afterDrag <= before) {
       throw new Error(`${routeName} mobile wide table did not respond to horizontal drag: ${JSON.stringify(owner)}`);
@@ -711,6 +706,30 @@ async function assertMobileWideTableGestures(page, routeName, viewportLabel, scr
       path: join(screenshotRoot, `${viewportLabel}-${routeName}-wide-table-${owner.index}-right.png`),
     });
   }
+}
+
+async function dispatchTouchDrag(page, box) {
+  const client = await page.context().newCDPSession(page);
+  const y = box.y + Math.min(box.height * 0.55, box.height - 8);
+  const startX = box.x + box.width * 0.82;
+  const endX = box.x + box.width * 0.18;
+  const steps = 8;
+  await client.send("Input.dispatchTouchEvent", {
+    type: "touchStart",
+    touchPoints: [{ x: startX, y }],
+  });
+  for (let step = 1; step <= steps; step += 1) {
+    const x = startX + ((endX - startX) * step) / steps;
+    await client.send("Input.dispatchTouchEvent", {
+      type: "touchMove",
+      touchPoints: [{ x, y }],
+    });
+  }
+  await client.send("Input.dispatchTouchEvent", {
+    type: "touchEnd",
+    touchPoints: [],
+  });
+  await client.detach();
 }
 
 async function settleAtTop(page) {

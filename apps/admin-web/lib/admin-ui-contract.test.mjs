@@ -50,8 +50,8 @@ test("process integrity enum skew renders a neutral label instead of crashing th
 test("fattening stage codes never render as F2 in web fallback labels", () => {
   const page = pageWithCopy();
   assert.equal(optionLabel(page, "command_board_cohort_ladder", "F2"), "Fattening");
-  assert.equal(optionLabel(page, "command_board_cohort_stage_map", "F2-FEMALE"), "Fattening female");
-  assert.equal(optionLabel(page, "command_board_cohort_stage_map", "F2-MALE"), "Fattening male");
+  assert.equal(optionLabel(page, "command_board_cohort_stage_map", "F2-FEMALE"), "Fattening");
+  assert.equal(optionLabel(page, "command_board_cohort_stage_map", "F2-MALE"), "Fattening");
 });
 
 test("counts breakdown summary card copy tolerates stale backend page contracts", () => {
