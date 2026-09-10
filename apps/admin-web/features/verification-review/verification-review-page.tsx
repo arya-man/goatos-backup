@@ -500,7 +500,7 @@ export async function VerificationReviewPage({
               {selectedModuleActionTypes.map((option) => (
                 <label
                   key={option.category}
-                  className="vr-lg vr-subchip"
+                  className={`vr-lg vr-subchip${selectedCategories.includes(option.category) ? " on" : ""}`}
                 >
                   <input type="checkbox" name="category" value={option.category} defaultChecked={selectedCategories.includes(option.category)} />
                   {option.label}
