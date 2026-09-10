@@ -500,6 +500,28 @@ const soldWeightBandsSQL = `
 
 // farmValuationSQL is the one live-inventory rollup behind the Farm Value cards. %s is the optional
 // farm-code predicate.
+//
+// CLINICALLY HOUSED ANIMALS ARE STILL INVENTORY (maintainer decision 2026-09-10). An animal in ICU
+// is worth what its cohort is worth -- the tag says where it is being kept, not that it has no
+// value -- so a clinical stage is valued through the cohort it belongs to rather than dropped into
+// the not-valued list. Three rules, and nothing else about the rollup changes:
+//
+//	ICU-Kid  -> the K2 bucket. Its own milk cohort wins when the register still knows it (the
+//	            K1/K2/K3/K0 branches run FIRST), so this catches only the kid whose band was lost
+//	            when it moved to ICU. K2 is the maintainer's stated default for that kid.
+//	ICU      -> Adult females / Adult males by the animal's own sex, because a plain ICU tag is an
+//	            adult tag. The age_band branches above already claim the ones the register calls
+//	            adult; this reaches the ones it does not.
+//	Mother   -> Adult females ALWAYS, ahead of the sex branches, because a mother is female
+//	            whatever the sex column happens to hold.
+//
+// The stage is matched through the SAME normalizer the milk-cohort recovery uses (000166:
+// upper + strip non-alphanumerics), because the imported herd genuinely carries both 'ICU- kid'
+// and 'ICU-Kid' -- raw equality would value one spelling and drop the other. It is a CROSS JOIN
+// LATERAL so the expression has one definition rather than four copies drifting apart.
+//
+// A stage this does not name stays 'unmapped' and stays visible in the not-valued breakdown; the
+// rule is deliberately literal, never an ILIKE over kid-like or clinical-looking text.
 const farmValuationSQL = `
 	WITH idmap AS (
 		SELECT tenant_id, goat_id, lower(btrim(identifier_value)) AS identifier
@@ -527,18 +549,25 @@ const farmValuationSQL = `
 		SELECT
 				CASE
 					WHEN g.management_stage IN ('F2', 'F2-Male', 'F2-Female') THEN 'fattening'
+				WHEN s.stage_norm = 'MOTHER' THEN 'adult_female'
 				WHEN g.age_band = 'adult' AND g.sex = 'female' THEN 'adult_female'
 				WHEN g.age_band = 'adult' AND g.sex = 'male' THEN 'adult_male_buck'
 				WHEN g.milk_cohort = 'K1' OR g.management_stage = 'K1' THEN 'K1'
 				WHEN g.milk_cohort = 'K2' OR g.management_stage = 'K2' THEN 'K2'
 				WHEN g.milk_cohort = 'K3' OR g.management_stage = 'K3' THEN 'K3'
 				WHEN g.milk_cohort = 'K0' OR g.management_stage = 'K0' THEN 'K0'
+				WHEN s.stage_norm = 'ICUKID' THEN 'K2'
+				WHEN s.stage_norm = 'ICU' AND g.sex = 'female' THEN 'adult_female'
+				WHEN s.stage_norm = 'ICU' AND g.sex = 'male' THEN 'adult_male_buck'
 				ELSE 'unmapped'
 			END AS bucket,
 			gw.weight_kg,
 			g.management_stage,
 			g.milk_cohort
 			FROM public.goats g
+			CROSS JOIN LATERAL (
+				SELECT upper(regexp_replace(btrim(coalesce(g.management_stage, '')), '[^A-Za-z0-9]+', '', 'g')) AS stage_norm
+			) s
 			LEFT JOIN goat_weight gw ON gw.tenant_id = g.tenant_id AND gw.goat_id = g.goat_id
 		LEFT JOIN public.locations park ON park.tenant_id = g.tenant_id AND park.location_id = g.park_id
 		LEFT JOIN public.locations farm ON farm.tenant_id = g.tenant_id AND farm.location_id = g.farm_id

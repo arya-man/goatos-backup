@@ -149,3 +149,124 @@ func TestFarmValuationClassifiedProjectsNotValuedBreakdownInputs(t *testing.T) {
 		}
 	}
 }
+
+// TestFarmValuationClinicalStagesAreValuedThroughTheirCohort pins the 2026-09-10 rule that an
+// animal in ICU is still inventory. The three branches are asserted with their ORDER, because the
+// order is the rule: a mother is claimed before the sex branches so the sex column cannot outvote
+// her, and an ICU kid is claimed after the milk-cohort branches so a kid whose own band survived
+// keeps it instead of being flattened to K2.
+func TestFarmValuationClinicalStagesAreValuedThroughTheirCohort(t *testing.T) {
+	for _, want := range []string{
+		"WHEN s.stage_norm = 'MOTHER' THEN 'adult_female'",
+		"WHEN s.stage_norm = 'ICUKID' THEN 'K2'",
+		"WHEN s.stage_norm = 'ICU' AND g.sex = 'female' THEN 'adult_female'",
+		"WHEN s.stage_norm = 'ICU' AND g.sex = 'male' THEN 'adult_male_buck'",
+	} {
+		if !strings.Contains(farmValuationSQL, want) {
+			t.Fatalf("farm valuation must value clinically housed animals; missing %q", want)
+		}
+	}
+
+	mother := strings.Index(farmValuationSQL, "WHEN s.stage_norm = 'MOTHER'")
+	adultFemale := strings.Index(farmValuationSQL, "WHEN g.age_band = 'adult' AND g.sex = 'female'")
+	if mother < 0 || adultFemale < 0 || mother > adultFemale {
+		t.Fatal("a mother must be claimed as an adult female BEFORE the sex branches, whatever the sex column holds")
+	}
+
+	icuKid := strings.Index(farmValuationSQL, "WHEN s.stage_norm = 'ICUKID'")
+	ownCohort := strings.Index(farmValuationSQL, "WHEN g.milk_cohort = 'K3' OR g.management_stage = 'K3'")
+	if icuKid < 0 || ownCohort < 0 || icuKid < ownCohort {
+		t.Fatal("an ICU kid falls back to K2 only AFTER its own milk cohort; a known band must win")
+	}
+
+	unmapped := strings.Index(farmValuationSQL, "ELSE 'unmapped'")
+	if unmapped < 0 || unmapped < icuKid {
+		t.Fatal("unmapped must remain the last resort so an unnamed stage still reaches the not-valued breakdown")
+	}
+}
+
+// TestFarmValuationNormalizesTheClinicalStageOnce pins the normalizer itself. The imported herd
+// carries both 'ICU- kid' and 'ICU-Kid', so raw equality would value one spelling and drop the
+// other -- the defect migration 000166 already had to repair once for milk cohorts.
+func TestFarmValuationNormalizesTheClinicalStageOnce(t *testing.T) {
+	const normalizer = "upper(regexp_replace(btrim(coalesce(g.management_stage, '')), '[^A-Za-z0-9]+', '', 'g')) AS stage_norm"
+	if !strings.Contains(farmValuationSQL, normalizer) {
+		t.Fatal("clinical stage must use the 000166 normalizer so 'ICU- kid' and 'ICU-Kid' are one tag")
+	}
+	if n := strings.Count(farmValuationSQL, "regexp_replace"); n != 1 {
+		t.Fatalf("stage normalization must have ONE definition, found %d -- copies drift apart", n)
+	}
+	if !strings.Contains(farmValuationSQL, "CROSS JOIN LATERAL (") {
+		t.Fatal("the single normalizer must reach the CASE through a lateral, not four inline copies")
+	}
+	// Literal tags only. An ILIKE over clinical-looking text would sweep in stages nobody named,
+	// which is the same trap the K0 branch is already guarded against above.
+	if strings.Contains(farmValuationSQL, "ILIKE") {
+		t.Fatal("clinical valuation must name its tags literally, never ILIKE over kid-like or clinical-looking text")
+	}
+}
+
+// TestFarmValuationClinicalStagesMultipleDimensionsPageBoundaryParkScopeEveryStatus is the
+// adversarial cover for the clinical branch as an AGGREGATE, not just as a CASE arm. Moving
+// animals between buckets changes every count, weight and rupee figure on the Farm Value cards, so
+// the four ways a rollup usually breaks are each asserted.
+//
+// projection-review: membership=public.goats at (tenant_id, goat_id) grain, one row per live
+// animal, unchanged by this branch; group_key=the CASE bucket, still exactly one bucket per animal
+// because CASE stops at its first true arm, so the clinical arms can only claim animals that would
+// otherwise have been 'unmapped' (mother excepted, which is claimed ahead of the sex branches by
+// design); join_cardinality=the new CROSS JOIN LATERAL reads NO table -- it is a scalar expression
+// over the row's own management_stage -- so it multiplies the goat row by exactly 1 and the
+// valued + excluded counts still sum to live_animals; pagination=none, whole-inventory aggregate;
+// scope=tenant plus the optional farm predicate and the same park/farm location joins, all of
+// which sit after the lateral and are untouched by it.
+func TestFarmValuationClinicalStagesMultipleDimensionsPageBoundaryParkScopeEveryStatus(t *testing.T) {
+	lateralStart := strings.Index(farmValuationSQL, "CROSS JOIN LATERAL (")
+	if lateralStart < 0 {
+		t.Fatal("clinical stage normalization must come through a lateral")
+	}
+	lateralEnd := strings.Index(farmValuationSQL[lateralStart:], ") s")
+	if lateralEnd < 0 {
+		t.Fatal("lateral must be aliased so the CASE can name it")
+	}
+	// Slice the BODY, past the "CROSS JOIN LATERAL (" header itself -- the header carries the
+	// word JOIN and would otherwise trip the read-no-table check below on every run.
+	bodyStart := lateralStart + len("CROSS JOIN LATERAL (")
+	lateral := farmValuationSQL[bodyStart : lateralStart+lateralEnd]
+
+	// CARDINALITY. The lateral reads no table, so it returns exactly one row per goat and cannot
+	// fan the herd out. A lateral that grew a FROM would double-count every animal it matched
+	// twice -- silently inflating both the head counts and the rupee total.
+	if strings.Contains(strings.ToUpper(lateral), "FROM") || strings.Contains(strings.ToUpper(lateral), "JOIN") {
+		t.Fatalf("the stage lateral must stay a scalar over the goat's own row, never a table read: %s", lateral)
+	}
+
+	// PAGE BOUNDARY. The cards are whole-inventory; a window would make the clinical animals
+	// appear or vanish with the page rather than with the herd.
+	if strings.Contains(farmValuationSQL, "LIMIT") || strings.Contains(farmValuationSQL, "OFFSET") {
+		t.Fatal("farm valuation must stay a whole-inventory aggregate")
+	}
+
+	// PARK/FARM SCOPE. The lateral is joined before the scope predicates, so those must still be
+	// there and still apply to the newly valued animals.
+	for _, want := range []string{
+		"LEFT JOIN public.locations park ON park.tenant_id = g.tenant_id",
+		"LEFT JOIN public.locations farm ON farm.tenant_id = g.tenant_id",
+		"WHERE g.tenant_id = $1",
+	} {
+		idx := strings.Index(farmValuationSQL, want)
+		if idx < 0 || idx < lateralStart {
+			t.Fatalf("scope predicate %q must survive, and stay after the stage lateral", want)
+		}
+	}
+
+	// EVERY STATUS. A clinical tag must not resurrect a terminal animal: the CASE lives inside
+	// classified, whose WHERE already excludes sold/dead/culled, and the clinical arms add no
+	// status branch of their own.
+	if !strings.Contains(farmValuationSQL, "g.lifecycle_status NOT IN ('dead', 'sold', 'culled', 'transferred', 'lost', 'merged', 'inactive')") {
+		t.Fatal("clinical valuation must inherit the terminal-status exclusion, never value a dead or sold animal")
+	}
+	if strings.Contains(farmValuationSQL, "stage_norm = 'ICU' AND g.lifecycle_status") {
+		t.Fatal("the clinical arms must not carry a status rule of their own; classified already owns that")
+	}
+}
