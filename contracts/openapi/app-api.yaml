@@ -19372,7 +19372,7 @@ components:
             $ref: "#/components/schemas/FeedAnalyticsStockItem"
         farm_items:
           type: array
-          description: Per-farm Mesha-concentrate purchase/consumption rows, ordered by feed item then farm.
+          description: Per-farm Mesha-concentrate family purchase/consumption rows, ordered by feed family then farm.
           items:
             $ref: "#/components/schemas/FeedAnalyticsStockFarmItem"
         forecast:
@@ -19381,7 +19381,8 @@ components:
             Next-7-days feed requirement and cost, one row per (farm, feed item), ordered
             by farm then feed item. Keyed on what the farm actually FEEDS -- sheet-directed feeds
             and externally-tracked feeds alike -- so this list is wider than `farm_items`, which
-            covers the four Mesha concentrates only. Always present, possibly empty.
+            reads the six Mesha concentrate successor/member keys and folds them to family rows.
+            Always present, possibly empty.
           items:
             $ref: "#/components/schemas/FeedAnalyticsStockForecastItem"
         expenditure:
