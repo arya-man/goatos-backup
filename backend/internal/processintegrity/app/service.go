@@ -301,7 +301,7 @@ func expectedText(row domain.Row) string {
 	if row.DriveCapacityState == domain.DriveCapacityStateOverCapRequired {
 		return fmt.Sprintf("%s %s: %d animals must finish by %s", row.ProtocolName, row.DoseCode, max(row.DriveAnimalsRequired, row.ExpectedCount), latestSafeOrDue(row))
 	}
-	return fmt.Sprintf("%s %s: %d due by %s", row.ProtocolName, row.DoseCode, row.ExpectedCount, biztime.BusinessDate(row.DueAt))
+	return fmt.Sprintf("%s %s: %d due by %s", row.ProtocolName, row.DoseCode, row.ExpectedCount, biztime.FarmDate(row.DueAt))
 }
 
 func actualText(row domain.Row) string {
@@ -491,11 +491,14 @@ func humanGap(gap string, state domain.WorkState) string {
 	return strings.ReplaceAll(gap, "_", " ")
 }
 
+// latestSafeOrDue is VISIBLE COPY (it lands inside "must finish by ..." and "latest safe ..."),
+// so it renders the farm-readable dd/mm/yyyy rather than the ISO business date. The ISO form
+// stays on the structured fields beside it, which clients parse.
 func latestSafeOrDue(row domain.Row) string {
 	if row.DriveLatestSafeDate != nil && !row.DriveLatestSafeDate.IsZero() {
-		return biztime.BusinessDate(*row.DriveLatestSafeDate)
+		return biztime.FarmDate(*row.DriveLatestSafeDate)
 	}
-	return biztime.BusinessDate(row.DueAt)
+	return biztime.FarmDate(row.DueAt)
 }
 
 func publishedState(row domain.Row) string {

@@ -4,10 +4,10 @@ import test from "node:test";
 import { ageBandLabel, toDeathRows, toDiseaseRows } from "./health-analytics-rows.ts";
 
 // The real lib/format.fmtDate, reimplemented here for the test only because the module under
-// test takes the formatter as an argument. Kept byte-identical in OUTPUT shape (DD-MM-YYYY).
+// test takes the formatter as an argument. Kept byte-identical in OUTPUT shape (DD/MM/YYYY).
 const fmtDate = (iso) => {
   const [y, m, d] = iso.split("-");
-  return `${d}-${m}-${y}`;
+  return `${d}/${m}/${y}`;
 };
 
 const AGE_BANDS = { adult: "Adult", kid: "Kid", both: "Both", unknown: "Not recorded" };
@@ -116,7 +116,7 @@ test("an animal with no tag renders the backend's own gap copy", () => {
 // value or the column orders by day-of-month.
 test("a death row renders DD-MM-YYYY and keeps the ISO value for sorting", () => {
   const [row] = toDeathRows([deathRow({ business_date: "2026-09-03" })], DEATH_LABELS, AGE_BANDS, fmtDate);
-  assert.equal(row.date, "03-09-2026");
+  assert.equal(row.date, "03/09/2026");
   assert.equal(row.sortDate, "2026-09-03");
 });
 

@@ -723,7 +723,7 @@ func (s *Service) previewLifecycle(ctx context.Context, tenantID, parkID, feedDa
 	}
 	return domain.Lifecycle{
 		State:     domain.LifecycleStatePreview,
-		Message:   fmt.Sprintf("generated preview — the sheet for %s has not been issued yet", feedDay),
+		Message:   fmt.Sprintf("generated preview — the sheet for %s has not been issued yet", biztime.FarmDateFromBusinessDate(feedDay)),
 		Workflows: wfs,
 	}, nil
 }

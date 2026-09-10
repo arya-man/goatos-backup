@@ -29,12 +29,7 @@ export function dateTime(value: string | null | undefined): string {
   if (!value) return "—";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
-  return new Intl.DateTimeFormat("en-IN", {
-    timeZone: GOATOS_TIME_ZONE,
-    dateStyle: "medium",
-    timeStyle: "short",
-    hour12: false,
-  }).format(date);
+  return fmtDateTime(value);
 }
 
 export function joinParts(parts: Array<string | null | undefined>): string {
@@ -45,22 +40,30 @@ export function joinParts(parts: Array<string | null | undefined>): string {
 // IST formatters used across admin-web screens, defined once so every screen
 // renders dates identically, preserving Goat OS' Asia/Kolkata business calendar.
 //
-// DATE DISPLAY RULE (maintainer decision 2026-08-21): every VISIBLE date in an
-// admin-web table, card, or drawer renders DD-MM-YYYY through fmtDate. Chart
-// axes use the compact dd-mm-yy in components/svg-series.tsx. Wire formats —
-// query params, API payloads, keys — stay ISO YYYY-MM-DD (todayIso/istDayPlus).
+// DATE DISPLAY RULE (maintainer decision 2026-09-10, SUPERSEDING the 2026-08-21
+// DD-MM-YYYY dash rule on the SEPARATOR and on compact labels): every VISIBLE
+// date on every surface — admin-web, Android, and any date string the backend
+// composes for a screen — renders DD/MM/YYYY, with slashes, in full. There is no
+// compact display variant any more: chart axes and phone chips render the same
+// DD/MM/YYYY as a table cell, so a reader never has to learn a second date shape.
+// Timestamps render DD/MM/YYYY HH:MM through fmtDateTime.
+//
+// Wire formats — query params, API payloads, React keys, export filenames — stay
+// ISO YYYY-MM-DD (todayIso/istDayPlus). The ISO helpers below are NOT display and
+// must not be switched to slashes.
+//
 // Machine gate: make admin-web-date-format-guard.
 
-// "DD-MM-YYYY", or "—" when missing, or the raw string when unparseable.
+// "DD/MM/YYYY", or "—" when missing, or the raw string when unparseable.
 export function fmtDate(iso?: string): string {
   if (!iso) return "—";
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
   const parts = partsByType(d, { year: "numeric", month: "2-digit", day: "2-digit" });
-  return `${parts.day}-${parts.month}-${parts.year}`;
+  return `${parts.day}/${parts.month}/${parts.year}`;
 }
 
-// "DD-MM-YYYY HH:MM", or "" when missing, or the raw string when unparseable.
+// "DD/MM/YYYY HH:MM", or "" when missing, or the raw string when unparseable.
 export function fmtDateTime(iso?: string): string {
   if (!iso) return "";
   const d = new Date(iso);
@@ -73,7 +76,7 @@ export function fmtDateTime(iso?: string): string {
     minute: "2-digit",
     hourCycle: "h23",
   });
-  return `${parts.day}-${parts.month}-${parts.year} ${parts.hour}:${parts.minute}`;
+  return `${parts.day}/${parts.month}/${parts.year} ${parts.hour}:${parts.minute}`;
 }
 
 // "YYYY-MM-DD" for the current Goat OS business day (Asia/Kolkata). Call at module scope in RSC

@@ -85,7 +85,7 @@ class FeedWastageViewModel @Inject constructor(
         val hasSummary = dto != null
         FeedWastageUiState(
             title = TITLE,
-            targetDateLabel = selection.targetDate,
+            targetDateIso = selection.targetDate,
             today = todayIso(),
             minDate = minFeedDayIso(),
             canCapture = canExecuteWastage && selection.targetDate == todayIso(),
@@ -112,7 +112,7 @@ class FeedWastageViewModel @Inject constructor(
         FeedWastageUiState(
             title = TITLE,
             emptyMessage = LOADING_MESSAGE,
-            targetDateLabel = todayIso(),
+            targetDateIso = todayIso(),
             today = todayIso(),
             minDate = minFeedDayIso(),
             canCapture = true,

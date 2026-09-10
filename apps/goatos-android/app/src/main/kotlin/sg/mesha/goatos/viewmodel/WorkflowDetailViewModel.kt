@@ -686,7 +686,7 @@ class WorkflowDetailViewModel @Inject constructor(
 
         private val IST: ZoneId = ZoneId.of("Asia/Kolkata")
         private val TIME_FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm")
-        private val DATE_TIME_FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("d MMM · HH:mm")
+        private val DATE_TIME_FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("dd/MM/yyyy · HH:mm")
         private const val MODULE_DEATH = "death"
         private const val TEMPLATE_KEY_BIRTH_MOTHER = "birth_mother"
         private const val TYPE_QUESTION = "question"
@@ -879,7 +879,7 @@ internal fun workflowVideoAnswerKey(actionId: String, proofOutboxItemId: String)
     "wf-answer:$actionId:$proofOutboxItemId"
 
 private val WORKFLOW_IST: ZoneId = ZoneId.of("Asia/Kolkata")
-private val WORKFLOW_DATE_TIME_FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("d MMM · HH:mm")
+private val WORKFLOW_DATE_TIME_FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("dd/MM/yyyy · HH:mm")
 private const val WORKFLOW_SECTION_COLOSTRUM = "colostrum_session"
 internal const val WORKFLOW_BLOCKED_PREVIOUS_ACTION = "previous_action"
 private const val WORKFLOW_ACTION_KEY_FIRST_COLOSTRUM = "first_colostrum"

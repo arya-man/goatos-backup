@@ -18,6 +18,7 @@ import { useRouter } from "next/navigation";
 import { useCallback, useState, useTransition } from "react";
 
 import type { ProtocolConfigItem } from "@/lib/api/server";
+import { fmtDate } from "@/lib/format";
 
 import { discardDraft, readVersionSettings, startNewVersion } from "./plan-actions";
 import { describeFirstDoses, describeRepeats, readVaccines, type VaccineGroup } from "./plan-model";
@@ -388,9 +389,10 @@ function formatInForceRange(version: ProtocolConfigItem): string {
   return `${formatDate(version.effective_from)} – ${formatDate(end)}`;
 }
 
+
 function formatDate(value: string | undefined | null): string {
   if (!value) return "—";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "—";
-  return date.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+  return fmtDate(date.toISOString());
 }

@@ -1,5 +1,6 @@
 package sg.mesha.goatos.viewmodel
 
+import sg.mesha.goatos.core.common.datetime.GoatOsDates
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.paging.PagingData
@@ -173,7 +174,7 @@ class ShiftingPendingViewModel @Inject constructor(
         priority = priority.titleCase(),
         category = category.titleCase(),
         animalCount = animalCount,
-        approvedAtLabel = approvedAtIst?.take(10).orEmpty(),
+        approvedAtLabel = GoatOsDates.fromWireDate(approvedAtIst?.take(10)),
         primaryActionKey = primaryActionKey,
         actionStateLabel = when {
             eventStatus == "pending" -> "Awaiting Park Head approval"
@@ -225,7 +226,7 @@ class ShiftingPendingViewModel @Inject constructor(
         const val QUEUED_MESSAGE = "Saved on this phone. It will sync automatically."
         const val SYNCED_MESSAGE = "Shifting raised successfully."
         val IST: ZoneId = ZoneId.of("Asia/Kolkata")
-        val DATE_LABEL: DateTimeFormatter = DateTimeFormatter.ofPattern("d MMM", Locale.ENGLISH)
+        val DATE_LABEL: DateTimeFormatter = DateTimeFormatter.ofPattern("dd/MM/yyyy", Locale.ENGLISH)
         const val STATUS_ALL = "all"
         val STATUSES = listOf(
             "all" to "All", "pending" to "Pending", "authorized" to "Approved",

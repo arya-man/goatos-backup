@@ -1079,7 +1079,7 @@ class ScreenshotTest {
         FeedDirectionScreen(
             state = FeedDirectionUiState(
                 title = "Feed Direction",
-                targetDateLabel = "2026-07-29",
+                targetDateIso = "2026-07-29",
                 today = "2026-07-29",
                 canCapture = true,
                 filters = feedFilters(),
@@ -1168,8 +1168,8 @@ class ScreenshotTest {
         FeedPackingScreen(
             state = FeedPackingUiState(
                 title = "Feed Packing",
-                targetDateLabel = "2026-07-29",
-                feedForDateLabel = "2026-07-30",
+                targetDateIso = "2026-07-29",
+                feedForDateIso = "2026-07-30",
                 today = "2026-07-29",
                 canCapture = true,
                 filters = feedFilters(),

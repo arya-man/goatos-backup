@@ -21,11 +21,15 @@ const shortClockFormatter = new Intl.DateTimeFormat("en-GB", {
   hour12: false,
 });
 
+// The drive day renders DD/MM/YYYY like every other visible date (maintainer
+// decision 2026-09-10); the weekday is kept because it tells an operator which
+// working day the drive falls on, which a numeric date alone does not.
 const driveDayFormatter = new Intl.DateTimeFormat("en-GB", {
   timeZone: IST,
   weekday: "short",
-  day: "numeric",
-  month: "short",
+  day: "2-digit",
+  month: "2-digit",
+  year: "numeric",
 });
 
 export function fmtClockSeconds(iso: string | null | undefined): string {

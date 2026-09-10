@@ -136,11 +136,11 @@ object FeedStatus {
 @Immutable
 data class FeedDirectionUiState(
     val title: String,
-    val targetDateLabel: String = "",
+    val targetDateIso: String = "",
     // Today's business date (Asia/Kolkata) — the bound the date bar's next-day arrow and DatePicker
     // clamp to, computed once by the ViewModel so the feature module never re-derives "today" itself.
     val today: String = "",
-    // True only when targetDateLabel == today: a past day is VIEW ONLY, so rows must not open the
+    // True only when targetDateIso == today: a past day is VIEW ONLY, so rows must not open the
     // capture flow while this is false.
     val canCapture: Boolean = true,
     val filters: FeedFilterUi = FeedFilterUi(),
@@ -216,7 +216,11 @@ fun FeedDirectionScreen(
     Column(modifier = modifier.fillMaxSize().background(MeshaColors.PageBg)) {
         FeedHeader(
             title = state.title,
-            subtitle = state.targetDateLabel,
+            // The state field is the ISO business day -- it is also the comparison key against
+            // today and the date picker's selected value -- so it is formatted HERE, at the point
+            // it becomes visible, rather than being reformatted at the source. Rendering it raw
+            // showed the operator "2026-07-29" (maintainer decision 2026-09-10).
+            subtitle = formatFeedDayLabel(state.targetDateIso),
             isRefreshing = state.isRefreshing,
             lastSyncedAt = state.lastSyncedAt,
             hasData = state.hasSummary,
@@ -230,7 +234,7 @@ fun FeedDirectionScreen(
         ) {
             item(key = "date_bar") {
                 FeedDateBar(
-                    selectedDate = state.targetDateLabel,
+                    selectedDate = state.targetDateIso,
                     today = state.today,
                     onSelectDate = { onEvent(FeedDirectionEvent.SelectDate(it)) },
                 )

@@ -2324,7 +2324,7 @@ private fun RosterRow.tagRoleFor(normalizedTag: String): RfidScanTagRole = when 
 
 private val IST_ZONE: ZoneId = ZoneId.of("Asia/Kolkata")
 private val SCAN_TIME_FORMATTER: DateTimeFormatter =
-    DateTimeFormatter.ofPattern("d MMM, h:mm a 'IST'").withZone(IST_ZONE)
+    DateTimeFormatter.ofPattern("dd/MM/yyyy, h:mm a 'IST'").withZone(IST_ZONE)
 
 private fun scanTimeLabel(capturedAtMs: Long): String =
     "Scanned ${SCAN_TIME_FORMATTER.format(Instant.ofEpochMilli(capturedAtMs))}"
@@ -2437,6 +2437,8 @@ private fun signedProofUrlExpiresAtEpochSeconds(url: String): Long? = runCatchin
 private fun gcsSignedUrlStartSeconds(raw: String): Long? =
     // exception:exempt invalid GCS timestamp only disables expiry extraction
     runCatching {
+        // date-format-guard:ignore: PARSES Google's signed-URL X-Goog-Date, a wire format
+        // fixed by GCS. Nothing here is rendered, so the DD/MM/YYYY display rule does not apply.
         OffsetDateTime.parse(raw, DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmssX")).toEpochSecond()
     }.getOrNull()
 

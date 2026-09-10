@@ -2986,4 +2986,4 @@ private fun operationalWeighingLocationLabel(shedName: String?, partitionLabel: 
 /** Weighing is planned, executed and read on the Asia/Kolkata business day. */
 private const val WEIGHING_CACHE_BUSINESS_ZONE = "Asia/Kolkata"
 
-private val WEIGHING_CACHE_DAY_FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("d MMM")
+private val WEIGHING_CACHE_DAY_FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("dd/MM/yyyy")

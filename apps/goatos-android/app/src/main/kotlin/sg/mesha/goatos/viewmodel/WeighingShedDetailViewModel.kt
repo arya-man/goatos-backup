@@ -334,6 +334,6 @@ class WeighingShedDetailViewModel @Inject constructor(
         const val EMPTY_VALUE = "—"
         val REOPENABLE_STATUSES = setOf("completed", "closed")
         val ISO_DATE: DateTimeFormatter = DateTimeFormatter.ISO_LOCAL_DATE
-        val DAY_FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("EEE d MMM", Locale.ENGLISH)
+        val DAY_FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("EEE dd/MM/yyyy", Locale.ENGLISH)
     }
 }

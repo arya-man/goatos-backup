@@ -25,7 +25,7 @@ class MilkFeedingListContractTest {
         assertEquals("4 farm sessions · 2 need action", state.subtitle)
         // 2026-07-30 is a fixed past date, not "today" -- unconditionally prefixing "Today · "
         // regardless of the actual IST business date was judge finding #3 (the mislabel bug).
-        assertEquals("30 Jul", state.dateLabel)
+        assertEquals("30/07/2026", state.dateLabel)
         assertEquals(listOf("all", "not_submitted", "pending_verification", "completed", "rework"), state.chips.map { it.key })
         assertEquals(listOf(4, 1, 1, 1, 1), state.chips.map { it.count })
         assertEquals(listOf("CBE", "CBE", "CPT", "CPT"), state.cards.map { it.parkLabel })

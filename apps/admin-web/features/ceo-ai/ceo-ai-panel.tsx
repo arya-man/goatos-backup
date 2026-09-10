@@ -174,7 +174,12 @@ function formatFreshness(asOf: string | undefined): string {
     const t = new Intl.DateTimeFormat("en-US", { timeZone: ist, hour: "numeric", minute: "2-digit", hour12: true }).format(then);
     return `as of ${t}`;
   }
-  return new Intl.DateTimeFormat("en-US", { timeZone: ist, month: "short", day: "numeric" }).format(then);
+  return new Intl.DateTimeFormat("en-GB", {
+    timeZone: ist,
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  }).format(then);
 }
 
 function newId(): string {

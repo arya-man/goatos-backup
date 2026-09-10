@@ -155,7 +155,7 @@ abstract class HealthListViewModel(
 
     private companion object {
         val zone: ZoneId = ZoneId.of("Asia/Kolkata")
-        val labelFormat: DateTimeFormatter = DateTimeFormatter.ofPattern("EEE, d MMM yyyy")
+        val labelFormat: DateTimeFormatter = DateTimeFormatter.ofPattern("EEE, dd/MM/yyyy")
         fun today(): String = LocalDate.now(zone).toString()
         fun dateLabel(value: String): String = runCatching { LocalDate.parse(value).format(labelFormat) }.getOrDefault(value)
     }

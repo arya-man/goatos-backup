@@ -1179,7 +1179,7 @@ class FeedDistributionCompleteViewModel @Inject constructor(
                     .format(localDateTime)
             } else {
                 // Other days: MMM d · h:mm a (e.g. "Aug 14 · 10:30 AM")
-                val dateFormat = DateTimeFormatter.ofPattern("MMM d", Locale.getDefault())
+                val dateFormat = DateTimeFormatter.ofPattern("dd/MM/yyyy", Locale.getDefault())
                 val timeFormat = DateTimeFormatter.ofPattern("h:mm a", Locale.getDefault())
                 "${dateFormat.format(localDate)} · ${timeFormat.format(localDateTime)}"
             }

@@ -81,8 +81,8 @@ class FeedPackingViewModel @Inject constructor(
         val hasSummary = dto != null
         FeedPackingUiState(
             title = TITLE,
-            targetDateLabel = selection.targetDate,
-            feedForDateLabel = feedDayIso(selection.targetDate),
+            targetDateIso = selection.targetDate,
+            feedForDateIso = feedDayIso(selection.targetDate),
             today = todayIso(),
             minDate = minPackingDayIso(),
             canCapture = selection.targetDate == todayIso(),
@@ -110,8 +110,8 @@ class FeedPackingViewModel @Inject constructor(
         FeedPackingUiState(
             title = TITLE,
             emptyMessage = LOADING_MESSAGE,
-            targetDateLabel = todayIso(),
-            feedForDateLabel = feedDayIso(todayIso()),
+            targetDateIso = todayIso(),
+            feedForDateIso = feedDayIso(todayIso()),
             today = todayIso(),
             minDate = minPackingDayIso(),
             canCapture = true,

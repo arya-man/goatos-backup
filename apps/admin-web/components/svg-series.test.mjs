@@ -4,10 +4,14 @@ import { test } from "node:test";
 
 const source = readFileSync(new URL("./svg-series.tsx", import.meta.url), "utf8");
 
-test("series charts keep axis date labels compact and explicit", () => {
+test("series charts render axis dates as DD/MM/YYYY like every other visible date", () => {
+  // Maintainer decision 2026-09-10: the axis carries the SAME shape as a table cell, so a
+  // reader never learns a second date format. This replaces the compact dd-mm-yy the axis
+  // used to render, which is why the two-digit-year regex below must NOT come back.
   assert.match(source, /const fmtDay = \(label: string\) => \{/);
-  assert.match(source, /\^\\d\{2\}\(\\d\{2\}\)-\(\\d\{2\}\)-\(\\d\{2\}\)\$/);
-  assert.match(source, /return m \? `\$\{m\[3\]\}-\$\{m\[2\]\}-\$\{m\[1\]\}` : label;/);
+  assert.match(source, /\^\(\\d\{4\}\)-\(\\d\{2\}\)-\(\\d\{2\}\)\$/);
+  assert.match(source, /return m \? `\$\{m\[3\]\}\/\$\{m\[2\]\}\/\$\{m\[1\]\}` : label;/);
+  assert.doesNotMatch(source, /\$\{m\[3\]\}-\$\{m\[2\]\}-\$\{m\[1\]\}/);
   assert.match(source, /fontSize="8"[^>]*>\s*\{fmtDay\(days\[0\]\.label\)\}/s);
   assert.match(source, /fontSize="8"[^>]*>\s*\{fmtDay\(dayLabels\[0\]\)\}/s);
   assert.doesNotMatch(source, /fontSize="9"[^>]*>\s*\{dayLabels\[0\]\}/s);

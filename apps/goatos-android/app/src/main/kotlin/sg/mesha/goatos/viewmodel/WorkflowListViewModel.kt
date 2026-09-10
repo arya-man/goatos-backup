@@ -293,11 +293,11 @@ abstract class WorkflowListViewModel(
 
     private companion object {
         val IST: ZoneId = ZoneId.of("Asia/Kolkata")
-        val MOMENT_FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("d MMM HH:mm")
+        val MOMENT_FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm")
         val TIME_FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm")
-        val DATE_FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("d MMM")
-        val DAY_FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("d MMM")
-        val OVERDUE_DATE_FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("EEE, d MMM")
+        val DATE_FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("dd/MM/yyyy")
+        val DAY_FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("dd/MM/yyyy")
+        val OVERDUE_DATE_FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("EEE, dd/MM/yyyy")
 
         const val MODULE_BIRTH = "birth"
         const val MODULE_DEATH = "death"

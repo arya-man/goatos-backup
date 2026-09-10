@@ -60,7 +60,7 @@ import sg.mesha.goatos.feature.counts.MilkPreparationStepUi
 import sg.mesha.goatos.feature.counts.MilkPreparationUiState
 
 private val MILK_IST: ZoneId = ZoneId.of("Asia/Kolkata")
-private val MILK_DAY_LABEL: DateTimeFormatter = DateTimeFormatter.ofPattern("d MMM")
+private val MILK_DAY_LABEL: DateTimeFormatter = DateTimeFormatter.ofPattern("dd/MM/yyyy")
 
 private data class MilkPreparationRefreshState(
     val isRefreshing: Boolean = false,

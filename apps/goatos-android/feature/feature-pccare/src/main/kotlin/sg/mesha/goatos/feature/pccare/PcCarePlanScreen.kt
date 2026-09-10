@@ -655,7 +655,7 @@ private fun pcCareWizardDayOptions(todayIso: String): List<Pair<String, String>>
     val today = runCatching { java.time.LocalDate.parse(todayIso) }.getOrNull() ?: return emptyList()
     return (0..14).map { offset ->
         val day = today.plusDays(offset.toLong())
-        val base = day.format(java.time.format.DateTimeFormatter.ofPattern("EEE d MMM", java.util.Locale.ENGLISH))
+        val base = day.format(java.time.format.DateTimeFormatter.ofPattern("EEE dd/MM/yyyy", java.util.Locale.ENGLISH))
         val label = when (offset) {
             0 -> "Today · $base"
             1 -> "Tomorrow · $base"

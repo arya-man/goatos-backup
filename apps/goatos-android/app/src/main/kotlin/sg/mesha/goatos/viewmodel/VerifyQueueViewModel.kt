@@ -622,15 +622,11 @@ class VerifyQueueViewModel @Inject constructor(
         if (raw.isBlank()) return ""
         return runCatching {
             val instant = java.time.Instant.parse(raw)
-            val locale = java.util.Locale.getDefault()
-            java.time.format.DateTimeFormatter
-                .ofLocalizedDateTime(
-                    java.time.format.FormatStyle.MEDIUM,
-                    java.time.format.FormatStyle.SHORT
-                )
-                .withLocale(locale)
-                .withZone(java.time.ZoneId.of("Asia/Kolkata"))
-                .format(instant)
+            // DD/MM/YYYY HH:mm, fixed (maintainer decision 2026-09-10). This used to be
+            // ofLocalizedDateTime(MEDIUM, SHORT) with the DEVICE locale, so the same capture
+            // read differently on two phones and differently again on the web console -- a
+            // verifier comparing a queue row against admin-web saw two shapes of one fact.
+            sg.mesha.goatos.core.common.datetime.GoatOsDates.dateTime(instant)
         }.getOrElse { error ->
             // Falls back to the raw backend timestamp so the row still renders something — but a
             // malformed `capturedAt` from the backend must not vanish silently either.
