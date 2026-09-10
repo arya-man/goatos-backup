@@ -446,7 +446,7 @@ class HealthDetailViewModel @Inject constructor(
                 is AppResult.Ok -> {
                     val proofOutboxId = result.value.outboxItemId
                     if (proofOutboxId.isNullOrBlank()) {
-                        video.update { it.copy(capturing = false, captured = false, message = PROOF_FAILED) }
+                        video.update { it.copy(capturing = false, captured = it.captured, message = PROOF_FAILED) }
                         return@launch
                     }
                     drafts.putProof(CaptureFlow.HEALTH_TREATMENT, sessionId, STEP_VIDEO, proofOutboxId)
@@ -461,7 +461,7 @@ class HealthDetailViewModel @Inject constructor(
                         AnalyticsEvents.HEALTH_WRITE_FAILURE,
                         mapOf(AnalyticsEvents.Params.KIND to "work_item", AnalyticsEvents.Params.REASON to result.message),
                     )
-                    video.update { it.copy(capturing = false, captured = false, message = PROOF_FAILED) }
+                    video.update { it.copy(capturing = false, captured = it.captured, message = PROOF_FAILED) }
                 }
             }
         }

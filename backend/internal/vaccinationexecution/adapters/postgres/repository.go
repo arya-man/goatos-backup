@@ -2788,8 +2788,13 @@ LEFT JOIN LATERAL (
 	    AND proof.subject_id = g.goat_id
 	    AND proof.upload_state = 'completed'
 	    AND proof.proof_type = 'video'
-	    AND proof.created_at >= COALESCE(sc.captured_at, '-infinity'::timestamptz)
-	    AND EXISTS (
+	    -- Phone uploads can create/complete the proof row just before the scan-capture
+	    -- row is persisted. Keep the proof tied to the same task/goat/obligation, but allow
+	    -- that small ordering skew so a restart/another phone still rehydrates the preview.
+	    AND proof.created_at >= COALESCE(sc.captured_at - interval '2 minutes', '-infinity'::timestamptz)
+	    AND (
+	      sc.capture_id IS NOT NULL
+	      OR EXISTS (
 	      SELECT 1
 	      FROM vaccination_completions vcx
 	      WHERE vcx.tenant_id = oi.tenant_id
@@ -2797,6 +2802,7 @@ LEFT JOIN LATERAL (
 	        AND vcx.goat_id = g.goat_id
 	        AND vcx.status IN ('recorded', 'accepted')
 	        AND proof.created_at <= vcx.updated_at + interval '5 minutes'
+	      )
 	    )
 	  ORDER BY proof.created_at DESC, proof.proof_id DESC
 	  LIMIT 1

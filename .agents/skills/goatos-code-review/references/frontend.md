@@ -116,6 +116,14 @@ Check for:
 - [ ] All data through the generated `@goatos/api-client` or `lib/api/*` server adapters
 - [ ] SSR data loaders fetch server-side; bearer token never reaches the browser bundle
 - [ ] RBAC is server-enforced on every query/mutation; `packages/rbac` gating is UX-only, never an auth boundary
+- [ ] **Proof-media egress:** admin-web list/detail/drawer loads must not resolve
+      proof refs into signed GCS URLs or render proof media bytes merely because
+      a row/drawer became visible. They may carry proof metadata and stable
+      `/app/proofs/{proof_id}/download` routes, then resolve/play/open only from
+      an explicit reviewer action. Run `make admin-web-proof-media-egress-guard`
+      and, for whole-surface reviews, manually inspect `<img>`, `<video>`,
+      `<audio>`, `<source>`, image wrapper components, route handlers, and server
+      actions touching proof media.
 
 ## Mock fidelity (mandatory gate)
 

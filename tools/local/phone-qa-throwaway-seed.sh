@@ -1852,11 +1852,14 @@ INSERT INTO feed_transport_tasks (
 
 DELETE FROM pen_reconciliation_cards
 WHERE tenant_id = '${tenant_id}'::uuid
-  AND card_id IN (
-    '8c000000-0000-4000-8000-000000000001',
-    '8c000000-0000-4000-8000-000000000002',
-    '8c000000-0000-4000-8000-000000000003',
-    '8c000000-0000-4000-8000-000000000004'
+  AND (
+    card_id IN (
+      '8c000000-0000-4000-8000-000000000001',
+      '8c000000-0000-4000-8000-000000000002',
+      '8c000000-0000-4000-8000-000000000003',
+      '8c000000-0000-4000-8000-000000000004'
+    )
+    OR status IN ('open', 'completed', 'rework')
   );
 
 INSERT INTO pen_reconciliation_cards (

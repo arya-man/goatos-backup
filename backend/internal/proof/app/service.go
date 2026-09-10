@@ -125,6 +125,44 @@ func (s *Service) StoreUpload(ctx context.Context, tenantID, proofID, mimeType s
 	return proof, nil
 }
 
+// ArtifactMetadata returns the stored proof row without opening, signing, statting, or streaming
+// the backing object. Use this for list/read models that need MIME/duration labels but must not
+// cause GCS egress or signed-URL churn.
+func (s *Service) ArtifactMetadata(ctx context.Context, tenantID, proofID string) (domain.Artifact, error) {
+	if !uuidutil.IsUUIDString(tenantID) || !uuidutil.IsUUIDString(proofID) {
+		return domain.Artifact{}, ErrInvalid
+	}
+	return s.repo.GetProof(ctx, tenantID, proofID)
+}
+
+// ArtifactMetadataByIDs returns stored proof rows in one repository round trip. It is the list/read
+// companion to ArtifactMetadata and must not sign, stat, open, or stream backing objects.
+func (s *Service) ArtifactMetadataByIDs(ctx context.Context, tenantID string, proofIDs []string) (map[string]domain.Artifact, error) {
+	if !uuidutil.IsUUIDString(tenantID) {
+		return nil, ErrInvalid
+	}
+	clean := make([]string, 0, len(proofIDs))
+	seen := make(map[string]struct{}, len(proofIDs))
+	for _, proofID := range proofIDs {
+		proofID = strings.TrimSpace(proofID)
+		if proofID == "" {
+			continue
+		}
+		if !uuidutil.IsUUIDString(proofID) {
+			return nil, ErrInvalid
+		}
+		if _, ok := seen[proofID]; ok {
+			continue
+		}
+		seen[proofID] = struct{}{}
+		clean = append(clean, proofID)
+	}
+	if len(clean) == 0 {
+		return map[string]domain.Artifact{}, nil
+	}
+	return s.repo.GetProofsByIDs(ctx, tenantID, clean)
+}
+
 func (s *Service) DownloadURL(ctx context.Context, tenantID, proofID string) (string, error) {
 	_, url, err := s.DownloadArtifact(ctx, tenantID, proofID)
 	return url, err

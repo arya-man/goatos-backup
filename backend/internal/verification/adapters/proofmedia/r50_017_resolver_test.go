@@ -25,14 +25,14 @@ func (m *mockDownloader) DownloadURL(ctx context.Context, tenantID, proofID stri
 	return "", errors.New("proof not found")
 }
 
-func (m *mockDownloader) DownloadArtifact(ctx context.Context, tenantID, proofID string) (proofdomain.Artifact, string, error) {
+func (m *mockDownloader) ArtifactMetadata(ctx context.Context, tenantID, proofID string) (proofdomain.Artifact, error) {
 	if err, ok := m.errors[proofID]; ok {
-		return proofdomain.Artifact{}, "", err
+		return proofdomain.Artifact{}, err
 	}
 	if artifact, ok := m.artifacts[proofID]; ok {
-		return artifact, "https://example.com/download/" + proofID, nil
+		return artifact, nil
 	}
-	return proofdomain.Artifact{}, "", errors.New("artifact not found")
+	return proofdomain.Artifact{}, errors.New("artifact not found")
 }
 
 // R50-017: ResolveMedia reports per-ID failures as empty MediaItems.
@@ -79,39 +79,40 @@ func TestResolveMediaMissingObject(t *testing.T) {
 	}
 }
 
-// R50-017: ResolveMedia reports per-ID signing failures as empty MediaItems.
-// When a proof cannot be signed, it's reported as an empty MediaItem.
-func TestResolvemediaSigningFailure(t *testing.T) {
+// R50-017: ResolveMedia reports per-ID artifact failures as empty MediaItems.
+// List reads return backend proof routes, but a missing artifact row is still fail-closed per item.
+func TestResolveMediaMetadataFailure(t *testing.T) {
 	ctx := context.Background()
 	tenantID := "tenant-001"
 
-	signingErr := errors.New("signing failed: invalid signature")
+	metadataErr := errors.New("artifact metadata unavailable")
 	mock := &mockDownloader{
 		artifacts: map[string]proofdomain.Artifact{
 			"proof-1": {MimeType: "image/jpeg"},
 		},
 		errors: map[string]error{
-			"proof-signing-fail": signingErr,
+			"proof-metadata-fail": metadataErr,
 		},
 	}
 
 	resolver := NewResolver(mock)
 
-	// Resolve with mixed success/failure — signing failure is per-ID.
-	result, err := resolver.ResolveMedia(ctx, tenantID, []string{"proof-1", "proof-signing-fail"})
+	// Resolve with mixed success/failure — metadata failure is per-ID.
+	result, err := resolver.ResolveMedia(ctx, tenantID, []string{"proof-1", "proof-metadata-fail"})
 	if err != nil {
 		t.Fatal("expected no error, per-ID failures are reported as empty MediaItems")
 	}
 	if len(result) != 2 {
 		t.Fatalf("expected 2 media items, got %d", len(result))
 	}
-	// proof-1 should have signed successfully
-	if result[0].DownloadURL == "" {
-		t.Fatal("proof-1 should have signed successfully")
+	// proof-1 should resolve to the backend proof route without minting a signed GCS URL.
+	wantRoute := "/app/proofs/proof-1/download"
+	if result[0].DownloadURL != wantRoute {
+		t.Fatalf("proof-1 DownloadURL=%q, want %q", result[0].DownloadURL, wantRoute)
 	}
-	// proof-signing-fail should be reported as empty
+	// proof-metadata-fail should be reported as empty
 	if result[1].DownloadURL != "" {
-		t.Fatal("proof-signing-fail should be empty (DownloadURL='')")
+		t.Fatal("proof-metadata-fail should be empty (DownloadURL='')")
 	}
 }
 
@@ -140,8 +141,8 @@ func TestResolveMediaEmptyProofID(t *testing.T) {
 	}
 }
 
-// R50-017: ResolveMedia with artifact downloader (rich interface).
-func TestResolveMediaWithArtifactDownloader(t *testing.T) {
+// R50-017: ResolveMedia with artifact metadata reader (rich interface).
+func TestResolveMediaWithArtifactMetadataReader(t *testing.T) {
 	ctx := context.Background()
 	tenantID := "tenant-001"
 
@@ -163,7 +164,7 @@ func TestResolveMediaWithArtifactDownloader(t *testing.T) {
 
 	resolver := NewResolver(mock)
 
-	// Resolve video proof with artifact downloader.
+	// Resolve video proof with artifact metadata reader.
 	result, err := resolver.ResolveMedia(ctx, tenantID, []string{"video-proof"})
 	if err != nil {
 		t.Fatalf("artifact resolution: %v", err)
@@ -227,7 +228,7 @@ func TestResolveMediaStructure(t *testing.T) {
 	tenantID := "tenant-001"
 
 	proofID := "proof-test-structure"
-	downloadURL := "https://example.com/download/proof-test-structure"
+	downloadURL := "/app/proofs/proof-test-structure/download"
 
 	mock := &mockDownloader{
 		artifacts: map[string]proofdomain.Artifact{
@@ -251,10 +252,10 @@ func TestResolveMediaStructure(t *testing.T) {
 		t.Fatalf("ProofID = %s, want %s", item.ProofID, proofID)
 	}
 	if item.DownloadURL != downloadURL {
-		t.Fatalf("DownloadURL = %s, want %s", item.DownloadURL, downloadURL)
+		t.Fatalf("DownloadURL = %s, want backend route %s", item.DownloadURL, downloadURL)
 	}
 
-	// MimeType should be populated when using artifact downloader
+	// MimeType should be populated when using artifact metadata reader
 	if item.MimeType != "image/jpeg" {
 		t.Fatalf("MimeType = %s, want image/jpeg", item.MimeType)
 	}

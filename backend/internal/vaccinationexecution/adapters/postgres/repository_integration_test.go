@@ -1461,6 +1461,49 @@ ON CONFLICT (tenant_id, task_id, field_key, normalized_tag)
 	}
 }
 
+func TestScanRosterRehydratesProofWhenUploadRowPrecedesScanCapture(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedVaccinationExecutionProjection(t, ctx, pool)
+
+	const proofID = "70000000-0000-4000-8000-000000000095"
+	execProjectionSQL(t, ctx, pool, "task for proof rehydrate roster", `
+INSERT INTO sop_tasks (task_id, tenant_id, sop_id, sop_version_id, task_type, title, state,
+  assigned_to, scope_type, scope_id, context)
+VALUES ($1,$2,$3,$4,'vaccination_drive','Proof rehydrate roster','in_progress',$5,'shed',$6,
+  jsonb_build_object('obligation_batch_id',$7::text))`, testTask, testTenant, testVaccinationSOP, testVaccinationSOPVer, testOperator, testShed, testBatch)
+	execProjectionSQL(t, ctx, pool, "link proof rehydrate task batch", `UPDATE obligation_batches SET sop_task_id=$1 WHERE tenant_id=$2 AND batch_id=$3`, testTask, testTenant, testBatch)
+	execProjectionSQL(t, ctx, pool, "link proof rehydrate task obligation", `UPDATE obligation_instances SET sop_task_id=$1 WHERE tenant_id=$2 AND obligation_id=$3`, testTask, testTenant, testObl)
+	execProjectionSQL(t, ctx, pool, "proof row created before scan capture", `
+INSERT INTO proof_artifacts
+  (proof_id, tenant_id, storage_provider, object_key, mime_type, upload_state, scope_type, scope_id,
+   subject_type, subject_id, proof_type, uploaded_by, created_at, uploaded_at)
+VALUES ($1,$2,'gcs','proofs/vaccination-pre-scan.mp4','video/mp4','completed','task',$3,
+  'goat',$4,'video',$5,'2026-07-22 03:31:04+05:30','2026-07-22 03:31:04+05:30')`,
+		proofID, testTenant, testTask, testGoat, testOperator)
+	execProjectionSQL(t, ctx, pool, "scan capture seconds after proof row", `
+INSERT INTO sop_task_scan_captures
+  (tenant_id, task_id, field_key, tag, normalized_tag, goat_id, obligation_id, captured_by, idempotency_key, captured_at)
+VALUES ($1,$2,'goat_ids','RFID-SCAN-ONE','rfid-scan-one',$3,$4,$5,'scan-roster-after-proof','2026-07-22 03:31:05.123+05:30')`,
+		testTenant, testTask, testGoat, testObl, testOperator)
+
+	repo := NewRepository(pool, 5*time.Second)
+	roster, err := repo.ScanRoster(ctx, domain.ScanRosterQuery{TenantID: testTenant, ShedID: testShed, TaskID: testTask, Limit: 20})
+	if err != nil {
+		t.Fatalf("ScanRoster: %v", err)
+	}
+	if len(roster.Rows) != 1 {
+		t.Fatalf("rows=%#v", roster.Rows)
+	}
+	row := roster.Rows[0]
+	if row.Status != "done" || row.LatestProofID == nil || *row.LatestProofID != proofID ||
+		row.LatestProofDownloadURL == nil || *row.LatestProofDownloadURL != "/app/proofs/"+proofID+"/download" {
+		t.Fatalf("fresh roster did not rehydrate completed proof: %#v", row)
+	}
+}
+
 func TestScanRosterParkScopePinsDriveTaskToSelectedShed(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()

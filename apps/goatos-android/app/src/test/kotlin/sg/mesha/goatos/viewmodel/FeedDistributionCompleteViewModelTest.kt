@@ -15,6 +15,7 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -618,9 +619,9 @@ class FeedDistributionCompleteViewModelTest {
         )
         advanceUntilIdle()
 
-        // Initial read: v1 proof is adopted, preview URL is fetched
+        // Initial read: v1 proof is adopted, but the app keeps the backend proof route stable.
         assertEquals(true, viewModel.state.value.videoCaptured)
-        assertEquals("https://stg.example.com/proofs/server-proof-feed-video-v1/download?token=xyz", viewModel.state.value.videoRemoteUrl)
+        assertTrue(viewModel.state.value.videoRemoteUrl?.endsWith("/app/proofs/server-proof-feed-video-v1/download") == true)
 
         // Teammate re-captures: server now returns v2
         teammates.slots = listOf(
@@ -636,8 +637,8 @@ class FeedDistributionCompleteViewModelTest {
         viewModel.onEvent(FeedDistributionEvent.SyncNow)
         advanceUntilIdle()
 
-        // State must reflect the NEW ref and fetch its preview URL
-        assertEquals("https://stg.example.com/proofs/server-proof-feed-video-v2/download?token=xyz", viewModel.state.value.videoRemoteUrl)
+        // State must reflect the NEW ref without caching a short-lived signed GCS URL.
+        assertTrue(viewModel.state.value.videoRemoteUrl?.endsWith("/app/proofs/server-proof-feed-video-v2/download") == true)
     }
 
     @Test
@@ -869,7 +870,7 @@ class FeedDistributionCompleteViewModelTest {
     }
 
     @Test
-    fun `feed video playback failure re-signs the same teammate proof ref`() = runTest(dispatcher) {
+    fun `feed video playback failure keeps the same backend proof route`() = runTest(dispatcher) {
         val teammates = FakeSplitFeedRepository(
             listOf(
                 FeedDistributionCapturedSlotDto(
@@ -902,19 +903,13 @@ class FeedDistributionCompleteViewModelTest {
             ),
         )
         advanceUntilIdle()
-        assertEquals(
-            "https://stg.example.com/proofs/server-proof-feed-video/download?token=old",
-            viewModel.state.value.videoRemoteUrl,
-        )
+        assertTrue(viewModel.state.value.videoRemoteUrl?.endsWith("/app/proofs/server-proof-feed-video/download") == true)
 
         viewModel.onEvent(FeedDistributionEvent.FeedVideoPlaybackFailed)
         advanceUntilIdle()
 
-        assertEquals(listOf("server-proof-feed-video", "server-proof-feed-video"), teammates.downloadProofIds)
-        assertEquals(
-            "https://stg.example.com/proofs/server-proof-feed-video/download?token=fresh",
-            viewModel.state.value.videoRemoteUrl,
-        )
+        assertEquals(emptyList<String>(), teammates.downloadProofIds)
+        assertTrue(viewModel.state.value.videoRemoteUrl?.endsWith("/app/proofs/server-proof-feed-video/download") == true)
     }
 
     @Test

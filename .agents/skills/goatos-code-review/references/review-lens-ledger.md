@@ -228,6 +228,7 @@ observability → UI-contract → maintainability). Each lens → its deep chapt
 | **security-rbac-scope** | inline (SKILL.md priority #3) | *(no standing scope guard yet — gap)* | CD-R50-019-SCOPE |
 | **frontend-admin-web** | `references/frontend.md` | admin-web-request-reads, admin-web-prefetch, nav-composition, mock-clicks | — |
 | **mobile-android** | `references/mobile.md` | offline-first-reads, mobile-list-fetch, android-bounded-memory, android-navigation-stack, room-migration-safety | CD-R50-008-010 |
+| **proof-media-egress** | `references/backend.md` + `references/frontend.md` + `references/mobile.md` + `docs/runbooks/goatos-stg-proof-media-egress-2026-09-08.md` | android-proof-media-egress, backend-proof-media-egress, admin-web-proof-media-egress · *manual:* whole-tree `--all` + adjacent proof/media consumer enumeration | Sep 8 GCS egress spike / PR #226 |
 | **observability-telemetry** | inline (SKILL.md priority #6) | *manual:* telemetry-guard | — |
 | **event-integration** | `context/architecture/domain-event-integration-contract.md` | domain-event-architecture | CD-R50-014 |
 

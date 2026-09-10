@@ -65,10 +65,13 @@ This is a thin delegator. When invoked, do exactly this:
    rules select for the review target (progressive disclosure — a small isolated
    change loads one lens; a cross-layer or wide-blast-radius change loads several,
    including the consumer lens for a contract/DTO change). Available references
-   under `.../goatos-code-review/references/`: `toolchain.md` (always),
-   `kernel-and-scale.md`, `backend.md`, `frontend.md`, `mobile.md`,
-   `business-rules.md`. Follow the skill's **Output contract** for the result
-   (bug list only, or approval when clean).
+   under `.../goatos-code-review/references/`: `review-lens-ledger.md` (always),
+   `toolchain.md` (always), `kernel-and-scale.md`, `backend.md`, `frontend.md`,
+   `mobile.md`, `business-rules.md`, and `aggregates-and-projections.md`. Follow
+   the skill's **Output contract** for the result (bug list only, or approval
+   when clean). For proof/media, signed URL, preview, player, attachment, or
+   billing-risk reviews, also apply the proof-media egress lens from the ledger
+   and the backend/frontend/mobile references.
 
 2. **Follow that skill exactly** for the review target given in `$ARGUMENTS`.
    If no target is given, review the current working diff (`git diff` /

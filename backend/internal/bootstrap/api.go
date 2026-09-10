@@ -253,42 +253,26 @@ type gcsServiceAccount struct {
 	PrivateKey  string `json:"private_key"`
 }
 
-// weighingExportProofDownloader is the subset of proofapp.Service the weighing CSV export needs:
-// the SAME signed-URL path (backend/internal/proof/app.Service.DownloadURL) the mobile app uses
-// to open proof media. GCS storage already returns an absolute signed HTTPS URL from this call;
-// local storage returns a signed but host-relative path (e.g. "/app/proofs/<id>/download/signed?
-// ..."), because the local storage adapter has no notion of which host is serving it.
-type weighingExportProofDownloader interface {
-	DownloadURL(ctx context.Context, tenantID, proofID string) (string, error)
-}
-
-// weighingExportProofURLResolver adapts the proof service's DownloadURL into
-// weighingpg.ProofURLResolver for the campaign CSV export, making local storage's host-relative
-// signed path absolute (and thus clickable from a sheet opened outside the API host) by
-// prepending the API's own public base URL. GCS's already-absolute signed URL passes through
-// unchanged.
+// weighingExportProofURLResolver adapts proof ids into backend proof routes for the campaign CSV
+// export. It deliberately avoids minting signed GCS URLs while exporting many rows.
 type weighingExportProofURLResolver struct {
-	downloader weighingExportProofDownloader
-	baseURL    string
+	baseURL string
 }
 
-func newWeighingExportProofURLResolver(downloader weighingExportProofDownloader, httpAddr string) weighingExportProofURLResolver {
-	return weighingExportProofURLResolver{downloader: downloader, baseURL: weighingExportPublicBaseURL(httpAddr)}
+func newWeighingExportProofURLResolver(_ any, httpAddr string) weighingExportProofURLResolver {
+	return weighingExportProofURLResolver{baseURL: weighingExportPublicBaseURL(httpAddr)}
 }
 
-func (w weighingExportProofURLResolver) ResolveProofDownloadURL(ctx context.Context, tenantID, proofID string) (string, error) {
-	url, err := w.downloader.DownloadURL(ctx, tenantID, proofID)
-	if err != nil {
-		return "", err
-	}
-	url = strings.TrimSpace(url)
-	if url == "" {
+func (w weighingExportProofURLResolver) ResolveProofDownloadURL(_ context.Context, _, proofID string) (string, error) {
+	proofID = strings.TrimSpace(proofID)
+	if proofID == "" {
 		return "", nil
 	}
+	url := "/app/proofs/" + proofID + "/download"
 	if strings.HasPrefix(url, "http://") || strings.HasPrefix(url, "https://") {
 		return url, nil
 	}
-	// PROTOCOL-RELATIVE GUARD: a signed path beginning with "//" is scheme-relative ("//evil.com/x"),
+	// PROTOCOL-RELATIVE GUARD: a path beginning with "//" is scheme-relative ("//evil.com/x"),
 	// and naively concatenating it after baseURL would leave a URL some parsers/clients resolve as
 	// pointing at a THIRD-PARTY host, not this API -- an open-redirect shape in a value that ends up
 	// clickable in an exported sheet. Collapse any leading slashes down to exactly one first, so the
@@ -296,9 +280,9 @@ func (w weighingExportProofURLResolver) ResolveProofDownloadURL(ctx context.Cont
 	for strings.HasPrefix(url, "//") {
 		url = url[1:]
 	}
-	// Host-relative local-storage signed path: make it absolute against the API's own public
-	// base URL so the cell is clickable from wherever the sheet is opened, not just from a
-	// browser already pointed at this host.
+	// Host-relative backend route: make it absolute against the API's own public base URL so the
+	// cell is clickable from wherever the sheet is opened, not just from a browser already pointed
+	// at this host.
 	if !strings.HasPrefix(url, "/") {
 		url = "/" + url
 	}
@@ -306,14 +290,12 @@ func (w weighingExportProofURLResolver) ResolveProofDownloadURL(ctx context.Cont
 }
 
 // weighingExportPublicBaseURL resolves the host+scheme the API is reachable at for turning a
-// local-storage signed path into an absolute, clickable URL.
+// backend proof route into an absolute, clickable URL.
 //
 // GOATOS_API_PUBLIC_BASE_URL is the explicit override for stg/prod (or any deployment behind a
 // load balancer/proxy, where the bind address is not the public address) and takes precedence
 // when set. With no override, this falls back to http://127.0.0.1<GOATOS_HTTP_ADDR> for the
-// local/E2E stack, where the API's bind address IS the reachable address -- the same assumption
-// the local proof-storage signing secret already makes (GOATOS_LOCAL_MEDIA_SIGNING_SECRET is
-// local/test-only, see localProofStorageAllowed).
+// local/E2E stack, where the API's bind address IS the reachable address.
 func weighingExportPublicBaseURL(httpAddr string) string {
 	if base := strings.TrimSpace(os.Getenv("GOATOS_API_PUBLIC_BASE_URL")); base != "" {
 		return strings.TrimRight(base, "/")

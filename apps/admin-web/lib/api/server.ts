@@ -4074,7 +4074,10 @@ export async function getProofDownloadUrl(
     `/app/proofs/${encodeURIComponent(proofRef)}/download` as keyof AppApiPaths &
       string;
   const result = await request(() =>
-    client.request<{ download_url: string }>(path, { cache: "no-store" }),
+    client.request<{ download_url: string }>(path, {
+      cache: "no-store",
+      headers: { Accept: "application/json" },
+    }),
   );
   if (!result.ok || !result.data?.download_url) return null;
   return absolutizeBackendURL(result.data.download_url, config.data.baseUrl);

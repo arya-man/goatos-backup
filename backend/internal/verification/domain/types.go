@@ -139,7 +139,7 @@ type Item struct {
 	// absent.
 	MeasurementFields []MeasurementField
 	Source            SourceRef
-	MediaRefs         []string // proof_artifact IDs; signed URLs resolved at read time.
+	MediaRefs         []string // proof_artifact IDs; clients open them through proof download routes.
 	Status            string
 	VerdictReason     *string
 	OperatorID        *string

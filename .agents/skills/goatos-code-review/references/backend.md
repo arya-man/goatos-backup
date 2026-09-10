@@ -270,6 +270,18 @@ TTL (illustratively ~15 min — verify `defaultSignedURLTTL` in
 `backend/internal/proof/app/service.go`) and a content SHA-256 over stored bytes
 (`proof/adapters/storage/local` and `.../gcs`). Check:
 
+- [ ] **Post-upload egress guard:** backend list/read/summary/dashboard/export
+      APIs must not bulk-mint or return signed GCS URLs as durable UI state.
+      Return stable authenticated `/app/proofs/{proof_id}/download` routes from
+      read models, and mint the short-lived signed URL only inside an explicit
+      open/download route. Run `make backend-proof-media-egress-guard`; for
+      billing-risk or cross-surface reviews also enumerate adjacent read-like
+      functions that call proof/media helpers, because helper indirection is the
+      recurrence pattern.
+- [ ] Explicit proof download/open paths log actor, device/client, proof id,
+      storage object/scope, result, and trace/request id before issuing or
+      redirecting to the signed URL. A billing-risk PR must state whether Cloud
+      Monitoring/Slack alerts are live or only configured in code.
 - [ ] Signed URL has a bounded TTL AND the serve path re-verifies expiry before
       returning the object (don't hand out a URL that outlives its grant)
 - [ ] Content hash is computed on upload and re-verified on read/verify so a

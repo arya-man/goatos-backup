@@ -344,13 +344,13 @@ class WeighingFastingDetailViewModelTest {
         fastingRepository.cardFlow.value = submittedCard
         advanceUntilIdle()
 
-        assertEquals("https://example.test/proof/feed.mp4", vm.state.value.feedSlot.remoteUrl)
+        assertTrue(vm.state.value.feedSlot.remoteUrl?.endsWith("/app/proofs/server-feed-proof/download") == true)
         assertEquals("server-feed-proof", vm.state.value.feedSlot.serverProofId)
 
         fastingRepository.cardFlow.value = submittedCard.copy()
         advanceUntilIdle()
 
-        assertEquals("https://example.test/proof/feed.mp4", vm.state.value.feedSlot.remoteUrl)
+        assertTrue(vm.state.value.feedSlot.remoteUrl?.endsWith("/app/proofs/server-feed-proof/download") == true)
         assertEquals("server-feed-proof", vm.state.value.feedSlot.serverProofId)
     }
 }

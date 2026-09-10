@@ -325,7 +325,7 @@ fun GoatOsShell(navState: NavState) {
                 showUnavailableAlertNotice = true
                 navigate(startDestinationFor(visibleNavState))
             }
-            else -> navController.navigate(route) { launchSingleTop = true }
+            else -> navController.navigate(route)
         }
         pushNavVm.consume()
     }
