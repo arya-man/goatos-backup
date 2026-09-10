@@ -5,7 +5,7 @@ import "server-only";
 // Scope is decided by the backend (park through grants, modules through the caller's own
 // permissions, owner through work_board.oversee); this module only forwards the filters.
 import { createAppApiClient } from "@goatos/api-client";
-import type { AppApiComponents } from "@goatos/api-client";
+import type { AppApiComponents, AppApiPaths } from "@goatos/api-client";
 import { apiClientOptions, compactQuery, getServerConfig, request, type ApiResult } from "@/lib/api/server";
 
 export type WorkBoardRow = AppApiComponents["schemas"]["WorkBoardRow"];
@@ -75,6 +75,28 @@ export async function raiseWorkBoardFlag(body: WorkBoardFlagRequest, idempotency
       cache: "no-store",
       headers: { "Idempotency-Key": idempotencyKey },
       body,
+    }),
+  );
+}
+
+export type WorkBoardSubtask = AppApiComponents["schemas"]["WorkBoardSubtask"];
+export type WorkBoardSubtaskPage = AppApiComponents["schemas"]["WorkBoardSubtaskPage"];
+
+// One page of a row's subtasks, worst first (GET /work-board/rows/{row_key}/subtasks). Read
+// inside the issue view only, for the row that is open: the board list never fans out.
+export async function listWorkBoardSubtasks(
+  rowKey: string,
+  scope: { park: string; businessDate?: string },
+  page: { limit?: number; cursor?: string } = {},
+): Promise<ApiResult<WorkBoardSubtaskPage>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  const path = `/work-board/rows/${encodeURIComponent(rowKey)}/subtasks` as keyof AppApiPaths & string;
+  return request(() =>
+    client.request<WorkBoardSubtaskPage>(path, {
+      cache: "no-store",
+      query: compactQuery({ park: scope.park, business_date: scope.businessDate, limit: page.limit ?? 10, cursor: page.cursor }),
     }),
   );
 }

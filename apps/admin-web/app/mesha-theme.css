@@ -4878,3 +4878,29 @@ select:disabled { opacity: .45; }
 .wb-modal .meta{font-size:12px;color:var(--faint);margin-top:12px;display:flex;justify-content:space-between}
 .wb-modal .note{font-size:12px;color:var(--muted);background:var(--bg);border:1px solid var(--line);border-radius:9px;padding:9px 12px}
 @media (max-width:900px){.wb-modal{inset:8px}.wb-modal .mb{grid-template-columns:1fr}}
+/* issue view: subtask rows (mock .items/.it/.stp/.steps) */
+.wb-modal .items{display:flex;flex-direction:column;gap:4px}
+.wb-modal .it{display:grid;grid-template-columns:auto 1fr auto auto auto;gap:10px;align-items:center;padding:7px 10px;border:1px solid var(--line2);border-radius:8px;font-size:13px;cursor:pointer;background:transparent;color:inherit;font-family:inherit;text-align:left;width:100%}
+.wb-modal .it.hot{background:color-mix(in srgb,var(--warn) 10%,var(--panel))}
+.wb-modal .it .car{width:14px;color:var(--faint);font-size:11px;transition:transform .15s}
+.wb-modal .it.open .car{transform:rotate(90deg)}
+.wb-modal .it .nm{min-width:0}
+.wb-modal .it .nm b{font-weight:650}
+.wb-modal .it .nm .s{color:var(--muted);font-size:11.5px;margin-left:6px}
+.wb-modal .it .who{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);white-space:nowrap}
+.wb-modal .it .who .av{width:20px;height:20px;font-size:9px;border-width:0}
+.wb-modal .it .lk{color:var(--brand);font-weight:650;font-size:12px;text-decoration:none;white-space:nowrap}
+.wb-modal .stp{display:inline-flex;gap:4px;flex-wrap:wrap;margin-top:4px}
+.wb-modal .stp span{font-size:10.5px;font-weight:800;padding:2px 7px;border-radius:5px;background:var(--panel-2);color:var(--faint);white-space:nowrap}
+.wb-modal .stp .done{background:var(--okx);color:var(--brand)} .wb-modal .stp .in_review{background:var(--infox);color:var(--info)} .wb-modal .stp .in_progress{background:var(--infox);color:var(--info)} .wb-modal .stp .rework{background:var(--warnx);color:var(--warn)} .wb-modal .stp .needs_attention{background:var(--dangerx);color:var(--danger)} .wb-modal .stp .locked{opacity:.55;text-decoration:line-through}
+.wb-modal .steps{margin:2px 0 6px 24px;border-left:2px solid var(--line);padding-left:12px;display:flex;flex-direction:column;gap:3px}
+.wb-modal .step{display:grid;grid-template-columns:1fr auto;gap:10px;align-items:center;padding:6px 10px;border:1px solid var(--line2);border-radius:7px;font-size:12.5px;background:var(--bg)}
+.wb-modal .step .n b{font-weight:650}
+.wb-modal .step .n .s{color:var(--muted);font-size:11.5px;margin-left:6px}
+.wb-modal .step .arrow{color:var(--faint);font-size:11px;margin-right:4px}
+.wb-modal .tag{display:inline-flex;align-items:center;gap:5px;padding:2px 8px;border-radius:7px;font-size:11px;font-weight:700;white-space:nowrap}
+.wb-modal .pager{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 2px;flex-wrap:wrap;font-size:12.5px;color:var(--muted)}
+.wb-modal .pager b{color:var(--ink)}
+.wb-modal .pgnav{display:flex;align-items:center;gap:10px}
+.wb-modal .pgnav .more{font:inherit;font-size:12.5px;font-weight:700;padding:6px 10px;color:var(--brand);border:1px solid var(--line);border-radius:8px;background:var(--panel);cursor:pointer}
+.wb-modal .pgnav .more:disabled{opacity:.4;cursor:default}

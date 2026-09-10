@@ -6,7 +6,7 @@
 // redirects with backend-driven feedback.
 import { randomUUID } from "node:crypto";
 import { actionRedirect, optionalString, requiredString } from "@/lib/action-helpers";
-import { raiseWorkBoardFlag } from "@/lib/api/work-board-server";
+import { listWorkBoardSubtasks, raiseWorkBoardFlag, type WorkBoardSubtaskPage } from "@/lib/api/work-board-server";
 
 // Every actionKey MUST start with "action." and have matching page-contract copy.
 function feedbackKeyFor(code: string | undefined): string {
@@ -36,4 +36,14 @@ export async function flagParkHeadAction(formData: FormData): Promise<void> {
   );
   if (!result.ok) actionRedirect(formData, "error", feedbackKeyFor(result.error.code));
   actionRedirect(formData, "success", "action.flag_raised");
+}
+
+export type SubtasksActionResult = { ok: true; page: WorkBoardSubtaskPage } | { ok: false; code?: string };
+
+// The issue view's subtask page: fetched only when a card is open, for that card, through an
+// authenticated Server Action (never a client fetch, never on the list read).
+export async function loadSubtasksAction(input: { rowKey: string; park: string; businessDate: string; cursor?: string }): Promise<SubtasksActionResult> {
+  const result = await listWorkBoardSubtasks(input.rowKey, { park: input.park, businessDate: input.businessDate }, { limit: 10, cursor: input.cursor });
+  if (!result.ok) return { ok: false, code: result.error.code };
+  return { ok: true, page: result.data };
 }
