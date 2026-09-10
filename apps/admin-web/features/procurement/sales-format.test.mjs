@@ -165,6 +165,7 @@ test("farm value cards render the backend valuation contract", () => {
   assert.match(source, /overview\.farm_valuation\.total_animals/);
   assert.match(source, /overview\.farm_valuation\.valued_animals/);
   assert.match(source, /overview\.farm_valuation\.excluded_animals/);
+  assert.match(source, /overview\.farm_valuation\.not_valued/);
   assert.match(source, /overview\.farm_valuation\.buckets\.map/);
   assert.doesNotMatch(source, /farm_valuation\.buckets\.reduce/);
 });
@@ -179,6 +180,7 @@ test("farm value copy keys have rollout fallbacks", () => {
     "kpi.total_meat.detail",
     "value.excluded_animals",
     "value.live_animals",
+    "value.not_valued",
     "value.valued_animals",
     "value.weighed",
   ]) {

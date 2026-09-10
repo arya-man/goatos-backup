@@ -3494,6 +3494,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"value.kg_suffix":          "kg",
 			"value.excluded_animals":   "excluded",
 			"value.live_animals":       "live animals",
+			"value.not_valued":         "not valued",
 			"value.valued_animals":     "valued",
 			"value.weighed":            "weighed",
 			"value.per_kg_suffix":      "per kg",

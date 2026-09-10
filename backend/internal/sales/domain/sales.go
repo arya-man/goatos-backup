@@ -445,7 +445,15 @@ type FarmValuation struct {
 	TotalAnimals     int
 	ValuedAnimals    int
 	ExcludedAnimals  int
+	NotValued        []FarmValuationNotValued
 	Buckets          []FarmValuationBucket
+}
+
+// FarmValuationNotValued names a live-herd slice that is counted in current inventory but not
+// priced by the maintainer's valuation formula.
+type FarmValuationNotValued struct {
+	Label string
+	Count int
 }
 
 // FarmValuationBucket is one row of the valuation formula.

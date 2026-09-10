@@ -15,6 +15,7 @@ const COPY_FALLBACKS: Record<string, Record<string, string>> = {
     "kpi.total_meat.detail": "Live herd kg from valuation buckets",
     "value.excluded_animals": "excluded",
     "value.live_animals": "live animals",
+    "value.not_valued": "not valued",
     "value.valued_animals": "valued",
     "value.weighed": "weighed",
   },

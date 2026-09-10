@@ -7684,6 +7684,11 @@ export interface components {
             valued_animals: number;
             /** @description Live animals outside Manju's listed valuation buckets, such as ICU kids. */
             excluded_animals: number;
+            /** @description Live animals outside the valuation buckets, grouped by their current stage/cohort label. */
+            not_valued: {
+                label: string;
+                count: number;
+            }[];
             buckets: components["schemas"]["SalesFarmValuationBucket"][];
         };
         /** @description One month with at least one closed deal. Months derive from sale_date. */

@@ -83,6 +83,20 @@ type Over35Card = {
 const OVER35_WINDOW_DAYS = 42;
 const OVER35_MAX_TOLERANCE_G = 1000;
 
+function farmValuationNotValuedLabel(overview: SalesOverview, pageContract: AdminUiPageContract): string {
+  const notValued = overview.farm_valuation.not_valued ?? [];
+  const total = overview.farm_valuation.excluded_animals;
+  if (total <= 0) return "";
+  if (notValued.length === 1) {
+    const item = notValued[0];
+    return `${num(item.count)} ${item.label} ${copy(pageContract, "value.not_valued")}`;
+  }
+  if (notValued.length > 1) {
+    return `${num(total)} ${copy(pageContract, "value.not_valued")}`;
+  }
+  return `${num(total)} ${copy(pageContract, "value.excluded_animals")}`;
+}
+
 function OverviewSections({
   overview,
   pageContract,
@@ -113,6 +127,7 @@ function OverviewSections({
   const buyersPageNumber = Math.min(Math.max(buyersPage, 1), buyersPageCount);
   const buyersStart = (buyersPageNumber - 1) * buyersPageSize;
   const buyersRows = overview.buyers.slice(buyersStart, buyersStart + buyersPageSize);
+  const notValuedLabel = farmValuationNotValuedLabel(overview, pageContract);
   return (
     <>
           {/* 1 — headline figures, verbatim from the overview summary. */}
@@ -192,9 +207,7 @@ function OverviewSections({
               <h3>{copy(pageContract, "kpi.farm_value")}</h3>
               <Tag tone={overview.farm_valuation.total_value_rupees > 0 ? "info" : "mut"}>
                 {num(overview.farm_valuation.valued_animals)} {copy(pageContract, "value.valued_animals")}
-                {overview.farm_valuation.excluded_animals > 0
-                  ? ` · ${num(overview.farm_valuation.excluded_animals)} ${copy(pageContract, "value.excluded_animals")}`
-                  : ""}
+                {notValuedLabel ? ` · ${notValuedLabel}` : ""}
                 {" · "}
                 {num(overview.farm_valuation.total_animals)} {copy(pageContract, "value.live_animals")}
               </Tag>

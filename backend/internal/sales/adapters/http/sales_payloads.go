@@ -182,7 +182,13 @@ type farmValuationPayload struct {
 	TotalAnimals     int                          `json:"total_animals"`
 	ValuedAnimals    int                          `json:"valued_animals"`
 	ExcludedAnimals  int                          `json:"excluded_animals"`
+	NotValued        []farmValuationNotValued     `json:"not_valued"`
 	Buckets          []farmValuationBucketPayload `json:"buckets"`
+}
+
+type farmValuationNotValued struct {
+	Label string `json:"label"`
+	Count int    `json:"count"`
 }
 
 type farmValuationBucketPayload struct {
@@ -346,6 +352,10 @@ func toOverviewPayload(o domain.Overview) overviewPayload {
 			WeighedAnimals: b.WeighedAnimals,
 		})
 	}
+	notValued := make([]farmValuationNotValued, 0, len(o.FarmValuation.NotValued))
+	for _, item := range o.FarmValuation.NotValued {
+		notValued = append(notValued, farmValuationNotValued{Label: item.Label, Count: item.Count})
+	}
 	return overviewPayload{
 		Summary: summaryPayload{
 			Revenue: o.Summary.Revenue, LiveRevenue: o.Summary.LiveRevenue, Deals: o.Summary.Deals,
@@ -388,6 +398,7 @@ func toOverviewPayload(o domain.Overview) overviewPayload {
 			TotalAnimals:     o.FarmValuation.TotalAnimals,
 			ValuedAnimals:    o.FarmValuation.ValuedAnimals,
 			ExcludedAnimals:  o.FarmValuation.ExcludedAnimals,
+			NotValued:        notValued,
 			Buckets:          valuationBuckets,
 		},
 	}

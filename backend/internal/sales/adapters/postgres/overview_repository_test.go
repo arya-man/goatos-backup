@@ -16,6 +16,7 @@ func TestFarmValuationSQLUsesCurrentInventoryShape(t *testing.T) {
 		"total_inventory AS",
 		"count(*) FILTER (WHERE bucket <> 'unmapped')::int AS valued_animals",
 		"count(*) FILTER (WHERE bucket = 'unmapped')::int AS excluded_animals",
+		"jsonb_build_object('label', label, 'count', animal_count)",
 		"SELECT DISTINCT ON (i.tenant_id, i.goat_id)",
 		"FROM public.goat_identifiers",
 		"status = 'active'",
@@ -101,6 +102,7 @@ func TestFarmValuationSQLEveryStatusBucketsExcludeOnlyTerminalInventory(t *testi
 		"g.merged_into_goat_id IS NULL",
 		"count(*) FILTER (WHERE bucket <> 'unmapped')::int AS valued_animals",
 		"count(*) FILTER (WHERE bucket = 'unmapped')::int AS excluded_animals",
+		"not_valued AS",
 	} {
 		if !strings.Contains(farmValuationSQL, want) {
 			t.Fatalf("farm valuation SQL missing status bucket proof %q", want)
@@ -108,5 +110,23 @@ func TestFarmValuationSQLEveryStatusBucketsExcludeOnlyTerminalInventory(t *testi
 	}
 	if strings.Contains(farmValuationSQL, "g.lifecycle_status = 'alive'") {
 		t.Fatal("farm valuation status matrix must not hard-code alive and silently drop non-terminal live inventory")
+	}
+}
+
+func TestFarmValuationNotValuedBreakdownAggregateProjectionMultipleDimensionsPageBoundaryParkScopeEveryStatus(t *testing.T) {
+	for _, want := range []string{
+		"not_valued AS",
+		"jsonb_agg(jsonb_build_object('label', label, 'count', animal_count) ORDER BY animal_count DESC, label)",
+		"coalesce(nullif(btrim(management_stage), ''), nullif(btrim(milk_cohort), ''), 'Unmapped') AS label",
+		"WHERE bucket = 'unmapped'",
+		"CROSS JOIN not_valued nv",
+		"nv.breakdown",
+	} {
+		if !strings.Contains(farmValuationSQL, want) {
+			t.Fatalf("farm valuation not-valued breakdown missing aggregate projection proof %q", want)
+		}
+	}
+	if strings.Contains(farmValuationSQL, "LIMIT") || strings.Contains(farmValuationSQL, "OFFSET") {
+		t.Fatal("farm valuation not-valued breakdown must stay whole-inventory, not page-local")
 	}
 }

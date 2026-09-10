@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	"github.com/vgoats/goatos/backend/internal/sales/domain"
@@ -163,12 +164,13 @@ func (r *Repository) farmValuation(ctx context.Context, tenantID, farm string) (
 	}
 	defer rows.Close()
 
-	out := domain.FarmValuation{Buckets: []domain.FarmValuationBucket{}}
+	out := domain.FarmValuation{Buckets: []domain.FarmValuationBucket{}, NotValued: []domain.FarmValuationNotValued{}}
 	for rows.Next() {
 		var bucket domain.FarmValuationBucket
 		var totalAnimals int
 		var valuedAnimals int
 		var excludedAnimals int
+		var notValuedJSON []byte
 		if err := rows.Scan(
 			&bucket.Bucket,
 			&bucket.Label,
@@ -182,8 +184,14 @@ func (r *Repository) farmValuation(ctx context.Context, tenantID, farm string) (
 			&totalAnimals,
 			&valuedAnimals,
 			&excludedAnimals,
+			&notValuedJSON,
 		); err != nil {
 			return domain.FarmValuation{}, fmt.Errorf("sales farm valuation scan: %w", err)
+		}
+		if len(notValuedJSON) > 0 && len(out.NotValued) == 0 {
+			if err := json.Unmarshal(notValuedJSON, &out.NotValued); err != nil {
+				return domain.FarmValuation{}, fmt.Errorf("sales farm valuation not-valued breakdown: %w", err)
+			}
 		}
 		out.TotalMeatKg += bucket.MeatKg
 		out.TotalValueRupees += bucket.ValueRupees
@@ -536,8 +544,22 @@ const farmValuationSQL = `
 			AND g.lifecycle_status NOT IN ('dead', 'sold', 'culled', 'transferred', 'lost', 'merged', 'inactive')
 			AND g.merged_into_goat_id IS NULL
 			%s
-	),
-	fattening_weight AS (
+		),
+		not_valued AS (
+			SELECT coalesce(
+				jsonb_agg(jsonb_build_object('label', label, 'count', animal_count) ORDER BY animal_count DESC, label),
+				'[]'::jsonb
+			) AS breakdown
+			FROM (
+				SELECT
+					coalesce(nullif(btrim(management_stage), ''), nullif(btrim(milk_cohort), ''), 'Unmapped') AS label,
+					count(*)::int AS animal_count
+				FROM classified
+				WHERE bucket = 'unmapped'
+				GROUP BY label
+			) x
+		),
+		fattening_weight AS (
 		SELECT avg(weight_kg) AS avg_weight_kg, count(weight_kg)::int AS weighed_animals
 		FROM classified
 		WHERE bucket = 'fattening'
@@ -575,11 +597,13 @@ const farmValuationSQL = `
 		(coalesce(c.animal_count, 0) * coalesce(r.fixed_weight_kg, fw.avg_weight_kg, 0) * r.price_per_kg)::float8 AS value_rupees,
 		(r.fixed_weight_kg IS NULL) AS actual_weight,
 		CASE WHEN r.fixed_weight_kg IS NULL THEN coalesce(fw.weighed_animals, 0) ELSE 0 END AS weighed_animals,
-		ti.live_animals,
-		ti.valued_animals,
-		ti.excluded_animals
-	FROM rates r
-	LEFT JOIN counts c ON c.bucket = r.bucket
-	CROSS JOIN fattening_weight fw
-	CROSS JOIN total_inventory ti
-	ORDER BY r.display_order`
+			ti.live_animals,
+			ti.valued_animals,
+			ti.excluded_animals,
+			nv.breakdown
+		FROM rates r
+		LEFT JOIN counts c ON c.bucket = r.bucket
+		CROSS JOIN fattening_weight fw
+		CROSS JOIN total_inventory ti
+		CROSS JOIN not_valued nv
+		ORDER BY r.display_order`

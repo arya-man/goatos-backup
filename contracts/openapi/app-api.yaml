@@ -18005,7 +18005,7 @@ components:
     SalesFarmValuation:
       type: object
       description: Live-herd valuation under Sales, separate from closed sales revenue.
-      required: [total_value_rupees, total_meat_kg, total_animals, valued_animals, excluded_animals, buckets]
+      required: [total_value_rupees, total_meat_kg, total_animals, valued_animals, excluded_animals, not_valued, buckets]
       properties:
         total_value_rupees: { type: number }
         total_meat_kg: { type: number }
@@ -18018,6 +18018,15 @@ components:
         excluded_animals:
           type: integer
           description: Live animals outside Manju's listed valuation buckets, such as ICU kids.
+        not_valued:
+          type: array
+          description: Live animals outside the valuation buckets, grouped by their current stage/cohort label.
+          items:
+            type: object
+            required: [label, count]
+            properties:
+              label: { type: string }
+              count: { type: integer }
         buckets:
           type: array
           items:
