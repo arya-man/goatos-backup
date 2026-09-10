@@ -32,6 +32,8 @@ const (
 	taskDone      = "00000000-0000-4000-8000-000000009104"
 	taskRetired   = "00000000-0000-4000-8000-000000009105"
 	taskPenRow    = "00000000-0000-4000-8000-000000009106"
+	taskFilmed    = "00000000-0000-4000-8000-000000009107" // never assigned; owned by whoever filmed its attempt
+	attemptFilmed = "00000000-0000-4000-8000-000000009901"
 )
 
 func exec(t *testing.T, ctx context.Context, pool *pgxpool.Pool, sql string, args ...any) {
@@ -77,6 +79,7 @@ ON CONFLICT (workforce_member_id) DO NOTHING`, bsMember, bsTenant, bsOperator, b
 		{taskRetired, bsPark, bsShedD, "Part 9", "retired", ""},                // superseded pen row: not work
 		{taskPenRow, bsPark, bsShed, "Part 3", "verification_due", bsOperator}, // surviving pen row with evidence
 		{"00000000-0000-4000-8000-000000009201", bsOtherPk, bsShedE, "", "due", ""},
+		{taskFilmed, bsPark, bsShedC, "Part 2", "verification_due", ""}, // materializer named nobody; the attempt names Dinakar
 	}
 	for _, x := range tasks {
 		exec(t, ctx, pool, `
@@ -84,6 +87,12 @@ INSERT INTO feed_transport_tasks (task_id, tenant_id, park_id, shed_id, partitio
 VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5, $6::date, $7::timestamptz, $8, NULLIF($9, '')::uuid)
 ON CONFLICT (task_id) DO NOTHING`, x.id, bsTenant, x.park, x.shed, x.partition, bsDate, scheduled, x.status, x.operator)
 	}
+	// The real submit path: the operator lands on the ATTEMPT, and the task points at it.
+	exec(t, ctx, pool, `
+INSERT INTO feed_transport_attempts (attempt_id, tenant_id, task_id, attempt_no, proof_ref, operator_id, status, idempotency_key, submitted_at)
+VALUES ($1::uuid, $2::uuid, $3::uuid, 1, 'proof:board-test', $4::uuid, 'verification_due', 'board-test:' || $1, $5::timestamptz)
+ON CONFLICT (attempt_id) DO NOTHING`, attemptFilmed, bsTenant, taskFilmed, bsOperator, scheduled)
+	exec(t, ctx, pool, `UPDATE feed_transport_tasks SET current_attempt_id = $1::uuid WHERE task_id = $2::uuid`, attemptFilmed, taskFilmed)
 }
 
 func query(owner string, states ...domain.WorkState) ports.SourceQuery {
@@ -116,10 +125,14 @@ func TestFeedTransportBoardRowsOnADatabaseRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(rows) != 5 {
-		t.Fatalf("5 live tasks expected (the retired one is not work, the other park is not here), got %d", len(rows))
+	if len(rows) != 6 {
+		t.Fatalf("6 live tasks expected (the retired one is not work, the other park is not here), got %d", len(rows))
 	}
 	got := byID(rows)
+	filmed := got[taskFilmed]
+	if filmed.Owner.UserID != bsOperator || filmed.Owner.Name != "Dinakar" || filmed.OwnerState != domain.OwnerStateAssigned || filmed.WorkState != domain.WorkStateVerificationPending {
+		t.Errorf("a task nobody was assigned to belongs to whoever filmed its attempt: %+v %s %s", filmed.Owner, filmed.OwnerState, filmed.WorkState)
+	}
 	want := map[string]struct {
 		state domain.WorkState
 		lane  domain.Lane
@@ -194,8 +207,8 @@ func TestFeedTransportBoardScopeAndKeyset(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(mine) != 3 {
-		t.Fatalf("operator lens: 3 own rows expected, got %d", len(mine))
+	if len(mine) != 4 {
+		t.Fatalf("operator lens: 4 own rows expected (three assigned, one filmed), got %d", len(mine))
 	}
 	for _, r := range mine {
 		if r.Owner.UserID != bsOperator {
@@ -235,8 +248,8 @@ func TestFeedTransportBoardScopeAndKeyset(t *testing.T) {
 			after = r.SourceID
 		}
 	}
-	if len(seen) != 5 {
-		t.Fatalf("keyset walk saw %d rows, want 5", len(seen))
+	if len(seen) != 6 {
+		t.Fatalf("keyset walk saw %d rows, want 6", len(seen))
 	}
 
 	counts, err := src.CountByState(ctx, query(""))
@@ -247,14 +260,14 @@ func TestFeedTransportBoardScopeAndKeyset(t *testing.T) {
 	for _, n := range counts {
 		total += n
 	}
-	if total != 5 || counts[domain.WorkStateDue] != 1 || counts[domain.WorkStateVerificationPending] != 2 || counts[domain.WorkStateRejected] != 1 || counts[domain.WorkStateCompleted] != 1 {
+	if total != 6 || counts[domain.WorkStateDue] != 1 || counts[domain.WorkStateVerificationPending] != 3 || counts[domain.WorkStateRejected] != 1 || counts[domain.WorkStateCompleted] != 1 {
 		t.Fatalf("counts %+v", counts)
 	}
 	mineCounts, err := src.CountByState(ctx, query(bsOperator))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if mineCounts[domain.WorkStateVerificationPending] != 2 || mineCounts[domain.WorkStateRejected] != 1 || len(mineCounts) != 2 {
+	if mineCounts[domain.WorkStateVerificationPending] != 3 || mineCounts[domain.WorkStateRejected] != 1 || len(mineCounts) != 2 {
 		t.Fatalf("operator counts %+v", mineCounts)
 	}
 	otherPark, err := src.CountByState(ctx, ports.SourceQuery{TenantID: bsTenant, ParkID: bsOtherPk, BusinessDate: bsDate})

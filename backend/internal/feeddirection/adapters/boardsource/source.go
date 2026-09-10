@@ -76,15 +76,27 @@ const baseWhere = `
   AND t.business_date = $2::date
   AND t.park_id = $3::uuid
   AND t.status <> 'retired'
-  AND ($4::uuid IS NULL OR t.operator_id = $4::uuid)`
+  AND ($4::uuid IS NULL OR ` + ownerSQL + ` = $4::uuid)`
 
-// projection-review: membership=feed_transport_tasks rows of ONE tenant, park and business date (retired excluded), one row per physical shed per day (feed_transport_tasks_daily_shed_uq); group_key=(tenant_id, task_id) for the list and the derived board_state for the count; join_cardinality=locations park/shed on their primary key (1:1) and workforce_members filtered to status='active' whose (tenant_id,user_id) is unique by the partial active index (at most 1), so no join fans a task out; pagination=keyset on task_id ASC after the cursor with LIMIT, state filter inside WHERE; scope=tenant_id, park_id, business_date and the optional operator predicate, repeated verbatim in countSQL.
+// ownerSQL is who the row belongs to. The materializer writes no operator on a transport
+// task and SubmitTransport records the operator on the ATTEMPT, so a task assigned to
+// nobody still has a real owner once someone filmed it: the operator of the task's current
+// attempt. Without this every transport row on the board read owner "missing", including
+// work someone demonstrably did (339 of 339 completed rows on the 2026-09-10 clone).
+const ownerSQL = `COALESCE(t.operator_id, att.operator_id)`
+
+// fromSQL joins the task's current attempt on its primary key (1:1, absent until the first
+// submit). feed_transport_attempts is this module's own table.
+const fromSQL = `feed_transport_tasks t
+  LEFT JOIN feed_transport_attempts att ON att.tenant_id = t.tenant_id AND att.attempt_id = t.current_attempt_id`
+
+// projection-review: membership=feed_transport_tasks rows of ONE tenant, park and business date (retired excluded), one row per physical shed per day (feed_transport_tasks_daily_shed_uq); group_key=(tenant_id, task_id) for the list and the derived board_state for the count; join_cardinality=feed_transport_attempts on its primary key via the task's current_attempt_id (1:{0,1}), locations park/shed on their primary key (1:1) and workforce_members filtered to status='active' whose (tenant_id,user_id) is unique by the partial active index (at most 1), so no join fans a task out; pagination=keyset on task_id ASC after the cursor with LIMIT, state filter inside WHERE; scope=tenant_id, park_id, business_date and the optional operator predicate, repeated verbatim in countSQL.
 const listSQL = `
 WITH tasks AS (
   SELECT t.task_id, t.park_id, t.shed_id, COALESCE(t.partition_label, '') AS partition_label,
-         t.business_date, t.scheduled_at, t.status, t.operator_id,
+         t.business_date, t.scheduled_at, t.status, ` + ownerSQL + ` AS operator_id,
          ` + workStateSQL + ` AS board_state
-  FROM feed_transport_tasks t
+  FROM ` + fromSQL + `
   WHERE ` + baseWhere + `
     AND ($5::uuid IS NULL OR t.task_id > $5::uuid)
 )
@@ -101,12 +113,12 @@ WHERE ($6::text[] IS NULL OR x.board_state = ANY($6::text[]))
 ORDER BY x.task_id
 LIMIT $7`
 
-// projection-review: membership=feed_transport_tasks rows of ONE tenant, park and business date (retired excluded), one row per physical shed per day (feed_transport_tasks_daily_shed_uq); group_key=(tenant_id, task_id) (the count query groups by the SAME derived board_state over the SAME membership); join_cardinality=locations park/shed on their primary key (1:1) and workforce_members filtered to status='active' whose (tenant_id,user_id) is unique by the partial active index (at most 1), so no join fans a task out; pagination=keyset on task_id ASC after the cursor with LIMIT, state filter inside WHERE; scope=tenant_id, park_id, business_date and the optional operator predicate, repeated verbatim in countSQL.
+// projection-review: membership=feed_transport_tasks rows of ONE tenant, park and business date (retired excluded), one row per physical shed per day (feed_transport_tasks_daily_shed_uq); group_key=(tenant_id, task_id) (the count query groups by the SAME derived board_state over the SAME membership); join_cardinality=feed_transport_attempts on its primary key via the task's current_attempt_id (1:{0,1}), locations park/shed on their primary key (1:1) and workforce_members filtered to status='active' whose (tenant_id,user_id) is unique by the partial active index (at most 1), so no join fans a task out; pagination=keyset on task_id ASC after the cursor with LIMIT, state filter inside WHERE; scope=tenant_id, park_id, business_date and the optional operator predicate, repeated verbatim in countSQL.
 const countSQL = `
 SELECT board_state, count(*)
 FROM (
   SELECT ` + workStateSQL + ` AS board_state
-  FROM feed_transport_tasks t
+  FROM ` + fromSQL + `
   WHERE ` + baseWhere + `
 ) x
 WHERE ($5::text[] IS NULL OR board_state = ANY($5::text[]))
