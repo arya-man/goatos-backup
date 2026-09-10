@@ -5,6 +5,7 @@ package domain
 import (
 	"errors"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -412,4 +413,153 @@ func (s *Summary) Add(module Module, byState map[WorkState]int) {
 			s.Attention += n
 		}
 	}
+}
+
+// ---- subtasks ------------------------------------------------------------------------
+
+// StepState is the state of ONE step in a subtask's chain. Seven values, closed: a client
+// renders each with backend-owned copy and never derives one.
+type StepState string
+
+const (
+	StepTodo           StepState = "todo"
+	StepInProgress     StepState = "in_progress"
+	StepInReview       StepState = "in_review"
+	StepDone           StepState = "done"
+	StepRework         StepState = "rework"
+	StepNeedsAttention StepState = "needs_attention"
+	// StepLocked: the step cannot start yet because an earlier one has not landed (a verify
+	// before a submit), or a hold keeps it closed (a deferred dose, a guarded action).
+	StepLocked StepState = "locked"
+)
+
+// StepStates returns the closed vocabulary in a stable order.
+func StepStates() []StepState {
+	return []StepState{StepTodo, StepInProgress, StepInReview, StepDone, StepRework, StepNeedsAttention, StepLocked}
+}
+
+// IsStepState reports whether s is one of the seven.
+func IsStepState(s string) bool {
+	for _, x := range StepStates() {
+		if string(x) == s {
+			return true
+		}
+	}
+	return false
+}
+
+// Step is one link of a subtask's chain: "Scan", "Submit", "Verify", "Close".
+type Step struct {
+	Name  string    `json:"name"`
+	State StepState `json:"state"`
+	// Detail is optional farm wording beside the state: "12.5 kg", "Sent back: blurry".
+	Detail string `json:"detail,omitempty"`
+}
+
+// Subtask is one unit of a row's work: an animal, a bag, a session, a step, a proof. Its
+// Key is the keyset value; it is OPAQUE to a client and sorts worst-first (see SubtaskKey).
+type Subtask struct {
+	Key      string `json:"key"`
+	Name     string `json:"name"`
+	Subtitle string `json:"subtitle,omitempty"`
+	// WorkState reuses the board vocabulary so a subtask lands in a lane like a row does.
+	WorkState      WorkState `json:"work_state"`
+	Lane           Lane      `json:"lane"`
+	Owner          Owner     `json:"owner"`
+	NeedsAttention bool      `json:"needs_attention"`
+	Steps          []Step    `json:"steps"`
+	Href           string    `json:"href,omitempty"`
+}
+
+// Finalize fills the derived lane. Sources call it on every subtask they emit.
+func (s Subtask) Finalize() Subtask {
+	s.Lane = LaneFor(s.WorkState)
+	if s.Steps == nil {
+		s.Steps = []Step{}
+	}
+	return s
+}
+
+// SubtaskPage is one page of a row's subtasks. Total is the WHOLE count for the row,
+// never the page length.
+type SubtaskPage struct {
+	Subtasks   []Subtask `json:"subtasks"`
+	NextCursor string    `json:"next_cursor,omitempty"`
+	Total      int       `json:"total"`
+}
+
+// Subtask ranks. The issue view lists subtasks WORST FIRST; a keyset cannot follow a sort it
+// does not key on, so the rank is the leading segment of the subtask key and the sort is a
+// plain ascending sort on the key. Lower is worse.
+const (
+	RankNeedsAttention = 0
+	RankToDo           = 1
+	RankInProgress     = 2
+	RankInReview       = 3
+	RankDone           = 4
+)
+
+// RankFor derives the rank from the subtask's lane and attention flag, the same way a
+// source's SQL must derive it (a source states the SQL twin of this table once).
+func RankFor(state WorkState, needsAttention bool) int {
+	if needsAttention {
+		return RankNeedsAttention
+	}
+	switch LaneFor(state) {
+	case LaneInProgress:
+		return RankInProgress
+	case LaneInReview:
+		return RankInReview
+	case LaneDone:
+		return RankDone
+	default:
+		return RankToDo
+	}
+}
+
+// SubtaskKey composes the keyset value: "<rank>:<id>". The id is the source's own stable
+// identity for the unit (an observation id, a step id, a proof ordinal).
+func SubtaskKey(rank int, id string) string {
+	return strconv.Itoa(rank) + ":" + id
+}
+
+// ErrInvalidSubtaskCursor is returned for a subtask cursor the board cannot read.
+var ErrInvalidSubtaskCursor = errors.New("workboard: invalid subtask cursor")
+
+// ParseSubtaskKey splits a key into its rank and id; empty means the first page.
+func ParseSubtaskKey(raw string) (rank int, id string, err error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return 0, "", nil
+	}
+	parts := strings.SplitN(raw, ":", 2)
+	if len(parts) != 2 || parts[1] == "" {
+		return 0, "", ErrInvalidSubtaskCursor
+	}
+	rank, convErr := strconv.Atoi(parts[0])
+	if convErr != nil || rank < RankNeedsAttention || rank > RankDone {
+		return 0, "", ErrInvalidSubtaskCursor
+	}
+	return rank, parts[1], nil
+}
+
+const (
+	// DefaultSubtaskLimit is the mock's page: ten subtasks.
+	DefaultSubtaskLimit = 10
+	MaxSubtaskLimit     = 50
+)
+
+// BoundSubtaskLimit clamps a requested page size into [DefaultSubtaskLimit, MaxSubtaskLimit];
+// zero or less means the default.
+func BoundSubtaskLimit(n int) int {
+	if n <= 0 {
+		return DefaultSubtaskLimit
+	}
+	if n < DefaultSubtaskLimit {
+		return DefaultSubtaskLimit
+	}
+	if n > MaxSubtaskLimit {
+		return MaxSubtaskLimit
+	}
+	return n
 }

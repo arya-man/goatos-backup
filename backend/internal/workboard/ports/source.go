@@ -39,4 +39,27 @@ type Source interface {
 	// CountByState returns the whole-filter count per work state for the same bounds,
 	// ignoring AfterSourceID and Limit. One aggregate query, on the same index.
 	CountByState(ctx context.Context, q SourceQuery) (map[domain.WorkState]int, error)
+	SubtaskSource
+}
+
+// SubtaskQuery is one bounded read of ONE row's subtasks: the row is named by its source id
+// on the same tenant, park and business date the board was read for, so a source resolves
+// the row on the same index its ListRows uses and the subtasks on the row's own child table.
+type SubtaskQuery struct {
+	TenantID     string
+	ParkID       string
+	BusinessDate string
+	SourceID     string
+	// AfterKey is the keyset boundary (a domain.SubtaskKey); empty means from the start.
+	AfterKey string
+	Limit    int
+}
+
+// SubtaskSource is the per-row drill a Source serves for the issue view: the row's units of
+// work, worst first, keyset-paged on the subtask key, with the whole count. A source whose
+// row has no finer grain returns the row itself as one subtask with its steps -- never an
+// empty page for a live row. A row the query does not resolve (wrong park or day, canceled)
+// returns an empty page with Total 0.
+type SubtaskSource interface {
+	ListSubtasks(ctx context.Context, q SubtaskQuery) (domain.SubtaskPage, error)
 }
