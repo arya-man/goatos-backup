@@ -62,7 +62,21 @@ SELECT tenant_id, workforce_member_id, surface, 'work_board', capabilities
 FROM merged
 ON CONFLICT (tenant_id, workforce_member_id, surface, module_key) DO NOTHING;
 
+-- FIELD PRINCIPALS are offered a phone module through their DEPARTMENT's module grant,
+-- narrowed by their own mobile tick (workforce/app.candidateModuleKeysFrom). Every
+-- department that already carries a phone module gets work_board too, so an operator's
+-- own rows are reachable from the bar; the mobile tick written above is what keeps it.
+INSERT INTO public.department_module_grants (tenant_id, department_id, module_key, status)
+SELECT DISTINCT g.tenant_id, g.department_id, 'work_board', 'active'
+FROM public.department_module_grants g
+WHERE g.status = 'active'
+  AND NOT EXISTS (
+    SELECT 1 FROM public.department_module_grants x
+    WHERE x.tenant_id = g.tenant_id AND x.department_id = g.department_id AND x.module_key = 'work_board'
+  );
+
 -- +goose Down
 -- Removes only rows this migration could have written; a tick an admin made on /people
 -- is indistinguishable from one written here, the honest cost of an additive repair.
 DELETE FROM public.person_module_access WHERE module_key = 'work_board';
+DELETE FROM public.department_module_grants WHERE module_key = 'work_board';

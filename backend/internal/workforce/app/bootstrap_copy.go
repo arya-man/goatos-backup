@@ -451,6 +451,24 @@ var moduleNavRegistry = map[string]moduleDefinition{ //nav-composition:ignore: t
 			{key: "sales_vendors", labelKey: "nav.vendors", href: "/sales/vendors", shared_key: "", priority: 2, requiredPermission: permissions.VendorRead}, //nav-composition:ignore: registry entry
 		},
 	},
+	// "work_board" is the phone's My Work (maintainer decision 2026-09-10, the Work Board
+	// Build Plan): the cross-module board read through the SAME route the admin-web board
+	// uses (GET /work-board/rows), scoped by the backend -- an operator sees their own rows,
+	// a park head their park, a director their modules across both parks. Leadership is
+	// offered it on work_board.read (leadershipModuleKeys); a field principal gets it the
+	// way they get every module, through their department's module grant, narrowed by their
+	// own mobile tick -- never on the job, so a bare operator with no department still gets
+	// only the clock bar. ONE bottom-bar item: the list is the module.
+	"work_board": {
+		key:         "work_board",
+		labelKey:    "module.work_board",
+		landingHref: "/work", //nav-composition:ignore: registry entry
+		status:      moduleStatusAvailable,
+		priority:    8,
+		contributions: []moduleNavContribution{
+			{key: "work_board", labelKey: "nav.my_work", href: "/work", shared_key: "", priority: 1, requiredPermission: permissions.WorkBoardRead}, //nav-composition:ignore: registry entry
+		},
+	},
 	// "leadership_tasks" is the director -> CXO ask desk (maintainer decision 2026-09-04): a
 	// director raises a task for one CXO with a brief and attachments; the CXO opens it and
 	// moves its status. Offered on the PERMISSION every director role and ceo_internal
@@ -975,6 +993,13 @@ func leadershipModuleKeys(grants []domain.GrantSummary) []string {
 	if grantsHavePermission(grants, permissions.ToxinRead) {
 		keys = appendMissing(keys, "toxin")
 	}
+	// Work Board (maintainer decision 2026-09-10): a leadership principal -- CEO, director,
+	// park head -- is offered My Work on work_board.read, which every one of those jobs
+	// carries. Field principals get it through their department grant instead (see the
+	// registry entry), so this is deliberately inside the leadership branch.
+	if grantsHavePermission(grants, permissions.WorkBoardRead) {
+		keys = appendMissing(keys, "work_board")
+	}
 	keys = appendMissing(keys, permissionOfferedModuleKeys(grants)...)
 	// Herd Operations (Counts) capture is offered the SAME per-person way as approvals above, and
 	// for the same reason (maintainer decision 2026-08-07, extending "rbac per person, not per
@@ -1027,6 +1052,7 @@ func permissionOfferedModuleKeys(grants []domain.GrantSummary) []string {
 	if grantsHavePermission(grants, permissions.LeadershipTasksRead) {
 		keys = append(keys, "leadership_tasks")
 	}
+
 	// Leave approvals (maintainer decision 2026-09-10): a park head is not a leadership
 	// principal and belongs to no department with an approvals module grant row, and an
 	// `hr` holder may have no job role at all -- both are offered the Approvals module on
@@ -1745,6 +1771,7 @@ var bootstrapLabels = map[string]map[string]string{
 		"queue.shifting":          "Shifting",
 		"queue.proof_review":      "Proof review",
 		"module.leadership_tasks": "Tasks",
+		"module.work_board":       "Work",
 		"nav.leadership_tasks":    "Raised by me",
 		"nav.pen_visits":          "For me",
 	},
@@ -1807,6 +1834,7 @@ var bootstrapLabels = map[string]map[string]string{
 		"queue.shifting":          "शिफ्टिंग",
 		"queue.proof_review":      "प्रूफ समीक्षा",
 		"module.leadership_tasks": "कार्य",
+		"module.work_board":       "काम",
 		"nav.leadership_tasks":    "मेरे द्वारा उठाए",
 		"nav.pen_visits":          "मेरे लिए",
 	},
@@ -1869,6 +1897,7 @@ var bootstrapLabels = map[string]map[string]string{
 		"queue.shifting":          "ಸ್ಥಳಾಂತರ",
 		"queue.proof_review":      "ಪುರಾವೆ ಪರಿಶೀಲನೆ",
 		"module.leadership_tasks": "ಕಾರ್ಯಗಳು",
+		"module.work_board":       "ಕೆಲಸ",
 		"nav.leadership_tasks":    "ನಾನು ಎತ್ತಿದವು",
 		"nav.pen_visits":          "ನನಗಾಗಿ",
 	},
@@ -1931,6 +1960,7 @@ var bootstrapLabels = map[string]map[string]string{
 		"queue.shifting":          "షిఫ్టింగ్",
 		"queue.proof_review":      "ప్రూఫ్ సమీక్ష",
 		"module.leadership_tasks": "పనులు",
+		"module.work_board":       "పని",
 		"nav.leadership_tasks":    "నేను లేవనెత్తినవి",
 		"nav.pen_visits":          "నా కోసం",
 	},
