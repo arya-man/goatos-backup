@@ -51,15 +51,22 @@ func (s *Source) SourceType() string    { return SourceType }
 
 // workStateSQL is the one place a weighing work item becomes a board work state.
 //
-//	closed                       -> completed            (the close landed; the bucket is done)
+//	closed (item OR bucket)      -> completed            (the close landed; the bucket is done)
 //	completed                    -> verification_pending (submitted; the close gate waits on the verdict)
+//
+// The bucket's own status is read alongside the item's because CLOSE writes only the bucket
+// (weighing_campaign_sheds.status = 'closed'); the work item is moved to 'closed' by the
+// kernel sweep, which reconciles only scheduled/delayed items, so a submitted bucket's item
+// stays 'completed' after the close. Reading the item alone left every closed-after-submit
+// bucket in "In review" forever (119 of 134 closed buckets on the 2026-09-10 clone).
+//
 //	delayed, past the D+2 band   -> overdue
 //	otherwise, bucket started    -> in_progress
 //	otherwise                    -> due                  (scheduled, or delayed inside the band)
 //
 // `canceled` rows are excluded in the WHERE clause: a canceled bucket is not work.
 const workStateSQL = `CASE
-  WHEN w.work_state = 'closed' THEN 'completed'
+  WHEN w.work_state = 'closed' OR b.status = 'closed' THEN 'completed'
   WHEN w.work_state = 'completed' THEN 'verification_pending'
   WHEN w.work_state = 'delayed' AND (w.due_business_date - w.planned_business_date) > ` + "2" + ` THEN 'overdue'
   WHEN b.status = 'in_progress' THEN 'in_progress'
