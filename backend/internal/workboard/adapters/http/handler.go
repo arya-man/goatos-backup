@@ -278,14 +278,13 @@ func (h *Handler) WithFlags(f FlagService) *Handler {
 	return h
 }
 
+// flagPayload names WHICH row on WHICH board; the row's own copy is never accepted from
+// the client (the service looks the row up on the caller's board).
 type flagPayload struct {
-	RowKey      string `json:"row_key"`
-	ParkID      string `json:"park_id"`
-	RowTitle    string `json:"row_title"`
-	RowSubtitle string `json:"row_subtitle"`
-	PenDisplay  string `json:"pen_display"`
-	ClockLabel  string `json:"clock_label"`
-	Note        string `json:"note"`
+	RowKey       string `json:"row_key"`
+	ParkID       string `json:"park_id"`
+	BusinessDate string `json:"business_date"`
+	Note         string `json:"note"`
 }
 
 type flagResultPayload struct {
@@ -327,12 +326,24 @@ func (h *Handler) Flag(w http.ResponseWriter, r *http.Request) {
 		h.writeErr(w, r, scope.Status, scope.Code, scope.Message)
 		return
 	}
+	businessDate := strings.TrimSpace(body.BusinessDate)
+	if businessDate == "" {
+		businessDate = biztime.BusinessDate(h.now())
+	} else if _, err := time.Parse("2006-01-02", businessDate); err != nil {
+		h.writeErr(w, r, http.StatusBadRequest, "invalid_business_date", "That date is not valid.")
+		return
+	}
+	// The board the flag is looked up on is the caller's own: their park scope, the day
+	// they were looking at, and the modules their permissions open. Oversee is required
+	// by the route, so there is no own-rows narrowing here.
+	board := domain.Query{
+		TenantID: tenantID, ParkID: scope.ParkID, BusinessDate: businessDate,
+		Modules: app.IntersectModules(app.VisibleModules(callerPermissions(ctx)), h.service.RegisteredModules()),
+	}
 	result, err := h.flags.Flag(ctx, ports.FlagParams{
 		TenantID: tenantID, ActorID: strings.TrimSpace(httpmiddleware.ActorIDFromContext(ctx)),
-		ActorDesignation: raiseDesignation(ctx), ParkID: scope.ParkID,
-		RowKey: body.RowKey, RowTitle: body.RowTitle, RowSubtitle: body.RowSubtitle,
-		PenDisplay: body.PenDisplay, ClockLabel: body.ClockLabel, Note: body.Note,
-		IdempotencyKey: key,
+		ActorDesignation: raiseDesignation(ctx), Board: board,
+		RowKey: body.RowKey, Note: body.Note, IdempotencyKey: key,
 	})
 	if err != nil {
 		h.writeFlagErr(w, r, err)
@@ -358,6 +369,10 @@ func (h *Handler) writeFlagErr(w http.ResponseWriter, r *http.Request, err error
 		h.writeErr(w, r, http.StatusUnprocessableEntity, "park_head_missing", "This park has no park head to flag. Fix the park's people first.")
 	case errors.Is(err, app.ErrFlagRowRequired), errors.Is(err, app.ErrFlagParkRequired):
 		h.writeErr(w, r, http.StatusBadRequest, "invalid_flag", "That flag is missing the work it is about.")
+	case errors.Is(err, domain.ErrInvalidRowKey):
+		h.writeErr(w, r, http.StatusBadRequest, "invalid_row_key", "That work is not on the board.")
+	case errors.Is(err, app.ErrFlagRowNotFound):
+		h.writeErr(w, r, http.StatusNotFound, "row_not_found", "That work is not on your board for this park and day. Refresh and try again.")
 	case errors.Is(err, app.ErrFlagNoteTooLong):
 		h.writeErr(w, r, http.StatusBadRequest, "note_too_long", "Keep the note under 1000 characters.")
 	case errors.Is(err, ltdomain.ErrSelfAssignment):

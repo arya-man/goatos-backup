@@ -236,6 +236,9 @@ type Cursor struct {
 // ErrInvalidCursor is returned for a cursor the board cannot read.
 var ErrInvalidCursor = errors.New("workboard: invalid cursor")
 
+// ErrInvalidRowKey is a row key that is not module|source_type|source_id.
+var ErrInvalidRowKey = errors.New("workboard: invalid row key")
+
 // ParseCursor decodes a cursor string; empty means the first page.
 func ParseCursor(raw string) (Cursor, error) {
 	raw = strings.TrimSpace(raw)

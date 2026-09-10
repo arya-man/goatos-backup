@@ -11,6 +11,7 @@ import (
 	ltdomain "github.com/vgoats/goatos/backend/internal/leadershiptasks/domain"
 	"github.com/vgoats/goatos/backend/internal/permissions"
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
+	"github.com/vgoats/goatos/backend/internal/workboard/app"
 	"github.com/vgoats/goatos/backend/internal/workboard/domain"
 	"github.com/vgoats/goatos/backend/internal/workboard/ports"
 )
@@ -208,13 +209,21 @@ func post(t *testing.T, h *Handler, body, actor string, grants []permissions.Act
 func TestFlagRaisesToTheParkHeadWithTheDirectorsDesignation(t *testing.T) {
 	flags := &fakeFlags{}
 	h := NewHandler(&fakeService{}, nil).WithFlags(flags)
-	body := `{"row_key":"weighing|weighing_work_item|w1","park_id":"` + parkCBE + `","row_title":"Weigh Godel 1 - Part 3","pen_display":"Godel 1 - Part 3","clock_label":"Delayed · planned 06/09/2026","note":"Please check"}`
+	body := `{"row_key":"feed|feed_transport_task|f1","park_id":"` + parkCBE + `","business_date":"2026-09-09","note":"Please check"}`
 	rec, out := post(t, h, body, actorCEO, tenantGrant(permissions.RoleFeedDirector), "k1")
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("status %d %v", rec.Code, out)
 	}
-	if flags.last.ParkID != parkCBE || flags.last.ActorID != actorCEO || flags.last.IdempotencyKey != "k1" {
+	if flags.last.Board.ParkID != parkCBE || flags.last.Board.TenantID != tenant || flags.last.ActorID != actorCEO || flags.last.IdempotencyKey != "k1" {
 		t.Fatalf("params %+v", flags.last)
+	}
+	if flags.last.Board.BusinessDate != "2026-09-09" || flags.last.RowKey != "feed|feed_transport_task|f1" || flags.last.Note != "Please check" {
+		t.Fatalf("the flag must name the row on the day it was seen: %+v", flags.last)
+	}
+	// The board the row is looked up on is the caller's own visibility: a feed director's
+	// board holds feed and nothing else, so a weighing key can never resolve for them.
+	if len(flags.last.Board.Modules) != 1 || flags.last.Board.Modules[0] != domain.ModuleFeed {
+		t.Fatalf("feed director's board must be feed only, got %v", flags.last.Board.Modules)
 	}
 	if flags.last.ActorDesignation != permissions.RoleFeedDirector {
 		t.Fatalf("designation should be the raising director's desk, got %q", flags.last.ActorDesignation)
@@ -226,13 +235,29 @@ func TestFlagRaisesToTheParkHeadWithTheDirectorsDesignation(t *testing.T) {
 
 // TestFlagRefusalsCarryStableCodes.
 func TestFlagRefusalsCarryStableCodes(t *testing.T) {
-	good := `{"row_key":"k","park_id":"` + parkCBE + `","row_title":"t"}`
+	good := `{"row_key":"feed|feed_transport_task|f1","park_id":"` + parkCBE + `"}`
 	h := NewHandler(&fakeService{}, nil).WithFlags(&fakeFlags{})
 	if rec, out := post(t, h, good, actorCEO, tenantGrant(permissions.RoleCEOInternal), ""); rec.Code != http.StatusBadRequest || out["error"] != "missing_idempotency_key" {
 		t.Fatalf("no key: %d %v", rec.Code, out)
 	}
-	if rec, out := post(t, h, `{"row_key":"k","park_id":"`+parkCBE+`","row_title":"t","bogus":1}`, actorCEO, tenantGrant(permissions.RoleCEOInternal), "k"); rec.Code != http.StatusBadRequest || out["error"] != "invalid_body" {
+	if rec, out := post(t, h, `{"row_key":"k","park_id":"`+parkCBE+`","bogus":1}`, actorCEO, tenantGrant(permissions.RoleCEOInternal), "k"); rec.Code != http.StatusBadRequest || out["error"] != "invalid_body" {
 		t.Fatalf("unknown field: %d %v", rec.Code, out)
+	}
+	// The row's copy is never accepted from the client: the old echo fields are unknown.
+	if rec, out := post(t, h, `{"row_key":"k","park_id":"`+parkCBE+`","row_title":"Fabricated"}`, actorCEO, tenantGrant(permissions.RoleCEOInternal), "k"); rec.Code != http.StatusBadRequest || out["error"] != "invalid_body" {
+		t.Fatalf("client-supplied title: %d %v", rec.Code, out)
+	}
+	if rec, out := post(t, h, `{"row_key":"k","park_id":"`+parkCBE+`","business_date":"yesterday"}`, actorCEO, tenantGrant(permissions.RoleCEOInternal), "k"); rec.Code != http.StatusBadRequest || out["error"] != "invalid_business_date" {
+		t.Fatalf("bad date: %d %v", rec.Code, out)
+	}
+	// A row the caller's board does not hold is 404, and an unparseable key 400.
+	h4 := NewHandler(&fakeService{}, nil).WithFlags(&fakeFlags{err: app.ErrFlagRowNotFound})
+	if rec, out := post(t, h4, good, actorCEO, tenantGrant(permissions.RoleCEOInternal), "k"); rec.Code != http.StatusNotFound || out["error"] != "row_not_found" {
+		t.Fatalf("not found: %d %v", rec.Code, out)
+	}
+	h5 := NewHandler(&fakeService{}, nil).WithFlags(&fakeFlags{err: domain.ErrInvalidRowKey})
+	if rec, out := post(t, h5, good, actorCEO, tenantGrant(permissions.RoleCEOInternal), "k"); rec.Code != http.StatusBadRequest || out["error"] != "invalid_row_key" {
+		t.Fatalf("bad key: %d %v", rec.Code, out)
 	}
 	// A park head flagging their own park is refused by the raise rule, mapped to 422.
 	h2 := NewHandler(&fakeService{}, nil).WithFlags(&fakeFlags{err: ltdomain.ErrSelfAssignment})
@@ -244,7 +269,7 @@ func TestFlagRefusalsCarryStableCodes(t *testing.T) {
 		t.Fatalf("missing head: %d %v", rec.Code, out)
 	}
 	// Outside the caller's park scope is a 403 before anything is raised.
-	if rec, _ := post(t, h, `{"row_key":"k","park_id":"`+parkCPT+`","row_title":"t"}`, actorOp, parkHeadGrant(parkCBE), "k"); rec.Code != http.StatusForbidden {
+	if rec, _ := post(t, h, `{"row_key":"k","park_id":"`+parkCPT+`"}`, actorOp, parkHeadGrant(parkCBE), "k"); rec.Code != http.StatusForbidden {
 		t.Fatalf("other park: %d", rec.Code)
 	}
 	// Without a flag service the route answers 404, never a panic.

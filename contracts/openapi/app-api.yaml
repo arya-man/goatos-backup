@@ -17903,14 +17903,12 @@ components:
           description: True when the read was clamped to the caller's own rows (no work_board.oversee).
     WorkBoardFlagRequest:
       type: object
-      required: [row_key, park_id, row_title]
+      required: [row_key, park_id]
+      description: Names WHICH row on WHICH board. The row's title, pen and clock are resolved by the backend from the caller's own board, never accepted from the client; a row the caller cannot see is 404 row_not_found.
       properties:
         row_key: { type: string }
         park_id: { type: string, format: uuid }
-        row_title: { type: string, description: The row's backend-owned title, echoed verbatim. }
-        row_subtitle: { type: string }
-        pen_display: { type: string }
-        clock_label: { type: string }
+        business_date: { type: string, format: date, description: The board day the row was seen on (Asia/Kolkata). Defaults to today. }
         note: { type: string, maxLength: 1000, description: The director's own words. Optional. }
     WorkBoardFlagResult:
       type: object

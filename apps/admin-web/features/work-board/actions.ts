@@ -1,8 +1,9 @@
 "use server";
 
 // The drawer's Flag button: raises a Leadership Task to the park head from a board row. The
-// backend composes the brief and resolves the park head; this action only forwards the row's
-// backend-owned strings and the director's note, then redirects with backend-driven feedback.
+// backend looks the row up on the caller's own board, composes the brief and resolves the park
+// head; this action only names the row (key, park, day) and forwards the director's note, then
+// redirects with backend-driven feedback.
 import { randomUUID } from "node:crypto";
 import { actionRedirect, optionalString, requiredString } from "@/lib/action-helpers";
 import { raiseWorkBoardFlag } from "@/lib/api/work-board-server";
@@ -16,6 +17,8 @@ function feedbackKeyFor(code: string | undefined): string {
       return "action.flag_to_self";
     case "park_head_not_reachable":
       return "action.flag_park_head_not_reachable";
+    case "row_not_found":
+      return "action.flag_row_not_found";
     default:
       return "action.flag_failed";
   }
@@ -26,10 +29,7 @@ export async function flagParkHeadAction(formData: FormData): Promise<void> {
     {
       row_key: requiredString(formData, "row_key"),
       park_id: requiredString(formData, "park_id"),
-      row_title: requiredString(formData, "row_title"),
-      row_subtitle: optionalString(formData, "row_subtitle"),
-      pen_display: optionalString(formData, "pen_display"),
-      clock_label: optionalString(formData, "clock_label"),
+      business_date: requiredString(formData, "business_date"),
       note: optionalString(formData, "note"),
     },
     randomUUID(),

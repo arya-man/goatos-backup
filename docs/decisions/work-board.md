@@ -102,7 +102,14 @@ afterwards. "All parks" on the web is one request per park.
 
 `POST /work-board/flags` raises a **Leadership Task** to the park's head from a board
 row: title "Check · <row title>", body = the row's subtitle, pen and clock, the
-director's note, and the row key. It rides the Leadership Tasks module for its number,
+director's note, and the day it was flagged from. The request names only WHICH row
+(`row_key`, `park_id`, `business_date`) and the note; **the row's copy is never accepted
+from the client**. The service looks the key up on the caller's own board (their park
+scope, that day, the modules their permissions open), so a caller cannot flag work
+outside their park or module visibility and cannot put words in the board's mouth: a row
+their board does not hold is `404 row_not_found`. The body carries no row key, id or
+module token (copy firewall: the park head reads it on a phone). It rides the Leadership
+Tasks module for its number,
 status ladder, notes and push, so the board builds no task table of its own. Gated on
 `work_board.oversee` + `leadership_tasks.raise` at the route and on the `flag_park_head`
 page control (the two halves of the capability-gated lock). The park head resolves from

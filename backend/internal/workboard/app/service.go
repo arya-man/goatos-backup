@@ -154,3 +154,59 @@ func moduleIndex(m domain.Module) int {
 	}
 	return len(domain.Modules())
 }
+
+// maxFindPages bounds FindRow's walk: one source, one park, one day, at most this many
+// keyset pages of MaxLimit. A board source holding more rows than that for one park-day is
+// outside the 5k-50k envelope the board is sized for, and a flag on such a row is refused
+// as not found rather than walking further.
+const maxFindPages = 20
+
+// FindRow looks one row up by key on the board the query describes: the same tenant, park,
+// business date and module visibility as List, so a caller can only find what List would
+// have shown them. It walks that ONE source's keyset in board order until the key matches.
+func (s *Service) FindRow(ctx context.Context, q domain.Query, rowKey string) (domain.Row, bool, error) {
+	q, err := q.Normalize()
+	if err != nil {
+		return domain.Row{}, false, err
+	}
+	key, err := domain.ParseCursor(rowKey)
+	if err != nil || key.IsZero() {
+		return domain.Row{}, false, domain.ErrInvalidRowKey
+	}
+	if !q.WantsModule(key.Module) {
+		return domain.Row{}, false, nil
+	}
+	var src ports.Source
+	for _, candidate := range s.sources {
+		if candidate.Module() == key.Module && candidate.SourceType() == key.SourceType {
+			src = candidate
+			break
+		}
+	}
+	if src == nil {
+		return domain.Row{}, false, nil
+	}
+	after := ""
+	// scale-guard:ignore: bounded keyset walk over ONE source for one tenant, park and
+	// business date (maxFindPages pages of MaxLimit), on a rare director write, never a
+	// per-row fan-out.
+	for page := 0; page < maxFindPages; page++ {
+		rows, err := src.ListRows(ctx, ports.SourceQuery{
+			TenantID: q.TenantID, ParkID: q.ParkID, BusinessDate: q.BusinessDate,
+			OwnerUserID: q.OwnerUserID, AfterSourceID: after, Limit: domain.MaxLimit,
+		})
+		if err != nil {
+			return domain.Row{}, false, fmt.Errorf("workboard: %s/%s: %w", src.Module(), src.SourceType(), err)
+		}
+		for _, row := range rows {
+			if row.SourceID == key.SourceID {
+				return row, true, nil
+			}
+		}
+		if len(rows) < domain.MaxLimit {
+			return domain.Row{}, false, nil
+		}
+		after = rows[len(rows)-1].SourceID
+	}
+	return domain.Row{}, false, nil
+}

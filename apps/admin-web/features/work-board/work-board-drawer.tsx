@@ -63,8 +63,8 @@ function Detail({ pageContract, row }: { pageContract: AdminUiPageContract; row:
   );
 }
 
-// The Flag form: raises a Leadership Task to the park head with this row's backend-owned
-// strings and an optional note. Shown only when the page contract enables the control
+// The Flag form: names this row (key, park, day) and carries an optional note; the backend
+// resolves the row on the caller's own board and composes the brief. Shown only when the page contract enables the control
 // (leadership_tasks.raise AND work_board.oversee); disabled with the backend's reason otherwise.
 function FlagForm({ pageContract, row, returnTo }: { pageContract: AdminUiPageContract; row: WorkBoardRow; returnTo: string }) {
   const enabled = controlEnabled(pageContract, "flag_park_head", false);
@@ -73,10 +73,7 @@ function FlagForm({ pageContract, row, returnTo }: { pageContract: AdminUiPageCo
     <form action={flagParkHeadAction} style={{ display: "grid", gap: 8, width: "100%" }}>
       <input type="hidden" name="row_key" value={row.row_key} />
       <input type="hidden" name="park_id" value={row.park_id} />
-      <input type="hidden" name="row_title" value={row.title} />
-      <input type="hidden" name="row_subtitle" value={row.subtitle ?? ""} />
-      <input type="hidden" name="pen_display" value={row.pen.operational_location_display ?? ""} />
-      <input type="hidden" name="clock_label" value={row.clock_label ?? ""} />
+      <input type="hidden" name="business_date" value={row.business_date} />
       <input type="hidden" name="return_to" value={returnTo} />
       <label className="muted small" htmlFor={`flag-note-${row.row_key}`}>
         {copy(pageContract, "flag.note")}
