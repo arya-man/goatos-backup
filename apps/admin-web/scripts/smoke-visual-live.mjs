@@ -643,7 +643,9 @@ async function assertPaginationControls(page, routeName, viewportLabel) {
   const pagers = page.locator(".pager2");
   const count = await pagers.count();
   if (count === 0) {
-    return;
+    const bodyText = (await page.locator("body").innerText().catch(() => "")).replace(/\s+/g, " ");
+    if (/0 rows|0 results|Nothing|No rows|No data/i.test(bodyText)) return;
+    throw new Error(`${routeName} ${viewportLabel} expected at least ${minimum} pager2 footer(s), found none`);
   }
   if (count < minimum) {
     throw new Error(`${routeName} ${viewportLabel} expected at least ${minimum} pager2 footer(s) when pagination is rendered, found ${count}`);
