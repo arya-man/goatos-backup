@@ -5,11 +5,14 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
+	ltdomain "github.com/vgoats/goatos/backend/internal/leadershiptasks/domain"
 	"github.com/vgoats/goatos/backend/internal/permissions"
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
 	"github.com/vgoats/goatos/backend/internal/workboard/domain"
+	"github.com/vgoats/goatos/backend/internal/workboard/ports"
 )
 
 const (
@@ -32,6 +35,7 @@ func (f *fakeService) Summary(_ context.Context, q domain.Query) (domain.Summary
 	f.last = q
 	return domain.NewSummary(q.Modules), nil
 }
+
 // RegisteredModules mirrors production: procurement and toxin have no source yet.
 func (f *fakeService) RegisteredModules() []domain.Module {
 	return []domain.Module{domain.ModuleFeed, domain.ModuleHealth, domain.ModuleVaccination, domain.ModuleWeighing, domain.ModuleCounts, domain.ModuleMilk, domain.ModulePCCare, domain.ModuleVerification}
@@ -165,5 +169,86 @@ func TestBadInputsAreRefusedWithStableCodes(t *testing.T) {
 		if rec.Code != http.StatusBadRequest || body["error"] != code {
 			t.Errorf("%s: want 400 %s, got %d %v", path, code, rec.Code, body)
 		}
+	}
+}
+
+type fakeFlags struct {
+	last ports.FlagParams
+	err  error
+}
+
+func (f *fakeFlags) Flag(_ context.Context, p ports.FlagParams) (ports.FlagResult, error) {
+	f.last = p
+	if f.err != nil {
+		return ports.FlagResult{}, f.err
+	}
+	return ports.FlagResult{TaskID: "t1", TaskNo: 12, AssigneeName: "Naveen R."}, nil
+}
+
+func post(t *testing.T, h *Handler, body, actor string, grants []permissions.ActiveGrant, key string) (*httptest.ResponseRecorder, map[string]any) {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPost, "/work-board/flags", strings.NewReader(body))
+	if key != "" {
+		req.Header.Set("Idempotency-Key", key)
+	}
+	ctx := httpmiddleware.WithTenantID(req.Context(), tenant)
+	ctx = httpmiddleware.WithActorID(ctx, actor)
+	ctx = httpmiddleware.WithAuthGrants(ctx, grants)
+	req = req.WithContext(ctx)
+	rec := httptest.NewRecorder()
+	mux := http.NewServeMux()
+	Register(mux, h)
+	mux.ServeHTTP(rec, req)
+	var out map[string]any
+	_ = json.Unmarshal(rec.Body.Bytes(), &out)
+	return rec, out
+}
+
+// TestFlagRaisesToTheParkHeadWithTheDirectorsDesignation.
+func TestFlagRaisesToTheParkHeadWithTheDirectorsDesignation(t *testing.T) {
+	flags := &fakeFlags{}
+	h := NewHandler(&fakeService{}, nil).WithFlags(flags)
+	body := `{"row_key":"weighing|weighing_work_item|w1","park_id":"` + parkCBE + `","row_title":"Weigh Godel 1 - Part 3","pen_display":"Godel 1 - Part 3","clock_label":"Delayed · planned 06/09/2026","note":"Please check"}`
+	rec, out := post(t, h, body, actorCEO, tenantGrant(permissions.RoleFeedDirector), "k1")
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status %d %v", rec.Code, out)
+	}
+	if flags.last.ParkID != parkCBE || flags.last.ActorID != actorCEO || flags.last.IdempotencyKey != "k1" {
+		t.Fatalf("params %+v", flags.last)
+	}
+	if flags.last.ActorDesignation != permissions.RoleFeedDirector {
+		t.Fatalf("designation should be the raising director's desk, got %q", flags.last.ActorDesignation)
+	}
+	if out["task_no"] != float64(12) || out["assignee_name"] != "Naveen R." {
+		t.Fatalf("result %v", out)
+	}
+}
+
+// TestFlagRefusalsCarryStableCodes.
+func TestFlagRefusalsCarryStableCodes(t *testing.T) {
+	good := `{"row_key":"k","park_id":"` + parkCBE + `","row_title":"t"}`
+	h := NewHandler(&fakeService{}, nil).WithFlags(&fakeFlags{})
+	if rec, out := post(t, h, good, actorCEO, tenantGrant(permissions.RoleCEOInternal), ""); rec.Code != http.StatusBadRequest || out["error"] != "missing_idempotency_key" {
+		t.Fatalf("no key: %d %v", rec.Code, out)
+	}
+	if rec, out := post(t, h, `{"row_key":"k","park_id":"`+parkCBE+`","row_title":"t","bogus":1}`, actorCEO, tenantGrant(permissions.RoleCEOInternal), "k"); rec.Code != http.StatusBadRequest || out["error"] != "invalid_body" {
+		t.Fatalf("unknown field: %d %v", rec.Code, out)
+	}
+	// A park head flagging their own park is refused by the raise rule, mapped to 422.
+	h2 := NewHandler(&fakeService{}, nil).WithFlags(&fakeFlags{err: ltdomain.ErrSelfAssignment})
+	if rec, out := post(t, h2, good, actorOp, parkHeadGrant(parkCBE), "k"); rec.Code != http.StatusUnprocessableEntity || out["error"] != "flag_to_self" {
+		t.Fatalf("self: %d %v", rec.Code, out)
+	}
+	h3 := NewHandler(&fakeService{}, nil).WithFlags(&fakeFlags{err: ports.ErrParkHeadMissing})
+	if rec, out := post(t, h3, good, actorCEO, tenantGrant(permissions.RoleCEOInternal), "k"); rec.Code != http.StatusUnprocessableEntity || out["error"] != "park_head_missing" {
+		t.Fatalf("missing head: %d %v", rec.Code, out)
+	}
+	// Outside the caller's park scope is a 403 before anything is raised.
+	if rec, _ := post(t, h, `{"row_key":"k","park_id":"`+parkCPT+`","row_title":"t"}`, actorOp, parkHeadGrant(parkCBE), "k"); rec.Code != http.StatusForbidden {
+		t.Fatalf("other park: %d", rec.Code)
+	}
+	// Without a flag service the route answers 404, never a panic.
+	if rec, _ := post(t, NewHandler(&fakeService{}, nil), good, actorCEO, tenantGrant(permissions.RoleCEOInternal), "k"); rec.Code != http.StatusNotFound {
+		t.Fatalf("no service: %d", rec.Code)
 	}
 }

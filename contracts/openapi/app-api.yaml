@@ -8126,6 +8126,47 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "500":
           $ref: "#/components/responses/ServerError"
+  /work-board/flags:
+    post:
+      tags:
+        - Work Board
+      operationId: raiseWorkBoardFlag
+      summary: Flag a board row to the park head.
+      description: >-
+        The director's phone call made visible: raises a Leadership Task addressed to the
+        park's head, with a backend-composed brief carrying the row's title, pen, clock, the
+        director's note and the row key. Requires work_board.oversee and leadership_tasks.raise.
+        Idempotent on the Idempotency-Key header. Refused with 422 when the park has no head
+        (park_head_missing), when the caller is that head (flag_to_self), or when the head
+        cannot receive phone tasks (park_head_not_reachable).
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WorkBoardFlagRequest"
+      responses:
+        "201":
+          description: The flag was raised as a Leadership Task.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkBoardFlagResult"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "500":
+          $ref: "#/components/responses/ServerError"
   /work-board/summary:
     get:
       tags:
@@ -17860,6 +17901,24 @@ components:
         own_rows_only:
           type: boolean
           description: True when the read was clamped to the caller's own rows (no work_board.oversee).
+    WorkBoardFlagRequest:
+      type: object
+      required: [row_key, park_id, row_title]
+      properties:
+        row_key: { type: string }
+        park_id: { type: string, format: uuid }
+        row_title: { type: string, description: The row's backend-owned title, echoed verbatim. }
+        row_subtitle: { type: string }
+        pen_display: { type: string }
+        clock_label: { type: string }
+        note: { type: string, maxLength: 1000, description: The director's own words. Optional. }
+    WorkBoardFlagResult:
+      type: object
+      required: [task_id, task_no, assignee_name]
+      properties:
+        task_id: { type: string }
+        task_no: { type: integer, format: int64, description: The Leadership Task number the park head sees. }
+        assignee_name: { type: string }
     WorkBoardSummary:
       type: object
       required: [total, by_lane, by_state, by_module, needs_attention, modules, lanes, business_date, park_id, own_rows_only]

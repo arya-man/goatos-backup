@@ -59,3 +59,22 @@ export async function getWorkBoardSummary(scope: WorkBoardScope): Promise<ApiRes
     }),
   );
 }
+
+export type WorkBoardFlagRequest = AppApiComponents["schemas"]["WorkBoardFlagRequest"];
+export type WorkBoardFlagResult = AppApiComponents["schemas"]["WorkBoardFlagResult"];
+
+// Raises a flag on a board row to the park head (POST /work-board/flags). The Idempotency-Key
+// makes a retried submit one act.
+export async function raiseWorkBoardFlag(body: WorkBoardFlagRequest, idempotencyKey: string): Promise<ApiResult<WorkBoardFlagResult>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<WorkBoardFlagResult>("/work-board/flags", {
+      method: "POST",
+      cache: "no-store",
+      headers: { "Idempotency-Key": idempotencyKey },
+      body,
+    }),
+  );
+}

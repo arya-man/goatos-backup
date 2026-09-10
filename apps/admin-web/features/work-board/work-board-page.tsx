@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import Link from "@/components/no-prefetch-link";
-import { copy, tablePageSizes, type AdminUiPageContract } from "@/lib/admin-ui-contract";
+import { actionFeedbackCopy, copy, tablePageSizes, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { firstAuthRequiredError } from "@/lib/api/server";
 import { getWorkBoardSummary, listWorkBoardRows, type WorkBoardRow } from "@/lib/api/work-board-server";
 import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
@@ -79,6 +79,9 @@ export async function WorkBoardPage({ searchParams, pageContract }: { searchPara
   const nextHref = hrefWithPagedCursor(WORK_BOARD_PATH, sp, PARAM_CURSOR, nextCursor ?? null);
   const previousHref = hrefPreviousPagedCursor(WORK_BOARD_PATH, sp, PARAM_CURSOR);
   const selectedRow = one(sp, PARAM_ROW);
+  const actionStatus = one(sp, "action_status");
+  const actionKey = one(sp, "action_key");
+  const feedback = actionStatus && actionKey ? actionFeedbackCopy(pageContract, actionStatus, actionKey) : null;
   const closeHref = hrefWithParams(WORK_BOARD_PATH, sp, { [PARAM_ROW]: undefined });
   const dateHref = (day: string) => hrefWithParams(WORK_BOARD_PATH, sp, { [PARAM_DATE]: day, [PARAM_CURSOR]: undefined, page: undefined, [`${PARAM_CURSOR}_stack`]: undefined });
   const isToday = businessDate === todayIso();
@@ -122,6 +125,11 @@ export async function WorkBoardPage({ searchParams, pageContract }: { searchPara
         <span>{copy(pageContract, "board.attention")}</span>
       </div>
 
+      {feedback ? (
+        <div className={`tag ${actionStatus === "success" ? "t-ok" : "t-dng"}`} role="status" style={{ display: "inline-block", marginBottom: 10 }}>
+          {feedback}
+        </div>
+      ) : null}
       {error ? (
         <section className="card">
           <div className="bd" style={{ color: "var(--danger)" }}>{copy(pageContract, "state.error")}</div>
@@ -151,7 +159,13 @@ export async function WorkBoardPage({ searchParams, pageContract }: { searchPara
         )}
       </div>
 
-      <WorkBoardDrawer pageContract={pageContract} rows={rows} initialSelectedRowKey={selectedRow} closeHref={closeHref} />
+      <WorkBoardDrawer
+        pageContract={pageContract}
+        rows={rows}
+        initialSelectedRowKey={selectedRow}
+        closeHref={closeHref}
+        returnToByRow={Object.fromEntries(rows.map((row) => [row.row_key, hrefWithParams(WORK_BOARD_PATH, sp, { [PARAM_ROW]: row.row_key, action_status: undefined, action_key: undefined })]))}
+      />
     </>
   );
 }

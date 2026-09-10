@@ -3054,6 +3054,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/work-board/flags": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Flag a board row to the park head.
+         * @description The director's phone call made visible: raises a Leadership Task addressed to the park's head, with a backend-composed brief carrying the row's title, pen, clock, the director's note and the row key. Requires work_board.oversee and leadership_tasks.raise. Idempotent on the Idempotency-Key header. Refused with 422 when the park has no head (park_head_missing), when the caller is that head (flag_to_self), or when the head cannot receive phone tasks (park_head_not_reachable).
+         */
+        post: operations["raiseWorkBoardFlag"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/work-board/summary": {
         parameters: {
             query?: never;
@@ -7426,6 +7446,27 @@ export interface components {
             modules: components["schemas"]["WorkBoardModule"][];
             /** @description True when the read was clamped to the caller's own rows (no work_board.oversee). */
             own_rows_only: boolean;
+        };
+        WorkBoardFlagRequest: {
+            row_key: string;
+            /** Format: uuid */
+            park_id: string;
+            /** @description The row's backend-owned title */
+            row_title: string;
+            row_subtitle?: string;
+            pen_display?: string;
+            clock_label?: string;
+            /** @description The director's own words. Optional. */
+            note?: string;
+        };
+        WorkBoardFlagResult: {
+            task_id: string;
+            /**
+             * Format: int64
+             * @description The Leadership Task number the park head sees.
+             */
+            task_no: number;
+            assignee_name: string;
         };
         WorkBoardSummary: {
             total: number;
@@ -22463,6 +22504,37 @@ export interface operations {
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    raiseWorkBoardFlag: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WorkBoardFlagRequest"];
+            };
+        };
+        responses: {
+            /** @description The flag was raised as a Leadership Task. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkBoardFlagResult"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["UnprocessableEntity"];
             500: components["responses"]["ServerError"];
         };
     };
