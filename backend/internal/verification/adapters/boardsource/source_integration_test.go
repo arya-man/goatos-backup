@@ -32,6 +32,9 @@ const (
 	itemLateNight = "00000000-0000-4000-8000-000000009106" // 23:30 IST on the day: still this day
 	itemNextDay   = "00000000-0000-4000-8000-000000009107" // 00:10 IST next day: not this day
 	itemOtherPark = "00000000-0000-4000-8000-000000009108"
+	itemWithdrawn = "00000000-0000-4000-8000-000000009109" // producer took the proof back: not work
+	itemSession   = "00000000-0000-4000-8000-000000009110" // subject names a session, not a pen
+	itemEcho      = "00000000-0000-4000-8000-000000009111" // subject restates its own category
 )
 
 func exec(t *testing.T, ctx context.Context, pool *pgxpool.Pool, sql string, args ...any) {
@@ -73,6 +76,9 @@ ON CONFLICT (workforce_member_id) DO NOTHING`, bsMember, bsTenant, bsOperator, b
 		{itemLateNight, "feed", "feed", "feed_transport", bsPark, bsShedB, "", "", "pending", "", bsOtherOp, "", "", "2026-09-10 23:30:00+05:30"},
 		{itemNextDay, "feed", "feed", "feed_transport", bsPark, bsShedB, "", "", "pending", "", bsOtherOp, "", "", "2026-09-11 00:10:00+05:30"},
 		{itemOtherPark, "feed", "feed", "feed_transport", bsOtherPk, "", "", "", "pending", "", bsOtherOp, "", "", "2026-09-10 09:00:00+05:30"},
+		{itemWithdrawn, "feed", "feed", "feed_packing", bsPark, bsShedB, "1", "Session 1", "withdrawn", "", bsOperator, "", "", "2026-09-10 14:00:00+05:30"},
+		{itemSession, "feed", "feed", "feed_distribution", bsPark, bsShedB, "1", "Session 1", "pending", "", bsOperator, "", "", "2026-09-10 15:00:00+05:30"},
+		{itemEcho, "health", "health", "health_adults", bsPark, bsShed, "Part 3", "Adults · Godel 1 - Part 3", "pending", "", bsOperator, "", "", "2026-09-10 16:00:00+05:30"},
 	}
 	for _, x := range items {
 		exec(t, ctx, pool, `
@@ -122,8 +128,17 @@ func TestVerificationBoardRowsOnADatabaseRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(rows) != 6 {
-		t.Fatalf("6 items captured on the day in this park expected (00:10 next day and the other park are out), got %d", len(rows))
+	if len(rows) != 8 {
+		t.Fatalf("8 items captured on the day in this park expected (00:10 next day, the other park and the withdrawn one are out), got %d", len(rows))
+	}
+	if _, leaked := byID(rows)[itemWithdrawn]; leaked {
+		t.Fatal("a withdrawn item is not work and must not sit in In review")
+	}
+	if title := byID(rows)[itemSession].Title; title != "Feed Distribution · Session 1 · Castro 1" {
+		t.Errorf("a subject naming no pen must carry the pen, got %q", title)
+	}
+	if title := byID(rows)[itemEcho].Title; title != "Health Adults · Godel 1 - Part 3" {
+		t.Errorf("a subject restating its category must not say it twice, got %q", title)
 	}
 	got := byID(rows)
 	if _, leaked := got[itemNextDay]; leaked {
@@ -214,8 +229,8 @@ func TestVerificationBoardScopeAndKeyset(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(mine) != 3 {
-		t.Fatalf("operator lens: 3 own rows expected, got %d", len(mine))
+	if len(mine) != 5 {
+		t.Fatalf("operator lens: 5 own rows expected (the withdrawn one is out), got %d", len(mine))
 	}
 	for _, r := range mine {
 		if r.Owner.UserID != bsOperator {
@@ -227,8 +242,8 @@ func TestVerificationBoardScopeAndKeyset(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(open) != 4 {
-		t.Fatalf("pending+rejected: 4 expected, got %d", len(open))
+	if len(open) != 6 {
+		t.Fatalf("pending+rejected: 6 expected, got %d", len(open))
 	}
 
 	seen := map[string]bool{}
@@ -255,8 +270,8 @@ func TestVerificationBoardScopeAndKeyset(t *testing.T) {
 			after = r.SourceID
 		}
 	}
-	if len(seen) != 6 {
-		t.Fatalf("keyset walk saw %d rows, want 6", len(seen))
+	if len(seen) != 8 {
+		t.Fatalf("keyset walk saw %d rows, want 8", len(seen))
 	}
 
 	counts, err := src.CountByState(ctx, query(""))
@@ -267,14 +282,14 @@ func TestVerificationBoardScopeAndKeyset(t *testing.T) {
 	for _, n := range counts {
 		total += n
 	}
-	if total != 6 || counts[domain.WorkStateVerificationPending] != 3 || counts[domain.WorkStateCompleted] != 2 || counts[domain.WorkStateRejected] != 1 {
+	if total != 8 || counts[domain.WorkStateVerificationPending] != 5 || counts[domain.WorkStateCompleted] != 2 || counts[domain.WorkStateRejected] != 1 {
 		t.Fatalf("counts %+v", counts)
 	}
 	mineCounts, err := src.CountByState(ctx, query(bsOperator))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if mineCounts[domain.WorkStateVerificationPending] != 1 || mineCounts[domain.WorkStateCompleted] != 1 || mineCounts[domain.WorkStateRejected] != 1 {
+	if mineCounts[domain.WorkStateVerificationPending] != 3 || mineCounts[domain.WorkStateCompleted] != 1 || mineCounts[domain.WorkStateRejected] != 1 {
 		t.Fatalf("operator counts %+v", mineCounts)
 	}
 	otherPark, err := src.CountByState(ctx, ports.SourceQuery{TenantID: bsTenant, ParkID: bsOtherPk, BusinessDate: bsDate})
