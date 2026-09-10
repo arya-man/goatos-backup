@@ -23,7 +23,7 @@ import {
 import { CountsBreakdownFilters, type BreakdownFilterField } from "./counts-breakdown-filters";
 import { CountsBreakdownPensTable } from "./counts-breakdown-pens-table";
 import { buildShedFilterOptions } from "./counts-breakdown-sheds";
-import { buildCountsSummaryCards } from "./counts-summary-cards";
+import { buildCountsSummaryCards, countsSexDetail } from "./counts-summary-cards";
 import type { StageOption } from "./shed-stage-actions";
 import type { InlineChoice } from "./inline-cell-editor";
 
@@ -336,6 +336,7 @@ export async function CountsBreakdownPage({
   const totalAdults = breakdown?.total_adults ?? 0;
   const totalFemale = (breakdown?.charts.stage_sex ?? []).reduce((sum, point) => sum + (point.female ?? 0), 0);
   const totalMale = (breakdown?.charts.stage_sex ?? []).reduce((sum, point) => sum + (point.male ?? 0), 0);
+  const totalOther = (breakdown?.charts.stage_sex ?? []).reduce((sum, point) => sum + (point.other ?? 0), 0);
   const pct = (part: number) => (totalCount > 0 ? Math.round((part / totalCount) * 100) : 0);
 
   const stageSummaryCards = buildCountsSummaryCards(breakdown?.charts.stage_sex ?? [], {
@@ -358,7 +359,15 @@ export async function CountsBreakdownPage({
       key: "total-animals",
       label: copy(pageContract, "summary_card.total_animals.label"),
       count: totalCount,
-      detail: `${totalFemale.toLocaleString("en-IN")} ${copy(pageContract, "label.female_short")} · ${totalMale.toLocaleString("en-IN")} ${copy(pageContract, "label.male_short")}`,
+      detail: countsSexDetail({
+        female: totalFemale,
+        male: totalMale,
+        other: totalOther,
+      }, {
+        female: copy(pageContract, "label.female_short"),
+        male: copy(pageContract, "label.male_short"),
+        other: copy(pageContract, "label.sex_other_short"),
+      }),
       tone: "brand" as const,
     },
     ...stageSummaryCards,

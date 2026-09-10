@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { buildCountsSummaryCards } from "./counts-summary-cards.ts";
+import { buildCountsSummaryCards, countsSexDetail } from "./counts-summary-cards.ts";
 
 const labels = { female: "Female", male: "Male", other: "Other" };
 const summaryLabels = {
@@ -67,4 +67,15 @@ test("summary classification prefers raw stage key over display label", () => {
 
   assert.equal(fattening?.count, 9);
   assert.equal(fattening?.detail, "0 female · 9 male");
+});
+
+test("sex detail includes other only when it contributes to the count", () => {
+  assert.equal(
+    countsSexDetail({ female: 12, male: 8, other: 2 }, labels),
+    "12 female · 8 male · 2 other",
+  );
+  assert.equal(
+    countsSexDetail({ female: 12, male: 8, other: 0 }, labels),
+    "12 female · 8 male",
+  );
 });

@@ -72,11 +72,14 @@ function matchesStageKey(point: CountsStageSexPoint, aliases: readonly string[])
   return aliases.some((alias) => normalized === normalizedStage(alias));
 }
 
-function sexDetail(bucket: SummaryBucket, labels: SexLabels): string {
+export function countsSexDetail(
+  counts: Pick<SummaryBucket, "female" | "male" | "other">,
+  labels: SexLabels,
+): string {
   return [
-    `${bucket.female.toLocaleString("en-IN")} ${labels.female.toLowerCase()}`,
-    `${bucket.male.toLocaleString("en-IN")} ${labels.male.toLowerCase()}`,
-    bucket.other > 0 ? `${bucket.other.toLocaleString("en-IN")} ${labels.other.toLowerCase()}` : "",
+    `${counts.female.toLocaleString("en-IN")} ${labels.female.toLowerCase()}`,
+    `${counts.male.toLocaleString("en-IN")} ${labels.male.toLowerCase()}`,
+    counts.other > 0 ? `${counts.other.toLocaleString("en-IN")} ${labels.other.toLowerCase()}` : "",
   ]
     .filter(Boolean)
     .join(" · ");
@@ -114,15 +117,15 @@ export function buildCountsSummaryCards(
   }
 
   return [
-    { key: "fattening", label: summaryLabels.fattening, count: buckets.fattening.count, detail: sexDetail(buckets.fattening, labels), tone: "brand" },
-    { key: "bucks", label: summaryLabels.bucks, count: buckets.bucks.count, detail: sexDetail(buckets.bucks, labels), tone: "amber" },
-    { key: "breeding", label: summaryLabels.breeding, count: buckets.breeding.count, detail: sexDetail(buckets.breeding, labels), tone: "teal" },
-    { key: "icu", label: summaryLabels.icu, count: buckets.icu.count, detail: sexDetail(buckets.icu, labels), tone: "muted" },
+    { key: "fattening", label: summaryLabels.fattening, count: buckets.fattening.count, detail: countsSexDetail(buckets.fattening, labels), tone: "brand" },
+    { key: "bucks", label: summaryLabels.bucks, count: buckets.bucks.count, detail: countsSexDetail(buckets.bucks, labels), tone: "amber" },
+    { key: "breeding", label: summaryLabels.breeding, count: buckets.breeding.count, detail: countsSexDetail(buckets.breeding, labels), tone: "teal" },
+    { key: "icu", label: summaryLabels.icu, count: buckets.icu.count, detail: countsSexDetail(buckets.icu, labels), tone: "muted" },
     ...(["k0", "k1", "k2", "k3", "k4"] as const).map((key) => ({
       key,
       label: summaryLabels[key],
       count: buckets[key].count,
-      detail: sexDetail(buckets[key], labels),
+      detail: countsSexDetail(buckets[key], labels),
       tone: "brand" as const,
     })),
   ];
