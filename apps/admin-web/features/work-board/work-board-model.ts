@@ -93,3 +93,40 @@ export function modulesVisible(all: AdminUiOption[], visible: WorkBoardModule[])
 export function isWorkState(value: string, options: AdminUiOption[]): value is WorkBoardWorkState {
   return options.some((option) => option.key === value);
 }
+
+export const PARAM_PARK = "park";
+
+// The mock's epic colour class per module key; unknown modules fall back to the park tint.
+export function moduleClass(module: string): string {
+  return `etag e-${module}`;
+}
+
+// Progress bar segments, from the row's own counts and the SERVER's lane: done is green, a
+// pending remainder is blue while the card is In review, amber while it is In progress, and
+// whatever needs attention is red. No client re-derivation of state, only of widths.
+export function barSegments(row: WorkBoardRow): { ok: number; rev: number; run: number; brk: number } {
+  const total = row.counts.done + row.counts.pending;
+  if (total <= 0) return { ok: 0, rev: 0, run: 0, brk: 0 };
+  const pct = (n: number) => Math.max(0, Math.min(100, (100 * n) / total));
+  const brk = Math.min(row.counts.pending, row.counts.needs_attention);
+  const rest = row.counts.pending - brk;
+  return {
+    ok: pct(row.counts.done),
+    rev: row.lane === "in_review" ? pct(rest) : 0,
+    run: row.lane === "in_progress" ? pct(rest) : 0,
+    brk: pct(brk),
+  };
+}
+
+// The names on a card's owner stack: the owner, plus "+N" when the backend appended partners.
+export function ownerStack(row: WorkBoardRow): { names: string[]; extra: number } {
+  const raw = row.owner?.name?.trim() ?? "";
+  if (!raw) return { names: [], extra: 0 };
+  const match = raw.match(/^(.*?)\s*\+(\d+)$/);
+  if (match) return { names: [match[1]], extra: Number(match[2]) };
+  return { names: [raw], extra: 0 };
+}
+
+export function ownerDisplayName(row: WorkBoardRow): string {
+  return ownerStack(row).names[0] ?? "";
+}

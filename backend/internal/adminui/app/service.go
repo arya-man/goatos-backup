@@ -1832,7 +1832,11 @@ func pageSpecificCopy(id string) map[string]string {
 	case "work-board":
 		return map[string]string{
 			"crumb":                               "Work Board",
+			"board.title":                         "Board",
+			"roleline.all_modules":                "All modules",
 			"section.board.aria":                  "Work board",
+			"drawer.subtasks.in_module":           "Each subtask opens in its own module for now.",
+			"card.total":                          "subtasks",
 			"board.rule":                          "Column is automatic, at every level: step, then subtask, then card. Nothing started is To do, anything started is In progress, everything submitted is In review, everything approved is Done.",
 			"board.attention":                     "Amber card: something on it is not moving or past its clock.",
 			"lane.todo":                           "To do",

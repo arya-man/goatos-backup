@@ -4,11 +4,11 @@ import { actionFeedbackCopy, copy, tablePageSizes, type AdminUiPageContract } fr
 import { firstAuthRequiredError } from "@/lib/api/server";
 import { getWorkBoardSummary, listWorkBoardRows, type WorkBoardRow } from "@/lib/api/work-board-server";
 import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
-import { fmtDate, istDayPlus, todayIso } from "@/lib/format";
+import { istDayPlus, todayIso } from "@/lib/format";
 import { boundedInt, hrefPreviousPagedCursor, hrefWithPagedCursor, hrefWithParams, one, type RouteSearchParams } from "@/lib/search-params";
 import { parseScope } from "@/lib/scope";
-import { WorkBoardDrawer } from "./work-board-drawer";
-import { WorkBoardLanes } from "./work-board-lanes";
+import { WorkBoardBoard } from "./work-board-board";
+import { WorkBoardModal } from "./work-board-modal";
 import {
   isWorkState,
   moduleOptions,
@@ -20,12 +20,12 @@ import {
   PARAM_LIMIT,
   PARAM_MODULE,
   PARAM_OWNER,
+  PARAM_PARK,
   PARAM_ROW,
   PARAM_STATE,
   stateOptions,
   WORK_BOARD_PATH,
 } from "./work-board-model";
-import { WorkBoardToolbar } from "./work-board-toolbar";
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -87,42 +87,18 @@ export async function WorkBoardPage({ searchParams, pageContract }: { searchPara
   const isToday = businessDate === todayIso();
   const error = !rowsResult.ok ? rowsResult.error.message : !summaryResult.ok ? summaryResult.error.message : null;
 
+  const parkHrefs = Object.fromEntries(parks.map((option) => [option.key, hrefWithParams(WORK_BOARD_PATH, sp, { [PARAM_PARK]: option.key, scope_mode: "park", [PARAM_OWNER]: undefined, [PARAM_CURSOR]: undefined, page: undefined, [`${PARAM_CURSOR}_stack`]: undefined })]));
+  const hrefForRow = Object.fromEntries(rows.map((row) => [row.row_key, hrefWithParams(WORK_BOARD_PATH, sp, { [PARAM_ROW]: row.row_key })]));
+  const roleline = `${visibleModules.length === allModules.length ? copy(pageContract, "roleline.all_modules") : visibleModules.map((option) => option.label).join(" + ")} · ${park.label}`;
+  const first = rows.length ? 1 : 0;
+
   return (
-    <>
-      <div className="phead" style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-        <h1 style={{ margin: 0 }}>{copy(pageContract, "page.title")}</h1>
-        <span className="muted small">
-          {visibleModules.length === allModules.length ? copy(pageContract, "filter.module.all") : visibleModules.map((option) => option.label).join(" + ")} · {park.label}
-        </span>
-        <span style={{ flex: 1 }} />
-        <span className="datenav" style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
-          <Link className="btn sm" href={dateHref(istDayPlus(businessDate, -1))} aria-label={copy(pageContract, "action.previous")}>
-            ‹
-          </Link>
-          <span style={{ fontWeight: 700, padding: "0 6px" }}>
-            {fmtDate(businessDate)}
-            {isToday ? <span className="tag t-ok" style={{ marginLeft: 8 }}>{copy(pageContract, "filter.date.today")}</span> : null}
-          </span>
-          <Link className="btn sm" href={dateHref(istDayPlus(businessDate, 1))} aria-label={copy(pageContract, "action.next")}>
-            ›
-          </Link>
-        </span>
-      </div>
-
-      <WorkBoardToolbar
-        pageContract={pageContract}
-        moduleOptions={visibleModules}
-        stateOptions={allStates}
-        selectedModules={selectedModules}
-        selectedStates={selectedStates}
-        owners={ownersOnPage(rows)}
-        selectedOwner={owner}
-        ownRowsOnly={ownRowsOnly}
-      />
-
-      <div className="muted small" style={{ display: "flex", gap: 14, flexWrap: "wrap", margin: "-4px 0 12px" }}>
-        <span>{copy(pageContract, "board.rule")}</span>
-        <span>{copy(pageContract, "board.attention")}</span>
+    <div className="wb">
+      <div className="crumb">{copy(pageContract, "crumb")}</div>
+      <div className="phead">
+        <h1>{copy(pageContract, "board.title")}</h1>
+        <span className="muted small">{roleline}</span>
+        <span className="sp" />
       </div>
 
       {feedback ? (
@@ -130,42 +106,61 @@ export async function WorkBoardPage({ searchParams, pageContract }: { searchPara
           {feedback}
         </div>
       ) : null}
+
       {error ? (
         <section className="card">
           <div className="bd" style={{ color: "var(--danger)" }}>{copy(pageContract, "state.error")}</div>
         </section>
-      ) : rows.length === 0 && (summary?.total ?? 0) === 0 ? (
-        <section className="card">
-          <div className="bd muted">{ownRowsOnly ? copy(pageContract, "state.empty.own_rows") : copy(pageContract, "state.empty")}</div>
-        </section>
       ) : (
-        <WorkBoardLanes pageContract={pageContract} rows={rows} summary={summary} drawerHrefForRow={(row) => hrefWithParams(WORK_BOARD_PATH, sp, { [PARAM_ROW]: row.row_key })} />
+        <WorkBoardBoard
+          pageContract={pageContract}
+          rows={rows}
+          summary={summary}
+          moduleOptions={visibleModules}
+          selectedModules={selectedModules}
+          owners={ownersOnPage(rows)}
+          selectedOwner={owner}
+          ownRowsOnly={ownRowsOnly}
+          parks={parks}
+          selectedPark={park.key}
+          parkHrefs={parkHrefs}
+          businessDate={businessDate}
+          isToday={isToday}
+          previousDayHref={dateHref(istDayPlus(businessDate, -1))}
+          nextDayHref={dateHref(istDayPlus(businessDate, 1))}
+          hrefForRow={hrefForRow}
+        />
       )}
 
-      <div className="pager2" style={{ marginTop: 12 }}>
-        <span className="small muted" style={{ marginRight: "auto" }}>
-          {rows.length} {copy(pageContract, "pager.rows")}
-          {summary ? ` · ${summary.total}` : ""}
+      {!error && rows.length === 0 && (summary?.total ?? 0) === 0 ? (
+        <div className="note muted small" style={{ marginTop: 8 }}>{ownRowsOnly ? copy(pageContract, "state.empty.own_rows") : copy(pageContract, "state.empty")}</div>
+      ) : null}
+
+      <div className="pager">
+        <span>
+          {copy(pageContract, "drawer.subtasks.showing")} <b>{first}–{rows.length}</b> {copy(pageContract, "drawer.subtasks.of")} <b>{summary?.total ?? rows.length}</b> {copy(pageContract, "pager.rows")}
         </span>
-        {previousHref ? (
-          <Link className="btn sm" href={previousHref}>{copy(pageContract, "action.previous")}</Link>
-        ) : (
-          <span className="btn sm" aria-disabled="true">{copy(pageContract, "action.previous")}</span>
-        )}
-        {nextHref ? (
-          <Link className="btn sm" href={nextHref}>{copy(pageContract, "action.next")}</Link>
-        ) : (
-          <span className="btn sm" aria-disabled="true">{copy(pageContract, "action.next")}</span>
-        )}
+        <span className="pgnav">
+          {previousHref ? (
+            <Link className="more" href={previousHref}>‹ {copy(pageContract, "action.previous")}</Link>
+          ) : (
+            <span className="more" aria-disabled="true">‹ {copy(pageContract, "action.previous")}</span>
+          )}
+          {nextHref ? (
+            <Link className="more" href={nextHref}>{copy(pageContract, "action.next")} ›</Link>
+          ) : (
+            <span className="more" aria-disabled="true">{copy(pageContract, "action.next")} ›</span>
+          )}
+        </span>
       </div>
 
-      <WorkBoardDrawer
+      <WorkBoardModal
         pageContract={pageContract}
         rows={rows}
         initialSelectedRowKey={selectedRow}
         closeHref={closeHref}
         returnToByRow={Object.fromEntries(rows.map((row) => [row.row_key, hrefWithParams(WORK_BOARD_PATH, sp, { [PARAM_ROW]: row.row_key, action_status: undefined, action_key: undefined })]))}
       />
-    </>
+    </div>
   );
 }
