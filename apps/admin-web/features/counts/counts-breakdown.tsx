@@ -1,7 +1,8 @@
 import { redirect } from "next/navigation";
 import { Filter, Users } from "lucide-react";
 
-import { SvgBars, type SvgBarDatum } from "@/components/svg-bars";
+import { SvgBars, SvgStackedBars, type SvgBarDatum, type SvgStackedDatum } from "@/components/svg-bars";
+import { SeriesLegend } from "@/components/svg-series";
 import { dash } from "@/lib/format";
 import { control, controlEnabled, copy, optionGroup, table, tableLabels, tablePageSizes, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import {
@@ -259,16 +260,60 @@ export async function CountsBreakdownPage({
     return qs ? `${PAGE_PATH}?${qs}` : PAGE_PATH;
   }
 
-  // Breed and shed only. The gender split is already stated exactly by the Gender column and the
-  // filter, and the stage chart would be a single bar in a herd with no recorded stage — both were
-  // dropped rather than kept as decoration. Each remaining chart gets the full page width, so they
-  // render one per row with a wide viewBox instead of side-by-side masonry columns.
-  const charts = [
+  // Stage crossed with sex (maintainer decision 2026-09-10). One bar per management stage, divided
+  // female / male, which is one chart rather than two because the sexes are NOT spread evenly
+  // across stages: Mother and Pregnant are female by definition and Buck is male by definition, so
+  // a herd-wide sex ratio beside a stage total answers nothing about any single stage.
+  //
+  // This supersedes the note that stood here — "the gender split is already stated exactly by the
+  // Gender column, and the stage chart would be a single bar in a herd with no recorded stage".
+  // The Gender column states the split for ONE grain row, not for a stage; and the herd this reads
+  // now carries a real stage vocabulary, so the single-bar case is the empty state rather than the
+  // normal one.
+  //
+  // The backend owns every number here, including the segment values: `count` is the bar and is
+  // read from the response rather than summed from the segments, so a stage whose parts failed to
+  // reconcile shows a gap on screen instead of quietly redefining its own total.
+  const sexSegments = [
+    { key: "female", label: copy(pageContract, "label.sex_female"), colorVar: "var(--info)" },
+    { key: "male", label: copy(pageContract, "label.sex_male"), colorVar: "var(--amber)" },
+    // Third segment, drawn only where it carries animals. It is the honest home for a sex the
+    // register does not hold as female or male — including unrecorded — so a bar still reports the
+    // stage's true head count instead of shrinking to the two known buckets.
+    { key: "other", label: copy(pageContract, "label.sex_other"), colorVar: "var(--muted)" },
+  ] as const;
+
+  const stageSexData: SvgStackedDatum[] = (breakdown?.charts.stage_sex ?? []).map((point) => ({
+    key: point.key || noStageLabel,
+    label: point.label || noStageLabel,
+    total: point.count,
+    segments: [
+      { ...sexSegments[0], value: point.female },
+      { ...sexSegments[1], value: point.male },
+      { ...sexSegments[2], value: point.other },
+    ],
+  }));
+
+  // Breed, then stage x sex, then pens. Each chart gets the full page width, so they render one per
+  // row with a wide viewBox instead of side-by-side masonry columns.
+  const charts: {
+    id: string;
+    title: string;
+    caption: string;
+    data?: SvgBarDatum[];
+    stacked?: SvgStackedDatum[];
+  }[] = [
     {
       id: "breed",
       title: copy(pageContract, "chart.breed.title"),
       caption: copy(pageContract, "chart.breed.caption"),
       data: toBarData(breakdown?.charts.breed ?? [], noBreedLabel),
+    },
+    {
+      id: "stage_sex",
+      title: copy(pageContract, "chart.stage_sex.title"),
+      caption: copy(pageContract, "chart.stage_sex.caption"),
+      stacked: stageSexData,
     },
     {
       id: "shed",
@@ -474,13 +519,35 @@ export async function CountsBreakdownPage({
                 just lost (12 of 130 pens showed 560 of 1,670 animals). The scroll window bounds
                 what a reader SEES — ten bars stand, the rest scroll — which is a different job from
                 bounding what the number MEANS. */}
-            <SvgBars
-              data={chart.data}
-              emptyLabel={emptyChartLabel}
-              valueNoun={animalsNoun}
-              chartLabel={chart.title}
-              maxBars={chart.data.length}
-            />
+            {chart.stacked ? (
+              <>
+                <SvgStackedBars
+                  data={chart.stacked}
+                  emptyLabel={emptyChartLabel}
+                  valueNoun={animalsNoun}
+                  chartLabel={chart.title}
+                  maxBars={chart.stacked.length}
+                />
+                {/* The legend is not optional decoration on a stacked chart: without it the two
+                    colours inside a bar name nothing. Only the segments actually drawn are
+                    listed, so a herd with every sex recorded never advertises a third key. */}
+                <SeriesLegend
+                  entries={sexSegments
+                    .filter((segment, index) =>
+                      (chart.stacked ?? []).some((bar) => bar.segments[index].value > 0),
+                    )
+                    .map((segment) => ({ label: segment.label, colorVar: segment.colorVar }))}
+                />
+              </>
+            ) : (
+              <SvgBars
+                data={chart.data ?? []}
+                emptyLabel={emptyChartLabel}
+                valueNoun={animalsNoun}
+                chartLabel={chart.title}
+                maxBars={(chart.data ?? []).length}
+              />
+            )}
           </div>
         ))}
       </section>

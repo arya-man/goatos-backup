@@ -14148,6 +14148,28 @@ export interface components {
             sex: components["schemas"]["CountsBreakdownSeriesPoint"][];
             /** @description Top sheds by head count; display-capped, never the source of totals. */
             shed: components["schemas"]["CountsBreakdownSeriesPoint"][];
+            /** @description The stage series crossed with sex. One entry per management stage, carrying the SAME head count as the matching `stage` entry, so the two can never disagree; it simply adds the split inside each bar. */
+            stage_sex: components["schemas"]["CountsBreakdownStageSexPoint"][];
+        };
+        /** @description One management-stage bar split by sex. female + male + other always equals count exactly, so the series still sums to total_count. A cross-tab rather than two series read side by side: the sexes are not spread evenly across stages (Mother and Pregnant are female by definition, Buck is male by definition), so a herd-wide sex ratio says nothing about any single stage. */
+        CountsBreakdownStageSexPoint: {
+            /** @description Raw stored management_stage; empty for animals with no stage recorded. The client renders its own copy for that bucket. */
+            key: string;
+            label: string;
+            /** Format: int64 */
+            female: number;
+            /** Format: int64 */
+            male: number;
+            /**
+             * Format: int64
+             * @description Any sex value that is neither female nor male, including unrecorded. Carried so the bar reports the stage's true head count instead of shrinking to the two known buckets.
+             */
+            other: number;
+            /**
+             * Format: int64
+             * @description female + male + other — the stage's head count, and the bar's length.
+             */
+            count: number;
         };
         /** @description One shed filter option. Carries park_id as its own field because SHED NAMES ARE NOT UNIQUE ACROSS PARKS — in real data 66 of 154 shed names exist in both parks, so a client cascading Park -> Shed must filter this list by park_id. key stays the shed UUID so an entry is unambiguous on its own, and the park is never encoded into label. When a shed has partitions, one row per partition is returned, each with its partition_label, count for that partition, and operational_location_display for the partition label. */
         CountsBreakdownShedFacet: {

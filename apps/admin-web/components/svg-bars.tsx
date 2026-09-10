@@ -286,3 +286,215 @@ export function SvgBars({
     </div>
   );
 }
+
+// ---------------------------------------------------------------------------------------------
+// Stacked bars.
+//
+// Same geometry as SvgBars above — same row height, gap, gutters, scroll window and two rendered
+// scales — so a stacked chart sitting under a plain one on the same page lines up with it row for
+// row. What differs is the mark: one bar is DIVIDED between named segments, and the colour follows
+// the SEGMENT rather than the bar's rank, because the whole point is that the third bar's blue
+// means the same thing as the first bar's blue.
+//
+// A segment is drawn only when it carries animals, so a stage that is female by definition renders
+// one solid bar rather than a segment of width zero with a hairline seam beside it. Corner rounding
+// is applied to the bar as a whole through a clip path, not per segment, so the divisions inside it
+// stay square and read as one bar split rather than several bars abutting.
+
+export type SvgStackedSegment = {
+  key: string;
+  /** Resolved from the page contract by the caller; used in the tooltip. */
+  label: string;
+  value: number;
+  /** A CSS custom property, never a hex literal — see the file header. */
+  colorVar: string;
+};
+
+export type SvgStackedDatum = {
+  key: string;
+  label: string;
+  /** Bar length. The caller supplies it rather than it being summed here, so the bar is the
+   *  backend's own head count and a segment that failed to reconcile shows as a gap instead of
+   *  quietly redefining the total. */
+  total: number;
+  segments: SvgStackedSegment[];
+};
+
+/**
+ * The split that sits beside a bar's head count, as "28 female · 13 male".
+ *
+ * A bar with only ONE segment filled prints just the segment's NAME — "female" after the 803 —
+ * rather than repeating the number it already shows. Naming it matters: a stage that is female by
+ * definition still has to say so, or a reader running down the column cannot tell a single-sex
+ * stage from one whose split was never worked out.
+ */
+function segmentText(datum: SvgStackedDatum): string {
+  const filled = datum.segments.filter((segment) => segment.value > 0);
+  if (filled.length === 0) return "";
+  if (filled.length === 1) return filled[0].label.toLowerCase();
+  return filled
+    .map((segment) => `${segment.value.toLocaleString("en-IN")} ${segment.label.toLowerCase()}`)
+    .join(" · ");
+}
+
+/** The whole value column for one bar — total plus split — used to size the gutter that holds it. */
+function valueText(datum: SvgStackedDatum): string {
+  const breakdown = segmentText(datum);
+  const count = datum.total.toLocaleString("en-IN");
+  return breakdown ? `${count} ${breakdown}` : count;
+}
+
+function StackedBarsSvg({
+  bars,
+  max,
+  viewWidth,
+  className,
+  valueNoun,
+  textScale,
+}: {
+  bars: SvgStackedDatum[];
+  max: number;
+  viewWidth: number;
+  className: string;
+  valueNoun: string;
+  textScale: number;
+}) {
+  const labelGutter = labelGutterFor(
+    viewWidth,
+    textScale,
+    bars.map((bar) => ({ key: bar.key, label: bar.label, value: bar.total })),
+  );
+  // The value column carries the bar total AND the split that makes up the bar, so it is sized to
+  // the longest one actually rendered rather than to a fixed width — a stage reading
+  // "41  28 female · 13 male" needs roughly three times the room a bare count does, and a fixed
+  // gutter would either clip the longest row or leave a canyon on a chart whose stages are all
+  // single-sex.
+  const longestValue = bars.reduce((width, bar) => Math.max(width, valueText(bar).length), 0);
+  const valueGutter = Math.round(Math.max(longestValue * CHAR_WIDTH * textScale + 8, VALUE_GUTTER * textScale));
+  const barMaxWidth = viewWidth - labelGutter - valueGutter;
+  const fontSize = (BASE_FONT_SIZE * textScale).toFixed(1);
+  const baselineOffset = BASE_BASELINE_OFFSET * textScale;
+  const height = barsViewHeight(bars.length);
+
+  return (
+    <svg className={className} viewBox={`0 0 ${viewWidth} ${height}`} width="100%" aria-hidden="true">
+      {bars.map((datum, index) => {
+        const y = index * (ROW_HEIGHT + ROW_GAP) + 2;
+        const barWidth = Math.max((datum.total / max) * barMaxWidth, 1);
+        const count = datum.total.toLocaleString("en-IN");
+        // The split, printed beside the total rather than left to a hover: a segment can be one
+        // animal wide, which is a hover target nobody can hit, and reading a chart should not
+        // require a mouse at all.
+        const breakdown = segmentText(datum);
+        const tip = breakdown
+          ? `${datum.label}: ${count} ${valueNoun} — ${breakdown}`
+          : `${datum.label}: ${count} ${valueNoun}`;
+        const clipId = `stackclip-${className}-${index}`;
+        let offset = 0;
+        return (
+          <g key={datum.key}>
+            <text x="0" y={y + ROW_HEIGHT / 2 + baselineOffset} fontSize={fontSize} fill="var(--muted)">
+              {clipLabel(datum.label, labelGutter, textScale)}
+            </text>
+            <clipPath id={clipId}>
+              <rect x={labelGutter} y={y} width={barWidth.toFixed(1)} height={ROW_HEIGHT} rx="4" />
+            </clipPath>
+            <g clipPath={`url(#${clipId})`}>
+              {datum.segments.map((segment) => {
+                if (segment.value <= 0) return null;
+                const width = (segment.value / datum.total) * barWidth;
+                const x = labelGutter + offset;
+                offset += width;
+                return (
+                  <rect
+                    key={segment.key}
+                    x={x.toFixed(1)}
+                    y={y}
+                    width={Math.max(width, 0.5).toFixed(1)}
+                    height={ROW_HEIGHT}
+                    fill={segment.colorVar}
+                    data-tip={tip}
+                  >
+                    <title>{tip}</title>
+                  </rect>
+                );
+              })}
+            </g>
+            <text
+              x={(labelGutter + barWidth + 4).toFixed(1)}
+              y={y + ROW_HEIGHT / 2 + baselineOffset}
+              fontSize={fontSize}
+              fill="var(--ink)"
+              fontWeight="700"
+            >
+              {count}
+              {breakdown ? (
+                // Secondary reading: same row, lighter weight and colour, so the head count stays
+                // the figure the eye lands on and the split explains it. The gap is `dx`, not
+                // spaces — SVG collapses a run of whitespace, which ran "41" straight into
+                // "28 female" and read as one number.
+                <tspan dx={(4 * textScale).toFixed(1)} fill="var(--muted)" fontWeight="600">
+                  {breakdown}
+                </tspan>
+              ) : null}
+            </text>
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
+
+export function SvgStackedBars({
+  data,
+  emptyLabel,
+  valueNoun,
+  chartLabel,
+  maxBars = 8,
+  textScale = 1,
+}: {
+  data: SvgStackedDatum[];
+  emptyLabel: string;
+  valueNoun: string;
+  chartLabel: string;
+  maxBars?: number;
+  textScale?: number;
+}) {
+  const bars = data.filter((datum) => datum.total > 0).slice(0, maxBars);
+  if (bars.length === 0) {
+    return (
+      <div className="muted small" style={{ padding: "14px 2px", textAlign: "center" }}>
+        {emptyLabel}
+      </div>
+    );
+  }
+
+  const max = Math.max(...bars.map((datum) => datum.total)) || 1;
+  const scrolls = bars.length > VISIBLE_BARS;
+
+  return (
+    <div
+      className={`svgbars${scrolls ? " svgbars-scroll" : ""}`}
+      role="img"
+      aria-label={chartLabel}
+      tabIndex={scrolls ? 0 : undefined}
+    >
+      <StackedBarsSvg
+        bars={bars}
+        max={max}
+        viewWidth={WIDE_VIEW_WIDTH}
+        className="svgbars-wide"
+        valueNoun={valueNoun}
+        textScale={textScale}
+      />
+      <StackedBarsSvg
+        bars={bars}
+        max={max}
+        viewWidth={NARROW_VIEW_WIDTH}
+        className="svgbars-narrow"
+        valueNoun={valueNoun}
+        textScale={textScale}
+      />
+    </div>
+  );
+}

@@ -390,6 +390,93 @@ func TestCountsBreakdownChartSeriesReconcileToTotalCount(t *testing.T) {
 	}
 }
 
+// The stage x sex cross-tab must agree with the plain stage series bar for bar, and each bar's
+// sex segments must add up to that bar. Two series describing the same population that disagree
+// about a head count is exactly the cross-surface defect the repo bans; here both live in one
+// response, so the disagreement would be visible on one screen.
+//
+// Requested with Limit: 1 on purpose — both series are whole-result rollups and must ignore the
+// page size.
+func TestCountsBreakdownStageSexCrossTabMatchesTheStageSeries(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := newBreakdownRepo(t, ctx)
+
+	seed := []struct{ breed, stage, sex, shed string }{
+		{"Beetal", "K1", "female", countsShedA},
+		{"Beetal", "K1", "female", countsShedB},
+		{"Beetal", "K1", "male", countsShedA},
+		{"Malai", "Mother", "female", countsShedB},
+		{"Malai", "Mother", "female", countsShedA},
+		{"Sojat", "Buck", "male", countsShedA},
+		// No stage recorded. The unrecorded bucket is a real bar, not a dropped row — hiding it
+		// would shrink a series the KPI above still counts in full.
+		{"Sojat", "", "female", countsShedB},
+	}
+	for i, s := range seed {
+		insertBreakdownGoat(t, ctx, pool, goatUUID(i), goatDisplayID(i),
+			s.sex, s.breed, "alive", s.stage, strp(countsPark), strp(s.shed), nil)
+	}
+
+	got, err := repo.GetCountsBreakdown(ctx, domain.CountsBreakdownQuery{TenantID: countsTenant, Limit: 1})
+	if err != nil {
+		t.Fatalf("GetCountsBreakdown: %v", err)
+	}
+
+	stageBars := map[string]int64{}
+	for _, point := range got.Charts.Stage {
+		stageBars[point.Key] = point.Count
+	}
+	if len(got.Charts.StageSex) != len(stageBars) {
+		t.Fatalf("stage_sex has %d bars, stage has %d — the two series describe different populations",
+			len(got.Charts.StageSex), len(stageBars))
+	}
+
+	var crossTotal int64
+	for _, point := range got.Charts.StageSex {
+		want, ok := stageBars[point.Key]
+		if !ok {
+			t.Fatalf("stage_sex carries stage %q, which the stage series does not", point.Key)
+		}
+		if point.Count != want {
+			t.Errorf("stage %q: stage_sex count=%d, stage series=%d", point.Key, point.Count, want)
+		}
+		if point.Female+point.Male+point.Other != point.Count {
+			t.Errorf("stage %q: female+male+other=%d, want count=%d — a bar's segments must fill it",
+				point.Key, point.Female+point.Male+point.Other, point.Count)
+		}
+		crossTotal += point.Count
+	}
+	if crossTotal != got.TotalCount {
+		t.Errorf("stage_sex sums to %d, want total_count %d", crossTotal, got.TotalCount)
+	}
+
+	byStage := map[string]domain.CountsBreakdownStageSexPoint{}
+	for _, point := range got.Charts.StageSex {
+		byStage[point.Key] = point
+	}
+	// Mother is female by definition and Buck male by definition — the whole reason this is a
+	// cross-tab rather than a stage total read beside a herd-wide sex ratio.
+	if p := byStage["Mother"]; p.Female != 2 || p.Male != 0 {
+		t.Errorf("Mother: female=%d male=%d, want 2/0", p.Female, p.Male)
+	}
+	if p := byStage["Buck"]; p.Male != 1 || p.Female != 0 {
+		t.Errorf("Buck: male=%d female=%d, want 1/0", p.Male, p.Female)
+	}
+	if p := byStage["K1"]; p.Female != 2 || p.Male != 1 {
+		t.Errorf("K1: female=%d male=%d, want 2/1", p.Female, p.Male)
+	}
+	if p, ok := byStage[""]; !ok || p.Count != 1 {
+		t.Errorf("the unrecorded-stage bucket is missing or wrong: %+v", p)
+	}
+
+	// Biggest stage first, so the chart does not reshuffle between two identical reads.
+	for i := 1; i < len(got.Charts.StageSex); i++ {
+		if got.Charts.StageSex[i-1].Count < got.Charts.StageSex[i].Count {
+			t.Fatalf("stage_sex is not ordered by head count: %+v", got.Charts.StageSex)
+		}
+	}
+}
+
 // The Kids · Adults KPI is only trustworthy if the two buckets partition the total EXACTLY.
 // herd_register_is_kid returns NULL when age_band is NULL, so a bare NOT would drop those animals
 // from both buckets and the KPI would quietly under-report while the headline count stayed right.
@@ -2127,5 +2214,164 @@ func TestCountsBreakdownPenPageParkScopeMatchesTheGrainPage(t *testing.T) {
 		return one.TotalRows == 2 && two.TotalRows == 1
 	})() {
 		t.Errorf("expected 2 pens in park one and 1 pen in park two")
+	}
+}
+
+// The cross-tab groups one key deeper than the stage series, over rows the locations joins can
+// legitimately match more than once. If either join were rewritten onto a non-unique column, a
+// single animal would be counted once per matching location row and every segment would inflate
+// while the bar still looked internally consistent. Seed decoy locations, spread ONE (stage, sex)
+// pair across several breeds and pens, and assert the segment is exactly the number of animals.
+func TestCountsBreakdownStageSexOneToManyLocationJoinDoesNotInflateSegments(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := newBreakdownRepo(t, ctx)
+
+	if _, err := pool.Exec(ctx, `
+INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, status)
+VALUES
+  ('00000000-0000-4000-8000-000000002098'::uuid, $1::uuid, 'farm', 'CPT-F1-DUP2', 'CPT Farm 1', 'active'),
+  ('00000000-0000-4000-8000-000000004098'::uuid, $1::uuid, 'shed', 'CPT-S1-DUP2', 'CPT Shed 1', 'active')
+ON CONFLICT (location_id) DO NOTHING`, countsTenant); err != nil {
+		t.Fatalf("seed decoy locations: %v", err)
+	}
+
+	// Four animals, all K1 female, deliberately spread across two breeds and two pens: the pair is
+	// one BAR SEGMENT however many grain rows it is made of.
+	seed := []struct{ breed, shed string }{
+		{"Beetal", countsShedA},
+		{"Beetal", countsShedB},
+		{"Malai", countsShedA},
+		{"Malai", countsShedB},
+	}
+	for i, s := range seed {
+		insertBreakdownGoat(t, ctx, pool, goatUUID(i), goatDisplayID(i),
+			"female", s.breed, "alive", "K1", strp(countsPark), strp(s.shed), nil)
+	}
+
+	got, err := repo.GetCountsBreakdown(ctx, domain.CountsBreakdownQuery{TenantID: countsTenant, Limit: 50})
+	if err != nil {
+		t.Fatalf("GetCountsBreakdown: %v", err)
+	}
+	if len(got.Charts.StageSex) != 1 {
+		t.Fatalf("stage_sex has %d bars, want 1 — the four animals share one stage", len(got.Charts.StageSex))
+	}
+	bar := got.Charts.StageSex[0]
+	if bar.Female != 4 || bar.Male != 0 || bar.Other != 0 || bar.Count != 4 {
+		t.Fatalf("K1 bar = %+v, want female 4 / male 0 / other 0 / count 4", bar)
+	}
+}
+
+// Both series are WHOLE-RESULT rollups. Walking the detail table must move rows only: a chart that
+// followed the page would report a different herd on page two than on page one, and the KPI above
+// it would agree with neither.
+func TestCountsBreakdownStageSexPageBoundaryLeavesTheSeriesWhole(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := newBreakdownRepo(t, ctx)
+
+	seed := []struct{ breed, stage, sex, shed string }{
+		{"Beetal", "K1", "female", countsShedA},
+		{"Malai", "K1", "male", countsShedB},
+		{"Sojat", "Mother", "female", countsShedA},
+		{"Beetal", "Buck", "male", countsShedB},
+		{"Malai", "K2", "female", countsShedA},
+	}
+	for i, s := range seed {
+		insertBreakdownGoat(t, ctx, pool, goatUUID(i), goatDisplayID(i),
+			s.sex, s.breed, "alive", s.stage, strp(countsPark), strp(s.shed), nil)
+	}
+
+	read := func(limit, offset int32) []domain.CountsBreakdownStageSexPoint {
+		t.Helper()
+		got, err := repo.GetCountsBreakdown(ctx, domain.CountsBreakdownQuery{
+			TenantID: countsTenant, Limit: limit, Offset: offset,
+		})
+		if err != nil {
+			t.Fatalf("GetCountsBreakdown(limit=%d offset=%d): %v", limit, offset, err)
+		}
+		return got.Charts.StageSex
+	}
+
+	whole := read(50, 0)
+	for _, page := range []struct{ limit, offset int32 }{{2, 0}, {2, 2}, {2, 4}, {1, 3}} {
+		got := read(page.limit, page.offset)
+		if len(got) != len(whole) {
+			t.Fatalf("limit=%d offset=%d: %d bars, want %d", page.limit, page.offset, len(got), len(whole))
+		}
+		for i := range whole {
+			if got[i] != whole[i] {
+				t.Errorf("limit=%d offset=%d: bar %d = %+v, want %+v", page.limit, page.offset, i, got[i], whole[i])
+			}
+		}
+	}
+}
+
+// Park scope must narrow the cross-tab exactly as it narrows the head count, and the two halves of
+// a split herd must add back up to the whole. A chart that ignored the scope would show one park's
+// reader the other park's animals under their own park's total.
+func TestCountsBreakdownStageSexParkScopeNarrowsWithTheHeadCount(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := newBreakdownRepo(t, ctx)
+
+	const otherPark = "00000000-0000-4000-8000-000000003002"
+	const otherShed = "00000000-0000-4000-8000-000000004097"
+	if _, err := pool.Exec(ctx, `
+INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, status)
+VALUES
+  ($2::uuid, $1::uuid, 'park', 'CBE-P1', 'CBE Park 1', 'active'),
+  ($3::uuid, $1::uuid, 'shed', 'CBE-S1', 'Castro', 'active')
+ON CONFLICT (location_id) DO NOTHING`, countsTenant, otherPark, otherShed); err != nil {
+		t.Fatalf("seed second park: %v", err)
+	}
+
+	seed := []struct{ stage, sex, park, shed string }{
+		{"K1", "female", countsPark, countsShedA},
+		{"K1", "male", countsPark, countsShedA},
+		{"Mother", "female", countsPark, countsShedB},
+		{"K1", "female", otherPark, otherShed},
+		{"Buck", "male", otherPark, otherShed},
+	}
+	for i, s := range seed {
+		insertBreakdownGoat(t, ctx, pool, goatUUID(i), goatDisplayID(i),
+			s.sex, "Beetal", "alive", s.stage, strp(s.park), strp(s.shed), nil)
+	}
+
+	scoped := func(parks ...string) (map[string]domain.CountsBreakdownStageSexPoint, int64) {
+		t.Helper()
+		got, err := repo.GetCountsBreakdown(ctx, domain.CountsBreakdownQuery{
+			TenantID: countsTenant, ParkIDs: parks, Limit: 50,
+		})
+		if err != nil {
+			t.Fatalf("GetCountsBreakdown(parks=%v): %v", parks, err)
+		}
+		out := map[string]domain.CountsBreakdownStageSexPoint{}
+		var sum int64
+		for _, point := range got.Charts.StageSex {
+			out[point.Key] = point
+			sum += point.Count
+		}
+		if sum != got.TotalCount {
+			t.Fatalf("parks=%v: stage_sex sums to %d, want total_count %d", parks, sum, got.TotalCount)
+		}
+		return out, got.TotalCount
+	}
+
+	here, hereTotal := scoped(countsPark)
+	there, thereTotal := scoped(otherPark)
+	_, wholeTotal := scoped()
+
+	if hereTotal != 3 || thereTotal != 2 || wholeTotal != 5 {
+		t.Fatalf("totals here=%d there=%d whole=%d, want 3/2/5", hereTotal, thereTotal, wholeTotal)
+	}
+	if p := here["K1"]; p.Female != 1 || p.Male != 1 {
+		t.Errorf("this park's K1 = %+v, want female 1 / male 1", p)
+	}
+	if _, ok := here["Buck"]; ok {
+		t.Error("this park's chart carries the other park's Buck bar")
+	}
+	if p := there["K1"]; p.Female != 1 || p.Male != 0 {
+		t.Errorf("other park's K1 = %+v, want female 1 / male 0", p)
+	}
+	if _, ok := there["Mother"]; ok {
+		t.Error("the other park's chart carries this park's Mother bar")
 	}
 }

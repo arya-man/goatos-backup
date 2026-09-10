@@ -471,13 +471,40 @@ type CountsBreakdownSeriesPoint struct {
 	Count int64  `json:"count"`
 }
 
-// CountsBreakdownCharts holds the four distribution series. Each is rolled up over the FULL
+// CountsBreakdownStageSexPoint is one management-stage bar, split by sex.
+//
+// A CROSS-TAB, not two series read side by side: a reader asking "how many of the kids on K1 are
+// female" cannot answer it from a stage total beside a herd-wide sex total, because the sexes are
+// not spread evenly across stages -- Mother and Pregnant are female by definition and Buck is male
+// by definition, so the herd-wide ratio says nothing about any single stage.
+//
+// Female + Male + Other always equals Count exactly. Other is the honest home for a sex value that
+// is neither -- unrecorded, or a vocabulary the herd register grows later -- so the bar still
+// reports the stage's true head count instead of silently shrinking to the two known buckets, and
+// the series still sums to the same total_count the KPI above it reports.
+type CountsBreakdownStageSexPoint struct {
+	// Key is the raw stored management_stage; empty for animals with no stage recorded. The client
+	// renders its own contract copy for that bucket rather than a label being invented here.
+	Key    string `json:"key"`
+	Label  string `json:"label"`
+	Female int64  `json:"female"`
+	Male   int64  `json:"male"`
+	Other  int64  `json:"other"`
+	// Count is Female + Male + Other -- the stage's head count, and the bar's length.
+	Count int64 `json:"count"`
+}
+
+// CountsBreakdownCharts holds the distribution series. Each is rolled up over the FULL
 // filtered grain set, never over the returned page.
 type CountsBreakdownCharts struct {
 	Breed []CountsBreakdownSeriesPoint `json:"breed"`
 	Stage []CountsBreakdownSeriesPoint `json:"stage"`
 	Sex   []CountsBreakdownSeriesPoint `json:"sex"`
 	Shed  []CountsBreakdownSeriesPoint `json:"shed"`
+	// StageSex is the stage series crossed with sex. It carries the SAME head counts as Stage --
+	// one point per stage, Count equal to that stage's bar -- so the two can never disagree; it
+	// simply adds the split inside each bar.
+	StageSex []CountsBreakdownStageSexPoint `json:"stage_sex"`
 }
 
 // CountsBreakdownShedFacet is one shed filter option: a CountsBreakdownSeriesPoint plus the park

@@ -4642,9 +4642,14 @@ func pageSpecificCopy(id string) map[string]string {
 			"chart.breed.caption":   "animals by breed",
 			"chart.stage.title":     "Count by stage",
 			"chart.stage.caption":   "where they are",
-			"chart.gender.title":    "Gender split",
-			"chart.gender.caption":  "animals by sex",
-			"chart.shed.title":      "Pen occupancy",
+			// The stage x sex chart. The caption says the bar is the stage and the split is the
+			// sex, because a stacked bar is the one chart shape a reader can misread as two
+			// separate stages sitting end to end.
+			"chart.stage_sex.title":   "Count by stage and sex",
+			"chart.stage_sex.caption": "each bar is one stage, split female and male",
+			"chart.gender.title":      "Gender split",
+			"chart.gender.caption":    "animals by sex",
+			"chart.shed.title":        "Pen occupancy",
 			// PENS, not sheds (maintainer decision 2026-08-12): each bar is one pen, named with its
 			// park because 66 of 154 shed names exist in both. The caption has to say so — a reader
 			// counting twelve bars against a 44-shed estate would otherwise draw the wrong conclusion

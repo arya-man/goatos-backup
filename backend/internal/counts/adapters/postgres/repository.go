@@ -2810,7 +2810,7 @@ LIMIT $9 OFFSET $10`
 
 // scale-guard:ignore: 5k-50k-envelope — same canonical read as countsBreakdownPageSQL.
 //
-// projection-review: membership=identical to countsBreakdownPageSQL by construction (shared CTE const), re-rolled into four one-dimensional series; group_key=one of breed | management_stage | sex | shed_id per UNION branch; join_cardinality=only the shed branch joins locations, on the (tenant_id, location_id) primary key, so 1:{0,1} with no fan-out, the other three branches join nothing; pagination=every series is a whole-result rollup of the full grouped set, independent of the detail table limit/offset; scope=same tenant plus farm/park/shed/stage/breed/sex predicates as the page query
+// projection-review: membership=identical to countsBreakdownPageSQL by construction (shared CTE const), re-rolled into four one-dimensional series plus the stage x sex cross-tab; group_key=one of breed | management_stage | sex | shed_id | (management_stage, sex) per UNION branch -- the cross-tab groups one key DEEPER than the stage branch over the same rows, so summing its sex rows for a stage reproduces that stage's own bar exactly; join_cardinality=only the shed branch joins locations, on the (tenant_id, location_id) primary key, so 1:{0,1} with no fan-out, the other three branches join nothing; pagination=every series is a whole-result rollup of the full grouped set, independent of the detail table limit/offset; scope=same tenant plus farm/park/shed/stage/breed/sex predicates as the page query
 //
 // GRAIN (maintainer decision 2026-08-12), SUPERSEDING the parent-shed roll-up this branch used to
 // carry ("rolled up ACROSS partitions so the chart never fragments one physical shed into N tiny
@@ -2837,14 +2837,25 @@ LIMIT $9 OFFSET $10`
 // screen.
 const countsBreakdownChartsSQL = countsBreakdownGroupedCTE + `
 SELECT 'breed' AS dimension, gr.breed AS series_key, gr.breed AS series_label, sum(gr.animal_count) AS series_count,
-       '' AS park_label, '' AS partition_label
+       '' AS park_label, '' AS partition_label, '' AS series_sex
 FROM grouped gr GROUP BY gr.breed
 UNION ALL
-SELECT 'stage', gr.management_stage, gr.management_stage, sum(gr.animal_count), '', ''
+SELECT 'stage', gr.management_stage, gr.management_stage, sum(gr.animal_count), '', '', ''
 FROM grouped gr GROUP BY gr.management_stage
 UNION ALL
-SELECT 'sex', gr.sex, gr.sex, sum(gr.animal_count), '', ''
+SELECT 'sex', gr.sex, gr.sex, sum(gr.animal_count), '', '', ''
 FROM grouped gr GROUP BY gr.sex
+UNION ALL
+-- The stage series CROSSED with sex: one row per (stage, sex), pivoted into one bar per stage by
+-- the Go scan below. Grouping one key deeper than the 'stage' branch above means the two describe
+-- exactly the same population -- summing a stage's sex rows reproduces that stage's own bar -- so
+-- the stacked chart and the plain stage chart can never disagree about a head count.
+--
+-- The SEX travels in its own column rather than being folded into series_key. A composite key
+-- would have to be split apart again in Go, and a stage label containing the separator would
+-- split in the wrong place; the guard against that is not encoding it in the first place.
+SELECT 'stage_sex', gr.management_stage, gr.management_stage, sum(gr.animal_count), '', '', gr.sex
+FROM grouped gr GROUP BY gr.management_stage, gr.sex
 UNION ALL
 SELECT * FROM (
   -- One bar PER PEN. The label is NOT composed here: this returns the shed name, the raw partition
@@ -2864,7 +2875,8 @@ SELECT * FROM (
          -- partition_label_raw, never partition_key: the key is a scrubbed MATCHING value ('3') and
          -- the label is the human one ('Part 3'). Rendering the key shipped "Mandela 2 - 3" once and
          -- survived six review rounds.
-         COALESCE(CASE WHEN gr.partition_key = 'whole' THEN '' ELSE min(gr.partition_label_raw) END, '') AS partition_label
+         COALESCE(CASE WHEN gr.partition_key = 'whole' THEN '' ELSE min(gr.partition_label_raw) END, '') AS partition_label,
+         '' AS series_sex
   FROM grouped gr
   LEFT JOIN locations shed
          ON shed.tenant_id = $1::uuid AND shed.location_id = gr.shed_id
@@ -3198,16 +3210,41 @@ func (r *Repository) GetCountsBreakdown(ctx context.Context, req domain.CountsBr
 	if err != nil {
 		return domain.CountsBreakdown{}, fmt.Errorf("counts breakdown: charts query: %w", err)
 	}
+	// The stage x sex cross-tab arrives one row per (stage, sex) and is pivoted here into one point
+	// per stage. Keyed by the RAW stage string, empty included, so the unrecorded bucket is a real
+	// bar rather than dropped -- hiding it would shrink a series the KPI above still counts in full.
+	stageSex := map[string]*domain.CountsBreakdownStageSexPoint{}
+	stageSexOrder := []string{}
 	for chartRows.Next() {
 		var dimension, key, label string
 		var count int64
-		// parkLabel and partitionLabel are populated only by the shed branch; every other dimension
-		// selects ''. Scanned as their own columns rather than a pre-joined string so the DISPLAY is
-		// composed once, by the canonical helper, below.
-		var parkLabel, partitionLabel string
-		if err := chartRows.Scan(&dimension, &key, &label, &count, &parkLabel, &partitionLabel); err != nil {
+		// parkLabel and partitionLabel are populated only by the shed branch; sexKey only by the
+		// stage_sex branch; every other dimension selects ''. Scanned as their own columns rather
+		// than a pre-joined string so the DISPLAY is composed once, by the canonical helper, below.
+		var parkLabel, partitionLabel, sexKey string
+		if err := chartRows.Scan(&dimension, &key, &label, &count, &parkLabel, &partitionLabel, &sexKey); err != nil {
 			chartRows.Close()
 			return domain.CountsBreakdown{}, fmt.Errorf("counts breakdown: charts scan: %w", err)
+		}
+		if dimension == "stage_sex" {
+			point, seen := stageSex[key]
+			if !seen {
+				point = &domain.CountsBreakdownStageSexPoint{Key: key, Label: label}
+				stageSex[key] = point
+				stageSexOrder = append(stageSexOrder, key)
+			}
+			// An unrecognised sex lands in Other rather than being discarded, so Female+Male+Other
+			// still equals the stage's own head count when the register grows a third value.
+			switch strings.ToLower(strings.TrimSpace(sexKey)) {
+			case "female":
+				point.Female += count
+			case "male":
+				point.Male += count
+			default:
+				point.Other += count
+			}
+			point.Count += count
+			continue
 		}
 		if dimension == "shed" {
 			// The pen's own name, via the one helper that owns this composition (shed alone when the
@@ -3235,6 +3272,18 @@ func (r *Repository) GetCountsBreakdown(ctx context.Context, req domain.CountsBr
 	if err := chartRows.Err(); err != nil {
 		return domain.CountsBreakdown{}, fmt.Errorf("counts breakdown: charts iterate: %w", err)
 	}
+	// Biggest stage first, then by key so the order is deterministic when two stages tie -- the
+	// bar component draws the series in the order it is handed, and an arbitrary order would make
+	// the chart reshuffle between two identical reads.
+	for _, key := range stageSexOrder {
+		out.Charts.StageSex = append(out.Charts.StageSex, *stageSex[key])
+	}
+	sort.SliceStable(out.Charts.StageSex, func(i, j int) bool {
+		if out.Charts.StageSex[i].Count != out.Charts.StageSex[j].Count {
+			return out.Charts.StageSex[i].Count > out.Charts.StageSex[j].Count
+		}
+		return out.Charts.StageSex[i].Key < out.Charts.StageSex[j].Key
+	})
 
 	facetRows, err := results.Query()
 	if err != nil {
@@ -3291,6 +3340,9 @@ func (r *Repository) GetCountsBreakdown(ctx context.Context, req domain.CountsBr
 	}
 	if out.Charts.Shed == nil {
 		out.Charts.Shed = []domain.CountsBreakdownSeriesPoint{}
+	}
+	if out.Charts.StageSex == nil {
+		out.Charts.StageSex = []domain.CountsBreakdownStageSexPoint{}
 	}
 	if out.Facets.Lifecycle == nil {
 		out.Facets.Lifecycle = []domain.CountsBreakdownSeriesPoint{}
