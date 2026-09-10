@@ -486,8 +486,10 @@ type VerificationQueueFilterOption = {
   label: string;
 };
 type VerificationActionTypeOption = {
+  key: string;
   category: string;
   label: string;
+  module_key: string;
   module_label: string;
 };
 type VerificationStatusOption = {
@@ -4042,6 +4044,7 @@ export async function listVerificationQueue(
     parkId?: string;
     shedId?: string;
     cursor?: string;
+    sort?: "captured_at_asc" | "captured_at_desc";
     limit?: number;
   } = {},
 ): Promise<ApiResult<VerificationQueueResponse>> {
@@ -4064,6 +4067,7 @@ export async function listVerificationQueue(
         park_id: params.parkId,
         shed_id: params.shedId,
         cursor: params.cursor,
+        sort: params.sort,
         limit: params.limit ?? 20,
       }),
     }),

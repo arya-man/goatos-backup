@@ -1872,7 +1872,9 @@ func pageSpecificCopy(id string) map[string]string {
 			"drawer.meta.source_submission": "Source submission",
 			"drawer.media.title":            "Proof videos and media",
 			"drawer.media.empty":            "No proof media is attached to this action.",
-			"drawer.media.open":             "Open video",
+			"drawer.media.open":             "Open proof",
+			"drawer.media.play_video":       "Play video",
+			"drawer.media.open_photo":       "Open photo",
 			// DOUBLE-SPEED PLAYBACK (maintainer decision 2026-08-17). Offered only on clips longer
 			// than 20 seconds -- on a short one it saves a few seconds while making it materially
 			// easier to miss the single moment the proof turns on, so the control is absent rather

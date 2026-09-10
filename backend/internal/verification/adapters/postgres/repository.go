@@ -393,6 +393,12 @@ func (r *Repository) ListQueue(ctx context.Context, params ports.ListQueueParams
 	} else if len(params.Categories) > 0 {
 		categoryFilterList = params.Categories
 	}
+	cursorComparator := ">"
+	orderDirection := "ASC"
+	if params.Sort == ports.QueueSortCapturedAtDesc {
+		cursorComparator = "<"
+		orderDirection = "DESC"
+	}
 
 	rows, err := r.pool.Query(ctx, `
 SELECT `+itemColumnsWithLabels+`
@@ -434,7 +440,7 @@ WHERE vi.tenant_id = $1::uuid
   AND ($19 = '' OR `+shedPartitionPredicate+` = $19)
   AND ($16::timestamptz IS NULL OR vi.captured_at >= $16::timestamptz)
   AND ($17::timestamptz IS NULL OR vi.captured_at < $17::timestamptz)
-  AND ($8::timestamptz IS NULL OR (vi.captured_at, vi.item_id) > ($8::timestamptz, $9::uuid))
+  AND ($8::timestamptz IS NULL OR (vi.captured_at, vi.item_id) `+cursorComparator+` ($8::timestamptz, $9::uuid))
   AND (
     NOT $10::boolean
     OR (
@@ -460,7 +466,7 @@ WHERE vi.tenant_id = $1::uuid
       AND vi.status NOT IN ('pending', 'withdrawn')
     )
   )`+samplingPredicateSQL(20)+`
-ORDER BY vi.captured_at ASC, vi.item_id ASC
+ORDER BY vi.captured_at `+orderDirection+`, vi.item_id `+orderDirection+`
 LIMIT $11`,
 		params.TenantID, params.Status, strings.Join(categoryFilterList, ","), params.Vertical, params.Module,
 		params.ScopeRestricted, params.ParkIDs, cursorCapturedAt, cursorItemID,

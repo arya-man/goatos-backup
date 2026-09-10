@@ -1,8 +1,10 @@
 package sg.mesha.goatos.feature.verify
 
+import android.graphics.BitmapFactory
 import android.net.Uri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -42,6 +44,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.rememberUpdatedState
@@ -49,6 +52,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.layout.boundsInWindow
@@ -63,14 +67,17 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import coil.compose.AsyncImage
-import coil.request.ImageRequest
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import sg.mesha.goatos.core.media.LocalProofPlayerFactory
+import sg.mesha.goatos.core.media.LocalProofRemoteImageLoader
+import sg.mesha.goatos.core.media.ProofRemoteImageLoader
 import androidx.media3.ui.PlayerView
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
@@ -84,6 +91,14 @@ import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
+
+private const val VERIFY_REMOTE_PHOTO_LOAD_TIMEOUT_MS = 15_000L
+
+private sealed interface VerifyPhotoLoadState {
+    data object Loading : VerifyPhotoLoadState
+    data object Unavailable : VerifyPhotoLoadState
+    data class Ready(val bitmap: android.graphics.Bitmap) : VerifyPhotoLoadState
+}
 
 // telemetry:exempt: pure stateless renderer — AnalyticsPort/funnel wiring (including the
 // PLAY_INTENT/PLAY_OUTCOME dead-control watchdog) lives in VerifyDetailViewModel (:app), which
@@ -1002,6 +1017,7 @@ private fun VerifyProofPhoto(
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
+    val remoteImageLoader = LocalProofRemoteImageLoader.current
     // Tap to enlarge. A feed-weight photo is judged by READING A NUMBER off a scale, and at card
     // width on a phone that number is often a few pixels tall — a photo proof that cannot be
     // enlarged is a proof the verifier has to approve on faith.
@@ -1042,40 +1058,52 @@ private fun VerifyProofPhoto(
         contentAlignment = Alignment.Center,
     ) {
         if (loadPhoto) {
-            AsyncImage(
-                // proof-media-egress:ignore Photo is tap-armed and Coil cache-keyed by stable proof id.
-                model = ImageRequest.Builder(context)
-                    .data(media.signedUrl)
-                    .memoryCacheKey("verify-proof-photo-${media.proofSubject}")
-                    .diskCacheKey("verify-proof-photo-${media.proofSubject}")
-                    .build(),
-                onSuccess = {
-                    onPreview(
-                        VerifyDetailEvent.PhotoPreview(
-                            proofSubject = media.proofSubject,
-                            mimeType = media.mimeType,
-                            action = "load",
-                            outcome = "success",
-                        ),
+            val photoState by produceState<VerifyPhotoLoadState>(
+                initialValue = VerifyPhotoLoadState.Loading,
+                key1 = media.proofSubject,
+                key2 = media.signedUrl,
+            ) {
+                value = loadVerifyProofPhotoBitmap(context, media.signedUrl, remoteImageLoader)
+                    ?.let(VerifyPhotoLoadState::Ready)
+                    ?: VerifyPhotoLoadState.Unavailable
+            }
+            when (val state = photoState) {
+                VerifyPhotoLoadState.Loading -> CircularProgressIndicator(color = MeshaColors.Brand)
+                is VerifyPhotoLoadState.Ready -> {
+                    LaunchedEffect(media.proofSubject, media.signedUrl, state.bitmap) {
+                        onPreview(
+                            VerifyDetailEvent.PhotoPreview(
+                                proofSubject = media.proofSubject,
+                                mimeType = media.mimeType,
+                                action = "load",
+                                outcome = "success",
+                            ),
+                        )
+                    }
+                    Image(
+                        bitmap = state.bitmap.asImageBitmap(),
+                        // Farm language, and it describes the EVIDENCE rather than the file: a screen reader user
+                        // verifying feed hears what they are being asked to judge.
+                        contentDescription = stringResource(R.string.verify_detail_photo_description),
+                        contentScale = ContentScale.Fit,
+                        modifier = Modifier.fillMaxWidth(),
                     )
-                },
-                onError = { result ->
-                    onPreview(
-                        VerifyDetailEvent.PhotoPreview(
-                            proofSubject = media.proofSubject,
-                            mimeType = media.mimeType,
-                            action = "load",
-                            outcome = "failure",
-                            reason = result.result.throwable.message ?: result.result.throwable::class.simpleName,
-                        ),
-                    )
-                },
-                // Farm language, and it describes the EVIDENCE rather than the file: a screen reader user
-                // verifying feed hears what they are being asked to judge.
-                contentDescription = stringResource(R.string.verify_detail_photo_description),
-                contentScale = ContentScale.Fit,
-                modifier = Modifier.fillMaxWidth(),
-            )
+                }
+                VerifyPhotoLoadState.Unavailable -> {
+                    LaunchedEffect(media.proofSubject, media.signedUrl) {
+                        onPreview(
+                            VerifyDetailEvent.PhotoPreview(
+                                proofSubject = media.proofSubject,
+                                mimeType = media.mimeType,
+                                action = "load",
+                                outcome = "failure",
+                                reason = "unavailable",
+                            ),
+                        )
+                    }
+                    Icon(MeshaIcons.EyeOff, contentDescription = null, tint = MeshaColors.Muted)
+                }
+            }
         } else {
             Icon(MeshaIcons.EyeOff, contentDescription = null, tint = MeshaColors.Muted)
         }
@@ -1113,38 +1141,73 @@ private fun VerifyProofPhoto(
                     },
                 contentAlignment = Alignment.Center,
             ) {
-                AsyncImage(
-                    // proof-media-egress:ignore Photo is tap-armed and Coil cache-keyed by stable proof id.
-                    model = ImageRequest.Builder(context)
-                        .data(media.signedUrl)
-                        .memoryCacheKey("verify-proof-photo-${media.proofSubject}")
-                        .diskCacheKey("verify-proof-photo-${media.proofSubject}")
-                        .build(),
-                    onSuccess = {
-                        onPreview(
-                            VerifyDetailEvent.PhotoPreview(
-                                proofSubject = media.proofSubject,
-                                mimeType = media.mimeType,
-                                action = "fullscreen_load",
-                                outcome = "success",
-                            ),
+                val photoState by produceState<VerifyPhotoLoadState>(
+                    initialValue = VerifyPhotoLoadState.Loading,
+                    key1 = media.proofSubject,
+                    key2 = media.signedUrl,
+                ) {
+                    value = loadVerifyProofPhotoBitmap(context, media.signedUrl, remoteImageLoader)
+                        ?.let(VerifyPhotoLoadState::Ready)
+                        ?: VerifyPhotoLoadState.Unavailable
+                }
+                when (val state = photoState) {
+                    VerifyPhotoLoadState.Loading ->
+                        CircularProgressIndicator(color = MeshaColors.Brand)
+                    is VerifyPhotoLoadState.Ready -> {
+                        LaunchedEffect(media.proofSubject, media.signedUrl, state.bitmap) {
+                            onPreview(
+                                VerifyDetailEvent.PhotoPreview(
+                                    proofSubject = media.proofSubject,
+                                    mimeType = media.mimeType,
+                                    action = "fullscreen_load",
+                                    outcome = "success",
+                                ),
+                            )
+                        }
+                        Image(
+                            bitmap = state.bitmap.asImageBitmap(),
+                            contentDescription = stringResource(R.string.verify_detail_photo_description),
+                            contentScale = ContentScale.Fit,
+                            modifier = Modifier.fillMaxSize(),
                         )
-                    },
-                    onError = { result ->
-                        onPreview(
-                            VerifyDetailEvent.PhotoPreview(
-                                proofSubject = media.proofSubject,
-                                mimeType = media.mimeType,
-                                action = "fullscreen_load",
-                                outcome = "failure",
-                                reason = result.result.throwable.message ?: result.result.throwable::class.simpleName,
-                            ),
-                        )
-                    },
-                    contentDescription = stringResource(R.string.verify_detail_photo_description),
-                    contentScale = ContentScale.Fit,
-                    modifier = Modifier.fillMaxSize(),
-                )
+                    }
+                    VerifyPhotoLoadState.Unavailable -> {
+                        LaunchedEffect(media.proofSubject, media.signedUrl) {
+                            onPreview(
+                                VerifyDetailEvent.PhotoPreview(
+                                    proofSubject = media.proofSubject,
+                                    mimeType = media.mimeType,
+                                    action = "fullscreen_load",
+                                    outcome = "failure",
+                                    reason = "unavailable",
+                                ),
+                            )
+                        }
+                        Icon(MeshaIcons.EyeOff, contentDescription = null, tint = MeshaColors.Muted)
+                    }
+                }
+            }
+        }
+    }
+}
+
+private suspend fun loadVerifyProofPhotoBitmap(
+    context: android.content.Context,
+    url: String,
+    remoteImageLoader: ProofRemoteImageLoader,
+): android.graphics.Bitmap? = withContext(Dispatchers.IO) {
+    withTimeoutOrNull(VERIFY_REMOTE_PHOTO_LOAD_TIMEOUT_MS) {
+        val trimmed = url.trim()
+        if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+            // proof-media-egress:ignore Photo is tap-armed by VerifyProofPhoto and fetched over the authenticated proof media client.
+            remoteImageLoader.load(context, trimmed, VERIFY_REMOTE_PHOTO_LOAD_TIMEOUT_MS)
+        } else {
+            val uri = Uri.parse(trimmed)
+            when (uri.scheme) {
+                "content" -> context.contentResolver.openInputStream(uri)?.use(BitmapFactory::decodeStream)
+                "file" -> BitmapFactory.decodeFile(uri.path)
+                null, "" -> BitmapFactory.decodeFile(trimmed)
+                else -> BitmapFactory.decodeFile(trimmed.removePrefix("file://"))
             }
         }
     }

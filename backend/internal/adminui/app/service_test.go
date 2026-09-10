@@ -238,7 +238,7 @@ func TestActionsPageContractAndNavigation(t *testing.T) {
 	}
 	for _, key := range []string{
 		"state.empty",
-		"drawer.media.title", "drawer.media.open", "action.open_details",
+		"drawer.media.title", "drawer.media.open", "drawer.media.play_video", "drawer.media.open_photo", "action.open_details",
 	} {
 		if page.Copy[key] == "" {
 			t.Fatalf("actions contract missing copy key %q", key)

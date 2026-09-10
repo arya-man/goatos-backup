@@ -871,6 +871,15 @@ func TestListQueueRejectsInvalidStatus(t *testing.T) {
 	}
 }
 
+func TestListQueueRejectsInvalidSort(t *testing.T) {
+	svc, _ := newTestService()
+	_, err := svc.ListQueue(context.Background(), ports.ListQueueParams{TenantID: testTenant, Sort: "captured_at"})
+	var appErr *Error
+	if !errors.As(err, &appErr) || appErr.Code != "invalid_sort" {
+		t.Fatalf("err = %v, want invalid_sort", err)
+	}
+}
+
 func TestListQueueAcceptsPartitionGrainShedFilter(t *testing.T) {
 	svc, _ := newTestService()
 	shedID := "00000000-0000-4000-8000-000000000102"

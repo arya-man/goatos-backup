@@ -712,8 +712,13 @@
      raises specificity so the intended rule actually applies -- do not drop it back to
      `.vr-table th`, that is the bug. */
   .screen .vr-table th{text-align:left;font-size:12px;letter-spacing:normal;text-transform:none;color:var(--muted);font-weight:700;padding:9px 12px;border-bottom:1px solid var(--line);white-space:nowrap}
+  .vr-sortlink{display:inline-flex;align-items:center;gap:5px;color:inherit;text-decoration:none}
+  .vr-sortlink .ic{width:14px;height:14px}
+  .vr-sortlink:hover{color:var(--ink)}
   .vr-table td{font-size:11.5px;padding:11px 12px;border-bottom:1px solid var(--line2);vertical-align:middle}
   .vr-table tr:last-child td{border-bottom:0}
+  .vr-sublegend{margin-top:-4px}
+  .vr-sublegend .vr-lg{min-height:32px;padding:7px 13px;font-size:11px}
   /* "In queue" column age tone: amber past 4h, red past 7d (see IN_QUEUE_AMBER_MS/IN_QUEUE_RED_MS
      in verification-review-page.tsx). Applied only to a still-pending row's age span. */
   .vr-age-amber{color:var(--amber);font-weight:650}
@@ -785,6 +790,11 @@
   .vr-image-proof{display:block;width:100%;height:100%;object-fit:contain;background:#000}
   .vr-player:fullscreen{max-height:none;width:100vw;height:100vh;border-radius:0;border:0}
   .vr-player-empty{display:grid;place-items:center;color:var(--muted);font-size:13px;height:100%}
+  .vr-media-open{position:absolute;inset:0;border:0;background:linear-gradient(135deg,#0b120e,#14221a 54%,#101b16);color:#E9F1EA;display:grid;place-items:center;align-content:center;gap:12px;font-size:17px;font-weight:750;cursor:pointer}
+  .vr-media-open:hover{background:linear-gradient(135deg,#0d1711,#1a2d22 54%,#13211a)}
+  .vr-media-open:disabled{cursor:wait;opacity:.78}
+  .vr-media-open-mark{width:54px;height:54px;border-radius:999px;background:rgba(156,213,88,.18);border:1px solid rgba(156,213,88,.48);display:grid;place-items:center}
+  .vr-media-open-mark .ic{width:26px;height:26px}
   .vr-fsbtn{position:absolute;right:10px;bottom:10px;width:30px;height:30px;border-radius:7px;display:grid;place-items:center;cursor:pointer;color:#E9F1EA;background:rgba(0,0,0,.5);border:0;z-index:2}
   .vr-fsbtn:hover{background:rgba(0,0,0,.72)}
   .vr-fsbtn .ic{width:15px;height:15px}

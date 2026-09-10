@@ -44,6 +44,11 @@ func (e *ErrBatchNotFullyVerified) Error() string {
 	return "verification: batch has unverified or rejected animals"
 }
 
+const (
+	QueueSortCapturedAtAsc  = "captured_at_asc"
+	QueueSortCapturedAtDesc = "captured_at_desc"
+)
+
 // ListQueueParams filters + keysets one page of the verifier queue.
 type ListQueueParams struct {
 	TenantID   string
@@ -79,6 +84,7 @@ type ListQueueParams struct {
 	ParkID         string
 	ShedID         string
 	Cursor         *domain.Cursor
+	Sort           string // captured_at_asc (default) or captured_at_desc.
 	Limit          int
 	// ParkIDs is applied only when ScopeRestricted is true. An empty ParkIDs slice with a
 	// restricted scope intentionally returns zero rows.

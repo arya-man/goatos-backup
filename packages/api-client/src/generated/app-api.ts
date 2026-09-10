@@ -24878,6 +24878,8 @@ export interface operations {
                 /** @description Opaque shed filter key returned by filter_options.sheds. Partitioned locations use `<shed UUID>#<normalized partition>`; a bare shed UUID remains supported and selects every partition of that physical shed. */
                 shed_id?: string;
                 cursor?: string;
+                /** @description Captured-date keyset order. Defaults to captured_at_asc. Changing sort invalidates any cursor from the previous order. */
+                sort?: "captured_at_asc" | "captured_at_desc";
                 /** @description Defaults to 20, capped at 100. */
                 limit?: number;
             };

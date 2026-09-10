@@ -10,6 +10,7 @@ interface ReviewVideoPlayerProps {
   proofId?: string;
   itemId: string;
   eventBuffer: ReviewEventBuffer;
+  autoPlay?: boolean;
   /**
    * Backend-owned labels for the double-speed control (maintainer decision 2026-08-17). Passed in
    * rather than written here, because visible copy belongs to the page contract, not a renderer.
@@ -45,7 +46,7 @@ export const ReviewVideoPlayer = React.forwardRef<
   ReviewVideoPlayerProps & React.HTMLAttributes<HTMLDivElement>
 >(
   (
-    { src, mimeType, proofId, itemId, eventBuffer, speedLabels, ...divProps },
+    { src, mimeType, proofId, itemId, eventBuffer, autoPlay = false, speedLabels, ...divProps },
     ref,
   ) => {
     // The element is held in STATE, not a ref, so the listener effect re-runs whenever React mounts a
@@ -168,6 +169,22 @@ export const ReviewVideoPlayer = React.forwardRef<
       videoEl.playbackRate = isDoubleSpeed ? DOUBLE_SPEED_RATE : NORMAL_SPEED_RATE;
     }, [videoEl, isDoubleSpeed, src]);
 
+    useEffect(() => {
+      if (!autoPlay || !videoEl) return;
+      const play = () => {
+        void videoEl.play().catch(() => {
+          // A delayed signed-URL resolution can lose the original click gesture. Native controls
+          // stay visible, so the verifier still has a normal play button instead of a dead surface.
+        });
+      };
+      if (videoEl.readyState >= 2) {
+        play();
+        return;
+      }
+      videoEl.addEventListener("canplay", play, { once: true });
+      return () => videoEl.removeEventListener("canplay", play);
+    }, [autoPlay, videoEl, src]);
+
     const mayDoubleSpeed = durationSeconds > MIN_DOUBLE_SPEED_DURATION_SECONDS;
     // A clip that turns out to be short must not stay stuck at 2x from a previous, longer one.
     useEffect(() => {
@@ -176,7 +193,7 @@ export const ReviewVideoPlayer = React.forwardRef<
 
     return (
       <div ref={ref} {...divProps}>
-        <video ref={setVideoEl} controls={guardArmed} preload="metadata">
+        <video ref={setVideoEl} controls={guardArmed} preload="metadata" autoPlay={autoPlay}>
           <source src={src} type={mimeType} />
         </video>
         {mayDoubleSpeed ? (

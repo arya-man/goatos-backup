@@ -11819,6 +11819,16 @@ paths:
             type: string
             minLength: 1
             maxLength: 512
+        - name: sort
+          in: query
+          required: false
+          description: >-
+            Captured-date keyset order. Defaults to captured_at_asc. Changing sort invalidates any
+            cursor from the previous order.
+          schema:
+            type: string
+            enum: [captured_at_asc, captured_at_desc]
+            default: captured_at_asc
         - name: limit
           in: query
           required: false

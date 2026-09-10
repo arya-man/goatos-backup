@@ -26,6 +26,7 @@ import (
 
 	platformauth "github.com/vgoats/goatos/backend/internal/platform/auth"
 	"github.com/vgoats/goatos/backend/internal/platform/authallow"
+	"github.com/vgoats/goatos/backend/internal/verification/ports"
 )
 
 const (
@@ -989,7 +990,7 @@ func apiReadTools() []apiReadTool {
 			Description: "Get the canonical verification evidence queue. Use this for pending/approved/rejected proofs and media review backlog. Do not treat pending verification as completed operational work.",
 			Path:        "/verification/queue",
 			Source:      "GET /verification/queue",
-			Properties:  commonReadProperties("category", "vertical", "module", "nav_module", "status", "business_date", "business_date_from", "business_date_to", "missed", "park_id", "shed_id", "cursor", "limit"),
+			Properties:  commonReadProperties("category", "vertical", "module", "nav_module", "status", "business_date", "business_date_from", "business_date_to", "missed", "park_id", "shed_id", "cursor", "sort", "limit"),
 			BuildQuery: func(a apiReadArgs) (url.Values, error) {
 				q := url.Values{}
 				for _, item := range []struct{ name, raw string }{{"category", a.Category}, {"vertical", a.Vertical}, {"module", a.Module}, {"nav_module", a.NavModule}} {
@@ -1015,6 +1016,9 @@ func apiReadTools() []apiReadTool {
 					return nil, err
 				}
 				addOpaque(q, "cursor", a.Cursor)
+				if err := addEnum(q, "sort", a.Sort, ports.QueueSortCapturedAtAsc, ports.QueueSortCapturedAtDesc); err != nil {
+					return nil, err
+				}
 				addLimit(q, a.Limit, 100)
 				return q, nil
 			},
@@ -1540,6 +1544,7 @@ type apiReadArgs struct {
 	ScopeType        string `json:"scope_type"`
 	ScopeID          string `json:"scope_id"`
 	Cursor           string `json:"cursor"`
+	Sort             string `json:"sort"`
 	Missed           any    `json:"missed"`
 	Draft            any    `json:"draft"`
 	Session          any    `json:"session"`

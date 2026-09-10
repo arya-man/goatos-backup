@@ -1,7 +1,7 @@
 import Link from "@/components/no-prefetch-link";
 import { LocalOverlayLink } from "@/components/local-overlay-link";
 import { redirect } from "next/navigation";
-import { Filter, PlayCircle } from "lucide-react";
+import { ArrowDown, ArrowUp, Filter, PlayCircle } from "lucide-react";
 
 import { Tag } from "@/components/ui-primitives";
 import { controlEnabled, copy, table, tableLabels, type AdminUiPageContract } from "@/lib/admin-ui-contract";
@@ -46,7 +46,7 @@ const PATHNAME = "/verify";
 // feedback banner: all four describe the queue as it was BEFORE the change. Carrying a cursor
 // across a filter change is the worst of them — cursors are keyset positions in one filtered
 // sequence, so reusing one lands on an unrelated slice of the new queue.
-const RESET_ON_FILTER = { vi_row: null, vi_cursor: null, vi_trail: null, vi_open_first: null, va_status: null, va_code: null, va_fields: null, va_entries: null };
+const RESET_ON_FILTER = { vi_row: null, vi_cursor: null, vi_trail: null, vi_open_first: null, vi_play: null, va_status: null, va_code: null, va_fields: null, va_entries: null };
 
 
 export async function VerificationReviewPage({
@@ -77,6 +77,8 @@ export async function VerificationReviewPage({
   const today = todayIso();
   const dateRange = parseDateRange(sp, today);
   const trail = decodeTrail(one(sp, "vi_trail"));
+  const sort = verificationSort(one(sp, "sort"));
+  const nextSort = sort === "captured_at_asc" ? "captured_at_desc" : "captured_at_asc";
 
   // The TOXIN review tab (maintainer decision 2026-08-25). Gated on the backend-declared
   // toxin_tab control (permissions.ToxinVerdict — CEO/CXO only; the verifier never holds it and
@@ -107,6 +109,7 @@ export async function VerificationReviewPage({
     shedId,
     limit: 20,
     cursor: one(sp, "vi_cursor"),
+    sort,
   });
   const authError = firstAuthRequiredError(queue);
   if (authError) redirect(INTERNAL_LOGIN_PATH);
@@ -129,6 +132,10 @@ export async function VerificationReviewPage({
   const actionTypes = queue.ok ? queue.data.filter_options.action_types : [];
   const statuses = queue.ok ? queue.data.filter_options.statuses : [];
   const sheds = queue.ok ? queue.data.filter_options.sheds : [];
+  const selectedModuleLabel = modules.find((option) => option.key === selectedModuleKey)?.label ?? selectedModuleKey;
+  const selectedModuleActionTypes = selectedModuleKey
+    ? actionTypes.filter((option) => option.module_key === selectedModuleKey)
+    : [];
   // Park grouping for the shed picker. The backend already returns the options park-first, so this
   // preserves arrival order instead of re-sorting: the park order and the shed order inside it are
   // the backend's, and re-sorting here would be a second opinion about a list it already ordered.
@@ -451,6 +458,30 @@ export async function VerificationReviewPage({
           </div>
         ) : null}
 
+        {moduleFilterOffered && oversightFiltersEnabled && selectedModuleActionTypes.length > 1 ? (
+          <div className="vr-legend vr-sublegend" role="group" aria-label={`${copy(pageContract, "filter.module")} ${selectedModuleLabel}`}>
+            <Link
+              href={hrefWith(sp, { category: null, nav_module: selectedModuleKey, ...RESET_ON_FILTER })}
+              replace
+              scroll={false}
+              className={`vr-lg${category ? "" : " on"}`}
+            >
+              {selectedModuleLabel}
+            </Link>
+            {selectedModuleActionTypes.map((option) => (
+              <Link
+                key={option.category}
+                href={hrefWith(sp, { category: option.category, nav_module: selectedModuleKey, ...RESET_ON_FILTER })}
+                replace
+                scroll={false}
+                className={`vr-lg${category === option.category ? " on" : ""}`}
+              >
+                {option.label}
+              </Link>
+            ))}
+          </div>
+        ) : null}
+
         {/* The TOXIN chip — offered ONLY when the backend contract enables toxin_tab (CEO/CXO,
             permissions.ToxinVerdict). A ?toxin=1 toggle: selecting it swaps this whole board for
             the toxin review screen above. Styled as a .vr-lg chip so it sits in the same chip
@@ -599,8 +630,23 @@ export async function VerificationReviewPage({
           <table data-enh="1" className="vr-table">
             <thead>
               <tr>
-                {columns.map((label) => (
-                  <th key={label}>{label}</th>
+                {columns.map((label, index) => (
+                  <th key={label}>
+                    {index === 2 ? (
+                      <Link
+                        href={hrefWith(sp, { sort: nextSort, ...RESET_ON_FILTER })}
+                        replace
+                        scroll={false}
+                        className="vr-sortlink"
+                        aria-label={`Sort by ${label} ${nextSort === "captured_at_desc" ? "newest first" : "oldest first"}`}
+                      >
+                        <span>{label}</span>
+                        {sort === "captured_at_desc" ? <ArrowDown className="ic" aria-hidden="true" /> : <ArrowUp className="ic" aria-hidden="true" />}
+                      </Link>
+                    ) : (
+                      label
+                    )}
+                  </th>
                 ))}
               </tr>
             </thead>
@@ -715,25 +761,27 @@ function QueueRow({
   pageContract: AdminUiPageContract;
   statusLabels: Record<string, string>;
 }) {
-  const href = hrefWith(searchParams, { vi_row: item.item_id, va_status: null, va_code: null, va_fields: null, va_entries: null });
-  // The whole row opens the review overlay (mock: no Details column). Each cell wraps its content in
-  // the same LocalOverlayLink, so it stays a client-local overlay (no route navigation) and remains
-  // keyboard-reachable per cell instead of relying on a row onClick that a11y cannot follow.
+  const playHref = hrefWith(searchParams, { vi_row: item.item_id, vi_play: "1", va_status: null, va_code: null, va_fields: null, va_entries: null });
+  // The whole row opens the review overlay AND resolves the first proof immediately: this is the
+  // verifier's explicit tap on that evidence row, not an automatic list-preview load. Keeping this
+  // intent on every cell avoids the two-click "open drawer, then open video" trap.
   const cell = (children: React.ReactNode) => (
-    <LocalOverlayLink href={href} className="vr-rowlink" scroll={false}>
+    <LocalOverlayLink href={playHref} className="vr-rowlink" scroll={false}>
       {children}
     </LocalOverlayLink>
   );
   return (
     <tr className="vr-row">
       <td>
-        {cell(<div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <LocalOverlayLink href={playHref} className="vr-rowlink" scroll={false}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <span className="vr-thumb" aria-hidden="true">
             <PlayCircle className="ic" />
             {item.media.length > 1 ? <span className="n">{item.media.length}</span> : null}
           </span>
           {actionTypeLabel}
-        </div>)}
+          </div>
+        </LocalOverlayLink>
       </td>
       <td>
         {cell(subjectCell(item))}
@@ -934,6 +982,11 @@ function businessDaysBefore(day: string, days: number): string {
 function verificationStatus(value: string | undefined): VerificationItemStatus | "all" {
   if (value === "all" || value === "approved" || value === "rejected") return value;
   return "pending";
+}
+
+function verificationSort(value: string | undefined): "captured_at_asc" | "captured_at_desc" {
+  if (value === "captured_at_desc") return "captured_at_desc";
+  return "captured_at_asc";
 }
 
 function hrefWith(params: RouteSearchParams, updates: Record<string, string | null | undefined>): string {

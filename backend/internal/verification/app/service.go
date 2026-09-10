@@ -108,7 +108,7 @@ type QueueResult struct {
 }
 
 // ListQueue returns a keyset page (~20 default, ~100 max) of items, category/vertical/module/status
-// filtered, oldest-captured-first. Media for the whole page is resolved in ONE batched call.
+// filtered, captured-date sorted. Media for the whole page is resolved in ONE batched call.
 func (s *Service) ListQueue(ctx context.Context, params ports.ListQueueParams) (QueueResult, error) {
 	params.TenantID = strings.TrimSpace(params.TenantID)
 	if !uuidutil.IsUUIDString(params.TenantID) {
@@ -121,6 +121,13 @@ func (s *Service) ListQueue(ctx context.Context, params ports.ListQueueParams) (
 	params.BusinessDate = strings.TrimSpace(params.BusinessDate)
 	params.BusinessDateFrom = strings.TrimSpace(params.BusinessDateFrom)
 	params.BusinessDateTo = strings.TrimSpace(params.BusinessDateTo)
+	params.Sort = strings.TrimSpace(params.Sort)
+	if params.Sort == "" {
+		params.Sort = ports.QueueSortCapturedAtAsc
+	}
+	if params.Sort != ports.QueueSortCapturedAtAsc && params.Sort != ports.QueueSortCapturedAtDesc {
+		return QueueResult{}, BadRequest("invalid_sort", "sort must be captured_at_asc or captured_at_desc")
+	}
 	// The capture-date RANGE is gated separately from the cross-module chrome
 	// (permissions.VerificationFilterByCaptureDate): a verifier may narrow her own queue to the
 	// days she is working, which crosses no module boundary. See ports.ListQueueParams.

@@ -424,6 +424,7 @@ func (h *Handler) listQueue(
 		ParkID:               q.Get("park_id"),
 		ShedID:               q.Get("shed_id"),
 		Cursor:               cursor,
+		Sort:                 q.Get("sort"),
 		Limit:                limit,
 		ParkIDs:              parkIDs,
 		ScopeRestricted:      restricted,
