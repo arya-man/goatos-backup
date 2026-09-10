@@ -413,6 +413,40 @@ class GoatDatabaseMigrationTest {
     }
 
     @Test
+    fun `migration 62 to 63 creates the work board tables while preserving existing rows`() {
+        helper.createDatabase(DB_NAME, 62).apply {
+            execSQL(
+                "INSERT INTO `pen_visit_detail_cache` (`cacheKey`, `dtoJson`, `updatedAt`) " +
+                    "VALUES ('visit-keep', '{}', 9)",
+            )
+            close()
+        }
+        val db = helper.runMigrationsAndValidate(DB_NAME, 63, true, MIGRATION_62_63)
+        try {
+            listOf("work_board_meta_cache", "work_board_items", "work_board_remote_keys").forEach { table ->
+                db.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name = '$table'").use { cursor ->
+                    assertEquals("table $table must exist after v63", true, cursor.moveToFirst())
+                }
+            }
+            // The remote key's cursor is a nullable STRING (the backend keyset), never an offset.
+            db.execSQL(
+                "INSERT INTO `work_board_remote_keys` (`queryKey`, `nextCursor`, `endReached`, `updatedAt`) " +
+                    "VALUES ('scope-1', NULL, 1, 1)",
+            )
+            db.query("SELECT `nextCursor` FROM `work_board_remote_keys` WHERE queryKey = 'scope-1'").use { cursor ->
+                assertEquals(true, cursor.moveToFirst())
+                assertEquals(true, cursor.isNull(0))
+            }
+            db.query("SELECT COUNT(*) FROM `pen_visit_detail_cache` WHERE cacheKey = 'visit-keep'").use { cursor ->
+                cursor.moveToFirst()
+                assertEquals("existing rows survive the additive migration", 1, cursor.getInt(0))
+            }
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test
     fun `migration 58 to 59 creates death cause and sales lead tables while preserving existing rows`() {
         helper.createDatabase(DB_NAME, 58).apply {
             // Pre-upgrade rows prove the additive migration touches nothing existing and that a
@@ -545,6 +579,7 @@ class GoatDatabaseMigrationTest {
         MIGRATION_59_60.migrate(db)
         MIGRATION_60_61.migrate(db)
         MIGRATION_61_62.migrate(db)
+        MIGRATION_62_63.migrate(db)
         return db
     }
 
@@ -563,7 +598,7 @@ class GoatDatabaseMigrationTest {
 
     private companion object {
         const val DB_NAME = "goat-migration-test.db"
-        const val CURRENT_VERSION = 62
+        const val CURRENT_VERSION = 63
     }
 }
 

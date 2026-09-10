@@ -24,6 +24,9 @@ class TopLevelChromeTest {
         Routes.VACCINATION,
         Routes.VACCINATION_ALERTS,
         Routes.YOU,
+        // Work Board / My Work (maintainer decision 2026-09-10): the `work_board` module's one
+        // backend-composed bar leaf, an exact L0 root like every other module landing.
+        Routes.WORK,
     )
 
     @Test
@@ -49,6 +52,17 @@ class TopLevelChromeTest {
     fun `root path prefixes do not make a child top level`() {
         assertFalse(isTopLevelRoute("${Routes.VACCINATION}/drive", roots))
         assertFalse(isTopLevelRoute("${Routes.CALENDAR}/day", roots))
+    }
+
+    @Test
+    fun `the work board list is a root and one row's detail is never top level`() {
+        assertTrue(isTopLevelRoute(Routes.WORK, roots))
+        assertTrue(isRootDestination(Routes.WORK))
+        // The hosted row drill shares the L0 path as a PREFIX only: exact membership keeps it a drill.
+        assertFalse(isTopLevelRoute(Routes.workItemRoute("x"), roots))
+        assertFalse(isTopLevelRoute(Routes.WORK_ITEM, roots))
+        assertFalse(isRootDestination(Routes.workItemRoute("feed|feed_packing_completion|abc")))
+        assertFalse(isRootDestination("/work/item/x"))
     }
 
     @Test

@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="work_board_title">मेरा काम</string>
+    <string name="work_board_action_refresh">ताज़ा करें</string>
+    <string name="work_board_action_open">खोलें</string>
+    <string name="work_board_previous_day">पिछला दिन</string>
+    <string name="work_board_next_day">अगला दिन</string>
+    <string name="work_board_today">आज</string>
+    <string name="work_board_own_rows_note">सिर्फ़ आपका काम दिख रहा है</string>
+
+    <string name="work_board_filter_all">सभी</string>
+    <string name="work_board_lane_todo">करना है</string>
+    <string name="work_board_lane_in_progress">चल रहा है</string>
+    <string name="work_board_lane_in_review">जाँच में</string>
+    <string name="work_board_lane_done">पूरा हुआ</string>
+
+    <string name="work_board_module_feed">चारा</string>
+    <string name="work_board_module_health">स्वास्थ्य</string>
+    <string name="work_board_module_vaccination">टीकाकरण</string>
+    <string name="work_board_module_weighing">वज़न</string>
+    <string name="work_board_module_counts">झुंड संचालन</string>
+    <string name="work_board_module_milk">दूध</string>
+    <string name="work_board_module_pc_care">निवारक देखभाल</string>
+    <string name="work_board_module_toxin">चारा जाँच</string>
+    <string name="work_board_module_procurement">खरीद</string>
+    <string name="work_board_module_verification">सत्यापन</string>
+
+    <string name="work_board_state_scheduled">तय है</string>
+    <string name="work_board_state_due">आज देय</string>
+    <string name="work_board_state_overdue">समय बीत गया</string>
+    <string name="work_board_state_in_progress">चल रहा है</string>
+    <string name="work_board_state_proof_pending">सबूत चाहिए</string>
+    <string name="work_board_state_verification_pending">जाँच में</string>
+    <string name="work_board_state_rejected">वापस भेजा गया</string>
+    <string name="work_board_state_deferred">टाला गया</string>
+    <string name="work_board_state_missed">छूट गया</string>
+    <string name="work_board_state_blocked">रुका हुआ</string>
+    <string name="work_board_state_completed">पूरा हुआ</string>
+
+    <string name="work_board_owner_missing">अभी कोई ज़िम्मेदार नहीं</string>
+    <string name="work_board_owner_pool">टीम में कोई भी कर सकता है</string>
+
+    <string name="work_board_tile_done">पूरा</string>
+    <string name="work_board_tile_pending">बाकी</string>
+    <string name="work_board_tile_attention">ध्यान दें</string>
+    <string name="work_board_counts_fmt">%2$d में से %1$d पूरे</string>
+
+    <string name="work_board_detail_pen">बाड़ा</string>
+    <string name="work_board_detail_park">फ़ार्म</string>
+    <string name="work_board_detail_owner">ज़िम्मेदार</string>
+    <string name="work_board_detail_lane">चरण</string>
+    <string name="work_board_detail_missing">यह काम अब आपकी सूची में नहीं है। वापस जाकर ताज़ा करें।</string>
+
+    <string name="work_board_loading">आपका काम लोड हो रहा है…</string>
+    <string name="work_board_empty_own">इस दिन आपकी सूची में कुछ नहीं है</string>
+    <string name="work_board_empty_all">इस दिन बोर्ड पर कुछ नहीं है</string>
+    <string name="work_board_error">आपका काम लोड नहीं हो सका। फिर से कोशिश के लिए ताज़ा करें।</string>
+</resources>

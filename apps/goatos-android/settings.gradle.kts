@@ -62,6 +62,7 @@ include(":feature:feature-vendors")
 include(":feature:feature-vaccination")
 include(":feature:feature-verify")
 include(":feature:feature-weighing")
+include(":feature:feature-workboard")
 
 // --- device (vendor SDKs live ONLY here, behind ports; each ships a fake) ---
 include(":device:device-rfid")

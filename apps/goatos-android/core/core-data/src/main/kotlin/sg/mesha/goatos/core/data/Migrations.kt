@@ -1719,3 +1719,45 @@ val MIGRATION_61_62: Migration = object : Migration(61, 62) {
         )
     }
 }
+
+/**
+ * v62 -> v63: the three Work Board read-model tables (maintainer decision 2026-09-10, the phone's
+ * My Work) — the whole-filter summary blob (`work_board_meta_cache`), the paged board rows keyed by
+ * the backend `row_key` (`work_board_items`) and their per-scope STRING keyset cursor
+ * (`work_board_remote_keys`, `nextCursor` nullable: null once the last page landed). The Feed
+ * three-table shape of [MIGRATION_16_17].
+ *
+ * CREATE, not ALTER: an @Entity added to the @Database with no migration to create its table works
+ * on a fresh install and crashes every upgrade on open. Purely additive -- no existing table
+ * changes, so an installed phone carrying an unsynced write outbox upgrades in place with no data
+ * loss. Each CREATE spells its table name out as a literal so `make room-migration-guard` can
+ * statically match every new v63 @Entity table against a CREATE here
+ * (docs/decisions/room-migration-safety.md).
+ */
+val MIGRATION_62_63: Migration = object : Migration(62, 63) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `work_board_meta_cache` " +
+                "(`cacheKey` TEXT NOT NULL, `dtoJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, " +
+                "PRIMARY KEY(`cacheKey`))",
+        )
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `work_board_items` " +
+                "(`queryKey` TEXT NOT NULL, `rowKey` TEXT NOT NULL, `sortIndex` INTEGER NOT NULL, " +
+                "`dtoJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, " +
+                "PRIMARY KEY(`queryKey`, `rowKey`))",
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_work_board_items_queryKey_sortIndex` " +
+                "ON `work_board_items` (`queryKey`, `sortIndex`)",
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_work_board_items_rowKey` ON `work_board_items` (`rowKey`)",
+        )
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `work_board_remote_keys` " +
+                "(`queryKey` TEXT NOT NULL, `nextCursor` TEXT, `endReached` INTEGER NOT NULL, " +
+                "`updatedAt` INTEGER NOT NULL, PRIMARY KEY(`queryKey`))",
+        )
+    }
+}

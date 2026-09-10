@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="work_board_title">నా పని</string>
+    <string name="work_board_action_refresh">రిఫ్రెష్ చేయండి</string>
+    <string name="work_board_action_open">తెరవండి</string>
+    <string name="work_board_previous_day">ముందు రోజు</string>
+    <string name="work_board_next_day">తర్వాతి రోజు</string>
+    <string name="work_board_today">ఈరోజు</string>
+    <string name="work_board_own_rows_note">మీ పని మాత్రమే చూపిస్తున్నాం</string>
+
+    <string name="work_board_filter_all">అన్నీ</string>
+    <string name="work_board_lane_todo">చేయాల్సినవి</string>
+    <string name="work_board_lane_in_progress">జరుగుతోంది</string>
+    <string name="work_board_lane_in_review">సమీక్షలో</string>
+    <string name="work_board_lane_done">పూర్తయింది</string>
+
+    <string name="work_board_module_feed">మేత</string>
+    <string name="work_board_module_health">ఆరోగ్యం</string>
+    <string name="work_board_module_vaccination">టీకాలు</string>
+    <string name="work_board_module_weighing">బరువు</string>
+    <string name="work_board_module_counts">మంద నిర్వహణ</string>
+    <string name="work_board_module_milk">పాలు</string>
+    <string name="work_board_module_pc_care">నివారణ సంరక్షణ</string>
+    <string name="work_board_module_toxin">మేత పరీక్ష</string>
+    <string name="work_board_module_procurement">కొనుగోలు</string>
+    <string name="work_board_module_verification">ధృవీకరణ</string>
+
+    <string name="work_board_state_scheduled">నిర్ణయించబడింది</string>
+    <string name="work_board_state_due">ఈరోజు చేయాలి</string>
+    <string name="work_board_state_overdue">గడువు దాటింది</string>
+    <string name="work_board_state_in_progress">జరుగుతోంది</string>
+    <string name="work_board_state_proof_pending">రుజువు కావాలి</string>
+    <string name="work_board_state_verification_pending">సమీక్షలో</string>
+    <string name="work_board_state_rejected">వెనక్కి పంపారు</string>
+    <string name="work_board_state_deferred">వాయిదా వేశారు</string>
+    <string name="work_board_state_missed">తప్పిపోయింది</string>
+    <string name="work_board_state_blocked">ఆగిపోయింది</string>
+    <string name="work_board_state_completed">పూర్తయింది</string>
+
+    <string name="work_board_owner_missing">ఇంకా బాధ్యులు లేరు</string>
+    <string name="work_board_owner_pool">జట్టులో ఎవరైనా చేయవచ్చు</string>
+
+    <string name="work_board_tile_done">పూర్తయింది</string>
+    <string name="work_board_tile_pending">మిగిలినవి</string>
+    <string name="work_board_tile_attention">శ్రద్ధ అవసరం</string>
+    <string name="work_board_counts_fmt">%2$d లో %1$d పూర్తయ్యాయి</string>
+
+    <string name="work_board_detail_pen">పెన్</string>
+    <string name="work_board_detail_park">ఫారం</string>
+    <string name="work_board_detail_owner">బాధ్యులు</string>
+    <string name="work_board_detail_lane">దశ</string>
+    <string name="work_board_detail_missing">ఈ పని ఇప్పుడు మీ జాబితాలో లేదు. వెనక్కి వెళ్లి రిఫ్రెష్ చేయండి.</string>
+
+    <string name="work_board_loading">మీ పని లోడ్ అవుతోంది…</string>
+    <string name="work_board_empty_own">ఈ రోజు మీ జాబితాలో ఏమీ లేదు</string>
+    <string name="work_board_empty_all">ఈ రోజు బోర్డులో ఏమీ లేదు</string>
+    <string name="work_board_error">మీ పని లోడ్ కాలేదు. మళ్లీ ప్రయత్నించడానికి రిఫ్రెష్ నొక్కండి.</string>
+</resources>
