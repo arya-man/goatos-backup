@@ -354,6 +354,9 @@ var protectedRoutes = []Route{
 	// workboard/adapters/http.Register.
 	{OperationID: "listWorkBoardRows", Method: "GET", Pattern: "/work-board/rows", Permissions: []string{WorkBoardRead}},
 	{OperationID: "getWorkBoardSummary", Method: "GET", Pattern: "/work-board/summary", Permissions: []string{WorkBoardRead}},
+	// A FLAG raises a Leadership Task to the park head from a board row, so it rides the
+	// raise permission the directors and the CEO already hold, plus oversight of the park.
+	{OperationID: "raiseWorkBoardFlag", Method: "POST", Pattern: "/work-board/flags", Permissions: []string{WorkBoardOversee, LeadershipTasksRaise}},
 
 	// LEADERSHIP TASKS (maintainer decisions 2026-09-04 and 2026-09-08): manual asks between
 	// leadership and active app-backed workers.

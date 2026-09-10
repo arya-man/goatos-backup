@@ -5,13 +5,16 @@ package http
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"io"
 	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
+	ltdomain "github.com/vgoats/goatos/backend/internal/leadershiptasks/domain"
 	"github.com/vgoats/goatos/backend/internal/permissions"
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
@@ -19,6 +22,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/platform/uuidutil"
 	"github.com/vgoats/goatos/backend/internal/workboard/app"
 	"github.com/vgoats/goatos/backend/internal/workboard/domain"
+	"github.com/vgoats/goatos/backend/internal/workboard/ports"
 )
 
 // Service is what this transport needs from the board.
@@ -31,6 +35,7 @@ type Service interface {
 // Handler serves the board routes.
 type Handler struct {
 	service Service
+	flags   FlagService
 	log     *slog.Logger
 	now     func() time.Time
 }
@@ -47,6 +52,7 @@ func NewHandler(service Service, log *slog.Logger) *Handler {
 func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("GET /work-board/rows", h.Rows)
 	mux.HandleFunc("GET /work-board/summary", h.Summary)
+	mux.HandleFunc("POST /work-board/flags", h.Flag)
 }
 
 // rowsPayload is the wire shape of one page.
@@ -257,4 +263,110 @@ func (h *Handler) writeServiceErr(w http.ResponseWriter, r *http.Request, err er
 
 func (h *Handler) writeErr(w http.ResponseWriter, r *http.Request, status int, code, message string) {
 	httpresponse.WriteError(w, r, h.log, status, map[string]any{"error": code, "message": message}, errors.New(code))
+}
+
+// ---- flags ---------------------------------------------------------------------------
+
+// FlagService is the raise-to-park-head write the drawer's Flag button calls.
+type FlagService interface {
+	Flag(ctx context.Context, p ports.FlagParams) (ports.FlagResult, error)
+}
+
+// WithFlags attaches the flag write. Register mounts its route only when it is present.
+func (h *Handler) WithFlags(f FlagService) *Handler {
+	h.flags = f
+	return h
+}
+
+type flagPayload struct {
+	RowKey      string `json:"row_key"`
+	ParkID      string `json:"park_id"`
+	RowTitle    string `json:"row_title"`
+	RowSubtitle string `json:"row_subtitle"`
+	PenDisplay  string `json:"pen_display"`
+	ClockLabel  string `json:"clock_label"`
+	Note        string `json:"note"`
+}
+
+type flagResultPayload struct {
+	TaskID       string `json:"task_id"`
+	TaskNo       int64  `json:"task_no"`
+	AssigneeName string `json:"assignee_name"`
+}
+
+const maxFlagBodyBytes = 16 * 1024
+
+// Flag serves POST /work-board/flags: the director's phone call made visible. Park scope is
+// resolved the same way the reads are; the route table gates it on leadership_tasks.raise.
+func (h *Handler) Flag(w http.ResponseWriter, r *http.Request) {
+	if h.flags == nil {
+		h.writeErr(w, r, http.StatusNotFound, "not_found", "Flags are not available.")
+		return
+	}
+	key := strings.TrimSpace(r.Header.Get("Idempotency-Key"))
+	if key == "" {
+		h.writeErr(w, r, http.StatusBadRequest, "missing_idempotency_key", "This flag could not be recorded safely. Try again.")
+		return
+	}
+	var body flagPayload
+	dec := json.NewDecoder(io.LimitReader(r.Body, maxFlagBodyBytes))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&body); err != nil {
+		h.writeErr(w, r, http.StatusBadRequest, "invalid_body", "That flag could not be read.")
+		return
+	}
+	ctx := r.Context()
+	tenantID := strings.TrimSpace(httpmiddleware.TenantIDFromContext(ctx))
+	parkID := strings.TrimSpace(body.ParkID)
+	if parkID == "" || !uuidutil.IsUUIDString(parkID) {
+		h.writeErr(w, r, http.StatusBadRequest, "invalid_park_id", "That park is not valid.")
+		return
+	}
+	scope := httpmiddleware.ResolveAuthorizedParkScopeForCapabilities(ctx, tenantID, parkID, permissions.WorkBoardOversee)
+	if !scope.Allowed {
+		h.writeErr(w, r, scope.Status, scope.Code, scope.Message)
+		return
+	}
+	result, err := h.flags.Flag(ctx, ports.FlagParams{
+		TenantID: tenantID, ActorID: strings.TrimSpace(httpmiddleware.ActorIDFromContext(ctx)),
+		ActorDesignation: raiseDesignation(ctx), ParkID: scope.ParkID,
+		RowKey: body.RowKey, RowTitle: body.RowTitle, RowSubtitle: body.RowSubtitle,
+		PenDisplay: body.PenDisplay, ClockLabel: body.ClockLabel, Note: body.Note,
+		IdempotencyKey: key,
+	})
+	if err != nil {
+		h.writeFlagErr(w, r, err)
+		return
+	}
+	httpresponse.WriteJSON(w, http.StatusCreated, flagResultPayload{TaskID: result.TaskID, TaskNo: result.TaskNo, AssigneeName: result.AssigneeName})
+}
+
+// raiseDesignation is the director desk the flag is raised from: the first grant role that
+// carries leadership_tasks.raise, exactly as the Leadership Tasks handler resolves it.
+func raiseDesignation(ctx context.Context) string {
+	for _, grant := range httpmiddleware.AuthGrantsFromContext(ctx) {
+		if permissions.RoleHasPermission(grant.Role, permissions.LeadershipTasksRaise) {
+			return grant.Role
+		}
+	}
+	return ""
+}
+
+func (h *Handler) writeFlagErr(w http.ResponseWriter, r *http.Request, err error) {
+	switch {
+	case errors.Is(err, ports.ErrParkHeadMissing):
+		h.writeErr(w, r, http.StatusUnprocessableEntity, "park_head_missing", "This park has no park head to flag. Fix the park's people first.")
+	case errors.Is(err, app.ErrFlagRowRequired), errors.Is(err, app.ErrFlagParkRequired):
+		h.writeErr(w, r, http.StatusBadRequest, "invalid_flag", "That flag is missing the work it is about.")
+	case errors.Is(err, app.ErrFlagNoteTooLong):
+		h.writeErr(w, r, http.StatusBadRequest, "note_too_long", "Keep the note under 1000 characters.")
+	case errors.Is(err, ltdomain.ErrSelfAssignment):
+		h.writeErr(w, r, http.StatusUnprocessableEntity, "flag_to_self", "You are this park's head; the flag would come back to you.")
+	case errors.Is(err, ltdomain.ErrAssigneeNotAssignable):
+		h.writeErr(w, r, http.StatusUnprocessableEntity, "park_head_not_reachable", "This park's head cannot receive tasks on the phone yet.")
+	default:
+		httpresponse.WriteError(w, r, h.log, http.StatusInternalServerError, map[string]any{
+			"error": "internal_error", "message": "The flag could not be recorded. Try again.",
+		}, err)
+	}
 }

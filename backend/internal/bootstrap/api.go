@@ -112,6 +112,7 @@ import (
 	toxinproof "github.com/vgoats/goatos/backend/internal/toxin/adapters/proof"
 	toxinapp "github.com/vgoats/goatos/backend/internal/toxin/app"
 	workboardhttp "github.com/vgoats/goatos/backend/internal/workboard/adapters/http"
+	workboardpg "github.com/vgoats/goatos/backend/internal/workboard/adapters/postgres"
 	workboardapp "github.com/vgoats/goatos/backend/internal/workboard/app"
 	"golang.org/x/oauth2"
 
@@ -759,7 +760,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 		// Vaccination reuses the process-integrity read behind the port; the member
 		// resolver is what lets the operator lens narrow it by user id.
 		piboard.New(processIntegrityRepo).WithMemberResolver(piboard.NewPoolMemberResolver(pool, cfg.Postgres.QueryTimeout)),
-	), log)
+	), log).WithFlags(workboardapp.NewFlagService(leadershipTasksService, workboardpg.NewParkHeadResolver(pool, cfg.Postgres.QueryTimeout)))
 	// Pen visits (maintainer decision 2026-09-07): the Tasks module's "For me" tab. The kernel
 	// raises them; this serves the park head's list and the submit that carries the live video.
 	// The module badge is the SUM of both halves of Tasks: unseen asks plus visits still owed.

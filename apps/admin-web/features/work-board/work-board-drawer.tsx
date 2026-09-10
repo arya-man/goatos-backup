@@ -3,9 +3,10 @@
 import Link from "@/components/no-prefetch-link";
 import { LocalOverlayDrawer, type LocalOverlayDrawerItem } from "@/components/local-overlay-drawer";
 import { Tag } from "@/components/ui-primitives";
-import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
+import { control, controlEnabled, copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { WorkBoardRow } from "@/lib/api/work-board-server";
 import { fmtDate } from "@/lib/format";
+import { flagParkHeadAction } from "./actions";
 import { findOption, lanes, moduleOptions, PARAM_ROW, stateOptions, toneOf } from "./work-board-model";
 
 // The card's detail, opened as a local overlay: no navigation, no document request. Every
@@ -62,27 +63,71 @@ function Detail({ pageContract, row }: { pageContract: AdminUiPageContract; row:
   );
 }
 
+// The Flag form: raises a Leadership Task to the park head with this row's backend-owned
+// strings and an optional note. Rendered only when the page contract enables the control
+// (leadership_tasks.raise AND work_board.oversee); disabled with the backend's reason otherwise.
+function FlagForm({ pageContract, row, returnTo }: { pageContract: AdminUiPageContract; row: WorkBoardRow; returnTo: string }) {
+  const enabled = controlEnabled(pageContract, "flag_park_head", false);
+  const ctl = control(pageContract, "flag_park_head");
+  return (
+    <form action={flagParkHeadAction} style={{ display: "grid", gap: 8, width: "100%" }}>
+      <input type="hidden" name="row_key" value={row.row_key} />
+      <input type="hidden" name="park_id" value={row.park_id} />
+      <input type="hidden" name="row_title" value={row.title} />
+      <input type="hidden" name="row_subtitle" value={row.subtitle ?? ""} />
+      <input type="hidden" name="pen_display" value={row.pen.operational_location_display ?? ""} />
+      <input type="hidden" name="clock_label" value={row.clock_label ?? ""} />
+      <input type="hidden" name="return_to" value={returnTo} />
+      <label className="muted small" htmlFor={`flag-note-${row.row_key}`}>
+        {copy(pageContract, "flag.note")}
+      </label>
+      <input
+        id={`flag-note-${row.row_key}`}
+        name="note"
+        maxLength={1000}
+        placeholder={copy(pageContract, "flag.note.placeholder")}
+        disabled={!enabled}
+        style={{ background: "var(--bg)", border: "1px solid var(--line)", borderRadius: 9, padding: "8px 10px", font: "inherit", color: "inherit" }}
+      />
+      <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+        <button type="submit" className="btn sm p" disabled={!enabled} aria-disabled={!enabled || undefined} title={enabled ? copy(pageContract, "flag.hint") : ctl.disabled_reason}>
+          {ctl.label}
+        </button>
+        {!enabled ? <span className="muted small">{ctl.disabled_reason}</span> : <span className="muted small">{copy(pageContract, "flag.hint")}</span>}
+      </div>
+    </form>
+  );
+}
+
 export function WorkBoardDrawer({
   pageContract,
   rows,
   initialSelectedRowKey,
   closeHref,
+  returnToByRow,
 }: {
   pageContract: AdminUiPageContract;
   rows: WorkBoardRow[];
   initialSelectedRowKey?: string;
   closeHref: string;
+  // Serialisable, because this is a client component: one return URL per row key.
+  returnToByRow: Record<string, string>;
 }) {
   const items: LocalOverlayDrawerItem[] = rows.map((row) => ({
     id: row.row_key,
     eyebrow: copy(pageContract, "drawer.title"),
     title: row.title,
     body: <Detail pageContract={pageContract} row={row} />,
-    footer: row.href ? (
-      <Link href={row.href} className="btn sm p">
-        {copy(pageContract, "drawer.open_module")}
-      </Link>
-    ) : undefined,
+    footer: (
+      <div style={{ display: "grid", gap: 10, width: "100%" }}>
+        <FlagForm pageContract={pageContract} row={row} returnTo={returnToByRow[row.row_key] ?? closeHref} />
+        {row.href ? (
+          <Link href={row.href} className="btn sm">
+            {copy(pageContract, "drawer.open_module")}
+          </Link>
+        ) : null}
+      </div>
+    ),
   }));
   return (
     <LocalOverlayDrawer
