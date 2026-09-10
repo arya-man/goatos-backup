@@ -78,6 +78,9 @@ type Source struct {
 	repo    Lister
 	members MemberResolver
 	now     func() time.Time
+	// pool serves the per-animal subtask read (subtasks.go); nil until WithPool.
+	pool    *pgxpool.Pool
+	timeout time.Duration
 }
 
 // New constructs the source over the process-integrity repository.

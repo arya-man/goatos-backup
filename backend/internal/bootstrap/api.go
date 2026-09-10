@@ -759,7 +759,10 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 		pccareboard.New(pool, cfg.Postgres.QueryTimeout),
 		// Vaccination reuses the process-integrity read behind the port; the member
 		// resolver is what lets the operator lens narrow it by user id.
-		piboard.New(processIntegrityRepo).WithMemberResolver(piboard.NewPoolMemberResolver(pool, cfg.Postgres.QueryTimeout)),
+		piboard.New(processIntegrityRepo).
+			WithMemberResolver(piboard.NewPoolMemberResolver(pool, cfg.Postgres.QueryTimeout)).
+			// The per-animal subtask drill is the source's own SQL and needs the pool.
+			WithPool(pool, cfg.Postgres.QueryTimeout),
 	)
 	workBoardHandler := workboardhttp.NewHandler(workBoardService, log).WithFlags(workboardapp.NewFlagService(workBoardService, leadershipTasksService, workboardpg.NewParkHeadResolver(pool, cfg.Postgres.QueryTimeout)))
 	// Pen visits (maintainer decision 2026-09-07): the Tasks module's "For me" tab. The kernel
