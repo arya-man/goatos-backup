@@ -40,7 +40,6 @@ function Detail({ pageContract, row }: { pageContract: AdminUiPageContract; row:
             {row.counts.done}
             {total > 0 ? <small className="muted"> / {total}</small> : null}
           </div>
-          <div className="dl">{copy(pageContract, "tile.done.hint")}</div>
         </div>
         <div className="kpi">
           <div className="lab">{copy(pageContract, "tile.pending")}</div>

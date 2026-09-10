@@ -26,8 +26,7 @@ function WorkCard({ pageContract, row, href }: { pageContract: AdminUiPageContra
       style={{ color: "inherit", textDecoration: "none" }}
     >
       <div className="tt">
-        <span className="ec" title={row.pen.operational_location_display}>{row.pen.operational_location_display || row.park_name}</span>
-        <span className={`sla ${clockClass(row)}`} style={{ marginLeft: "auto" }} title={row.clock_label}>
+        <span className={`sla ${clockClass(row)}`} title={row.clock_label}>
           {row.clock_label}
         </span>
       </div>
@@ -50,7 +49,7 @@ function WorkCard({ pageContract, row, href }: { pageContract: AdminUiPageContra
         ) : null}
         {row.counts.needs_attention > 0 ? (
           <span className="small ac-progress" style={{ color: "var(--amber)" }}>
-            {row.counts.needs_attention} {copy(pageContract, "card.not_moving")}
+            {row.counts.needs_attention} {copy(pageContract, "card.attention")}
           </span>
         ) : null}
       </div>
