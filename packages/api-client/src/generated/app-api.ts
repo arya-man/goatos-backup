@@ -9061,6 +9061,25 @@ export interface components {
         PCCareRoundCardPage: {
             items: components["schemas"]["PCCareRoundCard"][];
             next_cursor?: string;
+            counts: components["schemas"]["PCCareRoundCardCounts"];
+            /** @description The PEN vocabulary behind the Pen filter: every pen holding a live task inside the window (plus still-open work due before it), with how many cards it sits on. Whole-filter, status-blind, empty without a window or on a day-pinned read. */
+            pens: components["schemas"]["PCCareRoundPenOption"][];
+        };
+        /** @description Whole-filter CARD tally behind the Pending / Completed pills, over the same window and pen the list applies (Pending with its carry rule). Never derived from a page; zero on a day-pinned read. */
+        PCCareRoundCardCounts: {
+            active: number;
+            completed: number;
+        };
+        PCCareRoundPenOption: {
+            /** Format: uuid */
+            shed_id: string;
+            partition_label: string;
+            /** @description Backend-composed operational location display. */
+            operational_location_display: string;
+            /** Format: uuid */
+            park_id: string;
+            park_name: string;
+            card_count: number;
         };
         /** @description One pen named by a round create. Identity ONLY — the display label is composed server-side from the pen catalog, so a client cannot name a pen the farm does not use. */
         PCCareRoundPen: {
@@ -12585,6 +12604,8 @@ export interface components {
             items: components["schemas"]["WeighingCampaign"][];
             next_cursor?: string;
             counts?: components["schemas"]["WeighingCampaignCounts"];
+            /** @description The PEN vocabulary behind the task list's Pen filter: every pen holding a live bucket on a task inside the date window (plus still-open work planned before it), with how many tasks it sits on. Whole-filter, status-blind, empty without a window. */
+            pens?: components["schemas"]["WeighingCampaignPenOption"][];
             /** @description SURFACE-grain, not row-grain. The envelope covers a page whose rows may span several parks, so this is an upper bound ("the caller holds this permission somewhere on this surface") and must NOT be used to gate a per-row button. The single-task read answers at row grain. */
             capabilities?: components["schemas"]["WeighingCampaignCapabilities"];
             /** @description OPERATOR-grain roll-up behind the weighing oversight surface: one row per person holding weighing work in this scope. Unlike `counts` it IS narrowed by `park_id`, because the park chip is that screen's own filter. Served whole (capped at 50), not paged: a roll-up that pages cannot answer "who did what". */
@@ -12619,7 +12640,19 @@ export interface components {
             /** @description FACT 2 of 2. The subset of animals_weighed_count this person has SUBMITTED for verification. Whole-filter aggregate, same predicate as WeighingCampaignShed.animals_submitted_count. Clients render the PAIR, in this order and these words: "N weighed · N submitted". When work exists and this is zero they show a "Not submitted" chip -- the same word as the operator's Submit button. This pair is what makes visible the mid-shift state where an operator has weighed animals and walked away without submitting them. */
             animals_submitted_count: number;
         };
-        /** @description Whole-filter task tally behind the Active / Completed tabs. GRAIN: one task = one park on one weigh date. Computed over the entire scope the caller may see, never from the returned page and never narrowed by `park_id`. `completed` is status completed or closed; `active` is every other live status. A canceled task is in neither. */
+        WeighingCampaignPenOption: {
+            /** Format: uuid */
+            shed_id: string;
+            /** @description Blank for an undivided shed. */
+            partition_label: string;
+            /** @description The bucket's display name verbatim */
+            operational_location_display: string;
+            /** Format: uuid */
+            park_id: string;
+            park_name: string;
+            task_count: number;
+        };
+        /** @description Whole-filter task tally behind the Pending / Completed tabs. GRAIN: one task = one park on one weigh date. Computed over the entire scope the caller may see, never from the returned page and never narrowed by `park_id`; it IS narrowed by the filter bar's date window and pen (the pills must equal what their tabs list), with the Pending carry rule. `completed` is status completed or closed; `active` is every other live status. A canceled task is in neither. */
         WeighingCampaignCounts: {
             active: number;
             completed: number;
@@ -17357,6 +17390,16 @@ export interface operations {
                 scope?: "mine" | "all" | "operators";
                 /** @description Optional park filter. It narrows the returned ROWS only; `counts` stays a whole-scope aggregate so the Active/Completed tallies do not move when the park chip changes. */
                 park_id?: string;
+                /** @description Filter-bar tab (maintainer request 2026-09-10). `pending` is every live status that is not finished (draft, published, in_progress, delayed) and reads SOONEST-FIRST; `completed` is completed or closed work and keeps the newest-first order. Absent is the legacy unfiltered read. A canceled task is in neither. */
+                status?: "pending" | "completed";
+                /** @description Start of an INCLUSIVE business-date window on the task's weigh date. Both ends or neither; a half-formed window is refused. A `pending` read also carries still-open work planned BEFORE the window, because a delayed task keeps its original date and must not vanish behind "today onwards". The phone defaults to today through the next seven days. */
+                date_from?: string;
+                /** @description End of the inclusive window; see `date_from`. */
+                date_to?: string;
+                /** @description One pen, by the bucket's own location id (with `partition_label`). Narrows rows AND `counts`; `pens` stays the whole window's vocabulary so the pick survives switching tabs. */
+                shed_id?: string;
+                /** @description The pen's partition label as returned in `pens`; blank for an undivided shed. */
+                partition_label?: string;
                 cursor?: string;
                 limit?: number;
             };
@@ -20922,6 +20965,14 @@ export interface operations {
                 cursor?: string;
                 /** @description With `date`, also returns open carry-over work due before it. */
                 current_or_carry?: boolean;
+                /** @description Filter bar (maintainer request 2026-09-10): start of an INCLUSIVE due-date window on the DATELESS read. Both ends or neither. `filter=active` also carries still-open work due BEFORE the window (a delayed round keeps its date); `filter=completed` is the window exactly. The phone defaults to today through the next seven days. */
+                date_from?: string;
+                /** @description End of the inclusive window; see `date_from`. */
+                date_to?: string;
+                /** @description One pen (with `partition_label`). A card is kept WHOLE when any of its pens is that pen. Narrows rows and `counts`; `pens` stays the window's vocabulary. */
+                shed_id?: string;
+                /** @description The pen's partition label as returned in `pens`; blank for an undivided shed. */
+                partition_label?: string;
             };
             header?: never;
             path?: never;

@@ -19,6 +19,7 @@ android {
 }
 
 dependencies {
+    implementation(project(":core:core-common"))
     implementation(project(":core:core-designsystem"))
     implementation(project(":core:core-media"))
     implementation(project(":core:core-model"))

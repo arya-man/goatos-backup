@@ -22,6 +22,7 @@ import kotlinx.coroutines.launch
 import sg.mesha.goatos.core.analytics.AnalyticsEvents
 import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.analytics.CrashReporter
+import sg.mesha.goatos.core.common.datetime.GoatOsDates
 import sg.mesha.goatos.core.data.BootstrapRepository
 import sg.mesha.goatos.core.data.PcCareRepository
 import sg.mesha.goatos.core.data.PcCareRoundsWindow
@@ -946,9 +947,6 @@ internal fun pcCareCardStatusLabel(workState: String, status: String): String = 
 
 private const val ROUND_CARDS_PREFETCH_DISTANCE = 3
 
-private val pcCareCardDateFormatter = java.time.format.DateTimeFormatter.ofPattern("EEE d MMM", java.util.Locale.ENGLISH)
-
-/** "Mon 7 Sep" for the card chip; the raw value if it is not a date. */
+/** "07/09/2026" for the card chip; the raw value if it is not a date. */
 internal fun pcCareCardDate(iso: String): String =
-    // exception:exempt date parsing for display; a value that is not a date renders verbatim
-    runCatching { LocalDate.parse(iso).format(pcCareCardDateFormatter) }.getOrDefault(iso)
+    GoatOsDates.fromWireDate(iso)

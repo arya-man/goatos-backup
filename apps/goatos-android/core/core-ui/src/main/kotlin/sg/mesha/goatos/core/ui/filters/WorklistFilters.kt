@@ -1,8 +1,7 @@
 package sg.mesha.goatos.core.ui.filters
 
+import sg.mesha.goatos.core.common.datetime.GoatOsDates
 import java.time.LocalDate
-import java.time.format.DateTimeFormatter
-import java.util.Locale
 
 /**
  * The shared FILTER BAR model over a phone worklist (maintainer request 2026-09-10): the
@@ -47,22 +46,19 @@ data class WorklistPenOption(
     val pen: WorklistPen get() = WorklistPen(shedId = shedId, partitionLabel = partitionLabel, label = label)
 }
 
-private val dayMonth: DateTimeFormatter = DateTimeFormatter.ofPattern("d MMM", Locale.ENGLISH)
-private val weekdayDayMonth: DateTimeFormatter = DateTimeFormatter.ofPattern("EEE d MMM", Locale.ENGLISH)
-
-/** "Today · 10 Sep", "Mon 14 Sep", or "10 Sep – 17 Sep". */
+/** "Today · 10/09/2026", "14/09/2026", or "10/09/2026 – 17/09/2026". */
 fun WorklistDateWindow.displayLabel(today: LocalDate, todayWord: String): String = when {
-    isSingleDay && from == today -> "$todayWord · ${from.format(dayMonth)}"
-    isSingleDay -> from.format(weekdayDayMonth)
-    else -> "${from.format(dayMonth)} – ${to.format(dayMonth)}"
+    isSingleDay && from == today -> "$todayWord · ${GoatOsDates.date(from)}"
+    isSingleDay -> GoatOsDates.date(from)
+    else -> "${GoatOsDates.date(from)} – ${GoatOsDates.date(to)}"
 }
 
 /** The date header a list draws between cards when the window spans more than one day. */
 fun worklistDateHeader(dateIso: String, today: LocalDate, todayWord: String): String {
     // exception:exempt date parsing for display; a value that is not a date renders verbatim
     val date = runCatching { LocalDate.parse(dateIso) }.getOrNull() ?: return dateIso
-    return if (date == today) "$todayWord · ${date.format(weekdayDayMonth)}" else date.format(weekdayDayMonth)
+    return if (date == today) "$todayWord · ${GoatOsDates.date(date)}" else GoatOsDates.date(date)
 }
 
 /** Formats a picked day for the From / To fields of the calendar sheet. */
-fun worklistFieldDate(date: LocalDate?): String = date?.format(weekdayDayMonth) ?: "—"
+fun worklistFieldDate(date: LocalDate?): String = date?.let(GoatOsDates::date) ?: "—"
