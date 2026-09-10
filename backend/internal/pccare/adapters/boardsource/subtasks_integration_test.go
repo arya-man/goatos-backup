@@ -34,6 +34,15 @@ func TestPCCareSubtasksAreScannedAnimalsOnADatabaseRoundTrip(t *testing.T) {
 	seed(t, ctx, pool)
 	src := New(pool, 5*time.Second)
 
+	rows, err := src.ListRows(ctx, query(""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range rows {
+		if r.Href != "" {
+			t.Fatalf("PC Care has no web page yet; %s must carry no href, got %q", r.SourceID, r.Href)
+		}
+	}
 	// Three animals scanned into the deworming task: two filmed, one not.
 	page, err := src.ListSubtasks(ctx, subtaskQuery(tScanning))
 	if err != nil {

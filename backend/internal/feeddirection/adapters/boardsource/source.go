@@ -212,6 +212,9 @@ func scanRow(rows pgx.Rows) (domain.Row, error) {
 		WorkState: state, Severity: domain.SeverityOK,
 		Owner: owner, OwnerState: ownerState,
 		Title: "Transport " + pen.Display, Subtitle: "One trip · stage by 15:00", Counts: counts,
+		// Transport has no admin-web page of its own (the trip is filmed and verified on the
+		// phone); the Feed analytics page is the module's web surface.
+		Href: "/feed/analytics",
 	}.Finalize(), nil
 }
 

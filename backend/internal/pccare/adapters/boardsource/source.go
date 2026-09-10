@@ -294,6 +294,9 @@ func scanRow(rows pgx.Rows) (domain.Row, error) {
 		WorkState: state, Severity: severity,
 		Owner: owner, OwnerState: ownerState,
 		Title: title, Subtitle: subtitle, Counts: counts,
+		// PC Care has NO admin-web page yet (tasks are planned and worked on the phone, and
+		// reviewed on /verify), so Href stays empty: a link that lands nowhere is worse than
+		// no link. Fill it when a PC Care web surface ships.
 	}.Finalize(), nil
 }
 

@@ -23,6 +23,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
 	"sort"
 	"strconv"
 	"strings"
@@ -276,6 +277,15 @@ func mapRow(pr pidomain.Row) domain.Row {
 	if pending < 0 {
 		pending = 0
 	}
+	// The shed execution page exists per shed and reads partition_label for the pen; as_of
+	// must be a live RFC3339 instant there, so the link shows the pen's current state.
+	href := ""
+	if pr.ShedID != "" {
+		href = "/vaccination/execution/sheds/" + url.PathEscape(pr.ShedID) + "?scope_mode=park&park=" + url.QueryEscape(pr.ParkID)
+		if partition != "" {
+			href += "&partition_label=" + url.QueryEscape(partition)
+		}
+	}
 	due := pr.DueAt
 	return domain.Row{
 		Module: domain.ModuleVaccination, SourceType: SourceType, SourceID: pr.RowID,
@@ -286,6 +296,7 @@ func mapRow(pr pidomain.Row) domain.Row {
 		Owner: owner, OwnerState: ownerState,
 		Title: title, Subtitle: subtitle,
 		Counts: domain.Counts{Done: pr.CompletedCount, Pending: pending, NeedsAttention: pr.RejectedCount},
+		Href:   href,
 	}.Finalize()
 }
 
