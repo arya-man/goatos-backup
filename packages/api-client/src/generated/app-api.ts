@@ -3034,6 +3034,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/work-board/rows": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * One page of the cross-module Work Board for one park and one business day.
+         * @description Every operational module's work for the park and day, normalised to ONE row shape (WorkBoardRow) and served through a GLOBAL keyset ordered by module, source type and source id. Read by the admin-web /work-board page and the phone's My Work screen alike. Scope is decided server-side: park through the caller's grants, modules through the module permissions the caller already holds, and owner through work_board.oversee -- a caller without it sees only their own rows (`own_rows_only`). `lane` is derived from `work_state` on the server; a client never moves a card between columns.
+         */
+        get: operations["listWorkBoardRows"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/work-board/summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Whole-filter counts for the Work Board's lane headers and tiles.
+         * @description The aggregate the lane headers, the needs-attention count and the per-module chips render. Computed over the WHOLE filter on the server; never a page-local sum. Accepts the same scope parameters as /work-board/rows (park, business_date, module, state, owner).
+         */
+        get: operations["getWorkBoardSummary"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/toxin/review": {
         parameters: {
             query?: never;
@@ -7309,6 +7349,103 @@ export interface components {
             completed_by?: string;
             /** Format: date-time */
             completed_at?: string;
+        };
+        /**
+         * @description The operational module a board row belongs to, in board (keyset) order.
+         * @enum {string}
+         */
+        WorkBoardModule: "feed" | "health" | "vaccination" | "weighing" | "counts" | "milk" | "pc_care" | "toxin" | "procurement" | "verification";
+        /**
+         * @description REUSED VERBATIM from process integrity; the board adds no state of its own.
+         * @enum {string}
+         */
+        WorkBoardWorkState: "scheduled" | "due" | "overdue" | "in_progress" | "proof_pending" | "verification_pending" | "rejected" | "deferred" | "missed" | "blocked" | "completed";
+        /**
+         * @description The board column, derived on the server from work_state.
+         * @enum {string}
+         */
+        WorkBoardLane: "todo" | "in_progress" | "in_review" | "done";
+        /**
+         * @description `assigned`: the module's own row names the person. `missing`: the module expects an owner and has none (never filled with a fallback). `pool`: a claim pool by design.
+         * @enum {string}
+         */
+        WorkBoardOwnerState: "assigned" | "missing" | "pool";
+        WorkBoardOwner: {
+            user_id?: string;
+            workforce_member_id?: string;
+            name?: string;
+        };
+        WorkBoardPen: {
+            shed_id?: string;
+            shed_name?: string;
+            partition_label?: string;
+            /** @description Composed once on the server through the operational-location helper; rendered verbatim. */
+            operational_location_display?: string;
+        };
+        WorkBoardCounts: {
+            done: number;
+            pending: number;
+            needs_attention: number;
+        };
+        WorkBoardRow: {
+            module: components["schemas"]["WorkBoardModule"];
+            /** @description The module's own ref type */
+            source_type: string;
+            source_id: string;
+            /** @description module|source_type|source_id */
+            row_key: string;
+            park_id: string;
+            park_name?: string;
+            pen: components["schemas"]["WorkBoardPen"];
+            /** Format: date */
+            business_date: string;
+            /** Format: date-time */
+            due_at?: string;
+            /** @description Farm wording for the clock */
+            clock_label?: string;
+            work_state: components["schemas"]["WorkBoardWorkState"];
+            lane: components["schemas"]["WorkBoardLane"];
+            /** @enum {string} */
+            severity: "ok" | "watch" | "at_risk" | "broken";
+            owner: components["schemas"]["WorkBoardOwner"];
+            owner_state: components["schemas"]["WorkBoardOwnerState"];
+            title: string;
+            subtitle?: string;
+            counts: components["schemas"]["WorkBoardCounts"];
+            /** @description Where the module's own screen opens this row. Absent when the module has none yet. */
+            href?: string;
+        };
+        WorkBoardRowsPage: {
+            rows: components["schemas"]["WorkBoardRow"][];
+            /** @description Keyset cursor for the next page. Absent on the last page. */
+            next_cursor?: string;
+            /** Format: date */
+            business_date: string;
+            park_id: string;
+            /** @description The modules the caller MAY see, in board order, after any module filter. */
+            modules: components["schemas"]["WorkBoardModule"][];
+            /** @description True when the read was clamped to the caller's own rows (no work_board.oversee). */
+            own_rows_only: boolean;
+        };
+        WorkBoardSummary: {
+            total: number;
+            /** @description WHOLE-FILTER counts per lane, every lane present, never page-local sums. */
+            by_lane: {
+                [key: string]: number;
+            };
+            by_state: {
+                [key: string]: number;
+            };
+            by_module: {
+                [key: string]: number;
+            };
+            needs_attention: number;
+            modules: components["schemas"]["WorkBoardModule"][];
+            lanes: components["schemas"]["WorkBoardLane"][];
+            /** Format: date */
+            business_date: string;
+            park_id: string;
+            own_rows_only: boolean;
         };
         ToxinTaskPage: {
             tasks: components["schemas"]["ToxinTask"][];
@@ -22288,6 +22425,74 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFoundOrNotAllowed"];
             409: components["responses"]["WriteConflict"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    listWorkBoardRows: {
+        parameters: {
+            query: {
+                /** @description The park. The board is bounded to one park per request; "All parks" is one request per park. */
+                park: string;
+                /** @description YYYY-MM-DD in Asia/Kolkata. Absent means today. */
+                business_date?: string;
+                /** @description Comma-separated module keys. Intersected with the modules the caller may see; absent means all of them. */
+                module?: string;
+                /** @description Comma-separated work states (the eleven process-integrity values). Absent means every state. */
+                state?: string;
+                /** @description `me`, or a user id, to narrow to one person's rows. Ignored for a caller without work_board.oversee, whose read is always their own rows. */
+                owner?: string;
+                limit?: number;
+                /** @description Keyset cursor from a previous page's next_cursor (module|source_type|source_id). */
+                cursor?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of board rows. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkBoardRowsPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    getWorkBoardSummary: {
+        parameters: {
+            query: {
+                park: string;
+                business_date?: string;
+                module?: string;
+                state?: string;
+                owner?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Whole-filter board counts. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkBoardSummary"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
             500: components["responses"]["ServerError"];
         };
     };

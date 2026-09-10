@@ -868,6 +868,8 @@ func compilePages(pages []domain.PageContract, families ReferenceFamilies, input
 			if out[i].RouteID == "feed-analytics" {
 				out[i].OptionGroups = compileFeedAnalyticsOptionGroups(out[i].OptionGroups, input)
 			}
+		case "work-board":
+			out[i].OptionGroups = replaceOptionGroup(out[i].OptionGroups, "work_board_parks", optionsFromReferences(families.Parks, "info"))
 		case "weighing-weights", "weighing-analytics":
 			// Live park vocabulary, same injection path Feed uses. The contract declares
 			// the group empty; the parks themselves are tenant rows and must never be
@@ -2040,6 +2042,8 @@ func permissionsForNav(id string) []string {
 		return []string{permissions.CountsApproveAccess}
 	case "verification-actions":
 		return []string{permissions.VerificationReview}
+	case "work-board":
+		return []string{permissions.WorkBoardRead}
 	case "leadership-tasks":
 		return []string{permissions.LeadershipTasksRead}
 	case "health-config":

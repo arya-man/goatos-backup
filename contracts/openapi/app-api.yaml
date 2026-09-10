@@ -14,6 +14,7 @@ tags:
   - name: Operator App Bootstrap
   - name: Admin Web Bootstrap
   - name: Operator Tasks
+  - name: Work Board
   - name: SOP Admin
   - name: Goats
   - name: Identifiers
@@ -8057,6 +8058,118 @@ paths:
           $ref: "#/components/responses/NotFoundOrNotAllowed"
         "409":
           $ref: "#/components/responses/WriteConflict"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /work-board/rows:
+    get:
+      tags:
+        - Work Board
+      operationId: listWorkBoardRows
+      summary: One page of the cross-module Work Board for one park and one business day.
+      description: >-
+        Every operational module's work for the park and day, normalised to ONE row shape
+        (WorkBoardRow) and served through a GLOBAL keyset ordered by module, source type and
+        source id. Read by the admin-web /work-board page and the phone's My Work screen alike.
+        Scope is decided server-side: park through the caller's grants, modules through the
+        module permissions the caller already holds, and owner through work_board.oversee --
+        a caller without it sees only their own rows (`own_rows_only`). `lane` is derived from
+        `work_state` on the server; a client never moves a card between columns.
+      parameters:
+        - name: park
+          in: query
+          required: true
+          schema: { type: string, format: uuid }
+          description: The park. The board is bounded to one park per request; "All parks" is one request per park.
+        - name: business_date
+          in: query
+          required: false
+          schema: { type: string, format: date }
+          description: YYYY-MM-DD in Asia/Kolkata. Absent means today.
+        - name: module
+          in: query
+          required: false
+          schema: { type: string }
+          description: Comma-separated module keys. Intersected with the modules the caller may see; absent means all of them.
+        - name: state
+          in: query
+          required: false
+          schema: { type: string }
+          description: Comma-separated work states (the eleven process-integrity values). Absent means every state.
+        - name: owner
+          in: query
+          required: false
+          schema: { type: string }
+          description: >-
+            `me`, or a user id, to narrow to one person's rows. Ignored for a caller without
+            work_board.oversee, whose read is always their own rows.
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 100, default: 25 }
+        - name: cursor
+          in: query
+          required: false
+          schema: { type: string }
+          description: Keyset cursor from a previous page's next_cursor (module|source_type|source_id).
+      responses:
+        "200":
+          description: One page of board rows.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkBoardRowsPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /work-board/summary:
+    get:
+      tags:
+        - Work Board
+      operationId: getWorkBoardSummary
+      summary: Whole-filter counts for the Work Board's lane headers and tiles.
+      description: >-
+        The aggregate the lane headers, the needs-attention count and the per-module chips
+        render. Computed over the WHOLE filter on the server; never a page-local sum. Accepts
+        the same scope parameters as /work-board/rows (park, business_date, module, state, owner).
+      parameters:
+        - name: park
+          in: query
+          required: true
+          schema: { type: string, format: uuid }
+        - name: business_date
+          in: query
+          required: false
+          schema: { type: string, format: date }
+        - name: module
+          in: query
+          required: false
+          schema: { type: string }
+        - name: state
+          in: query
+          required: false
+          schema: { type: string }
+        - name: owner
+          in: query
+          required: false
+          schema: { type: string }
+      responses:
+        "200":
+          description: Whole-filter board counts.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkBoardSummary"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "500":
           $ref: "#/components/responses/ServerError"
   /toxin/review:
@@ -17663,6 +17776,117 @@ components:
           description: The completed step's proof reference. Present when state is done.
         completed_by: { type: string }
         completed_at: { type: string, format: date-time }
+    WorkBoardModule:
+      type: string
+      description: The operational module a board row belongs to, in board (keyset) order.
+      enum: [feed, health, vaccination, weighing, counts, milk, pc_care, toxin, procurement, verification]
+    WorkBoardWorkState:
+      type: string
+      description: REUSED VERBATIM from process integrity; the board adds no state of its own.
+      enum: [scheduled, due, overdue, in_progress, proof_pending, verification_pending, rejected, deferred, missed, blocked, completed]
+    WorkBoardLane:
+      type: string
+      description: The board column, derived on the server from work_state.
+      enum: [todo, in_progress, in_review, done]
+    WorkBoardOwnerState:
+      type: string
+      enum: [assigned, missing, pool]
+      description: >-
+        `assigned`: the module's own row names the person. `missing`: the module expects an
+        owner and has none (never filled with a fallback). `pool`: a claim pool by design.
+    WorkBoardOwner:
+      type: object
+      properties:
+        user_id: { type: string }
+        workforce_member_id: { type: string }
+        name: { type: string }
+    WorkBoardPen:
+      type: object
+      properties:
+        shed_id: { type: string }
+        shed_name: { type: string }
+        partition_label: { type: string }
+        operational_location_display:
+          type: string
+          description: Composed once on the server through the operational-location helper; rendered verbatim.
+    WorkBoardCounts:
+      type: object
+      required: [done, pending, needs_attention]
+      properties:
+        done: { type: integer }
+        pending: { type: integer }
+        needs_attention: { type: integer }
+    WorkBoardRow:
+      type: object
+      required: [module, source_type, source_id, row_key, park_id, pen, business_date, work_state, lane, severity, owner, owner_state, title, counts]
+      properties:
+        module: { $ref: "#/components/schemas/WorkBoardModule" }
+        source_type: { type: string, description: The module's own ref type, the same string verification_items carries. }
+        source_id: { type: string }
+        row_key: { type: string, description: module|source_type|source_id, the stable identity and the cursor value. }
+        park_id: { type: string }
+        park_name: { type: string }
+        pen: { $ref: "#/components/schemas/WorkBoardPen" }
+        business_date: { type: string, format: date }
+        due_at: { type: string, format: date-time }
+        clock_label: { type: string, description: Farm wording for the clock, rendered verbatim. }
+        work_state: { $ref: "#/components/schemas/WorkBoardWorkState" }
+        lane: { $ref: "#/components/schemas/WorkBoardLane" }
+        severity: { type: string, enum: [ok, watch, at_risk, broken] }
+        owner: { $ref: "#/components/schemas/WorkBoardOwner" }
+        owner_state: { $ref: "#/components/schemas/WorkBoardOwnerState" }
+        title: { type: string }
+        subtitle: { type: string }
+        counts: { $ref: "#/components/schemas/WorkBoardCounts" }
+        href: { type: string, description: Where the module's own screen opens this row. Absent when the module has none yet. }
+    WorkBoardRowsPage:
+      type: object
+      required: [rows, business_date, park_id, modules, own_rows_only]
+      properties:
+        rows:
+          type: array
+          items:
+            $ref: "#/components/schemas/WorkBoardRow"
+        next_cursor:
+          type: string
+          description: Keyset cursor for the next page. Absent on the last page.
+        business_date: { type: string, format: date }
+        park_id: { type: string }
+        modules:
+          type: array
+          description: The modules the caller MAY see, in board order, after any module filter.
+          items:
+            $ref: "#/components/schemas/WorkBoardModule"
+        own_rows_only:
+          type: boolean
+          description: True when the read was clamped to the caller's own rows (no work_board.oversee).
+    WorkBoardSummary:
+      type: object
+      required: [total, by_lane, by_state, by_module, needs_attention, modules, lanes, business_date, park_id, own_rows_only]
+      properties:
+        total: { type: integer }
+        by_lane:
+          type: object
+          additionalProperties: { type: integer }
+          description: WHOLE-FILTER counts per lane, every lane present, never page-local sums.
+        by_state:
+          type: object
+          additionalProperties: { type: integer }
+        by_module:
+          type: object
+          additionalProperties: { type: integer }
+        needs_attention: { type: integer }
+        modules:
+          type: array
+          items:
+            $ref: "#/components/schemas/WorkBoardModule"
+        lanes:
+          type: array
+          items:
+            $ref: "#/components/schemas/WorkBoardLane"
+        business_date: { type: string, format: date }
+        park_id: { type: string }
+        own_rows_only: { type: boolean }
     ToxinTaskPage:
       type: object
       required: [tasks, status_counts]

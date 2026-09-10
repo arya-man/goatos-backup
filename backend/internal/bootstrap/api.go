@@ -40,6 +40,7 @@ import (
 	feedconfighttp "github.com/vgoats/goatos/backend/internal/feedconfig/adapters/http"
 	feedconfigpg "github.com/vgoats/goatos/backend/internal/feedconfig/adapters/postgres"
 	feedconfigapp "github.com/vgoats/goatos/backend/internal/feedconfig/app"
+	feedboard "github.com/vgoats/goatos/backend/internal/feeddirection/adapters/boardsource"
 	feeddirectioncounts "github.com/vgoats/goatos/backend/internal/feeddirection/adapters/counts"
 	feeddirectionhttp "github.com/vgoats/goatos/backend/internal/feeddirection/adapters/http"
 	feeddirectionpg "github.com/vgoats/goatos/backend/internal/feeddirection/adapters/postgres"
@@ -106,6 +107,8 @@ import (
 	toxinpg "github.com/vgoats/goatos/backend/internal/toxin/adapters/postgres"
 	toxinproof "github.com/vgoats/goatos/backend/internal/toxin/adapters/proof"
 	toxinapp "github.com/vgoats/goatos/backend/internal/toxin/app"
+	workboardhttp "github.com/vgoats/goatos/backend/internal/workboard/adapters/http"
+	workboardapp "github.com/vgoats/goatos/backend/internal/workboard/app"
 	"golang.org/x/oauth2"
 
 	"github.com/vgoats/goatos/backend/internal/platform/firebaseidentity"
@@ -148,12 +151,14 @@ import (
 	vaccexecroster "github.com/vgoats/goatos/backend/internal/vaccinationexecution/adapters/roster"
 	vaccexecapp "github.com/vgoats/goatos/backend/internal/vaccinationexecution/app"
 	verificationadminuibridge "github.com/vgoats/goatos/backend/internal/verification/adapters/adminuibridge"
+	verificationboard "github.com/vgoats/goatos/backend/internal/verification/adapters/boardsource"
 	verificationhttp "github.com/vgoats/goatos/backend/internal/verification/adapters/http"
 	verificationpg "github.com/vgoats/goatos/backend/internal/verification/adapters/postgres"
 	verificationproofmedia "github.com/vgoats/goatos/backend/internal/verification/adapters/proofmedia"
 	verificationapp "github.com/vgoats/goatos/backend/internal/verification/app"
 	verificationdomain "github.com/vgoats/goatos/backend/internal/verification/domain"
 	"github.com/vgoats/goatos/backend/internal/verificationcatalog"
+	weighingboard "github.com/vgoats/goatos/backend/internal/weighing/adapters/boardsource"
 	weighinghttp "github.com/vgoats/goatos/backend/internal/weighing/adapters/http"
 	weighingpg "github.com/vgoats/goatos/backend/internal/weighing/adapters/postgres"
 	weighingverificationbridge "github.com/vgoats/goatos/backend/internal/weighing/adapters/verificationbridge"
@@ -735,6 +740,14 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 		leadershiptaskspg.NewRepository(pool, cfg.Postgres.QueryTimeout), leadershiptasksproof.NewResolver(proofRepo)).
 		WithAttachmentDownloader(proofService)
 	leadershipTasksHandler := leadershiptaskshttp.NewHandler(leadershipTasksService, log)
+	// Work Board (maintainer decision 2026-09-10): the cross-module read. Every module
+	// contributes a Source over its OWN tables; the board composes them here and reads no
+	// table itself. Registration order does not matter -- the service sorts into board order.
+	workBoardHandler := workboardhttp.NewHandler(workboardapp.NewService(
+		weighingboard.New(pool, cfg.Postgres.QueryTimeout),
+		feedboard.New(pool, cfg.Postgres.QueryTimeout),
+		verificationboard.New(pool, cfg.Postgres.QueryTimeout),
+	), log)
 	// Pen visits (maintainer decision 2026-09-07): the Tasks module's "For me" tab. The kernel
 	// raises them; this serves the park head's list and the submit that carries the live video.
 	// The module badge is the SUM of both halves of Tasks: unseen asks plus visits still owed.
@@ -1218,6 +1231,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	procurementhttp.RegisterLoadwise(protectedMux, procurementLoadwiseHandler)
 	toxinhttp.Register(protectedMux, toxinHandler)
 	leadershiptaskshttp.Register(protectedMux, leadershipTasksHandler)
+	workboardhttp.Register(protectedMux, workBoardHandler)
 	penvisitshttp.Register(protectedMux, penVisitsHandler)
 	saleshttp.Register(protectedMux, salesHandler)
 	vaccinationhttp.Register(protectedMux, vaccinationHandler)

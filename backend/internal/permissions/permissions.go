@@ -436,6 +436,24 @@ const (
 	//
 	// Assignment is still narrowed by person_module_access for the picker/write check; these
 	// route permissions only decide whether a signed-in principal may open the surface.
+	// WORK BOARD (maintainer decision 2026-09-10, the Work Board Build Plan): the
+	// cross-module board of every operational row for one park and one business date,
+	// read by the admin-web /work-board page and the phone's My Work screen through ONE
+	// route. Two permissions, and the split is the whole access model:
+	//
+	//   WorkBoardRead    -- may open the board at all. Alone, it is the OPERATOR lens: the
+	//                       read is clamped to rows the caller owns (owner user id = actor).
+	//   WorkBoardOversee -- may see everyone's rows inside park scope. Park heads hold it at
+	//                       park scope; directors and the CEO at tenant scope. WHICH modules a
+	//                       caller sees is not decided here: the board intersects with the
+	//                       module permissions the caller already holds (workboard/app.
+	//                       VisibleModules), which is how a Feed Director sees feed and
+	//                       nothing else without a role string anywhere.
+	//
+	// The verifier deliberately holds neither: her queue is /verify, and the board is a
+	// lens over work, not a second verdict surface.
+	WorkBoardRead        = "work_board.read"
+	WorkBoardOversee     = "work_board.oversee"
 	LeadershipTasksRead  = "leadership_tasks.read"
 	LeadershipTasksRaise = "leadership_tasks.raise"
 	LeadershipTasksAct   = "leadership_tasks.act"
@@ -900,10 +918,15 @@ var rolePermissions = map[string]map[string]struct{}{
 		FeedTransportRead:      {},
 		VerificationAct:        {},
 		HealthRead:             {},
+		// Work Board (2026-09-10): the whole park's day, every module, park-scoped.
+		WorkBoardRead: {}, WorkBoardOversee: {},
 	},
 	RolePCDirector: {
 		// Leadership Tasks (2026-09-04): every director raises for the CXO desk.
 		LeadershipTasksRead: {}, LeadershipTasksRaise: {}, PenVisitsExecute: {},
+		// Work Board (2026-09-10): a director's portfolio -- both parks, and only the
+		// modules their other permissions already open.
+		WorkBoardRead: {}, WorkBoardOversee: {},
 		GoatRead: {}, GoatWriteHealth: {},
 		LocationsRead: {},
 		OperatorsRead: {}, OperatorsManageRoster: {}, OperatorsManageDevice: {}, OperatorsViewAudit: {}, AppBootstrap: {}, AdminWebBootstrap: {},
@@ -978,6 +1001,9 @@ var rolePermissions = map[string]map[string]struct{}{
 	RoleGrowthDirector: {
 		// Leadership Tasks (2026-09-04): every director raises for the CXO desk.
 		LeadershipTasksRead: {}, LeadershipTasksRaise: {}, PenVisitsExecute: {},
+		// Work Board (2026-09-10): a director's portfolio -- both parks, and only the
+		// modules their other permissions already open.
+		WorkBoardRead: {}, WorkBoardOversee: {},
 		AppBootstrap: {}, AdminWebBootstrap: {},
 		LocationsRead: {}, OperatorsRead: {},
 		// NOT WeighingPlan: planning a weighing task is CEO-only (maintainer decision
@@ -1024,6 +1050,9 @@ var rolePermissions = map[string]map[string]struct{}{
 	RoleFeedDirector: {
 		// Leadership Tasks (2026-09-04): every director raises for the CXO desk.
 		LeadershipTasksRead: {}, LeadershipTasksRaise: {}, PenVisitsExecute: {},
+		// Work Board (2026-09-10): a director's portfolio -- both parks, and only the
+		// modules their other permissions already open.
+		WorkBoardRead: {}, WorkBoardOversee: {},
 		AppBootstrap: {}, AdminWebBootstrap: {},
 		LocationsRead: {}, OperatorsRead: {},
 		OperatorsManageRoster: {}, OperatorsManageDevice: {}, OperatorsViewAudit: {},
@@ -1073,6 +1102,9 @@ var rolePermissions = map[string]map[string]struct{}{
 	RoleHealthDirector: {
 		// Leadership Tasks (2026-09-04): every director raises for the CXO desk.
 		LeadershipTasksRead: {}, LeadershipTasksRaise: {}, PenVisitsExecute: {},
+		// Work Board (2026-09-10): a director's portfolio -- both parks, and only the
+		// modules their other permissions already open.
+		WorkBoardRead: {}, WorkBoardOversee: {},
 		AppBootstrap: {}, AdminWebBootstrap: {},
 		LocationsRead: {}, OperatorsRead: {},
 		OperatorsManageRoster: {}, OperatorsManageDevice: {}, OperatorsViewAudit: {},
@@ -1178,6 +1210,9 @@ var rolePermissions = map[string]map[string]struct{}{
 	RoleProcurementDirector: {
 		// Leadership Tasks (2026-09-04): every director raises for the CXO desk.
 		LeadershipTasksRead: {}, LeadershipTasksRaise: {}, PenVisitsExecute: {},
+		// Work Board (2026-09-10): a director's portfolio -- both parks, and only the
+		// modules their other permissions already open.
+		WorkBoardRead: {}, WorkBoardOversee: {},
 		AdminWebBootstrap: {}, AppBootstrap: {},
 		LocationsRead: {},
 		SalesRead:     {}, SalesWrite: {}, SalesAllocateAnimals: {},
@@ -1194,6 +1229,9 @@ var rolePermissions = map[string]map[string]struct{}{
 	RoleBreedingDirector: {
 		// Leadership Tasks (2026-09-04): every director raises for the CXO desk.
 		LeadershipTasksRead: {}, LeadershipTasksRaise: {}, PenVisitsExecute: {},
+		// Work Board (2026-09-10): a director's portfolio -- both parks, and only the
+		// modules their other permissions already open.
+		WorkBoardRead: {}, WorkBoardOversee: {},
 		AppBootstrap: {}, AdminWebBootstrap: {},
 		LocationsRead: {}, OperatorsRead: {}, RosterRead: {},
 		PCCareMonitor:      {},
@@ -1244,11 +1282,16 @@ var rolePermissions = map[string]map[string]struct{}{
 		// permission opens the module's tabs; the WRITE additionally requires being named in
 		// pc_care_task_assignees for that specific task.
 		PCCareExecute: {},
+		// Work Board (2026-09-10): READ ONLY, which the board serves as "my rows" -- the
+		// operator never sees another person's work.
+		WorkBoardRead: {},
 	},
 	RoleCEOInternal: {
 		// Leadership Tasks: CEO/CXO can assign work downward and can still act on tasks
 		// addressed to the leadership desk.
 		LeadershipTasksRead: {}, LeadershipTasksRaise: {}, LeadershipTasksAct: {},
+		// Work Board (2026-09-10): both parks, every module (the CEO floor).
+		WorkBoardRead: {}, WorkBoardOversee: {},
 		// Toxin (maintainer decisions 2026-08-25 and 2026-08-26): CEO/CXO WATCHES and JUDGES;
 		// they never run the test. Read shows the tasks (the phone card is not tappable and
 		// no step opens a camera), and verdict is the accept/reject that only this role can

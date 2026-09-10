@@ -347,6 +347,14 @@ var protectedRoutes = []Route{
 	{OperationID: "listToxinReview", Method: "GET", Pattern: "/toxin/review", Permissions: []string{ToxinVerdict}},
 	{OperationID: "recordToxinVerdict", Method: "POST", Pattern: "/toxin/tasks/{task_id}/verdict", Permissions: []string{ToxinVerdict}},
 
+	// WORK BOARD (maintainer decision 2026-09-10): the cross-module board. One route for
+	// both surfaces. work_board.read opens it; the handler clamps a caller WITHOUT
+	// work_board.oversee to their own rows, and clamps park scope through
+	// ResolveAuthorizedParkScopeForCapabilities. Patterns must stay byte-identical to
+	// workboard/adapters/http.Register.
+	{OperationID: "listWorkBoardRows", Method: "GET", Pattern: "/work-board/rows", Permissions: []string{WorkBoardRead}},
+	{OperationID: "getWorkBoardSummary", Method: "GET", Pattern: "/work-board/summary", Permissions: []string{WorkBoardRead}},
+
 	// LEADERSHIP TASKS (maintainer decisions 2026-09-04 and 2026-09-08): manual asks between
 	// leadership and active app-backed workers.
 	// List/detail/seen/comment are LeadershipTasksRead (seen is a no-op for anyone but the assignee);
