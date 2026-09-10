@@ -34895,6 +34895,10 @@ components:
         download_url:
           type: string
           format: uri
+        thumbnail_url:
+          type: string
+          format: uri
+          description: Lightweight backend-provided proof thumbnail/poster URL for verification list tiles. Omitted when no generated thumbnail exists; clients must not probe the full proof media URL to create one.
         mime_type:
           type: string
         duration_ms:

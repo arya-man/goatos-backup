@@ -55,7 +55,7 @@ test("the capture-date range picker is gated on its OWN control, not on oversigh
   assert.ok(filterRow, "expected the vr-frow filter row to precede the shed filter block");
   assert.match(
     filterRow[1],
-    /\{captureDateFilterEnabled \? \(\s*<ActionsDateFilter/,
+    /\{captureDateFilterEnabled \? \([\s\S]*<ActionsDateFilter/,
     "ActionsDateFilter must render on captureDateFilterEnabled, which the verifier holds",
   );
   assert.doesNotMatch(

@@ -63,6 +63,21 @@
         "adminWeb",
         "android"
       ]
+    },
+    {
+      "name": "verification-proof-media-surface",
+      "prefixes": [
+        "backend/internal/verification/",
+        "apps/admin-web/features/verification-review/",
+        "apps/goatos-android/feature/feature-verify/",
+        "apps/goatos-android/app/src/main/kotlin/sg/mesha/goatos/viewmodel/VerifyQueueViewModel.kt",
+        "apps/goatos-android/core/core-network/src/main/kotlin/sg/mesha/goatos/core/network/dto/VerificationDto.kt"
+      ],
+      "components": [
+        "backend",
+        "adminWeb",
+        "android"
+      ]
     }
   ],
   "components": {

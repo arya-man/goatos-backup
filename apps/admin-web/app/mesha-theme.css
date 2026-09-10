@@ -605,7 +605,7 @@
      board relies on the clip; the wide table scrolls inside its own overflow-x container. */
   .vr-board{padding:13px 16px;margin-bottom:16px}
   .vr-board>.bt{font-size:14px;font-weight:400;margin:0 0 14px}
-  .vr-frow{display:flex;flex-wrap:wrap;align-items:center;gap:12px;margin-bottom:14px}
+  .vr-frow{display:flex;flex-wrap:wrap;align-items:flex-end;gap:12px;margin:16px 0 14px}
   /* Clear filters is a SECONDARY action beside a primary button. It inherited `.lk`'s blue
      --info, off-palette in this green system and louder than the control next to it. */
   .screen .vr-frow .lk{color:var(--muted)}
@@ -615,11 +615,36 @@
      stacked the label ABOVE the select instead of beside it -- which pushed "Apply filters" out of
      line with the select it belongs to -- and rendered the label 10.5px/650 UPPERCASE with +0.5px
      tracking instead of the spec's 12px/400 sentence case (SPEC section 4). */
-  .screen .vr-fld{display:flex;align-items:center;gap:9px}
-  .screen .vr-fld>label{font-size:12px;font-weight:400;color:var(--muted);text-transform:none;letter-spacing:normal;margin-bottom:0;display:inline-block}
+  .screen .vr-fld{display:flex;flex-direction:column;align-items:flex-start;gap:5px;margin-bottom:0}
+  .screen .vr-fld>label,.screen .vr-fld-spacer{font-size:12px;font-weight:400;color:var(--muted);text-transform:none;letter-spacing:normal;line-height:1.2;min-height:15px;margin-bottom:0;display:block}
+  .screen .vr-date-fld .date-scope{margin:0}
+  .screen .vr-date-fld .date-scope>button{min-height:40px}
   .vr-selbtn{appearance:none;border:1px solid var(--line);background:var(--panel);border-radius:18px;padding:7px 30px 7px 12px;font-size:12.5px;font-weight:550;color:var(--ink);cursor:pointer;min-width:176px;font-family:inherit}
   .vr-selbtn:hover,.vr-selbtn:focus{border-color:var(--brand)}
   .vr-legend{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:16px}
+  .vr-module-legend.busy{cursor:progress;opacity:.76}
+  .vr-module-legend.busy .vr-lg{pointer-events:none}
+  .vr-module-legend.busy .vr-lg.on{box-shadow:inset 0 0 0 1px var(--ring)}
+  .vr-results-zone{position:relative;min-height:190px}
+  .vr-results-loading{display:none;position:absolute;inset:0;z-index:2;padding:8px 0;background:linear-gradient(180deg,color-mix(in srgb,var(--panel) 82%,transparent),color-mix(in srgb,var(--panel) 62%,transparent));backdrop-filter:blur(1px);pointer-events:none}
+  .vr-results-loading span{display:block;height:42px;margin:10px 0;border-radius:8px;background:linear-gradient(90deg,color-mix(in srgb,var(--line) 52%,transparent),color-mix(in srgb,var(--muted) 18%,transparent),color-mix(in srgb,var(--line) 52%,transparent));background-size:220% 100%;animation:vr-loading-sweep 1.05s ease-in-out infinite}
+  .vr-results-loading span:nth-child(1){width:28%;height:36px}
+  .vr-results-loading span:nth-child(2){width:100%}
+  .vr-results-loading span:nth-child(3){width:100%}
+  .vr-results-loading span:nth-child(4){width:86%}
+  body[data-vr-module-loading="1"] .vr-results-zone{min-height:230px}
+  body[data-vr-module-loading="1"] .vr-results-zone>.vr-legend,
+  body[data-vr-module-loading="1"] .vr-secthd,
+  body[data-vr-module-loading="1"] .vr-table,
+  body[data-vr-module-loading="1"] .pager{opacity:.16}
+  body[data-vr-module-loading="1"] .vr-results-loading{display:block}
+  .vr-board:has(.vr-module-legend.busy) .vr-results-zone{min-height:230px}
+  .vr-board:has(.vr-module-legend.busy) .vr-results-zone>.vr-legend,
+  .vr-board:has(.vr-module-legend.busy) .vr-secthd,
+  .vr-board:has(.vr-module-legend.busy) .vr-table,
+  .vr-board:has(.vr-module-legend.busy) .pager{opacity:.22}
+  .vr-board:has(.vr-module-legend.busy) .vr-results-loading{display:block}
+  @keyframes vr-loading-sweep{0%{background-position:120% 0}100%{background-position:-120% 0}}
   .vr-lg{display:flex;align-items:center;gap:8px;min-height:40px;border:1px solid var(--line);border-radius:18px;padding:7px 14px;font-size:12.5px;font-weight:550;color:var(--muted);cursor:pointer;background:transparent}
   .vr-lg:hover{border-color:var(--brand);color:var(--ink)}
   .vr-lg.on{border-color:var(--brand);color:var(--ink);background:var(--brand-soft)}
@@ -717,7 +742,7 @@
   .vr-sortlink:hover{color:var(--ink)}
   .vr-table td{font-size:11.5px;padding:11px 12px;border-bottom:1px solid var(--line2);vertical-align:middle}
   .vr-table tr:last-child td{border-bottom:0}
-  .vr-subfilter{display:grid;gap:8px;width:max-content;max-width:100%;margin:10px 0 8px;padding:9px 10px 10px;border-left:2px solid color-mix(in srgb,var(--brand) 54%,var(--line));border-top:1px solid var(--line);background:color-mix(in srgb,var(--panel-2) 46%,transparent)}
+  .vr-subfilter{display:grid;gap:8px;width:max-content;max-width:100%;margin:4px 0 2px;padding:9px 10px 10px;border-left:2px solid color-mix(in srgb,var(--brand) 54%,var(--line));border-top:1px solid var(--line);background:color-mix(in srgb,var(--panel-2) 46%,transparent)}
   .vr-subfilter-head{display:flex;align-items:center;gap:10px;color:color-mix(in srgb,var(--muted) 86%,var(--ink));font-size:10px;font-weight:800;text-transform:uppercase}
   .vr-subfilter-head:after{content:"";height:1px;min-width:42px;flex:1;background:var(--line)}
   .vr-sublegend{margin-top:0;gap:6px}
@@ -782,7 +807,9 @@
   /* ===== verification-review video review anatomy (ported from mock/verifier-web-mock.html
      .thumb/.player/.proofstrip/.facts) — layout/CSS only, no visible copy. ===== */
   .vr-thumb{width:86px;height:52px;border-radius:10px;background:linear-gradient(135deg,#1b2b1e,#233a4d 60%,#12211a);display:grid;place-items:center;color:#E9F1EA;flex:none;position:relative;border:1px solid var(--line)}
-  .vr-thumb .ic{width:18px;height:18px}
+  .vr-thumb img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;border-radius:inherit}
+  .vr-thumb img + .ic{filter:drop-shadow(0 1px 4px rgba(0,0,0,.7))}
+  .vr-thumb .ic{width:18px;height:18px;position:relative;z-index:1}
   .vr-thumb .n{position:absolute;bottom:4px;right:5px;font-size:10px;font-weight:750;background:rgba(0,0,0,.62);color:#fff;border-radius:5px;padding:0 5px}
   .vr-player{background:#0a0f0c;border:1px solid var(--line);border-radius:12px;width:100%;aspect-ratio:16/9;max-height:44vh;display:flex;flex-direction:column;position:relative;overflow:hidden}
   /* position:absolute + inset:0 is what actually pins the video TO the stage. With plain

@@ -26,7 +26,8 @@ func TestResolveMediaIncludesProofMetadataForVideoPlayback(t *testing.T) {
 			MimeType:   "video/mp4",
 			DurationMS: &duration,
 			Metadata: map[string]any{
-				"action_id": "20000000-0000-4000-8000-000000000001",
+				"action_id":     "20000000-0000-4000-8000-000000000001",
+				"thumbnail_url": "https://cdn.example/thumbs/proof-1.jpg",
 			},
 		},
 		url: "/app/proofs/10000000-0000-4000-8000-000000000001/download/signed?tenant_id=00000000-0000-4000-8000-000000000001&expires=1&sig=ok",
@@ -54,6 +55,9 @@ func TestResolveMediaIncludesProofMetadataForVideoPlayback(t *testing.T) {
 	wantRoute := "/app/proofs/10000000-0000-4000-8000-000000000001/download"
 	if media[0].DownloadURL != wantRoute {
 		t.Fatalf("DownloadURL=%q, want backend route %q", media[0].DownloadURL, wantRoute)
+	}
+	if media[0].ThumbnailURL != "https://cdn.example/thumbs/proof-1.jpg" {
+		t.Fatalf("ThumbnailURL=%q, want backend-provided thumbnail", media[0].ThumbnailURL)
 	}
 }
 

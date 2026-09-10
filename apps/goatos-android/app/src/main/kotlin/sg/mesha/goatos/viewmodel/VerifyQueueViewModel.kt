@@ -685,6 +685,9 @@ class VerifyQueueViewModel @Inject constructor(
                 1 -> "1 video"
                 else -> "$mediaCount videos"
             },
+            thumbnailUrl = firstNotNullOfOrNull { item ->
+                item.media.firstNotNullOfOrNull { media -> media.thumbnailUrl?.takeIf(String::isNotBlank) }
+            },
             parkLabel = representative.parkLabel.orEmpty(),
             operatorLabel = representative.operatorName.orEmpty(),
             capturedAtLabel = representative.capturedAt,
@@ -732,6 +735,7 @@ class VerifyQueueViewModel @Inject constructor(
                 1 -> "1 video"
                 else -> "$mediaCount videos"
             },
+            thumbnailUrl = media.firstNotNullOfOrNull { it.thumbnailUrl?.takeIf(String::isNotBlank) },
             parkLabel = parkLabel.orEmpty(),
             operatorLabel = operatorName.orEmpty(),
             capturedAtLabel = capturedAt,

@@ -201,6 +201,18 @@ function selfTest() {
     common: true, backend: true, adminWeb: true, android: true, full: false,
     selectedJobs: ["common", "backend", "query-plans", "admin-web", "android"],
   });
+  assert.deepEqual(pick(["apps/admin-web/features/verification-review/verification-review-page.tsx"]), {
+    common: true, backend: true, adminWeb: true, android: true, full: false,
+    selectedJobs: ["common", "backend", "query-plans", "admin-web", "android"],
+  });
+  assert.deepEqual(pick(["apps/goatos-android/feature/feature-verify/src/main/kotlin/sg/mesha/goatos/feature/verify/VerifyQueueScreen.kt"]), {
+    common: true, backend: true, adminWeb: true, android: true, full: false,
+    selectedJobs: ["common", "backend", "query-plans", "admin-web", "android"],
+  });
+  assert.deepEqual(pick(["backend/internal/verification/adapters/proofmedia/resolver.go"]), {
+    common: true, backend: true, adminWeb: true, android: true, full: false,
+    selectedJobs: ["common", "backend", "query-plans", "admin-web", "android"],
+  });
   assert.deepEqual(pick(["docs/runbooks/local-ci.md"]), {
     common: true, backend: false, adminWeb: false, android: false, full: false,
     selectedJobs: ["common"],

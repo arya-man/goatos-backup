@@ -4396,6 +4396,7 @@ function absolutizeVerificationMedia(
       media: item.media.map((media) => ({
         ...media,
         download_url: absolutizeBackendURL(media.download_url, baseUrl),
+        thumbnail_url: media.thumbnail_url ? absolutizeBackendURL(media.thumbnail_url, baseUrl) : media.thumbnail_url,
       })),
     })),
   };

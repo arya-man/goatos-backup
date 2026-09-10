@@ -445,12 +445,13 @@ type QueueStatusCounts struct {
 
 // MediaItem is one resolved, streamable media reference for display.
 type MediaItem struct {
-	ProofID     string `json:"proof_id"`
-	Label       string `json:"label,omitempty"`
-	Answer      string `json:"answer,omitempty"`
-	DownloadURL string `json:"download_url"`
-	MimeType    string `json:"mime_type,omitempty"`
-	DurationMS  *int64 `json:"duration_ms,omitempty"`
+	ProofID      string `json:"proof_id"`
+	Label        string `json:"label,omitempty"`
+	Answer       string `json:"answer,omitempty"`
+	DownloadURL  string `json:"download_url"`
+	ThumbnailURL string `json:"thumbnail_url,omitempty"`
+	MimeType     string `json:"mime_type,omitempty"`
+	DurationMS   *int64 `json:"duration_ms,omitempty"`
 }
 
 // QueueRow is one queue listing row: the item plus its resolved media.

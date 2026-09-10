@@ -24,6 +24,8 @@ test("unresolved proof media renders as a player tile, not a form button", () =>
 });
 
 test("clicking the queue thumbnail opens the drawer with a play intent", () => {
+  const pageSource = readFileSync(new URL("./verification-review-page.tsx", import.meta.url), "utf8");
+  const apiSource = readFileSync(new URL("../../lib/api/server.ts", import.meta.url), "utf8");
   assert.match(
     drawerSource,
     /const \[playIntent, setPlayIntent\] = useState\(one\(searchParams, "vi_play"\) === "1"\)/,
@@ -58,5 +60,25 @@ test("clicking the queue thumbnail opens the drawer with a play intent", () => {
     drawerSource,
     /key === "vi_row" \|\| key === "vi_play"/,
     "normal drawer navigation must clear the play intent so it does not leak to next items",
+  );
+  assert.match(
+    apiSource,
+    /thumbnail_url: media\.thumbnail_url \? absolutizeBackendURL\(media\.thumbnail_url, baseUrl\) : media\.thumbnail_url/,
+    "queue media should carry backend-provided thumbnail URLs through the admin-web API client",
+  );
+  assert.match(
+    pageSource,
+    /const leadMedia = item\.media\.find\(\(media\) => media\.thumbnail_url\) \?\? item\.media\[0\]/,
+    "the list tile should prefer media that has backend-provided thumbnail metadata",
+  );
+  assert.match(
+    pageSource,
+    /leadMedia\?\.thumbnail_url \? <img src=\{leadMedia\.thumbnail_url\} alt="" loading="lazy" decoding="async" \/> : null/,
+    "the list tile should render a lightweight thumbnail when the backend provides one",
+  );
+  assert.doesNotMatch(
+    pageSource,
+    /<img src=\{leadMedia\?\.download_url\}|<img src=\{item\.media\[0\]\?\.download_url\}/,
+    "the list tile must not use the full proof download URL as a thumbnail",
   );
 });

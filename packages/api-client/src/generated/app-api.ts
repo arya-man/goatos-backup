@@ -14593,6 +14593,11 @@ export interface components {
             answer?: string;
             /** Format: uri */
             download_url: string;
+            /**
+             * Format: uri
+             * @description Lightweight backend-provided proof thumbnail/poster URL for verification list tiles. Omitted when no generated thumbnail exists; clients must not probe the full proof media URL to create one.
+             */
+            thumbnail_url?: string;
             mime_type?: string;
             duration_ms?: number;
         };

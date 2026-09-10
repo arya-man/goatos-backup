@@ -137,7 +137,7 @@ func (r *Resolver) ResolveMediaMetadata(ctx context.Context, tenantID string, pr
 				}
 				verificationLabel, _ := proof.Metadata["verification_label"].(string)
 				actionID, _ := proof.Metadata["action_id"].(string)
-				item := domain.MediaItem{ProofID: id, DownloadURL: proofDownloadRoute(id), MimeType: proof.MimeType, DurationMS: proof.DurationMS, Label: verificationLabel}
+				item := domain.MediaItem{ProofID: id, DownloadURL: proofDownloadRoute(id), ThumbnailURL: thumbnailURL(proof.Metadata), MimeType: proof.MimeType, DurationMS: proof.DurationMS, Label: verificationLabel}
 				r.setCachedMedia(tenantID, id, item, actionID)
 				for _, i := range missingMetadataIndexes[id] {
 					out[i] = item
@@ -175,7 +175,7 @@ func (r *Resolver) ResolveMediaMetadata(ctx context.Context, tenantID string, pr
 				if actionID, ok := proof.Metadata["action_id"].(string); ok && actionID != "" {
 					actionIDForProof[i] = actionID
 				}
-				out[i] = domain.MediaItem{ProofID: id, DownloadURL: proofDownloadRoute(id), MimeType: proof.MimeType, DurationMS: proof.DurationMS, Label: verificationLabel}
+				out[i] = domain.MediaItem{ProofID: id, DownloadURL: proofDownloadRoute(id), ThumbnailURL: thumbnailURL(proof.Metadata), MimeType: proof.MimeType, DurationMS: proof.DurationMS, Label: verificationLabel}
 				r.setCachedMedia(tenantID, id, out[i], actionID)
 				return
 			}
@@ -232,6 +232,16 @@ func proofDownloadRoute(proofID string) string {
 		return ""
 	}
 	return "/app/proofs/" + proofID + "/download"
+}
+
+func thumbnailURL(metadata map[string]any) string {
+	for _, key := range []string{"thumbnail_url", "poster_url", "thumbnail_download_url", "poster_download_url"} {
+		value, _ := metadata[key].(string)
+		if value = strings.TrimSpace(value); value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 // EnsureEvidenceAvailable stats each of this ONE item's proof objects (verification/ports.

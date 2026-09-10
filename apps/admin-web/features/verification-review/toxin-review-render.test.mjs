@@ -83,7 +83,7 @@ test("the toxin tab hides entirely when the contract control is disabled", () =>
   // older backend that declares no toxin_tab control shows nothing.
   assert.match(pageSource, /controlEnabled\(pageContract, "toxin_tab", false\)/);
   assert.match(pageSource, /const toxinActive = toxinTabEnabled &&/);
-  assert.match(pageSource, /\{toxinTabEnabled \? \(/);
+  assert.match(pageSource, /toxinOption=\{toxinTabEnabled \?/);
   // No role-string / permission-string conditionals anywhere in the toxin surfaces.
   for (const source of [pageSource, listSource]) {
     assert.doesNotMatch(source, /ceo_internal|RoleCEO|toxin\.verdict/);

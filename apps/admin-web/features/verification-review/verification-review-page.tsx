@@ -23,6 +23,7 @@ import { Randomization } from "./randomization";
 import { RandomizationPanel } from "./randomization-panel";
 // Server-safe module on purpose: see randomization-panel-params.ts.
 import { RANDOMIZATION_PANEL_ID, RANDOMIZATION_PANEL_SELECTION_KEY } from "./randomization-panel-params";
+import { ModuleFilter } from "./module-filter";
 import { SubcategoryFilter } from "./subcategory-filter";
 import { VideoLogPanel } from "./video-log-panel";
 // Server-safe module on purpose: a constant imported across the "use client" boundary arrives as a
@@ -441,37 +442,18 @@ export async function VerificationReviewPage({
             picker. Defaulting to true keeps a backend one release behind — which declares no such
             control — showing the row. */}
         {moduleFilterOffered && oversightFiltersEnabled && modules.length > 1 ? (
-          <div className="vr-legend" role="group" aria-label={copy(pageContract, "filter.module")}>
-            <Link
-              href={hrefWith(sp, { nav_module: null, category: null, ...RESET_ON_FILTER })}
-              replace
-              scroll={false}
-              className={`vr-lg${selectedModuleKey ? "" : " on"}`}
-            >
-              {copy(pageContract, "filter.all_modules")}
-            </Link>
-            {modules.map((option) => (
-              <Link
-                key={option.key}
-                href={hrefWith(sp, { nav_module: option.key, category: null, ...RESET_ON_FILTER })}
-                replace
-                scroll={false}
-                className={`vr-lg${selectedModuleKey === option.key ? " on" : ""}`}
-              >
-                {option.label}
-              </Link>
-            ))}
-            {toxinTabEnabled ? (
-              <Link
-                href={hrefWith(sp, { toxin: "1", nav_module: null, category: null, ...RESET_ON_FILTER })}
-                replace
-                scroll={false}
-                className="vr-lg"
-              >
-                {toxinTabLabel(pageContract)}
-              </Link>
-            ) : null}
-          </div>
+          <ModuleFilter
+            allLabel={copy(pageContract, "filter.all_modules")}
+            allHref={hrefWith(sp, { nav_module: null, category: null, ...RESET_ON_FILTER })}
+            ariaLabel={copy(pageContract, "filter.module")}
+            selectedModuleKey={selectedModuleKey ?? ""}
+            modules={modules.map((option) => ({
+              key: option.key,
+              label: option.label,
+              href: hrefWith(sp, { nav_module: option.key, category: null, ...RESET_ON_FILTER }),
+            }))}
+            toxinOption={toxinTabEnabled ? { label: toxinTabLabel(pageContract), href: hrefWith(sp, { toxin: "1", nav_module: null, category: null, ...RESET_ON_FILTER }) } : undefined}
+          />
         ) : null}
 
         <form action={PATHNAME} className="vr-filter-form">
@@ -503,25 +485,28 @@ export async function VerificationReviewPage({
 
         <div className="vr-frow">
           {captureDateFilterEnabled ? (
-            <ActionsDateFilter
-              basePath={PATHNAME}
-              from={dateRange.from}
-              to={dateRange.to}
-              today={today}
-              defaultFrom={businessDaysBefore(today, DEFAULT_QUEUE_WINDOW_DAYS)}
-              labels={{
-                field: copy(pageContract, "filter.date"),
-                today: copy(pageContract, "filter.date.today"),
-                single: copy(pageContract, "filter.date.single"),
-                range: copy(pageContract, "filter.date.range"),
-                aria: copy(pageContract, "filter.date.aria"),
-                previousMonth: copy(pageContract, "filter.date.previous_month"),
-                nextMonth: copy(pageContract, "filter.date.next_month"),
-                rangeStartHint: copy(pageContract, "filter.date.range_start_hint"),
-                rangeEndHint: copy(pageContract, "filter.date.range_end_hint"),
-                rangeSeparator: copy(pageContract, "filter.date.range_separator"),
-              }}
-            />
+            <div className="vr-fld vr-date-fld">
+              <span className="vr-fld-spacer" aria-hidden="true" />
+              <ActionsDateFilter
+                basePath={PATHNAME}
+                from={dateRange.from}
+                to={dateRange.to}
+                today={today}
+                defaultFrom={businessDaysBefore(today, DEFAULT_QUEUE_WINDOW_DAYS)}
+                labels={{
+                  field: copy(pageContract, "filter.date"),
+                  today: copy(pageContract, "filter.date.today"),
+                  single: copy(pageContract, "filter.date.single"),
+                  range: copy(pageContract, "filter.date.range"),
+                  aria: copy(pageContract, "filter.date.aria"),
+                  previousMonth: copy(pageContract, "filter.date.previous_month"),
+                  nextMonth: copy(pageContract, "filter.date.next_month"),
+                  rangeStartHint: copy(pageContract, "filter.date.range_start_hint"),
+                  rangeEndHint: copy(pageContract, "filter.date.range_end_hint"),
+                  rangeSeparator: copy(pageContract, "filter.date.range_separator"),
+                }}
+              />
+            </div>
           ) : null}
           {sheds.length ? (
             <>
@@ -589,133 +574,141 @@ export async function VerificationReviewPage({
         </div>
         </form>
 
-        {statuses.length ? (
-          <div className="vr-legend">
-            {statusOptionsWithStatus.map((option) => (
-              <Link
-                key={option.key}
-                href={hrefWith(sp, { status: option.status, vi_row: null, vi_cursor: null, vi_trail: null, va_status: null, va_code: null, va_fields: null, va_entries: null })}
-                replace
-                scroll={false}
-                className={`vr-lg${status === option.status ? " on" : ""}`}
-              >
-                <i style={{ background: legendDotColor[option.status] }} />
-                {option.label}
-                <span className="n">{statusCounts[option.status] ?? 0}</span>
-              </Link>
-            ))}
+        <div className="vr-results-zone" aria-live="polite" aria-busy="false">
+          <div className="vr-results-loading" aria-hidden="true">
+            <span />
+            <span />
+            <span />
+            <span />
           </div>
-        ) : null}
+          {statuses.length ? (
+            <div className="vr-legend">
+              {statusOptionsWithStatus.map((option) => (
+                <Link
+                  key={option.key}
+                  href={hrefWith(sp, { status: option.status, vi_row: null, vi_cursor: null, vi_trail: null, va_status: null, va_code: null, va_fields: null, va_entries: null })}
+                  replace
+                  scroll={false}
+                  className={`vr-lg${status === option.status ? " on" : ""}`}
+                >
+                  <i style={{ background: legendDotColor[option.status] }} />
+                  {option.label}
+                  <span className="n">{statusCounts[option.status] ?? 0}</span>
+                </Link>
+              ))}
+            </div>
+          ) : null}
 
-        <div className="vr-secthd">
-          <h2>{tableContract.title}</h2>
-          <span className="hint">{copy(pageContract, "table.hint")}</span>
-        </div>
+          <div className="vr-secthd">
+            <h2>{tableContract.title}</h2>
+            <span className="hint">{copy(pageContract, "table.hint")}</span>
+          </div>
 
-        <div style={{ overflowX: "auto" }} tabIndex={0} role="group">
-          <table data-enh="1" className="vr-table">
-            <thead>
-              <tr>
-                {columns.map((label, index) => (
-                  <th key={label}>
-                    {index === 2 ? (
-                      <Link
-                        href={hrefWith(sp, { sort: nextSort, ...RESET_ON_FILTER })}
-                        replace
-                        scroll={false}
-                        className="vr-sortlink"
-                        aria-label={`Sort by ${label} ${nextSort === "captured_at_desc" ? "newest first" : "oldest first"}`}
-                      >
-                        <span>{label}</span>
-                        {sort === "captured_at_desc" ? <ArrowDown className="ic" aria-hidden="true" /> : <ArrowUp className="ic" aria-hidden="true" />}
-                      </Link>
-                    ) : (
-                      label
-                    )}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {items.length === 0 ? (
+          <div style={{ overflowX: "auto" }} tabIndex={0} role="group">
+            <table data-enh="1" className="vr-table">
+              <thead>
                 <tr>
-                  <td colSpan={columns.length}>
-                    <div className="muted small" style={{ padding: "18px 4px", textAlign: "center", lineHeight: 1.6 }}>
-                      {queue.ok ? copy(pageContract, "state.empty") : copy(pageContract, "state.queue_unavailable")}
-                    </div>
-                  </td>
+                  {columns.map((label, index) => (
+                    <th key={label}>
+                      {index === 2 ? (
+                        <Link
+                          href={hrefWith(sp, { sort: nextSort, ...RESET_ON_FILTER })}
+                          replace
+                          scroll={false}
+                          className="vr-sortlink"
+                          aria-label={`Sort by ${label} ${nextSort === "captured_at_desc" ? "newest first" : "oldest first"}`}
+                        >
+                          <span>{label}</span>
+                          {sort === "captured_at_desc" ? <ArrowDown className="ic" aria-hidden="true" /> : <ArrowUp className="ic" aria-hidden="true" />}
+                        </Link>
+                      ) : (
+                        label
+                      )}
+                    </th>
+                  ))}
                 </tr>
-              ) : (
-                items.map((item) => (
-                  <QueueRow
-                    key={item.item_id}
-                    item={item}
-                    actionTypeLabel={String(typeLabels.get(item.category) ?? item.category)}
-                    searchParams={sp}
-                    pageContract={pageContract}
-                    statusLabels={statusLabelRecord}
-                  />
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-
-        {/* Keyset pagination. The queue read is cursor-based (OFFSET is banned on this path), so
-            there is no page number to jump to and no way to read backwards from a cursor alone.
-            `vi_trail` carries the cursors already consumed, newest last: Next pushes the cursor
-            that produced the CURRENT page, Previous pops it and re-reads with the one beneath. Each
-            direction is therefore a real indexed keyset read.
-
-            Before this the pager was a lone forward link: no way back without the browser button,
-            and no indication of where in the backlog the verifier was -- 33 pending items at 20 a
-            page, with nothing saying which 20 these were. Every label here stays backend-owned
-            (pagination.previous / pagination.position / pagination.next). */}
-        {queue.ok && (queue.data.next_cursor || trail.length) ? (
-          <div className="pager" style={{ marginTop: 12, display: "flex", alignItems: "center", gap: 10 }}>
-            {trail.length ? (
-              <Link
-                href={hrefWith(sp, {
-                  vi_cursor: trail[trail.length - 1] || null,
-                  vi_trail: encodeTrail(trail.slice(0, -1)),
-                  vi_row: null,
-                  va_status: null,
-                  va_code: null,
-                  va_fields: null,
-                  va_entries: null,
-                })}
-                className="btn sm"
-                replace
-                scroll={false}
-              >
-                {copy(pageContract, "pagination.previous")}
-              </Link>
-            ) : null}
-            <span className="small muted">
-              {copy(pageContract, "pagination.position")} {trail.length + 1}
-            </span>
-            {queue.data.next_cursor ? (
-              <Link
-                href={hrefWith(sp, {
-                  vi_cursor: queue.data.next_cursor,
-                  // The cursor that produced THIS page becomes the way back to it. "" is a real
-                  // trail entry (the first page has no cursor) and must survive the round trip.
-                  vi_trail: encodeTrail([...trail, one(sp, "vi_cursor") ?? ""]),
-                  vi_row: null,
-                  va_status: null,
-                  va_code: null,
-                  va_fields: null,
-                  va_entries: null,
-                })}
-                className="btn sm"
-                replace
-                scroll={false}
-              >
-                {copy(pageContract, "pagination.next")}
-              </Link>
-            ) : null}
+              </thead>
+              <tbody>
+                {items.length === 0 ? (
+                  <tr>
+                    <td colSpan={columns.length}>
+                      <div className="muted small" style={{ padding: "18px 4px", textAlign: "center", lineHeight: 1.6 }}>
+                        {queue.ok ? copy(pageContract, "state.empty") : copy(pageContract, "state.queue_unavailable")}
+                      </div>
+                    </td>
+                  </tr>
+                ) : (
+                  items.map((item) => (
+                    <QueueRow
+                      key={item.item_id}
+                      item={item}
+                      actionTypeLabel={String(typeLabels.get(item.category) ?? item.category)}
+                      searchParams={sp}
+                      pageContract={pageContract}
+                      statusLabels={statusLabelRecord}
+                    />
+                  ))
+                )}
+              </tbody>
+            </table>
           </div>
-        ) : null}
+
+          {/* Keyset pagination. The queue read is cursor-based (OFFSET is banned on this path), so
+              there is no page number to jump to and no way to read backwards from a cursor alone.
+              `vi_trail` carries the cursors already consumed, newest last: Next pushes the cursor
+              that produced the CURRENT page, Previous pops it and re-reads with the one beneath. Each
+              direction is therefore a real indexed keyset read.
+
+              Before this the pager was a lone forward link: no way back without the browser button,
+              and no indication of where in the backlog the verifier was -- 33 pending items at 20 a
+              page, with nothing saying which 20 these were. Every label here stays backend-owned
+              (pagination.previous / pagination.position / pagination.next). */}
+          {queue.ok && (queue.data.next_cursor || trail.length) ? (
+            <div className="pager" style={{ marginTop: 12, display: "flex", alignItems: "center", gap: 10 }}>
+              {trail.length ? (
+                <Link
+                  href={hrefWith(sp, {
+                    vi_cursor: trail[trail.length - 1] || null,
+                    vi_trail: encodeTrail(trail.slice(0, -1)),
+                    vi_row: null,
+                    va_status: null,
+                    va_code: null,
+                    va_fields: null,
+                    va_entries: null,
+                  })}
+                  className="btn sm"
+                  replace
+                  scroll={false}
+                >
+                  {copy(pageContract, "pagination.previous")}
+                </Link>
+              ) : null}
+              <span className="small muted">
+                {copy(pageContract, "pagination.position")} {trail.length + 1}
+              </span>
+              {queue.data.next_cursor ? (
+                <Link
+                  href={hrefWith(sp, {
+                    vi_cursor: queue.data.next_cursor,
+                    // The cursor that produced THIS page becomes the way back to it. "" is a real
+                    // trail entry (the first page has no cursor) and must survive the round trip.
+                    vi_trail: encodeTrail([...trail, one(sp, "vi_cursor") ?? ""]),
+                    vi_row: null,
+                    va_status: null,
+                    va_code: null,
+                    va_fields: null,
+                    va_entries: null,
+                  })}
+                  className="btn sm"
+                  replace
+                  scroll={false}
+                >
+                  {copy(pageContract, "pagination.next")}
+                </Link>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
         </section>
       </VerificationQueueTelemetry>
 
@@ -748,6 +741,7 @@ function QueueRow({
   statusLabels: Record<string, string>;
 }) {
   const playHref = hrefWith(searchParams, { vi_row: item.item_id, vi_play: "1", va_status: null, va_code: null, va_fields: null, va_entries: null });
+  const leadMedia = item.media.find((media) => media.thumbnail_url) ?? item.media[0];
   // The whole row opens the review overlay AND resolves the first proof immediately: this is the
   // verifier's explicit tap on that evidence row, not an automatic list-preview load. Keeping this
   // intent on every cell avoids the two-click "open drawer, then open video" trap.
@@ -762,6 +756,7 @@ function QueueRow({
         <LocalOverlayLink href={playHref} className="vr-rowlink" scroll={false}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <span className="vr-thumb" aria-hidden="true">
+            {leadMedia?.thumbnail_url ? <img src={leadMedia.thumbnail_url} alt="" loading="lazy" decoding="async" /> : null}
             <PlayCircle className="ic" />
             {item.media.length > 1 ? <span className="n">{item.media.length}</span> : null}
           </span>

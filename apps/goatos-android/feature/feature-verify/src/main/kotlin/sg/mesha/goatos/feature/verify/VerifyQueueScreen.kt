@@ -41,10 +41,12 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil.compose.AsyncImage
 import sg.mesha.goatos.core.designsystem.component.MeshaScreenHeader
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import sg.mesha.goatos.core.designsystem.nav.LocalDrawerCarriesModules
@@ -98,6 +100,7 @@ data class VerificationQueueRow(
     val animalLabel: String = "",
     val weightLabel: String = "",
     val mediaCountLabel: String = "",
+    val thumbnailUrl: String? = null,
     val parkLabel: String = "",
     val operatorLabel: String = "",
     val capturedAtLabel: String = "",
@@ -856,6 +859,16 @@ private fun QueueRowCard(row: VerificationQueueRow, hierarchical: Boolean, onCli
                     .background(MeshaColors.Surf2),
                 contentAlignment = Alignment.Center,
             ) {
+                if (!row.thumbnailUrl.isNullOrBlank()) {
+                    AsyncImage(
+                        // proof-media-egress:ignore Backend-provided lightweight verification
+                        // thumbnail; never use the full proof download URL for list rows.
+                        model = row.thumbnailUrl,
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
                 Icon(
                     imageVector = MeshaIcons.Video,
                     contentDescription = null,
