@@ -18,6 +18,7 @@ import {
   ClipboardList,
   Edit3,
   Gavel,
+  SquareKanban,
   HeartPulse,
   Menu,
   MapPin,
@@ -79,6 +80,10 @@ const iconByToken: Record<string, ElementType> = {
   // in the backend nav contract but never registered here, so the vertical rendered the Control
   // Tower icon.
   scale: Scale,
+  // Work Board's declared icon in the backend nav contract (2026-09-10). Registered here for
+  // the same reason as `milk`, `scale` and `wheat`: an unregistered token silently falls back
+  // to the Control Tower icon.
+  "square-kanban": SquareKanban,
   // Health is a DISTINCT vertical from Preventive Care, so it gets its own icon rather than
   // sharing heart-pulse. It must never use the syringe/injection token, which belongs to the
   // Vaccination module under Preventive Care.

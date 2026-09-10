@@ -960,8 +960,10 @@ func TestBootstrapKeepsModeledNavAndAppliesRBACDisable(t *testing.T) {
 		},
 	})
 
-	if len(resp.Navigation.Primary) != 3 {
-		t.Fatalf("primary items (Approvals, Verify, Tasks) must stay present, got %d", len(resp.Navigation.Primary))
+	// Tasks was restored on 2026-09-11 and the Work Board joined on 2026-09-10: four primary
+	// items (Approvals, Verify, Tasks, Work Board).
+	if len(resp.Navigation.Primary) != 4 {
+		t.Fatalf("primary items (Approvals, Verify, Tasks, Work Board) must stay present, got %d", len(resp.Navigation.Primary))
 	}
 	// Tasks is modeled for everyone and RBAC-disabled for an operator, who holds no
 	// leadership_tasks.read on the role path.
