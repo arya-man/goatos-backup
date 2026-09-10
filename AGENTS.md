@@ -49,6 +49,18 @@ rather than only the visible diff. Treat mismatches between the PR and current
 architecture, contracts, operational read models, mobile/backend/admin sync, or
 shared kernel flow as review findings even when the diff compiles.
 
+For any review or code change that touches admin-web, website, dashboard,
+frontend, CSS, page contracts, route definitions, or web-visible copy, the
+review lens must include laptop and mobile UI/UX. Do not stop at compile,
+typecheck, or a single desktop screenshot. Verify the affected route and every
+route-owned nested tab/state, including page tabs, left/right sidebars,
+drawers/modals/popovers, dynamic detail pages, charts, tables, and horizontal
+scroll regions. Run or require the local admin-web responsive visual guard
+(`npm --prefix apps/admin-web run responsive:guard`, or the current equivalent)
+against both laptop and mobile viewports, inspect the generated screenshots
+before presenting them as proof, and treat missed route/tab/drawer coverage in
+the guard itself as a review finding.
+
 For Android/mobile/backend reviews that touch camera, proof media, attachments,
 signed URLs, uploads, previews, player screens, or billing/infra, include
 post-upload media egress risk in the review. Check for already-uploaded media

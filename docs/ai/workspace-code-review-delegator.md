@@ -46,7 +46,7 @@ workspace root path in the three path references:
 ````markdown
 ---
 name: code-review
-description: Review or audit a Goat OS / Mesha change (diff, branch, PR, or path) for kernel correctness, 1-5M-animal scale safety, hexagonal boundaries, backend + frontend + Android-mobile architecture (Room SSOT / offline / pagination / memory), DB-schema/migration lock-safety, and vaccination/obligation business-rule fidelity — applying root-cause-vs-band-aid, anti-pattern, and blast-radius lenses and returning a bug list (or approval). In the Mesha workspace this REPLACES the generic ECC/official code-review skill. Orchestrates CRG, Graphify, RTK, and repowise. Use when reviewing code, auditing a diff, or gating a change before push.
+description: Review or audit a Goat OS / Mesha change (diff, branch, PR, or path) for kernel correctness, 1-5M-animal scale safety, hexagonal boundaries, backend + frontend laptop/mobile UI/UX + Android-mobile architecture (Room SSOT / offline / pagination / memory), DB-schema/migration lock-safety, and vaccination/obligation business-rule fidelity — applying root-cause-vs-band-aid, anti-pattern, and blast-radius lenses and returning a bug list (or approval). In the Mesha workspace this REPLACES the generic ECC/official code-review skill. Orchestrates CRG, Graphify, RTK, and repowise. Use when reviewing code, auditing a diff, or gating a change before push.
 version: 0.1.0
 user-invocable: true
 argument-hint: "[target: diff | branch | PR | path — what to review]"
@@ -72,6 +72,9 @@ This is a thin delegator. When invoked, do exactly this:
    when clean). For proof/media, signed URL, preview, player, attachment, or
    billing-risk reviews, also apply the proof-media egress lens from the ledger
    and the backend/frontend/mobile references.
+   For admin-web/web-rendered changes, the frontend reference requires laptop
+   and mobile UI/UX review, nested tab/drawer/dynamic-route coverage, responsive
+   guard evidence, and visual screenshot inspection.
 
 2. **Follow that skill exactly** for the review target given in `$ARGUMENTS`.
    If no target is given, review the current working diff (`git diff` /

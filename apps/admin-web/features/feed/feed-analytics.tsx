@@ -847,7 +847,7 @@ function DirectedTabs({
         // keeps its kg line, so it is never hidden for lack of a price.
         <div
           className="grid"
-          style={{ gridTemplateColumns: "repeat(auto-fit, minmax(420px, 1fr))", gap: 14, marginTop: 14 }}
+          style={{ gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 420px), 1fr))", gap: 14, marginTop: 14 }}
         >
           {rankItemCards(view.itemSeries, itemMoney).map(({ series, money }) => {
             const fedDays = series.points.filter((p) => p !== null).length;
@@ -934,7 +934,7 @@ function DirectedTabs({
         // 950 g Masoor line flatten every concentrate into the baseline.
         <div
           className="grid"
-          style={{ gridTemplateColumns: "repeat(auto-fit, minmax(420px, 1fr))", gap: 14, marginTop: 14 }}
+          style={{ gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 420px), 1fr))", gap: 14, marginTop: 14 }}
         >
           {view.perHead.map((series) => {
             const lastIdx = series.points.reduce<number>((acc, point, index) => (point === null ? acc : index), -1);

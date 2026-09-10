@@ -20,6 +20,24 @@ safe to work, not a new finding).
 
 ## Part A — Closed-Decisions Registry
 
+### CD-WEB-RESPONSIVE-REVIEW — admin-web reviews require laptop + mobile UI/UX proof
+- STATUS: **LOCKED** (maintainer decision 2026-09-11)
+- INVARIANT: any review or code change touching admin-web/web-rendered UI, CSS,
+  route/page contracts, charts, tables, or visible copy must be reviewed on both
+  laptop and mobile. The review must include affected nested page tabs, sidebars,
+  drawers/modals/popovers, dynamic detail pages, charts, tables, legends, KPI
+  cards, and horizontal-scroll regions. A build/typecheck or single desktop
+  screenshot is not enough.
+- PROOF: `apps/admin-web/scripts/smoke-visual-live.mjs` + `responsive:guard`
+  are the local guard path; `smoke-visual-route-coverage.test.mjs` must be
+  updated when adding pages/tabs/dynamic routes so the guard cannot silently
+  miss them.
+- ENFORCED-BY: `responsive:guard`, `smoke-visual-route-coverage.test.mjs`, and
+  manual screenshot inspection.
+- DO-NOT: approve web/admin UI work that lacks mobile evidence, skips nested
+  tabs/drawer/dynamic-route coverage, or presents screenshots not visually
+  validated by the reviewer.
+
 ### CD-STAGE-REVIEW — vaccination stage/age-mismatch "review queue"
 - STATUS: **BANNED**
 - INVARIANT: vaccination stage is a pure function of age (DOB → age-weeks → kid cutoff). A

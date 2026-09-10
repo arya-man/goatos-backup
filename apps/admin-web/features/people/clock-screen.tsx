@@ -182,7 +182,7 @@ export async function ClockScreen({
         {items.length === 0 ? (
           <div className="empty">{copy(pageContract, "clock.empty")}</div>
         ) : (
-          <div className="twrap">
+          <div className="twrap" tabIndex={0} role="region" aria-label={copy(pageContract, "clock.tab.title")}>
             <table className="people-table" aria-label={copy(pageContract, "clock.tab.title")}>
               <thead>
                 <tr>

@@ -66,13 +66,16 @@ export function DiseaseBoardTable({
   });
 
   return (
-    <DataTable
-      columns={columns}
-      data={rows}
-      getRowId={(row) => row.key}
-      ariaLabel={ariaLabel}
-      empty={empty}
-    />
+    <div className="health-analytics-scroll" tabIndex={0} role="region" aria-label={ariaLabel}>
+      <DataTable
+        columns={columns}
+        data={rows}
+        getRowId={(row) => row.key}
+        ariaLabel={ariaLabel}
+        className="health-analytics-table"
+        empty={empty}
+      />
+    </div>
   );
 }
 
@@ -151,13 +154,16 @@ export function DeathsTable({
   });
 
   return (
-    <DataTable
-      columns={columns}
-      data={rows}
-      getRowId={(row) => row.goatId}
-      ariaLabel={ariaLabel}
-      empty={empty}
-    />
+    <div className="health-analytics-scroll" tabIndex={0} role="region" aria-label={ariaLabel}>
+      <DataTable
+        columns={columns}
+        data={rows}
+        getRowId={(row) => row.goatId}
+        ariaLabel={ariaLabel}
+        className="health-analytics-table"
+        empty={empty}
+      />
+    </div>
   );
 }
 
@@ -188,13 +194,16 @@ export function MedicinesTable({
   });
 
   return (
-    <DataTable
-      columns={columns}
-      data={rows}
-      getRowId={(row) => row.key}
-      ariaLabel={ariaLabel}
-      empty={empty}
-    />
+    <div className="health-analytics-scroll" tabIndex={0} role="region" aria-label={ariaLabel}>
+      <DataTable
+        columns={columns}
+        data={rows}
+        getRowId={(row) => row.key}
+        ariaLabel={ariaLabel}
+        className="health-analytics-table"
+        empty={empty}
+      />
+    </div>
   );
 }
 
@@ -232,12 +241,15 @@ export function EngineRulesTable({
   });
 
   return (
-    <DataTable
-      columns={columns}
-      data={rows}
-      getRowId={(row) => row.key}
-      ariaLabel={ariaLabel}
-      empty={empty}
-    />
+    <div className="health-analytics-scroll" tabIndex={0} role="region" aria-label={ariaLabel}>
+      <DataTable
+        columns={columns}
+        data={rows}
+        getRowId={(row) => row.key}
+        ariaLabel={ariaLabel}
+        className="health-analytics-table"
+        empty={empty}
+      />
+    </div>
   );
 }

@@ -541,10 +541,24 @@ When local backend/admin-web can run:
 
 ```bash
 npm run smoke:visual:live
+npm run responsive:guard
 ```
 
 Open the generated screenshots under
 `.codex-goatos-render/admin-web-screenshots/` before claiming visual QA.
+
+For any admin-web change or review that can affect rendered UI, the visual QA
+scope is laptop plus mobile, not desktop-only. Check every affected page,
+nested page tab, left/right sidebar state, drawer/modal/popover, dynamic detail
+route, chart, table, KPI card, legend, and horizontal-scroll region. If a page,
+tab, drawer-owned URL state, or dynamic route is added or changed, update both
+`scripts/smoke-visual-live.mjs` and
+`scripts/smoke-visual-route-coverage.test.mjs` in the same change. Treat missing
+responsive guard coverage as a review finding.
+
+Do not present screenshots as proof until you have visually opened and confirmed
+they show the intended page/state, not login, loading, an error, or a stale
+route.
 
 The default smoke lets the calendar drive-target roster be empty (logs
 `identity_calendar_roster=skipped_no_targets`). To hard-assert the

@@ -109,7 +109,7 @@ regardless of which layer changed.
 
 | Changed path pattern | Load reference(s) |
 |---|---|
-| `apps/admin-web/**`, `packages/ui`, `packages/rbac`, `packages/forms-dsl`, `packages/api-client` | `references/frontend.md` |
+| `apps/admin-web/**`, `packages/ui`, `packages/rbac`, `packages/forms-dsl`, `packages/api-client` | `references/frontend.md` (includes laptop + mobile responsive UI/UX and visual-guard coverage) |
 | `apps/goatos-android/**` (Kotlin/Compose app) | `references/mobile.md` |
 | `backend/internal/**`, `backend/cmd/**`, `backend/migrations/**` | `references/backend.md` **+** `references/kernel-and-scale.md` |
 | Projection/read model/card/summary/calendar/reminder code, or a query combining `JOIN` with aggregation/pagination | `references/aggregates-and-projections.md` **+ producer and consumer lenses** |
