@@ -16324,6 +16324,8 @@ export interface components {
             park_label?: string;
             department_label?: string;
             business_date: string;
+            /** @description Farm-readable short date ("10 Sep"), rendered verbatim. */
+            date_label?: string;
             /** @description open | closed | auto_closed; empty for a not-clocked-in row. */
             status: string;
             clock_in_at: string;

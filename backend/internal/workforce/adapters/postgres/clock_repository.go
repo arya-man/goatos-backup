@@ -217,7 +217,7 @@ func (r *Repository) ClockDayForMember(ctx context.Context, params ports.ClockSt
 	defer cancel()
 	limit := params.RecentLimit
 	if limit <= 0 || limit > 60 {
-		limit = 14
+		limit = 31
 	}
 	rows, err := r.pool.Query(ctx, `
 SELECT e.clock_entry_id::text, e.workforce_member_id::text, e.business_date::text, e.status,
@@ -228,9 +228,10 @@ LEFT JOIN workforce_clock_events ein
   ON ein.tenant_id = e.tenant_id AND ein.clock_event_id = e.clock_in_event_id
 WHERE e.tenant_id = $1::uuid AND e.workforce_member_id = $2::uuid
   AND e.business_date <= $3::date
+  AND ($4 = '' OR e.business_date >= $4::date)
 ORDER BY e.business_date DESC
-LIMIT $4`,
-		params.TenantID, params.WorkforceMemberID, params.BusinessDate, limit+1)
+LIMIT $5`,
+		params.TenantID, params.WorkforceMemberID, params.BusinessDate, params.RecentSince, limit+1)
 	if err != nil {
 		return nil, nil, err
 	}

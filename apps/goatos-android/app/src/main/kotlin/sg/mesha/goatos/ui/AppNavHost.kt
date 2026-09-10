@@ -93,6 +93,8 @@ import sg.mesha.goatos.feature.clock.ClockPersonDayEvent
 import sg.mesha.goatos.feature.clock.ClockPersonDayScreen
 import sg.mesha.goatos.feature.clock.ClockScreen
 import sg.mesha.goatos.feature.clock.LeaveRequestFormScreen
+import sg.mesha.goatos.feature.clock.MyLeaveScreen
+import sg.mesha.goatos.feature.clock.MyLeaveEvent
 import sg.mesha.goatos.feature.clock.LeaveRequestFormEvent
 import sg.mesha.goatos.feature.clock.LeaveApprovalScreen
 import sg.mesha.goatos.feature.clock.ClockTeamEvent
@@ -250,6 +252,7 @@ import sg.mesha.goatos.viewmodel.ClockPersonDayViewModel
 import sg.mesha.goatos.viewmodel.ClockTeamViewModel
 import sg.mesha.goatos.viewmodel.ClockViewModel
 import sg.mesha.goatos.viewmodel.LeaveRequestViewModel
+import sg.mesha.goatos.viewmodel.MyLeaveViewModel
 import sg.mesha.goatos.viewmodel.LeaveApprovalViewModel
 import sg.mesha.goatos.viewmodel.ToxinTaskDetailViewModel
 import sg.mesha.goatos.viewmodel.ToxinTaskListViewModel
@@ -743,6 +746,7 @@ object Routes {
     // The Request leave form is a hosted drill under the Clock root (Up/Back, no root chrome);
     // the approver queue is the Leave tab of the Approvals module -- an L0 bottom-bar root whose
     // href matches the backend nav item VERBATIM ({key:"leave", href:"/leave/approvals"}).
+    const val CLOCK_LEAVE = "/clock/leave"
     const val CLOCK_LEAVE_NEW = "/clock/leave/new"
     const val LEAVE_APPROVALS = "/leave/approvals"
 
@@ -3969,11 +3973,26 @@ fun AppNavHost(
                         ClockEvent.Refresh -> vm.refresh()
                         ClockEvent.Punch -> vm.punch()
                         ClockEvent.CheckAgain -> vm.checkAgain()
-                        ClockEvent.RequestLeave -> {
-                            vm.onLeaveFormOpened()
+                    }
+                },
+            )
+        }
+
+        // My Leave: the person's OWN leave, an L0 bottom-bar destination beside My Clock
+        // (backend nav item {key:"my_leave", href:"/clock/leave"}, ungated like the punch).
+        composable(Routes.CLOCK_LEAVE) {
+            val vm: MyLeaveViewModel = hiltViewModel()
+            val state by vm.state.collectAsStateWithLifecycle()
+            MyLeaveScreen(
+                state = state,
+                onEvent = { event ->
+                    when (event) {
+                        MyLeaveEvent.Refresh -> vm.refresh()
+                        MyLeaveEvent.RequestLeave -> {
+                            vm.onRequestLeaveOpened()
                             navController.navigate(Routes.CLOCK_LEAVE_NEW) { launchSingleTop = true }
                         }
-                        is ClockEvent.WithdrawLeave -> vm.withdrawLeave(event.requestId)
+                        is MyLeaveEvent.Withdraw -> vm.withdraw(event.requestId)
                     }
                 },
             )
@@ -4583,6 +4602,10 @@ private val supportedRootDestinations = setOf(
 	// back to Calendar with NO route into the module once the reminder banner
 	// cleared (E2E finding 2026-08-28: the operator could never review hours).
 	Routes.CLOCK,
+	// My Leave is a backend-composed bar item beside My Clock, so it is an L0 root exactly
+	// like the punch screen; registering the composable alone would leave a deep link or a
+	// notification naming it treated as unhosted and bounced to home.
+	Routes.CLOCK_LEAVE,
 	Routes.CLOCK_TEAM,
 	// Leave approvals (maintainer decisions 2026-09-10): the Leave tab of the Approvals module
 	// is a backend-composed bar item, so it is a root exactly like the tab beside it.

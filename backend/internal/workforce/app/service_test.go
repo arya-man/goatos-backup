@@ -725,16 +725,21 @@ func TestVisibleNavigationFor(t *testing.T) {
 			// Baseline clock (2026-08-28, decision D2): a person no module owns
 			// still clocks in, so the FLOOR of every bar is My Clock — never
 			// blank. Work modules are still earned by a department grant.
+			//
+			// The floor is TWO items since 2026-09-10 (maintainer ask): Leave sits
+			// beside My Clock, because everyone who clocks in may also ask for
+			// leave. Both are contributions of the same baseline `clock` module, so
+			// what this case pins — no module grant, no WORK bar — is unchanged.
 			name:    "operator with no module grants gets the baseline clock bar",
 			grants:  []domain.GrantSummary{grantWithRole(permissions.RoleOperator)},
 			modules: nil,
-			want:    []domain.BootstrapNavigationItem{{Key: "clock", Label: "My Clock", Href: "/clock"}},
+			want:    []domain.BootstrapNavigationItem{{Key: "clock", Label: "My Clock", Href: "/clock"}, {Key: "my_leave", Label: "Leave", Href: "/clock/leave"}},
 		},
 		{
 			name:    "unknown module key contributes nothing beyond the clock floor",
 			grants:  []domain.GrantSummary{grantWithRole(permissions.RoleOperator)},
 			modules: []string{"not_a_real_module"},
-			want:    []domain.BootstrapNavigationItem{{Key: "clock", Label: "My Clock", Href: "/clock"}},
+			want:    []domain.BootstrapNavigationItem{{Key: "clock", Label: "My Clock", Href: "/clock"}, {Key: "my_leave", Label: "Leave", Href: "/clock/leave"}},
 		},
 		{
 			// A "soon" module is a roadmap row, never a servable bar; the
@@ -742,7 +747,7 @@ func TestVisibleNavigationFor(t *testing.T) {
 			name:    "soon module is not servable",
 			grants:  []domain.GrantSummary{grantWithRole(permissions.RoleOperator)},
 			modules: []string{"breeding"},
-			want:    []domain.BootstrapNavigationItem{{Key: "clock", Label: "My Clock", Href: "/clock"}},
+			want:    []domain.BootstrapNavigationItem{{Key: "clock", Label: "My Clock", Href: "/clock"}, {Key: "my_leave", Label: "Leave", Href: "/clock/leave"}},
 		},
 	}
 	for _, tc := range tests {
@@ -1459,9 +1464,12 @@ func TestVisibleNavigationIsEarnedByAModuleGrant(t *testing.T) {
 	// A module-less department composes ONLY the baseline clock bar (2026-08-28,
 	// decision D2: everyone clocks in). No WORK module is invented for it — the
 	// P1-NAV rule stands for operational modules; attendance is the one floor.
+	// TWO items since 2026-09-10 (maintainer ask): My Clock and, beside it, Leave --
+	// both contributions of the same baseline `clock` module. What this pins is that no
+	// WORK module sneaks in without a grant, which the key check below still proves.
 	nav0 := visibleNavigationFor(grants, nil, "en")
-	if len(nav0) != 1 || nav0[0].Key != "clock" {
-		t.Fatalf("nav with no granted module=%v, want exactly the baseline clock bar", nav0)
+	if len(nav0) != 2 || nav0[0].Key != "clock" || nav0[1].Key != "my_leave" {
+		t.Fatalf("nav with no granted module=%v, want exactly the baseline clock bar (My Clock + Leave)", nav0)
 	}
 
 	// A department that DOES hold a module (here Counts) composes that module's non-empty bottom bar.

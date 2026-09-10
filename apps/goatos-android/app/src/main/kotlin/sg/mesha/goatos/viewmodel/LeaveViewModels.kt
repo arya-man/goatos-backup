@@ -29,6 +29,7 @@ import sg.mesha.goatos.feature.clock.LeaveApprovalEvent
 import sg.mesha.goatos.feature.clock.LeaveApprovalUiState
 import sg.mesha.goatos.feature.clock.LeaveRequestFormUi
 import sg.mesha.goatos.feature.clock.LeaveRowUi
+import sg.mesha.goatos.feature.clock.MyLeaveUiState
 import java.util.UUID
 import javax.inject.Inject
 
@@ -53,6 +54,87 @@ internal fun LeaveRequestDto.toRowUi(): LeaveRowUi = LeaveRowUi(
     canWithdraw = canWithdraw,
     mySlotLabel = mySlotLabel,
 )
+
+/**
+ * My Leave (route `/clock/leave`) -- the person's OWN leave, a bottom-bar destination beside My
+ * Clock (maintainer ask 2026-09-10). Reads the SAME Room-cached status blob the punch screen
+ * renders from, so the list is there offline and refreshes in the background on open.
+ */
+@HiltViewModel
+class MyLeaveViewModel @Inject constructor(
+    private val repo: ClockRepository,
+    private val syncRepository: SyncRepository,
+    private val analytics: AnalyticsPort,
+    private val crashReporter: CrashReporter,
+) : ViewModel() {
+
+    private val _isRefreshing = MutableStateFlow(false)
+    private val _withdrawing = MutableStateFlow<String?>(null)
+    private val _lastSyncedAt = MutableStateFlow<Long?>(null)
+
+    val state: StateFlow<MyLeaveUiState> = kotlinx.coroutines.flow.combine(
+        repo.observeStatus(),
+        _isRefreshing,
+        _withdrawing,
+        _lastSyncedAt,
+    ) { dto, refreshing, withdrawing, syncedAt ->
+        val copy = dto?.leaveCopy.orEmpty()
+        MyLeaveUiState(
+            title = copy["list.title"].orEmpty(),
+            empty = copy["list.empty"].orEmpty(),
+            requestLabel = copy["request.title"].orEmpty(),
+            withdrawLabel = copy["request.withdraw"].orEmpty(),
+            todayLabel = dto?.leaveToday?.takeIf { it.onLeave }?.label.orEmpty(),
+            rows = dto?.leaveRequests.orEmpty().map { it.toRowUi() },
+            isRefreshing = refreshing,
+            lastSyncedAt = syncedAt,
+            hasData = dto != null,
+            withdrawingRequestId = withdrawing,
+        )
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), MyLeaveUiState())
+
+    fun refresh() {
+        if (_isRefreshing.value) return
+        viewModelScope.launch {
+            _isRefreshing.value = true
+            if (repo.refreshStatus()) _lastSyncedAt.value = System.currentTimeMillis()
+            _isRefreshing.value = false
+        }
+    }
+
+    fun onRequestLeaveOpened() {
+        analytics.track(AnalyticsEventsClock.CLOCK_LEAVE_FORM_OPENED)
+    }
+
+    /** Withdraws the person's own pending request through the durable outbox. */
+    fun withdraw(requestId: String) {
+        if (_withdrawing.value != null) return
+        _withdrawing.value = requestId
+        viewModelScope.launch {
+            when (val result = repo.withdrawLeave(requestId)) {
+                is AppResult.Ok -> {
+                    analytics.track(AnalyticsEventsClock.CLOCK_LEAVE_WITHDRAWN)
+                    syncRepository.observeItem(result.value).collect { item ->
+                        when (item?.status) {
+                            null, SyncItemStatus.SUCCEEDED, SyncItemStatus.FAILED -> {
+                                _withdrawing.value = null
+                                repo.refreshStatus()
+                                return@collect
+                            }
+                            else -> Unit
+                        }
+                    }
+                }
+                is AppResult.Err -> {
+                    _withdrawing.value = null
+                    crashReporter.recordException(IllegalStateException(result.message), "leave withdraw enqueue failed")
+                    analytics.track(AnalyticsEventsClock.CLOCK_LEAVE_FAILURE, mapOf(AnalyticsEvents.Params.REASON to result.message))
+                    refresh()
+                }
+            }
+        }
+    }
+}
 
 /** The Request leave form (route `/clock/leave/new`). Copy comes from the cached status blob. */
 @HiltViewModel

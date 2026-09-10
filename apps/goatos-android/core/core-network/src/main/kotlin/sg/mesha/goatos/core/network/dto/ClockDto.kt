@@ -65,6 +65,8 @@ data class ClockEntryDto(
     @SerialName("park_label") val parkLabel: String = "",
     @SerialName("department_label") val departmentLabel: String = "",
     @SerialName("business_date") val businessDate: String,
+    /** Farm-readable short date ("10 Sep"), backend-composed; rendered VERBATIM. */
+    @SerialName("date_label") val dateLabel: String = "",
     /** `open` | `closed` | `auto_closed`; empty for a not-clocked-in row. */
     @SerialName("status") val status: String,
     @SerialName("clock_in_at") val clockInAt: String,

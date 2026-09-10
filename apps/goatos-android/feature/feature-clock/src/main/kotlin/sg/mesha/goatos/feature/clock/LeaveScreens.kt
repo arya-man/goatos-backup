@@ -62,11 +62,10 @@ import java.time.ZoneOffset
  * Leave requests (docs/features/leave-requests/plan.md, maintainer decisions 2026-09-10).
  * Three surfaces, every visible word backend-owned:
  *
- *  - the Leave SECTION on the Clock screen (the person's requests beside their clockings, with
- *    a Request leave button and Withdraw on a pending row) -- [LeaveRowUi] / [LeaveSection];
+ *  - MY LEAVE (`/clock/leave`) -- the person's own requests, a bottom-bar destination beside
+ *    My Clock, with the Request leave control at the top -- [MyLeaveScreen];
  *  - the Request leave FORM (hosted drill `/clock/leave/new`) -- [LeaveRequestFormScreen];
- *  - the approver's Leave TAB inside the Approvals module (`/leave/approvals`) --
- *    [LeaveApprovalScreen].
+ *  - the approver's Leave queue (`/leave/approvals`) -- [LeaveApprovalScreen].
  */
 
 /** One leave request row. [listKey] carries full identity (request id + status + version). */
@@ -89,73 +88,112 @@ data class LeaveRowUi(
     val mySlotLabel: String,
 )
 
-/** The leave section's state, folded into [ClockUiState] by the ClockViewModel. */
+/**
+ * My Leave -- the person's OWN leave, a bottom-bar destination beside My Clock (maintainer ask
+ * 2026-09-10). Every leave they have asked for, newest window first, and a labelled Request
+ * leave control at the top. Kept apart from the punch screen on purpose: one screen answers
+ * "did I clock in", the other "where did my leave ask get to".
+ */
 @Immutable
-data class LeaveSectionUi(
+data class MyLeaveUiState(
     val title: String = "",
     val empty: String = "",
+    /** Backend copy for the request control; blank hides it. */
     val requestLabel: String = "",
     val withdrawLabel: String = "",
-    /** Backend `leave_today.label` ("On leave · 12–14 Sep 2026 · 3 days"), blank otherwise. */
+    /** Backend `leave_today.label`; blank when today is not an approved leave day. */
     val todayLabel: String = "",
     val rows: List<LeaveRowUi> = emptyList(),
+    val isRefreshing: Boolean = false,
+    val lastSyncedAt: Long? = null,
+    val hasData: Boolean = false,
     /** The request whose withdraw is on the outbox; its button is disabled meanwhile. */
     val withdrawingRequestId: String? = null,
 )
 
-/** The leave section rendered inside the Clock screen's LazyColumn. */
-internal fun androidx.compose.foundation.lazy.LazyListScope.leaveSection(
-    leave: LeaveSectionUi,
-    hasStatus: Boolean,
-    onRequestLeave: () -> Unit,
-    onWithdraw: (String) -> Unit,
+sealed interface MyLeaveEvent {
+    data object Refresh : MyLeaveEvent
+    data object RequestLeave : MyLeaveEvent
+    data class Withdraw(val requestId: String) : MyLeaveEvent
+}
+
+@Composable
+fun MyLeaveScreen(
+    state: MyLeaveUiState,
+    onEvent: (MyLeaveEvent) -> Unit = {},
+    modifier: Modifier = Modifier,
 ) {
-    if (leave.title.isBlank()) return
-    item(key = "leave_title") {
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
+    RefreshOnResume { onEvent(MyLeaveEvent.Refresh) }
+    Column(modifier = modifier.fillMaxSize().background(MeshaColors.PageBg)) {
+        MeshaScreenHeader(
+            title = state.title,
+            below = {
+                SyncStatusIndicator(
+                    isRefreshing = state.isRefreshing,
+                    lastSyncedAt = state.lastSyncedAt,
+                    hasData = state.hasData,
+                )
+            },
+            actions = {
+                SyncIconButton(isSyncing = state.isRefreshing, onSync = { onEvent(MyLeaveEvent.Refresh) })
+            },
+        )
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            Text(text = leave.title, style = MeshaType.cardTitle, color = MeshaColors.Ink)
-            Spacer(Modifier.weight(1f))
-            if (leave.requestLabel.isNotBlank()) {
-                OutlinedButton(onClick = onRequestLeave) {
-                    Text(text = leave.requestLabel, style = MeshaType.button)
+            // The request control says what it does in words -- a bare + names nothing
+            // (maintainer ask 2026-09-10). Backend copy, rendered verbatim.
+            if (state.requestLabel.isNotBlank()) {
+                item(key = "request_leave") {
+                    // The screen's PRIMARY action, so it wears the brand fill like Clock In.
+                    // An outlined button on this dark ground read as disabled (maintainer ask).
+                    Button(
+                        onClick = { onEvent(MyLeaveEvent.RequestLeave) },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MeshaColors.Brand,
+                            contentColor = MeshaColors.OnBrand,
+                        ),
+                        modifier = Modifier.fillMaxWidth().height(48.dp),
+                    ) {
+                        Text(text = state.requestLabel, style = MeshaType.button)
+                    }
                 }
             }
+            if (state.todayLabel.isNotBlank()) {
+                item(key = "leave_today") {
+                    Text(
+                        text = state.todayLabel,
+                        style = MeshaType.cardSubtitle,
+                        color = MeshaColors.Brand,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(MeshaColors.BrandTint)
+                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                    )
+                }
+            }
+            if (state.rows.isEmpty() && state.empty.isNotBlank() && state.hasData) {
+                item(key = "leave_empty") {
+                    EmptyState(
+                        title = state.empty,
+                        modifier = Modifier.fillMaxWidth(),
+                        icon = MeshaIcons.Calendar,
+                        tone = EmptyTone.Neutral,
+                    )
+                }
+            }
+            items(state.rows, key = { it.listKey }) { row ->
+                LeaveRowCard(
+                    row = row,
+                    withdrawLabel = state.withdrawLabel,
+                    withdrawBusy = state.withdrawingRequestId == row.requestId,
+                    onWithdraw = { onEvent(MyLeaveEvent.Withdraw(it)) },
+                )
+            }
         }
-    }
-    if (leave.todayLabel.isNotBlank()) {
-        item(key = "leave_today") {
-            Text(
-                text = leave.todayLabel,
-                style = MeshaType.cardSubtitle,
-                color = MeshaColors.Brand,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(MeshaColors.BrandTint)
-                    .padding(horizontal = 14.dp, vertical = 10.dp),
-            )
-        }
-    }
-    if (leave.rows.isEmpty() && leave.empty.isNotBlank() && hasStatus) {
-        item(key = "leave_empty") {
-            EmptyState(
-                title = leave.empty,
-                modifier = Modifier.fillMaxWidth(),
-                icon = MeshaIcons.Calendar,
-                tone = EmptyTone.Neutral,
-            )
-        }
-    }
-    items(leave.rows, key = { it.listKey }) { row ->
-        LeaveRowCard(
-            row = row,
-            withdrawLabel = leave.withdrawLabel,
-            withdrawBusy = leave.withdrawingRequestId == row.requestId,
-            onWithdraw = onWithdraw,
-        )
     }
 }
 

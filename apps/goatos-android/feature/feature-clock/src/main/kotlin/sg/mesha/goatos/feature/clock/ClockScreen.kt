@@ -22,6 +22,13 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.semantics.Role
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.layout.Box
 import androidx.compose.runtime.Immutable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -85,18 +92,19 @@ data class ClockUiState(
     val checkAgainLabel: String = "",
     /** Backend copy `refusal.location` — the location-is-mandatory punch refusal. */
     val locationRequiredMessage: String = "",
-    /** Leave requests beside the clockings (maintainer decisions 2026-09-10). */
-    val leave: LeaveSectionUi = LeaveSectionUi(),
+    /**
+     * Today's approved-leave line, backend `leave_today.label` (maintainer decisions
+     * 2026-09-10). Blank on an ordinary day. The person's leave LIST lives on its own
+     * bottom-bar destination, My Leave -- this screen only says why nobody is chasing
+     * them to clock in today.
+     */
+    val onLeaveToday: String = "",
 )
 
 sealed interface ClockEvent {
     data object Refresh : ClockEvent
     data object Punch : ClockEvent
     data object CheckAgain : ClockEvent
-    /** Opens the Request leave form (hosted drill `/clock/leave/new`). */
-    data object RequestLeave : ClockEvent
-    /** Withdraws the person's own pending request. */
-    data class WithdrawLeave(val requestId: String) : ClockEvent
 }
 
 /**
@@ -178,6 +186,23 @@ fun ClockScreen(
                     }
                 }
             }
+            // An approved leave day is a fact about TODAY, so it stays above the tabs.
+            if (state.onLeaveToday.isNotBlank()) {
+                item(key = "leave_today") {
+                    Text(
+                        text = state.onLeaveToday,
+                        style = MeshaType.cardSubtitle,
+                        color = MeshaColors.Brand,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(MeshaColors.BrandTint)
+                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                    )
+                }
+            }
+            // Leave lives on its OWN bottom-bar destination beside this one (maintainer ask
+            // 2026-09-10), so this screen is the punch and the days it produced, nothing else.
             if (state.recentTitle.isNotBlank()) {
                 item(key = "recent_title") {
                     Text(
@@ -201,12 +226,6 @@ fun ClockScreen(
             items(state.recent, key = { it.listKey }) { entry ->
                 ClockRecentEntryRow(entry)
             }
-            leaveSection(
-                leave = state.leave,
-                hasStatus = state.hasStatus,
-                onRequestLeave = { onEvent(ClockEvent.RequestLeave) },
-                onWithdraw = { onEvent(ClockEvent.WithdrawLeave(it)) },
-            )
         }
     }
 }
