@@ -34,6 +34,13 @@ When Ravi asks for judge/subagent validation and spawning fails due to agent
 capacity, close completed or old non-critical agents and retry immediately.
 Do not stop on agent-capacity while stale agents can be safely closed.
 
+For every new Goat OS task, start from a clean checkout of the latest
+`origin/main` unless Ravi explicitly names an existing branch, PR, worktree, or
+dirty local state as the target. Do not begin new work from whatever branch the
+terminal happens to be on. If the canonical checkout is dirty or stale, create a
+fresh isolated worktree from `origin/main` and do the task there; only inspect an
+old branch after the task specifically requires that branch.
+
 Whenever the maintainer says `review` for any Goat OS code, branch, or PR,
 Codex, Claude, and any other coding agent must use the same review lens: inspect
 the last one month of relevant commits for regressions, repeated patterns, and
