@@ -67,6 +67,40 @@ gcloud builds submit --project=goatos-stg --config=cloudbuild.stg.yaml \
 Both paths use Cloud Build for Docker image creation and post Slack status
 cards.
 
+### Local launcher 403 triage
+
+Codex/Claude local deploys should use the guarded launcher documented in the
+workspace root:
+
+```bash
+GOATOS_REPO=/path/to/clean/goatos /Users/raviteja/bin/goatos-stg-deploy backend-web-mobile
+```
+
+If this fails with `gcloud.builds.submit PERMISSION_DENIED` while impersonating
+`goatos-github-deploy-stg@goatos-stg.iam.gserviceaccount.com`, first verify the
+basics once:
+
+```bash
+gcloud auth list --filter=status:ACTIVE --format='value(account)'   # ravi@mesha.sg
+gcloud config get-value project                                     # goatos-stg
+git rev-parse --short=12 HEAD origin/main                           # same SHA
+git status --short --branch                                         # clean
+```
+
+If `--verbosity=debug` shows
+`iamcredentials.googleapis.com ... generateAccessToken` returning `200` and the
+next Cloud Build call returning `403`, stop treating it as local auth. The user
+credential and service-account impersonation worked; the missing permission is
+Cloud Build on the impersonated deployer, typically `cloudbuild.builds.create`
+for submit and `cloudbuild.builds.list` for inspection. Add an explicit Cloud
+Build role such as `roles/cloudbuild.builds.editor` to
+`goatos-github-deploy-stg@goatos-stg.iam.gserviceaccount.com` on `goatos-stg`,
+or use the Slack deploy button as the immediate deploy path because the deployed
+Slack bot uses its Cloud Run service account.
+
+Do not keep rerunning `gcloud auth login`, do not create service-account JSON,
+and do not move deployment to an OCI/local clone for this failure shape.
+
 If the Cloud Deploy task runner itself needs rebuilding, use
 `cloudbuild.stg-runner.yaml` in Cloud Build and update the pinned runner digest
 in `deploy/clouddeploy/stg/clouddeploy.yaml`. Do not rebuild it on a laptop.
