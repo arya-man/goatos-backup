@@ -727,7 +727,7 @@ async function settleAtTop(page) {
 async function assertA11y(page, routeName, viewportLabel, includeSelector) {
   const builder = new AxeBuilder({ page });
   if (includeSelector) builder.include(includeSelector);
-  const results = await builder.analyze();
+  const results = await analyzeA11yWithNavigationRetry(builder, page);
   const violations = results.violations.filter((violation) => violation.impact === "critical" || violation.impact === "serious");
   if (violations.length === 0) return;
   const summary = violations.slice(0, 5).map((violation) => ({
@@ -737,6 +737,17 @@ async function assertA11y(page, routeName, viewportLabel, includeSelector) {
     nodes: violation.nodes.slice(0, 3).map((node) => node.target),
   }));
   throw new Error(`${routeName} ${viewportLabel} has serious/critical accessibility violations: ${JSON.stringify(summary)}`);
+}
+
+async function analyzeA11yWithNavigationRetry(builder, page) {
+  try {
+    return await builder.analyze();
+  } catch (error) {
+    if (!(error instanceof Error) || !error.message.includes("Execution context was destroyed")) throw error;
+    await page.waitForLoadState("networkidle", { timeout: 5_000 }).catch(() => {});
+    await settleAtTop(page);
+    return await builder.analyze();
+  }
 }
 
 async function assertTruncationContracts(page, routeName, viewportLabel) {

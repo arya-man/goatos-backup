@@ -42,11 +42,10 @@ type SummaryBucket = {
   count: number;
 };
 
-const BUCKET_STAGE_KEYS: Record<SummaryBucketKey, readonly string[]> = {
+const BUCKET_STAGE_KEYS: Record<Exclude<SummaryBucketKey, "icu">, readonly string[]> = {
   fattening: ["F2", "F2-Male", "F2-Female", "Fattening", "Fattening male", "Fattening female"],
   bucks: ["Buck", "Bucks"],
   breeding: ["Mother", "Mothers", "Milking", "M0", "Warmup", "Pregnant", "Non-Pregnant", "Non Pregnant", "Breeding female", "Breeding stock"],
-  icu: ["ICU", "ICU-Kid", "ICU Kid", "ICU-Kids", "ICU Kids", "ICU-Non-Pregnant", "ICU Non Pregnant"],
   k0: ["K0", "K 0"],
   k1: ["K1", "K 1"],
   k2: ["K2", "K 2"],
@@ -70,6 +69,16 @@ function matchesStageKey(point: CountsStageSexPoint, aliases: readonly string[])
   const value = key || point.label || "";
   const normalized = normalizedStage(value);
   return aliases.some((alias) => normalized === normalizedStage(alias));
+}
+
+function classifyStage(point: CountsStageSexPoint): SummaryBucketKey | null {
+  const value = point.key || point.label || "";
+  const normalized = normalizedStage(value);
+  if (normalized.includes("icu")) return "icu";
+  for (const bucketKey of Object.keys(BUCKET_STAGE_KEYS) as Exclude<SummaryBucketKey, "icu">[]) {
+    if (matchesStageKey(point, BUCKET_STAGE_KEYS[bucketKey])) return bucketKey;
+  }
+  return null;
 }
 
 export function countsSexDetail(
@@ -111,9 +120,8 @@ export function buildCountsSummaryCards(
       bucket.count += point.count;
     };
 
-    for (const bucketKey of Object.keys(BUCKET_STAGE_KEYS) as SummaryBucketKey[]) {
-      if (matchesStageKey(point, BUCKET_STAGE_KEYS[bucketKey])) addTo(bucketKey);
-    }
+    const bucketKey = classifyStage(point);
+    if (bucketKey) addTo(bucketKey);
   }
 
   return [

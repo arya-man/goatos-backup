@@ -54,10 +54,12 @@ func TestCohortStageMapClassifiesByUnderlyingCohortAndNeverFallsBackToAdults(t *
 		}
 	}
 
-	// F2 is the fattening KID cohort split by sex. It must never land in Adults.
+	// F2 is the fattening KID cohort split by sex. It must never land in Adults,
+	// and the real backend contract must use the displayed row label, not the raw
+	// stage code, because admin-web prefers backend option groups over fallbacks.
 	for _, stage := range []string{"F2-FEMALE", "F2-MALE"} {
-		if got := stageMap[stage]; got != "F2" {
-			t.Errorf("stage %q maps to %q, want \"F2\" -- F2 animals are kids and counting them as "+
+		if got := stageMap[stage]; got != "Fattening" {
+			t.Errorf("stage %q maps to %q, want \"Fattening\" -- F2 animals are kids and counting them as "+
 				"adults is what reported 372 adults against a true 324", stage, got)
 		}
 		if got := stageMap[stage]; got == "Adults" {
@@ -80,6 +82,9 @@ func TestCohortStageMapClassifiesByUnderlyingCohortAndNeverFallsBackToAdults(t *
 		}
 		for _, opt := range group.Options {
 			ladder[opt.Label] = true
+			if opt.Key == "F2" && opt.Label != "Fattening" {
+				t.Errorf("cohort ladder key F2 label = %q, want Fattening", opt.Label)
+			}
 		}
 	}
 	for stage, row := range stageMap {

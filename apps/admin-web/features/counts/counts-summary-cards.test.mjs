@@ -30,6 +30,11 @@ test("requested Counts Breakdown cards roll up raw stage keys and sex splits", (
       { key: "Non-Pregnant", label: "Non-Pregnant", count: 803, female: 803, male: 0, other: 0 },
       { key: "ICU-Kid", label: "ICU-Kid", count: 19, female: 11, male: 8, other: 0 },
       { key: "ICU-Non-Pregnant", label: "ICU-Non-Pregnant", count: 3, female: 3, male: 0, other: 0 },
+      { key: "ICU-Buck", label: "ICU-Buck", count: 2, female: 0, male: 2, other: 0 },
+      { key: "ICU-Pregnant", label: "ICU-Pregnant", count: 5, female: 5, male: 0, other: 0 },
+      { key: "ICU-F2-Male", label: "ICU-F2-Male", count: 7, female: 0, male: 7, other: 0 },
+      { key: "ICU-F1-Male", label: "ICU-F1-Male", count: 11, female: 0, male: 11, other: 0 },
+      { key: "F2-ICU", label: "F2-ICU", count: 13, female: 0, male: 13, other: 0 },
       { key: "K0", label: "K0", count: 2, female: 1, male: 1, other: 0 },
       { key: "K1", label: "K1", count: 4, female: 2, male: 2, other: 0 },
       { key: "K2", label: "K2", count: 12, female: 4, male: 8, other: 0 },
@@ -46,7 +51,7 @@ test("requested Counts Breakdown cards roll up raw stage keys and sex splits", (
   assert.equal(byKey.get("bucks")?.count, 38);
   assert.equal(byKey.get("breeding")?.count, 856);
   assert.equal(byKey.get("icu")?.label, "ICU");
-  assert.equal(byKey.get("icu")?.count, 22);
+  assert.equal(byKey.get("icu")?.count, 60);
   assert.equal(byKey.get("k0")?.count, 2);
   assert.equal(byKey.get("k1")?.count, 4);
   assert.equal(byKey.get("k2")?.count, 12);

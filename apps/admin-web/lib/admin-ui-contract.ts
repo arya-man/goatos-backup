@@ -669,8 +669,8 @@ const OPTION_GROUP_FALLBACKS: Record<string, Record<string, AdminUiOption[]>> = 
       { key: "ICU-KID", label: "Kid", title: "", tone: "", enabled: true, disabled_reason: "" },
       { key: "ICU-KIDS", label: "Kid", title: "", tone: "", enabled: true, disabled_reason: "" },
       { key: "QUARANTINE KIDS", label: "Kid", title: "", tone: "", enabled: true, disabled_reason: "" },
-      { key: "F2-FEMALE", label: "Fattening female", title: "", tone: "", enabled: true, disabled_reason: "" },
-      { key: "F2-MALE", label: "Fattening male", title: "", tone: "", enabled: true, disabled_reason: "" },
+      { key: "F2-FEMALE", label: "Fattening", title: "", tone: "", enabled: true, disabled_reason: "" },
+      { key: "F2-MALE", label: "Fattening", title: "", tone: "", enabled: true, disabled_reason: "" },
       { key: "FATTENING", label: "Fattening", title: "", tone: "", enabled: true, disabled_reason: "" },
     ],
     schedule_status_legend: [
