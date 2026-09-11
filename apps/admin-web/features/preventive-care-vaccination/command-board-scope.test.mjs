@@ -96,6 +96,10 @@ test("command board defaults to all drives and renders the complete future progr
     commandBoardViewSource,
     /pending > 0 \? "cbm-pending" : rework > 0 \? "cbm-rework" : awaiting > 0 \? "cbm-awaiting" : "cbm-clear"/,
   );
+  assert.match(commandBoardViewSource, /const selectedShedVaccineCount = selectedShedVaccine/);
+  assert.match(commandBoardViewSource, /selectedShedVaccine\.state === "rework"[\s\S]*selectedShedVaccine\.reworkAnimals/);
+  assert.match(commandBoardViewSource, /shedVaccineDrilldown\.data\.animals\.length < selectedShedVaccineCount/);
+  assert.doesNotMatch(commandBoardViewSource, /shedVaccineDrilldown\.data\.animals\.length < selectedShedVaccine\.behindAnimals/);
   assert.ok(
     commandBoardViewSource.indexOf("command_board.shed_matrix.title")
       < commandBoardViewSource.indexOf("command_board.future_drives.title"),

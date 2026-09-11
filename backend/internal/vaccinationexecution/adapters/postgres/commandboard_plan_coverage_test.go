@@ -126,3 +126,18 @@ func TestCommandBoardPlanGateCoversEverySQLConst(t *testing.T) {
 		}
 	}
 }
+
+func TestShedVaccineDrawerIncludesRejectedReworkRows(t *testing.T) {
+	sql := commandBoardShedVaccineAnimalSQL
+	for _, want := range []string{
+		"latest_verification AS",
+		"vi.source_ref_type = 'vaccination_goat'",
+		"rework AS",
+		"LEFT JOIN rework ON rework.tenant_id = oi.tenant_id AND rework.batch_id = oi.batch_id AND rework.goat_id = oi.target_id",
+		"OR COALESCE(rework.has_rejected_rework, false)",
+	} {
+		if !strings.Contains(sql, want) {
+			t.Fatalf("commandBoardShedVaccineAnimalSQL missing %q; rework cells would open a drawer that cannot list rejected-proof animals", want)
+		}
+	}
+}

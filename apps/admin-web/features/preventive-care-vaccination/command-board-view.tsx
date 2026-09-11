@@ -602,6 +602,13 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
       : null,
     drilldownScope,
   );
+  const selectedShedVaccineCount = selectedShedVaccine
+    ? selectedShedVaccine.state === "verifying"
+      ? selectedShedVaccine.verifyingAnimals ?? 0
+      : selectedShedVaccine.state === "rework"
+        ? selectedShedVaccine.reworkAnimals ?? 0
+        : selectedShedVaccine.behindAnimals ?? 0
+    : 0;
   const cohortDrilldown = useCohortCellDetail(selectedCell?.cellRefs ?? null, drilldownScope);
   const futureCampaigns = useMemo(
     () => (statuses.size === 0 || statuses.has("scheduled")) ? scheduledDriveCampaigns(futureDrives) : [],
@@ -1564,7 +1571,7 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
               </table>
               {/* The COUNT is whole-scope truth and the list is capped, so a shorter list must say
                   so rather than read as the complete set. */}
-              {shedVaccineDrilldown.data.animals.length < selectedShedVaccine.behindAnimals && (
+              {shedVaccineDrilldown.data.animals.length < selectedShedVaccineCount && (
                 <p className="cbm-meta">
                   {copy(pageContract, "command_board.shed_vaccine.drawer.truncated")}
                 </p>

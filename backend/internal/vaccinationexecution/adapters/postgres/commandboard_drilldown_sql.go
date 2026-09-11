@@ -200,6 +200,29 @@ WITH comp AS (
   WHERE tenant_id = $1::uuid
   GROUP BY obligation_id
 ),
+latest_verification AS (
+  SELECT DISTINCT ON (vi.tenant_id, vi.source_task_id, vi.source_ref_id)
+    vi.tenant_id,
+    vi.source_task_id,
+    vi.source_ref_id AS goat_id,
+    vi.status
+  FROM verification_items vi
+  WHERE vi.tenant_id = $1::uuid
+    AND vi.source_module = 'vaccination'
+    AND vi.category = 'vaccination_proof'
+    AND vi.source_ref_type = 'vaccination_goat'
+    AND vi.source_task_id IS NOT NULL
+    AND vi.source_ref_id IS NOT NULL
+    AND vi.status IN ('pending','approved','rejected')
+  ORDER BY vi.tenant_id, vi.source_task_id, vi.source_ref_id, vi.verified_at DESC NULLS LAST, vi.captured_at DESC NULLS LAST, vi.item_id DESC
+),
+rework AS (
+  SELECT b.tenant_id, b.batch_id, lv.goat_id, true AS has_rejected_rework
+  FROM obligation_batches b
+  JOIN latest_verification lv ON lv.tenant_id = b.tenant_id AND lv.source_task_id = b.sop_task_id
+  WHERE b.tenant_id = $1::uuid
+    AND lv.status = 'rejected'
+),
 cell AS (
   SELECT DISTINCT ON (d.vaccine_code, g.goat_id)
     CASE
@@ -219,6 +242,7 @@ cell AS (
   JOIN protocol_rule_dimensions d ON d.rule_id = oi.rule_id AND d.tenant_id = oi.tenant_id
   JOIN goats g ON g.goat_id = oi.target_id AND g.tenant_id = oi.tenant_id
   LEFT JOIN comp ON comp.obligation_id = oi.obligation_id
+  LEFT JOIN rework ON rework.tenant_id = oi.tenant_id AND rework.batch_id = oi.batch_id AND rework.goat_id = oi.target_id
   LEFT JOIN goat_shed_partitions scope_gsp ON scope_gsp.tenant_id = g.tenant_id AND scope_gsp.goat_id = g.goat_id AND scope_gsp.shed_id = oi.scope_id
   LEFT JOIN shed_partitions scope_sp
     ON scope_sp.tenant_id = oi.tenant_id
@@ -236,6 +260,7 @@ cell AS (
     AND NOT COALESCE(comp.has_accepted, false)
     AND (
       COALESCE(comp.has_recorded_unverified, false)
+      OR COALESCE(rework.has_rejected_rework, false)
       OR oi.status = 'missed'
       OR (oi.status IN ('scheduled','due','in_progress','deferred')
           AND (oi.due_at AT TIME ZONE 'Asia/Kolkata')::date < ($2::timestamptz AT TIME ZONE 'Asia/Kolkata')::date)
