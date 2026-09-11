@@ -54,6 +54,8 @@ function useUrlWriter() {
   return { write, pending };
 }
 
+// A toolbar menu closes on an outside click and on Escape (Escape hands focus back to the
+// trigger so a keyboard user is not dropped on the page body).
 function useOutsideClose(open: boolean, close: () => void) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -61,8 +63,18 @@ function useOutsideClose(open: boolean, close: () => void) {
     const onDoc = (event: MouseEvent) => {
       if (ref.current && !ref.current.contains(event.target as Node)) close();
     };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.stopPropagation();
+      close();
+      ref.current?.querySelector<HTMLElement>("[aria-expanded]")?.focus();
+    };
     document.addEventListener("click", onDoc);
-    return () => document.removeEventListener("click", onDoc);
+    document.addEventListener("keydown", onKey, true);
+    return () => {
+      document.removeEventListener("click", onDoc);
+      document.removeEventListener("keydown", onKey, true);
+    };
   }, [open, close]);
   return ref;
 }

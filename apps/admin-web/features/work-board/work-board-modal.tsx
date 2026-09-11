@@ -3,6 +3,7 @@
 import { Settings, X } from "lucide-react";
 import Link from "@/components/no-prefetch-link";
 import { useLocalOverlaySelection } from "@/components/local-overlay-link";
+import { useEffect, useRef } from "react";
 import { control, controlEnabled, copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { WorkBoardRow } from "@/lib/api/work-board-server";
 import { flagParkHeadAction } from "./actions";
@@ -55,6 +56,34 @@ export function WorkBoardModal({ pageContract, rows, initialSelectedRowKey, clos
     initialSelectedId: initialSelectedRowKey,
     closeHref,
   });
+  const dialogRef = useRef<HTMLDivElement>(null);
+  // Opening moves focus into the dialog (the close button) and keeps Tab inside it; the page
+  // behind is aria-hidden by the scrim, so focus must not walk out to the sidebar. The shared
+  // hook restores focus to the card on close.
+  useEffect(() => {
+    if (!open) return;
+    const frame = window.requestAnimationFrame(() => closeButtonRef.current?.focus());
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key.toLowerCase() !== "tab" || !dialogRef.current) return;
+      const focusable = [...dialogRef.current.querySelectorAll<HTMLElement>("a[href],button:not([disabled]),input:not([disabled]),[tabindex]:not([tabindex='-1'])")].filter((el) => el.offsetParent !== null);
+      if (focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      const inside = dialogRef.current.contains(document.activeElement);
+      if (event.shiftKey && (document.activeElement === first || !inside)) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && (document.activeElement === last || !inside)) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open, closeButtonRef]);
   if (!row) return null;
   const moduleOpt = findOption(moduleOptions(pageContract), row.module);
   const stateOpt = findOption(stateOptions(pageContract), row.work_state);
@@ -73,7 +102,7 @@ export function WorkBoardModal({ pageContract, rows, initialSelectedRowKey, clos
   return (
     <>
       <button type="button" className={`wb-scrim${open ? " on" : ""}`} aria-label={closeLabel} aria-hidden={!open} tabIndex={open ? 0 : -1} onClick={close} />
-      <div className={`wb wb-modal${open ? " on" : ""}`} role="dialog" aria-modal="true" aria-label={row.title} aria-hidden={!open} inert={!open}>
+      <div ref={dialogRef} className={`wb wb-modal${open ? " on" : ""}`} role="dialog" aria-modal="true" aria-label={row.title} aria-hidden={!open} inert={!open}>
         <div className="mh">
           <div className="bc">
             <span className={moduleClass(row.module)}>{moduleOpt?.label ?? row.module}</span>
