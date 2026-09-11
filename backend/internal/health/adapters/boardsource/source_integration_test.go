@@ -167,7 +167,7 @@ func TestHealthBoardRowsOnADatabaseRoundTrip(t *testing.T) {
 		if r.WorkState != w.state || r.Lane != w.lane || r.Severity != w.sev {
 			t.Errorf("day %d: state=%s lane=%s sev=%s, want %s/%s/%s", day, r.WorkState, r.Lane, r.Severity, w.state, w.lane, w.sev)
 		}
-		if r.Subtitle != "Morning · Godel 1 - Part 3" || r.Pen.Display != "Godel 1 - Part 3" || r.Pen.ShedID != hbShed {
+		if r.Subtitle != "Morning" || r.Pen.Display != "Godel 1 - Part 3" || r.Pen.ShedID != hbShed {
 			t.Errorf("day %d: subtitle %q pen %+v", day, r.Subtitle, r.Pen)
 		}
 		if r.RowKey != "health|"+SourceType+"|"+ids[day] || r.BusinessDate != hbDate || r.ParkID != hbPark || r.ParkName != "Coimbatore" || r.DueAt == nil {

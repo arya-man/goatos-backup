@@ -22529,9 +22529,9 @@ export interface operations {
     };
     listWorkBoardRows: {
         parameters: {
-            query: {
-                /** @description The park. The board is bounded to one park per request; "All parks" is one request per park. */
-                park: string;
+            query?: {
+                /** @description The park. The board is bounded to one park per request; "All parks" is one request per park. A park-scoped caller may omit it and gets their own park; a tenant-wide caller must name one (400 park_required). */
+                park?: string;
                 /** @description YYYY-MM-DD in Asia/Kolkata. Absent means today. */
                 business_date?: string;
                 /** @description Comma-separated module keys. Intersected with the modules the caller may see; absent means all of them. */
@@ -22567,8 +22567,9 @@ export interface operations {
     };
     listWorkBoardRowSubtasks: {
         parameters: {
-            query: {
-                park: string;
+            query?: {
+                /** @description As on /work-board/rows; a park-scoped caller may omit it. */
+                park?: string;
                 /** @description The board day the row was seen on (Asia/Kolkata). Absent means today. */
                 business_date?: string;
                 /** @description Keyset cursor from a previous page's next_cursor (an opaque subtask key). */
@@ -22634,8 +22635,9 @@ export interface operations {
     };
     getWorkBoardSummary: {
         parameters: {
-            query: {
-                park: string;
+            query?: {
+                /** @description As on /work-board/rows; a park-scoped caller may omit it. */
+                park?: string;
                 business_date?: string;
                 module?: string;
                 state?: string;

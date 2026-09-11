@@ -8077,9 +8077,9 @@ paths:
       parameters:
         - name: park
           in: query
-          required: true
+          required: false
           schema: { type: string, format: uuid }
-          description: The park. The board is bounded to one park per request; "All parks" is one request per park.
+          description: The park. The board is bounded to one park per request; "All parks" is one request per park. A park-scoped caller may omit it and gets their own park; a tenant-wide caller must name one (400 park_required).
         - name: business_date
           in: query
           required: false
@@ -8153,8 +8153,9 @@ paths:
           description: The row's key from /work-board/rows (module|source_type|source_id), URL-encoded.
         - name: park
           in: query
-          required: true
+          required: false
           schema: { type: string, format: uuid }
+          description: As on /work-board/rows; a park-scoped caller may omit it.
         - name: business_date
           in: query
           required: false
@@ -8241,8 +8242,9 @@ paths:
       parameters:
         - name: park
           in: query
-          required: true
+          required: false
           schema: { type: string, format: uuid }
+          description: As on /work-board/rows; a park-scoped caller may omit it.
         - name: business_date
           in: query
           required: false
