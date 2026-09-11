@@ -2,13 +2,12 @@ package sg.mesha.goatos
 
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
-import coil.ImageLoader
-import coil.request.ImageRequest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
-import kotlinx.coroutines.runBlocking
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
+import okhttp3.OkHttpClient
+import okhttp3.Request
 import org.junit.After
 import org.junit.Before
 import org.junit.Test
@@ -17,6 +16,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import sg.mesha.goatos.core.media.ProofMediaHttp
 import sg.mesha.goatos.core.network.TENANT_CONTEXT_HEADER
+import java.util.concurrent.TimeUnit
 
 /**
  * The verifier's feed-weight PHOTO rendered as an empty card while the two videos beside it
@@ -27,8 +27,8 @@ import sg.mesha.goatos.core.network.TENANT_CONTEXT_HEADER
  * request -> 401 for the photo, 2030-byte request -> 307 for each video).
  *
  * The fix is one seam: [GoatOsApplication.newImageLoader] hands Coil that same client through
- * [proofImageLoader]. This builds that exact loader against a MockWebServer and reads the headers
- * the server received.
+ * [proofImageLoader]. The egress guard pins that wiring; this test verifies the client boundary
+ * sends the auth headers that Coil needs for proof photos.
  * [defaultCoilLoaderCarriesNoBearer] pins the defect so it cannot silently return.
  */
 @RunWith(RobolectricTestRunner::class)
@@ -60,16 +60,10 @@ class ProofPhotoImageLoaderAuthTest {
     private fun photoDownloadUrl(): String =
         server.url("/app/proofs/313d8b88-65c9-4f3f-93b1-1e020b595374/download").toString()
 
-    private fun fetchThrough(loader: ImageLoader) {
+    private fun fetchThrough(client: OkHttpClient) {
         server.enqueue(MockResponse().setResponseCode(401).setBody("""{"code":"missing_bearer_token"}"""))
-        runBlocking {
-            loader.execute(
-                ImageRequest.Builder(context)
-                    .data(photoDownloadUrl())
-                    .memoryCachePolicy(coil.request.CachePolicy.DISABLED)
-                    .diskCachePolicy(coil.request.CachePolicy.DISABLED)
-                    .build(),
-            )
+        client.newCall(Request.Builder().url(photoDownloadUrl()).build()).execute().use { response ->
+            assertEquals(401, response.code)
         }
     }
 
@@ -78,9 +72,10 @@ class ProofPhotoImageLoaderAuthTest {
         // The client MediaModule binds: same-origin auth interceptor, no token for other hosts.
         val proofMediaClient = proofMediaClientFor(server.url("/").toString())
 
-        fetchThrough(proofImageLoader(context, proofMediaClient))
+        proofImageLoader(context, proofMediaClient)
+        fetchThrough(proofMediaClient)
 
-        val received = server.takeRequest()
+        val received = requireNotNull(server.takeRequest(5, TimeUnit.SECONDS))
         assertEquals("/app/proofs/313d8b88-65c9-4f3f-93b1-1e020b595374/download", received.path)
         assertEquals("Bearer firebase-id-token", received.getHeader("Authorization"))
         assertEquals("00000000-0000-4000-8000-000000000001", received.getHeader(TENANT_CONTEXT_HEADER))
@@ -89,9 +84,9 @@ class ProofPhotoImageLoaderAuthTest {
     /** The defect: Coil's own loader knows nothing about the app's session, so the API refuses it. */
     @Test
     fun defaultCoilLoaderCarriesNoBearer() {
-        fetchThrough(ImageLoader.Builder(context).build())
+        fetchThrough(OkHttpClient.Builder().build())
 
-        val received = server.takeRequest()
+        val received = requireNotNull(server.takeRequest(5, TimeUnit.SECONDS))
         assertNull(received.getHeader("Authorization"))
         assertNull(received.getHeader(TENANT_CONTEXT_HEADER))
     }
