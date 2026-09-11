@@ -346,9 +346,9 @@ mutation: the existing seed path already writes Blue Tongue dose 2 as
 `blue_tongue_kid_19w` at 133 days with a 21-day minimum gap. No seed command,
 projection recompute, or clean-slate closeout step changes for this restoration.
 
-## Work Board access rows (migration 000291, 2026-09-10)
+## Work Board access rows (migration 000294, 2026-09-10)
 
-`000291_work_board_person_access.sql` is a per-person ACCESS repair in the `000245` shape, not
+`000294_work_board_person_access.sql` is a per-person ACCESS repair in the `000245` shape, not
 a source-data seed. It writes two kinds of rows and a fresh seed needs neither hand-filled:
 
 - `person_module_access` rows for `work_board` on every migrated person by ACTIVE ROLE GRANT
