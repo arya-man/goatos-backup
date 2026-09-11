@@ -229,11 +229,13 @@ func TestFeedTransportBoardScopeAndKeyset(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(mine) != 4 {
-		t.Fatalf("operator lens: 4 own rows expected (three assigned, one filmed), got %d", len(mine))
+	// Three assigned, one filmed, plus the unowned trip (the park's pool); never the one owned
+	// by someone else.
+	if len(mine) != 5 {
+		t.Fatalf("operator lens: 4 own rows plus the unowned trip expected, got %d", len(mine))
 	}
 	for _, r := range mine {
-		if r.Owner.UserID != bsOperator {
+		if r.Owner.UserID != "" && r.Owner.UserID != bsOperator {
 			t.Fatalf("operator lens leaked %s", r.Owner.UserID)
 		}
 	}
@@ -289,7 +291,9 @@ func TestFeedTransportBoardScopeAndKeyset(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if mineCounts[domain.WorkStateVerificationPending] != 3 || mineCounts[domain.WorkStateRejected] != 1 || len(mineCounts) != 2 {
+	// The unowned trip (due) is in the operator's counts too: the counts describe the same set
+	// the rows do.
+	if mineCounts[domain.WorkStateVerificationPending] != 3 || mineCounts[domain.WorkStateRejected] != 1 || mineCounts[domain.WorkStateDue] != 1 || len(mineCounts) != 3 {
 		t.Fatalf("operator counts %+v", mineCounts)
 	}
 	otherPark, err := src.CountByState(ctx, ports.SourceQuery{TenantID: bsTenant, ParkID: bsOtherPk, BusinessDate: bsDate})

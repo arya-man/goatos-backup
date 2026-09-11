@@ -76,7 +76,7 @@ const baseWhere = `
   AND t.business_date = $2::date
   AND t.park_id = $3::uuid
   AND t.status <> 'retired'
-  AND ($4::uuid IS NULL OR ` + ownerSQL + ` = $4::uuid)`
+  AND ($4::uuid IS NULL OR ` + ownerSQL + ` = $4::uuid OR ` + ownerSQL + ` IS NULL)`
 
 // ownerSQL is who the row belongs to. The materializer writes no operator on a transport
 // task and SubmitTransport records the operator on the ATTEMPT, so a task assigned to

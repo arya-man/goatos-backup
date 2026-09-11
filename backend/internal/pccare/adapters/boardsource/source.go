@@ -91,7 +91,9 @@ LEFT JOIN LATERAL (
 // rather than the whole table. The business date is the CURRENT due date: a rolled-forward
 // task appears on the day it is now due, and its clock label names the original plan.
 //
-// The owner scope matches ANY assignee: an EXISTS on pc_care_task_assignees, whose primary
+// The owner scope matches ANY assignee, or a task with NO assignee at all (the park's pool,
+// which an operator's own board must show -- live E2E 2026-09-11): an EXISTS on
+// pc_care_task_assignees, whose primary
 // key (tenant_id, task_id, operator_user_id) answers it as a single probe per task.
 // Assignees are stored as USER ids, so the board's OwnerUserID binds directly.
 const baseWhere = `
@@ -101,7 +103,10 @@ const baseWhere = `
   AND t.work_state <> 'canceled'
   AND ($4::uuid IS NULL OR EXISTS (
         SELECT 1 FROM pc_care_task_assignees ao
-        WHERE ao.tenant_id = t.tenant_id AND ao.task_id = t.task_id AND ao.operator_user_id = $4::uuid))`
+        WHERE ao.tenant_id = t.tenant_id AND ao.task_id = t.task_id AND ao.operator_user_id = $4::uuid)
+      OR NOT EXISTS (
+        SELECT 1 FROM pc_care_task_assignees any_ao
+        WHERE any_ao.tenant_id = t.tenant_id AND any_ao.task_id = t.task_id))`
 
 // listSQL: the first assignee is the row's Owner -- the owner-scoped caller when there is one,
 // else by workforce_member_id order; the assignee

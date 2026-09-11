@@ -120,9 +120,10 @@ const uuidTextRe = `'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4
 // predicate (a payload read for birth and pen move, the subject animal's own park for a
 // death; unindexed by design) filters inside that slice.
 //
-// The owner filter: no row is owned, so an owner lens selects nothing here. An approver's
-// own board never lists the pool as "mine"; a raiser's board does not either -- raising a
-// request is not owning the work of deciding it.
+// The owner filter: the approver is a pool, so no row is owned by the decider; the RAISER's
+// own board lists what they raised, because it is their work in flight -- a pen move they
+// raised comes back to them to walk once it is authorized, and a birth they raised is theirs
+// until it is decided (live E2E 2026-09-11: an operator's board hid the move they owed).
 const approvalBaseWhere = `
   a.tenant_id = $1::uuid
   AND a.status = ANY(ARRAY['pending','approved','rejected'])
@@ -130,7 +131,7 @@ const approvalBaseWhere = `
   AND a.raised_at >= $3::timestamptz AND a.raised_at < $4::timestamptz
   AND NOT (a.request_type = 'shifting' AND a.status = 'approved' AND se.event_status = 'canceled')
   AND ` + approvalParkSQL + ` = $2::text
-  AND $5::uuid IS NULL`
+  AND ($5::uuid IS NULL OR a.raised_by_user_id = $5::uuid)`
 
 // projection-review: membership=counts_approval_requests rows of ONE tenant whose park resolves to the requested park and whose created_at falls in the half-open IST business day, one row per request (primary key); group_key=(tenant_id, approval_request_id) for the list and the derived board_state for the count; join_cardinality=a pen move's shifting event resolves through shifting_events on its primary key (1:1, absent for birth and death), a death's subject animal resolves through goats and goat_shed_partitions on their primary key (tenant_id, goat_id: 1:1, absent for birth and pen move), the request's park/shed columns resolve through locations on their primary key (1:1) and the raiser through workforce_members on the partial-unique active (tenant_id,user_id) index (at most 1), so no join fans a request out; pagination=keyset on the request id ASC after the cursor with LIMIT, state filter inside WHERE; scope=tenant_id, park, day range and the optional owner predicate, repeated verbatim in approvalCountSQL.
 const approvalListSQL = `

@@ -239,13 +239,14 @@ func TestPCCareBoardScopeAndKeyset(t *testing.T) {
 	src := New(pool, 5*time.Second)
 
 	// The second assignee of the scanning task also holds the verified, rework and closed
-	// tasks: four rows, including the one where they are NOT the row's displayed owner.
+	// tasks, plus the task with no assignee at all (the park's pool): five rows, including
+	// the one where they are NOT the row's displayed owner.
 	theirs, err := src.ListRows(ctx, query(bsOtherOp))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(theirs) != 4 {
-		t.Fatalf("second assignee lens: 4 rows expected, got %d", len(theirs))
+	if len(theirs) != 5 {
+		t.Fatalf("second assignee lens: 4 own rows plus the unassigned one expected, got %d", len(theirs))
 	}
 	shared, ok := byTask(theirs)[tScanning]
 	if !ok {
@@ -260,8 +261,9 @@ func TestPCCareBoardScopeAndKeyset(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(mine) != 3 {
-		t.Fatalf("operator lens: 3 rows expected, got %d", len(mine))
+	// Their three tasks plus the unassigned one (the park's pool).
+	if len(mine) != 4 {
+		t.Fatalf("operator lens: 3 own rows plus the unassigned one expected, got %d", len(mine))
 	}
 
 	open, err := src.ListRows(ctx, query("", domain.WorkStateDue, domain.WorkStateOverdue))
@@ -316,8 +318,8 @@ func TestPCCareBoardScopeAndKeyset(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if n := sum(ownerCounts); n != 4 {
-		t.Fatalf("owner-scoped counts %+v total %d, want 4", ownerCounts, n)
+	if n := sum(ownerCounts); n != 5 {
+		t.Fatalf("owner-scoped counts %+v total %d, want 5 (the counts describe the same set as the rows, pool included)", ownerCounts, n)
 	}
 	otherPark, err := src.CountByState(ctx, ports.SourceQuery{TenantID: bsTenant, ParkID: bsOtherPk, BusinessDate: bsDate})
 	if err != nil {

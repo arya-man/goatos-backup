@@ -219,8 +219,13 @@ func TestApprovalsBoardScopeAndKeyset(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(mine) != 0 {
-		t.Fatalf("raising a request is not owning its decision: owner lens must be empty, got %d", len(mine))
+	// The raiser's own board lists what they raised (their work in flight); the approver
+	// pool owns no row, so an approver's own lens still lists nothing of theirs.
+	if len(mine) != 8 {
+		t.Fatalf("raiser lens: everything they raised on this park-day, got %d", len(mine))
+	}
+	if theirs, err := src.ListRows(ctx, approvalQuery(apApprover)); err != nil || len(theirs) != 0 {
+		t.Fatalf("an approver owns no request: got %d err %v", len(theirs), err)
 	}
 	open, err := src.ListRows(ctx, approvalQuery("", domain.WorkStateDue))
 	if err != nil {

@@ -175,11 +175,13 @@ func TestMilkFeedingBoardScopeAndKeyset(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(mine) != 2 {
-		t.Fatalf("operator lens: 2 own rows expected, got %d", len(mine))
+	// Two assigned to them plus the one unassigned session (the park's pool); never the one
+	// assigned to someone else.
+	if len(mine) != 3 {
+		t.Fatalf("operator lens: 2 own rows plus the unassigned one expected, got %d", len(mine))
 	}
 	for _, r := range mine {
-		if r.Owner.UserID != mkOperator {
+		if r.Owner.UserID != "" && r.Owner.UserID != mkOperator {
 			t.Fatalf("operator lens leaked %s", r.Owner.UserID)
 		}
 	}
