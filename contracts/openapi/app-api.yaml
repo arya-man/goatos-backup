@@ -26973,10 +26973,10 @@ components:
       additionalProperties: false
       description: >-
         The board's headline row, at ANIMAL grain. targets counts DISTINCT animals in scope, and
-        the six counts below it are a DISJOINT and EXHAUSTIVE partition of targets, so
-        missedNotGiven + dosesVerified + awaitingVerification + overdueNotGiven + scheduledAhead +
-        closedWithoutDose == targets always. Each animal is placed in exactly one bucket by the
-        priority chain missed > awaiting > overdue > verified > scheduled > closedWithoutDose:
+        the seven counts below it are a DISJOINT and EXHAUSTIVE partition of targets, so
+        missedNotGiven + dosesVerified + awaitingVerification + reworkNeeded + overdueNotGiven +
+        scheduledAhead + closedWithoutDose == targets always. Each animal is placed in exactly one
+        bucket by the priority chain missed > awaiting > rework > overdue > verified > scheduled > closedWithoutDose:
         a missed dose wins outright; below that, actionable recorded-unverified and overdue
         obligations outrank earlier accepted doses so the headline row cannot hide animals that
         still need operator or verifier work. Future scheduled work does not demote an animal that
@@ -26989,6 +26989,7 @@ components:
         - missedNotGiven
         - dosesVerified
         - awaitingVerification
+        - reworkNeeded
         - overdueNotGiven
         - scheduledAhead
         - closedWithoutDose
@@ -27028,12 +27029,19 @@ components:
             Animals with a recorded completion not yet verifier-accepted (status=recorded,
             verified_at=null), unless the animal also has a missed-with-no-completion obligation.
             Awaiting verification outranks earlier accepted completions.
+        reworkNeeded:
+          type: integer
+          description: >-
+            Animals whose latest proof verdict for an obligation was rejected and no newer recorded
+            or accepted completion has replaced it, unless the animal is already in missed or awaiting
+            verification. Rework is operator work, but it is not plain overdue/unstarted work.
         overdueNotGiven:
           type: integer
           description: >-
             Animals with at least one open obligation carrying no completion whose due business date
-            is before the as-of IST business date, unless the animal is already in missed or awaiting
-            verification. Overdue unvaccinated work outranks earlier accepted completions.
+            is before the as-of IST business date, unless the animal is already in missed, awaiting
+            verification, or rejected-proof rework. Overdue unvaccinated work outranks earlier accepted
+            completions.
         scheduledAhead:
           type: integer
           description: >-
@@ -27098,6 +27106,7 @@ components:
         - vaccineLabel
         - pendingCount
         - submittedCount
+        - rejectedReworkCount
         - verifiedCount
         # Always emitted by the server (no omitempty on the Go field): zero exceptions is the
         # answer "this cohort is clean", not "the server did not say". Optional here would make
@@ -27136,6 +27145,12 @@ components:
             is not yet verifier-accepted. Reconciles with
             VaccinationCommandBoardKPI.awaitingVerification (same predicate, animal grain there).
             Disjoint from pendingCount and verifiedCount.
+        rejectedReworkCount:
+          type: integer
+          description: >-
+            Field work attempted and rejected by a verifier: obligations whose latest proof verdict
+            is rejected and that have no newer recorded or accepted completion. Disjoint from
+            pendingCount, submittedCount, and verifiedCount.
         verifiedCount:
           type: integer
           description: >-
@@ -27678,6 +27693,8 @@ components:
         - shedName
         - vaccineCode
         - state
+        - verifyingAnimals
+        - reworkAnimals
         - behindAnimals
         - totalAnimals
       properties:
@@ -27708,6 +27725,7 @@ components:
           type: string
           enum:
             - behind
+            - rework
             - verifying
             - ok
             - not_planned
@@ -27715,6 +27733,9 @@ components:
             behind — at least one animal in this shed holds a dose of this vaccine that is 'missed',
             or is still open with its due IST business date already past, and has no accepted
             completion. RED.
+            rework — latest proof review rejected the attempt and the operator needs to re-shoot or
+            re-submit evidence. PURPLE.
+            verifying — dose was given and proof is waiting for verifier acceptance. AMBER.
             ok — this vaccine is scheduled in this shed and nothing is behind. GREEN.
             not_planned — this shed has no obligation for this vaccine at all. GREY, and named
             rather than omitted: a blank cell told the reader nothing about whether the vaccine was
@@ -27731,6 +27752,12 @@ components:
             desk problem. Merging them reported 76 vaccinated goats in Sumathi 1 as unvaccinated,
             because every obligation swept to 'missed' there had in fact been dosed on the day it
             was due.
+        reworkAnimals:
+          type: integer
+          description: >-
+            Animals whose latest proof review for this shed and vaccine was rejected, with no newer
+            recorded or accepted completion. Never added to behindAnimals or verifyingAnimals; it is
+            its own operator rework bucket.
         behindAnimals:
           type: integer
           description: >-
