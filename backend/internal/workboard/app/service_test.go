@@ -420,3 +420,20 @@ func TestSubtaskKeysSortWorstFirst(t *testing.T) {
 		t.Error("limit bounds")
 	}
 }
+
+// TestFindRowRefusesEverythingWhenTheBoardHasNoModules pins the service half of the same
+// rule: a query carrying NoModules resolves no row at all, whatever key is asked for.
+func TestFindRowRefusesEverythingWhenTheBoardHasNoModules(t *testing.T) {
+	weighing := mk(domain.ModuleWeighing, "weighing_work_item", 3, domain.WorkStateDue, "u1")
+	svc := NewService(weighing)
+	q := domain.Query{TenantID: "t", ParkID: "p", BusinessDate: "2026-09-10", NoModules: true}
+	if _, found, err := svc.FindRow(context.Background(), q, "weighing|weighing_work_item|weighing_work_item-002"); err != nil || found {
+		t.Fatalf("a board with no modules must resolve nothing: found=%v err=%v", found, err)
+	}
+	if len(weighing.calls) != 0 {
+		t.Fatal("no source may be read for a board with no modules")
+	}
+	if got := StrictIntersect(nil, []domain.Module{domain.ModuleFeed}); len(got) != 0 {
+		t.Fatalf("StrictIntersect must never read empty as all, got %v", got)
+	}
+}

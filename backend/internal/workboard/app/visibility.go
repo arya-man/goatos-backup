@@ -50,6 +50,16 @@ func IntersectModules(requested, visible []domain.Module) []domain.Module {
 	if len(requested) == 0 {
 		return visible
 	}
+	return StrictIntersect(requested, visible)
+}
+
+// StrictIntersect is the plain set intersection, in the order of the first list, with NO
+// empty-means-all shortcut. It is what "the modules a caller may see" must be computed with:
+// the caller's permission-derived set against the registered sources. Using IntersectModules
+// there inverted an EMPTY permission set into the whole registry (found live 2026-09-11: a
+// person ticked for the Work Board with no module row saw, drilled and flagged every
+// module's rows), because that function reads an empty first argument as "no filter".
+func StrictIntersect(requested, visible []domain.Module) []domain.Module {
 	vis := map[domain.Module]struct{}{}
 	for _, m := range visible {
 		vis[m] = struct{}{}
