@@ -11269,7 +11269,7 @@ export interface components {
             next_cursor?: string;
             freshness?: components["schemas"]["VaccinationProjectionFreshness"];
         };
-        /** @description The board's headline row, at ANIMAL grain. targets counts DISTINCT animals in scope, and the six counts below it are a DISJOINT and EXHAUSTIVE partition of targets, so missedNotGiven + dosesVerified + awaitingVerification + overdueNotGiven + scheduledAhead + closedWithoutDose == targets always. Each animal is placed in exactly one bucket by the priority chain missed > awaiting > overdue > verified > scheduled > closedWithoutDose: a missed dose wins outright; below that, actionable recorded-unverified and overdue obligations outrank earlier accepted doses so the headline row cannot hide animals that still need operator or verifier work. Future scheduled work does not demote an animal that already has accepted protection. Dose-grain outstanding work is still answered by cohortMatrix and verificationQueue. Every due-date comparison is on the Asia/Kolkata BUSINESS DATE, never an instant, so a dose due today never reads overdue merely because as-of is later the same day. */
+        /** @description The board's headline row, at ANIMAL grain. targets counts DISTINCT animals in scope, and the seven counts below it are a DISJOINT and EXHAUSTIVE partition of targets, so missedNotGiven + dosesVerified + awaitingVerification + reworkNeeded + overdueNotGiven + scheduledAhead + closedWithoutDose == targets always. Each animal is placed in exactly one bucket by the priority chain missed > awaiting > rework > overdue > verified > scheduled > closedWithoutDose: a missed dose wins outright; below that, actionable recorded-unverified and overdue obligations outrank earlier accepted doses so the headline row cannot hide animals that still need operator or verifier work. Future scheduled work does not demote an animal that already has accepted protection. Dose-grain outstanding work is still answered by cohortMatrix and verificationQueue. Every due-date comparison is on the Asia/Kolkata BUSINESS DATE, never an instant, so a dose due today never reads overdue merely because as-of is later the same day. */
         VaccinationCommandBoardKPI: {
             /** @description Distinct ANIMALS in scope (the selected drive, or all history when no drive is selected). This is the roster size the tiles below partition — not an obligation count, so a multi-dose animal counts once. */
             targets: number;
@@ -11279,7 +11279,9 @@ export interface components {
             dosesVerified: number;
             /** @description Animals with a recorded completion not yet verifier-accepted (status=recorded, verified_at=null), unless the animal also has a missed-with-no-completion obligation. Awaiting verification outranks earlier accepted completions. */
             awaitingVerification: number;
-            /** @description Animals with at least one open obligation carrying no completion whose due business date is before the as-of IST business date, unless the animal is already in missed or awaiting verification. Overdue unvaccinated work outranks earlier accepted completions. */
+            /** @description Animals whose latest proof verdict for an obligation was rejected and no newer recorded or accepted completion has replaced it, unless the animal is already in missed or awaiting verification. Rework is operator work, but it is not plain overdue/unstarted work. */
+            reworkNeeded: number;
+            /** @description Animals with at least one open obligation carrying no completion whose due business date is before the as-of IST business date, unless the animal is already in missed, awaiting verification, or rejected-proof rework. Overdue unvaccinated work outranks earlier accepted completions. */
             overdueNotGiven: number;
             /** @description Animals whose remaining open no-completion obligations are all due on or after the as-of IST business date, and who have no missed, awaiting, overdue, or accepted work that would place them in an earlier bucket. */
             scheduledAhead: number;
@@ -11308,6 +11310,8 @@ export interface components {
             pendingCount: number;
             /** @description Field work DONE and awaiting a verifier: obligations with a recorded completion that is not yet verifier-accepted. Reconciles with VaccinationCommandBoardKPI.awaitingVerification (same predicate, animal grain there). Disjoint from pendingCount and verifiedCount. */
             submittedCount: number;
+            /** @description Field work attempted and rejected by a verifier: obligations whose latest proof verdict is rejected and that have no newer recorded or accepted completion. Disjoint from pendingCount, submittedCount, and verifiedCount. */
+            rejectedReworkCount: number;
             /** @description Obligations in this cohort whose dose for this vaccine is verifier-accepted. Disjoint from pendingCount and submittedCount — an accepted obligation is neither open-unrecorded nor recorded-but-unverified — so the three may be displayed side by side without double counting. */
             verifiedCount: number;
             /**
@@ -11564,12 +11568,14 @@ export interface components {
             parkName?: string;
             vaccineCode: string;
             /**
-             * @description behind — at least one animal in this shed holds a dose of this vaccine that is 'missed', or is still open with its due IST business date already past, and has no accepted completion. RED. ok — this vaccine is scheduled in this shed and nothing is behind. GREEN. not_planned — this shed has no obligation for this vaccine at all. GREY, and named rather than omitted: a blank cell told the reader nothing about whether the vaccine was clean, un-generated, or genuinely out of protocol for that shed. 'behind' is deliberately broader than the KPI row's missedNotGiven bucket. An operator standing in the shed cannot act on the difference between "the sweeper has flipped this to missed" and "the sweeper has not run yet" — both mean the animal is unvaccinated past its window.
+             * @description behind — at least one animal in this shed holds a dose of this vaccine that is 'missed', or is still open with its due IST business date already past, and has no accepted completion. RED. rework — latest proof review rejected the attempt and the operator needs to re-shoot or re-submit evidence. PURPLE. verifying — dose was given and proof is waiting for verifier acceptance. AMBER. ok — this vaccine is scheduled in this shed and nothing is behind. GREEN. not_planned — this shed has no obligation for this vaccine at all. GREY, and named rather than omitted: a blank cell told the reader nothing about whether the vaccine was clean, un-generated, or genuinely out of protocol for that shed. 'behind' is deliberately broader than the KPI row's missedNotGiven bucket. An operator standing in the shed cannot act on the difference between "the sweeper has flipped this to missed" and "the sweeper has not run yet" — both mean the animal is unvaccinated past its window.
              * @enum {string}
              */
-            state: "behind" | "verifying" | "ok" | "not_planned";
+            state: "behind" | "rework" | "verifying" | "ok" | "not_planned";
             /** @description Animals whose dose WAS GIVEN, whose proof is recorded, and whose verifier has not accepted it yet. Never added to behindAnimals: one is a herd problem and the other is a desk problem. Merging them reported 76 vaccinated goats in Sumathi 1 as unvaccinated, because every obligation swept to 'missed' there had in fact been dosed on the day it was due. */
-            verifyingAnimals?: number;
+            verifyingAnimals: number;
+            /** @description Animals whose latest proof review for this shed and vaccine was rejected, with no newer recorded or accepted completion. Never added to behindAnimals or verifyingAnimals; it is its own operator rework bucket. */
+            reworkAnimals: number;
             /** @description DISTINCT animals behind for this shed and vaccine, and the number rendered ON the red cell. "How many are missing, each vaccine, shed wise" is half the ask this matrix answers; a bare colour answers only "is anything wrong" and forces a second question before the row is actionable. Because it counts DISTINCT ANIMALS rather than summing doses it can never exceed the shed's head count. Clients must still key the cell's COLOUR off state, not off this number being non-zero. */
             behindAnimals: number;
             /** @description DISTINCT animals in this shed carrying any obligation for this vaccine. behindAnimals is a subset of the same key set, so behindAnimals <= totalAnimals always. */
