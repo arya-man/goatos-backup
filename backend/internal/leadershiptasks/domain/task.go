@@ -370,20 +370,21 @@ func ScopeKeyOrDefault(key string, actor Actor) string {
 			return trimmed
 		}
 	}
-	if actor.CanRaise {
-		return ScopeAssignedByMe
-	}
+	// The list opens on what was asked OF the person (maintainer decision 2026-09-11): a park
+	// head opening Tasks wants the flags waiting for them, not the work they handed out. The
+	// previous default (Assigned by me for anyone who may raise) hid a fresh flag behind a
+	// badge on the first open.
 	return ScopeAssignedToMe
 }
 
 func ScopeLabel(key string) string {
 	switch key {
 	case ScopeAssignedByMe:
-		return "Assigned by me"
+		return "Raised by me"
 	case ScopeTeamProgress:
 		return "Team progress"
 	}
-	return "Assigned to me"
+	return "For me"
 }
 
 func ScopeEmptyMessage(key string) string {
