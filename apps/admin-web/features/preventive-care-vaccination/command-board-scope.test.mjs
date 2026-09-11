@@ -14,6 +14,10 @@ const commandBoardViewSource = readFileSync(
   new URL("./command-board-view.tsx", import.meta.url),
   "utf8",
 );
+const commandBoardDrilldownsSource = readFileSync(
+  new URL("./command-board-drilldowns.ts", import.meta.url),
+  "utf8",
+);
 
 test("vaccination command board forwards top-bar park scope to the backend read", () => {
   assert.match(
@@ -100,6 +104,9 @@ test("command board defaults to all drives and renders the complete future progr
   assert.match(commandBoardViewSource, /selectedShedVaccine\.state === "rework"[\s\S]*selectedShedVaccine\.reworkAnimals/);
   assert.match(commandBoardViewSource, /shedVaccineDrilldown\.data\.animals\.length < selectedShedVaccineCount/);
   assert.doesNotMatch(commandBoardViewSource, /shedVaccineDrilldown\.data\.animals\.length < selectedShedVaccine\.behindAnimals/);
+  assert.match(commandBoardViewSource, /useShedVaccineAnimals\(\s*selectedShedVaccine/);
+  assert.match(commandBoardDrilldownsSource, /state: ShedVaccineDrawerState/);
+  assert.match(commandBoardDrilldownsSource, /params\.set\("state", cell\.state\)/);
   assert.match(
     commandBoardViewSource,
     /c\.state === "behind" \|\| c\.state === "rework" \|\| c\.state === "verifying"/,

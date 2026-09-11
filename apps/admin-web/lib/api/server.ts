@@ -3351,6 +3351,7 @@ export async function getCommandBoardShedVaccineAnimals(
   params: CommandBoardDrilldownScope & {
     shedId: string;
     vaccineCode: string;
+    state: "behind" | "rework" | "verifying";
     partitionLabel?: string;
   },
 ): Promise<ApiResult<CommandBoardShedVaccineAnimalsPage>> {
@@ -3366,6 +3367,7 @@ export async function getCommandBoardShedVaccineAnimals(
           ...commandBoardDrilldownQuery(params),
           shed_id: params.shedId,
           vaccine_code: params.vaccineCode,
+          state: params.state,
           // Sent even when empty: an unpartitioned shed's cell key IS the empty label, so dropping it
           // would ask for a different cell than the one the reader clicked.
           partition_label: params.partitionLabel ?? "",

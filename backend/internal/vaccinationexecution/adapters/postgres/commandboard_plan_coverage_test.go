@@ -140,6 +140,9 @@ func TestShedVaccineDrawerIncludesRejectedReworkRows(t *testing.T) {
 		"LEFT JOIN rework ON rework.tenant_id = oi.tenant_id AND rework.obligation_id = oi.obligation_id",
 		"OR COALESCE(rework.has_rejected_rework, false)",
 		"AS rework_needed",
+		"$11::text = 'behind'",
+		"$11::text = 'rework'",
+		"$11::text = 'verifying'",
 		"p.rework_needed",
 	} {
 		if !strings.Contains(sql, want) {

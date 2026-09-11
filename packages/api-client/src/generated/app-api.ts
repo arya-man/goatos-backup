@@ -19467,6 +19467,8 @@ export interface operations {
                 shed_id: string;
                 /** @description The cell's vaccine code, from the board cell's vaccineCode. */
                 vaccine_code: string;
+                /** @description The clicked cell bucket. Required because a shed/vaccine cell can carry behind, rejected-proof rework, and verification-pending counts at the same time; the drawer must list the same bucket as the count in its header. */
+                state: "behind" | "rework" | "verifying";
                 /** @description The cell's partition label, from the board cell's partition_label. An unpartitioned shed's cell carries an empty label, which is a real cell key and not a missing parameter. */
                 partition_label?: string;
                 /** @description The same drive filter the board was rendered under, so the drawer explains the number the reader clicked. */

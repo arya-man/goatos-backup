@@ -196,6 +196,16 @@ func (h *Handler) GetCommandBoardShedVaccineAnimals(w http.ResponseWriter, r *ht
 		h.badRequest(w, r, "vaccine_code_required", "vaccine_code identifies the cell and is required")
 		return
 	}
+	state := strings.TrimSpace(r.URL.Query().Get("state"))
+	switch state {
+	case "behind", "rework", "verifying":
+	case "":
+		h.badRequest(w, r, "state_required", "state identifies the cell bucket and is required")
+		return
+	default:
+		h.badRequest(w, r, "invalid_state", "state must be behind, rework, or verifying")
+		return
+	}
 	page, err := h.reader.CommandBoardShedVaccineAnimals(r.Context(), vaccexecd.CommandBoardShedVaccineAnimalsQuery{
 		CommandBoardDrilldownQuery: scope,
 		ShedID:                     shedID,
@@ -207,6 +217,7 @@ func (h *Handler) GetCommandBoardShedVaccineAnimals(w http.ResponseWriter, r *ht
 		// cell the matrix had just shown a count for.
 		PartitionLabel: strings.TrimSpace(r.URL.Query().Get("partition_label")),
 		VaccineCode:    vaccineCode,
+		State:          state,
 	})
 	if err != nil {
 		h.commandBoardDrilldownError(w, r, err)

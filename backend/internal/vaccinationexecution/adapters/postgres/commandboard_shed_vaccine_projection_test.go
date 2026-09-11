@@ -948,6 +948,7 @@ func shedVaccineDrilldown(t *testing.T, ctx context.Context, pool *pgxpool.Pool,
 		ShedID:                     cell.ShedID,
 		PartitionLabel:             cell.PartitionLabel,
 		VaccineCode:                cell.VaccineCode,
+		State:                      cell.State,
 	})
 	if err != nil {
 		t.Fatalf("CommandBoardShedVaccineAnimals() error = %v", err)

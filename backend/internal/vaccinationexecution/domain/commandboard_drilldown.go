@@ -77,6 +77,7 @@ type CommandBoardShedVaccineAnimalsQuery struct {
 	ShedID         string
 	PartitionLabel string
 	VaccineCode    string
+	State          string
 }
 
 // CommandBoardCohortCellQuery names ONE cohort matrix cell (park x stage x sex x dose). DoseCodes
