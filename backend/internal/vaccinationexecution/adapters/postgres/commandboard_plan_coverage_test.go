@@ -130,9 +130,11 @@ func TestCommandBoardPlanGateCoversEverySQLConst(t *testing.T) {
 func TestShedVaccineDrawerIncludesRejectedReworkRows(t *testing.T) {
 	sql := commandBoardShedVaccineAnimalSQL
 	for _, want := range []string{
-		"SELECT DISTINCT ON (vc.obligation_id)",
+		"SELECT DISTINCT ON (obligation_id)",
 		"JOIN sop_submission_items si",
 		"JOIN vaccination_completions vc",
+		"FROM vaccination_completion_rejections vcr",
+		"vc2.status IN ('recorded','accepted')",
 		"vi.source_ref_type = 'vaccination_goat'",
 		"rework AS",
 		"LEFT JOIN rework ON rework.tenant_id = oi.tenant_id AND rework.obligation_id = oi.obligation_id",
@@ -164,11 +166,14 @@ func TestCommandBoardReworkUsesLatestObligationProof(t *testing.T) {
 		"closedDrawer": commandBoardClosedWithoutDoseSQL,
 	} {
 		for _, want := range []string{
-			"SELECT DISTINCT ON (vc.obligation_id)",
+			"SELECT DISTINCT ON (obligation_id)",
 			"JOIN sop_submission_items si",
 			"JOIN vaccination_completions vc",
 			"vc.sop_submission_item_id = si.item_id",
-			"ORDER BY vc.obligation_id, vi.captured_at DESC NULLS LAST, vi.verified_at DESC NULLS LAST, vi.item_id DESC",
+			"FROM vaccination_completion_rejections vcr",
+			"COALESCE(vcr.verified_at, vcr.rejected_at) AS verdict_at",
+			"vc2.status IN ('recorded','accepted')",
+			"ORDER BY obligation_id, verdict_at DESC NULLS LAST, item_id DESC",
 		} {
 			if !strings.Contains(sql, want) {
 				t.Fatalf("%s SQL missing %q; rejected proof can leak across vaccines or outrank later resubmission", name, want)
