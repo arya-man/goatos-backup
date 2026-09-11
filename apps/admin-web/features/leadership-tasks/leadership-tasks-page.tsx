@@ -3,6 +3,7 @@ import {
   CheckCircle2,
   ClipboardList,
   Clock3,
+  MessageSquareText,
   Mic2,
   Paperclip,
   Plus,
@@ -197,9 +198,11 @@ export function LeadershipTasksPage({
     : preview
       ? fixtureScopes
       : [];
-  const selected = tasks.find((task) => task.id === selectedTaskID) ?? tasks[0];
+  const selected = selectedTaskID
+    ? tasks.find((task) => task.id === selectedTaskID)
+    : undefined;
   const hasTasks = tasks.length > 0;
-  const hasSidePanel = Boolean(selected);
+  const hasSidePanel = Boolean(selected || hasTasks);
   const selectedScope =
     scopes.find((scope) => scope.key === selectedScopeKey) ??
     scopes.find((scope) => scope.selected) ??
@@ -289,11 +292,13 @@ export function LeadershipTasksPage({
                   <tr
                     key={task.id}
                     className={task.id === selected?.id ? "is-selected" : ""}
+                    aria-current={task.id === selected?.id ? "true" : undefined}
                   >
                     <td>
                       <Link
                         href={`${preview ? "/tasks-preview" : "/tasks"}?scope=${selectedScope?.key ?? "team_progress"}&task=${encodeURIComponent(task.id)}`}
                         className="lt-tasklink"
+                        aria-label={`Open task ${task.number}: ${task.title}`}
                       >
                         <b>{task.number}</b>
                         <span className="muted small">{task.title}</span>
@@ -453,18 +458,18 @@ export function LeadershipTasksPage({
                   />
                   <input type="hidden" name="task_id" value={selected.id} />
                   <label className="fld">
-                    <span>Task note</span>
+                    <span>Activity update</span>
                     <textarea
                       name="comment"
                       maxLength={2000}
                       rows={3}
-                      placeholder="Add a reply or update."
+                      placeholder="Write the latest status or reply."
                       required
                     />
                   </label>
                   <button type="submit" className="btn p">
-                    <Mic2 className="ic" aria-hidden="true" />
-                    Add note
+                    <MessageSquareText className="ic" aria-hidden="true" />
+                    Send update
                   </button>
                 </form>
               ) : null}
@@ -489,9 +494,9 @@ export function LeadershipTasksPage({
                   selected.notes.map((note) => (
                     <FeedRow
                       key={note.note_id}
-                      icon={Mic2}
+                      icon={MessageSquareText}
                       tone="f-pur"
-                      title={note.author_name || "Task note"}
+                      title={note.author_name || "Task update"}
                       detail={note.body}
                     />
                   ))
@@ -533,6 +538,27 @@ export function LeadershipTasksPage({
                   title="Monitoring ready"
                   detail="Status, notes, and files stay visible in the same task row."
                 />
+              </div>
+            </div>
+          </aside>
+        ) : hasTasks ? (
+          <aside className="card lt-card lt-detail-card">
+            <div className="hd">
+              <UserRoundCheck
+                className="ic"
+                style={{ color: "var(--brand)" }}
+                aria-hidden="true"
+              />
+              <h3>Selected task</h3>
+            </div>
+            <div className="bd lt-empty-state">
+              <ClipboardList className="ic" aria-hidden="true" />
+              <div>
+                <b>Select a task</b>
+                <p>
+                  Choose a row to view its brief, status actions, attachments,
+                  and activity updates.
+                </p>
               </div>
             </div>
           </aside>
