@@ -64,6 +64,23 @@ func TestApprovalSubtasksAreTheRequestOnADatabaseRoundTrip(t *testing.T) {
 	if len(page.Subtasks) != 1 || page.Subtasks[0].Name != "Pen move" || page.Subtasks[0].Subtitle != "3 animals" {
 		t.Fatalf("pen move %+v", page)
 	}
+	// An approved pen move's Apply step follows the shifting event, never the decision.
+	for key, want := range map[string]struct {
+		steps string
+		state domain.WorkState
+	}{
+		"shift-authorized": {"done done todo ", domain.WorkStateInProgress},
+		"shift-filmed":     {"done done in_review ", domain.WorkStateVerificationPending},
+		"shift-applied":    {"done done done ", domain.WorkStateCompleted},
+	} {
+		page, err = src.ListSubtasks(ctx, q(ids[key]))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(page.Subtasks) != 1 || states(page.Subtasks[0].Steps) != want.steps || page.Subtasks[0].WorkState != want.state {
+			t.Fatalf("%s: %+v", key, page)
+		}
+	}
 	page, err = src.ListSubtasks(ctx, q(ids["death-pending"]))
 	if err != nil {
 		t.Fatal(err)
