@@ -223,10 +223,9 @@ func scanRow(rows pgx.Rows) (domain.Row, error) {
 	due := dueAt.In(biztime.DefaultLocation())
 
 	title := diseaseName + " · Day " + strconv.Itoa(dayNo)
+	// The subtitle is the session only: the pen is carried in Pen and every surface renders
+	// it beside the card, so naming it here showed it twice (phone E2E 2026-09-11).
 	subtitle := sessionLabel(session)
-	if pen.Display != "" {
-		subtitle += " · " + pen.Display
-	}
 
 	state := domain.WorkState(boardState)
 	severity := domain.SeverityOK
