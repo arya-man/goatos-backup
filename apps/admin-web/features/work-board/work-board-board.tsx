@@ -334,7 +334,13 @@ export function WorkBoardBoard({
                 <span className="n">{count}</span>
               </div>
               <div className="cards">
-                {list.length ? list.map((row) => <WorkCard key={row.row_key} pageContract={pageContract} row={row} href={hrefForRow[row.row_key] ?? "#"} />) : <div className="empty">{copy(pageContract, "lane.empty")}</div>}
+                {list.length ? (
+                  list.map((row) => <WorkCard key={row.row_key} pageContract={pageContract} row={row} href={hrefForRow[row.row_key] ?? "#"} />)
+                ) : (
+                  // The header count is whole-filter; a lane with work on OTHER pages but none on
+                  // this one says so, instead of "Nothing here" under a non-zero count.
+                  <div className="empty">{count > 0 ? copy(pageContract, "lane.empty.other_pages") : copy(pageContract, "lane.empty")}</div>
+                )}
               </div>
             </div>
           );
