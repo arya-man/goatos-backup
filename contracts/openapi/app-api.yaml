@@ -18283,7 +18283,7 @@ components:
     SalesFarmValuationBucket:
       type: object
       description: One mutually-exclusive live-herd valuation bucket for the Sales farm-value cards.
-      required: [bucket, label, animal_count, weight_kg, price_per_kg, meat_kg, value_rupees, actual_weight, weighed_animals]
+      required: [bucket, label, animal_count, weight_kg, price_per_kg, meat_kg, value_rupees, actual_weight, weighed_animals, male_count, female_count, sex_missing_count]
       properties:
         bucket: { type: string }
         label: { type: string }
@@ -18300,6 +18300,15 @@ components:
         weighed_animals:
           type: integer
           description: Count of animals behind the actual-weight average; 0 for fixed-weight buckets.
+        male_count:
+          type: integer
+          description: Animals in this bucket recorded male.
+        female_count:
+          type: integer
+          description: Animals in this bucket recorded female.
+        sex_missing_count:
+          type: integer
+          description: Animals in this bucket with no recorded sex. The three sex counts are disjoint and sum to animal_count.
     SalesFarmValuation:
       type: object
       description: Live-herd valuation under Sales, separate from closed sales revenue.

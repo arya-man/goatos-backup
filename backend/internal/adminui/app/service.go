@@ -3585,17 +3585,23 @@ func pageSpecificCopy(id string) map[string]string {
 			// Over 35 kg (maintainer request 2026-09-03): the sale-weight count from the Weights
 			// pages. Same basis as the Weights cards: every kid weighed in the sale-ready window
 			// at its latest weight, a whole pen counted at its average.
-			"kpi.over35":               "Over 35 kg",
-			"kpi.over35.sub":           "sale-ready window · a whole pen counts at its average",
-			"kpi.over35.none":          "nothing weighed in the sale-ready window",
-			"kpi.over35.tolerance":     "Error margin",
-			"kpi.over35.apply":         "Apply",
-			"disabled.weights":         "Your current role can view sales but not weighing.",
-			"value.kg_suffix":          "kg",
-			"value.excluded_animals":   "excluded",
-			"value.live_animals":       "live animals",
-			"value.not_valued":         "not valued",
-			"value.valued_animals":     "valued",
+			"kpi.over35":             "Over 35 kg",
+			"kpi.over35.sub":         "sale-ready window · a whole pen counts at its average",
+			"kpi.over35.none":        "nothing weighed in the sale-ready window",
+			"kpi.over35.tolerance":   "Error margin",
+			"kpi.over35.apply":       "Apply",
+			"disabled.weights":       "Your current role can view sales but not weighing.",
+			"value.kg_suffix":        "kg",
+			"value.excluded_animals": "excluded",
+			"value.live_animals":     "live animals",
+			"value.not_valued":       "not valued",
+			"value.valued_animals":   "valued",
+			// The fattening and kid cards' sex split (maintainer request 2026-09-11): three
+			// disjoint counts that add up to the card's animals. "Missing" is an animal with no
+			// recorded sex, named as such rather than folded into either side.
+			"value.sex.male":           "Male",
+			"value.sex.female":         "Female",
+			"value.sex.missing":        "Missing",
 			"value.weighed":            "weighed",
 			"value.per_kg_suffix":      "per kg",
 			"value.none":               "Not recorded",

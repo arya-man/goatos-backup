@@ -7771,6 +7771,12 @@ export interface components {
             actual_weight: boolean;
             /** @description Count of animals behind the actual-weight average; 0 for fixed-weight buckets. */
             weighed_animals: number;
+            /** @description Animals in this bucket recorded male. */
+            male_count: number;
+            /** @description Animals in this bucket recorded female. */
+            female_count: number;
+            /** @description Animals in this bucket with no recorded sex. The three sex counts are disjoint and sum to animal_count. */
+            sex_missing_count: number;
         };
         /** @description Live-herd valuation under Sales, separate from closed sales revenue. */
         SalesFarmValuation: {

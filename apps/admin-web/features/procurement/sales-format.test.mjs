@@ -180,6 +180,13 @@ test("farm value cards render the backend valuation contract", () => {
   assert.match(source, /overview\.farm_valuation\.not_valued/);
   assert.match(source, /overview\.farm_valuation\.buckets\.map/);
   assert.doesNotMatch(source, /farm_valuation\.buckets\.reduce/);
+  // The sex split (maintainer request 2026-09-11) renders the three backend counts verbatim on
+  // the fattening and kid cards only, and derives none of them.
+  assert.match(source, /SEX_SPLIT_BUCKETS = new Set\(\["fattening", "K0", "K1", "K2", "K3"\]\)/);
+  assert.match(source, /bucket\.male_count/);
+  assert.match(source, /bucket\.female_count/);
+  assert.match(source, /bucket\.sex_missing_count/);
+  assert.doesNotMatch(source, /animal_count\s*-\s*bucket\.(male|female)_count/);
 });
 
 // The retired board's blocks are divided, never duplicated: Sold carries no valuation figure,
@@ -192,6 +199,18 @@ test("Sold ends with the deals ledger and Farm value carries no sold block", () 
   assert.ok(sold.lastIndexOf("sales-deals-table") > sold.lastIndexOf("evidence.audit.title"), "the ledger renders after the last sold block");
   assert.doesNotMatch(farmValue, /listSalesDeals|MonthColumns|HBarList|sales-deals-table/);
   assert.ok(!existsSync(new URL("./sales.tsx", import.meta.url)), "the retired board component must not come back");
+});
+
+// Both read pages render their own farm chips on the `farm` parameter, so the shell must hide
+// its top-bar park selector on both (PR 238 review): the retired /sales path alone no longer
+// matches any page that renders.
+test("the shell hides its park selector on Sold and Farm value", () => {
+  const shell = readFileSync(new URL("../../components/mesha-shell.tsx", import.meta.url), "utf8");
+  const lock = shell.match(/const PAGES_OWNING_PARK_SCOPE = \[([\s\S]*?)\];/);
+  assert.ok(lock, "PAGES_OWNING_PARK_SCOPE must still exist");
+  assert.match(lock[1], /"\/sales\/sold"/);
+  assert.match(lock[1], /"\/sales\/farm-value"/);
+  assert.doesNotMatch(lock[1], /"\/sales"[,\s]/, "the retired board path is not a page that renders");
 });
 
 test("farm value copy keys have rollout fallbacks", () => {

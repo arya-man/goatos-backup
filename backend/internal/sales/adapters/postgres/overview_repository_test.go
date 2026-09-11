@@ -270,3 +270,57 @@ func TestFarmValuationClinicalStagesMultipleDimensionsPageBoundaryParkScopeEvery
 		t.Fatal("the clinical arms must not carry a status rule of their own; classified already owns that")
 	}
 }
+
+// The fattening and kid cards show the bucket by recorded sex (maintainer request 2026-09-11).
+// The three counts are taken in the SAME grouped read as animal_count, over the SAME classified
+// rows, so they cannot range over a different herd than the figure they divide.
+func TestFarmValuationSQLSexCountsShareOneBucketRollupMultipleDimensions(t *testing.T) {
+	for _, want := range []string{
+		"lower(btrim(coalesce(g.sex, ''))) AS sex",
+		"count(*) FILTER (WHERE sex = 'male')::int AS male_count",
+		"count(*) FILTER (WHERE sex = 'female')::int AS female_count",
+		"count(*) FILTER (WHERE sex NOT IN ('male', 'female'))::int AS sex_missing_count",
+		"coalesce(c.male_count, 0) AS male_count",
+		"coalesce(c.sex_missing_count, 0) AS sex_missing_count",
+	} {
+		if !strings.Contains(farmValuationSQL, want) {
+			t.Fatalf("farm valuation SQL missing %q", want)
+		}
+	}
+	// One rollup: a second GROUP BY bucket would let the split and the count drift apart, and a
+	// join inside it (say, back to goat_identifiers) would count a double-tagged animal twice.
+	if strings.Count(farmValuationSQL, "GROUP BY bucket") != 1 {
+		t.Fatalf("the sex counts must ride the one bucket rollup, got %d GROUP BY bucket", strings.Count(farmValuationSQL, "GROUP BY bucket"))
+	}
+	counts := farmValuationSQL[strings.Index(farmValuationSQL, "counts AS ("):strings.Index(farmValuationSQL, "total_inventory AS (")]
+	if strings.Contains(counts, "JOIN") {
+		t.Fatalf("the bucket rollup must not join; a fan-out here would inflate the split: %s", counts)
+	}
+}
+
+// The split is exhaustive over EVERY status the sex column can hold: male, female, and everything
+// else (blank, NULL, an unknown token) counted as missing -- never dropped, never folded into a
+// side. So the three add up to the bucket's animals by construction.
+func TestFarmValuationSQLSexSplitStatusBucketsAreDisjointAndExhaustive(t *testing.T) {
+	if !strings.Contains(farmValuationSQL, "coalesce(g.sex, '')") {
+		t.Fatal("a NULL sex must normalise to the empty string so it is counted missing, not skipped")
+	}
+	if !strings.Contains(farmValuationSQL, "FILTER (WHERE sex NOT IN ('male', 'female'))") {
+		t.Fatal("missing must be the complement of male and female, not a third literal that leaves gaps")
+	}
+	if strings.Contains(farmValuationSQL, "sex = 'unknown'") || strings.Contains(farmValuationSQL, "sex = ''") {
+		t.Fatal("missing must not be a literal match; an unexpected token would then vanish from all three")
+	}
+}
+
+// The farm predicate is applied in `classified`, BEFORE the rollup, so the split obeys the same
+// CBE/CPT park scope as the figure it divides, and there is no page: the card is whole inventory.
+func TestFarmValuationSQLSexSplitObeysParkScopeAndHasNoPageBoundary(t *testing.T) {
+	classified := farmValuationSQL[strings.Index(farmValuationSQL, "classified AS ("):strings.Index(farmValuationSQL, "not_valued AS (")]
+	if !strings.Contains(classified, "%s") {
+		t.Fatal("the farm predicate placeholder must sit inside classified, ahead of every count")
+	}
+	if strings.Contains(farmValuationSQL, "LIMIT") || strings.Contains(farmValuationSQL, "OFFSET") {
+		t.Fatal("the valuation is a whole-inventory read; a page boundary would make the split partial")
+	}
+}

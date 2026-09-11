@@ -181,6 +181,9 @@ func (r *Repository) farmValuation(ctx context.Context, tenantID, farm string) (
 			&bucket.ValueRupees,
 			&bucket.ActualWeight,
 			&bucket.WeighedAnimals,
+			&bucket.MaleCount,
+			&bucket.FemaleCount,
+			&bucket.SexMissingCount,
 			&totalAnimals,
 			&valuedAnimals,
 			&excludedAnimals,
@@ -563,7 +566,8 @@ const farmValuationSQL = `
 			END AS bucket,
 			gw.weight_kg,
 			g.management_stage,
-			g.milk_cohort
+			g.milk_cohort,
+			lower(btrim(coalesce(g.sex, ''))) AS sex
 			FROM public.goats g
 			CROSS JOIN LATERAL (
 				SELECT upper(regexp_replace(btrim(coalesce(g.management_stage, '')), '[^A-Za-z0-9]+', '', 'g')) AS stage_norm
@@ -605,8 +609,20 @@ const farmValuationSQL = `
 			('K2', 'K2', 8::float8, 500::float8, 6),
 			('K3', 'K3', 15::float8, 500::float8, 7)
 	),
+	-- projection-review: membership=classified, one row per current live goat (goats filtered to
+	-- non-terminal and non-merged, weight joined 1:1 after idmap is reduced to one row per goat);
+	-- group_key=the mutually-exclusive CASE bucket, and the three sex FILTER counts ride the SAME
+	-- GROUP BY so male + female + missing == animal_count row for row; join_cardinality=none inside
+	-- this rollup -- rates is joined 1:1 on bucket by the outer SELECT, fattening_weight and
+	-- total_inventory are one-row CROSS JOINs; pagination=none, whole-current-inventory card;
+	-- scope=tenant_id and the optional CBE/CPT farm code applied in classified before any count.
 	counts AS (
-		SELECT bucket, count(*)::int AS animal_count
+		SELECT
+			bucket,
+			count(*)::int AS animal_count,
+			count(*) FILTER (WHERE sex = 'male')::int AS male_count,
+			count(*) FILTER (WHERE sex = 'female')::int AS female_count,
+			count(*) FILTER (WHERE sex NOT IN ('male', 'female'))::int AS sex_missing_count
 		FROM classified
 		WHERE bucket <> 'unmapped'
 		GROUP BY bucket
@@ -628,6 +644,9 @@ const farmValuationSQL = `
 		(coalesce(c.animal_count, 0) * coalesce(r.fixed_weight_kg, fw.avg_weight_kg, 0) * r.price_per_kg)::float8 AS value_rupees,
 		(r.fixed_weight_kg IS NULL) AS actual_weight,
 		CASE WHEN r.fixed_weight_kg IS NULL THEN coalesce(fw.weighed_animals, 0) ELSE 0 END AS weighed_animals,
+		coalesce(c.male_count, 0) AS male_count,
+		coalesce(c.female_count, 0) AS female_count,
+		coalesce(c.sex_missing_count, 0) AS sex_missing_count,
 			ti.live_animals,
 			ti.valued_animals,
 			ti.excluded_animals,

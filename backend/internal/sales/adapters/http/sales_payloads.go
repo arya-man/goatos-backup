@@ -201,6 +201,10 @@ type farmValuationBucketPayload struct {
 	ValueRupees    float64 `json:"value_rupees"`
 	ActualWeight   bool    `json:"actual_weight"`
 	WeighedAnimals int     `json:"weighed_animals"`
+	// By recorded sex; disjoint, and they sum to animal_count.
+	MaleCount       int `json:"male_count"`
+	FemaleCount     int `json:"female_count"`
+	SexMissingCount int `json:"sex_missing_count"`
 }
 
 type soldWeightBandsPayload struct {
@@ -350,6 +354,7 @@ func toOverviewPayload(o domain.Overview) overviewPayload {
 			WeightKg: b.WeightKg, PricePerKg: b.PricePerKg, MeatKg: b.MeatKg,
 			ValueRupees: b.ValueRupees, ActualWeight: b.ActualWeight,
 			WeighedAnimals: b.WeighedAnimals,
+			MaleCount:      b.MaleCount, FemaleCount: b.FemaleCount, SexMissingCount: b.SexMissingCount,
 		})
 	}
 	notValued := make([]farmValuationNotValued, 0, len(o.FarmValuation.NotValued))

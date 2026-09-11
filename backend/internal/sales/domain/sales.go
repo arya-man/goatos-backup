@@ -467,6 +467,12 @@ type FarmValuationBucket struct {
 	ValueRupees    float64
 	ActualWeight   bool
 	WeighedAnimals int
+	// The bucket's animals by recorded sex (maintainer request 2026-09-11, for the fattening
+	// and kid cards). The three are DISJOINT and sum to AnimalCount: an animal whose sex is not
+	// recorded as male or female counts as missing, never as either.
+	MaleCount       int
+	FemaleCount     int
+	SexMissingCount int
 }
 
 // SoldWeightBands counts sold animals by the weight recorded when they were tagged to a sale.

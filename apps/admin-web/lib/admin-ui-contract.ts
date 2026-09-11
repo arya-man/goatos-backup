@@ -27,6 +27,9 @@ const COPY_FALLBACKS: Record<string, Record<string, string>> = {
   // fallbacks follow the page that renders the keys.
   "sales-farm-value": {
     "kpi.farm_value": "Total farm value",
+    "value.sex.male": "Male",
+    "value.sex.female": "Female",
+    "value.sex.missing": "Missing",
     "kpi.farm_value.detail": "Live herd valuation from Sales target rates",
     "kpi.total_meat": "Total meat",
     "kpi.total_meat.detail": "Live herd kg from valuation buckets",

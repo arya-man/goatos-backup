@@ -33,6 +33,12 @@ type Over35Card = {
 /** The nominal sale-ready lookback; backend clamps tolerance reads to reliable weighing data. */
 const OVER35_WINDOW_DAYS = 42;
 const OVER35_MAX_TOLERANCE_G = 1000;
+/**
+ * The buckets whose card shows its animals by sex (maintainer request 2026-09-11: "male, female,
+ * missing ... for K0/K2/K3 or fattening ... no need for the other two"). Adult females and adult
+ * males are ONE sex by construction, so a split there would only restate the label.
+ */
+const SEX_SPLIT_BUCKETS = new Set(["fattening", "K0", "K1", "K2", "K3"]);
 
 function farmValuationNotValuedLabel(overview: SalesOverview, pageContract: AdminUiPageContract): string {
   const notValued = overview.farm_valuation.not_valued ?? [];
@@ -139,6 +145,16 @@ function FarmValueSections({
               {overview.farm_valuation.buckets.map((bucket) => (
                 <div className="kpi mini" key={bucket.bucket}>
                   <div className="lab">{bucket.label}</div>
+                  {/* On top, under the label (maintainer request 2026-09-11): the bucket's animals by
+                      recorded sex. Three disjoint backend counts that add up to the card's animals;
+                      "Missing" is an animal with no recorded sex, never folded into either side. */}
+                  {SEX_SPLIT_BUCKETS.has(bucket.bucket) ? (
+                    <div className="dl sales-sex-split" data-bucket={bucket.bucket}>
+                      {num(bucket.male_count)} {copy(pageContract, "value.sex.male")} · {num(bucket.female_count)}{" "}
+                      {copy(pageContract, "value.sex.female")} · {num(bucket.sex_missing_count)}{" "}
+                      {copy(pageContract, "value.sex.missing")}
+                    </div>
+                  ) : null}
                   <div className="val">{inr(bucket.value_rupees)}</div>
                   <div className="dl">
                     {num(bucket.meat_kg, 1)} {kgSuffix} · {num(bucket.animal_count)}{" "}
