@@ -676,6 +676,7 @@ run_admin_web() {
   step "admin-web local overlays" make admin-web-local-overlay-guard
   step "date-format-guard" make date-format-guard
   step "sidebar-typography-guard" make sidebar-typography-guard
+  step "sales-pages-guard" make sales-pages-guard
   step "overlay motion"          make overlay-motion-guard
   step "admin-web mock-fidelity" npm --prefix apps/admin-web run check:mock-fidelity
   step "admin-web request-plan"  npm --prefix apps/admin-web run check:action-center-request-plan

@@ -1077,6 +1077,17 @@
       "ciStep": "local-stack-service-guard"
     },
     {
+      "id": "sales-pages",
+      "script": "tools/agent-hooks/check-sales-pages.mjs",
+      "makeTarget": "sales-pages-guard",
+      "realCheck": "node tools/agent-hooks/check-sales-pages.mjs",
+      "selfTest": "node tools/agent-hooks/check-sales-pages.mjs --self-test",
+      "owningDoc": "docs/decisions/sales-config-owns-every-sales-write.md",
+      "requiredInCI": true,
+      "ciStep": "sales-pages-guard",
+      "notes": "The Sales split (maintainer decisions 2026-09-11, PR 238). Five source-text rules: (1) every admin-web page rendering SalesFarmToggle has its PAGE_PATH in the shell's PAGES_OWNING_PARK_SCOPE and the retired /sales is not listed -- the PR 238 P2, where the lock named only the retired path and the top bar showed a second park selector on both new pages; (2) the board stays retired: no sales.tsx, no page(\"sales\") contract, no sales-board leaf, /sales only redirects; (3) the deals ledger is the LAST block on Sold; (4) Farm value cards show Male and Female only -- no missing-sex count, no weighed-animal count; (5) the visual smoke and its coverage test hit /sales/sold and /sales/farm-value directly. Self-test covers each rule's inversion, including the exact review defect."
+    },
+    {
       "id": "sidebar-typography",
       "script": "tools/agent-hooks/check-sidebar-typography.mjs",
       "makeTarget": "sidebar-typography-guard",

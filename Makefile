@@ -196,6 +196,7 @@ guardrails:
 	$(MAKE) admin-web-local-overlay-guard
 	$(MAKE) date-format-guard
 	$(MAKE) sidebar-typography-guard
+	$(MAKE) sales-pages-guard
 	$(MAKE) overlay-motion-guard
 	$(MAKE) android-bounded-memory-guard
 	$(MAKE) telemetry-guard
@@ -1048,6 +1049,13 @@ admin-web-local-overlay-guard:
 date-format-guard:
 	node tools/agent-hooks/check-date-format.mjs --self-test
 	node tools/agent-hooks/check-date-format.mjs
+
+# sales-pages-guard: the Sales split (Sold + Farm value, board retired) and the park-selector
+# lock on pages that own their farm choice -- see tools/agent-hooks/check-sales-pages.mjs.
+.PHONY: sales-pages-guard
+sales-pages-guard:
+	node tools/agent-hooks/check-sales-pages.mjs --self-test
+	node tools/agent-hooks/check-sales-pages.mjs
 
 # sidebar-typography-guard: one font size for every admin-web sidebar label
 # (.nav / .ggrp / .leaf), and the Purchase and Born crumb kept out of capitals
