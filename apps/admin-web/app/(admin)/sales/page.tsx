@@ -8,8 +8,9 @@ export const dynamic = "force-dynamic";
 // (/sales/sold, with the deals ledger last) and Farm value (/sales/farm-value). This route stays
 // only so an old link or bookmark lands on Sold with its query intact, never on a 404.
 export default async function Page({ searchParams }: { searchParams: Promise<RouteSearchParams> }) {
+  const sp = await searchParams;
   const query = new URLSearchParams();
-  for (const [key, value] of Object.entries(await searchParams)) {
+  for (const [key, value] of Object.entries(sp)) {
     const single = Array.isArray(value) ? value[0] : value;
     if (single) query.set(key, single);
   }
