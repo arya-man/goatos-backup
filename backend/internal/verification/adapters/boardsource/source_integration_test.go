@@ -172,8 +172,13 @@ func TestVerificationBoardRowsOnADatabaseRoundTrip(t *testing.T) {
 		if !ok {
 			t.Fatalf("row %s missing", id)
 		}
-		if r.WorkState != w.state || r.Lane != w.lane || r.Severity != domain.SeverityOK {
-			t.Errorf("%s: state=%s lane=%s sev=%s, want %s/%s/ok", id, r.WorkState, r.Lane, r.Severity, w.state, w.lane)
+		// A rejected row is amber on every source (domain.Row.Finalize); the rest are ok here.
+		wantSev := domain.SeverityOK
+		if w.state == domain.WorkStateRejected {
+			wantSev = domain.SeverityWatch
+		}
+		if r.WorkState != w.state || r.Lane != w.lane || r.Severity != wantSev {
+			t.Errorf("%s: state=%s lane=%s sev=%s, want %s/%s/%s", id, r.WorkState, r.Lane, r.Severity, w.state, w.lane, wantSev)
 		}
 		if r.Module != domain.ModuleVerification || r.SourceType != SourceType || r.RowKey != "verification|"+SourceType+"|"+id {
 			t.Errorf("%s: identity %s/%s/%s", id, r.Module, r.SourceType, r.RowKey)
@@ -206,7 +211,7 @@ func TestVerificationBoardRowsOnADatabaseRoundTrip(t *testing.T) {
 	}
 	// A tab label that does not name its module is prefixed with it.
 	rejected := got[itemRejected]
-	if rejected.Title != "Health Adults · Godel 1" || rejected.Counts != (domain.Counts{NeedsAttention: 1}) {
+	if rejected.Title != "Health Adults · Godel 1" || rejected.Counts != (domain.Counts{Pending: 1, NeedsAttention: 1}) {
 		t.Errorf("rejected title %q counts %+v", rejected.Title, rejected.Counts)
 	}
 	// A closeout approval (auto_resolution, no verifier) is completed like a human approve, and an

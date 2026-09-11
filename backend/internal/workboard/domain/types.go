@@ -212,6 +212,21 @@ func (r Row) Finalize() Row {
 	if r.Severity == "" {
 		r.Severity = SeverityOK
 	}
+	// A REJECTED row is live work someone was told to redo: it is never severity ok, it is
+	// always at least one attention, and it always carries a pending unit. Stated ONCE here
+	// so no source can answer differently -- three did (live E2E 2026-09-11: counts said
+	// watch/1 pending, feed transport said ok/1 pending, verification said ok/0 pending).
+	if r.WorkState == WorkStateRejected {
+		if r.Severity == SeverityOK {
+			r.Severity = SeverityWatch
+		}
+		if r.Counts.NeedsAttention == 0 {
+			r.Counts.NeedsAttention = 1
+		}
+		if r.Counts.Done+r.Counts.Pending == 0 {
+			r.Counts.Pending = 1
+		}
+	}
 	if r.OwnerState == "" {
 		if r.Owner.UserID != "" || r.Owner.WorkforceMemberID != "" {
 			r.OwnerState = OwnerStateAssigned

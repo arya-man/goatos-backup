@@ -148,8 +148,13 @@ func TestFeedTransportBoardRowsOnADatabaseRoundTrip(t *testing.T) {
 		if !ok {
 			t.Fatalf("row %s missing", id)
 		}
-		if r.WorkState != w.state || r.Lane != w.lane || r.Severity != domain.SeverityOK {
-			t.Errorf("%s: state=%s lane=%s sev=%s, want %s/%s/ok", id, r.WorkState, r.Lane, r.Severity, w.state, w.lane)
+		// A rejected row is amber on every source (domain.Row.Finalize); the rest are ok here.
+		wantSev := domain.SeverityOK
+		if w.state == domain.WorkStateRejected {
+			wantSev = domain.SeverityWatch
+		}
+		if r.WorkState != w.state || r.Lane != w.lane || r.Severity != wantSev {
+			t.Errorf("%s: state=%s lane=%s sev=%s, want %s/%s/%s", id, r.WorkState, r.Lane, r.Severity, w.state, w.lane, wantSev)
 		}
 		if r.Module != domain.ModuleFeed || r.SourceType != SourceType || r.RowKey != "feed|"+SourceType+"|"+id {
 			t.Errorf("%s: identity %s/%s/%s", id, r.Module, r.SourceType, r.RowKey)
