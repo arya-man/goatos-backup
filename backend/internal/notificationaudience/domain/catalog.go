@@ -297,14 +297,14 @@ var catalog = func() []Alert {
 		},
 		{
 			Key: AlertLeadershipTaskRaised, Module: "leadership",
-			Label:               "Task assigned to a CXO, or changed by its raiser",
-			Blurb:               "A director raised a task for the leadership desk, or moved one they raised. Sent to the CXO it is addressed to when CEO / CXO is ticked; any other ticked job title receives a copy.",
+			Label:               "Task assigned to you, or changed by its raiser",
+			Blurb:               "A task was raised for a CXO, director or park head, or moved by the person who raised it. Sent to the person it is addressed to; any other ticked job title receives a copy.",
 			DefaultDesignations: []string{DesignationCEO},
 		},
 		{
 			Key: AlertLeadershipTaskDone, Module: "leadership",
-			Label:               "Task status changed by the CXO",
-			Blurb:               "A CXO moved a task (doing, done, reopened, cancelled). Sent to the director who raised it when their job title is ticked; any other ticked job title receives a copy.",
+			Label:               "Task status changed by its assignee",
+			Blurb:               "The assignee moved a task (doing, done, reopened, cancelled). Sent to the person who raised it when their job title is ticked; any other ticked job title receives a copy.",
 			DefaultDesignations: append([]string{}, DirectorDesignations...),
 		},
 		{
