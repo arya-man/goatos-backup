@@ -942,11 +942,10 @@ type CommandBoardShedVaccineCell struct {
 	// has five clips covering 76 goats), so attaching one to every animal row repeated a single link
 	// 76 times and implied per-goat footage that does not exist.
 	ProofVideos []CommandBoardShedVideo `json:"proofVideos,omitempty"`
-	// FlaggedAnimals names the animals behind BOTH flagged states -- genuinely behind AND waiting on
-	// a verifier -- capped at CommandBoardShedVaccineAnimalListCap. It was called behindAnimalsList
-	// while it already carried verifier-backlog rows, so the field name told a client the opposite
-	// of what the payload contained. Each row carries AwaitingVerification, which is what separates
-	// the two; the COUNTS above stay whole-scope truth and this list is the evidence behind them.
+	// FlaggedAnimals names the animals behind every flagged state: genuinely behind, waiting on a
+	// verifier, and rejected-proof rework. Each row carries AwaitingVerification and ReworkNeeded,
+	// which separate the row reason; the COUNTS above stay whole-scope truth and this list is the
+	// evidence behind them.
 	FlaggedAnimals []CommandBoardShedVaccineAnimal `json:"flaggedAnimals,omitempty"`
 }
 
@@ -970,6 +969,7 @@ type CommandBoardShedVaccineAnimal struct {
 	// this the drawer read "missed" against animals the operator had already vaccinated on the day
 	// they were due, which is an accusation rather than a status.
 	AwaitingVerification bool       `json:"awaitingVerification"`
+	ReworkNeeded         bool       `json:"reworkNeeded"`
 	RecordedAt           *time.Time `json:"recordedAt,omitempty"`
 	// LocationDisplay is the animal's GROUND location: park + physical shed + partition. The shed
 	// name alone sends a person to "Godel 1" when the animal is in "Godel 1 - Part 3" -- a different

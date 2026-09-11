@@ -117,9 +117,11 @@ func TestVaccinationCommandBoardKPIOneToManyDosesFoldToOneAnimalAndStatusBuckets
 	if resp.KPIs.ScheduledAhead != 0 {
 		t.Fatalf("scheduled_ahead = %d, want 0; the animal is already counted as verified and must not appear twice", resp.KPIs.ScheduledAhead)
 	}
-	sum := resp.KPIs.DosesVerified + resp.KPIs.AwaitingVerification + resp.KPIs.OverdueNotGiven + resp.KPIs.ScheduledAhead
+	sum := resp.KPIs.MissedNotGiven + resp.KPIs.DosesVerified + resp.KPIs.AwaitingVerification +
+		resp.KPIs.ReworkNeeded + resp.KPIs.OverdueNotGiven + resp.KPIs.ScheduledAhead +
+		resp.KPIs.ClosedWithoutDose
 	if sum != resp.KPIs.Targets {
-		t.Fatalf("tiles sum to %d but targets = %d; the four tiles must partition targets", sum, resp.KPIs.Targets)
+		t.Fatalf("tiles sum to %d but targets = %d; the seven tiles must partition targets", sum, resp.KPIs.Targets)
 	}
 }
 
@@ -199,7 +201,8 @@ func TestVaccinationCommandBoardKPIOneToManyStatusBucketsDateShiftParkScopePageB
 		t.Fatalf("doses_verified = %d, want 0; overdue unvaccinated work outranks earlier progress", resp.KPIs.DosesVerified)
 	}
 	sum := resp.KPIs.MissedNotGiven + resp.KPIs.DosesVerified + resp.KPIs.AwaitingVerification +
-		resp.KPIs.OverdueNotGiven + resp.KPIs.ScheduledAhead + resp.KPIs.ClosedWithoutDose
+		resp.KPIs.ReworkNeeded + resp.KPIs.OverdueNotGiven + resp.KPIs.ScheduledAhead +
+		resp.KPIs.ClosedWithoutDose
 	if sum != resp.KPIs.Targets {
 		t.Fatalf("tiles sum to %d but targets = %d", sum, resp.KPIs.Targets)
 	}
@@ -444,9 +447,9 @@ func TestVaccinationCommandBoardKPIStatusBucketsEveryStatusClosedWithoutDoseReco
 		t.Fatalf("overdue_not_given = %d, want 0; a closed obligation is not outstanding no matter how far past its due date it is", resp.KPIs.OverdueNotGiven)
 	}
 	sum := resp.KPIs.DosesVerified + resp.KPIs.AwaitingVerification + resp.KPIs.OverdueNotGiven +
-		resp.KPIs.ScheduledAhead + resp.KPIs.ClosedWithoutDose
+		resp.KPIs.ReworkNeeded + resp.KPIs.ScheduledAhead + resp.KPIs.ClosedWithoutDose
 	if sum != resp.KPIs.Targets {
-		t.Fatalf("tiles sum to %d but targets = %d; the five tiles must be an EXHAUSTIVE partition of targets, not a subset of it", sum, resp.KPIs.Targets)
+		t.Fatalf("tiles sum to %d but targets = %d; the seven tiles must be an EXHAUSTIVE partition of targets, not a subset of it", sum, resp.KPIs.Targets)
 	}
 }
 

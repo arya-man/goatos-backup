@@ -341,15 +341,14 @@ func TestVaccinationCommandBoardShedVaccineMatrixTreatsOverduePastDueAsBehind(t 
 	}
 }
 
-// assertKPIPartitionExhaustive is the invariant every KPI test shares: the six buckets are a
-// disjoint, exhaustive partition of targets. Kept in one place so a future seventh bucket has
-// exactly one line to update rather than a sum quietly left stale in five tests.
+// assertKPIPartitionExhaustive is the invariant every KPI test shares: the seven buckets are a
+// disjoint, exhaustive partition of targets.
 func assertKPIPartitionExhaustive(t *testing.T, k domain.CommandBoardKPI) {
 	t.Helper()
-	sum := k.MissedNotGiven + k.DosesVerified + k.AwaitingVerification + k.OverdueNotGiven + k.ScheduledAhead + k.ClosedWithoutDose
+	sum := k.MissedNotGiven + k.DosesVerified + k.AwaitingVerification + k.ReworkNeeded + k.OverdueNotGiven + k.ScheduledAhead + k.ClosedWithoutDose
 	if sum != k.Targets {
-		t.Fatalf("buckets sum to %d but targets = %d (missed=%d verified=%d awaiting=%d overdue=%d scheduled=%d closed=%d); the tiles must partition targets",
-			sum, k.Targets, k.MissedNotGiven, k.DosesVerified, k.AwaitingVerification, k.OverdueNotGiven, k.ScheduledAhead, k.ClosedWithoutDose)
+		t.Fatalf("buckets sum to %d but targets = %d (missed=%d verified=%d awaiting=%d rework=%d overdue=%d scheduled=%d closed=%d); the tiles must partition targets",
+			sum, k.Targets, k.MissedNotGiven, k.DosesVerified, k.AwaitingVerification, k.ReworkNeeded, k.OverdueNotGiven, k.ScheduledAhead, k.ClosedWithoutDose)
 	}
 }
 

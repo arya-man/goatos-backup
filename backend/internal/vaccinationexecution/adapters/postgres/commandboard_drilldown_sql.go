@@ -311,6 +311,8 @@ cell AS (
     oi.status,
     oi.due_at,
     COALESCE(comp.has_recorded_unverified, false) AS awaiting_verification,
+    COALESCE(rework.has_rejected_rework, false)
+      AND NOT COALESCE(comp.has_recorded_unverified, false) AS rework_needed,
     comp.recorded_at
   FROM obligation_instances oi
   JOIN protocol_rule_dimensions d ON d.rule_id = oi.rule_id AND d.tenant_id = oi.tenant_id
@@ -380,6 +382,7 @@ SELECT
     ELSE btrim(current_gsp.partition_label)
   END AS partition_label,
   p.awaiting_verification,
+  p.rework_needed,
   p.recorded_at
 FROM page p
 LEFT JOIN locations scope_shed ON scope_shed.location_id = $5::uuid AND scope_shed.tenant_id = p.tenant_id
