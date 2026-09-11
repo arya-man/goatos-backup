@@ -4843,7 +4843,14 @@ select:disabled { opacity: .45; }
 .wb .pgnav .more[aria-disabled="true"]{opacity:.4;pointer-events:none}
 @media (max-width:900px){.wb .board{grid-template-columns:repeat(4,minmax(260px,1fr))}.wb .tbar{overflow-x:auto;flex-wrap:nowrap;padding-bottom:4px}.wb .tbar>*{flex:none}}
 /* touch widths: the 40px tap target lives on the search box itself, not stacked on top of its padding */
-@media (max-width:560px){.wb .tsearch{min-height:40px;padding:0 10px}.wb .tsearch input{min-height:0}}
+@media (max-width:560px){.wb .tsearch{min-height:40px;padding:0 10px}.wb .tsearch input{min-height:0}
+  /* every toolbar control is a 40px tap target at phone width; the avatar stack keeps its 30px face
+     and grows its hit area, the day arrows and park pick grow their box */
+  .wb .datenav,.wb .parkpick{padding:0}
+  .wb .datenav a{min-width:40px;min-height:40px;display:grid;place-items:center}
+  .wb .parkpick a,.wb .sel{min-height:40px;display:inline-flex;align-items:center}
+  .wb .avs>.av,.wb .avs>.more{position:relative}.wb .avs>.av::after,.wb .avs>.more::after{content:"";position:absolute;inset:-5px;border-radius:50%}
+  .wb .pgnav .more{min-height:40px;display:inline-flex;align-items:center}}
 
 /* issue view (Jira issue-view shape) */
 .wb-scrim{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:150;border:0;padding:0;display:none;width:100%}
@@ -4917,3 +4924,5 @@ select:disabled { opacity: .45; }
 .wb-modal .pgnav{display:flex;align-items:center;gap:10px}
 .wb-modal .pgnav .more{font:inherit;font-size:12.5px;font-weight:700;padding:6px 10px;color:var(--brand);border:1px solid var(--line);border-radius:8px;background:var(--panel);cursor:pointer}
 .wb-modal .pgnav .more:disabled{opacity:.4;cursor:default}
+/* issue view at phone width: 40px tap targets (placed after the base rules so they win on equal specificity) */
+@media (max-width:560px){.wb-modal .mh .ib{width:40px;height:40px}.wb-modal .it{min-height:40px}.wb-modal .pgnav .more{min-height:40px}.wb-modal .flag button{min-height:40px}}
