@@ -15,6 +15,7 @@
 // NO VERDICT IS COMPUTED HERE. `sellable`, `blocker` and `blocked_reason` all arrive from the
 // backend and are rendered verbatim. The component never decides an animal is fine to sell.
 
+import { humanDate } from "./sales-format";
 import { PackageCheck, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore, useTransition } from "react";
 
@@ -554,7 +555,7 @@ function dealOptionLabel(deal: SalesDeal): string {
   ]
     .filter(Boolean)
     .join(" · ");
-  return [deal.sale_date, who, what].filter(Boolean).join("  —  ");
+  return [humanDate(deal.sale_date), who, what].filter(Boolean).join("  —  ");
 }
 
 /**

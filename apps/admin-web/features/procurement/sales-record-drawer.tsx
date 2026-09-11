@@ -15,9 +15,7 @@ import type { SalesDeal } from "@/lib/api/procurement";
 import type { ProcurementVendorOption, ProcurementVendorOptions } from "@/lib/api/server";
 import { ThemedDatePicker } from "@/components/themed-date-picker";
 import { fmtDate, istDayPlus, todayIso } from "@/lib/format";
-import { dealStatusTone, inr, num } from "./sales-format";
-import { newSaleLine, type SaleLineDraft } from "./sale-lines";
-import { SaleLinesEditor } from "./sale-lines-editor";
+import { dealStatusTone, humanDate, inr, num } from "./sales-format";
 import {
   deleteSalesDealPaymentAction,
   recordSaleAction,
@@ -448,7 +446,7 @@ export function SalesRecordDrawer({
           <div className="dc">
             {/* RECORD drawer body: the mock's .metagrid of uppercase-key cells, never a flat stack. */}
             <div className="metagrid">
-              {cell(field("sale_date"), deal.sale_date)}
+              {cell(field("sale_date"), humanDate(deal.sale_date))}
               {cell(field("farm"), deal.farm)}
               {cell(field("product_type"), deal.product_type)}
               {cell(field("breed"), deal.breed)}

@@ -18,6 +18,7 @@ const SKIP_PATH_PARTS = [
   // rationale as components/admin-shell.tsx above: if rendering itself failed, the page cannot
   // assume the backend contract fetch that would supply this copy is safe or reachable.
   "components/observability/error-boundary.tsx",
+  "app/not-found.tsx",  // renders where no page contract exists (no route to compile one for); same exception as error-boundary.tsx
   "app/layout.tsx",
   "app/loading.tsx",
   "app/auth/",

@@ -381,7 +381,7 @@ export async function VaccinationWorkflowsPage({
                   <>
                     <ChevronRight className="ic" style={{ width: 14, color: "var(--brand-d)" }} aria-hidden="true" />
 	                    <span>
-	                      {copy(pageContract, "label.chain_note_selected")} <b>{activeWorkflow.operational_location_display || operationalLocationLabel({ shedName: activeWorkflow.shed_name, partitionLabel: activeWorkflow.partition_label })}</b>. {copy(pageContract, "label.chain_note_selected_tail")}
+	                      {copy(pageContract, "label.chain_note_selected")}{(() => { const loc = activeWorkflow.operational_location_display || operationalLocationLabel({ shedName: activeWorkflow.shed_name, partitionLabel: activeWorkflow.partition_label }); return loc ? <> · <b>{loc}</b></> : null; })()}. {copy(pageContract, "label.chain_note_selected_tail")}
 	                    </span>
                   </>
                 ) : rows.length ? (

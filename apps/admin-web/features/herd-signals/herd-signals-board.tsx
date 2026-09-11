@@ -292,10 +292,6 @@ function LiveMonitorTab({
     <>
       <HerdSignalsFilters params={params} sheds={sheds} />
       <HerdSignalsKpis summary={summary} params={params} />
-      <div className="small faint" style={{ margin: "-6px 0 14px" }}>
-        Counts are whole-filter aggregates computed by the backend from the same tenant-scoped query
-        as the table — never summed from the rows on the fetched page.
-      </div>
       <div className="card">
         <div className="hd">
           <svg className="ic" viewBox="0 0 24 24">

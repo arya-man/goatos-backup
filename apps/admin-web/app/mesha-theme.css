@@ -69,7 +69,7 @@
        these, any `color: var(--on-brand)` silently inherits and a filled green
        button renders its label in body text -- which is exactly what happened. */
     --on-brand:#0a0c05; --on-status:#0a0c05;
-    --pop:inset 0 1px 1px rgba(255,255,255,.1),0 24px 80px rgba(0,0,0,.5);
+    --pop:inset 0 1px 1px rgba(255,255,255,.1),0 24px 80px rgba(0,0,0,.28);
     --scrim:rgba(7,7,6,.72);
     --scroll-thumb:rgba(236,232,221,.18); --scroll-thumb-hover:rgba(236,232,221,.3);
     /* Letterbox behind verification video/photo proof. Pinned black in BOTH themes:
@@ -4928,6 +4928,35 @@ aside.drawer.on{transform:none}
   .pa-cap, .pa-pill, .pa-page { transition: none; }
 }
 
+/* Tasks: the "+ New task" modal (client-local; opened from the page header). */
+.lt-page .lt-modal-scrim{z-index:150}
+.lt-modal{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);width:min(520px,94vw);max-height:92vh;overflow:auto;background:var(--panel);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow);z-index:151;display:flex;flex-direction:column}
+.lt-modal .lt-modal-hd{display:flex;align-items:center;gap:10px;padding:14px 18px;border-bottom:1px solid var(--line)}
+.lt-modal .lt-modal-hd h3{margin:0;font-size:16px}
+.lt-modal .lt-modal-bd{display:grid;gap:12px;padding:16px 18px}
+.lt-modal .fld{margin-bottom:0}
+.lt-modal .lt-counter{display:block;margin-top:4px;color:var(--muted);font-size:11px}
+.lt-modal .lt-pickers{display:grid;gap:8px;margin-top:6px}
+.lt-modal .lt-picker{position:relative;display:flex;align-items:center;justify-content:center;gap:8px;cursor:pointer;padding:10px 12px}
+.lt-modal .lt-picker .lt-picker-label{font-size:13px;font-weight:700;text-transform:none;letter-spacing:0;color:inherit;margin:0}
+.lt-modal .lt-picker .cbq{margin-left:2px}
+.lt-modal .lt-picker input[type=file]{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%}
+.lt-modal .lt-send{justify-content:center;margin-top:4px}
+
+/* Tasks list: the two people columns keep a floor width and wrap, so a long name such as
+   "Chandrakant (PC Director)" never paints over the next cell (found 2026-09-11). */
+.lt-page table.lt-task-table td:nth-child(2),.lt-page table.lt-task-table td:nth-child(3){white-space:normal;min-width:170px;overflow-wrap:anywhere}
+.lt-page table.lt-task-table td:first-child{min-width:220px}
+.lt-page .lt-opname>span:last-child{min-width:0;white-space:normal;overflow-wrap:anywhere}
+
+}
+/* @layer legacy ends here. Everything from this point is UNLAYERED on purpose:
+   unlayered rules beat any layered rule regardless of specificity, which is
+   what lets the canonical roles below outrank the page-scoped blocks above.
+   (Until 2026-09-11 the layer's closing brace sat ~190 lines further down, so
+   the first two sections of the system were silently layered and lost to any
+   .page .kpi .lab rule -- the KPI-label tracking findings came from that.) */
+
 /* ===== MESHA DESIGN SYSTEM LAYER =====
    Stated once, at the end of the file, after every earlier definition. The
    card, tag and button classes are each declared twice above with different
@@ -5122,9 +5151,6 @@ aside.drawer.on{transform:none}
    comfortably; wrapping is the honest fix. Caught by scripts/smoke-visual-live.mjs,
    which asserts no button/link text is clipped at 1440x1000. */
 :where(:root) .celllink .tag{white-space:normal;text-align:center;line-height:1.25;max-width:100%}
-
-
-}
 
 /* ===== ROLE ASSIGNMENT =====
    A judge pass found the FACES were right everywhere (16,478 text elements, 100%
@@ -5473,3 +5499,55 @@ aside.drawer.on{transform:none}
 :where(:root) .fld label,:where(:root) .crumb{
   font-family:var(--fm);font-size:10px;font-weight:500;
   letter-spacing:var(--tracking-label);text-transform:uppercase;color:var(--faint)}
+
+/* ===== RENDERED AUDIT, 2026-09-11 =====
+   A crawl of every route in both themes (computed styles, not source) against
+   the kit's four rules -- three faces, one accent, 2px/1rem/pill radii, no
+   everyday shadow -- came back clean on faces, radii, colour and blur, and left
+   exactly the classes below. Each is stated as a COMPLETE role, per the note at
+   the top of the system block. */
+
+/* Uppercase labels still set in sans: calendar mode chips and day headers,
+   Workflows group/NEXT, Counts Breakdown's "Exact split", Sold's breed bars,
+   Farm value's tolerance label, the Command Board farm name, LIVE badges, the
+   live tracker's column key, the plan ledger key and the Herd Signals KPI type.
+   Values that merely happen to be capitals (COFS, FMD + HS, a vendor's name, the
+   serif wordmark) are not labels and are left alone. */
+:where(:root) .rday .mode,:where(:root) .agenda .dh,:where(:root) .calpicker-dow,
+:where(:root) .wfgrp,:where(:root) .onode .nxt,:where(:root) .main .xsplit,
+:where(:root) .hblab,:where(:root) .sales-ready-tolerance-head label,:where(:root) .lt-page .lt-comborow-head,
+:where(:root) .cbm-farm-name,:where(:root) .lt-page .lt-livebadge,:where(:root) .herd-signals-page .livebadge,
+:where(:root) .vplan .k,:where(:root) .herd-signals-page .kpi .ty{
+  font-family:var(--fm);font-weight:500;letter-spacing:var(--tracking-label);text-transform:uppercase}
+:where(:root) .hblab{font-size:10.5px}
+
+/* Serif carries one weight. These headings asked for 640-800 and rendered a
+   synthesised bold. */
+:where(:root) h1,:where(:root) h2,:where(:root) h3,:where(:root) h4.cbm-farm-name,
+:where(:root) .vr-secthd h2,:where(:root) .vr-modal-hd h2,:where(:root) .vplan h1,:where(:root) .vplan h2{
+  font-weight:var(--f-serif-weight)}
+
+/* Everyday elevation. The kit spends a shadow only on a panel that FLOATS
+   (popover, modal), and that one is the glass shadow. Buttons, cards, list
+   nodes and a page header carry none. */
+:where(:root) .vr-analytics-btn,:where(:root) .vr-videolog-btn,:where(:root) .wfcat,
+:where(:root) .onode,:where(:root) .vplan .head,:where(:root) .vplan header.head,
+:where(:root) .calpicker summary,:where(:root) .top-date-picker summary{box-shadow:none}
+:where(:root) .vr-modal,:where(:root) .lt-modal,:where(:root) .calpicker-popover,
+:where(:root) .gsres,:where(:root) .wgrouped .wgl-pop{box-shadow:var(--pop)}
+
+/* No gradient fills. A thumbnail placeholder and an empty state are flat. */
+:where(:root) .vr-thumb{background:var(--panel-2)}
+:where(:root) .lt-page .lt-empty-state{background:var(--panel)}
+
+/* The Month view switch is a <details> summary sitting between the WEEK and
+   HISTORY links of the same .subtabs row. It kept `font:inherit` sentence case
+   while its two siblings took the mono pill, so one row spoke in two voices.
+   Same pill; open (= the month view is active) reads as the active pill does. */
+:where(:root) .subtabs .calpicker summary{
+  display:inline-flex;align-items:center;font-family:var(--fm);font-size:11px;font-weight:500;
+  letter-spacing:var(--tracking-label);text-transform:uppercase;border-radius:var(--r-pill);
+  padding:8px 14px;min-height:var(--ctl-h-sm);background:transparent;border:1px solid var(--line);color:var(--muted)}
+:where(:root) .subtabs .calpicker[open] summary{
+  background:var(--brand-soft);color:var(--ink);box-shadow:inset 0 -2px 0 var(--brand);
+  border-color:color-mix(in srgb,var(--brand) 45%,transparent)}
