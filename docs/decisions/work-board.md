@@ -79,7 +79,7 @@ afterwards. "All parks" on the web is one request per park.
   registered sources. A Feed Director sees feed; the CEO sees everything.
 - Park scope goes through `ResolveAuthorizedParkScopeForCapabilities`; a tenant-wide
   caller must name a park (`park_required`).
-- Migration `000291` writes the per-person rows (web + mobile) the 2026-08-24 cutover
+- Migration `000294` writes the per-person rows (web + mobile) the 2026-08-24 cutover
   could never have written, in the `000245` shape, and the department grants that make
   the phone module reachable for field principals.
 
