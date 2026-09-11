@@ -639,15 +639,19 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
   const view = useMemo(() => {
     const matchesVaccine = (label?: string) => !vaccine || (label ?? "").startsWith(vaccine);
     const isStatusVisible = (key: string) => statuses.size === 0 || statuses.has(key as StatusKey);
+    const shedVaccineColumns = (board.shedVaccineColumns ?? []).filter((column) =>
+      matchesVaccine(column.label || column.code),
+    );
+    const shedVaccineCodes = new Set(shedVaccineColumns.map((column) => column.code));
     return {
-    ...board,
-    shedVaccineMatrix: board.shedVaccineMatrix ?? [],
-    shedVaccineColumns: board.shedVaccineColumns ?? [],
-    shedDoseMatrix: shedDoseMatrix.filter(
-      (c) => matchesVaccine(c.doseRule) && isStatusVisible(c.state),
-    ),
-    cohortMatrix: cohortMatrix.filter((c) => matchesVaccine(c.vaccineLabel)),
-    verificationQueue: (board.verificationQueue ?? []).filter((r) => matchesVaccine(r.doseRule)),
+      ...board,
+      shedVaccineMatrix: (board.shedVaccineMatrix ?? []).filter((cell) => shedVaccineCodes.has(cell.vaccineCode)),
+      shedVaccineColumns,
+      shedDoseMatrix: shedDoseMatrix.filter(
+        (c) => matchesVaccine(c.doseRule) && isStatusVisible(c.state),
+      ),
+      cohortMatrix: cohortMatrix.filter((c) => matchesVaccine(c.vaccineLabel)),
+      verificationQueue: (board.verificationQueue ?? []).filter((r) => matchesVaccine(r.doseRule)),
     };
   }, [board, shedDoseMatrix, cohortMatrix, vaccine, statuses]);
   const pendingVaccinesByShed = useMemo(() => {
@@ -1515,7 +1519,15 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
                 the header. Repeating a link on all 76 rows implied per-goat footage that does not
                 exist. */}
             <div className="cbm-verify-videos">
-              {shedVaccineDrilldown.data.proofVideos.length > 0 ? (
+              {shedVaccineDrilldown.loading ? (
+                <span className="cbm-verify-novideo">
+                  {copy(pageContract, "command_board.shed_vaccine.drawer.loading")}
+                </span>
+              ) : shedVaccineDrilldown.error ? (
+                <span className="cbm-verify-novideo">
+                  {copy(pageContract, "command_board.shed_vaccine.drawer.unavailable")}
+                </span>
+              ) : shedVaccineDrilldown.data.proofVideos.length > 0 ? (
                 <>
                   <span>{copy(pageContract, "command_board.shed_vaccine.drawer.shed_videos")}</span>
                   {shedVaccineDrilldown.data.proofVideos.map((video, index) => (
@@ -1535,57 +1547,69 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
                   the drawer and pushed the animal identity off the left edge behind a horizontal
                   scrollbar, leaving rows whose visible text was identical and gave the reader no way
                   to tell which goat each belonged to. */}
-              <table className="cbm-verify-table">
-                <tbody>
-                  {shedVaccineDrilldown.data.animals.map((animal) => (
-                    <tr key={animal.goatId}>
-                      <td>
-                        {/* EAR TAGS lead, both of them. Most of the herd carries two and an operator
-                            may be reading either ear, so printing one tag makes the row unmatchable
-                            at the animal. The internal id is not an identity on the farm and appears
-                            only for an animal that has no active tag at all. */}
-                        <div className="cbm-verify-who">
-                          {animal.tag || animal.tag2 ? (
-                            <>
-                              {animal.tag ? <b>{animal.tag}</b> : null}
-                              {animal.tag2 ? <b>{animal.tag2}</b> : null}
-                            </>
-                          ) : (
-                            <b>{animal.displayId}</b>
-                          )}
-                        </div>
-                        {/* One muted line. The state is identical on every row in a verifying cell,
-                            so shouting it 76 times in amber added noise and no information -- the
-                            drawer header already says what the whole list is waiting on. */}
-                        {/* Location leads the meta line: it is the only thing that varies row to
-                            row and the only thing that tells a person which pen to walk into. The
-                            state is identical on every row of a verifying cell and the header
-                            already says it, so it is not repeated here. */}
-                        {/* The PEN and the date, nothing else. Park and shed are constant for every
-                            row in this cell and already sit in the drawer header, so rendering the
-                            full location display on each line repeated the partition twice over and
-                            the shed once per animal. The pen is the only part that varies row to row
-                            and the only part that sends a person to a physical place. */}
-                        <div className="cbm-verify-meta">
-                          {animal.partitionLabel ? (
-                            <span className="cbm-verify-pen">{animal.partitionLabel}</span>
-                          ) : null}
-                          <span>
-                            {copy(pageContract, "command_board.shed_vaccine.drawer.column.due")}{" "}
-                            {fmtDate(animal.dueAt ?? undefined)}
-                          </span>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              {/* The COUNT is whole-scope truth and the list is capped, so a shorter list must say
-                  so rather than read as the complete set. */}
-              {shedVaccineDrilldown.data.animals.length < selectedShedVaccineCount && (
-                <p className="cbm-meta">
-                  {copy(pageContract, "command_board.shed_vaccine.drawer.truncated")}
+              {shedVaccineDrilldown.loading ? (
+                <p className="cbm-meta" role="status">
+                  {copy(pageContract, "command_board.shed_vaccine.drawer.loading")}
                 </p>
+              ) : shedVaccineDrilldown.error ? (
+                <p className="cbm-meta" role="status">
+                  {copy(pageContract, "command_board.shed_vaccine.drawer.unavailable")}
+                </p>
+              ) : (
+                <>
+                  <table className="cbm-verify-table">
+                    <tbody>
+                      {shedVaccineDrilldown.data.animals.map((animal) => (
+                        <tr key={animal.goatId}>
+                          <td>
+                            {/* EAR TAGS lead, both of them. Most of the herd carries two and an operator
+                                may be reading either ear, so printing one tag makes the row unmatchable
+                                at the animal. The internal id is not an identity on the farm and appears
+                                only for an animal that has no active tag at all. */}
+                            <div className="cbm-verify-who">
+                              {animal.tag || animal.tag2 ? (
+                                <>
+                                  {animal.tag ? <b>{animal.tag}</b> : null}
+                                  {animal.tag2 ? <b>{animal.tag2}</b> : null}
+                                </>
+                              ) : (
+                                <b>{animal.displayId}</b>
+                              )}
+                            </div>
+                            {/* One muted line. The state is identical on every row in a verifying cell,
+                                so shouting it 76 times in amber added noise and no information -- the
+                                drawer header already says what the whole list is waiting on. */}
+                            {/* Location leads the meta line: it is the only thing that varies row to
+                                row and the only thing that tells a person which pen to walk into. The
+                                state is identical on every row of a verifying cell and the header
+                                already says it, so it is not repeated here. */}
+                            {/* The PEN and the date, nothing else. Park and shed are constant for every
+                                row in this cell and already sit in the drawer header, so rendering the
+                                full location display on each line repeated the partition twice over and
+                                the shed once per animal. The pen is the only part that varies row to row
+                                and the only part that sends a person to a physical place. */}
+                            <div className="cbm-verify-meta">
+                              {animal.partitionLabel ? (
+                                <span className="cbm-verify-pen">{animal.partitionLabel}</span>
+                              ) : null}
+                              <span>
+                                {copy(pageContract, "command_board.shed_vaccine.drawer.column.due")}{" "}
+                                {fmtDate(animal.dueAt ?? undefined)}
+                              </span>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  {/* The COUNT is whole-scope truth and the list is capped, so a shorter list must say
+                      so rather than read as the complete set. */}
+                  {shedVaccineDrilldown.data.animals.length < selectedShedVaccineCount && (
+                    <p className="cbm-meta">
+                      {copy(pageContract, "command_board.shed_vaccine.drawer.truncated")}
+                    </p>
+                  )}
+                </>
               )}
             </div>
           </aside>

@@ -307,6 +307,8 @@ const COPY_FALLBACKS: Record<string, Record<string, string>> = {
     "command_board.shed_vaccine.state.rework": "Rework needed",
     "command_board.shed_vaccine.drawer.verifying_of": "given and waiting for video check, of",
     "command_board.shed_vaccine.drawer.rework_of": "with rejected proof needing rework, of",
+    "command_board.shed_vaccine.drawer.loading": "Loading animals...",
+    "command_board.shed_vaccine.drawer.unavailable": "Unable to load these animals right now.",
     "command_board.shed_vaccine.drawer.no_video": "No video uploaded",
     "command_board.shed_vaccine.drawer.shed_videos": "Pen video",
     "command_board.shed_vaccine.drawer.clip": "Clip",
