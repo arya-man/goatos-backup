@@ -229,6 +229,73 @@ SELECT
 	}
 }
 
+func TestSetPersonTitleIsVersionFencedAndAudited(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	pool := pgtest.StartPostgres(t, ctx)
+	repo := NewRepository(pool, 5*time.Second)
+	seedPeoplePark(t, ctx, pool)
+
+	person, err := repo.CreatePerson(ctx, peopleCreateCommand("people-title-key-1"))
+	if err != nil {
+		t.Fatalf("CreatePerson: %v", err)
+	}
+	updated, err := repo.SetPersonTitle(ctx, peopleTenant, person.PersonID, peopleActor, "CTO", person.RowVersion)
+	if err != nil {
+		t.Fatalf("SetPersonTitle: %v", err)
+	}
+	if updated.RowVersion != person.RowVersion+1 {
+		t.Fatalf("row_version = %d, want %d", updated.RowVersion, person.RowVersion+1)
+	}
+	if updated.Title == nil || *updated.Title != "CTO" {
+		t.Fatalf("title = %v, want CTO", updated.Title)
+	}
+	var titleRows, audits int
+	if err := pool.QueryRow(ctx, `
+SELECT
+  (SELECT count(*) FROM workforce_member_titles WHERE tenant_id = $1::uuid AND workforce_member_id = $2::uuid AND title = 'CTO'),
+  (SELECT count(*) FROM audit_log WHERE tenant_id = $1::uuid AND resource_id = $2::uuid AND action = 'workforce.person.title_updated')`,
+		peopleTenant, person.PersonID).Scan(&titleRows, &audits); err != nil {
+		t.Fatalf("count title/audit rows: %v", err)
+	}
+	if titleRows != 1 || audits != 1 {
+		t.Fatalf("after title set, titleRows/audits = %d/%d, want 1/1", titleRows, audits)
+	}
+
+	if _, err := repo.SetPersonTitle(ctx, peopleTenant, person.PersonID, peopleActor, "CEO", person.RowVersion); !errors.Is(err, ports.ErrConflict) {
+		t.Fatalf("stale SetPersonTitle err = %v, want ErrConflict", err)
+	}
+	if err := pool.QueryRow(ctx, `
+SELECT
+  (SELECT count(*) FROM workforce_member_titles WHERE tenant_id = $1::uuid AND workforce_member_id = $2::uuid AND title = 'CTO'),
+  (SELECT count(*) FROM audit_log WHERE tenant_id = $1::uuid AND resource_id = $2::uuid AND action = 'workforce.person.title_updated')`,
+		peopleTenant, person.PersonID).Scan(&titleRows, &audits); err != nil {
+		t.Fatalf("count rows after stale save: %v", err)
+	}
+	if titleRows != 1 || audits != 1 {
+		t.Fatalf("stale save changed side effects: titleRows/audits = %d/%d, want 1/1", titleRows, audits)
+	}
+
+	cleared, err := repo.SetPersonTitle(ctx, peopleTenant, person.PersonID, peopleActor, " ", updated.RowVersion)
+	if err != nil {
+		t.Fatalf("clear title: %v", err)
+	}
+	if cleared.Title != nil {
+		t.Fatalf("cleared title = %v, want nil", cleared.Title)
+	}
+	if err := pool.QueryRow(ctx, `
+SELECT
+  (SELECT count(*) FROM workforce_member_titles WHERE tenant_id = $1::uuid AND workforce_member_id = $2::uuid),
+  (SELECT count(*) FROM audit_log WHERE tenant_id = $1::uuid AND resource_id = $2::uuid AND action = 'workforce.person.title_updated')`,
+		peopleTenant, person.PersonID).Scan(&titleRows, &audits); err != nil {
+		t.Fatalf("count rows after clear: %v", err)
+	}
+	if titleRows != 0 || audits != 2 {
+		t.Fatalf("after clear, titleRows/audits = %d/%d, want 0/2", titleRows, audits)
+	}
+}
+
 func TestCreatePersonExactReplayWhileStartedIsInFlightWithDockerPostgres(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)

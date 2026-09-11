@@ -76,6 +76,7 @@ type PeopleRepository interface {
 	PreflightCreatePerson(ctx context.Context, cmd PreflightCreatePersonCommand) (PreflightCreatePersonResult, error)
 	CreatePerson(ctx context.Context, cmd CreatePersonCommand) (domain.PersonSummary, error)
 	// SetPersonTitle stores or clears (empty title) the person's business title. Returns
-	// ErrPersonNotFound when the person is not on the tenant's roster.
-	SetPersonTitle(ctx context.Context, tenantID, personID, actorID, title string) error
+	// ErrPersonNotFound when the person is not on the tenant's roster and ErrConflict when
+	// rowVersion no longer matches the person row the drawer loaded.
+	SetPersonTitle(ctx context.Context, tenantID, personID, actorID, title string, rowVersion int) (domain.PersonSummary, error)
 }

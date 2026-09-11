@@ -93,7 +93,8 @@ export async function changePersonStatusAction(formData: FormData): Promise<void
 export async function setPersonTitleAction(formData: FormData): Promise<void> {
   const personId = requiredString(formData, "person_id");
   const title = optionalString(formData, "title") ?? "";
-  const result = await setWorkforcePersonTitle(personId, { title });
+  const rowVersion = Number(formData.get("row_version")?.toString() ?? "0");
+  const result = await setWorkforcePersonTitle(personId, { title, row_version: rowVersion });
   if (!result.ok) {
     actionRedirect(formData, "error", "action.person_title_failed");
   }

@@ -534,32 +534,69 @@ func mapPersonWriteErr(err error) error {
 }
 
 // SetPersonTitle upserts the person's business title, or deletes the row when the title is
-// blank. The roster row must exist on this tenant; the title table is keyed by the roster PK.
-func (r *Repository) SetPersonTitle(ctx context.Context, tenantID, personID, actorID, title string) error {
-	var exists bool
-	if err := r.pool.QueryRow(ctx, `
-SELECT EXISTS (SELECT 1 FROM workforce_members WHERE tenant_id = $1::uuid AND workforce_member_id = $2::uuid)`,
-		tenantID, personID).Scan(&exists); err != nil {
-		return err
+// blank. It fences on the roster row_version the drawer loaded, bumps that row_version so the
+// drawer cannot silently overwrite another profile edit, and audits the visible HRMS change.
+func (r *Repository) SetPersonTitle(ctx context.Context, tenantID, personID, actorID, title string, rowVersion int) (domain.PersonSummary, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return domain.PersonSummary{}, err
 	}
-	if !exists {
-		return ports.ErrPersonNotFound
+	defer rollback(ctx, tx)
+
+	var updatedPersonID string
+	if err := tx.QueryRow(ctx, `
+UPDATE workforce_members
+SET updated_at = now(), row_version = row_version + 1
+WHERE tenant_id = $1::uuid AND workforce_member_id = $2::uuid AND row_version = $3
+RETURNING workforce_member_id::text`, tenantID, personID, rowVersion).Scan(&updatedPersonID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			var exists bool
+			if existsErr := tx.QueryRow(ctx, `
+SELECT EXISTS (SELECT 1 FROM workforce_members WHERE tenant_id = $1::uuid AND workforce_member_id = $2::uuid)`,
+				tenantID, personID).Scan(&exists); existsErr != nil {
+				return domain.PersonSummary{}, existsErr
+			}
+			if !exists {
+				return domain.PersonSummary{}, ports.ErrPersonNotFound
+			}
+		}
+		return domain.PersonSummary{}, mapUpdateErr(err)
 	}
 	title = strings.TrimSpace(title)
 	if title == "" {
-		_, err := r.pool.Exec(ctx, `
-DELETE FROM workforce_member_titles WHERE tenant_id = $1::uuid AND workforce_member_id = $2::uuid`, tenantID, personID)
-		return err
-	}
-	var actor *string
-	if strings.TrimSpace(actorID) != "" {
-		actor = &actorID
-	}
-	_, err := r.pool.Exec(ctx, `
+		if _, err := tx.Exec(ctx, `
+DELETE FROM workforce_member_titles WHERE tenant_id = $1::uuid AND workforce_member_id = $2::uuid`, tenantID, personID); err != nil {
+			return domain.PersonSummary{}, err
+		}
+	} else {
+		var actor *string
+		if strings.TrimSpace(actorID) != "" {
+			actor = &actorID
+		}
+		if _, err := tx.Exec(ctx, `
 INSERT INTO workforce_member_titles (tenant_id, workforce_member_id, title, updated_by)
 VALUES ($1::uuid, $2::uuid, $3, $4::uuid)
 ON CONFLICT (tenant_id, workforce_member_id) DO UPDATE
 SET title = EXCLUDED.title, updated_by = EXCLUDED.updated_by, updated_at = now(),
-    row_version = workforce_member_titles.row_version + 1`, tenantID, personID, title, actor)
-	return err
+    row_version = workforce_member_titles.row_version + 1`, tenantID, personID, title, actor); err != nil {
+			return domain.PersonSummary{}, err
+		}
+	}
+	if err := insertAudit(ctx, tx, tenantID, actorID, "workforce.person.title_updated",
+		"workforce_member", updatedPersonID, nil, map[string]any{
+			"row_version": rowVersion,
+			"title":       title,
+		}); err != nil {
+		return domain.PersonSummary{}, err
+	}
+	person, err := txPerson(ctx, tx, tenantID, updatedPersonID)
+	if err != nil {
+		return domain.PersonSummary{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return domain.PersonSummary{}, err
+	}
+	return person, nil
 }

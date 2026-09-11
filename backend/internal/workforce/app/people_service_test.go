@@ -18,10 +18,16 @@ const (
 )
 
 type fakePeopleRepo struct {
-	created      *ports.CreatePersonCommand
-	preflighted  *ports.PreflightCreatePersonCommand
+	created     *ports.CreatePersonCommand
+	preflighted *ports.PreflightCreatePersonCommand
+	titleSet    *struct {
+		personID   string
+		title      string
+		rowVersion int
+	}
 	preflight    ports.PreflightCreatePersonResult
 	preflightErr error
+	titleErr     error
 	listErr      error
 	people       []domain.PersonSummary
 	catalog      domain.PeopleCatalog
@@ -267,4 +273,14 @@ func TestTenantScopedRoleIgnoresParkForScopeButKeepsLocation(t *testing.T) {
 	}
 }
 
-func (f *fakePeopleRepo) SetPersonTitle(context.Context, string, string, string, string) error { return nil }
+func (f *fakePeopleRepo) SetPersonTitle(_ context.Context, _, personID, _, title string, rowVersion int) (domain.PersonSummary, error) {
+	f.titleSet = &struct {
+		personID   string
+		title      string
+		rowVersion int
+	}{personID: personID, title: title, rowVersion: rowVersion}
+	if f.titleErr != nil {
+		return domain.PersonSummary{}, f.titleErr
+	}
+	return domain.PersonSummary{PersonID: personID, Title: &title, RowVersion: rowVersion + 1}, nil
+}

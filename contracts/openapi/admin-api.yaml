@@ -252,7 +252,7 @@ paths:
       tags:
         - Operator Management
       operationId: setWorkforcePersonTitle
-      summary: Set or clear one person's business title, the label the Tasks assignee picker shows in place of the name.
+      summary: Set or clear one person's business title, the label the Tasks assignee picker shows in place of the name. Optimistically locked on row_version.
       parameters:
         - name: person_id
           in: path
@@ -281,6 +281,8 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
   /admin/workforce/people/{person_id}/access:
     get:
       tags:
@@ -5135,22 +5137,29 @@ components:
     SetPersonTitleRequest:
       type: object
       additionalProperties: false
-      required: [title]
+      required: [title, row_version]
       properties:
         title:
           type: string
           maxLength: 80
           description: Blank clears the title; the picker then falls back to the designation label.
+        row_version:
+          type: integer
+          minimum: 1
+          description: The row_version from the person row the drawer loaded.
     SetPersonTitleResponse:
       type: object
       additionalProperties: false
-      required: [person_id, title, trace_id]
+      required: [person_id, title, row_version, trace_id]
       properties:
         person_id: { type: string, format: uuid }
         title:
           type:
             - string
             - "null"
+        row_version:
+          type: integer
+          minimum: 1
         trace_id: { type: string }
     PersonSummary:
       type: object

@@ -285,13 +285,17 @@ func (s *PeopleService) SetPersonTitle(ctx context.Context, tenantID, actorID, p
 	if len([]rune(title)) > 80 {
 		return nil, BadRequest("title_too_long", "Keep the title to 80 characters.")
 	}
-	if err := s.repo.SetPersonTitle(ctx, tenantID, personID, actorID, title); err != nil {
+	if body.RowVersion <= 0 {
+		return nil, BadRequest("invalid_row_version", "row_version is required")
+	}
+	person, err := s.repo.SetPersonTitle(ctx, tenantID, personID, actorID, title, body.RowVersion)
+	if err != nil {
 		if errors.Is(err, ports.ErrPersonNotFound) {
 			return nil, NotFound("That person is no longer on the roster.")
 		}
-		return nil, err
+		return nil, mapRepoErr(err)
 	}
-	resp := &domain.SetPersonTitleResponse{PersonID: personID, TraceID: traceID}
+	resp := &domain.SetPersonTitleResponse{PersonID: person.PersonID, RowVersion: person.RowVersion, TraceID: traceID}
 	if title != "" {
 		resp.Title = &title
 	}

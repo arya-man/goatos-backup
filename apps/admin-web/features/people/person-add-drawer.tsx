@@ -285,6 +285,7 @@ export function PersonAddDrawer({
               <form action={setPersonTitleAction} className="fld" style={{ marginTop: 16 }}>
                 <input type="hidden" name="return_to" value={listHref} />
                 <input type="hidden" name="person_id" value={person.person_id} />
+                <input type="hidden" name="row_version" value={person.row_version} />
                 <label htmlFor="p-title">{copy(pageContract, "column.title")}</label>
                 <div style={{ display: "flex", gap: 8 }}>
                   <input

@@ -22,13 +22,13 @@ type PersonSummary struct {
 	// Title is the person's business title ("CEO", "Preventive Care Director"), edited on
 	// People / HRMS and shown where a person is picked by what they are (the Tasks assignee
 	// picker). Nil when none is set; pickers then fall back to the designation label.
-	Title  *string `json:"title"`
-	ParkID *string `json:"park_id"`
-	ParkLabel        *string `json:"park_label"`
-	DepartmentID     *string `json:"department_id"`
-	DepartmentLabel  *string `json:"department_label"`
-	CreatedAt        string  `json:"created_at"`
-	RowVersion       int     `json:"row_version"`
+	Title           *string `json:"title"`
+	ParkID          *string `json:"park_id"`
+	ParkLabel       *string `json:"park_label"`
+	DepartmentID    *string `json:"department_id"`
+	DepartmentLabel *string `json:"department_label"`
+	CreatedAt       string  `json:"created_at"`
+	RowVersion      int     `json:"row_version"`
 	// ClockInTodayLabel is today's clock-in time (IST "08:12") when the person
 	// has clocked in today, nil otherwise — the All People "Clocked in" chip
 	// (docs/features/clock-in-out/plan.md). Backend-composed; render verbatim.
@@ -119,12 +119,14 @@ type PersonResponse struct {
 // SetPersonTitleRequest is the body of PUT /admin/workforce/people/{person_id}/title.
 // An empty title clears it (the picker falls back to the designation label).
 type SetPersonTitleRequest struct {
-	Title string `json:"title"`
+	Title      string `json:"title"`
+	RowVersion int    `json:"row_version"`
 }
 
 // SetPersonTitleResponse echoes what was stored.
 type SetPersonTitleResponse struct {
-	PersonID string  `json:"person_id"`
-	Title    *string `json:"title"`
-	TraceID  string  `json:"trace_id"`
+	PersonID   string  `json:"person_id"`
+	Title      *string `json:"title"`
+	RowVersion int     `json:"row_version"`
+	TraceID    string  `json:"trace_id"`
 }

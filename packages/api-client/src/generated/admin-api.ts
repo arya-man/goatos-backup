@@ -2140,11 +2140,14 @@ export interface components {
         SetPersonTitleRequest: {
             /** @description Blank clears the title; the picker then falls back to the designation label. */
             title: string;
+            /** @description The row_version from the person row the drawer loaded. */
+            row_version: number;
         };
         SetPersonTitleResponse: {
             /** Format: uuid */
             person_id: string;
             title: string | null;
+            row_version: number;
             trace_id: string;
         };
         PersonSummary: {
@@ -4883,6 +4886,7 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            409: components["responses"]["WriteConflict"];
         };
     };
     getWorkforcePersonAccess: {
