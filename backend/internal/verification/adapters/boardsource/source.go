@@ -73,6 +73,12 @@ END`
 
 // baseWhere binds every read to one tenant, one park and one business date.
 //
+// A REJECTED item that has been RE-SHOT is history: the operator's new proof on the same
+// source ref carries the work, so the old one leaves the board (it counted as attention
+// beside the new pending item, and the summary counted resolved rejections -- live E2E
+// 2026-09-11). The successor lookup is on verification_items_source_idx (tenant_id,
+// source_module, source_ref_type, source_ref_id), this table's own index.
+//
 // The business date is the day the proof was CAPTURED, in Asia/Kolkata. No index on
 // verification_items covers a date-of-captured_at expression, so the day is bound as a
 // half-open captured_at range [day start, next day start) computed in Go through biztime --
@@ -87,9 +93,14 @@ const baseWhere = `
   AND v.captured_at < $3::timestamptz
   AND v.park_id = $4::uuid
   AND v.status <> 'withdrawn'
+  AND NOT (v.status = 'rejected' AND EXISTS (
+    SELECT 1 FROM verification_items n
+    WHERE n.tenant_id = v.tenant_id AND n.source_module = v.source_module
+      AND n.source_ref_type = v.source_ref_type AND n.source_ref_id = v.source_ref_id
+      AND n.created_at > v.created_at AND n.status <> 'withdrawn'))
   AND ($5::uuid IS NULL OR v.operator_id = $5::uuid)`
 
-// projection-review: membership=verification_items rows of ONE tenant and park whose captured_at falls in the half-open IST business day [day start, next day start), one row per item (primary key); group_key=(tenant_id, item_id) for the list and the derived board_state for the count; join_cardinality=locations park/shed on their primary key (1:1) and workforce_members filtered to status='active' on the partial-unique (tenant_id,user_id) index (at most 1), so no join fans an item out; pagination=keyset on item_id ASC after the cursor with LIMIT, state filter inside WHERE; scope=tenant_id, park_id, the captured_at day range and the optional operator predicate, repeated verbatim in countSQL.
+// projection-review: membership=verification_items rows of ONE tenant and park whose captured_at falls in the half-open IST business day [day start, next day start), withdrawn excluded and a rejected item excluded once a later non-withdrawn item exists on the same (source_module, source_ref_type, source_ref_id) via a NOT EXISTS on verification_items_source_idx, one row per item (primary key); group_key=(tenant_id, item_id) for the list and the derived board_state for the count; join_cardinality=locations park/shed on their primary key (1:1) and workforce_members filtered to status='active' on the partial-unique (tenant_id,user_id) index (at most 1), so no join fans an item out; pagination=keyset on item_id ASC after the cursor with LIMIT, state filter inside WHERE; scope=tenant_id, park_id, the captured_at day range and the optional operator predicate, repeated verbatim in countSQL.
 const listSQL = `
 WITH items AS (
   SELECT v.item_id, v.category, v.park_id, v.shed_id, COALESCE(v.partition_label, '') AS partition_label,
@@ -112,7 +123,7 @@ WHERE ($7::text[] IS NULL OR x.board_state = ANY($7::text[]))
 ORDER BY x.item_id
 LIMIT $8`
 
-// projection-review: membership=verification_items rows of ONE tenant and park whose captured_at falls in the half-open IST business day [day start, next day start), one row per item (primary key); group_key=(tenant_id, item_id) (the count query groups by the SAME derived board_state over the SAME membership); join_cardinality=locations park/shed on their primary key (1:1) and workforce_members filtered to status='active' on the partial-unique (tenant_id,user_id) index (at most 1), so no join fans an item out; pagination=keyset on item_id ASC after the cursor with LIMIT, state filter inside WHERE; scope=tenant_id, park_id, the captured_at day range and the optional operator predicate, repeated verbatim in countSQL.
+// projection-review: membership=verification_items rows of ONE tenant and park whose captured_at falls in the half-open IST business day [day start, next day start), withdrawn excluded and a rejected item excluded once a later non-withdrawn item exists on the same (source_module, source_ref_type, source_ref_id) via a NOT EXISTS on verification_items_source_idx, one row per item (primary key); group_key=(tenant_id, item_id) (the count query groups by the SAME derived board_state over the SAME membership); join_cardinality=locations park/shed on their primary key (1:1) and workforce_members filtered to status='active' on the partial-unique (tenant_id,user_id) index (at most 1), so no join fans an item out; pagination=keyset on item_id ASC after the cursor with LIMIT, state filter inside WHERE; scope=tenant_id, park_id, the captured_at day range and the optional operator predicate, repeated verbatim in countSQL.
 const countSQL = `
 SELECT board_state, count(*)
 FROM (

@@ -35,6 +35,9 @@ const (
 	itemWithdrawn = "00000000-0000-4000-8000-000000009109" // producer took the proof back: not work
 	itemSession   = "00000000-0000-4000-8000-000000009110" // subject names a session, not a pen
 	itemEcho      = "00000000-0000-4000-8000-000000009111" // subject restates its own category
+	itemReshot    = "00000000-0000-4000-8000-000000009112" // rejected, then re-shot: history
+	itemReshoot   = "00000000-0000-4000-8000-000000009113" // the re-shoot on the same source ref
+	reshotRef     = "00000000-0000-4000-8000-000000009901"
 )
 
 func exec(t *testing.T, ctx context.Context, pool *pgxpool.Pool, sql string, args ...any) {
@@ -79,6 +82,8 @@ ON CONFLICT (workforce_member_id) DO NOTHING`, bsMember, bsTenant, bsOperator, b
 		{itemWithdrawn, "feed", "feed", "feed_packing", bsPark, bsShedB, "1", "Session 1", "withdrawn", "", bsOperator, "", "", "2026-09-10 14:00:00+05:30"},
 		{itemSession, "feed", "feed", "feed_distribution", bsPark, bsShedB, "1", "Session 1", "pending", "", bsOperator, "", "", "2026-09-10 15:00:00+05:30"},
 		{itemEcho, "health", "health", "health_adults", bsPark, bsShed, "Part 3", "Adults · Godel 1 - Part 3", "pending", "", bsOperator, "", "", "2026-09-10 16:00:00+05:30"},
+		{itemReshot, "weighing", "weighing", "weighing_proof", bsPark, bsShedB, "2", "Castro 2 · 40.0 kg", "rejected", "Scale not visible", bsOperator, bsVerifier, "", "2026-09-10 17:00:00+05:30"},
+		{itemReshoot, "weighing", "weighing", "weighing_proof", bsPark, bsShedB, "2", "Castro 2 · 40.5 kg", "pending", "", bsOperator, "", "", "2026-09-10 17:30:00+05:30"},
 	}
 	for _, x := range items {
 		exec(t, ctx, pool, `
@@ -87,7 +92,8 @@ INSERT INTO verification_items (
   media_refs, status, verdict_reason, operator_id, park_id, shed_id, partition_label, subject_label,
   captured_at, verified_by, verified_at, auto_resolution, idempotency_key
 ) VALUES (
-  $1::uuid, $2::uuid, $3, $4, $5, $4, 'board_test_ref', gen_random_uuid(),
+  $1::uuid, $2::uuid, $3, $4, $5, $4, 'board_test_ref',
+  CASE WHEN $1::uuid IN ('00000000-0000-4000-8000-000000009112'::uuid, '00000000-0000-4000-8000-000000009113'::uuid) THEN '00000000-0000-4000-8000-000000009901'::uuid ELSE gen_random_uuid() END,
   '["proof"]'::jsonb, $6, NULLIF($7, ''), NULLIF($8, '')::uuid, $9::uuid, NULLIF($10, '')::uuid, NULLIF($11, ''), NULLIF($12, ''),
   $13::timestamptz, NULLIF($14, '')::uuid, CASE WHEN $6 = 'pending' THEN NULL ELSE $13::timestamptz + interval '1 hour' END, NULLIF($15, ''),
   'board-test:' || $1
@@ -128,8 +134,14 @@ func TestVerificationBoardRowsOnADatabaseRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(rows) != 8 {
-		t.Fatalf("8 items captured on the day in this park expected (00:10 next day, the other park and the withdrawn one are out), got %d", len(rows))
+	if len(rows) != 9 {
+		t.Fatalf("9 items captured on the day in this park expected (00:10 next day, the other park, the withdrawn one and the re-shot rejection are out), got %d", len(rows))
+	}
+	if _, leaked := byID(rows)[itemReshot]; leaked {
+		t.Fatal("a rejected proof that was re-shot is history and must leave the board")
+	}
+	if _, ok := byID(rows)[itemReshoot]; !ok {
+		t.Fatal("the re-shoot carries the work and must be on the board")
 	}
 	if _, leaked := byID(rows)[itemWithdrawn]; leaked {
 		t.Fatal("a withdrawn item is not work and must not sit in In review")
@@ -246,8 +258,8 @@ func TestVerificationBoardScopeAndKeyset(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(mine) != 5 {
-		t.Fatalf("operator lens: 5 own rows expected (the withdrawn one is out), got %d", len(mine))
+	if len(mine) != 6 {
+		t.Fatalf("operator lens: 6 own rows expected (the withdrawn one is out), got %d", len(mine))
 	}
 	for _, r := range mine {
 		if r.Owner.UserID != bsOperator {
@@ -259,8 +271,8 @@ func TestVerificationBoardScopeAndKeyset(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(open) != 6 {
-		t.Fatalf("pending+rejected: 6 expected, got %d", len(open))
+	if len(open) != 7 {
+		t.Fatalf("pending+rejected: 7 expected, got %d", len(open))
 	}
 
 	seen := map[string]bool{}
@@ -287,8 +299,8 @@ func TestVerificationBoardScopeAndKeyset(t *testing.T) {
 			after = r.SourceID
 		}
 	}
-	if len(seen) != 8 {
-		t.Fatalf("keyset walk saw %d rows, want 8", len(seen))
+	if len(seen) != 9 {
+		t.Fatalf("keyset walk saw %d rows, want 9", len(seen))
 	}
 
 	counts, err := src.CountByState(ctx, query(""))
@@ -299,14 +311,14 @@ func TestVerificationBoardScopeAndKeyset(t *testing.T) {
 	for _, n := range counts {
 		total += n
 	}
-	if total != 8 || counts[domain.WorkStateVerificationPending] != 5 || counts[domain.WorkStateCompleted] != 2 || counts[domain.WorkStateRejected] != 1 {
+	if total != 9 || counts[domain.WorkStateVerificationPending] != 6 || counts[domain.WorkStateCompleted] != 2 || counts[domain.WorkStateRejected] != 1 {
 		t.Fatalf("counts %+v", counts)
 	}
 	mineCounts, err := src.CountByState(ctx, query(bsOperator))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if mineCounts[domain.WorkStateVerificationPending] != 3 || mineCounts[domain.WorkStateCompleted] != 1 || mineCounts[domain.WorkStateRejected] != 1 {
+	if mineCounts[domain.WorkStateVerificationPending] != 4 || mineCounts[domain.WorkStateCompleted] != 1 || mineCounts[domain.WorkStateRejected] != 1 {
 		t.Fatalf("operator counts %+v", mineCounts)
 	}
 	otherPark, err := src.CountByState(ctx, ports.SourceQuery{TenantID: bsTenant, ParkID: bsOtherPk, BusinessDate: bsDate})
