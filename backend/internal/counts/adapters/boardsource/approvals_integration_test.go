@@ -23,19 +23,33 @@ const (
 	apGoat     = "00000000-0000-4000-8000-00000000b601"
 	apEventA   = "00000000-0000-4000-8000-00000000b701"
 	apEventB   = "00000000-0000-4000-8000-00000000b702"
+	apEventC   = "00000000-0000-4000-8000-00000000b703" // approved, authorized: the walk is owed
+	apEventD   = "00000000-0000-4000-8000-00000000b704" // approved, pending_verification: filmed
+	apEventE   = "00000000-0000-4000-8000-00000000b705" // approved, applied: done
+	apEventF   = "00000000-0000-4000-8000-00000000b706" // approved, canceled: never happened
 	apParty    = "00000000-0000-4000-8000-00000000b801"
 	apDate     = "2026-09-10"
 )
 
 func seedShiftingEvent(t *testing.T, ctx context.Context, pool *pgxpool.Pool, eventID, park string) {
+	seedShiftingEventInState(t, ctx, pool, eventID, park, "pending", "pending")
+}
+
+func seedShiftingEventInState(t *testing.T, ctx context.Context, pool *pgxpool.Pool, eventID, park, eventStatus, authorization string) {
 	t.Helper()
 	exec(t, ctx, pool, `
 INSERT INTO shifting_events (shifting_event_id, tenant_id, logical_shifting_event_key, priority, category,
   destination_park_id, destination_shed_id, raised_at, effective_at, source_system, source_ref,
-  payload_hash, idempotency_key, request_fingerprint)
+  payload_hash, idempotency_key, request_fingerprint, event_status, authorization_state, proof_ref,
+  applied_at, canceled_at, canceled_by, cancel_reason)
 VALUES ($1::uuid, $2::uuid, 'board-' || $1, 'low', 'growth', $3::uuid, $4::uuid, now(), now(),
-  'goatos_canonical', 'board-test', 'hash-' || $1, 'board-shift-' || $1, 'fp-' || $1)
-ON CONFLICT (shifting_event_id) DO NOTHING`, eventID, apTenant, park, apShed)
+  'goatos_canonical', 'board-test', 'hash-' || $1, 'board-shift-' || $1, 'fp-' || $1, $5, $6,
+  CASE WHEN $5 IN ('pending_verification', 'applied') THEN 'proof:board-test:' || $1 END,
+  CASE WHEN $5 = 'applied' THEN now() END,
+  CASE WHEN $5 = 'canceled' THEN now() END,
+  CASE WHEN $5 = 'canceled' THEN $7::uuid END,
+  CASE WHEN $5 = 'canceled' THEN 'board test' END)
+ON CONFLICT (shifting_event_id) DO NOTHING`, eventID, apTenant, park, apShed, eventStatus, authorization, apRaiser)
 }
 
 type approvalSeed struct {
@@ -55,6 +69,10 @@ VALUES ($1::uuid, $2::uuid, 'shed', 'GODEL1', 'Godel 1', $3::uuid, 'active')
 ON CONFLICT (location_id) DO NOTHING`, apShed, apTenant, apPark)
 	seedShiftingEvent(t, ctx, pool, apEventA, apPark)
 	seedShiftingEvent(t, ctx, pool, apEventB, apOtherPk)
+	seedShiftingEventInState(t, ctx, pool, apEventC, apPark, "authorized", "authorized")
+	seedShiftingEventInState(t, ctx, pool, apEventD, apPark, "pending_verification", "authorized")
+	seedShiftingEventInState(t, ctx, pool, apEventE, apPark, "applied", "authorized")
+	seedShiftingEventInState(t, ctx, pool, apEventF, apPark, "canceled", "authorized")
 	// The death's subject animal lives in Godel 1 - Part 3 at this park; the board reads its
 	// park and pen from the animal itself (goats.custodian_party_id is a real FK).
 	exec(t, ctx, pool, `INSERT INTO parties (party_id, party_type, display_name, status) VALUES ($1::uuid, 'org', 'Board Farm', 'active') ON CONFLICT (party_id) DO NOTHING`, apParty)
@@ -68,6 +86,9 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, 'Part 3', 'Godel 1 - Part 3')
 ON CONFLICT (tenant_id, goat_id) DO NOTHING`, apTenant, apGoat, apShed)
 
 	shift := `{"shifting_event_id":"` + apEventA + `","destination_park_id":"` + apPark + `","destination_shed_id":"` + apShed + `","destination_partition_label":"Part 3","goat_ids":["a","b","c"]}`
+	shiftFor := func(event string) string {
+		return `{"shifting_event_id":"` + event + `","destination_park_id":"` + apPark + `","destination_shed_id":"` + apShed + `","destination_partition_label":"Part 3","goat_ids":["a","b"]}`
+	}
 	shiftOther := `{"shifting_event_id":"` + apEventB + `","destination_park_id":"` + apOtherPk + `","destination_shed_id":"` + apShed + `","goat_ids":["a"]}`
 	birth := `{"park_id":"` + apPark + `","shed_id":"` + apShed + `","litter_size":1,"children":[{"child_ordinal":1}]}`
 	death := `{"goat_id":"` + apGoat + `","reason":"illness"}`
@@ -79,6 +100,11 @@ ON CONFLICT (tenant_id, goat_id) DO NOTHING`, apTenant, apGoat, apShed)
 		{"birth-rejected", "birth", "rejected", birth, apDate + " 12:00", "", ""},
 		{"death-pending", "death", "pending", death, apDate + " 13:00", "", apGoat},
 		{"shift-other-park", "shifting", "pending", shiftOther, apDate + " 14:00", apEventB, ""},
+		// Approved pen moves follow their event: approving moves nothing.
+		{"shift-authorized", "shifting", "approved", shiftFor(apEventC), apDate + " 15:00", apEventC, ""},
+		{"shift-filmed", "shifting", "approved", shiftFor(apEventD), apDate + " 15:10", apEventD, ""},
+		{"shift-applied", "shifting", "approved", shiftFor(apEventE), apDate + " 15:20", apEventE, ""},
+		{"shift-canceled", "shifting", "approved", shiftFor(apEventF), apDate + " 15:30", apEventF, ""},
 		{"birth-yesterday", "birth", "pending", birth, "2026-09-09 23:50", "", ""},
 	}
 	ids := map[string]string{}
@@ -128,10 +154,13 @@ func TestApprovalsBoardRowsOnADatabaseRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(rows) != 5 {
-		t.Fatalf("5 rows expected (other park and yesterday are out), got %d", len(rows))
+	if len(rows) != 8 {
+		t.Fatalf("8 rows expected (other park, yesterday and the canceled move are out), got %d", len(rows))
 	}
 	got := bySourceID(rows)
+	if _, leaked := got[ids["shift-canceled"]]; leaked {
+		t.Fatal("an approved move whose event was canceled never happened and must leave the board")
+	}
 	want := map[string]struct {
 		state domain.WorkState
 		lane  domain.Lane
@@ -143,6 +172,10 @@ func TestApprovalsBoardRowsOnADatabaseRoundTrip(t *testing.T) {
 		"birth-rejected": {domain.WorkStateRejected, domain.LaneInProgress, "Birth · Godel 1"},
 		// A death sits on its animal's own park board, at the animal's own pen.
 		"death-pending": {domain.WorkStateDue, domain.LaneToDo, "Death · Godel 1 - Part 3"},
+		// Approving a pen move authorizes it and moves nothing: the card follows the event.
+		"shift-authorized": {domain.WorkStateInProgress, domain.LaneInProgress, "Pen move · Godel 1 - Part 3"},
+		"shift-filmed":     {domain.WorkStateVerificationPending, domain.LaneInReview, "Pen move · Godel 1 - Part 3"},
+		"shift-applied":    {domain.WorkStateCompleted, domain.LaneDone, "Pen move · Godel 1 - Part 3"},
 	}
 	for key, w := range want {
 		r, ok := got[ids[key]]
@@ -218,7 +251,7 @@ func TestApprovalsBoardScopeAndKeyset(t *testing.T) {
 			after = r.SourceID
 		}
 	}
-	if len(seen) != 5 {
+	if len(seen) != 8 {
 		t.Fatalf("keyset walk saw %d rows, want 5", len(seen))
 	}
 
@@ -226,7 +259,7 @@ func TestApprovalsBoardScopeAndKeyset(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if counts[domain.WorkStateDue] != 3 || counts[domain.WorkStateCompleted] != 1 || counts[domain.WorkStateRejected] != 1 || len(counts) != 3 {
+	if counts[domain.WorkStateDue] != 3 || counts[domain.WorkStateCompleted] != 2 || counts[domain.WorkStateRejected] != 1 || counts[domain.WorkStateInProgress] != 1 || counts[domain.WorkStateVerificationPending] != 1 || len(counts) != 5 {
 		t.Fatalf("counts %+v", counts)
 	}
 	otherPark, err := src.CountByState(ctx, ports.SourceQuery{TenantID: apTenant, ParkID: apOtherPk, BusinessDate: apDate})

@@ -53,13 +53,28 @@ func (s *ApprovalsSource) SourceType() string    { return ApprovalsSourceType }
 // approvalWorkStateSQL is the one place an approval request becomes a board work state.
 //
 //	pending  -> due       (awaiting the approver pool)
-//	approved -> completed (the decision landed and its effect committed with it)
 //	rejected -> rejected  (turned down; the raiser is told why)
-const approvalWorkStateSQL = `CASE a.status
-  WHEN 'pending' THEN 'due'
-  WHEN 'approved' THEN 'completed'
-  WHEN 'rejected' THEN 'rejected'
-  ELSE 'due'
+//	approved birth / death -> completed (the decision IS the effect; it commits with it)
+//	approved PEN MOVE follows its shifting event, because approving a move AUTHORIZES it and
+//	MOVES NOTHING (maintainer decision 2026-07-19; the relocation runs at COMPLETION):
+//	  authorized           -> in_progress          (the operator still owes the walk + video)
+//	  pending_verification -> verification_pending (filmed; the verifier owes a verdict)
+//	  applied              -> completed
+//	  rejected             -> rejected             (the verifier bounced the video)
+//	  canceled             -> off the board (approvalBaseWhere), a move that never happened
+//
+// Reading the request alone put an approved move in Done while the animals stood in the old
+// pen and the operator's queue still said execute, and kept a canceled move in Done forever
+// (live E2E 2026-09-11).
+const approvalWorkStateSQL = `CASE
+  WHEN a.status = 'pending' THEN 'due'
+  WHEN a.status = 'rejected' THEN 'rejected'
+  WHEN a.request_type <> 'shifting' THEN 'completed'
+  WHEN se.event_status = 'applied' THEN 'completed'
+  WHEN se.event_status = 'pending_verification' THEN 'verification_pending'
+  WHEN se.event_status = 'rejected' THEN 'rejected'
+  WHEN se.event_status = 'authorized' THEN 'in_progress'
+  ELSE 'completed'
 END`
 
 // approvalParkSQL is where a request's park lives in its payload, by request type. A death
@@ -86,6 +101,7 @@ END`
 // primary key (goats: tenant_id, goat_id; goat_shed_partitions: tenant_id, goat_id), so a
 // request never fans out; a birth or pen move has no subject animal and joins nothing.
 const approvalFromSQL = `counts_approval_requests a
+  LEFT JOIN shifting_events se ON se.tenant_id = a.tenant_id AND se.shifting_event_id = a.shifting_event_id
   LEFT JOIN goats g ON g.tenant_id = a.tenant_id AND g.goat_id = a.subject_goat_id
   LEFT JOIN goat_shed_partitions gsp ON gsp.tenant_id = a.tenant_id AND gsp.goat_id = a.subject_goat_id`
 
@@ -112,10 +128,11 @@ const approvalBaseWhere = `
   AND a.status = ANY(ARRAY['pending','approved','rejected'])
   AND a.request_type = ANY(ARRAY['birth','shifting','death'])
   AND a.raised_at >= $3::timestamptz AND a.raised_at < $4::timestamptz
+  AND NOT (a.request_type = 'shifting' AND a.status = 'approved' AND se.event_status = 'canceled')
   AND ` + approvalParkSQL + ` = $2::text
   AND $5::uuid IS NULL`
 
-// projection-review: membership=counts_approval_requests rows of ONE tenant whose park resolves to the requested park and whose created_at falls in the half-open IST business day, one row per request (primary key); group_key=(tenant_id, approval_request_id) for the list and the derived board_state for the count; join_cardinality=a death's subject animal resolves through goats and goat_shed_partitions on their primary key (tenant_id, goat_id: 1:1, absent for birth and pen move), the request's park/shed columns resolve through locations on their primary key (1:1) and the raiser through workforce_members on the partial-unique active (tenant_id,user_id) index (at most 1), so no join fans a request out; pagination=keyset on the request id ASC after the cursor with LIMIT, state filter inside WHERE; scope=tenant_id, park, day range and the optional owner predicate, repeated verbatim in approvalCountSQL.
+// projection-review: membership=counts_approval_requests rows of ONE tenant whose park resolves to the requested park and whose created_at falls in the half-open IST business day, one row per request (primary key); group_key=(tenant_id, approval_request_id) for the list and the derived board_state for the count; join_cardinality=a pen move's shifting event resolves through shifting_events on its primary key (1:1, absent for birth and death), a death's subject animal resolves through goats and goat_shed_partitions on their primary key (tenant_id, goat_id: 1:1, absent for birth and pen move), the request's park/shed columns resolve through locations on their primary key (1:1) and the raiser through workforce_members on the partial-unique active (tenant_id,user_id) index (at most 1), so no join fans a request out; pagination=keyset on the request id ASC after the cursor with LIMIT, state filter inside WHERE; scope=tenant_id, park, day range and the optional owner predicate, repeated verbatim in approvalCountSQL.
 const approvalListSQL = `
 WITH reqs AS (
   SELECT a.approval_request_id, a.request_type, a.status, a.raised_by_user_id, a.raised_at,
@@ -142,7 +159,7 @@ WHERE ($7::text[] IS NULL OR r.board_state = ANY($7::text[]))
 ORDER BY r.approval_request_id
 LIMIT $8`
 
-// projection-review: membership=counts_approval_requests rows of ONE tenant whose park resolves to the requested park and whose created_at falls in the half-open IST business day, one row per request (primary key); group_key=(tenant_id, approval_request_id) (the count query groups by the SAME derived board_state over the SAME membership); join_cardinality=a death's subject animal resolves through goats and goat_shed_partitions on their primary key (tenant_id, goat_id: 1:1, absent for birth and pen move), the request's park/shed columns resolve through locations on their primary key (1:1) and the raiser through workforce_members on the partial-unique active (tenant_id,user_id) index (at most 1), so no join fans a request out; pagination=keyset on the request id ASC after the cursor with LIMIT, state filter inside WHERE; scope=tenant_id, park, day range and the optional owner predicate, repeated verbatim in approvalCountSQL.
+// projection-review: membership=counts_approval_requests rows of ONE tenant whose park resolves to the requested park and whose created_at falls in the half-open IST business day, one row per request (primary key); group_key=(tenant_id, approval_request_id) (the count query groups by the SAME derived board_state over the SAME membership); join_cardinality=a pen move's shifting event resolves through shifting_events on its primary key (1:1, absent for birth and death), a death's subject animal resolves through goats and goat_shed_partitions on their primary key (tenant_id, goat_id: 1:1, absent for birth and pen move), the request's park/shed columns resolve through locations on their primary key (1:1) and the raiser through workforce_members on the partial-unique active (tenant_id,user_id) index (at most 1), so no join fans a request out; pagination=keyset on the request id ASC after the cursor with LIMIT, state filter inside WHERE; scope=tenant_id, park, day range and the optional owner predicate, repeated verbatim in approvalCountSQL.
 const approvalCountSQL = `
 SELECT board_state, count(*)
 FROM (
@@ -269,7 +286,7 @@ func scanApprovalRow(rows pgx.Rows, parkID string) (domain.Row, error) {
 	counts := domain.Counts{}
 	severity := domain.SeverityOK
 	switch state {
-	case domain.WorkStateCompleted:
+	case domain.WorkStateCompleted, domain.WorkStateVerificationPending:
 		counts.Done = 1
 	case domain.WorkStateRejected:
 		counts.Pending = 1

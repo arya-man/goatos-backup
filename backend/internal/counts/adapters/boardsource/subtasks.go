@@ -28,16 +28,19 @@ import (
 //	rejected -> 0 needs attention
 //	pending  -> 1 to do (awaiting the approver pool)
 //	approved -> 4 done
-const approvalSubtaskRankSQL = `CASE a.status
-  WHEN 'rejected' THEN 0
-  WHEN 'approved' THEN 4
+const approvalSubtaskRankSQL = `CASE
+  WHEN a.status = 'rejected' THEN 0
+  WHEN a.status = 'approved' AND a.request_type = 'shifting' AND se.event_status = 'rejected' THEN 0
+  WHEN a.status = 'approved' AND a.request_type = 'shifting' AND se.event_status = 'authorized' THEN 2
+  WHEN a.status = 'approved' AND a.request_type = 'shifting' AND se.event_status = 'pending_verification' THEN 3
+  WHEN a.status = 'approved' THEN 4
   ELSE 1
 END`
 
-// projection-review: membership=the ONE counts_approval_requests row named by (tenant_id, approval_request_id) whose park resolves to the requested park and whose raised_at falls in the requested IST business day, so the row is exactly the one the row read served; group_key=(tenant_id, approval_request_id) as one subtask; join_cardinality=a death's subject animal resolves through goats on its primary key (1:1, absent for birth and pen move) and the raiser through workforce_members on the partial-unique active (tenant_id,user_id) index (at most 1), the children and animal counts are jsonb_array_length over the row's own payload, so nothing fans the request out and the total is 1 or 0; pagination=keyset on (rank, request id) ASC after ($6, $7) with LIMIT $8 over the single unit; scope=tenant_id, park, day range and approval_request_id, the same predicate the row read binds.
+// projection-review: membership=the ONE counts_approval_requests row named by (tenant_id, approval_request_id) whose park resolves to the requested park and whose raised_at falls in the requested IST business day, so the row is exactly the one the row read served; group_key=(tenant_id, approval_request_id) as one subtask; join_cardinality=a pen move's shifting event resolves through shifting_events on its primary key (1:1, absent for birth and death) and a death's subject animal resolves through goats on its primary key (1:1, absent for birth and pen move) and the raiser through workforce_members on the partial-unique active (tenant_id,user_id) index (at most 1), the children and animal counts are jsonb_array_length over the row's own payload, so nothing fans the request out and the total is 1 or 0; pagination=keyset on (rank, request id) ASC after ($6, $7) with LIMIT $8 over the single unit; scope=tenant_id, park, day range and approval_request_id, the same predicate the row read binds.
 const approvalSubtasksSQL = `
 SELECT a.approval_request_id::text, a.request_type, a.status, COALESCE(a.decision_reason, ''),
-       a.raised_at, a.decided_at,
+       a.raised_at, a.decided_at, COALESCE(se.event_status, ''),
        CASE WHEN jsonb_typeof(a.payload->'children') = 'array' THEN jsonb_array_length(a.payload->'children') ELSE 0 END AS children,
        CASE WHEN jsonb_typeof(a.payload->'goat_ids') = 'array' THEN jsonb_array_length(a.payload->'goat_ids') ELSE 0 END AS animals,
        ` + approvalSubtaskRankSQL + ` AS rank,
@@ -45,6 +48,7 @@ SELECT a.approval_request_id::text, a.request_type, a.status, COALESCE(a.decisio
                   WHERE m.tenant_id = $1::uuid AND m.user_id = a.raised_by_user_id
                   ORDER BY (m.status = 'active') DESC, m.workforce_member_id LIMIT 1), '')
 FROM counts_approval_requests a
+LEFT JOIN shifting_events se ON se.tenant_id = a.tenant_id AND se.shifting_event_id = a.shifting_event_id
 LEFT JOIN goats g ON g.tenant_id = a.tenant_id AND g.goat_id = a.subject_goat_id
 WHERE a.tenant_id = $1::uuid
   AND a.approval_request_id = $5::uuid
@@ -53,7 +57,7 @@ WHERE a.tenant_id = $1::uuid
   AND a.raised_at >= $3::timestamptz AND a.raised_at < $4::timestamptz
   AND ` + approvalParkSQL + ` = $2::text
   AND (` + approvalSubtaskRankSQL + `, a.approval_request_id::text) > ($6::int, $7::text)
-ORDER BY 9, 1
+ORDER BY 10, 1
 LIMIT $8`
 
 // ListSubtasks implements ports.SubtaskSource.
@@ -98,9 +102,9 @@ func scanApprovalSubtask(rows pgx.Rows) (domain.Subtask, error) {
 		raisedAt                               time.Time
 		decidedAt                              *time.Time
 		children, animals, rank                int
-		raisedByName                           string
+		eventStatus, raisedByName              string
 	)
-	if err := rows.Scan(&requestID, &requestType, &status, &reason, &raisedAt, &decidedAt, &children, &animals, &rank, &raisedByName); err != nil {
+	if err := rows.Scan(&requestID, &requestType, &status, &reason, &raisedAt, &decidedAt, &eventStatus, &children, &animals, &rank, &raisedByName); err != nil {
 		return domain.Subtask{}, fmt.Errorf("counts boardsource subtask scan: %w", err)
 	}
 	raise := domain.Step{Name: "Raise", State: domain.StepDone, Detail: "Raised " + raisedAt.In(biztime.DefaultLocation()).Format("15:04")}
@@ -118,6 +122,17 @@ func scanApprovalSubtask(rows pgx.Rows) (domain.Subtask, error) {
 			approve.Detail = "Approved " + decidedAt.In(biztime.DefaultLocation()).Format("15:04")
 		}
 		state = domain.WorkStateCompleted
+		if requestType == "shifting" {
+			// Approving a move authorizes it and moves nothing: Apply follows the event.
+			switch eventStatus {
+			case "authorized":
+				apply.State, state = domain.StepTodo, domain.WorkStateInProgress
+			case "pending_verification":
+				apply.State, state = domain.StepInReview, domain.WorkStateVerificationPending
+			case "rejected":
+				apply.State, state, attention = domain.StepRework, domain.WorkStateRejected, true
+			}
+		}
 	case "rejected":
 		approve.State, approve.Detail = domain.StepRework, reason
 		state, attention = domain.WorkStateRejected, true
