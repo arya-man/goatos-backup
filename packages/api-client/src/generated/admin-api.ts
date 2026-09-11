@@ -1089,6 +1089,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/goats/sale-tagging": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The park head's tag-only queue - live animal sales still owed animals.
+         * @description The tag-only Sales surface (maintainer decision 2026-09-11). A park head tags the animals of a sale from the pen and sees NOTHING else of Sales, so this queue carries NO buyer and NO money: only what is needed to recognise the sale and know how many animals are still owed. Clamped to the caller's park scope at the handler; a tenant-wide caller (sales desk, CXO) sees every farm. Keyset-paged, newest first.
+         */
+        get: operations["listSaleTaggingQueue"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/goats/sale-candidates": {
         parameters: {
             query?: never;
@@ -4537,6 +4557,10 @@ export interface components {
             animal_weights_kg?: {
                 [key: string]: string;
             };
+            /** @description The price in rupees agreed for each picked animal, keyed by goat id, as decimal strings (maintainer decision 2026-09-11). OPTIONAL: the web drawer records none, the phone's tag-only flow sends one per animal. Ignored by preview. A malformed value is refused with `invalid_rate`; a value for an animal not in goat_ids with `rate_for_unknown_animal`; either refusal writes nothing. */
+            animal_rates_rupees?: {
+                [key: string]: string;
+            };
             reason?: string;
         };
         /** @description The picked animals of ONE operational shed -- the gather list, in the order a person walks the farm. */
@@ -4572,6 +4596,42 @@ export interface components {
             /** @description How many animals this sale is now made of. */
             allocated: number;
             shed_groups: components["schemas"]["SaleAllocationShedGroup"][];
+            /** @description One row per tagged animal (GET read-back only; absent on a confirm): the tag and pen snapshotted at tagging, and the weight and rate recorded for it. */
+            animals?: components["schemas"]["SaleAllocationAnimal"][];
+        };
+        SaleAllocationAnimal: {
+            /** Format: uuid */
+            goat_id: string;
+            tag_number?: string;
+            /** Format: uuid */
+            shed_id?: string;
+            shed_name?: string;
+            partition_label?: string;
+            /** @description Backend-composed pen name, rendered verbatim. */
+            operational_location_display: string;
+            /** @description Decimal string; absent when the row predates weight at tagging. */
+            weight_kg?: string;
+            /** @description Decimal string; absent when no per-animal rate was recorded. */
+            rate_rupees?: string;
+        };
+        SaleTaggingQueueResponse: {
+            deals: components["schemas"]["SaleTaggingDeal"][];
+            next_cursor?: string;
+        };
+        /** @description One sale as the tag-only queue shows it. No buyer, no money, on purpose. */
+        SaleTaggingDeal: {
+            /** Format: uuid */
+            sales_deal_id: string;
+            /** Format: date */
+            sale_date: string;
+            /** @description The ledger's farm code (CBE, CPT). */
+            farm: string;
+            product_type: string;
+            breed?: string;
+            declared_animal_count: number;
+            already_tagged: number;
+            /** @description Backend-derived; declared minus tagged, floored at zero. */
+            remaining: number;
         };
         BulkStatusPreviewRequest: {
             /**
@@ -8095,6 +8155,32 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SaleLocationCatalog"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    listSaleTaggingQueue: {
+        parameters: {
+            query?: {
+                limit?: number;
+                cursor?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of sales still owed animals at the caller's park(s). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SaleTaggingQueueResponse"];
                 };
             };
             401: components["responses"]["Unauthorized"];
