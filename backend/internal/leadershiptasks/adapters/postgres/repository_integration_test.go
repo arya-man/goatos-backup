@@ -436,3 +436,27 @@ FROM workforce_members WHERE tenant_id = $1::uuid AND user_id = $2::uuid`, ltTen
 		t.Fatalf("last assignee = %q, want Worker 100", got)
 	}
 }
+
+// The UNFILTERED team read is the one the web desk opens with (CXO, scope_mode=company): no
+// status filter, no cursor. It used to bind the user id to a predicate that never read it and
+// fail with "expected 1 arguments, got 2" -- the whole /tasks page fell over. The filtered
+// variant hid it, because a later $3 made pgx's placeholder count line up by accident.
+func TestTeamProgressUnfilteredReadBindsOnlyWhatItReads(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	seedLeadershipFixture(t, ctx, pool)
+	repo := NewRepository(pool, 10*time.Second)
+	if _, err := repo.Raise(ctx, raiseParams(ltCXO, "Unfiltered team read", "team-unfiltered-1")); err != nil {
+		t.Fatalf("raise: %v", err)
+	}
+	for _, scope := range []string{domain.ScopeTeamProgress, domain.ScopeAssignedByMe, domain.ScopeAssignedToMe} {
+		page, err := repo.ListTasks(ctx, ports.ListParams{TenantID: ltTenant, UserID: ltDirector, Scope: scope, Limit: 20})
+		if err != nil {
+			t.Fatalf("unfiltered %s read: %v", scope, err)
+		}
+		if scope != domain.ScopeAssignedToMe && len(page.Rows) != 1 {
+			t.Fatalf("unfiltered %s sees %d rows, want 1", scope, len(page.Rows))
+		}
+	}
+}

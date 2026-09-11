@@ -1,0 +1,178 @@
+"use client";
+
+import { FileText, Image, Mic, Plus, X } from "lucide-react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
+
+import type { LeadershipTaskAssignee } from "@/lib/api/server";
+
+/**
+ * The "+ New task" entry on the web Tasks desk. Same shape as the phone's New task screen
+ * (maintainer request 2026-09-11): For, Title, Brief, three attachment pickers, Send. It opens
+ * as a modal from the button rather than sitting beside the list, and the modal is
+ * client-local state -- no navigation, no document request, Escape / scrim / X close it and
+ * focus returns to the button.
+ */
+export function NewTaskModal({
+  assignees,
+  action,
+  returnTo,
+}: {
+  assignees: LeadershipTaskAssignee[];
+  action: (formData: FormData) => void | Promise<void>;
+  returnTo: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [idempotencyKey, setIdempotencyKey] = useState("");
+  const [title, setTitle] = useState("");
+  const [picked, setPicked] = useState<Record<string, number>>({});
+  const openerRef = useRef<HTMLButtonElement>(null);
+  const firstFieldRef = useRef<HTMLSelectElement>(null);
+  const headingId = useId();
+
+  const openModal = useCallback(() => {
+    setIdempotencyKey(`admin-web-leadership-task:${crypto.randomUUID()}`);
+    setTitle("");
+    setPicked({});
+    setOpen(true);
+  }, []);
+  const closeModal = useCallback(() => {
+    setOpen(false);
+    openerRef.current?.focus();
+  }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    firstFieldRef.current?.focus();
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") closeModal();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, closeModal]);
+
+  const pickers: Array<{
+    key: string;
+    label: string;
+    accept: string;
+    icon: typeof Mic;
+  }> = [
+    { key: "voice", label: "Voice note", accept: "audio/*", icon: Mic },
+    { key: "media", label: "Photo or video", accept: "image/*,video/*", icon: Image },
+    { key: "file", label: "File", accept: ".pdf,.doc,.docx,.xls,.xlsx,.csv,.txt", icon: FileText },
+  ];
+
+  return (
+    <>
+      <button
+        ref={openerRef}
+        type="button"
+        className="btn p"
+        onClick={openModal}
+        disabled={!assignees.length}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+      >
+        <Plus className="ic" aria-hidden="true" />
+        New task
+      </button>
+      {open ? (
+        <>
+          <button
+            type="button"
+            className="scrim on lt-modal-scrim"
+            aria-label="Close"
+            onClick={closeModal}
+          />
+          <div
+            className="lt-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby={headingId}
+          >
+            <div className="lt-modal-hd">
+              <Plus className="ic" style={{ color: "var(--brand)" }} aria-hidden="true" />
+              <h3 id={headingId}>New task</h3>
+              <div className="sp" style={{ flex: 1 }} />
+              <button
+                type="button"
+                className="btn"
+                onClick={closeModal}
+                aria-label="Close"
+              >
+                <X className="ic" aria-hidden="true" />
+              </button>
+            </div>
+            <form action={action} className="lt-modal-bd">
+              <input type="hidden" name="idempotency_key" value={idempotencyKey} />
+              <input type="hidden" name="return_to" value={returnTo} />
+              <label className="fld">
+                <span>For</span>
+                <select
+                  ref={firstFieldRef}
+                  name="assignee_user_id"
+                  required
+                  defaultValue=""
+                >
+                  <option value="" disabled>
+                    Choose who this is for
+                  </option>
+                  {assignees.map((assignee) => (
+                    <option key={assignee.user_id} value={assignee.user_id}>
+                      {assignee.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="fld">
+                <span>Title</span>
+                <input
+                  name="title"
+                  required
+                  maxLength={80}
+                  value={title}
+                  onChange={(event) => setTitle(event.target.value)}
+                />
+                <small className="lt-counter">{title.length} / 80</small>
+              </label>
+              <label className="fld">
+                <span>Brief</span>
+                <textarea name="body" maxLength={4000} rows={4} />
+              </label>
+              <div className="fld">
+                <span className="lt-fld-label">Attachments</span>
+                <div className="lt-pickers">
+                  {pickers.map((picker) => {
+                    const Icon = picker.icon;
+                    const count = picked[picker.key] ?? 0;
+                    return (
+                      <label key={picker.key} className="btn lt-picker">
+                        <Icon className="ic" aria-hidden="true" />
+                        <span className="lt-picker-label">{picker.label}</span>
+                        {count ? <span className="cbq">{count}</span> : null}
+                        <input
+                          type="file"
+                          name="attachment_file"
+                          multiple
+                          accept={picker.accept}
+                          onChange={(event) =>
+                            setPicked((prev) => ({
+                              ...prev,
+                              [picker.key]: event.target.files?.length ?? 0,
+                            }))
+                          }
+                        />
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+              <button type="submit" className="btn p lt-send">
+                Send
+              </button>
+            </form>
+          </div>
+        </>
+      ) : null}
+    </>
+  );
+}

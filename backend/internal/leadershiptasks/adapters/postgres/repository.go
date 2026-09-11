@@ -113,14 +113,21 @@ func (r *Repository) ListTasks(ctx context.Context, p ports.ListParams) (ports.P
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 
-	args := []any{p.TenantID, p.UserID}
+	// Bind only what the predicate reads. Team progress is tenant-wide and names no party, so
+	// the user id must NOT be bound for it: pgx counts placeholders, and an unused $2 with no
+	// later $3 is "expected 1 arguments, got 2" -- which is exactly the unfiltered web read
+	// (CXO, scope_mode=company). The status and cursor placeholders are numbered from
+	// len(args), so they follow whichever shape was bound.
+	args := []any{p.TenantID}
 	where := "t.tenant_id = $1"
 	switch p.Scope {
 	case domain.ScopeAssignedByMe:
+		args = append(args, p.UserID)
 		where += " AND t.raised_by = $2::uuid"
 	case domain.ScopeTeamProgress:
 		where += " AND t.status <> 'cancelled'"
 	default:
+		args = append(args, p.UserID)
 		where += " AND t.assignee_user_id = $2::uuid"
 	}
 	if len(p.Statuses) > 0 {
@@ -170,7 +177,12 @@ func (r *Repository) ListTasks(ctx context.Context, p ports.ListParams) (ports.P
 	}
 	page.Rows = tasks
 
-	countRows, err := r.pool.Query(ctx, sqlStatusCountsForScope(p.Scope), p.TenantID, p.UserID)
+	countArgs := []any{p.TenantID, p.UserID}
+	if p.Scope == domain.ScopeTeamProgress {
+		// Tenant-wide: the count names no party, so bind none (same placeholder rule as the list).
+		countArgs = countArgs[:1]
+	}
+	countRows, err := r.pool.Query(ctx, sqlStatusCountsForScope(p.Scope), countArgs...)
 	if err != nil {
 		return ports.Page{}, fmt.Errorf("leadership task: status counts: %w", err)
 	}

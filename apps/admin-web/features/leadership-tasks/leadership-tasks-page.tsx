@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 
 import { Tag, type Tone } from "@/components/ui-primitives";
+import { NewTaskModal } from "./new-task-modal";
 import {
   changeLeadershipTaskStatusAction,
   raiseLeadershipTaskAction,
@@ -198,7 +199,7 @@ export function LeadershipTasksPage({
       : [];
   const selected = tasks.find((task) => task.id === selectedTaskID) ?? tasks[0];
   const hasTasks = tasks.length > 0;
-  const hasSidePanel = Boolean(page?.can_raise || selected);
+  const hasSidePanel = Boolean(selected);
   const selectedScope =
     scopes.find((scope) => scope.key === selectedScopeKey) ??
     scopes.find((scope) => scope.selected) ??
@@ -215,12 +216,21 @@ export function LeadershipTasksPage({
           </div>
           <h1>{page?.title || "Tasks"}</h1>
           <div className="sub">
-            {preview ? "Preview data" : "Live backend data"} / Manual work
-            assigned across directors, park heads, and employees.
+            {preview
+              ? "Preview data"
+              : "Tasks raised across CXOs, directors and park heads."}
           </div>
         </div>
         <div className="sp" style={{ flex: 1 }} />
-        {preview || page?.can_raise ? <Tag tone="ok">Can raise</Tag> : null}
+        {page?.can_raise ? (
+          <NewTaskModal
+            assignees={assignees}
+            action={raiseLeadershipTaskAction}
+            returnTo="/tasks?scope=assigned_by_me"
+          />
+        ) : preview ? (
+          <Tag tone="ok">Can raise</Tag>
+        ) : null}
       </div>
 
       <div className="lt-scopebar">
@@ -239,7 +249,7 @@ export function LeadershipTasksPage({
           </div>
         ) : (
           <div className="lt-unavailable">
-            Task scopes are not available from the backend right now.
+            Tasks could not be loaded. Try again.
           </div>
         )}
       </div>
@@ -350,108 +360,6 @@ export function LeadershipTasksPage({
             </div>
           )}
         </section>
-
-        {page?.can_raise ? (
-          <aside className="card lt-card">
-            <div className="hd">
-              <Plus
-                className="ic"
-                style={{ color: "var(--brand)" }}
-                aria-hidden="true"
-              />
-              <h3>New task</h3>
-            </div>
-            <form
-              className="bd"
-              action={raiseLeadershipTaskAction}
-              style={{ display: "grid", gap: 12 }}
-            >
-              <input
-                type="hidden"
-                name="idempotency_key"
-                value={`admin-web-leadership-task:${crypto.randomUUID()}`}
-              />
-              <input
-                type="hidden"
-                name="return_to"
-                value="/tasks?scope=assigned_by_me"
-              />
-              <label className="fld">
-                <span>Assignee</span>
-                <select name="assignee_user_id" required defaultValue="">
-                  <option value="" disabled>
-                    Select person
-                  </option>
-                  {assignees.map((assignee) => (
-                    <option key={assignee.user_id} value={assignee.user_id}>
-                      {assignee.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="fld">
-                <span>Title</span>
-                <input
-                  name="title"
-                  required
-                  maxLength={80}
-                  placeholder="What needs follow-up?"
-                />
-              </label>
-              <label className="fld">
-                <span>Note</span>
-                <textarea
-                  name="body"
-                  maxLength={4000}
-                  rows={4}
-                  placeholder="Add context for the assignee."
-                />
-              </label>
-              <label className="fld">
-                <span>Attachment / voice note</span>
-                <input
-                  type="file"
-                  name="attachment_file"
-                  multiple
-                  accept="audio/*,video/*,image/*,.pdf,.doc,.docx,.xls,.xlsx,.csv,.txt"
-                />
-              </label>
-              <div className="metagrid">
-                <label className="fld">
-                  <span>Existing proof ID</span>
-                  <input
-                    name="attachment_proof_id"
-                    placeholder="Optional existing proof id"
-                  />
-                </label>
-                <label className="fld">
-                  <span>Type</span>
-                  <select name="attachment_kind" defaultValue="file">
-                    <option value="file">File</option>
-                    <option value="audio">Voice note</option>
-                    <option value="video">Video</option>
-                    <option value="photo">Photo</option>
-                  </select>
-                </label>
-              </div>
-              <label className="fld">
-                <span>Attachment name</span>
-                <input
-                  name="attachment_file_name"
-                  placeholder="Optional file name"
-                />
-              </label>
-              <button
-                type="submit"
-                className="btn p"
-                disabled={!assignees.length}
-              >
-                <Plus className="ic" aria-hidden="true" />
-                Create
-              </button>
-            </form>
-          </aside>
-        ) : null}
 
         {selected ? (
           <aside className="card lt-card lt-detail-card">
