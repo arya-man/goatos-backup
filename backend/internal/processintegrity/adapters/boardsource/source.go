@@ -72,6 +72,10 @@ type Lister interface {
 // workforce_members is the one org table that joins the two.
 type MemberResolver interface {
 	WorkforceMemberIDForUser(ctx context.Context, tenantID, userID string) (memberID string, found bool, err error)
+	// UserIDsForMembers is the reverse, batched: one read for a page's operators, so every
+	// row carries owner.user_id like every other module's. Without it the web assignee picker
+	// (keyed on user id) offered nobody on a vaccination-only day (live E2E 2026-09-11).
+	UserIDsForMembers(ctx context.Context, tenantID string, memberIDs []string) (map[string]string, error)
 }
 
 // Source implements ports.Source over the process-integrity vaccination read.
@@ -231,7 +235,41 @@ func (s *Source) collect(ctx context.Context, q ports.SourceQuery) ([]domain.Row
 		piq = next
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].SourceID < out[j].SourceID })
+	if err := s.fillOwnerUserIDs(ctx, q.TenantID, out); err != nil {
+		return nil, err
+	}
 	return out, nil
+}
+
+// fillOwnerUserIDs resolves the page's workforce member ids to user ids in ONE batched read,
+// so the owner an operator lens or an assignee filter keys on is present on the wire.
+func (s *Source) fillOwnerUserIDs(ctx context.Context, tenantID string, rows []domain.Row) error {
+	if s.members == nil {
+		return nil
+	}
+	want := map[string]struct{}{}
+	for _, r := range rows {
+		if r.Owner.WorkforceMemberID != "" && r.Owner.UserID == "" {
+			want[r.Owner.WorkforceMemberID] = struct{}{}
+		}
+	}
+	if len(want) == 0 {
+		return nil
+	}
+	ids := make([]string, 0, len(want))
+	for id := range want {
+		ids = append(ids, id)
+	}
+	byMember, err := s.members.UserIDsForMembers(ctx, tenantID, ids)
+	if err != nil {
+		return err
+	}
+	for i := range rows {
+		if rows[i].Owner.UserID == "" {
+			rows[i].Owner.UserID = byMember[rows[i].Owner.WorkforceMemberID]
+		}
+	}
+	return nil
 }
 
 // mapRow is the one place a process-integrity row becomes a board row.
@@ -353,4 +391,32 @@ LIMIT 1`, tenantID, userID).Scan(&id)
 		return "", false, fmt.Errorf("vaccination boardsource: member for user: %w", err)
 	}
 	return id, true, nil
+}
+
+// UserIDsForMembers implements MemberResolver: one indexed read over the page's member ids.
+func (r *PoolMemberResolver) UserIDsForMembers(ctx context.Context, tenantID string, memberIDs []string) (map[string]string, error) {
+	out := map[string]string{}
+	if len(memberIDs) == 0 {
+		return out, nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	rows, err := r.pool.Query(ctx, `
+SELECT workforce_member_id::text, COALESCE(user_id::text, '')
+FROM workforce_members
+WHERE tenant_id = $1::uuid AND workforce_member_id = ANY($2::uuid[])`, tenantID, memberIDs)
+	if err != nil {
+		return nil, fmt.Errorf("vaccination boardsource: users for members: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var member, user string
+		if err := rows.Scan(&member, &user); err != nil {
+			return nil, fmt.Errorf("vaccination boardsource: users for members scan: %w", err)
+		}
+		if user != "" {
+			out[member] = user
+		}
+	}
+	return out, rows.Err()
 }
