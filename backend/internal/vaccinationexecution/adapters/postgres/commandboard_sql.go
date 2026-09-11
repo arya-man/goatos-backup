@@ -162,28 +162,26 @@ WITH comp AS (
   WHERE tenant_id = $1::uuid
   GROUP BY obligation_id
 ),
-latest_verification AS (
-  SELECT DISTINCT ON (vi.tenant_id, vi.source_task_id, vi.source_ref_id)
-    vi.tenant_id,
-    vi.source_task_id,
-    vi.source_ref_id AS goat_id,
-    vi.status
+rework AS (
+  SELECT DISTINCT ON (vc.obligation_id)
+    vc.tenant_id,
+    vc.obligation_id,
+    vi.status = 'rejected' AS has_rejected_rework
   FROM verification_items vi
+  JOIN sop_submission_items si
+    ON si.tenant_id = vi.tenant_id
+   AND si.submission_id = vi.source_submission_id
+   AND vi.source_ref_type = 'vaccination_goat'
+   AND vi.source_ref_id = si.goat_id
+  JOIN vaccination_completions vc
+    ON vc.tenant_id = vi.tenant_id
+   AND vc.sop_submission_item_id = si.item_id
   WHERE vi.tenant_id = $1::uuid
     AND vi.source_module = 'vaccination'
     AND vi.category = 'vaccination_proof'
-    AND vi.source_ref_type = 'vaccination_goat'
-    AND vi.source_task_id IS NOT NULL
-    AND vi.source_ref_id IS NOT NULL
+    AND vi.source_submission_id IS NOT NULL
     AND vi.status IN ('pending','approved','rejected')
-  ORDER BY vi.tenant_id, vi.source_task_id, vi.source_ref_id, vi.verified_at DESC NULLS LAST, vi.captured_at DESC NULLS LAST, vi.item_id DESC
-),
-rework AS (
-  SELECT b.tenant_id, b.batch_id, lv.goat_id, true AS has_rejected_rework
-  FROM obligation_batches b
-  JOIN latest_verification lv ON lv.tenant_id = b.tenant_id AND lv.source_task_id = b.sop_task_id
-  WHERE b.tenant_id = $1::uuid
-    AND lv.status = 'rejected'
+  ORDER BY vc.obligation_id, vi.captured_at DESC NULLS LAST, vi.verified_at DESC NULLS LAST, vi.item_id DESC
 ),
 scoped AS (
   SELECT
@@ -198,7 +196,7 @@ scoped AS (
   FROM obligation_instances oi
   JOIN goats g ON g.goat_id = oi.target_id AND g.tenant_id = oi.tenant_id
   LEFT JOIN comp ON oi.obligation_id = comp.obligation_id
-  LEFT JOIN rework ON rework.tenant_id = oi.tenant_id AND rework.batch_id = oi.batch_id AND rework.goat_id = oi.target_id
+  LEFT JOIN rework ON rework.tenant_id = oi.tenant_id AND rework.obligation_id = oi.obligation_id
   WHERE oi.tenant_id = $1::uuid
     AND g.lifecycle_status IN ('alive', 'sick', 'under_treatment', 'quarantine', 'icu')
     AND g.merged_into_goat_id IS NULL
@@ -341,28 +339,26 @@ WITH comp AS (
   WHERE tenant_id = $1::uuid
   GROUP BY obligation_id
 ),
-latest_verification AS (
-  SELECT DISTINCT ON (vi.tenant_id, vi.source_task_id, vi.source_ref_id)
-    vi.tenant_id,
-    vi.source_task_id,
-    vi.source_ref_id AS goat_id,
-    vi.status
+rework AS (
+  SELECT DISTINCT ON (vc.obligation_id)
+    vc.tenant_id,
+    vc.obligation_id,
+    vi.status = 'rejected' AS has_rejected_rework
   FROM verification_items vi
+  JOIN sop_submission_items si
+    ON si.tenant_id = vi.tenant_id
+   AND si.submission_id = vi.source_submission_id
+   AND vi.source_ref_type = 'vaccination_goat'
+   AND vi.source_ref_id = si.goat_id
+  JOIN vaccination_completions vc
+    ON vc.tenant_id = vi.tenant_id
+   AND vc.sop_submission_item_id = si.item_id
   WHERE vi.tenant_id = $1::uuid
     AND vi.source_module = 'vaccination'
     AND vi.category = 'vaccination_proof'
-    AND vi.source_ref_type = 'vaccination_goat'
-    AND vi.source_task_id IS NOT NULL
-    AND vi.source_ref_id IS NOT NULL
+    AND vi.source_submission_id IS NOT NULL
     AND vi.status IN ('pending','approved','rejected')
-  ORDER BY vi.tenant_id, vi.source_task_id, vi.source_ref_id, vi.verified_at DESC NULLS LAST, vi.captured_at DESC NULLS LAST, vi.item_id DESC
-),
-rework AS (
-  SELECT b.tenant_id, b.batch_id, lv.goat_id, true AS has_rejected_rework
-  FROM obligation_batches b
-  JOIN latest_verification lv ON lv.tenant_id = b.tenant_id AND lv.source_task_id = b.sop_task_id
-  WHERE b.tenant_id = $1::uuid
-    AND lv.status = 'rejected'
+  ORDER BY vc.obligation_id, vi.captured_at DESC NULLS LAST, vi.verified_at DESC NULLS LAST, vi.item_id DESC
 ),
 -- AGGREGATE FIRST, DECORATE AFTER. narrowed folds obligations to (goat, scope, dose) on the
 -- CHEAP join only -- obligation_instances to protocol_rules to the pre-aggregated comp -- before
@@ -414,7 +410,7 @@ narrowed AS (
   FROM obligation_instances oi
   JOIN protocol_rules pr ON oi.rule_id = pr.rule_id AND oi.tenant_id = pr.tenant_id
   LEFT JOIN comp ON oi.obligation_id = comp.obligation_id
-  LEFT JOIN rework ON rework.tenant_id = oi.tenant_id AND rework.batch_id = oi.batch_id AND rework.goat_id = oi.target_id
+  LEFT JOIN rework ON rework.tenant_id = oi.tenant_id AND rework.obligation_id = oi.obligation_id
   WHERE oi.tenant_id = $1::uuid
     AND (COALESCE($3::uuid,'00000000-0000-0000-0000-000000000000') = '00000000-0000-0000-0000-000000000000' OR oi.batch_id = $3::uuid)
     AND (COALESCE($4::uuid,'00000000-0000-0000-0000-000000000000') = '00000000-0000-0000-0000-000000000000' OR EXISTS (
@@ -556,28 +552,26 @@ WITH comp AS (
   WHERE tenant_id = $1::uuid
   GROUP BY obligation_id
 ),
-latest_verification AS (
-  SELECT DISTINCT ON (vi.tenant_id, vi.source_task_id, vi.source_ref_id)
-    vi.tenant_id,
-    vi.source_task_id,
-    vi.source_ref_id AS goat_id,
-    vi.status
+rework AS (
+  SELECT DISTINCT ON (vc.obligation_id)
+    vc.tenant_id,
+    vc.obligation_id,
+    vi.status = 'rejected' AS has_rejected_rework
   FROM verification_items vi
+  JOIN sop_submission_items si
+    ON si.tenant_id = vi.tenant_id
+   AND si.submission_id = vi.source_submission_id
+   AND vi.source_ref_type = 'vaccination_goat'
+   AND vi.source_ref_id = si.goat_id
+  JOIN vaccination_completions vc
+    ON vc.tenant_id = vi.tenant_id
+   AND vc.sop_submission_item_id = si.item_id
   WHERE vi.tenant_id = $1::uuid
     AND vi.source_module = 'vaccination'
     AND vi.category = 'vaccination_proof'
-    AND vi.source_ref_type = 'vaccination_goat'
-    AND vi.source_task_id IS NOT NULL
-    AND vi.source_ref_id IS NOT NULL
+    AND vi.source_submission_id IS NOT NULL
     AND vi.status IN ('pending','approved','rejected')
-  ORDER BY vi.tenant_id, vi.source_task_id, vi.source_ref_id, vi.verified_at DESC NULLS LAST, vi.captured_at DESC NULLS LAST, vi.item_id DESC
-),
-rework AS (
-  SELECT b.tenant_id, b.batch_id, lv.goat_id, true AS has_rejected_rework
-  FROM obligation_batches b
-  JOIN latest_verification lv ON lv.tenant_id = b.tenant_id AND lv.source_task_id = b.sop_task_id
-  WHERE b.tenant_id = $1::uuid
-    AND lv.status = 'rejected'
+  ORDER BY vc.obligation_id, vi.captured_at DESC NULLS LAST, vi.verified_at DESC NULLS LAST, vi.item_id DESC
 ),
 shed_dose_obligations AS (
   -- per-OBLIGATION state; aggregation to the shed x dose x state cell happens ONLY in
@@ -613,7 +607,7 @@ shed_dose_obligations AS (
    AND sp.normalized_label = regexp_replace(lower(btrim(COALESCE(gsp.partition_label, 'whole'))), '^part[[:space:]]+', '')
    AND sp.status = 'active'
   LEFT JOIN comp ON oi.obligation_id = comp.obligation_id
-  LEFT JOIN rework ON rework.tenant_id = oi.tenant_id AND rework.batch_id = oi.batch_id AND rework.goat_id = oi.target_id
+  LEFT JOIN rework ON rework.tenant_id = oi.tenant_id AND rework.obligation_id = oi.obligation_id
   LEFT JOIN locations loc ON oi.scope_id = loc.location_id AND oi.tenant_id = loc.tenant_id
   LEFT JOIN locations park ON park.location_id = loc.parent_location_id AND park.tenant_id = loc.tenant_id
   WHERE oi.tenant_id = $1::uuid
@@ -732,28 +726,26 @@ WITH comp AS (
   WHERE tenant_id = $1::uuid
   GROUP BY obligation_id
 ),
-latest_verification AS (
-  SELECT DISTINCT ON (vi.tenant_id, vi.source_task_id, vi.source_ref_id)
-    vi.tenant_id,
-    vi.source_task_id,
-    vi.source_ref_id AS goat_id,
-    vi.status
+rework AS (
+  SELECT DISTINCT ON (vc.obligation_id)
+    vc.tenant_id,
+    vc.obligation_id,
+    vi.status = 'rejected' AS has_rejected_rework
   FROM verification_items vi
+  JOIN sop_submission_items si
+    ON si.tenant_id = vi.tenant_id
+   AND si.submission_id = vi.source_submission_id
+   AND vi.source_ref_type = 'vaccination_goat'
+   AND vi.source_ref_id = si.goat_id
+  JOIN vaccination_completions vc
+    ON vc.tenant_id = vi.tenant_id
+   AND vc.sop_submission_item_id = si.item_id
   WHERE vi.tenant_id = $1::uuid
     AND vi.source_module = 'vaccination'
     AND vi.category = 'vaccination_proof'
-    AND vi.source_ref_type = 'vaccination_goat'
-    AND vi.source_task_id IS NOT NULL
-    AND vi.source_ref_id IS NOT NULL
+    AND vi.source_submission_id IS NOT NULL
     AND vi.status IN ('pending','approved','rejected')
-  ORDER BY vi.tenant_id, vi.source_task_id, vi.source_ref_id, vi.verified_at DESC NULLS LAST, vi.captured_at DESC NULLS LAST, vi.item_id DESC
-),
-rework AS (
-  SELECT b.tenant_id, b.batch_id, lv.goat_id, true AS has_rejected_rework
-  FROM obligation_batches b
-  JOIN latest_verification lv ON lv.tenant_id = b.tenant_id AND lv.source_task_id = b.sop_task_id
-  WHERE b.tenant_id = $1::uuid
-    AND lv.status = 'rejected'
+  ORDER BY vc.obligation_id, vi.captured_at DESC NULLS LAST, vi.verified_at DESC NULLS LAST, vi.item_id DESC
 ),
 rule_vaccine AS (
   SELECT DISTINCT rule_id, tenant_id, vaccine_code
@@ -806,7 +798,7 @@ per_animal AS (
   JOIN goats g ON g.goat_id = oi.target_id AND g.tenant_id = oi.tenant_id
   LEFT JOIN goat_partition gp ON gp.goat_id = g.goat_id AND gp.shed_id = oi.scope_id
   LEFT JOIN comp ON comp.obligation_id = oi.obligation_id
-  LEFT JOIN rework ON rework.tenant_id = oi.tenant_id AND rework.batch_id = oi.batch_id AND rework.goat_id = oi.target_id
+  LEFT JOIN rework ON rework.tenant_id = oi.tenant_id AND rework.obligation_id = oi.obligation_id
   WHERE oi.tenant_id = $1::uuid
     AND oi.scope_type = 'shed'
     AND g.lifecycle_status IN ('alive', 'sick', 'under_treatment', 'quarantine', 'icu')
