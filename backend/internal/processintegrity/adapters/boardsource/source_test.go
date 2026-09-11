@@ -62,6 +62,18 @@ func (f fakeMembers) WorkforceMemberIDForUser(_ context.Context, _ string, userI
 	return id, ok, nil
 }
 
+func (f fakeMembers) UserIDsForMembers(_ context.Context, _ string, memberIDs []string) (map[string]string, error) {
+	out := map[string]string{}
+	for user, member := range f.byUser {
+		for _, id := range memberIDs {
+			if id == member {
+				out[member] = user
+			}
+		}
+	}
+	return out, nil
+}
+
 func str(s string) *string { return &s }
 
 func dueAt() time.Time {
@@ -283,6 +295,13 @@ func TestVaccinationBoardOwnerLensResolvesTheMemberAndNarrowsToTheOperator(t *te
 	}
 	if q := lister.queries[0]; q.OwnerID == nil || *q.OwnerID != vsMember {
 		t.Fatalf("the wrapped read must be asked with the MEMBER id, got %v", q.OwnerID)
+	}
+	// And on the wire the owner carries the USER id too, resolved from the member in one
+	// batched read, so an assignee picker keyed on user id can offer this person.
+	for _, r := range rows {
+		if r.Owner.UserID != vsUser || r.Owner.WorkforceMemberID != vsMember {
+			t.Fatalf("owner must carry both ids: %+v", r.Owner)
+		}
 	}
 	counts, err := src.CountByState(ctx, query(vsUser))
 	if err != nil {
