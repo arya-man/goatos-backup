@@ -61,6 +61,7 @@ func seedMilk(t *testing.T, ctx context.Context, pool *pgxpool.Pool) map[int]str
 		{mkPark, mkDate, "retired", "", 1},
 		{mkOtherPk, mkDate, "not_submitted", "", 1},
 		{mkPark, "2026-09-11", "not_submitted", "", 1},
+		{mkPark, "2099-01-01", "not_submitted", "", 2}, // far ahead: not yet available, so scheduled
 	}
 	ids := map[int]string{}
 	for _, tk := range tasks {
@@ -231,5 +232,28 @@ func TestMilkFeedingBoardScopeAndKeyset(t *testing.T) {
 	}
 	if otherPark[domain.WorkStateDue] != 1 || len(otherPark) != 1 {
 		t.Fatalf("the other park sees only its own session, got %+v", otherPark)
+	}
+}
+
+// TestMilkSessionNotYetAvailableIsScheduled: the module refuses a submit before due_at, so the
+// board calls that session scheduled, never due (live E2E 2026-09-11: the 16:00 and 21:00
+// sessions read "due" all morning while the phone said not yet available).
+func TestMilkSessionNotYetAvailableIsScheduled(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedMilk(t, ctx, pool)
+	src := NewMilkFeeding(pool, 5*time.Second)
+	rows, err := src.ListRows(ctx, ports.SourceQuery{TenantID: mkTenant, ParkID: mkPark, BusinessDate: "2099-01-01", Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 || rows[0].WorkState != domain.WorkStateScheduled || rows[0].Lane != domain.LaneToDo {
+		t.Fatalf("a session ahead of its due_at is scheduled: %+v", rows)
+	}
+	counts, err := src.CountByState(ctx, ports.SourceQuery{TenantID: mkTenant, ParkID: mkPark, BusinessDate: "2099-01-01"})
+	if err != nil || counts[domain.WorkStateScheduled] != 1 {
+		t.Fatalf("counts %+v err %v", counts, err)
 	}
 }

@@ -52,6 +52,9 @@ func (s *MilkFeedingSource) SourceType() string    { return MilkFeedingSourceTyp
 // milkWorkStateSQL is the one place a milk feeding task becomes a board work state.
 //
 //	not_submitted        -> due                  (the session is owed; the clock is its due_at)
+//	                        scheduled            while due_at is still ahead: the module refuses
+//	                                             a submit before then (MilkFeedingAvailableAt),
+//	                                             so the board must not call it owed (E2E 2026-09-11)
 //	pending_verification -> verification_pending (proof submitted; the verifier decides)
 //	completed            -> completed
 //	rework               -> rejected             (bounced; back with the operator to re-shoot)
@@ -59,7 +62,7 @@ func (s *MilkFeedingSource) SourceType() string    { return MilkFeedingSourceTyp
 // `retired` rows are excluded in the WHERE clause: 000097 retired the pre-farm-grain shed
 // rows as immutable history, and history is not work.
 const milkWorkStateSQL = `CASE t.status
-  WHEN 'not_submitted' THEN 'due'
+  WHEN 'not_submitted' THEN CASE WHEN t.due_at > now() THEN 'scheduled' ELSE 'due' END
   WHEN 'pending_verification' THEN 'verification_pending'
   WHEN 'completed' THEN 'completed'
   WHEN 'rework' THEN 'rejected'
