@@ -273,7 +273,7 @@ export function LeadershipTasksPage({
               role="group"
               aria-label="Leadership task progress"
             >
-              <table data-enh="1">
+              <table data-enh="1" className="lt-task-table">
               <thead>
                 <tr>
                   <th>Task</th>

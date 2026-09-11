@@ -4723,3 +4723,9 @@ select:disabled { opacity: .45; }
 .lt-modal .lt-picker .cbq{margin-left:2px}
 .lt-modal .lt-picker input[type=file]{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%}
 .lt-modal .lt-send{justify-content:center;margin-top:4px}
+
+/* Tasks list: the two people columns keep a floor width and wrap, so a long name such as
+   "Chandrakant (PC Director)" never paints over the next cell (found 2026-09-11). */
+.lt-page table.lt-task-table td:nth-child(2),.lt-page table.lt-task-table td:nth-child(3){white-space:normal;min-width:170px;overflow-wrap:anywhere}
+.lt-page table.lt-task-table td:first-child{min-width:220px}
+.lt-page .lt-opname>span:last-child{min-width:0;white-space:normal;overflow-wrap:anywhere}
