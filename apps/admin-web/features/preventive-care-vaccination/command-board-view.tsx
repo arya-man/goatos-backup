@@ -911,9 +911,11 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
           // Counts sheds needing ANY attention, not just red ones. Counting only "behind" made the
           // summary read "every shed is up to date on every vaccine" while three sheds sat amber
           // with 137 doses waiting on a verifier -- the line directly contradicted the grid above it.
+          // Rework is the same kind of actionable attention: purple-only pens must not summarize as
+          // "up to date" while the grid and the pending-by-pen section are asking operators to resubmit.
           const flaggedSheds = shedOrder.filter((shedId) =>
             Array.from(cellsByShed.get(shedId)?.values() ?? []).some(
-              (c) => c.state === "behind" || c.state === "verifying",
+              (c) => c.state === "behind" || c.state === "rework" || c.state === "verifying",
             ),
           ).length;
           return (

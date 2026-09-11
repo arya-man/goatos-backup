@@ -100,6 +100,10 @@ test("command board defaults to all drives and renders the complete future progr
   assert.match(commandBoardViewSource, /selectedShedVaccine\.state === "rework"[\s\S]*selectedShedVaccine\.reworkAnimals/);
   assert.match(commandBoardViewSource, /shedVaccineDrilldown\.data\.animals\.length < selectedShedVaccineCount/);
   assert.doesNotMatch(commandBoardViewSource, /shedVaccineDrilldown\.data\.animals\.length < selectedShedVaccine\.behindAnimals/);
+  assert.match(
+    commandBoardViewSource,
+    /c\.state === "behind" \|\| c\.state === "rework" \|\| c\.state === "verifying"/,
+  );
   assert.ok(
     commandBoardViewSource.indexOf("command_board.shed_matrix.title")
       < commandBoardViewSource.indexOf("command_board.future_drives.title"),
