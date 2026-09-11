@@ -63,25 +63,51 @@ WITH comp AS (
   GROUP BY obligation_id
 ),
 rework AS (
-  SELECT DISTINCT ON (vc.obligation_id)
-    vc.tenant_id,
-    vc.obligation_id,
-    vi.status = 'rejected' AS has_rejected_rework
-  FROM verification_items vi
-  JOIN sop_submission_items si
-    ON si.tenant_id = vi.tenant_id
-   AND si.submission_id = vi.source_submission_id
-   AND vi.source_ref_type = 'vaccination_goat'
-   AND vi.source_ref_id = si.goat_id
-  JOIN vaccination_completions vc
-    ON vc.tenant_id = vi.tenant_id
-   AND vc.sop_submission_item_id = si.item_id
-  WHERE vi.tenant_id = $1::uuid
-    AND vi.source_module = 'vaccination'
-    AND vi.category = 'vaccination_proof'
-    AND vi.source_submission_id IS NOT NULL
-    AND vi.status IN ('pending','approved','rejected')
-  ORDER BY vc.obligation_id, vi.captured_at DESC NULLS LAST, vi.verified_at DESC NULLS LAST, vi.item_id DESC
+  SELECT DISTINCT ON (obligation_id)
+    tenant_id,
+    obligation_id,
+    has_rejected_rework
+  FROM (
+    SELECT
+      vc.tenant_id,
+      vc.obligation_id,
+      vi.status = 'rejected' AS has_rejected_rework,
+      COALESCE(vi.verified_at, vi.captured_at) AS verdict_at,
+      vi.item_id
+    FROM verification_items vi
+    JOIN sop_submission_items si
+      ON si.tenant_id = vi.tenant_id
+     AND si.submission_id = vi.source_submission_id
+     AND vi.source_ref_type = 'vaccination_goat'
+     AND vi.source_ref_id = si.goat_id
+    JOIN vaccination_completions vc
+      ON vc.tenant_id = vi.tenant_id
+     AND vc.sop_submission_item_id = si.item_id
+    WHERE vi.tenant_id = $1::uuid
+      AND vi.source_module = 'vaccination'
+      AND vi.category = 'vaccination_proof'
+      AND vi.source_submission_id IS NOT NULL
+      AND vi.status IN ('pending','approved','rejected')
+
+    UNION ALL
+
+    SELECT
+      vcr.tenant_id,
+      vcr.obligation_id,
+      true AS has_rejected_rework,
+      COALESCE(vcr.verified_at, vcr.rejected_at) AS verdict_at,
+      vcr.rejection_id AS item_id
+    FROM vaccination_completion_rejections vcr
+    WHERE vcr.tenant_id = $1::uuid
+      AND NOT EXISTS (
+        SELECT 1
+        FROM vaccination_completions vc2
+        WHERE vc2.tenant_id = vcr.tenant_id
+          AND vc2.obligation_id = vcr.obligation_id
+          AND vc2.status IN ('recorded','accepted')
+      )
+  ) verdicts
+  ORDER BY obligation_id, verdict_at DESC NULLS LAST, item_id DESC
 ),
 scoped AS (
   SELECT
@@ -225,25 +251,51 @@ WITH comp AS (
   GROUP BY obligation_id
 ),
 rework AS (
-  SELECT DISTINCT ON (vc.obligation_id)
-    vc.tenant_id,
-    vc.obligation_id,
-    vi.status = 'rejected' AS has_rejected_rework
-  FROM verification_items vi
-  JOIN sop_submission_items si
-    ON si.tenant_id = vi.tenant_id
-   AND si.submission_id = vi.source_submission_id
-   AND vi.source_ref_type = 'vaccination_goat'
-   AND vi.source_ref_id = si.goat_id
-  JOIN vaccination_completions vc
-    ON vc.tenant_id = vi.tenant_id
-   AND vc.sop_submission_item_id = si.item_id
-  WHERE vi.tenant_id = $1::uuid
-    AND vi.source_module = 'vaccination'
-    AND vi.category = 'vaccination_proof'
-    AND vi.source_submission_id IS NOT NULL
-    AND vi.status IN ('pending','approved','rejected')
-  ORDER BY vc.obligation_id, vi.captured_at DESC NULLS LAST, vi.verified_at DESC NULLS LAST, vi.item_id DESC
+  SELECT DISTINCT ON (obligation_id)
+    tenant_id,
+    obligation_id,
+    has_rejected_rework
+  FROM (
+    SELECT
+      vc.tenant_id,
+      vc.obligation_id,
+      vi.status = 'rejected' AS has_rejected_rework,
+      COALESCE(vi.verified_at, vi.captured_at) AS verdict_at,
+      vi.item_id
+    FROM verification_items vi
+    JOIN sop_submission_items si
+      ON si.tenant_id = vi.tenant_id
+     AND si.submission_id = vi.source_submission_id
+     AND vi.source_ref_type = 'vaccination_goat'
+     AND vi.source_ref_id = si.goat_id
+    JOIN vaccination_completions vc
+      ON vc.tenant_id = vi.tenant_id
+     AND vc.sop_submission_item_id = si.item_id
+    WHERE vi.tenant_id = $1::uuid
+      AND vi.source_module = 'vaccination'
+      AND vi.category = 'vaccination_proof'
+      AND vi.source_submission_id IS NOT NULL
+      AND vi.status IN ('pending','approved','rejected')
+
+    UNION ALL
+
+    SELECT
+      vcr.tenant_id,
+      vcr.obligation_id,
+      true AS has_rejected_rework,
+      COALESCE(vcr.verified_at, vcr.rejected_at) AS verdict_at,
+      vcr.rejection_id AS item_id
+    FROM vaccination_completion_rejections vcr
+    WHERE vcr.tenant_id = $1::uuid
+      AND NOT EXISTS (
+        SELECT 1
+        FROM vaccination_completions vc2
+        WHERE vc2.tenant_id = vcr.tenant_id
+          AND vc2.obligation_id = vcr.obligation_id
+          AND vc2.status IN ('recorded','accepted')
+      )
+  ) verdicts
+  ORDER BY obligation_id, verdict_at DESC NULLS LAST, item_id DESC
 ),
 cell AS (
   SELECT DISTINCT ON (d.vaccine_code, g.goat_id)
