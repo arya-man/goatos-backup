@@ -114,6 +114,9 @@ export async function WorkBoardPage({ searchParams, pageContract }: { searchPara
   const pageNumber = boundedInt(one(sp, "page"), 1, 1, 1000000);
   const first = rows.length ? (pageNumber - 1) * limit + 1 : 0;
   const last = rows.length ? (pageNumber - 1) * limit + rows.length : 0;
+  // A `row` in the URL that is not on THIS page (another park, another day, a later page, or a
+  // link that was never valid) opens nothing; the board says so rather than ignoring it.
+  const rowMissing = Boolean(selectedRow) && !error && !rows.some((row) => row.row_key === selectedRow);
 
   return (
     <div className="wb">
@@ -158,6 +161,11 @@ export async function WorkBoardPage({ searchParams, pageContract }: { searchPara
 
       {!error && !noneSelected && rows.length === 0 && (summary?.total ?? 0) === 0 ? (
         <div className="note muted small" style={{ marginTop: 8 }}>{ownRowsOnly ? copy(pageContract, "state.empty.own_rows") : copy(pageContract, "state.empty")}</div>
+      ) : null}
+      {rowMissing ? (
+        <div className="note muted small" role="status" style={{ marginTop: 8 }}>
+          {copy(pageContract, "state.row_missing")} <Link href={closeHref}>{copy(pageContract, "action.close")}</Link>
+        </div>
       ) : null}
 
       {error ? null : (
