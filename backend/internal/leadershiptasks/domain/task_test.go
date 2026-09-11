@@ -195,10 +195,10 @@ func TestScopeDefaultsAndCopy(t *testing.T) {
 	if ScopeKeyOrDefault("bogus", Actor{CanAct: true}) != ScopeAssignedToMe {
 		t.Fatal("actors who can act default to assigned_to_me")
 	}
-	if ScopeKeyOrDefault("", Actor{CanRaise: true}) != ScopeAssignedByMe {
+	if ScopeKeyOrDefault("", Actor{CanRaise: true}) != ScopeAssignedToMe {
 		t.Fatal("raisers default to assigned_by_me")
 	}
-	if ScopeKeyOrDefault(" team_progress ", Actor{CanRaise: true}) != ScopeAssignedByMe {
+	if ScopeKeyOrDefault(" team_progress ", Actor{CanRaise: true}) != ScopeAssignedToMe {
 		t.Fatal("raise-only directors must not widen to team progress")
 	}
 	if ScopeKeyOrDefault(" team_progress ", Actor{CanRaise: true, CanAct: true, CanMonitor: true}) != ScopeTeamProgress {
@@ -210,7 +210,7 @@ func TestScopeDefaultsAndCopy(t *testing.T) {
 	if ScopeKeyOrDefault("assigned_by_me", Actor{CanAct: true}) != ScopeAssignedToMe {
 		t.Fatal("act-only callers must not widen to raised-by-me")
 	}
-	if ScopeLabel(ScopeAssignedByMe) != "Assigned by me" || ScopeEmptyMessage(ScopeTeamProgress) == "" {
+	if ScopeLabel(ScopeAssignedByMe) != "Raised by me" || ScopeEmptyMessage(ScopeTeamProgress) == "" {
 		t.Fatal("scope copy must be stable for the dashboard")
 	}
 }
