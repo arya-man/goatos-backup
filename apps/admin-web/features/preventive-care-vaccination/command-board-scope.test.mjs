@@ -92,6 +92,10 @@ test("command board defaults to all drives and renders the complete future progr
   assert.match(commandBoardViewSource, /command_board\.filter\.operator_day/);
   assert.match(commandBoardViewSource, /formatDateSpan\(cell\.minAdministeredDate, cell\.maxAdministeredDate\)/);
   assert.match(commandBoardViewSource, /formatDateSpan\(administered\?\.min, administered\?\.max\)/);
+  assert.match(commandBoardViewSource, /const shedVaccineColumns = \(board\.shedVaccineColumns \?\? \[\]\)\.filter/);
+  assert.match(commandBoardViewSource, /matchesVaccine\(column\.label \|\| column\.code\)/);
+  assert.match(commandBoardViewSource, /const shedVaccineCodes = new Set\(shedVaccineColumns\.map/);
+  assert.match(commandBoardViewSource, /shedVaccineMatrix: \(board\.shedVaccineMatrix \?\? \[\]\)\.filter\(\(cell\) => shedVaccineCodes\.has\(cell\.vaccineCode\)\)/);
   // Four-state cell: the empty guard must spare submitted-but-unverified and rejected-proof
   // rework cells, and the colour is pending -> rework -> submitted -> clear. Pinning the old
   // two-state literals here would re-assert the defect where operationally distinct work rendered
@@ -112,6 +116,10 @@ test("command board defaults to all drives and renders the complete future progr
   assert.match(commandBoardViewSource, /addBucket\("verifying", cell\.verifyingAnimals\)/);
   assert.match(commandBoardViewSource, /cell\.bucketCount/);
   assert.match(themeSource, /\.cbm-pending-rework/);
+  assert.match(commandBoardViewSource, /shedVaccineDrilldown\.loading \? \(/);
+  assert.match(commandBoardViewSource, /shedVaccineDrilldown\.error \? \(/);
+  assert.match(commandBoardViewSource, /command_board\.shed_vaccine\.drawer\.loading/);
+  assert.match(commandBoardViewSource, /command_board\.shed_vaccine\.drawer\.unavailable/);
   assert.match(commandBoardDrilldownsSource, /state: ShedVaccineDrawerState/);
   assert.match(commandBoardDrilldownsSource, /params\.set\("state", cell\.state\)/);
   assert.match(
