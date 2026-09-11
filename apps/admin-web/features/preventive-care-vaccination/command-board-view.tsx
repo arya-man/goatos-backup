@@ -367,6 +367,12 @@ type ShedVaccineCell = {
   // opens (command-board-drilldowns.ts). Declaring them optional would let a future edit read a
   // field the board never sends and render a silently empty drawer.
 };
+type ShedVaccineDrawerState = "behind" | "rework" | "verifying";
+type OpenableShedVaccineCell = ShedVaccineCell & { state: ShedVaccineDrawerState };
+
+function isOpenableShedVaccineCell(cell: ShedVaccineCell | undefined): cell is OpenableShedVaccineCell {
+  return cell?.state === "behind" || cell?.state === "rework" || cell?.state === "verifying";
+}
 
 interface CommandBoardViewProps {
   board: CommandBoard;
@@ -584,7 +590,7 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
   const [closedDrawerOpen, setClosedDrawerOpen] = useState(false);
   // The behind cell's animals travel IN the board payload, so opening a red cell is a local
   // overlay, not a second fetch (local-overlay rule).
-  const [selectedShedVaccine, setSelectedShedVaccine] = useState<ShedVaccineCell | null>(null);
+  const [selectedShedVaccine, setSelectedShedVaccine] = useState<OpenableShedVaccineCell | null>(null);
   // The tile's animals, fetched when the drawer opens. They used to ship on the board payload,
   // computed tenant-wide on every render; that statement is the one that exhausted the pool timeout
   // and returned the 500 this whole change exists to fix.
@@ -649,11 +655,11 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
       key: string;
       name: string;
       park?: string;
-      cells: Array<ShedVaccineCell & { label: string }>;
+      cells: Array<OpenableShedVaccineCell & { label: string }>;
     };
     const byShed = new Map<string, PendingShed>();
     (view.shedVaccineMatrix ?? []).forEach((cell) => {
-      if (cell.state !== "behind" && cell.state !== "verifying" && cell.state !== "rework") return;
+      if (!isOpenableShedVaccineCell(cell)) return;
       const key = `${cell.shedId}|${cell.partition_label ?? ""}`;
       const row = byShed.get(key) ?? {
         key,
@@ -954,16 +960,18 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
                             const cell = cellsByShed.get(shedPartitionKey)?.get(code);
                             const state = cell?.state ?? "not_planned";
                             const behind = cell?.behindAnimals ?? 0;
-                            const openable = (state === "behind" || state === "verifying" || state === "rework") && cell !== undefined;
+                            const openable = isOpenableShedVaccineCell(cell);
                             return (
                               <td
                                 key={code}
                                 className={`cbm-sv-cell cbm-sv-${state}`}
                                 role={openable ? "button" : undefined}
                                 tabIndex={openable ? 0 : undefined}
-                                onClick={() => openable && setSelectedShedVaccine(cell)}
+                                onClick={() => {
+                                  if (isOpenableShedVaccineCell(cell)) setSelectedShedVaccine(cell);
+                                }}
                                 onKeyDown={(e) => {
-                                  if (openable && (e.key === "Enter" || e.key === " ")) {
+                                  if (isOpenableShedVaccineCell(cell) && (e.key === "Enter" || e.key === " ")) {
                                     e.preventDefault();
                                     setSelectedShedVaccine(cell);
                                   }
