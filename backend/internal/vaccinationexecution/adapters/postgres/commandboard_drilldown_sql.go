@@ -292,7 +292,7 @@ rework AS (
   ORDER BY obligation_id, verdict_at DESC NULLS LAST, item_id DESC
 ),
 cell AS (
-  SELECT DISTINCT ON (d.vaccine_code, g.goat_id)
+  SELECT
     CASE
       WHEN scope_sp.shed_id IS NULL OR lower(btrim(COALESCE(scope_gsp.partition_label, 'whole'))) IN ('', 'whole') THEN ''
       ELSE btrim(scope_sp.partition_label)
@@ -339,9 +339,8 @@ cell AS (
     AND (COALESCE($4::uuid,'00000000-0000-0000-0000-000000000000') = '00000000-0000-0000-0000-000000000000' OR EXISTS (
       SELECT 1 FROM locations pl WHERE pl.location_id = oi.scope_id AND pl.tenant_id = oi.tenant_id AND pl.parent_location_id = $4::uuid
     ))
-  ORDER BY d.vaccine_code, g.goat_id, oi.due_at ASC NULLS LAST
 ),
-page AS (
+matched AS (
   SELECT *
   FROM cell
   WHERE scope_partition_label = $7::text
@@ -354,6 +353,16 @@ page AS (
       OR ($11::text = 'rework' AND rework_needed)
       OR ($11::text = 'verifying' AND awaiting_verification)
     )
+),
+animal AS (
+  SELECT DISTINCT ON (vaccine_code, goat_id) *
+  FROM matched
+  ORDER BY vaccine_code, goat_id, due_at ASC NULLS LAST
+),
+page AS (
+  SELECT *
+  FROM animal
+  WHERE true
     -- GATED ON $9 (goat_id), NOT on $8 (due_at). goat_id is never NULL on a real cursor, so it is
     -- the only safe presence test; a cursor in a NULLS LAST tail would carry a NULL timestamp and
     -- gating on it would take the FIRST-PAGE branch and re-emit that tail from its start, forever.

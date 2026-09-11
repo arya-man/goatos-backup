@@ -27467,9 +27467,10 @@ components:
           enum:
             - verified
             - awaiting
+            - rework
             - overdue
             - scheduled
-          description: State of completion (verified), awaiting (recorded-unverified), overdue, or scheduled.
+          description: State of completion (verified), awaiting (recorded-unverified), rejected-proof rework, overdue, or scheduled.
         count:
           type: integer
           description: Number of unique animals with this state in this shed for this dose.
