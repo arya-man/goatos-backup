@@ -2484,7 +2484,6 @@ func TestNormalizeShiftingEventRequest_Comment(t *testing.T) {
 	})
 }
 
-
 // TestApprovalOutsideTheCallersParkIs403NotA500 pins the live E2E of 2026-09-11: both named
 // approvers got internal_error on every decision because the scope refusal was unmapped.
 func TestApprovalOutsideTheCallersParkIs403NotA500(t *testing.T) {
