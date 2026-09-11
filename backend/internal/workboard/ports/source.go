@@ -5,6 +5,7 @@ package ports
 import (
 	"context"
 
+	"github.com/vgoats/goatos/backend/internal/platform/uuidutil"
 	"github.com/vgoats/goatos/backend/internal/workboard/domain"
 )
 
@@ -62,4 +63,18 @@ type SubtaskQuery struct {
 // returns an empty page with Total 0.
 type SubtaskSource interface {
 	ListSubtasks(ctx context.Context, q SubtaskQuery) (domain.SubtaskPage, error)
+}
+
+// CheckUUIDSourceID is the guard a source whose ids are uuids runs before binding a keyset
+// boundary: a cursor id that is not a uuid is domain.ErrInvalidCursor (400), never a
+// database cast failure (500). Sources whose ids are composite strings (vaccination) compare
+// in Go and do not need it.
+func CheckUUIDSourceID(after string) error {
+	if after == "" {
+		return nil
+	}
+	if !uuidutil.IsUUIDString(after) {
+		return domain.ErrInvalidCursor
+	}
+	return nil
 }

@@ -15,6 +15,7 @@ import (
 	"time"
 
 	ltdomain "github.com/vgoats/goatos/backend/internal/leadershiptasks/domain"
+	ltports "github.com/vgoats/goatos/backend/internal/leadershiptasks/ports"
 	"github.com/vgoats/goatos/backend/internal/permissions"
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
@@ -452,6 +453,9 @@ func (h *Handler) writeFlagErr(w http.ResponseWriter, r *http.Request, err error
 		h.writeErr(w, r, http.StatusUnprocessableEntity, "flag_to_self", "You are this park's head; the flag would come back to you.")
 	case errors.Is(err, ltdomain.ErrAssigneeNotAssignable):
 		h.writeErr(w, r, http.StatusUnprocessableEntity, "park_head_not_reachable", "This park's head cannot receive tasks on the phone yet.")
+	case errors.Is(err, ltports.ErrIdempotencyConflict):
+		// The same key with a different note: a retried submit that changed on the way.
+		h.writeErr(w, r, http.StatusConflict, "idempotency_conflict", "This flag was already sent with different words. Refresh and try again.")
 	default:
 		httpresponse.WriteError(w, r, h.log, http.StatusInternalServerError, map[string]any{
 			"error": "internal_error", "message": "The flag could not be recorded. Try again.",
