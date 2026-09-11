@@ -61,7 +61,17 @@ afterwards. "All parks" on the web is one request per park.
 ## Access
 
 - `work_board.read` opens the board. Alone it is the **operator lens**: the read is
-  clamped to rows the caller owns (owner user id = actor) and `own_rows_only` is true.
+  clamped to rows the caller owns (owner user id = actor) **plus the park's unclaimed pool
+  rows** -- an untaken health session, an unassigned milk or transport task, a PC care task
+  with no assignee, an approval the person raised -- and `own_rows_only` is true. A row
+  owned by someone else never shows. The pool half was added after the 2026-09-11 E2E: the
+  operator's board hid every health session until the moment they completed it, telling
+  them "nothing to do" while work was owed. The same predicate serves the oversight
+  `owner=<uuid>` filter, so a director filtering by a person sees that person's rows plus
+  what that person could pick up.
+- A caller whose permissions open **no module** sees an empty board, never the whole
+  registry (`app.StrictIntersect`; the filter helper's "empty means all" never applies to
+  the permission-derived set).
 - `work_board.oversee` sees everyone's rows inside park scope. Park heads hold it at
   park scope; directors and the CEO at tenant scope.
 - **Which modules** a caller sees is not decided by these two: the board intersects

@@ -79,7 +79,7 @@ const milkBaseWhere = `
   AND t.feeding_date = $3::date
   AND t.park_id = $2::uuid
   AND t.status <> 'retired'
-  AND ($4::uuid IS NULL OR t.assigned_operator_id = $4::uuid)`
+  AND ($4::uuid IS NULL OR t.assigned_operator_id = $4::uuid OR t.assigned_operator_id IS NULL)`
 
 // projection-review: membership=milk_feeding_tasks rows of ONE tenant, park and feeding_date (retired excluded), one row per park-session per day (the 000097 farm grain); group_key=(tenant_id, task_id) for the list and the derived board_state for the count; join_cardinality=locations park/shed on their primary key (1:1) and workforce_members filtered to status='active' on the partial-unique (tenant_id,user_id) index (at most 1), so no join fans a task out; pagination=keyset on task_id ASC after the cursor with LIMIT, state filter inside WHERE; scope=tenant_id, park_id, feeding_date and the optional assigned-operator predicate, repeated verbatim in milkCountSQL.
 const milkListSQL = `

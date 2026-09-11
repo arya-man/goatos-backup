@@ -94,7 +94,7 @@ const baseWhere = `
   AND s.business_date = $3::date
   AND c.park_id = $2::uuid
   AND s.status NOT IN ('canceled_death', 'canceled')
-  AND ($4::uuid IS NULL OR s.completed_by = $4::uuid)`
+  AND ($4::uuid IS NULL OR s.completed_by = $4::uuid OR s.completed_by IS NULL)`
 
 // projection-review: membership=health_treatment_sessions rows of ONE tenant, park and business_date (canceled_death excluded), one row per session (primary key); group_key=(tenant_id, health_session_id) for the list and the derived board_state for the count; join_cardinality=health_cases joined on its primary key (1:1, the session's own case), step tallies are a correlated aggregate over health_session_steps per returned row (pre-aggregated), locations park/shed on their primary key (1:1) and workforce_members filtered to status='active' on the partial-unique (tenant_id,user_id) index (at most 1), so no join fans a session out; pagination=keyset on the session id ASC after the cursor with LIMIT, state filter inside WHERE; scope=tenant_id, park_id, business_date and the optional completed_by predicate, repeated verbatim in countSQL.
 const listSQL = `

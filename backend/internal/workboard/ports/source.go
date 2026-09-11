@@ -15,7 +15,11 @@ type SourceQuery struct {
 	TenantID     string
 	ParkID       string
 	BusinessDate string
-	// OwnerUserID, when set, restricts to rows owned by that user (the operator lens).
+	// OwnerUserID, when set, restricts to rows that person OWNS plus the park's UNCLAIMED pool
+	// rows (nobody named yet: an untaken health session, an unassigned milk or transport task,
+	// a PC care task with no assignee, an approval the person raised). The operator lens is
+	// this with the caller's own id: a board that hid the pool told an operator "nothing to
+	// do" while work was owed (live E2E 2026-09-11). A row owned by SOMEONE ELSE never matches.
 	OwnerUserID string
 	// WorkStates, when set, restricts to those states. Sources apply it in SQL.
 	WorkStates []domain.WorkState

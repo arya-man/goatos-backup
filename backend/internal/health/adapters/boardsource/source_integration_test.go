@@ -208,8 +208,15 @@ func TestHealthBoardScopeAndKeyset(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(mine) != 1 || mine[0].Owner.UserID != hbOperator {
-		t.Fatalf("operator lens: exactly the session they completed, got %d", len(mine))
+	// The operator's own board: the session they completed PLUS every untaken session in the
+	// park (a claim pool is theirs to pick up); never a session someone else completed.
+	if len(mine) != 7 {
+		t.Fatalf("operator lens: their completed session plus the six untaken ones, got %d", len(mine))
+	}
+	for _, r := range mine {
+		if r.Owner.UserID != "" && r.Owner.UserID != hbOperator {
+			t.Fatalf("operator lens leaked a session completed by %s", r.Owner.UserID)
+		}
 	}
 	open, err := src.ListRows(ctx, query("", domain.WorkStateDue, domain.WorkStateScheduled))
 	if err != nil {
