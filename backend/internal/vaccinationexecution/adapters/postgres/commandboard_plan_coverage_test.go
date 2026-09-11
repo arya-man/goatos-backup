@@ -130,14 +130,72 @@ func TestCommandBoardPlanGateCoversEverySQLConst(t *testing.T) {
 func TestShedVaccineDrawerIncludesRejectedReworkRows(t *testing.T) {
 	sql := commandBoardShedVaccineAnimalSQL
 	for _, want := range []string{
-		"latest_verification AS",
+		"SELECT DISTINCT ON (vc.obligation_id)",
+		"JOIN sop_submission_items si",
+		"JOIN vaccination_completions vc",
 		"vi.source_ref_type = 'vaccination_goat'",
 		"rework AS",
-		"LEFT JOIN rework ON rework.tenant_id = oi.tenant_id AND rework.batch_id = oi.batch_id AND rework.goat_id = oi.target_id",
+		"LEFT JOIN rework ON rework.tenant_id = oi.tenant_id AND rework.obligation_id = oi.obligation_id",
 		"OR COALESCE(rework.has_rejected_rework, false)",
 	} {
 		if !strings.Contains(sql, want) {
 			t.Fatalf("commandBoardShedVaccineAnimalSQL missing %q; rework cells would open a drawer that cannot list rejected-proof animals", want)
+		}
+	}
+	for _, forbidden := range []string{
+		"latest_verification AS",
+		"rework.batch_id = oi.batch_id",
+		"rework.goat_id = oi.target_id",
+		"ORDER BY vi.tenant_id, vi.source_task_id, vi.source_ref_id, vi.verified_at DESC NULLS LAST",
+	} {
+		if strings.Contains(sql, forbidden) {
+			t.Fatalf("commandBoardShedVaccineAnimalSQL still contains %q; rework must be latest-verdict-per-obligation, not goat+batch", forbidden)
+		}
+	}
+}
+
+func TestCommandBoardReworkUsesLatestObligationProof(t *testing.T) {
+	for name, sql := range map[string]string{
+		"kpi":          commandBoardKPISQL,
+		"cohort":       commandBoardCohortSQL,
+		"shedDose":     commandBoardShedDoseSQL,
+		"shedVaccine":  commandBoardShedVaccineSQL,
+		"drawer":       commandBoardShedVaccineAnimalSQL,
+		"closedDrawer": commandBoardClosedWithoutDoseSQL,
+	} {
+		for _, want := range []string{
+			"SELECT DISTINCT ON (vc.obligation_id)",
+			"JOIN sop_submission_items si",
+			"JOIN vaccination_completions vc",
+			"vc.sop_submission_item_id = si.item_id",
+			"ORDER BY vc.obligation_id, vi.captured_at DESC NULLS LAST, vi.verified_at DESC NULLS LAST, vi.item_id DESC",
+		} {
+			if !strings.Contains(sql, want) {
+				t.Fatalf("%s SQL missing %q; rejected proof can leak across vaccines or outrank later resubmission", name, want)
+			}
+		}
+		for _, forbidden := range []string{
+			"latest_verification AS",
+			"lv.source_task_id",
+			"rework.batch_id = oi.batch_id",
+			"rework.goat_id = oi.target_id",
+		} {
+			if strings.Contains(sql, forbidden) {
+				t.Fatalf("%s SQL still contains %q; rework must be tied to the submitted completion/obligation", name, forbidden)
+			}
+		}
+	}
+}
+
+func TestClosedWithoutDoseDrawerExcludesReworkLikeKPI(t *testing.T) {
+	sql := commandBoardClosedWithoutDoseSQL
+	for _, want := range []string{
+		"COALESCE(rework.has_rejected_rework, false) AS has_rejected_rework",
+		"bool_or(has_rejected_rework AND NOT has_recorded_unverified AND NOT has_accepted) AS any_rework",
+		"WHERE NOT pa.any_missed AND NOT pa.any_verified AND NOT pa.any_awaiting AND NOT pa.any_rework AND NOT pa.any_overdue AND NOT pa.any_scheduled",
+	} {
+		if !strings.Contains(sql, want) {
+			t.Fatalf("commandBoardClosedWithoutDoseSQL missing %q; closed-without-dose drawer can drift from the KPI tile", want)
 		}
 	}
 }

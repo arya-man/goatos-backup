@@ -62,6 +62,27 @@ WITH comp AS (
   WHERE tenant_id = $1::uuid
   GROUP BY obligation_id
 ),
+rework AS (
+  SELECT DISTINCT ON (vc.obligation_id)
+    vc.tenant_id,
+    vc.obligation_id,
+    vi.status = 'rejected' AS has_rejected_rework
+  FROM verification_items vi
+  JOIN sop_submission_items si
+    ON si.tenant_id = vi.tenant_id
+   AND si.submission_id = vi.source_submission_id
+   AND vi.source_ref_type = 'vaccination_goat'
+   AND vi.source_ref_id = si.goat_id
+  JOIN vaccination_completions vc
+    ON vc.tenant_id = vi.tenant_id
+   AND vc.sop_submission_item_id = si.item_id
+  WHERE vi.tenant_id = $1::uuid
+    AND vi.source_module = 'vaccination'
+    AND vi.category = 'vaccination_proof'
+    AND vi.source_submission_id IS NOT NULL
+    AND vi.status IN ('pending','approved','rejected')
+  ORDER BY vc.obligation_id, vi.captured_at DESC NULLS LAST, vi.verified_at DESC NULLS LAST, vi.item_id DESC
+),
 scoped AS (
   SELECT
     oi.target_id,
@@ -71,6 +92,7 @@ scoped AS (
     oi.due_at,
     COALESCE(comp.has_accepted, false) AS has_accepted,
     COALESCE(comp.has_recorded_unverified, false) AS has_recorded_unverified,
+    COALESCE(rework.has_rejected_rework, false) AS has_rejected_rework,
     comp.obligation_id IS NULL AS no_completion,
     oi.status IN ('scheduled','due','in_progress','deferred','missed') AS is_open,
     oi.status = 'missed' AS is_missed,
@@ -78,6 +100,7 @@ scoped AS (
   FROM obligation_instances oi
   JOIN goats g ON g.goat_id = oi.target_id AND g.tenant_id = oi.tenant_id
   LEFT JOIN comp ON oi.obligation_id = comp.obligation_id
+  LEFT JOIN rework ON rework.tenant_id = oi.tenant_id AND rework.obligation_id = oi.obligation_id
   WHERE oi.tenant_id = $1::uuid
     AND g.lifecycle_status IN ('alive', 'sick', 'under_treatment', 'quarantine', 'icu')
     AND g.merged_into_goat_id IS NULL
@@ -98,7 +121,8 @@ per_animal AS (
     bool_or(is_missed AND no_completion) AS any_missed,
     bool_or(has_accepted) AS any_verified,
     bool_or(has_recorded_unverified AND NOT has_accepted) AS any_awaiting,
-    bool_or(is_open AND no_completion AND due_before_as_of) AS any_overdue,
+    bool_or(has_rejected_rework AND NOT has_recorded_unverified AND NOT has_accepted) AS any_rework,
+    bool_or(is_open AND no_completion AND NOT has_rejected_rework AND due_before_as_of) AS any_overdue,
     bool_or(is_open AND no_completion AND NOT due_before_as_of) AS any_scheduled
   FROM scoped
   GROUP BY target_id
@@ -111,7 +135,7 @@ page AS (
   JOIN goats g ON g.goat_id = pa.target_id AND g.tenant_id = $1::uuid
   -- BYTE-IDENTICAL to the tile's residual filter in commandBoardKPISQL, any_missed included. A
   -- number a reader can click into is a promise that the list explains THAT number.
-  WHERE NOT pa.any_missed AND NOT pa.any_verified AND NOT pa.any_awaiting AND NOT pa.any_overdue AND NOT pa.any_scheduled
+  WHERE NOT pa.any_missed AND NOT pa.any_verified AND NOT pa.any_awaiting AND NOT pa.any_rework AND NOT pa.any_overdue AND NOT pa.any_scheduled
     AND ($5::text IS NULL OR (g.display_id, g.goat_id) > ($5::text, $6::uuid))
   ORDER BY g.display_id, g.goat_id
   LIMIT $7
@@ -200,28 +224,26 @@ WITH comp AS (
   WHERE tenant_id = $1::uuid
   GROUP BY obligation_id
 ),
-latest_verification AS (
-  SELECT DISTINCT ON (vi.tenant_id, vi.source_task_id, vi.source_ref_id)
-    vi.tenant_id,
-    vi.source_task_id,
-    vi.source_ref_id AS goat_id,
-    vi.status
+rework AS (
+  SELECT DISTINCT ON (vc.obligation_id)
+    vc.tenant_id,
+    vc.obligation_id,
+    vi.status = 'rejected' AS has_rejected_rework
   FROM verification_items vi
+  JOIN sop_submission_items si
+    ON si.tenant_id = vi.tenant_id
+   AND si.submission_id = vi.source_submission_id
+   AND vi.source_ref_type = 'vaccination_goat'
+   AND vi.source_ref_id = si.goat_id
+  JOIN vaccination_completions vc
+    ON vc.tenant_id = vi.tenant_id
+   AND vc.sop_submission_item_id = si.item_id
   WHERE vi.tenant_id = $1::uuid
     AND vi.source_module = 'vaccination'
     AND vi.category = 'vaccination_proof'
-    AND vi.source_ref_type = 'vaccination_goat'
-    AND vi.source_task_id IS NOT NULL
-    AND vi.source_ref_id IS NOT NULL
+    AND vi.source_submission_id IS NOT NULL
     AND vi.status IN ('pending','approved','rejected')
-  ORDER BY vi.tenant_id, vi.source_task_id, vi.source_ref_id, vi.verified_at DESC NULLS LAST, vi.captured_at DESC NULLS LAST, vi.item_id DESC
-),
-rework AS (
-  SELECT b.tenant_id, b.batch_id, lv.goat_id, true AS has_rejected_rework
-  FROM obligation_batches b
-  JOIN latest_verification lv ON lv.tenant_id = b.tenant_id AND lv.source_task_id = b.sop_task_id
-  WHERE b.tenant_id = $1::uuid
-    AND lv.status = 'rejected'
+  ORDER BY vc.obligation_id, vi.captured_at DESC NULLS LAST, vi.verified_at DESC NULLS LAST, vi.item_id DESC
 ),
 cell AS (
   SELECT DISTINCT ON (d.vaccine_code, g.goat_id)
@@ -242,7 +264,7 @@ cell AS (
   JOIN protocol_rule_dimensions d ON d.rule_id = oi.rule_id AND d.tenant_id = oi.tenant_id
   JOIN goats g ON g.goat_id = oi.target_id AND g.tenant_id = oi.tenant_id
   LEFT JOIN comp ON comp.obligation_id = oi.obligation_id
-  LEFT JOIN rework ON rework.tenant_id = oi.tenant_id AND rework.batch_id = oi.batch_id AND rework.goat_id = oi.target_id
+  LEFT JOIN rework ON rework.tenant_id = oi.tenant_id AND rework.obligation_id = oi.obligation_id
   LEFT JOIN goat_shed_partitions scope_gsp ON scope_gsp.tenant_id = g.tenant_id AND scope_gsp.goat_id = g.goat_id AND scope_gsp.shed_id = oi.scope_id
   LEFT JOIN shed_partitions scope_sp
     ON scope_sp.tenant_id = oi.tenant_id
