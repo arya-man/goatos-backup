@@ -49,6 +49,17 @@ function changedSources() {
   return [...names];
 }
 
+function changesGlobalAuthenticatedImageLoader(targets) {
+  return targets.some((rel) => {
+    const full = resolve(repo, rel);
+    if (!existsSync(full)) return false;
+    const text = readFileSync(full, "utf8");
+    return /ImageLoaderFactory/.test(text) &&
+      /newImageLoader\s*\(\s*\)/.test(text) &&
+      /okHttpClient\s*\(\s*proofMediaClient\s*\)/.test(text);
+  });
+}
+
 function lineNo(text, index) {
   return text.slice(0, index).split("\n").length;
 }
@@ -582,12 +593,16 @@ function selfTest() {
     ["replacement-preserves-old-proof", scanText("apps/goatos-android/app/src/main/kotlin/sg/mesha/goatos/viewmodel/FooViewModel.kt", "when (proofCaptureRepository.captureReplacingLatest()) { is AppResult.Err -> state.update { it.copy(videoCaptured = it.videoCaptured) } }\n").length, 0],
     ["remember-url", scanText(rel, proof + "val player = remember(media.url) { factory.create(context) }").length, 2],
   ];
+  const tempTargets = ["apps/goatos-android/app/src/main/kotlin/sg/mesha/goatos/GoatOsApplication.kt"];
+  const globalLoaderDetected = changesGlobalAuthenticatedImageLoader(tempTargets);
   const ok =
-    cases.every(([, got, want]) => got === want);
+    cases.every(([, got, want]) => got === want) &&
+    globalLoaderDetected;
   if (!ok) {
     for (const [name, got, want] of cases) {
       if (got !== want) console.error(`${name}: got ${got}, want ${want}`);
     }
+    if (!globalLoaderDetected) console.error("global-authenticated-image-loader: got false, want true");
   }
   console.log(ok ? "android-proof-media-egress self-test: ok" : "android-proof-media-egress self-test: FAIL");
   process.exit(ok ? 0 : 1);
@@ -595,7 +610,9 @@ function selfTest() {
 
 if (process.argv.includes("--self-test")) selfTest();
 
-const targets = process.argv.includes("--all") ? walk(resolve(repo, ROOT)) : changedSources();
+const changed = changedSources();
+const forceAllForGlobalImageLoader = !process.argv.includes("--all") && changesGlobalAuthenticatedImageLoader(changed);
+const targets = process.argv.includes("--all") || forceAllForGlobalImageLoader ? walk(resolve(repo, ROOT)) : changed;
 const allSources = walk(resolve(repo, ROOT));
 const globalRemoteMediaHelpers = new Set(
   allSources.flatMap((rel) => remoteMediaHelperNames(readFileSync(resolve(repo, rel), "utf8"))),
@@ -609,4 +626,5 @@ if (findings.length) {
   }
   process.exit(1);
 }
-console.log(`android-proof-media-egress guard: ok (${targets.length} files checked)`);
+const scope = forceAllForGlobalImageLoader ? ", expanded to all sources for global authenticated Coil loader" : "";
+console.log(`android-proof-media-egress guard: ok (${targets.length} files checked${scope})`);
