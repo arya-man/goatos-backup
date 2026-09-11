@@ -511,21 +511,27 @@ const motionCountWindowDeltaSQL = `
 	WITH latest AS (
 		SELECT motion_count
 		FROM public.herd_signal_packets
-		WHERE tenant_id = $1 AND tag_id = $2 AND received_at <= $4 AND motion_count IS NOT NULL
+		WHERE tenant_id = $1 AND tag_id = $2
+		      AND received_date >= $6 AND received_date <= $7
+		      AND received_at <= $4 AND motion_count IS NOT NULL
 		ORDER BY received_at DESC
 		LIMIT 1
 	),
 	baseline_before AS (
 		SELECT motion_count
 		FROM public.herd_signal_packets
-		WHERE tenant_id = $1 AND tag_id = $2 AND received_at < $3 AND motion_count IS NOT NULL
+		WHERE tenant_id = $1 AND tag_id = $2
+		      AND received_date >= $5 AND received_date <= $6
+		      AND received_at < $3 AND motion_count IS NOT NULL
 		ORDER BY received_at DESC
 		LIMIT 1
 	),
 	baseline_inside AS (
 		SELECT motion_count
 		FROM public.herd_signal_packets
-		WHERE tenant_id = $1 AND tag_id = $2 AND received_at >= $3 AND received_at <= $4 AND motion_count IS NOT NULL
+		WHERE tenant_id = $1 AND tag_id = $2
+		      AND received_date >= $6 AND received_date <= $7
+		      AND received_at >= $3 AND received_at <= $4 AND motion_count IS NOT NULL
 		ORDER BY received_at ASC
 		LIMIT 1
 	)
@@ -544,7 +550,13 @@ func (r *Repository) motionCountWindowDeltaTx(ctx context.Context, tx pgx.Tx, te
 	var latest *int64
 	var baselineBefore *int64
 	var baselineInside *int64
-	err := tx.QueryRow(ctx, motionCountWindowDeltaSQL, tenantID, tagID, from, to).Scan(&latest, &baselineBefore, &baselineInside)
+	// received_date is the UTC partition key for server-stamped received_at, not an India business date.
+	// india-date-guard:ignore: owner=ravi issue=herd-signals-packet-partition-pruning scope=utc-received-date-partition-key expiry=2026-12-31
+	fromDate := from.UTC().Truncate(24 * time.Hour)
+	// india-date-guard:ignore: owner=ravi issue=herd-signals-packet-partition-pruning scope=utc-received-date-partition-key expiry=2026-12-31
+	toDate := to.UTC().Truncate(24 * time.Hour)
+	baselineStartDate := fromDate.AddDate(0, 0, -1)
+	err := tx.QueryRow(ctx, motionCountWindowDeltaSQL, tenantID, tagID, from, to, baselineStartDate, fromDate, toDate).Scan(&latest, &baselineBefore, &baselineInside)
 	if err != nil {
 		if err == pgx.ErrNoRows {
 			return 0, nil

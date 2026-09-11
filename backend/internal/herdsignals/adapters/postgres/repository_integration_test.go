@@ -444,6 +444,12 @@ func TestAdjacentMinutePacketsCountTowardLiveMovementState(t *testing.T) {
 	}
 }
 
+func TestMotionCountWindowDeltaSQLUsesPartitionKey(t *testing.T) {
+	if got := strings.Count(motionCountWindowDeltaSQL, "received_date"); got < 3 {
+		t.Fatalf("motionCountWindowDeltaSQL must constrain received_date in every herd_signal_packets CTE for partition pruning; got %d", got)
+	}
+}
+
 // TestGapDeltaFlaggedNotSmearedExcludedFromBaselineAndNotASpike is the direct proof for the
 // maintainer decision on offline behaviour: the gateway does not buffer through a WAN outage, so
 // a reception gap means the backend got NOTHING, and the reconnect delta is a TOTAL over an
