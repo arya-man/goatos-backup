@@ -293,7 +293,7 @@ func TestCommandBoardQueryPlansAreBoundedByTheAnswerNotTheTenant(t *testing.T) {
 			// step after a tenant-wide sort, so this statement is the clearest case of the
 			// capped-result-over-unbounded-work shape.
 			sql:  commandBoardShedVaccineAnimalSQL,
-			args: []any{f.tenantID, f.asOf, nil, nil, f.shedID, f.vaccineCode, "", nil, nil, 50},
+			args: []any{f.tenantID, f.asOf, nil, nil, f.shedID, f.vaccineCode, "", nil, nil, 50, "behind"},
 		},
 		{
 			limits: commandBoardPlanLimits{

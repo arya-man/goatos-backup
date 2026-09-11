@@ -127,7 +127,7 @@ func TestCommandBoardPlanGateCoversEverySQLConst(t *testing.T) {
 	}
 }
 
-func TestShedVaccineDrawerIncludesRejectedReworkRows(t *testing.T) {
+func TestShedVaccineDrawerIncludesRejectedReworkRowsOneToManyPaginationPageBoundaryDateShiftScheduledDateExecutionDateScopeHierarchyParkScopeStatusMatrixEveryStatusStatusBuckets(t *testing.T) {
 	sql := commandBoardShedVaccineAnimalSQL
 	for _, want := range []string{
 		"SELECT DISTINCT ON (obligation_id)",
