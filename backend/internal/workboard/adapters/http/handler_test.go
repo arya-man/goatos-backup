@@ -363,3 +363,55 @@ func TestSubtasksAreServedOnlyForARowOnTheCallersBoard(t *testing.T) {
 		t.Fatalf("other park must be refused: %d %v", rec.Code, body)
 	}
 }
+
+// TestNoModulePermissionMeansNoModuleNeverEveryModule: a person ticked for the Work Board
+// (read, even oversee) with NO module permission sees an empty board, not the whole
+// registry, and cannot flag a row. Found live 2026-09-11: the permission-derived visible set
+// was intersected with the "empty means all" helper, so an empty set inverted to all eight
+// modules on the rows, summary, subtasks AND flag paths.
+func TestNoModulePermissionMeansNoModuleNeverEveryModule(t *testing.T) {
+	svc := &fakeService{}
+	flags := &fakeFlags{}
+	h := NewHandler(svc, nil).WithFlags(flags)
+	perms := []string{permissions.WorkBoardRead, permissions.WorkBoardOversee}
+	withPerson := func(req *http.Request) *http.Request {
+		ctx := httpmiddleware.WithTenantID(req.Context(), tenant)
+		ctx = httpmiddleware.WithActorID(ctx, actorCEO)
+		ctx = httpmiddleware.WithAuthGrants(ctx, tenantGrant(permissions.RoleCEOInternal))
+		ctx = httpmiddleware.WithPersonPermissions(ctx, perms)
+		return req.WithContext(ctx)
+	}
+	mux := http.NewServeMux()
+	Register(mux, h)
+
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, withPerson(httptest.NewRequest(http.MethodGet, "/work-board/rows?park="+parkCBE, nil)))
+	var body map[string]any
+	_ = json.Unmarshal(rec.Body.Bytes(), &body)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("rows: %d %v", rec.Code, body)
+	}
+	if mods, _ := body["modules"].([]any); len(mods) != 0 {
+		t.Fatalf("no module permission must serve no module on the wire, got %v", mods)
+	}
+	if !svc.last.NoModules || len(svc.last.Modules) != 0 {
+		t.Fatalf("service must be asked for NO module: %+v", svc.last)
+	}
+
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, withPerson(httptest.NewRequest(http.MethodGet, "/work-board/summary?park="+parkCBE, nil)))
+	if rec.Code != http.StatusOK || !svc.last.NoModules {
+		t.Fatalf("summary must be asked for NO module: %d %+v", rec.Code, svc.last)
+	}
+
+	rec = httptest.NewRecorder()
+	req := withPerson(httptest.NewRequest(http.MethodPost, "/work-board/flags", strings.NewReader(`{"row_key":"weighing|weighing_work_item|w1","park_id":"`+parkCBE+`"}`)))
+	req.Header.Set("Idempotency-Key", "k-no-modules")
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("the handler forwards to the flag service; got %d", rec.Code)
+	}
+	if !flags.last.Board.NoModules || len(flags.last.Board.Modules) != 0 {
+		t.Fatalf("the flag must be resolved on a board with NO module, got %+v", flags.last.Board)
+	}
+}

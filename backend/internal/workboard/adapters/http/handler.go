@@ -222,7 +222,7 @@ func (h *Handler) query(w http.ResponseWriter, r *http.Request) (domain.Query, b
 	perms := callerPermissions(ctx)
 	// Visible = what the caller's permissions open AND what has a registered source: a
 	// module with no source yet (procurement, toxin) never shows an empty lane or chip.
-	visible := app.IntersectModules(app.VisibleModules(perms), h.service.RegisteredModules())
+	visible := app.StrictIntersect(app.VisibleModules(perms), h.service.RegisteredModules())
 	requested := []domain.Module{}
 	for _, raw := range splitCSV(qs.Get("module")) {
 		if !domain.IsModule(raw) {
@@ -405,9 +405,13 @@ func (h *Handler) Flag(w http.ResponseWriter, r *http.Request) {
 	// The board the flag is looked up on is the caller's own: their park scope, the day
 	// they were looking at, and the modules their permissions open. Oversee is required
 	// by the route, so there is no own-rows narrowing here.
+	visible := app.StrictIntersect(app.VisibleModules(callerPermissions(ctx)), h.service.RegisteredModules())
 	board := domain.Query{
 		TenantID: tenantID, ParkID: scope.ParkID, BusinessDate: businessDate,
-		Modules: app.IntersectModules(app.VisibleModules(callerPermissions(ctx)), h.service.RegisteredModules()),
+		Modules: visible,
+		// An empty visible set means NO module, never every module (the same rule the reads
+		// apply); FindRow then resolves nothing and the flag is refused as not on the board.
+		NoModules: len(visible) == 0,
 	}
 	result, err := h.flags.Flag(ctx, ports.FlagParams{
 		TenantID: tenantID, ActorID: strings.TrimSpace(httpmiddleware.ActorIDFromContext(ctx)),
