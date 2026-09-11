@@ -159,7 +159,8 @@ function FarmValueSections({
                   <div className="dl">
                     {num(bucket.meat_kg, 1)} {kgSuffix} · {num(bucket.animal_count)}{" "}
                     {copy(pageContract, "value.live_animals")}
-                    {bucket.actual_weight ? ` · ${num(bucket.weighed_animals)} ${copy(pageContract, "value.weighed")}` : ""}
+                    {/* The "N weighed" count behind the fattening average is deliberately not
+                        printed (maintainer instruction 2026-09-11). */}
                   </div>
                 </div>
               ))}

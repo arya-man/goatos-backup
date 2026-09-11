@@ -187,6 +187,9 @@ test("farm value cards render the backend valuation contract", () => {
   assert.match(source, /bucket\.female_count/);
   // "don't show missing" (maintainer, 2026-09-11): the unrecorded remainder is not printed.
   assert.doesNotMatch(source, /sex_missing_count|value\.sex\.missing/);
+  // "remove how many we weighed count" (maintainer, 2026-09-11): the fattening card no longer
+  // prints the weighed-animal count behind its average.
+  assert.doesNotMatch(source, /weighed_animals|value\.weighed"/);
   assert.doesNotMatch(source, /animal_count\s*-\s*bucket\.(male|female)_count/);
 });
 
