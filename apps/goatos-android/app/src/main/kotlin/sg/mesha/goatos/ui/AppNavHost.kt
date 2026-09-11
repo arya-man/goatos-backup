@@ -1414,6 +1414,12 @@ fun AppNavHost(
      */
     navStateResolved: Boolean = false,
     verificationVideoControlsEnabled: Boolean = false,
+    /**
+     * This person's backend-composed navigation, for drills that offer to open a MODULE LANDING
+     * from a backend href (the Work Board's Open button): a landing the backend never granted is
+     * not offered, exactly as the shell refuses a push naming one.
+     */
+    navState: NavState = NavState.Empty,
 ) {
     // Shared-axis-X motion instead of the default cross-fade: a forward navigation slides
     // the new screen in from the end and the old one out toward the start; Back reverses it.
@@ -4023,7 +4029,7 @@ fun AppNavHost(
         ) {
             val vm: WorkBoardDetailViewModel = hiltViewModel()
             val state by vm.state.collectAsStateWithLifecycle()
-            val openRoute = state.row?.href?.takeIf { it.isNotBlank() }?.let { pushTargetRoute(it) }
+            val openRoute = workBoardOpenRoute(state.row?.href, navState)
             WorkBoardDetailScreen(
                 state = state.copy(canOpen = openRoute != null),
                 onEvent = { event ->
@@ -4789,6 +4795,25 @@ internal fun pushTargetRoute(target: String?): String? {
     // A push naming ONE pen visit (`/pen-visits/{task_id}`) opens that visit.
     Routes.penVisitIdFromHref(target)?.let { return Routes.penVisitRoute(it) }
     return workTargetRoute(target)
+}
+
+/**
+ * Where a Work Board row's backend `href` opens on THIS phone, or null when it must not offer
+ * "Open" at all. Resolved through the SAME resolver pushes use ([pushTargetRoute]) and then held
+ * to the SAME grant rule the shell applies to a push ([NavState.grantsRootDestination]): a module
+ * landing this person was never given is not a destination for them.
+ *
+ * Why the second half exists (found on the Realme, 2026-09-11): a verification row carries
+ * `/verify?...vi_row=` — a hosted route — so a park head who is NOT a verifier was offered "Open"
+ * and landed in the verifier queue, a screen the backend never composed for him, titled after a
+ * module he was not inside. An href for a web-only page (`/health/analytics`) already resolved to
+ * nothing and showed no button; a granted-module href must behave the same way when the module is
+ * somebody else's.
+ */
+internal fun workBoardOpenRoute(href: String?, navState: NavState): String? {
+    val route = href?.takeIf { it.isNotBlank() }?.let { pushTargetRoute(it) } ?: return null
+    if (isRootDestination(route) && !navState.grantsRootDestination(route)) return null
+    return route
 }
 
 /** True when [route] is a module landing the backend must have granted this person. */

@@ -3,9 +3,14 @@ package sg.mesha.goatos.ui
 import android.net.Uri
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
+import sg.mesha.goatos.core.model.nav.NavChrome
+import sg.mesha.goatos.core.model.nav.NavModule
+import sg.mesha.goatos.core.model.nav.NavModuleStatus
+import sg.mesha.goatos.core.model.nav.NavState
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import java.nio.file.Path
@@ -53,6 +58,43 @@ class WorkBoardRouteIdentityTest {
         assertTrue(navHost.contains("WorkBoardDetailScreen("))
         // The detail's Open button resolves the backend href through the SAME resolver pushes use,
         // never a hand-rolled route guess.
-        assertTrue(navHost.contains("state.row?.href?.takeIf { it.isNotBlank() }?.let { pushTargetRoute(it) }"))
+        assertTrue(navHost.contains("val openRoute = workBoardOpenRoute(state.row?.href, navState)"))
+    }
+
+    // --- The Open button is held to the push grant rule (Realme finding, 2026-09-11) ---------
+
+    private fun navStateWith(vararg moduleHrefs: String): NavState = NavState(
+        chrome = NavChrome.MINIMAL,
+        items = emptyList(),
+        modules = moduleHrefs.map { href ->
+            NavModule(key = href.trim('/'), label = href, href = href, status = NavModuleStatus.AVAILABLE, navItems = emptyList())
+        },
+    )
+
+    @Test
+    fun `a verification href opens the queue only for a person the backend gave the verifier module`() {
+        val href = "/verify?status=all&vi_row=91096d94-b521-48f6-932b-048dbc3e46cb"
+
+        // A park head without the verifier module: no Open at all (this was the defect — the row
+        // resolved to a hosted route and dropped him into the verifier queue).
+        assertNull(workBoardOpenRoute(href, navStateWith(Routes.WORK, Routes.WEIGHING)))
+        // The verifier herself: the same href opens her queue on the flagged item.
+        assertEquals(href, workBoardOpenRoute(href, navStateWith(Routes.WORK, Routes.VERIFY)))
+    }
+
+    @Test
+    fun `a web-only href and a blank href offer nothing, whatever the grants`() {
+        val everything = navStateWith(Routes.WORK, Routes.VERIFY, Routes.WEIGHING, Routes.HEALTH_ADULTS)
+        assertNull(workBoardOpenRoute("/health/analytics", everything))
+        assertNull(workBoardOpenRoute("", everything))
+        assertNull(workBoardOpenRoute(null, everything))
+    }
+
+    @Test
+    fun `a weighing drill href is a destination in its own right and needs no root grant`() {
+        // A drill (one weighing task) is authorised server-side on its own read, never by a nav
+        // item, so the resolver must not demand a module landing for it.
+        val drill = workBoardOpenRoute(Routes.WEIGHING_TASKS, navStateWith(Routes.WORK))
+        assertEquals(Routes.WEIGHING_TASKS, drill)
     }
 }
