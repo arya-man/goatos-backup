@@ -99,7 +99,7 @@ func (r *Repository) ListAssignees(ctx context.Context, tenantID string) ([]port
 	out := make([]ports.Assignee, 0, 8)
 	for rows.Next() {
 		var a ports.Assignee
-		if err := rows.Scan(&a.UserID, &a.Name); err != nil {
+		if err := rows.Scan(&a.UserID, &a.Name, &a.Title); err != nil {
 			return nil, fmt.Errorf("leadership task: scan assignee: %w", err)
 		}
 		out = append(out, a)
@@ -905,11 +905,21 @@ var assignableLeadershipRoles = []string{
 	permissions.RoleProcurementDirector,
 }
 
+// projection-review: membership=person_module_access ticked at oversee for the mobile Tasks module; group_key=none (one row per ticked person, user_id); join_cardinality=workforce_members 1:1 on member PK, workforce_member_titles 1:1 on (tenant, member) PK, person_access 1:1 on (tenant, member), designation_catalog 1:1 on code; grants filtered by EXISTS so a person with several roles is still one row; pagination=none, bounded by the leadership tick; scope=tenant.
 const sqlListAssignees = `
-SELECT m.user_id::text, m.display_name
+SELECT m.user_id::text, m.display_name,
+       COALESCE(NULLIF(btrim(wt.title), ''), dc.label, '') AS title
 FROM public.person_module_access a
 JOIN public.workforce_members m
   ON m.tenant_id = a.tenant_id AND m.workforce_member_id = a.workforce_member_id AND m.status = 'active'
+-- The title the picker shows: the HRMS business title (000293) when set, else the
+-- designation catalog label. Both joins are 1:1 on the person's PK.
+LEFT JOIN public.workforce_member_titles wt
+  ON wt.tenant_id = m.tenant_id AND wt.workforce_member_id = m.workforce_member_id
+LEFT JOIN public.person_access pa
+  ON pa.tenant_id = m.tenant_id AND pa.workforce_member_id = m.workforce_member_id
+LEFT JOIN public.designation_catalog dc
+  ON dc.designation_code = pa.designation_code
 WHERE a.tenant_id = $1 AND a.surface = $2 AND a.module_key = $3 AND $4 = ANY(a.capabilities)
   AND m.user_id IS NOT NULL
   AND EXISTS (
@@ -918,7 +928,7 @@ WHERE a.tenant_id = $1 AND a.surface = $2 AND a.module_key = $3 AND $4 = ANY(a.c
       AND g.status = 'active' AND (g.valid_to IS NULL OR g.valid_to > now())
       AND g.role = ANY($5::text[])
   )
-ORDER BY m.display_name, m.user_id::text`
+ORDER BY title, m.display_name, m.user_id::text`
 
 const sqlAssigneeIsTicked = `
 SELECT EXISTS (

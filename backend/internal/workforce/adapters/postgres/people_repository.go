@@ -72,6 +72,7 @@ SELECT
   wm.status,
   wm.primary_role_hint,
   wm.hr_designation_grade,
+  wt.title,
   wm.primary_location_id::text,
   l.name,
   wm.department_id::text,
@@ -92,6 +93,9 @@ LEFT JOIN workforce_clock_entries ce
   ON ce.tenant_id = wm.tenant_id
  AND ce.workforce_member_id = wm.workforce_member_id
  AND ce.business_date = (now() AT TIME ZONE 'Asia/Kolkata')::date
+-- Business title (000293): 1:1 on the (tenant, member) PK, absent for most people.
+LEFT JOIN workforce_member_titles wt
+  ON wt.tenant_id = wm.tenant_id AND wt.workforce_member_id = wm.workforce_member_id
 LEFT JOIN locations l
   ON l.tenant_id = wm.tenant_id AND l.location_id = wm.primary_location_id
 LEFT JOIN departments d
@@ -132,6 +136,7 @@ func scanPeople(rows pgx.Rows) ([]domain.PersonSummary, error) {
 			&p.Status,
 			&p.RoleHint,
 			&p.DesignationGrade,
+			&p.Title,
 			&p.ParkID,
 			&p.ParkLabel,
 			&p.DepartmentID,
@@ -526,4 +531,35 @@ func mapPersonWriteErr(err error) error {
 		return ports.ErrDuplicateEmail
 	}
 	return mapWriteErr(err)
+}
+
+// SetPersonTitle upserts the person's business title, or deletes the row when the title is
+// blank. The roster row must exist on this tenant; the title table is keyed by the roster PK.
+func (r *Repository) SetPersonTitle(ctx context.Context, tenantID, personID, actorID, title string) error {
+	var exists bool
+	if err := r.pool.QueryRow(ctx, `
+SELECT EXISTS (SELECT 1 FROM workforce_members WHERE tenant_id = $1::uuid AND workforce_member_id = $2::uuid)`,
+		tenantID, personID).Scan(&exists); err != nil {
+		return err
+	}
+	if !exists {
+		return ports.ErrPersonNotFound
+	}
+	title = strings.TrimSpace(title)
+	if title == "" {
+		_, err := r.pool.Exec(ctx, `
+DELETE FROM workforce_member_titles WHERE tenant_id = $1::uuid AND workforce_member_id = $2::uuid`, tenantID, personID)
+		return err
+	}
+	var actor *string
+	if strings.TrimSpace(actorID) != "" {
+		actor = &actorID
+	}
+	_, err := r.pool.Exec(ctx, `
+INSERT INTO workforce_member_titles (tenant_id, workforce_member_id, title, updated_by)
+VALUES ($1::uuid, $2::uuid, $3, $4::uuid)
+ON CONFLICT (tenant_id, workforce_member_id) DO UPDATE
+SET title = EXCLUDED.title, updated_by = EXCLUDED.updated_by, updated_at = now(),
+    row_version = workforce_member_titles.row_version + 1`, tenantID, personID, title, actor)
+	return err
 }

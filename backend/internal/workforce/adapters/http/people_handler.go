@@ -29,6 +29,18 @@ func NewPeopleHandler(service *app.PeopleService, log ...*slog.Logger) *PeopleHa
 func RegisterPeople(mux *http.ServeMux, h *PeopleHandler) {
 	mux.HandleFunc("GET /admin/workforce/people", h.ListPeople)
 	mux.HandleFunc("POST /admin/workforce/people", h.CreatePerson)
+	mux.HandleFunc("PUT /admin/workforce/people/{person_id}/title", h.SetTitle)
+}
+
+// SetTitle serves PUT /admin/workforce/people/{person_id}/title -- the business title the
+// Tasks assignee picker shows in place of the name.
+func (h *PeopleHandler) SetTitle(w http.ResponseWriter, r *http.Request) {
+	var body domain.SetPersonTitleRequest
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+	result, err := h.service.SetPersonTitle(r.Context(), tenantID(r), actorID(r), r.PathValue("person_id"), body, traceID(r))
+	h.respond(w, r, result, err)
 }
 
 func (h *PeopleHandler) ListPeople(w http.ResponseWriter, r *http.Request) {

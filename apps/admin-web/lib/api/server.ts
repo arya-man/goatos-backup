@@ -2025,6 +2025,25 @@ export async function setWorkforcePersonStatus(
   );
 }
 
+export async function setWorkforcePersonTitle(
+  personId: string,
+  body: AdminApiComponents["schemas"]["SetPersonTitleRequest"],
+): Promise<ApiResult<AdminApiComponents["schemas"]["SetPersonTitleResponse"]>> {
+  const config = await getServerConfig();
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  const path =
+    `/admin/workforce/people/${encodeURIComponent(personId)}/title` as keyof AdminApiPaths &
+      string;
+  return request(() =>
+    client.request<AdminApiComponents["schemas"]["SetPersonTitleResponse"]>(path, {
+      method: "PUT",
+      cache: "no-store",
+      body,
+    }),
+  );
+}
+
 // ---------------------------------------------------------------------------------------------
 // Procurement vendor register (/procurement/vendors)
 // ---------------------------------------------------------------------------------------------

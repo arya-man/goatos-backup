@@ -151,7 +151,7 @@ class LeadershipTaskComposeViewModel @Inject constructor(
             draft.update { it.copy(assigneesLoading = true) }
             when (val result = repository.assignees()) {
                 is AppResult.Ok -> draft.update { current ->
-                    val list = result.value.map { LeadershipAssigneeUi(userId = it.userId, name = it.name) }
+                    val list = result.value.map { LeadershipAssigneeUi(userId = it.userId, name = it.name, title = it.title) }
                     current.copy(
                         assignees = list,
                         assigneesLoading = false,

@@ -173,3 +173,29 @@ the hand-ticked operator and every leadership row keep it, Up is idempotent, Dow
 without a duplicate element) -- mutation-tested by removing the `000285` scoping, which
 strips the hand-ticked operator and turns it red -- and
 `TestLeadershipTasksAssigneeNarrowingIsScopedToTheTwoWaySeed`.
+
+## Amendment 2026-09-11 (later the same day): the picker lists TITLES, not names
+
+Maintainer request on seeing the leadership-only picker: "instead of showing names, show their
+designations -- Manju is CEO, Aryaman is COO, Ravi is CTO, the others directors -- and below,
+show the person it will be assigned to."
+
+Nothing stored said that: the four leadership accounts were all `ceo_internal` / grade `cxo`,
+and directors resolved only to a role label. So the title is a **per-person HRMS fact**:
+`workforce_member_titles` (migration `000293`, one row per person WITH a title; its own table
+because the roster row is seed-contract schema and a display title is not part of that
+contract), edited on **People / HRMS → person → Title**, and seeded once by login email for the
+seven current leaders (CEO / COO / CTO / Preventive Care Director / Breeding & Growth Director /
+Health Director / Feed & Procurement Director). A title already set on /people outranks the
+seed. Manohar is deliberately left without one; the maintainer hides him via the Oversee tick.
+
+The assignees contract carries `title` (HRMS title, else the designation catalog label -- never
+blank), and BOTH pickers list the title and reveal **"Assigned to <name>"** beneath once chosen.
+Each option is still one person, so two people sharing a title stay two rows.
+
+Pinned by `TestListAssigneesTitleJoinsKeepOneToManyGrantsPaginationAndStatusBucketsHonest`
+(three grants → one row with the HRMS title; 101 titled leaders all listed; an inactive titled
+leader excluded) and the title assertion in
+`TestLeadershipTaskListOneToManyPaginationPageBoundaryAndEveryStatusBuckets` (whose team-scope
+expectation was corrected from 7 to 6: seven raised, one cancelled, and the tab hides cancelled).
+Write route: `PUT /admin/workforce/people/{person_id}/title` on `OperatorsWrite`.

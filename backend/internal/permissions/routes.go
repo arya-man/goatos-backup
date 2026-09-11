@@ -128,6 +128,9 @@ var protectedRoutes = []Route{
 	// read shares the OperatorsRead the admin tiers already hold.
 	{OperationID: "listWorkforcePeople", Method: "GET", Pattern: "/admin/workforce/people", Permissions: []string{OperatorsRead}},
 	{OperationID: "createWorkforcePerson", Method: "POST", Pattern: "/admin/workforce/people", Permissions: []string{OperatorsWrite}},
+	// The person's business title (maintainer request 2026-09-11): what the Tasks assignee
+	// picker shows in place of the name. Same authority as creating the person.
+	{OperationID: "setWorkforcePersonTitle", Method: "PUT", Pattern: "/admin/workforce/people/{person_id}/title", Permissions: []string{OperatorsWrite}},
 
 	// The per-person access editor (maintainer decision 2026-08-24). READING it is
 	// OperatorsRead, the same as the directory row it opens from. WRITING it is

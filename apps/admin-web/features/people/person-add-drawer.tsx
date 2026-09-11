@@ -11,7 +11,7 @@ import {
 import { Tag, type Tone } from "@/components/ui-primitives";
 import { copy, optionGroup, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { WorkforcePeopleCatalog, WorkforcePerson } from "@/lib/api/server";
-import { changePersonStatusAction, createPersonAction } from "./people-actions";
+import { changePersonStatusAction, createPersonAction, setPersonTitleAction } from "./people-actions";
 
 /** Reads the selected person from the address bar. "" means the drawer is closed. */
 function readPersonParam(): string {
@@ -271,6 +271,7 @@ export function PersonAddDrawer({
                 {cell(field("park"), person.park_label)}
                 {cell(field("department"), person.department_label)}
                 {cell(field("designation"), person.designation_grade ?? person.role_hint)}
+                {cell(copy(pageContract, "column.title"), person.title)}
                 <div>
                   <div className="k">{copy(pageContract, "column.status")}</div>
                   <div className="v">
@@ -278,6 +279,30 @@ export function PersonAddDrawer({
                   </div>
                 </div>
               </div>
+
+              {/* Business title (maintainer request 2026-09-11): what the Tasks assignee picker
+                  shows in place of the name. Edited here, on the person, never on the picker. */}
+              <form action={setPersonTitleAction} className="fld" style={{ marginTop: 16 }}>
+                <input type="hidden" name="return_to" value={listHref} />
+                <input type="hidden" name="person_id" value={person.person_id} />
+                <label htmlFor="p-title">{copy(pageContract, "column.title")}</label>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <input
+                    id="p-title"
+                    name="title"
+                    maxLength={80}
+                    defaultValue={person.title ?? ""}
+                    placeholder={copy(pageContract, "title.placeholder")}
+                    style={{ flex: 1 }}
+                  />
+                  <button type="submit" className="btn">
+                    {copy(pageContract, "action.save_title")}
+                  </button>
+                </div>
+                <div className="muted small" style={{ marginTop: 4 }}>
+                  {copy(pageContract, "title.hint")}
+                </div>
+              </form>
 
               {/* Proof-work statistics: one verification item = one submitted
                   proof set; withdrawn/superseded items are excluded backend-side. */}

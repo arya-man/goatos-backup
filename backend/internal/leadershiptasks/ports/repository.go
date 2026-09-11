@@ -22,6 +22,10 @@ var (
 type Assignee struct {
 	UserID string
 	Name   string
+	// Title is what the picker SHOWS (maintainer request 2026-09-11): the person's HRMS
+	// business title ("CEO", "Preventive Care Director"), falling back to their designation's
+	// catalog label. Never blank for a listed assignee.
+	Title string
 }
 
 // ListParams selects one page of the caller's tasks.

@@ -17997,10 +17997,13 @@ components:
         trace_id: { type: string }
     LeadershipTaskAssignee:
       type: object
-      required: [user_id, name]
+      required: [user_id, name, title]
       properties:
         user_id: { type: string, format: uuid }
         name: { type: string }
+        title:
+          type: string
+          description: What the picker lists -- the person's HRMS business title ("CEO", "Preventive Care Director"), falling back to their designation label. The name is shown beneath once a title is chosen.
     LeadershipTaskAssignees:
       type: object
       required: [assignees, trace_id]

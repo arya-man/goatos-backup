@@ -118,7 +118,7 @@ func (h *Handler) ListAssignees(w http.ResponseWriter, r *http.Request) {
 	}
 	out := make([]assigneePayload, 0, len(assignees))
 	for _, a := range assignees {
-		out = append(out, assigneePayload{UserID: a.UserID, Name: a.Name})
+		out = append(out, assigneePayload{UserID: a.UserID, Name: a.Name, Title: a.Title})
 	}
 	httpresponse.WriteJSON(w, http.StatusOK, assigneesPayload{Assignees: out, TraceID: traceID(r)})
 }

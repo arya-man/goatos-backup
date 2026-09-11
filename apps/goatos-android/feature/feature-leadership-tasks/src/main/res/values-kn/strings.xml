@@ -26,6 +26,7 @@
     <string name="leadership_tasks_save">ಉಳಿಸಿ</string>
     <string name="leadership_tasks_sending">ಕಳುಹಿಸಲಾಗುತ್ತಿದೆ…</string>
     <string name="leadership_tasks_field_for_placeholder">ಇದು ಯಾರಿಗಾಗಿ ಎಂದು ಆರಿಸಿ</string>
+    <string name="leadership_tasks_field_for_person">%1$s ಗೆ ವಹಿಸಲಾಗುತ್ತದೆ</string>
     <string name="leadership_tasks_comment_label">ಟಿಪ್ಪಣಿಗಳು</string>
     <string name="leadership_tasks_comment_placeholder">ಈ ಕಾರ್ಯದ ಬಗ್ಗೆ ಟಿಪ್ಪಣಿ ಸೇರಿಸಿ</string>
     <string name="leadership_tasks_comment_save">ಟಿಪ್ಪಣಿ ಉಳಿಸಿ</string>

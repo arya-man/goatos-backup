@@ -99,6 +99,8 @@ type taskPagePayload struct {
 type assigneePayload struct {
 	UserID string `json:"user_id"`
 	Name   string `json:"name"`
+	// Title is what the picker lists; Name is revealed beneath once a title is chosen.
+	Title string `json:"title"`
 }
 
 type assigneesPayload struct {

@@ -269,3 +269,31 @@ func validPersonEmail(email string) bool {
 	local, domainPart, ok := strings.Cut(email, "@")
 	return ok && local != "" && domainPart != "" && strings.Contains(domainPart, ".") && !strings.Contains(domainPart, "@")
 }
+
+// SetPersonTitle stores the person's business title (maintainer request 2026-09-11): the
+// title the Tasks picker shows in place of the name. Blank clears it. At most 80 chars,
+// single-line, the same shape as the picker renders.
+func (s *PeopleService) SetPersonTitle(ctx context.Context, tenantID, actorID, personID string, body domain.SetPersonTitleRequest, traceID string) (*domain.SetPersonTitleResponse, error) {
+	if err := validateTenantAndActor(tenantID, actorID); err != nil {
+		return nil, err
+	}
+	personID = strings.TrimSpace(personID)
+	if personID == "" {
+		return nil, BadRequest("person_id_required", "person id is required")
+	}
+	title := collapseSpaces(body.Title)
+	if len([]rune(title)) > 80 {
+		return nil, BadRequest("title_too_long", "Keep the title to 80 characters.")
+	}
+	if err := s.repo.SetPersonTitle(ctx, tenantID, personID, actorID, title); err != nil {
+		if errors.Is(err, ports.ErrPersonNotFound) {
+			return nil, NotFound("That person is no longer on the roster.")
+		}
+		return nil, err
+	}
+	resp := &domain.SetPersonTitleResponse{PersonID: personID, TraceID: traceID}
+	if title != "" {
+		resp.Title = &title
+	}
+	return resp, nil
+}

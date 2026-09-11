@@ -12,6 +12,7 @@ import { actionRedirect, optionalString, requiredString } from "@/lib/action-hel
 import {
   createWorkforcePerson,
   setWorkforcePersonStatus,
+  setWorkforcePersonTitle,
   type CreateWorkforcePersonRequest,
 } from "@/lib/api/server";
 
@@ -85,4 +86,17 @@ export async function changePersonStatusAction(formData: FormData): Promise<void
     "success",
     target === "deactivate" ? "action.person_deactivated" : "action.person_activated",
   );
+}
+
+// The person's business title (maintainer request 2026-09-11): what the Tasks assignee picker
+// shows in place of the name. Blank clears it.
+export async function setPersonTitleAction(formData: FormData): Promise<void> {
+  const personId = requiredString(formData, "person_id");
+  const title = optionalString(formData, "title") ?? "";
+  const result = await setWorkforcePersonTitle(personId, { title });
+  if (!result.ok) {
+    actionRedirect(formData, "error", "action.person_title_failed");
+  }
+  revalidatePath(PEOPLE_PATH);
+  actionRedirect(formData, "success", "action.person_title_saved");
 }

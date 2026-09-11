@@ -247,6 +247,40 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "409":
           $ref: "#/components/responses/WriteConflict"
+  /admin/workforce/people/{person_id}/title:
+    put:
+      tags:
+        - Operator Management
+      operationId: setWorkforcePersonTitle
+      summary: Set or clear one person's business title, the label the Tasks assignee picker shows in place of the name.
+      parameters:
+        - name: person_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SetPersonTitleRequest"
+      responses:
+        "200":
+          description: The stored title.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SetPersonTitleResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
   /admin/workforce/people/{person_id}/access:
     get:
       tags:
@@ -5098,6 +5132,26 @@ components:
           type: string
           minLength: 1
           maxLength: 200
+    SetPersonTitleRequest:
+      type: object
+      additionalProperties: false
+      required: [title]
+      properties:
+        title:
+          type: string
+          maxLength: 80
+          description: Blank clears the title; the picker then falls back to the designation label.
+    SetPersonTitleResponse:
+      type: object
+      additionalProperties: false
+      required: [person_id, title, trace_id]
+      properties:
+        person_id: { type: string, format: uuid }
+        title:
+          type:
+            - string
+            - "null"
+        trace_id: { type: string }
     PersonSummary:
       type: object
       additionalProperties: false
@@ -5111,6 +5165,7 @@ components:
         - status
         - role_hint
         - designation_grade
+        - title
         - park_id
         - park_label
         - department_id
@@ -5162,6 +5217,12 @@ components:
             - string
             - "null"
           maxLength: 40
+        title:
+          description: The person's business title ("CEO", "Preventive Care Director"), edited on People / HRMS; null when none is set.
+          type:
+            - string
+            - "null"
+          maxLength: 80
         park_id:
           type:
             - string

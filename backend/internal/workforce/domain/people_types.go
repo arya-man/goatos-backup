@@ -19,7 +19,11 @@ type PersonSummary struct {
 	// DesignationGrade is the HR grade (cxo/director/manager/assistant_manager)
 	// or empty when ungraded.
 	DesignationGrade *string `json:"designation_grade"`
-	ParkID           *string `json:"park_id"`
+	// Title is the person's business title ("CEO", "Preventive Care Director"), edited on
+	// People / HRMS and shown where a person is picked by what they are (the Tasks assignee
+	// picker). Nil when none is set; pickers then fall back to the designation label.
+	Title  *string `json:"title"`
+	ParkID *string `json:"park_id"`
 	ParkLabel        *string `json:"park_label"`
 	DepartmentID     *string `json:"department_id"`
 	DepartmentLabel  *string `json:"department_label"`
@@ -110,4 +114,17 @@ type PersonResponse struct {
 	Person  PersonSummary `json:"person"`
 	Login   PersonLogin   `json:"login"`
 	TraceID string        `json:"trace_id"`
+}
+
+// SetPersonTitleRequest is the body of PUT /admin/workforce/people/{person_id}/title.
+// An empty title clears it (the picker falls back to the designation label).
+type SetPersonTitleRequest struct {
+	Title string `json:"title"`
+}
+
+// SetPersonTitleResponse echoes what was stored.
+type SetPersonTitleResponse struct {
+	PersonID string  `json:"person_id"`
+	Title    *string `json:"title"`
+	TraceID  string  `json:"trace_id"`
 }

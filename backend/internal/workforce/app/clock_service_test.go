@@ -485,3 +485,5 @@ func moduleKeysOf(modules []domain.BootstrapModule) []string {
 	}
 	return keys
 }
+
+func (fakeClockPeople) SetPersonTitle(context.Context, string, string, string, string) error { return nil }

@@ -205,7 +205,15 @@ data class LeadershipDraftAttachmentUi(
 data class LeadershipAssigneeUi(
     val userId: String,
     val name: String,
-)
+    /**
+     * What the picker SHOWS (maintainer request 2026-09-11): the person's HRMS title -- "CEO",
+     * "Preventive Care Director". Backend-owned; blank only against an older server, in which
+     * case the name is shown instead. The name is revealed beneath once a title is chosen.
+     */
+    val title: String = "",
+) {
+    val label: String get() = title.ifBlank { name }
+}
 
 @Immutable
 data class LeadershipTaskComposeUiState(

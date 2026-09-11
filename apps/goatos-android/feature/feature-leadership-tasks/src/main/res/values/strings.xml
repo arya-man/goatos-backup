@@ -35,6 +35,7 @@
     <string name="leadership_tasks_save">Save</string>
     <string name="leadership_tasks_sending">Sending…</string>
     <string name="leadership_tasks_field_for_placeholder">Choose who this is for</string>
+    <string name="leadership_tasks_field_for_person">Assigned to %1$s</string>
     <string name="leadership_tasks_comment_label">Comments</string>
     <string name="leadership_tasks_comment_placeholder">Add a note back on this task</string>
     <string name="leadership_tasks_comment_save">Save comment</string>

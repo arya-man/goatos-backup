@@ -26,6 +26,7 @@
     <string name="leadership_tasks_save">సేవ్ చేయండి</string>
     <string name="leadership_tasks_sending">పంపుతోంది…</string>
     <string name="leadership_tasks_field_for_placeholder">ఇది ఎవరికి అని ఎంచుకోండి</string>
+    <string name="leadership_tasks_field_for_person">%1$s కు కేటాయించబడుతుంది</string>
     <string name="leadership_tasks_comment_label">వ్యాఖ్యలు</string>
     <string name="leadership_tasks_comment_placeholder">ఈ పనిపై ఒక నోట్ జోడించండి</string>
     <string name="leadership_tasks_comment_save">వ్యాఖ్యను సేవ్ చేయండి</string>

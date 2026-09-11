@@ -266,3 +266,5 @@ func TestTenantScopedRoleIgnoresParkForScopeButKeepsLocation(t *testing.T) {
 		t.Fatalf("primary location park should still be recorded, got %q", repo.created.ParkID)
 	}
 }
+
+func (f *fakePeopleRepo) SetPersonTitle(context.Context, string, string, string, string) error { return nil }

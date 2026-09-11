@@ -7582,6 +7582,8 @@ export interface components {
             /** Format: uuid */
             user_id: string;
             name: string;
+            /** @description What the picker lists -- the person's HRMS business title ("CEO", "Preventive Care Director"), falling back to their designation label. The name is shown beneath once a title is chosen. */
+            title: string;
         };
         LeadershipTaskAssignees: {
             assignees: components["schemas"]["LeadershipTaskAssignee"][];

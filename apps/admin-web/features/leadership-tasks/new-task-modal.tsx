@@ -24,7 +24,9 @@ export function NewTaskModal({
   const [open, setOpen] = useState(false);
   const [idempotencyKey, setIdempotencyKey] = useState("");
   const [title, setTitle] = useState("");
+  const [assigneeId, setAssigneeId] = useState("");
   const [picked, setPicked] = useState<Record<string, number>>({});
+  const chosen = assignees.find((a) => a.user_id === assigneeId);
   const openerRef = useRef<HTMLButtonElement>(null);
   const firstFieldRef = useRef<HTMLSelectElement>(null);
   const headingId = useId();
@@ -32,6 +34,7 @@ export function NewTaskModal({
   const openModal = useCallback(() => {
     setIdempotencyKey(`admin-web-leadership-task:${crypto.randomUUID()}`);
     setTitle("");
+    setAssigneeId("");
     setPicked({});
     setOpen(true);
   }, []);
@@ -107,21 +110,30 @@ export function NewTaskModal({
               <input type="hidden" name="return_to" value={returnTo} />
               <label className="fld">
                 <span>For</span>
+                {/* The picker lists people by what they ARE -- the title from People / HRMS
+                    (maintainer request 2026-09-11); the person is revealed beneath once chosen.
+                    Two people with one title stay distinct because each option is one person. */}
                 <select
                   ref={firstFieldRef}
                   name="assignee_user_id"
                   required
-                  defaultValue=""
+                  value={assigneeId}
+                  onChange={(event) => setAssigneeId(event.target.value)}
                 >
                   <option value="" disabled>
                     Choose who this is for
                   </option>
                   {assignees.map((assignee) => (
                     <option key={assignee.user_id} value={assignee.user_id}>
-                      {assignee.name}
+                      {assignee.title || assignee.name}
                     </option>
                   ))}
                 </select>
+                {chosen ? (
+                  <small className="lt-assignee-hint">
+                    Assigned to <b>{chosen.name}</b>
+                  </small>
+                ) : null}
               </label>
               <label className="fld">
                 <span>Title</span>

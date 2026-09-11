@@ -22,6 +22,8 @@ import kotlinx.serialization.Serializable
 data class LeadershipAssigneeDto(
     @SerialName("user_id") val userId: String = "",
     @SerialName("name") val name: String = "",
+    /** What the picker lists (HRMS title, else designation label); blank on an older server. */
+    @SerialName("title") val title: String = "",
 )
 
 @Serializable

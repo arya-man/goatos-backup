@@ -4733,3 +4733,5 @@ select:disabled { opacity: .45; }
 .lt-page table.lt-task-table td:nth-child(2),.lt-page table.lt-task-table td:nth-child(3){white-space:normal;min-width:170px;overflow-wrap:anywhere}
 .lt-page table.lt-task-table td:first-child{min-width:220px}
 .lt-page .lt-opname>span:last-child{min-width:0;white-space:normal;overflow-wrap:anywhere}
+.lt-modal .lt-assignee-hint{display:block;margin-top:6px;color:var(--muted);font-size:12px}
+.lt-modal .lt-assignee-hint b{color:var(--text)}

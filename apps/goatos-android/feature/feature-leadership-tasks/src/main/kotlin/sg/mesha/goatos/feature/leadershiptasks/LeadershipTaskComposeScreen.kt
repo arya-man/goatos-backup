@@ -122,6 +122,16 @@ fun LeadershipTaskComposeScreen(
                         placeholder = stringResource(R.string.leadership_tasks_field_for_placeholder),
                         onSelect = { onEvent(LeadershipTaskComposeEvent.SelectAssignee(it)) },
                     )
+                    // The picker lists titles; the person behind the chosen title is shown here
+                    // (maintainer request 2026-09-11). Only when the title is not already the name.
+                    val chosen = state.assignees.firstOrNull { it.userId == state.selectedAssigneeId }
+                    if (chosen != null && chosen.title.isNotBlank()) {
+                        Text(
+                            text = stringResource(R.string.leadership_tasks_field_for_person, chosen.name),
+                            color = MeshaColors.Muted,
+                            style = MeshaType.caption,
+                        )
+                    }
                 }
             }
 
@@ -226,7 +236,7 @@ private fun LeadershipAssigneeDropdown(
     onSelect: (String) -> Unit,
 ) {
     var open by remember { mutableStateOf(false) }
-    val selectedName = assignees.firstOrNull { it.userId == selectedId }?.name
+    val selectedName = assignees.firstOrNull { it.userId == selectedId }?.label
     Box(modifier = Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier
@@ -272,7 +282,7 @@ private fun LeadershipAssigneeDropdown(
                 DropdownMenuItem(
                     text = {
                         Text(
-                            text = assignee.name,
+                            text = assignee.label,
                             color = if (assignee.userId == selectedId) MeshaColors.BrandD else MeshaColors.Ink,
                             style = MeshaType.bodyStrong,
                         )

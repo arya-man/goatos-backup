@@ -347,8 +347,10 @@ func TestLeadershipTaskListOneToManyPaginationPageBoundaryAndEveryStatusBuckets(
 	if page1.UnseenCount != 4 {
 		t.Fatalf("unseen = %d, want 4 (cancelled excluded)", page1.UnseenCount)
 	}
-	if page1.ScopeCounts[domain.ScopeAssignedToMe] != 4 || page1.ScopeCounts[domain.ScopeAssignedByMe] != 0 || page1.ScopeCounts[domain.ScopeTeamProgress] != 7 {
-		t.Fatalf("scope counts = %v, want assigned_to_me=4 assigned_by_me=0 team_progress=7", page1.ScopeCounts)
+	// Seven raised, one cancelled: Team progress hides cancelled, so its chip and its list
+	// both say 6 -- a tab badge must never advertise a row the tab does not show.
+	if page1.ScopeCounts[domain.ScopeAssignedToMe] != 4 || page1.ScopeCounts[domain.ScopeAssignedByMe] != 0 || page1.ScopeCounts[domain.ScopeTeamProgress] != 6 {
+		t.Fatalf("scope counts = %v, want assigned_to_me=4 assigned_by_me=0 team_progress=6", page1.ScopeCounts)
 	}
 	page2, err := repo.ListTasks(ctx, ports.ListParams{TenantID: ltTenant, UserID: ltCXO, Scope: domain.ScopeAssignedToMe, Statuses: domain.StatusesForFilter(domain.FilterAll), Limit: 3, Cursor: page1.NextCursor})
 	if err != nil {
@@ -393,13 +395,30 @@ func TestLeadershipTaskListOneToManyPaginationPageBoundaryAndEveryStatusBuckets(
 	if len(directorPage.Rows) != 6 || directorPage.UnseenCount != 0 {
 		t.Fatalf("director sees %d rows (want 6 uncancelled raised) unseen=%d", len(directorPage.Rows), directorPage.UnseenCount)
 	}
-	teamPage, _ := repo.ListTasks(ctx, ports.ListParams{TenantID: ltTenant, UserID: ltDirector, Scope: domain.ScopeTeamProgress, Statuses: domain.StatusesForFilter(domain.FilterAll), Limit: 20})
-	if len(teamPage.Rows) != 7 {
-		t.Fatalf("team progress sees %d rows, want 7 uncancelled tenant tasks", len(teamPage.Rows))
+	teamPage, err := repo.ListTasks(ctx, ports.ListParams{TenantID: ltTenant, UserID: ltDirector, Scope: domain.ScopeTeamProgress, Statuses: domain.StatusesForFilter(domain.FilterAll), Limit: 20})
+	if err != nil || len(teamPage.Rows) != 6 {
+		t.Fatalf("team progress sees %d rows (err %v), want 6 uncancelled tenant tasks", len(teamPage.Rows), err)
+	}
+	// The picker lists TITLES (maintainer request 2026-09-11): Ravi's HRMS title when one is
+	// set, Manohar's designation label when none is. Ordered by title, so the CTO sorts after
+	// the catalog label. Both title joins are 1:1 on the person's PK: two assignees stay two rows.
+	if _, err := pool.Exec(ctx, `
+INSERT INTO workforce_member_titles (tenant_id, workforce_member_id, title)
+SELECT tenant_id, workforce_member_id, 'CTO' FROM workforce_members WHERE tenant_id = $1::uuid AND user_id = $2::uuid`, ltTenant, ltCXO); err != nil {
+		t.Fatalf("seed title: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+INSERT INTO person_access (tenant_id, workforce_member_id, designation_code)
+SELECT tenant_id, workforce_member_id, 'ceo_internal' FROM workforce_members WHERE tenant_id = $1::uuid AND user_id = $2::uuid
+ON CONFLICT DO NOTHING`, ltTenant, ltCXO2); err != nil {
+		t.Fatalf("seed designation: %v", err)
 	}
 	assignees, err := repo.ListAssignees(ctx, ltTenant)
 	if err != nil || len(assignees) != 2 || assignees[0].Name != "Manohar" || assignees[1].Name != "Ravi" {
 		t.Fatalf("assignees = %+v err %v (Dinakar is ticked but holds no leadership grant)", assignees, err)
+	}
+	if assignees[0].Title != "CEO / CXO" || assignees[1].Title != "CTO" {
+		t.Fatalf("assignee titles = %q, %q; want designation label for Manohar and the HRMS title for Ravi", assignees[0].Title, assignees[1].Title)
 	}
 	// Aggregate projection proof names for this changed predicate: OneToMany grants do not
 	// duplicate assignees, Pagination remains covered by the >100 assignee page below, and
@@ -481,6 +500,100 @@ func TestTeamProgressUnfilteredReadBindsOnlyWhatItReads(t *testing.T) {
 		}
 		if scope != domain.ScopeAssignedToMe && len(page.Rows) != 1 {
 			t.Fatalf("unfiltered %s sees %d rows, want 1", scope, len(page.Rows))
+		}
+	}
+}
+
+// The title joins added for the picker (workforce_member_titles, person_access,
+// designation_catalog) must not change the picker's grain: one row per ticked leader.
+//   - OneToMany: a person holding SEVERAL active grants (director + park head + toxin tester)
+//     and a title and a designation is still ONE row, with ONE title.
+//   - Pagination: the list is bounded by the tick, never paged; 100+ titled leaders all return.
+//   - StatusBuckets: a ticked leader whose roster row is inactive is not listed, whatever title
+//     they carry -- the member status filter still governs.
+func TestListAssigneesTitleJoinsKeepOneToManyGrantsPaginationAndStatusBucketsHonest(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	seedLeadershipFixture(t, ctx, pool)
+	repo := NewRepository(pool, 10*time.Second)
+
+	// Ravi: three grants, a title AND a designation. One row, the HRMS title wins.
+	for _, role := range []string{"park_head", "toxin_tester"} {
+		if _, err := pool.Exec(ctx, `
+INSERT INTO user_scope_grants (tenant_id, user_id, role, scope_type, scope_id, status, valid_from)
+VALUES ($1::uuid, $2::uuid, $3, 'tenant', $1::uuid, 'active', now() - interval '1 day')`, ltTenant, ltCXO, role); err != nil {
+			t.Fatalf("seed extra grant: %v", err)
+		}
+	}
+	if _, err := pool.Exec(ctx, `
+INSERT INTO workforce_member_titles (tenant_id, workforce_member_id, title)
+SELECT tenant_id, workforce_member_id, 'CTO' FROM workforce_members WHERE tenant_id = $1::uuid AND user_id = $2::uuid`, ltTenant, ltCXO); err != nil {
+		t.Fatalf("seed title: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+INSERT INTO person_access (tenant_id, workforce_member_id, designation_code)
+SELECT tenant_id, workforce_member_id, 'ceo_internal' FROM workforce_members WHERE tenant_id = $1::uuid AND user_id = $2::uuid
+ON CONFLICT DO NOTHING`, ltTenant, ltCXO); err != nil {
+		t.Fatalf("seed designation: %v", err)
+	}
+	// Manohar: ticked, granted, titled -- but INACTIVE on the roster. Never listed.
+	if _, err := pool.Exec(ctx, `
+INSERT INTO workforce_member_titles (tenant_id, workforce_member_id, title)
+SELECT tenant_id, workforce_member_id, 'COO' FROM workforce_members WHERE tenant_id = $1::uuid AND user_id = $2::uuid`, ltTenant, ltCXO2); err != nil {
+		t.Fatalf("seed title 2: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE workforce_members SET status = 'inactive' WHERE tenant_id = $1::uuid AND user_id = $2::uuid`, ltTenant, ltCXO2); err != nil {
+		t.Fatalf("deactivate: %v", err)
+	}
+	// 101 titled, granted, ticked directors: all of them come back, each once, each with a title.
+	for i := 0; i < 101; i++ {
+		userID := fmt.Sprintf("00000000-0000-4000-8000-00000002%04d", i)
+		var memberID string
+		if err := pool.QueryRow(ctx, `
+INSERT INTO workforce_members (tenant_id, user_id, display_code, display_name, status)
+VALUES ($1::uuid, $2::uuid, $3, $4, 'active') RETURNING workforce_member_id::text`, ltTenant, userID, fmt.Sprintf("DIR%03d", i), fmt.Sprintf("Director %03d", i)).Scan(&memberID); err != nil {
+			t.Fatalf("seed director %03d: %v", i, err)
+		}
+		if _, err := pool.Exec(ctx, `
+INSERT INTO user_scope_grants (tenant_id, user_id, role, scope_type, scope_id, status, valid_from)
+VALUES ($1::uuid, $2::uuid, 'feed_director', 'tenant', $1::uuid, 'active', now() - interval '1 day')`, ltTenant, userID); err != nil {
+			t.Fatalf("seed director grant %03d: %v", i, err)
+		}
+		if _, err := pool.Exec(ctx, `
+INSERT INTO person_module_access (tenant_id, workforce_member_id, surface, module_key, capabilities)
+VALUES ($1::uuid, $2::uuid, 'mobile', 'leadership_tasks', ARRAY['view','oversee']::text[])`, ltTenant, memberID); err != nil {
+			t.Fatalf("seed director tick %03d: %v", i, err)
+		}
+		if _, err := pool.Exec(ctx, `
+INSERT INTO workforce_member_titles (tenant_id, workforce_member_id, title) VALUES ($1::uuid, $2::uuid, $3)`, ltTenant, memberID, fmt.Sprintf("Feed Director %03d", i)); err != nil {
+			t.Fatalf("seed director title %03d: %v", i, err)
+		}
+	}
+
+	assignees, err := repo.ListAssignees(ctx, ltTenant)
+	if err != nil {
+		t.Fatalf("list assignees: %v", err)
+	}
+	if len(assignees) != 102 {
+		t.Fatalf("assignees len = %d, want 102 (Ravi once despite three grants, 101 directors, Manohar excluded as inactive)", len(assignees))
+	}
+	seen := map[string]int{}
+	for _, a := range assignees {
+		seen[a.UserID]++
+		if a.Title == "" {
+			t.Fatalf("assignee %s (%s) has no title", a.Name, a.UserID)
+		}
+		if a.Name == "Manohar" {
+			t.Fatalf("inactive Manohar must not be listed: %+v", a)
+		}
+	}
+	if seen[ltCXO] != 1 {
+		t.Fatalf("Ravi listed %d times, want 1", seen[ltCXO])
+	}
+	for _, a := range assignees {
+		if a.UserID == ltCXO && a.Title != "CTO" {
+			t.Fatalf("Ravi title = %q, want the HRMS title over the designation label", a.Title)
 		}
 	}
 }

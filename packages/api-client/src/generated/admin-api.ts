@@ -60,6 +60,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/workforce/people/{person_id}/title": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Set or clear one person's business title, the label the Tasks assignee picker shows in place of the name. */
+        put: operations["setWorkforcePersonTitle"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/workforce/people/{person_id}/access": {
         parameters: {
             query?: never;
@@ -2120,6 +2137,16 @@ export interface components {
             operator: components["schemas"]["OperatorProfile"];
             trace_id: string;
         };
+        SetPersonTitleRequest: {
+            /** @description Blank clears the title; the picker then falls back to the designation label. */
+            title: string;
+        };
+        SetPersonTitleResponse: {
+            /** Format: uuid */
+            person_id: string;
+            title: string | null;
+            trace_id: string;
+        };
         PersonSummary: {
             /** Format: uuid */
             person_id: string;
@@ -2132,6 +2159,8 @@ export interface components {
             status: string;
             role_hint: string;
             designation_grade: string | null;
+            /** @description The person's business title ("CEO", "Preventive Care Director"), edited on People / HRMS; null when none is set. */
+            title: string | null;
             /** Format: uuid */
             park_id: string | null;
             park_label: string | null;
@@ -4824,6 +4853,36 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             409: components["responses"]["WriteConflict"];
+        };
+    };
+    setWorkforcePersonTitle: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                person_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetPersonTitleRequest"];
+            };
+        };
+        responses: {
+            /** @description The stored title. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SetPersonTitleResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
         };
     };
     getWorkforcePersonAccess: {
