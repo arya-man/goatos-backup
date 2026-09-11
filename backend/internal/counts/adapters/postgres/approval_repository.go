@@ -442,13 +442,18 @@ WHERE tenant_id = $1::uuid
   AND status = $2
   AND request_type = ANY($3::text[])
   AND ($4::timestamptz IS NULL OR (raised_at, approval_request_id) < ($4::timestamptz, $5::uuid))
-  -- P0-2 scope filter: a park-scoped caller ($7 non-empty) sees only requests in their park. The
-  -- park lives in the shifting payload (destination_park_id, == source park by P0-1); birth/death
-  -- carry no park and are decidable only by no-scope (CEO) callers, so they correctly drop out for
-  -- a scoped caller. An empty $7 (no scope) keeps every row.
-  AND ($7::text = '' OR (payload->>'destination_park_id') = $7::text)
+  -- P0-2 scope filter: a park-scoped caller ($7 non-empty) sees only requests in one of THEIR
+  -- parks. Every kind names its park: a pen move's destination_park_id (== source park by P0-1),
+  -- a birth's park_id, a death's subject animal (goats.park_id, the same authority read the
+  -- decision uses). An empty $7 (no scope) keeps every row.
+  AND ($7::text[] IS NULL OR cardinality($7::text[]) = 0 OR CASE request_type
+        WHEN 'shifting' THEN payload->>'destination_park_id'
+        WHEN 'birth' THEN payload->>'park_id'
+        WHEN 'death' THEN (SELECT g.park_id::text FROM goats g
+                            WHERE g.tenant_id = counts_approval_requests.tenant_id AND g.goat_id = counts_approval_requests.subject_goat_id)
+      END = ANY($7::text[]))
 ORDER BY raised_at DESC, approval_request_id DESC
-LIMIT $6`, q.TenantID, q.Status, q.RequestTypes, cursorRaisedAt, cursorID, pageSize+1, q.CallerParkID)
+LIMIT $6`, q.TenantID, q.Status, q.RequestTypes, cursorRaisedAt, cursorID, pageSize+1, q.CallerParkIDs)
 	if err != nil {
 		return domain.ApprovalRequestPage{}, fmt.Errorf("counts: list approval requests: %w", err)
 	}

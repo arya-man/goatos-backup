@@ -191,9 +191,9 @@ type ApprovalRequestQuery struct {
 	// through births.
 	RequestTypes []string
 
-	// P1: CallerParkID filters the page to requests in the caller's park scope.
-	// Empty string means no scope restriction (e.g. CEO/internal).
-	CallerParkID string
+	// P1: CallerParkIDs filters the page to requests in the caller's park scope: every park the
+	// caller holds a park grant in. Empty means no scope (a tenant-scoped caller).
+	CallerParkIDs []string
 
 	PageSize int
 	Cursor   *ApprovalRequestCursor
