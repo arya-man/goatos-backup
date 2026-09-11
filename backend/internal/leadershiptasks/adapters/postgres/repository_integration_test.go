@@ -47,7 +47,8 @@ VALUES ($1::uuid, $2::uuid, $3, $4, 'active')`, ltTenant, p.userID, p.code, p.na
 			t.Fatalf("seed member %s: %v", p.name, err)
 		}
 	}
-	// Assignability is the person's own mobile tick at Oversee, never the role.
+	// Assignability is the person's own mobile tick at Oversee PLUS an active leadership grant
+	// (CEO/CXO, park head, director). Dinakar below is ticked with no grant: never assignable.
 	for _, cxo := range []string{ltCXO, ltCXO2} {
 		if _, err := pool.Exec(ctx, `
 INSERT INTO user_scope_grants (tenant_id, user_id, role, scope_type, scope_id, status, valid_from)
@@ -397,8 +398,25 @@ func TestLeadershipTaskListOneToManyPaginationPageBoundaryAndEveryStatusBuckets(
 		t.Fatalf("team progress sees %d rows, want 7 uncancelled tenant tasks", len(teamPage.Rows))
 	}
 	assignees, err := repo.ListAssignees(ctx, ltTenant)
-	if err != nil || len(assignees) != 3 || assignees[0].Name != "Dinakar" || assignees[1].Name != "Manohar" || assignees[2].Name != "Ravi" {
-		t.Fatalf("assignees = %+v err %v", assignees, err)
+	if err != nil || len(assignees) != 2 || assignees[0].Name != "Manohar" || assignees[1].Name != "Ravi" {
+		t.Fatalf("assignees = %+v err %v (Dinakar is ticked but holds no leadership grant)", assignees, err)
+	}
+	// Aggregate projection proof names for this changed predicate: OneToMany grants do not
+	// duplicate assignees, Pagination remains covered by the >100 assignee page below, and
+	// EveryStatusBuckets stays covered by the task status matrix above.
+	// A tick with no leadership grant is refused at raise time too, by the same predicate.
+	if _, err := repo.Raise(ctx, raiseParams(ltDirector2, "Ticked, no grant", "raise-no-grant")); !errors.Is(err, domain.ErrAssigneeNotAssignable) {
+		t.Fatalf("raise for ticked-but-ungranted assignee: err = %v, want ErrAssigneeNotAssignable", err)
+	}
+	// Granting Dinakar a park-head role puts him on the list at once.
+	if _, err := pool.Exec(ctx, `
+INSERT INTO user_scope_grants (tenant_id, user_id, role, scope_type, scope_id, status, valid_from)
+VALUES ($1::uuid, $2::uuid, 'park_head', 'tenant', $1::uuid, 'active', now() - interval '1 day')`, ltTenant, ltDirector2); err != nil {
+		t.Fatalf("seed park head grant: %v", err)
+	}
+	assignees, err = repo.ListAssignees(ctx, ltTenant)
+	if err != nil || len(assignees) != 3 || assignees[0].Name != "Dinakar" {
+		t.Fatalf("assignees after park head grant = %+v err %v", assignees, err)
 	}
 	_ = cxo
 }
@@ -423,14 +441,20 @@ SELECT $1::uuid, workforce_member_id, 'mobile', 'leadership_tasks', ARRAY['view'
 FROM workforce_members WHERE tenant_id = $1::uuid AND user_id = $2::uuid`, ltTenant, userID); err != nil {
 			t.Fatalf("seed employee tick %03d: %v", i, err)
 		}
+		if _, err := pool.Exec(ctx, `
+INSERT INTO user_scope_grants (tenant_id, user_id, role, scope_type, scope_id, status, valid_from)
+VALUES ($1::uuid, $2::uuid, 'park_head', 'tenant', $1::uuid, 'active', now() - interval '1 day')`, ltTenant, userID); err != nil {
+			t.Fatalf("seed employee grant %03d: %v", i, err)
+		}
 	}
 
 	assignees, err := repo.ListAssignees(ctx, ltTenant)
 	if err != nil {
 		t.Fatalf("list assignees: %v", err)
 	}
-	if len(assignees) != 104 {
-		t.Fatalf("assignees len = %d, want 104", len(assignees))
+	// 101 ticked park heads + Ravi + Manohar; Dinakar is ticked with no leadership grant.
+	if len(assignees) != 103 {
+		t.Fatalf("assignees len = %d, want 103", len(assignees))
 	}
 	if got := assignees[len(assignees)-1].Name; got != "Worker 100" {
 		t.Fatalf("last assignee = %q, want Worker 100", got)

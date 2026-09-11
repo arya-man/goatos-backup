@@ -29,6 +29,11 @@ func TestBootstrapPublishesAdminWebContract(t *testing.T) {
 	if resp.Navigation.Primary[0].Label != "Approvals" {
 		t.Fatalf("first primary nav = %#v", resp.Navigation.Primary[0])
 	}
+	// Tasks is back on the primary bar (maintainer request 2026-09-11) so leaders can raise
+	// and follow tasks from the web desk.
+	if leaf := optionalPrimaryNavItemByID(resp.Navigation.Primary, "leadership-tasks"); leaf == nil || leaf.Href != "/tasks" {
+		t.Fatalf("Tasks must be a primary nav leaf at /tasks, got %#v", leaf)
+	}
 	// Calendar, the four command lenses and DLQ Center are parked from the sidebar
 	// (maintainer request 2026-09-09): no leaf anywhere, but the page contract stays served
 	// at its unchanged route for deep links. Tasks was parked with them and restored on

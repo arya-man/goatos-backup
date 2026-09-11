@@ -70,8 +70,9 @@ type ModulePage struct {
 // describes vaccination process gaps today, and giving them a module of their own would
 // have created a module nobody's backfilled role holds.
 var modulePages = []ModulePage{
-	// Control Tower, Action Center, Protocol Adherence, Workflows, Calendar, Tasks and DLQ
-	// Center are parked from the sidebar (maintainer request 2026-09-09), but they stay in
+	// Control Tower, Action Center, Protocol Adherence, Workflows, Calendar and DLQ Center
+	// are parked from the sidebar (maintainer request 2026-09-09; Tasks was parked with them
+	// and came back 2026-09-11), but they stay in
 	// the page catalog: page ticks are also what make typed URLs fail closed for withheld
 	// pages.
 	{Key: "control-tower", Module: "vaccination", Label: "Control Tower", Href: "/?lens=control-tower", Permissions: []string{ObligationRead, VaccinationRead}, HiddenFromNav: true},

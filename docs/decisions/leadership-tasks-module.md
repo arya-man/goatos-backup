@@ -29,6 +29,10 @@ the most senior people in the company.
    there, only for them"). The migration seeds CXOs at View only and then ticks the three the
    maintainer named by email -- Ravi, Manju and Aryaman -- so everyone else is opt-in from the
    access editor. A CXO holds no raise permission.
+   **Amended 2026-09-11:** the tick alone let every ticked worker into the picker, so the
+   picker (and the raise-time check, same predicate) now ALSO requires an active leadership
+   grant -- `ceo_internal`, `park_head` or one of the six director roles. The tick still opts
+   a leader in or out; the grant keeps operators and other staff off the list.
 2. **Status is owned by the assignee; the raiser only cancels.** `open → in_progress →
    done`, with a reopen of a done task allowed to the assignee (a mis-tap is real), and
    `cancelled` terminal for everyone. The transition rule and the buttons the screen shows

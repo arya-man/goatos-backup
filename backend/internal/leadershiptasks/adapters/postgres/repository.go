@@ -84,12 +84,14 @@ func scanTask(row pgx.Row) (domain.Task, error) {
 
 // ListAssignees lists every person a task may be raised for: an ACTIVE roster member whose
 // own mobile ticks carry the Tasks module at Oversee (maintainer decision 2026-09-04: "keep it
-// optional -- if they are selected there, only for them"). The CXO role decides nothing here;
-// the /people access editor does, and unticking someone takes them off this list at once.
+// optional -- if they are selected there, only for them") AND who holds an active leadership
+// grant -- CEO/CXO, a park head or a director (maintainer request 2026-09-11: the picker was
+// listing every ticked worker; it must show only CXOs, park heads and directors). The tick
+// still opts a leader in or out on /people; the role grant keeps the rank and file off the list.
 func (r *Repository) ListAssignees(ctx context.Context, tenantID string) ([]ports.Assignee, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
-	rows, err := r.pool.Query(ctx, sqlListAssignees, tenantID, permissions.SurfaceMobile, leadershipTasksModuleKey, permissions.LevelOversee)
+	rows, err := r.pool.Query(ctx, sqlListAssignees, tenantID, permissions.SurfaceMobile, leadershipTasksModuleKey, permissions.LevelOversee, assignableLeadershipRoles)
 	if err != nil {
 		return nil, fmt.Errorf("leadership task: list assignees: %w", err)
 	}
@@ -360,10 +362,11 @@ func (r *Repository) Raise(ctx context.Context, p ports.RaiseParams) (domain.Tas
 		return r.getRow(ctx, r.pool, p.TenantID, reservation.resultID, false)
 	}
 
-	// The assignee must be assignable NOW, by the same tick the picker reads, checked inside
-	// the write: the picker is a read that can go stale between the form opening and the send.
+	// The assignee must be assignable NOW, by the same tick AND leadership grant the picker
+	// reads, checked inside the write: the picker is a read that can go stale between the form
+	// opening and the send.
 	var assignable bool
-	if err := tx.QueryRow(ctx, sqlAssigneeIsTicked, p.TenantID, p.AssigneeUserID, permissions.SurfaceMobile, leadershipTasksModuleKey, permissions.LevelOversee).Scan(&assignable); err != nil {
+	if err := tx.QueryRow(ctx, sqlAssigneeIsTicked, p.TenantID, p.AssigneeUserID, permissions.SurfaceMobile, leadershipTasksModuleKey, permissions.LevelOversee, assignableLeadershipRoles).Scan(&assignable); err != nil {
 		return domain.Task{}, fmt.Errorf("leadership task: check assignee: %w", err)
 	}
 	if !assignable {
@@ -887,6 +890,21 @@ ORDER BY n.task_id, n.created_at, n.note_id`
 // leadershipTasksModuleKey is the module_key the /people ticks store for this module.
 const leadershipTasksModuleKey = "leadership_tasks"
 
+// assignableLeadershipRoles are the grants a person must hold (active, unexpired) on top of
+// the Oversee tick to appear in the picker and to be raised for: the CXO desk, every park
+// head and every director. An operator, verifier, HR or procurement manager with a stray
+// tick is NOT assignable.
+var assignableLeadershipRoles = []string{
+	permissions.RoleCEOInternal,
+	permissions.RoleParkHead,
+	permissions.RolePCDirector,
+	permissions.RoleGrowthDirector,
+	permissions.RoleFeedDirector,
+	permissions.RoleHealthDirector,
+	permissions.RoleBreedingDirector,
+	permissions.RoleProcurementDirector,
+}
+
 const sqlListAssignees = `
 SELECT m.user_id::text, m.display_name
 FROM public.person_module_access a
@@ -894,6 +912,12 @@ JOIN public.workforce_members m
   ON m.tenant_id = a.tenant_id AND m.workforce_member_id = a.workforce_member_id AND m.status = 'active'
 WHERE a.tenant_id = $1 AND a.surface = $2 AND a.module_key = $3 AND $4 = ANY(a.capabilities)
   AND m.user_id IS NOT NULL
+  AND EXISTS (
+    SELECT 1 FROM public.user_scope_grants g
+    WHERE g.tenant_id = m.tenant_id AND g.user_id = m.user_id
+      AND g.status = 'active' AND (g.valid_to IS NULL OR g.valid_to > now())
+      AND g.role = ANY($5::text[])
+  )
 ORDER BY m.display_name, m.user_id::text`
 
 const sqlAssigneeIsTicked = `
@@ -903,4 +927,10 @@ SELECT EXISTS (
     ON m.tenant_id = a.tenant_id AND m.workforce_member_id = a.workforce_member_id AND m.status = 'active'
   WHERE a.tenant_id = $1 AND m.user_id = $2::uuid
     AND a.surface = $3 AND a.module_key = $4 AND $5 = ANY(a.capabilities)
+    AND EXISTS (
+      SELECT 1 FROM public.user_scope_grants g
+      WHERE g.tenant_id = m.tenant_id AND g.user_id = m.user_id
+        AND g.status = 'active' AND (g.valid_to IS NULL OR g.valid_to > now())
+        AND g.role = ANY($6::text[])
+    )
 )`
