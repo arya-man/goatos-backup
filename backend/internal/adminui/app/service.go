@@ -99,10 +99,11 @@ func navLeafDomain(id, label, href, module string, extra map[string]string) doma
 func navigation() domain.NavigationContract {
 	return domain.NavigationContract{
 		Primary: []domain.NavigationItem{
-			// Calendar and Tasks are parked from the sidebar (maintainer request 2026-09-09,
-			// together with the four command lenses and DLQ Center below). The pages stay
-			// served at their routes for deep links; keep the restore lines so scope guards
-			// can tell they are withheld deliberately, not lost.
+			// Calendar is parked from the sidebar (maintainer request 2026-09-09, together with
+			// the four command lenses and DLQ Center below). The page stays served at its route
+			// for deep links; keep the restore line so scope guards can tell it is withheld
+			// deliberately, not lost. Tasks was parked the same day and RESTORED on 2026-09-11
+			// (maintainer request: raise tasks from the web desk too) -- see below Verify.
 			// navItem("calendar", "Calendar", "/calendar", "calendar-days", ""),
 			// Approvals is a top-level decision surface (maintainer decision 2026-07-21): the queue of
 			// pending birth/death/shifting requests, approved or rejected here. Moved off mobile;
@@ -118,7 +119,9 @@ func navigation() domain.NavigationContract {
 			// "Actions", the vaguest possible label for a screen that does exactly one thing: open a
 			// proof video, check it against the facts, accept or reject.
 			navItemDomain("verification-actions", "Verify", "/verify", "clipboard-check", "", "admin.verification"),
-			// navItem("leadership-tasks", "Tasks", "/tasks", "clipboard-list", ""),
+			// Tasks: leadership asks raised across CXOs, directors and park heads. Restored to
+			// the sidebar 2026-09-11; the web desk raises as well as monitors.
+			navItem("leadership-tasks", "Tasks", "/tasks", "clipboard-list", ""),
 		},
 		Groups: []domain.NavigationGroup{
 			{
@@ -395,7 +398,7 @@ func pages() []domain.PageContract {
 				table("leave-approvals", "Waiting for you", "/admin-web/leave/approvals", []string{"person", "dates", "reason", "status", "action"}, "leave_request_id"),
 				table("leave-requests", "All leave requests", "/admin/leave/requests", []string{"person", "park", "dates", "reason", "status", "raised_at"}, "leave_request_id"),
 			}),
-		page("leadership-tasks", "/tasks", "/tasks", "Tasks", "Manual tasks raised across directors, park heads, and employees, with notes and attachments.", "monitoring-screen",
+		page("leadership-tasks", "/tasks", "/tasks", "Tasks", "Tasks raised across CXOs, directors and park heads, with notes and attachments.", "monitoring-screen",
 			[]domain.TableContract{table("leadership-task-progress", "Team progress", "/app/leadership-tasks", []string{"task", "assignee", "raised_by", "status", "evidence", "priority"}, "task_id")}),
 		page("verification-review", "/verify", "/verify", "Verify", "Open a video, check it against the facts, and accept or reject it.", "authority-screen",
 			// "vertical_module" was DROPPED (maintainer decision 2026-08-07). It rendered the

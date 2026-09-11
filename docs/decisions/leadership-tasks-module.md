@@ -123,3 +123,49 @@ rule is kept for the CXO and restated as "a bar only when there is something to 
 (`barOnlyWhenSwitching` in the module registry): a CXO's Tasks module is still one list with no
 bar; a director's now carries **Raised by me** (this module's list) and **For me**. The list
 screen title stays "Tasks"; the two nav labels are backend copy in four locales.
+
+## Amendment 2026-09-11: assignees are leadership only, and the web desk raises too
+
+Two maintainer decisions from the same phone session, raising a task and finding the "+"
+picker full of operators.
+
+**1. A task is assigned to a CXO, a director or a park head -- never to an operator.** This
+SUPERSEDES the "director, park head, **or employee**" half of the 2026-09-08 two-way seed
+(migration `000285`), which had ticked every active employee at Oversee. The mechanism does
+not change: assignability is still the per-person **Oversee** tick on the Tasks module,
+read by the picker and by the raise-time check, and it stays editable on People / HRMS.
+Only the DATA changes. Migration `000292` withdraws Oversee from anyone holding no active
+leadership grant (`ceo_internal`, `park_head`, or any of the six director roles) -- and
+only where `000285` is what put the tick there, using its own rollback-tracking tables. A
+tick an admin set by hand on `/people` is a decision, not the seed going stale, and stays.
+View is kept, so the module itself is not withdrawn; an operator's Tasks tab is simply
+empty. Down restores exactly the rows it narrowed.
+
+Who holds what afterwards, on the role path plus the seeded ticks:
+
+| Designation | Phone: sees Tasks | Phone: can be assigned (Oversee) | Phone: can raise | Web: sees Tasks | Web: can raise |
+|---|---|---|---|---|---|
+| CXO (`ceo_internal`) | yes | yes | yes (Configure) | yes | yes |
+| Director (PC, Growth, Feed, Health, Procurement, Breeding) | yes | yes | yes (Do) | yes | yes |
+| Park head | yes | yes | no | no | no |
+| Operator, verifier, HR, per-person roles | yes (view only) | **no** | no | no | no |
+
+Any row in that table is a tick on `/people`, so a specific person can be widened or
+narrowed there without another migration -- that is the whole point of the per-person
+model and the reason the fix is data rather than a role check in the picker.
+
+**2. Tasks is back on the web sidebar, and the web desk raises.** The leaf was parked on
+2026-09-09 with the command lenses; the maintainer asked for it back so tasks can be created
+from admin-web as well as the phone. `/tasks` already carried the raise form behind the
+backend-owned `can_raise` (built for PR #220), so the change is the nav leaf and the page
+copy: `HiddenFromNav` cleared on the `leadership-tasks` catalog row and the primary
+`navItem` restored beside Verify. Pinned by `TestCEOReceivesLeadershipTasksPageContract`
+(leaf present at `/tasks`) and `TestBootstrapKeepsModeledNavAndAppliesRBACDisable` (an
+operator sees it RBAC-disabled).
+
+Pinned by `migrations/postgres.TestLeadershipTasksAssigneesNarrowToLeadershipOnly` (seven
+people through the exact `000285` shape; operator-seeded and operator-widened lose Oversee,
+the hand-ticked operator and every leadership row keep it, Up is idempotent, Down restores
+without a duplicate element) -- mutation-tested by removing the `000285` scoping, which
+strips the hand-ticked operator and turns it red -- and
+`TestLeadershipTasksAssigneeNarrowingIsScopedToTheTwoWaySeed`.

@@ -29,10 +29,11 @@ func TestBootstrapPublishesAdminWebContract(t *testing.T) {
 	if resp.Navigation.Primary[0].Label != "Approvals" {
 		t.Fatalf("first primary nav = %#v", resp.Navigation.Primary[0])
 	}
-	// Calendar, Tasks, the four command lenses and DLQ Center are parked from the sidebar
+	// Calendar, the four command lenses and DLQ Center are parked from the sidebar
 	// (maintainer request 2026-09-09): no leaf anywhere, but the page contract stays served
-	// at its unchanged route for deep links.
-	for _, id := range []string{"calendar", "leadership-tasks", "control-tower", "action-center", "protocol-adherence", "workflows", "dlq-center"} {
+	// at its unchanged route for deep links. Tasks was parked with them and restored on
+	// 2026-09-11 -- see TestCEOReceivesLeadershipTasksPageContract.
+	for _, id := range []string{"calendar", "control-tower", "action-center", "protocol-adherence", "workflows", "dlq-center"} {
 		if leaf := optionalPrimaryNavItemByID(resp.Navigation.Primary, id); leaf != nil {
 			t.Fatalf("%q must be parked from the primary nav, got %#v", id, leaf)
 		}
@@ -954,8 +955,14 @@ func TestBootstrapKeepsModeledNavAndAppliesRBACDisable(t *testing.T) {
 		},
 	})
 
-	if len(resp.Navigation.Primary) != 2 {
-		t.Fatalf("primary items (Approvals, Verify) must stay present, got %d", len(resp.Navigation.Primary))
+	if len(resp.Navigation.Primary) != 3 {
+		t.Fatalf("primary items (Approvals, Verify, Tasks) must stay present, got %d", len(resp.Navigation.Primary))
+	}
+	// Tasks is modeled for everyone and RBAC-disabled for an operator, who holds no
+	// leadership_tasks.read on the role path.
+	tasks := primaryNavByID(t, resp.Navigation.Primary, "leadership-tasks")
+	if tasks.Enabled {
+		t.Fatalf("tasks nav must be RBAC-disabled for an operator: %#v", tasks)
 	}
 	// Approvals is present but RBAC-disabled for an operator, who holds no counts.approve_access.
 	approvals := primaryNavByID(t, resp.Navigation.Primary, "approvals")
@@ -1013,10 +1020,10 @@ func TestCEOReceivesLeadershipTasksPageContract(t *testing.T) {
 		},
 	})
 
-	// Tasks is parked from the sidebar (maintainer request 2026-09-09); the page contract
-	// still serves /tasks by deep link.
-	if leaf := optionalPrimaryNavItemByID(resp.Navigation.Primary, "leadership-tasks"); leaf != nil {
-		t.Fatalf("Tasks must be parked from the primary nav, got %#v", leaf)
+	// Tasks sits on the primary sidebar (maintainer request 2026-09-11, reversing the
+	// 2026-09-09 parking): the web desk raises tasks as well as monitoring them.
+	if leaf := optionalPrimaryNavItemByID(resp.Navigation.Primary, "leadership-tasks"); leaf == nil || leaf.Href != "/tasks" {
+		t.Fatalf("Tasks must be on the primary nav at /tasks, got %#v", leaf)
 	}
 	if page := optionalPageByRouteID(resp.Pages, "leadership-tasks"); page == nil || page.Href != "/tasks" {
 		t.Fatalf("CEO/CXO must receive leadership-tasks page contract, got %#v", page)

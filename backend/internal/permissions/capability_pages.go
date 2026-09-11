@@ -81,7 +81,9 @@ var modulePages = []ModulePage{
 	{Key: "calendar", Module: "calendar", Label: "Calendar", Href: "/calendar", Permissions: []string{CalendarRead, VaccinationRead, ObligationRead}, HiddenFromNav: true},
 	{Key: "approvals", Module: "counts", Label: "Approvals", Href: "/approvals", Permissions: []string{CountsApproveAccess}},
 	{Key: "leave", Module: "leave_approvals", Label: "Leave", Href: "/leave", Permissions: []string{LeaveApprove}},
-	{Key: "leadership-tasks", Module: "leadership_tasks", Label: "Tasks", Href: "/tasks", Permissions: []string{LeadershipTasksRead}, HiddenFromNav: true},
+	// Tasks is back on the sidebar (maintainer request 2026-09-11, reversing the 2026-09-09
+	// parking): leadership raises tasks from the web desk as well as the phone.
+	{Key: "leadership-tasks", Module: "leadership_tasks", Label: "Tasks", Href: "/tasks", Permissions: []string{LeadershipTasksRead}},
 	{Key: "verification-actions", Module: "verification", Label: "Verify", Href: "/verify", Permissions: []string{VerificationReview}},
 
 	{Key: "preventive-care-vaccination", Module: "vaccination", Label: "Vaccination", Href: "/vaccination", Permissions: []string{ObligationRead, VaccinationRead}},
