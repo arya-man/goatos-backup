@@ -267,8 +267,17 @@ export function MeshaShell({
   // the reader has no way to tell which one won. Weights analytics carries the same filter bar as
   // Weights beside it, so it belongs here for the same reason.
   // Sales too (maintainer request 2026-09-03): its farm chips ARE its park choice, on the page's
-  // own `farm` parameter, so the top-bar chip was a second answer the page never read.
-  const PAGES_OWNING_PARK_SCOPE = ["/counts/breakdown", "/weighing/weights", "/weighing/analytics", "/sales"];
+  // own `farm` parameter, so the top-bar chip was a second answer the page never read. The board
+  // was divided into Sold and Farm value on 2026-09-11 (/sales only redirects now), and both
+  // carry the same farm chips, so both are listed -- an exact match on the retired path alone
+  // brought the second selector back on the pages that actually render (PR 238 review).
+  const PAGES_OWNING_PARK_SCOPE = [
+    "/counts/breakdown",
+    "/weighing/weights",
+    "/weighing/analytics",
+    "/sales/sold",
+    "/sales/farm-value",
+  ];
   const lockTopBarParkSelector = PAGES_OWNING_PARK_SCOPE.includes(pathname);
   const [navOpen, setNavOpen] = useState(false);
   const [rail, setRail] = useState(false);
