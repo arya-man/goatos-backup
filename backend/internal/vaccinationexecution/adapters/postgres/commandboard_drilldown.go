@@ -178,9 +178,9 @@ func (r *Repository) CommandBoardShedVaccineAnimals(ctx context.Context, q domai
 		var scopePartitionLabel, vaccineCode, goatID, displayID, tag1, tag2, status string
 		var parkName, shedName, partitionLabel string
 		var dueAt, recordedAt pgtype.Timestamptz
-		var awaitingVerification bool
+		var awaitingVerification, reworkNeeded bool
 		if err := rows.Scan(&scopePartitionLabel, &vaccineCode, &goatID, &displayID, &tag1, &tag2, &status, &dueAt,
-			&parkName, &shedName, &partitionLabel, &awaitingVerification, &recordedAt); err != nil {
+			&parkName, &shedName, &partitionLabel, &awaitingVerification, &reworkNeeded, &recordedAt); err != nil {
 			return page, fmt.Errorf("vaccination command board: shed vaccine animals scan: %w", err)
 		}
 		animal := domain.CommandBoardShedVaccineAnimal{
@@ -190,6 +190,7 @@ func (r *Repository) CommandBoardShedVaccineAnimals(ctx context.Context, q domai
 			Tag2:                 tag2,
 			Status:               status,
 			AwaitingVerification: awaitingVerification,
+			ReworkNeeded:         reworkNeeded,
 			LocationDisplay: oploc.OperationalLocation{
 				ParkName:       parkName,
 				ShedName:       shedName,

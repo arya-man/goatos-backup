@@ -11598,6 +11598,8 @@ export interface components {
             partitionLabel?: string;
             /** @description The dose was GIVEN and its proof is queued for a verifier. Clients must say so rather than render the raw obligation status: an animal dosed on its due date still reads status 'missed' when the sweeper closed the obligation before a verifier looked at the proof, and showing that word accuses an operator who did the work on time. */
             awaitingVerification: boolean;
+            /** @description The latest proof verdict for this animal's obligation was rejected and no newer recorded or accepted completion has replaced it. Clients use this row-grain reason to distinguish rejected-proof rework from ordinary overdue or missed field work. */
+            reworkNeeded: boolean;
             /**
              * Format: date-time
              * @description When the operator recorded the dose.

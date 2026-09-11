@@ -139,6 +139,8 @@ func TestShedVaccineDrawerIncludesRejectedReworkRows(t *testing.T) {
 		"rework AS",
 		"LEFT JOIN rework ON rework.tenant_id = oi.tenant_id AND rework.obligation_id = oi.obligation_id",
 		"OR COALESCE(rework.has_rejected_rework, false)",
+		"AS rework_needed",
+		"p.rework_needed",
 	} {
 		if !strings.Contains(sql, want) {
 			t.Fatalf("commandBoardShedVaccineAnimalSQL missing %q; rework cells would open a drawer that cannot list rejected-proof animals", want)
