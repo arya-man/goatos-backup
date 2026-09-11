@@ -10,7 +10,6 @@ import (
 	calendarapp "github.com/vgoats/goatos/backend/internal/calendar/app"
 	countspg "github.com/vgoats/goatos/backend/internal/counts/adapters/postgres"
 	countsapp "github.com/vgoats/goatos/backend/internal/counts/app"
-	countsports "github.com/vgoats/goatos/backend/internal/counts/ports"
 	eventwiring "github.com/vgoats/goatos/backend/internal/eventwiring"
 	feeddirectionpg "github.com/vgoats/goatos/backend/internal/feeddirection/adapters/postgres"
 	healthpg "github.com/vgoats/goatos/backend/internal/health/adapters/postgres"
@@ -52,7 +51,7 @@ type verificationStores struct {
 	// milkPreparation applies milk-preparation verdicts. It is registered on the SAME bus as
 	// the other appliers: a consumer that applies feed/shifting/weighing verdicts but not this
 	// one would silently drop every milk-preparation verdict it received.
-	milkPreparation countsports.MilkPreparationCompletionStore
+	milkPreparation eventwiring.MilkVerdictStore
 	// penReconciliation raises wrong-pen cards from weighing submits and applies their
 	// verdicts (counts/pen_reconciliation_card). Same drift argument as every store here.
 	penReconciliation eventwiring.PenReconciliationStore

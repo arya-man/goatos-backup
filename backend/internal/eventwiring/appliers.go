@@ -81,6 +81,17 @@ type PCCareVerdictStore interface {
 	BounceRemovalPenForRework(ctx context.Context, p pccareports.ApplyRemovalPenVerdictParams) (bool, error)
 }
 
+// MilkVerdictStore is satisfied by *countspg.Repository: BOTH milk halves, preparation and
+// feeding. They sit on one interface for the reason PCCareVerdictStore gives: a wiring that
+// took preparation alone left the feeding applier registered in two side processes only
+// (cmd/domain-event-consumer, kernelstages) and in NONE of the buses this list serves -- so on
+// the API bus and the outbox relay a milk-feeding reject changed nothing and the task sat in
+// pending_verification forever (live E2E 2026-09-11, verification_rework_notification_unrouted_module).
+type MilkVerdictStore interface {
+	countsports.MilkPreparationCompletionStore
+	countsports.MilkFeedingStore
+}
+
 // HealthVerdictStore is satisfied by *healthpg.Repository — the treatment-session verdict half
 // (approve stamps verified_by/verified_at, reject flips the session to rework).
 type HealthVerdictStore = healthapp.TreatmentVerdictStore
@@ -95,7 +106,7 @@ func RegisterVerificationAppliers(
 	feed FeedCompletionStore,
 	shifting ShiftingVerificationRepo,
 	penReconciliation PenReconciliationStore,
-	milkPreparation countsports.MilkPreparationCompletionStore,
+	milk MilkVerdictStore,
 	weighing WeighingVerdictStore,
 	weighingAck weighingapp.VerificationApplyAcker,
 	pcCare PCCareVerdictStore,
@@ -112,7 +123,10 @@ func RegisterVerificationAppliers(
 	// suppressed by its own preparation and the litres were deducted twice on any day whose
 	// PREVIOUS day carried no preparation. Do not reattach a recorder here; the workflow already
 	// owns the fact, and a second writer can only disagree with it.
-	countsapp.NewMilkPreparationVerificationHandler(milkPreparation).Register(bus)
+	countsapp.NewMilkPreparationVerificationHandler(milk).Register(bus)
+	// Milk FEEDING is the second milk gate (submit -> verifier); its applier belongs in this
+	// one list like every other, not in a side process.
+	countsapp.NewMilkFeedingVerificationHandler(milk).Register(bus)
 	feeddirectionapp.NewFeedDistributionVerificationHandler(feed, log).Register(bus)
 	feeddirectionapp.NewFeedPackingVerificationHandler(feed, log).Register(bus)
 	feeddirectionapp.NewFeedTransportVerificationHandler(feed, log).Register(bus)
