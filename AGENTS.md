@@ -2793,7 +2793,11 @@ Purpose:
   nothing generic and duplicates no lens; it is classified `module-surface`, not
   `authority-screen`, and `/config` remains the single generic protocol-rule
   authority screen.
-  **The second half is the lock: `/sales` and `/sales/loads` are READ-ONLY.**
+  **The second half is the lock: `/sales/sold`, `/sales/farm-value` and `/sales/loads` are
+  READ-ONLY.** (The Sales board was divided in two and retired on 2026-09-11: the closed-sale
+  blocks, buyers, pipeline, evidence and -- last -- the deals ledger sit on `/sales/sold`, the
+  live-herd valuation with the Over 35 kg card on `/sales/farm-value`, and `/sales` only redirects
+  to Sold; the same lock covers all three.)
   Their backend page contracts declare NO write control at all — not a disabled
   one — so neither page can render a button, a form or an entry drawer for
   anyone, the CEO included. That is what makes entry exist in exactly one place;

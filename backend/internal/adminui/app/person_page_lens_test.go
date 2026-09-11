@@ -65,7 +65,7 @@ func TestRetiredProcurementDirectorLensIsReproducedByTicks(t *testing.T) {
 
 	// The deep-link half: a typed URL must fail closed, which requireAdminWebPageContract
 	// does by throwing on a route with no contract.
-	for _, banned := range []string{"/sales", "/sales/loads", "/feed/config", "/feed/sops", "/procurement/source-entry", "/people", "/verify", "/vaccination", "/"} {
+	for _, banned := range []string{"/sales", "/sales/sold", "/sales/farm-value", "/sales/loads", "/feed/config", "/feed/sops", "/procurement/source-entry", "/people", "/verify", "/vaccination", "/"} {
 		for _, page := range resp.Pages {
 			if page.Href == banned {
 				t.Errorf("page contract for %s survived; a typed URL would render", banned)
@@ -91,7 +91,7 @@ func TestRetiredProcurementDirectorLensIsReproducedByTicks(t *testing.T) {
 func TestCeoIsNeverNarrowed(t *testing.T) {
 	access := accessFor(permissions.RoleCEOInternal, permissions.RoleProcurementDirector)
 	resp := applyPersonPageLens(compileForTest(), access)
-	for _, want := range []string{"/weighing/analytics", "/people", "/feed/config", "/feed/analytics", "/feed/sops", "/sales", "/sales/config", "/procurement/source-entry", "/procurement/vendors", "/procurement/feed-purchases", "/verify", "/vaccination"} {
+	for _, want := range []string{"/weighing/analytics", "/people", "/feed/config", "/feed/analytics", "/feed/sops", "/sales/sold", "/sales/farm-value", "/sales/config", "/procurement/source-entry", "/procurement/vendors", "/procurement/feed-purchases", "/verify", "/vaccination"} {
 		found := false
 		for _, href := range leafHrefs(resp) {
 			if href == want {

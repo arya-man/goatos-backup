@@ -18,8 +18,7 @@ import {
   type AdminUiPageContract,
 } from "@/lib/admin-ui-contract";
 import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
-import { firstAuthRequiredError, getShedWeights, listProcurementVendorOptions } from "@/lib/api/server";
-import { istDayPlus, todayIso } from "@/lib/format";
+import { firstAuthRequiredError, listProcurementVendorOptions } from "@/lib/api/server";
 import type { ProcurementVendorOptions } from "@/lib/api/server";
 import { getSalesOverview, listSalesDeals } from "@/lib/api/procurement-server";
 import type { SalesDeal, SalesOverview } from "@/lib/api/procurement";
@@ -34,79 +33,37 @@ import {
   monthlyAnimalsTotal,
   monthlyRevenueTotal,
   num,
-  numCompact,
   numCompactWhole,
   resolveFarm,
   salesHref,
   trimEmptyMonthlyStart,
 } from "./sales-format";
 import { SalesRecordDrawer } from "./sales-record-drawer";
-import { SalesReadyToleranceControl } from "./sales-ready-tolerance-control";
+import { SALES_DEFAULT_FARM, SalesFarmToggle, SalesPageHeader, hrefWithQuery } from "./sales-chrome";
 
-const PAGE_PATH = "/sales";
-const DEFAULT_FARM = "all";
+const PAGE_PATH = "/sales/sold";
 const DEFAULT_LIMIT = 25;
 /** Only used when an older backend contract has no buyer board table; the contract page size wins. */
 const BUYERS_PAGE_SIZE = 10;
 
-function hrefWithQuery(sp: RouteSearchParams, patch: Record<string, string | null>): string {
-  const query = new URLSearchParams();
-  for (const [key, value] of Object.entries(sp)) {
-    const single = Array.isArray(value) ? value[0] : value;
-    if (single) query.set(key, single);
-  }
-  for (const [key, value] of Object.entries(patch)) {
-    if (value === null || value === "") query.delete(key);
-    else query.set(key, value);
-  }
-  const qs = query.toString();
-  return qs ? `${PAGE_PATH}?${qs}` : PAGE_PATH;
-}
-
 /**
- * The Over 35 kg card's figure (maintainer request 2026-09-03). `count` is null when the read
- * failed or the caller may not read weighing; the card then shows the backend's reason rather
- * than a zero that would claim no kid is ready for sale.
+ * Sold — what has already left the farm (the retired Sales board divided in two, maintainer
+ * decision 2026-09-11): the headline figures, sold animals by weight, month by month, price per
+ * kg by breed, the buyer board, the demand pipeline, the sale evidence, and LAST the deals
+ * ledger with its read-only deal drawer. These are the board's own blocks, moved here verbatim;
+ * Farm value keeps the live-herd valuation and /sales redirects here.
+ *
+ * READ-ONLY BY CONTRACT: the backend page contract declares no write control, so nothing here can
+ * open a form. Recording, editing and tagging live on /sales/config.
  */
-type Over35Card = {
-  enabled: boolean;
-  disabledReason: string;
-  count: number | null;
-  from: string;
-  to: string;
-  toleranceG: number;
-  thresholdKg: number;
-  preserveQuery: [string, string][];
-};
-
-/** The nominal sale-ready lookback; backend clamps tolerance reads to reliable weighing data. */
-const OVER35_WINDOW_DAYS = 42;
-const OVER35_MAX_TOLERANCE_G = 1000;
-
-function farmValuationNotValuedLabel(overview: SalesOverview, pageContract: AdminUiPageContract): string {
-  const notValued = overview.farm_valuation.not_valued ?? [];
-  const total = overview.farm_valuation.excluded_animals;
-  if (total <= 0) return "";
-  if (notValued.length === 1) {
-    const item = notValued[0];
-    return `${num(item.count)} ${item.label} ${copy(pageContract, "value.not_valued")}`;
-  }
-  if (notValued.length > 1) {
-    return `${num(total)} ${copy(pageContract, "value.not_valued")}`;
-  }
-  return `${num(total)} ${copy(pageContract, "value.excluded_animals")}`;
-}
-
-function OverviewSections({
+function SoldSections({
   overview,
   pageContract,
   buyersHref,
   buyersPage,
-  over35,
 }: {
   overview: SalesOverview;
   pageContract: AdminUiPageContract;
-  over35: Over35Card;
   /** Link builder for the buyer board's pager, preserving every other selected search param. */
   buyersHref: (page: number) => string;
   /** 1-based buyer board page, already clamped by the caller. */
@@ -127,88 +84,8 @@ function OverviewSections({
   const buyersPageNumber = Math.min(Math.max(buyersPage, 1), buyersPageCount);
   const buyersStart = (buyersPageNumber - 1) * buyersPageSize;
   const buyersRows = overview.buyers.slice(buyersStart, buyersStart + buyersPageSize);
-  const notValuedLabel = farmValuationNotValuedLabel(overview, pageContract);
   return (
     <>
-          {/* FARM VALUE — what is standing on the farm right now (maintainer decision 2026-09-10).
-              Its own block, headed, and immediately followed by the category breakdown that
-              divides the same total. It used to open a single strip that ran straight on into the
-              sold tiles, putting the herd valuation next to the sales revenue — two figures about
-              different herds, inviting a subtraction that means nothing. */}
-          <section className="sales-block" aria-label={copy(pageContract, "section.farm_value.aria")}>
-            <div className="sales-block-hd">
-              <h3>{copy(pageContract, "section.farm_value.title")}</h3>
-              <span className="muted small">{copy(pageContract, "section.farm_value.sub")}</span>
-            </div>
-            <div className="grid g3 kpi-row sales-kpi-row">
-              <div className="kpi">
-                <div className="lab">{copy(pageContract, "kpi.farm_value")}</div>
-                <div className="val">{inr(overview.farm_valuation.total_value_rupees)}</div>
-                <div className="dl">{copy(pageContract, "kpi.farm_value.detail")}</div>
-              </div>
-              <div className="kpi">
-                <div className="lab">{copy(pageContract, "kpi.total_meat")}</div>
-                <div className="val">
-                  {num(overview.farm_valuation.total_meat_kg, 1)} {kgSuffix}
-                </div>
-                <div className="dl">{copy(pageContract, "kpi.total_meat.detail")}</div>
-              </div>
-              {/* Over 35 kg belongs with the valuation, not the ledger (maintainer decision
-                  2026-09-10). It counts animals STANDING ON THE FARM that have reached sale
-                  weight — inventory ready to go, not anything that has gone. Sitting in the Sold
-                  strip it read as a count of animals already sold at that weight.
-                  Gated by the page contract: a role that may not read weights sees the backend's
-                  reason, never a zero. */}
-              <div className="kpi">
-                <div className="lab">{copy(pageContract, "kpi.over35")}</div>
-                <div className="val">{over35.count == null ? none : num(over35.count)}</div>
-                <div className="dl">
-                  {!over35.enabled
-                    ? over35.disabledReason
-                    : over35.count == null
-                      ? copy(pageContract, "kpi.over35.none")
-                      : `${copy(pageContract, "kpi.over35.sub")} · ${num(over35.thresholdKg, 1)}+`}
-                </div>
-              </div>
-            </div>
-            {/* The tolerance control tunes the tile above it, so it travels with it. */}
-            {over35.enabled ? (
-              <SalesReadyToleranceControl
-                key={over35.toleranceG}
-                valueG={over35.toleranceG}
-                maxG={OVER35_MAX_TOLERANCE_G}
-                preserveQuery={over35.preserveQuery}
-                label={copy(pageContract, "kpi.over35.tolerance")}
-                applyLabel={copy(pageContract, "kpi.over35.apply")}
-              />
-            ) : null}
-          </section>
-
-          <section className="card sales-card" aria-label={copy(pageContract, "section.farm_value.breakdown")}>
-            <div className="hd">
-              <h3>{copy(pageContract, "section.farm_value.breakdown")}</h3>
-              <Tag tone={overview.farm_valuation.total_value_rupees > 0 ? "info" : "mut"}>
-                {num(overview.farm_valuation.valued_animals)} {copy(pageContract, "value.valued_animals")}
-                {notValuedLabel ? ` · ${notValuedLabel}` : ""}
-                {" · "}
-                {num(overview.farm_valuation.total_animals)} {copy(pageContract, "value.live_animals")}
-              </Tag>
-            </div>
-            <div className="grid g4">
-              {overview.farm_valuation.buckets.map((bucket) => (
-                <div className="kpi mini" key={bucket.bucket}>
-                  <div className="lab">{bucket.label}</div>
-                  <div className="val">{inr(bucket.value_rupees)}</div>
-                  <div className="dl">
-                    {num(bucket.meat_kg, 1)} {kgSuffix} · {num(bucket.animal_count)}{" "}
-                    {copy(pageContract, "value.live_animals")}
-                    {bucket.actual_weight ? ` · ${num(bucket.weighed_animals)} ${copy(pageContract, "value.weighed")}` : ""}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </section>
-
           {/* SOLD — what has already left the farm. Same tiles as before, minus the two valuation
               ones that moved up into their own block. */}
           <div className="sales-block-hd sales-block-hd-spaced" role="presentation">
@@ -596,7 +473,7 @@ function OverviewSections({
   );
 }
 
-export async function SalesPage({
+export async function SalesSoldPage({
   searchParams,
   pageContract,
 }: {
@@ -605,126 +482,60 @@ export async function SalesPage({
 }) {
   const sp = searchParams;
 
-  // Farm scope: validated against the SERVED option keys, never trusted raw. The whole page —
-  // overview blocks and ledger alike — reads the one selected scope.
+  // Farm scope: validated against the SERVED option keys, never trusted raw. Every block on the
+  // page reads the one selected scope.
   const farmOptions = optionGroup(pageContract, "sales_farms");
   const farm = resolveFarm(
     one(sp, "farm"),
     farmOptions.map((option) => option.key),
-    DEFAULT_FARM,
+    SALES_DEFAULT_FARM,
   );
+  // Buyer board page. A hand-edited value is clamped here and again against the served row count,
+  // so an out-of-range page can never take the section down.
+  const buyersPage = boundedInt(one(sp, "buyers_page"), 1, 1, 1000);
 
   const dealsTable = table(pageContract, "sales-deals");
   const pageSizes = dealsTable.page_size_options.length > 0 ? dealsTable.page_size_options : [DEFAULT_LIMIT];
   const limit = boundedInt(one(sp, "limit"), pageSizes[0], 1, 100);
   const offset = boundedInt(one(sp, "offset"), 0, 0, 10000);
-  // Buyer board page. A hand-edited value is clamped here and again against the served row count,
-  // so an out-of-range page can never take the section down.
-  const buyersPage = boundedInt(one(sp, "buyers_page"), 1, 1, 1000);
 
-  // The whole screen's data in ONE parallel read: the overview contract, one ledger page, and the
-  // first page of each pipeline (the entry drawers list and update them; LocalOverlayLink opens
-  // without an RSC request, so drawer data must ride with the page).
-  //
-  // The pipeline lead lists and the tag-animals location catalog are deliberately NOT read here
-  // any more: they fed ENTRY forms, and entry moved to /sales/config (maintainer decision
-  // 2026-09-01). Fetch = render — this page renders no form, so it asks for no form's data.
-  // The Over 35 kg card reads weighing only when the contract enables it: fetch = render, and a
-  // role the weighing endpoint would refuse is never asked to make that call.
-  const over35Control = pageContract.controls.find((item) => item.id === "weights_over_35_card");
-  const over35Enabled = over35Control?.enabled ?? false;
-  const over35To = todayIso();
-  const over35From = istDayPlus(over35To, -OVER35_WINDOW_DAYS);
-  const over35ToleranceG = boundedInt(one(sp, "sale_ready_tolerance_g"), 0, 0, OVER35_MAX_TOLERANCE_G);
-  const over35ThresholdKg = Math.max(0, 35 - over35ToleranceG / 1000);
-  const over35Params = {
-    from: over35From,
-    to: over35To,
-    sale_threshold_tolerance_g: String(over35ToleranceG),
-  };
-  const [overviewResult, dealsResult, vendorOptionsResult, weightsResult] = await Promise.all([
+  // The page's data in ONE parallel read: the overview contract (every block above the ledger),
+  // one ledger page, and the vendor register the deal drawer names (LocalOverlayLink opens
+  // without an RSC request, so drawer data must ride with the page). Fetch = render: the
+  // weighing count belongs to Farm value.
+  const [overviewResult, dealsResult, vendorOptionsResult] = await Promise.all([
     getSalesOverview({ farm }),
     listSalesDeals({ farm, limit, offset }),
     // The deal drawer here is a READ-ONLY detail, and it still names the buyer's vendor. Resolving
-    // that id to the register's name needs the active register with the page — LocalOverlayLink
-    // opens the drawer without an RSC request. ONE bounded read, never a paged walk of
-    // /procurement/vendors: that is the banned SSR full-walk shape.
+    // that id to the register's name needs the active register with the page. ONE bounded read,
+    // never a paged walk of /procurement/vendors: that is the banned SSR full-walk shape.
     listProcurementVendorOptions(),
-    // Unscoped first: the response also carries the park vocabulary this page's farm code is
-    // matched against, so a farm-scoped card needs exactly one more read, below.
-    over35Enabled ? getShedWeights(over35Params) : Promise.resolve(null),
   ]);
-
   if (firstAuthRequiredError(overviewResult, dealsResult)) redirect(INTERNAL_LOGIN_PATH);
+  const overview: SalesOverview | null = overviewResult.ok ? overviewResult.data : null;
 
   // null means the register could NOT be read (it is a separate permission, procurement.vendor.read).
   // The drawer renders a stated error for that case rather than an empty dropdown, which would read
   // as "there are no vendors" and send the person to add one that already exists.
   const vendorOptions: ProcurementVendorOptions | null = vendorOptionsResult.ok ? vendorOptionsResult.data : null;
-
-  // Farm scope for the card. The weighing park vocabulary names parks by their code (CBE, CPT),
-  // the same code this page's farm filter carries, so the selected farm resolves to a park id
-  // and the count is re-read for that park alone. An unknown farm code keeps the all-parks
-  // figure rather than showing a zero for a park that was never asked about.
-  let over35Count: number | null = null;
-  if (weightsResult?.ok) {
-    over35Count = weightsResult.data.summary.at_or_above_35kg;
-    if (farm !== DEFAULT_FARM) {
-      const park = weightsResult.data.parks.find((item) => item.name === farm);
-      if (park) {
-        const scoped = await getShedWeights({ ...over35Params, park_id: park.park_id });
-        over35Count = scoped.ok ? scoped.data.summary.at_or_above_35kg : null;
-      }
-    }
-  }
-  const over35PreserveQuery = Object.entries(sp).flatMap(([key, value]) => {
-    if (key === "sale_ready_tolerance_g") return [];
-    const first = Array.isArray(value) ? value[0] : value;
-    return first ? ([[key, first]] as [string, string][]) : [];
-  });
-  const over35: Over35Card = {
-    enabled: over35Enabled,
-    disabledReason: over35Control?.disabled_reason ?? "",
-    count: over35Count,
-    from: over35From,
-    to: over35To,
-    toleranceG: over35ToleranceG,
-    thresholdKg: over35ThresholdKg,
-    preserveQuery: over35PreserveQuery,
-  };
-
-  const overview: SalesOverview | null = overviewResult.ok ? overviewResult.data : null;
   const deals: SalesDeal[] = dealsResult.ok ? dealsResult.data.deals : [];
   const total = dealsResult.ok ? dealsResult.data.total : 0;
   const pageCount = Math.max(1, Math.ceil(total / limit));
   const pageNumber = Math.min(pageCount, Math.floor(offset / limit) + 1);
 
-  // READ-ONLY BY CONTRACT (maintainer decision 2026-09-01): the backend page contract for /sales
-  // declares no write control at all, so `controlEnabled` is false for everyone including the CEO
-  // and the deal drawer below opens as a detail view. Recording, editing and tagging live on
+  // READ-ONLY BY CONTRACT (maintainer decision 2026-09-01): this page's backend contract declares
+  // no write control at all, so `controlEnabled` is false for everyone including the CEO and the
+  // deal drawer below opens as a detail view. Recording, editing and tagging live on
   // /sales/config. Do not "restore" a button here — add the control back to this page's contract
   // first, which TestSalesReadPagesCarryNoWriteControl refuses.
   const canRecord = controlEnabled(pageContract, "record_sale", false);
   const none = copy(pageContract, "value.none");
   const dealColumns = tableLabels(pageContract, "sales-deals");
-  const listHref = hrefWithQuery(sp, { deal_id: null });
+  const listHref = hrefWithQuery(PAGE_PATH, sp, { deal_id: null });
 
   return (
     <div className="screen on">
-      <div className="phead" style={{ marginTop: 12, alignItems: "flex-end", paddingBottom: 6 }}>
-        <div>
-          <div className="crumb">
-            {/* The crumb names the VERTICAL and the title names the page. Sales is now a vertical
-                whose single page carries the same name, so appending the title unconditionally
-                repeated that one word on both sides of the separator. The dedupe is presentation
-                only -- both strings stay backend-owned and neither is composed here. */}
-            <b>{copy(pageContract, "crumb")}</b>
-            {copy(pageContract, "crumb") === pageContract.title ? null : <> · {pageContract.title}</>}
-          </div>
-          <h1>{pageContract.title}</h1>
-          <div className="sub">{pageContract.subtitle}</div>
-        </div>
-      </div>
+      <SalesPageHeader pageContract={pageContract} />
 
       {!overviewResult.ok ? (
         <div className="alert" style={{ marginBottom: 14 }}>
@@ -733,39 +544,26 @@ export async function SalesPage({
         </div>
       ) : null}
 
-      {/* Farm scope toggle: server-rendered links, so the selection survives a reload and a shared
-          URL. A farm switch drops the ledger offset by construction (salesHref omits it). */}
-      <div className="chips" role="group" aria-label={copy(pageContract, "filter.farm")} style={{ marginBottom: 14 }}>
-        <span className="muted small" style={{ marginRight: 6 }}>
-          {copy(pageContract, "filter.farm")}
-        </span>
-        {farmOptions.map((option) => (
-          <Link
-            key={option.key}
-            href={salesHref(
-              { farm: option.key, limit, saleReadyToleranceG: over35.toleranceG },
-              { farm: DEFAULT_FARM, limit: pageSizes[0] },
-            )}
-            scroll={false}
-            className={option.key === farm ? "btn sm p" : "btn sm"}
-            aria-current={option.key === farm ? "true" : undefined}
-          >
-            {option.label}
-          </Link>
-        ))}
-      </div>
+      <SalesFarmToggle
+        pageContract={pageContract}
+        pagePath={PAGE_PATH}
+        farm={farm}
+        limit={limit}
+        defaultLimit={pageSizes[0]}
+      />
 
       {overview ? (
-        <OverviewSections
+        <SoldSections
           overview={overview}
           pageContract={pageContract}
           buyersPage={buyersPage}
-          buyersHref={(page) => hrefWithQuery(sp, { buyers_page: page > 1 ? String(page) : null })}
-          over35={over35}
+          buyersHref={(page) => hrefWithQuery(PAGE_PATH, sp, { buyers_page: page > 1 ? String(page) : null })}
         />
       ) : null}
 
-      {/* 8 — the deals ledger. */}
+      {/* LAST — the deals ledger (maintainer instruction 2026-09-11: "the deals table keep it at
+          last"). Whole-filter total from the backend, server-paged, row opens the read-only
+          deal drawer. */}
       <section className="card">
         <div className="hd">
           <Banknote className="ic" style={{ color: "var(--info)" }} aria-hidden="true" />
@@ -787,7 +585,7 @@ export async function SalesPage({
 
         {deals.length === 0 ? (
           <div className="empty">
-            {farm !== DEFAULT_FARM ? copy(pageContract, "empty.deals") : copy(pageContract, "empty.deals.unset")}
+            {farm !== SALES_DEFAULT_FARM ? copy(pageContract, "empty.deals") : copy(pageContract, "empty.deals.unset")}
           </div>
         ) : (
           <div className="twrap" tabIndex={0} role="region" aria-label={copy(pageContract, "section.ledger.aria")}>
@@ -801,7 +599,7 @@ export async function SalesPage({
               </thead>
               <tbody>
                 {deals.map((deal) => {
-                  const drawerHref = hrefWithQuery(sp, { deal_id: deal.deal_id });
+                  const drawerHref = hrefWithQuery(PAGE_PATH, sp, { deal_id: deal.deal_id });
                   const dealCell = (value: ReactNode, extra?: string) => (
                     <td className={extra}>
                       <LocalOverlayLink href={drawerHref} className="celllink" scroll={false}>
@@ -836,8 +634,9 @@ export async function SalesPage({
             {pageNumber > 1 ? (
               <Link
                 href={salesHref(
-                  { farm, limit, offset: Math.max(0, offset - limit), saleReadyToleranceG: over35.toleranceG },
-                  { farm: DEFAULT_FARM, limit: pageSizes[0] },
+                  { farm, limit, offset: Math.max(0, offset - limit) },
+                  { farm: SALES_DEFAULT_FARM, limit: pageSizes[0] },
+                  PAGE_PATH,
                 )}
                 scroll={false}
                 className="btn"
@@ -852,8 +651,9 @@ export async function SalesPage({
             {pageNumber < pageCount ? (
               <Link
                 href={salesHref(
-                  { farm, limit, offset: offset + limit, saleReadyToleranceG: over35.toleranceG },
-                  { farm: DEFAULT_FARM, limit: pageSizes[0] },
+                  { farm, limit, offset: offset + limit },
+                  { farm: SALES_DEFAULT_FARM, limit: pageSizes[0] },
+                  PAGE_PATH,
                 )}
                 scroll={false}
                 className="btn"

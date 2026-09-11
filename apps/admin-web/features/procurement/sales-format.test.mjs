@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import test from "node:test";
 
 import {
@@ -96,6 +96,13 @@ test("salesHref: a farm switch resets the ledger offset, a pager click keeps the
   );
 });
 
+test("salesHref: Sold and Farm value share the toggle and stay on their own page", () => {
+  const defaults = { farm: "all", limit: 25 };
+  assert.equal(salesHref({ farm: "CPT" }, defaults, "/sales/sold"), "/sales/sold?farm=CPT");
+  assert.equal(salesHref({ saleReadyToleranceG: 200 }, defaults, "/sales/farm-value"), "/sales/farm-value?sale_ready_tolerance_g=200");
+  assert.equal(salesHref({}, defaults, "/sales/farm-value"), "/sales/farm-value");
+});
+
 test("monthly chart totals are plain sums of the backend components", () => {
   const month = {
     sheep_revenue: 100,
@@ -140,7 +147,8 @@ test("record-sale vendor picker discloses a capped register instead of treating 
 });
 
 test("sales chart bar labels stay whole and suffix-free", () => {
-  const salesSource = readFileSync(new URL("./sales.tsx", import.meta.url), "utf8");
+  // The monthly and price-band charts live on Sold since the 2026-09-11 split.
+  const salesSource = readFileSync(new URL("./sales-sold.tsx", import.meta.url), "utf8");
   const loadwiseSource = readFileSync(new URL("./loadwise-section.tsx", import.meta.url), "utf8");
   assert.match(salesSource, /display: numCompactWhole\(month\.manure_kg\)/);
   assert.match(salesSource, /display: inr\(Math\.round\(band\.avg_price_per_kg\)\)/);
@@ -153,8 +161,9 @@ test("sales chart bar labels stay whole and suffix-free", () => {
 test("the Over 35 kg card asks for six weeks, and the backend floors it", () => {
   // SIX WEEKS is the reader's window (maintainer, 2026-09-04). The BACKEND holds the floor -- the
   // first dense weighing day -- so the two never disagree about where the count starts, and the
-  // page does not carry a second copy of a date the server already owns.
-  const source = readFileSync(new URL("./sales.tsx", import.meta.url), "utf8");
+  // page does not carry a second copy of a date the server already owns. The card lives on
+  // Farm value since the 2026-09-11 split.
+  const source = readFileSync(new URL("./sales-farm-value.tsx", import.meta.url), "utf8");
   assert.match(source, /const OVER35_WINDOW_DAYS = 42;/);
   assert.match(source, /const over35From = istDayPlus\(over35To, -OVER35_WINDOW_DAYS\);/);
   // No anchor date lives on this page: a client-side floor would drift from the server's.
@@ -162,7 +171,7 @@ test("the Over 35 kg card asks for six weeks, and the backend floors it", () => 
 });
 
 test("farm value cards render the backend valuation contract", () => {
-  const source = readFileSync(new URL("./sales.tsx", import.meta.url), "utf8");
+  const source = readFileSync(new URL("./sales-farm-value.tsx", import.meta.url), "utf8");
   assert.match(source, /overview\.farm_valuation\.total_value_rupees/);
   assert.match(source, /overview\.farm_valuation\.total_meat_kg/);
   assert.match(source, /overview\.farm_valuation\.total_animals/);
@@ -173,9 +182,21 @@ test("farm value cards render the backend valuation contract", () => {
   assert.doesNotMatch(source, /farm_valuation\.buckets\.reduce/);
 });
 
+// The retired board's blocks are divided, never duplicated: Sold carries no valuation figure,
+// Farm value no chart or ledger, and the ledger closes the Sold page ("keep it at last").
+test("Sold ends with the deals ledger and Farm value carries no sold block", () => {
+  const sold = readFileSync(new URL("./sales-sold.tsx", import.meta.url), "utf8");
+  const farmValue = readFileSync(new URL("./sales-farm-value.tsx", import.meta.url), "utf8");
+  assert.doesNotMatch(sold, /farm_valuation|getShedWeights/);
+  assert.match(sold, /listSalesDeals\(/);
+  assert.ok(sold.lastIndexOf("sales-deals-table") > sold.lastIndexOf("evidence.audit.title"), "the ledger renders after the last sold block");
+  assert.doesNotMatch(farmValue, /listSalesDeals|MonthColumns|HBarList|sales-deals-table/);
+  assert.ok(!existsSync(new URL("./sales.tsx", import.meta.url)), "the retired board component must not come back");
+});
+
 test("farm value copy keys have rollout fallbacks", () => {
   const source = readFileSync(new URL("../../lib/admin-ui-contract.ts", import.meta.url), "utf8");
-  assert.match(source, /sales:\s*{/);
+  assert.match(source, /"sales-farm-value":\s*{/);
   for (const key of [
     "kpi.farm_value",
     "kpi.farm_value.detail",

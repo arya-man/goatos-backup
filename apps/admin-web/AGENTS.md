@@ -648,6 +648,13 @@ Only these routes are current implemented product routes:
                             procurement register, so the page also needs procurement.vendor.read
                             alongside sales.read / sales.write (backend "sales" page contract).
                             Moved from /procurement/sales; there is no redirect.
+                            RETIRED 2026-09-11: divided into Sold and Farm value; /sales now
+                            only redirects to /sales/sold (query preserved).
+/sales/sold                  Sold — headline figures, sold weight bands, month by month, price per
+                            kg by breed, buyers, demand pipeline, sale evidence and, last, the
+                            deals ledger with its read-only deal drawer (re-homed)
+/sales/farm-value            Farm value — total farm value, total meat, Over 35 kg with its error
+                            margin, and the by-category breakdown (re-homed)
 /counts/herd                 Herd Register for vaccination trigger closure (route live; its
                              sidebar leaf is WITHHELD, maintainer decision 2026-08-20)
 /counts/analytics            Herd Analytics — composition now (breed / pen tag / sex / kid-adult /

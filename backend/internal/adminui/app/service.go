@@ -149,7 +149,12 @@ func navigation() domain.NavigationContract {
 			{
 				ID: "sales", Label: "Sales", Icon: "banknote", DefaultOpen: false,
 				Leaves: []domain.NavigationItem{
-					navLeaf("sales-board", "Sales", "/sales", nil),
+					// Sold and Farm value (maintainer decision 2026-09-11): the old Sales board
+					// carried the closed-sale blocks, the live-herd valuation AND the deals ledger
+					// on one screen. It is divided into these two pages and retired; the ledger
+					// closes the Sold page, and /sales redirects to /sales/sold.
+					navLeaf("sales-sold", "Sold", "/sales/sold", nil),
+					navLeaf("sales-farm-value", "Farm value", "/sales/farm-value", nil),
 					navLeaf("sales-loads", "Purchase and Born", "/sales/loads", nil),
 					// The SELLING side of the one vendor register (maintainer decision 2026-09-05).
 					// Same table and same endpoint as Procurement > Vendors, narrowed to the record
@@ -251,7 +256,8 @@ func routeLabels() []domain.RouteLabelRule {
 		{Pattern: "/procurement/source-entry", Label: "Source Entry", Match: "exact"},
 		{Pattern: "/procurement/vendors", Label: "Vendors", Match: "exact"},
 		{Pattern: "/procurement/feed-purchases", Label: "Feed Purchases", Match: "exact"},
-		{Pattern: "/sales", Label: "Sales", Match: "exact"},
+		{Pattern: "/sales/sold", Label: "Sold", Match: "exact"},
+		{Pattern: "/sales/farm-value", Label: "Farm value", Match: "exact"},
 		{Pattern: "/counts/sops", Label: "Herd Operations SOP", Match: "exact"},
 		{Pattern: "/counts/herd", Label: "Herd Register", Match: "exact"},
 		{Pattern: "/counts/breakdown", Label: "Counts Breakdown", Match: "exact"},
@@ -450,11 +456,22 @@ func pages() []domain.PageContract {
 		// ledger is server-paged; the buyer board rides on GET /sales/overview and is paged in the
 		// renderer, so its contract declares the page size and no row click -- there is no buyer
 		// record to open, and a declared row click the page cannot honour would be a contract lie.
-		page("sales", "/sales", "/sales", "Sales", "Animal and manure sales across CBE and CPT — revenue, buyers, demand pipeline and weight evidence.", "module-surface",
+		//
+		// SPLIT IN TWO (maintainer decision 2026-09-11): the Sales board carried the live-herd
+		// valuation, the closed-sale blocks and the deals ledger on one screen. It is divided
+		// into two pages and retired -- there is no "sales" page contract any more, and /sales
+		// redirects to /sales/sold. SOLD holds what has sold (headline figures, sold weight
+		// bands, month by month, price per kg by breed, buyers, demand pipeline, sale evidence)
+		// with the deals ledger LAST; FARM VALUE holds the live-herd valuation -- total farm
+		// value, total meat, Over 35 kg with its error margin, and the by-category breakdown.
+		// Both stay read-only by contract; entry is still /sales/config alone.
+		page("sales-sold", "/sales/sold", "/sales/sold", "Sold", "What has sold across CBE and CPT — revenue, animals, price per kg, buyers, demand pipeline, sale evidence and the deals ledger.", "module-surface",
 			[]domain.TableContract{
 				tableP("sales-deals", "Deals", "/sales/deals", []string{"sale_date", "farm", "buyer_name", "product_type", "breed", "animal_count", "total_weight_kg", "sales_value", "status"}, "deal_id", []int{25, 50, 100}),
 				withoutRowClick(tableP("sales-buyers", "Buyers", "/sales/overview", []string{"buyer_name", "buyer_place", "product_types", "deals", "animals", "revenue", "share_pct"}, "", []int{10, 25, 50})),
 			}),
+		page("sales-farm-value", "/sales/farm-value", "/sales/farm-value", "Farm value", "What the live herd is worth today at Sales target rates, and how much of it is ready to sell.", "module-surface",
+			[]domain.TableContract{}),
 		// LOAD BY LOAD (maintainer decision 2026-08-31): every purchased load reconciled --
 		// counts on one side, money on the other. Its OWN page under Sales, with the
 		// Purchased / Farm born tabs at the top. Served whole (newest 60 loads) by the
@@ -3339,8 +3356,9 @@ func pageSpecificCopy(id string) map[string]string {
 
 			// Where the entered facts are READ back. Named so the person who just recorded
 			// something knows where it shows up, without guessing from the sidebar.
-			"link.sales_board": "See the sales board",
-			"link.sales_loads": "See Purchase and Born",
+			"link.sales_sold":       "See what has sold",
+			"link.sales_farm_value": "See Farm value",
+			"link.sales_loads":      "See Purchase and Born",
 			// A short lead-in for the two links, NOT a second copy of the subtitle: the header
 			// already says what this page is for, and repeating that sentence four lines later
 			// reads as a mistake.
@@ -3489,6 +3507,22 @@ func pageSpecificCopy(id string) map[string]string {
 			"error.options":                       "Could not load the purchase form options. Refresh to try again.",
 			"disabled.write":                      "Your current role can view feed purchases but not record them.",
 		}
+	case "sales-sold", "sales-farm-value":
+		// Sold and Farm value (maintainer decision 2026-09-11) render the blocks of the retired
+		// Sales board, so they carry its copy map verbatim -- one source per label, so a KPI
+		// that moved pages cannot come back with a different name. The "sales" map below is that
+		// source; no page is served under that id any more. Only the load-error sentence is
+		// each page's own.
+		out := map[string]string{}
+		for key, value := range pageSpecificCopy("sales") {
+			out[key] = value
+		}
+		if id == "sales-sold" {
+			out["error.load"] = "Could not load the sold figures. Refresh to try again."
+		} else {
+			out["error.load"] = "Could not load the farm value figures. Refresh to try again."
+		}
+		return out
 	case "sales":
 		// Backend-owned copy for the sales page. The client renders these verbatim; per the golden
 		// rule it must not hardcode a label, an empty state or a disabled reason of its own. Farm
@@ -6974,7 +7008,7 @@ func pageOptionGroups(id string) []domain.OptionGroup {
 				},
 			},
 		})
-	case "sales", "sales-config":
+	case "sales", "sales-sold", "sales-farm-value", "sales-config":
 		// The config page renders every sales form, so it needs exactly the board's vocabulary:
 		// farms, product types and the per-product breed groups. Shared, never a second copy --
 		// a form offering different breeds from the page that reads them back is the drift this

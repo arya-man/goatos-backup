@@ -17,16 +17,24 @@ func TestSalesPageContractAndNavigation(t *testing.T) {
 		ActorID:  "00000000-0000-4000-8000-000000000099",
 	})
 
-	page := pageByRouteID(t, resp.Pages, "sales")
-	if page.Href != "/sales" || page.PathPattern != "/sales" {
-		t.Fatalf("sales page href/pattern = %q/%q", page.Href, page.PathPattern)
+	// The Sales board is RETIRED (maintainer decision 2026-09-11): no page is served for /sales;
+	// its blocks live on Sold and Farm value and /sales redirects to Sold.
+	for _, served := range resp.Pages {
+		if served.RouteID == "sales" || served.Href == "/sales" {
+			t.Fatalf("the retired Sales board is still served: %+v", served)
+		}
+	}
+	page := pageByRouteID(t, resp.Pages, "sales-sold")
+	if page.Href != "/sales/sold" || page.PathPattern != "/sales/sold" {
+		t.Fatalf("sold page href/pattern = %q/%q", page.Href, page.PathPattern)
 	}
 	if page.SurfaceKind != "module-surface" {
-		t.Fatalf("sales must be a module surface, got %q", page.SurfaceKind)
+		t.Fatalf("sold must be a module surface, got %q", page.SurfaceKind)
 	}
 
+	// Sold carries BOTH tables the board had: the ledger (last on the page) and the buyer board.
 	if len(page.Tables) != 2 || page.Tables[0].ID != "sales-deals" || page.Tables[1].ID != "sales-buyers" {
-		t.Fatalf("sales tables = %+v", page.Tables)
+		t.Fatalf("sold tables = %+v", page.Tables)
 	}
 	deals := page.Tables[0]
 	// The buyer board is paged in the renderer off the overview response: the contract owns the
@@ -37,6 +45,9 @@ func TestSalesPageContractAndNavigation(t *testing.T) {
 	}
 	if buyers.RowClick.Enabled {
 		t.Fatalf("buyers table must not declare a row click: %+v", buyers.RowClick)
+	}
+	if len(page.Controls) != 0 {
+		t.Fatalf("/sales/sold declares no control at all, got %+v", page.Controls)
 	}
 	if deals.DataSource != "/sales/deals" {
 		t.Fatalf("deals table source = %q", deals.DataSource)
@@ -129,14 +140,20 @@ func TestSalesPageContractAndNavigation(t *testing.T) {
 	// Vendors -- the selling half of the vendor register (maintainer decision 2026-09-05) -- and
 	// Sales Config last (maintainer decision 2026-09-01), the one place a sales fact is entered or
 	// changed, which is why the read leaves come first.
-	if len(salesGroup.Leaves) != 4 ||
-		salesGroup.Leaves[0].Href != "/sales" ||
-		salesGroup.Leaves[1].Href != "/sales/loads" ||
-		salesGroup.Leaves[1].Label != "Purchase and Born" ||
-		salesGroup.Leaves[2].Href != "/sales/vendors" ||
-		salesGroup.Leaves[2].Label != "Vendors" ||
-		salesGroup.Leaves[3].Href != "/sales/config" ||
-		salesGroup.Leaves[3].Label != "Sales Config" {
+	// Five leaves: Sold and Farm value (the retired board divided in two, maintainer decision
+	// 2026-09-11), Purchase and Born, Vendors, and Sales Config last -- the one place a sales
+	// fact is entered or changed, which is why the read leaves come first.
+	if len(salesGroup.Leaves) != 5 ||
+		salesGroup.Leaves[0].Href != "/sales/sold" ||
+		salesGroup.Leaves[0].Label != "Sold" ||
+		salesGroup.Leaves[1].Href != "/sales/farm-value" ||
+		salesGroup.Leaves[1].Label != "Farm value" ||
+		salesGroup.Leaves[2].Href != "/sales/loads" ||
+		salesGroup.Leaves[2].Label != "Purchase and Born" ||
+		salesGroup.Leaves[3].Href != "/sales/vendors" ||
+		salesGroup.Leaves[3].Label != "Vendors" ||
+		salesGroup.Leaves[4].Href != "/sales/config" ||
+		salesGroup.Leaves[4].Label != "Sales Config" {
 		t.Fatalf("sales group leaves = %+v", salesGroup.Leaves)
 	}
 
@@ -144,15 +161,18 @@ func TestSalesPageContractAndNavigation(t *testing.T) {
 	// under.
 	foundLabel := false
 	for _, rule := range resp.RouteLabels {
-		if rule.Pattern == "/sales" && rule.Label == "Sales" && rule.Match == "exact" {
+		if rule.Pattern == "/sales/sold" && rule.Label == "Sold" && rule.Match == "exact" {
 			foundLabel = true
+		}
+		if rule.Pattern == "/sales" {
+			t.Fatal("route label for the retired /sales board survived; the route only redirects now")
 		}
 		if rule.Pattern == "/procurement/sales" {
 			t.Fatal("stale /procurement/sales route label survived the split")
 		}
 	}
 	if !foundLabel {
-		t.Fatal("route label for /sales missing")
+		t.Fatal("route label for /sales/sold missing")
 	}
 	if page.Copy["crumb"] != "Sales" {
 		t.Fatalf("sales crumb = %q, want Sales", page.Copy["crumb"])
@@ -399,10 +419,19 @@ func TestSalesOver35CardIsGatedOnWeighingMonitor(t *testing.T) {
 				{Role: tc.role, ScopeType: "tenant", ScopeID: "00000000-0000-4000-8000-000000000001"},
 			},
 		})
+		// The card lives on /sales/farm-value since the 2026-09-11 split, and on no other
+		// sales page: the board and Sold must not carry a second copy of it.
 		var page *domain.PageContract
 		for i := range resp.Pages {
-			if resp.Pages[i].RouteID == "sales" {
+			if resp.Pages[i].RouteID == "sales-farm-value" {
 				page = &resp.Pages[i]
+			}
+			if resp.Pages[i].RouteID == "sales" || resp.Pages[i].RouteID == "sales-sold" {
+				for _, control := range resp.Pages[i].Controls {
+					if control.ID == "weights_over_35_card" {
+						t.Fatalf("%s: %s still declares weights_over_35_card; it moved to /sales/farm-value", tc.role, resp.Pages[i].RouteID)
+					}
+				}
 			}
 		}
 		if page == nil {
@@ -410,7 +439,7 @@ func TestSalesOver35CardIsGatedOnWeighingMonitor(t *testing.T) {
 			if tc.role == permissions.RoleGrowthDirector {
 				continue
 			}
-			t.Fatalf("%s: /sales contract missing", tc.role)
+			t.Fatalf("%s: /sales/farm-value contract missing", tc.role)
 		}
 		var card *domain.Control
 		for i := range page.Controls {
@@ -419,7 +448,7 @@ func TestSalesOver35CardIsGatedOnWeighingMonitor(t *testing.T) {
 			}
 		}
 		if card == nil {
-			t.Fatalf("%s: /sales must declare weights_over_35_card", tc.role)
+			t.Fatalf("%s: /sales/farm-value must declare weights_over_35_card", tc.role)
 		}
 		if card.Enabled != tc.enabled {
 			t.Fatalf("%s: weights_over_35_card enabled=%v, want %v", tc.role, card.Enabled, tc.enabled)
@@ -519,7 +548,7 @@ func TestSalesReadPagesCarryNoWriteControl(t *testing.T) {
 		"update_sales_deal_status",
 		"record_load_cost",
 	}
-	for _, pageID := range []string{"sales", "sales-loads"} {
+	for _, pageID := range []string{"sales-sold", "sales-farm-value", "sales-loads"} {
 		page := pageByRouteID(t, resp.Pages, pageID)
 		for _, control := range page.Controls {
 			for _, banned := range writes {
@@ -536,6 +565,114 @@ func TestSalesReadPagesCarryNoWriteControl(t *testing.T) {
 		control := controlByID(t, config.Controls, id)
 		if !control.Enabled {
 			t.Fatalf("sales-config control %q is disabled for the CEO, who holds every sales permission", id)
+		}
+	}
+}
+
+// TestSalesSoldAndFarmValuePageContracts pins the 2026-09-11 split: Sold carries the deals
+// ledger and the buyer board (paged in the renderer, no row click, exactly as they were on the
+// retired board) and every closed-sale label; Farm value carries no table and the valuation
+// and Over 35 kg copy. Both ride the retired board's copy map verbatim -- a figure that moved
+// pages must not come back under a new name -- and both keep its farm toggle vocabulary, or
+// the page filter would have nothing to offer.
+func TestSalesSoldAndFarmValuePageContracts(t *testing.T) {
+	resp := NewService(fakeFamilies{}).Bootstrap(context.Background(), BootstrapInput{
+		TenantID: "00000000-0000-4000-8000-000000000001",
+		ActorID:  "00000000-0000-4000-8000-000000000099",
+	})
+	// The retired board's copy map is still the one source every sales page reads.
+	board := domain.PageContract{Copy: pageSpecificCopy("sales")}
+
+	sold := pageByRouteID(t, resp.Pages, "sales-sold")
+	if sold.Href != "/sales/sold" || sold.PathPattern != "/sales/sold" || sold.SurfaceKind != "module-surface" {
+		t.Fatalf("sold page = %q/%q/%q", sold.Href, sold.PathPattern, sold.SurfaceKind)
+	}
+	if len(sold.Tables) != 2 || sold.Tables[0].ID != "sales-deals" || sold.Tables[1].ID != "sales-buyers" {
+		t.Fatalf("sold tables = %+v", sold.Tables)
+	}
+	if sold.Tables[0].RowClick.Param != "deal_id" {
+		t.Fatalf("deals row param = %q", sold.Tables[0].RowClick.Param)
+	}
+	buyers := sold.Tables[1]
+	if len(buyers.PageSizeOptions) == 0 || buyers.PageSizeOptions[0] != 10 {
+		t.Fatalf("buyers page sizes = %v", buyers.PageSizeOptions)
+	}
+	if buyers.RowClick.Enabled {
+		t.Fatalf("buyers table must not declare a row click: %+v", buyers.RowClick)
+	}
+	for _, key := range []string{
+		"section.sold.title", "section.sold.aria", "section.sold_weight.title", "section.monthly.title", "section.ledger.title",
+		"section.price_bands.title", "section.buyers.title", "section.pipeline.title", "section.evidence.title",
+		"kpi.revenue", "kpi.animals", "kpi.realized_price", "kpi.manure",
+		"chart.monthly_revenue.title", "chart.monthly_animals.title", "chart.monthly_manure.title",
+		"chart.price_bands.title", "column.buyer_name", "pipeline.buyers.title",
+		"pipeline.fpo.title", "evidence.tags.title", "evidence.audit.title",
+		"filter.farm", "value.none", "error.load", "crumb",
+	} {
+		if sold.Copy[key] == "" {
+			t.Fatalf("sold copy missing %q", key)
+		}
+		if key != "error.load" && sold.Copy[key] != board.Copy[key] {
+			t.Fatalf("sold copy %q = %q drifted from the board's %q", key, sold.Copy[key], board.Copy[key])
+		}
+	}
+	if sold.Copy["error.load"] == board.Copy["error.load"] {
+		t.Fatalf("sold error.load must name its own screen, got the retired board's %q", sold.Copy["error.load"])
+	}
+	// Sales Config's read-back links name the two pages, never the retired board.
+	config := pageByRouteID(t, resp.Pages, "sales-config")
+	links := map[string]bool{}
+	for _, group := range config.OptionGroups {
+		if group.ID == "sales_config_read_links" {
+			for _, option := range group.Options {
+				links[option.Key] = true
+			}
+		}
+	}
+	if !links["sales-sold"] || !links["sales-farm-value"] || links["sales-board"] {
+		t.Fatalf("sales_config_read_links = %v; want sales-sold and sales-farm-value, never sales-board", links)
+	}
+
+	farmValue := pageByRouteID(t, resp.Pages, "sales-farm-value")
+	if farmValue.Href != "/sales/farm-value" || farmValue.PathPattern != "/sales/farm-value" || farmValue.SurfaceKind != "module-surface" {
+		t.Fatalf("farm value page = %q/%q/%q", farmValue.Href, farmValue.PathPattern, farmValue.SurfaceKind)
+	}
+	if len(farmValue.Tables) != 0 {
+		t.Fatalf("farm value declares no table, got %+v", farmValue.Tables)
+	}
+	for _, key := range []string{
+		"section.farm_value.title", "section.farm_value.sub", "section.farm_value.aria", "section.farm_value.breakdown",
+		"kpi.farm_value", "kpi.farm_value.detail", "kpi.total_meat", "kpi.total_meat.detail",
+		"kpi.over35", "kpi.over35.sub", "kpi.over35.none", "kpi.over35.tolerance", "kpi.over35.apply",
+		"value.valued_animals", "value.live_animals", "value.weighed",
+		"disabled.weights", "filter.farm", "value.none", "value.kg_suffix", "error.load", "crumb",
+	} {
+		if farmValue.Copy[key] == "" {
+			t.Fatalf("farm value copy missing %q", key)
+		}
+	}
+
+	for _, page := range []domain.PageContract{sold, farmValue} {
+		groups := map[string]int{}
+		for _, g := range page.OptionGroups {
+			groups[g.ID] = len(g.Options)
+		}
+		if groups["sales_farms"] != 3 {
+			t.Fatalf("%s sales_farms options = %d, want 3", page.RouteID, groups["sales_farms"])
+		}
+		if required := permissionsForNav(page.RouteID); len(required) != 1 || required[0] != permissions.SalesRead {
+			t.Fatalf("permissionsForNav(%s) = %v, want exactly SalesRead", page.RouteID, required)
+		}
+	}
+	for _, pattern := range []string{"/sales/sold", "/sales/farm-value"} {
+		found := false
+		for _, rule := range resp.RouteLabels {
+			if rule.Pattern == pattern && rule.Match == "exact" && rule.Label != "" {
+				found = true
+			}
+		}
+		if !found {
+			t.Fatalf("route label for %s missing", pattern)
 		}
 	}
 }
@@ -583,7 +720,7 @@ func TestSalesConfigPageContract(t *testing.T) {
 		"section.sales_entry.title", "section.sales_entry.subtitle", "section.sales_entry.row_hint",
 		"section.pipeline_entry.title", "section.pipeline_entry.subtitle",
 		"section.load_entry.title", "section.load_entry.subtitle", "section.load_entry.row_hint",
-		"empty.loads", "hint.read_only", "link.sales_board", "link.sales_loads",
+		"empty.loads", "hint.read_only", "link.sales_sold", "link.sales_farm_value", "link.sales_loads",
 		// Inherited from the board: the record-sale form, the payments block, the status edit,
 		// the vendor select and the tag-animals flow.
 		"action.record_sale.label", "field.sale_date", "field.farm", "field.product_type",

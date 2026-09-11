@@ -885,10 +885,12 @@ func compilePages(pages []domain.PageContract, families ReferenceFamilies, input
 			out[i].Controls = compileLeaveControls(out[i].Controls, input, out[i].Copy)
 		case "health-config":
 			out[i].Controls = compileHealthConfigControls(out[i].Controls, input, out[i].Copy)
-		case "sales":
-			// READ card, not a write: /sales stays read-only by contract (below). The Over 35 kg
-			// card reads weighing, which is a different desk's permission, so it is declared here
-			// and gated the same way a write would be -- see compileSalesWeightCards.
+		case "sales-farm-value":
+			// READ card, not a write: /sales/farm-value stays read-only by contract (below). The
+			// Over 35 kg card reads weighing, which is a different desk's permission, so it is
+			// declared here and gated the same way a write would be -- see
+			// compileSalesWeightCards. It lived on /sales until the 2026-09-11 split; /sales
+			// itself now declares no control at all.
 			out[i].Controls = compileSalesWeightCards(out[i].Controls, input, out[i].Copy)
 		case "sales-loads":
 			// READ control for the "weighs now" series on the load chart -- weighing's
@@ -1041,7 +1043,8 @@ func compileLoadsWeightSeries(controls []domain.Control, input BootstrapInput, c
 
 func compileSalesConfigOptionGroups(groups []domain.OptionGroup, input BootstrapInput) []domain.OptionGroup {
 	return replaceOptionGroup(groups, "sales_config_read_links", []domain.Option{
-		option("sales-board", "See the sales board", "", ""),
+		option("sales-sold", "See what has sold", "", ""),
+		option("sales-farm-value", "See Farm value", "", ""),
 		option("sales-loads", "See Purchase and Born", "", ""),
 	})
 }
@@ -1955,7 +1958,7 @@ func permissionsForNav(id string) []string {
 		// (GET /procurement/vendors) refuses them too. The leaf and the endpoint agree, which is
 		// what stops a dead leaf that renders and then 403s.
 		return []string{permissions.VendorRead}
-	case "sales-board", "sales-loads", "sales-config":
+	case "sales-sold", "sales-farm-value", "sales-loads", "sales-config":
 		// The dedicated sales permission, NOT ProcurementRead: sales carries revenue, buyer names
 		// and realized prices -- the selling side, not the intake screens operators work.
 		//

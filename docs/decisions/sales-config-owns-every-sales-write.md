@@ -23,6 +23,25 @@ sales alike:
 | A purchased load's landed cost | `/sales/loads` row click |
 
 `/sales` (the board) and `/sales/loads` (Purchase and Born) are **for seeing**.
+
+**Split 2026-09-11 (maintainer decision):** the board was one screen carrying
+the live-herd valuation, the closed-sale blocks and the ledger. It is divided
+into two read pages and RETIRED: there is no `sales` page contract, `/sales`
+only redirects to Sold with its query intact, and the Sales group reads Sold,
+Farm value, Purchase and Born, Vendors, Sales Config.
+
+| Page | Route | Holds |
+| --- | --- | --- |
+| Sold | `/sales/sold` | Headline figures, sold weight bands, month by month, price per kg by breed, buyers, demand pipeline, sale evidence, and LAST the deals ledger with its read-only deal drawer |
+| Farm value | `/sales/farm-value` | Total farm value, total meat, Over 35 kg with its error margin, and the by-category breakdown |
+
+They share the retired board's copy map and its farm toggle (`salesHref` takes
+the page path, so a switch stays on the page it was made on, and Farm value
+carries its error margin across the switch; the margin's Apply also stays on
+Farm value). The Over 35 kg card's `weights_over_35_card` control moved to the
+Farm value contract and is gated on WeighingMonitor exactly as before. Migration
+`000291_sales_split_page_ticks.sql` rewrites a stored `sales-board` tick into the
+two new keys, so nobody loses a block they could see the day before.
 They read the same facts back and offer no way to change them. A deal row on
 `/sales` still opens its drawer, because reading a deal's detail is seeing; the
 drawer simply carries no form.

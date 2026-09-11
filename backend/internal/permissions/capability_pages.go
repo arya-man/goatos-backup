@@ -90,7 +90,14 @@ var modulePages = []ModulePage{
 
 	{Key: "procurement-source-entry", Module: "procurement", Label: "Source Entry", Href: "/procurement/source-entry", Permissions: []string{ProcurementRead}},
 	{Key: "procurement-vendors", Module: "vendors", Label: "Vendors", Href: "/procurement/vendors", Permissions: []string{VendorRead}},
-	{Key: "sales-board", Module: "sales", Label: "Sales", Href: "/sales", Permissions: []string{SalesRead}},
+	// Sold and Farm value (maintainer decision 2026-09-11): the retired Sales board (/sales,
+	// key sales-board) divided in two -- what has sold with the deals ledger last, and the
+	// live-herd valuation. Same read the board had, so they tick with the sales module on
+	// SalesRead; migration 000291 rewrites a stored sales-board tick into these two keys. The
+	// Over 35 kg card on Farm value is separately gated on WeighingMonitor as a control,
+	// exactly as it was on the board.
+	{Key: "sales-sold", Module: "sales", Label: "Sold", Href: "/sales/sold", Permissions: []string{SalesRead}},
+	{Key: "sales-farm-value", Module: "sales", Label: "Farm value", Href: "/sales/farm-value", Permissions: []string{SalesRead}},
 	// Purchase and Born: per-load reconciliation and profit (maintainer decision 2026-08-31). Its
 	// READ is the same commercial fact the board carries, so it ticks with the sales module; the
 	// load-cost write on it is gated separately on LoadCostWrite.

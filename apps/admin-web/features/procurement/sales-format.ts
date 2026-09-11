@@ -38,6 +38,8 @@ export function resolveFarm(raw: string | undefined, optionKeys: readonly string
 export function salesHref(
   params: { farm?: string; offset?: number; limit?: number; saleReadyToleranceG?: number },
   defaults: { farm: string; limit: number },
+  /** The page the link stays on: the board by default, or Sold / Farm value, which share the farm toggle. */
+  path: string = SALES_PATH,
 ): string {
   const query = new URLSearchParams();
   if (params.farm && params.farm !== defaults.farm) query.set("farm", params.farm);
@@ -47,7 +49,7 @@ export function salesHref(
     query.set("sale_ready_tolerance_g", String(params.saleReadyToleranceG));
   }
   const qs = query.toString();
-  return qs ? `${SALES_PATH}?${qs}` : SALES_PATH;
+  return qs ? `${path}?${qs}` : path;
 }
 
 /**

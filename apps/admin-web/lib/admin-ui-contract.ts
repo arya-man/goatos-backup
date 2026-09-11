@@ -23,7 +23,9 @@ const COPY_FALLBACKS: Record<string, Record<string, string>> = {
   },
   // SALES overview. These fixed keys ship with the farm-value card; keep the page alive if
   // admin-web deploys one release before the backend copy contract.
-  sales: {
+  // The valuation block moved from the retired Sales board to Farm value (2026-09-11); the
+  // fallbacks follow the page that renders the keys.
+  "sales-farm-value": {
     "kpi.farm_value": "Total farm value",
     "kpi.farm_value.detail": "Live herd valuation from Sales target rates",
     "kpi.total_meat": "Total meat",

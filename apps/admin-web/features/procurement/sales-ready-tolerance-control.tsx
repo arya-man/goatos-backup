@@ -9,6 +9,12 @@ type Props = {
   preserveQuery: [string, string][];
   label: string;
   applyLabel: string;
+  /**
+   * The page the applied margin re-renders: the Sales board by default, or Farm value, which
+   * has carried the card since the 2026-09-11 split. A control that always replaced to /sales
+   * would bounce a Farm value reader onto the ledger on Apply.
+   */
+  pagePath?: string;
 };
 
 function thresholdFromTolerance(valueG: number): number {
@@ -22,7 +28,14 @@ function thresholdLabel(valueG: number): string {
   })}+`;
 }
 
-export function SalesReadyToleranceControl({ valueG, maxG, preserveQuery, label, applyLabel }: Props) {
+export function SalesReadyToleranceControl({
+  valueG,
+  maxG,
+  preserveQuery,
+  label,
+  applyLabel,
+  pagePath = "/sales",
+}: Props) {
   const router = useRouter();
   const [draftG, setDraftG] = useState(valueG);
   const [, startTransition] = useTransition();
@@ -32,8 +45,8 @@ export function SalesReadyToleranceControl({ valueG, maxG, preserveQuery, label,
     if (draftG > 0) query.set("sale_ready_tolerance_g", String(draftG));
     else query.delete("sale_ready_tolerance_g");
     const qs = query.toString();
-    return qs ? `/sales?${qs}` : "/sales";
-  }, [draftG, preserveQuery]);
+    return qs ? `${pagePath}?${qs}` : pagePath;
+  }, [draftG, preserveQuery, pagePath]);
 
   const apply = () => {
     if (draftG === valueG) return;
