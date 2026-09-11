@@ -113,7 +113,7 @@ export async function WorkBoardPage({ searchParams, pageContract }: { searchPara
   // The showing line counts from the page number the cursor helper tracks in the URL.
   const pageNumber = boundedInt(one(sp, "page"), 1, 1, 1000000);
   const first = rows.length ? (pageNumber - 1) * limit + 1 : 0;
-  const last = (pageNumber - 1) * limit + rows.length;
+  const last = rows.length ? (pageNumber - 1) * limit + rows.length : 0;
 
   return (
     <div className="wb">
@@ -160,6 +160,7 @@ export async function WorkBoardPage({ searchParams, pageContract }: { searchPara
         <div className="note muted small" style={{ marginTop: 8 }}>{ownRowsOnly ? copy(pageContract, "state.empty.own_rows") : copy(pageContract, "state.empty")}</div>
       ) : null}
 
+      {error ? null : (
       <div className="pager">
         <span>
           {copy(pageContract, "drawer.subtasks.showing")} <b>{first}–{last}</b> {copy(pageContract, "drawer.subtasks.of")} <b>{summary?.total ?? rows.length}</b> {copy(pageContract, "pager.rows")}
@@ -177,6 +178,7 @@ export async function WorkBoardPage({ searchParams, pageContract }: { searchPara
           )}
         </span>
       </div>
+      )}
 
       <WorkBoardModal
         pageContract={pageContract}
