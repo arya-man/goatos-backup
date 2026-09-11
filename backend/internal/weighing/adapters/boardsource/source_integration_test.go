@@ -72,19 +72,25 @@ VALUES ($1::uuid, $2::uuid, 'operator', 'park', $3::uuid, 'active', now()) ON CO
 		// Closed AFTER submit: CLOSE writes only the bucket, so the item still says 'completed'.
 		// The board must read the bucket and call it Done, never leave it "In review" forever.
 		{"00000000-0000-4000-8000-000000009108", "completed", "closed", "per_shed_partition", "Part 9", bsDate, bsOtherOp},
+		// SUBMIT of a whole pen writes only the bucket (item still 'scheduled'): In review.
+		{"00000000-0000-4000-8000-000000009109", "scheduled", "completed", "per_shed_partition", "Part 10", bsDate, bsOtherOp},
+		// CANCEL writes only the bucket: not work, off the board and out of the counts.
+		{"00000000-0000-4000-8000-000000009110", "scheduled", "canceled", "per_shed_partition", "Part 11", bsDate, bsOtherOp},
+		// A started bucket with one scan bounced by the verifier: rejected, amber, attention 1.
+		{"00000000-0000-4000-8000-000000009111", "scheduled", "in_progress", "individual_animal", "Part 12", bsDate, bsOperator},
 	}
 	ids := map[string]string{}
 	for i, b := range buckets {
 		// One campaign per bucket: a campaign may hold a (shed, partition) only once, and
 		// several of these buckets are the same whole shed in different states.
-		campaign := fmt.Sprintf("00000000-0000-4000-8000-00000000900%d", i+1)
+		campaign := fmt.Sprintf("00000000-0000-4000-8000-0000000090%02d", i+1)
 		exec(t, ctx, pool, `
 INSERT INTO weighing_campaigns (campaign_id, tenant_id, park_id, period_start_date, period_end_date, start_business_date, status, planned_cap_per_day, operator_user_id, created_by)
 VALUES ($1::uuid, $2::uuid, $3::uuid, $4::date, $4::date, $4::date, 'published', 100, $5::uuid, $5::uuid)
 ON CONFLICT (campaign_id) DO NOTHING`, campaign, bsTenant, bsPark, bsDate, b.operator)
 		exec(t, ctx, pool, `
 INSERT INTO weighing_campaign_sheds (campaign_shed_id, campaign_id, tenant_id, location_id, location_type, display_name, weighing_category, operator_user_id, expected_animal_count, status, partition_label)
-VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, 'shed', 'Godel 1', $5, $6::uuid, 3, $7, NULLIF($8, ''))
+VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, 'shed', 'Godel 1', $5, $6::uuid, 0, $7, NULLIF($8, ''))
 ON CONFLICT (campaign_shed_id) DO NOTHING`, b.id, campaign, bsTenant, bsShed, b.category, b.operator, b.bucketStatus, b.partition)
 		var workItemID string
 		if err := pool.QueryRow(ctx, `
@@ -108,6 +114,14 @@ ON CONFLICT (proof_id) DO NOTHING`, proofID, bsTenant, bsShed, bsOperator)
 INSERT INTO weighing_observations (tenant_id, campaign_id, campaign_shed_id, scanned_identifier, weight_kg, proof_artifact_id, recorded_by, idempotency_key)
 VALUES ($1::uuid, $2::uuid, $3::uuid, $4, 12.5, $5::uuid, $6::uuid, 'board-' || $4)
 ON CONFLICT DO NOTHING`, bsTenant, "00000000-0000-4000-8000-000000009001", "00000000-0000-4000-8000-000000009101", tag, proofID, bsOperator)
+	}
+	// The started bucket (9111, campaign 9011) holds two submitted scans, one of which the
+	// verifier bounced: the module keeps that row as ONE mutable 'rework' observation.
+	for _, scan := range []struct{ tag, status string }{{"tag-r1", "verified"}, {"tag-r2", "rework"}} {
+		exec(t, ctx, pool, `
+INSERT INTO weighing_observations (tenant_id, campaign_id, campaign_shed_id, scanned_identifier, weight_kg, proof_artifact_id, recorded_by, idempotency_key, submitted_at, verification_status)
+VALUES ($1::uuid, $2::uuid, $3::uuid, $4, 14.0, $5::uuid, $6::uuid, 'board-' || $4, now(), $7)
+ON CONFLICT DO NOTHING`, bsTenant, "00000000-0000-4000-8000-000000009011", "00000000-0000-4000-8000-000000009111", scan.tag, proofID, bsOperator, scan.status)
 	}
 	return ids
 }
@@ -139,8 +153,8 @@ func TestWeighingBoardEveryStatusAndOneToManyScansOnADatabaseRoundTrip(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(rows) != 7 {
-		t.Fatalf("7 live buckets expected (the canceled one is not work), got %d", len(rows))
+	if len(rows) != 9 {
+		t.Fatalf("9 live buckets expected (the two canceled ones, on the item and on the bucket, are not work), got %d", len(rows))
 	}
 	got := byBucket(rows)
 	want := map[string]struct {
@@ -155,6 +169,11 @@ func TestWeighingBoardEveryStatusAndOneToManyScansOnADatabaseRoundTrip(t *testin
 		ids["00000000-0000-4000-8000-000000009105"]: {domain.WorkStateOverdue, domain.LaneToDo, domain.SeverityAtRisk},
 		ids["00000000-0000-4000-8000-000000009106"]: {domain.WorkStateDue, domain.LaneToDo, domain.SeverityWatch},
 		ids["00000000-0000-4000-8000-000000009108"]: {domain.WorkStateCompleted, domain.LaneDone, domain.SeverityOK},
+		ids["00000000-0000-4000-8000-000000009109"]: {domain.WorkStateVerificationPending, domain.LaneInReview, domain.SeverityOK},
+		ids["00000000-0000-4000-8000-000000009111"]: {domain.WorkStateRejected, domain.LaneInProgress, domain.SeverityWatch},
+	}
+	if _, leaked := got[ids["00000000-0000-4000-8000-000000009110"]]; leaked {
+		t.Fatal("a bucket canceled on the bucket alone must leave the board")
 	}
 	for id, w := range want {
 		r, ok := got[id]
@@ -179,8 +198,14 @@ func TestWeighingBoardEveryStatusAndOneToManyScansOnADatabaseRoundTrip(t *testin
 	if first.Href != "/weighing/weights?park="+bsPark+"&weighing=individual_animal" {
 		t.Errorf("href %q", first.Href)
 	}
-	if first.Counts.Done != 2 || first.Counts.Pending != 1 {
-		t.Errorf("individual bucket counts %+v, want 2 done / 1 pending", first.Counts)
+	// Free-flow: no expected count exists, so an individual bucket reads scanned as done and
+	// no roster remainder; only a bucket with nothing scanned yet carries itself as pending.
+	if first.Counts.Done != 2 || first.Counts.Pending != 0 || first.Counts.NeedsAttention != 0 {
+		t.Errorf("individual bucket counts %+v, want 2 done / 0 pending", first.Counts)
+	}
+	bounced := got[ids["00000000-0000-4000-8000-000000009111"]]
+	if bounced.Counts.Done != 2 || bounced.Counts.NeedsAttention != 1 {
+		t.Errorf("a bounced scan is the card's attention: %+v", bounced.Counts)
 	}
 	if first.Owner.Name != "Dinakar" || first.Owner.WorkforceMemberID != bsMember || first.Owner.UserID != bsOperator || first.OwnerState != domain.OwnerStateAssigned {
 		t.Errorf("owner %+v %s", first.Owner, first.OwnerState)
@@ -217,8 +242,8 @@ func TestWeighingBoardParkScopePageBoundaryAndDateShift(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(mine) != 3 {
-		t.Fatalf("operator lens: 3 own rows expected, got %d", len(mine))
+	if len(mine) != 4 {
+		t.Fatalf("operator lens: 4 own rows expected (three seeded plus the bounced bucket), got %d", len(mine))
 	}
 	for _, r := range mine {
 		if r.Owner.UserID != bsOperator {
@@ -259,8 +284,8 @@ func TestWeighingBoardParkScopePageBoundaryAndDateShift(t *testing.T) {
 			after = r.SourceID
 		}
 	}
-	if len(seen) != 7 {
-		t.Fatalf("keyset walk saw %d rows, want 7", len(seen))
+	if len(seen) != 9 {
+		t.Fatalf("keyset walk saw %d rows, want 9", len(seen))
 	}
 
 	counts, err := src.CountByState(ctx, query(""))
@@ -271,7 +296,7 @@ func TestWeighingBoardParkScopePageBoundaryAndDateShift(t *testing.T) {
 	for _, n := range counts {
 		total += n
 	}
-	if total != 7 || counts[domain.WorkStateDue] != 2 || counts[domain.WorkStateOverdue] != 1 || counts[domain.WorkStateCompleted] != 2 {
+	if total != 9 || counts[domain.WorkStateDue] != 2 || counts[domain.WorkStateOverdue] != 1 || counts[domain.WorkStateCompleted] != 2 || counts[domain.WorkStateVerificationPending] != 2 || counts[domain.WorkStateRejected] != 1 {
 		t.Fatalf("counts %+v", counts)
 	}
 	otherPark, err := src.CountByState(ctx, ports.SourceQuery{TenantID: bsTenant, ParkID: bsOtherPk, BusinessDate: bsDate})

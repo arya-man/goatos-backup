@@ -53,13 +53,21 @@ func (s *Source) SourceType() string    { return SourceType }
 // workStateSQL is the one place a weighing work item becomes a board work state.
 //
 //	closed (item OR bucket)      -> completed            (the close landed; the bucket is done)
-//	completed                    -> verification_pending (submitted; the close gate waits on the verdict)
+//	completed (item OR bucket)   -> verification_pending (submitted; the close gate waits on the verdict)
+//	bucket started, a scan bounced -> rejected           (the verifier sent an animal back; re-shoot owed)
 //
 // The bucket's own status is read alongside the item's because CLOSE writes only the bucket
 // (weighing_campaign_sheds.status = 'closed'); the work item is moved to 'closed' by the
 // kernel sweep, which reconciles only scheduled/delayed items, so a submitted bucket's item
 // stays 'completed' after the close. Reading the item alone left every closed-after-submit
-// bucket in "In review" forever (119 of 134 closed buckets on the 2026-09-10 clone).
+// bucket in "In review" forever (119 of 134 closed buckets on the 2026-09-10 clone). The same
+// holds for SUBMIT of a whole pen: RecordShedObservation writes only the bucket, so a
+// whole-pen bucket read "due" after its submit (live E2E 2026-09-11); and for CANCEL, which
+// also writes only the bucket, so a dropped bucket stayed owed on the board.
+//
+// A bounced scan is the module's own `verification_status = 'rework'` on the observation --
+// one mutable row kept until the operator re-shoots it -- so "any rework scan on a started
+// bucket" is the rejected state, exactly what the module's rework_count reads.
 //
 //	delayed, past the D+2 band   -> overdue
 //	otherwise, bucket started    -> in_progress
@@ -68,11 +76,23 @@ func (s *Source) SourceType() string    { return SourceType }
 // `canceled` rows are excluded in the WHERE clause: a canceled bucket is not work.
 const workStateSQL = `CASE
   WHEN w.work_state = 'closed' OR b.status = 'closed' THEN 'completed'
-  WHEN w.work_state = 'completed' THEN 'verification_pending'
+  WHEN w.work_state = 'completed' OR b.status = 'completed' THEN 'verification_pending'
+  WHEN b.status = 'in_progress' AND (` + reworkCountSQL + `) > 0 THEN 'rejected'
   WHEN w.work_state = 'delayed' AND (w.due_business_date - w.planned_business_date) > ` + "2" + ` THEN 'overdue'
   WHEN b.status = 'in_progress' THEN 'in_progress'
   ELSE 'due'
 END`
+
+// reworkCountSQL is the module's own rework_count (close.go), verbatim in shape: submitted
+// individual scans bounced by the verifier plus a bounced open whole-pen weigh. Weighing
+// tables only.
+const reworkCountSQL = `
+  (SELECT count(*) FROM weighing_observations wo
+    WHERE wo.tenant_id = w.tenant_id AND wo.campaign_shed_id = w.campaign_shed_id
+      AND wo.submitted_at IS NOT NULL AND wo.verification_status = 'rework')
+  + (SELECT count(*) FROM weighing_shed_observations wso
+      WHERE wso.tenant_id = w.tenant_id AND wso.campaign_shed_id = w.campaign_shed_id
+        AND wso.withdrawn_at IS NULL AND wso.verification_status = 'rework')`
 
 // baseWhere binds every read to one tenant, one park and one business date, which is
 // what keeps the scan on weighing_work_items_sweep_due_idx / the park+date index rather
@@ -83,16 +103,17 @@ const baseWhere = `
   AND w.park_id = $2::uuid
   AND w.due_business_date = $3::date
   AND w.work_state <> 'canceled'
+  AND b.status <> 'canceled'
   AND ($4::uuid IS NULL OR w.operator_user_id = $4::uuid)`
 
-// projection-review: membership=weighing_work_items rows of ONE tenant, park and due business date (canceled excluded), one row per campaign bucket (weighing_work_items_bucket_uidx); group_key=(tenant_id, work_item_id) for the list and the derived board_state for the count; join_cardinality=weighing_campaign_sheds joined on its primary key (1:1), locations park/shed on their primary key (1:1), workforce_members filtered to status='active' whose (tenant_id,user_id) is unique by the partial active index (at most 1), and the observed count is a CORRELATED SUBQUERY over weighing_observations per returned row, so nothing fans a bucket out; pagination=keyset on work_item_id ASC after $5, LIMIT $7, with the state filter inside WHERE so a page is never short after the cut; scope=tenant_id, park_id, due_business_date and the optional owner predicate, repeated verbatim in countSQL so rows and counts describe one set.
+// projection-review: membership=weighing_work_items rows of ONE tenant, park and due business date (canceled excluded on the item AND on its bucket), one row per campaign bucket (weighing_work_items_bucket_uidx); group_key=(tenant_id, work_item_id) for the list and the derived board_state for the count; join_cardinality=weighing_campaign_sheds joined on its primary key (1:1), locations park/shed on their primary key (1:1), workforce_members filtered to status='active' whose (tenant_id,user_id) is unique by the partial active index (at most 1), and the observed and rework counts are CORRELATED SUBQUERIES over weighing_observations and weighing_shed_observations per row, so nothing fans a bucket out; pagination=keyset on work_item_id ASC after $5, LIMIT $7, with the state filter inside WHERE so a page is never short after the cut; scope=tenant_id, park_id, due_business_date and the optional owner predicate, repeated verbatim in countSQL so rows and counts describe one set.
 const listSQL = `
 WITH items AS (
   SELECT w.work_item_id, w.campaign_id, w.campaign_shed_id, w.park_id, w.operator_user_id,
          w.weighing_category, w.shed_label, w.shed_location_id,
          w.planned_business_date, w.due_business_date, w.work_state, w.rolled_forward_count,
          b.status AS bucket_status, COALESCE(b.partition_label, '') AS partition_label,
-         b.expected_animal_count,
+         (` + reworkCountSQL + `) AS rework,
          ` + workStateSQL + ` AS board_state
   FROM weighing_work_items w
   JOIN weighing_campaign_sheds b
@@ -104,7 +125,7 @@ SELECT i.work_item_id::text, i.campaign_id::text, i.campaign_shed_id::text, i.pa
        COALESCE(park.name, ''),
        i.shed_location_id::text, COALESCE(NULLIF(shed.name, ''), i.shed_label), i.partition_label,
        i.weighing_category, i.planned_business_date::text, i.due_business_date::text,
-       i.work_state, i.bucket_status, i.board_state, i.expected_animal_count,
+       i.work_state, i.bucket_status, i.board_state, i.rework,
        COALESCE(i.operator_user_id::text, ''), COALESCE(m.workforce_member_id::text, ''), COALESCE(m.display_name, ''),
        (SELECT count(*) FROM weighing_observations o
          WHERE o.tenant_id = $1::uuid AND o.campaign_shed_id = i.campaign_shed_id) AS observed
@@ -117,7 +138,7 @@ WHERE ($6::text[] IS NULL OR i.board_state = ANY($6::text[]))
 ORDER BY i.work_item_id
 LIMIT $7`
 
-// projection-review: membership=weighing_work_items rows of ONE tenant, park and due business date (canceled excluded), one row per campaign bucket (weighing_work_items_bucket_uidx); group_key=(tenant_id, work_item_id) (the count query groups by the SAME derived board_state over the SAME membership); join_cardinality=weighing_campaign_sheds joined on its primary key (1:1), locations park/shed on their primary key (1:1), workforce_members filtered to status='active' whose (tenant_id,user_id) is unique by the partial active index (at most 1), and the observed count is a CORRELATED SUBQUERY over weighing_observations per returned row, so nothing fans a bucket out; pagination=keyset on work_item_id ASC after $5, LIMIT $7, with the state filter inside WHERE so a page is never short after the cut; scope=tenant_id, park_id, due_business_date and the optional owner predicate, repeated verbatim in countSQL so rows and counts describe one set.
+// projection-review: membership=weighing_work_items rows of ONE tenant, park and due business date (canceled excluded on the item AND on its bucket), one row per campaign bucket (weighing_work_items_bucket_uidx); group_key=(tenant_id, work_item_id) (the count query groups by the SAME derived board_state over the SAME membership); join_cardinality=weighing_campaign_sheds joined on its primary key (1:1), locations park/shed on their primary key (1:1), workforce_members filtered to status='active' whose (tenant_id,user_id) is unique by the partial active index (at most 1), and the observed and rework counts are CORRELATED SUBQUERIES over weighing_observations and weighing_shed_observations per row, so nothing fans a bucket out; pagination=keyset on work_item_id ASC after $5, LIMIT $7, with the state filter inside WHERE so a page is never short after the cut; scope=tenant_id, park_id, due_business_date and the optional owner predicate, repeated verbatim in countSQL so rows and counts describe one set.
 const countSQL = `
 SELECT board_state, count(*)
 FROM (
@@ -187,12 +208,12 @@ func scanRow(rows pgx.Rows) (domain.Row, error) {
 		workItemID, campaignID, bucketID, parkID, parkName  string
 		shedID, shedName, partitionLabel, category          string
 		planned, due, kernelState, bucketStatus, boardState string
-		expected, observed                                  int
+		rework, observed                                    int
 		ownerUserID, ownerMemberID, ownerName               string
 	)
 	if err := rows.Scan(&workItemID, &campaignID, &bucketID, &parkID, &parkName,
 		&shedID, &shedName, &partitionLabel, &category, &planned, &due,
-		&kernelState, &bucketStatus, &boardState, &expected,
+		&kernelState, &bucketStatus, &boardState, &rework,
 		&ownerUserID, &ownerMemberID, &ownerName, &observed); err != nil {
 		return domain.Row{}, fmt.Errorf("weighing boardsource scan: %w", err)
 	}
@@ -214,10 +235,16 @@ func scanRow(rows pgx.Rows) (domain.Row, error) {
 	counts := domain.Counts{}
 	switch category {
 	case "individual_animal":
+		// Free-flow: there is NO expected animal count (AGENTS.md: weighing knows a scanned
+		// string and a weight, never a roster), so Done is what was scanned and the only
+		// pending unit before the first scan is the bucket itself. The earlier
+		// `expected - observed` was a banned denominator that could never fire, because the
+		// module writes expected_animal_count = 0 by design; it left every fresh bucket at
+		// 0/0/0 (live E2E 2026-09-11).
 		subtitle = "Scan each animal"
 		counts.Done = observed
-		if expected > observed {
-			counts.Pending = expected - observed
+		if observed == 0 && state != domain.WorkStateCompleted {
+			counts.Pending = 1
 		}
 	default:
 		if state == domain.WorkStateCompleted || state == domain.WorkStateVerificationPending {
@@ -228,6 +255,13 @@ func scanRow(rows pgx.Rows) (domain.Row, error) {
 	}
 	if state == domain.WorkStateOverdue {
 		counts.NeedsAttention = 1
+	}
+	if rework > 0 {
+		// The verifier sent scans back: those are the card's attention, and the card is amber.
+		counts.NeedsAttention = rework
+		if severity == domain.SeverityOK {
+			severity = domain.SeverityWatch
+		}
 	}
 	owner := domain.Owner{UserID: ownerUserID, WorkforceMemberID: ownerMemberID, Name: ownerName}
 	ownerState := domain.OwnerStateAssigned
