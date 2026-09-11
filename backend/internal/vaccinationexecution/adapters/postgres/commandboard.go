@@ -181,7 +181,7 @@ func (r *Repository) VaccinationCommandBoard(ctx context.Context, q domain.Comma
 	group.Go(r.commandBoardSection(gctx, func() error {
 		row := r.pool.QueryRow(gctx, commandBoardKPISQL, q.TenantID, asOf, q.DriveBatchID, parkID)
 		if err := row.Scan(&resp.KPIs.Targets, &resp.KPIs.MissedNotGiven, &resp.KPIs.DosesVerified,
-			&resp.KPIs.AwaitingVerification, &resp.KPIs.OverdueNotGiven, &resp.KPIs.ScheduledAhead,
+			&resp.KPIs.AwaitingVerification, &resp.KPIs.ReworkNeeded, &resp.KPIs.OverdueNotGiven, &resp.KPIs.ScheduledAhead,
 			&resp.KPIs.ClosedWithoutDose); err != nil {
 			return fmt.Errorf("vaccination command board: kpi query: %w", err)
 		}
@@ -270,9 +270,9 @@ func (r *Repository) VaccinationCommandBoard(ctx context.Context, q domain.Comma
 // commandBoardCohortRow is one (park x stage x sex x dose_code) row of the cohort matrix query,
 // before dose codes are folded onto their displayed vaccine label.
 type commandBoardCohortRow struct {
-	parkID, parkName, stage, sex, doseCode    string
-	animalCount, pending, submitted, verified int
-	minAdministeredAt, maxAdministeredAt      pgtype.Timestamptz
+	parkID, parkName, stage, sex, doseCode                    string
+	animalCount, pending, submitted, rejectedRework, verified int
+	minAdministeredAt, maxAdministeredAt                      pgtype.Timestamptz
 }
 
 type commandBoardHeadKey struct{ parkID, stage, sex string }
@@ -289,7 +289,7 @@ func (r *Repository) commandBoardCohortRows(ctx context.Context, tenantID string
 	for rows.Next() {
 		var row commandBoardCohortRow
 		if err := rows.Scan(&row.parkID, &row.parkName, &row.stage, &row.sex, &row.doseCode,
-			&row.animalCount, &row.pending, &row.submitted, &row.verified,
+			&row.animalCount, &row.pending, &row.submitted, &row.rejectedRework, &row.verified,
 			&row.minAdministeredAt, &row.maxAdministeredAt); err != nil {
 			return nil, fmt.Errorf("vaccination command board: cohort scan: %w", err)
 		}
@@ -394,6 +394,7 @@ func commandBoardFoldCohortCells(rows []commandBoardCohortRow, headCounts map[co
 		}
 		cell.PendingCount += row.pending
 		cell.SubmittedCount += row.submitted
+		cell.RejectedReworkCount += row.rejectedRework
 		cell.VerifiedCount += row.verified
 		if row.minAdministeredAt.Valid && (cell.MinAdministeredDate == nil || row.minAdministeredAt.Time.Before(*cell.MinAdministeredDate)) {
 			administeredAt := row.minAdministeredAt.Time
@@ -526,8 +527,8 @@ func (r *Repository) commandBoardShedVaccineCells(ctx context.Context, tenantID 
 	defer rows.Close()
 	for rows.Next() {
 		var shedID, shedName, partitionLabel, parkName, vaccineCode string
-		var behind, verifying, total int64
-		if err := rows.Scan(&shedID, &shedName, &partitionLabel, &parkName, &vaccineCode, &behind, &verifying, &total); err != nil {
+		var behind, verifying, rework, total int64
+		if err := rows.Scan(&shedID, &shedName, &partitionLabel, &parkName, &vaccineCode, &behind, &verifying, &rework, &total); err != nil {
 			return result, fmt.Errorf("vaccination command board: shed vaccine scan: %w", err)
 		}
 		shedKey := shedID + "|" + partitionLabel
@@ -543,6 +544,8 @@ func (r *Repository) commandBoardShedVaccineCells(ctx context.Context, tenantID 
 		switch {
 		case behind > 0:
 			state = "behind"
+		case rework > 0:
+			state = "rework"
 		case verifying > 0:
 			state = "verifying"
 		}
@@ -556,6 +559,7 @@ func (r *Repository) commandBoardShedVaccineCells(ctx context.Context, tenantID 
 			State:                      state,
 			BehindAnimals:              int(behind),
 			VerifyingAnimals:           int(verifying),
+			ReworkAnimals:              int(rework),
 			TotalAnimals:               int(total),
 		}
 	}

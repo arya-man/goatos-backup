@@ -96,6 +96,7 @@ interface CohortPivotRow {
   // nobody had touched, and left the CEO with "40 pending" under "40 awaiting verification".
   pending: Record<string, number>;
   submitted: Record<string, number>;
+  rejectedRework: Record<string, number>;
   verified: Record<string, number>;
   administeredDates: Record<string, AdministeredDateRange>;
   // The BACKEND cells that fold into each displayed vaccine column of this row.
@@ -114,6 +115,7 @@ interface CohortMember {
   animals: number;
   pending: Record<string, number>;
   submitted: Record<string, number>;
+  rejectedRework: Record<string, number>;
   verified: Record<string, number>;
   administeredDates: Record<string, AdministeredDateRange>;
 }
@@ -123,6 +125,7 @@ interface CohortCellInput {
   vaccineLabel: string;
   pendingCount: number;
   submittedCount?: number;
+  rejectedReworkCount?: number;
   verifiedCount: number;
   minAdministeredDate?: string | null;
   maxAdministeredDate?: string | null;
@@ -177,6 +180,7 @@ function buildCohortPivot(
   const rows = [...ladder, ...unmapped].map((cohort) => {
     const pending: Record<string, number> = {};
     const submitted: Record<string, number> = {};
+    const rejectedRework: Record<string, number> = {};
     const verified: Record<string, number> = {};
     const administeredDates: Record<string, AdministeredDateRange> = {};
     const cellRefs: Record<string, CohortCellRef[]> = {};
@@ -191,6 +195,8 @@ function buildCohortPivot(
       const key = `${cell.cohort.managementStage}|${cell.cohort.sex}`;
       pending[cell.vaccineLabel] = (pending[cell.vaccineLabel] ?? 0) + cell.pendingCount;
       submitted[cell.vaccineLabel] = (submitted[cell.vaccineLabel] ?? 0) + (cell.submittedCount ?? 0);
+      rejectedRework[cell.vaccineLabel] =
+        (rejectedRework[cell.vaccineLabel] ?? 0) + (cell.rejectedReworkCount ?? 0);
       verified[cell.vaccineLabel] = (verified[cell.vaccineLabel] ?? 0) + cell.verifiedCount;
       mergeAdministeredDateRange(
         administeredDates,
@@ -215,6 +221,7 @@ function buildCohortPivot(
           animals: 0,
           pending: {},
           submitted: {},
+          rejectedRework: {},
           verified: {},
           administeredDates: {},
         };
@@ -223,6 +230,8 @@ function buildCohortPivot(
       member.pending[cell.vaccineLabel] = (member.pending[cell.vaccineLabel] ?? 0) + cell.pendingCount;
       member.submitted[cell.vaccineLabel] =
         (member.submitted[cell.vaccineLabel] ?? 0) + (cell.submittedCount ?? 0);
+      member.rejectedRework[cell.vaccineLabel] =
+        (member.rejectedRework[cell.vaccineLabel] ?? 0) + (cell.rejectedReworkCount ?? 0);
       member.verified[cell.vaccineLabel] = (member.verified[cell.vaccineLabel] ?? 0) + cell.verifiedCount;
       mergeAdministeredDateRange(
         member.administeredDates,
@@ -242,6 +251,7 @@ function buildCohortPivot(
       animals,
       pending,
       submitted,
+      rejectedRework,
       verified,
       administeredDates,
       cellRefs,
@@ -326,6 +336,7 @@ type CohortCell = NonNullable<CommandBoardCohortMatrixPage["cells"]>[number];
 type ShedDoseCell = ShedDoseCellRow;
 type CommandBoardKpis = CommandBoardResponse["kpis"] & {
   missedNotGiven?: number;
+  reworkNeeded?: number;
   closedWithoutDose?: number;
 };
 type CommandBoardExtras = {
@@ -336,7 +347,7 @@ type CommandBoardExtras = {
 };
 // driveOptions is the one field the view widens: enrichDriveOptions reconstructs counts the skinny
 // API catalogue omits and tags them, so the rendered option carries more than the wire schema does.
-type CommandBoard = Omit<CommandBoardResponse, "driveOptions" | "kpis"> & CommandBoardExtras & {
+type CommandBoard = Omit<CommandBoardResponse, "driveOptions" | "kpis" | "shedVaccineMatrix" | "shedVaccineColumns"> & CommandBoardExtras & {
   driveOptions?: CommandBoardDriveOption[];
 };
 
@@ -347,9 +358,10 @@ type ShedVaccineCell = {
   operational_location_display?: string | null;
   parkName?: string | null;
   vaccineCode: string;
-  state: "behind" | "verifying" | "ok" | "not_planned";
+  state: "behind" | "rework" | "verifying" | "ok" | "not_planned";
   behindAnimals: number;
   verifyingAnimals?: number;
+  reworkAnimals?: number;
   totalAnimals: number;
   // No proofVideos / flaggedAnimals here on purpose: both are fetched per cell when the drawer
   // opens (command-board-drilldowns.ts). Declaring them optional would let a future edit read a
@@ -365,7 +377,7 @@ interface CommandBoardViewProps {
   driveParkId?: string;
 }
 
-const STATUS_KEYS = ["verified", "awaiting", "overdue", "scheduled"] as const;
+const STATUS_KEYS = ["verified", "awaiting", "rework", "overdue", "scheduled"] as const;
 type StatusKey = (typeof STATUS_KEYS)[number];
 
 function keyDate(value?: string | null): string {
@@ -461,6 +473,7 @@ interface SelectedCohortCell {
   animals: number;
   pending: number;
   submitted: number;
+  rejectedRework: number;
   verified: number;
   dateSpan: string;
   // The BACKEND cells this display cell is made of. The drawer fetches its day split from these.
@@ -470,6 +483,7 @@ interface SelectedCohortCell {
     animals: number;
     pending: number;
     submitted: number;
+    rejectedRework: number;
     verified: number;
     dateSpan: string;
   }>;
@@ -632,7 +646,7 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
     };
     const byShed = new Map<string, PendingShed>();
     (view.shedVaccineMatrix ?? []).forEach((cell) => {
-      if (cell.state !== "behind" && cell.state !== "verifying") return;
+      if (cell.state !== "behind" && cell.state !== "verifying" && cell.state !== "rework") return;
       const key = `${cell.shedId}|${cell.partition_label ?? ""}`;
       const row = byShed.get(key) ?? {
         key,
@@ -666,7 +680,7 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
     role: count > 0 ? "button" : undefined,
     tabIndex: count > 0 ? 0 : undefined,
     "aria-disabled": count === 0 ? true : undefined,
-    className: `kpi ${key === "verified" ? "ok" : key === "awaiting" ? "warn" : key === "scheduled" ? "info" : "danger"}${count > 0 ? " kpi-clickable" : ""}`,
+    className: `kpi ${key === "verified" ? "ok" : key === "awaiting" ? "warn" : key === "rework" ? "rework" : key === "scheduled" ? "info" : "danger"}${count > 0 ? " kpi-clickable" : ""}`,
     onClick: () => count > 0 && activateStatusKpi(key),
     onKeyDown: (e: ReactKeyboardEvent<HTMLDivElement>) => {
       if ((e.key === "Enter" || e.key === " ") && count > 0) {
@@ -805,6 +819,12 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
             <div className="val">{view.kpis.awaitingVerification}</div>
             <div className="dl">{copy(pageContract, "command_board.kpi.awaiting_dl")}</div>
           </div>
+          <div {...statusKpiProps("rework", view.kpis.reworkNeeded ?? 0)}>
+            <div className="stripe"></div>
+            <div className="lbl">{copy(pageContract, "command_board.kpi.rework_needed")}</div>
+            <div className="val">{view.kpis.reworkNeeded ?? 0}</div>
+            <div className="dl">{copy(pageContract, "command_board.kpi.rework_dl")}</div>
+          </div>
           <div {...statusKpiProps("overdue", view.kpis.overdueNotGiven)}>
             <div className="stripe"></div>
             <div className="lbl">{copy(pageContract, "command_board.kpi.overdue")}</div>
@@ -925,7 +945,7 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
                             const cell = cellsByShed.get(shedPartitionKey)?.get(code);
                             const state = cell?.state ?? "not_planned";
                             const behind = cell?.behindAnimals ?? 0;
-                            const openable = (state === "behind" || state === "verifying") && cell !== undefined;
+                            const openable = (state === "behind" || state === "verifying" || state === "rework") && cell !== undefined;
                             return (
                               <td
                                 key={code}
@@ -944,6 +964,8 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
                                     ? `${behind} of ${cell?.totalAnimals ?? 0} behind`
                                     : state === "verifying"
                                       ? `${cell?.verifyingAnimals ?? 0} of ${cell?.totalAnimals ?? 0} given, video verification pending`
+                                      : state === "rework"
+                                        ? `${cell?.reworkAnimals ?? 0} of ${cell?.totalAnimals ?? 0} rejected proof, rework needed`
                                     : state === "ok"
                                       ? `${cell?.totalAnimals ?? 0} on track`
                                       : copy(pageContract, "command_board.shed_vaccine.state.not_planned")
@@ -966,6 +988,11 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
                                     {cell?.verifyingAnimals ?? 0}
                                     <i>{copy(pageContract, "command_board.shed_vaccine.cell.verifying_unit")}</i>
                                   </span>
+                                ) : state === "rework" ? (
+                                  <span className="cbm-sv-rework">
+                                    {cell?.reworkAnimals ?? 0}
+                                    <i>{copy(pageContract, "command_board.shed_vaccine.cell.rework_unit")}</i>
+                                  </span>
                                 ) : state === "ok" ? (
                                   <span className="cbm-sv-tick" aria-hidden="true">✓</span>
                                 ) : (
@@ -985,6 +1012,7 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
               </div>
               <div className="cbm-legend cbm-sv-legend">
                 <span className="cbm-sv-behind"><i></i>{copy(pageContract, "command_board.shed_vaccine.state.behind")}</span>
+                <span className="cbm-sv-rework"><i></i>{copy(pageContract, "command_board.shed_vaccine.state.rework")}</span>
                 <span className="cbm-sv-verifying"><i></i>{copy(pageContract, "command_board.shed_vaccine.state.verifying")}</span>
                 <span className="cbm-sv-ok"><i></i>{copy(pageContract, "command_board.shed_vaccine.state.ok")}</span>
                 <span className="cbm-sv-not_planned"><i></i>{copy(pageContract, "command_board.shed_vaccine.state.not_planned")}</span>
@@ -1024,7 +1052,12 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
                         {row.cells
                           .sort((a, b) => a.label.localeCompare(b.label))
                           .map((cell) => {
-                            const count = cell.state === "behind" ? cell.behindAnimals : cell.verifyingAnimals;
+                            const count =
+                              cell.state === "behind"
+                                ? cell.behindAnimals
+                                : cell.state === "rework"
+                                  ? cell.reworkAnimals
+                                  : cell.verifyingAnimals;
                             return (
                               <button
                                 key={`${cell.vaccineCode}:${cell.state}`}
@@ -1150,6 +1183,7 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
               <div className="cbm-legend">
                 <span><i></i>{copy(pageContract, "command_board.shed_matrix.legend.verified")}</span>
                 <span><i></i>{copy(pageContract, "command_board.shed_matrix.legend.awaiting")}</span>
+                <span><i></i>{copy(pageContract, "command_board.shed_matrix.legend.rework")}</span>
                 <span><i></i>{copy(pageContract, "command_board.shed_matrix.legend.overdue")}</span>
                 <span><i></i>{copy(pageContract, "command_board.shed_matrix.legend.scheduled")}</span>
                 <span><i></i>{copy(pageContract, "command_board.shed_matrix.legend.not_scoped")}</span>
@@ -1237,6 +1271,7 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
                             const animals = row.animals;
                             const pendingOf = row.pending;
                             const submittedOf = row.submitted;
+                            const rejectedReworkOf = row.rejectedRework;
                             const verifiedOf = row.verified;
                             const administeredDatesOf = row.administeredDates;
                             const cells =
@@ -1246,21 +1281,23 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
                                   return <td key={v} className="cbm-cell cbm-na">—</td>;
                                 }
                                 const awaiting = submittedOf[v] ?? 0;
+                                const rework = rejectedReworkOf[v] ?? 0;
                                 const done = verifiedOf[v] ?? 0;
                                 // Nothing owed and nothing done: stay neutral rather than
                                 // pretend work was completed. `awaiting` is part of the guard —
                                 // a submitted-but-unverified cell is real work and must render.
-                                if (pending === 0 && awaiting === 0 && done === 0) {
+                                if (pending === 0 && awaiting === 0 && rework === 0 && done === 0) {
                                   return <td key={v} className="cbm-cell cbm-na">—</td>;
                                 }
                                 const pendingWord = copy(pageContract, "command_board.cohort_matrix.pending_word");
+                                const reworkWord = copy(pageContract, "command_board.cohort_matrix.rework_word");
                                 const submittedWord = copy(pageContract, "command_board.cohort_matrix.submitted_word");
                                 const verifiedWord = copy(pageContract, "command_board.cohort_matrix.verified_word");
                                 const administered = administeredDatesOf[v];
                                 const administeredDate = formatDateSpan(administered?.min, administered?.max);
                                 // The headline number is the count of the state the cell colour
                                 // denotes, so colour and number can never disagree.
-                                const headline = pending > 0 ? pending : awaiting > 0 ? awaiting : done;
+                                const headline = pending > 0 ? pending : rework > 0 ? rework : awaiting > 0 ? awaiting : done;
                                 // Actual medical dates belong to the VERIFIED doses only; show the
                                 // honest "date unavailable" rather than borrowing the drive's
                                 // planned date.
@@ -1274,6 +1311,7 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
                                 // subtract zeroes to find the one fact that matters.
                                 const parts: string[] = [];
                                 if (pending > 0) parts.push(`${pending} ${pendingWord}`);
+                                if (rework > 0) parts.push(`${rework} ${reworkWord}`);
                                 if (awaiting > 0) parts.push(`${awaiting} ${submittedWord}`);
                                 if (done > 0) parts.push(`${done} ${verifiedWord}`);
                                 const cellKey = `${farm}|${label}|${v}`;
@@ -1285,6 +1323,7 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
                                   animals,
                                   pending,
                                   submitted: awaiting,
+                                  rejectedRework: rework,
                                   verified: done,
                                   dateSpan: administeredDate,
                                   cellRefs: row.cellRefs[v] ?? [],
@@ -1293,6 +1332,7 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
                                     animals: member.animals,
                                     pending: member.pending[v] ?? 0,
                                     submitted: member.submitted[v] ?? 0,
+                                    rejectedRework: member.rejectedRework[v] ?? 0,
                                     verified: member.verified[v] ?? 0,
                                     dateSpan: formatDateSpan(member.administeredDates[v]?.min, member.administeredDates[v]?.max),
                                   })),
@@ -1301,8 +1341,8 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
                                 return (
                                   <td
                                     key={v}
-                                    className={`cbm-cell cbm-cohort-cell ${pending > 0 ? "cbm-pending" : awaiting > 0 ? "cbm-awaiting" : "cbm-clear"}${selectedCell?.key === cellKey ? " cbm-cell-on" : ""}`}
-                                    title={`${label} · ${v} · ${pending} ${pendingWord}, ${awaiting} ${submittedWord}, ${done} ${verifiedWord}${dateSuffix}`}
+                                    className={`cbm-cell cbm-cohort-cell ${pending > 0 ? "cbm-pending" : rework > 0 ? "cbm-rework" : awaiting > 0 ? "cbm-awaiting" : "cbm-clear"}${selectedCell?.key === cellKey ? " cbm-cell-on" : ""}`}
+                                    title={`${label} · ${v} · ${pending} ${pendingWord}, ${rework} ${reworkWord}, ${awaiting} ${submittedWord}, ${done} ${verifiedWord}${dateSuffix}`}
                                     role="button"
                                     tabIndex={0}
                                     aria-pressed={selectedCell?.key === cellKey}
@@ -1439,6 +1479,8 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
                 <span>
                   {selectedShedVaccine.state === "verifying"
                     ? `${selectedShedVaccine.verifyingAnimals} ${copy(pageContract, "command_board.shed_vaccine.drawer.verifying_of")} ${selectedShedVaccine.totalAnimals}`
+                    : selectedShedVaccine.state === "rework"
+                      ? `${selectedShedVaccine.reworkAnimals} ${copy(pageContract, "command_board.shed_vaccine.drawer.rework_of")} ${selectedShedVaccine.totalAnimals}`
                     : `${selectedShedVaccine.behindAnimals} ${copy(pageContract, "command_board.shed_vaccine.drawer.behind_of")} ${selectedShedVaccine.totalAnimals}`}
                   {selectedShedVaccine.parkName ? ` · ${selectedShedVaccine.parkName}` : ""}
                 </span>
@@ -1645,6 +1687,10 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
                   <div className="v">{selectedCell.pending}</div>
                 </div>
                 <div>
+                  <div className="k">{copy(pageContract, "command_board.cohort_matrix.rework_word")}</div>
+                  <div className="v">{selectedCell.rejectedRework}</div>
+                </div>
+                <div>
                   <div className="k">{copy(pageContract, "command_board.cohort_matrix.submitted_word")}</div>
                   <div className="v">{selectedCell.submitted}</div>
                 </div>
@@ -1688,6 +1734,7 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
                       <th>{copy(pageContract, "command_board.cohort_matrix.detail.breakdown")}</th>
                       <th>{copy(pageContract, "command_board.cohort_matrix.column.animals")}</th>
                       <th>{copy(pageContract, "command_board.cohort_matrix.pending_word")}</th>
+                      <th>{copy(pageContract, "command_board.cohort_matrix.rework_word")}</th>
                       <th>{copy(pageContract, "command_board.cohort_matrix.submitted_word")}</th>
                       <th>{copy(pageContract, "command_board.cohort_matrix.verified_word")}</th>
                       <th>{copy(pageContract, "command_board.cohort_matrix.detail.dates")}</th>
@@ -1699,6 +1746,7 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
                         <td>{member.label}</td>
                         <td>{member.animals}</td>
                         <td>{member.pending}</td>
+                        <td>{member.rejectedRework}</td>
                         <td>{member.submitted}</td>
                         <td>{member.verified}</td>
                         <td>{member.dateSpan || copy(pageContract, "command_board.cohort_matrix.date_unavailable")}</td>

@@ -162,11 +162,35 @@ WITH comp AS (
   WHERE tenant_id = $1::uuid
   GROUP BY obligation_id
 ),
+latest_verification AS (
+  SELECT DISTINCT ON (vi.tenant_id, vi.source_task_id, vi.source_ref_id)
+    vi.tenant_id,
+    vi.source_task_id,
+    vi.source_ref_id AS goat_id,
+    vi.status
+  FROM verification_items vi
+  WHERE vi.tenant_id = $1::uuid
+    AND vi.source_module = 'vaccination'
+    AND vi.category = 'vaccination_proof'
+    AND vi.source_ref_type = 'vaccination_goat'
+    AND vi.source_task_id IS NOT NULL
+    AND vi.source_ref_id IS NOT NULL
+    AND vi.status IN ('pending','approved','rejected')
+  ORDER BY vi.tenant_id, vi.source_task_id, vi.source_ref_id, vi.verified_at DESC NULLS LAST, vi.captured_at DESC NULLS LAST, vi.item_id DESC
+),
+rework AS (
+  SELECT b.tenant_id, b.batch_id, lv.goat_id, true AS has_rejected_rework
+  FROM obligation_batches b
+  JOIN latest_verification lv ON lv.tenant_id = b.tenant_id AND lv.source_task_id = b.sop_task_id
+  WHERE b.tenant_id = $1::uuid
+    AND lv.status = 'rejected'
+),
 scoped AS (
   SELECT
     oi.target_id,
     COALESCE(comp.has_accepted, false) AS has_accepted,
     COALESCE(comp.has_recorded_unverified, false) AS has_recorded_unverified,
+    COALESCE(rework.has_rejected_rework, false) AS has_rejected_rework,
     comp.obligation_id IS NULL AS no_completion,
     oi.status = 'missed' AS is_missed,
     oi.status IN ('scheduled','due','in_progress','deferred','missed') AS is_open,
@@ -174,6 +198,7 @@ scoped AS (
   FROM obligation_instances oi
   JOIN goats g ON g.goat_id = oi.target_id AND g.tenant_id = oi.tenant_id
   LEFT JOIN comp ON oi.obligation_id = comp.obligation_id
+  LEFT JOIN rework ON rework.tenant_id = oi.tenant_id AND rework.batch_id = oi.batch_id AND rework.goat_id = oi.target_id
   WHERE oi.tenant_id = $1::uuid
     AND g.lifecycle_status IN ('alive', 'sick', 'under_treatment', 'quarantine', 'icu')
     AND g.merged_into_goat_id IS NULL
@@ -193,8 +218,9 @@ per_animal AS (
     -- sat in the queue -- both tiles wrong, in opposite directions, from the same predicate.
     bool_or(is_missed AND no_completion) AS any_missed,
     bool_or(has_recorded_unverified AND NOT has_accepted) AS any_awaiting,
+    bool_or(has_rejected_rework AND NOT has_recorded_unverified AND NOT has_accepted) AS any_rework,
     bool_or(has_accepted) AS any_verified,
-    bool_or(is_open AND no_completion AND due_before_as_of) AS any_overdue,
+    bool_or(is_open AND no_completion AND NOT has_rejected_rework AND due_before_as_of) AS any_overdue,
     bool_or(is_open AND no_completion AND NOT due_before_as_of) AS any_scheduled
   FROM scoped
   GROUP BY target_id
@@ -202,11 +228,12 @@ per_animal AS (
 SELECT
   COUNT(*) AS targets,
   COUNT(*) FILTER (WHERE any_missed) AS missed_not_given,
-  COUNT(*) FILTER (WHERE any_verified AND NOT any_awaiting AND NOT any_overdue AND NOT any_missed) AS doses_verified,
+  COUNT(*) FILTER (WHERE any_verified AND NOT any_awaiting AND NOT any_rework AND NOT any_overdue AND NOT any_missed) AS doses_verified,
   COUNT(*) FILTER (WHERE any_awaiting AND NOT any_missed) AS awaiting_verification,
-  COUNT(*) FILTER (WHERE any_overdue AND NOT any_awaiting AND NOT any_missed) AS overdue_not_given,
-  COUNT(*) FILTER (WHERE any_scheduled AND NOT any_overdue AND NOT any_awaiting AND NOT any_verified AND NOT any_missed) AS scheduled_ahead,
-  COUNT(*) FILTER (WHERE NOT any_missed AND NOT any_verified AND NOT any_awaiting AND NOT any_overdue AND NOT any_scheduled) AS closed_without_dose
+  COUNT(*) FILTER (WHERE any_rework AND NOT any_awaiting AND NOT any_missed) AS rework_needed,
+  COUNT(*) FILTER (WHERE any_overdue AND NOT any_rework AND NOT any_awaiting AND NOT any_missed) AS overdue_not_given,
+  COUNT(*) FILTER (WHERE any_scheduled AND NOT any_overdue AND NOT any_rework AND NOT any_awaiting AND NOT any_verified AND NOT any_missed) AS scheduled_ahead,
+  COUNT(*) FILTER (WHERE NOT any_missed AND NOT any_verified AND NOT any_awaiting AND NOT any_rework AND NOT any_overdue AND NOT any_scheduled) AS closed_without_dose
 FROM per_animal
 `
 
@@ -314,6 +341,29 @@ WITH comp AS (
   WHERE tenant_id = $1::uuid
   GROUP BY obligation_id
 ),
+latest_verification AS (
+  SELECT DISTINCT ON (vi.tenant_id, vi.source_task_id, vi.source_ref_id)
+    vi.tenant_id,
+    vi.source_task_id,
+    vi.source_ref_id AS goat_id,
+    vi.status
+  FROM verification_items vi
+  WHERE vi.tenant_id = $1::uuid
+    AND vi.source_module = 'vaccination'
+    AND vi.category = 'vaccination_proof'
+    AND vi.source_ref_type = 'vaccination_goat'
+    AND vi.source_task_id IS NOT NULL
+    AND vi.source_ref_id IS NOT NULL
+    AND vi.status IN ('pending','approved','rejected')
+  ORDER BY vi.tenant_id, vi.source_task_id, vi.source_ref_id, vi.verified_at DESC NULLS LAST, vi.captured_at DESC NULLS LAST, vi.item_id DESC
+),
+rework AS (
+  SELECT b.tenant_id, b.batch_id, lv.goat_id, true AS has_rejected_rework
+  FROM obligation_batches b
+  JOIN latest_verification lv ON lv.tenant_id = b.tenant_id AND lv.source_task_id = b.sop_task_id
+  WHERE b.tenant_id = $1::uuid
+    AND lv.status = 'rejected'
+),
 -- AGGREGATE FIRST, DECORATE AFTER. narrowed folds obligations to (goat, scope, dose) on the
 -- CHEAP join only -- obligation_instances to protocol_rules to the pre-aggregated comp -- before
 -- goats and locations are brought in. On the staging-scale tenant that is 80,960 rows collapsing to
@@ -346,18 +396,25 @@ narrowed AS (
     COUNT(*) FILTER (WHERE
       NOT COALESCE(comp.has_accepted, false)
       AND NOT COALESCE(comp.has_recorded_unverified, false)
+      AND NOT COALESCE(rework.has_rejected_rework, false)
       AND oi.status IN ('scheduled','due','in_progress','deferred','missed')
       AND (oi.due_at AT TIME ZONE 'Asia/Kolkata')::date < ($2::timestamptz AT TIME ZONE 'Asia/Kolkata')::date
     )::bigint AS pending_count,
     COUNT(*) FILTER (WHERE
       NOT COALESCE(comp.has_accepted, false) AND COALESCE(comp.has_recorded_unverified, false)
     )::bigint AS submitted_count,
+    COUNT(*) FILTER (WHERE
+      NOT COALESCE(comp.has_accepted, false)
+      AND NOT COALESCE(comp.has_recorded_unverified, false)
+      AND COALESCE(rework.has_rejected_rework, false)
+    )::bigint AS rejected_rework_count,
     COUNT(*) FILTER (WHERE COALESCE(comp.has_accepted, false))::bigint AS verified_count,
     MIN(CASE WHEN comp.has_accepted THEN comp.min_administered_at END) AS min_administered_at,
     MAX(CASE WHEN comp.has_accepted THEN comp.max_administered_at END) AS max_administered_at
   FROM obligation_instances oi
   JOIN protocol_rules pr ON oi.rule_id = pr.rule_id AND oi.tenant_id = pr.tenant_id
   LEFT JOIN comp ON oi.obligation_id = comp.obligation_id
+  LEFT JOIN rework ON rework.tenant_id = oi.tenant_id AND rework.batch_id = oi.batch_id AND rework.goat_id = oi.target_id
   WHERE oi.tenant_id = $1::uuid
     AND (COALESCE($3::uuid,'00000000-0000-0000-0000-000000000000') = '00000000-0000-0000-0000-000000000000' OR oi.batch_id = $3::uuid)
     AND (COALESCE($4::uuid,'00000000-0000-0000-0000-000000000000') = '00000000-0000-0000-0000-000000000000' OR EXISTS (
@@ -374,6 +431,7 @@ scoped AS (
     g.goat_id,
     n.pending_count,
     n.submitted_count,
+    n.rejected_rework_count,
     n.verified_count,
     n.min_administered_at,
     n.max_administered_at
@@ -389,6 +447,7 @@ cell_totals AS (
     park_id, management_stage, sex, dose_code,
     SUM(pending_count)::bigint AS pending_count,
     SUM(submitted_count)::bigint AS submitted_count,
+    SUM(rejected_rework_count)::bigint AS rejected_rework_count,
     SUM(verified_count)::bigint AS verified_count,
     MIN(min_administered_at) AS min_administered_at,
     MAX(max_administered_at) AS max_administered_at
@@ -417,6 +476,7 @@ SELECT
   a.animal_count,
   t.pending_count,
   t.submitted_count,
+  t.rejected_rework_count,
   t.verified_count,
   t.min_administered_at,
   t.max_administered_at
@@ -496,6 +556,29 @@ WITH comp AS (
   WHERE tenant_id = $1::uuid
   GROUP BY obligation_id
 ),
+latest_verification AS (
+  SELECT DISTINCT ON (vi.tenant_id, vi.source_task_id, vi.source_ref_id)
+    vi.tenant_id,
+    vi.source_task_id,
+    vi.source_ref_id AS goat_id,
+    vi.status
+  FROM verification_items vi
+  WHERE vi.tenant_id = $1::uuid
+    AND vi.source_module = 'vaccination'
+    AND vi.category = 'vaccination_proof'
+    AND vi.source_ref_type = 'vaccination_goat'
+    AND vi.source_task_id IS NOT NULL
+    AND vi.source_ref_id IS NOT NULL
+    AND vi.status IN ('pending','approved','rejected')
+  ORDER BY vi.tenant_id, vi.source_task_id, vi.source_ref_id, vi.verified_at DESC NULLS LAST, vi.captured_at DESC NULLS LAST, vi.item_id DESC
+),
+rework AS (
+  SELECT b.tenant_id, b.batch_id, lv.goat_id, true AS has_rejected_rework
+  FROM obligation_batches b
+  JOIN latest_verification lv ON lv.tenant_id = b.tenant_id AND lv.source_task_id = b.sop_task_id
+  WHERE b.tenant_id = $1::uuid
+    AND lv.status = 'rejected'
+),
 shed_dose_obligations AS (
   -- per-OBLIGATION state; aggregation to the shed x dose x state cell happens ONLY in
   -- the outer SELECT so one cell is always exactly one row regardless of due dates.
@@ -511,6 +594,7 @@ shed_dose_obligations AS (
     CASE
       WHEN comp.has_accepted THEN 'verified'
       WHEN comp.has_recorded_unverified THEN 'awaiting'
+      WHEN COALESCE(rework.has_rejected_rework, false) THEN 'rework'
       WHEN oi.status IN ('scheduled','due','in_progress','deferred','missed') AND (oi.due_at AT TIME ZONE 'Asia/Kolkata')::date < ($2::timestamptz AT TIME ZONE 'Asia/Kolkata')::date THEN 'overdue'
       WHEN oi.status IN ('scheduled','due','in_progress','deferred','missed') THEN 'scheduled'
       ELSE 'other'
@@ -529,6 +613,7 @@ shed_dose_obligations AS (
    AND sp.normalized_label = regexp_replace(lower(btrim(COALESCE(gsp.partition_label, 'whole'))), '^part[[:space:]]+', '')
    AND sp.status = 'active'
   LEFT JOIN comp ON oi.obligation_id = comp.obligation_id
+  LEFT JOIN rework ON rework.tenant_id = oi.tenant_id AND rework.batch_id = oi.batch_id AND rework.goat_id = oi.target_id
   LEFT JOIN locations loc ON oi.scope_id = loc.location_id AND oi.tenant_id = loc.tenant_id
   LEFT JOIN locations park ON park.location_id = loc.parent_location_id AND park.tenant_id = loc.tenant_id
   WHERE oi.tenant_id = $1::uuid
@@ -647,6 +732,29 @@ WITH comp AS (
   WHERE tenant_id = $1::uuid
   GROUP BY obligation_id
 ),
+latest_verification AS (
+  SELECT DISTINCT ON (vi.tenant_id, vi.source_task_id, vi.source_ref_id)
+    vi.tenant_id,
+    vi.source_task_id,
+    vi.source_ref_id AS goat_id,
+    vi.status
+  FROM verification_items vi
+  WHERE vi.tenant_id = $1::uuid
+    AND vi.source_module = 'vaccination'
+    AND vi.category = 'vaccination_proof'
+    AND vi.source_ref_type = 'vaccination_goat'
+    AND vi.source_task_id IS NOT NULL
+    AND vi.source_ref_id IS NOT NULL
+    AND vi.status IN ('pending','approved','rejected')
+  ORDER BY vi.tenant_id, vi.source_task_id, vi.source_ref_id, vi.verified_at DESC NULLS LAST, vi.captured_at DESC NULLS LAST, vi.item_id DESC
+),
+rework AS (
+  SELECT b.tenant_id, b.batch_id, lv.goat_id, true AS has_rejected_rework
+  FROM obligation_batches b
+  JOIN latest_verification lv ON lv.tenant_id = b.tenant_id AND lv.source_task_id = b.sop_task_id
+  WHERE b.tenant_id = $1::uuid
+    AND lv.status = 'rejected'
+),
 rule_vaccine AS (
   SELECT DISTINCT rule_id, tenant_id, vaccine_code
   FROM protocol_rule_dimensions
@@ -677,6 +785,7 @@ per_animal AS (
     bool_or(
       NOT COALESCE(comp.has_accepted, false)
       AND NOT COALESCE(comp.has_recorded_unverified, false)
+      AND NOT COALESCE(rework.has_rejected_rework, false)
       AND (
         oi.status = 'missed'
         OR (oi.status IN ('scheduled','due','in_progress','deferred')
@@ -686,12 +795,18 @@ per_animal AS (
     bool_or(
       NOT COALESCE(comp.has_accepted, false)
       AND COALESCE(comp.has_recorded_unverified, false)
-    ) AS is_verifying
+    ) AS is_verifying,
+    bool_or(
+      NOT COALESCE(comp.has_accepted, false)
+      AND NOT COALESCE(comp.has_recorded_unverified, false)
+      AND COALESCE(rework.has_rejected_rework, false)
+    ) AS is_rework
   FROM obligation_instances oi
   JOIN rule_vaccine d ON d.rule_id = oi.rule_id AND d.tenant_id = oi.tenant_id
   JOIN goats g ON g.goat_id = oi.target_id AND g.tenant_id = oi.tenant_id
   LEFT JOIN goat_partition gp ON gp.goat_id = g.goat_id AND gp.shed_id = oi.scope_id
   LEFT JOIN comp ON comp.obligation_id = oi.obligation_id
+  LEFT JOIN rework ON rework.tenant_id = oi.tenant_id AND rework.batch_id = oi.batch_id AND rework.goat_id = oi.target_id
   WHERE oi.tenant_id = $1::uuid
     AND oi.scope_type = 'shed'
     AND g.lifecycle_status IN ('alive', 'sick', 'under_treatment', 'quarantine', 'icu')
@@ -710,6 +825,7 @@ SELECT
   pa.vaccine_code,
   COUNT(*) FILTER (WHERE pa.is_behind)::bigint AS behind_animals,
   COUNT(*) FILTER (WHERE pa.is_verifying)::bigint AS verifying_animals,
+  COUNT(*) FILTER (WHERE pa.is_rework)::bigint AS rework_animals,
   COUNT(*)::bigint AS total_animals
 FROM per_animal pa
 JOIN locations shed ON shed.location_id = pa.shed_id AND shed.tenant_id = $1::uuid
