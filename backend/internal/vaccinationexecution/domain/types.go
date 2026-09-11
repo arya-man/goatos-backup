@@ -878,12 +878,13 @@ type ShedAnimalQuery struct {
 // that is overdue or missed. A preventive-care command board must surface that red work in the
 // headline row instead of reporting the animal as green. The partition stays disjoint and
 // exhaustive:
-// missed + verified + awaiting + overdue + scheduled + closedWithoutDose = targets.
+// missed + verified + awaiting + rework + overdue + scheduled + closedWithoutDose = targets.
 type CommandBoardKPI struct {
 	Targets              int `json:"targets"`
 	MissedNotGiven       int `json:"missedNotGiven"`
 	DosesVerified        int `json:"dosesVerified"`
 	AwaitingVerification int `json:"awaitingVerification"`
+	ReworkNeeded         int `json:"reworkNeeded"`
 	OverdueNotGiven      int `json:"overdueNotGiven"`
 	ScheduledAhead       int `json:"scheduledAhead"`
 	ClosedWithoutDose    int `json:"closedWithoutDose"`
@@ -916,6 +917,7 @@ type CommandBoardShedVaccineCell struct {
 	// State is one of:
 	//   "behind"      at least one animal holds a missed or past-due dose of this vaccine with NO
 	//                 proof of any kind against it                     -> RED
+	//   "rework"      latest proof review rejected the attempt          -> PURPLE
 	//   "verifying"   dose given, proof recorded, verifier has not accepted it yet -> AMBER
 	//   "ok"          this vaccine is scheduled in this shed, nothing behind -> GREEN
 	//   "not_planned" this shed has no obligation for this vaccine at all    -> GREY
@@ -928,6 +930,7 @@ type CommandBoardShedVaccineCell struct {
 	// BehindAnimals and must never be added to it: one is a herd problem, the other is a desk
 	// problem, and merging them is what made the board report 76 vaccinated goats as unvaccinated.
 	VerifyingAnimals int `json:"verifyingAnimals"`
+	ReworkAnimals    int `json:"reworkAnimals"`
 	// BehindAnimals is rendered ON the red cell, not hidden behind a hover. "How many are missing,
 	// each vaccine, shed wise" is half the original ask; a bare dot answers only "is anything wrong"
 	// and forces a second question for the number that makes the row actionable. It is a count of
@@ -1074,6 +1077,9 @@ type CommandBoardCohortCell struct {
 	// SubmittedCount is field work DONE and awaiting a verifier. Disjoint from PendingCount and
 	// VerifiedCount.
 	SubmittedCount int `json:"submittedCount"`
+	// RejectedReworkCount is field work attempted and rejected by a verifier, so it is not plain
+	// overdue/pending.
+	RejectedReworkCount int `json:"rejectedReworkCount"`
 	// VerifiedCount is DISJOINT from PendingCount and SubmittedCount: an accepted obligation is
 	// neither still-open-unrecorded nor recorded-but-unverified, so the three can be shown side by
 	// side without double counting.
@@ -1158,7 +1164,7 @@ type ShedDoseMatrixShed struct {
 type ShedDoseMatrixCell struct {
 	Shed        int    `json:"shed"`
 	Dose        int    `json:"dose"`
-	State       string `json:"state"` // "verified", "awaiting", "overdue", "scheduled"
+	State       string `json:"state"` // "verified", "awaiting", "rework", "overdue", "scheduled"
 	AnimalCount int    `json:"count"`
 	// Business dates, YYYY-MM-DD in IST. Empty means absent.
 	MinAdministeredDate string `json:"adminFrom,omitempty"`

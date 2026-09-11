@@ -1268,8 +1268,8 @@
   .cbm-filter-note{font-size:11.5px;color:var(--warn)}
   @media(max-width:1200px){.cbm-kpi-row{grid-template-columns:repeat(2,1fr)}}
   .kpi{position:relative;overflow:hidden}.kpi .stripe{position:absolute;left:0;top:0;bottom:0;width:3px}
-  .kpi.ok .stripe{background:var(--ok)}.kpi.warn .stripe{background:var(--warn)}.kpi.danger .stripe{background:var(--danger)}.kpi.info .stripe{background:var(--info)}.kpi.mut .stripe{background:var(--faint)}
-  .kpi .val{color:var(--ink)}.kpi.ok .val{color:var(--ok)}.kpi.warn .val{color:var(--warn)}.kpi.danger .val{color:var(--danger)}.kpi.info .val{color:var(--info)}
+  .kpi.ok .stripe{background:var(--ok)}.kpi.warn .stripe{background:var(--warn)}.kpi.rework .stripe{background:#9b5bb0}.kpi.danger .stripe{background:var(--danger)}.kpi.info .stripe{background:var(--info)}.kpi.mut .stripe{background:var(--faint)}
+  .kpi .val{color:var(--ink)}.kpi.ok .val{color:var(--ok)}.kpi.warn .val{color:var(--warn)}.kpi.rework .val{color:#d99cff}.kpi.danger .val{color:var(--danger)}.kpi.info .val{color:var(--info)}
   .kpi .lbl{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
   .kpi .val{font-size:26px;font-weight:700;margin-top:4px;font-variant-numeric:tabular-nums}
   .kpi .dl{font-size:11.5px;margin-top:3px;color:var(--muted)}
@@ -1309,6 +1309,7 @@
      BOTH classes on the container raises specificity above the positional rules so the tie cannot
      recur, rather than relying on where the block sits in the file. */
   .cbm .cbm-legend.cbm-sv-legend span.cbm-sv-behind i{background:var(--danger)}
+  .cbm .cbm-legend.cbm-sv-legend span.cbm-sv-rework i{background:#9b5bb0}
   .cbm .cbm-legend.cbm-sv-legend span.cbm-sv-ok i{background:var(--ok)}
   .cbm .cbm-legend.cbm-sv-legend span.cbm-sv-not_planned i{background:var(--faint)}
   /* A behind cell is where the CEO's question STARTS, not ends: "Sumathi 1 is red" is only useful
@@ -1320,6 +1321,7 @@
   td.cbm-sv-cell[role="button"]{cursor:pointer}
   td.cbm-sv-behind[role="button"]:hover,td.cbm-sv-behind[role="button"]:focus-visible{outline:1px solid var(--danger);outline-offset:-1px}
   td.cbm-sv-verifying[role="button"]:hover,td.cbm-sv-verifying[role="button"]:focus-visible{outline:1px solid var(--warn);outline-offset:-1px}
+  td.cbm-sv-rework[role="button"]:hover,td.cbm-sv-rework[role="button"]:focus-visible{outline:1px solid #9b5bb0;outline-offset:-1px}
   .cbm-sv-shed-park{color:var(--muted);font-size:11px;margin-left:6px}
   /* The behind cell shows its NUMBER; green and grey stay dots. "How many are missing, each
      vaccine, shed wise" is half the ask, and a bare colour forces a second question before the row
@@ -1334,6 +1336,9 @@
   .cbm-sv-cell .cbm-sv-verifying i{font-style:normal;font-size:9px;font-weight:600;letter-spacing:.03em;text-transform:uppercase;color:color-mix(in srgb,var(--warn) 80%,transparent)}
   td.cbm-sv-verifying{background:color-mix(in srgb,var(--warn) 18%,transparent)}
   .cbm .cbm-legend.cbm-sv-legend span.cbm-sv-verifying i{background:var(--warn)}
+  .cbm-sv-cell .cbm-sv-rework{display:inline-flex;flex-direction:column;align-items:center;gap:1px;font-size:15px;font-weight:700;color:#d99cff;line-height:1}
+  .cbm-sv-cell .cbm-sv-rework i{font-style:normal;font-size:9px;font-weight:600;letter-spacing:.03em;text-transform:uppercase;color:#d99cff}
+  td.cbm-sv-rework{background:color-mix(in srgb,#9b5bb0 24%,transparent)}
   .cbm-sv-cell .cbm-sv-count i{font-style:normal;font-size:9px;font-weight:600;letter-spacing:.03em;text-transform:uppercase;color:color-mix(in srgb,var(--danger) 80%,transparent)}
   /* The red cell gets a tinted background as well as a red dot. Colour alone at 13px is a weak
      signal across a wide table, and this row is read from across a room. */
@@ -1357,6 +1362,7 @@
   .cbm-cell.cbm-na{background:var(--panel-2);color:var(--muted)}
   .cbm-cell.cbm-verified{background:#22633c}.cbm-cell.cbm-verified small{color:#a7e3bd}
   .cbm-cell.cbm-awaiting{background:#5c4514;color:#ffe9b3}.cbm-cell.cbm-awaiting small{color:#e8c877}
+  .cbm-cell.cbm-rework{background:#4b294f;color:#f4d9ff}.cbm-cell.cbm-rework small{color:#d99cff}
   .cbm-cell.cbm-overdue{background:#5b2320;color:#ffd9d6}.cbm-cell.cbm-overdue small{color:#f8a9a4}
   .cbm-cell.cbm-scheduled{background:#1c2a42;color:#b9d1f5}.cbm-cell.cbm-scheduled small{color:#7fa4dd}
   .cbm-legend{display:flex;gap:16px;margin-top:12px;font-size:11.5px;color:var(--muted);flex-wrap:wrap}
@@ -2772,6 +2778,7 @@ select:disabled { opacity: .45; }
 .cbm-chip i { width: 8px; height: 8px; border-radius: 999px; display: inline-block; background: var(--faint); }
 .cbm-chip-verified i { background: var(--ok); }
 .cbm-chip-awaiting i { background: var(--amber); }
+.cbm-chip-rework i { background: #9b5bb0; }
 .cbm-chip-overdue i { background: var(--danger); }
 .cbm-chip-scheduled i { background: var(--info); }
 .cbm .cbm-shed-section, .cbm .cbm-cohort-section, .cbm .cbm-queue-section { margin-top: 26px; }
@@ -2784,8 +2791,9 @@ select:disabled { opacity: .45; }
 .cbm .cbm-legend i { width: 9px; height: 9px; border-radius: 2px; display: inline-block; background: var(--faint); }
 .cbm .cbm-legend span:nth-child(1) i { background: var(--ok); }
 .cbm .cbm-legend span:nth-child(2) i { background: var(--amber); }
-.cbm .cbm-legend span:nth-child(3) i { background: var(--danger); }
-.cbm .cbm-legend span:nth-child(4) i { background: var(--info); }
+.cbm .cbm-legend span:nth-child(3) i { background: #9b5bb0; }
+.cbm .cbm-legend span:nth-child(4) i { background: var(--danger); }
+.cbm .cbm-legend span:nth-child(5) i { background: var(--info); }
 .cbm .cbm-kpi-row { margin-bottom: 4px; }
 .cbm-future-section { margin-top: 22px; }
 .cbm-future-table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 12px; }

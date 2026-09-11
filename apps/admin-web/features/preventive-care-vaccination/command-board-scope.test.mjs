@@ -87,13 +87,14 @@ test("command board defaults to all drives and renders the complete future progr
   assert.match(commandBoardViewSource, /command_board\.filter\.operator_day/);
   assert.match(commandBoardViewSource, /formatDateSpan\(cell\.minAdministeredDate, cell\.maxAdministeredDate\)/);
   assert.match(commandBoardViewSource, /formatDateSpan\(administered\?\.min, administered\?\.max\)/);
-  // Three-state cell: the empty guard must also spare a submitted-but-unverified cell, and the
-  // colour is pending -> submitted -> clear. Pinning the old two-state literals here would
-  // re-assert the defect where a fully submitted park rendered as untouched.
-  assert.match(commandBoardViewSource, /pending === 0 && awaiting === 0 && done === 0/);
+  // Four-state cell: the empty guard must spare submitted-but-unverified and rejected-proof
+  // rework cells, and the colour is pending -> rework -> submitted -> clear. Pinning the old
+  // two-state literals here would re-assert the defect where operationally distinct work rendered
+  // as untouched or plain overdue.
+  assert.match(commandBoardViewSource, /pending === 0 && awaiting === 0 && rework === 0 && done === 0/);
   assert.match(
     commandBoardViewSource,
-    /pending > 0 \? "cbm-pending" : awaiting > 0 \? "cbm-awaiting" : "cbm-clear"/,
+    /pending > 0 \? "cbm-pending" : rework > 0 \? "cbm-rework" : awaiting > 0 \? "cbm-awaiting" : "cbm-clear"/,
   );
   assert.ok(
     commandBoardViewSource.indexOf("command_board.shed_matrix.title")
