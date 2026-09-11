@@ -2280,6 +2280,44 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "500":
           $ref: "#/components/responses/ServerError"
+  /admin/goats/sale-tagging:
+    get:
+      tags:
+        - Admin Goats
+      operationId: listSaleTaggingQueue
+      summary: The park head's tag-only queue - live animal sales still owed animals.
+      description: >-
+        The tag-only Sales surface (maintainer decision 2026-09-11). A park head tags the
+        animals of a sale from the pen and sees NOTHING else of Sales, so this queue carries
+        NO buyer and NO money: only what is needed to recognise the sale and know how many
+        animals are still owed. Clamped to the caller's park scope at the handler; a
+        tenant-wide caller (sales desk, CXO) sees every farm. Keyset-paged, newest first.
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 20
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: One page of sales still owed animals at the caller's park(s).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SaleTaggingQueueResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
   /admin/goats/sale-candidates:
     get:
       tags:
@@ -11618,6 +11656,16 @@ components:
             with `invalid_weight`, and nothing is written.
           additionalProperties:
             type: string
+        animal_rates_rupees:
+          type: object
+          description: >-
+            The price in rupees agreed for each picked animal, keyed by goat id, as decimal
+            strings (maintainer decision 2026-09-11). OPTIONAL: the web drawer records none, the
+            phone's tag-only flow sends one per animal. Ignored by preview. A malformed value is
+            refused with `invalid_rate`; a value for an animal not in goat_ids with
+            `rate_for_unknown_animal`; either refusal writes nothing.
+          additionalProperties:
+            type: string
         reason:
           type: string
           maxLength: 500
@@ -11714,6 +11762,86 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/SaleAllocationShedGroup"
+        animals:
+          type: array
+          description: >-
+            One row per tagged animal (GET read-back only; absent on a confirm): the tag and
+            pen snapshotted at tagging, and the weight and rate recorded for it.
+          items:
+            $ref: "#/components/schemas/SaleAllocationAnimal"
+    SaleAllocationAnimal:
+      type: object
+      additionalProperties: false
+      required:
+        - goat_id
+        - operational_location_display
+      properties:
+        goat_id:
+          type: string
+          format: uuid
+        tag_number:
+          type: string
+        shed_id:
+          type: string
+          format: uuid
+        shed_name:
+          type: string
+        partition_label:
+          type: string
+        operational_location_display:
+          type: string
+          description: Backend-composed pen name, rendered verbatim.
+        weight_kg:
+          type: string
+          description: Decimal string; absent when the row predates weight at tagging.
+        rate_rupees:
+          type: string
+          description: Decimal string; absent when no per-animal rate was recorded.
+    SaleTaggingQueueResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - deals
+      properties:
+        deals:
+          type: array
+          items:
+            $ref: "#/components/schemas/SaleTaggingDeal"
+        next_cursor:
+          type: string
+    SaleTaggingDeal:
+      type: object
+      additionalProperties: false
+      description: One sale as the tag-only queue shows it. No buyer, no money, on purpose.
+      required:
+        - sales_deal_id
+        - sale_date
+        - farm
+        - product_type
+        - declared_animal_count
+        - already_tagged
+        - remaining
+      properties:
+        sales_deal_id:
+          type: string
+          format: uuid
+        sale_date:
+          type: string
+          format: date
+        farm:
+          type: string
+          description: The ledger's farm code (CBE, CPT).
+        product_type:
+          type: string
+        breed:
+          type: string
+        declared_animal_count:
+          type: integer
+        already_tagged:
+          type: integer
+        remaining:
+          type: integer
+          description: Backend-derived; declared minus tagged, floored at zero.
     BulkStatusPreviewRequest:
       type: object
       additionalProperties: false

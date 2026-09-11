@@ -431,10 +431,14 @@ var moduleCapabilities = []ModuleCapability{
 		},
 	},
 	{
-		Key:      "sale_allocation",
-		Label:    "Sale Animal Allocation",
-		Blurb:    "Maps sold animals and applies their sold exit.",
-		Surfaces: []string{SurfaceWeb},
+		Key:   "sale_allocation",
+		Label: "Sale Animal Allocation",
+		Blurb: "Tags the real animals to a recorded sale and applies their sold exit.",
+		// Mobile too (maintainer decision 2026-09-11): a park head tags the animals of a sale
+		// from the pen, by reader or by hand, and holds NOTHING else of Sales. On the phone this
+		// module is the whole of their Sales access; on the web it stays the drawer inside the
+		// Sales pages for the sales desk.
+		Surfaces: []string{SurfaceWeb, SurfaceMobile},
 		Levels: map[string][]string{
 			LevelDo: {SalesAllocateAnimals},
 		},

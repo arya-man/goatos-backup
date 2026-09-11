@@ -58,6 +58,26 @@ object AnalyticsEventsVendors {
     /** The tag-animals flow was opened for a sale. */
     const val VENDORS_TAG_ANIMALS_OPENED = "vendors_tag_animals_opened"
 
+    // The park head's tag-only Sales module (maintainer decision 2026-09-11).
+
+    /** The tag-only queue (L0) was opened or resumed. */
+    const val VENDORS_TAGGING_QUEUE_VIEWED = "vendors_tagging_queue_viewed"
+
+    /** A sale was opened from the tag-only queue. */
+    const val VENDORS_TAGGING_SALE_OPENED = "vendors_tagging_sale_opened"
+
+    /** The RFID reader was switched on for the tag field; `field` says which. */
+    const val VENDORS_TAGGING_SCAN_STARTED = "vendors_tagging_scan_started"
+
+    /** A tag arrived from the reader. */
+    const val VENDORS_TAGGING_SCAN_CAPTURED = "vendors_tagging_scan_captured"
+
+    /** A typed or scanned tag was resolved and put in the basket. */
+    const val VENDORS_TAGGING_ANIMAL_ADDED = "vendors_tagging_animal_added"
+
+    /** The basket was submitted and the server marked the animals sold. */
+    const val VENDORS_TAGGING_SUBMITTED = "vendors_tagging_submitted"
+
     // Editing a recorded sale, and the pipeline/evidence panels (maintainer instruction 2026-09-04).
     const val VENDORS_SALE_PAYMENT_OPENED = "vendors_sale_payment_opened"
     const val VENDORS_SALE_EDITED = "vendors_sale_edited"

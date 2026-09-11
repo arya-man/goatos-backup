@@ -171,6 +171,12 @@ func TestSaleAllocationRoutesUseSalesPermissionsWithoutGoatIdentityAccess(t *tes
 			path:       "/admin/goats/sale-allocations/confirm",
 			permission: SalesAllocateAnimals,
 		},
+		{
+			name:       "tagging queue",
+			method:     "GET",
+			path:       "/admin/goats/sale-tagging",
+			permission: SalesAllocateAnimals,
+		},
 	}
 
 	for _, tt := range tests {
@@ -192,6 +198,14 @@ func TestSaleAllocationRoutesUseSalesPermissionsWithoutGoatIdentityAccess(t *tes
 			// authority at all; procurement_manager moved onto the selling side on 2026-09-04.
 			if RolesAuthorize([]string{RoleFeedDirector}, route.Permissions, route.AdminOnly) {
 				t.Fatalf("feed_director must not authorize %s", tt.name)
+			}
+			// The park head tags animals to a sale from the pen (maintainer decision 2026-09-11)
+			// and holds the allocation authority alone; the park clamp is the handler's job.
+			if !RolesAuthorize([]string{RoleParkHead}, route.Permissions, route.AdminOnly) {
+				t.Fatalf("park_head must authorize the tag flow %s", tt.name)
+			}
+			if RolesAuthorize([]string{RoleOperator}, route.Permissions, route.AdminOnly) {
+				t.Fatalf("operator must not authorize %s", tt.name)
 			}
 		})
 	}

@@ -141,6 +141,11 @@ type SaleAllocationRow struct {
 	// decimal string so kilograms never round-trip through a float. Required on every new
 	// confirm; the app layer validates it before the command is built.
 	WeightKg string
+	// RateRupees is the price agreed for THIS animal, as the park head typed it at tagging
+	// (maintainer decision 2026-09-11), a decimal string for the same reason. Optional on the
+	// wire -- the web drawer does not carry it -- and the phone's tag-only flow requires it;
+	// "" stores NULL.
+	RateRupees string
 }
 
 // RecordSaleAllocationsCommand confirms a picked set onto a sale.
@@ -201,6 +206,22 @@ type SaleAllocationPreview struct {
 	BlockedAnimals []SaleCandidate
 }
 
+// SaleAllocationAnimal is ONE animal tagged to a sale as the read-back lists it: the tag and
+// pen SNAPSHOTTED at tagging, the weight and the rate typed for it. The park head resuming a
+// half-tagged sale reads these to see what is already done; the figures are strings so a
+// numeric never round-trips through a float.
+type SaleAllocationAnimal struct {
+	GoatID                     string
+	TagNumber                  string
+	ShedID                     string
+	ShedName                   string
+	PartitionLabel             string
+	OperationalLocationDisplay string
+	// WeightKg / RateRupees are "" when the row predates the column that holds them.
+	WeightKg   string
+	RateRupees string
+}
+
 // SaleAllocationResult is what a confirm applied.
 type SaleAllocationResult struct {
 	SalesDealID string
@@ -220,6 +241,9 @@ type SaleAllocationReader interface {
 	ReadSaleCandidateRows(ctx context.Context, tenantID, excludeDealID string, goatIDs []string) (map[string]SaleCandidateRow, error)
 	// ListSaleAllocations returns the animals tagged to one deal, shed-wise.
 	ListSaleAllocations(ctx context.Context, tenantID, salesDealID string) ([]SaleAllocationShedGroup, error)
+	// ListSaleAllocationAnimals returns the same animals one per row, with the weight and
+	// rate recorded for each. Bounded by the deal's own count.
+	ListSaleAllocationAnimals(ctx context.Context, tenantID, salesDealID string) ([]SaleAllocationAnimal, error)
 	// ListSaleLocations is the picker's park/shed/pen vocabulary, legacy alias shed rows
 	// excluded. See the adapter for why offering them is the reported empty-picker bug.
 	ListSaleLocations(ctx context.Context, tenantID string) (*SaleLocationCatalog, error)
@@ -314,7 +338,40 @@ func (d SaleDeal) Remaining() int {
 // outside identity's own package supplies it.
 type SaleDealReader interface {
 	ReadSaleDeal(ctx context.Context, tenantID, salesDealID string) (*SaleDeal, error)
+	// ListSaleTaggingDeals is the park head's queue (maintainer decision 2026-09-11): the
+	// live animal sales that still owe animals, newest first, keyset-paged. `farms` narrows to
+	// the ledger's farm codes (CBE, CPT); nil means every farm. The rows carry NO buyer and NO
+	// money on purpose -- that is what "tag animals and nothing else" means on the wire.
+	ListSaleTaggingDeals(ctx context.Context, tenantID string, farms []string, limit int, cursor string) ([]SaleTaggingDeal, *string, error)
 }
+
+// SaleTaggingDeal is one sale as the tag-only queue shows it. Only what a person tagging in a
+// pen needs to recognise the sale and know how many animals are still owed.
+type SaleTaggingDeal struct {
+	SalesDealID string
+	// SaleDate is the ledger's business date, YYYY-MM-DD.
+	SaleDate string
+	// Farm is the ledger's farm code (CBE, CPT), which is also the park's location_code.
+	Farm        string
+	ProductType string
+	Breed       string
+	// DeclaredAnimalCount is what the sale is for; AlreadyTagged how many are done.
+	DeclaredAnimalCount int
+	AlreadyTagged       int
+}
+
+// Remaining is how many animals this sale still needs tagged.
+func (d SaleTaggingDeal) Remaining() int {
+	remaining := d.DeclaredAnimalCount - d.AlreadyTagged
+	if remaining < 0 {
+		return 0
+	}
+	return remaining
+}
+
+// SaleTaggingQueuePageSize bounds one page of the tag-only queue: a phone lists a screenful and
+// asks for the next with the cursor.
+const SaleTaggingQueuePageSize = 20
 
 // SaleAllocationPen is ONE pen's share of one sale confirm: where the animals stood when they
 // were tagged, and how many of them. It is what the Feed Director's push names pen by pen.

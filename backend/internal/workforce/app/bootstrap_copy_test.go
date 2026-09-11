@@ -113,7 +113,7 @@ func TestLeadershipDrawerCompositionPerRole(t *testing.T) {
 				t.Fatalf("%s must have the %s module; got %v", role, required, keys)
 			}
 		}
-		for _, banned := range []string{"counts", "feed_direction", "breeding", "leadership", "verification"} {
+		for _, banned := range []string{"counts", "feed_direction", "breeding", "leadership", "verification", "sales", "vendors"} {
 			if _, ok := keys[banned]; ok {
 				t.Fatalf("%s must NOT see %q; got %v", role, banned, keys)
 			}
@@ -180,7 +180,9 @@ func TestLeadershipDrawerCompositionPerRole(t *testing.T) {
 		if keys["vaccination"] != moduleStatusAvailable {
 			t.Fatalf("park_head must have the Vaccination module; got %v", keys)
 		}
-		for _, required := range []string{"weighing", "aas_health"} {
+		// sale_allocation is the tag-only Sales module (maintainer decision 2026-09-11): the
+		// park head tags animals to a sale from the pen and sees nothing else of Sales.
+		for _, required := range []string{"weighing", "aas_health", "sale_allocation"} {
 			if _, ok := keys[required]; !ok {
 				t.Fatalf("park_head must have the %s module; got %v", required, keys)
 			}
@@ -1014,6 +1016,7 @@ func TestVerifierNoDutyFallbackCoversEveryBuiltVerifiableModule(t *testing.T) {
 		"toxin":            "strip-test module with its own CEO/CXO review routes; not a verificationcatalog producer",
 		"vendors":          "procurement register and feed purchase ledger; commercial records with no proof to verify",
 		"sales":            "sales ledger and the selling half of the vendor register (2026-09-05); commercial records with no proof to verify, exactly as vendors above",
+		"sale_allocation":  "the park head's tag-only Sales module (2026-09-11); tagging an animal to a sale carries no proof video and no verification category, exactly as sales above",
 		"leadership_tasks": "a director's ask of the CXO desk (2026-09-04); no proof of work, no verification category",
 		"work_board":       "a READ over every module's work (2026-09-10); it produces no proof of its own, and the verification rows it lists are the verifier's existing queue",
 	}

@@ -518,6 +518,9 @@ object MeshaIcons {
         "market" -> Phone
         // The Sales module and its ledger tab (maintainer decision 2026-09-05) wear the price tag.
         "sales" -> Sale
+        // The park head's tag-only Sales module (maintainer decision 2026-09-11): the queue of
+        // sales still owed animals wears the sale glyph, same as the ledger it is a slice of.
+        "sale_tagging" -> Sale
         "pc_ticks" -> Tick
         "pc_hoof_trimming" -> HoofTrimming
         "pc_hair_trimming" -> HairTrimming

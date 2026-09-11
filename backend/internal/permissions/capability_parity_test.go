@@ -322,12 +322,12 @@ func TestUnknownRowsGrantNothing(t *testing.T) {
 		// case used to name "sales" + Configure, which Sales began offering on 2026-09-14 (the
 		// market survey config), at which point the fixture would have tested a real grant.
 		{"unoffered level", ModuleAssignment{Module: "sale_allocation", Surface: SurfaceWeb, Capabilities: []string{LevelConfigure}}},
-		// sale_allocation, because it is still WEB-ONLY. This case used to name "sales", which
-		// gained SurfaceMobile on 2026-09-05 when Sales became a phone module -- at which point the
-		// fixture stopped testing the rule and started testing a real grant. The level named here
-		// MUST be one the module genuinely offers, so the surface is the only reason it grants
-		// nothing; sale_allocation offers exactly LevelDo.
-		{"module absent from surface", ModuleAssignment{Module: "sale_allocation", Surface: SurfaceMobile, Capabilities: []string{LevelDo}}},
+		// load_costs, because it is still WEB-ONLY. This case used to name "sales" (mobile since
+		// 2026-09-05) and then "sale_allocation" (mobile since 2026-09-11) -- each time a module
+		// reached the phone the fixture stopped testing the rule and started testing a real grant.
+		// The level named here MUST be one the module genuinely offers, so the surface is the only
+		// reason it grants nothing; load_costs offers exactly LevelDo.
+		{"module absent from surface", ModuleAssignment{Module: "load_costs", Surface: SurfaceMobile, Capabilities: []string{LevelDo}}},
 		{"explicit none", ModuleAssignment{Module: "weighing", Surface: SurfaceWeb, Capabilities: []string{LevelNone}}},
 		{"empty capabilities", ModuleAssignment{Module: "weighing", Surface: SurfaceWeb, Capabilities: nil}},
 	}

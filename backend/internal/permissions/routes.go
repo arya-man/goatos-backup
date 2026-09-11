@@ -42,6 +42,10 @@ var protectedRoutes = []Route{
 	{OperationID: "listSaleLocations", Method: "GET", Pattern: "/admin/goats/sale-locations", Permissions: []string{SalesAllocateAnimals}},
 	{OperationID: "listSaleCandidates", Method: "GET", Pattern: "/admin/goats/sale-candidates", Permissions: []string{SalesAllocateAnimals}},
 	{OperationID: "getSaleAllocation", Method: "GET", Pattern: "/admin/goats/sale-allocations/{sales_deal_id}", Permissions: []string{SalesAllocateAnimals}},
+	// The park head's tag-only queue (maintainer decision 2026-09-11): the sales still owed
+	// animals at the caller's park, with no buyer and no money on the wire. Same authority as
+	// the confirm it feeds; the park clamp is applied in the handler.
+	{OperationID: "listSaleTaggingQueue", Method: "GET", Pattern: "/admin/goats/sale-tagging", Permissions: []string{SalesAllocateAnimals}},
 	{OperationID: "previewSaleAllocation", Method: "POST", Pattern: "/admin/goats/sale-allocations/preview", Permissions: []string{SalesAllocateAnimals}},
 	{OperationID: "confirmSaleAllocation", Method: "POST", Pattern: "/admin/goats/sale-allocations/confirm", Permissions: []string{SalesAllocateAnimals}},
 	{OperationID: "criticalDeathExitGoat", Method: "POST", Pattern: "/admin/goats/{goat_id}/critical-death-exit", Permissions: []string{GoatWriteHealth}},

@@ -15,6 +15,8 @@ type fakeSaleRepo struct {
 	// "the confirm never trusts the preview" is actually observable.
 	readCalls int
 	recorded  *ports.RecordSaleAllocationsCommand
+	// catalog is what ListSaleLocations answers; nil means an empty catalog.
+	catalog *ports.SaleLocationCatalog
 }
 
 func (f *fakeSaleRepo) ListSaleCandidates(context.Context, ports.ListSaleCandidatesParams) ([]ports.SaleCandidateRow, *string, error) {
@@ -41,7 +43,14 @@ func (f *fakeSaleRepo) ListSaleAllocations(context.Context, string, string) ([]p
 }
 
 func (f *fakeSaleRepo) ListSaleLocations(context.Context, string) (*ports.SaleLocationCatalog, error) {
+	if f.catalog != nil {
+		return f.catalog, nil
+	}
 	return &ports.SaleLocationCatalog{}, nil
+}
+
+func (f *fakeSaleRepo) ListSaleAllocationAnimals(context.Context, string, string) ([]ports.SaleAllocationAnimal, error) {
+	return nil, nil
 }
 
 func (f *fakeSaleRepo) RecordSaleAllocations(_ context.Context, cmd ports.RecordSaleAllocationsCommand) (*ports.SaleAllocationResult, error) {
@@ -77,6 +86,17 @@ type fakeDeals struct {
 	declared int
 	tagged   int
 	err      error
+	// queueCalls records the farm filters the tagging queue was asked with; queueFarmsSeen
+	// is set to true on every call so a nil (tenant-wide) filter is observable too.
+	queueCalls     [][]string
+	queueFarmsSeen bool
+	queue          []ports.SaleTaggingDeal
+}
+
+func (f *fakeDeals) ListSaleTaggingDeals(_ context.Context, _ string, farms []string, _ int, _ string) ([]ports.SaleTaggingDeal, *string, error) {
+	f.queueCalls = append(f.queueCalls, farms)
+	f.queueFarmsSeen = true
+	return f.queue, nil, nil
 }
 
 func (f *fakeDeals) ReadSaleDeal(context.Context, string, string) (*ports.SaleDeal, error) {
