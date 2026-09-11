@@ -40,6 +40,8 @@ export type ShedVaccineAnimalRow = {
   dueAt?: string | null;
 };
 
+type ShedVaccineDrawerState = "behind" | "rework" | "verifying";
+
 // CohortCellRef addresses ONE backend cohort cell. A drawer row is a display bucket that can roll
 // several backend cells together (several stage/sex combinations, and several parks), so the drawer
 // fetches one page per contributing cell and merges them exactly as the board's own row builder
@@ -324,13 +326,14 @@ export function useClosedWithoutDoseAnimals(open: boolean, scope: DrilldownScope
 }
 
 export function useShedVaccineAnimals(
-  cell: { shedId: string; vaccineCode: string; partitionLabel?: string | null } | null,
+  cell: { shedId: string; vaccineCode: string; state: ShedVaccineDrawerState; partitionLabel?: string | null } | null,
   scope: DrilldownScope,
 ): DrilldownState<{ animals: ShedVaccineAnimalRow[]; proofVideos: Array<{ path: string }> }> {
   const params = scopeParams(scope);
   if (cell) {
     params.set("shed_id", cell.shedId);
     params.set("vaccine_code", cell.vaccineCode);
+    params.set("state", cell.state);
     // Sent even when empty: an unpartitioned shed's cell key IS the empty label, so omitting it
     // would ask for a different cell than the one the reader clicked.
     params.set("partition_label", cell.partitionLabel ?? "");

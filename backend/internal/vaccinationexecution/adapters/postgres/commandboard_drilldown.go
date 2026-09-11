@@ -161,7 +161,7 @@ func (r *Repository) CommandBoardShedVaccineAnimals(ctx context.Context, q domai
 	rows, err := r.pool.Query(ctx, commandBoardShedVaccineAnimalSQL,
 		q.TenantID, asOf, q.DriveBatchID, q.ParkID,
 		q.ShedID, q.VaccineCode, q.PartitionLabel,
-		cursorDue, cursorGoat, q.Limit+1)
+		cursorDue, cursorGoat, q.Limit+1, q.State)
 	if err != nil {
 		return page, fmt.Errorf("vaccination command board: shed vaccine animals query: %w", err)
 	}

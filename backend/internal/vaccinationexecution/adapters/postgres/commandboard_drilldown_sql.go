@@ -210,23 +210,17 @@ LEFT JOIN latest_closed closed ON closed.target_id = p.goat_id
 ORDER BY p.display_id, p.goat_id
 `
 
-// commandBoardShedVaccineAnimalSQL lists the animals behind ONE shed-vaccine cell.
+// commandBoardShedVaccineAnimalSQL lists the animals behind ONE shed-vaccine cell bucket.
 //
-// SCOPE: this drawer serves the UNION of the cell's two counts, behind_animals AND
-// verifying_animals -- no accepted completion, AND (recorded-unverified OR 'missed' OR still open
-// with an IST business due date already past). It is deliberately BROADER than the matrix's
-// is_behind, which additionally requires NOT recorded-unverified; each row carries
-// awaiting_verification so the client splits the two groups it was handed.
-//
-// Said plainly because the comment here used to claim the predicate was "unchanged from the matrix
-// aggregate it explains" while spelling out the drawer's wider one. A reader clicking a cell
-// showing behind_animals = 3 can legitimately get more than three rows back, and nothing in the
-// code said so.
+// SCOPE: this drawer serves exactly the clicked bucket: behind_animals, rework_animals, or
+// verifying_animals. The shed-vaccine cell itself is priority-colored, so a mixed cell can be red
+// while also carrying rejected-proof and verifier-backlog counts. The state parameter keeps the
+// header count and the rows from drifting apart.
 //
 // The DECORATION is separately not unchanged: it is now joined to the page rather than to the
 // candidate set, and the park/shed name fallback below is called out where it happens.
 //
-// $5/$6/$7 (shed, vaccine, partition) are REQUIRED and are the whole point. The eager version
+// $5/$6/$7/$11 (shed, vaccine, partition, state) are REQUIRED and are the whole point. The eager version
 // carried no cell predicate at all: it built every cell's list for the tenant, sorted an estimated
 // 57k rows, took the first 500 in due-date order and let Go bucket them. That both cost 2.4s and
 // was WRONG as a drilldown — a global 500-row cap silently starved the cells that sorted late, so
@@ -351,6 +345,15 @@ page AS (
   SELECT *
   FROM cell
   WHERE scope_partition_label = $7::text
+    AND (
+      ($11::text = 'behind' AND NOT awaiting_verification AND NOT rework_needed AND (
+        status = 'missed'
+        OR (status IN ('scheduled','due','in_progress','deferred')
+            AND (due_at AT TIME ZONE 'Asia/Kolkata')::date < ($2::timestamptz AT TIME ZONE 'Asia/Kolkata')::date)
+      ))
+      OR ($11::text = 'rework' AND rework_needed)
+      OR ($11::text = 'verifying' AND awaiting_verification)
+    )
     -- GATED ON $9 (goat_id), NOT on $8 (due_at). goat_id is never NULL on a real cursor, so it is
     -- the only safe presence test; a cursor in a NULLS LAST tail would carry a NULL timestamp and
     -- gating on it would take the FIRST-PAGE branch and re-emit that tail from its start, forever.

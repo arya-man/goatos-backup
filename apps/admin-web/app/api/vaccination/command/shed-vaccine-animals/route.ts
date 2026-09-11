@@ -9,6 +9,7 @@ export async function GET(request: Request) {
   const params = new URL(request.url).searchParams;
   const shedId = params.get("shed_id");
   const vaccineCode = params.get("vaccine_code");
+  const state = params.get("state");
   if (!shedId || !vaccineCode) {
     // Without the cell this would be the tenant-wide scan the split exists to remove, so it is a
     // 400 rather than a slow 200.
@@ -17,11 +18,18 @@ export async function GET(request: Request) {
       { status: 400, headers: { "Cache-Control": "no-store" } },
     );
   }
+  if (state !== "behind" && state !== "rework" && state !== "verifying") {
+    return NextResponse.json(
+      { error: "state identifies the cell bucket and must be behind, rework, or verifying" },
+      { status: 400, headers: { "Cache-Control": "no-store" } },
+    );
+  }
   return jsonOrError(
     await getCommandBoardShedVaccineAnimals({
       ...drilldownScopeFromRequest(request),
       shedId,
       vaccineCode,
+      state,
       // An unpartitioned shed's cell key IS the empty label.
       partitionLabel: params.get("partition_label") ?? "",
     }),

@@ -997,6 +997,36 @@ func TestExecutionClampsFutureAsOfButShedDrilldownAllowsScheduleDate(t *testing.
 	}
 }
 
+func TestGetCommandBoardShedVaccineAnimalsRequiresAndForwardsState(t *testing.T) {
+	const tenantID = "00000000-0000-4000-8000-000000000001"
+	reader := &fakeReader{}
+	mux := http.NewServeMux()
+	Register(mux, NewHandler(reader, &fakeWriter{}))
+
+	base := "/vaccination/command/shed-vaccine-animals?shed_id=55000000-0000-4000-8000-000000000001&vaccine_code=PPR&partition_label=Part%203"
+	missing := httptest.NewRequest(http.MethodGet, base, nil)
+	missing = missing.WithContext(httpmiddleware.WithTenantID(missing.Context(), tenantID))
+	missingRec := httptest.NewRecorder()
+	mux.ServeHTTP(missingRec, missing)
+	if missingRec.Code != http.StatusBadRequest {
+		t.Fatalf("missing state status = %d want 400 body=%s", missingRec.Code, missingRec.Body.String())
+	}
+
+	req := httptest.NewRequest(http.MethodGet, base+"&state=rework", nil)
+	req = req.WithContext(httpmiddleware.WithTenantID(req.Context(), tenantID))
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d want 200 body=%s", rec.Code, rec.Body.String())
+	}
+	if reader.lastShedVaccineQuery.State != "rework" {
+		t.Fatalf("state = %q want rework", reader.lastShedVaccineQuery.State)
+	}
+	if reader.lastShedVaccineQuery.PartitionLabel != "Part 3" {
+		t.Fatalf("partition label = %q want Part 3", reader.lastShedVaccineQuery.PartitionLabel)
+	}
+}
+
 func TestGetShedDrilldownValidatesPathAndNotFound(t *testing.T) {
 	mux := http.NewServeMux()
 	Register(mux, NewHandler(&fakeReader{}, &fakeWriter{}))
