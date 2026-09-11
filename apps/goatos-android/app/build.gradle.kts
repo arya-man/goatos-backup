@@ -328,6 +328,9 @@ dependencies {
     // transitively); :app needs the `okhttp3.Interceptor` type directly to construct
     // TelemetryInterceptor when wiring NetworkFactory.appApi (docs/TELEMETRY.md).
     implementation(libs.okhttp)
+    // Coil ImageLoaderFactory on the Application: proof photos must fetch over the same
+    // bearer-aware client proof videos stream through (see GoatOsApplication.newImageLoader).
+    implementation(libs.coil.compose)
     implementation(project(":core:core-data"))
     // CoverageBannerUiState (shared across feature-calendar + :app's CoverageBannerViewModel).
     implementation(project(":core:core-ui"))
@@ -434,6 +437,8 @@ dependencies {
     // Retrofit and OkHttp for creating mock HttpException with proper error bodies in tests
     testImplementation(libs.retrofit)
     testImplementation(libs.okhttp)
+    // Proof-photo auth regression: Coil's app-wide loader must carry the bearer to the API.
+    testImplementation(libs.okhttp.mockwebserver)
 }
 
 configurations.matching { configuration ->

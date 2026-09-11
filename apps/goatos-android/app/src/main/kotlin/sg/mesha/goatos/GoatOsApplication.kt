@@ -4,10 +4,13 @@ import android.app.Application
 import android.util.Log
 import androidx.hilt.work.HiltWorkerFactory
 import androidx.work.Configuration
+import coil.ImageLoader
+import coil.ImageLoaderFactory
 import com.google.firebase.FirebaseApp
 import dagger.hilt.android.HiltAndroidApp
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
+import okhttp3.OkHttpClient
 import sg.mesha.goatos.core.analytics.AnalyticsEvents
 import sg.mesha.goatos.core.analytics.AnalyticsContext
 import sg.mesha.goatos.core.analytics.AnalyticsPort
@@ -38,7 +41,7 @@ import javax.inject.Inject
  * promotion. The service is started only by a user-originated relevant enqueue; WorkManager owns
  * boot/process-death recovery. */
 @HiltAndroidApp
-class GoatOsApplication : Application(), Configuration.Provider {
+class GoatOsApplication : Application(), Configuration.Provider, ImageLoaderFactory {
     @Inject lateinit var connectivitySyncTrigger: ConnectivitySyncTrigger
     @Inject lateinit var syncWorkScheduler: SyncWorkScheduler
     @Inject lateinit var workerFactory: HiltWorkerFactory
@@ -51,6 +54,10 @@ class GoatOsApplication : Application(), Configuration.Provider {
     @Inject lateinit var pushNotifications: PushNotifications
     @Inject lateinit var executionCacheVersionGate: ExecutionCacheVersionGate
 
+    /** The proof-media OkHttp client from `MediaModule` -- the ONE client that attaches the
+     *  bearer + tenant headers to same-origin API requests (and nothing to a storage host). */
+    @Inject lateinit var proofMediaClient: OkHttpClient
+
     /** Started here, stopped on the first post-auth `MainActivity.onResume` (see
      *  `docs/TELEMETRY.md`). Public var (not Hilt-scoped) so `MainActivity` can stop the SAME
      *  handle without a second DI graph lookup; `null` after the first stop so it reports once. */
@@ -58,6 +65,21 @@ class GoatOsApplication : Application(), Configuration.Provider {
 
     override val workManagerConfiguration: Configuration
         get() = Configuration.Builder().setWorkerFactory(workerFactory).build()
+
+    /**
+     * Coil's app-wide [ImageLoader], built over the SAME OkHttp client proof VIDEO playback uses.
+     *
+     * Every `AsyncImage` in the app (the verifier's feed-weight photo, the toxin strip photo, the
+     * queue thumbnails) resolves its loader through this factory. Without it Coil builds its own
+     * bare OkHttp client: a proof photo's `download_url` is `/app/proofs/{id}/download` on the API,
+     * which requires the bearer, so the photo request 401'd while the video beside it -- streamed by
+     * ExoPlayer over [proofMediaClient] -- played (STG server log 2026-09-11: 338-byte request ->
+     * 401 for the photo, 2030-byte request -> 307 for each video). The verifier saw an empty card.
+     *
+     * The client's auth interceptor is same-origin scoped, so the token never reaches the storage
+     * host the 307 redirects to; OkHttp also drops `Authorization` on a cross-host redirect.
+     */
+    override fun newImageLoader(): ImageLoader = proofImageLoader(this, proofMediaClient)
 
     override fun onCreate() {
         super.onCreate()
@@ -135,3 +157,11 @@ class GoatOsApplication : Application(), Configuration.Provider {
         const val TAG = "GoatOsApplication"
     }
 }
+
+/** Coil's [ImageLoader] over the proof-media client -- see [GoatOsApplication.newImageLoader].
+ *  Top-level so the regression test can build the exact loader the app installs without
+ *  standing up Hilt. */
+fun proofImageLoader(context: android.content.Context, proofMediaClient: OkHttpClient): ImageLoader =
+    ImageLoader.Builder(context)
+        .okHttpClient(proofMediaClient)
+        .build()
