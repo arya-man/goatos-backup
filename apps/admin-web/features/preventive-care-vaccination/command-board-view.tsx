@@ -603,6 +603,7 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
       ? {
           shedId: selectedShedVaccine.shedId,
           vaccineCode: selectedShedVaccine.vaccineCode,
+          state: selectedShedVaccine.state,
           partitionLabel: selectedShedVaccine.partition_label,
         }
       : null,
@@ -655,11 +656,10 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
       key: string;
       name: string;
       park?: string;
-      cells: Array<OpenableShedVaccineCell & { label: string }>;
+      cells: Array<OpenableShedVaccineCell & { label: string; bucketCount: number }>;
     };
     const byShed = new Map<string, PendingShed>();
     (view.shedVaccineMatrix ?? []).forEach((cell) => {
-      if (!isOpenableShedVaccineCell(cell)) return;
       const key = `${cell.shedId}|${cell.partition_label ?? ""}`;
       const row = byShed.get(key) ?? {
         key,
@@ -667,7 +667,14 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
         park: cell.parkName ?? undefined,
         cells: [],
       };
-      row.cells.push({ ...cell, label: vaccineLabels.get(cell.vaccineCode) ?? cell.vaccineCode });
+      const label = vaccineLabels.get(cell.vaccineCode) ?? cell.vaccineCode;
+      const addBucket = (state: ShedVaccineDrawerState, bucketCount: number | undefined) => {
+        if (!bucketCount || bucketCount <= 0) return;
+        row.cells.push({ ...cell, state, label, bucketCount });
+      };
+      addBucket("behind", cell.behindAnimals);
+      addBucket("rework", cell.reworkAnimals);
+      addBucket("verifying", cell.verifyingAnimals);
       byShed.set(key, row);
     });
     return Array.from(byShed.values()).sort((a, b) =>
@@ -1069,12 +1076,6 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
                         {row.cells
                           .sort((a, b) => a.label.localeCompare(b.label))
                           .map((cell) => {
-                            const count =
-                              cell.state === "behind"
-                                ? cell.behindAnimals
-                                : cell.state === "rework"
-                                  ? cell.reworkAnimals
-                                  : cell.verifyingAnimals;
                             return (
                               <button
                                 key={`${cell.vaccineCode}:${cell.state}`}
@@ -1084,7 +1085,7 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
                               >
                                 <strong>{cell.label}</strong>
                                 <span>
-                                  {count} {copy(pageContract, `command_board.pending_sheds.state.${cell.state}`)}
+                                  {cell.bucketCount} {copy(pageContract, `command_board.pending_sheds.state.${cell.state}`)}
                                 </span>
                               </button>
                             );

@@ -1351,6 +1351,7 @@
   .cbm-pending-chip strong{font-size:12px;line-height:1.2}
   .cbm-pending-chip span{font-size:11px;color:var(--muted);line-height:1.2;white-space:nowrap}
   .cbm-pending-behind{border-color:color-mix(in srgb,var(--danger) 55%,var(--line));background:color-mix(in srgb,var(--danger) 12%,var(--panel))}
+  .cbm-pending-rework{border-color:color-mix(in srgb,#9b5bb0 58%,var(--line));background:color-mix(in srgb,#9b5bb0 16%,var(--panel))}
   .cbm-pending-verifying{border-color:color-mix(in srgb,var(--warn) 55%,var(--line));background:color-mix(in srgb,var(--warn) 12%,var(--panel))}
   .cbm-pending-chip:hover,.cbm-pending-chip:focus-visible{outline:1px solid currentColor;outline-offset:2px}
   .cbm-heat{border-collapse:separate;border-spacing:3px;width:100%}

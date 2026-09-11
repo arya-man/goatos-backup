@@ -11427,10 +11427,10 @@ export interface components {
             /** @description Index into ShedDoseMatrix.doseRules. */
             dose: number;
             /**
-             * @description State of completion (verified), awaiting (recorded-unverified), overdue, or scheduled.
+             * @description State of completion (verified), awaiting (recorded-unverified), rejected-proof rework, overdue, or scheduled.
              * @enum {string}
              */
-            state: "verified" | "awaiting" | "overdue" | "scheduled";
+            state: "verified" | "awaiting" | "rework" | "overdue" | "scheduled";
             /** @description Number of unique animals with this state in this shed for this dose. */
             count: number;
             /**
