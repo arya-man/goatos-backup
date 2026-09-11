@@ -1857,6 +1857,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"lane.in_review":                      "In review",
 			"lane.done":                           "Done",
 			"lane.empty":                          "Nothing here",
+			"lane.empty.other_pages":              "None on this page",
 			"filter.search":                       "Search work",
 			"filter.assignee":                     "Assignee",
 			"filter.assignee.search":              "Search users",
