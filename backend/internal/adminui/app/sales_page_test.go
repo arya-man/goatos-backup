@@ -645,7 +645,7 @@ func TestSalesSoldAndFarmValuePageContracts(t *testing.T) {
 		"kpi.farm_value", "kpi.farm_value.detail", "kpi.total_meat", "kpi.total_meat.detail",
 		"kpi.over35", "kpi.over35.sub", "kpi.over35.none", "kpi.over35.tolerance", "kpi.over35.apply",
 		"value.valued_animals", "value.live_animals", "value.weighed",
-		"value.sex.male", "value.sex.female", "value.sex.missing",
+		"value.sex.male", "value.sex.female",
 		"disabled.weights", "filter.farm", "value.none", "value.kg_suffix", "error.load", "crumb",
 	} {
 		if farmValue.Copy[key] == "" {

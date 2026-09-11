@@ -3596,12 +3596,11 @@ func pageSpecificCopy(id string) map[string]string {
 			"value.live_animals":     "live animals",
 			"value.not_valued":       "not valued",
 			"value.valued_animals":   "valued",
-			// The fattening and kid cards' sex split (maintainer request 2026-09-11): three
-			// disjoint counts that add up to the card's animals. "Missing" is an animal with no
-			// recorded sex, named as such rather than folded into either side.
+			// The fattening and kid cards' sex split (maintainer request 2026-09-11): male and
+			// female only -- the maintainer asked not to show the unrecorded remainder, so an
+			// animal with no recorded sex is counted in the card and named in neither figure.
 			"value.sex.male":           "Male",
 			"value.sex.female":         "Female",
-			"value.sex.missing":        "Missing",
 			"value.weighed":            "weighed",
 			"value.per_kg_suffix":      "per kg",
 			"value.none":               "Not recorded",

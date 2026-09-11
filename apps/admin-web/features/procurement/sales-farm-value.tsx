@@ -146,13 +146,13 @@ function FarmValueSections({
                 <div className="kpi mini" key={bucket.bucket}>
                   <div className="lab">{bucket.label}</div>
                   {/* On top, under the label (maintainer request 2026-09-11): the bucket's animals by
-                      recorded sex. Three disjoint backend counts that add up to the card's animals;
-                      "Missing" is an animal with no recorded sex, never folded into either side. */}
+                      recorded sex, male and female only ("don't show missing", same day). The two
+                      are backend counts rendered verbatim; an animal with no recorded sex is in the
+                      card's animal count but in neither figure here, and that gap is deliberate. */}
                   {SEX_SPLIT_BUCKETS.has(bucket.bucket) ? (
                     <div className="dl sales-sex-split" data-bucket={bucket.bucket}>
                       {num(bucket.male_count)} {copy(pageContract, "value.sex.male")} · {num(bucket.female_count)}{" "}
-                      {copy(pageContract, "value.sex.female")} · {num(bucket.sex_missing_count)}{" "}
-                      {copy(pageContract, "value.sex.missing")}
+                      {copy(pageContract, "value.sex.female")}
                     </div>
                   ) : null}
                   <div className="val">{inr(bucket.value_rupees)}</div>

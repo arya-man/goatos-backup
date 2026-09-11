@@ -185,7 +185,8 @@ test("farm value cards render the backend valuation contract", () => {
   assert.match(source, /SEX_SPLIT_BUCKETS = new Set\(\["fattening", "K0", "K1", "K2", "K3"\]\)/);
   assert.match(source, /bucket\.male_count/);
   assert.match(source, /bucket\.female_count/);
-  assert.match(source, /bucket\.sex_missing_count/);
+  // "don't show missing" (maintainer, 2026-09-11): the unrecorded remainder is not printed.
+  assert.doesNotMatch(source, /sex_missing_count|value\.sex\.missing/);
   assert.doesNotMatch(source, /animal_count\s*-\s*bucket\.(male|female)_count/);
 });
 
