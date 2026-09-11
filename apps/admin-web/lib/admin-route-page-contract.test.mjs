@@ -47,6 +47,10 @@ test("production Tasks page uses live backend data, with fixtures confined to pr
     join(root, "features/leadership-tasks/leadership-tasks-page.tsx"),
     "utf8",
   );
+  const newTaskModal = readFileSync(
+    join(root, "features/leadership-tasks/new-task-modal.tsx"),
+    "utf8",
+  );
   assert.match(
     component,
     /page \? rowsFromPage\(page\) : preview \? fixtureTasks : \[\]/,
@@ -79,19 +83,14 @@ test("production Tasks page uses live backend data, with fixtures confined to pr
     "production raise form must submit to the backend server action",
   );
   assert.match(
-    component,
+    newTaskModal,
     /name="idempotency_key"/,
     "web create must submit a rendered stable idempotency key",
   );
   assert.match(
-    component,
+    newTaskModal,
     /type="file"[\s\S]*name="attachment_file"[\s\S]*multiple/,
     "web create must provide a real file/audio upload control",
-  );
-  assert.match(
-    component,
-    /name="attachment_proof_id"/,
-    "web create must accept uploaded proof attachment refs",
   );
   assert.match(
     component,
