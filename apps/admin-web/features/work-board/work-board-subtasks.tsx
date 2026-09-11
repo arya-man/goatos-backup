@@ -44,7 +44,7 @@ function SubtaskRow({ pageContract, sub }: { pageContract: AdminUiPageContract; 
           {sub.owner?.name ? (
             <>
               <span className="av">{initials(sub.owner.name)}</span>
-              {sub.owner.name}
+              <span className="n" title={sub.owner.name}>{sub.owner.name}</span>
             </>
           ) : null}
         </span>
