@@ -117,12 +117,12 @@ function AssigneePicker({ pageContract, owners, cardsByOwner, selected, onSelect
         </button>
       ))}
       {overflow > 0 ? (
-        <button type="button" className={`more${open ? " on" : ""}`} aria-expanded={open} onClick={toggle}>
+        <button type="button" className={`more${open ? " on" : ""}`} aria-expanded={open} aria-label={copy(pageContract, "filter.assignee")} onClick={toggle}>
           +{overflow}
         </button>
       ) : null}
       {owners.length === 0 || current ? (
-        <button type="button" className={`more${open ? " on" : ""}`} aria-expanded={open} onClick={toggle} style={owners.length === 0 ? { width: "auto", padding: "0 10px", borderRadius: 999 } : undefined}>
+        <button type="button" className={`more${open ? " on" : ""}`} aria-expanded={open} aria-label={copy(pageContract, "filter.assignee")} onClick={toggle} style={owners.length === 0 ? { width: "auto", padding: "0 10px", borderRadius: 999 } : undefined}>
           {owners.length === 0 ? copy(pageContract, "filter.assignee") : "▾"}
         </button>
       ) : null}
