@@ -389,6 +389,61 @@ func TestStaleAndMissingComputeAtReadTimeWithoutAnotherIngest(t *testing.T) {
 	}
 }
 
+func TestAdjacentMinutePacketsCountTowardLiveMovementState(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := setupHerdSignalsDB(t, ctx)
+
+	gwID := "gw-hsi-sparse-motion"
+	gw := domain.Gateway{TenantID: hsiTenant, GatewayID: gwID, Status: "active"}
+	base := time.Now().UTC().Add(-6 * time.Minute).Truncate(time.Minute)
+	firstAt := base.Add(50 * time.Second)
+	secondAt := base.Add(70 * time.Second) // next 60s bucket, still inside the live 15m window
+
+	if _, _, err := repo.IngestPackets(ctx, hsiTenant, gw, []domain.Packet{
+		makePacket(hsiTenant, hsiUnmappedTag, hsiUnmappedMAC, gwID, firstAt, 1000, -60),
+	}); err != nil {
+		t.Fatalf("first ingest: %v", err)
+	}
+	if _, _, err := repo.IngestPackets(ctx, hsiTenant, gw, []domain.Packet{
+		makePacket(hsiTenant, hsiUnmappedTag, hsiUnmappedMAC, gwID, secondAt, 1120, -60),
+	}); err != nil {
+		t.Fatalf("second ingest: %v", err)
+	}
+
+	var firstBucketDelta, secondBucketDelta int64
+	if err := pool.QueryRow(ctx, `
+		SELECT COALESCE(SUM(motion_delta), 0)
+		FROM public.herd_signal_activity_windows
+		WHERE tenant_id = $1 AND tag_id = $2 AND bucket_seconds = 60 AND bucket_start = $3
+	`, hsiTenant, hsiUnmappedTag, firstAt.Truncate(time.Minute)).Scan(&firstBucketDelta); err != nil {
+		t.Fatalf("first bucket delta: %v", err)
+	}
+	if err := pool.QueryRow(ctx, `
+		SELECT COALESCE(SUM(motion_delta), 0)
+		FROM public.herd_signal_activity_windows
+		WHERE tenant_id = $1 AND tag_id = $2 AND bucket_seconds = 60 AND bucket_start = $3
+	`, hsiTenant, hsiUnmappedTag, secondAt.Truncate(time.Minute)).Scan(&secondBucketDelta); err != nil {
+		t.Fatalf("second bucket delta: %v", err)
+	}
+	if firstBucketDelta != 0 || secondBucketDelta != 0 {
+		t.Fatalf("fixture must use one packet per minute bucket so bucket deltas stay 0; got first=%d second=%d", firstBucketDelta, secondBucketDelta)
+	}
+
+	latest, err := repo.GetTagLatest(ctx, hsiTenant, hsiUnmappedTag)
+	if err != nil {
+		t.Fatalf("GetTagLatest: %v", err)
+	}
+	if latest.MotionDelta == nil || *latest.MotionDelta != 120 {
+		t.Fatalf("live motion_delta = %v, want 120 from cross-bucket counter advance", latest.MotionDelta)
+	}
+	if latest.MovementState != "moving" {
+		t.Fatalf("movement_state = %q, want moving from live delta >= 100", latest.MovementState)
+	}
+	if latest.PatternState == string(domain.PatternNoMovement) {
+		t.Fatalf("pattern_state = %q, want non-zero live delta not to read as no movement", latest.PatternState)
+	}
+}
+
 // TestGapDeltaFlaggedNotSmearedExcludedFromBaselineAndNotASpike is the direct proof for the
 // maintainer decision on offline behaviour: the gateway does not buffer through a WAN outage, so
 // a reception gap means the backend got NOTHING, and the reconnect delta is a TOTAL over an

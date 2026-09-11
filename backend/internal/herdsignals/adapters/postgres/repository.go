@@ -383,9 +383,12 @@ func (r *Repository) updateTagLatest(ctx context.Context, tx pgx.Tx, tenantID, t
 	}
 
 	// movement_state and pattern_state are computed over history, not the single ingest-batch
-	// delta (AGENTS.md: compare like grain to like grain). Pull the trailing 15-minute window
-	// from the 60s tier (already upserted above in this same tx) for the movement-state delta,
-	// and the trailing 24h of 300s-tier windows for the pattern-state baseline.
+	// delta (AGENTS.md: compare like grain to like grain). Compute the trailing 15-minute
+	// movement-state delta from the raw monotonic counter readings themselves, not by summing
+	// per-bucket deltas: sparse tags often produce one packet per minute bucket, where first == last
+	// inside every bucket even though the counter moved between buckets. The 1h display remains a
+	// 3600s-tier window aggregate because that column is an operator trend readout, not the live
+	// state classifier.
 	//
 	// motion_delta is stored as THIS 15-minute windowDelta, not the raw ingest-batch-vs-previous-
 	// snapshot delta (defect 4 / scale review M5): the old code computed `delta` from a single
@@ -393,7 +396,7 @@ func (r *Repository) updateTagLatest(ctx context.Context, tx pgx.Tx, tenantID, t
 	// wrote motion_window_seconds=900 alongside it anyway, and then served that same number
 	// again as motion_delta_1h -- two differently-named fields with an identical, mislabeled
 	// value. motion_delta_1h below is now a REAL 1-hour (3600s-tier) sum.
-	windowDelta, err := r.sumActivityWindowDeltaTx(ctx, tx, tenantID, tagID, 60, latestPkt.ReceivedAt.Add(-15*time.Minute), latestPkt.ReceivedAt)
+	windowDelta, err := r.motionCountWindowDeltaTx(ctx, tx, tenantID, tagID, latestPkt.ReceivedAt.Add(-15*time.Minute), latestPkt.ReceivedAt)
 	if err != nil {
 		return false, fmt.Errorf("sum 15m activity window delta: %w", err)
 	}
@@ -502,6 +505,58 @@ func (r *Repository) sumActivityWindowDeltaTx(ctx context.Context, tx pgx.Tx, te
 		return 0, nil
 	}
 	return *sum, nil
+}
+
+const motionCountWindowDeltaSQL = `
+	WITH latest AS (
+		SELECT motion_count
+		FROM public.herd_signal_packets
+		WHERE tenant_id = $1 AND tag_id = $2 AND received_at <= $4 AND motion_count IS NOT NULL
+		ORDER BY received_at DESC
+		LIMIT 1
+	),
+	baseline_before AS (
+		SELECT motion_count
+		FROM public.herd_signal_packets
+		WHERE tenant_id = $1 AND tag_id = $2 AND received_at < $3 AND motion_count IS NOT NULL
+		ORDER BY received_at DESC
+		LIMIT 1
+	),
+	baseline_inside AS (
+		SELECT motion_count
+		FROM public.herd_signal_packets
+		WHERE tenant_id = $1 AND tag_id = $2 AND received_at >= $3 AND received_at <= $4 AND motion_count IS NOT NULL
+		ORDER BY received_at ASC
+		LIMIT 1
+	)
+	SELECT latest.motion_count, baseline_before.motion_count, baseline_inside.motion_count
+	FROM latest
+	LEFT JOIN baseline_before ON true
+	LEFT JOIN baseline_inside ON true
+`
+
+// motionCountWindowDeltaTx computes a live window delta from adjacent cumulative counter readings.
+// A bucketed SUM undercounts sparse traffic: one packet in each minute bucket yields first == last
+// in every bucket, so all bucket deltas are zero even when the counter advanced between packets.
+// Prefer the reading immediately before the window as the baseline; if absent, use the first reading
+// inside the window, which is the earliest honest comparison point we have.
+func (r *Repository) motionCountWindowDeltaTx(ctx context.Context, tx pgx.Tx, tenantID, tagID string, from, to time.Time) (int64, error) {
+	var latest *int64
+	var baselineBefore *int64
+	var baselineInside *int64
+	err := tx.QueryRow(ctx, motionCountWindowDeltaSQL, tenantID, tagID, from, to).Scan(&latest, &baselineBefore, &baselineInside)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return 0, nil
+		}
+		return 0, err
+	}
+	baseline := baselineInside
+	if baselineBefore != nil {
+		baseline = baselineBefore
+	}
+	delta, _ := domain.MotionDelta(latest, baseline)
+	return delta, nil
 }
 
 // listActivityWindowsTx loads activity windows for pattern-state history computation inside the
