@@ -61,7 +61,7 @@ func decodePeopleCursor(cursor string) (nameKey, memberID string, ok bool) {
 }
 
 func peopleSelectSQL(where string) string {
-	return `
+	return ` // scale-guard:ignore: shared staff-directory projection builder; bounded workforce_members keyset/equality reads with 1:1 joins.
 SELECT
   wm.workforce_member_id::text,
   wm.user_id::text,

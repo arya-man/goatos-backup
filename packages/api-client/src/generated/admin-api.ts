@@ -68,7 +68,7 @@ export interface paths {
             cookie?: never;
         };
         get?: never;
-        /** Set or clear one person's business title, the label the Tasks assignee picker shows in place of the name. */
+        /** Set or clear one person's business title, the label the Tasks assignee picker shows in place of the name. Optimistically locked on row_version. */
         put: operations["setWorkforcePersonTitle"];
         post?: never;
         delete?: never;
