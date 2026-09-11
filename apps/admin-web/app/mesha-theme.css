@@ -4809,6 +4809,13 @@ select:disabled { opacity: .45; }
 .wb .card{display:block;background:var(--panel-2);border:1px solid var(--line);border-radius:10px;padding:10px 12px;cursor:pointer;box-shadow:0 1px 2px rgba(0,0,0,.35),0 4px 12px rgba(0,0,0,.18);color:inherit;text-decoration:none}
 .wb .card:hover{border-color:var(--brand)}
 .wb .card.hot{background:color-mix(in srgb,var(--warn) 12%,var(--panel-2));border-color:color-mix(in srgb,var(--warn) 45%,var(--line))}
+/* light theme: the mock's shape is a white card on the green-grey column. The dark values above
+   (page ground + raised panel tone + black shadow) collapse on a light ground -- column and page
+   are one colour, card and column two near-identical off-whites, and the shadow reads as dirt. */
+:root.light .wb .col{background:var(--sidebar-2);border-color:transparent}
+:root.light .wb .card{background:var(--panel);border-color:var(--line2);box-shadow:var(--shadow)}
+:root.light .wb .card.hot{background:color-mix(in srgb,var(--warn) 12%,var(--panel));border-color:color-mix(in srgb,var(--warn) 45%,var(--line))}
+:root.light .wb .col .empty{color:var(--muted)}
 .wb .card .t{font-size:13.5px;font-weight:550;line-height:1.35;margin-bottom:7px;overflow-wrap:anywhere}
 .wb .card .row{display:flex;align-items:center;gap:8px;margin-top:8px}
 .wb .card .key{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:700;color:var(--muted);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
