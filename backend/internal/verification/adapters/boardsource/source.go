@@ -135,6 +135,9 @@ func dayBounds(businessDate string) (time.Time, time.Time, error) {
 
 // ListRows implements ports.Source.
 func (s *Source) ListRows(ctx context.Context, q ports.SourceQuery) ([]domain.Row, error) {
+	if err := ports.CheckUUIDSourceID(q.AfterSourceID); err != nil {
+		return nil, err
+	}
 	start, end, err := dayBounds(q.BusinessDate)
 	if err != nil {
 		return nil, err

@@ -117,6 +117,9 @@ GROUP BY board_state`
 
 // ListRows implements ports.Source.
 func (s *MilkFeedingSource) ListRows(ctx context.Context, q ports.SourceQuery) ([]domain.Row, error) {
+	if err := ports.CheckUUIDSourceID(q.AfterSourceID); err != nil {
+		return nil, err
+	}
 	ctx, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()
 	limit := q.Limit

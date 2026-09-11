@@ -166,6 +166,9 @@ func businessDayBounds(businessDate string) (time.Time, time.Time, error) {
 
 // ListRows implements ports.Source.
 func (s *ApprovalsSource) ListRows(ctx context.Context, q ports.SourceQuery) ([]domain.Row, error) {
+	if err := ports.CheckUUIDSourceID(q.AfterSourceID); err != nil {
+		return nil, err
+	}
 	ctx, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()
 	start, end, err := businessDayBounds(q.BusinessDate)

@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	ltdomain "github.com/vgoats/goatos/backend/internal/leadershiptasks/domain"
+	ltports "github.com/vgoats/goatos/backend/internal/leadershiptasks/ports"
 	"github.com/vgoats/goatos/backend/internal/permissions"
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
 	"github.com/vgoats/goatos/backend/internal/workboard/app"
@@ -294,6 +295,11 @@ func TestFlagRefusalsCarryStableCodes(t *testing.T) {
 	// Outside the caller's park scope is a 403 before anything is raised.
 	if rec, _ := post(t, h, `{"row_key":"k","park_id":"`+parkCPT+`"}`, actorOp, parkHeadGrant(parkCBE), "k"); rec.Code != http.StatusForbidden {
 		t.Fatalf("other park: %d", rec.Code)
+	}
+	// The same Idempotency-Key with a different body is a 409, never a 500 (live E2E 2026-09-11).
+	h6 := NewHandler(&fakeService{}, nil).WithFlags(&fakeFlags{err: ltports.ErrIdempotencyConflict})
+	if rec, out := post(t, h6, good, actorCEO, tenantGrant(permissions.RoleCEOInternal), "k"); rec.Code != http.StatusConflict || out["error"] != "idempotency_conflict" {
+		t.Fatalf("idempotency conflict: %d %v", rec.Code, out)
 	}
 	// Without a flag service the route answers 404, never a panic.
 	if rec, _ := post(t, NewHandler(&fakeService{}, nil), good, actorCEO, tenantGrant(permissions.RoleCEOInternal), "k"); rec.Code != http.StatusNotFound {
