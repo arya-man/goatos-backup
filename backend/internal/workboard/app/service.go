@@ -289,7 +289,8 @@ func (s *Service) ListSubtasks(ctx context.Context, q domain.Query, rowKey, afte
 	}
 	page, err := src.ListSubtasks(ctx, ports.SubtaskQuery{
 		TenantID: q.TenantID, ParkID: q.ParkID, BusinessDate: q.BusinessDate,
-		SourceID: key.SourceID, AfterKey: strings.TrimSpace(afterKey), Limit: domain.BoundSubtaskLimit(limit),
+		SourceID: key.SourceID, OwnerUserID: q.OwnerUserID,
+		AfterKey: strings.TrimSpace(afterKey), Limit: domain.BoundSubtaskLimit(limit),
 	})
 	if err != nil {
 		return domain.SubtaskPage{}, fmt.Errorf("workboard: %s/%s subtasks: %w", src.Module(), src.SourceType(), err)

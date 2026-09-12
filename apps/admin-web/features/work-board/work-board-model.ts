@@ -189,6 +189,10 @@ function lanePageKey(lane: string): string {
   return `c_${lane}_page`;
 }
 
+export function laneOffsetKey(lane: string): string {
+  return `c_${lane}_offset`;
+}
+
 // laneNextHref advances a column one page across all its parks: bump the shared page, and for
 // each park set its cursor to that park's next (pushing the current one on the park's stack)
 // or mark it ENDED when it has no next.
@@ -197,17 +201,24 @@ export function laneNextHref(
   params: RouteSearchParams,
   lane: string,
   perPark: { parkKey: string; nextCursor?: string }[],
+  currentRows: number,
 ): string | null {
   if (!perPark.some((p) => p.nextCursor)) return null;
   const pageKey = lanePageKey(lane);
+  const offsetKey = laneOffsetKey(lane);
+  const offsetStackKey = `${offsetKey}_stack`;
   const cursorKeys = new Set(perPark.map((p) => laneParkCursorKey(lane, p.parkKey)));
   const stackKeys = new Set([...cursorKeys].map((key) => `${key}_stack`));
+  stackKeys.add(offsetStackKey);
   const next = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) {
-    if (key === pageKey || cursorKeys.has(key) || stackKeys.has(key)) continue;
+    if (key === pageKey || key === offsetKey || cursorKeys.has(key) || stackKeys.has(key)) continue;
     for (const item of Array.isArray(value) ? value : value ? [value] : []) next.append(key, item);
   }
   next.set(pageKey, String(boundedInt(one(params, pageKey), 1, 1, 1000000) + 1));
+  for (const item of all(params, offsetStackKey)) next.append(offsetStackKey, item);
+  next.append(offsetStackKey, one(params, offsetKey) ?? "0");
+  next.set(offsetKey, String(boundedInt(one(params, offsetKey), 0, 0, 1000000) + Math.max(0, currentRows)));
   for (const p of perPark) {
     const cursorKey = laneParkCursorKey(lane, p.parkKey);
     const stackKey = `${cursorKey}_stack`;
@@ -221,16 +232,23 @@ export function laneNextHref(
 // lanePreviousHref steps a column back a page across all its parks by popping each park's stack.
 export function lanePreviousHref(pathname: string, params: RouteSearchParams, lane: string, parkKeys: string[]): string | null {
   const pageKey = lanePageKey(lane);
+  const offsetKey = laneOffsetKey(lane);
+  const offsetStackKey = `${offsetKey}_stack`;
   const page = boundedInt(one(params, pageKey), 1, 1, 1000000);
   if (page <= 1) return null;
   const cursorKeys = new Set(parkKeys.map((key) => laneParkCursorKey(lane, key)));
   const stackKeys = new Set([...cursorKeys].map((key) => `${key}_stack`));
+  stackKeys.add(offsetStackKey);
   const next = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) {
-    if (key === pageKey || cursorKeys.has(key) || stackKeys.has(key)) continue;
+    if (key === pageKey || key === offsetKey || cursorKeys.has(key) || stackKeys.has(key)) continue;
     for (const item of Array.isArray(value) ? value : value ? [value] : []) next.append(key, item);
   }
   if (page - 1 > 1) next.set(pageKey, String(page - 1));
+  const offsets = all(params, offsetStackKey);
+  const previousOffset = offsets.pop();
+  for (const item of offsets) next.append(offsetStackKey, item);
+  if (previousOffset && previousOffset !== "0") next.set(offsetKey, previousOffset);
   for (const parkKey of parkKeys) {
     const cursorKey = laneParkCursorKey(lane, parkKey);
     const stackKey = `${cursorKey}_stack`;
@@ -248,6 +266,8 @@ export function laneParkResetParams(laneKeys: string[], parkKeys: string[]): Rec
   const out: Record<string, undefined> = {};
   for (const lane of laneKeys) {
     out[lanePageKey(lane)] = undefined;
+    out[laneOffsetKey(lane)] = undefined;
+    out[`${laneOffsetKey(lane)}_stack`] = undefined;
     for (const parkKey of parkKeys) {
       const cursorKey = laneParkCursorKey(lane, parkKey);
       out[cursorKey] = undefined;

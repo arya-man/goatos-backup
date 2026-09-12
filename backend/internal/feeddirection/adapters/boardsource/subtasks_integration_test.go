@@ -60,6 +60,19 @@ func TestFeedActivitySubtasksListPensWorstFirst(t *testing.T) {
 		t.Fatalf("keyset skipped or repeated: got %q, want %q", afterFirst.Subtasks[0].Name, page.Subtasks[1].Name)
 	}
 
+	mine, err := src.ListSubtasks(ctx, ports.SubtaskQuery{TenantID: bsTenant, ParkID: bsPark, BusinessDate: bsDate, SourceID: feedActivityID("transport"), OwnerUserID: bsOperator, Limit: 50})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mine.Total != 3 || len(mine.Subtasks) != 3 {
+		t.Fatalf("owner lens must list only matching plus pool pens, got total=%d rows=%d", mine.Total, len(mine.Subtasks))
+	}
+	for _, sub := range mine.Subtasks {
+		if sub.Name == "Yashoda 2" {
+			t.Fatalf("owner lens leaked someone else's completed pen: %+v", mine.Subtasks)
+		}
+	}
+
 	// An unknown activity key resolves to an empty page, never an error.
 	empty, err := src.ListSubtasks(ctx, ports.SubtaskQuery{TenantID: bsTenant, ParkID: bsPark, BusinessDate: bsDate, SourceID: "not-an-activity", Limit: 10})
 	if err != nil {

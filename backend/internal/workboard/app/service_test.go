@@ -350,6 +350,14 @@ func TestListSubtasksResolvesTheRowsSourceAndBoundsThePage(t *testing.T) {
 	if got.SourceID != "weighing_work_item-001" || got.TenantID != "t" || got.ParkID != "p" || got.BusinessDate != "2026-09-10" {
 		t.Fatalf("query %+v", got)
 	}
+	owned := baseQuery()
+	owned.OwnerUserID = "u1"
+	if _, err := svc.ListSubtasks(context.Background(), owned, "weighing|weighing_work_item|weighing_work_item-001", "", 0); err != nil {
+		t.Fatal(err)
+	}
+	if got := weighing.subtaskCalls[len(weighing.subtaskCalls)-1]; got.OwnerUserID != "u1" {
+		t.Fatalf("subtask query lost owner lens: %+v", got)
+	}
 	if got.Limit != domain.DefaultSubtaskLimit {
 		t.Fatalf("a zero limit is the default page of %d, got %d", domain.DefaultSubtaskLimit, got.Limit)
 	}
@@ -361,20 +369,21 @@ func TestListSubtasksResolvesTheRowsSourceAndBoundsThePage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if weighing.subtaskCalls[1].AfterKey != page.NextCursor || weighing.subtaskCalls[1].Limit != domain.MaxSubtaskLimit {
-		t.Fatalf("second call %+v", weighing.subtaskCalls[1])
+	if weighing.subtaskCalls[2].AfterKey != page.NextCursor || weighing.subtaskCalls[2].Limit != domain.MaxSubtaskLimit {
+		t.Fatalf("second call %+v", weighing.subtaskCalls[2])
 	}
 	if len(page2.Subtasks) != 2 || page2.NextCursor != "" {
 		t.Fatalf("second page: %d subtasks, next %q", len(page2.Subtasks), page2.NextCursor)
 	}
 
 	// A module outside the caller's board is not found, and the source is never asked.
+	beforeInvisible := len(weighing.subtaskCalls)
 	q := baseQuery()
 	q.Modules = []domain.Module{domain.ModuleFeed}
 	if _, err := svc.ListSubtasks(context.Background(), q, "weighing|weighing_work_item|weighing_work_item-001", "", 0); !errors.Is(err, ErrRowNotFound) {
 		t.Fatalf("invisible module must be not found, got %v", err)
 	}
-	if len(weighing.subtaskCalls) != 2 {
+	if len(weighing.subtaskCalls) != beforeInvisible {
 		t.Fatalf("an invisible module's source must not be asked, calls=%d", len(weighing.subtaskCalls))
 	}
 	// An unregistered source is not found; a malformed key and a malformed cursor are refused.

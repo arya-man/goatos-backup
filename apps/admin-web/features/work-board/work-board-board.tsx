@@ -263,7 +263,7 @@ export type WorkBoardLaneColumn = {
   nextHref: string | null;
   previousHref: string | null;
   pageNumber: number;
-  pageSize: number;
+  offset: number;
 };
 
 export function WorkBoardBoard({
@@ -363,8 +363,8 @@ export function WorkBoardBoard({
           const count = searching || !summary ? list.length : summary.by_lane[column.key] ?? 0;
           const pager = pagerFor.get(column.key);
           const page = pager?.rows.length ?? 0;
-          const first = pager && page ? (pager.pageNumber - 1) * pager.pageSize + 1 : 0;
-          const last = pager && page ? (pager.pageNumber - 1) * pager.pageSize + page : 0;
+          const first = pager && page ? pager.offset + 1 : 0;
+          const last = pager && page ? pager.offset + page : 0;
           const paged = Boolean(pager && (pager.nextHref || pager.previousHref));
           return (
             <div className="col" key={column.key} title={column.title}>

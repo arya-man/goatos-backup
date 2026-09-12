@@ -55,6 +55,9 @@ type SubtaskQuery struct {
 	ParkID       string
 	BusinessDate string
 	SourceID     string
+	// OwnerUserID carries the same operator/assignee lens used to resolve the parent row.
+	// Aggregate sources apply it so a drawer cannot reveal children hidden from the card.
+	OwnerUserID string
 	// AfterKey is the keyset boundary (a domain.SubtaskKey); empty means from the start.
 	AfterKey string
 	Limit    int
