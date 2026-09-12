@@ -109,6 +109,8 @@ func query(owner string, states ...domain.WorkState) ports.SourceQuery {
 	return ports.SourceQuery{TenantID: bsTenant, ParkID: bsPark, BusinessDate: bsDate, OwnerUserID: owner, WorkStates: states, Limit: 50}
 }
 
+func feedActivityID(activity string) string { return bsPark + ":" + activity }
+
 func byID(rows []domain.Row) map[string]domain.Row {
 	out := map[string]domain.Row{}
 	for _, r := range rows {
@@ -146,10 +148,10 @@ func TestFeedActivityCardsOnADatabaseRoundTrip(t *testing.T) {
 		subtitle string
 	}
 	cases := map[string]want{
-		"packing":   {"Feed packing", domain.WorkStateVerificationPending, domain.LaneInReview, domain.Counts{Done: 1, Pending: 1}, "2 pens · 1 done"},
-		"direction": {"Feed direction", domain.WorkStateRejected, domain.LaneInProgress, domain.Counts{Pending: 1, NeedsAttention: 1}, "1 pen · 0 done"},
-		"transport": {"Feed transport", domain.WorkStateDue, domain.LaneToDo, domain.Counts{Done: 1, Pending: 3, NeedsAttention: 1}, "4 pens · 1 done"},
-		"wastage":   {"Feed wastage", domain.WorkStateCompleted, domain.LaneDone, domain.Counts{Done: 1}, "1 pen · 1 done"},
+		feedActivityID("packing"):   {"Feed packing", domain.WorkStateVerificationPending, domain.LaneInReview, domain.Counts{Done: 1, Pending: 1}, "2 pens · 1 done"},
+		feedActivityID("direction"): {"Feed direction", domain.WorkStateRejected, domain.LaneInProgress, domain.Counts{Pending: 1, NeedsAttention: 1}, "1 pen · 0 done"},
+		feedActivityID("transport"): {"Feed transport", domain.WorkStateDue, domain.LaneToDo, domain.Counts{Done: 1, Pending: 3, NeedsAttention: 1}, "4 pens · 1 done"},
+		feedActivityID("wastage"):   {"Feed wastage", domain.WorkStateCompleted, domain.LaneDone, domain.Counts{Done: 1}, "1 pen · 1 done"},
 	}
 	for id, w := range cases {
 		r, ok := got[id]
@@ -167,8 +169,8 @@ func TestFeedActivityCardsOnADatabaseRoundTrip(t *testing.T) {
 		}
 	}
 	// A rejected card is amber (domain.Row.Finalize).
-	if got["direction"].Severity != domain.SeverityWatch {
-		t.Errorf("rejected direction card severity %s, want watch", got["direction"].Severity)
+	if got[feedActivityID("direction")].Severity != domain.SeverityWatch {
+		t.Errorf("rejected direction card severity %s, want watch", got[feedActivityID("direction")].Severity)
 	}
 }
 
@@ -203,7 +205,8 @@ func TestFeedActivityScopeKeysetOwnerLens(t *testing.T) {
 			after = r.SourceID
 		}
 	}
-	if len(order) != 4 || order[0] != "packing" || order[1] != "direction" || order[2] != "transport" || order[3] != "wastage" {
+	wantOrder := []string{feedActivityID("packing"), feedActivityID("direction"), feedActivityID("transport"), feedActivityID("wastage")}
+	if len(order) != 4 || order[0] != wantOrder[0] || order[1] != wantOrder[1] || order[2] != wantOrder[2] || order[3] != wantOrder[3] {
 		t.Fatalf("keyset order %v", order)
 	}
 
@@ -212,14 +215,14 @@ func TestFeedActivityScopeKeysetOwnerLens(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(done) != 1 || done[0].SourceID != "wastage" {
+	if len(done) != 1 || done[0].SourceID != feedActivityID("wastage") {
 		t.Fatalf("done-lane filter %v", done)
 	}
 
 	// Owner lens: the transport card drops the shed owned by someone else (C completed) and the
 	// pool shed A stays; done falls to 0 and the shed count to 3.
 	mine := byID(mustRows(t, ctx, src, query(bsOperator)))
-	tr := mine["transport"]
+	tr := mine[feedActivityID("transport")]
 	if tr.Counts.Done != 0 || tr.Subtitle != "3 pens · 0 done" {
 		t.Errorf("owner-lens transport counts %+v subtitle %q", tr.Counts, tr.Subtitle)
 	}
@@ -238,7 +241,7 @@ func TestFeedActivityScopeKeysetOwnerLens(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(other) != 1 || other[0].SourceID != "transport" {
+	if len(other) != 1 || other[0].SourceID != bsOtherPk+":transport" {
 		t.Fatalf("other park cards %v", other)
 	}
 	empty, err := src.ListRows(ctx, ports.SourceQuery{TenantID: bsTenant, ParkID: bsPark, BusinessDate: "2026-09-20", Limit: 50})
@@ -289,7 +292,7 @@ ON CONFLICT (completion_id) DO NOTHING`, id, bsTenant, bsPark, shed, session, se
 	}
 	var packing *domain.Row
 	for i := range rows {
-		if rows[i].SourceID == "packing" {
+		if rows[i].SourceID == feedActivityID("packing") {
 			packing = &rows[i]
 		}
 	}
@@ -301,7 +304,7 @@ ON CONFLICT (completion_id) DO NOTHING`, id, bsTenant, bsPark, shed, session, se
 		t.Fatalf("two sessions of one pen must fold to one rejected shed line: counts=%+v state=%s", packing.Counts, packing.WorkState)
 	}
 	// And the subtasks list shows that ONE pen once.
-	page, err := src.ListSubtasks(ctx, ports.SubtaskQuery{TenantID: bsTenant, ParkID: bsPark, BusinessDate: d2, SourceID: "packing", Limit: 50})
+	page, err := src.ListSubtasks(ctx, ports.SubtaskQuery{TenantID: bsTenant, ParkID: bsPark, BusinessDate: d2, SourceID: feedActivityID("packing"), Limit: 50})
 	if err != nil {
 		t.Fatal(err)
 	}

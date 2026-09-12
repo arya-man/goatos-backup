@@ -60,7 +60,7 @@ LIMIT $7`
 // ListSubtasks implements ports.SubtaskSource. The row is named by its source id (the activity
 // key); an unknown key or a day/park with no rows returns an empty page with Total 0.
 func (s *Source) ListSubtasks(ctx context.Context, q ports.SubtaskQuery) (domain.SubtaskPage, error) {
-	a, ok := activityByKey(q.SourceID)
+	a, ok := activityFromSourceID(q.SourceID)
 	if !ok {
 		return domain.SubtaskPage{Subtasks: []domain.Subtask{}}, nil
 	}
