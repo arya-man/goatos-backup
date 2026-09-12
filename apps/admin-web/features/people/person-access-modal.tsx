@@ -26,6 +26,8 @@ type Draft = {
   parkIDs: string[];
   /** The one park per-park work is assigned in; asked only when more than one park is ticked. */
   homeParkID: string;
+  /** The parks whose pens this person visits the day after care work (a subset of parkIDs). */
+  penVisitParkIDs: string[];
   /** module_key -> surface -> capability levels, plus the web page ticks */
   modules: Record<string, { web: string[]; mobile: string[]; pages: string[] }>;
 };
@@ -44,6 +46,7 @@ function draftFrom(access: PersonAccess): Draft {
     scopeMode: access.scope_mode === "tenant" ? "tenant" : "parks",
     parkIDs: [...access.park_ids],
     homeParkID: access.home_park_id ?? "",
+    penVisitParkIDs: [...(access.pen_visit_park_ids ?? [])],
     modules,
   };
 }
@@ -178,6 +181,11 @@ export function PersonAccessModal({
           // backend validates the same rule, so this is the honest value, not the lock.
           home_park_id:
             draft.scopeMode === "parks" && draft.parkIDs.length === 1 ? draft.parkIDs[0] : draft.homeParkID,
+          // Sent whole: an unticked park is absent. Narrowed to covered parks so the
+          // backend's rule reads the same list the screen shows.
+          pen_visit_park_ids: draft.penVisitParkIDs.filter(
+            (id) => draft.scopeMode === "tenant" || draft.parkIDs.includes(id),
+          ),
           modules,
           row_version: access.row_version,
         },
@@ -277,9 +285,10 @@ export function PersonAccessModal({
                       onClick={() =>
                         setDraft((c) => {
                           const parkIDs = toggle(c.scopeMode === "parks" ? c.parkIDs : [], park.park_id);
-                          // An unticked park cannot stay the home park.
+                          // An unticked park cannot stay the home park, nor a pen-visit park.
                           const homeParkID = parkIDs.includes(c.homeParkID) ? c.homeParkID : "";
-                          return { ...c, scopeMode: "parks", parkIDs, homeParkID };
+                          const penVisitParkIDs = c.penVisitParkIDs.filter((id) => parkIDs.includes(id));
+                          return { ...c, scopeMode: "parks", parkIDs, homeParkID, penVisitParkIDs };
                         })
                       }
                     >
@@ -316,6 +325,37 @@ export function PersonAccessModal({
                 <div className="pa-na">{t("access.home_park.hint")}</div>
               </div>
             ) : null}
+
+            {/* Pen visits (maintainer decision 2026-09-12): which parks' pens this person walks
+                the day after vaccination or care work. Per-park, one or more people, any of
+                whom may record; the label and blurb are backend copy. Only parks the person
+                covers are offered, so a visit is never owed to someone whose scope cannot
+                reach it. */}
+            <div>
+              <div className="pa-lbl">{access.pen_visit_label}</div>
+              <div className="pa-pills" data-testid="pa-pen-visit-parks">
+                {access.parks
+                  .filter((park) => draft.scopeMode === "tenant" || draft.parkIDs.includes(park.park_id))
+                  .map((park) => {
+                    const on = draft.penVisitParkIDs.includes(park.park_id);
+                    return (
+                      <button
+                        key={park.park_id}
+                        type="button"
+                        className={`pa-pill${on ? " on" : ""}`}
+                        aria-pressed={on}
+                        disabled={!mayEdit || pending}
+                        onClick={() =>
+                          setDraft((c) => ({ ...c, penVisitParkIDs: toggle(c.penVisitParkIDs, park.park_id) }))
+                        }
+                      >
+                        {park.label}
+                      </button>
+                    );
+                  })}
+              </div>
+              <div className="pa-na">{access.pen_visit_blurb}</div>
+            </div>
           </div>
 
           <div className="pa-gridwrap">

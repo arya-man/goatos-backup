@@ -2244,6 +2244,12 @@ export interface components {
             park_ids: string[];
             /** @description The ONE park this person's per-park work (vaccination drives) is assigned in. One of park_ids in parks mode; may be empty for a director covering every park. This screen is the only author of park scope -- grant rows and the home park are derived from it (maintainer decision 2026-09-04). */
             home_park_id: string;
+            /** @description The parks whose pens this person visits the day after vaccination or care work (maintainer decision 2026-09-12) -- per-park HRMS config, one or more people per park, any of whom may record. A subset of the parks the person covers; empty means they walk no pens. */
+            pen_visit_park_ids: string[];
+            /** @description Backend-owned heading for the pen-visit section of the editor. */
+            pen_visit_label: string;
+            /** @description Backend-owned explainer under that heading. */
+            pen_visit_blurb: string;
             modules: components["schemas"]["AccessModuleRow"][];
             capabilities: components["schemas"]["AccessCapabilityOption"][];
             parks: components["schemas"]["AccessParkOption"][];
@@ -2268,6 +2274,8 @@ export interface components {
             park_ids?: string[];
             /** @description Required when more than one park is ticked; with exactly one park it defaults to that park. Must be one of park_ids. Ignored in tenant mode unless it names a park, which is then kept as the person's seat. */
             home_park_id?: string;
+            /** @description Sent whole, like modules -- an unticked park is absent, never a missing key. Each must be a park the person covers (400 invalid_access otherwise); a person who has never signed in is refused (400 pen_visitor_has_no_login). */
+            pen_visit_park_ids?: string[];
             modules: components["schemas"]["AccessModuleWrite"][];
             row_version: number;
         };
