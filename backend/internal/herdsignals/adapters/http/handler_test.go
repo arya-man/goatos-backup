@@ -19,6 +19,7 @@ type fakeService struct {
 
 	liveResp domain.LiveResponse
 	liveErr  error
+	liveSort domain.LiveSort
 
 	timelineResp domain.TimelineResponse
 	timelineErr  error
@@ -81,7 +82,8 @@ func (f *fakeService) IngestPackets(_ context.Context, _ domain.Actor, req domai
 	return f.ingestResp, f.ingestErr
 }
 
-func (f *fakeService) ListLive(_ context.Context, _ domain.Actor, _, _, _, _, _, _ *string, _ string, _ int) (domain.LiveResponse, error) {
+func (f *fakeService) ListLive(_ context.Context, _ domain.Actor, _, _, _, _, _, _ *string, _ string, _ int, sort domain.LiveSort) (domain.LiveResponse, error) {
+	f.liveSort = sort
 	return f.liveResp, f.liveErr
 }
 

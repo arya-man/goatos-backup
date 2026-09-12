@@ -162,13 +162,13 @@ func (s *Service) IngestPackets(ctx context.Context, actor domain.Actor, req dom
 }
 
 // ListLive fetches the current tag status with optional filters and pagination.
-func (s *Service) ListLive(ctx context.Context, actor domain.Actor, parkID, shedID, movementState, mappingState, pattern, q *string, cursor string, limit int) (domain.LiveResponse, error) {
+func (s *Service) ListLive(ctx context.Context, actor domain.Actor, parkID, shedID, movementState, mappingState, pattern, q *string, cursor string, limit int, sort domain.LiveSort) (domain.LiveResponse, error) {
 	if actor.TenantID == "" {
 		return domain.LiveResponse{}, fmt.Errorf("actor tenant_id required")
 	}
 
 	tags, summary, nextCursor, err := s.repo.ListTagsLatest(
-		ctx, actor.TenantID, parkID, shedID, movementState, mappingState, pattern, q, cursor, limit,
+		ctx, actor.TenantID, parkID, shedID, movementState, mappingState, pattern, q, cursor, limit, sort,
 	)
 	if err != nil {
 		s.log.Error("failed to list tags latest", "error", err)

@@ -749,13 +749,13 @@ func herdSignalsLiveFilter(tenantID string, parkID, shedID, movementState, mappi
 	return whereClause, args, argIndex
 }
 
-func (r *Repository) ListTagsLatest(ctx context.Context, tenantID string, parkID, shedID, movementState, mappingState, pattern, q *string, cursor string, limit int) (
+func (r *Repository) ListTagsLatest(ctx context.Context, tenantID string, parkID, shedID, movementState, mappingState, pattern, q *string, cursor string, limit int, sort ...domain.LiveSort) (
 	[]domain.TagLatest, domain.Summary, *string, error,
 ) {
 	// Fetch one extra row to detect whether another page exists. The row query itself lives in
 	// ListTagsLatestPage (export.go) so GET /herd-signals/export.csv walks the SAME filtered,
 	// keyset-ordered result this endpoint returns -- the export can never drift from the view.
-	tags, err := r.ListTagsLatestPage(ctx, tenantID, parkID, shedID, movementState, mappingState, pattern, q, cursor, limit+1)
+	tags, err := r.ListTagsLatestPage(ctx, tenantID, parkID, shedID, movementState, mappingState, pattern, q, cursor, limit+1, sort...)
 	if err != nil {
 		return nil, domain.Summary{}, nil, err
 	}
@@ -764,7 +764,8 @@ func (r *Repository) ListTagsLatest(ctx context.Context, tenantID string, parkID
 	if len(tags) > limit {
 		tags = tags[:limit]
 		lastTag := tags[len(tags)-1]
-		nextCursor = &lastTag.TagID
+		next := liveCursorFromTag(lastTag, normalizeLiveSort(sort))
+		nextCursor = &next
 	}
 
 	// Summary: the SAME filter (park/shed/mapping_state/pattern/q), WITHOUT the movement_state

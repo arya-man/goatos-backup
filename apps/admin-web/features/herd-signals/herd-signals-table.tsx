@@ -53,48 +53,7 @@ const ACTIVITY_RULES =
 const PATTERN_RULES =
   "Pattern is the broader classification for the tag. Normal activity means the current deltas are within that tag's baseline band. No movement now means delta 0 in the current 15-minute window. Quiet watch and inactive require low or zero deltas to persist.";
 const TABLE_SORT_NOTE =
-  "Rows are sorted inside this fetched page. Smart tag is the default so live refresh keeps the same visible rows steady when all tags fit on one page.";
-
-function compareNullableNumber(a: number | null | undefined, b: number | null | undefined): number {
-  if (a === null || a === undefined) return b === null || b === undefined ? 0 : 1;
-  if (b === null || b === undefined) return -1;
-  return a - b;
-}
-
-function compareNullableTime(a: string | null | undefined, b: string | null | undefined): number {
-  if (!a) return b ? 1 : 0;
-  if (!b) return -1;
-  return new Date(a).getTime() - new Date(b).getTime();
-}
-
-function sortHerdSignalItems(items: HerdSignalItem[], sort: HerdSignalsSortKey, dir: "asc" | "desc"): HerdSignalItem[] {
-  const sign = dir === "asc" ? 1 : -1;
-  return [...items].sort((a, b) => {
-    let result = 0;
-    switch (sort) {
-      case "tag_temp":
-        result = compareNullableNumber(a.tag_temperature_c, b.tag_temperature_c);
-        break;
-      case "last_seen":
-        result = compareNullableTime(a.last_seen_at, b.last_seen_at);
-        break;
-      case "motion_count":
-        result = compareNullableNumber(a.motion_count, b.motion_count);
-        break;
-      case "delta_15m":
-        result = compareNullableNumber(a.motion_delta, b.motion_delta);
-        break;
-      case "delta_1h":
-        result = compareNullableNumber(a.motion_delta_1h, b.motion_delta_1h);
-        break;
-      case "smart_tag":
-      default:
-        result = a.tag_id.localeCompare(b.tag_id, "en");
-    }
-    if (result === 0) result = a.tag_id.localeCompare(b.tag_id, "en");
-    return result * sign;
-  });
-}
+  "Rows are sorted by the server across the filtered result. Smart tag is the default so live refresh keeps the visible order steady.";
 
 // Keyset pagination carries no server-side page index, so the position readout is derived from the
 // cursors this page has actually walked through -- never guessed from a cursor string. `stack` holds
@@ -160,7 +119,7 @@ export function HerdSignalsTable({
   const filterSignature = herdSignalsHref(params, {});
   const walk = useSyncExternalStore(subscribePagerWalk, readPagerWalk, readServerPagerWalk);
   const stack = walk.signature === filterSignature ? walk.stack : [];
-  const visible = sortHerdSignalItems(items.filter((item) => matchesResidualKpi(item, params.kpi)), params.sort, params.sortDir);
+  const visible = items.filter((item) => matchesResidualKpi(item, params.kpi));
   const drawerCloseHref = herdSignalsHref(params, {});
   const rowHref = (item: HerdSignalItem) => `${herdSignalsHref(params, { hs_tag: item.tag_id })}#hs-tag-${encodeURIComponent(item.tag_id)}`;
 

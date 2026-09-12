@@ -22,6 +22,20 @@ test("live table exposes the operator-requested sort keys", () => {
   }
 });
 
+test("live table sorting is server-side, not a fetched-page resort", () => {
+  const board = read("./herd-signals-board.tsx");
+  assert.match(board, /sort: params\.sort/, "live read must send the active sort key to the backend");
+  assert.match(board, /sortDir: params\.sortDir/, "live read must send the active sort direction to the backend");
+
+  const api = read("../../lib/api/herd-signals.ts");
+  assert.match(api, /sort: params\.sort/, "API client must forward sort to /herd-signals/live");
+  assert.match(api, /dir: params\.sortDir/, "API client must forward sort direction to /herd-signals/live");
+
+  const table = read("./herd-signals-table.tsx");
+  assert.doesNotMatch(table, /sortHerdSignalItems/, "table must not sort only the fetched page");
+  assert.doesNotMatch(table, /compareNullableNumber|compareNullableTime/, "null ordering belongs in the server query");
+});
+
 test("Activity and Pattern info copy explains the non-contradiction", () => {
   const table = read("./herd-signals-table.tsx");
   assert.match(table, /Activity is the current 15-minute motion-count delta/, "Activity must explain the current-window delta");

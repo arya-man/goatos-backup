@@ -188,6 +188,8 @@ export interface HerdSignalsLiveParams {
   q?: string;
   cursor?: string;
   limit?: number;
+  sort?: "smart_tag" | "tag_temp" | "last_seen" | "motion_count" | "delta_15m" | "delta_1h";
+  sortDir?: "asc" | "desc";
 }
 
 // Live table + summary read. 6s timeout matches the sibling live-tracker read — this endpoint is
@@ -211,6 +213,8 @@ export async function getHerdSignalsLive(params: HerdSignalsLiveParams = {}): Pr
           q: params.q,
           cursor: params.cursor,
           limit: params.limit,
+          sort: params.sort,
+          dir: params.sortDir,
         }),
       }),
     ),

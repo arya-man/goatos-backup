@@ -358,6 +358,11 @@ type LiveResponse struct {
 	NextCursor *string    `json:"next_cursor"`
 }
 
+type LiveSort struct {
+	Key string
+	Dir string
+}
+
 // Summary is the high-level counts in a live response.
 type Summary struct {
 	TagsSeen       int `json:"tags_seen"`

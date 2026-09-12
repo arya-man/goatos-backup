@@ -35,7 +35,7 @@ func actorID(r *http.Request) string {
 // AppService defines the interface the handler expects from the app service.
 type AppService interface {
 	IngestPackets(ctx context.Context, actor domain.Actor, req domain.IngestRequest) (domain.IngestResponse, error)
-	ListLive(ctx context.Context, actor domain.Actor, parkID, shedID, movementState, mappingState, pattern, q *string, cursor string, limit int) (domain.LiveResponse, error)
+	ListLive(ctx context.Context, actor domain.Actor, parkID, shedID, movementState, mappingState, pattern, q *string, cursor string, limit int, sort domain.LiveSort) (domain.LiveResponse, error)
 	GetTimeline(ctx context.Context, actor domain.Actor, tagID, from, to string, bucketSeconds int) (domain.TimelineResponse, error)
 	ListGateways(ctx context.Context, actor domain.Actor) (domain.GatewaysResponse, error)
 	GetInsights(ctx context.Context, actor domain.Actor) (domain.InsightsResponse, error)
@@ -167,6 +167,7 @@ func (h *Handler) ListLive(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query().Get("q")
 
 	cursor := r.URL.Query().Get("cursor")
+	sort := domain.LiveSort{Key: r.URL.Query().Get("sort"), Dir: r.URL.Query().Get("dir")}
 	limit := 25 // default per contract; max 200
 	if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
 		if l, err := strconv.Atoi(limitStr); err == nil && l > 0 && l <= 200 {
@@ -196,7 +197,7 @@ func (h *Handler) ListLive(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Call service
-	resp, err := h.service.ListLive(ctx, actor, parkIDPtr, shedIDPtr, movementStatePtr, mappingStatePtr, patternPtr, qPtr, cursor, limit)
+	resp, err := h.service.ListLive(ctx, actor, parkIDPtr, shedIDPtr, movementStatePtr, mappingStatePtr, patternPtr, qPtr, cursor, limit, sort)
 	if err != nil {
 		h.log.Error("list_live_failed", "error", err.Error())
 		httpresponse.WriteError(w, r, h.log, http.StatusInternalServerError,
