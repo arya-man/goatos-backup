@@ -348,7 +348,7 @@ projection recompute, or clean-slate closeout step changes for this restoration.
 
 ## Work Board access rows (migration 000294, 2026-09-10)
 
-`000294_work_board_person_access.sql` is a per-person ACCESS repair in the `000245` shape, not
+`000295_work_board_person_access.sql` is a per-person ACCESS repair in the `000245` shape, not
 a source-data seed. It writes two kinds of rows and a fresh seed needs neither hand-filled:
 
 - `person_module_access` rows for `work_board` on every migrated person by ACTIVE ROLE GRANT
@@ -365,4 +365,3 @@ a source-data seed. It writes two kinds of rows and a fresh seed needs neither h
 Verify after a seed: `SELECT surface, capabilities, count(*) FROM person_module_access WHERE
 module_key = 'work_board' GROUP BY 1, 2;` returns rows for every role above, and
 `GET /app/bootstrap` for an operator lists module `work_board` with the `/work` item.
-

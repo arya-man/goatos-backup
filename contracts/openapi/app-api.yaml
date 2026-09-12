@@ -38971,7 +38971,7 @@ components:
           enum: [high, low]
         category:
           type: string
-          enum: [growth, health, breeding, delivery]
+          enum: [growth, health, breeding, delivery, spacing, flushing, normal]
         source_park_id:
           description: Where the animals are NOW. Null when the movement recorded no origin.
           type: string

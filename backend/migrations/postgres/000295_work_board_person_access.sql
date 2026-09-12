@@ -23,6 +23,23 @@
 -- after this landed) is left exactly as they are. Only people the cutover migrated are
 -- touched; someone with no rows at all is still on the role fallback path, and one row
 -- here would take them off it holding work_board and nothing else.
+--
+-- The rows THIS migration writes are remembered in small ledgers, so the Down path removes exactly
+-- those and nothing else. A work_board grant that existed before, or that an admin adds by hand
+-- afterwards, is real access and must survive rollback.
+CREATE TABLE IF NOT EXISTS public.person_module_access_work_board_backfill (
+  tenant_id            uuid NOT NULL,
+  workforce_member_id  uuid NOT NULL,
+  surface              text NOT NULL,
+  PRIMARY KEY (tenant_id, workforce_member_id, surface)
+);
+
+CREATE TABLE IF NOT EXISTS public.department_module_grants_work_board_backfill (
+  tenant_id      uuid NOT NULL,
+  department_id  uuid NOT NULL,
+  PRIMARY KEY (tenant_id, department_id)
+);
+
 WITH grants AS (
   SELECT DISTINCT m.tenant_id, m.workforce_member_id, g.role
   FROM public.workforce_members m
@@ -57,26 +74,51 @@ merged AS (
   FROM rows
   GROUP BY tenant_id, workforce_member_id, surface
 )
-INSERT INTO public.person_module_access (tenant_id, workforce_member_id, surface, module_key, capabilities)
-SELECT tenant_id, workforce_member_id, surface, 'work_board', capabilities
-FROM merged
-ON CONFLICT (tenant_id, workforce_member_id, surface, module_key) DO NOTHING;
+,
+inserted AS (
+  INSERT INTO public.person_module_access (tenant_id, workforce_member_id, surface, module_key, capabilities)
+  SELECT tenant_id, workforce_member_id, surface, 'work_board', capabilities
+  FROM merged
+  ON CONFLICT (tenant_id, workforce_member_id, surface, module_key) DO NOTHING
+  RETURNING tenant_id, workforce_member_id, surface
+)
+INSERT INTO public.person_module_access_work_board_backfill (tenant_id, workforce_member_id, surface)
+SELECT tenant_id, workforce_member_id, surface FROM inserted
+ON CONFLICT DO NOTHING;
 
 -- FIELD PRINCIPALS are offered a phone module through their DEPARTMENT's module grant,
 -- narrowed by their own mobile tick (workforce/app.candidateModuleKeysFrom). Every
 -- department that already carries a phone module gets work_board too, so an operator's
 -- own rows are reachable from the bar; the mobile tick written above is what keeps it.
-INSERT INTO public.department_module_grants (tenant_id, department_id, module_key, status)
-SELECT DISTINCT g.tenant_id, g.department_id, 'work_board', 'active'
-FROM public.department_module_grants g
-WHERE g.status = 'active'
-  AND NOT EXISTS (
-    SELECT 1 FROM public.department_module_grants x
-    WHERE x.tenant_id = g.tenant_id AND x.department_id = g.department_id AND x.module_key = 'work_board'
-  );
+WITH inserted AS (
+  INSERT INTO public.department_module_grants (tenant_id, department_id, module_key, status)
+  SELECT DISTINCT g.tenant_id, g.department_id, 'work_board', 'active'
+  FROM public.department_module_grants g
+  WHERE g.status = 'active'
+    AND NOT EXISTS (
+      SELECT 1 FROM public.department_module_grants x
+      WHERE x.tenant_id = g.tenant_id AND x.department_id = g.department_id AND x.module_key = 'work_board'
+    )
+  RETURNING tenant_id, department_id
+)
+INSERT INTO public.department_module_grants_work_board_backfill (tenant_id, department_id)
+SELECT tenant_id, department_id FROM inserted
+ON CONFLICT DO NOTHING;
 
 -- +goose Down
--- Removes only rows this migration could have written; a tick an admin made on /people
--- is indistinguishable from one written here, the honest cost of an additive repair.
-DELETE FROM public.person_module_access WHERE module_key = 'work_board';
-DELETE FROM public.department_module_grants WHERE module_key = 'work_board';
+-- Only the rows the Up path inserted (the ledgers); pre-existing or hand-added grants stay.
+DELETE FROM public.person_module_access p
+USING public.person_module_access_work_board_backfill b
+WHERE p.tenant_id = b.tenant_id
+  AND p.workforce_member_id = b.workforce_member_id
+  AND p.surface = b.surface
+  AND p.module_key = 'work_board';
+
+DELETE FROM public.department_module_grants g
+USING public.department_module_grants_work_board_backfill b
+WHERE g.tenant_id = b.tenant_id
+  AND g.department_id = b.department_id
+  AND g.module_key = 'work_board';
+
+DROP TABLE IF EXISTS public.department_module_grants_work_board_backfill;
+DROP TABLE IF EXISTS public.person_module_access_work_board_backfill;
