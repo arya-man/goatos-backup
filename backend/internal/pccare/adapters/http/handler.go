@@ -172,6 +172,12 @@ type taskDTO struct {
 	// PenVisitOwed says a visit is part of this task even before its row exists, so a card
 	// whose own clips are verified can say "Pen visit tomorrow" rather than "Done".
 	PenVisitOwed bool `json:"pen_visit_owed"`
+	// PenVisitChip / PenVisitTone are the CARD's chip once the task's own videos are verified
+	// and the visit is what remains: the visit's own chip when its row exists, "Pen visit
+	// tomorrow" before it does, empty while the task's own status still leads. Backend copy,
+	// rendered verbatim, so the phone never composes the step's words.
+	PenVisitChip string `json:"pen_visit_chip,omitempty"`
+	PenVisitTone string `json:"pen_visit_tone,omitempty"`
 }
 
 type inventoryRequirementDTO struct {
@@ -195,6 +201,14 @@ func taskDTOFor(t ports.TaskRow, viewer domain.Actor) taskDTO {
 	if t.PenVisit != nil {
 		step := penvisitdomain.StepFor(*t.PenVisit, penvisitdomain.Actor{UserID: viewer.UserID}, biztime.BusinessDate(time.Now()))
 		dto.PenVisit = &step
+	}
+	// Once the task's own videos are verified, the visit is what the card is waiting on.
+	if dto.PenVisitOwed && t.Status == domain.StatusCompleted && t.WorkState != domain.WorkStateCompleted && t.WorkState != domain.WorkStateClosed {
+		if dto.PenVisit != nil {
+			dto.PenVisitChip, dto.PenVisitTone = dto.PenVisit.StateChip, dto.PenVisit.StateTone
+		} else {
+			dto.PenVisitChip, dto.PenVisitTone = "Pen visit tomorrow", "info"
+		}
 	}
 	return dto
 }

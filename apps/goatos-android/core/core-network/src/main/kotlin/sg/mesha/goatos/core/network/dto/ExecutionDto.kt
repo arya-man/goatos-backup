@@ -104,6 +104,12 @@ data class ShedCardSummaryDto(
     @SerialName("openCount") val openCount: Int = 0,
     @SerialName("needsRedo") val needsRedo: Boolean = false,
     @SerialName("vaccineGroups") val vaccineGroups: List<VaccineGroupSummaryDto> = emptyList(),
+    /**
+     * The pen's next-day visit after its latest vaccination submit (maintainer decision
+     * 2026-09-12): the LAST step of the pen's work, verified by the same verifier. Null until the
+     * pen-visit kernel raises it the morning after; rendered verbatim beside the card's status.
+     */
+    @SerialName("penVisit") val penVisit: PenVisitDto? = null,
 )
 
 @Serializable
@@ -191,4 +197,6 @@ data class VaccinationExecutionShedDrilldownDto(
     @SerialName("drives") val drives: List<VaccinationExecutionDriveSummaryDto> = emptyList(),
     @SerialName("rows") val rows: List<VaccinationExecutionRowDto> = emptyList(),
     @SerialName("summary") val summary: VaccinationExecutionShedSummaryDto = VaccinationExecutionShedSummaryDto(),
+    /** The pen's next-day visit after its latest vaccination submit (2026-09-12), for the caller. */
+    @SerialName("penVisit") val penVisit: PenVisitDto? = null,
 )

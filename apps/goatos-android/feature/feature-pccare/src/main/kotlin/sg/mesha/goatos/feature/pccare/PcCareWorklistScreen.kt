@@ -171,6 +171,15 @@ internal fun PcCareTaskCard(
                 modifier = Modifier.fillMaxWidth(),
             )
         }
+        // The pen-visit step's own line (the verifier sent the visit back), verbatim.
+        if (card.penVisitLine.isNotBlank()) {
+            Text(
+                text = card.penVisitLine,
+                color = MeshaColors.Danger,
+                style = MeshaType.caption,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
         if (onClose != null && card.closable) {
             Text(
                 text = "End this work",

@@ -7,9 +7,11 @@ package sg.mesha.goatos.feature.penvisits
 import androidx.compose.runtime.Immutable
 
 /**
- * UI models for the pen-visit "For me" tab of the Tasks module (maintainer decision 2026-09-07):
- * the day after vaccination or PC Care work in a pen, the park head goes to that pen, records
- * ONE live in-app-camera video and submits it.
+ * UI models for the pen visit (maintainer decisions 2026-09-07 and 2026-09-12): the day after
+ * vaccination or PC Care work in a pen, one of the park's configured visitors goes to that pen,
+ * records ONE live in-app-camera video and submits it; the clip goes to the VERIFIER as the last
+ * step of that work. The visit is reached from the parent card (PC Care task, vaccination shed);
+ * the retired "For me" tab is gone.
  *
  * EVERY business sentence here is BACKEND-OWNED and carried through verbatim: the title, the pen
  * label, the reason line, the state chip, the instruction, the done line, the filter chips and
@@ -20,6 +22,7 @@ import androidx.compose.runtime.Immutable
 /** The chip's colour, mirrored one-to-one from the wire `state_tone`; the words stay backend copy. */
 enum class PenVisitTone {
     INFO,
+    REVIEW,
     DANGER,
     SUCCESS,
     MUTED,
@@ -28,6 +31,7 @@ enum class PenVisitTone {
     companion object {
         fun from(raw: String): PenVisitTone = when (raw) {
             "info" -> INFO
+            "review" -> REVIEW
             "danger" -> DANGER
             "success" -> SUCCESS
             else -> MUTED
@@ -49,57 +53,14 @@ enum class PenVisitVideoState {
     /** The upload or the submit failed for good: offer "Record again" with the reason. */
     FAILED,
 
-    /** The server says the visit is done. */
+    /** The clip reached the server and is with the verifier. Nothing to do here. */
+    IN_REVIEW,
+
+    /** The verifier sent the clip back: offer "Record again" with the verifier's own words. */
+    REWORK,
+
+    /** The verifier approved the visit; the pen's work is closed. */
     DONE,
-}
-
-/** One visit as the list renders it. */
-@Immutable
-data class PenVisitCardUi(
-    /** Stable list key — the visit task id IS this list's grain. */
-    val listKey: String,
-    val taskId: String,
-    /** Backend-composed ("Visit Castro 2 · Coimbatore"), VERBATIM. */
-    val title: String,
-    /** The backend's pen label, VERBATIM. */
-    val penLabel: String,
-    /** The backend's park name, VERBATIM. */
-    val parkName: String = "",
-    /** Backend-composed ("Vaccination yesterday"), VERBATIM. */
-    val reasonLine: String,
-    /** Backend-composed chip copy, VERBATIM; [tone] only colours it. */
-    val stateChip: String,
-    val tone: PenVisitTone = PenVisitTone.MUTED,
-    /** True while this visit's video/submit is still on the wire — drawn as a quiet "Sending" mark. */
-    val sending: Boolean = false,
-    val done: Boolean = false,
-)
-
-/** One filter chip. Label, count and empty copy are BACKEND-COMPOSED; the screen sends back [key]. */
-@Immutable
-data class PenVisitFilterUi(
-    val key: String,
-    val label: String,
-    val count: Int,
-    val selected: Boolean,
-    val emptyMessage: String = "",
-)
-
-@Immutable
-data class PenVisitListUiState(
-    /** The backend's page title, VERBATIM. */
-    val title: String = "",
-    val isRefreshing: Boolean = false,
-    val lastSyncedAt: Long? = null,
-    val emptyMessage: String? = null,
-    val isErrorEmpty: Boolean = false,
-    val filters: List<PenVisitFilterUi> = emptyList(),
-)
-
-sealed interface PenVisitListEvent {
-    data object Refresh : PenVisitListEvent
-    data class SelectFilter(val key: String) : PenVisitListEvent
-    data class OpenTask(val taskId: String) : PenVisitListEvent
 }
 
 @Immutable
@@ -125,6 +86,8 @@ data class PenVisitDetailUiState(
     val progressLabel: String = "",
     /** The server's or the queue's own sentence while FAILED; blank otherwise. */
     val failureReason: String = "",
+    /** The verifier's words while REWORK (backend copy, verbatim); blank otherwise. */
+    val reworkReason: String = "",
     val isRefreshing: Boolean = false,
     /** True while the camera is open or the clip is being written down. */
     val capturing: Boolean = false,

@@ -21184,6 +21184,15 @@ components:
         pen_visit_owed:
           type: boolean
           description: A visit is part of this task even before its row exists (a pen category with a shed).
+        pen_visit_chip:
+          type: string
+          description: >-
+            The card's chip once the task's own videos are verified and the visit is what remains
+            (the visit's own chip, or "Pen visit tomorrow" before its row exists). Empty while the
+            task's own status still leads. Backend copy, rendered verbatim.
+        pen_visit_tone:
+          type: string
+          enum: [info, review, danger, success, muted]
       required:
         - task_id
         - category

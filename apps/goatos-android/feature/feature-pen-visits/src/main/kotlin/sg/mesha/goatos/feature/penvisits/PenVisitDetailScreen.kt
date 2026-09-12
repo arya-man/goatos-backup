@@ -203,6 +203,36 @@ private fun PenVisitVideoSection(
                     icon = MeshaIcons.Video,
                 )
             }
+            PenVisitVideoState.IN_REVIEW -> {
+                // The clip is on the server and the verifier has it; the backend done line says
+                // when the pen was visited. Nothing to press.
+                Text(
+                    text = stringResource(R.string.pen_visits_state_in_review),
+                    color = MeshaColors.Muted,
+                    style = MeshaType.bodyStrong,
+                )
+                if (state.doneLine.isNotBlank()) {
+                    Text(text = state.doneLine, color = MeshaColors.Muted, style = MeshaType.caption)
+                }
+            }
+            PenVisitVideoState.REWORK -> {
+                Text(
+                    text = stringResource(R.string.pen_visits_state_sent_back),
+                    color = MeshaColors.Danger,
+                    style = MeshaType.bodyStrong,
+                )
+                // The verifier's own words, verbatim.
+                if (state.reworkReason.isNotBlank()) {
+                    Text(text = state.reworkReason, color = MeshaColors.Danger, style = MeshaType.caption)
+                }
+                PenVisitPrimaryButton(
+                    label = stringResource(R.string.pen_visits_action_record_again),
+                    enabled = state.canSubmit && !state.capturing,
+                    onClick = { onEvent(PenVisitDetailEvent.RecordVideo) },
+                    modifier = Modifier.fillMaxWidth(),
+                    icon = MeshaIcons.Video,
+                )
+            }
             PenVisitVideoState.DONE -> {
                 Text(
                     text = stringResource(R.string.pen_visits_state_submitted),

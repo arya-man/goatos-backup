@@ -9203,6 +9203,10 @@ export interface components {
             pen_visit?: components["schemas"]["PenVisit"];
             /** @description A visit is part of this task even before its row exists (a pen category with a shed). */
             pen_visit_owed: boolean;
+            /** @description The card's chip once the task's own videos are verified and the visit is what remains (the visit's own chip, or "Pen visit tomorrow" before its row exists). Empty while the task's own status still leads. Backend copy, rendered verbatim. */
+            pen_visit_chip?: string;
+            /** @enum {string} */
+            pen_visit_tone?: "info" | "review" | "danger" | "success" | "muted";
         };
         PCCareInventoryRequirement: {
             vaccine_label: string;
