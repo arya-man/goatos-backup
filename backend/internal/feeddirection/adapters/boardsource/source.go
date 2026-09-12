@@ -100,16 +100,17 @@ func completionUnits(table, dateExpr string) string {
 
 // activities are the four feed cards, in display and keyset order.
 //
-// projection-review: membership per card = the activity's own rows for ONE tenant, park and
-// work-day (transport feed_transport_tasks by business_date excluding retired, one row per shed
-// per day by feed_transport_tasks_daily_shed_uq; packing/direction/wastage by target_date, one
-// row per (shed, session, workflow) by each table's natural key). group_key = shed_id: units
-// are pre-aggregated to the shed by MIN(laneRank) and BOOL_OR(rejected) BEFORE the card MINs
-// over sheds, so a pen with two sessions is one shed line and never fans the card's shed count.
-// join_cardinality = feed_transport_attempts on the task's current_attempt_id (1:{0,1}); no
-// other join, and the park name is a scalar subquery on locations' primary key (1:1). The card
-// count therefore counts each shed once. scope = tenant, park, work-day and the optional owner
-// predicate, repeated verbatim in the count and subtask reads.
+// projection-review: membership=the activity's own rows for ONE tenant, park and work-day
+// (transport feed_transport_tasks by business_date excluding retired, one row per shed per day by
+// feed_transport_tasks_daily_shed_uq, and packing/direction/wastage by target_date one row per
+// (shed, session, workflow) by each table's natural key); group_key=shed_id, units pre-aggregated
+// to the shed by MIN(laneRank) and BOOL_OR(rejected) BEFORE the card MINs over sheds, so a pen
+// with two sessions is one shed line and never fans the card's shed count; join_cardinality=
+// feed_transport_attempts on the task's current_attempt_id (1:{0,1}) and the park name a scalar
+// subquery on locations' primary key (1:1), so the card counts each shed once; pagination=at most
+// four cards per park, ordered by activity rank and keyset after the activity key, never
+// row-paged; scope=tenant_id($1), business_date($2), park_id($3) and the optional owner predicate
+// ($4), repeated verbatim in the count and subtask reads.
 var activities = []activity{
 	{key: "packing", rank: 0, title: "Feed packing", clock: "Packed today for tomorrow", units: completionUnits("feed_packing_completions", "($2::date + 1)")},
 	{key: "direction", rank: 1, title: "Feed direction", clock: "Served today", units: completionUnits("feed_distribution_completions", "$2::date")},
@@ -129,6 +130,14 @@ func activityByKey(key string) (activity, bool) {
 // metricsSQL rolls one activity's units up to its card: the shed count, done/pending/attention
 // shed tallies, the card's lane rank (MIN over sheds, -1 when the card has no shed), whether
 // the leftmost lane holds a rejected shed, and the park name.
+//
+// projection-review: membership=one activity's units for ONE tenant, park and work-day (the units
+// SQL's own predicate); group_key=shed_id, units pre-aggregated to the shed by MIN(laneRank) and
+// BOOL_OR(rejected) so a pen with several sessions is one shed row before the card counts;
+// join_cardinality=no join in the roll-up (park name is a scalar subquery on locations' primary
+// key, 1:1), so each shed is counted once; pagination=one aggregate row per call, never row-paged
+// (the four cards are keyset-ordered by activity rank in ListRows); scope=tenant_id($1),
+// business_date($2), park_id($3) and the optional owner predicate ($4).
 func metricsSQL(units string) string {
 	return `
 WITH units AS (` + units + `),

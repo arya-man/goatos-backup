@@ -7456,6 +7456,8 @@ export interface components {
             href?: string;
         };
         WorkBoardRowsPage: {
+            /** @description Modules whose read failed on this request; the rest of the board still serves. */
+            degraded?: components["schemas"]["WorkBoardModule"][];
             rows: components["schemas"]["WorkBoardRow"][];
             /** @description Keyset cursor for the next page. Absent on the last page. */
             next_cursor?: string;
@@ -7527,6 +7529,8 @@ export interface components {
             assignee_name: string;
         };
         WorkBoardSummary: {
+            /** @description Modules whose read failed on this request; the rest of the board still serves. */
+            degraded?: components["schemas"]["WorkBoardModule"][];
             total: number;
             /** @description WHOLE-FILTER counts per lane, every lane present, never page-local sums. */
             by_lane: {
