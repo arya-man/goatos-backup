@@ -225,7 +225,7 @@ func (s *Service) ListLive(ctx context.Context, actor domain.Actor, parkID, shed
 		return domain.LiveResponse{}, fmt.Errorf("list tags failed: %w", err)
 	}
 
-	cohortTags, err := s.listAllTagsLatest(ctx, actor.TenantID, parkID, shedID, movementState, mappingState, pattern, q, domain.LiveSort{})
+	cohortTags, err := s.listAllTagsLatest(ctx, actor.TenantID, parkID, shedID, nil, mappingState, pattern, q, domain.LiveSort{})
 	if err != nil {
 		s.log.Warn("failed to fetch live cohort for signal comparisons", "error", err)
 		cohortTags = tags

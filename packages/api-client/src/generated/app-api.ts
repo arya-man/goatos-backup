@@ -10575,7 +10575,7 @@ export interface components {
             max_retry_backoff_seconds: number;
         };
         /** @enum {string} */
-        IdentifierType: "animal_identifier_1" | "animal_identifier_2" | "temporary_tag";
+        IdentifierType: "animal_identifier_1" | "animal_identifier_2" | "temporary_tag" | "smart_ble_tag";
         /** @enum {string} */
         IdentifierStatus: "active" | "retired" | "disputed" | "duplicate" | "invalid";
         /** @enum {string} */

@@ -16,6 +16,8 @@ type fakeRepo struct {
 	ports.Repository
 	ingestGotPackets []domain.Packet
 	livePages        []domain.TagLatest
+	goats            map[string]ports.GoatData
+	resolvedTags     map[string]string
 }
 
 func (f *fakeRepo) IngestPackets(_ context.Context, _ string, _ domain.Gateway, packets []domain.Packet) (int, int, error) {
@@ -70,10 +72,16 @@ func (f *fakeRepo) filteredLivePages(movementState *string) []domain.TagLatest {
 }
 
 func (f *fakeRepo) ResolveTagsBatch(_ context.Context, _ string, _ []string) (map[string]string, error) {
+	if f.resolvedTags != nil {
+		return f.resolvedTags, nil
+	}
 	return map[string]string{}, nil
 }
 
 func (f *fakeRepo) GetGoatsByIDs(_ context.Context, _ string, _ []string) (map[string]ports.GoatData, error) {
+	if f.goats != nil {
+		return f.goats, nil
+	}
 	return map[string]ports.GoatData{}, nil
 }
 
@@ -297,5 +305,48 @@ func TestListLiveRiskSummaryKeepsMovementBreakdownWhole(t *testing.T) {
 	}
 	if resp.Summary.TagsSeen != 2 || resp.Summary.Moving != 1 || resp.Summary.Stale != 1 {
 		t.Fatalf("summary = %+v, want risk-filtered movement breakdown across both rows", resp.Summary)
+	}
+}
+
+func TestListLiveMovementFilterUsesWholePenForGroupComparisons(t *testing.T) {
+	now := time.Now().UTC()
+	motionHigh := int64(100)
+	motionLow := int64(0)
+	tempHot := 39.0
+	tempBase := 37.0
+	shedID := "30000000-0000-4000-8000-000000000001"
+	goatMoving := "10000000-0000-4000-8000-000000000001"
+	goatQuiet := "10000000-0000-4000-8000-000000000002"
+	repo := &fakeRepo{
+		livePages: []domain.TagLatest{
+			{TagID: "A00001", LastSeenAt: now, PatternState: "normal", MappingState: "mapped", MovementState: "moving", MotionDelta: &motionHigh, TagTemperatureC: &tempHot},
+			{TagID: "A00002", LastSeenAt: now.Add(-time.Minute), PatternState: "normal", MappingState: "mapped", MovementState: "quiet", MotionDelta: &motionLow, TagTemperatureC: &tempBase},
+		},
+		resolvedTags: map[string]string{
+			"A00001": goatMoving,
+			"A00002": goatQuiet,
+		},
+		goats: map[string]ports.GoatData{
+			goatMoving: {DisplayID: "G-1", ShedID: &shedID},
+			goatQuiet:  {DisplayID: "G-2", ShedID: &shedID},
+		},
+	}
+	svc := NewService(repo)
+	actor := domain.Actor{TenantID: "tenant-1", UserID: "user-1"}
+	movement := "moving"
+	sort := domain.LiveSort{Key: "smart_tag", Dir: "asc"}
+
+	resp, err := svc.ListLive(context.Background(), actor, nil, nil, &movement, nil, nil, nil, nil, "", 10, sort)
+	if err != nil {
+		t.Fatalf("ListLive: %v", err)
+	}
+	if len(resp.Items) != 1 || resp.Items[0].TagID != "A00001" {
+		t.Fatalf("page tags = %+v, want only moving A00001", resp.Items)
+	}
+	if resp.Items[0].GroupMotionDeltaPct == nil || *resp.Items[0].GroupMotionDeltaPct != 100 {
+		t.Fatalf("group motion pct = %v, want 100 from whole-pen median, not nil from movement-filtered singleton", resp.Items[0].GroupMotionDeltaPct)
+	}
+	if resp.Items[0].GroupTempDeltaC == nil || *resp.Items[0].GroupTempDeltaC != 1 {
+		t.Fatalf("group temp delta = %v, want +1.0 from whole-pen median", resp.Items[0].GroupTempDeltaC)
 	}
 }
