@@ -1,4 +1,4 @@
-// Package postgres persists pen visit tasks (migration 000276).
+// Package postgres persists pen visit tasks (migrations 000277 and 000296).
 package postgres
 
 import (
@@ -28,6 +28,13 @@ const (
 	// matched by string here rather than imported: this package must not depend on either
 	// producer, and the vocabulary is pinned by the materializer's integration test.
 	verificationCategoryVaccination = "vaccination_proof"
+
+	// The verification items' source ref types that name a PARENT this visit closes. A
+	// vaccination shed submit files its item against the sop_submission; a per-goat vaccination
+	// item (ref_type vaccination_goat) is the same submit seen one grain down and is not a
+	// second parent. A PC Care task files its item against the task.
+	sourceRefTypeSOPSubmission = "sop_submission"
+	sourceRefTypePCCareTask    = "pc_care_task"
 )
 
 // verificationCategoryReasons maps a verification item's category to the visit reason it
@@ -40,6 +47,18 @@ var verificationCategoryReasons = map[string]string{
 	"pc_ticks_removal":              domain.ReasonTicksRemoval,
 	"pc_hoof_trimming":              domain.ReasonHoofTrimming,
 	"pc_hair_trimming":              domain.ReasonHairTrimming,
+}
+
+// sourceKindForRefType maps a verification item's source ref type to the parent kind the link
+// table stores; "" means the item names no parent this module links.
+func sourceKindForRefType(refType string) string {
+	switch refType {
+	case sourceRefTypeSOPSubmission:
+		return domain.SourceKindVaccinationSubmission
+	case sourceRefTypePCCareTask:
+		return domain.SourceKindPCCareTask
+	}
+	return ""
 }
 
 // Repository implements ports.Repository over pgx.
@@ -71,42 +90,79 @@ type querier interface {
 }
 
 // taskColumns is the single projection every task read uses. The park and shed names ride the
-// row so the list needs no second read; the pen label is composed in Go through oploc.
+// row so the list needs no second read; the pen label is composed in Go through oploc; the
+// park's configured visitors and the visit's parents ride as arrays so the row can answer
+// "may this caller record" and "what does this close" without a second read per row.
 const taskColumns = sqlRepository1
 
 const taskFrom = sqlRepository2
 
-func scanTask(row pgx.Row) (domain.Task, error) {
-	var t domain.Task
-	var partition, parkName, shedName string
-	err := row.Scan(
-		&t.TaskID, &t.TenantID, &t.ParkID, &parkName, &t.ShedID, &shedName, &partition,
-		&t.Reasons, &t.SourceDate, &t.PlannedDate, &t.DueDate, &t.WorkState, &t.AssigneeID,
-		&t.ProofRef, &t.SubmittedBy, &t.SubmittedAt, &t.RolledFwd, &t.DelayedSince, &t.RowVersion,
-		&t.CreatedAt, &t.UpdatedAt,
-	)
-	if err != nil {
-		return domain.Task{}, err
+// taskScanTargets is the destination list matching taskColumns, so every read that scans a
+// task row -- with or without leading extra columns -- binds the same columns in the same order.
+type taskScan struct {
+	t                             domain.Task
+	partition, parkName, shedName string
+	visitors, sources             []string
+	reworkReason                  *string
+}
+
+func (s *taskScan) targets() []any {
+	t := &s.t
+	return []any{
+		&t.TaskID, &t.TenantID, &t.ParkID, &s.parkName, &t.ShedID, &s.shedName, &s.partition,
+		&t.Reasons, &t.SourceDate, &t.PlannedDate, &t.DueDate, &t.WorkState, &t.Status,
+		&t.ProofRef, &t.SubmittedBy, &t.SubmittedAt, &t.VerifiedBy, &t.VerifiedAt, &s.reworkReason,
+		&t.RolledFwd, &t.DelayedSince, &t.RowVersion, &t.CreatedAt, &t.UpdatedAt,
+		&s.visitors, &s.sources,
 	}
-	t.ParkName = strings.TrimSpace(parkName)
-	t.ShedName = strings.TrimSpace(shedName)
-	t.Partition = strings.TrimSpace(partition)
+}
+
+func (s *taskScan) finish() domain.Task {
+	t := s.t
+	t.ParkName = strings.TrimSpace(s.parkName)
+	t.ShedName = strings.TrimSpace(s.shedName)
+	t.Partition = strings.TrimSpace(s.partition)
 	if oploc.NormalizePartition(t.Partition) == oploc.WholeSentinel {
 		t.Partition = ""
 	}
 	t.PenLabel = oploc.OperationalLocation{ShedID: t.ShedID, ShedName: t.ShedName, PartitionLabel: t.Partition}.Display()
+	if s.reworkReason != nil {
+		t.ReworkReason = strings.TrimSpace(*s.reworkReason)
+	}
+	t.VisitorIDs = s.visitors
+	t.Sources = make([]domain.Source, 0, len(s.sources))
+	for _, src := range s.sources {
+		kind, ref, ok := strings.Cut(src, ":")
+		if !ok || kind == "" || ref == "" {
+			continue
+		}
+		t.Sources = append(t.Sources, domain.Source{Kind: kind, RefID: ref})
+	}
 	t.CreatedAt = t.CreatedAt.UTC()
 	t.UpdatedAt = t.UpdatedAt.UTC()
 	if t.SubmittedAt != nil {
 		v := t.SubmittedAt.UTC()
 		t.SubmittedAt = &v
 	}
-	return t, nil
+	if t.VerifiedAt != nil {
+		v := t.VerifiedAt.UTC()
+		t.VerifiedAt = &v
+	}
+	return t
 }
 
-// ListMine pages the caller's own visits: open first is the chip's job; within a chip, the
-// most recently due first, keyset on (due_business_date, task_id) over
-// pen_visit_tasks_assignee_idx. Counts range over the SAME assignee predicate as the rows.
+func scanTask(row pgx.Row) (domain.Task, error) {
+	var s taskScan
+	if err := row.Scan(s.targets()...); err != nil {
+		return domain.Task{}, err
+	}
+	return s.finish(), nil
+}
+
+// ListMine pages the visits owed in the parks the caller is configured to visit: open first
+// is the chip's job; within a chip, the most recently due first, keyset on
+// (due_business_date, task_id) over pen_visit_tasks_park_idx. Counts range over the SAME
+// visitor-park predicate as the rows.
 func (r *Repository) ListMine(ctx context.Context, p ports.ListParams) (ports.Page, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
@@ -119,7 +175,7 @@ func (r *Repository) ListMine(ctx context.Context, p ports.ListParams) (ports.Pa
 		states = []string{domain.WorkStateScheduled, domain.WorkStateDelayed}
 	}
 	args := []any{p.TenantID, p.UserID, states}
-	where := "t.tenant_id = $1 AND t.assignee_user_id = $2::uuid AND t.work_state = ANY($3::text[])"
+	where := "t.tenant_id = $1 AND " + visitorParkPredicate + " AND t.work_state = ANY($3::text[])"
 	if p.Cursor != "" {
 		due, id, ok := decodeCursor(p.Cursor)
 		if !ok {
@@ -207,7 +263,74 @@ func (r *Repository) getRow(ctx context.Context, q querier, tenantID, taskID str
 	return t, nil
 }
 
-// OpenCount answers the module badge: visits still owed to one person.
+// ForSources reads the visit each parent owes, keyed by the parent's ref id. A parent with no
+// visit yet (the materializer runs after the day boundary) is simply absent from the map.
+func (r *Repository) ForSources(ctx context.Context, tenantID, sourceKind string, refIDs []string) (map[string]domain.Task, error) {
+	out := map[string]domain.Task{}
+	if len(refIDs) == 0 {
+		return out, nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	// projection-review: membership=pen_visit_task_sources rows for (tenant, kind, ref) -- unique per parent by pen_visit_task_sources_parent_uq, so the join to pen_visit_tasks is 1:1 and each parent maps to at most ONE visit; group_key=source_ref_id; join_cardinality=1:1 (sources -> tasks on task_id PK); pagination=none -- bounded by the caller's page of parents (one batched read per page); scope=tenant + explicit ref ids
+	query := fmt.Sprintf(`SELECT s.source_ref_id::text, %s %s JOIN pen_visit_task_sources s ON s.tenant_id = t.tenant_id AND s.task_id = t.task_id
+WHERE s.tenant_id = $1::uuid AND s.source_kind = $2 AND s.source_ref_id = ANY($3::uuid[])`, taskColumns, taskFrom)
+	rows, err := r.pool.Query(ctx, query, tenantID, sourceKind, refIDs)
+	if err != nil {
+		return nil, fmt.Errorf("pen visit: for sources: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var ref string
+		var s taskScan
+		if err := rows.Scan(append([]any{&ref}, s.targets()...)...); err != nil {
+			return nil, fmt.Errorf("pen visit: for sources scan: %w", err)
+		}
+		out[ref] = s.finish()
+	}
+	return out, rows.Err()
+}
+
+// ForPens reads the latest visit raised by sourceKind work in each pen. A pen with no such
+// visit is absent from the map.
+func (r *Repository) ForPens(ctx context.Context, tenantID, sourceKind string, pens []domain.PenRef) (map[string]domain.Task, error) {
+	out := map[string]domain.Task{}
+	if len(pens) == 0 {
+		return out, nil
+	}
+	shedIDs := make([]string, 0, len(pens))
+	keys := make([]string, 0, len(pens))
+	for _, p := range pens {
+		shedIDs = append(shedIDs, p.ShedID)
+		keys = append(keys, domain.PenKey(p.ShedID, p.Partition))
+	}
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	// projection-review: membership=pen_visit_tasks rows of the named sheds (pen_visit_tasks_pen_source_idx on tenant_id, shed_id, partition_key, source_business_date DESC) that carry at least one link of the asked kind; group_key=(shed_id, partition_key) reduced to ONE row per pen by DISTINCT ON ordered by source_business_date DESC, task_id DESC -- the latest visit; join_cardinality=EXISTS semijoin on pen_visit_task_sources (never multiplies), park/shed 1:1 by PK; pagination=none -- bounded by the caller's page of pens, one batched read; scope=tenant + explicit shed ids, filtered to the asked pen keys in Go
+	rows, err := r.pool.Query(ctx, sqlRepository15, tenantID, shedIDs, sourceKind)
+	if err != nil {
+		return nil, fmt.Errorf("pen visit: for pens: %w", err)
+	}
+	defer rows.Close()
+	wanted := map[string]bool{}
+	for _, k := range keys {
+		wanted[k] = true
+	}
+	for rows.Next() {
+		t, err := scanTask(rows)
+		if err != nil {
+			return nil, fmt.Errorf("pen visit: for pens scan: %w", err)
+		}
+		key := domain.PenKey(t.ShedID, t.Partition)
+		if wanted[key] {
+			out[key] = t
+		}
+	}
+	return out, rows.Err()
+}
+
+// OpenCount answers the badge: visits still awaiting a recording in the parks one person is
+// configured to visit.
 func (r *Repository) OpenCount(ctx context.Context, tenantID, userID string) (int, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
@@ -218,8 +341,31 @@ func (r *Repository) OpenCount(ctx context.Context, tenantID, userID string) (in
 	return n, nil
 }
 
-// Submit records the visit's video and completes the task -- one transaction: idempotency
-// reservation, row lock, the domain rule re-run on the locked row, the update, audit, outbox.
+// OpenReasons reads the reasons of every visit one person still has to record.
+func (r *Repository) OpenReasons(ctx context.Context, tenantID, userID string) ([][]string, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	// scale-guard:ignore: bounded by the open visits of ONE person's parks (pens worked yesterday, tens of rows), on pen_visit_tasks_park_idx; a badge read, no page.
+	rows, err := r.pool.Query(ctx, sqlRepository14, tenantID, userID)
+	if err != nil {
+		return nil, fmt.Errorf("pen visit: open reasons: %w", err)
+	}
+	defer rows.Close()
+	out := [][]string{}
+	for rows.Next() {
+		var reasons []string
+		if err := rows.Scan(&reasons); err != nil {
+			return nil, err
+		}
+		out = append(out, reasons)
+	}
+	return out, rows.Err()
+}
+
+// Submit records the visit's video and hands the visit to the verifier -- one transaction:
+// idempotency reservation, row lock, the domain rule re-run on the locked row, the update,
+// audit, outbox. The kernel clock is untouched: the visit is 'pending_verification' on the
+// gate and keeps its scheduled/delayed work_state until the verdict.
 func (r *Repository) Submit(ctx context.Context, p ports.SubmitParams) (domain.Task, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
@@ -285,7 +431,9 @@ func (r *Repository) Submit(ctx context.Context, p ports.SubmitParams) (domain.T
 	}); err != nil {
 		return domain.Task{}, fmt.Errorf("pen visit: audit submit: %w", err)
 	}
-	if err := emitEvent(ctx, tx, EventVisitSubmitted, after, p.Actor.UserID, "human", p.IdempotencyKey, now); err != nil {
+	// The submitted event's idempotency key carries the row version so a re-shoot after a
+	// rework mints a fresh verification item while a retry of the same submit collapses.
+	if err := emitEvent(ctx, tx, EventVisitSubmitted, after, p.Actor.UserID, "human", fmt.Sprintf("%s:%d", p.TaskID, after.RowVersion), now); err != nil {
 		return domain.Task{}, err
 	}
 	if err := completeIdempotency(ctx, tx, p.TenantID, idemScopeSubmit, p.IdempotencyKey, resourceType, p.TaskID); err != nil {
@@ -297,10 +445,100 @@ func (r *Repository) Submit(ctx context.Context, p ports.SubmitParams) (domain.T
 	return after, nil
 }
 
+// ApplyVerified flips an approved visit pending_verification -> completed on BOTH dimensions
+// (the gate and the kernel clock agree in one transaction) and stamps verified_by/at. Runs
+// from the verification.verdict.approved consumer, never from a phone. IDEMPOTENT: a
+// re-delivered verdict on a row no longer pending applies nothing.
+func (r *Repository) ApplyVerified(ctx context.Context, p ports.VerdictParams) (ports.VerdictResult, error) {
+	return r.applyVerdict(ctx, p, true)
+}
+
+// BounceForRework flips a rejected visit pending_verification -> rework with the verifier's
+// reason. The clip stays on the row as history; the next submit replaces it.
+func (r *Repository) BounceForRework(ctx context.Context, p ports.VerdictParams) (ports.VerdictResult, error) {
+	return r.applyVerdict(ctx, p, false)
+}
+
+func (r *Repository) applyVerdict(ctx context.Context, p ports.VerdictParams, approve bool) (ports.VerdictResult, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return ports.VerdictResult{}, fmt.Errorf("pen visit: begin verdict: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	before, err := r.getRow(ctx, tx, p.TenantID, p.TaskID, true)
+	if errors.Is(err, ports.ErrTaskNotFound) {
+		// A stale/foreign verdict: nothing of ours to apply.
+		return ports.VerdictResult{}, tx.Commit(ctx)
+	}
+	if err != nil {
+		return ports.VerdictResult{}, err
+	}
+	if before.Status != domain.StatusPendingVerification {
+		return ports.VerdictResult{Task: before}, tx.Commit(ctx)
+	}
+	now := r.now().UTC()
+	action := "pen_visit.verified"
+	query := sqlRepository11
+	args := []any{p.TenantID, p.TaskID, strings.TrimSpace(p.VerifiedBy), now, before.RowVersion}
+	if !approve {
+		action = "pen_visit.rework"
+		query = sqlRepository12
+		args = []any{p.TenantID, p.TaskID, strings.TrimSpace(p.Reason), now, before.RowVersion}
+	}
+	tag, err := tx.Exec(ctx, query, args...)
+	if err != nil {
+		return ports.VerdictResult{}, fmt.Errorf("pen visit: apply verdict: %w", err)
+	}
+	if tag.RowsAffected() != 1 {
+		return ports.VerdictResult{Task: before}, tx.Commit(ctx)
+	}
+	after, err := r.getRow(ctx, tx, p.TenantID, p.TaskID, false)
+	if err != nil {
+		return ports.VerdictResult{}, err
+	}
+	if err := audit.NewTxRecorder(tx).Record(ctx, audit.Event{
+		TenantID:     p.TenantID,
+		ActorID:      strings.TrimSpace(p.VerifiedBy),
+		ActorType:    "verifier",
+		Action:       action,
+		ResourceType: resourceType,
+		ResourceID:   p.TaskID,
+		ScopeType:    "park",
+		ScopeID:      after.ParkID,
+		BeforeState:  auditState(before),
+		AfterState:   auditState(after),
+		TraceID:      p.TraceID,
+		Metadata: map[string]any{
+			"domain": "pen_visits",
+			"module": "pen_visits",
+			"source": "pen-visit-verification",
+			"reason": strings.TrimSpace(p.Reason),
+		},
+	}); err != nil {
+		return ports.VerdictResult{}, fmt.Errorf("pen visit: audit verdict: %w", err)
+	}
+	if approve {
+		if err := emitEvent(ctx, tx, EventVisitVerified, after, strings.TrimSpace(p.VerifiedBy), "human", fmt.Sprintf("%s:%d", p.TaskID, after.RowVersion), now); err != nil {
+			return ports.VerdictResult{}, err
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return ports.VerdictResult{}, fmt.Errorf("pen visit: commit verdict: %w", err)
+	}
+	return ports.VerdictResult{Applied: true, Task: after}, nil
+}
+
 func auditState(t domain.Task) map[string]any {
 	proof := ""
 	if t.ProofRef != nil {
 		proof = *t.ProofRef
+	}
+	sources := make([]string, 0, len(t.Sources))
+	for _, s := range t.Sources {
+		sources = append(sources, s.Kind+":"+s.RefID)
 	}
 	return map[string]any{
 		"park_id":              t.ParkID,
@@ -311,8 +549,10 @@ func auditState(t domain.Task) map[string]any {
 		"source_business_date": t.SourceDate,
 		"due_business_date":    t.DueDate,
 		"work_state":           t.WorkState,
-		"assignee_user_id":     t.AssigneeID,
+		"status":               t.Status,
+		"sources":              sources,
 		"proof_ref":            proof,
+		"rework_reason":        t.ReworkReason,
 		"row_version":          t.RowVersion,
 	}
 }
@@ -323,12 +563,15 @@ type penWork struct {
 	shedID    string
 	partition string
 	reasons   map[string]bool
+	sources   map[domain.Source]bool
 }
 
-// Materialize writes one visit per pen worked on sourceDate, for every park with a configured
-// assignee, due on the later of sourceDate+1 and today. One transaction; idempotent on the
-// natural key (a replay inserts nothing and returns no digest); a second submit in a pen that
-// already has an open visit for that day only widens its reasons.
+// Materialize writes one visit per pen worked on sourceDate, for every park with at least one
+// configured visitor, due on the later of sourceDate+1 and today, and links each visit to the
+// parents (PC Care tasks, vaccination submissions) whose submit raised it. One transaction;
+// idempotent on the natural key (a replay inserts nothing and returns no digest); a second
+// submit in a pen that already has an open visit for that day only widens its reasons and its
+// parent links.
 func (r *Repository) Materialize(ctx context.Context, tenantID string, sourceDate, today string, now time.Time) (ports.MaterializeResult, []ports.CreatedDigest, error) {
 	result := ports.MaterializeResult{SourceDate: sourceDate}
 	src, err := time.Parse("2006-01-02", sourceDate)
@@ -356,19 +599,20 @@ func (r *Repository) Materialize(ctx context.Context, tenantID string, sourceDat
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	// 1. Who visits, per park. A park absent here gets no task and is reported loudly.
-	assignees := map[string]string{}
+	// 1. Which parks have someone configured to visit. A park absent here gets no task and is
+	// reported loudly.
+	configured := map[string]bool{}
 	aRows, err := tx.Query(ctx, sqlRepository6, tenantID)
 	if err != nil {
 		return result, nil, fmt.Errorf("pen visit: materialize: assignees: %w", err)
 	}
 	for aRows.Next() {
-		var parkID, userID string
-		if err := aRows.Scan(&parkID, &userID); err != nil {
+		var parkID string
+		if err := aRows.Scan(&parkID); err != nil {
 			aRows.Close()
 			return result, nil, err
 		}
-		assignees[parkID] = userID
+		configured[parkID] = true
 	}
 	aRows.Close()
 	if err := aRows.Err(); err != nil {
@@ -377,8 +621,9 @@ func (r *Repository) Materialize(ctx context.Context, tenantID string, sourceDat
 
 	// 2. The pens worked on the source date. Every vaccination shed submit and every PC Care
 	// submit already raises a verification item carrying park, shed and pen, so this ONE read
-	// covers both triggers; the category says which. Bounded by one day's proof items.
-	// projection-review: membership=verification_items rows created in the IST day window with shed_id and park_id set and a pen-work category (one row per submitted proof item, unique on (tenant_id, idempotency_key)); group_key=(park_id, shed_id, normalized partition_label) folded in Go from the DISTINCT read -- the consumer's pen grain, the same key the natural unique constraint pen_visit_tasks_natural_uq enforces; join_cardinality=none -- the read joins nothing, many items per pen collapse to one pen row and one task; pagination=none -- one day's pen set, bounded by pens worked in a day, never paged; scope=per tenant across parks, then per park through pen_visit_park_assignees, a park with no row is skipped and named
+	// covers both triggers; the category says which, and the source ref names the parent.
+	// Bounded by one day's proof items.
+	// projection-review: membership=verification_items rows created in the IST day window with shed_id and park_id set and a pen-work category (one row per submitted proof item, unique on (tenant_id, idempotency_key)); group_key=(park_id, shed_id, normalized partition_label) folded in Go from the DISTINCT read -- the consumer's pen grain, the same key the natural unique constraint pen_visit_tasks_natural_uq enforces; join_cardinality=none -- the read joins nothing, many items per pen collapse to one pen row and one task, and each item's (ref_type, ref_id) becomes one parent link, unique per parent by pen_visit_task_sources_parent_uq; pagination=none -- one day's pen set, bounded by pens worked in a day, never paged; scope=per tenant across parks, then per park through pen_visit_park_assignees, a park with no row is skipped and named
 	wRows, err := tx.Query(ctx, sqlRepository7, tenantID, sourceDate)
 	if err != nil {
 		return result, nil, fmt.Errorf("pen visit: materialize: pens: %w", err)
@@ -386,8 +631,8 @@ func (r *Repository) Materialize(ctx context.Context, tenantID string, sourceDat
 	pens := map[string]*penWork{}
 	order := []string{}
 	for wRows.Next() {
-		var parkID, shedID, partition, category string
-		if err := wRows.Scan(&parkID, &shedID, &partition, &category); err != nil {
+		var parkID, shedID, partition, category, refType, refID string
+		if err := wRows.Scan(&parkID, &shedID, &partition, &category, &refType, &refID); err != nil {
 			wRows.Close()
 			return result, nil, err
 		}
@@ -402,24 +647,27 @@ func (r *Repository) Materialize(ctx context.Context, tenantID string, sourceDat
 		key := parkID + "|" + shedID + "|" + oploc.NormalizePartition(partition)
 		pen, seen := pens[key]
 		if !seen {
-			pen = &penWork{parkID: parkID, shedID: shedID, partition: partition, reasons: map[string]bool{}}
+			pen = &penWork{parkID: parkID, shedID: shedID, partition: partition, reasons: map[string]bool{}, sources: map[domain.Source]bool{}}
 			pens[key] = pen
 			order = append(order, key)
 		}
 		pen.reasons[reason] = true
+		if kind := sourceKindForRefType(refType); kind != "" && refID != "" {
+			pen.sources[domain.Source{Kind: kind, RefID: refID}] = true
+		}
 	}
 	wRows.Close()
 	if err := wRows.Err(); err != nil {
 		return result, nil, err
 	}
 
-	// 3. One set-based upsert for every pen with an assignee.
-	parkIDs, shedIDs, partitions, reasonCSV, userIDs := []string{}, []string{}, []string{}, []string{}, []string{}
+	// 3. One set-based upsert for every pen in a configured park.
+	parkIDs, shedIDs, partitions, reasonCSV := []string{}, []string{}, []string{}, []string{}
 	missing := map[string]bool{}
+	kept := []*penWork{}
 	for _, key := range order {
 		pen := pens[key]
-		userID, ok := assignees[pen.parkID]
-		if !ok {
+		if !configured[pen.parkID] {
 			missing[pen.parkID] = true
 			result.PensSkipped++
 			continue
@@ -432,7 +680,7 @@ func (r *Repository) Materialize(ctx context.Context, tenantID string, sourceDat
 		shedIDs = append(shedIDs, pen.shedID)
 		partitions = append(partitions, pen.partition)
 		reasonCSV = append(reasonCSV, strings.Join(domain.SortReasons(reasons), ","))
-		userIDs = append(userIDs, userID)
+		kept = append(kept, pen)
 	}
 	for parkID := range missing {
 		result.ParksWithoutAssignee = append(result.ParksWithoutAssignee, parkID)
@@ -440,7 +688,7 @@ func (r *Repository) Materialize(ctx context.Context, tenantID string, sourceDat
 	if len(parkIDs) == 0 {
 		return result, nil, tx.Commit(ctx)
 	}
-	uRows, err := tx.Query(ctx, sqlRepository8, tenantID, parkIDs, shedIDs, partitions, reasonCSV, userIDs, sourceDate, plannedDate, dueDate, workState, delayedSince, rolledForwardCount)
+	uRows, err := tx.Query(ctx, sqlRepository8, tenantID, parkIDs, shedIDs, partitions, reasonCSV, sourceDate, plannedDate, dueDate, workState, delayedSince, rolledForwardCount)
 	if err != nil {
 		return result, nil, fmt.Errorf("pen visit: materialize: upsert: %w", err)
 	}
@@ -462,6 +710,26 @@ func (r *Repository) Materialize(ctx context.Context, tenantID string, sourceDat
 	uRows.Close()
 	if err := uRows.Err(); err != nil {
 		return result, nil, err
+	}
+
+	// 3b. Link every parent to its pen's visit for the day -- inserted, widened or untouched
+	// alike, so a late parent (an offline phone syncing after the tick) still finds the visit
+	// it closes on. ON CONFLICT DO NOTHING on the link's own key; the parent uniqueness index
+	// keeps one visit per parent.
+	srcPark, srcShed, srcPartition, srcKind, srcRef := []string{}, []string{}, []string{}, []string{}, []string{}
+	for _, pen := range kept {
+		for s := range pen.sources {
+			srcPark = append(srcPark, pen.parkID)
+			srcShed = append(srcShed, pen.shedID)
+			srcPartition = append(srcPartition, pen.partition)
+			srcKind = append(srcKind, s.Kind)
+			srcRef = append(srcRef, s.RefID)
+		}
+	}
+	if len(srcRef) > 0 {
+		if _, err := tx.Exec(ctx, sqlRepository13, tenantID, srcPark, srcShed, srcPartition, srcKind, srcRef, sourceDate); err != nil {
+			return result, nil, fmt.Errorf("pen visit: materialize: link sources: %w", err)
+		}
 	}
 
 	// 4. Announce each created task and build the per-park digests the notifier pushes.
@@ -494,7 +762,7 @@ func (r *Repository) Materialize(ctx context.Context, tenantID string, sourceDat
 		}
 		d, ok := digests[task.ParkID]
 		if !ok {
-			d = &ports.CreatedDigest{ParkID: task.ParkID, ParkName: task.ParkName, AssigneeID: task.AssigneeID, DueDate: task.DueDate}
+			d = &ports.CreatedDigest{ParkID: task.ParkID, ParkName: task.ParkName, VisitorIDs: task.VisitorIDs, DueDate: task.DueDate}
 			digests[task.ParkID] = d
 			digestOrder = append(digestOrder, task.ParkID)
 		}
@@ -533,13 +801,13 @@ func scanDigests(rows pgx.Rows) ([]ports.CreatedDigest, error) {
 		if err != nil {
 			return nil, fmt.Errorf("pen visit: due digest scan: %w", err)
 		}
-		key := task.ParkID + "|" + task.AssigneeID + "|" + task.DueDate
+		key := task.ParkID + "|" + task.DueDate
 		d, ok := digests[key]
 		if !ok {
 			d = &ports.CreatedDigest{
 				ParkID:     task.ParkID,
 				ParkName:   task.ParkName,
-				AssigneeID: task.AssigneeID,
+				VisitorIDs: task.VisitorIDs,
 				DueDate:    task.DueDate,
 			}
 			digests[key] = d
@@ -557,8 +825,9 @@ func scanDigests(rows pgx.Rows) ([]ports.CreatedDigest, error) {
 	return out, nil
 }
 
-// SweepRollForward moves unfinished visits whose due date has passed to today as 'delayed' --
-// the PC Care kernel shape: chunked, FOR UPDATE SKIP LOCKED, capped.
+// SweepRollForward moves visits still awaiting a recording whose due date has passed to today
+// as 'delayed' -- the PC Care kernel shape: chunked, FOR UPDATE SKIP LOCKED, capped. A visit
+// sitting with the verifier is not late: the gate reads submitted_at, never review state.
 func (r *Repository) SweepRollForward(ctx context.Context, tenantID string, asOf time.Time, chunkSize, maxChunks int) (ports.SweepResult, error) {
 	if chunkSize < 1 {
 		chunkSize = 200
@@ -586,49 +855,60 @@ func (r *Repository) SweepRollForward(ctx context.Context, tenantID string, asOf
 	return result, nil
 }
 
+// visitorParkPredicate admits the rows in parks the caller ($2) is configured to visit.
+const visitorParkPredicate = `t.park_id IN (SELECT a.park_id FROM pen_visit_park_assignees a WHERE a.tenant_id = t.tenant_id AND a.user_id = $2::uuid)`
+
 // SQL hoisted to package level so the scale guard and query-plan tests can reach it.
 const (
 	sqlRepository1 = `
 t.task_id::text, t.tenant_id::text, t.park_id::text, COALESCE(park.name, ''),
 t.shed_id::text, COALESCE(NULLIF(shed.name, ''), shed.location_code, ''), COALESCE(t.partition_label, ''),
 t.reasons, t.source_business_date::text, t.planned_business_date::text, t.due_business_date::text,
-t.work_state, t.assignee_user_id::text,
-t.proof_ref::text, t.submitted_by::text, t.submitted_at, t.rolled_forward_count,
-t.delayed_since_business_date::text, t.row_version, t.created_at, t.updated_at`
+t.work_state, t.status,
+t.proof_ref::text, t.submitted_by::text, t.submitted_at, t.verified_by::text, t.verified_at, t.rework_reason,
+t.rolled_forward_count, t.delayed_since_business_date::text, t.row_version, t.created_at, t.updated_at,
+COALESCE((SELECT array_agg(a.user_id::text ORDER BY a.user_id) FROM pen_visit_park_assignees a WHERE a.tenant_id = t.tenant_id AND a.park_id = t.park_id), '{}'::text[]),
+COALESCE((SELECT array_agg(s.source_kind || ':' || s.source_ref_id::text ORDER BY s.source_kind, s.source_ref_id) FROM pen_visit_task_sources s WHERE s.tenant_id = t.tenant_id AND s.task_id = t.task_id), '{}'::text[])`
 	sqlRepository2 = `
 FROM pen_visit_tasks t
 LEFT JOIN locations park ON park.tenant_id = t.tenant_id AND park.location_id = t.park_id
 LEFT JOIN locations shed ON shed.tenant_id = t.tenant_id AND shed.location_id = t.shed_id`
 	sqlRepository3 = `
-SELECT work_state, count(*)::int
-FROM pen_visit_tasks
-WHERE tenant_id = $1 AND assignee_user_id = $2::uuid
-GROUP BY work_state`
+SELECT t.work_state, count(*)::int
+FROM pen_visit_tasks t
+WHERE t.tenant_id = $1 AND ` + visitorParkPredicate + `
+GROUP BY t.work_state`
 	sqlRepository4 = `
 SELECT count(*)::int
-FROM pen_visit_tasks
-WHERE tenant_id = $1 AND assignee_user_id = $2::uuid AND work_state IN ('scheduled', 'delayed')`
+FROM pen_visit_tasks t
+WHERE t.tenant_id = $1 AND ` + visitorParkPredicate + `
+  AND t.work_state IN ('scheduled', 'delayed') AND t.status IN ('open', 'rework')`
+	// Submit: the gate flips to pending_verification; the kernel clock is untouched. A rework
+	// resubmit clears the verifier's old reason -- the new clip supersedes it.
 	sqlRepository5 = `
 UPDATE pen_visit_tasks
-SET work_state = 'completed',
+SET status = 'pending_verification',
     proof_ref = $3::uuid,
     submitted_by = $4::uuid,
     submitted_at = $5::timestamptz,
+    rework_reason = NULL,
     updated_at = $5::timestamptz,
     row_version = row_version + 1
 WHERE tenant_id = $1 AND task_id = $2::uuid
   AND work_state IN ('scheduled', 'delayed')
+  AND status IN ('open', 'rework')
   AND row_version = $6`
 	sqlRepository6 = `
-SELECT park_id::text, user_id::text
+SELECT DISTINCT park_id::text
 FROM pen_visit_park_assignees
 WHERE tenant_id = $1::uuid`
 	// The materializer's read: pens with preventive-care work submitted on one IST business
-	// date. Half-open instant window (sargable over verification_items_created_pen_idx), never a
-	// function of the column. created_at is the SUBMIT instant; captured_at is when the animal
-	// was handled and can be an earlier day.
+	// date, and the parent each item was filed against. Half-open instant window (sargable over
+	// verification_items_created_pen_idx), never a function of the column. created_at is the
+	// SUBMIT instant; captured_at is when the animal was handled and can be an earlier day.
 	sqlRepository7 = `
-SELECT DISTINCT vi.park_id::text, vi.shed_id::text, COALESCE(vi.partition_label, ''), vi.category
+SELECT DISTINCT vi.park_id::text, vi.shed_id::text, COALESCE(vi.partition_label, ''), vi.category,
+       vi.source_ref_type, vi.source_ref_id::text
 FROM verification_items vi
 WHERE vi.tenant_id = $1::uuid
   AND vi.shed_id IS NOT NULL
@@ -636,24 +916,26 @@ WHERE vi.tenant_id = $1::uuid
   AND vi.created_at >= ($2::date::timestamp AT TIME ZONE 'Asia/Kolkata')
   AND vi.created_at <  (($2::date + 1)::timestamp AT TIME ZONE 'Asia/Kolkata')
   AND vi.category IN ('vaccination_proof', 'pc_deworming', 'pc_anti_protozoan', 'pc_ticks_removal', 'pc_hoof_trimming', 'pc_hair_trimming')`
-	// Set-based upsert on the natural key. An existing OPEN visit for the same pen and day gains
-	// any new reason (second submit, other category); a completed one is left alone; the
-	// (xmax = 0) column says whether the row was inserted by THIS statement.
+	// Set-based upsert on the natural key. An existing visit for the same pen and day that
+	// still awaits a recording gains any new reason (second submit, other category); one with
+	// the verifier or already verified is left alone; the (xmax = 0) column says whether the
+	// row was inserted by THIS statement.
 	sqlRepository8 = `
 INSERT INTO pen_visit_tasks (
   tenant_id, park_id, shed_id, partition_label, reasons, source_business_date,
-  planned_business_date, due_business_date, work_state, assignee_user_id,
+  planned_business_date, due_business_date, work_state,
   delayed_since_business_date, rolled_forward_count
 )
 SELECT $1::uuid, p.park_id, p.shed_id, NULLIF(p.partition_label, ''), string_to_array(p.reasons_csv, ','),
-       $7::date, $8::date, $9::date, $10::text, p.user_id, NULLIF($11::text, '')::date, $12::integer
-FROM unnest($2::uuid[], $3::uuid[], $4::text[], $5::text[], $6::uuid[])
-  AS p(park_id, shed_id, partition_label, reasons_csv, user_id)
+       $6::date, $7::date, $8::date, $9::text, NULLIF($10::text, '')::date, $11::integer
+FROM unnest($2::uuid[], $3::uuid[], $4::text[], $5::text[])
+  AS p(park_id, shed_id, partition_label, reasons_csv)
 ON CONFLICT ON CONSTRAINT pen_visit_tasks_natural_uq DO UPDATE
 SET reasons = (SELECT array_agg(DISTINCT r ORDER BY r) FROM unnest(pen_visit_tasks.reasons || EXCLUDED.reasons) AS r),
     updated_at = now(),
     row_version = pen_visit_tasks.row_version + 1
 WHERE pen_visit_tasks.work_state IN ('scheduled', 'delayed')
+  AND pen_visit_tasks.status IN ('open', 'rework')
   AND NOT (pen_visit_tasks.reasons @> EXCLUDED.reasons)
 RETURNING task_id::text, (xmax = 0) AS inserted`
 	sqlRepository9 = `
@@ -669,6 +951,7 @@ FROM (
   FROM pen_visit_tasks
   WHERE tenant_id = $1::uuid
     AND work_state IN ('scheduled', 'delayed')
+    AND status IN ('open', 'rework')
     AND due_business_date < $2::date
   ORDER BY due_business_date, task_id
   LIMIT $3
@@ -680,5 +963,55 @@ FROM (
 	WHERE t.tenant_id = $1::uuid
 	  AND t.source_business_date = $2::date
 	  AND t.work_state IN ('scheduled', 'delayed')
-	ORDER BY t.park_id, t.assignee_user_id, t.due_business_date, t.shed_id, t.partition_key, t.task_id`
+	  AND t.status IN ('open', 'rework')
+	ORDER BY t.park_id, t.due_business_date, t.shed_id, t.partition_key, t.task_id`
+	// Approve: both dimensions complete in one statement, fenced on the row version the
+	// consumer locked.
+	sqlRepository11 = `
+UPDATE pen_visit_tasks
+SET status = 'completed',
+    work_state = 'completed',
+    verified_by = NULLIF($3::text, '')::uuid,
+    verified_at = $4::timestamptz,
+    updated_at = $4::timestamptz,
+    row_version = row_version + 1
+WHERE tenant_id = $1 AND task_id = $2::uuid
+  AND status = 'pending_verification'
+  AND row_version = $5`
+	// Reject: back to the visitor with the verifier's words; the kernel clock keeps running.
+	sqlRepository12 = `
+UPDATE pen_visit_tasks
+SET status = 'rework',
+    rework_reason = NULLIF($3::text, ''),
+    updated_at = $4::timestamptz,
+    row_version = row_version + 1
+WHERE tenant_id = $1 AND task_id = $2::uuid
+  AND status = 'pending_verification'
+  AND row_version = $5`
+	sqlRepository14 = `
+SELECT t.reasons
+FROM pen_visit_tasks t
+WHERE t.tenant_id = $1 AND ` + visitorParkPredicate + `
+  AND t.work_state IN ('scheduled', 'delayed') AND t.status IN ('open', 'rework')
+LIMIT 500`
+	// The latest visit per pen raised by one parent kind (ForPens), on
+	// pen_visit_tasks_pen_source_idx; the EXISTS is a semijoin and never multiplies rows.
+	sqlRepository15 = `SELECT DISTINCT ON (t.shed_id, t.partition_key) ` + taskColumns + ` ` + taskFrom + `
+WHERE t.tenant_id = $1::uuid AND t.shed_id = ANY($2::uuid[]) AND t.work_state <> 'canceled'
+  AND EXISTS (SELECT 1 FROM pen_visit_task_sources s WHERE s.tenant_id = t.tenant_id AND s.task_id = t.task_id AND s.source_kind = $3)
+ORDER BY t.shed_id, t.partition_key, t.source_business_date DESC, t.task_id DESC`
+	// Link parents to the pen's visit for the source day. Resolved through the natural key so a
+	// widened or untouched visit links exactly like an inserted one.
+	sqlRepository13 = `
+INSERT INTO pen_visit_task_sources (tenant_id, task_id, source_kind, source_ref_id)
+SELECT t.tenant_id, t.task_id, p.source_kind, p.source_ref_id
+FROM unnest($2::uuid[], $3::uuid[], $4::text[], $5::text[], $6::uuid[])
+  AS p(park_id, shed_id, partition_label, source_kind, source_ref_id)
+JOIN pen_visit_tasks t
+  ON t.tenant_id = $1::uuid
+ AND t.park_id = p.park_id
+ AND t.shed_id = p.shed_id
+ AND t.partition_key = CASE WHEN btrim(p.partition_label) = '' THEN 'whole' ELSE lower(btrim(p.partition_label)) END
+ AND t.source_business_date = $7::date
+ON CONFLICT DO NOTHING`
 )

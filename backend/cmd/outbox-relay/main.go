@@ -37,6 +37,9 @@ import (
 	pccarepg "github.com/vgoats/goatos/backend/internal/pccare/adapters/postgres"
 	pccareverificationbridge "github.com/vgoats/goatos/backend/internal/pccare/adapters/verificationbridge"
 	pccareapp "github.com/vgoats/goatos/backend/internal/pccare/app"
+	penvisitspg "github.com/vgoats/goatos/backend/internal/penvisits/adapters/postgres"
+	penvisitsverificationbridge "github.com/vgoats/goatos/backend/internal/penvisits/adapters/verificationbridge"
+	penvisitsapp "github.com/vgoats/goatos/backend/internal/penvisits/app"
 	"github.com/vgoats/goatos/backend/internal/platform/eventbus"
 	"github.com/vgoats/goatos/backend/internal/platform/observability"
 	platformpg "github.com/vgoats/goatos/backend/internal/platform/postgres"
@@ -49,6 +52,7 @@ import (
 	vaccinationapp "github.com/vgoats/goatos/backend/internal/vaccination/app"
 	verificationpg "github.com/vgoats/goatos/backend/internal/verification/adapters/postgres"
 	verificationapp "github.com/vgoats/goatos/backend/internal/verification/app"
+	"github.com/vgoats/goatos/backend/internal/verificationcatalog"
 	weighingpg "github.com/vgoats/goatos/backend/internal/weighing/adapters/postgres"
 	weighingverificationbridge "github.com/vgoats/goatos/backend/internal/weighing/adapters/verificationbridge"
 	workforcepg "github.com/vgoats/goatos/backend/internal/workforce/adapters/postgres"
@@ -186,7 +190,12 @@ func buildPublisher(ctx context.Context, kind string, pool *pgxpool.Pool, pgCfg 
 		if err := pccareverificationbridge.RegisterCategories(verificationService); err != nil {
 			return nil, nil, fmt.Errorf("register pc care verification categories: %w", err)
 		}
+		if err := verificationService.RegisterCategory(verificationcatalog.PenVisit); err != nil {
+			return nil, nil, fmt.Errorf("register pen visit verification category: %w", err)
+		}
 		pcCareVerificationBridge := pccareverificationbridge.New(verificationService)
+		pcCareRepo := pccarepg.NewRepository(pool, pgCfg.QueryTimeout)
+		penVisitsRepo := penvisitspg.NewRepository(pool, pgCfg.QueryTimeout)
 		obligationapp.NewGoatShiftedHandler(obligationRepo).Register(bus)
 		obligationapp.NewGoatExitedHandler(obligationRepo).Register(bus)
 		obligationapp.NewOperatorConfigReplanHandler(obligationRepo).Register(bus)
@@ -222,10 +231,12 @@ func buildPublisher(ctx context.Context, kind string, pool *pgxpool.Pool, pgCfg 
 		// Shifting + feed verification appliers: the ONE shared registration (see bootstrap/api.go and
 		// cmd/domain-event-consumer). In local eventbus mode this in-process bus IS the delivery, so
 		// without these a verifier approval never applies locally either.
-		eventwiring.RegisterVerificationAppliers(bus, feedDirectionRepo, countsApprovalRepo, countsMilkPreparationRepo, countsMilkPreparationRepo, weighingRepo, weighingVerificationBridge, pccarepg.NewRepository(pool, pgCfg.QueryTimeout), healthRepo, logger)
+		eventwiring.RegisterVerificationAppliers(bus, feedDirectionRepo, countsApprovalRepo, countsMilkPreparationRepo, countsMilkPreparationRepo, weighingRepo, weighingVerificationBridge, pcCareRepo, healthRepo, penVisitsRepo, pcCareRepo, logger)
 		countsapp.NewPenReconciliationRaiser(countsMilkPreparationRepo, logger, nil).Register(bus)
 		countsapp.NewPenReconciliationVerificationHandler(countsMilkPreparationRepo, nil).Register(bus)
 		pccareapp.NewPCCarePendingVerificationHandler(pcCareVerificationBridge, logger).Register(bus)
+		// Pen visit submit -> verifier item (maintainer decision 2026-09-12), the PC Care shape.
+		penvisitsapp.NewPendingVerificationHandler(penvisitsverificationbridge.New(verificationService), logger).Register(bus)
 		// Birth/death workflow consumers: in local eventbus mode this in-process bus IS the delivery,
 		// so without these an approved birth/death opens no follow-up work locally.
 		eventwiring.RegisterWorkflowConsumers(bus,

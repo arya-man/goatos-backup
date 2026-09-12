@@ -50,6 +50,20 @@ approval requests, milk feeding tasks, health treatment sessions, PC care tasks,
 vaccination (wrapping the existing process-integrity read). Procurement and toxin have
 no source yet and the board hides them until they do.
 
+Added 2026-09-12 -- **the pen visit, as the work continuing.** The next-day pen visit is the
+last step of a pen's care work (`docs/decisions/pen-visit-tasks.md`), so it appears on the
+board two ways and never as a task of its own. On the task's day the PC Care source derives a
+verified task's state from its visit (in progress while owed, overdue, in review, rejected,
+completed), says so in the subtitle ("Pen visit in review"), and its issue view ends with a
+"Pen visit" unit (visit -> verify). On the visit's due day `penvisits/adapters/boardsource`
+registers TWO sources, one per parent module, split on the reasons array so a visit rows
+exactly once: any care reason -> Preventive Care, vaccination alone -> Vaccination. The row is
+titled by the work ("Deworming · Castro 2", "Vaccination, deworming · Castro 2"), subtitled
+"Pen visit · work done <date>", clocked "Visit due <date>" / "Visit delayed · owed <date>",
+owned by the park's configured visitors ("Dinakar +1" while owed, the person who went once
+submitted; the operator lens matches any configured visitor), and carries the vaccination
+shed href when vaccination raised it. Its issue view is the one unit, visit -> verify.
+
 ## The read
 
 A **global keyset** over `(module, source_type, source_id)`, bounded to one tenant,
@@ -134,8 +148,9 @@ finer grain returns itself as one subtask -- a live row never drills into an emp
 | counts approvals | the request (kids / animals as subtitle) | raise -> approve -> apply |
 | milk feeding | the session | prepare -> feed -> submit -> verify |
 | health | treatment step (medicine + dose + route, or the action) | give/do -> verify |
-| PC care | scanned animal (tag verbatim) | scan -> proof -> submit -> verify |
+| PC care | scanned animal (tag verbatim), plus one "Pen visit" unit on a pen task | scan -> proof -> submit -> verify; visit -> verify |
 | vaccination | animal in the pen for that drive (its obligation) | vaccinate -> verify |
+| pen visit (Preventive Care / Vaccination) | the visit itself | visit -> verify |
 
 Rules that are the contract:
 

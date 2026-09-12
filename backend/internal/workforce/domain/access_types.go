@@ -97,6 +97,14 @@ type PersonAccessResponse struct {
 	// HomeParkID is the one park this person is assigned per-park work in. In "parks"
 	// mode it is one of ParkIDs; a director covering every park may leave it empty.
 	HomeParkID string `json:"home_park_id"`
+	// PenVisitParkIDs are the parks whose pens this person visits the day after
+	// vaccination or care work (maintainer decision 2026-09-12): per-park HRMS config, one
+	// or more people per park, any of whom may record. A subset of the parks the person
+	// covers. Empty means this person walks no pens.
+	PenVisitParkIDs []string `json:"pen_visit_park_ids"`
+	// PenVisitLabel / PenVisitBlurb are the editor's copy for that section, backend-owned.
+	PenVisitLabel string `json:"pen_visit_label"`
+	PenVisitBlurb string `json:"pen_visit_blurb"`
 
 	Modules      []AccessModuleRow         `json:"modules"`
 	Capabilities []AccessCapabilityOption  `json:"capabilities"`
@@ -135,7 +143,10 @@ type SavePersonAccessRequest struct {
 	ParkIDs         []string            `json:"park_ids"`
 	HomeParkID      string              `json:"home_park_id"`
 	Modules         []AccessModuleWrite `json:"modules"`
-	RowVersion      int                 `json:"row_version"`
+	// PenVisitParkIDs is sent whole, like the modules list: an unticked park arrives as an
+	// absent id, never as a missing key.
+	PenVisitParkIDs []string `json:"pen_visit_park_ids"`
+	RowVersion      int      `json:"row_version"`
 }
 
 // DesignationDefaultsResponse is what picking a designation pre-fills, so the

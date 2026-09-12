@@ -94,6 +94,19 @@ verifier reject  -> rework (re-record on the SAME animal rows, resubmit)
   gate, fail-closed enqueuer, row_version-keyed enqueue, verdict filtering),
   `eventwiring/appliers_test.go` (eight appliers), workforce bootstrap nav tests.
 
+## Extended (2026-09-12): the next-day pen visit is the task's last step
+
+Rule 7's "verifier approval flips BOTH to completed" now reads: approval flips `status` to
+completed; `work_state` flips to completed only when the task's NEXT-DAY PEN VISIT is also
+verified (a pen task: one of `domain.PenVisitCategories` with a shed; a shed-less task closes
+on its own approval as before). The visit row, its verifier item and the closure are the pen
+visit module's (`docs/decisions/pen-visit-tasks.md` -> 2026-09-12 section); PC Care exposes
+the step on every task read (`TaskRow.PenVisit`, `pen_visit` / `pen_visit_chip` on the wire),
+admits the park's configured visitor onto the worklist on the visit's day
+(`ListTasksQuery.VisitorUserID`), and implements the closer `PenVisitVerified`. The kernel
+roll-forward skips a task whose own videos are verified. `pc_care.task.completed` still fires
+at the task's own approval.
+
 ## Superseded in part (2026-09-02): vaccine stock is director-approved
 
 The `inventory_vaccine` stock check no longer travels to the tenant verifier and is no longer

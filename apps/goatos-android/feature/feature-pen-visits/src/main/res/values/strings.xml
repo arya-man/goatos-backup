@@ -2,7 +2,7 @@
 <!--
   telemetry:exempt static string resources, not a user-facing surface — a resource file has no
   user action and no error path. The tab's telemetry is wired in the @HiltViewModels in :app
-  (PenVisitListViewModel / PenVisitDetailViewModel).
+  (PenVisitDetailViewModel).
 
   Pen visit CHROME strings only: button labels, progress lines and accessibility text the client
   owns. Every business sentence (title, pen label, reason line, state chip, instruction, done
@@ -14,5 +14,7 @@
     <string name="pen_visits_action_record_again">Record again</string>
     <string name="pen_visits_video_label">Pen video</string>
     <string name="pen_visits_state_sending">Sending…</string>
-    <string name="pen_visits_state_submitted">Submitted</string>
+    <string name="pen_visits_state_submitted">Visit verified</string>
+    <string name="pen_visits_state_in_review">With the verifier</string>
+    <string name="pen_visits_state_sent_back">Sent back by the verifier</string>
 </resources>

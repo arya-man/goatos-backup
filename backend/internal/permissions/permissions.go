@@ -457,14 +457,18 @@ const (
 	LeadershipTasksRead  = "leadership_tasks.read"
 	LeadershipTasksRaise = "leadership_tasks.raise"
 	LeadershipTasksAct   = "leadership_tasks.act"
-	// PenVisitsExecute gates the Tasks module's "For me" tab (maintainer decision 2026-09-07):
-	// the pen visits the kernel raises the day after vaccination or PC Care work in a pen, owed
-	// to the park's configured head (CBE -> Dinakar, CPT -> Chandrakant). The permission opens
-	// the tab and the routes; WHICH visits a person sees is decided per row by
-	// pen_visit_tasks.assignee_user_id, and a director with no park configured against them
-	// simply sees an empty tab. Held by the director roles (the raise side of the module),
-	// never by ceo_internal: the CXO desk answers asks, it does not walk pens. ORed into the
-	// /app/proofs upload routes so the visit video can finish uploading.
+	// PenVisitsExecute opens the pen-visit routes (maintainer decisions 2026-09-07 and
+	// 2026-09-12): the visit the kernel raises the day after vaccination or PC Care work in a
+	// pen, recorded by one of the park's configured visitors and reviewed by the verifier as
+	// the LAST step of that work. It is no longer a tab: the visit is reached from the parent
+	// card (PC Care task, vaccination shed). The permission opens the routes; WHO may record
+	// a given visit is decided per row against pen_visit_park_assignees -- the per-park HRMS
+	// config, one or more people, any of whom may go -- so a holder with no park configured
+	// against them simply cannot record. Held by the director roles (the people a park's
+	// visits are configured against today), never by ceo_internal: the CXO desk answers asks,
+	// it does not walk pens. The routes also admit PCCareExecute so a care operator the park
+	// configures can record too. ORed into the /app/proofs upload routes so the visit video
+	// can finish uploading.
 	PenVisitsExecute = "pen_visits.execute"
 	// ClockPresenceRead gates the CROSS-PERSON attendance reads of the Clock
 	// In / Out module (docs/features/clock-in-out/plan.md): the phone Team

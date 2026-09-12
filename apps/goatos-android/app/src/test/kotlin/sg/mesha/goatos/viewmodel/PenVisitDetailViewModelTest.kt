@@ -211,11 +211,26 @@ class PenVisitDetailViewModelTest {
         assertEquals(PenVisitVideoState.FAILED, vm.state.value.videoState)
         assertEquals("The video could not be verified. Record it again.", vm.state.value.failureReason)
 
-        // The server's task landing as done outranks whatever the outbox still says.
-        repository.emitDetail(penVisit(workState = "completed", stateChip = "Done", stateTone = "success", doneLine = "Visited 7 Sep"))
+        // The server's row landing with the verifier outranks whatever the outbox still says:
+        // the visit is IN REVIEW, never "done" on submit (maintainer decision 2026-09-12).
+        repository.emitDetail(penVisit(status = "pending_verification", canSubmit = false, stateChip = "Visit in review", stateTone = "review", doneLine = "Visited 7 Sep"))
+        advanceUntilIdle()
+        assertEquals(PenVisitVideoState.IN_REVIEW, vm.state.value.videoState)
+        assertEquals("Visited 7 Sep", vm.state.value.doneLine)
+        assertEquals(PenVisitTone.REVIEW, vm.state.value.tone)
+
+        // Sent back: the verifier's words, verbatim, and the camera offered again.
+        repository.emitDetail(penVisit(status = "rework", canSubmit = true, stateChip = "Visit needs another video", stateTone = "danger", reworkReason = "pen not visible"))
+        advanceUntilIdle()
+        assertEquals(PenVisitVideoState.REWORK, vm.state.value.videoState)
+        assertEquals("pen not visible", vm.state.value.reworkReason)
+        assertTrue(vm.state.value.canSubmit)
+
+        // Verified: done, and the parent's work closes on this.
+        repository.emitDetail(penVisit(workState = "completed", status = "completed", canSubmit = false, stateChip = "Visit verified", stateTone = "success", doneLine = "Visited 7 Sep · verified 8 Sep", verified = true))
         advanceUntilIdle()
         assertEquals(PenVisitVideoState.DONE, vm.state.value.videoState)
-        assertEquals("Visited 7 Sep", vm.state.value.doneLine)
+        assertEquals("Visited 7 Sep · verified 8 Sep", vm.state.value.doneLine)
     }
 
     @Test

@@ -44,7 +44,9 @@ func (n *PenVisitDueNotifier) WithClock(now func() time.Time) *PenVisitDueNotifi
 	return n
 }
 
-// NotifyCreated queues one push per digest key (one park, one assignee, one due date).
+// NotifyCreated queues one push per digest key (one park, one due date), to EVERY person the
+// park's HRMS config names as a visitor (maintainer decision 2026-09-12: one or more per park,
+// any one of them recording is enough).
 func (n *PenVisitDueNotifier) NotifyCreated(ctx context.Context, tenantID string, digests []penvisitports.CreatedDigest) error {
 	if n == nil || n.recipients == nil || n.queue == nil {
 		return nil
@@ -55,24 +57,30 @@ func (n *PenVisitDueNotifier) NotifyCreated(ctx context.Context, tenantID string
 	}
 	digests = mergePenVisitDueDigests(digests)
 	for _, d := range digests {
-		if len(d.Tasks) == 0 || strings.TrimSpace(d.AssigneeID) == "" {
+		if len(d.Tasks) == 0 || len(d.VisitorIDs) == 0 {
 			continue
 		}
-		devices, err := n.recipients.ResolveMemberRecipients(ctx, tenantID, d.AssigneeID)
-		if err != nil {
-			return fmt.Errorf("pen visit notification: resolve assignee: %w", err)
+		recipients := []calendarports.NotificationRecipient{}
+		// Bounded by the park's configured visitors -- a handful of people, never by pens.
+		// scale-guard:ignore: bounded per-visitor recipient resolution, one read per configured park visitor (a handful of people per park).
+		for _, visitorID := range d.VisitorIDs {
+			devices, err := n.recipients.ResolveMemberRecipients(ctx, tenantID, visitorID)
+			if err != nil {
+				return fmt.Errorf("pen visit notification: resolve visitor: %w", err)
+			}
+			recipients = append(recipients, toQueueRecipients(devices, roleLabelParkHead)...)
 		}
-		recipients := dedupeQueueRecipients(toQueueRecipients(devices, roleLabelParkHead))
+		recipients = dedupeQueueRecipients(recipients)
 		if len(recipients) == 0 {
 			// Loud, and no fallback: a visit nobody is told about must not look announced.
 			if n.logger != nil {
 				n.logger.WarnContext(ctx, "pen_visit_due_notification_no_recipients",
-					"tenant_id", tenantID, "park_id", d.ParkID, "assignee_user_id", d.AssigneeID, "pens", len(d.Tasks))
+					"tenant_id", tenantID, "park_id", d.ParkID, "visitors", len(d.VisitorIDs), "pens", len(d.Tasks))
 			}
 			continue
 		}
 		title, body := PenVisitDueCopy(d)
-		eventKey := fmt.Sprintf("pen_visit.due:%s:%s:%s:%s", d.DueDate, d.ParkID, d.AssigneeID, penVisitDigestBatchKey(d.Tasks))
+		eventKey := fmt.Sprintf("pen_visit.due:%s:%s:%s", d.DueDate, d.ParkID, penVisitDigestBatchKey(d.Tasks))
 		// One write per PARK that gained visits on this pass: the farm has two parks, so this loop
 		// is bounded by the park count, never by pens or animals.
 		// scale-guard:ignore: bounded per-park digest loop, one queue write per park with new visits (two parks on the farm).
@@ -90,9 +98,9 @@ func (n *PenVisitDueNotifier) NotifyCreated(ctx context.Context, tenantID string
 			Context: map[string]string{
 				"type":          NotificationTypePenVisitDue,
 				"message_key":   "pen_visit.due",
-				"screen":        "pen_visits",
-				"href":          "/pen-visits",
-				"target":        "/pen-visits",
+				"screen":        "pc_care",
+				"href":          "/pc/deworming",
+				"target":        "/pc/deworming",
 				"park_id":       d.ParkID,
 				"park_name":     d.ParkName,
 				"pen_count":     fmt.Sprintf("%d", len(d.Tasks)),
@@ -113,7 +121,7 @@ func mergePenVisitDueDigests(digests []penvisitports.CreatedDigest) []penvisitpo
 	merged := map[string]*penvisitports.CreatedDigest{}
 	order := make([]string, 0, len(digests))
 	for _, d := range digests {
-		key := d.DueDate + "|" + d.ParkID + "|" + d.AssigneeID
+		key := d.DueDate + "|" + d.ParkID
 		out, ok := merged[key]
 		if !ok {
 			copyDigest := d
@@ -184,7 +192,7 @@ func PenVisitDueCopy(d penvisitports.CreatedDigest) (title, body string) {
 		}
 		parts = append(parts, fmt.Sprintf("%s (%s)", pen, strings.Join(reasons, ", ")))
 	}
-	body = fmt.Sprintf("Due %s at %s: %s. Record one video per pen and submit it under Tasks › For me.",
+	body = fmt.Sprintf("Due %s at %s: %s. Open each pen's card, record one video and it submits itself.",
 		due, park, strings.Join(parts, ", "))
 	return title, body
 }

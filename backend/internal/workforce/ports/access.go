@@ -16,6 +16,11 @@ var ErrAccessVersionConflict = errors.New("this person's access was changed by s
 // ErrPersonNotFound signals an unknown or inactive workforce member.
 var ErrPersonNotFound = errors.New("person not found")
 
+// ErrPenVisitorHasNoLogin signals a pen-visit park tick on a person who has never signed
+// in: visits are owed to a user id, and a row nobody can act on would hide a park's visits
+// behind a name that cannot open them.
+var ErrPenVisitorHasNoLogin = errors.New("this person has not signed in yet, so pens cannot be assigned to them")
+
 // ErrUnknownPark signals a park id that is not an active park in this tenant.
 // Rejected rather than dropped: silently discarding a park the admin selected
 // would narrow someone's scope without telling anyone.
@@ -37,7 +42,11 @@ type PersonAccessRecord struct {
 	// package's own vocabulary, so the resolver and the editor read the same
 	// shape and there is no second translation between them.
 	Assignments []permissions.ModuleAssignment
-	RowVersion  int
+	// PenVisitParkIDs are the parks this person walks the day after care work in
+	// (pen_visit_park_assignees, maintainer decision 2026-09-12: per-park HRMS config,
+	// one or more people per park, any of whom may record). Empty means none.
+	PenVisitParkIDs []string
+	RowVersion      int
 }
 
 // SavePersonAccessCommand is a fully-validated replacement of one person's access.
@@ -53,6 +62,9 @@ type SavePersonAccessCommand struct {
 	// optional in 'tenant' mode. Written to workforce_members.primary_location_id.
 	HomeParkID  string
 	Assignments []permissions.ModuleAssignment
+	// PenVisitParkIDs replaces the person's pen-visit parks wholesale (the editor sends the
+	// whole list). Each must be a park the person covers.
+	PenVisitParkIDs []string
 	// ExpectedRowVersion fences the write. A mismatch is ErrAccessVersionConflict.
 	ExpectedRowVersion int
 }

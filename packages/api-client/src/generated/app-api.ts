@@ -7600,7 +7600,7 @@ export interface components {
              */
             row_version: number;
         };
-        /** @description One pen visit as the phone renders it. Every string is backend-composed; the client maps state_tone to a colour and renders the rest verbatim. */
+        /** @description The next-day pen visit as every surface renders it: the LAST STEP of the pen's care work (maintainer decision 2026-09-12), carried on the PC Care task (pen_visit) and the vaccination shed card / drilldown (penVisit) as well as on the visit's own routes. Every string is backend-composed; the client maps state_tone to a colour and renders the rest verbatim. The visit video goes to the verifier: status is the gate (open -> pending_verification -> completed | rework) and work_state reaches completed only on approval; verified is the parent's closure signal. */
         PenVisit: {
             /** Format: uuid */
             task_id: string;
@@ -7635,21 +7635,35 @@ export interface components {
              * @description Rolls forward only
              */
             due_business_date: string;
-            /** @enum {string} */
+            /**
+             * @description The kernel clock; completed only once the verifier approved the visit.
+             * @enum {string}
+             */
             work_state: "scheduled" | "delayed" | "completed" | "canceled";
-            /** @description Backend-composed, e.g. "Due today", "Delayed since 05/09/2026", "Done". */
+            /**
+             * @description The verifier gate on the visit video.
+             * @enum {string}
+             */
+            status: "open" | "pending_verification" | "completed" | "rework";
+            /** @description Backend-composed, e.g. "Visit pen today", "Visit in review", "Visit needs another video", "Visit verified". */
             state_chip: string;
             /** @enum {string} */
-            state_tone: "info" | "danger" | "success" | "muted";
+            state_tone: "info" | "review" | "danger" | "success" | "muted";
             instruction: string;
             /** @description Empty until submitted. */
             done_line: string;
-            /** @description The caller is the assignee and the visit is still owed. */
+            /** @description The verifier's words when the visit was sent back; empty otherwise. */
+            rework_reason?: string;
+            /** @description The caller is one of the park's configured visitors and a recording is still owed (open or sent back). */
             can_submit: boolean;
+            /** @description The verifier approved the visit; the parent care work closes on this. */
+            verified: boolean;
             /** Format: uuid */
             proof_ref?: string | null;
             /** Format: date-time */
             submitted_at?: string | null;
+            /** Format: date-time */
+            verified_at?: string | null;
             row_version: number;
         };
         PenVisitDetail: {
@@ -7660,7 +7674,7 @@ export interface components {
             /** @enum {string} */
             key: "todo" | "done";
             label: string;
-            /** @description Whole-list count over the caller's assignee predicate */
+            /** @description Whole-list count over the parks the caller is configured to visit */
             count: number;
             selected: boolean;
             empty_message: string;
@@ -7671,7 +7685,7 @@ export interface components {
             rows: components["schemas"]["PenVisit"][];
             next_cursor?: string | null;
             filters: components["schemas"]["PenVisitFilter"][];
-            /** @description Visits still owed to the caller (the To do count). */
+            /** @description Visits still to record in the parks the caller is configured to visit. */
             open_count: number;
             trace_id: string;
         };
@@ -9185,6 +9199,14 @@ export interface components {
             inventory_requirements?: components["schemas"]["PCCareInventoryRequirement"][];
             /** @description Task-level proof rows for inventory_vaccine fridge stock tasks. */
             task_proofs?: components["schemas"]["PCCareTaskProof"][];
+            /** @description The task's LAST step (maintainer decision 2026-09-12): the next-day pen visit, with its own chip, instruction and can_submit for THIS caller. Absent until the pen-visit kernel materializes it the morning after submit, and on tasks that owe none. Once the task's own videos are verified the card's chip follows this step; the task's work_state reaches completed only when the visit is verified too. */
+            pen_visit?: components["schemas"]["PenVisit"];
+            /** @description A visit is part of this task even before its row exists (a pen category with a shed). */
+            pen_visit_owed: boolean;
+            /** @description The card's chip once the task's own videos are verified and the visit is what remains (the visit's own chip, or "Pen visit tomorrow" before its row exists). Empty while the task's own status still leads. Backend copy, rendered verbatim. */
+            pen_visit_chip?: string;
+            /** @enum {string} */
+            pen_visit_tone?: "info" | "review" | "danger" | "success" | "muted";
         };
         PCCareInventoryRequirement: {
             vaccine_label: string;
@@ -9301,6 +9323,10 @@ export interface components {
             removal_task_id?: string;
             /** @enum {string} */
             removal_status?: "open" | "pending_verification" | "completed" | "rework";
+            /** @description The card's chip once its videos are verified while its pens still owe the next-day pen visit, the work's last step (maintainer decision 2026-09-12) -- "Visit pens today", "Visit in review", "Visit needs another video". Backend copy rendered verbatim in place of the status chip; absent when the status chip stands. */
+            pen_visit_chip?: string;
+            /** @enum {string} */
+            pen_visit_tone?: "info" | "review" | "success" | "danger" | "muted";
         };
         PCCareRoundCardPage: {
             items: components["schemas"]["PCCareRoundCard"][];
@@ -11447,6 +11473,8 @@ export interface components {
             needsRedo: boolean;
             /** @description Per-vaccine group summaries for this card */
             vaccineGroups: components["schemas"]["VaccineGroupSummary"][];
+            /** @description The pen's next-day visit after its latest vaccination submit (2026-09-12): the last step of the pen's work. Absent until it exists; the five status buckets are untouched. */
+            penVisit?: components["schemas"]["PenVisit"];
         };
         VaccinationOperationsProtocol: {
             /** Format: uuid */
@@ -12140,6 +12168,8 @@ export interface components {
             drives: components["schemas"]["VaccinationExecutionDriveSummary"][];
             rows: components["schemas"]["VaccinationExecutionRow"][];
             summary: components["schemas"]["VaccinationExecutionShedSummary"];
+            /** @description The pen's next-day visit after its latest vaccination submit (maintainer decision 2026-09-12): the LAST step of the pen's work, composed for the caller. Absent until the pen-visit kernel raises it the morning after. */
+            penVisit?: components["schemas"]["PenVisit"];
         };
         VaccinationQueueItem: {
             completion_id: string;

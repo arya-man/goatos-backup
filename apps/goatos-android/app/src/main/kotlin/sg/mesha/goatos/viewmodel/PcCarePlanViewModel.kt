@@ -194,7 +194,9 @@ class PcCarePlanViewModel @Inject constructor(
                                 PcCareRoundPenUi(
                                     taskId = pen.taskId,
                                     penLabel = pen.operationalLocationDisplay.ifBlank { pen.shedLabel },
-                                    statusLabel = pcCareCardStatusLabel(pen.workState, pen.status),
+                                    // A pen whose videos are verified but whose visit is still
+                                    // owed reads the visit (backend copy), never "Done".
+                                    statusLabel = pen.penVisitChip.ifBlank { pcCareCardStatusLabel(pen.workState, pen.status) },
                                     reopenable = pen.workState == "closed",
                                 )
                             },
@@ -918,8 +920,10 @@ internal fun PcCareRoundCardDto.toRoundCardUi(): PcCareRoundCardUi = PcCareRound
     roundId = roundId,
     singleTaskId = singleTaskId,
     // The chip reads WORK STATE first: closing leaves every pen's status at 'open' and moves
-    // only its work_state, so a status-only chip called ended work "Open".
-    statusLabel = pcCareCardStatusLabel(workState, status),
+    // only its work_state, so a status-only chip called ended work "Open". A live card whose
+    // pens still owe their visit carries the backend's visit chip instead -- its videos being
+    // verified is not "Done" while the work's last step is owed.
+    statusLabel = penVisitChip.ifBlank { pcCareCardStatusLabel(workState, status) },
     dateLabel = pcCareCardDate(dueBusinessDate),
     dueDateIso = dueBusinessDate,
     pensLabel = penLabels.joinToString(" · "),

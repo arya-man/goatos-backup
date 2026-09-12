@@ -288,6 +288,13 @@ type RoundCard struct {
 	// it, so the planner can see the evening job from the round.
 	RemovalTaskID string
 	RemovalStatus string
+	// VisitOwedTaskIDs are the pens whose videos are verified while their clock is still open
+	// -- the pens that owe the next-day visit (maintainer decision 2026-09-12). The repository
+	// fills it; the service rolls the pens' visits up into PenVisitChip / PenVisitTone, the
+	// card's chip once its own videos are done. Empty chip means the card's status stands.
+	VisitOwedTaskIDs []string
+	PenVisitChip     string
+	PenVisitTone     string
 }
 
 // RoundCardPage is one bounded keyset page of the round-grained list.

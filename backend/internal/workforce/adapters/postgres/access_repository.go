@@ -53,7 +53,13 @@ SELECT m.display_name,
             FROM person_park_scope ps
            WHERE ps.tenant_id = m.tenant_id
              AND ps.workforce_member_id = m.workforce_member_id),
-         '[]'::jsonb)                              AS park_ids
+         '[]'::jsonb)                              AS park_ids,
+       coalesce(
+         (SELECT jsonb_agg(pv.park_id::text ORDER BY pv.park_id::text)
+            FROM pen_visit_park_assignees pv
+           WHERE pv.tenant_id = m.tenant_id
+             AND pv.user_id = m.user_id),
+         '[]'::jsonb)                              AS pen_visit_park_ids
   FROM workforce_members m
   LEFT JOIN person_access a
          ON a.tenant_id = m.tenant_id
@@ -69,6 +75,21 @@ SELECT m.display_name,
    AND m.workforce_member_id = $2::uuid
    AND m.status = 'active'`
 
+// The person's pen-visit parks (maintainer decision 2026-09-12), keyed by the USER the person
+// signs in as: the identity the visit routes and the kernel materializer resolve.
+const deletePenVisitParksSQL = `
+DELETE FROM pen_visit_park_assignees pv
+ USING workforce_members m
+ WHERE m.tenant_id = $1::uuid AND m.workforce_member_id = $2::uuid
+   AND pv.tenant_id = m.tenant_id AND pv.user_id = m.user_id`
+
+const insertPenVisitParksSQL = `
+INSERT INTO pen_visit_park_assignees (tenant_id, park_id, user_id)
+SELECT m.tenant_id, p.park_id, m.user_id
+  FROM workforce_members m, unnest($3::uuid[]) AS p(park_id)
+ WHERE m.tenant_id = $1::uuid AND m.workforce_member_id = $2::uuid AND m.user_id IS NOT NULL
+ON CONFLICT DO NOTHING`
+
 type moduleRowJSON struct {
 	Module       string   `json:"module"`
 	Surface      string   `json:"surface"`
@@ -78,13 +99,14 @@ type moduleRowJSON struct {
 
 func (r *AccessRepository) LoadPersonAccess(ctx context.Context, tenantID, personID string) (ports.PersonAccessRecord, error) {
 	var (
-		rec        ports.PersonAccessRecord
-		modulesRaw []byte
-		parksRaw   []byte
+		rec           ports.PersonAccessRecord
+		modulesRaw    []byte
+		parksRaw      []byte
+		visitParksRaw []byte
 	)
 	err := r.pool.QueryRow(ctx, loadPersonSQL, tenantID, personID).Scan(
 		&rec.DisplayName, &rec.Email, &rec.DesignationCode, &rec.ScopeMode, &rec.RowVersion,
-		&rec.HomeParkID, &modulesRaw, &parksRaw,
+		&rec.HomeParkID, &modulesRaw, &parksRaw, &visitParksRaw,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ports.PersonAccessRecord{}, ports.ErrPersonNotFound
@@ -112,6 +134,12 @@ func (r *AccessRepository) LoadPersonAccess(ctx context.Context, tenantID, perso
 	}
 	if rec.ParkIDs == nil {
 		rec.ParkIDs = []string{}
+	}
+	if err := json.Unmarshal(visitParksRaw, &rec.PenVisitParkIDs); err != nil {
+		return ports.PersonAccessRecord{}, fmt.Errorf("decode pen visit parks: %w", err)
+	}
+	if rec.PenVisitParkIDs == nil {
+		rec.PenVisitParkIDs = []string{}
 	}
 	return rec, nil
 }
@@ -175,6 +203,7 @@ func (r *AccessRepository) SavePersonAccess(ctx context.Context, cmd ports.SaveP
 	if cmd.HomeParkID != "" {
 		parksToValidate = append(parksToValidate, cmd.HomeParkID)
 	}
+	parksToValidate = append(parksToValidate, cmd.PenVisitParkIDs...)
 	if len(parksToValidate) > 0 {
 		rows, err := tx.Query(ctx,
 			`SELECT location_id::text FROM locations
@@ -277,14 +306,33 @@ func (r *AccessRepository) SavePersonAccess(ctx context.Context, cmd ports.SaveP
 		}
 	}
 
+	// Pen visits (maintainer decision 2026-09-12): the parks this person walks the day after
+	// care work, keyed by the USER the person signs in as -- the identity the visit routes
+	// and the kernel materializer resolve. Wholesale replace, like the modules; a person with
+	// no user yet (never signed in) cannot be a visitor, and the save says so rather than
+	// storing a row nobody can act on.
+	if _, err := tx.Exec(ctx, deletePenVisitParksSQL, cmd.TenantID, cmd.PersonID); err != nil {
+		return ports.PersonAccessRecord{}, err
+	}
+	if len(cmd.PenVisitParkIDs) > 0 {
+		tag, err := tx.Exec(ctx, insertPenVisitParksSQL, cmd.TenantID, cmd.PersonID, cmd.PenVisitParkIDs)
+		if err != nil {
+			return ports.PersonAccessRecord{}, err
+		}
+		if tag.RowsAffected() == 0 {
+			return ports.PersonAccessRecord{}, ports.ErrPenVisitorHasNoLogin
+		}
+	}
+
 	// Audit in the SAME transaction as the change. An access grant with no audit
 	// row is exactly the record an investigation needs and cannot find.
 	after, err := json.Marshal(map[string]any{
-		"scope_mode":       cmd.ScopeMode,
-		"designation_code": cmd.DesignationCode,
-		"park_ids":         cmd.ParkIDs,
-		"home_park_id":     cmd.HomeParkID,
-		"assignments":      cmd.Assignments,
+		"scope_mode":         cmd.ScopeMode,
+		"designation_code":   cmd.DesignationCode,
+		"park_ids":           cmd.ParkIDs,
+		"home_park_id":       cmd.HomeParkID,
+		"assignments":        cmd.Assignments,
+		"pen_visit_park_ids": cmd.PenVisitParkIDs,
 	})
 	if err != nil {
 		return ports.PersonAccessRecord{}, err

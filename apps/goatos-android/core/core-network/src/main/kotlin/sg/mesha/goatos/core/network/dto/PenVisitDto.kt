@@ -4,17 +4,18 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
 /**
- * Pen visits (maintainer decision 2026-09-07): the day after vaccination or PC Care work in a
- * pen, the park head goes to that pen, records ONE live in-app-camera video and submits it. No
- * scan, no roster, no verifier. The list is the park head's own tasks — the "For me" tab of the
- * Tasks module.
+ * Pen visits (maintainer decisions 2026-09-07 and 2026-09-12): the day after vaccination or PC
+ * Care work in a pen, one of the park's configured visitors goes to that pen, records ONE live
+ * in-app-camera video and submits it. The clip goes to the VERIFIER as the LAST step of that
+ * work: the parent care task closes only when the visit is approved. The visit is NOT a task of
+ * its own -- it rides the parent card (`PcCareTaskDto.penVisit`, the vaccination shed card's
+ * `penVisit`) as this same shape, and the retired "For me" tab is gone.
  *
  * ALL visible copy (`title`, `operational_location_display`, `reason_line`, `state_chip`,
- * `instruction`, `done_line`, the filter labels and empty messages, the page title) is
- * BACKEND-OWNED and rendered verbatim. The phone never composes a chip, a reason line, a pen
- * label or a date of its own.
+ * `instruction`, `done_line`, `rework_reason`) is BACKEND-OWNED and rendered verbatim. The phone
+ * never composes a chip, a reason line, a pen label or a date of its own.
  *
- * Wire contract of record: backend/internal/penvisits/adapters/http/payloads.go.
+ * Wire contract of record: backend/internal/penvisits/domain.Step.
  */
 @Serializable
 data class PenVisitDto(
@@ -35,18 +36,25 @@ data class PenVisitDto(
     @SerialName("source_business_date") val sourceBusinessDate: String = "",
     @SerialName("planned_business_date") val plannedBusinessDate: String = "",
     @SerialName("due_business_date") val dueBusinessDate: String = "",
-    /** `scheduled` | `delayed` | `completed` | `canceled`. */
+    /** `scheduled` | `delayed` | `completed` | `canceled` -- the kernel clock; completed only on approval. */
     @SerialName("work_state") val workState: String = "",
-    /** Backend-composed chip copy ("Due today" / "Delayed since 5 Sep" / "Done"), VERBATIM. */
+    /** `open` | `pending_verification` | `completed` | `rework` -- the verifier gate on the clip. */
+    @SerialName("status") val status: String = "",
+    /** Backend-composed chip copy ("Visit pen today" / "Visit in review" / "Visit verified"), VERBATIM. */
     @SerialName("state_chip") val stateChip: String = "",
-    /** `info` | `danger` | `success` | `muted` — the chip's colour only, never its words. */
+    /** `info` | `review` | `danger` | `success` | `muted` — the chip's colour only, never its words. */
     @SerialName("state_tone") val stateTone: String = "",
     @SerialName("instruction") val instruction: String = "",
     @SerialName("done_line") val doneLine: String = "",
-    /** The caller may submit this visit — resolved by the backend against the stored row. */
+    /** The verifier's words when the visit was sent back, VERBATIM; blank otherwise. */
+    @SerialName("rework_reason") val reworkReason: String = "",
+    /** The caller is a configured visitor and a recording is still owed — backend-resolved. */
     @SerialName("can_submit") val canSubmit: Boolean = false,
+    /** The verifier approved the visit; the parent work closes on this. */
+    @SerialName("verified") val verified: Boolean = false,
     @SerialName("proof_ref") val proofRef: String? = null,
     @SerialName("submitted_at") val submittedAt: String? = null,
+    @SerialName("verified_at") val verifiedAt: String? = null,
     @SerialName("row_version") val rowVersion: Int = 0,
 )
 

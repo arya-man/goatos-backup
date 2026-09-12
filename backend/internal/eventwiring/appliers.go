@@ -21,6 +21,8 @@ import (
 	healthapp "github.com/vgoats/goatos/backend/internal/health/app"
 	pccareapp "github.com/vgoats/goatos/backend/internal/pccare/app"
 	pccareports "github.com/vgoats/goatos/backend/internal/pccare/ports"
+	penvisitsapp "github.com/vgoats/goatos/backend/internal/penvisits/app"
+	penvisitsdomain "github.com/vgoats/goatos/backend/internal/penvisits/domain"
 	"github.com/vgoats/goatos/backend/internal/platform/eventbus"
 	weighingapp "github.com/vgoats/goatos/backend/internal/weighing/app"
 	weighingports "github.com/vgoats/goatos/backend/internal/weighing/ports"
@@ -92,6 +94,16 @@ type MilkVerdictStore interface {
 	countsports.MilkFeedingStore
 }
 
+// PenVisitVerdictStore is satisfied by *penvisitspg.Repository -- the visit's verdict half
+// (ApplyVerified / BounceForRework), maintainer decision 2026-09-12.
+type PenVisitVerdictStore = penvisitsapp.VerdictStore
+
+// PenVisitParentCloser is satisfied by *pccarepg.Repository -- the PC Care task's closure on
+// an approved visit (PenVisitVerified). It sits on the SAME repository as PCCareVerdictStore so
+// a wiring that forgot it would fail to compile rather than silently leave every pen task
+// open forever after its visit was approved.
+type PenVisitParentCloser = penvisitsapp.ParentCloser
+
 // HealthVerdictStore is satisfied by *healthpg.Repository — the treatment-session verdict half
 // (approve stamps verified_by/verified_at, reject flips the session to rework).
 type HealthVerdictStore = healthapp.TreatmentVerdictStore
@@ -111,6 +123,8 @@ func RegisterVerificationAppliers(
 	weighingAck weighingapp.VerificationApplyAcker,
 	pcCare PCCareVerdictStore,
 	health HealthVerdictStore,
+	penVisits PenVisitVerdictStore,
+	penVisitCloser PenVisitParentCloser,
 	log *slog.Logger,
 ) {
 	countsapp.NewShiftingVerificationHandler(shifting, nil).Register(bus)
@@ -145,6 +159,13 @@ func RegisterVerificationAppliers(
 	// treatment already given. Registered HERE, in the one shared list, so the API bus, the
 	// outbox relay, and the Pub/Sub consumer cannot drift apart.
 	healthapp.NewHealthVerificationHandler(health, log).Register(bus)
+	// Pen visits (maintainer decision 2026-09-12): the visit video's applier, filtered to
+	// pen_visits/pen_visit_task, and the parent-closure consumer of pen_visit.verified that
+	// flips a PC Care task whose own clips are verified to work_state completed. Registered
+	// HERE, in the one shared list, so the API bus, the outbox relay, and the Pub/Sub consumer
+	// cannot drift apart.
+	penvisitsapp.NewPenVisitVerificationHandler(penVisits, log).Register(bus)
+	penvisitsapp.NewPenVisitVerifiedHandler(log).WithParentCloser(penvisitsdomain.SourceKindPCCareTask, penVisitCloser).Register(bus)
 	// weighingAck is the receipt weighing sends verification once a verdict has landed on the
 	// observation, so a decided item stops reading as still-being-applied. It may be nil (a bus
 	// built without a verification repo still applies verdicts exactly as before -- the ack is

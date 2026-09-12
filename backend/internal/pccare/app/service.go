@@ -6,6 +6,8 @@ package app
 
 import (
 	"context"
+	"fmt"
+	penvisitdomain "github.com/vgoats/goatos/backend/internal/penvisits/domain"
 	"strings"
 	"time"
 
@@ -64,7 +66,11 @@ type Service struct {
 	// resolve it through this seam and refuse with ErrCutoffNotConfigured when it is unwired
 	// or unset -- never a literal hour.
 	cutoffs fwrports.CutoffReader
-	now     func() time.Time
+	// penVisits reads the next-day visit each pen task owes (maintainer decision 2026-09-12),
+	// attached to every task read so the card and the detail carry the task's last step. Nil
+	// in a unit test that never asks; production wires the pen-visit repository.
+	penVisits ports.PenVisitReader
+	now       func() time.Time
 }
 
 // NewService constructs the service over the task store.
@@ -91,6 +97,41 @@ func (s *Service) WithProofValidator(v ports.ProofValidator) *Service {
 func (s *Service) WithVerificationEnqueuer(e VerificationEnqueuer) *Service {
 	s.enqueuer = e
 	return s
+}
+
+// WithPenVisits wires the pen-visit reader that attaches each task's next-day visit step.
+func (s *Service) WithPenVisits(r ports.PenVisitReader) *Service {
+	s.penVisits = r
+	return s
+}
+
+// attachPenVisits fills TaskRow.PenVisit for every pen task on one page -- ONE batched read
+// keyed by task id, never one per row. A reader that is unwired attaches nothing, and the
+// rows still serve.
+func (s *Service) attachPenVisits(ctx context.Context, tenantID string, rows []ports.TaskRow) error {
+	if s.penVisits == nil || len(rows) == 0 {
+		return nil
+	}
+	ids := make([]string, 0, len(rows))
+	for _, t := range rows {
+		if domain.OwesPenVisit(t.Category, t.ShedID) {
+			ids = append(ids, t.TaskID)
+		}
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	visits, err := s.penVisits.ForSources(ctx, tenantID, penvisitdomain.SourceKindPCCareTask, ids)
+	if err != nil {
+		return fmt.Errorf("pccare: attach pen visits: %w", err)
+	}
+	for i := range rows {
+		if v, ok := visits[rows[i].TaskID]; ok {
+			visit := v
+			rows[i].PenVisit = &visit
+		}
+	}
+	return nil
 }
 
 // WithFeedWaterRemovalCutoff wires the tenant cutoff reader (production: the Postgres reader
@@ -590,7 +631,7 @@ func (s *Service) ListTasks(ctx context.Context, actor domain.Actor, parkID, cat
 	if err != nil {
 		return ports.TaskPage{}, err
 	}
-	return s.store.ListTasks(ctx, ports.ListTasksQuery{
+	page, err := s.store.ListTasks(ctx, ports.ListTasksQuery{
 		TenantID:          actor.TenantID,
 		AuthorizedParkIDs: authorizedParkSlice(parks),
 		TenantWide:        tenantWide,
@@ -603,6 +644,13 @@ func (s *Service) ListTasks(ctx context.Context, actor domain.Actor, parkID, cat
 		Limit:             clampLimit(limit),
 		Cursor:            strings.TrimSpace(cursor),
 	})
+	if err != nil {
+		return ports.TaskPage{}, err
+	}
+	if err := s.attachPenVisits(ctx, actor.TenantID, page.Items); err != nil {
+		return ports.TaskPage{}, err
+	}
+	return page, nil
 }
 
 // Worklist is the operator's assigned-task list for one category tab and one due date.
@@ -622,7 +670,7 @@ func (s *Service) Worklist(ctx context.Context, actor domain.Actor, category, du
 	if err != nil {
 		return ports.TaskPage{}, err
 	}
-	return s.store.ListTasks(ctx, ports.ListTasksQuery{
+	page, err := s.store.ListTasks(ctx, ports.ListTasksQuery{
 		TenantID:          actor.TenantID,
 		AuthorizedParkIDs: authorizedParkSlice(parks),
 		TenantWide:        tenantWide,
@@ -630,11 +678,21 @@ func (s *Service) Worklist(ctx context.Context, actor domain.Actor, category, du
 		DueBusinessDate:   strings.TrimSpace(dueBusinessDate),
 		CurrentOrCarry:    true,
 		AssigneeUserID:    actor.UserID,
-		Now:               s.now(),
-		RemovalCutoff:     cutoff,
-		Limit:             clampLimit(limit),
-		Cursor:            strings.TrimSpace(cursor),
+		// The same person may be the park's configured pen visitor: their worklist then also
+		// carries the tasks whose next-day visit is theirs to record (2026-09-12).
+		VisitorUserID: actor.UserID,
+		Now:           s.now(),
+		RemovalCutoff: cutoff,
+		Limit:         clampLimit(limit),
+		Cursor:        strings.TrimSpace(cursor),
 	})
+	if err != nil {
+		return ports.TaskPage{}, err
+	}
+	if err := s.attachPenVisits(ctx, actor.TenantID, page.Items); err != nil {
+		return ports.TaskPage{}, err
+	}
+	return page, nil
 }
 
 // taskReadCapabilities admit the task detail / captures poll: workers and overseers alike.
@@ -650,7 +708,15 @@ func (s *Service) GetTask(ctx context.Context, actor domain.Actor, taskID string
 		return ports.TaskRow{}, ports.ErrInvalidArgument
 	}
 	parks, tenantWide := authorizedParkSet(ctx, actor.TenantID, taskReadCapabilities...)
-	return s.store.GetTask(ctx, actor.TenantID, taskID, authorizedParkSlice(parks), tenantWide)
+	task, err := s.store.GetTask(ctx, actor.TenantID, taskID, authorizedParkSlice(parks), tenantWide)
+	if err != nil {
+		return ports.TaskRow{}, err
+	}
+	rows := []ports.TaskRow{task}
+	if err := s.attachPenVisits(ctx, actor.TenantID, rows); err != nil {
+		return ports.TaskRow{}, err
+	}
+	return rows[0], nil
 }
 
 // ListTaskAnimals is the peer-visibility poll: one task's scanned animals + slot maps.

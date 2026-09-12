@@ -48,22 +48,40 @@ func (s *Source) SourceType() string    { return SourceType }
 
 // workStateSQL is the one place a PC Care task becomes a board work state. A task carries
 // TWO columns: status is the evidence lifecycle (open -> pending_verification -> completed |
-// rework) and work_state is the kernel clock (scheduled | delayed | closed | canceled).
-// Status is read first because a submitted or judged task has left the clock behind:
+// rework) and work_state is the kernel clock (scheduled | delayed | completed | closed |
+// canceled). Status is read first because a submitted or judged task has left the clock
+// behind -- with ONE exception the pen visit adds (maintainer decision 2026-09-12): a pen
+// task whose own videos are verified is NOT done until its next-day visit is verified too,
+// so status completed on an open clock follows the VISIT's step:
 //
-//	status completed                -> completed            (the verifier accepted the work)
-//	status pending_verification     -> verification_pending (submitted; awaiting the verdict)
-//	status rework                   -> rejected             (back with the operator)
-//	work_state closed               -> completed            (the close landed; the pen-day is done)
-//	work_state delayed              -> overdue              (rolled past its planned day; PC Care
-//	                                                        has no documented carry band, so none
-//	                                                        is invented here)
-//	otherwise, an animal is scanned -> in_progress
-//	otherwise                       -> due
+//	status completed, clock completed          -> completed            (the whole chain landed)
+//	status completed, clock open, visit:
+//	    none yet / open                        -> in_progress          (the visit is still to come)
+//	    delayed                                -> overdue              (the visit is late)
+//	    pending_verification                   -> verification_pending (the visit clip is with the verifier)
+//	    rework                                 -> rejected             (the visit clip was sent back)
+//	    completed                              -> completed
+//	status pending_verification                -> verification_pending (submitted; awaiting the verdict)
+//	status rework                              -> rejected             (back with the operator)
+//	work_state closed                          -> completed            (the close landed; the pen-day is done)
+//	work_state delayed                         -> overdue              (rolled past its planned day; PC Care
+//	                                                                    has no documented carry band, so none
+//	                                                                    is invented here)
+//	otherwise, an animal is scanned            -> in_progress
+//	otherwise                                  -> due
 //
 // `canceled` rows are excluded in the WHERE clause: a canceled task is not work (nothing
 // writes the value any more, migration 000257; pre-existing rows are history).
 const workStateSQL = `CASE
+  WHEN t.status = 'completed' AND t.work_state = 'completed' THEN 'completed'
+  WHEN t.status = 'completed' AND t.work_state IN ('scheduled', 'delayed') THEN
+    CASE
+      WHEN visit.status = 'completed' THEN 'completed'
+      WHEN visit.status = 'pending_verification' THEN 'verification_pending'
+      WHEN visit.status = 'rework' THEN 'rejected'
+      WHEN visit.work_state = 'delayed' THEN 'overdue'
+      ELSE 'in_progress'
+    END
   WHEN t.status = 'completed' THEN 'completed'
   WHEN t.status = 'pending_verification' THEN 'verification_pending'
   WHEN t.status = 'rework' THEN 'rejected'
@@ -72,6 +90,18 @@ const workStateSQL = `CASE
   WHEN animals.scanned > 0 THEN 'in_progress'
   ELSE 'due'
 END`
+
+// visitLateral reads the task's next-day pen visit ONCE per task through the link the
+// pen-visit materializer writes (pen_visit_task_sources_parent_uq: at most one visit per
+// task). Absent until the morning after submit; the CASE above reads NULLs as "still to come".
+const visitLateral = `
+LEFT JOIN LATERAL (
+  SELECT v.status, v.work_state, v.due_business_date
+  FROM pen_visit_task_sources s
+  JOIN pen_visit_tasks v ON v.tenant_id = s.tenant_id AND v.task_id = s.task_id
+  WHERE s.tenant_id = t.tenant_id AND s.source_kind = 'pc_care_task' AND s.source_ref_id = t.task_id
+  LIMIT 1
+) visit ON true`
 
 // animalsLateral counts the task's own captures ONCE per task on
 // pc_care_task_animals_task_idx (tenant_id, task_id, animal_row_id). Two "complete" counts
@@ -119,9 +149,11 @@ WITH tasks AS (
   SELECT t.task_id, t.category, t.park_id, t.shed_id, COALESCE(t.partition_label, '') AS partition_label,
          t.planned_business_date, t.due_business_date, t.work_state, t.status,
          animals.scanned, animals.video_done, animals.triple_done,
+         COALESCE(visit.status, '') AS visit_status, COALESCE(visit.work_state, '') AS visit_work_state,
+         COALESCE(visit.due_business_date::text, '') AS visit_due,
          ` + workStateSQL + ` AS board_state
   FROM pc_care_tasks t
-  ` + animalsLateral + `
+  ` + animalsLateral + visitLateral + `
   WHERE ` + baseWhere + `
     AND ($5::uuid IS NULL OR t.task_id > $5::uuid)
 )
@@ -130,6 +162,7 @@ SELECT i.task_id::text, i.category, i.park_id::text, COALESCE(park.name, ''),
        i.planned_business_date::text, i.due_business_date::text,
        i.work_state, i.status, i.board_state,
        i.scanned, i.video_done, i.triple_done,
+       i.visit_status, i.visit_work_state, i.visit_due,
        COALESCE(owner.user_id, ''), COALESCE(owner.member_id, ''), COALESCE(owner.display_name, ''),
        COALESCE(owner.assignee_count, 0)
 FROM tasks i
@@ -161,7 +194,7 @@ SELECT board_state, count(*)
 FROM (
   SELECT ` + workStateSQL + ` AS board_state
   FROM pc_care_tasks t
-  ` + animalsLateral + `
+  ` + animalsLateral + visitLateral + `
   WHERE ` + baseWhere + `
 ) x
 WHERE ($5::text[] IS NULL OR board_state = ANY($5::text[]))
@@ -225,12 +258,14 @@ func scanRow(rows pgx.Rows) (domain.Row, error) {
 		shedID, shedName, partitionLabel              string
 		planned, due, kernelState, status, boardState string
 		scanned, videoDone, tripleDone                int
+		visitStatus, visitWorkState, visitDue         string
 		ownerUserID, ownerMemberID, ownerName         string
 		assigneeCount                                 int
 	)
 	if err := rows.Scan(&taskID, &category, &parkID, &parkName,
 		&shedID, &shedName, &partitionLabel, &planned, &due,
 		&kernelState, &status, &boardState, &scanned, &videoDone, &tripleDone,
+		&visitStatus, &visitWorkState, &visitDue,
 		&ownerUserID, &ownerMemberID, &ownerName, &assigneeCount); err != nil {
 		return domain.Row{}, fmt.Errorf("pccare boardsource scan: %w", err)
 	}
@@ -285,6 +320,17 @@ func scanRow(rows pgx.Rows) (domain.Row, error) {
 	if state == domain.WorkStateOverdue || state == domain.WorkStateRejected {
 		counts.NeedsAttention = 1
 	}
+	// The pen visit is the task's last step (2026-09-12): once the task's own videos are
+	// verified, the subtitle says where that step stands so a Done-looking card on an open
+	// clock explains itself.
+	if status == pcdomain.StatusCompleted && kernelState != pcdomain.WorkStateCompleted && kernelState != pcdomain.WorkStateClosed {
+		if visitLine := penVisitSubtitle(visitStatus, visitWorkState, visitDue); visitLine != "" {
+			if subtitle != "" {
+				subtitle += " · "
+			}
+			subtitle += visitLine
+		}
+	}
 
 	// One Owner per row: the first assignee; " +N" says how many more share the task.
 	owner := domain.Owner{UserID: ownerUserID, WorkforceMemberID: ownerMemberID, Name: ownerName}
@@ -306,6 +352,27 @@ func scanRow(rows pgx.Rows) (domain.Row, error) {
 		// reviewed on /verify), so Href stays empty: a link that lands nowhere is worse than
 		// no link. Fill it when a PC Care web surface ships.
 	}.Finalize(), nil
+}
+
+// penVisitSubtitle is the farm wording for where a verified task's next-day visit stands.
+func penVisitSubtitle(visitStatus, visitWorkState, visitDue string) string {
+	switch visitStatus {
+	case "completed":
+		return "Pen visit verified"
+	case "pending_verification":
+		return "Pen visit in review"
+	case "rework":
+		return "Pen visit sent back"
+	case "":
+		return "Pen visit tomorrow"
+	}
+	if visitWorkState == "delayed" {
+		return "Pen visit delayed"
+	}
+	if visitDue != "" {
+		return "Pen visit due " + biztime.FarmDateFromBusinessDate(visitDue)
+	}
+	return "Pen visit pending"
 }
 
 func nullUUID(s string) *string {

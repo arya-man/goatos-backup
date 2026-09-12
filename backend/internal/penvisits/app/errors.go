@@ -60,6 +60,8 @@ func HTTPError(err error) *Error {
 		return NotFound("This pen visit is no longer available.")
 	case errors.Is(err, domain.ErrAlreadyDone):
 		return Conflict("already_submitted", "This pen visit is already submitted.")
+	case errors.Is(err, domain.ErrInReview):
+		return Conflict("visit_in_review", "The visit video is with the verifier. Wait for the verdict before recording again.")
 	case errors.Is(err, domain.ErrCanceled):
 		return Conflict("visit_cancelled", "This pen visit was cancelled.")
 	case errors.Is(err, domain.ErrVersionConflict):

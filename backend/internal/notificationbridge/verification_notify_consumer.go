@@ -84,6 +84,11 @@ const (
 	// Director (maintainer decision 2026-08-21) — same seat as vaccination, because deworming /
 	// ticks removal / hoof trimming / hair trimming are preventive-care work.
 	modulePCCare = "pc_care"
+	// modulePenVisits mirrors penvisits/app.VerificationModule: the next-day pen visit video
+	// (maintainer decision 2026-09-12). It is the LAST step of a PC Care / vaccination pen's
+	// chain, so its verify duty and its leadership seat are PC Care's -- the PC Director owns
+	// the pen's care chain end to end.
+	modulePenVisits = "pen_visits"
 
 	// moduleHealth mirrors health/domain.VerificationModuleHealth, the string health's
 	// verificationbridge enqueuer writes into the item's Module. Health belongs to the Health
@@ -213,6 +218,24 @@ var pendingModuleProfiles = map[string]pendingModuleProfile{
 		reworkTarget:   "/pc/deworming",
 		closedScreen:   "record",
 		closedTarget:   "/pc/deworming",
+	},
+	// Pen visit video (maintainer decision 2026-09-12): the park visitor's next-day look at a
+	// pen after vaccination or care work. Reviewed by the same verify duty as care work and
+	// owned by the PC Director; wording is the visit's own, and the tap route is the PC surface
+	// where the parent card carries the step.
+	modulePenVisits: {
+		messageKeyPrefix:    "pen_visit",
+		dutyModule:          modulePCCare,
+		leadershipPosition:  positionPCDirector,
+		leadershipRoleLabel: "pc_director",
+		leadershipScreen:    "pc_care_overview",
+		leadershipTarget:    "/pc/deworming",
+		approvedScreen:      "leadership_close",
+		approvedTarget:      "/pc/deworming",
+		reworkScreen:        "record",
+		reworkTarget:        "/pc/deworming",
+		closedScreen:        "record",
+		closedTarget:        "/pc/deworming",
 	},
 	// Health treatment proofs (one video per completed treatment session) route to the Health
 	// Director, who owns the Health module outright (Health_Director.pdf Responsibilities 1-4:

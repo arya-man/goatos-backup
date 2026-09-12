@@ -2,12 +2,12 @@ package permissions
 
 import "testing"
 
-// TestPenVisitsExecuteIsDirectorsNeverCEO pins the 2026-09-07 maintainer decision: the Tasks
-// module's "For me" tab (pen visits the kernel owes a park head) rides pen_visits.execute, held
-// by the director roles -- the same jobs that raise tasks, and the jobs a park's visits are
-// configured against (CBE -> Dinakar, CPT -> Chandrakant) -- and by nobody else. The CXO desk
-// answers asks, it does not walk pens; an operator, park head, verifier and the per-person
-// roles hold nothing.
+// TestPenVisitsExecuteIsDirectorsNeverCEO pins the 2026-09-07 and 2026-09-12 maintainer
+// decisions: pen_visits.execute -- the routes for the visit the kernel owes a park the day
+// after care work -- is held by the director roles (the jobs a park's visits are configured
+// against: CBE -> Dinakar, CPT -> Chandrakant) and by nobody else. The CXO desk answers asks,
+// it does not walk pens; an operator, park head, verifier and the per-person roles hold
+// nothing (a care operator reaches the routes through pc_care.execute instead).
 //
 // Mutation-tested when written: granting PenVisitsExecute to RoleCEOInternal, and removing it
 // from RoleGrowthDirector, each turn this red.
@@ -42,8 +42,10 @@ func TestPenVisitsExecuteIsDirectorsNeverCEO(t *testing.T) {
 }
 
 // TestPenVisitRoutesAreGatedOnPenVisitsExecute pins the route table: every pen-visit route,
-// and the proof upload handshake the visit video needs, admits a director and refuses a CXO
-// and an operator.
+// and the proof upload handshake the visit video needs, admits a director and a care operator
+// (pc_care.execute, since a park may configure one as its visitor) and refuses a CXO, a park
+// head and a verifier. WHO may record a given visit is the service's per-row check against
+// the park's configured visitors, never the role.
 func TestPenVisitRoutesAreGatedOnPenVisitsExecute(t *testing.T) {
 	const id = "98000000-0000-4000-8000-000000000002"
 	for _, target := range []struct{ method, path string }{
@@ -55,11 +57,13 @@ func TestPenVisitRoutesAreGatedOnPenVisitsExecute(t *testing.T) {
 		if !ok {
 			t.Fatalf("%s %s is not registered", target.method, target.path)
 		}
-		if !RolesAuthorize([]string{RoleGrowthDirector}, route.Permissions, route.AdminOnly) {
-			t.Errorf("growth_director must authorize %s %s", target.method, target.path)
+		for _, role := range []string{RoleGrowthDirector, RoleOperator} {
+			if !RolesAuthorizeAny([]string{role}, route.AnyPermissions) {
+				t.Errorf("%s must authorize %s %s", role, target.method, target.path)
+			}
 		}
-		for _, role := range []string{RoleCEOInternal, RoleOperator, RoleParkHead, RoleVerifier} {
-			if RolesAuthorize([]string{role}, route.Permissions, route.AdminOnly) {
+		for _, role := range []string{RoleCEOInternal, RoleParkHead, RoleVerifier} {
+			if RolesAuthorizeAny([]string{role}, route.AnyPermissions) {
 				t.Errorf("%s must NOT authorize %s %s", role, target.method, target.path)
 			}
 		}

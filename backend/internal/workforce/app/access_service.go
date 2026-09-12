@@ -53,6 +53,9 @@ func (s *AccessService) GetPersonAccess(ctx context.Context, tenantID, personID 
 		ScopeMode:       record.ScopeMode,
 		ParkIDs:         record.ParkIDs,
 		HomeParkID:      record.HomeParkID,
+		PenVisitParkIDs: orEmpty(record.PenVisitParkIDs),
+		PenVisitLabel:   "Pen visits",
+		PenVisitBlurb:   "The day after vaccination or preventive care in a pen, this person goes to that pen and records one video. Tick the parks they walk; anyone ticked for a park may go.",
 		Modules:         moduleRows(record.Assignments),
 		Capabilities:    capabilityOptions(),
 		Parks:           parkOptions(parks),
@@ -124,6 +127,31 @@ func (s *AccessService) SavePersonAccess(ctx context.Context, tenantID, actorID,
 		}
 	}
 
+	// Pen visits (2026-09-12): a park this person walks must be a park they cover, so a
+	// visit can never be owed to someone whose scope does not reach it.
+	penVisitParks := make([]string, 0, len(req.PenVisitParkIDs))
+	seenVisitPark := map[string]bool{}
+	for _, id := range req.PenVisitParkIDs {
+		id = strings.TrimSpace(id)
+		if id == "" || seenVisitPark[id] {
+			continue
+		}
+		if scopeMode == "parks" {
+			covered := false
+			for _, p := range parkIDs {
+				if strings.TrimSpace(p) == id {
+					covered = true
+					break
+				}
+			}
+			if !covered {
+				return domain.PersonAccessResponse{}, fmt.Errorf("%w: this person can only visit pens in a park they cover", ErrInvalidAccessRequest)
+			}
+		}
+		seenVisitPark[id] = true
+		penVisitParks = append(penVisitParks, id)
+	}
+
 	if _, err := s.repo.SavePersonAccess(ctx, ports.SavePersonAccessCommand{
 		TenantID:           tenantID,
 		ActorID:            actorID,
@@ -133,6 +161,7 @@ func (s *AccessService) SavePersonAccess(ctx context.Context, tenantID, actorID,
 		ParkIDs:            parkIDs,
 		HomeParkID:         homeParkID,
 		Assignments:        assignments,
+		PenVisitParkIDs:    penVisitParks,
 		ExpectedRowVersion: req.RowVersion,
 	}); err != nil {
 		return domain.PersonAccessResponse{}, err

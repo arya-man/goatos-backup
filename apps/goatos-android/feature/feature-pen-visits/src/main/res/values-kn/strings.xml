@@ -5,5 +5,7 @@
     <string name="pen_visits_action_record_again">ಮತ್ತೆ ರೆಕಾರ್ಡ್ ಮಾಡಿ</string>
     <string name="pen_visits_video_label">ಪೆನ್ ವೀಡಿಯೊ</string>
     <string name="pen_visits_state_sending">ಕಳುಹಿಸಲಾಗುತ್ತಿದೆ…</string>
-    <string name="pen_visits_state_submitted">ಸಲ್ಲಿಸಲಾಗಿದೆ</string>
+    <string name="pen_visits_state_submitted">ಭೇಟಿ ಪರಿಶೀಲಿಸಲಾಗಿದೆ</string>
+    <string name="pen_visits_state_in_review">ಪರಿಶೀಲಕರ ಬಳಿ</string>
+    <string name="pen_visits_state_sent_back">ಪರಿಶೀಲಕರು ಹಿಂತಿರುಗಿಸಿದ್ದಾರೆ</string>
 </resources>
