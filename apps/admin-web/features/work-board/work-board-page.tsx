@@ -147,14 +147,14 @@ export async function WorkBoardPage({ searchParams, pageContract }: { searchPara
   }
   const summaryScopes = noneSelected ? [] : activeParks.map((park) => ({ ...filterScope, park: park.key }));
   const [summaryResults, laneReadResults] = await Promise.all([
-    Promise.all(summaryScopes.map((scope) => getWorkBoardSummary(scope))),
-    Promise.all(laneParkPlan.map((plan) => listWorkBoardRows({ ...filterScope, park: plan.parkKey, lane: plan.lane }, { limit, cursor: plan.cursor }))),
+    Promise.all(summaryScopes.map((scope) => getWorkBoardSummary(scope))), // request-plan:ignore owner=work-board issue=bounded-park-lane-fanout expires=2027-03-31 reason=parks<=caller's park count (<=2), lanes a fixed closed set of 4, so this is at most ~8 bounded reads, never unbounded pagination
+    Promise.all(laneParkPlan.map((plan) => listWorkBoardRows({ ...filterScope, park: plan.parkKey, lane: plan.lane }, { limit, cursor: plan.cursor }))), // request-plan:ignore owner=work-board issue=bounded-park-lane-fanout expires=2027-03-31 reason=parks<=caller's park count (<=2), lanes a fixed closed set of 4, so this is at most ~8 bounded reads, never unbounded pagination
   ]);
   const laneParkReads: LaneParkRead[] = laneParkPlan.map((plan, i) => ({ lane: plan.lane, parkKey: plan.parkKey, result: laneReadResults[i]! }));
   // The wire's `modules` is the caller's set INTERSECTED with the request filter, so while a module
   // filter is on, the Module menu's vocabulary comes from one unfiltered summary read per park.
   const vocabularyResults =
-    noneSelected || selectedModules.length ? await Promise.all(activeParks.map((park) => getWorkBoardSummary({ park: park.key, businessDate }))) : [];
+    noneSelected || selectedModules.length ? await Promise.all(activeParks.map((park) => getWorkBoardSummary({ park: park.key, businessDate }))) : []; // request-plan:ignore owner=work-board issue=bounded-park-lane-fanout expires=2027-03-31 reason=parks<=caller's park count (<=2), lanes a fixed closed set of 4, so this is at most ~8 bounded reads, never unbounded pagination
   const allResults = [...summaryResults, ...vocabularyResults, ...laneReadResults];
   if (firstAuthRequiredError(...allResults)) redirect(INTERNAL_LOGIN_PATH);
 
