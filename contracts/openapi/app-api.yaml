@@ -100,10 +100,10 @@ paths:
         - name: pattern
           in: query
           schema: { $ref: '#/components/schemas/HerdSignalPatternFilter' }
-        - name: signal_state
+        - name: risk_state
           in: query
           schema: { $ref: '#/components/schemas/HerdSignalRiskState' }
-          description: Server-side signal shortlist filter computed before pagination.
+          description: Server-side watchlist risk filter computed before pagination.
         - name: q
           in: query
           schema: { type: string }

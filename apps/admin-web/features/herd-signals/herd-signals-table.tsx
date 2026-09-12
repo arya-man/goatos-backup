@@ -371,7 +371,7 @@ export function HerdSignalsTable({
                     ) : null}
                   </td>
                   <td data-l="Gateway" className="mono">{item.gateway_id || "—"}</td>
-                  <td data-l="Watchlist">
+                  <td data-l="Signal">
                     {item.signal_state ? (
                       <Tag tone={SIGNAL_TONE[item.signal_state]} title={SIGNAL_LABEL[item.signal_state]}>
                         {fmtRssi(item.rssi_dbm)}
@@ -409,7 +409,7 @@ export function HerdSignalsTable({
                       "—"
                     )}
                   </td>
-                  <td data-l="Signal">
+                  <td data-l="Watchlist">
                     {item.risk_state ? <Tag tone={RISK_TONE[item.risk_state]}>{RISK_LABEL[item.risk_state]}</Tag> : "—"}
                     {item.risk_reasons?.length ? <small className="faint">{item.risk_reasons.slice(0, 2).join("; ")}</small> : null}
                     <small className="faint">

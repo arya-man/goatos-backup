@@ -194,7 +194,7 @@ export interface HerdSignalsLiveParams {
   // alerting partition (pattern_state <> 'normal'). The Alerts tab uses it so the alerting subset
   // is selected by the query, not by filtering whatever rows happen to be on the fetched page.
   pattern?: HerdSignalPatternState | "not_normal";
-  signalState?: HerdSignalRiskState;
+  riskState?: HerdSignalRiskState;
   q?: string;
   cursor?: string;
   limit?: number;
@@ -220,7 +220,7 @@ export async function getHerdSignalsLive(params: HerdSignalsLiveParams = {}): Pr
           movement_state: params.movementState,
           mapping_state: params.mappingState,
           pattern: params.pattern,
-          signal_state: params.signalState,
+          risk_state: params.riskState,
           q: params.q,
           cursor: params.cursor,
           limit: params.limit,

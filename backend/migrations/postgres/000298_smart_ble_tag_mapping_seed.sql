@@ -214,17 +214,20 @@ BEGIN
          animal_monitoring_since = COALESCE(tl.animal_monitoring_since, g.mapped_since),
          updated_at = now()
     FROM (
-      SELECT gi.tenant_id, sg.ble_tag, min(gi.smart_tag_mapped_at) AS mapped_since
+      SELECT gi.tenant_id, sg.ble_tag, sg.ble_mac, min(gi.smart_tag_mapped_at) AS mapped_since
       FROM _smart_ble_group sg
       JOIN public.goat_identifiers gi
         ON gi.tenant_id = sg.tenant_id
        AND gi.normalized_value IN (upper(btrim(sg.ble_tag)), upper(btrim(sg.ble_mac)))
        AND gi.status = 'active'
        AND gi.smart_tag_capable IS TRUE
-      GROUP BY gi.tenant_id, sg.ble_tag
+      GROUP BY gi.tenant_id, sg.ble_tag, sg.ble_mac
     ) g
    WHERE tl.tenant_id = g.tenant_id
-     AND upper(btrim(tl.tag_id)) = upper(btrim(g.ble_tag));
+     AND (
+       upper(btrim(coalesce(tl.tag_id, ''))) IN (upper(btrim(g.ble_tag)), upper(btrim(g.ble_mac)))
+       OR upper(btrim(coalesce(tl.tag_mac, ''))) IN (upper(btrim(g.ble_tag)), upper(btrim(g.ble_mac)))
+     );
 END $$;
 
 -- +goose Down
@@ -234,14 +237,41 @@ DO $$
 DECLARE
   seed_tenant uuid := '00000000-0000-4000-8000-000000000001';
 BEGIN
+  CREATE TEMP TABLE _smart_ble_seed_down (
+    ble_tag text NOT NULL,
+    ble_mac text NOT NULL
+  ) ON COMMIT DROP;
+
+  INSERT INTO _smart_ble_seed_down (ble_tag, ble_mac) VALUES
+    ('A00041','F0:C9:90:A0:00:41'),
+    ('A00031','F0:C9:90:A0:00:31'),
+    ('A0002C','F0:C9:90:A0:00:2C'),
+    ('A0002F','F0:C9:90:A0:00:2F'),
+    ('A0002D','F0:C9:90:A0:00:2D'),
+    ('A00034','F0:C9:90:A0:00:34'),
+    ('A00030','F0:C9:90:A0:00:30'),
+    ('A00038','F0:C9:90:A0:00:38'),
+    ('A0002B','F0:C9:90:A0:00:2B'),
+    ('A00040','F0:C9:90:A0:00:40'),
+    ('A00035','F0:C9:90:A0:00:35'),
+    ('A0003A','F0:C9:90:A0:00:3A'),
+    ('A0003C','F0:C9:90:A0:00:3C'),
+    ('A0002E','F0:C9:90:A0:00:2E'),
+    ('A0003E','F0:C9:90:A0:00:3E'),
+    ('A0002A','F0:C9:90:A0:00:2A'),
+    ('A0003F','F0:C9:90:A0:00:3F'),
+    ('A00033','F0:C9:90:A0:00:33'),
+    ('A00036','F0:C9:90:A0:00:36');
+
   UPDATE public.herd_signal_tag_latest tl
      SET mapping_state = 'unmapped',
          animal_monitoring_since = NULL,
          updated_at = now()
+    FROM _smart_ble_seed_down s
    WHERE tl.tenant_id = seed_tenant
-     AND upper(btrim(tl.tag_id)) IN (
-       'A00041','A00031','A0002C','A0002F','A0002D','A00034','A00030','A00038','A0002B',
-       'A00040','A00035','A0003A','A0003C','A0002E','A0003E','A0002A','A0003F','A00033','A00036'
+     AND (
+       upper(btrim(coalesce(tl.tag_id, ''))) IN (upper(btrim(s.ble_tag)), upper(btrim(s.ble_mac)))
+       OR upper(btrim(coalesce(tl.tag_mac, ''))) IN (upper(btrim(s.ble_tag)), upper(btrim(s.ble_mac)))
      );
 
   DELETE FROM public.goat_identifiers

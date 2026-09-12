@@ -17079,8 +17079,8 @@ export interface operations {
                 movement_state?: components["schemas"]["HerdSignalMovementState"];
                 mapping_state?: components["schemas"]["HerdSignalMappingState"];
                 pattern?: components["schemas"]["HerdSignalPatternFilter"];
-                /** @description Server-side signal shortlist filter computed before pagination. */
-                signal_state?: components["schemas"]["HerdSignalRiskState"];
+                /** @description Server-side watchlist risk filter computed before pagination. */
+                risk_state?: components["schemas"]["HerdSignalRiskState"];
                 /** @description Free-text search over display id, tag id, MAC, shed name, gateway id. */
                 q?: string;
                 cursor?: string;

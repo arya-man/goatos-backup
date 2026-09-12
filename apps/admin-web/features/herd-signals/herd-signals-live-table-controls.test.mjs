@@ -97,7 +97,7 @@ test("live table exposes own-baseline and group-comparison risk signals", () => 
   assert.match(table, /hs_risk: undefined/, "Clear filters must clear the signal shortlist filter");
 
   const api = read("../../lib/api/herd-signals.ts");
-  assert.match(api, /signal_state: params\.signalState/, "Signal shortlist filter must be sent to the live API");
+  assert.match(api, /risk_state: params\.riskState/, "Watchlist risk filter must be sent to the live API");
   for (const field of ["risk_state", "risk_reasons", "own_motion_delta_pct", "group_motion_delta_pct", "group_temp_delta_c"]) {
     assert.match(api, new RegExp(field), `${field} must be exposed on HerdSignalItem`);
   }

@@ -24,7 +24,10 @@ type Service struct {
 	thresholds domain.Thresholds
 }
 
-const liveSignalCohortLimit = 20000
+const (
+	liveSignalCohortPageSize = 5000
+	liveSignalCohortMaxRows  = 50000
+)
 
 type riskLiveCursor struct {
 	Key   string `json:"key"`
@@ -175,13 +178,13 @@ func (s *Service) IngestPackets(ctx context.Context, actor domain.Actor, req dom
 }
 
 // ListLive fetches the current tag status with optional filters and pagination.
-func (s *Service) ListLive(ctx context.Context, actor domain.Actor, parkID, shedID, movementState, mappingState, pattern, signalState, q *string, cursor string, limit int, sort domain.LiveSort) (domain.LiveResponse, error) {
+func (s *Service) ListLive(ctx context.Context, actor domain.Actor, parkID, shedID, movementState, mappingState, pattern, riskState, q *string, cursor string, limit int, sort domain.LiveSort) (domain.LiveResponse, error) {
 	if actor.TenantID == "" {
 		return domain.LiveResponse{}, fmt.Errorf("actor tenant_id required")
 	}
 
-	if signalState != nil {
-		cohortTags, err := s.repo.ListTagsLatestPage(ctx, actor.TenantID, parkID, shedID, movementState, mappingState, pattern, q, "", liveSignalCohortLimit, sort)
+	if riskState != nil {
+		cohortTags, err := s.listAllTagsLatest(ctx, actor.TenantID, parkID, shedID, nil, mappingState, pattern, q, sort)
 		if err != nil {
 			s.log.Error("failed to list tags latest for signal filter", "error", err)
 			return domain.LiveResponse{}, fmt.Errorf("list tags failed: %w", err)
@@ -191,11 +194,21 @@ func (s *Service) ListLive(ctx context.Context, actor domain.Actor, parkID, shed
 
 		filtered := make([]domain.LiveItem, 0, len(cohortItems))
 		for _, item := range cohortItems {
-			if item.RiskState != nil && *item.RiskState == *signalState {
+			if item.RiskState != nil && *item.RiskState == *riskState {
 				filtered = append(filtered, item)
 			}
 		}
-		summary := summaryFromItems(filtered)
+		summaryItems := filtered
+		if movementState != nil {
+			pageItems := make([]domain.LiveItem, 0, len(filtered))
+			for _, item := range filtered {
+				if item.MovementState != nil && *item.MovementState == *movementState {
+					pageItems = append(pageItems, item)
+				}
+			}
+			filtered = pageItems
+		}
+		summary := summaryFromItems(summaryItems)
 		filtered, nextCursor := pageRiskFilteredItems(filtered, cursor, limit, sort)
 		return domain.LiveResponse{
 			Summary:    summary,
@@ -212,7 +225,7 @@ func (s *Service) ListLive(ctx context.Context, actor domain.Actor, parkID, shed
 		return domain.LiveResponse{}, fmt.Errorf("list tags failed: %w", err)
 	}
 
-	cohortTags, err := s.repo.ListTagsLatestPage(ctx, actor.TenantID, parkID, shedID, movementState, mappingState, pattern, q, "", liveSignalCohortLimit)
+	cohortTags, err := s.listAllTagsLatest(ctx, actor.TenantID, parkID, shedID, movementState, mappingState, pattern, q, domain.LiveSort{})
 	if err != nil {
 		s.log.Warn("failed to fetch live cohort for signal comparisons", "error", err)
 		cohortTags = tags
@@ -226,6 +239,28 @@ func (s *Service) ListLive(ctx context.Context, actor domain.Actor, parkID, shed
 		Items:      items,
 		NextCursor: nextCursor,
 	}, nil
+}
+
+func (s *Service) listAllTagsLatest(ctx context.Context, tenantID string, parkID, shedID, movementState, mappingState, pattern, q *string, sort domain.LiveSort) ([]domain.TagLatest, error) {
+	var all []domain.TagLatest
+	cursor := ""
+	for {
+		tags, _, nextCursor, err := s.repo.ListTagsLatest(ctx, tenantID, parkID, shedID, movementState, mappingState, pattern, q, cursor, liveSignalCohortPageSize, sort)
+		if err != nil {
+			return nil, err
+		}
+		all = append(all, tags...)
+		if nextCursor == nil || *nextCursor == "" {
+			return all, nil
+		}
+		if len(all) >= liveSignalCohortMaxRows {
+			return nil, fmt.Errorf("live signal cohort exceeds %d rows", liveSignalCohortMaxRows)
+		}
+		if *nextCursor == cursor {
+			return nil, fmt.Errorf("list tags cursor did not advance")
+		}
+		cursor = *nextCursor
+	}
 }
 
 func pageRiskFilteredItems(items []domain.LiveItem, cursor string, limit int, sort domain.LiveSort) ([]domain.LiveItem, *string) {

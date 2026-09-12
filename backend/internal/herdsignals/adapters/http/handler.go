@@ -35,7 +35,7 @@ func actorID(r *http.Request) string {
 // AppService defines the interface the handler expects from the app service.
 type AppService interface {
 	IngestPackets(ctx context.Context, actor domain.Actor, req domain.IngestRequest) (domain.IngestResponse, error)
-	ListLive(ctx context.Context, actor domain.Actor, parkID, shedID, movementState, mappingState, pattern, signalState, q *string, cursor string, limit int, sort domain.LiveSort) (domain.LiveResponse, error)
+	ListLive(ctx context.Context, actor domain.Actor, parkID, shedID, movementState, mappingState, pattern, riskState, q *string, cursor string, limit int, sort domain.LiveSort) (domain.LiveResponse, error)
 	GetTimeline(ctx context.Context, actor domain.Actor, tagID, from, to string, bucketSeconds int) (domain.TimelineResponse, error)
 	ListGateways(ctx context.Context, actor domain.Actor) (domain.GatewaysResponse, error)
 	GetInsights(ctx context.Context, actor domain.Actor) (domain.InsightsResponse, error)
@@ -164,7 +164,7 @@ func (h *Handler) ListLive(w http.ResponseWriter, r *http.Request) {
 	movementState := r.URL.Query().Get("movement_state")
 	mappingState := r.URL.Query().Get("mapping_state")
 	pattern := r.URL.Query().Get("pattern")
-	signalState := r.URL.Query().Get("signal_state")
+	riskState := r.URL.Query().Get("risk_state")
 	q := r.URL.Query().Get("q")
 
 	cursor := r.URL.Query().Get("cursor")
@@ -177,7 +177,7 @@ func (h *Handler) ListLive(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Convert empty strings to nil pointers
-	var parkIDPtr, shedIDPtr, movementStatePtr, mappingStatePtr, patternPtr, signalStatePtr, qPtr *string
+	var parkIDPtr, shedIDPtr, movementStatePtr, mappingStatePtr, patternPtr, riskStatePtr, qPtr *string
 	if parkID != "" {
 		parkIDPtr = &parkID
 	}
@@ -193,15 +193,15 @@ func (h *Handler) ListLive(w http.ResponseWriter, r *http.Request) {
 	if pattern != "" {
 		patternPtr = &pattern
 	}
-	if signalState != "" {
-		signalStatePtr = &signalState
+	if riskState != "" {
+		riskStatePtr = &riskState
 	}
 	if q != "" {
 		qPtr = &q
 	}
 
 	// Call service
-	resp, err := h.service.ListLive(ctx, actor, parkIDPtr, shedIDPtr, movementStatePtr, mappingStatePtr, patternPtr, signalStatePtr, qPtr, cursor, limit, sort)
+	resp, err := h.service.ListLive(ctx, actor, parkIDPtr, shedIDPtr, movementStatePtr, mappingStatePtr, patternPtr, riskStatePtr, qPtr, cursor, limit, sort)
 	if err != nil {
 		h.log.Error("list_live_failed", "error", err.Error())
 		httpresponse.WriteError(w, r, h.log, http.StatusInternalServerError,

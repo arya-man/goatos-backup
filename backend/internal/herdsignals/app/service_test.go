@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -27,6 +28,45 @@ func (f *fakeRepo) ListTagsLatestPage(_ context.Context, _ string, _, _, _, _, _
 		limit = len(f.livePages)
 	}
 	return append([]domain.TagLatest(nil), f.livePages[:limit]...), nil
+}
+
+func (f *fakeRepo) ListTagsLatest(_ context.Context, _ string, _, _, movementState, _, _, _ *string, cursor string, limit int, _ ...domain.LiveSort) ([]domain.TagLatest, domain.Summary, *string, error) {
+	livePages := f.filteredLivePages(movementState)
+	start := 0
+	if cursor != "" {
+		for i, tag := range livePages {
+			if tag.TagID == cursor {
+				start = i + 1
+				break
+			}
+		}
+	}
+	if limit <= 0 {
+		limit = len(livePages)
+	}
+	end := start + limit
+	if end > len(livePages) {
+		end = len(livePages)
+	}
+	var next *string
+	if end < len(livePages) && end > start {
+		v := livePages[end-1].TagID
+		next = &v
+	}
+	return append([]domain.TagLatest(nil), livePages[start:end]...), domain.Summary{}, next, nil
+}
+
+func (f *fakeRepo) filteredLivePages(movementState *string) []domain.TagLatest {
+	if movementState == nil || *movementState == "" {
+		return f.livePages
+	}
+	filtered := make([]domain.TagLatest, 0, len(f.livePages))
+	for _, tag := range f.livePages {
+		if tag.MovementState == *movementState {
+			filtered = append(filtered, tag)
+		}
+	}
+	return filtered
 }
 
 func (f *fakeRepo) ResolveTagsBatch(_ context.Context, _ string, _ []string) (map[string]string, error) {
@@ -199,5 +239,63 @@ func TestListLiveRiskFilterPaginatesAfterFilteredRowsAndKeepsWholeSummary(t *tes
 	}
 	if second.Summary.TagsSeen != 3 || second.Summary.UnmappedTags != 3 {
 		t.Fatalf("second summary = %+v, want whole filtered set of 3 unmapped tags", second.Summary)
+	}
+}
+
+func TestListLiveRiskFilterWalksPastRepositoryPageBoundary(t *testing.T) {
+	now := time.Now().UTC()
+	falseValue := false
+	pages := make([]domain.TagLatest, liveSignalCohortPageSize+1)
+	for i := range pages {
+		pages[i] = domain.TagLatest{
+			TagID:               fmt.Sprintf("A%05d", i+1),
+			LastSeenAt:          now.Add(-time.Duration(i) * time.Minute),
+			PatternState:        "normal",
+			MappingState:        "unmapped",
+			MovementState:       "moving",
+			TemperatureSensorOK: &falseValue,
+		}
+	}
+	pages[len(pages)-1].PatternState = "inactive"
+	repo := &fakeRepo{livePages: pages}
+	svc := NewService(repo)
+	actor := domain.Actor{TenantID: "tenant-1", UserID: "user-1"}
+	risk := "high"
+	sort := domain.LiveSort{Key: "smart_tag", Dir: "asc"}
+
+	resp, err := svc.ListLive(context.Background(), actor, nil, nil, nil, nil, nil, &risk, nil, "", 10, sort)
+	if err != nil {
+		t.Fatalf("ListLive: %v", err)
+	}
+	if len(resp.Items) != 1 || resp.Items[0].TagID != "A05001" {
+		t.Fatalf("risk-filtered tags = %+v, want A05001 past the first repository page", resp.Items)
+	}
+	if resp.Summary.TagsSeen != 1 {
+		t.Fatalf("summary tags_seen = %d, want 1", resp.Summary.TagsSeen)
+	}
+}
+
+func TestListLiveRiskSummaryKeepsMovementBreakdownWhole(t *testing.T) {
+	now := time.Now().UTC()
+	falseValue := false
+	repo := &fakeRepo{livePages: []domain.TagLatest{
+		{TagID: "A00001", LastSeenAt: now, PatternState: "inactive", MappingState: "unmapped", MovementState: "moving", TemperatureSensorOK: &falseValue},
+		{TagID: "A00002", LastSeenAt: now.Add(-time.Minute), PatternState: "inactive", MappingState: "unmapped", MovementState: "stale", TemperatureSensorOK: &falseValue},
+	}}
+	svc := NewService(repo)
+	actor := domain.Actor{TenantID: "tenant-1", UserID: "user-1"}
+	risk := "high"
+	movement := "stale"
+	sort := domain.LiveSort{Key: "smart_tag", Dir: "asc"}
+
+	resp, err := svc.ListLive(context.Background(), actor, nil, nil, &movement, nil, nil, &risk, nil, "", 10, sort)
+	if err != nil {
+		t.Fatalf("ListLive: %v", err)
+	}
+	if len(resp.Items) != 1 || resp.Items[0].TagID != "A00002" {
+		t.Fatalf("page tags = %+v, want only stale A00002", resp.Items)
+	}
+	if resp.Summary.TagsSeen != 2 || resp.Summary.Moving != 1 || resp.Summary.Stale != 1 {
+		t.Fatalf("summary = %+v, want risk-filtered movement breakdown across both rows", resp.Summary)
 	}
 }
