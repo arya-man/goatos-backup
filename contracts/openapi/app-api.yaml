@@ -8155,7 +8155,7 @@ paths:
         a session, a step, a proof), a short subtitle, an owner, a derived work state and lane,
         a needs-attention flag and its chain of STEPS (scan, submit, verify, close ...). The grain
         is the module's own: weighing lists scanned animals (or the whole pen for a lump-sum
-        bucket), feed transport its attempts, verification its proofs, counts the request,
+        bucket), feed activity cards list their pens, verification its proofs, counts the request,
         milk feeding the session, health its treatment steps, PC care its scanned animals, and
         vaccination the animals in the pen for that drive. A row with no finer grain returns
         itself as one subtask; a live row never returns an empty list. Sorted worst first

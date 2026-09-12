@@ -42,8 +42,8 @@ export type SubtasksActionResult = { ok: true; page: WorkBoardSubtaskPage } | { 
 
 // The issue view's subtask page: fetched only when a card is open, for that card, through an
 // authenticated Server Action (never a client fetch, never on the list read).
-export async function loadSubtasksAction(input: { rowKey: string; park: string; businessDate: string; cursor?: string }): Promise<SubtasksActionResult> {
-  const result = await listWorkBoardSubtasks(input.rowKey, { park: input.park, businessDate: input.businessDate }, { limit: 10, cursor: input.cursor });
+export async function loadSubtasksAction(input: { rowKey: string; park: string; businessDate: string; owner?: string; cursor?: string }): Promise<SubtasksActionResult> {
+  const result = await listWorkBoardSubtasks(input.rowKey, { park: input.park, businessDate: input.businessDate, owner: input.owner }, { limit: 10, cursor: input.cursor });
   if (!result.ok) return { ok: false, code: result.error.code };
   return { ok: true, page: result.data };
 }

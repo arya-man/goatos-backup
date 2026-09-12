@@ -89,7 +89,7 @@ export type WorkBoardSubtaskPage = AppApiComponents["schemas"]["WorkBoardSubtask
 // inside the issue view only, for the row that is open: the board list never fans out.
 export async function listWorkBoardSubtasks(
   rowKey: string,
-  scope: { park: string; businessDate?: string },
+  scope: { park: string; businessDate?: string; owner?: string },
   page: { limit?: number; cursor?: string } = {},
 ): Promise<ApiResult<WorkBoardSubtaskPage>> {
   const config = await getServerConfig(true);
@@ -99,7 +99,7 @@ export async function listWorkBoardSubtasks(
   return request(() =>
     client.request<WorkBoardSubtaskPage>(path, {
       cache: "no-store",
-      query: compactQuery({ park: scope.park, business_date: scope.businessDate, limit: page.limit ?? 10, cursor: page.cursor }),
+      query: compactQuery({ park: scope.park, business_date: scope.businessDate, owner: scope.owner, limit: page.limit ?? 10, cursor: page.cursor }),
     }),
   );
 }

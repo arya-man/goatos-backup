@@ -48,7 +48,7 @@ function FlagForm({ pageContract, row, returnTo, hot }: { pageContract: AdminUiP
   );
 }
 
-export function WorkBoardModal({ pageContract, rows, initialSelectedRowKey, closeHref, returnToByRow }: { pageContract: AdminUiPageContract; rows: WorkBoardRow[]; initialSelectedRowKey?: string; closeHref: string; returnToByRow: Record<string, string> }) {
+export function WorkBoardModal({ pageContract, rows, initialSelectedRowKey, closeHref, returnToByRow, selectedOwner }: { pageContract: AdminUiPageContract; rows: WorkBoardRow[]; initialSelectedRowKey?: string; closeHref: string; returnToByRow: Record<string, string>; selectedOwner?: string }) {
   const { displayedItem: row, drawerOpen: open, closeDrawer: close, closeButtonRef } = useLocalOverlaySelection({
     items: rows,
     itemId: (r) => r.row_key,
@@ -149,7 +149,7 @@ export function WorkBoardModal({ pageContract, rows, initialSelectedRowKey, clos
             </div>
             <div className="sec">
               <h4>{copy(pageContract, "drawer.subtasks")}</h4>
-              {open ? <WorkBoardSubtasks key={row.row_key} pageContract={pageContract} row={row} /> : null}
+              {open ? <WorkBoardSubtasks key={row.row_key} pageContract={pageContract} row={row} selectedOwner={selectedOwner} /> : null}
             </div>
           </div>
           <div className="rail">

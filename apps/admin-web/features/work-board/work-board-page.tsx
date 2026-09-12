@@ -289,6 +289,7 @@ export async function WorkBoardPage({ searchParams, pageContract }: { searchPara
         rows={rows}
         initialSelectedRowKey={selectedRow}
         closeHref={closeHref}
+        selectedOwner={owner}
         returnToByRow={Object.fromEntries(rows.map((row) => [row.row_key, hrefWithParams(WORK_BOARD_PATH, sp, { [PARAM_ROW]: row.row_key, action_status: undefined, action_key: undefined })]))}
       />
     </div>

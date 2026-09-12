@@ -77,13 +77,13 @@ function SubtaskRow({ pageContract, sub }: { pageContract: AdminUiPageContract; 
   );
 }
 
-export function WorkBoardSubtasks({ pageContract, row }: { pageContract: AdminUiPageContract; row: WorkBoardRow }) {
+export function WorkBoardSubtasks({ pageContract, row, selectedOwner }: { pageContract: AdminUiPageContract; row: WorkBoardRow; selectedOwner?: string }) {
   const [pages, setPages] = useState<WorkBoardSubtaskPage[]>([]);
   const [error, setError] = useState(false);
   const [pending, startTransition] = useTransition();
   const load = (cursor: string | undefined, reset: boolean) => {
     startTransition(async () => {
-      const result = await loadSubtasksAction({ rowKey: row.row_key, park: row.park_id, businessDate: row.business_date, cursor });
+      const result = await loadSubtasksAction({ rowKey: row.row_key, park: row.park_id, businessDate: row.business_date, owner: selectedOwner, cursor });
       if (!result.ok) {
         setError(true);
         return;
