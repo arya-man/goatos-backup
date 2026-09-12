@@ -16523,7 +16523,7 @@ export interface components {
             /** @enum {string} */
             priority: "high" | "low";
             /** @enum {string} */
-            category: "growth" | "health" | "breeding" | "delivery";
+            category: "growth" | "health" | "breeding" | "delivery" | "spacing" | "flushing" | "normal";
             /**
              * Format: uuid
              * @description Where the animals are NOW. Null when the movement recorded no origin.
