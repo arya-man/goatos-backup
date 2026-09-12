@@ -289,6 +289,7 @@ export function HerdSignalsTable({
               <th>Gateway</th>
               <th>Signal</th>
               {sortableHead("Motion count", "motion_count", "num", "Cumulative counter maintained by the tag firmware. It can stay flat while packets are received.")}
+              {sortableHead("Tag temp", "tag_temp", "num", "Tag housing temperature, not the animal's body temperature.")}
               {sortableHead("15m delta", "delta_15m", "num", "Current 15-minute motion-count delta: latest counter minus the baseline reading for the window.")}
               {sortableHead("1h delta", "delta_1h", "num", "Current 1-hour motion-count delta when enough readings exist; blank means the window is not established yet.")}
               <th>
@@ -300,7 +301,6 @@ export function HerdSignalsTable({
                 <InfoTip label="Pattern rules" text={PATTERN_RULES} />
               </th>
               <th>Battery</th>
-              {sortableHead("Tag temp", "tag_temp", "num", "Tag housing temperature, not the animal's body temperature.")}
               {sortableHead("Last seen", "last_seen", undefined, "When the backend last received a packet from this tag. Sorting by this can move rows during live refresh.")}
               <th>Status</th>
             </tr>
@@ -362,6 +362,9 @@ export function HerdSignalsTable({
                     )}
                   </td>
                   <td data-l="Motion count" className="num mono">{fmtDelta(item.motion_count)}</td>
+                  <td data-l="Tag temp" className="num" title="Tag housing temperature, not the animal's body temperature">
+                    {fmtTagTemp(item.tag_temperature_c)}
+                  </td>
                   <td
                     data-l="15m delta"
                     className="num"
@@ -392,9 +395,6 @@ export function HerdSignalsTable({
                     {item.battery_state && item.battery_state !== "healthy" ? (
                       <Tag tone={BATTERY_TONE[item.battery_state]}>{BATTERY_LABEL[item.battery_state]}</Tag>
                     ) : null}
-                  </td>
-                  <td data-l="Tag temp" className="num" title="Tag housing temperature, not the animal's body temperature">
-                    {fmtTagTemp(item.tag_temperature_c)}
                   </td>
                   <td data-l="Last seen">{fmtAgo(item.last_seen_at, nowMs)}</td>
                   <td data-l="Status">

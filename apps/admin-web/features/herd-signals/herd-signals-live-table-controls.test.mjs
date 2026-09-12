@@ -22,6 +22,26 @@ test("live table exposes the operator-requested sort keys", () => {
   }
 });
 
+test("live table keeps tag temperature beside motion count", () => {
+  const table = read("./herd-signals-table.tsx");
+  assert.match(
+    table,
+    /sortableHead\("Motion count"[\s\S]*sortableHead\("Tag temp"[\s\S]*sortableHead\("15m delta"/,
+    "Tag temp must remain immediately after Motion count in the live table header",
+  );
+  assert.match(
+    table,
+    /data-l="Motion count"[\s\S]*data-l="Tag temp"[\s\S]*data-l="15m delta"/,
+    "Tag temp must remain immediately after Motion count in the live table rows",
+  );
+});
+
+test("tag temperature renders Celsius and Fahrenheit", () => {
+  const format = read("./format.ts");
+  assert.match(format, /const fahrenheit = \(celsius \* 9\) \/ 5 \+ 32/, "formatter must derive Fahrenheit from Celsius");
+  assert.match(format, /°C \/ \$\{fahrenheit\.toFixed\(1\)\} °F/, "tag temperature must show both Celsius and Fahrenheit");
+});
+
 test("live table sorting is server-side, not a fetched-page resort", () => {
   const board = read("./herd-signals-board.tsx");
   assert.match(board, /sort: params\.sort/, "live read must send the active sort key to the backend");

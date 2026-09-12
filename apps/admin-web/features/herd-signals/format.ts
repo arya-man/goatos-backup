@@ -162,7 +162,8 @@ export function fmtBatteryMv(mv: number | null | undefined): string {
 
 export function fmtTagTemp(celsius: number | null | undefined): string {
   if (celsius === null || celsius === undefined) return "—";
-  return `${celsius.toFixed(1)} °C`;
+  const fahrenheit = (celsius * 9) / 5 + 32;
+  return `${celsius.toFixed(1)} °C / ${fahrenheit.toFixed(1)} °F`;
 }
 
 export function fmtDelta(delta: number | null | undefined): string {
