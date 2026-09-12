@@ -36,6 +36,16 @@ test("live table sorting is server-side, not a fetched-page resort", () => {
   assert.doesNotMatch(table, /compareNullableNumber|compareNullableTime/, "null ordering belongs in the server query");
 });
 
+test("live table sort contract accepts backend-shaped cursors", () => {
+  const params = read("./params.ts");
+  assert.match(params, /const CURSOR_MAX = 1024/, "opaque sort cursors can exceed the old 200-char cap");
+  assert.match(params, /boundedText\(one\(sp, "hs_cursor"\), CURSOR_MAX\)/, "hs_cursor must use the raised cursor cap");
+
+  const openapi = read("../../../../contracts/openapi/app-api.yaml");
+  assert.match(openapi, /name: sort[\s\S]*enum: \[smart_tag, tag_temp, last_seen, motion_count, delta_15m, delta_1h\]/, "OpenAPI must publish live sort keys");
+  assert.match(openapi, /name: dir[\s\S]*enum: \[asc, desc\]/, "OpenAPI must publish live sort directions");
+});
+
 test("Activity and Pattern info copy explains the non-contradiction", () => {
   const table = read("./herd-signals-table.tsx");
   assert.match(table, /Activity is the current 15-minute motion-count delta/, "Activity must explain the current-window delta");

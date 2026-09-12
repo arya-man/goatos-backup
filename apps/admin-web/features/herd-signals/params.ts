@@ -41,6 +41,7 @@ export type HerdSignalsParams = {
 
 const LIMIT_DEFAULT = 25;
 const LIMIT_MAX = 100;
+const CURSOR_MAX = 1024;
 
 function boundedText(raw: string | undefined, max: number): string | undefined {
   const trimmed = raw?.trim();
@@ -71,7 +72,7 @@ export function parseHerdSignalsParams(searchParams: RouteSearchParams | undefin
   const mappingState = MAPPING_VALUES.find((value) => value === one(sp, "hs_map"));
   const pattern = PATTERN_VALUES.find((value) => value === one(sp, "hs_pattern"));
   const kpi = KPI_FILTER_KEYS.find((value) => value === one(sp, "hs_kpi"));
-  const cursor = boundedText(one(sp, "hs_cursor"), 200);
+  const cursor = boundedText(one(sp, "hs_cursor"), CURSOR_MAX);
   const limit = boundedInt(one(sp, "hs_limit"), LIMIT_DEFAULT, 10, LIMIT_MAX);
   const sort = HERD_SIGNALS_SORT_KEYS.find((value) => value === one(sp, "hs_sort")) ?? "smart_tag";
   const sortDir = one(sp, "hs_dir") === "desc" ? "desc" : "asc";

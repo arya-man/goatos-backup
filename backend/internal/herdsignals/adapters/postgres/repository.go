@@ -764,7 +764,11 @@ func (r *Repository) ListTagsLatest(ctx context.Context, tenantID string, parkID
 	if len(tags) > limit {
 		tags = tags[:limit]
 		lastTag := tags[len(tags)-1]
-		next := liveCursorFromTag(lastTag, normalizeLiveSort(sort))
+		spec := normalizeLiveSort(sort)
+		next := lastTag.TagID
+		if !spec.defaultKey {
+			next = liveCursorFromTag(lastTag, spec)
+		}
 		nextCursor = &next
 	}
 

@@ -16998,6 +16998,10 @@ export interface operations {
                 /** @description Free-text search over display id, tag id, MAC, shed name, gateway id. */
                 q?: string;
                 cursor?: string;
+                /** @description Server-side keyset sort for the live table. Null metric values sort last in both directions. */
+                sort?: "smart_tag" | "tag_temp" | "last_seen" | "motion_count" | "delta_15m" | "delta_1h";
+                /** @description Sort direction for `sort`. */
+                dir?: "asc" | "desc";
                 limit?: number;
             };
             header?: never;
