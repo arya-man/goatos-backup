@@ -24,14 +24,16 @@ test("live table exposes the operator-requested sort keys", () => {
 
 test("live table keeps tag temperature beside motion count", () => {
   const table = read("./herd-signals-table.tsx");
-  assert.match(
-    table,
-    /sortableHead\("Motion count"[\s\S]*sortableHead\("Tag temp"[\s\S]*sortableHead\("15m delta"/,
+  const headers = Array.from(table.matchAll(/(?:sortableHead\("([^"]+)"|<th>([^<]+)<\/th>)/g), (match) => match[1] || match[2]);
+  const cells = Array.from(table.matchAll(/data-l="([^"]+)"/g), (match) => match[1]);
+  assert.deepEqual(
+    headers.slice(headers.indexOf("Motion count"), headers.indexOf("Motion count") + 3),
+    ["Motion count", "Tag temp", "15m delta"],
     "Tag temp must remain immediately after Motion count in the live table header",
   );
-  assert.match(
-    table,
-    /data-l="Motion count"[\s\S]*data-l="Tag temp"[\s\S]*data-l="15m delta"/,
+  assert.deepEqual(
+    cells.slice(cells.indexOf("Motion count"), cells.indexOf("Motion count") + 3),
+    ["Motion count", "Tag temp", "15m delta"],
     "Tag temp must remain immediately after Motion count in the live table rows",
   );
 });

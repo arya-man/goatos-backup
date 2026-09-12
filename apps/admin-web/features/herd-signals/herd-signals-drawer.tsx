@@ -19,6 +19,7 @@ import {
   fmtBleMac,
   fmtDelta,
   fmtRssi,
+  fmtTagTemp,
 } from "./format";
 import { ChartReadout, HistoryChart, historyChartLegend } from "./herd-signals-history-chart";
 import { useNowMs } from "./herd-signals-poller";
@@ -39,11 +40,6 @@ function drawerGateway(gatewayId: string | null | undefined): string {
   if (!gatewayId) return "—";
   if (/^\d+$/.test(gatewayId)) return `GW-${gatewayId}`;
   return gatewayId;
-}
-
-function drawerTagTemp(celsius: number | null | undefined): string {
-  if (celsius === null || celsius === undefined) return "—";
-  return `${celsius.toFixed(1)} C`;
 }
 
 async function readTimeline(tagId: string, range: RangeKey): Promise<{ ok: true; buckets: HerdSignalTimelineBucket[] } | { ok: false; error: string }> {
@@ -266,7 +262,7 @@ export function HerdSignalsDrawer({
             </dd>
             <dt>Tag temp</dt>
             <dd>
-              {drawerTagTemp(item.tag_temperature_c)}
+              {fmtTagTemp(item.tag_temperature_c)}
               <span className="srcl direct">Direct</span>
             </dd>
             <dt>Motion count</dt>
