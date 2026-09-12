@@ -1187,7 +1187,11 @@ func (c *VerificationEventConsumer) handleVerdictRework(ctx context.Context, p V
 	// screen -- so emit that shape whenever the payload names a shed, and only fall back to the
 	// module landing when it does not.
 	target := profile.reworkTarget
-	if shedID := strings.TrimSpace(p.ShedID); shedID != "" {
+	if strings.EqualFold(strings.TrimSpace(p.Module), modulePenVisits) {
+		if visitTaskID := strings.TrimSpace(p.Source.RefID); visitTaskID != "" {
+			target = "/pen-visits/" + url.PathEscape(visitTaskID)
+		}
+	} else if shedID := strings.TrimSpace(p.ShedID); shedID != "" {
 		target = profile.reworkTarget + "/record/" + shedID
 		if partitionLabel := strings.TrimSpace(p.PartitionLabel); partitionLabel != "" {
 			target += "?partition_label=" + url.QueryEscape(partitionLabel)

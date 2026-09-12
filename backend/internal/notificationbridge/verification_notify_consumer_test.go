@@ -432,6 +432,46 @@ func TestVerificationEventConsumer_ReworkTargetPreservesSiblingPartitions(t *tes
 	}
 }
 
+func TestVerificationEventConsumer_PenVisitReworkTargetsVisitDetail(t *testing.T) {
+	ctx := context.Background()
+	pool, consumer := vecSetup(t)
+
+	const (
+		itemID      = "fa000000-0000-4000-8000-0000000000d4"
+		visitTaskID = "fa000000-0000-4000-8000-0000000000d5"
+		shedID      = "fa000000-0000-4000-8000-0000000000d6"
+	)
+	payload, err := json.Marshal(map[string]any{
+		"tenant_id":   vnTenant,
+		"item_id":     itemID,
+		"vertical":    "preventive_care",
+		"module":      "pen_visits",
+		"category":    "pen_visit",
+		"operator_id": vecOperatorUser,
+		"park_id":     vnPark,
+		"shed_id":     shedID,
+		"decision":    "rejected",
+		"status":      "rejected",
+		"source": map[string]any{
+			"module":   "pen_visits",
+			"ref_type": "pen_visit_task",
+			"ref_id":   visitTaskID,
+		},
+	})
+	if err != nil {
+		t.Fatalf("marshal pen visit payload: %v", err)
+	}
+	if err := consumer.HandleEvent(ctx, vecEvent(notificationbridge.EventVerificationVerdictRework, itemID, payload)); err != nil {
+		t.Fatalf("handle pen visit rework: %v", err)
+	}
+	if got := vecContextValueForToken(t, ctx, pool, itemID, vnOperatorToken, "target"); got != "/pen-visits/"+visitTaskID {
+		t.Fatalf("pen visit target = %q, want /pen-visits/%s", got, visitTaskID)
+	}
+	if got := vecContextValueForToken(t, ctx, pool, itemID, vnOperatorToken, "category"); got != "pen_visit" {
+		t.Fatalf("pen visit category = %q, want pen_visit", got)
+	}
+}
+
 // TestVerificationEventConsumer_LegacyDedup: a generic verification_item that mirrors a legacy
 // vaccination SOP verification (source.module=vaccination, source.ref_type=sop_submission) is
 // ALREADY notified by the legacy vaccination.verify.rejected path for operator + park head, so the

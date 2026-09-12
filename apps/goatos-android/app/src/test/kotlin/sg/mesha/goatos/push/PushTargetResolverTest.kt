@@ -246,6 +246,22 @@ class PushTargetResolverTest {
     }
 
     @Test
+    fun `pen visit rework opens the visit detail instead of a module record`() {
+        assertEquals(
+            Routes.penVisitRoute("visit-123"),
+            resolvePushRoute(
+                mapOf(
+                    PushExtras.TYPE to "rework",
+                    PushExtras.SCREEN to "record",
+                    PushExtras.TARGET to "/pen-visits/visit-123",
+                    PushExtras.SHED_ID to "shed-123",
+                    PushExtras.CATEGORY to "pen_visit",
+                ),
+            ),
+        )
+    }
+
+    @Test
     fun `shedless record payload names no destination instead of a stranger's shed`() {
         assertNull(resolvePushRoute(mapOf(PushExtras.TYPE to "rework")))
     }
