@@ -194,7 +194,9 @@ class PcCarePlanViewModel @Inject constructor(
                                 PcCareRoundPenUi(
                                     taskId = pen.taskId,
                                     penLabel = pen.operationalLocationDisplay.ifBlank { pen.shedLabel },
-                                    statusLabel = pcCareCardStatusLabel(pen.workState, pen.status),
+                                    // A pen whose videos are verified but whose visit is still
+                                    // owed reads the visit (backend copy), never "Done".
+                                    statusLabel = pen.penVisitChip.ifBlank { pcCareCardStatusLabel(pen.workState, pen.status) },
                                     reopenable = pen.workState == "closed",
                                 )
                             },
