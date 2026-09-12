@@ -179,13 +179,24 @@ internal fun SalesDealDto.toCardUi(options: SalesOptionsDto? = null): SaleCardUi
     listKey = dealId,
     dealId = dealId,
     buyer = buyerName,
-    productLine = dotJoin(productType, breed, farm),
+    productLine = dotJoin(soldSummary(), farm),
     valueLine = dotJoin(animalsLine(animalCount), kilograms(totalWeightKg), rupees(salesValue)),
     // Sheet-imported deals carry paise dust (₹0.18 on a fully paid sale); under a rupee reads as paid.
     metaLine = dotJoin("Sold ${farmDate(saleDate)}", if (paymentBalance >= 1.0) "Balance ${rupees(paymentBalance)}" else "Fully paid"),
     statusLabel = status,
     statusTone = saleStatusTone(status, options),
 )
+
+/**
+ * "Sheep · Anantapur" for a single-line sale; "Sheep + Goat · 3 lines" for a mixed one. The
+ * deal-level product/breed read "Mixed" on a mixed sale -- a rollup word, not farm language --
+ * so cards and subtitles say what was actually sold instead.
+ */
+internal fun SalesDealDto.soldSummary(): String {
+    if (lines.size <= 1) return dotJoin(productType, breed)
+    val products = lines.map { it.productType }.distinct().joinToString(" + ")
+    return dotJoin(products, "${lines.size} lines")
+}
 
 internal fun SalesDealDto.sections(): List<VendorsDetailSectionUi> {
     fun rows(vararg pairs: Pair<String, String?>) = pairs.mapNotNull { (label, value) -> value?.takeIf { it.isNotBlank() }?.let { VendorsDetailRowUi(label, it) } }
@@ -269,7 +280,7 @@ class SaleDetailViewModel @Inject constructor(
             val live = deal.productType != "Manure" && deal.status != "Deal Failed" && !complete
             SaleDetailUiState(
                 title = deal.buyerName,
-                subtitle = dotJoin(deal.productType, deal.breed, deal.farm, farmDate(deal.saleDate)),
+                subtitle = dotJoin(deal.soldSummary(), deal.farm, farmDate(deal.saleDate)),
                 statusLabel = deal.status,
                 statusTone = saleStatusTone(deal.status, options),
                 sections = deal.sections(),
@@ -958,7 +969,7 @@ class SaleTagAnimalsViewModel @Inject constructor(
         val remaining = declared?.let { it - l.alreadyTagged - l.picked.size }
         SaleTagAnimalsUiState(
             step = l.step,
-            saleLine = deal?.let { dotJoin(it.buyerName, it.productType, it.breed, animalsLine(it.animalCount)) }.orEmpty(),
+            saleLine = deal?.let { dotJoin(it.buyerName, it.soldSummary(), animalsLine(it.animalCount)) }.orEmpty(),
             parks = l.locations?.parks.orEmpty().map { VendorsOptionUi(it.parkId, it.label) },
             selectedParkId = l.parkId,
             pens = l.locations?.locations.orEmpty().filter { it.parkId == l.parkId }.map { VendorsOptionUi(penKey(it.shedId, it.partitionLabel), it.operationalLocationDisplay) },
