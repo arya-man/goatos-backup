@@ -2,10 +2,13 @@ package app
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"math"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/vgoats/goatos/backend/internal/herdsignals/domain"
@@ -22,6 +25,12 @@ type Service struct {
 }
 
 const liveSignalCohortLimit = 20000
+
+type riskLiveCursor struct {
+	Key   string `json:"key"`
+	Dir   string `json:"dir"`
+	TagID string `json:"tag_id"`
+}
 
 // NewService creates a new herd signals service.
 func NewService(repo ports.Repository, log ...*slog.Logger) *Service {
@@ -187,22 +196,7 @@ func (s *Service) ListLive(ctx context.Context, actor domain.Actor, parkID, shed
 			}
 		}
 		summary := summaryFromItems(filtered)
-		if cursor != "" {
-			start := len(filtered)
-			for i, item := range filtered {
-				if item.TagID == cursor {
-					start = i + 1
-					break
-				}
-			}
-			filtered = filtered[start:]
-		}
-		nextCursor := (*string)(nil)
-		if len(filtered) > limit {
-			next := filtered[limit-1].TagID
-			nextCursor = &next
-			filtered = filtered[:limit]
-		}
+		filtered, nextCursor := pageRiskFilteredItems(filtered, cursor, limit, sort)
 		return domain.LiveResponse{
 			Summary:    summary,
 			Items:      filtered,
@@ -232,6 +226,83 @@ func (s *Service) ListLive(ctx context.Context, actor domain.Actor, parkID, shed
 		Items:      items,
 		NextCursor: nextCursor,
 	}, nil
+}
+
+func pageRiskFilteredItems(items []domain.LiveItem, cursor string, limit int, sort domain.LiveSort) ([]domain.LiveItem, *string) {
+	if limit <= 0 {
+		limit = 25
+	}
+	start := 0
+	if c, ok := decodeRiskLiveCursor(cursor, sort); ok {
+		for i, item := range items {
+			if item.TagID == c.TagID {
+				start = i + 1
+				break
+			}
+		}
+	} else if cursor != "" {
+		// Compatibility for the buggy first version of the risk filter, which emitted a bare tag_id.
+		for i, item := range items {
+			if item.TagID == cursor {
+				start = i + 1
+				break
+			}
+		}
+	}
+
+	if start >= len(items) {
+		return []domain.LiveItem{}, nil
+	}
+	end := start + limit
+	if end >= len(items) {
+		return items[start:], nil
+	}
+	page := items[start:end]
+	next := encodeRiskLiveCursor(page[len(page)-1], sort)
+	return page, &next
+}
+
+func encodeRiskLiveCursor(item domain.LiveItem, sort domain.LiveSort) string {
+	c := riskLiveCursor{Key: normalizedRiskSortKey(sort), Dir: normalizedRiskSortDir(sort), TagID: item.TagID}
+	raw, _ := json.Marshal(c)
+	return "risk.v1." + base64.RawURLEncoding.EncodeToString(raw)
+}
+
+func decodeRiskLiveCursor(raw string, sort domain.LiveSort) (riskLiveCursor, bool) {
+	if !strings.HasPrefix(raw, "risk.v1.") {
+		return riskLiveCursor{}, false
+	}
+	decoded, err := base64.RawURLEncoding.DecodeString(strings.TrimPrefix(raw, "risk.v1."))
+	if err != nil {
+		return riskLiveCursor{}, false
+	}
+	var c riskLiveCursor
+	if err := json.Unmarshal(decoded, &c); err != nil {
+		return riskLiveCursor{}, false
+	}
+	if c.TagID == "" || c.Key != normalizedRiskSortKey(sort) || c.Dir != normalizedRiskSortDir(sort) {
+		return riskLiveCursor{}, false
+	}
+	return c, true
+}
+
+func normalizedRiskSortKey(sort domain.LiveSort) string {
+	switch sort.Key {
+	case "smart_tag", "tag_temp", "motion_count", "delta_15m", "delta_1h", "last_seen":
+		return sort.Key
+	default:
+		return "last_seen"
+	}
+}
+
+func normalizedRiskSortDir(sort domain.LiveSort) string {
+	if sort.Dir == "desc" {
+		return "desc"
+	}
+	if normalizedRiskSortKey(sort) == "last_seen" && sort.Key == "" {
+		return "desc"
+	}
+	return "asc"
 }
 
 // GetTimeline fetches motion history for a tag.

@@ -14,11 +14,39 @@ import (
 type fakeRepo struct {
 	ports.Repository
 	ingestGotPackets []domain.Packet
+	livePages        []domain.TagLatest
 }
 
 func (f *fakeRepo) IngestPackets(_ context.Context, _ string, _ domain.Gateway, packets []domain.Packet) (int, int, error) {
 	f.ingestGotPackets = packets
 	return len(packets), len(packets), nil
+}
+
+func (f *fakeRepo) ListTagsLatestPage(_ context.Context, _ string, _, _, _, _, _, _ *string, _ string, limit int, _ ...domain.LiveSort) ([]domain.TagLatest, error) {
+	if limit <= 0 || limit > len(f.livePages) {
+		limit = len(f.livePages)
+	}
+	return append([]domain.TagLatest(nil), f.livePages[:limit]...), nil
+}
+
+func (f *fakeRepo) ResolveTagsBatch(_ context.Context, _ string, _ []string) (map[string]string, error) {
+	return map[string]string{}, nil
+}
+
+func (f *fakeRepo) GetGoatsByIDs(_ context.Context, _ string, _ []string) (map[string]ports.GoatData, error) {
+	return map[string]ports.GoatData{}, nil
+}
+
+func (f *fakeRepo) GetShedLocations(_ context.Context, _ string, _ []string) (map[string]ports.ShedLocation, error) {
+	return map[string]ports.ShedLocation{}, nil
+}
+
+func (f *fakeRepo) GetBaselineDeltas(_ context.Context, _ string, _ []string) (map[string]int64, error) {
+	return map[string]int64{}, nil
+}
+
+func (f *fakeRepo) GetBatteryHistory(_ context.Context, _ string, _ []string, _ int) (map[string]ports.BatteryHistoryPoint, error) {
+	return map[string]ports.BatteryHistoryPoint{}, nil
 }
 
 // TestIngestPacketsUsesPerPacketGatewaySeenAt is the direct proof for the gateway-payload audit's
@@ -126,5 +154,50 @@ func TestIngestPacketsStampsReceivedAtFromServerClockNotCaller(t *testing.T) {
 	}
 	if tagB.DeviceSeenAt != nil {
 		t.Errorf("tag-b DeviceSeenAt = %v, want nil (its seen_at was malformed)", tagB.DeviceSeenAt)
+	}
+}
+
+func TestListLiveRiskFilterPaginatesAfterFilteredRowsAndKeepsWholeSummary(t *testing.T) {
+	now := time.Now().UTC()
+	falseValue := false
+	repo := &fakeRepo{livePages: []domain.TagLatest{
+		{TagID: "A00001", LastSeenAt: now, PatternState: "inactive", MappingState: "unmapped", TemperatureSensorOK: &falseValue},
+		{TagID: "A00002", LastSeenAt: now.Add(-time.Minute), PatternState: "inactive", MappingState: "unmapped", TemperatureSensorOK: &falseValue},
+		{TagID: "A00003", LastSeenAt: now.Add(-2 * time.Minute), PatternState: "inactive", MappingState: "unmapped", TemperatureSensorOK: &falseValue},
+	}}
+	svc := NewService(repo)
+	actor := domain.Actor{TenantID: "tenant-1", UserID: "user-1"}
+	risk := "high"
+	sort := domain.LiveSort{Key: "smart_tag", Dir: "asc"}
+
+	first, err := svc.ListLive(context.Background(), actor, nil, nil, nil, nil, nil, &risk, nil, "", 2, sort)
+	if err != nil {
+		t.Fatalf("ListLive first page: %v", err)
+	}
+	if len(first.Items) != 2 {
+		t.Fatalf("first page len = %d, want 2", len(first.Items))
+	}
+	if first.Items[0].TagID != "A00001" || first.Items[1].TagID != "A00002" {
+		t.Fatalf("first page tags = %v, want A00001/A00002", []string{first.Items[0].TagID, first.Items[1].TagID})
+	}
+	if first.NextCursor == nil || *first.NextCursor == "A00002" {
+		t.Fatalf("next cursor = %v, want opaque risk cursor", first.NextCursor)
+	}
+	if first.Summary.TagsSeen != 3 || first.Summary.UnmappedTags != 3 {
+		t.Fatalf("summary = %+v, want whole filtered set of 3 unmapped tags", first.Summary)
+	}
+
+	second, err := svc.ListLive(context.Background(), actor, nil, nil, nil, nil, nil, &risk, nil, *first.NextCursor, 2, sort)
+	if err != nil {
+		t.Fatalf("ListLive second page: %v", err)
+	}
+	if len(second.Items) != 1 || second.Items[0].TagID != "A00003" {
+		t.Fatalf("second page tags = %+v, want only A00003", second.Items)
+	}
+	if second.NextCursor != nil {
+		t.Fatalf("second next cursor = %v, want nil", *second.NextCursor)
+	}
+	if second.Summary.TagsSeen != 3 || second.Summary.UnmappedTags != 3 {
+		t.Fatalf("second summary = %+v, want whole filtered set of 3 unmapped tags", second.Summary)
 	}
 }
