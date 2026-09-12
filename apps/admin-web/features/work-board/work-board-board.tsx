@@ -250,9 +250,19 @@ function WorkCard({ pageContract, row, href }: { pageContract: AdminUiPageContra
   );
 }
 
+// One column's own page: its rows, its Next/Prev, and where in its list it sits.
+export type WorkBoardLaneColumn = {
+  lane: string;
+  rows: WorkBoardRow[];
+  nextHref: string | null;
+  previousHref: string | null;
+  pageNumber: number;
+  pageSize: number;
+};
+
 export function WorkBoardBoard({
   pageContract,
-  rows,
+  columns: laneColumns,
   summary,
   moduleOptions: visibleModules,
   selectedModules,
@@ -270,7 +280,7 @@ export function WorkBoardBoard({
   hrefForRow,
 }: {
   pageContract: AdminUiPageContract;
-  rows: WorkBoardRow[];
+  columns: WorkBoardLaneColumn[];
   summary: WorkBoardSummary | null;
   moduleOptions: AdminUiOption[];
   selectedModules: string[];
@@ -288,6 +298,7 @@ export function WorkBoardBoard({
   hrefForRow: Record<string, string>;
 }) {
   const { write, pending } = useUrlWriter();
+  const rows = useMemo(() => laneColumns.flatMap((column) => column.rows), [laneColumns]);
   const [q, setQ] = useState("");
   const shown = useMemo(() => {
     const needle = q.trim().toLowerCase();
@@ -301,6 +312,7 @@ export function WorkBoardBoard({
   const columns = lanes(pageContract);
   const byLane = new Map<string, WorkBoardRow[]>();
   for (const row of shown) byLane.set(row.lane, [...(byLane.get(row.lane) ?? []), row]);
+  const pagerFor = new Map(laneColumns.map((column) => [column.lane, column]));
   const searching = q.trim().length > 0;
   return (
     <>
@@ -338,6 +350,11 @@ export function WorkBoardBoard({
         {columns.map((column) => {
           const list = byLane.get(column.key) ?? [];
           const count = searching || !summary ? list.length : summary.by_lane[column.key] ?? 0;
+          const pager = pagerFor.get(column.key);
+          const page = pager?.rows.length ?? 0;
+          const first = pager && page ? (pager.pageNumber - 1) * pager.pageSize + 1 : 0;
+          const last = pager && page ? (pager.pageNumber - 1) * pager.pageSize + page : 0;
+          const paged = Boolean(pager && (pager.nextHref || pager.previousHref));
           return (
             <div className="col" key={column.key} title={column.title}>
               <div className="ch">
@@ -349,11 +366,32 @@ export function WorkBoardBoard({
                 {list.length ? (
                   list.map((row) => <WorkCard key={row.row_key} pageContract={pageContract} row={row} href={hrefForRow[row.row_key] ?? "#"} />)
                 ) : (
-                  // The header count is whole-filter; a lane with work on OTHER pages but none on
-                  // this one says so, instead of "Nothing here" under a non-zero count.
+                  // The header count is whole-filter; a column with work on OTHER pages but none
+                  // on this one says so, instead of "Nothing here" under a non-zero count.
                   <div className="empty">{count > 0 ? copy(pageContract, "lane.empty.other_pages") : copy(pageContract, "lane.empty")}</div>
                 )}
               </div>
+              {paged && !searching ? (
+                // Each column pages on its own: the header stays the whole count, the footer
+                // says which slice of it this is.
+                <div className="colpager">
+                  <span className="muted small">
+                    <b>{first}–{last}</b> {copy(pageContract, "drawer.subtasks.of")} <b>{count}</b>
+                  </span>
+                  <span className="pgnav">
+                    {pager?.previousHref ? (
+                      <Link className="more" href={pager.previousHref} aria-label={`${column.label}: ${copy(pageContract, "action.previous")}`}>‹</Link>
+                    ) : (
+                      <span className="more" aria-disabled="true">‹</span>
+                    )}
+                    {pager?.nextHref ? (
+                      <Link className="more" href={pager.nextHref} aria-label={`${column.label}: ${copy(pageContract, "action.next")}`}>›</Link>
+                    ) : (
+                      <span className="more" aria-disabled="true">›</span>
+                    )}
+                  </span>
+                </div>
+              ) : null}
             </div>
           );
         })}

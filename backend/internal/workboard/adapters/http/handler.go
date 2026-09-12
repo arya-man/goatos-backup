@@ -242,6 +242,37 @@ func (h *Handler) query(w http.ResponseWriter, r *http.Request) (domain.Query, b
 		}
 		states = append(states, domain.WorkState(raw))
 	}
+	// `lane` is a column read: it expands to the lane's states so each column can page on
+	// its own. With `state` as well, the two intersect.
+	if lanes := splitCSV(qs.Get("lane")); len(lanes) > 0 {
+		laneStates := []domain.WorkState{}
+		for _, raw := range lanes {
+			if !domain.IsLane(raw) {
+				h.writeErr(w, r, http.StatusBadRequest, "invalid_lane", "That column is not on the board.")
+				return domain.Query{}, false, false
+			}
+			laneStates = append(laneStates, domain.StatesInLane(domain.Lane(raw))...)
+		}
+		if len(states) == 0 {
+			states = laneStates
+		} else {
+			keep := map[domain.WorkState]struct{}{}
+			for _, s := range laneStates {
+				keep[s] = struct{}{}
+			}
+			both := []domain.WorkState{}
+			for _, s := range states {
+				if _, ok := keep[s]; ok {
+					both = append(both, s)
+				}
+			}
+			states = both
+			if len(states) == 0 {
+				// A state outside the lane: an empty column, never an error.
+				states = []domain.WorkState{domain.WorkStateNone}
+			}
+		}
+	}
 
 	actor := strings.TrimSpace(httpmiddleware.ActorIDFromContext(ctx))
 	oversee := hasPermission(perms, permissions.WorkBoardOversee)

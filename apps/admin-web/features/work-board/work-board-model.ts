@@ -151,3 +151,21 @@ export function dayLabel(iso?: string): string {
 export function parkLabel(parks: AdminUiOption[], row: WorkBoardRow): string {
   return findOption(parks, row.park_id)?.label || row.park_name || row.park_id;
 }
+
+// Each column pages on its own cursor: `c_<lane>` (with the shared helpers' page/stack twins),
+// so Done can show its 117 rows twelve at a time without the other columns moving.
+export function laneCursorParam(lane: string): string {
+  return `c_${lane}`;
+}
+
+// The URL keys every per-column pager writes, so a park/date/filter change resets them all.
+export function laneCursorParams(laneKeys: string[]): Record<string, undefined> {
+  const out: Record<string, undefined> = {};
+  for (const lane of laneKeys) {
+    const key = laneCursorParam(lane);
+    out[key] = undefined;
+    out[`${key}_page`] = undefined;
+    out[`${key}_stack`] = undefined;
+  }
+  return out;
+}

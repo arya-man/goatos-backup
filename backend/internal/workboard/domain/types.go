@@ -128,6 +128,32 @@ func LaneFor(state WorkState) Lane {
 	}
 }
 
+// StatesInLane is the inverse of LaneFor: every work state a lane holds, so a column can be
+// read on its own (`lane=done` is the same read as `state=completed`, spelled by the lane).
+func StatesInLane(lane Lane) []WorkState {
+	out := []WorkState{}
+	for _, s := range WorkStates() {
+		if LaneFor(s) == lane {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// WorkStateNone is the state no row holds: a filter that must match nothing (a state asked
+// for outside the lane asked for) binds it, so "no states" never reads as "every state".
+const WorkStateNone WorkState = "none"
+
+// IsLane reports whether raw names a lane.
+func IsLane(raw string) bool {
+	for _, l := range Lanes() {
+		if string(l) == raw {
+			return true
+		}
+	}
+	return false
+}
+
 // OwnerState says how a row came to have (or lack) an owner. It is the board's own
 // vocabulary because process integrity's two values cannot say "this is a claim pool".
 type OwnerState string
