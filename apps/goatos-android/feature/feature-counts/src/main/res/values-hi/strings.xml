@@ -102,6 +102,7 @@
     <string name="counts_hint_comment">वैकल्पिक। इस बदलाव को मंज़ूरी देने वाले फ़ार्म प्रमुख और आपका वीडियो जाँचने वाला समीक्षक इसे पढ़ेंगे।</string>
     <string name="counts_category_spacing">जगह बनाना</string>
     <string name="counts_category_flushing">फ्लशिंग</string>
+    <string name="counts_category_normal">सामान्य</string>
     <string name="counts_shifting_selected_count">स्थानांतरित किए जा रहे पशु (%1$d)</string>
     <string name="counts_shifting_remove_animal">इस पशु को स्थानांतरण से हटाएँ</string>
     <string name="counts_shifting_confirm_title">%1$d पशु ले जाएँ?</string>

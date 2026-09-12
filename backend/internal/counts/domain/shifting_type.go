@@ -19,11 +19,16 @@ import (
 //	delivery  -> destination tag, except it NEVER stamps the newborn stage (that tag is the kids')
 //	spacing   -> tag travels with the animals; the whole pen moves; the destination must agree
 //	flushing  -> the Flushing tag; destination must be empty or already flushing
+//	normal    -> tag never changes; any selection; destination empty or already holding that tag
 //
 // Three shapes underneath the six types: PROGRESSION (growth, flushing -- the animal changed, take
 // the destination tag), TEMPORARY RESIDENCE (breeding, delivery, health -- a visitor; health is the
 // exception because being in ICU IS a change), and CAPACITY (spacing -- nothing changed, the tag
-// travels and the PEN adapts).
+// travels and the PEN adapts). NORMAL (maintainer decision 2026-09-12) is the seventh type and the
+// plainest: a move with no reason beyond "put these animals there". It stamps nothing, configures
+// no pen, and asks only that the destination be empty or already hold an animal carrying the same
+// tag -- the case with no legal type before it existed was Yashoda 3 (fattening males) into
+// Yashoda 9, a mixed pen authored F2-Female that in fact held fattening males too.
 //
 // Everything here is pure Go so the whole rulebook is unit-testable without a database. The
 // handler supplies catalog + goat facts; this file answers with either a decision (target stage +
@@ -37,6 +42,7 @@ const (
 	ShiftTypeDelivery = "delivery"
 	ShiftTypeSpacing  = "spacing"
 	ShiftTypeFlushing = "flushing"
+	ShiftTypeNormal   = "normal"
 )
 
 // NewbornStageCode is the stage a newborn already receives at birth registration. Delivery
@@ -91,10 +97,10 @@ var growthStageSex = map[string]string{
 // rules already carry (FlushingStageName) -- aliased here so this file reads self-contained.
 const FlushingShiftStage = FlushingStageName
 
-// KnownShiftType reports whether s is one of the six typed-raise categories.
+// KnownShiftType reports whether s is one of the seven typed-raise categories.
 func KnownShiftType(s string) bool {
 	switch s {
-	case ShiftTypeHealth, ShiftTypeGrowth, ShiftTypeBreeding, ShiftTypeDelivery, ShiftTypeSpacing, ShiftTypeFlushing:
+	case ShiftTypeHealth, ShiftTypeGrowth, ShiftTypeBreeding, ShiftTypeDelivery, ShiftTypeSpacing, ShiftTypeFlushing, ShiftTypeNormal:
 		return true
 	}
 	return false
@@ -184,9 +190,11 @@ func ResolveShiftTypeDecision(ctx ShiftTypeContext) (ShiftTypeDecision, *ShiftTy
 		return resolveSpacingShift(ctx)
 	case ShiftTypeFlushing:
 		return resolveFlushingShift(ctx)
+	case ShiftTypeNormal:
+		return resolveNormalShift(ctx)
 	}
 	return ShiftTypeDecision{}, refuse("invalid_category",
-		"category must be growth, health, breeding, delivery, spacing, or flushing")
+		"category must be growth, health, breeding, delivery, spacing, flushing, or normal")
 }
 
 // destinationEffectiveTag is the tag the destination pen offers a movement: the authored tag
@@ -367,6 +375,45 @@ func resolveFlushingShift(ctx ShiftTypeContext) (ShiftTypeDecision, *ShiftTypeRe
 	}
 }
 
+// resolveNormalShift: the plain move (maintainer decision 2026-09-12). Nothing is stamped and no
+// pen is configured; every animal keeps its own tag. Two destinations are acceptable and nothing
+// else is:
+//
+//   - an EMPTY pen accepts any selection, tagged or not;
+//   - an OCCUPIED pen accepts the selection only when, for every tag the selection carries, at
+//     least one live resident already carries that same tag. The check reads the RESIDENTS, never
+//     the pen's authored tag -- a pen authored F2-Female that holds fattening males is, in fact, a
+//     pen fattening males may join, while a pen holding only fattening females is not.
+//
+// Unlike spacing there is no whole-pen rule and no source requirement: any subset of any pen moves.
+func resolveNormalShift(ctx ShiftTypeContext) (ShiftTypeDecision, *ShiftTypeRefusal) {
+	if !ctx.DestinationKnown {
+		return ShiftTypeDecision{}, refuse("destination_not_in_catalog", shiftCopyDestinationUnknown)
+	}
+	if ctx.DestinationHeadCount == 0 {
+		return ShiftTypeDecision{}, nil
+	}
+	for _, animal := range ctx.Animals {
+		stage := strings.TrimSpace(animal.Stage)
+		if stage == "" {
+			return ShiftTypeDecision{}, refuse("group_stage_unknown", shiftCopyGroupStageUnknown)
+		}
+		if !stageListContains(ctx.DestinationResidentStages, stage) {
+			return ShiftTypeDecision{}, refuse("normal_destination_tag_mismatch", shiftCopyNormalDestinationMismatch)
+		}
+	}
+	return ShiftTypeDecision{}, nil
+}
+
+func stageListContains(stages []string, stage string) bool {
+	for _, s := range stages {
+		if strings.EqualFold(strings.TrimSpace(s), stage) {
+			return true
+		}
+	}
+	return false
+}
+
 func residentsAllFlushing(stages []string) bool {
 	if len(stages) == 0 {
 		return false
@@ -458,6 +505,8 @@ const (
 
 	shiftCopyFlushingFemaleOnly          = "Only female animals can move onto flushing"
 	shiftCopyFlushingDestinationMismatch = "Flushing needs an empty pen or a pen already on flushing"
+
+	shiftCopyNormalDestinationMismatch = "This pen holds no animal with the same tag as the ones you are moving. Pick an empty pen, or a pen already holding this tag"
 
 	shiftCopyGroupStageUnknown = "An animal in this group has no tag, so the group's tag cannot be carried"
 	shiftCopyGroupStageMixed   = "These animals carry different tags, so one tag cannot be carried for the group"

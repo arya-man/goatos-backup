@@ -16,7 +16,7 @@ remains rejected as an unknown field; the server resolves every tag from the sam
 renders plus the animals' canonical facts. Approve-first, mandatory completion video, the
 unconditional close gate, and the feed projection coupling are all untouched.
 
-## The six types and their tag rules
+## The seven types and their tag rules
 
 | Type | Tag rule |
 |------|----------|
@@ -26,8 +26,18 @@ unconditional close gate, and the feed projection coupling are all untouched.
 | `delivery` | Destination pen's tag, EXCEPT it never stamps the newborn stage (`K0` belongs to the kids — a mother entering the kidding pen keeps her own tag). Into an EMPTY untagged pen (the one-day recovery shed) she keeps her tag and the pen ADOPTS it ("mother only at that time"). |
 | `spacing` | The tag **travels with the animals**; the WHOLE source pen moves ("half-half is not an option") and is left empty. The destination must already carry the same tag, or be EMPTY — an empty pen ADOPTS the group's tag. Anything else refuses at raise. |
 | `flushing` | Non-pregnant females move onto flushing ration and adopt the **Flushing** tag. Females only. Destination must be empty (it becomes a flushing pen, adopting the tag) or already flushing — including an unconfigured pen whose residents are all flushing in fact. |
+| `normal` | **The plain move (maintainer decision 2026-09-12).** Any selection of animals — no whole-pen rule, no source requirement. The tag **never changes** and no pen is re-tagged. The destination must be EMPTY, or already hold at least one live animal carrying each tag the selection carries. The check reads the **residents**, never the pen's authored tag: a pen authored `F2-Female` that in fact holds fattening males may receive fattening males; a pen holding only fattening females may not. Refusal: `normal_destination_tag_mismatch`. |
 
-Three shapes underneath the six: **PROGRESSION** (growth, flushing — the animal changed, take the
+Why `normal` exists: on 2026-09-12 the live farm had Yashoda 3 (17 fattening males, authored
+`F2-Male`) to be emptied into Yashoda 9 (authored `F2-Female`, in fact holding F2-Female, K3 and
+F2-Male animals). No type could raise it honestly — `spacing` compared authored tags (`F2-Male` ≠
+`F2-Female`), `growth` has no `F2-Male -> F2-Female` edge, and the three types that DID accept it
+(`breeding`, `health`, `delivery`) either record a false reason or stamp `F2-Female` on males. The
+maintainer's rule: normal shifting happens in exactly two cases — the destination is empty, or it
+already has an animal with the same tag — and in both the tag stays what it was. `spacing` is
+unchanged beside it.
+
+Three shapes underneath the seven: **PROGRESSION** (growth, flushing — the animal changed, take the
 destination tag), **TEMPORARY RESIDENCE** (breeding, delivery, health — a visitor; health is the
 exception because being in ICU IS a change), and **CAPACITY** (spacing — nothing changed, the tag
 travels and the PEN adapts).
@@ -74,7 +84,7 @@ a reason). Codes: `invalid_category`, `destination_not_in_catalog`, `destination
 `growth_not_next_stage`, `growth_sex_mismatch`, `spacing_source_unresolved`,
 `spacing_partial_group`, `spacing_destination_occupied`, `spacing_destination_mismatch`,
 `flushing_requires_female`, `flushing_destination_mismatch`, `group_stage_unknown`,
-`group_stage_mixed`.
+`group_stage_mixed`, `normal_destination_tag_mismatch`.
 
 Destination tag resolution reuses the same order the catalog advertises: the pen's AUTHORED tag
 first, else the residents' single shared non-clinical stage, else refusal — never `rows[0]`, never
@@ -103,9 +113,10 @@ an invented cohort (agree-or-go-bare).
 - Pen adoption — `backend/internal/identity/adapters/postgres/shed_cohort_adopt.go` (same write as
   the Counts Breakdown Stage editor; different guard)
 - Schema — `backend/migrations/postgres/000179_shifting_type_tag_rules.sql` (category vocabulary
-  +spacing +flushing; `adopt_pen_tag` snapshot column)
+  +spacing +flushing; `adopt_pen_tag` snapshot column); `000294_shifting_normal_category.sql`
+  (+normal)
 - Contract — `contracts/openapi/app-api.yaml` `ShiftingEventRequest.category` / `stage_mode`
-- Android — `feature-counts/ShiftingScreen.kt` (six category chips; tag toggle removed, replaced by
+- Android — `feature-counts/ShiftingScreen.kt` (seven category chips; tag toggle removed, replaced by
   read-only backend-owned destination-tag context)
 
 ## Relationship to standing locks

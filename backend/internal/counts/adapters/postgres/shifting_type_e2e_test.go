@@ -285,3 +285,128 @@ SELECT count(*) FROM counts_approval_requests WHERE tenant_id = $1::uuid AND rai
 		t.Fatalf("goat stage=%q after a refused raise, want untouched K3", got)
 	}
 }
+
+// A NORMAL raise, end to end (maintainer decision 2026-09-12). The live case that had no legal
+// type: fattening males leaving a pen authored F2-Male for a pen AUTHORED F2-Female that in fact
+// holds fattening males too (Yashoda 3 -> Yashoda 9). The rule reads the RESIDENTS, so the raise
+// goes through; nothing is stamped, the pen is NOT re-tagged, and -- unlike spacing -- only part of
+// the source pen moves. The same fixture then proves the refusal: a pen holding only fattening
+// females turns the raise away before anything durable exists.
+func TestTypedNormalEndToEndMovesPartOfAPenAndNeverTouchesATag(t *testing.T) {
+	ctx := context.Background()
+	pool := setupCountsDB(t, ctx)
+	mux, repo := typedE2EStack(t, pool)
+
+	moverA := "00000000-0000-4000-8000-00000000e2e4"
+	moverB := "00000000-0000-4000-8000-00000000e2e5"
+	stayer := "00000000-0000-4000-8000-00000000e2e6"
+	for _, id := range []string{moverA, moverB, stayer} {
+		seedApprovalGoatWithStage(t, ctx, pool, id, countsShedA, "F2-Male")
+	}
+	seedStageVocabulary(t, ctx, pool, "F2-Male")
+	seedStageVocabulary(t, ctx, pool, "K3")
+	// The destination: authored F2-Female, holding a fattening female, a weaned kid, and ONE
+	// fattening male -- the resident that makes this pen one fattening males may join.
+	seedShedProfile(t, ctx, pool, countsShedB, "F2-Female")
+	residentFemale := "00000000-0000-4000-8000-00000000e2e7"
+	residentKid := "00000000-0000-4000-8000-00000000e2e8"
+	residentMale := "00000000-0000-4000-8000-00000000e2e9"
+	seedApprovalGoatWithStage(t, ctx, pool, residentFemale, countsShedB, "F2-Female")
+	seedApprovalGoatWithStage(t, ctx, pool, residentKid, countsShedB, "K3")
+	seedApprovalGoatWithStage(t, ctx, pool, residentMale, countsShedB, "F2-Male")
+
+	res := raiseTypedShifting(t, mux, "e2e-normal", domain.ShiftTypeNormal, []string{moverA, moverB})
+	if res.Code != http.StatusOK {
+		t.Fatalf("raise status=%d body=%s, want 200", res.Code, res.Body.String())
+	}
+	var raised struct {
+		ShiftingEventID string `json:"shifting_event_id"`
+	}
+	if err := json.Unmarshal(res.Body.Bytes(), &raised); err != nil {
+		t.Fatalf("decode raise response %q: %v", res.Body.String(), err)
+	}
+
+	// HALF ONE: the stored row carries the type and NO tag decision of any kind.
+	category, targetStage, adoptPenTag := storedShiftingSnapshot(t, ctx, pool, raised.ShiftingEventID)
+	if category != domain.ShiftTypeNormal {
+		t.Fatalf("stored category=%q, want normal", category)
+	}
+	if targetStage != "" || adoptPenTag != "" {
+		t.Fatalf("stored target=%q adopt=%q, want both empty -- normal never stamps or re-tags", targetStage, adoptPenTag)
+	}
+
+	approvalRequestID := pendingApprovalForShifting(t, ctx, pool, raised.ShiftingEventID)
+	if _, _, err := approveShifting(
+		repo, ctx, "e2e-normal", approvalRequestID, raised.ShiftingEventID, []string{moverA, moverB}); err != nil {
+		t.Fatalf("park-head approval: %v", err)
+	}
+	for _, id := range []string{moverA, moverB} {
+		if got := goatShed(t, ctx, pool, id); got != countsShedA {
+			t.Fatalf("goat %s shed=%s after approval alone, want still at source", id, got)
+		}
+	}
+	completed, _, err := submitShiftingForVerification(repo, ctx, "e2e-normal", raised.ShiftingEventID, "")
+	if err != nil {
+		t.Fatalf("operator completion: %v", err)
+	}
+	if completed.EventStatus != domain.ShiftingEventStatusApplied {
+		t.Fatalf("event status=%q after completion, want applied", completed.EventStatus)
+	}
+
+	// HALF TWO: the movers are in the destination on their OWN tag, the stayer never moved, the
+	// destination's authored tag is untouched, and the residents are untouched.
+	for _, id := range []string{moverA, moverB} {
+		if got := goatShed(t, ctx, pool, id); got != countsShedB {
+			t.Fatalf("goat %s shed=%s, want destination %s", id, got, countsShedB)
+		}
+		if got := goatStage(t, ctx, pool, id); got != "F2-Male" {
+			t.Fatalf("goat %s stage=%q, want F2-Male carried unchanged (destination is authored F2-Female)", id, got)
+		}
+	}
+	if got := goatShed(t, ctx, pool, stayer); got != countsShedA {
+		t.Fatalf("stayer shed=%s, want untouched source -- normal moves the selection, not the pen", got)
+	}
+	if got := shedProfileStage(t, ctx, pool, countsShedB); got != "F2-Female" {
+		t.Fatalf("destination configured stage=%q, want F2-Female untouched -- normal never re-tags a pen", got)
+	}
+	for id, want := range map[string]string{residentFemale: "F2-Female", residentKid: "K3", residentMale: "F2-Male"} {
+		if got := goatStage(t, ctx, pool, id); got != want {
+			t.Fatalf("resident %s stage=%q, want %q untouched", id, got, want)
+		}
+	}
+
+	// THE REFUSAL, same farm: once the only fattening male resident leaves, the pen holds no
+	// animal with the stayer's tag and a normal raise is turned away before anything is written.
+	if _, err := pool.Exec(ctx, `
+UPDATE goats SET management_stage = 'K3'
+WHERE tenant_id = $1::uuid AND goat_id = ANY($2::uuid[])`,
+		countsTenant, []string{moverA, moverB, residentMale}); err != nil {
+		t.Fatalf("re-tag residents for the refusal case: %v", err)
+	}
+	before := time.Now()
+	res = raiseTypedShifting(t, mux, "e2e-normal-refused", domain.ShiftTypeNormal, []string{stayer})
+	if res.Code != http.StatusBadRequest {
+		t.Fatalf("raise status=%d body=%s, want 400", res.Code, res.Body.String())
+	}
+	var failure struct {
+		Code    string `json:"code"`
+		Message string `json:"message"`
+	}
+	if err := json.Unmarshal(res.Body.Bytes(), &failure); err != nil {
+		t.Fatalf("decode refusal %q: %v", res.Body.String(), err)
+	}
+	if failure.Code != "normal_destination_tag_mismatch" {
+		t.Fatalf("refusal code=%q, want normal_destination_tag_mismatch (body %s)", failure.Code, res.Body.String())
+	}
+	if failure.Message != "This pen holds no animal with the same tag as the ones you are moving. Pick an empty pen, or a pen already holding this tag" {
+		t.Fatalf("refusal message=%q, want the farm-worded reason", failure.Message)
+	}
+	if got := countRows(t, ctx, pool, `
+SELECT count(*) FROM shifting_events WHERE tenant_id = $1::uuid AND created_at >= $2`,
+		countsTenant, before); got != 0 {
+		t.Fatalf("refused raise wrote %d shifting event(s), want 0", got)
+	}
+	if got := goatShed(t, ctx, pool, stayer); got != countsShedA {
+		t.Fatalf("stayer shed=%s after a refused raise, want untouched", got)
+	}
+}

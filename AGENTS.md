@@ -1281,7 +1281,12 @@ ladder (one reverse edge, Pregnant → Non-Pregnant; sexed stages refuse the wro
 newborn stage (into an empty untagged recovery shed the mother keeps her tag and the pen
 ADOPTS it); `spacing` moves the WHOLE source pen carrying its tag ("half-half is not an
 option") into a same-tag or empty destination (an empty pen adopts the tag); `flushing`
-moves females onto the Flushing tag into an empty or already-flushing pen. A raise a
+moves females onto the Flushing tag into an empty or already-flushing pen; `normal`
+(maintainer decision 2026-09-12) is the plain move — ANY selection, the tag NEVER changes, no pen
+is re-tagged, and the destination must be EMPTY or already hold a live animal carrying the moving
+animals' tag, read from the RESIDENTS and never from the pen's authored tag (Yashoda 3 fattening
+males into Yashoda 9, authored F2-Female but holding fattening males, is allowed; into a pen
+holding only fattening females is refused). `spacing` stays unchanged beside it. A raise a
 rule refuses is rejected at RAISE time with backend-owned farm copy — before approval and
 before any video. Pen adoption is snapshotted at raise (`adopt_pen_tag`, migration
 000179) and re-validated under the apply row lock, failing the whole apply closed
