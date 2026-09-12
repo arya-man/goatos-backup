@@ -35,6 +35,7 @@ func TestImportSalesDBIsIdempotent(t *testing.T) {
 
 	for table, want := range map[string]int{
 		"sales_deals":             len(fixture.Deals),
+		"sales_deal_lines":        len(fixture.Deals),
 		"sales_buyer_leads":       len(fixture.BuyerLeads),
 		"sales_fpo_leads":         len(fixture.FPOLeads),
 		"sales_sold_animal_tags":  len(fixture.SoldAnimalTags),

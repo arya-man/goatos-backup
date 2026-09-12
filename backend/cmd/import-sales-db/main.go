@@ -405,6 +405,33 @@ func importDeals(ctx context.Context, tx pgx.Tx, tenantID string, deals []fixtur
 	if err != nil {
 		return fmt.Errorf("deals upsert: %w", err)
 	}
+
+	// Every sheet row is a SINGLE-LINE sale (migration 000294): mirror its own columns onto one
+	// line, the same way the migration backfilled the deals already recorded. Set-based, keyed
+	// by source_row_no, and REPLACING that one line on a re-run so an updated sheet row cannot
+	// leave a stale line beside the fresh deal.
+	// Two statements, not one data-modifying CTE: a DELETE in a WITH is not visible to the
+	// INSERT of the same statement, so the re-run tripped the (deal, line_no) unique index.
+	if _, err := tx.Exec(ctx, `
+		DELETE FROM public.sales_deal_lines l
+		USING public.sales_deals d
+		WHERE l.tenant_id = d.tenant_id AND l.deal_id = d.id
+		  AND d.tenant_id = $1 AND d.source_row_no = ANY($2::int[])`,
+		tenantID, rowNos(n)); err != nil {
+		return fmt.Errorf("deal lines clear: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO public.sales_deal_lines (
+			tenant_id, deal_id, line_no, product_type, breed,
+			animal_count, male_count, female_count, total_weight_kg, sales_value
+		)
+		SELECT d.tenant_id, d.id, 1, d.product_type, d.breed,
+		       d.animal_count, d.male_count, d.female_count, d.total_weight_kg, d.sales_value
+		FROM public.sales_deals d
+		WHERE d.tenant_id = $1 AND d.source_row_no = ANY($2::int[])`,
+		tenantID, rowNos(n)); err != nil {
+		return fmt.Errorf("deal lines upsert: %w", err)
+	}
 	return nil
 }
 
