@@ -66,12 +66,14 @@ rework AS (
   SELECT DISTINCT ON (obligation_id)
     tenant_id,
     obligation_id,
-    has_rejected_rework
+    has_rejected_rework,
+    recorded_at
   FROM (
     SELECT
       vc.tenant_id,
       vc.obligation_id,
       vi.status = 'rejected' AS has_rejected_rework,
+      NULL::timestamptz AS recorded_at,
       COALESCE(vi.verified_at, vi.captured_at) AS verdict_at,
       vi.item_id
     FROM verification_items vi
@@ -95,6 +97,7 @@ rework AS (
       vcr.tenant_id,
       vcr.obligation_id,
       true AS has_rejected_rework,
+      vcr.administered_at AS recorded_at,
       COALESCE(vcr.verified_at, vcr.rejected_at) AS verdict_at,
       vcr.rejection_id AS item_id
     FROM vaccination_completion_rejections vcr
@@ -307,7 +310,7 @@ cell AS (
     COALESCE(comp.has_recorded_unverified, false) AS awaiting_verification,
     COALESCE(rework.has_rejected_rework, false)
       AND NOT COALESCE(comp.has_recorded_unverified, false) AS rework_needed,
-    comp.recorded_at
+    COALESCE(comp.recorded_at, rework.recorded_at) AS recorded_at
   FROM obligation_instances oi
   JOIN protocol_rule_dimensions d ON d.rule_id = oi.rule_id AND d.tenant_id = oi.tenant_id
   JOIN goats g ON g.goat_id = oi.target_id AND g.tenant_id = oi.tenant_id

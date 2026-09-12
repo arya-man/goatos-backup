@@ -564,6 +564,55 @@ func TestVaccinationCommandBoardShedVaccineLinksShedVideoAndNeverWeighingCapture
 	}
 }
 
+func TestVaccinationCommandBoardShedVaccineReworkDrawerLinksArchivedRejectedShedVideo(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	tenantID := "00000000-0000-4000-8000-0000000000b7"
+	parkID := uuidFromSuffix("01", "h7")
+	shedID := uuidFromSuffix("02", "h7")
+	protocolVersionID, ruleID := seedCommandBoardProtocol(t, ctx, pool, tenantID, "h7")
+	seedCommandBoardPark(t, ctx, pool, tenantID, parkID, shedID, "Rework Video")
+	seedVaccineDimension(t, ctx, pool, tenantID, protocolVersionID, ruleID,
+		uuidFromSuffix("0b", "h7d"), "sel-a", "ET_TT")
+
+	asOf := time.Date(2026, 8, 7, 12, 0, 0, 0, time.UTC)
+	administeredAt := time.Date(2026, 8, 6, 6, 30, 0, 0, time.UTC)
+	goatID := uuidFromSuffix("03", "h7a")
+	oblID := uuidFromSuffix("08", "h7a")
+	seedBareGoat(t, ctx, pool, tenantID, shedID, goatID, uuidFromSuffix("0a", "h7a"))
+	seedObligation(t, ctx, pool, tenantID, protocolVersionID, ruleID, shedID, goatID, oblID, "missed", administeredAt.Add(-24*time.Hour), "rework-video-a")
+	execProjectionSQL(t, ctx, pool, "archived rejected completion",
+		`INSERT INTO vaccination_completion_rejections (
+		   rejection_id, completion_id, tenant_id, obligation_id, goat_id, administered_at,
+		   original_status, original_idempotency_key, original_row_version,
+		   original_created_at, original_updated_at, rejected_at
+		 ) VALUES ($1, $2, $3, $4, $5, $6::timestamptz,
+		   'recorded', 'rework-video-completion-a', 1,
+		   $6::timestamptz, $6::timestamptz, $7::timestamptz)`,
+		uuidFromSuffix("0d", "h7r"), uuidFromSuffix("09", "h7a"), tenantID, oblID, goatID, administeredAt, administeredAt.Add(2*time.Hour))
+	seedShedVideo(t, ctx, pool, tenantID, shedID, uuidFromSuffix("0c", "h7v"), "shed_video", administeredAt)
+
+	cells := shedVaccineCellsByCode(t, ctx, pool, tenantID, asOf)
+	et := cells["ET_TT"]
+	if et.State != "rework" {
+		t.Fatalf("ET_TT state = %q, want rework; archived rejected completion must open the rework drawer", et.State)
+	}
+	etDrill := shedVaccineDrilldown(t, ctx, pool, tenantID, asOf, et)
+	if len(etDrill.Animals) != 1 || !etDrill.Animals[0].ReworkNeeded {
+		t.Fatalf("rework drawer animals = %#v, want one rework-needed archived rejection row", etDrill.Animals)
+	}
+	if len(etDrill.ProofVideos) != 1 {
+		t.Fatalf("proofVideos = %d, want exactly 1; archived rejected rows must still carry the administered day used to fetch shed proof video", len(etDrill.ProofVideos))
+	}
+	want := "/app/proofs/" + uuidFromSuffix("0c", "h7v") + "/download"
+	if etDrill.ProofVideos[0].Path != want {
+		t.Fatalf("proofVideos[0].Path = %q, want %q", etDrill.ProofVideos[0].Path, want)
+	}
+}
+
 func seedShedVideo(t *testing.T, ctx context.Context, pool *pgxpool.Pool, tenantID, shedID, proofID, fieldKey string, uploadedAt time.Time) {
 	t.Helper()
 	execProjectionSQL(t, ctx, pool, "proof "+fieldKey,
