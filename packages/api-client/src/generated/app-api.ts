@@ -7868,16 +7868,23 @@ export interface components {
              * @description The procurement vendor register row this sale was made to, as an OPAQUE reference -- deliberately not a foreign key, mirroring goat_sale_allocations.sales_deal_id. Null on the imported sheet history, which predates the register. buyer_name stays the snapshot of what the buyer was called at the time of sale.
              */
             buyer_vendor_id?: string | null;
-            /** @enum {string} */
-            product_type: "Sheep" | "Goat" | "Manure";
+            /**
+             * @description The ROLLUP of `lines` (maintainer decision 2026-09-12): the one product every line names, or `Mixed` when the lines disagree. `Mixed` is a summary word, never something a line can carry.
+             * @enum {string}
+             */
+            product_type: "Sheep" | "Goat" | "Manure" | "Mixed";
+            /** @description The one breed every line names, or `Mixed`. */
             breed: string;
-            /** @description Authoritative animal count when recorded; otherwise male_count + female_count applies. */
+            /** @description Rollup of the lines' animal counts (sum of the lines that recorded one; null when none did). Authoritative animal count when recorded; otherwise male_count + female_count applies. */
             animal_count?: number | null;
             male_count?: number | null;
             female_count?: number | null;
             total_weight_kg?: number | null;
             advance_amount?: number | null;
+            /** @description The sum of the lines' values, maintained with the lines in one transaction. */
             sales_value: number;
+            /** @description What was sold, in entry order -- one line per product/breed with its own counts, weight and value. Every deal has at least one; the pre-2026-09-12 history was backfilled as one line each. */
+            lines: components["schemas"]["SalesDealLine"][];
             /** @description Running total of money the buyer has handed over: seeded from the recorded advance, advanced by each receipt inside the same transaction. Null when nothing was received. */
             payment_received?: number | null;
             /** @description BACKEND-derived money the buyer still owes -- sales_value minus payment_received, floored at zero. Clients render this figure and never derive their own. */
@@ -7892,6 +7899,31 @@ export interface components {
             created_at: string;
             /** Format: date-time */
             updated_at: string;
+        };
+        /** @description One product/breed slice of a sale, with its own counts, weight and value. */
+        SalesDealLine: {
+            /** Format: uuid */
+            line_id: string;
+            line_no: number;
+            /** @enum {string} */
+            product_type: "Sheep" | "Goat" | "Manure";
+            breed: string;
+            animal_count?: number | null;
+            male_count?: number | null;
+            female_count?: number | null;
+            total_weight_kg?: number | null;
+            sales_value: number;
+        };
+        /** @description One line of a record-sale body. Value is per line and must be more than zero. */
+        SalesDealLineWrite: {
+            /** @enum {string} */
+            product_type: "Sheep" | "Goat" | "Manure";
+            breed: string;
+            animal_count?: number | null;
+            male_count?: number | null;
+            female_count?: number | null;
+            total_weight_kg?: number | null;
+            sales_value: number;
         };
         /** @description One amount the buyer actually handed over for one deal. */
         SalesDealPayment: {
@@ -7946,15 +7978,20 @@ export interface components {
             /** @description The offset actually applied. Echoed so the client can render the page number. */
             offset: number;
         };
-        /** @description Record-sale body. Farm and product type are closed vocabularies validated server-side and rejected -- never silently defaulted -- when unrecognised. The recorded deal always lands with status `Deal Closed`. */
+        /** @description Record-sale body. ONE sale may carry several product/breed lines (maintainer decision 2026-09-12): send `lines`, one per product/breed, each with its own counts, weight and value; the deal's product_type/breed/counts/sales_value are then computed server-side as the rollup of the lines and any client-sent values for them are ignored. The legacy single-product fields (product_type, breed, animal_count..., sales_value at the top level) are still accepted WITHOUT `lines` and record exactly one line. Farm and product type are closed vocabularies validated server-side and rejected -- never silently defaulted -- when unrecognised. Blank status records `Deal Closed`. */
         SalesDealWrite: {
             /** Format: date */
             sale_date: string;
             /** @enum {string} */
             farm: "CBE" | "CPT";
-            /** @enum {string} */
-            product_type: "Sheep" | "Goat" | "Manure";
-            breed: string;
+            lines?: components["schemas"]["SalesDealLineWrite"][];
+            /**
+             * @description Legacy single-line body only; ignored when `lines` is sent.
+             * @enum {string}
+             */
+            product_type?: "Sheep" | "Goat" | "Manure";
+            /** @description Legacy single-line body only. */
+            breed?: string;
             buyer_name: string;
             buyer_place?: string;
             /**
@@ -7966,8 +8003,8 @@ export interface components {
             male_count?: number | null;
             female_count?: number | null;
             total_weight_kg?: number | null;
-            /** @description Required and must be more than zero. */
-            sales_value: number;
+            /** @description Legacy single-line body only: required there and must be more than zero. With `lines` the deal value is the sum of the lines and this field is ignored. */
+            sales_value?: number;
             advance_amount?: number | null;
             /**
              * @description Optional; blank records the default, Deal Closed. Name one to record an EXPECTED sale -- an advance received today for animals leaving on a future date is an Advance Paid deal, and only Deal Closed counts toward revenue.

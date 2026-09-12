@@ -64,8 +64,37 @@ type dealPayload struct {
 	Feedback *string `json:"feedback"`
 	Comments *string `json:"comments"`
 
+	// Lines are what was sold, in entry order (migration 000294). product_type / breed / the
+	// counts / total_weight_kg / sales_value above are their ROLLUP ("Mixed" when the lines
+	// disagree on product or breed).
+	Lines []dealLinePayload `json:"lines"`
+
 	CreatedAt string `json:"created_at"`
 	UpdatedAt string `json:"updated_at"`
+}
+
+// dealLinePayload is one product/breed line of a deal on the wire.
+type dealLinePayload struct {
+	LineID        string   `json:"line_id"`
+	LineNo        int      `json:"line_no"`
+	ProductType   string   `json:"product_type"`
+	Breed         string   `json:"breed"`
+	AnimalCount   *float64 `json:"animal_count"`
+	MaleCount     *float64 `json:"male_count"`
+	FemaleCount   *float64 `json:"female_count"`
+	TotalWeightKg *float64 `json:"total_weight_kg"`
+	SalesValue    float64  `json:"sales_value"`
+}
+
+// dealLineWritePayload is one line of the record-sale body.
+type dealLineWritePayload struct {
+	ProductType   string   `json:"product_type"`
+	Breed         string   `json:"breed"`
+	AnimalCount   *float64 `json:"animal_count"`
+	MaleCount     *float64 `json:"male_count"`
+	FemaleCount   *float64 `json:"female_count"`
+	TotalWeightKg *float64 `json:"total_weight_kg"`
+	SalesValue    float64  `json:"sales_value"`
 }
 
 // dealStatusWritePayload is the deal-status edit body.
@@ -104,29 +133,42 @@ type dealPagePayload struct {
 }
 
 // dealWritePayload is the record-sale body.
+//
+// Either `lines` (one per product/breed, the 2026-09-12 shape) or the legacy single-product
+// fields; when lines are sent the deal-level product/breed/counts/value are ignored and
+// recomputed as the rollup of the lines.
 type dealWritePayload struct {
-	SaleDate      string   `json:"sale_date"`
-	Farm          string   `json:"farm"`
-	ProductType   string   `json:"product_type"`
-	Breed         string   `json:"breed"`
-	BuyerName     string   `json:"buyer_name"`
-	BuyerPlace    string   `json:"buyer_place"`
-	BuyerVendorID string   `json:"buyer_vendor_id"`
-	AnimalCount   *float64 `json:"animal_count"`
-	MaleCount     *float64 `json:"male_count"`
-	FemaleCount   *float64 `json:"female_count"`
-	TotalWeightKg *float64 `json:"total_weight_kg"`
-	SalesValue    float64  `json:"sales_value"`
-	AdvanceAmount *float64 `json:"advance_amount"`
-	Comments      string   `json:"comments"`
+	SaleDate      string                 `json:"sale_date"`
+	Farm          string                 `json:"farm"`
+	Lines         []dealLineWritePayload `json:"lines"`
+	ProductType   string                 `json:"product_type"`
+	Breed         string                 `json:"breed"`
+	BuyerName     string                 `json:"buyer_name"`
+	BuyerPlace    string                 `json:"buyer_place"`
+	BuyerVendorID string                 `json:"buyer_vendor_id"`
+	AnimalCount   *float64               `json:"animal_count"`
+	MaleCount     *float64               `json:"male_count"`
+	FemaleCount   *float64               `json:"female_count"`
+	TotalWeightKg *float64               `json:"total_weight_kg"`
+	SalesValue    float64                `json:"sales_value"`
+	AdvanceAmount *float64               `json:"advance_amount"`
+	Comments      string                 `json:"comments"`
 	// Optional: blank records the default, Deal Closed. Named for an EXPECTED sale ("Advance
 	// Paid", "In Discussion") whose advance is already in hand.
 	Status string `json:"status"`
 }
 
 func (p dealWritePayload) toDomain() domain.DealWrite {
+	lines := make([]domain.DealLineWrite, 0, len(p.Lines))
+	for _, l := range p.Lines {
+		lines = append(lines, domain.DealLineWrite{
+			ProductType: l.ProductType, Breed: l.Breed,
+			AnimalCount: l.AnimalCount, MaleCount: l.MaleCount, FemaleCount: l.FemaleCount,
+			TotalWeightKg: l.TotalWeightKg, SalesValue: l.SalesValue,
+		})
+	}
 	return domain.DealWrite{
-		SaleDate: p.SaleDate, Farm: p.Farm, ProductType: p.ProductType, Breed: p.Breed,
+		SaleDate: p.SaleDate, Farm: p.Farm, Lines: lines, ProductType: p.ProductType, Breed: p.Breed,
 		BuyerName: p.BuyerName, BuyerPlace: p.BuyerPlace, BuyerVendorID: p.BuyerVendorID,
 		AnimalCount: p.AnimalCount, MaleCount: p.MaleCount, FemaleCount: p.FemaleCount,
 		TotalWeightKg: p.TotalWeightKg, SalesValue: p.SalesValue, AdvanceAmount: p.AdvanceAmount,
@@ -145,8 +187,16 @@ func toDealPayload(d domain.Deal) dealPayload {
 			AmountRupees: payment.AmountRupees, Note: payment.Note, CreatedAt: payment.CreatedAt,
 		})
 	}
+	lines := make([]dealLinePayload, 0, len(d.Lines))
+	for _, line := range d.Lines {
+		lines = append(lines, dealLinePayload{
+			LineID: line.LineID, LineNo: line.LineNo, ProductType: line.ProductType, Breed: line.Breed,
+			AnimalCount: line.AnimalCount, MaleCount: line.MaleCount, FemaleCount: line.FemaleCount,
+			TotalWeightKg: line.TotalWeightKg, SalesValue: line.SalesValue,
+		})
+	}
 	return dealPayload{
-		DealID: d.DealID, SaleDate: d.SaleDate, Farm: d.Farm,
+		DealID: d.DealID, SaleDate: d.SaleDate, Farm: d.Farm, Lines: lines,
 		SourceSalesID: d.SourceSalesID, SourcePurchaseID: d.SourcePurchaseID,
 		BuyerName: d.BuyerName, BuyerPlace: d.BuyerPlace, BuyerVendorID: d.BuyerVendorID,
 		ProductType: d.ProductType, Breed: d.Breed,

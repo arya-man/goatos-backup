@@ -42,6 +42,13 @@ data class SalesDealDto(
     /** BACKEND-derived: value minus received, floored at zero. */
     @SerialName("payment_balance") val paymentBalance: Double = 0.0,
     @SerialName("payments") val payments: List<SalesDealPaymentDto> = emptyList(),
+    /**
+     * What was sold, in entry order (maintainer decision 2026-09-12): one line per product/breed
+     * with its own counts, weight and value. productType / breed / the counts / salesValue above are
+     * the BACKEND's rollup of these ("Mixed" when the lines disagree). Empty only on a row cached
+     * before the app knew about lines.
+     */
+    @SerialName("lines") val lines: List<SalesDealLineDto> = emptyList(),
     @SerialName("status") val status: String = "",
     @SerialName("feedback") val feedback: String? = null,
     @SerialName("comments") val comments: String? = null,
@@ -59,12 +66,45 @@ data class SalesDealPageDto(
 )
 
 /** `POST /sales/deals`. Unknown keys are a 400 on the server, so this carries exactly its fields. */
+/** One product/breed slice of a deal on the wire. */
+@Serializable
+data class SalesDealLineDto(
+    @SerialName("line_id") val lineId: String = "",
+    @SerialName("line_no") val lineNo: Int = 0,
+    @SerialName("product_type") val productType: String = "",
+    @SerialName("breed") val breed: String = "",
+    @SerialName("animal_count") val animalCount: Double? = null,
+    @SerialName("male_count") val maleCount: Double? = null,
+    @SerialName("female_count") val femaleCount: Double? = null,
+    @SerialName("total_weight_kg") val totalWeightKg: Double? = null,
+    @SerialName("sales_value") val salesValue: Double = 0.0,
+)
+
+/** One line of the record-sale body. Value is per line and must be more than zero. */
+@Serializable
+data class SalesDealLineWriteDto(
+    @SerialName("product_type") val productType: String,
+    @SerialName("breed") val breed: String,
+    @SerialName("animal_count") val animalCount: Double? = null,
+    @SerialName("male_count") val maleCount: Double? = null,
+    @SerialName("female_count") val femaleCount: Double? = null,
+    @SerialName("total_weight_kg") val totalWeightKg: Double? = null,
+    @SerialName("sales_value") val salesValue: Double,
+)
+
+/**
+ * Record-sale body. Send [lines] (the 2026-09-12 shape); the deal's product/breed/counts/value
+ * are then computed server-side as the rollup of the lines and the legacy single-product fields
+ * below are ignored. They keep their slots so a queued row from an older build still decodes and
+ * still records exactly one line.
+ */
 @Serializable
 data class SalesDealWriteDto(
     @SerialName("sale_date") val saleDate: String,
     @SerialName("farm") val farm: String,
-    @SerialName("product_type") val productType: String,
-    @SerialName("breed") val breed: String,
+    @SerialName("lines") val lines: List<SalesDealLineWriteDto> = emptyList(),
+    @SerialName("product_type") val productType: String = "",
+    @SerialName("breed") val breed: String = "",
     @SerialName("buyer_name") val buyerName: String,
     @SerialName("buyer_place") val buyerPlace: String = "",
     @SerialName("buyer_vendor_id") val buyerVendorId: String,
@@ -72,7 +112,7 @@ data class SalesDealWriteDto(
     @SerialName("male_count") val maleCount: Double? = null,
     @SerialName("female_count") val femaleCount: Double? = null,
     @SerialName("total_weight_kg") val totalWeightKg: Double? = null,
-    @SerialName("sales_value") val salesValue: Double,
+    @SerialName("sales_value") val salesValue: Double = 0.0,
     @SerialName("advance_amount") val advanceAmount: Double? = null,
     @SerialName("comments") val comments: String = "",
     @SerialName("status") val status: String = "",

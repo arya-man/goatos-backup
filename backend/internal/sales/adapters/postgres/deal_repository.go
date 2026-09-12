@@ -122,6 +122,9 @@ func (r *Repository) ListDeals(ctx context.Context, tenantID, farm string, limit
 	if err := r.attachDealPayments(ctx, tenantID, deals); err != nil {
 		return ports.DealPage{}, err
 	}
+	if err := r.attachDealLines(ctx, tenantID, deals); err != nil {
+		return ports.DealPage{}, err
+	}
 
 	page := ports.DealPage{Deals: deals}
 	// Whole-filter total over the SAME predicates, built from the same buildDealFilter call so
@@ -145,6 +148,9 @@ func (r *Repository) getDeal(ctx context.Context, tenantID, dealID string) (doma
 	}
 	deals := []domain.Deal{d}
 	if err := r.attachDealPayments(ctx, tenantID, deals); err != nil {
+		return domain.Deal{}, err
+	}
+	if err := r.attachDealLines(ctx, tenantID, deals); err != nil {
 		return domain.Deal{}, err
 	}
 	return deals[0], nil
@@ -188,6 +194,48 @@ ORDER BY received_on, created_at`, tenantID, ids)
 	}
 	if err := rows.Err(); err != nil {
 		return fmt.Errorf("list sales deal payments rows: %w", err)
+	}
+	return nil
+}
+
+// attachDealLines loads the product/breed lines of every deal on one page in ONE batched read
+// (`= ANY`, never a per-row query) and attaches them in entry order. Migration 000294 backfilled
+// one line per pre-existing deal, so every deal comes back with at least one.
+func (r *Repository) attachDealLines(ctx context.Context, tenantID string, deals []domain.Deal) error {
+	if len(deals) == 0 {
+		return nil
+	}
+	ids := make([]string, 0, len(deals))
+	index := make(map[string]int, len(deals))
+	for i, d := range deals {
+		ids = append(ids, d.DealID)
+		index[d.DealID] = i
+	}
+	rows, err := r.pool.Query(ctx, `
+SELECT line_id::text, deal_id::text, line_no, product_type, breed,
+       animal_count, male_count, female_count, total_weight_kg, sales_value
+FROM public.sales_deal_lines
+WHERE tenant_id = $1 AND deal_id = ANY($2::uuid[])
+ORDER BY deal_id, line_no`, tenantID, ids)
+	if err != nil {
+		return fmt.Errorf("list sales deal lines: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var (
+			line   domain.DealLine
+			dealID string
+		)
+		if err := rows.Scan(&line.LineID, &dealID, &line.LineNo, &line.ProductType, &line.Breed,
+			&line.AnimalCount, &line.MaleCount, &line.FemaleCount, &line.TotalWeightKg, &line.SalesValue); err != nil {
+			return fmt.Errorf("list sales deal lines scan: %w", err)
+		}
+		if i, ok := index[dealID]; ok {
+			deals[i].Lines = append(deals[i].Lines, line)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("list sales deal lines rows: %w", err)
 	}
 	return nil
 }
@@ -569,6 +617,7 @@ func (r *Repository) CreateDeal(ctx context.Context, tenantID string, write doma
 		fpFloat(write.AnimalCount), fpFloat(write.MaleCount), fpFloat(write.FemaleCount),
 		fpFloat(write.TotalWeightKg), fmt.Sprintf("%.4f", write.SalesValue), fpFloat(write.AdvanceAmount),
 		write.Comments, write.Status,
+		fpLines(write.Lines),
 	)
 	reservation, err := reserveIdempotency(ctx, tx, tenantID, idemScopeDealCreate, idempotencyKey, fingerprint)
 	if err != nil {
@@ -614,6 +663,12 @@ func (r *Repository) CreateDeal(ctx context.Context, tenantID string, write doma
 		return domain.Deal{}, fmt.Errorf("sales: create deal: %w", err)
 	}
 
+	// The lines land in the SAME transaction as the deal row they roll up into (migration 000294):
+	// one set-based insert over UNNEST, never a per-line round trip.
+	if err := insertDealLines(ctx, tx, tenantID, dealID, write.Lines); err != nil {
+		return domain.Deal{}, err
+	}
+
 	if err := audit.NewTxRecorder(tx).Record(ctx, audit.Event{
 		TenantID:     tenantID,
 		ActorID:      actorID,
@@ -627,6 +682,7 @@ func (r *Repository) CreateDeal(ctx context.Context, tenantID string, write doma
 			"category":        "deal",
 			"farm":            write.Farm,
 			"product_type":    write.ProductType,
+			"line_count":      len(write.Lines),
 			"sale_date":       write.SaleDate,
 			"idempotency_key": idempotencyKey,
 			"operation_id":    idempotencyKey,
@@ -651,4 +707,59 @@ func fpFloat(v *float64) string {
 		return ""
 	}
 	return strings.TrimRight(strings.TrimRight(fmt.Sprintf("%.4f", *v), "0"), ".")
+}
+
+// insertDealLines writes a deal's lines in entry order with one UNNEST insert.
+func insertDealLines(ctx context.Context, tx pgx.Tx, tenantID, dealID string, lines []domain.DealLineWrite) error {
+	if len(lines) == 0 {
+		return nil
+	}
+	n := len(lines)
+	lineNos := make([]int32, n)
+	products := make([]string, n)
+	breeds := make([]string, n)
+	animals := make([]*float64, n)
+	males := make([]*float64, n)
+	females := make([]*float64, n)
+	weights := make([]*float64, n)
+	values := make([]float64, n)
+	for i, l := range lines {
+		lineNos[i] = int32(i + 1)
+		products[i] = l.ProductType
+		breeds[i] = l.Breed
+		animals[i] = l.AnimalCount
+		males[i] = l.MaleCount
+		females[i] = l.FemaleCount
+		weights[i] = l.TotalWeightKg
+		values[i] = l.SalesValue
+	}
+	if _, err := tx.Exec(ctx, `
+INSERT INTO public.sales_deal_lines (
+	tenant_id, deal_id, line_no, product_type, breed,
+	animal_count, male_count, female_count, total_weight_kg, sales_value
+)
+SELECT $1::uuid, $2::uuid, u.line_no, u.product_type, u.breed,
+       u.animal_count, u.male_count, u.female_count, u.total_weight_kg, u.sales_value
+FROM unnest(
+	$3::int[], $4::text[], $5::text[],
+	$6::numeric[], $7::numeric[], $8::numeric[], $9::numeric[], $10::numeric[]
+) AS u(line_no, product_type, breed, animal_count, male_count, female_count, total_weight_kg, sales_value)`,
+		tenantID, dealID, lineNos, products, breeds, animals, males, females, weights, values,
+	); err != nil {
+		return fmt.Errorf("sales: create deal lines: %w", err)
+	}
+	return nil
+}
+
+// fpLines renders the lines as one stable fingerprint part, so a replay that changes any line --
+// or their order -- is a different request.
+func fpLines(lines []domain.DealLineWrite) string {
+	parts := make([]string, 0, len(lines))
+	for _, l := range lines {
+		parts = append(parts, strings.Join([]string{
+			l.ProductType, l.Breed, fpFloat(l.AnimalCount), fpFloat(l.MaleCount), fpFloat(l.FemaleCount),
+			fpFloat(l.TotalWeightKg), fmt.Sprintf("%.4f", l.SalesValue),
+		}, "|"))
+	}
+	return strings.Join(parts, ";")
 }

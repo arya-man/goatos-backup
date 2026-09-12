@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
@@ -37,9 +38,11 @@ import sg.mesha.goatos.core.designsystem.theme.MeshaType
 /**
  * Record a sale (L1 drill): THREE steps, the web drawer's fields in the web drawer's order.
  *
- *   1. The sale    date, farm, product, breed, animals, weight
+ *   1. The sale    date, farm, then ONE CARD PER PRODUCT LINE -- product, breed, animals, weight,
+ *                  value -- with "Add another product" and a running total (maintainer decision
+ *                  2026-09-12: sheep and goats of several breeds go into one sale)
  *   2. The buyer   pick from the vendor register (search), then name and place
- *   3. The money   sale value, advance, status, comments
+ *   3. The money   the sale total (read-only, the sum of the lines), advance, status, comments
  */
 @Composable
 fun SaleCreateScreen(
@@ -100,15 +103,67 @@ private fun SaleStep(state: SaleCreateUiState, onEvent: (SaleCreateEvent) -> Uni
         Text(text = LABEL_FARM, color = MeshaColors.Muted, style = MeshaType.fieldLabel)
         VendorsSegmented(options = state.farms, selectedValue = v[SaleField.FARM].orEmpty(), onSelect = { onEvent(SaleCreateEvent.FieldChanged(SaleField.FARM, it)) })
         e[SaleField.FARM]?.let { Text(it, color = MeshaColors.Danger, style = MeshaType.caption) }
-        Text(text = LABEL_PRODUCT, color = MeshaColors.Muted, style = MeshaType.fieldLabel)
-        VendorsSegmented(options = state.productTypes, selectedValue = v[SaleField.PRODUCT_TYPE].orEmpty(), onSelect = { onEvent(SaleCreateEvent.FieldChanged(SaleField.PRODUCT_TYPE, it)) })
-        e[SaleField.PRODUCT_TYPE]?.let { Text(it, color = MeshaColors.Danger, style = MeshaType.caption) }
-        VendorsDropdownField(LABEL_BREED, v[SaleField.BREED].orEmpty(), state.breeds, { onEvent(SaleCreateEvent.FieldChanged(SaleField.BREED, it)) }, required = true, error = e[SaleField.BREED], placeholder = if (state.breeds.isEmpty()) HINT_PICK_PRODUCT_FIRST else HINT_PICK)
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            VendorsTextField(v[SaleField.ANIMAL_COUNT].orEmpty(), { onEvent(SaleCreateEvent.FieldChanged(SaleField.ANIMAL_COUNT, it)) }, LABEL_ANIMALS, keyboard = KeyboardType.Number, error = e[SaleField.ANIMAL_COUNT], modifier = Modifier.weight(1f))
-            VendorsTextField(v[SaleField.TOTAL_WEIGHT_KG].orEmpty(), { onEvent(SaleCreateEvent.FieldChanged(SaleField.TOTAL_WEIGHT_KG, it)) }, LABEL_WEIGHT, keyboard = KeyboardType.Decimal, error = e[SaleField.TOTAL_WEIGHT_KG], modifier = Modifier.weight(1f))
+    }
+    Spacer(Modifier.height(10.dp))
+    VendorsFormGroup(title = LABEL_WHAT_WAS_SOLD) {
+        Text(text = HINT_LINES, color = MeshaColors.Muted, style = MeshaType.caption)
+        state.lines.forEachIndexed { index, line ->
+            Spacer(Modifier.height(8.dp))
+            SaleLineCard(index = index, line = line, products = state.productTypes, removable = state.lines.size > 1, onEvent = onEvent)
         }
-        Text(text = HINT_OPTIONAL_COUNTS, color = MeshaColors.Muted, style = MeshaType.caption)
+        Spacer(Modifier.height(10.dp))
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            VendorsGhostButton(label = ADD_LINE, onClick = { onEvent(SaleCreateEvent.AddLine) }, enabled = state.canAddLine)
+            Spacer(Modifier.weight(1f))
+            Column(horizontalAlignment = Alignment.End) {
+                Text(text = LABEL_SALE_TOTAL, color = MeshaColors.Muted, style = MeshaType.fieldLabel)
+                Text(text = state.totalLine.ifBlank { "—" }, color = MeshaColors.Ink, style = MeshaType.body, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            }
+        }
+    }
+}
+
+/**
+ * One product line: product and breed on top, animals / weight / value in one row beneath. The
+ * card owns no state -- every keystroke goes up as a LineChanged event keyed by the line id, so a
+ * removed line above it cannot shift its values onto a neighbour.
+ */
+@Composable
+private fun SaleLineCard(index: Int, line: SaleLineDraftUi, products: List<VendorsOptionUi>, removable: Boolean, onEvent: (SaleCreateEvent) -> Unit) {
+    val e = line.errors
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(MeshaDimens.radiusInput))
+            .background(MeshaColors.Bg)
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(text = "$LABEL_LINE ${index + 1}", color = MeshaColors.Muted, style = MeshaType.fieldLabel, modifier = Modifier.weight(1f))
+            if (removable) {
+                Row(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(MeshaDimens.radiusInput))
+                        .clickable(role = Role.Button, onClick = { onEvent(SaleCreateEvent.RemoveLine(line.id)) })
+                        .padding(horizontal = 8.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    Icon(MeshaIcons.Close, contentDescription = null, tint = MeshaColors.Muted, modifier = Modifier.size(14.dp))
+                    Text(text = REMOVE_LINE, color = MeshaColors.Muted, style = MeshaType.caption)
+                }
+            }
+        }
+        Text(text = LABEL_PRODUCT, color = MeshaColors.Muted, style = MeshaType.fieldLabel)
+        VendorsSegmented(options = products, selectedValue = line.product, onSelect = { onEvent(SaleCreateEvent.LineChanged(line.id, SaleLineField.PRODUCT_TYPE, it)) })
+        e[SaleLineField.PRODUCT_TYPE]?.let { Text(it, color = MeshaColors.Danger, style = MeshaType.caption) }
+        VendorsDropdownField(LABEL_BREED, line.breed, line.breeds, { onEvent(SaleCreateEvent.LineChanged(line.id, SaleLineField.BREED, it)) }, required = true, error = e[SaleLineField.BREED], placeholder = if (line.breeds.isEmpty()) HINT_PICK_PRODUCT_FIRST else HINT_PICK)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            VendorsTextField(line.animals, { onEvent(SaleCreateEvent.LineChanged(line.id, SaleLineField.ANIMAL_COUNT, it)) }, LABEL_ANIMALS, keyboard = KeyboardType.Number, error = e[SaleLineField.ANIMAL_COUNT], modifier = Modifier.weight(1f))
+            VendorsTextField(line.weightKg, { onEvent(SaleCreateEvent.LineChanged(line.id, SaleLineField.TOTAL_WEIGHT_KG, it)) }, LABEL_WEIGHT, keyboard = KeyboardType.Decimal, error = e[SaleLineField.TOTAL_WEIGHT_KG], modifier = Modifier.weight(1f))
+        }
+        VendorsTextField(line.value, { onEvent(SaleCreateEvent.LineChanged(line.id, SaleLineField.SALES_VALUE, it)) }, LABEL_LINE_VALUE, required = true, keyboard = KeyboardType.Decimal, error = e[SaleLineField.SALES_VALUE])
     }
 }
 
@@ -167,7 +222,9 @@ private fun MoneyStep(state: SaleCreateUiState, onEvent: (SaleCreateEvent) -> Un
     val v = state.values
     val e = state.fieldErrors
     VendorsFormGroup(title = STEP_TITLES[2]) {
-        VendorsTextField(v[SaleField.SALES_VALUE].orEmpty(), { onEvent(SaleCreateEvent.FieldChanged(SaleField.SALES_VALUE, it)) }, LABEL_VALUE, required = true, keyboard = KeyboardType.Decimal, error = e[SaleField.SALES_VALUE])
+        // The sale value is the SUM of the lines entered on step 1 -- shown, never typed, so the
+        // money can never disagree with what was sold.
+        VendorsTextField(state.totalValueLine, {}, LABEL_VALUE, readOnly = true, supporting = HINT_TOTAL)
         VendorsTextField(v[SaleField.ADVANCE_AMOUNT].orEmpty(), { onEvent(SaleCreateEvent.FieldChanged(SaleField.ADVANCE_AMOUNT, it)) }, LABEL_ADVANCE, keyboard = KeyboardType.Decimal, error = e[SaleField.ADVANCE_AMOUNT])
         Text(text = LABEL_STATUS, color = MeshaColors.Muted, style = MeshaType.fieldLabel)
         VendorsSegmented(options = state.statuses, selectedValue = v[SaleField.STATUS].orEmpty(), onSelect = { onEvent(SaleCreateEvent.FieldChanged(SaleField.STATUS, it)) })
@@ -192,8 +249,15 @@ private const val LABEL_FARM = "Farm"
 private const val LABEL_PRODUCT = "Product"
 private const val LABEL_BREED = "Breed"
 private const val LABEL_ANIMALS = "Animals"
-private const val LABEL_WEIGHT = "Total weight (kg)"
-private const val HINT_OPTIONAL_COUNTS = "Animals and weight are optional. Leave blank if not known."
+private const val LABEL_WEIGHT = "Weight (kg)"
+private const val LABEL_WHAT_WAS_SOLD = "What was sold"
+private const val HINT_LINES = "One line per product and breed. Each line has its own animals, weight and value; the total adds up on its own."
+private const val LABEL_LINE = "Line"
+private const val LABEL_LINE_VALUE = "Value (₹)"
+private const val ADD_LINE = "Add another product"
+private const val REMOVE_LINE = "Remove"
+private const val LABEL_SALE_TOTAL = "Sale total"
+private const val HINT_TOTAL = "The sum of the lines on step 1."
 private const val HINT_PICK = "Tap to choose"
 private const val HINT_PICK_PRODUCT_FIRST = "Pick the product first"
 private const val LABEL_BUYER_PICK = "Who bought"
@@ -207,7 +271,7 @@ private const val LABEL_BUYER_DETAILS = "Buyer details"
 private const val LABEL_BUYER_NAME = "Buyer name"
 private const val HINT_PREFILL = "Filled from the vendor; edit if the sale was made to a different name."
 private const val LABEL_BUYER_PLACE = "Buyer place"
-private const val LABEL_VALUE = "Sale value (₹)"
+private const val LABEL_VALUE = "Sale value"
 private const val LABEL_ADVANCE = "Advance received (₹)"
 private const val LABEL_STATUS = "Status"
 private const val HINT_STATUS = "Deal Closed is the normal case; pick Advance Paid or In Discussion for a sale still in progress."
