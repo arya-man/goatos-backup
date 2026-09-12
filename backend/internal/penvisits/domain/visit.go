@@ -27,7 +27,7 @@ import (
 )
 
 // Work states -- the KERNEL dimension, PC Care's 000183 shape. 'completed' is reached ONLY when
-// the verifier approves the visit video (migration 000296); a submitted visit awaiting review
+// the verifier approves the visit video (migration 000297); a submitted visit awaiting review
 // keeps its scheduled/delayed clock.
 const (
 	WorkStateScheduled = "scheduled"
