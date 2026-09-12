@@ -66,6 +66,48 @@ func TestClientSentDealValueIsReplacedByTheLineSum(t *testing.T) {
 	}
 }
 
+func TestRollupIgnoresManureAnimalCountsForTheAllocationTarget(t *testing.T) {
+	w := mixedWrite()
+	w.Lines = append(w.Lines, DealLineWrite{
+		ProductType: ProductManure,
+		Breed:       ProductManure,
+		AnimalCount: fp(500), MaleCount: fp(250), FemaleCount: fp(250),
+		TotalWeightKg: fp(900), SalesValue: 12000,
+	})
+	w = w.Normalize()
+	if w.AnimalCount == nil || *w.AnimalCount != 19 {
+		t.Fatalf("animal rollup = %v, want 19: manure count must not become the tag-animals target", w.AnimalCount)
+	}
+	if w.MaleCount != nil || w.FemaleCount != nil {
+		t.Fatalf("male/female rollup = %v/%v, want nil: manure split must not become live sex counts", w.MaleCount, w.FemaleCount)
+	}
+	if w.TotalWeightKg == nil || *w.TotalWeightKg != 1440 {
+		t.Fatalf("weight rollup = %v, want 1440: manure kg still belongs in the commercial deal", w.TotalWeightKg)
+	}
+	if w.SalesValue != 233000 {
+		t.Fatalf("value rollup = %v, want 233000", w.SalesValue)
+	}
+}
+
+func TestManureOnlySaleHasNoAnimalTargetEvenIfAClientPostsCounts(t *testing.T) {
+	w := mixedWrite()
+	w.Lines = []DealLineWrite{{
+		ProductType: ProductManure, Breed: ProductManure,
+		AnimalCount: fp(500), MaleCount: fp(250), FemaleCount: fp(250),
+		TotalWeightKg: fp(900), SalesValue: 12000,
+	}}
+	w = w.Normalize()
+	if w.ProductType != ProductManure || w.Breed != ProductManure {
+		t.Fatalf("rollup product/breed = %q/%q, want Manure/Manure", w.ProductType, w.Breed)
+	}
+	if w.AnimalCount != nil || w.MaleCount != nil || w.FemaleCount != nil {
+		t.Fatalf("manure counts rolled up as animals: animal=%v male=%v female=%v", w.AnimalCount, w.MaleCount, w.FemaleCount)
+	}
+	if w.TotalWeightKg == nil || *w.TotalWeightKg != 900 || w.SalesValue != 12000 {
+		t.Fatalf("manure weight/value rollup = %v/%v, want 900/12000", w.TotalWeightKg, w.SalesValue)
+	}
+}
+
 func TestLegacySingleProductBodyBecomesOneLine(t *testing.T) {
 	w := validWrite().Normalize()
 	if len(w.Lines) != 1 {

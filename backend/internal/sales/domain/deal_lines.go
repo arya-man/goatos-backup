@@ -143,9 +143,10 @@ type DealRollup struct {
 
 // RollupLines computes the deal-level rollup of validated lines.
 //
-// A count sums only the lines that recorded one and stays nil when NONE did: "not recorded" is a
-// different fact from 0, and a blank animal count is what keeps the tag-animals gate from asking
-// for a target the desk never declared.
+// A count sums only LIVE-product lines that recorded one and stays nil when none did: "not
+// recorded" is a different fact from 0, and a blank animal count is what keeps the tag-animals gate
+// from asking for a target the desk never declared. Manure may carry kg and value, but never a live
+// animal target.
 func RollupLines(lines []DealLineWrite) DealRollup {
 	var out DealRollup
 	sum := func(acc **float64, v *float64) {
@@ -163,9 +164,11 @@ func RollupLines(lines []DealLineWrite) DealRollup {
 	for _, l := range lines {
 		products[l.ProductType] = struct{}{}
 		breeds[l.Breed] = struct{}{}
-		sum(&out.AnimalCount, l.AnimalCount)
-		sum(&out.MaleCount, l.MaleCount)
-		sum(&out.FemaleCount, l.FemaleCount)
+		if IsLiveProduct(l.ProductType) {
+			sum(&out.AnimalCount, l.AnimalCount)
+			sum(&out.MaleCount, l.MaleCount)
+			sum(&out.FemaleCount, l.FemaleCount)
+		}
 		sum(&out.TotalWeightKg, l.TotalWeightKg)
 		out.SalesValue += l.SalesValue
 		if len(products) == 1 {
