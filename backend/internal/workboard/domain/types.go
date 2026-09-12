@@ -413,6 +413,10 @@ func moduleIndex(m Module) int {
 type Page struct {
 	Rows       []Row  `json:"rows"`
 	NextCursor string `json:"next_cursor,omitempty"`
+	// Degraded names the modules whose read failed on THIS request. The board never blanks for
+	// one slow source: it serves every module that answered and lists here the ones that did
+	// not, so a client shows the rest and a retry note for these (never an empty board).
+	Degraded []Module `json:"degraded,omitempty"`
 }
 
 // Summary is the WHOLE-FILTER aggregate the lane headers and the KPI tiles render. It is
@@ -425,6 +429,9 @@ type Summary struct {
 	Attention int               `json:"needs_attention"`
 	Modules   []Module          `json:"modules"`
 	Lanes     []Lane            `json:"lanes"`
+	// Degraded names the modules whose aggregate read failed on THIS request; their counts are
+	// absent from the totals above rather than blanking the whole summary.
+	Degraded []Module `json:"degraded,omitempty"`
 }
 
 // NewSummary returns an empty summary with every lane and module present, so a client

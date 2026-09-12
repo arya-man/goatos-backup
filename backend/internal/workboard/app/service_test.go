@@ -16,10 +16,11 @@ import (
 // fakeSource is an in-memory source: rows keyed by source_id, returned in order after the
 // keyset boundary. It records every call so a test can assert which sources a page touched.
 type fakeSource struct {
-	module domain.Module
-	kind   string
-	rows   []domain.Row
-	calls  []ports.SourceQuery
+	module   domain.Module
+	kind     string
+	rows     []domain.Row
+	calls    []ports.SourceQuery
+	failWith error // when set, ListRows and CountByState return it (a slow/broken source)
 
 	subtasks     []domain.Subtask
 	subtaskCalls []ports.SubtaskQuery
@@ -28,6 +29,9 @@ type fakeSource struct {
 func (f *fakeSource) Module() domain.Module { return f.module }
 func (f *fakeSource) SourceType() string    { return f.kind }
 func (f *fakeSource) ListRows(_ context.Context, q ports.SourceQuery) ([]domain.Row, error) {
+	if f.failWith != nil {
+		return nil, f.failWith
+	}
 	f.calls = append(f.calls, q)
 	out := []domain.Row{}
 	for _, r := range f.rows {
@@ -45,6 +49,9 @@ func (f *fakeSource) ListRows(_ context.Context, q ports.SourceQuery) ([]domain.
 	return out, nil
 }
 func (f *fakeSource) CountByState(_ context.Context, q ports.SourceQuery) (map[domain.WorkState]int, error) {
+	if f.failWith != nil {
+		return nil, f.failWith
+	}
 	out := map[domain.WorkState]int{}
 	for _, r := range f.rows {
 		if q.OwnerUserID != "" && r.Owner.UserID != q.OwnerUserID {
@@ -435,5 +442,50 @@ func TestFindRowRefusesEverythingWhenTheBoardHasNoModules(t *testing.T) {
 	}
 	if got := StrictIntersect(nil, []domain.Module{domain.ModuleFeed}); len(got) != 0 {
 		t.Fatalf("StrictIntersect must never read empty as all, got %v", got)
+	}
+}
+
+// TestOneBrokenSourceDegradesInsteadOfBlankingTheBoard: a single source that errors (the heavy
+// process-integrity read timing out) must never fail the whole board. List serves every healthy
+// source's rows and names the broken module in Degraded; Summary sums the healthy sources and
+// names the broken one too. Neither returns an error.
+func TestOneBrokenSourceDegradesInsteadOfBlankingTheBoard(t *testing.T) {
+	weighing := mk(domain.ModuleWeighing, "bucket", 2, domain.WorkStateDue, "u1")
+	feed := mk(domain.ModuleFeed, "activity", 3, domain.WorkStateVerificationPending, "u1")
+	broken := &fakeSource{module: domain.ModuleVaccination, kind: "drive", failWith: context.DeadlineExceeded}
+	svc := NewService(weighing, feed, broken)
+
+	q := baseQuery()
+	q.Limit = 25
+	page, err := svc.List(context.Background(), q)
+	if err != nil {
+		t.Fatalf("the board must not fail for one broken source: %v", err)
+	}
+	if len(page.Rows) != 5 {
+		t.Fatalf("healthy sources still serve their rows: got %d, want 5", len(page.Rows))
+	}
+	if len(page.Degraded) != 1 || page.Degraded[0] != domain.ModuleVaccination {
+		t.Fatalf("the broken module must be reported degraded: %v", page.Degraded)
+	}
+
+	sum, err := svc.Summary(context.Background(), baseQuery())
+	if err != nil {
+		t.Fatalf("summary must not fail for one broken source: %v", err)
+	}
+	if sum.Total != 5 || sum.ByModule[domain.ModuleWeighing] != 2 || sum.ByModule[domain.ModuleFeed] != 3 {
+		t.Fatalf("summary sums the healthy sources: total=%d byModule=%v", sum.Total, sum.ByModule)
+	}
+	if len(sum.Degraded) != 1 || sum.Degraded[0] != domain.ModuleVaccination {
+		t.Fatalf("summary must report the broken module degraded: %v", sum.Degraded)
+	}
+}
+
+// TestBadCursorStillFailsTheRead: a client-supplied bad cursor is a 400, never degraded away.
+func TestBadCursorStillFailsTheRead(t *testing.T) {
+	// A source whose ListRows returns ErrInvalidCursor (a garbage keyset id) must propagate.
+	bad := &fakeSource{module: domain.ModuleWeighing, kind: "bucket", failWith: domain.ErrInvalidCursor}
+	svc := NewService(bad)
+	if _, err := svc.List(context.Background(), baseQuery()); err == nil {
+		t.Fatal("an invalid cursor must fail the read, not degrade")
 	}
 }

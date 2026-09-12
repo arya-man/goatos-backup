@@ -193,8 +193,23 @@ export async function WorkBoardPage({ searchParams, pageContract }: { searchPara
   const closeHref = hrefWithParams(WORK_BOARD_PATH, sp, { [PARAM_ROW]: undefined });
   const dateHref = (day: string) => hrefWithParams(WORK_BOARD_PATH, sp, { [PARAM_DATE]: day, ...resetPaging });
   const isToday = businessDate === todayIso();
-  const failed = allResults.find((result) => !result.ok);
-  const error = failed && !failed.ok ? failed.error.message : null;
+  // Never blank the board for one slow module. Each successful read carries a `degraded` list
+  // of the modules whose data could not load, and a read that failed outright is a module's
+  // worth of outage too. The board blanks ONLY when EVERY read failed (a real outage);
+  // otherwise it renders what loaded and names the rest to retry (maintainer decision 2026-09-12).
+  const okResults = allResults.filter((result) => result.ok);
+  const firstFail = allResults.find((result) => !result.ok);
+  const error = okResults.length === 0 && firstFail && !firstFail.ok ? firstFail.error.message : null;
+  const degradedKeys = new Set<string>();
+  for (const result of okResults) {
+    if (!result.ok) continue;
+    const deg = (result.data as { degraded?: string[] }).degraded;
+    if (Array.isArray(deg)) for (const key of deg) degradedKeys.add(key);
+  }
+  const someReadFailed = okResults.length > 0 && firstFail !== undefined;
+  const degradedModules = allModules.filter((option) => degradedKeys.has(option.key));
+  const partial = !error && (degradedModules.length > 0 || someReadFailed);
+  const retryHref = hrefWithParams(WORK_BOARD_PATH, sp, {});
 
   // The "All parks" chip clears the park filter and returns to company scope; each park chip
   // narrows to that one park. Both reset every column to page one.
@@ -252,6 +267,13 @@ export async function WorkBoardPage({ searchParams, pageContract }: { searchPara
           hrefForRow={hrefForRow}
         />
       )}
+
+      {partial ? (
+        <div className="tag t-dng" role="status" style={{ display: "inline-block", marginTop: 10 }}>
+          {copy(pageContract, "state.partial")}
+          {degradedModules.length ? ` ${degradedModules.map((option) => option.label).join(", ")}.` : ""} <Link href={retryHref}>{copy(pageContract, "action.retry")}</Link>
+        </div>
+      ) : null}
 
       {!error && !noneSelected && rows.length === 0 && (summary?.total ?? 0) === 0 ? (
         <div className="note muted small" style={{ marginTop: 8 }}>{ownRowsOnly ? copy(pageContract, "state.empty.own_rows") : copy(pageContract, "state.empty")}</div>

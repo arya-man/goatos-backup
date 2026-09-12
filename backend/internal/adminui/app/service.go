@@ -1919,6 +1919,8 @@ func pageSpecificCopy(id string) map[string]string {
 			"state.empty.own_rows":                "Nothing assigned to you for this day.",
 			"state.row_missing":                   "That work is not on this page of the board. It may be on another day, another park or a later page.",
 			"state.error":                         "The board could not be loaded. Try again.",
+			"state.partial":                       "Some work couldn't load right now:",
+			"action.retry":                        "Retry",
 			"pager.rows":                          "rows",
 			"column.title":                        "Work",
 			"column.module":                       "Module",

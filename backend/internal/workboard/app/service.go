@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/vgoats/goatos/backend/internal/workboard/domain"
 	"github.com/vgoats/goatos/backend/internal/workboard/ports"
@@ -90,7 +91,17 @@ func (s *Service) List(ctx context.Context, q domain.Query) (domain.Page, error)
 			AfterSourceID: after, Limit: need + 1,
 		})
 		if err != nil {
-			return domain.Page{}, fmt.Errorf("workboard: %s/%s: %w", src.Module(), src.SourceType(), err)
+			// A bad cursor is the client's error and fails the read; any other source failure
+			// (a timeout on the heavy process-integrity read, a transient DB blip) must NOT
+			// blank the whole board. Record the module as degraded and serve the rest: one slow
+			// source shows as "couldn't load", never an empty board (maintainer decision
+			// 2026-09-12).
+			if errors.Is(err, domain.ErrInvalidCursor) {
+				return domain.Page{}, err
+			}
+			page.Degraded = appendModule(page.Degraded, src.Module())
+			after = ""
+			continue
 		}
 		after = ""
 		more := len(rows) > need
@@ -127,20 +138,48 @@ func (s *Service) Summary(ctx context.Context, q domain.Query) (domain.Summary, 
 		modules = s.RegisteredModules()
 	}
 	sum := domain.NewSummary(modules)
+	// The eight sources are read CONCURRENTLY, each with the request deadline, so the summary
+	// takes as long as the SLOWEST source, not the sum of all eight. A source that errors or
+	// times out (the heavy process-integrity read is the one that does) is recorded as degraded
+	// and its counts are simply absent; the summary never fails whole for one slow source, so
+	// the board never blanks (maintainer decision 2026-09-12).
+	type result struct {
+		module   domain.Module
+		counts   map[domain.WorkState]int
+		degraded bool
+	}
 	// scale-guard:ignore: bounded fan-out over the fixed source registry (~10 entries), each
 	// a single indexed aggregate bounded to one tenant, park and business date.
+	scoped := make([]ports.Source, 0, len(s.sources))
 	for _, src := range s.sources {
-		if !q.WantsModule(src.Module()) {
+		if q.WantsModule(src.Module()) {
+			scoped = append(scoped, src)
+		}
+	}
+	results := make([]result, len(scoped))
+	var wg sync.WaitGroup
+	for i, src := range scoped {
+		wg.Add(1)
+		go func(i int, src ports.Source) {
+			defer wg.Done()
+			counts, err := src.CountByState(ctx, ports.SourceQuery{
+				TenantID: q.TenantID, ParkID: q.ParkID, BusinessDate: q.BusinessDate,
+				OwnerUserID: q.OwnerUserID, WorkStates: q.WorkStates,
+			})
+			if err != nil {
+				results[i] = result{module: src.Module(), degraded: true}
+				return
+			}
+			results[i] = result{module: src.Module(), counts: counts}
+		}(i, src)
+	}
+	wg.Wait()
+	for _, r := range results {
+		if r.degraded {
+			sum.Degraded = appendModule(sum.Degraded, r.module)
 			continue
 		}
-		counts, err := src.CountByState(ctx, ports.SourceQuery{
-			TenantID: q.TenantID, ParkID: q.ParkID, BusinessDate: q.BusinessDate,
-			OwnerUserID: q.OwnerUserID, WorkStates: q.WorkStates,
-		})
-		if err != nil {
-			return domain.Summary{}, fmt.Errorf("workboard: %s/%s counts: %w", src.Module(), src.SourceType(), err)
-		}
-		sum.Add(src.Module(), counts)
+		sum.Add(r.module, r.counts)
 	}
 	return sum, nil
 }
@@ -259,4 +298,15 @@ func (s *Service) ListSubtasks(ctx context.Context, q domain.Query, rowKey, afte
 		page.Subtasks = []domain.Subtask{}
 	}
 	return page, nil
+}
+
+// appendModule adds a module to a degraded list, keeping it distinct and stable so a client
+// renders each module once.
+func appendModule(list []domain.Module, m domain.Module) []domain.Module {
+	for _, x := range list {
+		if x == m {
+			return list
+		}
+	}
+	return append(list, m)
 }
