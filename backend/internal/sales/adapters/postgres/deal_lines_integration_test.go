@@ -97,16 +97,54 @@ func TestSalesDealLinesPostgresPaths(t *testing.T) {
 		}
 	})
 
+	t.Run("PageBoundary: a one-row page still carries every line of its deal", func(t *testing.T) {
+		// Lines are attached per page; a deal on a later page must not lose its lines to a
+		// page-boundary batch, and a page of one deal must not receive another deal's lines.
+		seedDeal(t, repo, ctx, "key-second", domain.DealWrite{
+			SaleDate: "2026-09-11", Farm: "CPT", ProductType: "Goat", Breed: "Sojat",
+			BuyerName: "Ramesh", BuyerVendorID: "3f1c2a5e-9b04-4d67-8a11-2c7e5d9f0b34", AnimalCount: f64(2), SalesValue: 30000,
+		})
+		first, err := repo.ListDeals(ctx, salesTestTenant, "CPT", 1, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		second, err := repo.ListDeals(ctx, salesTestTenant, "CPT", 1, 1)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if first.Total != 2 || second.Total != 2 || len(first.Deals) != 1 || len(second.Deals) != 1 {
+			t.Fatalf("pages = %d/%d total %d/%d", len(first.Deals), len(second.Deals), first.Total, second.Total)
+		}
+		if first.Deals[0].DealID != created.DealID {
+			t.Fatalf("newest first: page 1 = %s", first.Deals[0].DealID)
+		}
+		assertLines(t, first.Deals[0], "page 1")
+		if len(second.Deals[0].Lines) != 1 || second.Deals[0].Lines[0].Breed != "Sojat" {
+			t.Fatalf("page 2 lines = %+v", second.Deals[0].Lines)
+		}
+	})
+
+	t.Run("ParkScope: the farm filter keeps a mixed deal out of the other farm's overview", func(t *testing.T) {
+		other, err := repo.GetOverview(ctx, salesTestTenant, "CBE")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if other.Summary.Deals != 0 || other.Summary.Sheep != 0 || len(other.PriceBands) != 0 {
+			t.Fatalf("CBE overview sees CPT lines: %+v", other.Summary)
+		}
+	})
+
 	t.Run("the overview splits the closed mixed deal by line", func(t *testing.T) {
 		overview, err := repo.GetOverview(ctx, salesTestTenant, "CPT")
 		if err != nil {
 			t.Fatal(err)
 		}
-		if overview.Summary.Deals != 1 || overview.Summary.Sheep != 15 || overview.Summary.Goats != 4 || overview.Summary.Revenue != 221000 {
+		// Two closed CPT deals now: the mixed one (3 lines) and the Sojat one (1 line).
+		if overview.Summary.Deals != 2 || overview.Summary.Sheep != 15 || overview.Summary.Goats != 6 || overview.Summary.Revenue != 251000 {
 			t.Fatalf("summary = %+v", overview.Summary)
 		}
 		if len(overview.PriceBands) != 3 {
-			t.Fatalf("price bands = %d, want one per (product, breed) line", len(overview.PriceBands))
+			t.Fatalf("price bands = %d, want one per weighed (product, breed) line", len(overview.PriceBands))
 		}
 	})
 
