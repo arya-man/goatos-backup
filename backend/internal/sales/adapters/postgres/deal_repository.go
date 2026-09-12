@@ -23,12 +23,25 @@ const idemScopeDealCreate = "sales.deal.create"
 // silently mis-assigns two same-typed columns that are swapped, so any edit to one must be
 // mirrored in the other.
 const dealColumns = `
-	d.id, d.tenant_id, d.sale_date, d.farm,
-	d.source_sales_id, d.source_purchase_id, d.source_row_no,
-	d.buyer_name, d.buyer_place, d.buyer_vendor_id, d.product_type, d.breed,
-	d.animal_count, d.male_count, d.female_count, d.total_weight_kg,
-	d.advance_amount, d.sales_value, d.payment_received, d.status, d.feedback, d.comments,
-	d.created_at, d.updated_at`
+		d.id, d.tenant_id, d.sale_date, d.farm,
+		d.source_sales_id, d.source_purchase_id, d.source_row_no,
+		d.buyer_name, d.buyer_place, d.buyer_vendor_id, d.product_type, d.breed,
+		d.animal_count, d.male_count, d.female_count, d.total_weight_kg,
+		d.advance_amount, d.sales_value, d.payment_received, d.status, d.feedback, d.comments,
+		d.created_at, d.updated_at`
+
+const dealPaymentsForPageSQL = `
+	SELECT payment_id::text, deal_id::text, received_on, amount_rupees, note, created_at
+	FROM public.sales_deal_payments
+	WHERE tenant_id = $1 AND deal_id = ANY($2::uuid[])
+	ORDER BY received_on, created_at`
+
+const dealLinesForPageSQL = `
+	SELECT line_id::text, deal_id::text, line_no, product_type, breed,
+	       animal_count, male_count, female_count, total_weight_kg, sales_value
+	FROM public.sales_deal_lines
+	WHERE tenant_id = $1 AND deal_id = ANY($2::uuid[])
+	ORDER BY deal_id, line_no`
 
 // scanDeal reads one row of dealColumns, in that exact order.
 func scanDeal(row pgx.Row) (domain.Deal, error) {
@@ -168,11 +181,7 @@ func (r *Repository) attachDealPayments(ctx context.Context, tenantID string, de
 		ids = append(ids, d.DealID)
 		index[d.DealID] = i
 	}
-	rows, err := r.pool.Query(ctx, `
-SELECT payment_id::text, deal_id::text, received_on, amount_rupees, note, created_at
-FROM public.sales_deal_payments
-WHERE tenant_id = $1 AND deal_id = ANY($2::uuid[])
-ORDER BY received_on, created_at`, tenantID, ids)
+	rows, err := r.pool.Query(ctx, dealPaymentsForPageSQL, tenantID, ids)
 	if err != nil {
 		return fmt.Errorf("list sales deal payments: %w", err)
 	}
@@ -211,12 +220,7 @@ func (r *Repository) attachDealLines(ctx context.Context, tenantID string, deals
 		ids = append(ids, d.DealID)
 		index[d.DealID] = i
 	}
-	rows, err := r.pool.Query(ctx, `
-SELECT line_id::text, deal_id::text, line_no, product_type, breed,
-       animal_count, male_count, female_count, total_weight_kg, sales_value
-FROM public.sales_deal_lines
-WHERE tenant_id = $1 AND deal_id = ANY($2::uuid[])
-ORDER BY deal_id, line_no`, tenantID, ids)
+	rows, err := r.pool.Query(ctx, dealLinesForPageSQL, tenantID, ids)
 	if err != nil {
 		return fmt.Errorf("list sales deal lines: %w", err)
 	}
