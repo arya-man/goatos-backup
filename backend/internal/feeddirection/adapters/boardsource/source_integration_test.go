@@ -38,10 +38,11 @@ func exec(t *testing.T, ctx context.Context, pool *pgxpool.Pool, sql string, arg
 
 // seed lays down one park with four sheds plus one shed in a second park, one operator with a
 // workforce profile, and one row per activity so every card is exercised on a real round trip:
-//   transport (business_date=D): A due, B verification_due, C completed, D rework
-//   packing   (target_date=D+1): A completed, B pending_verification
-//   direction (target_date=D):   A rework
-//   wastage   (target_date=D):   A completed
+//
+//	transport (business_date=D): A due, B verification_due, C completed, D rework
+//	packing   (target_date=D+1): A completed, B pending_verification
+//	direction (target_date=D):   A rework
+//	wastage   (target_date=D):   A completed
 func seed(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
 	t.Helper()
 	exec(t, ctx, pool, `INSERT INTO tenants (tenant_id, name, status) VALUES ($1::uuid, 'Board Test', 'active') ON CONFLICT (tenant_id) DO NOTHING`, bsTenant)
@@ -66,11 +67,11 @@ ON CONFLICT (workforce_member_id) DO NOTHING`, bsMember, bsTenant, bsOperator, b
 	sched := "2026-09-10 15:30:00+05:30"
 	type tk struct{ id, shed, status, op string }
 	for i, x := range []tk{
-		{"00000000-0000-4000-8000-0000000091a1", bsShedA, "due", ""},               // pool
+		{"00000000-0000-4000-8000-0000000091a1", bsShedA, "due", ""}, // pool
 		{"00000000-0000-4000-8000-0000000091a2", bsShedB, "verification_due", bsOperator},
-		{"00000000-0000-4000-8000-0000000091a3", bsShedC, "completed", bsOtherOp},  // someone else's
+		{"00000000-0000-4000-8000-0000000091a3", bsShedC, "completed", bsOtherOp}, // someone else's
 		{"00000000-0000-4000-8000-0000000091a4", bsShedD, "rework", bsOperator},
-		{"00000000-0000-4000-8000-0000000091e1", bsShedE, "due", ""},               // other park
+		{"00000000-0000-4000-8000-0000000091e1", bsShedE, "due", ""}, // other park
 	} {
 		park := bsPark
 		if i == 4 {
@@ -172,7 +173,9 @@ func TestFeedActivityCardsOnADatabaseRoundTrip(t *testing.T) {
 }
 
 // TestFeedActivityScopeKeysetOwnerLens: keyset order, state filter, owner lens and the park/day
-// bounds all hold, and CountByState agrees with the rows.
+// bounds all hold, and CountByState agrees with the rows. Adversarial dimensions: Pagination /
+// PageBoundary (the keyset walk), ParkScope (the other park sees only its own card), StatusBuckets
+// (CountByState covers every status the cards roll up to).
 func TestFeedActivityScopeKeysetOwnerLens(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
@@ -254,4 +257,55 @@ func mustRows(t *testing.T, ctx context.Context, src *Source, q ports.SourceQuer
 		t.Fatal(err)
 	}
 	return rows
+}
+
+// TestFeedActivityOneToManyPenSessionsFoldToOneShedLine is the OneToMany / MultipleDimensions
+// adversarial case for the card's group_key=shed_id pre-aggregation: a pen with TWO packing
+// sessions in DIFFERENT statuses (completed and rework) must fold to ONE shed line at the worst
+// lane, never two. It also covers StatusBuckets / EveryStatus -- the shed's rollup is the worst of
+// its sessions -- and keeps its own business date so the shared seed's assertions are untouched.
+func TestFeedActivityOneToManyPenSessionsFoldToOneShedLine(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seed(t, ctx, pool)
+	// Shed A, two packing sessions for the SAME serve day (D2+1), different statuses.
+	const d2 = "2026-09-15"
+	const serve2 = "2026-09-16"
+	packing2 := func(id, shed string, session int, status, proof string) {
+		exec(t, ctx, pool, `
+INSERT INTO feed_packing_completions (completion_id, tenant_id, park_id, shed_id, session_no, target_date, workflow, status, packing_proof_ref, completed_by, idempotency_key)
+VALUES ($1::uuid,$2::uuid,$3::uuid,$4::uuid,$5,$6::date,'normal',$7,NULLIF($8,''),$9::uuid,$1::text)
+ON CONFLICT (completion_id) DO NOTHING`, id, bsTenant, bsPark, shed, session, serve2, status, proof, bsOperator)
+	}
+	packing2("00000000-0000-4000-8000-0000000095a1", bsShedA, 1, "completed", "proof:s1")
+	packing2("00000000-0000-4000-8000-0000000095a2", bsShedA, 2, "rework", "")
+
+	src := New(pool, 5000000000)
+	rows, err := src.ListRows(ctx, ports.SourceQuery{TenantID: bsTenant, ParkID: bsPark, BusinessDate: d2, Limit: 50})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var packing *domain.Row
+	for i := range rows {
+		if rows[i].SourceID == "packing" {
+			packing = &rows[i]
+		}
+	}
+	if packing == nil {
+		t.Fatal("packing card expected")
+	}
+	// ONE shed line, not two, and the worst status wins (rework -> rejected, needs attention).
+	if packing.Counts != (domain.Counts{Pending: 1, NeedsAttention: 1}) || packing.WorkState != domain.WorkStateRejected {
+		t.Fatalf("two sessions of one pen must fold to one rejected shed line: counts=%+v state=%s", packing.Counts, packing.WorkState)
+	}
+	// And the subtasks list shows that ONE pen once.
+	page, err := src.ListSubtasks(ctx, ports.SubtaskQuery{TenantID: bsTenant, ParkID: bsPark, BusinessDate: d2, SourceID: "packing", Limit: 50})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if page.Total != 1 || len(page.Subtasks) != 1 || page.Subtasks[0].Name != "Godel 1" {
+		t.Fatalf("one pen, one line: total=%d rows=%d", page.Total, len(page.Subtasks))
+	}
 }
