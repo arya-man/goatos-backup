@@ -2,18 +2,22 @@ import { redirect } from "next/navigation";
 import Link from "@/components/no-prefetch-link";
 import { actionFeedbackCopy, copy, tablePageSizes, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { firstAuthRequiredError } from "@/lib/api/server";
-import { getWorkBoardSummary, listWorkBoardRows, type WorkBoardRow } from "@/lib/api/work-board-server";
+import { getWorkBoardSummary, listWorkBoardRows, type WorkBoardRow, type WorkBoardSummary } from "@/lib/api/work-board-server";
 import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
 import { istDayPlus, todayIso } from "@/lib/format";
-import { boundedInt, hrefPreviousPagedCursor, hrefWithPagedCursor, hrefWithParams, one, type RouteSearchParams } from "@/lib/search-params";
+import { boundedInt, hrefWithParams, one, type RouteSearchParams } from "@/lib/search-params";
 import type { WorkBoardLaneColumn } from "./work-board-board";
 import { parseScope } from "@/lib/scope";
 import { WorkBoardBoard } from "./work-board-board";
 import { WorkBoardModal } from "./work-board-modal";
 import {
   isWorkState,
-  laneCursorParam,
   laneCursorParams,
+  LANE_PARK_END,
+  laneNextHref,
+  laneParkCursorKey,
+  laneParkResetParams,
+  lanePreviousHref,
   lanes,
   moduleOptions,
   modulesVisible,
@@ -43,16 +47,55 @@ function csv(sp: RouteSearchParams, key: string): string[] {
     .filter(Boolean);
 }
 
-// The Work Board: one park, one business day, every module the caller may see, in four
-// server-derived columns. The board's rows and the lane counts are two reads of the SAME
-// filter, fired together; the counts are whole-filter, never the page's length.
+// A board read is bounded to ONE park per request (each source binds one park). "All parks" is
+// therefore composed here: with no park chosen the board reads EVERY park the caller may see and
+// merges each column, so the CEO opens on both parks (maintainer request 2026-09-12). The lane
+// counts are summed from the same per-park summaries, so the header total always equals the work
+// behind it, never a single park's share.
+function mergeSummaries(summaries: WorkBoardSummary[]): WorkBoardSummary | null {
+  if (summaries.length === 0) return null;
+  const first = summaries[0]!;
+  if (summaries.length === 1) return first;
+  const addInto = (into: Record<string, number>, from: Record<string, number> | undefined) => {
+    for (const [key, value] of Object.entries(from ?? {})) into[key] = (into[key] ?? 0) + value;
+    return into;
+  };
+  const byLane: Record<string, number> = {};
+  const byState: Record<string, number> = {};
+  const byModule: Record<string, number> = {};
+  let total = 0;
+  let needsAttention = 0;
+  const moduleSet = new Set<WorkBoardSummary["modules"][number]>();
+  for (const s of summaries) {
+    total += s.total;
+    needsAttention += s.needs_attention;
+    addInto(byLane, s.by_lane);
+    addInto(byState, s.by_state);
+    addInto(byModule, s.by_module);
+    for (const m of s.modules) moduleSet.add(m);
+  }
+  return {
+    ...first,
+    total,
+    needs_attention: needsAttention,
+    by_lane: byLane,
+    by_state: byState,
+    by_module: byModule,
+    modules: Array.from(moduleSet),
+    park_id: "",
+  };
+}
+
+// The Work Board: one business day, every module the caller may see, in four server-derived
+// columns. The board's rows and the lane counts are two reads of the SAME filter, fired together;
+// the counts are whole-filter, never the page's length.
 export async function WorkBoardPage({ searchParams, pageContract }: { searchParams?: RouteSearchParams; pageContract: AdminUiPageContract }) {
   const sp = searchParams ?? {};
   const scope = parseScope(sp);
   const parks = parkOptions(pageContract);
-  // The board is bounded to one park per request. The top-bar park chip carries the choice;
-  // company-wide scope opens on the first park rather than fanning out one read per park.
-  const park = parks.find((option) => option.key === scope.parkId) ?? parks[0];
+  const chosenPark = scope.parkId ? parks.find((option) => option.key === scope.parkId) : undefined;
+  // No park chosen = every park the caller has; a chosen chip narrows to that one park.
+  const activeParks = chosenPark ? [chosenPark] : parks;
   const requestedDate = one(sp, PARAM_DATE);
   const businessDate = requestedDate && DATE_RE.test(requestedDate) ? requestedDate : todayIso();
   const allModules = moduleOptions(pageContract);
@@ -68,9 +111,18 @@ export async function WorkBoardPage({ searchParams, pageContract }: { searchPara
   const pageSizes = tablePageSizes(pageContract, "work-board");
   const limit = pageSizes.find((size) => size === boundedInt(one(sp, PARAM_LIMIT), pageSizes[0] ?? 25, 1, 100)) ?? pageSizes[0] ?? 25;
   const laneKeys = lanes(pageContract).map((lane) => lane.key);
-  const resetPaging = { [PARAM_CURSOR]: undefined, page: undefined, [`${PARAM_CURSOR}_stack`]: undefined, ...laneCursorParams(laneKeys) };
+  // Reset clears every column's cursor for EVERY park (not just the active ones), so switching
+  // between one park and all parks always starts each column at page one.
+  const allParkKeys = parks.map((option) => option.key);
+  const resetPaging = {
+    [PARAM_CURSOR]: undefined,
+    page: undefined,
+    [`${PARAM_CURSOR}_stack`]: undefined,
+    ...laneCursorParams(laneKeys),
+    ...laneParkResetParams(laneKeys, allParkKeys),
+  };
 
-  if (!park) {
+  if (activeParks.length === 0) {
     return (
       <section className="card">
         <div className="bd muted">{copy(pageContract, "state.empty")}</div>
@@ -78,40 +130,60 @@ export async function WorkBoardPage({ searchParams, pageContract }: { searchPara
     );
   }
 
-  const boardScope = { park: park.key, businessDate, modules: selectedModules, states: selectedStates, owner };
-  // One read PER COLUMN, each on its own cursor, plus the whole-filter summary: a fixed,
-  // bounded fan-out of four column reads (the lanes are a closed set), never per row. A single
-  // global page split 25 rows across four columns, so a column reading "117" showed three cards
-  // and no way to the rest (maintainer report 2026-09-12).
-  const laneReads = noneSelected
-    ? laneKeys.map(() => null)
-    : laneKeys.map((lane) => listWorkBoardRows({ ...boardScope, lane }, { limit, cursor: one(sp, laneCursorParam(lane)) }));
-  const [summaryResult, ...laneResults] = await Promise.all([noneSelected ? null : getWorkBoardSummary(boardScope), ...laneReads]);
-  const rowsResult = laneResults.find((result) => result !== null) ?? null;
-  // The wire's `modules` is the caller's set INTERSECTED with the request filter, so while a
-  // module filter is on, the Module menu's vocabulary comes from one unfiltered summary read.
-  // It is a second, bounded round trip taken only in that case; with no filter, the filtered
-  // summary IS that read. (The contract carrying the caller's vocabulary would remove it.)
-  const vocabularyResult = noneSelected || selectedModules.length ? await getWorkBoardSummary({ park: park.key, businessDate }) : null;
-  if (firstAuthRequiredError(...[summaryResult, vocabularyResult, ...laneResults].filter((result) => result !== null))) redirect(INTERNAL_LOGIN_PATH);
+  const filterScope = { businessDate, modules: selectedModules, states: selectedStates, owner };
+  // One read per (column, park), each on its own cursor: a bounded fan-out (lanes are a closed
+  // set, parks are one or two), never per row. A park whose column is exhausted (its cursor is the
+  // end sentinel) is not re-read.
+  type LaneParkRead = { lane: string; parkKey: string; result: Awaited<ReturnType<typeof listWorkBoardRows>> };
+  const laneParkPlan: { lane: string; parkKey: string; cursor?: string }[] = [];
+  if (!noneSelected) {
+    for (const lane of laneKeys) {
+      for (const park of activeParks) {
+        const raw = one(sp, laneParkCursorKey(lane, park.key));
+        if (raw === LANE_PARK_END) continue;
+        laneParkPlan.push({ lane, parkKey: park.key, cursor: raw && raw.length ? raw : undefined });
+      }
+    }
+  }
+  const summaryScopes = noneSelected ? [] : activeParks.map((park) => ({ ...filterScope, park: park.key }));
+  const [summaryResults, laneReadResults] = await Promise.all([
+    Promise.all(summaryScopes.map((scope) => getWorkBoardSummary(scope))),
+    Promise.all(laneParkPlan.map((plan) => listWorkBoardRows({ ...filterScope, park: plan.parkKey, lane: plan.lane }, { limit, cursor: plan.cursor }))),
+  ]);
+  const laneParkReads: LaneParkRead[] = laneParkPlan.map((plan, i) => ({ lane: plan.lane, parkKey: plan.parkKey, result: laneReadResults[i]! }));
+  // The wire's `modules` is the caller's set INTERSECTED with the request filter, so while a module
+  // filter is on, the Module menu's vocabulary comes from one unfiltered summary read per park.
+  const vocabularyResults =
+    noneSelected || selectedModules.length ? await Promise.all(activeParks.map((park) => getWorkBoardSummary({ park: park.key, businessDate }))) : [];
+  const allResults = [...summaryResults, ...vocabularyResults, ...laneReadResults];
+  if (firstAuthRequiredError(...allResults)) redirect(INTERNAL_LOGIN_PATH);
 
-  const rows: WorkBoardRow[] = laneResults.flatMap((result) => (result?.ok ? result.data.rows : []));
-  const summary = summaryResult?.ok ? summaryResult.data : null;
-  const ownRowsOnly = (rowsResult?.ok ? rowsResult.data.own_rows_only : vocabularyResult?.ok ? vocabularyResult.data.own_rows_only : false) ?? false;
-  const vocabulary = vocabularyResult ? (vocabularyResult.ok ? vocabularyResult.data.modules : null) : rowsResult?.ok ? rowsResult.data.modules : null;
+  const rows: WorkBoardRow[] = laneReadResults.flatMap((result) => (result.ok ? result.data.rows : []));
+  const summary = mergeSummaries(summaryResults.flatMap((result) => (result.ok ? [result.data] : [])));
+  const okVocabulary = vocabularyResults.flatMap((result) => (result.ok ? [result.data] : []));
+  const okSummary = summaryResults.flatMap((result) => (result.ok ? [result.data] : []));
+  // Own-rows-only is a per-caller fact; any park saying so makes the board an own-rows board.
+  const ownRowsOnly = [...okVocabulary, ...okSummary].some((data) => data.own_rows_only);
+  const vocabularySummary = mergeSummaries(okVocabulary) ?? summary;
+  const vocabulary = vocabularySummary ? vocabularySummary.modules : null;
   const visibleModules = vocabulary ? modulesVisible(allModules, vocabulary) : allModules;
-  // Per-column pagers: each column's Next/Prev rides its own cursor key and page/stack twins.
-  const columns: WorkBoardLaneColumn[] = laneKeys.map((lane, i) => {
-    const result = laneResults[i];
-    const key = laneCursorParam(lane);
-    const nextCursor = result?.ok ? result.data.next_cursor : undefined;
+  // Per-column pagers: each column reads all active parks and pages them TOGETHER on a shared page
+  // number, with each park keeping its own keyset cursor `c_<lane>_<parkKey>`.
+  const columns: WorkBoardLaneColumn[] = laneKeys.map((lane) => {
+    const forLane = laneParkReads.filter((read) => read.lane === lane);
+    const perPark = activeParks.map((park) => {
+      const read = forLane.find((entry) => entry.parkKey === park.key);
+      return { parkKey: park.key, nextCursor: read && read.result.ok ? read.result.data.next_cursor : undefined };
+    });
+    const laneRows = forLane.flatMap((read) => (read.result.ok ? read.result.data.rows : []));
     return {
       lane,
-      rows: result?.ok ? result.data.rows : [],
-      nextHref: hrefWithPagedCursor(WORK_BOARD_PATH, sp, key, nextCursor ?? null, `${key}_page`, `${key}_stack`),
-      previousHref: hrefPreviousPagedCursor(WORK_BOARD_PATH, sp, key, `${key}_page`, `${key}_stack`),
-      pageNumber: boundedInt(one(sp, `${key}_page`), 1, 1, 1000000),
-      pageSize: limit,
+      rows: laneRows,
+      nextHref: laneNextHref(WORK_BOARD_PATH, sp, lane, perPark),
+      previousHref: lanePreviousHref(WORK_BOARD_PATH, sp, lane, allParkKeys),
+      pageNumber: boundedInt(one(sp, `c_${lane}_page`), 1, 1, 1000000),
+      // The footer's slice arithmetic spans the per-page capacity across active parks.
+      pageSize: limit * activeParks.length,
     };
   });
   const selectedRow = one(sp, PARAM_ROW);
@@ -121,18 +193,22 @@ export async function WorkBoardPage({ searchParams, pageContract }: { searchPara
   const closeHref = hrefWithParams(WORK_BOARD_PATH, sp, { [PARAM_ROW]: undefined });
   const dateHref = (day: string) => hrefWithParams(WORK_BOARD_PATH, sp, { [PARAM_DATE]: day, ...resetPaging });
   const isToday = businessDate === todayIso();
-  const failed = [summaryResult, vocabularyResult, ...laneResults].find((result) => result !== null && !result.ok);
+  const failed = allResults.find((result) => !result.ok);
   const error = failed && !failed.ok ? failed.error.message : null;
 
+  // The "All parks" chip clears the park filter and returns to company scope; each park chip
+  // narrows to that one park. Both reset every column to page one.
+  const allParksHref = hrefWithParams(WORK_BOARD_PATH, sp, { [PARAM_PARK]: undefined, scope_mode: "company", [PARAM_OWNER]: undefined, ...resetPaging });
   const parkHrefs = Object.fromEntries(parks.map((option) => [option.key, hrefWithParams(WORK_BOARD_PATH, sp, { [PARAM_PARK]: option.key, scope_mode: "park", [PARAM_OWNER]: undefined, ...resetPaging })]));
   const hrefForRow = Object.fromEntries(rows.map((row) => [row.row_key, hrefWithParams(WORK_BOARD_PATH, sp, { [PARAM_ROW]: row.row_key })]));
-  // The role line names the SELECTION, as the mock does: every module the caller has, the
-  // chosen few, or none at all.
+  // The role line names the SELECTION, as the mock does: every module the caller has, the chosen
+  // few, or none at all.
   const chosenModules = noneSelected ? [] : selectedModules.length ? visibleModules.filter((option) => selectedModules.includes(option.key)) : visibleModules;
   const modulesLine = noneSelected ? copy(pageContract, "roleline.none") : chosenModules.length === visibleModules.length ? copy(pageContract, "roleline.all_modules") : chosenModules.map((option) => option.label).join(" + ");
-  const roleline = `${modulesLine} · ${park.label}`;
-  // A `row` in the URL that is not on THIS page (another park, another day, a later page, or a
-  // link that was never valid) opens nothing; the board says so rather than ignoring it.
+  const parkLine = chosenPark ? chosenPark.label : copy(pageContract, "filter.park.all");
+  const roleline = `${modulesLine} · ${parkLine}`;
+  // A `row` in the URL that is not on THIS page (another park, another day, a later page, or a link
+  // that was never valid) opens nothing; the board says so rather than ignoring it.
   const rowMissing = Boolean(selectedRow) && !error && !rows.some((row) => row.row_key === selectedRow);
 
   return (
@@ -166,8 +242,9 @@ export async function WorkBoardPage({ searchParams, pageContract }: { searchPara
           selectedOwner={owner}
           ownRowsOnly={ownRowsOnly}
           parks={parks}
-          selectedPark={park.key}
+          selectedPark={chosenPark?.key ?? ""}
           parkHrefs={parkHrefs}
+          allParksHref={allParksHref}
           businessDate={businessDate}
           isToday={isToday}
           previousDayHref={dateHref(istDayPlus(businessDate, -1))}
