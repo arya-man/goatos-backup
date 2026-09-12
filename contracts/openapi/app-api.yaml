@@ -17970,6 +17970,10 @@ components:
       type: object
       required: [rows, business_date, park_id, modules, own_rows_only]
       properties:
+        degraded:
+          type: array
+          description: Modules whose read failed on this request; the rest of the board still serves.
+          items: { $ref: "#/components/schemas/WorkBoardModule" }
         rows:
           type: array
           items:
@@ -18059,6 +18063,10 @@ components:
       type: object
       required: [total, by_lane, by_state, by_module, needs_attention, modules, lanes, business_date, park_id, own_rows_only]
       properties:
+        degraded:
+          type: array
+          description: Modules whose read failed on this request; the rest of the board still serves.
+          items: { $ref: "#/components/schemas/WorkBoardModule" }
         total: { type: integer }
         by_lane:
           type: object

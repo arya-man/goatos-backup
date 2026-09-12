@@ -71,6 +71,9 @@ type rowsPayload struct {
 	Modules []domain.Module `json:"modules"`
 	// OwnRowsOnly says the read was clamped to the caller's own rows (no oversee).
 	OwnRowsOnly bool `json:"own_rows_only"`
+	// Degraded names modules whose read failed on this request; the rest of the board still
+	// serves, so a client shows those as "couldn't load" instead of blanking.
+	Degraded []domain.Module `json:"degraded,omitempty"`
 }
 
 type summaryPayload struct {
@@ -108,6 +111,7 @@ func (h *Handler) Rows(w http.ResponseWriter, r *http.Request) {
 	httpresponse.WriteJSON(w, http.StatusOK, rowsPayload{
 		Rows: page.Rows, NextCursor: page.NextCursor,
 		BusinessDate: q.BusinessDate, ParkID: q.ParkID, Modules: q.Modules, OwnRowsOnly: own,
+		Degraded: page.Degraded,
 	})
 }
 
