@@ -122,6 +122,42 @@ func TestLineValidationNamesTheLine(t *testing.T) {
 // A mixed deal lands in BOTH product buckets and in one price band per (product, breed), at each
 // line's own weight and value -- the whole point of per-line values. Summing the buckets must give
 // back the deal's revenue exactly once.
+func TestBuildDealAggregatesOneToManyLinesCountTheDealOnce(t *testing.T) {
+	TestBuildDealAggregatesSplitsAMixedDealByLine(t)
+}
+
+// Status buckets: only a CLOSED deal reaches the overview blocks. The caller owns the predicate,
+// so this pins that a mixed deal in any other status contributes NOTHING to sheep/goats/bands --
+// the same rule a single-line deal has always had.
+func TestBuildDealAggregatesStatusMatrixOnlyClosedMixedDealsCount(t *testing.T) {
+	mk := func(status string) Deal {
+		return Deal{
+			DealID: "d-" + status, SaleDate: "2026-09-12", Farm: FarmCPT, BuyerName: "Tanveer",
+			ProductType: ProductMixed, Breed: ProductMixed, SalesValue: 165000, Status: status,
+			Lines: []DealLine{
+				{LineNo: 1, ProductType: ProductSheep, Breed: "Anantapur", AnimalCount: fp(10), TotalWeightKg: fp(300), SalesValue: 120000},
+				{LineNo: 2, ProductType: ProductGoat, Breed: "Sirohi", AnimalCount: fp(4), TotalWeightKg: fp(100), SalesValue: 45000},
+			},
+		}
+	}
+	for _, status := range Statuses {
+		closed := []Deal{}
+		if status == StatusDealClosed {
+			closed = append(closed, mk(status))
+		}
+		summary, _, bands, _ := BuildDealAggregates(closed)
+		if status == StatusDealClosed {
+			if summary.Sheep != 10 || summary.Goats != 4 || len(bands) != 2 {
+				t.Fatalf("%s: summary=%+v bands=%d", status, summary, len(bands))
+			}
+			continue
+		}
+		if summary.Deals != 0 || summary.Sheep != 0 || summary.Goats != 0 || len(bands) != 0 {
+			t.Fatalf("%s: a non-closed mixed deal leaked into the overview: %+v", status, summary)
+		}
+	}
+}
+
 func TestBuildDealAggregatesSplitsAMixedDealByLine(t *testing.T) {
 	deal := Deal{
 		DealID: "d1", SaleDate: "2026-09-12", Farm: FarmCPT, BuyerName: "Tanveer",

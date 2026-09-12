@@ -220,10 +220,15 @@ func farmValuationQuery(farm string) string {
 // closedDeals loads every closed deal in the filter -- the ONE bounded read behind the summary,
 // monthly, price-band and buyer blocks, so the four blocks cannot range over different predicates.
 //
-// projection-review: producer rows are sales_deals at ROW grain; this read adds exactly one
-// predicate (status = 'Deal Closed') to the shared farm filter and does no join, so no fan-out.
-// The lines are attached by a SEPARATE keyed read (deal_id = ANY) and hung off their own deal,
-// never joined into the deal rows -- a deal with three lines is still one deal here.
+// projection-review: membership=sales_deals at ROW grain (one recorded deal), plus its
+// sales_deal_lines attached by a SEPARATE keyed read (deal_id = ANY) and hung off their own deal,
+// never joined into the deal rows, so a deal with three lines is still one deal here;
+// group_key=deal_id for the deal blocks and (product_type, breed) at LINE grain for the price
+// bands, computed in domain.BuildDealAggregates; join_cardinality=no SQL join at all -- deals
+// 1:N lines is resolved in Go by attaching each line to exactly one deal, and every line's value
+// is summed exactly once while the deal's own sales_value is the same total by construction
+// (RollupLines, one transaction); pagination=none, whole-filter read; scope=tenant_id plus the
+// shared farm predicate (buildDealFilter) and status = 'Deal Closed'.
 // The grouped consumers live in domain.BuildDealAggregates, whose own projection-review note
 // names the group keys and the realized-price ratio's shared key set.
 func (r *Repository) closedDeals(ctx context.Context, tenantID, farm string) ([]domain.Deal, error) {
@@ -250,6 +255,10 @@ func (r *Repository) closedDeals(ctx context.Context, tenantID, farm string) ([]
 		return nil, fmt.Errorf("sales overview deals rows: %w", err)
 	}
 	// The product/breed blocks are computed at LINE grain (000294): one batched read.
+	// projection-review: membership=sales_deal_lines keyed by deal_id over the deals read above;
+	// group_key=deal_id, each line attached to exactly one deal; join_cardinality=1:N resolved in
+	// Go (no SQL join, so the deal rows cannot fan out); pagination=none; scope=tenant_id and the
+	// deals' own farm/status predicate, since only their ids are handed in.
 	if err := r.attachDealLines(ctx, tenantID, deals); err != nil {
 		return nil, err
 	}
