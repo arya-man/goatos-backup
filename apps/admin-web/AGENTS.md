@@ -429,6 +429,11 @@ table, filter, and click action:
 6. Before calling a surface done, produce a ledger entry for each route/drawer/
    modal: mock source selector or function, app component path, visible anatomy
    matched, backend-backed fields, disabled backend gaps, and screenshot proof.
+7. Responsive proof is part of the anatomy, not a later polish pass. For every
+   touched route, drawer, fullscreen overlay, dense table, sticky bar, or side
+   rail, verify both laptop and phone widths. A page that looks acceptable at
+   1440px but clips controls, forces page-wide horizontal scroll, hides actions,
+   or leaves a desktop-width drawer/table on phone is not ready for handoff.
 
 Known failure mode 1 (drawer body): Action Center / vaccination drawers used the
 mock `.drawer` shell but rendered a flat `helpgrid`/metadata body plus a few
@@ -535,6 +540,7 @@ npm run check:mock-fidelity
 npm run lint
 npm run typecheck
 npm run build
+npm test
 ```
 
 When local backend/admin-web can run:

@@ -500,6 +500,10 @@ After implementing any phase:
   `localhost`, and similar technical words in docs/tests/logs, not screens. Load
   `.agents/skills/goatos-build/references/frontend-mobile.md` for the full copy
   firewall before touching Compose/React UI.
+- Admin-web responsive support is part of frontend quality, not Android-only
+  work. For touched React routes, tables, drawers, fullscreen overlays, sticky
+  bars, and side rails, add or update local guards that prove laptop and phone
+  layouts do not clip content or force page-wide horizontal scroll.
 - Hooks call shared scripts in `tools/agent-hooks/`.
 - CI is the hard gate; hooks are fast feedback.
 - Do not create many skills up front. Add a new skill only when the trigger is
