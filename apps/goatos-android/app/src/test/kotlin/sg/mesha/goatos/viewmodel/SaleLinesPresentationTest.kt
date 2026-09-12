@@ -37,6 +37,7 @@ class SaleLinesPresentationTest {
         assertNull(sale.rows.firstOrNull { it.label == "Breed" })
         assertEquals("19", sale.rows.first { it.label == "Animals" }.value)
 
+        assertEquals("Sheep + Goat · 3 lines", deal.soldSummary())
         val sold = sections.first { it.title == "What was sold" }
         assertEquals(3, sold.rows.size)
         assertEquals("Sheep · Anantapur", sold.rows[0].label)
@@ -52,6 +53,7 @@ class SaleLinesPresentationTest {
             lines = listOf(SalesDealLineDto(lineId = "l1", lineNo = 1, productType = "Goat", breed = "Sojat", animalCount = 2.0, salesValue = 30000.0)),
         )
         val sections = deal.sections()
+        assertEquals("Goat · Sojat", deal.soldSummary())
         val sale = sections.first { it.title == "The sale" }
         assertEquals("Goat", sale.rows.first { it.label == "Product" }.value)
         assertEquals("Sojat", sale.rows.first { it.label == "Breed" }.value)
