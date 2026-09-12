@@ -2,7 +2,7 @@
 // Android proof preview cards must report shared preview control actions.
 
 import { execSync } from "node:child_process";
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
 
 const repo = resolve(import.meta.dirname, "../..");
@@ -112,7 +112,11 @@ function scanText(rel, text) {
 }
 
 function scan(files) {
-  return files.flatMap((rel) => scanText(rel, readFileSync(join(repo, rel), "utf8")));
+  // A DELETED production source is in the changed set but has no text to scan: skipping it is
+  // the only honest answer (a retired screen cannot leak a preview action).
+  return files
+    .filter((rel) => existsSync(join(repo, rel)))
+    .flatMap((rel) => scanText(rel, readFileSync(join(repo, rel), "utf8")));
 }
 
 function selfTest() {

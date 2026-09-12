@@ -144,6 +144,13 @@ func NewFixture(t *testing.T) *Fixture {
 		WithProcessedEventStore(domainconsumerpg.NewProcessedEventStore(pool, timeout))
 	relay := outboxapp.NewService(outboxRepo, e2eConsumerPublisher{consumer: consumer}, validator, outboxapp.Config{
 		Limit: 100, MaxAttempts: 5, BackoffBase: time.Millisecond, BackoffMax: time.Millisecond,
+		// Producers stamp next_attempt_at = now() on the DATABASE clock; the relay claims rows
+		// against its own process clock. Against a remote throwaway server (the OCI pgtest
+		// harness) the database runs about a second ahead, so a row written and relayed in the
+		// same instant is invisible to RunUntilDrained and a story reads "no push" for an event
+		// production's always-running relay would pick up a second later. Two seconds of
+		// tolerance is only ever a claim horizon here -- no story asserts published_at.
+		Now: func() time.Time { return time.Now().Add(2 * time.Second) },
 	})
 	verifRepo := verifpg.NewRepository(pool, timeout)
 	proofRepo := proofpg.NewRepository(pool, timeout)

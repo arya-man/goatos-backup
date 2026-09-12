@@ -590,3 +590,58 @@ func TestCreatePersonAuthorsTheScopeAndDerivesTheGrant(t *testing.T) {
 		t.Fatalf("access after create = mode %q parks %v home %q, want parks [A] home A", rec.ScopeMode, rec.ParkIDs, rec.HomeParkID)
 	}
 }
+
+// TestSavePersonAccessWritesThePenVisitParks pins the HRMS half of the pen-visit decision
+// (2026-09-12): the parks a person walks the day after care work are ticked on /people and
+// stored in pen_visit_park_assignees keyed by the user they sign in as, replaced wholesale on
+// every save, read back on the record, and refused for a park that is not active.
+func TestSavePersonAccessWritesThePenVisitParks(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	pool := pgtest.StartPostgres(t, ctx)
+	seedScopeFixture(t, ctx, pool)
+	repo := NewAccessRepository(pool)
+
+	rec, err := repo.SavePersonAccess(ctx, ports.SavePersonAccessCommand{
+		TenantID: scopeTenant, ActorID: scopeActor, PersonID: scopeMember,
+		ScopeMode: "parks", ParkIDs: []string{scopeParkA, scopeParkB}, HomeParkID: scopeParkA,
+		PenVisitParkIDs: []string{scopeParkB},
+	})
+	if err != nil {
+		t.Fatalf("save with pen visit park: %v", err)
+	}
+	if len(rec.PenVisitParkIDs) != 1 || rec.PenVisitParkIDs[0] != scopeParkB {
+		t.Fatalf("pen visit parks read back = %v, want [park B]", rec.PenVisitParkIDs)
+	}
+	var visitorRows int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM pen_visit_park_assignees WHERE tenant_id = $1::uuid AND user_id = $2::uuid AND park_id = $3::uuid`, scopeTenant, scopeUser, scopeParkB).Scan(&visitorRows); err != nil || visitorRows != 1 {
+		t.Fatalf("pen_visit_park_assignees rows for the user on park B = %d err %v, want 1", visitorRows, err)
+	}
+	// Wholesale replace: switching the tick to park A drops B and adds A.
+	rec, err = repo.SavePersonAccess(ctx, ports.SavePersonAccessCommand{
+		TenantID: scopeTenant, ActorID: scopeActor, PersonID: scopeMember,
+		ScopeMode: "parks", ParkIDs: []string{scopeParkA, scopeParkB}, HomeParkID: scopeParkA,
+		PenVisitParkIDs: []string{scopeParkA}, ExpectedRowVersion: rec.RowVersion,
+	})
+	if err != nil || len(rec.PenVisitParkIDs) != 1 || rec.PenVisitParkIDs[0] != scopeParkA {
+		t.Fatalf("after switching = %v err %v, want [park A]", rec.PenVisitParkIDs, err)
+	}
+	// Unticking every park leaves no row.
+	rec, err = repo.SavePersonAccess(ctx, ports.SavePersonAccessCommand{
+		TenantID: scopeTenant, ActorID: scopeActor, PersonID: scopeMember,
+		ScopeMode: "parks", ParkIDs: []string{scopeParkA, scopeParkB}, HomeParkID: scopeParkA,
+		ExpectedRowVersion: rec.RowVersion,
+	})
+	if err != nil || len(rec.PenVisitParkIDs) != 0 {
+		t.Fatalf("after unticking = %v err %v, want none", rec.PenVisitParkIDs, err)
+	}
+	// An inactive/unknown park is refused by name, never dropped.
+	if _, err := repo.SavePersonAccess(ctx, ports.SavePersonAccessCommand{
+		TenantID: scopeTenant, ActorID: scopeActor, PersonID: scopeMember,
+		ScopeMode: "parks", ParkIDs: []string{scopeParkA, scopeParkB}, HomeParkID: scopeParkA,
+		PenVisitParkIDs: []string{"94000000-0000-4000-8000-0000000000ff"}, ExpectedRowVersion: rec.RowVersion,
+	}); !errors.Is(err, ports.ErrUnknownPark) {
+		t.Fatalf("unknown pen visit park = %v, want ErrUnknownPark", err)
+	}
+}

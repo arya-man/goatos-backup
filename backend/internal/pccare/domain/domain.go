@@ -55,6 +55,26 @@ var Categories = []string{CategoryDeworming, CategoryAntiProtozoan, CategoryTick
 // Kernel-owned categories stay readable/listable, but are created by reconciliation stages.
 var PlannerCategories = []string{CategoryDeworming, CategoryAntiProtozoan, CategoryTicksRemoval, CategoryHoofTrimming, CategoryHairTrimming}
 
+// PenVisitCategories are the categories whose work in a pen raises the next-day pen visit
+// (maintainer decision 2026-09-12): the five hands-on-the-animal categories. A task in one of
+// these, with a shed, keeps its kernel clock open after its own videos are verified until the
+// visit is verified too. It is the SAME set as PlannerCategories today and is named separately
+// because the two questions are different: what a human may plan, and what obliges a visit.
+var PenVisitCategories = []string{CategoryDeworming, CategoryAntiProtozoan, CategoryTicksRemoval, CategoryHoofTrimming, CategoryHairTrimming}
+
+// OwesPenVisit reports whether a task of this category with this shed owes a next-day visit.
+func OwesPenVisit(category, shedID string) bool {
+	if strings.TrimSpace(shedID) == "" {
+		return false
+	}
+	for _, c := range PenVisitCategories {
+		if c == category {
+			return true
+		}
+	}
+	return false
+}
+
 // TrimmingCategories are the planner categories a holder of pc_care.plan_trimming may plan
 // (maintainer decision 2026-09-04: the Breeding Director owns hoof and hair trimming while
 // deworming and ticks removal stay CEO-planned). This is the ONE list that permission covers;

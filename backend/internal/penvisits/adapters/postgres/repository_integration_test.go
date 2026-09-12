@@ -57,12 +57,16 @@ const (
 	pvShedCPT    = "00000000-0000-4000-8000-0000000e0203"
 	pvDinakar    = "00000000-0000-4000-8000-0000000e0301"
 	pvOther      = "00000000-0000-4000-8000-0000000e0302"
+	pvSecond     = "00000000-0000-4000-8000-0000000e0303"
+	pvVerifier   = "00000000-0000-4000-8000-0000000e0304"
+	pvPCTask     = "00000000-0000-4000-8000-0000000e0501"
+	pvSubmission = "00000000-0000-4000-8000-0000000e0502"
 	pvProof      = "00000000-0000-4000-8000-0000000e0401"
 	pvProof2     = "00000000-0000-4000-8000-0000000e0402"
 )
 
-// seedPenVisitFixture: one tenant, two parks (CBE with a configured head, CPT with NONE), three
-// sheds, the park head, and two finished proofs.
+// seedPenVisitFixture: one tenant, two parks (CBE with TWO configured visitors, CPT with NONE),
+// three sheds, the people, and two finished proofs.
 func seedPenVisitFixture(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
 	t.Helper()
 	exec := func(sql string, args ...any) {
@@ -81,8 +85,9 @@ VALUES ($2::uuid, $1::uuid, 'shed', 'S-CASTRO', 'Castro', 'active', $4::uuid, 1)
        ($5::uuid, $1::uuid, 'shed', 'S-YASH', 'Yashoda', 'active', $6::uuid, 1)
 ON CONFLICT (location_id) DO NOTHING`, pvTenant, pvShedCastro, pvShedGodel, pvParkCBE, pvShedCPT, pvParkCPT)
 	exec(`INSERT INTO workforce_members (tenant_id, user_id, display_code, display_name, status)
-VALUES ($1::uuid, $2::uuid, 'DIN', 'Dinakar', 'active'), ($1::uuid, $3::uuid, 'OTH', 'Someone Else', 'active')`, pvTenant, pvDinakar, pvOther)
-	exec(`INSERT INTO pen_visit_park_assignees (tenant_id, park_id, user_id) VALUES ($1::uuid, $2::uuid, $3::uuid)`, pvTenant, pvParkCBE, pvDinakar)
+VALUES ($1::uuid, $2::uuid, 'DIN', 'Dinakar', 'active'), ($1::uuid, $3::uuid, 'OTH', 'Someone Else', 'active'), ($1::uuid, $4::uuid, 'SEC', 'Second Visitor', 'active')`, pvTenant, pvDinakar, pvOther, pvSecond)
+	// Two people configured for CBE (maintainer decision 2026-09-12): either may record.
+	exec(`INSERT INTO pen_visit_park_assignees (tenant_id, park_id, user_id) VALUES ($1::uuid, $2::uuid, $3::uuid), ($1::uuid, $2::uuid, $4::uuid)`, pvTenant, pvParkCBE, pvDinakar, pvSecond)
 	for _, proof := range []string{pvProof, pvProof2} {
 		exec(`INSERT INTO proof_artifacts (proof_id, tenant_id, storage_provider, object_key, mime_type, size_bytes, upload_state, scope_type, scope_id, subject_type, proof_type, uploaded_by, metadata)
 VALUES ($1::uuid, $2::uuid, 'local', 'visits/' || $1::text, 'video/mp4', 4096, 'completed', 'task', $1::uuid, 'other', 'video', $3::uuid, '{"capture_source":"in_app_camera"}'::jsonb)`, proof, pvTenant, pvDinakar)
@@ -93,10 +98,17 @@ VALUES ($1::uuid, $2::uuid, 'local', 'visits/' || $1::text, 'video/mp4', 4096, '
 // leaves behind -- for a pen, at an instant.
 func seedWork(t *testing.T, ctx context.Context, pool *pgxpool.Pool, key, parkID, shedID, partition, module, category string, at time.Time) {
 	t.Helper()
+	seedWorkRef(t, ctx, pool, key, parkID, shedID, partition, module, category, "sop_submission", "", at)
+}
+
+// seedWorkRef is seedWork with the item's source ref named, so the visit's parent link can be
+// asserted. An empty refID mints a random one.
+func seedWorkRef(t *testing.T, ctx context.Context, pool *pgxpool.Pool, key, parkID, shedID, partition, module, category, refType, refID string, at time.Time) {
+	t.Helper()
 	if _, err := pool.Exec(ctx, `
 INSERT INTO verification_items (item_id, tenant_id, vertical, module, category, source_module, source_task_id, source_submission_id, source_ref_type, source_ref_id, media_refs, status, park_id, shed_id, partition_label, captured_at, created_at, idempotency_key)
-VALUES (gen_random_uuid(), $1::uuid, 'preventive_care', $5, $6, $5, gen_random_uuid(), gen_random_uuid(), 'sop_submission', gen_random_uuid(), '["proof"]'::jsonb, 'pending', $2::uuid, $3::uuid, NULLIF($4, ''), $7::timestamptz, $7::timestamptz, $8)`,
-		pvTenant, parkID, shedID, partition, module, category, at, "pen-visit-test:"+key); err != nil {
+VALUES (gen_random_uuid(), $1::uuid, 'preventive_care', $5, $6, $5, gen_random_uuid(), gen_random_uuid(), $9, COALESCE(NULLIF($10, '')::uuid, gen_random_uuid()), '["proof"]'::jsonb, 'pending', $2::uuid, $3::uuid, NULLIF($4, ''), $7::timestamptz, $7::timestamptz, $8)`,
+		pvTenant, parkID, shedID, partition, module, category, at, "pen-visit-test:"+key, refType, refID); err != nil {
 		t.Fatalf("seed work %s: %v", key, err)
 	}
 }
@@ -131,8 +143,8 @@ func TestPenVisitLifecycleOneToManyParkScopePaginationPostgresPaths(t *testing.T
 	// hoof-trimmed, a CPT pen vaccinated (no head configured), an inventory-vaccine item in
 	// Castro 2 that is not pen work, and a Castro 2 item from TODAY that belongs to tomorrow's
 	// visit.
-	seedWork(t, ctx, pool, "castro-vacc", pvParkCBE, pvShedCastro, "2", "vaccination", "vaccination_proof", istInstant(source, 10))
-	seedWork(t, ctx, pool, "castro-deworm", pvParkCBE, pvShedCastro, "2", "pc_care", "pc_deworming", istInstant(source, 15))
+	seedWorkRef(t, ctx, pool, "castro-vacc", pvParkCBE, pvShedCastro, "2", "vaccination", "vaccination_proof", "sop_submission", pvSubmission, istInstant(source, 10))
+	seedWorkRef(t, ctx, pool, "castro-deworm", pvParkCBE, pvShedCastro, "2", "pc_care", "pc_deworming", "pc_care_task", pvPCTask, istInstant(source, 15))
 	seedWork(t, ctx, pool, "godel-hoof", pvParkCBE, pvShedGodel, "Part 3", "pc_care", "pc_hoof_trimming", istInstant(source, 11))
 	seedWork(t, ctx, pool, "cpt-vacc", pvParkCPT, pvShedCPT, "", "vaccination", "vaccination_proof", istInstant(source, 9))
 	seedWork(t, ctx, pool, "castro-inventory", pvParkCBE, pvShedCastro, "2", "pc_care", "inventory_vaccine", istInstant(source, 12))
@@ -148,7 +160,7 @@ func TestPenVisitLifecycleOneToManyParkScopePaginationPostgresPaths(t *testing.T
 	if len(result.ParksWithoutAssignee) != 1 || result.ParksWithoutAssignee[0] != pvParkCPT || result.PensSkipped != 1 {
 		t.Fatalf("CPT (no head configured) must be reported, got %+v", result)
 	}
-	if len(digests) != 1 || digests[0].ParkID != pvParkCBE || digests[0].AssigneeID != pvDinakar || len(digests[0].Tasks) != 2 || digests[0].DueDate != today {
+	if len(digests) != 1 || digests[0].ParkID != pvParkCBE || len(digests[0].VisitorIDs) != 2 || len(digests[0].Tasks) != 2 || digests[0].DueDate != today {
 		t.Fatalf("digest = %+v", digests)
 	}
 	if digests[0].ParkName != "Coimbatore" {
@@ -182,6 +194,19 @@ func TestPenVisitLifecycleOneToManyParkScopePaginationPostgresPaths(t *testing.T
 	if len(godel.Reasons) != 1 || godel.Reasons[0] != domain.ReasonHoofTrimming {
 		t.Fatalf("godel reasons = %v", godel.Reasons)
 	}
+	// The visit is linked to BOTH parents that raised it (the vaccination submission and the
+	// PC Care task), and each parent finds its visit through ForSources.
+	if len(castro.Sources) != 2 || len(castro.VisitorIDs) != 2 {
+		t.Fatalf("castro sources/visitors = %+v / %+v", castro.Sources, castro.VisitorIDs)
+	}
+	byTask, err := repo.ForSources(ctx, pvTenant, domain.SourceKindPCCareTask, []string{pvPCTask, pvSubmission})
+	if err != nil || len(byTask) != 1 || byTask[pvPCTask].TaskID != castro.TaskID {
+		t.Fatalf("ForSources(pc_care_task) = %+v err %v", byTask, err)
+	}
+	bySubmission, err := repo.ForSources(ctx, pvTenant, domain.SourceKindVaccinationSubmission, []string{pvSubmission})
+	if err != nil || len(bySubmission) != 1 || bySubmission[pvSubmission].TaskID != castro.TaskID {
+		t.Fatalf("ForSources(vaccination_submission) = %+v err %v", bySubmission, err)
+	}
 	// Nobody else sees them.
 	otherPage, err := repo.ListMine(ctx, ports.ListParams{TenantID: pvTenant, UserID: pvOther, Limit: 20})
 	if err != nil || len(otherPage.Rows) != 0 {
@@ -205,7 +230,7 @@ func TestPenVisitLifecycleOneToManyParkScopePaginationPostgresPaths(t *testing.T
 	if err != nil {
 		t.Fatalf("retry digests: %v", err)
 	}
-	if len(retryDigests) != 1 || retryDigests[0].ParkID != pvParkCBE || retryDigests[0].AssigneeID != pvDinakar || retryDigests[0].DueDate != today || len(retryDigests[0].Tasks) != 2 {
+	if len(retryDigests) != 1 || retryDigests[0].ParkID != pvParkCBE || len(retryDigests[0].VisitorIDs) != 2 || retryDigests[0].DueDate != today || len(retryDigests[0].Tasks) != 2 {
 		t.Fatalf("retry digests = %+v", retryDigests)
 	}
 	// A late item for the same pen and day (an offline phone syncing after the tick) only
@@ -232,8 +257,9 @@ func TestPenVisitLifecycleOneToManyParkScopePaginationPostgresPaths(t *testing.T
 		t.Fatalf("validated %d envelopes, want 2", n)
 	}
 
-	// Submit: the wrong person is refused, the right one completes it, an exact replay returns
-	// the same row, a stale version is refused, and a second submit is 'already done'.
+	// Submit: the wrong person is refused, a configured visitor hands the clip to the verifier
+	// (the kernel clock stays open; the gate reads pending_verification), an exact replay
+	// returns the same row, a stale version is refused, and a second submit is 'in review'.
 	actor := domain.Actor{UserID: pvDinakar}
 	if _, err := repo.Submit(ctx, ports.SubmitParams{TenantID: pvTenant, Actor: domain.Actor{UserID: pvOther}, TaskID: castro.TaskID, ProofRef: pvProof, RowVersion: castro.RowVersion, IdempotencyKey: "submit-other"}); !errors.Is(err, domain.ErrNotAssignee) {
 		t.Fatalf("other person's submit = %v, want ErrNotAssignee", err)
@@ -241,32 +267,64 @@ func TestPenVisitLifecycleOneToManyParkScopePaginationPostgresPaths(t *testing.T
 	if _, err := repo.Submit(ctx, ports.SubmitParams{TenantID: pvTenant, Actor: actor, TaskID: castro.TaskID, ProofRef: pvProof, RowVersion: castro.RowVersion + 7, IdempotencyKey: "submit-stale"}); !errors.Is(err, domain.ErrVersionConflict) {
 		t.Fatalf("stale submit = %v, want ErrVersionConflict", err)
 	}
-	done, err := repo.Submit(ctx, ports.SubmitParams{TenantID: pvTenant, Actor: actor, TaskID: castro.TaskID, ProofRef: pvProof, RowVersion: castro.RowVersion, IdempotencyKey: "submit-1", TraceID: "trace-1"})
+	submitted, err := repo.Submit(ctx, ports.SubmitParams{TenantID: pvTenant, Actor: actor, TaskID: castro.TaskID, ProofRef: pvProof, RowVersion: castro.RowVersion, IdempotencyKey: "submit-1", TraceID: "trace-1"})
 	if err != nil {
 		t.Fatalf("submit: %v", err)
 	}
-	if done.WorkState != domain.WorkStateCompleted || done.ProofRef == nil || *done.ProofRef != pvProof || done.SubmittedAt == nil || done.RowVersion != castro.RowVersion+1 {
-		t.Fatalf("submitted task = %+v", done)
+	if submitted.WorkState != domain.WorkStateScheduled || submitted.Status != domain.StatusPendingVerification || submitted.ProofRef == nil || *submitted.ProofRef != pvProof || submitted.SubmittedAt == nil || submitted.RowVersion != castro.RowVersion+1 {
+		t.Fatalf("submitted task = %+v", submitted)
 	}
 	again, err := repo.Submit(ctx, ports.SubmitParams{TenantID: pvTenant, Actor: actor, TaskID: castro.TaskID, ProofRef: pvProof, RowVersion: castro.RowVersion, IdempotencyKey: "submit-1"})
-	if err != nil || again.RowVersion != done.RowVersion {
+	if err != nil || again.RowVersion != submitted.RowVersion {
 		t.Fatalf("exact replay = %+v err %v", again, err)
 	}
 	if _, err := repo.Submit(ctx, ports.SubmitParams{TenantID: pvTenant, Actor: actor, TaskID: castro.TaskID, ProofRef: pvProof2, RowVersion: castro.RowVersion, IdempotencyKey: "submit-1"}); !errors.Is(err, ports.ErrIdempotencyConflict) {
 		t.Fatalf("same key, different proof = %v, want ErrIdempotencyConflict", err)
 	}
-	if _, err := repo.Submit(ctx, ports.SubmitParams{TenantID: pvTenant, Actor: actor, TaskID: castro.TaskID, ProofRef: pvProof2, RowVersion: 0, IdempotencyKey: "submit-2"}); !errors.Is(err, domain.ErrAlreadyDone) {
-		t.Fatalf("second submit = %v, want ErrAlreadyDone", err)
+	if _, err := repo.Submit(ctx, ports.SubmitParams{TenantID: pvTenant, Actor: actor, TaskID: castro.TaskID, ProofRef: pvProof2, RowVersion: 0, IdempotencyKey: "submit-2"}); !errors.Is(err, domain.ErrInReview) {
+		t.Fatalf("second submit while in review = %v, want ErrInReview", err)
 	}
-	var submitted, audits int
-	if err := pool.QueryRow(ctx, `SELECT count(*) FROM outbox_messages WHERE tenant_id = $1::uuid AND event_type = 'pen_visit.submitted'`, pvTenant).Scan(&submitted); err != nil || submitted != 1 {
-		t.Fatalf("pen_visit.submitted outbox rows = %d err %v", submitted, err)
+	var submittedEvents, audits int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM outbox_messages WHERE tenant_id = $1::uuid AND event_type = 'pen_visit.submitted'`, pvTenant).Scan(&submittedEvents); err != nil || submittedEvents != 1 {
+		t.Fatalf("pen_visit.submitted outbox rows = %d err %v", submittedEvents, err)
 	}
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM audit_log WHERE tenant_id = $1::uuid AND resource_type = 'pen_visit_task' AND action = 'pen_visit.submitted'`, pvTenant).Scan(&audits); err != nil || audits != 1 {
 		t.Fatalf("submit audit rows = %d err %v", audits, err)
 	}
 	if n := assertEnvelopesValid(t, ctx, pool, pvTenant); n != 3 {
 		t.Fatalf("validated %d envelopes after submit, want 3", n)
+	}
+	// A submitted visit is still under To do (its clock is open) and still counts as scheduled;
+	// the badge, though, no longer counts it -- nobody has to go anywhere for it.
+	if n, err := repo.OpenCount(ctx, pvTenant, pvSecond); err != nil || n != 1 {
+		t.Fatalf("open count after submit = %d err %v", n, err)
+	}
+
+	// The verdict: a replayed/foreign verdict applies nothing; approve completes BOTH
+	// dimensions, stamps the verifier and announces pen_visit.verified with the parents on it.
+	if res, err := repo.ApplyVerified(ctx, ports.VerdictParams{TenantID: pvTenant, TaskID: godel.TaskID, VerifiedBy: pvVerifier}); err != nil || res.Applied {
+		t.Fatalf("verdict on an unsubmitted visit must apply nothing: %+v err %v", res, err)
+	}
+	approved, err := repo.ApplyVerified(ctx, ports.VerdictParams{TenantID: pvTenant, TaskID: castro.TaskID, VerifiedBy: pvVerifier, TraceID: "verdict-1"})
+	if err != nil || !approved.Applied {
+		t.Fatalf("approve = %+v err %v", approved, err)
+	}
+	done := approved.Task
+	if done.WorkState != domain.WorkStateCompleted || done.Status != domain.StatusCompleted || done.VerifiedBy == nil || *done.VerifiedBy != pvVerifier || done.VerifiedAt == nil || !done.IsVerified() {
+		t.Fatalf("approved task = %+v", done)
+	}
+	if replayed, err := repo.ApplyVerified(ctx, ports.VerdictParams{TenantID: pvTenant, TaskID: castro.TaskID, VerifiedBy: pvVerifier}); err != nil || replayed.Applied || replayed.Task.RowVersion != done.RowVersion {
+		t.Fatalf("replayed approve must be a no-op: %+v err %v", replayed, err)
+	}
+	if _, err := repo.Submit(ctx, ports.SubmitParams{TenantID: pvTenant, Actor: actor, TaskID: castro.TaskID, ProofRef: pvProof2, RowVersion: 0, IdempotencyKey: "submit-3"}); !errors.Is(err, domain.ErrAlreadyDone) {
+		t.Fatalf("submit after approval = %v, want ErrAlreadyDone", err)
+	}
+	var verifiedEvents int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM outbox_messages WHERE tenant_id = $1::uuid AND event_type = 'pen_visit.verified' AND payload->'payload'->'sources' @> to_jsonb(ARRAY['pc_care_task:' || $2::text])`, pvTenant, pvPCTask).Scan(&verifiedEvents); err != nil || verifiedEvents != 1 {
+		t.Fatalf("pen_visit.verified outbox rows naming the PC Care parent = %d err %v", verifiedEvents, err)
+	}
+	if n := assertEnvelopesValid(t, ctx, pool, pvTenant); n != 4 {
+		t.Fatalf("validated %d envelopes after verdict, want 4", n)
 	}
 	donePage, err := repo.ListMine(ctx, ports.ListParams{TenantID: pvTenant, UserID: pvDinakar, States: domain.StatesForFilter(domain.FilterDone), Limit: 20})
 	if err != nil || len(donePage.Rows) != 1 || donePage.StateCounts[domain.WorkStateCompleted] != 1 || donePage.StateCounts[domain.WorkStateScheduled] != 1 {
@@ -287,16 +345,50 @@ func TestPenVisitLifecycleOneToManyParkScopePaginationPostgresPaths(t *testing.T
 	if godelLate.WorkState != domain.WorkStateDelayed || godelLate.DueDate != "2026-09-09" || godelLate.PlannedDate != today || godelLate.DelayedSince == nil || *godelLate.DelayedSince != today || godelLate.RolledFwd != 1 {
 		t.Fatalf("rolled task = %+v", godelLate)
 	}
-	if got := domain.StateChip(godelLate, "2026-09-09"); got == "Due today" {
+	if got := domain.StateChip(godelLate, "2026-09-09"); got == "Visit pen today" {
 		t.Fatalf("a rolled visit must read as delayed, got %q", got)
 	}
 
-	// Keyset paging: page size 1 walks both rows without repeating or skipping.
-	first, err := repo.ListMine(ctx, ports.ListParams{TenantID: pvTenant, UserID: pvDinakar, States: []string{domain.WorkStateScheduled, domain.WorkStateDelayed, domain.WorkStateCompleted}, Limit: 1})
+	// The SECOND configured visitor records the Godel pen ("if anyone does then enough"); the
+	// verifier sends it back with a reason; the sweep does not roll a visit sitting with the
+	// verifier; the re-shoot carries a fresh row version (a fresh verifier item) and is approved.
+	secondActor := domain.Actor{UserID: pvSecond}
+	godelSubmitted, err := repo.Submit(ctx, ports.SubmitParams{TenantID: pvTenant, Actor: secondActor, TaskID: godel.TaskID, ProofRef: pvProof2, RowVersion: godelLate.RowVersion, IdempotencyKey: "submit-godel-1"})
+	if err != nil || godelSubmitted.Status != domain.StatusPendingVerification || godelSubmitted.SubmittedBy == nil || *godelSubmitted.SubmittedBy != pvSecond {
+		t.Fatalf("second visitor's submit = %+v err %v", godelSubmitted, err)
+	}
+	if sweep, err := repo.SweepRollForward(ctx, pvTenant, istInstant("2026-09-11", 0), 100, 10); err != nil || sweep.RolledForward != 0 {
+		t.Fatalf("a visit with the verifier must not roll: %+v err %v", sweep, err)
+	}
+	bounced, err := repo.BounceForRework(ctx, ports.VerdictParams{TenantID: pvTenant, TaskID: godel.TaskID, VerifiedBy: pvVerifier, Reason: "pen not visible"})
+	if err != nil || !bounced.Applied || bounced.Task.Status != domain.StatusRework || bounced.Task.ReworkReason != "pen not visible" || bounced.Task.WorkState != domain.WorkStateDelayed {
+		t.Fatalf("bounce = %+v err %v", bounced, err)
+	}
+	if !bounced.Task.CanSubmit(actor) || !bounced.Task.CanSubmit(secondActor) {
+		t.Fatal("a sent-back visit must be recordable by any configured visitor")
+	}
+	reshot, err := repo.Submit(ctx, ports.SubmitParams{TenantID: pvTenant, Actor: actor, TaskID: godel.TaskID, ProofRef: pvProof, RowVersion: bounced.Task.RowVersion, IdempotencyKey: "submit-godel-2"})
+	if err != nil || reshot.Status != domain.StatusPendingVerification || reshot.ReworkReason != "" || reshot.RowVersion != bounced.Task.RowVersion+1 {
+		t.Fatalf("re-shoot = %+v err %v", reshot, err)
+	}
+	var reshotEvents int
+	if err := pool.QueryRow(ctx, `SELECT count(DISTINCT idempotency_key) FROM outbox_messages WHERE tenant_id = $1::uuid AND event_type = 'pen_visit.submitted' AND aggregate_id = $2::uuid`, pvTenant, godel.TaskID).Scan(&reshotEvents); err != nil || reshotEvents != 2 {
+		t.Fatalf("a re-shoot must announce a distinct submitted event (fresh verifier item), got %d err %v", reshotEvents, err)
+	}
+	if final, err := repo.ApplyVerified(ctx, ports.VerdictParams{TenantID: pvTenant, TaskID: godel.TaskID, VerifiedBy: pvVerifier}); err != nil || !final.Applied || !final.Task.IsVerified() {
+		t.Fatalf("final approve = %+v err %v", final, err)
+	}
+	if n, err := repo.OpenCount(ctx, pvTenant, pvDinakar); err != nil || n != 0 {
+		t.Fatalf("open count after both verified = %d err %v", n, err)
+	}
+
+	// Keyset paging: page size 1 walks both rows without repeating or skipping -- for either
+	// configured visitor.
+	first, err := repo.ListMine(ctx, ports.ListParams{TenantID: pvTenant, UserID: pvSecond, States: []string{domain.WorkStateScheduled, domain.WorkStateDelayed, domain.WorkStateCompleted}, Limit: 1})
 	if err != nil || len(first.Rows) != 1 || first.NextCursor == "" {
 		t.Fatalf("page 1 = %+v err %v", first, err)
 	}
-	second, err := repo.ListMine(ctx, ports.ListParams{TenantID: pvTenant, UserID: pvDinakar, States: []string{domain.WorkStateScheduled, domain.WorkStateDelayed, domain.WorkStateCompleted}, Limit: 1, Cursor: first.NextCursor})
+	second, err := repo.ListMine(ctx, ports.ListParams{TenantID: pvTenant, UserID: pvSecond, States: []string{domain.WorkStateScheduled, domain.WorkStateDelayed, domain.WorkStateCompleted}, Limit: 1, Cursor: first.NextCursor})
 	if err != nil || len(second.Rows) != 1 || second.NextCursor != "" || second.Rows[0].TaskID == first.Rows[0].TaskID {
 		t.Fatalf("page 2 = %+v err %v", second, err)
 	}

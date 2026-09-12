@@ -22,6 +22,7 @@ import (
 	obligationpg "github.com/vgoats/goatos/backend/internal/obligation/adapters/postgres"
 	obligationapp "github.com/vgoats/goatos/backend/internal/obligation/app"
 	pccarepg "github.com/vgoats/goatos/backend/internal/pccare/adapters/postgres"
+	penvisitspg "github.com/vgoats/goatos/backend/internal/penvisits/adapters/postgres"
 	"github.com/vgoats/goatos/backend/internal/platform/eventbus"
 	protocolpg "github.com/vgoats/goatos/backend/internal/protocol/adapters/postgres"
 	soppg "github.com/vgoats/goatos/backend/internal/sop/adapters/postgres"
@@ -64,6 +65,10 @@ type verificationStores struct {
 	pcCare eventwiring.PCCareVerdictStore
 	// health applies treatment-session verdicts (health/health_treatment_session).
 	health eventwiring.HealthVerdictStore
+	// penVisits applies pen-visit verdicts (pen_visits/pen_visit_task); penVisitCloser closes
+	// the PC Care tasks an approved visit was the last step of (maintainer decision 2026-09-12).
+	penVisits      eventwiring.PenVisitVerdictStore
+	penVisitCloser eventwiring.PenVisitParentCloser
 }
 
 // buildDomainBusOn is BuildDomainBus with the bus (and the verdict-applier stores) injected.
@@ -141,12 +146,19 @@ func buildDomainBusOn(bus eventbus.Bus, pool *pgxpool.Pool, queryTimeout time.Du
 		stores.weighingAck = weighingverificationbridge.New(verificationpg.NewRepository(pool, queryTimeout))
 	}
 	if stores.pcCare == nil {
-		stores.pcCare = pccarepg.NewRepository(pool, queryTimeout)
+		pcCareRepo := pccarepg.NewRepository(pool, queryTimeout)
+		stores.pcCare = pcCareRepo
+		if stores.penVisitCloser == nil {
+			stores.penVisitCloser = pcCareRepo
+		}
 	}
 	if stores.health == nil {
 		stores.health = healthpg.NewRepository(pool, queryTimeout)
 	}
-	eventwiring.RegisterVerificationAppliers(bus, stores.feed, stores.shifting, stores.penReconciliation, stores.milkPreparation, stores.weighing, stores.weighingAck, stores.pcCare, stores.health, logger)
+	if stores.penVisits == nil {
+		stores.penVisits = penvisitspg.NewRepository(pool, queryTimeout)
+	}
+	eventwiring.RegisterVerificationAppliers(bus, stores.feed, stores.shifting, stores.penReconciliation, stores.milkPreparation, stores.weighing, stores.weighingAck, stores.pcCare, stores.health, stores.penVisits, stores.penVisitCloser, logger)
 	if stores.penReconciliation != nil {
 		countsapp.NewPenReconciliationRaiser(stores.penReconciliation, logger, nil).Register(bus)
 		countsapp.NewPenReconciliationVerificationHandler(stores.penReconciliation, nil).Register(bus)

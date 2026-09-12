@@ -4671,6 +4671,9 @@ select:disabled { opacity: .45; }
 /* The setup strip: designation + park scope, above the module grid. */
 .pa-setup { display: flex; flex-wrap: wrap; gap: 18px 26px; padding-bottom: 15px; border-bottom: 1px solid var(--line); }
 .pa-setup .fld { min-width: 210px; }
+/* The pen-visit block carries a sentence of blurb: it takes its own row and wraps
+   instead of sizing to the sentence and running past the editor's edge. */
+.pa-setup .pa-visits { flex: 1 1 100%; min-width: 0; white-space: normal; }
 .pa-lbl { font-size: 10.5px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); font-weight: 700; margin-bottom: 7px; }
 
 /* Park + scope pills. Toggling one is a local decision until Save, so they are

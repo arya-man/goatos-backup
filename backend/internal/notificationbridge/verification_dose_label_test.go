@@ -10,7 +10,7 @@ import (
 // protocol_rules.rule_id in VerificationEventPayload.Category -- sopbridge stamps the fixed
 // registry category "vaccination_proof" and puts the identity of the work in Source.TaskID. The
 // enrichment keyed the dose lookup off Category alone, so every real vaccination approval fell
-// through to the module-generic "vaccination proof for ... is verified." and no director was ever
+// through to the module-generic "Vaccination · <pen>" head and no director was ever
 // told WHICH dose was verified.
 //
 // These fakes stand in for the pool-backed resolvers so the copy decision is provable without a
@@ -68,10 +68,10 @@ func doseLocations() fakeLocationNames {
 func TestApprovedCopyNamesDoseFromSourceTaskWhenCategoryIsRegistryCategory(t *testing.T) {
 	labels := &fakeVaccineLabels{byTaskID: map[string][]string{doseTask: {"ET", "TT"}}}
 
-	body := enrichApprovedNotificationCopy(context.Background(), doseLocations(), labels, nil,
-		doseTenant, "vaccination", dosePark, doseShed, "vaccination_proof", doseTask)
+	body := enrichApprovedVaccinationSubject(context.Background(), doseLocations(), labels, nil,
+		doseTenant, dosePark, doseShed, "", "vaccination_proof", doseTask)
 
-	want := "ET+TT vaccination proof for Shed A (CPT) is verified."
+	want := "ET+TT · Shed A (CPT)"
 	if body != want {
 		t.Fatalf("approved body = %q, want %q", body, want)
 	}
@@ -92,10 +92,10 @@ func TestApprovedCopyStillPrefersRealRuleIDWhenSent(t *testing.T) {
 		byTaskID: map[string][]string{doseTask: {"ET"}},
 	}
 
-	body := enrichApprovedNotificationCopy(context.Background(), doseLocations(), labels, nil,
-		doseTenant, "vaccination", dosePark, doseShed, doseRule, doseTask)
+	body := enrichApprovedVaccinationSubject(context.Background(), doseLocations(), labels, nil,
+		doseTenant, dosePark, doseShed, "", doseRule, doseTask)
 
-	if !strings.HasPrefix(body, "PPR · Booster vaccination proof") {
+	if !strings.HasPrefix(body, "PPR · Booster · ") {
 		t.Fatalf("approved body = %q, want the rule-id label to win", body)
 	}
 	if len(labels.taskCalls) != 0 {
@@ -108,10 +108,10 @@ func TestApprovedCopyStillPrefersRealRuleIDWhenSent(t *testing.T) {
 func TestApprovedCopyFallsBackToGenericWhenTaskHasNoDoses(t *testing.T) {
 	labels := &fakeVaccineLabels{}
 
-	body := enrichApprovedNotificationCopy(context.Background(), doseLocations(), labels, nil,
-		doseTenant, "vaccination", dosePark, doseShed, "vaccination_proof", doseTask)
+	body := enrichApprovedVaccinationSubject(context.Background(), doseLocations(), labels, nil,
+		doseTenant, dosePark, doseShed, "", "vaccination_proof", doseTask)
 
-	if body != "vaccination proof for Shed A (CPT) is verified." {
+	if body != "Vaccination · Shed A (CPT)" {
 		t.Fatalf("approved body = %q, want the generic vaccination sentence", body)
 	}
 }

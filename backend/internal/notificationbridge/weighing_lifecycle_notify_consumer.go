@@ -1013,7 +1013,7 @@ func (c *WeighingLifecycleEventConsumer) handleWorkItemCadence(ctx context.Conte
 		title = "Weighing moved to today"
 		body = "Weighing not finished yesterday has moved to today: " + shedList + "."
 		if earliestPlanned != "" {
-			body = "Weighing first planned for " + earliestPlanned + " has moved to today: " + shedList + "."
+			body = "Weighing first planned for " + biztime.FarmDateFromBusinessDate(earliestPlanned) + " has moved to today: " + shedList + "."
 		}
 		notificationType = "reminder"
 		contextType = "weighing_work_item_rolled_forward"
@@ -1032,7 +1032,7 @@ func (c *WeighingLifecycleEventConsumer) handleWorkItemCadence(ctx context.Conte
 		title = "Weighing is running late"
 		body = "Weighing is past its planned day: " + shedList + "."
 		if earliestPlanned != "" {
-			body = "Weighing planned for " + earliestPlanned + " is still not done: " + shedList + "."
+			body = "Weighing planned for " + biztime.FarmDateFromBusinessDate(earliestPlanned) + " is still not done: " + shedList + "."
 		}
 		notificationType = "escalation"
 		screen = "weighing_overview"

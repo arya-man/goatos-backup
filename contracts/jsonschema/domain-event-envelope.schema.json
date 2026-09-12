@@ -131,7 +131,8 @@
         "leadership_task.raised",
         "leadership_task.status_changed",
         "pen_visit.created",
-        "pen_visit.submitted"
+        "pen_visit.submitted",
+        "pen_visit.verified"
       ]
     },
     "schema_version": {

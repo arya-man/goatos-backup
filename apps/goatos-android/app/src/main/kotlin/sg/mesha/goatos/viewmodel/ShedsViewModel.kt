@@ -348,6 +348,7 @@ class ShedsViewModel @Inject constructor(
             is ShedsEvent.SelectDay -> selectDay(event.dateKey)
             is ShedsEvent.SelectPark -> selectPark(event.parkId)
             is ShedsEvent.OpenShedRecord -> Unit // navigation — handled by the nav host.
+            is ShedsEvent.OpenPenVisit -> Unit // navigation — handled by the nav host.
             ShedsEvent.Back -> Unit // navigation — handled by the nav host.
             is ShedsEvent.OpenBlocked -> trackOpenBlocked(event)
         }
@@ -516,6 +517,11 @@ class ShedsViewModel @Inject constructor(
                 taskRowVersion = first.sopTaskRowVersion,
                 opensRecordOnly = group.opensSubmittedRecordOnly(),
                 canOpen = scheduleDate == null || !scheduleDate.isAfter(workWindow.today),
+                // The pen's next-day visit (2026-09-12), backend copy verbatim.
+                penVisitChip = cardSummary?.penVisit?.stateChip.orEmpty(),
+                penVisitTone = shedPenVisitTone(cardSummary?.penVisit?.stateTone.orEmpty()),
+                penVisitTaskId = cardSummary?.penVisit?.taskId.orEmpty(),
+                penVisitCanRecord = cardSummary?.penVisit?.canSubmit == true,
             )
         }.sortedWith(
             compareBy<ShedRow> { row ->
@@ -1158,4 +1164,12 @@ internal fun humanizeVaccineLabel(raw: String): String {
             .ifBlank { raw }
     }
     return label + dose
+}
+
+/** The wire `state_tone` of a pen visit mapped to the shed chip tones; the words stay backend copy. */
+internal fun shedPenVisitTone(raw: String): ShedStatusTone = when (raw) {
+    "review" -> ShedStatusTone.WARN
+    "danger" -> ShedStatusTone.DANGER
+    "success" -> ShedStatusTone.OK
+    else -> ShedStatusTone.INFO
 }

@@ -550,13 +550,15 @@ var moduleCapabilities = []ModuleCapability{
 		Surfaces: []string{SurfaceMobile, SurfaceWeb},
 		Levels: map[string][]string{
 			LevelView: {LeadershipTasksRead},
-			// Raising, editing and cancelling one's own. The director roles. Do also carries the
-			// "For me" tab (pen visits, maintainer decision 2026-09-07): the same people who
-			// raise are the ones a park's visits can be configured against.
+			// Raising, editing and cancelling one's own. The director roles. Do still carries
+			// PenVisitsExecute (2026-09-07): the same people who raise are the ones a park's
+			// visits can be configured against. The "For me" tab it once opened is retired
+			// (2026-09-12); the permission now opens the visit routes reached from the parent
+			// card (a care operator reaches them through pc_care.execute instead).
 			LevelDo: {LeadershipTasksRead, LeadershipTasksRaise, PenVisitsExecute},
 			// Being assigned one and working it.
 			LevelOversee: {LeadershipTasksRead, LeadershipTasksAct},
-			// Raising without bundling the Tasks module's operational "For me" tab.
+			// Raising without the pen-visit routes.
 			LevelConfigure: {LeadershipTasksRead, LeadershipTasksRaise},
 		},
 	},

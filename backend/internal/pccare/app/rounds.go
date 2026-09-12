@@ -2,11 +2,13 @@ package app
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"time"
 
 	"github.com/vgoats/goatos/backend/internal/pccare/domain"
 	"github.com/vgoats/goatos/backend/internal/pccare/ports"
+	penvisitdomain "github.com/vgoats/goatos/backend/internal/penvisits/domain"
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/platform/uuidutil"
 )
@@ -167,7 +169,14 @@ func (s *Service) GetRound(ctx context.Context, actor domain.Actor, roundID stri
 		return ports.RoundRow{}, ports.ErrStoreUnavailable
 	}
 	parks, tenantWide := authorizedParkSet(ctx, actor.TenantID, planOrMonitorParkCapabilities...)
-	return s.rounds.GetRound(ctx, actor.TenantID, roundID, authorizedParkSlice(parks), tenantWide)
+	round, err := s.rounds.GetRound(ctx, actor.TenantID, roundID, authorizedParkSlice(parks), tenantWide)
+	if err != nil {
+		return ports.RoundRow{}, err
+	}
+	if err := s.attachPenVisits(ctx, actor.TenantID, round.Pens); err != nil {
+		return ports.RoundRow{}, err
+	}
+	return round, nil
 }
 
 // CloseRound ends a whole round: every pen that is not already completed or closed, plus the
@@ -260,7 +269,7 @@ func (s *Service) ListRoundCards(ctx context.Context, actor domain.Actor, parkID
 	if err != nil {
 		return ports.RoundCardPage{}, err
 	}
-	return s.rounds.ListRoundCards(ctx, ports.ListRoundCardsQuery{
+	page, err := s.rounds.ListRoundCards(ctx, ports.ListRoundCardsQuery{
 		TenantID:          actor.TenantID,
 		AuthorizedParkIDs: authorizedParkSlice(parks),
 		TenantWide:        tenantWide,
@@ -277,6 +286,52 @@ func (s *Service) ListRoundCards(ctx context.Context, actor domain.Actor, parkID
 		Cursor:            strings.TrimSpace(cursor),
 		Limit:             limit,
 	})
+	if err != nil {
+		return ports.RoundCardPage{}, err
+	}
+	if err := s.attachRoundPenVisits(ctx, actor.TenantID, page.Cards); err != nil {
+		return ports.RoundCardPage{}, err
+	}
+	return page, nil
+}
+
+// attachRoundPenVisits rolls each card's owed visits into ONE chip (maintainer decision
+// 2026-09-12): a round whose videos are all verified reads "Visit pens today", never "Done",
+// while its pens still owe the visit. ONE batched read over every card on the page; an
+// unwired reader leaves the cards as they are, a read error is returned so a card never
+// reads finished because a read failed.
+func (s *Service) attachRoundPenVisits(ctx context.Context, tenantID string, cards []ports.RoundCard) error {
+	if s.penVisits == nil {
+		return nil
+	}
+	ids := make([]string, 0, 8)
+	for _, c := range cards {
+		ids = append(ids, c.VisitOwedTaskIDs...)
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	visits, err := s.penVisits.ForSources(ctx, tenantID, penvisitdomain.SourceKindPCCareTask, ids)
+	if err != nil {
+		return fmt.Errorf("pccare: attach round pen visits: %w", err)
+	}
+	today := biztime.BusinessDate(s.now())
+	for i := range cards {
+		if len(cards[i].VisitOwedTaskIDs) == 0 {
+			continue
+		}
+		rows := make([]penvisitdomain.Task, 0, len(cards[i].VisitOwedTaskIDs))
+		noRow := 0
+		for _, id := range cards[i].VisitOwedTaskIDs {
+			if v, ok := visits[id]; ok {
+				rows = append(rows, v)
+			} else {
+				noRow++
+			}
+		}
+		cards[i].PenVisitChip, cards[i].PenVisitTone = penvisitdomain.RollupChip(rows, noRow, today)
+	}
+	return nil
 }
 
 // RegisterRemovalPenProofInput attaches ONE pen's feed or water video to a round-grain feed

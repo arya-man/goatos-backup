@@ -180,34 +180,12 @@ class TopLevelChromeTest {
         assertEquals(3, state.barItems("vaccination", Routes.VACCINATION).size)
     }
 
-    // A director / park head's Tasks module (maintainer decision 2026-09-07): the backend serves
-    // TWO destinations — "Raised by me" and the pen-visit "For me" tab — so this principal gets
-    // the two-tab bar the CXO above does not.
-    private val tasksWithPenVisits = NavModule(
-        key = "leadership_tasks",
-        label = "Tasks",
-        href = "/leadership-tasks",
-        status = NavModuleStatus.AVAILABLE,
-        navItems = listOf(
-            NavItem(key = "leadership_tasks", label = "Raised by me", href = "/leadership-tasks"),
-            NavItem(key = "pen_visits", label = "For me", href = Routes.PEN_VISITS),
-        ),
-    )
-
+    // The Tasks module's pen-visit "For me" tab is RETIRED (maintainer decision 2026-09-12): the
+    // visit is the last step of a pen's care work and is reached from the parent card, so
+    // `/pen-visits` is no longer a root and the visit drill is never top level.
     @Test
-    fun `a director's tasks module serves the two-tab bar and both tabs are top level`() {
-        val state = NavState(chrome = NavChrome.EXPANDED, items = emptyList(), modules = listOf(tasksWithPenVisits, vaccination))
-
-        // Two destinations to switch between, so the bar is drawn — on BOTH tabs.
-        assertEquals(2, state.barItems("leadership_tasks", "/leadership-tasks").size)
-        assertEquals(2, state.barItems("leadership_tasks", Routes.PEN_VISITS).size)
-        assertEquals(listOf("leadership_tasks", "pen_visits"), state.barItems("leadership_tasks", Routes.PEN_VISITS).map { it.key })
-
-        // The pen-visit tab is an exact L0 root: it keeps the drawer hamburger and is a supported
-        // landing, never a drill under the raised-tasks route.
-        val drawerRoutes = state.availableModules().flatMap { listOf(it.href) + it.navItems.map { item -> item.href } }
-        assertTrue(isTopLevelRoute(Routes.PEN_VISITS, drawerRoutes))
-        assertTrue(isRootDestination(Routes.PEN_VISITS))
+    fun `the pen visit drill is hosted under its parent, never a root`() {
+        assertFalse(isRootDestination(Routes.PEN_VISITS))
         assertFalse(isRootDestination(Routes.penVisitRoute("visit-1")))
     }
 

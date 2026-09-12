@@ -62,9 +62,10 @@ fun resolvePushRoute(payload: Map<String, String>): String? {
         screen == "leadership_task" || screen == "leadership_tasks" ||
             type == "leadership_task_raised" || type == "leadership_task_done" ->
             Routes.LEADERSHIP_TASKS
-        // Pen visits (maintainer decision 2026-09-07): the due-visit push names the "For me" list
-        // (`screen: pen_visits`, `href: /pen-visits`) — the park head lands on their own visits.
-        screen == "pen_visit" || screen == "pen_visits" || type == "pen_visit_due" -> Routes.PEN_VISITS
+        // Pen visits (maintainer decisions 2026-09-07 and 2026-09-12): the due-visit push lands the
+        // visitor on the Preventive Care module (`screen: pc_care`, `href: /pc-care`), where the
+        // pens owed a visit carry the step on their own cards -- the "For me" list is retired.
+        screen == "pen_visit" || screen == "pen_visits" || screen == "pc_care" || type == "pen_visit_due" -> Routes.PC_DEWORMING
         // Leave (maintainer decisions 2026-09-10): the href normally names the approver queue or
         // the Clock screen (handled by pushTargetRoute above); a push carrying only the screen
         // lands the approver on the queue and the requester on their Clock screen.

@@ -195,7 +195,7 @@ func (s *ShiftingExecutionService) Complete(
 		if source != "" {
 			subject += " · from " + source
 		}
-		subject += " · " + strconv.Itoa(len(result.MovedGoatIDs)) + " animals"
+		subject += " · " + strconv.Itoa(len(result.MovedGoatIDs)) + " " + animalNoun(len(result.MovedGoatIDs))
 		// The same two facts, unambiguously labelled, for the detail screen beside the video --
 		// where the reviewer is actually deciding. The label above has to stay one scannable line
 		// in a list; these do not, so they name each half instead of relying on segment order.
@@ -328,4 +328,13 @@ func derefString(s *string) string {
 		return ""
 	}
 	return *s
+}
+
+// animalNoun is the farm count noun for the verification subject: "1 animal", "3 animals". A
+// one-animal move used to read "1 animals" on every push about it.
+func animalNoun(n int) string {
+	if n == 1 {
+		return "animal"
+	}
+	return "animals"
 }

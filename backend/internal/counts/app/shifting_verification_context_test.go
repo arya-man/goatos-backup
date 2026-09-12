@@ -115,7 +115,7 @@ func TestShiftingVerificationWithNoRecordedSourceStatesTheDestinationAlone(t *te
 		MovedGoatIDs:        []string{"g1"},
 	})
 
-	const wantSubject = "Pen move · Yashoda 2 · 1 animals"
+	const wantSubject = "Pen move · Yashoda 2 · 1 animal"
 	if got.SubjectLabel != wantSubject {
 		t.Errorf("subject label = %q, want %q", got.SubjectLabel, wantSubject)
 	}

@@ -122,6 +122,7 @@ internal fun PenVisitInlineSpinner(modifier: Modifier = Modifier) {
 
 internal fun penVisitToneAccent(tone: PenVisitTone): Color = when (tone) {
     PenVisitTone.INFO -> MeshaColors.Info
+    PenVisitTone.REVIEW -> MeshaColors.Warn
     PenVisitTone.DANGER -> MeshaColors.Danger
     PenVisitTone.SUCCESS -> MeshaColors.Ok
     PenVisitTone.MUTED -> MeshaColors.Muted

@@ -166,6 +166,9 @@ class PenVisitDetailViewModel @Inject constructor(
         if (local.value.submitOutboxItemId.isNotBlank()) return
         val detail = repository.observeVisit(taskId).first() ?: return
         if (!detail.canSubmit || detail.workState == PEN_VISIT_WORK_STATE_COMPLETED) return
+        // A visit already with the verifier, or one whose clip was sent back, must not have an
+        // OLD durable clip re-submitted on its behalf: the re-shoot is a new recording.
+        if (detail.status == PEN_VISIT_STATUS_PENDING_VERIFICATION || detail.status == PEN_VISIT_STATUS_REWORK) return
         if (penVisitGrainKey(taskId) in syncRepository.observeSubmittedForReviewGrains().first()) return
         if (latestDurableSubmitItem()?.isTerminalFailure == true) return
         val proof = proofCaptureRepository.observeLatest(videoSlot).first() ?: return
@@ -498,6 +501,7 @@ class PenVisitDetailViewModel @Inject constructor(
             previewPath = proof?.let { it.processedUri ?: it.localUri }.orEmpty(),
             progressLabel = video.progressLabel,
             failureReason = video.failureReason,
+            reworkReason = video.reworkReason,
             isRefreshing = own.isRefreshing,
             capturing = own.capturing,
             message = own.message,
@@ -531,6 +535,8 @@ internal data class PenVisitVideoUi(
     val state: PenVisitVideoState,
     val progressLabel: String = "",
     val failureReason: String = "",
+    /** The verifier's words while REWORK, verbatim. */
+    val reworkReason: String = "",
 )
 
 /**
@@ -554,15 +560,26 @@ internal fun penVisitVideoState(
     item: SyncQueueItem?,
     sendingAlive: Boolean,
 ): PenVisitVideoUi {
-    if (detail.workState == PEN_VISIT_WORK_STATE_COMPLETED) return PenVisitVideoUi(PenVisitVideoState.DONE)
+    // The verifier gate (maintainer decision 2026-09-12) speaks before the queue: an approved
+    // visit is done whatever the outbox still holds, and a sent-back visit offers "Record
+    // again" -- unless a NEWER submit is already on the wire, which is the queue's story.
+    if (detail.status == PEN_VISIT_STATUS_COMPLETED || detail.workState == PEN_VISIT_WORK_STATE_COMPLETED) {
+        return PenVisitVideoUi(PenVisitVideoState.DONE)
+    }
+    if (item != null && item.isActive) return PenVisitVideoUi(PenVisitVideoState.WORKING)
+    if (sendingAlive) return PenVisitVideoUi(PenVisitVideoState.WORKING)
+    when (detail.status) {
+        PEN_VISIT_STATUS_PENDING_VERIFICATION -> return PenVisitVideoUi(PenVisitVideoState.IN_REVIEW)
+        PEN_VISIT_STATUS_REWORK -> return PenVisitVideoUi(PenVisitVideoState.REWORK, reworkReason = detail.reworkReason)
+    }
     if (item != null) {
         return when {
-            item.status == sg.mesha.goatos.core.data.sync.SyncItemStatus.SUCCEEDED -> PenVisitVideoUi(PenVisitVideoState.DONE)
-            item.isActive -> PenVisitVideoUi(PenVisitVideoState.WORKING)
+            // The submit landed but the server's row has not been re-read yet: it is with the
+            // verifier from here on, never "done".
+            item.status == sg.mesha.goatos.core.data.sync.SyncItemStatus.SUCCEEDED -> PenVisitVideoUi(PenVisitVideoState.IN_REVIEW)
             else -> PenVisitVideoUi(PenVisitVideoState.FAILED, failureReason = item.lastError.orEmpty())
         }
     }
-    if (sendingAlive) return PenVisitVideoUi(PenVisitVideoState.WORKING)
     if (proof == null) return PenVisitVideoUi(PenVisitVideoState.EMPTY)
     return when (proof.processingStatus) {
         ProofProcessingStatus.RECORD_AGAIN ->
@@ -576,6 +593,14 @@ internal fun penVisitVideoState(
         }
     }
 }
+
+/** The wire `work_state` the server uses for a finished (verified) visit. */
+internal const val PEN_VISIT_WORK_STATE_COMPLETED = "completed"
+
+/** The wire `status` values of the verifier gate on a visit. */
+internal const val PEN_VISIT_STATUS_PENDING_VERIFICATION = "pending_verification"
+internal const val PEN_VISIT_STATUS_REWORK = "rework"
+internal const val PEN_VISIT_STATUS_COMPLETED = "completed"
 
 /**
  * A pen-visit capture's proof policy: ONE video per visit, replaced on a re-record.

@@ -107,8 +107,9 @@ func TestWeighingRolledForwardPushesOperatorAndLeadership(t *testing.T) {
 			t.Fatalf("rolled-forward pushed unexpected recipient %q", token)
 		}
 	}
-	if !strings.Contains(got.Body, "2026-07-29") {
-		t.Fatalf("rolled-forward body %q must name the ORIGINAL planned business date", got.Body)
+	// The reader sees the farm date form (dd/mm/yyyy); the ISO form stays on the structured field.
+	if !strings.Contains(got.Body, "29/07/2026") || strings.Contains(got.Body, "2026-07-29") {
+		t.Fatalf("rolled-forward body %q must name the ORIGINAL planned business date as 29/07/2026", got.Body)
 	}
 	if got.Context["planned_date"] != "2026-07-29" {
 		t.Fatalf("rolled-forward context planned_date=%q, want 2026-07-29", got.Context["planned_date"])

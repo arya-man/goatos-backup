@@ -94,6 +94,7 @@ import (
 	pccareproof "github.com/vgoats/goatos/backend/internal/pccare/adapters/proof"
 	pccareverificationbridge "github.com/vgoats/goatos/backend/internal/pccare/adapters/verificationbridge"
 	pccareapp "github.com/vgoats/goatos/backend/internal/pccare/app"
+	penvisitsboard "github.com/vgoats/goatos/backend/internal/penvisits/adapters/boardsource"
 	penvisitshttp "github.com/vgoats/goatos/backend/internal/penvisits/adapters/http"
 	penvisitspg "github.com/vgoats/goatos/backend/internal/penvisits/adapters/postgres"
 	penvisitsproof "github.com/vgoats/goatos/backend/internal/penvisits/adapters/proof"
@@ -538,7 +539,11 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	processIntegrityHandler := processintegrityhttp.NewHandler(processIntegrityService, log)
 	vaccExecOwnership := vaccexecroster.NewOwnershipAdapter(rosterService)
 	vaccExecService := vaccexecapp.NewService(vaccexecpg.NewRepository(pool, cfg.Postgres.QueryTimeout), vaccExecOwnership).
-		WithProofURLResolver(newWeighingExportProofURLResolver(proofService, cfg.HTTPAddr))
+		WithProofURLResolver(newWeighingExportProofURLResolver(proofService, cfg.HTTPAddr)).
+		// The pen's next-day visit after vaccination is the last step of its work (maintainer
+		// decision 2026-09-12): the shed drilldown and shed cards carry it from the pen-visit
+		// module's own repository.
+		WithPenVisits(penvisitspg.NewRepository(pool, cfg.Postgres.QueryTimeout))
 	vaccExecHandler := vaccexechttp.NewHandler(vaccExecService, obligationRepo, log).
 		WithOperatorAssignmentConfigWriter(vaccExecService).
 		WithCapacityConfigWriter(vaccExecService)
@@ -757,6 +762,12 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 		countsboard.NewMilkFeeding(pool, cfg.Postgres.QueryTimeout),
 		healthboard.New(pool, cfg.Postgres.QueryTimeout),
 		pccareboard.New(pool, cfg.Postgres.QueryTimeout),
+		// The next-day pen visit (maintainer decision 2026-09-12) rows on the day it is due
+		// under the module whose work raised it -- PC Care for any care reason, vaccination
+		// for a pen vaccinated alone -- titled as that work continuing, never as a task of
+		// its own.
+		penvisitsboard.NewPCCare(pool, cfg.Postgres.QueryTimeout),
+		penvisitsboard.NewVaccination(pool, cfg.Postgres.QueryTimeout),
 		// Vaccination reuses the process-integrity read behind the port; the member
 		// resolver is what lets the operator lens narrow it by user id.
 		piboard.New(processIntegrityRepo).
@@ -768,8 +779,12 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// Pen visits (maintainer decision 2026-09-07): the Tasks module's "For me" tab. The kernel
 	// raises them; this serves the park head's list and the submit that carries the live video.
 	// The module badge is the SUM of both halves of Tasks: unseen asks plus visits still owed.
-	penVisitsService := penvisitsapp.NewService(penvisitspg.NewRepository(pool, cfg.Postgres.QueryTimeout)).
+	penVisitsRepo := penvisitspg.NewRepository(pool, cfg.Postgres.QueryTimeout)
+	penVisitsService := penvisitsapp.NewService(penVisitsRepo).
 		WithProofValidator(penvisitsproof.NewValidator(proofRepo))
+	// The pen visit is the PC Care task's last step (maintainer decision 2026-09-12): every
+	// task read attaches the visit it owes, from the pen-visit module's own repository.
+	pcCareService.WithPenVisits(penVisitsRepo)
 	penVisitsHandler := penvisitshttp.NewHandler(penVisitsService, log)
 	workforceService.WithModuleBadges(penvisitsapp.NewModuleBadges(leadershipTasksService, penVisitsService))
 	// The sales module: its own bounded ledger (sales_*) with a thin service -- a commercial
@@ -965,6 +980,12 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 		}
 	}
 	pcCareService.WithVerificationEnqueuer(pccareverificationbridge.New(verificationService))
+	// Pen visit video (maintainer decision 2026-09-12): the last clip of a pen's care chain,
+	// ONE category in the Preventive Care verify tab, filed against the visit row.
+	if err := verificationService.RegisterCategory(verificationcatalog.PenVisit); err != nil {
+		pool.Close()
+		return nil, err
+	}
 	// Death evidence verification (maintainer decision 2026-07-28, docs/decisions/
 	// birth-death-workflows.md): after admin approval, the death workflow's two mandatory videos
 	// travel to Verify as
@@ -1093,7 +1114,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// publishes verdicts only to the outbox, so these appliers actually fire in the durable-bus
 	// consumers above. Registering here keeps parity through the same helper. Each handler filters
 	// strictly on source.module + source.ref_type, so no cross-fire.
-	eventwiring.RegisterVerificationAppliers(bus, feedDirectionRepo, countsApprovalRepo, countsRepo, countsRepo, weighingRepo, weighingVerificationBridge, pcCareRepo, healthRepo, log)
+	eventwiring.RegisterVerificationAppliers(bus, feedDirectionRepo, countsApprovalRepo, countsRepo, countsRepo, weighingRepo, weighingVerificationBridge, pcCareRepo, healthRepo, penVisitsRepo, pcCareRepo, log)
 	countsapp.NewPenReconciliationRaiser(countsRepo, log, nil).Register(bus)
 	countsapp.NewPenReconciliationVerificationHandler(countsRepo, nil).Register(bus)
 	// Birth/death workflow consumers: same single-registration pattern (internal/eventwiring), also

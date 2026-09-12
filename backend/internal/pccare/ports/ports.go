@@ -10,6 +10,7 @@ import (
 	"time"
 
 	fwrdomain "github.com/vgoats/goatos/backend/internal/feedwaterremoval/domain"
+	penvisitdomain "github.com/vgoats/goatos/backend/internal/penvisits/domain"
 )
 
 var (
@@ -129,6 +130,17 @@ type TaskRow struct {
 	// AnimalPenLabels are inferred from already-scanned animals. They are a display-only fallback
 	// for legacy/bad parent-shed task rows whose own partition_label is empty.
 	AnimalPenLabels []string
+	// PenVisit is the next-day pen visit this task owes (maintainer decision 2026-09-12): the
+	// LAST step of the task, materialized by the pen-visit kernel the day after submit and
+	// attached by the service from the pen-visit module. Nil until it exists. A pen task's
+	// work_state reaches 'completed' only once this visit is verified.
+	PenVisit *penvisitdomain.Task
+}
+
+// PenVisitReader is the seam into the pen-visit module: the visit each task owes, keyed by
+// task id, one batched read per page.
+type PenVisitReader interface {
+	ForSources(ctx context.Context, tenantID, sourceKind string, refIDs []string) (map[string]penvisitdomain.Task, error)
 }
 
 // InventoryRequirement is one vaccine/count line displayed on the inventory_vaccine card.
@@ -306,6 +318,11 @@ type ListTasksQuery struct {
 	CurrentOrCarry bool
 	// AssigneeUserID, when set, narrows to tasks assigned to this operator (the worklist).
 	AssigneeUserID string
+	// VisitorUserID, when set, ALSO admits tasks whose next-day pen visit is this caller's to
+	// record (maintainer decision 2026-09-12): the visit is the task's last step, so the
+	// task surfaces on the visitor's own worklist on the VISIT's due day, under its category
+	// tab, rather than as a task of its own. Judged against pen_visit_park_assignees.
+	VisitorUserID string
 	// Now is the caller's clock, filled by the service from its own injectable clock (the
 	// shiftingActionsVisibleSQL shape). It drives the evening-visibility predicate on
 	// feed_water_removal rows: such a row lists only from the tenant's configured removal

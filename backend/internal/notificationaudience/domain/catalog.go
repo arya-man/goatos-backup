@@ -165,11 +165,18 @@ var proofModuleDirectors = []struct {
 	module   string
 	label    string
 	director string
+	// group, when set, is the farm-facing Module the rows are listed under when the
+	// verification module is a step of a larger one: the pen visit's proofs sit under
+	// Preventive Care, whose director owns the pen's whole chain.
+	group string
 }{
 	{module: "vaccination", label: "Vaccination", director: DesignationPCDirector},
 	{module: "weighing", label: "Weighing", director: DesignationGrowthDirector},
 	{module: "feed", label: "Feed", director: DesignationFeedDirector},
 	{module: "pc_care", label: "Preventive Care", director: DesignationPCDirector},
+	// The next-day pen visit (maintainer decision 2026-09-12): the last video of a pen's
+	// vaccination / care chain, reviewed by the same verifier, owned by the PC Director.
+	{module: "pen_visits", label: "Pen visit", director: DesignationPCDirector, group: "pc_care"},
 	{module: "health", label: "Health", director: DesignationHealthDirector},
 	{module: "counts", label: "Herd Operations", director: DesignationHealthDirector},
 }
@@ -178,27 +185,31 @@ func proofAlerts() []Alert {
 	out := make([]Alert, 0, len(proofModuleDirectors)*3)
 	for _, m := range proofModuleDirectors {
 		audience := []string{DesignationParkHead, m.director, DesignationCEO}
+		group := m.module
+		if m.group != "" {
+			group = m.group
+		}
 		out = append(out,
 			Alert{
-				Key: ProofAlertKey(m.module, ProofPendingSuffix), Module: m.module,
+				Key: ProofAlertKey(m.module, ProofPendingSuffix), Module: group,
 				Label:               m.label + " proof waiting for review",
 				Blurb:               "A proof video was submitted and is waiting for the verifier. The verifier is always told; this is the leadership copy.",
 				DefaultDesignations: audience,
 			},
 			Alert{
-				Key: ProofAlertKey(m.module, ProofApprovedSuffix), Module: m.module,
+				Key: ProofAlertKey(m.module, ProofApprovedSuffix), Module: group,
 				Label:               m.label + " proof approved",
 				Blurb:               "The verifier accepted a proof video.",
 				DefaultDesignations: audience,
 			},
 			Alert{
-				Key: ProofAlertKey(m.module, ProofReviewSuffix), Module: m.module,
+				Key: ProofAlertKey(m.module, ProofReviewSuffix), Module: group,
 				Label:               m.label + " video waiting for the verifier",
 				Blurb:               "The verifier's own push when a proof video arrives for review. Sent to the verifier on duty when Verifier is ticked; any other ticked job title receives a copy.",
 				DefaultDesignations: []string{DesignationVerifier},
 			},
 			Alert{
-				Key: ProofAlertKey(m.module, ProofReworkSuffix), Module: m.module,
+				Key: ProofAlertKey(m.module, ProofReworkSuffix), Module: group,
 				Label:               m.label + " proof sent back",
 				Blurb:               "The verifier rejected a proof video and the work must be recorded again. The operator is always told; this is the leadership copy.",
 				DefaultDesignations: audience,

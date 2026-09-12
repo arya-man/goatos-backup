@@ -28,6 +28,9 @@ import (
 	pccarepg "github.com/vgoats/goatos/backend/internal/pccare/adapters/postgres"
 	pccareverificationbridge "github.com/vgoats/goatos/backend/internal/pccare/adapters/verificationbridge"
 	pccareapp "github.com/vgoats/goatos/backend/internal/pccare/app"
+	penvisitspg "github.com/vgoats/goatos/backend/internal/penvisits/adapters/postgres"
+	penvisitsverificationbridge "github.com/vgoats/goatos/backend/internal/penvisits/adapters/verificationbridge"
+	penvisitsapp "github.com/vgoats/goatos/backend/internal/penvisits/app"
 	"github.com/vgoats/goatos/backend/internal/platform/eventbus"
 	platformpg "github.com/vgoats/goatos/backend/internal/platform/postgres"
 	protocolpg "github.com/vgoats/goatos/backend/internal/protocol/adapters/postgres"
@@ -40,6 +43,7 @@ import (
 	vaccinationapp "github.com/vgoats/goatos/backend/internal/vaccination/app"
 	verificationpg "github.com/vgoats/goatos/backend/internal/verification/adapters/postgres"
 	verificationapp "github.com/vgoats/goatos/backend/internal/verification/app"
+	"github.com/vgoats/goatos/backend/internal/verificationcatalog"
 	weighingpg "github.com/vgoats/goatos/backend/internal/weighing/adapters/postgres"
 	weighingverificationbridge "github.com/vgoats/goatos/backend/internal/weighing/adapters/verificationbridge"
 	workforcepg "github.com/vgoats/goatos/backend/internal/workforce/adapters/postgres"
@@ -88,7 +92,7 @@ func BuildDomainBus(pool *pgxpool.Pool, pgCfg platformpg.Config, logger *slog.Lo
 	// Neither WithLocationNames nor WithVaccineLabels was ever chained here, so every push this
 	// bus produced degraded straight to the generic "The proof is ready for operational closure"/
 	// no-park copy, even after the enrichment itself was written (see verification_notify_consumer.go
-	// enrichApprovedNotificationCopy and handleVerdictRework's park-name prefix). Confirmed live: a
+	// approvedSubjectLine and handleVerdictRework's park-name prefix). Confirmed live: a
 	// real rework push carried no park name until this wiring was added.
 	verificationVaccineLabels := notificationbridge.NewVaccineLabelResolver(pool, logger)
 	verificationLocationNames := notificationbridge.NewLocationNameResolver(pool)
@@ -117,7 +121,9 @@ func BuildDomainBus(pool *pgxpool.Pool, pgCfg platformpg.Config, logger *slog.Lo
 	// Keep every durable verdict applier on the shared registration path so the
 	// kernel stage cannot drift from API/outbox-relay wiring. This path includes
 	// milk-preparation -> UHT stock consumption forwarding.
-	eventwiring.RegisterVerificationAppliers(bus, feedDirectionRepo, countsApprovalRepo, countsMilkPreparationRepo, countsMilkPreparationRepo, weighingRepo, weighingverificationbridge.New(verificationpg.NewRepository(pool, pgCfg.QueryTimeout)), pccarepg.NewRepository(pool, pgCfg.QueryTimeout), healthRepo, logger)
+	pcCareRepo := pccarepg.NewRepository(pool, pgCfg.QueryTimeout)
+	penVisitsRepo := penvisitspg.NewRepository(pool, pgCfg.QueryTimeout)
+	eventwiring.RegisterVerificationAppliers(bus, feedDirectionRepo, countsApprovalRepo, countsMilkPreparationRepo, countsMilkPreparationRepo, weighingRepo, weighingverificationbridge.New(verificationpg.NewRepository(pool, pgCfg.QueryTimeout)), pcCareRepo, healthRepo, penVisitsRepo, pcCareRepo, logger)
 	countsapp.NewPenReconciliationRaiser(countsMilkPreparationRepo, logger, nil).Register(bus)
 	countsapp.NewPenReconciliationVerificationHandler(countsMilkPreparationRepo, nil).Register(bus)
 	// Toxin (maintainer decisions 2026-08-25 and 2026-09-03): a feed load that REACHED the
@@ -128,7 +134,12 @@ func BuildDomainBus(pool *pgxpool.Pool, pgCfg platformpg.Config, logger *slog.Lo
 	if err := pccareverificationbridge.RegisterCategories(verificationService); err != nil {
 		panic(fmt.Sprintf("register pc care verification categories: %v", err))
 	}
+	if err := verificationService.RegisterCategory(verificationcatalog.PenVisit); err != nil {
+		panic(fmt.Sprintf("register pen visit verification category: %v", err))
+	}
 	pccareapp.NewPCCarePendingVerificationHandler(pccareverificationbridge.New(verificationService), logger).Register(bus)
+	// Pen visit submit -> verifier item (maintainer decision 2026-09-12), the PC Care shape.
+	penvisitsapp.NewPendingVerificationHandler(penvisitsverificationbridge.New(verificationService), logger).Register(bus)
 	tasksapp.NewCountsDeathReportedHandler(workflowService).Register(bus)
 	tasksapp.NewCountsDeathRejectedHandler(workflowService).Register(bus)
 	tasksapp.NewGoatCreatedWorkflowHandler(workflowService).Register(bus)

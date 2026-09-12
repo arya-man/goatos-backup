@@ -176,10 +176,15 @@ internal fun PcCareTaskDto.toCardUi(locallySubmittedForReview: Set<String>): PcC
         status == PC_CARE_STATUS_OPEN && isLocallySubmitted -> PC_CARE_STATUS_PENDING_VERIFICATION
         else -> status
     }
-    val (label, tone) = when (effectiveStatus) {
-        PC_CARE_STATUS_PENDING_VERIFICATION -> "In review" to PcCareStatusTone.REVIEW
-        PC_CARE_STATUS_REWORK -> "Needs another video" to PcCareStatusTone.DANGER
-        PC_CARE_STATUS_COMPLETED -> "Done" to PcCareStatusTone.DONE
+    val (label, tone) = when {
+        // The pen visit is the task's LAST step (maintainer decision 2026-09-12): once the task's
+        // own videos are verified the backend sends the step's chip, and the card follows it --
+        // "Pen visit tomorrow", "Visit in review", "Visit verified" -- never a premature "Done".
+        effectiveStatus == PC_CARE_STATUS_COMPLETED && penVisitChip.isNotBlank() ->
+            penVisitChip to pcCarePenVisitTone(penVisitTone)
+        effectiveStatus == PC_CARE_STATUS_PENDING_VERIFICATION -> "In review" to PcCareStatusTone.REVIEW
+        effectiveStatus == PC_CARE_STATUS_REWORK -> "Needs another video" to PcCareStatusTone.DANGER
+        effectiveStatus == PC_CARE_STATUS_COMPLETED -> "Done" to PcCareStatusTone.DONE
         else -> when (workState) {
             "delayed" -> "Delayed" to PcCareStatusTone.DANGER
             else -> "Open" to PcCareStatusTone.NEUTRAL
@@ -206,6 +211,9 @@ internal fun PcCareTaskDto.toCardUi(locallySubmittedForReview: Set<String>): PcC
             )
         },
         reworkReason = if (effectiveStatus == PC_CARE_STATUS_REWORK) reworkReason else "",
+        // The step's own line under the chip: the verifier's words when the visit was sent back,
+        // so the visitor knows why before opening the card.
+        penVisitLine = penVisit?.reworkReason?.takeIf { effectiveStatus == PC_CARE_STATUS_COMPLETED }.orEmpty(),
         // END offers on work still open; START AGAIN offers on work that was ended. The two
         // are mutually exclusive by construction, so a card never shows both.
         closable = effectiveStatus == PC_CARE_STATUS_OPEN && workState != PC_CARE_WORK_STATE_CLOSED,
@@ -233,6 +241,14 @@ private fun PcCareTaskDto.displayLocationLabel(): String {
     return backendLabel.stripRemovalPrefix()
         .ifBlank { operationalLocationDisplay.stripRemovalPrefix() }
         .ifBlank { shedLabel }
+}
+
+/** The wire `pen_visit_tone` mapped to the card's chip tone; the words stay backend copy. */
+internal fun pcCarePenVisitTone(raw: String): PcCareStatusTone = when (raw) {
+    "review" -> PcCareStatusTone.REVIEW
+    "danger" -> PcCareStatusTone.DANGER
+    "success" -> PcCareStatusTone.DONE
+    else -> PcCareStatusTone.NEUTRAL
 }
 
 internal const val PC_CARE_CATEGORY_FEED_WATER_REMOVAL = "feed_water_removal"

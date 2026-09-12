@@ -5,7 +5,7 @@ package notificationbridge_test
 // (cmd/domain-event-consumer, cmd/outbox-relay, internal/bootstrap/api.go) called
 // NewVerificationEventConsumer(...) and never chained .WithVaccineLabels(...), so the consumer's
 // vaccineLabels field was nil in every real deployment and the vaccine-label enrichment block in
-// enrichApprovedNotificationCopy never ran (guarded by a nil check that silently no-ops).
+// the approved-copy enrichment never ran (guarded by a nil check that silently no-ops).
 //
 // A pure unit/integration test cannot exercise these cmd/main.go composition roots directly (they
 // are not importable as a library and require full process bootstrap), so this guard asserts the

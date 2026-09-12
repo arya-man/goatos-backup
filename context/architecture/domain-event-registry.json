@@ -1723,7 +1723,7 @@
         "backend/internal/penvisits/adapters/postgres/repository.go"
       ],
       "consumers": [],
-      "consumerNote": "Produced for the audit/event spine; the morning push is NOT event-driven. It is one digest per park per business date queued by the kernel stage from the tasks that pass created (notificationbridge.PenVisitDueNotifier, event key pen_visit.due:<date>:<park>:<assignee>), because one push per pen would be ten pushes for one morning's round.",
+      "consumerNote": "Produced for the audit/event spine; the morning push is NOT event-driven. It is one digest per park per business date queued by the kernel stage from the tasks that pass created (notificationbridge.PenVisitDueNotifier, event key pen_visit.due:<date>:<park>:<batch>), pushed to EVERY person the park's HRMS config names as a visitor (maintainer decision 2026-09-12), because one push per pen would be ten pushes for one morning's round.",
       "owningDoc": "docs/decisions/pen-visit-tasks.md",
       "e2eProof": [
         "backend/internal/penvisits/adapters/postgres/repository_integration_test.go"
@@ -1733,17 +1733,23 @@
         "frontend",
         "mobile"
       ],
-      "surfaceNotes": "frontend: no admin-web surface by decision (phone-only, like the Tasks module); mobile: the For me tab renders the backend-owned card and submits through the outbox."
+      "surfaceNotes": "frontend: no admin-web list surface by decision; the People access editor edits who visits each park. mobile: the visit renders as the LAST STEP on the parent PC Care task card / vaccination shed card (maintainer decision 2026-09-12, retiring the For me tab) and submits through the outbox."
     },
     {
       "eventType": "pen_visit.submitted",
-      "producer": "penvisits Submit write transaction: the park head's live-camera video is validated against the proof store, the row is locked, the assignee/state rule re-run, work_state flips to completed, audit and this outbox emit ride the same transaction under the request's idempotency key.",
+      "producer": "penvisits Submit write transaction: a configured visitor's live-camera video is validated against the proof store, the row is locked, the visitor/state rule re-run, the gate flips to pending_verification (the kernel clock stays open), audit and this outbox emit ride the same transaction under the request's idempotency key; the event's idempotency key carries the row version so a re-shoot after a rework announces a fresh item.",
       "producerFiles": [
         "backend/internal/penvisits/adapters/postgres/outbox.go",
         "backend/internal/penvisits/adapters/postgres/repository.go"
       ],
-      "consumers": [],
-      "consumerNote": "No consumer by decision: a visit has no verifier and no downstream state (the pc_care.task.completed precedent). Emitted so the spine records the completion and a future reporting consumer can subscribe without a producer change.",
+      "consumers": [
+        {
+          "module": "verification",
+          "file": "backend/internal/penvisits/app/verification_handler.go",
+          "notes": "PendingVerificationHandler consumes pen_visit.submitted and calls the pen-visit verification bridge (penvisits/adapters/verificationbridge), which maps the ONE clip to verification.CreateItem idempotently (key pen-visit-verification:<task>:<row_version>) as category pen_visit in the Preventive Care verify tab. Registered in kernelstages/bus.go, cmd/outbox-relay and cmd/domain-event-consumer beside the PC Care pending handler."
+        }
+      ],
+      "consumerNote": "The visit video goes to the verifier (maintainer decision 2026-09-12, superseding the 2026-09-07 no-verifier rule): the parent care task closes only when every video of the chain -- removal, the work, the visit -- is approved.",
       "owningDoc": "docs/decisions/pen-visit-tasks.md",
       "e2eProof": [
         "backend/internal/penvisits/adapters/postgres/repository_integration_test.go"
@@ -1753,7 +1759,33 @@
         "frontend",
         "mobile"
       ],
-      "surfaceNotes": "frontend: no admin-web surface by decision (phone-only, like the Tasks module); mobile: the For me tab renders the backend-owned card and submits through the outbox."
+      "surfaceNotes": "frontend: the verifier's admin-web /verify lists the pen_visit category under Preventive Care. mobile: the visit step on the parent card reads 'Visit in review' after submit; the Verify app lists the item."
+    },
+    {
+      "eventType": "pen_visit.verified",
+      "producer": "penvisits ApplyVerified (the verification.verdict.approved consumer for pen_visits/pen_visit_task): flips the visit to completed on BOTH the gate and the kernel clock, stamps verified_by/at, and writes this outbox event in the same transaction with the parents (pen_visit_task_sources, as '<kind>:<ref>') on the payload. A reject writes no event: it flips the row to rework with the verifier's reason and the visitor records again.",
+      "producerFiles": [
+        "backend/internal/penvisits/adapters/postgres/outbox.go",
+        "backend/internal/penvisits/adapters/postgres/repository.go"
+      ],
+      "consumers": [
+        {
+          "module": "pc_care",
+          "file": "backend/internal/penvisits/app/verification_handler.go",
+          "notes": "VerifiedHandler consumes pen_visit.verified and calls the registered ParentCloser per source kind: pc_care_task -> pccare.Repository.PenVisitVerified flips every linked PC Care task whose own videos are already verified (status completed) from work_state scheduled/delayed to completed with an audit row (idempotent; an already-closed task matches nothing). Vaccination registers no closer: its shed reads derive closure from the visit row through ForSources. Registered in eventwiring.RegisterVerificationAppliers, the ONE shared list."
+        }
+      ],
+      "owningDoc": "docs/decisions/pen-visit-tasks.md",
+      "e2eProof": [
+        "backend/internal/penvisits/adapters/postgres/repository_integration_test.go",
+        "backend/internal/pccare/adapters/postgres/pen_visit_closure_integration_test.go"
+      ],
+      "surfaces": [
+        "backend",
+        "frontend",
+        "mobile"
+      ],
+      "surfaceNotes": "frontend: the PC Care / vaccination shed detail reads the visit as verified and the parent as closed. mobile: the parent card's chip reads 'Visit verified' and the task 'Done'."
     }
   ],
   "allowedHerdMutationWriters": [

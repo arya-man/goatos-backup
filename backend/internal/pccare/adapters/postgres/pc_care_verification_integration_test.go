@@ -489,7 +489,10 @@ WHERE tenant_id = $1::uuid AND task_id = $2::uuid`, pcTenant, task.TaskID).Scan(
 		t.Fatalf("resubmit media = %+v, want the replacement clip", second.MediaRefs)
 	}
 
-	// APPROVE → completed on BOTH columns + exactly one outbox event.
+	// APPROVE → completed on the GATE + exactly one outbox event. The kernel clock stays
+	// open: a pen task owes its next-day visit, and closes only when THAT is verified
+	// (maintainer decision 2026-09-12; pen_visit_closure_integration_test.go covers both
+	// orders).
 	applied, err := repo.ApplyVerifiedTask(ctx, ports.ApplyVerifiedTaskParams{
 		TenantID: pcTenant, TaskID: task.TaskID, VerifiedBy: pcVerifier, TraceID: "trace-a1",
 	})
@@ -502,8 +505,8 @@ SELECT status, work_state FROM pc_care_tasks
 WHERE tenant_id = $1::uuid AND task_id = $2::uuid`, pcTenant, task.TaskID).Scan(&status, &workState); err != nil {
 		t.Fatalf("read task: %v", err)
 	}
-	if status != domain.StatusCompleted || workState != domain.WorkStateCompleted {
-		t.Fatalf("after apply = %s/%s, want completed/completed", status, workState)
+	if status != domain.StatusCompleted || workState != domain.WorkStateScheduled {
+		t.Fatalf("after apply = %s/%s, want completed/scheduled (the pen visit is still owed)", status, workState)
 	}
 	var outboxCount int
 	if err := pool.QueryRow(ctx, `

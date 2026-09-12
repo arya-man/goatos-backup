@@ -728,6 +728,36 @@ observable, replayable, and reconciled against Weighing source rows. This does
 not widen the Weighing table allowlist, and generic task state must never gate
 scan, submit, verdict, reopen, or close.
 
+## The Pen Visit Is The Care Work's Last Step, Never A Task Of Its Own (maintainer decision 2026-09-12)
+
+The day after vaccination or PC Care work in a pen, one of the park's configured visitors
+walks that pen and records ONE video. That visit is the LAST STEP of the work that happened
+in the pen -- fasting (feed & water removal) -> the work -> the next-day visit -- and the care
+task CLOSES ONLY WHEN EVERY VIDEO OF THAT CHAIN IS VERIFIED. Three consequences, each
+enforced:
+
+1. **The visit video goes to the verifier** (category `pen_visit`, Preventive Care verify
+   tab). `pen_visit_tasks.status` is the gate; `work_state` reaches `completed` only on
+   approval; a reject sends the visitor back to record again with the verifier's words. Do
+   not make submit = completion again (the retired 2026-09-07 shape).
+2. **A PC Care pen task keeps its kernel clock open until its visit is verified.** Verifier
+   approval of the task's own clips sets `status = completed` and NOT `work_state`; the
+   `pen_visit.verified` consumer closes it through `pccare.Repository.PenVisitVerified`, and
+   either order converges. A shed-less task (vaccine stock) closes on its own approval.
+   Vaccination's shed card/drilldown carry the step (`penVisit`) and derive closure from it;
+   the five-bucket drive progress contract is untouched.
+3. **Who visits is per-park HRMS config, one or more people, any of whom may go**
+   (`pen_visit_park_assignees` keyed per person; ticked on /people as `pen_visit_park_ids`).
+   Never a fallback, never a role: a park with nobody configured raises no visit and is
+   logged.
+
+There is NO "For me" tab, no standalone visit list, no visit row on the Work Board titled
+"Pen visit": the step rides the parent card (`PCCareTask.pen_visit`, `ShedCardSummary.penVisit`),
+the parent's own Work Board row follows it, and on the visit's due day the board rows the
+visit under the parent module TITLED AS THE WORK CONTINUING ("Deworming · Castro 2"). The
+one route that survives is the hosted visit drill `/pen-visits/{id}`, opened from the parent.
+Canonical prose: `docs/decisions/pen-visit-tasks.md` -> "2026-09-12".
+
 ## Never Kill Another Agent's Build — and Never Wait For One (Claude AND Codex)
 
 Gradle is NOT a lock. Separate worktrees run separate daemons and build concurrently.

@@ -114,7 +114,12 @@ func (s *Service) Submit(ctx context.Context, p ports.SubmitParams) (domain.Task
 	return s.repo.Submit(ctx, p)
 }
 
-// OpenCount answers the module badge for one person.
+// OpenCount answers the badge for one person: visits still to record.
 func (s *Service) OpenCount(ctx context.Context, tenantID, userID string) (int, error) {
 	return s.repo.OpenCount(ctx, tenantID, userID)
+}
+
+// OpenReasons is the badge split: the reasons of every visit still to record.
+func (s *Service) OpenReasons(ctx context.Context, tenantID, userID string) ([][]string, error) {
+	return s.repo.OpenReasons(ctx, tenantID, userID)
 }
