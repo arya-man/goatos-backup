@@ -426,7 +426,7 @@ func parseShiftingEvent(raw []byte, cfg config) (countsdomain.ShiftingEvent, imp
 	// one the tag rules dispatch on. The importer kept validating the retired 2026-07 vocabulary
 	// (routine/pregnancy/warmup/...), so every row it accepted was then refused by
 	// shifting_events_category_check on write.
-	if event.Category != "" && !oneOf(event.Category, "growth", "health", "breeding", "delivery", "spacing", "flushing") {
+	if event.Category != "" && !oneOf(event.Category, "growth", "health", "breeding", "delivery", "spacing", "flushing", "normal") {
 		return countsdomain.ShiftingEvent{}, importRow{}, fmt.Errorf("category %q is invalid", event.Category)
 	}
 	if !oneOf(event.AuthorizationState, "pending", "authorized", "rejected") {

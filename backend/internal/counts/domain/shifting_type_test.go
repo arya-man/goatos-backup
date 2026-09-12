@@ -392,6 +392,84 @@ func TestSpacingShiftRefusesMixedGroupWhenSourceUntagged(t *testing.T) {
 	wantRefusal(t, ctx, "group_stage_mixed")
 }
 
+// --- normal -------------------------------------------------------------------------------------
+//
+// Normal shifting (maintainer decision 2026-09-12): a plain move that never touches the tag. Any
+// selection of animals; the destination must be EMPTY or already hold at least one animal carrying
+// the moving animals' tag. Fixture is the live case that had no legal type before this rule:
+// Yashoda 3 (17 fattening males) into Yashoda 9, a mixed pen authored F2-Female that in fact
+// holds fattening males too.
+
+func normalCtx() ShiftTypeContext {
+	return knownDest(ShiftTypeContext{
+		Type:    ShiftTypeNormal,
+		Animals: animals("F2-Male", "male", "F2-Male", "male"),
+	})
+}
+
+// Yashoda 3 -> Yashoda 9: the pen's AUTHORED tag says F2-Female, but a resident carries F2-Male,
+// so the move is allowed and nobody's tag changes. Mutation-tested: comparing against the authored
+// tag instead of the residents turns this red.
+func TestNormalShiftIntoPenHoldingTheSameTag(t *testing.T) {
+	ctx := normalCtx()
+	ctx.DestinationConfiguredStage = "F2-Female"
+	ctx.DestinationResidentStages = []string{"F2-Female", "F2-Male", "K3"}
+	ctx.DestinationHeadCount = 14
+	wantDecision(t, ctx, ShiftTypeDecision{})
+}
+
+// An EMPTY pen accepts anything, and the pen is NOT re-tagged: normal shifting configures nothing.
+func TestNormalShiftIntoEmptyPenKeepsEveryTag(t *testing.T) {
+	ctx := normalCtx()
+	ctx.Animals = animals("F2-Male", "male", "K3", "female", "", "female")
+	wantDecision(t, ctx, ShiftTypeDecision{})
+}
+
+// A pen holding only fattening FEMALES must not receive fattening males under a normal move.
+func TestNormalShiftRefusesPenWithoutTheTag(t *testing.T) {
+	ctx := normalCtx()
+	ctx.DestinationConfiguredStage = "F2-Female"
+	ctx.DestinationResidentStages = []string{"F2-Female"}
+	ctx.DestinationHeadCount = 3
+	wantRefusal(t, ctx, "normal_destination_tag_mismatch")
+}
+
+// A mixed selection needs EVERY tag it carries present at the destination, not just one of them.
+func TestNormalShiftMixedGroupNeedsEveryTagPresent(t *testing.T) {
+	ctx := normalCtx()
+	ctx.Animals = animals("F2-Male", "male", "K3", "female")
+	ctx.DestinationResidentStages = []string{"F2-Male"}
+	ctx.DestinationHeadCount = 5
+	wantRefusal(t, ctx, "normal_destination_tag_mismatch")
+
+	ctx.DestinationResidentStages = []string{"F2-Male", "K3"}
+	wantDecision(t, ctx, ShiftTypeDecision{})
+}
+
+// An untagged animal cannot be matched against an occupied pen.
+func TestNormalShiftRefusesUntaggedAnimalIntoOccupiedPen(t *testing.T) {
+	ctx := normalCtx()
+	ctx.Animals = animals("F2-Male", "male", "", "male")
+	ctx.DestinationResidentStages = []string{"F2-Male"}
+	ctx.DestinationHeadCount = 5
+	wantRefusal(t, ctx, "group_stage_unknown")
+}
+
+// Never a partial-group refusal and never a source requirement: normal moves any selection.
+func TestNormalShiftDoesNotRequireTheWholeSourcePen(t *testing.T) {
+	ctx := normalCtx()
+	ctx.SourceKnown = false
+	ctx.DestinationResidentStages = []string{"F2-Male"}
+	ctx.DestinationHeadCount = 9
+	wantDecision(t, ctx, ShiftTypeDecision{})
+}
+
+func TestNormalShiftRefusesUnknownDestination(t *testing.T) {
+	ctx := normalCtx()
+	ctx.DestinationKnown = false
+	wantRefusal(t, ctx, "destination_not_in_catalog")
+}
+
 // --- flushing -----------------------------------------------------------------------------------
 
 func TestFlushingShiftIntoEmptyPenTagsItFlushing(t *testing.T) {
@@ -476,7 +554,7 @@ func TestUnknownTypeRefuses(t *testing.T) {
 }
 
 func TestKnownShiftTypeVocabulary(t *testing.T) {
-	for _, typ := range []string{"health", "growth", "breeding", "delivery", "spacing", "flushing"} {
+	for _, typ := range []string{"health", "growth", "breeding", "delivery", "spacing", "flushing", "normal"} {
 		if !KnownShiftType(typ) {
 			t.Fatalf("KnownShiftType(%q) = false", typ)
 		}
@@ -496,7 +574,7 @@ func TestRefusalCopyCarriesNoInternalVocabulary(t *testing.T) {
 		shiftCopyGrowthSexMismatch, shiftCopySpacingSourceUnknown, shiftCopySpacingPartialGroup,
 		shiftCopySpacingDestinationMismatch, shiftCopySpacingDestinationOccupied,
 		shiftCopyFlushingFemaleOnly, shiftCopyFlushingDestinationMismatch,
-		shiftCopyGroupStageUnknown, shiftCopyGroupStageMixed,
+		shiftCopyGroupStageUnknown, shiftCopyGroupStageMixed, shiftCopyNormalDestinationMismatch,
 	}
 	for _, copyText := range copies {
 		for _, word := range banned {
