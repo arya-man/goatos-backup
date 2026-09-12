@@ -196,7 +196,6 @@ func buildDomainBus(pool *pgxpool.Pool, pgCfg platformpg.Config, logger *slog.Lo
 	eventwiring.RegisterVerificationAppliers(bus, feedDirectionRepo, countsApprovalRepo, countsMilkPreparationRepo, countsMilkPreparationRepo, weighingRepo, weighingverificationbridge.New(verificationpg.NewRepository(pool, pgCfg.QueryTimeout)), pccarepg.NewRepository(pool, pgCfg.QueryTimeout), healthRepo, logger)
 	countsapp.NewPenReconciliationRaiser(countsMilkPreparationRepo, logger, nil).Register(bus)
 	countsapp.NewPenReconciliationVerificationHandler(countsMilkPreparationRepo, nil).Register(bus)
-	countsapp.NewMilkFeedingVerificationHandler(countsMilkPreparationRepo).Register(bus)
 	// Toxin (maintainer decision 2026-08-25): procurement.feed_purchase.reached reaches THIS
 	// durable consumer, never the API's in-process bus, so a missing registration here is a
 	// silent drop that leaves every purchased load without its aflatoxin test task. Mirrors

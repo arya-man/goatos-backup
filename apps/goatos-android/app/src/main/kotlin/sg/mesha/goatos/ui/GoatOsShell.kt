@@ -417,6 +417,7 @@ fun GoatOsShell(navState: NavState) {
             // every flag still reads false because bootstrap has not answered.
             navStateResolved = navState.items.isNotEmpty() || navState.modules.isNotEmpty(),
             verificationVideoControlsEnabled = verificationVideoControlsEnabled,
+            navState = navState,
         )
     }
 

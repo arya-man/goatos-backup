@@ -14,6 +14,7 @@ tags:
   - name: Operator App Bootstrap
   - name: Admin Web Bootstrap
   - name: Operator Tasks
+  - name: Work Board
   - name: SOP Admin
   - name: Goats
   - name: Identifiers
@@ -8057,6 +8058,222 @@ paths:
           $ref: "#/components/responses/NotFoundOrNotAllowed"
         "409":
           $ref: "#/components/responses/WriteConflict"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /work-board/rows:
+    get:
+      tags:
+        - Work Board
+      operationId: listWorkBoardRows
+      summary: One page of the cross-module Work Board for one park and one business day.
+      description: >-
+        Every operational module's work for the park and day, normalised to ONE row shape
+        (WorkBoardRow) and served through a GLOBAL keyset ordered by module, source type and
+        source id. Read by the admin-web /work-board page and the phone's My Work screen alike.
+        Scope is decided server-side: park through the caller's grants, modules through the
+        module permissions the caller already holds, and owner through work_board.oversee --
+        a caller without it sees only their own rows (`own_rows_only`). `lane` is derived from
+        `work_state` on the server; a client never moves a card between columns.
+      parameters:
+        - name: park
+          in: query
+          required: false
+          schema: { type: string, format: uuid }
+          description: The park. The board is bounded to one park per request; "All parks" is one request per park. A park-scoped caller may omit it and gets their own park; a tenant-wide caller must name one (400 park_required).
+        - name: business_date
+          in: query
+          required: false
+          schema: { type: string, format: date }
+          description: YYYY-MM-DD in Asia/Kolkata. Absent means today.
+        - name: module
+          in: query
+          required: false
+          schema: { type: string }
+          description: Comma-separated module keys. Intersected with the modules the caller may see; absent means all of them.
+        - name: state
+          in: query
+          required: false
+          schema: { type: string }
+          description: Comma-separated work states (the eleven process-integrity values). Absent means every state.
+        - name: owner
+          in: query
+          required: false
+          schema: { type: string }
+          description: >-
+            `me`, or a user id, to narrow to one person's rows. Ignored for a caller without
+            work_board.oversee, whose read is always their own rows.
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 100, default: 25 }
+        - name: cursor
+          in: query
+          required: false
+          schema: { type: string }
+          description: Keyset cursor from a previous page's next_cursor (module|source_type|source_id).
+      responses:
+        "200":
+          description: One page of board rows.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkBoardRowsPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /work-board/rows/{row_key}/subtasks:
+    get:
+      tags:
+        - Work Board
+      operationId: listWorkBoardRowSubtasks
+      summary: One page of a Work Board row's subtasks, worst first, for the issue view.
+      description: >-
+        The units of work behind ONE board row, each with a name (an animal tag, a pen, a bag,
+        a session, a step, a proof), a short subtitle, an owner, a derived work state and lane,
+        a needs-attention flag and its chain of STEPS (scan, submit, verify, close ...). The grain
+        is the module's own: weighing lists scanned animals (or the whole pen for a lump-sum
+        bucket), feed transport its attempts, verification its proofs, counts the request,
+        milk feeding the session, health its treatment steps, PC care its scanned animals, and
+        vaccination the animals in the pen for that drive. A row with no finer grain returns
+        itself as one subtask; a live row never returns an empty list. Sorted worst first
+        (needs attention, to do, in progress, in review, done) and keyset-paged on the opaque
+        subtask key. Scope is IDENTICAL to /work-board/rows: park through the grants, modules
+        through the caller's permissions, owner through work_board.oversee; the row is first
+        resolved on the caller's own board, and one it does not hold is 404 row_not_found.
+      parameters:
+        - name: row_key
+          in: path
+          required: true
+          schema: { type: string }
+          description: The row's key from /work-board/rows (module|source_type|source_id), URL-encoded.
+        - name: park
+          in: query
+          required: false
+          schema: { type: string, format: uuid }
+          description: As on /work-board/rows; a park-scoped caller may omit it.
+        - name: business_date
+          in: query
+          required: false
+          schema: { type: string, format: date }
+          description: The board day the row was seen on (Asia/Kolkata). Absent means today.
+        - name: cursor
+          in: query
+          required: false
+          schema: { type: string }
+          description: Keyset cursor from a previous page's next_cursor (an opaque subtask key).
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 50, default: 10 }
+          description: Page size, clamped into [10, 50] on the server.
+      responses:
+        "200":
+          description: One page of the row's subtasks.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkBoardSubtaskPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /work-board/flags:
+    post:
+      tags:
+        - Work Board
+      operationId: raiseWorkBoardFlag
+      summary: Flag a board row to the park head.
+      description: >-
+        The director's phone call made visible: raises a Leadership Task addressed to the
+        park's head, with a backend-composed brief carrying the row's title, pen, clock, the
+        director's note and the row key. Requires work_board.oversee and leadership_tasks.raise.
+        Idempotent on the Idempotency-Key header. Refused with 422 when the park has no head
+        (park_head_missing), when the caller is that head (flag_to_self), or when the head
+        cannot receive phone tasks (park_head_not_reachable).
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WorkBoardFlagRequest"
+      responses:
+        "201":
+          description: The flag was raised as a Leadership Task.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkBoardFlagResult"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /work-board/summary:
+    get:
+      tags:
+        - Work Board
+      operationId: getWorkBoardSummary
+      summary: Whole-filter counts for the Work Board's lane headers and tiles.
+      description: >-
+        The aggregate the lane headers, the needs-attention count and the per-module chips
+        render. Computed over the WHOLE filter on the server; never a page-local sum. Accepts
+        the same scope parameters as /work-board/rows (park, business_date, module, state, owner).
+      parameters:
+        - name: park
+          in: query
+          required: false
+          schema: { type: string, format: uuid }
+          description: As on /work-board/rows; a park-scoped caller may omit it.
+        - name: business_date
+          in: query
+          required: false
+          schema: { type: string, format: date }
+        - name: module
+          in: query
+          required: false
+          schema: { type: string }
+        - name: state
+          in: query
+          required: false
+          schema: { type: string }
+        - name: owner
+          in: query
+          required: false
+          schema: { type: string }
+      responses:
+        "200":
+          description: Whole-filter board counts.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkBoardSummary"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "500":
           $ref: "#/components/responses/ServerError"
   /toxin/review:
@@ -17663,6 +17880,185 @@ components:
           description: The completed step's proof reference. Present when state is done.
         completed_by: { type: string }
         completed_at: { type: string, format: date-time }
+    WorkBoardModule:
+      type: string
+      description: The operational module a board row belongs to, in board (keyset) order.
+      enum: [feed, health, vaccination, weighing, counts, milk, pc_care, toxin, procurement, verification]
+    WorkBoardWorkState:
+      type: string
+      description: REUSED VERBATIM from process integrity; the board adds no state of its own.
+      enum: [scheduled, due, overdue, in_progress, proof_pending, verification_pending, rejected, deferred, missed, blocked, completed]
+    WorkBoardLane:
+      type: string
+      description: The board column, derived on the server from work_state.
+      enum: [todo, in_progress, in_review, done]
+    WorkBoardOwnerState:
+      type: string
+      enum: [assigned, missing, pool]
+      description: >-
+        `assigned`: the module's own row names the person. `missing`: the module expects an
+        owner and has none (never filled with a fallback). `pool`: a claim pool by design.
+    WorkBoardOwner:
+      type: object
+      properties:
+        user_id: { type: string }
+        workforce_member_id: { type: string }
+        name: { type: string }
+    WorkBoardPen:
+      type: object
+      properties:
+        shed_id: { type: string }
+        shed_name: { type: string }
+        partition_label: { type: string }
+        operational_location_display:
+          type: string
+          description: Composed once on the server through the operational-location helper; rendered verbatim.
+    WorkBoardCounts:
+      type: object
+      required: [done, pending, needs_attention]
+      properties:
+        done: { type: integer }
+        pending: { type: integer }
+        needs_attention: { type: integer }
+    WorkBoardRow:
+      type: object
+      required: [module, source_type, source_id, row_key, park_id, pen, business_date, work_state, lane, severity, owner, owner_state, title, counts]
+      properties:
+        module: { $ref: "#/components/schemas/WorkBoardModule" }
+        source_type: { type: string, description: The module's own ref type, the same string verification_items carries. }
+        source_id: { type: string }
+        row_key: { type: string, description: module|source_type|source_id, the stable identity and the cursor value. }
+        park_id: { type: string }
+        park_name: { type: string }
+        pen: { $ref: "#/components/schemas/WorkBoardPen" }
+        business_date: { type: string, format: date }
+        due_at: { type: string, format: date-time }
+        clock_label: { type: string, description: Farm wording for the clock, rendered verbatim. }
+        work_state: { $ref: "#/components/schemas/WorkBoardWorkState" }
+        lane: { $ref: "#/components/schemas/WorkBoardLane" }
+        severity: { type: string, enum: [ok, watch, at_risk, broken] }
+        owner: { $ref: "#/components/schemas/WorkBoardOwner" }
+        owner_state: { $ref: "#/components/schemas/WorkBoardOwnerState" }
+        title: { type: string }
+        subtitle: { type: string }
+        counts: { $ref: "#/components/schemas/WorkBoardCounts" }
+        href: { type: string, description: Where the module's own screen opens this row. Absent when the module has none yet. }
+    WorkBoardRowsPage:
+      type: object
+      required: [rows, business_date, park_id, modules, own_rows_only]
+      properties:
+        rows:
+          type: array
+          items:
+            $ref: "#/components/schemas/WorkBoardRow"
+        next_cursor:
+          type: string
+          description: Keyset cursor for the next page. Absent on the last page.
+        business_date: { type: string, format: date }
+        park_id: { type: string }
+        modules:
+          type: array
+          description: The modules the caller MAY see, in board order, after any module filter.
+          items:
+            $ref: "#/components/schemas/WorkBoardModule"
+        own_rows_only:
+          type: boolean
+          description: True when the read was clamped to the caller's own rows (no work_board.oversee).
+    WorkBoardStepState:
+      type: string
+      description: The state of one step in a subtask's chain. `locked` means it cannot start yet (an earlier step has not landed, or a hold keeps it closed).
+      enum: [todo, in_progress, in_review, done, rework, needs_attention, locked]
+    WorkBoardStep:
+      type: object
+      required: [name, state]
+      properties:
+        name:
+          type: string
+          description: Farm wording, rendered verbatim (Scan, Verify, Give).
+        state: { $ref: "#/components/schemas/WorkBoardStepState" }
+        detail:
+          type: string
+          description: Optional farm wording beside the state (a weight, a rejection reason).
+    WorkBoardSubtask:
+      type: object
+      required: [key, name, work_state, lane, owner, needs_attention, steps]
+      properties:
+        key:
+          type: string
+          description: Opaque keyset value that sorts worst first. Never parsed by a client.
+        name:
+          type: string
+          description: The unit's name (an animal tag verbatim, the whole pen, a session, a medicine, a video).
+        subtitle: { type: string }
+        work_state: { $ref: "#/components/schemas/WorkBoardWorkState" }
+        lane: { $ref: "#/components/schemas/WorkBoardLane" }
+        owner: { $ref: "#/components/schemas/WorkBoardOwner" }
+        needs_attention: { type: boolean }
+        steps:
+          type: array
+          items:
+            $ref: "#/components/schemas/WorkBoardStep"
+        href: { type: string, description: Where the module's own screen opens this unit. Absent when the module has none. }
+    WorkBoardSubtaskPage:
+      type: object
+      required: [subtasks, total, row_key, business_date, park_id]
+      properties:
+        subtasks:
+          type: array
+          items:
+            $ref: "#/components/schemas/WorkBoardSubtask"
+        next_cursor:
+          type: string
+          description: Keyset cursor for the next page. Absent on the last page.
+        total:
+          type: integer
+          description: The WHOLE count of the row's subtasks, never the page length.
+        row_key: { type: string }
+        business_date: { type: string, format: date }
+        park_id: { type: string }
+    WorkBoardFlagRequest:
+      type: object
+      required: [row_key, park_id]
+      description: Names WHICH row on WHICH board. The row's title, pen and clock are resolved by the backend from the caller's own board, never accepted from the client; a row the caller cannot see is 404 row_not_found.
+      properties:
+        row_key: { type: string }
+        park_id: { type: string, format: uuid }
+        business_date: { type: string, format: date, description: The board day the row was seen on (Asia/Kolkata). Defaults to today. }
+        note: { type: string, maxLength: 1000, description: The director's own words. Optional. }
+    WorkBoardFlagResult:
+      type: object
+      required: [task_id, task_no, assignee_name]
+      properties:
+        task_id: { type: string }
+        task_no: { type: integer, format: int64, description: The Leadership Task number the park head sees. }
+        assignee_name: { type: string }
+    WorkBoardSummary:
+      type: object
+      required: [total, by_lane, by_state, by_module, needs_attention, modules, lanes, business_date, park_id, own_rows_only]
+      properties:
+        total: { type: integer }
+        by_lane:
+          type: object
+          additionalProperties: { type: integer }
+          description: WHOLE-FILTER counts per lane, every lane present, never page-local sums.
+        by_state:
+          type: object
+          additionalProperties: { type: integer }
+        by_module:
+          type: object
+          additionalProperties: { type: integer }
+        needs_attention: { type: integer }
+        modules:
+          type: array
+          items:
+            $ref: "#/components/schemas/WorkBoardModule"
+        lanes:
+          type: array
+          items:
+            $ref: "#/components/schemas/WorkBoardLane"
+        business_date: { type: string, format: date }
+        park_id: { type: string }
+        own_rows_only: { type: boolean }
     ToxinTaskPage:
       type: object
       required: [tasks, status_counts]

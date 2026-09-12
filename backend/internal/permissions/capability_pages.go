@@ -146,6 +146,10 @@ var modulePages = []ModulePage{
 	{Key: "audit-log", Module: "operations", Label: "Audit Log", Href: "/operations/audit", Permissions: []string{OperatorsViewAudit}},
 	{Key: "dlq-center", Module: "operations", Label: "DLQ Center", Href: "/operations/dlq", Permissions: []string{OperatorsViewAudit}, HiddenFromNav: true},
 	{Key: "people", Module: "people", Label: "People / HRMS", Href: "/people", Permissions: []string{OperatorsRead}},
+
+	// Work Board (2026-09-10): one page, its own module, so access is an explicit tick per
+	// person rather than a side effect of holding some other module.
+	{Key: "work-board", Module: "work_board", Label: "Work Board", Href: "/work-board", Permissions: []string{WorkBoardRead}},
 }
 
 // moduleRoutePrefixes says which module owns a ROUTE NAMESPACE, for the page contracts
@@ -185,6 +189,7 @@ var moduleRoutePrefixes = map[string]string{
 	"/operations":                 "operations",
 	"/people":                     "people",
 	"/leave":                      "leave_approvals",
+	"/work-board":                 "work_board",
 }
 
 var modulePageIndex = func() map[string]ModulePage {

@@ -96,6 +96,8 @@ import sg.mesha.goatos.core.network.dto.LeadershipTaskStatusRequestDto
 import sg.mesha.goatos.core.network.dto.LeadershipTaskCommentRequestDto
 import sg.mesha.goatos.core.network.dto.PenVisitDetailDto
 import sg.mesha.goatos.core.network.dto.PenVisitPageDto
+import sg.mesha.goatos.core.network.dto.WorkBoardRowsPageDto
+import sg.mesha.goatos.core.network.dto.WorkBoardSummaryDto
 import sg.mesha.goatos.core.network.dto.PenVisitSubmitRequestDto
 import sg.mesha.goatos.core.network.dto.ToxinStepCompleteRequestDto
 import sg.mesha.goatos.core.network.dto.ToxinSubmitRequestDto
@@ -1299,6 +1301,27 @@ interface AppApiService {
         @Path("task_id") taskId: String,
     ): PenVisitDetailDto
 
+    // Work Board (maintainer decision 2026-09-10) — no `app/` prefix, like feed-packing/worklist.
+    @GET("work-board/rows")
+    suspend fun getWorkBoardRows(
+        @Query("park") park: String?,
+        @Query("business_date") businessDate: String?,
+        @Query("module") module: String?,
+        @Query("state") state: String?,
+        @Query("owner") owner: String?,
+        @Query("limit") limit: Int?,
+        @Query("cursor") cursor: String?,
+    ): WorkBoardRowsPageDto
+
+    @GET("work-board/summary")
+    suspend fun getWorkBoardSummary(
+        @Query("park") park: String?,
+        @Query("business_date") businessDate: String?,
+        @Query("module") module: String?,
+        @Query("state") state: String?,
+        @Query("owner") owner: String?,
+    ): WorkBoardSummaryDto
+
     @POST("app/pen-visits/{task_id}/submit")
     suspend fun submitPenVisit(
         @Header("Idempotency-Key") idempotencyKey: String,
@@ -2457,6 +2480,24 @@ class RetrofitAppApi(
     ): PenVisitPageDto = service.getPenVisits(filter, limit, cursor)
 
     override suspend fun getPenVisit(taskId: String): PenVisitDetailDto = service.getPenVisit(taskId)
+
+    override suspend fun getWorkBoardRows(
+        park: String?,
+        businessDate: String?,
+        module: String?,
+        state: String?,
+        owner: String?,
+        limit: Int?,
+        cursor: String?,
+    ): WorkBoardRowsPageDto = service.getWorkBoardRows(park, businessDate, module, state, owner, limit, cursor)
+
+    override suspend fun getWorkBoardSummary(
+        park: String?,
+        businessDate: String?,
+        module: String?,
+        state: String?,
+        owner: String?,
+    ): WorkBoardSummaryDto = service.getWorkBoardSummary(park, businessDate, module, state, owner)
 
     override suspend fun submitPenVisit(
         idempotencyKey: String,

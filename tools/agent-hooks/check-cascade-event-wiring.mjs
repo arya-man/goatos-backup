@@ -210,6 +210,9 @@ export const DOMAIN_BUS_BUILDERS = [
 export const VERIFICATION_APPLIER_CONSTRUCTORS = [
   "ShiftingVerificationHandler",
   "MilkPreparationVerificationHandler",
+  // Milk FEEDING joined the shared list on 2026-09-11: until then it was registered by hand in two
+  // side processes and on no bus the shared list serves, so a reject applied nowhere that mattered.
+  "MilkFeedingVerificationHandler",
   "FeedDistributionVerificationHandler",
   "FeedPackingVerificationHandler",
   "FeedTransportVerificationHandler",

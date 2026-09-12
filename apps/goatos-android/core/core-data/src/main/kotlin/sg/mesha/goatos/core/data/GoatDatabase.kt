@@ -139,6 +139,12 @@ import sg.mesha.goatos.core.data.cache.ToxinTaskItemDao
 import sg.mesha.goatos.core.data.cache.ToxinTaskItemEntity
 import sg.mesha.goatos.core.data.cache.ToxinTaskRemoteKeyDao
 import sg.mesha.goatos.core.data.cache.ToxinTaskRemoteKeyEntity
+import sg.mesha.goatos.core.data.cache.WorkBoardItemDao
+import sg.mesha.goatos.core.data.cache.WorkBoardItemEntity
+import sg.mesha.goatos.core.data.cache.WorkBoardMetaCacheDao
+import sg.mesha.goatos.core.data.cache.WorkBoardMetaCacheEntity
+import sg.mesha.goatos.core.data.cache.WorkBoardRemoteKeyDao
+import sg.mesha.goatos.core.data.cache.WorkBoardRemoteKeyEntity
 import sg.mesha.goatos.core.data.cache.VendorItemDao
 import sg.mesha.goatos.core.data.cache.VendorItemEntity
 import sg.mesha.goatos.core.data.cache.VendorRemoteKeyDao
@@ -361,6 +367,9 @@ import sg.mesha.goatos.core.data.weighing.WeighingShedObservationEntity
         PenVisitItemEntity::class,
         PenVisitRemoteKeyEntity::class,
         PenVisitDetailCacheEntity::class,
+        WorkBoardMetaCacheEntity::class,
+        WorkBoardItemEntity::class,
+        WorkBoardRemoteKeyEntity::class,
     ],
     // v52 (see [MIGRATION_51_52]) adds the three diagnosis tables. `health_diagnosis_runs` is the
     // DETAIL cache — one animal's whole assessment, read in a shed with no signal, so a manager who
@@ -396,7 +405,11 @@ import sg.mesha.goatos.core.data.weighing.WeighingShedObservationEntity
     // v62 (see [MIGRATION_61_62]) adds the three pen-visit read-model tables (maintainer decision
     // 2026-09-07): the paged "For me" visit rows + their per-filter remote keys (the Leadership
     // Tasks trio shape) and the visit-detail JSON blob cache.
-    version = 62,
+    // v63 (see [MIGRATION_62_63]) adds the three Work Board read-model tables (maintainer decision
+    // 2026-09-10, the phone's My Work): the whole-filter summary blob (`work_board_meta_cache`), the
+    // paged board rows keyed by backend `row_key` (`work_board_items`) and their per-scope STRING
+    // keyset cursor (`work_board_remote_keys`) — the Feed three-table shape.
+    version = 63,
     // exportSchema=true writes schemas/<db-fqcn>/<version>.json (see build.gradle.kts
     // room.schemaLocation). The committed schema JSON is the golden schema
     // MigrationTestHelper validates each migration against, and it makes every schema
@@ -609,6 +622,9 @@ abstract class GoatDatabase : RoomDatabase() {
     abstract fun penVisitItemDao(): PenVisitItemDao
     abstract fun penVisitRemoteKeyDao(): PenVisitRemoteKeyDao
     abstract fun penVisitDetailCacheDao(): PenVisitDetailCacheDao
+    abstract fun workBoardMetaCacheDao(): WorkBoardMetaCacheDao
+    abstract fun workBoardItemDao(): WorkBoardItemDao
+    abstract fun workBoardRemoteKeyDao(): WorkBoardRemoteKeyDao
 
     abstract fun deathCauseCatalogDao(): DeathCauseCatalogDao
 

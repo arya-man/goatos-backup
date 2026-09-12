@@ -445,7 +445,7 @@ func TestListPendingPassesCallerAuthorityAsTheTypeFilter(t *testing.T) {
 	// explicitly rather than derived from a role, because every current approver role decides all
 	// three types -- the contract under test is that ListPending forwards the caller's authority verbatim.
 	decidable := []string{"shifting"}
-	if _, err := svc.ListPending(context.Background(), svcTenant, "", decidable, "", 20, ""); err != nil {
+	if _, err := svc.ListPending(context.Background(), svcTenant, "", decidable, nil, 20, ""); err != nil {
 		t.Fatalf("list: %v", err)
 	}
 	if len(repo.listQuery.RequestTypes) != 1 || repo.listQuery.RequestTypes[0] != domain.ApprovalRequestTypeShifting {
@@ -463,7 +463,7 @@ func TestListPendingCapsPageSize(t *testing.T) {
 	repo := &fakeApprovalRepo{}
 	svc := NewApprovalService(repo, &fakePreparer{}, nil)
 
-	if _, err := svc.ListPending(context.Background(), svcTenant, "", []string{"shifting"}, "", 500, ""); err != nil {
+	if _, err := svc.ListPending(context.Background(), svcTenant, "", []string{"shifting"}, nil, 500, ""); err != nil {
 		t.Fatalf("list: %v", err)
 	}
 	// The service forwards the request; the repository clamps. Assert the domain cap is what the
@@ -477,7 +477,7 @@ func TestListPendingCapsPageSize(t *testing.T) {
 // approver at page one and make them re-decide work they already passed.
 func TestListPendingRejectsAMalformedCursor(t *testing.T) {
 	svc := NewApprovalService(&fakeApprovalRepo{}, &fakePreparer{}, nil)
-	if _, err := svc.ListPending(context.Background(), svcTenant, "", []string{"shifting"}, "", 20, "!!!not-base64!!!"); err == nil {
+	if _, err := svc.ListPending(context.Background(), svcTenant, "", []string{"shifting"}, nil, 20, "!!!not-base64!!!"); err == nil {
 		t.Fatal("a malformed cursor must be rejected")
 	}
 }
@@ -492,7 +492,7 @@ func TestParkScopedApproverCannotApproveShiftingOutsideTheirPark(t *testing.T) {
 
 	decidable := permissions.DecidableApprovalRequestTypes([]string{shiftingApproverRole})
 	in := newDecisionInput("request-1", true, decidable)
-	in.CallerParkID = "77777777-7777-4777-8777-777777777777" // a DIFFERENT park than the request's
+	in.CallerParkIDs = []string{"77777777-7777-4777-8777-777777777777"} // a DIFFERENT park than the request's
 
 	_, _, err := svc.Decide(context.Background(), in)
 	if !errors.Is(err, ErrApprovalForbiddenScope) {
@@ -511,7 +511,7 @@ func TestParkScopedApproverCanApproveShiftingInTheirPark(t *testing.T) {
 
 	decidable := permissions.DecidableApprovalRequestTypes([]string{shiftingApproverRole})
 	in := newDecisionInput("request-1", true, decidable)
-	in.CallerParkID = svcPark // the SAME park as the request
+	in.CallerParkIDs = []string{svcPark} // the SAME park as the request
 
 	if _, _, err := svc.Decide(context.Background(), in); errors.Is(err, ErrApprovalForbiddenScope) {
 		t.Fatalf("in-scope park head was wrongly denied: %v", err)
@@ -534,7 +534,7 @@ func TestParkScopedManagerCanApproveDeathOnlyInGoatsPark(t *testing.T) {
 			svc := NewApprovalService(repo, &fakePreparer{}, nil)
 			in := newDecisionInput("request-1", true,
 				permissions.DecidableApprovalRequestTypes([]string{shiftingApproverRole}))
-			in.CallerParkID = svcPark
+			in.CallerParkIDs = []string{svcPark}
 			_, _, err := svc.Decide(context.Background(), in)
 			if got := errors.Is(err, ErrApprovalForbiddenScope); got != tc.wantForbidden {
 				t.Fatalf("forbidden=%v err=%v, want %v", got, err, tc.wantForbidden)
@@ -543,7 +543,7 @@ func TestParkScopedManagerCanApproveDeathOnlyInGoatsPark(t *testing.T) {
 	}
 }
 
-// A no-scope caller (CEO/internal, empty CallerParkID) is not restricted by park scope and may
+// A no-scope caller (CEO/internal, empty CallerParkIDs) is not restricted by park scope and may
 // decide a request in any park.
 func TestNoScopeCallerBypassesParkScopeCheck(t *testing.T) {
 	repo := &fakeApprovalRepo{request: pendingRequest(domain.ApprovalRequestTypeShifting)}
@@ -551,12 +551,62 @@ func TestNoScopeCallerBypassesParkScopeCheck(t *testing.T) {
 
 	decidable := permissions.DecidableApprovalRequestTypes([]string{shiftingApproverRole})
 	in := newDecisionInput("request-1", true, decidable)
-	in.CallerParkID = "" // no park scope
+	in.CallerParkIDs = nil // no park scope
 
 	if _, _, err := svc.Decide(context.Background(), in); errors.Is(err, ErrApprovalForbiddenScope) {
 		t.Fatalf("no-scope caller was wrongly denied: %v", err)
 	}
 	if len(repo.decisions) != 1 {
 		t.Fatalf("repo decisions=%d, want 1", len(repo.decisions))
+	}
+}
+
+// TestTwoParkApproverDecidesInEitherPark pins the live E2E of 2026-09-11: the two named
+// approvers hold park_head in BOTH parks, and the scope used to be the FIRST grant alone, so
+// every request in their other park was refused. The scope is every park they hold.
+func TestTwoParkApproverDecidesInEitherPark(t *testing.T) {
+	otherPark := "77777777-7777-4777-8777-777777777777"
+	repo := &fakeApprovalRepo{request: pendingRequest(domain.ApprovalRequestTypeShifting)} // dest park = svcPark
+	svc := NewApprovalService(repo, &fakePreparer{}, nil)
+	decidable := permissions.DecidableApprovalRequestTypes([]string{shiftingApproverRole})
+	in := newDecisionInput("request-1", true, decidable)
+	in.CallerParkIDs = []string{otherPark, svcPark} // the request's park is the SECOND grant
+	if _, _, err := svc.Decide(context.Background(), in); errors.Is(err, ErrApprovalForbiddenScope) {
+		t.Fatalf("an approver holding the request's park among several was refused: %v", err)
+	}
+	if len(repo.decisions) != 1 {
+		t.Fatalf("repo decisions=%d, want 1", len(repo.decisions))
+	}
+}
+
+// TestParkScopedApproverDecidesABirthInTheirPark: a birth names its park in the payload, so a
+// park-scoped approver decides births in their own park and nowhere else. It used to be refused
+// outright on the wrong premise that a birth carries no park.
+func TestParkScopedApproverDecidesABirthInTheirPark(t *testing.T) {
+	for _, tc := range []struct {
+		name, payloadPark string
+		wantForbidden     bool
+	}{
+		{name: "own park", payloadPark: svcPark},
+		{name: "other park", payloadPark: "77777777-7777-4777-8777-777777777777", wantForbidden: true},
+		{name: "no park in payload fails closed", payloadPark: "", wantForbidden: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			req := pendingRequest(domain.ApprovalRequestTypeBirth)
+			if tc.payloadPark != "" {
+				req.Payload = json.RawMessage(`{"park_id":"` + tc.payloadPark + `","shed_id":"` + svcShed + `","litter_size":1}`)
+			}
+			repo := &fakeApprovalRepo{request: req}
+			svc := NewApprovalService(repo, &fakePreparer{}, nil)
+			in := newDecisionInput("request-1", true, []string{domain.ApprovalRequestTypeBirth})
+			in.CallerParkIDs = []string{svcPark}
+			_, _, err := svc.Decide(context.Background(), in)
+			if tc.wantForbidden && !errors.Is(err, ErrApprovalForbiddenScope) {
+				t.Fatalf("want forbidden scope, got %v", err)
+			}
+			if !tc.wantForbidden && errors.Is(err, ErrApprovalForbiddenScope) {
+				t.Fatalf("own-park birth was refused: %v", err)
+			}
+		})
 	}
 }

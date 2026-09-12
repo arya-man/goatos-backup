@@ -510,6 +510,9 @@ object MeshaIcons {
         // Pen visits (maintainer decision 2026-09-07): the Tasks module's second tab, on the SAME
         // bar as leadership_tasks, so it needs its own glyph — the map pin.
         "pen_visits" -> PenVisit
+        // Work Board / My Work (maintainer decision 2026-09-10): every module's work on one list,
+        // so it wears the recorded-check clipboard rather than any one module's own mark.
+        "work_board" -> ClipboardCheck
         else -> Module
     }
 }

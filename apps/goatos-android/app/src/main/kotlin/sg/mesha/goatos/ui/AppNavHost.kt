@@ -109,6 +109,10 @@ import sg.mesha.goatos.feature.penvisits.PenVisitDetailEvent
 import sg.mesha.goatos.feature.penvisits.PenVisitDetailScreen
 import sg.mesha.goatos.feature.penvisits.PenVisitListEvent
 import sg.mesha.goatos.feature.penvisits.PenVisitListScreen
+import sg.mesha.goatos.feature.workboard.WorkBoardDetailEvent
+import sg.mesha.goatos.feature.workboard.WorkBoardDetailScreen
+import sg.mesha.goatos.feature.workboard.WorkBoardEvent
+import sg.mesha.goatos.feature.workboard.WorkBoardScreen
 import sg.mesha.goatos.feature.toxin.ToxinTaskDetailEvent
 import sg.mesha.goatos.feature.toxin.ToxinTaskDetailScreen
 import sg.mesha.goatos.feature.toxin.ToxinTaskListEvent
@@ -261,6 +265,8 @@ import sg.mesha.goatos.viewmodel.LeadershipTaskDetailViewModel
 import sg.mesha.goatos.viewmodel.LeadershipTaskListViewModel
 import sg.mesha.goatos.viewmodel.PenVisitDetailViewModel
 import sg.mesha.goatos.viewmodel.PenVisitListViewModel
+import sg.mesha.goatos.viewmodel.WorkBoardDetailViewModel
+import sg.mesha.goatos.viewmodel.WorkBoardViewModel
 import sg.mesha.goatos.viewmodel.FeedPurchaseCreateViewModel
 import sg.mesha.goatos.viewmodel.FeedPurchaseDetailViewModel
 import sg.mesha.goatos.viewmodel.FeedPurchasesListViewModel
@@ -726,6 +732,17 @@ object Routes {
         if (id == base || id.isBlank() || id.contains('/')) return null
         return Uri.decode(id)
     }
+
+    // Work Board / My Work (maintainer decision 2026-09-10): the `work_board` module's single
+    // bottom-bar leaf. The list is an L0 root whose href matches the backend-composed nav item
+    // VERBATIM ({key:"work_board", href:"/work"}); one row's detail is a distinct hosted drill with
+    // Up/Back and NO root chrome, never a prefix reuse of the L0 route. The row key is the backend
+    // `row_key` (`module|source_type|source_id`), URL-encoded on the way into the route.
+    const val WORK = "/work"
+    const val WORK_ITEM_ARG = "rowKey"
+    const val WORK_ITEM = "/work/item/{$WORK_ITEM_ARG}"
+
+    fun workItemRoute(rowKey: String): String = "/work/item/${Uri.encode(rowKey)}"
 
     // Clock module (backend module `clock`, maintainer decision 2026-08-27 —
     // docs/features/clock-in-out/plan.md). TWO L0 roots whose hrefs match the backend-composed
@@ -1397,6 +1414,12 @@ fun AppNavHost(
      */
     navStateResolved: Boolean = false,
     verificationVideoControlsEnabled: Boolean = false,
+    /**
+     * This person's backend-composed navigation, for drills that offer to open a MODULE LANDING
+     * from a backend href (the Work Board's Open button): a landing the backend never granted is
+     * not offered, exactly as the shell refuses a push naming one.
+     */
+    navState: NavState = NavState.Empty,
 ) {
     // Shared-axis-X motion instead of the default cross-fade: a forward navigation slides
     // the new screen in from the end and the old one out toward the start; Back reverses it.
@@ -3961,6 +3984,68 @@ fun AppNavHost(
             }
         }
 
+        // --- Work Board / My Work (maintainer decision 2026-09-10) -------------------------
+        // ONE L0 list of every module's work for the caller's park and day, already scoped by the
+        // backend (an operator sees only their own rows), plus the hosted row drill. Module
+        // visibility is backend-composed (`work_board.read` on the nav item); nothing here gates on
+        // a role string and nothing here derives a lane.
+        composable(Routes.WORK) {
+            val vm: WorkBoardViewModel = hiltViewModel()
+            val state by vm.state.collectAsStateWithLifecycle()
+            val rows = vm.rows.collectAsLazyPagingItems()
+            val refreshState = rows.loadState.refresh
+            val appendError = (rows.loadState.append as? LoadState.Error)?.error
+            LaunchedEffect(refreshState) {
+                when (refreshState) {
+                    is LoadState.Error -> vm.onRowsLoadFailed(refreshState.error)
+                    is LoadState.NotLoading -> vm.onRowsLoaded()
+                    else -> Unit
+                }
+            }
+            LaunchedEffect(appendError) { appendError?.let(vm::onRowsLoadFailed) }
+            WorkBoardScreen(
+                state = state,
+                rows = rows,
+                onEvent = { event ->
+                    when (event) {
+                        is WorkBoardEvent.OpenRow -> {
+                            vm.onEvent(event)
+                            navController.navigate(Routes.workItemRoute(event.rowKey)) {
+                                launchSingleTop = true
+                            }
+                        }
+                        else -> vm.onEvent(event)
+                    }
+                },
+            )
+        }
+
+        // One board row (L1 drill). Reads the row from Room through the repository — never a
+        // second network call. "Open" appears only when the row's backend href names a screen this
+        // build can route, resolved through the same push-target resolver notifications use.
+        composable(
+            route = Routes.WORK_ITEM,
+            arguments = listOf(navArgument(Routes.WORK_ITEM_ARG) { type = NavType.StringType }),
+        ) {
+            val vm: WorkBoardDetailViewModel = hiltViewModel()
+            val state by vm.state.collectAsStateWithLifecycle()
+            val openRoute = workBoardOpenRoute(state.row?.href, navState)
+            WorkBoardDetailScreen(
+                state = state.copy(canOpen = openRoute != null),
+                onEvent = { event ->
+                    when (event) {
+                        WorkBoardDetailEvent.Back -> navController.popBackStack()
+                        WorkBoardDetailEvent.Open -> {
+                            vm.onEvent(event)
+                            if (openRoute != null) {
+                                navController.navigate(openRoute) { launchSingleTop = true }
+                            }
+                        }
+                    }
+                },
+            )
+        }
+
         // --- Clock In / Clock Out (module clock, maintainer decision 2026-08-27) -----------
         // TWO L0 bottom-bar roots (My Clock for everyone; Team for leadership, offered only when
         // bootstrap composed the nav item) plus the hosted person-day drill. Module visibility is
@@ -4617,6 +4702,9 @@ private val supportedRootDestinations = setOf(
 	// Pen visits (maintainer decision 2026-09-07): the Tasks module's "For me" leaf — a real
 	// backend-composed bar item, so it is a root exactly like the tab beside it.
 	Routes.PEN_VISITS,
+	// Work Board / My Work (maintainer decision 2026-09-10): the `work_board` module's one
+	// backend-composed bar item, so it is a root exactly like every other module leaf.
+	Routes.WORK,
 	Routes.VACCINATION,
 	Routes.WEIGHING,
 	Routes.VERIFY,
@@ -4707,6 +4795,25 @@ internal fun pushTargetRoute(target: String?): String? {
     // A push naming ONE pen visit (`/pen-visits/{task_id}`) opens that visit.
     Routes.penVisitIdFromHref(target)?.let { return Routes.penVisitRoute(it) }
     return workTargetRoute(target)
+}
+
+/**
+ * Where a Work Board row's backend `href` opens on THIS phone, or null when it must not offer
+ * "Open" at all. Resolved through the SAME resolver pushes use ([pushTargetRoute]) and then held
+ * to the SAME grant rule the shell applies to a push ([NavState.grantsRootDestination]): a module
+ * landing this person was never given is not a destination for them.
+ *
+ * Why the second half exists (found on the Realme, 2026-09-11): a verification row carries
+ * `/verify?...vi_row=` — a hosted route — so a park head who is NOT a verifier was offered "Open"
+ * and landed in the verifier queue, a screen the backend never composed for him, titled after a
+ * module he was not inside. An href for a web-only page (`/health/analytics`) already resolved to
+ * nothing and showed no button; a granted-module href must behave the same way when the module is
+ * somebody else's.
+ */
+internal fun workBoardOpenRoute(href: String?, navState: NavState): String? {
+    val route = href?.takeIf { it.isNotBlank() }?.let { pushTargetRoute(it) } ?: return null
+    if (isRootDestination(route) && !navState.grantsRootDestination(route)) return null
+    return route
 }
 
 /** True when [route] is a module landing the backend must have granted this person. */
