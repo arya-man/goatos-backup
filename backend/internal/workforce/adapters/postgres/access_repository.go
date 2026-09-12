@@ -75,6 +75,21 @@ SELECT m.display_name,
    AND m.workforce_member_id = $2::uuid
    AND m.status = 'active'`
 
+// The person's pen-visit parks (maintainer decision 2026-09-12), keyed by the USER the person
+// signs in as: the identity the visit routes and the kernel materializer resolve.
+const deletePenVisitParksSQL = `
+DELETE FROM pen_visit_park_assignees pv
+ USING workforce_members m
+ WHERE m.tenant_id = $1::uuid AND m.workforce_member_id = $2::uuid
+   AND pv.tenant_id = m.tenant_id AND pv.user_id = m.user_id`
+
+const insertPenVisitParksSQL = `
+INSERT INTO pen_visit_park_assignees (tenant_id, park_id, user_id)
+SELECT m.tenant_id, p.park_id, m.user_id
+  FROM workforce_members m, unnest($3::uuid[]) AS p(park_id)
+ WHERE m.tenant_id = $1::uuid AND m.workforce_member_id = $2::uuid AND m.user_id IS NOT NULL
+ON CONFLICT DO NOTHING`
+
 type moduleRowJSON struct {
 	Module       string   `json:"module"`
 	Surface      string   `json:"surface"`
@@ -296,22 +311,11 @@ func (r *AccessRepository) SavePersonAccess(ctx context.Context, cmd ports.SaveP
 	// and the kernel materializer resolve. Wholesale replace, like the modules; a person with
 	// no user yet (never signed in) cannot be a visitor, and the save says so rather than
 	// storing a row nobody can act on.
-	if _, err := tx.Exec(ctx,
-		`DELETE FROM pen_visit_park_assignees pv
-		  USING workforce_members m
-		  WHERE m.tenant_id = $1::uuid AND m.workforce_member_id = $2::uuid
-		    AND pv.tenant_id = m.tenant_id AND pv.user_id = m.user_id`,
-		cmd.TenantID, cmd.PersonID); err != nil {
+	if _, err := tx.Exec(ctx, deletePenVisitParksSQL, cmd.TenantID, cmd.PersonID); err != nil {
 		return ports.PersonAccessRecord{}, err
 	}
 	if len(cmd.PenVisitParkIDs) > 0 {
-		tag, err := tx.Exec(ctx,
-			`INSERT INTO pen_visit_park_assignees (tenant_id, park_id, user_id)
-			 SELECT m.tenant_id, p.park_id, m.user_id
-			   FROM workforce_members m, unnest($3::uuid[]) AS p(park_id)
-			  WHERE m.tenant_id = $1::uuid AND m.workforce_member_id = $2::uuid AND m.user_id IS NOT NULL
-			 ON CONFLICT DO NOTHING`,
-			cmd.TenantID, cmd.PersonID, cmd.PenVisitParkIDs)
+		tag, err := tx.Exec(ctx, insertPenVisitParksSQL, cmd.TenantID, cmd.PersonID, cmd.PenVisitParkIDs)
 		if err != nil {
 			return ports.PersonAccessRecord{}, err
 		}

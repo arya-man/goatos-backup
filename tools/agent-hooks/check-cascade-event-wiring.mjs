@@ -220,28 +220,37 @@ export const VERIFICATION_APPLIER_CONSTRUCTORS = [
   "PCCareVerificationHandler",
   "HealthVerificationHandler",
   "VerificationVerdictHandler",
+  // Pen visits joined the shared list on 2026-09-12: the visit video's verdict applier, and the
+  // pen_visit.verified consumer that closes the PC Care task the visit was the last step of. A
+  // bus without the second one verifies visits that never close their task.
+  "PenVisitVerificationHandler",
+  "PenVisitVerifiedHandler",
 ];
 
 export const REQUIRED_VERIFICATION_APPLIER_CALL_TOKENS = {
-  "backend/internal/bootstrap/api.go": ["feedDirectionRepo", "countsApprovalRepo", "countsRepo", "weighingRepo", "weighingVerificationBridge", "pcCareRepo", "healthRepo"],
+  "backend/internal/bootstrap/api.go": ["feedDirectionRepo", "countsApprovalRepo", "countsRepo", "weighingRepo", "weighingVerificationBridge", "pcCareRepo", "healthRepo", "penVisitsRepo"],
+  // The pc-care store is passed TWICE since 2026-09-12 -- as the PC Care verdict store and as
+  // the pen-visit parent closer -- so the builders name it once (pcCareRepo) and pass the name.
   "backend/internal/kernelstages/bus.go": [
     "feedDirectionRepo",
     "countsApprovalRepo",
     "countsMilkPreparationRepo",
     "weighingRepo",
     "weighingverificationbridge.New",
-    "pccarepg.NewRepository",
+    "pcCareRepo",
     "healthRepo",
+    "penVisitsRepo",
   ],
-  "backend/internal/domainconsumer/wiring/bus.go": ["stores.feed", "stores.shifting", "stores.milkPreparation", "stores.weighing", "stores.weighingAck", "stores.pcCare", "stores.health"],
+  "backend/internal/domainconsumer/wiring/bus.go": ["stores.feed", "stores.shifting", "stores.milkPreparation", "stores.weighing", "stores.weighingAck", "stores.pcCare", "stores.health", "stores.penVisits", "stores.penVisitCloser"],
   "backend/cmd/domain-event-consumer/main.go": [
     "feedDirectionRepo",
     "countsApprovalRepo",
     "countsMilkPreparationRepo",
     "weighingRepo",
     "weighingverificationbridge.New",
-    "pccarepg.NewRepository",
+    "pcCareRepo",
     "healthRepo",
+    "penVisitsRepo",
   ],
   "backend/cmd/outbox-relay/main.go": [
     "feedDirectionRepo",
@@ -249,8 +258,9 @@ export const REQUIRED_VERIFICATION_APPLIER_CALL_TOKENS = {
     "countsMilkPreparationRepo",
     "weighingRepo",
     "weighingVerificationBridge",
-    "pccarepg.NewRepository",
+    "pcCareRepo",
     "healthRepo",
+    "penVisitsRepo",
   ],
 };
 

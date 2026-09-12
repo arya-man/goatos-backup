@@ -164,29 +164,29 @@ type VerdictStore interface {
 	BounceForRework(ctx context.Context, p ports.VerdictParams) (ports.VerdictResult, error)
 }
 
-// VerificationHandler applies a verifier's verdict to the visit it judged. An approve emits
-// pen_visit.verified inside the same transaction; VerifiedHandler below closes the parents
+// PenVisitVerificationHandler applies a verifier's verdict to the visit it judged. An approve emits
+// pen_visit.verified inside the same transaction; PenVisitVerifiedHandler below closes the parents
 // from it.
-type VerificationHandler struct {
+type PenVisitVerificationHandler struct {
 	store VerdictStore
 	log   *slog.Logger
 }
 
-// NewVerificationHandler constructs the applier over the verdict store.
-func NewVerificationHandler(store VerdictStore, log *slog.Logger) *VerificationHandler {
-	return &VerificationHandler{store: store, log: log}
+// NewPenVisitVerificationHandler constructs the applier over the verdict store.
+func NewPenVisitVerificationHandler(store VerdictStore, log *slog.Logger) *PenVisitVerificationHandler {
+	return &PenVisitVerificationHandler{store: store, log: log}
 }
 
-var _ eventbus.Handler = (*VerificationHandler)(nil)
+var _ eventbus.Handler = (*PenVisitVerificationHandler)(nil)
 
 // Register subscribes to both verdict event types.
-func (h *VerificationHandler) Register(bus eventbus.Bus) {
+func (h *PenVisitVerificationHandler) Register(bus eventbus.Bus) {
 	bus.Subscribe(eventVerificationVerdictApproved, h)
 	bus.Subscribe(eventVerificationVerdictRework, h)
 }
 
 // HandleEvent routes an approve/reject verdict for a pen_visits item to the matching write.
-func (h *VerificationHandler) HandleEvent(ctx context.Context, e eventbus.Event) error {
+func (h *PenVisitVerificationHandler) HandleEvent(ctx context.Context, e eventbus.Event) error {
 	if e.Type != eventVerificationVerdictApproved && e.Type != eventVerificationVerdictRework {
 		return nil
 	}
@@ -225,36 +225,36 @@ type verifiedPayload struct {
 	Sources []string `json:"sources"`
 }
 
-// VerifiedHandler closes the parents an approved visit was the last step of. Registered in
+// PenVisitVerifiedHandler closes the parents an approved visit was the last step of. Registered in
 // eventwiring beside the verdict appliers so the API bus, the relay and the Pub/Sub consumer
 // cannot drift apart.
-type VerifiedHandler struct {
+type PenVisitVerifiedHandler struct {
 	closers map[string]ParentCloser
 	log     *slog.Logger
 }
 
-// NewVerifiedHandler constructs the parent-closure consumer.
-func NewVerifiedHandler(log *slog.Logger) *VerifiedHandler {
-	return &VerifiedHandler{closers: map[string]ParentCloser{}, log: log}
+// NewPenVisitVerifiedHandler constructs the parent-closure consumer.
+func NewPenVisitVerifiedHandler(log *slog.Logger) *PenVisitVerifiedHandler {
+	return &PenVisitVerifiedHandler{closers: map[string]ParentCloser{}, log: log}
 }
 
 // WithParentCloser registers the closer for one source kind.
-func (h *VerifiedHandler) WithParentCloser(kind string, closer ParentCloser) *VerifiedHandler {
+func (h *PenVisitVerifiedHandler) WithParentCloser(kind string, closer ParentCloser) *PenVisitVerifiedHandler {
 	if closer != nil {
 		h.closers[kind] = closer
 	}
 	return h
 }
 
-var _ eventbus.Handler = (*VerifiedHandler)(nil)
+var _ eventbus.Handler = (*PenVisitVerifiedHandler)(nil)
 
 // Register subscribes to the verified event.
-func (h *VerifiedHandler) Register(bus eventbus.Bus) {
+func (h *PenVisitVerifiedHandler) Register(bus eventbus.Bus) {
 	bus.Subscribe(eventVisitVerified, h)
 }
 
 // HandleEvent closes every parent the visit names, per source kind.
-func (h *VerifiedHandler) HandleEvent(ctx context.Context, e eventbus.Event) error {
+func (h *PenVisitVerifiedHandler) HandleEvent(ctx context.Context, e eventbus.Event) error {
 	if e.Type != eventVisitVerified {
 		return nil
 	}

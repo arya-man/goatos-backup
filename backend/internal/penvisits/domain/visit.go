@@ -50,7 +50,7 @@ const (
 // item the parent's submit raised.
 const (
 	SourceKindPCCareTask            = "pc_care_task"
-	SourceKindVaccinationSubmission = "vaccination_submission"
+	SourceKindVaccinationSubmission = "sop_submission"
 )
 
 // Source is one parent of a visit.

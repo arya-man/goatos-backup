@@ -5,5 +5,7 @@
     <string name="pen_visits_action_record_again">మళ్లీ రికార్డ్ చేయండి</string>
     <string name="pen_visits_video_label">పెన్ వీడియో</string>
     <string name="pen_visits_state_sending">పంపుతోంది…</string>
-    <string name="pen_visits_state_submitted">సమర్పించబడింది</string>
+    <string name="pen_visits_state_submitted">సందర్శన ధృవీకరించబడింది</string>
+    <string name="pen_visits_state_in_review">వెరిఫయర్ వద్ద ఉంది</string>
+    <string name="pen_visits_state_sent_back">వెరిఫయర్ వెనక్కి పంపారు</string>
 </resources>

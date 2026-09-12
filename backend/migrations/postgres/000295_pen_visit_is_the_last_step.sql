@@ -63,9 +63,9 @@ CREATE TABLE IF NOT EXISTS public.pen_visit_task_sources (
     tenant_id uuid NOT NULL REFERENCES public.tenants (tenant_id),
     task_id uuid NOT NULL REFERENCES public.pen_visit_tasks (task_id) ON DELETE CASCADE,
     -- source_kind names the parent's table: 'pc_care_task' (pc_care_tasks.task_id) or
-    -- 'vaccination_submission' (sop_submissions.submission_id). The materializer takes both
-    -- from the verification item the parent's submit raised.
-    source_kind text NOT NULL CHECK (source_kind IN ('pc_care_task', 'vaccination_submission')),
+    -- 'sop_submission' (sop_submissions.submission_id -- the shed proof submit). The
+    -- materializer takes both from the verification item the parent's submit raised.
+    source_kind text NOT NULL CHECK (source_kind IN ('pc_care_task', 'sop_submission')),
     source_ref_id uuid NOT NULL,
     created_at timestamptz NOT NULL DEFAULT now(),
     PRIMARY KEY (tenant_id, task_id, source_kind, source_ref_id)

@@ -307,11 +307,7 @@ func (r *Repository) ForPens(ctx context.Context, tenantID, sourceKind string, p
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 	// projection-review: membership=pen_visit_tasks rows of the named sheds (pen_visit_tasks_pen_source_idx on tenant_id, shed_id, partition_key, source_business_date DESC) that carry at least one link of the asked kind; group_key=(shed_id, partition_key) reduced to ONE row per pen by DISTINCT ON ordered by source_business_date DESC, task_id DESC -- the latest visit; join_cardinality=EXISTS semijoin on pen_visit_task_sources (never multiplies), park/shed 1:1 by PK; pagination=none -- bounded by the caller's page of pens, one batched read; scope=tenant + explicit shed ids, filtered to the asked pen keys in Go
-	query := fmt.Sprintf(`SELECT DISTINCT ON (t.shed_id, t.partition_key) %s %s
-WHERE t.tenant_id = $1::uuid AND t.shed_id = ANY($2::uuid[]) AND t.work_state <> 'canceled'
-  AND EXISTS (SELECT 1 FROM pen_visit_task_sources s WHERE s.tenant_id = t.tenant_id AND s.task_id = t.task_id AND s.source_kind = $3)
-ORDER BY t.shed_id, t.partition_key, t.source_business_date DESC, t.task_id DESC`, taskColumns, taskFrom)
-	rows, err := r.pool.Query(ctx, query, tenantID, shedIDs, sourceKind)
+	rows, err := r.pool.Query(ctx, sqlRepository15, tenantID, shedIDs, sourceKind)
 	if err != nil {
 		return nil, fmt.Errorf("pen visit: for pens: %w", err)
 	}
@@ -998,6 +994,12 @@ FROM pen_visit_tasks t
 WHERE t.tenant_id = $1 AND ` + visitorParkPredicate + `
   AND t.work_state IN ('scheduled', 'delayed') AND t.status IN ('open', 'rework')
 LIMIT 500`
+	// The latest visit per pen raised by one parent kind (ForPens), on
+	// pen_visit_tasks_pen_source_idx; the EXISTS is a semijoin and never multiplies rows.
+	sqlRepository15 = `SELECT DISTINCT ON (t.shed_id, t.partition_key) ` + taskColumns + ` ` + taskFrom + `
+WHERE t.tenant_id = $1::uuid AND t.shed_id = ANY($2::uuid[]) AND t.work_state <> 'canceled'
+  AND EXISTS (SELECT 1 FROM pen_visit_task_sources s WHERE s.tenant_id = t.tenant_id AND s.task_id = t.task_id AND s.source_kind = $3)
+ORDER BY t.shed_id, t.partition_key, t.source_business_date DESC, t.task_id DESC`
 	// Link parents to the pen's visit for the source day. Resolved through the natural key so a
 	// widened or untouched visit links exactly like an inserted one.
 	sqlRepository13 = `

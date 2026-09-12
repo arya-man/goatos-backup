@@ -164,8 +164,8 @@ func RegisterVerificationAppliers(
 	// flips a PC Care task whose own clips are verified to work_state completed. Registered
 	// HERE, in the one shared list, so the API bus, the outbox relay, and the Pub/Sub consumer
 	// cannot drift apart.
-	penvisitsapp.NewVerificationHandler(penVisits, log).Register(bus)
-	penvisitsapp.NewVerifiedHandler(log).WithParentCloser(penvisitsdomain.SourceKindPCCareTask, penVisitCloser).Register(bus)
+	penvisitsapp.NewPenVisitVerificationHandler(penVisits, log).Register(bus)
+	penvisitsapp.NewPenVisitVerifiedHandler(log).WithParentCloser(penvisitsdomain.SourceKindPCCareTask, penVisitCloser).Register(bus)
 	// weighingAck is the receipt weighing sends verification once a verdict has landed on the
 	// observation, so a decided item stops reading as still-being-applied. It may be nil (a bus
 	// built without a verification repo still applies verdicts exactly as before -- the ack is
