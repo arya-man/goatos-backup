@@ -9,6 +9,7 @@ import sg.mesha.goatos.core.analytics.AnalyticsEvents
 import sg.mesha.goatos.core.analytics.AnalyticsEventsLeadershipTasks
 import sg.mesha.goatos.core.analytics.AnalyticsEventsPenVisits
 import sg.mesha.goatos.core.analytics.AnalyticsEventsSession
+import sg.mesha.goatos.core.analytics.AnalyticsEventsToxin
 import sg.mesha.goatos.core.analytics.AnalyticsEventsWeighing
 import sg.mesha.goatos.core.analytics.AnalyticsFunnels
 import sg.mesha.goatos.core.analytics.AnalyticsPort
@@ -222,6 +223,12 @@ class BackendAnalyticsAdapter(
             AnalyticsEventsPenVisits.SUBMIT_RECOVERED,
             AnalyticsEventsPenVisits.PROOF_PREVIEW_ACTION,
             AnalyticsEventsPenVisits.FAILURE,
+            AnalyticsEventsToxin.TOXIN_STEP_VIDEO_CAPTURED,
+            AnalyticsEventsToxin.TOXIN_STRIP_PHOTO_CAPTURED,
+            AnalyticsEventsToxin.TOXIN_STEP_SUBMITTED,
+            AnalyticsEventsToxin.TOXIN_READING_SUBMITTED,
+            AnalyticsEventsToxin.TOXIN_STEP_PREVIEW_ACTION,
+            AnalyticsEventsToxin.TOXIN_FAILURE,
             AnalyticsEventsWeighing.WEIGHING_SHED_VIDEO_PREVIEW_ACTION,
             AnalyticsEventsWeighing.WEIGHING_REMOVAL_PROOF_PREVIEW_ACTION,
             AnalyticsEventsWeighing.WEIGHING_SHED_VIDEO_ACTION_ATTEMPTED,

@@ -39,6 +39,8 @@ import sg.mesha.goatos.core.designsystem.component.MeshaScreenHeader
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 import sg.mesha.goatos.core.designsystem.theme.MeshaType
+import sg.mesha.goatos.core.ui.ProofMediaPreview
+import sg.mesha.goatos.core.ui.ProofMediaPreviewKind
 import sg.mesha.goatos.core.ui.RefreshOnResume
 import sg.mesha.goatos.core.ui.SyncIconButton
 
@@ -220,9 +222,35 @@ private fun ToxinStepRow(
 
         when (step.kind) {
             ToxinStepKind.VIDEO -> {
+                val proofPath = step.localProofUri.ifBlank {
+                    step.serverProofUrl.takeIf { step.state == ToxinStepState.DONE }.orEmpty()
+                }
+                val proofIdentity = step.localProofIdentity.ifBlank {
+                    step.serverProofRef.takeIf { step.state == ToxinStepState.DONE }.orEmpty()
+                }
+                if (proofPath.isNotBlank() && proofIdentity.isNotBlank()) {
+                    if (step.localProofStatus != ToxinStepProofStatus.NONE) {
+                        ToxinVideoProofStatus(step)
+                    }
+                    ProofMediaPreview(
+                        path = proofPath,
+                        kind = ProofMediaPreviewKind.Video,
+                        mediaIdentity = proofIdentity,
+                        modifier = Modifier.fillMaxWidth(),
+                        onPreviewAction = { action ->
+                            onEvent(ToxinTaskDetailEvent.StepPreviewAction(step.stepNo, action))
+                        },
+                    )
+                }
                 if (step.state != ToxinStepState.DONE) {
+                    val hasSavedProof = step.localProofStatus == ToxinStepProofStatus.UPLOADING ||
+                        step.localProofStatus == ToxinStepProofStatus.SYNCED
                     ToxinPrimaryButton(
-                        label = "Record video",
+                        label = when {
+                            hasSavedProof -> "Attach video"
+                            step.localProofStatus == ToxinStepProofStatus.FAILED -> "Record again"
+                            else -> "Record video"
+                        },
                         // ONLY the server's `available` opens this. A waiting/locked step keeps a
                         // visible, dead button rather than none at all.
                         enabled = step.state == ToxinStepState.AVAILABLE && !step.working,
@@ -245,6 +273,26 @@ private fun ToxinStepRow(
             ToxinStepKind.WAIT -> Unit
         }
     }
+}
+
+@Composable
+private fun ToxinVideoProofStatus(step: ToxinStepUi) {
+    val copy = when (step.localProofStatus) {
+        ToxinStepProofStatus.UPLOADING -> "Video saved. Uploading..."
+        ToxinStepProofStatus.SYNCED -> "Video synced"
+        ToxinStepProofStatus.FAILED -> {
+            val reason = step.localProofError.takeIf { it.isNotBlank() }
+            if (reason == null) "Upload failed. Record again." else "Upload failed. Record again. $reason"
+        }
+        ToxinStepProofStatus.NONE -> ""
+    }
+    if (copy.isBlank()) return
+    val color = when (step.localProofStatus) {
+        ToxinStepProofStatus.SYNCED -> MeshaColors.Ok
+        ToxinStepProofStatus.FAILED -> MeshaColors.Danger
+        else -> MeshaColors.Warn
+    }
+    Text(text = copy, color = color, style = MeshaType.caption)
 }
 
 /**
