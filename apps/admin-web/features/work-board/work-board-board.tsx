@@ -273,6 +273,7 @@ export function WorkBoardBoard({
   parks,
   selectedPark,
   parkHrefs,
+  allParksHref,
   businessDate,
   isToday,
   previousDayHref,
@@ -291,6 +292,7 @@ export function WorkBoardBoard({
   parks: AdminUiOption[];
   selectedPark: string;
   parkHrefs: Record<string, string>;
+  allParksHref: string;
   businessDate: string;
   isToday: boolean;
   previousDayHref: string;
@@ -324,6 +326,9 @@ export function WorkBoardBoard({
         {ownRowsOnly ? null : <AssigneePicker pageContract={pageContract} owners={owners} cardsByOwner={cardsByOwner} selected={selectedOwner} onSelect={(id) => write((p) => setParam(p, PARAM_OWNER, id))} />}
         {parks.length > 1 ? (
           <nav className="parkpick" aria-label={copy(pageContract, "filter.park")}>
+            <Link href={allParksHref} className={selectedPark === "" ? "on" : ""} aria-current={selectedPark === "" ? "true" : undefined}>
+              {copy(pageContract, "filter.park.all")}
+            </Link>
             {parks.map((park) => (
               <Link key={park.key} href={parkHrefs[park.key] ?? "#"} className={park.key === selectedPark ? "on" : ""} aria-current={park.key === selectedPark ? "true" : undefined}>
                 {park.label}

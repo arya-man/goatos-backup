@@ -169,3 +169,90 @@ export function laneCursorParams(laneKeys: string[]): Record<string, undefined> 
   }
   return out;
 }
+
+// ── All parks ────────────────────────────────────────────────────────────────────────────
+// The board reads one park per request (each source binds one park index). "All parks" is
+// therefore composed here: each column reads EVERY listed park and merges, and the column's
+// one pager advances all parks together on a shared page number, so Done can page through
+// both parks' 100+ rows without the small columns moving. Each (column, park) keeps its own
+// keyset cursor `c_<lane>_<parkKey>`; a park with no further page is marked ENDED so the next
+// page does not re-read its last one.
+import { all, boundedInt, one, type RouteSearchParams } from "@/lib/search-params";
+
+export const LANE_PARK_END = "__end__";
+
+export function laneParkCursorKey(lane: string, parkKey: string): string {
+  return `c_${lane}_${parkKey}`;
+}
+
+function lanePageKey(lane: string): string {
+  return `c_${lane}_page`;
+}
+
+// laneNextHref advances a column one page across all its parks: bump the shared page, and for
+// each park set its cursor to that park's next (pushing the current one on the park's stack)
+// or mark it ENDED when it has no next.
+export function laneNextHref(
+  pathname: string,
+  params: RouteSearchParams,
+  lane: string,
+  perPark: { parkKey: string; nextCursor?: string }[],
+): string | null {
+  if (!perPark.some((p) => p.nextCursor)) return null;
+  const pageKey = lanePageKey(lane);
+  const cursorKeys = new Set(perPark.map((p) => laneParkCursorKey(lane, p.parkKey)));
+  const stackKeys = new Set([...cursorKeys].map((key) => `${key}_stack`));
+  const next = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (key === pageKey || cursorKeys.has(key) || stackKeys.has(key)) continue;
+    for (const item of Array.isArray(value) ? value : value ? [value] : []) next.append(key, item);
+  }
+  next.set(pageKey, String(boundedInt(one(params, pageKey), 1, 1, 1000000) + 1));
+  for (const p of perPark) {
+    const cursorKey = laneParkCursorKey(lane, p.parkKey);
+    const stackKey = `${cursorKey}_stack`;
+    for (const item of all(params, stackKey)) next.append(stackKey, item);
+    next.append(stackKey, one(params, cursorKey) ?? "");
+    next.set(cursorKey, p.nextCursor ?? LANE_PARK_END);
+  }
+  return `${pathname}?${next.toString()}`;
+}
+
+// lanePreviousHref steps a column back a page across all its parks by popping each park's stack.
+export function lanePreviousHref(pathname: string, params: RouteSearchParams, lane: string, parkKeys: string[]): string | null {
+  const pageKey = lanePageKey(lane);
+  const page = boundedInt(one(params, pageKey), 1, 1, 1000000);
+  if (page <= 1) return null;
+  const cursorKeys = new Set(parkKeys.map((key) => laneParkCursorKey(lane, key)));
+  const stackKeys = new Set([...cursorKeys].map((key) => `${key}_stack`));
+  const next = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (key === pageKey || cursorKeys.has(key) || stackKeys.has(key)) continue;
+    for (const item of Array.isArray(value) ? value : value ? [value] : []) next.append(key, item);
+  }
+  if (page - 1 > 1) next.set(pageKey, String(page - 1));
+  for (const parkKey of parkKeys) {
+    const cursorKey = laneParkCursorKey(lane, parkKey);
+    const stackKey = `${cursorKey}_stack`;
+    const stack = all(params, stackKey);
+    const previous = stack.pop();
+    for (const item of stack) next.append(stackKey, item);
+    if (previous) next.set(cursorKey, previous);
+  }
+  return `${pathname}?${next.toString()}`;
+}
+
+// laneParkResetParams clears every per-column-per-park cursor, stack and page, so a park, date
+// or filter change starts all columns at page one.
+export function laneParkResetParams(laneKeys: string[], parkKeys: string[]): Record<string, undefined> {
+  const out: Record<string, undefined> = {};
+  for (const lane of laneKeys) {
+    out[lanePageKey(lane)] = undefined;
+    for (const parkKey of parkKeys) {
+      const cursorKey = laneParkCursorKey(lane, parkKey);
+      out[cursorKey] = undefined;
+      out[`${cursorKey}_stack`] = undefined;
+    }
+  }
+  return out;
+}
