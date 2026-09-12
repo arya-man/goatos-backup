@@ -15525,10 +15525,10 @@ export interface components {
              */
             priority?: "high" | "low";
             /**
-             * @description THE SHIFT TYPE, and since the 2026-08-20 rewrite the type DECIDES what happens to the animals' tag - the raiser no longer chooses. health takes the destination pen's tag on both legs (the one type allowed to stamp a clinical state - a health shift IS the health team acting, and the animal's vaccinations defer until the return leg). growth takes the destination tag FORWARD ONLY along the lifecycle ladder (one reverse edge, Pregnant to Non-Pregnant); a backward or sideways raise is rejected. breeding never changes the tag. delivery takes the destination tag except it never stamps the newborn stage (that tag belongs to the kids); into an empty untagged shed the mother keeps her tag and the shed adopts it. spacing moves the WHOLE source pen carrying its tag - the destination must carry the same tag or be empty (an empty pen adopts the tag); partial groups are rejected. flushing moves females onto flushing ration - empty or already-flushing destinations only. A raise a rule refuses is rejected at RAISE time with a farm-worded reason, before approval and before any video. Omit only from a legacy client (the stage_mode toggle then governs, unchanged). A present but unrecognized value is rejected.
+             * @description THE SHIFT TYPE, and since the 2026-08-20 rewrite the type DECIDES what happens to the animals' tag - the raiser no longer chooses. health takes the destination pen's tag on both legs (the one type allowed to stamp a clinical state - a health shift IS the health team acting, and the animal's vaccinations defer until the return leg). growth takes the destination tag FORWARD ONLY along the lifecycle ladder (one reverse edge, Pregnant to Non-Pregnant); a backward or sideways raise is rejected. breeding never changes the tag. delivery takes the destination tag except it never stamps the newborn stage (that tag belongs to the kids); into an empty untagged shed the mother keeps her tag and the shed adopts it. spacing moves the WHOLE source pen carrying its tag - the destination must carry the same tag or be empty (an empty pen adopts the tag); partial groups are rejected. flushing moves females onto flushing ration - empty or already-flushing destinations only. normal (2026-09-12) is the plain move: any selection, the tag never changes and no pen is re-tagged; the destination must be EMPTY or already hold at least one animal carrying the moving animals' tag (read from the residents, not the pen's authored tag). A raise a rule refuses is rejected at RAISE time with a farm-worded reason, before approval and before any video. Omit only from a legacy client (the stage_mode toggle then governs, unchanged). A present but unrecognized value is rejected.
              * @enum {string}
              */
-            category?: "growth" | "health" | "breeding" | "delivery" | "spacing" | "flushing";
+            category?: "growth" | "health" | "breeding" | "delivery" | "spacing" | "flushing" | "normal";
             /**
              * @description LEGACY tag toggle, governing only a raise that omits category (a client predating the 2026-08-20 typed rewrite). When category is present the TYPE decides the tag and this field is ignored. 'destination_stage' makes the animals adopt the destination pen's tag; 'keep_current' leaves each animal on the tag it already carries. OMIT to accept the default, 'destination_stage'. A present but unrecognized value is rejected with invalid_stage_mode, never rewritten. The client sends only the MODE: the server still resolves the actual tag itself from the destination catalog, so a client can never name a cohort of its own (target_management_stage remains rejected as an unknown field).
              * @enum {string}
@@ -16523,7 +16523,7 @@ export interface components {
             /** @enum {string} */
             priority: "high" | "low";
             /** @enum {string} */
-            category: "growth" | "health" | "breeding" | "delivery";
+            category: "growth" | "health" | "breeding" | "delivery" | "spacing" | "flushing" | "normal";
             /**
              * Format: uuid
              * @description Where the animals are NOW. Null when the movement recorded no origin.
