@@ -222,7 +222,7 @@ func (s *Service) attachPenVisitsToCards(ctx context.Context, q domain.Execution
 		seen[key] = true
 		pens = append(pens, penvisitdomain.PenRef{ShedID: c.ShedID, Partition: partition})
 	}
-	steps, err := s.penVisitSteps(ctx, q.TenantID, q.OperatorScopeActorID, pens)
+	steps, err := s.penVisitSteps(ctx, q.TenantID, q.ViewerActorID, pens)
 	if err != nil {
 		return err
 	}
@@ -454,7 +454,7 @@ func (s *Service) ShedDrilldown(ctx context.Context, q domain.ExecutionQuery) (d
 	if head.PartitionLabel != nil {
 		partition = *head.PartitionLabel
 	}
-	steps, err := s.penVisitSteps(ctx, q.TenantID, q.OperatorScopeActorID, []penvisitdomain.PenRef{{ShedID: head.ShedID, Partition: partition}})
+	steps, err := s.penVisitSteps(ctx, q.TenantID, q.ViewerActorID, []penvisitdomain.PenRef{{ShedID: head.ShedID, Partition: partition}})
 	if err != nil {
 		return domain.ShedDrilldown{}, false, err
 	}

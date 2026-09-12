@@ -264,6 +264,11 @@ type ExecutionQuery struct {
 	// workforce member before returning assigned operator work. Admin reads leave
 	// it empty and keep the broader park/tenant visibility.
 	OperatorScopeActorID string
+	// ViewerActorID is the authenticated caller on EVERY app execution read, operator or
+	// leadership alike. It never scopes rows; it is the person a pen's visit step is composed
+	// for (whether THEY may record it). A park head reading his park is not operator-scoped, so
+	// keying the step on OperatorScopeActorID composed the visit for nobody.
+	ViewerActorID        string
 	AuthorizedParkIDs    []string
 	WorkState            *WorkState
 	Severity             *Severity
