@@ -303,6 +303,27 @@ func (r *Repository) OpenCount(ctx context.Context, tenantID, userID string) (in
 	return n, nil
 }
 
+// OpenReasons reads the reasons of every visit one person still has to record.
+func (r *Repository) OpenReasons(ctx context.Context, tenantID, userID string) ([][]string, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	// scale-guard:ignore: bounded by the open visits of ONE person's parks (pens worked yesterday, tens of rows), on pen_visit_tasks_park_idx; a badge read, no page.
+	rows, err := r.pool.Query(ctx, sqlRepository14, tenantID, userID)
+	if err != nil {
+		return nil, fmt.Errorf("pen visit: open reasons: %w", err)
+	}
+	defer rows.Close()
+	out := [][]string{}
+	for rows.Next() {
+		var reasons []string
+		if err := rows.Scan(&reasons); err != nil {
+			return nil, err
+		}
+		out = append(out, reasons)
+	}
+	return out, rows.Err()
+}
+
 // Submit records the visit's video and hands the visit to the verifier -- one transaction:
 // idempotency reservation, row lock, the domain rule re-run on the locked row, the update,
 // audit, outbox. The kernel clock is untouched: the visit is 'pending_verification' on the
@@ -929,6 +950,12 @@ SET status = 'rework',
 WHERE tenant_id = $1 AND task_id = $2::uuid
   AND status = 'pending_verification'
   AND row_version = $5`
+	sqlRepository14 = `
+SELECT t.reasons
+FROM pen_visit_tasks t
+WHERE t.tenant_id = $1 AND ` + visitorParkPredicate + `
+  AND t.work_state IN ('scheduled', 'delayed') AND t.status IN ('open', 'rework')
+LIMIT 500`
 	// Link parents to the pen's visit for the source day. Resolved through the natural key so a
 	// widened or untouched visit links exactly like an inserted one.
 	sqlRepository13 = `
