@@ -64,7 +64,7 @@ type dealPayload struct {
 	Feedback *string `json:"feedback"`
 	Comments *string `json:"comments"`
 
-	// Lines are what was sold, in entry order (migration 000294). product_type / breed / the
+	// Lines are what was sold, in entry order (migration 000296). product_type / breed / the
 	// counts / total_weight_kg / sales_value above are their ROLLUP ("Mixed" when the lines
 	// disagree on product or breed).
 	Lines []dealLinePayload `json:"lines"`

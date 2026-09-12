@@ -477,7 +477,7 @@ export function SalesRecordDrawer({
               {cell(field("comments"), deal.comments)}
             </div>
 
-            {/* WHAT WAS SOLD: one row per product/breed line (migration 000294). The product,
+            {/* WHAT WAS SOLD: one row per product/breed line (migration 000296). The product,
                 breed, animals, weight and value cells above are the backend's ROLLUP of these. */}
             <div className="dgrp">{copy(pageContract, "section.lines.title")}</div>
             {deal.lines.length === 0 ? (

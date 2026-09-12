@@ -199,7 +199,7 @@ ORDER BY received_on, created_at`, tenantID, ids)
 }
 
 // attachDealLines loads the product/breed lines of every deal on one page in ONE batched read
-// (`= ANY`, never a per-row query) and attaches them in entry order. Migration 000294 backfilled
+// (`= ANY`, never a per-row query) and attaches them in entry order. Migration 000296 backfilled
 // one line per pre-existing deal, so every deal comes back with at least one.
 func (r *Repository) attachDealLines(ctx context.Context, tenantID string, deals []domain.Deal) error {
 	if len(deals) == 0 {
@@ -663,7 +663,7 @@ func (r *Repository) CreateDeal(ctx context.Context, tenantID string, write doma
 		return domain.Deal{}, fmt.Errorf("sales: create deal: %w", err)
 	}
 
-	// The lines land in the SAME transaction as the deal row they roll up into (migration 000294):
+	// The lines land in the SAME transaction as the deal row they roll up into (migration 000296):
 	// one set-based insert over UNNEST, never a per-line round trip.
 	if err := insertDealLines(ctx, tx, tenantID, dealID, write.Lines); err != nil {
 		return domain.Deal{}, err

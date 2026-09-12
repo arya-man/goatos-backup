@@ -254,7 +254,7 @@ func (r *Repository) closedDeals(ctx context.Context, tenantID, farm string) ([]
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("sales overview deals rows: %w", err)
 	}
-	// The product/breed blocks are computed at LINE grain (000294): one batched read.
+	// The product/breed blocks are computed at LINE grain (000296): one batched read.
 	// projection-review: membership=sales_deal_lines keyed by deal_id over the deals read above;
 	// group_key=deal_id, each line attached to exactly one deal; join_cardinality=1:N resolved in
 	// Go (no SQL join, so the deal rows cannot fan out); pagination=none; scope=tenant_id and the

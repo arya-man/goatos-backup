@@ -160,9 +160,9 @@ type Deal struct {
 	// none: its advance_amount predates the receipts ledger.
 	Payments []DealPayment
 
-	// Lines are what was sold, in entry order (migration 000294). ProductType, Breed, the counts,
+	// Lines are what was sold, in entry order (migration 000296). ProductType, Breed, the counts,
 	// weight and SalesValue above are the ROLLUP of these lines: ProductMixed when the lines
-	// disagree. Every deal has at least one line; the pre-000294 history was backfilled as one.
+	// disagree. Every deal has at least one line; the pre-000296 history was backfilled as one.
 	Lines []DealLine
 }
 
@@ -281,7 +281,7 @@ type DealWrite struct {
 	Farm     string
 	// Lines are what was sold (maintainer decision 2026-09-12): one per product/breed, each with
 	// its own counts, weight and value. Normalize fills them from the legacy single-product
-	// fields below when a pre-000294 client sends none, and Validate refuses a sale with none.
+	// fields below when a pre-000296 client sends none, and Validate refuses a sale with none.
 	Lines []DealLineWrite
 	// ProductType, Breed, the counts, TotalWeightKg and SalesValue are the LEGACY single-line
 	// body. After Normalize they hold the ROLLUP of Lines (see RollupLines), which is what the

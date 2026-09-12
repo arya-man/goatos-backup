@@ -208,7 +208,7 @@ func TestBuildDealAggregatesSplitsAMixedDealByLine(t *testing.T) {
 }
 
 // A deal read without lines (older fixture, or a reader that never attached them) must aggregate
-// exactly as it did before 000294 -- its own columns ARE its one line.
+// exactly as it did before 000296 -- its own columns ARE its one line.
 func TestBuildDealAggregatesWithoutLinesIsTheSingleLineCase(t *testing.T) {
 	deal := Deal{
 		DealID: "d1", SaleDate: "2026-09-12", Farm: FarmCPT, BuyerName: "Tanveer",

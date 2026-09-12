@@ -406,7 +406,7 @@ func importDeals(ctx context.Context, tx pgx.Tx, tenantID string, deals []fixtur
 		return fmt.Errorf("deals upsert: %w", err)
 	}
 
-	// Every sheet row is a SINGLE-LINE sale (migration 000294): mirror its own columns onto one
+	// Every sheet row is a SINGLE-LINE sale (migration 000296): mirror its own columns onto one
 	// line, the same way the migration backfilled the deals already recorded. Set-based, keyed
 	// by source_row_no, and REPLACING that one line on a re-run so an updated sheet row cannot
 	// leave a stale line beside the fresh deal.

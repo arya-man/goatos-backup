@@ -15,7 +15,7 @@ const ProductMixed = "Mixed"
 const MaxDealLines = 20
 
 // DealLine is ONE product/breed slice of a sale (maintainer decision 2026-09-12, migration
-// 000294): what was sold, in the order the desk entered it. The deal owns the buyer, the date,
+// 000296): what was sold, in the order the desk entered it. The deal owns the buyer, the date,
 // the advance, the status and the receipts; the line owns product, breed, counts, weight and its
 // share of the value.
 type DealLine struct {
@@ -112,7 +112,7 @@ func (l DealLineWrite) validate(lineNo int) error {
 	return nil
 }
 
-// linesFromLegacy turns a pre-000294 single-product body (product_type/breed/counts/value on the
+// linesFromLegacy turns a pre-000296 single-product body (product_type/breed/counts/value on the
 // deal itself) into its one line, so an older client keeps recording exactly what it did before.
 // Returns nil when the body names no product, which Validate then refuses as "no lines".
 func (w DealWrite) linesFromLegacy() []DealLineWrite {
@@ -184,7 +184,7 @@ func RollupLines(lines []DealLineWrite) DealRollup {
 
 // lineView is the deal's lines, or -- for a deal read without them (a test fixture, a caller that
 // never attached lines) -- ONE synthetic line built from the deal's own columns, which for a
-// single-product deal is exactly the backfilled 000294 line. Reporting code iterates this so it
+// single-product deal is exactly the backfilled 000296 line. Reporting code iterates this so it
 // never has to branch on whether lines were loaded.
 func (d Deal) lineView() []DealLine {
 	if len(d.Lines) > 0 {

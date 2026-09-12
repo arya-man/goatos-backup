@@ -14,7 +14,7 @@ import "sort"
 // projection-review: producer rows are sales_deals at ROW grain (one sheet row / one recorded
 // deal; source_sales_id is a sheet reference that can repeat and is never used as a group key).
 // Consumers group by month (Deal.Month), by (product_type, breed) at LINE grain (sales_deal_lines,
-// one row per product/breed slice of a deal; a deal with one line is the pre-000294 shape), and by
+// one row per product/breed slice of a deal; a deal with one line is the pre-000296 shape), and by
 // buyer_name over deals. Revenue is summed once per line and the deal's own sales_value is the
 // SAME total (RollupLines keeps them equal in one transaction), so summing deal revenue for the
 // summary and line revenue for the product buckets ranges over one figure, never two. The ratio realized_price_per_kg has numerator
@@ -56,7 +56,7 @@ func BuildDealAggregates(closed []Deal) (Summary, []MonthlyRow, []PriceBand, []B
 			monthly[d.Month()] = month
 		}
 
-		// LINE grain from here down (migration 000294): a mixed sale's sheep, goats and manure each
+		// LINE grain from here down (migration 000296): a mixed sale's sheep, goats and manure each
 		// land in their own product bucket and their own (product, breed) price band, at the
 		// line's own weight and value. The deal-level product/weight/value are only a rollup.
 		animals := 0.0
