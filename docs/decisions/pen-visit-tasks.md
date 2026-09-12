@@ -1,7 +1,95 @@
 # Pen visits: the day-after check on a treated pen
 
 Maintainer decision, 2026-09-07 (chat session with the maintainer). Status: ACCEPTED,
-implemented on branch `feat/pen-visit-tasks`.
+landed. **SUPERSEDED IN PART on 2026-09-12** -- read the section immediately below first;
+the rest of this document describes the 2026-09-07 shape and stays as the record of what
+did not change (the trigger, the natural key, the kernel clock, the materializer, the push).
+
+## 2026-09-12: the visit is the care work's LAST STEP, not a task of its own
+
+Maintainer instruction (chat, 2026-09-12): "the care task should close when the park head
+visits the shed on the next day ... first it will be fasting, removing feed and water, then
+the deworming happens, and the park head will go. When all these videos are verified by the
+verifier, then the task will be closed ... don't make that park visit a separate task
+altogether." Asked three questions, the maintainer answered: fold the visit into **every PC
+Care category AND vaccination**; the visit video **goes to the verifier** as its own item; who
+visits stays **per-park HRMS config, changeable on /people, one or more people, "if anyone
+does then enough"**.
+
+Three things changed, each load-bearing:
+
+1. **THE VISIT VIDEO IS VERIFIED.** `pen_visit_tasks` gained the PC Care gate: `status` open
+   -> pending_verification -> completed | rework, `verified_by/at`, `rework_reason`
+   (migration `000295`). Submit flips the gate and leaves the kernel clock alone; the verdict
+   consumer (`penvisits/app.VerificationHandler`, category `pen_visit`, module `pen_visits`,
+   ref_type `pen_visit_task`, listed under the Preventive Care verify tab) flips BOTH
+   dimensions to completed on approve and to rework on reject. A rework keeps the old clip as
+   history; the re-shoot carries a fresh row version and mints a fresh verifier item
+   (`pen-visit-verification:<task>:<row_version>`). The roll-forward sweep no longer rolls a
+   visit sitting with the verifier -- the kernel gate reads `submitted_at`, never review state,
+   the rule the removal cards already follow.
+2. **THE PARENT CLOSES ON THE VISIT.** `pen_visit_task_sources` links a visit to the PC Care
+   task(s) and vaccination submission(s) whose submit raised it (the materializer reads the
+   verification item's `source_ref_type/id`; a pen worked twice in one day is still ONE visit
+   with two links). A PC Care pen task -- one of `domain.PenVisitCategories` with a shed --
+   whose own videos are approved sets `status = completed` but keeps `work_state` open;
+   `pen_visit.verified` (emitted in the approve transaction with the parents on its payload) is
+   consumed by `penvisits/app.VerifiedHandler`, which calls the PC Care closer
+   `pccare.Repository.PenVisitVerified` to flip `work_state = completed`. Either order
+   converges: `ApplyVerifiedTask` closes the clock itself when it finds the visit already
+   verified. The closer RE-READS the visit row rather than trusting the event, so an early or
+   replayed event cannot close a task whose visit is not in fact verified (the red test that
+   found it: `pen_visit_closure_integration_test.go`). `pc_care.task.completed` still fires at
+   the task's own approval -- the field work IS verified; the clock is what waits. The PC Care
+   roll-forward sweep skips a task whose own videos are verified (`status <> 'completed'`).
+   Vaccination registers no closer: its shed reads derive the step from the visit row
+   (`ForPens`), and the five-bucket drive progress contract is untouched.
+3. **WHO VISITS IS PER-PARK HRMS CONFIG, ONE OR MORE.** `pen_visit_park_assignees` is keyed
+   `(tenant, park, user)`; `assignee_user_id` is gone from the visit row; `CheckSubmit` is a
+   membership test against the park's configured visitors, and `submitted_by` records who
+   went. The /people access editor carries `pen_visit_park_ids` (label and blurb are backend
+   copy), saved wholesale in the same transaction as the rest of a person's access, refused
+   for a park outside the person's scope and for a person who has never signed in
+   (`pen_visitor_has_no_login` -- a visit is owed to a user id). The morning push reaches
+   every configured visitor and lands them on the PC Care module, not a list.
+
+**WHERE THE VISIT LIVES NOW.** The "For me" tab, its L0 route, list screen and ViewModel are
+retired; the Tasks module is one list again for everyone. The visit is a STEP ON THE PARENT
+CARD: `PCCareTask.pen_visit` (the shared `penvisits/domain.Step` shape, composed for the
+caller) plus `pen_visit_chip`/`pen_visit_tone` so a card whose own clips are verified reads
+"Pen visit tomorrow" / "Visit in review" / "Visit verified" rather than "Done";
+`ShedCardSummary.penVisit` and the shed drilldown carry the same step for vaccination. The
+phone's PC Care task screen shows a "Pen visit" step card and the vaccination shed card a
+strip; both open the hosted visit drill (`/pen-visits/{id}`, the one route that survives),
+where the drill renders the gate (in review, sent back with the verifier's words, verified).
+A configured visitor also finds the parent task on their own PC Care worklist on the VISIT's
+due day (`ListTasksQuery.VisitorUserID`), under its category tab, and the operator's carry
+list no longer resurfaces a task whose own videos are verified as work owed. Badges follow
+the parents: visits still to record count on Preventive Care (per category tab) or on
+Vaccination.
+
+**THE WORK BOARD (PR #243) FOLLOWS THE STEP.** On the task's own day the PC Care source maps a
+verified task with an open clock from the VISIT: in progress (owed), overdue, in review,
+rejected, completed; its subtitle says so and the issue view gains a final "Pen visit" unit
+(visit -> verify). On the visit's own due day two sources in
+`penvisits/adapters/boardsource` row the visit under Preventive Care (any care reason) or
+Vaccination (vaccinated alone), titled as the work continuing ("Deworming · Castro 2", "Pen
+visit · work done 10/09/2026"), owned by the park's configured visitors, with the vaccination
+shed href. Canonical rows: `docs/decisions/work-board.md`.
+
+**Routes** admit `pen_visits.execute` OR `pc_care.execute`; the permission opens the routes
+and the per-park config decides WHO may record a given visit. `pen_visits.execute` stays on
+the director roles through the Tasks module's Do tick (never `ceo_internal`).
+
+Pinned by: `penvisits/domain` tests (gate chips, submit rule for any configured visitor,
+in-review refusal), `penvisits/adapters/postgres.TestPenVisitLifecycle...` (two visitors,
+parent links both ways, approve/replay/reject/re-shoot, the sweep leaving a reviewed visit
+alone), `pccare/adapters/postgres.TestPenTaskClosesOnlyWhenBothTheWorkAndTheVisitAreVerified`
+and `TestShedLessTaskClosesOnItsOwnApproval`, the two board-source round trips,
+`workforce/adapters/postgres.TestSavePersonAccessWritesThePenVisitParks`,
+`permissions.TestPenVisitsExecuteIsDirectorsNeverCEO`, the eventwiring drift guard (eleven
+appliers plus the `pen_visit.verified` subscriber), and the Android
+`PenVisitDetailViewModelTest` gate cases.
 
 ## What it is
 
