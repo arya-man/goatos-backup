@@ -20,7 +20,7 @@ Three things changed, each load-bearing:
 
 1. **THE VISIT VIDEO IS VERIFIED.** `pen_visit_tasks` gained the PC Care gate: `status` open
    -> pending_verification -> completed | rework, `verified_by/at`, `rework_reason`
-   (migration `000295`). Submit flips the gate and leaves the kernel clock alone; the verdict
+   (migration `000296`). Submit flips the gate and leaves the kernel clock alone; the verdict
    consumer (`penvisits/app.VerificationHandler`, category `pen_visit`, module `pen_visits`,
    ref_type `pen_visit_task`, listed under the Preventive Care verify tab) flips BOTH
    dimensions to completed on approve and to rework on reject. A rework keeps the old clip as
