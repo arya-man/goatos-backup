@@ -21,6 +21,7 @@ test("work-board opened subtasks preserve the selected owner filter", () => {
 
   assert.match(pageSource, /selectedOwner=\{owner\}/);
   assert.match(modalSource, /selectedOwner\?: string/);
+  assert.match(modalSource, /key=\{`\$\{row\.row_key\}:\$\{selectedOwner \?\? ""\}`\}/);
   assert.match(modalSource, /<WorkBoardSubtasks[^>]+selectedOwner=\{selectedOwner\}/);
   assert.match(subtasksSource, /owner: selectedOwner/);
   assert.match(actionsSource, /owner\?: string/);

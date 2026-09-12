@@ -149,7 +149,7 @@ export function WorkBoardModal({ pageContract, rows, initialSelectedRowKey, clos
             </div>
             <div className="sec">
               <h4>{copy(pageContract, "drawer.subtasks")}</h4>
-              {open ? <WorkBoardSubtasks key={row.row_key} pageContract={pageContract} row={row} selectedOwner={selectedOwner} /> : null}
+              {open ? <WorkBoardSubtasks key={`${row.row_key}:${selectedOwner ?? ""}`} pageContract={pageContract} row={row} selectedOwner={selectedOwner} /> : null}
             </div>
           </div>
           <div className="rail">
