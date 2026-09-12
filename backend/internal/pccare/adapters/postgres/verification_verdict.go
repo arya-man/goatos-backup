@@ -287,17 +287,25 @@ func (r *Repository) PenVisitVerified(ctx context.Context, tenantID string, task
 			_ = tx.Rollback(ctx)
 		}
 	}()
+	// The event names the visit; the row is re-read here rather than trusted, so an early,
+	// replayed or hand-fired event can never close a task whose visit is not in fact
+	// verified and linked to it.
 	// scale-guard:ignore: one set-based UPDATE over the explicit task ids a single pen visit names (bounded by the pens worked in one pen on one day), keyed by primary key.
 	rows, err := tx.Query(ctx, `
-UPDATE pc_care_tasks
+UPDATE pc_care_tasks t
 SET work_state = 'completed',
     terminal_at = now(),
     updated_at = now(),
-    row_version = row_version + 1
-WHERE tenant_id = $1::uuid AND task_id = ANY($2::uuid[])
-  AND status = 'completed'
-  AND work_state IN ('scheduled', 'delayed')
-RETURNING task_id::text, category, park_id::text, coalesce(shed_id::text, '')`, tenantID, taskIDs)
+    row_version = t.row_version + 1
+WHERE t.tenant_id = $1::uuid AND t.task_id = ANY($2::uuid[])
+  AND t.status = 'completed'
+  AND t.work_state IN ('scheduled', 'delayed')
+  AND EXISTS (
+    SELECT 1 FROM pen_visit_task_sources s
+    JOIN pen_visit_tasks v ON v.tenant_id = s.tenant_id AND v.task_id = s.task_id
+    WHERE s.tenant_id = t.tenant_id AND s.source_kind = 'pc_care_task' AND s.source_ref_id = t.task_id
+      AND v.task_id = $3::uuid AND v.status = 'completed')
+RETURNING t.task_id::text, t.category, t.park_id::text, coalesce(t.shed_id::text, '')`, tenantID, taskIDs, visitTaskID)
 	if err != nil {
 		return fmt.Errorf("pccare: close on pen visit: %w", err)
 	}
