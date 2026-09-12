@@ -99,7 +99,7 @@ const KPI_DEFS: KpiDef[] = [
     // Matches the click filter exactly (movement_state=quiet) — summing in not_moving here would
     // make this number disagree with what clicking the card actually filters to.
     value: (s) => s.quiet,
-    detail: () => "low or zero delta this window",
+    detail: () => "motion-count delta 1 to 9 in last 15 min",
   },
   {
     key: "weak_signal",

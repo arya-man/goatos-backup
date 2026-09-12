@@ -499,10 +499,9 @@ type AlertCondition = { tone: Tone; label: string; explanation: string };
 // accelerometer_sensor_ok/mapping_state fields, checked independently of the motion pattern.
 //
 // "No movement now" (pattern_state === "no_movement") is deliberately NOT one of these conditions:
-// it is the ordinary state of a resting animal in any given 15-minute window and the mock's
-// renderAlerts never emits a row for it alone — only the DURATION-based inactive/quiet_watch
-// patterns, a spike, a recovery, or a genuinely different signal/battery/sensor/mapping condition
-// are alert-worthy.
+// it is an ordinary current-window motion-count state, and the mock's renderAlerts never emits a
+// row for it alone — only the DURATION-based inactive/quiet_watch patterns, a spike, a recovery,
+// or a genuinely different signal/battery/sensor/mapping condition are alert-worthy.
 function buildAlertConditions(item: HerdSignalItem, nowMs: number): AlertCondition[] {
   const conditions: AlertCondition[] = [];
   const pattern = item.pattern_state ?? "normal";
@@ -518,7 +517,7 @@ function buildAlertConditions(item: HerdSignalItem, nowMs: number): AlertConditi
     conditions.push({
       tone: PATTERN_TONE.quiet_watch,
       label: PATTERN_LABEL.quiet_watch,
-      explanation: "Low motion delta for the last 1-2 hours. Short rest is normal; this is a watch item, not an alert.",
+      explanation: "Low motion delta for the last 1-2 hours. Short quiet periods are normal; this is a watch item, not an alert.",
     });
   }
   if (pattern === "spike") {

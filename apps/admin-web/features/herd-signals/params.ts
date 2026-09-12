@@ -17,6 +17,9 @@ export type HerdSignalsTab = (typeof HERD_SIGNALS_TABS)[number];
 // it applies; clicking the SAME card again clears it (see herd-signals-kpis.tsx).
 export const KPI_FILTER_KEYS = ["moving", "quiet", "weak_signal", "missing_signal", "low_battery"] as const;
 export type KpiFilterKey = (typeof KPI_FILTER_KEYS)[number];
+export const HERD_SIGNALS_SORT_KEYS = ["smart_tag", "tag_temp", "last_seen", "motion_count", "delta_15m", "delta_1h"] as const;
+export type HerdSignalsSortKey = (typeof HERD_SIGNALS_SORT_KEYS)[number];
+export type HerdSignalsSortDirection = "asc" | "desc";
 
 export type HerdSignalsParams = {
   sp: RouteSearchParams;
@@ -31,6 +34,8 @@ export type HerdSignalsParams = {
   kpi?: KpiFilterKey;
   cursor?: string;
   limit: number;
+  sort: HerdSignalsSortKey;
+  sortDir: HerdSignalsSortDirection;
   hasFilter: boolean;
 };
 
@@ -68,6 +73,8 @@ export function parseHerdSignalsParams(searchParams: RouteSearchParams | undefin
   const kpi = KPI_FILTER_KEYS.find((value) => value === one(sp, "hs_kpi"));
   const cursor = boundedText(one(sp, "hs_cursor"), 200);
   const limit = boundedInt(one(sp, "hs_limit"), LIMIT_DEFAULT, 10, LIMIT_MAX);
+  const sort = HERD_SIGNALS_SORT_KEYS.find((value) => value === one(sp, "hs_sort")) ?? "smart_tag";
+  const sortDir = one(sp, "hs_dir") === "desc" ? "desc" : "asc";
 
   return {
     sp,
@@ -82,6 +89,8 @@ export function parseHerdSignalsParams(searchParams: RouteSearchParams | undefin
     kpi,
     cursor,
     limit,
+    sort,
+    sortDir,
     hasFilter: Boolean(shedId || q || movementState || mappingState || pattern || kpi),
   };
 }
@@ -101,6 +110,8 @@ export function herdSignalsHref(params: HerdSignalsParams, overrides: Record<str
     hs_pattern: params.pattern,
     hs_kpi: params.kpi,
     hs_limit: params.limit === LIMIT_DEFAULT ? undefined : String(params.limit),
+    hs_sort: params.sort === "smart_tag" ? undefined : params.sort,
+    hs_dir: params.sortDir === "asc" ? undefined : params.sortDir,
     hs_cursor: undefined,
     ...rest,
   });

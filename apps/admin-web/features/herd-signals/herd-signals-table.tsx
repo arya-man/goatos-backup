@@ -28,7 +28,7 @@ import {
   herdSignalStatus,
 } from "./format";
 import { one } from "@/lib/search-params";
-import { herdSignalsHref, type HerdSignalsParams } from "./params";
+import { herdSignalsHref, type HerdSignalsParams, type HerdSignalsSortKey } from "./params";
 import { matchesResidualKpi } from "./herd-signals-row-filter";
 import { HerdSignalsDrawer } from "./herd-signals-drawer";
 import { HerdSignalsHistoryFullscreen } from "./herd-signals-history-fullscreen";
@@ -47,6 +47,54 @@ function isInteractiveTarget(target: EventTarget | null): boolean {
 }
 
 const PAGE_SIZE_OPTIONS = [25, 50, 100];
+
+const ACTIVITY_RULES =
+  "Activity is the current 15-minute motion-count delta. Moving: delta 100 or more. Low: 10 to 99. Quiet: 1 to 9. No movement: delta 0 while packets are still received. Stale: no recent packet.";
+const PATTERN_RULES =
+  "Pattern is the broader classification for the tag. Normal activity means the current deltas are within that tag's baseline band. No movement now means delta 0 in the current 15-minute window. Quiet watch and inactive require low or zero deltas to persist.";
+const TABLE_SORT_NOTE =
+  "Rows are sorted inside this fetched page. Smart tag is the default so live refresh keeps the same visible rows steady when all tags fit on one page.";
+
+function compareNullableNumber(a: number | null | undefined, b: number | null | undefined): number {
+  if (a === null || a === undefined) return b === null || b === undefined ? 0 : 1;
+  if (b === null || b === undefined) return -1;
+  return a - b;
+}
+
+function compareNullableTime(a: string | null | undefined, b: string | null | undefined): number {
+  if (!a) return b ? 1 : 0;
+  if (!b) return -1;
+  return new Date(a).getTime() - new Date(b).getTime();
+}
+
+function sortHerdSignalItems(items: HerdSignalItem[], sort: HerdSignalsSortKey, dir: "asc" | "desc"): HerdSignalItem[] {
+  const sign = dir === "asc" ? 1 : -1;
+  return [...items].sort((a, b) => {
+    let result = 0;
+    switch (sort) {
+      case "tag_temp":
+        result = compareNullableNumber(a.tag_temperature_c, b.tag_temperature_c);
+        break;
+      case "last_seen":
+        result = compareNullableTime(a.last_seen_at, b.last_seen_at);
+        break;
+      case "motion_count":
+        result = compareNullableNumber(a.motion_count, b.motion_count);
+        break;
+      case "delta_15m":
+        result = compareNullableNumber(a.motion_delta, b.motion_delta);
+        break;
+      case "delta_1h":
+        result = compareNullableNumber(a.motion_delta_1h, b.motion_delta_1h);
+        break;
+      case "smart_tag":
+      default:
+        result = a.tag_id.localeCompare(b.tag_id, "en");
+    }
+    if (result === 0) result = a.tag_id.localeCompare(b.tag_id, "en");
+    return result * sign;
+  });
+}
 
 // Keyset pagination carries no server-side page index, so the position readout is derived from the
 // cursors this page has actually walked through -- never guessed from a cursor string. `stack` holds
@@ -112,7 +160,7 @@ export function HerdSignalsTable({
   const filterSignature = herdSignalsHref(params, {});
   const walk = useSyncExternalStore(subscribePagerWalk, readPagerWalk, readServerPagerWalk);
   const stack = walk.signature === filterSignature ? walk.stack : [];
-  const visible = items.filter((item) => matchesResidualKpi(item, params.kpi));
+  const visible = sortHerdSignalItems(items.filter((item) => matchesResidualKpi(item, params.kpi)), params.sort, params.sortDir);
   const drawerCloseHref = herdSignalsHref(params, {});
   const rowHref = (item: HerdSignalItem) => `${herdSignalsHref(params, { hs_tag: item.tag_id })}#hs-tag-${encodeURIComponent(item.tag_id)}`;
 
@@ -244,6 +292,28 @@ export function HerdSignalsTable({
     </div>
   );
 
+  function sortHref(sort: HerdSignalsSortKey): string {
+    const nextDir = params.sort === sort && params.sortDir === "asc" ? "desc" : "asc";
+    return herdSignalsHref(params, {
+      hs_sort: sort === "smart_tag" ? undefined : sort,
+      hs_dir: nextDir === "asc" ? undefined : nextDir,
+    });
+  }
+
+  const sortableHead = (label: string, sort: HerdSignalsSortKey, className?: string, help?: string) => {
+    const active = params.sort === sort;
+    const arrow = active ? (params.sortDir === "asc" ? "↑" : "↓") : "↕";
+    return (
+      <th className={className}>
+        <Link href={sortHref(sort)} className={`hs-sort${active ? " on" : ""}`} title={`Sort by ${label}`}>
+          <span>{label}</span>
+          <span aria-hidden="true">{arrow}</span>
+        </Link>
+        {help ? <InfoTip label={`${label} rules`} text={help} /> : null}
+      </th>
+    );
+  };
+
   return (
     <>
       {pager("top")}
@@ -255,18 +325,24 @@ export function HerdSignalsTable({
             ) : (
             <tr>
               <th>Animal</th>
-              <th>Smart tag</th>
+              {sortableHead("Smart tag", "smart_tag", undefined, TABLE_SORT_NOTE)}
               <th>Pen</th>
               <th>Gateway</th>
               <th>Signal</th>
-              <th className="num">Motion count</th>
-              <th className="num">15m delta</th>
-              <th className="num">1h delta</th>
-              <th>Activity</th>
-              <th>Pattern</th>
+              {sortableHead("Motion count", "motion_count", "num", "Cumulative counter maintained by the tag firmware. It can stay flat while packets are received.")}
+              {sortableHead("15m delta", "delta_15m", "num", "Current 15-minute motion-count delta: latest counter minus the baseline reading for the window.")}
+              {sortableHead("1h delta", "delta_1h", "num", "Current 1-hour motion-count delta when enough readings exist; blank means the window is not established yet.")}
+              <th>
+                Activity
+                <InfoTip label="Activity rules" text={ACTIVITY_RULES} />
+              </th>
+              <th>
+                Pattern
+                <InfoTip label="Pattern rules" text={PATTERN_RULES} />
+              </th>
               <th>Battery</th>
-              <th className="num">Tag temp</th>
-              <th>Last seen</th>
+              {sortableHead("Tag temp", "tag_temp", "num", "Tag housing temperature, not the animal's body temperature.")}
+              {sortableHead("Last seen", "last_seen", undefined, "When the backend last received a packet from this tag. Sorting by this can move rows during live refresh.")}
               <th>Status</th>
             </tr>
             )}
@@ -382,6 +458,19 @@ export function HerdSignalsTable({
       />
       <HerdSignalsHistoryFullscreen rows={visible} closeHref={drawerCloseHref} />
     </>
+  );
+}
+
+function InfoTip({ label, text }: { label: string; text: string }) {
+  return (
+    <span className="tipwrap">
+      <button type="button" className="ihelp" aria-label={label}>
+        i
+      </button>
+      <span className="tip" role="tooltip">
+        {text}
+      </span>
+    </span>
   );
 }
 

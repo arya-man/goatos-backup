@@ -181,7 +181,7 @@ type TagLatest struct {
 	PreviousSeenAt        *time.Time
 	MotionWindowSeconds   *int
 	MovementState         string // "moving", "low", "quiet", "not_moving", "stale", "unknown"
-	PatternState          string // "no_movement", "quiet_watch", "inactive", "missing_signal", "spike", "recovered", "unknown"
+	PatternState          string // "no_movement", "quiet_watch", "inactive", "missing", "spike", "recovered", "normal"
 	TemperatureSensorOK   *bool
 	AccelerometerSensorOK *bool
 	MappingState          string // "mapped", "unmapped", "conflict"
@@ -222,7 +222,7 @@ type ActivityWindow struct {
 // no_movement: delta 0 in current 15m window
 // quiet_watch: low delta sustained for 1-2 hours
 // inactive: zero/low delta for 3+ hours WITH packets still arriving (duration-based, not missing)
-// missing_signal: no packets for 30+ minutes
+// missing: no packets for 30+ minutes
 // spike: current delta far above animal's own baseline (p75 of 24h)
 // recovered: activity resumed after quiet period
 type PatternState string
@@ -237,8 +237,7 @@ const (
 	PatternMissingSignal PatternState = "missing"
 	PatternSpike         PatternState = "spike"
 	PatternRecovered     PatternState = "recovered"
-	// PatternUnknown serializes as "normal" (not "unknown"): the frontend contract's resting/
-	// default state is called "normal", not "unknown" -- this is the state of a tag with no
+	// PatternUnknown serializes as "normal" (not "unknown"): this is the state of a tag with no
 	// watch condition, which is the common case, not an error condition.
 	PatternUnknown PatternState = "normal"
 )
