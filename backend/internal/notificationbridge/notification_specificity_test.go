@@ -1,76 +1,12 @@
 package notificationbridge
 
 import (
-	"context"
 	"strings"
 	"testing"
 )
 
-// TestVerificationApprovedNotificationIncludesSpecificDetails verifies that DEFECT 1 is fixed:
-// verification approval notifications now include park, shed, vaccine (for vaccination), and
-// other specific details instead of abstract copy like "The proof is ready for operational closure."
-//
-// Per docs/decisions/2026-08-02-meaningful-notification-copy.md: every user-facing notification
-// must be MEANINGFUL, never abstract. It must carry park name, shed label, vaccine/work-item name
-// in human form, and other actionable context.
-func TestVerificationApprovedNotificationIncludesSpecificDetails(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name              string
-		module            string
-		location          string
-		vaccineLabel      string
-		expectedBodyToken string
-	}{
-		{
-			name:              "vaccination approved includes vaccine label and location",
-			module:            "vaccination",
-			location:          "Shed A (CBE)",
-			vaccineLabel:      "ET+TT",
-			expectedBodyToken: "ET+TT vaccination proof for Shed A (CBE) is verified.",
-		},
-		{
-			name:              "weighing approved includes location",
-			module:            "weighing",
-			location:          "Shed B (CPT)",
-			vaccineLabel:      "",
-			expectedBodyToken: "weighing proof for Shed B (CPT) is verified.",
-		},
-		{
-			name:              "feed approved includes location",
-			module:            "feed",
-			location:          "Shed C (CPT)",
-			vaccineLabel:      "",
-			expectedBodyToken: "feeding proof for Shed C (CPT) is verified.",
-		},
-		{
-			name:              "counts approved includes location",
-			module:            "counts",
-			location:          "Shed D (CBE)",
-			vaccineLabel:      "",
-			expectedBodyToken: "counts proof for Shed D (CBE) is verified.",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			// Simulate the enrichment without a database
-			enrich := enrichApprovedNotificationCopy(context.Background(), nil, nil, nil, "test-tenant",
-				tt.module, "", "", "", "")
-			// Without actual database lookups, should fall back to empty.
-			if enrich != "" {
-				t.Fatalf("expected empty enrichment without database, got %q", enrich)
-			}
-
-			// Note: Full E2E test with actual location/vaccine lookups would require a database.
-			// This test verifies the enrichment function exists and has the right signature.
-			// Production behavior is proven by integration tests.
-		})
-	}
-}
+// The approved-copy shape is pinned in verification_task_copy_test.go: every lifecycle push leads
+// with the item's own subject and park, titled by the TASK (category), never the module.
 
 // TestEscalationNotificationsHaveTargetAndNoInternalWording verifies DEFECTS 2 & 3:
 // - DEFECT 2: escalation notifications have a "target" field (not empty)
@@ -114,12 +50,19 @@ func TestEscalationNotificationsHaveTargetAndNoInternalWording(t *testing.T) {
 		"health_director",
 		"feed_director",
 	}
-	for module, profile := range pendingModuleProfiles {
-		lower := strings.ToLower(profile.approvedTitle + " " + profile.approvedBody)
+	for category, noun := range verificationTaskNouns {
+		lower := strings.ToLower(noun)
 		for _, forbidden := range forbiddenPatterns {
 			if strings.Contains(lower, forbidden) {
-				t.Errorf("module %q contains forbidden internal wording %q in approval copy: title=%q body=%q",
-					module, forbidden, profile.approvedTitle, profile.approvedBody)
+				t.Errorf("category %q contains forbidden internal wording %q in its task noun %q", category, forbidden, noun)
+			}
+		}
+	}
+	for module, noun := range taskNounFallbacks {
+		lower := strings.ToLower(noun)
+		for _, forbidden := range forbiddenPatterns {
+			if strings.Contains(lower, forbidden) {
+				t.Errorf("module %q contains forbidden internal wording %q in its fallback noun %q", module, forbidden, noun)
 			}
 		}
 	}

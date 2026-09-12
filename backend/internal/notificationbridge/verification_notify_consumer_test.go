@@ -296,8 +296,10 @@ func TestVerificationEventConsumer_RecipientResolution(t *testing.T) {
 	if got := vecContextValueForToken(t, ctx, pool, vecItemPending, vnCEOToken, "screen"); got != "vaccination_overview" {
 		t.Fatalf("CEO pending screen = %q, want vaccination_overview", got)
 	}
-	if title, body := vecTitleBodyForToken(t, ctx, pool, vecItemPending, vnVerifierToken); title != "Video verification waiting" ||
-		body != "A shed vaccinated; video is waiting for verification." {
+	// No subject, no shed and no location resolver on this consumer: the head degrades to the
+	// task noun alone (task-level copy, verification_task_copy.go).
+	if title, body := vecTitleBodyForToken(t, ctx, pool, vecItemPending, vnVerifierToken); title != "Vaccination video to verify" ||
+		body != "Vaccination — video is waiting for your verification." {
 		t.Fatalf("verifier pending title/body = %q/%q, want role-specific verification copy", title, body)
 	}
 

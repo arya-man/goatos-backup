@@ -95,3 +95,48 @@ This decision doc, the guard, and CI wiring were added under
 copy itself is **out of scope** here: another agent is live-editing
 `backend/internal/notificationbridge/**` and that surface was explicitly
 off-limits for this change.
+
+## Addendum 2026-09-12: verification lifecycle pushes are TASK-level, and every one leads with the item's own subject
+
+Maintainer decision 2026-09-12, from the phone: for one pen move the pending
+push read *"Counts video pending · Pen move · Gandhi 2 · from Ho Chi Minh 1 ·
+1 animals recorded; counts video verification is pending."* and the approved
+push read *"Counts proof verified · counts proof for Sumathi 1 (Coimbatore) is
+verified."* The maintainer's words: "counts proof what? That's a shifting one
+verified" — and: "if you don't make it module level, keep it task level."
+
+Two code paths composed copy for the same verification item. Pending and
+withdrawn led with the producer's `SubjectLabel`; approved rebuilt a sentence
+from module + shed and threw the subject away; closed used a static per-module
+string with no location at all. The module name ("counts", "pc_care", "feed")
+is an internal grouping — four different jobs for feed, five for counts — and
+never the farm's word for the work.
+
+Rule, now the only composition for pending / approved / rework / closed:
+
+```text
+Title:  <task noun> <state>            Pen move verified · Hoof trimming video pending
+Body:   <item subject> (<park>) — <state sentence>
+        Pen move · Sumathi 1 · from Ho Chi Minh 1 · 1 animal (Coimbatore) — video verified.
+```
+
+- The **task noun** comes from the item's CATEGORY (the task type a producer
+  registers in `verificationcatalog`), via `verificationTaskNouns` in
+  `backend/internal/notificationbridge/verification_task_copy.go`.
+  `TestEveryVerificationCategoryHasATaskNoun` fails the build when a category
+  ships without one; the module-word fallback exists only for an unregistered
+  category and is never the normal path.
+- The **subject** is the producer's own `SubjectLabel`, verbatim — the same
+  line the verifier's queue shows. A subject-less item (feed transport, by
+  design) degrades to `<task noun> · <pen>`; a subject-less vaccination
+  approval still names its dose from the sop task (`ET+TT · Shed A (CPT)`).
+- `pendingModuleProfile` keeps routing only (duty module, director seat,
+  screens/targets, `message_key` prefix). It carries no copy any more, so the
+  approved/closed wording cannot drift from pending again.
+- Same change: the counts subject says `1 animal`, not `1 animals`
+  (`countsdomain.PluralAnimals`), and the weighing rolled-forward push writes
+  the planned date as `07/09/2026`, not `2026-09-07`.
+
+Pinned by `verification_task_copy_test.go` (all four lifecycle pushes for the
+screenshot's pen move; task-vs-module titles for pc_care, health, feed,
+weighing; the subject-less and dose fallbacks).

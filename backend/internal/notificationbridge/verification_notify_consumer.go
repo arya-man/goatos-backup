@@ -115,37 +115,23 @@ type pendingModuleProfile struct {
 	// leadershipPosition is the tenant-scope director seat that owns the module.
 	leadershipPosition string
 	// leadershipRoleLabel is the recipient role label recorded on the queued notification.
-	leadershipRoleLabel  string
-	verifierTitle        string
-	verifierBodySuffix   string
-	leadershipTitle      string
-	leadershipBodySuffix string
-	leadershipScreen     string
-	leadershipTarget     string
-
-	// The three LIFECYCLE pushes that follow the pending one. They used to be hardcoded to the
-	// PC Director in vaccination wording for EVERY module ("Vaccination proof verified",
-	// "vaccination record"), which is the same wrong-module defect the pending path already
-	// fixed: a feed or counts approval pushed vaccination copy to the wrong director. Each
-	// module now carries its own recipient seat (leadershipPosition above) and its own copy.
-	approvedTitle string
-	approvedBody  string
-	// approvedScreen/approvedTarget, reworkScreen/reworkTarget and closedScreen/closedTarget are
-	// the client route the tap opens. They stay module-owned for the same reason the titles do.
-	approvedScreen string
-	approvedTarget string
-	reworkTitle    string
-	reworkBody     string
-	// reworkReasonBody is the body used when the verifier supplied a reason; the reason is
-	// inserted verbatim between the two halves.
-	reworkReasonPrefix string
-	reworkReasonSuffix string
-	reworkScreen       string
-	reworkTarget       string
-	closedTitle        string
-	closedBody         string
-	closedScreen       string
-	closedTarget       string
+	leadershipRoleLabel string
+	// leadershipScreen/leadershipTarget, approvedScreen/approvedTarget, reworkScreen/reworkTarget
+	// and closedScreen/closedTarget are the client route each lifecycle push opens. They stay
+	// module-owned: the tap lands on the module's own surface, never another module's.
+	//
+	// Copy is deliberately NOT here any more. Title and body are composed per ITEM from the
+	// item's category (the task noun) and its own subject sentence -- see
+	// verification_task_copy.go -- so a pen move reads "Pen move video pending", not "Counts
+	// video pending", and the approved/closed pushes carry the same subject the pending one did.
+	leadershipScreen string
+	leadershipTarget string
+	approvedScreen   string
+	approvedTarget   string
+	reworkScreen     string
+	reworkTarget     string
+	closedScreen     string
+	closedTarget     string
 }
 
 // pendingModuleProfiles is keyed by the item's Module (VerificationEventPayload.Module, which the
@@ -153,42 +139,26 @@ type pendingModuleProfile struct {
 // weighingdomain.VerificationModuleWeighing = "weighing" for weighing).
 var pendingModuleProfiles = map[string]pendingModuleProfile{
 	legacyVaccinationSourceModule: {
-		messageKeyPrefix:     "vaccination",
-		dutyModule:           moduleVaccination,
-		leadershipPosition:   positionPCDirector,
-		leadershipRoleLabel:  "pc_director",
-		verifierTitle:        "Video verification waiting",
-		verifierBodySuffix:   " vaccinated; video is waiting for verification.",
-		leadershipTitle:      "Vaccination video pending",
-		leadershipBodySuffix: " vaccinated; video verification is pending.",
-		leadershipScreen:     "vaccination_overview",
-		leadershipTarget:     "/vaccination",
+		messageKeyPrefix:    "vaccination",
+		dutyModule:          moduleVaccination,
+		leadershipPosition:  positionPCDirector,
+		leadershipRoleLabel: "pc_director",
+		leadershipScreen:    "vaccination_overview",
+		leadershipTarget:    "/vaccination",
 
-		approvedTitle:      "Vaccination proof verified",
-		approvedBody:       "The proof is ready for operational closure.",
-		approvedScreen:     "leadership_close",
-		approvedTarget:     "/vaccination",
-		reworkTitle:        "Vaccination proof rejected — rework needed",
-		reworkBody:         "The verifier rejected a vaccination proof. This needs to be resubmitted.",
-		reworkReasonPrefix: "The verifier rejected a vaccination proof. Reason: ",
-		reworkReasonSuffix: " Please resubmit.",
-		reworkScreen:       "record",
-		reworkTarget:       "/vaccination",
-		closedTitle:        "Vaccination record closed",
-		closedBody:         "The verified vaccination record is now complete.",
-		closedScreen:       "record",
-		closedTarget:       "/vaccination",
+		approvedScreen: "leadership_close",
+		approvedTarget: "/vaccination",
+		reworkScreen:   "record",
+		reworkTarget:   "/vaccination",
+		closedScreen:   "record",
+		closedTarget:   "/vaccination",
 	},
 	moduleWeighing: {
-		messageKeyPrefix:     "weighing",
-		dutyModule:           moduleWeighing,
-		leadershipPosition:   positionGrowthDirector,
-		leadershipRoleLabel:  roleLabelGrowthDirector,
-		verifierTitle:        "Weighing video waiting",
-		verifierBodySuffix:   " weighed; video is waiting for verification.",
-		leadershipTitle:      "Weighing video pending",
-		leadershipBodySuffix: " weighed; video verification is pending.",
-		leadershipScreen:     "weighing_overview",
+		messageKeyPrefix:    "weighing",
+		dutyModule:          moduleWeighing,
+		leadershipPosition:  positionGrowthDirector,
+		leadershipRoleLabel: roleLabelGrowthDirector,
+		leadershipScreen:    "weighing_overview",
 		// Both leadership-facing weighing pushes are about PROOF, and "/weighing" is the
 		// operator's own work list -- a Growth Director who tapped one landed on an empty
 		// My Work with no route to the video. The proof gallery that used to answer these
@@ -198,20 +168,12 @@ var pendingModuleProfiles = map[string]pendingModuleProfile{
 		// the campaign/bucket identity that names a weighing task.)
 		leadershipTarget: weighingEvidenceTarget,
 
-		approvedTitle:      "Weighing proof verified",
-		approvedBody:       "The proof is ready for operational closure.",
-		approvedScreen:     "leadership_close",
-		approvedTarget:     weighingEvidenceTarget,
-		reworkTitle:        "Weighing proof rejected — rework needed",
-		reworkBody:         "The verifier rejected a weighing proof. This needs to be resubmitted.",
-		reworkReasonPrefix: "The verifier rejected a weighing proof. Reason: ",
-		reworkReasonSuffix: " Please resubmit.",
-		reworkScreen:       "record",
-		reworkTarget:       "/weighing",
-		closedTitle:        "Weighing record closed",
-		closedBody:         "The verified weighing record is now complete.",
-		closedScreen:       "record",
-		closedTarget:       "/weighing",
+		approvedScreen: "leadership_close",
+		approvedTarget: weighingEvidenceTarget,
+		reworkScreen:   "record",
+		reworkTarget:   "/weighing",
+		closedScreen:   "record",
+		closedTarget:   "/weighing",
 	},
 	// Feed covers BOTH gated feed completions -- packing and distribution -- plus feed transport;
 	// all three enqueue with Module="feed" and are kept apart only by ref_type, so one profile is
@@ -219,122 +181,74 @@ var pendingModuleProfiles = map[string]pendingModuleProfile{
 	// tap route is the feed surface. Feed_Director.pdf M1 makes the Feed Director the person who
 	// confirms daily that feeding SOP videos are actually being reviewed.
 	moduleFeed: {
-		messageKeyPrefix:     "feed",
-		dutyModule:           dutyModuleFeed,
-		leadershipPosition:   positionFeedDirector,
-		leadershipRoleLabel:  positionFeedDirector,
-		verifierTitle:        "Feed video waiting",
-		verifierBodySuffix:   " fed; video is waiting for verification.",
-		leadershipTitle:      "Feed video pending",
-		leadershipBodySuffix: " fed; feed video verification is pending.",
-		leadershipScreen:     "feed_overview",
-		leadershipTarget:     "/feed",
+		messageKeyPrefix:    "feed",
+		dutyModule:          dutyModuleFeed,
+		leadershipPosition:  positionFeedDirector,
+		leadershipRoleLabel: positionFeedDirector,
+		leadershipScreen:    "feed_overview",
+		leadershipTarget:    "/feed",
 
-		approvedTitle:      "Feed proof verified",
-		approvedBody:       "The proof is ready for operational closure.",
-		approvedScreen:     "leadership_close",
-		approvedTarget:     "/feed",
-		reworkTitle:        "Feed proof rejected — rework needed",
-		reworkBody:         "The verifier rejected a feed proof. This needs to be resubmitted.",
-		reworkReasonPrefix: "The verifier rejected a feed proof. Reason: ",
-		reworkReasonSuffix: " Please resubmit.",
-		reworkScreen:       "record",
-		reworkTarget:       "/feed",
-		closedTitle:        "Feed record closed",
-		closedBody:         "The verified feed record is now complete.",
-		closedScreen:       "record",
-		closedTarget:       "/feed",
+		approvedScreen: "leadership_close",
+		approvedTarget: "/feed",
+		reworkScreen:   "record",
+		reworkTarget:   "/feed",
+		closedScreen:   "record",
+		closedTarget:   "/feed",
 	},
 	// PC Care proofs (per-animal deworming / ticks removal / hoof trimming / hair trimming
 	// videos, one item per submitted task) route to the PC Director, who owns the module
 	// (maintainer decision 2026-08-21). Wording is care's own ("care work"), never another
 	// module's, and the tap route is the PC surface.
 	modulePCCare: {
-		messageKeyPrefix:     "pc_care",
-		dutyModule:           modulePCCare,
-		leadershipPosition:   positionPCDirector,
-		leadershipRoleLabel:  "pc_director",
-		verifierTitle:        "Care videos waiting",
-		verifierBodySuffix:   " care work done; videos are waiting for verification.",
-		leadershipTitle:      "Care videos pending",
-		leadershipBodySuffix: " care work done; video verification is pending.",
-		leadershipScreen:     "pc_care_overview",
-		leadershipTarget:     "/pc/deworming",
+		messageKeyPrefix:    "pc_care",
+		dutyModule:          modulePCCare,
+		leadershipPosition:  positionPCDirector,
+		leadershipRoleLabel: "pc_director",
+		leadershipScreen:    "pc_care_overview",
+		leadershipTarget:    "/pc/deworming",
 
-		approvedTitle:      "Care proof verified",
-		approvedBody:       "The proof is ready for operational closure.",
-		approvedScreen:     "leadership_close",
-		approvedTarget:     "/pc/deworming",
-		reworkTitle:        "Care proof rejected — rework needed",
-		reworkBody:         "The verifier rejected a care proof. This needs to be resubmitted.",
-		reworkReasonPrefix: "The verifier rejected a care proof. Reason: ",
-		reworkReasonSuffix: " Please resubmit.",
-		reworkScreen:       "record",
-		reworkTarget:       "/pc/deworming",
-		closedTitle:        "Care record closed",
-		closedBody:         "The verified care record is now complete.",
-		closedScreen:       "record",
-		closedTarget:       "/pc/deworming",
+		approvedScreen: "leadership_close",
+		approvedTarget: "/pc/deworming",
+		reworkScreen:   "record",
+		reworkTarget:   "/pc/deworming",
+		closedScreen:   "record",
+		closedTarget:   "/pc/deworming",
 	},
 	// Health treatment proofs (one video per completed treatment session) route to the Health
 	// Director, who owns the Health module outright (Health_Director.pdf Responsibilities 1-4:
 	// observation, diagnosis, treatment, treatment tracking). Wording is health's own
 	// ("treated"), never another module's, and the tap route is the health surface.
 	moduleHealth: {
-		messageKeyPrefix:     "health",
-		dutyModule:           dutyModuleHealth,
-		leadershipPosition:   positionHealthDirector,
-		leadershipRoleLabel:  positionHealthDirector,
-		verifierTitle:        "Health video waiting",
-		verifierBodySuffix:   " treated; video is waiting for verification.",
-		leadershipTitle:      "Health video pending",
-		leadershipBodySuffix: " treated; health video verification is pending.",
-		leadershipScreen:     "health_overview",
-		leadershipTarget:     "/health/adults",
+		messageKeyPrefix:    "health",
+		dutyModule:          dutyModuleHealth,
+		leadershipPosition:  positionHealthDirector,
+		leadershipRoleLabel: positionHealthDirector,
+		leadershipScreen:    "health_overview",
+		leadershipTarget:    "/health/adults",
 
-		approvedTitle:      "Health proof verified",
-		approvedBody:       "The proof is ready for operational closure.",
-		approvedScreen:     "leadership_close",
-		approvedTarget:     "/health/adults",
-		reworkTitle:        "Health proof rejected — rework needed",
-		reworkBody:         "The verifier rejected a health treatment proof. This needs to be resubmitted.",
-		reworkReasonPrefix: "The verifier rejected a health treatment proof. Reason: ",
-		reworkReasonSuffix: " Please resubmit.",
-		reworkScreen:       "record",
-		reworkTarget:       "/health/adults",
-		closedTitle:        "Health record closed",
-		closedBody:         "The verified health treatment record is now complete.",
-		closedScreen:       "record",
-		closedTarget:       "/health/adults",
+		approvedScreen: "leadership_close",
+		approvedTarget: "/health/adults",
+		reworkScreen:   "record",
+		reworkTarget:   "/health/adults",
+		closedScreen:   "record",
+		closedTarget:   "/health/adults",
 	},
 	// Counts proofs (the shifting/movement completion video) route to the Health Director, who
 	// owns Counts per the 2026-08-01 maintainer decision. Deliberately NOT pc_director.
 	moduleCounts: {
-		messageKeyPrefix:     "counts",
-		dutyModule:           dutyModuleCounts,
-		leadershipPosition:   positionHealthDirector,
-		leadershipRoleLabel:  positionHealthDirector,
-		verifierTitle:        "Counts video waiting",
-		verifierBodySuffix:   " recorded; video is waiting for verification.",
-		leadershipTitle:      "Counts video pending",
-		leadershipBodySuffix: " recorded; counts video verification is pending.",
-		leadershipScreen:     "counts_overview",
-		leadershipTarget:     "/counts",
+		messageKeyPrefix:    "counts",
+		dutyModule:          dutyModuleCounts,
+		leadershipPosition:  positionHealthDirector,
+		leadershipRoleLabel: positionHealthDirector,
+		leadershipScreen:    "counts_overview",
+		leadershipTarget:    "/counts",
 
-		approvedTitle:      "Counts proof verified",
-		approvedBody:       "The proof is ready for operational closure.",
-		approvedScreen:     "leadership_close",
-		approvedTarget:     "/counts",
-		reworkTitle:        "Counts proof rejected — rework needed",
-		reworkBody:         "The verifier rejected a counts proof. This needs to be resubmitted.",
-		reworkReasonPrefix: "The verifier rejected a counts proof. Reason: ",
-		reworkReasonSuffix: " Please resubmit.",
-		reworkScreen:       "record",
-		reworkTarget:       "/counts",
-		closedTitle:        "Counts record closed",
-		closedBody:         "The verified counts record is now complete.",
-		closedScreen:       "record",
-		closedTarget:       "/counts",
+		approvedScreen: "leadership_close",
+		approvedTarget: "/counts",
+		reworkScreen:   "record",
+		reworkTarget:   "/counts",
+		closedScreen:   "record",
+		closedTarget:   "/counts",
 	},
 }
 
@@ -477,10 +391,14 @@ type VerificationEventConsumer struct {
 	// copy to be meaningful: instead of abstract "The proof is ready for operational closure",
 	// an approval says "ET+TT vaccination proof for Shed A (Park Name) is verified." per
 	// docs/decisions/2026-08-02-meaningful-notification-copy.md.
-	locations *LocationNameResolver
+	//
+	// Held as the behavioural seam (locationNameSource) rather than the pool-backed type so the
+	// copy every lifecycle push composes is provable without a database standing behind it;
+	// production still attaches the real resolver through WithLocationNames.
+	locations locationNameSource
 	// vaccineLabels is optional vaccine label enrichment (see vaccine_labels.go). Resolves
 	// vaccination_rules.vaccine_label for a bounded set of rule IDs per event.
-	vaccineLabels *VaccineLabelResolver
+	vaccineLabels vaccineLabelSource
 }
 
 // NewVerificationEventConsumer constructs the consumer over the workforce recipient resolver and
@@ -499,13 +417,35 @@ func (c *VerificationEventConsumer) WithAudience(audience AudienceResolver) *Ver
 
 // WithLocationNames attaches park/shed name enrichment. Chainable at construction time.
 func (c *VerificationEventConsumer) WithLocationNames(resolver *LocationNameResolver) *VerificationEventConsumer {
+	// A nil *LocationNameResolver must stay a nil interface, not a non-nil interface holding a
+	// nil pointer (the resolver is nil-safe either way, but the nil check in subjectLine is not).
+	if resolver == nil {
+		c.locations = nil
+		return c
+	}
 	c.locations = resolver
+	return c
+}
+
+// withLocationSource is the in-package test seam for WithLocationNames.
+func (c *VerificationEventConsumer) withLocationSource(source locationNameSource) *VerificationEventConsumer {
+	c.locations = source
 	return c
 }
 
 // WithVaccineLabels attaches vaccine label enrichment. Chainable at construction time.
 func (c *VerificationEventConsumer) WithVaccineLabels(resolver *VaccineLabelResolver) *VerificationEventConsumer {
+	if resolver == nil {
+		c.vaccineLabels = nil
+		return c
+	}
 	c.vaccineLabels = resolver
+	return c
+}
+
+// withVaccineLabelSource is the in-package test seam for WithVaccineLabels.
+func (c *VerificationEventConsumer) withVaccineLabelSource(source vaccineLabelSource) *VerificationEventConsumer {
+	c.vaccineLabels = source
 	return c
 }
 
@@ -575,7 +515,7 @@ func (c *VerificationEventConsumer) handleVaccinationDriveReady(ctx context.Cont
 	// Name the park: "all proof videos for this vaccination drive are verified" gives a
 	// director nothing to act on (2026-08-02 meaningful-notification rule).
 	readyPark := "this park"
-	if parkID := strings.TrimSpace(p.ParkID); parkID != "" {
+	if parkID := strings.TrimSpace(p.ParkID); parkID != "" && c.locations != nil {
 		if name := strings.TrimSpace(c.locations.ResolveNames(ctx, tenantID, parkID)[parkID]); name != "" {
 			readyPark = name
 		}
@@ -623,7 +563,7 @@ func (c *VerificationEventConsumer) handleVaccinationDriveClosed(ctx context.Con
 	// A close notice that says only "the Director closed a vaccination drive" tells a leader
 	// nothing they can act on (2026-08-02 meaningful-notification rule). Name the park.
 	closedPark := "this park"
-	if parkID := strings.TrimSpace(p.ParkID); parkID != "" {
+	if parkID := strings.TrimSpace(p.ParkID); parkID != "" && c.locations != nil {
 		if name := strings.TrimSpace(c.locations.ResolveNames(ctx, tenantID, parkID)[parkID]); name != "" {
 			closedPark = name
 		}
@@ -682,17 +622,14 @@ func (c *VerificationEventConsumer) handleVerdictApproved(ctx context.Context, p
 		return err
 	}
 
-	// Enrich the approval body with specific, meaningful details: park, shed, vaccine/category, date.
-	// This closes defect 2026-08-02: abstract copy like "The proof is ready for operational closure"
-	// tells a director nothing they can act on. The enriched body names the exact park/shed/vaccine/date
-	// so they can correlate it to their work. Per docs/decisions/2026-08-02-meaningful-notification-copy.md.
-	approvedTitle := profile.approvedTitle
-	approvedBody := profile.approvedBody
-	approvedBodyEnriched := enrichApprovedNotificationCopy(ctx, c.locations, c.vaccineLabels, c.logger,
-		tenantID, p.Module, parkID, p.ShedID, p.Category, p.Source.TaskID)
-	if approvedBodyEnriched != "" {
-		approvedBody = approvedBodyEnriched
-	}
+	// Task-level copy: the SAME subject the pending push led with, then the verdict. The body used
+	// to be rebuilt from module + shed ("counts proof for Sumathi 1 (Coimbatore) is verified."),
+	// which dropped what was verified -- the pen move, where from, how many animals -- and opened
+	// with an internal module word. When a producer sent no subject at all, the dose label is
+	// still resolved for a vaccination item so the fallback names the vaccine, not just the shed.
+	noun := taskNoun(p.Category, p.Module)
+	approvedTitle := noun + " verified"
+	approvedBody := c.approvedSubjectLine(ctx, tenantID, p, noun, parkID) + " — video verified."
 
 	eventKey := EventVerificationVerdictApproved + ":" + itemID
 	_, err = c.queue.QueueRoleNotifications(ctx, calendarports.QueueRoleNotifications{
@@ -703,8 +640,8 @@ func (c *VerificationEventConsumer) handleVerdictApproved(ctx context.Context, p
 		NotificationType: "verification_approved",
 		Channel:          channelPushFCM,
 		Priority:         priorityNormal,
-		Title:            approvedTitle,
-		Body:             approvedBody,
+		Title:            approvedTitle, // notification-copy:ignore: approvedBody leads with the item's subject (pen, animals, park)
+		Body:             approvedBody,  // notification-copy:ignore: approvedSubjectLine names the pen/animal subject and park
 		TraceID:          eventKey,
 		EventKey:         eventKey,
 		Context: map[string]string{
@@ -758,6 +695,12 @@ func (c *VerificationEventConsumer) handleItemClosed(ctx context.Context, p Veri
 	if err != nil {
 		return err
 	}
+	// Operational closure tells the OPERATOR their record is done. It used to say only "The
+	// verified counts record is now complete." -- no pen, no animals, no park -- so an operator
+	// with three records in flight could not tell which one had closed.
+	noun := taskNoun(p.Category, p.Module)
+	closedTitle := noun + " closed"
+	closedBody := c.subjectLine(ctx, tenantID, p, noun, parkID) + " — verified and closed."
 	eventKey := EventVerificationItemClosed + ":" + itemID
 	_, err = c.queue.QueueRoleNotifications(ctx, calendarports.QueueRoleNotifications{
 		TenantID:         tenantID,
@@ -767,8 +710,8 @@ func (c *VerificationEventConsumer) handleItemClosed(ctx context.Context, p Veri
 		NotificationType: "verification_closed",
 		Channel:          channelPushFCM,
 		Priority:         priorityNormal,
-		Title:            profile.closedTitle,
-		Body:             profile.closedBody,
+		Title:            closedTitle, // notification-copy:ignore: closedBody leads with the item's subject (pen, animals, park)
+		Body:             closedBody,  // notification-copy:ignore: subjectLine names the pen/animal subject and park
 		TraceID:          eventKey,
 		EventKey:         eventKey,
 		Context: map[string]string{
@@ -857,83 +800,60 @@ func (c *VerificationEventConsumer) handleItemWithdrawn(ctx context.Context, p V
 	return err
 }
 
-// enrichApprovedNotificationCopy generates a specific, meaningful body for verification approval
-// notifications instead of abstract copy. Returns empty string if enrichment fails, signaling the
-// caller to use the fallback generic body.
+// subjectLine resolves the park (and, for a subject-less item, the pen) names in ONE batched read
+// and composes the head every lifecycle push leads with. Name resolution is best-effort: a
+// transient lookup failure degrades to the bare subject rather than blocking delivery.
+func (c *VerificationEventConsumer) subjectLine(ctx context.Context, tenantID string, p VerificationEventPayload, noun, parkID string) string {
+	parkName, shedName := "", ""
+	if c.locations != nil {
+		names := c.locations.ResolveNames(ctx, tenantID, parkID, strings.TrimSpace(p.ShedID))
+		parkName = names[parkID]
+		shedName = names[strings.TrimSpace(p.ShedID)]
+	}
+	return verificationSubjectLine(p.SubjectLabel, noun, shedName, p.PartitionLabel, parkName)
+}
+
+// approvedSubjectLine is subjectLine plus the one enrichment an approval still needs: a
+// vaccination item that arrived with NO subject names its dose from the sop task it discharged
+// ("ET+TT · Shed A (CPT)") instead of degrading to the bare noun. An item that carries a subject
+// already names its vaccine (the sop bridge composes it in), so the lookup is skipped.
+func (c *VerificationEventConsumer) approvedSubjectLine(ctx context.Context, tenantID string, p VerificationEventPayload, noun, parkID string) string {
+	if strings.TrimSpace(p.SubjectLabel) != "" || !strings.EqualFold(strings.TrimSpace(p.Module), legacyVaccinationSourceModule) {
+		return c.subjectLine(ctx, tenantID, p, noun, parkID)
+	}
+	return enrichApprovedVaccinationSubject(ctx, c.locations, c.vaccineLabels, c.logger, tenantID, parkID, p.ShedID, p.PartitionLabel, p.Category, p.Source.TaskID)
+}
+
+// enrichApprovedVaccinationSubject builds the approval head for a SUBJECT-LESS vaccination item:
+// "<dose> · <pen> (<park>)", degrading to "Vaccination · <pen> (<park>)" when no dose resolves.
 //
-// Example transformation for vaccination:
-//
-//	FROM: "The proof is ready for operational closure."
-//	TO:   "ET+TT vaccination proof for Shed A (Park Name) is verified."
-//
-// Example for weighing:
-//
-//	FROM: "The proof is ready for operational closure."
-//	TO:   "Weighing proof for Shed B (Park Name) is verified."
-//
-// Enrichment is optional: location / vaccine lookups are best-effort, and transient failures
-// gracefully degrade to the fallback copy rather than blocking notification delivery.
-func enrichApprovedNotificationCopy(ctx context.Context, locations locationNameSource,
+// C19c: this used to pass Category straight into ResolveVaccineLabels as if it were a
+// protocol_rules.rule_id. It never is -- production sends the fixed registry category
+// ("vaccination_proof", sopbridge.VaccinationVerificationCategory), so the lookup could not
+// match a row and EVERY vaccination approval degraded to the generic wording. The payload already
+// carries Source.TaskID, and obligation_instances links that sop task to the rules it discharged,
+// so the dose identity is recoverable from what production actually sends today. A rule id is
+// still honoured if a future producer sends one, because that is the cheaper and more precise key.
+func enrichApprovedVaccinationSubject(ctx context.Context, locations locationNameSource,
 	vaccineLabels vaccineLabelSource, logger *slog.Logger,
-	tenantID, module, parkID, shedID, category, sourceTaskID string) string {
+	tenantID, parkID, shedID, partitionLabel, category, sourceTaskID string) string {
 	parkID = strings.TrimSpace(parkID)
 	shedID = strings.TrimSpace(shedID)
-	category = strings.TrimSpace(category)
-	module = strings.TrimSpace(module)
-	sourceTaskID = strings.TrimSpace(sourceTaskID)
-
-	// Resolve park and shed names (ONE batched query, not one per name).
 	parkName, shedName := "", ""
 	if locations != nil {
 		locNames := locations.ResolveNames(ctx, tenantID, parkID, shedID)
 		parkName = locNames[parkID]
 		shedName = locNames[shedID]
 	}
-
-	// Build a farm-readable location phrase. "Shed A" or "Shed A (Park Name)".
-	location := ""
-	switch {
-	case shedName != "" && parkName != "":
-		location = shedName + " (" + parkName + ")"
-	case shedName != "":
-		location = shedName
-	case parkName != "":
-		location = parkName
-	default:
-		// Neither park nor shed resolved; fall back to generic copy.
-		return ""
-	}
-
-	// For vaccination module: name the dose (e.g., "ET+TT vaccination proof for Shed A ...").
-	//
-	// C19c: this used to pass Category straight into ResolveVaccineLabels as if it were a
-	// protocol_rules.rule_id. It never is -- production sends the fixed registry category
-	// ("vaccination_proof", sopbridge.VaccinationVerificationCategory), so the lookup could not
-	// match a row and EVERY vaccination approval degraded to the generic wording. The fix does not
-	// wait for a new producer contract: the payload already carries Source.TaskID, and
-	// obligation_instances links that sop task to the rules it discharged, so the dose identity is
-	// recoverable from what production actually sends today. A rule id is still honoured if a
-	// future producer sends one, because that is the cheaper and more precise key.
-	if strings.EqualFold(module, legacyVaccinationSourceModule) && vaccineLabels != nil {
-		if label := vaccinationDoseLabel(ctx, vaccineLabels, logger, tenantID, category, sourceTaskID); label != "" {
-			return label + " vaccination proof for " + location + " is verified."
+	head := taskNoun(category, legacyVaccinationSourceModule)
+	if vaccineLabels != nil {
+		if label := vaccinationDoseLabel(ctx, vaccineLabels, logger, tenantID, strings.TrimSpace(category), strings.TrimSpace(sourceTaskID)); label != "" {
+			head = label
 		}
 	}
-
-	// For non-vaccination modules (weighing, feed, counts), use module-agnostic wording.
-	// Module names are internals; use the farm-readable gerund (weighing, feeding, etc).
-	moduleNoun := "work"
-	switch {
-	case strings.EqualFold(module, legacyVaccinationSourceModule):
-		moduleNoun = "vaccination"
-	case strings.EqualFold(module, moduleWeighing):
-		moduleNoun = "weighing"
-	case strings.EqualFold(module, moduleFeed):
-		moduleNoun = "feeding"
-	case strings.EqualFold(module, moduleCounts):
-		moduleNoun = "counts"
-	}
-	return moduleNoun + " proof for " + location + " is verified."
+	// Reuse the subject-less composition with the dose as the "noun" so the pen and park land in
+	// the same shape every other push uses.
+	return verificationSubjectLine("", head, shedName, partitionLabel, parkName)
 }
 
 // locationNameSource and vaccineLabelSource are the two enrichment reads the approval copy needs,
@@ -1064,12 +984,15 @@ func (c *VerificationEventConsumer) handleItemPending(ctx context.Context, p Ver
 		eventKeySubject = "submission:" + sourceSubmissionID
 	}
 	eventKey := EventVerificationItemPending + ":" + eventKeySubject
-	animalSummary := strings.TrimSpace(p.SubjectLabel)
-	if animalSummary == "" {
-		animalSummary = "A pen"
-	}
-	verifierBody := animalSummary + profile.verifierBodySuffix
-	leadershipBody := animalSummary + profile.leadershipBodySuffix
+	// Task-level copy: the item's own subject sentence, then the state. The title names the
+	// TASK (from the category), never the module -- "Pen move video pending", not "Counts video
+	// pending". The verifier's copy is second person ("your"), leadership's is not.
+	noun := taskNoun(p.Category, p.Module)
+	animalSummary := c.subjectLine(ctx, tenantID, p, noun, parkID)
+	verifierTitle := noun + " video to verify"
+	verifierBody := animalSummary + " — video is waiting for your verification."
+	leadershipTitle := noun + " video pending"
+	leadershipBody := animalSummary + " — video verification is pending."
 	baseContext := map[string]string{
 		"type":            NotificationTypeVerificationPending,
 		"item_id":         itemID,
@@ -1095,8 +1018,8 @@ func (c *VerificationEventConsumer) handleItemPending(ctx context.Context, p Ver
 			NotificationType: NotificationTypeVerificationPending,
 			Channel:          channelPushFCM,
 			Priority:         priorityNormal,
-			Title:            profile.verifierTitle,
-			Body:             verifierBody,
+			Title:            verifierTitle, // notification-copy:ignore: verifierBody leads with the item's subject (pen, animals, park)
+			Body:             verifierBody,  // notification-copy:ignore: subjectLine names the pen/animal subject and park
 			TraceID:          eventKey,
 			EventKey:         eventKey,
 			Context:          verifierContext,
@@ -1121,8 +1044,8 @@ func (c *VerificationEventConsumer) handleItemPending(ctx context.Context, p Ver
 		NotificationType: NotificationTypeVerificationPending,
 		Channel:          channelPushFCM,
 		Priority:         priorityNormal,
-		Title:            profile.leadershipTitle,
-		Body:             leadershipBody,
+		Title:            leadershipTitle, // notification-copy:ignore: leadershipBody leads with the item's subject (pen, animals, park)
+		Body:             leadershipBody,  // notification-copy:ignore: subjectLine names the pen/animal subject and park
 		TraceID:          eventKey,
 		EventKey:         eventKey,
 		Context:          leadershipContext,
@@ -1224,35 +1147,14 @@ func (c *VerificationEventConsumer) handleVerdictRework(ctx context.Context, p V
 	}
 
 	eventKey := EventVerificationVerdictRework + ":" + itemID
-	body := profile.reworkBody
+	// Task-level copy: the item's own subject (pen, animals, park) leads, then what happened and
+	// what to do. The verifier's free-text reason has no terminal punctuation, so it is closed
+	// before the instruction (C-defect-B: "...not clearly identifiable Please resubmit.").
+	noun := taskNoun(p.Category, p.Module)
+	reworkTitle := noun + " video sent back"
+	body := c.subjectLine(ctx, tenantID, p, noun, parkID) + " — video sent back by the verifier. Please record it again."
 	if p.Reason != "" {
-		// C-defect-B: the reason came straight from the verifier's free-text field with no
-		// terminal punctuation, so concatenating reworkReasonSuffix (" Please resubmit.") onto
-		// it produced a run-on sentence: "...not clearly identifiable Please resubmit." Force a
-		// sentence break so the reason and the instruction never fuse.
-		body = profile.reworkReasonPrefix + terminateSentence(p.Reason) + profile.reworkReasonSuffix
-	}
-	// Name WHAT has to be redone and WHERE. The body used to identify only the module ("a
-	// weighing proof"), so an operator holding fifteen bounced captures was told to redo
-	// something, somewhere, with no park in sight. The item carries the producing module's own
-	// subject sentence -- the animal's tag and shed for a vaccination capture, the shed/
-	// partition for a weighing one -- and the pending and withdrawn pushes already lead with it;
-	// this closes the one lifecycle push that did not. Park name is resolved on top so a CEO/
-	// director reading the leadership copy of the SAME push can tell which park without opening
-	// the app (C-defect-B: park/shed/animal ids reached `context` as raw UUIDs but never the
-	// human-readable Title/Body).
-	parkName := ""
-	if c.locations != nil {
-		parkName = strings.TrimSpace(c.locations.ResolveNames(ctx, tenantID, parkID)[parkID])
-	}
-	subject := strings.TrimSpace(p.SubjectLabel)
-	switch {
-	case subject != "" && parkName != "":
-		body = subject + " (" + parkName + ") — " + body
-	case subject != "":
-		body = subject + " — " + body
-	case parkName != "":
-		body = parkName + " — " + body
+		body = c.subjectLine(ctx, tenantID, p, noun, parkID) + " — video sent back: " + terminateSentence(p.Reason) + " Please record it again."
 	}
 	// C-defect-C: reworkTarget used to be the module's generic landing ("/vaccination"), so the
 	// tap opened the module overview instead of the shed the rejected capture belongs to. The
@@ -1276,8 +1178,8 @@ func (c *VerificationEventConsumer) handleVerdictRework(ctx context.Context, p V
 		NotificationType: NotificationTypeRework,
 		Channel:          channelPushFCM,
 		Priority:         priorityHigh,
-		Title:            profile.reworkTitle,
-		Body:             body,
+		Title:            reworkTitle, // notification-copy:ignore: body leads with the item's subject (pen, animals, park)
+		Body:             body,        // notification-copy:ignore: subjectLine names the pen/animal subject and park
 		TraceID:          eventKey,
 		EventKey:         eventKey,
 		Context: map[string]string{

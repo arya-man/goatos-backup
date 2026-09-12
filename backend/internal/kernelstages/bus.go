@@ -88,7 +88,7 @@ func BuildDomainBus(pool *pgxpool.Pool, pgCfg platformpg.Config, logger *slog.Lo
 	// Neither WithLocationNames nor WithVaccineLabels was ever chained here, so every push this
 	// bus produced degraded straight to the generic "The proof is ready for operational closure"/
 	// no-park copy, even after the enrichment itself was written (see verification_notify_consumer.go
-	// enrichApprovedNotificationCopy and handleVerdictRework's park-name prefix). Confirmed live: a
+	// approvedSubjectLine and handleVerdictRework's park-name prefix). Confirmed live: a
 	// real rework push carried no park name until this wiring was added.
 	verificationVaccineLabels := notificationbridge.NewVaccineLabelResolver(pool, logger)
 	verificationLocationNames := notificationbridge.NewLocationNameResolver(pool)
