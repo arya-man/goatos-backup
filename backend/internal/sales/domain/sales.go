@@ -159,6 +159,11 @@ type Deal struct {
 	// Payments are the receipts recorded against this deal, oldest first. Sheet history has
 	// none: its advance_amount predates the receipts ledger.
 	Payments []DealPayment
+
+	// Lines are what was sold, in entry order (migration 000294). ProductType, Breed, the counts,
+	// weight and SalesValue above are the ROLLUP of these lines: ProductMixed when the lines
+	// disagree. Every deal has at least one line; the pre-000294 history was backfilled as one.
+	Lines []DealLine
 }
 
 // DealPayment is one amount the buyer actually handed over for one deal.
@@ -228,6 +233,15 @@ func (w DealPaymentWrite) Validate(today time.Time) error {
 // Animals resolves how many animals this deal moved: animal_count when recorded, otherwise the
 // male+female split, and always zero for manure -- manure never contributes animal counts.
 func (d Deal) Animals() float64 {
+	// Line by line: a mixed deal's manure line must not count, and its rollup product is
+	// ProductMixed, which the single-product branch below could not classify.
+	if len(d.Lines) > 0 {
+		total := 0.0
+		for _, l := range d.Lines {
+			total += l.Animals()
+		}
+		return total
+	}
 	if !IsLiveProduct(d.ProductType) {
 		return 0
 	}
@@ -263,10 +277,22 @@ const (
 // DealWrite is the validated payload for recording a sale. Optional text is a value with ""
 // meaning "not set" (stored NULL); optional numbers are pointers so 0 stays distinct from absent.
 type DealWrite struct {
-	SaleDate    string
-	Farm        string
+	SaleDate string
+	Farm     string
+	// Lines are what was sold (maintainer decision 2026-09-12): one per product/breed, each with
+	// its own counts, weight and value. Normalize fills them from the legacy single-product
+	// fields below when a pre-000294 client sends none, and Validate refuses a sale with none.
+	Lines []DealLineWrite
+	// ProductType, Breed, the counts, TotalWeightKg and SalesValue are the LEGACY single-line
+	// body. After Normalize they hold the ROLLUP of Lines (see RollupLines), which is what the
+	// deal row stores; a client that sends both lines and these gets its own figures replaced by
+	// the rollup, so the deal can never disagree with its lines.
 	ProductType string
 	Breed       string
+	// legacyLines records that Normalize built Lines from the single-product fields, so Validate
+	// names the legacy field ("breed", not "lines[1].breed") -- installed phones key their
+	// per-field error display on those names.
+	legacyLines bool
 	BuyerName   string
 	BuyerPlace  string
 	// BuyerVendorID is REQUIRED on every deal recorded in the app: the farm does not sell to a
@@ -306,6 +332,23 @@ func (w DealWrite) Normalize() DealWrite {
 	out.Farm = strings.TrimSpace(w.Farm)
 	out.ProductType = strings.TrimSpace(w.ProductType)
 	out.Breed = collapse(w.Breed)
+	if len(w.Lines) == 0 {
+		out.Lines = out.linesFromLegacy()
+		out.legacyLines = true
+	} else {
+		out.Lines = make([]DealLineWrite, 0, len(w.Lines))
+		for _, l := range w.Lines {
+			out.Lines = append(out.Lines, l.normalize())
+		}
+	}
+	// The deal row is the rollup of its lines, never a figure of its own. Applied only when there
+	// are lines to roll up, so an empty body still fails Validate on the fields it named.
+	if len(out.Lines) > 0 {
+		r := RollupLines(out.Lines)
+		out.ProductType, out.Breed = r.ProductType, r.Breed
+		out.AnimalCount, out.MaleCount, out.FemaleCount = r.AnimalCount, r.MaleCount, r.FemaleCount
+		out.TotalWeightKg, out.SalesValue = r.TotalWeightKg, r.SalesValue
+	}
 	out.BuyerName = collapse(w.BuyerName)
 	out.BuyerPlace = collapse(w.BuyerPlace)
 	out.BuyerVendorID = strings.TrimSpace(w.BuyerVendorID)
@@ -339,14 +382,20 @@ func (w DealWrite) Validate() error {
 	if !IsFarm(w.Farm) {
 		return ErrDealValidation{Field: "farm", Reason: "must be CBE or CPT"}
 	}
-	if !IsProductType(w.ProductType) {
-		return ErrDealValidation{Field: "product_type", Reason: "must be Sheep, Goat or Manure"}
+	if len(w.Lines) == 0 {
+		return ErrDealValidation{Field: "lines", Reason: "add at least one product line"}
 	}
-	if w.Breed == "" {
-		return ErrDealValidation{Field: "breed", Reason: "required"}
+	if len(w.Lines) > MaxDealLines {
+		return ErrDealValidation{Field: "lines", Reason: fmt.Sprintf("at most %d lines per sale", MaxDealLines)}
 	}
-	if len(w.Breed) > maxDealShortField {
-		return ErrDealValidation{Field: "breed", Reason: "too long"}
+	for i, l := range w.Lines {
+		lineNo := i + 1
+		if w.legacyLines {
+			lineNo = 0
+		}
+		if err := l.validate(lineNo); err != nil {
+			return err
+		}
 	}
 	if w.BuyerName == "" {
 		return ErrDealValidation{Field: "buyer_name", Reason: "required"}

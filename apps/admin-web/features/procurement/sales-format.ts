@@ -189,3 +189,6 @@ export function marketLossPerKg(landingCostPerKg: number | null | undefined, mar
   if (landingCostPerKg == null || marketPricePerKg == null) return null;
   return landingCostPerKg - marketPricePerKg;
 }
+
+/** Mirrors the backend's MaxDealLines; the record drawer stops offering "Add another" at this count. */
+export const MAX_SALE_LINES = 20;

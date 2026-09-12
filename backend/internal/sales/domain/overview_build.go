@@ -13,8 +13,11 @@ import "sort"
 //
 // projection-review: producer rows are sales_deals at ROW grain (one sheet row / one recorded
 // deal; source_sales_id is a sheet reference that can repeat and is never used as a group key).
-// Consumers group by month (Deal.Month), by (product_type, breed), and by buyer_name over that
-// ONE table -- no joins, so no fan-out is possible. The ratio realized_price_per_kg has numerator
+// Consumers group by month (Deal.Month), by (product_type, breed) at LINE grain (sales_deal_lines,
+// one row per product/breed slice of a deal; a deal with one line is the pre-000294 shape), and by
+// buyer_name over deals. Revenue is summed once per line and the deal's own sales_value is the
+// SAME total (RollupLines keeps them equal in one transaction), so summing deal revenue for the
+// summary and line revenue for the product buckets ranges over one figure, never two. The ratio realized_price_per_kg has numerator
 // (live revenue) and denominator (live weight) both ranging over the SAME key set: closed deals
 // of a live product type with weight > 0 contribute to both or neither, and a zero denominator
 // yields 0 rather than a division.
@@ -47,61 +50,66 @@ func BuildDealAggregates(closed []Deal) (Summary, []MonthlyRow, []PriceBand, []B
 			summary.PeriodTo = d.SaleDate
 		}
 
-		weight := 0.0
-		if d.TotalWeightKg != nil {
-			weight = *d.TotalWeightKg
-		}
-		animals := d.Animals()
-
 		month := monthly[d.Month()]
 		if month == nil {
 			month = &MonthlyRow{Month: d.Month()}
 			monthly[d.Month()] = month
 		}
 
-		switch d.ProductType {
-		case ProductSheep:
-			summary.LiveRevenue += d.SalesValue
-			summary.Animals += animals
-			summary.Sheep += animals
-			summary.LiveWeightKg += weight
-			month.SheepRevenue += d.SalesValue
-			month.SheepCount += animals
-		case ProductGoat:
-			summary.LiveRevenue += d.SalesValue
-			summary.Animals += animals
-			summary.Goats += animals
-			summary.LiveWeightKg += weight
-			month.GoatRevenue += d.SalesValue
-			month.GoatCount += animals
-		case ProductManure:
-			// Manure contributes weight and revenue, never animal counts.
-			summary.ManureRevenue += d.SalesValue
-			summary.ManureKg += weight
-			month.ManureRevenue += d.SalesValue
-			month.ManureKg += weight
-		}
+		// LINE grain from here down (migration 000294): a mixed sale's sheep, goats and manure each
+		// land in their own product bucket and their own (product, breed) price band, at the
+		// line's own weight and value. The deal-level product/weight/value are only a rollup.
+		animals := 0.0
+		for _, l := range d.lineView() {
+			weight := l.WeightKg()
+			lineAnimals := l.Animals()
+			animals += lineAnimals
 
-		// Price bands: live types only, and only rows where a price per kg is actually computable.
-		if IsLiveProduct(d.ProductType) && weight > 0 && d.SalesValue > 0 {
-			liveWeightForPrice += weight
-			liveRevenueForPrice += d.SalesValue
-			key := bandKey{d.ProductType, d.Breed}
-			band := bands[key]
-			if band == nil {
-				band = &PriceBand{ProductType: d.ProductType, Breed: d.Breed}
-				bands[key] = band
+			switch l.ProductType {
+			case ProductSheep:
+				summary.LiveRevenue += l.SalesValue
+				summary.Animals += lineAnimals
+				summary.Sheep += lineAnimals
+				summary.LiveWeightKg += weight
+				month.SheepRevenue += l.SalesValue
+				month.SheepCount += lineAnimals
+			case ProductGoat:
+				summary.LiveRevenue += l.SalesValue
+				summary.Animals += lineAnimals
+				summary.Goats += lineAnimals
+				summary.LiveWeightKg += weight
+				month.GoatRevenue += l.SalesValue
+				month.GoatCount += lineAnimals
+			case ProductManure:
+				// Manure contributes weight and revenue, never animal counts.
+				summary.ManureRevenue += l.SalesValue
+				summary.ManureKg += weight
+				month.ManureRevenue += l.SalesValue
+				month.ManureKg += weight
 			}
-			band.Deals++
-			band.Animals += animals
-			band.WeightKg += weight
-			band.Revenue += d.SalesValue
-			price := d.SalesValue / weight
-			if band.MinPricePerKg == 0 || price < band.MinPricePerKg {
-				band.MinPricePerKg = price
-			}
-			if price > band.MaxPricePerKg {
-				band.MaxPricePerKg = price
+
+			// Price bands: live types only, and only lines where a price per kg is actually
+			// computable.
+			if IsLiveProduct(l.ProductType) && weight > 0 && l.SalesValue > 0 {
+				liveWeightForPrice += weight
+				liveRevenueForPrice += l.SalesValue
+				key := bandKey{l.ProductType, l.Breed}
+				band := bands[key]
+				if band == nil {
+					band = &PriceBand{ProductType: l.ProductType, Breed: l.Breed}
+					bands[key] = band
+				}
+				band.Deals++
+				band.Animals += lineAnimals
+				band.WeightKg += weight
+				band.Revenue += l.SalesValue
+				price := l.SalesValue / weight
+				if band.MinPricePerKg == 0 || price < band.MinPricePerKg {
+					band.MinPricePerKg = price
+				}
+				if price > band.MaxPricePerKg {
+					band.MaxPricePerKg = price
+				}
 			}
 		}
 
@@ -115,7 +123,9 @@ func BuildDealAggregates(closed []Deal) (Summary, []MonthlyRow, []PriceBand, []B
 		buyer.row.Deals++
 		buyer.row.Animals += animals
 		buyer.row.Revenue += d.SalesValue
-		buyer.types[d.ProductType] = struct{}{}
+		for _, l := range d.lineView() {
+			buyer.types[l.ProductType] = struct{}{}
+		}
 		if buyer.row.BuyerPlace == "" && d.BuyerPlace != nil {
 			buyer.row.BuyerPlace = *d.BuyerPlace
 		}

@@ -32,6 +32,7 @@ import sg.mesha.goatos.core.network.dto.SaleCandidateDto
 import sg.mesha.goatos.core.network.dto.SaleLocationsDto
 import sg.mesha.goatos.core.network.dto.SaleShedGroupDto
 import sg.mesha.goatos.core.network.dto.SalesDealDto
+import sg.mesha.goatos.core.network.dto.SalesDealLineWriteDto
 import sg.mesha.goatos.core.network.dto.SalesDealWriteDto
 import sg.mesha.goatos.core.network.dto.SalesOptionsDto
 import sg.mesha.goatos.feature.vendors.SaleBuyerListState
@@ -43,6 +44,8 @@ import sg.mesha.goatos.feature.vendors.SaleCreateUiState
 import sg.mesha.goatos.feature.vendors.SaleDetailEvent
 import sg.mesha.goatos.feature.vendors.SaleDetailUiState
 import sg.mesha.goatos.feature.vendors.SaleField
+import sg.mesha.goatos.feature.vendors.SaleLineDraftUi
+import sg.mesha.goatos.feature.vendors.SaleLineField
 import sg.mesha.goatos.feature.vendors.SalePaymentEditorUi
 import sg.mesha.goatos.feature.vendors.SalePaymentField
 import sg.mesha.goatos.feature.vendors.SalePaymentUi
@@ -186,14 +189,24 @@ internal fun SalesDealDto.toCardUi(options: SalesOptionsDto? = null): SaleCardUi
 
 internal fun SalesDealDto.sections(): List<VendorsDetailSectionUi> {
     fun rows(vararg pairs: Pair<String, String?>) = pairs.mapNotNull { (label, value) -> value?.takeIf { it.isNotBlank() }?.let { VendorsDetailRowUi(label, it) } }
+    // A mixed sale's product/breed read "Mixed" on the deal: the lines below say what was sold,
+    // so the deal-level pair is shown only when there is one line for it to describe.
+    val single = lines.size <= 1
     val sale = rows(
         "Sold on" to farmDate(saleDate),
         "Farm" to farm,
-        "Product" to productType,
-        "Breed" to breed,
+        "Product" to productType.takeIf { single },
+        "Breed" to breed.takeIf { single },
         "Animals" to animalCount?.let { indianNumber(it, 0) },
         "Total weight" to totalWeightKg?.let(::kilograms),
     )
+    // One row per line: "Sheep · Anantapur" -> "10 animals · 300 kg · ₹1,20,000".
+    val sold = if (single) emptyList() else lines.map { line ->
+        VendorsDetailRowUi(
+            dotJoin(line.productType, line.breed),
+            dotJoin(animalsLine(line.animalCount), line.totalWeightKg?.let(::kilograms), rupees(line.salesValue)),
+        )
+    }
     val buyer = rows("Buyer" to buyerName, "Place" to buyerPlace)
     val money = rows(
         "Sale value" to rupees(salesValue),
@@ -204,6 +217,7 @@ internal fun SalesDealDto.sections(): List<VendorsDetailSectionUi> {
     val notes = rows("Comments" to comments, "Feedback" to feedback)
     return listOfNotNull(
         VendorsDetailSectionUi("The sale", sale).takeIf { sale.isNotEmpty() },
+        VendorsDetailSectionUi("What was sold", sold).takeIf { sold.isNotEmpty() },
         VendorsDetailSectionUi("The buyer", buyer).takeIf { buyer.isNotEmpty() },
         VendorsDetailSectionUi("The money", money).takeIf { money.isNotEmpty() },
         VendorsDetailSectionUi("Notes", notes).takeIf { notes.isNotEmpty() },
@@ -540,9 +554,22 @@ class SaleCreateViewModel @Inject constructor(
     private val crashReporter: CrashReporter,
 ) : ViewModel() {
 
+    /** One product line as typed; validation errors ride on it so the card shows its own. */
+    private data class LineDraft(
+        val id: Int,
+        val product: String = "",
+        val breed: String = "",
+        val animals: String = "",
+        val weightKg: String = "",
+        val value: String = "",
+        val errors: Map<SaleLineField, String> = emptyMap(),
+    )
+
     private data class Local(
         val step: Int = 0,
         val values: Map<SaleField, String> = mapOf(SaleField.SALE_DATE to todayIst()),
+        /** ONE sale, MANY lines (maintainer decision 2026-09-12). Starts with one blank line. */
+        val lines: List<LineDraft> = listOf(LineDraft(id = 1)),
         val buyerSearch: String = "",
         val fieldErrors: Map<SaleField, String> = emptyMap(),
         val writeStatus: VendorsWriteStatus = VendorsWriteStatus.IDLE,
@@ -570,7 +597,18 @@ class SaleCreateViewModel @Inject constructor(
     val state: StateFlow<SaleCreateUiState> = combine(local, repository.observeOptions(), repository.observeVendorOptions()) { l, options, vendors ->
         val o = options ?: SalesOptionsDto()
         val values = if (l.values[SaleField.STATUS].isNullOrBlank() && o.defaultStatus.isNotBlank()) l.values + (SaleField.STATUS to o.defaultStatus) else l.values
-        val product = values[SaleField.PRODUCT_TYPE].orEmpty()
+        // A line with no product yet is offered the first product, so the common one-product
+        // sale needs no tap on the product row.
+        val defaultProduct = o.productTypes.firstOrNull().orEmpty()
+        val lines = l.lines.map { line ->
+            val product = line.product.ifBlank { defaultProduct }
+            SaleLineDraftUi(
+                id = line.id, product = product, breed = line.breed, animals = line.animals, weightKg = line.weightKg, value = line.value,
+                breeds = o.breeds[product].orEmpty().map { VendorsOptionUi(it, it) },
+                errors = line.errors,
+            )
+        }
+        val totals = lineTotals(l.lines)
         val search = l.buyerSearch.trim().lowercase()
         val pickedId = values[SaleField.BUYER_VENDOR_ID].orEmpty()
         val buyers = vendors?.vendors.orEmpty()
@@ -587,7 +625,10 @@ class SaleCreateViewModel @Inject constructor(
             values = values,
             farms = o.farms.map { VendorsOptionUi(it, it) },
             productTypes = o.productTypes.map { VendorsOptionUi(it, it) },
-            breeds = o.breeds[product].orEmpty().map { VendorsOptionUi(it, it) },
+            lines = lines,
+            totalLine = dotJoin(rupees(totals.value), animalsLine(totals.animals.takeIf { it > 0 }), totals.weightKg.takeIf { it > 0 }?.let(::kilograms)),
+            totalValueLine = rupees(totals.value),
+            canAddLine = l.lines.size < MAX_LINES,
             statuses = o.statuses.map { VendorsOptionUi(it.key, it.label) },
             buyerSearch = l.buyerSearch,
             buyers = buyers,
@@ -599,7 +640,7 @@ class SaleCreateViewModel @Inject constructor(
             },
             buyersTruncated = vendors?.truncated == true,
             fieldErrors = l.fieldErrors,
-            contextLine = dotJoin(values[SaleField.FARM], product, values[SaleField.BREED], values[SaleField.BUYER_NAME], values[SaleField.SALES_VALUE]?.toDoubleOrNull()?.let(::rupees)),
+            contextLine = dotJoin(values[SaleField.FARM], linesSummary(lines), values[SaleField.BUYER_NAME], totals.value.takeIf { it > 0 }?.let(::rupees)),
             today = todayIst(),
             maxDate = LocalDate.now(VENDORS_IST).plusDays(o.maxSaleDateDaysAhead.toLong()).toString(),
             writeStatus = l.writeStatus,
@@ -617,10 +658,28 @@ class SaleCreateViewModel @Inject constructor(
         if (locked && event !is SaleCreateEvent.Back && event !is SaleCreateEvent.RecordAnother && event !is SaleCreateEvent.DismissMessage) return
         when (event) {
             is SaleCreateEvent.FieldChanged -> local.update { l ->
-                var values = l.values + (event.field to event.value)
-                // A product change invalidates the breed: the breed list belongs to the product.
-                if (event.field == SaleField.PRODUCT_TYPE && l.values[SaleField.PRODUCT_TYPE] != event.value) values = values - SaleField.BREED
-                l.copy(values = values, fieldErrors = l.fieldErrors - event.field)
+                l.copy(values = l.values + (event.field to event.value), fieldErrors = l.fieldErrors - event.field)
+            }
+            is SaleCreateEvent.LineChanged -> local.update { l ->
+                l.copy(lines = l.lines.map { line ->
+                    if (line.id != event.lineId) line else when (event.field) {
+                        // A product change invalidates the breed: the breed list belongs to the product.
+                        SaleLineField.PRODUCT_TYPE -> line.copy(product = event.value, breed = if (line.product == event.value) line.breed else "", errors = line.errors - event.field - SaleLineField.BREED)
+                        SaleLineField.BREED -> line.copy(breed = event.value, errors = line.errors - event.field)
+                        SaleLineField.ANIMAL_COUNT -> line.copy(animals = event.value, errors = line.errors - event.field)
+                        SaleLineField.TOTAL_WEIGHT_KG -> line.copy(weightKg = event.value, errors = line.errors - event.field)
+                        SaleLineField.SALES_VALUE -> line.copy(value = event.value, errors = line.errors - event.field)
+                    }
+                })
+            }
+            SaleCreateEvent.AddLine -> local.update { l ->
+                if (l.lines.size >= MAX_LINES) l
+                // A new line starts on the LAST line's product: two breeds of one product is the
+                // common mixed sale, so it needs one fewer tap than two products.
+                else l.copy(lines = l.lines + LineDraft(id = (l.lines.maxOfOrNull { it.id } ?: 0) + 1, product = state.value.lines.lastOrNull()?.product.orEmpty()))
+            }
+            is SaleCreateEvent.RemoveLine -> local.update { l ->
+                if (l.lines.size <= 1) l else l.copy(lines = l.lines.filterNot { it.id == event.lineId })
             }
             is SaleCreateEvent.BuyerSearchChanged -> local.update { it.copy(buyerSearch = event.text) }
             is SaleCreateEvent.BuyerPicked -> pickBuyer(event.vendorId)
@@ -654,8 +713,9 @@ class SaleCreateViewModel @Inject constructor(
 
     private fun next() {
         val errors = validate(local.value.step, state.value.values)
-        if (errors.isNotEmpty()) {
-            local.update { it.copy(fieldErrors = errors) }
+        val lineErrors = if (local.value.step == 0) validateLines(state.value.lines) else emptyMap()
+        if (errors.isNotEmpty() || lineErrors.isNotEmpty()) {
+            local.update { it.copy(fieldErrors = errors, lines = it.lines.withErrors(lineErrors)) }
             return
         }
         local.update { it.copy(step = (it.step + 1).coerceAtMost(STEP_COUNT - 1), fieldErrors = emptyMap()) }
@@ -664,14 +724,15 @@ class SaleCreateViewModel @Inject constructor(
     private fun submit() {
         val values = state.value.values
         val errors = (0 until STEP_COUNT).fold(emptyMap<SaleField, String>()) { acc, step -> acc + validate(step, values) }
-        if (errors.isNotEmpty()) {
-            val firstStep = (0 until STEP_COUNT).first { validate(it, values).isNotEmpty() }
-            local.update { it.copy(step = firstStep, fieldErrors = errors) }
+        val lineErrors = validateLines(state.value.lines)
+        if (errors.isNotEmpty() || lineErrors.isNotEmpty()) {
+            val firstStep = if (lineErrors.isNotEmpty()) 0 else (0 until STEP_COUNT).first { validate(it, values).isNotEmpty() }
+            local.update { it.copy(step = firstStep, fieldErrors = errors, lines = it.lines.withErrors(lineErrors)) }
             return
         }
         viewModelScope.launch {
             local.update { it.copy(submitInFlight = true, message = null) }
-            when (val result = syncRepository.enqueueSalesDealCreate(clientId, values.toWrite())) {
+            when (val result = syncRepository.enqueueSalesDealCreate(clientId, values.toWrite(state.value.lines))) {
                 is AppResult.Ok -> {
                     analytics.track(AnalyticsEventsVendors.VENDORS_SALE_QUEUED)
                     local.update { it.copy(submitInFlight = false, writeStatus = VendorsWriteStatus.QUEUED, writeMessage = MESSAGE_SAVING) }
@@ -716,10 +777,6 @@ class SaleCreateViewModel @Inject constructor(
                 if (date.isBlank()) errors[SaleField.SALE_DATE] = REQUIRED
                 else if (date > state.value.maxDate) errors[SaleField.SALE_DATE] = TOO_FAR
                 if (v[SaleField.FARM].isNullOrBlank()) errors[SaleField.FARM] = REQUIRED
-                if (v[SaleField.PRODUCT_TYPE].isNullOrBlank()) errors[SaleField.PRODUCT_TYPE] = REQUIRED
-                if (v[SaleField.BREED].isNullOrBlank()) errors[SaleField.BREED] = REQUIRED
-                nonNegative(SaleField.ANIMAL_COUNT, whole = true)
-                nonNegative(SaleField.TOTAL_WEIGHT_KG)
             }
             1 -> {
                 if (v[SaleField.BUYER_VENDOR_ID].isNullOrBlank()) errors[SaleField.BUYER_VENDOR_ID] = PICK_BUYER
@@ -729,11 +786,12 @@ class SaleCreateViewModel @Inject constructor(
                 if (v[SaleField.BUYER_PLACE].orEmpty().trim().length > MAX_SHORT) errors[SaleField.BUYER_PLACE] = TOO_LONG
             }
             else -> {
-                val value = v[SaleField.SALES_VALUE].orEmpty().trim()
-                if (value.toDoubleOrNull() == null || value.toDouble() <= 0.0) errors[SaleField.SALES_VALUE] = MORE_THAN_ZERO
+                // The sale value is the SUM of the lines (validated on step 0); the advance is
+                // checked against that sum, never against a figure typed here.
+                val value = lineTotals(local.value.lines).value
                 nonNegative(SaleField.ADVANCE_AMOUNT)
                 val advance = v[SaleField.ADVANCE_AMOUNT].orEmpty().trim().toDoubleOrNull()
-                if (advance != null && value.toDoubleOrNull() != null && advance > value.toDouble()) errors[SaleField.ADVANCE_AMOUNT] = ADVANCE_OVER
+                if (advance != null && value > 0.0 && advance > value) errors[SaleField.ADVANCE_AMOUNT] = ADVANCE_OVER
                 if (v[SaleField.STATUS].isNullOrBlank()) errors[SaleField.STATUS] = REQUIRED
                 if (v[SaleField.COMMENTS].orEmpty().length > MAX_COMMENTS) errors[SaleField.COMMENTS] = TOO_LONG
             }
@@ -741,19 +799,69 @@ class SaleCreateViewModel @Inject constructor(
         return errors
     }
 
-    private fun Map<SaleField, String>.toWrite(): SalesDealWriteDto {
-        fun number(f: SaleField): Double? = get(f).orEmpty().trim().ifBlank { null }?.toDoubleOrNull()
+    /** Per-line checks; keyed by line id, only the lines with a problem appear. */
+    private fun validateLines(lines: List<SaleLineDraftUi>): Map<Int, Map<SaleLineField, String>> {
+        val out = mutableMapOf<Int, Map<SaleLineField, String>>() // mobile-guard:ignore: per-call validation result, bounded by MAX_LINES, returned and dropped
+        for (line in lines) {
+            val errors = mutableMapOf<SaleLineField, String>() // mobile-guard:ignore: per-call validation result, at most one entry per line field
+            if (line.product.isBlank()) errors[SaleLineField.PRODUCT_TYPE] = REQUIRED
+            if (line.breed.isBlank()) errors[SaleLineField.BREED] = REQUIRED
+            val animals = line.animals.trim()
+            if (animals.isNotBlank()) {
+                val n = animals.toDoubleOrNull()
+                if (n == null || n < 0.0 || n != Math.floor(n)) errors[SaleLineField.ANIMAL_COUNT] = WHOLE_NUMBER
+            }
+            val weight = line.weightKg.trim()
+            if (weight.isNotBlank()) {
+                val n = weight.toDoubleOrNull()
+                if (n == null || n < 0.0) errors[SaleLineField.TOTAL_WEIGHT_KG] = AMOUNT
+            }
+            val value = line.value.trim().toDoubleOrNull()
+            if (value == null || value <= 0.0) errors[SaleLineField.SALES_VALUE] = MORE_THAN_ZERO
+            if (errors.isNotEmpty()) out[line.id] = errors
+        }
+        return out
+    }
+
+    private fun List<LineDraft>.withErrors(errors: Map<Int, Map<SaleLineField, String>>): List<LineDraft> =
+        map { it.copy(errors = errors[it.id].orEmpty()) }
+
+    private data class LineTotals(val value: Double, val animals: Double, val weightKg: Double)
+
+    /** The running total the phone previews. The recorded figure is the backend's rollup. */
+    private fun lineTotals(lines: List<LineDraft>): LineTotals {
+        fun num(raw: String) = raw.trim().toDoubleOrNull()?.takeIf { it >= 0.0 } ?: 0.0
+        return LineTotals(
+            value = lines.sumOf { num(it.value) },
+            animals = lines.sumOf { num(it.animals) },
+            weightKg = lines.sumOf { num(it.weightKg) },
+        )
+    }
+
+    /** "Sheep · Anantapur" for one line, "3 lines" for several. */
+    private fun linesSummary(lines: List<SaleLineDraftUi>): String = when {
+        lines.size == 1 -> dotJoin(lines[0].product, lines[0].breed)
+        else -> "${lines.size} lines"
+    }
+
+    private fun Map<SaleField, String>.toWrite(lines: List<SaleLineDraftUi>): SalesDealWriteDto {
+        fun number(raw: String): Double? = raw.trim().ifBlank { null }?.toDoubleOrNull()
+        fun number(f: SaleField): Double? = number(get(f).orEmpty())
         return SalesDealWriteDto(
             saleDate = get(SaleField.SALE_DATE).orEmpty(),
             farm = get(SaleField.FARM).orEmpty(),
-            productType = get(SaleField.PRODUCT_TYPE).orEmpty(),
-            breed = get(SaleField.BREED).orEmpty(),
+            lines = lines.map { line ->
+                SalesDealLineWriteDto(
+                    productType = line.product,
+                    breed = line.breed,
+                    animalCount = number(line.animals),
+                    totalWeightKg = number(line.weightKg),
+                    salesValue = line.value.trim().toDouble(),
+                )
+            },
             buyerName = get(SaleField.BUYER_NAME).orEmpty().trim(),
             buyerPlace = get(SaleField.BUYER_PLACE).orEmpty().trim(),
             buyerVendorId = get(SaleField.BUYER_VENDOR_ID).orEmpty(),
-            animalCount = number(SaleField.ANIMAL_COUNT),
-            totalWeightKg = number(SaleField.TOTAL_WEIGHT_KG),
-            salesValue = get(SaleField.SALES_VALUE).orEmpty().trim().toDouble(),
             advanceAmount = number(SaleField.ADVANCE_AMOUNT),
             comments = get(SaleField.COMMENTS).orEmpty().trim(),
             status = get(SaleField.STATUS).orEmpty(),
@@ -763,6 +871,8 @@ class SaleCreateViewModel @Inject constructor(
     private companion object {
         const val KEY_CLIENT_ID = "sale_create_client_id"
         const val STEP_COUNT = 3
+        /** Mirrors the backend's MaxDealLines. */
+        const val MAX_LINES = 20
         const val BUYER_LIST_PREVIEW = 8
         const val BUYER_LIST_MAX = 20
         const val MAX_SHORT = 160

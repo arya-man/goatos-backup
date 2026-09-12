@@ -10,12 +10,14 @@ import {
   replaceLocalOverlayUrl,
 } from "@/components/local-overlay-link";
 import { Tag } from "@/components/ui-primitives";
-import { controlEnabled, copy, optionalOptionGroup, optionGroup, type AdminUiPageContract } from "@/lib/admin-ui-contract";
+import { controlEnabled, copy, optionGroup, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { SalesDeal } from "@/lib/api/procurement";
 import type { ProcurementVendorOption, ProcurementVendorOptions } from "@/lib/api/server";
 import { ThemedDatePicker } from "@/components/themed-date-picker";
 import { fmtDate, istDayPlus, todayIso } from "@/lib/format";
 import { dealStatusTone, inr, num } from "./sales-format";
+import { newSaleLine, type SaleLineDraft } from "./sale-lines";
+import { SaleLinesEditor } from "./sale-lines-editor";
 import {
   deleteSalesDealPaymentAction,
   recordSaleAction,
@@ -105,10 +107,11 @@ export function SalesRecordDrawer({
     ? `${listHref}${listHref.includes("?") ? "&" : "?"}deal_id=${encodeURIComponent(deal.deal_id)}`
     : listHref;
 
-  // The breed vocabulary follows the selected product. Tracked as state so changing the product
-  // select swaps the breed group; reset during render when the selection changes, not in an effect.
+  // ONE sale, MANY lines (maintainer decision 2026-09-12): the product/breed/animals/weight/value
+  // live on the lines, one card each; the deal keeps date, farm, buyer, advance, status. Reset
+  // during render when the selection changes, not in an effect.
   const productOptions = optionGroup(pageContract, "sales_product_types");
-  const [product, setProduct] = useState(productOptions[0]?.key ?? "");
+  const [lines, setLines] = useState<SaleLineDraft[]>(() => [newSaleLine(1, productOptions[0]?.key ?? "")]);
   // The vendor IS the buyer, so picking one fills the buyer snapshot fields. They stay EDITABLE
   // (maintainer decision 2026-08-27): the sale is still recorded under the name it was made in,
   // which may differ from the register's spelling, and buyer_name is what the ledger and the buyer
@@ -122,7 +125,7 @@ export function SalesRecordDrawer({
     // Reset during render when the drawer opens on a different record, never in an effect -- an
     // effect would let one submit's values flash into the next form.
     setSyncedSelection(selection);
-    setProduct(productOptions[0]?.key ?? "");
+    setLines([newSaleLine(1, productOptions[0]?.key ?? "")]);
     setVendorId("");
     setVendorQuery("");
     setBuyerName("");
@@ -157,7 +160,6 @@ export function SalesRecordDrawer({
 
   // The write vocabulary excludes the read-scope "all" entry: a deal happens at ONE farm.
   const farmOptions = optionGroup(pageContract, "sales_farms").filter((option) => option.key !== "all");
-  const breedOptions = optionalOptionGroup(pageContract, `sales_breeds_${product.toLowerCase()}`);
 
   // Three distinct states, and they are NOT the same fact:
   //   unavailable -> the register could not be read (its own permission failed, or the API errored)
@@ -289,37 +291,14 @@ export function SalesRecordDrawer({
                   ))}
                 </select>
               </div>
-              <div className="fld">
-                <label htmlFor="s-product_type">{field("product_type")}</label>
-                <select
-                  id="s-product_type"
-                  name="product_type"
-                  required
-                  value={product}
-                  onChange={(event) => setProduct(event.target.value)}
-                >
-                  {productOptions.map((option) => (
-                    <option key={option.key} value={option.key}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="fld">
-                <label htmlFor="s-breed">{field("breed")}</label>
-                {/* key remounts the select when the product changes, so a breed from the previous
-                    product's vocabulary can never ride along into the submit. */}
-                <select id="s-breed" name="breed" required defaultValue="" key={product}>
-                  <option value="" disabled>
-                    —
-                  </option>
-                  {breedOptions.map((option) => (
-                    <option key={option.key} value={option.key}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
+              <SaleLinesEditor
+                lines={lines}
+                onChange={setLines}
+                pageContract={pageContract}
+                productOptions={productOptions}
+              />
+
+              <div className="dgrp">{field("vendor")}</div>
               <div className="fld">
                 <label htmlFor="s-buyer_vendor_id">{field("vendor")}</label>
                 {vendorsUnavailable ? (
@@ -412,19 +391,7 @@ export function SalesRecordDrawer({
                 />
                 {selectedVendor ? <div className="note">{copy(pageContract, "hint.vendor_prefill")}</div> : null}
               </div>
-              <div className="fld">
-                <label htmlFor="s-animal_count">{field("animal_count")}</label>
-                {/* No default of 0: blank means "not recorded", which is a different fact. */}
-                <input id="s-animal_count" name="animal_count" type="number" min={0} step={1} />
-              </div>
-              <div className="fld">
-                <label htmlFor="s-total_weight_kg">{field("total_weight_kg")}</label>
-                <input id="s-total_weight_kg" name="total_weight_kg" type="number" min={0} step="0.01" />
-              </div>
-              <div className="fld">
-                <label htmlFor="s-sales_value">{field("sales_value")}</label>
-                <input id="s-sales_value" name="sales_value" type="number" min={1} step="0.01" required />
-              </div>
+              <div className="dgrp">{copy(pageContract, "section.payments.title")}</div>
               <div className="fld">
                 <label htmlFor="s-advance_amount">{field("advance_amount")}</label>
                 <input id="s-advance_amount" name="advance_amount" type="number" min={0} step="0.01" />
@@ -509,6 +476,36 @@ export function SalesRecordDrawer({
               </div>
               {cell(field("comments"), deal.comments)}
             </div>
+
+            {/* WHAT WAS SOLD: one row per product/breed line (migration 000294). The product,
+                breed, animals, weight and value cells above are the backend's ROLLUP of these. */}
+            <div className="dgrp">{copy(pageContract, "section.lines.title")}</div>
+            {deal.lines.length === 0 ? (
+              <div className="note">{copy(pageContract, "detail.lines.empty")}</div>
+            ) : (
+              <table className="sales-lines-table" data-testid="sale-detail-lines">
+                <thead>
+                  <tr>
+                    <th>{field("product_type")}</th>
+                    <th>{field("breed")}</th>
+                    <th className="num">{copy(pageContract, "field.line_animal_count")}</th>
+                    <th className="num">{copy(pageContract, "field.line_total_weight_kg")}</th>
+                    <th className="num">{copy(pageContract, "field.sales_value")}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {deal.lines.map((line) => (
+                    <tr key={line.line_id}>
+                      <td>{line.product_type}</td>
+                      <td>{line.breed}</td>
+                      <td className="num">{line.animal_count == null ? none : num(line.animal_count)}</td>
+                      <td className="num">{line.total_weight_kg == null ? none : num(line.total_weight_kg, 1)}</td>
+                      <td className="num">{inr(line.sales_value)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
 
             {/* PAYMENTS: what the buyer has handed over, what is still owed, the receipt history,
                 and — behind its backend control — the add-payment write. */}

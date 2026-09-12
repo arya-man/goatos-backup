@@ -32,6 +32,7 @@ import type {
   SalesSoldTagsWrite,
   SalesDealStatusWrite,
 } from "@/lib/api/procurement";
+import { MAX_SALE_LINES } from "./sales-format";
 
 // Every sales write is submitted from /sales/config (maintainer decision 2026-09-01), so that is
 // the page whose cache must be invalidated -- a save that revalidated only the read board would
@@ -42,9 +43,16 @@ const SALES_PATH = "/sales/config";
 /**
  * Reads the record-sale fields off the form.
  *
+ * ONE sale, MANY lines (maintainer decision 2026-09-12): the drawer posts its product lines as
+ * indexed fields -- `line_product_type_0`, `line_breed_0`, `line_animal_count_0`,
+ * `line_total_weight_kg_0`, `line_sales_value_0`, then `_1`, `_2`... -- and this reads them back
+ * in order until the first index with no product. The deal's product/breed/counts/value are
+ * NOT sent: the backend computes them as the rollup of the lines, so a stale client-side total
+ * can never disagree with the lines.
+ *
  * A CLEARED count/weight/advance is null, never 0: zero animals or zero advance is a real recorded
- * fact, and coercing blank into it would invent that fact. Sale value is required and parsed as a
- * number for the contract; the backend re-validates it must be more than zero.
+ * fact, and coercing blank into it would invent that fact. Each line's value is required and
+ * parsed as a number for the contract; the backend re-validates it must be more than zero.
  */
 function readSaleForm(formData: FormData): SalesDealWrite {
   const parseOptionalNumber = (key: string): number | null => {
@@ -54,26 +62,34 @@ function readSaleForm(formData: FormData): SalesDealWrite {
     return Number.isFinite(parsed) ? parsed : null;
   };
 
+  const lines: NonNullable<SalesDealWrite["lines"]> = [];
+  // Bounded by the backend's own cap so a hostile form cannot make this loop unbounded.
+  for (let i = 0; i < MAX_SALE_LINES; i += 1) {
+    const productType = (formData.get(`line_product_type_${i}`)?.toString() ?? "").trim();
+    if (productType === "") break;
+    lines.push({
+      // The backend re-validates these against its closed vocabularies and REJECTS an
+      // unrecognised value; the cast only satisfies the generated client's literal union.
+      product_type: productType as NonNullable<SalesDealWrite["lines"]>[number]["product_type"],
+      breed: requiredString(formData, `line_breed_${i}`),
+      animal_count: parseOptionalNumber(`line_animal_count_${i}`),
+      total_weight_kg: parseOptionalNumber(`line_total_weight_kg_${i}`),
+      sales_value: Number(requiredString(formData, `line_sales_value_${i}`)),
+    });
+  }
+
   return {
     sale_date: requiredString(formData, "sale_date"),
-    // The backend re-validates these against its closed vocabularies and REJECTS an unrecognised
-    // value; the casts only satisfy the generated client's literal unions, they are not a trust
-    // boundary.
     farm: requiredString(formData, "farm") as SalesDealWrite["farm"],
-    product_type: requiredString(formData, "product_type") as SalesDealWrite["product_type"],
-    breed: requiredString(formData, "breed"),
+    lines,
     buyer_name: requiredString(formData, "buyer_name"),
     buyer_place: optionalString(formData, "buyer_place") ?? "",
     // REQUIRED: every sale is made to a vendor on the register (maintainer decision 2026-08-27).
     // requiredString throws on a blank, so a form that somehow submits without a selection fails
     // here rather than posting a vendorless deal; the backend re-validates the same rule.
     buyer_vendor_id: requiredString(formData, "buyer_vendor_id"),
-    animal_count: parseOptionalNumber("animal_count"),
-    total_weight_kg: parseOptionalNumber("total_weight_kg"),
-    sales_value: Number(requiredString(formData, "sales_value")),
     advance_amount: parseOptionalNumber("advance_amount"),
-    // Blank records the backend default (Deal Closed); the cast only satisfies the literal union.
-    ...(optionalString(formData, "status") ? { status: optionalString(formData, "status") as SalesDealWrite["status"] } : {}),
+    status: (optionalString(formData, "status") ?? "") as SalesDealWrite["status"],
     comments: optionalString(formData, "comments") ?? "",
   };
 }

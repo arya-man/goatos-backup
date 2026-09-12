@@ -222,6 +222,8 @@ func farmValuationQuery(farm string) string {
 //
 // projection-review: producer rows are sales_deals at ROW grain; this read adds exactly one
 // predicate (status = 'Deal Closed') to the shared farm filter and does no join, so no fan-out.
+// The lines are attached by a SEPARATE keyed read (deal_id = ANY) and hung off their own deal,
+// never joined into the deal rows -- a deal with three lines is still one deal here.
 // The grouped consumers live in domain.BuildDealAggregates, whose own projection-review note
 // names the group keys and the realized-price ratio's shared key set.
 func (r *Repository) closedDeals(ctx context.Context, tenantID, farm string) ([]domain.Deal, error) {
@@ -246,6 +248,10 @@ func (r *Repository) closedDeals(ctx context.Context, tenantID, farm string) ([]
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("sales overview deals rows: %w", err)
+	}
+	// The product/breed blocks are computed at LINE grain (000294): one batched read.
+	if err := r.attachDealLines(ctx, tenantID, deals); err != nil {
+		return nil, err
 	}
 	return deals, nil
 }

@@ -3795,7 +3795,26 @@ func pageSpecificCopy(id string) map[string]string {
 			"field.sales_value":                "Sale value",
 			"field.advance_amount":             "Advance received",
 			"field.comments":                   "Comments",
-			"required.hint":                    "Sale date, farm, product, breed, vendor, buyer name and sale value are required.",
+			"required.hint":                    "Sale date, farm, vendor, buyer name and at least one product line with its value are required.",
+			// ONE sale, MANY lines (maintainer decision 2026-09-12): sheep and goats of different
+			// breeds sold to one buyer are recorded as one deal with a line per product/breed,
+			// each carrying its own count, weight and value. The deal total is the sum, computed
+			// by the backend; the drawer only previews it.
+			"section.lines.title":        "What was sold",
+			"hint.lines":                 "Add one line per product and breed. Each line carries its own animals, weight and value; the sale total adds up on its own.",
+			"action.add_line":            "Add another product",
+			"action.remove_line":         "Remove",
+			"label.line":                 "Line",
+			"field.line_animal_count":    "Animals",
+			"field.line_total_weight_kg": "Weight (kg)",
+			"field.line_sales_value":     "Value (₹)",
+			"summary.lines.total":        "Sale total",
+			"summary.lines.animals":      "animals",
+			"summary.lines.weight":       "kg",
+			"summary.lines.lines":        "lines",
+			// The ledger row's product/breed cells for a deal whose lines disagree.
+			"value.mixed":        "Mixed",
+			"detail.lines.empty": "This sale has no product lines.",
 			// The vendor select's own copy. Farm language, and it must name WHERE to go: a
 			// required select the person cannot fill is a dead end without it.
 			"select.vendor.placeholder": "Choose the vendor",

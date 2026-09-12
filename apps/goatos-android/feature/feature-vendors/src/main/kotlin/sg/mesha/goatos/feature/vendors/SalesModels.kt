@@ -159,11 +159,34 @@ data class SalePaymentEditorUi(
 // Record a sale
 // ---------------------------------------------------------------------------------------------
 
+/** Deal-level fields. What was SOLD lives on the lines ([SaleLineField]), not here. */
 enum class SaleField {
-    SALE_DATE, FARM, PRODUCT_TYPE, BREED, ANIMAL_COUNT, TOTAL_WEIGHT_KG,
+    SALE_DATE, FARM,
     BUYER_VENDOR_ID, BUYER_NAME, BUYER_PLACE,
-    SALES_VALUE, ADVANCE_AMOUNT, STATUS, COMMENTS,
+    ADVANCE_AMOUNT, STATUS, COMMENTS,
 }
+
+/** The fields of one product line of a sale. */
+enum class SaleLineField { PRODUCT_TYPE, BREED, ANIMAL_COUNT, TOTAL_WEIGHT_KG, SALES_VALUE }
+
+/**
+ * One product/breed line being entered (maintainer decision 2026-09-12: one sale carries sheep
+ * AND goats of several breeds, each line with its own animals, weight and value). Values stay as
+ * typed; the ViewModel parses on submit so a half-typed "12." survives recomposition.
+ */
+@Immutable
+data class SaleLineDraftUi(
+    /** Screen-local key; never sent. */
+    val id: Int,
+    val product: String = "",
+    val breed: String = "",
+    val animals: String = "",
+    val weightKg: String = "",
+    val value: String = "",
+    /** Breeds of THIS line's product; empty until a product is picked. */
+    val breeds: List<VendorsOptionUi> = emptyList(),
+    val errors: Map<SaleLineField, String> = emptyMap(),
+)
 
 /** One buyer offered by the picker (identity and place only). */
 @Immutable
@@ -179,8 +202,13 @@ data class SaleCreateUiState(
     val values: Map<SaleField, String> = emptyMap(),
     val farms: List<VendorsOptionUi> = emptyList(),
     val productTypes: List<VendorsOptionUi> = emptyList(),
-    /** Breeds of the chosen product; empty until a product is picked. */
-    val breeds: List<VendorsOptionUi> = emptyList(),
+    /** The product lines, in entry order; never empty once the options have loaded. */
+    val lines: List<SaleLineDraftUi> = emptyList(),
+    /** "₹2,21,000 · 19 animals · 540 kg" -- the running total of the lines, previewed on the phone; the ledger's figure is the backend's. */
+    val totalLine: String = "",
+    /** Sale value as a plain figure, for the money step. */
+    val totalValueLine: String = "",
+    val canAddLine: Boolean = true,
     val statuses: List<VendorsOptionUi> = emptyList(),
     /** The typed buyer search; the picker narrows on it from two letters. */
     val buyerSearch: String = "",
@@ -203,6 +231,9 @@ data class SaleCreateUiState(
 
 sealed interface SaleCreateEvent {
     data class FieldChanged(val field: SaleField, val value: String) : SaleCreateEvent
+    data class LineChanged(val lineId: Int, val field: SaleLineField, val value: String) : SaleCreateEvent
+    data object AddLine : SaleCreateEvent
+    data class RemoveLine(val lineId: Int) : SaleCreateEvent
     data class BuyerSearchChanged(val text: String) : SaleCreateEvent
     data class BuyerPicked(val vendorId: String) : SaleCreateEvent
     data object Next : SaleCreateEvent
