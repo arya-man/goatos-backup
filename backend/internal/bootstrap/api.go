@@ -539,7 +539,11 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	processIntegrityHandler := processintegrityhttp.NewHandler(processIntegrityService, log)
 	vaccExecOwnership := vaccexecroster.NewOwnershipAdapter(rosterService)
 	vaccExecService := vaccexecapp.NewService(vaccexecpg.NewRepository(pool, cfg.Postgres.QueryTimeout), vaccExecOwnership).
-		WithProofURLResolver(newWeighingExportProofURLResolver(proofService, cfg.HTTPAddr))
+		WithProofURLResolver(newWeighingExportProofURLResolver(proofService, cfg.HTTPAddr)).
+		// The pen's next-day visit after vaccination is the last step of its work (maintainer
+		// decision 2026-09-12): the shed drilldown and shed cards carry it from the pen-visit
+		// module's own repository.
+		WithPenVisits(penvisitspg.NewRepository(pool, cfg.Postgres.QueryTimeout))
 	vaccExecHandler := vaccexechttp.NewHandler(vaccExecService, obligationRepo, log).
 		WithOperatorAssignmentConfigWriter(vaccExecService).
 		WithCapacityConfigWriter(vaccExecService)

@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	penvisitdomain "github.com/vgoats/goatos/backend/internal/penvisits/domain"
 	"sort"
 	"strings"
 	"sync"
@@ -18,10 +19,16 @@ import (
 )
 
 type Service struct {
-	repo             ports.Repository
-	ownership        ports.ShedOwnershipReader
-	bus              eventbus.Bus
-	proofURLs        proofURLResolver
+	repo      ports.Repository
+	ownership ports.ShedOwnershipReader
+	bus       eventbus.Bus
+	proofURLs proofURLResolver
+	// penVisits reads each pen's next-day visit after vaccination (maintainer decision
+	// 2026-09-12), attached to the shed drilldown and the shed cards. Nil in tests that
+	// never ask; production wires the pen-visit repository. The clock is the service's
+	// so the step's "today" copy is deterministic under test.
+	penVisits        PenVisitReader
+	now              func() time.Time
 	shedSummaryCache map[string]shedSummaryCacheEntry
 	shedSummaryMu    sync.Mutex
 }
@@ -48,6 +55,48 @@ func (s *Service) WithProofURLResolver(resolver proofURLResolver) *Service {
 	return s
 }
 
+// PenVisitReader is the seam into the pen-visit module: the latest visit raised by
+// vaccination work in each pen, one batched read per page of pens.
+type PenVisitReader interface {
+	ForPens(ctx context.Context, tenantID, sourceKind string, pens []penvisitdomain.PenRef) (map[string]penvisitdomain.Task, error)
+}
+
+// WithPenVisits wires the pen-visit reader.
+func (s *Service) WithPenVisits(r PenVisitReader) *Service {
+	s.penVisits = r
+	return s
+}
+
+// WithClock pins the clock, for tests.
+func (s *Service) WithClock(now func() time.Time) *Service {
+	s.now = now
+	return s
+}
+
+// penVisitSteps reads the visits for the given pens and composes each as the caller's step.
+// A reader that is unwired attaches nothing; a read error is returned so a screen never
+// shows a pen as visit-less because a read failed.
+func (s *Service) penVisitSteps(ctx context.Context, tenantID, actorID string, pens []penvisitdomain.PenRef) (map[string]*penvisitdomain.Step, error) {
+	out := map[string]*penvisitdomain.Step{}
+	if s.penVisits == nil || len(pens) == 0 {
+		return out, nil
+	}
+	visits, err := s.penVisits.ForPens(ctx, tenantID, penvisitdomain.SourceKindVaccinationSubmission, pens)
+	if err != nil {
+		return nil, err
+	}
+	now := time.Now()
+	if s.now != nil {
+		now = s.now()
+	}
+	today := biztime.BusinessDate(now)
+	for key, visit := range visits {
+		step := penvisitdomain.StepFor(visit, penvisitdomain.Actor{UserID: actorID}, today)
+		out[key] = &step
+	}
+	return out, nil
+}
+
 type plannedDriveSessionsReader interface {
 	PlannedDriveSessionsForShed(ctx context.Context, tenantID, shedID string) ([]domain.PlannedSession, error)
 }
@@ -60,7 +109,7 @@ func NewService(repo ports.Repository, ownership ...ports.ShedOwnershipReader) *
 	if len(ownership) > 0 && ownership[0] != nil {
 		own = ownership[0]
 	}
-	return &Service{repo: repo, ownership: own, shedSummaryCache: map[string]shedSummaryCacheEntry{}}
+	return &Service{repo: repo, ownership: own, shedSummaryCache: map[string]shedSummaryCacheEntry{}, now: time.Now}
 }
 
 func (s *Service) VaccinationExecution(ctx context.Context, q domain.ExecutionQuery) ([]domain.ExecutionRow, error) {
@@ -145,9 +194,48 @@ func (s *Service) VaccinationExecutionPage(ctx context.Context, q domain.Executi
 		if err != nil {
 			return domain.ExecutionResponse{}, err
 		}
+		if err := s.attachPenVisitsToCards(ctx, q, cardSummaries); err != nil {
+			return domain.ExecutionResponse{}, err
+		}
 	}
 
 	return domain.ExecutionResponse{Source: domain.SourceAPI, Rows: rows, TotalCount: page.TotalCount, NextCursor: next, Freshness: page.Freshness, CarrySummary: carrySummary, FilterOptions: filterOptions, CardSummaries: cardSummaries}, nil
+}
+
+// attachPenVisitsToCards fills ShedCardSummary.PenVisit for every card on the page from ONE
+// batched read keyed by pen (the pen's latest vaccination-raised visit).
+func (s *Service) attachPenVisitsToCards(ctx context.Context, q domain.ExecutionQuery, cards map[string]*domain.ShedCardSummary) error {
+	if s.penVisits == nil || len(cards) == 0 {
+		return nil
+	}
+	pens := make([]penvisitdomain.PenRef, 0, len(cards))
+	seen := map[string]bool{}
+	for _, c := range cards {
+		partition := ""
+		if c.PartitionLabel != nil {
+			partition = *c.PartitionLabel
+		}
+		key := penvisitdomain.PenKey(c.ShedID, partition)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		pens = append(pens, penvisitdomain.PenRef{ShedID: c.ShedID, Partition: partition})
+	}
+	steps, err := s.penVisitSteps(ctx, q.TenantID, q.OperatorScopeActorID, pens)
+	if err != nil {
+		return err
+	}
+	for _, c := range cards {
+		partition := ""
+		if c.PartitionLabel != nil {
+			partition = *c.PartitionLabel
+		}
+		if step, ok := steps[penvisitdomain.PenKey(c.ShedID, partition)]; ok {
+			c.PenVisit = step
+		}
+	}
+	return nil
 }
 
 // computeCardSummariesFromRows groups all ExecutionRows by card identity (shedId, partitionLabel,
@@ -362,6 +450,14 @@ func (s *Service) ShedDrilldown(ctx context.Context, q domain.ExecutionQuery) (d
 		stages = append(stages, stage)
 	}
 	sort.Strings(stages)
+	partition := ""
+	if head.PartitionLabel != nil {
+		partition = *head.PartitionLabel
+	}
+	steps, err := s.penVisitSteps(ctx, q.TenantID, q.OperatorScopeActorID, []penvisitdomain.PenRef{{ShedID: head.ShedID, Partition: partition}})
+	if err != nil {
+		return domain.ShedDrilldown{}, false, err
+	}
 	return domain.ShedDrilldown{
 		ParkID:                     head.ParkID,
 		ParkName:                   head.ParkName,
@@ -373,6 +469,7 @@ func (s *Service) ShedDrilldown(ctx context.Context, q domain.ExecutionQuery) (d
 		Drives:                     drives,
 		Rows:                       rows,
 		Summary:                    summary,
+		PenVisit:                   steps[penvisitdomain.PenKey(head.ShedID, partition)],
 	}, true, nil
 }
 

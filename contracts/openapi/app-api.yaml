@@ -18173,9 +18173,14 @@ components:
     PenVisit:
       type: object
       description: >-
-        One pen visit as the phone renders it. Every string is backend-composed; the client maps
-        state_tone to a colour and renders the rest verbatim.
-      required: [task_id, title, park_id, park_name, shed_id, shed_name, partition_label, operational_location_display, reasons, reason_labels, reason_line, source_business_date, planned_business_date, due_business_date, work_state, state_chip, state_tone, instruction, done_line, can_submit, row_version]
+        The next-day pen visit as every surface renders it: the LAST STEP of the pen's care
+        work (maintainer decision 2026-09-12), carried on the PC Care task (pen_visit) and the
+        vaccination shed card / drilldown (penVisit) as well as on the visit's own routes. Every
+        string is backend-composed; the client maps state_tone to a colour and renders the rest
+        verbatim. The visit video goes to the verifier: status is the gate (open ->
+        pending_verification -> completed | rework) and work_state reaches completed only on
+        approval; verified is the parent's closure signal.
+      required: [task_id, title, park_id, park_name, shed_id, shed_name, partition_label, operational_location_display, reasons, reason_labels, reason_line, source_business_date, planned_business_date, due_business_date, work_state, status, state_chip, state_tone, instruction, done_line, can_submit, verified, row_version]
       properties:
         task_id: { type: string, format: uuid }
         title:
@@ -18204,17 +18209,21 @@ components:
         source_business_date: { type: string, format: date, description: The IST day the work was submitted. }
         planned_business_date: { type: string, format: date, description: Immutable; the day the visit was first owed. }
         due_business_date: { type: string, format: date, description: Rolls forward only, as the visit is carried. }
-        work_state: { type: string, enum: [scheduled, delayed, completed, canceled] }
+        work_state: { type: string, enum: [scheduled, delayed, completed, canceled], description: The kernel clock; completed only once the verifier approved the visit. }
+        status: { type: string, enum: [open, pending_verification, completed, rework], description: The verifier gate on the visit video. }
         state_chip:
           type: string
-          description: 'Backend-composed, e.g. "Due today", "Delayed since 05/09/2026", "Done".'
+          description: 'Backend-composed, e.g. "Visit pen today", "Visit in review", "Visit needs another video", "Visit verified".'
 
-        state_tone: { type: string, enum: [info, danger, success, muted] }
+        state_tone: { type: string, enum: [info, review, danger, success, muted] }
         instruction: { type: string }
         done_line: { type: string, description: Empty until submitted. }
-        can_submit: { type: boolean, description: The caller is the assignee and the visit is still owed. }
+        rework_reason: { type: string, description: The verifier's words when the visit was sent back; empty otherwise. }
+        can_submit: { type: boolean, description: The caller is one of the park's configured visitors and a recording is still owed (open or sent back). }
+        verified: { type: boolean, description: The verifier approved the visit; the parent care work closes on this. }
         proof_ref: { type: string, format: uuid, nullable: true }
         submitted_at: { type: string, format: date-time, nullable: true }
+        verified_at: { type: string, format: date-time, nullable: true }
         row_version: { type: integer }
     PenVisitDetail:
       type: object
@@ -18229,7 +18238,7 @@ components:
       properties:
         key: { type: string, enum: [todo, done] }
         label: { type: string }
-        count: { type: integer, description: Whole-list count over the caller's assignee predicate, never a page sum. }
+        count: { type: integer, description: Whole-list count over the parks the caller is configured to visit, never a page sum. }
         selected: { type: boolean }
         empty_message: { type: string }
     PenVisitPage:
@@ -18246,7 +18255,7 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/PenVisitFilter"
-        open_count: { type: integer, description: Visits still owed to the caller (the To do count). }
+        open_count: { type: integer, description: Visits still to record in the parks the caller is configured to visit. }
         trace_id: { type: string }
     PenVisitSubmitRequest:
       type: object
@@ -21164,6 +21173,17 @@ components:
           type: array
           description: Task-level proof rows for inventory_vaccine fridge stock tasks.
           items: { $ref: "#/components/schemas/PCCareTaskProof" }
+        pen_visit:
+          $ref: "#/components/schemas/PenVisit"
+          description: >-
+            The task's LAST step (maintainer decision 2026-09-12): the next-day pen visit, with
+            its own chip, instruction and can_submit for THIS caller. Absent until the pen-visit
+            kernel materializes it the morning after submit, and on tasks that owe none. Once
+            the task's own videos are verified the card's chip follows this step; the task's
+            work_state reaches completed only when the visit is verified too.
+        pen_visit_owed:
+          type: boolean
+          description: A visit is part of this task even before its row exists (a pen category with a shed).
       required:
         - task_id
         - category
@@ -21183,6 +21203,7 @@ components:
         - animal_count
         - capture_mode
         - expected_slots
+        - pen_visit_owed
     PCCareInventoryRequirement:
       type: object
       properties:
@@ -27232,6 +27253,11 @@ components:
           items:
             $ref: "#/components/schemas/VaccineGroupSummary"
           description: Per-vaccine group summaries for this card
+        penVisit:
+          $ref: "#/components/schemas/PenVisit"
+          description: >-
+            The pen's next-day visit after its latest vaccination submit (2026-09-12): the last
+            step of the pen's work. Absent until it exists; the five status buckets are untouched.
     VaccinationOperationsProtocol:
       type: object
       additionalProperties: false
@@ -28997,6 +29023,12 @@ components:
             $ref: "#/components/schemas/VaccinationExecutionRow"
         summary:
           $ref: "#/components/schemas/VaccinationExecutionShedSummary"
+        penVisit:
+          $ref: "#/components/schemas/PenVisit"
+          description: >-
+            The pen's next-day visit after its latest vaccination submit (maintainer decision
+            2026-09-12): the LAST step of the pen's work, composed for the caller. Absent until
+            the pen-visit kernel raises it the morning after.
     VaccinationQueueItem:
       type: object
       additionalProperties: false

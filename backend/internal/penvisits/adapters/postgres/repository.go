@@ -291,6 +291,48 @@ WHERE s.tenant_id = $1::uuid AND s.source_kind = $2 AND s.source_ref_id = ANY($3
 	return out, rows.Err()
 }
 
+// ForPens reads the latest visit raised by sourceKind work in each pen. A pen with no such
+// visit is absent from the map.
+func (r *Repository) ForPens(ctx context.Context, tenantID, sourceKind string, pens []domain.PenRef) (map[string]domain.Task, error) {
+	out := map[string]domain.Task{}
+	if len(pens) == 0 {
+		return out, nil
+	}
+	shedIDs := make([]string, 0, len(pens))
+	keys := make([]string, 0, len(pens))
+	for _, p := range pens {
+		shedIDs = append(shedIDs, p.ShedID)
+		keys = append(keys, domain.PenKey(p.ShedID, p.Partition))
+	}
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	// projection-review: membership=pen_visit_tasks rows of the named sheds (pen_visit_tasks_pen_source_idx on tenant_id, shed_id, partition_key, source_business_date DESC) that carry at least one link of the asked kind; group_key=(shed_id, partition_key) reduced to ONE row per pen by DISTINCT ON ordered by source_business_date DESC, task_id DESC -- the latest visit; join_cardinality=EXISTS semijoin on pen_visit_task_sources (never multiplies), park/shed 1:1 by PK; pagination=none -- bounded by the caller's page of pens, one batched read; scope=tenant + explicit shed ids, filtered to the asked pen keys in Go
+	query := fmt.Sprintf(`SELECT DISTINCT ON (t.shed_id, t.partition_key) %s %s
+WHERE t.tenant_id = $1::uuid AND t.shed_id = ANY($2::uuid[]) AND t.work_state <> 'canceled'
+  AND EXISTS (SELECT 1 FROM pen_visit_task_sources s WHERE s.tenant_id = t.tenant_id AND s.task_id = t.task_id AND s.source_kind = $3)
+ORDER BY t.shed_id, t.partition_key, t.source_business_date DESC, t.task_id DESC`, taskColumns, taskFrom)
+	rows, err := r.pool.Query(ctx, query, tenantID, shedIDs, sourceKind)
+	if err != nil {
+		return nil, fmt.Errorf("pen visit: for pens: %w", err)
+	}
+	defer rows.Close()
+	wanted := map[string]bool{}
+	for _, k := range keys {
+		wanted[k] = true
+	}
+	for rows.Next() {
+		t, err := scanTask(rows)
+		if err != nil {
+			return nil, fmt.Errorf("pen visit: for pens scan: %w", err)
+		}
+		key := domain.PenKey(t.ShedID, t.Partition)
+		if wanted[key] {
+			out[key] = t
+		}
+	}
+	return out, rows.Err()
+}
+
 // OpenCount answers the badge: visits still awaiting a recording in the parks one person is
 // configured to visit.
 func (r *Repository) OpenCount(ctx context.Context, tenantID, userID string) (int, error) {

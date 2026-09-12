@@ -104,6 +104,10 @@ type Repository interface {
 	// ForSources reads the visit each parent owes, keyed by the parent's ref id. One batched
 	// read per page of parents, never one per row.
 	ForSources(ctx context.Context, tenantID, sourceKind string, refIDs []string) (map[string]domain.Task, error)
+	// ForPens reads the LATEST visit raised by sourceKind work in each pen, keyed by
+	// domain.PenKey(shedID, partition). For a surface that knows the pen but not the
+	// submission (the vaccination shed card). One batched read per page of pens.
+	ForPens(ctx context.Context, tenantID, sourceKind string, pens []domain.PenRef) (map[string]domain.Task, error)
 	// OpenCount answers the badge for one person: visits still awaiting a recording in the
 	// parks they are configured to visit.
 	OpenCount(ctx context.Context, tenantID, userID string) (int, error)

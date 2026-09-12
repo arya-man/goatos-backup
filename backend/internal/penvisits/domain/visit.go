@@ -485,3 +485,23 @@ func wireInstant(at *time.Time) *string {
 	s := at.UTC().Format("2006-01-02T15:04:05Z07:00")
 	return &s
 }
+
+// PenRef names a pen for a batched visit lookup.
+type PenRef struct {
+	ShedID    string
+	Partition string
+}
+
+// PenKey is the map key ForPens answers under: the shed id and the NORMALIZED partition, the
+// same key pen_visit_tasks.partition_key carries, so "Part 3", "part 3" and " Part 3 " meet.
+func PenKey(shedID, partition string) string {
+	return shedID + "|" + normalizePartitionKey(partition)
+}
+
+func normalizePartitionKey(partition string) string {
+	p := strings.ToLower(strings.TrimSpace(partition))
+	if p == "" || p == "whole" {
+		return "whole"
+	}
+	return p
+}
