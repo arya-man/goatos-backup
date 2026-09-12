@@ -331,7 +331,7 @@ export function PersonAccessModal({
                 whom may record; the label and blurb are backend copy. Only parks the person
                 covers are offered, so a visit is never owed to someone whose scope cannot
                 reach it. */}
-            <div>
+            <div className="pa-visits">
               <div className="pa-lbl">{access.pen_visit_label}</div>
               <div className="pa-pills" data-testid="pa-pen-visit-parks">
                 {access.parks
