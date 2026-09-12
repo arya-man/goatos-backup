@@ -251,12 +251,14 @@ rework AS (
   SELECT DISTINCT ON (obligation_id)
     tenant_id,
     obligation_id,
-    has_rejected_rework
+    has_rejected_rework,
+    recorded_at
   FROM (
     SELECT
       vc.tenant_id,
       vc.obligation_id,
       vi.status = 'rejected' AS has_rejected_rework,
+      NULL::timestamptz AS recorded_at,
       COALESCE(vi.verified_at, vi.captured_at) AS verdict_at,
       vi.item_id
     FROM verification_items vi
@@ -280,6 +282,7 @@ rework AS (
       vcr.tenant_id,
       vcr.obligation_id,
       true AS has_rejected_rework,
+      vcr.administered_at AS recorded_at,
       COALESCE(vcr.verified_at, vcr.rejected_at) AS verdict_at,
       vcr.rejection_id AS item_id
     FROM vaccination_completion_rejections vcr
