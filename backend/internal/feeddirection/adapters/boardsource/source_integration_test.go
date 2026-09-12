@@ -63,6 +63,40 @@ INSERT INTO workforce_members (workforce_member_id, tenant_id, user_id, display_
 VALUES ($1::uuid, $2::uuid, $3::uuid, 'DIN', 'Dinakar', 'active', 'operator', $4::uuid)
 ON CONFLICT (workforce_member_id) DO NOTHING`, bsMember, bsTenant, bsOperator, bsPark)
 
+	issue := func(id, park, day, workflow string) {
+		exec(t, ctx, pool, `
+INSERT INTO feed_direction_issues (feed_direction_issue_id, tenant_id, park_id, feed_day, workflow,
+  state, issued_at, generation_input_fingerprint, request_fingerprint, idempotency_key, generated_by,
+  source_contract, source_contract_version)
+VALUES ($1::uuid, $2::uuid, $3::uuid, $4::date, $5, 'issued', now(), $1::text, $1::text,
+  $1::text, 'test', 'feed.direction.sheet', '1')
+ON CONFLICT (feed_direction_issue_id) DO NOTHING`, id, bsTenant, park, day, workflow)
+	}
+	issue("00000000-0000-4000-8000-0000000081a1", bsPark, bsServeNxt, "normal")
+	issue("00000000-0000-4000-8000-0000000081a2", bsPark, bsDate, "normal")
+	issue("00000000-0000-4000-8000-0000000081a3", bsPark, bsDate, "experiment")
+
+	issueRow := func(issueID, shed, workflow, item string, session, rowSeq, itemSeq int) {
+		exec(t, ctx, pool, `
+INSERT INTO feed_direction_issue_rows (tenant_id, feed_direction_issue_id, park_id, park_label,
+  shed_id, shed_label, partition_label, shed_tag, breed, ration_group, session_no, session_label,
+  head_count, head_count_informational, workflow, feed_item_label, quantity_kg, session_total_kg,
+  overdue_pending, row_seq, item_seq, amended)
+VALUES ($1::uuid, $2::uuid, $3::uuid, 'CBE', $4::uuid, 'Pen', NULL, 'Dry', 'Beetal',
+  'Beetal', $5, 'Morning', 10, false, $6, $7, 1.0, 1.0, false, $8, $9, false)
+ON CONFLICT DO NOTHING`, bsTenant, issueID, bsPark, shed, session, workflow, item, rowSeq, itemSeq)
+	}
+	// Packing for D+1: A/B have completion rows below; C is issued but not filmed yet.
+	issueRow("00000000-0000-4000-8000-0000000081a1", bsShedA, "normal", "Concentrate", 1, 0, 0)
+	issueRow("00000000-0000-4000-8000-0000000081a1", bsShedB, "normal", "Concentrate", 1, 1, 0)
+	issueRow("00000000-0000-4000-8000-0000000081a1", bsShedC, "normal", "Concentrate", 1, 2, 0)
+	// Direction on D: A has a rework completion; B is issued but not filmed yet.
+	issueRow("00000000-0000-4000-8000-0000000081a2", bsShedA, "normal", "Concentrate", 1, 0, 0)
+	issueRow("00000000-0000-4000-8000-0000000081a2", bsShedB, "normal", "Concentrate", 1, 1, 0)
+	// Experiment/wastage on D: A has completion; B is issued but not measured yet.
+	issueRow("00000000-0000-4000-8000-0000000081a3", bsShedA, "experiment", "Trial", 1, 0, 0)
+	issueRow("00000000-0000-4000-8000-0000000081a3", bsShedB, "experiment", "Trial", 1, 1, 0)
+
 	// Transport tasks on the work day D.
 	sched := "2026-09-10 15:30:00+05:30"
 	type tk struct{ id, shed, status, op string }
@@ -148,10 +182,10 @@ func TestFeedActivityCardsOnADatabaseRoundTrip(t *testing.T) {
 		subtitle string
 	}
 	cases := map[string]want{
-		feedActivityID("packing"):   {"Feed packing", domain.WorkStateVerificationPending, domain.LaneInReview, domain.Counts{Done: 1, Pending: 1}, "2 pens · 1 done"},
-		feedActivityID("direction"): {"Feed direction", domain.WorkStateRejected, domain.LaneInProgress, domain.Counts{Pending: 1, NeedsAttention: 1}, "1 pen · 0 done"},
+		feedActivityID("packing"):   {"Feed packing", domain.WorkStateDue, domain.LaneToDo, domain.Counts{Done: 1, Pending: 2}, "3 pens · 1 done"},
+		feedActivityID("direction"): {"Feed direction", domain.WorkStateDue, domain.LaneToDo, domain.Counts{Pending: 2, NeedsAttention: 1}, "2 pens · 0 done"},
 		feedActivityID("transport"): {"Feed transport", domain.WorkStateDue, domain.LaneToDo, domain.Counts{Done: 1, Pending: 3, NeedsAttention: 1}, "4 pens · 1 done"},
-		feedActivityID("wastage"):   {"Feed wastage", domain.WorkStateCompleted, domain.LaneDone, domain.Counts{Done: 1}, "1 pen · 1 done"},
+		feedActivityID("wastage"):   {"Feed wastage", domain.WorkStateDue, domain.LaneToDo, domain.Counts{Done: 1, Pending: 1}, "2 pens · 1 done"},
 	}
 	for id, w := range cases {
 		r, ok := got[id]
@@ -210,12 +244,12 @@ func TestFeedActivityScopeKeysetOwnerLens(t *testing.T) {
 		t.Fatalf("keyset order %v", order)
 	}
 
-	// State filter: only the Done lane's card (wastage).
+	// State filter: with unstarted issued feed work visible, no feed activity is fully Done.
 	done, err := src.ListRows(ctx, query("", domain.StatesInLane(domain.LaneDone)...))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(done) != 1 || done[0].SourceID != feedActivityID("wastage") {
+	if len(done) != 0 {
 		t.Fatalf("done-lane filter %v", done)
 	}
 
@@ -232,7 +266,7 @@ func TestFeedActivityScopeKeysetOwnerLens(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if counts[domain.WorkStateDue] != 1 || counts[domain.WorkStateVerificationPending] != 1 || counts[domain.WorkStateRejected] != 1 || counts[domain.WorkStateCompleted] != 1 {
+	if counts[domain.WorkStateDue] != 4 {
 		t.Fatalf("counts %+v", counts)
 	}
 
@@ -276,6 +310,24 @@ func TestFeedActivityOneToManyPenSessionsFoldToOneShedLine(t *testing.T) {
 	// Shed A, two packing sessions for the SAME serve day (D2+1), different statuses.
 	const d2 = "2026-09-15"
 	const serve2 = "2026-09-16"
+	exec(t, ctx, pool, `
+INSERT INTO feed_direction_issues (feed_direction_issue_id, tenant_id, park_id, feed_day, workflow,
+  state, issued_at, generation_input_fingerprint, request_fingerprint, idempotency_key, generated_by,
+  source_contract, source_contract_version)
+VALUES ('00000000-0000-4000-8000-0000000082a1'::uuid, $1::uuid, $2::uuid, $3::date, 'normal',
+  'issued', now(), 'fp-d2', 'rfp-d2', 'idem-d2', 'test', 'feed.direction.sheet', '1')
+ON CONFLICT (feed_direction_issue_id) DO NOTHING`, bsTenant, bsPark, serve2)
+	for session := 1; session <= 2; session++ {
+		exec(t, ctx, pool, `
+INSERT INTO feed_direction_issue_rows (tenant_id, feed_direction_issue_id, park_id, park_label,
+  shed_id, shed_label, partition_label, shed_tag, breed, ration_group, session_no, session_label,
+  head_count, head_count_informational, workflow, feed_item_label, quantity_kg, session_total_kg,
+  overdue_pending, row_seq, item_seq, amended)
+VALUES ($1::uuid, '00000000-0000-4000-8000-0000000082a1'::uuid, $2::uuid, 'CBE',
+  $3::uuid, 'Godel 1', NULL, 'Dry', 'Beetal', 'Beetal', $4, 'Morning', 10, false,
+  'normal', 'Concentrate', 1.0, 1.0, false, $5, 0, false)
+ON CONFLICT DO NOTHING`, bsTenant, bsPark, bsShedA, session, session-1)
+	}
 	packing2 := func(id, shed string, session int, status, proof string) {
 		exec(t, ctx, pool, `
 INSERT INTO feed_packing_completions (completion_id, tenant_id, park_id, shed_id, session_no, target_date, workflow, status, packing_proof_ref, completed_by, idempotency_key)

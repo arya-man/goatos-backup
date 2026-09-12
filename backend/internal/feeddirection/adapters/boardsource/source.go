@@ -81,23 +81,63 @@ const transportUnits = `
     AND ($4::uuid IS NULL OR COALESCE(t.operator_id, att.operator_id) = $4::uuid
          OR COALESCE(t.operator_id, att.operator_id) IS NULL)`
 
-// completionUnits lists one unit per completion row (one bag/session per pen) for a completion
-// table -- packing, distribution or wastage. A completion row exists only once the pen's work
-// has started, so these cards carry In review / Done / rework sheds; an unstarted pen has no
-// row and is the worklist's business, not the board's. dateExpr is the work-day mapping.
-func completionUnits(table, dateExpr string) string {
+// sheetSessionUnits lists one unit per issued sheet pen/session/workflow and overlays the
+// completion row when it exists. A missing completion row is real owed work: the pen appears as
+// due instead of disappearing from the board.
+func sheetSessionUnits(table, dateExpr string) string {
 	return `
-  SELECT c.shed_id AS shed_id,
+  WITH issued AS (
+    SELECT DISTINCT r.shed_id, r.partition_key, r.session_no, r.workflow
+    FROM feed_direction_issues i
+    JOIN feed_direction_issue_rows r
+      ON r.tenant_id = i.tenant_id AND r.feed_direction_issue_id = i.feed_direction_issue_id
+    WHERE i.tenant_id = $1::uuid AND i.park_id = $3::uuid AND i.feed_day = ` + dateExpr + `
+      AND i.state IN ('issued', 'amended', 'locked')
+      AND r.tenant_id = $1::uuid AND r.park_id = $3::uuid
+  )
+  SELECT i.shed_id AS shed_id,
     CASE
       WHEN c.status = 'completed' THEN 'completed'
       WHEN c.status = 'rework' THEN 'rejected'
-      ELSE 'verification_pending'
+      WHEN c.status = 'pending_verification' THEN 'verification_pending'
+      ELSE 'due'
     END AS st,
     c.completed_by AS owner_id
-  FROM ` + table + ` c
-  WHERE c.tenant_id = $1::uuid AND c.target_date = ` + dateExpr + ` AND c.park_id = $3::uuid
-    AND ($4::uuid IS NULL OR c.completed_by = $4::uuid OR c.completed_by IS NULL)`
+  FROM issued i
+  LEFT JOIN ` + table + ` c
+    ON c.tenant_id = $1::uuid AND c.park_id = $3::uuid AND c.target_date = ` + dateExpr + `
+   AND c.shed_id = i.shed_id AND c.partition_key = i.partition_key
+   AND c.session_no = i.session_no AND c.workflow = i.workflow
+  WHERE ($4::uuid IS NULL OR c.completed_by = $4::uuid OR c.completed_by IS NULL)`
 }
+
+// wastageUnits lists one unit per issued experiment pen and overlays the wastage completion when
+// it exists. Wastage is one pen-day, not one session, so it rolls the issued experiment sheet to
+// shed/partition before joining the completion table.
+const wastageUnits = `
+  WITH issued AS (
+    SELECT DISTINCT r.shed_id, r.partition_key
+    FROM feed_direction_issues i
+    JOIN feed_direction_issue_rows r
+      ON r.tenant_id = i.tenant_id AND r.feed_direction_issue_id = i.feed_direction_issue_id
+    WHERE i.tenant_id = $1::uuid AND i.park_id = $3::uuid AND i.feed_day = $2::date
+      AND i.workflow = 'experiment' AND i.state IN ('issued', 'amended', 'locked')
+      AND r.tenant_id = $1::uuid AND r.park_id = $3::uuid AND r.workflow = 'experiment'
+  )
+  SELECT i.shed_id AS shed_id,
+    CASE
+      WHEN c.status = 'completed' THEN 'completed'
+      WHEN c.status = 'rework' THEN 'rejected'
+      WHEN c.status = 'pending_verification' THEN 'verification_pending'
+      ELSE 'due'
+    END AS st,
+    c.completed_by AS owner_id
+  FROM issued i
+  LEFT JOIN feed_wastage_completions c
+    ON c.tenant_id = $1::uuid AND c.park_id = $3::uuid AND c.target_date = $2::date
+   AND c.shed_id = i.shed_id AND c.partition_key = i.partition_key
+   AND c.workflow = 'experiment'
+  WHERE ($4::uuid IS NULL OR c.completed_by = $4::uuid OR c.completed_by IS NULL)`
 
 // activities are the four feed cards, in display and keyset order.
 //
@@ -113,10 +153,10 @@ func completionUnits(table, dateExpr string) string {
 // row-paged; scope=tenant_id($1), business_date($2), park_id($3) and the optional owner predicate
 // ($4), repeated verbatim in the count and subtask reads.
 var activities = []activity{
-	{key: "packing", rank: 0, title: "Feed packing", clock: "Packed today for tomorrow", units: completionUnits("feed_packing_completions", "($2::date + 1)")},
-	{key: "direction", rank: 1, title: "Feed direction", clock: "Served today", units: completionUnits("feed_distribution_completions", "$2::date")},
+	{key: "packing", rank: 0, title: "Feed packing", clock: "Packed today for tomorrow", units: sheetSessionUnits("feed_packing_completions", "($2::date + 1)")},
+	{key: "direction", rank: 1, title: "Feed direction", clock: "Served today", units: sheetSessionUnits("feed_distribution_completions", "$2::date")},
 	{key: "transport", rank: 2, title: "Feed transport", clock: "Staged today by 15:00 for tomorrow", units: transportUnits},
-	{key: "wastage", rank: 3, title: "Feed wastage", clock: "Measured today", units: completionUnits("feed_wastage_completions", "$2::date")},
+	{key: "wastage", rank: 3, title: "Feed wastage", clock: "Measured today", units: wastageUnits},
 }
 
 func activityByKey(key string) (activity, bool) {
