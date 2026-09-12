@@ -206,6 +206,9 @@ type GoatData struct {
 	AnimalIdentifier2 *string
 	MappedBy2         *string
 	MappedAt2         *string
+	Breed             *string
+	Sex               *string
+	AgeDays           *int
 	ShedID            *string
 	ParkID            *string
 }

@@ -182,7 +182,10 @@ implementation has a starting configuration. See Section 10.
 ## 6. Tag -> animal mapping
 
 A BLE tag is mapped to an animal through the existing identifier system, not
-through a new tag-owning field on the animal record.
+through a new tag-owning field on the animal record. New BLE assignments use
+`goat_identifiers.identifier_type = 'smart_ble_tag'`: the nullable third
+physical identifier beside the two RFID slots, `animal_identifier_1` and
+`animal_identifier_2`.
 
 **Mapping rule:** a tag is considered mapped to an animal when there exists a
 `goat_identifiers` row where:

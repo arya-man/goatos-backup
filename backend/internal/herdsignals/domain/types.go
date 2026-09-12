@@ -296,6 +296,9 @@ type LiveItem struct {
 	DisplayID                  *string `json:"display_id"`
 	AnimalIdentifier1          *string `json:"animal_identifier_1"`
 	AnimalIdentifier2          *string `json:"animal_identifier_2"`
+	Breed                      *string `json:"breed"`
+	Sex                        *string `json:"sex"`
+	AgeDays                    *int    `json:"age_days"`
 	ParkID                     *string `json:"park_id"`
 	ParkName                   *string `json:"park_name"`
 	ShedID                     *string `json:"shed_id"`
@@ -324,6 +327,11 @@ type LiveItem struct {
 	MovementState       *string               `json:"movement_state"`
 	PatternState        *string               `json:"pattern_state"`
 	BaselineDelta       *int64                `json:"baseline_delta"`
+	RiskState           *string               `json:"risk_state"`
+	RiskReasons         []string              `json:"risk_reasons"`
+	OwnMotionDeltaPct   *float64              `json:"own_motion_delta_pct"`
+	GroupMotionDeltaPct *float64              `json:"group_motion_delta_pct"`
+	GroupTempDeltaC     *float64              `json:"group_temp_delta_c"`
 	// SensorState is a COMPUTED "ok"/"abnormal" summary (contract type HerdSignalSensorState),
 	// never the raw device sensor_state int -- that raw value is stored but intentionally not
 	// exposed on this endpoint; see herd_signal_tag_latest / herd_signal_packets for the raw bits.

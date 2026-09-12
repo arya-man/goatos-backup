@@ -4,7 +4,12 @@ import { invalidBody, optionalString, readJsonBody, writeMappingResult } from ".
 
 export const dynamic = "force-dynamic";
 
-const IDENTIFIER_TYPES: HerdSignalIdentifierType[] = ["animal_identifier_1", "animal_identifier_2", "temporary_tag"];
+const IDENTIFIER_TYPES: HerdSignalIdentifierType[] = [
+  "smart_ble_tag",
+  "animal_identifier_1",
+  "animal_identifier_2",
+  "temporary_tag",
+];
 
 /**
  * REPLACE — POST /herd-signals/tag-mappings/replace.

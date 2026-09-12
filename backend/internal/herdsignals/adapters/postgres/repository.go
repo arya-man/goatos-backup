@@ -739,12 +739,28 @@ func herdSignalsLiveFilter(tenantID string, parkID, shedID, movementState, mappi
 	if q != nil && strings.TrimSpace(*q) != "" {
 		needle := "%" + strings.TrimSpace(*q) + "%"
 		whereClause += fmt.Sprintf(` AND (
-			tl.tag_id ILIKE $%d OR tl.tag_mac ILIKE $%d OR tl.gateway_id ILIKE $%d
-			OR g.display_id ILIKE $%d OR shed_loc.name ILIKE $%d
-		)`, argIndex, argIndex, argIndex, argIndex, argIndex)
-		args = append(args, needle)
-		argIndex++
-	}
+				tl.tag_id ILIKE $%d OR tl.tag_mac ILIKE $%d OR tl.gateway_id ILIKE $%d
+				OR g.display_id ILIKE $%d OR shed_loc.name ILIKE $%d
+				OR g.breed ILIKE $%d OR g.sex ILIKE $%d
+				OR EXISTS (
+					SELECT 1
+					FROM public.breeds qb
+					WHERE qb.breed_id = g.breed_id
+					  AND qb.canonical_name ILIKE $%d
+				)
+				OR EXISTS (
+					SELECT 1
+					FROM public.goat_identifiers qgi
+					WHERE qgi.tenant_id = g.tenant_id
+					  AND qgi.goat_id = g.goat_id
+					  AND qgi.status = 'active'
+					  AND qgi.identifier_type IN ('animal_identifier_1', 'animal_identifier_2')
+					  AND qgi.identifier_value ILIKE $%d
+				)
+			)`, argIndex, argIndex, argIndex, argIndex, argIndex, argIndex, argIndex, argIndex, argIndex)
+			args = append(args, needle)
+			argIndex++
+		}
 
 	return whereClause, args, argIndex
 }
@@ -979,8 +995,13 @@ func (r *Repository) GetGoatsByIDs(ctx context.Context, tenantID string, goatIDs
 	}
 
 	query := `
-		SELECT g.goat_id, g.display_id, g.shed_id, g.park_id, ident1.animal_identifier_1, prov.mapped_by, to_char(prov.mapped_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SSZ') AS mapped_at, ident2.animal_identifier_2, prov.mapped_by, to_char(prov.mapped_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SSZ')
-		FROM public.goats g
+			SELECT g.goat_id, g.display_id, g.shed_id, g.park_id,
+			       COALESCE(b.canonical_name, g.breed) AS breed,
+			       g.sex,
+			       (((now() AT TIME ZONE 'Asia/Kolkata')::date) - COALESCE(g.dob, g.approx_dob))::int AS age_days,
+			       ident1.animal_identifier_1, prov.mapped_by, to_char(prov.mapped_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SSZ') AS mapped_at, ident2.animal_identifier_2, prov.mapped_by, to_char(prov.mapped_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SSZ')
+			FROM public.goats g
+			LEFT JOIN public.breeds b ON b.breed_id = g.breed_id
 		-- Provenance belongs to the BINDING, not to the animal's ear tag.
 		--
 		-- mapped_by/mapped_at are stamped on the rows THIS MODULE creates to carry a BLE binding
@@ -1032,9 +1053,10 @@ func (r *Repository) GetGoatsByIDs(ctx context.Context, tenantID string, goatIDs
 	result := make(map[string]ports.GoatData)
 	for rows.Next() {
 		var goatID, displayID string
-		var animalIdentifier1, animalIdentifier2, shedID, parkID *string
+		var animalIdentifier1, animalIdentifier2, breed, sex, shedID, parkID *string
+		var ageDays *int
 		var mappedBy1, mappedAt1, mappedBy2, mappedAt2 *string
-		if err := rows.Scan(&goatID, &displayID, &shedID, &parkID, &animalIdentifier1, &mappedBy1, &mappedAt1, &animalIdentifier2, &mappedBy2, &mappedAt2); err != nil {
+		if err := rows.Scan(&goatID, &displayID, &shedID, &parkID, &breed, &sex, &ageDays, &animalIdentifier1, &mappedBy1, &mappedAt1, &animalIdentifier2, &mappedBy2, &mappedAt2); err != nil {
 			return nil, err
 		}
 		result[goatID] = ports.GoatData{
@@ -1045,6 +1067,9 @@ func (r *Repository) GetGoatsByIDs(ctx context.Context, tenantID string, goatIDs
 			AnimalIdentifier2: animalIdentifier2,
 			MappedBy2:         mappedBy2,
 			MappedAt2:         mappedAt2,
+			Breed:             breed,
+			Sex:               sex,
+			AgeDays:           ageDays,
 			ShedID:            shedID,
 			ParkID:            parkID,
 		}

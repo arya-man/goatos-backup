@@ -1,5 +1,5 @@
 import type { HerdSignalItem } from "@/lib/api/herd-signals";
-import type { KpiFilterKey } from "./params";
+import type { HerdSignalsParams, KpiFilterKey } from "./params";
 
 // weak_signal / missing_signal / low_battery have no dedicated query parameter on GET
 // /herd-signals/live (the fixed contract exposes only movement_state, mapping_state, pattern and
@@ -14,5 +14,10 @@ export function matchesResidualKpi(item: HerdSignalItem, kpi: KpiFilterKey | und
   if (kpi === "weak_signal") return item.signal_state === "weak";
   if (kpi === "missing_signal") return item.movement_state === "stale";
   if (kpi === "low_battery") return item.battery_state === "low";
+  return true;
+}
+
+export function matchesClientSideFilters(item: HerdSignalItem, params: Pick<HerdSignalsParams, "kpi">): boolean {
+  if (!matchesResidualKpi(item, params.kpi)) return false;
   return true;
 }

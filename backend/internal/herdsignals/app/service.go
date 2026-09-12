@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"math"
+	"sort"
 	"time"
 
 	"github.com/vgoats/goatos/backend/internal/herdsignals/domain"
@@ -18,6 +20,8 @@ type Service struct {
 	log        *slog.Logger
 	thresholds domain.Thresholds
 }
+
+const liveSignalCohortLimit = 20000
 
 // NewService creates a new herd signals service.
 func NewService(repo ports.Repository, log ...*slog.Logger) *Service {
@@ -162,9 +166,48 @@ func (s *Service) IngestPackets(ctx context.Context, actor domain.Actor, req dom
 }
 
 // ListLive fetches the current tag status with optional filters and pagination.
-func (s *Service) ListLive(ctx context.Context, actor domain.Actor, parkID, shedID, movementState, mappingState, pattern, q *string, cursor string, limit int, sort domain.LiveSort) (domain.LiveResponse, error) {
+func (s *Service) ListLive(ctx context.Context, actor domain.Actor, parkID, shedID, movementState, mappingState, pattern, signalState, q *string, cursor string, limit int, sort domain.LiveSort) (domain.LiveResponse, error) {
 	if actor.TenantID == "" {
 		return domain.LiveResponse{}, fmt.Errorf("actor tenant_id required")
+	}
+
+	if signalState != nil {
+		cohortTags, err := s.repo.ListTagsLatestPage(ctx, actor.TenantID, parkID, shedID, movementState, mappingState, pattern, q, "", liveSignalCohortLimit, sort)
+		if err != nil {
+			s.log.Error("failed to list tags latest for signal filter", "error", err)
+			return domain.LiveResponse{}, fmt.Errorf("list tags failed: %w", err)
+		}
+		cohortItems := s.enrichTagsBatch(ctx, actor.TenantID, cohortTags, nil)
+		applyRiskSignals(cohortItems, riskGroupStatsFromItems(cohortItems))
+
+		filtered := make([]domain.LiveItem, 0, len(cohortItems))
+		for _, item := range cohortItems {
+			if item.RiskState != nil && *item.RiskState == *signalState {
+				filtered = append(filtered, item)
+			}
+		}
+		summary := summaryFromItems(filtered)
+		if cursor != "" {
+			start := len(filtered)
+			for i, item := range filtered {
+				if item.TagID == cursor {
+					start = i + 1
+					break
+				}
+			}
+			filtered = filtered[start:]
+		}
+		nextCursor := (*string)(nil)
+		if len(filtered) > limit {
+			next := filtered[limit-1].TagID
+			nextCursor = &next
+			filtered = filtered[:limit]
+		}
+		return domain.LiveResponse{
+			Summary:    summary,
+			Items:      filtered,
+			NextCursor: nextCursor,
+		}, nil
 	}
 
 	tags, summary, nextCursor, err := s.repo.ListTagsLatest(
@@ -175,7 +218,14 @@ func (s *Service) ListLive(ctx context.Context, actor domain.Actor, parkID, shed
 		return domain.LiveResponse{}, fmt.Errorf("list tags failed: %w", err)
 	}
 
-	items := s.enrichTagsBatch(ctx, actor.TenantID, tags)
+	cohortTags, err := s.repo.ListTagsLatestPage(ctx, actor.TenantID, parkID, shedID, movementState, mappingState, pattern, q, "", liveSignalCohortLimit)
+	if err != nil {
+		s.log.Warn("failed to fetch live cohort for signal comparisons", "error", err)
+		cohortTags = tags
+	}
+	cohortItems := s.enrichTagsBatch(ctx, actor.TenantID, cohortTags, nil)
+	applyRiskSignals(cohortItems, riskGroupStatsFromItems(cohortItems))
+	items := s.enrichTagsBatch(ctx, actor.TenantID, tags, riskGroupStatsFromItems(cohortItems))
 
 	return domain.LiveResponse{
 		Summary:    summary,
@@ -467,7 +517,7 @@ func (s *Service) GetInsights(ctx context.Context, actor domain.Actor) (domain.I
 // enrichTagsBatch enriches a page of tags with animal mapping and location data using batched
 // lookups (one query per lookup kind for the whole page, never one per row -- AGENTS.md
 // operational read model contract).
-func (s *Service) enrichTagsBatch(ctx context.Context, tenantID string, tags []domain.TagLatest) []domain.LiveItem {
+func (s *Service) enrichTagsBatch(ctx context.Context, tenantID string, tags []domain.TagLatest, groupStats map[string]riskGroupStats) []domain.LiveItem {
 	items := make([]domain.LiveItem, 0, len(tags))
 	if len(tags) == 0 {
 		return items
@@ -591,6 +641,7 @@ func (s *Service) enrichTagsBatch(ctx context.Context, tenantID string, tags []d
 			AccelerometerSensorOK: tag.AccelerometerSensorOK,
 			MappingState:          tag.MappingState,
 			GapDelta:              tag.GapDelta,
+			RiskReasons:           []string{},
 		}
 
 		if baseline, ok := baselines[tag.TagID]; ok {
@@ -623,6 +674,9 @@ func (s *Service) enrichTagsBatch(ctx context.Context, tenantID string, tags []d
 				item.MappedBy = gd.MappedBy1
 				item.MappedAt = gd.MappedAt1
 				item.AnimalIdentifier2 = gd.AnimalIdentifier2
+				item.Breed = gd.Breed
+				item.Sex = gd.Sex
+				item.AgeDays = gd.AgeDays
 				item.ParkID = gd.ParkID
 				item.ShedID = gd.ShedID
 				if gd.ShedID != nil {
@@ -652,7 +706,172 @@ func (s *Service) enrichTagsBatch(ctx context.Context, tenantID string, tags []d
 		items = append(items, item)
 	}
 
+	if groupStats != nil {
+		applyRiskSignals(items, groupStats)
+	}
 	return items
+}
+
+type riskGroupStats struct {
+	motionMedian *float64
+	tempMedian   *float64
+}
+
+func riskGroupStatsFromItems(items []domain.LiveItem) map[string]riskGroupStats {
+	groups := make(map[string][]domain.LiveItem)
+	for _, item := range items {
+		if item.ShedID == nil || *item.ShedID == "" {
+			continue
+		}
+		groups[*item.ShedID] = append(groups[*item.ShedID], item)
+	}
+
+	groupStats := make(map[string]riskGroupStats, len(groups))
+	for shedID, groupItems := range groups {
+		var motions []float64
+		var temps []float64
+		for _, item := range groupItems {
+			if item.MotionDelta != nil && !item.GapDelta {
+				motions = append(motions, float64(*item.MotionDelta))
+			}
+			if item.TagTemperatureC != nil {
+				temps = append(temps, *item.TagTemperatureC)
+			}
+		}
+		groupStats[shedID] = riskGroupStats{
+			motionMedian: medianFloat(motions),
+			tempMedian:   medianFloat(temps),
+		}
+	}
+	return groupStats
+}
+
+func applyRiskSignals(items []domain.LiveItem, groupStats map[string]riskGroupStats) {
+	for i := range items {
+		reasons := make([]string, 0, 4)
+		score := 0
+		item := &items[i]
+
+		if item.MotionDelta != nil && item.BaselineDelta != nil && *item.BaselineDelta > 0 && !item.GapDelta {
+			baselineWindow := float64(*item.BaselineDelta) * 3
+			if item.MotionWindowSeconds != nil && *item.MotionWindowSeconds > 0 {
+				baselineWindow = float64(*item.BaselineDelta) * (float64(*item.MotionWindowSeconds) / 300)
+			}
+			pct := (float64(*item.MotionDelta) - baselineWindow) / baselineWindow * 100
+			item.OwnMotionDeltaPct = &pct
+			if pct <= -70 {
+				score += 2
+				reasons = append(reasons, "motion far below own baseline")
+			} else if pct >= 150 {
+				score++
+				reasons = append(reasons, "motion spike vs own baseline")
+			}
+		}
+
+		if item.ShedID != nil {
+			if stats, ok := groupStats[*item.ShedID]; ok {
+				if item.MotionDelta != nil && stats.motionMedian != nil && *stats.motionMedian > 0 && !item.GapDelta {
+					pct := (float64(*item.MotionDelta) - *stats.motionMedian) / *stats.motionMedian * 100
+					item.GroupMotionDeltaPct = &pct
+					if pct <= -70 {
+						score++
+						reasons = append(reasons, "motion lower than pen group")
+					}
+				}
+				if item.TagTemperatureC != nil && stats.tempMedian != nil {
+					delta := *item.TagTemperatureC - *stats.tempMedian
+					item.GroupTempDeltaC = &delta
+					if delta >= 1.5 {
+						score++
+						reasons = append(reasons, "tag temperature high vs pen group")
+					}
+				}
+			}
+		}
+
+		if item.PatternState != nil {
+			switch *item.PatternState {
+			case "inactive", "missing":
+				score += 2
+				reasons = append(reasons, "persistent abnormal activity")
+			case "quiet_watch", "spike":
+				score++
+				reasons = append(reasons, "activity pattern needs watch")
+			}
+		}
+		if item.SensorState != nil && *item.SensorState == "abnormal" {
+			score++
+			reasons = append(reasons, "sensor abnormal")
+		}
+
+		state := "low"
+		if score >= 3 {
+			state = "high"
+		} else if score > 0 {
+			state = "watch"
+		}
+		item.RiskState = &state
+		item.RiskReasons = reasons
+	}
+}
+
+func medianFloat(values []float64) *float64 {
+	if len(values) == 0 {
+		return nil
+	}
+	sort.Float64s(values)
+	mid := len(values) / 2
+	var out float64
+	if len(values)%2 == 0 {
+		out = (values[mid-1] + values[mid]) / 2
+	} else {
+		out = values[mid]
+	}
+	if math.IsNaN(out) || math.IsInf(out, 0) {
+		return nil
+	}
+	return &out
+}
+
+func summaryFromItems(items []domain.LiveItem) domain.Summary {
+	var summary domain.Summary
+	summary.TagsSeen = len(items)
+	mappedGoats := make(map[string]struct{})
+	for _, item := range items {
+		switch item.MappingState {
+		case "mapped":
+			if item.GoatID != nil && *item.GoatID != "" {
+				mappedGoats[*item.GoatID] = struct{}{}
+			} else {
+				summary.MappedAnimals++
+			}
+		case "unmapped":
+			summary.UnmappedTags++
+		}
+		if item.MovementState != nil {
+			switch *item.MovementState {
+			case "moving":
+				summary.Moving++
+			case "quiet":
+				summary.Quiet++
+			case "not_moving":
+				summary.NotMoving++
+			case "stale":
+				summary.Stale++
+			}
+		}
+		if item.SignalState != nil && *item.SignalState == "weak" {
+			summary.WeakSignal++
+		}
+		if item.BatteryState != nil && (*item.BatteryState == "low" || *item.BatteryState == "critical") {
+			summary.LowBattery++
+		}
+		if item.SensorState != nil && *item.SensorState == "abnormal" {
+			summary.SensorAbnormal++
+		}
+	}
+	summary.MappedAnimals += len(mappedGoats)
+	return summary
 }
 
 // nullableEnum converts a computed state string to a pointer, treating "" and the domain

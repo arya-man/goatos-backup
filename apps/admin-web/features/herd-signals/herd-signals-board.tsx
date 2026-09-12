@@ -98,6 +98,7 @@ function fetchForTab(params: HerdSignalsParams): Promise<ApiResult<HerdSignalsLi
     limit: params.limit,
     sort: params.sort,
     sortDir: params.sortDir,
+    signalState: params.risk,
   };
   if (params.tab === "animals") {
     return getHerdSignalsLive({ ...common, mappingState: "mapped", movementState: params.movementState, pattern: params.pattern });

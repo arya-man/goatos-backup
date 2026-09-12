@@ -5,6 +5,7 @@ import type {
   HerdSignalMappingState,
   HerdSignalMovementState,
   HerdSignalPatternState,
+  HerdSignalRiskState,
   HerdSignalSensorState,
   HerdSignalTone,
 } from "@/lib/api/herd-signals";
@@ -50,6 +51,18 @@ export const MAPPING_TONE: Record<HerdSignalMappingState, Tone> = {
   mapped: "ok",
   unmapped: "mut",
   conflict: "dng",
+};
+
+export const RISK_LABEL: Record<HerdSignalRiskState, string> = {
+  low: "Low attention",
+  watch: "Watch",
+  high: "High attention",
+};
+
+export const RISK_TONE: Record<HerdSignalRiskState, Tone> = {
+  low: "ok",
+  watch: "warn",
+  high: "dng",
 };
 
 export const BATTERY_LABEL: Record<HerdSignalBatteryState, string> = {

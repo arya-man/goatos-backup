@@ -81,7 +81,7 @@ func (s *Service) ExportCSV(ctx context.Context, actor domain.Actor, parkID, she
 		// Same enrichment the live view applies (animal display id, shed/park names, battery
 		// trend composition), batched per page -- so a cell in this file holds exactly what the
 		// same cell on screen holds.
-		items := s.enrichTagsBatch(ctx, actor.TenantID, tags)
+		items := s.enrichTagsBatch(ctx, actor.TenantID, tags, nil)
 
 		for _, item := range items {
 			if err := csvutil.WriteSafeRow(writer, exportRow(item)); err != nil {

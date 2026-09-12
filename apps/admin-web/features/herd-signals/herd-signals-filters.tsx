@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { MOVEMENT_LABEL, MAPPING_LABEL, PATTERN_LABEL } from "./format";
+import { MOVEMENT_LABEL, MAPPING_LABEL, PATTERN_LABEL, RISK_LABEL } from "./format";
 import { useHerdSignalsNav } from "./herd-signals-nav-context";
 import { HerdSignalsKpiChip } from "./herd-signals-kpis";
 import { herdSignalsHref, type HerdSignalsParams } from "./params";
@@ -22,6 +22,7 @@ const MAPPING_OPTIONS = Object.entries(MAPPING_FILTER_LABEL) as [keyof typeof MA
 const PATTERN_OPTIONS: [string, string][] = (["inactive", "quiet_watch", "spike", "recovered", "missing"] as const).map(
   (key) => [key, PATTERN_LABEL[key]],
 );
+const RISK_OPTIONS: [string, string][] = (["high", "watch", "low"] as const).map((key) => [key, RISK_LABEL[key]]);
 
 export function HerdSignalsFilters({
   params,
@@ -64,7 +65,7 @@ export function HerdSignalsFilters({
         </svg>
         <input
           type="search"
-          placeholder="Search animal, tag ID, BLE MAC, pen or gateway"
+          placeholder="Search animal, RFID, smart tag, BLE MAC, pen, breed or gateway"
           value={q}
           onChange={(event) => onSearchChange(event.target.value)}
           autoComplete="off"
@@ -146,6 +147,22 @@ export function HerdSignalsFilters({
         >
           <option value="">Any pattern</option>
           {PATTERN_OPTIONS.map(([key, label]) => (
+            <option key={key} value={key}>
+              {label}
+            </option>
+          ))}
+        </select>
+      </span>
+
+      <span className="fsel">
+        Watchlist
+        <select
+          aria-label="Watchlist"
+          value={params.risk ?? ""}
+          onChange={(event) => go(herdSignalsHref(params, { hs_risk: event.target.value || undefined }))}
+        >
+          <option value="">Any watchlist</option>
+          {RISK_OPTIONS.map(([key, label]) => (
             <option key={key} value={key}>
               {label}
             </option>

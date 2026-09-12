@@ -23,6 +23,7 @@ import {
 export type HerdSignalMovementState = "moving" | "low" | "quiet" | "not_moving" | "stale";
 export type HerdSignalMappingState = "mapped" | "unmapped" | "conflict";
 export type HerdSignalPatternState = "no_movement" | "quiet_watch" | "inactive" | "missing" | "spike" | "recovered" | "normal";
+export type HerdSignalRiskState = "low" | "watch" | "high";
 export type HerdSignalTone = "strong" | "ok" | "weak";
 // Backend contract as of the live-stack round: four states, not two. A stale two-state DTO here
 // makes every real "watch"/"critical" reading resolve to undefined label/tone client-side.
@@ -63,6 +64,9 @@ export interface HerdSignalItem {
   display_id: string | null;
   animal_identifier_1: string | null;
   animal_identifier_2: string | null;
+  breed: string | null;
+  sex: string | null;
+  age_days: number | null;
   park_id: string | null;
   park_name: string | null;
   shed_id: string | null;
@@ -84,6 +88,11 @@ export interface HerdSignalItem {
   movement_state: HerdSignalMovementState | null;
   pattern_state: HerdSignalPatternState | null;
   baseline_delta: number | null;
+  risk_state: HerdSignalRiskState | null;
+  risk_reasons: string[];
+  own_motion_delta_pct: number | null;
+  group_motion_delta_pct: number | null;
+  group_temp_delta_c: number | null;
   sensor_state: HerdSignalSensorState | null;
   temperature_sensor_ok: boolean | null;
   accelerometer_sensor_ok: boolean | null;
@@ -185,6 +194,7 @@ export interface HerdSignalsLiveParams {
   // alerting partition (pattern_state <> 'normal'). The Alerts tab uses it so the alerting subset
   // is selected by the query, not by filtering whatever rows happen to be on the fetched page.
   pattern?: HerdSignalPatternState | "not_normal";
+  signalState?: HerdSignalRiskState;
   q?: string;
   cursor?: string;
   limit?: number;
@@ -210,6 +220,7 @@ export async function getHerdSignalsLive(params: HerdSignalsLiveParams = {}): Pr
           movement_state: params.movementState,
           mapping_state: params.mappingState,
           pattern: params.pattern,
+          signal_state: params.signalState,
           q: params.q,
           cursor: params.cursor,
           limit: params.limit,
@@ -347,7 +358,7 @@ export type HerdSignalActivityResponse = {
 // (backend/migrations/postgres 000197).
 // ---------------------------------------------------------------------------
 
-export type HerdSignalIdentifierType = "animal_identifier_1" | "animal_identifier_2" | "temporary_tag";
+export type HerdSignalIdentifierType = "smart_ble_tag" | "animal_identifier_1" | "animal_identifier_2" | "temporary_tag";
 
 export interface HerdSignalsBindTagMappingRequest {
   goat_id: string;

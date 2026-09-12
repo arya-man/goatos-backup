@@ -81,3 +81,24 @@ test("Quiet KPI copy matches its movement-state filter", () => {
   assert.match(kpis, /detail: \(\) => "motion-count delta 1 to 9 in last 15 min"/, "Quiet card must describe quiet only, not low or zero deltas");
   assert.doesNotMatch(kpis, /detail: \(\) => "low or zero delta this window"/, "Quiet card must not describe states outside movement_state=quiet");
 });
+
+test("live table exposes own-baseline and group-comparison risk signals", () => {
+  const params = read("./params.ts");
+  assert.match(params, /hs_risk/, "Watchlist filter must round-trip through the live monitor URL");
+
+  const filters = read("./herd-signals-filters.tsx");
+  assert.match(filters, /aria-label="Watchlist"/, "Watchlist filter must be available in the filter bar");
+
+  const table = read("./herd-signals-table.tsx");
+  assert.match(table, /Watchlist rules/, "Watchlist column needs explanatory copy");
+  assert.match(table, /own_motion_delta_pct/, "Risk cell must show own-baseline motion comparison");
+  assert.match(table, /group_motion_delta_pct/, "Risk cell must show same-pen group motion comparison");
+  assert.match(table, /group_temp_delta_c/, "Risk cell must show same-pen temperature comparison");
+  assert.match(table, /hs_risk: undefined/, "Clear filters must clear the signal shortlist filter");
+
+  const api = read("../../lib/api/herd-signals.ts");
+  assert.match(api, /signal_state: params\.signalState/, "Signal shortlist filter must be sent to the live API");
+  for (const field of ["risk_state", "risk_reasons", "own_motion_delta_pct", "group_motion_delta_pct", "group_temp_delta_c"]) {
+    assert.match(api, new RegExp(field), `${field} must be exposed on HerdSignalItem`);
+  }
+});

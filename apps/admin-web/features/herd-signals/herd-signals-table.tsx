@@ -15,6 +15,8 @@ import {
   MOVEMENT_TONE,
   PATTERN_LABEL,
   PATTERN_TONE,
+  RISK_LABEL,
+  RISK_TONE,
   SIGNAL_LABEL,
   fmtBleMac,
   SIGNAL_TONE,
@@ -29,7 +31,7 @@ import {
 } from "./format";
 import { one } from "@/lib/search-params";
 import { herdSignalsHref, type HerdSignalsParams, type HerdSignalsSortKey } from "./params";
-import { matchesResidualKpi } from "./herd-signals-row-filter";
+import { matchesClientSideFilters } from "./herd-signals-row-filter";
 import { HerdSignalsDrawer } from "./herd-signals-drawer";
 import { HerdSignalsHistoryFullscreen } from "./herd-signals-history-fullscreen";
 import { HerdSignalsAnimalsHead, HerdSignalsAnimalsRow } from "./herd-signals-animals-table";
@@ -42,6 +44,15 @@ function animalPrimaryLabel(item: HerdSignalItem): string {
   return item.animal_identifier_1 || item.animal_identifier_2 || item.display_id || item.goat_id || "Unmapped";
 }
 
+function animalRfidLine(item: HerdSignalItem): string {
+  return [item.animal_identifier_1, item.animal_identifier_2].filter(Boolean).join(" / ");
+}
+
+function animalProfileLine(item: HerdSignalItem): string {
+  const age = item.age_days == null ? null : item.age_days < 60 ? `${item.age_days}d` : `${Math.floor(item.age_days / 30)}mo`;
+  return [item.breed, item.sex, age].filter(Boolean).join(" · ");
+}
+
 function isInteractiveTarget(target: EventTarget | null): boolean {
   return target instanceof Element && Boolean(target.closest("a,button,input,select,textarea,[role='button']"));
 }
@@ -52,6 +63,8 @@ const ACTIVITY_RULES =
   "Activity is the current 15-minute motion-count delta. Moving: delta 100 or more. Low: 10 to 99. Quiet: 1 to 9. No movement: delta 0 while packets are still received. Stale: no recent packet.";
 const PATTERN_RULES =
   "Pattern is the broader classification for the tag. Normal activity means the current deltas are within that tag's baseline band. No movement now means delta 0 in the current 15-minute window. Quiet watch and inactive require low or zero deltas to persist.";
+const RISK_RULES =
+  "Watchlist combines this animal's motion against its own 15-minute-scaled baseline, same-pen motion and tag-temperature comparison, persistent activity pattern, and sensor state. It is not a fever diagnosis.";
 const TABLE_SORT_NOTE =
   "Rows are sorted by the server across the filtered result. Smart tag is the default so live refresh keeps the visible order steady.";
 
@@ -119,7 +132,7 @@ export function HerdSignalsTable({
   const filterSignature = herdSignalsHref(params, {});
   const walk = useSyncExternalStore(subscribePagerWalk, readPagerWalk, readServerPagerWalk);
   const stack = walk.signature === filterSignature ? walk.stack : [];
-  const visible = items.filter((item) => matchesResidualKpi(item, params.kpi));
+  const visible = items.filter((item) => matchesClientSideFilters(item, params));
   const drawerCloseHref = herdSignalsHref(params, {});
   const rowHref = (item: HerdSignalItem) => `${herdSignalsHref(params, { hs_tag: item.tag_id })}#hs-tag-${encodeURIComponent(item.tag_id)}`;
 
@@ -300,6 +313,10 @@ export function HerdSignalsTable({
                 Pattern
                 <InfoTip label="Pattern rules" text={PATTERN_RULES} />
               </th>
+              <th>
+                Watchlist
+                <InfoTip label="Watchlist rules" text={RISK_RULES} />
+              </th>
               <th>Battery</th>
               {sortableHead("Last seen", "last_seen", undefined, "When the backend last received a packet from this tag. Sorting by this can move rows during live refresh.")}
               <th>Status</th>
@@ -336,6 +353,8 @@ export function HerdSignalsTable({
                       {item.display_id && (item.animal_identifier_1 || item.animal_identifier_2) ? `${item.display_id} · ` : ""}
                       {item.mapping_state === "conflict" ? "mapping conflict" : MAPPING_LABEL[item.mapping_state].toLowerCase()}
                     </small>
+                    {animalRfidLine(item) ? <small className="mono faint">{animalRfidLine(item)}</small> : null}
+                    {animalProfileLine(item) ? <small className="faint">{animalProfileLine(item)}</small> : null}
                   </td>
                   <td data-l="Smart tag">
                     <span className="mono">{item.tag_id}</span>
@@ -352,7 +371,7 @@ export function HerdSignalsTable({
                     ) : null}
                   </td>
                   <td data-l="Gateway" className="mono">{item.gateway_id || "—"}</td>
-                  <td data-l="Signal">
+                  <td data-l="Watchlist">
                     {item.signal_state ? (
                       <Tag tone={SIGNAL_TONE[item.signal_state]} title={SIGNAL_LABEL[item.signal_state]}>
                         {fmtRssi(item.rssi_dbm)}
@@ -389,6 +408,19 @@ export function HerdSignalsTable({
                     ) : (
                       "—"
                     )}
+                  </td>
+                  <td data-l="Signal">
+                    {item.risk_state ? <Tag tone={RISK_TONE[item.risk_state]}>{RISK_LABEL[item.risk_state]}</Tag> : "—"}
+                    {item.risk_reasons?.length ? <small className="faint">{item.risk_reasons.slice(0, 2).join("; ")}</small> : null}
+                    <small className="faint">
+                      {[
+                        item.own_motion_delta_pct == null ? null : `own ${Math.round(item.own_motion_delta_pct)}%`,
+                        item.group_motion_delta_pct == null ? null : `group ${Math.round(item.group_motion_delta_pct)}%`,
+                        item.group_temp_delta_c == null ? null : `temp ${item.group_temp_delta_c >= 0 ? "+" : ""}${item.group_temp_delta_c.toFixed(1)}°C`,
+                      ]
+                        .filter(Boolean)
+                        .join(" · ") || "—"}
+                    </small>
                   </td>
                   <td data-l="Battery">
                     {fmtBatteryMv(item.battery_mv)}
@@ -451,7 +483,7 @@ function HerdSignalsTableEmpty({ params, tagsSeen }: { params: HerdSignalsParams
             : "Filters exclude every row in scope."}
         </p>
         <div className="eact">
-          <Link href={herdSignalsHref(params, { hs_shed: undefined, hs_q: undefined, hs_move: undefined, hs_map: undefined, hs_pattern: undefined, hs_kpi: undefined })} className="btn sm">
+          <Link href={herdSignalsHref(params, { hs_shed: undefined, hs_q: undefined, hs_move: undefined, hs_map: undefined, hs_pattern: undefined, hs_risk: undefined, hs_kpi: undefined })} className="btn sm">
             Clear filters
           </Link>
         </div>

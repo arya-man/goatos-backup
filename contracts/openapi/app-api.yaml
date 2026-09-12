@@ -100,6 +100,10 @@ paths:
         - name: pattern
           in: query
           schema: { $ref: '#/components/schemas/HerdSignalPatternFilter' }
+        - name: signal_state
+          in: query
+          schema: { $ref: '#/components/schemas/HerdSignalRiskState' }
+          description: Server-side signal shortlist filter computed before pagination.
         - name: q
           in: query
           schema: { type: string }
@@ -15352,6 +15356,9 @@ components:
     HerdSignalPatternState:
       type: string
       enum: [no_movement, quiet_watch, inactive, missing, spike, recovered, normal]
+    HerdSignalRiskState:
+      type: string
+      enum: [low, watch, high]
     HerdSignalPatternFilter:
       type: string
       description: >-
@@ -15426,6 +15433,9 @@ components:
         display_id: { type: string, nullable: true }
         animal_identifier_1: { type: string, nullable: true, description: Most recent active ear-tag value (non-BLE). }
         animal_identifier_2: { type: string, nullable: true, description: Second most recent active ear-tag value (non-BLE). }
+        breed: { type: string, nullable: true }
+        sex: { type: string, nullable: true }
+        age_days: { type: integer, nullable: true }
         park_id: { type: string, format: uuid, nullable: true }
         park_name: { type: string, nullable: true }
         shed_id: { type: string, format: uuid, nullable: true }
@@ -15452,6 +15462,11 @@ components:
         movement_state: { allOf: [{ $ref: '#/components/schemas/HerdSignalMovementState' }], nullable: true }
         pattern_state: { allOf: [{ $ref: '#/components/schemas/HerdSignalPatternState' }], nullable: true }
         baseline_delta: { type: integer, format: int64, nullable: true, description: Per-animal p75 24h baseline delta (300s tier). }
+        risk_state: { allOf: [{ $ref: '#/components/schemas/HerdSignalRiskState' }], nullable: true }
+        risk_reasons: { type: array, items: { type: string } }
+        own_motion_delta_pct: { type: number, nullable: true, description: Current motion delta percent above/below this animal's own 24h p75 baseline scaled to the current motion window. }
+        group_motion_delta_pct: { type: number, nullable: true, description: Current motion delta percent above/below same-pen live cohort median. }
+        group_temp_delta_c: { type: number, nullable: true, description: Tag temperature degrees Celsius above/below same-pen live cohort median. }
         sensor_state: { allOf: [{ $ref: '#/components/schemas/HerdSignalSensorState' }], nullable: true }
         temperature_sensor_ok: { type: boolean, nullable: true }
         accelerometer_sensor_ok: { type: boolean, nullable: true }
@@ -15466,7 +15481,7 @@ components:
             as an ordinary delta.
         mapped_by: { type: string, nullable: true, description: User ID of the operator who bound this tag to an identifier (mapping provenance). }
         mapped_at: { type: string, format: date-time, nullable: true, description: Server timestamp when this tag was bound to an identifier (mapping provenance). }
-      required: [tag_id, tag_mac, goat_id, display_id, park_id, park_name, shed_id, shed_name, partition_label, operational_location_display, gateway_id, last_seen_at, rssi_dbm, signal_state, battery_mv, battery_state, battery_trend, tag_temperature_c, motion_count, motion_delta, motion_delta_1h, motion_window_seconds, movement_state, pattern_state, baseline_delta, sensor_state, temperature_sensor_ok, accelerometer_sensor_ok, mapping_state, gap_delta]
+      required: [tag_id, tag_mac, goat_id, display_id, animal_identifier_1, animal_identifier_2, breed, sex, age_days, park_id, park_name, shed_id, shed_name, partition_label, operational_location_display, gateway_id, last_seen_at, rssi_dbm, signal_state, battery_mv, battery_state, battery_trend, tag_temperature_c, motion_count, motion_delta, motion_delta_1h, motion_window_seconds, movement_state, pattern_state, baseline_delta, risk_state, risk_reasons, own_motion_delta_pct, group_motion_delta_pct, group_temp_delta_c, sensor_state, temperature_sensor_ok, accelerometer_sensor_ok, mapping_state, gap_delta]
     HerdSignalsLiveResponse:
       type: object
       properties:
@@ -15720,8 +15735,8 @@ components:
             tag's packets resolving to no animal.
         identifier_type:
           type: string
-          enum: [animal_identifier_1, animal_identifier_2, temporary_tag]
-          description: Slot the tag is bound in. Defaults to animal_identifier_2 -- a smart tag is normally the second thing an animal carries.
+          enum: [smart_ble_tag, animal_identifier_1, animal_identifier_2, temporary_tag]
+          description: Identifier type the smart tag is bound in. Defaults to smart_ble_tag, the nullable third physical identifier beside the two RFID slots.
       required: [goat_id, tag_id]
     HerdSignalsReplaceTagMappingRequest:
       type: object
@@ -15732,7 +15747,7 @@ components:
         new_tag_mac: { type: string }
         identifier_type:
           type: string
-          enum: [animal_identifier_1, animal_identifier_2, temporary_tag]
+          enum: [smart_ble_tag, animal_identifier_1, animal_identifier_2, temporary_tag]
       required: [goat_id, new_tag_id]
     HerdSignalsUnmapTagMappingRequest:
       type: object
@@ -24508,6 +24523,7 @@ components:
       enum:
         - animal_identifier_1
         - animal_identifier_2
+        - temporary_tag
     IdentifierStatus:
       type: string
       enum:

@@ -5837,6 +5837,8 @@ export interface components {
         HerdSignalMappingState: "mapped" | "unmapped" | "conflict";
         /** @enum {string} */
         HerdSignalPatternState: "no_movement" | "quiet_watch" | "inactive" | "missing" | "spike" | "recovered" | "normal";
+        /** @enum {string} */
+        HerdSignalRiskState: "low" | "watch" | "high";
         /**
          * @description Accepted values for the `pattern` QUERY parameter. A superset of HerdSignalPatternState: every real pattern state, plus the `not_normal` sentinel that selects the whole alerting partition server-side (pattern_state other than normal/no_movement, OR weak signal, OR low/critical battery, OR abnormal sensor, OR mapping conflict).
          *     Deliberately a SEPARATE enum from HerdSignalPatternState so a row's pattern_state stays the set of states a tag can actually be in -- no tag is ever IN state "not_normal". The Alerts view needs the partition selected in the query rather than filtered from a fetched page, because a page of rows is not the fleet.
@@ -5891,9 +5893,12 @@ export interface components {
             goat_id: string | null;
             display_id: string | null;
             /** @description Most recent active ear-tag value (non-BLE). */
-            animal_identifier_1?: string | null;
+            animal_identifier_1: string | null;
             /** @description Second most recent active ear-tag value (non-BLE). */
-            animal_identifier_2?: string | null;
+            animal_identifier_2: string | null;
+            breed: string | null;
+            sex: string | null;
+            age_days: number | null;
             /** Format: uuid */
             park_id: string | null;
             park_name: string | null;
@@ -5933,6 +5938,14 @@ export interface components {
              * @description Per-animal p75 24h baseline delta (300s tier).
              */
             baseline_delta: number | null;
+            risk_state: components["schemas"]["HerdSignalRiskState"] | null;
+            risk_reasons: string[];
+            /** @description Current motion delta percent above/below this animal's own 24h p75 baseline scaled to the current motion window. */
+            own_motion_delta_pct: number | null;
+            /** @description Current motion delta percent above/below same-pen live cohort median. */
+            group_motion_delta_pct: number | null;
+            /** @description Tag temperature degrees Celsius above/below same-pen live cohort median. */
+            group_temp_delta_c: number | null;
             sensor_state: components["schemas"]["HerdSignalSensorState"] | null;
             temperature_sensor_ok: boolean | null;
             accelerometer_sensor_ok: boolean | null;
@@ -6137,10 +6150,10 @@ export interface components {
             /** @description Optional. When the tag reports a MAC distinct from its id, that value is claimed as its own identifier row too -- the read path matches a packet by tag id OR MAC while a single identifier row carries one value, so claiming only one would leave half the tag's packets resolving to no animal. */
             tag_mac?: string;
             /**
-             * @description Slot the tag is bound in. Defaults to animal_identifier_2 -- a smart tag is normally the second thing an animal carries.
+             * @description Identifier type the smart tag is bound in. Defaults to smart_ble_tag, the nullable third physical identifier beside the two RFID slots.
              * @enum {string}
              */
-            identifier_type?: "animal_identifier_1" | "animal_identifier_2" | "temporary_tag";
+            identifier_type?: "smart_ble_tag" | "animal_identifier_1" | "animal_identifier_2" | "temporary_tag";
         };
         HerdSignalsReplaceTagMappingRequest: {
             /** Format: uuid */
@@ -6148,7 +6161,7 @@ export interface components {
             new_tag_id: string;
             new_tag_mac?: string;
             /** @enum {string} */
-            identifier_type?: "animal_identifier_1" | "animal_identifier_2" | "temporary_tag";
+            identifier_type?: "smart_ble_tag" | "animal_identifier_1" | "animal_identifier_2" | "temporary_tag";
         };
         HerdSignalsUnmapTagMappingRequest: {
             tag_id: string;
@@ -10562,7 +10575,7 @@ export interface components {
             max_retry_backoff_seconds: number;
         };
         /** @enum {string} */
-        IdentifierType: "animal_identifier_1" | "animal_identifier_2";
+        IdentifierType: "animal_identifier_1" | "animal_identifier_2" | "temporary_tag";
         /** @enum {string} */
         IdentifierStatus: "active" | "retired" | "disputed" | "duplicate" | "invalid";
         /** @enum {string} */
@@ -17066,6 +17079,8 @@ export interface operations {
                 movement_state?: components["schemas"]["HerdSignalMovementState"];
                 mapping_state?: components["schemas"]["HerdSignalMappingState"];
                 pattern?: components["schemas"]["HerdSignalPatternFilter"];
+                /** @description Server-side signal shortlist filter computed before pagination. */
+                signal_state?: components["schemas"]["HerdSignalRiskState"];
                 /** @description Free-text search over display id, tag id, MAC, shed name, gateway id. */
                 q?: string;
                 cursor?: string;

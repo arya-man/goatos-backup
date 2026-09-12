@@ -23,16 +23,18 @@ var ErrMappingNotFound = errors.New("herdsignals: not found")
 // than silently reconciled later by a read path.
 var ErrMappingConflict = errors.New("herdsignals: conflict")
 
+const SmartBLETagIdentifierType = "smart_ble_tag"
+
 // SmartTagIdentifierTypes are the goat_identifiers.identifier_type values a smart tag may be
-// bound to. Mirrors the goat_identifiers_type_check constraint (000001 + 000022); a value
+// bound to. Mirrors the goat_identifiers_type_check constraint; a value
 // outside this set is rejected in Go before it reaches the database so the caller gets a 400
 // naming the allowed set rather than a constraint-violation 500.
-var SmartTagIdentifierTypes = []string{"animal_identifier_1", "animal_identifier_2", "temporary_tag"}
+var SmartTagIdentifierTypes = []string{SmartBLETagIdentifierType, "animal_identifier_1", "animal_identifier_2", "temporary_tag"}
 
 // DefaultSmartTagIdentifierType is the slot a BLE tag lands in when the caller does not pin one.
-// animal_identifier_2 rather than _1: an animal's primary identity is its existing ear tag, and
-// a smart tag is normally the SECOND thing it carries.
-const DefaultSmartTagIdentifierType = "animal_identifier_2"
+// BLE tags are their own nullable third identifier beside the two RFID slots; using a dedicated
+// type keeps RFID history and smart-tag replacement history from being conflated.
+const DefaultSmartTagIdentifierType = SmartBLETagIdentifierType
 
 // SmartTagNormalizerVersion is the normalizer contract stamped on rows this module writes. It
 // names the identity module's canonical normalizer (strings.ToUpper(strings.TrimSpace(v)), see

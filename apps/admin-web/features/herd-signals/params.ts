@@ -1,6 +1,6 @@
 import { parseScope, scopeHref, type Scope } from "@/lib/scope";
 import { boundedInt, one, type RouteSearchParams } from "@/lib/search-params";
-import type { HerdSignalMappingState, HerdSignalMovementState, HerdSignalPatternState } from "@/lib/api/herd-signals";
+import type { HerdSignalMappingState, HerdSignalMovementState, HerdSignalPatternState, HerdSignalRiskState } from "@/lib/api/herd-signals";
 
 // URL keys owned by this page, mirroring the vaccination-live-tracker convention: park scope comes
 // from the shared top-bar scope (parseScope), everything else is a page-local `hs_*` key so this
@@ -10,6 +10,7 @@ export const HERD_SIGNALS_PATH = "/herd-signals";
 const MOVEMENT_VALUES: HerdSignalMovementState[] = ["moving", "low", "quiet", "not_moving", "stale"];
 const MAPPING_VALUES: HerdSignalMappingState[] = ["mapped", "unmapped", "conflict"];
 const PATTERN_VALUES: HerdSignalPatternState[] = ["no_movement", "quiet_watch", "inactive", "missing", "spike", "recovered", "normal"];
+const RISK_VALUES: HerdSignalRiskState[] = ["high", "watch", "low"];
 export const HERD_SIGNALS_TABS = ["live", "animals", "gateways", "alerts", "mapping", "insights"] as const;
 export type HerdSignalsTab = (typeof HERD_SIGNALS_TABS)[number];
 
@@ -31,6 +32,7 @@ export type HerdSignalsParams = {
   movementState?: HerdSignalMovementState;
   mappingState?: HerdSignalMappingState;
   pattern?: HerdSignalPatternState;
+  risk?: HerdSignalRiskState;
   kpi?: KpiFilterKey;
   cursor?: string;
   limit: number;
@@ -71,6 +73,7 @@ export function parseHerdSignalsParams(searchParams: RouteSearchParams | undefin
   const movementState = MOVEMENT_VALUES.find((value) => value === one(sp, "hs_move"));
   const mappingState = MAPPING_VALUES.find((value) => value === one(sp, "hs_map"));
   const pattern = PATTERN_VALUES.find((value) => value === one(sp, "hs_pattern"));
+  const risk = RISK_VALUES.find((value) => value === one(sp, "hs_risk"));
   const kpi = KPI_FILTER_KEYS.find((value) => value === one(sp, "hs_kpi"));
   const cursor = boundedText(one(sp, "hs_cursor"), CURSOR_MAX);
   const limit = boundedInt(one(sp, "hs_limit"), LIMIT_DEFAULT, 10, LIMIT_MAX);
@@ -87,12 +90,13 @@ export function parseHerdSignalsParams(searchParams: RouteSearchParams | undefin
     movementState,
     mappingState,
     pattern,
+    risk,
     kpi,
     cursor,
     limit,
     sort,
     sortDir,
-    hasFilter: Boolean(shedId || q || movementState || mappingState || pattern || kpi),
+    hasFilter: Boolean(shedId || q || movementState || mappingState || pattern || risk || kpi),
   };
 }
 
@@ -109,6 +113,7 @@ export function herdSignalsHref(params: HerdSignalsParams, overrides: Record<str
     hs_move: params.movementState,
     hs_map: params.mappingState,
     hs_pattern: params.pattern,
+    hs_risk: params.risk,
     hs_kpi: params.kpi,
     hs_limit: params.limit === LIMIT_DEFAULT ? undefined : String(params.limit),
     hs_sort: params.sort === "smart_tag" ? undefined : params.sort,
