@@ -26,3 +26,15 @@ assert.match(
   /@media\(max-width:860px\)\{[\s\S]*\.side\{[^}]*position:fixed[^}]*top:58px[^}]*height:calc\(100dvh - 58px\)[^}]*\}/,
   "mobile off-canvas sidebar must fill the viewport below the top bar",
 );
+
+assert.match(
+  css,
+  /@media\(max-width:860px\)\{[\s\S]*\.navscrim\.on\{[^}]*background:var\(--bg\)[^}]*\}/,
+  "mobile sidebar scrim must fully hide the previous page while the menu is open",
+);
+
+assert.match(
+  css,
+  /@media\(max-width:860px\)\{[\s\S]*\.side\{[^}]*width:100vw[^}]*background:var\(--sidebar\)[^}]*\}/,
+  "mobile sidebar must be an opaque full-width menu instead of a narrow overlay over page content",
+);

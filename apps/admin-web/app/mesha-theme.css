@@ -2236,7 +2236,8 @@
     .brand small{display:none}
     .search{display:none}
     .parkmenu:not(.on){display:none}
-    .side{position:fixed;left:0;top:58px;height:calc(100dvh - 58px);max-height:none;z-index:46;display:none;transform:none;box-shadow:8px 0 34px rgba(0,0,0,.45)}
+    .navscrim.on{background:var(--bg)}
+    .side{position:fixed;left:0;top:58px;width:100vw;height:calc(100dvh - 58px);max-height:none;z-index:46;display:none;transform:none;background:var(--sidebar);box-shadow:8px 0 34px rgba(0,0,0,.45)}
     .side.open{display:flex}
     /* Off-canvas nav rows stay >=40px tap targets on touch widths. */
     .side .nav,.side .leaf,.side .ggrp{min-height:40px}
