@@ -628,8 +628,8 @@ func (c *VerificationEventConsumer) handleVerdictApproved(ctx context.Context, p
 	// with an internal module word. When a producer sent no subject at all, the dose label is
 	// still resolved for a vaccination item so the fallback names the vaccine, not just the shed.
 	noun := taskNoun(p.Category, p.Module)
-	approvedTitle := noun + " verified"
-	approvedBody := c.approvedSubjectLine(ctx, tenantID, p, noun, parkID) + " — video verified."
+	approvedTitle, approvedSuffix := approvedCopy(noun, p.Module)
+	approvedBody := c.approvedSubjectLine(ctx, tenantID, p, noun, parkID) + approvedSuffix
 
 	eventKey := EventVerificationVerdictApproved + ":" + itemID
 	_, err = c.queue.QueueRoleNotifications(ctx, calendarports.QueueRoleNotifications{

@@ -126,8 +126,8 @@ func TestLifecyclePushesLeadWithTheItemsOwnSubject(t *testing.T) {
 		{
 			name: "approved", event: EventVerificationVerdictApproved,
 			notifType: "verification_approved",
-			wantTitle: "Pen move verified",
-			wantBody:  head + " — video verified.",
+			wantTitle: "Pen move completed",
+			wantBody:  head + " — video verified, work complete.",
 		},
 		{
 			name: "rework/no reason", event: EventVerificationVerdictRework,
@@ -183,11 +183,13 @@ func TestLifecycleTitleIsTheTaskNotTheModule(t *testing.T) {
 		wantTitle, wantBody       string
 	}{
 		{"pc_care", "pc_hoof_trimming", "Hoof Trimming · Mandela 1 - Part 6",
-			"Hoof trimming verified", "Hoof Trimming · Mandela 1 - Part 6 (Coimbatore) — video verified."},
+			"Hoof trimming completed", "Hoof Trimming · Mandela 1 - Part 6 (Coimbatore) — video verified, work complete."},
 		{"health", "health_kids", "Day 3 · Pneumonia · G-1042 · Castro 2",
-			"Treatment verified", "Day 3 · Pneumonia · G-1042 · Castro 2 (Coimbatore) — video verified."},
+			"Treatment completed", "Day 3 · Pneumonia · G-1042 · Castro 2 (Coimbatore) — video verified, work complete."},
 		{"feed", "feed_packing", "Session 2 · Castro 1",
-			"Feed packing verified", "Session 2 · Castro 1 (Coimbatore) — video verified."},
+			"Feed packing completed", "Session 2 · Castro 1 (Coimbatore) — video verified, work complete."},
+		// Weighing keeps "verified": the bucket is CLOSED separately, and the weighing consumer
+		// announces "Weighing pen complete" itself once every video is verified.
 		{"weighing", "weighing_proof", "Whole pen · Godel 2 - Part 1",
 			"Weighing verified", "Whole pen · Godel 2 - Part 1 (Coimbatore) — video verified."},
 	}

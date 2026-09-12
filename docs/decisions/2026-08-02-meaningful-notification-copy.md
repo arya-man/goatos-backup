@@ -130,6 +130,15 @@ Body:   <item subject> (<park>) — <state sentence>
   line the verifier's queue shows. A subject-less item (feed transport, by
   design) degrades to `<task noun> · <pen>`; a subject-less vaccination
   approval still names its dose from the sop task (`ET+TT · Shed A (CPT)`).
+- **Approve says "completed" where approve is the last step** (maintainer, same
+  day: "rather than showing it's verified show it's completed, something like
+  shifting completed"). A pen move, a packed bag, a treatment, a hoof trimming
+  is DONE once the verifier accepts the video, so the push reads
+  `Pen move completed · … — video verified, work complete.` Two modules keep
+  `… verified`: **weighing** (the bucket is CLOSED separately, and the weighing
+  consumer already announces "Weighing pen complete") and **vaccination**
+  (leadership closes after approve and the operator gets "… closed"). Rule:
+  `notificationbridge.approvedCopy`.
 - `pendingModuleProfile` keeps routing only (duty module, director seat,
   screens/targets, `message_key` prefix). It carries no copy any more, so the
   approved/closed wording cannot drift from pending again.

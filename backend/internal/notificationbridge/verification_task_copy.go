@@ -88,3 +88,18 @@ func verificationSubjectLine(subject, noun, shedName, partitionLabel, parkName s
 	}
 	return head
 }
+
+// approvedCopy is the approve push's title and body suffix (maintainer decision 2026-09-12,
+// second half): where the verifier's approve is the LAST step, the farm word is "completed", not
+// "verified" -- a pen move whose video was accepted is a pen move that is done. Two modules keep
+// "verified" because approve is NOT their last step: weighing still has to be CLOSED (its own
+// verb, and the weighing consumer already pushes "Weighing pen complete" once every video is in),
+// and vaccination has a leadership close after approve that pushes "... closed" to the operator.
+// Saying "completed" on those would announce completion twice, the first time falsely.
+func approvedCopy(noun, module string) (title, bodySuffix string) {
+	switch strings.ToLower(strings.TrimSpace(module)) {
+	case legacyVaccinationSourceModule, moduleWeighing:
+		return noun + " verified", " — video verified."
+	}
+	return noun + " completed", " — video verified, work complete."
+}

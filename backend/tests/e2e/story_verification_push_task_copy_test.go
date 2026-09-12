@@ -135,8 +135,9 @@ func TestKernelStory_VerificationPushCopyIsTaskLevel(t *testing.T) {
 
 	story.Step("The verifier approves; the approved push carries the SAME subject",
 		"verification.RecordVerdict(approved) writes verification.verdict.approved to the outbox; "+
-			"relayed through the same bus, the approved push must read 'Pen move verified' with the "+
-			"movement in the body -- the exact push that used to say 'counts proof for <pen> is verified.'")
+			"relayed through the same bus, the approved push must read 'Pen move completed' with the "+
+			"movement in the body -- the exact push that used to say 'counts proof for <pen> is verified.' "+
+			"Approve is the LAST step of a pen move, so the farm word is completed, not verified.")
 	rowVersion := fx.countRows(`SELECT row_version FROM verification_items WHERE tenant_id=$1 AND item_id=$2`, fxTenant, itemID)
 	if _, err := verification.RecordVerdict(ctx, verificationdomain.Verdict{
 		TenantID: fxTenant, ItemID: itemID, Decision: verificationdomain.DecisionApproved,
@@ -154,16 +155,16 @@ func TestKernelStory_VerificationPushCopyIsTaskLevel(t *testing.T) {
 
 	for _, who := range []struct{ name, token string }{{"park head", tokenParkHead}, {"health director", tokenDirector}, {"CEO", tokenCEO}} {
 		push := pushFor(fx, itemID, who.token, "verification_approved")
-		story.Assert(who.name+" approved title is 'Pen move verified'", push.title == "Pen move verified", "title=%q", push.title)
+		story.Assert(who.name+" approved title is 'Pen move completed' -- approve is the last step of a pen move", push.title == "Pen move completed", "title=%q", push.title)
 		story.Assert(who.name+" approved body is the subject + park + verdict",
-			push.body == head+" — video verified.", "body=%q", push.body)
+			push.body == head+" — video verified, work complete.", "body=%q", push.body)
 		story.Assert(who.name+" approved copy keeps the counts.* localization key",
 			push.messageKey == "counts.proof.approved", "message_key=%q", push.messageKey)
 	}
 	pendingBody := pushFor(fx, itemID, tokenDirector, "verification_pending").body
 	approvedBody := pushFor(fx, itemID, tokenDirector, "verification_approved").body
 	story.Assert("pending and approved pushes share one subject line",
-		strings.TrimSuffix(pendingBody, " — video verification is pending.") == strings.TrimSuffix(approvedBody, " — video verified."),
+		strings.TrimSuffix(pendingBody, " — video verification is pending.") == strings.TrimSuffix(approvedBody, " — video verified, work complete."),
 		"pending=%q approved=%q", pendingBody, approvedBody)
 }
 
