@@ -2728,7 +2728,7 @@ CREATE TABLE public.shifting_events (
     adopt_pen_tag text,
     CONSTRAINT shifting_events_adopt_pen_tag_check CHECK (((adopt_pen_tag IS NULL) OR (btrim(adopt_pen_tag) <> ''::text))),
     CONSTRAINT shifting_events_auth_state_check CHECK ((authorization_state = ANY (ARRAY['pending'::text, 'authorized'::text, 'rejected'::text]))),
-    CONSTRAINT shifting_events_category_check CHECK ((category = ANY (ARRAY['growth'::text, 'health'::text, 'breeding'::text, 'delivery'::text, 'spacing'::text, 'flushing'::text]))),
+    CONSTRAINT shifting_events_category_check CHECK ((category = ANY (ARRAY['growth'::text, 'health'::text, 'breeding'::text, 'delivery'::text, 'spacing'::text, 'flushing'::text, 'normal'::text]))),
     CONSTRAINT shifting_events_high_priority_feed_evidence_consistent_check CHECK ((((feed_packing_proof_ref IS NULL) AND (feed_given_proof_ref IS NULL) AND (feed_config_fingerprint IS NULL) AND (feed_requirement_snapshot IS NULL)) OR ((btrim(feed_packing_proof_ref) <> ''::text) AND (btrim(feed_given_proof_ref) <> ''::text) AND (btrim(feed_config_fingerprint) <> ''::text) AND (jsonb_typeof(feed_requirement_snapshot) = 'object'::text)))),
     CONSTRAINT shifting_events_idem_check CHECK ((btrim(idempotency_key) <> ''::text)),
     CONSTRAINT shifting_events_key_check CHECK ((btrim(logical_shifting_event_key) <> ''::text)),

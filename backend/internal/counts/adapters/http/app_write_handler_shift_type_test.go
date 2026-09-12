@@ -330,6 +330,69 @@ func TestTypedRaiseFlushing(t *testing.T) {
 
 // The widened vocabulary is accepted end-to-end and an unknown category still refuses with the
 // updated message naming all six types.
+// NORMAL (maintainer decision 2026-09-12): the plain move. Yashoda 3 -> Yashoda 9 in the live
+// data: two fattening males into a pen AUTHORED F2-Female that in fact holds fattening males
+// too. The rule reads the RESIDENTS, so the raise goes through, nothing is stamped, no pen is
+// re-tagged, and no whole-pen check applies (the source pen holds 17, two move).
+func TestTypedRaiseNormalReadsTheResidentsNotTheAuthoredTag(t *testing.T) {
+	facts := map[string]domain.GoatShiftingFact{
+		testGoatID: typedFact(testGoatID, "F2-Male", "male"),
+		typedGoatB: typedFact(typedGoatB, "F2-Male", "male"),
+	}
+	t.Run("into a mixed pen holding the tag", func(t *testing.T) {
+		repo := typedRepo("F2-Female", 14, "F2-Male", 17, facts)
+		repo.destinations.Parks[0].Sheds[0].ManagementStages = []string{"F2-Female", "F2-Male", "K3"}
+		approvals := newFakeApprovalWorkflow()
+		mux := newTestServer(t, countsapp.NewService(repo), approvals, newFakeGoatValidator())
+		res := post(t, mux, appShiftingEventRoute, "typed-normal-mixed", typedBody("normal", testGoatID, typedGoatB))
+		if res.Code != http.StatusOK {
+			t.Fatalf("status=%d body=%s, want 200", res.Code, res.Body.String())
+		}
+		if repo.lastEvent.Category != "normal" {
+			t.Fatalf("stored category=%q, want normal", repo.lastEvent.Category)
+		}
+		if repo.lastEvent.ManagementStageMode != "keep_current" || repo.lastEvent.TargetManagementStage != "" || repo.lastEvent.AdoptPenTag != "" {
+			t.Fatalf("stored mode=%q target=%q adopt=%q, want keep_current/''/'' -- normal never restamps or re-tags",
+				repo.lastEvent.ManagementStageMode, repo.lastEvent.TargetManagementStage, repo.lastEvent.AdoptPenTag)
+		}
+		if payload := decodeTypedPayload(t, approvals); payload.TargetManagementStage != "" || payload.AdoptPenTag != "" {
+			t.Fatalf("approval payload target=%q adopt=%q, want both empty", payload.TargetManagementStage, payload.AdoptPenTag)
+		}
+	})
+	t.Run("into a pen holding only fattening females refused", func(t *testing.T) {
+		repo := typedRepo("F2-Female", 3, "F2-Male", 17, facts)
+		repo.destinations.Parks[0].Sheds[0].ManagementStages = []string{"F2-Female"}
+		approvals := newFakeApprovalWorkflow()
+		mux := newTestServer(t, countsapp.NewService(repo), approvals, newFakeGoatValidator())
+		res := post(t, mux, appShiftingEventRoute, "typed-normal-refused", typedBody("normal", testGoatID, typedGoatB))
+		if res.Code != http.StatusBadRequest {
+			t.Fatalf("status=%d body=%s, want 400", res.Code, res.Body.String())
+		}
+		var body struct {
+			Code string `json:"code"`
+		}
+		_ = json.Unmarshal(res.Body.Bytes(), &body)
+		if body.Code != "normal_destination_tag_mismatch" {
+			t.Fatalf("code=%q, want normal_destination_tag_mismatch", body.Code)
+		}
+		if len(approvals.lastSubmission.Payload) != 0 {
+			t.Fatalf("a refused raise must write no approval request")
+		}
+	})
+	t.Run("into an empty pen", func(t *testing.T) {
+		repo := typedRepo("", 0, "F2-Male", 17, facts)
+		approvals := newFakeApprovalWorkflow()
+		mux := newTestServer(t, countsapp.NewService(repo), approvals, newFakeGoatValidator())
+		res := post(t, mux, appShiftingEventRoute, "typed-normal-empty", typedBody("normal", testGoatID, typedGoatB))
+		if res.Code != http.StatusOK {
+			t.Fatalf("status=%d body=%s, want 200", res.Code, res.Body.String())
+		}
+		if repo.lastEvent.AdoptPenTag != "" {
+			t.Fatalf("stored adopt_pen_tag=%q, want '' -- normal configures no pen", repo.lastEvent.AdoptPenTag)
+		}
+	})
+}
+
 func TestTypedRaiseCategoryVocabulary(t *testing.T) {
 	repo := typedRepo("", 0, "K2", 1, map[string]domain.GoatShiftingFact{
 		testGoatID: typedFact(testGoatID, "K2", "male"),

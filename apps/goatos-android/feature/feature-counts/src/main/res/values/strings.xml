@@ -95,6 +95,7 @@
     <string name="counts_shifting_confirm_action">Yes, move %1$d</string>
     <string name="counts_shifting_confirm_cancel">Go back</string>
     <string name="counts_category_flushing">Flushing</string>
+    <string name="counts_category_normal">Normal</string>
 
     <!-- Approval queue -->
     <string name="counts_approval_title">Approvals</string>
