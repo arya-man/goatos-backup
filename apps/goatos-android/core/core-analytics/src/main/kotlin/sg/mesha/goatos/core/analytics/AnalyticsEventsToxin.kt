@@ -49,6 +49,9 @@ object AnalyticsEventsToxin {
      */
     const val TOXIN_READING_SUBMITTED = "toxin_reading_submitted"
 
+    /** Local playback/share/fullscreen actions for a captured toxin step video preview. */
+    const val TOXIN_STEP_PREVIEW_ACTION = "toxin_step_preview_action"
+
     /**
      * Any toxin capture/queue path failed. [AnalyticsEvents.Params.REASON] carries the real
      * message the repository/capture layer returned, truncated like every other reason field —

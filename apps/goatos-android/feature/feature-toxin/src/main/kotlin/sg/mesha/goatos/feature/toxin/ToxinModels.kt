@@ -60,6 +60,14 @@ enum class ToxinStepKind {
     }
 }
 
+/** This phone's durable proof-upload state for a video step. Server DONE still wins. */
+enum class ToxinStepProofStatus {
+    NONE,
+    UPLOADING,
+    SYNCED,
+    FAILED,
+}
+
 /** One of the seven guided steps of one test round. */
 @Immutable
 data class ToxinStepUi(
@@ -84,6 +92,18 @@ data class ToxinStepUi(
     val availableAtEpochMs: Long = 0L,
     /** True while this step's camera is open or its capture is being written durably. */
     val working: Boolean = false,
+    /** This phone's local proof row for the step, even before the backend returns DONE. */
+    val localProofUri: String = "",
+    /** Stable identity for the local proof preview/player. */
+    val localProofIdentity: String = "",
+    /** Upload state of [localProofUri], used to stop blind repeated recordings. */
+    val localProofStatus: ToxinStepProofStatus = ToxinStepProofStatus.NONE,
+    /** Last durable upload/processing error for this step, if any. */
+    val localProofError: String = "",
+    /** Server proof reference returned by the toxin detail payload once the step is complete. */
+    val serverProofRef: String = "",
+    /** Tap-gated backend proof-download endpoint for [serverProofRef]. */
+    val serverProofUrl: String = "",
 )
 
 /** One backend-owned strip-reading option ("Negative"), never a client-invented vocabulary. */
@@ -197,6 +217,9 @@ sealed interface ToxinTaskDetailEvent {
 
     /** Record the video for an AVAILABLE video step. */
     data class RecordStepVideo(val stepNo: Int) : ToxinTaskDetailEvent
+
+    /** Shared proof preview action for one captured step video. */
+    data class StepPreviewAction(val stepNo: Int, val action: String) : ToxinTaskDetailEvent
 
     /** Take (or re-take) step 7's strip photo. */
     data object CaptureStripPhoto : ToxinTaskDetailEvent

@@ -17,6 +17,7 @@ import sg.mesha.goatos.core.analytics.AnalyticsContext
 import sg.mesha.goatos.core.analytics.AnalyticsEvents
 import sg.mesha.goatos.core.analytics.AnalyticsEventsLeadershipTasks
 import sg.mesha.goatos.core.analytics.AnalyticsEventsPenVisits
+import sg.mesha.goatos.core.analytics.AnalyticsEventsToxin
 import sg.mesha.goatos.core.analytics.AnalyticsEventsWeighing
 import sg.mesha.goatos.core.network.AppAnalyticsEventRequestDto
 import sg.mesha.goatos.core.network.AppAnalyticsEventResponseDto
@@ -293,6 +294,12 @@ class BackendAnalyticsAdapterTest {
         assertTrue(allowlist.contains(AnalyticsEventsPenVisits.SUBMIT_RECOVERED))
         assertTrue(allowlist.contains(AnalyticsEventsPenVisits.PROOF_PREVIEW_ACTION))
         assertTrue(allowlist.contains(AnalyticsEventsPenVisits.FAILURE))
+        assertTrue(allowlist.contains(AnalyticsEventsToxin.TOXIN_STEP_VIDEO_CAPTURED))
+        assertTrue(allowlist.contains(AnalyticsEventsToxin.TOXIN_STRIP_PHOTO_CAPTURED))
+        assertTrue(allowlist.contains(AnalyticsEventsToxin.TOXIN_STEP_SUBMITTED))
+        assertTrue(allowlist.contains(AnalyticsEventsToxin.TOXIN_READING_SUBMITTED))
+        assertTrue(allowlist.contains(AnalyticsEventsToxin.TOXIN_STEP_PREVIEW_ACTION))
+        assertTrue(allowlist.contains(AnalyticsEventsToxin.TOXIN_FAILURE))
     }
 
     /** External review 2026-08-16: FEED_DISTRIBUTION_SUBMIT_SOURCES is the ONLY event carrying

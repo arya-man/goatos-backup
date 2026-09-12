@@ -18,6 +18,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import sg.mesha.goatos.BuildConfig
 import sg.mesha.goatos.R
 import sg.mesha.goatos.capture.PhotoCaptureContext
 import sg.mesha.goatos.capture.PhotoCaptureSource
@@ -27,8 +28,10 @@ import sg.mesha.goatos.core.analytics.AnalyticsEvents
 import sg.mesha.goatos.core.analytics.AnalyticsEventsToxin
 import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.analytics.CrashReporter
+import sg.mesha.goatos.core.analytics.ProofPreviewActionTrace
 import sg.mesha.goatos.core.common.AppResult
 import sg.mesha.goatos.core.data.ToxinRepository
+import sg.mesha.goatos.core.data.capture.CaptureSyncStatus
 import sg.mesha.goatos.core.data.capture.EvidenceSlot
 import sg.mesha.goatos.core.data.capture.ProofCaptureRow
 import sg.mesha.goatos.core.data.capture.ProofCaptureRepository
@@ -41,6 +44,7 @@ import sg.mesha.goatos.core.data.sync.toxinTaskGroupKey
 import sg.mesha.goatos.core.network.dto.ToxinStepDto
 import sg.mesha.goatos.core.network.dto.ToxinTaskDetailDto
 import sg.mesha.goatos.feature.toxin.ToxinOutcomeOptionUi
+import sg.mesha.goatos.feature.toxin.ToxinStepProofStatus
 import sg.mesha.goatos.feature.toxin.ToxinStepKind
 import sg.mesha.goatos.feature.toxin.ToxinStepState
 import sg.mesha.goatos.feature.toxin.ToxinStepUi
@@ -118,7 +122,8 @@ class ToxinTaskDetailViewModel @Inject constructor(
             repository.observeTaskDetail(taskId),
             local,
             proofCaptureRepository.observeLatest(stripSlot),
-        ) { detail, own, stripPhoto -> toUiState(detail, own, stripPhoto) }
+            proofCaptureRepository.observeProofs(taskId),
+        ) { detail, own, stripPhoto, proofs -> toUiState(detail, own, stripPhoto, proofs) }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ToxinTaskDetailUiState())
 
     init {
@@ -130,6 +135,7 @@ class ToxinTaskDetailViewModel @Inject constructor(
             ToxinTaskDetailEvent.Refresh -> refresh()
             ToxinTaskDetailEvent.Back -> Unit
             is ToxinTaskDetailEvent.RecordStepVideo -> recordStepVideo(event.stepNo)
+            is ToxinTaskDetailEvent.StepPreviewAction -> trackStepPreviewAction(event.stepNo, event.action)
             ToxinTaskDetailEvent.CaptureStripPhoto -> captureStripPhoto()
             is ToxinTaskDetailEvent.SelectOutcome -> local.update { it.copy(selectedOutcome = event.value) }
             ToxinTaskDetailEvent.SubmitReading -> submitReading()
@@ -170,6 +176,13 @@ class ToxinTaskDetailViewModel @Inject constructor(
             }
             local.update { it.copy(workingStepNo = stepNo, message = null) }
             try {
+                val savedProof = proofCaptureRepository.observeProofs(taskId).first()
+                    .latestForStep(stepNo)
+                    ?.takeIf { it.syncStatus != CaptureSyncStatus.FAILED && !it.outboxItemId.isNullOrBlank() }
+                if (savedProof != null) {
+                    enqueueStepComplete(stepNo, savedProof, "saved_proof")
+                    return@launch
+                }
                 val captured = try {
                     proofCaptureSource.captureVideo(
                         ProofCaptureContext(
@@ -205,31 +218,17 @@ class ToxinTaskDetailViewModel @Inject constructor(
 
                     analytics.track(
                         AnalyticsEventsToxin.TOXIN_STEP_VIDEO_CAPTURED,
-                        mapOf(AnalyticsEventsToxin.Params.STEP_NO to stepNo.toString()),
-                    )
-                    when (
-                        val queued = syncRepository.enqueueToxinStepComplete(
-                            taskId = taskId,
+                        toxinProofProps(
                             stepNo = stepNo,
-                            proofOutboxItemId = proofOutboxId,
-                        )
-                    ) {
-                        is AppResult.Ok -> analytics.track(
-                            AnalyticsEventsToxin.TOXIN_STEP_SUBMITTED,
-                            mapOf(AnalyticsEventsToxin.Params.STEP_NO to stepNo.toString()),
-                        )
-                        is AppResult.Err -> {
-                            queued.cause?.let { crashReporter.recordException(it, "toxin step completion enqueue failed") }
-                            analytics.track(
-                                AnalyticsEventsToxin.TOXIN_FAILURE,
-                                mapOf(
-                                    AnalyticsEventsToxin.Params.STEP_NO to stepNo.toString(),
-                                    AnalyticsEvents.Params.REASON to queued.message.take(MAX_REASON_CHARS),
-                                ),
-                            )
-                            local.update { it.copy(message = MESSAGE_STEP_NOT_ATTACHED) }
-                        }
-                    }
+                            fieldKey = stepSubjectKey(stepNo),
+                            proofRow = proofCaptureRepository.observeProofs(taskId).first()
+                                .firstOrNull { it.outboxItemId == proofOutboxId },
+                            extra = mapOf(AnalyticsEvents.Params.SOURCE to captured.captureSource),
+                        ),
+                    )
+                    val proofRow = proofCaptureRepository.observeProofs(taskId).first()
+                        .firstOrNull { it.outboxItemId == proofOutboxId }
+                    enqueueStepComplete(stepNo, proofRow, "new_capture")
                 }
             } finally {
                 local.update { it.copy(workingStepNo = null) }
@@ -278,8 +277,18 @@ class ToxinTaskDetailViewModel @Inject constructor(
                         failureContext = "toxin strip photo",
                         stepNo = step.stepNo,
                     ) ?: return@withContext
+                    val proofRow = proofCaptureRepository.observeProofs(taskId).first()
+                        .firstOrNull { it.outboxItemId == proofOutboxId }
                     local.update { it.copy(stripPhotoOutboxItemId = proofOutboxId) }
-                    analytics.track(AnalyticsEventsToxin.TOXIN_STRIP_PHOTO_CAPTURED)
+                    analytics.track(
+                        AnalyticsEventsToxin.TOXIN_STRIP_PHOTO_CAPTURED,
+                        toxinProofProps(
+                            stepNo = step.stepNo,
+                            fieldKey = STRIP_PHOTO_SUBJECT_KEY,
+                            proofRow = proofRow,
+                            extra = mapOf(AnalyticsEvents.Params.SOURCE to captured.captureSource),
+                        ),
+                    )
                 }
             } finally {
                 local.update { it.copy(stripPhotoWorking = false) }
@@ -295,10 +304,22 @@ class ToxinTaskDetailViewModel @Inject constructor(
         viewModelScope.launch {
             // Read the capture from its DURABLE slot at submit time, so a photo taken before a
             // ViewModel death still sends instead of the round looking un-photographed.
-            val stripPhotoOutboxItemId = proofCaptureRepository.observeLatest(stripSlot).first()
-                ?.outboxItemId
-                .orEmpty()
+            val stripPhoto = proofCaptureRepository.observeLatest(stripSlot).first()
+            val stripPhotoOutboxItemId = stripPhoto?.outboxItemId.orEmpty()
             if (stripPhotoOutboxItemId.isBlank()) {
+                analytics.track(
+                    AnalyticsEventsToxin.TOXIN_FAILURE,
+                    toxinProofProps(
+                        stepNo = STRIP_READING_STEP_NO,
+                        fieldKey = STRIP_PHOTO_SUBJECT_KEY,
+                        proofRow = stripPhoto,
+                        extra = mapOf(
+                            AnalyticsEvents.Params.STATUS to "reading_not_queued",
+                            AnalyticsEvents.Params.REASON to "missing_strip_photo_outbox_item",
+                            AnalyticsEvents.Params.OUTCOME to own.selectedOutcome,
+                        ),
+                    ),
+                )
                 local.update { it.copy(message = MESSAGE_STRIP_PHOTO_MISSING) }
                 return@launch
             }
@@ -314,7 +335,16 @@ class ToxinTaskDetailViewModel @Inject constructor(
                     is AppResult.Ok -> {
                         analytics.track(
                             AnalyticsEventsToxin.TOXIN_READING_SUBMITTED,
-                            mapOf(AnalyticsEvents.Params.OUTCOME to own.selectedOutcome),
+                            toxinProofProps(
+                                stepNo = STRIP_READING_STEP_NO,
+                                fieldKey = STRIP_PHOTO_SUBJECT_KEY,
+                                proofRow = stripPhoto,
+                                extra = mapOf(
+                                    AnalyticsEvents.Params.OUTCOME to own.selectedOutcome,
+                                    AnalyticsEvents.Params.STATUS to "queued",
+                                    AnalyticsEvents.Params.SOURCE to "reading_submit",
+                                ),
+                            ),
                         )
                         local.update { it.copy(submitQueued = true) }
                     }
@@ -322,7 +352,16 @@ class ToxinTaskDetailViewModel @Inject constructor(
                         queued.cause?.let { crashReporter.recordException(it, "toxin reading submit enqueue failed") }
                         analytics.track(
                             AnalyticsEventsToxin.TOXIN_FAILURE,
-                            mapOf(AnalyticsEvents.Params.REASON to queued.message.take(MAX_REASON_CHARS)),
+                            toxinProofProps(
+                                stepNo = STRIP_READING_STEP_NO,
+                                fieldKey = STRIP_PHOTO_SUBJECT_KEY,
+                                proofRow = stripPhoto,
+                                extra = mapOf(
+                                    AnalyticsEvents.Params.REASON to queued.message.take(MAX_REASON_CHARS),
+                                    AnalyticsEvents.Params.STATUS to "reading_not_queued",
+                                    AnalyticsEvents.Params.OUTCOME to own.selectedOutcome,
+                                ),
+                            ),
                         )
                         local.update { it.copy(message = MESSAGE_READING_NOT_SENT) }
                     }
@@ -382,9 +421,13 @@ class ToxinTaskDetailViewModel @Inject constructor(
                 result.cause?.let { crashReporter.recordException(it, "$failureContext capture write failed") }
                 analytics.track(
                     AnalyticsEventsToxin.TOXIN_FAILURE,
-                    mapOf(
-                        AnalyticsEventsToxin.Params.STEP_NO to stepNo.toString(),
-                        AnalyticsEvents.Params.REASON to result.message.take(MAX_REASON_CHARS),
+                    toxinProofProps(
+                        stepNo = stepNo,
+                        fieldKey = subjectKey,
+                        extra = mapOf(
+                            AnalyticsEvents.Params.REASON to result.message.take(MAX_REASON_CHARS),
+                            AnalyticsEvents.Params.STATUS to "capture_failed",
+                        ),
                     ),
                 )
                 local.update { it.copy(message = MESSAGE_CAPTURE_NOT_SAVED) }
@@ -408,7 +451,15 @@ class ToxinTaskDetailViewModel @Inject constructor(
             )
             analytics.track(
                 AnalyticsEventsToxin.TOXIN_FAILURE,
-                mapOf(AnalyticsEventsToxin.Params.STEP_NO to stepNo.toString()),
+                toxinProofProps(
+                    stepNo = stepNo,
+                    fieldKey = subjectKey,
+                    proofRow = result.value,
+                    extra = mapOf(
+                        AnalyticsEvents.Params.REASON to "missing_proof_outbox_id",
+                        AnalyticsEvents.Params.STATUS to "capture_saved_without_upload_row",
+                    ),
+                ),
             )
             local.update { it.copy(message = MESSAGE_CAPTURE_NOT_SAVED) }
             return null
@@ -421,17 +472,124 @@ class ToxinTaskDetailViewModel @Inject constructor(
         crashReporter.recordException(error, context)
         analytics.track(
             AnalyticsEventsToxin.TOXIN_FAILURE,
-            mapOf(
-                AnalyticsEventsToxin.Params.STEP_NO to stepNo.toString(),
-                AnalyticsEvents.Params.REASON to (error.message ?: "unknown").take(MAX_REASON_CHARS),
+            toxinProofProps(
+                stepNo = stepNo,
+                fieldKey = stepSubjectKey(stepNo),
+                extra = mapOf(
+                    AnalyticsEvents.Params.REASON to (error.message ?: "unknown").take(MAX_REASON_CHARS),
+                    AnalyticsEvents.Params.STATUS to "capture_exception",
+                ),
             ),
         )
+    }
+
+    private fun trackStepPreviewAction(stepNo: Int, action: String) {
+        viewModelScope.launch {
+            val trace = ProofPreviewActionTrace.from(action)
+            val proofRow = proofCaptureRepository.observeProofs(taskId).first().latestForStep(stepNo)
+            val step = state.value.steps.firstOrNull { it.stepNo == stepNo }
+            analytics.track(
+                AnalyticsEventsToxin.TOXIN_STEP_PREVIEW_ACTION,
+                toxinProofProps(
+                    stepNo = stepNo,
+                    fieldKey = stepSubjectKey(stepNo),
+                    proofRow = proofRow,
+                    extra = buildMap {
+                        put(AnalyticsEvents.Params.ACTION, trace.action)
+                        put(AnalyticsEvents.Params.OUTCOME, trace.outcome)
+                        trace.reason?.takeIf { it.isNotBlank() }?.let {
+                            put(AnalyticsEvents.Params.REASON, it.take(MAX_REASON_CHARS))
+                        }
+                        step?.serverProofRef?.takeIf { it.isNotBlank() }?.let { put("server_proof_id", it) }
+                    },
+                ),
+            )
+        }
+    }
+
+    private suspend fun enqueueStepComplete(
+        stepNo: Int,
+        proofRow: ProofCaptureRow?,
+        source: String,
+    ) {
+        val proofOutboxId = proofRow?.outboxItemId.orEmpty()
+        if (proofOutboxId.isBlank()) {
+            analytics.track(
+                AnalyticsEventsToxin.TOXIN_FAILURE,
+                toxinProofProps(
+                    stepNo = stepNo,
+                    fieldKey = stepSubjectKey(stepNo),
+                    proofRow = proofRow,
+                    extra = mapOf(
+                        AnalyticsEvents.Params.STATUS to "step_complete_not_queued",
+                        AnalyticsEvents.Params.REASON to "missing_proof_outbox_item",
+                        AnalyticsEvents.Params.SOURCE to source,
+                    ),
+                ),
+            )
+            local.update { it.copy(message = MESSAGE_STEP_NOT_ATTACHED) }
+            return
+        }
+        when (
+            val queued = syncRepository.enqueueToxinStepComplete(
+                taskId = taskId,
+                stepNo = stepNo,
+                proofOutboxItemId = proofOutboxId,
+            )
+        ) {
+            is AppResult.Ok -> analytics.track(
+                AnalyticsEventsToxin.TOXIN_STEP_SUBMITTED,
+                toxinProofProps(
+                    stepNo = stepNo,
+                    fieldKey = stepSubjectKey(stepNo),
+                    proofRow = proofRow,
+                    extra = mapOf(
+                        AnalyticsEvents.Params.STATUS to "queued",
+                        AnalyticsEvents.Params.SOURCE to source,
+                    ),
+                ),
+            )
+            is AppResult.Err -> {
+                queued.cause?.let { crashReporter.recordException(it, "toxin step completion enqueue failed") }
+                analytics.track(
+                    AnalyticsEventsToxin.TOXIN_FAILURE,
+                    toxinProofProps(
+                        stepNo = stepNo,
+                        fieldKey = stepSubjectKey(stepNo),
+                        proofRow = proofRow,
+                        extra = mapOf(
+                            AnalyticsEvents.Params.STATUS to "step_complete_not_queued",
+                            AnalyticsEvents.Params.REASON to queued.message.take(MAX_REASON_CHARS),
+                            AnalyticsEvents.Params.SOURCE to source,
+                        ),
+                    ),
+                )
+                local.update { it.copy(message = MESSAGE_STEP_NOT_ATTACHED) }
+            }
+        }
+    }
+
+    private fun toxinProofProps(
+        stepNo: Int,
+        fieldKey: String,
+        proofRow: ProofCaptureRow? = null,
+        extra: Map<String, String> = emptyMap(),
+    ): Map<String, String> = buildMap {
+        put("task_id", taskId)
+        put(AnalyticsEventsToxin.Params.STEP_NO, stepNo.toString())
+        put("field_key", fieldKey)
+        proofRow?.id?.takeIf { it.isNotBlank() }?.let { put("proof_id", it) }
+        proofRow?.outboxItemId?.takeIf { it.isNotBlank() }?.let { put("proof_outbox_item_id", it) }
+        proofRow?.serverProofId?.takeIf { it.isNotBlank() }?.let { put("server_proof_id", it) }
+        proofRow?.syncStatus?.let { put("proof_upload_status", it.name.lowercase()) }
+        putAll(extra)
     }
 
     private fun toUiState(
         detail: ToxinTaskDetailDto?,
         own: Local,
         stripPhoto: ProofCaptureRow?,
+        proofs: List<ProofCaptureRow>,
     ): ToxinTaskDetailUiState {
         if (detail == null) {
             return ToxinTaskDetailUiState(
@@ -441,7 +599,13 @@ class ToxinTaskDetailViewModel @Inject constructor(
         }
         val steps = detail.steps
             .sortedBy { it.stepNo }
-            .map { it.toStepUi(workingStepNo = own.workingStepNo, stripPhotoWorking = own.stripPhotoWorking) }
+            .map {
+                it.toStepUi(
+                    workingStepNo = own.workingStepNo,
+                    stripPhotoWorking = own.stripPhotoWorking,
+                    localProof = proofs.latestForStep(it.stepNo),
+                )
+            }
         val readingStepOpen = detail.steps.any {
             it.kind == WIRE_KIND_PHOTO_READING && it.state == WIRE_STATE_AVAILABLE
         }
@@ -474,7 +638,11 @@ class ToxinTaskDetailViewModel @Inject constructor(
         )
     }
 
-    private fun ToxinStepDto.toStepUi(workingStepNo: Int?, stripPhotoWorking: Boolean): ToxinStepUi {
+    private fun ToxinStepDto.toStepUi(
+        workingStepNo: Int?,
+        stripPhotoWorking: Boolean,
+        localProof: ProofCaptureRow?,
+    ): ToxinStepUi {
         val kind = ToxinStepKind.from(kind)
         return ToxinStepUi(
             stepNo = stepNo,
@@ -488,6 +656,12 @@ class ToxinTaskDetailViewModel @Inject constructor(
             availableAtEpochMs = epochMillis(availableAt),
             working = workingStepNo == stepNo ||
                 (kind == ToxinStepKind.PHOTO_READING && stripPhotoWorking),
+            localProofUri = localProof?.localUri.orEmpty(),
+            localProofIdentity = localProof?.stableMediaIdentity().orEmpty(),
+            localProofStatus = localProof.toToxinStepProofStatus(),
+            localProofError = localProof?.lastError.orEmpty(),
+            serverProofRef = proofRef,
+            serverProofUrl = proofRef.takeIf { it.isNotBlank() }?.let(::toxinBackendProofUrl).orEmpty(),
         )
     }
 
@@ -497,6 +671,7 @@ class ToxinTaskDetailViewModel @Inject constructor(
         const val STRIP_PHOTO_SUBJECT_KEY = "strip-photo"
         const val PROOF_MODE_STEP_VIDEO = "toxin_step_video"
         const val PROOF_MODE_STRIP_PHOTO = "toxin_strip_photo"
+        const val STRIP_READING_STEP_NO = 7
         /** The wire vocabulary this screen keys off, from backend/internal/toxin/adapters/http. */
         const val WIRE_STATE_AVAILABLE = "available"
         const val WIRE_KIND_PHOTO_READING = "photo_reading"
@@ -511,8 +686,29 @@ class ToxinTaskDetailViewModel @Inject constructor(
     }
 }
 
+private fun toxinBackendProofUrl(proofRef: String): String =
+    BuildConfig.API_BASE_URL.trimEnd('/') + "/app/proofs/${proofRef.trim()}/download"
+
 /** One capture identity per guided step of one round. */
 internal fun stepSubjectKey(stepNo: Int): String = "step-$stepNo"
+
+private fun List<ProofCaptureRow>.latestForStep(stepNo: Int): ProofCaptureRow? {
+    val fieldKey = stepSubjectKey(stepNo)
+    return filter { it.fieldKey == fieldKey }.maxByOrNull { it.capturedAtMs }
+}
+
+private fun ProofCaptureRow?.toToxinStepProofStatus(): ToxinStepProofStatus = when (this?.syncStatus) {
+    CaptureSyncStatus.SYNCED -> ToxinStepProofStatus.SYNCED
+    CaptureSyncStatus.FAILED -> ToxinStepProofStatus.FAILED
+    CaptureSyncStatus.PENDING, CaptureSyncStatus.IN_FLIGHT -> ToxinStepProofStatus.UPLOADING
+    null -> ToxinStepProofStatus.NONE
+}
+
+private fun ProofCaptureRow.stableMediaIdentity(): String =
+    serverProofId?.takeIf { it.isNotBlank() }
+        ?: id.takeIf { it.isNotBlank() }
+        ?: outboxItemId?.takeIf { it.isNotBlank() }
+        ?: "${fieldKey}:${capturedAtMs}"
 
 /**
  * A toxin capture's proof policy.

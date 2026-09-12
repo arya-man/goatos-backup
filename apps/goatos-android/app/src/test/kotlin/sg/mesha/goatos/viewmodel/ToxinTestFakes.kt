@@ -166,6 +166,7 @@ fun toxinStep(
     title: String = "Step $stepNo",
     instruction: String = "Instruction $stepNo",
     availableAt: String = "",
+    proofRef: String = "",
     completedBy: String = "",
     completedAt: String = "",
 ): ToxinStepDto = ToxinStepDto(
@@ -175,6 +176,7 @@ fun toxinStep(
     instruction = instruction,
     state = state,
     availableAt = availableAt,
+    proofRef = proofRef,
     completedBy = completedBy,
     completedAt = completedAt,
 )

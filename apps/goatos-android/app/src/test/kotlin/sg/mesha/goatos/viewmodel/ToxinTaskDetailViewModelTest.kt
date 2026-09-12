@@ -27,6 +27,7 @@ import sg.mesha.goatos.core.analytics.AnalyticsEvents
 import sg.mesha.goatos.core.analytics.AnalyticsEventsToxin
 import sg.mesha.goatos.core.analytics.NoopCrashReporter
 import sg.mesha.goatos.feature.toxin.ToxinStepKind
+import sg.mesha.goatos.feature.toxin.ToxinStepProofStatus
 import sg.mesha.goatos.feature.toxin.ToxinStepState
 import sg.mesha.goatos.feature.toxin.ToxinTaskDetailEvent
 import java.time.Instant
@@ -129,8 +130,18 @@ class ToxinTaskDetailViewModelTest {
         assertEquals("toxin:task:$TOXIN_TEST_TASK_ID", proofs.captureCalls.single().uploadGroupKey)
         // One capture identity per step, so a re-shoot replaces rather than accumulates.
         assertEquals("step-2", proofs.captureCalls.single().fieldKey)
+        val uiStep = vm.state.value.steps.single()
+        assertEquals("file:///step.mp4", uiStep.localProofUri)
+        assertEquals(ToxinStepProofStatus.UPLOADING, uiStep.localProofStatus)
+        assertTrue(uiStep.localProofIdentity.isNotBlank())
 
         assertTrue(analytics.events.any { it.name == AnalyticsEventsToxin.TOXIN_STEP_VIDEO_CAPTURED })
+        val captured = analytics.events.single { it.name == AnalyticsEventsToxin.TOXIN_STEP_VIDEO_CAPTURED }
+        assertEquals(TOXIN_TEST_TASK_ID, captured.props["task_id"])
+        assertEquals("step-2", captured.props["field_key"])
+        assertTrue(captured.props["proof_id"]?.startsWith("proof-") == true)
+        assertTrue(captured.props["proof_outbox_item_id"]?.startsWith("proof-outbox-") == true)
+        assertEquals("pending", captured.props["proof_upload_status"])
         val submitted = analytics.events.single { it.name == AnalyticsEventsToxin.TOXIN_STEP_SUBMITTED }
         assertEquals("2", submitted.props[AnalyticsEventsToxin.Params.STEP_NO])
     }
@@ -164,7 +175,13 @@ class ToxinTaskDetailViewModelTest {
         assertTrue(vm.state.value.stripPhotoCaptured)
         assertTrue(vm.state.value.submitEnabled)
         assertEquals("strip-photo", proofs.captureCalls.single().fieldKey)
-        assertTrue(analytics.events.any { it.name == AnalyticsEventsToxin.TOXIN_STRIP_PHOTO_CAPTURED })
+        val stripCaptured = analytics.events.single { it.name == AnalyticsEventsToxin.TOXIN_STRIP_PHOTO_CAPTURED }
+        assertEquals(TOXIN_TEST_TASK_ID, stripCaptured.props["task_id"])
+        assertEquals("7", stripCaptured.props[AnalyticsEventsToxin.Params.STEP_NO])
+        assertEquals("strip-photo", stripCaptured.props["field_key"])
+        assertTrue(stripCaptured.props["proof_id"]?.startsWith("proof-") == true)
+        assertTrue(stripCaptured.props["proof_outbox_item_id"]?.startsWith("proof-outbox-") == true)
+        assertEquals("pending", stripCaptured.props["proof_upload_status"])
 
         vm.onEvent(ToxinTaskDetailEvent.SubmitReading)
         advanceUntilIdle()
@@ -177,6 +194,41 @@ class ToxinTaskDetailViewModelTest {
         assertTrue(vm.state.value.submitQueued)
         val tracked = analytics.events.single { it.name == AnalyticsEventsToxin.TOXIN_READING_SUBMITTED }
         assertEquals("negative", tracked.props[AnalyticsEvents.Params.OUTCOME])
+        assertEquals(TOXIN_TEST_TASK_ID, tracked.props["task_id"])
+        assertEquals("7", tracked.props[AnalyticsEventsToxin.Params.STEP_NO])
+        assertEquals("strip-photo", tracked.props["field_key"])
+        assertTrue(tracked.props["proof_id"]?.startsWith("proof-") == true)
+        assertTrue(tracked.props["proof_outbox_item_id"]?.startsWith("proof-outbox-") == true)
+        assertEquals("pending", tracked.props["proof_upload_status"])
+        assertEquals("queued", tracked.props[AnalyticsEvents.Params.STATUS])
+    }
+
+    @Test
+    fun `reading enqueue failure is analytics tagged with strip proof context`() = runTest(dispatcher) {
+        val repository = FakeToxinRepository(
+            toxinDetail(steps = listOf(toxinStep(7, kind = "photo_reading", state = "available"))),
+        )
+        val sync = RecordingToxinSyncRepository().apply { failNextSubmit = true }
+        val proofs = FakeProofCaptureRepository()
+        val analytics = RecordingAnalytics()
+        val vm = viewModel(repository, sync = sync, proofs = proofs, analytics = analytics)
+        advanceUntilIdle()
+
+        vm.onEvent(ToxinTaskDetailEvent.SelectOutcome("invalid"))
+        vm.onEvent(ToxinTaskDetailEvent.CaptureStripPhoto)
+        advanceUntilIdle()
+        vm.onEvent(ToxinTaskDetailEvent.SubmitReading)
+        advanceUntilIdle()
+
+        val failure = analytics.events.last { it.name == AnalyticsEventsToxin.TOXIN_FAILURE }
+        assertEquals("Simulated submit enqueue failure.", failure.props[AnalyticsEvents.Params.REASON])
+        assertEquals("reading_not_queued", failure.props[AnalyticsEvents.Params.STATUS])
+        assertEquals("invalid", failure.props[AnalyticsEvents.Params.OUTCOME])
+        assertEquals(TOXIN_TEST_TASK_ID, failure.props["task_id"])
+        assertEquals("7", failure.props[AnalyticsEventsToxin.Params.STEP_NO])
+        assertEquals("strip-photo", failure.props["field_key"])
+        assertTrue(failure.props["proof_id"]?.startsWith("proof-") == true)
+        assertTrue(failure.props["proof_outbox_item_id"]?.startsWith("proof-outbox-") == true)
     }
 
     @Test
@@ -201,6 +253,109 @@ class ToxinTaskDetailViewModelTest {
         assertTrue(vm.state.value.message != null)
         // The step is not stuck "working" — the operator can try again.
         assertFalse(vm.state.value.steps.single().working)
+
+        vm.onEvent(ToxinTaskDetailEvent.RecordStepVideo(3))
+        advanceUntilIdle()
+
+        assertEquals(1, captureSource.captureCount)
+        assertEquals(1, sync.stepCompletes.size)
+        assertEquals("saved_proof", analytics.events.last { it.name == AnalyticsEventsToxin.TOXIN_STEP_SUBMITTED }
+            .props[AnalyticsEvents.Params.SOURCE])
+    }
+
+    @Test
+    fun `captured step video stays visible while backend step is not yet done`() = runTest(dispatcher) {
+        val repository = FakeToxinRepository(
+            toxinDetail(steps = listOf(toxinStep(2, state = "available"))),
+        )
+        val captureSource = FakeProofCaptureSource()
+        captureSource.queue(video())
+        val sync = RecordingToxinSyncRepository()
+        val proofs = FakeProofCaptureRepository()
+        val vm = viewModel(repository, captureSource, sync, proofs)
+        advanceUntilIdle()
+
+        vm.onEvent(ToxinTaskDetailEvent.RecordStepVideo(2))
+        advanceUntilIdle()
+
+        val step = vm.state.value.steps.single()
+        assertEquals(ToxinStepState.AVAILABLE, step.state)
+        assertEquals("file:///step.mp4", step.localProofUri)
+        assertEquals(ToxinStepProofStatus.UPLOADING, step.localProofStatus)
+        assertTrue(step.localProofIdentity.startsWith("proof-"))
+    }
+
+    @Test
+    fun `completed backend step proof ref maps to tap gated download preview`() = runTest(dispatcher) {
+        val repository = FakeToxinRepository(
+            toxinDetail(steps = listOf(toxinStep(5, state = "done", proofRef = "server-proof-5"))),
+        )
+        val vm = viewModel(repository)
+        advanceUntilIdle()
+
+        val step = vm.state.value.steps.single()
+        assertEquals(ToxinStepState.DONE, step.state)
+        assertEquals("server-proof-5", step.serverProofRef)
+        assertTrue(step.serverProofUrl.endsWith("/app/proofs/server-proof-5/download"))
+        assertEquals("", step.localProofUri)
+        assertEquals(ToxinStepProofStatus.NONE, step.localProofStatus)
+    }
+
+    @Test
+    fun `failed step video upload remains visible with retry copy`() = runTest(dispatcher) {
+        val repository = FakeToxinRepository(
+            toxinDetail(steps = listOf(toxinStep(2, state = "available"))),
+        )
+        val captureSource = FakeProofCaptureSource()
+        captureSource.queue(video())
+        val sync = RecordingToxinSyncRepository()
+        val proofs = FakeProofCaptureRepository()
+        val vm = viewModel(repository, captureSource, sync, proofs)
+        advanceUntilIdle()
+
+        vm.onEvent(ToxinTaskDetailEvent.RecordStepVideo(2))
+        advanceUntilIdle()
+        val proofId = proofs.allRows().single().id
+        proofs.markFailed(proofId, "Network timed out")
+        advanceUntilIdle()
+
+        val step = vm.state.value.steps.single()
+        assertEquals("file:///step.mp4", step.localProofUri)
+        assertEquals(ToxinStepProofStatus.FAILED, step.localProofStatus)
+        assertEquals("Network timed out", step.localProofError)
+    }
+
+    @Test
+    fun `step preview actions are analytics tagged with step number`() = runTest(dispatcher) {
+        val analytics = RecordingAnalytics()
+        val proofs = FakeProofCaptureRepository()
+        val captureSource = FakeProofCaptureSource()
+        captureSource.queue(video())
+        val vm = viewModel(
+            FakeToxinRepository(toxinDetail(steps = listOf(toxinStep(2, state = "available")))),
+            captureSource = captureSource,
+            proofs = proofs,
+            analytics = analytics,
+        )
+        advanceUntilIdle()
+        vm.onEvent(ToxinTaskDetailEvent.RecordStepVideo(2))
+        advanceUntilIdle()
+        val proofId = proofs.allRows().single().id
+        proofs.markSynced(proofId, "server-proof-2")
+        advanceUntilIdle()
+
+        vm.onEvent(ToxinTaskDetailEvent.StepPreviewAction(2, "play:failed:decoder_error"))
+        advanceUntilIdle()
+
+        val event = analytics.events.single { it.name == AnalyticsEventsToxin.TOXIN_STEP_PREVIEW_ACTION }
+        assertEquals("2", event.props[AnalyticsEventsToxin.Params.STEP_NO])
+        assertEquals("play", event.props[AnalyticsEvents.Params.ACTION])
+        assertEquals("failed", event.props[AnalyticsEvents.Params.OUTCOME])
+        assertEquals("decoder_error", event.props[AnalyticsEvents.Params.REASON])
+        assertEquals(TOXIN_TEST_TASK_ID, event.props["task_id"])
+        assertEquals("step-2", event.props["field_key"])
+        assertEquals(proofId, event.props["proof_id"])
+        assertEquals("server-proof-2", event.props["server_proof_id"])
     }
 
     /**
