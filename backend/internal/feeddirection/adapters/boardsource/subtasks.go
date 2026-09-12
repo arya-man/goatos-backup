@@ -3,72 +3,67 @@ package boardsource
 import (
 	"context"
 	"fmt"
-	"strconv"
-	"time"
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/workboard/domain"
 	"github.com/vgoats/goatos/backend/internal/workboard/ports"
 )
 
-// Subtasks of a feed transport task, for the board's issue view: one per ATTEMPT (each is
-// one filmed trip and one verdict, film -> verify), plus the trip itself as a to-do while no
-// attempt exists yet, so a live row never drills into an empty list. Reads
-// feed_transport_tasks and feed_transport_attempts plus workforce_members for the name.
+// Subtasks of a feed activity card are its PENS, one line each, worst first: the shed's own
+// roll-up state (the leftmost lane across that shed's bags/sessions) carried as a subtask so a
+// reader opens "Feed packing" and sees which pens are done, in review, sent back or owed.
 //
-// READ-ONLY and REPORTING-ONLY: nothing here submits, verifies or reworks a trip.
-
-// transportSubtaskRankSQL is the SQL twin of domain.RankFor, stated once.
+// READ-ONLY and REPORTING-ONLY: nothing here submits, verifies or reworks feed work.
 //
-//	rejected attempt      -> 0 needs attention
-//	no attempt yet        -> 1 to do
-//	verification_due      -> 3 in review
-//	approved              -> 4 done
-const transportSubtaskRankSQL = `CASE
-  WHEN u.status = 'rejected' THEN 0
-  WHEN u.kind = 'trip_todo' THEN 1
-  WHEN u.status = 'approved' THEN 4
-  ELSE 3
-END`
+// The subtask rank is the SQL twin of the worst-first order: a shed with any rejected bag is
+// needs-attention (0), then to do (1), in progress (2), in review (3), done (4). It is the
+// leading segment of the keyset so the page is a plain ascending sort on (rank, shed_id).
+const shedSubtaskRankExpr = `CASE
+  WHEN s.any_rej THEN 0
+  WHEN s.lane_rank = 0 THEN 1
+  WHEN s.lane_rank = 1 THEN 2
+  WHEN s.lane_rank = 2 THEN 3
+  ELSE 4 END`
 
-// projection-review: membership=the ONE feed_transport_tasks row named by (tenant_id, park_id, business_date, task_id) with retired excluded, then every feed_transport_attempts row of that task (feed_transport_attempts_task_history_idx on tenant_id, task_id) or one synthetic to-do when the task has none; group_key=(tenant_id, unit id) where the unit id is the attempt id or the task id for the synthetic to-do, so one attempt is one subtask; join_cardinality=the two UNION ALL arms are exclusive on the NOT EXISTS so a task without attempts contributes exactly one unit and a task with attempts contributes exactly its attempts, and workforce_members filtered to status='active' on the partial-unique (tenant_id,user_id) index (at most 1), so nothing fans an attempt out and the window total counts each unit once; pagination=keyset on (rank, unit id) ASC after ($5, $6) with LIMIT $7 and the whole count carried by count(*) OVER () computed before the keyset cut; scope=tenant_id, park_id, business_date and task_id, the same predicate the row read binds on feed_transport_tasks.
-const transportSubtasksSQL = `
-WITH task AS (
-  SELECT t.task_id, t.status AS task_status
-  FROM feed_transport_tasks t
-  WHERE t.tenant_id = $1::uuid
-    AND t.business_date = $2::date
-    AND t.park_id = $3::uuid
-    AND t.task_id = $4::uuid
-    AND t.status <> 'retired'
-),
-units AS (
-  SELECT 'attempt'::text AS kind, a.attempt_id::text AS unit_id, a.attempt_no, a.status,
-         COALESCE(a.rejection_reason, '') AS rejection_reason, a.submitted_at, a.operator_id AS actor_id
-  FROM task k
-  JOIN feed_transport_attempts a ON a.tenant_id = $1::uuid AND a.task_id = k.task_id
-  UNION ALL
-  SELECT 'trip_todo', k.task_id::text, 0, '', '', NULL, NULL
-  FROM task k
-  WHERE NOT EXISTS (SELECT 1 FROM feed_transport_attempts a WHERE a.tenant_id = $1::uuid AND a.task_id = k.task_id)
+// subtasksSQL builds one activity's per-shed page. It reuses the activity's own units SQL with
+// the owner bind ($4) left NULL -- the drawer lists every pen of the card, not just the
+// viewer's -- rolls the units up to the shed, ranks each shed, and keyset-pages on
+// (rank, shed_id). The whole shed count rides count(*) OVER () before the keyset cut.
+//
+// projection-review: membership=the activity's rows for ONE tenant, park and work-day (the SAME
+// predicate metricsSQL binds); group_key=shed_id, pre-aggregated by MIN(laneRank)/BOOL_OR before
+// ranking so a pen with several sessions is one line; join_cardinality=locations on its primary
+// key (1:1), no fan-out; pagination=keyset on (rank, shed_id) ASC after ($5,$6) with LIMIT $7,
+// total by count(*) OVER () computed before the cut; scope=tenant_id($1), business_date($2),
+// park_id($3), owner NULL($4).
+func subtasksSQL(units string) string {
+	return `
+WITH units AS (` + units + `),
+shed AS (
+  SELECT shed_id, MIN(` + laneRankExpr + `) AS lane_rank, BOOL_OR(st = 'rejected') AS any_rej
+  FROM units GROUP BY shed_id
 ),
 ranked AS (
-  SELECT u.*, ` + transportSubtaskRankSQL + ` AS rank, count(*) OVER () AS total
-  FROM units u
+  SELECT s.shed_id, s.lane_rank, s.any_rej, ` + shedSubtaskRankExpr + ` AS rank,
+         count(*) OVER () AS total
+  FROM shed s
 )
-SELECT r.kind, r.unit_id, r.attempt_no, r.status, r.rejection_reason, r.submitted_at, r.rank, r.total,
-       COALESCE(r.actor_id::text, ''), COALESCE(m.workforce_member_id::text, ''), COALESCE(m.display_name, '')
+SELECT r.shed_id::text, r.lane_rank, r.any_rej, r.rank, r.total, COALESCE(loc.name, '')
 FROM ranked r
-LEFT JOIN workforce_members m
-  ON m.tenant_id = $1::uuid AND m.user_id = r.actor_id AND m.status = 'active'
-WHERE (r.rank, r.unit_id) > ($5::int, $6::text)
-ORDER BY r.rank, r.unit_id
+LEFT JOIN locations loc ON loc.tenant_id = $1::uuid AND loc.location_id = r.shed_id
+WHERE (r.rank, r.shed_id::text) > ($5::int, $6::text)
+ORDER BY r.rank, r.shed_id
 LIMIT $7`
+}
 
-// ListSubtasks implements ports.SubtaskSource.
+// ListSubtasks implements ports.SubtaskSource. The row is named by its source id (the activity
+// key); an unknown key or a day/park with no rows returns an empty page with Total 0.
 func (s *Source) ListSubtasks(ctx context.Context, q ports.SubtaskQuery) (domain.SubtaskPage, error) {
+	a, ok := activityByKey(q.SourceID)
+	if !ok {
+		return domain.SubtaskPage{Subtasks: []domain.Subtask{}}, nil
+	}
 	afterRank, afterID, err := domain.ParseSubtaskKey(q.AfterKey)
 	if err != nil {
 		return domain.SubtaskPage{}, err
@@ -79,14 +74,15 @@ func (s *Source) ListSubtasks(ctx context.Context, q ports.SubtaskQuery) (domain
 	limit := domain.BoundSubtaskLimit(q.Limit)
 	ctx, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()
-	rows, err := s.pool.Query(ctx, transportSubtasksSQL, q.TenantID, q.BusinessDate, q.ParkID, q.SourceID, afterRank, afterID, limit+1)
+	rows, err := s.pool.Query(ctx, subtasksSQL(a.units),
+		q.TenantID, q.BusinessDate, q.ParkID, nil, afterRank, afterID, limit+1)
 	if err != nil {
-		return domain.SubtaskPage{}, fmt.Errorf("feed transport boardsource subtasks: %w", err)
+		return domain.SubtaskPage{}, fmt.Errorf("feed boardsource subtasks %s: %w", a.key, err)
 	}
 	defer rows.Close()
 	page := domain.SubtaskPage{Subtasks: []domain.Subtask{}}
 	for rows.Next() {
-		st, total, err := scanTransportSubtask(rows)
+		st, total, err := scanShedSubtask(rows)
 		if err != nil {
 			return domain.SubtaskPage{}, err
 		}
@@ -98,53 +94,45 @@ func (s *Source) ListSubtasks(ctx context.Context, q ports.SubtaskQuery) (domain
 		page.Subtasks = append(page.Subtasks, st)
 	}
 	if err := rows.Err(); err != nil {
-		return domain.SubtaskPage{}, fmt.Errorf("feed transport boardsource subtasks rows: %w", err)
+		return domain.SubtaskPage{}, fmt.Errorf("feed boardsource subtasks %s rows: %w", a.key, err)
 	}
 	return page, nil
 }
 
-func scanTransportSubtask(rows pgx.Rows) (domain.Subtask, int, error) {
+func scanShedSubtask(rows pgx.Rows) (domain.Subtask, int, error) {
 	var (
-		kind, unitID, status, reason          string
-		attemptNo, rank, total                int
-		submittedAt                           *time.Time
-		ownerUserID, ownerMemberID, ownerName string
+		shedID, shedName  string
+		laneRank, rank, n int
+		anyRej            bool
 	)
-	if err := rows.Scan(&kind, &unitID, &attemptNo, &status, &reason, &submittedAt, &rank, &total,
-		&ownerUserID, &ownerMemberID, &ownerName); err != nil {
-		return domain.Subtask{}, 0, fmt.Errorf("feed transport boardsource subtask scan: %w", err)
+	if err := rows.Scan(&shedID, &laneRank, &anyRej, &rank, &n, &shedName); err != nil {
+		return domain.Subtask{}, 0, fmt.Errorf("feed boardsource subtask scan: %w", err)
 	}
-	film := domain.Step{Name: "Film the trip", State: domain.StepTodo}
+	film := domain.Step{Name: "Film", State: domain.StepTodo}
 	verify := domain.Step{Name: "Verify", State: domain.StepLocked}
-	name := "Trip"
-	subtitle := "Not filmed yet"
 	state := domain.WorkStateDue
-	attention := false
-	if kind == "attempt" {
-		if attemptNo > 1 {
-			name = "Trip · attempt " + strconv.Itoa(attemptNo)
-		}
-		film.State = domain.StepDone
-		if submittedAt != nil {
-			film.Detail = "Filmed " + submittedAt.In(biztime.DefaultLocation()).Format("15:04")
-			subtitle = film.Detail
-		}
-		switch status {
-		case "approved":
-			verify.State = domain.StepDone
-			state = domain.WorkStateCompleted
-		case "rejected":
-			verify.State, verify.Detail = domain.StepRework, reason
-			state, attention = domain.WorkStateRejected, true
-		default:
-			verify.State = domain.StepInReview
-			state = domain.WorkStateVerificationPending
-		}
+	subtitle := "Not filmed yet"
+	switch {
+	case laneRank == 3:
+		film.State, verify.State = domain.StepDone, domain.StepDone
+		state, subtitle = domain.WorkStateCompleted, "Approved"
+	case laneRank == 2:
+		film.State, verify.State = domain.StepDone, domain.StepInReview
+		state, subtitle = domain.WorkStateVerificationPending, "In review"
+	case anyRej:
+		film.State, verify.State, verify.Detail = domain.StepDone, domain.StepRework, "Sent back"
+		state, subtitle = domain.WorkStateRejected, "Sent back"
+	case laneRank == 1:
+		film.State = domain.StepInProgress
+		state, subtitle = domain.WorkStateInProgress, "Started"
+	}
+	name := shedName
+	if name == "" {
+		name = "Pen"
 	}
 	return domain.Subtask{
-		Key: domain.SubtaskKey(rank, unitID), Name: name, Subtitle: subtitle,
-		WorkState: state, NeedsAttention: attention,
-		Owner: domain.Owner{UserID: ownerUserID, WorkforceMemberID: ownerMemberID, Name: ownerName},
+		Key: domain.SubtaskKey(rank, shedID), Name: name, Subtitle: subtitle,
+		WorkState: state, NeedsAttention: anyRej,
 		Steps: []domain.Step{film, verify},
-	}.Finalize(), total, nil
+	}.Finalize(), n, nil
 }
