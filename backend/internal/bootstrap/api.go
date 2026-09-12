@@ -28,6 +28,7 @@ import (
 	ceoai "github.com/vgoats/goatos/backend/internal/ceoai"
 	ceoobs "github.com/vgoats/goatos/backend/internal/ceoai/adapters/observability"
 	ceoreadtools "github.com/vgoats/goatos/backend/internal/ceoai/adapters/readtools"
+	countsboard "github.com/vgoats/goatos/backend/internal/counts/adapters/boardsource"
 	countshttp "github.com/vgoats/goatos/backend/internal/counts/adapters/http"
 	countspg "github.com/vgoats/goatos/backend/internal/counts/adapters/postgres"
 	countsproof "github.com/vgoats/goatos/backend/internal/counts/adapters/proof"
@@ -40,6 +41,7 @@ import (
 	feedconfighttp "github.com/vgoats/goatos/backend/internal/feedconfig/adapters/http"
 	feedconfigpg "github.com/vgoats/goatos/backend/internal/feedconfig/adapters/postgres"
 	feedconfigapp "github.com/vgoats/goatos/backend/internal/feedconfig/app"
+	feedboard "github.com/vgoats/goatos/backend/internal/feeddirection/adapters/boardsource"
 	feeddirectioncounts "github.com/vgoats/goatos/backend/internal/feeddirection/adapters/counts"
 	feeddirectionhttp "github.com/vgoats/goatos/backend/internal/feeddirection/adapters/http"
 	feeddirectionpg "github.com/vgoats/goatos/backend/internal/feeddirection/adapters/postgres"
@@ -51,6 +53,7 @@ import (
 	growthdirectorhttp "github.com/vgoats/goatos/backend/internal/growthdirector/adapters/http"
 	growthdirectorpg "github.com/vgoats/goatos/backend/internal/growthdirector/adapters/postgres"
 	growthdirectorapp "github.com/vgoats/goatos/backend/internal/growthdirector/app"
+	healthboard "github.com/vgoats/goatos/backend/internal/health/adapters/boardsource"
 	healthhttp "github.com/vgoats/goatos/backend/internal/health/adapters/http"
 	healthpg "github.com/vgoats/goatos/backend/internal/health/adapters/postgres"
 	healthverificationbridge "github.com/vgoats/goatos/backend/internal/health/adapters/verificationbridge"
@@ -85,6 +88,7 @@ import (
 	outboxpg "github.com/vgoats/goatos/backend/internal/outbox/adapters/postgres"
 	passporthttp "github.com/vgoats/goatos/backend/internal/passport/adapters/http"
 	passportapp "github.com/vgoats/goatos/backend/internal/passport/app"
+	pccareboard "github.com/vgoats/goatos/backend/internal/pccare/adapters/boardsource"
 	pccarehttp "github.com/vgoats/goatos/backend/internal/pccare/adapters/http"
 	pccarepg "github.com/vgoats/goatos/backend/internal/pccare/adapters/postgres"
 	pccareproof "github.com/vgoats/goatos/backend/internal/pccare/adapters/proof"
@@ -102,10 +106,14 @@ import (
 	"github.com/vgoats/goatos/backend/internal/platform/authaudit"
 	"github.com/vgoats/goatos/backend/internal/platform/buildinfo"
 	"github.com/vgoats/goatos/backend/internal/platform/eventbus"
+	piboard "github.com/vgoats/goatos/backend/internal/processintegrity/adapters/boardsource"
 	toxinhttp "github.com/vgoats/goatos/backend/internal/toxin/adapters/http"
 	toxinpg "github.com/vgoats/goatos/backend/internal/toxin/adapters/postgres"
 	toxinproof "github.com/vgoats/goatos/backend/internal/toxin/adapters/proof"
 	toxinapp "github.com/vgoats/goatos/backend/internal/toxin/app"
+	workboardhttp "github.com/vgoats/goatos/backend/internal/workboard/adapters/http"
+	workboardpg "github.com/vgoats/goatos/backend/internal/workboard/adapters/postgres"
+	workboardapp "github.com/vgoats/goatos/backend/internal/workboard/app"
 	"golang.org/x/oauth2"
 
 	"github.com/vgoats/goatos/backend/internal/platform/firebaseidentity"
@@ -148,12 +156,14 @@ import (
 	vaccexecroster "github.com/vgoats/goatos/backend/internal/vaccinationexecution/adapters/roster"
 	vaccexecapp "github.com/vgoats/goatos/backend/internal/vaccinationexecution/app"
 	verificationadminuibridge "github.com/vgoats/goatos/backend/internal/verification/adapters/adminuibridge"
+	verificationboard "github.com/vgoats/goatos/backend/internal/verification/adapters/boardsource"
 	verificationhttp "github.com/vgoats/goatos/backend/internal/verification/adapters/http"
 	verificationpg "github.com/vgoats/goatos/backend/internal/verification/adapters/postgres"
 	verificationproofmedia "github.com/vgoats/goatos/backend/internal/verification/adapters/proofmedia"
 	verificationapp "github.com/vgoats/goatos/backend/internal/verification/app"
 	verificationdomain "github.com/vgoats/goatos/backend/internal/verification/domain"
 	"github.com/vgoats/goatos/backend/internal/verificationcatalog"
+	weighingboard "github.com/vgoats/goatos/backend/internal/weighing/adapters/boardsource"
 	weighinghttp "github.com/vgoats/goatos/backend/internal/weighing/adapters/http"
 	weighingpg "github.com/vgoats/goatos/backend/internal/weighing/adapters/postgres"
 	weighingverificationbridge "github.com/vgoats/goatos/backend/internal/weighing/adapters/verificationbridge"
@@ -523,7 +533,8 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	outboxHandler := outboxhttp.NewHandler(outboxRepo, businessAuditRecorder, log)
 	operationsAuditService := operationsauditapp.NewService(operationsauditpg.NewRepository(pool, cfg.Postgres.QueryTimeout))
 	operationsAuditHandler := operationsaudithttp.NewHandler(operationsAuditService, log)
-	processIntegrityService := processintegrityapp.NewService(processintegritypg.NewRepository(pool, cfg.Postgres.QueryTimeout))
+	processIntegrityRepo := processintegritypg.NewRepository(pool, cfg.Postgres.QueryTimeout)
+	processIntegrityService := processintegrityapp.NewService(processIntegrityRepo)
 	processIntegrityHandler := processintegrityhttp.NewHandler(processIntegrityService, log)
 	vaccExecOwnership := vaccexecroster.NewOwnershipAdapter(rosterService)
 	vaccExecService := vaccexecapp.NewService(vaccexecpg.NewRepository(pool, cfg.Postgres.QueryTimeout), vaccExecOwnership).
@@ -735,6 +746,25 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 		leadershiptaskspg.NewRepository(pool, cfg.Postgres.QueryTimeout), leadershiptasksproof.NewResolver(proofRepo)).
 		WithAttachmentDownloader(proofService)
 	leadershipTasksHandler := leadershiptaskshttp.NewHandler(leadershipTasksService, log)
+	// Work Board (maintainer decision 2026-09-10): the cross-module read. Every module
+	// contributes a Source over its OWN tables; the board composes them here and reads no
+	// table itself. Registration order does not matter -- the service sorts into board order.
+	workBoardService := workboardapp.NewService(
+		weighingboard.New(pool, cfg.Postgres.QueryTimeout),
+		feedboard.New(pool, cfg.Postgres.QueryTimeout),
+		verificationboard.New(pool, cfg.Postgres.QueryTimeout),
+		countsboard.NewApprovals(pool, cfg.Postgres.QueryTimeout),
+		countsboard.NewMilkFeeding(pool, cfg.Postgres.QueryTimeout),
+		healthboard.New(pool, cfg.Postgres.QueryTimeout),
+		pccareboard.New(pool, cfg.Postgres.QueryTimeout),
+		// Vaccination reuses the process-integrity read behind the port; the member
+		// resolver is what lets the operator lens narrow it by user id.
+		piboard.New(processIntegrityRepo).
+			WithMemberResolver(piboard.NewPoolMemberResolver(pool, cfg.Postgres.QueryTimeout)).
+			// The per-animal subtask drill is the source's own SQL and needs the pool.
+			WithPool(pool, cfg.Postgres.QueryTimeout),
+	)
+	workBoardHandler := workboardhttp.NewHandler(workBoardService, log).WithFlags(workboardapp.NewFlagService(workBoardService, leadershipTasksService, workboardpg.NewParkHeadResolver(pool, cfg.Postgres.QueryTimeout)))
 	// Pen visits (maintainer decision 2026-09-07): the Tasks module's "For me" tab. The kernel
 	// raises them; this serves the park head's list and the submit that carries the live video.
 	// The module badge is the SUM of both halves of Tasks: unseen asks plus visits still owed.
@@ -1218,6 +1248,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	procurementhttp.RegisterLoadwise(protectedMux, procurementLoadwiseHandler)
 	toxinhttp.Register(protectedMux, toxinHandler)
 	leadershiptaskshttp.Register(protectedMux, leadershipTasksHandler)
+	workboardhttp.Register(protectedMux, workBoardHandler)
 	penvisitshttp.Register(protectedMux, penVisitsHandler)
 	saleshttp.Register(protectedMux, salesHandler)
 	vaccinationhttp.Register(protectedMux, vaccinationHandler)

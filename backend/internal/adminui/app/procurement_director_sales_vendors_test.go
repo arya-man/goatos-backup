@@ -28,14 +28,15 @@ func TestProcurementDirectorSalesVendorsFollowsTheHrmsTick(t *testing.T) {
 			{Surface: permissions.SurfaceWeb, Module: "procurement", Capabilities: []string{"view", "do", "oversee"}, Pages: []string{"procurement-source-entry"}},
 		})
 	}
-	fixed := []string{"/sales/config", "/feed/analytics", "/procurement/vendors", "/procurement/feed-purchases"}
+	fixed := []string{"/work-board", "/sales/config", "/feed/analytics", "/procurement/vendors", "/procurement/feed-purchases"}
 
 	for _, tc := range []struct {
 		name   string
 		access permissions.PageAccess
 		want   []string
 	}{
-		{"ticked", rows("sales-board", "sales-vendors", "sales-config"), []string{"/sales/vendors", "/sales/config", "/feed/analytics", "/procurement/vendors", "/procurement/feed-purchases"}},
+		// The Work Board leads the primary nav for every director (sprint instruction 2026-09-10).
+		{"ticked", rows("sales-board", "sales-vendors", "sales-config"), []string{"/work-board", "/sales/vendors", "/sales/config", "/feed/analytics", "/procurement/vendors", "/procurement/feed-purchases"}},
 		{"not ticked", rows("sales-board", "sales-config"), fixed},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

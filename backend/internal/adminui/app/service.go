@@ -122,6 +122,10 @@ func navigation() domain.NavigationContract {
 			// Tasks: leadership asks raised across CXOs, directors and park heads. Restored to
 			// the sidebar 2026-09-11; the web desk raises as well as monitors.
 			navItem("leadership-tasks", "Tasks", "/tasks", "clipboard-list", ""),
+			// Work Board (maintainer decision 2026-09-10): the cross-module board of one park's
+			// day, every module the person may see. Top-level because it is a lens over every
+			// vertical, not a page inside one. Gated on work_board.read.
+			navItemDomain("work-board", "Work Board", "/work-board", "square-kanban", "", "work_board"),
 		},
 		Groups: []domain.NavigationGroup{
 			{
@@ -245,6 +249,7 @@ func routeLabels() []domain.RouteLabelRule {
 		{Pattern: "/approvals", Label: "Approvals", Match: "exact"},
 		{Pattern: "/leave", Label: "Leave", Match: "exact"},
 		{Pattern: "/tasks", Label: "Tasks", Match: "exact"},
+		{Pattern: "/work-board", Label: "Work Board", Match: "exact"},
 		{Pattern: "/verify", Label: "Verify", Match: "exact"},
 		{Pattern: "/vaccination/execution/sheds/{shed_id}", Label: "Vaccination execution", Match: "pattern"},
 		// Most-specific-first: the live tracker's exact rule must precede /vaccination's, or the
@@ -397,6 +402,15 @@ func pages() []domain.PageContract {
 			[]domain.TableContract{
 				table("leave-approvals", "Waiting for you", "/admin-web/leave/approvals", []string{"person", "dates", "reason", "status", "action"}, "leave_request_id"),
 				table("leave-requests", "All leave requests", "/admin/leave/requests", []string{"person", "park", "dates", "reason", "status", "raised_at"}, "leave_request_id"),
+			}),
+		// Work Board (maintainer decision 2026-09-10). Two tables: the board rows (one card
+		// per module work item) and the paged subtasks inside a card's drawer. Both read
+		// /work-board/rows; the drawer's subtask list is the module's own detail read and is
+		// named here only so its page sizes are backend-owned.
+		page("work-board", "/work-board", "/work-board", "Work Board", "Every module's work for one park and one day. Column is automatic: nothing started, started, submitted, approved.", "command-lens",
+			[]domain.TableContract{
+				withoutRowClick(tableP("work-board", "Board", "/work-board/rows", []string{"title", "module", "park", "pen", "owner", "clock", "work_state", "counts"}, "row_key", []int{25, 50, 100})),
+				tableP("work-board-subtasks", "Subtasks", "/work-board/rows", []string{"name", "steps", "owner", "status"}, "row_key", []int{10, 25}),
 			}),
 		page("leadership-tasks", "/tasks", "/tasks", "Tasks", "Tasks raised across CXOs, directors and park heads, with notes and attachments.", "monitoring-screen",
 			[]domain.TableContract{table("leadership-task-progress", "Team progress", "/app/leadership-tasks", []string{"task", "assignee", "raised_by", "status", "evidence", "priority"}, "task_id")}),
@@ -1814,6 +1828,109 @@ func pageSpecificCopy(id string) map[string]string {
 			"config.saved":              "Saved.",
 			"config.disabled_no_access": "Setting who approves leave is limited to the CEO.",
 			"list.disabled_no_access":   "Seeing every leave request is limited to the CEO and HR.",
+		}
+	case "work-board":
+		return map[string]string{
+			"crumb":                               "Work Board",
+			"board.title":                         "Board",
+			"roleline.all_modules":                "All modules",
+			"roleline.none":                       "No module selected",
+			"section.board.aria":                  "Work board",
+			"drawer.subtasks.in_module":           "Each subtask opens in its own module for now.",
+			"drawer.subtasks.loading":             "Loading subtasks",
+			"drawer.subtasks.error":               "The subtasks could not be loaded. Try again.",
+			"drawer.subtasks.empty":               "No subtasks on this card.",
+			"drawer.subtasks.open":                "Open",
+			"drawer.subtasks.watch_proof":         "Watch proof",
+			"step.todo":                           "To do",
+			"step.in_progress":                    "In progress",
+			"step.in_review":                      "In review",
+			"step.done":                           "Done",
+			"step.rework":                         "Rework",
+			"step.needs_attention":                "Needs attention",
+			"step.locked":                         "Not yet",
+			"card.total":                          "subtasks",
+			"board.rule":                          "Column is automatic, at every level: step, then subtask, then card. Nothing started is To do, anything started is In progress, everything submitted is In review, everything approved is Done.",
+			"board.attention":                     "Amber card: something on it is not moving or past its clock.",
+			"lane.todo":                           "To do",
+			"lane.in_progress":                    "In progress",
+			"lane.in_review":                      "In review",
+			"lane.done":                           "Done",
+			"lane.empty":                          "Nothing here",
+			"lane.empty.other_pages":              "None on this page",
+			"filter.search":                       "Search work",
+			"filter.assignee":                     "Assignee",
+			"filter.assignee.search":              "Search users",
+			"filter.assignee.none":                "No users match",
+			"filter.assignee.clear":               "Clear all",
+			"filter.assignee.select_all":          "Select all",
+			"filter.park":                         "Park",
+			"filter.park.all":                     "All parks",
+			"filter.date":                         "Date",
+			"filter.date.today":                   "Today",
+			"filter.module":                       "Module",
+			"filter.module.all":                   "Module · all",
+			"filter.module.none":                  "Module · none",
+			"filter.state":                        "Status",
+			"card.done":                           "done",
+			"card.in_review":                      "in review",
+			"card.started":                        "started",
+			"card.attention":                      "needs attention",
+			"card.past_clock":                     "past clock",
+			"drawer.title":                        "Work item",
+			"drawer.description":                  "Description",
+			"drawer.subtasks":                     "Subtasks · what is done and what is not",
+			"drawer.subtasks.worst_first":         "worst first",
+			"drawer.subtasks.showing":             "Showing",
+			"drawer.subtasks.of":                  "of",
+			"drawer.subtasks.page":                "Page",
+			"drawer.activity":                     "Activity",
+			"drawer.details":                      "Details",
+			"drawer.status_auto":                  "auto",
+			"drawer.status_auto.title":            "Derived from the subtasks; nobody sets it by hand",
+			"drawer.open_module":                  "Open in module",
+			"drawer.call_park_head":               "Call park head",
+			"drawer.call_park_head.none":          "Nothing on this card needs a call",
+			"flag_park_head.title":                "Flag to park head",
+			"flag_park_head.disabled_no_access":   "Flagging work to a park head is for directors and the CEO's office.",
+			"flag.note":                           "What should the park head check?",
+			"flag.note.placeholder":               "Optional note for the park head",
+			"flag.submit":                         "Flag to park head",
+			"flag.hint":                           "Raises a task for the park head with this card's details. They acknowledge it on the phone.",
+			"action.flag_raised":                  "Flagged to the park head.",
+			"action.flag_park_head_missing":       "This park has no park head to flag. Fix the park's people first.",
+			"action.flag_to_self":                 "You are this park's head; the flag would come back to you.",
+			"action.flag_park_head_not_reachable": "This park's head cannot receive tasks on the phone yet.",
+			"action.flag_row_not_found":           "That work is not on your board for this park and day. Refresh and try again.",
+			"action.flag_failed":                  "The flag could not be recorded. Try again.",
+			"tile.done":                           "Done",
+			"tile.pending":                        "Pending",
+			"tile.attention":                      "Needs attention",
+			"owner.missing":                       "No one assigned",
+			"owner.pool":                          "Whoever does it",
+			"detail.status":                       "Status",
+			"detail.module":                       "Module",
+			"detail.park":                         "Park",
+			"detail.pen":                          "Pen",
+			"detail.owner":                        "Owner",
+			"detail.clock":                        "Clock",
+			"detail.business_date":                "Business date",
+			"state.empty":                         "No work on this board for the day.",
+			"state.empty.own_rows":                "Nothing assigned to you for this day.",
+			"state.row_missing":                   "That work is not on this page of the board. It may be on another day, another park or a later page.",
+			"state.error":                         "The board could not be loaded. Try again.",
+			"pager.rows":                          "rows",
+			"column.title":                        "Work",
+			"column.module":                       "Module",
+			"column.park":                         "Park",
+			"column.pen":                          "Pen",
+			"column.owner":                        "Owner",
+			"column.clock":                        "Clock",
+			"column.work_state":                   "Status",
+			"column.counts":                       "Progress",
+			"column.name":                         "Subtask",
+			"column.steps":                        "Steps",
+			"column.status":                       "Status",
 		}
 	case "verification-review":
 		return map[string]string{
@@ -6933,6 +7050,47 @@ func healthConfigOptionGroups() []domain.OptionGroup {
 
 func pageOptionGroups(id string) []domain.OptionGroup {
 	switch id {
+	case "work-board":
+		return withGenericOptionGroups([]domain.OptionGroup{
+			// The four columns, in display order. Derived server-side from the work state
+			// (workboard/domain.LaneFor); the client never moves a card between them.
+			{ID: "work_board_lanes", Options: []domain.Option{
+				option("todo", "To do", "Nothing started", ""),
+				option("in_progress", "In progress", "Something started", "info"),
+				option("in_review", "In review", "Submitted, waiting for a verdict", "info"),
+				option("done", "Done", "Approved", "ok"),
+			}},
+			// Every module the board CAN carry. The page narrows it per person from the
+			// summary read's `modules`, which is the caller's own permission set; the
+			// contract lists the full vocabulary so the chip colours are backend-owned.
+			{ID: "work_board_modules", Options: []domain.Option{
+				option("feed", "Feed", "", "ok"),
+				option("health", "Health", "", "dng"),
+				option("vaccination", "Vaccination", "", "info"),
+				option("weighing", "Weighing", "", "teal"),
+				option("counts", "Herd Ops", "", "pur"),
+				option("milk", "Milk", "", "teal"),
+				option("pc_care", "PC Care", "", "info"),
+				option("toxin", "Toxin", "", "warn"),
+				option("procurement", "Procurement", "", "warn"),
+				option("verification", "Verification", "", "info"),
+			}},
+			{ID: "work_board_states", Options: []domain.Option{
+				option("scheduled", "Scheduled", "", ""),
+				option("due", "Due", "", ""),
+				option("overdue", "Past clock", "", "dng"),
+				option("in_progress", "Started", "", "info"),
+				option("proof_pending", "Needs proof", "", "warn"),
+				option("verification_pending", "In verification", "", "info"),
+				option("rejected", "Rework", "", "warn"),
+				option("deferred", "Deferred", "", ""),
+				option("missed", "Missed", "", "dng"),
+				option("blocked", "Blocked", "", "dng"),
+				option("completed", "Approved", "", "ok"),
+			}},
+			// Parks are tenant rows; the compiler fills this from ReferenceFamilies.Parks.
+			{ID: "work_board_parks", Options: []domain.Option{}},
+		})
 	case "people":
 		// The module tab strip on /people (maintainer decision 2026-08-22):
 		// `all` is the general directory, `vaccination` hosts the former

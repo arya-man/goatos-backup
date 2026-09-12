@@ -364,6 +364,7 @@ dependencies {
     implementation(project(":feature:feature-vaccination"))
     implementation(project(":feature:feature-verify"))
     implementation(project(":feature:feature-weighing"))
+    implementation(project(":feature:feature-workboard"))
 
     implementation(libs.hilt.android)
     implementation(libs.hilt.navigation.compose)

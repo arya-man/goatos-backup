@@ -72,6 +72,8 @@ func one(a ModuleAssignment) []ModuleAssignment { return []ModuleAssignment{a} }
 var flatRoleAssignments = map[string][]ModuleAssignment{
 	// The operator is phone-only field work: execute, capture, record. No web at all.
 	RoleOperator: rows(
+		// Work Board (2026-09-10): the phone's My Work -- own rows only.
+		one(assign("work_board", SurfaceMobile, LevelView)),
 		one(assign("vaccination", SurfaceMobile, LevelView, LevelDo)),
 		one(assign("weighing", SurfaceMobile, LevelView, LevelDo)),
 		one(assign("counts", SurfaceMobile, LevelView, LevelDo)),
@@ -89,6 +91,8 @@ var flatRoleAssignments = map[string][]ModuleAssignment{
 	// The park head runs a park's execution from the phone: supervises task work, completes
 	// feed on his own ground, captures counts. Deliberately NOT admin-web.
 	RoleParkHead: rows(
+		// Work Board (2026-09-10): the whole park's day on the phone.
+		one(assign("work_board", SurfaceMobile, LevelView, LevelOversee)),
 		one(assign("leadership_tasks", SurfaceMobile, LevelView, LevelOversee)),
 		// Leave approvals (maintainer decision 2026-09-10): the park head signs their park's
 		// leave from the PHONE Approvals module; park heads hold no admin-web bootstrap.
@@ -108,6 +112,8 @@ var flatRoleAssignments = map[string][]ModuleAssignment{
 	// PC Director owns vaccination end to end and executes it too -- unusual for a director,
 	// preserved rather than tidied away: removing it would stop him covering a shed.
 	RolePCDirector: rows(
+		// Work Board (2026-09-10): the director's portfolio, both parks, own modules.
+		bothSurfaces("work_board", LevelView, LevelOversee),
 		one(assign("leadership_tasks", SurfaceMobile, LevelView, LevelDo)),
 		bothSurfaces("vaccination", LevelView, LevelDo, LevelOversee, LevelConfigure),
 		bothSurfaces("aas_health", LevelOversee),
@@ -123,6 +129,8 @@ var flatRoleAssignments = map[string][]ModuleAssignment{
 	// monitors, oversees the operators and executes -- and does NOT plan, which is CEO-only.
 	// He holds no health-module access at all; his GoatWriteHealth rides on herd_register.
 	RoleGrowthDirector: rows(
+		// Work Board (2026-09-10): the director's portfolio, both parks, own modules.
+		bothSurfaces("work_board", LevelView, LevelOversee),
 		one(assign("leadership_tasks", SurfaceMobile, LevelView, LevelDo)),
 		bothSurfaces("weighing", LevelView, LevelDo, LevelOversee),
 		bothSurfaces("people", LevelView, LevelDo, LevelOversee),
@@ -136,6 +144,8 @@ var flatRoleAssignments = map[string][]ModuleAssignment{
 	// task as done. LevelDo is deliberately ABSENT from feed_direction -- that is the whole
 	// point of capabilities being a set rather than a ladder.
 	RoleFeedDirector: rows(
+		// Work Board (2026-09-10): the director's portfolio, both parks, own modules.
+		bothSurfaces("work_board", LevelView, LevelOversee),
 		one(assign("leadership_tasks", SurfaceMobile, LevelView, LevelDo)),
 		bothSurfaces("feed_direction", LevelView, LevelOversee, LevelConfigure),
 		one(assign("feed_purchases", SurfaceWeb, LevelView)),
@@ -150,6 +160,8 @@ var flatRoleAssignments = map[string][]ModuleAssignment{
 	// without Counts access -- counts at LevelView is the alerts read alone, never the
 	// screens (AGENTS.md: the module is off, and ownership is not access).
 	RoleHealthDirector: rows(
+		// Work Board (2026-09-10): the director's portfolio, both parks, own modules.
+		bothSurfaces("work_board", LevelView, LevelOversee),
 		one(assign("leadership_tasks", SurfaceMobile, LevelView, LevelDo)),
 		bothSurfaces("aas_health", LevelConfigure),
 		bothSurfaces("people", LevelView, LevelDo, LevelOversee),
@@ -180,6 +192,8 @@ var flatRoleAssignments = map[string][]ModuleAssignment{
 	// and sees Feed Analytics stock only (the Hemant case). Source Entry is intentionally absent.
 	// Vendors is on BOTH surfaces (maintainer decision 2026-09-03): the Procurement phone module.
 	RoleProcurementDirector: rows(
+		// Work Board (2026-09-10): the director's portfolio, both parks, own modules.
+		bothSurfaces("work_board", LevelView, LevelOversee),
 		one(assign("leadership_tasks", SurfaceMobile, LevelView, LevelDo)),
 		// Sales is on BOTH surfaces from 2026-09-05: it became its own phone module (the ledger
 		// moved out of the Procurement module and took the selling half of the vendor register
@@ -196,6 +210,8 @@ var flatRoleAssignments = map[string][]ModuleAssignment{
 	// does not film the work they planned. People at View is the operator directory the
 	// create wizard's assignee picker reads (operators.read).
 	RoleBreedingDirector: rows(
+		// Work Board (2026-09-10): the director's portfolio, both parks, own modules.
+		bothSurfaces("work_board", LevelView, LevelOversee),
 		one(assign("leadership_tasks", SurfaceMobile, LevelView, LevelDo)),
 		bothSurfaces("pc_care", LevelView),
 		bothSurfaces("pc_trimming", LevelView, LevelConfigure),
@@ -232,6 +248,8 @@ var flatRoleAssignments = map[string][]ModuleAssignment{
 	// Whole-org. Note weighing and pc_care at View+Configure and NOT Do: the CEO plans that
 	// work and never carries it out.
 	RoleCEOInternal: rows(
+		// Work Board (2026-09-10): both surfaces, both parks, every module.
+		bothSurfaces("work_board", LevelView, LevelOversee),
 		// Leadership Tasks: the CEO/CXO desk can assign work downward and answer asks sent to it.
 		one(assign("leadership_tasks", SurfaceMobile, LevelView, LevelOversee, LevelConfigure)),
 		bothSurfaces("leave_approvals", LevelView, LevelOversee, LevelConfigure),

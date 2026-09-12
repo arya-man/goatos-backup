@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  telemetry:exempt static string resources, not a user-facing surface — a resource file has no
+  user action and no error path. The screen's telemetry is wired in the @HiltViewModels in :app
+  (WorkBoardViewModel / WorkBoardDetailViewModel).
+
+  Work Board CHROME strings only: the screen title fallback, button labels, tile labels, the farm
+  words for the server's fixed vocabularies (lanes, modules, work states, owner states) and the
+  empty/loading copy the client owns. Every business sentence on a row (title, subtitle, pen label,
+  park, clock label, owner name) is backend-owned and rendered verbatim.
+-->
+<resources>
+    <string name="work_board_title">My work</string>
+    <string name="work_board_action_refresh">Refresh</string>
+    <string name="work_board_action_open">Open</string>
+    <string name="work_board_previous_day">Previous day</string>
+    <string name="work_board_next_day">Next day</string>
+    <string name="work_board_today">Today</string>
+    <string name="work_board_own_rows_note">Showing your own work</string>
+
+    <string name="work_board_filter_all">All</string>
+    <string name="work_board_lane_todo">To do</string>
+    <string name="work_board_lane_in_progress">In progress</string>
+    <string name="work_board_lane_in_review">In review</string>
+    <string name="work_board_lane_done">Done</string>
+
+    <string name="work_board_module_feed">Feed</string>
+    <string name="work_board_module_health">Health</string>
+    <string name="work_board_module_vaccination">Vaccination</string>
+    <string name="work_board_module_weighing">Weighing</string>
+    <string name="work_board_module_counts">Herd operations</string>
+    <string name="work_board_module_milk">Milk</string>
+    <string name="work_board_module_pc_care">Preventive care</string>
+    <string name="work_board_module_toxin">Feed tests</string>
+    <string name="work_board_module_procurement">Procurement</string>
+    <string name="work_board_module_verification">Verification</string>
+
+    <string name="work_board_state_scheduled">Scheduled</string>
+    <string name="work_board_state_due">Due</string>
+    <string name="work_board_state_overdue">Overdue</string>
+    <string name="work_board_state_in_progress">In progress</string>
+    <string name="work_board_state_proof_pending">Needs proof</string>
+    <string name="work_board_state_verification_pending">In review</string>
+    <string name="work_board_state_rejected">Sent back</string>
+    <string name="work_board_state_deferred">Postponed</string>
+    <string name="work_board_state_missed">Missed</string>
+    <string name="work_board_state_blocked">Blocked</string>
+    <string name="work_board_state_completed">Done</string>
+
+    <string name="work_board_owner_missing">No owner yet</string>
+    <string name="work_board_owner_pool">Open to the team</string>
+
+    <string name="work_board_tile_done">Done</string>
+    <string name="work_board_tile_pending">Pending</string>
+    <string name="work_board_tile_attention">Needs attention</string>
+    <string name="work_board_counts_fmt">%1$d of %2$d done</string>
+
+    <string name="work_board_detail_pen">Pen</string>
+    <string name="work_board_detail_park">Farm</string>
+    <string name="work_board_detail_owner">Owner</string>
+    <string name="work_board_detail_lane">Stage</string>
+    <string name="work_board_detail_missing">This work item is no longer on your list. Go back and refresh.</string>
+
+    <string name="work_board_loading">Loading your work…</string>
+    <string name="work_board_empty_own">Nothing on your list for this day</string>
+    <string name="work_board_empty_all">Nothing on the board for this day</string>
+    <string name="work_board_error">Couldn\'t load your work. Tap refresh to retry.</string>
+</resources>

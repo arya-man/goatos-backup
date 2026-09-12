@@ -124,7 +124,7 @@ func (s *ApprovalService) SubmitBirthRequest(
 // P1: ListPending scope. Filter by the caller's park scope too, so a park_head sees only
 // approvals in their managed park.
 func (s *ApprovalService) ListPending(
-	ctx context.Context, tenantID, status string, decidableTypes []string, callerParkID string, pageSize int, cursor string,
+	ctx context.Context, tenantID, status string, decidableTypes []string, callerParkIDs []string, pageSize int, cursor string,
 ) (domain.ApprovalRequestPage, error) {
 	if strings.TrimSpace(tenantID) == "" {
 		return domain.ApprovalRequestPage{}, ErrMissingRequiredField
@@ -140,12 +140,12 @@ func (s *ApprovalService) ListPending(
 		return domain.ApprovalRequestPage{}, ErrInvalidExceptionFilter
 	}
 	return s.repo.ListApprovalRequests(ctx, domain.ApprovalRequestQuery{
-		TenantID:     tenantID,
-		Status:       status,
-		RequestTypes: decidableTypes,
-		CallerParkID: callerParkID,
-		PageSize:     pageSize,
-		Cursor:       decoded,
+		TenantID:      tenantID,
+		Status:        status,
+		RequestTypes:  decidableTypes,
+		CallerParkIDs: callerParkIDs,
+		PageSize:      pageSize,
+		Cursor:        decoded,
 	})
 }
 
@@ -171,9 +171,10 @@ type DecisionInput struct {
 	// park_head cannot approve a birth even by addressing its id directly.
 	DecidableTypes []string
 
-	// P0-2: CallerParkID is the park scope the caller may decide requests in. Only requests
-	// targeting this park are approvable. Empty string means no scope restriction (e.g. CEO/internal).
-	CallerParkID string
+	// P0-2: CallerParkIDs is the park scope the caller may decide requests in: every park the
+	// caller holds a park grant in. Only requests targeting one of these parks are approvable.
+	// Empty means no scope restriction (a tenant-scoped caller such as the CEO).
+	CallerParkIDs []string
 }
 
 // Decide approves or rejects a request.
@@ -206,38 +207,40 @@ func (s *ApprovalService) Decide(ctx context.Context, in DecisionInput) (domain.
 		return domain.ApprovalRequest{}, false, ErrApprovalForbiddenType
 	}
 
-	// P0-2: Scope escalation prevention. Check that the caller's park scope includes the request's park.
-	// Shifting approval: check destination_park_id.
-	// Birth/Death: check the goat's park (which would need to be read from the payload or subject_goat_id).
-	// For now, shifting has the park in the payload; for birth/death, we check against the subject goat.
-	if in.CallerParkID != "" {
+	// P0-2: Scope escalation prevention. A park-scoped caller may decide a request only when the
+	// request's park is one of THEIR parks. Every kind names its park: a pen move's
+	// destination_park_id (== source park by P0-1), a birth's park_id, a death's subject animal
+	// (goats.park_id, the indexed authority read). Fail CLOSED: a park we cannot prove is denied.
+	//
+	// Live E2E 2026-09-11 found both named approvers (park_head in BOTH parks) refused on every
+	// decision: the scope was ONE park (the first grant), births were denied to any scoped
+	// caller on the wrong premise that a birth carries no park, and the refusal surfaced as a 500.
+	if len(in.CallerParkIDs) > 0 {
+		requestPark := ""
 		switch req.RequestType {
 		case domain.ApprovalRequestTypeShifting:
-			// The destination_park_id lives in the payload and (by P0-1) equals the source park.
-			// A scoped caller may decide the request only if that park is their scope. Fail CLOSED:
-			// an empty or unparseable payload means we cannot prove scope, so we deny rather than
-			// silently allow a park head to act on a request we could not attribute to their park.
 			var shiftPayload shiftingApprovalPayload
-			if len(req.Payload) == 0 || json.Unmarshal(req.Payload, &shiftPayload) != nil ||
-				shiftPayload.DestinationParkID == "" || shiftPayload.DestinationParkID != in.CallerParkID {
-				return domain.ApprovalRequest{}, false, ErrApprovalForbiddenScope
+			if len(req.Payload) > 0 && json.Unmarshal(req.Payload, &shiftPayload) == nil {
+				requestPark = strings.TrimSpace(shiftPayload.DestinationParkID)
 			}
 		case domain.ApprovalRequestTypeBirth:
-			// Births don't target a specific park in the payload; they're tenant-wide.
-			// Only CEO/internal (no park scope) may decide births — a scoped caller is denied.
-			return domain.ApprovalRequest{}, false, ErrApprovalForbiddenScope
+			var birthPayload struct {
+				ParkID string `json:"park_id"`
+			}
+			if len(req.Payload) > 0 && json.Unmarshal(req.Payload, &birthPayload) == nil {
+				requestPark = strings.TrimSpace(birthPayload.ParkID)
+			}
 		case domain.ApprovalRequestTypeDeath:
-			if req.SubjectGoatID == nil || *req.SubjectGoatID == "" {
-				return domain.ApprovalRequest{}, false, ErrApprovalForbiddenScope
+			if req.SubjectGoatID != nil && *req.SubjectGoatID != "" {
+				if reader, ok := s.repo.(approvalSubjectParkReader); ok {
+					if parkID, err := reader.ApprovalSubjectPark(ctx, req.TenantID, *req.SubjectGoatID); err == nil {
+						requestPark = strings.TrimSpace(parkID)
+					}
+				}
 			}
-			reader, ok := s.repo.(approvalSubjectParkReader)
-			if !ok {
-				return domain.ApprovalRequest{}, false, ErrApprovalForbiddenScope
-			}
-			parkID, err := reader.ApprovalSubjectPark(ctx, req.TenantID, *req.SubjectGoatID)
-			if err != nil || parkID == "" || parkID != in.CallerParkID {
-				return domain.ApprovalRequest{}, false, ErrApprovalForbiddenScope
-			}
+		}
+		if requestPark == "" || !containsString(in.CallerParkIDs, requestPark) {
+			return domain.ApprovalRequest{}, false, ErrApprovalForbiddenScope
 		}
 	}
 

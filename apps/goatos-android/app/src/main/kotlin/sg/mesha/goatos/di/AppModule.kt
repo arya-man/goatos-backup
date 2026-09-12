@@ -567,6 +567,29 @@ object AppModule {
     ): sg.mesha.goatos.core.data.PenVisitsRepository =
         sg.mesha.goatos.core.data.DefaultPenVisitsRepository(api = api, database = database)
 
+    // Work Board / My Work (maintainer decision 2026-09-10): the three read-model DAOs and the
+    // Room-backed, offline-first repository. READ-only — no outbox, no SyncRepository, no cycle.
+    @Provides
+    fun provideWorkBoardMetaCacheDao(db: GoatDatabase): sg.mesha.goatos.core.data.cache.WorkBoardMetaCacheDao =
+        db.workBoardMetaCacheDao()
+
+    @Provides
+    fun provideWorkBoardItemDao(db: GoatDatabase): sg.mesha.goatos.core.data.cache.WorkBoardItemDao =
+        db.workBoardItemDao()
+
+    @Provides
+    fun provideWorkBoardRemoteKeyDao(db: GoatDatabase): sg.mesha.goatos.core.data.cache.WorkBoardRemoteKeyDao =
+        db.workBoardRemoteKeyDao()
+
+    @Provides
+    @Singleton
+    fun provideWorkBoardRepository(
+        api: AppApi,
+        database: GoatDatabase,
+        metaDao: sg.mesha.goatos.core.data.cache.WorkBoardMetaCacheDao,
+    ): sg.mesha.goatos.core.data.WorkBoardRepository =
+        sg.mesha.goatos.core.data.DefaultWorkBoardRepository(api = api, database = database, metaDao = metaDao)
+
     /**
      * Vendors module reads (maintainer decision 2026-09-03). Room-backed and offline-first; the
      * WRITES ride the outbox, so like Toxin this repository takes no SyncRepository.

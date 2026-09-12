@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="work_board_title">ನನ್ನ ಕೆಲಸ</string>
+    <string name="work_board_action_refresh">ರಿಫ್ರೆಶ್ ಮಾಡಿ</string>
+    <string name="work_board_action_open">ತೆರೆಯಿರಿ</string>
+    <string name="work_board_previous_day">ಹಿಂದಿನ ದಿನ</string>
+    <string name="work_board_next_day">ಮುಂದಿನ ದಿನ</string>
+    <string name="work_board_today">ಇಂದು</string>
+    <string name="work_board_own_rows_note">ನಿಮ್ಮ ಕೆಲಸ ಮಾತ್ರ ತೋರಿಸಲಾಗುತ್ತಿದೆ</string>
+
+    <string name="work_board_filter_all">ಎಲ್ಲಾ</string>
+    <string name="work_board_lane_todo">ಮಾಡಬೇಕಾದದ್ದು</string>
+    <string name="work_board_lane_in_progress">ನಡೆಯುತ್ತಿದೆ</string>
+    <string name="work_board_lane_in_review">ಪರಿಶೀಲನೆಯಲ್ಲಿ</string>
+    <string name="work_board_lane_done">ಮುಗಿದಿದೆ</string>
+
+    <string name="work_board_module_feed">ಮೇವು</string>
+    <string name="work_board_module_health">ಆರೋಗ್ಯ</string>
+    <string name="work_board_module_vaccination">ಲಸಿಕೆ</string>
+    <string name="work_board_module_weighing">ತೂಕ</string>
+    <string name="work_board_module_counts">ಹಿಂಡು ನಿರ್ವಹಣೆ</string>
+    <string name="work_board_module_milk">ಹಾಲು</string>
+    <string name="work_board_module_pc_care">ತಡೆಗಟ್ಟುವ ಆರೈಕೆ</string>
+    <string name="work_board_module_toxin">ಮೇವು ಪರೀಕ್ಷೆ</string>
+    <string name="work_board_module_procurement">ಖರೀದಿ</string>
+    <string name="work_board_module_verification">ಪರಿಶೀಲನೆ</string>
+
+    <string name="work_board_state_scheduled">ನಿಗದಿಯಾಗಿದೆ</string>
+    <string name="work_board_state_due">ಇಂದು ಮಾಡಬೇಕು</string>
+    <string name="work_board_state_overdue">ಸಮಯ ಮೀರಿದೆ</string>
+    <string name="work_board_state_in_progress">ನಡೆಯುತ್ತಿದೆ</string>
+    <string name="work_board_state_proof_pending">ಸಾಕ್ಷ್ಯ ಬೇಕು</string>
+    <string name="work_board_state_verification_pending">ಪರಿಶೀಲನೆಯಲ್ಲಿ</string>
+    <string name="work_board_state_rejected">ಹಿಂತಿರುಗಿಸಲಾಗಿದೆ</string>
+    <string name="work_board_state_deferred">ಮುಂದೂಡಲಾಗಿದೆ</string>
+    <string name="work_board_state_missed">ತಪ್ಪಿಹೋಗಿದೆ</string>
+    <string name="work_board_state_blocked">ತಡೆಹಿಡಿಯಲಾಗಿದೆ</string>
+    <string name="work_board_state_completed">ಮುಗಿದಿದೆ</string>
+
+    <string name="work_board_owner_missing">ಇನ್ನೂ ಹೊಣೆಗಾರರಿಲ್ಲ</string>
+    <string name="work_board_owner_pool">ತಂಡದಲ್ಲಿ ಯಾರಾದರೂ ಮಾಡಬಹುದು</string>
+
+    <string name="work_board_tile_done">ಮುಗಿದಿದೆ</string>
+    <string name="work_board_tile_pending">ಬಾಕಿ</string>
+    <string name="work_board_tile_attention">ಗಮನ ಬೇಕು</string>
+    <string name="work_board_counts_fmt">%2$d ರಲ್ಲಿ %1$d ಮುಗಿದಿದೆ</string>
+
+    <string name="work_board_detail_pen">ಪೆನ್</string>
+    <string name="work_board_detail_park">ಫಾರ್ಮ್</string>
+    <string name="work_board_detail_owner">ಹೊಣೆಗಾರ</string>
+    <string name="work_board_detail_lane">ಹಂತ</string>
+    <string name="work_board_detail_missing">ಈ ಕೆಲಸ ಈಗ ನಿಮ್ಮ ಪಟ್ಟಿಯಲ್ಲಿ ಇಲ್ಲ. ಹಿಂದಕ್ಕೆ ಹೋಗಿ ರಿಫ್ರೆಶ್ ಮಾಡಿ.</string>
+
+    <string name="work_board_loading">ನಿಮ್ಮ ಕೆಲಸ ಲೋಡ್ ಆಗುತ್ತಿದೆ…</string>
+    <string name="work_board_empty_own">ಈ ದಿನ ನಿಮ್ಮ ಪಟ್ಟಿಯಲ್ಲಿ ಏನೂ ಇಲ್ಲ</string>
+    <string name="work_board_empty_all">ಈ ದಿನ ಬೋರ್ಡ್‌ನಲ್ಲಿ ಏನೂ ಇಲ್ಲ</string>
+    <string name="work_board_error">ನಿಮ್ಮ ಕೆಲಸ ಲೋಡ್ ಆಗಲಿಲ್ಲ. ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಲು ರಿಫ್ರೆಶ್ ಒತ್ತಿ.</string>
+</resources>

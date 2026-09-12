@@ -526,6 +526,21 @@ var moduleCapabilities = []ModuleCapability{
 		},
 	},
 	{
+		// Work Board (maintainer decision 2026-09-10, the Work Board Build Plan): the
+		// cross-module board of the day's operational rows. View alone is the operator's
+		// "my rows"; Oversee is everyone's rows inside the person's park scope. Which
+		// MODULES appear is not a level here -- it follows the module permissions the
+		// person already holds, so ticking Work Board never widens what they may read.
+		Key:      "work_board",
+		Label:    "Work Board",
+		Blurb:    "Every module's work for a park and a day, on one board.",
+		Surfaces: []string{SurfaceWeb, SurfaceMobile},
+		Levels: map[string][]string{
+			LevelView:    {WorkBoardRead},
+			LevelOversee: {WorkBoardRead, WorkBoardOversee},
+		},
+	},
+	{
 		// Leadership Tasks: a general ask desk for leadership to assign follow-up work inside
 		// the phone app and admin-web monitor desk. Raises and assignees are capability-driven;
 		// a role name never decides the picker by itself.

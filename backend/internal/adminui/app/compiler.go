@@ -84,18 +84,23 @@ func (s *Service) bootstrapCached(ctx context.Context, input BootstrapInput) dom
 		// Sales > Vendors is the one page here that follows the person's own HRMS tick
 		// (maintainer instruction 2026-09-08): it shows only when ticked on /people.
 		_, salesVendorsTicked := access.Pages["sales-vendors"]
+		// The Work Board is a command lens over every module's work, and a director who
+		// cannot see it cannot flag it (maintainer sprint instruction 2026-09-10: every
+		// director checks the board). It joins the fixed set; the four pages above stand.
 		access = permissions.PageAccess{
 			Pages: map[string]struct{}{
 				"sales-config":               {},
 				"feed-analytics":             {},
 				"procurement-vendors":        {},
 				"procurement-feed-purchases": {},
+				"work-board":                 {},
 			},
 			Modules: map[string]struct{}{
 				"sales":          {},
 				"feed_direction": {},
 				"vendors":        {},
 				"feed_purchases": {},
+				"work_board":     {},
 			},
 		}
 		if salesVendorsTicked {
@@ -868,6 +873,9 @@ func compilePages(pages []domain.PageContract, families ReferenceFamilies, input
 			if out[i].RouteID == "feed-analytics" {
 				out[i].OptionGroups = compileFeedAnalyticsOptionGroups(out[i].OptionGroups, input)
 			}
+		case "work-board":
+			out[i].OptionGroups = replaceOptionGroup(out[i].OptionGroups, "work_board_parks", optionsFromReferences(families.Parks, "info"))
+			out[i].Controls = compileWorkBoardControls(out[i].Controls, input, out[i].Copy)
 		case "weighing-weights", "weighing-analytics":
 			// Live park vocabulary, same injection path Feed uses. The contract declares
 			// the group empty; the parks themselves are tenant rows and must never be
@@ -1006,6 +1014,26 @@ func compileSalesWeightCards(controls []domain.Control, input BootstrapInput, co
 // read control gated on SalesRead: the Growth Director, who reaches the tab on WeighingMonitor
 // alone, sees the backend's reason in its place rather than money the endpoint would refuse.
 // Declares no Action; the analytics page stays read-only by contract.
+// compileWorkBoardControls declares the drawer's Flag button (maintainer decision 2026-09-10):
+// a flag raises a Leadership Task to the park head, so it follows leadership_tasks.raise AND
+// work_board.oversee -- the directors and the CEO, never an operator reading their own rows.
+// Both halves of the capability lock: this control, and the route (POST /work-board/flags).
+func compileWorkBoardControls(controls []domain.Control, input BootstrapInput, copy map[string]string) []domain.Control {
+	allowed := len(input.Grants) == 0 || grantsAuthorize(input.Grants, input.TenantID, []string{permissions.LeadershipTasksRaise, permissions.WorkBoardOversee})
+	reason := ""
+	if !allowed {
+		reason = controlCopy(copy, "flag_park_head.disabled_no_access", "Flagging work to a park head is for directors and the CEO's office.")
+	}
+	return upsertControl(controls, domain.Control{
+		ID:             "flag_park_head",
+		Label:          controlCopy(copy, "flag_park_head.title", "Flag to park head"),
+		Kind:           "action",
+		Enabled:        allowed,
+		DisabledReason: reason,
+		Action:         "/work-board/flags",
+	})
+}
+
 func compileWeightsAnalyticsControls(controls []domain.Control, input BootstrapInput, copy map[string]string) []domain.Control {
 	allowed := len(input.Grants) == 0 || grantsAuthorize(input.Grants, input.TenantID, []string{permissions.SalesRead})
 	reason := ""
@@ -2040,6 +2068,8 @@ func permissionsForNav(id string) []string {
 		return []string{permissions.CountsApproveAccess}
 	case "verification-actions":
 		return []string{permissions.VerificationReview}
+	case "work-board":
+		return []string{permissions.WorkBoardRead}
 	case "leadership-tasks":
 		return []string{permissions.LeadershipTasksRead}
 	case "health-config":

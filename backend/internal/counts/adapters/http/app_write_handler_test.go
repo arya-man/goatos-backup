@@ -136,6 +136,7 @@ type fakeApprovalWorkflow struct {
 	submitsByType     map[string]int
 	lastSubmission    domain.ApprovalRequestSubmission
 	birthResultsByKey map[string]domain.BirthSubmissionResult
+	decideErr         error
 }
 
 func newFakeApprovalWorkflow() *fakeApprovalWorkflow {
@@ -210,12 +211,15 @@ func (f *fakeApprovalWorkflow) SubmitBirthRequest(_ context.Context, in domain.A
 // alongside RegisterAppWrites. These tests cover the SUBMIT half of the workflow; the decision half
 // is exercised against the real service.
 func (f *fakeApprovalWorkflow) ListPending(
-	_ context.Context, _, _ string, _ []string, _ string, _ int, _ string,
+	_ context.Context, _, _ string, _ []string, _ []string, _ int, _ string,
 ) (domain.ApprovalRequestPage, error) {
 	return domain.ApprovalRequestPage{Items: []domain.ApprovalRequestSummary{}}, nil
 }
 
 func (f *fakeApprovalWorkflow) Decide(_ context.Context, _ countsapp.DecisionInput) (domain.ApprovalRequest, bool, error) {
+	if f.decideErr != nil {
+		return domain.ApprovalRequest{}, false, f.decideErr
+	}
 	return domain.ApprovalRequest{}, false, ports.ErrApprovalRequestNotFound
 }
 
@@ -2478,4 +2482,21 @@ func TestNormalizeShiftingEventRequest_Comment(t *testing.T) {
 			t.Fatalf("a %d-character Kannada note must be accepted, got: %v", maxShiftingCommentRunes, err)
 		}
 	})
+}
+
+// TestApprovalOutsideTheCallersParkIs403NotA500 pins the live E2E of 2026-09-11: both named
+// approvers got internal_error on every decision because the scope refusal was unmapped.
+func TestApprovalOutsideTheCallersParkIs403NotA500(t *testing.T) {
+	approvals := newFakeApprovalWorkflow()
+	approvals.decideErr = countsapp.ErrApprovalForbiddenScope
+	mux := newTestServer(t, countsapp.NewService(newFakeShiftingRepo()), approvals, &fakeGoatValidator{})
+	rec := post(t, mux, "/app/counts/approvals/11111111-1111-4111-8111-111111111111/approve", "k-scope-403-test", map[string]any{"reason": "ok"})
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status %d body %s", rec.Code, rec.Body.String())
+	}
+	var body map[string]any
+	decodeBody(t, rec, &body)
+	if body["code"] != "park_scope_forbidden" {
+		t.Fatalf("code %v", body["code"])
+	}
 }

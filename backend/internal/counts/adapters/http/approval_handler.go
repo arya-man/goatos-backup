@@ -60,7 +60,7 @@ const (
 type ApprovalWorkflow interface {
 	SubmitRequest(ctx context.Context, in domain.ApprovalRequestSubmission) (domain.ApprovalRequest, bool, error)
 	SubmitBirthRequest(ctx context.Context, in domain.ApprovalRequestSubmission, children []identityports.CreateAdminGoatCommand) (domain.BirthSubmissionResult, error)
-	ListPending(ctx context.Context, tenantID, status string, decidableTypes []string, callerParkID string, pageSize int, cursor string) (domain.ApprovalRequestPage, error)
+	ListPending(ctx context.Context, tenantID, status string, decidableTypes []string, callerParkIDs []string, pageSize int, cursor string) (domain.ApprovalRequestPage, error)
 	Decide(ctx context.Context, in countsapp.DecisionInput) (domain.ApprovalRequest, bool, error)
 }
 
@@ -148,7 +148,7 @@ func (h *AppWriteHandler) ListApprovals(w http.ResponseWriter, r *http.Request) 
 
 	decidable := permissions.DecidableApprovalRequestTypes(callerRoles(r))
 	// P0-2: Extract caller's park scope for filtering.
-	callerParkID := callerParkScope(r)
+	callerParkIDs := callerParkScope(r)
 
 	status := strings.TrimSpace(r.URL.Query().Get("status"))
 	if status == "" {
@@ -162,7 +162,7 @@ func (h *AppWriteHandler) ListApprovals(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	page, err := h.approvals.ListPending(r.Context(), tenantID, status, decidable, callerParkID, pageSize, strings.TrimSpace(r.URL.Query().Get("cursor")))
+	page, err := h.approvals.ListPending(r.Context(), tenantID, status, decidable, callerParkIDs, pageSize, strings.TrimSpace(r.URL.Query().Get("cursor")))
 	if err != nil {
 		h.writeApprovalError(w, r, err)
 		return
@@ -359,7 +359,7 @@ func (h *AppWriteHandler) decide(w http.ResponseWriter, r *http.Request, approve
 		IdempotencyKey:     "counts-approval-decision:" + clientKey,
 		RequestFingerprint: stableHash("counts-app-approval-decision", canonical),
 		DecidableTypes:     permissions.DecidableApprovalRequestTypes(callerRoles(r)),
-		CallerParkID:       callerParkScope(r),
+		CallerParkIDs:      callerParkScope(r),
 	})
 	if err != nil {
 		h.writeApprovalError(w, r, err)
@@ -397,22 +397,36 @@ func callerRoles(r *http.Request) []string {
 	return roles
 }
 
-// callerParkScope returns the park scope (park_id) the caller is scoped to, if any.
-// P0-2: Returns empty string if the caller has no scope restriction (e.g. CEO/internal).
-func callerParkScope(r *http.Request) string {
+// callerParkScope returns every park the caller is scoped to, or nil when any grant is
+// tenant-wide (no restriction, e.g. CEO/internal). A person holding park_head in both parks
+// decides in both; the previous single-park answer (the FIRST grant) refused every request in
+// their other park (live E2E 2026-09-11).
+func callerParkScope(r *http.Request) []string {
 	grants := httpmiddleware.AuthGrantsFromContext(r.Context())
+	parks := []string{}
+	seen := map[string]struct{}{}
 	for _, grant := range grants {
+		if grant.ScopeType == "tenant" {
+			return nil
+		}
 		if grant.ScopeType == "park" && grant.ScopeID != "" {
-			return grant.ScopeID
+			if _, dup := seen[grant.ScopeID]; !dup {
+				seen[grant.ScopeID] = struct{}{}
+				parks = append(parks, grant.ScopeID)
+			}
 		}
 	}
-	return ""
+	return parks
 }
 
 func (h *AppWriteHandler) writeApprovalError(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
 	case errors.Is(err, ports.ErrApprovalRequestNotFound):
 		h.writeError(w, r, http.StatusNotFound, "approval_request_not_found", "approval request not found", err)
+	case errors.Is(err, countsapp.ErrApprovalForbiddenScope):
+		// The park check: a park-scoped caller addressing a request in a park they do not hold.
+		h.writeError(w, r, http.StatusForbidden, "park_scope_forbidden",
+			"this request is outside the caller's park scope", err)
 	case errors.Is(err, countsapp.ErrApprovalForbiddenType):
 		// The type-specific authority check: a park_head addressing a birth, or a ceo_internal
 		// addressing a shifting without the shifting grant, lands here.
