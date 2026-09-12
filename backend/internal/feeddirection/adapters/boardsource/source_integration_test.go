@@ -13,27 +13,20 @@ import (
 )
 
 const (
-	bsTenant   = "00000000-0000-4000-8000-000000000001"
-	bsPark     = "00000000-0000-4000-8000-000000003001"
-	bsOtherPk  = "00000000-0000-4000-8000-000000003002"
-	bsShed     = "00000000-0000-4000-8000-000000003101"
-	bsShedB    = "00000000-0000-4000-8000-000000003102"
-	bsShedC    = "00000000-0000-4000-8000-000000003103"
-	bsShedD    = "00000000-0000-4000-8000-000000003104"
-	bsShedE    = "00000000-0000-4000-8000-000000003105"
+	bsTenant  = "00000000-0000-4000-8000-000000000001"
+	bsPark    = "00000000-0000-4000-8000-000000003001"
+	bsOtherPk = "00000000-0000-4000-8000-000000003002"
+	bsShedA   = "00000000-0000-4000-8000-000000003101" // Godel 1
+	bsShedB   = "00000000-0000-4000-8000-000000003102" // Castro
+	bsShedC   = "00000000-0000-4000-8000-000000003103" // Yashoda 2
+	bsShedD   = "00000000-0000-4000-8000-000000003104" // Mandela 1
+	bsShedE   = "00000000-0000-4000-8000-000000003105" // other park
+
 	bsOperator = "00000000-0000-4000-8000-000000000301"
 	bsOtherOp  = "00000000-0000-4000-8000-000000000302"
 	bsMember   = "00000000-0000-4000-8000-000000000401"
-	bsDate     = "2026-09-10"
-
-	taskDue       = "00000000-0000-4000-8000-000000009101"
-	taskVerifying = "00000000-0000-4000-8000-000000009102"
-	taskRework    = "00000000-0000-4000-8000-000000009103"
-	taskDone      = "00000000-0000-4000-8000-000000009104"
-	taskRetired   = "00000000-0000-4000-8000-000000009105"
-	taskPenRow    = "00000000-0000-4000-8000-000000009106"
-	taskFilmed    = "00000000-0000-4000-8000-000000009107" // never assigned; owned by whoever filmed its attempt
-	attemptFilmed = "00000000-0000-4000-8000-000000009901"
+	bsDate     = "2026-09-10" // work day D; packing/transport serve D+1
+	bsServeNxt = "2026-09-11" // D+1
 )
 
 func exec(t *testing.T, ctx context.Context, pool *pgxpool.Pool, sql string, args ...any) {
@@ -43,10 +36,12 @@ func exec(t *testing.T, ctx context.Context, pool *pgxpool.Pool, sql string, arg
 	}
 }
 
-// seed lays down two parks, five sheds, one operator with a workforce profile, and six
-// transport tasks -- one per status plus a surviving pen row -- so every branch of
-// workStateSQL is exercised on a database round trip. The other park gets one task too, so
-// the park bound is proven rather than assumed.
+// seed lays down one park with four sheds plus one shed in a second park, one operator with a
+// workforce profile, and one row per activity so every card is exercised on a real round trip:
+//   transport (business_date=D): A due, B verification_due, C completed, D rework
+//   packing   (target_date=D+1): A completed, B pending_verification
+//   direction (target_date=D):   A rework
+//   wastage   (target_date=D):   A completed
 func seed(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
 	t.Helper()
 	exec(t, ctx, pool, `INSERT INTO tenants (tenant_id, name, status) VALUES ($1::uuid, 'Board Test', 'active') ON CONFLICT (tenant_id) DO NOTHING`, bsTenant)
@@ -59,40 +54,54 @@ VALUES ($1::uuid, $2::uuid, 'park', 'CBE', 'Coimbatore', 'active'),
        ($6::uuid, $2::uuid, 'shed', 'YASHODA2', 'Yashoda 2', 'active'),
        ($7::uuid, $2::uuid, 'shed', 'MANDELA1', 'Mandela 1', 'active'),
        ($8::uuid, $2::uuid, 'shed', 'GANDHI', 'Gandhi', 'active')
-ON CONFLICT (location_id) DO NOTHING`, bsPark, bsTenant, bsOtherPk, bsShed, bsShedB, bsShedC, bsShedD, bsShedE)
-	exec(t, ctx, pool, `UPDATE locations SET parent_location_id = $1::uuid WHERE location_id IN ($2::uuid, $3::uuid, $4::uuid, $5::uuid)`, bsPark, bsShed, bsShedB, bsShedC, bsShedD)
+ON CONFLICT (location_id) DO NOTHING`, bsPark, bsTenant, bsOtherPk, bsShedA, bsShedB, bsShedC, bsShedD, bsShedE)
+	exec(t, ctx, pool, `UPDATE locations SET parent_location_id = $1::uuid WHERE location_id IN ($2::uuid,$3::uuid,$4::uuid,$5::uuid)`, bsPark, bsShedA, bsShedB, bsShedC, bsShedD)
 	exec(t, ctx, pool, `UPDATE locations SET parent_location_id = $1::uuid WHERE location_id = $2::uuid`, bsOtherPk, bsShedE)
 	exec(t, ctx, pool, `
 INSERT INTO workforce_members (workforce_member_id, tenant_id, user_id, display_code, display_name, status, primary_role_hint, primary_location_id)
 VALUES ($1::uuid, $2::uuid, $3::uuid, 'DIN', 'Dinakar', 'active', 'operator', $4::uuid)
 ON CONFLICT (workforce_member_id) DO NOTHING`, bsMember, bsTenant, bsOperator, bsPark)
 
-	scheduled := "2026-09-10 15:30:00+05:30"
-	type task struct {
-		id, park, shed, partition, status, operator string
-	}
-	tasks := []task{
-		{taskDue, bsPark, bsShed, "", "due", ""},                               // owed, nobody named yet
-		{taskVerifying, bsPark, bsShedB, "", "verification_due", bsOperator},   // filmed, verdict outstanding
-		{taskRework, bsPark, bsShedC, "", "rework", bsOperator},                // sent back
-		{taskDone, bsPark, bsShedD, "", "completed", bsOtherOp},                // approved, operator has no profile
-		{taskRetired, bsPark, bsShedD, "Part 9", "retired", ""},                // superseded pen row: not work
-		{taskPenRow, bsPark, bsShed, "Part 3", "verification_due", bsOperator}, // surviving pen row with evidence
-		{"00000000-0000-4000-8000-000000009201", bsOtherPk, bsShedE, "", "due", ""},
-		{taskFilmed, bsPark, bsShedC, "Part 2", "verification_due", ""}, // materializer named nobody; the attempt names Dinakar
-	}
-	for _, x := range tasks {
+	// Transport tasks on the work day D.
+	sched := "2026-09-10 15:30:00+05:30"
+	type tk struct{ id, shed, status, op string }
+	for i, x := range []tk{
+		{"00000000-0000-4000-8000-0000000091a1", bsShedA, "due", ""},               // pool
+		{"00000000-0000-4000-8000-0000000091a2", bsShedB, "verification_due", bsOperator},
+		{"00000000-0000-4000-8000-0000000091a3", bsShedC, "completed", bsOtherOp},  // someone else's
+		{"00000000-0000-4000-8000-0000000091a4", bsShedD, "rework", bsOperator},
+		{"00000000-0000-4000-8000-0000000091e1", bsShedE, "due", ""},               // other park
+	} {
+		park := bsPark
+		if i == 4 {
+			park = bsOtherPk
+		}
 		exec(t, ctx, pool, `
 INSERT INTO feed_transport_tasks (task_id, tenant_id, park_id, shed_id, partition_label, business_date, scheduled_at, status, operator_id)
-VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5, $6::date, $7::timestamptz, $8, NULLIF($9, '')::uuid)
-ON CONFLICT (task_id) DO NOTHING`, x.id, bsTenant, x.park, x.shed, x.partition, bsDate, scheduled, x.status, x.operator)
+VALUES ($1::uuid,$2::uuid,$3::uuid,$4::uuid,'',$5::date,$6::timestamptz,$7,NULLIF($8,'')::uuid)
+ON CONFLICT (task_id) DO NOTHING`, x.id, bsTenant, park, x.shed, bsDate, sched, x.status, x.op)
 	}
-	// The real submit path: the operator lands on the ATTEMPT, and the task points at it.
+
+	packing := func(id, shed, status, proof, owner string) {
+		exec(t, ctx, pool, `
+INSERT INTO feed_packing_completions (completion_id, tenant_id, park_id, shed_id, session_no, target_date, workflow, status, packing_proof_ref, completed_by, idempotency_key)
+VALUES ($1::uuid,$2::uuid,$3::uuid,$4::uuid,1,$5::date,'normal',$6,NULLIF($7,''),NULLIF($8,'')::uuid,$1::text)
+ON CONFLICT (completion_id) DO NOTHING`, id, bsTenant, bsPark, shed, bsServeNxt, status, proof, owner)
+	}
+	packing("00000000-0000-4000-8000-0000000092a1", bsShedA, "completed", "proof:pk-a", bsOperator)
+	packing("00000000-0000-4000-8000-0000000092a2", bsShedB, "pending_verification", "proof:pk-b", bsOperator)
+
+	// Direction: A rework (no proof needed), served on D.
 	exec(t, ctx, pool, `
-INSERT INTO feed_transport_attempts (attempt_id, tenant_id, task_id, attempt_no, proof_ref, operator_id, status, idempotency_key, submitted_at)
-VALUES ($1::uuid, $2::uuid, $3::uuid, 1, 'proof:board-test', $4::uuid, 'verification_due', 'board-test:' || $1, $5::timestamptz)
-ON CONFLICT (attempt_id) DO NOTHING`, attemptFilmed, bsTenant, taskFilmed, bsOperator, scheduled)
-	exec(t, ctx, pool, `UPDATE feed_transport_tasks SET current_attempt_id = $1::uuid WHERE task_id = $2::uuid`, attemptFilmed, taskFilmed)
+INSERT INTO feed_distribution_completions (completion_id, tenant_id, park_id, shed_id, session_no, target_date, workflow, status, completed_by, idempotency_key)
+VALUES ($1::uuid,$2::uuid,$3::uuid,$4::uuid,1,$5::date,'normal','rework',$6::uuid,$1::text)
+ON CONFLICT (completion_id) DO NOTHING`, "00000000-0000-4000-8000-0000000093a1", bsTenant, bsPark, bsShedA, bsDate, bsOperator)
+
+	// Wastage: A completed (experiment-only workflow), measured on D.
+	exec(t, ctx, pool, `
+INSERT INTO feed_wastage_completions (completion_id, tenant_id, park_id, shed_id, target_date, workflow, status, wastage_proof_ref, completed_by, idempotency_key)
+VALUES ($1::uuid,$2::uuid,$3::uuid,$4::uuid,$5::date,'experiment','completed','proof:w-a',$6::uuid,$1::text)
+ON CONFLICT (completion_id) DO NOTHING`, "00000000-0000-4000-8000-0000000094a1", bsTenant, bsPark, bsShedA, bsDate, bsOperator)
 }
 
 func query(owner string, states ...domain.WorkState) ports.SourceQuery {
@@ -107,10 +116,9 @@ func byID(rows []domain.Row) map[string]domain.Row {
 	return out
 }
 
-// TestFeedTransportBoardRowsOnADatabaseRoundTrip asserts the OUTPUT STRINGS and states of
-// every branch on a real database: the status mapping, the pen display through oploc, the
-// owner resolved through the workforce profile, the missing owner, and the counts.
-func TestFeedTransportBoardRowsOnADatabaseRoundTrip(t *testing.T) {
+// TestFeedActivityCardsOnADatabaseRoundTrip asserts the four aggregate cards' output on a real
+// database: one card per activity per park, each rolled up to the leftmost lane its sheds hold.
+func TestFeedActivityCardsOnADatabaseRoundTrip(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
 	pool := pgtest.StartPostgres(t, ctx)
@@ -118,106 +126,54 @@ func TestFeedTransportBoardRowsOnADatabaseRoundTrip(t *testing.T) {
 	seed(t, ctx, pool)
 	src := New(pool, 5*time.Second)
 
-	if src.Module() != domain.ModuleFeed || src.SourceType() != "feed_transport_task" {
+	if src.Module() != domain.ModuleFeed || src.SourceType() != "feed_activity" {
 		t.Fatalf("identity %s/%s", src.Module(), src.SourceType())
 	}
 	rows, err := src.ListRows(ctx, query(""))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(rows) != 6 {
-		t.Fatalf("6 live tasks expected (the retired one is not work, the other park is not here), got %d", len(rows))
+	if len(rows) != 4 {
+		t.Fatalf("four activity cards expected, got %d", len(rows))
 	}
 	got := byID(rows)
-	filmed := got[taskFilmed]
-	if filmed.Owner.UserID != bsOperator || filmed.Owner.Name != "Dinakar" || filmed.OwnerState != domain.OwnerStateAssigned || filmed.WorkState != domain.WorkStateVerificationPending {
-		t.Errorf("a task nobody was assigned to belongs to whoever filmed its attempt: %+v %s %s", filmed.Owner, filmed.OwnerState, filmed.WorkState)
+	type want struct {
+		title    string
+		state    domain.WorkState
+		lane     domain.Lane
+		counts   domain.Counts
+		subtitle string
 	}
-	want := map[string]struct {
-		state domain.WorkState
-		lane  domain.Lane
-	}{
-		taskDue:       {domain.WorkStateDue, domain.LaneToDo},
-		taskVerifying: {domain.WorkStateVerificationPending, domain.LaneInReview},
-		taskRework:    {domain.WorkStateRejected, domain.LaneInProgress},
-		taskDone:      {domain.WorkStateCompleted, domain.LaneDone},
-		taskPenRow:    {domain.WorkStateVerificationPending, domain.LaneInReview},
+	cases := map[string]want{
+		"packing":   {"Feed packing", domain.WorkStateVerificationPending, domain.LaneInReview, domain.Counts{Done: 1, Pending: 1}, "2 pens · 1 done"},
+		"direction": {"Feed direction", domain.WorkStateRejected, domain.LaneInProgress, domain.Counts{Pending: 1, NeedsAttention: 1}, "1 pen · 0 done"},
+		"transport": {"Feed transport", domain.WorkStateDue, domain.LaneToDo, domain.Counts{Done: 1, Pending: 3, NeedsAttention: 1}, "4 pens · 1 done"},
+		"wastage":   {"Feed wastage", domain.WorkStateCompleted, domain.LaneDone, domain.Counts{Done: 1}, "1 pen · 1 done"},
 	}
-	for id, w := range want {
+	for id, w := range cases {
 		r, ok := got[id]
 		if !ok {
-			t.Fatalf("row %s missing", id)
+			t.Fatalf("card %s missing", id)
 		}
-		// A rejected row is amber on every source (domain.Row.Finalize); the rest are ok here.
-		wantSev := domain.SeverityOK
-		if w.state == domain.WorkStateRejected {
-			wantSev = domain.SeverityWatch
+		if r.Title != w.title || r.WorkState != w.state || r.Lane != w.lane || r.Counts != w.counts || r.Subtitle != w.subtitle {
+			t.Errorf("%s: title=%q state=%s lane=%s counts=%+v subtitle=%q", id, r.Title, r.WorkState, r.Lane, r.Counts, r.Subtitle)
 		}
-		if r.WorkState != w.state || r.Lane != w.lane || r.Severity != wantSev {
-			t.Errorf("%s: state=%s lane=%s sev=%s, want %s/%s/%s", id, r.WorkState, r.Lane, r.Severity, w.state, w.lane, wantSev)
-		}
-		if r.Module != domain.ModuleFeed || r.SourceType != SourceType || r.RowKey != "feed|"+SourceType+"|"+id {
+		if r.Module != domain.ModuleFeed || r.SourceType != SourceType || r.RowKey != "feed|feed_activity|"+id {
 			t.Errorf("%s: identity %s/%s/%s", id, r.Module, r.SourceType, r.RowKey)
 		}
-		if r.BusinessDate != bsDate || r.ParkID != bsPark || r.ParkName != "Coimbatore" {
-			t.Errorf("%s: scope %s %s %s", id, r.BusinessDate, r.ParkID, r.ParkName)
-		}
-		if r.ClockLabel != "Stage by 15:00" || r.Subtitle != "One trip · stage by 15:00" || r.DueAt == nil {
-			t.Errorf("%s: clock %q subtitle %q due %v", id, r.ClockLabel, r.Subtitle, r.DueAt)
+		if r.ParkID != bsPark || r.ParkName != "Coimbatore" || r.BusinessDate != bsDate || r.Href != "/feed/analytics" {
+			t.Errorf("%s: scope %s %s %s href %q", id, r.ParkID, r.ParkName, r.BusinessDate, r.Href)
 		}
 	}
-	// Shed-grain row: bare shed name, "Transport <pen>", owner missing (never fabricated).
-	due := got[taskDue]
-	if due.Pen.Display != "Godel 1" || due.Title != "Transport Godel 1" || due.Pen.ShedID != bsShed {
-		t.Errorf("due pen %q title %q shed %s", due.Pen.Display, due.Title, due.Pen.ShedID)
-	}
-	if due.OwnerState != domain.OwnerStateMissing || due.Owner.UserID != "" || due.Owner.Name != "" {
-		t.Errorf("due owner %+v %s, want missing", due.Owner, due.OwnerState)
-	}
-	if due.Counts != (domain.Counts{Pending: 1}) {
-		t.Errorf("due counts %+v", due.Counts)
-	}
-	// A surviving pen row composes shed + partition through oploc: "Godel 1 - Part 3".
-	pen := got[taskPenRow]
-	if pen.Pen.Display != "Godel 1 - Part 3" || pen.Title != "Transport Godel 1 - Part 3" || pen.Pen.PartitionLabel != "Part 3" {
-		t.Errorf("pen row display %q title %q label %q", pen.Pen.Display, pen.Title, pen.Pen.PartitionLabel)
-	}
-	if pen.Owner.Name != "Dinakar" || pen.Owner.WorkforceMemberID != bsMember || pen.Owner.UserID != bsOperator || pen.OwnerState != domain.OwnerStateAssigned {
-		t.Errorf("pen row owner %+v %s", pen.Owner, pen.OwnerState)
-	}
-	// Rework is back with the operator and needs attention.
-	rework := got[taskRework]
-	if rework.Counts != (domain.Counts{Pending: 1, NeedsAttention: 1}) || rework.Pen.Display != "Yashoda 2" {
-		t.Errorf("rework counts %+v pen %q", rework.Counts, rework.Pen.Display)
-	}
-	// Completed is done; an operator with no workforce profile is still the owner, only the
-	// name is blank.
-	done := got[taskDone]
-	if done.Counts != (domain.Counts{Done: 1}) || done.Owner.UserID != bsOtherOp || done.Owner.Name != "" || done.OwnerState != domain.OwnerStateAssigned {
-		t.Errorf("done counts %+v owner %+v %s", done.Counts, done.Owner, done.OwnerState)
+	// A rejected card is amber (domain.Row.Finalize).
+	if got["direction"].Severity != domain.SeverityWatch {
+		t.Errorf("rejected direction card severity %s, want watch", got["direction"].Severity)
 	}
 }
 
-// TestFeedTransportBoardScopeAndKeyset: owner scope, state filter and the keyset boundary
-// all happen in SQL, and the counts agree with the rows they summarise.
-func TestFeedTransportBoardRowsCarryTheFeedAnalyticsHref(t *testing.T) {
-	pgtest.SkipIfNoDocker(t)
-	ctx := context.Background()
-	pool := pgtest.StartPostgres(t, ctx)
-	defer pool.Close()
-	seed(t, ctx, pool)
-	rows, err := New(pool, 5*time.Second).ListRows(ctx, query(""))
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, r := range rows {
-		if r.Href != "/feed/analytics" {
-			t.Fatalf("%s href %q", r.SourceID, r.Href)
-		}
-	}
-}
-
-func TestFeedTransportBoardScopeAndKeyset(t *testing.T) {
+// TestFeedActivityScopeKeysetOwnerLens: keyset order, state filter, owner lens and the park/day
+// bounds all hold, and CountByState agrees with the rows.
+func TestFeedActivityScopeKeysetOwnerLens(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
 	pool := pgtest.StartPostgres(t, ctx)
@@ -225,32 +181,10 @@ func TestFeedTransportBoardScopeAndKeyset(t *testing.T) {
 	seed(t, ctx, pool)
 	src := New(pool, 5*time.Second)
 
-	mine, err := src.ListRows(ctx, query(bsOperator))
-	if err != nil {
-		t.Fatal(err)
-	}
-	// Three assigned, one filmed, plus the unowned trip (the park's pool); never the one owned
-	// by someone else.
-	if len(mine) != 5 {
-		t.Fatalf("operator lens: 4 own rows plus the unowned trip expected, got %d", len(mine))
-	}
-	for _, r := range mine {
-		if r.Owner.UserID != "" && r.Owner.UserID != bsOperator {
-			t.Fatalf("operator lens leaked %s", r.Owner.UserID)
-		}
-	}
-
-	open, err := src.ListRows(ctx, query("", domain.WorkStateDue, domain.WorkStateRejected))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(open) != 2 {
-		t.Fatalf("due+rejected: 2 expected, got %d", len(open))
-	}
-
-	seen := map[string]bool{}
+	// Keyset: two at a time, in activity rank order, never repeated.
+	order := []string{}
 	after := ""
-	for i := 0; i < 5; i++ {
+	for i := 0; i < 6; i++ {
 		q := query("")
 		q.Limit = 2
 		q.AfterSourceID = after
@@ -262,52 +196,62 @@ func TestFeedTransportBoardScopeAndKeyset(t *testing.T) {
 			break
 		}
 		for _, r := range page {
-			if r.SourceID <= after {
-				t.Fatalf("keyset order broken: %s after %s", r.SourceID, after)
-			}
-			if seen[r.SourceID] {
-				t.Fatalf("row %s served twice", r.SourceID)
-			}
-			seen[r.SourceID] = true
+			order = append(order, r.SourceID)
 			after = r.SourceID
 		}
 	}
-	if len(seen) != 6 {
-		t.Fatalf("keyset walk saw %d rows, want 6", len(seen))
+	if len(order) != 4 || order[0] != "packing" || order[1] != "direction" || order[2] != "transport" || order[3] != "wastage" {
+		t.Fatalf("keyset order %v", order)
 	}
 
+	// State filter: only the Done lane's card (wastage).
+	done, err := src.ListRows(ctx, query("", domain.StatesInLane(domain.LaneDone)...))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(done) != 1 || done[0].SourceID != "wastage" {
+		t.Fatalf("done-lane filter %v", done)
+	}
+
+	// Owner lens: the transport card drops the shed owned by someone else (C completed) and the
+	// pool shed A stays; done falls to 0 and the shed count to 3.
+	mine := byID(mustRows(t, ctx, src, query(bsOperator)))
+	tr := mine["transport"]
+	if tr.Counts.Done != 0 || tr.Subtitle != "3 pens · 0 done" {
+		t.Errorf("owner-lens transport counts %+v subtitle %q", tr.Counts, tr.Subtitle)
+	}
+
+	// CountByState over the whole filter: one card per lane here.
 	counts, err := src.CountByState(ctx, query(""))
 	if err != nil {
 		t.Fatal(err)
 	}
-	total := 0
-	for _, n := range counts {
-		total += n
-	}
-	if total != 6 || counts[domain.WorkStateDue] != 1 || counts[domain.WorkStateVerificationPending] != 3 || counts[domain.WorkStateRejected] != 1 || counts[domain.WorkStateCompleted] != 1 {
+	if counts[domain.WorkStateDue] != 1 || counts[domain.WorkStateVerificationPending] != 1 || counts[domain.WorkStateRejected] != 1 || counts[domain.WorkStateCompleted] != 1 {
 		t.Fatalf("counts %+v", counts)
 	}
-	mineCounts, err := src.CountByState(ctx, query(bsOperator))
+
+	// The other park sees only its own transport card; another day sees nothing.
+	other, err := src.ListRows(ctx, ports.SourceQuery{TenantID: bsTenant, ParkID: bsOtherPk, BusinessDate: bsDate, Limit: 50})
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The unowned trip (due) is in the operator's counts too: the counts describe the same set
-	// the rows do.
-	if mineCounts[domain.WorkStateVerificationPending] != 3 || mineCounts[domain.WorkStateRejected] != 1 || mineCounts[domain.WorkStateDue] != 1 || len(mineCounts) != 3 {
-		t.Fatalf("operator counts %+v", mineCounts)
+	if len(other) != 1 || other[0].SourceID != "transport" {
+		t.Fatalf("other park cards %v", other)
 	}
-	otherPark, err := src.CountByState(ctx, ports.SourceQuery{TenantID: bsTenant, ParkID: bsOtherPk, BusinessDate: bsDate})
+	empty, err := src.ListRows(ctx, ports.SourceQuery{TenantID: bsTenant, ParkID: bsPark, BusinessDate: "2026-09-20", Limit: 50})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(otherPark) != 1 || otherPark[domain.WorkStateDue] != 1 {
-		t.Fatalf("the other park sees only its own task, got %+v", otherPark)
+	if len(empty) != 0 {
+		t.Fatalf("a day with no feed work must be empty, got %d", len(empty))
 	}
-	otherDay, err := src.ListRows(ctx, ports.SourceQuery{TenantID: bsTenant, ParkID: bsPark, BusinessDate: "2026-09-11", Limit: 10})
+}
+
+func mustRows(t *testing.T, ctx context.Context, src *Source, q ports.SourceQuery) []domain.Row {
+	t.Helper()
+	rows, err := src.ListRows(ctx, q)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(otherDay) != 0 {
-		t.Fatalf("another business date must see nothing, got %d", len(otherDay))
-	}
+	return rows
 }
