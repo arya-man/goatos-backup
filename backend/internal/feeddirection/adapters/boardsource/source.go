@@ -24,6 +24,7 @@ package boardsource
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -127,6 +128,17 @@ func activityByKey(key string) (activity, bool) {
 	return activity{}, false
 }
 
+func sourceID(parkID string, a activity) string {
+	return parkID + ":" + a.key
+}
+
+func activityFromSourceID(id string) (activity, bool) {
+	if _, key, ok := strings.Cut(id, ":"); ok {
+		return activityByKey(key)
+	}
+	return activityByKey(id)
+}
+
 // metricsSQL rolls one activity's units up to its card: the shed count, done/pending/attention
 // shed tallies, the card's lane rank (MIN over sheds, -1 when the card has no shed), whether
 // the leftmost lane holds a rejected shed, and the park name.
@@ -206,7 +218,7 @@ func cardState(m cardMetrics) domain.WorkState {
 func (s *Source) buildRow(a activity, q ports.SourceQuery, m cardMetrics) domain.Row {
 	state := cardState(m)
 	return domain.Row{
-		Module: domain.ModuleFeed, SourceType: SourceType, SourceID: a.key,
+		Module: domain.ModuleFeed, SourceType: SourceType, SourceID: sourceID(q.ParkID, a),
 		ParkID: q.ParkID, ParkName: m.parkName,
 		BusinessDate: q.BusinessDate, ClockLabel: a.clock,
 		WorkState: state, Severity: domain.SeverityOK,
@@ -231,7 +243,7 @@ func (s *Source) ListRows(ctx context.Context, q ports.SourceQuery) ([]domain.Ro
 	defer cancel()
 	afterRank := -1
 	if q.AfterSourceID != "" {
-		a, ok := activityByKey(q.AfterSourceID)
+		a, ok := activityFromSourceID(q.AfterSourceID)
 		if !ok {
 			return nil, domain.ErrInvalidCursor
 		}

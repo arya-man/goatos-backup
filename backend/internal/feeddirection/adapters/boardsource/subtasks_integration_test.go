@@ -19,7 +19,7 @@ func TestFeedActivitySubtasksListPensWorstFirst(t *testing.T) {
 	seed(t, ctx, pool)
 	src := New(pool, 5000000000)
 
-	page, err := src.ListSubtasks(ctx, ports.SubtaskQuery{TenantID: bsTenant, ParkID: bsPark, BusinessDate: bsDate, SourceID: "transport", Limit: 50})
+	page, err := src.ListSubtasks(ctx, ports.SubtaskQuery{TenantID: bsTenant, ParkID: bsPark, BusinessDate: bsDate, SourceID: feedActivityID("transport"), Limit: 50})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -49,7 +49,7 @@ func TestFeedActivitySubtasksListPensWorstFirst(t *testing.T) {
 	}
 
 	// Keyset: paging AFTER the first pen returns exactly the remaining three, in order.
-	afterFirst, err := src.ListSubtasks(ctx, ports.SubtaskQuery{TenantID: bsTenant, ParkID: bsPark, BusinessDate: bsDate, SourceID: "transport", AfterKey: page.Subtasks[0].Key, Limit: 50})
+	afterFirst, err := src.ListSubtasks(ctx, ports.SubtaskQuery{TenantID: bsTenant, ParkID: bsPark, BusinessDate: bsDate, SourceID: feedActivityID("transport"), AfterKey: page.Subtasks[0].Key, Limit: 50})
 	if err != nil {
 		t.Fatal(err)
 	}

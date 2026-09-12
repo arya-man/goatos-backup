@@ -14,6 +14,8 @@ import {
   findOption,
   initials,
   lanes,
+  laneCursorParams,
+  laneParkResetParams,
   moduleClass,
   moduleOptions,
   needsAttention,
@@ -32,10 +34,14 @@ import {
 // server re-reads; the search box is the one client-local filter (it narrows the cards on screen
 // and the column count says how many are shown). Every label is the page contract's.
 
-function setParam(params: URLSearchParams, key: string, value: string | undefined) {
+function setParam(params: URLSearchParams, pageContract: AdminUiPageContract, key: string, value: string | undefined) {
   params.delete(PARAM_CURSOR);
   params.delete("page");
   params.delete(`${PARAM_CURSOR}_stack`);
+  const laneKeys = lanes(pageContract).map((lane) => lane.key);
+  const parkKeys = parkOptions(pageContract).map((park) => park.key);
+  for (const stale of Object.keys(laneCursorParams(laneKeys))) params.delete(stale);
+  for (const stale of Object.keys(laneParkResetParams(laneKeys, parkKeys))) params.delete(stale);
   if (value) params.set(key, value);
   else params.delete(key);
 }
@@ -323,7 +329,7 @@ export function WorkBoardBoard({
           <Search className="ic" aria-hidden="true" />
           <input value={q} onChange={(e) => setQ(e.target.value)} placeholder={copy(pageContract, "filter.search")} aria-label={copy(pageContract, "filter.search")} />
         </label>
-        {ownRowsOnly ? null : <AssigneePicker pageContract={pageContract} owners={owners} cardsByOwner={cardsByOwner} selected={selectedOwner} onSelect={(id) => write((p) => setParam(p, PARAM_OWNER, id))} />}
+        {ownRowsOnly ? null : <AssigneePicker pageContract={pageContract} owners={owners} cardsByOwner={cardsByOwner} selected={selectedOwner} onSelect={(id) => write((p) => setParam(p, pageContract, PARAM_OWNER, id))} />}
         {parks.length > 1 ? (
           <nav className="parkpick" aria-label={copy(pageContract, "filter.park")}>
             <Link href={allParksHref} className={selectedPark === "" ? "on" : ""} aria-current={selectedPark === "" ? "true" : undefined}>
@@ -345,7 +351,7 @@ export function WorkBoardBoard({
           </span>
           <Link href={nextDayHref} aria-label={copy(pageContract, "action.next")}>›</Link>
         </div>
-        <ModuleMenu pageContract={pageContract} options={visibleModules} selected={selectedModules} none={noneSelected} onChange={(next) => write((p) => setParam(p, PARAM_MODULE, next.length ? next.join(",") : undefined))} />
+        <ModuleMenu pageContract={pageContract} options={visibleModules} selected={selectedModules} none={noneSelected} onChange={(next) => write((p) => setParam(p, pageContract, PARAM_MODULE, next.length ? next.join(",") : undefined))} />
       </div>
       <div className="rule">
         <span>{copy(pageContract, "board.rule")}</span>
