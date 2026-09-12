@@ -61,7 +61,12 @@ func decodePeopleCursor(cursor string) (nameKey, memberID string, ok bool) {
 }
 
 func peopleSelectSQL(where string) string {
-	return ` // scale-guard:ignore: shared staff-directory projection builder; bounded workforce_members keyset/equality reads with 1:1 joins.
+	// The guard marker must stay OUTSIDE the SQL literal. a3af3e191 put it inside the backtick
+	// string, so Postgres received `// scale-guard:ignore: ...` as the first line of the query and
+	// every People / HRMS list call failed with `syntax error at or near "//"` (STG, 11-12 Sep
+	// 2026). The guard accepts the marker on the line above the finding.
+	// scale-guard:ignore: shared staff-directory projection builder; bounded workforce_members keyset/equality reads with 1:1 joins.
+	return `
 SELECT
   wm.workforce_member_id::text,
   wm.user_id::text,
