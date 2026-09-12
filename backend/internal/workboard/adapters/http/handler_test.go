@@ -336,6 +336,19 @@ func TestSubtasksAreServedOnlyForARowOnTheCallersBoard(t *testing.T) {
 		t.Fatalf("subtask %v", first)
 	}
 
+	svc = &fakeService{found: true}
+	h = NewHandler(svc, nil)
+	rec, body = get(t, h, "/work-board/rows/"+key+"/subtasks?park="+parkCBE+"&owner="+actorOp, actorCEO, tenantGrant(permissions.RoleCEOInternal))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("owner scoped subtasks: status %d %v", rec.Code, body)
+	}
+	if svc.last.OwnerUserID != actorOp {
+		t.Fatalf("subtasks must preserve the selected owner scope, got query %+v", svc.last)
+	}
+	if svc.lastRowKey != key {
+		t.Fatalf("owner scoped row key %q", svc.lastRowKey)
+	}
+
 	// Not on the caller's board: 404 with a stable code, never a leak of the row.
 	missing := &fakeService{found: false}
 	rec, body = get(t, NewHandler(missing, nil), "/work-board/rows/"+key+"/subtasks", actorCEO, tenantGrant(permissions.RoleCEOInternal))

@@ -22649,6 +22649,8 @@ export interface operations {
                 park?: string;
                 /** @description The board day the row was seen on (Asia/Kolkata). Absent means today. */
                 business_date?: string;
+                /** @description `me`, or a user id, to narrow to one person's subtasks. Identical to /work-board/rows: ignored for a caller without work_board.oversee, whose read is always their own rows. */
+                owner?: string;
                 /** @description Keyset cursor from a previous page's next_cursor (an opaque subtask key). */
                 cursor?: string;
                 /** @description Page size, clamped into [10, 50] on the server. */

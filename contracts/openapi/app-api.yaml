@@ -8179,6 +8179,14 @@ paths:
           required: false
           schema: { type: string, format: date }
           description: The board day the row was seen on (Asia/Kolkata). Absent means today.
+        - name: owner
+          in: query
+          required: false
+          schema: { type: string }
+          description: >-
+            `me`, or a user id, to narrow to one person's subtasks. Identical to
+            /work-board/rows: ignored for a caller without work_board.oversee,
+            whose read is always their own rows.
         - name: cursor
           in: query
           required: false
