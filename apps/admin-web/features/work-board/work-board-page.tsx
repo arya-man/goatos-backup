@@ -15,6 +15,7 @@ import {
   laneCursorParams,
   LANE_PARK_END,
   laneNextHref,
+  laneOffsetKey,
   laneParkCursorKey,
   laneParkResetParams,
   lanePreviousHref,
@@ -179,11 +180,10 @@ export async function WorkBoardPage({ searchParams, pageContract }: { searchPara
     return {
       lane,
       rows: laneRows,
-      nextHref: laneNextHref(WORK_BOARD_PATH, sp, lane, perPark),
+      nextHref: laneNextHref(WORK_BOARD_PATH, sp, lane, perPark, laneRows.length),
       previousHref: lanePreviousHref(WORK_BOARD_PATH, sp, lane, allParkKeys),
       pageNumber: boundedInt(one(sp, `c_${lane}_page`), 1, 1, 1000000),
-      // The footer's slice arithmetic spans the per-page capacity across active parks.
-      pageSize: limit * activeParks.length,
+      offset: boundedInt(one(sp, laneOffsetKey(lane)), 0, 0, 1000000),
     };
   });
   const selectedRow = one(sp, PARAM_ROW);

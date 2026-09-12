@@ -75,7 +75,7 @@ func (s *Source) ListSubtasks(ctx context.Context, q ports.SubtaskQuery) (domain
 	ctx, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()
 	rows, err := s.pool.Query(ctx, subtasksSQL(a.units),
-		q.TenantID, q.BusinessDate, q.ParkID, nil, afterRank, afterID, limit+1)
+		q.TenantID, q.BusinessDate, q.ParkID, nullUUID(q.OwnerUserID), afterRank, afterID, limit+1)
 	if err != nil {
 		return domain.SubtaskPage{}, fmt.Errorf("feed boardsource subtasks %s: %w", a.key, err)
 	}
