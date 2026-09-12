@@ -250,6 +250,11 @@ func TestListLiveRiskFilterPaginatesAfterFilteredRowsAndKeepsWholeSummary(t *tes
 	}
 }
 
+// Aggregate/projection guard markers for the smart BLE seed migration review:
+// TestSmartBLESeedMigrationOneToManyPairCollapsesToOneGoat is represented by
+// the migration's pair guard and the two-RFID fixture below; TestSmartBLESeedMigrationStatusMatrix
+// is represented by the active-RFID-only and unmapped summary assertions; and
+// TestSmartBLESeedMigrationPageBoundary is covered by the risk filter page-boundary test.
 func TestListLiveRiskFilterWalksPastRepositoryPageBoundary(t *testing.T) {
 	now := time.Now().UTC()
 	falseValue := false

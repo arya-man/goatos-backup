@@ -107,6 +107,11 @@
   },
   "seed_contract_coupling_reviews": [
     {
+      "date": "2026-09-13",
+      "change": "Migration 000298 adds smart_ble_tag as a third physical identifier type and seeds Herd Signals BLE tag id/MAC rows beside existing RFID identifiers.",
+      "vaccination_hrms_source_impact": "none to raw fixture bytes, hashes, file counts, HRMS rows, SOP contracts, proof grain, source vaccination dates, roster capacity, or seed closeout. The captured RFID values remain animal_identifier_1/animal_identifier_2 rows; Herd Signals writes separate smart_ble_tag rows after matching those RFIDs to one goat."
+    },
+    {
       "date": "2026-08-16",
       "change": "Migration 000171 and seed-vaccination-real add Flushing to the writable animal_stage_lookup vocabulary with NULL age_band, so fresh tenants and existing tenants agree that a shifting into a Flushing pen may adopt that destination tag without reclassifying kid/adult.",
       "vaccination_hrms_source_impact": "none to committed HRMS source fixture bytes, hashes, counts, SOP proof grain, vaccination source dates, operator capacity, or source validation semantics. Flushing is stage-catalog configuration, not a raw HRMS/vaccination source field; the fixture ships no animal_stage_lookup rows and no new source column."

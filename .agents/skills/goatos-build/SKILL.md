@@ -78,6 +78,12 @@ mapping, MCP Toolbox tool, `ceo_ai.*` reporting view, assistant context/doc, or
 document an explicit exclusion. `make leadership-assistant-coverage-guard`
 enforces this in local CI.
 
+Herd Signals smart BLE mapping seed rule: smart BLE tag ids and MACs are
+Herd Signals mapping output stored as `goat_identifiers.identifier_type =
+smart_ble_tag`. They must be matched from existing active RFID identifiers and
+must not be added to the vaccination/HRMS source fixture as raw source columns
+unless Ravi explicitly supplies a new source bundle with that schema.
+
 Operational read model rule: shared command surfaces and mobile/admin/reporting
 reads must follow `docs/architecture/operational-read-model-contract.md`.
 **Partition display rule (MANDATORY):** when a partition exists (`Castro 1`

@@ -245,6 +245,7 @@ func (s *Service) listAllTagsLatest(ctx context.Context, tenantID string, parkID
 	var all []domain.TagLatest
 	cursor := ""
 	for {
+		// scale-guard:ignore: bounded keyset page walk owner=herd-signals issue=PR-251 reason=risk_state is computed after batched enrichment and must see the whole filtered live cohort; the loop is capped by liveSignalCohortMaxRows and advances by opaque repository cursor expiry=2026-12-31
 		tags, _, nextCursor, err := s.repo.ListTagsLatest(ctx, tenantID, parkID, shedID, movementState, mappingState, pattern, q, cursor, liveSignalCohortPageSize, sort)
 		if err != nil {
 			return nil, err

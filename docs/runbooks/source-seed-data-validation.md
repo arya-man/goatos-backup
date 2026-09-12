@@ -63,6 +63,12 @@ seed those snapshot values directly; seed/reseed validation remains focused on
 canonical shed profiles, stage lookup rows, and the normal shifting/approval
 workflow that writes the snapshots.
 
+The Herd Signals `smart_ble_tag` identifier type added by migration `000298` is
+also outside the vaccination/HRMS source bundle. BLE tag id and MAC rows are
+Herd Signals mapping output matched against existing active RFID identifiers;
+the raw vaccination fixture must not gain BLE columns or reinterpret RFID
+history as smart-tag history.
+
 Shed partition labels are source detail, not separate canonical buildings.
 `Gandhi 1`, `Gandhi 2`, and `Gandhi 3` normalize to physical shed `Gandhi`
 with partitions `1`, `2`, and `3`; `Godel 1 - Part 3` normalizes to physical

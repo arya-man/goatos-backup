@@ -79,6 +79,12 @@ because kernel generation ran later in the same seed. The seed reconciliation
 repair may mark that duplicate active row `superseded`, but it must not delete
 or rewrite the accepted completion that backs goat history.
 
+Herd Signals smart BLE tag mappings are not vaccination source history. Migration
+`000298` adds `smart_ble_tag` rows only after existing active RFID identifiers
+resolve to one goat; it does not change vaccination dates, accepted completion
+history, source DOB/species/stage semantics, roster capacity, or SOP proof
+grain.
+
 Source shed labels with trailing partition numbers must be normalized before
 canonical DB writes. `Gandhi 1` means physical shed `Gandhi`, partition `1`;
 `Godel 1 - Part 3` means physical shed `Godel 1`, partition `Part 3`. The raw

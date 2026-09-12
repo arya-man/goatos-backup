@@ -31,6 +31,10 @@
 // rfid2 aliases, and port-specific publication can exclude vaccines such as
 // Blue Tongue/PPR until stock/manual scheduling is confirmed. Source validation
 // keeps the canonical full-fixture bytes and source-history contract unchanged.
+// Coupling review 2026-09-13: migration 000298's smart_ble_tag rows are Herd
+// Signals mapping output matched from already-active RFID identifiers. They add
+// no vaccination/HRMS source column, date rule, roster row, SOP proof-grain
+// field, or fixture hash input for this validator.
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";

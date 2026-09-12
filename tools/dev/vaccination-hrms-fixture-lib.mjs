@@ -74,6 +74,11 @@ export const OPERATOR_ROSTER_OVERLAY_IS_AUTHORITATIVE_FIELD_CAPACITY = true;
 // local/dev DB: seed-roster-real resolves only centers present in the source
 // bundle and may create that required park row before member/position import.
 export const OPERATOR_ROSTER_CLEAN_DB_BOOTSTRAPS_PRESENT_CENTERS_ONLY = true;
+// Coupling review 2026-09-13: Herd Signals smart BLE mapping adds a third
+// goat_identifiers physical identifier type (`smart_ble_tag`) after resolving
+// existing RFID rows. The vaccination/HRMS fixture contract is unchanged: this
+// loader still owns source animals, vaccination history, roster, timetable, and
+// shed-manager inputs only; it must not synthesize BLE tag rows from source.
 export const OPERATOR_ROSTER_ANIMAL_CAP_FIELD = "animal_cap_per_day";
 export const HRMS_VACCINATION_DAILY_ANIMAL_CAP_FIELD = "workforce_positions.vaccination_daily_animal_cap";
 export const OPERATOR_SHIFT_LABEL_FIELD = "shift_label";

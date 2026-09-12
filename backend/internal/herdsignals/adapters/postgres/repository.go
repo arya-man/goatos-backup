@@ -758,9 +758,9 @@ func herdSignalsLiveFilter(tenantID string, parkID, shedID, movementState, mappi
 					  AND qgi.identifier_value ILIKE $%d
 				)
 			)`, argIndex, argIndex, argIndex, argIndex, argIndex, argIndex, argIndex, argIndex, argIndex)
-			args = append(args, needle)
-			argIndex++
-		}
+		args = append(args, needle)
+		argIndex++
+	}
 
 	return whereClause, args, argIndex
 }

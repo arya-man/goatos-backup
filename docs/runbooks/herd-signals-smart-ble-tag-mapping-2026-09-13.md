@@ -40,3 +40,5 @@ Migration safety checks in `000298_smart_ble_tag_mapping_seed.sql`:
 3. The 19 BLE groups must resolve to 19 distinct goats.
 4. Existing BLE tag id or MAC identifiers claimed by another goat abort the migration.
 5. `herd_signal_tag_latest` is updated only as denormalized cache after the authoritative `goat_identifiers` rows are written.
+
+Seed closeout: this is a one-time Herd Signals mapping seed, not a vaccination/HRMS source fixture change. After applying the migration in staging, verify `goat_identifiers` has 38 active `smart_ble_tag` rows from `source_system = 'herd_signals'`, 19 distinct `goat_id` values, and no changed active RFID rows for the 23 captured `animal_identifier_1` / `animal_identifier_2` values. The existing vaccination source fixture remains unchanged because the migration adds a third smart-tag identifier beside the RFID slots rather than changing goat DOB, species, stage, roster, SOP, or vaccination history source data.

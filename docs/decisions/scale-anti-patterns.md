@@ -35,6 +35,12 @@ new buildings; source audits, fixture guards, seeders, read APIs, and frontend
 tables must aggregate owner/count totals at physical-shed grain and carry the
 partition only as drive-assignment detail.
 
+Identifier-type drift is another seed/provisioning variant. A smart BLE tag is a
+Herd Signals physical identifier row, not a replacement for either RFID slot and
+not a vaccination/HRMS source column. Migrations that add smart-tag mappings must
+prove one BLE group resolves to one goat through existing RFID rows and keep the
+fixture byte/hash contract unchanged unless the source sheets themselves change.
+
 Vaccination submit grain drift is the same class of bug at runtime. Multiple
 sheds can share one hidden park/batch-level `sop_tasks` parent, but operators,
 WF, CT, AC, Calendar, Android, and verifier rows are shed-grained. A first shed

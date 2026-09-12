@@ -91,6 +91,7 @@ BEGIN
     RETURN;
   END IF;
 
+  -- projection-review: membership=_smart_ble_seed joined to active RFID goat_identifiers; group_key=rfid; join_cardinality=one seed RFID must match exactly one active RFID row; pagination=single bounded 23-row seed set with no paging; scope=fixed tenant seed_tenant plus RFID identifier types only
   SELECT string_agg(s.rfid, ', ' ORDER BY s.rfid)
     INTO bad_rfid
   FROM _smart_ble_seed s
@@ -107,6 +108,7 @@ BEGIN
     RAISE EXCEPTION 'smart BLE seed aborted: RFID(s) missing, duplicated, inactive, or not RFID type: %', bad_rfid;
   END IF;
 
+  -- projection-review: membership=_smart_ble_seed joined to active RFID goat_identifiers; group_key=ble_tag; join_cardinality=one BLE group may list two RFID rows but they must resolve to one goat; pagination=single bounded 23-row seed set with no paging; scope=fixed tenant seed_tenant plus RFID identifier types only
   SELECT string_agg(ble_tag, ', ' ORDER BY ble_tag)
     INTO bad_group
   FROM (
@@ -138,11 +140,13 @@ BEGIN
     INTO group_count, distinct_goat_count
   FROM _smart_ble_group;
 
+  -- projection-review: membership=_smart_ble_seed RFIDs resolved through one active goat_identifiers RFID row; group_key=ble_tag and ble_mac bind to one goat_id; join_cardinality=RFID rows may be two per BLE tag but must collapse to exactly one goat per BLE group and 19 distinct goats overall; pagination=single bounded 23-row seed set with no paging; scope=fixed tenant seed_tenant plus global identifier scope
   IF group_count <> 19 OR distinct_goat_count <> 19 THEN
     RAISE EXCEPTION 'smart BLE seed aborted: expected 19 BLE tags mapped to 19 distinct goats, got groups %, distinct goats %',
       group_count, distinct_goat_count;
   END IF;
 
+  -- projection-review: membership=intended BLE tag id and MAC values from _smart_ble_group; group_key=normalized_value; join_cardinality=each intended BLE value may match at most the same goat's identifier row and never another goat; pagination=single bounded 38-value seed set with no paging; scope=fixed tenant seed_tenant plus global identifier scope
   SELECT string_agg(e.normalized_value, ', ' ORDER BY e.normalized_value)
     INTO bad_existing
   FROM (
