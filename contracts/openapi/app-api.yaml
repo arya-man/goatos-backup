@@ -21379,6 +21379,14 @@ components:
         animal_count: { type: integer }
         removal_task_id: { type: string, format: uuid }
         removal_status: { type: string, enum: [open, pending_verification, completed, rework] }
+        pen_visit_chip:
+          type: string
+          description: >-
+            The card's chip once its videos are verified while its pens still owe the next-day
+            pen visit, the work's last step (maintainer decision 2026-09-12) -- "Visit pens
+            today", "Visit in review", "Visit needs another video". Backend copy rendered
+            verbatim in place of the status chip; absent when the status chip stands.
+        pen_visit_tone: { type: string, enum: [info, review, success, danger, muted] }
       required: [card_key, category, category_label, park_id, park_name, planned_business_date, due_business_date, status, pen_count, pen_labels, assignee_names, animal_count]
     PCCareRoundCardPage:
       type: object

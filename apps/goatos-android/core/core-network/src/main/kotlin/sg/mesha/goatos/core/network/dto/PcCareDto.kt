@@ -253,6 +253,13 @@ data class PcCareRoundCardDto(
     @SerialName("animal_count") val animalCount: Int = 0,
     @SerialName("removal_task_id") val removalTaskId: String = "",
     @SerialName("removal_status") val removalStatus: String = "",
+    /**
+     * The card's chip once its videos are verified while its pens still owe the next-day pen
+     * visit, the work's last step: "Visit pens today", never "Done". Backend copy, rendered
+     * verbatim in place of the status chip; blank when the status chip stands.
+     */
+    @SerialName("pen_visit_chip") val penVisitChip: String = "",
+    @SerialName("pen_visit_tone") val penVisitTone: String = "",
 )
 
 @Serializable

@@ -23,6 +23,7 @@ type fakeRoundStore struct {
 	lastCreate     ports.CreateRoundParams
 	closed         []ports.CloseRoundParams
 	lastCardsQuery ports.ListRoundCardsQuery
+	cards          []ports.RoundCard
 }
 
 func (f *fakeRoundStore) CreateRound(_ context.Context, p ports.CreateRoundParams) (ports.RoundRow, error) {
@@ -38,7 +39,7 @@ func (f *fakeRoundStore) GetRound(_ context.Context, _, roundID string, _ []stri
 
 func (f *fakeRoundStore) ListRoundCards(_ context.Context, q ports.ListRoundCardsQuery) (ports.RoundCardPage, error) {
 	f.lastCardsQuery = q
-	return ports.RoundCardPage{}, nil
+	return ports.RoundCardPage{Cards: append([]ports.RoundCard(nil), f.cards...)}, nil
 }
 
 func (f *fakeRoundStore) CloseRound(_ context.Context, p ports.CloseRoundParams) error {

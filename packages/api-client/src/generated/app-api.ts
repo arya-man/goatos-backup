@@ -9323,6 +9323,10 @@ export interface components {
             removal_task_id?: string;
             /** @enum {string} */
             removal_status?: "open" | "pending_verification" | "completed" | "rework";
+            /** @description The card's chip once its videos are verified while its pens still owe the next-day pen visit, the work's last step (maintainer decision 2026-09-12) -- "Visit pens today", "Visit in review", "Visit needs another video". Backend copy rendered verbatim in place of the status chip; absent when the status chip stands. */
+            pen_visit_chip?: string;
+            /** @enum {string} */
+            pen_visit_tone?: "info" | "review" | "success" | "danger" | "muted";
         };
         PCCareRoundCardPage: {
             items: components["schemas"]["PCCareRoundCard"][];

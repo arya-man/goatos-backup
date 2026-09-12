@@ -78,6 +78,11 @@ type roundCardDTO struct {
 	AnimalCount   int32    `json:"animal_count"`
 	RemovalTaskID string   `json:"removal_task_id,omitempty"`
 	RemovalStatus string   `json:"removal_status,omitempty"`
+	// PenVisitChip / PenVisitTone are the card's chip once its videos are verified but its
+	// pens still owe the next-day visit (maintainer decision 2026-09-12): "Visit pens today",
+	// never "Done". Backend copy; the phone renders it in place of the status chip.
+	PenVisitChip string `json:"pen_visit_chip,omitempty"`
+	PenVisitTone string `json:"pen_visit_tone,omitempty"`
 }
 
 type roundCardPageDTO struct {
@@ -153,6 +158,7 @@ func (h *Handler) GetRoundCards(w http.ResponseWriter, r *http.Request) {
 			Status: c.Status, WorkState: c.WorkState, PenCount: c.PenCount,
 			PenLabels: c.PenLabels, AssigneeNames: c.AssigneeNames, AnimalCount: c.AnimalCount,
 			RemovalTaskID: c.RemovalTaskID, RemovalStatus: c.RemovalStatus,
+			PenVisitChip: c.PenVisitChip, PenVisitTone: c.PenVisitTone,
 		})
 	}
 	httpresponse.WriteJSON(w, http.StatusOK, resp)
