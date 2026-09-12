@@ -8108,6 +8108,11 @@ paths:
           required: false
           schema: { type: string }
           description: Comma-separated work states (the eleven process-integrity values). Absent means every state.
+        - name: lane
+          in: query
+          required: false
+          schema: { type: string }
+          description: Comma-separated columns (todo, in_progress, in_review, done). A column read is the lane's states, so each column can page on its own; with `state` as well the two intersect.
         - name: owner
           in: query
           required: false
@@ -8270,6 +8275,11 @@ paths:
           in: query
           required: false
           schema: { type: string }
+        - name: lane
+          in: query
+          required: false
+          schema: { type: string }
+          description: Comma-separated columns (todo, in_progress, in_review, done). A column read is the lane's states, so each column can page on its own; with `state` as well the two intersect.
         - name: owner
           in: query
           required: false

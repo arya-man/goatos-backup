@@ -22609,6 +22609,8 @@ export interface operations {
                 module?: string;
                 /** @description Comma-separated work states (the eleven process-integrity values). Absent means every state. */
                 state?: string;
+                /** @description Comma-separated columns (todo, in_progress, in_review, done). A column read is the lane's states, so each column can page on its own; with `state` as well the two intersect. */
+                lane?: string;
                 /** @description `me`, or a user id, to narrow to one person's rows. Ignored for a caller without work_board.oversee, whose read is always their own rows. */
                 owner?: string;
                 limit?: number;
@@ -22712,6 +22714,8 @@ export interface operations {
                 business_date?: string;
                 module?: string;
                 state?: string;
+                /** @description Comma-separated columns (todo, in_progress, in_review, done). A column read is the lane's states, so each column can page on its own; with `state` as well the two intersect. */
+                lane?: string;
                 owner?: string;
             };
             header?: never;

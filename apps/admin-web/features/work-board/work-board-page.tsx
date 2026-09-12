@@ -6,11 +6,15 @@ import { getWorkBoardSummary, listWorkBoardRows, type WorkBoardRow } from "@/lib
 import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
 import { istDayPlus, todayIso } from "@/lib/format";
 import { boundedInt, hrefPreviousPagedCursor, hrefWithPagedCursor, hrefWithParams, one, type RouteSearchParams } from "@/lib/search-params";
+import type { WorkBoardLaneColumn } from "./work-board-board";
 import { parseScope } from "@/lib/scope";
 import { WorkBoardBoard } from "./work-board-board";
 import { WorkBoardModal } from "./work-board-modal";
 import {
   isWorkState,
+  laneCursorParam,
+  laneCursorParams,
+  lanes,
   moduleOptions,
   modulesVisible,
   ownersOnPage,
@@ -63,7 +67,8 @@ export async function WorkBoardPage({ searchParams, pageContract }: { searchPara
   const owner = one(sp, PARAM_OWNER);
   const pageSizes = tablePageSizes(pageContract, "work-board");
   const limit = pageSizes.find((size) => size === boundedInt(one(sp, PARAM_LIMIT), pageSizes[0] ?? 25, 1, 100)) ?? pageSizes[0] ?? 25;
-  const cursor = one(sp, PARAM_CURSOR);
+  const laneKeys = lanes(pageContract).map((lane) => lane.key);
+  const resetPaging = { [PARAM_CURSOR]: undefined, page: undefined, [`${PARAM_CURSOR}_stack`]: undefined, ...laneCursorParams(laneKeys) };
 
   if (!park) {
     return (
@@ -74,46 +79,58 @@ export async function WorkBoardPage({ searchParams, pageContract }: { searchPara
   }
 
   const boardScope = { park: park.key, businessDate, modules: selectedModules, states: selectedStates, owner };
-  const [rowsResult, summaryResult] = await Promise.all([
-    noneSelected ? null : listWorkBoardRows(boardScope, { limit, cursor }),
-    noneSelected ? null : getWorkBoardSummary(boardScope),
-  ]);
+  // One read PER COLUMN, each on its own cursor, plus the whole-filter summary: a fixed,
+  // bounded fan-out of four column reads (the lanes are a closed set), never per row. A single
+  // global page split 25 rows across four columns, so a column reading "117" showed three cards
+  // and no way to the rest (maintainer report 2026-09-12).
+  const laneReads = noneSelected
+    ? laneKeys.map(() => null)
+    : laneKeys.map((lane) => listWorkBoardRows({ ...boardScope, lane }, { limit, cursor: one(sp, laneCursorParam(lane)) }));
+  const [summaryResult, ...laneResults] = await Promise.all([noneSelected ? null : getWorkBoardSummary(boardScope), ...laneReads]);
+  const rowsResult = laneResults.find((result) => result !== null) ?? null;
   // The wire's `modules` is the caller's set INTERSECTED with the request filter, so while a
   // module filter is on, the Module menu's vocabulary comes from one unfiltered summary read.
   // It is a second, bounded round trip taken only in that case; with no filter, the filtered
   // summary IS that read. (The contract carrying the caller's vocabulary would remove it.)
   const vocabularyResult = noneSelected || selectedModules.length ? await getWorkBoardSummary({ park: park.key, businessDate }) : null;
-  if (firstAuthRequiredError(...[rowsResult, summaryResult, vocabularyResult].filter((result) => result !== null))) redirect(INTERNAL_LOGIN_PATH);
+  if (firstAuthRequiredError(...[summaryResult, vocabularyResult, ...laneResults].filter((result) => result !== null))) redirect(INTERNAL_LOGIN_PATH);
 
-  const rows: WorkBoardRow[] = rowsResult?.ok ? rowsResult.data.rows : [];
+  const rows: WorkBoardRow[] = laneResults.flatMap((result) => (result?.ok ? result.data.rows : []));
   const summary = summaryResult?.ok ? summaryResult.data : null;
   const ownRowsOnly = (rowsResult?.ok ? rowsResult.data.own_rows_only : vocabularyResult?.ok ? vocabularyResult.data.own_rows_only : false) ?? false;
   const vocabulary = vocabularyResult ? (vocabularyResult.ok ? vocabularyResult.data.modules : null) : rowsResult?.ok ? rowsResult.data.modules : null;
   const visibleModules = vocabulary ? modulesVisible(allModules, vocabulary) : allModules;
-  const nextCursor = rowsResult?.ok ? rowsResult.data.next_cursor : undefined;
-  const nextHref = hrefWithPagedCursor(WORK_BOARD_PATH, sp, PARAM_CURSOR, nextCursor ?? null);
-  const previousHref = hrefPreviousPagedCursor(WORK_BOARD_PATH, sp, PARAM_CURSOR);
+  // Per-column pagers: each column's Next/Prev rides its own cursor key and page/stack twins.
+  const columns: WorkBoardLaneColumn[] = laneKeys.map((lane, i) => {
+    const result = laneResults[i];
+    const key = laneCursorParam(lane);
+    const nextCursor = result?.ok ? result.data.next_cursor : undefined;
+    return {
+      lane,
+      rows: result?.ok ? result.data.rows : [],
+      nextHref: hrefWithPagedCursor(WORK_BOARD_PATH, sp, key, nextCursor ?? null, `${key}_page`, `${key}_stack`),
+      previousHref: hrefPreviousPagedCursor(WORK_BOARD_PATH, sp, key, `${key}_page`, `${key}_stack`),
+      pageNumber: boundedInt(one(sp, `${key}_page`), 1, 1, 1000000),
+      pageSize: limit,
+    };
+  });
   const selectedRow = one(sp, PARAM_ROW);
   const actionStatus = one(sp, "action_status");
   const actionKey = one(sp, "action_key");
   const feedback = actionStatus && actionKey ? actionFeedbackCopy(pageContract, actionStatus, actionKey) : null;
   const closeHref = hrefWithParams(WORK_BOARD_PATH, sp, { [PARAM_ROW]: undefined });
-  const dateHref = (day: string) => hrefWithParams(WORK_BOARD_PATH, sp, { [PARAM_DATE]: day, [PARAM_CURSOR]: undefined, page: undefined, [`${PARAM_CURSOR}_stack`]: undefined });
+  const dateHref = (day: string) => hrefWithParams(WORK_BOARD_PATH, sp, { [PARAM_DATE]: day, ...resetPaging });
   const isToday = businessDate === todayIso();
-  const failed = [rowsResult, summaryResult, vocabularyResult].find((result) => result !== null && !result.ok);
+  const failed = [summaryResult, vocabularyResult, ...laneResults].find((result) => result !== null && !result.ok);
   const error = failed && !failed.ok ? failed.error.message : null;
 
-  const parkHrefs = Object.fromEntries(parks.map((option) => [option.key, hrefWithParams(WORK_BOARD_PATH, sp, { [PARAM_PARK]: option.key, scope_mode: "park", [PARAM_OWNER]: undefined, [PARAM_CURSOR]: undefined, page: undefined, [`${PARAM_CURSOR}_stack`]: undefined })]));
+  const parkHrefs = Object.fromEntries(parks.map((option) => [option.key, hrefWithParams(WORK_BOARD_PATH, sp, { [PARAM_PARK]: option.key, scope_mode: "park", [PARAM_OWNER]: undefined, ...resetPaging })]));
   const hrefForRow = Object.fromEntries(rows.map((row) => [row.row_key, hrefWithParams(WORK_BOARD_PATH, sp, { [PARAM_ROW]: row.row_key })]));
   // The role line names the SELECTION, as the mock does: every module the caller has, the
   // chosen few, or none at all.
   const chosenModules = noneSelected ? [] : selectedModules.length ? visibleModules.filter((option) => selectedModules.includes(option.key)) : visibleModules;
   const modulesLine = noneSelected ? copy(pageContract, "roleline.none") : chosenModules.length === visibleModules.length ? copy(pageContract, "roleline.all_modules") : chosenModules.map((option) => option.label).join(" + ");
   const roleline = `${modulesLine} · ${park.label}`;
-  // The showing line counts from the page number the cursor helper tracks in the URL.
-  const pageNumber = boundedInt(one(sp, "page"), 1, 1, 1000000);
-  const first = rows.length ? (pageNumber - 1) * limit + 1 : 0;
-  const last = rows.length ? (pageNumber - 1) * limit + rows.length : 0;
   // A `row` in the URL that is not on THIS page (another park, another day, a later page, or a
   // link that was never valid) opens nothing; the board says so rather than ignoring it.
   const rowMissing = Boolean(selectedRow) && !error && !rows.some((row) => row.row_key === selectedRow);
@@ -140,7 +157,7 @@ export async function WorkBoardPage({ searchParams, pageContract }: { searchPara
       ) : (
         <WorkBoardBoard
           pageContract={pageContract}
-          rows={rows}
+          columns={columns}
           summary={summary}
           moduleOptions={visibleModules}
           selectedModules={selectedModules}
@@ -167,26 +184,6 @@ export async function WorkBoardPage({ searchParams, pageContract }: { searchPara
           {copy(pageContract, "state.row_missing")} <Link href={closeHref}>{copy(pageContract, "action.close")}</Link>
         </div>
       ) : null}
-
-      {error ? null : (
-      <div className="pager">
-        <span>
-          {copy(pageContract, "drawer.subtasks.showing")} <b>{first}–{last}</b> {copy(pageContract, "drawer.subtasks.of")} <b>{summary?.total ?? rows.length}</b> {copy(pageContract, "pager.rows")}
-        </span>
-        <span className="pgnav">
-          {previousHref ? (
-            <Link className="more" href={previousHref}>‹ {copy(pageContract, "action.previous")}</Link>
-          ) : (
-            <span className="more" aria-disabled="true">‹ {copy(pageContract, "action.previous")}</span>
-          )}
-          {nextHref ? (
-            <Link className="more" href={nextHref}>{copy(pageContract, "action.next")} ›</Link>
-          ) : (
-            <span className="more" aria-disabled="true">{copy(pageContract, "action.next")} ›</span>
-          )}
-        </span>
-      </div>
-      )}
 
       <WorkBoardModal
         pageContract={pageContract}

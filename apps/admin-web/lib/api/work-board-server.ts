@@ -20,6 +20,8 @@ export type WorkBoardScope = {
   businessDate?: string;
   modules?: string[];
   states?: string[];
+  // lane reads ONE column: the lane's states, so each column pages on its own cursor.
+  lane?: string;
   owner?: string;
 };
 
@@ -29,6 +31,7 @@ function scopeQuery(scope: WorkBoardScope) {
     business_date: scope.businessDate,
     module: scope.modules && scope.modules.length ? scope.modules.join(",") : undefined,
     state: scope.states && scope.states.length ? scope.states.join(",") : undefined,
+    lane: scope.lane,
     owner: scope.owner,
   };
 }

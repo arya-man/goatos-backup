@@ -421,3 +421,29 @@ func TestNoModulePermissionMeansNoModuleNeverEveryModule(t *testing.T) {
 		t.Fatalf("the flag must be resolved on a board with NO module, got %+v", flags.last.Board)
 	}
 }
+
+// TestLaneParameterReadsOneColumn: `lane=done` is the column read (the lane's states), so a
+// board can page each column on its own; an unknown lane is refused; lane and state intersect.
+func TestLaneParameterReadsOneColumn(t *testing.T) {
+	svc := &fakeService{}
+	h := NewHandler(svc, nil)
+	rec, out := get(t, h, "/work-board/rows?park="+parkCBE+"&lane=done", actorCEO, tenantGrant(permissions.RoleCEOInternal))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("lane=done: %d %v", rec.Code, out)
+	}
+	if len(svc.last.WorkStates) != 1 || svc.last.WorkStates[0] != domain.WorkStateCompleted {
+		t.Fatalf("done column is the completed state, got %v", svc.last.WorkStates)
+	}
+	rec, _ = get(t, h, "/work-board/rows?park="+parkCBE+"&lane=in_progress", actorCEO, tenantGrant(permissions.RoleCEOInternal))
+	if rec.Code != http.StatusOK || len(svc.last.WorkStates) != 4 {
+		t.Fatalf("in_progress column holds four states, got %v", svc.last.WorkStates)
+	}
+	rec, out = get(t, h, "/work-board/rows?park="+parkCBE+"&lane=bogus", actorCEO, tenantGrant(permissions.RoleCEOInternal))
+	if rec.Code != http.StatusBadRequest || out["error"] != "invalid_lane" {
+		t.Fatalf("unknown lane: %d %v", rec.Code, out)
+	}
+	rec, _ = get(t, h, "/work-board/rows?park="+parkCBE+"&lane=done&state=due", actorCEO, tenantGrant(permissions.RoleCEOInternal))
+	if rec.Code != http.StatusOK || len(svc.last.WorkStates) != 1 || svc.last.WorkStates[0] != domain.WorkStateNone {
+		t.Fatalf("a state outside the lane is an empty column, got %v", svc.last.WorkStates)
+	}
+}
