@@ -1,11 +1,15 @@
-// Package domain is the rulebook of the Pen Visit module (maintainer decision 2026-09-07).
+// Package domain is the rulebook of the pen visit STEP (maintainer decision 2026-09-07, reshaped
+// 2026-09-12).
 //
 // The day after any preventive-care work is SUBMITTED in a pen -- a vaccination shed proof or a
-// PC Care task (deworming, anti protozoan, ticks removal, hoof trimming, hair trimming) -- the
-// park's head visits that pen, records ONE live-camera video and submits it. Nothing else: no
-// per-animal scan, no roster, no verifier queue. The task is raised by the kernel, never typed by
-// a person, and it belongs to the ONE person the park's config row names (CBE -> Dinakar,
-// CPT -> Chandrakant).
+// PC Care task (deworming, anti protozoan, ticks removal, hoof trimming, hair trimming) -- one of
+// the park's configured visitors goes to that pen, looks at the animals, records ONE live-camera
+// video and submits it. The video then goes to the VERIFIER like every other clip in the chain
+// (feed & water removal, the work itself), and the parent care task closes only once the visit is
+// approved. The visit is NOT a task of its own: it is raised by the kernel as the last step of the
+// work that happened in the pen, it is reached from that work's own card, and it may be recorded by
+// ANY person the park's HRMS config names -- "if multiple people are there, if anyone does then
+// enough".
 //
 // Every string a screen shows -- the reason line, the state chip, the due label -- is composed
 // HERE and rendered verbatim by the phone. The pen's own name comes from oploc, never from this
@@ -22,14 +26,38 @@ import (
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 )
 
-// Work states. PC Care's kernel shape (000183) minus the verification gate: a visit has no
-// verifier, so submit IS completion.
+// Work states -- the KERNEL dimension, PC Care's 000183 shape. 'completed' is reached ONLY when
+// the verifier approves the visit video (migration 000295); a submitted visit awaiting review
+// keeps its scheduled/delayed clock.
 const (
 	WorkStateScheduled = "scheduled"
 	WorkStateDelayed   = "delayed"
 	WorkStateCompleted = "completed"
 	WorkStateCanceled  = "canceled"
 )
+
+// Verification statuses -- the GATE dimension (PC Care's shape). 'open' is the pre-submit
+// working state; a submit locks the row 'pending_verification'; the verdict decides
+// 'completed' or 'rework' (record again).
+const (
+	StatusOpen                = "open"
+	StatusPendingVerification = "pending_verification"
+	StatusCompleted           = "completed"
+	StatusRework              = "rework"
+)
+
+// Source kinds: which parent a visit closes. The materializer takes both from the verification
+// item the parent's submit raised.
+const (
+	SourceKindPCCareTask            = "pc_care_task"
+	SourceKindVaccinationSubmission = "vaccination_submission"
+)
+
+// Source is one parent of a visit.
+type Source struct {
+	Kind  string
+	RefID string
+}
 
 // Reasons: WHY a pen is visited. The closed vocabulary the materializer writes and the card
 // labels. 'vaccination' is the vaccination shed proof; the rest are PC Care's pen categories.
@@ -102,8 +130,9 @@ func reasonRank(r string) int {
 
 // Sentinel errors. The transport maps each to a stable code and a farm-worded message.
 var (
-	ErrNotAssignee     = errors.New("pen visit: caller is not the assignee")
+	ErrNotAssignee     = errors.New("pen visit: caller is not a configured visitor for this park")
 	ErrAlreadyDone     = errors.New("pen visit: already submitted")
+	ErrInReview        = errors.New("pen visit: the video is with the verifier")
 	ErrCanceled        = errors.New("pen visit: task is canceled")
 	ErrProofRequired   = errors.New("pen visit: a live video (proof_ref) is required")
 	ErrInvalidProof    = errors.New("pen visit: the video could not be verified")
@@ -120,16 +149,22 @@ type Task struct {
 	ShedName  string
 	Partition string
 	// PenLabel is the oploc display of (shed, partition): "Castro 2", "Godel 1 - Part 3".
-	PenLabel     string
-	Reasons      []string
-	SourceDate   string // YYYY-MM-DD, the IST day the work was submitted
-	PlannedDate  string // YYYY-MM-DD, immutable
-	DueDate      string // YYYY-MM-DD, rolls forward only
-	WorkState    string
-	AssigneeID   string
+	PenLabel    string
+	Reasons     []string
+	SourceDate  string // YYYY-MM-DD, the IST day the work was submitted
+	PlannedDate string // YYYY-MM-DD, immutable
+	DueDate     string // YYYY-MM-DD, rolls forward only
+	WorkState   string
+	Status      string
+	// VisitorIDs are the people the park's HRMS config names; any one of them may record.
+	VisitorIDs   []string
+	Sources      []Source
 	ProofRef     *string
 	SubmittedBy  *string
 	SubmittedAt  *time.Time
+	VerifiedBy   *string
+	VerifiedAt   *time.Time
+	ReworkReason string
 	RolledFwd    int
 	DelayedSince *string
 	RowVersion   int
@@ -142,16 +177,36 @@ type Actor struct {
 	UserID string
 }
 
-// IsAssignee reports whether the task belongs to the actor.
-func (t Task) IsAssignee(a Actor) bool { return a.UserID != "" && a.UserID == t.AssigneeID }
+// IsAssignee reports whether the actor is one of the park's configured visitors. The name is
+// kept from the one-person era; the answer is now a membership test.
+func (t Task) IsAssignee(a Actor) bool {
+	if a.UserID == "" {
+		return false
+	}
+	for _, id := range t.VisitorIDs {
+		if id == a.UserID {
+			return true
+		}
+	}
+	return false
+}
 
-// IsOpen reports whether the visit is still owed.
+// IsOpen reports whether the visit is still owed on the kernel clock.
 func (t Task) IsOpen() bool {
 	return t.WorkState == WorkStateScheduled || t.WorkState == WorkStateDelayed
 }
 
-// CanSubmit: the assignee, while the visit is still owed.
-func (t Task) CanSubmit(a Actor) bool { return t.IsAssignee(a) && t.IsOpen() }
+// AwaitsRecording reports whether someone still has to go and film: the visit is owed and is
+// not sitting with the verifier.
+func (t Task) AwaitsRecording() bool {
+	return t.IsOpen() && (t.Status == StatusOpen || t.Status == StatusRework)
+}
+
+// IsVerified reports whether the verifier approved the visit; the parent closes on this.
+func (t Task) IsVerified() bool { return t.Status == StatusCompleted }
+
+// CanSubmit: a configured visitor, while the visit still awaits a recording.
+func (t Task) CanSubmit(a Actor) bool { return t.IsAssignee(a) && t.AwaitsRecording() }
 
 // CheckSubmit is the rule the write re-runs under the row lock.
 func CheckSubmit(t Task, a Actor, proofRef string, rowVersion int) error {
@@ -163,6 +218,12 @@ func CheckSubmit(t Task, a Actor, proofRef string, rowVersion int) error {
 		return ErrAlreadyDone
 	case WorkStateCanceled:
 		return ErrCanceled
+	}
+	switch t.Status {
+	case StatusPendingVerification:
+		return ErrInReview
+	case StatusCompleted:
+		return ErrAlreadyDone
 	}
 	if strings.TrimSpace(proofRef) == "" {
 		return ErrProofRequired
@@ -194,11 +255,18 @@ func ReasonLine(t Task, today string) string {
 	return strings.Join(labels, ", ") + " " + when
 }
 
-// StateChip is the card chip: where the visit stands, in farm words.
+// StateChip is the card chip: where the visit stands, in farm words. The gate speaks first
+// (a clip with the verifier, or sent back) and the kernel clock only while a recording is owed.
 func StateChip(t Task, today string) string {
+	switch t.Status {
+	case StatusPendingVerification:
+		return "Visit in review"
+	case StatusRework:
+		return "Visit needs another video"
+	}
 	switch t.WorkState {
 	case WorkStateCompleted:
-		return "Done"
+		return "Visit verified"
 	case WorkStateCanceled:
 		return "Cancelled"
 	case WorkStateDelayed:
@@ -206,16 +274,22 @@ func StateChip(t Task, today string) string {
 		if t.DelayedSince != nil && *t.DelayedSince != "" {
 			since = *t.DelayedSince
 		}
-		return "Delayed since " + biztime.FarmDateFromBusinessDate(since)
+		return "Visit delayed since " + biztime.FarmDateFromBusinessDate(since)
 	}
 	if t.DueDate == today {
-		return "Due today"
+		return "Visit pen today"
 	}
-	return "Due " + biztime.FarmDateFromBusinessDate(t.DueDate)
+	return "Visit pen " + biztime.FarmDateFromBusinessDate(t.DueDate)
 }
 
 // StateTone is the chip's colour token: the phone maps it, never composes its own.
 func StateTone(t Task) string {
+	switch t.Status {
+	case StatusPendingVerification:
+		return "review"
+	case StatusRework:
+		return "danger"
+	}
 	switch t.WorkState {
 	case WorkStateCompleted:
 		return "success"
@@ -241,6 +315,18 @@ func Title(t Task) string {
 
 // Instruction is the detail screen's one sentence of what to do.
 func Instruction(t Task) string {
+	switch t.Status {
+	case StatusRework:
+		reason := strings.TrimSpace(t.ReworkReason)
+		if reason != "" {
+			return "The verifier sent the visit video back: " + reason + ". Go to the pen again and record a new video."
+		}
+		return "The verifier sent the visit video back. Go to the pen again and record a new video."
+	case StatusPendingVerification:
+		return "The visit video is with the verifier. The pen's work closes once it is approved."
+	case StatusCompleted:
+		return "The verifier approved the visit. This pen's work is closed."
+	}
 	return "Go to the pen, look at the animals and record one video. It will submit automatically."
 }
 
@@ -250,7 +336,11 @@ func DoneLine(t Task) string {
 		return ""
 	}
 	at := t.SubmittedAt.In(biztime.DefaultLocation())
-	return "Visited " + biztime.FarmDate(at) + " · " + strings.ToLower(at.Format("3:04 PM"))
+	line := "Visited " + biztime.FarmDate(at) + " · " + strings.ToLower(at.Format("3:04 PM"))
+	if t.VerifiedAt != nil && t.Status == StatusCompleted {
+		line += " · verified " + biztime.FarmDate(t.VerifiedAt.In(biztime.DefaultLocation()))
+	}
+	return line
 }
 
 // Filters. The client names a KEY; the backend owns which states that means.
@@ -271,7 +361,8 @@ func FilterKeyOrDefault(key string) string {
 }
 
 // StatesForFilter resolves a chip key to the work states it lists. Cancelled tasks are never
-// listed: a cancelled visit is noise on a park head's day.
+// listed: a cancelled visit is noise on a park head's day. A submitted visit awaiting review is
+// still under To do (its kernel clock is open) and wears the "in review" chip.
 func StatesForFilter(key string) []string {
 	if key == FilterDone {
 		return []string{WorkStateCompleted}
@@ -311,4 +402,86 @@ func dayBefore(businessDate string) (string, bool) {
 		return "", false
 	}
 	return d.AddDate(0, 0, -1).Format("2006-01-02"), true
+}
+
+// Step is the visit as every parent surface renders it -- the PC Care task card and detail,
+// the vaccination shed card and drilldown, and the visit's own detail. ONE wire shape, composed
+// here, so the four screens cannot disagree about where a pen's visit stands. Every visible
+// string is backend copy rendered verbatim.
+type Step struct {
+	TaskID       string   `json:"task_id"`
+	Title        string   `json:"title"`
+	ParkID       string   `json:"park_id"`
+	ParkName     string   `json:"park_name"`
+	ShedID       string   `json:"shed_id"`
+	ShedName     string   `json:"shed_name"`
+	Partition    string   `json:"partition_label"`
+	PenLabel     string   `json:"operational_location_display"`
+	Reasons      []string `json:"reasons"`
+	ReasonLabels []string `json:"reason_labels"`
+	ReasonLine   string   `json:"reason_line"`
+	SourceDate   string   `json:"source_business_date"`
+	PlannedDate  string   `json:"planned_business_date"`
+	DueDate      string   `json:"due_business_date"`
+	WorkState    string   `json:"work_state"`
+	Status       string   `json:"status"`
+	StateChip    string   `json:"state_chip"`
+	StateTone    string   `json:"state_tone"`
+	Instruction  string   `json:"instruction"`
+	DoneLine     string   `json:"done_line"`
+	ReworkReason string   `json:"rework_reason,omitempty"`
+	// CanSubmit is THIS caller's answer: a configured visitor while a recording is owed.
+	CanSubmit bool `json:"can_submit"`
+	// Verified is the parent's closure signal: the verifier approved the visit.
+	Verified    bool    `json:"verified"`
+	ProofRef    *string `json:"proof_ref"`
+	SubmittedAt *string `json:"submitted_at"`
+	VerifiedAt  *string `json:"verified_at"`
+	RowVersion  int     `json:"row_version"`
+}
+
+// StepFor composes the wire shape for one caller on one business day.
+func StepFor(t Task, actor Actor, today string) Step {
+	reasons := SortReasons(t.Reasons)
+	labels := make([]string, 0, len(reasons))
+	for _, r := range reasons {
+		labels = append(labels, ReasonLabel(r))
+	}
+	return Step{
+		TaskID:       t.TaskID,
+		Title:        Title(t),
+		ParkID:       t.ParkID,
+		ParkName:     t.ParkName,
+		ShedID:       t.ShedID,
+		ShedName:     t.ShedName,
+		Partition:    t.Partition,
+		PenLabel:     t.PenLabel,
+		Reasons:      reasons,
+		ReasonLabels: labels,
+		ReasonLine:   ReasonLine(t, today),
+		SourceDate:   t.SourceDate,
+		PlannedDate:  t.PlannedDate,
+		DueDate:      t.DueDate,
+		WorkState:    t.WorkState,
+		Status:       t.Status,
+		StateChip:    StateChip(t, today),
+		StateTone:    StateTone(t),
+		Instruction:  Instruction(t),
+		DoneLine:     DoneLine(t),
+		ReworkReason: t.ReworkReason,
+		CanSubmit:    t.CanSubmit(actor),
+		Verified:     t.IsVerified(),
+		ProofRef:     t.ProofRef,
+		SubmittedAt:  wireInstant(t.SubmittedAt),
+		VerifiedAt:   wireInstant(t.VerifiedAt),
+		RowVersion:   t.RowVersion,
+	}
+}
+
+func wireInstant(at *time.Time) *string {
+	if at == nil {
+		return nil
+	}
+	s := at.UTC().Format("2006-01-02T15:04:05Z07:00")
+	return &s
 }

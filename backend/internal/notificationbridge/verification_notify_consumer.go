@@ -84,6 +84,11 @@ const (
 	// Director (maintainer decision 2026-08-21) — same seat as vaccination, because deworming /
 	// ticks removal / hoof trimming / hair trimming are preventive-care work.
 	modulePCCare = "pc_care"
+	// modulePenVisits mirrors penvisits/app.VerificationModule: the next-day pen visit video
+	// (maintainer decision 2026-09-12). It is the LAST step of a PC Care / vaccination pen's
+	// chain, so its verify duty and its leadership seat are PC Care's -- the PC Director owns
+	// the pen's care chain end to end.
+	modulePenVisits = "pen_visits"
 
 	// moduleHealth mirrors health/domain.VerificationModuleHealth, the string health's
 	// verificationbridge enqueuer writes into the item's Module. Health belongs to the Health
@@ -273,6 +278,37 @@ var pendingModuleProfiles = map[string]pendingModuleProfile{
 		reworkTarget:       "/pc/deworming",
 		closedTitle:        "Care record closed",
 		closedBody:         "The verified care record is now complete.",
+		closedScreen:       "record",
+		closedTarget:       "/pc/deworming",
+	},
+	// Pen visit video (maintainer decision 2026-09-12): the park visitor's next-day look at a
+	// pen after vaccination or care work. Reviewed by the same verify duty as care work and
+	// owned by the PC Director; wording is the visit's own, and the tap route is the PC surface
+	// where the parent card carries the step.
+	modulePenVisits: {
+		messageKeyPrefix:     "pen_visit",
+		dutyModule:           modulePCCare,
+		leadershipPosition:   positionPCDirector,
+		leadershipRoleLabel:  "pc_director",
+		verifierTitle:        "Pen visit video waiting",
+		verifierBodySuffix:   " pen visited; the video is waiting for verification.",
+		leadershipTitle:      "Pen visit video pending",
+		leadershipBodySuffix: " pen visited; video verification is pending.",
+		leadershipScreen:     "pc_care_overview",
+		leadershipTarget:     "/pc/deworming",
+
+		approvedTitle:      "Pen visit verified",
+		approvedBody:       "The visit is approved; the pen's care work is closed.",
+		approvedScreen:     "leadership_close",
+		approvedTarget:     "/pc/deworming",
+		reworkTitle:        "Pen visit video rejected — record again",
+		reworkBody:         "The verifier rejected a pen visit video. The pen needs to be visited again.",
+		reworkReasonPrefix: "The verifier rejected a pen visit video. Reason: ",
+		reworkReasonSuffix: " Please visit the pen and record again.",
+		reworkScreen:       "record",
+		reworkTarget:       "/pc/deworming",
+		closedTitle:        "Pen visit closed",
+		closedBody:         "The verified pen visit is now complete.",
 		closedScreen:       "record",
 		closedTarget:       "/pc/deworming",
 	},

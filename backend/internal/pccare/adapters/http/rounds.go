@@ -206,7 +206,17 @@ func (h *Handler) GetRound(w http.ResponseWriter, r *http.Request) {
 		h.writeServiceError(w, r, "pc care get round", err)
 		return
 	}
-	httpresponse.WriteJSON(w, http.StatusOK, roundDTOFrom(round))
+	httpresponse.WriteJSON(w, http.StatusOK, roundDTOFor(round, a))
+}
+
+// roundDTOFor renders a round for one caller (the pen visit step's can_submit is theirs).
+func roundDTOFor(round ports.RoundRow, viewer domain.Actor) roundDTO {
+	dto := roundDTOFrom(round)
+	dto.Pens = dto.Pens[:0]
+	for _, pen := range round.Pens {
+		dto.Pens = append(dto.Pens, taskDTOFor(pen, viewer))
+	}
+	return dto
 }
 
 func roundDTOFrom(round ports.RoundRow) roundDTO {

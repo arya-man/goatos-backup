@@ -55,6 +55,10 @@ FROM (
   FROM pc_care_tasks
   WHERE tenant_id = $1::uuid
     AND work_state IN ('scheduled', 'delayed')
+    -- A task whose own videos are verified keeps its kernel clock open only for the pen
+    -- visit (maintainer decision 2026-09-12); the visit carries its OWN clock, so the task
+    -- is not late and must not roll.
+    AND status <> 'completed'
     AND due_business_date < $2::date
   ORDER BY due_business_date, task_id
   LIMIT $3

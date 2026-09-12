@@ -8,6 +8,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	penvisitdomain "github.com/vgoats/goatos/backend/internal/penvisits/domain"
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -162,6 +164,14 @@ type taskDTO struct {
 	// TaskProofs is present for task-level proof categories such as inventory_vaccine so a
 	// second device can render already-captured fridge proof media.
 	TaskProofs []taskProofDTO `json:"task_proofs,omitempty"`
+	// PenVisit is the task's LAST step (maintainer decision 2026-09-12): the next-day pen
+	// visit, with its own chip, instruction and can_submit for THIS caller. Absent until the
+	// pen-visit kernel materializes it the morning after submit, and on tasks that owe none.
+	// The chip on the card follows it once the task's own videos are verified.
+	PenVisit *penvisitdomain.Step `json:"pen_visit,omitempty"`
+	// PenVisitOwed says a visit is part of this task even before its row exists, so a card
+	// whose own clips are verified can say "Pen visit tomorrow" rather than "Done".
+	PenVisitOwed bool `json:"pen_visit_owed"`
 }
 
 type inventoryRequirementDTO struct {
@@ -176,6 +186,17 @@ type taskProofDTO struct {
 	CapturedBy     string     `json:"captured_by,omitempty"`
 	CapturedByName string     `json:"captured_by_name,omitempty"`
 	CapturedAt     *time.Time `json:"captured_at,omitempty"`
+}
+
+// taskDTOFor renders a task for one caller: the pen-visit step's can_submit is the caller's
+// own answer, so it is composed against the viewer rather than once per row.
+func taskDTOFor(t ports.TaskRow, viewer domain.Actor) taskDTO {
+	dto := taskDTOFrom(t)
+	if t.PenVisit != nil {
+		step := penvisitdomain.StepFor(*t.PenVisit, penvisitdomain.Actor{UserID: viewer.UserID}, biztime.BusinessDate(time.Now()))
+		dto.PenVisit = &step
+	}
+	return dto
 }
 
 func taskDTOFrom(t ports.TaskRow) taskDTO {
@@ -250,6 +271,7 @@ func taskDTOFrom(t ports.TaskRow) taskDTO {
 		ExpectedSlots:              slotDTOs,
 		InventoryRequirements:      requirements,
 		TaskProofs:                 taskProofs,
+		PenVisitOwed:               domain.OwesPenVisit(t.Category, t.ShedID),
 	}
 }
 
@@ -618,7 +640,7 @@ func (h *Handler) GetTasks(w http.ResponseWriter, r *http.Request) {
 		h.writeServiceError(w, r, "pc care list tasks", err)
 		return
 	}
-	h.writeTaskPage(w, page)
+	h.writeTaskPage(w, a, page)
 }
 
 func (h *Handler) GetWorklist(w http.ResponseWriter, r *http.Request) {
@@ -637,13 +659,13 @@ func (h *Handler) GetWorklist(w http.ResponseWriter, r *http.Request) {
 		h.writeServiceError(w, r, "pc care worklist", err)
 		return
 	}
-	h.writeTaskPage(w, page)
+	h.writeTaskPage(w, a, page)
 }
 
-func (h *Handler) writeTaskPage(w http.ResponseWriter, page ports.TaskPage) {
+func (h *Handler) writeTaskPage(w http.ResponseWriter, viewer domain.Actor, page ports.TaskPage) {
 	resp := taskPageDTO{Items: make([]taskDTO, 0, len(page.Items)), NextCursor: page.NextCursor}
 	for _, t := range page.Items {
-		resp.Items = append(resp.Items, taskDTOFrom(t))
+		resp.Items = append(resp.Items, taskDTOFor(t, viewer))
 	}
 	httpresponse.WriteJSON(w, http.StatusOK, resp)
 }
@@ -658,7 +680,7 @@ func (h *Handler) GetTask(w http.ResponseWriter, r *http.Request) {
 		h.writeServiceError(w, r, "pc care get task", err)
 		return
 	}
-	httpresponse.WriteJSON(w, http.StatusOK, taskDTOFrom(task))
+	httpresponse.WriteJSON(w, http.StatusOK, taskDTOFor(task, a))
 }
 
 func (h *Handler) GetTaskCaptures(w http.ResponseWriter, r *http.Request) {

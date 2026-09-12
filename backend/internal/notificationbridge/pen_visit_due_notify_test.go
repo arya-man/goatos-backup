@@ -38,7 +38,7 @@ func (f *penVisitRecipientsFake) ResolvePositionRecipients(context.Context, stri
 // and the farm-readable date -- never an abstract "3 tasks due".
 func TestPenVisitDueCopyNamesParkPensAndReasons(t *testing.T) {
 	digest := penvisitports.CreatedDigest{
-		ParkID: "park-cbe", ParkName: "Coimbatore", AssigneeID: "u-dinakar", DueDate: "2026-09-07",
+		ParkID: "park-cbe", ParkName: "Coimbatore", VisitorIDs: []string{"u-dinakar", "u-second"}, DueDate: "2026-09-07",
 		Tasks: []penvisitdomain.Task{
 			{TaskID: "task-1", PenLabel: "Castro 2", Reasons: []string{penvisitdomain.ReasonDeworming, penvisitdomain.ReasonVaccination}},
 			{TaskID: "task-2", PenLabel: "Godel 1 - Part 3", Reasons: []string{penvisitdomain.ReasonHoofTrimming}},
@@ -48,28 +48,29 @@ func TestPenVisitDueCopyNamesParkPensAndReasons(t *testing.T) {
 	if title != "Visit 2 pens at Coimbatore" {
 		t.Fatalf("title = %q", title)
 	}
-	for _, want := range []string{"Coimbatore", "Castro 2 (vaccination, deworming)", "Godel 1 - Part 3 (hoof trimming)", "07/09/2026", "For me"} {
+	for _, want := range []string{"Coimbatore", "Castro 2 (vaccination, deworming)", "Godel 1 - Part 3 (hoof trimming)", "07/09/2026", "record one video"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("body %q must name %q", body, want)
 		}
 	}
 
-	// Queued once per park, to the assignee's own devices, keyed on the business date so a
-	// replay tick writes nothing new.
+	// Queued once per park, to EVERY configured visitor's devices (maintainer decision
+	// 2026-09-12: one or more per park), keyed on the business date so a replay tick writes
+	// nothing new.
 	queue := &penVisitQueueFake{}
 	recipients := &penVisitRecipientsFake{}
 	n := NewPenVisitDueNotifier(recipients, queue, nil)
 	if err := n.NotifyCreated(context.Background(), "tenant-1", []penvisitports.CreatedDigest{digest}); err != nil {
 		t.Fatalf("notify: %v", err)
 	}
-	if len(queue.queued) != 1 || len(recipients.asked) != 1 || recipients.asked[0] != "u-dinakar" {
+	if len(queue.queued) != 1 || len(recipients.asked) != 2 || recipients.asked[0] != "u-dinakar" || recipients.asked[1] != "u-second" {
 		t.Fatalf("queued %d, asked %v", len(queue.queued), recipients.asked)
 	}
 	q := queue.queued[0]
-	if q.NotificationType != NotificationTypePenVisitDue || !strings.HasPrefix(q.EventKey, "pen_visit.due:2026-09-07:park-cbe:u-dinakar:") || q.Context["href"] != "/pen-visits" {
+	if q.NotificationType != NotificationTypePenVisitDue || !strings.HasPrefix(q.EventKey, "pen_visit.due:2026-09-07:park-cbe:") || q.Context["href"] != "/pc-care" {
 		t.Fatalf("queued = %+v", q)
 	}
-	if len(q.Recipients) != 1 || q.Recipients[0].FCMToken != "tok-u-dinakar" {
+	if len(q.Recipients) != 2 || q.Recipients[0].FCMToken != "tok-u-dinakar" || q.Recipients[1].FCMToken != "tok-u-second" {
 		t.Fatalf("recipients = %+v", q.Recipients)
 	}
 	// An empty digest (a replay pass) queues nothing.
@@ -84,11 +85,11 @@ func TestPenVisitDueNotifierMergesCatchupDigestsBeforeQueueing(t *testing.T) {
 	n := NewPenVisitDueNotifier(recipients, queue, nil)
 	digests := []penvisitports.CreatedDigest{
 		{
-			ParkID: "park-cbe", ParkName: "Coimbatore", AssigneeID: "u-dinakar", DueDate: "2026-09-08",
+			ParkID: "park-cbe", ParkName: "Coimbatore", VisitorIDs: []string{"u-dinakar", "u-second"}, DueDate: "2026-09-08",
 			Tasks: []penvisitdomain.Task{{TaskID: "task-1", PenLabel: "Castro 1", Reasons: []string{penvisitdomain.ReasonVaccination}}},
 		},
 		{
-			ParkID: "park-cbe", ParkName: "Coimbatore", AssigneeID: "u-dinakar", DueDate: "2026-09-08",
+			ParkID: "park-cbe", ParkName: "Coimbatore", VisitorIDs: []string{"u-dinakar", "u-second"}, DueDate: "2026-09-08",
 			Tasks: []penvisitdomain.Task{{TaskID: "task-2", PenLabel: "Castro 2", Reasons: []string{penvisitdomain.ReasonDeworming}}},
 		},
 	}
@@ -99,7 +100,7 @@ func TestPenVisitDueNotifierMergesCatchupDigestsBeforeQueueing(t *testing.T) {
 		t.Fatalf("queued %d digests, want 1", len(queue.queued))
 	}
 	q := queue.queued[0]
-	if !strings.HasPrefix(q.EventKey, "pen_visit.due:2026-09-08:park-cbe:u-dinakar:") {
+	if !strings.HasPrefix(q.EventKey, "pen_visit.due:2026-09-08:park-cbe:") {
 		t.Fatalf("event key = %q", q.EventKey)
 	}
 	if q.Context["pen_count"] != "2" || !strings.Contains(q.Body, "Castro 1") || !strings.Contains(q.Body, "Castro 2") {
@@ -112,7 +113,7 @@ func TestPenVisitDueNotifierUsesBatchSpecificIdempotencyKey(t *testing.T) {
 	recipients := &penVisitRecipientsFake{}
 	n := NewPenVisitDueNotifier(recipients, queue, nil)
 	first := penvisitports.CreatedDigest{
-		ParkID: "park-cbe", ParkName: "Coimbatore", AssigneeID: "u-dinakar", DueDate: "2026-09-08",
+		ParkID: "park-cbe", ParkName: "Coimbatore", VisitorIDs: []string{"u-dinakar", "u-second"}, DueDate: "2026-09-08",
 		Tasks: []penvisitdomain.Task{{TaskID: "task-1", PenLabel: "Castro 1", Reasons: []string{penvisitdomain.ReasonVaccination}}},
 	}
 	second := first

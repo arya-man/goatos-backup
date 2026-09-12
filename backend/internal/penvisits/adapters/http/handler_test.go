@@ -34,7 +34,7 @@ func (f *fakeService) Submit(_ context.Context, p ports.SubmitParams) (domain.Ta
 		return domain.Task{}, f.submitErr
 	}
 	done := f.task
-	done.WorkState = domain.WorkStateCompleted
+	done.Status = domain.StatusPendingVerification
 	done.ProofRef = &p.ProofRef
 	done.RowVersion++
 	return done, nil
@@ -52,7 +52,7 @@ func fixtureTask() domain.Task {
 		TaskID: "11111111-1111-4111-8111-111111111111", TenantID: "tenant-1", ParkID: "p1", ParkName: "Coimbatore",
 		ShedID: "s1", ShedName: "Castro", Partition: "2", PenLabel: "Castro 2",
 		Reasons: []string{domain.ReasonVaccination}, SourceDate: "2026-09-06", PlannedDate: "2026-09-07", DueDate: "2026-09-07",
-		WorkState: domain.WorkStateScheduled, AssigneeID: "u-dinakar", RowVersion: 1,
+		WorkState: domain.WorkStateScheduled, Status: domain.StatusOpen, VisitorIDs: []string{"u-dinakar"}, RowVersion: 1,
 	}
 }
 
@@ -71,11 +71,11 @@ func TestListServesBackendOwnedCopy(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &page); err != nil {
 		t.Fatal(err)
 	}
-	if page.Title != "For me" || len(page.Rows) != 1 || page.OpenCount != 1 {
+	if page.Title != "Pen visits" || len(page.Rows) != 1 || page.OpenCount != 1 {
 		t.Fatalf("page = %+v", page)
 	}
 	row := page.Rows[0]
-	if row.Title != "Visit Castro 2 · Coimbatore" || row.PenLabel != "Castro 2" || row.ReasonLine != "Vaccination yesterday" || row.StateChip != "Due today" || row.StateTone != "info" || !row.CanSubmit {
+	if row.Title != "Visit Castro 2 · Coimbatore" || row.PenLabel != "Castro 2" || row.ReasonLine != "Vaccination yesterday" || row.StateChip != "Visit pen today" || row.StateTone != "info" || !row.CanSubmit {
 		t.Fatalf("row = %+v", row)
 	}
 	if len(page.Filters) != 2 || page.Filters[0].Key != "todo" || !page.Filters[0].Selected || page.Filters[0].Count != 1 || page.Filters[1].Count != 2 {
@@ -131,8 +131,10 @@ func TestSubmitRequiresKeyAndCarriesProof(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
 		t.Fatal(err)
 	}
-	if out.Task.WorkState != domain.WorkStateCompleted || out.Task.StateChip != "Done" || out.Task.CanSubmit || out.Task.RowVersion != 2 {
-		t.Fatalf("completed payload = %+v", out.Task)
+	// Submit hands the clip to the verifier: the kernel clock stays open, the gate reads
+	// pending_verification, and the chip says so -- never "Done" (maintainer decision 2026-09-12).
+	if out.Task.WorkState != domain.WorkStateScheduled || out.Task.Status != domain.StatusPendingVerification || out.Task.StateChip != "Visit in review" || out.Task.CanSubmit || out.Task.RowVersion != 2 {
+		t.Fatalf("submitted payload = %+v", out.Task)
 	}
 
 	// A proof the store cannot vouch for is a 422 the phone maps to "record again".

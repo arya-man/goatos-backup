@@ -21,6 +21,7 @@ import (
 	countsdomain "github.com/vgoats/goatos/backend/internal/counts/domain"
 	feeddirectiondomain "github.com/vgoats/goatos/backend/internal/feeddirection/domain"
 	pccaredomain "github.com/vgoats/goatos/backend/internal/pccare/domain"
+	penvisitsapp "github.com/vgoats/goatos/backend/internal/penvisits/app"
 	"github.com/vgoats/goatos/backend/internal/sopbridge"
 	tasksdomain "github.com/vgoats/goatos/backend/internal/tasks/domain"
 	"github.com/vgoats/goatos/backend/internal/verification/domain"
@@ -208,6 +209,18 @@ var BirthEvidence = domain.CategoryDefinition{
 	PageKey: "birth", PageLabel: "Birth", PageOrder: 1,
 }
 
+// PenVisit is the next-day pen visit (maintainer decision 2026-09-12): the last video of a pen's
+// preventive-care chain. ONE live-camera clip per item, listed in the Preventive Care verify tab
+// beside the PC Care pages, filed against the visit row so the verdict closes the parents.
+var PenVisit = domain.CategoryDefinition{
+	Vertical: penvisitsapp.VerificationVertical, Module: penvisitsapp.VerificationModule,
+	Category:      penvisitsapp.VerificationCategory,
+	ExpectedMedia: []string{"video"},
+	MediaLabels:   []string{"Pen visit video"},
+	SLAHours:      24, NavigationModule: "pc_care", NavigationModuleLabel: "Preventive Care",
+	PageKey: penvisitsapp.VerificationCategory, PageLabel: "Pen visit", PageOrder: 9,
+}
+
 // PCCare returns the four PC Care categories -- one per work category, all sharing the pc_care
 // navigation module so the verifier gets ONE Verify tab and the categories split as page filters.
 func PCCare() []domain.CategoryDefinition {
@@ -247,5 +260,6 @@ func All() []domain.CategoryDefinition {
 		DeathEvidence,
 		BirthEvidence,
 	}
+	out = append(out, PenVisit)
 	return append(out, PCCare()...)
 }

@@ -37,6 +37,9 @@ import (
 	pccarepg "github.com/vgoats/goatos/backend/internal/pccare/adapters/postgres"
 	pccareverificationbridge "github.com/vgoats/goatos/backend/internal/pccare/adapters/verificationbridge"
 	pccareapp "github.com/vgoats/goatos/backend/internal/pccare/app"
+	penvisitspg "github.com/vgoats/goatos/backend/internal/penvisits/adapters/postgres"
+	penvisitsverificationbridge "github.com/vgoats/goatos/backend/internal/penvisits/adapters/verificationbridge"
+	penvisitsapp "github.com/vgoats/goatos/backend/internal/penvisits/app"
 	"github.com/vgoats/goatos/backend/internal/platform/eventbus"
 	"github.com/vgoats/goatos/backend/internal/platform/observability"
 	platformpg "github.com/vgoats/goatos/backend/internal/platform/postgres"
@@ -50,6 +53,7 @@ import (
 	vaccinationapp "github.com/vgoats/goatos/backend/internal/vaccination/app"
 	verificationpg "github.com/vgoats/goatos/backend/internal/verification/adapters/postgres"
 	verificationapp "github.com/vgoats/goatos/backend/internal/verification/app"
+	"github.com/vgoats/goatos/backend/internal/verificationcatalog"
 	weighingpg "github.com/vgoats/goatos/backend/internal/weighing/adapters/postgres"
 	weighingverificationbridge "github.com/vgoats/goatos/backend/internal/weighing/adapters/verificationbridge"
 	workforcepg "github.com/vgoats/goatos/backend/internal/workforce/adapters/postgres"
@@ -193,7 +197,9 @@ func buildDomainBus(pool *pgxpool.Pool, pgCfg platformpg.Config, logger *slog.Lo
 	// Keep every durable verdict applier on the shared registration path so the
 	// production consumer cannot drift from API/outbox-relay wiring. This path
 	// includes milk-preparation -> UHT stock consumption forwarding.
-	eventwiring.RegisterVerificationAppliers(bus, feedDirectionRepo, countsApprovalRepo, countsMilkPreparationRepo, countsMilkPreparationRepo, weighingRepo, weighingverificationbridge.New(verificationpg.NewRepository(pool, pgCfg.QueryTimeout)), pccarepg.NewRepository(pool, pgCfg.QueryTimeout), healthRepo, logger)
+	pcCareRepo := pccarepg.NewRepository(pool, pgCfg.QueryTimeout)
+	penVisitsRepo := penvisitspg.NewRepository(pool, pgCfg.QueryTimeout)
+	eventwiring.RegisterVerificationAppliers(bus, feedDirectionRepo, countsApprovalRepo, countsMilkPreparationRepo, countsMilkPreparationRepo, weighingRepo, weighingverificationbridge.New(verificationpg.NewRepository(pool, pgCfg.QueryTimeout)), pcCareRepo, healthRepo, penVisitsRepo, pcCareRepo, logger)
 	countsapp.NewPenReconciliationRaiser(countsMilkPreparationRepo, logger, nil).Register(bus)
 	countsapp.NewPenReconciliationVerificationHandler(countsMilkPreparationRepo, nil).Register(bus)
 	// Toxin (maintainer decision 2026-08-25): procurement.feed_purchase.reached reaches THIS
@@ -205,7 +211,12 @@ func buildDomainBus(pool *pgxpool.Pool, pgCfg platformpg.Config, logger *slog.Lo
 	if err := pccareverificationbridge.RegisterCategories(verificationService); err != nil {
 		panic(fmt.Sprintf("register pc care verification categories: %v", err))
 	}
+	if err := verificationService.RegisterCategory(verificationcatalog.PenVisit); err != nil {
+		panic(fmt.Sprintf("register pen visit verification category: %v", err))
+	}
 	pccareapp.NewPCCarePendingVerificationHandler(pccareverificationbridge.New(verificationService), logger).Register(bus)
+	// Pen visit submit -> verifier item (maintainer decision 2026-09-12), the PC Care shape.
+	penvisitsapp.NewPendingVerificationHandler(penvisitsverificationbridge.New(verificationService), logger).Register(bus)
 	tasksapp.NewCountsDeathReportedHandler(workflowService).Register(bus)
 	tasksapp.NewCountsDeathRejectedHandler(workflowService).Register(bus)
 	tasksapp.NewGoatCreatedWorkflowHandler(workflowService).Register(bus)

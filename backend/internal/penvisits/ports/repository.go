@@ -16,7 +16,8 @@ var (
 	ErrInvalidArgument     = errors.New("pen visit: invalid argument")
 )
 
-// ListParams selects one page of the caller's own visits.
+// ListParams selects one page of the visits owed in the parks the caller is configured to
+// visit.
 type ListParams struct {
 	TenantID string
 	UserID   string
@@ -29,12 +30,12 @@ type ListParams struct {
 type Page struct {
 	Rows       []domain.Task
 	NextCursor string
-	// StateCounts range over the SAME assignee predicate as the rows (never page-local, never
-	// tenant-wide), keyed by work state.
+	// StateCounts range over the SAME visitor-park predicate as the rows (never page-local,
+	// never tenant-wide), keyed by work state.
 	StateCounts map[string]int
 }
 
-// SubmitParams records the visit's video and completes the task.
+// SubmitParams records the visit's video and hands it to the verifier.
 type SubmitParams struct {
 	TenantID       string
 	Actor          domain.Actor
@@ -56,14 +57,30 @@ type MaterializeResult struct {
 	PensSkipped int
 }
 
-// CreatedDigest is what the materializer hands the notifier: the pens now owed per assignee,
-// for the parks that gained tasks on this pass.
+// CreatedDigest is what the materializer hands the notifier: the pens now owed in one park,
+// for the parks that gained tasks on this pass. VisitorIDs are everyone the park's HRMS
+// config names; the push reaches each of them.
 type CreatedDigest struct {
 	ParkID     string
 	ParkName   string
-	AssigneeID string
+	VisitorIDs []string
 	DueDate    string
 	Tasks      []domain.Task
+}
+
+// VerdictParams is the verifier's decision on one visit, applied by the verdict consumer.
+type VerdictParams struct {
+	TenantID   string
+	TaskID     string
+	VerifiedBy string
+	Reason     string
+	TraceID    string
+}
+
+// VerdictResult is what a verdict write did, so the consumer can close the parents.
+type VerdictResult struct {
+	Applied bool
+	Task    domain.Task
 }
 
 // SweepResult is one roll-forward pass.
@@ -77,7 +94,18 @@ type Repository interface {
 	ListMine(ctx context.Context, p ListParams) (Page, error)
 	GetTask(ctx context.Context, tenantID, taskID string) (domain.Task, error)
 	Submit(ctx context.Context, p SubmitParams) (domain.Task, error)
-	// OpenCount answers the module badge for one person: visits still owed.
+	// ApplyVerified flips an approved visit pending_verification -> completed on both
+	// dimensions. Idempotent: a replay, or a verdict on a row no longer pending, applies
+	// nothing and says so.
+	ApplyVerified(ctx context.Context, p VerdictParams) (VerdictResult, error)
+	// BounceForRework flips a rejected visit pending_verification -> rework with the
+	// verifier's reason; the clip stays as history and the next submit replaces it.
+	BounceForRework(ctx context.Context, p VerdictParams) (VerdictResult, error)
+	// ForSources reads the visit each parent owes, keyed by the parent's ref id. One batched
+	// read per page of parents, never one per row.
+	ForSources(ctx context.Context, tenantID, sourceKind string, refIDs []string) (map[string]domain.Task, error)
+	// OpenCount answers the badge for one person: visits still awaiting a recording in the
+	// parks they are configured to visit.
 	OpenCount(ctx context.Context, tenantID, userID string) (int, error)
 	// Materialize writes one task per pen that had preventive-care work submitted on sourceDate,
 	// due on the later of sourceDate+1 and today, for every park with a configured assignee. It

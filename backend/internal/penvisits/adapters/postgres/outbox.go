@@ -13,16 +13,20 @@ import (
 	platformoutbox "github.com/vgoats/goatos/backend/internal/platform/outbox"
 )
 
-// Domain events (maintainer decision 2026-09-07). A visit task coming into existence and a visit
-// being submitted are the two business facts of this module; each is emitted INSIDE the write
-// transaction's outbox so a committed row always announces itself and a rolled-back one never
-// does. Registered in context/architecture/domain-event-registry.json. The morning push is NOT
-// driven by these events: it is one digest per park per day, queued by the materializer stage
-// with a business-date key (the FeedLowStockNotifier shape), because one push per pen would be
-// ten pushes for one morning's round.
+// Domain events (maintainer decisions 2026-09-07 and 2026-09-12). A visit coming into
+// existence, a visit being submitted and a visit being verified are the business facts of this
+// module; each is emitted INSIDE the write transaction's outbox so a committed row always
+// announces itself and a rolled-back one never does. Registered in
+// context/architecture/domain-event-registry.json. pen_visit.submitted is consumed by the
+// verification enqueue handler (penvisits/app.PendingVerificationHandler) -- it is what turns
+// the visit video into a verifier item; pen_visit.verified is what the parent-closure
+// consumer reads. The morning push is NOT driven by these events: it is one digest per park
+// per day, queued by the materializer stage with a business-date key (the FeedLowStockNotifier
+// shape), because one push per pen would be ten pushes for one morning's round.
 const (
 	EventVisitCreated   = "pen_visit.created"
 	EventVisitSubmitted = "pen_visit.submitted"
+	EventVisitVerified  = "pen_visit.verified"
 
 	eventSchemaVersion = "1.0.0"
 	eventSchemaRef     = "contracts/jsonschema/domain-event-envelope.schema.json"
@@ -42,10 +46,13 @@ type EventPayload struct {
 	SourceDate     string   `json:"source_business_date"`
 	DueDate        string   `json:"due_business_date"`
 	WorkState      string   `json:"work_state"`
-	AssigneeUserID string   `json:"assignee_user_id"`
-	ProofRef       string   `json:"proof_ref,omitempty"`
-	ChangedBy      string   `json:"changed_by_user_id"`
-	OccurredAt     string   `json:"occurred_at"`
+	Status         string   `json:"status"`
+	// Sources are the parents this visit closes, as "<kind>:<ref id>".
+	Sources    []string `json:"sources"`
+	ProofRef   string   `json:"proof_ref,omitempty"`
+	RowVersion int      `json:"row_version"`
+	ChangedBy  string   `json:"changed_by_user_id"`
+	OccurredAt string   `json:"occurred_at"`
 }
 
 // emitEvent writes one visit event into outbox_messages inside tx. The event id is
@@ -62,6 +69,10 @@ func emitEvent(ctx context.Context, tx pgx.Tx, eventType string, t domain.Task, 
 	if t.ProofRef != nil {
 		proof = *t.ProofRef
 	}
+	sources := make([]string, 0, len(t.Sources))
+	for _, src := range t.Sources {
+		sources = append(sources, src.Kind+":"+src.RefID)
+	}
 	payload := EventPayload{
 		TaskID:         t.TaskID,
 		ParkID:         t.ParkID,
@@ -73,8 +84,10 @@ func emitEvent(ctx context.Context, tx pgx.Tx, eventType string, t domain.Task, 
 		SourceDate:     t.SourceDate,
 		DueDate:        t.DueDate,
 		WorkState:      t.WorkState,
-		AssigneeUserID: t.AssigneeID,
+		Status:         t.Status,
+		Sources:        sources,
 		ProofRef:       proof,
+		RowVersion:     t.RowVersion,
 		ChangedBy:      actorID,
 		OccurredAt:     now.Format(time.RFC3339),
 	}

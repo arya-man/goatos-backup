@@ -167,7 +167,14 @@ func (s *Service) GetRound(ctx context.Context, actor domain.Actor, roundID stri
 		return ports.RoundRow{}, ports.ErrStoreUnavailable
 	}
 	parks, tenantWide := authorizedParkSet(ctx, actor.TenantID, planOrMonitorParkCapabilities...)
-	return s.rounds.GetRound(ctx, actor.TenantID, roundID, authorizedParkSlice(parks), tenantWide)
+	round, err := s.rounds.GetRound(ctx, actor.TenantID, roundID, authorizedParkSlice(parks), tenantWide)
+	if err != nil {
+		return ports.RoundRow{}, err
+	}
+	if err := s.attachPenVisits(ctx, actor.TenantID, round.Pens); err != nil {
+		return ports.RoundRow{}, err
+	}
+	return round, nil
 }
 
 // CloseRound ends a whole round: every pen that is not already completed or closed, plus the

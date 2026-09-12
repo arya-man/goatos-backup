@@ -25,14 +25,22 @@ const (
 	pcCareTaskCompletedTopic         = "pc_care.events"
 	pcCareTaskCompletedAggregateType = "pc_care_task"
 
-	pcCareCompletedAction = "pc_care.task.completed"
-	pcCareReworkAction    = "pc_care.task.rework"
+	pcCareCompletedAction      = "pc_care.task.completed"
+	pcCareReworkAction         = "pc_care.task.rework"
+	pcCarePenVisitClosedAction = "pc_care.task.pen_visit_verified"
 )
 
-// ApplyVerifiedTask flips an approved task 'pending_verification' -> completed on BOTH state
-// columns (status AND work_state — the gate and the kernel agree in one transaction), stamps
-// verified_by/at, and emits pc_care.task.completed. Runs from the verification.verdict.approved
-// consumer, never from a phone.
+// ApplyVerifiedTask flips an approved task 'pending_verification' -> 'completed' on the GATE
+// column, stamps verified_by/at, and emits pc_care.task.completed. Runs from the
+// verification.verdict.approved consumer, never from a phone.
+//
+// THE KERNEL CLOCK CLOSES ONLY WITH THE PEN VISIT (maintainer decision 2026-09-12). A pen
+// task -- one of the five pen categories, with a shed -- owes a next-day visit, and that
+// visit's video goes to the verifier too; the maintainer's rule is that the task closes
+// "when all these videos are verified". So work_state flips to 'completed' here ONLY when no
+// visit is owed (a shed-less task, or a category that raises none) or when the linked visit is
+// ALREADY verified (the verifier reviewed the visit before the work's own clips). Otherwise the
+// visit's approval closes the task through PenVisitVerified below; either order converges.
 //
 // IDEMPOTENT: a re-delivered verdict on an already-completed row, or a verdict for a row no
 // longer pending (bounced to rework), returns false with no side effects.
@@ -79,16 +87,27 @@ FOR UPDATE`, p.TenantID, p.TaskID).Scan(&status, &category, &parkID, &shedID, &p
 	}
 
 	tag, err := tx.Exec(ctx, `
-UPDATE pc_care_tasks
+UPDATE pc_care_tasks t
 SET status = 'completed',
-    work_state = 'completed',
-    terminal_at = now(),
+    work_state = CASE WHEN owes.visit THEN t.work_state ELSE 'completed' END,
+    terminal_at = CASE WHEN owes.visit THEN t.terminal_at ELSE now() END,
     verified_by = nullif($3::text, '')::uuid,
     verified_at = now(),
     updated_at = now(),
-    row_version = row_version + 1
-WHERE tenant_id = $1::uuid AND task_id = $2::uuid AND status = 'pending_verification'`,
-		p.TenantID, p.TaskID, p.VerifiedBy)
+    row_version = t.row_version + 1
+FROM (
+  SELECT (
+    ($4::text = ANY($5::text[]))
+    AND EXISTS (SELECT 1 FROM pc_care_tasks x WHERE x.tenant_id = $1::uuid AND x.task_id = $2::uuid AND x.shed_id IS NOT NULL)
+    AND NOT EXISTS (
+      SELECT 1 FROM pen_visit_task_sources s
+      JOIN pen_visit_tasks v ON v.tenant_id = s.tenant_id AND v.task_id = s.task_id
+      WHERE s.tenant_id = $1::uuid AND s.source_kind = 'pc_care_task' AND s.source_ref_id = $2::uuid
+        AND v.status = 'completed')
+  ) AS visit
+) owes
+WHERE t.tenant_id = $1::uuid AND t.task_id = $2::uuid AND t.status = 'pending_verification'`,
+		p.TenantID, p.TaskID, p.VerifiedBy, category, domain.PenVisitCategories)
 	if err != nil {
 		return false, fmt.Errorf("pccare: apply verified task: %w", err)
 	}
@@ -244,4 +263,84 @@ func verdictScopeID(shedID, parkID string) string {
 		return parkID
 	}
 	return shedID
+}
+
+// PenVisitVerified closes the tasks whose next-day pen visit the verifier just approved
+// (maintainer decision 2026-09-12): a task whose own videos are already verified (status
+// 'completed') and whose kernel clock was held open for the visit flips to work_state
+// 'completed'. A task whose own clips are still with the verifier, or sent back, is left for
+// ApplyVerifiedTask, which sees the verified visit and closes the clock itself. IDEMPOTENT: an
+// already-closed task matches nothing, so the at-least-once event consumer can replay it.
+func (r *Repository) PenVisitVerified(ctx context.Context, tenantID string, taskIDs []string, visitTaskID, traceID string) error {
+	if len(taskIDs) == 0 {
+		return nil
+	}
+	ctx, cancel := r.timeout(ctx)
+	defer cancel()
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return fmt.Errorf("pccare: begin pen visit close tx: %w", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback(ctx)
+		}
+	}()
+	// scale-guard:ignore: one set-based UPDATE over the explicit task ids a single pen visit names (bounded by the pens worked in one pen on one day), keyed by primary key.
+	rows, err := tx.Query(ctx, `
+UPDATE pc_care_tasks
+SET work_state = 'completed',
+    terminal_at = now(),
+    updated_at = now(),
+    row_version = row_version + 1
+WHERE tenant_id = $1::uuid AND task_id = ANY($2::uuid[])
+  AND status = 'completed'
+  AND work_state IN ('scheduled', 'delayed')
+RETURNING task_id::text, category, park_id::text, coalesce(shed_id::text, '')`, tenantID, taskIDs)
+	if err != nil {
+		return fmt.Errorf("pccare: close on pen visit: %w", err)
+	}
+	type closed struct{ taskID, category, parkID, shedID string }
+	var closedRows []closed
+	for rows.Next() {
+		var c closed
+		if err := rows.Scan(&c.taskID, &c.category, &c.parkID, &c.shedID); err != nil {
+			rows.Close()
+			return fmt.Errorf("pccare: scan closed task: %w", err)
+		}
+		closedRows = append(closedRows, c)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	recorder := audit.NewTxRecorder(tx)
+	for _, c := range closedRows {
+		if err := recorder.Record(ctx, audit.Event{
+			TenantID:     tenantID,
+			ActorType:    "system",
+			Action:       pcCarePenVisitClosedAction,
+			ResourceType: pcCareTaskResourceType,
+			ResourceID:   c.taskID,
+			ScopeType:    verdictScopeType(c.shedID),
+			ScopeID:      verdictScopeID(c.shedID, c.parkID),
+			AfterState: map[string]any{
+				"category":   c.category,
+				"park_id":    c.parkID,
+				"shed_id":    c.shedID,
+				"status":     domain.StatusCompleted,
+				"work_state": domain.WorkStateCompleted,
+			},
+			Metadata: map[string]any{"source": "pen-visit-verification", "pen_visit_task_id": visitTaskID},
+			TraceID:  traceID,
+		}); err != nil {
+			return fmt.Errorf("pccare: write pen visit close audit: %w", err)
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("pccare: commit pen visit close: %w", err)
+	}
+	committed = true
+	return nil
 }
