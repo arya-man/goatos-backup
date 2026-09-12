@@ -36623,7 +36623,10 @@ components:
             tag and the shed adopts it. spacing moves the WHOLE source pen carrying its tag - the
             destination must carry the same tag or be empty (an empty pen adopts the tag); partial
             groups are rejected. flushing moves females onto flushing ration - empty or
-            already-flushing destinations only. A raise a rule refuses is rejected at RAISE time
+            already-flushing destinations only. normal (2026-09-12) is the plain move: any
+            selection, the tag never changes and no pen is re-tagged; the destination must be
+            EMPTY or already hold at least one animal carrying the moving animals' tag (read from
+            the residents, not the pen's authored tag). A raise a rule refuses is rejected at RAISE time
             with a farm-worded reason, before approval and before any video. Omit only from a
             legacy client (the stage_mode toggle then governs, unchanged). A present but
             unrecognized value is rejected.
@@ -36635,6 +36638,7 @@ components:
             - delivery
             - spacing
             - flushing
+            - normal
         stage_mode:
           description: >-
             LEGACY tag toggle, governing only a raise that omits category (a client predating the

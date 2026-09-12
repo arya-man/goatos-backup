@@ -395,6 +395,7 @@ var (
 	allowedShiftingCategory = map[string]bool{
 		domain.ShiftTypeGrowth: true, domain.ShiftTypeHealth: true, domain.ShiftTypeBreeding: true,
 		domain.ShiftTypeDelivery: true, domain.ShiftTypeSpacing: true, domain.ShiftTypeFlushing: true,
+		domain.ShiftTypeNormal: true,
 	}
 	// The raise-form tag toggle's two positions. These are the SAME tokens the
 	// shifting_events.management_stage_mode column already stores, so the toggle records the
@@ -932,7 +933,7 @@ func normalizeShiftingEventRequest(req appShiftingEventRequest) (appShiftingEven
 	}
 	if req.Category != "" && !allowedShiftingCategory[req.Category] {
 		return req, identityapp.BadRequest("invalid_category",
-			"category must be growth, health, breeding, delivery, spacing, or flushing")
+			"category must be growth, health, breeding, delivery, spacing, flushing, or normal")
 	}
 	// A present-but-invalid mode is REJECTED, never silently rewritten. Quietly falling back to the
 	// default would apply the destination pen's tag to a movement whose raiser asked for the

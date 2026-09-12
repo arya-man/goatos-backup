@@ -350,6 +350,13 @@ const val SHIFTING_CATEGORY_DELIVERY = "delivery"
 const val SHIFTING_CATEGORY_SPACING = "spacing"
 const val SHIFTING_CATEGORY_FLUSHING = "flushing"
 
+/**
+ * Normal (2026-09-12) is the plain move: any selection, the tag never changes. The backend accepts
+ * it into an empty pen or one already holding an animal with the same tag, and refuses the rest
+ * with its own copy.
+ */
+const val SHIFTING_CATEGORY_NORMAL = "normal"
+
 sealed interface ShiftingEvent {
     data class EditAnimalQuery(val value: String) : ShiftingEvent
     data object LookupAnimals : ShiftingEvent
@@ -614,11 +621,12 @@ fun ShiftingScreen(
                             SHIFTING_CATEGORY_DELIVERY to stringResource(R.string.counts_category_delivery),
                             SHIFTING_CATEGORY_SPACING to stringResource(R.string.counts_category_spacing),
                             SHIFTING_CATEGORY_FLUSHING to stringResource(R.string.counts_category_flushing),
+                            SHIFTING_CATEGORY_NORMAL to stringResource(R.string.counts_category_normal),
                         ),
                         selectedKey = state.category,
                         onSelect = { onEvent(ShiftingEvent.SelectCategory(it)) },
-                        // Six types on one line makes every cell narrower than its word, and the
-                        // labels break mid-word ("Breedin/g"). Two rows of three give each type its
+                        // Seven types on one line makes every cell narrower than its word, and the
+                        // labels break mid-word ("Breedin/g"). Rows of three give each type its
                         // whole name -- which is what the operator is actually choosing between,
                         // since the type now decides what happens to the animals' tag.
                         maxPerRow = 3,

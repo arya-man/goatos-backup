@@ -49,6 +49,7 @@ import sg.mesha.goatos.core.network.dto.VerificationVerdictMeasurementDto
 import sg.mesha.goatos.feature.counts.SHIFTING_CATEGORY_BREEDING
 import sg.mesha.goatos.feature.counts.SHIFTING_CATEGORY_DELIVERY
 import sg.mesha.goatos.feature.counts.SHIFTING_CATEGORY_FLUSHING
+import sg.mesha.goatos.feature.counts.SHIFTING_CATEGORY_NORMAL
 import sg.mesha.goatos.feature.counts.SHIFTING_CATEGORY_GROWTH
 import sg.mesha.goatos.feature.counts.SHIFTING_CATEGORY_HEALTH
 import sg.mesha.goatos.feature.counts.SHIFTING_CATEGORY_SPACING
@@ -222,6 +223,7 @@ class ShiftingViewModelEligibilityTest {
             SHIFTING_CATEGORY_DELIVERY,
             SHIFTING_CATEGORY_SPACING,
             SHIFTING_CATEGORY_FLUSHING,
+            SHIFTING_CATEGORY_NORMAL,
         )
 
         categories.forEach { category ->
