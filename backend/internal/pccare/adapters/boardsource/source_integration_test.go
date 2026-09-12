@@ -24,16 +24,20 @@ const (
 	bsDate     = "2026-09-10"
 
 	// Task ids are fixed so the round-trip assertions read by name.
-	tScanning  = "00000000-0000-4000-8000-000000007101" // deworming, Part 3, 2 of 3 animals filmed
-	tUntouched = "00000000-0000-4000-8000-000000007102" // hoof trimming, whole pen, nothing scanned
-	tSubmitted = "00000000-0000-4000-8000-000000007103" // deworming, Part 4, awaiting the verdict
-	tVerified  = "00000000-0000-4000-8000-000000007104" // ticks removal, accepted; unprofiled owner
-	tDelayed   = "00000000-0000-4000-8000-000000007105" // hair trimming, rolled from 06/09; nobody assigned
-	tRework    = "00000000-0000-4000-8000-000000007106" // ticks removal, Part 3, sent back
-	tClosed    = "00000000-0000-4000-8000-000000007107" // hoof trimming, Part 3, closed
-	tCanceled  = "00000000-0000-4000-8000-000000007108" // legacy canceled row: not work
-	tOtherPark = "00000000-0000-4000-8000-000000007109" // the other park
-	tTomorrow  = "00000000-0000-4000-8000-000000007110" // same park, due tomorrow
+	tScanning    = "00000000-0000-4000-8000-000000007101" // deworming, Part 3, 2 of 3 animals filmed
+	tUntouched   = "00000000-0000-4000-8000-000000007102" // hoof trimming, whole pen, nothing scanned
+	tSubmitted   = "00000000-0000-4000-8000-000000007103" // deworming, Part 4, awaiting the verdict
+	tVerified    = "00000000-0000-4000-8000-000000007104" // ticks removal, accepted; unprofiled owner
+	tDelayed     = "00000000-0000-4000-8000-000000007105" // hair trimming, rolled from 06/09; nobody assigned
+	tRework      = "00000000-0000-4000-8000-000000007106" // ticks removal, Part 3, sent back
+	tClosed      = "00000000-0000-4000-8000-000000007107" // hoof trimming, Part 3, closed
+	tCanceled    = "00000000-0000-4000-8000-000000007108" // legacy canceled row: not work
+	tOtherPark   = "00000000-0000-4000-8000-000000007109" // the other park
+	tTomorrow    = "00000000-0000-4000-8000-000000007110" // same park, due tomorrow
+	tAwaitVisit  = "00000000-0000-4000-8000-000000007111" // deworming, Part 6, own clips verified, visit not yet raised
+	tVisitReview = "00000000-0000-4000-8000-000000007112" // deworming, Part 7, own clips verified, visit clip with the verifier
+	vVisitReview = "00000000-0000-4000-8000-000000007212" // the visit row linked to tVisitReview
+	pVisitProof  = "00000000-0000-4000-8000-000000007312" // the visit's clip
 )
 
 func exec(t *testing.T, ctx context.Context, pool *pgxpool.Pool, sql string, args ...any) {
@@ -69,7 +73,9 @@ ON CONFLICT (workforce_member_id) DO NOTHING`, bsMember, bsTenant, bsOperator, b
 		{tScanning, "deworming", bsPark, "Part 3", bsDate, bsDate, "scheduled", "open", []string{bsOperator, bsOtherOp}},
 		{tUntouched, "hoof_trimming", bsPark, "", bsDate, bsDate, "scheduled", "open", []string{bsOperator}},
 		{tSubmitted, "deworming", bsPark, "Part 4", bsDate, bsDate, "scheduled", "pending_verification", []string{bsOperator}},
-		{tVerified, "ticks_removal", bsPark, "", bsDate, bsDate, "scheduled", "completed", []string{bsOtherOp}},
+		{tVerified, "ticks_removal", bsPark, "", bsDate, bsDate, "completed", "completed", []string{bsOtherOp}},
+		{tAwaitVisit, "deworming", bsPark, "Part 6", bsDate, bsDate, "scheduled", "completed", []string{bsOperator}},
+		{tVisitReview, "deworming", bsPark, "Part 7", bsDate, bsDate, "scheduled", "completed", []string{bsOperator}},
 		{tDelayed, "hair_trimming", bsPark, "", "2026-09-06", bsDate, "delayed", "open", nil},
 		{tRework, "ticks_removal", bsPark, "Part 3", bsDate, bsDate, "scheduled", "rework", []string{bsOtherOp}},
 		{tClosed, "hoof_trimming", bsPark, "Part 3", bsDate, bsDate, "closed", "open", []string{bsOtherOp}},
@@ -106,6 +112,21 @@ VALUES ($1::uuid, $2::uuid, $3, $4::uuid, 'board-' || $2 || '-' || $3) ON CONFLI
 	scan(tScanning, "tag-b", true)
 	scan(tScanning, "tag-c", false)
 	scan(tSubmitted, "tag-d", true)
+	scan(tVisitReview, "tag-e", true)
+	// The pen visit is the task's last step (2026-09-12): tVisitReview's visit was recorded
+	// the morning after and sits with the verifier, so the task's own row is in review.
+	exec(t, ctx, pool, `
+INSERT INTO pen_visit_park_assignees (tenant_id, park_id, user_id) VALUES ($1::uuid, $2::uuid, $3::uuid) ON CONFLICT DO NOTHING`, bsTenant, bsPark, bsOperator)
+	exec(t, ctx, pool, `
+INSERT INTO proof_artifacts (proof_id, tenant_id, storage_provider, object_key, mime_type, size_bytes, upload_state, scope_type, scope_id, subject_type, proof_type, uploaded_by, metadata)
+VALUES ($1::uuid, $2::uuid, 'local', 'visits/' || $1::text, 'video/mp4', 4096, 'completed', 'task', $1::uuid, 'other', 'video', $3::uuid, '{"capture_source":"in_app_camera"}'::jsonb)
+ON CONFLICT (proof_id) DO NOTHING`, pVisitProof, bsTenant, bsOperator)
+	exec(t, ctx, pool, `
+INSERT INTO pen_visit_tasks (task_id, tenant_id, park_id, shed_id, partition_label, reasons, source_business_date, planned_business_date, due_business_date, work_state, status, proof_ref, submitted_by, submitted_at)
+VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, 'Part 7', ARRAY['deworming'], $5::date, $5::date + 1, $5::date + 1, 'scheduled', 'pending_verification', $7::uuid, $6::uuid, now())
+ON CONFLICT (task_id) DO NOTHING`, vVisitReview, bsTenant, bsPark, bsShed, bsDate, bsOperator, pVisitProof)
+	exec(t, ctx, pool, `
+INSERT INTO pen_visit_task_sources (tenant_id, task_id, source_kind, source_ref_id) VALUES ($1::uuid, $2::uuid, 'pc_care_task', $3::uuid) ON CONFLICT DO NOTHING`, bsTenant, vVisitReview, tVisitReview)
 }
 
 func query(owner string, states ...domain.WorkState) ports.SourceQuery {
@@ -136,8 +157,8 @@ func TestPCCareBoardRowsOnADatabaseRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(rows) != 7 {
-		t.Fatalf("7 live tasks on the park-day expected (canceled, other park, tomorrow excluded), got %d", len(rows))
+	if len(rows) != 9 {
+		t.Fatalf("9 live tasks on the park-day expected (canceled, other park, tomorrow excluded), got %d", len(rows))
 	}
 	got := byTask(rows)
 	want := map[string]struct {
@@ -152,6 +173,10 @@ func TestPCCareBoardRowsOnADatabaseRoundTrip(t *testing.T) {
 		tDelayed:   {domain.WorkStateOverdue, domain.LaneToDo, domain.SeverityAtRisk},
 		tRework:    {domain.WorkStateRejected, domain.LaneInProgress, domain.SeverityAtRisk},
 		tClosed:    {domain.WorkStateCompleted, domain.LaneDone, domain.SeverityOK},
+		// Own clips verified, next-day visit still to come / with the verifier: the chain is
+		// not done, so the row is not Done (maintainer decision 2026-09-12).
+		tAwaitVisit:  {domain.WorkStateInProgress, domain.LaneInProgress, domain.SeverityOK},
+		tVisitReview: {domain.WorkStateVerificationPending, domain.LaneInReview, domain.SeverityOK},
 	}
 	for id, w := range want {
 		r, ok := got[id]
@@ -219,6 +244,13 @@ func TestPCCareBoardRowsOnADatabaseRoundTrip(t *testing.T) {
 	if got[tRework].Counts.NeedsAttention != 1 {
 		t.Errorf("rework row must need attention: %+v", got[tRework].Counts)
 	}
+	// The subtitle says where the visit stands, in farm words.
+	if got[tAwaitVisit].Subtitle != "Pen visit tomorrow" {
+		t.Errorf("awaiting-visit subtitle %q", got[tAwaitVisit].Subtitle)
+	}
+	if got[tVisitReview].Subtitle != "1 animal · Pen visit in review" {
+		t.Errorf("visit-in-review subtitle %q", got[tVisitReview].Subtitle)
+	}
 	for _, r := range rows {
 		for _, s := range []string{r.Title, r.Subtitle, r.ClockLabel} {
 			if containsFold(s, "shed") {
@@ -261,9 +293,9 @@ func TestPCCareBoardScopeAndKeyset(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Their three tasks plus the unassigned one (the park's pool).
-	if len(mine) != 4 {
-		t.Fatalf("operator lens: 3 own rows plus the unassigned one expected, got %d", len(mine))
+	// Their five tasks plus the unassigned one (the park's pool).
+	if len(mine) != 6 {
+		t.Fatalf("operator lens: 5 own rows plus the unassigned one expected, got %d", len(mine))
 	}
 
 	open, err := src.ListRows(ctx, query("", domain.WorkStateDue, domain.WorkStateOverdue))
@@ -298,8 +330,8 @@ func TestPCCareBoardScopeAndKeyset(t *testing.T) {
 			after = r.SourceID
 		}
 	}
-	if len(seen) != 7 {
-		t.Fatalf("keyset walk saw %d rows, want 7", len(seen))
+	if len(seen) != 9 {
+		t.Fatalf("keyset walk saw %d rows, want 9", len(seen))
 	}
 
 	counts, err := src.CountByState(ctx, query(""))
@@ -310,8 +342,8 @@ func TestPCCareBoardScopeAndKeyset(t *testing.T) {
 	for _, n := range counts {
 		total += n
 	}
-	if total != 7 || counts[domain.WorkStateCompleted] != 2 || counts[domain.WorkStateDue] != 1 || counts[domain.WorkStateOverdue] != 1 ||
-		counts[domain.WorkStateInProgress] != 1 || counts[domain.WorkStateVerificationPending] != 1 || counts[domain.WorkStateRejected] != 1 {
+	if total != 9 || counts[domain.WorkStateCompleted] != 2 || counts[domain.WorkStateDue] != 1 || counts[domain.WorkStateOverdue] != 1 ||
+		counts[domain.WorkStateInProgress] != 2 || counts[domain.WorkStateVerificationPending] != 2 || counts[domain.WorkStateRejected] != 1 {
 		t.Fatalf("counts %+v", counts)
 	}
 	ownerCounts, err := src.CountByState(ctx, query(bsOtherOp))

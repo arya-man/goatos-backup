@@ -94,6 +94,7 @@ import (
 	pccareproof "github.com/vgoats/goatos/backend/internal/pccare/adapters/proof"
 	pccareverificationbridge "github.com/vgoats/goatos/backend/internal/pccare/adapters/verificationbridge"
 	pccareapp "github.com/vgoats/goatos/backend/internal/pccare/app"
+	penvisitsboard "github.com/vgoats/goatos/backend/internal/penvisits/adapters/boardsource"
 	penvisitshttp "github.com/vgoats/goatos/backend/internal/penvisits/adapters/http"
 	penvisitspg "github.com/vgoats/goatos/backend/internal/penvisits/adapters/postgres"
 	penvisitsproof "github.com/vgoats/goatos/backend/internal/penvisits/adapters/proof"
@@ -757,6 +758,12 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 		countsboard.NewMilkFeeding(pool, cfg.Postgres.QueryTimeout),
 		healthboard.New(pool, cfg.Postgres.QueryTimeout),
 		pccareboard.New(pool, cfg.Postgres.QueryTimeout),
+		// The next-day pen visit (maintainer decision 2026-09-12) rows on the day it is due
+		// under the module whose work raised it -- PC Care for any care reason, vaccination
+		// for a pen vaccinated alone -- titled as that work continuing, never as a task of
+		// its own.
+		penvisitsboard.NewPCCare(pool, cfg.Postgres.QueryTimeout),
+		penvisitsboard.NewVaccination(pool, cfg.Postgres.QueryTimeout),
 		// Vaccination reuses the process-integrity read behind the port; the member
 		// resolver is what lets the operator lens narrow it by user id.
 		piboard.New(processIntegrityRepo).
