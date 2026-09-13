@@ -1,0 +1,31 @@
+{
+  "schema_version": "goatos.sop-followup.v1",
+  "tracks": [
+    {
+      "key": "birth_kid", "module": "birth", "label": "Kid", "subject": "kid",
+      "steps": [
+        {"key": "kid_clean", "task_type": "record_yes_no", "title": "Is the kid clean?", "detail": "Confirm the kid has been cleaned and dried after delivery.", "proof": {"video": 1}, "schedule": {"kind": "immediately"}},
+        {"key": "iodine_dipping", "task_type": "do_and_confirm", "title": "Iodine dipping of umbilical cord", "detail": "Dip the kid's umbilical cord in iodine solution to prevent infection.", "proof": {"video": 1}, "schedule": {"kind": "immediately"}},
+        {"key": "front_teeth_check", "task_type": "record_yes_no", "title": "Are the front teeth outside the lower gum?", "detail": "Check the kid's mouth: the front teeth should be visible outside the lower gum.", "proof": {"video": 1}, "schedule": {"kind": "immediately"}},
+        {"key": "suck_reflex", "task_type": "record_yes_no", "title": "Does the kid have a suck reflex?", "detail": "Place a clean finger in the kid's mouth and confirm it starts sucking.", "proof": {"video": 1}, "schedule": {"kind": "immediately"}},
+        {"key": "first_colostrum", "task_type": "feed_colostrum", "title": "1st Colostrum", "detail": "Feed the first colostrum and record a video using the in-app camera.", "proof": {"video": 1}, "schedule": {"kind": "immediately"}},
+        {"key": "take_weight", "task_type": "weigh", "title": "Take Weight of Kid", "detail": "Weigh the kid and enter the exact weight in kilograms (kg).", "proof": {"video": 1}, "schedule": {"kind": "immediately"}},
+        {"key": "kid_standing", "task_type": "record_yes_no", "title": "Is the kid standing?", "detail": "One hour after birth, confirm the kid is standing on its own.", "proof": {"video": 1}, "schedule": {"kind": "after_event", "offset_minutes": 60}},
+        {"key": "record_shed", "task_type": "record_pen", "title": "Record pen", "detail": "Record which pen this kid is in. This pen becomes the park's kid pen, so the next kid born here is placed there automatically.", "proof": {}, "schedule": {"kind": "immediately"}, "when": "kid_pen_unresolved"},
+        {"key": "colostrum_series", "task_type": "feed_colostrum", "section": "colostrum_session", "title": "Colostrum", "title_pattern": "{ordinal} Colostrum", "detail": "Feed colostrum at the {time} session on the {day_label}.", "proof": {"video": 1}, "schedule": {"kind": "series", "times": ["07:00", "11:00", "15:00", "18:30", "22:00"], "days": 2, "pre_notify_minutes": 15, "key_pattern": "colostrum_day_{day}_{hhmm}", "ordinal_start": 2}, "hard_time_gate": true, "requires": ["first_colostrum"]},
+        {"key": "tag_the_kid", "task_type": "tag", "title": "Tag the kid", "detail": "Scan or enter the permanent RFID, then record one tagging video. The same goat record is retained and its temporary identifier is retired.", "proof": {"video": 1}, "schedule": {"kind": "at_fixed_time", "day_offset": 2, "time": "07:00"}, "wait_for_all": true}
+      ]
+    },
+    {
+      "key": "birth_mother", "module": "birth", "label": "Mother", "subject": "mother",
+      "steps": [
+        {"key": "babies_still_inside", "task_type": "record_yes_no", "title": "Are any babies still inside?", "detail": "Check whether the mother is still in labour with another kid inside.", "proof": {"video": 1}, "schedule": {"kind": "immediately"}},
+        {"key": "mother_licking", "task_type": "record_yes_no", "title": "Is the mother licking her babies?", "detail": "Confirm the mother has accepted the kids and is licking them clean.", "proof": {"video": 1}, "schedule": {"kind": "immediately"}},
+        {"key": "mothers_medicine", "task_type": "administer", "title": "Mother's Medicine", "detail": "Chocolate Injection at 1.5 ml SQ\nMeloxicam Paracetamol at 4 ml IM\nExapar at 20 ml\nGlucoboost at 100 ml mix with 150gms Concentrate", "proof": {"video": 1}, "schedule": {"kind": "immediately"}},
+        {"key": "ors_water_1", "task_type": "do_and_confirm", "title": "ORS water", "detail": "Give the mother ORS water to drink after delivery.", "proof": {"video": 1}, "schedule": {"kind": "immediately"}},
+        {"key": "mother_eating", "task_type": "record_yes_no", "title": "Is the mother eating?", "detail": "Confirm the mother has started eating after delivery.", "proof": {"video": 1}, "schedule": {"kind": "immediately"}},
+        {"key": "ors_water_2", "task_type": "do_and_confirm", "title": "ORS water (2nd round)", "detail": "Give the mother a second round of ORS water exactly 50 minutes after the first round was given.", "proof": {"video": 1}, "schedule": {"kind": "after_step", "step": "ors_water_1", "offset_minutes": 50}, "hard_time_gate": true}
+      ]
+    }
+  ]
+}

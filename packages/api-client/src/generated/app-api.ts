@@ -16105,6 +16105,25 @@ export interface components {
             completed_at: string | null;
             /** @description Empty, or pending/rework/approved for verification-gated steps. */
             verification_status: string;
+            /** @description Task Type Registry key the step was authored with (SOP-driven herd operations, docs/decisions/sop-driven-herd-operations.md). Empty on rows stamped before the SOP attributes existed. */
+            task_type?: string;
+            /**
+             * @description What the operator answers: none (do & confirm), yes_no, select, multiselect (answer_value is the chosen options joined by "|"), number, text. Render from THIS, never from the step key.
+             * @enum {string}
+             */
+            answer_type?: "none" | "yes_no" | "select" | "multiselect" | "number" | "text";
+            /** @description Live-camera videos the step needs before it can complete. */
+            proof_min_videos?: number;
+            /** @description Live-camera photos the step needs before it can complete. */
+            proof_min_photos?: number;
+            /** @description Every proof captured on the step, in capture order. proof_ref mirrors the first video. */
+            proof_refs?: components["schemas"]["WorkflowProofItem"][];
+        };
+        WorkflowProofItem: {
+            /** @description Server-minted proof id from /app/proofs/*. */
+            ref: string;
+            /** @enum {string} */
+            kind: "video" | "photo";
         };
         WorkflowDetailResponse: components["schemas"]["WorkflowCard"] & {
             facts: components["schemas"]["WorkflowFact"][];
@@ -16112,12 +16131,16 @@ export interface components {
         };
         AnswerWorkflowActionRequest: {
             answer_value: string;
-            /** @description Server-minted proof id from /app/proofs/*; MANDATORY when the question requires_video. */
+            /** @description Server-minted proof id from /app/proofs/*; enough on its own for a one-video step. */
             proof_ref?: string;
+            /** @description Every capture for a multi-proof step. The server checks proof_min_videos / proof_min_photos and rejects 422 proof_required when a kind is short. */
+            proofs?: components["schemas"]["WorkflowProofItem"][];
         };
         CompleteWorkflowActionRequest: {
-            /** @description Server-minted proof id from /app/proofs/*; MANDATORY for requires_video actions. */
+            /** @description Server-minted proof id from /app/proofs/*; enough on its own for a one-video step. */
             proof_ref?: string;
+            /** @description Every capture for a multi-proof step (see AnswerWorkflowActionRequest.proofs). */
+            proofs?: components["schemas"]["WorkflowProofItem"][];
         };
         WorkflowActionWriteResponse: {
             /** Format: uuid */

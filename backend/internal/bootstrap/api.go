@@ -529,7 +529,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	proofService := proofapp.NewService(proofRepo, proofStorage)
 	proofHandler := proofhttp.NewHandler(proofService, log)
 	sopRepo := soppg.NewRepository(pool, cfg.Postgres.QueryTimeout)
-	sopService := sopapp.NewService(sopRepo).WithProofValidator(proofService)
+	sopService := sopapp.NewService(sopRepo).WithProofValidator(proofService).WithTaskTypeSource(sopRepo)
 
 	protocolRepo := protocolpg.NewRepository(pool, cfg.Postgres.QueryTimeout)
 	obligationRepo := obligationpg.NewRepository(pool, cfg.Postgres.QueryTimeout)

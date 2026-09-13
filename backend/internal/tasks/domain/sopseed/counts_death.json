@@ -1,0 +1,12 @@
+{
+  "schema_version": "goatos.sop-followup.v1",
+  "tracks": [
+    {
+      "key": "death", "module": "death", "label": "Death evidence", "subject": "animal",
+      "steps": [
+        {"key": "death_video", "task_type": "death_evidence", "title": "Record death video", "detail": "Record the dead animal with its ear tag clearly visible using the in-app camera.", "proof": {"video": 1}, "schedule": {"kind": "immediately"}},
+        {"key": "post_mortem_video", "task_type": "death_evidence", "title": "Record post-mortem video", "detail": "Record with the timestamp visible. Show the carcass and the post-mortem site in one continuous take using the in-app camera.", "proof": {"video": 1}, "schedule": {"kind": "immediately"}}
+      ]
+    }
+  ]
+}

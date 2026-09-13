@@ -1,0 +1,11 @@
+{
+  "schema_version": "goatos.sop-followup.v1",
+  "tracks": [
+    {
+      "key": "reconcile", "module": "reconcile", "label": "Pen return", "subject": "animal",
+      "steps": [
+        {"key": "return_to_pen", "task_type": "return_to_pen", "title": "Return the animal to its registered pen", "detail": "Walk the animal back to the pen the register names and record one live video showing the ear tag inside that pen.", "proof": {"video": 1}, "schedule": {"kind": "immediately"}}
+      ]
+    }
+  ]
+}

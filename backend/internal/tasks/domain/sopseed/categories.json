@@ -1,0 +1,7 @@
+[
+  {"key": "commodity", "name": "Commodity", "description": "Physical goods administered or consumed: medicine, vaccine, feed, supplements.", "sort_order": 1},
+  {"key": "problem", "name": "Problem", "description": "Health or operational issues that arise: fever, injury, low ADG, mastitis.", "sort_order": 2},
+  {"key": "event", "name": "Event", "description": "Scheduled or recurring administrative activity: data collection, filings, updates.", "sort_order": 3},
+  {"key": "action", "name": "Action", "description": "Direct operational task on animals or groups: birth, death, shifting, reconcile, weaning, tagging.", "sort_order": 4},
+  {"key": "equipment", "name": "Equipment / Asset", "description": "Durable assets needing upkeep: water pump, weighing scale, shed structure, feeder, vehicle.", "sort_order": 5}
+]
