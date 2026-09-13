@@ -60,6 +60,9 @@ func (r *Repository) LoadContractFamilies(ctx context.Context, tenantID string) 
 	if out.FeedItems, out.RevisionInputs["feed-items"], err = r.listFeedItems(ctx, tenantID); err != nil {
 		return out, err
 	}
+	if out.SOPTaskTypes, out.SOPTaskTypeAnswerKinds, out.RevisionInputs["sop-task-types"], err = r.listSOPTaskTypes(ctx, tenantID); err != nil {
+		return out, err
+	}
 	if out.UIConfig, out.RevisionInputs["admin-ui-config-values"], err = r.listUIConfigEntries(ctx, tenantID); err != nil {
 		return out, err
 	}
@@ -353,4 +356,36 @@ LIMIT 5000`, tenantID)
 		return nil, "", err
 	}
 	return out, rev.String(), nil
+}
+
+const listSOPTaskTypesSQL = `
+SELECT task_type_key, name, COALESCE(description, ''), answer_kind, updated_at::text
+FROM sop_task_types
+WHERE tenant_id = $1::uuid AND status = 'active'
+ORDER BY sort_order, task_type_key
+LIMIT 200`
+
+// listSOPTaskTypes reads the Task Type Registry (migration 000299) for the SOP builder's
+// follow-up step editor: one option list for the picker, one metadata twin carrying answer kinds.
+func (r *Repository) listSOPTaskTypes(ctx context.Context, tenantID string) ([]app.ReferenceOption, []app.ReferenceOption, string, error) {
+	rows, err := r.pool.Query(ctx, listSOPTaskTypesSQL, tenantID)
+	if err != nil {
+		return nil, nil, "", fmt.Errorf("adminui: list sop task types: %w", err)
+	}
+	defer rows.Close()
+	var types, kinds []app.ReferenceOption
+	var rev strings.Builder
+	for rows.Next() {
+		var key, name, description, answer, updated string
+		if err := rows.Scan(&key, &name, &description, &answer, &updated); err != nil {
+			return nil, nil, "", err
+		}
+		types = append(types, app.ReferenceOption{Key: key, Label: name, Title: description})
+		kinds = append(kinds, app.ReferenceOption{Key: key, Label: answer})
+		rev.WriteString(key + "|" + name + "|" + answer + "|" + updated + "\n")
+	}
+	if err := rows.Err(); err != nil {
+		return nil, nil, "", err
+	}
+	return types, kinds, rev.String(), nil
 }

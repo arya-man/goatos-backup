@@ -11,7 +11,10 @@ import {
   createSop,
   createSopVersion,
   dryRunSopVersion,
+  getSop,
+  getSopVersion,
   publishSopVersion,
+  type CreateSOPVersionRequest,
   type DryRunResponse,
   type SOPValidationReport,
 } from "@/lib/api/server";
@@ -134,4 +137,66 @@ export async function publishSop(sopId: string, versionId: string, rowVersion: n
   if (!res.ok) return { ok: false, message: res.error.message ?? "publish failed", code: res.error.code };
   for (const path of SOP_PAGE_PATHS) revalidatePath(path);
   return { ok: true, message: "Published — immutable version; tasks pin to it." };
+}
+
+// ---------------------------------------------------------------------------
+// SOP-DRIVEN HERD OPERATIONS (maintainer decision 2026-09-13): operator steps (follow_up)
+// ---------------------------------------------------------------------------
+
+export interface FollowUpSaveResult {
+  ok: boolean;
+  message: string;
+  code?: string;
+  versionId?: string;
+  rowVersion?: number;
+  report?: SOPValidationReport;
+}
+
+// saveFollowUpVersion creates a NEW draft version = the currently PUBLISHED version's capture
+// form (fields / rules / proof_policy / compatibility, passed through verbatim -- the capture
+// form is not edited here in P1) + the operator steps the editor emitted. The backend validates
+// the follow_up against the tenant's Task Type Registry and refuses with the field named.
+export async function saveFollowUpVersion(sopId: string, followUp: Record<string, unknown>, label?: string): Promise<FollowUpSaveResult> {
+  if (!sopId) return { ok: false, message: "SOP id is required" };
+  const detail = await getSop(sopId);
+  if (!detail.ok) return { ok: false, message: detail.error.message ?? "load SOP failed", code: detail.error.code };
+  const publishedId = detail.data.sop.active_sop_version_id ?? null;
+  let base = detail.data.latest_version ?? null;
+  if (publishedId && base?.sop_version_id !== publishedId) {
+    const published = await getSopVersion(sopId, publishedId);
+    if (published.ok) base = published.data.version;
+  }
+  if (!base) return { ok: false, message: "this SOP has no version to build on yet" };
+  const baseDsl = (base.form_dsl ?? {}) as Record<string, unknown>;
+  const version = await createSopVersion(sopId, {
+    version_label: (label ?? "").trim() || `${detail.data.sop.name} · operator steps`,
+    form_dsl: { ...baseDsl, follow_up: followUp },
+    proof_policy: base.proof_policy as CreateSOPVersionRequest["proof_policy"],
+    compatibility: (base.compatibility ?? undefined) as CreateSOPVersionRequest["compatibility"],
+  });
+  if (!version.ok) {
+    return { ok: false, message: version.error.message ?? "create SOP version failed", code: version.error.code };
+  }
+  for (const path of SOP_PAGE_PATHS) revalidatePath(path);
+  const report = version.data.version.validation_report;
+  return {
+    ok: true,
+    message: report?.valid ? "Operator steps saved as a draft version." : "Saved — backend flagged validation issues (see report).",
+    versionId: version.data.version.sop_version_id,
+    rowVersion: version.data.version.row_version,
+    report,
+  };
+}
+
+// publishFollowUpVersion saves, then publishes in one go: the next workflow opened on the phone
+// runs these steps; open workflows keep theirs.
+export async function publishFollowUpVersion(sopId: string, followUp: Record<string, unknown>, label?: string): Promise<FollowUpSaveResult> {
+  const saved = await saveFollowUpVersion(sopId, followUp, label);
+  if (!saved.ok || !saved.versionId || saved.rowVersion === undefined) return saved;
+  const published = await publishSopVersion(sopId, saved.versionId, saved.rowVersion);
+  if (!published.ok) {
+    return { ok: false, message: published.error.message ?? "publish failed", code: published.error.code, versionId: saved.versionId };
+  }
+  for (const path of SOP_PAGE_PATHS) revalidatePath(path);
+  return { ok: true, message: `Published v${published.data.version.version}. New workflows use these steps from now on.`, versionId: saved.versionId, rowVersion: published.data.version.row_version };
 }

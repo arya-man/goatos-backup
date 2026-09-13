@@ -1,4 +1,6 @@
 import { SopBuilder, SopLibrary, builderInitialFromVersion, isVersionFaithfullyEditable, sopSliceKey, toSopView } from "@/features/sops";
+import { FollowUpEditor } from "./followup-editor";
+import { parseFollowUp } from "./followup-model";
 import type { SopCardView } from "@/features/sops";
 import { getSop, isAuthRequiredError, listSops, requireAdminWebPageContract } from "@/lib/api/server";
 import type { RouteSearchParams } from "@/lib/search-params";
@@ -28,6 +30,25 @@ export async function renderSopModulePage(
       const [pageContract, detail] = await Promise.all([pageContractPromise, getSop(editId)]);
       if (detail.ok && detail.data.latest_version) {
         const version = detail.data.latest_version;
+        // SOP-DRIVEN HERD OPERATIONS (maintainer decision 2026-09-13): a SOP that carries
+        // operator steps (form_dsl.follow_up) is edited through the operator-steps editor. The
+        // capture form it also carries is passed through verbatim on save (P1), so the old
+        // "cannot round-trip these field types" block does not apply here.
+        const followUp = parseFollowUp(version.form_dsl);
+        if (followUp) {
+          const pageContract = await pageContractPromise;
+          return (
+            <FollowUpEditor
+              pageContract={pageContract}
+              basePath={basePath}
+              sopId={editId}
+              sopName={detail.data.sop.name}
+              sopCode={detail.data.sop.code}
+              versionLabel={`${version.version_label} · ${version.status}`}
+              initial={followUp}
+            />
+          );
+        }
         const initial = builderInitialFromVersion(detail.data.sop.code, detail.data.sop.name, version.form_dsl, version.proof_policy);
         // If the version has rules/field-types this builder cannot round-trip, still show it (so the
         // author sees the SOP) but block save/publish — re-saving would silently drop that content.

@@ -44,8 +44,13 @@ type ReferenceFamilies struct {
 	DeferStates        []ReferenceOption
 	SOPLabels          []ReferenceOption
 	FeedItems          []ReferenceOption
-	UIConfig           []ConfigEntry
-	RevisionInputs     map[string]string
+	// SOPTaskTypes is the tenant's Task Type Registry (sop_task_types, migration 000299):
+	// Key = task type key, Label = name, Title = description. SOPTaskTypeAnswerKinds carries
+	// the same keys with Label = answer kind, so the builder knows which steps take options.
+	SOPTaskTypes           []ReferenceOption
+	SOPTaskTypeAnswerKinds []ReferenceOption
+	UIConfig               []ConfigEntry
+	RevisionInputs         map[string]string
 }
 
 type ReferenceOption struct {
@@ -872,6 +877,22 @@ func compilePages(pages []domain.PageContract, families ReferenceFamilies, input
 			out[i].OptionGroups = replaceOptionGroup(out[i].OptionGroups, "feed_breeds", optionsFromReferences(families.Breeds, ""))
 			if out[i].RouteID == "feed-analytics" {
 				out[i].OptionGroups = compileFeedAnalyticsOptionGroups(out[i].OptionGroups, input)
+			}
+		case "counts-sops", "feed-sops", "milk-sops", "weighing-sops":
+			// SOP-DRIVEN HERD OPERATIONS (2026-09-13): the follow-up step editor's task types are
+			// tenant registry rows, never constants in contract code -- same injection path feed
+			// items use. sop_task_type_answer_kinds is the metadata twin keyed on the same keys.
+			out[i].OptionGroups = replaceOptionGroup(out[i].OptionGroups, "sop_task_types", optionsFromReferences(families.SOPTaskTypes, ""))
+			out[i].OptionGroups = replaceOptionGroup(out[i].OptionGroups, "sop_task_type_answer_kinds", optionsFromReferences(families.SOPTaskTypeAnswerKinds, ""))
+			if out[i].RouteID == "counts-sops" {
+				// A NEW Herd Operations SOP seeds herd questions, not the vaccination drive's
+				// (the vaccination seed leaked onto this page until 2026-09-13).
+				out[i].OptionGroups = replaceOptionGroup(out[i].OptionGroups, "sop_seed_steps", []domain.Option{
+					{Key: "goat_scan", Label: "Scan the animal"},
+					{Key: "yesno", Label: "Is the animal in the right pen?"},
+					{Key: "photo_proof", Label: "Photo of the ear tag"},
+					{Key: "video_proof", Label: "Record the animal in the pen"},
+				})
 			}
 		case "work-board":
 			out[i].OptionGroups = replaceOptionGroup(out[i].OptionGroups, "work_board_parks", optionsFromReferences(families.Parks, "info"))

@@ -263,6 +263,8 @@ export type SopCardView = {
   versionStatus: "draft" | "published" | "retired" | null;
   hasVersion: boolean;
   fields: Array<{ label: string; type: string; required: boolean; options: string[]; helpText: string | null }>;
+  // Operator steps authored in form_dsl.follow_up (SOP-driven herd operations); 0 when absent.
+  followUpStepCount: number;
 };
 
 // toSopView maps the real API rows to the card facets. Everything is derived — no invented inventory.
@@ -289,7 +291,21 @@ export function toSopView(def: SopDefLike, version: SopVersionLike | null): SopC
     fields: version
       ? deriveFields(version.form_dsl).map((f) => ({ label: f.label, type: f.type, required: f.required, options: f.options, helpText: f.helpText }))
       : [],
+    followUpStepCount: version ? deriveFollowUpStepCount(version.form_dsl) : 0,
   };
+}
+
+// deriveFollowUpStepCount counts the authored operator steps across every track of
+// form_dsl.follow_up (SOP-driven herd operations). A series step counts once here: the card
+// shows what was authored, the phone shows what was expanded for one animal.
+export function deriveFollowUpStepCount(formDsl: unknown): number {
+  const dsl = asObject(formDsl);
+  const fu = dsl ? asObject(dsl["follow_up"]) : null;
+  if (!fu || !Array.isArray(fu["tracks"])) return 0;
+  return (fu["tracks"] as unknown[]).reduce<number>((n, raw) => {
+    const t = asObject(raw);
+    return n + (t && Array.isArray(t["steps"]) ? (t["steps"] as unknown[]).length : 0);
+  }, 0);
 }
 
 // =====================================================================================
