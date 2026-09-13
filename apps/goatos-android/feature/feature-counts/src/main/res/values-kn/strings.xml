@@ -222,6 +222,15 @@
     <string name="counts_workflow_tag_video">ವೀಡಿಯೊ</string>
     <string name="counts_workflow_answered_fmt">ಉತ್ತರ %1$s</string>
     <string name="counts_workflow_record_video">ವೀಡಿಯೊ ರೆಕಾರ್ಡ್ ಮಾಡಿ</string>
+    <string name="counts_workflow_tag_videos_fmt">%1$d ವೀಡಿಯೊಗಳು</string>
+    <string name="counts_workflow_tag_photo">ಫೋಟೋ</string>
+    <string name="counts_workflow_tag_photos_fmt">%1$d ಫೋಟೋಗಳು</string>
+    <string name="counts_workflow_record_video_fmt">ವೀಡಿಯೊ ರೆಕಾರ್ಡ್ ಮಾಡಿ (%2$d ರಲ್ಲಿ %1$d)</string>
+    <string name="counts_workflow_take_photo">ಫೋಟೋ ತೆಗೆಯಿರಿ</string>
+    <string name="counts_workflow_take_photo_fmt">ಫೋಟೋ ತೆಗೆಯಿರಿ (%2$d ರಲ್ಲಿ %1$d)</string>
+    <string name="counts_workflow_text_answer">ನಿಮ್ಮ ಟಿಪ್ಪಣಿ</string>
+    <string name="counts_workflow_number_answer">ಸಂಖ್ಯೆ</string>
+    <string name="counts_workflow_answer_continue">ಉತ್ತರ ಉಳಿಸಿ</string>
     <string name="counts_workflow_recording">ರೆಕಾರ್ಡ್ ಆಗುತ್ತಿದೆ…</string>
     <string name="counts_workflow_pick_video">ಅಪ್\u200cಲೋಡ್</string>
     <string name="counts_workflow_mark_done">ಮುಗಿಯಿತು ಎಂದು ಗುರುತಿಸಿ</string>

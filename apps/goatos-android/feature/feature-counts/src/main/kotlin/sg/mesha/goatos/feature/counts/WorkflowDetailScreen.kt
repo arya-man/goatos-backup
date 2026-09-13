@@ -39,6 +39,8 @@ import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 import sg.mesha.goatos.core.designsystem.theme.MeshaType
 import sg.mesha.goatos.core.ui.EmptyState
 import sg.mesha.goatos.core.ui.EmptyTone
+import sg.mesha.goatos.core.ui.ProofMediaPreview
+import sg.mesha.goatos.core.ui.ProofMediaPreviewKind
 import sg.mesha.goatos.core.ui.RefreshOnResume
 import sg.mesha.goatos.core.ui.SyncIconButton
 
@@ -96,6 +98,27 @@ data class WorkflowActionUi(
     val footer: String,
     val answerValue: String?,
     val hasVideoDraft: Boolean = false,
+    // SOP-driven step attributes (docs/decisions/sop-driven-herd-operations.md), rendered from the
+    // backend's answer_type / proof minimums -- never derived from the step key on the client.
+    /** none | yes_no | select | multiselect | number | text. */
+    val answerKind: String = "none",
+    val proofMinVideos: Int = 0,
+    val proofMinPhotos: Int = 0,
+    /** Proofs captured on this phone for the step but not yet enqueued as the completion. */
+    val proofVideosCaptured: Int = 0,
+    val proofPhotosCaptured: Int = 0,
+    /** True renders the "Take photo" button. */
+    val canTakePhoto: Boolean = false,
+    /** Every proof already uploaded for this step, shown inline (video player / photo). */
+    val uploadedProofs: List<WorkflowProofUi> = emptyList(),
+)
+
+/** One uploaded proof of a step: [path] is the authenticated download URL, [kind] video|photo. */
+@Immutable
+data class WorkflowProofUi(
+    val ref: String,
+    val path: String,
+    val kind: String,
 )
 
 enum class WorkflowStatusTone { OVERDUE, SCHEDULED, DONE, BLOCKED, IN_REVIEW }
@@ -174,6 +197,8 @@ sealed interface WorkflowDetailEvent {
     data class Answer(val actionId: String, val value: String) : WorkflowDetailEvent
     data class Complete(val actionId: String) : WorkflowDetailEvent
     data class RecordVideo(val actionId: String) : WorkflowDetailEvent
+    /** A photo proof for a step whose SOP asks for photos. */
+    data class TakePhoto(val actionId: String) : WorkflowDetailEvent
     data object SubmitDeath : WorkflowDetailEvent
 
     /** The host consumed [WorkflowDetailUiState.returnToList]; clear it so it fires once. */
@@ -431,8 +456,24 @@ private fun WorkflowActionRow(
                 // The video tag sits on its OWN line under the title. Beside the type tag it shared a
                 // row whose width is what the status chip ("Available 14 Aug · 07:00") leaves over,
                 // and on a narrow screen that squeezed it until "Video" wrapped one letter per line.
-                if (action.requiresVideo) {
-                    WorkflowTag(stringResource(R.string.counts_workflow_tag_video), MeshaColors.WarnX, MeshaColors.Warn)
+                if (action.proofMinVideos > 0 || action.proofMinPhotos > 0 || action.requiresVideo) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                        if (action.proofMinVideos > 0 || (action.requiresVideo && action.proofMinVideos == 0)) {
+                            val need = maxOf(action.proofMinVideos, 1)
+                            WorkflowTag(
+                                if (need > 1) stringResource(R.string.counts_workflow_tag_videos_fmt, need) else stringResource(R.string.counts_workflow_tag_video),
+                                MeshaColors.WarnX,
+                                MeshaColors.Warn,
+                            )
+                        }
+                        if (action.proofMinPhotos > 0) {
+                            WorkflowTag(
+                                if (action.proofMinPhotos > 1) stringResource(R.string.counts_workflow_tag_photos_fmt, action.proofMinPhotos) else stringResource(R.string.counts_workflow_tag_photo),
+                                MeshaColors.WarnX,
+                                MeshaColors.Warn,
+                            )
+                        }
+                    }
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
                     WorkflowTag(action.typeLabel, MeshaColors.Surf3, MeshaColors.Muted)
@@ -459,7 +500,7 @@ private fun WorkflowActionRow(
                 style = MeshaType.cardSubtitle,
             )
         }
-        if (action.canAnswer && action.options.isNotEmpty()) {
+        if (action.canAnswer && action.options.isNotEmpty() && action.answerKind != "multiselect") {
             // Question_select bands can be many; wrap two per row so long band lists stay tappable.
             action.options.chunked(2).forEach { pair ->
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -482,6 +523,71 @@ private fun WorkflowActionRow(
                 }
             }
         }
+        if (action.canAnswer && action.answerKind == "multiselect" && action.options.isNotEmpty()) {
+            // Pick-many: the operator ticks every choice that applies, then confirms. The answer
+            // travels as the chosen options joined by "|" (backend contract).
+            var chosen by rememberSaveable(action.actionId) { mutableStateOf(setOf<String>()) }
+            action.options.chunked(2).forEach { pair ->
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    pair.forEach { option ->
+                        val selected = option.value in chosen
+                        Text(
+                            text = option.label,
+                            color = if (selected) MeshaColors.OnBrand else MeshaColors.BrandD,
+                            style = MeshaType.pillStrong,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(if (selected) MeshaColors.Brand else MeshaColors.BrandTint)
+                                .clickable { chosen = if (selected) chosen - option.value else chosen + option.value }
+                                .minimumInteractiveComponentSize()
+                                .padding(vertical = 9.dp),
+                        )
+                    }
+                    if (pair.size == 1) Box(modifier = Modifier.weight(1f))
+                }
+            }
+            val ready = chosen.isNotEmpty()
+            Text(
+                text = stringResource(R.string.counts_workflow_answer_continue),
+                color = if (ready) MeshaColors.OnBrand else MeshaColors.Faint,
+                style = MeshaType.pillStrong,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(if (ready) MeshaColors.Brand else MeshaColors.Surf3)
+                    .clickable(enabled = ready) {
+                        onEvent(WorkflowDetailEvent.Answer(action.actionId, action.options.filter { it.value in chosen }.joinToString("|") { it.value }))
+                    }
+                    .minimumInteractiveComponentSize()
+                    .padding(vertical = 10.dp),
+            )
+        }
+        if (action.canAnswer && action.answerKind == "text") {
+            var textAnswer by rememberSaveable(action.actionId) { mutableStateOf("") }
+            CountsTextField(
+                value = textAnswer,
+                onValueChange = { textAnswer = it.take(200) },
+                label = stringResource(R.string.counts_workflow_text_answer),
+                required = true,
+            )
+            val ready = textAnswer.isNotBlank()
+            Text(
+                text = stringResource(R.string.counts_workflow_answer_continue),
+                color = if (ready) MeshaColors.OnBrand else MeshaColors.Faint,
+                style = MeshaType.pillStrong,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(if (ready) MeshaColors.Brand else MeshaColors.Surf3)
+                    .clickable(enabled = ready) { onEvent(WorkflowDetailEvent.Answer(action.actionId, textAnswer.trim())) }
+                    .minimumInteractiveComponentSize()
+                    .padding(vertical = 10.dp),
+            )
+        }
         if (action.canAnswer && action.numericAnswerUnit != null) {
             var numericAnswer by rememberSaveable(action.actionId) { mutableStateOf("") }
             CountsTextField(
@@ -491,13 +597,13 @@ private fun WorkflowActionRow(
                         numericAnswer = candidate
                     }
                 },
-                label = stringResource(R.string.counts_workflow_weight_kg),
+                label = if (action.numericAnswerUnit == "kg") stringResource(R.string.counts_workflow_weight_kg) else stringResource(R.string.counts_workflow_number_answer),
                 required = true,
                 numeric = true,
             )
             val validWeight = numericAnswer.toDoubleOrNull()?.let { it > 0.0 && it.isFinite() } == true
             Text(
-                text = stringResource(R.string.counts_workflow_weight_continue),
+                text = stringResource(if (action.proofMinVideos > 0) R.string.counts_workflow_weight_continue else R.string.counts_workflow_answer_continue),
                 color = if (validWeight) MeshaColors.OnBrand else MeshaColors.Faint,
                 style = MeshaType.pillStrong,
                 textAlign = androidx.compose.ui.text.style.TextAlign.Center,
@@ -531,18 +637,64 @@ private fun WorkflowActionRow(
                     tint = MeshaColors.OnBrand,
                     modifier = Modifier.size(15.dp),
                 )
+                val videoLabel = when {
+                    state.isCapturingVideo -> stringResource(R.string.counts_workflow_recording)
+                    action.proofMinVideos > 1 -> stringResource(R.string.counts_workflow_record_video_fmt, action.proofVideosCaptured, action.proofMinVideos)
+                    action.hasVideoDraft -> stringResource(R.string.counts_workflow_rerecord_video)
+                    else -> stringResource(R.string.counts_workflow_record_video)
+                }
                 Text(
-                    text = stringResource(
-                        if (state.isCapturingVideo) {
-                            R.string.counts_workflow_recording
-                        } else {
-                            if (action.hasVideoDraft) R.string.counts_workflow_rerecord_video else R.string.counts_workflow_record_video
-                        },
-                    ),
+                    text = videoLabel,
                     color = MeshaColors.OnBrand,
                     style = MeshaType.pillStrong,
                     modifier = Modifier.padding(start = 6.dp),
                 )
+            }
+        }
+        if (action.canTakePhoto) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(MeshaColors.Brand)
+                    .clickable(enabled = !state.isCapturingVideo) {
+                        onEvent(WorkflowDetailEvent.TakePhoto(action.actionId))
+                    }
+                    .padding(vertical = 10.dp),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(
+                    imageVector = MeshaIcons.Photo,
+                    contentDescription = null,
+                    tint = MeshaColors.OnBrand,
+                    modifier = Modifier.size(15.dp),
+                )
+                Text(
+                    text = if (action.proofMinPhotos > 1) {
+                        stringResource(R.string.counts_workflow_take_photo_fmt, action.proofPhotosCaptured, action.proofMinPhotos)
+                    } else {
+                        stringResource(R.string.counts_workflow_take_photo)
+                    },
+                    color = MeshaColors.OnBrand,
+                    style = MeshaType.pillStrong,
+                    modifier = Modifier.padding(start = 6.dp),
+                )
+            }
+        }
+        if (action.uploadedProofs.isNotEmpty()) {
+            // Every proof already uploaded for this step, shown directly (maintainer request
+            // 2026-09-14): the operator and the director see what was recorded without a tap.
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                action.uploadedProofs.forEach { proof ->
+                    ProofMediaPreview(
+                        path = proof.path,
+                        mediaIdentity = proof.ref,
+                        kind = if (proof.kind == "photo") ProofMediaPreviewKind.Photo else ProofMediaPreviewKind.Video,
+                        expandable = true,
+                        inlineRemotePhoto = true,
+                    )
+                }
             }
         }
         if (action.canComplete) {

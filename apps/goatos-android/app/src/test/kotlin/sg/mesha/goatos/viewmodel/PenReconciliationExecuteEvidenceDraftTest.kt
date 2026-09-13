@@ -278,6 +278,8 @@ private class FakePenReconciliationCardRepository(
     override fun cards(status: String): Flow<PagingData<CountsPenReconciliationCardDto>> =
         flowOf(PagingData.empty())
 
+    override suspend fun openQuestionnaire(cardId: String): AppResult<String> = AppResult.Ok("wf-$cardId")
+
     override suspend fun forgetCompleted(cardId: String) {
         forgotten += cardId
     }

@@ -21,6 +21,7 @@ import kotlinx.serialization.json.Json
 import sg.mesha.goatos.core.data.cache.PenReconciliationItemEntity
 import sg.mesha.goatos.core.data.cache.PenReconciliationRemoteKeyEntity
 import sg.mesha.goatos.core.data.cache.cacheKey
+import sg.mesha.goatos.core.common.AppResult
 import sg.mesha.goatos.core.network.AppApi
 import sg.mesha.goatos.core.network.dto.CountsPenReconciliationCardDto
 import sg.mesha.goatos.core.network.dto.CountsPenReconciliationStatusCountsDto
@@ -72,6 +73,14 @@ interface PenReconciliationRepository {
      * screen's offline-first open — no refetch, since the operator taps a row already in Room.
      */
     suspend fun findCached(cardId: String): CountsPenReconciliationCardDto?
+
+    /**
+     * SOP-DRIVEN RECONCILE (maintainer decision 2026-09-13): the card is closed through its
+     * questionnaire workflow. Returns the workflow id -- the cached one when the card already
+     * carries it, else asks the backend to open it from the published SOP (idempotent on the
+     * card). Needs the network only the first time a card is opened.
+     */
+    suspend fun openQuestionnaire(cardId: String): AppResult<String>
 }
 
 class DefaultPenReconciliationRepository(
@@ -82,6 +91,17 @@ class DefaultPenReconciliationRepository(
 ) : PenReconciliationRepository {
     private val _meta = MutableStateFlow(PenReconciliationMeta())
     override val meta: StateFlow<PenReconciliationMeta> = _meta
+
+    override suspend fun openQuestionnaire(cardId: String): AppResult<String> {
+        findCached(cardId)?.workflowId?.takeIf { it.isNotBlank() }?.let { return AppResult.Ok(it) }
+        return try {
+            val opened = api.ensureCountsPenReconciliationWorkflow(cardId)
+            if (opened.workflowId.isBlank()) AppResult.Err("This card has no steps to run yet.") else AppResult.Ok(opened.workflowId)
+        } catch (t: Throwable) {
+            if (t is kotlinx.coroutines.CancellationException) throw t
+            AppResult.Err("Connect to the network to open this card.", t)
+        }
+    }
 
     @OptIn(ExperimentalPagingApi::class)
     override fun cards(status: String): Flow<PagingData<CountsPenReconciliationCardDto>> {

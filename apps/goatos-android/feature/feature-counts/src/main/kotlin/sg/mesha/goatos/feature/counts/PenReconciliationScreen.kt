@@ -91,6 +91,11 @@ data class PenReconciliationUiState(
     val isRefreshing: Boolean = false,
     val lastSyncedAt: Long? = null,
     val isOffline: Boolean = false,
+    /** The card whose SOP questionnaire is being opened (network round trip on first open). */
+    val openingCardId: String? = null,
+    /** Set once the questionnaire workflow is known; the host navigates and acknowledges. */
+    val openWorkflowId: String? = null,
+    val openError: String? = null,
 )
 
 sealed interface PenReconciliationEvent {
@@ -98,6 +103,8 @@ sealed interface PenReconciliationEvent {
     data object Back : PenReconciliationEvent
     data class SelectStatus(val status: String) : PenReconciliationEvent
     data class OpenCard(val cardId: String) : PenReconciliationEvent
+    /** The host navigated to [PenReconciliationUiState.openWorkflowId]; clear it so it fires once. */
+    data object OpenHandled : PenReconciliationEvent
 }
 
 @Composable

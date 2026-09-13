@@ -760,6 +760,16 @@ data class CountsPenReconciliationCardDto(
     @SerialName("verified_at") val verifiedAt: String? = null,
     /** The verifier's reason when evidence was rejected; render verbatim. */
     @SerialName("rework_reason") val reworkReason: String? = null,
+    /** The card's SOP questionnaire workflow once opened (SOP-driven reconcile, 2026-09-13). */
+    @SerialName("workflow_id") val workflowId: String? = null,
+    @SerialName("proof_refs") val proofRefs: List<String> = emptyList(),
+)
+
+/** Response of POST /app/counts/pen-reconciliation/cards/{card_id}/workflow. */
+@Serializable
+data class CountsPenReconciliationWorkflowResponseDto(
+    @SerialName("card_id") val cardId: String = "",
+    @SerialName("workflow_id") val workflowId: String = "",
 )
 
 /** Whole-filter truth for the Reconcile status chips — never re-derived from the fetched page. */

@@ -241,6 +241,16 @@
     <string name="counts_workflow_tag_video">Video</string>
     <string name="counts_workflow_answered_fmt">Answered %1$s</string>
     <string name="counts_workflow_record_video">Record video</string>
+    <!-- SOP-driven operator steps (2026-09-13): proof counters, photos, text / pick-many answers. -->
+    <string name="counts_workflow_tag_videos_fmt">%1$d videos</string>
+    <string name="counts_workflow_tag_photo">Photo</string>
+    <string name="counts_workflow_tag_photos_fmt">%1$d photos</string>
+    <string name="counts_workflow_record_video_fmt">Record video (%1$d of %2$d)</string>
+    <string name="counts_workflow_take_photo">Take photo</string>
+    <string name="counts_workflow_take_photo_fmt">Take photo (%1$d of %2$d)</string>
+    <string name="counts_workflow_text_answer">Your note</string>
+    <string name="counts_workflow_number_answer">Number</string>
+    <string name="counts_workflow_answer_continue">Save answer</string>
     <string name="counts_workflow_recording">Recording…</string>
     <string name="counts_workflow_pick_video">Upload</string>
     <string name="counts_workflow_mark_done">Mark done</string>

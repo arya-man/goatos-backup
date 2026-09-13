@@ -382,6 +382,15 @@ data class WorkflowActionAnswerPayload(
     @SerialName("answer_value") val answerValue: String,
     /** Outbox id of the mandatory video upload when the question requires_video. */
     @SerialName("proof_outbox_item_id") val proofOutboxItemId: String? = null,
+    /** Every capture of a multi-proof step (SOP-driven herd operations), by outbox reference. */
+    @SerialName("proof_outbox_items") val proofOutboxItems: List<WorkflowProofOutboxRef> = emptyList(),
+)
+
+/** One queued proof of a workflow step: its PROOF_UPLOAD outbox row and its kind (video|photo). */
+@Serializable
+data class WorkflowProofOutboxRef(
+    @SerialName("outbox_item_id") val outboxItemId: String,
+    @SerialName("kind") val kind: String,
 )
 
 /**
@@ -397,6 +406,7 @@ data class WorkflowActionCompletePayload(
     @SerialName("workflow_id") val workflowId: String,
     @SerialName("action_id") val actionId: String,
     @SerialName("proof_outbox_item_id") val proofOutboxItemId: String? = null,
+    @SerialName("proof_outbox_items") val proofOutboxItems: List<WorkflowProofOutboxRef> = emptyList(),
 )
 
 @Serializable

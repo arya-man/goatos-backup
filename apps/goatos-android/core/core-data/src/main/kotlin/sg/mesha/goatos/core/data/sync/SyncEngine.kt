@@ -41,6 +41,7 @@ import sg.mesha.goatos.core.network.dto.ProofReferenceDto
 import sg.mesha.goatos.core.network.dto.ProofUploadResponseDto
 import sg.mesha.goatos.core.network.dto.WorkflowActionAnswerRequestDto
 import sg.mesha.goatos.core.network.dto.WorkflowActionCompleteRequestDto
+import sg.mesha.goatos.core.network.dto.WorkflowProofItemDto
 import sg.mesha.goatos.core.network.isTerminalAppApiError
 import sg.mesha.goatos.core.network.serverErrorText
 import sg.mesha.goatos.core.data.weighing.WeighingObservationDao
@@ -1954,9 +1955,17 @@ class SyncEngine(
             WorkflowActionAnswerRequestDto(
                 answerValue = payload.answerValue,
                 proofRef = payload.proofOutboxItemId?.let { resolveUploadedProofRef(it) },
+                proofs = resolveWorkflowProofs(payload.proofOutboxItems),
             ),
         )
         return syncJson.encodeToString(response)
+    }
+
+    /** Resolves every queued proof of a multi-proof step to its uploaded server id, in capture
+     *  order; null when the step carried none (a one-video step keeps using proof_ref). */
+    private suspend fun resolveWorkflowProofs(items: List<WorkflowProofOutboxRef>): List<WorkflowProofItemDto>? {
+        if (items.isEmpty()) return null
+        return items.map { WorkflowProofItemDto(ref = resolveUploadedProofRef(it.outboxItemId), kind = it.kind) }
     }
 
     private suspend fun dispatchWorkflowActionComplete(item: OutboxEntity): String {
@@ -1967,6 +1976,7 @@ class SyncEngine(
             item.idempotencyKey,
             WorkflowActionCompleteRequestDto(
                 proofRef = payload.proofOutboxItemId?.let { resolveUploadedProofRef(it) },
+                proofs = resolveWorkflowProofs(payload.proofOutboxItems),
             ),
         )
         return syncJson.encodeToString(response)

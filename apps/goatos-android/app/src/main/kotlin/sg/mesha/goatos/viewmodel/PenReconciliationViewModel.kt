@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
@@ -20,6 +21,7 @@ import kotlinx.coroutines.flow.stateIn
 import sg.mesha.goatos.core.analytics.AnalyticsEvents
 import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.analytics.CrashReporter
+import sg.mesha.goatos.core.common.AppResult
 import sg.mesha.goatos.core.data.PenReconciliationRepository
 import sg.mesha.goatos.core.data.sync.SyncRepository
 import sg.mesha.goatos.core.network.dto.CountsPenReconciliationCardDto
@@ -68,10 +70,20 @@ class PenReconciliationViewModel @Inject constructor(
         }
     }
 
+    /** SOP-driven reconcile: which card's questionnaire is opening, the resolved workflow, an error. */
+    private data class OpenState(val cardId: String? = null, val workflowId: String? = null, val error: String? = null)
+    private val _open = MutableStateFlow(OpenState())
+
     val state: StateFlow<PenReconciliationUiState> = combine(
-        _selection, _isOffline, _lastSyncedAt, repo.meta, submittedWriteResult,
-    ) { selection, isOffline, lastSyncedAt, meta, submissionNotice ->
+        combine(_selection, _isOffline, _lastSyncedAt) { a, b, c -> Triple(a, b, c) },
+        repo.meta,
+        submittedWriteResult,
+        _open,
+    ) { (selection, isOffline, lastSyncedAt), meta, submissionNotice, open ->
         PenReconciliationUiState(
+            openingCardId = open.cardId,
+            openWorkflowId = open.workflowId,
+            openError = open.error,
             statuses = STATUSES.map { (key, label) ->
                 PenReconciliationStatusUi(
                     key = key,
@@ -125,7 +137,35 @@ class PenReconciliationViewModel @Inject constructor(
             is PenReconciliationEvent.SelectStatus -> if (STATUSES.any { it.first == event.status }) {
                 _selection.value = _selection.value.copy(status = event.status)
             }
-            is PenReconciliationEvent.OpenCard, PenReconciliationEvent.Back -> Unit // nav — host-handled.
+            is PenReconciliationEvent.OpenCard -> openCard(event.cardId)
+            PenReconciliationEvent.OpenHandled -> _open.value = OpenState()
+            PenReconciliationEvent.Back -> Unit // nav — host-handled.
+        }
+    }
+
+    /**
+     * SOP-DRIVEN RECONCILE (maintainer decision 2026-09-13): a card is executed through its
+     * questionnaire workflow -- the steps, photos and videos authored on the web -- so the host
+     * navigates to the workflow detail once the id is known. The first open needs the network;
+     * afterwards the card carries the id and the workflow detail is offline-first.
+     */
+    private fun openCard(cardId: String) {
+        if (_open.value.cardId != null) return
+        _open.value = OpenState(cardId = cardId)
+        viewModelScope.launch {
+            when (val result = repo.openQuestionnaire(cardId)) {
+                is AppResult.Ok -> {
+                    analytics.track(
+                        AnalyticsEvents.COUNTS_PEN_RECONCILIATION_CARD_OPENED,
+                        mapOf(AnalyticsEvents.Params.ITEM_ID to cardId),
+                    )
+                    _open.value = OpenState(cardId = cardId, workflowId = result.value)
+                }
+                is AppResult.Err -> {
+                    result.cause?.let { crashReporter.recordException(it, "pen reconciliation questionnaire open failed") }
+                    _open.value = OpenState(error = result.message)
+                }
+            }
         }
     }
 

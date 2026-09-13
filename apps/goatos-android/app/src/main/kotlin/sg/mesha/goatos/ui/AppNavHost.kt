@@ -545,6 +545,10 @@ object Routes {
     const val COUNTS_RECONCILE_EXECUTE_ARG = "card_id"
     const val COUNTS_RECONCILE_EXECUTE = "/counts/reconcile/execute/{$COUNTS_RECONCILE_EXECUTE_ARG}"
     fun reconcileExecuteRoute(cardId: String): String = "/counts/reconcile/execute/$cardId"
+    // SOP-DRIVEN RECONCILE (maintainer decision 2026-09-13): a card is executed through its
+    // questionnaire workflow, hosted on the shared workflow drill-in.
+    const val COUNTS_RECONCILE_WORKFLOW = "/counts/reconcile/workflows/{$WORKFLOW_ID_ARG}"
+    fun reconcileWorkflowRoute(workflowId: String): String = "/counts/reconcile/workflows/$workflowId"
     const val COUNTS_RECONCILE_SUBMISSION_NOTICE = "counts_reconcile_submission_notice"
     const val COUNTS_RECONCILE_SUBMISSION_OUTBOX_ID = "counts_reconcile_submission_outbox_id"
 
@@ -2726,6 +2730,7 @@ fun AppNavHost(
             Routes.COUNTS_BIRTH_WORKFLOW,
             Routes.COUNTS_DEATH_WORKFLOW,
             Routes.COUNTS_COLOSTRUM_WORKFLOW,
+            Routes.COUNTS_RECONCILE_WORKFLOW,
         ).forEach { route ->
             composable(
                 route = route,
@@ -2778,6 +2783,8 @@ fun AppNavHost(
                 }
                 CaptureAccessGate {
                     BindVideoCaptureSource(rememberDelegatingProofCaptureSource())
+                    // SOP-authored steps may ask for photos as well as videos (2026-09-13).
+                    BindPhotoCaptureSource(rememberDelegatingPhotoCaptureSource())
                     WorkflowDetailScreen(state = state, onEvent = onEvent)
                 }
             }
@@ -2993,15 +3000,18 @@ fun AppNavHost(
             val appendError = (rows.loadState.append as? LoadState.Error)?.error
             LaunchedEffect(appendError) { appendError?.let(vm::onRowsLoadFailed) }
 
+            // SOP-DRIVEN RECONCILE: tapping a card opens its questionnaire workflow (the steps the
+            // maintainer authored on /counts/sops); the VM resolves the id, the host navigates.
+            LaunchedEffect(state.openWorkflowId) {
+                val workflowId = state.openWorkflowId ?: return@LaunchedEffect
+                navController.navigate(Routes.reconcileWorkflowRoute(workflowId)) { launchSingleTop = true }
+                vm.onEvent(PenReconciliationEvent.OpenHandled)
+            }
             PenReconciliationScreen(
                 state = state,
                 rows = rows,
                 onEvent = { event ->
                     when (event) {
-                        is PenReconciliationEvent.OpenCard ->
-                            navController.navigate(Routes.reconcileExecuteRoute(event.cardId)) {
-                                launchSingleTop = true
-                            }
                         PenReconciliationEvent.Back -> navController.popBackStack()
                         PenReconciliationEvent.Refresh -> {
                             vm.onEvent(event)
