@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/vgoats/goatos/backend/internal/tasks/domain"
+	"github.com/vgoats/goatos/backend/internal/tasks/domain/sopseed"
 )
 
 // publishedFollowUpSQL: one indexed lookup (sop_versions_one_published_per_sop_idx + sop_definitions
@@ -36,10 +37,13 @@ WHERE tenant_id = $1::uuid AND status = 'active'`
 //
 // This is a deliberate cross-module READ of sop_versions / sop_definitions / sop_task_types: the
 // SOP module is the canonical store of authored operating procedure and the tasks engine is its
-// consumer. It fails CLOSED: no published version, no follow_up section, no track for the key, or
-// a document the compiler rejects all refuse to open the workflow with a named error rather than
-// stamping steps the maintainer never authored. There is no Go-template fallback any more; the
-// seeded v1 documents (migration 000299) guarantee every tenant has one.
+// consumer. A tenant that has NEVER had the SOP authored (no published version at all -- a
+// tenant created after migration 000299, or a test fixture) runs the SEEDED document from
+// tasks/domain/sopseed, which the golden test proves equal to the old code template, and the
+// workflow is pinned to no version (sop_version_id NULL = "seeded default"). Everything else
+// fails CLOSED: a published version with no follow_up section, no track for the key, or a
+// document the compiler rejects refuses to open the workflow with a named error rather than
+// stamping steps the maintainer never authored.
 func (r *Repository) compileTemplate(ctx context.Context, tenantID, templateKey string, opts domain.CompileOptions) (domain.Template, string, error) {
 	sopCode, trackKey, ok := domain.TemplateKeyToSOP(templateKey)
 	if !ok {
@@ -50,10 +54,19 @@ func (r *Repository) compileTemplate(ctx context.Context, tenantID, templateKey 
 		formDSL   []byte
 	)
 	err := r.pool.QueryRow(ctx, publishedFollowUpSQL, tenantID, sopCode).Scan(&versionID, &formDSL)
+	seeded := false
 	if errors.Is(err, pgx.ErrNoRows) {
-		return domain.Template{}, "", fmt.Errorf("%w: no published %s version for template %q", domain.ErrFollowUpMissing, sopCode, templateKey)
-	}
-	if err != nil {
+		// Never authored for this tenant: the seeded day-one document.
+		raw, seedErr := sopseed.FollowUp(sopCode)
+		if seedErr != nil {
+			return domain.Template{}, "", fmt.Errorf("%w: %v", domain.ErrFollowUpMissing, seedErr)
+		}
+		formDSL, err = json.Marshal(map[string]json.RawMessage{"follow_up": raw})
+		if err != nil {
+			return domain.Template{}, "", err
+		}
+		versionID, seeded = "", true
+	} else if err != nil {
 		return domain.Template{}, "", err
 	}
 	var dsl map[string]any
@@ -68,7 +81,7 @@ func (r *Repository) compileTemplate(ctx context.Context, tenantID, templateKey 
 	if !ok {
 		return domain.Template{}, "", fmt.Errorf("%w: %s has no track %q", domain.ErrFollowUpTrackMissing, sopCode, trackKey)
 	}
-	registry, err := r.taskTypeRegistry(ctx, tenantID)
+	registry, err := r.taskTypeRegistry(ctx, tenantID, seeded)
 	if err != nil {
 		return domain.Template{}, "", err
 	}
@@ -82,8 +95,11 @@ func (r *Repository) compileTemplate(ctx context.Context, tenantID, templateKey 
 	return template, versionID, nil
 }
 
-// taskTypeRegistry reads the tenant's active Task Type Registry rows.
-func (r *Repository) taskTypeRegistry(ctx context.Context, tenantID string) (domain.TaskTypeRegistry, error) {
+// taskTypeRegistry reads the tenant's active Task Type Registry rows. A tenant with no rows at
+// all uses the seeded registry when it is also running the seeded document (the two were
+// authored together); a tenant with an AUTHORED version but no registry is a broken setup and
+// fails closed.
+func (r *Repository) taskTypeRegistry(ctx context.Context, tenantID string, allowSeeded bool) (domain.TaskTypeRegistry, error) {
 	rows, err := r.pool.Query(ctx, activeTaskTypesSQL, tenantID)
 	if err != nil {
 		return nil, err
@@ -101,6 +117,9 @@ func (r *Repository) taskTypeRegistry(ctx context.Context, tenantID string) (dom
 		return nil, err
 	}
 	if len(out) == 0 {
+		if allowSeeded {
+			return domain.SeededTaskTypes()
+		}
 		return nil, fmt.Errorf("%w: tenant has no active task types (migration 000299 not applied?)", domain.ErrFollowUpInvalid)
 	}
 	return out, nil
