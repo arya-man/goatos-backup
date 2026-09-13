@@ -1,5 +1,6 @@
 import type { AnimalPurchaseAnimal } from "@/lib/api/procurement";
 import { Tag } from "@/components/ui-primitives";
+import { AnimalPurchaseLightbox } from "./animal-purchase-lightbox";
 
 /**
  * The questionnaire half of an animal purchase card: the captures per media slot and the
@@ -19,8 +20,8 @@ export type SopCopy = {
   mediaEmpty: string;
   /** Accessible name of a photo thumbnail link. */
   photoOpen: string;
-  /** The button that mints this one animal's signed links and shows its captures. */
-  mediaOpen: string;
+  /** Closes the enlarged capture. */
+  close: string;
   /** Heading over the answers. */
   answersTitle: string;
   /** Title text of the attention marker. */
@@ -63,38 +64,29 @@ export function AnimalPurchaseMedia({ slots, copy }: { slots: MediaSlot[]; copy:
   return (
     <div className="ap-sop-media">
       <div className="bt">{copy.mediaTitle}</div>
-      {shown.map((slot) => (
-        <div key={slot.slot} className="ap-sop-slot" data-slot={slot.slot}>
-          <div className="ap-sop-slot-title muted small">{slot.title}</div>
-          <div className="ap-sop-slot-items">
-            {slot.items.map((item) =>
-              item.media_url && isImage(item) ? (
-                <a
-                  key={item.proof_ref}
-                  className="ap-sop-photo"
-                  href={item.media_url}
-                  target="_blank"
-                  rel="noreferrer"
-                  aria-label={copy.photoOpen}
-                  title={copy.photoOpen}
-                >
-                  {/* A signed proof link, not an optimizable static asset -- same as the verification drawer. */}
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={item.media_url} alt="" loading="lazy" />
-                </a>
-              ) : item.media_url && isVideo(item) ? (
-                <div key={item.proof_ref} className="vr-player ap-sop-video">
-                  <video src={item.media_url} controls preload="metadata" playsInline />
-                </div>
-              ) : (
+      {shown.map((slot) => {
+        // Every capture with a signed link and a known mime is a lightbox item, in the order the
+        // inspector recorded it; anything else says so rather than rendering a broken tag.
+        const items = slot.items.flatMap((item) =>
+          item.media_url && (isImage(item) || isVideo(item))
+            ? [{ proofRef: item.proof_ref, url: item.media_url, kind: isImage(item) ? ("photo" as const) : ("video" as const), title: slot.title }]
+            : [],
+        );
+        const missing = slot.items.filter((item) => !(item.media_url && (isImage(item) || isVideo(item))));
+        return (
+          <div key={slot.slot} className="ap-sop-slot" data-slot={slot.slot}>
+            <div className="ap-sop-slot-title muted small">{slot.title}</div>
+            <div className="ap-sop-slot-items">
+              <AnimalPurchaseLightbox items={items} openLabel={copy.photoOpen} closeLabel={copy.close} />
+              {missing.map((item) => (
                 <div key={item.proof_ref} className="ap-sop-media-empty muted small">
                   {copy.mediaEmpty}
                 </div>
-              ),
-            )}
+              ))}
+            </div>
           </div>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }

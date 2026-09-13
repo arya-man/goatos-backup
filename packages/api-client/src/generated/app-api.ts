@@ -3044,30 +3044,10 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * The CEO/CXO review queue -- one page of animal facts, without signed videos.
-         * @description CEO/CXO only. `decision` picks a chip (pending by default; accepted, rejected, all); `load_id` narrows to one load. `counts` and the chip counts are WHOLE-FILTER, never page sums, and do not move when a chip is picked. This list does not sign video URLs: the web page must call the per-animal media endpoint only after the reviewer explicitly opens a preview, so list rendering cannot move proof-media bytes.
+         * The CEO/CXO review queue -- one page of animals, every capture signed for playback.
+         * @description CEO/CXO only. `decision` picks a chip (pending by default; accepted, rejected, all); `load_id` narrows to one load. `counts` and the chip counts are WHOLE-FILTER, never page sums, and do not move when a chip is picked. Every capture's link is signed beside the read so the page shows the photos and videos on the card itself (maintainer decision 2026-09-14) and never resolves them one by one.
          */
         get: operations["listAnimalPurchaseReview"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/procurement/animal-purchases/animals/{candidate_id}/media": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Mint one signed playback link after an explicit CEO/CXO preview action.
-         * @description CEO/CXO only. Returns a signed video URL for exactly one candidate animal. This is separate from the review list so rendering a queue page cannot preload proof media or mint URLs for every row.
-         */
-        get: operations["getAnimalPurchaseMedia"];
         put?: never;
         post?: never;
         delete?: never;
@@ -7819,7 +7799,7 @@ export interface components {
             notes: string;
             /** @description Legacy single video of rows recorded before the questionnaire; blank otherwise. */
             video_proof_ref: string;
-            /** @description Signed playback link for the legacy video. Carried on the phone's reads (the load, its animal pages); blank on the web review list, where AnimalPurchaseMedia mints it after the reviewer opens one animal. */
+            /** @description Signed playback link for the legacy video, absent when it cannot be served right now. */
             media_url?: string;
             media_mime?: string;
             /** @description 0 for rows recorded before the questionnaire. */
@@ -7837,7 +7817,7 @@ export interface components {
                 /** @description The SOP reads this answer as a reject signal. */
                 attention: boolean;
             }[];
-            /** @description The captures per media slot. Signed links on the phone's reads; blank on the web review list until AnimalPurchaseMedia mints them for one opened animal. */
+            /** @description The captures per media slot, each with a signed playback link. */
             media_slots: components["schemas"]["AnimalPurchaseMediaSlot"][];
             /**
              * @description The inspector's own recommendation; the CEO's `decision` remains the decision.
@@ -7872,14 +7852,6 @@ export interface components {
                 media_url?: string;
                 media_mime?: string;
             }[];
-        };
-        AnimalPurchaseMedia: {
-            candidate_id: string;
-            /** @description Signed playback link for the legacy video, minted only after explicit preview; blank for a questionnaire row. */
-            media_url: string;
-            media_mime: string;
-            /** @description Every questionnaire slot's captures with signed links, minted only after explicit preview. */
-            media_slots: components["schemas"]["AnimalPurchaseMediaSlot"][];
         };
         AnimalPurchaseAnimalPage: {
             animals: components["schemas"]["AnimalPurchaseAnimal"][];
@@ -23048,32 +23020,6 @@ export interface operations {
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
-            500: components["responses"]["ServerError"];
-        };
-    };
-    getAnimalPurchaseMedia: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                candidate_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Signed playback media for this candidate. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AnimalPurchaseMedia"];
-                };
-            };
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFoundOrNotAllowed"];
             500: components["responses"]["ServerError"];
         };
     };

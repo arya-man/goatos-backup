@@ -42,7 +42,6 @@ func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("GET /app/procurement/animal-purchases/loads/{load_id}/animals", h.ListAnimals)
 	mux.HandleFunc("POST /app/procurement/animal-purchases/loads/{load_id}/animals", h.AddAnimal)
 	mux.HandleFunc("GET /procurement/animal-purchases/review", h.ListReview)
-	mux.HandleFunc("GET /procurement/animal-purchases/animals/{candidate_id}/media", h.GetAnimalMedia)
 	mux.HandleFunc("POST /procurement/animal-purchases/animals/{candidate_id}/decision", h.Decide)
 }
 
@@ -111,7 +110,7 @@ func (h *Handler) GetLoad(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httpresponse.WriteJSON(w, http.StatusOK, loadDetailPayload{
-		Load: toLoadPayload(load), Animals: h.candidates(r, page.Candidates, true), NextCursor: page.NextCursor, CanRecord: callerCanRecord(r),
+		Load: toLoadPayload(load), Animals: h.candidates(r, page.Candidates), NextCursor: page.NextCursor, CanRecord: callerCanRecord(r),
 	})
 }
 
@@ -126,7 +125,7 @@ func (h *Handler) ListAnimals(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httpresponse.WriteJSON(w, http.StatusOK, candidatePagePayload{
-		Animals: h.candidates(r, page.Candidates, true), NextCursor: page.NextCursor, Counts: toCounts(page.Counts),
+		Animals: h.candidates(r, page.Candidates), NextCursor: page.NextCursor, Counts: toCounts(page.Counts),
 	})
 }
 
@@ -145,7 +144,7 @@ func (h *Handler) AddAnimal(w http.ResponseWriter, r *http.Request) {
 		h.writeErr(w, r, app.HTTPError(err))
 		return
 	}
-	httpresponse.WriteJSON(w, http.StatusCreated, h.candidates(r, []domain.Candidate{c}, true)[0])
+	httpresponse.WriteJSON(w, http.StatusCreated, h.candidates(r, []domain.Candidate{c})[0])
 }
 
 // ListReview serves the CEO/CXO queue. `decision` picks a chip (pending by default); `load_id`
@@ -173,7 +172,7 @@ func (h *Handler) ListReview(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httpresponse.WriteJSON(w, http.StatusOK, reviewPagePayload{
-		Animals: h.candidates(r, page.Candidates, false), NextCursor: page.NextCursor, Counts: toCounts(all.Counts),
+		Animals: h.candidates(r, page.Candidates), NextCursor: page.NextCursor, Counts: toCounts(all.Counts),
 		Filters: []filterPayload{
 			{Key: domain.DecisionPending, Label: "Awaiting decision", Count: all.Counts.Pending, Selected: decision == domain.DecisionPending},
 			{Key: domain.DecisionAccepted, Label: "Accepted", Count: all.Counts.Accepted, Selected: decision == domain.DecisionAccepted},
@@ -198,46 +197,17 @@ func (h *Handler) Decide(w http.ResponseWriter, r *http.Request) {
 		h.writeErr(w, r, app.HTTPError(err))
 		return
 	}
-	httpresponse.WriteJSON(w, http.StatusOK, h.candidates(r, []domain.Candidate{c}, false)[0])
+	httpresponse.WriteJSON(w, http.StatusOK, h.candidates(r, []domain.Candidate{c})[0])
 }
 
-func (h *Handler) GetAnimalMedia(w http.ResponseWriter, r *http.Request) {
-	tenant := tenantID(r)
-	c, err := h.service.GetCandidate(r.Context(), tenant, r.PathValue("candidate_id"))
-	if err != nil {
-		h.writeErr(w, r, app.HTTPError(err))
-		return
-	}
-	media := h.service.Media(r.Context(), tenant, []domain.Candidate{c})
+// candidates composes the row payloads, signing every capture's link in one batched read: the
+// phone and the review page both show the photos and videos on the card itself (maintainer
+// decision 2026-09-14), so every row a page serves carries its links.
+func (h *Handler) candidates(r *http.Request, rows []domain.Candidate) []candidatePayload {
+	out := make([]candidatePayload, 0, len(rows))
+	media := h.service.Media(r.Context(), tenantID(r), rows)
 	if media == nil {
 		media = map[string]ports.Media{}
-	}
-	p := toCandidatePayload(c, media)
-	signed := strings.TrimSpace(p.MediaURL) != ""
-	for _, slot := range p.MediaSlots {
-		for _, item := range slot.Items {
-			signed = signed || strings.TrimSpace(item.MediaURL) != ""
-		}
-	}
-	if !signed {
-		h.writeErr(w, r, &app.Error{Code: "media_unavailable", Message: "That video is not available.", HTTPStatus: http.StatusNotFound})
-		return
-	}
-	httpresponse.WriteJSON(w, http.StatusOK, candidateMediaPayload{CandidateID: c.CandidateID, MediaURL: p.MediaURL, MediaMime: p.MediaMime, MediaSlots: p.MediaSlots})
-}
-
-// candidates composes the row payloads. The PHONE's reads (the load, its animal pages, the
-// animal it just recorded) carry signed links, because the phone fetches a photo or video only
-// when the person taps it. The WEB review list carries the slots WITHOUT links: a browser fetches
-// every <img>/<video> on render, so the reviewer's page would pay for every capture of every
-// animal on it; there the links are minted by GetAnimalMedia once the reviewer opens one animal.
-func (h *Handler) candidates(r *http.Request, rows []domain.Candidate, sign bool) []candidatePayload {
-	out := make([]candidatePayload, 0, len(rows))
-	media := map[string]ports.Media{}
-	if sign {
-		if signed := h.service.Media(r.Context(), tenantID(r), rows); signed != nil {
-			media = signed
-		}
 	}
 	for _, c := range rows {
 		out = append(out, toCandidatePayload(c, media))

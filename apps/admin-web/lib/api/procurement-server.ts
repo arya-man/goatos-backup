@@ -18,7 +18,6 @@ import type { LoadCostWrite, LoadwiseSales, LoadwiseWeights,
   AnimalPurchaseCounts,
   AnimalPurchaseDecisionRequest,
   AnimalPurchaseLoadPage,
-  AnimalPurchaseMedia,
   AnimalPurchaseReviewPage,
   FeedPurchase,
   FeedPurchaseOptions,
@@ -774,8 +773,10 @@ export async function listAnimalPurchaseLoads(
 /**
  * One page of the review queue. `decision` is the backend's own filter vocabulary (pending |
  * accepted | rejected | all; absent means pending) and `counts` / `filters` are WHOLE-FILTER
- * figures, never page sums. This read deliberately does not sign media; video URLs are minted only
- * by getAnimalPurchaseMedia after a reviewer explicitly opens one animal's preview.
+ * figures, never page sums. Every capture's link (the legacy video and each questionnaire slot
+ * item) is the backend's signed playback link, served relative when the API and its media route
+ * share a host; it is absolutized against the API base the same way the verification and toxin
+ * media links are, so the browser's <img>/<video> can reach it.
  */
 export async function listAnimalPurchaseReview(
   params: { load_id?: string; decision?: string; limit?: number; cursor?: string } = {},
@@ -783,7 +784,7 @@ export async function listAnimalPurchaseReview(
   const config = await getServerConfig(true);
   if (!config.ok) return config;
   const client = createAppApiClient(apiClientOptions(config.data));
-  return request(() =>
+  const result = await request(() =>
     client.request<AnimalPurchaseReviewPage>("/procurement/animal-purchases/review", {
       cache: "no-store",
       query: compactQuery({
@@ -794,6 +795,27 @@ export async function listAnimalPurchaseReview(
       }),
     }),
   );
+  if (!result.ok) return result;
+  return { ok: true, data: absolutizeAnimalPurchaseMedia(result.data, config.data.baseUrl) };
+}
+
+// Both the legacy single video and every questionnaire media-slot item carry the same relative
+// signed link, so both are absolutized; an item without a link is left as it is (the card says
+// "not available" for it rather than pointing at nothing).
+function absolutizeAnimalPurchaseMedia(page: AnimalPurchaseReviewPage, baseUrl: string): AnimalPurchaseReviewPage {
+  return {
+    ...page,
+    animals: page.animals.map((animal) => ({
+      ...animal,
+      media_url: animal.media_url ? absolutizeAgainstApi(animal.media_url, baseUrl) : animal.media_url,
+      media_slots: (animal.media_slots ?? []).map((slot) => ({
+        ...slot,
+        items: slot.items.map((item) =>
+          item.media_url ? { ...item, media_url: absolutizeAgainstApi(item.media_url, baseUrl) } : item,
+        ),
+      })),
+    })),
+  };
 }
 
 /**
@@ -824,27 +846,6 @@ function absolutizeAgainstApi(value: string, baseUrl: string): string {
   }
 }
 
-export async function getAnimalPurchaseMedia(candidateId: string): Promise<ApiResult<AnimalPurchaseMedia>> {
-  const config = await getServerConfig(true);
-  if (!config.ok) return config;
-  const client = createAppApiClient(apiClientOptions(config.data));
-  const path = `/procurement/animal-purchases/animals/${encodeURIComponent(candidateId)}/media` as keyof AppApiPaths & string;
-  const result = await request(() => client.request<AnimalPurchaseMedia>(path, { cache: "no-store" }));
-  if (!result.ok) return result;
-  return {
-    ok: true,
-    data: {
-      ...result.data,
-      media_url: result.data.media_url ? absolutizeAgainstApi(result.data.media_url, config.data.baseUrl) : "",
-      media_slots: (result.data.media_slots ?? []).map((slot) => ({
-        ...slot,
-        items: slot.items.map((item) =>
-          item.media_url ? { ...item, media_url: absolutizeAgainstApi(item.media_url, config.data.baseUrl) } : item,
-        ),
-      })),
-    },
-  };
-}
 
 /**
  * The CEO/CXO decision on one filmed animal. Idempotency-keyed by the caller (a derived

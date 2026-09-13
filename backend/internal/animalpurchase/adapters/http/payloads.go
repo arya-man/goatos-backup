@@ -118,15 +118,6 @@ type candidatePagePayload struct {
 	Counts countsPayload `json:"counts"`
 }
 
-// candidateMediaPayload is the one animal's signed links, minted only when a reviewer opens it:
-// the legacy single video and every questionnaire slot's captures.
-type candidateMediaPayload struct {
-	CandidateID string             `json:"candidate_id"`
-	MediaURL    string             `json:"media_url"`
-	MediaMime   string             `json:"media_mime"`
-	MediaSlots  []mediaSlotPayload `json:"media_slots"`
-}
-
 type loadDetailPayload struct {
 	Load       loadPayload        `json:"load"`
 	Animals    []candidatePayload `json:"animals"`

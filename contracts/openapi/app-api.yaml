@@ -8106,13 +8106,13 @@ paths:
       tags:
         - AnimalPurchases
       operationId: listAnimalPurchaseReview
-      summary: The CEO/CXO review queue -- one page of animal facts, without signed videos.
+      summary: The CEO/CXO review queue -- one page of animals, every capture signed for playback.
       description: >-
         CEO/CXO only. `decision` picks a chip (pending by default; accepted, rejected, all);
         `load_id` narrows to one load. `counts` and the chip counts are WHOLE-FILTER, never page
-        sums, and do not move when a chip is picked. This list does not sign video URLs: the web
-        page must call the per-animal media endpoint only after the reviewer explicitly opens a
-        preview, so list rendering cannot move proof-media bytes.
+        sums, and do not move when a chip is picked. Every capture's link is signed beside the read
+        so the page shows the photos and videos on the card itself (maintainer decision
+        2026-09-14) and never resolves them one by one.
       parameters:
         - name: load_id
           in: query
@@ -8143,36 +8143,6 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
-        "500":
-          $ref: "#/components/responses/ServerError"
-  /procurement/animal-purchases/animals/{candidate_id}/media:
-    get:
-      tags:
-        - AnimalPurchases
-      operationId: getAnimalPurchaseMedia
-      summary: Mint one signed playback link after an explicit CEO/CXO preview action.
-      description: >-
-        CEO/CXO only. Returns a signed video URL for exactly one candidate animal. This is separate
-        from the review list so rendering a queue page cannot preload proof media or mint URLs for
-        every row.
-      parameters:
-        - name: candidate_id
-          in: path
-          required: true
-          schema: { type: string }
-      responses:
-        "200":
-          description: Signed playback media for this candidate.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/AnimalPurchaseMedia"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          $ref: "#/components/responses/NotFoundOrNotAllowed"
         "500":
           $ref: "#/components/responses/ServerError"
   /procurement/animal-purchases/animals/{candidate_id}/decision:
@@ -18570,7 +18540,7 @@ components:
         video_proof_ref: { type: string, description: Legacy single video of rows recorded before the questionnaire; blank otherwise. }
         media_url:
           type: string
-          description: Signed playback link for the legacy video. Carried on the phone's reads (the load, its animal pages); blank on the web review list, where AnimalPurchaseMedia mints it after the reviewer opens one animal.
+          description: Signed playback link for the legacy video, absent when it cannot be served right now.
         media_mime: { type: string }
         questionnaire_version: { type: integer, description: 0 for rows recorded before the questionnaire. }
         answers:
@@ -18591,7 +18561,7 @@ components:
               attention: { type: boolean, description: The SOP reads this answer as a reject signal. }
         media_slots:
           type: array
-          description: The captures per media slot. Signed links on the phone's reads; blank on the web review list until AnimalPurchaseMedia mints them for one opened animal.
+          description: The captures per media slot, each with a signed playback link.
           items: { $ref: "#/components/schemas/AnimalPurchaseMediaSlot" }
         field_verdict: { type: string, enum: ["", selected, on_hold], description: The inspector's own recommendation; the CEO's `decision` remains the decision. }
         field_verdict_label: { type: string }
@@ -18622,19 +18592,6 @@ components:
               proof_ref: { type: string }
               media_url: { type: string }
               media_mime: { type: string }
-    AnimalPurchaseMedia:
-      type: object
-      required: [candidate_id, media_url, media_mime, media_slots]
-      properties:
-        candidate_id: { type: string }
-        media_url:
-          type: string
-          description: Signed playback link for the legacy video, minted only after explicit preview; blank for a questionnaire row.
-        media_mime: { type: string }
-        media_slots:
-          type: array
-          description: Every questionnaire slot's captures with signed links, minted only after explicit preview.
-          items: { $ref: "#/components/schemas/AnimalPurchaseMediaSlot" }
     AnimalPurchaseAnimalPage:
       type: object
       required: [animals, counts]

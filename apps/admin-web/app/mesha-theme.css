@@ -5109,3 +5109,12 @@ select:disabled { opacity: .45; }
 .wb .col .colpager b{color:var(--ink)}
 .wb .col .colpager .pgnav{gap:6px}
 .wb .col .colpager .more{padding:4px 10px;min-width:40px;text-align:center}
+/* Animal purchases: captures open big in a client-local lightbox (maintainer decision 2026-09-14). */
+.ap-sop-photo{padding:0;border:1px solid var(--line);background:var(--panel-2);cursor:zoom-in}
+.ap-sop-video{position:relative}
+.ap-sop-expand{position:absolute;top:6px;right:6px;width:28px;height:28px;border-radius:999px;border:1px solid var(--line);background:var(--panel);color:var(--ink);cursor:zoom-in;font-size:14px;line-height:1}
+.ap-lightbox{position:fixed;inset:0;z-index:1200;display:grid;place-items:center}
+.ap-lightbox-scrim{position:absolute;inset:0;background:rgba(0,0,0,.72);border:0;cursor:zoom-out}
+.ap-lightbox-body{position:relative;display:flex;flex-direction:column;gap:8px;max-width:min(96vw,1400px);max-height:94vh;padding:12px;border-radius:14px;background:var(--panel);border:1px solid var(--line)}
+.ap-lightbox-head{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.ap-lightbox-media{max-width:100%;max-height:calc(94vh - 70px);object-fit:contain;border-radius:10px;background:#000}

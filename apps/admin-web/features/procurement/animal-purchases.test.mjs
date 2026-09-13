@@ -7,29 +7,26 @@ const form = readFileSync(new URL("./animal-purchase-decision-form.tsx", import.
 const action = readFileSync(new URL("./animal-purchase-actions.ts", import.meta.url), "utf8");
 const sop = readFileSync(new URL("./animal-purchase-sop.tsx", import.meta.url), "utf8");
 const serverRead = readFileSync(new URL("../../lib/api/procurement-server.ts", import.meta.url), "utf8");
+const lightbox = readFileSync(new URL("./animal-purchase-lightbox.tsx", import.meta.url), "utf8");
 
-test("each animal mints a signed video link only after the reviewer opens that preview", () => {
-  assert.match(page, /getAnimalPurchaseMedia\(previewId\)/);
-  assert.match(page, /preview_id: animal\.candidate_id/);
-  assert.match(page, /previewMedia\?\.candidate_id === animal\.candidate_id/);
-  assert.match(page, /src=\{previewMedia\.media_url\}/);
-  assert.doesNotMatch(page, /src=\{animal\.media_url\}/);
+test("every animal's captures are on the card itself and a click opens one big, never a mint-on-preview gate", () => {
+  // Maintainer decision 2026-09-14: photos and videos are visible by default on every card and
+  // open big on click. The list read signs every capture; there is no per-animal media route.
+  assert.doesNotMatch(page, /getAnimalPurchaseMedia|preview_id|previewMedia/);
+  assert.match(page, /<video src=\{animal\.media_url\} controls preload="metadata" playsInline \/>/);
+  assert.match(page, /copy\(pageContract, "video\.empty"\)/);
 });
+
 
 test("a legacy row (questionnaire_version 0) still takes the single-video branch", () => {
   // The card shape is decided by the backend's questionnaire_version: a row recorded under the
   // SOP renders the media slots and answers; a legacy row keeps the old video + facts card.
   const sopBranch = page.slice(page.indexOf("animal.questionnaire_version > 0"), page.indexOf("// A legacy row"));
-  // The captures come from the on-demand media read for the ONE opened animal, never from the
-  // list row (which carries the slots without links); every other row shows the open button.
-  assert.match(sopBranch, /previewMedia\?\.candidate_id === animal\.candidate_id \? \([\s\S]*?<AnimalPurchaseMedia slots=\{previewMedia\.media_slots \?\? \[\]\}/);
-  assert.match(sopBranch, /preview_id: animal\.candidate_id/);
-  assert.match(sopBranch, /\{sopCopy\.mediaOpen\}/);
-  assert.doesNotMatch(sopBranch, /animal\.media_slots/);
+  assert.match(sopBranch, /<AnimalPurchaseMedia slots=\{animal\.media_slots \?\? \[\]\}/);
   assert.match(sopBranch, /<AnimalPurchaseAnswers rows=\{animal\.answer_rows \?\? \[\]\}/);
   assert.doesNotMatch(sopBranch, /animal\.media_url/);
   const legacyBranch = page.slice(page.indexOf("// A legacy row"), page.lastIndexOf("</article>"));
-  assert.match(legacyBranch, /previewMedia\?\.candidate_id === animal\.candidate_id \? \(/);
+  assert.match(legacyBranch, /animal\.media_url \? \(/);
   assert.match(legacyBranch, /animalColumn\("breed"\)/);
   assert.doesNotMatch(legacyBranch, /AnimalPurchaseAnswers|AnimalPurchaseMedia/);
   // Both shapes carry the same heading and the same decision block.
@@ -41,16 +38,21 @@ test("media slots render a photo thumbnail or an inline video by mime, never a g
   assert.match(sop, /startsWith\("image\/"\)/);
   assert.match(sop, /startsWith\("video\/"\)/);
   // A photo is a thumbnail link that opens the full image in a new tab (the toxin review shape).
-  assert.match(sop, /item\.media_url && isImage\(item\) \? \([\s\S]*?<a[\s\S]*?href=\{item\.media_url\}[\s\S]*?target="_blank"[\s\S]*?rel="noreferrer"[\s\S]*?<img src=\{item\.media_url\}/);
-  // A video plays inline, metadata only until the reviewer presses play.
-  assert.match(sop, /item\.media_url && isVideo\(item\) \? \([\s\S]*?<video src=\{item\.media_url\} controls preload="metadata" playsInline \/>/);
+  // Every capture with a link and a known mime is a lightbox item: a photo thumbnail is a button
+  // that opens it big, a video plays inline (metadata only) with an expand button; in the order
+  // the inspector recorded them.
+  assert.match(sop, /kind: isImage\(item\) \? \("photo" as const\) : \("video" as const\)/);
+  assert.match(sop, /<AnimalPurchaseLightbox items=\{items\}/);
+  assert.match(lightbox, /className="ap-sop-photo"[\s\S]*?<img src=\{item\.url\} alt="" loading="lazy" \/>/);
+  assert.match(lightbox, /<video src=\{item\.url\} controls preload="metadata" playsInline \/>/);
+  assert.match(lightbox, /role="dialog"[\s\S]*?aria-modal="true"/);
+  assert.match(lightbox, /event\.key === "Escape"/);
+  assert.doesNotMatch(lightbox, /useRouter|router\.push|href=/);
   // Anything else says so with backend copy rather than rendering a broken tag.
   assert.match(sop, /\{copy\.mediaEmpty\}/);
-  // The signed links are relative to the API; the on-demand media read absolutizes every slot
-  // item the same way as the legacy video, and the list read signs nothing at all.
-  assert.match(serverRead, /media_slots: \(result\.data\.media_slots \?\? \[\]\)\.map/);
-  assert.match(serverRead, /item\.media_url \? \{ \.\.\.item, media_url: absolutizeAgainstApi\(item\.media_url, config\.data\.baseUrl\) \} : item/);
-  assert.doesNotMatch(serverRead, /absolutizeAnimalPurchaseMedia/);
+  // The signed links are relative to the API; every slot item is absolutized like the legacy video.
+  assert.match(serverRead, /media_slots: \(animal\.media_slots \?\? \[\]\)\.map/);
+  assert.match(serverRead, /item\.media_url \? \{ \.\.\.item, media_url: absolutizeAgainstApi\(item\.media_url, baseUrl\) \} : item/);
 });
 
 test("answers group by served section and an attention row is flagged", () => {
