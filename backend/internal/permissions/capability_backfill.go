@@ -179,6 +179,7 @@ var flatRoleAssignments = map[string][]ModuleAssignment{
 		one(assign("feed_purchases", SurfaceWeb, LevelView, LevelDo)),
 		one(assign("load_costs", SurfaceWeb, LevelDo)),
 		bothSurfaces("vendors", LevelView, LevelDo, LevelOversee),
+		one(assign("animal_purchases", SurfaceMobile, LevelView, LevelDo)),
 		// Sales on this desk too (maintainer instruction 2026-09-04): the Procurement phone
 		// module's Sales tab records a sale and tags its animals; the web pages follow the same
 		// permissions.
@@ -201,6 +202,8 @@ var flatRoleAssignments = map[string][]ModuleAssignment{
 		bothSurfaces("sales", LevelView, LevelDo),
 		one(assign("sale_allocation", SurfaceWeb, LevelDo)),
 		bothSurfaces("vendors", LevelView, LevelDo, LevelOversee),
+		// Animal purchases (2026-09-13): records loads and candidate animals on the phone.
+		one(assign("animal_purchases", SurfaceMobile, LevelView, LevelDo)),
 		one(assign("feed_purchases", SurfaceWeb, LevelView, LevelDo)),
 		one(assign("load_costs", SurfaceWeb, LevelDo)),
 		one(assign("feed_direction", SurfaceWeb, LevelStock)),
@@ -276,6 +279,8 @@ var flatRoleAssignments = map[string][]ModuleAssignment{
 		one(assign("herd_signals", SurfaceWeb, LevelView, LevelDo, LevelConfigure)),
 		// Watches and judges the strip test; never runs one (2026-08-26).
 		bothSurfaces("toxin", LevelView, LevelOversee),
+		// Animal purchases review (2026-09-13): web only, the CEO decides.
+		one(assign("animal_purchases", SurfaceWeb, LevelView, LevelOversee)),
 		one(assign("feed_purchases", SurfaceWeb, LevelView, LevelDo)),
 		one(assign("load_costs", SurfaceWeb, LevelDo)),
 		one(assign("verification_policy", SurfaceWeb, LevelConfigure)),

@@ -129,6 +129,7 @@ const (
 	AlertProcurementLoadOverdue = "procurement.load_overdue"
 	AlertLeaveRequestRaised     = "leave.request_raised"
 	AlertLeaveRequestDecided    = "leave.request_decided"
+	AlertAnimalPurchaseDecided  = "procurement.animal_purchase_decided"
 )
 
 // Proof-lifecycle alert suffixes. The generic verification vertical is shared by several owning
@@ -335,6 +336,12 @@ var catalog = func() []Alert {
 			Label:               "Leave approved or rejected",
 			Blurb:               "A leave request reached its final answer. Sent to the person who asked; any other ticked job title receives a copy.",
 			DefaultDesignations: []string{DesignationOperator},
+		},
+		{
+			Key: AlertAnimalPurchaseDecided, Module: "procurement",
+			Label:               "Animal purchase accepted or rejected",
+			Blurb:               "The CEO decided on a candidate animal. Sent to the person who recorded it; any other ticked job title receives a copy.",
+			DefaultDesignations: []string{DesignationProcurementDirector},
 		},
 	}
 	all := append(base, proofAlerts()...)

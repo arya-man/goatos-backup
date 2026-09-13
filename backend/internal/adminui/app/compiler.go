@@ -912,6 +912,8 @@ func compilePages(pages []domain.PageContract, families ReferenceFamilies, input
 			out[i].Controls = compileSalesConfigControls(out[i].Controls, input, out[i].Copy)
 		case "feed-purchases":
 			out[i].Controls = compileFeedPurchaseControls(out[i].Controls, input, out[i].Copy)
+		case "animal-purchases":
+			out[i].Controls = compileAnimalPurchaseControls(out[i].Controls, input, out[i].Copy)
 		case "people":
 			out[i].Controls = compilePeopleControls(out[i].Controls, input, out[i].Copy)
 		case "counts-breakdown":
@@ -1194,6 +1196,27 @@ func compileSalesConfigControls(controls []domain.Control, input BootstrapInput,
 // read-only lock. There is deliberately NO role-string conditional in the page component: the
 // difference between a Feed Director (read) and the procurement desk (write) arrives ONLY through
 // this control and the route's permission, per the role-scoped-UI-is-capability-gated lock.
+// compileAnimalPurchaseControls gates the ONE write on /procurement/animal-purchases: the CEO/CXO
+// decision (maintainer decision 2026-09-13). The page itself is reached on AnimalPurchaseDecide as
+// well, so in practice the control is enabled for everyone who can open the page; it is still
+// compiled off the permission -- never a role string -- so a future read-only reviewer sees it
+// disabled with a reason rather than a button that 403s.
+func compileAnimalPurchaseControls(controls []domain.Control, input BootstrapInput, copy map[string]string) []domain.Control {
+	allowed := len(input.Grants) == 0 || grantsAuthorize(input.Grants, input.TenantID, []string{permissions.AnimalPurchaseDecide})
+	reason := ""
+	if !allowed {
+		reason = controlCopy(copy, "verdict.disabled_no_access", "Accepting or rejecting an animal is limited to the CEO and CXO.")
+	}
+	return upsertControl(controls, domain.Control{
+		ID:             "decide_animal_purchase",
+		Label:          controlCopy(copy, "action.accept", "Accept"),
+		Kind:           "primary_action",
+		Enabled:        allowed,
+		DisabledReason: reason,
+		Action:         "POST /procurement/animal-purchases/animals/{candidate_id}/decision",
+	})
+}
+
 func compileFeedPurchaseControls(controls []domain.Control, input BootstrapInput, copy map[string]string) []domain.Control {
 	// An unauthenticated/grantless compile (contract shape requests, fixtures) keeps the control
 	// enabled, matching compileSalesControls and compileHealthConfigControls.
@@ -1997,6 +2020,9 @@ func permissionsForNav(id string) []string {
 		// carrying "your role can view sales but not record them" is an answer. The WRITES on it
 		// are separately gated (SalesWrite, and LoadCostWrite for a load's cost).
 		return []string{permissions.SalesRead}
+	case "procurement-animal-purchases":
+		// CEO/CXO only: the decide permission, which the procurement desk does not hold.
+		return []string{permissions.AnimalPurchaseDecide}
 	case "procurement-feed-purchases":
 		// The dedicated ledger permission, NOT ProcurementRead: the purchase ledger carries
 		// supplier prices and payment state. Gating on ProcurementRead would put it in every

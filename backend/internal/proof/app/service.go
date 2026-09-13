@@ -172,6 +172,35 @@ func (s *Service) DownloadArtifact(ctx context.Context, tenantID, proofID string
 	return s.downloadArtifact(ctx, tenantID, proofID)
 }
 
+// SignedDownload is one proof's playback link beside its stored artifact.
+type SignedDownload struct {
+	Artifact domain.Artifact
+	URL      string
+}
+
+// DownloadArtifactsByIDs signs playback links for MANY proofs with ONE repository read -- the
+// list-read shape (a review page of 20 videos) that DownloadArtifact, one row per call, must not
+// be looped over. A proof that is missing, unfinished, or fails to sign is simply absent from the
+// result; the caller renders "video unavailable" for that row and the page still serves.
+func (s *Service) DownloadArtifactsByIDs(ctx context.Context, tenantID string, proofIDs []string) (map[string]SignedDownload, error) {
+	artifacts, err := s.ArtifactMetadataByIDs(ctx, tenantID, proofIDs)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]SignedDownload, len(artifacts))
+	for id, art := range artifacts {
+		if art.UploadState != "completed" {
+			continue
+		}
+		url, err := s.storage.PrepareDownload(ctx, art, defaultDownloadSignedURLTTL)
+		if err != nil {
+			continue
+		}
+		out[id] = SignedDownload{Artifact: art, URL: url}
+	}
+	return out, nil
+}
+
 func (s *Service) DownloadArtifactForActor(ctx context.Context, tenantID, actorID, proofID string) (domain.Artifact, string, error) {
 	if !uuidutil.IsUUIDString(tenantID) || !uuidutil.IsUUIDString(proofID) {
 		return domain.Artifact{}, "", ErrInvalid

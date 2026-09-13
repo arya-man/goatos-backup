@@ -369,6 +369,24 @@ var moduleCapabilities = []ModuleCapability{
 		},
 	},
 	{
+		// ANIMAL PURCHASES (maintainer decision 2026-09-13). On the PHONE it is the third tab of
+		// the Procurement module (nav module key `vendors`): the buying desk records a purchase
+		// load and films each candidate animal -- View reads, Do records. Migration 000302 copies
+		// every existing mobile `vendors` tick onto this module so nobody needs re-ticking. On the
+		// WEB it is the CEO/CXO's review page where each video is watched and the animal accepted
+		// or rejected. Oversee is deliberately WITHOUT AnimalPurchaseWrite (the toxin shape): the
+		// person who accepts an animal must not be the one who filmed it.
+		Key:      "animal_purchases",
+		Label:    "Animal purchases",
+		Blurb:    "Loads and candidate animals the buying desk films; the CEO accepts or rejects each one.",
+		Surfaces: []string{SurfaceWeb, SurfaceMobile},
+		Levels: map[string][]string{
+			LevelView:    {AnimalPurchaseRead},
+			LevelDo:      {AnimalPurchaseRead, AnimalPurchaseWrite},
+			LevelOversee: {AnimalPurchaseRead, AnimalPurchaseDecide},
+		},
+	},
+	{
 		Key:   "sales",
 		Label: "Sales",
 		Blurb: "Animals sold and the sales ledger.",

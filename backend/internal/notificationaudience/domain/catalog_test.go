@@ -57,6 +57,7 @@ func TestEveryDeclaredAlertKeyIsInTheCatalog(t *testing.T) {
 		AlertWeighingPlanPublished, AlertWeighingSubmitted, AlertWeighingReopened, AlertWeighingVerdictApprove,
 		AlertWeighingVerdictRework, AlertWeighingPenClosed, AlertWeighingTaskClosed, AlertWeighingWorkCadence,
 		AlertFeedLowStock, AlertFeedSaleReduce, AlertProcurementLoadOverdue, AlertLeadershipTaskRaised, AlertLeadershipTaskDone,
+		AlertAnimalPurchaseDecided,
 	} {
 		if _, ok := AlertByKey(key); !ok {
 			t.Errorf("alert constant %q is not in the catalog", key)
@@ -81,6 +82,7 @@ func TestDefaultsReproduceThePreCatalogAudiences(t *testing.T) {
 	want := map[string][]string{
 		AlertFeedLowStock:                            {DesignationCEO, DesignationFeedDirector, DesignationProcurementDirector},
 		AlertProcurementLoadOverdue:                  {DesignationCEO},
+		AlertAnimalPurchaseDecided:                   {DesignationProcurementDirector},
 		AlertFeedSaleReduce:                          {DesignationFeedDirector},
 		AlertLeadershipTaskRaised:                    {DesignationCEO},
 		ProofAlertKey("health", ProofReviewSuffix):   {DesignationVerifier},

@@ -59,7 +59,8 @@
     "weighing.work_item.rolled_forward",
     "weighing.work_item.delayed",
     "procurement.feed_purchase.reached",
-    "goat.sale_allocated"
+    "goat.sale_allocated",
+    "procurement.animal_purchase.decided"
   ],
   "events": [
     {
@@ -1786,6 +1787,30 @@
         "mobile"
       ],
       "surfaceNotes": "frontend: the PC Care / vaccination shed detail reads the visit as verified and the parent as closed. mobile: the parent card's chip reads 'Visit verified' and the task 'Done'."
+    },
+    {
+      "eventType": "procurement.animal_purchase.decided",
+      "producer": "animalpurchase Decide write transaction (CEO/CXO accept or reject on a candidate animal): the outbox emit rides the same transaction as the version-fenced decision update and its audit row, so a committed decision always announces itself and a rolled-back one never does.",
+      "producerFiles": [
+        "backend/internal/animalpurchase/adapters/postgres/repository.go"
+      ],
+      "consumers": [
+        {
+          "module": "notificationbridge",
+          "file": "backend/internal/notificationbridge/animal_purchase_notify_consumer.go",
+          "notes": "One FCM push to the person who recorded the animal (recorded_by user id -> device registry) naming the load, the animal, the decision, who decided and any note; idempotent on procurement.animal_purchase.decided:<candidate_id>:<event_id>. The phone also re-reads the load on open/resume, so the push is the nudge and the read is the truth."
+        }
+      ],
+      "owningDoc": "docs/decisions/animal-purchases.md",
+      "e2eProof": [
+        "backend/internal/notificationbridge/animal_purchase_notify_consumer_test.go",
+        "backend/internal/animalpurchase/adapters/postgres/repository_integration_test.go"
+      ],
+      "surfaces": [
+        "backend",
+        "frontend",
+        "mobile"
+      ]
     }
   ],
   "allowedHerdMutationWriters": [

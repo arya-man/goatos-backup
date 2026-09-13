@@ -240,11 +240,11 @@ var protectedRoutes = []Route{
 	// state weighing hit above. Adding health.execute here keeps each role scoped to the one
 	// module it owns; handing it task.execute instead would carry vaccination SOP submission with
 	// it, which is the privilege escalation this route shape exists to avoid.
-	{OperationID: "createProofUpload", Method: "POST", Pattern: "/app/proofs/uploads", AnyPermissions: []string{TaskExecute, WeighingExecute, HealthExecute, FeedDirectionComplete, PCCareExecute, ToxinExecute, VendorWrite, LeadershipTasksRaise, PenVisitsExecute}},
-	{OperationID: "listUploadedProofs", Method: "GET", Pattern: "/app/proofs/uploads", AnyPermissions: []string{TaskExecute, WeighingExecute, HealthExecute, FeedDirectionComplete, PCCareExecute, ToxinExecute, VendorWrite, LeadershipTasksRaise, PenVisitsExecute}},
-	{OperationID: "uploadProofLocal", Method: "PUT", Pattern: "/app/proofs/{proof_id}/upload", AnyPermissions: []string{TaskExecute, WeighingExecute, HealthExecute, FeedDirectionComplete, PCCareExecute, ToxinExecute, VendorWrite, LeadershipTasksRaise, PenVisitsExecute}},
-	{OperationID: "completeProofUpload", Method: "POST", Pattern: "/app/proofs/{proof_id}/complete", AnyPermissions: []string{TaskExecute, WeighingExecute, HealthExecute, FeedDirectionComplete, PCCareExecute, ToxinExecute, VendorWrite, LeadershipTasksRaise, PenVisitsExecute}},
-	{OperationID: "deleteUnattachedProofUpload", Method: "DELETE", Pattern: "/app/proofs/{proof_id}", AnyPermissions: []string{TaskExecute, WeighingExecute, HealthExecute, FeedDirectionComplete, PCCareExecute, ToxinExecute, VendorWrite, LeadershipTasksRaise, PenVisitsExecute}},
+	{OperationID: "createProofUpload", Method: "POST", Pattern: "/app/proofs/uploads", AnyPermissions: []string{TaskExecute, WeighingExecute, HealthExecute, FeedDirectionComplete, PCCareExecute, ToxinExecute, VendorWrite, LeadershipTasksRaise, PenVisitsExecute, AnimalPurchaseWrite}},
+	{OperationID: "listUploadedProofs", Method: "GET", Pattern: "/app/proofs/uploads", AnyPermissions: []string{TaskExecute, WeighingExecute, HealthExecute, FeedDirectionComplete, PCCareExecute, ToxinExecute, VendorWrite, LeadershipTasksRaise, PenVisitsExecute, AnimalPurchaseWrite}},
+	{OperationID: "uploadProofLocal", Method: "PUT", Pattern: "/app/proofs/{proof_id}/upload", AnyPermissions: []string{TaskExecute, WeighingExecute, HealthExecute, FeedDirectionComplete, PCCareExecute, ToxinExecute, VendorWrite, LeadershipTasksRaise, PenVisitsExecute, AnimalPurchaseWrite}},
+	{OperationID: "completeProofUpload", Method: "POST", Pattern: "/app/proofs/{proof_id}/complete", AnyPermissions: []string{TaskExecute, WeighingExecute, HealthExecute, FeedDirectionComplete, PCCareExecute, ToxinExecute, VendorWrite, LeadershipTasksRaise, PenVisitsExecute, AnimalPurchaseWrite}},
+	{OperationID: "deleteUnattachedProofUpload", Method: "DELETE", Pattern: "/app/proofs/{proof_id}", AnyPermissions: []string{TaskExecute, WeighingExecute, HealthExecute, FeedDirectionComplete, PCCareExecute, ToxinExecute, VendorWrite, LeadershipTasksRaise, PenVisitsExecute, AnimalPurchaseWrite}},
 	// downloadProof stays on task.read ALONE, and that is correct for every module whose
 	// evidence it serves -- including toxin, where it reads like a gap and is not. A reviewer
 	// checking the toxin block in RoleCEOInternal sees ToxinRead/ToxinVerdict and concludes the
@@ -340,6 +340,17 @@ var protectedRoutes = []Route{
 	// ToxinVerdict — CEO/CXO ONLY, deliberately not verification.verdict, so the tenant
 	// verifier can never reach toxin work. Patterns must stay byte-identical to
 	// toxin/adapters/http.Register.
+	// ANIMAL PURCHASES (maintainer decision 2026-09-13). Phone reads/writes on the dedicated
+	// read/write permissions; the review list and the decision are CEO/CXO-only on
+	// AnimalPurchaseDecide. Patterns must stay byte-identical to animalpurchase/adapters/http.Register.
+	{OperationID: "getAnimalPurchaseOptions", Method: "GET", Pattern: "/app/procurement/animal-purchases/options", Permissions: []string{AnimalPurchaseRead}},
+	{OperationID: "listAnimalPurchaseLoads", Method: "GET", Pattern: "/app/procurement/animal-purchases/loads", Permissions: []string{AnimalPurchaseRead}},
+	{OperationID: "createAnimalPurchaseLoad", Method: "POST", Pattern: "/app/procurement/animal-purchases/loads", Permissions: []string{AnimalPurchaseWrite}},
+	{OperationID: "getAnimalPurchaseLoad", Method: "GET", Pattern: "/app/procurement/animal-purchases/loads/{load_id}", Permissions: []string{AnimalPurchaseRead}},
+	{OperationID: "listAnimalPurchaseAnimals", Method: "GET", Pattern: "/app/procurement/animal-purchases/loads/{load_id}/animals", Permissions: []string{AnimalPurchaseRead}},
+	{OperationID: "addAnimalPurchaseAnimal", Method: "POST", Pattern: "/app/procurement/animal-purchases/loads/{load_id}/animals", Permissions: []string{AnimalPurchaseWrite}},
+	{OperationID: "listAnimalPurchaseReview", Method: "GET", Pattern: "/procurement/animal-purchases/review", Permissions: []string{AnimalPurchaseDecide}},
+	{OperationID: "decideAnimalPurchaseAnimal", Method: "POST", Pattern: "/procurement/animal-purchases/animals/{candidate_id}/decision", Permissions: []string{AnimalPurchaseDecide}},
 	{OperationID: "listToxinTasks", Method: "GET", Pattern: "/app/toxin/tasks", Permissions: []string{ToxinRead}},
 	{OperationID: "getToxinTask", Method: "GET", Pattern: "/app/toxin/tasks/{task_id}", Permissions: []string{ToxinRead}},
 	{OperationID: "completeToxinStep", Method: "POST", Pattern: "/app/toxin/tasks/{task_id}/steps/{step_no}/complete", Permissions: []string{ToxinExecute}},

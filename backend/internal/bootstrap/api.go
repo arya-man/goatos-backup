@@ -117,6 +117,10 @@ import (
 	workboardapp "github.com/vgoats/goatos/backend/internal/workboard/app"
 	"golang.org/x/oauth2"
 
+	animalpurchasehttp "github.com/vgoats/goatos/backend/internal/animalpurchase/adapters/http"
+	animalpurchasepg "github.com/vgoats/goatos/backend/internal/animalpurchase/adapters/postgres"
+	animalpurchaseproof "github.com/vgoats/goatos/backend/internal/animalpurchase/adapters/proof"
+	animalpurchaseapp "github.com/vgoats/goatos/backend/internal/animalpurchase/app"
 	"github.com/vgoats/goatos/backend/internal/platform/firebaseidentity"
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
 	"github.com/vgoats/goatos/backend/internal/platform/migrationguard"
@@ -740,6 +744,13 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// 2026-08-31, docs/decisions/sales-loadwise.md).
 	procurementLoadwiseHandler := procurementhttp.NewLoadwiseHandler(
 		procurementapp.NewLoadwiseService(procurementpg.NewRepository(pool, cfg.Postgres.QueryTimeout)), log)
+	// Animal purchases (maintainer decision 2026-09-13): the buying desk's loads and candidate
+	// animals with a video each, and the CEO/CXO's accept / reject.
+	animalPurchaseHandler := animalpurchasehttp.NewHandler(
+		animalpurchaseapp.NewService(
+			animalpurchasepg.NewRepository(pool, cfg.Postgres.QueryTimeout),
+			animalpurchaseproof.NewValidator(proofRepo),
+			animalpurchaseproof.NewMedia(proofService)), log)
 	// Toxin (maintainer decision 2026-08-25): the aflatoxin strip-test module. Tasks are
 	// born from procurement.feed_purchase.reached (consumer wired in kernelstages); the
 	// routes here serve the tester's guided step flow and the CEO/CXO-only review.
@@ -1148,6 +1159,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// Leadership Tasks: raised and every status change, gated per designation (2026-09-08).
 	notificationbridge.NewLeadershipTaskNotifyConsumer(rosterService, calendarService, log).WithAudience(leadershipAudience).Register(bus)
 	notificationbridge.NewLeaveRequestNotifyConsumer(rosterService, calendarService, log).WithAudience(leadershipAudience).Register(bus)
+	notificationbridge.NewAnimalPurchaseNotifyConsumer(rosterService, calendarService, log).WithAudience(leadershipAudience).Register(bus)
 	notificationbridge.NewVerificationNotifier(calendarService, rosterService, calendarService, log).WithLocationNames(locationNames).Register(bus)
 	sopService.
 		WithSubmissionHook(sopbridge.NewVaccinationSubmissionBridge(vaccinationService).
@@ -1267,6 +1279,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	procurementhttp.RegisterVendors(protectedMux, procurementVendorHandler)
 	procurementhttp.RegisterFeedPurchases(protectedMux, procurementFeedPurchaseHandler)
 	procurementhttp.RegisterLoadwise(protectedMux, procurementLoadwiseHandler)
+	animalpurchasehttp.Register(protectedMux, animalPurchaseHandler)
 	toxinhttp.Register(protectedMux, toxinHandler)
 	leadershiptaskshttp.Register(protectedMux, leadershipTasksHandler)
 	workboardhttp.Register(protectedMux, workBoardHandler)

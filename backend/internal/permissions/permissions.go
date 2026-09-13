@@ -402,6 +402,15 @@ const (
 	// load-wise read (GET /procurement/loadwise-sales) is the Sales page's data and rides
 	// SalesRead.
 	LoadCostWrite = "procurement.load_cost.write"
+	// ANIMAL PURCHASES (maintainer decision 2026-09-13). The procurement desk records a purchase
+	// load and the candidate animals in it (with an in-app-camera video each) on the phone; the
+	// CEO/CXO accepts or rejects each one on admin-web. Read and Write ride the Vendors module's
+	// levels, so whoever already holds the Procurement phone module gets the tab. Decide is
+	// CEO/CXO ALONE -- the same shape as ToxinVerdict: the person who films the animal must not
+	// be the one who accepts it.
+	AnimalPurchaseRead   = "procurement.animal_purchase.read"
+	AnimalPurchaseWrite  = "procurement.animal_purchase.write"
+	AnimalPurchaseDecide = "procurement.animal_purchase.decide"
 	// ToxinRead gates the toxin module's task reads (GET /app/toxin/tasks*): the aflatoxin
 	// strip-test tasks born one-per-purchased-feed-load (maintainer decision 2026-08-25).
 	// Held per person via RoleToxinTester, plus RoleCEOInternal (founder visibility).
@@ -1203,6 +1212,7 @@ var rolePermissions = map[string]map[string]struct{}{
 		// The feed purchase ledger and its entry form: buying feed is this desk's job, and the
 		// vendors it is bought from are already in this role's register.
 		FeedPurchaseRead: {}, FeedPurchaseWrite: {}, LoadCostWrite: {},
+		AnimalPurchaseRead: {}, AnimalPurchaseWrite: {},
 		// Sales (maintainer instruction 2026-09-04): the Procurement phone module carries a Sales
 		// tab -- the sales done, recording a sale, and tagging the animals it is made of -- for
 		// the CXO, the procurement director and this desk alike, so the manager now holds the
@@ -1222,6 +1232,7 @@ var rolePermissions = map[string]map[string]struct{}{
 		SalesRead:     {}, SalesWrite: {}, SalesAllocateAnimals: {},
 		VendorRead: {}, VendorWrite: {}, VendorFinanceRead: {},
 		FeedPurchaseRead: {}, FeedPurchaseWrite: {}, LoadCostWrite: {},
+		AnimalPurchaseRead: {}, AnimalPurchaseWrite: {},
 		FeedAnalyticsStockRead: {},
 	},
 	// Breeding Director (maintainer decision 2026-09-04): plans HOOF and HAIR TRIMMING and
@@ -1307,6 +1318,8 @@ var rolePermissions = map[string]map[string]struct{}{
 		// also execute would be accepting their own test, which is the separation this
 		// module exists to keep. Pinned by TestToxinExecuteIsTesterOnlyAndNeverCEO.
 		ToxinRead: {}, ToxinVerdict: {},
+		// Animal purchases: watches and decides, never records (see AnimalPurchaseDecide).
+		AnimalPurchaseRead: {}, AnimalPurchaseDecide: {},
 		// Clock In / Out presence oversight (maintainer decision 2026-08-28):
 		// the CEO/CXO sees who is working; everyone else only punches.
 		ClockPresenceRead: {},

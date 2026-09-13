@@ -132,7 +132,8 @@
         "leadership_task.status_changed",
         "pen_visit.created",
         "pen_visit.submitted",
-        "pen_visit.verified"
+        "pen_visit.verified",
+        "procurement.animal_purchase.decided"
       ]
     },
     "schema_version": {
@@ -178,7 +179,8 @@
         "leadership_task",
         "sales_deal",
         "pen_visit_task",
-        "leave_request"
+        "leave_request",
+        "animal_purchase_candidate"
       ]
     },
     "aggregate_id": {
@@ -213,7 +215,8 @@
         "leadership_task",
         "sales_deal",
         "pen_visit_task",
-        "leave_request"
+        "leave_request",
+        "animal_purchase_candidate"
       ]
     },
     "subject_id": {

@@ -38,6 +38,7 @@ tags:
   - name: Herd Signals
   - name: Leadership Tasks
   - name: Pen Visits
+  - name: AnimalPurchases
 paths:
   /herd-signals/packets:
     post:
@@ -7903,6 +7904,287 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /app/procurement/animal-purchases/options:
+    get:
+      tags:
+        - AnimalPurchases
+      operationId: getAnimalPurchaseOptions
+      summary: The add-load / add-animal form vocabulary, backend-owned.
+      description: >-
+        Species, sex, condition and farm choices with farm-worded labels, the herd's own breed
+        spellings as suggestions (the breed field stays free text), and the form copy the phone
+        renders verbatim.
+      responses:
+        "200":
+          description: The options.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AnimalPurchaseOptions"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /app/procurement/animal-purchases/loads:
+    get:
+      tags:
+        - AnimalPurchases
+      operationId: listAnimalPurchaseLoads
+      summary: One page of purchase loads, newest first.
+      description: >-
+        Keyset-paged. Each load carries WHOLE-LOAD decision counts (never page sums) and a
+        backend-owned summary line. `can_record` says whether THIS caller may add loads and animals.
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 100 }
+        - name: cursor
+          in: query
+          required: false
+          schema: { type: string }
+      responses:
+        "200":
+          description: One page of loads.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AnimalPurchaseLoadPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
+    post:
+      tags:
+        - AnimalPurchases
+      operationId: createAnimalPurchaseLoad
+      summary: Record a purchase load.
+      description: >-
+        Idempotent on the `Idempotency-Key` header. The vendor must be a register row; its name is
+        frozen on the load. A load number already used answers 409 `load_ref_taken`.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AnimalPurchaseLoadCreateRequest"
+      responses:
+        "201":
+          description: The recorded load.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AnimalPurchaseLoad"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /app/procurement/animal-purchases/loads/{load_id}:
+    get:
+      tags:
+        - AnimalPurchases
+      operationId: getAnimalPurchaseLoad
+      summary: One load with its first page of animals.
+      parameters:
+        - name: load_id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: The load and its animals.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AnimalPurchaseLoadDetail"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /app/procurement/animal-purchases/loads/{load_id}/animals:
+    get:
+      tags:
+        - AnimalPurchases
+      operationId: listAnimalPurchaseAnimals
+      summary: One page of a load's animals, in the order they were recorded.
+      parameters:
+        - name: load_id
+          in: path
+          required: true
+          schema: { type: string }
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 100 }
+        - name: cursor
+          in: query
+          required: false
+          schema: { type: string }
+      responses:
+        "200":
+          description: One page of animals plus whole-load counts.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AnimalPurchaseAnimalPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "500":
+          $ref: "#/components/responses/ServerError"
+    post:
+      tags:
+        - AnimalPurchases
+      operationId: addAnimalPurchaseAnimal
+      summary: Record one animal on offer in the load, with its video.
+      description: >-
+        Idempotent on the `Idempotency-Key` header. `video_proof_ref` must be a FINISHED in-app-camera
+        video upload in this tenant; the write is refused 422 otherwise, so no animal row ever exists
+        without a video behind it.
+      parameters:
+        - name: load_id
+          in: path
+          required: true
+          schema: { type: string }
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AnimalPurchaseAnimalCreateRequest"
+      responses:
+        "201":
+          description: The recorded animal.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AnimalPurchaseAnimal"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /procurement/animal-purchases/review:
+    get:
+      tags:
+        - AnimalPurchases
+      operationId: listAnimalPurchaseReview
+      summary: The CEO/CXO review queue -- one page of animals with a signed video each.
+      description: >-
+        CEO/CXO only. `decision` picks a chip (pending by default; accepted, rejected, all);
+        `load_id` narrows to one load. `counts` and the chip counts are WHOLE-FILTER, never page
+        sums, and do not move when a chip is picked. `media_url` is signed beside the read so the
+        page never resolves videos one by one.
+      parameters:
+        - name: load_id
+          in: query
+          required: false
+          schema: { type: string }
+        - name: decision
+          in: query
+          required: false
+          schema: { type: string, enum: [pending, accepted, rejected, all], default: pending }
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 100 }
+        - name: cursor
+          in: query
+          required: false
+          schema: { type: string }
+      responses:
+        "200":
+          description: One page of the review queue.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AnimalPurchaseReviewPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /procurement/animal-purchases/animals/{candidate_id}/decision:
+    post:
+      tags:
+        - AnimalPurchases
+      operationId: decideAnimalPurchaseAnimal
+      summary: Accept or reject one candidate animal (CEO/CXO only).
+      description: >-
+        Version-fenced on `row_version` and recorded once: a second decision answers 409
+        `already_decided`, a stale version 409 `row_version_conflict`. The decision is announced on
+        the outbox inside the same transaction, which is what pushes it to the phone.
+      parameters:
+        - name: candidate_id
+          in: path
+          required: true
+          schema: { type: string }
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AnimalPurchaseDecisionRequest"
+      responses:
+        "200":
+          description: The decided animal.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AnimalPurchaseAnimal"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
         "500":
           $ref: "#/components/responses/ServerError"
   /app/toxin/tasks:
@@ -18120,6 +18402,177 @@ components:
         business_date: { type: string, format: date }
         park_id: { type: string }
         own_rows_only: { type: boolean }
+    AnimalPurchaseOption:
+      type: object
+      required: [value, label]
+      properties:
+        value: { type: string }
+        label: { type: string, description: Farm-worded label, rendered verbatim. }
+    AnimalPurchaseOptions:
+      type: object
+      required: [species, sexes, conditions, farms, breed_suggestions, copy]
+      properties:
+        species:
+          type: array
+          items: { $ref: "#/components/schemas/AnimalPurchaseOption" }
+        sexes:
+          type: array
+          items: { $ref: "#/components/schemas/AnimalPurchaseOption" }
+        conditions:
+          type: array
+          items: { $ref: "#/components/schemas/AnimalPurchaseOption" }
+        farms:
+          type: array
+          items: { $ref: "#/components/schemas/AnimalPurchaseOption" }
+        breed_suggestions:
+          type: array
+          items: { type: string }
+        copy:
+          type: object
+          additionalProperties: { type: string }
+          description: The phone form's copy, backend-owned, rendered verbatim.
+    AnimalPurchaseCounts:
+      type: object
+      required: [total, pending, accepted, rejected]
+      description: WHOLE-LOAD (or whole-filter) decision counts, never page sums.
+      properties:
+        total: { type: integer }
+        pending: { type: integer }
+        accepted: { type: integer }
+        rejected: { type: integer }
+    AnimalPurchaseLoad:
+      type: object
+      required: [load_id, load_ref, title, vendor_id, vendor_name, farm, expected_count, notes, status, counts, summary, created_at, updated_at, row_version]
+      properties:
+        load_id: { type: string }
+        load_ref: { type: string }
+        title: { type: string, description: Backend-owned row title ("Load 132 · Vendor"). }
+        vendor_id: { type: string }
+        vendor_name: { type: string }
+        farm: { type: string, enum: [CBE, CPT] }
+        expected_count: { type: integer }
+        notes: { type: string }
+        status: { type: string, enum: [open, closed] }
+        counts: { $ref: "#/components/schemas/AnimalPurchaseCounts" }
+        summary: { type: string, description: Backend-owned line under the title. }
+        recorded_by: { type: string }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        row_version: { type: integer }
+    AnimalPurchaseLoadPage:
+      type: object
+      required: [loads, can_record]
+      properties:
+        loads:
+          type: array
+          items: { $ref: "#/components/schemas/AnimalPurchaseLoad" }
+        next_cursor: { type: string }
+        can_record:
+          type: boolean
+          description: Whether THIS caller may add loads and animals (the write permission).
+    AnimalPurchaseLoadCreateRequest:
+      type: object
+      required: [load_ref, vendor_id, farm]
+      properties:
+        load_ref: { type: string, maxLength: 32 }
+        vendor_id: { type: string }
+        farm: { type: string, enum: [CBE, CPT] }
+        expected_count: { type: integer, minimum: 0 }
+        notes: { type: string, maxLength: 500 }
+    AnimalPurchaseAnimal:
+      type: object
+      required: [candidate_id, load_id, load_ref, seq_no, title, species, species_label, sex, sex_label, breed, condition, condition_label, temp_tag, notes, video_proof_ref, decision, decision_label, decision_tone, decided_by_name, decision_note, created_at, updated_at, row_version]
+      properties:
+        candidate_id: { type: string }
+        load_id: { type: string }
+        load_ref: { type: string }
+        seq_no: { type: integer }
+        title: { type: string, description: Backend-owned row title ("Animal 7 · Female goat"). }
+        species: { type: string, enum: [goat, sheep] }
+        species_label: { type: string }
+        sex: { type: string, enum: [male, female] }
+        sex_label: { type: string }
+        breed: { type: string }
+        age_months: { type: integer }
+        weight_kg: { type: number }
+        condition: { type: string, enum: [healthy, minor_concern, unwell] }
+        condition_label: { type: string }
+        temp_tag: { type: string }
+        notes: { type: string }
+        video_proof_ref: { type: string }
+        media_url:
+          type: string
+          description: Signed playback link for the video, absent when it cannot be served right now.
+        media_mime: { type: string }
+        decision: { type: string, enum: [pending, accepted, rejected] }
+        decision_label: { type: string, description: Backend-owned chip copy, rendered verbatim. }
+        decision_tone: { type: string, enum: [neutral, ok, bad] }
+        decided_by_name: { type: string }
+        decided_at: { type: string, format: date-time }
+        decision_note: { type: string }
+        recorded_by: { type: string }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        row_version: { type: integer }
+    AnimalPurchaseAnimalPage:
+      type: object
+      required: [animals, counts]
+      properties:
+        animals:
+          type: array
+          items: { $ref: "#/components/schemas/AnimalPurchaseAnimal" }
+        next_cursor: { type: string }
+        counts: { $ref: "#/components/schemas/AnimalPurchaseCounts" }
+    AnimalPurchaseLoadDetail:
+      type: object
+      required: [load, animals, can_record]
+      properties:
+        load: { $ref: "#/components/schemas/AnimalPurchaseLoad" }
+        animals:
+          type: array
+          items: { $ref: "#/components/schemas/AnimalPurchaseAnimal" }
+        next_cursor: { type: string }
+        can_record: { type: boolean }
+    AnimalPurchaseAnimalCreateRequest:
+      type: object
+      required: [species, sex, condition, video_proof_ref]
+      properties:
+        species: { type: string, enum: [goat, sheep] }
+        sex: { type: string, enum: [male, female] }
+        breed: { type: string, maxLength: 80 }
+        age_months: { type: integer, minimum: 0, maximum: 240 }
+        weight_kg: { type: number, exclusiveMinimum: 0 }
+        condition: { type: string, enum: [healthy, minor_concern, unwell] }
+        temp_tag: { type: string, maxLength: 40 }
+        notes: { type: string, maxLength: 500 }
+        video_proof_ref: { type: string, description: A finished in-app-camera video proof reference. }
+    AnimalPurchaseReviewFilter:
+      type: object
+      required: [key, label, count, selected]
+      properties:
+        key: { type: string, enum: [pending, accepted, rejected, all] }
+        label: { type: string, description: Backend-owned chip copy, rendered verbatim. }
+        count: { type: integer, description: WHOLE-FILTER count, never a page sum. }
+        selected: { type: boolean }
+    AnimalPurchaseReviewPage:
+      type: object
+      required: [animals, counts, filters]
+      properties:
+        animals:
+          type: array
+          items: { $ref: "#/components/schemas/AnimalPurchaseAnimal" }
+        next_cursor: { type: string }
+        counts: { $ref: "#/components/schemas/AnimalPurchaseCounts" }
+        filters:
+          type: array
+          items: { $ref: "#/components/schemas/AnimalPurchaseReviewFilter" }
+    AnimalPurchaseDecisionRequest:
+      type: object
+      required: [decision, row_version]
+      properties:
+        decision: { type: string, enum: [accept, reject, accepted, rejected] }
+        note: { type: string, maxLength: 500 }
+        row_version: { type: integer, minimum: 1 }
     ToxinTaskPage:
       type: object
       required: [tasks, status_counts]

@@ -2954,6 +2954,128 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/app/procurement/animal-purchases/options": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The add-load / add-animal form vocabulary, backend-owned.
+         * @description Species, sex, condition and farm choices with farm-worded labels, the herd's own breed spellings as suggestions (the breed field stays free text), and the form copy the phone renders verbatim.
+         */
+        get: operations["getAnimalPurchaseOptions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/procurement/animal-purchases/loads": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * One page of purchase loads, newest first.
+         * @description Keyset-paged. Each load carries WHOLE-LOAD decision counts (never page sums) and a backend-owned summary line. `can_record` says whether THIS caller may add loads and animals.
+         */
+        get: operations["listAnimalPurchaseLoads"];
+        put?: never;
+        /**
+         * Record a purchase load.
+         * @description Idempotent on the `Idempotency-Key` header. The vendor must be a register row; its name is frozen on the load. A load number already used answers 409 `load_ref_taken`.
+         */
+        post: operations["createAnimalPurchaseLoad"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/procurement/animal-purchases/loads/{load_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One load with its first page of animals. */
+        get: operations["getAnimalPurchaseLoad"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/procurement/animal-purchases/loads/{load_id}/animals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One page of a load's animals, in the order they were recorded. */
+        get: operations["listAnimalPurchaseAnimals"];
+        put?: never;
+        /**
+         * Record one animal on offer in the load, with its video.
+         * @description Idempotent on the `Idempotency-Key` header. `video_proof_ref` must be a FINISHED in-app-camera video upload in this tenant; the write is refused 422 otherwise, so no animal row ever exists without a video behind it.
+         */
+        post: operations["addAnimalPurchaseAnimal"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/procurement/animal-purchases/review": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The CEO/CXO review queue -- one page of animals with a signed video each.
+         * @description CEO/CXO only. `decision` picks a chip (pending by default; accepted, rejected, all); `load_id` narrows to one load. `counts` and the chip counts are WHOLE-FILTER, never page sums, and do not move when a chip is picked. `media_url` is signed beside the read so the page never resolves videos one by one.
+         */
+        get: operations["listAnimalPurchaseReview"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/procurement/animal-purchases/animals/{candidate_id}/decision": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Accept or reject one candidate animal (CEO/CXO only).
+         * @description Version-fenced on `row_version` and recorded once: a second decision answers 409 `already_decided`, a stale version 409 `row_version_conflict`. The decision is announced on the outbox inside the same transaction, which is what pushes it to the phone.
+         */
+        post: operations["decideAnimalPurchaseAnimal"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/app/toxin/tasks": {
         parameters: {
             query?: never;
@@ -7567,6 +7689,155 @@ export interface components {
             business_date: string;
             park_id: string;
             own_rows_only: boolean;
+        };
+        AnimalPurchaseOption: {
+            value: string;
+            /** @description Farm-worded label */
+            label: string;
+        };
+        AnimalPurchaseOptions: {
+            species: components["schemas"]["AnimalPurchaseOption"][];
+            sexes: components["schemas"]["AnimalPurchaseOption"][];
+            conditions: components["schemas"]["AnimalPurchaseOption"][];
+            farms: components["schemas"]["AnimalPurchaseOption"][];
+            breed_suggestions: string[];
+            /** @description The phone form's copy, backend-owned, rendered verbatim. */
+            copy: {
+                [key: string]: string;
+            };
+        };
+        /** @description WHOLE-LOAD (or whole-filter) decision counts, never page sums. */
+        AnimalPurchaseCounts: {
+            total: number;
+            pending: number;
+            accepted: number;
+            rejected: number;
+        };
+        AnimalPurchaseLoad: {
+            load_id: string;
+            load_ref: string;
+            /** @description Backend-owned row title ("Load 132 · Vendor"). */
+            title: string;
+            vendor_id: string;
+            vendor_name: string;
+            /** @enum {string} */
+            farm: "CBE" | "CPT";
+            expected_count: number;
+            notes: string;
+            /** @enum {string} */
+            status: "open" | "closed";
+            counts: components["schemas"]["AnimalPurchaseCounts"];
+            /** @description Backend-owned line under the title. */
+            summary: string;
+            recorded_by?: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+            row_version: number;
+        };
+        AnimalPurchaseLoadPage: {
+            loads: components["schemas"]["AnimalPurchaseLoad"][];
+            next_cursor?: string;
+            /** @description Whether THIS caller may add loads and animals (the write permission). */
+            can_record: boolean;
+        };
+        AnimalPurchaseLoadCreateRequest: {
+            load_ref: string;
+            vendor_id: string;
+            /** @enum {string} */
+            farm: "CBE" | "CPT";
+            expected_count?: number;
+            notes?: string;
+        };
+        AnimalPurchaseAnimal: {
+            candidate_id: string;
+            load_id: string;
+            load_ref: string;
+            seq_no: number;
+            /** @description Backend-owned row title ("Animal 7 · Female goat"). */
+            title: string;
+            /** @enum {string} */
+            species: "goat" | "sheep";
+            species_label: string;
+            /** @enum {string} */
+            sex: "male" | "female";
+            sex_label: string;
+            breed: string;
+            age_months?: number;
+            weight_kg?: number;
+            /** @enum {string} */
+            condition: "healthy" | "minor_concern" | "unwell";
+            condition_label: string;
+            temp_tag: string;
+            notes: string;
+            video_proof_ref: string;
+            /** @description Signed playback link for the video, absent when it cannot be served right now. */
+            media_url?: string;
+            media_mime?: string;
+            /** @enum {string} */
+            decision: "pending" | "accepted" | "rejected";
+            /** @description Backend-owned chip copy */
+            decision_label: string;
+            /** @enum {string} */
+            decision_tone: "neutral" | "ok" | "bad";
+            decided_by_name: string;
+            /** Format: date-time */
+            decided_at?: string;
+            decision_note: string;
+            recorded_by?: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+            row_version: number;
+        };
+        AnimalPurchaseAnimalPage: {
+            animals: components["schemas"]["AnimalPurchaseAnimal"][];
+            next_cursor?: string;
+            counts: components["schemas"]["AnimalPurchaseCounts"];
+        };
+        AnimalPurchaseLoadDetail: {
+            load: components["schemas"]["AnimalPurchaseLoad"];
+            animals: components["schemas"]["AnimalPurchaseAnimal"][];
+            next_cursor?: string;
+            can_record: boolean;
+        };
+        AnimalPurchaseAnimalCreateRequest: {
+            /** @enum {string} */
+            species: "goat" | "sheep";
+            /** @enum {string} */
+            sex: "male" | "female";
+            breed?: string;
+            age_months?: number;
+            weight_kg?: number;
+            /** @enum {string} */
+            condition: "healthy" | "minor_concern" | "unwell";
+            temp_tag?: string;
+            notes?: string;
+            /** @description A finished in-app-camera video proof reference. */
+            video_proof_ref: string;
+        };
+        AnimalPurchaseReviewFilter: {
+            /** @enum {string} */
+            key: "pending" | "accepted" | "rejected" | "all";
+            /** @description Backend-owned chip copy */
+            label: string;
+            /** @description WHOLE-FILTER count */
+            count: number;
+            selected: boolean;
+        };
+        AnimalPurchaseReviewPage: {
+            animals: components["schemas"]["AnimalPurchaseAnimal"][];
+            next_cursor?: string;
+            counts: components["schemas"]["AnimalPurchaseCounts"];
+            filters: components["schemas"]["AnimalPurchaseReviewFilter"][];
+        };
+        AnimalPurchaseDecisionRequest: {
+            /** @enum {string} */
+            decision: "accept" | "reject" | "accepted" | "rejected";
+            note?: string;
+            row_version: number;
         };
         ToxinTaskPage: {
             tasks: components["schemas"]["ToxinTask"][];
@@ -22492,6 +22763,243 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    getAnimalPurchaseOptions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The options. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnimalPurchaseOptions"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    listAnimalPurchaseLoads: {
+        parameters: {
+            query?: {
+                limit?: number;
+                cursor?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of loads. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnimalPurchaseLoadPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    createAnimalPurchaseLoad: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AnimalPurchaseLoadCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description The recorded load. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnimalPurchaseLoad"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["WriteConflict"];
+            422: components["responses"]["UnprocessableEntity"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    getAnimalPurchaseLoad: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                load_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The load and its animals. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnimalPurchaseLoadDetail"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    listAnimalPurchaseAnimals: {
+        parameters: {
+            query?: {
+                limit?: number;
+                cursor?: string;
+            };
+            header?: never;
+            path: {
+                load_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of animals plus whole-load counts. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnimalPurchaseAnimalPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    addAnimalPurchaseAnimal: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                load_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AnimalPurchaseAnimalCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description The recorded animal. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnimalPurchaseAnimal"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
+            422: components["responses"]["UnprocessableEntity"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    listAnimalPurchaseReview: {
+        parameters: {
+            query?: {
+                load_id?: string;
+                decision?: "pending" | "accepted" | "rejected" | "all";
+                limit?: number;
+                cursor?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of the review queue. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnimalPurchaseReviewPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    decideAnimalPurchaseAnimal: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                candidate_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AnimalPurchaseDecisionRequest"];
+            };
+        };
+        responses: {
+            /** @description The decided animal. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnimalPurchaseAnimal"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
+            422: components["responses"]["UnprocessableEntity"];
             500: components["responses"]["ServerError"];
         };
     };

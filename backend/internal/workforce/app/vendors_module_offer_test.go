@@ -40,15 +40,16 @@ func TestVendorsModuleIsOfferedOnVendorRead(t *testing.T) {
 			if m == nil {
 				t.Fatalf("Vendors module did not render; modules = %v", moduleKeySet(modules))
 			}
-			// Both tabs, in order, on backend-owned hrefs the phone hosts verbatim.
+			// All tabs, in order, on backend-owned hrefs the phone hosts verbatim.
 			//
-			// TWO since 2026-09-05, not three: the Sales tab MOVED to the Sales module. The
-			// assertion is exact rather than a minimum precisely so a re-added third tab here
-			// fails -- Sales must live in one module, not both.
-			if len(m.NavItems) != 2 || m.NavItems[0].Href != "/vendors" || m.NavItems[1].Href != "/vendors/feed-purchases" {
+			// Vendors + Feed Purchases since 2026-09-05 (the Sales tab MOVED to the Sales
+			// module), plus Animal purchases since 2026-09-13. The assertion is exact rather
+			// than a minimum precisely so a re-added Sales tab here fails -- Sales must live in
+			// one module, not both.
+			if len(m.NavItems) != 3 || m.NavItems[0].Href != "/vendors" || m.NavItems[1].Href != "/vendors/feed-purchases" || m.NavItems[2].Href != "/vendors/animal-purchases" {
 				t.Fatalf("Vendors nav items = %+v", m.NavItems)
 			}
-			if m.NavItems[0].Label != "Vendors" || m.NavItems[1].Label != "Feed Purchases" {
+			if m.NavItems[0].Label != "Vendors" || m.NavItems[1].Label != "Feed Purchases" || m.NavItems[2].Label != "Animal purchases" {
 				t.Fatalf("Vendors nav labels = %+v", m.NavItems)
 			}
 			// The module is shown as Procurement (maintainer instruction 2026-09-04) while its key stays vendors.

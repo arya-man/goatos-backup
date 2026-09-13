@@ -194,6 +194,7 @@ func navigation() domain.NavigationContract {
 					navLeaf("procurement-source-entry", "Source Entry", "/procurement/source-entry", nil),
 					navLeaf("procurement-vendors", "Vendors", "/procurement/vendors", nil),
 					navLeaf("procurement-feed-purchases", "Feed Purchases", "/procurement/feed-purchases", nil),
+					navLeaf("procurement-animal-purchases", "Animal purchases", "/procurement/animal-purchases", nil),
 				},
 			},
 			{
@@ -264,6 +265,7 @@ func routeLabels() []domain.RouteLabelRule {
 		{Pattern: "/procurement/source-entry", Label: "Source Entry", Match: "exact"},
 		{Pattern: "/procurement/vendors", Label: "Vendors", Match: "exact"},
 		{Pattern: "/procurement/feed-purchases", Label: "Feed Purchases", Match: "exact"},
+		{Pattern: "/procurement/animal-purchases", Label: "Animal purchases", Match: "exact"},
 		{Pattern: "/sales/sold", Label: "Sold", Match: "exact"},
 		{Pattern: "/sales/farm-value", Label: "Farm value", Match: "exact"},
 		{Pattern: "/counts/sops", Label: "Herd Operations SOP", Match: "exact"},
@@ -528,6 +530,11 @@ func pages() []domain.PageContract {
 		// record_feed_purchase control. Landed cost is ONE column: the feed/transport/loading/
 		// unloading split is drawer detail, because a table that renders five money columns is a
 		// table nobody can scan.
+		// Animal purchases review (maintainer decision 2026-09-13): the CEO/CXO watches each
+		// candidate animal's video and accepts or rejects it. The buying desk records loads and
+		// animals on the phone; this page never records, so its only control is the decision.
+		page("animal-purchases", "/procurement/animal-purchases", "/procurement/animal-purchases", "Animal purchases", "Loads on offer and the animals filmed in them. Watch each video and accept or reject the animal; the buying desk sees the answer on the phone at once.", "module-surface",
+			[]domain.TableContract{animalPurchaseLoadTable(), animalPurchaseAnimalTable()}),
 		page("feed-purchases", "/procurement/feed-purchases", "/procurement/feed-purchases", "Feed Purchases", "Feed bought for CBE and CPT — quantity, landed cost, vendor and payment state. These loads are what the stock and days-left cards on Feed Analytics are counted from.", "module-surface",
 			[]domain.TableContract{
 				feedPurchaseTable(),
@@ -966,6 +973,35 @@ func loadwiseTable() domain.TableContract {
 // pageCopy keeps ONE source: the header and the drawer's detail cells cannot drift into two
 // spellings of the same field. A key with no copy entry keeps the humanised default rather than
 // rendering blank.
+// animalPurchaseLoadTable is the loads list on /procurement/animal-purchases; labels come from the
+// page's own copy map, the feedPurchaseTable shape.
+func animalPurchaseLoadTable() domain.TableContract {
+	t := tableP("animal-purchase-loads", "Loads", "/app/procurement/animal-purchases/loads",
+		[]string{"load_ref", "vendor_name", "farm", "expected_count", "total", "pending", "accepted", "rejected", "created_at"},
+		"load_id", []int{20, 50, 100})
+	copy := pageCopy("animal-purchases")
+	for i := range t.Columns {
+		if label := strings.TrimSpace(copy["column."+t.Columns[i].Key]); label != "" {
+			t.Columns[i].Label = label
+		}
+	}
+	return t
+}
+
+// animalPurchaseAnimalTable is the per-animal review list (one video per row, Accept / Reject).
+func animalPurchaseAnimalTable() domain.TableContract {
+	t := tableP("animal-purchase-animals", "Animals", "/procurement/animal-purchases/review",
+		[]string{"seq_no", "species", "sex", "breed", "age_months", "weight_kg", "condition", "temp_tag", "notes", "decision"},
+		"candidate_id", []int{20, 50, 100})
+	copy := pageCopy("animal-purchases")
+	for i := range t.Columns {
+		if label := strings.TrimSpace(copy["column."+t.Columns[i].Key]); label != "" {
+			t.Columns[i].Label = label
+		}
+	}
+	return t
+}
+
 func feedPurchaseTable() domain.TableContract {
 	t := tableP("feed-purchases", "Purchases", "/procurement/feed-purchases",
 		[]string{"purchase_date", "farm", "feed_item", "batch_no", "quantity_kg", "delivery_status", "total_cost", "per_kg_cost", "vendor", "payment_status", "payment_balance"},
@@ -3499,6 +3535,78 @@ func pageSpecificCopy(id string) map[string]string {
 		}
 		return out
 
+	case "animal-purchases":
+		// Backend-owned copy for the CEO/CXO's animal purchase review. Farm language only; the
+		// client renders these verbatim.
+		return map[string]string{
+			"crumb": "Procurement",
+
+			"summary.loads":         "Loads",
+			"summary.pending":       "Awaiting decision",
+			"summary.accepted":      "Accepted",
+			"summary.rejected":      "Rejected",
+			"summary.hint":          "Across every load recorded from the phone.",
+			"section.loads.title":   "Loads",
+			"section.animals.title": "Animals",
+			"section.animals.hint":  "Pick a load to see its animals, or review everything still awaiting a decision.",
+			"empty.loads":           "No purchase loads recorded yet. The buying desk adds them from the phone.",
+			"empty.animals":         "No animals in this view.",
+			"empty.pending":         "Nothing is waiting for a decision.",
+			"filter.load":           "Load",
+			"filter.load.all":       "All loads",
+			"filter.decision":       "Show",
+			"filter.pending":        "Awaiting decision",
+			"filter.accepted":       "Accepted",
+			"filter.rejected":       "Rejected",
+			"filter.all":            "All",
+			"action.next_page":      "Next",
+			"action.prev_page":      "Back",
+			"pager.page":            "Page",
+			"pager.of":              "of",
+			"pager.noun":            "animals",
+			"pager.noun.one":        "animal",
+
+			"column.load_ref":       "Load",
+			"column.vendor_name":    "Vendor",
+			"column.farm":           "Farm",
+			"column.expected_count": "Expected",
+			"column.total":          "Recorded",
+			"column.pending":        "Awaiting",
+			"column.accepted":       "Accepted",
+			"column.rejected":       "Rejected",
+			"column.created_at":     "Added on",
+			"column.seq_no":         "Animal",
+			"column.species":        "Species",
+			"column.sex":            "Sex",
+			"column.breed":          "Breed",
+			"column.age_months":     "Age (months)",
+			"column.weight_kg":      "Weight (kg)",
+			"column.condition":      "Looks",
+			"column.temp_tag":       "Temporary tag",
+			"column.notes":          "Note",
+			"column.decision":       "Decision",
+
+			"video.title":                "Video",
+			"video.empty":                "The video is not available right now.",
+			"video.open":                 "Open video",
+			"decision.title":             "Decision",
+			"decision.note":              "Note (optional, required to reject)",
+			"decision.note_hint":         "Say why, so the buying desk knows what to look for next time.",
+			"decision.by":                "Decided by",
+			"decision.on":                "on",
+			"action.accept":              "Accept",
+			"action.reject":              "Reject",
+			"action.deciding":            "Saving...",
+			"action.close":               "Close",
+			"action.decided_accepted":    "Animal accepted. The buying desk can see it on the phone.",
+			"action.decided_rejected":    "Animal rejected. The buying desk can see it on the phone.",
+			"action.decide_failed":       "Could not record that decision. Reload and try again.",
+			"action.decide_conflict":     "This animal was already decided. Reload to see the answer.",
+			"action.error_form":          "Could not complete that action.",
+			"verdict.disabled_no_access": "Accepting or rejecting an animal is limited to the CEO and CXO.",
+			"value.none":                 "—",
+			"value.no_video":             "No video",
+		}
 	case "feed-purchases":
 		// Backend-owned copy for the feed purchase ledger. The client renders these verbatim; per
 		// the golden rule it must not hardcode a label, an empty state or a disabled reason of its
@@ -7171,6 +7279,28 @@ func pageOptionGroups(id string) []domain.OptionGroup {
 					option("director", "Director", "", ""),
 					option("manager", "Manager", "", ""),
 					option("assistant_manager", "Assistant Manager", "", ""),
+				},
+			},
+		})
+	case "animal-purchases":
+		// Closed vocabularies mirrored from animalpurchase/domain (literals, not an import: the
+		// contract compiler must not depend on a feature module's package).
+		return withGenericOptionGroups([]domain.OptionGroup{
+			{
+				ID: "animal_purchase_decisions",
+				Options: []domain.Option{
+					option("pending", "Awaiting decision", "", "neutral"),
+					option("accepted", "Accepted", "", "ok"),
+					option("rejected", "Rejected", "", "bad"),
+					option("all", "All", "", ""),
+				},
+			},
+			{
+				ID: "animal_purchase_conditions",
+				Options: []domain.Option{
+					option("healthy", "Looks healthy", "", "ok"),
+					option("minor_concern", "Minor concern", "", "warn"),
+					option("unwell", "Looks unwell", "", "bad"),
 				},
 			},
 		})
