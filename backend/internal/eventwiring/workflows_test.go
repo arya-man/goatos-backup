@@ -22,7 +22,9 @@ func TestRegisterWorkflowConsumersRegistersAll(t *testing.T) {
 		"goat.exited":                   1,
 		"goat.identifier.added":         1,
 		"verification.verdict.approved": 2,
-		"verification.verdict.rework":   2,
+		// birth + death evidence appliers, plus the subject-workflow (reconcile card) rework
+		// reopener (docs/decisions/sop-driven-herd-operations.md).
+		"verification.verdict.rework": 3,
 	}
 	for eventType, wantCount := range want {
 		if got := bus.subs[eventType]; got != wantCount {
