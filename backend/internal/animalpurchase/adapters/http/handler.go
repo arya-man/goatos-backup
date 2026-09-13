@@ -42,6 +42,7 @@ func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("GET /app/procurement/animal-purchases/loads/{load_id}/animals", h.ListAnimals)
 	mux.HandleFunc("POST /app/procurement/animal-purchases/loads/{load_id}/animals", h.AddAnimal)
 	mux.HandleFunc("GET /procurement/animal-purchases/review", h.ListReview)
+	mux.HandleFunc("GET /procurement/animal-purchases/animals/{candidate_id}/media", h.GetAnimalMedia)
 	mux.HandleFunc("POST /procurement/animal-purchases/animals/{candidate_id}/decision", h.Decide)
 }
 
@@ -200,13 +201,28 @@ func (h *Handler) Decide(w http.ResponseWriter, r *http.Request) {
 	httpresponse.WriteJSON(w, http.StatusOK, h.candidates(r, []domain.Candidate{c})[0])
 }
 
-// candidates composes the payloads, signing every video for playback in one read.
+func (h *Handler) GetAnimalMedia(w http.ResponseWriter, r *http.Request) {
+	tenant := tenantID(r)
+	c, err := h.service.GetCandidate(r.Context(), tenant, r.PathValue("candidate_id"))
+	if err != nil {
+		h.writeErr(w, r, app.HTTPError(err))
+		return
+	}
+	media := h.service.Media(r.Context(), tenant, []domain.Candidate{c})
+	m := media[c.VideoProofRef]
+	if strings.TrimSpace(m.URL) == "" {
+		h.writeErr(w, r, &app.Error{Code: "media_unavailable", Message: "That video is not available.", HTTPStatus: http.StatusNotFound})
+		return
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, candidateMediaPayload{CandidateID: c.CandidateID, MediaURL: m.URL, MediaMime: m.MimeType})
+}
+
+// candidates composes row payloads without signing media. Signed video URLs are minted only by
+// GetAnimalMedia, after the reviewer explicitly opens one animal's preview.
 func (h *Handler) candidates(r *http.Request, rows []domain.Candidate) []candidatePayload {
 	out := make([]candidatePayload, 0, len(rows))
-	media := h.service.Media(r.Context(), tenantID(r), rows)
 	for _, c := range rows {
-		m := media[c.VideoProofRef]
-		out = append(out, toCandidatePayload(c, m.URL, m.MimeType))
+		out = append(out, toCandidatePayload(c, "", ""))
 	}
 	return out
 }

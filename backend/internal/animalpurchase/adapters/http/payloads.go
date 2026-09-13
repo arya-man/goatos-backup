@@ -81,6 +81,12 @@ type candidatePagePayload struct {
 	Counts countsPayload `json:"counts"`
 }
 
+type candidateMediaPayload struct {
+	CandidateID string `json:"candidate_id"`
+	MediaURL    string `json:"media_url"`
+	MediaMime   string `json:"media_mime"`
+}
+
 type loadDetailPayload struct {
 	Load       loadPayload        `json:"load"`
 	Animals    []candidatePayload `json:"animals"`

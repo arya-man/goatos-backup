@@ -773,9 +773,8 @@ export async function listAnimalPurchaseLoads(
 /**
  * One page of the review queue. `decision` is the backend's own filter vocabulary (pending |
  * accepted | rejected | all; absent means pending) and `counts` / `filters` are WHOLE-FILTER
- * figures, never page sums. A row's `media_url` is the backend's signed playback link, served
- * relative when the API and its media route share a host; it is absolutized against the API base
- * the same way the verification and toxin media links are, so the browser's <video> can reach it.
+ * figures, never page sums. This read deliberately does not sign media; video URLs are minted only
+ * by getAnimalPurchaseMedia after a reviewer explicitly opens one animal's preview.
  */
 export async function listAnimalPurchaseReview(
   params: { load_id?: string; decision?: string; limit?: number; cursor?: string } = {},
@@ -783,7 +782,7 @@ export async function listAnimalPurchaseReview(
   const config = await getServerConfig(true);
   if (!config.ok) return config;
   const client = createAppApiClient(apiClientOptions(config.data));
-  const result = await request(() =>
+  return request(() =>
     client.request<AnimalPurchaseReviewPage>("/procurement/animal-purchases/review", {
       cache: "no-store",
       query: compactQuery({
@@ -794,8 +793,6 @@ export async function listAnimalPurchaseReview(
       }),
     }),
   );
-  if (!result.ok) return result;
-  return { ok: true, data: absolutizeAnimalPurchaseMedia(result.data, config.data.baseUrl) };
 }
 
 /**
@@ -818,21 +815,31 @@ export async function getAnimalPurchaseDeskCounts(): Promise<ApiResult<AnimalPur
   return { ok: true, data: result.data.counts };
 }
 
-function absolutizeAnimalPurchaseMedia(page: AnimalPurchaseReviewPage, baseUrl: string): AnimalPurchaseReviewPage {
-  return {
-    ...page,
-    animals: page.animals.map((animal) =>
-      animal.media_url ? { ...animal, media_url: absolutizeAgainstApi(animal.media_url, baseUrl) } : animal,
-    ),
-  };
-}
-
 function absolutizeAgainstApi(value: string, baseUrl: string): string {
   try {
     return new URL(value, baseUrl).toString();
   } catch {
     return value;
   }
+}
+
+export interface AnimalPurchaseMedia {
+  candidate_id: string;
+  media_url: string;
+  media_mime: string;
+}
+
+export async function getAnimalPurchaseMedia(candidateId: string): Promise<ApiResult<AnimalPurchaseMedia>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  const path = `/procurement/animal-purchases/animals/${encodeURIComponent(candidateId)}/media` as keyof AppApiPaths & string;
+  const result = await request(() => client.request<AnimalPurchaseMedia>(path, { cache: "no-store" }));
+  if (!result.ok) return result;
+  return {
+    ok: true,
+    data: { ...result.data, media_url: absolutizeAgainstApi(result.data.media_url, config.data.baseUrl) },
+  };
 }
 
 /**

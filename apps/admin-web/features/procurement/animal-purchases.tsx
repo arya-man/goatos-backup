@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 import { Truck, Video } from "lucide-react";
 import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
 import { firstAuthRequiredError } from "@/lib/api/server";
-import { getAnimalPurchaseDeskCounts, listAnimalPurchaseLoads, listAnimalPurchaseReview } from "@/lib/api/procurement-server";
+import { getAnimalPurchaseDeskCounts, getAnimalPurchaseMedia, listAnimalPurchaseLoads, listAnimalPurchaseReview } from "@/lib/api/procurement-server";
 import type { AnimalPurchaseAnimal, AnimalPurchaseLoad } from "@/lib/api/procurement";
 import { one, type RouteSearchParams } from "@/lib/search-params";
 import { Tag, type Tone } from "@/components/ui-primitives";
@@ -76,20 +76,23 @@ export async function AnimalPurchasesPage({
   const loadId = one(sp, "load_id") || undefined;
   const animalCursor = one(sp, "ap_cursor") || undefined;
   const loadCursor = one(sp, "ld_cursor") || undefined;
+  const previewId = one(sp, "preview_id") || undefined;
 
   const loadsTable = table(pageContract, "animal-purchase-loads");
   const animalsTable = table(pageContract, "animal-purchase-animals");
   const loadsLimit = loadsTable.page_size_options[0] ?? DEFAULT_LIMIT;
   const animalsLimit = animalsTable.page_size_options[0] ?? DEFAULT_LIMIT;
 
-  const [loadsResult, reviewResult, totalsResult] = await Promise.all([
+  const [loadsResult, reviewResult, totalsResult, previewResult] = await Promise.all([
     listAnimalPurchaseLoads({ limit: loadsLimit, cursor: loadCursor }),
     listAnimalPurchaseReview({ load_id: loadId, decision, limit: animalsLimit, cursor: animalCursor }),
     // The header tiles count the WHOLE desk ("across every load"), which the filtered queue read
     // cannot answer once a load is selected.
     getAnimalPurchaseDeskCounts(),
+    previewId ? getAnimalPurchaseMedia(previewId) : Promise.resolve(null),
   ]);
   if (firstAuthRequiredError(loadsResult, reviewResult, totalsResult)) redirect(INTERNAL_LOGIN_PATH);
+  if (previewResult && firstAuthRequiredError(previewResult)) redirect(INTERNAL_LOGIN_PATH);
 
   const loads: AnimalPurchaseLoad[] = loadsResult.ok ? loadsResult.data.loads : [];
   const loadsNextCursor = loadsResult.ok ? loadsResult.data.next_cursor : undefined;
@@ -97,6 +100,7 @@ export async function AnimalPurchasesPage({
   const animalsNextCursor = reviewResult.ok ? reviewResult.data.next_cursor : undefined;
   const filters = reviewResult.ok ? reviewResult.data.filters : [];
   const totals = totalsResult.ok ? totalsResult.data : null;
+  const previewMedia = previewResult && previewResult.ok ? previewResult.data : null;
 
   const none = copy(pageContract, "value.none");
   const canDecide = controlEnabled(pageContract, DECISION_CONTROL, false);
@@ -326,15 +330,21 @@ export async function AnimalPurchasesPage({
               >
                 <div style={{ minWidth: 0 }}>
                   <div className="bt">{copy(pageContract, "video.title")}</div>
-                  {animal.media_url ? (
+                  {previewMedia?.candidate_id === animal.candidate_id ? (
                     <div className="vr-player">
-                      {/* The signed link is minted by the review read for exactly this page of
-                          animals; metadata only until the reviewer presses play. */}
-                      <video src={animal.media_url} controls preload="metadata" playsInline />
+                      {/* The signed link is minted only after the reviewer explicitly opens this
+                          one animal's preview, not during the queue list read. */}
+                      <video src={previewMedia.media_url} controls preload="metadata" playsInline />
                     </div>
                   ) : (
                     <div className="vr-player" style={{ background: "var(--panel-2)", justifyContent: "center" }}>
-                      <div className="vr-player-empty">{copy(pageContract, "video.empty")}</div>
+                      <Link
+                        href={hrefWithQuery(sp, { preview_id: animal.candidate_id, ap_status: null, ap_code: null })}
+                        className="btn primary"
+                        scroll={false}
+                      >
+                        {copy(pageContract, "video.title")}
+                      </Link>
                     </div>
                   )}
                 </div>

@@ -8106,12 +8106,13 @@ paths:
       tags:
         - AnimalPurchases
       operationId: listAnimalPurchaseReview
-      summary: The CEO/CXO review queue -- one page of animals with a signed video each.
+      summary: The CEO/CXO review queue -- one page of animal facts, without signed videos.
       description: >-
         CEO/CXO only. `decision` picks a chip (pending by default; accepted, rejected, all);
         `load_id` narrows to one load. `counts` and the chip counts are WHOLE-FILTER, never page
-        sums, and do not move when a chip is picked. `media_url` is signed beside the read so the
-        page never resolves videos one by one.
+        sums, and do not move when a chip is picked. This list does not sign video URLs: the web
+        page must call the per-animal media endpoint only after the reviewer explicitly opens a
+        preview, so list rendering cannot move proof-media bytes.
       parameters:
         - name: load_id
           in: query
@@ -8142,6 +8143,36 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /procurement/animal-purchases/animals/{candidate_id}/media:
+    get:
+      tags:
+        - AnimalPurchases
+      operationId: getAnimalPurchaseMedia
+      summary: Mint one signed playback link after an explicit CEO/CXO preview action.
+      description: >-
+        CEO/CXO only. Returns a signed video URL for exactly one candidate animal. This is separate
+        from the review list so rendering a queue page cannot preload proof media or mint URLs for
+        every row.
+      parameters:
+        - name: candidate_id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Signed playback media for this candidate.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AnimalPurchaseMedia"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
         "500":
           $ref: "#/components/responses/ServerError"
   /procurement/animal-purchases/animals/{candidate_id}/decision:
@@ -18502,7 +18533,7 @@ components:
         video_proof_ref: { type: string }
         media_url:
           type: string
-          description: Signed playback link for the video, absent when it cannot be served right now.
+          description: Deprecated on list/detail reads; signed playback is returned by AnimalPurchaseMedia after explicit preview.
         media_mime: { type: string }
         decision: { type: string, enum: [pending, accepted, rejected] }
         decision_label: { type: string, description: Backend-owned chip copy, rendered verbatim. }
@@ -18514,6 +18545,15 @@ components:
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
         row_version: { type: integer }
+    AnimalPurchaseMedia:
+      type: object
+      required: [candidate_id, media_url, media_mime]
+      properties:
+        candidate_id: { type: string }
+        media_url:
+          type: string
+          description: Signed playback link for the candidate video, minted only after explicit preview.
+        media_mime: { type: string }
     AnimalPurchaseAnimalPage:
       type: object
       required: [animals, counts]

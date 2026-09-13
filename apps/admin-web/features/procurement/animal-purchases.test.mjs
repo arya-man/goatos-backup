@@ -6,12 +6,12 @@ const page = readFileSync(new URL("./animal-purchases.tsx", import.meta.url), "u
 const form = readFileSync(new URL("./animal-purchase-decision-form.tsx", import.meta.url), "utf8");
 const action = readFileSync(new URL("./animal-purchase-actions.ts", import.meta.url), "utf8");
 
-test("each animal renders its video inline with the backend copy fallback when no link is served", () => {
-  // The review read hands the page a signed media_url per animal; the card plays it inline,
-  // metadata only until the reviewer presses play, and says video.empty when it is absent.
-  assert.match(page, /animal\.media_url \? \(/);
-  assert.match(page, /<video src=\{animal\.media_url\} controls preload="metadata" playsInline \/>/);
-  assert.match(page, /copy\(pageContract, "video\.empty"\)/);
+test("each animal mints a signed video link only after the reviewer opens that preview", () => {
+  assert.match(page, /getAnimalPurchaseMedia\(previewId\)/);
+  assert.match(page, /preview_id: animal\.candidate_id/);
+  assert.match(page, /previewMedia\?\.candidate_id === animal\.candidate_id/);
+  assert.match(page, /src=\{previewMedia\.media_url\}/);
+  assert.doesNotMatch(page, /src=\{animal\.media_url\}/);
 });
 
 test("the decision form renders only for a pending animal behind the backend control", () => {

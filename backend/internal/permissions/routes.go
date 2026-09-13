@@ -350,6 +350,7 @@ var protectedRoutes = []Route{
 	{OperationID: "listAnimalPurchaseAnimals", Method: "GET", Pattern: "/app/procurement/animal-purchases/loads/{load_id}/animals", Permissions: []string{AnimalPurchaseRead}},
 	{OperationID: "addAnimalPurchaseAnimal", Method: "POST", Pattern: "/app/procurement/animal-purchases/loads/{load_id}/animals", Permissions: []string{AnimalPurchaseWrite}},
 	{OperationID: "listAnimalPurchaseReview", Method: "GET", Pattern: "/procurement/animal-purchases/review", Permissions: []string{AnimalPurchaseDecide}},
+	{OperationID: "getAnimalPurchaseMedia", Method: "GET", Pattern: "/procurement/animal-purchases/animals/{candidate_id}/media", Permissions: []string{AnimalPurchaseDecide}},
 	{OperationID: "decideAnimalPurchaseAnimal", Method: "POST", Pattern: "/procurement/animal-purchases/animals/{candidate_id}/decision", Permissions: []string{AnimalPurchaseDecide}},
 	{OperationID: "listToxinTasks", Method: "GET", Pattern: "/app/toxin/tasks", Permissions: []string{ToxinRead}},
 	{OperationID: "getToxinTask", Method: "GET", Pattern: "/app/toxin/tasks/{task_id}", Permissions: []string{ToxinRead}},

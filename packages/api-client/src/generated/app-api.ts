@@ -3044,10 +3044,30 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * The CEO/CXO review queue -- one page of animals with a signed video each.
-         * @description CEO/CXO only. `decision` picks a chip (pending by default; accepted, rejected, all); `load_id` narrows to one load. `counts` and the chip counts are WHOLE-FILTER, never page sums, and do not move when a chip is picked. `media_url` is signed beside the read so the page never resolves videos one by one.
+         * The CEO/CXO review queue -- one page of animal facts, without signed videos.
+         * @description CEO/CXO only. `decision` picks a chip (pending by default; accepted, rejected, all); `load_id` narrows to one load. `counts` and the chip counts are WHOLE-FILTER, never page sums, and do not move when a chip is picked. This list does not sign video URLs: the web page must call the per-animal media endpoint only after the reviewer explicitly opens a preview, so list rendering cannot move proof-media bytes.
          */
         get: operations["listAnimalPurchaseReview"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/procurement/animal-purchases/animals/{candidate_id}/media": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Mint one signed playback link after an explicit CEO/CXO preview action.
+         * @description CEO/CXO only. Returns a signed video URL for exactly one candidate animal. This is separate from the review list so rendering a queue page cannot preload proof media or mint URLs for every row.
+         */
+        get: operations["getAnimalPurchaseMedia"];
         put?: never;
         post?: never;
         delete?: never;
@@ -7772,7 +7792,7 @@ export interface components {
             temp_tag: string;
             notes: string;
             video_proof_ref: string;
-            /** @description Signed playback link for the video, absent when it cannot be served right now. */
+            /** @description Deprecated on list/detail reads; signed playback is returned by AnimalPurchaseMedia after explicit preview. */
             media_url?: string;
             media_mime?: string;
             /** @enum {string} */
@@ -7791,6 +7811,12 @@ export interface components {
             /** Format: date-time */
             updated_at: string;
             row_version: number;
+        };
+        AnimalPurchaseMedia: {
+            candidate_id: string;
+            /** @description Signed playback link for the candidate video, minted only after explicit preview. */
+            media_url: string;
+            media_mime: string;
         };
         AnimalPurchaseAnimalPage: {
             animals: components["schemas"]["AnimalPurchaseAnimal"][];
@@ -22965,6 +22991,32 @@ export interface operations {
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    getAnimalPurchaseMedia: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                candidate_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Signed playback media for this candidate. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnimalPurchaseMedia"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
             500: components["responses"]["ServerError"];
         };
     };
