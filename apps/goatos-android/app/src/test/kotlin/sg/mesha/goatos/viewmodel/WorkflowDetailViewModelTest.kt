@@ -25,6 +25,7 @@ import sg.mesha.goatos.core.data.WorkflowVideoDraft
 import sg.mesha.goatos.core.data.WorkflowsRepository
 import sg.mesha.goatos.core.data.capture.ProofCaptureRepository
 import sg.mesha.goatos.core.data.sync.SyncRepository
+import sg.mesha.goatos.core.data.sync.WorkflowProofOutboxRef
 import sg.mesha.goatos.core.data.sync.SyncQueueItem
 import sg.mesha.goatos.core.data.sync.SyncStatus
 import sg.mesha.goatos.core.network.dto.WorkflowActionDto
@@ -85,6 +86,7 @@ class WorkflowDetailViewModelTest {
         analytics = FakeAnalyticsPort(),
         crashReporter = NoopCrashReporter(),
         savedStateHandle = SavedStateHandle(mapOf(WorkflowDetailViewModel.ARG_WORKFLOW_ID to "wf-1")),
+        photoCaptureSource = NoopPhotoCaptureSource(),
     )
 
     // (a) A cancelled/failed re-capture must preserve the pre-existing proof row. Mirrors
@@ -438,6 +440,7 @@ private class FakeWorkflowDetailSyncRepository : SyncRepository {
         actionId: String,
         answerValue: String,
         proofOutboxItemId: String?,
+        proofOutboxItems: List<WorkflowProofOutboxRef>,
     ): AppResult<String> {
         answerCalls += AnswerCall(groupKey, idempotencyKey, workflowId, actionId, answerValue, proofOutboxItemId)
         val id = outboxItemIdByKey.getOrPut(idempotencyKey) { "wf-outbox-${nextOutboxId++}" }
@@ -450,6 +453,7 @@ private class FakeWorkflowDetailSyncRepository : SyncRepository {
         workflowId: String,
         actionId: String,
         proofOutboxItemId: String?,
+        proofOutboxItems: List<WorkflowProofOutboxRef>,
     ): AppResult<String> {
         completeCalls += CompleteCall(groupKey, idempotencyKey, workflowId, actionId, proofOutboxItemId)
         val id = outboxItemIdByKey.getOrPut(idempotencyKey) { "wf-outbox-${nextOutboxId++}" }

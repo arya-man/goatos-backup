@@ -121,6 +121,8 @@ object AnalyticsEvents {
 
     /** The operator opened the Herd Operations "Reconcile" tab (wrong-pen cards from weighing). */
     const val COUNTS_PEN_RECONCILIATION_VIEWED = "counts_pen_reconciliation_viewed"
+    /** A reconcile card's SOP questionnaire workflow was opened from the list (2026-09-13). */
+    const val COUNTS_PEN_RECONCILIATION_CARD_OPENED = "counts_pen_reconciliation_card_opened"
 
     /** The operator opened one Reconcile card to return the animal (the execute screen). */
     const val COUNTS_PEN_RECONCILIATION_EXECUTE_OPENED = "counts_pen_reconciliation_execute_opened"

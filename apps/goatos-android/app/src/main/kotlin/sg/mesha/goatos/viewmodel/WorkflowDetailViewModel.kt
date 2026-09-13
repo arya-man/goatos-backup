@@ -11,6 +11,9 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import sg.mesha.goatos.BuildConfig
+import sg.mesha.goatos.capture.PhotoCaptureContext
+import sg.mesha.goatos.capture.PhotoCaptureSource
 import sg.mesha.goatos.capture.ProofCaptureSource
 import sg.mesha.goatos.capture.ProofCapturePrompt
 import sg.mesha.goatos.capture.ProofCaptureContext
@@ -29,6 +32,7 @@ import sg.mesha.goatos.core.data.capture.ProofSubject
 import sg.mesha.goatos.core.data.forms.ProofPolicy
 import sg.mesha.goatos.core.data.sync.SyncRepository
 import sg.mesha.goatos.core.data.sync.SyncItemStatus
+import sg.mesha.goatos.core.data.sync.WorkflowProofOutboxRef
 import sg.mesha.goatos.core.network.dto.WorkflowActionDto
 import sg.mesha.goatos.core.network.dto.WorkflowDetailResponseDto
 import sg.mesha.goatos.feature.counts.WorkflowActionSection
@@ -36,6 +40,7 @@ import sg.mesha.goatos.feature.counts.WorkflowActionUi
 import sg.mesha.goatos.feature.counts.WorkflowAnswerOptionUi
 import sg.mesha.goatos.feature.counts.WorkflowDetailEvent
 import sg.mesha.goatos.feature.counts.WorkflowDetailUiState
+import sg.mesha.goatos.feature.counts.WorkflowProofUi
 import sg.mesha.goatos.feature.counts.WorkflowStatusTone
 import java.time.Duration
 import java.time.Instant
@@ -73,7 +78,19 @@ class WorkflowDetailViewModel @Inject constructor(
     private val analytics: AnalyticsPort,
     private val crashReporter: CrashReporter,
     savedStateHandle: SavedStateHandle,
+    private val photoCaptureSource: PhotoCaptureSource,
 ) : ViewModel() {
+
+    /**
+     * SOP-DRIVEN MULTI-PROOF (docs/decisions/sop-driven-herd-operations.md). A step authored with
+     * "2 videos + 1 photo" is captured one proof at a time: every capture is enqueued as its own
+     * PROOF_UPLOAD immediately (durable), and its outbox id + kind is remembered here per action
+     * until the step's minimums are met, when ONE completion / answer is enqueued carrying all of
+     * them by reference. The pending list is in-memory: a process death mid-step keeps the
+     * uploads (they are already queued) and asks the operator to finish the step's captures again.
+     */
+    private val pendingProofs = MutableStateFlow<Map<String, List<WorkflowProofOutboxRef>>>(emptyMap())
+    private val pendingAnswers = mutableMapOf<String, String>()
 
     private val workflowId: String = savedStateHandle[ARG_WORKFLOW_ID] ?: ""
 
@@ -110,7 +127,8 @@ class WorkflowDetailViewModel @Inject constructor(
             WorkflowDetailEvent.Refresh -> refresh()
             is WorkflowDetailEvent.Answer -> answer(event.actionId, event.value)
             is WorkflowDetailEvent.Complete -> complete(event.actionId)
-            is WorkflowDetailEvent.RecordVideo -> captureAndComplete(event.actionId)
+            is WorkflowDetailEvent.RecordVideo -> onRecordVideo(event.actionId)
+            is WorkflowDetailEvent.TakePhoto -> captureProof(event.actionId, kind = PROOF_KIND_PHOTO)
             WorkflowDetailEvent.SubmitDeath -> submitDeath()
             WorkflowDetailEvent.NavigationHandled -> _state.update { it.copy(returnToList = false) }
             is WorkflowDetailEvent.OpenPromote -> analytics.track(AnalyticsEvents.COUNTS_RFID_PROMOTE_OPENED)
@@ -124,7 +142,8 @@ class WorkflowDetailViewModel @Inject constructor(
                 repo.observeDetail(workflowId, lens, lensDate),
                 repo.observeVideoDrafts(workflowId),
                 syncRepository.observeStatus(),
-            ) { detail, drafts, sync -> Triple(detail, drafts, sync) }
+                pendingProofs,
+            ) { detail, drafts, sync, _ -> Triple(detail, drafts, sync) }
                 .collect { (detail, drafts, sync) ->
                 if (detail != null) {
                     val submitting = drafts.any { it.syncStatus == DRAFT_STATUS_SUBMITTING }
@@ -198,7 +217,18 @@ class WorkflowDetailViewModel @Inject constructor(
     // -----------------------------------------------------------------------
 
     private fun answer(actionId: String, value: String) {
-        if (_state.value.actions.firstOrNull { it.actionId == actionId }?.requiresVideo == true) {
+        val action = _state.value.actions.firstOrNull { it.actionId == actionId }
+        if (action != null && action.isMultiProof) {
+            // The answer waits with the captures; the step submits once every proof is in.
+            pendingAnswers[actionId] = value
+            if (proofsSatisfied(action, pendingProofs.value[actionId].orEmpty())) {
+                submitMultiProof(actionId, value)
+            } else {
+                _state.update { it.copy(message = MULTI_PROOF_ANSWER_KEPT_MESSAGE, isErrorMessage = false) }
+            }
+            return
+        }
+        if (action?.requiresVideo == true) {
             captureAndComplete(actionId, answerValue = value)
             return
         }
@@ -258,6 +288,157 @@ class WorkflowDetailViewModel @Inject constructor(
             }
         } else {
             repo.refreshDetail(workflowId, lens, lensDate)
+        }
+    }
+
+    private fun onRecordVideo(actionId: String) {
+        val action = _state.value.actions.firstOrNull { it.actionId == actionId }
+        if (action != null && action.isMultiProof) {
+            captureProof(actionId, kind = PROOF_KIND_VIDEO)
+        } else {
+            captureAndComplete(actionId)
+        }
+    }
+
+    private val WorkflowActionUi.isMultiProof: Boolean
+        get() = proofMinPhotos > 0 || proofMinVideos > 1
+
+    private fun proofsSatisfied(action: WorkflowActionUi, captured: List<WorkflowProofOutboxRef>): Boolean {
+        val videos = captured.count { it.kind == PROOF_KIND_VIDEO }
+        val photos = captured.count { it.kind == PROOF_KIND_PHOTO }
+        return videos >= maxOf(action.proofMinVideos, if (action.requiresVideo && action.proofMinVideos == 0) 1 else 0) &&
+            photos >= action.proofMinPhotos
+    }
+
+    /**
+     * Captures ONE proof (video or photo) for a multi-proof step, queues its upload at once, and
+     * submits the step when the authored minimums are met. A question step also waits for its
+     * answer (answer() keeps it in [pendingAnswers]).
+     */
+    private fun captureProof(actionId: String, kind: String) {
+        val current = _state.value
+        if (current.isCapturingVideo) return
+        val action = current.actions.firstOrNull { it.actionId == actionId } ?: return
+        val goatId = current.subjectGoatId
+        _state.update { it.copy(isCapturingVideo = true, message = null) }
+        viewModelScope.launch {
+            val captured: Pair<String, Triple<String, Long, Long>>? = try {
+                if (kind == PROOF_KIND_PHOTO) {
+                    photoCaptureSource.capturePhoto(
+                        PhotoCaptureContext(title = action.title, instruction = action.detail, prompt = ProofCapturePrompt.BIRTH),
+                    )?.let { it.localUri to Triple(it.mimeType, it.capturedAtMs, it.capturedAtMs) }
+                } else {
+                    proofCaptureSource.captureVideo(
+                        ProofCaptureContext(
+                            title = workflowProofCaption(current, action),
+                            primaryTag = current.subjectLocationDisplay.ifBlank { current.displayId },
+                            secondaryTag = current.displayId.takeIf { it.isNotBlank() },
+                            workLabel = action.title,
+                            prompt = ProofCapturePrompt.BIRTH,
+                            headerTitle = action.title,
+                        ),
+                    )?.let { it.localUri to Triple(it.mimeType, it.startedAtMs, it.endedAtMs) }
+                }
+            } catch (error: Exception) {
+                crashReporter.recordException(error, "workflow $kind capture failed")
+                null
+            }
+            if (captured == null) {
+                _state.update { it.copy(isCapturingVideo = false) }
+                return@launch
+            }
+            val (localUri, meta) = captured
+            val (mimeType, startedAtMs, endedAtMs) = meta
+            val ordinal = pendingProofs.value[actionId].orEmpty().size + 1
+            val slot = EvidenceSlot(
+                identity = workflowEvidenceSlot(actionId, goatId).identity,
+                fieldKey = workflowProofFieldKey(actionId) + "_" + kind + "_" + ordinal,
+            )
+            val proofResult = proofCaptureRepository.captureReplacingLatest(
+                slot = slot,
+                subject = ProofSubject.GOAT,
+                subjectId = goatId,
+                localUri = localUri,
+                mimeType = mimeType,
+                caption = workflowProofCaption(current, action),
+                scopeType = "goat",
+                scopeId = goatId,
+                capturedStartMs = startedAtMs,
+                capturedEndMs = endedAtMs,
+                capturedByPrincipalId = null,
+                proofPolicy = workflowGoatProofPolicy("in_app_camera"),
+                awaitUploadEnqueue = true,
+                uploadGroupKey = workflowId,
+            )
+            val proofItemId = when (proofResult) {
+                is AppResult.Ok -> proofResult.value.outboxItemId
+                is AppResult.Err -> {
+                    _state.update { it.copy(isCapturingVideo = false) }
+                    onWriteFailed("workflow_$kind", proofResult)
+                    return@launch
+                }
+            } ?: run {
+                _state.update { it.copy(isCapturingVideo = false, message = "Upload could not be queued.", isErrorMessage = true) }
+                return@launch
+            }
+            analytics.track(
+                AnalyticsEvents.WORKFLOW_VIDEO_CAPTURED,
+                mapOf(AnalyticsEvents.Params.ITEM_ID to workflowId, AnalyticsEvents.Params.ACTION to "$actionId:$kind"),
+            )
+            val queued = pendingProofs.value[actionId].orEmpty() + WorkflowProofOutboxRef(outboxItemId = proofItemId, kind = kind)
+            pendingProofs.update { it + (actionId to queued) }
+            val latest = _state.value.actions.firstOrNull { it.actionId == actionId } ?: action
+            val needsAnswer = latest.answerKind != "none" && latest.canAnswer
+            if (proofsSatisfied(latest, queued) && (!needsAnswer || pendingAnswers[actionId] != null)) {
+                submitMultiProof(actionId, pendingAnswers[actionId])
+            } else {
+                _state.update { it.copy(isCapturingVideo = false, message = MULTI_PROOF_QUEUED_MESSAGE, isErrorMessage = false) }
+            }
+        }
+    }
+
+    private fun submitMultiProof(actionId: String, answerValue: String?) {
+        val proofs = pendingProofs.value[actionId].orEmpty()
+        if (proofs.isEmpty()) return
+        val fingerprint = proofs.joinToString(",") { it.outboxItemId }.hashCode().toUInt().toString(16)
+        viewModelScope.launch {
+            val writeResult = if (answerValue != null) {
+                syncRepository.enqueueWorkflowActionAnswer(
+                    groupKey = workflowId,
+                    idempotencyKey = "wf-answer:$actionId:$fingerprint",
+                    workflowId = workflowId,
+                    actionId = actionId,
+                    answerValue = answerValue,
+                    proofOutboxItems = proofs,
+                )
+            } else {
+                syncRepository.enqueueWorkflowActionComplete(
+                    groupKey = workflowId,
+                    idempotencyKey = "wf-complete:$actionId:$fingerprint",
+                    workflowId = workflowId,
+                    actionId = actionId,
+                    proofOutboxItems = proofs,
+                )
+            }
+            when (writeResult) {
+                is AppResult.Ok -> {
+                    observeActionWrite(writeResult.value, actionId)
+                    if (answerValue != null) {
+                        repo.markActionAnswered(workflowId, actionId, answerValue)
+                        analytics.track(AnalyticsEvents.WORKFLOW_ACTION_ANSWERED)
+                    } else {
+                        repo.markActionCompleted(workflowId, actionId, inReview = false)
+                        analytics.track(AnalyticsEvents.WORKFLOW_ACTION_COMPLETED)
+                    }
+                    pendingProofs.update { it - actionId }
+                    pendingAnswers.remove(actionId)
+                    _state.update { it.copy(isCapturingVideo = false, message = VIDEO_QUEUED_MESSAGE, isErrorMessage = false) }
+                }
+                is AppResult.Err -> {
+                    _state.update { it.copy(isCapturingVideo = false) }
+                    onWriteFailed("workflow_multi_proof", writeResult)
+                }
+            }
         }
     }
 
@@ -617,6 +798,22 @@ class WorkflowDetailViewModel @Inject constructor(
         val isQuestion = actionType == TYPE_QUESTION || actionType == TYPE_QUESTION_SELECT
         val opensPromote = actionKey == ACTION_KEY_TAG_THE_KID &&
             workflowTagNeedsPermanentIdentifier(answerValue)
+        val answerKind = answerType.ifBlank {
+            when {
+                actionType == TYPE_QUESTION_SELECT -> "select"
+                numericAnswerUnit != null -> "number"
+                actionType == TYPE_QUESTION -> "yes_no"
+                else -> "none"
+            }
+        }
+        val minVideos = if (proofMinVideos == 0 && requiresVideo) 1 else proofMinVideos
+        val captured = pendingProofs.value[actionId].orEmpty()
+        val uploaded = proofRefs.filter { it.ref.isNotBlank() }.map { item ->
+            WorkflowProofUi(ref = item.ref, path = workflowProofDownloadUrl(item.ref), kind = item.kind)
+        }.ifEmpty {
+            // A row written before proof_refs existed still carries its one video in proof_ref.
+            proofRef?.takeIf { it.isNotBlank() }?.let { listOf(WorkflowProofUi(ref = it, path = workflowProofDownloadUrl(it), kind = "video")) }.orEmpty()
+        }
         return WorkflowActionUi(
             actionId = actionId,
             actionKey = actionKey,
@@ -636,22 +833,29 @@ class WorkflowDetailViewModel @Inject constructor(
                 else -> GLYPH_ACTION
             },
             requiresVideo = requiresVideo,
-            options = if (actionType == TYPE_QUESTION_SELECT) {
+            options = when {
                 // The backend's own bands, verbatim: the band string is both value and label.
-                options.map { WorkflowAnswerOptionUi(value = it, label = it) }
-            } else if (numericAnswerUnit == null) {
-                listOf(
+                actionType == TYPE_QUESTION_SELECT -> options.map { WorkflowAnswerOptionUi(value = it, label = it) }
+                answerKind == "yes_no" -> listOf(
                     WorkflowAnswerOptionUi(ANSWER_YES_VALUE, ANSWER_YES_LABEL),
                     WorkflowAnswerOptionUi(ANSWER_NO_VALUE, ANSWER_NO_LABEL),
                 )
-            } else emptyList(),
-            numericAnswerUnit = numericAnswerUnit,
+                else -> emptyList()
+            },
+            numericAnswerUnit = numericAnswerUnit ?: if (answerKind == "number") "" else null,
             statusLabel = statusLabel,
             statusTone = statusTone,
             section = section,
             canAnswer = actionable && isQuestion && !opensPromote,
-            canComplete = actionable && actionType == TYPE_ACTION && !requiresVideo && !opensPromote,
-            canRecordVideo = actionable && requiresVideo,
+            canComplete = actionable && actionType == TYPE_ACTION && minVideos == 0 && proofMinPhotos == 0 && !opensPromote,
+            canRecordVideo = actionable && minVideos > 0 && captured.count { it.kind == PROOF_KIND_VIDEO } < minVideos,
+            canTakePhoto = actionable && proofMinPhotos > 0 && captured.count { it.kind == PROOF_KIND_PHOTO } < proofMinPhotos && !opensPromote,
+            answerKind = answerKind,
+            proofMinVideos = minVideos,
+            proofMinPhotos = proofMinPhotos,
+            proofVideosCaptured = captured.count { it.kind == PROOF_KIND_VIDEO },
+            proofPhotosCaptured = captured.count { it.kind == PROOF_KIND_PHOTO },
+            uploadedProofs = if (status == STATUS_COMPLETED || status == STATUS_IN_REVIEW || status == STATUS_REWORK) uploaded else emptyList(),
             opensPromote = opensPromote && actionable,
             // A blocked row must say WHY. On the Colostrum lens the prerequisite is not even on
             // screen (1st Colostrum waits on four birth steps that live in Birth), so a bare
@@ -698,6 +902,10 @@ class WorkflowDetailViewModel @Inject constructor(
         private const val STATUS_COMPLETED = "completed"
         private const val STATUS_REWORK = "rework"
         private const val DRAFT_STATUS_SUBMITTING = "SUBMITTING"
+        private const val PROOF_KIND_VIDEO = "video"
+        private const val PROOF_KIND_PHOTO = "photo"
+        private const val MULTI_PROOF_QUEUED_MESSAGE = "Saved. Record the rest to finish this step."
+        private const val MULTI_PROOF_ANSWER_KEPT_MESSAGE = "Answer kept. Record the proof to finish this step."
         private const val OP_PROOF_UPLOAD = "PROOF_UPLOAD"
         private const val OP_WORKFLOW_ACTION_COMPLETE = "WORKFLOW_ACTION_COMPLETE"
         private const val SUBMISSION_ITEM_CLOCK_TOLERANCE_MS = 5_000L
@@ -842,8 +1050,15 @@ internal fun workflowBlockedNote(blocked: Boolean, blockedReason: String?): Stri
     }
 }
 
-internal fun workflowNumericAnswerUnit(action: WorkflowActionDto): String? =
-    if (action.actionKey == "take_weight" && action.actionType == "question") "kg" else null
+// The weigh step's unit; any other authored number step renders a plain number field. The weigh
+// step is recognised by its task type (registry) with the legacy key match as the fallback for
+// rows stamped before the SOP attributes existed.
+internal fun workflowNumericAnswerUnit(action: WorkflowActionDto): String? = when {
+    action.taskType == "weigh" -> "kg"
+    action.taskType.isBlank() && action.actionKey == "take_weight" && action.actionType == "question" -> "kg"
+    action.answerType == "number" -> ""
+    else -> null
+}
 
 internal fun workflowNumericAnswerValid(value: String): Boolean {
     val trimmed = value.trim()
@@ -871,6 +1086,10 @@ internal fun workflowProofFieldKey(actionId: String): String =
 
 private fun workflowGoatProofPolicy(captureSource: String): ProofPolicy =
     ProofPolicy.Default.copy(captureSource = captureSource)
+
+/** The authenticated download path of an uploaded proof (the PC Care preview shape). */
+internal fun workflowProofDownloadUrl(proofRef: String): String =
+    BuildConfig.API_BASE_URL.trimEnd('/') + "/app/proofs/" + proofRef.trim() + "/download"
 
 internal fun workflowVideoCompletionKey(actionId: String, proofOutboxItemId: String): String =
     "wf-complete:$actionId:$proofOutboxItemId"

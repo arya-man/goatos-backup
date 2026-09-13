@@ -163,6 +163,7 @@ import sg.mesha.goatos.core.network.dto.CountsApprovalSubmitResponseDto
 import sg.mesha.goatos.core.network.dto.CountsPenReconciliationCompleteRequestDto
 import sg.mesha.goatos.core.network.dto.CountsPenReconciliationCompleteResponseDto
 import sg.mesha.goatos.core.network.dto.CountsPenReconciliationListResponseDto
+import sg.mesha.goatos.core.network.dto.CountsPenReconciliationWorkflowResponseDto
 import sg.mesha.goatos.core.network.dto.CountsShiftingCancelRequestDto
 import sg.mesha.goatos.core.network.dto.CountsPromoteIdentifierRequestDto
 import sg.mesha.goatos.core.network.dto.CountsPromoteIdentifierResponseDto
@@ -775,6 +776,11 @@ interface AppApiService {
         @Query("page_size") pageSize: Int?,
         @Query("cursor") cursor: String?,
     ): CountsPenReconciliationListResponseDto
+
+    @POST("app/counts/pen-reconciliation/cards/{card_id}/workflow")
+    suspend fun ensureCountsPenReconciliationWorkflow(
+        @Path("card_id") cardId: String,
+    ): CountsPenReconciliationWorkflowResponseDto
 
     @POST("app/counts/pen-reconciliation/cards/{card_id}/complete")
     suspend fun completeCountsPenReconciliationCard(
@@ -2197,6 +2203,9 @@ class RetrofitAppApi(
             idempotencyKey,
             CountsPenReconciliationCompleteRequestDto(proofRef = proofRef),
         )
+
+    override suspend fun ensureCountsPenReconciliationWorkflow(cardId: String): CountsPenReconciliationWorkflowResponseDto =
+        service.ensureCountsPenReconciliationWorkflow(cardId)
 
     override suspend fun getFeedDirectionPreview(
         parkId: String,

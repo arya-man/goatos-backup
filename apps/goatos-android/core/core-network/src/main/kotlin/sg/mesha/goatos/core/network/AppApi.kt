@@ -163,6 +163,7 @@ import sg.mesha.goatos.core.network.dto.DeathCauseCatalogDto
 import sg.mesha.goatos.core.network.dto.CountsApprovalSubmitResponseDto
 import sg.mesha.goatos.core.network.dto.CountsPenReconciliationCompleteResponseDto
 import sg.mesha.goatos.core.network.dto.CountsPenReconciliationListResponseDto
+import sg.mesha.goatos.core.network.dto.CountsPenReconciliationWorkflowResponseDto
 import sg.mesha.goatos.core.network.dto.CountsShiftingCancelRequestDto
 import sg.mesha.goatos.core.network.dto.CountsPromoteIdentifierResponseDto
 import sg.mesha.goatos.core.network.dto.CountsShiftingCompleteRequestDto
@@ -1151,6 +1152,15 @@ interface AppApi {
         idempotencyKey: String,
         proofRef: String,
     ): CountsPenReconciliationCompleteResponseDto
+
+    /**
+     * POST /app/counts/pen-reconciliation/cards/{card_id}/workflow — opens (or finds) the card's
+     * SOP questionnaire workflow (maintainer decision 2026-09-13): the operator closes the card
+     * through /app/workflows/{workflow_id}, whose steps are whatever the maintainer authored on
+     * the web. Idempotent on the card. Default throws so test fakes that delegate stay compilable.
+     */
+    suspend fun ensureCountsPenReconciliationWorkflow(cardId: String): CountsPenReconciliationWorkflowResponseDto =
+        throw UnsupportedOperationException("ensureCountsPenReconciliationWorkflow is not wired")
 
     /**
      * GET /feed-direction/preview — one park's generated feed sheet for one Asia/Kolkata business
@@ -2688,6 +2698,9 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
         cardId = cardId,
         status = "pending_verification",
     )
+
+    override suspend fun ensureCountsPenReconciliationWorkflow(cardId: String): CountsPenReconciliationWorkflowResponseDto =
+        CountsPenReconciliationWorkflowResponseDto(cardId = cardId, workflowId = "fake-workflow-$cardId")
 
     override suspend fun completeFeedDirectionSession(
         idempotencyKey: String,

@@ -222,6 +222,15 @@
     <string name="counts_workflow_tag_video">वीडियो</string>
     <string name="counts_workflow_answered_fmt">उत्तर %1$s</string>
     <string name="counts_workflow_record_video">वीडियो रिकॉर्ड करें</string>
+    <string name="counts_workflow_tag_videos_fmt">%1$d वीडियो</string>
+    <string name="counts_workflow_tag_photo">फ़ोटो</string>
+    <string name="counts_workflow_tag_photos_fmt">%1$d फ़ोटो</string>
+    <string name="counts_workflow_record_video_fmt">वीडियो रिकॉर्ड करें (%2$d में से %1$d)</string>
+    <string name="counts_workflow_take_photo">फ़ोटो लें</string>
+    <string name="counts_workflow_take_photo_fmt">फ़ोटो लें (%2$d में से %1$d)</string>
+    <string name="counts_workflow_text_answer">आपकी टिप्पणी</string>
+    <string name="counts_workflow_number_answer">संख्या</string>
+    <string name="counts_workflow_answer_continue">जवाब सहेजें</string>
     <string name="counts_workflow_recording">रिकॉर्ड हो रहा है…</string>
     <string name="counts_workflow_pick_video">अपलोड</string>
     <string name="counts_workflow_mark_done">पूर्ण करें</string>

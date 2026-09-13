@@ -20,6 +20,7 @@ import org.junit.Test
 import sg.mesha.goatos.core.analytics.NoopAnalytics
 import sg.mesha.goatos.core.analytics.NoopCrashReporter
 import sg.mesha.goatos.core.data.PenReconciliationMeta
+import sg.mesha.goatos.core.common.AppResult
 import sg.mesha.goatos.core.data.PenReconciliationRepository
 import sg.mesha.goatos.core.network.dto.CountsPenReconciliationCardDto
 import sg.mesha.goatos.feature.counts.PenReconciliationEvent
@@ -103,6 +104,8 @@ private class CountingPenReconciliationRepository : PenReconciliationRepository 
     val subscriptions = mutableListOf<String>()
 
     override val meta: StateFlow<PenReconciliationMeta> = MutableStateFlow(PenReconciliationMeta())
+
+    override suspend fun openQuestionnaire(cardId: String): AppResult<String> = AppResult.Ok("wf-$cardId")
 
     override fun cards(status: String): Flow<PagingData<CountsPenReconciliationCardDto>> = flow {
         subscriptions += status

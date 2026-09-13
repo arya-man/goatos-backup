@@ -222,6 +222,15 @@
     <string name="counts_workflow_tag_video">వీడియో</string>
     <string name="counts_workflow_answered_fmt">సమాధానం %1$s</string>
     <string name="counts_workflow_record_video">వీడియో రికార్డ్ చేయండి</string>
+    <string name="counts_workflow_tag_videos_fmt">%1$d వీడియోలు</string>
+    <string name="counts_workflow_tag_photo">ఫోటో</string>
+    <string name="counts_workflow_tag_photos_fmt">%1$d ఫోటోలు</string>
+    <string name="counts_workflow_record_video_fmt">వీడియో రికార్డ్ చేయండి (%2$dలో %1$d)</string>
+    <string name="counts_workflow_take_photo">ఫోటో తీయండి</string>
+    <string name="counts_workflow_take_photo_fmt">ఫోటో తీయండి (%2$dలో %1$d)</string>
+    <string name="counts_workflow_text_answer">మీ గమనిక</string>
+    <string name="counts_workflow_number_answer">సంఖ్య</string>
+    <string name="counts_workflow_answer_continue">సమాధానం సేవ్ చేయండి</string>
     <string name="counts_workflow_recording">రికార్డ్ అవుతోంది…</string>
     <string name="counts_workflow_pick_video">అప్\u200cలోడ్</string>
     <string name="counts_workflow_mark_done">పూర్తయిందని గుర్తించండి</string>

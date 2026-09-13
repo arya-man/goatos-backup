@@ -787,6 +787,7 @@ interface SyncRepository {
         actionId: String,
         answerValue: String,
         proofOutboxItemId: String? = null,
+        proofOutboxItems: List<WorkflowProofOutboxRef> = emptyList(),
     ): AppResult<String> = AppResult.Err("workflow action sync is not configured")
 
     /**
@@ -804,6 +805,7 @@ interface SyncRepository {
         workflowId: String,
         actionId: String,
         proofOutboxItemId: String? = null,
+        proofOutboxItems: List<WorkflowProofOutboxRef> = emptyList(),
     ): AppResult<String> = AppResult.Err("workflow action sync is not configured")
 
     /** Opens a Health disease course. The goat is the ordering group and the caller persists one
@@ -2185,6 +2187,7 @@ class DefaultSyncRepository(
         actionId: String,
         answerValue: String,
         proofOutboxItemId: String?,
+        proofOutboxItems: List<WorkflowProofOutboxRef>,
     ): AppResult<String> = enqueue(
         opType = OutboxOpType.WORKFLOW_ACTION_ANSWER,
         groupKey = groupKey,
@@ -2195,6 +2198,7 @@ class DefaultSyncRepository(
                 actionId = actionId,
                 answerValue = answerValue,
                 proofOutboxItemId = proofOutboxItemId,
+                proofOutboxItems = proofOutboxItems,
             ),
         ),
     )
@@ -2205,6 +2209,7 @@ class DefaultSyncRepository(
         workflowId: String,
         actionId: String,
         proofOutboxItemId: String?,
+        proofOutboxItems: List<WorkflowProofOutboxRef>,
     ): AppResult<String> = enqueue(
         opType = OutboxOpType.WORKFLOW_ACTION_COMPLETE,
         groupKey = groupKey,
@@ -2214,6 +2219,7 @@ class DefaultSyncRepository(
                 workflowId = workflowId,
                 actionId = actionId,
                 proofOutboxItemId = proofOutboxItemId,
+                proofOutboxItems = proofOutboxItems,
             ),
         ),
     )

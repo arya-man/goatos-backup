@@ -120,6 +120,21 @@ data class WorkflowActionDto(
     @SerialName("completed_by_label") val completedByLabel: String? = null,
     @SerialName("completed_at") val completedAt: String? = null,
     @SerialName("verification_status") val verificationStatus: String? = null,
+    // SOP-driven step attributes (docs/decisions/sop-driven-herd-operations.md). Render from
+    // THESE, never from the step key: a step can ask for a number, text, several choices, and
+    // several videos and photos. Defaults keep a pre-2026-09 backend row renderable.
+    @SerialName("task_type") val taskType: String = "",
+    @SerialName("answer_type") val answerType: String = "",
+    @SerialName("proof_min_videos") val proofMinVideos: Int = 0,
+    @SerialName("proof_min_photos") val proofMinPhotos: Int = 0,
+    @SerialName("proof_refs") val proofRefs: List<WorkflowProofItemDto> = emptyList(),
+)
+
+/** One captured proof on a step: the server proof id and whether it is a video or a photo. */
+@Serializable
+data class WorkflowProofItemDto(
+    @SerialName("ref") val ref: String = "",
+    @SerialName("kind") val kind: String = "video",
 )
 
 /** The drill-in detail: the card, its facts grid, and the bounded operator action list (≤18 rows). */
@@ -147,6 +162,8 @@ data class WorkflowDetailResponseDto(
 data class WorkflowActionAnswerRequestDto(
     @SerialName("answer_value") val answerValue: String,
     @SerialName("proof_ref") val proofRef: String? = null,
+    /** Every capture for a multi-proof step; the server checks the authored minimums per kind. */
+    @SerialName("proofs") val proofs: List<WorkflowProofItemDto>? = null,
 )
 
 /** Body of `POST …/actions/{action_id}/complete`. [proofRef] is REQUIRED when the action
@@ -154,6 +171,7 @@ data class WorkflowActionAnswerRequestDto(
 @Serializable
 data class WorkflowActionCompleteRequestDto(
     @SerialName("proof_ref") val proofRef: String? = null,
+    @SerialName("proofs") val proofs: List<WorkflowProofItemDto>? = null,
 )
 
 /** Shared response of both action writes. */
