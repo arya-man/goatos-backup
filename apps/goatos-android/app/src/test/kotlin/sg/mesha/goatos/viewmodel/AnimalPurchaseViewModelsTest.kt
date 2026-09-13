@@ -34,6 +34,7 @@ import sg.mesha.goatos.core.analytics.AnalyticsEventsAnimalPurchase
 import sg.mesha.goatos.core.analytics.NoopCrashReporter
 import sg.mesha.goatos.core.common.AppResult
 import sg.mesha.goatos.core.data.AnimalPurchaseRepository
+import sg.mesha.goatos.core.data.QueuedAnimalPurchaseAnimal
 import sg.mesha.goatos.core.data.BootstrapRepository
 import sg.mesha.goatos.core.data.SalesDealTotals
 import sg.mesha.goatos.core.data.SalesLeadSide
@@ -63,6 +64,7 @@ import sg.mesha.goatos.core.network.dto.SalesOptionsDto
 import sg.mesha.goatos.core.network.dto.VendorOptionDto
 import sg.mesha.goatos.core.network.dto.VendorOptionsDto
 import sg.mesha.goatos.feature.vendors.AnimalPurchaseAnimalCreateEvent
+import sg.mesha.goatos.feature.vendors.AnimalPurchaseLoadDetailEvent
 import sg.mesha.goatos.feature.vendors.AnimalPurchaseAnimalField
 import sg.mesha.goatos.feature.vendors.AnimalPurchaseLoadCreateEvent
 import sg.mesha.goatos.feature.vendors.AnimalPurchaseLoadField
@@ -285,12 +287,51 @@ class AnimalPurchaseViewModelsTest {
     private companion object {
         const val LOAD_ID = "load-1"
 
-        fun item(id: String, status: SyncItemStatus, conflict: Boolean = false, lastError: String? = null, resultJson: String? = null) = SyncQueueItem(
+        fun item(id: String, status: SyncItemStatus, conflict: Boolean = false, lastError: String? = null, resultJson: String? = null, attemptCount: Int = 0, maxAttempts: Int = 5) = SyncQueueItem(
             id = id, opType = "ANIMAL_PURCHASE_LOAD_CREATE", idempotencyKey = "k", groupKey = "g", status = status,
-            attemptCount = 0, maxAttempts = 5, conflict = conflict, createdAt = 0L, updatedAt = 0L, lastError = lastError,
+            attemptCount = attemptCount, maxAttempts = maxAttempts, conflict = conflict, createdAt = 0L, updatedAt = 0L, lastError = lastError,
             resultJson = resultJson,
         )
     }
+
+    @Test
+    fun `an animal saved without signal is listed on the load as waiting to send`() = runTest(dispatcher) {
+        val repo = FakeAnimalPurchaseRepository()
+        val sync = RecordingAnimalPurchaseSyncRepository()
+        val vm = AnimalPurchaseLoadDetailViewModel(
+            repository = repo,
+            syncRepository = sync,
+            analytics = RecordingAnalytics(),
+            crashReporter = NoopCrashReporter(),
+            savedStateHandle = SavedStateHandle(mapOf("load_id" to LOAD_ID)),
+        )
+        backgroundScope.launch { vm.state.collect {} }
+        repo.queued.value = listOf(
+            QueuedAnimalPurchaseAnimal(
+                outboxItemId = "ob-1", loadId = LOAD_ID, queuedAtMs = 1L,
+                request = AnimalPurchaseAnimalCreateRequestDto(species = "goat", sex = "female", breed = "Sirohi", ageMonths = 9, weightKg = 24.0, condition = "healthy"),
+                proofOutboxItemId = "proof-1",
+            ),
+        )
+        advanceUntilIdle()
+        val queued = vm.state.value.queuedAnimals.single()
+        assertEquals("Female goat", queued.title)
+        assertEquals("9 months · 24 kg", queued.ageWeightLine)
+        // No copy row for the waiting chip in this fake: the built-in fallback is what shows.
+        assertEquals("Waiting to send", queued.waitingLabel)
+        assertEquals("Sirohi", queued.breed)
+        assertEquals("Healthy", queued.conditionLabel)
+        assertFalse(queued.sendFailed)
+
+        // The video upload spent every retry while offline: the row says so and offers a retry.
+        sync.row("proof-1").value = item("proof-1", SyncItemStatus.FAILED, attemptCount = 8, maxAttempts = 8)
+        advanceUntilIdle()
+        assertTrue(vm.state.value.queuedAnimals.single().sendFailed)
+        vm.onEvent(AnimalPurchaseLoadDetailEvent.RetryQueued("ob-1"))
+        advanceUntilIdle()
+        assertEquals(listOf("proof-1"), sync.retries)
+    }
+
 }
 
 /** In-memory [AnimalPurchaseRepository]: Room's role is played by state flows. */
@@ -317,6 +358,8 @@ private class FakeAnimalPurchaseRepository : AnimalPurchaseRepository {
     override suspend fun refreshLoad(loadId: String) = Unit
     override suspend fun persistServerLoad(load: AnimalPurchaseLoadDto) = Unit
     override suspend fun persistServerAnimal(animal: AnimalPurchaseAnimalDto) = Unit
+    val queued = MutableStateFlow<List<QueuedAnimalPurchaseAnimal>>(emptyList())
+    override fun observeQueuedAnimals(loadId: String): Flow<List<QueuedAnimalPurchaseAnimal>> = queued
 }
 
 /** Records every animal-purchase enqueue and lets a test drive each queued row's outcome. */
@@ -345,6 +388,12 @@ private class RecordingAnimalPurchaseSyncRepository : SyncRepository by Recordin
     ): AppResult<String> {
         animalCreates += AnimalCreate(draftKey, loadId, request, proofOutboxItemId)
         return AppResult.Ok("ap-animal-${animalCreates.size}")
+    }
+
+    val retries = mutableListOf<String>()
+    override suspend fun retry(itemId: String): AppResult<Unit> {
+        retries += itemId
+        return AppResult.Ok(Unit)
     }
 }
 

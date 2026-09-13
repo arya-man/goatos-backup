@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/vgoats/goatos/backend/internal/animalpurchase/ports"
+	"github.com/vgoats/goatos/backend/internal/platform/uuidutil"
 	proofapp "github.com/vgoats/goatos/backend/internal/proof/app"
 	proofports "github.com/vgoats/goatos/backend/internal/proof/ports"
 )
@@ -27,6 +28,11 @@ func NewValidator(repo proofports.Repository) *Validator { return &Validator{rep
 var _ ports.ProofValidator = (*Validator)(nil)
 
 func (v *Validator) ValidateCandidateVideo(ctx context.Context, tenantID, proofRef string) error {
+	// A reference that is not even a proof id is the same answer as a missing proof: refuse it
+	// with the form's message rather than letting the uuid cast surface as a 500.
+	if !uuidutil.IsUUIDString(strings.TrimSpace(proofRef)) {
+		return ports.ErrInvalidVideo
+	}
 	found, err := v.repo.GetProofsByIDs(ctx, tenantID, []string{proofRef})
 	if err != nil {
 		return err

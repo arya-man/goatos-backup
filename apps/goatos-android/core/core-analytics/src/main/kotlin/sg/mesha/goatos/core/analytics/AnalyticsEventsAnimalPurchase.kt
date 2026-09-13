@@ -42,6 +42,9 @@ object AnalyticsEventsAnimalPurchase {
     /** Local playback/share/fullscreen actions for a recorded animal video preview. */
     const val VIDEO_PREVIEW_ACTION = "animal_purchase_video_preview_action"
 
+    /** The person tapped retry on an animal whose video upload had given up. */
+    const val ANIMAL_RETRY = "animal_purchase_animal_retry"
+
     /**
      * Any animal-purchase capture/queue/read path failed. [AnalyticsEvents.Params.REASON] carries
      * the real message the repository/capture layer returned, truncated like every other reason

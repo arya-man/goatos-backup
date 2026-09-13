@@ -564,8 +564,14 @@ object AppModule {
     fun provideAnimalPurchaseRepository(
         api: AppApi,
         database: GoatDatabase,
+        outboxDatabase: OutboxDatabase,
     ): sg.mesha.goatos.core.data.AnimalPurchaseRepository =
-        sg.mesha.goatos.core.data.DefaultAnimalPurchaseRepository(api = api, database = database)
+        sg.mesha.goatos.core.data.DefaultAnimalPurchaseRepository(
+            api = api,
+            database = database,
+            // Not-yet-sent animals for the load screen, read straight off the outbox.
+            activeOutboxRows = { opType -> outboxDatabase.outboxDao().observeActiveByOpType(opType) },
+        )
 
     /**
      * Pen visits (maintainer decision 2026-09-07). Room-backed offline-first READS; the WRITE

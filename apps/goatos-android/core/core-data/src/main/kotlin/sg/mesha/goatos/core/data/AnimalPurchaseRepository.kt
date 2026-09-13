@@ -12,6 +12,7 @@ import androidx.room.withTransaction
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.serialization.SerialName
@@ -26,7 +27,11 @@ import sg.mesha.goatos.core.data.cache.AnimalPurchaseLoadRemoteKeyEntity
 import sg.mesha.goatos.core.data.cache.cacheKey
 import sg.mesha.goatos.core.data.cache.enforceCacheBounds
 import sg.mesha.goatos.core.data.cache.readCachedJson
+import sg.mesha.goatos.core.data.sync.AnimalPurchaseAnimalCreatePayload
+import sg.mesha.goatos.core.database.outbox.OutboxEntity
+import sg.mesha.goatos.core.database.outbox.OutboxOpType
 import sg.mesha.goatos.core.network.AppApi
+import sg.mesha.goatos.core.network.dto.AnimalPurchaseAnimalCreateRequestDto
 import sg.mesha.goatos.core.network.dto.AnimalPurchaseAnimalDto
 import sg.mesha.goatos.core.network.dto.AnimalPurchaseLoadDetailDto
 import sg.mesha.goatos.core.network.dto.AnimalPurchaseLoadDto
@@ -97,13 +102,34 @@ interface AnimalPurchaseRepository {
 
     /** Reconciles a successful animal-create dispatch's RETURNED animal into Room. Sync engine only. */
     suspend fun persistServerAnimal(animal: AnimalPurchaseAnimalDto)
+
+    /**
+     * Animals recorded on THIS phone for the load that have not reached the server yet -- the
+     * outbox rows still queued, in flight, or retrying. A director recording on a vendor's farm
+     * with no signal must see what they saved, or they will record the animal twice; the rows
+     * disappear on their own the moment the server accepts them and the real row lands.
+     */
+    fun observeQueuedAnimals(loadId: String): Flow<List<QueuedAnimalPurchaseAnimal>>
 }
+
+/** One not-yet-sent animal, decoded from its outbox payload. */
+data class QueuedAnimalPurchaseAnimal(
+    val outboxItemId: String,
+    val loadId: String,
+    val request: AnimalPurchaseAnimalCreateRequestDto,
+    val queuedAtMs: Long,
+    /** The video upload row this animal waits on; the create cannot send until it succeeds. */
+    val proofOutboxItemId: String,
+)
 
 class DefaultAnimalPurchaseRepository(
     private val api: AppApi,
     private val database: GoatDatabase,
     private val json: Json = Json { ignoreUnknownKeys = true },
     private val clock: () -> Long = { System.currentTimeMillis() },
+    /** Active outbox rows of one op type (the Clock repository's shape): injected so this
+     *  module needs no handle on the outbox database itself. */
+    private val activeOutboxRows: (opType: String) -> Flow<List<OutboxEntity>> = { _ -> flowOf(emptyList()) },
 ) : AnimalPurchaseRepository {
 
     @OptIn(ExperimentalPagingApi::class)
@@ -205,6 +231,16 @@ class DefaultAnimalPurchaseRepository(
             database.animalPurchaseAnimalRemoteKeyDao().delete(animal.loadId)
         }
     }
+
+    override fun observeQueuedAnimals(loadId: String): Flow<List<QueuedAnimalPurchaseAnimal>> =
+        activeOutboxRows(OutboxOpType.ANIMAL_PURCHASE_ANIMAL_CREATE.name).map { rows ->
+            rows.mapNotNull { row ->
+                val payload = runCatching { json.decodeFromString<AnimalPurchaseAnimalCreatePayload>(row.payloadJson) }.getOrNull()
+                    ?: return@mapNotNull null
+                if (payload.loadId != loadId) return@mapNotNull null
+                QueuedAnimalPurchaseAnimal(outboxItemId = row.id, loadId = loadId, request = payload.request, queuedAtMs = row.createdAt, proofOutboxItemId = payload.proofOutboxItemId)
+            }
+        }
 
     /**
      * Writes one detail read — the load header, the caller flag and the FIRST animal page — into

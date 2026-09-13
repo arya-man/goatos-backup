@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -120,7 +121,7 @@ fun AnimalPurchaseLoadDetailScreen(
                         )
                     }
                 }
-                if (rows.itemCount == 0 && state.emptyMessage != null) {
+                if (rows.itemCount == 0 && state.queuedAnimals.isEmpty() && state.emptyMessage != null) {
                     item(key = "empty") {
                         EmptyState(
                             title = state.emptyMessage,
@@ -130,6 +131,10 @@ fun AnimalPurchaseLoadDetailScreen(
                         )
                     }
                 }
+                items(
+                    items = state.queuedAnimals,
+                    key = { "queued:" + it.listKey },
+                ) { queued -> AnimalPurchaseQueuedAnimalCard(queued, onRetry = { onEvent(AnimalPurchaseLoadDetailEvent.RetryQueued(queued.listKey)) }) }
                 items(count = rows.itemCount, key = rows.itemKey { it.listKey }) { index ->
                     rows[index]?.let { card ->
                         AnimalPurchaseAnimalCard(
@@ -393,3 +398,25 @@ private fun AnimalPurchaseBreedField(
 
 private const val BREED_SUGGESTION_LIMIT = 6
 private const val ANIMAL_CLOSE_AFTER_SAVE_MS = 900L
+
+/** A saved-but-not-sent animal: the typed facts and a waiting chip, no decision and no video
+ *  playback (the video is still on this phone). Disappears when the server row lands. */
+@Composable
+private fun AnimalPurchaseQueuedAnimalCard(card: AnimalPurchaseQueuedAnimalUi, onRetry: () -> Unit) {
+    VendorsCard(onClick = if (card.sendFailed) onRetry else null) {
+        Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+            Column(Modifier.weight(1f)) {
+                Text(text = card.title, color = MeshaColors.Ink, style = MeshaType.listTitle)
+                val sub = listOf(card.breed, card.ageWeightLine).filter { it.isNotBlank() }.joinToString(" · ")
+                if (sub.isNotBlank()) Text(text = sub, color = MeshaColors.Muted, style = MeshaType.rowCaption)
+            }
+            if (card.sendFailed) VendorsChip(label = card.failedLabel, tone = VendorsTone.DANGER)
+            else VendorsChip(label = card.waitingLabel, tone = VendorsTone.WARN)
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            if (card.conditionLabel.isNotBlank()) VendorsChip(label = card.conditionLabel, tone = VendorsTone.INFO)
+            if (card.tempTag.isNotBlank()) Text(text = card.tempTag, color = MeshaColors.Ink, style = MeshaType.rowLabel)
+        }
+    }
+}
+

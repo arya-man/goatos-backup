@@ -19,7 +19,18 @@ CREATE TABLE IF NOT EXISTS public.person_module_access_animal_purchases_mobile_b
 WITH inserted AS (
   INSERT INTO public.person_module_access (tenant_id, workforce_member_id, surface, module_key, capabilities, updated_at, updated_by, pages)
   SELECT v.tenant_id, v.workforce_member_id, 'mobile', 'animal_purchases',
-         CASE WHEN v.capabilities && ARRAY['do','oversee']::text[] THEN ARRAY['view','do']::text[] ELSE ARRAY['view']::text[] END,
+         -- RECORDING is the buying desk's, never the CEO's (the toxin separation of duty: the
+         -- person who accepts an animal must not be the one who filmed it). A CEO holds the
+         -- Procurement phone module too, so a blanket copy of the vendors tick would hand the
+         -- CEO `do`; the decide-side grant is what excludes them here.
+         CASE WHEN v.capabilities && ARRAY['do','oversee']::text[]
+               AND NOT EXISTS (
+                 SELECT 1 FROM public.workforce_members m
+                 JOIN public.user_scope_grants g ON g.tenant_id = m.tenant_id AND g.user_id = m.user_id
+                 WHERE m.tenant_id = v.tenant_id AND m.workforce_member_id = v.workforce_member_id
+                   AND g.status = 'active' AND (g.valid_to IS NULL OR g.valid_to > now())
+                   AND g.role = 'ceo_internal')
+              THEN ARRAY['view','do']::text[] ELSE ARRAY['view']::text[] END,
          now(), v.updated_by, '{}'::text[]
   FROM public.person_module_access v
   WHERE v.surface = 'mobile' AND v.module_key = 'vendors' AND cardinality(v.capabilities) > 0

@@ -322,6 +322,8 @@ func formCopy() map[string]string {
 		"animal.save":             "Save animal",
 		"animal.saving":           "Saving...",
 		"animal.decision.pending": "Awaiting decision",
+		"animal.queued":           "Waiting to send",
+		"animal.send_failed":      "Could not send · tap to retry",
 		"animal.decided_by":       "Decided by",
 		"required.hint":           "Fields marked * are required.",
 	}

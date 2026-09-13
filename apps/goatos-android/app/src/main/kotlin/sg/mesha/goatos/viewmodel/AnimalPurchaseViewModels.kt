@@ -20,6 +20,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
@@ -42,7 +43,9 @@ import sg.mesha.goatos.core.data.capture.EvidenceSlot
 import sg.mesha.goatos.core.data.capture.ProofCaptureRepository
 import sg.mesha.goatos.core.data.capture.ProofCaptureRow
 import sg.mesha.goatos.core.data.capture.ProofFlow
+import sg.mesha.goatos.core.data.QueuedAnimalPurchaseAnimal
 import sg.mesha.goatos.core.data.capture.ProofIdentity
+import sg.mesha.goatos.feature.vendors.AnimalPurchaseQueuedAnimalUi
 import sg.mesha.goatos.core.data.capture.ProofSubject
 import sg.mesha.goatos.core.data.forms.ProofPolicy
 import sg.mesha.goatos.core.data.sync.SyncRepository
@@ -51,6 +54,7 @@ import sg.mesha.goatos.core.network.dto.AnimalPurchaseAnimalCreateRequestDto
 import sg.mesha.goatos.core.network.dto.AnimalPurchaseAnimalDto
 import sg.mesha.goatos.core.network.dto.AnimalPurchaseLoadCreateRequestDto
 import sg.mesha.goatos.core.network.dto.AnimalPurchaseLoadDto
+import sg.mesha.goatos.core.network.dto.AnimalPurchaseOptionDto
 import sg.mesha.goatos.core.network.dto.AnimalPurchaseOptionsDto
 import sg.mesha.goatos.feature.vendors.AnimalPurchaseAnimalCardUi
 import sg.mesha.goatos.feature.vendors.AnimalPurchaseAnimalCreateEvent
@@ -350,6 +354,7 @@ class AnimalPurchaseLoadCreateViewModel @Inject constructor(
 @HiltViewModel
 class AnimalPurchaseLoadDetailViewModel @Inject constructor(
     private val repository: AnimalPurchaseRepository,
+    private val syncRepository: SyncRepository,
     private val analytics: AnalyticsPort,
     private val crashReporter: CrashReporter,
     savedStateHandle: SavedStateHandle,
@@ -357,6 +362,24 @@ class AnimalPurchaseLoadDetailViewModel @Inject constructor(
 
     private val loadId: String = savedStateHandle.get<String>(ARG_LOAD_ID).orEmpty()
     private val _isRefreshing = MutableStateFlow(false)
+
+    /** Each not-yet-sent animal paired with whether its video upload row has given up. */
+    private val queuedWithProofState: Flow<List<Pair<QueuedAnimalPurchaseAnimal, Boolean>>> =
+        repository.observeQueuedAnimals(loadId).flatMapLatest { queued ->
+            if (queued.isEmpty()) flowOf(emptyList())
+            else combine(queued.map { animal ->
+                syncRepository.observeItem(animal.proofOutboxItemId).map { proof -> animal to (proof?.isTerminalFailure == true) }
+            }) { it.toList() }
+        }
+
+    /** Re-arms the exhausted video upload; the animal create behind it drains on its own after. */
+    private fun retryQueued(outboxItemId: String) {
+        viewModelScope.launch {
+            val animal = repository.observeQueuedAnimals(loadId).first().firstOrNull { it.outboxItemId == outboxItemId } ?: return@launch
+            analytics.track(AnalyticsEventsAnimalPurchase.ANIMAL_RETRY, mapOf(AnalyticsEventsAnimalPurchase.Params.LOAD_ID to loadId))
+            syncRepository.retry(animal.proofOutboxItemId)
+        }
+    }
 
     init {
         viewModelScope.launch { repository.refreshOptions() }
@@ -367,9 +390,11 @@ class AnimalPurchaseLoadDetailViewModel @Inject constructor(
         repository.observeLoad(loadId),
         repository.observeCanRecord(),
         repository.observeOptions(),
-    ) { refreshing, load, canRecord, options ->
+        queuedWithProofState,
+    ) { refreshing, load, canRecord, options, queued ->
         val copy = options?.copy.orEmpty()
         AnimalPurchaseLoadDetailUiState(
+            queuedAnimals = queued.map { (animal, proofFailed) -> animal.toQueuedUi(options, proofFailed) },
             title = load?.title.orEmpty(),
             summary = load?.summary.orEmpty(),
             countChips = load?.let { it.countChips(copy) }.orEmpty(),
@@ -399,6 +424,7 @@ class AnimalPurchaseLoadDetailViewModel @Inject constructor(
                 AnalyticsEventsAnimalPurchase.VIDEO_PREVIEW_ACTION,
                 mapOf(AnalyticsEventsAnimalPurchase.Params.LOAD_ID to loadId, AnalyticsEventsAnimalPurchase.Params.ACTION to event.action),
             )
+            is AnimalPurchaseLoadDetailEvent.RetryQueued -> retryQueued(event.listKey)
             AnimalPurchaseLoadDetailEvent.Back -> Unit
         }
     }
@@ -813,3 +839,32 @@ private const val MESSAGE_SAVING = "Saving..."
 private const val MESSAGE_SAVED = "Saved."
 private const val MESSAGE_QUEUED = "Saved on this phone. It will reach the server when the phone is online."
 private const val MESSAGE_NOT_SAVED = "That didn't save. Try again."
+
+/** The typed facts of a not-yet-sent animal, labelled from the backend vocabulary the form used. */
+private fun QueuedAnimalPurchaseAnimal.toQueuedUi(options: AnimalPurchaseOptionsDto?, proofFailed: Boolean): AnimalPurchaseQueuedAnimalUi {
+    val r = request
+    fun label(list: List<AnimalPurchaseOptionDto>?, value: String) = list?.firstOrNull { it.value == value }?.label ?: value
+    val sex = label(options?.sexes, r.sex)
+    val species = label(options?.species, r.species).lowercase()
+    val ageWeight = listOfNotNull(
+        r.ageMonths?.let { "$it months" },
+        r.weightKg?.let { w -> if (w == w.toLong().toDouble()) "${w.toLong()} kg" else "$w kg" },
+    ).joinToString(" · ")
+    return AnimalPurchaseQueuedAnimalUi(
+        listKey = outboxItemId,
+        title = "$sex $species".replaceFirstChar { it.uppercase() },
+        breed = r.breed,
+        ageWeightLine = ageWeight,
+        conditionLabel = label(options?.conditions, r.condition),
+        tempTag = r.tempTag,
+        waitingLabel = options?.copy?.get(COPY_ANIMAL_QUEUED) ?: MESSAGE_WAITING_TO_SEND,
+        sendFailed = proofFailed,
+        failedLabel = options?.copy?.get(COPY_ANIMAL_SEND_FAILED) ?: MESSAGE_SEND_FAILED,
+    )
+}
+
+private const val COPY_ANIMAL_QUEUED = "animal.queued"
+private const val MESSAGE_WAITING_TO_SEND = "Waiting to send"
+private const val COPY_ANIMAL_SEND_FAILED = "animal.send_failed"
+private const val MESSAGE_SEND_FAILED = "Could not send · tap to retry"
+

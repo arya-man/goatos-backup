@@ -3729,6 +3729,7 @@ fun AppNavHost(
                             navController.navigate(Routes.animalPurchaseAnimalNewRoute(loadId)) { launchSingleTop = true }
                         }
                         is AnimalPurchaseLoadDetailEvent.PreviewAction -> vm.onEvent(event)
+                        is AnimalPurchaseLoadDetailEvent.RetryQueued -> vm.onEvent(event)
                     }
                 },
             )

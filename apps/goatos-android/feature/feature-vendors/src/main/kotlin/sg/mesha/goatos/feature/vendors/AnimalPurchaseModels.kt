@@ -86,6 +86,24 @@ sealed interface AnimalPurchaseLoadCreateEvent {
 // L1: one load and its animals
 // ---------------------------------------------------------------------------------------------
 
+/** One not-yet-sent animal: what the person typed, labelled from the backend vocabulary. */
+@Immutable
+data class AnimalPurchaseQueuedAnimalUi(
+    val listKey: String,
+    val title: String,
+    val breed: String,
+    val ageWeightLine: String,
+    val conditionLabel: String,
+    val tempTag: String,
+    /** Backend-owned waiting copy (`animal.queued`), VERBATIM. */
+    val waitingLabel: String,
+    /** True when the video upload gave up (every retry spent while offline); the row then
+     *  offers a tap-to-retry instead of waiting forever. */
+    val sendFailed: Boolean,
+    /** Backend-owned failed copy (`animal.send_failed`), VERBATIM. */
+    val failedLabel: String,
+)
+
 @Immutable
 data class AnimalPurchaseAnimalCardUi(
     /** Stable list key — the candidate id IS this list's grain. */
@@ -127,6 +145,9 @@ data class AnimalPurchaseLoadDetailUiState(
     val addLabel: String = "",
     /** Backend-owned section title (`load.animals.title`). */
     val animalsTitle: String = "",
+    /** Animals saved on this phone that have not reached the server yet, newest last. Rendered
+     *  ABOVE the server rows with a waiting chip so a save made without signal is never invisible. */
+    val queuedAnimals: List<AnimalPurchaseQueuedAnimalUi> = emptyList(),
     /** Backend-owned empty copy (`load.animals.empty`). */
     val emptyMessage: String? = null,
     /** Backend-owned prefix for the decided line (`animal.decided_by`). */
@@ -140,6 +161,9 @@ sealed interface AnimalPurchaseLoadDetailEvent {
 
     /** A play/pause/fullscreen/share/failure action on a recorded video preview, for analytics. */
     data class PreviewAction(val action: String) : AnimalPurchaseLoadDetailEvent
+
+    /** Retry a not-yet-sent animal whose video upload gave up. */
+    data class RetryQueued(val listKey: String) : AnimalPurchaseLoadDetailEvent
 }
 
 // ---------------------------------------------------------------------------------------------
