@@ -583,7 +583,7 @@ internal fun AnimalPurchaseAnimalDto.toDetailUi(
     copy: Map<String, String>,
     refreshing: Boolean = false,
 ): AnimalPurchaseAnimalDetailUiState {
-    val sections = mutableListOf<AnimalPurchaseAnswerSectionUi>()
+    val sections = mutableListOf<AnimalPurchaseAnswerSectionUi>() // mobile-guard:ignore: local to one mapping call, bounded by the animal's ~40 served answer rows
     answerRows.forEach { row ->
         val ui = AnimalPurchaseAnswerRowUi(questionId = row.questionId, question = row.question, answer = row.answer, attention = row.attention)
         val last = sections.lastOrNull()

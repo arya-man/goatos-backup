@@ -29,6 +29,7 @@ import sg.mesha.goatos.core.ui.ProofMediaPreviewKind
 import sg.mesha.goatos.core.ui.RefreshOnResume
 import sg.mesha.goatos.core.ui.SyncIconButton
 
+// telemetry:exempt pure renderer: the open is tracked as AnalyticsEventsAnimalPurchase.ANIMAL_OPENED by the load view model on the tap that navigates here, and preview actions flow to VIDEO_PREVIEW_ACTION through the detail view model.
 /**
  * One recorded animal (L2 drill under the load): the server's decision beside the inspector's own
  * verdict, then every SOP answer section by section in the order the form asked them, then every
