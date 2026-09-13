@@ -123,9 +123,12 @@ func (r *Repository) OpenWorkflow(ctx context.Context, cmd ports.OpenWorkflowCom
 			return false, placementErr
 		}
 	}
-	template, ok := domain.TemplateByKeyAt(cmd.TemplateKey, cmd.EventAt, needsShedPlacement)
-	if !ok {
-		return false, domain.ErrUnknownTemplate
+	template, sopVersionID, err := r.compileTemplate(ctx, cmd.TenantID, cmd.TemplateKey, domain.CompileOptions{
+		EventAt:            cmd.EventAt,
+		NeedsShedPlacement: needsShedPlacement,
+	})
+	if err != nil {
+		return false, err
 	}
 	var birthEventID *string
 	if cmd.TemplateKey == domain.TemplateKeyBirthKid || cmd.TemplateKey == domain.TemplateKeyBirthMother {
@@ -178,17 +181,17 @@ WHERE tenant_id=$1::uuid AND child_goat_id=$2::uuid`, cmd.TenantID, childID).Sca
 INSERT INTO workflow_instances (
   tenant_id, template_key, module, subject_goat_id, dam_goat_id,
   birth_event_id, event_at, event_date, park_id, shed_id, state,
-  actions_total, actions_done, next_action_key, next_action_title, next_due_at
+  actions_total, actions_done, next_action_key, next_action_title, next_due_at, sop_version_id
 ) VALUES (
   $1::uuid, $2, $3, $4::uuid, nullif($5::text,'')::uuid,
   nullif($6::text,'')::uuid, $7::timestamptz, $8::date, nullif($9::text,'')::uuid, nullif($10::text,'')::uuid, 'open',
-  $11, 0, $12, $13, $14::timestamptz
+  $11, 0, $12, $13, $14::timestamptz, nullif($15::text,'')::uuid
 )
 ON CONFLICT DO NOTHING
 RETURNING workflow_id::text`,
 		cmd.TenantID, cmd.TemplateKey, template.Module, cmd.SubjectGoatID, deref(cmd.DamGoatID),
 		deref(birthEventID), cmd.EventAt.UTC(), biztime.BusinessDate(cmd.EventAt), deref(cmd.ParkID), deref(cmd.ShedID),
-		template.OperatorActionCount(), nextKey, nextTitle, nextDue,
+		template.OperatorActionCount(), nextKey, nextTitle, nextDue, sopVersionID,
 	).Scan(&workflowID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		// Natural-key conflict: the workflow already exists. Do not touch its actions.
@@ -209,15 +212,18 @@ RETURNING workflow_id::text`,
 		args []any
 	)
 	sb.WriteString(`INSERT INTO workflow_actions (
-  tenant_id, workflow_id, action_key, seq, section, action_type, title, detail, requires_video, options, due_at
+  tenant_id, workflow_id, action_key, seq, section, action_type, title, detail, requires_video, options, due_at,
+  task_type, answer_type, engine_hook, proof_min_videos, proof_min_photos, hard_time_gate, wait_for_all,
+  requires_keys, after_action_key, after_offset_seconds
 ) VALUES `)
 	for i, a := range template.Actions {
 		if i > 0 {
 			sb.WriteString(", ")
 		}
 		base := len(args)
-		sb.WriteString(fmt.Sprintf("($%d::uuid, $%d::uuid, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d::jsonb, $%d::timestamptz)",
-			base+1, base+2, base+3, base+4, base+5, base+6, base+7, base+8, base+9, base+10, base+11))
+		sb.WriteString(fmt.Sprintf("($%d::uuid, $%d::uuid, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d::jsonb, $%d::timestamptz, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d::jsonb, $%d, $%d)",
+			base+1, base+2, base+3, base+4, base+5, base+6, base+7, base+8, base+9, base+10, base+11,
+			base+12, base+13, base+14, base+15, base+16, base+17, base+18, base+19, base+20, base+21))
 		var options any
 		if len(a.Options) > 0 {
 			raw, err := json.Marshal(a.Options)
@@ -227,8 +233,8 @@ RETURNING workflow_id::text`,
 			options = string(raw)
 		}
 		var dueAt any
-		if a.Key == domain.ActionKeyORSWater2 {
-			// Dependency-timed: populated atomically when ORS round 1 completes.
+		if a.Schedule.IsDependencyTimed() {
+			// Dependency-timed: populated atomically when the named step completes.
 			dueAt = nil
 		} else if a.Schedule != (domain.Schedule{}) {
 			dueAt = a.Schedule.DueAt(cmd.EventAt).UTC()
@@ -236,7 +242,17 @@ RETURNING workflow_id::text`,
 			// Immediate steps are due at the event moment itself.
 			dueAt = cmd.EventAt.UTC()
 		}
-		args = append(args, cmd.TenantID, workflowID, a.Key, a.Seq, a.Section, a.Type, a.Title, a.Detail, a.RequiresVideo, options, dueAt)
+		requires, err := json.Marshal(nonNilStrings(a.Requires))
+		if err != nil {
+			return false, err
+		}
+		answerKind := a.AnswerKind
+		if answerKind == "" {
+			answerKind = domain.AnswerKindNone
+		}
+		args = append(args, cmd.TenantID, workflowID, a.Key, a.Seq, a.Section, a.Type, a.Title, a.Detail, a.RequiresVideo, options, dueAt,
+			a.TaskType, answerKind, a.EngineHook, a.Proof.Video, a.Proof.Photo, a.HardTimeGate, a.WaitForAll,
+			string(requires), a.Schedule.AfterStepKey, int(a.Schedule.Offset.Seconds()))
 	}
 	if _, err := tx.Exec(ctx, sb.String(), args...); err != nil {
 		return false, err
@@ -652,7 +668,9 @@ func (r *Repository) listActions(ctx context.Context, q queryer, tenantID, workf
 SELECT action_id::text, tenant_id::text, workflow_id::text, action_key, seq, section, action_type,
        title, COALESCE(detail, ''), requires_video, options, due_at, status,
        answer_value, proof_ref, completed_by::text, completed_at, verification_item_id::text,
-       idempotency_key, request_fingerprint, row_version
+       idempotency_key, request_fingerprint, row_version,
+       task_type, answer_type, engine_hook, proof_min_videos, proof_min_photos, proof_refs,
+       hard_time_gate, wait_for_all, requires_keys, after_action_key, after_offset_seconds
 FROM workflow_actions
 WHERE tenant_id = $1::uuid AND workflow_id = $2::uuid
 ORDER BY seq ASC`+lock, tenantID, workflowID)
@@ -664,19 +682,33 @@ ORDER BY seq ASC`+lock, tenantID, workflowID)
 	var out []domain.WorkflowAction
 	for rows.Next() {
 		var (
-			a       domain.WorkflowAction
-			options []byte
+			a         domain.WorkflowAction
+			options   []byte
+			proofRefs []byte
+			requires  []byte
 		)
 		if err := rows.Scan(
 			&a.ActionID, &a.TenantID, &a.WorkflowID, &a.ActionKey, &a.Seq, &a.Section, &a.ActionType,
 			&a.Title, &a.Detail, &a.RequiresVideo, &options, &a.DueAt, &a.Status,
 			&a.AnswerValue, &a.ProofRef, &a.CompletedBy, &a.CompletedAt, &a.VerificationItemID,
 			&a.IdempotencyKey, &a.RequestFingerprint, &a.RowVersion,
+			&a.TaskType, &a.AnswerType, &a.EngineHook, &a.ProofMinVideos, &a.ProofMinPhotos, &proofRefs,
+			&a.HardTimeGate, &a.WaitForAll, &requires, &a.AfterActionKey, &a.AfterOffsetSeconds,
 		); err != nil {
 			return nil, err
 		}
 		if len(options) > 0 {
 			if err := json.Unmarshal(options, &a.Options); err != nil {
+				return nil, err
+			}
+		}
+		if len(proofRefs) > 0 {
+			if err := json.Unmarshal(proofRefs, &a.ProofRefs); err != nil {
+				return nil, err
+			}
+		}
+		if len(requires) > 0 {
+			if err := json.Unmarshal(requires, &a.RequiresKeys); err != nil {
 				return nil, err
 			}
 		}
@@ -751,11 +783,11 @@ UPDATE workflow_actions
 SET status = $3, answer_value = $4, proof_ref = $5, completed_by = nullif($6::text,'')::uuid,
     completed_at = $7::timestamptz, verification_item_id = nullif($8::text,'')::uuid,
     idempotency_key = $9, request_fingerprint = $10,
-    row_version = $11, due_at = $12::timestamptz, updated_at = now()
+    row_version = $11, due_at = $12::timestamptz, proof_refs = $13::jsonb, updated_at = now()
 WHERE tenant_id = $1::uuid AND action_id = $2::uuid`,
 			tenantID, a.ActionID, a.Status, a.AnswerValue, a.ProofRef, derefPtr(a.CompletedBy),
 			a.CompletedAt, derefPtr(a.VerificationItemID), a.IdempotencyKey, a.RequestFingerprint,
-			a.RowVersion, a.DueAt,
+			a.RowVersion, a.DueAt, mustProofJSON(a.ProofRefs),
 		); err != nil {
 			if isUniqueViolation(err) {
 				// workflow_actions_idempotency_uq: this client key already claimed a DIFFERENT action write.
@@ -836,7 +868,7 @@ func (r *Repository) AnswerAction(ctx context.Context, cmd domain.AnswerActionCo
 			// the wrong pen. The idempotency gate is the action row itself -- an exact replay
 			// returned above, and a completed action refuses a second write -- so this cannot run
 			// twice for the same step.
-			if updated.ActionKey == domain.ActionKeyRecordShed {
+			if updated.HasHook(domain.EngineHookRecordPen) {
 				if err := r.applyRecordedNewbornPen(ctx, tx, w, updated, cmd); err != nil {
 					return nil, false, err
 				}
@@ -872,7 +904,7 @@ func (r *Repository) CompleteAction(ctx context.Context, cmd domain.CompleteActi
 			if domain.ActionTimeBlocked(actions[idx], cmd.CompletedAt) {
 				return nil, false, domain.ErrActionNotYetDue
 			}
-			if actions[idx].ActionKey == domain.ActionKeyTagTheKid {
+			if actions[idx].HasHook(domain.EngineHookTagKid) {
 				ready, err := r.hasPermanentIdentifier(ctx, cmd.TenantID, w.SubjectGoatID)
 				if err != nil {
 					return nil, false, err
@@ -891,15 +923,23 @@ func (r *Repository) CompleteAction(ctx context.Context, cmd domain.CompleteActi
 				return nil, true, nil
 			}
 			changed := []domain.WorkflowAction{updated}
-			if w.TemplateKey == domain.TemplateKeyBirthMother && updated.ActionKey == domain.ActionKeyORSWater1 && updated.CompletedAt != nil {
+			if updated.CompletedAt != nil {
+				// Dependency-timed steps: any sibling whose schedule waits on THIS step gets its
+				// due time now (the ORS round 2 shape, authored in the SOP; legacy rows carry the
+				// backfilled after_action_key).
 				for i := range actions {
-					if actions[i].ActionKey == domain.ActionKeyORSWater2 {
-						due := updated.CompletedAt.Add(50 * time.Minute)
-						actions[i].DueAt = &due
-						actions[i].RowVersion++
-						changed = append(changed, actions[i])
-						break
+					dep := actions[i]
+					afterKey, offset := dep.AfterActionKey, time.Duration(dep.AfterOffsetSeconds)*time.Second
+					if dep.TaskType == "" && dep.ActionKey == domain.ActionKeyORSWater2 && afterKey == "" {
+						afterKey, offset = domain.ActionKeyORSWater1, 50*time.Minute
 					}
+					if afterKey == "" || afterKey != updated.ActionKey || dep.Status != domain.ActionStatusPending {
+						continue
+					}
+					due := updated.CompletedAt.Add(offset)
+					actions[i].DueAt = &due
+					actions[i].RowVersion++
+					changed = append(changed, actions[i])
 				}
 			}
 			// Only re-shoots after an already-applied death return directly to Verify. The initial
@@ -1031,7 +1071,7 @@ LIMIT 1`, tenantID, goatID, domain.TemplateKeyBirthKid).Scan(&id)
 				return nil, true, nil
 			}
 			for i := range actions {
-				if actions[i].ActionKey != domain.ActionKeyTagTheKid {
+				if !actions[i].HasHook(domain.EngineHookTagKid) {
 					continue
 				}
 				if actions[i].AnswerValue != nil && *actions[i].AnswerValue == identifier {
@@ -1259,7 +1299,7 @@ func (r *Repository) BounceBirthVideoForRework(ctx context.Context, cmd ports.De
 					continue
 				}
 				actions[i].Status = domain.ActionStatusRework
-				if actions[i].ActionKey != domain.ActionKeyTagTheKid {
+				if !actions[i].HasHook(domain.EngineHookTagKid) {
 					actions[i].AnswerValue = nil
 				}
 				actions[i].ProofRef = nil

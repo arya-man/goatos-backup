@@ -1,0 +1,11 @@
+{
+  "schema_version": "goatos.sop-followup.v1",
+  "tracks": [
+    {
+      "key": "shifting", "module": "shifting", "label": "Pen move", "subject": "movement",
+      "steps": [
+        {"key": "move_video", "task_type": "video_record", "title": "Record the move", "detail": "Record every shifted animal with its ear tag visible inside the destination pen, in one live in-app camera video.", "proof": {"video": 1}, "schedule": {"kind": "immediately"}}
+      ]
+    }
+  ]
+}

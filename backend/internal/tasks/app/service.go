@@ -147,6 +147,7 @@ type AnswerActionInput struct {
 	ActionID           string
 	AnswerValue        string
 	ProofRef           string
+	Proofs             []domain.ProofItem
 	AnsweredBy         string
 	IdempotencyKey     string
 	RequestFingerprint string
@@ -165,6 +166,7 @@ func (s *Service) AnswerAction(ctx context.Context, in AnswerActionInput) (domai
 		ActionID:           in.ActionID,
 		AnswerValue:        strings.TrimSpace(in.AnswerValue),
 		ProofRef:           strings.TrimSpace(in.ProofRef),
+		Proofs:             in.Proofs,
 		AnsweredBy:         strings.TrimSpace(in.AnsweredBy),
 		AnsweredAt:         s.now().UTC(),
 		IdempotencyKey:     in.IdempotencyKey,
@@ -185,6 +187,7 @@ type CompleteActionInput struct {
 	WorkflowID         string
 	ActionID           string
 	ProofRef           string
+	Proofs             []domain.ProofItem
 	CompletedBy        string
 	IdempotencyKey     string
 	RequestFingerprint string
@@ -226,6 +229,7 @@ func (s *Service) CompleteAction(ctx context.Context, in CompleteActionInput) (d
 		WorkflowID:         in.WorkflowID,
 		ActionID:           in.ActionID,
 		ProofRef:           strings.TrimSpace(in.ProofRef),
+		Proofs:             in.Proofs,
 		CompletedBy:        strings.TrimSpace(in.CompletedBy),
 		CompletedAt:        s.now().UTC(),
 		IdempotencyKey:     in.IdempotencyKey,

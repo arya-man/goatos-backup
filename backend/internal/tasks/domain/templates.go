@@ -105,6 +105,9 @@ const (
 // Business-day/IST anchoring is mandatory (AGENTS.md): the fixed shape resolves the event's
 // Asia/Kolkata business date first and then applies the wall-clock time in that calendar.
 type Schedule struct {
+	// AfterStepKey, when set, makes the step dependency-timed: due_at is left NULL at open and
+	// populated with (that step's completion + Offset) when it completes (the ORS round 2 shape).
+	AfterStepKey string
 	// Offset applies when AtFixedTime is false: due = eventAt + Offset.
 	Offset time.Duration
 	// AtFixedTime selects the business-day wall-clock shape below.
@@ -118,6 +121,9 @@ type Schedule struct {
 
 // DueAt resolves the schedule against the event moment.
 func (s Schedule) DueAt(eventAt time.Time) time.Time {
+	if s.AfterStepKey != "" {
+		return time.Time{}
+	}
 	if !s.AtFixedTime {
 		return eventAt.Add(s.Offset)
 	}
@@ -138,7 +144,18 @@ type ActionTemplate struct {
 	// Options carries the question_select bands (nil for other types).
 	Options  []string
 	Schedule Schedule
+	// SOP-driven attributes (sop_followup.go). Zero values reproduce the legacy code templates.
+	TaskType     string
+	AnswerKind   string
+	EngineHook   string
+	Proof        FollowUpProof
+	HardTimeGate bool
+	WaitForAll   bool
+	Requires     []string
 }
+
+// IsDependencyTimed reports a step whose due time is set by another step's completion.
+func (s Schedule) IsDependencyTimed() bool { return s.AfterStepKey != "" }
 
 // Template is one code-defined workflow shape.
 type Template struct {

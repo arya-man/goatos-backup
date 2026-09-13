@@ -18,6 +18,7 @@ type Service struct {
 	proofs       ProofValidator
 	submission   SubmissionHook
 	reviewFanout TaskReviewFanout
+	taskTypes    TaskTypeSource
 	now          func() time.Time
 }
 
@@ -202,6 +203,7 @@ func (s *Service) CreateVersion(ctx context.Context, cmd ports.CreateVersionComm
 		return nil, mapRepoErr(err)
 	}
 	validateVaccinationDriveSOPContract(&cmd.Report, sop.Code, cmd.Body.FormDSL, cmd.Body.ProofPolicy)
+	s.validateFollowUpContract(ctx, &cmd.Report, cmd.TenantID, sop.Code, cmd.Body.FormDSL)
 	if !cmd.Report.Valid {
 		return nil, BadRequest("invalid_sop_dsl", cmd.Report.Errors[0].Message)
 	}

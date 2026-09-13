@@ -18,6 +18,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/platform/uuidutil"
 	"github.com/vgoats/goatos/backend/internal/sop/domain"
 	"github.com/vgoats/goatos/backend/internal/sop/ports"
+	tasksdomain "github.com/vgoats/goatos/backend/internal/tasks/domain"
 )
 
 const defaultQueryTimeout = 3 * time.Second
@@ -2878,4 +2879,30 @@ func mapUpdateErr(err error) error {
 		return fmt.Errorf("%w: no_matching_row", ports.ErrConflict)
 	}
 	return mapWriteErr(err)
+}
+
+const activeTaskTypesSQL = `
+SELECT task_type_key, answer_kind, engine_hook
+FROM sop_task_types
+WHERE tenant_id = $1::uuid AND status = 'active'`
+
+// ListActiveTaskTypes reads the tenant's Task Type Registry (migration 000299) for follow_up
+// validation at version creation. Implements sop/app.TaskTypeSource.
+func (r *Repository) ListActiveTaskTypes(ctx context.Context, tenantID string) (tasksdomain.TaskTypeRegistry, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	rows, err := r.pool.Query(ctx, activeTaskTypesSQL, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := tasksdomain.TaskTypeRegistry{}
+	for rows.Next() {
+		var key, answer, hook string
+		if err := rows.Scan(&key, &answer, &hook); err != nil {
+			return nil, err
+		}
+		out[key] = tasksdomain.FollowUpTaskTy{Key: key, AnswerKind: answer, EngineHook: hook}
+	}
+	return out, rows.Err()
 }

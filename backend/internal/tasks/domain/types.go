@@ -3,6 +3,7 @@ package domain
 import (
 	"errors"
 	"math"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -25,7 +26,7 @@ var (
 	// ErrActionNotYetDue rejects a dependency-timed action before its canonical due_at.
 	ErrActionNotYetDue = errors.New("tasks: action is not due yet")
 	// ErrProofRequired is a requires_video completion without a proof_ref (HTTP 422 proof_required).
-	ErrProofRequired = errors.New("tasks: a video proof (proof_ref) is required to complete this action")
+	ErrProofRequired = errors.New("tasks: this step needs its required proof (video and/or photo) before it can be completed")
 	// ErrPermanentIdentifierRequired prevents Tag the kid from finishing before the canonical goat
 	// has received its operator-scanned permanent RFID.
 	ErrPermanentIdentifierRequired = errors.New("tasks: assign the permanent RFID before completing Tag the kid")
@@ -68,27 +69,151 @@ type WorkflowInstance struct {
 
 // WorkflowAction mirrors one workflow_actions row.
 type WorkflowAction struct {
-	ActionID           string
-	TenantID           string
-	WorkflowID         string
-	ActionKey          string
-	Seq                int
-	Section            string
-	ActionType         string
-	Title              string
-	Detail             string
-	RequiresVideo      bool
-	Options            []string
-	DueAt              *time.Time
-	Status             string
-	AnswerValue        *string
-	ProofRef           *string
+	ActionID      string
+	TenantID      string
+	WorkflowID    string
+	ActionKey     string
+	Seq           int
+	Section       string
+	ActionType    string
+	Title         string
+	Detail        string
+	RequiresVideo bool
+	Options       []string
+	DueAt         *time.Time
+	Status        string
+	AnswerValue   *string
+	ProofRef      *string
+	// SOP-driven attributes stamped at open from the pinned follow_up (sop_followup.go). Rows
+	// stamped before migration 000299 were backfilled so the generalized gates below read the
+	// same thing the old key-matched code implied.
+	TaskType           string
+	AnswerType         string
+	EngineHook         string
+	ProofMinVideos     int
+	ProofMinPhotos     int
+	ProofRefs          []ProofItem
+	HardTimeGate       bool
+	WaitForAll         bool
+	RequiresKeys       []string
+	AfterActionKey     string
+	AfterOffsetSeconds int
 	CompletedBy        *string
 	CompletedAt        *time.Time
 	VerificationItemID *string
 	IdempotencyKey     *string
 	RequestFingerprint *string
 	RowVersion         int
+}
+
+// ProofItem is one captured proof on a step: the media reference and whether it is a video or a
+// photo. proof_ref (the legacy single column) mirrors the first video.
+type ProofItem struct {
+	Ref  string `json:"ref"`
+	Kind string `json:"kind"`
+}
+
+// Proof kinds.
+const (
+	ProofKindVideo = "video"
+	ProofKindPhoto = "photo"
+)
+
+// HasHook reports whether the step carries an engine hook. Pre-000299 rows and rows whose
+// task type carries no hook fall back to the legacy step-key match, so a behaviour never
+// detaches on old data.
+func (a WorkflowAction) HasHook(hook string) bool {
+	if a.EngineHook != "" {
+		return a.EngineHook == hook
+	}
+	switch hook {
+	case EngineHookWeighKg:
+		return a.ActionKey == ActionKeyTakeWeight
+	case EngineHookTagKid:
+		return a.ActionKey == ActionKeyTagTheKid
+	case EngineHookRecordPen:
+		return a.ActionKey == ActionKeyRecordShed
+	case EngineHookColostrum:
+		return a.ActionKey == ActionKeyFirstColostrum || a.Section == SectionColostrumSession
+	case EngineHookDeathVideo:
+		return a.ActionKey == ActionKeyDeathVideo || a.ActionKey == ActionKeyPostMortemVideo
+	}
+	return false
+}
+
+// proofCounts tallies captured proofs by kind, counting the legacy proof_ref as one video when
+// proof_refs is empty.
+func (a WorkflowAction) proofCounts() (videos, photos int) {
+	if len(a.ProofRefs) == 0 {
+		if a.ProofRef != nil && strings.TrimSpace(*a.ProofRef) != "" {
+			return 1, 0
+		}
+		return 0, 0
+	}
+	for _, p := range a.ProofRefs {
+		switch p.Kind {
+		case ProofKindPhoto:
+			photos++
+		default:
+			videos++
+		}
+	}
+	return videos, photos
+}
+
+// ProofSatisfied reports whether the step's captured proofs meet its authored minimums. A
+// pre-000299 row has ProofMinVideos backfilled from requires_video, so the legacy one-video rule
+// is the same check.
+func (a WorkflowAction) ProofSatisfied() bool {
+	v, p := a.proofCounts()
+	minV := a.ProofMinVideos
+	if minV == 0 && a.RequiresVideo && len(a.ProofRefs) == 0 {
+		minV = 1
+	}
+	return v >= minV && p >= a.ProofMinPhotos
+}
+
+// mergeProofs applies a write's proofs to the step: an explicit proofs list replaces the step's
+// captured set; a bare proof_ref (legacy client) becomes one video. The legacy proof_ref column
+// mirrors the first video so older readers keep working.
+func mergeProofs(a *WorkflowAction, proofRef string, proofs []ProofItem) {
+	items := make([]ProofItem, 0, len(proofs)+1)
+	for _, p := range proofs {
+		ref := strings.TrimSpace(p.Ref)
+		if ref == "" {
+			continue
+		}
+		kind := p.Kind
+		if kind != ProofKindPhoto {
+			kind = ProofKindVideo
+		}
+		items = append(items, ProofItem{Ref: ref, Kind: kind})
+	}
+	if ref := strings.TrimSpace(proofRef); ref != "" {
+		dup := false
+		for _, it := range items {
+			if it.Ref == ref {
+				dup = true
+				break
+			}
+		}
+		if !dup {
+			items = append([]ProofItem{{Ref: ref, Kind: ProofKindVideo}}, items...)
+		}
+	}
+	a.ProofRefs = items
+	a.ProofRef = nil
+	for _, it := range items {
+		if it.Kind == ProofKindVideo {
+			r := it.Ref
+			a.ProofRef = &r
+			break
+		}
+	}
+	if a.ProofRef == nil && len(items) > 0 {
+		r := items[0].Ref
+		a.ProofRef = &r
+	}
 }
 
 // AnswerActionCommand answers a question / question_select action. take_weight is a numeric
@@ -99,6 +224,7 @@ type AnswerActionCommand struct {
 	ActionID           string
 	AnswerValue        string
 	ProofRef           string
+	Proofs             []ProofItem
 	AnsweredBy         string
 	AnsweredAt         time.Time
 	IdempotencyKey     string
@@ -111,6 +237,7 @@ type CompleteActionCommand struct {
 	WorkflowID         string
 	ActionID           string
 	ProofRef           string
+	Proofs             []ProofItem
 	CompletedBy        string
 	CompletedAt        time.Time
 	IdempotencyKey     string
@@ -178,32 +305,45 @@ func ApplyAnswer(a WorkflowAction, cmd AnswerActionCommand) (WorkflowAction, boo
 	if answer == "" {
 		return a, false, ErrInvalidAnswer
 	}
-	if a.ActionKey == ActionKeyTakeWeight && !ValidKidWeightKilograms(answer) {
+	if a.HasHook(EngineHookWeighKg) && !ValidKidWeightKilograms(answer) {
 		return a, false, ErrInvalidAnswer
+	}
+	if a.AnswerType == AnswerKindNumber && !a.HasHook(EngineHookWeighKg) {
+		if _, err := strconv.ParseFloat(answer, 64); err != nil {
+			return a, false, ErrInvalidAnswer
+		}
 	}
 	// The Record shed answer names an operational location. Only its FORMAT is checked here, in the
 	// pure state machine; whether the pen actually exists is proved against live location rows in
 	// the same transaction as the write (see the postgres adapter). A malformed value is rejected
 	// before the action is marked completed, so a kid is never recorded as placed by a value that
 	// resolves to no pen.
-	if a.ActionKey == ActionKeyRecordShed {
+	if a.HasHook(EngineHookRecordPen) {
 		if _, _, err := ParseRecordedPenAnswer(answer); err != nil {
 			return a, false, err
 		}
 	}
-	if a.RequiresVideo && cmd.ProofRef == "" {
+	mergeProofs(&a, cmd.ProofRef, cmd.Proofs)
+	if !a.ProofSatisfied() {
 		return a, false, ErrProofRequired
 	}
 	if a.ActionType == ActionTypeQuestionSelect {
-		allowed := false
-		for _, opt := range a.Options {
-			if opt == answer {
-				allowed = true
-				break
-			}
+		// A multiselect answer is the chosen options joined by "|", each of which must be authored.
+		chosen := []string{answer}
+		if a.AnswerType == AnswerKindMultiSelect {
+			chosen = strings.Split(answer, "|")
 		}
-		if !allowed {
-			return a, false, ErrInvalidAnswer
+		for _, c := range chosen {
+			allowed := false
+			for _, opt := range a.Options {
+				if opt == strings.TrimSpace(c) {
+					allowed = true
+					break
+				}
+			}
+			if !allowed {
+				return a, false, ErrInvalidAnswer
+			}
 		}
 	}
 	by := cmd.AnsweredBy
@@ -212,7 +352,6 @@ func ApplyAnswer(a WorkflowAction, cmd AnswerActionCommand) (WorkflowAction, boo
 	fp := cmd.RequestFingerprint
 	a.Status = ActionStatusCompleted
 	a.AnswerValue = &answer
-	a.ProofRef = optionalPtr(cmd.ProofRef)
 	a.CompletedBy = optionalPtr(by)
 	a.CompletedAt = &at
 	a.IdempotencyKey = &key
@@ -259,14 +398,14 @@ func ApplyComplete(a WorkflowAction, cmd CompleteActionCommand) (WorkflowAction,
 	if replay {
 		return a, true, nil
 	}
-	if a.RequiresVideo && cmd.ProofRef == "" {
+	mergeProofs(&a, cmd.ProofRef, cmd.Proofs)
+	if !a.ProofSatisfied() {
 		return a, false, ErrProofRequired
 	}
 	at := cmd.CompletedAt
 	key := cmd.IdempotencyKey
 	fp := cmd.RequestFingerprint
 	a.Status = ActionStatusCompleted
-	a.ProofRef = optionalPtr(cmd.ProofRef)
 	a.AnswerValue = nil
 	a.CompletedBy = optionalPtr(cmd.CompletedBy)
 	a.CompletedAt = &at
@@ -278,38 +417,54 @@ func ApplyComplete(a WorkflowAction, cmd CompleteActionCommand) (WorkflowAction,
 
 // DeathVideosComplete reports whether both mandatory death videos are completed.
 func DeathVideosComplete(actions []WorkflowAction) bool {
-	done := 0
+	total, done := 0, 0
 	for _, a := range actions {
-		if (a.ActionKey == ActionKeyDeathVideo || a.ActionKey == ActionKeyPostMortemVideo) &&
-			a.Status == ActionStatusCompleted {
+		if !a.HasHook(EngineHookDeathVideo) || a.Status == ActionStatusCanceled {
+			continue
+		}
+		total++
+		if a.Status == ActionStatusCompleted {
 			done++
 		}
 	}
-	return done == 2
+	return total > 0 && done == total
 }
 
-// DeathProofRefs returns the two death-video proofs ordered (death video, post mortem video).
+// DeathProofRefs returns every death-evidence proof in step order (the legacy pair was death
+// video then post-mortem video; the SOP may author more).
 func DeathProofRefs(actions []WorkflowAction) []string {
-	var death, postMortem string
-	for _, a := range actions {
-		if a.ProofRef == nil {
+	sorted := append([]WorkflowAction(nil), actions...)
+	sort.SliceStable(sorted, func(i, j int) bool { return sorted[i].Seq < sorted[j].Seq })
+	refs := make([]string, 0, 2)
+	for _, a := range sorted {
+		if !a.HasHook(EngineHookDeathVideo) {
 			continue
 		}
-		switch a.ActionKey {
-		case ActionKeyDeathVideo:
-			death = *a.ProofRef
-		case ActionKeyPostMortemVideo:
-			postMortem = *a.ProofRef
-		}
-	}
-	refs := make([]string, 0, 2)
-	if death != "" {
-		refs = append(refs, death)
-	}
-	if postMortem != "" {
-		refs = append(refs, postMortem)
+		refs = append(refs, a.AllProofRefs()...)
 	}
 	return refs
+}
+
+// AllProofRefs lists every captured proof reference on the step, videos first.
+func (a WorkflowAction) AllProofRefs() []string {
+	if len(a.ProofRefs) == 0 {
+		if a.ProofRef != nil && *a.ProofRef != "" {
+			return []string{*a.ProofRef}
+		}
+		return nil
+	}
+	out := make([]string, 0, len(a.ProofRefs))
+	for _, p := range a.ProofRefs {
+		if p.Kind == ProofKindVideo {
+			out = append(out, p.Ref)
+		}
+	}
+	for _, p := range a.ProofRefs {
+		if p.Kind != ProofKindVideo {
+			out = append(out, p.Ref)
+		}
+	}
+	return out
 }
 
 // BirthWorkflowComplete requires every operator row in one mother or child workflow. Every
@@ -324,7 +479,7 @@ func BirthWorkflowComplete(actions []WorkflowAction) bool {
 		if action.Status != ActionStatusCompleted {
 			return false
 		}
-		if action.RequiresVideo && (action.ProofRef == nil || *action.ProofRef == "") {
+		if !action.ProofSatisfied() {
 			return false
 		}
 	}
@@ -334,9 +489,7 @@ func BirthWorkflowComplete(actions []WorkflowAction) bool {
 func BirthProofRefs(actions []WorkflowAction) []string {
 	refs := make([]string, 0, len(actions))
 	for _, action := range actions {
-		if action.RequiresVideo && action.ProofRef != nil && *action.ProofRef != "" {
-			refs = append(refs, *action.ProofRef)
-		}
+		refs = append(refs, action.AllProofRefs()...)
 	}
 	return refs
 }
@@ -371,7 +524,7 @@ func OperatorActionBlocked(a WorkflowAction, siblings []WorkflowAction) bool {
 		a.Status == ActionStatusCanceled {
 		return false
 	}
-	if a.ActionKey == ActionKeyTagTheKid {
+	if a.WaitForAll || (a.TaskType == "" && a.ActionKey == ActionKeyTagTheKid) {
 		for _, prerequisite := range siblings {
 			if prerequisite.ActionID == a.ActionID || prerequisite.ActionType == ActionTypeApproval {
 				continue
@@ -382,15 +535,19 @@ func OperatorActionBlocked(a WorkflowAction, siblings []WorkflowAction) bool {
 		}
 		return false
 	}
-	if a.Section == SectionColostrumSession {
-		firstColostrumCompleted := false
+	requires := a.RequiresKeys
+	if a.TaskType == "" && a.Section == SectionColostrumSession {
+		requires = []string{ActionKeyFirstColostrum}
+	}
+	for _, req := range requires {
+		satisfied := false
 		for _, prerequisite := range siblings {
-			if prerequisite.ActionKey == ActionKeyFirstColostrum {
-				firstColostrumCompleted = prerequisite.Status == ActionStatusCompleted
+			if prerequisite.ActionKey == req {
+				satisfied = prerequisite.Status == ActionStatusCompleted
 				break
 			}
 		}
-		if !firstColostrumCompleted {
+		if !satisfied {
 			return true
 		}
 	}
@@ -410,7 +567,11 @@ func OperatorActionBlocked(a WorkflowAction, siblings []WorkflowAction) bool {
 // due times are scheduling guidance unless their own contract explicitly makes them a hard gate. A
 // missing due time on either gated shape fails closed.
 func ActionTimeBlocked(a WorkflowAction, now time.Time) bool {
-	if (a.ActionKey != ActionKeyORSWater2 && a.Section != SectionColostrumSession) ||
+	gated := a.HardTimeGate
+	if a.TaskType == "" {
+		gated = a.ActionKey == ActionKeyORSWater2 || a.Section == SectionColostrumSession
+	}
+	if !gated ||
 		a.Status == ActionStatusCompleted ||
 		a.Status == ActionStatusInReview ||
 		a.Status == ActionStatusCanceled {

@@ -93,24 +93,32 @@ type workflowListResponse struct {
 }
 
 type workflowActionDTO struct {
-	ActionID           string     `json:"action_id"`
-	ActionKey          string     `json:"action_key"`
-	Seq                int        `json:"seq"`
-	Section            string     `json:"section"`
-	ActionType         string     `json:"action_type"`
-	Title              string     `json:"title"`
-	Detail             string     `json:"detail"`
-	RequiresVideo      bool       `json:"requires_video"`
-	Options            []string   `json:"options,omitempty"`
-	DueAt              *time.Time `json:"due_at"`
-	Status             string     `json:"status"`
-	Blocked            bool       `json:"blocked"`
-	BlockedReason      string     `json:"blocked_reason,omitempty"`
-	AnswerValue        *string    `json:"answer_value"`
-	ProofRef           *string    `json:"proof_ref"`
-	CompletedByLabel   string     `json:"completed_by_label"`
-	CompletedAt        *time.Time `json:"completed_at"`
-	VerificationStatus string     `json:"verification_status"`
+	ActionID      string     `json:"action_id"`
+	ActionKey     string     `json:"action_key"`
+	Seq           int        `json:"seq"`
+	Section       string     `json:"section"`
+	ActionType    string     `json:"action_type"`
+	Title         string     `json:"title"`
+	Detail        string     `json:"detail"`
+	RequiresVideo bool       `json:"requires_video"`
+	Options       []string   `json:"options,omitempty"`
+	DueAt         *time.Time `json:"due_at"`
+	Status        string     `json:"status"`
+	Blocked       bool       `json:"blocked"`
+	BlockedReason string     `json:"blocked_reason,omitempty"`
+	AnswerValue   *string    `json:"answer_value"`
+	ProofRef      *string    `json:"proof_ref"`
+	// SOP-driven step attributes (docs/decisions/sop-driven-herd-operations.md). The phone renders
+	// answer_type / proof_min_* verbatim: a step can ask for a number, text, several choices, and
+	// several videos and photos. proof_refs lists every captured proof; proof_ref stays the first video.
+	TaskType           string         `json:"task_type"`
+	AnswerType         string         `json:"answer_type"`
+	ProofMinVideos     int            `json:"proof_min_videos"`
+	ProofMinPhotos     int            `json:"proof_min_photos"`
+	ProofRefs          []proofItemDTO `json:"proof_refs"`
+	CompletedByLabel   string         `json:"completed_by_label"`
+	CompletedAt        *time.Time     `json:"completed_at"`
+	VerificationStatus string         `json:"verification_status"`
 }
 
 type workflowDetailResponse struct {
@@ -306,9 +314,33 @@ func (h *Handler) GetWorkflow(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+type proofItemDTO struct {
+	Ref  string `json:"ref"`
+	Kind string `json:"kind"`
+}
+
+func proofItemsFromDTO(in []proofItemDTO) []domain.ProofItem {
+	out := make([]domain.ProofItem, 0, len(in))
+	for _, p := range in {
+		out = append(out, domain.ProofItem{Ref: strings.TrimSpace(p.Ref), Kind: strings.TrimSpace(p.Kind)})
+	}
+	return out
+}
+
+func proofItemsToDTO(in []domain.ProofItem) []proofItemDTO {
+	out := make([]proofItemDTO, 0, len(in))
+	for _, p := range in {
+		out = append(out, proofItemDTO{Ref: p.Ref, Kind: p.Kind})
+	}
+	return out
+}
+
 type answerActionRequest struct {
 	AnswerValue string `json:"answer_value"`
 	ProofRef    string `json:"proof_ref,omitempty"`
+	// Proofs carries every capture for a multi-proof step ({ref, kind: video|photo}). proof_ref
+	// alone still works for a one-video step (older APKs).
+	Proofs []proofItemDTO `json:"proofs,omitempty"`
 }
 
 // AnswerAction answers a question / question_select step, including numeric kg (Idempotency-Key mandatory).
@@ -337,6 +369,7 @@ func (h *Handler) AnswerAction(w http.ResponseWriter, r *http.Request) {
 		ActionID:           actionID,
 		AnswerValue:        req.AnswerValue,
 		ProofRef:           req.ProofRef,
+		Proofs:             proofItemsFromDTO(req.Proofs),
 		AnsweredBy:         httpmiddleware.ActorIDFromContext(r.Context()),
 		IdempotencyKey:     "tasks-workflow-answer:" + clientKey,
 		RequestFingerprint: stableHash("tasks-workflow-answer", canonical),
@@ -349,7 +382,8 @@ func (h *Handler) AnswerAction(w http.ResponseWriter, r *http.Request) {
 }
 
 type completeActionRequest struct {
-	ProofRef string `json:"proof_ref,omitempty"`
+	ProofRef string         `json:"proof_ref,omitempty"`
+	Proofs   []proofItemDTO `json:"proofs,omitempty"`
 }
 
 // CompleteAction completes an "action" step. A requires_video step without proof_ref is rejected
@@ -381,6 +415,7 @@ func (h *Handler) CompleteAction(w http.ResponseWriter, r *http.Request) {
 		WorkflowID:         workflowID,
 		ActionID:           actionID,
 		ProofRef:           strings.TrimSpace(req.ProofRef),
+		Proofs:             proofItemsFromDTO(req.Proofs),
 		CompletedBy:        httpmiddleware.ActorIDFromContext(r.Context()),
 		IdempotencyKey:     "tasks-workflow-complete:" + clientKey,
 		RequestFingerprint: stableHash("tasks-workflow-complete", canonical),
@@ -467,10 +502,41 @@ func actionDTO(a domain.WorkflowAction, siblings []domain.WorkflowAction, now ti
 		BlockedReason:      blockedReason,
 		AnswerValue:        a.AnswerValue,
 		ProofRef:           a.ProofRef,
+		TaskType:           a.TaskType,
+		AnswerType:         answerTypeForDTO(a),
+		ProofMinVideos:     proofMinVideosForDTO(a),
+		ProofMinPhotos:     a.ProofMinPhotos,
+		ProofRefs:          proofItemsToDTO(a.ProofRefs),
 		CompletedByLabel:   "", // operator display resolution is a follow-up; the id is not UI copy
 		CompletedAt:        a.CompletedAt,
 		VerificationStatus: verificationStatus,
 	}
+}
+
+// answerTypeForDTO reports the step's answer kind, deriving it for rows stamped before the SOP
+// attributes existed so the phone never sees an empty kind.
+func answerTypeForDTO(a domain.WorkflowAction) string {
+	if a.AnswerType != "" && a.AnswerType != domain.AnswerKindNone {
+		return a.AnswerType
+	}
+	switch {
+	case a.ActionType == domain.ActionTypeQuestionSelect:
+		return domain.AnswerKindSelect
+	case a.HasHook(domain.EngineHookWeighKg):
+		return domain.AnswerKindNumber
+	case a.HasHook(domain.EngineHookRecordPen):
+		return domain.AnswerKindText
+	case a.ActionType == domain.ActionTypeQuestion:
+		return domain.AnswerKindYesNo
+	}
+	return domain.AnswerKindNone
+}
+
+func proofMinVideosForDTO(a domain.WorkflowAction) int {
+	if a.ProofMinVideos == 0 && a.RequiresVideo {
+		return 1
+	}
+	return a.ProofMinVideos
 }
 
 func writeResponse(result domain.ActionWriteResult) workflowActionWriteResponse {
@@ -560,7 +626,7 @@ func (h *Handler) writeDomainError(w http.ResponseWriter, r *http.Request, err e
 			"workflow or action not found in this tenant", err)
 	case errors.Is(err, domain.ErrProofRequired):
 		h.writeError(w, r, http.StatusUnprocessableEntity, "proof_required",
-			"a video proof (proof_ref) is required to complete this action", err)
+			"this step needs its required proof (video and/or photo) before it can be completed", err)
 	case errors.Is(err, domain.ErrPermanentIdentifierRequired):
 		h.writeError(w, r, http.StatusUnprocessableEntity, "permanent_identifier_required",
 			"scan or enter the permanent RFID before recording the Tag the kid video", err)
