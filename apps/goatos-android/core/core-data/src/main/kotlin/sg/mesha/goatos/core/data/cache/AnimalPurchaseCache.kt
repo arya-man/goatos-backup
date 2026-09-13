@@ -137,6 +137,10 @@ interface AnimalPurchaseAnimalItemDao {
     @Query("SELECT * FROM animal_purchase_animal_items WHERE queryKey = :queryKey AND grainKey = :candidateId")
     suspend fun get(queryKey: String, candidateId: String): AnimalPurchaseAnimalItemEntity?
 
+    /** One cached animal, live: the detail screen re-renders as the pager or a push refreshes it. */
+    @Query("SELECT * FROM animal_purchase_animal_items WHERE queryKey = :queryKey AND grainKey = :candidateId")
+    fun observe(queryKey: String, candidateId: String): Flow<AnimalPurchaseAnimalItemEntity?>
+
     /** Drops every load's animal window except the [keepLoads] most recently touched. */
     @Query(
         "DELETE FROM animal_purchase_animal_items WHERE queryKey IN " +

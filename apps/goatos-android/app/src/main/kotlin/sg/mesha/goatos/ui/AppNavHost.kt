@@ -120,6 +120,8 @@ import sg.mesha.goatos.feature.vendors.FeedPurchaseCreateScreen
 import sg.mesha.goatos.feature.vendors.FeedPurchaseDetailEvent
 import sg.mesha.goatos.feature.vendors.FeedPurchaseDetailScreen
 import sg.mesha.goatos.feature.vendors.AnimalPurchaseAnimalCreateEvent
+import sg.mesha.goatos.feature.vendors.AnimalPurchaseAnimalDetailEvent
+import sg.mesha.goatos.feature.vendors.AnimalPurchaseAnimalDetailScreen
 import sg.mesha.goatos.feature.vendors.AnimalPurchaseAnimalCreateScreen
 import sg.mesha.goatos.feature.vendors.AnimalPurchaseLoadCreateEvent
 import sg.mesha.goatos.feature.vendors.AnimalPurchaseLoadCreateScreen
@@ -275,6 +277,7 @@ import sg.mesha.goatos.viewmodel.WorkBoardViewModel
 import sg.mesha.goatos.viewmodel.FeedPurchaseCreateViewModel
 import sg.mesha.goatos.viewmodel.FeedPurchaseDetailViewModel
 import sg.mesha.goatos.viewmodel.AnimalPurchaseAnimalCreateViewModel
+import sg.mesha.goatos.viewmodel.AnimalPurchaseAnimalDetailViewModel
 import sg.mesha.goatos.viewmodel.AnimalPurchaseLoadCreateViewModel
 import sg.mesha.goatos.viewmodel.AnimalPurchaseLoadDetailViewModel
 import sg.mesha.goatos.viewmodel.AnimalPurchaseLoadsViewModel
@@ -668,9 +671,16 @@ object Routes {
     const val ANIMAL_PURCHASE_LOAD_ID_ARG = "load_id"
     const val ANIMAL_PURCHASE_LOAD_DETAIL = "/vendors/animal-purchases/loads/{$ANIMAL_PURCHASE_LOAD_ID_ARG}"
     const val ANIMAL_PURCHASE_ANIMAL_NEW = "/vendors/animal-purchases/loads/{$ANIMAL_PURCHASE_LOAD_ID_ARG}/animals/new"
+    // One recorded animal's full record (answers + media), a drill under the load. The literal
+    // `/animal/` segment keeps it from ever sharing a pattern with `/animals/new` above (the
+    // `/vendors/new` vs `/vendors/vendor/{id}` shape), so no candidate id can be read as "new".
+    const val ANIMAL_PURCHASE_CANDIDATE_ID_ARG = "candidate_id"
+    const val ANIMAL_PURCHASE_ANIMAL_DETAIL = "/vendors/animal-purchases/loads/{$ANIMAL_PURCHASE_LOAD_ID_ARG}/animals/animal/{$ANIMAL_PURCHASE_CANDIDATE_ID_ARG}"
 
     fun animalPurchaseLoadRoute(loadId: String): String = "/vendors/animal-purchases/loads/${Uri.encode(loadId)}"
     fun animalPurchaseAnimalNewRoute(loadId: String): String = "/vendors/animal-purchases/loads/${Uri.encode(loadId)}/animals/new"
+    fun animalPurchaseAnimalDetailRoute(loadId: String, candidateId: String): String =
+        "/vendors/animal-purchases/loads/${Uri.encode(loadId)}/animals/animal/${Uri.encode(candidateId)}"
 
     /** The load id a `/vendors/animal-purchases/loads/<id>` push href names (the
      *  `animal_purchase_decided` push's target), or null for anything else. */
@@ -3730,12 +3740,37 @@ fun AppNavHost(
                         }
                         is AnimalPurchaseLoadDetailEvent.PreviewAction -> vm.onEvent(event)
                         is AnimalPurchaseLoadDetailEvent.RetryQueued -> vm.onEvent(event)
+                        is AnimalPurchaseLoadDetailEvent.OpenAnimal -> {
+                            vm.onEvent(event)
+                            navController.navigate(Routes.animalPurchaseAnimalDetailRoute(loadId, event.candidateId)) { launchSingleTop = true }
+                        }
+                    }
+                },
+            )
+        }
+        // One recorded animal (L2 drill): everything the inspector entered, read-only.
+        composable(
+            route = Routes.ANIMAL_PURCHASE_ANIMAL_DETAIL,
+            arguments = listOf(
+                navArgument(Routes.ANIMAL_PURCHASE_LOAD_ID_ARG) { type = NavType.StringType },
+                navArgument(Routes.ANIMAL_PURCHASE_CANDIDATE_ID_ARG) { type = NavType.StringType },
+            ),
+        ) {
+            val vm: AnimalPurchaseAnimalDetailViewModel = hiltViewModel()
+            val state by vm.state.collectAsStateWithLifecycle()
+            AnimalPurchaseAnimalDetailScreen(
+                state = state,
+                onEvent = { event ->
+                    when (event) {
+                        AnimalPurchaseAnimalDetailEvent.Back -> navController.popBackStack()
+                        else -> vm.onEvent(event)
                     }
                 },
             )
         }
         // The add-animal form (L2 drill): the in-app camera is bound only while this destination is
-        // on screen, exactly like the toxin round.
+        // on screen, exactly like the toxin round — both the video and the photo ports, since the
+        // SOP questionnaire's media slots accept either.
         composable(
             route = Routes.ANIMAL_PURCHASE_ANIMAL_NEW,
             arguments = listOf(navArgument(Routes.ANIMAL_PURCHASE_LOAD_ID_ARG) { type = NavType.StringType }),
@@ -3744,6 +3779,7 @@ fun AppNavHost(
             val state by vm.state.collectAsStateWithLifecycle()
             CaptureAccessGate {
                 BindVideoCaptureSource(rememberDelegatingProofCaptureSource())
+                BindPhotoCaptureSource(rememberDelegatingPhotoCaptureSource())
                 AnimalPurchaseAnimalCreateScreen(
                     state = state,
                     onEvent = { event ->

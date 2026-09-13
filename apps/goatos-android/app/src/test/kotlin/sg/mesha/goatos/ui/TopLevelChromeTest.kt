@@ -718,6 +718,8 @@ class TopLevelChromeTest {
         assertFalse(isTopLevelRoute(Routes.ANIMAL_PURCHASE_LOAD_NEW, roots))
         assertFalse(isTopLevelRoute(Routes.ANIMAL_PURCHASE_LOAD_DETAIL, roots))
         assertFalse(isTopLevelRoute(Routes.ANIMAL_PURCHASE_ANIMAL_NEW, roots))
+        assertFalse(isTopLevelRoute(Routes.ANIMAL_PURCHASE_ANIMAL_DETAIL, roots))
+        assertEquals("/vendors/animal-purchases/loads/l-1/animals/animal/c-9", Routes.animalPurchaseAnimalDetailRoute("l-1", "c-9"))
         assertFalse(isTopLevelRoute(Routes.animalPurchaseLoadRoute("l-1"), roots))
         assertFalse(isTopLevelRoute(Routes.animalPurchaseAnimalNewRoute("l-1"), roots))
         assertTrue(Routes.ANIMAL_PURCHASE_LOAD_DETAIL.startsWith("${Routes.VENDORS_ANIMAL_PURCHASES}/loads/"))
@@ -727,6 +729,7 @@ class TopLevelChromeTest {
         assertEquals("l-1", Routes.animalPurchaseLoadIdFromHref("/vendors/animal-purchases/loads/l-1?x=1"))
         assertEquals(null, Routes.animalPurchaseLoadIdFromHref(Routes.VENDORS_ANIMAL_PURCHASES))
         assertEquals(null, Routes.animalPurchaseLoadIdFromHref("/vendors/animal-purchases/loads/l-1/animals/new"))
+        assertEquals(null, Routes.animalPurchaseLoadIdFromHref("/vendors/animal-purchases/loads/l-1/animals/animal/c-9"))
     }
 
     @Test

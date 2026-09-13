@@ -425,6 +425,9 @@ class SyncEngine(
             // The server's own code beside its sentence, so a screen can key on WHAT was refused
             // (the verifier's confirm guard) instead of parsing the wording. Null when it did not say.
             lastErrorCode = error.serverErrorText()?.code?.takeIf { it.isNotBlank() },
+            // ...and the ONE input it named as refused, so a questionnaire form can mark that
+            // question rather than parse the sentence. Null when it named none.
+            lastErrorField = error.serverErrorText()?.field?.takeIf { it.isNotBlank() },
             now = clock(),
         )
         // Report only what actually happened: a non-applied transition means another pass /
@@ -496,6 +499,7 @@ class SyncEngine(
             lastError = error.outboxLastError(),
             // A proof still uploading is not a server refusal; there is no code to keep.
             lastErrorCode = null,
+            lastErrorField = null,
             now = clock(),
         )
         if (applied) {
@@ -1183,19 +1187,21 @@ class SyncEngine(
     }
 
     /**
-     * One animal recorded inside a load. Its video resolves through the coupled PROOF_UPLOAD row on
-     * the same load group exactly like [dispatchToxinStepComplete]'s clip: the upload drains first,
-     * and the uploaded server proof id lands in `video_proof_ref` here, never earlier. The row's
-     * STORED key is passed verbatim on a retry. A `422 validation_failed` (the server refusing a
-     * video that is not a finished in-app-camera upload, or a field it cannot accept) is terminal
-     * and surfaces the server's own sentence.
+     * One animal recorded inside a load. Every capture resolves through its own coupled
+     * PROOF_UPLOAD row on the same draft lane exactly like [dispatchToxinStepComplete]'s clip: the
+     * uploads drain first, and each uploaded server proof id lands in `media[slot]` here, never
+     * earlier. A capture whose upload is still pending holds the create (retry); one whose upload
+     * died holds it as non-retryable, so the form can offer the per-capture retry. The row's
+     * STORED key is passed verbatim on a retry. A `422 validation_failed` (the server refusing an
+     * answer, naming its question in `field`) is terminal and surfaces the server's own sentence.
      */
     private suspend fun dispatchAnimalPurchaseAnimalCreate(item: OutboxEntity): String {
         val payload = syncJson.decodeFromString<AnimalPurchaseAnimalCreatePayload>(item.payloadJson)
+        val media = payload.proofOutboxItemIds.mapValues { (_, outboxIds) -> outboxIds.map { resolveUploadedProofRef(it) } }
         val created = api.addAnimalPurchaseAnimal(
             payload.loadId,
             item.idempotencyKey,
-            payload.request.copy(videoProofRef = resolveUploadedProofRef(payload.proofOutboxItemId)),
+            payload.request.copy(media = media),
         )
         return syncJson.encodeToString(created)
     }

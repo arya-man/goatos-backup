@@ -1034,6 +1034,7 @@ class WeighingRepositoryTest {
             conflict = false,
             lastError = "403",
             lastErrorCode = null,
+            lastErrorField = null,
             now = 1000L,
         )
         assertTrue(
@@ -1161,7 +1162,7 @@ class WeighingRepositoryTest {
         repository.attachIndividualProof(scopeKey, "TAG-1", "proof-local-1", "proof-server-1")
         val queued = store.findByIdempotencyKey(first.value.idempotencyKey)!!
         store.markInFlight(queued.id, now = 1000L)
-        store.markFailed(queued.id, attemptCount = 1, nextAttemptAt = 9_000L, conflict = false, lastError = "timeout", lastErrorCode = null, now = 1000L)
+        store.markFailed(queued.id, attemptCount = 1, nextAttemptAt = 9_000L, conflict = false, lastError = "timeout", lastErrorCode = null, lastErrorField = null, now = 1000L)
 
         repository.attachIndividualProof(scopeKey, "TAG-1", "proof-local-1", "proof-server-1")
 

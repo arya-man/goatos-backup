@@ -249,6 +249,11 @@ fun ProofMediaPreview(
     // full-screen. Proof surfaces opt in by default; pass false only for deliberately static media.
     expandable: Boolean = true,
     playbackEnabled: Boolean = true,
+    // Photos only. A signed remote photo is normally fetched ONLY after an explicit tap (each
+    // fetch is a paid object read, and a list scrolls past dozens). A screen that a person
+    // already opened by tapping ONE record, showing that record's own bounded set of captures,
+    // may opt in to fetch the photo inline so the picture itself is on screen.
+    inlineRemotePhoto: Boolean = false,
 ) {
     val mediaKey = remember(mediaIdentity) { stableProofMediaIdentity(mediaIdentity) }
     var showFullscreen by remember(mediaKey) { mutableStateOf(false) }
@@ -266,7 +271,7 @@ fun ProofMediaPreview(
         null
     }
     when (kind) {
-        ProofMediaPreviewKind.Photo -> ProofPhotoPreview(path, modifier, onExpand?.let { expand -> { expand(0L) } }, onPreviewAction)
+        ProofMediaPreviewKind.Photo -> ProofPhotoPreview(path, modifier, onExpand?.let { expand -> { expand(0L) } }, onPreviewAction, inlineRemotePhoto)
         ProofMediaPreviewKind.Video -> ProofVideoPreview(path, modifier, mediaKey, onPlaybackFailure, onExpand, showFullscreen, playbackEnabled, onPreviewAction, inlineResume)
     }
     if (showFullscreen) {
@@ -297,15 +302,25 @@ private fun ProofPhotoPreview(
     modifier: Modifier = Modifier,
     onExpand: (() -> Unit)? = null,
     onPreviewAction: (String) -> Unit = {},
+    inlineRemotePhoto: Boolean = false,
 ) {
     val context = LocalContext.current
     val isRemote = path.startsWith("http://") || path.startsWith("https://")
     // Remote proof photos are signed object reads. Do not auto-fetch them from a list/card preview;
-    // only local post-capture files are decoded here.
-    val bitmap = if (isRemote) null else remember(path) {
+    // only local post-capture files are decoded here -- unless the caller opted in for a screen
+    // the person already tapped into (see [ProofMediaPreview.inlineRemotePhoto]).
+    val localBitmap = if (isRemote) null else remember(path) {
         BitmapFactory.decodeFile(Uri.parse(path).path ?: path) ?: decodeLocalProofPhoto(context, path)
     }
-    val isLoading = false
+    val remoteImageLoader = LocalProofRemoteImageLoader.current
+    val remoteState = produceState<Pair<Boolean, android.graphics.Bitmap?>>(initialValue = (isRemote && inlineRemotePhoto) to null, path, inlineRemotePhoto) {
+        if (isRemote && inlineRemotePhoto) {
+            // proof-media-egress:ignore explicit opt-in by a record screen the person tapped open; bounded to that one record's captures
+            value = false to withContext(Dispatchers.IO) { loadProofPhotoBitmap(context, path, allowRemote = true, remoteImageLoader) }
+        }
+    }
+    val bitmap = localBitmap ?: remoteState.value.second
+    val isLoading = remoteState.value.first
     val canExpand = onExpand != null && (bitmap != null || isRemote)
     val tapToExpand = if (canExpand) {
         Modifier.clickable(
@@ -339,6 +354,8 @@ private fun ProofPhotoPreview(
                     modifier = Modifier.align(Alignment.TopStart),
                 )
             }
+        } else if (isLoading) {
+            CircularProgressIndicator(modifier = Modifier.size(32.dp), strokeWidth = 2.dp, color = MeshaColors.Brand)
         } else if (isRemote && canExpand) {
             ProofPreviewUnavailable(icon = MeshaIcons.EyeOff, label = "Tap to open photo")
             ProofPreviewActions(
@@ -348,8 +365,6 @@ private fun ProofPhotoPreview(
                 onAction = onPreviewAction,
                 modifier = Modifier.align(Alignment.TopStart),
             )
-        } else if (isLoading) {
-            CircularProgressIndicator(modifier = Modifier.size(32.dp), strokeWidth = 2.dp, color = MeshaColors.Brand)
         } else {
             ProofPreviewUnavailable(icon = MeshaIcons.EyeOff, label = "Photo unavailable")
         }

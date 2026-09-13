@@ -29,7 +29,7 @@ import org.robolectric.annotation.Config
  *
  *  2. [every migration produces the entity-matching schema] — builds the real v1 outbox schema with
  *     raw SQL (no status/nextAttemptAt index, no requestFingerprint column), runs the actual
- *     OUTBOX_MIGRATION_1_2 / 2_3 objects, and asserts the migrated schema is structurally identical
+ *     OUTBOX_MIGRATION_1_2 .. 5_6 objects, and asserts the migrated schema is structurally identical
  *     to a fresh Room-created v3 database (the @Entity truth) — index name convention and the added
  *     column included.
  */
@@ -87,6 +87,9 @@ class OutboxDatabaseMigrationTest {
         val db = FrameworkSQLiteOpenHelperFactory().create(configuration).writableDatabase
         OUTBOX_MIGRATION_1_2.migrate(db)
         OUTBOX_MIGRATION_2_3.migrate(db)
+        OUTBOX_MIGRATION_3_4.migrate(db)
+        OUTBOX_MIGRATION_4_5.migrate(db)
+        OUTBOX_MIGRATION_5_6.migrate(db)
         return db
     }
 
@@ -104,7 +107,7 @@ class OutboxDatabaseMigrationTest {
 
     private companion object {
         const val DB_NAME = "outbox-migration-test.db"
-        const val CURRENT_VERSION = 4
+        const val CURRENT_VERSION = 6
     }
 }
 

@@ -477,6 +477,14 @@ data class OutboxEntity(
      * the first reader. [lastError] stays the operator-facing text and is rendered verbatim.
      */
     val lastErrorCode: String? = null,
+    /**
+     * The ONE input the server named as refused beside [lastErrorCode] (the envelope's `field`),
+     * null when it named none and for rows written before OUTBOX_MIGRATION_5_6. The
+     * animal-purchase questionnaire write answers `422 {field: <question_id>, message}`; carrying
+     * the id here lets the form put the server's sentence on that question instead of parsing the
+     * wording. [lastError] stays the operator-facing text and is rendered verbatim.
+     */
+    val lastErrorField: String? = null,
     /** Raw JSON of the last successful app-api response — lets the UI layer decode the
      *  original server result on an idempotent-replay read without a second network call. */
     val resultJson: String? = null,

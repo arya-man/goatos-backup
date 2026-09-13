@@ -155,6 +155,7 @@ class FakeOutboxStore : OutboxStore {
         conflict: Boolean,
         lastError: String,
         lastErrorCode: String?,
+        lastErrorField: String?,
         now: Long,
     ): Boolean = mutateIf(id, expected = setOf(OutboxStatus.IN_FLIGHT.name)) {
         it.copy(
@@ -164,6 +165,7 @@ class FakeOutboxStore : OutboxStore {
             conflict = conflict,
             lastError = lastError,
             lastErrorCode = lastErrorCode,
+            lastErrorField = lastErrorField,
             updatedAt = now,
         )
     }

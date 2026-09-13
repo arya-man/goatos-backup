@@ -70,7 +70,7 @@ class OutboxDatabaseUpgradeCrashTest {
         // 2. App update: open the same file with current schema + real migrations. Crashes here if
         //    a migration is wrong.
         val upgraded = Room.databaseBuilder(context, OutboxDatabase::class.java, DB_NAME)
-            .addMigrations(OUTBOX_MIGRATION_1_2, OUTBOX_MIGRATION_2_3, OUTBOX_MIGRATION_3_4, OUTBOX_MIGRATION_4_5)
+            .addMigrations(OUTBOX_MIGRATION_1_2, OUTBOX_MIGRATION_2_3, OUTBOX_MIGRATION_3_4, OUTBOX_MIGRATION_4_5, OUTBOX_MIGRATION_5_6)
             .build()
         try {
             upgraded.openHelper.writableDatabase // force open + migrate + validate
@@ -83,6 +83,7 @@ class OutboxDatabaseUpgradeCrashTest {
             assertEquals("{\"shed\":42}", kept?.payloadJson)
             assertEquals("legacy rows get the migration's DEFAULT ''", "", kept?.requestFingerprint)
             assertNull("legacy rows carry no server error code (OUTBOX_MIGRATION_4_5 adds a nullable column)", kept?.lastErrorCode)
+            assertNull("legacy rows carry no refused field (OUTBOX_MIGRATION_5_6 adds a nullable column)", kept?.lastErrorField)
         } finally {
             upgraded.close()
         }

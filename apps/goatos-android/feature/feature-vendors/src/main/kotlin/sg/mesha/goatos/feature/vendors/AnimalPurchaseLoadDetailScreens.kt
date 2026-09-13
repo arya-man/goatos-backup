@@ -5,6 +5,8 @@ package sg.mesha.goatos.feature.vendors
 // + CrashReporter wiring for every read refresh, capture and queued write.
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -14,26 +16,25 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.RadioButton
+import androidx.compose.material3.RadioButtonDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.PopupProperties
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
@@ -141,6 +142,7 @@ fun AnimalPurchaseLoadDetailScreen(
                             card = card,
                             decidedByLabel = state.decidedByLabel,
                             onPreviewAction = { onEvent(AnimalPurchaseLoadDetailEvent.PreviewAction(it)) },
+                            onOpen = { onEvent(AnimalPurchaseLoadDetailEvent.OpenAnimal(card.candidateId)) },
                         )
                     }
                 }
@@ -168,8 +170,11 @@ private fun AnimalPurchaseAnimalCard(
     card: AnimalPurchaseAnimalCardUi,
     decidedByLabel: String,
     onPreviewAction: (String) -> Unit,
+    onOpen: () -> Unit,
 ) {
-    VendorsCard(onClick = null) {
+    // The whole card opens the animal's record (every answer and capture); the inline preview
+    // keeps its own play/expand controls on top of that.
+    VendorsCard(onClick = onOpen) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Column(Modifier.weight(1f)) {
                 // Backend-owned title, rendered verbatim.
@@ -180,8 +185,12 @@ private fun AnimalPurchaseAnimalCard(
                     Text(text = detailLine, color = MeshaColors.Muted, style = MeshaType.cardSubtitle, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }
-            // The SERVER's decision chip, verbatim, in its tone.
-            VendorsChip(label = card.decisionLabel, tone = card.decisionTone)
+            // The SERVER's decision chip, verbatim, in its tone, beside the inspector's own
+            // field verdict when the row carries one (a questionnaire row).
+            Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                VendorsChip(label = card.decisionLabel, tone = card.decisionTone)
+                if (card.fieldVerdictLabel.isNotBlank()) VendorsChip(label = card.fieldVerdictLabel, tone = card.fieldVerdictTone)
+            }
         }
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             if (card.conditionLabel.isNotBlank()) VendorsChip(label = card.conditionLabel, tone = VendorsTone.INFO)
@@ -201,11 +210,11 @@ private fun AnimalPurchaseAnimalCard(
         if (card.decisionNote.isNotBlank()) {
             Text(text = card.decisionNote, color = MeshaColors.Ink, style = MeshaType.rowLabel)
         }
-        if (card.mediaUrl.isNotBlank()) {
+        if (card.previewUrl.isNotBlank()) {
             ProofMediaPreview(
-                path = card.mediaUrl,
-                kind = ProofMediaPreviewKind.Video,
-                mediaIdentity = card.candidateId,
+                path = card.previewUrl,
+                kind = if (card.previewIsPhoto) ProofMediaPreviewKind.Photo else ProofMediaPreviewKind.Video,
+                mediaIdentity = card.previewIdentity,
                 modifier = Modifier.fillMaxWidth(),
                 onPreviewAction = onPreviewAction,
             )
@@ -214,13 +223,19 @@ private fun AnimalPurchaseAnimalCard(
 }
 
 /**
- * Record one animal on offer (L2 drill): goat/sheep, sex, breed (free text with the herd's own
- * spellings suggested), rough age and weight, how it looks, an optional temporary tag, a note, and
- * the mandatory in-app-camera video. Every label comes from the backend `copy` map.
+ * Record one animal on offer (L2 drill): the farm's Procurement SOP questionnaire, served by the
+ * backend and rendered IN ORDER, one widget per question kind — a single choice, a checkbox list,
+ * a text or number, or an in-app-camera capture block for a media slot. It is PAGED BY SECTION
+ * exactly like the SOP form: page 1 is every question before the first section heading, then one
+ * page per heading, with a step indicator, a Next that checks ONLY that page, a Back, and Save on
+ * the last page only. A question whose `only_if` does not hold is absent, not greyed, and a page
+ * left with no applicable question is skipped. Every word on screen is the served question text
+ * or the backend `copy` map.
  *
  * The form never closes on enqueue: it follows the queued row and returns to the load once the
- * server accepted the animal (or the write is durably queued offline), and shows the server's own
- * sentence when the write was refused.
+ * server accepted the animal (or the write is durably queued offline). A refused submit — the
+ * phone's own check or the server's `422` — opens the page of the first failing question, scrolls
+ * to it and shows the sentence on it.
  */
 @Composable
 fun AnimalPurchaseAnimalCreateScreen(
@@ -236,176 +251,297 @@ fun AnimalPurchaseAnimalCreateScreen(
     }
     val copy = state.copy
     val locked = state.writeStatus == VendorsWriteStatus.QUEUED || state.writeStatus == VendorsWriteStatus.SYNCED
-    val requiredHint = copy[COPY_REQUIRED_HINT].orEmpty()
+    val listState = rememberLazyListState()
+    // The rows ABOVE the first question: the result banner and the page hint (when there is one).
+    val fixedRowsBeforeQuestions = 1 + if (state.pageHint.isNotBlank()) 1 else 0
+    // A page change lands at the top; a refused Next/Save lands on the first failing question.
+    LaunchedEffect(state.scrollRequest) {
+        if (state.scrollRequest == 0) return@LaunchedEffect
+        val index = state.questions.indexOfFirst { it.id == state.scrollToQuestionId }
+        listState.animateScrollToItem(if (index >= 0) index + fixedRowsBeforeQuestions else 0)
+    }
+    val anyCaptureWorking = state.questions.any { it.captureWorking }
+    val actionsEnabled = !locked && !state.submitInFlight && !anyCaptureWorking && state.questions.isNotEmpty()
     Column(modifier = modifier.fillMaxSize().background(MeshaColors.PageBg)) {
-        MeshaScreenHeader(title = copy[COPY_ANIMAL_FORM_TITLE].orEmpty(), onBack = { onEvent(AnimalPurchaseAnimalCreateEvent.Back) })
+        MeshaScreenHeader(
+            title = copy[COPY_ANIMAL_FORM_TITLE].orEmpty(),
+            subtitle = copy[COPY_REQUIRED_HINT]?.takeIf { it.isNotBlank() },
+            onBack = { onEvent(AnimalPurchaseAnimalCreateEvent.Back) },
+        )
+        if (state.stepCount > 0) {
+            VendorsStepper(
+                stepCount = state.stepCount,
+                currentIndex = state.stepIndex,
+                caption = listOf(
+                    "${copy[COPY_ANIMAL_STEP] ?: STEP} ${state.stepIndex + 1} ${copy[COPY_ANIMAL_STEP_OF] ?: OF} ${state.stepCount}",
+                    state.pageTitle,
+                ).filter { it.isNotBlank() }.joinToString(" · "),
+            )
+        }
         LazyColumn(
+            state = listState,
             modifier = Modifier.weight(1f),
             contentPadding = PaddingValues(horizontal = MeshaDimens.gutter, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             item(key = "result") { VendorsResultBanner(status = state.writeStatus, message = state.writeMessage) }
-            item(key = "species") {
-                VendorsFormGroup(title = copy[COPY_ANIMAL_FIELD_SPECIES].orEmpty()) {
-                    VendorsSegmented(
-                        options = state.species,
-                        selectedValue = state.values[AnimalPurchaseAnimalField.SPECIES].orEmpty(),
-                        onSelect = { if (!locked) onEvent(AnimalPurchaseAnimalCreateEvent.FieldChanged(AnimalPurchaseAnimalField.SPECIES, it)) },
-                    )
-                    if (AnimalPurchaseAnimalField.SPECIES in state.fieldErrors) Text(text = requiredHint, color = MeshaColors.Danger, style = MeshaType.caption)
-                }
+            if (state.pageHint.isNotBlank()) {
+                item(key = "page_hint") { Text(text = state.pageHint, color = MeshaColors.Muted, style = MeshaType.caption) }
             }
-            item(key = "sex") {
-                VendorsFormGroup(title = copy[COPY_ANIMAL_FIELD_SEX].orEmpty()) {
-                    VendorsSegmented(
-                        options = state.sexes,
-                        selectedValue = state.values[AnimalPurchaseAnimalField.SEX].orEmpty(),
-                        onSelect = { if (!locked) onEvent(AnimalPurchaseAnimalCreateEvent.FieldChanged(AnimalPurchaseAnimalField.SEX, it)) },
-                    )
-                    if (AnimalPurchaseAnimalField.SEX in state.fieldErrors) Text(text = requiredHint, color = MeshaColors.Danger, style = MeshaType.caption)
-                }
+            items(items = state.questions, key = { it.id }, contentType = { it.kind }) { question ->
+                AnimalPurchaseQuestionItem(question = question, state = state, locked = locked, onEvent = onEvent)
             }
-            item(key = "breed") {
-                AnimalPurchaseBreedField(
-                    value = state.values[AnimalPurchaseAnimalField.BREED].orEmpty(),
-                    label = copy[COPY_ANIMAL_FIELD_BREED].orEmpty(),
-                    suggestions = state.breedSuggestions,
-                    readOnly = locked,
-                    onValueChange = { onEvent(AnimalPurchaseAnimalCreateEvent.FieldChanged(AnimalPurchaseAnimalField.BREED, it)) },
-                )
-            }
-            item(key = "age") {
-                VendorsTextField(
-                    value = state.values[AnimalPurchaseAnimalField.AGE_MONTHS].orEmpty(),
-                    onValueChange = { onEvent(AnimalPurchaseAnimalCreateEvent.FieldChanged(AnimalPurchaseAnimalField.AGE_MONTHS, it)) },
-                    label = copy[COPY_ANIMAL_FIELD_AGE].orEmpty(),
-                    keyboard = KeyboardType.Number,
-                    readOnly = locked,
-                    error = requiredHint.takeIf { AnimalPurchaseAnimalField.AGE_MONTHS in state.fieldErrors },
-                )
-            }
-            item(key = "weight") {
-                VendorsTextField(
-                    value = state.values[AnimalPurchaseAnimalField.WEIGHT_KG].orEmpty(),
-                    onValueChange = { onEvent(AnimalPurchaseAnimalCreateEvent.FieldChanged(AnimalPurchaseAnimalField.WEIGHT_KG, it)) },
-                    label = copy[COPY_ANIMAL_FIELD_WEIGHT].orEmpty(),
-                    keyboard = KeyboardType.Decimal,
-                    readOnly = locked,
-                    error = requiredHint.takeIf { AnimalPurchaseAnimalField.WEIGHT_KG in state.fieldErrors },
-                )
-            }
-            item(key = "condition") {
-                VendorsFormGroup(title = copy[COPY_ANIMAL_FIELD_CONDITION].orEmpty()) {
-                    VendorsSegmented(
-                        options = state.conditions,
-                        selectedValue = state.values[AnimalPurchaseAnimalField.CONDITION].orEmpty(),
-                        onSelect = { if (!locked) onEvent(AnimalPurchaseAnimalCreateEvent.FieldChanged(AnimalPurchaseAnimalField.CONDITION, it)) },
-                    )
-                    if (AnimalPurchaseAnimalField.CONDITION in state.fieldErrors) Text(text = requiredHint, color = MeshaColors.Danger, style = MeshaType.caption)
-                }
-            }
-            item(key = "temp_tag") {
-                VendorsTextField(
-                    value = state.values[AnimalPurchaseAnimalField.TEMP_TAG].orEmpty(),
-                    onValueChange = { onEvent(AnimalPurchaseAnimalCreateEvent.FieldChanged(AnimalPurchaseAnimalField.TEMP_TAG, it)) },
-                    label = copy[COPY_ANIMAL_FIELD_TEMP_TAG].orEmpty(),
-                    readOnly = locked,
-                )
-            }
-            item(key = "notes") {
-                VendorsTextField(
-                    value = state.values[AnimalPurchaseAnimalField.NOTES].orEmpty(),
-                    onValueChange = { onEvent(AnimalPurchaseAnimalCreateEvent.FieldChanged(AnimalPurchaseAnimalField.NOTES, it)) },
-                    label = copy[COPY_ANIMAL_FIELD_NOTES].orEmpty(),
-                    singleLine = false,
-                    readOnly = locked,
-                )
-            }
-            item(key = "video") {
-                VendorsFormGroup(title = copy[COPY_ANIMAL_FIELD_VIDEO].orEmpty()) {
-                    Text(text = copy[COPY_ANIMAL_VIDEO_HINT].orEmpty(), color = MeshaColors.Muted, style = MeshaType.caption)
-                    if (state.videoLocalUri.isNotBlank() && state.videoIdentity.isNotBlank()) {
-                        ProofMediaPreview(
-                            path = state.videoLocalUri,
-                            kind = ProofMediaPreviewKind.Video,
-                            mediaIdentity = state.videoIdentity,
-                            modifier = Modifier.fillMaxWidth(),
-                            onPreviewAction = { onEvent(AnimalPurchaseAnimalCreateEvent.VideoPreviewAction(it)) },
-                        )
-                    }
-                    if (state.videoMissing) Text(text = requiredHint, color = MeshaColors.Danger, style = MeshaType.caption)
-                    if (state.videoStatus == AnimalPurchaseVideoStatus.FAILED && state.videoLocalUri.isNotBlank()) {
-                        // The recording is still on the phone; only its upload gave up.
-                        VendorsPrimaryButton(
-                            label = copy[COPY_ANIMAL_SEND_FAILED].orEmpty(),
-                            onClick = { onEvent(AnimalPurchaseAnimalCreateEvent.RetryVideoUpload) },
-                            enabled = !locked,
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                    }
-                    VendorsGhostButton(
-                        label = if (state.videoStatus == AnimalPurchaseVideoStatus.RECORDED || state.videoStatus == AnimalPurchaseVideoStatus.FAILED) copy[COPY_ANIMAL_VIDEO_RETAKE].orEmpty() else copy[COPY_ANIMAL_VIDEO_RECORD].orEmpty(),
-                        onClick = { onEvent(AnimalPurchaseAnimalCreateEvent.RecordVideo) },
-                        enabled = !locked && state.videoStatus != AnimalPurchaseVideoStatus.WORKING,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                }
-            }
-            item(key = "hint") { Text(text = requiredHint, color = MeshaColors.Muted, style = MeshaType.caption) }
         }
-        Row(modifier = Modifier.fillMaxWidth().padding(MeshaDimens.gutter)) {
-            VendorsPrimaryButton(
-                label = if (state.submitInFlight) copy[COPY_ANIMAL_SAVING].orEmpty() else copy[COPY_ANIMAL_SAVE].orEmpty(),
-                enabled = !locked && !state.submitInFlight && state.videoStatus != AnimalPurchaseVideoStatus.WORKING,
-                onClick = { onEvent(AnimalPurchaseAnimalCreateEvent.Submit) },
-                modifier = Modifier.weight(1f),
-            )
+        VendorsWizardBar(contextLine = "") {
+            if (!state.isFirstPage) {
+                VendorsGhostButton(
+                    label = copy[COPY_ANIMAL_BACK] ?: PREVIOUS,
+                    onClick = { onEvent(AnimalPurchaseAnimalCreateEvent.PreviousPage) },
+                    enabled = !locked && !state.submitInFlight && !anyCaptureWorking,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+            if (state.isLastPage) {
+                VendorsPrimaryButton(
+                    label = if (state.submitInFlight) copy[COPY_ANIMAL_SAVING].orEmpty() else copy[COPY_ANIMAL_SAVE].orEmpty(),
+                    enabled = actionsEnabled,
+                    onClick = { onEvent(AnimalPurchaseAnimalCreateEvent.Submit) },
+                    modifier = Modifier.weight(1f),
+                )
+            } else {
+                VendorsPrimaryButton(
+                    label = copy[COPY_ANIMAL_NEXT] ?: NEXT,
+                    enabled = actionsEnabled,
+                    onClick = { onEvent(AnimalPurchaseAnimalCreateEvent.NextPage) },
+                    modifier = Modifier.weight(1f),
+                )
+            }
         }
     }
+}
+
+/** Wizard chrome, the same words every other multi-step form in this module uses. */
+// Backend-owned chrome copy (animal.step / animal.step_of / animal.next / animal.back); these
+// literals are the fallback only while an older API serves no such keys.
+const val COPY_ANIMAL_STEP = "animal.step"
+const val COPY_ANIMAL_STEP_OF = "animal.step_of"
+const val COPY_ANIMAL_NEXT = "animal.next"
+const val COPY_ANIMAL_BACK = "animal.back"
+private const val NEXT = "Next"
+private const val PREVIOUS = "Back"
+private const val STEP = "Step"
+private const val OF = "of"
+
+/** Segmented control for a choice of this many short options or fewer; a radio list otherwise. */
+private const val SEGMENTED_MAX_OPTIONS = 3
+private const val SEGMENTED_MAX_LABEL_CHARS = 12
+
+@Composable
+private fun AnimalPurchaseQuestionItem(
+    question: AnimalPurchaseQuestionUi,
+    state: AnimalPurchaseAnimalCreateUiState,
+    locked: Boolean,
+    onEvent: (AnimalPurchaseAnimalCreateEvent) -> Unit,
+) {
+    val copy = state.copy
+    when (question.kind) {
+        AnimalPurchaseQuestionKind.SECTION -> Column(Modifier.fillMaxWidth().padding(top = 8.dp)) {
+            Text(text = question.title, color = MeshaColors.Muted, style = MeshaType.sectionLabel)
+            if (question.hint.isNotBlank()) Text(text = question.hint, color = MeshaColors.Muted, style = MeshaType.caption)
+        }
+        AnimalPurchaseQuestionKind.CHOICE -> AnimalPurchaseQuestionGroup(question) {
+            val selected = state.scalarAnswers[question.id].orEmpty()
+            val segmented = question.options.size <= SEGMENTED_MAX_OPTIONS && question.options.all { it.label.length <= SEGMENTED_MAX_LABEL_CHARS }
+            if (segmented) {
+                VendorsSegmented(
+                    options = question.options,
+                    selectedValue = selected,
+                    onSelect = { if (!locked) onEvent(AnimalPurchaseAnimalCreateEvent.ChoiceChanged(question.id, it)) },
+                )
+            } else {
+                Column(Modifier.fillMaxWidth()) {
+                    question.options.forEach { option ->
+                        AnimalPurchaseOptionRow(
+                            label = option.label,
+                            selected = option.value == selected,
+                            single = true,
+                            enabled = !locked,
+                            onClick = { onEvent(AnimalPurchaseAnimalCreateEvent.ChoiceChanged(question.id, option.value)) },
+                        )
+                    }
+                }
+            }
+            if (question.allowOther && selected == OTHER_OPTION_VALUE) {
+                AnimalPurchaseOtherField(question, state, locked, onEvent)
+            }
+        }
+        AnimalPurchaseQuestionKind.MULTI -> AnimalPurchaseQuestionGroup(question) {
+            val ticked = state.multiAnswers[question.id].orEmpty()
+            Column(Modifier.fillMaxWidth()) {
+                question.options.forEach { option ->
+                    val checked = option.value in ticked
+                    AnimalPurchaseOptionRow(
+                        label = option.label,
+                        selected = checked,
+                        single = false,
+                        enabled = !locked,
+                        onClick = { onEvent(AnimalPurchaseAnimalCreateEvent.MultiToggled(question.id, option.value, !checked)) },
+                    )
+                }
+            }
+            if (question.allowOther && OTHER_OPTION_VALUE in ticked) {
+                AnimalPurchaseOtherField(question, state, locked, onEvent)
+            }
+        }
+        AnimalPurchaseQuestionKind.TEXT -> VendorsTextField(
+            value = state.scalarAnswers[question.id].orEmpty(),
+            onValueChange = { onEvent(AnimalPurchaseAnimalCreateEvent.TextChanged(question.id, it)) },
+            label = question.title,
+            required = question.required,
+            readOnly = locked,
+            singleLine = question.id != NOTES_QUESTION_ID,
+            error = question.error,
+            supporting = question.hint.takeIf { it.isNotBlank() },
+        )
+        AnimalPurchaseQuestionKind.NUMBER -> VendorsTextField(
+            value = state.scalarAnswers[question.id].orEmpty(),
+            onValueChange = { onEvent(AnimalPurchaseAnimalCreateEvent.TextChanged(question.id, it)) },
+            label = question.title,
+            required = question.required,
+            keyboard = KeyboardType.Decimal,
+            readOnly = locked,
+            error = question.error,
+            supporting = listOf(question.hint, question.rangeLine).filter { it.isNotBlank() }.joinToString(" · ").takeIf { it.isNotBlank() },
+            trailing = question.unit.takeIf { it.isNotBlank() }?.let { unit -> { Text(text = unit, color = MeshaColors.Muted, style = MeshaType.rowValue) } },
+        )
+        AnimalPurchaseQuestionKind.MEDIA -> AnimalPurchaseQuestionGroup(question) {
+            AnimalPurchaseCaptureBlock(question = question, copy = copy, locked = locked, onEvent = onEvent)
+        }
+    }
+}
+
+/** A titled group: the question (starred when required), its hint, the content, then its error. */
+@Composable
+private fun AnimalPurchaseQuestionGroup(question: AnimalPurchaseQuestionUi, content: @Composable () -> Unit) {
+    VendorsFormGroup(title = if (question.required) "${question.title} *" else question.title) {
+        if (question.hint.isNotBlank()) Text(text = question.hint, color = MeshaColors.Muted, style = MeshaType.caption)
+        content()
+        question.error?.let { Text(text = it, color = MeshaColors.Danger, style = MeshaType.caption) }
+    }
+}
+
+/** One radio (single) or checkbox (multi) row, the whole row tappable. */
+@Composable
+private fun AnimalPurchaseOptionRow(label: String, selected: Boolean, single: Boolean, enabled: Boolean, onClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(MeshaDimens.radiusSmall))
+            .selectable(selected = selected, enabled = enabled, role = if (single) Role.RadioButton else Role.Checkbox, onClick = onClick)
+            .padding(vertical = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        if (single) {
+            RadioButton(selected = selected, onClick = null, enabled = enabled, colors = RadioButtonDefaults.colors(selectedColor = MeshaColors.Brand, unselectedColor = MeshaColors.Muted))
+        } else {
+            Checkbox(checked = selected, onCheckedChange = null, enabled = enabled, colors = CheckboxDefaults.colors(checkedColor = MeshaColors.Brand, uncheckedColor = MeshaColors.Muted, checkmarkColor = MeshaColors.OnBrand))
+        }
+        Text(text = label, color = MeshaColors.Ink, style = MeshaType.body, modifier = Modifier.weight(1f))
+    }
+}
+
+/** The free text a chosen "other" option carries, sent as `<id>_other`. */
+@Composable
+private fun AnimalPurchaseOtherField(
+    question: AnimalPurchaseQuestionUi,
+    state: AnimalPurchaseAnimalCreateUiState,
+    locked: Boolean,
+    onEvent: (AnimalPurchaseAnimalCreateEvent) -> Unit,
+) {
+    val otherId = question.id + OTHER_SUFFIX
+    VendorsTextField(
+        value = state.scalarAnswers[otherId].orEmpty(),
+        onValueChange = { onEvent(AnimalPurchaseAnimalCreateEvent.TextChanged(otherId, it)) },
+        label = state.copy[COPY_ANIMAL_OTHER_HINT].orEmpty(),
+        readOnly = locked,
+    )
 }
 
 /**
- * Free-text breed with the herd's own spellings suggested underneath as the person types. The
- * menu is bounded to the first few prefix matches and never takes focus, so typing continues.
+ * The capture block of one media slot: every capture taken so far (photo thumbnail or video
+ * preview, a remove, a retry when its upload gave up), then the "Take photo" / "Record video"
+ * buttons the slot accepts while it is under its cap.
  */
 @Composable
-private fun AnimalPurchaseBreedField(
-    value: String,
-    label: String,
-    suggestions: List<String>,
-    readOnly: Boolean,
-    onValueChange: (String) -> Unit,
+private fun AnimalPurchaseCaptureBlock(
+    question: AnimalPurchaseQuestionUi,
+    copy: Map<String, String>,
+    locked: Boolean,
+    onEvent: (AnimalPurchaseAnimalCreateEvent) -> Unit,
 ) {
-    var dismissedFor by remember { mutableStateOf("") }
-    val matches = remember(value, suggestions) {
-        val needle = value.trim()
-        if (needle.isBlank()) emptyList()
-        else suggestions.filter { it.startsWith(needle, ignoreCase = true) && !it.equals(needle, ignoreCase = true) }.take(BREED_SUGGESTION_LIMIT)
+    question.captures.forEach { capture ->
+        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            ProofMediaPreview(
+                path = capture.localUri,
+                kind = if (capture.isVideo) ProofMediaPreviewKind.Video else ProofMediaPreviewKind.Photo,
+                mediaIdentity = capture.proofId,
+                modifier = Modifier.fillMaxWidth(),
+                onPreviewAction = { onEvent(AnimalPurchaseAnimalCreateEvent.PreviewAction(it)) },
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                if (capture.uploadFailed) {
+                    // The capture is still on the phone; only its upload gave up.
+                    VendorsPrimaryButton(
+                        label = copy[COPY_ANIMAL_SEND_FAILED].orEmpty(),
+                        onClick = { onEvent(AnimalPurchaseAnimalCreateEvent.RetryCapture(question.id, capture.proofId)) },
+                        enabled = !locked,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+                VendorsGhostButton(
+                    label = copy[COPY_ANIMAL_MEDIA_REMOVE].orEmpty(),
+                    onClick = { onEvent(AnimalPurchaseAnimalCreateEvent.RemoveCapture(question.id, capture.proofId)) },
+                    enabled = !locked && !question.captureWorking,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+        }
     }
-    Box(Modifier.fillMaxWidth()) {
-        VendorsTextField(
-            value = value,
-            onValueChange = { onValueChange(it); dismissedFor = "" },
-            label = label,
-            readOnly = readOnly,
-        )
-        DropdownMenu(
-            expanded = !readOnly && matches.isNotEmpty() && dismissedFor != value,
-            onDismissRequest = { dismissedFor = value },
-            properties = PopupProperties(focusable = false),
-            modifier = Modifier.heightIn(max = 240.dp).background(MeshaColors.Surf),
-        ) {
-            matches.forEach { suggestion ->
-                DropdownMenuItem(
-                    text = { Text(suggestion, color = MeshaColors.Ink, style = MeshaType.body) },
-                    onClick = { onValueChange(suggestion); dismissedFor = suggestion },
+    val underCap = question.maxFiles <= 0 || question.captures.size < question.maxFiles
+    if (underCap) {
+        val addMore = question.captures.isNotEmpty()
+        if (addMore) Text(text = copy[COPY_ANIMAL_MEDIA_ADD_MORE].orEmpty(), color = MeshaColors.Muted, style = MeshaType.caption)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+            if (question.acceptsPhoto) {
+                VendorsGhostButton(
+                    label = copy[COPY_ANIMAL_MEDIA_PHOTO].orEmpty(),
+                    onClick = { onEvent(AnimalPurchaseAnimalCreateEvent.TakePhoto(question.id)) },
+                    enabled = !locked && !question.captureWorking,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+            if (question.acceptsVideo) {
+                VendorsGhostButton(
+                    label = copy[COPY_ANIMAL_MEDIA_VIDEO].orEmpty(),
+                    onClick = { onEvent(AnimalPurchaseAnimalCreateEvent.RecordVideo(question.id)) },
+                    enabled = !locked && !question.captureWorking,
+                    modifier = Modifier.weight(1f),
                 )
             }
         }
     }
 }
 
-private const val BREED_SUGGESTION_LIMIT = 6
+/** The questionnaire's "other" option value and the answer key suffix its free text rides under
+ *  (the wire contract's `<id>_other`; core-data's `AnimalPurchaseAnswers.OTHER_SUFFIX` is the same
+ *  string, restated here because this module cannot see core-data). */
+const val OTHER_OPTION_VALUE = "other"
+const val OTHER_SUFFIX = "_other"
+
+/** The SOP's free-text note question, the one multi-line field on the form. */
+private const val NOTES_QUESTION_ID = "notes"
+
 private const val ANIMAL_CLOSE_AFTER_SAVE_MS = 900L
 
 /** A saved-but-not-sent animal: the typed facts and a waiting chip, no decision and no video

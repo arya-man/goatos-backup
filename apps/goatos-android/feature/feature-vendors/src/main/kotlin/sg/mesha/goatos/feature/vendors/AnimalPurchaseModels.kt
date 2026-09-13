@@ -86,7 +86,7 @@ sealed interface AnimalPurchaseLoadCreateEvent {
 // L1: one load and its animals
 // ---------------------------------------------------------------------------------------------
 
-/** One not-yet-sent animal: what the person typed, labelled from the backend vocabulary. */
+/** One not-yet-sent animal: what the person answered, labelled from the backend vocabulary. */
 @Immutable
 data class AnimalPurchaseQueuedAnimalUi(
     val listKey: String,
@@ -97,7 +97,7 @@ data class AnimalPurchaseQueuedAnimalUi(
     val tempTag: String,
     /** Backend-owned waiting copy (`animal.queued`), VERBATIM. */
     val waitingLabel: String,
-    /** True when the video upload gave up (every retry spent while offline); the row then
+    /** True when ANY capture upload gave up (every retry spent while offline); the row then
      *  offers a tap-to-retry instead of waiting forever. */
     val sendFailed: Boolean,
     /** Backend-owned failed copy (`animal.send_failed`), VERBATIM. */
@@ -120,11 +120,19 @@ data class AnimalPurchaseAnimalCardUi(
     /** Backend-owned decision chip copy, VERBATIM, with its tone. */
     val decisionLabel: String,
     val decisionTone: VendorsTone,
+    /** The inspector's OWN field verdict chip (`field_verdict_label`), VERBATIM, beside the
+     *  decision; blank for legacy rows and rows without one. */
+    val fieldVerdictLabel: String,
+    val fieldVerdictTone: VendorsTone,
     /** Who decided, once decided; blank while pending. */
     val decidedByName: String,
     val decisionNote: String,
-    /** Signed playback link for the recorded video; blank when it cannot be served right now. */
-    val mediaUrl: String,
+    /** Signed link of the card's preview: the first capture of the first media slot for a
+     *  questionnaire row, the single video for a legacy row; blank when none can be served. */
+    val previewUrl: String,
+    val previewIsPhoto: Boolean,
+    /** Stable identity of the previewed capture for the preview player. */
+    val previewIdentity: String,
 )
 
 @Immutable
@@ -164,35 +172,155 @@ sealed interface AnimalPurchaseLoadDetailEvent {
 
     /** Retry a not-yet-sent animal whose video upload gave up. */
     data class RetryQueued(val listKey: String) : AnimalPurchaseLoadDetailEvent
+
+    /** A recorded animal's card was tapped: open everything the inspector entered. */
+    data class OpenAnimal(val candidateId: String) : AnimalPurchaseLoadDetailEvent
 }
 
 // ---------------------------------------------------------------------------------------------
-// L2: add an animal
+// L2: one recorded animal — everything the inspector entered, section by section, with every
+// photo and video (maintainer ask 2026-09-14: "when I click on it I need to see the info I entered")
 // ---------------------------------------------------------------------------------------------
 
-enum class AnimalPurchaseAnimalField { SPECIES, SEX, BREED, AGE_MONTHS, WEIGHT_KG, CONDITION, TEMP_TAG, NOTES }
+@Immutable
+data class AnimalPurchaseAnswerRowUi(
+    val questionId: String,
+    /** The served question text, VERBATIM. */
+    val question: String,
+    /** The backend-rendered answer, VERBATIM ("Yes · left ear", "32.5 kg"). */
+    val answer: String,
+    /** The SOP reads this answer as a reject signal; rendered in the warning tone. */
+    val attention: Boolean,
+)
 
-/** The one video slot's state on this phone. RECORDED means a durable proof row exists. */
-enum class AnimalPurchaseVideoStatus { NONE, WORKING, RECORDED, FAILED }
+@Immutable
+data class AnimalPurchaseAnswerSectionUi(
+    /** Backend section title, VERBATIM (blank for the unheaded first page). */
+    val title: String,
+    val rows: List<AnimalPurchaseAnswerRowUi>,
+)
+
+@Immutable
+data class AnimalPurchaseMediaItemUi(
+    val proofRef: String,
+    /** Absolute signed link the phone can fetch. */
+    val url: String,
+    val isPhoto: Boolean,
+)
+
+@Immutable
+data class AnimalPurchaseMediaSlotUi(
+    val slot: String,
+    /** Backend slot title, VERBATIM ("Photo of teeth"). */
+    val title: String,
+    val items: List<AnimalPurchaseMediaItemUi>,
+)
+
+@Immutable
+data class AnimalPurchaseAnimalDetailUiState(
+    /** Backend-owned animal title ("Animal 7 · Female goat"), VERBATIM. */
+    val title: String = "",
+    /** Backend-owned load title, VERBATIM, as the subtitle. */
+    val loadTitle: String = "",
+    val decisionLabel: String = "",
+    val decisionTone: VendorsTone = VendorsTone.NEUTRAL,
+    val fieldVerdictLabel: String = "",
+    val fieldVerdictTone: VendorsTone = VendorsTone.NEUTRAL,
+    val decidedByLine: String = "",
+    val decisionNote: String = "",
+    val sections: List<AnimalPurchaseAnswerSectionUi> = emptyList(),
+    val mediaSlots: List<AnimalPurchaseMediaSlotUi> = emptyList(),
+    /** Backend copy: section titles for the two halves and the empty sentence. */
+    val answersTitle: String = "",
+    val mediaTitle: String = "",
+    val attentionLabel: String = "",
+    val emptyMessage: String? = null,
+    val isRefreshing: Boolean = false,
+)
+
+sealed interface AnimalPurchaseAnimalDetailEvent {
+    data object Refresh : AnimalPurchaseAnimalDetailEvent
+    data object Back : AnimalPurchaseAnimalDetailEvent
+
+    /** A play/pause/fullscreen/share/failure action on a media preview, for analytics. */
+    data class PreviewAction(val action: String) : AnimalPurchaseAnimalDetailEvent
+}
+
+// ---------------------------------------------------------------------------------------------
+// L2: add an animal (the served questionnaire)
+// ---------------------------------------------------------------------------------------------
+
+/** The question kinds the phone renders, one widget each; [SECTION] is a heading with no answer. */
+enum class AnimalPurchaseQuestionKind { CHOICE, MULTI, TEXT, NUMBER, MEDIA, SECTION }
+
+/** One capture already taken for a media question, durable on this phone. */
+@Immutable
+data class AnimalPurchaseCaptureUi(
+    /** The proof row id — the list key and the preview identity. */
+    val proofId: String,
+    val localUri: String,
+    val isVideo: Boolean,
+    /** True when this capture's upload gave up (every retry spent); the card offers a retry. */
+    val uploadFailed: Boolean,
+)
+
+/**
+ * One rendered questionnaire item, SOP wording verbatim. Only APPLICABLE questions reach the
+ * screen: a question whose `only_if` does not hold is absent from the list, not disabled.
+ */
+@Immutable
+data class AnimalPurchaseQuestionUi(
+    val id: String,
+    val kind: AnimalPurchaseQuestionKind,
+    val title: String,
+    val hint: String,
+    val required: Boolean,
+    /** Choice/multi options, labels verbatim. */
+    val options: List<VendorsOptionUi> = emptyList(),
+    /** The "other" option carries free text under `<id>_other`. */
+    val allowOther: Boolean = false,
+    /** Media: the slot, its cap and the capture kinds it accepts. */
+    val slot: String = "",
+    val maxFiles: Int = 0,
+    val acceptsPhoto: Boolean = false,
+    val acceptsVideo: Boolean = false,
+    val captures: List<AnimalPurchaseCaptureUi> = emptyList(),
+    /** True while a capture for this question is in the camera. */
+    val captureWorking: Boolean = false,
+    /** Number: the unit beside the field and the range line under it ("0.5–300 kg"); numbers,
+     *  not copy. */
+    val unit: String = "",
+    val rangeLine: String = "",
+    /** The message shown under this question when it failed validation (the backend's
+     *  `required.hint` / `animal.other.hint`, the range line, or the SERVER's own sentence). */
+    val error: String? = null,
+)
 
 @Immutable
 data class AnimalPurchaseAnimalCreateUiState(
-    /** The backend `copy` map, read by key at render time (`animal.form.title`, `animal.field.*`, ...). */
+    /** The backend `copy` map, read by key at render time (`animal.form.title`, `animal.media.*`, ...). */
     val copy: Map<String, String> = emptyMap(),
-    val values: Map<AnimalPurchaseAnimalField, String> = emptyMap(),
-    val species: List<VendorsOptionUi> = emptyList(),
-    val sexes: List<VendorsOptionUi> = emptyList(),
-    val conditions: List<VendorsOptionUi> = emptyList(),
-    /** The herd's own breed spellings; the field stays free text. */
-    val breedSuggestions: List<String> = emptyList(),
-    val fieldErrors: Set<AnimalPurchaseAnimalField> = emptySet(),
-    val videoStatus: AnimalPurchaseVideoStatus = AnimalPurchaseVideoStatus.NONE,
-    /** Local file of the recorded clip, for the preview; blank until recorded. */
-    val videoLocalUri: String = "",
-    /** Stable identity of the recorded clip (its proof row id) for the preview player. */
-    val videoIdentity: String = "",
-    /** True when the form refused to save because no video was recorded. */
-    val videoMissing: Boolean = false,
+    /**
+     * The applicable questions of the CURRENT PAGE in served order, each carrying its captures
+     * and error. The questionnaire is paged by its `section` items exactly like the SOP form:
+     * page 1 is everything before the first section, then one page per section.
+     */
+    val questions: List<AnimalPurchaseQuestionUi> = emptyList(),
+    /** Pages with at least one applicable question, and this page's position among them. */
+    val stepCount: Int = 0,
+    val stepIndex: Int = 0,
+    /** This page's heading: the form title on page 1, the section title after. */
+    val pageTitle: String = "",
+    val pageHint: String = "",
+    val isFirstPage: Boolean = true,
+    val isLastPage: Boolean = true,
+    /** Choice / text / number answers and "other" texts, keyed by question id (`<id>_other`). */
+    val scalarAnswers: Map<String, String> = emptyMap(),
+    /** Multi answers, keyed by question id. */
+    val multiAnswers: Map<String, List<String>> = emptyMap(),
+    /** The question the screen should scroll to after a refused submit; bumped per request. */
+    val scrollToQuestionId: String = "",
+    val scrollRequest: Int = 0,
     val writeStatus: VendorsWriteStatus = VendorsWriteStatus.IDLE,
     val writeMessage: String = "",
     val submitInFlight: Boolean = false,
@@ -201,12 +329,22 @@ data class AnimalPurchaseAnimalCreateUiState(
 )
 
 sealed interface AnimalPurchaseAnimalCreateEvent {
-    data class FieldChanged(val field: AnimalPurchaseAnimalField, val value: String) : AnimalPurchaseAnimalCreateEvent
-    data object RecordVideo : AnimalPurchaseAnimalCreateEvent
+    data class ChoiceChanged(val questionId: String, val value: String) : AnimalPurchaseAnimalCreateEvent
+    data class MultiToggled(val questionId: String, val value: String, val checked: Boolean) : AnimalPurchaseAnimalCreateEvent
 
-    /** The clip is on this phone but its upload gave up; send it again. */
-    data object RetryVideoUpload : AnimalPurchaseAnimalCreateEvent
-    data class VideoPreviewAction(val action: String) : AnimalPurchaseAnimalCreateEvent
+    /** Text and number answers, and the "other" free text (`<id>_other`). */
+    data class TextChanged(val questionId: String, val value: String) : AnimalPurchaseAnimalCreateEvent
+    data class TakePhoto(val questionId: String) : AnimalPurchaseAnimalCreateEvent
+    data class RecordVideo(val questionId: String) : AnimalPurchaseAnimalCreateEvent
+    data class RemoveCapture(val questionId: String, val proofId: String) : AnimalPurchaseAnimalCreateEvent
+
+    /** The capture is on this phone but its upload gave up; send it again. */
+    data class RetryCapture(val questionId: String, val proofId: String) : AnimalPurchaseAnimalCreateEvent
+    data class PreviewAction(val action: String) : AnimalPurchaseAnimalCreateEvent
+
+    /** Validates ONLY this page's questions, then moves to the next page with any applicable question. */
+    data object NextPage : AnimalPurchaseAnimalCreateEvent
+    data object PreviousPage : AnimalPurchaseAnimalCreateEvent
     data object Submit : AnimalPurchaseAnimalCreateEvent
     data object Back : AnimalPurchaseAnimalCreateEvent
     data object DismissMessage : AnimalPurchaseAnimalCreateEvent

@@ -23,7 +23,8 @@ import sg.mesha.goatos.core.data.sync.SyncRepository
 sealed interface QueuedWriteOutcome {
     data object Saved : QueuedWriteOutcome
     data object StillQueued : QueuedWriteOutcome
-    data class Rejected(val reason: String?) : QueuedWriteOutcome
+    /** [field] is the ONE input the server named as refused (a questionnaire question id), when it did. */
+    data class Rejected(val reason: String?, val field: String? = null) : QueuedWriteOutcome
 }
 
 const val DEFAULT_OFFLINE_AFTER_MS = 5_000L
@@ -45,7 +46,7 @@ fun SyncRepository.followQueuedWrite(
         when {
             item == null -> null
             item.status == SyncItemStatus.SUCCEEDED -> QueuedWriteOutcome.Saved
-            item.conflict || item.isDeadLetter -> QueuedWriteOutcome.Rejected(item.lastError)
+            item.conflict || item.isDeadLetter -> QueuedWriteOutcome.Rejected(item.lastError, item.lastErrorField?.takeIf { it.isNotBlank() })
             else -> null
         }
     }

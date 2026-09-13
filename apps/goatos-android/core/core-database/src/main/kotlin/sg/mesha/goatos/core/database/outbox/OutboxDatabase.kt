@@ -14,7 +14,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 // OUTBOX_MIGRATION_* is validated against by MigrationTestHelper, and makes schema
 // changes reviewable. The outbox holds not-yet-synced writes, so a silently-wrong
 // migration here loses operator submissions — validated migrations are mandatory.
-@Database(entities = [OutboxEntity::class], version = 5, exportSchema = true)
+@Database(entities = [OutboxEntity::class], version = 6, exportSchema = true)
 abstract class OutboxDatabase : RoomDatabase() {
     abstract fun outboxDao(): OutboxDao
 }
@@ -116,6 +116,21 @@ val OUTBOX_MIGRATION_4_5: Migration = object : Migration(4, 5) {
     }
 }
 
+/**
+ * v5 -> v6: adds the SERVER's refused FIELD beside its error code.
+ *
+ * The animal-purchase questionnaire write (maintainer decision 2026-09-13) refuses an answer as
+ * `422 {field: <question_id>, message}`. The form has to put that sentence ON the question, and
+ * the only stable way to know which one is the id the server named -- [OutboxEntity.lastError] is
+ * a sentence for a person and parsing it would tie the app to the wording. ADDITIVE and
+ * NON-destructive: existing rows read NULL, which every caller treats as "the server named none".
+ */
+val OUTBOX_MIGRATION_5_6: Migration = object : Migration(5, 6) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `outbox` ADD COLUMN `lastErrorField` TEXT")
+    }
+}
+
 private val TASK_ID_IN_PAYLOAD = Regex("\"task_id\"\\s*:\\s*\"([^\"]+)\"")
 
 /**
@@ -134,5 +149,5 @@ internal fun normalizeOutboxPartition(raw: String?): String {
 /** Builds the outbox database. Callers (DI) supply the application context. */
 fun buildOutboxDatabase(context: Context): OutboxDatabase =
     Room.databaseBuilder(context, OutboxDatabase::class.java, "goatos-outbox.db")
-        .addMigrations(OUTBOX_MIGRATION_1_2, OUTBOX_MIGRATION_2_3, OUTBOX_MIGRATION_3_4, OUTBOX_MIGRATION_4_5)
+        .addMigrations(OUTBOX_MIGRATION_1_2, OUTBOX_MIGRATION_2_3, OUTBOX_MIGRATION_3_4, OUTBOX_MIGRATION_4_5, OUTBOX_MIGRATION_5_6)
         .build()

@@ -666,16 +666,17 @@ interface SyncRepository {
     ): AppResult<String> = AppResult.Err("animal purchase sync is not configured")
 
     /**
-     * Enqueues one ANIMAL recorded inside a load (`POST .../loads/{load_id}/animals`). The mandatory
-     * video is passed by REFERENCE to its PROOF_UPLOAD outbox row ([proofOutboxItemId]); both writes
-     * MUST share the draft group ([animalPurchaseDraftGroupKey]) so the upload drains first. The
-     * idempotency key is [animalPurchaseAnimalCreateIdempotencyKey] — STABLE per (draft, proof row).
+     * Enqueues one ANIMAL recorded inside a load (`POST .../loads/{load_id}/animals`). Every capture
+     * is passed by REFERENCE to its own PROOF_UPLOAD outbox row, keyed by questionnaire slot in
+     * capture order ([proofOutboxItemIds]); all of them MUST share the draft group
+     * ([animalPurchaseDraftGroupKey]) so the uploads drain first. The idempotency key is
+     * [animalPurchaseAnimalCreateIdempotencyKey] — STABLE per (draft, set of proof rows).
      */
     suspend fun enqueueAnimalPurchaseAnimalCreate(
         draftKey: String,
         loadId: String,
         request: sg.mesha.goatos.core.network.dto.AnimalPurchaseAnimalCreateRequestDto,
-        proofOutboxItemId: String,
+        proofOutboxItemIds: Map<String, List<String>>,
     ): AppResult<String> = AppResult.Err("animal purchase sync is not configured")
 
     /** A sale recorded on the phone (`POST /sales/deals`); [clientId] is stable across retries. */
@@ -1806,17 +1807,17 @@ class DefaultSyncRepository(
         draftKey: String,
         loadId: String,
         request: sg.mesha.goatos.core.network.dto.AnimalPurchaseAnimalCreateRequestDto,
-        proofOutboxItemId: String,
+        proofOutboxItemIds: Map<String, List<String>>,
     ): AppResult<String> = enqueue(
         opType = OutboxOpType.ANIMAL_PURCHASE_ANIMAL_CREATE,
         groupKey = animalPurchaseDraftGroupKey(draftKey.trim()),
-        idempotencyKey = animalPurchaseAnimalCreateIdempotencyKey(draftKey.trim(), proofOutboxItemId),
+        idempotencyKey = animalPurchaseAnimalCreateIdempotencyKey(draftKey.trim(), proofOutboxItemIds.values.flatten()),
         payloadJson = syncJson.encodeToString(
             AnimalPurchaseAnimalCreatePayload(
                 draftKey = draftKey.trim(),
                 loadId = loadId.trim(),
                 request = request,
-                proofOutboxItemId = proofOutboxItemId,
+                proofOutboxItemIds = proofOutboxItemIds,
             ),
         ),
     )

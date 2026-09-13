@@ -45,6 +45,9 @@ object AnalyticsEventsAnimalPurchase {
     /** The person tapped retry on an animal whose video upload had given up. */
     const val ANIMAL_RETRY = "animal_purchase_animal_retry"
 
+    /** A recorded animal's card was tapped and its full record (answers + media) opened. */
+    const val ANIMAL_OPENED = "animal_purchase_animal_opened"
+
     /**
      * Any animal-purchase capture/queue/read path failed. [AnalyticsEvents.Params.REASON] carries
      * the real message the repository/capture layer returned, truncated like every other reason
@@ -55,6 +58,9 @@ object AnalyticsEventsAnimalPurchase {
     object Params {
         /** The load a load-scoped event refers to. */
         const val LOAD_ID = "load_id"
+
+        /** The candidate an animal-scoped event refers to. */
+        const val CANDIDATE_ID = "candidate_id"
 
         /** The preview action taken (play, pause, fullscreen, share, failure). */
         const val ACTION = "action"

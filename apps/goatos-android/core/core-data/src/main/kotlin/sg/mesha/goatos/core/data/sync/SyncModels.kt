@@ -37,6 +37,9 @@ data class SyncQueueItem(
      *  screen react to WHAT was refused -- the verifier's confirm guard keys on
      *  `measurement_confirmation_required` -- without parsing the operator-facing sentence. */
     val lastErrorCode: String? = null,
+    /** The ONE input the server named as refused beside [lastErrorCode] (the envelope's `field`,
+     *  a question id on the animal-purchase questionnaire write), null when it named none. */
+    val lastErrorField: String? = null,
     val localFilePath: String? = null,
     /** Raw JSON of the last successful app-api response (mirrors
      *  [sg.mesha.goatos.core.database.outbox.OutboxEntity.resultJson]) — lets a caller decode

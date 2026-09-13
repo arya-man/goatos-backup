@@ -46,7 +46,7 @@ private const val ANIMAL_PURCHASE_CACHED_LOADS = 6
 
 /** Bump whenever the cached row JSON changes shape incompatibly (see PACKING_CACHE_SHAPE's kdoc in
  *  FeedRepository.kt for why a stale-shape row must be orphaned, never leniently decoded). */
-private const val ANIMAL_PURCHASE_CACHE_SHAPE = "ap-v1"
+private const val ANIMAL_PURCHASE_CACHE_SHAPE = "ap-v2"
 
 /** The list read's caller flag, cached beside the rows so the "Add load" action survives a restart. */
 @Serializable
@@ -91,6 +91,9 @@ interface AnimalPurchaseRepository {
      *  RemoteMediator whose first page is the load detail read itself. */
     fun animals(loadId: String): Flow<PagingData<AnimalPurchaseAnimalDto>>
 
+    /** One recorded animal from the load's cached window (null until the window holds it). */
+    fun observeAnimal(loadId: String, candidateId: String): Flow<AnimalPurchaseAnimalDto?>
+
     /** Drops one load's freshness marker so its next pager refetches (header included). */
     suspend fun invalidateAnimals(loadId: String)
 
@@ -118,8 +121,9 @@ data class QueuedAnimalPurchaseAnimal(
     val loadId: String,
     val request: AnimalPurchaseAnimalCreateRequestDto,
     val queuedAtMs: Long,
-    /** The video upload row this animal waits on; the create cannot send until it succeeds. */
-    val proofOutboxItemId: String,
+    /** Every capture upload row this animal waits on, slot order then capture order; the create
+     *  cannot send until all of them succeed. */
+    val proofOutboxItemIds: List<String>,
 )
 
 class DefaultAnimalPurchaseRepository(
@@ -173,6 +177,11 @@ class DefaultAnimalPurchaseRepository(
     ).flow
         .map { page -> page.map { entity -> json.decodeFromString<AnimalPurchaseAnimalDto>(entity.dtoJson) } }
         .flowOn(Dispatchers.Default)
+
+    override fun observeAnimal(loadId: String, candidateId: String): Flow<AnimalPurchaseAnimalDto?> =
+        database.animalPurchaseAnimalItemDao().observe(loadId, candidateId).map { row ->
+            row?.let { runCatching { json.decodeFromString<AnimalPurchaseAnimalDto>(it.dtoJson) }.getOrNull() }
+        }
 
     override suspend fun invalidateAnimals(loadId: String) {
         database.animalPurchaseAnimalRemoteKeyDao().delete(loadId)
@@ -238,7 +247,7 @@ class DefaultAnimalPurchaseRepository(
                 val payload = runCatching { json.decodeFromString<AnimalPurchaseAnimalCreatePayload>(row.payloadJson) }.getOrNull()
                     ?: return@mapNotNull null
                 if (payload.loadId != loadId) return@mapNotNull null
-                QueuedAnimalPurchaseAnimal(outboxItemId = row.id, loadId = loadId, request = payload.request, queuedAtMs = row.createdAt, proofOutboxItemId = payload.proofOutboxItemId)
+                QueuedAnimalPurchaseAnimal(outboxItemId = row.id, loadId = loadId, request = payload.request, queuedAtMs = row.createdAt, proofOutboxItemIds = payload.allProofOutboxItemIds)
             }
         }
 

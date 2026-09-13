@@ -31,6 +31,13 @@ data class ServerErrorText(
      * as unknown rather than as `false`.
      */
     val retryable: Boolean?,
+    /**
+     * The ONE input the server named as refused, when it did: the animal-purchase questionnaire
+     * write answers `422 {field: <question_id>, message}` so the phone can put the sentence on
+     * the question itself. Blank when the envelope names none (the `field_errors` list form
+     * carries per-field copy instead and its first named field is used).
+     */
+    val field: String = "",
 ) {
     /** The message followed by one line per named field problem (e.g. each blocked shed). */
     val display: String
@@ -50,10 +57,13 @@ fun Throwable.serverErrorText(): ServerErrorText? {
     val fieldMessages = dto.fieldErrors.mapNotNull { it.message.trim().takeIf(String::isNotBlank) }
     if (message.isBlank() && fieldMessages.isEmpty()) return null
     return ServerErrorText(
-        code = dto.code.trim(),
+        // Two envelope spellings are live: the shared `code` and the animal-purchase handler's
+        // `error`. Either is the server's stable code; neither is ever composed client-side.
+        code = dto.code.trim().ifBlank { dto.error.trim() },
         message = message,
         fieldMessages = fieldMessages,
         retryable = dto.retryable,
+        field = dto.field.trim().ifBlank { dto.fieldErrors.firstOrNull { it.field.isNotBlank() }?.field?.trim().orEmpty() },
     )
 }
 
@@ -73,7 +83,9 @@ private val LENIENT_JSON = Json {
 @Serializable
 private data class ServerErrorEnvelopeDto(
     val code: String = "",
+    val error: String = "",
     val message: String = "",
+    val field: String = "",
     @SerialName("field_errors") val fieldErrors: List<ServerFieldErrorDto> = emptyList(),
     val retryable: Boolean? = null,
 )

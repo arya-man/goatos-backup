@@ -85,6 +85,8 @@ import sg.mesha.goatos.core.network.dto.PenVisitSubmitRequestDto
 import sg.mesha.goatos.core.network.dto.AnimalPurchaseAnimalCreateRequestDto
 import sg.mesha.goatos.core.network.dto.AnimalPurchaseAnimalDto
 import sg.mesha.goatos.core.network.dto.AnimalPurchaseAnimalPageDto
+import sg.mesha.goatos.core.network.dto.AnimalPurchaseMediaItemDto
+import sg.mesha.goatos.core.network.dto.AnimalPurchaseMediaSlotDto
 import sg.mesha.goatos.core.network.dto.AnimalPurchaseCountsDto
 import sg.mesha.goatos.core.network.dto.AnimalPurchaseLoadCreateRequestDto
 import sg.mesha.goatos.core.network.dto.AnimalPurchaseLoadDetailDto
@@ -3228,7 +3230,11 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
         AnimalPurchaseAnimalPageDto(animals = listOf(fakeAnimalPurchaseAnimal(loadId)), counts = AnimalPurchaseCountsDto(total = 1, pending = 1))
 
     override suspend fun addAnimalPurchaseAnimal(loadId: String, idempotencyKey: String, request: AnimalPurchaseAnimalCreateRequestDto): AnimalPurchaseAnimalDto =
-        fakeAnimalPurchaseAnimal(loadId).copy(candidateId = "candidate-new", species = request.species, sex = request.sex, breed = request.breed, videoProofRef = request.videoProofRef)
+        fakeAnimalPurchaseAnimal(loadId).copy(
+            candidateId = "candidate-new",
+            questionnaireVersion = 1,
+            mediaSlots = request.media.map { (slot, refs) -> AnimalPurchaseMediaSlotDto(slot = slot, title = slot, items = refs.map { AnimalPurchaseMediaItemDto(proofRef = it) }) },
+        )
 
     private fun fakeAnimalPurchaseLoad(): AnimalPurchaseLoadDto = AnimalPurchaseLoadDto(
         loadId = "load-1",
