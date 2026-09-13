@@ -199,6 +199,8 @@ sealed interface WorkflowDetailEvent {
     data class RecordVideo(val actionId: String) : WorkflowDetailEvent
     /** A photo proof for a step whose SOP asks for photos. */
     data class TakePhoto(val actionId: String) : WorkflowDetailEvent
+    /** The operator played / expanded / shared an uploaded proof shown inline under a step. */
+    data class ProofPreviewAction(val actionId: String, val proofRef: String, val mediaKind: String, val action: String) : WorkflowDetailEvent
     data object SubmitDeath : WorkflowDetailEvent
 
     /** The host consumed [WorkflowDetailUiState.returnToList]; clear it so it fires once. */
@@ -693,6 +695,9 @@ private fun WorkflowActionRow(
                         kind = if (proof.kind == "photo") ProofMediaPreviewKind.Photo else ProofMediaPreviewKind.Video,
                         expandable = true,
                         inlineRemotePhoto = true,
+                        onPreviewAction = { previewAction ->
+                            onEvent(WorkflowDetailEvent.ProofPreviewAction(action.actionId, proof.ref, proof.kind, previewAction))
+                        },
                     )
                 }
             }

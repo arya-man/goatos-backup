@@ -36,7 +36,6 @@ import (
 	protocolpg "github.com/vgoats/goatos/backend/internal/protocol/adapters/postgres"
 	soppg "github.com/vgoats/goatos/backend/internal/sop/adapters/postgres"
 	sopapp "github.com/vgoats/goatos/backend/internal/sop/app"
-	tasksapp "github.com/vgoats/goatos/backend/internal/tasks/app"
 	toxinpg "github.com/vgoats/goatos/backend/internal/toxin/adapters/postgres"
 	toxinapp "github.com/vgoats/goatos/backend/internal/toxin/app"
 	vaccinationpg "github.com/vgoats/goatos/backend/internal/vaccination/adapters/postgres"
@@ -141,13 +140,8 @@ func BuildDomainBus(pool *pgxpool.Pool, pgCfg platformpg.Config, logger *slog.Lo
 	pccareapp.NewPCCarePendingVerificationHandler(pccareverificationbridge.New(verificationService), logger).Register(bus)
 	// Pen visit submit -> verifier item (maintainer decision 2026-09-12), the PC Care shape.
 	penvisitsapp.NewPendingVerificationHandler(penvisitsverificationbridge.New(verificationService), logger).Register(bus)
-	tasksapp.NewCountsDeathReportedHandler(workflowService).Register(bus)
-	tasksapp.NewCountsDeathRejectedHandler(workflowService).Register(bus)
-	tasksapp.NewGoatCreatedWorkflowHandler(workflowService).Register(bus)
-	tasksapp.NewGoatExitedWorkflowHandler(workflowService).Register(bus)
-	tasksapp.NewIdentifierAddedWorkflowHandler(workflowService).Register(bus)
-	tasksapp.NewDeathVerificationHandler(workflowService, nil).Register(bus)
-	tasksapp.NewBirthVerificationHandler(workflowService, nil).Register(bus)
+	// One shared list for every bus process (docs/decisions/sop-driven-herd-operations.md).
+	eventwiring.RegisterWorkflowConsumers(bus, workflowService, logger)
 	healthapp.NewDeathLifecycleHandler(healthRepo).Register(bus)
 
 	if logger != nil {

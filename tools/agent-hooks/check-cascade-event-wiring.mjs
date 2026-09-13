@@ -115,10 +115,30 @@ export function handlerTypesIn(source) {
   return out;
 }
 
+// The birth/death/subject workflow consumers are registered by ONE shared helper,
+// eventwiring.RegisterWorkflowConsumers, on every bus (docs/decisions/sop-driven-herd-operations.md
+// moved the two durable buses off their hand lists on 2026-09-14). Its constructor list is read from
+// the helper's own body so a handler added there is covered on every bus that calls it, and a
+// handler that is NOT in the helper is still a finding on every bus that only calls the helper.
+export const WORKFLOW_CONSUMERS_HELPER = "backend/internal/eventwiring/workflows.go";
+export function workflowConsumerConstructorsIn(helperSource) {
+  const code = stripComments(helperSource);
+  const body = /func\s+RegisterWorkflowConsumers\s*\([^)]*\)\s*\{([\s\S]*?)\n\}/.exec(code)?.[1] ?? "";
+  return [...body.matchAll(/\bNew([A-Za-z0-9_]+)\s*\(/g)].map((m) => m[1]);
+}
+let workflowConsumerConstructors = null;
+function workflowConsumerConstructors_() {
+  if (workflowConsumerConstructors === null) {
+    const path = join(repo, WORKFLOW_CONSUMERS_HELPER);
+    workflowConsumerConstructors = existsSync(path) ? workflowConsumerConstructorsIn(readFileSync(path, "utf8")) : [];
+  }
+  return workflowConsumerConstructors;
+}
+
 // registersHandler reports whether a bus file constructs `New<Type>(...)` and registers it.
 // Accepts both the chained form (`pkg.NewX(dep).WithY(z).Register(bus)`) and the split form
-// (`h := pkg.NewX(dep)` ... `h.Register(bus)`).
-export function registersHandler(busSource, typeName) {
+// (`h := pkg.NewX(dep)` ... `h.Register(bus)`), plus the two shared helpers.
+export function registersHandler(busSource, typeName, workflowConsumers = workflowConsumerConstructors_()) {
   const code = stripComments(busSource);
   if (
     /RegisterVerificationAppliers\s*\(/.test(code) &&
@@ -126,6 +146,7 @@ export function registersHandler(busSource, typeName) {
   ) {
     return true;
   }
+  if (/RegisterWorkflowConsumers\s*\(/.test(code) && workflowConsumers.includes(typeName)) return true;
   const chained = new RegExp(`New${typeName}\\s*\\([^;\\n]*\\)(?:\\s*\\.\\w+\\([^;\\n]*\\))*\\s*\\.Register\\s*\\(`);
   if (chained.test(code)) return true;
   const assigned = new RegExp(`(\\w+)\\s*:?=\\s*[\\w.]*New${typeName}\\s*\\(`).exec(code);
@@ -410,6 +431,15 @@ func (h *OperatorConfigReplanHandler) Register(bus eventbus.Bus) { bus.Subscribe
 `;
   const types = handlerTypesIn(handlerSrc);
   if (!types.includes("OperatorConfigReplanHandler")) throw new Error("self-test: handler type not discovered");
+  const helperSrc = "package eventwiring\n// tasksapp.NewCommentedOutHandler(svc).Register(bus)\nfunc RegisterWorkflowConsumers(bus eventbus.Bus, svc *tasksapp.Service, log *slog.Logger) {\n\ttasksapp.NewCountsDeathReportedHandler(svc).Register(bus)\n\ttasksapp.NewSubjectWorkflowVerdictHandler(svc).Register(bus)\n}\nfunc other() { tasksapp.NewOutsideHelperHandler(nil).Register(nil) }\n";
+  const helperTypes = workflowConsumerConstructorsIn(helperSrc);
+  if (helperTypes.join(",") !== "CountsDeathReportedHandler,SubjectWorkflowVerdictHandler") {
+    throw new Error(`self-test: helper constructor parse wrong: ${helperTypes.join(",")}`);
+  }
+  const sharedBus = "\teventwiring.RegisterWorkflowConsumers(bus, workflowService, logger)\n";
+  if (!registersHandler(sharedBus, "SubjectWorkflowVerdictHandler", helperTypes)) throw new Error("self-test: shared workflow helper must cover its listed handlers");
+  if (registersHandler(sharedBus, "OutsideHelperHandler", helperTypes)) throw new Error("self-test: a handler outside the helper must not be covered by the shared call");
+  if (registersHandler("// eventwiring.RegisterWorkflowConsumers(bus, workflowService, logger)\n", "SubjectWorkflowVerdictHandler", helperTypes)) throw new Error("self-test: a commented-out shared call must not count");
 
   const durableWithout = {
     "backend/internal/kernelstages/bus.go": "obligationapp.NewGoatShiftedHandler(r).Register(bus)",
