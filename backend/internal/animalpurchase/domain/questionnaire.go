@@ -91,8 +91,9 @@ func Questionnaire() []Question {
 		{ID: "species", Kind: KindChoice, Title: "Goat or sheep", Required: true, Options: Species()},
 		{ID: "goat_id", Kind: KindText, Title: "Goat ID", Hint: "The tag or number the vendor uses for this animal.", Required: true},
 		{ID: "well_fed", Kind: KindChoice, Title: "Is the animal well fed and walking actively?", Hint: "REJECT if the animal is visibly empty or walking weakly. Yes if well fed, No if ribs are visible.", Required: true, Options: yesNo},
-		{ID: "teeth", Kind: KindChoice, Title: "How many fully and half formed teeth?", Hint: "If its mouth can't be opened, REJECT IMMEDIATELY.", Required: true,
-			Options: []Option{{"0", "0"}, {"2", "2"}, {"4", "4"}, {"6", "6"}, {"8", "8"}}},
+		// A typed count, not a 0/2/4/6/8 pick (maintainer 2026-09-14): half-formed teeth make
+		// odd counts real, and a goat has at most eight incisors.
+		{ID: "teeth", Kind: KindNumber, Title: "How many fully and half formed teeth?", Hint: "If its mouth can't be opened, REJECT IMMEDIATELY.", Required: true, Min: f(0), Max: f(8)},
 		{ID: "teeth_media", Kind: KindMedia, Title: "Photo of teeth", Required: true, Slot: SlotTeeth, MaxFiles: 5, Accepts: []string{"photo", "video"}},
 		{ID: "sex", Kind: KindChoice, Title: "Gender of the animal?", Required: true, Options: Sexes()},
 		{ID: "pregnant", Kind: KindChoice, Title: "Is the animal pregnant?", Required: true, Options: noYes, OnlyIf: &Condition{QuestionID: "sex", Value: SexFemale}},

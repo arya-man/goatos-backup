@@ -100,7 +100,7 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, 'Ravi', 'Ravi', 'active', 'park_head')`, a
 		a1.RectalTempC == nil || *a1.RectalTempC != 39.0 || a1.FieldVerdict != domain.FieldVerdictSelected || a1.QuestionnaireVersion != domain.QuestionnaireVersion {
 		t.Fatalf("typed derivations: %+v", a1)
 	}
-	if a1.Answers.Choice("teeth") != "4" || len(a1.Media[domain.SlotAnimal]) != 1 || len(a1.Media[domain.SlotTeeth]) != 1 || len(a1.Media[domain.SlotUdder]) != 1 {
+	if n := a1.Answers.Number("teeth"); n == nil || *n != 4 || len(a1.Media[domain.SlotAnimal]) != 1 || len(a1.Media[domain.SlotTeeth]) != 1 || len(a1.Media[domain.SlotUdder]) != 1 {
 		t.Fatalf("answers/media round trip: answers=%v media=%v", a1.Answers, a1.Media)
 	}
 	if again, err := repo.AddCandidate(ctx, ports.AddCandidateParams{TenantID: apTenant, LoadID: load.LoadID, ActorID: apUser, IdempotencyKey: "animal-1",
@@ -312,7 +312,7 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, 'Ravi', 'Ravi', 'active', 'park_head') ON 
 func inspection(sex, breed string, weight float64, animalRefs ...string) domain.CandidateWrite {
 	j := func(v any) json.RawMessage { b, _ := json.Marshal(v); return b }
 	a := domain.Answers{
-		"species": j("goat"), "goat_id": j("GW-" + breed), "well_fed": j("yes"), "teeth": j("4"), "sex": j(sex),
+		"species": j("goat"), "goat_id": j("GW-" + breed), "well_fed": j("yes"), "teeth": j(4), "sex": j(sex),
 		"weight_kg": j(weight), "rectal_temp_c": j(39.0),
 		"anaemic": j("no"), "mouth_breathing": j("no"), "watery_eyes": j("no"), "eye_colour": j("no"), "nasal_discharge": j("no"),
 		"face_scabs": j("no"), "acidosis": j("no"), "diarrhea": j("no"), "ticks_hair_loss": j("no"), "wounds": j("no"),

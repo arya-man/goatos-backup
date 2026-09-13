@@ -347,6 +347,10 @@ func formCopy() map[string]string {
 		"animal.media.add_more":   "Add another",
 		"animal.media.remove":     "Remove",
 		"animal.other.hint":       "Say where",
+		"animal.step":             "Step",
+		"animal.step_of":          "of",
+		"animal.next":             "Next",
+		"animal.back":             "Back",
 		"animal.field.breed":      "Breed",
 		"animal.field.notes":      "Note",
 		"animal.save":             "Save animal",
@@ -355,6 +359,10 @@ func formCopy() map[string]string {
 		"animal.queued":           "Waiting to send",
 		"animal.send_failed":      "Could not send · tap to retry",
 		"animal.decided_by":       "Decided by",
+		"animal.detail.answers":   "What was recorded",
+		"animal.detail.media":     "Photos and videos",
+		"animal.detail.empty":     "Nothing recorded for this animal yet.",
+		"animal.detail.attention": "Needs a close look",
 		"required.hint":           "Fields marked * are required.",
 	}
 }

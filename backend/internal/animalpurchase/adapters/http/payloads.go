@@ -270,7 +270,8 @@ func attention(q domain.Question, a domain.Answers) bool {
 	case "well_fed":
 		return v == "no"
 	case "teeth":
-		return v == "0"
+		n := a.Number(q.ID)
+		return n != nil && *n == 0
 	case "anaemic", "mouth_breathing", "acidosis", "diarrhea", "teat_discharge":
 		return v == "yes"
 	case "watery_eyes", "eye_colour", "nasal_discharge":

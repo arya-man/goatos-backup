@@ -12,7 +12,7 @@ func j(v any) json.RawMessage { b, _ := json.Marshal(v); return b }
 // fullAnswers is a complete, valid inspection of a lactating female goat.
 func fullAnswers() Answers {
 	return Answers{
-		"species": j("goat"), "goat_id": j("GW-12"), "well_fed": j("yes"), "teeth": j("4"),
+		"species": j("goat"), "goat_id": j("GW-12"), "well_fed": j("yes"), "teeth": j(4),
 		"sex": j("female"), "pregnant": j("no"), "weight_kg": j(24.5), "height_cm": j("48"), "rectal_temp_c": j(39.1),
 		"anaemic": j("no"), "mouth_breathing": j("no"), "watery_eyes": j("no"), "eye_colour": j("no"), "nasal_discharge": j("no"),
 		"face_scabs": j("no"), "acidosis": j("no"), "diarrhea": j("no"), "ticks_hair_loss": j("no"), "wounds": j("no"),
@@ -113,7 +113,8 @@ func TestQuestionnaireRefusesBadValues(t *testing.T) {
 		v    any
 		want string
 	}{
-		{"teeth", "5", "teeth"},
+		{"teeth", 9, "teeth"},
+		{"teeth", "four", "teeth"},
 		{"watery_eyes", "maybe", "watery_eyes"},
 		{"rectal_temp_c", 55, "rectal_temp_c"},
 		{"rectal_temp_c", "warm", "rectal_temp_c"},
