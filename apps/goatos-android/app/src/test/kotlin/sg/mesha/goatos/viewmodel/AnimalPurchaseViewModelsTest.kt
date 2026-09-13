@@ -207,8 +207,9 @@ class AnimalPurchaseViewModelsTest {
 
         assertEquals(1, captureSource.captureCount)
         val capture = proofs.captureCalls.single()
-        // ONE FIFO lane per load, so the upload always drains before the create that resolves it.
-        assertEquals("animal-purchase:load:$LOAD_ID", capture.uploadGroupKey)
+        // ONE FIFO lane per DRAFT, so the upload always drains before the create that resolves it,
+        // and a dead upload from another abandoned draft can never hold this animal's save.
+        assertTrue(capture.uploadGroupKey!!.startsWith("animal-purchase:animal:ap-animal:"))
         assertEquals(LOAD_ID, capture.subjectId)
         assertEquals(AnimalPurchaseVideoStatus.RECORDED, vm.state.value.videoStatus)
         assertEquals("file:///animal.mp4", vm.state.value.videoLocalUri)
@@ -256,12 +257,13 @@ class AnimalPurchaseViewModelsTest {
         ).also { vm -> backgroundScope.launch { vm.state.collect { } } }
 
     private fun TestScope.animalCreateViewModel(
-        sync: RecordingAnimalPurchaseSyncRepository,
+        sync: RecordingAnimalPurchaseSyncRepository = RecordingAnimalPurchaseSyncRepository(),
         captureSource: FakeProofCaptureSource = FakeProofCaptureSource(),
         proofs: FakeProofCaptureRepository = FakeProofCaptureRepository(),
         analytics: RecordingAnalytics = RecordingAnalytics(),
+        savedStateHandle: SavedStateHandle = SavedStateHandle(mapOf("load_id" to LOAD_ID)),
     ): AnimalPurchaseAnimalCreateViewModel = AnimalPurchaseAnimalCreateViewModel(
-        savedStateHandle = SavedStateHandle(mapOf("load_id" to LOAD_ID)),
+        savedStateHandle = savedStateHandle,
         repository = FakeAnimalPurchaseRepository(),
         proofCaptureRepository = proofs,
         proofCaptureSource = captureSource,
@@ -330,6 +332,70 @@ class AnimalPurchaseViewModelsTest {
         vm.onEvent(AnimalPurchaseLoadDetailEvent.RetryQueued("ob-1"))
         advanceUntilIdle()
         assertEquals(listOf("proof-1"), sync.retries)
+    }
+
+
+    @Test
+    fun `typed values and the draft key survive a process death and the form comes back as left`() = runTest(dispatcher) {
+        // The SavedStateHandle is what Android hands back after a death; the ViewModel is new.
+        val handle = SavedStateHandle(mapOf("load_id" to LOAD_ID))
+        val first = animalCreateViewModel(savedStateHandle = handle)
+        advanceUntilIdle()
+        first.onEvent(AnimalPurchaseAnimalCreateEvent.FieldChanged(AnimalPurchaseAnimalField.SPECIES, "goat"))
+        first.onEvent(AnimalPurchaseAnimalCreateEvent.FieldChanged(AnimalPurchaseAnimalField.BREED, "Sirohi"))
+        first.onEvent(AnimalPurchaseAnimalCreateEvent.FieldChanged(AnimalPurchaseAnimalField.NOTES, "Good coat, alert"))
+        val draftBefore = handle.get<String>("animalPurchase.animal.draftKey")
+
+        val reborn = animalCreateViewModel(savedStateHandle = handle)
+        advanceUntilIdle()
+        assertEquals("goat", reborn.state.value.values[AnimalPurchaseAnimalField.SPECIES])
+        assertEquals("Sirohi", reborn.state.value.values[AnimalPurchaseAnimalField.BREED])
+        assertEquals("Good coat, alert", reborn.state.value.values[AnimalPurchaseAnimalField.NOTES])
+        // Same draft key, so the durable video slot recorded before the death is the one it reads.
+        assertEquals(draftBefore, handle.get<String>("animalPurchase.animal.draftKey"))
+    }
+
+
+    @Test
+    fun `a clip whose upload is still retrying offline saves, one whose upload gave up does not`() = runTest(dispatcher) {
+        val sync = RecordingAnimalPurchaseSyncRepository()
+        val captureSource = FakeProofCaptureSource()
+        captureSource.queue(CapturedVideo(localUri = "file:///offline.mp4", startedAtMs = 1_000L, endedAtMs = 7_000L))
+        val proofs = FakeProofCaptureRepository()
+        val vm = animalCreateViewModel(sync = sync, captureSource = captureSource, proofs = proofs)
+        advanceUntilIdle()
+        vm.onEvent(AnimalPurchaseAnimalCreateEvent.RecordVideo)
+        advanceUntilIdle()
+        val proofRowId = "proof-outbox-1"
+        // Offline: the upload row has failed twice and will retry. The proof mirror stays
+        // IN_FLIGHT (it only reads FAILED once the row is dead-lettered) and the clip is still
+        // the clip.
+        sync.row(proofRowId).value = item(proofRowId, SyncItemStatus.FAILED, attemptCount = 2, maxAttempts = 8)
+        proofs.markSynced(id = "proof-0", serverProofId = "", syncStatus = "IN_FLIGHT")
+        advanceUntilIdle()
+        assertEquals(AnimalPurchaseVideoStatus.RECORDED, vm.state.value.videoStatus)
+
+        // Gave up: every retry spent. The clip stays on screen as FAILED (never hidden) and a
+        // retry re-arms that same upload row rather than asking for a new recording.
+        sync.row(proofRowId).value = item(proofRowId, SyncItemStatus.FAILED, attemptCount = 8, maxAttempts = 8)
+        proofs.markSynced(id = "proof-0", serverProofId = "", syncStatus = "FAILED")
+        advanceUntilIdle()
+        assertEquals(AnimalPurchaseVideoStatus.FAILED, vm.state.value.videoStatus)
+        assertEquals("file:///offline.mp4", vm.state.value.videoLocalUri)
+        vm.onEvent(AnimalPurchaseAnimalCreateEvent.RetryVideoUpload)
+        advanceUntilIdle()
+        assertEquals(listOf(proofRowId), sync.retries)
+
+        // Re-armed and retrying again: the clip is usable and the animal saves against it.
+        sync.row(proofRowId).value = item(proofRowId, SyncItemStatus.FAILED, attemptCount = 1, maxAttempts = 8)
+        proofs.markSynced(id = "proof-0", serverProofId = "", syncStatus = "IN_FLIGHT")
+        advanceUntilIdle()
+        assertEquals(AnimalPurchaseVideoStatus.RECORDED, vm.state.value.videoStatus)
+        fillAnimal(vm)
+        vm.onEvent(AnimalPurchaseAnimalCreateEvent.Submit)
+        advanceUntilIdle()
+        assertEquals(1, sync.animalCreates.size)
+        assertEquals(proofRowId, sync.animalCreates.single().proofOutboxItemId)
     }
 
 }

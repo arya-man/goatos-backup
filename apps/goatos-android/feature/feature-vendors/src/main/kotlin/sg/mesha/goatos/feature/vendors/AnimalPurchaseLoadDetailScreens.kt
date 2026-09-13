@@ -334,8 +334,17 @@ fun AnimalPurchaseAnimalCreateScreen(
                         )
                     }
                     if (state.videoMissing) Text(text = requiredHint, color = MeshaColors.Danger, style = MeshaType.caption)
+                    if (state.videoStatus == AnimalPurchaseVideoStatus.FAILED && state.videoLocalUri.isNotBlank()) {
+                        // The recording is still on the phone; only its upload gave up.
+                        VendorsPrimaryButton(
+                            label = copy[COPY_ANIMAL_SEND_FAILED].orEmpty(),
+                            onClick = { onEvent(AnimalPurchaseAnimalCreateEvent.RetryVideoUpload) },
+                            enabled = !locked,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
                     VendorsGhostButton(
-                        label = if (state.videoStatus == AnimalPurchaseVideoStatus.RECORDED) copy[COPY_ANIMAL_VIDEO_RETAKE].orEmpty() else copy[COPY_ANIMAL_VIDEO_RECORD].orEmpty(),
+                        label = if (state.videoStatus == AnimalPurchaseVideoStatus.RECORDED || state.videoStatus == AnimalPurchaseVideoStatus.FAILED) copy[COPY_ANIMAL_VIDEO_RETAKE].orEmpty() else copy[COPY_ANIMAL_VIDEO_RECORD].orEmpty(),
                         onClick = { onEvent(AnimalPurchaseAnimalCreateEvent.RecordVideo) },
                         enabled = !locked && state.videoStatus != AnimalPurchaseVideoStatus.WORKING,
                         modifier = Modifier.fillMaxWidth(),

@@ -668,7 +668,7 @@ interface SyncRepository {
     /**
      * Enqueues one ANIMAL recorded inside a load (`POST .../loads/{load_id}/animals`). The mandatory
      * video is passed by REFERENCE to its PROOF_UPLOAD outbox row ([proofOutboxItemId]); both writes
-     * MUST share the load group ([animalPurchaseLoadGroupKey]) so the upload drains first. The
+     * MUST share the draft group ([animalPurchaseDraftGroupKey]) so the upload drains first. The
      * idempotency key is [animalPurchaseAnimalCreateIdempotencyKey] — STABLE per (draft, proof row).
      */
     suspend fun enqueueAnimalPurchaseAnimalCreate(
@@ -1809,7 +1809,7 @@ class DefaultSyncRepository(
         proofOutboxItemId: String,
     ): AppResult<String> = enqueue(
         opType = OutboxOpType.ANIMAL_PURCHASE_ANIMAL_CREATE,
-        groupKey = animalPurchaseLoadGroupKey(loadId.trim()),
+        groupKey = animalPurchaseDraftGroupKey(draftKey.trim()),
         idempotencyKey = animalPurchaseAnimalCreateIdempotencyKey(draftKey.trim(), proofOutboxItemId),
         payloadJson = syncJson.encodeToString(
             AnimalPurchaseAnimalCreatePayload(

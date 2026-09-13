@@ -23,12 +23,20 @@ fun animalPurchaseLoadCreateGroupKey(draftKey: String): String = "animal-purchas
 fun animalPurchaseLoadCreateIdempotencyKey(draftKey: String): String = "animal-purchase:load:$draftKey"
 
 /**
- * Group key for ONE load's animal writes: every animal video's PROOF_UPLOAD row and the
+ * Group key for ONE animal draft's writes: the video's PROOF_UPLOAD row and the
  * ANIMAL_PURCHASE_ANIMAL_CREATE that references it share this FIFO lane, so the upload drains
  * strictly BEFORE the create that resolves it. The capture path must pass this SAME value as its
- * `uploadGroupKey` when enqueueing animal-purchase videos.
+ * `uploadGroupKey` when enqueueing the animal's video.
+ *
+ * PER DRAFT, not per load, on purpose (device-proven 2026-09-13). The outbox holds a lane at its
+ * oldest dead row so a shed's Submit can never leapfrog a lost scan -- right for vaccination,
+ * where one shed is one lane and every scan matters. On a per-LOAD lane that same rule meant
+ * two dead uploads from ABANDONED drafts (recorded offline, never saved, retry budget spent)
+ * sat at the head of the load's lane and blocked every later animal's create on that load
+ * forever. One animal's video has nothing to do with another animal's save; an orphaned draft
+ * may only ever hold itself.
  */
-fun animalPurchaseLoadGroupKey(loadId: String): String = "animal-purchase:load:$loadId"
+fun animalPurchaseDraftGroupKey(draftKey: String): String = "animal-purchase:animal:$draftKey"
 
 /** STABLE per (draft, proof row): a retry replays for free, while a re-shoot (a new PROOF_UPLOAD
  *  row) is a genuinely different act under a different key. */

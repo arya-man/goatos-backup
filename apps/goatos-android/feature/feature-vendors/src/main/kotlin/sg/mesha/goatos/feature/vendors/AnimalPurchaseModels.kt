@@ -203,6 +203,9 @@ data class AnimalPurchaseAnimalCreateUiState(
 sealed interface AnimalPurchaseAnimalCreateEvent {
     data class FieldChanged(val field: AnimalPurchaseAnimalField, val value: String) : AnimalPurchaseAnimalCreateEvent
     data object RecordVideo : AnimalPurchaseAnimalCreateEvent
+
+    /** The clip is on this phone but its upload gave up; send it again. */
+    data object RetryVideoUpload : AnimalPurchaseAnimalCreateEvent
     data class VideoPreviewAction(val action: String) : AnimalPurchaseAnimalCreateEvent
     data object Submit : AnimalPurchaseAnimalCreateEvent
     data object Back : AnimalPurchaseAnimalCreateEvent

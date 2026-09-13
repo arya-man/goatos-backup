@@ -38,7 +38,6 @@ import sg.mesha.goatos.core.common.AppResult
 import sg.mesha.goatos.core.data.AnimalPurchaseRepository
 import sg.mesha.goatos.core.data.BootstrapRepository
 import sg.mesha.goatos.core.data.SalesRepository
-import sg.mesha.goatos.core.data.capture.CaptureSyncStatus
 import sg.mesha.goatos.core.data.capture.EvidenceSlot
 import sg.mesha.goatos.core.data.capture.ProofCaptureRepository
 import sg.mesha.goatos.core.data.capture.ProofCaptureRow
@@ -49,7 +48,7 @@ import sg.mesha.goatos.feature.vendors.AnimalPurchaseQueuedAnimalUi
 import sg.mesha.goatos.core.data.capture.ProofSubject
 import sg.mesha.goatos.core.data.forms.ProofPolicy
 import sg.mesha.goatos.core.data.sync.SyncRepository
-import sg.mesha.goatos.core.data.sync.animalPurchaseLoadGroupKey
+import sg.mesha.goatos.core.data.sync.animalPurchaseDraftGroupKey
 import sg.mesha.goatos.core.network.dto.AnimalPurchaseAnimalCreateRequestDto
 import sg.mesha.goatos.core.network.dto.AnimalPurchaseAnimalDto
 import sg.mesha.goatos.core.network.dto.AnimalPurchaseLoadCreateRequestDto
@@ -215,6 +214,8 @@ class AnimalPurchaseLoadCreateViewModel @Inject constructor(
 
     /** STABLE across process death: a retry of this draft replays the SAME load on the server. */
     private val draftKey = DraftIdempotencyKey(savedStateHandle, KEY_LOAD_DRAFT, "ap-load")
+    /** Typed values outlive a process death (the pen-visit lesson): the form comes back as left. */
+    private val savedValues = SavedFormValues(savedStateHandle, KEY_LOAD_VALUES, AnimalPurchaseLoadField::valueOf)
 
     /** The queued row id, persisted so a recreated ViewModel keeps following the same write. */
     private val queuedItemId = DraftOutboxItemId(savedStateHandle, KEY_LOAD_OUTBOX_ITEM)
@@ -252,6 +253,7 @@ class AnimalPurchaseLoadCreateViewModel @Inject constructor(
         when (event) {
             is AnimalPurchaseLoadCreateEvent.FieldChanged -> if (!locked) {
                 local.update { it.copy(values = it.values + (event.field to event.value), fieldErrors = it.fieldErrors - event.field) }
+                savedValues.write(local.value.values)
             }
             AnimalPurchaseLoadCreateEvent.Submit -> if (!locked) submit()
             AnimalPurchaseLoadCreateEvent.DismissMessage -> local.update { it.copy(writeMessage = "", writeStatus = if (it.writeStatus == VendorsWriteStatus.FAILED) VendorsWriteStatus.IDLE else it.writeStatus) }
@@ -512,6 +514,9 @@ class AnimalPurchaseAnimalCreateViewModel @Inject constructor(
     /** STABLE across process death: this draft's video slot AND its write key hang off it. */
     private val draftKey = DraftIdempotencyKey(savedStateHandle, KEY_ANIMAL_DRAFT, "ap-animal")
     private val queuedItemId = DraftOutboxItemId(savedStateHandle, KEY_ANIMAL_OUTBOX_ITEM)
+    /** Typed values outlive a process death, beside the durable video slot and draft key, so a
+     *  form that died mid-entry comes back exactly as left rather than as a video with no facts. */
+    private val savedValues = SavedFormValues(savedStateHandle, KEY_ANIMAL_VALUES, AnimalPurchaseAnimalField::valueOf)
 
     private data class Local(
         val values: Map<AnimalPurchaseAnimalField, String> = emptyMap(),
@@ -524,7 +529,7 @@ class AnimalPurchaseAnimalCreateViewModel @Inject constructor(
         val closeAfterSave: Boolean = false,
     )
 
-    private val local = MutableStateFlow(Local())
+    private val local = MutableStateFlow(Local(values = savedValues.read()))
 
     /**
      * The DURABLE slot the video occupies: one identity per draft, so a re-record replaces the clip
@@ -535,17 +540,46 @@ class AnimalPurchaseAnimalCreateViewModel @Inject constructor(
         fieldKey = draftKey.current(),
     )
 
+    /** The slot's newest clip EVEN IF its upload died: observeLatest hides a dead row, which on a
+     *  form means a 20-second recording vanishes because the signal was bad for three minutes.
+     *  The dead clip is shown with a retry instead; only a re-record replaces it. */
+    private fun latestClipIncludingDead(): Flow<ProofCaptureRow?> =
+        proofCaptureRepository.observeProofs(videoSlot.identity.taskId, videoSlot.identity.partitionKey.takeUnless { it == "whole" })
+            .map { rows -> rows.filter { it.fieldKey == videoSlot.fieldKey }.maxByOrNull { it.capturedAtMs } }
+
+    /** Re-arms a dead upload row; the clip is still on this phone. */
+    private fun retryVideoUpload() {
+        viewModelScope.launch {
+            val id = latestClipIncludingDead().first()?.outboxItemId ?: return@launch
+            analytics.track(AnalyticsEventsAnimalPurchase.ANIMAL_RETRY, mapOf(AnalyticsEventsAnimalPurchase.Params.LOAD_ID to loadId))
+            syncRepository.retry(id)
+        }
+    }
+
+    /** True only when the upload row is terminally dead (conflict, or every retry spent). */
+    private suspend fun uploadGaveUp(proofOutboxItemId: String): Boolean =
+        syncRepository.observeItem(proofOutboxItemId).first()?.isTerminalFailure == true
+
     init {
         analytics.track(AnalyticsEventsAnimalPurchase.ANIMAL_ADD_OPENED, mapOf(AnalyticsEventsAnimalPurchase.Params.LOAD_ID to loadId))
         viewModelScope.launch { repository.refreshOptions() }
         queuedItemId.value?.let { followWrite(it) }
     }
 
+    /** The clip beside its upload row's OWN terminal state (the mirror on the proof reads FAILED
+     *  while merely retrying offline; only the row knows whether it has given up). */
+    private val videoWithUploadState: Flow<Pair<ProofCaptureRow?, Boolean>> =
+        latestClipIncludingDead().flatMapLatest { video ->
+            val id = video?.outboxItemId
+            if (id.isNullOrBlank()) flowOf(video to false)
+            else syncRepository.observeItem(id).map { row -> video to (row?.isTerminalFailure == true) }
+        }
+
     val state: StateFlow<AnimalPurchaseAnimalCreateUiState> = combine(
         local,
         repository.observeOptions(),
-        proofCaptureRepository.observeLatest(videoSlot),
-    ) { l, options, video ->
+        videoWithUploadState,
+    ) { l, options, (video, uploadGaveUp) ->
         val o = options ?: AnimalPurchaseOptionsDto()
         val species = o.species.map { VendorsOptionUi(it.value, it.label) }
         val sexes = o.sexes.map { VendorsOptionUi(it.value, it.label) }
@@ -561,7 +595,7 @@ class AnimalPurchaseAnimalCreateViewModel @Inject constructor(
             videoStatus = when {
                 l.videoWorking -> AnimalPurchaseVideoStatus.WORKING
                 video == null -> AnimalPurchaseVideoStatus.NONE
-                video.syncStatus == CaptureSyncStatus.FAILED || video.outboxItemId.isNullOrBlank() -> AnimalPurchaseVideoStatus.FAILED
+                uploadGaveUp || video.outboxItemId.isNullOrBlank() -> AnimalPurchaseVideoStatus.FAILED
                 else -> AnimalPurchaseVideoStatus.RECORDED
             },
             videoLocalUri = video?.localUri.orEmpty(),
@@ -579,8 +613,10 @@ class AnimalPurchaseAnimalCreateViewModel @Inject constructor(
         when (event) {
             is AnimalPurchaseAnimalCreateEvent.FieldChanged -> if (!locked) {
                 local.update { it.copy(values = it.values + (event.field to event.value), fieldErrors = it.fieldErrors - event.field) }
+                savedValues.write(local.value.values)
             }
             AnimalPurchaseAnimalCreateEvent.RecordVideo -> if (!locked) recordVideo()
+            AnimalPurchaseAnimalCreateEvent.RetryVideoUpload -> if (!locked) retryVideoUpload()
             is AnimalPurchaseAnimalCreateEvent.VideoPreviewAction -> trackPreviewAction(event.action)
             AnimalPurchaseAnimalCreateEvent.Submit -> if (!locked) submit()
             AnimalPurchaseAnimalCreateEvent.DismissMessage -> local.update { it.copy(writeMessage = "", writeStatus = if (it.writeStatus == VendorsWriteStatus.FAILED) VendorsWriteStatus.IDLE else it.writeStatus) }
@@ -638,9 +674,9 @@ class AnimalPurchaseAnimalCreateViewModel @Inject constructor(
                         capturedByPrincipalId = null,
                         proofPolicy = animalPurchaseProofPolicy(captured.captureSource),
                         awaitUploadEnqueue = true,
-                        // ONE FIFO lane per load: the upload drains BEFORE the animal create that
+                        // ONE FIFO lane per DRAFT: the upload drains BEFORE the animal create that
                         // resolves it (AnimalPurchasePayloads.kt).
-                        uploadGroupKey = animalPurchaseLoadGroupKey(loadId),
+                        uploadGroupKey = animalPurchaseDraftGroupKey(draftKey.current()),
                     )
                     when (result) {
                         is AppResult.Err -> {
@@ -706,8 +742,13 @@ class AnimalPurchaseAnimalCreateViewModel @Inject constructor(
         viewModelScope.launch {
             // Read the clip from its DURABLE slot at submit time, so a video shot before a
             // ViewModel death still sends instead of the animal looking unfilmed.
-            val video = proofCaptureRepository.observeLatest(videoSlot).first()
-            val proofOutboxItemId = video?.takeIf { it.syncStatus != CaptureSyncStatus.FAILED }?.outboxItemId.orEmpty()
+            val video = latestClipIncludingDead().first()
+            // A proof mirrors its upload row's status, and an upload that is RETRYING against a
+            // dead connection reads FAILED within seconds of recording. Offline, that is the state
+            // the clip sits in for the whole time the person types the facts, so gating on it
+            // refused every offline save as "no video". The clip is only unusable when its upload
+            // has GIVEN UP (terminal), which is the outbox row's own word, not the mirror's.
+            val proofOutboxItemId = video?.outboxItemId?.takeIf { id -> id.isNotBlank() && !uploadGaveUp(id) }.orEmpty()
             if (errors.isNotEmpty() || proofOutboxItemId.isBlank()) {
                 local.update { it.copy(fieldErrors = errors, videoMissing = proofOutboxItemId.isBlank()) }
                 if (proofOutboxItemId.isBlank()) trackFailure("animal_not_queued", "missing_video")
@@ -867,4 +908,34 @@ private const val COPY_ANIMAL_QUEUED = "animal.queued"
 private const val MESSAGE_WAITING_TO_SEND = "Waiting to send"
 private const val COPY_ANIMAL_SEND_FAILED = "animal.send_failed"
 private const val MESSAGE_SEND_FAILED = "Could not send · tap to retry"
+
+/**
+ * Persists a form's typed values in the SavedStateHandle as a flat "FIELD=value" list, so a
+ * ViewModel recreated after process death rebuilds the same map. Enum keys go through [parse]
+ * so a renamed field drops silently instead of crashing the restore.
+ */
+internal class SavedFormValues<F : Enum<F>>(
+    private val savedStateHandle: SavedStateHandle,
+    private val stateKey: String,
+    private val parse: (String) -> F,
+) {
+    fun read(): Map<F, String> {
+        val raw = savedStateHandle.get<ArrayList<String>>(stateKey) ?: return emptyMap()
+        return raw.mapNotNull { entry ->
+            val idx = entry.indexOf('=')
+            if (idx <= 0) null else runCatching { parse(entry.substring(0, idx)) to entry.substring(idx + 1) }.getOrNull()
+        }.toMap()
+    }
+
+    fun write(values: Map<F, String>) {
+        savedStateHandle[stateKey] = ArrayList(values.map { (k, v) -> "${k.name}=$v" })
+    }
+
+    fun clear() {
+        savedStateHandle.remove<ArrayList<String>>(stateKey)
+    }
+}
+
+private const val KEY_LOAD_VALUES = "animal_purchase_load_values"
+private const val KEY_ANIMAL_VALUES = "animal_purchase_animal_values"
 
