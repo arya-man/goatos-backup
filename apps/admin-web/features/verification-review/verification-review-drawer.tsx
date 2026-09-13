@@ -384,11 +384,18 @@ function VerificationReviewDrawerPanel({
       window.removeEventListener("popstate", syncPlayIntent);
     };
   }, []);
+  // A PHOTO proof (the feed weight reading, the water photo) is shown as soon as the drawer lands
+  // on it -- one still for the one item the verifier opened, never a click-to-reveal tile
+  // (maintainer decision 2026-09-14). A video still waits for play unless the queue thumbnail
+  // carried the play intent.
+  const activeIsPhoto = Boolean(activeMedia?.mime_type?.startsWith("image/"));
   useEffect(() => {
-    if (!open || !playIntent || !activeProofId || resolvedMediaUrls[activeProofId]) return;
+    if (!open || !activeProofId || resolvedMediaUrls[activeProofId]) return;
+    if (!playIntent && !activeIsPhoto) return;
+    // admin-proof-media-egress:ignore one photo proof for the one item the verifier opened; the drawer never resolves a whole list.
     const timeout = window.setTimeout(resolveActiveMedia, 0);
     return () => window.clearTimeout(timeout);
-  }, [open, playIntent, activeProofId, resolvedMediaUrls, resolveActiveMedia]);
+  }, [open, playIntent, activeIsPhoto, activeProofId, resolvedMediaUrls, resolveActiveMedia]);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const playerRef = useRef<HTMLDivElement>(null);
 

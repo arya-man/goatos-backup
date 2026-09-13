@@ -38,8 +38,8 @@ test("clicking the queue thumbnail opens the drawer with a play intent", () => {
   );
   assert.match(
     drawerSource,
-    /if \(!open \|\| !playIntent \|\| !activeProofId \|\| resolvedMediaUrls\[activeProofId\]\) return;\s+const timeout = window\.setTimeout\(resolveActiveMedia, 0\);\s+return \(\) => window\.clearTimeout\(timeout\);/,
-    "opening from the queue thumbnail should resolve the first proof without a second click",
+    /if \(!open \|\| !activeProofId \|\| resolvedMediaUrls\[activeProofId\]\) return;\s+if \(!playIntent && !activeIsPhoto\) return;[\s\S]*?const timeout = window\.setTimeout\(resolveActiveMedia, 0\);\s+return \(\) => window\.clearTimeout\(timeout\);/,
+    "opening from the queue thumbnail resolves the first proof without a second click, and a photo proof resolves on open",
   );
   assert.match(
     drawerSource,
