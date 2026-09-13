@@ -98,6 +98,8 @@ type WorkflowAction struct {
 	RequiresKeys       []string
 	AfterActionKey     string
 	AfterOffsetSeconds int
+	// ReworkReason is the verifier's words when this step was sent back; cleared on completion.
+	ReworkReason       *string
 	CompletedBy        *string
 	CompletedAt        *time.Time
 	VerificationItemID *string
@@ -351,6 +353,7 @@ func ApplyAnswer(a WorkflowAction, cmd AnswerActionCommand) (WorkflowAction, boo
 	key := cmd.IdempotencyKey
 	fp := cmd.RequestFingerprint
 	a.Status = ActionStatusCompleted
+	a.ReworkReason = nil
 	a.AnswerValue = &answer
 	a.CompletedBy = optionalPtr(by)
 	a.CompletedAt = &at
@@ -406,6 +409,7 @@ func ApplyComplete(a WorkflowAction, cmd CompleteActionCommand) (WorkflowAction,
 	key := cmd.IdempotencyKey
 	fp := cmd.RequestFingerprint
 	a.Status = ActionStatusCompleted
+	a.ReworkReason = nil
 	a.AnswerValue = nil
 	a.CompletedBy = optionalPtr(cmd.CompletedBy)
 	a.CompletedAt = &at
@@ -413,6 +417,21 @@ func ApplyComplete(a WorkflowAction, cmd CompleteActionCommand) (WorkflowAction,
 	a.RequestFingerprint = &fp
 	a.RowVersion++
 	return a, false, nil
+}
+
+// TemplateLabel is the operator-facing name of a workflow's kind, rendered verbatim by clients.
+func TemplateLabel(templateKey string) string {
+	switch templateKey {
+	case TemplateKeyBirthKid, TemplateKeyBirthMother:
+		return "Birth"
+	case TemplateKeyDeath:
+		return "Death"
+	case TemplateKeyReconcile:
+		return "Pen return"
+	case TemplateKeyShifting:
+		return "Pen move"
+	}
+	return ""
 }
 
 // DeathVideosComplete reports whether both mandatory death videos are completed.

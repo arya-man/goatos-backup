@@ -467,7 +467,7 @@ func (r *Repository) CompletePenReconciliationCard(
 	completedAtValue := in.CompletedAt.UTC()
 	if _, err := tx.Exec(ctx, completePenReconciliationSQL,
 		in.TenantID, in.CardID, strings.TrimSpace(in.ProofRef), in.CompletedByUserID,
-		completedAtValue, in.IdempotencyKey, in.RequestFingerprint, proofRefsJSON(in.ProofRef, in.ProofRefs)); err != nil {
+		completedAtValue, in.IdempotencyKey, in.RequestFingerprint, proofRefsJSON(in.ProofRef, in.ProofRefs, in.ProofKinds)); err != nil {
 		return domain.PenReconciliationCompletionResult{}, false, err
 	}
 
@@ -632,12 +632,17 @@ func (r *Repository) PenReconciliationCardIDByWorkflow(ctx context.Context, tena
 	return id, err
 }
 
-// proofRefsJSON encodes the stored proof list: the legacy single ref becomes one video.
-func proofRefsJSON(proofRef string, refs []string) string {
+// proofRefsJSON encodes the stored proof list: the legacy single ref becomes one video; a ref
+// with no recorded kind is a video.
+func proofRefsJSON(proofRef string, refs []string, kinds map[string]string) string {
 	all := allProofRefs(proofRef, refs)
 	items := make([]map[string]string, 0, len(all))
 	for _, ref := range all {
-		items = append(items, map[string]string{"ref": ref, "kind": "video"})
+		kind := kinds[ref]
+		if kind != "photo" {
+			kind = "video"
+		}
+		items = append(items, map[string]string{"ref": ref, "kind": kind})
 	}
 	raw, err := json.Marshal(items)
 	if err != nil {

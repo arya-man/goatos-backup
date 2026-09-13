@@ -173,6 +173,7 @@ class WorkflowDeathDraftPresentationTest {
         crashReporter = NoopCrashReporter(),
         savedStateHandle = SavedStateHandle(mapOf(WorkflowDetailViewModel.ARG_WORKFLOW_ID to WORKFLOW_ID)),
         photoCaptureSource = NoopPhotoCaptureSource(),
+        countsRepository = FakeAddCountsRepository(),
     )
 
     private fun deathDetail(

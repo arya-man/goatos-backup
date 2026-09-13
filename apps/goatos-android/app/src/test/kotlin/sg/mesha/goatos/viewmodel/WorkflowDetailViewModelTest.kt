@@ -87,6 +87,7 @@ class WorkflowDetailViewModelTest {
         crashReporter = NoopCrashReporter(),
         savedStateHandle = SavedStateHandle(mapOf(WorkflowDetailViewModel.ARG_WORKFLOW_ID to "wf-1")),
         photoCaptureSource = NoopPhotoCaptureSource(),
+        countsRepository = FakeAddCountsRepository(),
     )
 
     // (a) A cancelled/failed re-capture must preserve the pre-existing proof row. Mirrors
