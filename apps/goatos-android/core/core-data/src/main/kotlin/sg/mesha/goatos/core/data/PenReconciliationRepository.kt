@@ -92,7 +92,7 @@ class DefaultPenReconciliationRepository(
     private val _meta = MutableStateFlow(PenReconciliationMeta())
     override val meta: StateFlow<PenReconciliationMeta> = _meta
 
-    override suspend fun openQuestionnaire(cardId: String): AppResult<String> {
+    override suspend fun openQuestionnaire(cardId: String): AppResult<String> { // offline-first-guard:ignore: idempotent POST that opens the card's workflow; the cached card's workflow_id is answered from Room first, and the workflow itself is read through the Room-backed WorkflowsRepository
         findCached(cardId)?.workflowId?.takeIf { it.isNotBlank() }?.let { return AppResult.Ok(it) }
         return try {
             val opened = api.ensureCountsPenReconciliationWorkflow(cardId)

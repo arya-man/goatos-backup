@@ -1,6 +1,10 @@
 -- +goose Up
 -- 000299_sop_driven_herd_operations.sql
 --
+-- seed-fixture-guard:ignore: DDL here is the SOP task-type / category registries and the tasks
+-- engine's workflow columns; sop_versions is only NAMED to publish the seeded herd-operations
+-- documents by DML. No vaccination / HRMS / goats seed schema moves.
+--
 -- SOP-DRIVEN HERD OPERATIONS (maintainer decision 2026-09-13, docs/decisions/sop-driven-herd-operations.md).
 -- SUPERSEDES the 000175 header ("library documents, not a second execution engine") for the
 -- Herd Operations SOPs, the birth/death "templates are CODE-DEFINED" decision, and the
