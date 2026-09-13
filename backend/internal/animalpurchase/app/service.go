@@ -32,6 +32,20 @@ var (
 	ErrIdempotencyKeyRequired = errors.New("animal purchase: idempotency key required")
 )
 
+// minIdempotencyKeyLength mirrors the shared domain-event envelope schema (idempotency_key
+// minLength 8): the decision's outbox event carries the request's key verbatim, and the relay
+// validates the envelope AFTER the decision has committed. A shorter key therefore lands the
+// decision and silently drops its push -- found on the edge-case pass with a two-character key.
+// Refusing it here keeps the write and its event on the same footing.
+const minIdempotencyKeyLength = 8
+
+func requireIdempotencyKey(key string) error {
+	if len(strings.TrimSpace(key)) < minIdempotencyKeyLength {
+		return ErrIdempotencyKeyRequired
+	}
+	return nil
+}
+
 // Service orchestrates the writes and reads.
 type Service struct {
 	repo   ports.Repository
@@ -69,8 +83,8 @@ func (s *Service) Options(ctx context.Context, tenantID string) (Options, error)
 }
 
 func (s *Service) CreateLoad(ctx context.Context, p ports.CreateLoadParams) (domain.Load, error) {
-	if strings.TrimSpace(p.IdempotencyKey) == "" {
-		return domain.Load{}, ErrIdempotencyKeyRequired
+	if err := requireIdempotencyKey(p.IdempotencyKey); err != nil {
+		return domain.Load{}, err
 	}
 	p.Write.Normalize()
 	if err := p.Write.Validate(); err != nil {
@@ -94,8 +108,8 @@ func (s *Service) GetLoad(ctx context.Context, tenantID, loadID string) (domain.
 // AddCandidate records one animal. The video is validated BEFORE the row is written, so a
 // candidate row can never exist without a finished in-app-camera video behind it.
 func (s *Service) AddCandidate(ctx context.Context, p ports.AddCandidateParams) (domain.Candidate, error) {
-	if strings.TrimSpace(p.IdempotencyKey) == "" {
-		return domain.Candidate{}, ErrIdempotencyKeyRequired
+	if err := requireIdempotencyKey(p.IdempotencyKey); err != nil {
+		return domain.Candidate{}, err
 	}
 	p.Write.Normalize()
 	if err := p.Write.Validate(); err != nil {
@@ -141,8 +155,8 @@ func (s *Service) GetCandidate(ctx context.Context, tenantID, candidateID string
 
 // Decide records the CEO's accept / reject. Version-fenced on the row the screen read.
 func (s *Service) Decide(ctx context.Context, p ports.DecideParams) (domain.Candidate, error) {
-	if strings.TrimSpace(p.IdempotencyKey) == "" {
-		return domain.Candidate{}, ErrIdempotencyKeyRequired
+	if err := requireIdempotencyKey(p.IdempotencyKey); err != nil {
+		return domain.Candidate{}, err
 	}
 	p.Write.Normalize()
 	if err := p.Write.Validate(); err != nil {
