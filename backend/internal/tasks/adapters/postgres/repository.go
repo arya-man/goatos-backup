@@ -181,17 +181,17 @@ WHERE tenant_id=$1::uuid AND child_goat_id=$2::uuid`, cmd.TenantID, childID).Sca
 INSERT INTO workflow_instances (
   tenant_id, template_key, module, subject_goat_id, dam_goat_id,
   birth_event_id, event_at, event_date, park_id, shed_id, state,
-  actions_total, actions_done, next_action_key, next_action_title, next_due_at, sop_version_id
+  actions_total, actions_done, next_action_key, next_action_title, next_due_at, sop_version_id, subject_ref_id
 ) VALUES (
   $1::uuid, $2, $3, $4::uuid, nullif($5::text,'')::uuid,
   nullif($6::text,'')::uuid, $7::timestamptz, $8::date, nullif($9::text,'')::uuid, nullif($10::text,'')::uuid, 'open',
-  $11, 0, $12, $13, $14::timestamptz, nullif($15::text,'')::uuid
+  $11, 0, $12, $13, $14::timestamptz, nullif($15::text,'')::uuid, nullif($16::text,'')::uuid
 )
 ON CONFLICT DO NOTHING
 RETURNING workflow_id::text`,
 		cmd.TenantID, cmd.TemplateKey, template.Module, cmd.SubjectGoatID, deref(cmd.DamGoatID),
 		deref(birthEventID), cmd.EventAt.UTC(), biztime.BusinessDate(cmd.EventAt), deref(cmd.ParkID), deref(cmd.ShedID),
-		template.OperatorActionCount(), nextKey, nextTitle, nextDue, sopVersionID,
+		template.OperatorActionCount(), nextKey, nextTitle, nextDue, sopVersionID, deref(cmd.SubjectRefID),
 	).Scan(&workflowID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		// Natural-key conflict: the workflow already exists. Do not touch its actions.
@@ -1389,4 +1389,59 @@ func valueOr(s *string, fallback string) string {
 func isUniqueViolation(err error) bool {
 	var pgErr *pgconn.PgError
 	return errors.As(err, &pgErr) && pgErr.Code == "23505"
+}
+
+// ---------------------------------------------------------------------------
+// Subject-ref workflows (reconcile, shifting) -- SOP-driven questionnaires on a non-goat subject
+// ---------------------------------------------------------------------------
+
+const workflowIDBySubjectRefSQL = `
+SELECT workflow_id::text FROM workflow_instances
+WHERE tenant_id = $1::uuid AND template_key = $2 AND subject_ref_id = $3::uuid`
+
+// WorkflowIDBySubjectRef reads the (tenant, template_key, subject_ref_id) unique row.
+func (r *Repository) WorkflowIDBySubjectRef(ctx context.Context, tenantID, templateKey, subjectRefID string) (string, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	var id string
+	err := r.pool.QueryRow(ctx, workflowIDBySubjectRefSQL, tenantID, templateKey, subjectRefID).Scan(&id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", domain.ErrNotFound
+	}
+	return id, err
+}
+
+// ReopenProofStepsForRework sends every completed proof-bearing operator step back to rework
+// with its proofs cleared, so the operator re-shoots exactly what the verifier rejected. Answers
+// on proof-less question steps are kept. Idempotent: a workflow with nothing to reopen is a no-op.
+func (r *Repository) ReopenProofStepsForRework(ctx context.Context, tenantID, workflowID string) error {
+	_, _, _, err := r.workflowMutation(ctx, tenantID, workflowID,
+		func(_ pgx.Tx, w *domain.WorkflowInstance, actions []domain.WorkflowAction) ([]domain.WorkflowAction, bool, error) {
+			var changed []domain.WorkflowAction
+			w.AwaitingVerification = false
+			for i := range actions {
+				a := actions[i]
+				if a.ActionType == domain.ActionTypeApproval || a.Status != domain.ActionStatusCompleted {
+					continue
+				}
+				if a.ProofMinVideos == 0 && a.ProofMinPhotos == 0 && !a.RequiresVideo {
+					continue
+				}
+				actions[i].Status = domain.ActionStatusRework
+				actions[i].ProofRef = nil
+				actions[i].ProofRefs = nil
+				actions[i].CompletedAt = nil
+				actions[i].CompletedBy = nil
+				actions[i].RowVersion++
+				changed = append(changed, actions[i])
+			}
+			if len(changed) == 0 {
+				return nil, true, nil
+			}
+			return changed, false, nil
+		})
+	if errors.Is(err, domain.ErrNotFound) {
+		return err
+	}
+	return err
 }

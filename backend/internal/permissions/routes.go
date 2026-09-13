@@ -1018,6 +1018,7 @@ var protectedRoutes = []Route{
 	// execution, and deliberately NO approval permission anywhere on this surface.
 	{OperationID: "listAppCountsPenReconciliationCards", Method: "GET", Pattern: "/app/counts/pen-reconciliation/cards", Permissions: []string{CountsWrite}},
 	{OperationID: "completeAppCountsPenReconciliationCard", Method: "POST", Pattern: "/app/counts/pen-reconciliation/cards/{card_id}/complete", Permissions: []string{CountsWrite}},
+	{OperationID: "ensureAppCountsPenReconciliationWorkflow", Method: "POST", Pattern: "/app/counts/pen-reconciliation/cards/{card_id}/workflow", Permissions: []string{CountsWrite}},
 
 	{OperationID: "listAppCountsApprovals", Method: "GET", Pattern: "/app/counts/approvals", Permissions: []string{CountsApproveAccess}},
 	{OperationID: "approveAppCountsApproval", Method: "POST", Pattern: "/app/counts/approvals/{request_id}/approve", Permissions: []string{CountsApproveAccess}},

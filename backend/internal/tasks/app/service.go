@@ -57,10 +57,11 @@ type DeathVerificationEnqueuer interface {
 
 // Service is the tasks app service.
 type Service struct {
-	repo     ports.Repository
-	enqueuer DeathVerificationEnqueuer
-	now      func() time.Time
-	log      *slog.Logger
+	repo            ports.Repository
+	enqueuer        DeathVerificationEnqueuer
+	now             func() time.Time
+	log             *slog.Logger
+	completionHooks map[string]WorkflowCompletionHook
 }
 
 // NewService constructs the service. now may be nil (defaults to time.Now).
@@ -178,6 +179,9 @@ func (s *Service) AnswerAction(ctx context.Context, in AnswerActionInput) (domai
 	if err := s.enqueueBirthWorkflowIfReady(ctx, in.TenantID, in.WorkflowID); err != nil {
 		return domain.ActionWriteResult{}, err
 	}
+	if err := s.notifyCompletion(ctx, in.TenantID, result); err != nil {
+		return domain.ActionWriteResult{}, err
+	}
 	return result, nil
 }
 
@@ -239,6 +243,9 @@ func (s *Service) CompleteAction(ctx context.Context, in CompleteActionInput) (d
 		return domain.ActionWriteResult{}, err
 	}
 	if err := s.enqueueBirthWorkflowIfReady(ctx, in.TenantID, in.WorkflowID); err != nil {
+		return domain.ActionWriteResult{}, err
+	}
+	if err := s.notifyCompletion(ctx, in.TenantID, result); err != nil {
 		return domain.ActionWriteResult{}, err
 	}
 

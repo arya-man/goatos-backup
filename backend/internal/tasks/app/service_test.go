@@ -360,6 +360,12 @@ func (f *fakeRepo) BounceBirthVideoForRework(_ context.Context, cmd ports.DeathV
 
 var _ ports.Repository = (*fakeRepo)(nil)
 
+func (f *fakeRepo) WorkflowIDBySubjectRef(context.Context, string, string, string) (string, error) {
+	return "", domain.ErrNotFound
+}
+
+func (f *fakeRepo) ReopenProofStepsForRework(context.Context, string, string) error { return nil }
+
 // fakeEnqueuer models the REAL verification adapter, not just "the seam was called". Verification's
 // CreateItem is `INSERT ... ON CONFLICT (tenant_id, idempotency_key) DO NOTHING` (see
 // verification/adapters/postgres/repository.go): a repeated key creates NO new review item and hands

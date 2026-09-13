@@ -227,6 +227,11 @@ func ValidateFollowUp(d FollowUpDSL, taskTypes map[string]FollowUpTaskTy) []stri
 			if s.Proof.Video < 0 || s.Proof.Photo < 0 {
 				add("%s.proof: counts must not be negative", sp)
 			}
+			switch s.Section {
+			case "", SectionMain, SectionColostrumSession:
+			default:
+				add("%s.section: %q is not a section (main or colostrum_session)", sp, s.Section)
+			}
 			answer := s.Answer
 			if answer == "" && ok {
 				answer = tt.AnswerKind

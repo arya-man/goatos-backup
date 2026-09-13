@@ -106,6 +106,12 @@ type PenReconciliationRepository interface {
 	// card open/rework -> pending_verification. The bool result reports an idempotent replay.
 	CompletePenReconciliationCard(ctx context.Context, in domain.PenReconciliationCompletionCommand) (domain.PenReconciliationCompletionResult, bool, error)
 
+	// PenReconciliationCardForWorkflow / SetPenReconciliationWorkflow / PenReconciliationCardIDByWorkflow
+	// link a card to its SOP-driven questionnaire workflow (migration 000300).
+	PenReconciliationCardForWorkflow(ctx context.Context, tenantID, cardID string) (domain.PenReconciliationWorkflowFacts, error)
+	SetPenReconciliationWorkflow(ctx context.Context, tenantID, cardID, workflowID string) error
+	PenReconciliationCardIDByWorkflow(ctx context.Context, tenantID, workflowID string) (string, error)
+
 	// MarkPenReconciliationVerificationEnqueued clears the durable retry marker after the
 	// verifier item has been created or idempotently replayed. If this write fails, a later exact
 	// completion replay or kernel recovery tick sees the marker and retries the enqueue.

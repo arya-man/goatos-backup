@@ -57,6 +57,7 @@ type PenReconciliationService struct {
 	repo     ports.PenReconciliationRepository
 	now      func() time.Time
 	enqueuer PenReconciliationVerificationEnqueuer
+	engine   PenReconciliationWorkflowEngine
 }
 
 // NewPenReconciliationService constructs the service. now may be nil (defaults to time.Now).
@@ -85,6 +86,8 @@ type CompletePenReconciliationInput struct {
 	// ProofRef is the MANDATORY video proving the animal was physically returned to its
 	// registered pen. A blank value is rejected with ports.ErrPenReconciliationProofRequired.
 	ProofRef string
+	// ProofRefs is every proof the SOP questionnaire captured; the verifier item carries all.
+	ProofRefs []string
 
 	IdempotencyKey     string
 	RequestFingerprint string
@@ -116,6 +119,7 @@ func (s *PenReconciliationService) Complete(
 		CompletedAt:        s.now().UTC(),
 		TraceID:            in.TraceID,
 		ProofRef:           strings.TrimSpace(in.ProofRef),
+		ProofRefs:          in.ProofRefs,
 		IdempotencyKey:     in.IdempotencyKey,
 		RequestFingerprint: in.RequestFingerprint,
 	})
@@ -132,13 +136,17 @@ func (s *PenReconciliationService) Complete(
 		if proofRef == "" {
 			proofRef = strings.TrimSpace(in.ProofRef)
 		}
+		mediaRefs := result.ProofRefs
+		if len(mediaRefs) == 0 {
+			mediaRefs = []string{proofRef}
+		}
 		if err := s.enqueueVerification(ctx, in.TenantID, PenReconciliationVerificationEnqueueRequest{
 			CardID:         in.CardID,
 			OperatorID:     in.CompletedByUserID,
 			ParkID:         derefString(result.ParkID),
 			ShedID:         result.RegisteredShedID,
 			PartitionLabel: result.RegisteredPartitionLabel,
-			MediaRefs:      []string{proofRef},
+			MediaRefs:      mediaRefs,
 			SubjectLabel:   penReconciliationSubject(result.ScannedIdentifier, result.RegisteredShedName, result.RegisteredPartitionLabel),
 			CapturedAt:     s.now().UTC(),
 			// Keyed to the CARD + proof so a retry collapses onto one queue item while a
