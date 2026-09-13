@@ -53,6 +53,32 @@ function animalProfileLine(item: HerdSignalItem): string {
   return [item.breed, item.sex, age].filter(Boolean).join(" · ");
 }
 
+function watchlistReasonLabel(reason: string): string {
+  const normalized = reason.trim().toLowerCase();
+  if (!normalized) return "";
+  if (normalized.includes("temperature high") || normalized.includes("temp high")) return "Tag warmer than pen average";
+  if (normalized.includes("inactive") || normalized.includes("no movement")) return "No movement right now";
+  if (normalized.includes("quiet")) return "Movement lower than usual";
+  if (normalized.includes("spike")) return "Movement spike";
+  if (normalized.includes("missing")) return "Signal missing";
+  return reason;
+}
+
+function signedPercent(value: number): string {
+  return `${value > 0 ? "+" : ""}${Math.round(value)}%`;
+}
+
+function watchlistDetailLine(item: HerdSignalItem): string {
+  const details: string[] = [];
+  if (item.own_motion_delta_pct != null) details.push(`vs own normal ${signedPercent(item.own_motion_delta_pct)}`);
+  if (item.group_motion_delta_pct != null) details.push(`vs pen group ${signedPercent(item.group_motion_delta_pct)}`);
+  if (item.group_temp_delta_c != null) {
+    const delta = `${item.group_temp_delta_c >= 0 ? "+" : ""}${item.group_temp_delta_c.toFixed(1)}°C`;
+    details.push(`tag temp ${delta} vs pen`);
+  }
+  return details.join(" · ");
+}
+
 function isInteractiveTarget(target: EventTarget | null): boolean {
   return target instanceof Element && Boolean(target.closest("a,button,input,select,textarea,[role='button']"));
 }
@@ -410,17 +436,13 @@ export function HerdSignalsTable({
                     )}
                   </td>
                   <td data-l="Watchlist">
-                    {item.risk_state ? <Tag tone={RISK_TONE[item.risk_state]}>{RISK_LABEL[item.risk_state]}</Tag> : "—"}
-                    {item.risk_reasons?.length ? <small className="faint">{item.risk_reasons.slice(0, 2).join("; ")}</small> : null}
-                    <small className="faint">
-                      {[
-                        item.own_motion_delta_pct == null ? null : `own ${Math.round(item.own_motion_delta_pct)}%`,
-                        item.group_motion_delta_pct == null ? null : `group ${Math.round(item.group_motion_delta_pct)}%`,
-                        item.group_temp_delta_c == null ? null : `temp ${item.group_temp_delta_c >= 0 ? "+" : ""}${item.group_temp_delta_c.toFixed(1)}°C`,
-                      ]
-                        .filter(Boolean)
-                        .join(" · ") || "—"}
-                    </small>
+                    <div className="hs-watch">
+                      {item.risk_state ? <Tag tone={RISK_TONE[item.risk_state]}>{RISK_LABEL[item.risk_state]}</Tag> : "—"}
+                      {item.risk_reasons?.length ? (
+                        <small>{item.risk_reasons.slice(0, 2).map(watchlistReasonLabel).filter(Boolean).join("; ")}</small>
+                      ) : null}
+                      {watchlistDetailLine(item) ? <small className="faint">{watchlistDetailLine(item)}</small> : null}
+                    </div>
                   </td>
                   <td data-l="Battery">
                     {fmtBatteryMv(item.battery_mv)}

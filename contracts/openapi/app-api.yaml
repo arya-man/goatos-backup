@@ -102,8 +102,8 @@ paths:
           schema: { $ref: '#/components/schemas/HerdSignalPatternFilter' }
         - name: risk_state
           in: query
-          schema: { $ref: '#/components/schemas/HerdSignalRiskState' }
-          description: Server-side watchlist risk filter computed before pagination.
+          schema: { $ref: '#/components/schemas/HerdSignalRiskFilter' }
+          description: Server-side watchlist risk filter computed before pagination. `attention` selects every tag with any watchlist score.
         - name: q
           in: query
           schema: { type: string }
@@ -15359,6 +15359,13 @@ components:
     HerdSignalRiskState:
       type: string
       enum: [low, watch, high]
+    HerdSignalRiskFilter:
+      type: string
+      description: >-
+        Accepted values for the `risk_state` QUERY parameter. A superset of HerdSignalRiskState:
+        every real row risk state, plus the `attention` sentinel that selects every tag with any
+        watchlist score. A row's risk_state is never `attention`.
+      enum: [low, watch, high, attention]
     HerdSignalPatternFilter:
       type: string
       description: >-

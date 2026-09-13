@@ -313,6 +313,32 @@ func TestListLiveRiskSummaryKeepsMovementBreakdownWhole(t *testing.T) {
 	}
 }
 
+func TestListLiveAttentionRiskExcludesZeroScoreRows(t *testing.T) {
+	now := time.Now().UTC()
+	repo := &fakeRepo{livePages: []domain.TagLatest{
+		{TagID: "A00001", LastSeenAt: now, PatternState: "normal", MappingState: "mapped", MovementState: "low"},
+		{TagID: "A00002", LastSeenAt: now.Add(-time.Minute), PatternState: "inactive", MappingState: "mapped", MovementState: "stale"},
+	}}
+	svc := NewService(repo)
+	actor := domain.Actor{TenantID: "tenant-1", UserID: "user-1"}
+	risk := "attention"
+	sort := domain.LiveSort{Key: "smart_tag", Dir: "asc"}
+
+	resp, err := svc.ListLive(context.Background(), actor, nil, nil, nil, nil, nil, &risk, nil, "", 10, sort)
+	if err != nil {
+		t.Fatalf("ListLive: %v", err)
+	}
+	if len(resp.Items) != 1 || resp.Items[0].TagID != "A00002" {
+		t.Fatalf("attention tags = %+v, want only scored A00002", resp.Items)
+	}
+	if resp.Items[0].RiskState == nil || *resp.Items[0].RiskState != "watch" {
+		t.Fatalf("risk state = %v, want watch", resp.Items[0].RiskState)
+	}
+	if resp.Summary.TagsSeen != 1 {
+		t.Fatalf("summary tags_seen = %d, want 1", resp.Summary.TagsSeen)
+	}
+}
+
 func TestListLiveMovementFilterUsesWholePenForGroupComparisons(t *testing.T) {
 	now := time.Now().UTC()
 	motionHigh := int64(100)

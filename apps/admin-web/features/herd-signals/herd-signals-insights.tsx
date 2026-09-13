@@ -65,6 +65,16 @@ export function HerdSignalsInsights({ cards }: { cards: HerdInsightCard[] }) {
           Everything below is labelled Direct, Derived, Correlated or Inferred.
         </div>
       </div>
+      <div className="banner ok">
+        <svg className="ic" viewBox="0 0 24 24">
+          <path d="M20 6 9 17l-5-5" />
+        </svg>
+        <div>
+          <b>How to read this:</b> use Live Monitor and Alerts for animal-level action. These cards
+          explain fleet health: tag coverage, missing signals, weak radio, low battery and whether
+          movement is merely correlated with farm events.
+        </div>
+      </div>
       {cards.length === 0 ? (
         <div className="empty">
           <div className="eicon">
@@ -97,50 +107,6 @@ export function HerdSignalsInsights({ cards }: { cards: HerdInsightCard[] }) {
           ))}
         </div>
       )}
-      <div className="card" style={{ marginTop: 14 }}>
-        <div className="hd">
-          <svg className="ic" viewBox="0 0 24 24">
-            <rect x="5" y="2" width="14" height="20" rx="2" />
-            <path d="M12 18h.01" />
-          </svg>
-          <h3>Vaccination proof — BLE scan flow (design)</h3>
-          <div className="sp" />
-          <span className="tag t-mut">Not built</span>
-        </div>
-        <div className="bd">
-          <ol className="muted" style={{ margin: "0 0 10px", paddingLeft: 18, fontSize: 12.5, lineHeight: 1.8 }}>
-            <li>Operator opens the vaccination task.</li>
-            <li>App starts a nearby BLE scan, tags sorted by RSSI.</li>
-            <li>Operator brings the phone close to the ear tag.</li>
-            <li>
-              App highlights the strongest <b>mapped</b> tag.
-            </li>
-            <li>Operator confirms animal ↔ tag.</li>
-            <li>Camera opens.</li>
-            <li>Proof stores animal_id, BLE tag ID, BLE MAC, RSSI, scanner source, timestamp, video proof ID.</li>
-          </ol>
-          <div className="banner dng" style={{ margin: "0 0 10px" }}>
-            <svg className="ic" viewBox="0 0 24 24">
-              <path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" />
-              <path d="M12 9v4" />
-              <path d="M12 17h.01" />
-            </svg>
-            <div>
-              <b>Safety gate.</b> The camera never auto-opens because a BLE tag is merely visible.
-              Require strongest RSSI ≥ −60 dBm <b>and</b> ≥ 8 dB clear of the next strongest, or an
-              explicit manual operator confirmation.
-            </div>
-          </div>
-          <div className="tagrow" style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>
-            <span className="tag t-ok">Nearest tag locked</span>
-            <span className="tag t-warn">Multiple tags nearby</span>
-            <span className="tag t-warn">Move closer</span>
-            <span className="tag t-dng">Tag not mapped</span>
-            <span className="tag t-dng">Bluetooth permission required</span>
-            <span className="tag t-mut">Scanner unavailable — manual verification path</span>
-          </div>
-        </div>
-      </div>
     </>
   );
 }

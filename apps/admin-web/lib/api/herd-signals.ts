@@ -194,7 +194,7 @@ export interface HerdSignalsLiveParams {
   // alerting partition (pattern_state <> 'normal'). The Alerts tab uses it so the alerting subset
   // is selected by the query, not by filtering whatever rows happen to be on the fetched page.
   pattern?: HerdSignalPatternState | "not_normal";
-  riskState?: HerdSignalRiskState;
+  riskState?: HerdSignalRiskState | "attention";
   q?: string;
   cursor?: string;
   limit?: number;

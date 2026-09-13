@@ -21,7 +21,7 @@ import { HerdSignalsGateways } from "./herd-signals-gateways";
 import { HerdSignalsInsights } from "./herd-signals-insights";
 import { Tag, type Tone } from "@/components/ui-primitives";
 import type { HerdSignalItem } from "@/lib/api/herd-signals";
-import { PATTERN_LABEL, PATTERN_TONE, fmtAgo, fmtRssi, fmtBatteryMv } from "./format";
+import { RISK_LABEL, RISK_TONE } from "./format";
 import { HERD_SIGNALS_TABS, herdSignalsHref, kpiToMovementState, parseHerdSignalsParams, type HerdSignalsParams, type HerdSignalsTab } from "./params";
 
 const TAB_LABEL: Record<HerdSignalsTab, string> = {
@@ -75,14 +75,9 @@ const TAB_ICON: Record<HerdSignalsTab, ReactNode> = {
   insights: <path d="M3 12h4l3 8 4-16 3 8h4" />,
 };
 
-// What the Alerts tab lists: every tag whose pattern classification is anything other than
-// "normal". pattern_state is a single, always-populated classification (the backend computes it on
-// every read), so "not normal" is a partition -- selected SERVER-SIDE via `pattern: "not_normal"`
-// in fetchForTab (herdSignalsLiveFilter, pattern_state <> 'normal'), not by filtering whatever page
-// of rows happens to come back. Client-side selection from one fetched page is wrong at scale: a
-// page can be entirely non-alerting rows while thousands of alerting tags exist elsewhere in the
-// fleet. The tab badge stays a real server-side aggregate (fleet total minus the tenant-wide
-// `normal` count) either way.
+// What the Alerts tab lists: the practical Watchlist shortlist. That is the cross-signal score from
+// the backend: own baseline, same-pen comparison, tag-temperature deviation, persistent pattern and
+// sensor health. A resting tag with zero 15-minute movement is not automatically an alert.
 
 export function loadHerdSignalsLive(searchParams: RouteSearchParams | undefined): Promise<ApiResult<HerdSignalsLiveResponse>> {
   const params = parseHerdSignalsParams(searchParams);
@@ -107,12 +102,7 @@ function fetchForTab(params: HerdSignalsParams): Promise<ApiResult<HerdSignalsLi
     return getHerdSignalsLive({ ...common, mappingState: params.mappingState });
   }
   if (params.tab === "alerts") {
-    // The mock's Alerts tab is ONE unified list of every alerting tag, with no type-filter row at
-    // all -- so the query asks the server for the whole "not normal" partition (pattern_state <>
-    // 'normal') rather than fetching one page unfiltered and picking the alerting rows out of it
-    // client-side. At fleet scale a page can be entirely non-alerting rows; a server-side filter is
-    // the only way the Alerts tab stays correct past the first page.
-    return getHerdSignalsLive({ ...common, pattern: "not_normal" });
+    return getHerdSignalsLive({ ...common, riskState: "attention" });
   }
   // live tab
   return getHerdSignalsLive({
@@ -187,12 +177,10 @@ export async function HerdSignalsBoard({
   // than suppressed with an ignore comment.
   const scopeSummaryPromise = tabNarrowsSummary ? getHerdSignalsLive(scopeOnly) : Promise.resolve(null);
 
-  const [liveResult, fleetOwnResult, normalResult, gatewaysResult, insightsResult] = await Promise.all([
+  const [liveResult, fleetOwnResult, alertsResult, gatewaysResult, insightsResult] = await Promise.all([
     fetchForTab(params),
     scopeSummaryPromise,
-    // The tenant-wide "normal pattern" count. Alerting = fleet total - normal, both server-side
-    // aggregates over the same scope, which is the only honest source for the Alerts badge.
-    getHerdSignalsLive({ ...scopeOnly, pattern: "normal" }),
+    getHerdSignalsLive({ ...scopeOnly, riskState: "attention" }),
     getHerdSignalsGateways(),
     params.tab === "insights" ? getHerdSignalsInsights() : Promise.resolve(null),
   ]);
@@ -206,9 +194,7 @@ export async function HerdSignalsBoard({
     // Tag Mapping lists every tag (mapped, unmapped and conflict), so its count is the same
     // tenant-wide tag total as Live Monitor's, not the mapped-only or unmapped-only subset.
     tabCounts.mapping = fleet.tags_seen;
-    if (normalResult.ok) {
-      tabCounts.alerts = Math.max(0, fleet.tags_seen - normalResult.data.summary.tags_seen);
-    }
+    if (alertsResult.ok) tabCounts.alerts = alertsResult.data.summary.tags_seen;
   }
   if (gatewaysResult.ok) tabCounts.gateways = gatewaysResult.data.gateways.length;
 
@@ -425,28 +411,18 @@ function AlertsTab({
   alertingTotal: number | undefined;
 }) {
   if (!result.ok) return <ReadFailed message={result.error.message} retryHref={herdSignalsHref(params, {})} />;
-  // The mock has NO alert-type filter row: `renderAlerts` builds ONE `.rowlist` holding every
-  // alerting tag, whatever its type. `fetchForTab` already asked the server for the whole
-  // "not_normal" partition (pattern="not_normal", see herdSignalsLiveFilter in the Postgres
-  // repository) -- every row on this page is already alerting, at any fleet scale, because the
-  // filter runs in the WHERE clause, not after the page lands. Re-filtering here with the old
-  // client-side `isAlerting` predicate would just be a no-op on top of an already-server-filtered
-  // page, so `items` IS the alerting set.
+  // fetchForTab already asked the backend for risk_state=attention, so every row here is a scored
+  // Watchlist animal. Do not derive this from the currently fetched Live Monitor page.
   const { items, next_cursor } = result.data;
-  const alerting = items;
-  // Flattened (item, condition) pairs — a tag with three independent alert conditions renders
-  // three rows, and a tag whose only "not normal" pattern is bare no_movement (not itself
-  // alert-worthy, see buildAlertConditions) renders none.
-  const rows = alerting.flatMap((item) => buildAlertConditions(item, nowMs).map((condition) => ({ item, condition })));
   return (
     <div className="card">
       <div className="hd">
-        <h3>Signal alerts</h3>
+        <h3>Tags needing attention</h3>
         <div className="sp" style={{ flex: 1 }} />
-        <span className="small faint">Signal conditions only — none of these are clinical findings</span>
+        <span className="small faint">Shortlist only — confirm with clinical checks before action</span>
       </div>
       <div className="bd flush">
-        {rows.length === 0 ? (
+        {items.length === 0 ? (
           <div className="empty">
             <div className="eicon">
               <svg className="ic" viewBox="0 0 24 24">
@@ -455,17 +431,14 @@ function AlertsTab({
                 <path d="M12 17h.01" />
               </svg>
             </div>
-            <h4>No tags in an alert state</h4>
-            <p>Every tag in scope is reading within thresholds — a healthy outcome, not an error.</p>
+            <h4>No tags need attention right now</h4>
+            <p>No smart tag is unusual against its own baseline or its pen group in this scope.</p>
           </div>
         ) : (
           <>
-            {/* The mock renders Alerts as a `.rowlist`, not as the shared live table: one row per
-                signal condition, severity chip first, the explanation in prose, shed right-aligned.
-                A table here re-states fourteen telemetry columns the reader did not ask for. */}
             <div className="rowlist">
-              {rows.map(({ item, condition }, index) => (
-                <AlertRow key={`${item.tag_id}-${condition.label}-${index}`} item={item} condition={condition} />
+              {items.map((item) => (
+                <AlertRow key={item.tag_id} item={item} />
               ))}
             </div>
             {next_cursor ? (
@@ -474,14 +447,14 @@ function AlertsTab({
                   Next &rarr;
                 </Link>
                 <span>
-                  Showing <b>{alerting.length.toLocaleString("en-IN")}</b>
+                  Showing <b>{items.length.toLocaleString("en-IN")}</b>
                   {alertingTotal !== undefined ? (
                     <>
                       {" of "}
                       <b>{alertingTotal.toLocaleString("en-IN")}</b>
                     </>
                   ) : null}{" "}
-                  alerting tags in scope
+                  tags needing attention
                 </span>
               </div>
             ) : null}
@@ -492,105 +465,31 @@ function AlertsTab({
   );
 }
 
-type AlertCondition = { tone: Tone; label: string; explanation: string };
-
-// One tag can be alerting for SEVERAL independent reasons at once (its motion pattern, its radio,
-// its battery, its accelerometer, its mapping) and each reason is its own row — exactly the mock's
-// renderAlerts, which pushes a separate array entry per condition instead of collapsing a tag down
-// to one badge. pattern_state alone (a movement-only classification) cannot say "weak signal" or
-// "low battery" or "mapping conflict"; those come from the tag's OWN signal_state/battery_state/
-// accelerometer_sensor_ok/mapping_state fields, checked independently of the motion pattern.
-//
-// "No movement now" (pattern_state === "no_movement") is deliberately NOT one of these conditions:
-// it is an ordinary current-window motion-count state, and the mock's renderAlerts never emits a
-// row for it alone — only the DURATION-based inactive/quiet_watch patterns, a spike, a recovery,
-// or a genuinely different signal/battery/sensor/mapping condition are alert-worthy.
-function buildAlertConditions(item: HerdSignalItem, nowMs: number): AlertCondition[] {
-  const conditions: AlertCondition[] = [];
-  const pattern = item.pattern_state ?? "normal";
-
-  if (pattern === "inactive") {
-    conditions.push({
-      tone: PATTERN_TONE.inactive,
-      label: PATTERN_LABEL.inactive,
-      explanation:
-        "Zero or very low motion delta for 3+ hours while the tag is still being seen. Duration-based, not a single empty window — open the tag to read the pattern.",
-    });
-  } else if (pattern === "quiet_watch") {
-    conditions.push({
-      tone: PATTERN_TONE.quiet_watch,
-      label: PATTERN_LABEL.quiet_watch,
-      explanation: "Low motion delta for the last 1-2 hours. Short quiet periods are normal; this is a watch item, not an alert.",
-    });
-  }
-  if (pattern === "spike") {
-    conditions.push({
-      tone: PATTERN_TONE.spike,
-      label: PATTERN_LABEL.spike,
-      explanation: "Current 15-minute delta is far above this animal's own baseline. Unusual counter activity — not walking, running or distress.",
-    });
-  }
-  if (pattern === "recovered") {
-    conditions.push({
-      tone: PATTERN_TONE.recovered,
-      label: PATTERN_LABEL.recovered,
-      explanation: "Activity resumed after a quiet period. No action needed; logged so a prior quiet watch can be closed.",
-    });
-  }
-  // Missing signal names the GATEWAY before the animal, always: the reader must check the radio
-  // path first, and the row must not read as "this animal is missing".
-  if (pattern === "missing" || item.movement_state === "stale") {
-    conditions.push({
-      tone: PATTERN_TONE.missing,
-      label: PATTERN_LABEL.missing,
-      explanation: `Gateway ${item.gateway_id ?? "coverage for this tag"} last delivered a packet for this tag ${fmtAgo(item.last_seen_at, nowMs)}. Missing signal — never a missing animal. Check the gateway before checking the animal.`,
-    });
-  }
-  if (item.signal_state === "weak") {
-    conditions.push({
-      tone: "warn",
-      label: "Weak signal",
-      explanation: `RSSI ${fmtRssi(item.rssi_dbm)} is at or below the provisional −75 dBm threshold. Possible distance, obstruction or gateway placement issue.`,
-    });
-  }
-  if (item.battery_state === "low" || item.battery_state === "critical") {
-    conditions.push({
-      tone: "pur",
-      label: "Low battery",
-      // Deliberately no "est. ~N left" life estimate here (removed twice already — no vendor
-      // discharge curve exists). Voltage threshold only, same wording as the KPI card.
-      explanation: `Battery ${fmtBatteryMv(item.battery_mv)} is below the provisional 2800 mV placeholder.`,
-    });
-  }
-  if (item.sensor_state === "abnormal" || item.accelerometer_sensor_ok === false) {
-    conditions.push({
-      tone: "warn",
-      label: "Sensor abnormal",
-      explanation: "Accelerometer status bit is not OK. Motion counts from this tag are unreliable.",
-    });
-  }
-  if (item.mapping_state === "conflict") {
-    conditions.push({
-      tone: "dng",
-      label: "Mapping conflict",
-      explanation: "This BLE tag resolves to more than one active smart-tag-capable identifier. Resolve in Tag Mapping.",
-    });
-  }
-  return conditions;
+function readableRiskReason(reason: string): string {
+  const normalized = reason.trim().toLowerCase();
+  if (normalized === "motion far below own baseline") return "Movement is far below this animal's normal baseline.";
+  if (normalized === "motion spike vs own baseline") return "Movement is much higher than this animal's normal baseline.";
+  if (normalized === "motion lower than pen group") return "Movement is lower than nearby animals in the same pen.";
+  if (normalized === "tag temperature high vs pen group") return "Tag is warmer than the pen group average.";
+  if (normalized === "persistent abnormal activity") return "Abnormal movement pattern has persisted.";
+  if (normalized === "activity pattern needs watch") return "Movement pattern needs a watch check.";
+  if (normalized === "sensor abnormal") return "Tag sensor health is abnormal.";
+  return reason;
 }
 
-// One alert row per condition (see buildAlertConditions) — the severity chip is that condition's
-// own approved tone/label, never a synonym invented here.
-function AlertRow({ item, condition }: { item: HerdSignalItem; condition: AlertCondition }) {
+function AlertRow({ item }: { item: HerdSignalItem }) {
   const location = item.operational_location_display ?? item.shed_name ?? item.park_name ?? "—";
+  const label = item.risk_state ? RISK_LABEL[item.risk_state] : "Needs review";
+  const tone = item.risk_state ? RISK_TONE[item.risk_state] : "warn";
+  const reasons = item.risk_reasons?.length ? item.risk_reasons.map(readableRiskReason).join("; ") : "Baseline or group comparison changed enough to review.";
   return (
     <div className="rowitem">
-      <Tag tone={condition.tone}>{condition.label}</Tag>
+      <Tag tone={tone}>{label}</Tag>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div className="rt">
           {item.display_id ?? "No animal mapped to this tag"} <span className="mono faint">{item.tag_id}</span>
         </div>
-        <div className="rs">{condition.explanation}</div>
+        <div className="rs">{reasons}</div>
       </div>
       <span className="faint small">{location}</span>
     </div>

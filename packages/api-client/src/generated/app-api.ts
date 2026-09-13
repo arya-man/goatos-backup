@@ -5840,6 +5840,11 @@ export interface components {
         /** @enum {string} */
         HerdSignalRiskState: "low" | "watch" | "high";
         /**
+         * @description Accepted values for the `risk_state` QUERY parameter. A superset of HerdSignalRiskState: every real row risk state, plus the `attention` sentinel that selects every tag with any watchlist score. A row's risk_state is never `attention`.
+         * @enum {string}
+         */
+        HerdSignalRiskFilter: "low" | "watch" | "high" | "attention";
+        /**
          * @description Accepted values for the `pattern` QUERY parameter. A superset of HerdSignalPatternState: every real pattern state, plus the `not_normal` sentinel that selects the whole alerting partition server-side (pattern_state other than normal/no_movement, OR weak signal, OR low/critical battery, OR abnormal sensor, OR mapping conflict).
          *     Deliberately a SEPARATE enum from HerdSignalPatternState so a row's pattern_state stays the set of states a tag can actually be in -- no tag is ever IN state "not_normal". The Alerts view needs the partition selected in the query rather than filtered from a fetched page, because a page of rows is not the fleet.
          * @enum {string}
@@ -17079,8 +17084,8 @@ export interface operations {
                 movement_state?: components["schemas"]["HerdSignalMovementState"];
                 mapping_state?: components["schemas"]["HerdSignalMappingState"];
                 pattern?: components["schemas"]["HerdSignalPatternFilter"];
-                /** @description Server-side watchlist risk filter computed before pagination. */
-                risk_state?: components["schemas"]["HerdSignalRiskState"];
+                /** @description Server-side watchlist risk filter computed before pagination. `attention` selects every tag with any watchlist score. */
+                risk_state?: components["schemas"]["HerdSignalRiskFilter"];
                 /** @description Free-text search over display id, tag id, MAC, shed name, gateway id. */
                 q?: string;
                 cursor?: string;

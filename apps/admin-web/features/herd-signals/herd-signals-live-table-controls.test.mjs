@@ -94,10 +94,13 @@ test("live table exposes own-baseline and group-comparison risk signals", () => 
   assert.match(table, /own_motion_delta_pct/, "Risk cell must show own-baseline motion comparison");
   assert.match(table, /group_motion_delta_pct/, "Risk cell must show same-pen group motion comparison");
   assert.match(table, /group_temp_delta_c/, "Risk cell must show same-pen temperature comparison");
+  assert.match(table, /Movement is far below|Movement lower than usual|Tag warmer than pen average/, "Risk cell must render human-readable reasons, not own/group/temp shorthand");
+  assert.doesNotMatch(table, /`own \$\{Math\.round/, "Risk cell must not render the old own/group/temp shorthand");
   assert.match(table, /hs_risk: undefined/, "Clear filters must clear the signal shortlist filter");
 
   const api = read("../../lib/api/herd-signals.ts");
   assert.match(api, /risk_state: params\.riskState/, "Watchlist risk filter must be sent to the live API");
+  assert.match(api, /\"attention\"/, "API wrapper must allow the Alerts tab's watchlist sentinel");
   for (const field of ["risk_state", "risk_reasons", "own_motion_delta_pct", "group_motion_delta_pct", "group_temp_delta_c"]) {
     assert.match(api, new RegExp(field), `${field} must be exposed on HerdSignalItem`);
   }

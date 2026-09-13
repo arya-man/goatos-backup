@@ -3740,6 +3740,9 @@ select:disabled { opacity: .45; }
 .herd-signals-page .animcell a{color:inherit;text-decoration:none;border-bottom:1px dashed var(--line)}
 .herd-signals-page .animcell a:hover{color:var(--brand-d);border-color:var(--brand-d)}
 .herd-signals-page .animcell small{display:block;color:color-mix(in srgb,var(--muted) 72%,var(--ink));font-weight:600;font-size:10.5px}
+.herd-signals-page .hs-watch{display:grid;gap:4px;min-width:180px;max-width:280px;white-space:normal}
+.herd-signals-page .hs-watch .tag{justify-self:start}
+.herd-signals-page .hs-watch small{display:block;font-size:11px;line-height:1.35;color:color-mix(in srgb,var(--muted) 78%,var(--ink))}
 .herd-signals-page .delta{font-variant-numeric:tabular-nums;font-weight:700}
 .herd-signals-page .delta.up{color:var(--ok)}
 .herd-signals-page .delta.zero{color:var(--muted)}

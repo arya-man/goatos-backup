@@ -194,6 +194,12 @@ func (s *Service) ListLive(ctx context.Context, actor domain.Actor, parkID, shed
 
 		filtered := make([]domain.LiveItem, 0, len(cohortItems))
 		for _, item := range cohortItems {
+			if *riskState == "attention" {
+				if item.RiskState != nil {
+					filtered = append(filtered, item)
+				}
+				continue
+			}
 			if item.RiskState != nil && *item.RiskState == *riskState {
 				filtered = append(filtered, item)
 			}
@@ -911,10 +917,13 @@ func applyRiskSignals(items []domain.LiveItem, groupStats map[string]riskGroupSt
 			reasons = append(reasons, "sensor abnormal")
 		}
 
+		if score <= 0 {
+			continue
+		}
 		state := "low"
 		if score >= 3 {
 			state = "high"
-		} else if score > 0 {
+		} else if score == 2 {
 			state = "watch"
 		}
 		item.RiskState = &state
