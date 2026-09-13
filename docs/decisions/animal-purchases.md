@@ -8,24 +8,36 @@ Maintainer decision, 2026-09-13.
    module's new **Animal purchases** tab beside Vendors and Feed Purchases. A load names the
    vendor (from the register), the farm it is for (CBE / CPT), a load number, roughly how many
    animals, and a note.
-2. **Animals are recorded one at a time inside the load.** Goat or sheep, male or female,
-   breed, rough age and weight, how the animal looks (healthy / minor concern / unwell), an
-   optional temporary tag, a note, and a **video from the in-app camera**. The video is
-   mandatory: the write is refused unless the proof is a finished in-app-camera video upload,
-   so no candidate row ever exists without a video behind it.
+2. **Animals are recorded one at a time inside the load, as the farm's Procurement SOP
+   inspection** (maintainer instruction the same day, from the "Procurement SOP" Google Form).
+   The questionnaire is a versioned catalog the backend serves and validates
+   (`animalpurchase/domain.Questionnaire`, 42 items): goat ID, well-fed, teeth count with the
+   SOP's reject hints, sex, pregnancy, weight, height, rectal temperature, a face check, a body
+   check with "where" text for any yes, an udder/testicle check, and the inspector's own
+   verdict (Selected / On Hold). Six **media slots**, each an in-app-camera photo or video,
+   three of them mandatory (teeth, the animal, udder/testicles). Vendor and batch are NOT
+   questions: they live on the load. Answers land as `sop_answers` jsonb keyed by question id
+   with the typed columns derived; captures land one row per slot position in
+   `animal_purchase_candidate_media`, unique on the proof (one capture is one animal's
+   evidence). The write is refused unless every capture is a finished in-app-camera upload.
+   The phone renders the served questionnaire; changing a question is a backend version bump,
+   never an app release.
 3. **The CEO/CXO watches each video on admin-web and ACCEPTS or REJECTS the animal**, on the
    new `/procurement/animal-purchases` page under Procurement. Accept means "we buy it";
    reject means "we skip it". The decision is version-fenced, recorded once with who decided,
    when, and any note, and cannot be changed afterwards from this screen.
-4. **The decision is CEO/CXO ALONE.** `procurement.animal_purchase.decide` is granted only to
+4. **The inspector's field verdict is a recommendation, never the decision.** Selected / On
+   Hold is recorded on the phone and shown to the CEO as a chip beside each animal. The CEO's
+   Accept / Reject remains the only decision.
+5. **The decision is CEO/CXO ALONE.** `procurement.animal_purchase.decide` is granted only to
    `ceo_internal`, the toxin-verdict shape: the person who films the animal must not be the
    one who accepts it. The procurement desk holds read and write (`.read`, `.write`) and
    never sees the web page.
-5. **The phone shows the answer at once.** The load screen re-reads from the server on open
+6. **The phone shows the answer at once.** The load screen re-reads from the server on open
    and on resume, refreshes while it stays open, and the person who recorded the animal gets
    a push (`animal_purchase_decided`) the moment the decision commits. The phone's stored copy
    is a placeholder overwritten by the server read, never treated as truth.
-6. **This stage STOPS at the decision.** An accepted animal is NOT written to `goats`, gets
+7. **This stage STOPS at the decision.** An accepted animal is NOT written to `goats`, gets
    no RFID, and joins no `procurement_load`. The candidate register is deliberately separate
    from `procurement_loads` / `procurement_load_goats`, whose add-goat write creates a goats
    row on insert -- exactly the write the maintainer said not to make yet. Promotion of
@@ -33,7 +45,9 @@ Maintainer decision, 2026-09-13.
 
 ## The shape
 
-- Tables `animal_purchase_loads` and `animal_purchase_candidates` (migration `000299`).
+- Tables `animal_purchase_loads` and `animal_purchase_candidates` (migration `000299`), the SOP
+  answers, verdict, height and temperature columns plus `animal_purchase_candidate_media`
+  (migration `000303`).
   Loads are unique on `(tenant_id, load_ref)`; candidates carry a per-load `seq_no` assigned
   under the load's row lock, the video proof reference, and the decision columns with a CHECK
   that `decision = 'pending'` exactly when `decided_at IS NULL`.

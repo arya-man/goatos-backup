@@ -125,9 +125,10 @@ WHERE tenant_id = $1::uuid AND load_id = $2::uuid FOR UPDATE`
 
 	candidateColumns = `
   c.candidate_id::text, c.tenant_id::text, c.load_id::text, l.load_ref, c.seq_no,
-  c.species, c.sex, c.breed, c.age_months, c.weight_kg::float8, c.condition, c.temp_tag, c.notes,
-  c.video_proof_ref, c.decision, COALESCE(c.decided_by::text, ''), c.decided_by_name, c.decided_at,
-  c.decision_note, COALESCE(c.recorded_by::text, ''), c.created_at, c.updated_at, c.row_version`
+  c.species, c.sex, c.breed, c.age_months, c.weight_kg::float8, COALESCE(c.condition, ''), c.temp_tag, c.notes,
+  COALESCE(c.video_proof_ref, ''), c.decision, COALESCE(c.decided_by::text, ''), c.decided_by_name, c.decided_at,
+  c.decision_note, COALESCE(c.recorded_by::text, ''), c.created_at, c.updated_at, c.row_version,
+  c.questionnaire_version, c.sop_answers, COALESCE(c.field_verdict, ''), c.height_cm::float8, c.rectal_temp_c::float8`
 
 	candidateFrom = `
 FROM public.animal_purchase_candidates c
@@ -138,13 +139,28 @@ WHERE c.tenant_id = $1::uuid AND c.candidate_id = $2::uuid`
 
 	sqlInsertCandidate = `
 INSERT INTO public.animal_purchase_candidates (
-  tenant_id, load_id, seq_no, species, sex, breed, age_months, weight_kg, condition, temp_tag, notes,
-  video_proof_ref, recorded_by, idempotency_key
+  tenant_id, load_id, seq_no, species, sex, breed, weight_kg, temp_tag, notes,
+  questionnaire_version, sop_answers, field_verdict, height_cm, rectal_temp_c,
+  recorded_by, idempotency_key
 ) VALUES (
   $1::uuid, $2::uuid,
   (SELECT COALESCE(max(seq_no), 0) + 1 FROM public.animal_purchase_candidates WHERE tenant_id = $1::uuid AND load_id = $2::uuid),
-  $3, $4, $5, $6, $7, $8, $9, $10, $11, nullif($12, '')::uuid, $13
+  $3, $4, $5, $6, $7, $8,
+  $9, $10::jsonb, nullif($11, ''), $12, $13,
+  nullif($14, '')::uuid, $15
 ) RETURNING candidate_id::text, seq_no`
+
+	sqlInsertCandidateMedia = `
+INSERT INTO public.animal_purchase_candidate_media (tenant_id, candidate_id, slot, position, proof_ref)
+SELECT $1::uuid, $2::uuid, s.slot, s.position, s.proof_ref
+FROM unnest($3::text[], $4::int[], $5::text[]) AS s(slot, position, proof_ref)`
+
+	// Media for a PAGE of candidates in one read (the N+1 the read paths must not do).
+	sqlCandidateMedia = `
+SELECT candidate_id::text, slot, proof_ref
+FROM public.animal_purchase_candidate_media
+WHERE tenant_id = $1::uuid AND candidate_id = ANY($2::uuid[])
+ORDER BY candidate_id, slot, position`
 
 	sqlListCandidates = `SELECT ` + candidateColumns + candidateFrom + `
 WHERE c.tenant_id = $1::uuid AND c.load_id = $2::uuid AND c.seq_no > $3
@@ -374,11 +390,21 @@ func (r *Repository) CreateLoad(ctx context.Context, p ports.CreateLoadParams) (
 
 func scanCandidate(row pgx.Row) (domain.Candidate, error) {
 	var c domain.Candidate
+	var answers []byte
 	err := row.Scan(&c.CandidateID, &c.TenantID, &c.LoadID, &c.LoadRef, &c.SeqNo,
 		&c.Species, &c.Sex, &c.Breed, &c.AgeMonths, &c.WeightKg, &c.Condition, &c.TempTag, &c.Notes,
 		&c.VideoProofRef, &c.Decision, &c.DecidedBy, &c.DecidedByName, &c.DecidedAt,
-		&c.DecisionNote, &c.RecordedBy, &c.CreatedAt, &c.UpdatedAt, &c.RowVersion)
-	return c, err
+		&c.DecisionNote, &c.RecordedBy, &c.CreatedAt, &c.UpdatedAt, &c.RowVersion,
+		&c.QuestionnaireVersion, &answers, &c.FieldVerdict, &c.HeightCm, &c.RectalTempC)
+	if err != nil {
+		return c, err
+	}
+	c.Answers = domain.Answers{}
+	if len(answers) > 0 {
+		_ = json.Unmarshal(answers, &c.Answers)
+	}
+	c.Media = domain.MediaRefs{}
+	return c, nil
 }
 
 func (r *Repository) getCandidate(ctx context.Context, q rowQuerier, tenantID, candidateID string) (domain.Candidate, error) {
@@ -389,7 +415,50 @@ func (r *Repository) getCandidate(ctx context.Context, q rowQuerier, tenantID, c
 	if err != nil {
 		return domain.Candidate{}, fmt.Errorf("animal purchase: get candidate: %w", err)
 	}
-	return c, nil
+	rows := []domain.Candidate{c}
+	if err := attachMedia(ctx, q, tenantID, rows); err != nil {
+		return domain.Candidate{}, err
+	}
+	return rows[0], nil
+}
+
+type rowsQuerier interface {
+	Query(context.Context, string, ...any) (pgx.Rows, error)
+}
+
+// attachMedia fills every candidate's Media from ONE read over the page's ids.
+func attachMedia(ctx context.Context, q any, tenantID string, candidates []domain.Candidate) error {
+	if len(candidates) == 0 {
+		return nil
+	}
+	querier, ok := q.(rowsQuerier)
+	if !ok {
+		return nil
+	}
+	ids := make([]string, 0, len(candidates))
+	index := make(map[string]int, len(candidates))
+	for i := range candidates {
+		ids = append(ids, candidates[i].CandidateID)
+		index[candidates[i].CandidateID] = i
+		if candidates[i].Media == nil {
+			candidates[i].Media = domain.MediaRefs{}
+		}
+	}
+	rows, err := querier.Query(ctx, sqlCandidateMedia, tenantID, ids)
+	if err != nil {
+		return fmt.Errorf("animal purchase: candidate media: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id, slot, ref string
+		if err := rows.Scan(&id, &slot, &ref); err != nil {
+			return fmt.Errorf("animal purchase: scan media: %w", err)
+		}
+		if i, ok := index[id]; ok {
+			candidates[i].Media[slot] = append(candidates[i].Media[slot], ref)
+		}
+	}
+	return rows.Err()
 }
 
 func (r *Repository) GetCandidate(ctx context.Context, tenantID, candidateID string) (domain.Candidate, error) {
@@ -414,8 +483,12 @@ func (r *Repository) AddCandidate(ctx context.Context, p ports.AddCandidateParam
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	w := p.Write
-	hash := fingerprint("candidate", p.LoadID, w.Species, w.Sex, w.Breed, intPtr(w.AgeMonths), floatPtr(w.WeightKg),
-		w.Condition, w.TempTag, w.Notes, w.VideoProofRef)
+	answersJSON, err := json.Marshal(w.Answers)
+	if err != nil {
+		return domain.Candidate{}, fmt.Errorf("animal purchase: answers: %w", err)
+	}
+	mediaJSON, _ := json.Marshal(w.Media)
+	hash := fingerprint("candidate", p.LoadID, string(answersJSON), string(mediaJSON))
 	res, err := reserveIdempotency(ctx, tx, p.TenantID, idemScopeCandidate, p.IdempotencyKey, hash)
 	if err != nil {
 		return domain.Candidate{}, err
@@ -444,10 +517,29 @@ func (r *Repository) AddCandidate(ctx context.Context, p ports.AddCandidateParam
 	var candidateID string
 	var seqNo int
 	err = tx.QueryRow(ctx, sqlInsertCandidate,
-		p.TenantID, p.LoadID, w.Species, w.Sex, w.Breed, w.AgeMonths, w.WeightKg, w.Condition, w.TempTag, w.Notes,
-		w.VideoProofRef, p.ActorID, p.IdempotencyKey).Scan(&candidateID, &seqNo)
+		p.TenantID, p.LoadID, w.Species, w.Sex, w.Breed, w.WeightKg, w.TempTag, w.Notes,
+		domain.QuestionnaireVersion, answersJSON, w.FieldVerdict, w.HeightCm, w.RectalTempC,
+		p.ActorID, p.IdempotencyKey).Scan(&candidateID, &seqNo)
 	if err != nil {
 		return domain.Candidate{}, fmt.Errorf("animal purchase: insert candidate: %w", err)
+	}
+	var slots []string
+	var positions []int
+	var refs []string
+	for _, q := range domain.MediaSlots() {
+		for i, ref := range w.Media[q.Slot] {
+			slots = append(slots, q.Slot)
+			positions = append(positions, i)
+			refs = append(refs, ref)
+		}
+	}
+	if len(refs) > 0 {
+		if _, err := tx.Exec(ctx, sqlInsertCandidateMedia, p.TenantID, candidateID, slots, positions, refs); err != nil {
+			if isUnique(err, "animal_purchase_candidate_media_proof_uq") {
+				return domain.Candidate{}, ports.ErrMediaAlreadyUsed
+			}
+			return domain.Candidate{}, fmt.Errorf("animal purchase: insert candidate media: %w", err)
+		}
 	}
 	if _, err := tx.Exec(ctx, sqlTouchLoad, p.TenantID, p.LoadID); err != nil {
 		return domain.Candidate{}, fmt.Errorf("animal purchase: touch load: %w", err)
@@ -457,7 +549,8 @@ func (r *Repository) AddCandidate(ctx context.Context, p ports.AddCandidateParam
 		Action: "procurement.animal_purchase.candidate_recorded", ResourceType: "animal_purchase_candidate", ResourceID: candidateID,
 		Metadata: map[string]any{
 			"domain": "procurement", "module": "animal_purchases", "load_id": p.LoadID, "seq_no": seqNo,
-			"species": w.Species, "sex": w.Sex, "breed": w.Breed, "condition": w.Condition, "video_proof_ref": w.VideoProofRef,
+			"species": w.Species, "sex": w.Sex, "breed": w.Breed, "field_verdict": w.FieldVerdict,
+			"questionnaire_version": domain.QuestionnaireVersion, "media_count": len(refs),
 		},
 	}); err != nil {
 		return domain.Candidate{}, fmt.Errorf("animal purchase: audit candidate: %w", err)
@@ -494,6 +587,10 @@ func (r *Repository) ListCandidates(ctx context.Context, tenantID, loadID string
 		return domain.EncodeCursor(domain.Cursor{Kind: domain.CursorKindCandidate, Seq: last.SeqNo})
 	})
 	if err != nil {
+		return ports.CandidatePage{}, err
+	}
+	rows.Close()
+	if err := attachMedia(ctx, r.pool, tenantID, page.Candidates); err != nil {
 		return ports.CandidatePage{}, err
 	}
 	page.Counts = load.Counts
@@ -539,6 +636,10 @@ func (r *Repository) ListReview(ctx context.Context, tenantID string, q ports.Re
 		return domain.EncodeCursor(domain.Cursor{Kind: domain.CursorKindReview, CreatedAt: last.CreatedAt.UTC().Format(time.RFC3339Nano), ID: last.CandidateID})
 	})
 	if err != nil {
+		return ports.CandidatePage{}, err
+	}
+	rows.Close()
+	if err := attachMedia(ctx, r.pool, tenantID, page.Candidates); err != nil {
 		return ports.CandidatePage{}, err
 	}
 	page.Counts = counts
@@ -772,20 +873,6 @@ func emitDecided(ctx context.Context, tx outboxWriter, tenantID, actorID, idempo
 }
 
 // ---- helpers ----
-
-func intPtr(v *int) string {
-	if v == nil {
-		return ""
-	}
-	return strconv.Itoa(*v)
-}
-
-func floatPtr(v *float64) string {
-	if v == nil {
-		return ""
-	}
-	return strconv.FormatFloat(*v, 'f', 3, 64)
-}
 
 func isUUID(value string) bool {
 	if len(value) != 36 {

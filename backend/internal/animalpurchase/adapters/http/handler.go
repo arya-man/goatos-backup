@@ -46,7 +46,7 @@ func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("POST /procurement/animal-purchases/animals/{candidate_id}/decision", h.Decide)
 }
 
-const maxRequestBytes = 64 * 1024
+const maxRequestBytes = 256 * 1024
 
 func (h *Handler) Options(w http.ResponseWriter, r *http.Request) {
 	opts, err := h.service.Options(r.Context(), tenantID(r))
@@ -56,7 +56,8 @@ func (h *Handler) Options(w http.ResponseWriter, r *http.Request) {
 	}
 	httpresponse.WriteJSON(w, http.StatusOK, optionsPayload{
 		Species: opts.Species, Sexes: opts.Sexes, Conditions: opts.Conditions, Farms: opts.Farms,
-		BreedSuggestions: opts.BreedSuggestions, Copy: formCopy(),
+		BreedSuggestions: opts.BreedSuggestions, Questionnaire: opts.Questionnaire, QuestionnaireVersion: opts.QuestionnaireVersion,
+		Copy: formCopy(),
 	})
 }
 
@@ -110,7 +111,7 @@ func (h *Handler) GetLoad(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httpresponse.WriteJSON(w, http.StatusOK, loadDetailPayload{
-		Load: toLoadPayload(load), Animals: h.candidates(r, page.Candidates), NextCursor: page.NextCursor, CanRecord: callerCanRecord(r),
+		Load: toLoadPayload(load), Animals: h.candidates(r, page.Candidates, true), NextCursor: page.NextCursor, CanRecord: callerCanRecord(r),
 	})
 }
 
@@ -125,7 +126,7 @@ func (h *Handler) ListAnimals(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httpresponse.WriteJSON(w, http.StatusOK, candidatePagePayload{
-		Animals: h.candidates(r, page.Candidates), NextCursor: page.NextCursor, Counts: toCounts(page.Counts),
+		Animals: h.candidates(r, page.Candidates, true), NextCursor: page.NextCursor, Counts: toCounts(page.Counts),
 	})
 }
 
@@ -137,15 +138,14 @@ func (h *Handler) AddAnimal(w http.ResponseWriter, r *http.Request) {
 	}
 	c, err := h.service.AddCandidate(r.Context(), ports.AddCandidateParams{
 		TenantID: tenantID(r), LoadID: r.PathValue("load_id"),
-		Write: domain.CandidateWrite{Species: body.Species, Sex: body.Sex, Breed: body.Breed, AgeMonths: body.AgeMonths,
-			WeightKg: body.WeightKg, Condition: body.Condition, TempTag: body.TempTag, Notes: body.Notes, VideoProofRef: body.VideoProofRef},
+		Write:   domain.CandidateWrite{Answers: body.Answers, Media: body.Media},
 		ActorID: httpmiddleware.ActorIDFromContext(r.Context()), IdempotencyKey: key,
 	})
 	if err != nil {
 		h.writeErr(w, r, app.HTTPError(err))
 		return
 	}
-	httpresponse.WriteJSON(w, http.StatusCreated, h.candidates(r, []domain.Candidate{c})[0])
+	httpresponse.WriteJSON(w, http.StatusCreated, h.candidates(r, []domain.Candidate{c}, true)[0])
 }
 
 // ListReview serves the CEO/CXO queue. `decision` picks a chip (pending by default); `load_id`
@@ -173,7 +173,7 @@ func (h *Handler) ListReview(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httpresponse.WriteJSON(w, http.StatusOK, reviewPagePayload{
-		Animals: h.candidates(r, page.Candidates), NextCursor: page.NextCursor, Counts: toCounts(all.Counts),
+		Animals: h.candidates(r, page.Candidates, false), NextCursor: page.NextCursor, Counts: toCounts(all.Counts),
 		Filters: []filterPayload{
 			{Key: domain.DecisionPending, Label: "Awaiting decision", Count: all.Counts.Pending, Selected: decision == domain.DecisionPending},
 			{Key: domain.DecisionAccepted, Label: "Accepted", Count: all.Counts.Accepted, Selected: decision == domain.DecisionAccepted},
@@ -198,7 +198,7 @@ func (h *Handler) Decide(w http.ResponseWriter, r *http.Request) {
 		h.writeErr(w, r, app.HTTPError(err))
 		return
 	}
-	httpresponse.WriteJSON(w, http.StatusOK, h.candidates(r, []domain.Candidate{c})[0])
+	httpresponse.WriteJSON(w, http.StatusOK, h.candidates(r, []domain.Candidate{c}, false)[0])
 }
 
 func (h *Handler) GetAnimalMedia(w http.ResponseWriter, r *http.Request) {
@@ -209,20 +209,38 @@ func (h *Handler) GetAnimalMedia(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	media := h.service.Media(r.Context(), tenant, []domain.Candidate{c})
-	m := media[c.VideoProofRef]
-	if strings.TrimSpace(m.URL) == "" {
+	if media == nil {
+		media = map[string]ports.Media{}
+	}
+	p := toCandidatePayload(c, media)
+	signed := strings.TrimSpace(p.MediaURL) != ""
+	for _, slot := range p.MediaSlots {
+		for _, item := range slot.Items {
+			signed = signed || strings.TrimSpace(item.MediaURL) != ""
+		}
+	}
+	if !signed {
 		h.writeErr(w, r, &app.Error{Code: "media_unavailable", Message: "That video is not available.", HTTPStatus: http.StatusNotFound})
 		return
 	}
-	httpresponse.WriteJSON(w, http.StatusOK, candidateMediaPayload{CandidateID: c.CandidateID, MediaURL: m.URL, MediaMime: m.MimeType})
+	httpresponse.WriteJSON(w, http.StatusOK, candidateMediaPayload{CandidateID: c.CandidateID, MediaURL: p.MediaURL, MediaMime: p.MediaMime, MediaSlots: p.MediaSlots})
 }
 
-// candidates composes row payloads without signing media. Signed video URLs are minted only by
-// GetAnimalMedia, after the reviewer explicitly opens one animal's preview.
-func (h *Handler) candidates(r *http.Request, rows []domain.Candidate) []candidatePayload {
+// candidates composes the row payloads. The PHONE's reads (the load, its animal pages, the
+// animal it just recorded) carry signed links, because the phone fetches a photo or video only
+// when the person taps it. The WEB review list carries the slots WITHOUT links: a browser fetches
+// every <img>/<video> on render, so the reviewer's page would pay for every capture of every
+// animal on it; there the links are minted by GetAnimalMedia once the reviewer opens one animal.
+func (h *Handler) candidates(r *http.Request, rows []domain.Candidate, sign bool) []candidatePayload {
 	out := make([]candidatePayload, 0, len(rows))
+	media := map[string]ports.Media{}
+	if sign {
+		if signed := h.service.Media(r.Context(), tenantID(r), rows); signed != nil {
+			media = signed
+		}
+	}
 	for _, c := range rows {
-		out = append(out, toCandidatePayload(c, "", ""))
+		out = append(out, toCandidatePayload(c, media))
 	}
 	return out
 }
@@ -322,19 +340,15 @@ func formCopy() map[string]string {
 		"load.animals.title":      "Animals",
 		"load.animals.empty":      "No animals recorded in this load yet.",
 		"load.animals.add":        "Add animal",
-		"animal.form.title":       "Add an animal",
-		"animal.field.species":    "Goat or sheep",
-		"animal.field.sex":        "Male or female",
+		"animal.form.title":       "Inspect an animal",
+		"animal.form.hint":        "The procurement SOP, one animal at a time. Answer every marked question and add each photo or video.",
+		"animal.media.photo":      "Take photo",
+		"animal.media.video":      "Record video",
+		"animal.media.add_more":   "Add another",
+		"animal.media.remove":     "Remove",
+		"animal.other.hint":       "Say where",
 		"animal.field.breed":      "Breed",
-		"animal.field.age":        "Age (months, roughly)",
-		"animal.field.weight":     "Weight (kg, roughly)",
-		"animal.field.condition":  "How does it look",
-		"animal.field.temp_tag":   "Temporary tag (optional)",
 		"animal.field.notes":      "Note",
-		"animal.field.video":      "Video of the animal",
-		"animal.video.record":     "Record video",
-		"animal.video.retake":     "Record again",
-		"animal.video.hint":       "Walk around the animal so the whole body is seen.",
 		"animal.save":             "Save animal",
 		"animal.saving":           "Saving...",
 		"animal.decision.pending": "Awaiting decision",

@@ -27,22 +27,35 @@ func NewValidator(repo proofports.Repository) *Validator { return &Validator{rep
 
 var _ ports.ProofValidator = (*Validator)(nil)
 
-func (v *Validator) ValidateCandidateVideo(ctx context.Context, tenantID, proofRef string) error {
-	// A reference that is not even a proof id is the same answer as a missing proof: refuse it
-	// with the form's message rather than letting the uuid cast surface as a 500.
-	if !uuidutil.IsUUIDString(strings.TrimSpace(proofRef)) {
-		return ports.ErrInvalidVideo
+func (v *Validator) ValidateCandidateMedia(ctx context.Context, tenantID string, proofRefs []string) error {
+	if len(proofRefs) == 0 {
+		return nil
 	}
-	found, err := v.repo.GetProofsByIDs(ctx, tenantID, []string{proofRef})
+	for _, ref := range proofRefs {
+		// A reference that is not even a proof id is the same answer as a missing proof: refuse
+		// it with the form's message rather than letting the uuid cast surface as a 500.
+		if !uuidutil.IsUUIDString(strings.TrimSpace(ref)) {
+			return ports.ErrInvalidVideo
+		}
+	}
+	found, err := v.repo.GetProofsByIDs(ctx, tenantID, proofRefs)
 	if err != nil {
 		return err
 	}
-	art, ok := found[proofRef]
-	if !ok || art.TenantID != tenantID || art.UploadState != uploadStateCompleted ||
-		strings.ToLower(strings.TrimSpace(art.ProofType)) != "video" ||
-		!strings.HasPrefix(strings.ToLower(strings.TrimSpace(art.MimeType)), "video/") ||
-		art.Metadata["capture_source"] != captureSourceInAppCamera {
-		return ports.ErrInvalidVideo
+	for _, ref := range proofRefs {
+		art, ok := found[ref]
+		if !ok || art.TenantID != tenantID || art.UploadState != uploadStateCompleted ||
+			art.Metadata["capture_source"] != captureSourceInAppCamera {
+			return ports.ErrInvalidVideo
+		}
+		kind := strings.ToLower(strings.TrimSpace(art.ProofType))
+		mime := strings.ToLower(strings.TrimSpace(art.MimeType))
+		switch {
+		case kind == "video" && strings.HasPrefix(mime, "video/"):
+		case kind == "photo" && strings.HasPrefix(mime, "image/"):
+		default:
+			return ports.ErrInvalidVideo
+		}
 	}
 	return nil
 }

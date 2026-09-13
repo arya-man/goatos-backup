@@ -43,8 +43,6 @@ const (
 	maxTextLength    = 500
 	maxBreedLength   = 80
 	maxTagLength     = 40
-	maxAgeMonths     = 240
-	maxWeightKg      = 500
 )
 
 // Option is one backend-owned choice for a form: the value the write accepts and the label the
@@ -156,15 +154,22 @@ type Candidate struct {
 	TempTag       string
 	Notes         string
 	VideoProofRef string
-	Decision      string
-	DecidedBy     string
-	DecidedByName string
-	DecidedAt     *time.Time
-	DecisionNote  string
-	RecordedBy    string
-	CreatedAt     time.Time
-	UpdatedAt     time.Time
-	RowVersion    int
+	// The SOP questionnaire (2026-09-13). Answers keyed by question id; Media keyed by slot.
+	QuestionnaireVersion int
+	Answers              Answers
+	Media                MediaRefs
+	FieldVerdict         string
+	HeightCm             *float64
+	RectalTempC          *float64
+	Decision             string
+	DecidedBy            string
+	DecidedByName        string
+	DecidedAt            *time.Time
+	DecisionNote         string
+	RecordedBy           string
+	CreatedAt            time.Time
+	UpdatedAt            time.Time
+	RowVersion           int
 }
 
 // ValidationError names the field the person must fix; the message is what the form shows.
@@ -224,60 +229,72 @@ func (w LoadWrite) Validate() error {
 	return nil
 }
 
-// CandidateWrite is the add-animal form.
+// CandidateWrite is the add-animal form: the SOP questionnaire's answers and media. The
+// typed columns (species, sex, breed, goat id, weight, height, temperature, verdict, note)
+// are DERIVED from the answers by Normalize so the list, title and summary reads stay typed.
 type CandidateWrite struct {
-	Species       string
-	Sex           string
-	Breed         string
-	AgeMonths     *int
-	WeightKg      *float64
-	Condition     string
-	TempTag       string
-	Notes         string
-	VideoProofRef string
+	Answers Answers
+	Media   MediaRefs
+
+	// Derived by Normalize; not client-settable.
+	Species      string
+	Sex          string
+	Breed        string
+	WeightKg     *float64
+	HeightCm     *float64
+	RectalTempC  *float64
+	TempTag      string
+	Notes        string
+	FieldVerdict string
 }
 
 func (w *CandidateWrite) Normalize() {
-	w.Species = strings.ToLower(strings.TrimSpace(w.Species))
-	w.Sex = strings.ToLower(strings.TrimSpace(w.Sex))
-	w.Breed = strings.TrimSpace(w.Breed)
-	w.Condition = strings.ToLower(strings.TrimSpace(w.Condition))
-	w.TempTag = strings.TrimSpace(w.TempTag)
-	w.Notes = strings.TrimSpace(w.Notes)
-	w.VideoProofRef = strings.TrimSpace(w.VideoProofRef)
+	if w.Answers == nil {
+		w.Answers = Answers{}
+	}
+	if w.Media == nil {
+		w.Media = MediaRefs{}
+	}
+	for slot, refs := range w.Media {
+		clean := make([]string, 0, len(refs))
+		for _, r := range refs {
+			if r = strings.TrimSpace(r); r != "" {
+				clean = append(clean, r)
+			}
+		}
+		w.Media[slot] = clean
+	}
+	w.Species = w.Answers.Choice("species")
+	w.Sex = w.Answers.Choice("sex")
+	w.Breed = w.Answers.Text("breed")
+	w.WeightKg = w.Answers.Number("weight_kg")
+	w.HeightCm = w.Answers.Number("height_cm")
+	w.RectalTempC = w.Answers.Number("rectal_temp_c")
+	w.TempTag = w.Answers.Text("goat_id")
+	w.Notes = w.Answers.Text("notes")
+	w.FieldVerdict = w.Answers.Choice("field_verdict")
 }
 
 func (w CandidateWrite) Validate() error {
-	if w.Species != SpeciesGoat && w.Species != SpeciesSheep {
-		return invalid("species", "Pick goat or sheep.")
-	}
-	if w.Sex != SexMale && w.Sex != SexFemale {
-		return invalid("sex", "Pick male or female.")
+	if err := ValidateAnswers(w.Answers, w.Media); err != nil {
+		return err
 	}
 	if len(w.Breed) > maxBreedLength {
 		return invalid("breed", "The breed name is too long.")
 	}
-	if w.AgeMonths != nil && (*w.AgeMonths < 0 || *w.AgeMonths > maxAgeMonths) {
-		return invalid("age_months", "Enter the age in months, up to 240.")
-	}
-	if w.WeightKg != nil && (*w.WeightKg <= 0 || *w.WeightKg >= maxWeightKg) {
-		return invalid("weight_kg", "Enter the weight in kg.")
-	}
-	switch w.Condition {
-	case ConditionHealthy, ConditionMinorConcern, ConditionUnwell:
-	default:
-		return invalid("condition", "Say how the animal looks.")
-	}
 	if len(w.TempTag) > maxTagLength {
-		return invalid("temp_tag", "The temporary tag is too long.")
-	}
-	if len(w.Notes) > maxTextLength {
-		return invalid("notes", "The note is too long.")
-	}
-	if w.VideoProofRef == "" {
-		return invalid("video", "Record a video of the animal before saving.")
+		return invalid("goat_id", "The goat ID is too long.")
 	}
 	return nil
+}
+
+// AllMediaRefs flattens the media map in slot order, for validation and storage.
+func (w CandidateWrite) AllMediaRefs() []string {
+	var out []string
+	for _, q := range MediaSlots() {
+		out = append(out, w.Media[q.Slot]...)
+	}
+	return out
 }
 
 // DecisionWrite is the CEO's accept / reject.

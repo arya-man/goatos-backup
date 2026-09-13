@@ -59,13 +59,16 @@ func NewService(repo ports.Repository, proofs ports.ProofValidator, media ports.
 	return &Service{repo: repo, proofs: proofs, media: media, now: time.Now}
 }
 
-// Options is the phone form's vocabulary, backend-owned.
+// Options is the phone form's vocabulary, backend-owned: the SOP questionnaire itself plus the
+// load form's vocabularies.
 type Options struct {
-	Species          []domain.Option
-	Sexes            []domain.Option
-	Conditions       []domain.Option
-	Farms            []domain.Option
-	BreedSuggestions []string
+	Species              []domain.Option
+	Sexes                []domain.Option
+	Conditions           []domain.Option
+	Farms                []domain.Option
+	BreedSuggestions     []string
+	Questionnaire        []domain.Question
+	QuestionnaireVersion int
 }
 
 func (s *Service) Options(ctx context.Context, tenantID string) (Options, error) {
@@ -74,11 +77,13 @@ func (s *Service) Options(ctx context.Context, tenantID string) (Options, error)
 		return Options{}, err
 	}
 	return Options{
-		Species:          domain.Species(),
-		Sexes:            domain.Sexes(),
-		Conditions:       domain.Conditions(),
-		Farms:            domain.Farms(),
-		BreedSuggestions: breeds,
+		Species:              domain.Species(),
+		Sexes:                domain.Sexes(),
+		Conditions:           domain.Conditions(),
+		Farms:                domain.Farms(),
+		BreedSuggestions:     breeds,
+		Questionnaire:        domain.Questionnaire(),
+		QuestionnaireVersion: domain.QuestionnaireVersion,
 	}, nil
 }
 
@@ -116,7 +121,7 @@ func (s *Service) AddCandidate(ctx context.Context, p ports.AddCandidateParams) 
 		return domain.Candidate{}, err
 	}
 	if s.proofs != nil {
-		if err := s.proofs.ValidateCandidateVideo(ctx, p.TenantID, p.Write.VideoProofRef); err != nil {
+		if err := s.proofs.ValidateCandidateMedia(ctx, p.TenantID, p.Write.AllMediaRefs()); err != nil {
 			return domain.Candidate{}, err
 		}
 	}
@@ -171,10 +176,13 @@ func (s *Service) Media(ctx context.Context, tenantID string, rows []domain.Cand
 	if s.media == nil || len(rows) == 0 {
 		return nil
 	}
-	refs := make([]string, 0, len(rows))
+	refs := make([]string, 0, len(rows)*2)
 	for _, c := range rows {
 		if ref := strings.TrimSpace(c.VideoProofRef); ref != "" {
 			refs = append(refs, ref)
+		}
+		for _, q := range domain.MediaSlots() {
+			refs = append(refs, c.Media[q.Slot]...)
 		}
 	}
 	out, err := s.media.ResolveMedia(ctx, tenantID, refs)
@@ -220,8 +228,10 @@ func HTTPError(err error) *Error {
 		return &Error{Code: "row_version_conflict", Message: "This animal changed since you opened it. Reload and decide again.", HTTPStatus: http.StatusConflict}
 	case errors.Is(err, ports.ErrIdempotencyConflict):
 		return &Error{Code: "idempotency_conflict", Message: "This request was already made with different details.", HTTPStatus: http.StatusConflict}
+	case errors.Is(err, ports.ErrMediaAlreadyUsed):
+		return &Error{Code: "validation_failed", Message: "One of these photos or videos already belongs to another animal. Capture this animal again.", Field: "media", HTTPStatus: http.StatusUnprocessableEntity}
 	case errors.Is(err, ports.ErrInvalidVideo):
-		return &Error{Code: "validation_failed", Message: "The video did not finish uploading. Record it again.", Field: "video", HTTPStatus: http.StatusUnprocessableEntity}
+		return &Error{Code: "validation_failed", Message: "A photo or video did not finish uploading. Record it again.", Field: "media", HTTPStatus: http.StatusUnprocessableEntity}
 	default:
 		return &Error{Code: "internal_error", Message: fmt.Sprintf("Could not complete that request."), HTTPStatus: http.StatusInternalServerError}
 	}

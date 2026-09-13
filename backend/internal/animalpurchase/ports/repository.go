@@ -19,6 +19,8 @@ var (
 	ErrRowVersionMismatch  = errors.New("animal purchase: candidate changed since it was read")
 	ErrIdempotencyConflict = errors.New("animal purchase: idempotency key reused with a different payload")
 	ErrInvalidVideo        = errors.New("animal purchase: video proof is not a finished in-app-camera upload")
+	// ErrMediaAlreadyUsed: a capture already belongs to another animal (one photo is one animal's evidence).
+	ErrMediaAlreadyUsed = errors.New("animal purchase: capture already attached to another animal")
 )
 
 // LoadPage is one keyset page of loads.
@@ -85,10 +87,10 @@ type Repository interface {
 	BreedSuggestions(ctx context.Context, tenantID string) ([]string, error)
 }
 
-// ProofValidator asserts a candidate's video is a finished in-app-camera video upload in the
-// caller's tenant. Fails closed with ErrInvalidVideo.
+// ProofValidator asserts every one of a candidate's captures is a finished in-app-camera
+// photo or video upload in the caller's tenant, in ONE read. Fails closed with ErrInvalidVideo.
 type ProofValidator interface {
-	ValidateCandidateVideo(ctx context.Context, tenantID, proofRef string) error
+	ValidateCandidateMedia(ctx context.Context, tenantID string, proofRefs []string) error
 }
 
 // Media is one signed playback link.

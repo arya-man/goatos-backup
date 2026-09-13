@@ -3026,8 +3026,8 @@ export interface paths {
         get: operations["listAnimalPurchaseAnimals"];
         put?: never;
         /**
-         * Record one animal on offer in the load, with its video.
-         * @description Idempotent on the `Idempotency-Key` header. `video_proof_ref` must be a FINISHED in-app-camera video upload in this tenant; the write is refused 422 otherwise, so no animal row ever exists without a video behind it.
+         * Record one animal's SOP inspection in the load, with its photos and videos.
+         * @description Idempotent on the `Idempotency-Key` header. Every proof reference in `media` must be a FINISHED in-app-camera photo or video upload in this tenant; the write is refused 422 otherwise, so no animal row ever exists without its captures behind it.
          */
         post: operations["addAnimalPurchaseAnimal"];
         delete?: never;
@@ -7715,7 +7715,33 @@ export interface components {
             /** @description Farm-worded label */
             label: string;
         };
+        /** @description One item of the Procurement SOP questionnaire, rendered by the phone in the served order. Wording is the SOP's own; changing a question is a backend version bump, never a client release. */
+        AnimalPurchaseQuestion: {
+            id: string;
+            /** @enum {string} */
+            kind: "choice" | "multi" | "text" | "number" | "media" | "section";
+            title: string;
+            hint?: string;
+            required: boolean;
+            options?: components["schemas"]["AnimalPurchaseOption"][];
+            /** @description A choice may carry free text under the "other" option, sent as `<id>_other`. */
+            allow_other?: boolean;
+            /** @enum {string} */
+            slot?: "teeth" | "weight" | "temperature" | "animal" | "suspicious" | "udder";
+            max_files?: number;
+            accepts?: ("photo" | "video")[];
+            min?: number;
+            max?: number;
+            unit?: string;
+            /** @description Shown and required only when another question holds this value. */
+            only_if?: {
+                question_id: string;
+                value: string;
+            };
+        };
         AnimalPurchaseOptions: {
+            questionnaire: components["schemas"]["AnimalPurchaseQuestion"][];
+            questionnaire_version: number;
             species: components["schemas"]["AnimalPurchaseOption"][];
             sexes: components["schemas"]["AnimalPurchaseOption"][];
             conditions: components["schemas"]["AnimalPurchaseOption"][];
@@ -7791,10 +7817,36 @@ export interface components {
             condition_label: string;
             temp_tag: string;
             notes: string;
+            /** @description Legacy single video of rows recorded before the questionnaire; blank otherwise. */
             video_proof_ref: string;
-            /** @description Deprecated on list/detail reads; signed playback is returned by AnimalPurchaseMedia after explicit preview. */
+            /** @description Signed playback link for the legacy video. Carried on the phone's reads (the load, its animal pages); blank on the web review list, where AnimalPurchaseMedia mints it after the reviewer opens one animal. */
             media_url?: string;
             media_mime?: string;
+            /** @description 0 for rows recorded before the questionnaire. */
+            questionnaire_version: number;
+            /** @description The recorded answers keyed by question id, as sent. */
+            answers: {
+                [key: string]: unknown;
+            };
+            /** @description The answers rendered for display in SOP order under their question text; unanswered optional questions omitted. */
+            answer_rows: {
+                section: string;
+                question_id: string;
+                question: string;
+                answer: string;
+                /** @description The SOP reads this answer as a reject signal. */
+                attention: boolean;
+            }[];
+            /** @description The captures per media slot. Signed links on the phone's reads; blank on the web review list until AnimalPurchaseMedia mints them for one opened animal. */
+            media_slots: components["schemas"]["AnimalPurchaseMediaSlot"][];
+            /**
+             * @description The inspector's own recommendation; the CEO's `decision` remains the decision.
+             * @enum {string}
+             */
+            field_verdict: "" | "selected" | "on_hold";
+            field_verdict_label: string;
+            height_cm?: number;
+            rectal_temp_c?: number;
             /** @enum {string} */
             decision: "pending" | "accepted" | "rejected";
             /** @description Backend-owned chip copy */
@@ -7812,11 +7864,22 @@ export interface components {
             updated_at: string;
             row_version: number;
         };
+        AnimalPurchaseMediaSlot: {
+            slot: string;
+            title: string;
+            items: {
+                proof_ref: string;
+                media_url?: string;
+                media_mime?: string;
+            }[];
+        };
         AnimalPurchaseMedia: {
             candidate_id: string;
-            /** @description Signed playback link for the candidate video, minted only after explicit preview. */
+            /** @description Signed playback link for the legacy video, minted only after explicit preview; blank for a questionnaire row. */
             media_url: string;
             media_mime: string;
+            /** @description Every questionnaire slot's captures with signed links, minted only after explicit preview. */
+            media_slots: components["schemas"]["AnimalPurchaseMediaSlot"][];
         };
         AnimalPurchaseAnimalPage: {
             animals: components["schemas"]["AnimalPurchaseAnimal"][];
@@ -7829,20 +7892,14 @@ export interface components {
             next_cursor?: string;
             can_record: boolean;
         };
+        /** @description The SOP inspection. `answers` is keyed by question id from the questionnaire served on /options: choice answers carry the option value (free text for an "other" choice rides under `<id>_other`), multi answers an array of option values, numbers as numbers, text as text. `media` is keyed by slot with the finished in-app-camera proof references in order. Validated server-side against the same questionnaire; a 422 names the question id in `field`. */
         AnimalPurchaseAnimalCreateRequest: {
-            /** @enum {string} */
-            species: "goat" | "sheep";
-            /** @enum {string} */
-            sex: "male" | "female";
-            breed?: string;
-            age_months?: number;
-            weight_kg?: number;
-            /** @enum {string} */
-            condition: "healthy" | "minor_concern" | "unwell";
-            temp_tag?: string;
-            notes?: string;
-            /** @description A finished in-app-camera video proof reference. */
-            video_proof_ref: string;
+            answers: {
+                [key: string]: unknown;
+            };
+            media: {
+                [key: string]: string[];
+            };
         };
         AnimalPurchaseReviewFilter: {
             /** @enum {string} */

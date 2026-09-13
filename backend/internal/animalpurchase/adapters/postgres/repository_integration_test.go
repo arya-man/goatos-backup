@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"testing"
@@ -79,12 +80,10 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, 'Ravi', 'Ravi', 'active', 'park_head')`, a
 	}
 
 	// ---- animals ----
-	age := 8
-	weight := 22.5
 	add := func(key, sex string) domain.Candidate {
 		t.Helper()
 		c, err := repo.AddCandidate(ctx, ports.AddCandidateParams{TenantID: apTenant, LoadID: load.LoadID, ActorID: apUser, IdempotencyKey: key,
-			Write: domain.CandidateWrite{Species: "goat", Sex: sex, Breed: "Sirohi", AgeMonths: &age, WeightKg: &weight, Condition: "healthy", VideoProofRef: "10000000-0000-4000-8000-00000000000" + key[len(key)-1:]}})
+			Write: inspection(sex, "Sirohi", 22.5, "10000000-0000-4000-8000-00000000000"+key[len(key)-1:])})
 		if err != nil {
 			t.Fatalf("AddCandidate %s: %v", key, err)
 		}
@@ -95,8 +94,17 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, 'Ravi', 'Ravi', 'active', 'park_head')`, a
 	if a1.SeqNo != 1 || a2.SeqNo != 2 || a1.LoadRef != "132" || a1.Decision != domain.DecisionPending {
 		t.Fatalf("sequence numbers: %+v / %+v", a1, a2)
 	}
+	// The questionnaire round-trips: typed derivations, the answers, the field verdict and the
+	// media rows per slot (read back in ONE query per page).
+	if a1.Species != "goat" || a1.Sex != "female" || a1.Breed != "Sirohi" || a1.TempTag != "GW-Sirohi" || a1.WeightKg == nil || *a1.WeightKg != 22.5 ||
+		a1.RectalTempC == nil || *a1.RectalTempC != 39.0 || a1.FieldVerdict != domain.FieldVerdictSelected || a1.QuestionnaireVersion != domain.QuestionnaireVersion {
+		t.Fatalf("typed derivations: %+v", a1)
+	}
+	if a1.Answers.Choice("teeth") != "4" || len(a1.Media[domain.SlotAnimal]) != 1 || len(a1.Media[domain.SlotTeeth]) != 1 || len(a1.Media[domain.SlotUdder]) != 1 {
+		t.Fatalf("answers/media round trip: answers=%v media=%v", a1.Answers, a1.Media)
+	}
 	if again, err := repo.AddCandidate(ctx, ports.AddCandidateParams{TenantID: apTenant, LoadID: load.LoadID, ActorID: apUser, IdempotencyKey: "animal-1",
-		Write: domain.CandidateWrite{Species: "goat", Sex: "female", Breed: "Sirohi", AgeMonths: &age, WeightKg: &weight, Condition: "healthy", VideoProofRef: "10000000-0000-4000-8000-000000000001"}}); err != nil || again.CandidateID != a1.CandidateID {
+		Write: inspection("female", "Sirohi", 22.5, "10000000-0000-4000-8000-000000000001")}); err != nil || again.CandidateID != a1.CandidateID {
 		t.Fatalf("exact replay must return the original animal: %v / %+v", err, again)
 	}
 	page, err := repo.ListCandidates(ctx, apTenant, load.LoadID, domain.Cursor{}, 1)
@@ -288,7 +296,7 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, 'Ravi', 'Ravi', 'active', 'park_head') ON 
 	}
 	for i := 1; i <= n; i++ {
 		if _, err := repo.AddCandidate(ctx, ports.AddCandidateParams{TenantID: apTenant, LoadID: load.LoadID, ActorID: apUser, IdempotencyKey: fmt.Sprintf("seed-animal-%d", i),
-			Write: domain.CandidateWrite{Species: "goat", Sex: "female", Condition: "healthy", VideoProofRef: fmt.Sprintf("10000000-0000-4000-8000-0000000000%02d", i)}}); err != nil {
+			Write: inspection("female", fmt.Sprintf("B%d", i), 20, fmt.Sprintf("10000000-0000-4000-8000-0000000000%02d", i))}); err != nil {
 			t.Fatalf("seed animal %d: %v", i, err)
 		}
 	}
@@ -297,4 +305,34 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, 'Ravi', 'Ravi', 'active', 'park_head') ON 
 		t.Fatalf("seed reload: %v", err)
 	}
 	return repo, load
+}
+
+// inspection builds a complete questionnaire write for a female goat with the given proof refs
+// in the animal slot; teeth and udder slots get their own refs derived from the first.
+func inspection(sex, breed string, weight float64, animalRefs ...string) domain.CandidateWrite {
+	j := func(v any) json.RawMessage { b, _ := json.Marshal(v); return b }
+	a := domain.Answers{
+		"species": j("goat"), "goat_id": j("GW-" + breed), "well_fed": j("yes"), "teeth": j("4"), "sex": j(sex),
+		"weight_kg": j(weight), "rectal_temp_c": j(39.0),
+		"anaemic": j("no"), "mouth_breathing": j("no"), "watery_eyes": j("no"), "eye_colour": j("no"), "nasal_discharge": j("no"),
+		"face_scabs": j("no"), "acidosis": j("no"), "diarrhea": j("no"), "ticks_hair_loss": j("no"), "wounds": j("no"),
+		"body_scabs": j("no"), "lumps": j("no"), "arthritis": j("no"), "udder_state": j([]string{"normal"}),
+		"field_verdict": j("selected"), "breed": j(breed),
+	}
+	if sex == "female" {
+		a["pregnant"] = j("no")
+		a["lactating"] = j("no")
+		a["teats"] = j("2")
+		a["teat_discharge"] = j("no")
+	}
+	// Every capture belongs to exactly one animal (unique on proof_ref), so the teeth and udder
+	// refs are derived per animal from its own animal ref, never shared across the seed.
+	base := animalRefs[0]
+	w := domain.CandidateWrite{Answers: a, Media: domain.MediaRefs{
+		domain.SlotTeeth: {"teeth-" + base}, domain.SlotAnimal: animalRefs, domain.SlotUdder: {"udder-" + base},
+	}}
+	// The service normalizes (deriving the typed columns) before the repository is reached;
+	// this test drives the repository directly, so it does the same.
+	w.Normalize()
+	return w
 }
