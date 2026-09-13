@@ -210,6 +210,16 @@ function migrationCouplesToSeedContract(diff) {
       return altered.replace(/^public\./i, "").toLowerCase() === "shed_partitions";
     });
     if (onlyShedPartitionDdl) return false;
+
+    // Same idea, generalized (2026-09-14, migration 000299): a marked migration whose added DDL
+    // names NO seed-contract table at all does not couple, even though a term matched
+    // elsewhere in its Up block. 000299 built the SOP task-type / category registries and
+    // widened the tasks-engine workflow tables, and only NAMED `sop_versions` to publish the
+    // seeded herd-operations documents -- no vaccination/HRMS/goats schema moved, so the seven
+    // vaccination companions would have been ritual. The marker cannot launder a real change:
+    // a DDL line that names `goats`, `sop_versions`, `workforce_members`, ... still couples.
+    const noDdlOnSeedTable = addedDdl.every((line) => !RELEVANT_MIGRATION_TERMS.test(stripSqlComments(line)));
+    if (noDdlOnSeedTable) return false;
   }
   return true;
 }
@@ -370,6 +380,23 @@ function runSelfTest() {
     "backend/migrations/postgres/000993_weighing_drop.sql",
     "+-- +goose Up\n+ALTER TABLE public.weighing_observations\n+  DROP COLUMN IF EXISTS animal_id;\n+\n+-- +goose Down\n+ALTER TABLE public.weighing_observations\n+  ADD COLUMN IF NOT EXISTS animal_id uuid REFERENCES public.goats(goat_id);\n",
   ]]);
+  // A MARKED migration whose DDL is on non-seed tables (registries, workflow engine) but whose
+  // Up block names `sop_versions` in DML must NOT couple; the same shape with an ALTER on
+  // `goats` MUST still couple -- the marker excuses relevance, never a real seed-table change.
+  const markedNonSeedDdl = new Map([[
+    "backend/migrations/postgres/000992_sop_registries.sql",
+    "+-- seed-fixture-guard:ignore: registries and workflow-engine columns only; sop_versions rows are published by DML\n+-- +goose Up\n+CREATE TABLE public.sop_task_types (key text PRIMARY KEY);\n+ALTER TABLE public.workflow_actions ADD COLUMN task_type text;\n+UPDATE public.sop_versions SET status = 'retired' WHERE sop_id = 'x';\n",
+  ]]);
+  if (couplingProblems(["backend/migrations/postgres/000992_sop_registries.sql"], markedNonSeedDdl).length !== 0) {
+    throw new Error("contract coupling self-test wrongly flagged a marked migration whose DDL touches no seed table");
+  }
+  const markedGoatsAlter = new Map([[
+    "backend/migrations/postgres/000991_goats_alter.sql",
+    "+-- seed-fixture-guard:ignore: trying to launder\n+-- +goose Up\n+CREATE TABLE public.sop_task_types (key text PRIMARY KEY);\n+ALTER TABLE public.goats ADD COLUMN x text;\n",
+  ]]);
+  if (couplingProblems(["backend/migrations/postgres/000991_goats_alter.sql"], markedGoatsAlter).length !== REQUIRED_COMPANIONS.length) {
+    throw new Error("contract coupling self-test let a marked migration launder an ALTER of goats");
+  }
   if (couplingProblems(["backend/migrations/postgres/000993_weighing_drop.sql"], downOnlyGoatsReference).length !== 0) {
     throw new Error("contract coupling self-test wrongly flagged a rollback-only canonical-table reference");
   }
