@@ -30,6 +30,9 @@ import (
 const (
 	appPenReconciliationListRoute     = "/app/counts/pen-reconciliation/cards"
 	appPenReconciliationCompleteRoute = "/app/counts/pen-reconciliation/cards/{card_id}/complete"
+	// The SOP-driven questionnaire (maintainer decision 2026-09-13): opens (or finds) the card's
+	// workflow so the phone renders the authored steps through /app/workflows/{workflow_id}.
+	appPenReconciliationWorkflowRoute = "/app/counts/pen-reconciliation/cards/{card_id}/workflow"
 
 	appPenReconciliationCompleteCommand = "counts.app.pen_reconciliation_complete"
 )
@@ -39,6 +42,7 @@ const (
 type PenReconciliationWorkflow interface {
 	Complete(ctx context.Context, in countsapp.CompletePenReconciliationInput) (domain.PenReconciliationCompletionResult, bool, error)
 	List(ctx context.Context, tenantID, status string, pageSize int, cursor string) (domain.PenReconciliationPage, error)
+	EnsureWorkflow(ctx context.Context, tenantID, cardID string) (string, error)
 }
 
 // WithPenReconciliationWorkflow injects the reconciliation service. A handler without it
@@ -52,6 +56,33 @@ func (h *AppWriteHandler) WithPenReconciliationWorkflow(reconciliation PenReconc
 func RegisterPenReconciliation(mux *http.ServeMux, h *AppWriteHandler) {
 	mux.HandleFunc("GET "+appPenReconciliationListRoute, h.ListPenReconciliationCards)
 	mux.HandleFunc("POST "+appPenReconciliationCompleteRoute, h.CompletePenReconciliationCard)
+	mux.HandleFunc("POST "+appPenReconciliationWorkflowRoute, h.EnsurePenReconciliationWorkflow)
+}
+
+// EnsurePenReconciliationWorkflow returns the card's SOP questionnaire workflow id, opening it
+// from the published counts.reconcile SOP on first call. Idempotent; no body.
+func (h *AppWriteHandler) EnsurePenReconciliationWorkflow(w http.ResponseWriter, r *http.Request) {
+	tenantID := httpmiddleware.TenantIDFromContext(r.Context())
+	if tenantID == "" {
+		h.writeError(w, r, http.StatusUnauthorized, "missing_tenant", "missing tenant context", nil)
+		return
+	}
+	if h.reconciliation == nil {
+		h.writeError(w, r, http.StatusNotImplemented, "pen_reconciliation_unavailable",
+			"pen reconciliation workflow is not configured", nil)
+		return
+	}
+	cardID := strings.TrimSpace(r.PathValue("card_id"))
+	if cardID == "" {
+		h.writeError(w, r, http.StatusBadRequest, "missing_card_id", "card_id is required", nil)
+		return
+	}
+	workflowID, err := h.reconciliation.EnsureWorkflow(r.Context(), tenantID, cardID)
+	if err != nil {
+		h.writePenReconciliationError(w, r, err)
+		return
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, map[string]string{"card_id": cardID, "workflow_id": workflowID})
 }
 
 // ---------------------------------------------------------------------------
@@ -97,6 +128,10 @@ type appPenReconciliationCard struct {
 	CompletedAt  *time.Time `json:"completed_at,omitempty"`
 	VerifiedAt   *time.Time `json:"verified_at,omitempty"`
 	ReworkReason *string    `json:"rework_reason,omitempty"`
+	// WorkflowID is the SOP questionnaire for this card once the phone opened it; the phone
+	// executes the card through /app/workflows/{workflow_id}.
+	WorkflowID *string  `json:"workflow_id"`
+	ProofRefs  []string `json:"proof_refs"`
 }
 
 // ListPenReconciliationCards returns one keyset page of the Reconcile queue.
@@ -162,6 +197,8 @@ func (h *AppWriteHandler) ListPenReconciliationCards(w http.ResponseWriter, r *h
 			CompletedAt:  card.CompletedAt,
 			VerifiedAt:   card.VerifiedAt,
 			ReworkReason: card.ReworkReason,
+			WorkflowID:   card.WorkflowID,
+			ProofRefs:    nonNilRefs(card.ProofRefs),
 		})
 	}
 	httpresponse.WriteJSON(w, http.StatusOK, appPenReconciliationListResponse{
@@ -301,4 +338,11 @@ func (h *AppWriteHandler) writePenReconciliationError(w http.ResponseWriter, r *
 	default:
 		h.writeError(w, r, http.StatusInternalServerError, "internal_error", "internal server error", err)
 	}
+}
+
+func nonNilRefs(in []string) []string {
+	if in == nil {
+		return []string{}
+	}
+	return in
 }

@@ -53,4 +53,7 @@ func RegisterWorkflowConsumers(bus eventbus.Bus, svc *tasksapp.Service, log *slo
 	tasksapp.NewIdentifierAddedWorkflowHandler(svc).Register(bus)
 	tasksapp.NewDeathVerificationHandler(svc, nil).Register(bus)
 	tasksapp.NewBirthVerificationHandler(svc, nil).Register(bus)
+	// SOP questionnaires on a non-goat subject (reconcile card today, shifting event next): a
+	// verifier rework reopens the workflow's proof steps (docs/decisions/sop-driven-herd-operations.md).
+	tasksapp.NewSubjectWorkflowVerdictHandler(svc).Register(bus)
 }

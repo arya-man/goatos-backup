@@ -90,6 +90,9 @@ type PenReconciliationCompletionCommand struct {
 	// ProofRef is the MANDATORY video proving the animal was returned to its registered pen.
 	// A blank value is rejected; the video is what the verifier reviews.
 	ProofRef string
+	// ProofRefs is every proof the SOP steps captured (the first video mirrors ProofRef). Empty
+	// on the legacy one-video route.
+	ProofRefs []string
 
 	IdempotencyKey     string
 	RequestFingerprint string
@@ -141,6 +144,12 @@ type PenReconciliationCard struct {
 	VerifiedBy   *string
 	VerifiedAt   *time.Time
 	ReworkReason *string
+
+	// WorkflowID is the SOP-driven questionnaire the operator executes for this card (nil until
+	// the phone asks for it; docs/decisions/sop-driven-herd-operations.md).
+	WorkflowID *string
+	// ProofRefs lists every proof captured by the workflow steps.
+	ProofRefs []string
 }
 
 // PenReconciliationCompletionResult is the outcome of a completion (or its idempotent replay).
@@ -158,6 +167,7 @@ type PenReconciliationCompletionResult struct {
 	ParkID                   *string
 
 	ProofRef    string
+	ProofRefs   []string
 	CompletedAt *time.Time
 
 	// NeedsVerificationEnqueue is durable recovery state: true means the card has reached
@@ -279,4 +289,15 @@ func DecodePenReconciliationCursor(value string) (*PenReconciliationCursor, erro
 		return nil, fmt.Errorf("decode pen reconciliation cursor: missing id")
 	}
 	return &PenReconciliationCursor{RaisedAt: raisedAt, CardID: payload.ID}, nil
+}
+
+// PenReconciliationWorkflowFacts is what opening a card's SOP questionnaire needs.
+type PenReconciliationWorkflowFacts struct {
+	CardID           string
+	Status           string
+	GoatID           string
+	ParkID           string
+	RegisteredShedID string
+	RaisedAt         time.Time
+	WorkflowID       string
 }

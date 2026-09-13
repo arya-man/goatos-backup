@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"time"
@@ -179,7 +180,8 @@ SELECT c.card_id, c.status, c.goat_id, COALESCE(g.display_id, ''), c.scanned_ide
        c.park_id, park.name,
        c.campaign_id, c.campaign_shed_id, c.raised_at,
        c.proof_ref, c.completed_by, c.completed_at,
-       c.verified_by, c.verified_at, c.rework_reason
+       c.verified_by, c.verified_at, c.rework_reason,
+       c.workflow_id, c.proof_refs
 FROM pen_reconciliation_cards c
 LEFT JOIN goats g ON g.tenant_id = c.tenant_id AND g.goat_id = c.goat_id
 LEFT JOIN locations reg ON reg.tenant_id = c.tenant_id AND reg.location_id = c.registered_shed_id
@@ -239,6 +241,7 @@ func (r *Repository) ListPenReconciliationCards(
 	items := make([]domain.PenReconciliationCard, 0, pageSize)
 	for rows.Next() {
 		var card domain.PenReconciliationCard
+		var proofRefsRaw []byte
 		if err := rows.Scan(
 			&card.CardID, &card.Status, &card.GoatID, &card.GoatDisplayID, &card.ScannedIdentifier,
 			&card.FoundLocationID, &card.FoundPartitionLabel, &card.FoundDisplayName,
@@ -247,9 +250,11 @@ func (r *Repository) ListPenReconciliationCards(
 			&card.CampaignID, &card.CampaignShedID, &card.RaisedAt,
 			&card.ProofRef, &card.CompletedBy, &card.CompletedAt,
 			&card.VerifiedBy, &card.VerifiedAt, &card.ReworkReason,
+			&card.WorkflowID, &proofRefsRaw,
 		); err != nil {
 			return domain.PenReconciliationPage{}, err
 		}
+		card.ProofRefs = decodeProofRefs(proofRefsRaw)
 		card.PrimaryActionKey = penReconciliationPrimaryAction(card.Status)
 		items = append(items, card)
 	}
@@ -298,6 +303,7 @@ const completePenReconciliationSQL = `
 UPDATE pen_reconciliation_cards
 SET status = 'pending_verification',
     proof_ref = $3,
+    proof_refs = $8::jsonb,
     completed_by = $4::uuid,
     completed_at = $5::timestamptz,
     completion_idempotency_key = $6,
@@ -461,7 +467,7 @@ func (r *Repository) CompletePenReconciliationCard(
 	completedAtValue := in.CompletedAt.UTC()
 	if _, err := tx.Exec(ctx, completePenReconciliationSQL,
 		in.TenantID, in.CardID, strings.TrimSpace(in.ProofRef), in.CompletedByUserID,
-		completedAtValue, in.IdempotencyKey, in.RequestFingerprint); err != nil {
+		completedAtValue, in.IdempotencyKey, in.RequestFingerprint, proofRefsJSON(in.ProofRef, in.ProofRefs)); err != nil {
 		return domain.PenReconciliationCompletionResult{}, false, err
 	}
 
@@ -472,6 +478,7 @@ func (r *Repository) CompletePenReconciliationCard(
 
 	result.Status = domain.PenReconciliationStatusPendingVerification
 	result.ProofRef = strings.TrimSpace(in.ProofRef)
+	result.ProofRefs = allProofRefs(in.ProofRef, in.ProofRefs)
 	result.CompletedAt = &completedAtValue
 	result.NeedsVerificationEnqueue = true
 	return result, false, nil
@@ -561,4 +568,120 @@ func nullableUUID(s string) *string {
 		return nil
 	}
 	return &s
+}
+
+// ---------------------------------------------------------------------------
+// SOP-driven questionnaire link (migration 000300)
+// ---------------------------------------------------------------------------
+
+const penReconciliationCardForWorkflowSQL = `
+SELECT c.status, c.goat_id::text, c.park_id::text, c.registered_shed_id::text, c.raised_at, c.workflow_id::text
+FROM pen_reconciliation_cards c
+WHERE c.tenant_id = $1::uuid AND c.card_id = $2::uuid`
+
+const setPenReconciliationWorkflowSQL = `
+UPDATE pen_reconciliation_cards
+SET workflow_id = $3::uuid, updated_at = now()
+WHERE tenant_id = $1::uuid AND card_id = $2::uuid AND (workflow_id IS NULL OR workflow_id = $3::uuid)`
+
+const penReconciliationCardIDByWorkflowSQL = `
+SELECT card_id::text FROM pen_reconciliation_cards
+WHERE tenant_id = $1::uuid AND workflow_id = $2::uuid`
+
+// PenReconciliationCardForWorkflow reads what opening the card's questionnaire needs.
+func (r *Repository) PenReconciliationCardForWorkflow(ctx context.Context, tenantID, cardID string) (domain.PenReconciliationWorkflowFacts, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	var out domain.PenReconciliationWorkflowFacts
+	var parkID, workflowID *string
+	err := r.pool.QueryRow(ctx, penReconciliationCardForWorkflowSQL, tenantID, cardID).Scan(
+		&out.Status, &out.GoatID, &parkID, &out.RegisteredShedID, &out.RaisedAt, &workflowID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return out, ports.ErrPenReconciliationCardNotFound
+	}
+	if err != nil {
+		return out, err
+	}
+	out.CardID = cardID
+	if parkID != nil {
+		out.ParkID = *parkID
+	}
+	if workflowID != nil {
+		out.WorkflowID = *workflowID
+	}
+	return out, nil
+}
+
+// SetPenReconciliationWorkflow records the questionnaire workflow on the card. Idempotent.
+func (r *Repository) SetPenReconciliationWorkflow(ctx context.Context, tenantID, cardID, workflowID string) error {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	_, err := r.pool.Exec(ctx, setPenReconciliationWorkflowSQL, tenantID, cardID, workflowID)
+	return err
+}
+
+// PenReconciliationCardIDByWorkflow resolves the card a workflow belongs to.
+func (r *Repository) PenReconciliationCardIDByWorkflow(ctx context.Context, tenantID, workflowID string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	var id string
+	err := r.pool.QueryRow(ctx, penReconciliationCardIDByWorkflowSQL, tenantID, workflowID).Scan(&id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", ports.ErrPenReconciliationCardNotFound
+	}
+	return id, err
+}
+
+// proofRefsJSON encodes the stored proof list: the legacy single ref becomes one video.
+func proofRefsJSON(proofRef string, refs []string) string {
+	all := allProofRefs(proofRef, refs)
+	items := make([]map[string]string, 0, len(all))
+	for _, ref := range all {
+		items = append(items, map[string]string{"ref": ref, "kind": "video"})
+	}
+	raw, err := json.Marshal(items)
+	if err != nil {
+		return "[]"
+	}
+	return string(raw)
+}
+
+func allProofRefs(proofRef string, refs []string) []string {
+	out := make([]string, 0, len(refs)+1)
+	seen := map[string]struct{}{}
+	add := func(v string) {
+		v = strings.TrimSpace(v)
+		if v == "" {
+			return
+		}
+		if _, dup := seen[v]; dup {
+			return
+		}
+		seen[v] = struct{}{}
+		out = append(out, v)
+	}
+	add(proofRef)
+	for _, ref := range refs {
+		add(ref)
+	}
+	return out
+}
+
+func decodeProofRefs(raw []byte) []string {
+	if len(raw) == 0 {
+		return nil
+	}
+	var items []struct {
+		Ref string `json:"ref"`
+	}
+	if err := json.Unmarshal(raw, &items); err != nil {
+		return nil
+	}
+	out := make([]string, 0, len(items))
+	for _, it := range items {
+		if it.Ref != "" {
+			out = append(out, it.Ref)
+		}
+	}
+	return out
 }

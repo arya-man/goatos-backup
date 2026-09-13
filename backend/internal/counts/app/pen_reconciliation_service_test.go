@@ -278,3 +278,15 @@ func TestPenReconciliationListValidatesTheFilter(t *testing.T) {
 		t.Fatalf("list calls = %+v", repo.listCalls)
 	}
 }
+
+func (r *fakePenReconciliationRepo) PenReconciliationCardForWorkflow(context.Context, string, string) (domain.PenReconciliationWorkflowFacts, error) {
+	return domain.PenReconciliationWorkflowFacts{}, ports.ErrPenReconciliationCardNotFound
+}
+
+func (r *fakePenReconciliationRepo) SetPenReconciliationWorkflow(context.Context, string, string, string) error {
+	return nil
+}
+
+func (r *fakePenReconciliationRepo) PenReconciliationCardIDByWorkflow(context.Context, string, string) (string, error) {
+	return "", ports.ErrPenReconciliationCardNotFound
+}

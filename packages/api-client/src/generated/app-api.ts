@@ -5230,6 +5230,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/app/counts/pen-reconciliation/cards/{card_id}/workflow": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Open (or find) the card's SOP questionnaire workflow.
+         * @description SOP-DRIVEN RECONCILE (maintainer decision 2026-09-13). The operator closes a card by executing the published counts.reconcile SOP's `reconcile` track -- the questions, photos and videos the maintainer authored on the web -- as one tasks-engine workflow per card. This call opens that workflow from the CURRENT published version on first use and returns the same id afterwards (idempotent on the card). The phone then renders and completes the steps through GET/POST /app/workflows/{workflow_id}/...; when the last step completes the card flips to pending_verification carrying every captured proof, exactly as the legacy one-video route does. Refused with pen_reconciliation_not_actionable on a submitted or completed card. No body.
+         */
+        post: operations["ensureAppCountsPenReconciliationWorkflow"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/app/counts/pen-reconciliation/cards/{card_id}/complete": {
         parameters: {
             query?: never;
@@ -16908,6 +16928,13 @@ export interface components {
             verified_at?: string;
             /** @description The verifier's reason when evidence was rejected; render verbatim. */
             rework_reason?: string;
+            /**
+             * Format: uuid
+             * @description The card's SOP questionnaire workflow once the phone opened it through POST .../cards/{card_id}/workflow; execute the card through /app/workflows/{workflow_id} (docs/decisions/sop-driven-herd-operations.md). Null until opened.
+             */
+            workflow_id?: string | null;
+            /** @description Every proof the questionnaire steps captured, in step order. */
+            proof_refs?: string[];
         };
         CountsPenReconciliationCompleteResponse: {
             /** Format: uuid */
@@ -26828,6 +26855,38 @@ export interface operations {
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    ensureAppCountsPenReconciliationWorkflow: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                card_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The card's questionnaire workflow. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: uuid */
+                        card_id: string;
+                        /** Format: uuid */
+                        workflow_id: string;
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
             500: components["responses"]["ServerError"];
         };
     };

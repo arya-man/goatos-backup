@@ -153,6 +153,7 @@ import (
 	taskspg "github.com/vgoats/goatos/backend/internal/tasks/adapters/postgres"
 	tasksverificationbridge "github.com/vgoats/goatos/backend/internal/tasks/adapters/verificationbridge"
 	tasksapp "github.com/vgoats/goatos/backend/internal/tasks/app"
+	tasksdomain "github.com/vgoats/goatos/backend/internal/tasks/domain"
 	vaccinationhttp "github.com/vgoats/goatos/backend/internal/vaccination/adapters/http"
 	vaccinationpg "github.com/vgoats/goatos/backend/internal/vaccination/adapters/postgres"
 	vaccinationapp "github.com/vgoats/goatos/backend/internal/vaccination/app"
@@ -1014,7 +1015,11 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// Birth/death follow-up workflow engine (tasks module): per-goat SOP work opened by
 	// goat.created/goat.exited, listed by the mobile /counts/birth and /counts/death modules.
 	tasksWorkflowService := tasksapp.NewService(tasksWorkflowRepo, log).
-		WithVerificationEnqueuer(tasksverificationbridge.New(verificationService))
+		WithVerificationEnqueuer(tasksverificationbridge.New(verificationService)).
+		// SOP-driven reconcile (2026-09-13): the tasks engine runs the card's questionnaire and
+		// reports the last step done to the counts service, which runs its ordinary completion.
+		WithCompletionHook(tasksdomain.TemplateKeyReconcile, countsPenReconciliationService)
+	countsPenReconciliationService.WithWorkflowEngine(countsbridge.NewReconcileWorkflowEngine(tasksWorkflowService))
 	tasksWorkflowHandler := taskshttp.NewHandler(tasksWorkflowService, log)
 	// Verifier video-review analytics (CEO integrity signal): shares the same pool/timeout as the
 	// verdict/queue repository above but is a distinct bounded concern, see

@@ -13823,6 +13823,57 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "500":
           $ref: "#/components/responses/ServerError"
+  /app/counts/pen-reconciliation/cards/{card_id}/workflow:
+    post:
+      tags:
+        - Counts
+      operationId: ensureAppCountsPenReconciliationWorkflow
+      summary: Open (or find) the card's SOP questionnaire workflow.
+      description: >-
+        SOP-DRIVEN RECONCILE (maintainer decision 2026-09-13). The operator closes a card by
+        executing the published counts.reconcile SOP's `reconcile` track -- the questions, photos
+        and videos the maintainer authored on the web -- as one tasks-engine workflow per card. This
+        call opens that workflow from the CURRENT published version on first use and returns the
+        same id afterwards (idempotent on the card). The phone then renders and completes the steps
+        through GET/POST /app/workflows/{workflow_id}/...; when the last step completes the card
+        flips to pending_verification carrying every captured proof, exactly as the legacy
+        one-video route does. Refused with pen_reconciliation_not_actionable on a submitted or
+        completed card. No body.
+      parameters:
+        - name: card_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: The card's questionnaire workflow.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - card_id
+                  - workflow_id
+                properties:
+                  card_id:
+                    type: string
+                    format: uuid
+                  workflow_id:
+                    type: string
+                    format: uuid
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "500":
+          $ref: "#/components/responses/ServerError"
   /app/counts/pen-reconciliation/cards/{card_id}/complete:
     post:
       tags:
@@ -39641,6 +39692,20 @@ components:
         rework_reason:
           description: The verifier's reason when evidence was rejected; render verbatim.
           type: string
+        workflow_id:
+          description: >-
+            The card's SOP questionnaire workflow once the phone opened it through
+            POST .../cards/{card_id}/workflow; execute the card through /app/workflows/{workflow_id}
+            (docs/decisions/sop-driven-herd-operations.md). Null until opened.
+          type:
+            - string
+            - "null"
+          format: uuid
+        proof_refs:
+          description: Every proof the questionnaire steps captured, in step order.
+          type: array
+          items:
+            type: string
     CountsPenReconciliationCompleteResponse:
       type: object
       additionalProperties: false

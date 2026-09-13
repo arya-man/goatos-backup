@@ -20,6 +20,9 @@ type OpenWorkflowCommand struct {
 	EventAt       time.Time
 	ParkID        *string
 	ShedID        *string
+	// SubjectRefID keys a workflow on a non-goat subject (a reconcile card, a shifting event).
+	// Uniqueness is (tenant, template_key, subject_ref_id) -- migration 000300.
+	SubjectRefID *string
 }
 
 // GoatWorkflowFacts is the canonical goat-row slice the consumers read (one indexed PK lookup).
@@ -123,6 +126,15 @@ type Repository interface {
 	// BounceDeathVideosForRework resets both video actions to 'rework' and the sign-off to pending
 	// after a verifier rejects the evidence. Idempotent.
 	BounceDeathVideosForRework(ctx context.Context, cmd DeathVerdictCommand) error
+
+	// WorkflowIDBySubjectRef returns the workflow keyed on (template_key, subject_ref_id), or
+	// domain.ErrNotFound.
+	WorkflowIDBySubjectRef(ctx context.Context, tenantID, templateKey, subjectRefID string) (string, error)
+
+	// ReopenProofStepsForRework sends every completed proof-bearing operator step of a SOP-driven
+	// workflow (reconcile, shifting) back to 'rework' with its proofs cleared, after a verifier
+	// rejects the evidence. Idempotent.
+	ReopenProofStepsForRework(ctx context.Context, tenantID, workflowID string) error
 	ApplyBirthSignoffApproved(ctx context.Context, cmd DeathVerdictCommand) error
 	BounceBirthVideoForRework(ctx context.Context, cmd DeathVerdictCommand) error
 
