@@ -3593,6 +3593,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"media.empty":                "Not available right now.",
 			"photo.open":                 "Open big",
 			"answers.title":              "Farm check",
+			"verdict.section":            "Procurement director's verdict",
 			"field_verdict.hint":         "The buying desk's own call on the farm; the decision here is yours.",
 			"attention.hint":             "The farm check reads this answer as a reason to reject.",
 			"decision.title":             "Decision",

@@ -60,7 +60,10 @@ test("media slots render a photo thumbnail or an inline video by mime, never a g
 
 test("answers group by served section and an attention row is flagged", () => {
   // Sections are formed from the served order, never re-sorted; the top block has no heading.
-  assert.match(sop, /last && last\.section === row\.section/);
+  assert.match(sop, /last && last\.section === section/);
+  // Web reading order: breed directly under the goat id; the verdict section named as the director's.
+  assert.match(sop, /row\.question_id === "goat_id"\) ordered\.push\(\{ \.\.\.breed, section: row\.section \}\)/);
+  assert.match(sop, /copy\.verdictSection/);
   assert.match(sop, /\{group\.section \? <h4 className="ap-sop-section-title">\{group\.section\}<\/h4> : null\}/);
   assert.match(sop, /<dt>[\s\S]*?\{row\.question\}[\s\S]*?<\/dt>\s*<dd>\{row\.answer\}<\/dd>/);
   // The reject signal: a class the stylesheet colours warn, plus a warn dot with the backend hint.

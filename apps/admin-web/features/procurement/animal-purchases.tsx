@@ -123,6 +123,7 @@ export async function AnimalPurchasesPage({
     photoOpen: copy(pageContract, "photo.open"),
     close: copy(pageContract, "action.close"),
     answersTitle: copy(pageContract, "answers.title"),
+    verdictSection: copy(pageContract, "verdict.section"),
     attentionHint: copy(pageContract, "attention.hint"),
     fieldVerdictHint: copy(pageContract, "field_verdict.hint"),
   };

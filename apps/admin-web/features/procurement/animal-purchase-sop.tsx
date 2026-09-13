@@ -24,6 +24,8 @@ export type SopCopy = {
   close: string;
   /** Heading over the answers. */
   answersTitle: string;
+  /** The web's name for the director's verdict section (the phone says "Your verdict" to the director). */
+  verdictSection: string;
   /** Title text of the attention marker. */
   attentionHint: string;
   /** Title text of the field-verdict chip. */
@@ -93,11 +95,23 @@ export function AnimalPurchaseMedia({ slots, copy }: { slots: MediaSlot[]; copy:
  */
 export function AnimalPurchaseAnswers({ rows, copy }: { rows: AnswerRow[]; copy: SopCopy }) {
   if (rows.length === 0) return null;
-  const sections: { section: string; rows: AnswerRow[] }[] = [];
+  // Web reading order (maintainer 2026-09-14): the breed sits right under the goat id, and the
+  // director's verdict section is named as theirs -- on the phone the same section reads "Your
+  // verdict" because the director is the one filling it.
+  const breed = rows.find((row) => row.question_id === "breed");
+  const ordered: AnswerRow[] = [];
   for (const row of rows) {
+    if (row.question_id === "breed") continue;
+    ordered.push(row);
+    if (breed && row.question_id === "goat_id") ordered.push({ ...breed, section: row.section });
+  }
+  if (breed && !ordered.includes(breed) && !rows.some((row) => row.question_id === "goat_id")) ordered.push(breed);
+  const sections: { section: string; rows: AnswerRow[] }[] = [];
+  for (const row of ordered) {
+    const section = row.question_id === "field_verdict" || row.section === rows.find((r) => r.question_id === "field_verdict")?.section ? copy.verdictSection : row.section;
     const last = sections[sections.length - 1];
-    if (last && last.section === row.section) last.rows.push(row);
-    else sections.push({ section: row.section, rows: [row] });
+    if (last && last.section === section) last.rows.push(row);
+    else sections.push({ section, rows: [row] });
   }
   return (
     <div className="ap-sop-answers">
