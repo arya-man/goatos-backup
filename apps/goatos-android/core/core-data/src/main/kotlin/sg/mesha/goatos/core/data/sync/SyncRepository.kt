@@ -654,6 +654,30 @@ interface SyncRepository {
         request: sg.mesha.goatos.core.network.dto.FeedPurchaseWriteDto,
     ): AppResult<String> = AppResult.Err("feed purchase sync is not configured")
 
+    /**
+     * Enqueues a purchase LOAD recorded on the phone (`POST /app/procurement/animal-purchases/loads`,
+     * maintainer decision 2026-09-13). [draftKey] is the form's STABLE draft key (SavedStateHandle-
+     * persisted), sent VERBATIM inside the backend's required `Idempotency-Key`, so a retry replays
+     * the same load instead of recording a second one under a taken load number.
+     */
+    suspend fun enqueueAnimalPurchaseLoadCreate(
+        draftKey: String,
+        request: sg.mesha.goatos.core.network.dto.AnimalPurchaseLoadCreateRequestDto,
+    ): AppResult<String> = AppResult.Err("animal purchase sync is not configured")
+
+    /**
+     * Enqueues one ANIMAL recorded inside a load (`POST .../loads/{load_id}/animals`). The mandatory
+     * video is passed by REFERENCE to its PROOF_UPLOAD outbox row ([proofOutboxItemId]); both writes
+     * MUST share the load group ([animalPurchaseLoadGroupKey]) so the upload drains first. The
+     * idempotency key is [animalPurchaseAnimalCreateIdempotencyKey] — STABLE per (draft, proof row).
+     */
+    suspend fun enqueueAnimalPurchaseAnimalCreate(
+        draftKey: String,
+        loadId: String,
+        request: sg.mesha.goatos.core.network.dto.AnimalPurchaseAnimalCreateRequestDto,
+        proofOutboxItemId: String,
+    ): AppResult<String> = AppResult.Err("animal purchase sync is not configured")
+
     /** A sale recorded on the phone (`POST /sales/deals`); [clientId] is stable across retries. */
     suspend fun enqueueSalesDealCreate(
         clientId: String,
@@ -1766,6 +1790,35 @@ class DefaultSyncRepository(
         groupKey = feedPurchaseCreateGroupKey(clientId.trim()),
         idempotencyKey = feedPurchaseCreateIdempotencyKey(clientId.trim()),
         payloadJson = syncJson.encodeToString(FeedPurchaseCreatePayload(clientId = clientId.trim(), request = request)),
+    )
+
+    override suspend fun enqueueAnimalPurchaseLoadCreate(
+        draftKey: String,
+        request: sg.mesha.goatos.core.network.dto.AnimalPurchaseLoadCreateRequestDto,
+    ): AppResult<String> = enqueue(
+        opType = OutboxOpType.ANIMAL_PURCHASE_LOAD_CREATE,
+        groupKey = animalPurchaseLoadCreateGroupKey(draftKey.trim()),
+        idempotencyKey = animalPurchaseLoadCreateIdempotencyKey(draftKey.trim()),
+        payloadJson = syncJson.encodeToString(AnimalPurchaseLoadCreatePayload(draftKey = draftKey.trim(), request = request)),
+    )
+
+    override suspend fun enqueueAnimalPurchaseAnimalCreate(
+        draftKey: String,
+        loadId: String,
+        request: sg.mesha.goatos.core.network.dto.AnimalPurchaseAnimalCreateRequestDto,
+        proofOutboxItemId: String,
+    ): AppResult<String> = enqueue(
+        opType = OutboxOpType.ANIMAL_PURCHASE_ANIMAL_CREATE,
+        groupKey = animalPurchaseLoadGroupKey(loadId.trim()),
+        idempotencyKey = animalPurchaseAnimalCreateIdempotencyKey(draftKey.trim(), proofOutboxItemId),
+        payloadJson = syncJson.encodeToString(
+            AnimalPurchaseAnimalCreatePayload(
+                draftKey = draftKey.trim(),
+                loadId = loadId.trim(),
+                request = request,
+                proofOutboxItemId = proofOutboxItemId,
+            ),
+        ),
     )
 
     override suspend fun enqueueSalesDealCreate(

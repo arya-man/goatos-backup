@@ -555,6 +555,19 @@ object AppModule {
         sg.mesha.goatos.core.data.DefaultToxinRepository(api = api, database = database)
 
     /**
+     * Animal purchases (maintainer decision 2026-09-13). Room-backed offline-first READS; the two
+     * writes (load, animal) ride the outbox, so like Toxin this repository takes no SyncRepository
+     * and creates no Dagger cycle.
+     */
+    @Provides
+    @Singleton
+    fun provideAnimalPurchaseRepository(
+        api: AppApi,
+        database: GoatDatabase,
+    ): sg.mesha.goatos.core.data.AnimalPurchaseRepository =
+        sg.mesha.goatos.core.data.DefaultAnimalPurchaseRepository(api = api, database = database)
+
+    /**
      * Pen visits (maintainer decision 2026-09-07). Room-backed offline-first READS; the WRITE
      * (the one video's submit) rides the outbox, so like Toxin this repository takes no
      * SyncRepository and creates no Dagger cycle.
@@ -973,6 +986,9 @@ object AppModule {
         // reconciles into Room after its write lands.
         vendorsRepository: sg.mesha.goatos.core.data.VendorsRepository,
         salesRepository: sg.mesha.goatos.core.data.SalesRepository,
+        // Animal purchases (2026-09-13): same defect class -- without it a recorded load/animal never
+        // reconciles into Room after its write lands.
+        animalPurchaseRepository: sg.mesha.goatos.core.data.AnimalPurchaseRepository,
     ): SyncEngine {
         val pcCareRepository = DeferredPcCareRepository(pcCareRepositoryProvider)
         return SyncEngine(
@@ -1002,6 +1018,7 @@ object AppModule {
         penVisitsRepository = penVisitsRepository,
         vendorsRepository = vendorsRepository,
         salesRepository = salesRepository,
+        animalPurchaseRepository = animalPurchaseRepository,
         telemetry = outboxTelemetry,
         // Whole-page-blob reconcile: these opTypes affect cached lists/envelopes with no server-truth
         // row to write directly into. The reconcile is "refresh the page" or "forget the row",

@@ -421,9 +421,76 @@ class GoatDatabaseUpgradeCrashTest {
             //     test — only reopening a real old file and round-tripping each table catches it
             //     before an upgraded phone crashes on open.
             assertWorkBoardTablesRoundTrip(upgraded, base = 280L)
+
+            // 21. The five v64 ANIMAL PURCHASE tables (MIGRATION_63_64). Same MOB-007 proof: purely
+            //     additive, so an omitted or mis-shaped CREATE still passes every fresh-install
+            //     test — only reopening a real old file and round-tripping each table catches it
+            //     before an upgraded phone crashes on open.
+            assertAnimalPurchaseTablesRoundTrip(upgraded, base = 300L)
         } finally {
             upgraded.close()
         }
+    }
+
+    /** Round-trips the five animal-purchase tables so a missing/mismatched CREATE in MIGRATION_63_64
+     *  fails here — the MOB-007 upgrade-crash class — rather than on a phone. */
+    private suspend fun assertAnimalPurchaseTablesRoundTrip(upgraded: GoatDatabase, base: Long) {
+        upgraded.animalPurchaseLoadItemDao().upsertAll(
+            listOf(
+                sg.mesha.goatos.core.data.cache.AnimalPurchaseLoadItemEntity(
+                    queryKey = "loads",
+                    grainKey = "load-1",
+                    sortIndex = 0,
+                    dtoJson = "{}",
+                    updatedAt = base,
+                ),
+            ),
+        )
+        assertEquals(1, upgraded.animalPurchaseLoadItemDao().countForQuery("loads"))
+        assertEquals(base, upgraded.animalPurchaseLoadItemDao().rowsForLoad("load-1").single().updatedAt)
+
+        upgraded.animalPurchaseLoadRemoteKeyDao().upsert(
+            sg.mesha.goatos.core.data.cache.AnimalPurchaseLoadRemoteKeyEntity(
+                queryKey = "loads",
+                nextCursor = "",
+                endReached = true,
+                updatedAt = base + 1,
+            ),
+        )
+        assertEquals(true, upgraded.animalPurchaseLoadRemoteKeyDao().get("loads")?.endReached)
+
+        upgraded.animalPurchaseAnimalItemDao().upsertAll(
+            listOf(
+                sg.mesha.goatos.core.data.cache.AnimalPurchaseAnimalItemEntity(
+                    queryKey = "load-1",
+                    grainKey = "cand-1",
+                    sortIndex = 0,
+                    dtoJson = "{}",
+                    updatedAt = base + 2,
+                ),
+            ),
+        )
+        assertEquals(0, upgraded.animalPurchaseAnimalItemDao().maxSortIndex("load-1"))
+        assertEquals(base + 2, upgraded.animalPurchaseAnimalItemDao().get("load-1", "cand-1")?.updatedAt)
+
+        upgraded.animalPurchaseAnimalRemoteKeyDao().upsert(
+            sg.mesha.goatos.core.data.cache.AnimalPurchaseAnimalRemoteKeyEntity(
+                queryKey = "load-1",
+                nextCursor = "c2",
+                endReached = false,
+                updatedAt = base + 3,
+            ),
+        )
+        assertEquals("c2", upgraded.animalPurchaseAnimalRemoteKeyDao().get("load-1")?.nextCursor)
+
+        upgraded.animalPurchaseBlobCacheDao().upsert(
+            sg.mesha.goatos.core.data.cache.AnimalPurchaseBlobCacheEntity(
+                cacheKey = "options",
+                dtoJson = "{}",
+                updatedAt = base + 4,
+            ),
+        )
+        assertEquals(base + 4, upgraded.animalPurchaseBlobCacheDao().observe("options").first()?.updatedAt)
     }
 
     /** Round-trips the three work-board tables so a missing/mismatched CREATE in MIGRATION_62_63
@@ -1397,7 +1464,7 @@ class GoatDatabaseUpgradeCrashTest {
             MIGRATION_46_47, MIGRATION_47_48, MIGRATION_48_49, MIGRATION_49_50, MIGRATION_50_51,
             MIGRATION_51_52, MIGRATION_52_53, MIGRATION_53_54, MIGRATION_54_55, MIGRATION_55_56,
             MIGRATION_56_57, MIGRATION_57_58, MIGRATION_58_59, MIGRATION_59_60, MIGRATION_60_61,
-            MIGRATION_61_62, MIGRATION_62_63,
+            MIGRATION_61_62, MIGRATION_62_63, MIGRATION_63_64,
         )
 
         /** The chain that produces a v25 file: everything up to and including MIGRATION_24_25 —

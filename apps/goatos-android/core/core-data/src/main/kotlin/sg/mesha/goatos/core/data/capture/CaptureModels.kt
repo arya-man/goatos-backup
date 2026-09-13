@@ -192,6 +192,16 @@ enum class ProofFlow(val wireValue: String) {
      * one visit is one capture identity and a re-record replaces it rather than accumulating.
      */
     PEN_VISIT("pen_visit"),
+
+    /**
+     * Animal purchase video (maintainer decision 2026-09-13, docs/decisions/animal-purchases.md):
+     * the ONE mandatory in-app-camera clip behind every animal on offer in a purchase load. Like
+     * [TOXIN] it deliberately rides the GENERIC storage/idempotency branches —
+     * `proof:$taskId:animal_purchase:$subjectKey` — with the caller passing `taskId = the load id`
+     * and `subjectKey = the add-animal form's draft id`, so one animal draft is one capture
+     * identity and a re-record replaces it rather than accumulating.
+     */
+    ANIMAL_PURCHASE("animal_purchase"),
     ;
 
     companion object {

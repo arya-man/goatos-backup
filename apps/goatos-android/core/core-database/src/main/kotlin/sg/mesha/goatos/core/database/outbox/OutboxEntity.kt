@@ -401,6 +401,21 @@ enum class OutboxOpType {
      * share a lane, a dispatch and a reconcile, and each returns the WHOLE updated load.
      */
     FEED_PURCHASE_EDIT_WRITE,
+
+    /**
+     * Animal purchases (maintainer decision 2026-09-13, docs/decisions/animal-purchases.md): a
+     * purchase LOAD recorded on the phone (`POST /app/procurement/animal-purchases/loads`) and one
+     * ANIMAL recorded inside it (`POST .../loads/{load_id}/animals`). Both carry the backend's
+     * required `Idempotency-Key`, STABLE per form draft (minted once, persisted in
+     * SavedStateHandle), never a timestamp. The animal's mandatory video rides by REFERENCE to
+     * its coupled PROOF_UPLOAD row on the SAME per-load group (`animal-purchase:load:<loadId>`),
+     * which drains first (the [TOXIN_STEP_COMPLETE] shape); the dispatcher resolves the uploaded
+     * server proof id into `video_proof_ref`. `409 load_ref_taken` and `422 validation_failed` are
+     * definitive server answers, terminal by `isTerminalAppApiError`, and carry the server's own
+     * sentence. Adding an op type needs NO Room migration: [OutboxEntity.opType] is plain TEXT.
+     */
+    ANIMAL_PURCHASE_LOAD_CREATE,
+    ANIMAL_PURCHASE_ANIMAL_CREATE,
 }
 
 /**

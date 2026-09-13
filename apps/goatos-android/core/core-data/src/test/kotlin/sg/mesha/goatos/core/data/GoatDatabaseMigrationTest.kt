@@ -413,6 +413,46 @@ class GoatDatabaseMigrationTest {
     }
 
     @Test
+    fun `migration 63 to 64 creates the animal purchase tables while preserving existing rows`() {
+        helper.createDatabase(DB_NAME, 63).apply {
+            execSQL(
+                "INSERT INTO `work_board_meta_cache` (`cacheKey`, `dtoJson`, `updatedAt`) " +
+                    "VALUES ('board-keep', '{}', 11)",
+            )
+            close()
+        }
+        val db = helper.runMigrationsAndValidate(DB_NAME, 64, true, MIGRATION_63_64)
+        try {
+            listOf(
+                "animal_purchase_load_items",
+                "animal_purchase_load_remote_keys",
+                "animal_purchase_animal_items",
+                "animal_purchase_animal_remote_keys",
+                "animal_purchase_blob_cache",
+            ).forEach { table ->
+                db.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name = '$table'").use { cursor ->
+                    assertEquals("table $table must exist after v64", true, cursor.moveToFirst())
+                }
+            }
+            // The per-load animal window is keyed by (load, candidate) and sorted by its index.
+            db.execSQL(
+                "INSERT INTO `animal_purchase_animal_items` (`queryKey`, `grainKey`, `sortIndex`, `dtoJson`, `updatedAt`) " +
+                    "VALUES ('load-1', 'cand-1', 0, '{}', 1)",
+            )
+            db.query("SELECT `sortIndex` FROM `animal_purchase_animal_items` WHERE queryKey = 'load-1' AND grainKey = 'cand-1'").use { cursor ->
+                assertEquals(true, cursor.moveToFirst())
+                assertEquals(0, cursor.getInt(0))
+            }
+            db.query("SELECT COUNT(*) FROM `work_board_meta_cache` WHERE cacheKey = 'board-keep'").use { cursor ->
+                cursor.moveToFirst()
+                assertEquals("existing rows survive the additive migration", 1, cursor.getInt(0))
+            }
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test
     fun `migration 62 to 63 creates the work board tables while preserving existing rows`() {
         helper.createDatabase(DB_NAME, 62).apply {
             execSQL(
@@ -580,6 +620,7 @@ class GoatDatabaseMigrationTest {
         MIGRATION_60_61.migrate(db)
         MIGRATION_61_62.migrate(db)
         MIGRATION_62_63.migrate(db)
+        MIGRATION_63_64.migrate(db)
         return db
     }
 

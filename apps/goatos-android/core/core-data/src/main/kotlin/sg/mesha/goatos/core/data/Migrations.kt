@@ -1761,3 +1761,59 @@ val MIGRATION_62_63: Migration = object : Migration(62, 63) {
         )
     }
 }
+
+/**
+ * v63 -> v64: the five Animal purchases read-model tables (maintainer decision 2026-09-13,
+ * docs/decisions/animal-purchases.md). Purely additive: two paged item tables with their
+ * (queryKey, sortIndex) / grainKey indices, their two remote-key tables, and one JSON blob cache.
+ * The column list and index names mirror the @Entity declarations in AnimalPurchaseCache.kt
+ * exactly, because Room validates an UPGRADED file against the entities and crashes on open when
+ * a CREATE is missing or mis-shaped (docs/decisions/room-migration-safety.md).
+ */
+val MIGRATION_63_64: Migration = object : Migration(63, 64) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `animal_purchase_load_items` " +
+                "(`queryKey` TEXT NOT NULL, `grainKey` TEXT NOT NULL, `sortIndex` INTEGER NOT NULL, " +
+                "`dtoJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, " +
+                "PRIMARY KEY(`queryKey`, `grainKey`))",
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_animal_purchase_load_items_queryKey_sortIndex` " +
+                "ON `animal_purchase_load_items` (`queryKey`, `sortIndex`)",
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_animal_purchase_load_items_grainKey` " +
+                "ON `animal_purchase_load_items` (`grainKey`)",
+        )
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `animal_purchase_load_remote_keys` " +
+                "(`queryKey` TEXT NOT NULL, `nextCursor` TEXT NOT NULL, `endReached` INTEGER NOT NULL, " +
+                "`updatedAt` INTEGER NOT NULL, PRIMARY KEY(`queryKey`))",
+        )
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `animal_purchase_animal_items` " +
+                "(`queryKey` TEXT NOT NULL, `grainKey` TEXT NOT NULL, `sortIndex` INTEGER NOT NULL, " +
+                "`dtoJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, " +
+                "PRIMARY KEY(`queryKey`, `grainKey`))",
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_animal_purchase_animal_items_queryKey_sortIndex` " +
+                "ON `animal_purchase_animal_items` (`queryKey`, `sortIndex`)",
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_animal_purchase_animal_items_grainKey` " +
+                "ON `animal_purchase_animal_items` (`grainKey`)",
+        )
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `animal_purchase_animal_remote_keys` " +
+                "(`queryKey` TEXT NOT NULL, `nextCursor` TEXT NOT NULL, `endReached` INTEGER NOT NULL, " +
+                "`updatedAt` INTEGER NOT NULL, PRIMARY KEY(`queryKey`))",
+        )
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `animal_purchase_blob_cache` " +
+                "(`cacheKey` TEXT NOT NULL, `dtoJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, " +
+                "PRIMARY KEY(`cacheKey`))",
+        )
+    }
+}

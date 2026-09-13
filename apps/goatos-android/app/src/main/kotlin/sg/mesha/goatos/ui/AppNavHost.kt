@@ -119,6 +119,14 @@ import sg.mesha.goatos.feature.vendors.FeedPurchaseCreateEvent
 import sg.mesha.goatos.feature.vendors.FeedPurchaseCreateScreen
 import sg.mesha.goatos.feature.vendors.FeedPurchaseDetailEvent
 import sg.mesha.goatos.feature.vendors.FeedPurchaseDetailScreen
+import sg.mesha.goatos.feature.vendors.AnimalPurchaseAnimalCreateEvent
+import sg.mesha.goatos.feature.vendors.AnimalPurchaseAnimalCreateScreen
+import sg.mesha.goatos.feature.vendors.AnimalPurchaseLoadCreateEvent
+import sg.mesha.goatos.feature.vendors.AnimalPurchaseLoadCreateScreen
+import sg.mesha.goatos.feature.vendors.AnimalPurchaseLoadDetailEvent
+import sg.mesha.goatos.feature.vendors.AnimalPurchaseLoadDetailScreen
+import sg.mesha.goatos.feature.vendors.AnimalPurchaseLoadsEvent
+import sg.mesha.goatos.feature.vendors.AnimalPurchaseLoadsScreen
 import sg.mesha.goatos.feature.vendors.FeedPurchasesListEvent
 import sg.mesha.goatos.feature.vendors.FeedPurchasesListScreen
 import sg.mesha.goatos.feature.vendors.VendorCreateEvent
@@ -266,6 +274,10 @@ import sg.mesha.goatos.viewmodel.WorkBoardDetailViewModel
 import sg.mesha.goatos.viewmodel.WorkBoardViewModel
 import sg.mesha.goatos.viewmodel.FeedPurchaseCreateViewModel
 import sg.mesha.goatos.viewmodel.FeedPurchaseDetailViewModel
+import sg.mesha.goatos.viewmodel.AnimalPurchaseAnimalCreateViewModel
+import sg.mesha.goatos.viewmodel.AnimalPurchaseLoadCreateViewModel
+import sg.mesha.goatos.viewmodel.AnimalPurchaseLoadDetailViewModel
+import sg.mesha.goatos.viewmodel.AnimalPurchaseLoadsViewModel
 import sg.mesha.goatos.viewmodel.FeedPurchasesListViewModel
 import sg.mesha.goatos.viewmodel.VendorCreateViewModel
 import sg.mesha.goatos.viewmodel.VendorDetailViewModel
@@ -644,6 +656,30 @@ object Routes {
     const val VENDOR_EDIT = "/vendors/vendor/{$VENDOR_ID_ARG}/edit"
     fun vendorEditRoute(vendorId: String): String = "/vendors/vendor/${Uri.encode(vendorId)}/edit"
     fun feedPurchaseDetailRoute(purchaseId: String): String = "/vendors/feed-purchases/purchase/${Uri.encode(purchaseId)}"
+
+    // Animal purchases (maintainer decision 2026-09-13, docs/decisions/animal-purchases.md): the
+    // Procurement module's THIRD L0 root, whose href matches the backend-composed nav item
+    // VERBATIM (bootstrap_copy.go: {key:"animal_purchases", href:"/vendors/animal-purchases"}).
+    // The add-load form, the load screen and the add-animal form are distinct hosted drills with
+    // Up/Back and NO root chrome. The load drill carries the literal `/loads/` segment so the L0
+    // can never be read as a load id, and `/new` is a literal tail so it can never be one either.
+    const val VENDORS_ANIMAL_PURCHASES = "/vendors/animal-purchases"
+    const val ANIMAL_PURCHASE_LOAD_NEW = "/vendors/animal-purchases/new"
+    const val ANIMAL_PURCHASE_LOAD_ID_ARG = "load_id"
+    const val ANIMAL_PURCHASE_LOAD_DETAIL = "/vendors/animal-purchases/loads/{$ANIMAL_PURCHASE_LOAD_ID_ARG}"
+    const val ANIMAL_PURCHASE_ANIMAL_NEW = "/vendors/animal-purchases/loads/{$ANIMAL_PURCHASE_LOAD_ID_ARG}/animals/new"
+
+    fun animalPurchaseLoadRoute(loadId: String): String = "/vendors/animal-purchases/loads/${Uri.encode(loadId)}"
+    fun animalPurchaseAnimalNewRoute(loadId: String): String = "/vendors/animal-purchases/loads/${Uri.encode(loadId)}/animals/new"
+
+    /** The load id a `/vendors/animal-purchases/loads/<id>` push href names (the
+     *  `animal_purchase_decided` push's target), or null for anything else. */
+    fun animalPurchaseLoadIdFromHref(href: String): String? {
+        val base = href.substringBefore('?').trimEnd('/')
+        val id = base.removePrefix("$VENDORS_ANIMAL_PURCHASES/loads/")
+        if (id == base || id.isBlank() || id.contains('/')) return null
+        return Uri.decode(id)
+    }
 
     // Sales module (backend module `sales`, maintainer decision 2026-09-05). TWO L0 roots whose
     // hrefs match the backend-composed nav items VERBATIM (bootstrap_copy.go:
@@ -3609,6 +3645,115 @@ fun AppNavHost(
                 },
             )
         }
+        // --- Animal purchases (maintainer decision 2026-09-13) ------------------------------
+        // The Procurement module's THIRD L0 (purchase loads) plus three hosted drills: add a load,
+        // one load with its animals, add an animal. Module visibility is backend-composed (offered
+        // on the animal_purchases read permission), so nothing here gates on a role string.
+        composable(Routes.VENDORS_ANIMAL_PURCHASES) {
+            val vm: AnimalPurchaseLoadsViewModel = hiltViewModel()
+            LaunchedEffect(vm) { vm.bind(ANIMAL_PURCHASES_TAB_TITLE) }
+            val state by vm.state.collectAsStateWithLifecycle()
+            val rows = vm.rows.collectAsLazyPagingItems()
+            val refreshError = (rows.loadState.refresh as? LoadState.Error)?.error
+            val appendError = (rows.loadState.append as? LoadState.Error)?.error
+            LaunchedEffect(refreshError, appendError) { (refreshError ?: appendError)?.let(vm::onRowsLoadFailed) }
+            AnimalPurchaseLoadsScreen(
+                state = state,
+                rows = rows,
+                onEvent = { event ->
+                    when (event) {
+                        AnimalPurchaseLoadsEvent.Refresh -> {
+                            vm.onEvent(event)
+                            rows.refresh()
+                        }
+                        is AnimalPurchaseLoadsEvent.OpenLoad -> {
+                            vm.onEvent(event)
+                            navController.navigate(Routes.animalPurchaseLoadRoute(event.loadId)) { launchSingleTop = true }
+                        }
+                        AnimalPurchaseLoadsEvent.AddLoad -> {
+                            vm.onEvent(event)
+                            navController.navigate(Routes.ANIMAL_PURCHASE_LOAD_NEW) { launchSingleTop = true }
+                        }
+                    }
+                },
+            )
+        }
+        composable(Routes.ANIMAL_PURCHASE_LOAD_NEW) {
+            val vm: AnimalPurchaseLoadCreateViewModel = hiltViewModel()
+            val state by vm.state.collectAsStateWithLifecycle()
+            AnimalPurchaseLoadCreateScreen(
+                state = state,
+                onEvent = { event ->
+                    when (event) {
+                        AnimalPurchaseLoadCreateEvent.Back -> navController.popBackStack()
+                        // The server accepted the load: open it (its id is the SERVER's) in place
+                        // of this form, so Back from the load returns to the list, not to a spent form.
+                        is AnimalPurchaseLoadCreateEvent.OpenCreatedLoad -> {
+                            vm.onEvent(event)
+                            navController.navigate(Routes.animalPurchaseLoadRoute(event.loadId)) {
+                                launchSingleTop = true
+                                popUpTo(Routes.ANIMAL_PURCHASE_LOAD_NEW) { inclusive = true }
+                            }
+                        }
+                        else -> vm.onEvent(event)
+                    }
+                },
+            )
+        }
+        composable(
+            route = Routes.ANIMAL_PURCHASE_LOAD_DETAIL,
+            arguments = listOf(navArgument(Routes.ANIMAL_PURCHASE_LOAD_ID_ARG) { type = NavType.StringType }),
+        ) { entry ->
+            val vm: AnimalPurchaseLoadDetailViewModel = hiltViewModel()
+            val state by vm.state.collectAsStateWithLifecycle()
+            val rows = vm.rows.collectAsLazyPagingItems()
+            val refreshError = (rows.loadState.refresh as? LoadState.Error)?.error
+            val appendError = (rows.loadState.append as? LoadState.Error)?.error
+            LaunchedEffect(refreshError, appendError) { (refreshError ?: appendError)?.let(vm::onRowsLoadFailed) }
+            val loadId = entry.arguments?.getString(Routes.ANIMAL_PURCHASE_LOAD_ID_ARG).orEmpty()
+            AnimalPurchaseLoadDetailScreen(
+                state = state.copy(isRefreshing = state.isRefreshing || rows.loadState.refresh is LoadState.Loading),
+                rows = rows,
+                onEvent = { event ->
+                    when (event) {
+                        AnimalPurchaseLoadDetailEvent.Back -> navController.popBackStack()
+                        // The pager's refresh IS the detail read (header + first page in one
+                        // request), driven here so the screen's open/resume/timer all re-read the
+                        // server's decisions without recreating the pager.
+                        AnimalPurchaseLoadDetailEvent.Refresh -> {
+                            vm.onEvent(event)
+                            rows.refresh()
+                        }
+                        AnimalPurchaseLoadDetailEvent.AddAnimal -> {
+                            vm.onEvent(event)
+                            navController.navigate(Routes.animalPurchaseAnimalNewRoute(loadId)) { launchSingleTop = true }
+                        }
+                        is AnimalPurchaseLoadDetailEvent.PreviewAction -> vm.onEvent(event)
+                    }
+                },
+            )
+        }
+        // The add-animal form (L2 drill): the in-app camera is bound only while this destination is
+        // on screen, exactly like the toxin round.
+        composable(
+            route = Routes.ANIMAL_PURCHASE_ANIMAL_NEW,
+            arguments = listOf(navArgument(Routes.ANIMAL_PURCHASE_LOAD_ID_ARG) { type = NavType.StringType }),
+        ) {
+            val vm: AnimalPurchaseAnimalCreateViewModel = hiltViewModel()
+            val state by vm.state.collectAsStateWithLifecycle()
+            CaptureAccessGate {
+                BindVideoCaptureSource(rememberDelegatingProofCaptureSource())
+                AnimalPurchaseAnimalCreateScreen(
+                    state = state,
+                    onEvent = { event ->
+                        when (event) {
+                            AnimalPurchaseAnimalCreateEvent.Back -> navController.popBackStack()
+                            else -> vm.onEvent(event)
+                        }
+                    },
+                )
+            }
+        }
         // --- Sales (module sales, maintainer decision 2026-09-05) ---------------------------
         // TWO L0 roots: the sales ledger (MOVED here off `/vendors/sales`, not duplicated) and the
         // SELLING half of the vendor register. Module visibility is backend-composed; nothing here
@@ -4732,6 +4877,11 @@ private val supportedRootDestinations = setOf(
     Routes.PC_TICKS,
     Routes.PC_HOOF_TRIMMING,
     Routes.PC_HAIR_TRIMMING,
+    // Animal purchases (maintainer decision 2026-09-13): the Procurement module's third
+    // backend-composed bar item, so it is an L0 root exactly like its two siblings — registering
+    // the composable alone would leave a notification or deep link naming it treated as unhosted
+    // and bounced to home.
+    Routes.VENDORS_ANIMAL_PURCHASES,
 )
 
 /**
@@ -4749,6 +4899,9 @@ private val pushTargetDestinations: Set<String> = supportedRootDestinations + se
     Routes.WEIGHING_SHED,
     Routes.WEIGHING_OPERATORS,
     Routes.WEIGHING_SCAN,
+    // The `animal_purchase_decided` push names ONE load (`/vendors/animal-purchases/loads/{id}`);
+    // the concrete href resolves through Routes.animalPurchaseLoadIdFromHref in pushTargetRoute.
+    Routes.ANIMAL_PURCHASE_LOAD_DETAIL,
 )
 
 /**
@@ -4768,6 +4921,8 @@ internal fun pushTargetRoute(target: String?): String? {
     Routes.leadershipTaskIdFromHref(target)?.let { return Routes.leadershipTaskRoute(it) }
     // A push naming ONE pen visit (`/pen-visits/{task_id}`) opens that visit.
     Routes.penVisitIdFromHref(target)?.let { return Routes.penVisitRoute(it) }
+    // An `animal_purchase_decided` push names ONE load: open that load, where the decision chip is.
+    Routes.animalPurchaseLoadIdFromHref(target)?.let { return Routes.animalPurchaseLoadRoute(it) }
     return workTargetRoute(target)
 }
 
@@ -4829,6 +4984,8 @@ private const val TOXIN_TAB_TITLE = "Tests"
 /** The backend's `nav.vendors` / `nav.feed_purchases` labels, mirrored so each L0 header matches its nav item. */
 private const val VENDORS_TAB_TITLE = "Vendors"
 private const val FEED_PURCHASES_TAB_TITLE = "Feed Purchases"
+// Mirrors the backend nav label ("nav.animal_purchases" in bootstrap_copy.go).
+private const val ANIMAL_PURCHASES_TAB_TITLE = "Animal purchases"
 
 /**
  * The Sales module's two L0 labels, mirrored from the backend's `nav.sales` / `nav.vendors`. The

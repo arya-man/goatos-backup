@@ -57,6 +57,10 @@ fun resolvePushRoute(payload: Map<String, String>): String? {
             type == "weighing_campaign_closed" || type == "weighing_shed_reopened" ->
             Routes.WEIGHING
         screen == "feed_overview" -> Routes.FEED_DIRECTION
+        // Animal purchases (maintainer decision 2026-09-13): the decided push normally names the
+        // load itself (handled by pushTargetRoute above); a push carrying only the screen lands
+        // the recorder on the tab.
+        screen == "animal_purchases" || type == "animal_purchase_decided" -> Routes.VENDORS_ANIMAL_PURCHASES
         // Leadership Tasks: the href normally names the task itself (handled by pushTargetRoute
         // above); a push carrying only the screen lands on the module's list.
         screen == "leadership_task" || screen == "leadership_tasks" ||

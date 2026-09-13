@@ -170,6 +170,10 @@ class SyncEngine(
     private val vendorsRepository: sg.mesha.goatos.core.data.VendorsRepository? = null,
     // Sales (maintainer instruction 2026-09-04): the recorded deal reconciles into Room the same way.
     private val salesRepository: sg.mesha.goatos.core.data.SalesRepository? = null,
+    // Animal purchases (maintainer decision 2026-09-13): the recorded load / animal reconciles into
+    // Room the same way. Same defect class as feedRepository/toxinRepository above: null here
+    // silently no-ops the reconcile in production and the phone shows the row only after refresh.
+    private val animalPurchaseRepository: sg.mesha.goatos.core.data.AnimalPurchaseRepository? = null,
     private val idGenerator: () -> String = { java.util.UUID.randomUUID().toString() },
     /**
      * Lifecycle visibility for the queue itself. Defaults to
@@ -603,6 +607,8 @@ class SyncEngine(
         OutboxOpType.SALES_DEAL_STATUS_SET -> dispatchSalesDealStatusSet(item)
         OutboxOpType.SALES_PIPELINE_WRITE -> dispatchSalesPipelineWrite(item)
         OutboxOpType.FEED_PURCHASE_EDIT_WRITE -> dispatchFeedPurchaseEdit(item)
+        OutboxOpType.ANIMAL_PURCHASE_LOAD_CREATE -> dispatchAnimalPurchaseLoadCreate(item)
+        OutboxOpType.ANIMAL_PURCHASE_ANIMAL_CREATE -> dispatchAnimalPurchaseAnimalCreate(item)
     }
 
     private suspend fun reconcileFeatureBeforeSuccess(item: OutboxEntity): Boolean {
@@ -869,6 +875,27 @@ class SyncEngine(
                     runCatching {
                         val detail = syncJson.decodeFromString<sg.mesha.goatos.core.network.dto.ToxinTaskDetailDto>(resultJson)
                         toxinRepository?.persistServerDetail(detail)
+                    }.onFailure { reportCacheReconcileFailure(item, it) }
+                }
+            }
+            // Animal purchases (2026-09-13): the create returns the WHOLE recorded load / animal
+            // (backend title, summary, counts, decision chip), written straight into Room so the
+            // list and the load screen show the server's row the moment the write drains.
+            OutboxOpType.ANIMAL_PURCHASE_LOAD_CREATE -> {
+                item.resultJson?.let { resultJson ->
+                    runCatching {
+                        animalPurchaseRepository?.persistServerLoad(
+                            syncJson.decodeFromString<sg.mesha.goatos.core.network.dto.AnimalPurchaseLoadDto>(resultJson),
+                        )
+                    }.onFailure { reportCacheReconcileFailure(item, it) }
+                }
+            }
+            OutboxOpType.ANIMAL_PURCHASE_ANIMAL_CREATE -> {
+                item.resultJson?.let { resultJson ->
+                    runCatching {
+                        animalPurchaseRepository?.persistServerAnimal(
+                            syncJson.decodeFromString<sg.mesha.goatos.core.network.dto.AnimalPurchaseAnimalDto>(resultJson),
+                        )
                     }.onFailure { reportCacheReconcileFailure(item, it) }
                 }
             }
@@ -1141,6 +1168,35 @@ class SyncEngine(
     private suspend fun dispatchFeedPurchaseCreate(item: OutboxEntity): String {
         val payload = syncJson.decodeFromString<FeedPurchaseCreatePayload>(item.payloadJson)
         val created = api.createFeedPurchase(item.idempotencyKey, payload.request)
+        return syncJson.encodeToString(created)
+    }
+
+    /**
+     * A purchase load recorded on the phone (maintainer decision 2026-09-13); the stored key rides
+     * as the backend's Idempotency-Key. `409 load_ref_taken` / `422 validation_failed` are terminal
+     * by [recordFailure]'s check and carry the server's own sentence into lastError.
+     */
+    private suspend fun dispatchAnimalPurchaseLoadCreate(item: OutboxEntity): String {
+        val payload = syncJson.decodeFromString<AnimalPurchaseLoadCreatePayload>(item.payloadJson)
+        val created = api.createAnimalPurchaseLoad(item.idempotencyKey, payload.request)
+        return syncJson.encodeToString(created)
+    }
+
+    /**
+     * One animal recorded inside a load. Its video resolves through the coupled PROOF_UPLOAD row on
+     * the same load group exactly like [dispatchToxinStepComplete]'s clip: the upload drains first,
+     * and the uploaded server proof id lands in `video_proof_ref` here, never earlier. The row's
+     * STORED key is passed verbatim on a retry. A `422 validation_failed` (the server refusing a
+     * video that is not a finished in-app-camera upload, or a field it cannot accept) is terminal
+     * and surfaces the server's own sentence.
+     */
+    private suspend fun dispatchAnimalPurchaseAnimalCreate(item: OutboxEntity): String {
+        val payload = syncJson.decodeFromString<AnimalPurchaseAnimalCreatePayload>(item.payloadJson)
+        val created = api.addAnimalPurchaseAnimal(
+            payload.loadId,
+            item.idempotencyKey,
+            payload.request.copy(videoProofRef = resolveUploadedProofRef(payload.proofOutboxItemId)),
+        )
         return syncJson.encodeToString(created)
     }
 

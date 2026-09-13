@@ -133,6 +133,16 @@ import sg.mesha.goatos.core.data.cache.PenVisitItemDao
 import sg.mesha.goatos.core.data.cache.PenVisitItemEntity
 import sg.mesha.goatos.core.data.cache.PenVisitRemoteKeyDao
 import sg.mesha.goatos.core.data.cache.PenVisitRemoteKeyEntity
+import sg.mesha.goatos.core.data.cache.AnimalPurchaseAnimalItemDao
+import sg.mesha.goatos.core.data.cache.AnimalPurchaseAnimalItemEntity
+import sg.mesha.goatos.core.data.cache.AnimalPurchaseAnimalRemoteKeyDao
+import sg.mesha.goatos.core.data.cache.AnimalPurchaseAnimalRemoteKeyEntity
+import sg.mesha.goatos.core.data.cache.AnimalPurchaseBlobCacheDao
+import sg.mesha.goatos.core.data.cache.AnimalPurchaseBlobCacheEntity
+import sg.mesha.goatos.core.data.cache.AnimalPurchaseLoadItemDao
+import sg.mesha.goatos.core.data.cache.AnimalPurchaseLoadItemEntity
+import sg.mesha.goatos.core.data.cache.AnimalPurchaseLoadRemoteKeyDao
+import sg.mesha.goatos.core.data.cache.AnimalPurchaseLoadRemoteKeyEntity
 import sg.mesha.goatos.core.data.cache.ToxinTaskDetailCacheDao
 import sg.mesha.goatos.core.data.cache.ToxinTaskDetailCacheEntity
 import sg.mesha.goatos.core.data.cache.ToxinTaskItemDao
@@ -370,6 +380,11 @@ import sg.mesha.goatos.core.data.weighing.WeighingShedObservationEntity
         WorkBoardMetaCacheEntity::class,
         WorkBoardItemEntity::class,
         WorkBoardRemoteKeyEntity::class,
+        AnimalPurchaseLoadItemEntity::class,
+        AnimalPurchaseLoadRemoteKeyEntity::class,
+        AnimalPurchaseAnimalItemEntity::class,
+        AnimalPurchaseAnimalRemoteKeyEntity::class,
+        AnimalPurchaseBlobCacheEntity::class,
     ],
     // v52 (see [MIGRATION_51_52]) adds the three diagnosis tables. `health_diagnosis_runs` is the
     // DETAIL cache — one animal's whole assessment, read in a shed with no signal, so a manager who
@@ -409,7 +424,11 @@ import sg.mesha.goatos.core.data.weighing.WeighingShedObservationEntity
     // 2026-09-10, the phone's My Work): the whole-filter summary blob (`work_board_meta_cache`), the
     // paged board rows keyed by backend `row_key` (`work_board_items`) and their per-scope STRING
     // keyset cursor (`work_board_remote_keys`) — the Feed three-table shape.
-    version = 63,
+    // v64 (see [MIGRATION_63_64]) adds the five Animal purchases read-model tables (maintainer
+    // decision 2026-09-13, docs/decisions/animal-purchases.md): the paged load rows + their keyset
+    // cursor, the paged per-load animal rows + their per-load cursor (the Toxin trio shape, twice),
+    // and one JSON blob cache for the form options, each load's header and the caller's write flag.
+    version = 64,
     // exportSchema=true writes schemas/<db-fqcn>/<version>.json (see build.gradle.kts
     // room.schemaLocation). The committed schema JSON is the golden schema
     // MigrationTestHelper validates each migration against, and it makes every schema
@@ -606,6 +625,11 @@ abstract class GoatDatabase : RoomDatabase() {
     abstract fun toxinTaskItemDao(): ToxinTaskItemDao
     abstract fun toxinTaskRemoteKeyDao(): ToxinTaskRemoteKeyDao
     abstract fun toxinTaskDetailCacheDao(): ToxinTaskDetailCacheDao
+    abstract fun animalPurchaseLoadItemDao(): AnimalPurchaseLoadItemDao
+    abstract fun animalPurchaseLoadRemoteKeyDao(): AnimalPurchaseLoadRemoteKeyDao
+    abstract fun animalPurchaseAnimalItemDao(): AnimalPurchaseAnimalItemDao
+    abstract fun animalPurchaseAnimalRemoteKeyDao(): AnimalPurchaseAnimalRemoteKeyDao
+    abstract fun animalPurchaseBlobCacheDao(): AnimalPurchaseBlobCacheDao
     abstract fun clockBlobCacheDao(): ClockBlobCacheDao
     abstract fun vendorItemDao(): VendorItemDao
     abstract fun vendorRemoteKeyDao(): VendorRemoteKeyDao

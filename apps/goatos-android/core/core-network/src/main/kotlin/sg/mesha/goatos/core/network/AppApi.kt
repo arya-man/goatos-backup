@@ -82,6 +82,16 @@ import sg.mesha.goatos.core.network.dto.PenVisitPageDto
 import sg.mesha.goatos.core.network.dto.WorkBoardRowsPageDto
 import sg.mesha.goatos.core.network.dto.WorkBoardSummaryDto
 import sg.mesha.goatos.core.network.dto.PenVisitSubmitRequestDto
+import sg.mesha.goatos.core.network.dto.AnimalPurchaseAnimalCreateRequestDto
+import sg.mesha.goatos.core.network.dto.AnimalPurchaseAnimalDto
+import sg.mesha.goatos.core.network.dto.AnimalPurchaseAnimalPageDto
+import sg.mesha.goatos.core.network.dto.AnimalPurchaseCountsDto
+import sg.mesha.goatos.core.network.dto.AnimalPurchaseLoadCreateRequestDto
+import sg.mesha.goatos.core.network.dto.AnimalPurchaseLoadDetailDto
+import sg.mesha.goatos.core.network.dto.AnimalPurchaseLoadDto
+import sg.mesha.goatos.core.network.dto.AnimalPurchaseLoadPageDto
+import sg.mesha.goatos.core.network.dto.AnimalPurchaseOptionDto
+import sg.mesha.goatos.core.network.dto.AnimalPurchaseOptionsDto
 import sg.mesha.goatos.core.network.dto.ToxinStepCompleteRequestDto
 import sg.mesha.goatos.core.network.dto.ToxinStepDto
 import sg.mesha.goatos.core.network.dto.ToxinSubmitRequestDto
@@ -1609,6 +1619,43 @@ interface AppApi {
 
     /** GET /procurement/vendor-options — the ACTIVE register as the buyer picklist. */
     suspend fun getVendorOptions(): VendorOptionsDto
+
+    // ------------------------------------------------------------------
+    // Animal purchases (maintainer decision 2026-09-13, docs/decisions/animal-purchases.md)
+    // ------------------------------------------------------------------
+
+    /** GET /app/procurement/animal-purchases/options — the add-load / add-animal vocabulary and copy. */
+    suspend fun getAnimalPurchaseOptions(): AnimalPurchaseOptionsDto
+
+    /** GET /app/procurement/animal-purchases/loads — one keyset page of loads, newest first. */
+    suspend fun getAnimalPurchaseLoads(limit: Int? = null, cursor: String? = null): AnimalPurchaseLoadPageDto
+
+    /** POST /app/procurement/animal-purchases/loads — records a load. `Idempotency-Key` is REQUIRED. */
+    suspend fun createAnimalPurchaseLoad(
+        idempotencyKey: String,
+        request: AnimalPurchaseLoadCreateRequestDto,
+    ): AnimalPurchaseLoadDto
+
+    /** GET /app/procurement/animal-purchases/loads/{load_id} — the load plus its first animal page. */
+    suspend fun getAnimalPurchaseLoad(loadId: String): AnimalPurchaseLoadDetailDto
+
+    /** GET /app/procurement/animal-purchases/loads/{load_id}/animals — one keyset page of animals. */
+    suspend fun getAnimalPurchaseAnimals(
+        loadId: String,
+        limit: Int? = null,
+        cursor: String? = null,
+    ): AnimalPurchaseAnimalPageDto
+
+    /**
+     * POST /app/procurement/animal-purchases/loads/{load_id}/animals — records one animal with its
+     * video. `Idempotency-Key` is REQUIRED; a 422 `validation_failed` carries the server's own
+     * sentence and the field it names.
+     */
+    suspend fun addAnimalPurchaseAnimal(
+        loadId: String,
+        idempotencyKey: String,
+        request: AnimalPurchaseAnimalCreateRequestDto,
+    ): AnimalPurchaseAnimalDto
 
     /** POST /sales/deals — records a sale. The `Idempotency-Key` is REQUIRED. */
     suspend fun createSalesDeal(
@@ -3158,6 +3205,64 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
 
     override suspend fun getVendorOptions(): VendorOptionsDto =
         VendorOptionsDto(vendors = listOf(VendorOptionDto("vendor-1", "Kumar Traders", "Sheep Agent", "Hosur", "TN")))
+
+    override suspend fun getAnimalPurchaseOptions(): AnimalPurchaseOptionsDto = AnimalPurchaseOptionsDto(
+        species = listOf(AnimalPurchaseOptionDto("goat", "Goat"), AnimalPurchaseOptionDto("sheep", "Sheep")),
+        sexes = listOf(AnimalPurchaseOptionDto("female", "Female"), AnimalPurchaseOptionDto("male", "Male")),
+        conditions = listOf(AnimalPurchaseOptionDto("healthy", "Healthy"), AnimalPurchaseOptionDto("unwell", "Unwell")),
+        farms = listOf(AnimalPurchaseOptionDto("CBE", "CBE"), AnimalPurchaseOptionDto("CPT", "CPT")),
+        breedSuggestions = listOf("Sirohi"),
+        copy = mapOf("loads.add" to "Add load", "load.animals.add" to "Add animal"),
+    )
+
+    override suspend fun getAnimalPurchaseLoads(limit: Int?, cursor: String?): AnimalPurchaseLoadPageDto =
+        AnimalPurchaseLoadPageDto(loads = listOf(fakeAnimalPurchaseLoad()), canRecord = true)
+
+    override suspend fun createAnimalPurchaseLoad(idempotencyKey: String, request: AnimalPurchaseLoadCreateRequestDto): AnimalPurchaseLoadDto =
+        fakeAnimalPurchaseLoad().copy(loadId = "load-new", loadRef = request.loadRef, farm = request.farm, title = "Load ${request.loadRef} · Kumar Traders")
+
+    override suspend fun getAnimalPurchaseLoad(loadId: String): AnimalPurchaseLoadDetailDto =
+        AnimalPurchaseLoadDetailDto(load = fakeAnimalPurchaseLoad().copy(loadId = loadId), animals = listOf(fakeAnimalPurchaseAnimal(loadId)), canRecord = true)
+
+    override suspend fun getAnimalPurchaseAnimals(loadId: String, limit: Int?, cursor: String?): AnimalPurchaseAnimalPageDto =
+        AnimalPurchaseAnimalPageDto(animals = listOf(fakeAnimalPurchaseAnimal(loadId)), counts = AnimalPurchaseCountsDto(total = 1, pending = 1))
+
+    override suspend fun addAnimalPurchaseAnimal(loadId: String, idempotencyKey: String, request: AnimalPurchaseAnimalCreateRequestDto): AnimalPurchaseAnimalDto =
+        fakeAnimalPurchaseAnimal(loadId).copy(candidateId = "candidate-new", species = request.species, sex = request.sex, breed = request.breed, videoProofRef = request.videoProofRef)
+
+    private fun fakeAnimalPurchaseLoad(): AnimalPurchaseLoadDto = AnimalPurchaseLoadDto(
+        loadId = "load-1",
+        loadRef = "132",
+        title = "Load 132 · Kumar Traders",
+        vendorId = "vendor-1",
+        vendorName = "Kumar Traders",
+        farm = "CBE",
+        expectedCount = 40,
+        status = "open",
+        counts = AnimalPurchaseCountsDto(total = 1, pending = 1),
+        summary = "CBE · about 40 animals · 1 recorded",
+        rowVersion = 1,
+    )
+
+    private fun fakeAnimalPurchaseAnimal(loadId: String): AnimalPurchaseAnimalDto = AnimalPurchaseAnimalDto(
+        candidateId = "candidate-1",
+        loadId = loadId,
+        loadRef = "132",
+        seqNo = 1,
+        title = "Animal 1 · Female goat",
+        species = "goat",
+        speciesLabel = "Goat",
+        sex = "female",
+        sexLabel = "Female",
+        breed = "Sirohi",
+        condition = "healthy",
+        conditionLabel = "Healthy",
+        videoProofRef = "proof-1",
+        decision = "pending",
+        decisionLabel = "Awaiting decision",
+        decisionTone = "neutral",
+        rowVersion = 1,
+    )
 
     override suspend fun createSalesDeal(idempotencyKey: String, request: SalesDealWriteDto): SalesDealDto =
         fakeSalesDeal().copy(dealId = "deal-new", buyerName = request.buyerName, salesValue = request.salesValue, paymentBalance = request.salesValue)

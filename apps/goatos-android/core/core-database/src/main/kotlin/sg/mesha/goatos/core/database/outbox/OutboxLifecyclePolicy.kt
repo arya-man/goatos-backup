@@ -169,6 +169,12 @@ val OutboxOpType.lifecyclePolicy: OutboxLifecyclePolicy
         // overlay, and the server's returned load (its recomputed balance, per-kg cost and stock
         // figure) reconciles the ledger and detail caches directly.
         OutboxOpType.FEED_PURCHASE_EDIT_WRITE -> overlayDirectReconcileLifecycle()
+        // Animal purchases (maintainer decision 2026-09-13): the add forms show a "saving" banner at
+        // once (the record is durable in the outbox) and follow the exact row; the sync pass writes
+        // the server's RETURNED load/animal straight into the Room list/detail caches -- the
+        // vendors/toxin shape. The phone's copy is a placeholder the next server read overwrites.
+        OutboxOpType.ANIMAL_PURCHASE_LOAD_CREATE -> overlayDirectReconcileLifecycle()
+        OutboxOpType.ANIMAL_PURCHASE_ANIMAL_CREATE -> overlayDirectReconcileLifecycle()
         // Pipeline and evidence: a lead, quote, tag list or weight check. The panel re-reads its
         // own bounded list after the write lands, so this rides POST_SUCCESS_REFRESH rather than a
         // row-shaped reconcile -- a market quote and a weight check have no local row at all.

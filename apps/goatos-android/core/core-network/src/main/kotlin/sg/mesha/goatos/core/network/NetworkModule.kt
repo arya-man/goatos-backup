@@ -99,6 +99,14 @@ import sg.mesha.goatos.core.network.dto.PenVisitPageDto
 import sg.mesha.goatos.core.network.dto.WorkBoardRowsPageDto
 import sg.mesha.goatos.core.network.dto.WorkBoardSummaryDto
 import sg.mesha.goatos.core.network.dto.PenVisitSubmitRequestDto
+import sg.mesha.goatos.core.network.dto.AnimalPurchaseAnimalCreateRequestDto
+import sg.mesha.goatos.core.network.dto.AnimalPurchaseAnimalDto
+import sg.mesha.goatos.core.network.dto.AnimalPurchaseAnimalPageDto
+import sg.mesha.goatos.core.network.dto.AnimalPurchaseLoadCreateRequestDto
+import sg.mesha.goatos.core.network.dto.AnimalPurchaseLoadDetailDto
+import sg.mesha.goatos.core.network.dto.AnimalPurchaseLoadDto
+import sg.mesha.goatos.core.network.dto.AnimalPurchaseLoadPageDto
+import sg.mesha.goatos.core.network.dto.AnimalPurchaseOptionsDto
 import sg.mesha.goatos.core.network.dto.ToxinStepCompleteRequestDto
 import sg.mesha.goatos.core.network.dto.ToxinSubmitRequestDto
 import sg.mesha.goatos.core.network.dto.ToxinTaskDetailDto
@@ -1069,6 +1077,41 @@ interface AppApiService {
 
     @GET("procurement/vendor-options")
     suspend fun getVendorOptions(): VendorOptionsDto
+
+    // Animal purchases (maintainer decision 2026-09-13)
+    @GET("app/procurement/animal-purchases/options")
+    suspend fun getAnimalPurchaseOptions(): AnimalPurchaseOptionsDto
+
+    @GET("app/procurement/animal-purchases/loads")
+    suspend fun getAnimalPurchaseLoads(
+        @Query("limit") limit: Int?,
+        @Query("cursor") cursor: String?,
+    ): AnimalPurchaseLoadPageDto
+
+    @POST("app/procurement/animal-purchases/loads")
+    suspend fun createAnimalPurchaseLoad(
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Body request: AnimalPurchaseLoadCreateRequestDto,
+    ): AnimalPurchaseLoadDto
+
+    @GET("app/procurement/animal-purchases/loads/{load_id}")
+    suspend fun getAnimalPurchaseLoad(
+        @Path("load_id") loadId: String,
+    ): AnimalPurchaseLoadDetailDto
+
+    @GET("app/procurement/animal-purchases/loads/{load_id}/animals")
+    suspend fun getAnimalPurchaseAnimals(
+        @Path("load_id") loadId: String,
+        @Query("limit") limit: Int?,
+        @Query("cursor") cursor: String?,
+    ): AnimalPurchaseAnimalPageDto
+
+    @POST("app/procurement/animal-purchases/loads/{load_id}/animals")
+    suspend fun addAnimalPurchaseAnimal(
+        @Path("load_id") loadId: String,
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Body request: AnimalPurchaseAnimalCreateRequestDto,
+    ): AnimalPurchaseAnimalDto
 
 
     // Changing a recorded load (maintainer instruction 2026-09-04). Each returns the WHOLE load.
@@ -2356,6 +2399,22 @@ class RetrofitAppApi(
     override suspend fun getSalesOptions(): SalesOptionsDto = service.getSalesOptions()
 
     override suspend fun getVendorOptions(): VendorOptionsDto = service.getVendorOptions()
+
+    override suspend fun getAnimalPurchaseOptions(): AnimalPurchaseOptionsDto = service.getAnimalPurchaseOptions()
+
+    override suspend fun getAnimalPurchaseLoads(limit: Int?, cursor: String?): AnimalPurchaseLoadPageDto =
+        service.getAnimalPurchaseLoads(limit, cursor)
+
+    override suspend fun createAnimalPurchaseLoad(idempotencyKey: String, request: AnimalPurchaseLoadCreateRequestDto): AnimalPurchaseLoadDto =
+        service.createAnimalPurchaseLoad(idempotencyKey, request)
+
+    override suspend fun getAnimalPurchaseLoad(loadId: String): AnimalPurchaseLoadDetailDto = service.getAnimalPurchaseLoad(loadId)
+
+    override suspend fun getAnimalPurchaseAnimals(loadId: String, limit: Int?, cursor: String?): AnimalPurchaseAnimalPageDto =
+        service.getAnimalPurchaseAnimals(loadId, limit, cursor)
+
+    override suspend fun addAnimalPurchaseAnimal(loadId: String, idempotencyKey: String, request: AnimalPurchaseAnimalCreateRequestDto): AnimalPurchaseAnimalDto =
+        service.addAnimalPurchaseAnimal(loadId, idempotencyKey, request)
 
     override suspend fun createSalesDeal(idempotencyKey: String, request: SalesDealWriteDto): SalesDealDto =
         service.createSalesDeal(idempotencyKey, request)

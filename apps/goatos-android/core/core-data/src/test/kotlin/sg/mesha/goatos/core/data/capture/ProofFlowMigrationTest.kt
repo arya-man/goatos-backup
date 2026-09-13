@@ -16,6 +16,23 @@ import org.junit.Test
  */
 class ProofFlowMigrationTest {
 
+    // --- animal_purchase ----------------------------------------------------------------------
+
+    @Test
+    fun `animal purchase flow resolves from its wire value and rides the generic branches`() {
+        // Maintainer decision 2026-09-13: one draft's video is one capture identity, keyed by the
+        // load (taskId) and the form's draft key (subjectKey), so a re-record replaces the clip.
+        assertEquals("animal_purchase", ProofFlow.ANIMAL_PURCHASE.wireValue)
+        assertEquals(ProofFlow.ANIMAL_PURCHASE, ProofFlow.from("animal_purchase"))
+        val slot = EvidenceSlot(
+            identity = ProofIdentity(flow = ProofFlow.ANIMAL_PURCHASE, taskId = "load-1", subjectKey = "ap-animal:draft"),
+            fieldKey = "ap-animal:draft",
+        )
+        assertEquals("load-1", slot.identity.taskId)
+        assertEquals("ap-animal:draft", slot.fieldKey)
+        assertEquals("whole", slot.identity.partitionKey)
+    }
+
     // --- milk_preparation --------------------------------------------------------------------
 
     @Test

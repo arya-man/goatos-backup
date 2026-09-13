@@ -9,6 +9,7 @@ import sg.mesha.goatos.core.analytics.AnalyticsEvents
 import sg.mesha.goatos.core.analytics.AnalyticsEventsLeadershipTasks
 import sg.mesha.goatos.core.analytics.AnalyticsEventsPenVisits
 import sg.mesha.goatos.core.analytics.AnalyticsEventsSession
+import sg.mesha.goatos.core.analytics.AnalyticsEventsAnimalPurchase
 import sg.mesha.goatos.core.analytics.AnalyticsEventsToxin
 import sg.mesha.goatos.core.analytics.AnalyticsEventsWeighing
 import sg.mesha.goatos.core.analytics.AnalyticsFunnels
@@ -229,6 +230,14 @@ class BackendAnalyticsAdapter(
             AnalyticsEventsToxin.TOXIN_READING_SUBMITTED,
             AnalyticsEventsToxin.TOXIN_STEP_PREVIEW_ACTION,
             AnalyticsEventsToxin.TOXIN_FAILURE,
+            // Animal purchases (2026-09-13): the video capture, the queued create and its terminal
+            // outcome are the forensic trail of an animal the CEO never saw.
+            AnalyticsEventsAnimalPurchase.ANIMAL_VIDEO_CAPTURED,
+            AnalyticsEventsAnimalPurchase.LOAD_QUEUED,
+            AnalyticsEventsAnimalPurchase.ANIMAL_QUEUED,
+            AnalyticsEventsAnimalPurchase.WRITE_OUTCOME,
+            AnalyticsEventsAnimalPurchase.VIDEO_PREVIEW_ACTION,
+            AnalyticsEventsAnimalPurchase.FAILURE,
             AnalyticsEventsWeighing.WEIGHING_SHED_VIDEO_PREVIEW_ACTION,
             AnalyticsEventsWeighing.WEIGHING_REMOVAL_PROOF_PREVIEW_ACTION,
             AnalyticsEventsWeighing.WEIGHING_SHED_VIDEO_ACTION_ATTEMPTED,

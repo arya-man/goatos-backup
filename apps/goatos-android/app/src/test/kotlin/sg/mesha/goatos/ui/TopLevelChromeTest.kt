@@ -707,6 +707,29 @@ class TopLevelChromeTest {
     }
 
     @Test
+    fun `animal purchases is a third procurement root and its drills never inherit root chrome`() {
+        // Maintainer decision 2026-09-13: the backend composes a THIRD `vendors` bar item whose
+        // href must match character for character, or the shell refuses to host the tap. The load
+        // drill carries a literal `/loads/` segment and the add forms a literal `/new` tail, so
+        // neither can ever be read as the root or as a load id.
+        val roots = listOf(Routes.VENDORS, Routes.VENDORS_FEED_PURCHASES, Routes.VENDORS_ANIMAL_PURCHASES)
+        assertEquals("/vendors/animal-purchases", Routes.VENDORS_ANIMAL_PURCHASES)
+        assertTrue(isTopLevelRoute(Routes.VENDORS_ANIMAL_PURCHASES, roots))
+        assertFalse(isTopLevelRoute(Routes.ANIMAL_PURCHASE_LOAD_NEW, roots))
+        assertFalse(isTopLevelRoute(Routes.ANIMAL_PURCHASE_LOAD_DETAIL, roots))
+        assertFalse(isTopLevelRoute(Routes.ANIMAL_PURCHASE_ANIMAL_NEW, roots))
+        assertFalse(isTopLevelRoute(Routes.animalPurchaseLoadRoute("l-1"), roots))
+        assertFalse(isTopLevelRoute(Routes.animalPurchaseAnimalNewRoute("l-1"), roots))
+        assertTrue(Routes.ANIMAL_PURCHASE_LOAD_DETAIL.startsWith("${Routes.VENDORS_ANIMAL_PURCHASES}/loads/"))
+        assertTrue(Routes.animalPurchaseAnimalNewRoute("l-1").startsWith(Routes.animalPurchaseLoadRoute("l-1") + "/"))
+        // The push href of a decided animal names the load, and only a load.
+        assertEquals("l-1", Routes.animalPurchaseLoadIdFromHref("/vendors/animal-purchases/loads/l-1"))
+        assertEquals("l-1", Routes.animalPurchaseLoadIdFromHref("/vendors/animal-purchases/loads/l-1?x=1"))
+        assertEquals(null, Routes.animalPurchaseLoadIdFromHref(Routes.VENDORS_ANIMAL_PURCHASES))
+        assertEquals(null, Routes.animalPurchaseLoadIdFromHref("/vendors/animal-purchases/loads/l-1/animals/new"))
+    }
+
+    @Test
     fun `sales L0 roots are exact and their drills never inherit root chrome`() {
         // Module sales (maintainer decision 2026-09-05): TWO backend-composed L0 hrefs — the ledger
         // and the selling half of the vendor register. Every route below must match the backend nav

@@ -493,6 +493,8 @@ object MeshaIcons {
         // storefront — it sits on the Sales bar beside the price tag, so nothing is repeated there.
         "vendors", "sales_vendors" -> Store
         "feed_purchases" -> Package
+        // Animal purchases (maintainer decision 2026-09-13): the animals on offer in a purchase load.
+        "animal_purchases" -> Goat
         // The Sales module and its ledger tab (maintainer decision 2026-09-05) wear the price tag.
         "sales" -> Sale
         "pc_ticks" -> Tick

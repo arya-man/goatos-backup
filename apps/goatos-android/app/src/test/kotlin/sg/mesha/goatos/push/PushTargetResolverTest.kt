@@ -9,6 +9,22 @@ import sg.mesha.goatos.ui.Routes
 
 class PushTargetResolverTest {
     @Test
+    fun `an animal purchase decided push opens the load the decision is on`() {
+        // Maintainer decision 2026-09-13: the recorder is pushed the moment the CEO decides, with
+        // the load as the target; the tap must land on that load, where the decision chip is.
+        val route = resolvePushRoute(
+            mapOf(
+                PushExtras.TYPE to "animal_purchase_decided",
+                PushExtras.SCREEN to "animal_purchases",
+                PushExtras.TARGET to "/vendors/animal-purchases/loads/load-7",
+            ),
+        )
+        assertEquals(Routes.animalPurchaseLoadRoute("load-7"), route)
+        // Screen only, no target: the tab.
+        assertEquals(Routes.VENDORS_ANIMAL_PURCHASES, resolvePushRoute(mapOf(PushExtras.SCREEN to "animal_purchases")))
+    }
+
+    @Test
     fun `shed reminder opens vaccination landing instead of scan`() {
         val route = resolvePushRoute(
             mapOf(
