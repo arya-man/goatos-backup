@@ -59,7 +59,7 @@ export function AnimalPurchaseLightbox({ items, openLabel, closeLabel }: { items
               <img src={item.url} alt="" loading="lazy" />
             ) : (
               <>
-                <video src={item.url} preload="metadata" muted playsInline tabIndex={-1} />
+                <video src={item.url} preload="none" muted playsInline tabIndex={-1} />
                 <span className="ap-tile-play" aria-hidden="true">
                   ▶
                 </span>

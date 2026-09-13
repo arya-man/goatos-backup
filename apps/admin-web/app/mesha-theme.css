@@ -5127,3 +5127,9 @@ select:disabled { opacity: .45; }
 .ap-lightbox-body{position:relative;display:flex;flex-direction:column;gap:8px;max-width:min(96vw,1400px);max-height:94vh;padding:12px;border-radius:14px;background:var(--panel);border:1px solid var(--line)}
 .ap-lightbox-head{display:flex;align-items:center;justify-content:space-between;gap:12px}
 .ap-lightbox-media{max-width:100%;max-height:calc(94vh - 70px);object-fit:contain;border-radius:10px;background:#000}
+/* Animal purchases: load + recorded-on filter bar over the animal list. */
+.ap-filter-bar{display:flex;flex-wrap:wrap;gap:10px 14px;align-items:flex-end;margin-bottom:12px;padding:10px 12px;border:1px solid var(--line);border-radius:12px;background:var(--panel-2)}
+.ap-filter{display:flex;flex-direction:column;gap:4px;min-width:0}
+.ap-filter-select,.ap-filter-date{height:32px;padding:0 10px;border-radius:9px;border:1px solid var(--line);background:var(--panel);color:var(--ink);font:inherit;font-size:13px}
+.ap-filter-select{max-width:320px}
+.ap-filter-select:focus,.ap-filter-date:focus{outline:none;border-color:var(--brand-l)}

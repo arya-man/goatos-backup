@@ -46,7 +46,7 @@ test("media slots render a photo thumbnail or an inline video by mime, never a g
   assert.match(sop, /<AnimalPurchaseLightbox items=\{items\}/);
   // Uniform tiles: a photo is its image, a video its first frame (metadata only) under a play badge.
   assert.match(lightbox, /className="ap-tile"[\s\S]*?<img src=\{item\.url\} alt="" loading="lazy" \/>/);
-  assert.match(lightbox, /<video src=\{item\.url\} preload="metadata" muted playsInline tabIndex=\{-1\} \/>/);
+  assert.match(lightbox, /<video src=\{item\.url\} preload="none" muted playsInline tabIndex=\{-1\} \/>/);
   assert.match(lightbox, /<video src=\{open\.url\} controls autoPlay playsInline/);
   assert.match(lightbox, /role="dialog"[\s\S]*?aria-modal="true"/);
   assert.match(lightbox, /event\.key === "Escape"/);

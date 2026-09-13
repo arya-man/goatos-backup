@@ -779,7 +779,7 @@ export async function listAnimalPurchaseLoads(
  * media links are, so the browser's <img>/<video> can reach it.
  */
 export async function listAnimalPurchaseReview(
-  params: { load_id?: string; decision?: string; limit?: number; cursor?: string } = {},
+  params: { load_id?: string; decision?: string; recorded_from?: string; recorded_to?: string; limit?: number; cursor?: string } = {},
 ): Promise<ApiResult<AnimalPurchaseReviewPage>> {
   const config = await getServerConfig(true);
   if (!config.ok) return config;
@@ -790,6 +790,8 @@ export async function listAnimalPurchaseReview(
       query: compactQuery({
         load_id: params.load_id,
         decision: params.decision,
+        recorded_from: params.recorded_from,
+        recorded_to: params.recorded_to,
         limit: params.limit,
         cursor: params.cursor,
       }),

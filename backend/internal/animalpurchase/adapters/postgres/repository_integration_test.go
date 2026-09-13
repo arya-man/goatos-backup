@@ -139,7 +139,9 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, 'Ravi', 'Ravi', 'active', 'park_head')`, a
 		t.Fatalf("a stale version must be refused, got %v", err)
 	}
 	review, err := repo.ListReview(ctx, apTenant, ports.ReviewQuery{Decision: domain.DecisionPending, Limit: 20})
-	if err != nil || len(review.Candidates) != 1 || review.Candidates[0].CandidateID != a2.CandidateID || review.Counts.Pending != 1 || review.Counts.Total != 1 {
+	// The page is the pending chip; the counts are the WHOLE filter across every decision (one
+	// accepted, one pending), which is what the chips beside the list show.
+	if err != nil || len(review.Candidates) != 1 || review.Candidates[0].CandidateID != a2.CandidateID || review.Counts.Pending != 1 || review.Counts.Accepted != 1 || review.Counts.Total != 2 {
 		t.Fatalf("review queue: %v / %+v", err, review)
 	}
 	var outbox int
@@ -264,6 +266,19 @@ func TestAnimalPurchaseReviewStatusMatrixEveryStatus(t *testing.T) {
 	reloaded, err := repo.GetLoad(ctx, apTenant, load.LoadID)
 	if err != nil || reloaded.Counts != (domain.DecisionCounts{Total: 4, Pending: 1, Accepted: 1, Rejected: 2}) {
 		t.Fatalf("load counts after decisions = %+v (%v)", reloaded.Counts, err)
+	}
+	// The recorded-on window narrows the page AND the whole-filter counts together: everything
+	// was recorded just now, so a window ending yesterday is empty and one starting yesterday
+	// is the full set, whichever decision chip is picked.
+	yesterday := time.Now().Add(-24 * time.Hour)
+	if page, err := repo.ListReview(ctx, apTenant, ports.ReviewQuery{To: yesterday, Limit: 20}); err != nil || len(page.Candidates) != 0 || page.Counts.Total != 0 {
+		t.Fatalf("window ending yesterday: %v / %d rows, counts %+v", err, len(page.Candidates), page.Counts)
+	}
+	if page, err := repo.ListReview(ctx, apTenant, ports.ReviewQuery{From: yesterday, Decision: domain.DecisionRejected, Limit: 20}); err != nil || len(page.Candidates) != 2 || page.Counts.Rejected != 2 {
+		t.Fatalf("window from yesterday, rejected chip: %v / %d rows, counts %+v", err, len(page.Candidates), page.Counts)
+	}
+	if page, err := repo.ListReview(ctx, apTenant, ports.ReviewQuery{From: yesterday, Limit: 20}); err != nil || page.Counts.Total != 4 {
+		t.Fatalf("window from yesterday, every decision: %v counts %+v", err, page.Counts)
 	}
 }
 

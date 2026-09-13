@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/google/uuid"
 	"strconv"
 	"strings"
 	"time"
@@ -182,6 +183,9 @@ WHERE c.tenant_id = $1::uuid`
 ORDER BY c.created_at, c.candidate_id
 LIMIT `
 
+	sqlCandidateGuard = `SELECT decision, row_version, load_id::text FROM public.animal_purchase_candidates
+WHERE tenant_id = $1::uuid AND candidate_id = $2::uuid FOR UPDATE`
+
 	sqlActorName = `SELECT display_name FROM public.workforce_members
 WHERE tenant_id = $1::uuid AND user_id = $2::uuid AND status = 'active' ORDER BY updated_at DESC LIMIT 1`
 
@@ -195,8 +199,6 @@ WHERE tenant_id = $1::uuid AND candidate_id = $2::uuid AND decision = 'pending' 
   SELECT g.breed, count(*) AS n FROM public.goats g
   WHERE g.tenant_id = $1::uuid AND COALESCE(g.breed, '') <> '' AND g.lifecycle_status = 'alive'
   GROUP BY g.breed) b ORDER BY n DESC, breed LIMIT 30`
-
-	sqlNewUUID = `SELECT gen_random_uuid()::text`
 
 	sqlInsertOutbox = `
 INSERT INTO outbox_messages (
@@ -610,15 +612,27 @@ func (r *Repository) ListReview(ctx context.Context, tenantID string, q ports.Re
 		filterArgs = append(filterArgs, q.LoadID)
 		where += fmt.Sprintf(` AND c.load_id = $%d::uuid`, len(filterArgs))
 	}
-	if q.Decision != "" {
-		filterArgs = append(filterArgs, q.Decision)
-		where += fmt.Sprintf(` AND c.decision = $%d`, len(filterArgs))
+	// The recorded-on window keeps created_at bare (SARGable on the (tenant, created_at) index);
+	// the service already turned the IST dates into instants.
+	if !q.From.IsZero() {
+		filterArgs = append(filterArgs, q.From)
+		where += fmt.Sprintf(` AND c.created_at >= $%d::timestamptz`, len(filterArgs))
 	}
-	// Whole-filter counts BEFORE the cursor predicate, so paging never changes the numbers.
+	if !q.To.IsZero() {
+		filterArgs = append(filterArgs, q.To)
+		where += fmt.Sprintf(` AND c.created_at < $%d::timestamptz`, len(filterArgs))
+	}
+	// Whole-filter counts BEFORE the decision chip and the cursor predicate: the chips show the
+	// same numbers whichever chip is picked and whichever page is open, in ONE read (the handler
+	// used to re-run the whole list for them).
 	var counts domain.DecisionCounts
 	if err := r.pool.QueryRow(ctx, sqlReviewCountsBase+where, filterArgs...).
 		Scan(&counts.Total, &counts.Pending, &counts.Accepted, &counts.Rejected); err != nil {
 		return ports.CandidatePage{}, fmt.Errorf("animal purchase: review counts: %w", err)
+	}
+	if q.Decision != "" {
+		filterArgs = append(filterArgs, q.Decision)
+		where += fmt.Sprintf(` AND c.decision = $%d`, len(filterArgs))
 	}
 	pageArgs := append([]any{}, filterArgs...)
 	cursorWhere := ``
@@ -692,9 +706,18 @@ func (r *Repository) Decide(ctx context.Context, p ports.DecideParams) (domain.C
 		return r.GetCandidate(ctx, p.TenantID, p.CandidateID)
 	}
 
-	before, err := r.getCandidate(ctx, tx, p.TenantID, p.CandidateID)
-	if err != nil {
-		return domain.Candidate{}, err
+	// One lean, row-locked read for the fence: the full row (with its captures) is read once,
+	// AFTER the update, for the audit and the event.
+	var before struct {
+		Decision   string
+		RowVersion int
+		LoadID     string
+	}
+	if err := tx.QueryRow(ctx, sqlCandidateGuard, p.TenantID, p.CandidateID).Scan(&before.Decision, &before.RowVersion, &before.LoadID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return domain.Candidate{}, ports.ErrCandidateNotFound
+		}
+		return domain.Candidate{}, fmt.Errorf("animal purchase: read candidate: %w", err)
 	}
 	if before.Decision != domain.DecisionPending {
 		return domain.Candidate{}, ports.ErrAlreadyDecided
@@ -808,10 +831,7 @@ type outboxWriter interface {
 }
 
 func emitDecided(ctx context.Context, tx outboxWriter, tenantID, actorID, idempotencyKey string, c domain.Candidate, load domain.Load) error {
-	var eventID string
-	if err := tx.QueryRow(ctx, sqlNewUUID).Scan(&eventID); err != nil {
-		return fmt.Errorf("animal purchase: event id: %w", err)
-	}
+	eventID := uuid.NewString()
 	now := time.Now().UTC()
 	payload := DecidedPayload{
 		CandidateID: c.CandidateID, LoadID: c.LoadID, LoadRef: c.LoadRef, SeqNo: c.SeqNo,

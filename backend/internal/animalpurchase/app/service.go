@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"net/http"
 	"strings"
 	"time"
@@ -136,7 +137,21 @@ func (s *Service) ListCandidates(ctx context.Context, tenantID, loadID, cursor s
 	return s.repo.ListCandidates(ctx, tenantID, loadID, c, domain.ClampLimit(limit))
 }
 
-func (s *Service) ListReview(ctx context.Context, tenantID, loadID, decision, cursor string, limit int) (ports.CandidatePage, error) {
+// ReviewFilter is the web review's filter set: one load or every load, a decision chip, and a
+// recorded-on window of IST business dates ("2026-09-14"), both ends optional and inclusive.
+type ReviewFilter struct {
+	LoadID       string
+	Decision     string
+	RecordedFrom string
+	RecordedTo   string
+}
+
+func (s *Service) ListReview(ctx context.Context, tenantID string, f ReviewFilter, cursor string, limit int) (ports.CandidatePage, error) {
+	loadID, decision := f.LoadID, f.Decision
+	from, to, err := reviewWindow(f.RecordedFrom, f.RecordedTo)
+	if err != nil {
+		return ports.CandidatePage{}, err
+	}
 	c, err := domain.DecodeCursor(cursor, domain.CursorKindReview)
 	if err != nil {
 		return ports.CandidatePage{}, BadRequest("invalid_cursor", "That page could not be read. Reload the list.")
@@ -150,8 +165,40 @@ func (s *Service) ListReview(ctx context.Context, tenantID, loadID, decision, cu
 		return ports.CandidatePage{}, BadRequest("invalid_decision_filter", "That filter is not one of the decision states.")
 	}
 	return s.repo.ListReview(ctx, tenantID, ports.ReviewQuery{
-		LoadID: strings.TrimSpace(loadID), Decision: decision, Cursor: c, Limit: domain.ClampLimit(limit),
+		LoadID: strings.TrimSpace(loadID), Decision: decision, From: from, To: to, Cursor: c, Limit: domain.ClampLimit(limit),
 	})
+}
+
+// reviewWindow turns inclusive IST business dates into [start of from, start of the day after to).
+// A window whose end is before its start is a form mistake, refused rather than silently empty.
+func reviewWindow(fromDate, toDate string) (from, to time.Time, err error) {
+	loc := biztime.DefaultLocation()
+	parse := func(raw string) (time.Time, bool, error) {
+		raw = strings.TrimSpace(raw)
+		if raw == "" {
+			return time.Time{}, false, nil
+		}
+		t, err := time.ParseInLocation("2006-01-02", raw, loc)
+		if err != nil {
+			return time.Time{}, false, BadRequest("invalid_date_filter", "Enter the date as YYYY-MM-DD.")
+		}
+		return t, true, nil
+	}
+	f, hasFrom, err := parse(fromDate)
+	if err != nil {
+		return time.Time{}, time.Time{}, err
+	}
+	t, hasTo, err := parse(toDate)
+	if err != nil {
+		return time.Time{}, time.Time{}, err
+	}
+	if hasTo {
+		t = t.AddDate(0, 0, 1)
+	}
+	if hasFrom && hasTo && !f.Before(t) {
+		return time.Time{}, time.Time{}, BadRequest("invalid_date_filter", "The end date is before the start date.")
+	}
+	return f, t, nil
 }
 
 func (s *Service) GetCandidate(ctx context.Context, tenantID, candidateID string) (domain.Candidate, error) {

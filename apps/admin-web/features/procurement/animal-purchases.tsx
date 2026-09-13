@@ -76,6 +76,10 @@ export async function AnimalPurchasesPage({
     ? requestedDecision
     : DEFAULT_DECISION;
   const loadId = one(sp, "load_id") || undefined;
+  // Recorded-on window: ISO dates only reach the read; anything else is dropped, not guessed.
+  const isoDate = (raw: string | undefined) => (raw && /^\d{4}-\d{2}-\d{2}$/.test(raw) ? raw : "");
+  const recordedFrom = isoDate(one(sp, "recorded_from"));
+  const recordedTo = isoDate(one(sp, "recorded_to"));
   const animalCursor = one(sp, "ap_cursor") || undefined;
   const loadCursor = one(sp, "ld_cursor") || undefined;
 
@@ -86,7 +90,14 @@ export async function AnimalPurchasesPage({
 
   const [loadsResult, reviewResult, totalsResult] = await Promise.all([
     listAnimalPurchaseLoads({ limit: loadsLimit, cursor: loadCursor }),
-    listAnimalPurchaseReview({ load_id: loadId, decision, limit: animalsLimit, cursor: animalCursor }),
+    listAnimalPurchaseReview({
+      load_id: loadId,
+      decision,
+      recorded_from: recordedFrom || undefined,
+      recorded_to: recordedTo || undefined,
+      limit: animalsLimit,
+      cursor: animalCursor,
+    }),
     // The header tiles count the WHOLE desk ("across every load"), which the filtered queue read
     // cannot answer once a load is selected.
     getAnimalPurchaseDeskCounts(),
@@ -301,6 +312,40 @@ export async function AnimalPurchasesPage({
           <h3>{copy(pageContract, "section.animals.title")}</h3>
           <span className="muted small">{copy(pageContract, "section.animals.hint")}</span>
         </div>
+
+        {/* Load and recorded-on window: a plain GET form, so the filter lives in the URL like
+            every other list filter and the whole-filter chip counts follow it. The chip and the
+            page cursor are dropped on submit by construction (they are not form fields). */}
+        <form method="get" action={PATHNAME} className="ap-filter-bar" role="search" aria-label={copy(pageContract, "filter.load")}>
+          {decision !== DEFAULT_DECISION ? <input type="hidden" name="decision" value={decision} /> : null}
+          <label className="ap-filter">
+            <span className="muted small">{copy(pageContract, "filter.load")}</span>
+            <select name="load_id" defaultValue={loadId ?? ""} className="ap-filter-select">
+              <option value="">{copy(pageContract, "filter.load.all")}</option>
+              {loads.map((load) => (
+                <option key={load.load_id} value={load.load_id}>
+                  {load.load_ref} · {load.vendor_name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="ap-filter">
+            <span className="muted small">{copy(pageContract, "filter.recorded_from")}</span>
+            <input type="date" name="recorded_from" defaultValue={recordedFrom} className="ap-filter-date" />
+          </label>
+          <label className="ap-filter">
+            <span className="muted small">{copy(pageContract, "filter.recorded_to")}</span>
+            <input type="date" name="recorded_to" defaultValue={recordedTo} className="ap-filter-date" />
+          </label>
+          <button type="submit" className="btn sm p">
+            {copy(pageContract, "filter.apply")}
+          </button>
+          {loadId || recordedFrom || recordedTo ? (
+            <Link href={hrefWithQuery(sp, { load_id: null, recorded_from: null, recorded_to: null, ap_cursor: null, ap_status: null, ap_code: null })} className="btn sm" scroll={false}>
+              {copy(pageContract, "filter.clear")}
+            </Link>
+          ) : null}
+        </form>
 
         {/* Decision chips are the response's own filters: label and WHOLE-FILTER count verbatim,
             selection as the backend reports it. A filter switch drops the cursor by construction. */}

@@ -992,7 +992,9 @@ func animalPurchaseLoadTable() domain.TableContract {
 func animalPurchaseAnimalTable() domain.TableContract {
 	t := tableP("animal-purchase-animals", "Animals", "/procurement/animal-purchases/review",
 		[]string{"seq_no", "species", "sex", "breed", "age_months", "weight_kg", "condition", "temp_tag", "notes", "decision"},
-		"candidate_id", []int{20, 50, 100})
+		// Ten animals a page (maintainer 2026-09-14): every card carries its captures and the
+		// whole SOP, so twenty made the review a long scroll.
+		"candidate_id", []int{10, 20, 50})
 	copy := pageCopy("animal-purchases")
 	for i := range t.Columns {
 		if label := strings.TrimSpace(copy["column."+t.Columns[i].Key]); label != "" {
@@ -3555,6 +3557,10 @@ func pageSpecificCopy(id string) map[string]string {
 			"filter.load":           "Load",
 			"filter.load.all":       "All loads",
 			"filter.decision":       "Show",
+			"filter.recorded_from":  "Recorded from",
+			"filter.recorded_to":    "to",
+			"filter.apply":          "Apply",
+			"filter.clear":          "Clear",
 			"filter.pending":        "Awaiting decision",
 			"filter.accepted":       "Accepted",
 			"filter.rejected":       "Rejected",

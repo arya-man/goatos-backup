@@ -3045,7 +3045,7 @@ export interface paths {
         };
         /**
          * The CEO/CXO review queue -- one page of animals, every capture signed for playback.
-         * @description CEO/CXO only. `decision` picks a chip (pending by default; accepted, rejected, all); `load_id` narrows to one load. `counts` and the chip counts are WHOLE-FILTER, never page sums, and do not move when a chip is picked. Every capture's link is signed beside the read so the page shows the photos and videos on the card itself (maintainer decision 2026-09-14) and never resolves them one by one.
+         * @description CEO/CXO only. `decision` picks a chip (pending by default; accepted, rejected, all); `load_id` narrows to one load; `recorded_from`/`recorded_to` narrow to a recorded-on window of IST business dates. `counts` and the chip counts are WHOLE-FILTER, never page sums, and do not move when a chip is picked. Every capture's link is signed beside the read so the page shows the photos and videos on the card itself (maintainer decision 2026-09-14) and never resolves them one by one.
          */
         get: operations["listAnimalPurchaseReview"];
         put?: never;
@@ -22999,6 +22999,10 @@ export interface operations {
             query?: {
                 load_id?: string;
                 decision?: "pending" | "accepted" | "rejected" | "all";
+                /** @description First recorded-on business date (IST, YYYY-MM-DD), inclusive. */
+                recorded_from?: string;
+                /** @description Last recorded-on business date (IST, YYYY-MM-DD), inclusive. */
+                recorded_to?: string;
                 limit?: number;
                 cursor?: string;
             };

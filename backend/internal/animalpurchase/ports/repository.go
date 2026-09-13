@@ -5,6 +5,7 @@ package ports
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/vgoats/goatos/backend/internal/animalpurchase/domain"
 )
@@ -41,6 +42,10 @@ type CandidatePage struct {
 type ReviewQuery struct {
 	LoadID   string
 	Decision string // "", pending, accepted, rejected
+	// Recorded-on window as absolute instants derived from IST business dates by the service:
+	// From is the start of the first day (inclusive), To the start of the day AFTER the last
+	// (exclusive), so the predicate stays on the bare created_at column. Zero means open.
+	From, To time.Time
 	Cursor   domain.Cursor
 	Limit    int
 }

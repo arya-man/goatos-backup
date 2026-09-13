@@ -159,18 +159,16 @@ func (h *Handler) ListReview(w http.ResponseWriter, r *http.Request) {
 	if decision == "" {
 		decision = domain.DecisionPending
 	}
-	page, err := h.service.ListReview(r.Context(), tenantID(r), q.Get("load_id"), decision, q.Get("cursor"), limit)
+	filter := app.ReviewFilter{LoadID: q.Get("load_id"), Decision: decision, RecordedFrom: q.Get("recorded_from"), RecordedTo: q.Get("recorded_to")}
+	page, err := h.service.ListReview(r.Context(), tenantID(r), filter, q.Get("cursor"), limit)
 	if err != nil {
 		h.writeErr(w, r, app.HTTPError(err))
 		return
 	}
-	// The chips count the SAME filter set (the load, or everything) across all decisions, so the
+	// The chips count the SAME filter set (the load and the dates, or everything) across all
+	// decisions -- the repository counts before the chip predicate, in the same read -- so the
 	// numbers on the chips do not move when a chip is picked.
-	all, err := h.service.ListReview(r.Context(), tenantID(r), q.Get("load_id"), "all", "", 1)
-	if err != nil {
-		h.writeErr(w, r, app.HTTPError(err))
-		return
-	}
+	all := page
 	httpresponse.WriteJSON(w, http.StatusOK, reviewPagePayload{
 		Animals: h.candidates(r, page.Candidates), NextCursor: page.NextCursor, Counts: toCounts(all.Counts),
 		Filters: []filterPayload{
