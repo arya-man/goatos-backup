@@ -197,6 +197,25 @@ func TestCEOCanMonitorInventoryVaccineTasksTenantWide(t *testing.T) {
 	}
 }
 
+func TestWorklistPassesActorAsPenVisitVisitor(t *testing.T) {
+	store := &fakeStore{}
+	svc := NewService(store)
+
+	_, err := svc.Worklist(context.Background(), operatorActor(testOutsider), domain.CategoryHoofTrimming, "2026-08-22", "", 25)
+	if err != nil {
+		t.Fatalf("Worklist: %v", err)
+	}
+	if store.lastList.AssigneeUserID != testOutsider {
+		t.Fatalf("AssigneeUserID = %q, want actor", store.lastList.AssigneeUserID)
+	}
+	if store.lastList.VisitorUserID != testOutsider {
+		t.Fatalf("VisitorUserID = %q, want actor for pen-visit HRMS scope", store.lastList.VisitorUserID)
+	}
+	if !store.lastList.CurrentOrCarry {
+		t.Fatalf("CurrentOrCarry = false, want true for worklist")
+	}
+}
+
 // The assigned-only rule: pc_care.execute alone never authorizes a write — a non-assignee
 // holder is refused with the typed error, and no store write runs.
 func TestExecuteWritesRequireAssigneeMembership(t *testing.T) {
