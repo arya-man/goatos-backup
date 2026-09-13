@@ -16,6 +16,12 @@ CREATE TABLE IF NOT EXISTS public.person_module_access_animal_purchases_mobile_b
   PRIMARY KEY (tenant_id, workforce_member_id)
 );
 
+CREATE TABLE IF NOT EXISTS public.person_module_access_animal_purchases_web_backfill (
+  tenant_id           uuid NOT NULL,
+  workforce_member_id uuid NOT NULL,
+  PRIMARY KEY (tenant_id, workforce_member_id)
+);
+
 WITH inserted AS (
   INSERT INTO public.person_module_access (tenant_id, workforce_member_id, surface, module_key, capabilities, updated_at, updated_by, pages)
   SELECT v.tenant_id, v.workforce_member_id, 'mobile', 'animal_purchases',
@@ -46,31 +52,42 @@ ON CONFLICT DO NOTHING;
 -- already migrated until a row exists. Every active ceo_internal grant holder who has been
 -- migrated gets the web `animal_purchases` row at view + oversee (the CEO decides, never
 -- records). Additive only: a hand-ticked row is left as it is.
-INSERT INTO public.person_module_access (tenant_id, workforce_member_id, surface, module_key, capabilities, updated_at, pages)
-SELECT DISTINCT m.tenant_id, m.workforce_member_id, 'web', 'animal_purchases', ARRAY['view','oversee']::text[], now(), '{}'::text[]
-FROM public.workforce_members m
-JOIN public.user_scope_grants g
-  ON g.tenant_id = m.tenant_id
- AND g.user_id = m.user_id
- AND g.status = 'active'
- AND (g.valid_to IS NULL OR g.valid_to > now())
- AND g.role = 'ceo_internal'
-WHERE m.status = 'active'
-  AND m.user_id IS NOT NULL
-  AND EXISTS (
-    SELECT 1 FROM public.person_access pa
-    WHERE pa.tenant_id = m.tenant_id
-      AND pa.workforce_member_id = m.workforce_member_id
-  )
-ON CONFLICT (tenant_id, workforce_member_id, surface, module_key) DO NOTHING;
+WITH inserted AS (
+  INSERT INTO public.person_module_access (tenant_id, workforce_member_id, surface, module_key, capabilities, updated_at, pages)
+  SELECT DISTINCT m.tenant_id, m.workforce_member_id, 'web', 'animal_purchases', ARRAY['view','oversee']::text[], now(), '{}'::text[]
+  FROM public.workforce_members m
+  JOIN public.user_scope_grants g
+    ON g.tenant_id = m.tenant_id
+   AND g.user_id = m.user_id
+   AND g.status = 'active'
+   AND (g.valid_to IS NULL OR g.valid_to > now())
+   AND g.role = 'ceo_internal'
+  WHERE m.status = 'active'
+    AND m.user_id IS NOT NULL
+    AND EXISTS (
+      SELECT 1 FROM public.person_access pa
+      WHERE pa.tenant_id = m.tenant_id
+        AND pa.workforce_member_id = m.workforce_member_id
+    )
+  ON CONFLICT (tenant_id, workforce_member_id, surface, module_key) DO NOTHING
+  RETURNING tenant_id, workforce_member_id
+)
+INSERT INTO public.person_module_access_animal_purchases_web_backfill (tenant_id, workforce_member_id)
+SELECT tenant_id, workforce_member_id FROM inserted
+ON CONFLICT DO NOTHING;
 
 -- +goose Down
-DELETE FROM public.person_module_access
-WHERE surface = 'web' AND module_key = 'animal_purchases';
+DELETE FROM public.person_module_access p
+USING public.person_module_access_animal_purchases_web_backfill b
+WHERE p.tenant_id = b.tenant_id
+  AND p.workforce_member_id = b.workforce_member_id
+  AND p.surface = 'web'
+  AND p.module_key = 'animal_purchases';
 DELETE FROM public.person_module_access p
 USING public.person_module_access_animal_purchases_mobile_backfill b
 WHERE p.tenant_id = b.tenant_id
   AND p.workforce_member_id = b.workforce_member_id
   AND p.surface = 'mobile'
   AND p.module_key = 'animal_purchases';
+DROP TABLE IF EXISTS public.person_module_access_animal_purchases_web_backfill;
 DROP TABLE IF EXISTS public.person_module_access_animal_purchases_mobile_backfill;
