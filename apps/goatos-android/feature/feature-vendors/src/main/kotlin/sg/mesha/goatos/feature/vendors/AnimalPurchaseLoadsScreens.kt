@@ -6,6 +6,16 @@ package sg.mesha.goatos.feature.vendors
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.size
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.Icon
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.window.PopupProperties
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -185,12 +195,12 @@ fun AnimalPurchaseLoadCreateScreen(
                 )
             }
             item(key = "vendor") {
-                VendorsDropdownField(
+                AnimalPurchaseVendorSearchField(
                     label = copy[COPY_LOAD_FIELD_VENDOR].orEmpty(),
                     selectedValue = state.values[AnimalPurchaseLoadField.VENDOR].orEmpty(),
                     options = state.vendors,
-                    onSelect = { if (!locked) onEvent(AnimalPurchaseLoadCreateEvent.FieldChanged(AnimalPurchaseLoadField.VENDOR, it)) },
-                    required = true,
+                    readOnly = locked,
+                    onSelect = { onEvent(AnimalPurchaseLoadCreateEvent.FieldChanged(AnimalPurchaseLoadField.VENDOR, it)) },
                     error = requiredHint.takeIf { AnimalPurchaseLoadField.VENDOR in state.fieldErrors },
                 )
             }
@@ -271,3 +281,68 @@ const val COPY_ANIMAL_SAVE = "animal.save"
 const val COPY_ANIMAL_SAVING = "animal.saving"
 const val COPY_ANIMAL_DECISION_PENDING = "animal.decision.pending"
 const val COPY_ANIMAL_DECIDED_BY = "animal.decided_by"
+
+/**
+ * Type-to-find vendor picker (maintainer instruction 2026-09-13: "we have so many vendors, it
+ * will be hard to just scroll"). The person types part of the name and picks from the bounded
+ * matches underneath; the field stores the VENDOR ID, never the typed text, so a name that
+ * matches no register row cannot be saved. Clearing the text clears the selection. Matches are
+ * by substring anywhere in the name, case-insensitive, so "mutton" finds every mutton stall.
+ */
+@Composable
+private fun AnimalPurchaseVendorSearchField(
+    label: String,
+    selectedValue: String,
+    options: List<VendorsOptionUi>,
+    readOnly: Boolean,
+    onSelect: (String) -> Unit,
+    error: String?,
+) {
+    val selectedLabel = options.firstOrNull { it.value == selectedValue }?.label.orEmpty()
+    var query by remember(selectedValue) { mutableStateOf(selectedLabel) }
+    var dismissedFor by remember { mutableStateOf<String?>(null) }
+    val matches = remember(query, options, selectedLabel) {
+        val needle = query.trim()
+        when {
+            needle.isBlank() -> emptyList()
+            needle.equals(selectedLabel, ignoreCase = true) -> emptyList()
+            else -> options.filter { it.label.contains(needle, ignoreCase = true) }.take(VENDOR_MATCH_LIMIT)
+        }
+    }
+    Box(Modifier.fillMaxWidth()) {
+        VendorsTextField(
+            value = query,
+            onValueChange = { typed ->
+                query = typed
+                dismissedFor = null
+                // Typing over a chosen vendor un-chooses it until a row is picked again.
+                if (selectedValue.isNotBlank() && !typed.equals(selectedLabel, ignoreCase = true)) onSelect("")
+            },
+            label = label,
+            required = true,
+            readOnly = readOnly,
+            error = error,
+            trailing = { Icon(MeshaIcons.ChevronDown, contentDescription = null, tint = MeshaColors.Muted, modifier = Modifier.size(MeshaDimens.iconMd)) },
+        )
+        DropdownMenu(
+            expanded = !readOnly && matches.isNotEmpty() && dismissedFor != query,
+            onDismissRequest = { dismissedFor = query },
+            properties = PopupProperties(focusable = false),
+            modifier = Modifier.heightIn(max = 280.dp).background(MeshaColors.Surf),
+        ) {
+            matches.forEach { option ->
+                DropdownMenuItem(
+                    text = { Text(option.label, color = MeshaColors.Ink, style = MeshaType.body) },
+                    onClick = {
+                        query = option.label
+                        dismissedFor = option.label
+                        onSelect(option.value)
+                    },
+                )
+            }
+        }
+    }
+}
+
+private const val VENDOR_MATCH_LIMIT = 8
+
