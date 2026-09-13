@@ -767,6 +767,8 @@ object AnalyticsEvents {
 
     /** An `action`-type workflow step was completed (durably queued). */
     const val WORKFLOW_ACTION_COMPLETED = "workflow_action_completed"
+    /** The operator played / expanded / shared an uploaded proof shown inline under a workflow step. */
+    const val WORKFLOW_PROOF_PREVIEW_ACTION = "workflow_proof_preview_action"
 
     /** A mandatory video was recorded/picked for a requires_video workflow action. */
     const val WORKFLOW_VIDEO_CAPTURED = "workflow_video_captured"

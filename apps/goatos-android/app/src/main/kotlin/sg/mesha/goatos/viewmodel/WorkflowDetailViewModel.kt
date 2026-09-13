@@ -20,6 +20,7 @@ import sg.mesha.goatos.capture.ProofCaptureContext
 import sg.mesha.goatos.core.analytics.AnalyticsEvents
 import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.analytics.CrashReporter
+import sg.mesha.goatos.core.analytics.ProofPreviewActionTrace
 import sg.mesha.goatos.core.common.AppResult
 import sg.mesha.goatos.core.data.CountsRepository
 import sg.mesha.goatos.core.data.WorkflowsRepository
@@ -141,6 +142,20 @@ class WorkflowDetailViewModel @Inject constructor(
             is WorkflowDetailEvent.Complete -> complete(event.actionId)
             is WorkflowDetailEvent.RecordVideo -> onRecordVideo(event.actionId)
             is WorkflowDetailEvent.TakePhoto -> captureProof(event.actionId, kind = PROOF_KIND_PHOTO)
+            is WorkflowDetailEvent.ProofPreviewAction -> {
+                val trace = ProofPreviewActionTrace.from(event.action)
+                analytics.track(
+                    AnalyticsEvents.WORKFLOW_PROOF_PREVIEW_ACTION,
+                    mapOf(
+                        AnalyticsEvents.Params.ITEM_ID to workflowId,
+                        AnalyticsEvents.Params.PROOF_ID to "${event.actionId}:${event.proofRef}",
+                        AnalyticsEvents.Params.KIND to event.mediaKind,
+                        AnalyticsEvents.Params.ACTION to trace.action,
+                        AnalyticsEvents.Params.OUTCOME to trace.outcome,
+                        AnalyticsEvents.Params.REASON to trace.reason.orEmpty(),
+                    ),
+                )
+            }
             WorkflowDetailEvent.SubmitDeath -> submitDeath()
             WorkflowDetailEvent.NavigationHandled -> _state.update { it.copy(returnToList = false) }
             is WorkflowDetailEvent.OpenPromote -> analytics.track(AnalyticsEvents.COUNTS_RFID_PROMOTE_OPENED)
