@@ -21,6 +21,7 @@ import { fmtDate, fmtDateTime } from "@/lib/format";
 import { num } from "./sales-format";
 import { AnimalPurchaseDecisionForm } from "./animal-purchase-decision-form";
 import { AnimalPurchaseTelemetry } from "./animal-purchase-telemetry";
+import { AnimalPurchaseAnswers, AnimalPurchaseMedia, FieldVerdictChip, type SopCopy } from "./animal-purchase-sop";
 
 const PATHNAME = "/procurement/animal-purchases";
 const DEFAULT_DECISION = "pending";
@@ -118,6 +119,18 @@ export async function AnimalPurchasesPage({
     : "";
   // The list URL the decision action returns to: the same filters, without stale feedback.
   const returnTo = hrefWithQuery(sp, { ap_status: null, ap_code: null });
+
+  // Questionnaire copy. Every key is served by the backend map; a contract older than this
+  // screen falls through to the route's COPY_FALLBACKS in admin-ui-contract.
+  const sopCopy: SopCopy = {
+    mediaTitle: copy(pageContract, "media.title"),
+    mediaEmpty: copy(pageContract, "media.empty"),
+    photoOpen: copy(pageContract, "photo.open"),
+    mediaOpen: copy(pageContract, "media.open"),
+    answersTitle: copy(pageContract, "answers.title"),
+    attentionHint: copy(pageContract, "attention.hint"),
+    fieldVerdictHint: copy(pageContract, "field_verdict.hint"),
+  };
 
   const decisionLabels = {
     title: copy(pageContract, "decision.title"),
@@ -321,82 +334,130 @@ export async function AnimalPurchasesPage({
           </div>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-            {animals.map((animal) => (
-              <article
-                key={animal.candidate_id}
-                className="card ap-animal"
-                aria-label={animal.title}
-                style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)", gap: 16, alignItems: "start" }}
-              >
-                <div style={{ minWidth: 0 }}>
-                  <div className="bt">{copy(pageContract, "video.title")}</div>
-                  {previewMedia?.candidate_id === animal.candidate_id ? (
-                    <div className="vr-player">
-                      {/* The signed link is minted only after the reviewer explicitly opens this
-                          one animal's preview, not during the queue list read. */}
-                      <video src={previewMedia.media_url} controls preload="metadata" playsInline />
-                    </div>
-                  ) : (
-                    <div className="vr-player" style={{ background: "var(--panel-2)", justifyContent: "center" }}>
-                      <Link
-                        href={hrefWithQuery(sp, { preview_id: animal.candidate_id, ap_status: null, ap_code: null })}
-                        className="btn primary"
-                        scroll={false}
-                      >
-                        {copy(pageContract, "video.title")}
-                      </Link>
-                    </div>
-                  )}
-                </div>
-
-                <div style={{ minWidth: 0, display: "flex", flexDirection: "column", gap: 10 }}>
-                  <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-                    {/* Backend-owned row title ("Animal 7 · Female goat") and decision chip. */}
-                    <b style={{ fontSize: 15 }}>{animal.title}</b>
-                    <Tag tone={decisionTone(animal.decision_tone)}>{animal.decision_label}</Tag>
-                    <span className="muted small">
-                      {animalColumn("load_ref")} {animal.load_ref}
+            {animals.map((animal) => {
+              // The decision block is the same on both card shapes: who decided and when, the form
+              // for a pending row behind the backend control, or the backend's reason.
+              const decisionBlock =
+                animal.decision !== "pending" ? (
+                  <div className="small" style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                    <span className="muted">
+                      {copy(pageContract, "decision.by")} {animal.decided_by_name || none}
+                      {animal.decided_at ? ` ${copy(pageContract, "decision.on")} ${fmtDateTime(animal.decided_at)}` : ""}
                     </span>
+                    {animal.decision_note ? <span>{animal.decision_note}</span> : null}
+                  </div>
+                ) : canDecide ? (
+                  <AnimalPurchaseDecisionForm
+                    candidateId={animal.candidate_id}
+                    rowVersion={animal.row_version}
+                    returnTo={returnTo}
+                    labels={decisionLabels}
+                  />
+                ) : (
+                  // A principal who can open the page but not decide sees the backend's reason,
+                  // never a button that would 403.
+                  <div className="muted small">{decideDisabledReason || copy(pageContract, "verdict.disabled_no_access")}</div>
+                );
+
+              // Backend-owned row title ("Animal 7 · Female goat"), the CEO's decision chip, the
+              // buying desk's own field verdict beside it, and the load.
+              const heading = (
+                <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+                  <b style={{ fontSize: 15 }}>{animal.title}</b>
+                  <Tag tone={decisionTone(animal.decision_tone)}>{animal.decision_label}</Tag>
+                  <FieldVerdictChip animal={animal} hint={sopCopy.fieldVerdictHint} />
+                  <span className="muted small">
+                    {animalColumn("load_ref")} {animal.load_ref}
+                  </span>
+                </div>
+              );
+
+              if (animal.questionnaire_version > 0) {
+                // A row recorded under the Procurement SOP questionnaire: captures per slot on the
+                // left, the answers by section on the right, the decision under the answers.
+                return (
+                  <article key={animal.candidate_id} className="card ap-animal ap-sop" aria-label={animal.title}>
+                    {heading}
+                    <div className="ap-sop-body">
+                      {previewMedia?.candidate_id === animal.candidate_id ? (
+                        // The signed links are minted only after the reviewer explicitly opens this
+                        // one animal's captures, not during the queue list read.
+                        <AnimalPurchaseMedia slots={previewMedia.media_slots ?? []} copy={sopCopy} />
+                      ) : (
+                        <div className="ap-sop-media">
+                          <div className="bt">{sopCopy.mediaTitle}</div>
+                          <div className="vr-player" style={{ background: "var(--panel-2)", justifyContent: "center" }}>
+                            <Link
+                              href={hrefWithQuery(sp, { preview_id: animal.candidate_id, ap_status: null, ap_code: null })}
+                              className="btn primary"
+                              scroll={false}
+                            >
+                              {sopCopy.mediaOpen}
+                            </Link>
+                          </div>
+                        </div>
+                      )}
+                      <div className="ap-sop-main">
+                        <AnimalPurchaseAnswers rows={animal.answer_rows ?? []} copy={sopCopy} />
+                        {decisionBlock}
+                      </div>
+                    </div>
+                  </article>
+                );
+              }
+
+              // A legacy row recorded before the questionnaire: one video and the few facts.
+              return (
+                <article
+                  key={animal.candidate_id}
+                  className="card ap-animal"
+                  aria-label={animal.title}
+                  style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)", gap: 16, alignItems: "start" }}
+                >
+                  <div style={{ minWidth: 0 }}>
+                    <div className="bt">{copy(pageContract, "video.title")}</div>
+                    {previewMedia?.candidate_id === animal.candidate_id ? (
+                      <div className="vr-player">
+                        {/* The signed link is minted only after the reviewer explicitly opens this
+                            one animal's preview, not during the queue list read. */}
+                        <video src={previewMedia.media_url} controls preload="metadata" playsInline />
+                      </div>
+                    ) : (
+                      <div className="vr-player" style={{ background: "var(--panel-2)", justifyContent: "center" }}>
+                        <Link
+                          href={hrefWithQuery(sp, { preview_id: animal.candidate_id, ap_status: null, ap_code: null })}
+                          className="btn primary"
+                          scroll={false}
+                        >
+                          {copy(pageContract, "video.title")}
+                        </Link>
+                      </div>
+                    )}
                   </div>
 
-                  <dl className="ap-facts" style={{ display: "grid", gridTemplateColumns: "auto 1fr", columnGap: 12, rowGap: 4, margin: 0 }}>
-                    <dt className="muted small">{animalColumn("breed")}</dt>
-                    <dd style={{ margin: 0 }}>{animal.breed || none}</dd>
-                    <dt className="muted small">{animalColumn("age_months")}</dt>
-                    <dd style={{ margin: 0 }}>{animal.age_months == null ? none : num(animal.age_months)}</dd>
-                    <dt className="muted small">{animalColumn("weight_kg")}</dt>
-                    <dd style={{ margin: 0 }}>{animal.weight_kg == null ? none : num(animal.weight_kg, 1)}</dd>
-                    <dt className="muted small">{animalColumn("condition")}</dt>
-                    <dd style={{ margin: 0 }}>{animal.condition_label || none}</dd>
-                    <dt className="muted small">{animalColumn("temp_tag")}</dt>
-                    <dd style={{ margin: 0 }}>{animal.temp_tag || none}</dd>
-                    <dt className="muted small">{animalColumn("notes")}</dt>
-                    <dd style={{ margin: 0 }}>{animal.notes || none}</dd>
-                  </dl>
+                  <div style={{ minWidth: 0, display: "flex", flexDirection: "column", gap: 10 }}>
+                    {heading}
 
-                  {animal.decision !== "pending" ? (
-                    <div className="small" style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                      <span className="muted">
-                        {copy(pageContract, "decision.by")} {animal.decided_by_name || none}
-                        {animal.decided_at ? ` ${copy(pageContract, "decision.on")} ${fmtDateTime(animal.decided_at)}` : ""}
-                      </span>
-                      {animal.decision_note ? <span>{animal.decision_note}</span> : null}
-                    </div>
-                  ) : canDecide ? (
-                    <AnimalPurchaseDecisionForm
-                      candidateId={animal.candidate_id}
-                      rowVersion={animal.row_version}
-                      returnTo={returnTo}
-                      labels={decisionLabels}
-                    />
-                  ) : (
-                    // A principal who can open the page but not decide sees the backend's reason,
-                    // never a button that would 403.
-                    <div className="muted small">{decideDisabledReason || copy(pageContract, "verdict.disabled_no_access")}</div>
-                  )}
-                </div>
-              </article>
-            ))}
+                    <dl className="ap-facts" style={{ display: "grid", gridTemplateColumns: "auto 1fr", columnGap: 12, rowGap: 4, margin: 0 }}>
+                      <dt className="muted small">{animalColumn("breed")}</dt>
+                      <dd style={{ margin: 0 }}>{animal.breed || none}</dd>
+                      <dt className="muted small">{animalColumn("age_months")}</dt>
+                      <dd style={{ margin: 0 }}>{animal.age_months == null ? none : num(animal.age_months)}</dd>
+                      <dt className="muted small">{animalColumn("weight_kg")}</dt>
+                      <dd style={{ margin: 0 }}>{animal.weight_kg == null ? none : num(animal.weight_kg, 1)}</dd>
+                      <dt className="muted small">{animalColumn("condition")}</dt>
+                      <dd style={{ margin: 0 }}>{animal.condition_label || none}</dd>
+                      <dt className="muted small">{animalColumn("temp_tag")}</dt>
+                      <dd style={{ margin: 0 }}>{animal.temp_tag || none}</dd>
+                      <dt className="muted small">{animalColumn("notes")}</dt>
+                      <dd style={{ margin: 0 }}>{animal.notes || none}</dd>
+                    </dl>
+
+                    {decisionBlock}
+                  </div>
+                </article>
+              );
+            })}
           </div>
         )}
 

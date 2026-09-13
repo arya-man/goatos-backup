@@ -114,22 +114,22 @@ func Questionnaire() []Question {
 		{ID: "nasal_discharge", Kind: KindChoice, Title: "Does it have a nasal discharge?", Hint: "If so, is it clear and runny or yellow and mucus like?", Required: true,
 			Options: []Option{{"clear", "Yes - clear and runny"}, {"yellow", "Yes - yellow and mucus like"}, {"no", "No"}}},
 		{ID: "face_scabs", Kind: KindChoice, Title: "Any signs of scabby skin or rashes on the face, even one small bump?", Hint: "Places: eyes, nose, outside mouth, ears, inside mouth around jaws and tongue.", Required: true,
-			Options: []Option{{"no", "No"}, {"other", "Yes"}}, AllowOther: true},
+			Options: []Option{{"no", "No"}, {"other", "Yes, please mention the area"}}, AllowOther: true},
 
 		// ---- Body visual productivity check ------------------------------------------------
 		{ID: "sec_body", Kind: KindSection, Title: "Body visual productivity check", Hint: "Checks for what is visible on the body, marked and rejected as per the SOP."},
 		{ID: "acidosis", Kind: KindChoice, Title: "Does the animal have acidosis?", Hint: "Is there a fluid sensation on pressing its stomach? It should feel doughy, like kneaded atta.", Required: true, Options: yesNo},
 		{ID: "diarrhea", Kind: KindChoice, Title: "Any signs of diarrhea, present or past?", Hint: "Check below its tail and look for traces around both back legs.", Required: true, Options: yesNo},
 		{ID: "ticks_hair_loss", Kind: KindChoice, Title: "Any presence of ticks or patches of hair loss on the body?", Hint: "Face | Neck | Visible trunk | Bottom trunk | Front legs (left and right + hoofs) | Rear legs (left and right + hoofs)", Required: true,
-			Options: []Option{{"no", "No"}, {"other", "Yes"}}, AllowOther: true},
+			Options: []Option{{"no", "No"}, {"other", "Yes, please mention where"}}, AllowOther: true},
 		{ID: "wounds", Kind: KindChoice, Title: "Any wounds or physical injuries on the body?", Hint: "Face | Neck | Visible trunk | Bottom trunk | Front legs (left and right + hoofs) | Rear legs (left and right + hoofs)", Required: true,
-			Options: []Option{{"no", "No"}, {"other", "Yes"}}, AllowOther: true},
+			Options: []Option{{"no", "No"}, {"other", "Yes, please mention where"}}, AllowOther: true},
 		{ID: "body_scabs", Kind: KindChoice, Title: "Any signs of scabby skin or rashes on the body, even one small bump?", Hint: "Places: neck and visible trunk, bottom of trunk, front legs and below hoof (both), rear legs and below hoof (both).", Required: true,
-			Options: []Option{{"no", "No"}, {"other", "Yes"}}, AllowOther: true},
+			Options: []Option{{"no", "No"}, {"other", "Yes, please mention where"}}, AllowOther: true},
 		{ID: "lumps", Kind: KindChoice, Title: "Any signs of lumps on the face and body?", Hint: "Tick each of the points 1-14 and mention the numbers where a lump is present.", Required: true,
-			Options: []Option{{"no", "No"}, {"other", "Yes"}}, AllowOther: true},
+			Options: []Option{{"no", "No"}, {"other", "Yes, please mention where"}}, AllowOther: true},
 		{ID: "arthritis", Kind: KindChoice, Title: "Any signs of arthritis in the knees?", Hint: "Look for swelling in the knees.", Required: true,
-			Options: []Option{{"no", "No"}, {"other", "Yes"}}, AllowOther: true},
+			Options: []Option{{"no", "No"}, {"other", "Yes, please mention where"}}, AllowOther: true},
 		{ID: "suspicious_media", Kind: KindMedia, Title: "If anything is suspicious, add a picture of it", Slot: SlotSuspicious, MaxFiles: 5, Accepts: []string{"photo", "video"}},
 
 		// ---- Udder / testicles ---------------------------------------------------------------
@@ -401,9 +401,12 @@ func AnswerLabel(q Question, a Answers) string {
 		}
 		label := labelOf(q.Options, v)
 		if v == "other" && q.AllowOther {
+			// The option's form wording is an instruction ("Yes, please mention where"); the
+			// reviewer reads the fact: "Yes · left rear hoof".
 			if other := a.Text(q.ID + "_other"); other != "" {
-				return label + " · " + other
+				return "Yes · " + other
 			}
+			return "Yes"
 		}
 		return label
 	case KindMulti:

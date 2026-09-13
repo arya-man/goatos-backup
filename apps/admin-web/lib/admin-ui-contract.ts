@@ -6,6 +6,17 @@ export type AdminUiOption = AdminWebPageContract["option_groups"][number]["optio
 export type AdminUiControl = AdminWebPageContract["controls"][number];
 
 const COPY_FALLBACKS: Record<string, Record<string, string>> = {
+  // ANIMAL PURCHASES. The questionnaire card's fixed keys ship with the SOP review (2026-09-13);
+  // keep the page alive if admin-web deploys one release before the backend copy contract.
+  "animal-purchases": {
+    "media.title": "Photos and videos",
+    "media.empty": "Not available right now.",
+    "photo.open": "Open photo",
+    "media.open": "Show photos and videos",
+    "answers.title": "Farm check",
+    "field_verdict.hint": "The buying desk's own call on the farm; the decision here is yours.",
+    "attention.hint": "The farm check reads this answer as a reason to reject.",
+  },
   "counts-breakdown": {
     "summary_card.total_animals.label": "Total animals",
     "summary_card.total_animals.kids": "kids",

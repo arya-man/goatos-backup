@@ -18,6 +18,7 @@ import type { LoadCostWrite, LoadwiseSales, LoadwiseWeights,
   AnimalPurchaseCounts,
   AnimalPurchaseDecisionRequest,
   AnimalPurchaseLoadPage,
+  AnimalPurchaseMedia,
   AnimalPurchaseReviewPage,
   FeedPurchase,
   FeedPurchaseOptions,
@@ -823,12 +824,6 @@ function absolutizeAgainstApi(value: string, baseUrl: string): string {
   }
 }
 
-export interface AnimalPurchaseMedia {
-  candidate_id: string;
-  media_url: string;
-  media_mime: string;
-}
-
 export async function getAnimalPurchaseMedia(candidateId: string): Promise<ApiResult<AnimalPurchaseMedia>> {
   const config = await getServerConfig(true);
   if (!config.ok) return config;
@@ -838,7 +833,16 @@ export async function getAnimalPurchaseMedia(candidateId: string): Promise<ApiRe
   if (!result.ok) return result;
   return {
     ok: true,
-    data: { ...result.data, media_url: absolutizeAgainstApi(result.data.media_url, config.data.baseUrl) },
+    data: {
+      ...result.data,
+      media_url: result.data.media_url ? absolutizeAgainstApi(result.data.media_url, config.data.baseUrl) : "",
+      media_slots: (result.data.media_slots ?? []).map((slot) => ({
+        ...slot,
+        items: slot.items.map((item) =>
+          item.media_url ? { ...item, media_url: absolutizeAgainstApi(item.media_url, config.data.baseUrl) } : item,
+        ),
+      })),
+    },
   };
 }
 
