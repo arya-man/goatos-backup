@@ -194,6 +194,7 @@ export function SopLibrary({ sops, error, authRequired, pageContract, basePath }
                       <span className="tag t-mut">{s.domainLabel}</span>
                       {s.trigger ? <span className="tag t-info">{s.trigger}</span> : null}
                       {s.stepCount !== null ? <span className="tag t-ok">{s.stepCount} {copy(pageContract, "label.steps")}</span> : null}
+                      {s.followUpStepCount > 0 ? <span className="tag t-info">{s.followUpStepCount} {copy(pageContract, "label.operator_steps")}</span> : null}
                       <StatusTag view={s} />
                     </div>
                     <div className="muted small">
@@ -378,7 +379,7 @@ function SopDetailModal({ view, pageContract, onClose, onEdit }: { view: SopCard
           </button>
           <div className="sp" style={{ flex: 1 }} />
           <button type="button" className="btn p" onClick={onEdit}>
-            <NotebookPen className="ic" /> {copy(pageContract, "action.new_sop_builder")}
+            <NotebookPen className="ic" /> {view.followUpStepCount > 0 ? copy(pageContract, "action.edit_operator_steps") : copy(pageContract, "action.new_sop_builder")}
           </button>
         </div>
       </div>

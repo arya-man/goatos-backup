@@ -4679,6 +4679,17 @@ export async function getSop(sopId: string): Promise<ApiResult<SOPResponse>> {
   );
 }
 
+export async function getSopVersion(sopId: string, versionId: string): Promise<ApiResult<SOPVersionResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  const path =
+    `/admin/sops/${encodeURIComponent(sopId)}/versions/${encodeURIComponent(versionId)}` as keyof AdminApiPaths & string;
+  return request(() =>
+    client.request<SOPVersionResponse>(path, { cache: "no-store" }),
+  );
+}
+
 export async function createSop(
   body: CreateSOPRequest,
 ): Promise<ApiResult<SOPResponse>> {

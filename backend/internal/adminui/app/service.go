@@ -862,7 +862,7 @@ func pages() []domain.PageContract {
 		// lists. Vaccination is NOT among them: its SOP surface was absorbed into
 		// Preventive Care / Vaccination plan, where the proof method is one field on the
 		// plan rather than a separate document to author.
-		page("counts-sops", "/counts/sops", "/counts/sops", "Herd Operations SOP", "Birth, death, and shifting SOP documents for the herd register.", "module-surface",
+		page("counts-sops", "/counts/sops", "/counts/sops", "Herd Operations SOP", "Birth, death, shifting and reconcile SOPs: the questions, proof and timing the phone runs for the herd register.", "module-surface",
 			[]domain.TableContract{table("sop-library", "Herd Operations SOPs", "/admin/sops", []string{"sop", "domain", "trigger", "steps", "gates", "status"}, "sop_id")}),
 		page("feed-sops", "/feed/sops", "/feed/sops", "Feed SOP", "Distribution, packing, and transport SOP documents for the feed chain.", "module-surface",
 			[]domain.TableContract{table("sop-library", "Feed SOPs", "/admin/sops", []string{"sop", "domain", "trigger", "steps", "gates", "status"}, "sop_id")}),
@@ -6793,6 +6793,8 @@ func pageSpecificCopy(id string) map[string]string {
 			"action.next":                             "Next",
 			"action.close":                            "Close",
 			"action.new_sop_builder":                  "New SOP in builder",
+			"action.edit_operator_steps":              "Edit operator steps",
+			"label.operator_steps":                    "operator steps",
 			"empty.title":                             "No vaccination SOPs yet",
 			"empty.body":                              "Create a vaccination SOP or publish one from a draft to make it available to obligations.",
 			"empty.no_match":                          "No SOPs match.",
@@ -6813,7 +6815,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"label.version_status":                    "Version · status",
 			"label.gates":                             "Gates",
 			"label.steps_questions":                   "Steps & questions",
-			"label.render_action_center":              "render into Action Center tasks",
+			"label.render_action_center":              "captured on the phone",
 			"label.type":                              "type",
 			"label.required":                          "required",
 			"label.placeholder":                       "—",
@@ -6942,6 +6944,40 @@ func pageSpecificCopy(id string) map[string]string {
 			"builder.summary.fields":            "questions",
 			"builder.summary.rules":             "conditional rules",
 			"builder.summary.proof":             "proof gate",
+			// Follow-up (operator steps) editor -- SOP-driven herd operations, 2026-09-13.
+			"followup.title":               "Operator steps",
+			"followup.subtitle":            "What the operator does after the event, in order. Each step names its type, the proof it needs, and when it is due. Publishing applies to workflows opened from then on; open workflows keep the steps they started with.",
+			"followup.track":               "Track",
+			"followup.step.type":           "Step type",
+			"followup.step.title":          "Title the operator sees",
+			"followup.step.detail":         "Instruction",
+			"followup.step.options":        "Choices",
+			"followup.step.add_option":     "Add choice",
+			"followup.step.proof_videos":   "Videos required",
+			"followup.step.proof_photos":   "Photos required",
+			"followup.step.schedule":       "Due",
+			"followup.step.offset_minutes": "Minutes after",
+			"followup.step.day_offset":     "Days after the event day",
+			"followup.step.time":           "Time (IST, HH:MM)",
+			"followup.step.times":          "Times (IST, comma separated)",
+			"followup.step.days":           "Days",
+			"followup.step.pre_notify":     "Skip a same-day time if the event is within (minutes)",
+			"followup.step.after_step":     "After step",
+			"followup.step.section":        "Section",
+			"followup.step.hard_time_gate": "Cannot be done before it is due",
+			"followup.step.wait_for_all":   "Waits for every other step",
+			"followup.step.requires":       "Needs these steps done first",
+			"followup.step.condition":      "Include this step",
+			"followup.step.key":            "Step key",
+			"followup.step.add":            "Add step",
+			"followup.step.remove":         "Remove step",
+			"followup.step.move_up":        "Move up",
+			"followup.step.move_down":      "Move down",
+			"followup.action.publish":      "Publish operator steps",
+			"followup.action.save_draft":   "Save as draft",
+			"followup.notice.locked_key":   "This step drives server behaviour; its key and type are fixed, everything else is yours to edit.",
+			"followup.notice.capture_kept": "The capture form the operator fills when recording the event is unchanged by this page.",
+			"followup.empty":               "No operator steps yet.",
 		}
 		// Per-module copy: crumb names the owning vertical, and the builder's domain lock names
 		// the module the page is scoped to (SOP split, maintainer decision 2026-08-18).
@@ -6949,10 +6985,14 @@ func pageSpecificCopy(id string) map[string]string {
 		// vaccination-sops was here. The page is gone; its copy went with it.
 		case "counts-sops":
 			m["crumb"] = "Counts"
-			m["filter.domain.current"] = "This page shows Herd Operations SOPs (birth, death, shifting)"
+			m["filter.domain.current"] = "This page shows Herd Operations SOPs (birth, death, shifting, reconcile)"
 			m["modal.builder.domain_aria"] = "Domain — locked to Counts / Herd Operations"
 			m["modal.builder.domain_title"] = "Domain is locked to Counts / Herd Operations on this page"
 			m["modal.builder.domain_label"] = "Counts / Herd Operations"
+			m["modal.builder.policy_label"] = "herd operations policy"
+			m["empty.title"] = "No herd operations SOPs yet"
+			m["empty.body"] = "Publish a birth, death, shifting or reconcile SOP to drive the operator's steps on the phone."
+			m["builder.subtitle"] = "Build it like a form — add questions, choose a type, set choices and conditional logic. Herd Operations SOPs also carry the operator steps the phone runs after the event."
 		case "feed-sops":
 			m["crumb"] = "Feed"
 			m["filter.domain.current"] = "This page shows Feed SOPs (distribution, packing, transport)"
@@ -8254,6 +8294,37 @@ func sopOptionGroups() []domain.OptionGroup {
 			Options: []domain.Option{
 				option("video", "video proof", "", ""),
 				option("photo", "photo proof", "", ""),
+			},
+		},
+		// SOP-DRIVEN HERD OPERATIONS (maintainer decision 2026-09-13): the follow-up step
+		// editor. sop_task_types / sop_task_type_answer_kinds are declared EMPTY here and
+		// filled from the tenant's Task Type Registry in compilePages (never constants).
+		{ID: "sop_task_types"},
+		{ID: "sop_task_type_answer_kinds"},
+		{
+			// When a step is due, relative to the event the workflow opened on. Keys are the
+			// follow_up schedule kinds tasks/domain.CompileTrack accepts.
+			ID: "sop_schedule_kinds",
+			Options: []domain.Option{
+				option("immediately", "Right away", "Due the moment the workflow opens.", ""),
+				option("after_event", "After the event", "Due N minutes after the birth / death / raise moment.", ""),
+				option("at_fixed_time", "At a fixed time", "Due at HH:MM IST on the event day or a later day.", ""),
+				option("series", "Repeating series", "One step per listed time on the event day (when still ahead) and each following day.", ""),
+				option("after_step", "After another step", "Due N minutes after the named earlier step is completed.", ""),
+			},
+		},
+		{
+			ID: "sop_step_conditions",
+			Options: []domain.Option{
+				option("", "Always", "", ""),
+				option("kid_pen_unresolved", "Only when the kid pen could not be resolved", "", ""),
+			},
+		},
+		{
+			ID: "sop_step_sections",
+			Options: []domain.Option{
+				option("main", "Main sequence", "Runs in order; each step waits for the one before it.", ""),
+				option("colostrum_session", "Colostrum rounds", "Counted on the Colostrum page; hard time-gated.", ""),
 			},
 		},
 		{
