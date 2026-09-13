@@ -1106,6 +1106,10 @@
      the column. Short cells stay single-line; Feed (3) and Vendor (8) wrap at word boundaries
      only, with a floor so table auto-layout can't crush them; the twrap owns horizontal scroll. */
   .main table.feed-purchases-table th,.main table.feed-purchases-table td,.main table.feed-purchases-table td .celllink{white-space:nowrap;overflow-wrap:normal;word-break:normal}
+  /* Animal purchases loads: same single-line rule ("CPT" split into "CP / T" and "E2E-132" wrapped
+     the moment the table held five rows), the .twrap wrapper owns the horizontal scroll. */
+  .main table.animal-purchase-loads-table th,.main table.animal-purchase-loads-table td,.main table.animal-purchase-loads-table td .celllink{white-space:nowrap;overflow-wrap:normal;word-break:normal}
+  .main table.animal-purchase-loads-table td .celllink{max-width:none;min-width:max-content}
   .main table.feed-purchases-table td .celllink{max-width:none;min-width:max-content}
   .main table.feed-purchases-table th:nth-child(3),.main table.feed-purchases-table td:nth-child(3),.main table.feed-purchases-table td:nth-child(3) .celllink,
   .main table.feed-purchases-table th:nth-child(8),.main table.feed-purchases-table td:nth-child(8),.main table.feed-purchases-table td:nth-child(8) .celllink{white-space:normal;overflow-wrap:normal;word-break:normal}
