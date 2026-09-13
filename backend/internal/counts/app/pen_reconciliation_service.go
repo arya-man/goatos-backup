@@ -88,6 +88,8 @@ type CompletePenReconciliationInput struct {
 	ProofRef string
 	// ProofRefs is every proof the SOP questionnaire captured; the verifier item carries all.
 	ProofRefs []string
+	// ProofKinds maps a ref to video|photo (absent = video).
+	ProofKinds map[string]string
 
 	IdempotencyKey     string
 	RequestFingerprint string
@@ -120,6 +122,7 @@ func (s *PenReconciliationService) Complete(
 		TraceID:            in.TraceID,
 		ProofRef:           strings.TrimSpace(in.ProofRef),
 		ProofRefs:          in.ProofRefs,
+		ProofKinds:         in.ProofKinds,
 		IdempotencyKey:     in.IdempotencyKey,
 		RequestFingerprint: in.RequestFingerprint,
 	})

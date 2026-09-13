@@ -50,6 +50,8 @@ data class WorkflowCardDto(
     @SerialName("workflow_id") val workflowId: String = "",
     @SerialName("module") val module: String = "",
     @SerialName("template_key") val templateKey: String = "",
+    /** Backend-owned kind label ("Birth", "Death", "Pen return", "Pen move"). */
+    @SerialName("template_label") val templateLabel: String = "",
     @SerialName("subject") val subject: WorkflowSubjectDto = WorkflowSubjectDto(),
     @SerialName("event_at") val eventAt: String = "",
     @SerialName("event_date") val eventDate: String = "",
@@ -128,6 +130,8 @@ data class WorkflowActionDto(
     @SerialName("proof_min_videos") val proofMinVideos: Int = 0,
     @SerialName("proof_min_photos") val proofMinPhotos: Int = 0,
     @SerialName("proof_refs") val proofRefs: List<WorkflowProofItemDto> = emptyList(),
+    /** The verifier's words when the step was sent back for a re-shoot; blank otherwise. */
+    @SerialName("rework_reason") val reworkReason: String = "",
 )
 
 /** One captured proof on a step: the server proof id and whether it is a video or a photo. */
@@ -143,6 +147,7 @@ data class WorkflowDetailResponseDto(
     @SerialName("workflow_id") val workflowId: String = "",
     @SerialName("module") val module: String = "",
     @SerialName("template_key") val templateKey: String = "",
+    @SerialName("template_label") val templateLabel: String = "",
     @SerialName("subject") val subject: WorkflowSubjectDto = WorkflowSubjectDto(),
     @SerialName("event_at") val eventAt: String = "",
     @SerialName("event_date") val eventDate: String = "",

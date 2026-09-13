@@ -93,6 +93,8 @@ type PenReconciliationCompletionCommand struct {
 	// ProofRefs is every proof the SOP steps captured (the first video mirrors ProofRef). Empty
 	// on the legacy one-video route.
 	ProofRefs []string
+	// ProofKinds maps a proof ref to "video" | "photo"; a ref absent here is a video.
+	ProofKinds map[string]string
 
 	IdempotencyKey     string
 	RequestFingerprint string

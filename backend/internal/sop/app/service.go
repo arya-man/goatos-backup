@@ -1798,7 +1798,10 @@ func validateProofPolicy(report *domain.ValidationReport, policy, formDSL map[st
 		if ok && minimum < 1 {
 			addError(report, "proof_policy.minimum_count", "invalid", "minimum_count must be at least 1 when proof is required")
 		}
-		if !hasProofFieldForTypes(fields, types) && !hasGoatRowProofCapture(formDSL, subjectScope, types) {
+		// A SOP whose operator steps (follow_up) carry the proof satisfies the policy through
+		// those steps: the capture form of a herd-operations SOP records the event, the
+		// steps record the evidence (docs/decisions/sop-driven-herd-operations.md).
+		if !hasProofFieldForTypes(fields, types) && !hasGoatRowProofCapture(formDSL, subjectScope, types) && !followUpCarriesProof(formDSL, types) {
 			addError(report, "proof_policy", "missing_proof_field", "proof policy requires a matching photo_proof or video_proof field")
 		}
 	}
@@ -2576,4 +2579,28 @@ func conflictMessage(err error) string {
 		return base
 	}
 	return base + ": " + detail
+}
+
+// followUpCarriesProof reports whether any follow_up step declares a proof of one of the policy's
+// types (video -> proof.video > 0, photo -> proof.photo > 0).
+func followUpCarriesProof(formDSL map[string]any, types []string) bool {
+	followUp, ok := formDSL["follow_up"].(map[string]any)
+	if !ok {
+		return false
+	}
+	tracks, _ := followUp["tracks"].([]any)
+	for _, rawTrack := range tracks {
+		track, _ := rawTrack.(map[string]any)
+		steps, _ := track["steps"].([]any)
+		for _, rawStep := range steps {
+			step, _ := rawStep.(map[string]any)
+			proof, _ := step["proof"].(map[string]any)
+			for _, t := range types {
+				if n, ok := proof[t].(float64); ok && n > 0 {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }

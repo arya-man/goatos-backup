@@ -21,6 +21,7 @@ import sg.mesha.goatos.core.analytics.AnalyticsEvents
 import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.analytics.CrashReporter
 import sg.mesha.goatos.core.common.AppResult
+import sg.mesha.goatos.core.data.CountsRepository
 import sg.mesha.goatos.core.data.WorkflowsRepository
 import sg.mesha.goatos.core.data.WorkflowVideoDraft
 import sg.mesha.goatos.core.data.capture.buildWorkflowEvidenceSlot
@@ -33,6 +34,7 @@ import sg.mesha.goatos.core.data.forms.ProofPolicy
 import sg.mesha.goatos.core.data.sync.SyncRepository
 import sg.mesha.goatos.core.data.sync.SyncItemStatus
 import sg.mesha.goatos.core.data.sync.WorkflowProofOutboxRef
+import sg.mesha.goatos.core.network.dto.CountsDestinationParkDto
 import sg.mesha.goatos.core.network.dto.WorkflowActionDto
 import sg.mesha.goatos.core.network.dto.WorkflowDetailResponseDto
 import sg.mesha.goatos.feature.counts.WorkflowActionSection
@@ -79,7 +81,11 @@ class WorkflowDetailViewModel @Inject constructor(
     private val crashReporter: CrashReporter,
     savedStateHandle: SavedStateHandle,
     private val photoCaptureSource: PhotoCaptureSource,
+    private val countsRepository: CountsRepository,
 ) : ViewModel() {
+
+    /** The pen catalog for the `record_pen` step (same Room-cached source the Add-birth form uses). */
+    private val penCatalog = MutableStateFlow<List<CountsDestinationParkDto>>(emptyList())
 
     /**
      * SOP-DRIVEN MULTI-PROOF (docs/decisions/sop-driven-herd-operations.md). A step authored with
@@ -120,6 +126,12 @@ class WorkflowDetailViewModel @Inject constructor(
     init {
         observeDetail()
         refresh()
+        viewModelScope.launch {
+            countsRepository.observeShiftingDestinations().collect { resource ->
+                resource.data?.parks?.let { parks -> penCatalog.value = parks }
+            }
+        }
+        viewModelScope.launch { countsRepository.refreshShiftingDestinations() }
     }
 
     fun onEvent(event: WorkflowDetailEvent) {
@@ -143,7 +155,8 @@ class WorkflowDetailViewModel @Inject constructor(
                 repo.observeVideoDrafts(workflowId),
                 syncRepository.observeStatus(),
                 pendingProofs,
-            ) { detail, drafts, sync, _ -> Triple(detail, drafts, sync) }
+                penCatalog,
+            ) { detail, drafts, sync, _, _ -> Triple(detail, drafts, sync) }
                 .collect { (detail, drafts, sync) ->
                 if (detail != null) {
                     val submitting = drafts.any { it.syncStatus == DRAFT_STATUS_SUBMITTING }
@@ -711,7 +724,7 @@ class WorkflowDetailViewModel @Inject constructor(
             },
             roleLabel = subject.roleLabel,
             templateLine = listOf(
-                if (module == MODULE_DEATH) TEMPLATE_DEATH else TEMPLATE_BIRTH,
+                templateLabel.ifBlank { if (module == MODULE_DEATH) TEMPLATE_DEATH else TEMPLATE_BIRTH },
                 shedLabel,
             ).filter { it.isNotBlank() }.joinToString(" · "),
             facts = facts.map { it.label to it.value },
@@ -731,9 +744,13 @@ class WorkflowDetailViewModel @Inject constructor(
                     operatorFinishedWorkflowStatus(previous.status) || previous.actionId in draftedActionIds
                 }
                 val blocked = workflowBlockedForOperator(action, isDeathModule, predecessorsReady)
-                action.toActionUi(now, blocked, locallyRecorded).copy(
+                val ui = action.toActionUi(now, blocked, locallyRecorded, this.parkLabel)
+                // A one-video step keeps its legacy control (a question records its video through
+                // Yes/No); a SOP step with photos or several videos captures each proof explicitly.
+                val multiProof = ui.proofMinPhotos > 0 || ui.proofMinVideos > 1
+                ui.copy(
                     hasVideoDraft = hasDraft,
-                    canRecordVideo = canRecordWorkflowVideo(action, blocked, draftsSubmitting),
+                    canRecordVideo = if (multiProof) ui.canRecordVideo && !draftsSubmitting else canRecordWorkflowVideo(action, blocked, draftsSubmitting),
                 )
             }.sortedBy { it.sectionOrder() },
             subjectGoatId = subject.goatId,
@@ -762,6 +779,7 @@ class WorkflowDetailViewModel @Inject constructor(
         now: Instant,
         blocked: Boolean,
         locallyRecorded: Boolean,
+        parkLabelForPens: String = "",
     ): WorkflowActionUi {
         val due = dueAt?.let { runCatching { Instant.parse(it) }.getOrNull() }
         val numericAnswerUnit = workflowNumericAnswerUnit(this)
@@ -806,6 +824,15 @@ class WorkflowDetailViewModel @Inject constructor(
                 else -> "none"
             }
         }
+        val isRecordPen = taskType == "record_pen" || (taskType.isBlank() && actionKey == "record_shed")
+        val penOptions = if (isRecordPen) {
+            penCatalog.value.firstOrNull { it.name == parkLabelForPens }?.sheds.orEmpty().map { shed ->
+                WorkflowAnswerOptionUi(
+                    value = shed.shedId + "|" + shed.partitionLabel.orEmpty(),
+                    label = shed.operationalLocationDisplay.ifBlank { shed.name },
+                )
+            }
+        } else emptyList()
         val minVideos = if (proofMinVideos == 0 && requiresVideo) 1 else proofMinVideos
         val captured = pendingProofs.value[actionId].orEmpty()
         val uploaded = proofRefs.filter { it.ref.isNotBlank() }.map { item ->
@@ -834,6 +861,9 @@ class WorkflowDetailViewModel @Inject constructor(
             },
             requiresVideo = requiresVideo,
             options = when {
+                // Record pen: the operator picks a pen of the kid's park; the answer is the
+                // "<shed_id>|<partition_label>" key the backend's placement resolves.
+                isRecordPen -> penOptions
                 // The backend's own bands, verbatim: the band string is both value and label.
                 actionType == TYPE_QUESTION_SELECT -> options.map { WorkflowAnswerOptionUi(value = it, label = it) }
                 answerKind == "yes_no" -> listOf(
@@ -850,7 +880,7 @@ class WorkflowDetailViewModel @Inject constructor(
             canComplete = actionable && actionType == TYPE_ACTION && minVideos == 0 && proofMinPhotos == 0 && !opensPromote,
             canRecordVideo = actionable && minVideos > 0 && captured.count { it.kind == PROOF_KIND_VIDEO } < minVideos,
             canTakePhoto = actionable && proofMinPhotos > 0 && captured.count { it.kind == PROOF_KIND_PHOTO } < proofMinPhotos && !opensPromote,
-            answerKind = answerKind,
+            answerKind = if (isRecordPen) "select" else answerKind,
             proofMinVideos = minVideos,
             proofMinPhotos = proofMinPhotos,
             proofVideosCaptured = captured.count { it.kind == PROOF_KIND_VIDEO },
@@ -860,7 +890,9 @@ class WorkflowDetailViewModel @Inject constructor(
             // A blocked row must say WHY. On the Colostrum lens the prerequisite is not even on
             // screen (1st Colostrum waits on four birth steps that live in Birth), so a bare
             // "Blocked" chip is a dead end for the person holding the phone.
-            footer = completedByLabel.orEmpty().ifBlank { workflowBlockedNote(blocked, blockedReason) },
+            // A step sent back carries the verifier's reason so the operator knows what to re-shoot.
+            footer = if (status == STATUS_REWORK && reworkReason.isNotBlank()) reworkReason
+            else completedByLabel.orEmpty().ifBlank { workflowBlockedNote(blocked, blockedReason) },
             answerValue = answerValue,
         )
     }

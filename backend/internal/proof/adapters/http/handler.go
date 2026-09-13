@@ -342,7 +342,10 @@ func (h *Handler) Download(w http.ResponseWriter, r *http.Request) {
 		h.respondErr(w, r, err)
 		return
 	}
-	if strings.HasPrefix(url, "http") {
+	// A signed object URL (GCS) or the local store's same-origin signed path: a media client
+	// that does not ask for JSON is redirected straight to the bytes, so the phone's players and
+	// image loaders render the proof on a local/OCI stack exactly as they do against GCS.
+	if strings.HasPrefix(url, "http") || strings.HasPrefix(url, "/") {
 		w.Header().Set("Cache-Control", "private, max-age=300")
 		w.Header().Set("Vary", "Authorization, Accept")
 		if prefersDownloadRedirect(r) {

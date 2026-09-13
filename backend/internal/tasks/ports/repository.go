@@ -134,7 +134,7 @@ type Repository interface {
 	// ReopenProofStepsForRework sends every completed proof-bearing operator step of a SOP-driven
 	// workflow (reconcile, shifting) back to 'rework' with its proofs cleared, after a verifier
 	// rejects the evidence. Idempotent.
-	ReopenProofStepsForRework(ctx context.Context, tenantID, workflowID string) error
+	ReopenProofStepsForRework(ctx context.Context, tenantID, workflowID, reason string) error
 	ApplyBirthSignoffApproved(ctx context.Context, cmd DeathVerdictCommand) error
 	BounceBirthVideoForRework(ctx context.Context, cmd DeathVerdictCommand) error
 

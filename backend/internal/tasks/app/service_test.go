@@ -364,7 +364,7 @@ func (f *fakeRepo) WorkflowIDBySubjectRef(context.Context, string, string, strin
 	return "", domain.ErrNotFound
 }
 
-func (f *fakeRepo) ReopenProofStepsForRework(context.Context, string, string) error { return nil }
+func (f *fakeRepo) ReopenProofStepsForRework(context.Context, string, string, string) error { return nil }
 
 // fakeEnqueuer models the REAL verification adapter, not just "the seam was called". Verification's
 // CreateItem is `INSERT ... ON CONFLICT (tenant_id, idempotency_key) DO NOTHING` (see

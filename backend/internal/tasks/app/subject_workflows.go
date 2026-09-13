@@ -83,11 +83,11 @@ func (s *Service) OpenSubjectWorkflow(ctx context.Context, in OpenSubjectWorkflo
 }
 
 // ReopenForRework sends the workflow's proof steps back after a verifier rejection.
-func (s *Service) ReopenForRework(ctx context.Context, tenantID, workflowID string) error {
+func (s *Service) ReopenForRework(ctx context.Context, tenantID, workflowID, reason string) error {
 	if strings.TrimSpace(tenantID) == "" || strings.TrimSpace(workflowID) == "" {
 		return domain.ErrMissingRequiredField
 	}
-	return s.repo.ReopenProofStepsForRework(ctx, tenantID, workflowID)
+	return s.repo.ReopenProofStepsForRework(ctx, tenantID, workflowID, reason)
 }
 
 // notifyCompletion runs the registered hook when a write left the workflow completed.
@@ -158,5 +158,5 @@ func (h *SubjectWorkflowVerdictHandler) HandleEvent(ctx context.Context, e event
 	if err != nil {
 		return err
 	}
-	return h.svc.ReopenForRework(ctx, e.TenantID, workflowID)
+	return h.svc.ReopenForRework(ctx, e.TenantID, workflowID, strings.TrimSpace(p.Reason))
 }

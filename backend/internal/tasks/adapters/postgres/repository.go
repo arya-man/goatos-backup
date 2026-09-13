@@ -670,7 +670,7 @@ SELECT action_id::text, tenant_id::text, workflow_id::text, action_key, seq, sec
        answer_value, proof_ref, completed_by::text, completed_at, verification_item_id::text,
        idempotency_key, request_fingerprint, row_version,
        task_type, answer_type, engine_hook, proof_min_videos, proof_min_photos, proof_refs,
-       hard_time_gate, wait_for_all, requires_keys, after_action_key, after_offset_seconds
+       hard_time_gate, wait_for_all, requires_keys, after_action_key, after_offset_seconds, rework_reason
 FROM workflow_actions
 WHERE tenant_id = $1::uuid AND workflow_id = $2::uuid
 ORDER BY seq ASC`+lock, tenantID, workflowID)
@@ -693,7 +693,7 @@ ORDER BY seq ASC`+lock, tenantID, workflowID)
 			&a.AnswerValue, &a.ProofRef, &a.CompletedBy, &a.CompletedAt, &a.VerificationItemID,
 			&a.IdempotencyKey, &a.RequestFingerprint, &a.RowVersion,
 			&a.TaskType, &a.AnswerType, &a.EngineHook, &a.ProofMinVideos, &a.ProofMinPhotos, &proofRefs,
-			&a.HardTimeGate, &a.WaitForAll, &requires, &a.AfterActionKey, &a.AfterOffsetSeconds,
+			&a.HardTimeGate, &a.WaitForAll, &requires, &a.AfterActionKey, &a.AfterOffsetSeconds, &a.ReworkReason,
 		); err != nil {
 			return nil, err
 		}
@@ -783,11 +783,11 @@ UPDATE workflow_actions
 SET status = $3, answer_value = $4, proof_ref = $5, completed_by = nullif($6::text,'')::uuid,
     completed_at = $7::timestamptz, verification_item_id = nullif($8::text,'')::uuid,
     idempotency_key = $9, request_fingerprint = $10,
-    row_version = $11, due_at = $12::timestamptz, proof_refs = $13::jsonb, updated_at = now()
+    row_version = $11, due_at = $12::timestamptz, proof_refs = $13::jsonb, rework_reason = $14, updated_at = now()
 WHERE tenant_id = $1::uuid AND action_id = $2::uuid`,
 			tenantID, a.ActionID, a.Status, a.AnswerValue, a.ProofRef, derefPtr(a.CompletedBy),
 			a.CompletedAt, derefPtr(a.VerificationItemID), a.IdempotencyKey, a.RequestFingerprint,
-			a.RowVersion, a.DueAt, mustProofJSON(a.ProofRefs),
+			a.RowVersion, a.DueAt, mustProofJSON(a.ProofRefs), a.ReworkReason,
 		); err != nil {
 			if isUniqueViolation(err) {
 				// workflow_actions_idempotency_uq: this client key already claimed a DIFFERENT action write.
@@ -1414,7 +1414,8 @@ func (r *Repository) WorkflowIDBySubjectRef(ctx context.Context, tenantID, templ
 // ReopenProofStepsForRework sends every completed proof-bearing operator step back to rework
 // with its proofs cleared, so the operator re-shoots exactly what the verifier rejected. Answers
 // on proof-less question steps are kept. Idempotent: a workflow with nothing to reopen is a no-op.
-func (r *Repository) ReopenProofStepsForRework(ctx context.Context, tenantID, workflowID string) error {
+func (r *Repository) ReopenProofStepsForRework(ctx context.Context, tenantID, workflowID, reason string) error {
+	reason = strings.TrimSpace(reason)
 	_, _, _, err := r.workflowMutation(ctx, tenantID, workflowID,
 		func(_ pgx.Tx, w *domain.WorkflowInstance, actions []domain.WorkflowAction) ([]domain.WorkflowAction, bool, error) {
 			var changed []domain.WorkflowAction
@@ -1432,6 +1433,10 @@ func (r *Repository) ReopenProofStepsForRework(ctx context.Context, tenantID, wo
 				actions[i].ProofRefs = nil
 				actions[i].CompletedAt = nil
 				actions[i].CompletedBy = nil
+				if reason != "" {
+					r := reason
+					actions[i].ReworkReason = &r
+				}
 				actions[i].RowVersion++
 				changed = append(changed, actions[i])
 			}
@@ -1440,8 +1445,5 @@ func (r *Repository) ReopenProofStepsForRework(ctx context.Context, tenantID, wo
 			}
 			return changed, false, nil
 		})
-	if errors.Is(err, domain.ErrNotFound) {
-		return err
-	}
 	return err
 }

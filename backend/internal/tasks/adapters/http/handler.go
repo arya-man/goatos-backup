@@ -70,9 +70,11 @@ func Register(mux *http.ServeMux, h *Handler) {
 // ---------------------------------------------------------------------------
 
 type workflowCardDTO struct {
-	WorkflowID           string                     `json:"workflow_id"`
-	Module               string                     `json:"module"`
-	TemplateKey          string                     `json:"template_key"`
+	WorkflowID  string `json:"workflow_id"`
+	Module      string `json:"module"`
+	TemplateKey string `json:"template_key"`
+	// TemplateLabel is the operator-facing kind ("Birth", "Death", "Pen return", "Pen move").
+	TemplateLabel        string                     `json:"template_label"`
 	Subject              domain.WorkflowSubject     `json:"subject"`
 	EventAt              time.Time                  `json:"event_at"`
 	EventDate            string                     `json:"event_date"`
@@ -111,14 +113,16 @@ type workflowActionDTO struct {
 	// SOP-driven step attributes (docs/decisions/sop-driven-herd-operations.md). The phone renders
 	// answer_type / proof_min_* verbatim: a step can ask for a number, text, several choices, and
 	// several videos and photos. proof_refs lists every captured proof; proof_ref stays the first video.
-	TaskType           string         `json:"task_type"`
-	AnswerType         string         `json:"answer_type"`
-	ProofMinVideos     int            `json:"proof_min_videos"`
-	ProofMinPhotos     int            `json:"proof_min_photos"`
-	ProofRefs          []proofItemDTO `json:"proof_refs"`
-	CompletedByLabel   string         `json:"completed_by_label"`
-	CompletedAt        *time.Time     `json:"completed_at"`
-	VerificationStatus string         `json:"verification_status"`
+	TaskType       string         `json:"task_type"`
+	AnswerType     string         `json:"answer_type"`
+	ProofMinVideos int            `json:"proof_min_videos"`
+	ProofMinPhotos int            `json:"proof_min_photos"`
+	ProofRefs      []proofItemDTO `json:"proof_refs"`
+	// ReworkReason is the verifier's words when the step was sent back; render verbatim.
+	ReworkReason       string     `json:"rework_reason"`
+	CompletedByLabel   string     `json:"completed_by_label"`
+	CompletedAt        *time.Time `json:"completed_at"`
+	VerificationStatus string     `json:"verification_status"`
 }
 
 type workflowDetailResponse struct {
@@ -452,6 +456,7 @@ func cardDTO(card domain.WorkflowCard) workflowCardDTO {
 		WorkflowID:           card.WorkflowID,
 		Module:               card.Module,
 		TemplateKey:          card.TemplateKey,
+		TemplateLabel:        domain.TemplateLabel(card.TemplateKey),
 		Subject:              card.Subject,
 		EventAt:              card.EventAt,
 		EventDate:            card.EventDate,
@@ -507,6 +512,7 @@ func actionDTO(a domain.WorkflowAction, siblings []domain.WorkflowAction, now ti
 		ProofMinVideos:     proofMinVideosForDTO(a),
 		ProofMinPhotos:     a.ProofMinPhotos,
 		ProofRefs:          proofItemsToDTO(a.ProofRefs),
+		ReworkReason:       strings.TrimSpace(ptrString(a.ReworkReason)),
 		CompletedByLabel:   "", // operator display resolution is a follow-up; the id is not UI copy
 		CompletedAt:        a.CompletedAt,
 		VerificationStatus: verificationStatus,
@@ -674,4 +680,11 @@ func (h *Handler) writeError(w http.ResponseWriter, r *http.Request, status int,
 		TraceID:   traceID,
 		Retryable: status >= http.StatusInternalServerError,
 	}, cause)
+}
+
+func ptrString(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
 }
