@@ -1,5 +1,8 @@
 # Birth & Death Follow-up Workflows (revised maintainer decision 2026-07-28)
 
+> **Superseded in part (maintainer decision 2026-09-13):** the follow-up steps are no longer code-defined. They compile from the published `counts.birth` / `counts.death` SOP's `follow_up` section and are pinned per workflow -- see `docs/decisions/sop-driven-herd-operations.md`. `tasks/domain/templates.go` remains only as the golden oracle for the seeded documents.
+
+
 Status: accepted and implemented · Owner: counts + tasks · Mock: `mock/birth-death-mobile-mock.html`
 Roadmap source: `docs/mobile/mobile-feature-action-flows-roadmap-2026-07-30.md`
 
