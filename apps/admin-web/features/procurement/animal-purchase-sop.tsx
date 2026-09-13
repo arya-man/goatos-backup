@@ -59,34 +59,29 @@ export function FieldVerdictChip({ animal, hint }: { animal: AnimalPurchaseAnima
  * a capture with neither a signed link nor a known mime says so rather than rendering a broken tag.
  */
 export function AnimalPurchaseMedia({ slots, copy }: { slots: MediaSlot[]; copy: SopCopy }) {
-  const shown = slots.filter((slot) => slot.items.length > 0);
-  if (shown.length === 0) return null;
+  // Every capture with a signed link and a known mime is a tile, in the order the inspector
+  // recorded them (slot order is the form's order); anything else says so in its place rather
+  // than rendering a broken tag.
+  const items = slots.flatMap((slot) =>
+    slot.items.flatMap((item) =>
+      item.media_url && (isImage(item) || isVideo(item))
+        ? [{ proofRef: item.proof_ref, url: item.media_url, kind: isImage(item) ? ("photo" as const) : ("video" as const), title: slot.title }]
+        : [],
+    ),
+  );
+  const missing = slots.flatMap((slot) => slot.items.filter((item) => !(item.media_url && (isImage(item) || isVideo(item)))).map((item) => ({ item, slot })));
+  if (items.length === 0 && missing.length === 0) return null;
   return (
     <div className="ap-sop-media">
-      <div className="bt">{copy.mediaTitle}</div>
-      {shown.map((slot) => {
-        // Every capture with a signed link and a known mime is a lightbox item, in the order the
-        // inspector recorded it; anything else says so rather than rendering a broken tag.
-        const items = slot.items.flatMap((item) =>
-          item.media_url && (isImage(item) || isVideo(item))
-            ? [{ proofRef: item.proof_ref, url: item.media_url, kind: isImage(item) ? ("photo" as const) : ("video" as const), title: slot.title }]
-            : [],
-        );
-        const missing = slot.items.filter((item) => !(item.media_url && (isImage(item) || isVideo(item))));
-        return (
-          <div key={slot.slot} className="ap-sop-slot" data-slot={slot.slot}>
-            <div className="ap-sop-slot-title muted small">{slot.title}</div>
-            <div className="ap-sop-slot-items">
-              <AnimalPurchaseLightbox items={items} openLabel={copy.photoOpen} closeLabel={copy.close} />
-              {missing.map((item) => (
-                <div key={item.proof_ref} className="ap-sop-media-empty muted small">
-                  {copy.mediaEmpty}
-                </div>
-              ))}
-            </div>
-          </div>
-        );
-      })}
+      <div className="ap-tiles">
+        <AnimalPurchaseLightbox items={items} openLabel={copy.photoOpen} closeLabel={copy.close} />
+        {missing.map(({ item, slot }) => (
+          <figure key={item.proof_ref} className="ap-tile">
+            <div className="ap-tile-btn empty muted small">{copy.mediaEmpty}</div>
+            <figcaption className="muted small">{slot.title}</figcaption>
+          </figure>
+        ))}
+      </div>
     </div>
   );
 }
@@ -106,7 +101,6 @@ export function AnimalPurchaseAnswers({ rows, copy }: { rows: AnswerRow[]; copy:
   }
   return (
     <div className="ap-sop-answers">
-      <div className="bt">{copy.answersTitle}</div>
       <div className="ap-sop-sections">
         {sections.map((group, index) => (
           <section key={`${index}-${group.section}`} className="ap-sop-section">

@@ -22,6 +22,7 @@ import { num } from "./sales-format";
 import { AnimalPurchaseDecisionForm } from "./animal-purchase-decision-form";
 import { AnimalPurchaseTelemetry } from "./animal-purchase-telemetry";
 import { AnimalPurchaseAnswers, AnimalPurchaseMedia, FieldVerdictChip, type SopCopy } from "./animal-purchase-sop";
+import { AnimalPurchaseLightbox } from "./animal-purchase-lightbox";
 
 const PATHNAME = "/procurement/animal-purchases";
 const DEFAULT_DECISION = "pending";
@@ -113,8 +114,6 @@ export async function AnimalPurchasesPage({
   const feedbackText = feedback.status
     ? copy(pageContract, `action.${feedback.code ?? ""}`, "") || copy(pageContract, "action.error_form")
     : "";
-  // The list URL the decision action returns to: the same filters, without stale feedback.
-  const returnTo = hrefWithQuery(sp, { ap_status: null, ap_code: null });
 
   // Questionnaire copy. Every key is served by the backend map; a contract older than this
   // screen falls through to the route's COPY_FALLBACKS in admin-ui-contract.
@@ -135,6 +134,10 @@ export async function AnimalPurchasesPage({
     accept: copy(pageContract, "action.accept"),
     reject: copy(pageContract, "action.reject"),
     deciding: copy(pageContract, "action.deciding"),
+    // The sentences the in-place decision shows beside the buttons, one per outcome code.
+    outcomes: Object.fromEntries(
+      ["decided_accepted", "decided_rejected", "decide_conflict", "decide_failed", "error_form"].map((code) => [code, copy(pageContract, `action.${code}`)]),
+    ),
   };
 
   return (
@@ -343,12 +346,7 @@ export async function AnimalPurchasesPage({
                     {animal.decision_note ? <span>{animal.decision_note}</span> : null}
                   </div>
                 ) : canDecide ? (
-                  <AnimalPurchaseDecisionForm
-                    candidateId={animal.candidate_id}
-                    rowVersion={animal.row_version}
-                    returnTo={returnTo}
-                    labels={decisionLabels}
-                  />
+                  <AnimalPurchaseDecisionForm candidateId={animal.candidate_id} rowVersion={animal.row_version} labels={decisionLabels} />
                 ) : (
                   // A principal who can open the page but not decide sees the backend's reason,
                   // never a button that would 403.
@@ -374,60 +372,63 @@ export async function AnimalPurchasesPage({
                 return (
                   <article key={animal.candidate_id} className="card ap-animal ap-sop" aria-label={animal.title}>
                     {heading}
-                    <div className="ap-sop-body">
-                      <AnimalPurchaseMedia slots={animal.media_slots ?? []} copy={sopCopy} />
-                      <div className="ap-sop-main">
-                        <AnimalPurchaseAnswers rows={animal.answer_rows ?? []} copy={sopCopy} />
-                        {decisionBlock}
-                      </div>
-                    </div>
+                    {/* The captures as one strip in recorded order, the answers beneath in compact
+                        columns, the decision as the card's last line. */}
+                    <AnimalPurchaseMedia slots={animal.media_slots ?? []} copy={sopCopy} />
+                    <AnimalPurchaseAnswers rows={animal.answer_rows ?? []} copy={sopCopy} />
+                    <div className="ap-sop-decision">{decisionBlock}</div>
                   </article>
                 );
               }
 
-              // A legacy row recorded before the questionnaire: one video and the few facts.
+              // A legacy row recorded before the questionnaire: one video and the few facts, in
+              // the same card shape as an SOP row (a tile strip, then the facts, then the decision).
               return (
-                <article
-                  key={animal.candidate_id}
-                  className="card ap-animal"
-                  aria-label={animal.title}
-                  style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)", gap: 16, alignItems: "start" }}
-                >
-                  <div style={{ minWidth: 0 }}>
-                    <div className="bt">{copy(pageContract, "video.title")}</div>
-                    {animal.media_url ? (
-                      <div className="vr-player">
-                        {/* The signed link is minted by the review read for exactly this page of
-                            animals; metadata only until the reviewer presses play. */}
-                        <video src={animal.media_url} controls preload="metadata" playsInline />
-                      </div>
-                    ) : (
-                      <div className="vr-player" style={{ background: "var(--panel-2)", justifyContent: "center" }}>
-                        <div className="vr-player-empty">{copy(pageContract, "video.empty")}</div>
-                      </div>
-                    )}
+                <article key={animal.candidate_id} className="card ap-animal ap-sop" aria-label={animal.title}>
+                  {heading}
+                  <div className="ap-sop-media">
+                    <div className="ap-tiles">
+                      {animal.media_url ? (
+                        <AnimalPurchaseLightbox
+                          items={[{ proofRef: animal.video_proof_ref || animal.candidate_id, url: animal.media_url, kind: "video", title: copy(pageContract, "video.title") }]}
+                          openLabel={sopCopy.photoOpen}
+                          closeLabel={sopCopy.close}
+                        />
+                      ) : (
+                        <figure className="ap-tile">
+                          <div className="ap-tile-btn empty muted small">{copy(pageContract, "video.empty")}</div>
+                          <figcaption className="muted small">{copy(pageContract, "video.title")}</figcaption>
+                        </figure>
+                      )}
+                    </div>
                   </div>
-
-                  <div style={{ minWidth: 0, display: "flex", flexDirection: "column", gap: 10 }}>
-                    {heading}
-
-                    <dl className="ap-facts" style={{ display: "grid", gridTemplateColumns: "auto 1fr", columnGap: 12, rowGap: 4, margin: 0 }}>
-                      <dt className="muted small">{animalColumn("breed")}</dt>
-                      <dd style={{ margin: 0 }}>{animal.breed || none}</dd>
-                      <dt className="muted small">{animalColumn("age_months")}</dt>
-                      <dd style={{ margin: 0 }}>{animal.age_months == null ? none : num(animal.age_months)}</dd>
-                      <dt className="muted small">{animalColumn("weight_kg")}</dt>
-                      <dd style={{ margin: 0 }}>{animal.weight_kg == null ? none : num(animal.weight_kg, 1)}</dd>
-                      <dt className="muted small">{animalColumn("condition")}</dt>
-                      <dd style={{ margin: 0 }}>{animal.condition_label || none}</dd>
-                      <dt className="muted small">{animalColumn("temp_tag")}</dt>
-                      <dd style={{ margin: 0 }}>{animal.temp_tag || none}</dd>
-                      <dt className="muted small">{animalColumn("notes")}</dt>
-                      <dd style={{ margin: 0 }}>{animal.notes || none}</dd>
-                    </dl>
-
-                    {decisionBlock}
-                  </div>
+                  <dl className="ap-facts">
+                    <div className="ap-sop-row">
+                      <dt>{animalColumn("breed")}</dt>
+                      <dd>{animal.breed || none}</dd>
+                    </div>
+                    <div className="ap-sop-row">
+                      <dt>{animalColumn("age_months")}</dt>
+                      <dd>{animal.age_months == null ? none : num(animal.age_months)}</dd>
+                    </div>
+                    <div className="ap-sop-row">
+                      <dt>{animalColumn("weight_kg")}</dt>
+                      <dd>{animal.weight_kg == null ? none : num(animal.weight_kg, 1)}</dd>
+                    </div>
+                    <div className="ap-sop-row">
+                      <dt>{animalColumn("condition")}</dt>
+                      <dd>{animal.condition_label || none}</dd>
+                    </div>
+                    <div className="ap-sop-row">
+                      <dt>{animalColumn("temp_tag")}</dt>
+                      <dd>{animal.temp_tag || none}</dd>
+                    </div>
+                    <div className="ap-sop-row">
+                      <dt>{animalColumn("notes")}</dt>
+                      <dd>{animal.notes || none}</dd>
+                    </div>
+                  </dl>
+                  <div className="ap-sop-decision">{decisionBlock}</div>
                 </article>
               );
             })}

@@ -13,7 +13,7 @@ test("every animal's captures are on the card itself and a click opens one big, 
   // Maintainer decision 2026-09-14: photos and videos are visible by default on every card and
   // open big on click. The list read signs every capture; there is no per-animal media route.
   assert.doesNotMatch(page, /getAnimalPurchaseMedia|preview_id|previewMedia/);
-  assert.match(page, /<video src=\{animal\.media_url\} controls preload="metadata" playsInline \/>/);
+  assert.match(page, /url: animal\.media_url, kind: "video"/);
   assert.match(page, /copy\(pageContract, "video\.empty"\)/);
 });
 
@@ -27,8 +27,9 @@ test("a legacy row (questionnaire_version 0) still takes the single-video branch
   assert.doesNotMatch(sopBranch, /animal\.media_url/);
   const legacyBranch = page.slice(page.indexOf("// A legacy row"), page.lastIndexOf("</article>"));
   assert.match(legacyBranch, /animal\.media_url \? \(/);
+  assert.match(legacyBranch, /<AnimalPurchaseLightbox/);
   assert.match(legacyBranch, /animalColumn\("breed"\)/);
-  assert.doesNotMatch(legacyBranch, /AnimalPurchaseAnswers|AnimalPurchaseMedia/);
+  assert.doesNotMatch(legacyBranch, /AnimalPurchaseAnswers|AnimalPurchaseMedia /);
   // Both shapes carry the same heading and the same decision block.
   assert.match(sopBranch, /\{heading\}[\s\S]*\{decisionBlock\}/);
   assert.match(legacyBranch, /\{heading\}[\s\S]*\{decisionBlock\}/);
@@ -43,8 +44,10 @@ test("media slots render a photo thumbnail or an inline video by mime, never a g
   // the inspector recorded them.
   assert.match(sop, /kind: isImage\(item\) \? \("photo" as const\) : \("video" as const\)/);
   assert.match(sop, /<AnimalPurchaseLightbox items=\{items\}/);
-  assert.match(lightbox, /className="ap-sop-photo"[\s\S]*?<img src=\{item\.url\} alt="" loading="lazy" \/>/);
-  assert.match(lightbox, /<video src=\{item\.url\} controls preload="metadata" playsInline \/>/);
+  // Uniform tiles: a photo is its image, a video its first frame (metadata only) under a play badge.
+  assert.match(lightbox, /className="ap-tile"[\s\S]*?<img src=\{item\.url\} alt="" loading="lazy" \/>/);
+  assert.match(lightbox, /<video src=\{item\.url\} preload="metadata" muted playsInline tabIndex=\{-1\} \/>/);
+  assert.match(lightbox, /<video src=\{open\.url\} controls autoPlay playsInline/);
   assert.match(lightbox, /role="dialog"[\s\S]*?aria-modal="true"/);
   assert.match(lightbox, /event\.key === "Escape"/);
   assert.doesNotMatch(lightbox, /useRouter|router\.push|href=/);
@@ -91,10 +94,16 @@ test("the decision form renders only for a pending animal behind the backend con
 test("reject waits for a note and both buttons post the one derived-key action", () => {
   assert.match(form, /name="decision" value="accept"/);
   assert.match(form, /name="decision"\s+value="reject"/);
-  assert.match(form, /disabled=\{pending \|\| !noteReady\}/);
+  assert.match(form, /disabled=\{pending \|\| decided \|\| !note\.trim\(\)\}/);
+  // The decision lands IN PLACE: the action returns its outcome, the form shows the backend's
+  // sentence and soft-refreshes the server data; nothing redirects or moves the scroll.
+  assert.match(form, /useActionState\(decideAnimalPurchaseAction, INITIAL\)/);
+  assert.match(form, /router\.refresh\(\)/);
+  assert.doesNotMatch(action, /redirect\(/);
+  assert.match(action, /Promise<AnimalPurchaseDecisionState>/);
   assert.match(action, /`animal-purchase-\$\{candidateId\}-\$\{rowVersion\}-\$\{decision\}`/);
   assert.doesNotMatch(action, /randomUUID/);
-  assert.match(action, /revalidatePath\(PATHNAME\)/);
+  assert.doesNotMatch(action, /revalidatePath/);
   // Feedback codes are copy-key suffixes the page resolves through the contract.
   for (const code of ["decided_accepted", "decided_rejected", "decide_failed", "decide_conflict", "error_form"]) {
     assert.ok(action.includes(`"${code}"`), `${code} is emitted by the action`);

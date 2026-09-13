@@ -7,15 +7,16 @@ export type LightboxItem = {
   proofRef: string;
   url: string;
   kind: "photo" | "video";
-  /** Slot title, shown over the enlarged capture. */
+  /** Slot title, shown under the tile and over the enlarged capture. */
   title: string;
 };
 
 /**
- * Client-local lightbox for an animal's captures (maintainer ask 2026-09-14: every photo and
- * video visible on the card, and a click shows it big). Open/close is purely local state: no
- * navigation, no query parameter, no request. Escape, the scrim, and the X all close it and focus
- * returns to the thumbnail that opened it.
+ * An animal's captures as a strip of uniform tiles, each opening big in a client-local lightbox
+ * (maintainer ask 2026-09-14: every photo and video visible on the card, a click shows it big).
+ * Open/close is purely local state: no navigation, no query parameter, no request. Escape, the
+ * scrim, and the X all close it and focus returns to the tile that opened it. A video tile shows
+ * its first frame (metadata only) with a play badge and plays only once enlarged.
  */
 export function AnimalPurchaseLightbox({ items, openLabel, closeLabel }: { items: LightboxItem[]; openLabel: string; closeLabel: string }) {
   const [openRef, setOpenRef] = useState<string | null>(null);
@@ -40,42 +41,34 @@ export function AnimalPurchaseLightbox({ items, openLabel, closeLabel }: { items
 
   return (
     <>
-      {items.map((item) =>
-        item.kind === "photo" ? (
+      {items.map((item) => (
+        <figure key={item.proofRef} className="ap-tile">
           <button
-            key={item.proofRef}
             type="button"
-            className="ap-sop-photo"
-            aria-label={openLabel}
+            className={item.kind === "photo" ? "ap-tile-btn" : "ap-tile-btn video"}
+            aria-label={`${openLabel}: ${item.title}`}
             title={openLabel}
             onClick={(event) => {
               openerRef.current = event.currentTarget;
               setOpenRef(item.proofRef);
             }}
           >
-            {/* A signed proof link, not an optimizable static asset -- same as the verification drawer. */}
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={item.url} alt="" loading="lazy" />
+            {item.kind === "photo" ? (
+              // A signed proof link, not an optimizable static asset -- same as the verification drawer.
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={item.url} alt="" loading="lazy" />
+            ) : (
+              <>
+                <video src={item.url} preload="metadata" muted playsInline tabIndex={-1} />
+                <span className="ap-tile-play" aria-hidden="true">
+                  ▶
+                </span>
+              </>
+            )}
           </button>
-        ) : (
-          <div key={item.proofRef} className="vr-player ap-sop-video">
-            {/* Metadata only until the reviewer presses play; the expand button opens it big. */}
-            <video src={item.url} controls preload="metadata" playsInline />
-            <button
-              type="button"
-              className="ap-sop-expand"
-              aria-label={openLabel}
-              title={openLabel}
-              onClick={(event) => {
-                openerRef.current = event.currentTarget;
-                setOpenRef(item.proofRef);
-              }}
-            >
-              ⤢
-            </button>
-          </div>
-        ),
-      )}
+          <figcaption className="muted small">{item.title}</figcaption>
+        </figure>
+      ))}
       {open ? (
         <div className="ap-lightbox" role="dialog" aria-modal="true" aria-label={open.title}>
           <button type="button" className="ap-lightbox-scrim" aria-label={closeLabel} onClick={close} />
