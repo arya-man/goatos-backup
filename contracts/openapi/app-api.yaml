@@ -38043,12 +38043,19 @@ components:
           enum:
             - birth
             - death
+            - reconcile
+            - shifting
         template_key:
           type: string
           enum:
             - birth_kid
             - birth_mother
             - death
+            - reconcile
+            - shifting
+        template_label:
+          description: Backend-owned kind label for the card ("Birth", "Death", "Pen return", "Pen move"). Render verbatim.
+          type: string
         subject:
           $ref: "#/components/schemas/WorkflowSubject"
         event_at:
@@ -38243,6 +38250,9 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/WorkflowProofItem"
+        rework_reason:
+          description: The verifier's words when this step was sent back for a re-shoot; empty otherwise. Render verbatim.
+          type: string
     WorkflowProofItem:
       type: object
       additionalProperties: false

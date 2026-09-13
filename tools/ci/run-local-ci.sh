@@ -545,6 +545,7 @@ run_backend() {
   step "feed-submitted-overlay-wiring-guard" make feed-submitted-overlay-wiring-guard
   step "feed-proof-collaboration-guard" make feed-proof-collaboration-guard
   step "weighing-close-gate-guard" make weighing-close-gate-guard
+  step "sop-driven-herd-operations-guard" make sop-driven-herd-operations-guard
   step "weighing-operator-scope-guard" make weighing-operator-scope-guard
   step "weighing-one-operator-per-bucket-guard" make weighing-one-operator-per-bucket-guard
   step "weighing-partition-composition-guard" make weighing-partition-composition-guard

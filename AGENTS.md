@@ -474,6 +474,36 @@ The fixture intentionally maps five physical vaccination RFIDs into ten goat
 identities across CBE and CPT while preserving the production uniqueness rule on
 `goat_identifiers`; Weighing remains free-flow and must keep raw RFID input.
 
+## Herd Operations Are SOP-DRIVEN, and Every New Operational Feature Must Be (maintainer lock, 2026-09-13)
+
+Read `docs/decisions/sop-driven-herd-operations.md` first. The operator's steps for a birth, a death,
+a shifting completion and a reconcile card -- WHICH questions, WHICH proof (video x n, photo x n),
+WHEN each step is due -- are compiled at workflow open from the PUBLISHED SOP's `follow_up` section
+(`/counts/sops` -> Edit operator steps) and PINNED on the workflow. Publishing a new version changes
+the NEXT workflow opened; a workflow already open keeps the steps it started with. `Z1+Z3`-style
+rules of thumb apply here too: a question, a proof count or a time frame typed into Go or Kotlin for
+one of these flows is a defect, not a shortcut. `tasks/domain/templates.go` is the golden ORACLE for
+the seeded documents and nothing else; `make sop-driven-herd-operations-guard` blocks a production
+call to it, a seed that drifted from migration 000299, and a step title hardcoded on the phone.
+
+The framework (`goatOS_Config_Framework.pdf` v2) is DATA: the Category Registry (`sop_categories`)
+and the Task Type Registry (`sop_task_types`, with `answer_kind` + `engine_hook` + `parameter_schema`)
+are tenant rows served to the builder as option groups, never constants in contract code. A step
+the SERVER must act on names a task type with an `engine_hook` (`weigh_kg`, `tag_kid`, `record_pen`,
+`colostrum_feed`, `death_evidence`, `return_to_pen`); the hook is matched on the step KEY so a relabel
+never detaches it, and the web editor keeps those steps' key and type fixed.
+
+**Rule for every new operational feature from now on (Claude AND Codex):** the questions, proof
+requirements and timing an operator sees are authored on the web and rendered by the phone; a new
+module plugs into the same engine (a `follow_up` track with a template key, a completion hook for
+its module, a verdict route for rework) rather than shipping its own hardcoded step list. If a
+feature genuinely cannot yet run on the engine, say so in its decision doc and record the phase-2
+item; do not hardcode quietly. Proof of a change to any of these flows is BOTH a web publish and a
+phone run that shows the next workflow on the new version and an open one unchanged.
+
+Phase 2 (recorded, not done): shifting completion on the engine, capture forms taking SOP-authored
+extra questions, the `/config` editor for the two registries, cross-category `triggers`.
+
 ## Weighing Is ISOLATED — No Herd, No Vaccination, No Exceptions (Claude AND Codex)
 
 Weighing owns its own tables and reads NOTHING from another module's schema, in

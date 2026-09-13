@@ -1237,6 +1237,17 @@
       "ciStep": "vaccination-shed-ack-guard"
     },
     {
+      "id": "sop-driven-herd-operations",
+      "script": "tools/agent-hooks/check-sop-driven-herd-operations-guard.mjs",
+      "makeTarget": "sop-driven-herd-operations-guard",
+      "realCheck": "node tools/agent-hooks/check-sop-driven-herd-operations-guard.mjs",
+      "selfTest": "node tools/agent-hooks/check-sop-driven-herd-operations-guard.mjs --self-test",
+      "owningDoc": "docs/decisions/sop-driven-herd-operations.md",
+      "requiredInCI": true,
+      "ciStep": "sop-driven-herd-operations-guard",
+      "notes": "SOP-DRIVEN HERD OPERATIONS (maintainer decision 2026-09-13). Birth / death / shifting completion / reconcile operator steps compile from the PUBLISHED SOP's follow_up at workflow open, pinned per workflow; the Go templates in tasks/domain/templates.go are the golden oracle only. Three failure modes: (1) template-stamped-from-go, a production call to TemplateByKeyAt/TemplateBirthKidAt/TemplateBirthMother/TemplateDeath outside tasks/domain; (2) seed-drifted-from-migration, an embedded sopseed document not present verbatim in migration 000299; (3) hardcoded-step-copy-on-phone, an operator step title typed into the Android workflow drill-in. BLIND SPOTS: names and strings only; a new template under another name or reworded copy passes -- the golden compile test and bootstrap copy tests are the runtime half."
+    },
+    {
       "id": "weighing-close-gate",
       "script": "tools/agent-hooks/check-weighing-close-gate-guard.mjs",
       "makeTarget": "weighing-close-gate-guard",

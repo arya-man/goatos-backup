@@ -1,5 +1,8 @@
 # Pen Reconciliation — the register is truth, weighing is the detector
 
+> **Superseded in part (maintainer decision 2026-09-13):** a card is no longer closed by exactly one video. The operator runs the published `counts.reconcile` SOP's questionnaire (any questions, photos and videos the maintainer authored) as a workflow; the card, the single verifier item and the no-approver rule stand -- see `docs/decisions/sop-driven-herd-operations.md`.
+
+
 Maintainer decision, 2026-09-02.
 
 ## The problem

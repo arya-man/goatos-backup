@@ -16047,9 +16047,11 @@ export interface components {
             /** Format: uuid */
             workflow_id: string;
             /** @enum {string} */
-            module: "birth" | "death";
+            module: "birth" | "death" | "reconcile" | "shifting";
             /** @enum {string} */
-            template_key: "birth_kid" | "birth_mother" | "death";
+            template_key: "birth_kid" | "birth_mother" | "death" | "reconcile" | "shifting";
+            /** @description Backend-owned kind label for the card ("Birth", "Death", "Pen return", "Pen move"). Render verbatim. */
+            template_label?: string;
             subject: components["schemas"]["WorkflowSubject"];
             /** Format: date-time */
             event_at: string;
@@ -16126,6 +16128,8 @@ export interface components {
             proof_min_photos?: number;
             /** @description Every proof captured on the step, in capture order. proof_ref mirrors the first video. */
             proof_refs?: components["schemas"]["WorkflowProofItem"][];
+            /** @description The verifier's words when this step was sent back for a re-shoot; empty otherwise. Render verbatim. */
+            rework_reason?: string;
         };
         WorkflowProofItem: {
             /** @description Server-minted proof id from /app/proofs/*. */

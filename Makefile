@@ -149,6 +149,7 @@ guardrails:
 	$(MAKE) feed-submitted-overlay-wiring-guard
 	$(MAKE) feed-proof-collaboration-guard
 	$(MAKE) weighing-close-gate-guard
+	$(MAKE) sop-driven-herd-operations-guard
 	$(MAKE) weighing-operator-scope-guard
 	$(MAKE) weighing-one-operator-per-bucket-guard
 	$(MAKE) weighing-partition-composition-guard
@@ -330,6 +331,10 @@ feed-proof-collaboration-guard:
 weighing-close-gate-guard:
 	node tools/agent-hooks/check-weighing-close-gate-guard.mjs --self-test
 	node tools/agent-hooks/check-weighing-close-gate-guard.mjs
+
+sop-driven-herd-operations-guard:
+	node tools/agent-hooks/check-sop-driven-herd-operations-guard.mjs --self-test
+	node tools/agent-hooks/check-sop-driven-herd-operations-guard.mjs
 
 weighing-operator-scope-guard:
 	node tools/agent-hooks/check-weighing-operator-scope-guard.mjs --self-test
