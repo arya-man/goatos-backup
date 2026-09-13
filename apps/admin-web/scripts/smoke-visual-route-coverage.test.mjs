@@ -23,6 +23,7 @@ test("visual smoke visits every live sidebar navigation leaf", () => {
     ["procurement-source-entry", "/procurement/source-entry?scope_mode=company"],
     ["procurement-vendors", "/procurement/vendors?scope_mode=company"],
     ["procurement-feed-purchases", "/procurement/feed-purchases?scope_mode=company"],
+    ["procurement-animal-purchases", "/procurement/animal-purchases?scope_mode=company"],
     ["approvals", "/approvals?scope_mode=company"],
     ["verify", "/verify?scope_mode=company"],
     ["actions", "/actions?scope_mode=company"],

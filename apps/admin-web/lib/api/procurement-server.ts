@@ -14,6 +14,11 @@ import {
   type ApiResult,
 } from "@/lib/api/server";
 import type { LoadCostWrite, LoadwiseSales, LoadwiseWeights,
+  AnimalPurchaseAnimal,
+  AnimalPurchaseCounts,
+  AnimalPurchaseDecisionRequest,
+  AnimalPurchaseLoadPage,
+  AnimalPurchaseReviewPage,
   FeedPurchase,
   FeedPurchaseOptions,
   FeedPurchasePage,
@@ -744,5 +749,112 @@ export async function acceptProcurementIntake(
   const path = `/procurement/source-entry/loads/${encodeURIComponent(loadId)}/accept-intake` as keyof AdminApiPaths & string;
   return request(() =>
     client.request<ProcurementIntakeHandoffResponse>(path, { method: "POST", cache: "no-store", headers: idempotentHeaders(idempotencyKey), body }),
+  );
+}
+
+// ---- Animal purchases (/procurement/animal-purchases). The buying desk records loads and the
+// animals filmed in them on the phone; the CEO/CXO watches each video here and accepts or
+// rejects the animal (maintainer decision 2026-09-13). Both reads are ONE keyset page each. ----
+
+export async function listAnimalPurchaseLoads(
+  params: { limit?: number; cursor?: string } = {},
+): Promise<ApiResult<AnimalPurchaseLoadPage>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<AnimalPurchaseLoadPage>("/app/procurement/animal-purchases/loads", {
+      cache: "no-store",
+      query: compactQuery({ limit: params.limit, cursor: params.cursor }),
+    }),
+  );
+}
+
+/**
+ * One page of the review queue. `decision` is the backend's own filter vocabulary (pending |
+ * accepted | rejected | all; absent means pending) and `counts` / `filters` are WHOLE-FILTER
+ * figures, never page sums. A row's `media_url` is the backend's signed playback link, served
+ * relative when the API and its media route share a host; it is absolutized against the API base
+ * the same way the verification and toxin media links are, so the browser's <video> can reach it.
+ */
+export async function listAnimalPurchaseReview(
+  params: { load_id?: string; decision?: string; limit?: number; cursor?: string } = {},
+): Promise<ApiResult<AnimalPurchaseReviewPage>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  const result = await request(() =>
+    client.request<AnimalPurchaseReviewPage>("/procurement/animal-purchases/review", {
+      cache: "no-store",
+      query: compactQuery({
+        load_id: params.load_id,
+        decision: params.decision,
+        limit: params.limit,
+        cursor: params.cursor,
+      }),
+    }),
+  );
+  if (!result.ok) return result;
+  return { ok: true, data: absolutizeAnimalPurchaseMedia(result.data, config.data.baseUrl) };
+}
+
+/**
+ * The WHOLE-DESK decision counts for the page's header tiles ("across every load"). The same
+ * review endpoint answers it — unscoped, every decision, one bounded row — but it is a different
+ * question from the filtered page read above (a selected load narrows that one), so it is its own
+ * helper rather than a second page read the tiles would then have to ignore the rows of.
+ */
+export async function getAnimalPurchaseDeskCounts(): Promise<ApiResult<AnimalPurchaseCounts>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  const result = await request(() =>
+    client.request<AnimalPurchaseReviewPage>("/procurement/animal-purchases/review", {
+      cache: "no-store",
+      query: compactQuery({ decision: "all", limit: 1 }),
+    }),
+  );
+  if (!result.ok) return result;
+  return { ok: true, data: result.data.counts };
+}
+
+function absolutizeAnimalPurchaseMedia(page: AnimalPurchaseReviewPage, baseUrl: string): AnimalPurchaseReviewPage {
+  return {
+    ...page,
+    animals: page.animals.map((animal) =>
+      animal.media_url ? { ...animal, media_url: absolutizeAgainstApi(animal.media_url, baseUrl) } : animal,
+    ),
+  };
+}
+
+function absolutizeAgainstApi(value: string, baseUrl: string): string {
+  try {
+    return new URL(value, baseUrl).toString();
+  } catch {
+    return value;
+  }
+}
+
+/**
+ * The CEO/CXO decision on one filmed animal. Idempotency-keyed by the caller (a derived
+ * candidate + row_version + decision key, so a double submit is one act) and fenced by
+ * `row_version`: the backend answers 409 when the animal was already decided or moved on.
+ */
+export async function decideAnimalPurchaseAnimal(
+  candidateId: string,
+  body: AnimalPurchaseDecisionRequest,
+  idempotencyKey: string,
+): Promise<ApiResult<AnimalPurchaseAnimal>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  const path = `/procurement/animal-purchases/animals/${encodeURIComponent(candidateId)}/decision` as keyof AppApiPaths & string;
+  return request(() =>
+    client.request<AnimalPurchaseAnimal>(path, {
+      method: "POST",
+      cache: "no-store",
+      headers: idempotentHeaders(idempotencyKey),
+      body,
+    }),
   );
 }

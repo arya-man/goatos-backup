@@ -116,3 +116,14 @@ export type ProcurementArrivalState = AdminApiComponents["schemas"]["Procurement
 export type ProcurementPurpose = AdminApiComponents["schemas"]["ProcurementPurpose"];
 export type ProcurementHFVaccinationReviewStatus =
   AdminApiComponents["schemas"]["ProcurementHFVaccinationReviewStatus"];
+
+// Animal purchases — the loads the buying desk records on the phone and the animals filmed in
+// them; the CEO/CXO reviews each video on /procurement/animal-purchases (maintainer decision
+// 2026-09-13). Same app-api schema family as feed purchases.
+export type AnimalPurchaseCounts = AppApiComponents["schemas"]["AnimalPurchaseCounts"];
+export type AnimalPurchaseLoad = AppApiComponents["schemas"]["AnimalPurchaseLoad"];
+export type AnimalPurchaseLoadPage = AppApiComponents["schemas"]["AnimalPurchaseLoadPage"];
+export type AnimalPurchaseAnimal = AppApiComponents["schemas"]["AnimalPurchaseAnimal"];
+export type AnimalPurchaseReviewFilter = AppApiComponents["schemas"]["AnimalPurchaseReviewFilter"];
+export type AnimalPurchaseReviewPage = AppApiComponents["schemas"]["AnimalPurchaseReviewPage"];
+export type AnimalPurchaseDecisionRequest = AppApiComponents["schemas"]["AnimalPurchaseDecisionRequest"];

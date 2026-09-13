@@ -120,6 +120,7 @@ function buildRoutes({ goatId, procurementLoadId, workflowRowId, calendarEventId
     { name: "procurement-source-entry", path: "/procurement/source-entry?scope_mode=company" },
     { name: "procurement-vendors", path: "/procurement/vendors?scope_mode=company" },
     { name: "procurement-feed-purchases", path: "/procurement/feed-purchases?scope_mode=company" },
+    { name: "procurement-animal-purchases", path: "/procurement/animal-purchases?scope_mode=company" },
     { name: "sales-sold", path: "/sales/sold?scope_mode=company" },
     { name: "sales-farm-value", path: "/sales/farm-value?scope_mode=company" },
     { name: "sales-loads", path: "/sales/loads?scope_mode=company" },

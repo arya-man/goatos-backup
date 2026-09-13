@@ -3,8 +3,11 @@ package postgres
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/vgoats/goatos/backend/internal/animalpurchase/domain"
 	"github.com/vgoats/goatos/backend/internal/animalpurchase/ports"
@@ -140,4 +143,158 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, 'Ravi', 'Ravi', 'active', 'park_head')`, a
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM audit_log WHERE tenant_id = $1::uuid AND action LIKE 'procurement.animal_purchase.%'`, apTenant).Scan(&audits); err != nil || audits != 4 {
 		t.Fatalf("load + 2 animals + decision must audit 4 rows: %v / %d", err, audits)
 	}
+}
+
+// The four adversarial reads the aggregate guard requires, over the same seeded database: many
+// candidates on one load, page boundaries, tenant scope, and every decision bucket. They run
+// after the write-path test in one process so the migrated template is built once.
+func TestAnimalPurchaseCountsOneToManyAndMultipleDimensions(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	repo, load := seedLoadWithCandidates(t, ctx, pool, 5)
+	loads, err := repo.ListLoads(ctx, apTenant, domain.Cursor{}, 20)
+	if err != nil || len(loads.Loads) != 1 {
+		t.Fatalf("a load with five candidates must still be ONE load row: %v / %d", err, len(loads.Loads))
+	}
+	if got := loads.Loads[0].Counts; got.Total != 5 || got.Pending != 5 {
+		t.Fatalf("whole-load counts = %+v", got)
+	}
+	if load.Counts.Total != 5 {
+		t.Fatalf("GetLoad counts = %+v", load.Counts)
+	}
+}
+
+func TestAnimalPurchaseCountsSurvivePaginationPageBoundary(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	repo, load := seedLoadWithCandidates(t, ctx, pool, 5)
+	page1, err := repo.ListCandidates(ctx, apTenant, load.LoadID, domain.Cursor{}, 2)
+	if err != nil || len(page1.Candidates) != 2 || page1.Counts.Total != 5 {
+		t.Fatalf("page 1: %v / %d rows, counts %+v", err, len(page1.Candidates), page1.Counts)
+	}
+	c, _ := domain.DecodeCursor(page1.NextCursor, domain.CursorKindCandidate)
+	page2, err := repo.ListCandidates(ctx, apTenant, load.LoadID, c, 2)
+	if err != nil || len(page2.Candidates) != 2 || page2.Counts.Total != 5 || page2.Candidates[0].SeqNo != 3 {
+		t.Fatalf("page 2 must keep the whole-load counts and continue after seq 2: %v / %+v", err, page2)
+	}
+	c, _ = domain.DecodeCursor(page2.NextCursor, domain.CursorKindCandidate)
+	page3, err := repo.ListCandidates(ctx, apTenant, load.LoadID, c, 2)
+	if err != nil || len(page3.Candidates) != 1 || page3.NextCursor != "" || page3.Counts.Total != 5 {
+		t.Fatalf("last page: %v / %+v", err, page3)
+	}
+	review1, err := repo.ListReview(ctx, apTenant, ports.ReviewQuery{Decision: domain.DecisionPending, Limit: 3})
+	if err != nil || len(review1.Candidates) != 3 || review1.Counts.Pending != 5 {
+		t.Fatalf("review page 1 must count the whole filter: %v / %+v", err, review1.Counts)
+	}
+	rc, _ := domain.DecodeCursor(review1.NextCursor, domain.CursorKindReview)
+	review2, err := repo.ListReview(ctx, apTenant, ports.ReviewQuery{Decision: domain.DecisionPending, Cursor: rc, Limit: 3})
+	if err != nil || len(review2.Candidates) != 2 || review2.Counts.Pending != 5 || review2.NextCursor != "" {
+		t.Fatalf("review page 2 must keep the whole-filter count after the cursor: %v / %+v", err, review2)
+	}
+}
+
+func TestAnimalPurchaseReadsHonourTenantScopeHierarchy(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	repo, load := seedLoadWithCandidates(t, ctx, pool, 2)
+	const otherTenant = "00000000-0000-4000-8000-000000000002"
+	if _, err := pool.Exec(ctx, `INSERT INTO tenants (tenant_id, name, status) VALUES ($1, 'Other', 'active') ON CONFLICT (tenant_id) DO NOTHING`, otherTenant); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.GetLoad(ctx, otherTenant, load.LoadID); !errors.Is(err, ports.ErrLoadNotFound) {
+		t.Fatalf("another tenant must not see the load: %v", err)
+	}
+	if loads, err := repo.ListLoads(ctx, otherTenant, domain.Cursor{}, 20); err != nil || len(loads.Loads) != 0 {
+		t.Fatalf("another tenant's load list must be empty: %v / %d", err, len(loads.Loads))
+	}
+	if review, err := repo.ListReview(ctx, otherTenant, ports.ReviewQuery{Decision: "", Limit: 20}); err != nil || review.Counts.Total != 0 {
+		t.Fatalf("another tenant's review counts must be zero: %v / %+v", err, review.Counts)
+	}
+	if _, err := repo.ListCandidates(ctx, otherTenant, load.LoadID, domain.Cursor{}, 20); !errors.Is(err, ports.ErrLoadNotFound) {
+		t.Fatalf("another tenant must not page the load's animals: %v", err)
+	}
+}
+
+func TestAnimalPurchaseReviewStatusMatrixEveryStatus(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	repo, load := seedLoadWithCandidates(t, ctx, pool, 4)
+	all, err := repo.ListReview(ctx, apTenant, ports.ReviewQuery{Limit: 20})
+	if err != nil || len(all.Candidates) != 4 {
+		t.Fatalf("seed: %v / %d", err, len(all.Candidates))
+	}
+	decide := func(i int, decision, key string) {
+		t.Helper()
+		c := all.Candidates[i]
+		if _, err := repo.Decide(ctx, ports.DecideParams{TenantID: apTenant, CandidateID: c.CandidateID, ActorID: apCEO, IdempotencyKey: key,
+			Write: domain.DecisionWrite{Decision: decision, RowVersion: c.RowVersion}}); err != nil {
+			t.Fatalf("decide %d: %v", i, err)
+		}
+	}
+	decide(0, domain.DecisionAccepted, "m-1")
+	decide(1, domain.DecisionRejected, "m-2")
+	decide(2, domain.DecisionRejected, "m-3")
+	want := map[string]int{domain.DecisionPending: 1, domain.DecisionAccepted: 1, domain.DecisionRejected: 2, "": 4}
+	for decision, n := range want {
+		page, err := repo.ListReview(ctx, apTenant, ports.ReviewQuery{Decision: decision, Limit: 20})
+		if err != nil || len(page.Candidates) != n {
+			t.Fatalf("decision %q: %v / %d rows want %d", decision, err, len(page.Candidates), n)
+		}
+		// The whole-filter counts are the SAME numbers whichever bucket is being listed.
+		if page.Counts.Pending+page.Counts.Accepted+page.Counts.Rejected != page.Counts.Total {
+			t.Fatalf("buckets must partition the total: %+v", page.Counts)
+		}
+	}
+	reloaded, err := repo.GetLoad(ctx, apTenant, load.LoadID)
+	if err != nil || reloaded.Counts != (domain.DecisionCounts{Total: 4, Pending: 1, Accepted: 1, Rejected: 2}) {
+		t.Fatalf("load counts after decisions = %+v (%v)", reloaded.Counts, err)
+	}
+}
+
+// seedLoadWithCandidates writes one load with n pending candidates through the production
+// write path and returns the repository and the load as read back.
+func seedLoadWithCandidates(t *testing.T, ctx context.Context, pool *pgxpool.Pool, n int) (*Repository, domain.Load) {
+	t.Helper()
+	mustExec := func(sql string, args ...any) {
+		t.Helper()
+		if _, err := pool.Exec(ctx, sql, args...); err != nil {
+			t.Fatalf("seed: %v\n%s", err, sql)
+		}
+	}
+	mustExec(`INSERT INTO tenants (tenant_id, name, status) VALUES ($1, 'Animal Purchase Tenant', 'active') ON CONFLICT (tenant_id) DO NOTHING`, apTenant)
+	mustExec(`INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, status)
+SELECT gen_random_uuid(), $1::uuid, 'park', 'CPT', 'Channapatna', 'active'
+WHERE NOT EXISTS (SELECT 1 FROM locations WHERE tenant_id = $1::uuid AND location_type = 'park' AND upper(location_code) = 'CPT')`, apTenant)
+	var vendorID string
+	if err := pool.QueryRow(ctx, `INSERT INTO procurement_vendors (tenant_id, record_type, business_name, status, state)
+VALUES ($1::uuid, 'Livestock Agent', 'Ramesh Traders', 'active', 'Karnataka') RETURNING vendor_id::text`, apTenant).Scan(&vendorID); err != nil {
+		t.Fatalf("seed vendor: %v", err)
+	}
+	mustExec(`INSERT INTO workforce_members (workforce_member_id, tenant_id, user_id, display_code, display_name, status, primary_role_hint)
+VALUES ($1::uuid, $2::uuid, $3::uuid, 'Ravi', 'Ravi', 'active', 'park_head') ON CONFLICT DO NOTHING`, apMember, apTenant, apCEO)
+	repo := NewRepository(pool, 10*time.Second)
+	load, err := repo.CreateLoad(ctx, ports.CreateLoadParams{TenantID: apTenant, ActorID: apUser, IdempotencyKey: "seed-load",
+		Write: domain.LoadWrite{LoadRef: "SEED", VendorID: vendorID, FarmLabel: "CPT", ExpectedCount: n}})
+	if err != nil {
+		t.Fatalf("seed load: %v", err)
+	}
+	for i := 1; i <= n; i++ {
+		if _, err := repo.AddCandidate(ctx, ports.AddCandidateParams{TenantID: apTenant, LoadID: load.LoadID, ActorID: apUser, IdempotencyKey: fmt.Sprintf("seed-animal-%d", i),
+			Write: domain.CandidateWrite{Species: "goat", Sex: "female", Condition: "healthy", VideoProofRef: fmt.Sprintf("10000000-0000-4000-8000-0000000000%02d", i)}}); err != nil {
+			t.Fatalf("seed animal %d: %v", i, err)
+		}
+	}
+	load, err = repo.GetLoad(ctx, apTenant, load.LoadID)
+	if err != nil {
+		t.Fatalf("seed reload: %v", err)
+	}
+	return repo, load
 }

@@ -75,9 +75,8 @@ WHERE idempotency_key = $1`
 
 	// loadCountsJoin pre-aggregates the many side (candidates) to ONE row per load before the
 	// join, so the load page is 1:1 with loads and the counts are whole-load, never page sums.
-	// projection-review: producer unique (tenant_id, load_id); consumer groups candidates by
-	// (tenant_id, load_id) -> exactly one row per load via LEFT JOIN LATERAL; numerator and
-	// denominator both range over the load's own candidate rows.
+	//
+	// projection-review: membership=animal_purchase_loads (the served window itself, PK load_id) with the many side animal_purchase_candidates (PK candidate_id, unique (tenant_id, load_id, seq_no)); group_key=(tenant_id, load_id) on both sides so the lateral groups candidates by the load own key and attaches exactly one row per load; join_cardinality=lateral 1:1 by construction (one aggregate row, ON true) so no load repeats and the four counts are FILTER clauses over the SAME candidate set, numerator (pending/accepted/rejected) and denominator (total) ranging over identical keys; pagination=keyset (created_at DESC, load_id DESC) LIMIT limit+1 over loads only, counts computed per load and independent of the page, and the review read takes its whole-filter counts BEFORE its cursor predicate; scope=tenant_id on every branch, status buckets pending/accepted/rejected disjoint by CHECK with total their union
 	loadCountsJoin = `
 LEFT JOIN LATERAL (
   SELECT count(*)::int AS total,
@@ -175,6 +174,7 @@ SET decision = $3, decided_by = nullif($4, '')::uuid, decided_by_name = $5, deci
     decision_note = $6, updated_at = now(), row_version = row_version + 1
 WHERE tenant_id = $1::uuid AND candidate_id = $2::uuid AND decision = 'pending' AND row_version = $7`
 
+	// projection-review: membership=goats alive rows with a breed (PK goat_id); group_key=breed alone, one output row per distinct breed spelling; join_cardinality=no join at all, a single-table GROUP BY so each goat contributes to exactly one breed count; pagination=LIMIT 30 most common breeds, a bounded suggestion list and not a paged read; scope=tenant_id, and the count is only an ordering key never shown on a screen
 	sqlBreedSuggestions = `SELECT breed FROM (
   SELECT g.breed, count(*) AS n FROM public.goats g
   WHERE g.tenant_id = $1::uuid AND COALESCE(g.breed, '') <> '' AND g.lifecycle_status = 'alive'
