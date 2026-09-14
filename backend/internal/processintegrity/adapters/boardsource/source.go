@@ -52,6 +52,56 @@ const (
 	maxWalkRows  = maxWalkPages * walkPageSize
 )
 
+const vaccinationDueWorkPrecheckSQL = `
+	SELECT EXISTS (
+  SELECT 1
+  FROM obligation_instances oi
+  LEFT JOIN obligation_batches ob
+    ON ob.tenant_id = oi.tenant_id
+   AND ob.batch_id = oi.batch_id
+  JOIN protocol_versions pv
+    ON pv.tenant_id = oi.tenant_id
+   AND pv.protocol_version_id = oi.protocol_version_id
+  JOIN protocol_definitions pd
+    ON pd.tenant_id = oi.tenant_id
+   AND pd.protocol_id = pv.protocol_id
+   AND pd.category = 'vaccination'
+  JOIN goats g
+    ON g.tenant_id = oi.tenant_id
+   AND g.goat_id = oi.target_id
+   AND g.park_id = $2::uuid
+	  WHERE oi.tenant_id = $1::uuid
+	    AND oi.target_type = 'goat'
+	    AND oi.status <> 'canceled'
+	    AND ($5::boolean OR oi.status <> 'completed')
+	    AND (
+	      (oi.due_at >= $3::timestamptz AND oi.due_at < $4::timestamptz)
+	      OR ((ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') >= $3::timestamptz
+	        AND (ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') < $4::timestamptz)
+	      OR EXISTS (
+	        SELECT 1
+	        FROM vaccination_drive_assignment_members vdam
+	        JOIN vaccination_drive_assignments vda
+	          ON vda.tenant_id = vdam.tenant_id
+	         AND vda.assignment_id = vdam.assignment_id
+	        WHERE vdam.tenant_id = oi.tenant_id
+	          AND vdam.obligation_id = oi.obligation_id
+	          AND (vda.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') >= $3::timestamptz
+	          AND (vda.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') < $4::timestamptz
+	      )
+	      OR EXISTS (
+	        SELECT 1
+	        FROM vaccination_drive_assignments vda
+	        WHERE vda.tenant_id = oi.tenant_id
+	          AND vda.batch_id = oi.batch_id
+	          AND vda.park_id = $2::uuid
+	          AND (vda.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') >= $3::timestamptz
+	          AND (vda.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') < $4::timestamptz
+	      )
+	    )
+	  LIMIT 1
+	)`
+
 // ErrOwnerScopeUnresolvable is returned when the board asks for one user's rows and the
 // source has no way to translate that user id into the workforce member id the wrapped read
 // keys owners by. It is loud on purpose: silently serving unscoped or empty rows would be a
@@ -263,29 +313,7 @@ func (s *Source) hasVaccinationDueWork(ctx context.Context, q ports.SourceQuery,
 		}
 	}
 	var ok bool
-	err := s.pool.QueryRow(ctx, `
-	SELECT EXISTS (
-  SELECT 1
-  FROM obligation_instances oi
-  JOIN protocol_versions pv
-    ON pv.tenant_id = oi.tenant_id
-   AND pv.protocol_version_id = oi.protocol_version_id
-  JOIN protocol_definitions pd
-    ON pd.tenant_id = oi.tenant_id
-   AND pd.protocol_id = pv.protocol_id
-   AND pd.category = 'vaccination'
-  JOIN goats g
-    ON g.tenant_id = oi.tenant_id
-   AND g.goat_id = oi.target_id
-   AND g.park_id = $2::uuid
-	  WHERE oi.tenant_id = $1::uuid
-	    AND oi.target_type = 'goat'
-	    AND oi.status <> 'canceled'
-	    AND ($5::boolean OR oi.status <> 'completed')
-	    AND oi.due_at >= $3::timestamptz
-	    AND oi.due_at < $4::timestamptz
-	  LIMIT 1
-	)`, q.TenantID, q.ParkID, dayStart, dayEnd, includeCompleted).Scan(&ok)
+	err := s.pool.QueryRow(ctx, vaccinationDueWorkPrecheckSQL, q.TenantID, q.ParkID, dayStart, dayEnd, includeCompleted).Scan(&ok)
 	if err != nil {
 		return false, fmt.Errorf("vaccination boardsource: due-work precheck: %w", err)
 	}

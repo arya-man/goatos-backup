@@ -276,6 +276,39 @@ smoke_http() {
   [[ "$code" == "$expected" ]] || die "$url returned $code, expected $expected"
 }
 
+smoke_public_events_route() {
+  local trace_id span_id traceparent code seen
+
+  trace_id="$(python3 - <<'PY'
+import secrets
+print(secrets.token_hex(16))
+PY
+)"
+  span_id="$(python3 - <<'PY'
+import secrets
+print(secrets.token_hex(8))
+PY
+)"
+  traceparent="00-${trace_id}-${span_id}-01"
+  code="$(curl -sS -o /dev/null -w '%{http_code}' \
+    -X POST "$STG_API_URL/app/analytics/events" \
+    -H "content-type: application/json" \
+    -H "traceparent: $traceparent" \
+    --data '{"events":[]}' || true)"
+  [[ "$code" =~ ^(200|202|204|400|401|403)$ ]] ||
+    die "$STG_API_URL/app/analytics/events returned unexpected smoke status $code"
+
+  sleep 3
+  seen="$(gcloud logging read \
+    "resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"$ANALYTICS_EVENTS_SERVICE\" AND jsonPayload.msg=\"http_request\" AND jsonPayload.trace_id=\"$traceparent\"" \
+    --project="$PROJECT_ID" \
+    --freshness=10m \
+    --limit=1 \
+    --format='value(resource.labels.service_name)')"
+  [[ "$seen" == "$ANALYTICS_EVENTS_SERVICE" ]] ||
+    die "public /app/analytics/events smoke did not land on $ANALYTICS_EVENTS_SERVICE (status=$code traceparent=$traceparent)"
+}
+
 render() {
   assert_target
   require_release_inputs
@@ -589,6 +622,7 @@ deploy() {
 
   smoke_http "$STG_API_URL/livez" "204"
   smoke_http "$STG_API_URL/readyz" "204"
+  smoke_public_events_route
   mcp_url="$(service_uri "$MCP_SERVICE")"
   smoke_http "$mcp_url/livez" "200"
   smoke_http "$mcp_url/readyz" "200"

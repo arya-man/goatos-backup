@@ -19,4 +19,3 @@ For true sub-500 ms cold reads, split the analytics payload by render need inste
 - add an opt-in `include`/`sections` query parameter or a new narrow endpoint for `/weighing/leadership/growth` so table-only consumers can request just headline plus losing animals or just headline plus weekly gain;
 - add an opt-in switch for `/weighing/shed-weights` to skip `by_load` when the caller renders only shed rows/KPIs;
 - keep existing defaults backward-compatible until admin-web is updated to request the narrower shapes explicitly.
-

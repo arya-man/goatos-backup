@@ -21,7 +21,7 @@ API-only timing is not enough for final acceptance.
 
 ## Progress Checklist
 
-Current PR: <https://github.com/vgoats/goatos/pull/259>  
+Current PR: <https://github.com/vgoats/goatos/pull/259>
 Latest functional change: `cd2a250e66a2d49f25a2f32469fa0e6732bb2f17` (`fix(stg): keep business api billing cap`).
 
 | Item | Status | Evidence / next action |
@@ -34,7 +34,7 @@ Latest functional change: `cd2a250e66a2d49f25a2f32469fa0e6732bb2f17` (`fix(stg):
 | API after numbers | Done | Final all-parks Work Board: p50 270ms, p95 465ms, max 898ms cold first request; no degraded modules. |
 | Frontend Work Board fix | Done | Admin-web reads one bundled page per active park and caps all-parks backend page concurrency at 2. |
 | Weights failure guard | Done | Visual smoke covers `/weighing/weights` desktop/mobile and fails on `Weights could not be loaded`. |
-| Exact outage string guards | Done | Visual smoke and sidebar latency checks fail on `Admin-web contract unavailable`, `backend_down`, board load failure, and Weights load failure. |
+| Outage marker guards | Done | Visual smoke and sidebar latency checks fail when they see `Admin-web contract unavailable`, `backend_down`, board load failure, or Weights load failure. |
 | Local browser E2E | Done | Production-build visual smoke passed for Work Board and Weights on laptop and mobile. |
 | Local browser interaction timing | Done | Work Board sidebar: 519ms cold, then 414ms, 316ms, 262ms, 295ms. Weights warms to 632ms, 372ms, 389ms after cold route costs. |
 | Lighthouse local score | Done | Work Board 84 performance / 100 accessibility; Weights 83 performance / 100 accessibility. |
