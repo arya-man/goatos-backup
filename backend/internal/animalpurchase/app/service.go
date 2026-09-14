@@ -302,8 +302,8 @@ func (s *Service) Decide(ctx context.Context, p ports.DecideParams) (domain.Cand
 	return s.repo.Decide(ctx, p)
 }
 
-// Media signs the candidates' videos for playback in ONE read. Best-effort: a signing failure
-// leaves that video unavailable, never an error that hides the rows.
+// Media resolves proof metadata and stable backend download routes in ONE read. Best-effort: a
+// lookup failure leaves that media unavailable, never an error that hides the rows.
 func (s *Service) Media(ctx context.Context, tenantID string, rows []domain.Candidate) map[string]ports.Media {
 	if s.media == nil || len(rows) == 0 {
 		return nil
@@ -320,7 +320,7 @@ func (s *Service) Media(ctx context.Context, tenantID string, rows []domain.Cand
 	}
 	out, err := s.media.ResolveMedia(ctx, tenantID, refs)
 	if err != nil {
-		// exception:exempt media signing is best-effort on read; callers render rows without playable media.
+		// exception:exempt media metadata is best-effort on read; callers render rows without playable media.
 		return nil
 	}
 	return out

@@ -802,8 +802,8 @@ export async function listAnimalPurchaseReview(
 }
 
 // Both the legacy single video and every questionnaire media-slot item carry the same relative
-// signed link, so both are absolutized; an item without a link is left as it is (the card says
-// "not available" for it rather than pointing at nothing).
+// backend proof download route, so both are absolutized; an item without a route is left as it is
+// (the card says "not available" for it rather than pointing at nothing).
 function absolutizeAnimalPurchaseMedia(page: AnimalPurchaseReviewPage, baseUrl: string): AnimalPurchaseReviewPage {
   return {
     ...page,

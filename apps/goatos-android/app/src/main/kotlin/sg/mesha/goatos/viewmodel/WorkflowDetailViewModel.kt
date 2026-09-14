@@ -11,6 +11,10 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.builtins.MapSerializer
+import kotlinx.serialization.builtins.serializer
+import kotlinx.serialization.json.Json
 import sg.mesha.goatos.BuildConfig
 import sg.mesha.goatos.capture.PhotoCaptureContext
 import sg.mesha.goatos.capture.PhotoCaptureSource
@@ -80,7 +84,7 @@ class WorkflowDetailViewModel @Inject constructor(
     private val proofCaptureRepository: ProofCaptureRepository,
     private val analytics: AnalyticsPort,
     private val crashReporter: CrashReporter,
-    savedStateHandle: SavedStateHandle,
+    private val savedStateHandle: SavedStateHandle,
     private val photoCaptureSource: PhotoCaptureSource,
     private val countsRepository: CountsRepository,
 ) : ViewModel() {
@@ -93,13 +97,39 @@ class WorkflowDetailViewModel @Inject constructor(
      * "2 videos + 1 photo" is captured one proof at a time: every capture is enqueued as its own
      * PROOF_UPLOAD immediately (durable), and its outbox id + kind is remembered here per action
      * until the step's minimums are met, when ONE completion / answer is enqueued carrying all of
-     * them by reference. The pending list is in-memory: a process death mid-step keeps the
-     * uploads (they are already queued) and asks the operator to finish the step's captures again.
+     * them by reference. The pending list is mirrored to SavedStateHandle so a process death
+     * before the completion write does not orphan already queued proof uploads.
      */
-    private val pendingProofs = MutableStateFlow<Map<String, List<WorkflowProofOutboxRef>>>(emptyMap())
-    private val pendingAnswers = mutableMapOf<String, String>()
+    private val pendingProofs = MutableStateFlow(readPendingProofs())
+    private val pendingAnswers = readPendingAnswers().toMutableMap()
 
     private val workflowId: String = savedStateHandle[ARG_WORKFLOW_ID] ?: ""
+
+    private fun readPendingProofs(): Map<String, List<WorkflowProofOutboxRef>> =
+        savedStateHandle.get<String>(KEY_PENDING_PROOFS)?.let { raw ->
+            runCatching { workflowJson.decodeFromString(pendingProofsSerializer, raw) }.getOrNull()
+        }.orEmpty()
+
+    private fun readPendingAnswers(): Map<String, String> =
+        savedStateHandle.get<String>(KEY_PENDING_ANSWERS)?.let { raw ->
+            runCatching { workflowJson.decodeFromString(pendingAnswersSerializer, raw) }.getOrNull()
+        }.orEmpty()
+
+    private fun rememberPendingProofs(next: Map<String, List<WorkflowProofOutboxRef>>) {
+        pendingProofs.value = next
+        savedStateHandle[KEY_PENDING_PROOFS] = workflowJson.encodeToString(pendingProofsSerializer, next)
+    }
+
+    private fun rememberPendingAnswer(actionId: String, value: String) {
+        pendingAnswers[actionId] = value
+        savedStateHandle[KEY_PENDING_ANSWERS] = workflowJson.encodeToString(pendingAnswersSerializer, pendingAnswers)
+    }
+
+    private fun clearPendingAction(actionId: String) {
+        rememberPendingProofs(pendingProofs.value - actionId)
+        pendingAnswers.remove(actionId)
+        savedStateHandle[KEY_PENDING_ANSWERS] = workflowJson.encodeToString(pendingAnswersSerializer, pendingAnswers)
+    }
 
     /** Canonical slot grain for a workflow action-video capture. identity.taskId/fieldKey resolve
      *  to the SAME strings ([workflowId] passthrough / the existing [workflowProofFieldKey]
@@ -248,7 +278,7 @@ class WorkflowDetailViewModel @Inject constructor(
         val action = _state.value.actions.firstOrNull { it.actionId == actionId }
         if (action != null && action.isMultiProof) {
             // The answer waits with the captures; the step submits once every proof is in.
-            pendingAnswers[actionId] = value
+            rememberPendingAnswer(actionId, value)
             if (proofsSatisfied(action, pendingProofs.value[actionId].orEmpty())) {
                 submitMultiProof(actionId, value)
             } else {
@@ -414,7 +444,7 @@ class WorkflowDetailViewModel @Inject constructor(
                 mapOf(AnalyticsEvents.Params.ITEM_ID to workflowId, AnalyticsEvents.Params.ACTION to "$actionId:$kind"),
             )
             val queued = pendingProofs.value[actionId].orEmpty() + WorkflowProofOutboxRef(outboxItemId = proofItemId, kind = kind)
-            pendingProofs.update { it + (actionId to queued) }
+            rememberPendingProofs(pendingProofs.value + (actionId to queued))
             val latest = _state.value.actions.firstOrNull { it.actionId == actionId } ?: action
             val needsAnswer = latest.answerKind != "none" && latest.canAnswer
             if (proofsSatisfied(latest, queued) && (!needsAnswer || pendingAnswers[actionId] != null)) {
@@ -458,8 +488,7 @@ class WorkflowDetailViewModel @Inject constructor(
                         repo.markActionCompleted(workflowId, actionId, inReview = false)
                         analytics.track(AnalyticsEvents.WORKFLOW_ACTION_COMPLETED)
                     }
-                    pendingProofs.update { it - actionId }
-                    pendingAnswers.remove(actionId)
+                    clearPendingAction(actionId)
                     _state.update { it.copy(isCapturingVideo = false, message = VIDEO_QUEUED_MESSAGE, isErrorMessage = false) }
                 }
                 is AppResult.Err -> {
@@ -1150,3 +1179,8 @@ private const val WORKFLOW_SECTION_COLOSTRUM = "colostrum_session"
 internal const val WORKFLOW_BLOCKED_PREVIOUS_ACTION = "previous_action"
 private const val WORKFLOW_ACTION_KEY_FIRST_COLOSTRUM = "first_colostrum"
 private const val WORKFLOW_ACTION_KEY_TAG_THE_KID = "tag_the_kid"
+private const val KEY_PENDING_PROOFS = "workflow_detail.pending_proofs"
+private const val KEY_PENDING_ANSWERS = "workflow_detail.pending_answers"
+private val workflowJson = Json { ignoreUnknownKeys = true }
+private val pendingProofsSerializer = MapSerializer(String.serializer(), ListSerializer(WorkflowProofOutboxRef.serializer()))
+private val pendingAnswersSerializer = MapSerializer(String.serializer(), String.serializer())

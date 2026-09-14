@@ -55,7 +55,7 @@ test("media slots render a photo thumbnail or an inline video by mime, never a g
   assert.doesNotMatch(lightbox, /useRouter|router\.push|href=/);
   // Anything else says so with backend copy rather than rendering a broken tag.
   assert.match(sop, /\{copy\.mediaEmpty\}/);
-  // The signed links are relative to the API; every slot item is absolutized like the legacy video.
+  // The proof download routes are relative to the API; every slot item is absolutized like the legacy video.
   assert.match(serverRead, /media_slots: \(animal\.media_slots \?\? \[\]\)\.map/);
   assert.match(serverRead, /item\.media_url \? \{ \.\.\.item, media_url: absolutizeAgainstApi\(item\.media_url, baseUrl\) \} : item/);
 });

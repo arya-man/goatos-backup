@@ -58,10 +58,10 @@ export function FieldVerdictChip({ animal, hint }: { animal: AnimalPurchaseAnima
  * One row of captures per slot: videos play inline (metadata only until the reviewer presses
  * play), photos are thumbnails that open the full image in a new tab, exactly as the toxin review
  * does. Both are the same height so a slot's items sit side by side. The mime decides the element;
- * a capture with neither a signed link nor a known mime says so rather than rendering a broken tag.
+ * a capture with neither a backend route nor a known mime says so rather than rendering a broken tag.
  */
 export function AnimalPurchaseMedia({ slots, copy }: { slots: MediaSlot[]; copy: SopCopy }) {
-  // Every capture with a signed link and a known mime is a tile, in the order the inspector
+  // Every capture with a backend proof route and a known mime is a tile, in the order the inspector
   // recorded them (slot order is the form's order); anything else says so in its place rather
   // than rendering a broken tag.
   const items = slots.flatMap((slot) =>
