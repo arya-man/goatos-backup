@@ -89,7 +89,10 @@ test("a series switched to run from the event emits basis/interval/count and exp
   assert.deepEqual(rounds[9], { title: "11th Colostrum", dayOffset: 1, time: "", afterMinutes: 2400 });
   const emitted = emitFollowUp(rows);
   const step = emitted.tracks.find((t) => t.key === "birth_kid").steps.find((s) => s.key === "colostrum_series");
-  assert.deepEqual(step.schedule, { kind: "series", basis: "from_event", interval_minutes: 240, count: 10, key_pattern: "colostrum_series_{n}", ordinal_start: 2 });
+  assert.deepEqual(step.schedule, { kind: "series", basis: "from_event", interval_minutes: 240, count: 10, key_pattern: "colostrum_series_{n}", ordinal_start: 2, times: ["07:00", "11:00", "15:00", "18:30", "22:00"], days: 2, pre_notify_minutes: 15 });
+  // and switching back keeps the session settings the author had
+  const back = parseFollowUp({ follow_up: emitted }).tracks.find((t) => t.key === "birth_kid").steps.find((s) => s.key === "colostrum_series");
+  assert.equal(back.times, "07:00, 11:00, 15:00, 18:30, 22:00"); assert.equal(back.days, 2); assert.equal(back.preNotifyMinutes, 15);
   assert.deepEqual(followUpProblems(rows, {}), []);
   series.intervalMinutes = 0; series.count = 500;
   const problems = followUpProblems(rows, {});
