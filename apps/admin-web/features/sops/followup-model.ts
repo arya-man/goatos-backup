@@ -209,6 +209,11 @@ function emitSchedule(row: FollowUpStepRow): Record<string, unknown> {
           // to rounds counted from the event, so derive a {n} pattern unless the author has one.
           key_pattern: row.keyPattern.includes("{n}") ? row.keyPattern.trim() : `${row.key}_{n}`,
           ordinal_start: row.ordinalStart,
+          // Carried so switching the basis back later keeps the farm's session times and the
+          // same-day skip margin instead of resetting them (the engine ignores them here).
+          ...(row.times.trim() ? { times: row.times.split(",").map((t) => t.trim()).filter(Boolean) } : {}),
+          ...(row.days > 1 ? { days: row.days } : {}),
+          ...(row.preNotifyMinutes > 0 ? { pre_notify_minutes: row.preNotifyMinutes } : {}),
         };
       }
       if (row.basis === "next_sessions") {
