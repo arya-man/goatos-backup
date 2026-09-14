@@ -233,9 +233,9 @@ private fun writeProofPhotoCacheFile(context: android.content.Context, mediaKey:
             tmp.renameTo(file)
         }
         pruneProofPhotoCache(file.parentFile)
-    } catch (_: IOException) {
+    } catch (_: IOException) { // exception:exempt best-effort proof photo cache write; preview already rendered from memory
         // Best-effort cache only; the visible proof still rendered from memory.
-    } catch (_: SecurityException) {
+    } catch (_: SecurityException) { // exception:exempt best-effort proof photo cache write; preview already rendered from memory
         // Best-effort cache only; the visible proof still rendered from memory.
     }
 }
