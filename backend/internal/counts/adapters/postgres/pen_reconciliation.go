@@ -313,6 +313,7 @@ SET status = 'pending_verification',
     row_version = row_version + 1,
     updated_at = now()
 WHERE tenant_id = $1::uuid AND card_id = $2::uuid
+  AND workflow_id IS NULL
 `
 
 const markPenReconciliationVerificationEnqueuedSQL = `
@@ -375,7 +376,7 @@ SELECT c.status, c.goat_id, c.scanned_identifier, c.found_display_name,
        c.registered_shed_id, COALESCE(reg.name, ''), c.registered_partition_label,
        c.park_id, c.proof_ref, c.completed_at,
        c.completion_idempotency_key, c.completion_request_fingerprint,
-       c.verification_enqueue_pending
+       c.verification_enqueue_pending, c.workflow_id::text
 FROM pen_reconciliation_cards c
 LEFT JOIN locations reg ON reg.tenant_id = c.tenant_id AND reg.location_id = c.registered_shed_id
 WHERE c.tenant_id = $1::uuid AND c.card_id = $2::uuid
@@ -414,13 +415,14 @@ func (r *Repository) CompletePenReconciliationCard(
 		status, goatID, tag, foundDisplay, regShedID, regShedName, regPartition string
 		parkID, storedProof, storedKey, storedFingerprint                       *string
 		completedAt                                                             *time.Time
+		workflowID                                                              *string
 		verificationEnqueuePending                                              bool
 	)
 	err = tx.QueryRow(ctx, lockPenReconciliationSQL, in.TenantID, in.CardID).Scan(
 		&status, &goatID, &tag, &foundDisplay,
 		&regShedID, &regShedName, &regPartition,
 		&parkID, &storedProof, &completedAt,
-		&storedKey, &storedFingerprint, &verificationEnqueuePending,
+		&storedKey, &storedFingerprint, &verificationEnqueuePending, &workflowID,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.PenReconciliationCompletionResult{}, false, ports.ErrPenReconciliationCardNotFound
@@ -438,6 +440,10 @@ func (r *Repository) CompletePenReconciliationCard(
 		RegisteredShedName:       regShedName,
 		RegisteredPartitionLabel: regPartition,
 		ParkID:                   parkID,
+	}
+
+	if workflowID != nil && strings.TrimSpace(*workflowID) != "" {
+		return domain.PenReconciliationCompletionResult{}, false, ports.ErrPenReconciliationNotActionable
 	}
 
 	if status == domain.PenReconciliationStatusPendingVerification ||

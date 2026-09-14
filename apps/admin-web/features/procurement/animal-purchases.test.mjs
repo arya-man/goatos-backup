@@ -35,20 +35,19 @@ test("a legacy row (questionnaire_version 0) still takes the single-video branch
   assert.match(legacyBranch, /\{heading\}[\s\S]*\{decisionBlock\}/);
 });
 
-test("media slots render a photo thumbnail or an inline video by mime, never a guess", () => {
+test("media slots render byte-free tiles that open one selected proof by mime, never a guess", () => {
   assert.match(sop, /startsWith\("image\/"\)/);
   assert.match(sop, /startsWith\("video\/"\)/);
-  // A photo is a thumbnail link that opens the full image in a new tab (the toxin review shape).
-  // Every capture with a link and a known mime is a lightbox item: a photo thumbnail is a button
-  // that opens it big, a video plays inline (metadata only) with an expand button; in the order
-  // the inspector recorded them.
+  // Every capture with a link and a known mime is a byte-free tile in the order the inspector
+  // recorded it. Clicking one opens the selected proof in the in-page lightbox; no list tile
+  // fetches media bytes.
   assert.match(sop, /kind: isImage\(item\) \? \("photo" as const\) : \("video" as const\)/);
   assert.match(sop, /<AnimalPurchaseLightbox items=\{items\}/);
   // Uniform tiles: remote proof bytes are tap-gated; photos/videos load only in the opened dialog.
   assert.match(lightbox, /className="ap-tile"[\s\S]*?ap-tile-placeholder/);
   assert.doesNotMatch(lightbox, /<img src=\{item\.url\}/);
   assert.doesNotMatch(lightbox, /<video src=\{item\.url\}/);
-  assert.match(lightbox, /<img src=\{open\.url\} alt="" className="ap-lightbox-media" \/>/);
+  assert.match(lightbox, /admin-proof-media-egress:ignore[\s\S]*?<img src=\{open\.url\} alt="" className="ap-lightbox-media" \/>/);
   assert.match(lightbox, /<video src=\{open\.url\} controls autoPlay playsInline/);
   assert.match(lightbox, /role="dialog"[\s\S]*?aria-modal="true"/);
   assert.match(lightbox, /event\.key === "Escape"/);

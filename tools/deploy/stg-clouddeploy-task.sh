@@ -498,7 +498,7 @@ deploy() {
     --max=2 \
     --min-instances=1 \
     --max-instances=2 \
-    --concurrency=20 \
+    --concurrency=10 \
     --update-labels="commit_sha=${COMMIT_SHA},deployed_by=cloud-deploy" \
     --quiet
   run gcloud run services update-traffic "$API_SERVICE" \

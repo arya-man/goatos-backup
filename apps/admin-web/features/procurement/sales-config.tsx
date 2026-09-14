@@ -107,38 +107,36 @@ export async function SalesConfigPage({
   const groupStatus = one(sp, FPO_LEAD_PARAMS.status) ?? "";
   const groupOffset = boundedInt(one(sp, FPO_LEAD_PARAMS.offset), 0, 0, 10000);
 
-  // The whole screen's data in ONE parallel read. Every drawer opens from this data: a
-  // LocalOverlayLink changes the URL without an RSC request, so a form that fetched on open would
-  // never see its own data arrive.
-  const [dealsResult, loadwiseResult, buyerLeadsResult, fpoLeadsResult, saleLocations, vendorOptionsResult, marketConfigResult] =
-    await Promise.all([
-      listSalesDeals({ farm: "all", limit, offset }),
-      getLoadwiseSales(),
-      canRecordPipeline
-        ? listSalesBuyerLeads({
-            limit: LEAD_PAGE_SIZE,
-            offset: buyerOffset,
-            search: buyerSearch || undefined,
-            status: buyerStatus || undefined,
-          })
-        : Promise.resolve(null),
-      canRecordPipeline
-        ? listSalesFpoLeads({
-            limit: LEAD_PAGE_SIZE,
-            offset: groupOffset,
-            search: groupSearch || undefined,
-            status: groupStatus || undefined,
-          })
-        : Promise.resolve(null),
-      // The tag-animals picker's park/shed/pen vocabulary, backend-owned.
-      listSaleLocations(),
-      // Every sale is made TO a vendor (maintainer decision 2026-08-27). ONE bounded read, never
-      // a paged walk of /procurement/vendors: that is the banned SSR full-walk shape.
-      listProcurementVendorOptions(),
-      // The market survey's cities and questions (maintainer decision 2026-09-14): one bounded
-      // read of the whole authored config.
-      getMarketConfig(),
-    ]);
+  // Every drawer opens from this data: a LocalOverlayLink changes the URL without an RSC request,
+  // so a form that fetched on open would never see its own data arrive. Keep the reads serialized:
+  // they are individually bounded, but firing all seven during Cloud Run warmup can still produce
+  // the backend_down/admin-contract failure screens this page must avoid.
+  const dealsResult = await listSalesDeals({ farm: "all", limit, offset });
+  const loadwiseResult = await getLoadwiseSales();
+  const buyerLeadsResult = canRecordPipeline
+    ? await listSalesBuyerLeads({
+        limit: LEAD_PAGE_SIZE,
+        offset: buyerOffset,
+        search: buyerSearch || undefined,
+        status: buyerStatus || undefined,
+      })
+    : null;
+  const fpoLeadsResult = canRecordPipeline
+    ? await listSalesFpoLeads({
+        limit: LEAD_PAGE_SIZE,
+        offset: groupOffset,
+        search: groupSearch || undefined,
+        status: groupStatus || undefined,
+      })
+    : null;
+  // The tag-animals picker's park/shed/pen vocabulary, backend-owned.
+  const saleLocations = await listSaleLocations();
+  // Every sale is made TO a vendor (maintainer decision 2026-08-27). ONE bounded read, never
+  // a paged walk of /procurement/vendors: that is the banned SSR full-walk shape.
+  const vendorOptionsResult = await listProcurementVendorOptions();
+  // The market survey's cities and questions (maintainer decision 2026-09-14): one bounded
+  // read of the whole authored config.
+  const marketConfigResult = await getMarketConfig();
 
   if (firstAuthRequiredError(dealsResult, loadwiseResult)) redirect(INTERNAL_LOGIN_PATH);
 

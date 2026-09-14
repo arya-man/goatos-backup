@@ -32,9 +32,11 @@ import sg.mesha.goatos.core.data.WorkflowVideoDraft
 import sg.mesha.goatos.core.data.capture.buildWorkflowEvidenceSlot
 import sg.mesha.goatos.core.data.capture.EvidenceSlot
 import sg.mesha.goatos.core.data.capture.ProofCaptureRepository
+import sg.mesha.goatos.core.data.capture.ProofCaptureRow
 import sg.mesha.goatos.core.data.capture.ProofFlow
 import sg.mesha.goatos.core.data.capture.ProofIdentity
 import sg.mesha.goatos.core.data.capture.ProofSubject
+import sg.mesha.goatos.core.data.capture.CaptureSyncStatus
 import sg.mesha.goatos.core.data.forms.ProofPolicy
 import sg.mesha.goatos.core.data.sync.SyncRepository
 import sg.mesha.goatos.core.data.sync.SyncItemStatus
@@ -102,6 +104,7 @@ class WorkflowDetailViewModel @Inject constructor(
      */
     private val pendingProofs = MutableStateFlow(readPendingProofs())
     private val pendingAnswers = readPendingAnswers().toMutableMap()
+    private val submittedMultiProofKeys = mutableSetOf<String>()
 
     private val workflowId: String = savedStateHandle[ARG_WORKFLOW_ID] ?: ""
 
@@ -163,6 +166,7 @@ class WorkflowDetailViewModel @Inject constructor(
             }
         }
         viewModelScope.launch { countsRepository.refreshShiftingDestinations() }
+        observeDurableMultiProofCaptures()
     }
 
     fun onEvent(event: WorkflowDetailEvent) {
@@ -239,6 +243,82 @@ class WorkflowDetailViewModel @Inject constructor(
                 }
             }
         }
+    }
+
+    private fun observeDurableMultiProofCaptures() {
+        viewModelScope.launch {
+            combine(
+                repo.observeDetail(workflowId, lens, lensDate),
+                proofCaptureRepository.observeProofs(workflowId),
+            ) { detail, proofs -> detail to proofs }
+                .collect { (detail, proofs) ->
+                    val actions = detail?.actions.orEmpty()
+                    val recovered = recoverMultiProofRefs(actions, proofs)
+                    if (recovered.isNotEmpty()) {
+                        val merged = pendingProofs.value + recovered
+                        if (merged != pendingProofs.value) rememberPendingProofs(merged)
+                    }
+                    actions.forEach { dto ->
+                        if (operatorFinishedWorkflowStatus(dto.status)) return@forEach
+                        val action = _state.value.actions.firstOrNull { it.actionId == dto.actionId } ?: return@forEach
+                        val captured = autoSubmittableProofRefs(dto, pendingProofs.value[action.actionId].orEmpty())
+                        if (captured.isNotEmpty() && proofsSatisfied(action, captured)) {
+                            if (captured != pendingProofs.value[action.actionId].orEmpty()) {
+                                rememberPendingProofs(pendingProofs.value + (action.actionId to captured))
+                            }
+                            val needsAnswer = action.answerKind != "none" && action.canAnswer
+                            val answerValue = pendingAnswers[action.actionId] ?: dto.answerValue
+                            if (!needsAnswer || !answerValue.isNullOrBlank()) {
+                                submitMultiProof(action.actionId, answerValue)
+                            }
+                        }
+                    }
+                }
+        }
+    }
+
+    private fun recoverMultiProofRefs(
+        actions: List<WorkflowActionDto>,
+        proofs: List<ProofCaptureRow>,
+    ): Map<String, List<WorkflowProofOutboxRef>> =
+        actions
+            .filter { it.proofMinPhotos > 0 || it.proofMinVideos > 1 }
+            .filterNot { operatorFinishedWorkflowStatus(it.status) }
+            .associate { action ->
+                val prefix = workflowProofFieldKey(action.actionId) + "_"
+                val backendProofRefs = action.proofRefs.mapNotNull { it.ref.takeIf(String::isNotBlank) }.toSet()
+                action.actionId to proofs
+                    .asSequence()
+                    .filter { row ->
+                        row.syncStatus != CaptureSyncStatus.FAILED &&
+                            (!row.outboxItemId.isNullOrBlank() || !row.serverProofId.isNullOrBlank()) &&
+                            row.fieldKey.startsWith(prefix) &&
+                            (action.status != STATUS_REWORK || row.serverProofId.isNullOrBlank() || row.serverProofId !in backendProofRefs)
+                    }
+                    .sortedBy { it.capturedAtMs }
+                    .mapNotNull { row ->
+                        val kind = row.fieldKey.removePrefix(prefix).substringBefore("_")
+                        if (kind == PROOF_KIND_PHOTO || kind == PROOF_KIND_VIDEO) {
+                            WorkflowProofOutboxRef(
+                                outboxItemId = row.outboxItemId.orEmpty(),
+                                proofRef = row.serverProofId.orEmpty(),
+                                kind = kind,
+                            )
+                        } else {
+                            null
+                        }
+                    }
+                    .toList()
+            }
+            .filterValues { it.isNotEmpty() }
+
+    private fun autoSubmittableProofRefs(
+        action: WorkflowActionDto,
+        proofs: List<WorkflowProofOutboxRef>,
+    ): List<WorkflowProofOutboxRef> {
+        if (action.status != STATUS_REWORK) return proofs
+        val backendProofRefs = action.proofRefs.mapNotNull { it.ref.takeIf(String::isNotBlank) }.toSet()
+        return proofs.filter { it.proofRef.isBlank() || it.proofRef !in backendProofRefs }
     }
 
     private fun refresh() {
@@ -459,6 +539,8 @@ class WorkflowDetailViewModel @Inject constructor(
         val proofs = pendingProofs.value[actionId].orEmpty()
         if (proofs.isEmpty()) return
         val fingerprint = proofs.joinToString(",") { it.outboxItemId }.hashCode().toUInt().toString(16)
+        val submittedKey = "$actionId:$fingerprint:${answerValue.orEmpty()}"
+        if (!submittedMultiProofKeys.add(submittedKey)) return
         viewModelScope.launch {
             val writeResult = if (answerValue != null) {
                 syncRepository.enqueueWorkflowActionAnswer(
@@ -492,6 +574,7 @@ class WorkflowDetailViewModel @Inject constructor(
                     _state.update { it.copy(isCapturingVideo = false, message = VIDEO_QUEUED_MESSAGE, isErrorMessage = false) }
                 }
                 is AppResult.Err -> {
+                    submittedMultiProofKeys.remove(submittedKey)
                     _state.update { it.copy(isCapturingVideo = false) }
                     onWriteFailed("workflow_multi_proof", writeResult)
                 }

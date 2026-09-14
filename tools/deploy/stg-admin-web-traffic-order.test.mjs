@@ -55,14 +55,14 @@ test("api post-migration restore preserves staging latency scale settings", () =
   assert.match(restoreBlock, /--max=2\s+\\/, "api restore must restore the intended cost-capped max scale");
   assert.match(restoreBlock, /--min-instances=1\s+\\/, "api restore must preserve min instance annotation");
   assert.match(restoreBlock, /--max-instances=2\s+\\/, "api restore must preserve max instance annotation");
-  assert.match(restoreBlock, /--concurrency=20\s+\\/, "api restore must cap per-instance request concurrency");
+  assert.match(restoreBlock, /--concurrency=10\s+\\/, "api restore must cap per-instance request concurrency to the default DB pool");
 });
 
 test("api terraform and deploy restore keep the same latency shape", () => {
   assert.match(
     apiTerraform,
-    /max_instance_request_concurrency\s*=\s*20/,
-    "terraform must pin api request concurrency",
+    /max_instance_request_concurrency\s*=\s*10/,
+    "terraform must pin api request concurrency to the default DB pool",
   );
   assert.match(apiTerraform, /min_instance_count\s*=\s*1/, "terraform must keep one warm api instance");
   assert.match(apiTerraform, /max_instance_count\s*=\s*2/, "terraform must preserve the staging api billing cap");
@@ -74,7 +74,7 @@ test("api terraform and deploy restore keep the same latency shape", () => {
 
   assert.match(restoreBlock, /--min=1\s+\\/, "deploy restore must match terraform min scale");
   assert.match(restoreBlock, /--max=2\s+\\/, "deploy restore must match terraform max scale");
-  assert.match(restoreBlock, /--concurrency=20\s+\\/, "deploy restore must match terraform concurrency");
+  assert.match(restoreBlock, /--concurrency=10\s+\\/, "deploy restore must match terraform concurrency");
 });
 
 test("analytics events has an isolated capped deploy lane", () => {

@@ -83,7 +83,7 @@ internal fun FeedPurchaseDto.metaLine(): String = dotJoin(
     vendor,
 )
 
-/** Turns a host-relative signed proof path into an absolute URL the player can open. */
+/** Turns a host-relative backend proof route into an absolute URL the player can open. */
 internal fun vendorsAbsoluteProofUrl(raw: String): String {
     val trimmed = raw.trim()
     return when {

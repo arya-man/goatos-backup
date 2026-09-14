@@ -23,16 +23,20 @@ import sg.mesha.goatos.core.analytics.NoopCrashReporter
 import sg.mesha.goatos.core.common.AppResult
 import sg.mesha.goatos.core.data.WorkflowVideoDraft
 import sg.mesha.goatos.core.data.WorkflowsRepository
+import sg.mesha.goatos.core.data.capture.CaptureSyncStatus
 import sg.mesha.goatos.core.data.capture.ProofCaptureRepository
+import sg.mesha.goatos.core.data.capture.ProofCaptureRow
+import sg.mesha.goatos.core.data.capture.ProofSubject
 import sg.mesha.goatos.core.data.sync.SyncRepository
-import sg.mesha.goatos.core.data.sync.WorkflowProofOutboxRef
 import sg.mesha.goatos.core.data.sync.SyncQueueItem
 import sg.mesha.goatos.core.data.sync.SyncStatus
+import sg.mesha.goatos.core.data.sync.WorkflowProofOutboxRef
 import sg.mesha.goatos.core.network.dto.WorkflowActionDto
 import sg.mesha.goatos.core.network.dto.WorkflowCardDto
 import sg.mesha.goatos.core.network.dto.WorkflowChipsDto
 import sg.mesha.goatos.core.network.dto.WorkflowDetailResponseDto
 import sg.mesha.goatos.core.network.dto.WorkflowOverdueDateDto
+import sg.mesha.goatos.core.network.dto.WorkflowProofItemDto
 import sg.mesha.goatos.core.network.dto.WorkflowSubjectDto
 import sg.mesha.goatos.core.network.dto.VerificationVerdictMeasurementDto
 import sg.mesha.goatos.feature.counts.WorkflowDetailEvent
@@ -292,6 +296,64 @@ class WorkflowDetailViewModelTest {
     }
 
     @Test
+    fun `rework recovery submits fresh corrected proofs and ignores old rejected proof refs`() = runTest(dispatcher) {
+        val action = WorkflowActionDto(
+            actionId = "action-1",
+            actionKey = "record_kid_video",
+            seq = 1,
+            actionType = "action",
+            title = "Record kid video",
+            status = "rework",
+            proofMinVideos = 2,
+            proofRefs = listOf(WorkflowProofItemDto(ref = "old-proof", kind = "video")),
+        )
+        val workflowsRepository = FakeWorkflowDetailRepository(requiresVideoDetail().copy(actions = listOf(action)))
+        val syncRepository = FakeWorkflowDetailSyncRepository()
+        val proofCaptureRepository = FakeProofCaptureRepository()
+        proofCaptureRepository.seedProofs(
+            workflowProofRow(
+                id = "old-row",
+                fieldKey = workflowProofFieldKey("action-1") + "_video_1",
+                serverProofId = "old-proof",
+                outboxItemId = "old-outbox",
+                capturedAtMs = 1L,
+            ),
+            workflowProofRow(
+                id = "fresh-row-1",
+                fieldKey = workflowProofFieldKey("action-1") + "_video_1",
+                serverProofId = "new-proof-1",
+                outboxItemId = "fresh-outbox-1",
+                capturedAtMs = 2L,
+            ),
+            workflowProofRow(
+                id = "fresh-row-2",
+                fieldKey = workflowProofFieldKey("action-1") + "_video_2",
+                serverProofId = null,
+                outboxItemId = "fresh-outbox-2",
+                capturedAtMs = 3L,
+            ),
+        )
+        val viewModel = buildViewModel(
+            workflowsRepository,
+            syncRepository,
+            proofCaptureRepository,
+            FakeProofCaptureSource(mutableListOf()),
+        )
+        backgroundScope.launch { viewModel.state.collect {} }
+        advanceUntilIdle()
+
+        assertEquals("fresh corrected rework proofs should complete after process recreation", 1, syncRepository.completeCalls.size)
+        assertEquals(
+            listOf("new-proof-1", ""),
+            syncRepository.completeCalls.single().proofOutboxItems.map { it.proofRef },
+        )
+        assertEquals(
+            listOf("fresh-outbox-1", "fresh-outbox-2"),
+            syncRepository.completeCalls.single().proofOutboxItems.map { it.outboxItemId },
+        )
+    }
+
+    @Test
     fun `terminal complete failure rolls optimistic action back to pending`() = runTest(dispatcher) {
         val workflowsRepository = FakeWorkflowDetailRepository(
             requiresVideoDetail().copy(actions = requiresVideoDetail().actions.map { it.copy(requiresVideo = false) }),
@@ -344,6 +406,30 @@ class WorkflowDetailViewModelTest {
         assertEquals("pending", workflowsRepository.actionStatus("action-1"))
     }
 }
+
+private fun workflowProofRow(
+    id: String,
+    fieldKey: String,
+    serverProofId: String?,
+    outboxItemId: String?,
+    capturedAtMs: Long,
+) = ProofCaptureRow(
+    id = id,
+    fieldKey = fieldKey,
+    proofSubject = ProofSubject.GOAT,
+    subjectId = "goat-1",
+    localUri = "/proof/$id.mp4",
+    mimeType = "video/mp4",
+    caption = "Record kid video",
+    capturedAtMs = capturedAtMs,
+    capturedStartMs = capturedAtMs,
+    capturedEndMs = capturedAtMs + 1,
+    capturedByPrincipalId = null,
+    syncStatus = CaptureSyncStatus.SYNCED,
+    serverProofId = serverProofId,
+    outboxItemId = outboxItemId,
+    lastError = null,
+)
 
 /**
  * Minimal in-memory [WorkflowsRepository] test double: one workflow, no paging/cards/chips
@@ -405,7 +491,14 @@ private class FakeWorkflowDetailSyncRepository : SyncRepository {
     override fun observeItem(itemId: String): Flow<SyncQueueItem?> =
         items.getOrPut(itemId) { MutableStateFlow(null) }
 
-    data class CompleteCall(val groupKey: String, val idempotencyKey: String, val workflowId: String, val actionId: String, val proofOutboxItemId: String?)
+    data class CompleteCall(
+        val groupKey: String,
+        val idempotencyKey: String,
+        val workflowId: String,
+        val actionId: String,
+        val proofOutboxItemId: String?,
+        val proofOutboxItems: List<WorkflowProofOutboxRef>,
+    )
     data class AnswerCall(val groupKey: String, val idempotencyKey: String, val workflowId: String, val actionId: String, val answerValue: String, val proofOutboxItemId: String?)
 
     val completeCalls = mutableListOf<CompleteCall>()
@@ -456,7 +549,7 @@ private class FakeWorkflowDetailSyncRepository : SyncRepository {
         proofOutboxItemId: String?,
         proofOutboxItems: List<WorkflowProofOutboxRef>,
     ): AppResult<String> {
-        completeCalls += CompleteCall(groupKey, idempotencyKey, workflowId, actionId, proofOutboxItemId)
+        completeCalls += CompleteCall(groupKey, idempotencyKey, workflowId, actionId, proofOutboxItemId, proofOutboxItems)
         val id = outboxItemIdByKey.getOrPut(idempotencyKey) { "wf-outbox-${nextOutboxId++}" }
         return AppResult.Ok(id)
     }

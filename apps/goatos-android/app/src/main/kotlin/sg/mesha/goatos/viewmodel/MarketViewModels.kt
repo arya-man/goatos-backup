@@ -10,9 +10,14 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.builtins.MapSerializer
+import kotlinx.serialization.builtins.serializer
+import kotlinx.serialization.json.Json
 import sg.mesha.goatos.core.analytics.AnalyticsEvents
 import sg.mesha.goatos.core.analytics.AnalyticsEventsMarket
 import sg.mesha.goatos.core.analytics.AnalyticsPort
@@ -35,6 +40,13 @@ import sg.mesha.goatos.feature.vendors.VendorsWriteStatus
 
 /** The cached-day key the Market tab reads: blank means "today as the server last resolved it". */
 internal const val MARKET_TODAY_KEY = ""
+private const val KEY_TYPED = "market_city_entry.typed"
+private const val KEY_TYPED_BUSINESS_DATE = "market_city_entry.typed_business_date"
+private const val KEY_TYPED_CITY_ID = "market_city_entry.typed_city_id"
+private const val KEY_SAVE_CLIENT_ID = "market_city_entry.save_client_id"
+private const val KEY_SAVE_BUSINESS_DATE = "market_city_entry.save_business_date"
+private const val KEY_SAVE_CITY_ID = "market_city_entry.save_city_id"
+private const val KEY_SAVE_ANSWERS = "market_city_entry.save_answers"
 
 /**
  * The Market tab's L0 (`/vendors/market`, maintainer decision 2026-09-14): today's city cards
@@ -44,6 +56,7 @@ internal const val MARKET_TODAY_KEY = ""
 @HiltViewModel
 class MarketSurveyViewModel @Inject constructor(
     private val repository: MarketRepository,
+    private val syncRepository: SyncRepository,
     private val analytics: AnalyticsPort,
     private val crashReporter: CrashReporter,
 ) : ViewModel() {
@@ -59,6 +72,11 @@ class MarketSurveyViewModel @Inject constructor(
 
     init {
         analytics.track(AnalyticsEventsMarket.DAY_VIEWED)
+        viewModelScope.launch {
+            syncRepository.observePendingMarketSurveyRecords().collect { records ->
+                repository.applyPendingSurveyRecords(records)
+            }
+        }
     }
 
     fun bind(title: String) {
@@ -82,7 +100,10 @@ class MarketSurveyViewModel @Inject constructor(
         viewModelScope.launch {
             local.update { it.copy(isRefreshing = true) }
             repository.refreshDay(MARKET_TODAY_KEY)
-                .onSuccess { local.update { it.copy(isRefreshing = false, lastSyncedAt = System.currentTimeMillis(), loadError = false) } }
+                .onSuccess {
+                    repository.applyPendingSurveyRecords(syncRepository.observePendingMarketSurveyRecords().first())
+                    local.update { it.copy(isRefreshing = false, lastSyncedAt = System.currentTimeMillis(), loadError = false) }
+                }
                 .onFailure { error ->
                     crashReporter.recordException(error, "market day refresh failed")
                     analytics.track(AnalyticsEventsMarket.FAILURE, mapOf(AnalyticsEvents.Params.REASON to (error.message ?: "refresh").take(120)))
@@ -169,7 +190,12 @@ class MarketCityEntryViewModel @Inject constructor(
         val submitInFlight: Boolean = false,
     )
 
-    private val local = MutableStateFlow(Local(cityId = savedStateHandle.get<String>(ARG_CITY_ID).orEmpty()))
+    private val local = MutableStateFlow(
+        Local(
+            cityId = savedStateHandle.get<String>(ARG_CITY_ID).orEmpty(),
+            typed = readDraftTyped(savedStateHandle),
+        ),
+    )
 
     /** The business date of the cached day the form was composed from; the save names it. */
     @Volatile
@@ -182,6 +208,13 @@ class MarketCityEntryViewModel @Inject constructor(
 
     private fun composeEntryState(day: MarketSurveyDayDto?, cityId: String, typed: Map<String, String>, errors: Map<String, String>, l: Local): MarketCityEntryUiState {
         val card = day?.cards?.firstOrNull { it.cityId == cityId }
+        if (day != null && typed.isNotEmpty() && !typedDraftMatches(day.businessDate, cityId)) {
+            clearTypedDraft()
+            viewModelScope.launch {
+                local.update { it.copy(typed = emptyMap()) }
+            }
+            return composeEntryState(day, cityId, emptyMap(), errors, l.copy(typed = emptyMap()))
+        }
         return MarketCityEntryUiState(
             cityName = card?.cityName.orEmpty(),
             dateLine = day?.businessDate?.let(::farmDate).orEmpty(),
@@ -198,7 +231,12 @@ class MarketCityEntryViewModel @Inject constructor(
     fun onEvent(event: MarketCityEntryEvent) {
         when (event) {
             is MarketCityEntryEvent.PriceChanged -> local.update {
-                it.copy(typed = it.typed + (event.questionId to event.value), errors = it.errors - event.questionId)
+                val typed = it.typed + (event.questionId to event.value)
+                savedStateHandle[KEY_TYPED] = marketJson.encodeToString(marketTypedSerializer, typed)
+                savedStateHandle[KEY_TYPED_BUSINESS_DATE] = businessDate
+                savedStateHandle[KEY_TYPED_CITY_ID] = it.cityId
+                clearStableSaveClientId()
+                it.copy(typed = typed, errors = it.errors - event.questionId)
             }
             MarketCityEntryEvent.Save -> save()
             MarketCityEntryEvent.Back -> Unit
@@ -222,13 +260,23 @@ class MarketCityEntryViewModel @Inject constructor(
         viewModelScope.launch {
             local.update { it.copy(submitInFlight = true) }
             val cityId = local.value.cityId
-            val request = MarketSurveyEntryRequestDto(businessDate = date, answers = answers)
-            when (val result = syncRepository.enqueueMarketSurveyRecord(UUID.randomUUID().toString(), cityId, date, request)) {
+            val stableSave = stableSave(cityId, date, answers)
+            val request = MarketSurveyEntryRequestDto(businessDate = date, answers = stableSave.answers)
+            val clientId = stableSave.clientId
+            when (val result = syncRepository.enqueueMarketSurveyRecord(clientId, cityId, date, request)) {
                 is AppResult.Ok -> {
                     analytics.track(AnalyticsEventsMarket.CITY_QUEUED)
-                    repository.applyLocalAnswers(date, cityId, answers)
-                    local.update { it.copy(submitInFlight = false, writeStatus = VendorsWriteStatus.QUEUED, writeMessage = MESSAGE_SAVING) }
-                    followWrite(result.value)
+                    repository.applyLocalAnswers(date, cityId, stableSave.answers)
+                    clearTypedDraft()
+                    local.update {
+                        it.copy(
+                            typed = emptyMap(),
+                            submitInFlight = false,
+                            writeStatus = VendorsWriteStatus.QUEUED,
+                            writeMessage = MESSAGE_SAVING,
+                        )
+                    }
+                    followWrite(result.value, date)
                 }
                 is AppResult.Err -> {
                     result.cause?.let { crashReporter.recordException(it, "market survey enqueue failed") }
@@ -239,21 +287,47 @@ class MarketCityEntryViewModel @Inject constructor(
         }
     }
 
-    private fun followWrite(itemId: String) {
+    init {
+        viewModelScope.launch {
+            syncRepository.observePendingMarketSurveyRecords().collect { records ->
+                repository.applyPendingSurveyRecords(records)
+                val currentDate = businessDate
+                val cityId = local.value.cityId
+                val active = records.lastOrNull { it.cityId == cityId && (currentDate.isBlank() || it.businessDate == currentDate) }
+                if (active != null) {
+                    savedStateHandle[KEY_SAVE_CLIENT_ID] = active.clientId
+                    savedStateHandle[KEY_SAVE_CITY_ID] = active.cityId
+                    savedStateHandle[KEY_SAVE_BUSINESS_DATE] = active.businessDate
+                    savedStateHandle[KEY_SAVE_ANSWERS] = marketJson.encodeToString(marketAnswersSerializer, active.request.answers)
+                }
+            }
+        }
+    }
+
+    private fun followWrite(itemId: String, businessDate: String) {
         viewModelScope.launch {
             syncRepository.followQueuedWrite(itemId).collect { outcome ->
                 analytics.track(
                     AnalyticsEventsMarket.WRITE_OUTCOME,
                     mapOf(AnalyticsEvents.Params.REASON to outcome::class.simpleName.orEmpty().lowercase()),
                 )
+                if (outcome is QueuedWriteOutcome.Rejected) {
+                    repository.refreshDay(businessDate)
+                }
                 local.update {
                     when (outcome) {
-                        QueuedWriteOutcome.Saved -> it.copy(writeStatus = VendorsWriteStatus.SYNCED, writeMessage = MESSAGE_SAVED, closeAfterSave = true)
+                        QueuedWriteOutcome.Saved -> {
+                            clearStableSaveClientId()
+                            it.copy(writeStatus = VendorsWriteStatus.SYNCED, writeMessage = MESSAGE_SAVED, closeAfterSave = true)
+                        }
                         QueuedWriteOutcome.StillQueued -> it.copy(writeStatus = VendorsWriteStatus.QUEUED, writeMessage = MESSAGE_QUEUED, closeAfterSave = true)
-                        is QueuedWriteOutcome.Rejected -> it.copy(
-                            writeStatus = VendorsWriteStatus.FAILED,
-                            writeMessage = outcome.reason?.takeIf { r -> r.isNotBlank() } ?: MESSAGE_NOT_SAVED,
-                        )
+                        is QueuedWriteOutcome.Rejected -> {
+                            clearStableSaveClientId()
+                            it.copy(
+                                writeStatus = VendorsWriteStatus.FAILED,
+                                writeMessage = outcome.reason?.takeIf { r -> r.isNotBlank() } ?: MESSAGE_NOT_SAVED,
+                            )
+                        }
                     }
                 }
             }
@@ -269,6 +343,48 @@ class MarketCityEntryViewModel @Inject constructor(
         const val MESSAGE_NOTHING_TO_SAVE = "Enter at least one price before saving."
         const val ERROR_NOT_A_NUMBER = "Enter a number"
         const val ERROR_NEGATIVE = "Cannot be negative"
+    }
+
+    private fun typedDraftMatches(businessDate: String, cityId: String): Boolean =
+        savedStateHandle.get<String>(KEY_TYPED_BUSINESS_DATE) == businessDate &&
+            savedStateHandle.get<String>(KEY_TYPED_CITY_ID) == cityId
+
+    private fun clearTypedDraft() {
+        savedStateHandle[KEY_TYPED] = marketJson.encodeToString(marketTypedSerializer, emptyMap())
+        savedStateHandle[KEY_TYPED_BUSINESS_DATE] = ""
+        savedStateHandle[KEY_TYPED_CITY_ID] = ""
+    }
+
+    private data class StableMarketSave(
+        val clientId: String,
+        val answers: List<MarketSurveyAnswerDto>,
+    )
+
+    private fun stableSave(
+        cityId: String,
+        businessDate: String,
+        answers: List<MarketSurveyAnswerDto>,
+    ): StableMarketSave {
+        val existing = savedStateHandle.get<String>(KEY_SAVE_CLIENT_ID)
+        val existingCity = savedStateHandle.get<String>(KEY_SAVE_CITY_ID)
+        val existingDate = savedStateHandle.get<String>(KEY_SAVE_BUSINESS_DATE)
+        if (!existing.isNullOrBlank() && existingCity == cityId && existingDate == businessDate) {
+            val savedAnswers = readSaveAnswers(savedStateHandle).takeIf { it.isNotEmpty() } ?: answers
+            return StableMarketSave(existing, savedAnswers)
+        }
+        val next = UUID.randomUUID().toString()
+        savedStateHandle[KEY_SAVE_CLIENT_ID] = next
+        savedStateHandle[KEY_SAVE_CITY_ID] = cityId
+        savedStateHandle[KEY_SAVE_BUSINESS_DATE] = businessDate
+        savedStateHandle[KEY_SAVE_ANSWERS] = marketJson.encodeToString(marketAnswersSerializer, answers)
+        return StableMarketSave(next, answers)
+    }
+
+    private fun clearStableSaveClientId() {
+        savedStateHandle[KEY_SAVE_CLIENT_ID] = ""
+        savedStateHandle[KEY_SAVE_CITY_ID] = ""
+        savedStateHandle[KEY_SAVE_BUSINESS_DATE] = ""
+        savedStateHandle[KEY_SAVE_ANSWERS] = ""
     }
 }
 
@@ -308,3 +424,17 @@ internal fun parseAnswers(fields: List<MarketQuestionFieldUi>): Pair<List<Market
 
 private fun plainNumber(value: Double): String =
     if (value == Math.floor(value) && value < 1e15) value.toLong().toString() else value.toString()
+
+private val marketJson = Json { ignoreUnknownKeys = true }
+private val marketTypedSerializer = MapSerializer(String.serializer(), String.serializer())
+private val marketAnswersSerializer = ListSerializer(MarketSurveyAnswerDto.serializer())
+
+private fun readDraftTyped(savedStateHandle: SavedStateHandle): Map<String, String> =
+    savedStateHandle.get<String>(KEY_TYPED)?.let { raw ->
+        runCatching { marketJson.decodeFromString(marketTypedSerializer, raw) }.getOrNull()
+    }.orEmpty()
+
+private fun readSaveAnswers(savedStateHandle: SavedStateHandle): List<MarketSurveyAnswerDto> =
+    savedStateHandle.get<String>(KEY_SAVE_ANSWERS)?.let { raw ->
+        runCatching { marketJson.decodeFromString(marketAnswersSerializer, raw) }.getOrNull()
+    }.orEmpty()

@@ -61,11 +61,13 @@ func TestEventsRouteModeKeepsBusinessAndUnsignedRoutesOutOfEventLane(t *testing.
 		t.Fatalf("read api.go: %v", err)
 	}
 	src := string(srcBytes)
-	eventsBranch := `if cfg.RouteMode == apiRouteModeEvents {
-		appanalyticshttp.Register(protectedMux, appAnalyticsHandler)
-	} else {`
-	if !strings.Contains(src, eventsBranch) {
-		t.Fatal("events route mode must register only app analytics before the full-api branch")
+	eventsBootGate := `if cfg.RouteMode == apiRouteModeEvents {`
+	eventsBootGateAt := strings.Index(src, eventsBootGate)
+	if eventsBootGateAt < 0 || !strings.Contains(src[eventsBootGateAt:], "return newEventsAPI(") {
+		t.Fatal("events route mode must return through the isolated event API builder")
+	}
+	if eventsBootGateAt > strings.Index(src, `proofStorage, err := buildProofStorage()`) {
+		t.Fatal("events route mode must branch before proof storage and full business boot dependencies")
 	}
 	signedProofGate := `if cfg.RouteMode != apiRouteModeEvents {
 		authaudit.Register(mux, authAuditHandler)

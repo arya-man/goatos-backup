@@ -773,10 +773,9 @@ export async function listAnimalPurchaseLoads(
 /**
  * One page of the review queue. `decision` is the backend's own filter vocabulary (pending |
  * accepted | rejected | all; absent means pending) and `counts` / `filters` are WHOLE-FILTER
- * figures, never page sums. Every capture's link (the legacy video and each questionnaire slot
- * item) is the backend's signed playback link, served relative when the API and its media route
- * share a host; it is absolutized against the API base the same way the verification and toxin
- * media links are, so the browser's <img>/<video> can reach it.
+ * figures, never page sums. Every capture carries the backend proof download route, served
+ * relative when the API and media route share a host; signing and attribution happen only when
+ * that route is opened by the browser's <img>/<video>.
  */
 export async function listAnimalPurchaseReview(
   params: { load_id?: string; decision?: string; recorded_from?: string; recorded_to?: string; limit?: number; cursor?: string } = {},

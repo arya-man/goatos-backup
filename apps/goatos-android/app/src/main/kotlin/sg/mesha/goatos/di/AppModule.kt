@@ -141,6 +141,7 @@ import sg.mesha.goatos.core.data.sync.countsPromoteIdentifierRefreshHook
 import sg.mesha.goatos.core.data.sync.healthCaseOpenRefreshHook
 import sg.mesha.goatos.core.data.sync.healthTreatmentCompleteFailureHook
 import sg.mesha.goatos.core.data.sync.healthTreatmentCompleteRefreshHook
+import sg.mesha.goatos.core.data.sync.marketSurveyRecordFailureHook
 import sg.mesha.goatos.core.data.sync.workflowActionAnswerFailureHook
 import sg.mesha.goatos.core.data.sync.workflowActionCompleteFailureHook
 import sg.mesha.goatos.core.database.outbox.OutboxOpType
@@ -1089,6 +1090,7 @@ object AppModule {
             // Pen visits: a definitively refused submit (invalid proof, a cancelled task) re-reads
             // the task so the card shows the server's own chip and can_submit beside the reason.
             OutboxOpType.PEN_VISIT_SUBMIT to sg.mesha.goatos.core.data.sync.penVisitSubmitFailureHook(penVisitsRepository),
+            OutboxOpType.MARKET_SURVEY_RECORD to marketSurveyRecordFailureHook(marketRepository),
             OutboxOpType.WORKFLOW_ACTION_ANSWER to workflowActionAnswerFailureHook(workflowsRepository),
             OutboxOpType.WORKFLOW_ACTION_COMPLETE to workflowActionCompleteFailureHook(workflowsRepository),
         ),

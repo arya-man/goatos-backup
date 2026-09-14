@@ -170,9 +170,9 @@ class AnimalPurchaseViewModelsTest {
     }
 
     @Test
-    fun `a signed proof path is resolved against the api base so the phone fetches it instead of opening a file`() {
-        // The API signs a ROOT-RELATIVE path; handed to the loader as-is it was opened as a local
-        // file and every card read "Photo unavailable" (maintainer report 2026-09-14).
+    fun `a proof download route is resolved against the api base so the phone fetches it instead of opening a file`() {
+        // The API returns a ROOT-RELATIVE proof route; handed to the loader as-is it was opened as a
+        // local file and every card read "Photo unavailable" (maintainer report 2026-09-14).
         assertEquals(
             "http://localhost:8080/app/proofs/p-1/download/signed?sig=x",
             animalPurchaseMediaUrl("/app/proofs/p-1/download/signed?sig=x", apiBaseUrl = "http://localhost:8080/"),

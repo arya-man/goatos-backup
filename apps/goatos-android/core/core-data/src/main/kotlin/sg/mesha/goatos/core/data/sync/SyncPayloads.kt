@@ -389,7 +389,9 @@ data class WorkflowActionAnswerPayload(
 /** One queued proof of a workflow step: its PROOF_UPLOAD outbox row and its kind (video|photo). */
 @Serializable
 data class WorkflowProofOutboxRef(
-    @SerialName("outbox_item_id") val outboxItemId: String,
+    @SerialName("outbox_item_id") val outboxItemId: String = "",
+    /** Already-uploaded server proof id. Lets delayed/restarted completions survive outbox pruning. */
+    @SerialName("proof_ref") val proofRef: String = "",
     @SerialName("kind") val kind: String,
 )
 

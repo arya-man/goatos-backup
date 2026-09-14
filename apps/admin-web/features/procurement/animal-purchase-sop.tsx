@@ -16,9 +16,9 @@ import { AnimalPurchaseLightbox } from "./animal-purchase-lightbox";
 export type SopCopy = {
   /** Heading over the media column. */
   mediaTitle: string;
-  /** A capture the read could not sign a link for right now. */
+  /** A capture the read could not resolve to a backend route and known MIME right now. */
   mediaEmpty: string;
-  /** Accessible name of a photo thumbnail link. */
+  /** Accessible name of the proof tile that opens the selected capture. */
   photoOpen: string;
   /** Closes the enlarged capture. */
   close: string;
@@ -55,10 +55,10 @@ export function FieldVerdictChip({ animal, hint }: { animal: AnimalPurchaseAnima
 }
 
 /**
- * One row of captures per slot: videos play inline (metadata only until the reviewer presses
- * play), photos are thumbnails that open the full image in a new tab, exactly as the toxin review
- * does. Both are the same height so a slot's items sit side by side. The mime decides the element;
- * a capture with neither a backend route nor a known mime says so rather than rendering a broken tag.
+ * One row of capture tiles per slot. Tiles are byte-free on the card; clicking one opens the
+ * selected photo/video in the in-page lightbox, where telemetry attributes the proof ref and kind.
+ * The mime decides the tile kind; a capture without a backend route or known mime says so rather
+ * than rendering a broken tag.
  */
 export function AnimalPurchaseMedia({ slots, copy }: { slots: MediaSlot[]; copy: SopCopy }) {
   // Every capture with a backend proof route and a known mime is a tile, in the order the inspector

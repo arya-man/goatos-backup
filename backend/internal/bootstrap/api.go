@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 
 	adminuihttp "github.com/vgoats/goatos/backend/internal/adminui/adapters/http"
@@ -458,6 +459,22 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 		// Pool-stat metrics are an observability nice-to-have, never a
 		// reason to fail API startup.
 		log.Warn("postgres_pool_metrics_registration_failed", slog.String("error", err.Error()))
+	}
+
+	grantSource := permissionspg.NewGrantSource(pool, cfg.Postgres.QueryTimeout)
+	// DB-backed email allowlist: written by the workforce create-person flow,
+	// consulted in union with the GOATOS_AUTH_ALLOWED_EMAILS env list by both
+	// the auth middleware and the session-events handler.
+	allowedEmailSource := permissionspg.NewAllowedEmailSource(pool, cfg.Postgres.QueryTimeout, log)
+	authz, err := buildAuthMiddleware(cfg.Auth, verifier, appCheckVerifier, grantSource, allowedEmailSource, log)
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
+	if cfg.RouteMode == apiRouteModeEvents {
+		return newEventsAPI(cfg, log, pool, binaryMigrationVersion, authz, func(protectedMux *http.ServeMux) {
+			appanalyticshttp.Register(protectedMux, appanalyticshttp.NewHandler(pool, log))
+		}), nil
 	}
 
 	bulkPreviewSigningKey := ""
@@ -1194,21 +1211,11 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 		WithAnchorManager(vaccinationService)
 	passportService := passportapp.NewService(vaccinationService, obligationRepo, obligationRepo)
 	passportHandler := passporthttp.NewHandler(passportService, log)
-	grantSource := permissionspg.NewGrantSource(pool, cfg.Postgres.QueryTimeout)
 	authAuditRecorder := authaudit.NewPostgresRecorder(pool, cfg.Postgres.QueryTimeout)
-	// DB-backed email allowlist: written by the workforce create-person flow,
-	// consulted in union with the GOATOS_AUTH_ALLOWED_EMAILS env list by both
-	// the auth middleware and the session-events handler.
-	allowedEmailSource := permissionspg.NewAllowedEmailSource(pool, cfg.Postgres.QueryTimeout, log)
 	authAuditOptions = append(authAuditOptions, authaudit.WithPendingEmailGrantClaimer(
 		permissionspg.NewPendingEmailGrantClaimer(pool, cfg.Postgres.QueryTimeout),
 	), authaudit.WithDynamicAllowedEmails(allowedEmailSource))
 	authAuditHandler := authaudit.NewHandler(verifier, authAuditRecorder, log, authAuditOptions...)
-	authz, err := buildAuthMiddleware(cfg.Auth, verifier, appCheckVerifier, grantSource, allowedEmailSource, log)
-	if err != nil {
-		pool.Close()
-		return nil, err
-	}
 	// PER-PERSON ACCESS (maintainer decision 2026-08-24). From here a request's
 	// permissions come from the person's own stored module rows; the route rules are
 	// unchanged. A person with no rows yet still authorizes from their role, logged
@@ -1280,66 +1287,62 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(body)
 	})
-	if cfg.RouteMode == apiRouteModeEvents {
-		appanalyticshttp.Register(protectedMux, appAnalyticsHandler)
-	} else {
-		identityhttp.Register(protectedMux, identityHandler)
-		identityhttp.RegisterSaleAllocation(protectedMux, saleAllocationHandler)
-		bulkstatushttp.Register(protectedMux, bulkStatusHandler)
-		locationshttp.Register(protectedMux, locationsHandler)
-		workforcehttp.Register(protectedMux, workforceHandler)
-		workforcehttp.RegisterRoster(protectedMux, rosterHandler)
-		workforcehttp.RegisterPeople(protectedMux, peopleHandler)
-		workforcehttp.RegisterAccess(protectedMux, accessHandler)
-		notificationaudiencehttp.Register(protectedMux, notificationAudienceHandler)
-		workforcehttp.RegisterClock(protectedMux, clockHandler)
-		workforcehttp.RegisterLeave(protectedMux, leaveHandler)
-		proofhttp.Register(protectedMux, proofHandler)
-		sophttp.Register(protectedMux, sopHandler)
-		protocolhttp.Register(protectedMux, protocolHandler)
-		outboxhttp.Register(protectedMux, outboxHandler)
-		operationsaudithttp.Register(protectedMux, operationsAuditHandler)
-		processintegrityhttp.Register(protectedMux, processIntegrityHandler)
-		procurementhttp.Register(protectedMux, procurementHandler)
-		procurementhttp.RegisterVendors(protectedMux, procurementVendorHandler)
-		procurementhttp.RegisterFeedPurchases(protectedMux, procurementFeedPurchaseHandler)
-		procurementhttp.RegisterLoadwise(protectedMux, procurementLoadwiseHandler)
-		animalpurchasehttp.Register(protectedMux, animalPurchaseHandler)
-		toxinhttp.Register(protectedMux, toxinHandler)
-		markethttp.Register(protectedMux, marketHandler)
-		leadershiptaskshttp.Register(protectedMux, leadershipTasksHandler)
-		workboardhttp.Register(protectedMux, workBoardHandler)
-		penvisitshttp.Register(protectedMux, penVisitsHandler)
-		saleshttp.Register(protectedMux, salesHandler)
-		vaccinationhttp.Register(protectedMux, vaccinationHandler)
-		vaccexechttp.Register(protectedMux, vaccExecHandler)
-		weighinghttp.Register(protectedMux, weighingHandler)
-		growthdirectorhttp.Register(protectedMux, growthDirectorHandler)
-		calendarhttp.Register(protectedMux, calendarHandler)
-		adminuihttp.Register(protectedMux, adminUIHandler)
-		appanalyticshttp.Register(protectedMux, appAnalyticsHandler)
-		appconfighttp.Register(protectedMux, appConfigHandler)
-		countshttp.Register(protectedMux, herdRegisterHandler)
-		countshttp.RegisterAppWrites(protectedMux, countsAppWriteHandler)
-		countshttp.RegisterApprovals(protectedMux, countsAppWriteHandler)
-		countshttp.RegisterAdminWebApprovals(protectedMux, countsAppWriteHandler)
-		countshttp.RegisterShiftingExecution(protectedMux, countsAppWriteHandler)
-		countshttp.RegisterPenReconciliation(protectedMux, countsAppWriteHandler)
-		taskshttp.Register(protectedMux, tasksWorkflowHandler)
-		healthhttp.Register(protectedMux, healthHandler)
-		healthhttp.RegisterConfig(protectedMux, healthConfigHandler)
-		herdsignalshttp.Register(protectedMux, herdSignalsHandler)
-		healthhttp.RegisterDiagnosis(protectedMux, healthDiagnosisHandler)
-		healthhttp.RegisterAnalytics(protectedMux, healthAnalyticsHandler)
-		healthhttp.RegisterDeathCauses(protectedMux, healthDeathCauseHandler)
-		feedhttp.Register(protectedMux, feedHandler)
-		feedconfighttp.Register(protectedMux, feedConfigHandler)
-		feeddirectionhttp.Register(protectedMux, feedDirectionHandler)
-		pccarehttp.Register(protectedMux, pcCareHandler)
-		passporthttp.Register(protectedMux, passportHandler)
-		verificationhttp.Register(protectedMux, verificationHandler)
-		ceoService.Register(protectedMux)
-	}
+	identityhttp.Register(protectedMux, identityHandler)
+	identityhttp.RegisterSaleAllocation(protectedMux, saleAllocationHandler)
+	bulkstatushttp.Register(protectedMux, bulkStatusHandler)
+	locationshttp.Register(protectedMux, locationsHandler)
+	workforcehttp.Register(protectedMux, workforceHandler)
+	workforcehttp.RegisterRoster(protectedMux, rosterHandler)
+	workforcehttp.RegisterPeople(protectedMux, peopleHandler)
+	workforcehttp.RegisterAccess(protectedMux, accessHandler)
+	notificationaudiencehttp.Register(protectedMux, notificationAudienceHandler)
+	workforcehttp.RegisterClock(protectedMux, clockHandler)
+	workforcehttp.RegisterLeave(protectedMux, leaveHandler)
+	proofhttp.Register(protectedMux, proofHandler)
+	sophttp.Register(protectedMux, sopHandler)
+	protocolhttp.Register(protectedMux, protocolHandler)
+	outboxhttp.Register(protectedMux, outboxHandler)
+	operationsaudithttp.Register(protectedMux, operationsAuditHandler)
+	processintegrityhttp.Register(protectedMux, processIntegrityHandler)
+	procurementhttp.Register(protectedMux, procurementHandler)
+	procurementhttp.RegisterVendors(protectedMux, procurementVendorHandler)
+	procurementhttp.RegisterFeedPurchases(protectedMux, procurementFeedPurchaseHandler)
+	procurementhttp.RegisterLoadwise(protectedMux, procurementLoadwiseHandler)
+	animalpurchasehttp.Register(protectedMux, animalPurchaseHandler)
+	toxinhttp.Register(protectedMux, toxinHandler)
+	markethttp.Register(protectedMux, marketHandler)
+	leadershiptaskshttp.Register(protectedMux, leadershipTasksHandler)
+	workboardhttp.Register(protectedMux, workBoardHandler)
+	penvisitshttp.Register(protectedMux, penVisitsHandler)
+	saleshttp.Register(protectedMux, salesHandler)
+	vaccinationhttp.Register(protectedMux, vaccinationHandler)
+	vaccexechttp.Register(protectedMux, vaccExecHandler)
+	weighinghttp.Register(protectedMux, weighingHandler)
+	growthdirectorhttp.Register(protectedMux, growthDirectorHandler)
+	calendarhttp.Register(protectedMux, calendarHandler)
+	adminuihttp.Register(protectedMux, adminUIHandler)
+	appanalyticshttp.Register(protectedMux, appAnalyticsHandler)
+	appconfighttp.Register(protectedMux, appConfigHandler)
+	countshttp.Register(protectedMux, herdRegisterHandler)
+	countshttp.RegisterAppWrites(protectedMux, countsAppWriteHandler)
+	countshttp.RegisterApprovals(protectedMux, countsAppWriteHandler)
+	countshttp.RegisterAdminWebApprovals(protectedMux, countsAppWriteHandler)
+	countshttp.RegisterShiftingExecution(protectedMux, countsAppWriteHandler)
+	countshttp.RegisterPenReconciliation(protectedMux, countsAppWriteHandler)
+	taskshttp.Register(protectedMux, tasksWorkflowHandler)
+	healthhttp.Register(protectedMux, healthHandler)
+	healthhttp.RegisterConfig(protectedMux, healthConfigHandler)
+	herdsignalshttp.Register(protectedMux, herdSignalsHandler)
+	healthhttp.RegisterDiagnosis(protectedMux, healthDiagnosisHandler)
+	healthhttp.RegisterAnalytics(protectedMux, healthAnalyticsHandler)
+	healthhttp.RegisterDeathCauses(protectedMux, healthDeathCauseHandler)
+	feedhttp.Register(protectedMux, feedHandler)
+	feedconfighttp.Register(protectedMux, feedConfigHandler)
+	feeddirectionhttp.Register(protectedMux, feedDirectionHandler)
+	pccarehttp.Register(protectedMux, pcCareHandler)
+	passporthttp.Register(protectedMux, passportHandler)
+	verificationhttp.Register(protectedMux, verificationHandler)
+	ceoService.Register(protectedMux)
 
 	// otelhttp owns real span creation for every protected request (server
 	// spans, W3C trace-context propagation); httpmiddleware.Metrics records
@@ -1390,6 +1393,90 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 		Server: server,
 		Close:  pool.Close,
 	}, nil
+}
+
+func newEventsAPI(
+	cfg Config,
+	log *slog.Logger,
+	pool *pgxpool.Pool,
+	binaryMigrationVersion string,
+	authz *httpmiddleware.AuthMiddleware,
+	registerProtected func(*http.ServeMux),
+) *API {
+	protectedMux := http.NewServeMux()
+	protectedMux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})
+	protectedMux.HandleFunc("GET /livez", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})
+	protectedMux.HandleFunc("GET /readyz", func(w http.ResponseWriter, r *http.Request) {
+		if err := pool.Ping(r.Context()); err != nil {
+			http.Error(w, "postgres not ready", http.StatusServiceUnavailable)
+			return
+		}
+		if dbVersion, err := migrationguard.AppliedVersion(r.Context(), pool); err == nil {
+			if _, err := migrationguard.Check(dbVersion, binaryMigrationVersion); err != nil {
+				http.Error(w, "migration drift: "+err.Error(), http.StatusServiceUnavailable)
+				return
+			}
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
+	protectedMux.HandleFunc("GET /version", func(w http.ResponseWriter, r *http.Request) {
+		dbVersion, dbErr := migrationguard.AppliedVersion(r.Context(), pool)
+		status, checkErr := migrationguard.Check(dbVersion, binaryMigrationVersion)
+		direction := ""
+		switch {
+		case status.DBAhead:
+			direction = "db_ahead_of_binary"
+		case status.BinaryAhead:
+			direction = "binary_ahead_of_db"
+		}
+		body := struct {
+			Service                string `json:"service"`
+			BuildSHA               string `json:"build_sha"`
+			BinaryMigrationVersion string `json:"binary_migration_version"`
+			DBMigrationVersion     string `json:"db_migration_version"`
+			MigrationDrift         bool   `json:"migration_drift"`
+			MigrationDriftReason   string `json:"migration_drift_reason,omitempty"`
+			Error                  string `json:"error,omitempty"`
+		}{
+			Service:                "api",
+			BuildSHA:               buildinfo.Current(),
+			BinaryMigrationVersion: binaryMigrationVersion,
+			DBMigrationVersion:     dbVersion,
+			MigrationDrift:         checkErr != nil,
+			MigrationDriftReason:   direction,
+		}
+		if dbErr != nil {
+			body.Error = dbErr.Error()
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(body)
+	})
+	registerProtected(protectedMux)
+
+	routeOf := httpmiddleware.MuxRoutePattern(protectedMux)
+	instrumentedProtectedMux := otelhttp.NewHandler(
+		httpmiddleware.Metrics(routeOf)(protectedMux),
+		"goatos.api",
+		otelhttp.WithSpanNameFormatter(func(operation string, r *http.Request) string {
+			if pattern := routeOf(r); pattern != "" {
+				return pattern
+			}
+			return operation
+		}),
+	)
+	mux := http.NewServeMux()
+	mux.Handle("/", authz.Wrap(instrumentedProtectedMux))
+	handler := httpmiddleware.PanicRecovery(log)(httpmiddleware.RequestContext(log)(mux))
+	server := &http.Server{
+		Addr:              cfg.HTTPAddr,
+		Handler:           handler,
+		ReadHeaderTimeout: 5 * time.Second,
+	}
+	return &API{Server: server, Close: pool.Close}
 }
 
 func validateRouteMode(mode string) error {

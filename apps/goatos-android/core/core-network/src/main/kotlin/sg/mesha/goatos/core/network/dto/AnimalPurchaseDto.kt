@@ -141,7 +141,7 @@ data class AnimalPurchaseAnswerRowDto(
     @SerialName("attention") val attention: Boolean = false,
 )
 
-/** One capture inside a media slot, with its signed playback link when it can be served. */
+/** One capture inside a media slot, with its backend proof download route when it can be served. */
 @Serializable
 data class AnimalPurchaseMediaItemDto(
     @SerialName("proof_ref") val proofRef: String = "",

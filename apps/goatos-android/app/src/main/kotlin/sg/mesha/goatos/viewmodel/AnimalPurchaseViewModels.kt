@@ -709,9 +709,8 @@ internal fun AnimalPurchaseAnimalDto.toDetailUi(
 }
 
 /**
- * A signed proof link the phone can actually fetch. The API signs a ROOT-RELATIVE path
- * (`/app/proofs/<id>/download/signed?...`) because it does not know the host the phone reaches it
- * at; handed to the image loader as-is it is opened as a local FILE and reads "Photo unavailable".
+ * A backend proof route the phone can fetch through the app API. The list/detail payload keeps this
+ * as `/app/proofs/<id>/download`; signing and attribution happen only when that route is opened.
  * Resolved against the app's own API base, exactly as the verify screen does.
  */
 internal fun animalPurchaseMediaUrl(url: String, apiBaseUrl: String = BuildConfig.API_BASE_URL): String {

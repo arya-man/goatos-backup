@@ -14,6 +14,7 @@ const landingConstantsSource = readFileSync(
   "utf8",
 );
 const segmentedLinksSource = readFileSync(new URL("../../components/segmented-links.tsx", import.meta.url), "utf8");
+const serverSource = readFileSync(new URL("../../lib/api/server.ts", import.meta.url), "utf8");
 const contract = readFileSync(
   new URL("../../../../backend/internal/adminui/app/service.go", import.meta.url),
   "utf8",
@@ -141,6 +142,14 @@ test("weights page sends the weighing mode through every backend read", () => {
   assert.match(source, /getWeightDemographics\(\{ \.\.\.scope, \.\.\.window \}\)/);
   assert.match(source, /getGrowthDirector\(\{ \.\.\.scope, \.\.\.window \}\)/);
   assert.doesNotMatch(source, /getWeighingGrowth\(\{ \.\.\.scope, \.\.\.window, park_id: park\.park_id \}\)/);
+});
+
+test("weights reads use the longer live-latency backend timeout", () => {
+  assert.match(serverSource, /const DEFAULT_BACKEND_GET_TIMEOUT_MS = 8000;/);
+  assert.match(serverSource, /const WEIGHING_BACKEND_GET_TIMEOUT_MS = 15000;/);
+  assert.match(serverSource, /pathname\.startsWith\("\/weighing\/"\)/);
+  assert.match(serverSource, /pathname === "\/growth-director\/weights"/);
+  assert.match(serverSource, /setTimeout\(\(\) => controller\.abort\(\), backendGetTimeoutMs\(url\.pathname\)\)/);
 });
 
 test("the default window is passed as NAMED fields, never spread", () => {

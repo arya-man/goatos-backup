@@ -168,20 +168,24 @@ export async function WorkBoardPage({ searchParams, pageContract }: { searchPara
     }
     pagePlans.push({ parkKey: park.key, openLanes, cursors });
   }
-  const pageResults = await runBounded(pagePlans, 1, (plan) => getWorkBoardPage({ ...filterScope, park: plan.parkKey }, { limit, lanes: plan.openLanes, cursors: plan.cursors })); // request-plan:ignore owner=work-board issue=bounded-park-page-fanout expires=2027-03-31 reason=all-parks reads are serialized across parks; each backend page read serializes/short-circuits lane reads instead of SSR fanning out 10+ API calls
+  const pageResults = noneSelected
+    ? []
+    : await runBounded(pagePlans, 1, (plan) => getWorkBoardPage({ ...filterScope, park: plan.parkKey }, { limit, lanes: plan.openLanes, cursors: plan.cursors })); // request-plan:ignore owner=work-board issue=bounded-park-page-fanout expires=2027-03-31 reason=all-parks reads are serialized across parks; each backend page read serializes/short-circuits lane reads instead of SSR fanning out 10+ API calls
   const summaryResults = noneSelected ? [] : pageResults.map((result) => (result.ok ? { ok: true as const, data: result.data.summary } : result));
   const vocabularyResults = pageResults.flatMap((result) => (result.ok && (noneSelected || result.data.vocabulary_summary) ? [{ ok: true as const, data: result.data.vocabulary_summary ?? result.data.summary }] : []));
   const laneParkReads: LaneParkRead[] = [];
-  pagePlans.forEach((plan, i) => {
-    const result = pageResults[i]!;
-    if (!result.ok) {
-      for (const lane of plan.openLanes) laneParkReads.push({ lane, parkKey: plan.parkKey, result });
-      return;
-    }
-    for (const lane of plan.openLanes) {
-      laneParkReads.push({ lane, parkKey: plan.parkKey, result: { ok: true as const, data: result.data.lanes[lane as WorkBoardLane] ?? { rows: [] } } });
-    }
-  });
+  if (!noneSelected) {
+    pagePlans.forEach((plan, i) => {
+      const result = pageResults[i]!;
+      if (!result.ok) {
+        for (const lane of plan.openLanes) laneParkReads.push({ lane, parkKey: plan.parkKey, result });
+        return;
+      }
+      for (const lane of plan.openLanes) {
+        laneParkReads.push({ lane, parkKey: plan.parkKey, result: { ok: true as const, data: result.data.lanes[lane as WorkBoardLane] ?? { rows: [] } } });
+      }
+    });
+  }
   const allResults = [...summaryResults, ...vocabularyResults, ...pageResults];
   if (firstAuthRequiredError(...allResults)) redirect(INTERNAL_LOGIN_PATH);
 

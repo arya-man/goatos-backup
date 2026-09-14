@@ -107,6 +107,12 @@ interface SyncRepository {
      */
     fun observeSubmittedForReviewGrains(): Flow<Set<String>> = flowOf(emptySet())
 
+    /**
+     * Active market-survey writes, projected from the durable outbox so the Market tab can keep
+     * queued corrections visible after process death and while older writes drain.
+     */
+    fun observePendingMarketSurveyRecords(): Flow<List<MarketSurveyRecordPayload>> = flowOf(emptyList())
+
     /** Observes a specific outbox item by id (R50-006: leadership close needs to observe items
      *  that may be older than the recent-terminal window). Returns a Flow that emits whenever
      *  the item's status changes, never emitting null (item not found = no emission). */
@@ -1045,6 +1051,15 @@ class DefaultSyncRepository(
         // see observePendingHealthCaseOpens above).
         store.observeActive()
             .map { rows -> projectSubmittedGrains(rows, syncJson) }
+            .distinctUntilChanged()
+
+    override fun observePendingMarketSurveyRecords(): Flow<List<MarketSurveyRecordPayload>> =
+        store.observeActiveByOpType(OutboxOpType.MARKET_SURVEY_RECORD.name)
+            .map { rows ->
+                rows.mapNotNull { row ->
+                    runCatching { syncJson.decodeFromString<MarketSurveyRecordPayload>(row.payloadJson) }.getOrNull()
+                }
+            }
             .distinctUntilChanged()
 
     companion object {

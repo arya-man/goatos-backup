@@ -711,6 +711,17 @@ export function apiClientOptions(config: ServerConfig) {
 }
 
 const DEFAULT_BACKEND_GET_TIMEOUT_MS = 8000;
+const WEIGHING_BACKEND_GET_TIMEOUT_MS = 15000;
+
+function backendGetTimeoutMs(pathname: string): number {
+  if (
+    pathname.startsWith("/weighing/") ||
+    pathname === "/growth-director/weights"
+  ) {
+    return WEIGHING_BACKEND_GET_TIMEOUT_MS;
+  }
+  return DEFAULT_BACKEND_GET_TIMEOUT_MS;
+}
 
 async function timedBackendFetch(
   input: RequestInfo | URL,
@@ -733,7 +744,7 @@ async function timedBackendFetch(
     method.toUpperCase() === "GET" && !init?.signal && !requestSignal;
   const controller = shouldApplyDefaultTimeout ? new AbortController() : null;
   const timeout = controller
-    ? setTimeout(() => controller.abort(), DEFAULT_BACKEND_GET_TIMEOUT_MS)
+    ? setTimeout(() => controller.abort(), backendGetTimeoutMs(url.pathname))
     : null;
   const fetchInit = controller ? { ...init, signal: controller.signal } : init;
   try {

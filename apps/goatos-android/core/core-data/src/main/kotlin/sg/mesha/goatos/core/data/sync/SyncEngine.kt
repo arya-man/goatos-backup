@@ -1989,7 +1989,12 @@ class SyncEngine(
      *  order; null when the step carried none (a one-video step keeps using proof_ref). */
     private suspend fun resolveWorkflowProofs(items: List<WorkflowProofOutboxRef>): List<WorkflowProofItemDto>? {
         if (items.isEmpty()) return null
-        return items.map { WorkflowProofItemDto(ref = resolveUploadedProofRef(it.outboxItemId), kind = it.kind) }
+        return items.map {
+            WorkflowProofItemDto(
+                ref = it.proofRef.takeIf { ref -> ref.isNotBlank() } ?: resolveUploadedProofRef(it.outboxItemId),
+                kind = it.kind,
+            )
+        }
     }
 
     private suspend fun dispatchWorkflowActionComplete(item: OutboxEntity): String {

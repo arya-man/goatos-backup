@@ -7,7 +7,7 @@ resource "google_cloud_run_v2_service" "api" {
 
   template {
     service_account = google_service_account.runtime["api"].email
-    max_instance_request_concurrency = 20
+    max_instance_request_concurrency = 10
 
     scaling {
       min_instance_count = 1

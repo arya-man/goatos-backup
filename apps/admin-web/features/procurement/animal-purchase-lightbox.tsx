@@ -2,6 +2,7 @@
 
 import { X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { faro } from "@grafana/faro-web-sdk";
 
 export type LightboxItem = {
   proofRef: string;
@@ -32,6 +33,14 @@ export function AnimalPurchaseLightbox({ items, openLabel, closeLabel }: { items
   useEffect(() => {
     if (!open) return;
     closeRef.current?.focus();
+    try {
+      faro.api?.pushEvent("animal_purchase_proof_media_opened", {
+        proof_ref: open.proofRef,
+        kind: open.kind,
+      });
+    } catch {
+      // Faro must never break proof review.
+    }
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") close();
     };
@@ -80,8 +89,10 @@ export function AnimalPurchaseLightbox({ items, openLabel, closeLabel }: { items
             </div>
             {open.kind === "photo" ? (
               // eslint-disable-next-line @next/next/no-img-element
+              // admin-proof-media-egress:ignore reviewer explicitly opened this one animal-purchase proof; telemetry above attributes the selected proofRef/kind and no list tile loads bytes.
               <img src={open.url} alt="" className="ap-lightbox-media" />
             ) : (
+              // admin-proof-media-egress:ignore reviewer explicitly opened this one animal-purchase proof; telemetry above attributes the selected proofRef/kind and no list tile loads bytes.
               <video src={open.url} controls autoPlay playsInline className="ap-lightbox-media" />
             )}
           </div>

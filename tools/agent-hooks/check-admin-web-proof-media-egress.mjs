@@ -148,6 +148,9 @@ function scanClientText(rel, source) {
     proofUrlNames.add(match[1]);
   }
   const names = ["download_url", "activeMedia.download_url", "loaded.proofUrls", ...proofUrlNames];
+  if (/\bopen\s*=\s*[^;\n]*(?:items\.find|find\(\s*\(?\s*item\b)[\s\S]{0,220}\bproofRef\b/.test(source)) {
+    names.push("open.url");
+  }
   for (const name of names) {
     const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     const rules = [
@@ -205,6 +208,19 @@ export function Drawer({ activeMedia }) {
 export function Drawer({ loaded, task }) {
   return <a href={loaded.proofUrls[task.strip_photo_ref] ?? undefined}>Open media</a>;
 }`;
+  const clientGenericOpenBad = `'use client';
+export function Lightbox({ items }) {
+  const open = items.find((item) => item.proofRef === "proof-1");
+  return open ? <img src={open.url} alt="" /> : null;
+}`;
+  const clientGenericOpenGood = `'use client';
+export function Lightbox({ items }) {
+  const open = items.find((item) => item.proofRef === "proof-1");
+  return open ? (
+    // admin-proof-media-egress:ignore explicit one-proof open with telemetry
+    <img src={open.url} alt="" />
+  ) : null;
+}`;
   const cases = [
     ["server-bad", scanText("apps/admin-web/features/x/actions.ts", serverBad).length, 1],
     ["server-arrow-bad", scanText("apps/admin-web/features/x/actions.ts", serverBad.replace("export async function loadToxinTaskDetailAction(id: string)", "export const loadToxinTaskDetailAction = async (id: string) =>")).length, 1],
@@ -214,6 +230,8 @@ export function Drawer({ loaded, task }) {
     ["client-bad", scanText("apps/admin-web/features/x/drawer.tsx", clientBad).length, 1],
     ["client-wrapper-bad", scanText("apps/admin-web/features/x/drawer.tsx", clientWrapperBad).length, 1],
     ["client-good", scanText("apps/admin-web/features/x/drawer.tsx", clientGood).length, 0],
+    ["client-generic-open-bad", scanText("apps/admin-web/features/x/lightbox.tsx", clientGenericOpenBad).length, 1],
+    ["client-generic-open-good", scanText("apps/admin-web/features/x/lightbox.tsx", clientGenericOpenGood).length, 0],
   ];
   const ok = cases.every(([, got, want]) => got === want);
   if (!ok) {

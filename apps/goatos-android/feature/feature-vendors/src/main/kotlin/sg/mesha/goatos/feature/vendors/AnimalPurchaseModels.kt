@@ -213,7 +213,7 @@ data class AnimalPurchaseAnswerSectionUi(
 @Immutable
 data class AnimalPurchaseMediaItemUi(
     val proofRef: String,
-    /** Absolute signed link the phone can fetch. */
+    /** Absolute app API proof route; storage signing happens only when opened. */
     val url: String,
     val isPhoto: Boolean,
 )

@@ -326,3 +326,42 @@ func TestPenReconciliationCompletionAndVerdictCycle(t *testing.T) {
 		t.Fatalf("post-completion raise = %d, want a fresh card for the still-mismatched animal", raised)
 	}
 }
+
+func TestPenReconciliationLegacyCompletionRefusesWorkflowBackedCard(t *testing.T) {
+	ctx := context.Background()
+	pool := setupCountsDB(t, ctx)
+	repo := NewRepository(pool, 5*time.Second)
+
+	strayed := "00000000-0000-4000-8000-00000000f311"
+	seedPenRecGoatWithTag(t, ctx, pool, strayed, countsShedB, "whole", "1420 3011")
+	bucket := "00000000-0000-4000-8000-00000000e311"
+	seedPenRecBucket(t, ctx, pool, bucket, countsShedA, "", []string{"1420 3011"})
+	if raised := raisePenRec(t, ctx, repo, bucket); raised != 1 {
+		t.Fatalf("raised = %d", raised)
+	}
+	page, err := repo.ListPenReconciliationCards(ctx, domain.PenReconciliationQuery{
+		TenantID: countsTenant, Status: domain.PenReconciliationBucketOpen, PageSize: 20,
+	})
+	if err != nil || len(page.Items) != 1 {
+		t.Fatalf("list: %v items=%d", err, len(page.Items))
+	}
+	cardID := page.Items[0].CardID
+	if _, err := pool.Exec(ctx, `
+UPDATE pen_reconciliation_cards
+SET workflow_id = '00000000-0000-4000-8000-00000000aa11'::uuid
+WHERE tenant_id = $1::uuid AND card_id = $2::uuid`, countsTenant, cardID); err != nil {
+		t.Fatalf("mark workflow backed: %v", err)
+	}
+
+	_, _, err = repo.CompletePenReconciliationCard(ctx, domain.PenReconciliationCompletionCommand{
+		TenantID: countsTenant, CardID: cardID,
+		CompletedByUserID:  penRecOperator,
+		CompletedAt:        time.Date(2026, 9, 2, 14, 0, 0, 0, time.UTC),
+		ProofRef:           "proof-return-legacy",
+		IdempotencyKey:     "key-workflow",
+		RequestFingerprint: "fp-workflow",
+	})
+	if !errors.Is(err, ports.ErrPenReconciliationNotActionable) {
+		t.Fatalf("workflow-backed legacy complete err = %v", err)
+	}
+}

@@ -14,6 +14,7 @@ import sg.mesha.goatos.core.network.AppApi
 import sg.mesha.goatos.core.network.dto.MarketSurveyAnswerDto
 import sg.mesha.goatos.core.network.dto.MarketSurveyCardDto
 import sg.mesha.goatos.core.network.dto.MarketSurveyDayDto
+import sg.mesha.goatos.core.data.sync.MarketSurveyRecordPayload
 
 /**
  * Market survey reads (maintainer decision 2026-09-14): the day's city cards. Offline-first per
@@ -40,6 +41,13 @@ interface MarketRepository {
 
     /** Reconciles a drained write's RETURNED card into the cached day. Sync engine only. */
     suspend fun persistServerCard(businessDate: String, card: MarketSurveyCardDto)
+
+    /** Re-applies still-active durable outbox writes after a restart or an older server result. */
+    suspend fun applyPendingSurveyRecords(records: List<MarketSurveyRecordPayload>) {
+        records.forEach { record ->
+            applyLocalAnswers(record.businessDate, record.cityId, record.request.answers)
+        }
+    }
 }
 
 class DefaultMarketRepository(
@@ -70,7 +78,7 @@ class DefaultMarketRepository(
         // yesterday. The blank key is kept as an alias for the "today" screen.
         val dtoJson = json.encodeToString(day)
         database.vendorsBlobCacheDao().upsert(VendorsBlobCacheEntity(dayKey(day.businessDate), dtoJson, clock()))
-        if (businessDate.isBlank()) database.vendorsBlobCacheDao().upsert(VendorsBlobCacheEntity(dayKey(""), dtoJson, clock()))
+        if (businessDate.isBlank() || businessDate == day.businessDate) database.vendorsBlobCacheDao().upsert(VendorsBlobCacheEntity(dayKey(""), dtoJson, clock()))
         database.vendorsBlobCacheDao().enforceCacheBounds()
         Result.success(day)
     } catch (error: CancellationException) {
