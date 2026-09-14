@@ -6,6 +6,7 @@ package sg.mesha.goatos.feature.leadershiptasks
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -70,6 +71,7 @@ import sg.mesha.goatos.core.designsystem.theme.MeshaType
 
 /** Bounds the system photo picker's multi-select to what a draft can still take. */
 const val LEADERSHIP_TASK_ATTACHMENT_CAP = 12
+private const val COMPOSE_LOG_TAG = "LeadershipTaskCompose"
 
 /**
  * Raise a new task, or edit one (`/leadership-tasks/compose`) — a hosted drill with Up/Back and
@@ -468,7 +470,11 @@ private fun LeadershipDeadlineField(
     var stage by remember { mutableStateOf(DeadlinePickStage.CLOSED) }
     var pickedDate by remember { mutableStateOf<LocalDate?>(null) }
     val existing = remember(valueIso) {
-        runCatching { OffsetDateTime.parse(valueIso).atZoneSameInstant(LEADERSHIP_FARM_ZONE) }.getOrNull() // exception:exempt a blank or malformed draft deadline simply seeds the picker with today; nothing to report
+        runCatching { OffsetDateTime.parse(valueIso).atZoneSameInstant(LEADERSHIP_FARM_ZONE) }
+            .onFailure {
+                if (valueIso.isNotBlank()) Log.w(COMPOSE_LOG_TAG, "leadership_task_deadline_parse_failed", it)
+            }
+            .getOrNull()
     }
     val today = remember { LocalDate.now(LEADERSHIP_FARM_ZONE) }
 
