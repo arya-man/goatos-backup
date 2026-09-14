@@ -68,8 +68,10 @@ class DefaultMarketRepository(
         // The SERVER names the business day: a blank request resolves to today's IST day, and
         // that resolved date is the cache key so a stale local clock cannot file today under
         // yesterday. The blank key is kept as an alias for the "today" screen.
-        persistDay(day.businessDate, day)
-        if (businessDate.isBlank()) persistDay("", day)
+        val dtoJson = json.encodeToString(day)
+        database.vendorsBlobCacheDao().upsert(VendorsBlobCacheEntity(dayKey(day.businessDate), dtoJson, clock()))
+        if (businessDate.isBlank()) database.vendorsBlobCacheDao().upsert(VendorsBlobCacheEntity(dayKey(""), dtoJson, clock()))
+        database.vendorsBlobCacheDao().enforceCacheBounds()
         Result.success(day)
     } catch (error: CancellationException) {
         throw error
