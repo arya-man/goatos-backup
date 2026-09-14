@@ -249,11 +249,12 @@ fun ProofMediaPreview(
     // full-screen. Proof surfaces opt in by default; pass false only for deliberately static media.
     expandable: Boolean = true,
     playbackEnabled: Boolean = true,
-    // Photos only. A signed remote photo is normally fetched ONLY after an explicit tap (each
-    // fetch is a paid object read, and a list scrolls past dozens). A screen that a person
-    // already opened by tapping ONE record, showing that record's own bounded set of captures,
-    // may opt in to fetch the photo inline so the picture itself is on screen.
-    inlineRemotePhoto: Boolean = false,
+    // Photos only. A signed remote photo is fetched INLINE so the picture itself is on screen the
+    // moment the card lands (maintainer decision 2026-09-14,
+    // docs/decisions/proof-photo-shown-on-open.md). It used to be tap-armed -- a blank tile until
+    // tapped -- and that read as a missing proof on every surface. Pass false only for a scrolling
+    // list that would fetch dozens of paid object reads nobody opened.
+    inlineRemotePhoto: Boolean = true,
 ) {
     val mediaKey = remember(mediaIdentity) { stableProofMediaIdentity(mediaIdentity) }
     var showFullscreen by remember(mediaKey) { mutableStateOf(false) }
@@ -306,16 +307,15 @@ private fun ProofPhotoPreview(
 ) {
     val context = LocalContext.current
     val isRemote = path.startsWith("http://") || path.startsWith("https://")
-    // Remote proof photos are signed object reads. Do not auto-fetch them from a list/card preview;
-    // only local post-capture files are decoded here -- unless the caller opted in for a screen
-    // the person already tapped into (see [ProofMediaPreview.inlineRemotePhoto]).
+    // Remote proof photos are signed object reads, fetched inline by default so the picture is on
+    // screen without a tap (see [ProofMediaPreview.inlineRemotePhoto]); a list opts out.
     val localBitmap = if (isRemote) null else remember(path) {
         BitmapFactory.decodeFile(Uri.parse(path).path ?: path) ?: decodeLocalProofPhoto(context, path)
     }
     val remoteImageLoader = LocalProofRemoteImageLoader.current
     val remoteState = produceState<Pair<Boolean, android.graphics.Bitmap?>>(initialValue = (isRemote && inlineRemotePhoto) to null, path, inlineRemotePhoto) {
         if (isRemote && inlineRemotePhoto) {
-            // proof-media-egress:ignore explicit opt-in by a record screen the person tapped open; bounded to that one record's captures
+            // proof-media-egress:ignore bounded to the one record's own captures on the screen the person opened; shown on open by maintainer decision 2026-09-14, lists pass inlineRemotePhoto=false
             value = false to withContext(Dispatchers.IO) { loadProofPhotoBitmap(context, path, allowRemote = true, remoteImageLoader) }
         }
     }
