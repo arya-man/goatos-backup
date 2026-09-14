@@ -34,14 +34,24 @@ on both the same day.
 
 The paid-read concern is real and is kept where it applies:
 
-- **Lists never auto-fetch.** A scrolling queue or gallery passes
-  `inlineRemotePhoto = false` (Android) or resolves nothing until a row is opened
-  (web). The proof-media egress guards
+- **Visible photos render; hidden photos do not prefetch.** A photo card that is
+  actually composed in the viewport may fetch and show the picture. The app must
+  not fetch photos for rows outside the viewport or for a whole queue/gallery in
+  advance.
+- **One proof image, one device-local fetch.** Android caches shared
+  `ProofMediaPreview` photos in memory and app-private disk by the stable proof
+  `mediaIdentity`, not by the rotating signed URL. Recomposition, scroll
+  away/back, or signed URL renewal must not repeatedly read the same GCS object
+  on the same device. A second phone signed in with the same account still has to
+  fetch its own device-local copy once.
+- **Videos still wait for intent.** A video card can show the video affordance,
+  but it must not auto-stream, auto-prepare a player, or probe a remote poster
+  just because it is visible. Remote video bytes move only after play/open.
+- **Proof-media guards stay active.** The proof-media egress guards
   (`check-android-proof-media-egress.mjs`, `check-admin-web-proof-media-egress.mjs`)
-  still enforce that; the detail-screen loads carry a `proof-media-egress:ignore`
-  marker naming the bound — one photo, for the one item the person opened.
-- **One read, not two.** Android keys the Coil memory/disk cache by the stable
-  proof id, so enlarging the same photo does not fetch it again.
+  still block raw remote reads, signed-URL state keys, and remote video poster
+  probes. Inline photo loads carry a `proof-media-egress:ignore` marker naming
+  the bound and the stable cache key.
 
 ## Code
 
@@ -52,5 +62,5 @@ The paid-read concern is real and is kept where it applies:
   `feature-verify/.../VerifyDetailScreen.kt` — no `loadPhoto` arm; tap opens
   fullscreen directly.
 - Android shared preview: `ProofMediaPreview.inlineRemotePhoto` defaults to
-  `true`; the "Tap to open photo" placeholder is reachable only when a caller
-  opts out for a list.
+  `true`; visible remote photos load through the proof media HTTP path and cache
+  by stable `mediaIdentity`, while videos remain click-to-play.
