@@ -343,6 +343,9 @@ function SopDetailModal({ view, pageContract, onClose, onEdit, editPending = fal
             </div>
           ) : null}
 
+          {/* An inspection SOP lists its load form and pages below; the generic field list would repeat the load form. */}
+          {view.inspectionFormDsl ? null : (
+            <>
           <div className="b700" style={{ margin: "8px 0" }}>
             {copy(pageContract, "label.steps_questions")}{" "}
             <span className="muted small">
@@ -375,6 +378,8 @@ function SopDetailModal({ view, pageContract, onClose, onEdit, editPending = fal
             <div className="note">
               {copy(pageContract, "empty.no_published_fields")}
             </div>
+          )}
+            </>
           )}
           {view.followUpStepCount > 0 ? <FollowUpStepsSummary pageContract={pageContract} formDsl={view.followUpFormDsl} /> : null}
           {view.inspectionFormDsl ? <InspectionSummary pageContract={pageContract} formDsl={view.inspectionFormDsl} /> : null}
