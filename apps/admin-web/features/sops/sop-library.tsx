@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   BookText,
@@ -77,7 +77,11 @@ export function SopLibrary({ sops, error, authRequired, pageContract, basePath }
   const [query, setQuery] = useState("");
   const [detail, setDetail] = useState<SopCardView | null>(null);
   const openBuilder = () => router.push(builderHref);
-  const openEditor = (sopId: string) => router.push(`${builderHref}&edit=${sopId}`);
+  // The editor is a server-rendered route; keep the drawer open (button shows "Opening…") until
+  // the navigation commits, otherwise a slow first compile looks like "the modal closed and
+  // nothing opened".
+  const [editorPending, startEditorNav] = useTransition();
+  const openEditor = (sopId: string) => startEditorNav(() => router.push(`${builderHref}&edit=${sopId}`));
   const [requestedPage, setRequestedPage] = useState(1);
 	  const pageSizeOptions = tablePageSizes(pageContract, "sop-library");
 	  const [pageSize, setPageSize] = useState<number>(pageSizeOptions.includes(10) ? 10 : (pageSizeOptions[0] ?? 10));
@@ -260,17 +264,15 @@ export function SopLibrary({ sops, error, authRequired, pageContract, basePath }
           view={detail}
           pageContract={pageContract}
           onClose={() => setDetail(null)}
-          onEdit={() => {
-            setDetail(null);
-            openEditor(detail.sopId);
-          }}
+          editPending={editorPending}
+          onEdit={() => openEditor(detail.sopId)}
         />
       ) : null}
     </div>
   );
 }
 
-function SopDetailModal({ view, pageContract, onClose, onEdit }: { view: SopCardView; pageContract: AdminUiPageContract; onClose: () => void; onEdit: () => void }) {
+function SopDetailModal({ view, pageContract, onClose, onEdit, editPending = false }: { view: SopCardView; pageContract: AdminUiPageContract; onClose: () => void; onEdit: () => void; editPending?: boolean }) {
   // Overlay close contract: Escape must close the modal, alongside the X button and backdrop click.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -380,8 +382,13 @@ function SopDetailModal({ view, pageContract, onClose, onEdit }: { view: SopCard
             {copy(pageContract, "action.close")}
           </button>
           <div className="sp" style={{ flex: 1 }} />
-          <button type="button" className="btn p" onClick={onEdit}>
-            <NotebookPen className="ic" /> {view.followUpStepCount > 0 ? copy(pageContract, "action.edit_operator_steps") : copy(pageContract, "action.new_sop_builder")}
+          <button type="button" className="btn p" onClick={onEdit} disabled={editPending} aria-busy={editPending}>
+            <NotebookPen className="ic" />{" "}
+            {editPending
+              ? copy(pageContract, "action.opening_editor")
+              : view.followUpStepCount > 0
+                ? copy(pageContract, "action.edit_operator_steps")
+                : copy(pageContract, "action.new_sop_builder")}
           </button>
         </div>
       </div>

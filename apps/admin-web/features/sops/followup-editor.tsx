@@ -15,9 +15,10 @@ import {
   type FollowUpRows,
   type FollowUpStepRow,
   type ScheduleKind,
+  type SeriesBasis,
 } from "./followup-model";
 import { publishFollowUpVersion, saveFollowUpVersion, type FollowUpSaveResult } from "./sop-actions";
-import { dayLabel, followUpCopy } from "./followup-summary";
+import { followUpCopy, roundWhen } from "./followup-summary";
 
 // SOP-DRIVEN HERD OPERATIONS (maintainer decision 2026-09-13,
 // docs/decisions/sop-driven-herd-operations.md). The operator-steps editor for a Herd Operations
@@ -366,23 +367,45 @@ function StepCard({
         {step.scheduleKind === "series" ? (
           <>
             <label>
-              {copy(pc, "followup.step.times")}
-              <input value={step.times} placeholder="07:00, 11:00, 15:00" onChange={(e) => onChange({ times: e.target.value })} />
+              {copy(pc, "followup.step.basis")}
+              <select value={step.basis} onChange={(e) => onChange({ basis: e.target.value as SeriesBasis })}>
+                <option value="fixed_times">{copy(pc, "followup.basis.fixed_times")}</option>
+                <option value="from_event">{copy(pc, "followup.basis.from_event")}</option>
+              </select>
             </label>
-            <label className="numlbl">
-              {copy(pc, "followup.step.days")}
-              <input className="numfield" type="number" min={1} value={step.days} onChange={(e) => onChange({ days: Math.max(1, Number(e.target.value) || 1) })} />
-            </label>
-            <label className="numlbl">
-              {copy(pc, "followup.step.pre_notify")}
-              <input className="numfield" type="number" min={0} value={step.preNotifyMinutes} onChange={(e) => onChange({ preNotifyMinutes: Number(e.target.value) || 0 })} />
-            </label>
+            {step.basis === "from_event" ? (
+              <>
+                <label className="numlbl">
+                  {copy(pc, "followup.step.interval_minutes")}
+                  <input className="numfield" type="number" min={1} value={step.intervalMinutes} onChange={(e) => onChange({ intervalMinutes: Math.max(1, Number(e.target.value) || 1) })} />
+                </label>
+                <label className="numlbl">
+                  {copy(pc, "followup.step.count")}
+                  <input className="numfield" type="number" min={1} max={100} value={step.count} onChange={(e) => onChange({ count: Math.max(1, Number(e.target.value) || 1) })} />
+                </label>
+              </>
+            ) : (
+              <>
+                <label>
+                  {copy(pc, "followup.step.times")}
+                  <input value={step.times} placeholder="07:00, 11:00, 15:00" onChange={(e) => onChange({ times: e.target.value })} />
+                </label>
+                <label className="numlbl">
+                  {copy(pc, "followup.step.days")}
+                  <input className="numfield" type="number" min={1} value={step.days} onChange={(e) => onChange({ days: Math.max(1, Number(e.target.value) || 1) })} />
+                </label>
+                <label className="numlbl">
+                  {copy(pc, "followup.step.pre_notify")}
+                  <input className="numfield" type="number" min={0} value={step.preNotifyMinutes} onChange={(e) => onChange({ preNotifyMinutes: Number(e.target.value) || 0 })} />
+                </label>
+              </>
+            )}
             <div className="followup-series-preview muted small">
-              {followUpCopy(pc)("followup.preview.series", { n: expandSeriesRows(step).length })}
+              {followUpCopy(pc)(step.basis === "from_event" ? "followup.preview.series_from_event" : "followup.preview.series", { n: expandSeriesRows(step).length })}
               <ul>
                 {expandSeriesRows(step).map((r) => (
-                  <li key={`${r.dayOffset}-${r.time}`}>
-                    {r.title} — {dayLabel(pc, r.dayOffset)} · {r.time}
+                  <li key={`${r.dayOffset}-${r.time}-${r.afterMinutes ?? ""}`}>
+                    {r.title} — {roundWhen(pc, r)}
                   </li>
                 ))}
               </ul>

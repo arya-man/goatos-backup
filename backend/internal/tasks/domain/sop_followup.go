@@ -134,7 +134,22 @@ type FollowUpSchedule struct {
 	Step            string   `json:"step,omitempty"`
 	KeyPattern      string   `json:"key_pattern,omitempty"`
 	OrdinalStart    int      `json:"ordinal_start,omitempty"`
+	// Series basis (maintainer decision 2026-09-14): "fixed_times" (default) runs the rounds at
+	// the authored wall-clock times for `days` days, skipping the event-day slots already past --
+	// a 15:00 birth loses the morning rounds. "from_event" runs `count` rounds every
+	// `interval_minutes` FROM THE EVENT TIME, so every animal gets the same number of rounds
+	// however late in the day it was born. Authored per step on /counts/sops.
+	Basis           string `json:"basis,omitempty"`
+	IntervalMinutes int    `json:"interval_minutes,omitempty"`
+	Count           int    `json:"count,omitempty"`
 }
+
+const (
+	SeriesBasisFixedTimes = "fixed_times"
+	SeriesBasisFromEvent  = "from_event"
+	// seriesMaxRounds bounds an authored series so a typo cannot stamp thousands of rows.
+	seriesMaxRounds = 100
+)
 
 // FollowUpTaskTy is one Task Type Registry row as the compiler needs it.
 type FollowUpTaskTy struct {
@@ -259,16 +274,34 @@ func ValidateFollowUp(d FollowUpDSL, taskTypes map[string]FollowUpTaskTy) []stri
 					add("%s.schedule.day_offset: must not be negative", sp)
 				}
 			case ScheduleKindSeries:
-				if len(s.Schedule.Times) == 0 {
-					add("%s.schedule.times: a series needs at least one time", sp)
-				}
-				for _, tm := range s.Schedule.Times {
-					if _, _, err := parseWallClock(tm); err != nil {
-						add("%s.schedule.times: %v", sp, err)
+				switch s.Schedule.Basis {
+				case SeriesBasisFromEvent:
+					if s.Schedule.IntervalMinutes <= 0 {
+						add("%s.schedule.interval_minutes: must be positive for a series from the event", sp)
 					}
-				}
-				if s.Schedule.Days < 1 {
-					add("%s.schedule.days: a series needs at least one day", sp)
+					if s.Schedule.Count < 1 || s.Schedule.Count > seriesMaxRounds {
+						add("%s.schedule.count: a series from the event needs 1..%d rounds", sp, seriesMaxRounds)
+					}
+					if !strings.Contains(s.Schedule.KeyPattern, "{n}") {
+						add("%s.schedule.key_pattern: a series from the event must carry {n} so every round gets its own key", sp)
+					}
+				case SeriesBasisFixedTimes, "":
+					if len(s.Schedule.Times) == 0 {
+						add("%s.schedule.times: a series needs at least one time", sp)
+					}
+					for _, tm := range s.Schedule.Times {
+						if _, _, err := parseWallClock(tm); err != nil {
+							add("%s.schedule.times: %v", sp, err)
+						}
+					}
+					if s.Schedule.Days < 1 {
+						add("%s.schedule.days: a series needs at least one day", sp)
+					}
+					if len(s.Schedule.Times)*s.Schedule.Days > seriesMaxRounds {
+						add("%s.schedule: a series may run at most %d rounds", sp, seriesMaxRounds)
+					}
+				default:
+					add("%s.schedule.basis: %q is not a series basis", sp, s.Schedule.Basis)
 				}
 				if strings.TrimSpace(s.Schedule.KeyPattern) == "" {
 					add("%s.schedule.key_pattern: required for a series", sp)
@@ -353,7 +386,7 @@ func CompileTrack(track FollowUpTrack, taskTypes map[string]FollowUpTaskTy, opts
 				seq++
 				row := base
 				row.Seq = seq
-				row.Key = strings.NewReplacer("{day}", strconv.Itoa(ses.DayOffset+1), "{hhmm}", fmt.Sprintf("%02d%02d", ses.Hour, ses.Minute)).Replace(s.Schedule.KeyPattern)
+				row.Key = strings.NewReplacer("{day}", strconv.Itoa(ses.DayOffset+1), "{hhmm}", fmt.Sprintf("%02d%02d", ses.Hour, ses.Minute), "{n}", strconv.Itoa(i+1)).Replace(s.Schedule.KeyPattern)
 				dayLabel := "birth day"
 				if ses.DayOffset >= 1 {
 					dayLabel = "day after birth"
@@ -362,7 +395,11 @@ func CompileTrack(track FollowUpTrack, taskTypes map[string]FollowUpTaskTy, opts
 					row.Title = strings.NewReplacer("{ordinal}", ordinal2(ordinal+i), "{time}", ses.Label).Replace(s.TitlePattern)
 				}
 				row.Detail = strings.NewReplacer("{time}", ses.Label, "{day_label}", dayLabel).Replace(s.Detail)
-				row.Schedule = Schedule{AtFixedTime: true, DayOffset: ses.DayOffset, Hour: ses.Hour, Minute: ses.Minute}
+				if ses.FromEvent {
+					row.Schedule = Schedule{Offset: ses.Offset}
+				} else {
+					row.Schedule = Schedule{AtFixedTime: true, DayOffset: ses.DayOffset, Hour: ses.Hour, Minute: ses.Minute}
+				}
 				out.Actions = append(out.Actions, row)
 			}
 		default:
@@ -416,12 +453,19 @@ type seriesSession struct {
 	Hour      int
 	Minute    int
 	Label     string
+	// FromEvent rounds are due at event + Offset (the "from_event" basis); the wall-clock fields
+	// above are then only the rendered label and key.
+	FromEvent bool
+	Offset    time.Duration
 }
 
 // expandSeries applies the series eligibility rule: a slot on the event day is included only when
 // the event happened strictly before the slot's pre-notify cutoff; every slot on the following
 // days is included. This is the legacy birthColostrumSessions rule, now driven by config.
 func expandSeries(s FollowUpSchedule, eventAt time.Time) ([]seriesSession, error) {
+	if s.Basis == SeriesBasisFromEvent {
+		return expandSeriesFromEvent(s, eventAt)
+	}
 	type slot struct{ h, m int }
 	var slots []slot
 	for _, raw := range s.Times {
@@ -451,6 +495,28 @@ func expandSeries(s FollowUpSchedule, eventAt time.Time) ([]seriesSession, error
 			}
 			out = append(out, seriesSession{DayOffset: d, Hour: sl.h, Minute: sl.m, Label: fmt.Sprintf("%02d:%02d", sl.h, sl.m)})
 		}
+	}
+	return out, nil
+}
+
+// expandSeriesFromEvent runs `count` rounds every `interval_minutes` from the event instant, so
+// a kid born at 15:00 still gets every round -- they just land at 19:00, 23:00, 03:00 … instead
+// of the farm's fixed sessions. Nothing is skipped: the animal's clock starts at its own birth.
+func expandSeriesFromEvent(s FollowUpSchedule, eventAt time.Time) ([]seriesSession, error) {
+	if s.IntervalMinutes <= 0 || s.Count < 1 {
+		return nil, fmt.Errorf("%w: series from the event needs a positive interval and count", ErrFollowUpInvalid)
+	}
+	at := eventAt.In(biztime.DefaultLocation())
+	eventDay := biztime.BusinessDayStart(at)
+	out := make([]seriesSession, 0, s.Count)
+	for k := 1; k <= s.Count; k++ {
+		off := time.Duration(k*s.IntervalMinutes) * time.Minute
+		due := at.Add(off)
+		dayOffset := int(biztime.BusinessDayStart(due).Sub(eventDay).Hours() / 24)
+		out = append(out, seriesSession{
+			DayOffset: dayOffset, Hour: due.Hour(), Minute: due.Minute(),
+			Label: due.Format("15:04"), FromEvent: true, Offset: off,
+		})
 	}
 	return out, nil
 }

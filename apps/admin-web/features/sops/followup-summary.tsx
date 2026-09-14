@@ -4,7 +4,7 @@
 // the SOP drawer beside the capture fields. A repeating round (the colostrum series) is expanded
 // into every time it runs so the whole day's timings are visible without opening the editor.
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
-import { describeDue, describeProof, expandSeriesRows, parseFollowUp, type FollowUpCopy } from "./followup-model";
+import { describeDue, describeProof, expandSeriesRows, formatAfter, parseFollowUp, type ExpandedRound, type FollowUpCopy } from "./followup-model";
 
 export function followUpCopy(pc: AdminUiPageContract): FollowUpCopy {
   return (key, vars = {}) =>
@@ -13,6 +13,13 @@ export function followUpCopy(pc: AdminUiPageContract): FollowUpCopy {
 
 export function dayLabel(pc: AdminUiPageContract, dayOffset: number): string {
   return dayOffset === 0 ? copy(pc, "followup.day.event") : followUpCopy(pc)("followup.day.after", { d: dayOffset });
+}
+
+// roundWhen renders one expanded round's timing: "event day · 07:00" for a fixed-times round,
+// "4 h after the event" for a from-event round.
+export function roundWhen(pc: AdminUiPageContract, r: ExpandedRound): string {
+  if (r.afterMinutes !== undefined) return followUpCopy(pc)("followup.round.after", { after: formatAfter(r.afterMinutes) });
+  return `${dayLabel(pc, r.dayOffset)} · ${r.time}`;
 }
 
 export function FollowUpStepsSummary({ pageContract, formDsl }: { pageContract: AdminUiPageContract; formDsl: unknown }) {
@@ -41,13 +48,13 @@ export function FollowUpStepsSummary({ pageContract, formDsl }: { pageContract: 
                   return expandSeriesRows(step).map((r) => {
                     n += 1;
                     return (
-                      <div className="hrow" key={`${step.key}-${r.dayOffset}-${r.time}`}>
+                      <div className="hrow" key={`${step.key}-${r.dayOffset}-${r.time}-${r.afterMinutes ?? ""}`}>
                         <div className="htx">
                           <b>
                             {n}. {r.title}
                           </b>
                           <div className="hmeta muted small">
-                            {dayLabel(pageContract, r.dayOffset)} · {r.time}
+                            {roundWhen(pageContract, r)}
                             {proof ? ` · ${proof}` : ""}
                           </div>
                         </div>
