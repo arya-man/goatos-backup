@@ -14,6 +14,7 @@ export type WorkBoardSummary = AppApiComponents["schemas"]["WorkBoardSummary"];
 export type WorkBoardModule = AppApiComponents["schemas"]["WorkBoardModule"];
 export type WorkBoardLane = AppApiComponents["schemas"]["WorkBoardLane"];
 export type WorkBoardWorkState = AppApiComponents["schemas"]["WorkBoardWorkState"];
+export type WorkBoardPageData = AppApiComponents["schemas"]["WorkBoardPage"];
 
 export type WorkBoardScope = {
   park: string;
@@ -59,6 +60,26 @@ export async function getWorkBoardSummary(scope: WorkBoardScope): Promise<ApiRes
     client.request<WorkBoardSummary>("/work-board/summary", {
       cache: "no-store",
       query: compactQuery(scopeQuery(scope)),
+    }),
+  );
+}
+
+export async function getWorkBoardPage(
+  scope: WorkBoardScope,
+  page: { limit?: number; lanes?: WorkBoardLane[]; cursors?: Partial<Record<WorkBoardLane, string | undefined>> } = {},
+): Promise<ApiResult<WorkBoardPageData>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  const laneCursors = Object.fromEntries(
+    Object.entries(page.cursors ?? {})
+      .filter(([, value]) => value)
+      .map(([lane, value]) => [`cursor_${lane}`, value]),
+  );
+  return request(() =>
+    client.request<WorkBoardPageData>("/work-board/page", {
+      cache: "no-store",
+      query: compactQuery({ ...scopeQuery(scope), limit: page.limit ?? 25, page_lane: page.lanes ? (page.lanes.length ? page.lanes.join(",") : "__none__") : undefined, ...laneCursors }),
     }),
   );
 }

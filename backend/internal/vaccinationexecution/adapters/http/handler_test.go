@@ -462,8 +462,8 @@ func TestAppVaccinationExecutionUsesPageOnlyDefaultUnlessExplicit(t *testing.T) 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d want 200 body=%s", rec.Code, rec.Body.String())
 	}
-	if reader.last.IncludeCardSummaries != nil {
-		t.Fatalf("app route default IncludeCardSummaries = %#v, want service page-only default", reader.last.IncludeCardSummaries)
+	if reader.last.IncludeCardSummaries == nil || *reader.last.IncludeCardSummaries {
+		t.Fatalf("app route default IncludeCardSummaries = %#v, want false page-only default", reader.last.IncludeCardSummaries)
 	}
 	if reader.last.Limit != defaultExecutionLimit {
 		t.Fatalf("app route default limit = %d, want %d", reader.last.Limit, defaultExecutionLimit)

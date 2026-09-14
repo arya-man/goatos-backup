@@ -28,7 +28,8 @@ const (
 // fakeService records the query the handler built, which is the whole point of these
 // tests: every scope rule lives in the handler, and the service must receive its result.
 type fakeService struct {
-	last domain.Query
+	last  domain.Query
+	lists []domain.Query
 	// found is what FindRow answers; lastRowKey / lastAfter / lastLimit record the subtask read.
 	found      bool
 	lastRowKey string
@@ -54,7 +55,13 @@ func (f *fakeService) ListSubtasks(_ context.Context, q domain.Query, rowKey, af
 
 func (f *fakeService) List(_ context.Context, q domain.Query) (domain.Page, error) {
 	f.last = q
-	return domain.Page{Rows: []domain.Row{}}, nil
+	f.lists = append(f.lists, q)
+	state := domain.WorkStateDue
+	if len(q.WorkStates) > 0 {
+		state = q.WorkStates[0]
+	}
+	row := domain.Row{Module: domain.ModuleFeed, SourceType: "feed_task", SourceID: string(state), ParkID: q.ParkID, BusinessDate: q.BusinessDate, WorkState: state, Title: "Feed work"}.Finalize()
+	return domain.Page{Rows: []domain.Row{row}}, nil
 }
 func (f *fakeService) Summary(_ context.Context, q domain.Query) (domain.Summary, error) {
 	f.last = q
@@ -194,6 +201,87 @@ func TestBadInputsAreRefusedWithStableCodes(t *testing.T) {
 		if rec.Code != http.StatusBadRequest || body["error"] != code {
 			t.Errorf("%s: want 400 %s, got %d %v", path, code, rec.Code, body)
 		}
+	}
+}
+
+// TestPageBundlesSummaryAndLaneRows proves the admin-web can open one park with one backend
+// request instead of separate summary plus per-lane row calls.
+func TestPageBundlesSummaryAndLaneRows(t *testing.T) {
+	svc := &fakeService{}
+	h := NewHandler(svc, nil)
+	rec, body := get(t, h, "/work-board/page?park="+parkCBE+"&limit=10&cursor_done=feed|feed_task|completed", actorCEO, tenantGrant(permissions.RoleCEOInternal))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status %d %v", rec.Code, body)
+	}
+	if _, ok := body["summary"].(map[string]any); !ok {
+		t.Fatalf("page must carry the summary: %#v", body)
+	}
+	lanes, ok := body["lanes"].(map[string]any)
+	if !ok || len(lanes) != len(domain.Lanes()) {
+		t.Fatalf("page must carry every lane, got %#v", body["lanes"])
+	}
+	if len(svc.lists) != len(domain.Lanes()) {
+		t.Fatalf("expected one service list per lane, got %d", len(svc.lists))
+	}
+	if svc.lists[0].Limit != 10 {
+		t.Fatalf("page limit must flow to lane reads, got %d", svc.lists[0].Limit)
+	}
+	gotCursor := false
+	for _, q := range svc.lists {
+		for _, state := range q.WorkStates {
+			if domain.LaneFor(state) == domain.LaneDone && q.Cursor.SourceID == "completed" {
+				gotCursor = true
+			}
+		}
+	}
+	if !gotCursor {
+		t.Fatalf("done lane cursor did not flow to the done lane read: %#v", svc.lists)
+	}
+}
+
+func TestPageHonorsRequestedLanes(t *testing.T) {
+	svc := &fakeService{}
+	h := NewHandler(svc, nil)
+	rec, body := get(t, h, "/work-board/page?park="+parkCBE+"&page_lane=todo,done", actorCEO, tenantGrant(permissions.RoleCEOInternal))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status %d %v", rec.Code, body)
+	}
+	lanes := body["lanes"].(map[string]any)
+	if _, ok := lanes["in_progress"]; ok {
+		t.Fatalf("page_lane must not fetch in_progress: %#v", lanes)
+	}
+	if len(svc.lists) != 2 {
+		t.Fatalf("expected two lane reads, got %d", len(svc.lists))
+	}
+}
+
+func TestPageSummaryOnlyReadKeepsScopedVocabulary(t *testing.T) {
+	svc := &fakeService{}
+	h := NewHandler(svc, nil)
+	rec, body := get(t, h, "/work-board/page?park="+parkCBE+"&page_lane=__none__", actorCEO, tenantGrant(permissions.RoleFeedDirector))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status %d %v", rec.Code, body)
+	}
+	if len(svc.lists) != 0 {
+		t.Fatalf("summary-only page must not read lane rows, got %d", len(svc.lists))
+	}
+	summary := body["summary"].(map[string]any)
+	modules := summary["modules"].([]any)
+	if len(modules) != 1 || modules[0] != string(domain.ModuleFeed) {
+		t.Fatalf("feed director vocabulary must stay permission scoped, got %#v", modules)
+	}
+}
+
+func TestPageRejectsBadLaneCursor(t *testing.T) {
+	h := NewHandler(&fakeService{}, nil)
+	rec, body := get(t, h, "/work-board/page?park="+parkCBE+"&cursor_done=garbage", actorCEO, tenantGrant(permissions.RoleCEOInternal))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("one bad lane cursor must not fail the whole page, got %d %v", rec.Code, body)
+	}
+	lanes := body["lanes"].(map[string]any)
+	done := lanes["done"].(map[string]any)
+	if degraded, _ := done["degraded"].([]any); len(degraded) == 0 {
+		t.Fatalf("bad lane cursor should degrade that lane: %#v", done)
 	}
 }
 

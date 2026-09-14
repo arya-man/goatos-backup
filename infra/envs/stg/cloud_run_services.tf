@@ -7,10 +7,11 @@ resource "google_cloud_run_v2_service" "api" {
 
   template {
     service_account = google_service_account.runtime["api"].email
+    max_instance_request_concurrency = 20
 
     scaling {
       min_instance_count = 1
-      max_instance_count = 10
+      max_instance_count = 4
     }
 
     containers {
@@ -57,6 +58,11 @@ resource "google_cloud_run_v2_service" "api" {
       env {
         name  = "GOATOS_AUTH_SESSION_RATE_LIMIT_PER_MINUTE"
         value = "120"
+      }
+
+      env {
+        name  = "GOATOS_ANALYTICS_MAX_IN_FLIGHT"
+        value = "2"
       }
 
       env {

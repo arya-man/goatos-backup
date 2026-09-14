@@ -696,6 +696,9 @@ func (h *Handler) executionQuery(w http.ResponseWriter, r *http.Request, default
 			return vaccexecd.ExecutionQuery{}, false
 		}
 		q.IncludeCardSummaries = &includeCardSummaries
+	} else if isAppExecutionRoute(r) {
+		includeCardSummaries := false
+		q.IncludeCardSummaries = &includeCardSummaries
 	}
 	if raw := query.Get("cursor"); raw != "" {
 		cursor, err := vaccexecd.DecodeExecutionCursor(raw)

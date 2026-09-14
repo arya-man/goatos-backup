@@ -74,6 +74,20 @@ func TestWeighingAnalyticsReadsUseRepositoryTimeout(t *testing.T) {
 	}
 }
 
+func TestGrowthAnalyticsReadFanoutIsBounded(t *testing.T) {
+	src := readSource(t, "growth.go")
+	for _, required := range []string{
+		"const weighingGrowthReadParallelism = 3",
+		"analyticsSlots := make(chan struct{}, weighingGrowthReadParallelism)",
+		"case analyticsSlots <- struct{}{}:",
+		"runGrowthRead(&wg, errs, fn)",
+	} {
+		if !strings.Contains(src, required) {
+			t.Fatalf("growth analytics fanout guard missing %q", required)
+		}
+	}
+}
+
 func readSource(t *testing.T, file string) string {
 	t.Helper()
 	b, err := os.ReadFile(file)

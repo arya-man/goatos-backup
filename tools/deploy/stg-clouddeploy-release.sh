@@ -239,6 +239,21 @@ expect_service_image() {
   echo "verified service image: $service -> $actual ($ready)"
 }
 
+expect_api_latency_shape() {
+  local line min max concurrency
+  line="$(
+    gcloud run services describe goatos-api-stg \
+      --project="$PROJECT_ID" \
+      --region="$REGION" \
+      --format='value(spec.template.metadata.annotations.autoscaling\.knative\.dev/minScale,spec.template.metadata.annotations.autoscaling\.knative\.dev/maxScale,spec.template.spec.containerConcurrency)'
+  )"
+  IFS=$'\t' read -r min max concurrency <<<"$line"
+  [[ "$min" == "1" ]] || die "goatos-api-stg min scale drift: got ${min:-unset} want 1"
+  [[ "$max" == "4" ]] || die "goatos-api-stg max scale drift: got ${max:-unset} want 4"
+  [[ "$concurrency" == "20" ]] || die "goatos-api-stg concurrency drift: got ${concurrency:-unset} want 20"
+  echo "verified api latency shape: min=$min max=$max concurrency=$concurrency"
+}
+
 expect_job_image() {
   local job="$1"
   local expected="$2"
@@ -259,6 +274,7 @@ verify_stg_images() {
   expect_service_image goatos-admin-web-stg "$admin_web_image"
   expect_service_image goatos-kernel-worker-stg "$backend_image"
   expect_service_image goatos-mcp-stg "$backend_image"
+  expect_api_latency_shape
   expect_job_image goatos-stg-migrate "$migration_image"
   expect_job_image goatos-stg-outbox-dlq "$backend_image"
   expect_job_image goatos-stg-analytics-rollup "$backend_image"

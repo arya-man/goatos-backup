@@ -365,6 +365,7 @@ var protectedRoutes = []Route{
 	// workboard/adapters/http.Register.
 	{OperationID: "listWorkBoardRows", Method: "GET", Pattern: "/work-board/rows", Permissions: []string{WorkBoardRead}},
 	{OperationID: "getWorkBoardSummary", Method: "GET", Pattern: "/work-board/summary", Permissions: []string{WorkBoardRead}},
+	{OperationID: "getWorkBoardPage", Method: "GET", Pattern: "/work-board/page", Permissions: []string{WorkBoardRead}},
 	// The issue view's SUBTASK read: the same scope as the rows read (the handler resolves the
 	// row on the caller's own board first and 404s otherwise).
 	{OperationID: "listWorkBoardRowSubtasks", Method: "GET", Pattern: "/work-board/rows/{row_key}/subtasks", Permissions: []string{WorkBoardRead}},

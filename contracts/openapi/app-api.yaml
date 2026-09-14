@@ -8605,6 +8605,90 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "500":
           $ref: "#/components/responses/ServerError"
+  /work-board/page:
+    get:
+      tags:
+        - Work Board
+      operationId: getWorkBoardPage
+      summary: Bundled Work Board page for one park and one business day.
+      description: >-
+        Admin-web page read for one bounded park: returns the whole-filter summary plus one
+        page for each lane, preserving per-lane cursors without making separate HTTP requests
+        for summary and every column. The board remains one park per request; "All parks" is
+        one page request per park.
+      parameters:
+        - name: park
+          in: query
+          required: false
+          schema: { type: string, format: uuid }
+          description: As on /work-board/rows; a park-scoped caller may omit it.
+        - name: business_date
+          in: query
+          required: false
+          schema: { type: string, format: date }
+        - name: module
+          in: query
+          required: false
+          schema: { type: string }
+          description: Comma-separated module keys. Intersected with the modules the caller may see; absent means all of them.
+        - name: state
+          in: query
+          required: false
+          schema: { type: string }
+          description: Comma-separated work states. Each lane page intersects this with the lane's own states.
+        - name: owner
+          in: query
+          required: false
+          schema: { type: string }
+          description: >-
+            `me`, or a user id, to narrow to one person's rows. Ignored without
+            work_board.oversee.
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 100, default: 25 }
+        - name: page_lane
+          in: query
+          required: false
+          schema: { type: string }
+          description: >-
+            Comma-separated lanes to include in this bundled page. Absent means every lane;
+            `__none__` returns summaries only for filter-vocabulary reads.
+        - name: cursor_todo
+          in: query
+          required: false
+          schema: { type: string }
+          description: Keyset cursor for the To do lane.
+        - name: cursor_in_progress
+          in: query
+          required: false
+          schema: { type: string }
+          description: Keyset cursor for the In progress lane.
+        - name: cursor_in_review
+          in: query
+          required: false
+          schema: { type: string }
+          description: Keyset cursor for the In review lane.
+        - name: cursor_done
+          in: query
+          required: false
+          schema: { type: string }
+          description: Keyset cursor for the Done lane.
+      responses:
+        "200":
+          description: Summary and lane pages for one park.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkBoardPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
   /toxin/review:
     get:
       tags:
@@ -18305,6 +18389,54 @@ components:
         next_cursor:
           type: string
           description: Keyset cursor for the next page. Absent on the last page.
+        business_date: { type: string, format: date }
+        park_id: { type: string }
+        modules:
+          type: array
+          description: The modules the caller MAY see, in board order, after any module filter.
+          items:
+            $ref: "#/components/schemas/WorkBoardModule"
+        own_rows_only:
+          type: boolean
+          description: True when the read was clamped to the caller's own rows (no work_board.oversee).
+    WorkBoardLanePage:
+      type: object
+      required: [rows]
+      properties:
+        degraded:
+          type: array
+          description: Modules whose read failed for this lane page; the rest still serves.
+          items: { $ref: "#/components/schemas/WorkBoardModule" }
+        rows:
+          type: array
+          items:
+            $ref: "#/components/schemas/WorkBoardRow"
+        next_cursor:
+          type: string
+          description: Keyset cursor for this lane's next page. Absent on the last page.
+    WorkBoardLanePages:
+      type: object
+      description: Lane pages included in the response. A bundled page may omit lanes that were not requested with `page_lane`.
+      properties:
+        todo: { $ref: "#/components/schemas/WorkBoardLanePage" }
+        in_progress: { $ref: "#/components/schemas/WorkBoardLanePage" }
+        in_review: { $ref: "#/components/schemas/WorkBoardLanePage" }
+        done: { $ref: "#/components/schemas/WorkBoardLanePage" }
+    WorkBoardPage:
+      type: object
+      required: [summary, lanes, business_date, park_id, modules, own_rows_only]
+      properties:
+        degraded:
+          type: array
+          description: Deduped modules degraded across the summary, vocabulary summary, or any lane page.
+          items: { $ref: "#/components/schemas/WorkBoardModule" }
+        summary:
+          $ref: "#/components/schemas/WorkBoardSummary"
+        vocabulary_summary:
+          $ref: "#/components/schemas/WorkBoardSummary"
+          description: Present when the request has a module filter and the UI needs the unfiltered module vocabulary.
+        lanes:
+          $ref: "#/components/schemas/WorkBoardLanePages"
         business_date: { type: string, format: date }
         park_id: { type: string }
         modules:

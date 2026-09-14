@@ -57,6 +57,7 @@ func NewHandler(service Service, log *slog.Logger) *Handler {
 func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("GET /work-board/rows", h.Rows)
 	mux.HandleFunc("GET /work-board/summary", h.Summary)
+	mux.HandleFunc("GET /work-board/page", h.Page)
 	mux.HandleFunc("GET /work-board/rows/{row_key}/subtasks", h.Subtasks)
 	mux.HandleFunc("POST /work-board/flags", h.Flag)
 }
@@ -81,6 +82,23 @@ type summaryPayload struct {
 	BusinessDate string `json:"business_date"`
 	ParkID       string `json:"park_id"`
 	OwnRowsOnly  bool   `json:"own_rows_only"`
+}
+
+type lanePagePayload struct {
+	Rows       []domain.Row    `json:"rows"`
+	NextCursor string          `json:"next_cursor,omitempty"`
+	Degraded   []domain.Module `json:"degraded,omitempty"`
+}
+
+type pagePayload struct {
+	Summary           summaryPayload                  `json:"summary"`
+	VocabularySummary *summaryPayload                 `json:"vocabulary_summary,omitempty"`
+	Lanes             map[domain.Lane]lanePagePayload `json:"lanes"`
+	BusinessDate      string                          `json:"business_date"`
+	ParkID            string                          `json:"park_id"`
+	Modules           []domain.Module                 `json:"modules"`
+	OwnRowsOnly       bool                            `json:"own_rows_only"`
+	Degraded          []domain.Module                 `json:"degraded,omitempty"`
 }
 
 // Rows serves GET /work-board/rows.
@@ -127,6 +145,80 @@ func (h *Handler) Summary(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httpresponse.WriteJSON(w, http.StatusOK, summaryPayload{Summary: sum, BusinessDate: q.BusinessDate, ParkID: q.ParkID, OwnRowsOnly: own})
+}
+
+// Page serves the admin board's first-class read: one park, one day, all lane pages and
+// the aggregate summary. The old web page fired this as five separate backend requests
+// per park; doing it here keeps the user-facing lane cursors while avoiding an SSR
+// request stampede into the shared API/DB pool.
+func (h *Handler) Page(w http.ResponseWriter, r *http.Request) {
+	q, own, ok := h.query(w, r)
+	if !ok {
+		return
+	}
+	visibleModules := app.StrictIntersect(app.VisibleModules(callerPermissions(r.Context())), h.service.RegisteredModules())
+	pageLanes, ok := h.pageLanes(w, r)
+	if !ok {
+		return
+	}
+	if raw := strings.TrimSpace(r.URL.Query().Get("limit")); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < 1 {
+			h.writeErr(w, r, http.StatusBadRequest, "invalid_limit", "That page size is not valid.")
+			return
+		}
+		q.Limit = n
+	}
+	sum, err := h.service.Summary(r.Context(), q)
+	if err != nil {
+		h.writeServiceErr(w, r, err)
+		return
+	}
+	out := pagePayload{
+		Summary:      summaryPayload{Summary: sum, BusinessDate: q.BusinessDate, ParkID: q.ParkID, OwnRowsOnly: own},
+		Lanes:        map[domain.Lane]lanePagePayload{},
+		BusinessDate: q.BusinessDate,
+		ParkID:       q.ParkID,
+		Modules:      q.Modules,
+		OwnRowsOnly:  own,
+	}
+	out.Degraded = appendModules(out.Degraded, sum.Degraded...)
+	if strings.TrimSpace(r.URL.Query().Get("module")) != "" && len(q.Modules) > 0 && !q.NoModules {
+		vocabQ := q
+		vocabQ.Modules = visibleModules
+		vocabQ.WorkStates = nil
+		vocabQ.Cursor = domain.Cursor{}
+		vocab, err := h.service.Summary(r.Context(), vocabQ)
+		if err != nil {
+			h.writeServiceErr(w, r, err)
+			return
+		}
+		out.VocabularySummary = &summaryPayload{Summary: vocab, BusinessDate: vocabQ.BusinessDate, ParkID: vocabQ.ParkID, OwnRowsOnly: own}
+		out.Degraded = appendModules(out.Degraded, vocab.Degraded...)
+	}
+	for _, lane := range pageLanes {
+		laneQ := q
+		laneQ.WorkStates = intersectStates(q.WorkStates, domain.StatesInLane(lane))
+		if len(laneQ.WorkStates) == 0 && len(q.WorkStates) > 0 {
+			laneQ.WorkStates = []domain.WorkState{domain.WorkStateNone}
+		}
+		cursor, err := domain.ParseCursor(r.URL.Query().Get("cursor_" + string(lane)))
+		if err != nil {
+			out.Lanes[lane] = lanePagePayload{Rows: []domain.Row{}, Degraded: visibleModules}
+			out.Degraded = appendModules(out.Degraded, visibleModules...)
+			continue
+		}
+		laneQ.Cursor = cursor
+		page, err := h.service.List(r.Context(), laneQ)
+		if err != nil {
+			out.Lanes[lane] = lanePagePayload{Rows: []domain.Row{}, Degraded: visibleModules}
+			out.Degraded = appendModules(out.Degraded, visibleModules...)
+			continue
+		}
+		out.Lanes[lane] = lanePagePayload{Rows: page.Rows, NextCursor: page.NextCursor, Degraded: page.Degraded}
+		out.Degraded = appendModules(out.Degraded, page.Degraded...)
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, out)
 }
 
 // subtasksPayload is the wire shape of one subtask page.
@@ -345,6 +437,64 @@ func splitCSV(raw string) []string {
 		}
 	}
 	return out
+}
+
+func (h *Handler) pageLanes(w http.ResponseWriter, r *http.Request) ([]domain.Lane, bool) {
+	raw := strings.TrimSpace(r.URL.Query().Get("page_lane"))
+	if raw == "" {
+		return domain.Lanes(), true
+	}
+	if raw == "__none__" {
+		return []domain.Lane{}, true
+	}
+	out := []domain.Lane{}
+	seen := map[domain.Lane]struct{}{}
+	for _, part := range splitCSV(raw) {
+		if !domain.IsLane(part) {
+			h.writeErr(w, r, http.StatusBadRequest, "invalid_lane", "That column is not on the board.")
+			return nil, false
+		}
+		lane := domain.Lane(part)
+		if _, ok := seen[lane]; ok {
+			continue
+		}
+		seen[lane] = struct{}{}
+		out = append(out, lane)
+	}
+	return out, true
+}
+
+func intersectStates(requested, allowed []domain.WorkState) []domain.WorkState {
+	if len(requested) == 0 {
+		return append([]domain.WorkState(nil), allowed...)
+	}
+	keep := map[domain.WorkState]struct{}{}
+	for _, state := range allowed {
+		keep[state] = struct{}{}
+	}
+	out := []domain.WorkState{}
+	for _, state := range requested {
+		if _, ok := keep[state]; ok {
+			out = append(out, state)
+		}
+	}
+	return out
+}
+
+func appendModules(into []domain.Module, modules ...domain.Module) []domain.Module {
+	for _, module := range modules {
+		found := false
+		for _, existing := range into {
+			if existing == module {
+				found = true
+				break
+			}
+		}
+		if !found {
+			into = append(into, module)
+		}
+	}
+	return into
 }
 
 func (h *Handler) writeServiceErr(w http.ResponseWriter, r *http.Request, err error) {

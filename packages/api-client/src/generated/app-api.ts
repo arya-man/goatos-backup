@@ -3236,6 +3236,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/work-board/page": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Bundled Work Board page for one park and one business day.
+         * @description Admin-web page read for one bounded park: returns the whole-filter summary plus one page for each lane, preserving per-lane cursors without making separate HTTP requests for summary and every column. The board remains one park per request; "All parks" is one page request per park.
+         */
+        get: operations["getWorkBoardPage"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/toxin/review": {
         parameters: {
             query?: never;
@@ -7601,6 +7621,35 @@ export interface components {
             rows: components["schemas"]["WorkBoardRow"][];
             /** @description Keyset cursor for the next page. Absent on the last page. */
             next_cursor?: string;
+            /** Format: date */
+            business_date: string;
+            park_id: string;
+            /** @description The modules the caller MAY see, in board order, after any module filter. */
+            modules: components["schemas"]["WorkBoardModule"][];
+            /** @description True when the read was clamped to the caller's own rows (no work_board.oversee). */
+            own_rows_only: boolean;
+        };
+        WorkBoardLanePage: {
+            /** @description Modules whose read failed for this lane page; the rest still serves. */
+            degraded?: components["schemas"]["WorkBoardModule"][];
+            rows: components["schemas"]["WorkBoardRow"][];
+            /** @description Keyset cursor for this lane's next page. Absent on the last page. */
+            next_cursor?: string;
+        };
+        /** @description Lane pages included in the response. A bundled page may omit lanes that were not requested with `page_lane`. */
+        WorkBoardLanePages: {
+            todo?: components["schemas"]["WorkBoardLanePage"];
+            in_progress?: components["schemas"]["WorkBoardLanePage"];
+            in_review?: components["schemas"]["WorkBoardLanePage"];
+            done?: components["schemas"]["WorkBoardLanePage"];
+        };
+        WorkBoardPage: {
+            /** @description Deduped modules degraded across the summary, vocabulary summary, or any lane page. */
+            degraded?: components["schemas"]["WorkBoardModule"][];
+            summary: components["schemas"]["WorkBoardSummary"];
+            /** @description Present when the request has a module filter and the UI needs the unfiltered module vocabulary. */
+            vocabulary_summary?: components["schemas"]["WorkBoardSummary"];
+            lanes: components["schemas"]["WorkBoardLanePages"];
             /** Format: date */
             business_date: string;
             park_id: string;
@@ -23324,6 +23373,51 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["WorkBoardSummary"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    getWorkBoardPage: {
+        parameters: {
+            query?: {
+                /** @description As on /work-board/rows; a park-scoped caller may omit it. */
+                park?: string;
+                business_date?: string;
+                /** @description Comma-separated module keys. Intersected with the modules the caller may see; absent means all of them. */
+                module?: string;
+                /** @description Comma-separated work states. Each lane page intersects this with the lane's own states. */
+                state?: string;
+                /** @description `me`, or a user id, to narrow to one person's rows. Ignored without work_board.oversee. */
+                owner?: string;
+                limit?: number;
+                /** @description Comma-separated lanes to include in this bundled page. Absent means every lane; `__none__` returns summaries only for filter-vocabulary reads. */
+                page_lane?: string;
+                /** @description Keyset cursor for the To do lane. */
+                cursor_todo?: string;
+                /** @description Keyset cursor for the In progress lane. */
+                cursor_in_progress?: string;
+                /** @description Keyset cursor for the In review lane. */
+                cursor_in_review?: string;
+                /** @description Keyset cursor for the Done lane. */
+                cursor_done?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Summary and lane pages for one park. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkBoardPage"];
                 };
             };
             400: components["responses"]["BadRequest"];
