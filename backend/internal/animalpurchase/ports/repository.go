@@ -60,11 +60,13 @@ type CreateLoadParams struct {
 
 // AddCandidateParams is the animal write.
 type AddCandidateParams struct {
-	TenantID       string
-	LoadID         string
-	Write          domain.CandidateWrite
-	ActorID        string
-	IdempotencyKey string
+	TenantID string
+	LoadID   string
+	// QuestionnaireVersion is the SOP version the phone rendered; 0 means "the published one".
+	QuestionnaireVersion int
+	Write                domain.CandidateWrite
+	ActorID              string
+	IdempotencyKey       string
 }
 
 // DecideParams is the CEO's decision write.
@@ -90,6 +92,18 @@ type Repository interface {
 	// BreedSuggestions are the breeds the herd already carries, so the form offers the farm's
 	// own spelling first; the breed field stays free text.
 	BreedSuggestions(ctx context.Context, tenantID string) ([]string, error)
+}
+
+// CatalogSource serves the inspection questionnaire by SOP version (PROCUREMENT SOP, maintainer
+// decision 2026-09-14): Published is what a phone opening the form today renders; Version is the
+// exact document a recorded animal was answered on (published or since retired), used to
+// validate its write and label its review. A tenant with no authored version gets the seeded
+// catalog. ErrCatalogVersionUnknown when the asked-for version never existed.
+var ErrCatalogVersionUnknown = errors.New("animal purchase: inspection sop version unknown")
+
+type CatalogSource interface {
+	PublishedCatalog(ctx context.Context, tenantID string) (domain.Catalog, error)
+	CatalogVersion(ctx context.Context, tenantID string, version int) (domain.Catalog, error)
 }
 
 // ProofValidator asserts every one of a candidate's captures is a finished in-app-camera

@@ -53,12 +53,65 @@ type Service struct {
 	proofs ports.ProofValidator
 	media  ports.MediaResolver
 	now    func() time.Time
+	// catalogs serves the inspection SOP by version; nil = the seeded catalog only (tests).
+	catalogs ports.CatalogSource
 }
 
 // NewService wires the service. media may be nil (no playback URLs are composed then).
 func NewService(repo ports.Repository, proofs ports.ProofValidator, media ports.MediaResolver) *Service {
 	return &Service{repo: repo, proofs: proofs, media: media, now: time.Now}
 }
+
+// WithCatalogSource makes the service read the inspection from the published SOP version.
+func (s *Service) WithCatalogSource(src ports.CatalogSource) *Service {
+	s.catalogs = src
+	return s
+}
+
+// Catalog resolves one SOP version (0 = published). Without a source the seeded catalog is the
+// only version there is.
+func (s *Service) Catalog(ctx context.Context, tenantID string, version int) (domain.Catalog, error) {
+	if s.catalogs == nil {
+		seeded := domain.SeededCatalog()
+		if version != 0 && version != seeded.Version {
+			return domain.Catalog{}, ErrCatalogVersionUnknown
+		}
+		return seeded, nil
+	}
+	if version == 0 {
+		return s.catalogs.PublishedCatalog(ctx, tenantID)
+	}
+	cat, err := s.catalogs.CatalogVersion(ctx, tenantID, version)
+	if errors.Is(err, ports.ErrCatalogVersionUnknown) {
+		return domain.Catalog{}, ErrCatalogVersionUnknown
+	}
+	return cat, err
+}
+
+// CatalogFor returns the catalog a recorded candidate was answered on, memoised per version
+// for a page of rows (one read per distinct version, never one per row).
+func (s *Service) CatalogFor(ctx context.Context, tenantID string, rows []domain.Candidate) map[int]domain.Catalog {
+	out := map[int]domain.Catalog{}
+	for _, c := range rows {
+		v := c.QuestionnaireVersion
+		if v == 0 {
+			continue
+		}
+		if _, done := out[v]; done {
+			continue
+		}
+		cat, err := s.Catalog(ctx, tenantID, v)
+		if err != nil {
+			// exception:exempt a version that cannot be read renders the row without its question labels; the answers themselves are still on the row.
+			continue
+		}
+		out[v] = cat
+	}
+	return out
+}
+
+// ErrCatalogVersionUnknown: the phone answered on a version this tenant never published.
+var ErrCatalogVersionUnknown = &Error{Code: "questionnaire_unknown", Message: "That inspection form is not one this farm published. Refresh and record the animal again.", HTTPStatus: http.StatusConflict}
 
 // Options is the phone form's vocabulary, backend-owned: the SOP questionnaire itself plus the
 // load form's vocabularies.
@@ -77,14 +130,18 @@ func (s *Service) Options(ctx context.Context, tenantID string) (Options, error)
 	if err != nil {
 		return Options{}, err
 	}
+	cat, err := s.Catalog(ctx, tenantID, 0)
+	if err != nil {
+		return Options{}, err
+	}
 	return Options{
 		Species:              domain.Species(),
 		Sexes:                domain.Sexes(),
 		Conditions:           domain.Conditions(),
 		Farms:                domain.Farms(),
 		BreedSuggestions:     breeds,
-		Questionnaire:        domain.Questionnaire(),
-		QuestionnaireVersion: domain.QuestionnaireVersion,
+		Questionnaire:        cat.Questions,
+		QuestionnaireVersion: cat.Version,
 	}, nil
 }
 
@@ -117,6 +174,14 @@ func (s *Service) AddCandidate(ctx context.Context, p ports.AddCandidateParams) 
 	if err := requireIdempotencyKey(p.IdempotencyKey); err != nil {
 		return domain.Candidate{}, err
 	}
+	// The version the phone rendered validates this write, even if a newer one was published
+	// since the form was opened; a version that never existed is refused.
+	cat, err := s.Catalog(ctx, p.TenantID, p.QuestionnaireVersion)
+	if err != nil {
+		return domain.Candidate{}, err
+	}
+	p.Write.Catalog = cat
+	p.QuestionnaireVersion = cat.Version
 	p.Write.Normalize()
 	if err := p.Write.Validate(); err != nil {
 		return domain.Candidate{}, err
@@ -228,8 +293,9 @@ func (s *Service) Media(ctx context.Context, tenantID string, rows []domain.Cand
 		if ref := strings.TrimSpace(c.VideoProofRef); ref != "" {
 			refs = append(refs, ref)
 		}
-		for _, q := range domain.MediaSlots() {
-			refs = append(refs, c.Media[q.Slot]...)
+		// Every capture the row holds, whatever slot its SOP version named.
+		for _, slotRefs := range c.Media {
+			refs = append(refs, slotRefs...)
 		}
 	}
 	out, err := s.media.ResolveMedia(ctx, tenantID, refs)

@@ -118,6 +118,11 @@ const MODULE_SURFACE_ROUTE_EXCEPTIONS = new Set([
   "/feed/sops",
   "/milk/sops",
   "/weighing/sops",
+  // /procurement/sops — approved by explicit maintainer decision 2026-09-14 (recorded in
+  // AGENTS.md, docs/decisions/procurement-sop.md and the backend contract): the animal purchase
+  // inspection the phone runs is AUTHORED here (pages, questions, proof, compulsory flags), the
+  // same module-surface shape as the five routes above. Still no /sops and no lens duplicate.
+  "/procurement/sops",
 ]);
 
 function isAllowedRoute(route) {

@@ -2413,6 +2413,22 @@
   .condrow .condval{min-width:90px}
   .cond-note{max-width:340px;text-align:right}
   .btn.ghost{background:transparent;border-style:dashed;color:var(--brand-d);font-size:12.5px;padding:6px 10px}
+  .sop-inspection .inspection-page{padding:10px 14px}
+  .inspection-page-head{display:flex;align-items:center;gap:10px;width:100%;background:none;border:0;color:var(--ink);font:inherit;cursor:pointer;padding:4px 0;text-align:left}
+  .inspection-page-head strong{font-size:15px}
+  .inspection-page-head>svg:last-child{margin-left:auto;color:var(--muted)}
+  .sop-inspection .qcard .qtext,.sop-inspection .qcard .qhelp{width:100%}
+  .sop-inspection .inspection-page>.bd>.qcfg input,.sop-inspection .inspection-page>.bd>.qcfg select{width:100%;border:1px solid var(--line);background:var(--panel);border-radius:8px;padding:8px 10px;font:inherit;font-size:12.5px;color:var(--ink);outline:0}
+  .sop-inspection .inspection-page>.bd>.qcfg input:focus{border-color:var(--brand);box-shadow:0 0 0 3px var(--brand-soft)}
+  .sop-inspection .inspection-page>.bd>.qcfg .rowf{display:flex;gap:8px;flex-wrap:wrap}
+  .sop-inspection .inspection-page>.bd>.qcfg .rowf>*{flex:1;min-width:0}
+  .sop-inspection .inspection-page-actions{display:inline-flex;gap:6px}
+  .sop-inspection .qcard .rowf{display:flex;gap:8px;flex-wrap:wrap}
+  .sop-inspection .qcard .rowf>*{flex:1;min-width:0}
+  .sop-inspection .qcard .optrow code{flex:none;max-width:120px;overflow:hidden;text-overflow:ellipsis}
+  .sop-inspection .qfoot .condrow select{max-width:260px}
+  .inspection-footer{position:sticky;bottom:0;background:var(--panel);border-top:1px solid var(--line);padding:10px 90px 10px 14px;margin-top:12px;display:flex;align-items:center;gap:10px;z-index:2}
+  .inspection-summary .htl{margin-bottom:6px}
   .btn.ghost:hover{background:var(--brand-soft)}
 
   .weighing-page{display:grid;gap:16px}

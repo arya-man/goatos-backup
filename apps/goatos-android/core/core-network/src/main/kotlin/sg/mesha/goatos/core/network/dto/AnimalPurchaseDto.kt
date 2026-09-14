@@ -228,6 +228,8 @@ data class AnimalPurchaseLoadDetailDto(
  */
 @Serializable
 data class AnimalPurchaseAnimalCreateRequestDto(
+    /** The SOP version the form rendered (from /options); 0 = whatever is published. */
+    @SerialName("questionnaire_version") val questionnaireVersion: Int = 0,
     @SerialName("answers") val answers: JsonObject = JsonObject(emptyMap()),
     @SerialName("media") val media: Map<String, List<String>> = emptyMap(),
 )

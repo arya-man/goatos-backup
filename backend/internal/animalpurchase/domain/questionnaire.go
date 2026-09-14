@@ -212,8 +212,17 @@ func (a Answers) choice(id string) string {
 // Validate checks the answers and media against the catalog: every applicable required question
 // answered, every choice within its options, every number in range, every required media slot
 // filled and no slot over its file limit. The first problem is returned naming the question.
+// ValidateAnswers checks answers against the LEGACY catalog. Production validates against the
+// candidate's own SOP version (Catalog.ValidateAnswers); this stays for the golden tests.
 func ValidateAnswers(a Answers, media MediaRefs) error {
-	for _, q := range Questionnaire() {
+	return Catalog{Version: QuestionnaireVersion, Questions: Questionnaire()}.ValidateAnswers(a, media)
+}
+
+// ValidateAnswers checks answers and media against THIS catalog: required questions present
+// (when their only_if holds), choices among the offered options, numbers in range, media slots
+// known, mandatory slots filled and no slot over its file cap.
+func (c Catalog) ValidateAnswers(a Answers, media MediaRefs) error {
+	for _, q := range c.Questions {
 		if q.Kind == KindSection || !a.Applies(q) {
 			continue
 		}
@@ -284,7 +293,7 @@ func ValidateAnswers(a Answers, media MediaRefs) error {
 	}
 	for slot := range media {
 		known := false
-		for _, q := range MediaSlots() {
+		for _, q := range c.MediaSlots() {
 			if q.Slot == slot {
 				known = true
 			}

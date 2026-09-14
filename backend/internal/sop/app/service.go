@@ -19,6 +19,20 @@ type Service struct {
 	submission   SubmissionHook
 	reviewFanout TaskReviewFanout
 	now          func() time.Time
+	// contracts are per-module document validators run at version create time on top of the
+	// generic form_dsl checks (PROCUREMENT SOP, 2026-09-14: the animal-purchase `inspection`
+	// section is validated by the module that compiles it, so a version the phone could not run
+	// is never saved, let alone published).
+	contracts []FormDSLContract
+}
+
+// FormDSLContract inspects a version's form_dsl for one SOP code and adds errors to the report.
+type FormDSLContract func(sopCode string, formDSL map[string]any, report *domain.ValidationReport)
+
+// WithFormDSLContract registers a module-owned document validator.
+func (s *Service) WithFormDSLContract(c FormDSLContract) *Service {
+	s.contracts = append(s.contracts, c)
+	return s
 }
 
 const (
@@ -202,6 +216,9 @@ func (s *Service) CreateVersion(ctx context.Context, cmd ports.CreateVersionComm
 		return nil, mapRepoErr(err)
 	}
 	validateVaccinationDriveSOPContract(&cmd.Report, sop.Code, cmd.Body.FormDSL, cmd.Body.ProofPolicy)
+	for _, contract := range s.contracts {
+		contract(sop.Code, cmd.Body.FormDSL, &cmd.Report)
+	}
 	if !cmd.Report.Valid {
 		return nil, BadRequest("invalid_sop_dsl", cmd.Report.Errors[0].Message)
 	}

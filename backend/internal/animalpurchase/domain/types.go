@@ -235,6 +235,9 @@ func (w LoadWrite) Validate() error {
 type CandidateWrite struct {
 	Answers Answers
 	Media   MediaRefs
+	// Catalog is the SOP version the phone rendered (set by the service before Normalize /
+	// Validate); its version number is stamped on the row.
+	Catalog Catalog
 
 	// Derived by Normalize; not client-settable.
 	Species      string
@@ -276,7 +279,10 @@ func (w *CandidateWrite) Normalize() {
 }
 
 func (w CandidateWrite) Validate() error {
-	if err := ValidateAnswers(w.Answers, w.Media); err != nil {
+	if len(w.Catalog.Questions) == 0 {
+		return invalid("questionnaire_version", "The inspection SOP could not be loaded. Refresh and try again.")
+	}
+	if err := w.Catalog.ValidateAnswers(w.Answers, w.Media); err != nil {
 		return err
 	}
 	if len(w.Breed) > maxBreedLength {
@@ -290,11 +296,7 @@ func (w CandidateWrite) Validate() error {
 
 // AllMediaRefs flattens the media map in slot order, for validation and storage.
 func (w CandidateWrite) AllMediaRefs() []string {
-	var out []string
-	for _, q := range MediaSlots() {
-		out = append(out, w.Media[q.Slot]...)
-	}
-	return out
+	return w.Catalog.AllMediaRefs(w.Media)
 }
 
 // DecisionWrite is the CEO's accept / reject.

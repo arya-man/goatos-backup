@@ -6,12 +6,14 @@ import { revalidatePath } from "next/cache";
 // data, so every SOP mutation revalidates all of them. Vaccination is no longer among
 // them: its SOP surface was absorbed into Preventive Care / Vaccination plan, where the
 // proof method is one field on the plan rather than a separate document to author.
-const SOP_PAGE_PATHS = ["/counts/sops", "/feed/sops"];
+const SOP_PAGE_PATHS = ["/counts/sops", "/feed/sops", "/procurement/sops"];
 import {
   createSop,
   createSopVersion,
   dryRunSopVersion,
+  getSop,
   publishSopVersion,
+  type CreateSOPVersionRequest,
   type DryRunResponse,
   type SOPValidationReport,
 } from "@/lib/api/server";
@@ -134,4 +136,53 @@ export async function publishSop(sopId: string, versionId: string, rowVersion: n
   if (!res.ok) return { ok: false, message: res.error.message ?? "publish failed", code: res.error.code };
   for (const path of SOP_PAGE_PATHS) revalidatePath(path);
   return { ok: true, message: "Published — immutable version; tasks pin to it." };
+}
+
+// PROCUREMENT SOP (maintainer decision 2026-09-14): the inspection editor saves a new version = the
+// published version's form_dsl (load form, rules, proof policy: unchanged) + the emitted
+// `inspection` document. The backend validates the document (a version the phone could not run is
+// refused with the field named); publishing makes it the catalog for animals recorded from then on.
+export interface InspectionSaveResult {
+  ok: boolean;
+  message: string;
+  code?: string;
+  versionId?: string;
+  rowVersion?: number;
+  versionNumber?: number;
+  report?: SOPValidationReport;
+}
+
+export async function saveInspectionVersion(sopId: string, inspection: Record<string, unknown>, label?: string): Promise<InspectionSaveResult> {
+  if (!sopId) return { ok: false, message: "SOP id is required" };
+  const detail = await getSop(sopId);
+  if (!detail.ok) return { ok: false, message: detail.error.message ?? "SOP could not be read", code: detail.error.code };
+  const base = detail.data.latest_version;
+  if (!base) return { ok: false, message: "This SOP has no version to build on." };
+  const formDsl = { ...(base.form_dsl as Record<string, unknown>), inspection };
+  const version = await createSopVersion(sopId, {
+    version_label: (label ?? "").trim() || `${detail.data.sop.name} · inspection`,
+    form_dsl: formDsl,
+    proof_policy: base.proof_policy as CreateSOPVersionRequest["proof_policy"],
+  });
+  if (!version.ok) return { ok: false, message: version.error.message ?? "create SOP version failed", code: version.error.code };
+  for (const path of SOP_PAGE_PATHS) revalidatePath(path);
+  const report = version.data.version.validation_report;
+  return {
+    ok: true,
+    message: report?.valid ? "Inspection saved as a draft version." : "Saved — backend flagged validation issues (see report).",
+    versionId: version.data.version.sop_version_id,
+    rowVersion: version.data.version.row_version,
+    versionNumber: version.data.version.version,
+    report,
+  };
+}
+
+export async function publishInspectionVersion(sopId: string, inspection: Record<string, unknown>, label?: string): Promise<InspectionSaveResult> {
+  const saved = await saveInspectionVersion(sopId, inspection, label);
+  if (!saved.ok || !saved.versionId || saved.rowVersion === undefined) return saved;
+  if (saved.report && !saved.report.valid) return { ...saved, ok: false, message: saved.report.errors?.[0]?.message ?? "The inspection has validation issues; fix them and publish again." };
+  const res = await publishSopVersion(sopId, saved.versionId, saved.rowVersion);
+  if (!res.ok) return { ok: false, message: res.error.message ?? "publish failed", code: res.error.code };
+  for (const path of SOP_PAGE_PATHS) revalidatePath(path);
+  return { ...saved, ok: true, message: `Published v${saved.versionNumber ?? ""}. Animals recorded from now on use this inspection.` };
 }

@@ -3,6 +3,8 @@ import type { SopCardView } from "@/features/sops";
 import { getSop, isAuthRequiredError, listSops, requireAdminWebPageContract } from "@/lib/api/server";
 import type { RouteSearchParams } from "@/lib/search-params";
 import type { SopSliceDomain } from "./sop-derive";
+import { InspectionEditor } from "./inspection-editor";
+import { parseInspection } from "./inspection-model";
 
 // Shared server renderer for the per-module SOP pages (SOP split, maintainer decision 2026-08-18):
 // /vaccination/sops, /counts/sops, and /feed/sops each mount this with their own page-contract key,
@@ -28,6 +30,24 @@ export async function renderSopModulePage(
       const [pageContract, detail] = await Promise.all([pageContractPromise, getSop(editId)]);
       if (detail.ok && detail.data.latest_version) {
         const version = detail.data.latest_version;
+        // PROCUREMENT SOP (maintainer decision 2026-09-14): a SOP carrying an `inspection`
+        // document (pages of questions the phone runs) is edited through the inspection editor;
+        // the load form it also carries is passed through verbatim on save.
+        const inspection = parseInspection(version.form_dsl);
+        if (inspection) {
+          const pageContract = await pageContractPromise;
+          return (
+            <InspectionEditor
+              pageContract={pageContract}
+              basePath={basePath}
+              sopId={editId}
+              sopName={detail.data.sop.name}
+              sopCode={detail.data.sop.code}
+              versionLabel={`${version.version_label} · ${version.status}`}
+              initial={inspection}
+            />
+          );
+        }
         const initial = builderInitialFromVersion(detail.data.sop.code, detail.data.sop.name, version.form_dsl, version.proof_policy);
         // If the version has rules/field-types this builder cannot round-trip, still show it (so the
         // author sees the SOP) but block save/publish — re-saving would silently drop that content.

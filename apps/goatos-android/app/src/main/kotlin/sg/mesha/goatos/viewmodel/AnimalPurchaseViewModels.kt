@@ -888,10 +888,14 @@ class AnimalPurchaseAnimalCreateViewModel @Inject constructor(
 
     /** The last served catalog, mirrored off the options flow so event handlers read it synchronously. */
     private var latestQuestionnaire: List<AnimalPurchaseQuestionDto> = emptyList()
+    private var latestQuestionnaireVersion: Int = 0
 
     init {
         viewModelScope.launch {
-            repository.observeOptions().collect { latestQuestionnaire = it?.questionnaire.orEmpty() }
+            repository.observeOptions().collect {
+                latestQuestionnaire = it?.questionnaire.orEmpty()
+                latestQuestionnaireVersion = it?.questionnaireVersion ?: 0
+            }
         }
     }
 
@@ -1138,7 +1142,12 @@ class AnimalPurchaseAnimalCreateViewModel @Inject constructor(
                 .filter { it.kind == QUESTION_KIND_MEDIA && it.slot.isNotBlank() }
                 .mapNotNull { q -> slotOutboxIds[q.slot]?.takeIf { ids -> ids.isNotEmpty() }?.let { q.slot to it } }
                 .toMap()
-            val request = AnimalPurchaseAnimalCreateRequestDto(answers = buildAnswersJson(applicable, answers))
+            // The SOP version this form rendered rides with the answers: the backend validates
+            // against THAT version, so a publish while the form was open cannot refuse it.
+            val request = AnimalPurchaseAnimalCreateRequestDto(
+                questionnaireVersion = latestQuestionnaireVersion,
+                answers = buildAnswersJson(applicable, answers),
+            )
             local.update { it.copy(submitInFlight = true, questionErrors = emptyMap()) }
             when (val result = syncRepository.enqueueAnimalPurchaseAnimalCreate(draftKey.current(), loadId, request, mediaBySlot)) {
                 is AppResult.Ok -> {

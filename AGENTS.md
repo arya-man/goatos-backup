@@ -2769,6 +2769,15 @@ Purpose:
   prefix; the full-page SOP builder lives at `<module page>?compose=1`. There is
   no `/sops` route, redirect, or nav leaf any more, and `/config` stays the
   single generic authority screen.
+  **SOP split EXTENSION (maintainer decision 2026-09-14): `/procurement/sops` (Procurement SOP)
+  joins the same module-surface shape.** It authors the ANIMAL PURCHASE INSPECTION the phone runs
+  -- the pages, the questions, which take a photo / a video / either, which are compulsory --
+  as `form_dsl.inspection` of the published `procurement.animal_purchase` version; the backend
+  compiles and validates it, the phone renders it, each recorded animal is stamped with the
+  version it was answered on and is validated and reviewed on THAT version. No question of that
+  inspection may be a Go constant or a phone string again; the legacy Go catalog is the golden
+  oracle for the seeded v1 only (`make procurement-sop-guard`). Canonical prose:
+  `docs/decisions/procurement-sop.md`.
   **SOP split EXTENSION (maintainer decision 2026-08-22): `/milk/sops` (Milk
   SOP: preparation / feeding) and `/weighing/sops` (Weighing SOP: the
   scan-and-submit session) join the same shape** — the same `sop-library`

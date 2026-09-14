@@ -1535,3 +1535,18 @@ operator work queue read only by the phone's Reconcile tab.
 | pen_reconciliation_cards | EXCLUDED | Operator work-queue rows (open/pending_verification/rework/completed wrong-pen cards) read only by the phone Reconcile tab; the review workload is covered by the verification queue surfaces. A future governed "pen drift" KPI (cards raised per park/week) would be a new coverage row over a composed read API, not a raw read of this table. |
 | GET /app/counts/pen-reconciliation/cards, POST /app/counts/pen-reconciliation/cards/{card_id}/complete | EXCLUDED | Operator phone endpoints (CountsWrite): a keyset work-queue page and the proof-gated completion write. Field execution surface, not a leadership read. |
 | func:RaisePenReconciliationCards, func:ListPenReconciliationCards, func:CompletePenReconciliationCard, func:MarkPenReconciliationVerificationEnqueued, func:ListPenReconciliationVerificationEnqueueDebt, func:RecoverVerificationEnqueues, func:NewPenReconciliationEnqueueRecoveryStage, func:ApplyVerifiedPenReconciliation, func:BouncePenReconciliationForRework, func:NewPenReconciliationService, func:NewPenReconciliationRaiser, func:NewPenReconciliationVerificationHandler, func:NewPenReconciliationVerificationEnqueuer, func:EnqueuePenReconciliationVerification, func:RegisterPenReconciliation, func:WithPenReconciliationWorkflow, func:ListPenReconciliationCards, func:CompletePenReconciliationCard, func:EncodePenReconciliationCursor, func:DecodePenReconciliationCursor, func:ValidPenReconciliationBucket | EXCLUDED | Write path, durable enqueue-recovery marker draining/clearing, event consumers, cursor codecs and composition wiring of the same operator flow. They move or mutate the card rows excluded above; none composes a leadership fact. |
+
+## Procurement SOP: the animal purchase inspection is authored on the web (2026-09-14)
+
+The per-animal inspection (`docs/decisions/procurement-sop.md`) moved from a Go catalog into the
+`inspection` section of the published `procurement.animal_purchase` SOP version, authored on
+`/procurement/sops`. Everything below is document parsing, compilation and the version-resolving
+plumbing of an operator flow already covered above; no new leadership fact, KPI, `ceo_ai.*` view,
+Cube metric or MCP tool.
+
+| Surface | Decision | Reason |
+| --- | --- | --- |
+| func:ParseInspection, func:ValidateInspection, func:CompileInspection, func:SeededInspectionJSON, func:SeededCatalog, func:LockedQuestionIDs, func:InspectionSOPContract | EXCLUDED | Parse / validate / compile the authored inspection document and the day-one seed; the sop/app contract hook that refuses a version the phone could not run. Document shaping, no read API, no aggregate. |
+| func:PublishedCatalog, func:CatalogVersion, func:NewCatalogSource, func:WithCatalogSource, func:Catalog, func:CatalogFor, func:MediaSlots, func:ByID, func:AllMediaRefs | EXCLUDED | Resolve the inspection catalog by SOP version for the phone form, the write validation and the review labels (one read per distinct version per page). Plumbing of the already-excluded animal purchase surfaces. |
+| func:WithFormDSLContract | EXCLUDED | sop/app seam registering a module-owned form_dsl validator at version create; composition wiring. |
+| /procurement/sops | EXCLUDED | Admin authoring page (SOP library scoped to `procurement.` codes) for the CEO; a config surface, not a reporting read. |

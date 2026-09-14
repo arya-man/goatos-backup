@@ -119,6 +119,8 @@ var modulePages = []ModulePage{
 	{Key: "procurement-feed-purchases", Module: "feed_purchases", Label: "Feed Purchases", Href: "/procurement/feed-purchases", Permissions: []string{FeedPurchaseRead}},
 	// Animal purchases review (2026-09-13): CEO/CXO only, gated on the decide permission.
 	{Key: "procurement-animal-purchases", Module: "animal_purchases", Label: "Animal purchases", Href: "/procurement/animal-purchases", Permissions: []string{AnimalPurchaseDecide}},
+	// Procurement SOP (2026-09-14): the animal-purchase inspection authored as pages of questions.
+	{Key: "procurement-sops", Module: "procurement", Label: "Procurement SOP", Href: "/procurement/sops", Permissions: []string{SOPRead}},
 
 	{Key: "counts-herd-analytics", Module: "counts", Label: "Herd Analytics", Href: "/counts/analytics", Permissions: []string{CountsRead}},
 	{Key: "counts-breakdown", Module: "counts", Label: "Counts Breakdown", Href: "/counts/breakdown", Permissions: []string{CountsRead}},
@@ -180,6 +182,7 @@ var moduleRoutePrefixes = map[string]string{
 	"/sales/vendors":                "sales",
 	"/procurement/feed-purchases":   "feed_purchases",
 	"/procurement/animal-purchases": "animal_purchases",
+	"/procurement/sops":             "procurement",
 	"/counts":                       "counts",
 	"/counts/herd":                  "herd_register",
 	"/milk":                         "milk",
