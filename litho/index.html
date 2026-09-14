@@ -16,15 +16,20 @@ table{border-collapse:collapse}td,th{border:1px solid #ddd;padding:4px 8px}
 <script>
 mermaid.initialize({startOnLoad:false});
 const root=new URLSearchParams(location.search).get('root')||'litho.docs';
+const pathUrl=(root,f)=>root.split('/').map(encodeURIComponent).join('/')+'/'+f.split('/').map(encodeURIComponent).join('/');
 fetch('files.json').then(r=>r.json()).then(all=>{
   const files=all[root]||[];const nav=document.getElementById('nav');
   nav.innerHTML=`<h3>${root}</h3>`+files.map(f=>`<a href="#${encodeURIComponent(f)}">${f}</a>`).join('');
   const load=()=>{const f=decodeURIComponent(location.hash.slice(1))||files[0];if(!f)return;
     nav.querySelectorAll('a').forEach(a=>a.classList.toggle('on',decodeURIComponent(a.hash.slice(1))===f));
-    fetch(root+'/'+f).then(r=>r.text()).then(t=>{
+    const d=document.getElementById('doc');
+    d.innerHTML='Loading...';
+    fetch(pathUrl(root,f)).then(r=>{if(!r.ok)throw new Error(`${r.status} ${r.statusText}`);return r.text();}).then(t=>{
       const d=document.getElementById('doc');
       d.innerHTML=marked.parse(t.replace(/^---[\s\S]*?\n---\n/,''));
       d.querySelectorAll('code.language-mermaid').forEach(c=>{const p=c.parentElement;const m=document.createElement('pre');m.className='mermaid';m.textContent=c.textContent;p.replaceWith(m)});
-      mermaid.run({querySelector:'.mermaid'}).catch(()=>{});d.scrollTop=0;});};
+      mermaid.run({querySelector:'.mermaid'}).catch(()=>{});d.scrollTop=0;}).catch(e=>{
+      d.innerHTML=`<h2>Document failed to load</h2><p><code>${root}/${f}</code></p><pre>${e.message}</pre>`;
+    });};
   window.onhashchange=load;load();});
 </script>
