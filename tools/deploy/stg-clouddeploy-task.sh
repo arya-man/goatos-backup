@@ -497,8 +497,8 @@ deploy() {
     --min-instances=0 \
     --max-instances=1 \
     --concurrency=20 \
-    --set-env-vars="GOATOS_ENV=stg,GOATOS_HTTP_ADDR=:8080,GOATOS_API_ROUTE_MODE=events,GOATOS_AUTH_MODE=jwks,GOATOS_AUTH_SESSION_ALLOWED_TENANT_IDS=${GOATOS_STG_TENANT_ID},GOATOS_ANALYTICS_MAX_IN_FLIGHT=2,GOATOS_PG_MAX_CONNS=2,GOATOS_PG_QUERY_TIMEOUT=3s" \
-    --set-secrets="DATABASE_URL=goatos-stg-database-url:latest,GOATOS_AUTH_ISSUER=goatos-stg-auth-issuer:latest,GOATOS_AUTH_AUDIENCE=goatos-stg-auth-audience:latest,GOATOS_AUTH_JWKS_URL=goatos-stg-auth-jwks-url:latest,GOATOS_AUTH_ALLOWED_EMAILS=goatos-stg-auth-allowed-emails:latest" \
+    --set-env-vars="GOATOS_ENV=stg,GOATOS_HTTP_ADDR=:8080,GOATOS_API_ROUTE_MODE=events,GOATOS_AUTH_MODE=jwks,GOATOS_MEDIA_STORAGE=gcs,GOATOS_GCS_BUCKET=goatos-stg-media,GOATOS_AUTH_SESSION_ALLOWED_TENANT_IDS=${GOATOS_STG_TENANT_ID},GOATOS_ANALYTICS_MAX_IN_FLIGHT=2,GOATOS_PG_MAX_CONNS=2,GOATOS_PG_QUERY_TIMEOUT=3s" \
+    --set-secrets="DATABASE_URL=goatos-stg-database-url:latest,GOATOS_AUTH_ISSUER=goatos-stg-auth-issuer:latest,GOATOS_AUTH_AUDIENCE=goatos-stg-auth-audience:latest,GOATOS_AUTH_JWKS_URL=goatos-stg-auth-jwks-url:latest,GOATOS_AUTH_ALLOWED_EMAILS=goatos-stg-auth-allowed-emails:latest,GOATOS_GCS_SERVICE_ACCOUNT_JSON=goatos-stg-gcs-service-account-json:latest" \
     --update-labels="commit_sha=${COMMIT_SHA},deployed_by=cloud-deploy" \
     --quiet
   run gcloud run services update-traffic "$ANALYTICS_EVENTS_SERVICE" \

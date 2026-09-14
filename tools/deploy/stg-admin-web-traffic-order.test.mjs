@@ -74,33 +74,54 @@ test("api terraform and deploy restore keep the same latency shape", () => {
 });
 
 test("analytics events has an isolated capped deploy lane", () => {
+  const serviceStart = apiTerraform.indexOf('resource "google_cloud_run_v2_service" "analytics_events"');
+  const serviceEnd = apiTerraform.indexOf('resource "google_cloud_run_v2_service_iam_member" "analytics_events_public_invoker"');
+  assert.notEqual(serviceStart, -1, "terraform must declare the analytics events service");
+  assert.notEqual(serviceEnd, -1, "terraform must declare analytics events IAM after the service");
+  const eventsService = apiTerraform.slice(serviceStart, serviceEnd);
+
   assert.match(
-    apiTerraform,
+    eventsService,
     /resource "google_cloud_run_v2_service" "analytics_events"/,
     "terraform must declare the analytics events service",
   );
   assert.match(
-    apiTerraform,
+    eventsService,
     /name\s*=\s*"goatos-analytics-events-stg"/,
     "analytics events service must use the staging service name",
   );
   assert.match(
-    apiTerraform,
+    eventsService,
     /service_account\s*=\s*google_service_account\.runtime\["analytics_events"\]\.email/,
     "analytics events must not run as the main api service account",
   );
   assert.match(
-    apiTerraform,
+    eventsService,
     /GOATOS_API_ROUTE_MODE"[\s\S]*?value\s*=\s*"events"/,
     "analytics events must boot in event-only route mode",
   );
   assert.match(
-    apiTerraform,
+    eventsService,
+    /GOATOS_MEDIA_STORAGE"[\s\S]*?value\s*=\s*"gcs"/,
+    "analytics events must include proof-storage boot env because api bootstrap builds it before route filtering",
+  );
+  assert.match(
+    eventsService,
+    /GOATOS_GCS_BUCKET"[\s\S]*?google_storage_bucket\.proof_media\.name/,
+    "analytics events must include the proof media bucket required by shared bootstrap",
+  );
+  assert.match(
+    eventsService,
+    /GOATOS_GCS_SERVICE_ACCOUNT_JSON"[\s\S]*?proof_gcs_service_account_json/,
+    "analytics events must include the proof media signer secret required by shared bootstrap",
+  );
+  assert.match(
+    eventsService,
     /GOATOS_PG_MAX_CONNS"[\s\S]*?value\s*=\s*"2"/,
     "analytics events must have a tiny DB pool",
   );
   assert.match(
-    apiTerraform,
+    eventsService,
     /min_instance_count\s*=\s*0[\s\S]*?max_instance_count\s*=\s*1/,
     "analytics events must be capped separately from the business api",
   );
@@ -113,6 +134,9 @@ test("analytics events has an isolated capped deploy lane", () => {
   assert.match(script, /--add-cloudsql-instances="\$\{PROJECT_ID\}:\$\{REGION\}:goatos-stg-core-db"/);
   assert.match(script, /--set-secrets="DATABASE_URL=goatos-stg-database-url:latest/);
   assert.match(script, /GOATOS_API_ROUTE_MODE=events/);
+  assert.match(script, /GOATOS_MEDIA_STORAGE=gcs/);
+  assert.match(script, /GOATOS_GCS_BUCKET=goatos-stg-media/);
+  assert.match(script, /GOATOS_GCS_SERVICE_ACCOUNT_JSON=goatos-stg-gcs-service-account-json:latest/);
   assert.match(script, /GOATOS_AUTH_SESSION_ALLOWED_TENANT_IDS=\$\{GOATOS_STG_TENANT_ID\}/);
   assert.match(script, /GOATOS_ANALYTICS_MAX_IN_FLIGHT=2/);
   assert.match(script, /GOATOS_PG_MAX_CONNS=2/);

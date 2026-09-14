@@ -430,6 +430,18 @@ resource "google_cloud_run_v2_service" "analytics_events" {
         value = "jwks"
       }
 
+      # api bootstrap builds proof storage before the event-only route branch,
+      # so the isolated event lane must carry the same required boot env.
+      env {
+        name  = "GOATOS_MEDIA_STORAGE"
+        value = "gcs"
+      }
+
+      env {
+        name  = "GOATOS_GCS_BUCKET"
+        value = google_storage_bucket.proof_media.name
+      }
+
       env {
         name  = "GOATOS_AUTH_SESSION_ALLOWED_TENANT_IDS"
         value = var.stg_tenant_id
@@ -485,6 +497,16 @@ resource "google_cloud_run_v2_service" "analytics_events" {
         value_source {
           secret_key_ref {
             secret  = google_secret_manager_secret.container["auth_allowed_emails"].secret_id
+            version = "latest"
+          }
+        }
+      }
+
+      env {
+        name = "GOATOS_GCS_SERVICE_ACCOUNT_JSON"
+        value_source {
+          secret_key_ref {
+            secret  = google_secret_manager_secret.container["proof_gcs_service_account_json"].secret_id
             version = "latest"
           }
         }

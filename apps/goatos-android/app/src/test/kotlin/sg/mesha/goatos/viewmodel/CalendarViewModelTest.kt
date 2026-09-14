@@ -343,6 +343,27 @@ class CalendarViewModelTest {
     }
 
     @Test
+    fun `week overview refresh asks for markers only while selected day fetches cards`() = runTest(dispatcher) {
+        val repo = RecordingCalendarRepository()
+        val vm = CalendarViewModel(repo = repo, analytics = NoopAnalytics(), crashReporter = NoopCrashReporter())
+        backgroundScope.launch { vm.state.collect {} }
+        advanceUntilIdle()
+
+        assertNotNull(repo.refreshCalls.firstOrNull {
+            it.includeDateMarkers &&
+                it.markersOnly &&
+                it.includeFilterOptions &&
+                it.limit == 1
+        })
+        assertNotNull(repo.refreshCalls.firstOrNull {
+            it.dateFrom == it.dateTo &&
+                !it.includeDateMarkers &&
+                !it.markersOnly &&
+                !it.includeFilterOptions
+        })
+    }
+
+    @Test
     fun `week refresh and first month switch each revalidate the month pager`() = runTest(dispatcher) {
         val repo = RecordingCalendarRepository()
         val vm = CalendarViewModel(repo = repo, analytics = NoopAnalytics(), crashReporter = NoopCrashReporter())
@@ -370,6 +391,10 @@ private data class CalendarRefreshCall(
     val status: String?,
     val dateFrom: String?,
     val dateTo: String?,
+    val includeDateMarkers: Boolean,
+    val markersOnly: Boolean,
+    val includeFilterOptions: Boolean,
+    val limit: Int?,
     val vaccine: String?,
 )
 
@@ -387,6 +412,7 @@ private class FailingColdCalendarRepository(
         dateFrom: String?,
         dateTo: String?,
         includeDateMarkers: Boolean,
+        markersOnly: Boolean,
         vaccine: String?,
         includeFilterOptions: Boolean,
         cursor: String?,
@@ -401,6 +427,7 @@ private class FailingColdCalendarRepository(
         dateFrom: String?,
         dateTo: String?,
         includeDateMarkers: Boolean,
+        markersOnly: Boolean,
         vaccine: String?,
         includeFilterOptions: Boolean,
         cursor: String?,
@@ -415,6 +442,7 @@ private class FailingColdCalendarRepository(
         dateFrom: String?,
         dateTo: String?,
         includeDateMarkers: Boolean,
+        markersOnly: Boolean,
         vaccine: String?,
         includeFilterOptions: Boolean,
         cursor: String?,
@@ -468,6 +496,7 @@ private class StaticCalendarRepository(
         dateFrom: String?,
         dateTo: String?,
         includeDateMarkers: Boolean,
+        markersOnly: Boolean,
         vaccine: String?,
         includeFilterOptions: Boolean,
         cursor: String?,
@@ -482,6 +511,7 @@ private class StaticCalendarRepository(
         dateFrom: String?,
         dateTo: String?,
         includeDateMarkers: Boolean,
+        markersOnly: Boolean,
         vaccine: String?,
         includeFilterOptions: Boolean,
         cursor: String?,
@@ -496,6 +526,7 @@ private class StaticCalendarRepository(
         dateFrom: String?,
         dateTo: String?,
         includeDateMarkers: Boolean,
+        markersOnly: Boolean,
         vaccine: String?,
         includeFilterOptions: Boolean,
         cursor: String?,
@@ -535,6 +566,7 @@ private class RecordingCalendarRepository : CalendarRepository {
         dateFrom: String?,
         dateTo: String?,
         includeDateMarkers: Boolean,
+        markersOnly: Boolean,
         vaccine: String?,
         includeFilterOptions: Boolean,
         cursor: String?,
@@ -549,6 +581,7 @@ private class RecordingCalendarRepository : CalendarRepository {
         dateFrom: String?,
         dateTo: String?,
         includeDateMarkers: Boolean,
+        markersOnly: Boolean,
         vaccine: String?,
         includeFilterOptions: Boolean,
         cursor: String?,
@@ -563,6 +596,7 @@ private class RecordingCalendarRepository : CalendarRepository {
         dateFrom: String?,
         dateTo: String?,
         includeDateMarkers: Boolean,
+        markersOnly: Boolean,
         vaccine: String?,
         includeFilterOptions: Boolean,
         cursor: String?,
@@ -574,6 +608,10 @@ private class RecordingCalendarRepository : CalendarRepository {
             status = status,
             dateFrom = dateFrom,
             dateTo = dateTo,
+            includeDateMarkers = includeDateMarkers,
+            markersOnly = markersOnly,
+            includeFilterOptions = includeFilterOptions,
+            limit = limit,
             vaccine = vaccine,
         )
         return Result.success(Unit)
