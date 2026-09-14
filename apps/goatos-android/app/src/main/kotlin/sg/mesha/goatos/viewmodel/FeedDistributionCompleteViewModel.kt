@@ -1123,16 +1123,19 @@ class FeedDistributionCompleteViewModel @Inject constructor(
                     feedWeightPhotoCaptured = true,
                     feedWeightPhotoStatus = FeedDistributionProofStatus.SYNCED,
                     feedWeightPhotoMessage = message,
+                    feedWeightPhotoPreviewIdentity = previewIdentity(slot),
                 )
                 ProofSlot.FEED_VIDEO -> it.copy(
                     videoCaptured = true,
                     videoStatus = FeedDistributionProofStatus.SYNCED,
                     videoMessage = message,
+                    videoPreviewIdentity = previewIdentity(slot),
                 )
                 ProofSlot.WATER_VIDEO -> it.copy(
                     waterVideoCaptured = true,
                     waterVideoStatus = FeedDistributionProofStatus.SYNCED,
                     waterVideoMessage = message,
+                    waterVideoPreviewIdentity = previewIdentity(slot),
                 )
             }
         }
@@ -1215,11 +1218,11 @@ class FeedDistributionCompleteViewModel @Inject constructor(
 
     private fun previewIdentity(slot: ProofSlot): String = when (slot) {
         ProofSlot.FEED_WEIGHT_PHOTO ->
-            feedWeightRemoteRef.value ?: feedWeightPhotoProofItemId.value ?: feedWeightPhotoProofRowId.value ?: "feed-distribution:feed-weight-photo"
+            feedWeightPhotoProofItemId.value ?: feedWeightPhotoProofRowId.value ?: feedWeightRemoteRef.value ?: "feed-distribution:feed-weight-photo"
         ProofSlot.FEED_VIDEO ->
-            videoRemoteRef.value ?: videoProofItemId.value ?: videoProofRowId.value ?: "feed-distribution:feed-video"
+            videoProofItemId.value ?: videoProofRowId.value ?: videoRemoteRef.value ?: "feed-distribution:feed-video"
         ProofSlot.WATER_VIDEO ->
-            waterVideoRemoteRef.value ?: waterVideoProofItemId.value ?: waterVideoProofRowId.value ?: "feed-distribution:water-video"
+            waterVideoProofItemId.value ?: waterVideoProofRowId.value ?: waterVideoRemoteRef.value ?: "feed-distribution:water-video"
     }
 
     private fun clearProofRowId(slot: ProofSlot) {
