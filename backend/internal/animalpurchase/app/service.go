@@ -5,7 +5,6 @@ package app
 import (
 	"context"
 	"errors"
-	"fmt"
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"net/http"
 	"strings"
@@ -17,6 +16,8 @@ import (
 
 // Error is the transport-facing error shape.
 type Error struct {
+	// Cause is the underlying error for logs; never serialised.
+	Cause      error `json:"-"`
 	Code       string
 	Message    string
 	Field      string
@@ -366,6 +367,7 @@ func HTTPError(err error) *Error {
 	case errors.Is(err, ports.ErrInvalidVideo):
 		return &Error{Code: "validation_failed", Message: "A photo or video did not finish uploading. Record it again.", Field: "media", HTTPStatus: http.StatusUnprocessableEntity}
 	default:
-		return &Error{Code: "internal_error", Message: fmt.Sprintf("Could not complete that request."), HTTPStatus: http.StatusInternalServerError}
+		// The cause travels with the envelope so the transport can log it (never shown to a screen).
+		return &Error{Code: "internal_error", Message: "Could not complete that request.", HTTPStatus: http.StatusInternalServerError, Cause: err}
 	}
 }

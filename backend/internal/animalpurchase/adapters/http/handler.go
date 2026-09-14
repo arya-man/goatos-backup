@@ -262,7 +262,11 @@ func (h *Handler) writeErr(w http.ResponseWriter, r *http.Request, appErr *app.E
 	if appErr.Field != "" {
 		envelope["field"] = appErr.Field
 	}
-	httpresponse.WriteError(w, r, h.log, appErr.HTTPStatus, envelope, errors.New(appErr.Code))
+	cause := error(errors.New(appErr.Code))
+	if appErr.Cause != nil {
+		cause = fmt.Errorf("%s: %w", appErr.Code, appErr.Cause)
+	}
+	httpresponse.WriteError(w, r, h.log, appErr.HTTPStatus, envelope, cause)
 }
 
 // callerCanRecord reports whether the principal holds the write permission -- derived from the

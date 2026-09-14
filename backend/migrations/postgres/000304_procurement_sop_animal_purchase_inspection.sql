@@ -734,6 +734,16 @@ FROM public.sop_definitions sd
 WHERE sd.code = 'procurement.animal_purchase'
 ON CONFLICT (tenant_id, sop_id, version) DO NOTHING;
 
+-- The media slot vocabulary is the SOP's now: an authored media question ("photo_of_the_hooves")
+-- names its own slot, so 000303's closed CHECK over the six seeded slots would refuse every
+-- capture for it (found by the edge run: 500 on the first authored photo). The slot is still
+-- validated -- against the SOP version the animal was answered on -- by the write path.
+ALTER TABLE public.animal_purchase_candidate_media
+  DROP CONSTRAINT IF EXISTS animal_purchase_candidate_media_slot_check;
+ALTER TABLE public.animal_purchase_candidate_media
+  ADD CONSTRAINT animal_purchase_candidate_media_slot_check
+    CHECK (slot ~ '^[a-z][a-z0-9_]{0,47}$');
+
 -- The load form's answers (PROCUREMENT SOP): the identity questions mirror the typed columns;
 -- extra authored questions live only here. Stamped with the SOP version the phone rendered.
 ALTER TABLE public.animal_purchase_loads
