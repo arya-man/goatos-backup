@@ -145,11 +145,11 @@ func TestSalesPageContractAndNavigation(t *testing.T) {
 	// fact is entered or changed, which is why the read leaves come first.
 	if len(salesGroup.Leaves) != 5 ||
 		salesGroup.Leaves[0].Href != "/sales/sold" ||
-		salesGroup.Leaves[0].Label != "Sold" ||
+		salesGroup.Leaves[0].Label != "Summary" ||
 		salesGroup.Leaves[1].Href != "/sales/farm-value" ||
 		salesGroup.Leaves[1].Label != "Farm value" ||
 		salesGroup.Leaves[2].Href != "/sales/loads" ||
-		salesGroup.Leaves[2].Label != "Purchase and Born" ||
+		salesGroup.Leaves[2].Label != "Load wise" ||
 		salesGroup.Leaves[3].Href != "/sales/vendors" ||
 		salesGroup.Leaves[3].Label != "Vendors" ||
 		salesGroup.Leaves[4].Href != "/sales/config" ||
@@ -161,7 +161,7 @@ func TestSalesPageContractAndNavigation(t *testing.T) {
 	// under.
 	foundLabel := false
 	for _, rule := range resp.RouteLabels {
-		if rule.Pattern == "/sales/sold" && rule.Label == "Sold" && rule.Match == "exact" {
+		if rule.Pattern == "/sales/sold" && rule.Label == "Summary" && rule.Match == "exact" {
 			foundLabel = true
 		}
 		if rule.Pattern == "/sales" {
@@ -318,7 +318,7 @@ func TestSalesLoadsPageContract(t *testing.T) {
 	if page.Href != "/sales/loads" || page.SurfaceKind != "module-surface" {
 		t.Fatalf("page href/kind = %q/%q", page.Href, page.SurfaceKind)
 	}
-	if page.Title != "Purchase and Born" {
+	if page.Title != "Load wise" {
 		t.Fatalf("page title = %q, want the maintainer-chosen name", page.Title)
 	}
 	if len(page.Tables) != 1 || page.Tables[0].ID != "sales-loadwise" {
@@ -338,8 +338,10 @@ func TestSalesLoadsPageContract(t *testing.T) {
 			views = g.Options
 		}
 	}
-	if len(views) != 2 || views[0].Key != "purchased" || views[1].Key != "farm_born" {
-		t.Fatalf("sales_views = %+v, want purchased then farm_born", views)
+	// Farm born is hidden for now (maintainer instruction 2026-09-14): only Purchased is served,
+	// so the page shows no toggle. Serving a second view again is what brings the toggle back.
+	if len(views) != 1 || views[0].Key != "purchased" {
+		t.Fatalf("sales_views = %+v, want purchased only", views)
 	}
 
 	for _, key := range []string{

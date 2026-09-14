@@ -99,12 +99,12 @@ var modulePages = []ModulePage{
 	// SalesRead; migration 000291 rewrites a stored sales-board tick into these two keys. The
 	// Over 35 kg card on Farm value is separately gated on WeighingMonitor as a control,
 	// exactly as it was on the board.
-	{Key: "sales-sold", Module: "sales", Label: "Sold", Href: "/sales/sold", Permissions: []string{SalesRead}},
+	{Key: "sales-sold", Module: "sales", Label: "Summary", Href: "/sales/sold", Permissions: []string{SalesRead}},
 	{Key: "sales-farm-value", Module: "sales", Label: "Farm value", Href: "/sales/farm-value", Permissions: []string{SalesRead}},
 	// Purchase and Born: per-load reconciliation and profit (maintainer decision 2026-08-31). Its
 	// READ is the same commercial fact the board carries, so it ticks with the sales module; the
 	// load-cost write on it is gated separately on LoadCostWrite.
-	{Key: "sales-loads", Module: "sales", Label: "Purchase and Born", Href: "/sales/loads", Permissions: []string{SalesRead}},
+	{Key: "sales-loads", Module: "sales", Label: "Load wise", Href: "/sales/loads", Permissions: []string{SalesRead}},
 	// Sales Config: every sales entry form in one place (maintainer decision 2026-09-01). Ticked
 	// with the sales module and reached on SalesRead -- the WRITES on it carry their own keys
 	// (SalesWrite, and LoadCostWrite for a load's cost), so a read-only holder sees the page with

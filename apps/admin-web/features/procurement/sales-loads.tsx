@@ -29,7 +29,7 @@ function hrefWithQuery(sp: RouteSearchParams, patch: Record<string, string | nul
 }
 
 /**
- * Purchase and Born — every batch of animals reconciled against what it cost and what it returned.
+ * Load wise — every batch of animals reconciled against what it cost and what it returned.
  *
  * Its own page under Sales rather than a block on the board (maintainer decision 2026-08-31): the
  * board answers how sales are going, this answers how each batch did, which is read at a different
@@ -115,23 +115,28 @@ export async function SalesLoadsPage({
             The title block and the trailing spacer carry the SAME flex share, which is what puts
             the toggle on the header's true midpoint -- two spacers alone would only centre it in
             the space the title leaves over. */}
-        <div
-          className="chips sales-loads-tabs"
-          role="group"
-          aria-label={copy(pageContract, "page.tabs.aria")}
-        >
-          {views.map((option) => (
-            <Link
-              key={option.key}
-              href={hrefWithQuery(sp, { view: option.key === DEFAULT_VIEW ? null : option.key })}
-              scroll={false}
-              className={option.key === view ? "btn p" : "btn"}
-              aria-current={option.key === view ? "true" : undefined}
-            >
-              {option.label}
-            </Link>
-          ))}
-        </div>
+        {/* The toggle exists only while the contract offers more than one view. Farm born is
+            hidden for now (maintainer instruction 2026-09-14), so the backend serves Purchased
+            alone and no chips render; serving a second option brings the toggle back. */}
+        {views.length > 1 ? (
+          <div
+            className="chips sales-loads-tabs"
+            role="group"
+            aria-label={copy(pageContract, "page.tabs.aria")}
+          >
+            {views.map((option) => (
+              <Link
+                key={option.key}
+                href={hrefWithQuery(sp, { view: option.key === DEFAULT_VIEW ? null : option.key })}
+                scroll={false}
+                className={option.key === view ? "btn p" : "btn"}
+                aria-current={option.key === view ? "true" : undefined}
+              >
+                {option.label}
+              </Link>
+            ))}
+          </div>
+        ) : null}
       </div>
 
       <LoadwiseSection

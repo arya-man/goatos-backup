@@ -1096,7 +1096,7 @@ func compileSalesConfigOptionGroups(groups []domain.OptionGroup, input Bootstrap
 	return replaceOptionGroup(groups, "sales_config_read_links", []domain.Option{
 		option("sales-sold", "See what has sold", "", ""),
 		option("sales-farm-value", "See Farm value", "", ""),
-		option("sales-loads", "See Purchase and Born", "", ""),
+		option("sales-loads", "See Load wise", "", ""),
 	})
 }
 
