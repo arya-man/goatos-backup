@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	ltdomain "github.com/vgoats/goatos/backend/internal/leadershiptasks/domain"
@@ -169,34 +170,49 @@ func (h *Handler) Page(w http.ResponseWriter, r *http.Request) {
 		}
 		q.Limit = n
 	}
-	sum, err := h.service.Summary(r.Context(), q)
-	if err != nil {
-		h.writeServiceErr(w, r, err)
-		return
-	}
 	out := pagePayload{
-		Summary:      summaryPayload{Summary: sum, BusinessDate: q.BusinessDate, ParkID: q.ParkID, OwnRowsOnly: own},
 		Lanes:        map[domain.Lane]lanePagePayload{},
 		BusinessDate: q.BusinessDate,
 		ParkID:       q.ParkID,
 		Modules:      q.Modules,
 		OwnRowsOnly:  own,
 	}
-	out.Degraded = appendModules(out.Degraded, sum.Degraded...)
-	if strings.TrimSpace(r.URL.Query().Get("module")) != "" && len(q.Modules) > 0 && !q.NoModules {
+	type summaryResult struct {
+		payload summaryPayload
+		err     error
+	}
+	summaryCh := make(chan summaryResult, 1)
+	go func() {
+		sum, err := h.service.Summary(r.Context(), q)
+		if err != nil {
+			summaryCh <- summaryResult{err: err}
+			return
+		}
+		summaryCh <- summaryResult{payload: summaryPayload{Summary: sum, BusinessDate: q.BusinessDate, ParkID: q.ParkID, OwnRowsOnly: own}}
+	}()
+	var vocabCh chan summaryResult
+	if shouldIncludeVocabulary(r) && strings.TrimSpace(r.URL.Query().Get("module")) != "" && len(q.Modules) > 0 && !q.NoModules {
 		vocabQ := q
 		vocabQ.Modules = visibleModules
 		vocabQ.WorkStates = nil
 		vocabQ.Cursor = domain.Cursor{}
-		vocab, err := h.service.Summary(r.Context(), vocabQ)
-		if err != nil {
-			h.writeServiceErr(w, r, err)
-			return
-		}
-		out.VocabularySummary = &summaryPayload{Summary: vocab, BusinessDate: vocabQ.BusinessDate, ParkID: vocabQ.ParkID, OwnRowsOnly: own}
-		out.Degraded = appendModules(out.Degraded, vocab.Degraded...)
+		vocabCh = make(chan summaryResult, 1)
+		go func() {
+			vocab, err := h.service.Summary(r.Context(), vocabQ)
+			if err != nil {
+				vocabCh <- summaryResult{err: err}
+				return
+			}
+			vocabCh <- summaryResult{payload: summaryPayload{Summary: vocab, BusinessDate: vocabQ.BusinessDate, ParkID: vocabQ.ParkID, OwnRowsOnly: own}}
+		}()
 	}
-	for _, lane := range pageLanes {
+	type laneResult struct {
+		lane    domain.Lane
+		payload lanePagePayload
+	}
+	results := make([]laneResult, len(pageLanes))
+	var wg sync.WaitGroup
+	for i, lane := range pageLanes {
 		laneQ := q
 		laneQ.WorkStates = intersectStates(q.WorkStates, domain.StatesInLane(lane))
 		if len(laneQ.WorkStates) == 0 && len(q.WorkStates) > 0 {
@@ -204,21 +220,49 @@ func (h *Handler) Page(w http.ResponseWriter, r *http.Request) {
 		}
 		cursor, err := domain.ParseCursor(r.URL.Query().Get("cursor_" + string(lane)))
 		if err != nil {
-			out.Lanes[lane] = lanePagePayload{Rows: []domain.Row{}, Degraded: visibleModules}
-			out.Degraded = appendModules(out.Degraded, visibleModules...)
+			results[i] = laneResult{lane: lane, payload: lanePagePayload{Rows: []domain.Row{}, Degraded: visibleModules}}
 			continue
 		}
 		laneQ.Cursor = cursor
-		page, err := h.service.List(r.Context(), laneQ)
-		if err != nil {
-			out.Lanes[lane] = lanePagePayload{Rows: []domain.Row{}, Degraded: visibleModules}
-			out.Degraded = appendModules(out.Degraded, visibleModules...)
-			continue
+		results[i].lane = lane
+		wg.Add(1)
+		go func(i int, lane domain.Lane, laneQ domain.Query) {
+			defer wg.Done()
+			page, err := h.service.List(r.Context(), laneQ)
+			if err != nil {
+				results[i] = laneResult{lane: lane, payload: lanePagePayload{Rows: []domain.Row{}, Degraded: visibleModules}}
+				return
+			}
+			results[i] = laneResult{lane: lane, payload: lanePagePayload{Rows: page.Rows, NextCursor: page.NextCursor, Degraded: page.Degraded}}
+		}(i, lane, laneQ)
+	}
+	wg.Wait()
+	summary := <-summaryCh
+	if summary.err != nil {
+		h.writeServiceErr(w, r, summary.err)
+		return
+	}
+	out.Summary = summary.payload
+	out.Degraded = appendModules(out.Degraded, summary.payload.Degraded...)
+	if vocabCh != nil {
+		vocab := <-vocabCh
+		if vocab.err != nil {
+			h.writeServiceErr(w, r, vocab.err)
+			return
 		}
-		out.Lanes[lane] = lanePagePayload{Rows: page.Rows, NextCursor: page.NextCursor, Degraded: page.Degraded}
-		out.Degraded = appendModules(out.Degraded, page.Degraded...)
+		out.VocabularySummary = &vocab.payload
+		out.Degraded = appendModules(out.Degraded, vocab.payload.Degraded...)
+	}
+	for _, result := range results {
+		out.Lanes[result.lane] = result.payload
+		out.Degraded = appendModules(out.Degraded, result.payload.Degraded...)
 	}
 	httpresponse.WriteJSON(w, http.StatusOK, out)
+}
+
+func shouldIncludeVocabulary(r *http.Request) bool {
+	raw := strings.TrimSpace(strings.ToLower(r.URL.Query().Get("include_vocabulary")))
+	return raw == "1" || raw == "true" || raw == "yes"
 }
 
 // subtasksPayload is the wire shape of one subtask page.

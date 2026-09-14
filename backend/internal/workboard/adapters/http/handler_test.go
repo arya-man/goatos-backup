@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 
 	ltdomain "github.com/vgoats/goatos/backend/internal/leadershiptasks/domain"
@@ -28,6 +29,7 @@ const (
 // fakeService records the query the handler built, which is the whole point of these
 // tests: every scope rule lives in the handler, and the service must receive its result.
 type fakeService struct {
+	mu    sync.Mutex
 	last  domain.Query
 	lists []domain.Query
 	// found is what FindRow answers; lastRowKey / lastAfter / lastLimit record the subtask read.
@@ -38,6 +40,8 @@ type fakeService struct {
 }
 
 func (f *fakeService) FindRow(_ context.Context, q domain.Query, rowKey string) (domain.Row, bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.last = q
 	f.lastRowKey = rowKey
 	if !f.found {
@@ -47,6 +51,8 @@ func (f *fakeService) FindRow(_ context.Context, q domain.Query, rowKey string) 
 }
 
 func (f *fakeService) ListSubtasks(_ context.Context, q domain.Query, rowKey, afterKey string, limit int) (domain.SubtaskPage, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.last = q
 	f.lastRowKey, f.lastAfter, f.lastLimit = rowKey, afterKey, limit
 	st := domain.Subtask{Key: "1:a", Name: "Tag 1", WorkState: domain.WorkStateDue, Steps: []domain.Step{{Name: "Scan", State: domain.StepTodo}}}.Finalize()
@@ -54,8 +60,10 @@ func (f *fakeService) ListSubtasks(_ context.Context, q domain.Query, rowKey, af
 }
 
 func (f *fakeService) List(_ context.Context, q domain.Query) (domain.Page, error) {
+	f.mu.Lock()
 	f.last = q
 	f.lists = append(f.lists, q)
+	f.mu.Unlock()
 	state := domain.WorkStateDue
 	if len(q.WorkStates) > 0 {
 		state = q.WorkStates[0]
@@ -64,6 +72,8 @@ func (f *fakeService) List(_ context.Context, q domain.Query) (domain.Page, erro
 	return domain.Page{Rows: []domain.Row{row}}, nil
 }
 func (f *fakeService) Summary(_ context.Context, q domain.Query) (domain.Summary, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.last = q
 	return domain.NewSummary(q.Modules), nil
 }

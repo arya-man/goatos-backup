@@ -8,7 +8,6 @@ ARTIFACT_REPOSITORY="${ARTIFACT_REPOSITORY:-goatos}"
 API_SERVICE="${API_SERVICE:-goatos-api-stg}"
 ANALYTICS_EVENTS_SERVICE="${ANALYTICS_EVENTS_SERVICE:-goatos-analytics-events-stg}"
 ANALYTICS_EVENTS_SERVICE_ACCOUNT="${ANALYTICS_EVENTS_SERVICE_ACCOUNT:-goatos-events-stg@goatos-stg.iam.gserviceaccount.com}"
-API_SERVICE_ACCOUNT="${API_SERVICE_ACCOUNT:-goatos-api-stg@goatos-stg.iam.gserviceaccount.com}"
 GOATOS_STG_TENANT_ID="${GOATOS_STG_TENANT_ID:-00000000-0000-4000-8000-000000000001}"
 MCP_SERVICE="${MCP_SERVICE:-goatos-mcp-stg}"
 KERNEL_WORKER_SERVICE="${KERNEL_WORKER_SERVICE:-goatos-kernel-worker-stg}"
@@ -140,6 +139,14 @@ job_exists() {
 
 service_account_exists() {
   gcloud iam service-accounts describe "$1" --project="$PROJECT_ID" >/dev/null 2>&1
+}
+
+run_analytics_events_routing() {
+  if [[ -x tools/deploy/stg-analytics-events-routing.sh ]]; then
+    run tools/deploy/stg-analytics-events-routing.sh
+    return
+  fi
+  run /usr/local/bin/goatos-stg-analytics-events-routing
 }
 
 capture_serving_revisions() {
@@ -322,10 +329,8 @@ deploy() {
   gcloud run services describe "$MCP_SERVICE" --project="$PROJECT_ID" --region="$REGION" >/dev/null
   gcloud run services describe "$KERNEL_WORKER_SERVICE" --project="$PROJECT_ID" --region="$REGION" >/dev/null
   gcloud run services describe "$ADMIN_WEB_SERVICE" --project="$PROJECT_ID" --region="$REGION" >/dev/null
-  if ! service_account_exists "$ANALYTICS_EVENTS_SERVICE_ACCOUNT"; then
-    echo "analytics events service account $ANALYTICS_EVENTS_SERVICE_ACCOUNT is absent; using $API_SERVICE_ACCOUNT until Terraform applies the dedicated runtime account"
-    ANALYTICS_EVENTS_SERVICE_ACCOUNT="$API_SERVICE_ACCOUNT"
-  fi
+  service_account_exists "$ANALYTICS_EVENTS_SERVICE_ACCOUNT" ||
+    die "analytics events service account $ANALYTICS_EVENTS_SERVICE_ACCOUNT is absent; apply infra or create the dedicated runtime account before deploy"
   gcloud iam service-accounts describe "$HERD_SIGNALS_MQTT_BRIDGE_SERVICE_ACCOUNT" --project="$PROJECT_ID" >/dev/null
   gcloud run jobs describe "$MIGRATE_JOB" --project="$PROJECT_ID" --region="$REGION" >/dev/null
   if ! job_exists "$VACCINATION_SCHEDULE_PROJECTOR_JOB"; then
@@ -469,7 +474,7 @@ deploy() {
     --to-latest \
     --quiet
   wait_service_ready "$ANALYTICS_EVENTS_SERVICE" "post-migration restore"
-  tools/deploy/stg-analytics-events-routing.sh
+  run_analytics_events_routing
 
   run gcloud run services update "$KERNEL_WORKER_SERVICE" \
     --project="$PROJECT_ID" \

@@ -19,6 +19,7 @@ test("visual smoke visits every live sidebar navigation leaf", () => {
     ["calendar-history", "/calendar?scope_mode=company&status=completed"],
     ["calendar-owner-pc", "/calendar?scope_mode=company&day=week&owner_key=pc"],
     ["protocol-adherence", "/protocol-adherence?scope_mode=company"],
+    ["work-board", "/work-board?scope_mode=company"],
     ["workflows", "/workflows?scope_mode=company"],
     ["procurement-source-entry", "/procurement/source-entry?scope_mode=company"],
     ["procurement-vendors", "/procurement/vendors?scope_mode=company"],

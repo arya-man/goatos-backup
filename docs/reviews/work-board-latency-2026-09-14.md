@@ -6,6 +6,19 @@ Stop the admin Work Board from taking the staging API back into 8s+ tail latency
 the per-render backend request burst, while preserving one-park backend bounds, per-lane
 pagination, module vocabulary, and partial-degradation behavior.
 
+## Hard Acceptance Screens
+
+This PR is not acceptable if normal mobile/admin-web use can still show the 2026-09-14 failure
+screens that triggered this work:
+
+- `Admin-web contract unavailable` / `backend_down`
+- `The board could not be loaded. Try again.`
+- `Weights could not be loaded`
+
+Judges and reviewers must treat those strings as explicit E2E failure markers. Browser evidence for
+this PR must load the real Work Board and Weights pages and fail if any of those strings render.
+API-only timing is not enough for final acceptance.
+
 ## What Was Happening
 
 - Live staging screenshots at 14:47-14:50 IST showed `/work-board` failing and the shell reporting
@@ -42,8 +55,9 @@ This PR primarily improves admin-web Work Board pressure:
 
 That should reduce Work Board wall time and, more importantly, reduce burst pressure on the shared
 API instance and DB pool. Weighing and vaccination should improve indirectly because they stop
-waiting behind Work Board bursts. Analytics/events are not fixed by this PR; they need an infra
-lane split so event ingestion cannot compete with business reads.
+waiting behind Work Board bursts. Analytics/events are split into a separate capped staging lane in
+this PR so event ingestion cannot compete with business reads after the PR is deployed and the
+event path routing script has been applied.
 
 ## Corrected Baseline Metrics
 
@@ -89,10 +103,10 @@ the slowest observed call.
   admin UI, and the rest of the business API.
 - The Cloud Deploy scripts now update and verify the event lane on every backend rollout, so it does
   not stay on a stale image after this PR lands. The deploy path uses `gcloud run deploy` for the
-  events service, so the first rollout can create it if Terraform has not applied it yet. If the
-  dedicated `goatos-events-stg` service account is not present yet, deploy falls back to the
-  existing API runtime service account while preserving the separate service, route mode, event cap,
-  DB pool cap, min scale `0`, and max scale `1`.
+  events service, so the first rollout can create it if Terraform has not applied the Cloud Run
+  service yet. It fails closed unless the dedicated `goatos-events-stg` service account exists,
+  preserving the separate service identity, route mode, event cap, DB pool cap, min scale `0`, and
+  max scale `1`.
 - Remaining deployment requirement: live traffic must be routed to the events lane. The safe
   transparent production shape is a URL-map path rule sending `/app/analytics/events` to
   `goatos-analytics-events-stg` while all business API paths stay on `goatos-api-stg`. This PR adds
@@ -114,17 +128,88 @@ the slowest observed call.
 - Passed: `go test ./internal/vaccinationexecution/adapters/http ./internal/vaccinationexecution/app`
 - Passed: `go test ./internal/feeddirection/app`
 - Passed: `go test ./internal/appanalytics/adapters/http`
+- Passed: `go test ./internal/feeddirection/adapters/boardsource ./internal/processintegrity/adapters/boardsource ./internal/workboard/adapters/http ./internal/workboard/... ./migrations/postgres ./internal/bootstrap ./internal/appanalytics/adapters/http`
+- Passed: `node --test scripts/smoke-visual-route-coverage.test.mjs`
+- Passed: `npm test -- --test-name-pattern='work-board|weights page|growth director|visual smoke|Lighthouse'`
+- Passed: `bash -n tools/deploy/stg-clouddeploy-task.sh tools/deploy/stg-analytics-events-routing.sh tools/deploy/stg-clouddeploy-release.sh tools/deploy/stg-cloudbuild-release.sh`
+- Passed: `node --test tools/deploy/stg-admin-web-traffic-order.test.mjs`
+- Passed: `npm run build`
+- Passed: `git diff --check`
 
-## Local OCI E2E Status
+## Local OCI E2E
 
-The branch was run with an isolated backend on `127.0.0.1:18080` against the sanctioned OCI tunnel
-`127.0.0.1:15432`.
+The branch was run with an isolated backend on `127.0.0.1:18181` against the sanctioned OCI tunnel
+`127.0.0.1:15432`. Before applying this PR's migrations, the OCI database was refreshed from
+`local-data/goatos-stg-to-oci/backups/20260910-024950/stg-refresh.dump`; the previous OCI contents
+were backed up at
+`local-data/goatos-stg-to-oci/backups/20260914-162535-pre-pr259-refresh/oci-before-pr259-refresh.dump`.
+The restored database had the default tenant, 2 parks, 1,681 goats, 2,231 weighing observations,
+136 feed direction issues, and 238 weighing work items.
 
-Blocked for full HTTP Work Board E2E: the OCI database currently is not staging-equivalent for this
-scenario. It has no tenants/parks and had empty org-role seed tables, so normal HTTP auth returned
-403 until local seed repair was attempted; after role seed repair the requested tenant still did not
-exist. Treat `make oci-stg-db-parity` or an equivalent tenant/grant/park fingerprint as a required
-precondition before accepting future "OCI reproduces staging" claims for this route.
+Business date used for Work Board reproduction: `2026-08-10`.
+
+### Before/After API Numbers
+
+| Scenario | Before | After |
+| --- | ---: | ---: |
+| Origin-main admin-web fanout, all parks, 10 calls/sample | p50 9.5s, p95 11.5s, max 11.5s | replaced by 2 bundled page calls/sample |
+| Initial bundled page before lane/source fixes | p50 20.1s, p95 20.3s, max 20.3s | fixed |
+| Final bundled Work Board page, all parks parallel | p50 1.35s, p95 1.59s, max 1.59s | current PR |
+| Feed module page, all parks parallel | p50 496ms, p95 842ms | current PR |
+| Weighing module page, all parks parallel | p50 315ms, p95 585ms | current PR |
+| Health module page, all parks parallel | p50 336ms, p95 534ms | current PR |
+| Vaccination module page, all parks parallel | p50 239ms, p95 333ms | current PR |
+| PC Care module page, all parks parallel | p50 248ms, p95 360ms | current PR |
+| Verification module page, all parks parallel | p50 296ms, p95 510ms | current PR |
+| Counts module page, all parks parallel | p50 249ms, p95 578ms | current PR |
+| Milk module page, all parks parallel | p50 190ms, p95 444ms | current PR |
+
+Plain-English read: the PR kills the 8-20s class and removes the request burst that was taking the
+site down. It does not honestly prove every full Work Board read is under 500ms yet. Most
+module-filtered reads are around or near that target; the full all-modules/all-parks page is still
+about 1.3-1.6s locally because it has to compute summary plus four lanes across the source registry.
+That is the remaining backend optimization target after this PR.
+
+Vaccination-specific tradeoff: the Work Board vaccination source now short-circuits completed-only
+historical obligation rows before entering the heavier process-integrity read. That keeps completed
+history from taking the board down, but means completed-only vaccination history is not what drives
+the live Work Board page.
+
+### Browser E2E Numbers
+
+Production build served locally on `127.0.0.1:3401` against the OCI-backed API:
+
+| Route | Local interaction result |
+| --- | ---: |
+| `/work-board` sidebar navigation | 779ms, 828ms, 1,234ms, 655ms, 649ms |
+| `/weighing/weights` direct route fallback | 4,056ms cold, 2,909ms second, then 372ms, 372ms, 373ms |
+
+The route guard now fails if these visible strings appear: `Admin-web contract unavailable`,
+`backend_down`, `The board could not be loaded`, or `Weights could not be loaded`.
+
+Passed against desktop and mobile viewports:
+
+```text
+GOATOS_ADMIN_WEB_BASE_URL=http://127.0.0.1:3401 \
+GOATOS_API_BASE_URL=http://127.0.0.1:18181 \
+GOATOS_SMOKE_ONLY_ROUTES=work-board,weighing-weights \
+npm run smoke:visual:live
+```
+
+Screenshot proof was captured under
+`.codex-goatos-render/admin-web-screenshots/2026-09-14T11-54-12-789Z`; the mobile Work Board and
+Weights images were visually checked and showed loaded pages, not the failure screens above.
+
+### Lighthouse
+
+Local Lighthouse was run against the rebuilt production admin-web server. PageSpeed Insights was not
+run locally because it needs a public URL; run it against STG after deployment for the public Google
+score.
+
+| Route | Performance | Accessibility | Best Practices | SEO |
+| --- | ---: | ---: | ---: | ---: |
+| `/work-board` | 86 | 100 | 96 | 100 |
+| `/weighing/weights` | 84 | 100 | 96 | 100 |
 
 ## Infra Plan
 

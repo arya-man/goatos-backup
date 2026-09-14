@@ -153,6 +153,13 @@ func (s *Source) collect(ctx context.Context, q ports.SourceQuery) ([]domain.Row
 	if err != nil {
 		return nil, fmt.Errorf("vaccination boardsource: business date %q (%v): %w", q.BusinessDate, err, domain.ErrInvalidQuery)
 	}
+	hasWork, err := s.hasVaccinationDueWork(ctx, q, dayStart)
+	if err != nil {
+		return nil, err
+	}
+	if !hasWork {
+		return nil, nil
+	}
 	memberID := ""
 	if q.OwnerUserID != "" {
 		if s.members == nil {
@@ -239,6 +246,43 @@ func (s *Source) collect(ctx context.Context, q ports.SourceQuery) ([]domain.Row
 		return nil, err
 	}
 	return out, nil
+}
+
+func (s *Source) hasVaccinationDueWork(ctx context.Context, q ports.SourceQuery, dayStart time.Time) (bool, error) {
+	if s.pool == nil {
+		return true, nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, s.timeout)
+	defer cancel()
+	dayEnd := dayStart.AddDate(0, 0, 1)
+	var ok bool
+	err := s.pool.QueryRow(ctx, `
+SELECT EXISTS (
+  SELECT 1
+  FROM obligation_instances oi
+  JOIN protocol_versions pv
+    ON pv.tenant_id = oi.tenant_id
+   AND pv.protocol_version_id = oi.protocol_version_id
+  JOIN protocol_definitions pd
+    ON pd.tenant_id = oi.tenant_id
+   AND pd.protocol_id = pv.protocol_id
+   AND pd.category = 'vaccination'
+  JOIN goats g
+    ON g.tenant_id = oi.tenant_id
+   AND g.goat_id = oi.target_id
+   AND g.park_id = $2::uuid
+  WHERE oi.tenant_id = $1::uuid
+    AND oi.target_type = 'goat'
+    AND oi.status <> 'completed'
+    AND oi.status <> 'canceled'
+    AND oi.due_at >= $3::timestamptz
+    AND oi.due_at < $4::timestamptz
+  LIMIT 1
+)`, q.TenantID, q.ParkID, dayStart, dayEnd).Scan(&ok)
+	if err != nil {
+		return false, fmt.Errorf("vaccination boardsource: due-work precheck: %w", err)
+	}
+	return ok, nil
 }
 
 // fillOwnerUserIDs resolves the page's workforce member ids to user ids in ONE batched read,
