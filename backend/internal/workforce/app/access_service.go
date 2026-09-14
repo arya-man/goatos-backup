@@ -151,6 +151,14 @@ func (s *AccessService) SavePersonAccess(ctx context.Context, tenantID, actorID,
 		seenVisitPark[id] = true
 		penVisitParks = append(penVisitParks, id)
 	}
+	// A visit is recorded on the Tasks module's "For me" tab (maintainer decision 2026-09-14),
+	// which only pen_visits.execute -- the Tasks module's Do tick -- opens. Ticking a park for
+	// a person whose access does not reach that tab would owe them visits they have no screen
+	// for, so the save refuses it here, against the SAME assignments it is about to store,
+	// rather than storing a row that only a push could ever open.
+	if len(penVisitParks) > 0 && !holdsPermission(permissions.PermissionsForAssignmentsWithBaseline(assignments), permissions.PenVisitsExecute) {
+		return domain.PersonAccessResponse{}, ErrPenVisitorCannotReachTasks
+	}
 
 	if _, err := s.repo.SavePersonAccess(ctx, ports.SavePersonAccessCommand{
 		TenantID:           tenantID,
@@ -528,4 +536,18 @@ func warnings(assignments []permissions.ModuleAssignment) []domain.AccessWarning
 		out = append(out, domain.AccessWarning{ModuleKey: r.ConflictsWithModule, Message: message})
 	}
 	return out
+}
+
+// ErrPenVisitorCannotReachTasks signals a pen-visit park tick on a person whose access does
+// not include the Tasks module's Do tick (pen_visits.execute), the only place a visit can be
+// recorded from.
+var ErrPenVisitorCannotReachTasks = errors.New("pen visits are recorded from the Tasks module; tick Do on Tasks for this person before assigning them a park")
+
+func holdsPermission(perms []string, want string) bool {
+	for _, p := range perms {
+		if p == want {
+			return true
+		}
+	}
+	return false
 }

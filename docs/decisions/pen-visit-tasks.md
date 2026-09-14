@@ -130,9 +130,14 @@ Vaccination (vaccinated alone), titled as the work continuing ("Deworming · Cas
 visit · work done 10/09/2026"), owned by the park's configured visitors, with the vaccination
 shed href. Canonical rows: `docs/decisions/work-board.md`.
 
-**Routes** admit `pen_visits.execute` OR `pc_care.execute`; the permission opens the routes
-and the per-park config decides WHO may record a given visit. `pen_visits.execute` stays on
-the director roles through the Tasks module's Do tick (never `ceo_internal`).
+**Routes** admitted `pen_visits.execute` OR `pc_care.execute` under this fold. **RETIRED
+2026-09-14 (review finding P1 on PR #262):** with the parent-card entry points gone, a care
+operator holding only `pc_care.execute` could call `/app/pen-visits` yet had no screen to reach
+it from, stranding owed visits behind a push. The routes ride `pen_visits.execute` ALONE again
+-- the same permission that opens the "For me" tab -- and `/people` refuses to tick a pen-visit
+park for a person whose saved access lacks it (`pen_visitor_cannot_reach_tasks`, checked against
+the very assignments being saved; `workforce/app.TestSavePersonAccessRefusesAPenVisitorWhoCannotReachTheTasksTab`,
+mutation-tested). A care operator who should visit gets Tasks/Do ticked on /people first.
 
 Pinned by: `penvisits/domain` tests (gate chips, submit rule for any configured visitor,
 in-review refusal), `penvisits/adapters/postgres.TestPenVisitLifecycle...` (two visitors,

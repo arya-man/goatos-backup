@@ -770,6 +770,11 @@ this only, under Tasks only."** The visit is a task of its own again:
    the shed drilldown have no `penVisit`; the PC Care worklist admits no visitor scope. A
    deworming card whose own clips are verified reads "Done"; its kernel clock still waits on
    the visit (`pen_visit.verified` -> `pccare.Repository.PenVisitVerified`), invisibly.
+   The tab, the routes and the visitor config share ONE permission: `/app/pen-visits*` ride
+   `pen_visits.execute` alone (no `pc_care.execute` OR -- a route without a screen strands a
+   visit behind a push), and `/people` refuses a pen-visit park for a person whose saved access
+   lacks it (`pen_visitor_cannot_reach_tasks`). A care operator who should visit gets Tasks/Do
+   ticked first.
 3. **The Work Board rows it under TASKS** (`workboard/domain.ModuleTasks`, appended last so the
    cursor order holds; visible on `pen_visits.execute` or `leadership_tasks.read`): ONE
    `penvisits/adapters/boardsource` source, "Pen visit · Castro 2", subtitled "Deworming · work

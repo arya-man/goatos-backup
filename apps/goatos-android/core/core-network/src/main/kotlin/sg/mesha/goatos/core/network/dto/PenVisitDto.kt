@@ -4,12 +4,12 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
 /**
- * Pen visits (maintainer decisions 2026-09-07 and 2026-09-12): the day after vaccination or PC
- * Care work in a pen, one of the park's configured visitors goes to that pen, records ONE live
- * in-app-camera video and submits it. The clip goes to the VERIFIER as the LAST step of that
- * work: the parent care task closes only when the visit is approved. The visit is NOT a task of
- * its own -- it rides the parent card (`PcCareTaskDto.penVisit`, the vaccination shed card's
- * `penVisit`) as this same shape, and the retired "For me" tab is gone.
+ * Pen visits (maintainer decisions 2026-09-07, 2026-09-12 and 2026-09-14): the day after
+ * vaccination or PC Care work in a pen, one of the park's configured visitors goes to that pen,
+ * records ONE live in-app-camera video and submits it. The clip goes to the VERIFIER, and the
+ * parent care task closes only when the visit is approved. The visit IS a task of its own: it is
+ * listed on the Tasks module's "For me" tab (`/pen-visits`) and opened from there -- never from
+ * a PC Care task or a vaccination shed card, which carry nothing about it.
  *
  * ALL visible copy (`title`, `operational_location_display`, `reason_line`, `state_chip`,
  * `instruction`, `done_line`, `rework_reason`) is BACKEND-OWNED and rendered verbatim. The phone
