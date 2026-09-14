@@ -28,6 +28,9 @@ import androidx.compose.material3.RadioButtonDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -76,6 +79,10 @@ fun AnimalPurchaseLoadDetailScreen(
     modifier: Modifier = Modifier,
 ) {
     RefreshOnResume { onEvent(AnimalPurchaseLoadDetailEvent.Refresh) }
+    val listState = rememberLazyListState()
+    val visibleRowKeys by remember(listState) {
+        derivedStateOf { listState.layoutInfo.visibleItemsInfo.map { it.key }.toSet() }
+    }
     // Periodic re-read, bound to the RESUMED state: leaving the screen or backgrounding the app
     // cancels the loop, returning restarts it.
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -109,6 +116,7 @@ fun AnimalPurchaseLoadDetailScreen(
             )
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
+                state = listState,
                 contentPadding = PaddingValues(top = 4.dp, bottom = 96.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
@@ -141,6 +149,7 @@ fun AnimalPurchaseLoadDetailScreen(
                         AnimalPurchaseAnimalCard(
                             card = card,
                             decidedByLabel = state.decidedByLabel,
+                            inlineRemotePhoto = visibleRowKeys.contains(card.listKey),
                             onPreviewAction = { onEvent(AnimalPurchaseLoadDetailEvent.PreviewAction(it)) },
                             onOpen = { onEvent(AnimalPurchaseLoadDetailEvent.OpenAnimal(card.candidateId)) },
                         )
@@ -169,6 +178,7 @@ fun AnimalPurchaseLoadDetailScreen(
 private fun AnimalPurchaseAnimalCard(
     card: AnimalPurchaseAnimalCardUi,
     decidedByLabel: String,
+    inlineRemotePhoto: Boolean,
     onPreviewAction: (String) -> Unit,
     onOpen: () -> Unit,
 ) {
@@ -216,6 +226,7 @@ private fun AnimalPurchaseAnimalCard(
                 kind = if (card.previewIsPhoto) ProofMediaPreviewKind.Photo else ProofMediaPreviewKind.Video,
                 mediaIdentity = card.previewIdentity,
                 modifier = Modifier.fillMaxWidth(),
+                inlineRemotePhoto = inlineRemotePhoto,
                 onPreviewAction = onPreviewAction,
             )
         }
