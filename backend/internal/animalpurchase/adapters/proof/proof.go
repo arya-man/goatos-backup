@@ -81,8 +81,8 @@ func (v *Validator) ValidateCandidateMediaKinds(ctx context.Context, tenantID st
 	return nil
 }
 
-// Media signs playback URLs through the proof service (local: a signed /app/proofs path; GCS: a
-// signed object URL).
+// Media returns proof metadata with stable backend download routes. The proof download endpoint
+// owns signing and attribution when the client actually opens media.
 type Media struct {
 	service *proofapp.Service
 }
@@ -92,13 +92,13 @@ func NewMedia(service *proofapp.Service) *Media { return &Media{service: service
 var _ ports.MediaResolver = (*Media)(nil)
 
 func (m *Media) ResolveMedia(ctx context.Context, tenantID string, proofRefs []string) (map[string]ports.Media, error) {
-	signed, err := m.service.DownloadArtifactsByIDs(ctx, tenantID, proofRefs)
+	artifacts, err := m.service.ArtifactMetadataByIDs(ctx, tenantID, proofRefs)
 	if err != nil {
 		return nil, err
 	}
-	out := make(map[string]ports.Media, len(signed))
-	for id, s := range signed {
-		out[id] = ports.Media{URL: s.URL, MimeType: s.Artifact.MimeType}
+	out := make(map[string]ports.Media, len(artifacts))
+	for id, artifact := range artifacts {
+		out[id] = ports.Media{URL: "/app/proofs/" + id + "/download", MimeType: artifact.MimeType}
 	}
 	return out, nil
 }

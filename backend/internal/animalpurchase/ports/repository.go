@@ -122,14 +122,14 @@ type ProofValidator interface {
 // ErrMediaKindNotAccepted: a capture is not the kind its SOP slot asks for.
 var ErrMediaKindNotAccepted = errors.New("animal purchase: capture kind not accepted by its slot")
 
-// Media is one signed playback link.
+// Media is one proof download route with stored metadata.
 type Media struct {
 	URL      string
 	MimeType string
 }
 
-// MediaResolver signs proofs for playback, MANY AT ONCE (one repository read per page, never one
-// per row). A proof it cannot sign is absent from the map; the caller renders "video unavailable"
+// MediaResolver resolves proof metadata for MANY refs at once without signing or reading backing
+// objects. A proof it cannot resolve is absent from the map; the caller renders media unavailable
 // for that row, never a missing row.
 type MediaResolver interface {
 	ResolveMedia(ctx context.Context, tenantID string, proofRefs []string) (map[string]Media, error)

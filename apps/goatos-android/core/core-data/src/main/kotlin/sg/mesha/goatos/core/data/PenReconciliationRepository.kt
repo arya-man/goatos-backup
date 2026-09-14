@@ -96,7 +96,12 @@ class DefaultPenReconciliationRepository(
         findCached(cardId)?.workflowId?.takeIf { it.isNotBlank() }?.let { return AppResult.Ok(it) }
         return try {
             val opened = api.ensureCountsPenReconciliationWorkflow(cardId)
-            if (opened.workflowId.isBlank()) AppResult.Err("This card has no steps to run yet.") else AppResult.Ok(opened.workflowId)
+            if (opened.workflowId.isBlank()) {
+                AppResult.Err("This card has no steps to run yet.")
+            } else {
+                rememberOpenedWorkflow(cardId, opened.workflowId)
+                AppResult.Ok(opened.workflowId)
+            }
         } catch (t: Throwable) {
             if (t is kotlinx.coroutines.CancellationException) throw t
             AppResult.Err("Connect to the network to open this card.", t)
@@ -139,6 +144,13 @@ class DefaultPenReconciliationRepository(
     override suspend fun findCached(cardId: String): CountsPenReconciliationCardDto? =
         database.penReconciliationItemDao().findById(cardId)
             ?.let { json.decodeFromString<CountsPenReconciliationCardDto>(it.dtoJson) }
+
+    private suspend fun rememberOpenedWorkflow(cardId: String, workflowId: String) {
+        val dao = database.penReconciliationItemDao()
+        val cached = dao.findById(cardId) ?: return
+        val dto = json.decodeFromString<CountsPenReconciliationCardDto>(cached.dtoJson)
+        dao.upsertAll(listOf(cached.copy(dtoJson = json.encodeToString(dto.copy(workflowId = workflowId)))))
+    }
 
     private fun scopeKey(status: String): String = cacheKey("pen-reconciliation", status)
 }

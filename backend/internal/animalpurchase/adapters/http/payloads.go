@@ -70,7 +70,7 @@ type candidatePayload struct {
 	MediaURL       string   `json:"media_url,omitempty"`
 	MediaMime      string   `json:"media_mime,omitempty"`
 	// The SOP questionnaire (2026-09-13): the answers as recorded, the same answers rendered
-	// for display under their question text, the captures per slot with signed playback links,
+	// for display under their question text, the captures per slot with stable backend download routes,
 	// and the inspector's own verdict chip.
 	QuestionnaireVersion int                `json:"questionnaire_version"`
 	Answers              domain.Answers     `json:"answers"`
@@ -104,7 +104,7 @@ type answerRowPayload struct {
 	Attention bool `json:"attention"`
 }
 
-// mediaSlotPayload is one media question's captures with playback links.
+// mediaSlotPayload is one media question's captures with stable backend download routes.
 type mediaSlotPayload struct {
 	Slot  string             `json:"slot"`
 	Title string             `json:"title"`
@@ -233,7 +233,7 @@ func loadAnswerRows(l domain.Load, cat domain.Catalog) []answerRowPayload {
 // toCandidatePayload renders one row; cat is the SOP version the row was answered on (an empty
 // catalog leaves the answers unlabelled rather than mislabelling them with another version).
 func toCandidatePayload(c domain.Candidate, media map[string]ports.Media, cat domain.Catalog) candidatePayload {
-	// Legacy single video (rows recorded before the questionnaire) keeps its top-level link.
+	// Legacy single video (rows recorded before the questionnaire) keeps its top-level route.
 	var mediaURL, mediaMime string
 	if m, ok := media[c.VideoProofRef]; ok {
 		mediaURL, mediaMime = m.URL, m.MimeType

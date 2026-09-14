@@ -158,10 +158,18 @@ func (s *Service) Summary(ctx context.Context, q domain.Query) (domain.Summary, 
 	}
 	results := make([]result, len(scoped))
 	var wg sync.WaitGroup
+	sem := make(chan struct{}, maxSummarySourceConcurrency)
 	for i, src := range scoped {
 		wg.Add(1)
 		go func(i int, src ports.Source) {
 			defer wg.Done()
+			select {
+			case sem <- struct{}{}:
+				defer func() { <-sem }()
+			case <-ctx.Done():
+				results[i] = result{module: src.Module(), degraded: true}
+				return
+			}
 			counts, err := src.CountByState(ctx, ports.SourceQuery{
 				TenantID: q.TenantID, ParkID: q.ParkID, BusinessDate: q.BusinessDate,
 				OwnerUserID: q.OwnerUserID, WorkStates: q.WorkStates,
@@ -202,6 +210,10 @@ func moduleIndex(m domain.Module) int {
 // outside the 5k-50k envelope the board is sized for, and a flag on such a row is refused
 // as not found rather than walking further.
 const maxFindPages = 20
+
+// maxSummarySourceConcurrency keeps one board summary below the default staging DB pool while
+// still allowing slow sources to degrade independently.
+const maxSummarySourceConcurrency = 3
 
 // FindRow looks one row up by key on the board the query describes: the same tenant, park,
 // business date and module visibility as List, so a caller can only find what List would

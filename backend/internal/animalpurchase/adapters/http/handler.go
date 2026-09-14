@@ -209,9 +209,9 @@ func (h *Handler) Decide(w http.ResponseWriter, r *http.Request) {
 	httpresponse.WriteJSON(w, http.StatusOK, h.candidates(r, []domain.Candidate{c})[0])
 }
 
-// candidates composes the row payloads, signing every capture's link in one batched read: the
-// phone and the review page both show the photos and videos on the card itself (maintainer
-// decision 2026-09-14), so every row a page serves carries its links.
+// candidates composes row payloads with stable backend proof download routes. The explicit
+// media-open path owns GCS URL signing and attribution; list/detail reads may read proof metadata
+// but must not bulk-sign every capture on the page.
 func (h *Handler) candidates(r *http.Request, rows []domain.Candidate) []candidatePayload {
 	out := make([]candidatePayload, 0, len(rows))
 	media := h.service.Media(r.Context(), tenantID(r), rows)

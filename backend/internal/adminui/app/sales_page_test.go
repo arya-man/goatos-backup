@@ -672,7 +672,7 @@ func TestSalesSoldAndFarmValuePageContracts(t *testing.T) {
 			t.Fatalf("permissionsForNav(%s) = %v, want exactly SalesRead", page.RouteID, required)
 		}
 	}
-	for _, pattern := range []string{"/sales/sold", "/sales/farm-value"} {
+	for _, pattern := range []string{"/sales/sold", "/sales/farm-value", "/sales/loads", "/sales/config"} {
 		found := false
 		for _, rule := range resp.RouteLabels {
 			if rule.Pattern == pattern && rule.Match == "exact" && rule.Label != "" {

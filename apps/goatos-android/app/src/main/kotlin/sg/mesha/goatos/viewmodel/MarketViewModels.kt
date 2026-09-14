@@ -171,9 +171,6 @@ class MarketCityEntryViewModel @Inject constructor(
 
     private val local = MutableStateFlow(Local(cityId = savedStateHandle.get<String>(ARG_CITY_ID).orEmpty()))
 
-    private val clientId: String
-        get() = savedStateHandle.get<String>(KEY_CLIENT_ID) ?: UUID.randomUUID().toString().also { savedStateHandle[KEY_CLIENT_ID] = it }
-
     /** The business date of the cached day the form was composed from; the save names it. */
     @Volatile
     private var businessDate: String = ""
@@ -199,8 +196,6 @@ class MarketCityEntryViewModel @Inject constructor(
     }
 
     fun onEvent(event: MarketCityEntryEvent) {
-        val locked = local.value.writeStatus == VendorsWriteStatus.QUEUED || local.value.writeStatus == VendorsWriteStatus.SYNCED
-        if (locked && event !is MarketCityEntryEvent.Back) return
         when (event) {
             is MarketCityEntryEvent.PriceChanged -> local.update {
                 it.copy(typed = it.typed + (event.questionId to event.value), errors = it.errors - event.questionId)
@@ -228,7 +223,7 @@ class MarketCityEntryViewModel @Inject constructor(
             local.update { it.copy(submitInFlight = true) }
             val cityId = local.value.cityId
             val request = MarketSurveyEntryRequestDto(businessDate = date, answers = answers)
-            when (val result = syncRepository.enqueueMarketSurveyRecord(clientId, cityId, date, request)) {
+            when (val result = syncRepository.enqueueMarketSurveyRecord(UUID.randomUUID().toString(), cityId, date, request)) {
                 is AppResult.Ok -> {
                     analytics.track(AnalyticsEventsMarket.CITY_QUEUED)
                     repository.applyLocalAnswers(date, cityId, answers)
@@ -267,7 +262,6 @@ class MarketCityEntryViewModel @Inject constructor(
 
     companion object {
         const val ARG_CITY_ID = "city_id"
-        private const val KEY_CLIENT_ID = "market_client_id"
         const val MESSAGE_SAVING = "Saving prices…"
         const val MESSAGE_SAVED = "Prices saved."
         const val MESSAGE_QUEUED = "Prices saved on the phone. They reach the farm when the phone is online."
