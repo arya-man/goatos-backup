@@ -138,6 +138,7 @@ locals {
       secret_id = "goatos-stg-bulk-import-preview-signing-key"
       accessors = [
         "api",
+        "analytics_events",
       ]
     }
     proof_gcs_service_account_json = {

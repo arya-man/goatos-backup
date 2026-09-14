@@ -16,9 +16,9 @@ import (
 // `CREATE TABLE IF NOT EXISTS goatos_schema_migrations`).
 const undefinedTableSQLState = "42P01"
 
-// AppliedVersion returns the highest migration version recorded in
-// goatos_schema_migrations, normalized to the same bare leading-digits shape
-// BinaryVersion returns (e.g. "000188"). It returns "" with a nil error when
+// AppliedVersion returns the highest migration family recorded in
+// goatos_schema_migrations, normalized to the same leading-digits-plus-count
+// shape BinaryVersion returns (e.g. "000188#1"). It returns "" with a nil error when
 // the table does not exist yet - a never-migrated database, not a query
 // failure - so Check can treat it as the (now enforced) BinaryAhead
 // direction rather than an operational error.
@@ -29,21 +29,40 @@ const undefinedTableSQLState = "42P01"
 // ".sql")`), e.g. "000188_drop_process_integrity_projection_summaries", not
 // "000188". The query uses numeric ordering on the extracted version prefix
 // to correctly handle migration numbering across digit-width boundaries
-// (e.g. 999999 → 1000000). The returned value is normalized to the bare
-// numeric string before Check compares it against BinaryVersion's value.
+// (e.g. 999999 → 1000000). The returned value also includes the count of rows
+// sharing the highest prefix so duplicate numeric migration families cannot
+// look ready after only one sibling applied.
 func AppliedVersion(ctx context.Context, pool *pgxpool.Pool) (string, error) {
 	if pool == nil {
 		return "", errors.New("migrationguard: pool is required")
 	}
 	var stored string
-	err := pool.QueryRow(ctx, `SELECT version FROM goatos_schema_migrations ORDER BY (split_part(version,'_',1))::bigint DESC LIMIT 1`).Scan(&stored)
+	var siblingCount int
+	err := pool.QueryRow(ctx, `
+WITH ranked AS (
+  SELECT
+    version,
+    (split_part(version, '_', 1))::bigint AS version_num
+  FROM goatos_schema_migrations
+),
+latest AS (
+  SELECT version_num
+  FROM ranked
+  ORDER BY version_num DESC
+  LIMIT 1
+)
+SELECT r.version, count(*) OVER ()
+FROM ranked r
+JOIN latest l ON l.version_num = r.version_num
+ORDER BY r.version
+LIMIT 1`).Scan(&stored, &siblingCount)
 	switch {
 	case err == nil:
 		m := migrationFilenameVersion.FindStringSubmatch(stored)
 		if m == nil {
 			return "", fmt.Errorf("migrationguard: goatos_schema_migrations.version %q does not start with a numeric migration version", stored)
 		}
-		return m[1], nil
+		return migrationFamilyVersion(m[1], siblingCount), nil
 	case errors.Is(err, pgx.ErrNoRows):
 		// Table exists but has zero rows (should not happen in practice -
 		// cmd/migrate inserts a row per applied migration - but treat it the

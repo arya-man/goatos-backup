@@ -91,12 +91,12 @@ CREATE TABLE goatos_schema_migrations (
 	if err != nil {
 		t.Fatalf("AppliedVersion() error = %v", err)
 	}
-	if got != "000188" {
-		t.Fatalf("AppliedVersion() = %q, want %q (normalized from the highest inserted stem)", got, "000188")
+	if got != "000188#1" {
+		t.Fatalf("AppliedVersion() = %q, want %q (normalized from the highest inserted stem)", got, "000188#1")
 	}
 
-	if _, err := Check(got, "000188"); err != nil {
-		t.Fatalf("Check(%q, \"000188\") = %v, want nil (equal versions)", got, err)
+	if _, err := Check(got, "000188#1"); err != nil {
+		t.Fatalf("Check(%q, \"000188#1\") = %v, want nil (equal versions)", got, err)
 	}
 }
 
@@ -172,7 +172,43 @@ CREATE TABLE goatos_schema_migrations (
 		t.Fatalf("AppliedVersion() error = %v", err)
 	}
 	// Should return 1000000, not 999999 (which would win lexicographically).
-	if got != "1000000" {
-		t.Fatalf("AppliedVersion() = %q, want %q (numeric max, not lexicographic)", got, "1000000")
+	if got != "1000000#1" {
+		t.Fatalf("AppliedVersion() = %q, want %q (numeric max, not lexicographic)", got, "1000000#1")
+	}
+}
+
+func TestAppliedVersionCountsLatestDuplicateMigrationFamily(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+
+	if _, err := pool.Exec(ctx, `
+CREATE TABLE goatos_schema_migrations (
+  version text PRIMARY KEY,
+  filename text NOT NULL,
+  checksum text NOT NULL,
+  applied_at timestamptz NOT NULL DEFAULT now()
+)`); err != nil {
+		t.Fatalf("create goatos_schema_migrations: %v", err)
+	}
+	for _, stem := range []string{
+		"000305_market_survey_access_ticks",
+		"000306_market_survey_call_time",
+		"000306_workflow_action_rework_reason",
+	} {
+		if _, err := pool.Exec(ctx,
+			`INSERT INTO goatos_schema_migrations (version, filename, checksum) VALUES ($1, $2, 'sha256:test')`,
+			stem, stem+".sql",
+		); err != nil {
+			t.Fatalf("insert migration row %s: %v", stem, err)
+		}
+	}
+
+	got, err := AppliedVersion(ctx, pool)
+	if err != nil {
+		t.Fatalf("AppliedVersion() error = %v", err)
+	}
+	if got != "000306#2" {
+		t.Fatalf("AppliedVersion() = %q, want latest duplicate family marker %q", got, "000306#2")
 	}
 }

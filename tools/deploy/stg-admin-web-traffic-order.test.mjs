@@ -160,6 +160,17 @@ test("analytics events has an isolated capped deploy lane", () => {
     "analytics events must have Secret Manager access to every secret injected into its Cloud Run env",
   );
 
+  const previewSecretStart = stgMainTerraform.indexOf("bulk_import_preview_signing_key = {");
+  const previewSecretEnd = stgMainTerraform.indexOf("proof_gcs_service_account_json = {", previewSecretStart);
+  assert.notEqual(previewSecretStart, -1, "staging secret map must declare bulk_import_preview_signing_key");
+  assert.notEqual(previewSecretEnd, -1, "staging secret map must keep bulk preview secret before proof config");
+  const previewSecret = stgMainTerraform.slice(previewSecretStart, previewSecretEnd);
+  assert.match(
+    previewSecret,
+    /accessors\s*=\s*\[[\s\S]*?"api"[\s\S]*?"analytics_events"[\s\S]*?\]/,
+    "analytics events must be able to read the bulk preview signing key if that secret is injected",
+  );
+
   assert.match(
     eventsService,
     /GOATOS_PG_MAX_CONNS"[\s\S]*?value\s*=\s*"2"/,

@@ -28,9 +28,12 @@ package migrationguard
 import (
 	"errors"
 	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
 )
+
+var migrationFamilyMarker = regexp.MustCompile(`^([0-9]+)(?:#([0-9]+))?$`)
 
 // Status reports how the database's applied migration level compares to the
 // level this compiled binary knows about (see BinaryVersion). Both versions
@@ -108,13 +111,23 @@ func Check(dbVersion, binaryVersion string) (Status, error) {
 			"database is at migration %s but this binary requires %s — apply pending migrations first (go run ./cmd/migrate)",
 			dbVersion, binaryVersion,
 		)
+	case dbVersion != binaryVersion:
+		status.BinaryAhead = true
+		return status, fmt.Errorf(
+			"database is at migration family %s but this binary requires %s — apply every migration file in that numeric family",
+			dbVersion, binaryVersion,
+		)
 	default:
 		return status, nil
 	}
 }
 
 func parseVersion(v string) (int64, error) {
-	n, err := strconv.ParseInt(v, 10, 64)
+	m := migrationFamilyMarker.FindStringSubmatch(v)
+	if m == nil {
+		return 0, fmt.Errorf("must be numeric migration version or version family marker, got %q", v)
+	}
+	n, err := strconv.ParseInt(m[1], 10, 64)
 	if err != nil {
 		return 0, err
 	}
@@ -122,4 +135,11 @@ func parseVersion(v string) (int64, error) {
 		return 0, fmt.Errorf("must be a non-negative integer, got %d", n)
 	}
 	return n, nil
+}
+
+func migrationFamilyVersion(prefix string, count int) string {
+	if count <= 0 {
+		count = 1
+	}
+	return fmt.Sprintf("%s#%d", prefix, count)
 }

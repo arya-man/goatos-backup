@@ -238,11 +238,11 @@ const rules = [
   },
   {
     re: /(?:AsyncImage|SubcomposeAsyncImage)\s*\([^)]*model\s*=\s*(?:media\.signedUrl|signedUrl|downloadUrl|mediaUrl|url)/gs,
-    reason: "remote image proof preview must be tap-gated and keyed by stable proof identity",
+    reason: "remote proof image loading must be visible, bounded, attributed, and keyed by stable proof identity",
   },
   {
     re: /rememberAsyncImagePainter\s*\([^)]*model\s*=\s*(?:media\.signedUrl|signedUrl|downloadUrl|mediaUrl|url)/gs,
-    reason: "remote image proof preview must be tap-gated and keyed by stable proof identity",
+    reason: "remote proof image loading must be visible, bounded, attributed, and keyed by stable proof identity",
   },
   {
     re: /ImageRequest\.Builder\s*\([^)]*\)[\s\S]{0,400}\.data\s*\(\s*(?:media\.signedUrl|signedUrl|downloadUrl|mediaUrl|url)/g,

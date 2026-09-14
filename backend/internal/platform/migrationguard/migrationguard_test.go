@@ -17,8 +17,8 @@ func TestCheck(t *testing.T) {
 	}{
 		{
 			name:          "equal versions proceed",
-			dbVersion:     "000188",
-			binaryVersion: "000188",
+			dbVersion:     "000188#1",
+			binaryVersion: "000188#1",
 			wantErr:       false,
 		},
 		{
@@ -47,9 +47,17 @@ func TestCheck(t *testing.T) {
 		},
 		{
 			name:          "whitespace-only versions are trimmed before comparing",
-			dbVersion:     "  000188 ",
-			binaryVersion: " 000188",
+			dbVersion:     "  000188#1 ",
+			binaryVersion: " 000188#1",
 			wantErr:       false,
+		},
+		{
+			name:              "same numeric prefix but missing sibling migration fails",
+			dbVersion:         "000306#1",
+			binaryVersion:     "000306#2",
+			wantErr:           true,
+			wantBinaryAhead:   true,
+			wantErrorContains: "database is at migration family 000306#1 but this binary requires 000306#2",
 		},
 		{
 			name:          "missing binary version is a hard error",

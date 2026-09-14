@@ -32,7 +32,9 @@ egress even if nobody stores hundreds of GB on the phone.
 ## Main Fix Shape
 
 - Android proof previews keep a stable proof identity, not a rotating signed URL identity.
-- Remote cards are visible but inert until the user taps play/open/share.
+- Opened/detail proof-photo cards may show the photo immediately when the read is bounded, cached by
+  stable proof identity, attributed, and guard-annotated. Hidden/list media and remote video players
+  remain inert until the user taps play/open/share.
 - Players are stopped/released on lifecycle/fullscreen/offscreen changes.
 - Backend hot list/read/export APIs return stable `/app/proofs/{id}/download` routes instead of bulk
   signed GCS URLs.

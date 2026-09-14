@@ -14,9 +14,9 @@ func TestBinaryVersion(t *testing.T) {
 		t.Fatalf("BinaryVersion() error = %v", err)
 	}
 
-	versionShape := regexp.MustCompile(`^[0-9]+$`)
+	versionShape := regexp.MustCompile(`^[0-9]+#[0-9]+$`)
 	if !versionShape.MatchString(got) {
-		t.Fatalf("BinaryVersion() = %q, want a numeric version string", got)
+		t.Fatalf("BinaryVersion() = %q, want a numeric migration family marker", got)
 	}
 
 	// Cross-check the embedded result against the real migrations directory
@@ -49,7 +49,14 @@ func TestBinaryVersion(t *testing.T) {
 		return ni < nj
 	})
 	want := versions[len(versions)-1]
+	wantCount := 0
+	for _, version := range versions {
+		if version == want {
+			wantCount++
+		}
+	}
+	want = migrationFamilyVersion(want, wantCount)
 	if got != want {
-		t.Fatalf("BinaryVersion() = %q, want %q (highest migration on disk) - embedded migrations/postgres may be stale, rebuild", got, want)
+		t.Fatalf("BinaryVersion() = %q, want %q (highest migration family on disk) - embedded migrations/postgres may be stale, rebuild", got, want)
 	}
 }

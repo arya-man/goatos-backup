@@ -9,11 +9,11 @@ import (
 )
 
 // migrationFilenameVersion extracts the leading zero-padded numeric version
-// from a migration filename, e.g. "000188" from
+// from a migration filename or version marker, e.g. "000188" from
 // "000188_drop_process_integrity_projection_summaries.sql".
 var migrationFilenameVersion = regexp.MustCompile(`^([0-9]+)_`)
 
-// BinaryVersion returns the highest migration version this compiled binary
+// BinaryVersion returns the highest migration family this compiled binary
 // knows about, derived from the migrations/postgres/*.sql files embedded at
 // build time (see backend/migrations/embed.go). It does not touch the
 // filesystem, so it returns the same answer whether the process runs via
@@ -24,6 +24,9 @@ var migrationFilenameVersion = regexp.MustCompile(`^([0-9]+)_`)
 // The highest version is determined by numeric comparison of the leading
 // version prefix (not lexicographic), so it remains correct if migration
 // numbering ever crosses digit-width boundaries (e.g. 999999 → 1000000).
+// The returned marker includes how many migration files share that highest
+// prefix, e.g. "000306#2", so /readyz cannot pass a database that applied only
+// one sibling from a duplicated numeric migration family.
 func BinaryVersion() (string, error) {
 	entries, err := migrations.Postgres.ReadDir("postgres")
 	if err != nil {
@@ -31,6 +34,7 @@ func BinaryVersion() (string, error) {
 	}
 	var max string
 	var maxNum int64 = -1
+	maxCount := 0
 	for _, entry := range entries {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".sql") {
 			continue
@@ -49,10 +53,15 @@ func BinaryVersion() (string, error) {
 		if num > maxNum {
 			maxNum = num
 			max = version
+			maxCount = 1
+			continue
+		}
+		if num == maxNum {
+			maxCount++
 		}
 	}
 	if max == "" {
 		return "", fmt.Errorf("migrationguard: no migration files found in embedded migrations/postgres")
 	}
-	return max, nil
+	return migrationFamilyVersion(max, maxCount), nil
 }
