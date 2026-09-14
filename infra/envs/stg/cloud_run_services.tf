@@ -503,6 +503,16 @@ resource "google_cloud_run_v2_service" "analytics_events" {
       }
 
       env {
+        name = "GOATOS_BULK_IMPORT_PREVIEW_SIGNING_KEY"
+        value_source {
+          secret_key_ref {
+            secret  = google_secret_manager_secret.container["bulk_import_preview_signing_key"].secret_id
+            version = "latest"
+          }
+        }
+      }
+
+      env {
         name = "GOATOS_GCS_SERVICE_ACCOUNT_JSON"
         value_source {
           secret_key_ref {

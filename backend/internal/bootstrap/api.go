@@ -387,10 +387,6 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	if err := validateRouteMode(cfg.RouteMode); err != nil {
 		return nil, err
 	}
-	bulkPreviewSigningKey, err := bulkImportPreviewSigningKey(cfg)
-	if err != nil {
-		return nil, err
-	}
 	verifier, err := buildAuthVerifier(cfg.Auth, log)
 	if err != nil {
 		return nil, err
@@ -459,6 +455,16 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 		// Pool-stat metrics are an observability nice-to-have, never a
 		// reason to fail API startup.
 		log.Warn("postgres_pool_metrics_registration_failed", slog.String("error", err.Error()))
+	}
+
+	bulkPreviewSigningKey := ""
+	if cfg.RouteMode != apiRouteModeEvents {
+		var err error
+		bulkPreviewSigningKey, err = bulkImportPreviewSigningKey(cfg)
+		if err != nil {
+			pool.Close()
+			return nil, err
+		}
 	}
 
 	identityRepo := identitypg.NewRepository(pool, cfg.Postgres.QueryTimeout)
