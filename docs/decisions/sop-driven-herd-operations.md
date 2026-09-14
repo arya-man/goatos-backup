@@ -51,7 +51,11 @@ key-matched behaviour exactly.
 
 ### Day-one behaviour did not move
 
-The seeded documents (`tasks/domain/sopseed/*.json`, embedded verbatim in `000299`) compile
+The seeded documents (`tasks/domain/sopseed/*.json`, embedded verbatim in `000299`) are added
+IN PLACE to each tenant's currently published library version -- on STG that is Birth Recording
+v1, Death Recording v1, Shifting v2 -- so the version a farm sees on deploy is the one it already
+had, now carrying the steps (no workflow is pinned to a version before this migration; a later web
+publish creates v+1 as usual). Reconcile is a new SOP and starts at v1. Those documents compile
 byte-identical to the Go templates they replace -- pinned by
 `TestSeededBirthCompilesToTheLegacyTemplates` (three birth moments × with/without the pen fallback),
 `TestSeededDeathCompilesToTheLegacyTemplate`, and `TestMigrationEmbedsTheSeededDocuments`. Each was

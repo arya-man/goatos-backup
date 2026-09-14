@@ -167,7 +167,7 @@ UPDATE public.workflow_actions SET
 WHERE task_type = '';
 
 -- ---------------------------------------------------------------------------
--- 3. Seeded follow_up documents as new published versions
+-- 3. Seeded follow_up documents, added to the published versions in place (reconcile is new: v1)
 -- ---------------------------------------------------------------------------
 UPDATE public.sop_definitions SET category_key = 'action' WHERE code IN ('counts.birth', 'counts.death', 'shifting') AND category_key IS NULL;
 
@@ -179,12 +179,12 @@ FROM public.tenants t
 ON CONFLICT (tenant_id, code) DO NOTHING;
 
 
--- counts.birth: a new version = the currently published form_dsl + the seeded follow_up. Three
--- statements, because the partial unique index (one published version per SOP) is checked per
--- statement: insert as draft, retire the old published, publish the draft.
-INSERT INTO public.sop_versions (tenant_id, sop_id, version, version_label, status, form_dsl, proof_policy, compatibility, validation_report)
-SELECT sv.tenant_id, sv.sop_id, sv.version + 1, 'Birth Recording v' || (sv.version + 1)::text, 'draft',
-       sv.form_dsl || jsonb_build_object('follow_up', $seed${
+-- counts.birth: the seeded follow_up is added IN PLACE to the currently published version, so the
+-- version number a farm already sees stays the same (STG: v1 = "the current flow"). No workflow is
+-- pinned to any version before this migration, and the library document it extends carried no
+-- execution semantics, so nothing running can change. A later web publish creates v+1 as usual.
+UPDATE public.sop_versions sv
+SET form_dsl = sv.form_dsl || jsonb_build_object('follow_up', $seed${
   "schema_version": "goatos.sop-followup.v1",
   "tracks": [
     {
@@ -215,34 +215,18 @@ SELECT sv.tenant_id, sv.sop_id, sv.version + 1, 'Birth Recording v' || (sv.versi
     }
   ]
 }$seed$::jsonb),
-       sv.proof_policy, sv.compatibility,
-       '{"valid": true, "errors": [], "warnings": [{"code": "seeded", "field": "form_dsl.follow_up", "message": "Seeded from the code template this version replaces (migration 000299)."}]}'::jsonb
-FROM public.sop_versions sv
-JOIN public.sop_definitions sd ON sd.tenant_id = sv.tenant_id AND sd.sop_id = sv.sop_id
-WHERE sd.code = 'counts.birth' AND sv.status = 'published'
-  AND NOT (sv.form_dsl ? 'follow_up')
-ON CONFLICT (tenant_id, sop_id, version) DO NOTHING;
-
-UPDATE public.sop_versions sv SET status = 'retired', retired_at = COALESCE(sv.retired_at, now()), updated_at = now(), row_version = sv.row_version + 1
+    validation_report = COALESCE(sv.validation_report, '{}'::jsonb) || '{"seeded_follow_up": "Seeded from the code template this version replaces (migration 000299)."}'::jsonb,
+    updated_at = now(), row_version = sv.row_version + 1
 FROM public.sop_definitions sd
 WHERE sd.tenant_id = sv.tenant_id AND sd.sop_id = sv.sop_id AND sd.code = 'counts.birth'
-  AND sv.status = 'published' AND NOT (sv.form_dsl ? 'follow_up')
-  AND EXISTS (SELECT 1 FROM public.sop_versions d WHERE d.tenant_id = sv.tenant_id AND d.sop_id = sv.sop_id AND d.status = 'draft' AND d.form_dsl ? 'follow_up');
+  AND sv.status = 'published' AND NOT (sv.form_dsl ? 'follow_up');
 
-UPDATE public.sop_versions sv SET status = 'published', published_at = COALESCE(sv.published_at, now()), updated_at = now(), row_version = sv.row_version + 1
-FROM public.sop_definitions sd
-WHERE sd.tenant_id = sv.tenant_id AND sd.sop_id = sv.sop_id AND sd.code = 'counts.birth'
-  AND sv.status = 'draft' AND sv.form_dsl ? 'follow_up'
-  AND sv.validation_report->'warnings' @> '[{"code": "seeded"}]'::jsonb
-  AND NOT EXISTS (SELECT 1 FROM public.sop_versions p WHERE p.tenant_id = sv.tenant_id AND p.sop_id = sv.sop_id AND p.status = 'published');
-
-
--- counts.death: a new version = the currently published form_dsl + the seeded follow_up. Three
--- statements, because the partial unique index (one published version per SOP) is checked per
--- statement: insert as draft, retire the old published, publish the draft.
-INSERT INTO public.sop_versions (tenant_id, sop_id, version, version_label, status, form_dsl, proof_policy, compatibility, validation_report)
-SELECT sv.tenant_id, sv.sop_id, sv.version + 1, 'Death Recording v' || (sv.version + 1)::text, 'draft',
-       sv.form_dsl || jsonb_build_object('follow_up', $seed${
+-- counts.death: the seeded follow_up is added IN PLACE to the currently published version, so the
+-- version number a farm already sees stays the same (STG: v1 = "the current flow"). No workflow is
+-- pinned to any version before this migration, and the library document it extends carried no
+-- execution semantics, so nothing running can change. A later web publish creates v+1 as usual.
+UPDATE public.sop_versions sv
+SET form_dsl = sv.form_dsl || jsonb_build_object('follow_up', $seed${
   "schema_version": "goatos.sop-followup.v1",
   "tracks": [
     {
@@ -254,34 +238,18 @@ SELECT sv.tenant_id, sv.sop_id, sv.version + 1, 'Death Recording v' || (sv.versi
     }
   ]
 }$seed$::jsonb),
-       sv.proof_policy, sv.compatibility,
-       '{"valid": true, "errors": [], "warnings": [{"code": "seeded", "field": "form_dsl.follow_up", "message": "Seeded from the code template this version replaces (migration 000299)."}]}'::jsonb
-FROM public.sop_versions sv
-JOIN public.sop_definitions sd ON sd.tenant_id = sv.tenant_id AND sd.sop_id = sv.sop_id
-WHERE sd.code = 'counts.death' AND sv.status = 'published'
-  AND NOT (sv.form_dsl ? 'follow_up')
-ON CONFLICT (tenant_id, sop_id, version) DO NOTHING;
-
-UPDATE public.sop_versions sv SET status = 'retired', retired_at = COALESCE(sv.retired_at, now()), updated_at = now(), row_version = sv.row_version + 1
+    validation_report = COALESCE(sv.validation_report, '{}'::jsonb) || '{"seeded_follow_up": "Seeded from the code template this version replaces (migration 000299)."}'::jsonb,
+    updated_at = now(), row_version = sv.row_version + 1
 FROM public.sop_definitions sd
 WHERE sd.tenant_id = sv.tenant_id AND sd.sop_id = sv.sop_id AND sd.code = 'counts.death'
-  AND sv.status = 'published' AND NOT (sv.form_dsl ? 'follow_up')
-  AND EXISTS (SELECT 1 FROM public.sop_versions d WHERE d.tenant_id = sv.tenant_id AND d.sop_id = sv.sop_id AND d.status = 'draft' AND d.form_dsl ? 'follow_up');
+  AND sv.status = 'published' AND NOT (sv.form_dsl ? 'follow_up');
 
-UPDATE public.sop_versions sv SET status = 'published', published_at = COALESCE(sv.published_at, now()), updated_at = now(), row_version = sv.row_version + 1
-FROM public.sop_definitions sd
-WHERE sd.tenant_id = sv.tenant_id AND sd.sop_id = sv.sop_id AND sd.code = 'counts.death'
-  AND sv.status = 'draft' AND sv.form_dsl ? 'follow_up'
-  AND sv.validation_report->'warnings' @> '[{"code": "seeded"}]'::jsonb
-  AND NOT EXISTS (SELECT 1 FROM public.sop_versions p WHERE p.tenant_id = sv.tenant_id AND p.sop_id = sv.sop_id AND p.status = 'published');
-
-
--- shifting: a new version = the currently published form_dsl + the seeded follow_up. Three
--- statements, because the partial unique index (one published version per SOP) is checked per
--- statement: insert as draft, retire the old published, publish the draft.
-INSERT INTO public.sop_versions (tenant_id, sop_id, version, version_label, status, form_dsl, proof_policy, compatibility, validation_report)
-SELECT sv.tenant_id, sv.sop_id, sv.version + 1, 'Shifting v' || (sv.version + 1)::text, 'draft',
-       sv.form_dsl || jsonb_build_object('follow_up', $seed${
+-- shifting: the seeded follow_up is added IN PLACE to the currently published version, so the
+-- version number a farm already sees stays the same (STG: v1 = "the current flow"). No workflow is
+-- pinned to any version before this migration, and the library document it extends carried no
+-- execution semantics, so nothing running can change. A later web publish creates v+1 as usual.
+UPDATE public.sop_versions sv
+SET form_dsl = sv.form_dsl || jsonb_build_object('follow_up', $seed${
   "schema_version": "goatos.sop-followup.v1",
   "tracks": [
     {
@@ -292,27 +260,11 @@ SELECT sv.tenant_id, sv.sop_id, sv.version + 1, 'Shifting v' || (sv.version + 1)
     }
   ]
 }$seed$::jsonb),
-       sv.proof_policy, sv.compatibility,
-       '{"valid": true, "errors": [], "warnings": [{"code": "seeded", "field": "form_dsl.follow_up", "message": "Seeded from the code template this version replaces (migration 000299)."}]}'::jsonb
-FROM public.sop_versions sv
-JOIN public.sop_definitions sd ON sd.tenant_id = sv.tenant_id AND sd.sop_id = sv.sop_id
-WHERE sd.code = 'shifting' AND sv.status = 'published'
-  AND NOT (sv.form_dsl ? 'follow_up')
-ON CONFLICT (tenant_id, sop_id, version) DO NOTHING;
-
-UPDATE public.sop_versions sv SET status = 'retired', retired_at = COALESCE(sv.retired_at, now()), updated_at = now(), row_version = sv.row_version + 1
+    validation_report = COALESCE(sv.validation_report, '{}'::jsonb) || '{"seeded_follow_up": "Seeded from the code template this version replaces (migration 000299)."}'::jsonb,
+    updated_at = now(), row_version = sv.row_version + 1
 FROM public.sop_definitions sd
 WHERE sd.tenant_id = sv.tenant_id AND sd.sop_id = sv.sop_id AND sd.code = 'shifting'
-  AND sv.status = 'published' AND NOT (sv.form_dsl ? 'follow_up')
-  AND EXISTS (SELECT 1 FROM public.sop_versions d WHERE d.tenant_id = sv.tenant_id AND d.sop_id = sv.sop_id AND d.status = 'draft' AND d.form_dsl ? 'follow_up');
-
-UPDATE public.sop_versions sv SET status = 'published', published_at = COALESCE(sv.published_at, now()), updated_at = now(), row_version = sv.row_version + 1
-FROM public.sop_definitions sd
-WHERE sd.tenant_id = sv.tenant_id AND sd.sop_id = sv.sop_id AND sd.code = 'shifting'
-  AND sv.status = 'draft' AND sv.form_dsl ? 'follow_up'
-  AND sv.validation_report->'warnings' @> '[{"code": "seeded"}]'::jsonb
-  AND NOT EXISTS (SELECT 1 FROM public.sop_versions p WHERE p.tenant_id = sv.tenant_id AND p.sop_id = sv.sop_id AND p.status = 'published');
-
+  AND sv.status = 'published' AND NOT (sv.form_dsl ? 'follow_up');
 
 -- counts.reconcile v1: brand new document (there was no library row); capture fields describe the
 -- card the weighing consumer raises, follow_up is the operator's work.
