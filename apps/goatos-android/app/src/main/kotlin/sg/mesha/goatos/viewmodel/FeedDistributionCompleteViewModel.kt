@@ -521,6 +521,7 @@ class FeedDistributionCompleteViewModel @Inject constructor(
                             isCapturingVideo = false,
                             videoCaptured = true,
                             videoPreviewPath = captured.localUri,
+                            videoPreviewIdentity = previewIdentity(ProofSlot.FEED_VIDEO),
                             videoStatus = FeedDistributionProofStatus.QUEUED,
                             videoMessage = VIDEO_QUEUED,
                         )
@@ -642,6 +643,7 @@ class FeedDistributionCompleteViewModel @Inject constructor(
                             isCapturingWaterVideo = false,
                             waterVideoCaptured = true,
                             waterVideoPreviewPath = captured.localUri,
+                            waterVideoPreviewIdentity = previewIdentity(ProofSlot.WATER_VIDEO),
                             waterVideoStatus = FeedDistributionProofStatus.QUEUED,
                             waterVideoMessage = PROOF_QUEUED,
                         )

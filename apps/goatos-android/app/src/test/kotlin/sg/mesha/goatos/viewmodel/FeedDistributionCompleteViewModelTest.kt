@@ -687,6 +687,51 @@ class FeedDistributionCompleteViewModelTest {
     }
 
     @Test
+    fun `local water video replacement after teammate adoption uses local preview identity`() = runTest(dispatcher) {
+        val teammates = FakeSplitFeedRepository(
+            listOf(
+                FeedDistributionCapturedSlotDto(
+                    fieldKey = "feed_distribution_water_video",
+                    proofRef = "server-proof-water-video",
+                    capturedAt = "2026-08-14T03:45:26Z",
+                    mimeType = "video/mp4",
+                ),
+            ),
+        )
+        val viewModel = FeedDistributionCompleteViewModel(
+            syncRepository = RecordingFeedDistributionSyncRepository(),
+            proofCaptureSource = FakeProofCaptureSource(
+                mutableListOf(CapturedVideo(localUri = "/proof/local-water-replacement.mp4", startedAtMs = 1L, endedAtMs = 2L)),
+            ),
+            photoCaptureSource = FakePhotoCaptureSource(mutableListOf()),
+            proofCaptureRepository = FakeProofCaptureRepository(),
+            feedRepository = teammates,
+            analytics = NoopAnalytics(),
+            crashReporter = NoopCrashReporter(),
+            appContext = ApplicationProvider.getApplicationContext(),
+            savedStateHandle = SavedStateHandle(
+                mapOf(
+                    FeedDistributionCompleteViewModel.ARG_PARK_ID to "park-1",
+                    FeedDistributionCompleteViewModel.ARG_SHED_ID to "shed-1",
+                    FeedDistributionCompleteViewModel.ARG_SESSION_NO to "1",
+                    FeedDistributionCompleteViewModel.ARG_WORKFLOW to "normal",
+                    FeedDistributionCompleteViewModel.ARG_TARGET_DATE to "2026-08-14",
+                    FeedDistributionCompleteViewModel.ARG_PARTITION_LABEL to "Part 1",
+                ),
+            ),
+        )
+        advanceUntilIdle()
+
+        assertEquals("server-proof-water-video", viewModel.state.value.waterVideoPreviewIdentity)
+
+        viewModel.onEvent(FeedDistributionEvent.RecordWaterVideo)
+        advanceUntilIdle()
+
+        assertEquals("/proof/local-water-replacement.mp4", viewModel.state.value.waterVideoPreviewPath)
+        assertEquals("proof-outbox-1", viewModel.state.value.waterVideoPreviewIdentity)
+    }
+
+    @Test
     fun `captured proof rehydrates when the screen is reopened on a partitioned pen`() = runTest(dispatcher) {
         val syncRepository = RecordingFeedDistributionSyncRepository()
         // ONE repository across both view models: the durable Room-backed store that survives the
