@@ -16,11 +16,14 @@ submit -> success/failure. Do not show raw internal identifiers such as
 
 Every `ProofMediaPreview` caller must pass a stable `mediaIdentity` based on the
 proof id, server proof id, outbox item id, feature slot id, or attachment id. Do
-not key preview/player state by temporary signed GCS URLs. Remote proof media
-must not be loaded, probed, poster-extracted, or player-prepared just because a
-list/card is composed; bytes should move only after an explicit user action such
-as play/open/share. Any direct remote attachment download must be tap-triggered,
-bounded, cached locally, and explicitly annotated for the egress guard.
+not key preview/player state by temporary signed GCS URLs. A remote proof photo
+on an opened/detail proof surface may render on first paint when it is bounded to
+that visible item, cached by stable `mediaIdentity`, attributed through
+`onPreviewAction`, and annotated for the egress guard. Hidden/off-viewport list
+media must not auto-download or prefetch, and remote video bytes must not move,
+auto-prepare, or poster-probe until explicit play/open/share intent. Any direct
+remote attachment download must be tap-triggered, bounded, cached locally, and
+explicitly annotated for the egress guard.
 
 For any proof-backed business workflow, proof upload success is not final
 business success. Green/done user-facing states must wait for the feature's
@@ -63,13 +66,15 @@ the guard itself as a review finding.
 
 For Android/mobile/backend reviews that touch camera, proof media, attachments,
 signed URLs, uploads, previews, player screens, or billing/infra, include
-post-upload media egress risk in the review. Check for already-uploaded media
-being auto-previewed or auto-prepared, hidden thumbnail/poster/metadata probes,
-raw `URL.openStream`/Coil/Media3 downloads, retry loops around expired signed
-URLs, UI keyed by temporary signed URL instead of stable proof/slot/attachment
-identity, missing `ProofMediaPreview.mediaIdentity`, missing preview analytics,
-missing backend download attribution, and missing Cloud Monitoring/Slack billing
-alerts.
+post-upload media egress risk in the review. Treat opened/detail proof-photo
+preview as intended when it is visible, bounded, stable-identity cached,
+attributed, and guard-annotated. Check for hidden/off-viewport list auto-fetch,
+remote video auto-prepare or poster/metadata probes, raw
+`URL.openStream`/Coil/Media3 downloads outside the guarded proof-media path,
+retry loops around expired signed URLs, UI keyed by temporary signed URL instead
+of stable proof/slot/attachment identity, missing `ProofMediaPreview.mediaIdentity`,
+missing preview analytics, missing backend download attribution, and missing
+Cloud Monitoring/Slack billing alerts.
 
 This review lens is not satisfied by reading only the PR diff. The reviewer must
 run or inspect `tools/agent-hooks/check-android-proof-media-egress.mjs --all`,

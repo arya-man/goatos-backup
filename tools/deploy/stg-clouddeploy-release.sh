@@ -10,6 +10,7 @@ TARGET_ID="${TARGET_ID:-goatos-stg}"
 WAIT_FOR_ROLLOUT="${GOATOS_STG_RELEASE_WAIT:-1}"
 ROLLOUT_TIMEOUT_SECONDS="${GOATOS_STG_ROLLOUT_TIMEOUT_SECONDS:-1800}"
 ROLLOUT_POLL_SECONDS="${GOATOS_STG_ROLLOUT_POLL_SECONDS:-20}"
+GOATOS_STG_ZERO_DOWNTIME_DEPLOY="${GOATOS_STG_ZERO_DOWNTIME_DEPLOY:-true}"
 SLACK_WEBHOOK_SECRET="${SLACK_WEBHOOK_SECRET:-goatos-stg-deploy-slack-webhook-url}"
 TRIGGERED_BY="${TRIGGERED_BY:-unknown Slack user}"
 CONSOLE_AUTHUSER="${CONSOLE_AUTHUSER:-ravi@mesha.sg}"
@@ -250,7 +251,7 @@ expect_api_latency_shape() {
   IFS=$'\t' read -r min max concurrency <<<"$line"
   [[ "$min" == "1" ]] || die "goatos-api-stg min scale drift: got ${min:-unset} want 1"
   [[ "$max" == "2" ]] || die "goatos-api-stg max scale drift: got ${max:-unset} want 2"
-  [[ "$concurrency" == "20" ]] || die "goatos-api-stg concurrency drift: got ${concurrency:-unset} want 20"
+  [[ "$concurrency" == "10" ]] || die "goatos-api-stg concurrency drift: got ${concurrency:-unset} want 10"
   echo "verified api latency shape: min=$min max=$max concurrency=$concurrency"
 }
 

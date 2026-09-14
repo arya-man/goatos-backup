@@ -3,6 +3,8 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 
 const script = readFileSync(new URL("./stg-clouddeploy-task.sh", import.meta.url), "utf8");
+const releaseScript = readFileSync(new URL("./stg-clouddeploy-release.sh", import.meta.url), "utf8");
+const bootstrap = readFileSync(new URL("../../backend/internal/bootstrap/api.go", import.meta.url), "utf8");
 const analyticsRoutingScript = readFileSync(
   new URL("./stg-analytics-events-routing.sh", import.meta.url),
   "utf8",
@@ -77,6 +79,24 @@ test("api terraform and deploy restore keep the same latency shape", () => {
   assert.match(restoreBlock, /--concurrency=10\s+\\/, "deploy restore must match terraform concurrency");
 });
 
+test("release wrapper verifies the same api latency shape and has safe deploy defaults", () => {
+  assert.match(
+    releaseScript,
+    /GOATOS_STG_ZERO_DOWNTIME_DEPLOY="\$\{GOATOS_STG_ZERO_DOWNTIME_DEPLOY:-true\}"/,
+    "release wrapper must not fail under set -u when zero-downtime deploy is unset",
+  );
+  assert.match(
+    releaseScript,
+    /customTarget\/zeroDowntimeDeploy=\$\{GOATOS_STG_ZERO_DOWNTIME_DEPLOY\}/,
+    "release wrapper must pass the zero-downtime setting through Cloud Deploy",
+  );
+  assert.match(
+    releaseScript,
+    /\[\[ "\$concurrency" == "10" \]\] \|\| die "goatos-api-stg concurrency drift: got \$\{concurrency:-unset\} want 10"/,
+    "release receipt must expect the API concurrency pinned by terraform and the deploy task",
+  );
+});
+
 test("analytics events has an isolated capped deploy lane", () => {
   const serviceStart = apiTerraform.indexOf('resource "google_cloud_run_v2_service" "analytics_events"');
   const serviceEnd = apiTerraform.indexOf('resource "google_cloud_run_v2_service_iam_member" "analytics_events_public_invoker"');
@@ -107,17 +127,26 @@ test("analytics events has an isolated capped deploy lane", () => {
   assert.match(
     eventsService,
     /GOATOS_MEDIA_STORAGE"[\s\S]*?value\s*=\s*"gcs"/,
-    "analytics events must include proof-storage boot env because api bootstrap builds it before route filtering",
+    "analytics events keeps compatible proof media env without making it a boot dependency",
   );
   assert.match(
     eventsService,
     /GOATOS_GCS_BUCKET"[\s\S]*?google_storage_bucket\.proof_media\.name/,
-    "analytics events must include the proof media bucket required by shared bootstrap",
+    "analytics events keeps a compatible proof media bucket env without making it a boot dependency",
   );
   assert.match(
     eventsService,
     /GOATOS_GCS_SERVICE_ACCOUNT_JSON"[\s\S]*?proof_gcs_service_account_json/,
-    "analytics events must include the proof media signer secret required by shared bootstrap",
+    "analytics events keeps a compatible proof media signer env without making it a boot dependency",
+  );
+  const newApiStart = bootstrap.indexOf("func NewAPI(");
+  const eventsReturn = bootstrap.indexOf("return newEventsAPI(", newApiStart);
+  assert.notEqual(newApiStart, -1, "bootstrap must define NewAPI");
+  assert.notEqual(eventsReturn, -1, "bootstrap must return through newEventsAPI in events mode");
+  assert.ok(
+    eventsReturn < bootstrap.indexOf("bulkImportPreviewSigningKey(cfg)", newApiStart) &&
+      eventsReturn < bootstrap.indexOf("buildProofStorage()", newApiStart),
+    "events route mode must return before preview signing key and proof storage boot dependencies",
   );
 
   const proofSecretStart = stgMainTerraform.indexOf("proof_gcs_service_account_json = {");
