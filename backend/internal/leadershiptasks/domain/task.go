@@ -73,6 +73,8 @@ var (
 	ErrAttachmentNotCompleted   = errors.New("leadership task: attachment upload is not complete")
 	ErrAttachmentNotAnAttachmnt = errors.New("leadership task: proof is not an attachment")
 	ErrCommentTooLong           = errors.New("leadership task: comment too long")
+	ErrDeadlineRequired         = errors.New("leadership task: deadline is required")
+	ErrDeadlineNotAfterRaise    = errors.New("leadership task: deadline is not after the raise")
 )
 
 // Task is one raised task with its attachments, as stored.
@@ -91,10 +93,13 @@ type Task struct {
 	AssigneeUserID      string
 	AssigneeName        string
 	RaisedAt            time.Time
-	UpdatedAt           time.Time
-	DoneAt              *time.Time
-	CancelledAt         *time.Time
-	SeenAt              *time.Time
+	// DeadlineAt is the date AND time the raiser asked for the task by (see deadline.go). Nil
+	// on a task raised before deadlines existed, or through a path with no form to ask.
+	DeadlineAt  *time.Time
+	UpdatedAt   time.Time
+	DoneAt      *time.Time
+	CancelledAt *time.Time
+	SeenAt      *time.Time
 	// AssigneeComment is the CXO's note back on the task: one field its owner overwrites.
 	AssigneeComment string
 	RowVersion      int

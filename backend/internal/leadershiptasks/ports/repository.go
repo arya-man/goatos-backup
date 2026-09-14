@@ -4,6 +4,7 @@ package ports
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/vgoats/goatos/backend/internal/leadershiptasks/domain"
 	proofdomain "github.com/vgoats/goatos/backend/internal/proof/domain"
@@ -68,6 +69,12 @@ type RaiseParams struct {
 	Refs           []domain.AttachmentRef
 	Attachments    []domain.Attachment
 	IdempotencyKey string
+	// DeadlineAt is the date and time the raiser asked for the task by (domain/deadline.go).
+	// The task form REQUIRES it; DeadlineOptional is set only by a programmatic raise that has
+	// no form to ask (the Work Board flag), whose task then shows no counter until its raiser
+	// sets one.
+	DeadlineAt       *time.Time
+	DeadlineOptional bool
 }
 
 // EditParams replaces the brief and the attachment list of an open task.
@@ -81,6 +88,9 @@ type EditParams struct {
 	Attachments    []domain.Attachment
 	RowVersion     int
 	IdempotencyKey string
+	// DeadlineAt replaces the deadline when present. Nil KEEPS the stored deadline: an older
+	// phone that does not know the field must not wipe it by editing the brief.
+	DeadlineAt *time.Time
 }
 
 // StatusParams moves a task along its status ladder.

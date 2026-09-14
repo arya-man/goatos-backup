@@ -27,12 +27,21 @@ import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DatePicker
+import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.SelectableDates
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TimePicker
+import androidx.compose.material3.rememberDatePickerState
+import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -48,6 +57,12 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import java.time.Instant
+import java.time.LocalDate
+import java.time.LocalTime
+import java.time.OffsetDateTime
+import java.time.ZoneOffset
+import java.time.format.DateTimeFormatter
 import sg.mesha.goatos.core.designsystem.component.MeshaScreenHeader
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
@@ -150,6 +165,14 @@ fun LeadershipTaskComposeScreen(
                     label = stringResource(R.string.leadership_tasks_field_brief),
                     singleLine = false,
                     enabled = !busy,
+                )
+                // The deadline -- date AND time on the farm's clock -- is required to send
+                // (maintainer decision 2026-09-14); the server refuses a raise without one.
+                LeadershipDeadlineField(
+                    valueIso = state.deadlineIso,
+                    valueLabel = state.deadlineLabel,
+                    enabled = !busy,
+                    onPicked = { onEvent(LeadershipTaskComposeEvent.DeadlineChanged(it)) },
                 )
             }
 
@@ -428,3 +451,118 @@ private fun LeadershipRecordingRow(elapsedMs: Long, onStop: () -> Unit) {
 
 /** The title cap the phone enforces while typing; the backend refuses anything longer too. */
 const val LEADERSHIP_TASK_TITLE_CAP = 80
+
+/**
+ * The deadline field: a read-only text over the Material date picker, then the time picker.
+ * The pick is composed in the FARM's zone and handed back as an RFC3339 instant with that
+ * offset -- the shape the wire takes -- so the raiser's phone zone never moves a deadline.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun LeadershipDeadlineField(
+    valueIso: String,
+    valueLabel: String,
+    enabled: Boolean,
+    onPicked: (String) -> Unit,
+) {
+    var stage by remember { mutableStateOf(DeadlinePickStage.CLOSED) }
+    var pickedDate by remember { mutableStateOf<LocalDate?>(null) }
+    val existing = remember(valueIso) {
+        runCatching { OffsetDateTime.parse(valueIso).atZoneSameInstant(LEADERSHIP_FARM_ZONE) }.getOrNull() // exception:exempt a blank or malformed draft deadline simply seeds the picker with today; nothing to report
+    }
+    val today = remember { LocalDate.now(LEADERSHIP_FARM_ZONE) }
+
+    Box(modifier = Modifier.fillMaxWidth()) {
+        OutlinedTextField(
+            value = valueLabel,
+            onValueChange = {},
+            readOnly = true,
+            enabled = enabled,
+            modifier = Modifier.fillMaxWidth().heightIn(min = 54.dp),
+            label = { Text(stringResource(R.string.leadership_tasks_field_deadline)) },
+            placeholder = { Text(stringResource(R.string.leadership_tasks_field_deadline_placeholder)) },
+            trailingIcon = {
+                Icon(imageVector = MeshaIcons.Calendar, contentDescription = null, tint = MeshaColors.Muted, modifier = Modifier.size(18.dp))
+            },
+            singleLine = true,
+            shape = RoundedCornerShape(14.dp),
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedTextColor = MeshaColors.Ink,
+                unfocusedTextColor = MeshaColors.Ink,
+                disabledTextColor = MeshaColors.Faint,
+                focusedBorderColor = MeshaColors.BrandD,
+                unfocusedBorderColor = MeshaColors.Hair,
+                focusedLabelColor = MeshaColors.BrandD,
+                unfocusedLabelColor = MeshaColors.Muted,
+                focusedPlaceholderColor = MeshaColors.Muted,
+                unfocusedPlaceholderColor = MeshaColors.Muted,
+            ),
+        )
+        Box(
+            Modifier
+                .matchParentSize()
+                .clickable(enabled = enabled, role = Role.Button) { stage = DeadlinePickStage.DATE },
+        )
+    }
+
+    if (stage == DeadlinePickStage.DATE) {
+        val todayMillis = today.atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
+        val dateState = rememberDatePickerState(
+            initialSelectedDateMillis = (existing?.toLocalDate() ?: today).atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli(),
+            selectableDates = object : SelectableDates {
+                // A deadline behind today is a typo, not a plan; the server refuses one too.
+                override fun isSelectableDate(utcTimeMillis: Long): Boolean = utcTimeMillis >= todayMillis
+                override fun isSelectableYear(year: Int): Boolean = year >= today.year
+            },
+        )
+        DatePickerDialog(
+            onDismissRequest = { stage = DeadlinePickStage.CLOSED },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val millis = dateState.selectedDateMillis
+                        if (millis != null) {
+                            pickedDate = Instant.ofEpochMilli(millis).atZone(ZoneOffset.UTC).toLocalDate()
+                            stage = DeadlinePickStage.TIME
+                        }
+                    },
+                ) { Text(stringResource(R.string.leadership_tasks_deadline_ok), color = MeshaColors.BrandD, style = MeshaType.button) }
+            },
+            dismissButton = {
+                TextButton(onClick = { stage = DeadlinePickStage.CLOSED }) {
+                    Text(stringResource(R.string.leadership_tasks_deadline_cancel), color = MeshaColors.Muted, style = MeshaType.button)
+                }
+            },
+        ) {
+            DatePicker(state = dateState)
+        }
+    }
+
+    if (stage == DeadlinePickStage.TIME) {
+        val initial = existing?.toLocalTime() ?: LocalTime.of(17, 0)
+        val timeState = rememberTimePickerState(initialHour = initial.hour, initialMinute = initial.minute, is24Hour = true)
+        AlertDialog(
+            onDismissRequest = { stage = DeadlinePickStage.CLOSED },
+            title = { Text(stringResource(R.string.leadership_tasks_deadline_pick_time), color = MeshaColors.Ink, style = MeshaType.headerTitle) },
+            text = { TimePicker(state = timeState) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val date = pickedDate ?: today
+                        val picked = date.atTime(timeState.hour, timeState.minute).atZone(LEADERSHIP_FARM_ZONE).toOffsetDateTime()
+                        onPicked(picked.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME))
+                        stage = DeadlinePickStage.CLOSED
+                    },
+                ) { Text(stringResource(R.string.leadership_tasks_deadline_ok), color = MeshaColors.BrandD, style = MeshaType.button) }
+            },
+            dismissButton = {
+                TextButton(onClick = { stage = DeadlinePickStage.CLOSED }) {
+                    Text(stringResource(R.string.leadership_tasks_deadline_cancel), color = MeshaColors.Muted, style = MeshaType.button)
+                }
+            },
+            containerColor = MeshaColors.Surf3,
+        )
+    }
+}
+
+private enum class DeadlinePickStage { CLOSED, DATE, TIME }

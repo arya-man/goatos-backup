@@ -34,8 +34,9 @@ func TestTaskPayloadCarriesBackendCopyAndCapabilitiesPerParty(t *testing.T) {
 	}
 	cxo := domain.Actor{UserID: task.AssigneeUserID, CanAct: true}
 	director := domain.Actor{UserID: task.RaisedByUserID, CanRaise: true}
+	now := time.Date(2026, 9, 8, 5, 30, 0, 0, time.UTC)
 
-	raw, err := json.Marshal(toTaskPayload(task, cxo))
+	raw, err := json.Marshal(toTaskPayload(task, cxo, now))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -62,6 +63,13 @@ func TestTaskPayloadCarriesBackendCopyAndCapabilitiesPerParty(t *testing.T) {
 		"can_change_status": true,
 		"can_cancel":        false,
 		"attachment_count":  float64(1),
+		// No deadline: no counter, no tone, blank labels -- the screen draws nothing.
+		"deadline_at":          nil,
+		"deadline_label":       "",
+		"days_taken":           nil,
+		"days_taken_label":     "",
+		"deadline_tone":        "",
+		"deadline_state_label": "",
 	} {
 		if got[key] != want {
 			t.Errorf("%s = %v, want %v", key, got[key], want)
@@ -79,7 +87,7 @@ func TestTaskPayloadCarriesBackendCopyAndCapabilitiesPerParty(t *testing.T) {
 		t.Fatalf("attachment payload = %v", att)
 	}
 
-	raw, _ = json.Marshal(toTaskPayload(task, director))
+	raw, _ = json.Marshal(toTaskPayload(task, director, now))
 	got = map[string]any{}
 	_ = json.Unmarshal(raw, &got)
 	if got["can_edit"] != true || got["can_cancel"] != true || got["can_change_status"] != false {
@@ -108,5 +116,70 @@ func TestFilterPayloadsAreWholeListCountsWithTheSelectedChipMarked(t *testing.T)
 	}
 	if filters[3].Key != "done" || filters[3].Count != 3 || !filters[3].Selected || filters[3].EmptyMessage == "" {
 		t.Fatalf("done chip = %+v", filters[3])
+	}
+}
+
+// The deadline and the day counter ride the payload composed from the server clock: the big
+// number, its worded form, the green/red tone and the sentence beneath it. The phone and
+// admin-web render these verbatim and count nothing themselves.
+func TestTaskPayloadCarriesTheDeadlineAndTheDayCounter(t *testing.T) {
+	ist := time.FixedZone("IST", 5*3600+1800)
+	deadline := time.Date(2026, 9, 15, 17, 0, 0, 0, ist)
+	task := domain.Task{
+		TaskID:         "22222222-2222-4222-8222-222222222222",
+		TaskNo:         12,
+		Title:          "Approve the vendor contract",
+		Status:         domain.StatusInProgress,
+		RaisedByUserID: "33333333-3333-4333-8333-333333333333",
+		AssigneeUserID: "44444444-4444-4444-8444-444444444444",
+		RaisedAt:       time.Date(2026, 9, 10, 9, 0, 0, 0, ist),
+		DeadlineAt:     &deadline,
+	}
+	actor := domain.Actor{UserID: task.AssigneeUserID, CanAct: true}
+
+	decode := func(now time.Time) map[string]any {
+		raw, err := json.Marshal(toTaskPayload(task, actor, now))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var got map[string]any
+		if err := json.Unmarshal(raw, &got); err != nil {
+			t.Fatal(err)
+		}
+		return got
+	}
+
+	within := decode(time.Date(2026, 9, 14, 9, 0, 0, 0, ist))
+	for key, want := range map[string]any{
+		"deadline_at":          "2026-09-15T11:30:00Z",
+		"deadline_label":       "15/09/2026 17:00",
+		"days_taken":           float64(4),
+		"days_taken_label":     "4 days",
+		"deadline_tone":        "ok",
+		"deadline_state_label": "Within deadline",
+	} {
+		if within[key] != want {
+			t.Errorf("within: %s = %v, want %v", key, within[key], want)
+		}
+	}
+
+	late := decode(time.Date(2026, 9, 16, 9, 0, 0, 0, ist))
+	if late["days_taken"] != float64(6) || late["deadline_tone"] != "late" || late["deadline_state_label"] != "Past deadline" {
+		t.Fatalf("late payload = days %v tone %v state %v", late["days_taken"], late["deadline_tone"], late["deadline_state_label"])
+	}
+}
+
+// The request side: a blank deadline is "none sent" (the service decides whether that is
+// allowed), an offset-bearing RFC3339 instant is read in its own zone, and garbage is refused.
+func TestParseDeadlineReadsRFC3339WithOffset(t *testing.T) {
+	if got, err := parseDeadline(" "); err != nil || got != nil {
+		t.Fatalf("blank = %v, %v", got, err)
+	}
+	got, err := parseDeadline("2026-09-15T17:00:00+05:30")
+	if err != nil || got == nil || !got.Equal(time.Date(2026, 9, 15, 11, 30, 0, 0, time.UTC)) {
+		t.Fatalf("offset = %v, %v", got, err)
+	}
+	if _, err := parseDeadline("15/09/2026 17:00"); err == nil {
+		t.Fatal("farm-formatted string must be refused on the wire")
 	}
 }

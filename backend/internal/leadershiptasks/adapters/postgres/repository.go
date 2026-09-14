@@ -72,13 +72,17 @@ func scanTask(row pgx.Row) (domain.Task, error) {
 		&t.TaskID, &t.TenantID, &t.TaskNo, &t.Title, &t.Body, &t.Status,
 		&t.RaisedByUserID, &t.RaisedByName, &t.RaisedByDesignation,
 		&t.AssigneeUserID, &t.AssigneeName,
-		&t.RaisedAt, &t.UpdatedAt, &t.DoneAt, &t.CancelledAt, &t.SeenAt, &t.AssigneeComment, &t.RowVersion,
+		&t.RaisedAt, &t.DeadlineAt, &t.UpdatedAt, &t.DoneAt, &t.CancelledAt, &t.SeenAt, &t.AssigneeComment, &t.RowVersion,
 	)
 	if err != nil {
 		return domain.Task{}, err
 	}
 	t.RaisedAt = t.RaisedAt.UTC()
 	t.UpdatedAt = t.UpdatedAt.UTC()
+	if t.DeadlineAt != nil {
+		utc := t.DeadlineAt.UTC()
+		t.DeadlineAt = &utc
+	}
 	return t, nil
 }
 
@@ -347,7 +351,7 @@ func (r *Repository) Raise(ctx context.Context, p ports.RaiseParams) (domain.Tas
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	fingerprint := requestFingerprint(p.ActorID, p.AssigneeUserID, p.Title, p.Body, attachmentFingerprint(p.Attachments))
+	fingerprint := requestFingerprint(p.ActorID, p.AssigneeUserID, p.Title, p.Body, attachmentFingerprint(p.Attachments), deadlineFingerprint(p.DeadlineAt))
 	reservation, err := reserveIdempotency(ctx, tx, p.TenantID, idemScopeRaise, p.IdempotencyKey, fingerprint)
 	if err != nil {
 		return domain.Task{}, err
@@ -381,7 +385,7 @@ func (r *Repository) Raise(ctx context.Context, p ports.RaiseParams) (domain.Tas
 	now := r.now().UTC()
 	var taskID string
 	if err := tx.QueryRow(ctx, sqlRepository7,
-		p.TenantID, p.Title, p.Body, domain.StatusOpen, p.ActorID, p.ActorDesignation, p.AssigneeUserID, now,
+		p.TenantID, p.Title, p.Body, domain.StatusOpen, p.ActorID, p.ActorDesignation, p.AssigneeUserID, now, p.DeadlineAt,
 	).Scan(&taskID); err != nil {
 		return domain.Task{}, fmt.Errorf("leadership task: insert: %w", err)
 	}
@@ -435,7 +439,7 @@ func (r *Repository) Edit(ctx context.Context, p ports.EditParams) (domain.Task,
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	fingerprint := requestFingerprint(p.TaskID, p.ActorID, p.Title, p.Body, fmt.Sprintf("%d", p.RowVersion), attachmentFingerprint(p.Attachments))
+	fingerprint := requestFingerprint(p.TaskID, p.ActorID, p.Title, p.Body, fmt.Sprintf("%d", p.RowVersion), attachmentFingerprint(p.Attachments), deadlineFingerprint(p.DeadlineAt))
 	reservation, err := reserveIdempotency(ctx, tx, p.TenantID, idemScopeEdit, p.IdempotencyKey, fingerprint)
 	if err != nil {
 		return domain.Task{}, err
@@ -460,8 +464,18 @@ func (r *Repository) Edit(ctx context.Context, p ports.EditParams) (domain.Task,
 	if before.RowVersion != p.RowVersion {
 		return domain.Task{}, ports.ErrVersionConflict
 	}
+	// The deadline is checked against the STORED raise instant, here under the row lock. A nil
+	// deadline keeps the stored one (an older phone editing the brief), so it is never
+	// validated against nothing and never wiped.
+	deadline := before.DeadlineAt
+	if p.DeadlineAt != nil {
+		if err := domain.ValidateDeadline(p.DeadlineAt, before.RaisedAt, true); err != nil {
+			return domain.Task{}, err
+		}
+		deadline = p.DeadlineAt
+	}
 	now := r.now().UTC()
-	if _, err := tx.Exec(ctx, sqlRepository8, p.TenantID, p.TaskID, p.Title, p.Body, now); err != nil {
+	if _, err := tx.Exec(ctx, sqlRepository8, p.TenantID, p.TaskID, p.Title, p.Body, now, deadline); err != nil {
 		return domain.Task{}, fmt.Errorf("leadership task: update brief: %w", err)
 	}
 	// The attachment list is REPLACED: the phone sends the full list it shows, and the
@@ -748,7 +762,17 @@ func auditState(t domain.Task) map[string]any {
 		"assignee_user_id":      t.AssigneeUserID,
 		"attachment_count":      len(t.Attachments),
 		"row_version":           t.RowVersion,
+		"deadline_at":           deadlineFingerprint(t.DeadlineAt),
 	}
+}
+
+// deadlineFingerprint is the deadline as one stable string for fingerprints and audit: the
+// RFC3339 UTC instant, or "" for none.
+func deadlineFingerprint(deadline *time.Time) string {
+	if deadline == nil {
+		return ""
+	}
+	return deadline.UTC().Format(time.RFC3339)
 }
 
 // SQL hoisted to package level so the scale guard and query-plan tests can reach it.
@@ -757,7 +781,7 @@ const (
 	t.task_id::text, t.tenant_id::text, t.task_no, t.title, t.body, t.status,
 	t.raised_by::text, COALESCE(rb.display_name, ''), COALESCE(t.raised_by_designation, ''),
 	t.assignee_user_id::text, COALESCE(asg.display_name, ''),
-	t.raised_at, t.updated_at, t.done_at, t.cancelled_at, t.seen_at, t.assignee_comment, t.row_version`
+	t.raised_at, t.deadline_at, t.updated_at, t.done_at, t.cancelled_at, t.seen_at, t.assignee_comment, t.row_version`
 	sqlRepository2 = `
 FROM public.leadership_tasks t
 LEFT JOIN public.workforce_members rb
@@ -790,16 +814,16 @@ SELECT EXISTS (
 )`
 	sqlRepository7 = `
 INSERT INTO public.leadership_tasks (
-  tenant_id, task_no, title, body, status, raised_by, raised_by_designation, assignee_user_id, raised_at, updated_at
+  tenant_id, task_no, title, body, status, raised_by, raised_by_designation, assignee_user_id, raised_at, updated_at, deadline_at
 ) VALUES (
   $1::uuid,
   (SELECT COALESCE(MAX(task_no), 0) + 1 FROM public.leadership_tasks WHERE tenant_id = $1::uuid),
-  $2, $3, $4, $5::uuid, nullif($6, ''), $7::uuid, $8, $8
+  $2, $3, $4, $5::uuid, nullif($6, ''), $7::uuid, $8, $8, $9::timestamptz
 )
 RETURNING task_id::text`
 	sqlRepository8 = `
 UPDATE public.leadership_tasks
-SET title = $3, body = $4, updated_at = $5, row_version = row_version + 1
+SET title = $3, body = $4, updated_at = $5, deadline_at = $6::timestamptz, row_version = row_version + 1
 WHERE tenant_id = $1 AND task_id = $2`
 	sqlRepository9 = `
 DELETE FROM public.leadership_task_attachments

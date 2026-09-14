@@ -243,13 +243,24 @@ internal fun LeadershipTaskCard(card: LeadershipTaskCardUi, onOpen: () -> Unit) 
                 )
                 LeadershipStatusChip(label = card.statusChip, status = card.status)
             }
-            Text(
-                text = card.title,
-                color = MeshaColors.Ink,
-                style = MeshaType.cardTitle,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Text(
+                    text = card.title,
+                    color = MeshaColors.Ink,
+                    style = MeshaType.cardTitle,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+                // The day counter, backend-composed; absent on a task with no deadline.
+                if (card.deadline != null) {
+                    LeadershipDeadlineClock(clock = card.deadline, compact = true)
+                }
+            }
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,

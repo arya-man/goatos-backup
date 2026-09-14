@@ -302,6 +302,7 @@ class LeadershipTaskDetailViewModel @Inject constructor(
             title = detail.title,
             body = detail.body,
             metaLine = detail.metaLine,
+            deadline = detail.toDeadlineClockUi(),
             attachments = detail.attachments
                 .sortedBy { it.position }
                 .map { attachment ->

@@ -40,12 +40,54 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import java.time.ZoneId
 import kotlinx.coroutines.delay
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 import sg.mesha.goatos.core.designsystem.theme.MeshaType
 
 private const val LOG_TAG = "LeadershipTasksUi"
+
+/** The farm's clock: a deadline is picked, shown and sent in Asia/Kolkata whatever the phone's zone. */
+val LEADERSHIP_FARM_ZONE: ZoneId = ZoneId.of("Asia/Kolkata")
+
+/**
+ * THE BIG NUMBER (maintainer decision 2026-09-14): days taken so far, GREEN within the deadline
+ * and RED past it, with the deadline beneath. Every value is backend-composed; this maps the
+ * backend's tone onto a colour and draws. [compact] is the list-card form (number and deadline
+ * only); the full form adds the state sentence for the detail screen.
+ */
+@Composable
+internal fun LeadershipDeadlineClock(clock: LeadershipDeadlineClockUi, compact: Boolean = false, modifier: Modifier = Modifier) {
+    val accent = if (clock.isLate) MeshaColors.Danger else MeshaColors.Ok
+    val unit = stringResource(
+        if (clock.daysTaken == 1) R.string.leadership_tasks_deadline_unit_day else R.string.leadership_tasks_deadline_unit_days,
+    )
+    Row(
+        modifier = modifier
+            .clip(RoundedCornerShape(if (compact) 10.dp else 14.dp))
+            .background(accent.copy(alpha = 0.14f))
+            .border(1.dp, accent.copy(alpha = 0.45f), RoundedCornerShape(if (compact) 10.dp else 14.dp))
+            .padding(horizontal = if (compact) 10.dp else 14.dp, vertical = if (compact) 6.dp else 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(if (compact) 8.dp else 12.dp),
+    ) {
+        Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(text = clock.daysTaken.toString(), color = accent, style = if (compact) MeshaType.screenTitle else MeshaType.heroNumber)
+            Text(text = unit, color = accent, style = MeshaType.overline, modifier = Modifier.padding(bottom = if (compact) 4.dp else 6.dp))
+        }
+        if (!compact) {
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(text = clock.stateLabel, color = MeshaColors.Ink, style = MeshaType.listTitle)
+                Text(
+                    text = stringResource(R.string.leadership_tasks_deadline_prefix) + " " + clock.deadlineLabel,
+                    color = MeshaColors.Muted,
+                    style = MeshaType.caption,
+                )
+            }
+        }
+    }
+}
 
 /** Backend-composed status chip, rendered VERBATIM. Blank copy renders nothing at all. */
 @Composable

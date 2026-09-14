@@ -8121,6 +8121,24 @@ export interface components {
             /** Format: date-time */
             seen_at?: string | null;
             is_seen: boolean;
+            /**
+             * Format: date-time
+             * @description The date and time the raiser asked for the task by; null for a task raised without one.
+             */
+            deadline_at?: string | null;
+            /** @description Farm-readable IST deadline, "15/09/2026 17:00"; blank without a deadline. */
+            deadline_label: string;
+            /** @description THE BIG NUMBER, backend-composed: farm-calendar days from the raise day to today, frozen at the finish instant once the task is done or cancelled. Null without a deadline (the screen shows no counter). Clients render it verbatim and never count days themselves. */
+            days_taken?: number | null;
+            /** @description "4 days" / "1 day"; blank without a deadline. */
+            days_taken_label: string;
+            /**
+             * @description The number's colour -- ok is GREEN (within the deadline), late is RED (past it), blank means no deadline.
+             * @enum {string}
+             */
+            deadline_tone: "" | "ok" | "late";
+            /** @description The sentence beneath the number -- "Within deadline", "Past deadline", "Finished within deadline", "Finished after deadline"; blank without a deadline. */
+            deadline_state_label: string;
             /** @description The caller is the person this task is for. */
             is_assignee: boolean;
             /** @description The caller raised this task. */
@@ -8192,11 +8210,21 @@ export interface components {
             body?: string;
             /** Format: uuid */
             assignee_user_id: string;
+            /**
+             * Format: date-time
+             * @description The deadline, date AND time, as RFC3339 with an offset; must be later than now. Refused as deadline_required when missing.
+             */
+            deadline_at: string;
             attachments?: components["schemas"]["LeadershipTaskAttachmentRef"][];
         };
         LeadershipTaskEditRequest: {
             title: string;
             body?: string;
+            /**
+             * Format: date-time
+             * @description Replaces the deadline when present (must be later than the task's raise). Absent keeps the stored deadline.
+             */
+            deadline_at?: string;
             /** @description The FULL new list; the server diffs it. */
             attachments?: components["schemas"]["LeadershipTaskAttachmentRef"][];
             row_version: number;

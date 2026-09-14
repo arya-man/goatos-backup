@@ -72,6 +72,9 @@ func (s *FlagService) Flag(ctx context.Context, p ports.FlagParams) (ports.FlagR
 		Title:            FlagTitle(row.Title),
 		Body:             FlagBody(row, p.Note),
 		IdempotencyKey:   p.IdempotencyKey,
+		// A flag has no form to ask for a deadline; the park head's task shows no day counter
+		// until the raiser sets one from the task itself (leadershiptasks/domain/deadline.go).
+		DeadlineOptional: true,
 	})
 	if err != nil {
 		return ports.FlagResult{}, err

@@ -61,6 +61,28 @@ data class LeadershipAttachmentUi(
     val loading: Boolean = false,
 )
 
+/**
+ * The deadline clock beside a task (maintainer decision 2026-09-14): ONE big number of days
+ * taken, GREEN within the deadline and RED past it, with the deadline beneath. Every value is
+ * BACKEND-COMPOSED and carried verbatim; the renderer counts nothing and decides no colour --
+ * it maps [tone] onto a colour and nothing else. Null on a task with no deadline: nothing drawn.
+ */
+@Immutable
+data class LeadershipDeadlineClockUi(
+    /** The big number. */
+    val daysTaken: Int,
+    /** "4 days" / "1 day". */
+    val daysTakenLabel: String,
+    /** `ok` (green) or `late` (red). */
+    val tone: String,
+    /** "15/09/2026 17:00". */
+    val deadlineLabel: String,
+    /** "Within deadline" / "Past deadline" / "Finished within deadline" / "Finished after deadline". */
+    val stateLabel: String,
+) {
+    val isLate: Boolean get() = tone == "late"
+}
+
 /** One task as the list renders it. */
 @Immutable
 data class LeadershipTaskCardUi(
@@ -79,6 +101,8 @@ data class LeadershipTaskCardUi(
     val attachmentCount: Int = 0,
     /** True for an assigned task the caller has not opened yet — drawn with a brand rail. */
     val unseen: Boolean = false,
+    /** The deadline clock; null draws nothing. */
+    val deadline: LeadershipDeadlineClockUi? = null,
 )
 
 /** One filter chip. Label, count and empty copy are BACKEND-COMPOSED; the screen sends back [key]. */
@@ -148,6 +172,8 @@ data class LeadershipTaskDetailUiState(
     val title: String = "",
     val body: String = "",
     val metaLine: String = "",
+    /** The deadline clock; null draws nothing. */
+    val deadline: LeadershipDeadlineClockUi? = null,
     val attachments: List<LeadershipAttachmentUi> = emptyList(),
     val notes: List<LeadershipTaskNoteUi> = emptyList(),
     /** The backend's status options for this caller; empty renders no action row at all. */
@@ -225,6 +251,12 @@ data class LeadershipTaskComposeUiState(
     val selectedAssigneeId: String = "",
     val title: String = "",
     val body: String = "",
+    /**
+     * The deadline as an RFC3339 instant with the farm's offset (what goes on the wire), and its
+     * display form. Blank until picked; a task cannot be sent without one.
+     */
+    val deadlineIso: String = "",
+    val deadlineLabel: String = "",
     val attachments: List<LeadershipDraftAttachmentUi> = emptyList(),
     /** Elapsed millis of the voice note being recorded; null when not recording. */
     val recordingElapsedMs: Long? = null,
@@ -232,7 +264,7 @@ data class LeadershipTaskComposeUiState(
     val sending: Boolean = false,
     /** Set once the task reached the server; the host pops back. */
     val sentTaskId: String? = null,
-    /** Title and assignee present, nothing in flight. */
+    /** Title, assignee and deadline present, nothing in flight. */
     val canSend: Boolean = false,
     /** Transient notice; the ViewModel owns the copy and clears it. */
     val message: String? = null,
@@ -243,6 +275,9 @@ sealed interface LeadershipTaskComposeEvent {
     data class TitleChanged(val value: String) : LeadershipTaskComposeEvent
     data class BodyChanged(val value: String) : LeadershipTaskComposeEvent
     data class SelectAssignee(val userId: String) : LeadershipTaskComposeEvent
+
+    /** The deadline picked on the form, as an RFC3339 instant with offset. */
+    data class DeadlineChanged(val iso: String) : LeadershipTaskComposeEvent
     data object StartRecording : LeadershipTaskComposeEvent
     data object StopRecording : LeadershipTaskComposeEvent
 

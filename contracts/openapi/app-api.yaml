@@ -18931,6 +18931,10 @@ components:
         - attachment_count
         - attachments
         - notes
+        - deadline_label
+        - days_taken_label
+        - deadline_tone
+        - deadline_state_label
       properties:
         task_id: { type: string, format: uuid }
         task_no: { type: integer, format: int64, description: Per-tenant running number. }
@@ -18949,6 +18953,29 @@ components:
         done_at: { type: string, format: date-time, nullable: true }
         seen_at: { type: string, format: date-time, nullable: true }
         is_seen: { type: boolean }
+        deadline_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: The date and time the raiser asked for the task by; null for a task raised without one.
+        deadline_label:
+          type: string
+          description: Farm-readable IST deadline, "15/09/2026 17:00"; blank without a deadline.
+        days_taken:
+          type: integer
+          nullable: true
+          description: >-
+            THE BIG NUMBER, backend-composed: farm-calendar days from the raise day to today, frozen at the
+            finish instant once the task is done or cancelled. Null without a deadline (the screen shows no
+            counter). Clients render it verbatim and never count days themselves.
+        days_taken_label: { type: string, description: '"4 days" / "1 day"; blank without a deadline.' }
+        deadline_tone:
+          type: string
+          enum: ["", ok, late]
+          description: The number's colour -- ok is GREEN (within the deadline), late is RED (past it), blank means no deadline.
+        deadline_state_label:
+          type: string
+          description: The sentence beneath the number -- "Within deadline", "Past deadline", "Finished within deadline", "Finished after deadline"; blank without a deadline.
         is_assignee: { type: boolean, description: The caller is the person this task is for. }
         is_raiser: { type: boolean, description: The caller raised this task. }
         meta_line:
@@ -19041,11 +19068,15 @@ components:
         trace_id: { type: string }
     LeadershipTaskRaiseRequest:
       type: object
-      required: [title, assignee_user_id]
+      required: [title, assignee_user_id, deadline_at]
       properties:
         title: { type: string, minLength: 1, maxLength: 80 }
         body: { type: string, maxLength: 4000 }
         assignee_user_id: { type: string, format: uuid }
+        deadline_at:
+          type: string
+          format: date-time
+          description: The deadline, date AND time, as RFC3339 with an offset; must be later than now. Refused as deadline_required when missing.
         attachments:
           type: array
           maxItems: 12
@@ -19057,6 +19088,10 @@ components:
       properties:
         title: { type: string, minLength: 1, maxLength: 80 }
         body: { type: string, maxLength: 4000 }
+        deadline_at:
+          type: string
+          format: date-time
+          description: Replaces the deadline when present (must be later than the task's raise). Absent keeps the stored deadline.
         attachments:
           type: array
           maxItems: 12

@@ -35,4 +35,12 @@
     <string name="leadership_tasks_note_author_fallback">పని నోట్</string>
     <string name="leadership_tasks_status_label">స్థితి</string>
     <string name="leadership_tasks_attachment_view">చూడండి</string>
+    <string name="leadership_tasks_field_deadline">గడువు</string>
+    <string name="leadership_tasks_field_deadline_placeholder">తేదీ మరియు సమయం ఎంచుకోండి</string>
+    <string name="leadership_tasks_deadline_pick_time">సమయం</string>
+    <string name="leadership_tasks_deadline_ok">సరే</string>
+    <string name="leadership_tasks_deadline_cancel">రద్దు చేయి</string>
+    <string name="leadership_tasks_deadline_unit_days">రోజులు</string>
+    <string name="leadership_tasks_deadline_unit_day">రోజు</string>
+    <string name="leadership_tasks_deadline_prefix">గడువు</string>
 </resources>

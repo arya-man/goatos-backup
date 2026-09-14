@@ -6,6 +6,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
+import java.time.OffsetDateTime
+import java.time.format.DateTimeFormatter
 import java.util.UUID
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -28,6 +30,7 @@ import sg.mesha.goatos.core.network.dto.LeadershipTaskAttachmentRefDto
 import sg.mesha.goatos.core.network.dto.LeadershipTaskDto
 import sg.mesha.goatos.core.network.dto.LeadershipTaskEditRequestDto
 import sg.mesha.goatos.core.network.dto.LeadershipTaskRaiseRequestDto
+import sg.mesha.goatos.feature.leadershiptasks.LEADERSHIP_FARM_ZONE
 import sg.mesha.goatos.feature.leadershiptasks.LEADERSHIP_TASK_ATTACHMENT_CAP
 import sg.mesha.goatos.feature.leadershiptasks.LeadershipAssigneeUi
 import sg.mesha.goatos.feature.leadershiptasks.LeadershipAttachmentKind
@@ -96,6 +99,8 @@ class LeadershipTaskComposeViewModel @Inject constructor(
         val assigneeId: String = "",
         val title: String = "",
         val body: String = "",
+        /** RFC3339 with the farm offset, as the form picked it; blank until picked. */
+        val deadlineIso: String = "",
         val attachments: List<DraftAttachment> = emptyList(),
         val recordingElapsedMs: Long? = null,
         val sending: Boolean = false,
@@ -128,6 +133,7 @@ class LeadershipTaskComposeViewModel @Inject constructor(
             is LeadershipTaskComposeEvent.TitleChanged -> draft.update { it.copy(title = event.value.take(MAX_TITLE_CHARS)) }
             is LeadershipTaskComposeEvent.BodyChanged -> draft.update { it.copy(body = event.value.take(MAX_BODY_CHARS)) }
             is LeadershipTaskComposeEvent.SelectAssignee -> if (!isEdit) draft.update { it.copy(assigneeId = event.userId) }
+            is LeadershipTaskComposeEvent.DeadlineChanged -> draft.update { it.copy(deadlineIso = event.iso.trim()) }
             LeadershipTaskComposeEvent.StartRecording -> startRecording()
             LeadershipTaskComposeEvent.StopRecording -> stopRecording()
             LeadershipTaskComposeEvent.RecordingPermissionDenied ->
@@ -189,6 +195,7 @@ class LeadershipTaskComposeViewModel @Inject constructor(
         assigneeId = task.assigneeUserId,
         title = task.title,
         body = task.body,
+        deadlineIso = task.deadlineAt.orEmpty(),
         rowVersion = task.rowVersion,
         attachments = task.attachments.sortedBy { it.position }.map { stored ->
             DraftAttachment(
@@ -338,7 +345,7 @@ class LeadershipTaskComposeViewModel @Inject constructor(
     private fun send() {
         val current = draft.value
         if (current.sending || current.recordingElapsedMs != null) return
-        if (current.title.isBlank() || current.assigneeId.isBlank()) return
+        if (current.title.isBlank() || current.assigneeId.isBlank() || current.deadlineIso.isBlank()) return
         viewModelScope.launch {
             draft.update { it.copy(sending = true, message = null) }
             try {
@@ -389,6 +396,7 @@ class LeadershipTaskComposeViewModel @Inject constructor(
                             body = ready.body.trim(),
                             attachments = refs,
                             rowVersion = ready.rowVersion,
+                            deadlineAt = ready.deadlineIso,
                         ),
                     )
                 } else {
@@ -399,6 +407,7 @@ class LeadershipTaskComposeViewModel @Inject constructor(
                             body = ready.body.trim(),
                             assigneeUserId = ready.assigneeId,
                             attachments = refs,
+                            deadlineAt = ready.deadlineIso,
                         ),
                     )
                 }
@@ -438,6 +447,8 @@ class LeadershipTaskComposeViewModel @Inject constructor(
         selectedAssigneeId = assigneeId,
         title = title,
         body = body,
+        deadlineIso = deadlineIso,
+        deadlineLabel = formatDeadlineLabel(deadlineIso),
         attachments = attachments.map {
             LeadershipDraftAttachmentUi(
                 listKey = it.key,
@@ -452,7 +463,7 @@ class LeadershipTaskComposeViewModel @Inject constructor(
         recordingElapsedMs = recordingElapsedMs,
         sending = sending,
         sentTaskId = sentTaskId,
-        canSend = title.isNotBlank() && assigneeId.isNotBlank() && !sending && recordingElapsedMs == null && seeded,
+        canSend = title.isNotBlank() && assigneeId.isNotBlank() && deadlineIso.isNotBlank() && !sending && recordingElapsedMs == null && seeded,
         message = message,
     )
 
@@ -478,4 +489,18 @@ class LeadershipTaskComposeViewModel @Inject constructor(
         const val PICKER_GALLERY = "gallery_picker"
         const val PICKER_FILE = "file_picker"
     }
+}
+
+private val deadlineLabelFormatter: DateTimeFormatter = DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm")
+
+/**
+ * The picked deadline as the form shows it ("15/09/2026 17:00", farm clock). This is a date
+ * being rendered, not business copy: the sentence beside a stored task's number comes from the
+ * backend (`deadline_label`); this only echoes what the raiser just picked.
+ */
+internal fun formatDeadlineLabel(iso: String): String {
+    if (iso.isBlank()) return ""
+    return runCatching { // exception:exempt an unparseable draft deadline shows blank and cannot be sent; nothing to report
+        OffsetDateTime.parse(iso).atZoneSameInstant(LEADERSHIP_FARM_ZONE).format(deadlineLabelFormatter)
+    }.getOrDefault("")
 }

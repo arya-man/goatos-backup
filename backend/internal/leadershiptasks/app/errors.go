@@ -65,6 +65,10 @@ func HTTPError(err error) *Error {
 		return BadRequest("comment_too_long", "Keep the comment under 2000 characters.")
 	case errors.Is(err, domain.ErrAssigneeRequired):
 		return BadRequest("assignee_required", "Choose who this task is for.")
+	case errors.Is(err, domain.ErrDeadlineRequired):
+		return BadRequest("deadline_required", "Set a deadline for this task.")
+	case errors.Is(err, domain.ErrDeadlineNotAfterRaise):
+		return BadRequest("deadline_not_after_raise", "The deadline must be later than when the task was raised.")
 	case errors.Is(err, domain.ErrSelfAssignment):
 		return BadRequest("self_assignment", "A task is raised for someone else, not for yourself.")
 	case errors.Is(err, domain.ErrAssigneeNotAssignable):

@@ -1,6 +1,6 @@
 "use client";
 
-import { FileText, Image, Mic, Plus, X } from "lucide-react";
+import { CalendarClock, FileText, Image, Mic, Plus, X } from "lucide-react";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 
 import type { LeadershipTaskAssignee } from "@/lib/api/server";
@@ -25,6 +25,8 @@ export function NewTaskModal({
   const [idempotencyKey, setIdempotencyKey] = useState("");
   const [title, setTitle] = useState("");
   const [assigneeId, setAssigneeId] = useState("");
+  const [deadline, setDeadline] = useState("");
+  const [deadlineMin, setDeadlineMin] = useState("");
   const [picked, setPicked] = useState<Record<string, number>>({});
   const chosen = assignees.find((a) => a.user_id === assigneeId);
   const openerRef = useRef<HTMLButtonElement>(null);
@@ -35,6 +37,8 @@ export function NewTaskModal({
     setIdempotencyKey(`admin-web-leadership-task:${crypto.randomUUID()}`);
     setTitle("");
     setAssigneeId("");
+    setDeadline("");
+    setDeadlineMin(farmClockNow());
     setPicked({});
     setOpen(true);
   }, []);
@@ -150,6 +154,25 @@ export function NewTaskModal({
                 <span>Brief</span>
                 <textarea name="body" maxLength={4000} rows={4} />
               </label>
+              <label className="fld">
+                <span>Deadline</span>
+                {/* Date AND time, in the farm's clock (IST). The server action stamps the offset;
+                    the backend refuses a raise without one or one already behind the raise
+                    (maintainer decision 2026-09-14), so this is required here too. */}
+                <input
+                  type="datetime-local"
+                  name="deadline_at"
+                  required
+                  min={deadlineMin || undefined}
+                  step={60}
+                  value={deadline}
+                  onChange={(event) => setDeadline(event.target.value)}
+                />
+                <small className="lt-assignee-hint">
+                  <CalendarClock className="ic" aria-hidden="true" /> Date and time
+                  the task is due, farm clock (IST).
+                </small>
+              </label>
               <div className="fld">
                 <span className="lt-fld-label">Attachments</span>
                 <div className="lt-pickers">
@@ -187,4 +210,25 @@ export function NewTaskModal({
       ) : null}
     </>
   );
+}
+
+/**
+ * The earliest deadline the picker offers: now, on the farm's clock (Asia/Kolkata), in the
+ * `YYYY-MM-DDTHH:MM` form `datetime-local` speaks. The browser may sit anywhere; the deadline is
+ * always read as IST.
+ */
+function farmClockNow(): string {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Asia/Kolkata",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(new Date());
+  const get = (type: string) =>
+    parts.find((part) => part.type === type)?.value ?? "";
+  const hour = get("hour") === "24" ? "00" : get("hour");
+  return `${get("year")}-${get("month")}-${get("day")}T${hour}:${get("minute")}`;
 }

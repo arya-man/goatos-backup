@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/vgoats/goatos/backend/internal/leadershiptasks/app"
 	"github.com/vgoats/goatos/backend/internal/leadershiptasks/domain"
@@ -32,6 +33,9 @@ type Service interface {
 	SetComment(ctx context.Context, p ports.CommentParams) (domain.Task, error)
 	MarkSeen(ctx context.Context, tenantID string, actor domain.Actor, taskID string) (domain.Task, error)
 	AttachmentDownloadURL(ctx context.Context, tenantID string, actor domain.Actor, taskID, proofID string) (app.AttachmentDownload, error)
+	// Now is the clock every day counter in a response is read against, so one page never
+	// mixes two "todays".
+	Now() time.Time
 }
 
 // Handler serves the routes.
@@ -88,9 +92,10 @@ func (h *Handler) ListTasks(w http.ResponseWriter, r *http.Request) {
 		h.writeErr(w, r, toAppError(err))
 		return
 	}
+	now := h.service.Now()
 	rows := make([]taskPayload, 0, len(page.Rows))
 	for _, t := range page.Rows {
-		rows = append(rows, toTaskPayload(t, actor))
+		rows = append(rows, toTaskPayload(t, actor, now))
 	}
 	var next *string
 	if page.NextCursor != "" {
@@ -131,7 +136,7 @@ func (h *Handler) GetTask(w http.ResponseWriter, r *http.Request) {
 		h.writeErr(w, r, toAppError(err))
 		return
 	}
-	httpresponse.WriteJSON(w, http.StatusOK, taskDetailPayload{Task: toTaskPayload(task, actor), TraceID: traceID(r)})
+	httpresponse.WriteJSON(w, http.StatusOK, taskDetailPayload{Task: toTaskPayload(task, actor, h.service.Now()), TraceID: traceID(r)})
 }
 
 // Raise serves POST /app/leadership-tasks.
@@ -145,6 +150,11 @@ func (h *Handler) Raise(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	actor := actorFrom(r)
+	deadline, err := parseDeadline(body.DeadlineAt)
+	if err != nil {
+		h.writeErr(w, r, app.BadRequest("invalid_deadline", "That deadline is not a valid date and time."))
+		return
+	}
 	task, err := h.service.Raise(r.Context(), ports.RaiseParams{
 		TenantID:         tenantID(r),
 		ActorID:          actor.UserID,
@@ -154,12 +164,13 @@ func (h *Handler) Raise(w http.ResponseWriter, r *http.Request) {
 		Body:             body.Body,
 		Refs:             toRefs(body.Attachments),
 		IdempotencyKey:   key,
+		DeadlineAt:       deadline,
 	})
 	if err != nil {
 		h.writeErr(w, r, toAppError(err))
 		return
 	}
-	httpresponse.WriteJSON(w, http.StatusCreated, taskDetailPayload{Task: toTaskPayload(task, actor), TraceID: traceID(r)})
+	httpresponse.WriteJSON(w, http.StatusCreated, taskDetailPayload{Task: toTaskPayload(task, actor, h.service.Now()), TraceID: traceID(r)})
 }
 
 // Edit serves POST /app/leadership-tasks/{task_id}/edit.
@@ -173,6 +184,11 @@ func (h *Handler) Edit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	actor := actorFrom(r)
+	deadline, err := parseDeadline(body.DeadlineAt)
+	if err != nil {
+		h.writeErr(w, r, app.BadRequest("invalid_deadline", "That deadline is not a valid date and time."))
+		return
+	}
 	task, err := h.service.Edit(r.Context(), ports.EditParams{
 		TenantID:       tenantID(r),
 		ActorID:        actor.UserID,
@@ -182,12 +198,13 @@ func (h *Handler) Edit(w http.ResponseWriter, r *http.Request) {
 		Refs:           toRefs(body.Attachments),
 		RowVersion:     body.RowVersion,
 		IdempotencyKey: key,
+		DeadlineAt:     deadline,
 	})
 	if err != nil {
 		h.writeErr(w, r, toAppError(err))
 		return
 	}
-	httpresponse.WriteJSON(w, http.StatusOK, taskDetailPayload{Task: toTaskPayload(task, actor), TraceID: traceID(r)})
+	httpresponse.WriteJSON(w, http.StatusOK, taskDetailPayload{Task: toTaskPayload(task, actor, h.service.Now()), TraceID: traceID(r)})
 }
 
 // ChangeStatus serves POST /app/leadership-tasks/{task_id}/status.
@@ -213,7 +230,7 @@ func (h *Handler) ChangeStatus(w http.ResponseWriter, r *http.Request) {
 		h.writeErr(w, r, toAppError(err))
 		return
 	}
-	httpresponse.WriteJSON(w, http.StatusOK, taskDetailPayload{Task: toTaskPayload(task, actor), TraceID: traceID(r)})
+	httpresponse.WriteJSON(w, http.StatusOK, taskDetailPayload{Task: toTaskPayload(task, actor, h.service.Now()), TraceID: traceID(r)})
 }
 
 // SetComment serves POST /app/leadership-tasks/{task_id}/comment -- the assignee's note.
@@ -238,7 +255,7 @@ func (h *Handler) SetComment(w http.ResponseWriter, r *http.Request) {
 		h.writeErr(w, r, toAppError(err))
 		return
 	}
-	httpresponse.WriteJSON(w, http.StatusOK, taskDetailPayload{Task: toTaskPayload(task, actor), TraceID: traceID(r)})
+	httpresponse.WriteJSON(w, http.StatusOK, taskDetailPayload{Task: toTaskPayload(task, actor, h.service.Now()), TraceID: traceID(r)})
 }
 
 // MarkSeen serves POST /app/leadership-tasks/{task_id}/seen. Naturally idempotent (a
@@ -250,7 +267,7 @@ func (h *Handler) MarkSeen(w http.ResponseWriter, r *http.Request) {
 		h.writeErr(w, r, toAppError(err))
 		return
 	}
-	httpresponse.WriteJSON(w, http.StatusOK, taskDetailPayload{Task: toTaskPayload(task, actor), TraceID: traceID(r)})
+	httpresponse.WriteJSON(w, http.StatusOK, taskDetailPayload{Task: toTaskPayload(task, actor, h.service.Now()), TraceID: traceID(r)})
 }
 
 // DownloadAttachment serves GET /app/leadership-tasks/{task_id}/attachments/{proof_id}/download.

@@ -50,7 +50,17 @@ type TaskRow = {
     body: string;
     created_at: string;
   }>;
-  priority: "High" | "Medium" | "Normal";
+  /**
+   * The deadline clock, backend-composed and rendered verbatim (maintainer decision
+   * 2026-09-14): the big number of days taken, its tone (ok = green, late = red), the
+   * deadline itself and the sentence beneath. A task without a deadline carries none of
+   * these and shows no counter.
+   */
+  daysTaken: number | null;
+  daysTakenLabel: string;
+  deadlineTone: "" | "ok" | "late";
+  deadlineLabel: string;
+  deadlineStateLabel: string;
 };
 
 type ScopeRow = {
@@ -92,7 +102,11 @@ const fixtureTasks: TaskRow[] = [
         created_at: new Date().toISOString(),
       },
     ],
-    priority: "High",
+    daysTaken: 3,
+    daysTakenLabel: "3 days",
+    deadlineTone: "ok",
+    deadlineLabel: "18/09/2026 17:00",
+    deadlineStateLabel: "Within deadline",
   },
   {
     id: "2",
@@ -120,7 +134,11 @@ const fixtureTasks: TaskRow[] = [
         created_at: new Date().toISOString(),
       },
     ],
-    priority: "Medium",
+    daysTaken: 9,
+    daysTakenLabel: "9 days",
+    deadlineTone: "late",
+    deadlineLabel: "10/09/2026 12:00",
+    deadlineStateLabel: "Past deadline",
   },
   {
     id: "3",
@@ -148,7 +166,11 @@ const fixtureTasks: TaskRow[] = [
         created_at: new Date().toISOString(),
       },
     ],
-    priority: "Normal",
+    daysTaken: null,
+    daysTakenLabel: "",
+    deadlineTone: "",
+    deadlineLabel: "",
+    deadlineStateLabel: "",
   },
 ];
 
@@ -284,7 +306,7 @@ export function LeadershipTasksPage({
                   <th>Raised by</th>
                   <th>Status</th>
                   <th>Evidence</th>
-                  <th>Priority</th>
+                  <th>Days</th>
                 </tr>
               </thead>
               <tbody>
@@ -342,9 +364,7 @@ export function LeadershipTasksPage({
                       </span>
                     </td>
                     <td>
-                      <Tag tone={priorityTone(task.priority)}>
-                        {task.priority}
-                      </Tag>
+                      <DeadlineClock task={task} compact />
                     </td>
                   </tr>
                 ))}
@@ -385,6 +405,9 @@ export function LeadershipTasksPage({
                 <b>{selected.number}</b> / {selected.age}
               </div>
               <h3 className="lt-detail-title">{selected.title}</h3>
+              {selected.deadlineTone ? (
+                <DeadlineClock task={selected} />
+              ) : null}
               <div className="metagrid lt-detail-meta">
                 <Meta
                   label="Assignee"
@@ -601,12 +624,11 @@ function rowsFromPage(page: LeadershipTaskPage): TaskRow[] {
       attachmentKinds,
       attachmentRows: task.attachments ?? [],
       notes: task.notes ?? [],
-      priority:
-        task.status === "open"
-          ? "High"
-          : task.status === "in_progress"
-            ? "Medium"
-            : "Normal",
+      daysTaken: task.days_taken ?? null,
+      daysTakenLabel: task.days_taken_label ?? "",
+      deadlineTone: (task.deadline_tone ?? "") as TaskRow["deadlineTone"],
+      deadlineLabel: task.deadline_label ?? "",
+      deadlineStateLabel: task.deadline_state_label ?? "",
     };
   });
 }
@@ -729,10 +751,35 @@ function statusTone(status: TaskStatus): Tone {
   return "warn";
 }
 
-function priorityTone(priority: TaskRow["priority"]): Tone {
-  if (priority === "High") return "dng";
-  if (priority === "Medium") return "warn";
-  return "mut";
+/**
+ * THE BIG NUMBER: days taken so far, green within the deadline and red past it, with the
+ * deadline beneath. Every value is the backend's -- this component counts nothing and decides
+ * no colour; it only maps the tone the backend named onto a class. A task without a deadline
+ * renders a quiet dash so the column still lines up.
+ */
+function DeadlineClock({ task, compact = false }: { task: TaskRow; compact?: boolean }) {
+  if (!task.deadlineTone || task.daysTaken === null) {
+    return compact ? (
+      <span className="muted small">—</span>
+    ) : null;
+  }
+  const tone = task.deadlineTone === "late" ? "lt-clock-late" : "lt-clock-ok";
+  return (
+    <div
+      className={`lt-clock ${tone}${compact ? " lt-clock-compact" : ""}`}
+      role="group"
+      aria-label={`${task.daysTakenLabel}, ${task.deadlineStateLabel.toLowerCase()}, deadline ${task.deadlineLabel}`}
+    >
+      <div className="lt-clock-num">
+        <b>{task.daysTaken}</b>
+        <span>{task.daysTaken === 1 ? "day" : "days"}</span>
+      </div>
+      <div className="lt-clock-meta">
+        <span className="lt-clock-state">{task.deadlineStateLabel}</span>
+        <span className="lt-clock-deadline">Deadline {task.deadlineLabel}</span>
+      </div>
+    </div>
+  );
 }
 
 function initials(name: string): string {

@@ -223,6 +223,9 @@ fun leadershipTask(
     ),
     attachments: List<sg.mesha.goatos.core.network.dto.LeadershipTaskAttachmentDto> = emptyList(),
     notes: List<LeadershipTaskNoteDto> = emptyList(),
+    deadlineAt: String? = "2026-09-15T11:30:00Z",
+    daysTaken: Int? = 4,
+    deadlineTone: String = "ok",
 ): LeadershipTaskDto = LeadershipTaskDto(
     taskId = taskId,
     taskNo = 12,
@@ -245,4 +248,14 @@ fun leadershipTask(
     attachmentCount = attachments.size,
     attachments = attachments,
     notes = notes,
+    deadlineAt = deadlineAt,
+    deadlineLabel = if (deadlineAt == null) "" else "15/09/2026 17:00",
+    daysTaken = daysTaken,
+    daysTakenLabel = if (daysTaken == null) "" else "$daysTaken days",
+    deadlineTone = deadlineTone,
+    deadlineStateLabel = when (deadlineTone) {
+        "ok" -> "Within deadline"
+        "late" -> "Past deadline"
+        else -> ""
+    },
 )

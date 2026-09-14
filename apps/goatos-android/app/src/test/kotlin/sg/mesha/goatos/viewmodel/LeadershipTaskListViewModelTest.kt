@@ -52,6 +52,22 @@ class LeadershipTaskListViewModelTest {
         assertEquals("Raised by Hemant · 4 Sep 2026", card.metaLine)
         assertEquals(3, card.attachmentCount)
         assertTrue("an unseen assigned task carries the rail", card.unseen)
+        val clock = card.deadline ?: error("a task with a deadline carries its clock")
+        assertEquals(4, clock.daysTaken)
+        assertEquals("4 days", clock.daysTakenLabel)
+        assertEquals("15/09/2026 17:00", clock.deadlineLabel)
+        assertEquals("Within deadline", clock.stateLabel)
+        assertFalse(clock.isLate)
+    }
+
+    @Test
+    fun `the day counter is the backend's number and colour, and a task without a deadline shows none`() {
+        // Maintainer decision 2026-09-14: the phone counts no days and picks no colour.
+        val late = leadershipTask(daysTaken = 9, deadlineTone = "late").toCardUi().deadline ?: error("late clock")
+        assertEquals(9, late.daysTaken)
+        assertTrue(late.isLate)
+        assertEquals("Past deadline", late.stateLabel)
+        assertEquals("no deadline, no counter", null, leadershipTask(deadlineAt = null, daysTaken = null, deadlineTone = "").toCardUi().deadline)
     }
 
     @Test

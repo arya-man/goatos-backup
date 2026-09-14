@@ -44,4 +44,12 @@
     <string name="leadership_tasks_note_author_fallback">Task note</string>
     <string name="leadership_tasks_status_label">Status</string>
     <string name="leadership_tasks_attachment_view">View</string>
+    <string name="leadership_tasks_field_deadline">Deadline</string>
+    <string name="leadership_tasks_field_deadline_placeholder">Pick a date and time</string>
+    <string name="leadership_tasks_deadline_pick_time">Time</string>
+    <string name="leadership_tasks_deadline_ok">OK</string>
+    <string name="leadership_tasks_deadline_cancel">Cancel</string>
+    <string name="leadership_tasks_deadline_unit_days">days</string>
+    <string name="leadership_tasks_deadline_unit_day">day</string>
+    <string name="leadership_tasks_deadline_prefix">Deadline</string>
 </resources>

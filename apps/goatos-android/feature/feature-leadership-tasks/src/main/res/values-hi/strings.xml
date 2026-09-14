@@ -35,4 +35,12 @@
     <string name="leadership_tasks_note_author_fallback">कार्य नोट</string>
     <string name="leadership_tasks_status_label">स्थिति</string>
     <string name="leadership_tasks_attachment_view">देखें</string>
+    <string name="leadership_tasks_field_deadline">समय सीमा</string>
+    <string name="leadership_tasks_field_deadline_placeholder">तारीख और समय चुनें</string>
+    <string name="leadership_tasks_deadline_pick_time">समय</string>
+    <string name="leadership_tasks_deadline_ok">ठीक है</string>
+    <string name="leadership_tasks_deadline_cancel">रद्द करें</string>
+    <string name="leadership_tasks_deadline_unit_days">दिन</string>
+    <string name="leadership_tasks_deadline_unit_day">दिन</string>
+    <string name="leadership_tasks_deadline_prefix">समय सीमा</string>
 </resources>

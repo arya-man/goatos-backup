@@ -183,6 +183,10 @@ class LeadershipTaskDetailViewModelTest {
         assertEquals("2 KB", state.attachments[0].sizeLabel)
         assertEquals(listOf("Ravi", "Satish"), state.notes.map { it.authorName })
         assertEquals(listOf("Please add the voice note.", "Uploading after the park round."), state.notes.map { it.body })
+        // The deadline clock is the backend's, verbatim (maintainer decision 2026-09-14).
+        assertEquals(4, state.deadline?.daysTaken)
+        assertEquals("Within deadline", state.deadline?.stateLabel)
+        assertEquals("15/09/2026 17:00", state.deadline?.deadlineLabel)
         assertEquals("", state.commentDraft)
 
         vm.onEvent(LeadershipTaskDetailEvent.OpenAttachment("att-1"))

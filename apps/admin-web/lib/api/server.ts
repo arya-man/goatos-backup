@@ -3522,6 +3522,8 @@ export async function raiseLeadershipTask(
     title: string;
     body?: string;
     assignee_user_id: string;
+    /** RFC3339 with offset; the backend refuses a raise without one. */
+    deadline_at: string;
     attachments?: Array<{ proof_id: string; kind: string; file_name?: string }>;
   },
   idempotencyKey: string,

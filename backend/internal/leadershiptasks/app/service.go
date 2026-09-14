@@ -114,6 +114,11 @@ func (s *Service) Raise(ctx context.Context, p ports.RaiseParams) (domain.Task, 
 	if err := domain.ValidateBrief(p.Title, p.Body, p.Refs); err != nil {
 		return domain.Task{}, err
 	}
+	// The raise instant is the service clock; the repository stamps raised_at from the same
+	// clock, so a deadline that passes here is after the stored raise too.
+	if err := domain.ValidateDeadline(p.DeadlineAt, s.now(), !p.DeadlineOptional); err != nil {
+		return domain.Task{}, err
+	}
 	resolved, err := s.resolveAttachments(ctx, p.TenantID, p.ActorID, p.Refs)
 	if err != nil {
 		return domain.Task{}, err
@@ -135,6 +140,8 @@ func (s *Service) Edit(ctx context.Context, p ports.EditParams) (domain.Task, er
 	if err := domain.ValidateBrief(p.Title, p.Body, p.Refs); err != nil {
 		return domain.Task{}, err
 	}
+	// A present deadline is checked against the stored raise instant under the row lock in
+	// the repository, where the row is; nil keeps what is stored.
 	resolved, err := s.resolveAttachments(ctx, p.TenantID, p.ActorID, p.Refs)
 	if err != nil {
 		return domain.Task{}, err

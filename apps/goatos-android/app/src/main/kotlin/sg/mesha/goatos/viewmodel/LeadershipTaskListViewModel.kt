@@ -24,6 +24,7 @@ import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.analytics.CrashReporter
 import sg.mesha.goatos.core.data.LeadershipTasksRepository
 import sg.mesha.goatos.core.network.dto.LeadershipTaskDto
+import sg.mesha.goatos.feature.leadershiptasks.LeadershipDeadlineClockUi
 import sg.mesha.goatos.feature.leadershiptasks.LeadershipTaskCardUi
 import sg.mesha.goatos.feature.leadershiptasks.LeadershipTaskFilterUi
 import sg.mesha.goatos.feature.leadershiptasks.LeadershipTaskScopeUi
@@ -191,7 +192,25 @@ internal fun LeadershipTaskDto.toCardUi(): LeadershipTaskCardUi = LeadershipTask
     metaLine = metaLine,
     attachmentCount = attachmentCount,
     unseen = isUnseenForCaller(),
+    deadline = toDeadlineClockUi(),
 )
+
+/**
+ * The deadline clock as the backend composed it, or null when the task carries no deadline
+ * (`days_taken` null / blank tone) so the screen draws nothing. Nothing here counts a day or
+ * picks a colour: the number, the tone and every label are carried verbatim.
+ */
+internal fun LeadershipTaskDto.toDeadlineClockUi(): LeadershipDeadlineClockUi? {
+    val days = daysTaken ?: return null
+    if (deadlineTone.isBlank()) return null
+    return LeadershipDeadlineClockUi(
+        daysTaken = days,
+        daysTakenLabel = daysTakenLabel,
+        tone = deadlineTone,
+        deadlineLabel = deadlineLabel,
+        stateLabel = deadlineStateLabel,
+    )
+}
 
 /**
  * "New to me": not yet seen AND the caller is the one who can act on it. A raiser's row also

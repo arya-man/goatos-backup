@@ -91,6 +91,20 @@ data class LeadershipTaskDto(
     @SerialName("done_at") val doneAt: String? = null,
     @SerialName("seen_at") val seenAt: String? = null,
     @SerialName("is_seen") val isSeen: Boolean = false,
+    /**
+     * The deadline and the day counter (maintainer decision 2026-09-14), ALL backend-composed and
+     * rendered verbatim: [deadlineAt] is the RFC3339 instant, [deadlineLabel] its farm form
+     * ("15/09/2026 17:00"); [daysTaken] is THE BIG NUMBER (days since the raise day, frozen once
+     * finished; null without a deadline -> no counter drawn), [daysTakenLabel] its worded form;
+     * [deadlineTone] is `ok` (green) / `late` (red) / blank; [deadlineStateLabel] is the sentence
+     * beneath. The phone counts no days and decides no colour.
+     */
+    @SerialName("deadline_at") val deadlineAt: String? = null,
+    @SerialName("deadline_label") val deadlineLabel: String = "",
+    @SerialName("days_taken") val daysTaken: Int? = null,
+    @SerialName("days_taken_label") val daysTakenLabel: String = "",
+    @SerialName("deadline_tone") val deadlineTone: String = "",
+    @SerialName("deadline_state_label") val deadlineStateLabel: String = "",
     /** The caller is the person this task is for / raised it -- backend-resolved party. */
     @SerialName("is_assignee") val isAssignee: Boolean = false,
     @SerialName("is_raiser") val isRaiser: Boolean = false,
@@ -156,6 +170,8 @@ data class LeadershipTaskRaiseRequestDto(
     @SerialName("body") val body: String,
     @SerialName("assignee_user_id") val assigneeUserId: String,
     @SerialName("attachments") val attachments: List<LeadershipTaskAttachmentRefDto> = emptyList(),
+    /** RFC3339 with offset; the server refuses a raise without one. */
+    @SerialName("deadline_at") val deadlineAt: String,
 )
 
 /** [attachments] is the FULL new list; the server diffs it. */
@@ -165,6 +181,8 @@ data class LeadershipTaskEditRequestDto(
     @SerialName("body") val body: String,
     @SerialName("attachments") val attachments: List<LeadershipTaskAttachmentRefDto> = emptyList(),
     @SerialName("row_version") val rowVersion: Int,
+    /** RFC3339 with offset; replaces the deadline. Blank keeps the stored one. */
+    @SerialName("deadline_at") val deadlineAt: String = "",
 )
 
 @Serializable

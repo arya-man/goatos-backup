@@ -119,6 +119,9 @@ fun LeadershipTaskDetailScreen(
                     if (state.metaLine.isNotBlank()) {
                         Text(text = state.metaLine, color = MeshaColors.Muted, style = MeshaType.caption)
                     }
+                    if (state.deadline != null) {
+                        LeadershipDeadlineClock(clock = state.deadline, modifier = Modifier.fillMaxWidth())
+                    }
                     if (state.body.isNotBlank()) {
                         Text(text = state.body, color = MeshaColors.Ink, style = MeshaType.body)
                     }

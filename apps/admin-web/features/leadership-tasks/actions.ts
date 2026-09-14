@@ -8,6 +8,7 @@ import {
   setLeadershipTaskComment,
   uploadLeadershipTaskAttachment,
 } from "@/lib/api/server";
+import { farmDeadlineToRFC3339 } from "./deadline";
 
 const PATHNAME = "/tasks";
 
@@ -40,11 +41,17 @@ export async function raiseLeadershipTaskAction(
   const assigneeUserID = String(formData.get("assignee_user_id") ?? "").trim();
   const body = String(formData.get("body") ?? "").trim();
   const idempotencyKey = String(formData.get("idempotency_key") ?? "").trim();
+  const deadlineAt = farmDeadlineToRFC3339(
+    String(formData.get("deadline_at") ?? ""),
+  );
 
   if (!title || !assigneeUserID) {
     redirect(
       withFeedback(url, "error", !title ? "missing_title" : "missing_assignee"),
     );
+  }
+  if (!deadlineAt) {
+    redirect(withFeedback(url, "error", "missing_deadline"));
   }
   if (idempotencyKey.length < 8 || idempotencyKey.length > 200) {
     redirect(withFeedback(url, "error", "invalid_idempotency_key"));
@@ -66,6 +73,7 @@ export async function raiseLeadershipTaskAction(
       title,
       body,
       assignee_user_id: assigneeUserID,
+      deadline_at: deadlineAt,
       attachments: [...uploads.refs, ...existingRefs],
     },
     idempotencyKey,
@@ -205,3 +213,4 @@ function attachmentRefs(
   }
   return refs;
 }
+

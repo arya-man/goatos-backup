@@ -597,3 +597,71 @@ INSERT INTO workforce_member_titles (tenant_id, workforce_member_id, title) VALU
 		}
 	}
 }
+
+// The deadline round-trips through Postgres exactly: stored on raise, read back as the same
+// instant, kept by an edit that does not name one (an older phone editing the brief), replaced
+// by one that does, and refused -- under the row lock, against the STORED raise instant -- when
+// the new one is not after the raise. A raise with no deadline (the Work Board flag) stores NULL.
+func TestLeadershipTaskDeadlineRoundTripsAndEditKeepsItWhenNotSent(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	seedLeadershipFixture(t, ctx, pool)
+	repo := NewRepository(pool, 10*time.Second)
+
+	ist := time.FixedZone("IST", 5*3600+1800)
+	deadline := time.Date(2026, 9, 20, 17, 0, 0, 0, ist)
+	params := raiseParams(ltCXO, "Approve the vendor contract", "raise-dl-1", ltProof1)
+	params.DeadlineAt = &deadline
+	task, err := repo.Raise(ctx, params)
+	if err != nil {
+		t.Fatalf("raise: %v", err)
+	}
+	if task.DeadlineAt == nil || !task.DeadlineAt.Equal(deadline) {
+		t.Fatalf("deadline after raise = %v, want %v", task.DeadlineAt, deadline)
+	}
+	read, err := repo.GetTask(ctx, ltTenant, task.TaskID)
+	if err != nil || read.DeadlineAt == nil || !read.DeadlineAt.Equal(deadline) {
+		t.Fatalf("deadline read back = %v err %v", read.DeadlineAt, err)
+	}
+	var stored string
+	if err := pool.QueryRow(ctx, `SELECT to_char(deadline_at AT TIME ZONE 'Asia/Kolkata', 'DD/MM/YYYY HH24:MI') FROM leadership_tasks WHERE task_id = $1`, task.TaskID).Scan(&stored); err != nil {
+		t.Fatalf("read stored deadline: %v", err)
+	}
+	if stored != "20/09/2026 17:00" {
+		t.Fatalf("stored deadline reads %q in IST, want 20/09/2026 17:00", stored)
+	}
+
+	// An edit that names no deadline keeps the stored one.
+	edited, err := repo.Edit(ctx, ports.EditParams{TenantID: ltTenant, ActorID: ltDirector, TaskID: task.TaskID, Title: "Approve the vendor contract (v2)", Body: "Updated.", RowVersion: task.RowVersion, IdempotencyKey: "edit-dl-1"})
+	if err != nil {
+		t.Fatalf("edit without deadline: %v", err)
+	}
+	if edited.DeadlineAt == nil || !edited.DeadlineAt.Equal(deadline) {
+		t.Fatalf("edit without deadline must keep it: %v", edited.DeadlineAt)
+	}
+	// An edit that names one replaces it.
+	moved := deadline.Add(48 * time.Hour)
+	edited2, err := repo.Edit(ctx, ports.EditParams{TenantID: ltTenant, ActorID: ltDirector, TaskID: task.TaskID, Title: edited.Title, Body: edited.Body, RowVersion: edited.RowVersion, IdempotencyKey: "edit-dl-2", DeadlineAt: &moved})
+	if err != nil {
+		t.Fatalf("edit with deadline: %v", err)
+	}
+	if edited2.DeadlineAt == nil || !edited2.DeadlineAt.Equal(moved) {
+		t.Fatalf("edit must replace the deadline: %v", edited2.DeadlineAt)
+	}
+	// A deadline not after the stored raise is refused and writes nothing.
+	behind := edited2.RaisedAt.Add(-time.Minute)
+	if _, err := repo.Edit(ctx, ports.EditParams{TenantID: ltTenant, ActorID: ltDirector, TaskID: task.TaskID, Title: edited.Title, Body: edited.Body, RowVersion: edited2.RowVersion, IdempotencyKey: "edit-dl-3", DeadlineAt: &behind}); !errors.Is(err, domain.ErrDeadlineNotAfterRaise) {
+		t.Fatalf("deadline behind the raise: %v", err)
+	}
+	after, _ := repo.GetTask(ctx, ltTenant, task.TaskID)
+	if after.RowVersion != edited2.RowVersion || !after.DeadlineAt.Equal(moved) {
+		t.Fatalf("refused edit must write nothing: %+v", after)
+	}
+
+	// A raise with no deadline stores NULL: no counter until the raiser sets one.
+	flag, err := repo.Raise(ctx, raiseParams(ltCXO2, "Check · Weigh Godel 1 - Part 3", "raise-dl-flag"))
+	if err != nil || flag.DeadlineAt != nil {
+		t.Fatalf("flag raise = %v err %v", flag.DeadlineAt, err)
+	}
+}

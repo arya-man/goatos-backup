@@ -76,7 +76,10 @@ class LeadershipTaskComposeViewModelTest {
         assertEquals("cxo-1", vm.state.value.selectedAssigneeId)
         assertFalse("no title, no send", vm.state.value.canSend)
         vm.onEvent(LeadershipTaskComposeEvent.TitleChanged("Fix the water line"))
+        assertFalse("no deadline, no send (maintainer decision 2026-09-14)", vm.state.value.canSend)
+        vm.onEvent(LeadershipTaskComposeEvent.DeadlineChanged("2026-09-20T17:00:00+05:30"))
         assertTrue(vm.state.value.canSend)
+        assertEquals("the picked deadline is echoed on the farm clock", "20/09/2026 17:00", vm.state.value.deadlineLabel)
         job.cancel()
     }
 
@@ -90,6 +93,7 @@ class LeadershipTaskComposeViewModelTest {
         advanceUntilIdle()
         vm.onEvent(LeadershipTaskComposeEvent.TitleChanged("Fix the water line"))
         vm.onEvent(LeadershipTaskComposeEvent.BodyChanged("Before the weekend."))
+        vm.onEvent(LeadershipTaskComposeEvent.DeadlineChanged("2026-09-20T17:00:00+05:30"))
 
         vm.onEvent(LeadershipTaskComposeEvent.Send)
         advanceUntilIdle()
@@ -107,6 +111,7 @@ class LeadershipTaskComposeViewModelTest {
         assertEquals(vm.taskIdempotencyKey, handle.get<String>(LeadershipTaskComposeViewModel.KEY_TASK_IDEMPOTENCY))
         assertEquals("task-new", vm.state.value.sentTaskId)
         assertEquals("cxo-1", repository.raises[1].request.assigneeUserId)
+        assertEquals("the deadline rides the raise as picked", "2026-09-20T17:00:00+05:30", repository.raises[1].request.deadlineAt)
         job.cancel()
     }
 
@@ -119,6 +124,7 @@ class LeadershipTaskComposeViewModelTest {
         val job = backgroundScope.launch { vm.state.collect {} }
         advanceUntilIdle()
         vm.onEvent(LeadershipTaskComposeEvent.TitleChanged("Pump photos"))
+        vm.onEvent(LeadershipTaskComposeEvent.DeadlineChanged("2026-09-20T17:00:00+05:30"))
 
         vm.onEvent(LeadershipTaskComposeEvent.StartRecording)
         assertNotNull("recording shows its clock", vm.state.value.recordingElapsedMs)
@@ -154,6 +160,7 @@ class LeadershipTaskComposeViewModelTest {
         val job2 = backgroundScope.launch { vm2.state.collect {} }
         advanceUntilIdle()
         vm2.onEvent(LeadershipTaskComposeEvent.TitleChanged("Pump photos"))
+        vm2.onEvent(LeadershipTaskComposeEvent.DeadlineChanged("2026-09-20T17:00:00+05:30"))
         vm2.onEvent(LeadershipTaskComposeEvent.MediaPicked(listOf("content://media/a.jpg", "content://media/b.jpg")))
         advanceUntilIdle()
         val keys = vm2.state.value.attachments.map { it.listKey }
@@ -237,6 +244,7 @@ class LeadershipTaskComposeViewModelTest {
         assertEquals(9, edit.request.rowVersion)
         assertEquals("a stored attachment is not re-uploaded", 1, repository.uploads.size)
         assertEquals(listOf("proof-kept", "proof-1"), edit.request.attachments.map { it.proofId })
+        assertEquals("an edit sends the stored deadline back unless re-picked", "2026-09-15T11:30:00Z", edit.request.deadlineAt)
         assertEquals(LEADERSHIP_TEST_TASK_ID, vm.state.value.sentTaskId)
         job.cancel()
     }

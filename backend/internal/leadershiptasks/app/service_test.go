@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/vgoats/goatos/backend/internal/leadershiptasks/domain"
 	"github.com/vgoats/goatos/backend/internal/leadershiptasks/ports"
@@ -89,9 +90,11 @@ func TestRaiseResolvesAttachmentsBeforeTheWriteAndRefusesSelfAssignment(t *testi
 	if _, err := svc.Raise(ctx, ports.RaiseParams{TenantID: tenant, ActorID: raiser, AssigneeUserID: assignee, Title: "x"}); !errors.Is(err, ErrIdempotencyKeyRequired) {
 		t.Fatalf("missing key: %v", err)
 	}
+	deadline := time.Now().Add(48 * time.Hour)
 	task, err := svc.Raise(ctx, ports.RaiseParams{
 		TenantID: tenant, ActorID: raiser, AssigneeUserID: assignee, Title: " Call the vendor ", IdempotencyKey: "k",
-		Refs: []domain.AttachmentRef{{ProofID: "p1", Kind: domain.AttachmentAudio, FileName: "note.m4a"}},
+		Refs:       []domain.AttachmentRef{{ProofID: "p1", Kind: domain.AttachmentAudio, FileName: "note.m4a"}},
+		DeadlineAt: &deadline,
 	})
 	if err != nil {
 		t.Fatalf("raise: %v", err)
@@ -107,7 +110,8 @@ func TestRaiseResolvesAttachmentsBeforeTheWriteAndRefusesSelfAssignment(t *testi
 	svc2 := NewService(repo2, &fakeResolver{err: ports.ErrInvalidAttachment})
 	if _, err := svc2.Raise(ctx, ports.RaiseParams{
 		TenantID: tenant, ActorID: raiser, AssigneeUserID: assignee, Title: "x", IdempotencyKey: "k",
-		Refs: []domain.AttachmentRef{{ProofID: "p1", Kind: domain.AttachmentFile}},
+		Refs:       []domain.AttachmentRef{{ProofID: "p1", Kind: domain.AttachmentFile}},
+		DeadlineAt: &deadline,
 	}); !errors.Is(err, ports.ErrInvalidAttachment) {
 		t.Fatalf("invalid attachment: %v", err)
 	}
@@ -202,5 +206,43 @@ func TestModuleBadgeCountsAnswersOnlyThisModule(t *testing.T) {
 	counts, err = svc.ModuleBadgeCounts(context.Background(), tenant, assignee, []string{"weighing"})
 	if err != nil || len(counts) != 0 {
 		t.Fatalf("unasked module must answer nothing: %v (err %v)", counts, err)
+	}
+}
+
+// The task form must set a deadline, and one behind the service clock is refused before
+// anything is written; the Work Board flag, which has no form, may raise without one.
+func TestRaiseRequiresADeadlineUnlessTheRaiseHasNoForm(t *testing.T) {
+	repo := &fakeRepo{}
+	now := time.Date(2026, 9, 14, 3, 30, 0, 0, time.UTC)
+	svc := NewService(repo, &fakeResolver{}).WithClock(func() time.Time { return now })
+	ctx := context.Background()
+	base := ports.RaiseParams{TenantID: tenant, ActorID: raiser, AssigneeUserID: assignee, Title: "x", IdempotencyKey: "k"}
+
+	if _, err := svc.Raise(ctx, base); !errors.Is(err, domain.ErrDeadlineRequired) {
+		t.Fatalf("form raise without deadline: %v", err)
+	}
+	past := now.Add(-time.Minute)
+	withPast := base
+	withPast.DeadlineAt = &past
+	if _, err := svc.Raise(ctx, withPast); !errors.Is(err, domain.ErrDeadlineNotAfterRaise) {
+		t.Fatalf("past deadline: %v", err)
+	}
+	if len(repo.raised) != 0 {
+		t.Fatal("nothing may be written when the deadline is refused")
+	}
+
+	flag := base
+	flag.DeadlineOptional = true
+	if _, err := svc.Raise(ctx, flag); err != nil {
+		t.Fatalf("flag raise without deadline: %v", err)
+	}
+	future := now.Add(time.Hour)
+	withFuture := base
+	withFuture.DeadlineAt = &future
+	if _, err := svc.Raise(ctx, withFuture); err != nil {
+		t.Fatalf("future deadline: %v", err)
+	}
+	if len(repo.raised) != 2 || repo.raised[1].DeadlineAt == nil || !repo.raised[1].DeadlineAt.Equal(future) {
+		t.Fatalf("deadline must be forwarded to the write: %+v", repo.raised)
 	}
 }
