@@ -51,16 +51,26 @@ func TestLeadershipTasksModuleIsOfferedToDirectorsCEOAndParkHeads(t *testing.T) 
 				t.Fatal("Tasks module did not render for a principal holding leadership_tasks.read")
 			}
 			// The bar is served ONLY when there is something to switch to (maintainer decisions
-			// 2026-09-05 and 2026-09-07) -- and since 2026-09-12 NOBODY has a second Tasks
-			// destination: the pen-visit "For me" tab is retired (the visit is the last step of
-			// the care work and is reached from that work's own card), so every principal's Tasks
-			// module is one list and serves NO bar. The drawer row and the landing href keep it
-			// reachable -- this must not decay into "the module vanished".
+			// 2026-09-05 and 2026-09-07, restored 2026-09-14 after the 2026-09-12 fold): a
+			// director carries "Raised by me" and the "For me" tab (the work the system owes
+			// them -- pen visits today), so the bar has two destinations; a CXO's or park head's
+			// module is one list, so it serves NO bar destinations and the phone draws no bar.
+			// The drawer row and the landing href keep both reachable -- this must not decay
+			// into "the module vanished".
 			if found.Label != "Tasks" || found.Href != "/leadership-tasks" {
 				t.Fatalf("Tasks module rendered wrong: %+v", *found)
 			}
-			if len(found.NavItems) != 0 {
-				t.Fatalf("%s Tasks module must serve no bar destinations (For me retired 2026-09-12), got %+v", name, found.NavItems)
+			if role == permissions.RoleCEOInternal || role == permissions.RoleParkHead {
+				if len(found.NavItems) != 0 {
+					t.Fatalf("%s Tasks module must serve no bar destinations, got %+v", name, found.NavItems)
+				}
+			} else {
+				if len(found.NavItems) != 2 || found.NavItems[0].Href != "/leadership-tasks" || found.NavItems[1].Href != "/pen-visits" {
+					t.Fatalf("a director's Tasks module must serve Raised by me + For me, got %+v", found.NavItems)
+				}
+				if found.NavItems[0].Label != "Raised by me" || found.NavItems[1].Label != "For me" {
+					t.Fatalf("director Tasks tab labels = %q / %q, want Raised by me / For me", found.NavItems[0].Label, found.NavItems[1].Label)
+				}
 			}
 		})
 	}

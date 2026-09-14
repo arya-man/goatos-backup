@@ -18230,7 +18230,7 @@ components:
     WorkBoardModule:
       type: string
       description: The operational module a board row belongs to, in board (keyset) order.
-      enum: [feed, health, vaccination, weighing, counts, milk, pc_care, toxin, procurement, verification]
+      enum: [feed, health, vaccination, weighing, counts, milk, pc_care, toxin, procurement, verification, tasks]
     WorkBoardWorkState:
       type: string
       description: REUSED VERBATIM from process integrity; the board adds no state of its own.
@@ -18768,13 +18768,13 @@ components:
     PenVisit:
       type: object
       description: >-
-        The next-day pen visit as every surface renders it: the LAST STEP of the pen's care
-        work (maintainer decision 2026-09-12), carried on the PC Care task (pen_visit) and the
-        vaccination shed card / drilldown (penVisit) as well as on the visit's own routes. Every
-        string is backend-composed; the client maps state_tone to a colour and renders the rest
-        verbatim. The visit video goes to the verifier: status is the gate (open ->
-        pending_verification -> completed | rework) and work_state reaches completed only on
-        approval; verified is the parent's closure signal.
+        The next-day pen visit as the Tasks module's "For me" tab and the visit drill render it
+        (maintainer decision 2026-09-14: the visit is a task of its own, never a step on the
+        PC Care task or the vaccination shed card). Every string is backend-composed; the client
+        maps state_tone to a colour and renders the rest verbatim. The visit video goes to the
+        verifier: status is the gate (open -> pending_verification -> completed | rework) and
+        work_state reaches completed only on approval; verified is the parent's closure signal
+        (the care task that raised the visit closes on it, invisibly to this shape).
       required: [task_id, title, park_id, park_name, shed_id, shed_name, partition_label, operational_location_display, reasons, reason_labels, reason_line, source_business_date, planned_business_date, due_business_date, work_state, status, state_chip, state_tone, instruction, done_line, can_submit, verified, row_version]
       properties:
         task_id: { type: string, format: uuid }
@@ -21867,26 +21867,6 @@ components:
           type: array
           description: Task-level proof rows for inventory_vaccine fridge stock tasks.
           items: { $ref: "#/components/schemas/PCCareTaskProof" }
-        pen_visit:
-          $ref: "#/components/schemas/PenVisit"
-          description: >-
-            The task's LAST step (maintainer decision 2026-09-12): the next-day pen visit, with
-            its own chip, instruction and can_submit for THIS caller. Absent until the pen-visit
-            kernel materializes it the morning after submit, and on tasks that owe none. Once
-            the task's own videos are verified the card's chip follows this step; the task's
-            work_state reaches completed only when the visit is verified too.
-        pen_visit_owed:
-          type: boolean
-          description: A visit is part of this task even before its row exists (a pen category with a shed).
-        pen_visit_chip:
-          type: string
-          description: >-
-            The card's chip once the task's own videos are verified and the visit is what remains
-            (the visit's own chip, or "Pen visit tomorrow" before its row exists). Empty while the
-            task's own status still leads. Backend copy, rendered verbatim.
-        pen_visit_tone:
-          type: string
-          enum: [info, review, danger, success, muted]
       required:
         - task_id
         - category
@@ -21906,7 +21886,6 @@ components:
         - animal_count
         - capture_mode
         - expected_slots
-        - pen_visit_owed
     PCCareInventoryRequirement:
       type: object
       properties:
@@ -22073,14 +22052,6 @@ components:
         animal_count: { type: integer }
         removal_task_id: { type: string, format: uuid }
         removal_status: { type: string, enum: [open, pending_verification, completed, rework] }
-        pen_visit_chip:
-          type: string
-          description: >-
-            The card's chip once its videos are verified while its pens still owe the next-day
-            pen visit, the work's last step (maintainer decision 2026-09-12) -- "Visit pens
-            today", "Visit in review", "Visit needs another video". Backend copy rendered
-            verbatim in place of the status chip; absent when the status chip stands.
-        pen_visit_tone: { type: string, enum: [info, review, success, danger, muted] }
       required: [card_key, category, category_label, park_id, park_name, planned_business_date, due_business_date, status, pen_count, pen_labels, assignee_names, animal_count]
     PCCareRoundCardPage:
       type: object
@@ -27966,11 +27937,6 @@ components:
           items:
             $ref: "#/components/schemas/VaccineGroupSummary"
           description: Per-vaccine group summaries for this card
-        penVisit:
-          $ref: "#/components/schemas/PenVisit"
-          description: >-
-            The pen's next-day visit after its latest vaccination submit (2026-09-12): the last
-            step of the pen's work. Absent until it exists; the five status buckets are untouched.
     VaccinationOperationsProtocol:
       type: object
       additionalProperties: false
@@ -29736,12 +29702,6 @@ components:
             $ref: "#/components/schemas/VaccinationExecutionRow"
         summary:
           $ref: "#/components/schemas/VaccinationExecutionShedSummary"
-        penVisit:
-          $ref: "#/components/schemas/PenVisit"
-          description: >-
-            The pen's next-day visit after its latest vaccination submit (maintainer decision
-            2026-09-12): the LAST step of the pen's work, composed for the caller. Absent until
-            the pen-visit kernel raises it the morning after.
     VaccinationQueueItem:
       type: object
       additionalProperties: false

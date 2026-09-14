@@ -58,9 +58,4 @@
     <string name="sheds_load_more">Load more sheds</string>
     <string name="sheds_loading_more">Loading more…</string>
     <string name="sheds_open_shed">Open shed ›</string>
-    <!-- The pen's next-day visit strip on the shed card (maintainer decision 2026-09-12): the
-         label and the two chrome actions; the chip itself is backend copy. -->
-    <string name="sheds_pen_visit_label">Pen visit</string>
-    <string name="sheds_pen_visit_record">Record the visit</string>
-    <string name="sheds_pen_visit_open">Open</string>
 </resources>

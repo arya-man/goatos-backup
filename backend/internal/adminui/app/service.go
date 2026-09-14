@@ -7216,6 +7216,7 @@ func pageOptionGroups(id string) []domain.OptionGroup {
 				option("toxin", "Toxin", "", "warn"),
 				option("procurement", "Procurement", "", "warn"),
 				option("verification", "Verification", "", "info"),
+				option("tasks", "Tasks", "", "pur"),
 			}},
 			{ID: "work_board_states", Options: []domain.Option{
 				option("scheduled", "Scheduled", "", ""),

@@ -98,9 +98,9 @@ func (n *PenVisitDueNotifier) NotifyCreated(ctx context.Context, tenantID string
 			Context: map[string]string{
 				"type":          NotificationTypePenVisitDue,
 				"message_key":   "pen_visit.due",
-				"screen":        "pc_care",
-				"href":          "/pc/deworming",
-				"target":        "/pc/deworming",
+				"screen":        "pen_visits",
+				"href":          "/pen-visits",
+				"target":        "/pen-visits",
 				"park_id":       d.ParkID,
 				"park_name":     d.ParkName,
 				"pen_count":     fmt.Sprintf("%d", len(d.Tasks)),

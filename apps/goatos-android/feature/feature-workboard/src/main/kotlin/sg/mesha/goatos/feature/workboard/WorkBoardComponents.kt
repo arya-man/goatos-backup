@@ -206,6 +206,7 @@ internal fun moduleLabel(module: String): String = when (module) {
     "toxin" -> stringResource(R.string.work_board_module_toxin)
     "procurement" -> stringResource(R.string.work_board_module_procurement)
     "verification" -> stringResource(R.string.work_board_module_verification)
+    "tasks" -> stringResource(R.string.work_board_module_tasks)
     "" -> stringResource(R.string.work_board_filter_all)
     else -> module
 }
@@ -247,5 +248,6 @@ internal fun moduleIcon(module: String): ImageVector = when (module) {
     "toxin" -> MeshaIcons.Warn
     "procurement" -> MeshaIcons.Store
     "verification" -> MeshaIcons.CheckCircle
+    "tasks" -> MeshaIcons.Module
     else -> MeshaIcons.Module
 }

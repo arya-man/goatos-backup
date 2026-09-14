@@ -24,6 +24,7 @@
     <string name="work_board_module_toxin">चारा जाँच</string>
     <string name="work_board_module_procurement">खरीद</string>
     <string name="work_board_module_verification">सत्यापन</string>
+    <string name="work_board_module_tasks">कार्य</string>
 
     <string name="work_board_state_scheduled">तय है</string>
     <string name="work_board_state_due">आज देय</string>

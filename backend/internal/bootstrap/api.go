@@ -543,11 +543,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	processIntegrityHandler := processintegrityhttp.NewHandler(processIntegrityService, log)
 	vaccExecOwnership := vaccexecroster.NewOwnershipAdapter(rosterService)
 	vaccExecService := vaccexecapp.NewService(vaccexecpg.NewRepository(pool, cfg.Postgres.QueryTimeout), vaccExecOwnership).
-		WithProofURLResolver(newWeighingExportProofURLResolver(proofService, cfg.HTTPAddr)).
-		// The pen's next-day visit after vaccination is the last step of its work (maintainer
-		// decision 2026-09-12): the shed drilldown and shed cards carry it from the pen-visit
-		// module's own repository.
-		WithPenVisits(penvisitspg.NewRepository(pool, cfg.Postgres.QueryTimeout))
+		WithProofURLResolver(newWeighingExportProofURLResolver(proofService, cfg.HTTPAddr))
 	vaccExecHandler := vaccexechttp.NewHandler(vaccExecService, obligationRepo, log).
 		WithOperatorAssignmentConfigWriter(vaccExecService).
 		WithCapacityConfigWriter(vaccExecService)
@@ -773,12 +769,10 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 		countsboard.NewMilkFeeding(pool, cfg.Postgres.QueryTimeout),
 		healthboard.New(pool, cfg.Postgres.QueryTimeout),
 		pccareboard.New(pool, cfg.Postgres.QueryTimeout),
-		// The next-day pen visit (maintainer decision 2026-09-12) rows on the day it is due
-		// under the module whose work raised it -- PC Care for any care reason, vaccination
-		// for a pen vaccinated alone -- titled as that work continuing, never as a task of
-		// its own.
-		penvisitsboard.NewPCCare(pool, cfg.Postgres.QueryTimeout),
-		penvisitsboard.NewVaccination(pool, cfg.Postgres.QueryTimeout),
+		// The next-day pen visit (maintainer decision 2026-09-14) rows on the day it is due
+		// under TASKS -- a task of its own, as on the phone's "For me" tab -- whatever work
+		// raised it.
+		penvisitsboard.New(pool, cfg.Postgres.QueryTimeout),
 		// Vaccination reuses the process-integrity read behind the port; the member
 		// resolver is what lets the operator lens narrow it by user id.
 		piboard.New(processIntegrityRepo).
@@ -787,15 +781,15 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 			WithPool(pool, cfg.Postgres.QueryTimeout),
 	)
 	workBoardHandler := workboardhttp.NewHandler(workBoardService, log).WithFlags(workboardapp.NewFlagService(workBoardService, leadershipTasksService, workboardpg.NewParkHeadResolver(pool, cfg.Postgres.QueryTimeout)))
-	// Pen visits (maintainer decision 2026-09-07): the Tasks module's "For me" tab. The kernel
-	// raises them; this serves the park head's list and the submit that carries the live video.
-	// The module badge is the SUM of both halves of Tasks: unseen asks plus visits still owed.
+	// Pen visits (maintainer decisions 2026-09-07 and 2026-09-14): the Tasks module's "For me"
+	// tab -- the work the system owes this person; pen visits are its first card type. The
+	// kernel raises them; this serves the visitor's list and the submit that carries the live
+	// video. The module badge is the SUM of both halves of Tasks: unseen asks plus visits still
+	// owed. The visit is NOT attached to the PC Care task or the vaccination shed card any
+	// more (the 2026-09-12 fold is retired); the parent still closes on the visit's approval.
 	penVisitsRepo := penvisitspg.NewRepository(pool, cfg.Postgres.QueryTimeout)
 	penVisitsService := penvisitsapp.NewService(penVisitsRepo).
 		WithProofValidator(penvisitsproof.NewValidator(proofRepo))
-	// The pen visit is the PC Care task's last step (maintainer decision 2026-09-12): every
-	// task read attaches the visit it owes, from the pen-visit module's own repository.
-	pcCareService.WithPenVisits(penVisitsRepo)
 	penVisitsHandler := penvisitshttp.NewHandler(penVisitsService, log)
 	workforceService.WithModuleBadges(penvisitsapp.NewModuleBadges(leadershipTasksService, penVisitsService))
 	// The sales module: its own bounded ledger (sales_*) with a thin service -- a commercial

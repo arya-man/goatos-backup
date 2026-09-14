@@ -30,7 +30,6 @@ import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -121,15 +120,6 @@ fun PcCareTaskScreen(
             // In review / approved: the task is read-only.
             if (state.isLocked && state.lockNotice.isNotBlank()) {
                 item(key = "lock_banner") { PcCareBanner(text = state.lockNotice, danger = false) }
-            }
-
-            // The task's LAST step (maintainer decision 2026-09-12): the next-day pen visit, one
-            // card under the task's own work. Every sentence is backend copy; tapping opens the
-            // visit's own drill, where the configured visitor records the one video.
-            state.penVisit?.let { step ->
-                item(key = "pen_visit_step") {
-                    PcCarePenVisitStepCard(step = step, onOpen = { onEvent(PcCareTaskEvent.OpenPenVisit(step.visitTaskId)) })
-                }
             }
 
             // Scan entry drives the scan-and-record flow; in roster mode it appears only as the
@@ -397,53 +387,6 @@ private fun PcCareStockRejectDialog(
         },
         containerColor = MeshaColors.Surf,
     )
-}
-
-/**
- * The pen-visit step card: the backend chip, the reason line and the instruction verbatim, the
- * verifier's words when the visit was sent back, and the one action the screen owns -- opening
- * the visit drill. Before the visit row exists the card is the chip alone ("Pen visit
- * tomorrow"), because there is nothing to open yet.
- */
-@Composable
-private fun PcCarePenVisitStepCard(step: PcCarePenVisitStepUi, onOpen: () -> Unit) {
-    val openable = step.visitTaskId.isNotBlank()
-    Column(
-        modifier = pcCareCardModifier(enabled = openable, onClick = if (openable) onOpen else null)
-            .testTag("pc_care_pen_visit_step"),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                text = "Pen visit",
-                color = MeshaColors.Ink,
-                style = MeshaType.cardSubtitle,
-                modifier = Modifier.weight(1f),
-            )
-            PcCareStatusChip(label = step.chipLabel, tone = step.chipTone)
-        }
-        if (step.reasonLine.isNotBlank()) {
-            Text(text = step.reasonLine, color = MeshaColors.Muted, style = MeshaType.caption)
-        }
-        if (step.reworkReason.isNotBlank()) {
-            Text(text = step.reworkReason, color = MeshaColors.Danger, style = MeshaType.caption)
-        }
-        if (step.instruction.isNotBlank() && !step.verified) {
-            Text(text = step.instruction, color = MeshaColors.Muted, style = MeshaType.caption)
-        }
-        if (openable) {
-            PcCarePrimaryButton(
-                label = if (step.canRecord) "Record the visit" else "Open pen visit",
-                enabled = true,
-                onClick = onOpen,
-                modifier = Modifier.fillMaxWidth(),
-            )
-        }
-    }
 }
 
 @Composable

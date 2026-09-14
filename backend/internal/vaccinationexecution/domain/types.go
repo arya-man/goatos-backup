@@ -2,7 +2,6 @@
 package domain
 
 import (
-	penvisitdomain "github.com/vgoats/goatos/backend/internal/penvisits/domain"
 	"strings"
 	"time"
 )
@@ -209,11 +208,6 @@ type ShedCardSummary struct {
 	OpenCount      int                   `json:"openCount"`
 	NeedsRedo      bool                  `json:"needsRedo"`     // true if any row is rejected/deferred
 	VaccineGroups  []VaccineGroupSummary `json:"vaccineGroups"` // per-vaccine group summaries
-	// PenVisit is the pen's next-day visit after its latest vaccination submit (maintainer
-	// decision 2026-09-12): the LAST step of the pen's work, verified by the same verifier.
-	// Absent until the pen-visit kernel raises it the morning after; the card renders its
-	// chip and the record affordance verbatim. The five status buckets above are untouched.
-	PenVisit *penvisitdomain.Step `json:"penVisit,omitempty"`
 }
 
 type DriveSummary struct {
@@ -247,9 +241,6 @@ type ShedDrilldown struct {
 	Drives                     []DriveSummary       `json:"drives"`
 	Rows                       []ExecutionRow       `json:"rows"`
 	Summary                    ShedDrilldownSummary `json:"summary"`
-	// PenVisit is the pen's next-day visit after its latest vaccination submit (2026-09-12),
-	// composed for the caller (can_submit is theirs). Absent until it exists.
-	PenVisit *penvisitdomain.Step `json:"penVisit,omitempty"`
 }
 
 type ExecutionQuery struct {
@@ -264,11 +255,6 @@ type ExecutionQuery struct {
 	// workforce member before returning assigned operator work. Admin reads leave
 	// it empty and keep the broader park/tenant visibility.
 	OperatorScopeActorID string
-	// ViewerActorID is the authenticated caller on EVERY app execution read, operator or
-	// leadership alike. It never scopes rows; it is the person a pen's visit step is composed
-	// for (whether THEY may record it). A park head reading his park is not operator-scoped, so
-	// keying the step on OperatorScopeActorID composed the visit for nobody.
-	ViewerActorID        string
 	AuthorizedParkIDs    []string
 	WorkState            *WorkState
 	Severity             *Severity

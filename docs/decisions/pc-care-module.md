@@ -94,18 +94,21 @@ verifier reject  -> rework (re-record on the SAME animal rows, resubmit)
   gate, fail-closed enqueuer, row_version-keyed enqueue, verdict filtering),
   `eventwiring/appliers_test.go` (eight appliers), workforce bootstrap nav tests.
 
-## Extended (2026-09-12): the next-day pen visit is the task's last step
+## Extended (2026-09-12, narrowed 2026-09-14): the task's clock closes on the next-day pen visit
 
 Rule 7's "verifier approval flips BOTH to completed" now reads: approval flips `status` to
 completed; `work_state` flips to completed only when the task's NEXT-DAY PEN VISIT is also
 verified (a pen task: one of `domain.PenVisitCategories` with a shed; a shed-less task closes
 on its own approval as before). The visit row, its verifier item and the closure are the pen
-visit module's (`docs/decisions/pen-visit-tasks.md` -> 2026-09-12 section); PC Care exposes
-the step on every task read (`TaskRow.PenVisit`, `pen_visit` / `pen_visit_chip` on the wire),
-admits the park's configured visitor onto the worklist on the visit's day
-(`ListTasksQuery.VisitorUserID`), and implements the closer `PenVisitVerified`. The kernel
-roll-forward skips a task whose own videos are verified. `pc_care.task.completed` still fires
-at the task's own approval.
+visit module's (`docs/decisions/pen-visit-tasks.md`); PC Care implements the closer
+`PenVisitVerified`, and the kernel roll-forward skips a task whose own videos are verified.
+`pc_care.task.completed` still fires at the task's own approval.
+
+**PC Care exposes NOTHING about the visit (2026-09-14).** The 2026-09-12 fold that put the
+visit on the task read (`TaskRow.PenVisit`, `pen_visit` / `pen_visit_chip`), on the round card,
+and admitted the visitor onto the worklist (`ListTasksQuery.VisitorUserID`) is retired: the
+visit is a task of its own on the Tasks module's "For me" tab. A card whose own clips are
+verified reads "Done"; the open clock is the kernel's business, not the card's.
 
 ## Superseded in part (2026-09-02): vaccine stock is director-approved
 

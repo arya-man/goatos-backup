@@ -7,11 +7,11 @@ package sg.mesha.goatos.feature.penvisits
 import androidx.compose.runtime.Immutable
 
 /**
- * UI models for the pen visit (maintainer decisions 2026-09-07 and 2026-09-12): the day after
+ * UI models for the pen visit (maintainer decisions 2026-09-07 and 2026-09-14): the day after
  * vaccination or PC Care work in a pen, one of the park's configured visitors goes to that pen,
- * records ONE live in-app-camera video and submits it; the clip goes to the VERIFIER as the last
- * step of that work. The visit is reached from the parent card (PC Care task, vaccination shed);
- * the retired "For me" tab is gone.
+ * records ONE live in-app-camera video and submits it; the clip goes to the VERIFIER. The visit
+ * is a task of its own, listed on the "For me" tab of the Tasks module -- the work the system
+ * owes this person; pen visits are its first card type -- and never a step on a parent card.
  *
  * EVERY business sentence here is BACKEND-OWNED and carried through verbatim: the title, the pen
  * label, the reason line, the state chip, the instruction, the done line, the filter chips and
@@ -105,4 +105,53 @@ sealed interface PenVisitDetailEvent {
     /** A play/pause/fullscreen/share/failure action on the recorded clip's preview. */
     data class ProofPreviewAction(val action: String) : PenVisitDetailEvent
     data object DismissMessage : PenVisitDetailEvent
+}
+
+/** One visit as the "For me" list renders it. */
+@Immutable
+data class PenVisitCardUi(
+    /** Stable list key — the visit task id IS this list's grain. */
+    val listKey: String,
+    val taskId: String,
+    /** Backend-composed ("Visit Castro 2 · Coimbatore"), VERBATIM. */
+    val title: String,
+    /** The backend's pen label, VERBATIM. */
+    val penLabel: String,
+    /** The backend's park name, VERBATIM. */
+    val parkName: String = "",
+    /** Backend-composed ("Vaccination yesterday"), VERBATIM. */
+    val reasonLine: String,
+    /** Backend-composed chip copy, VERBATIM; [tone] only colours it. */
+    val stateChip: String,
+    val tone: PenVisitTone = PenVisitTone.MUTED,
+    /** True while this visit's video/submit is still on the wire — drawn as a quiet "Sending" mark. */
+    val sending: Boolean = false,
+    val done: Boolean = false,
+)
+
+/** One filter chip. Label, count and empty copy are BACKEND-COMPOSED; the screen sends back [key]. */
+@Immutable
+data class PenVisitFilterUi(
+    val key: String,
+    val label: String,
+    val count: Int,
+    val selected: Boolean,
+    val emptyMessage: String = "",
+)
+
+@Immutable
+data class PenVisitListUiState(
+    /** The backend's page title, VERBATIM. */
+    val title: String = "",
+    val isRefreshing: Boolean = false,
+    val lastSyncedAt: Long? = null,
+    val emptyMessage: String? = null,
+    val isErrorEmpty: Boolean = false,
+    val filters: List<PenVisitFilterUi> = emptyList(),
+)
+
+sealed interface PenVisitListEvent {
+    data object Refresh : PenVisitListEvent
+    data class SelectFilter(val key: String) : PenVisitListEvent
+    data class OpenTask(val taskId: String) : PenVisitListEvent
 }

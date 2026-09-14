@@ -41,9 +41,4 @@
     <string name="sheds_load_more">ಇನ್ನಷ್ಟು ಶೆಡ್‌ಗಳನ್ನು ಲೋಡ್ ಮಾಡಿ</string>
     <string name="sheds_loading_more">ಇನ್ನಷ್ಟು ಲೋಡ್ ಆಗುತ್ತಿದೆ…</string>
     <string name="sheds_open_shed">ಶೆಡ್ ತೆರೆಯಿರಿ ›</string>
-    <!-- The pen's next-day visit strip on the shed card (maintainer decision 2026-09-12): the
-         label and the two chrome actions; the chip itself is backend copy. -->
-    <string name="sheds_pen_visit_label">ಪೆನ್ ಭೇಟಿ</string>
-    <string name="sheds_pen_visit_record">ಭೇಟಿ ರೆಕಾರ್ಡ್ ಮಾಡಿ</string>
-    <string name="sheds_pen_visit_open">ತೆರೆಯಿರಿ</string>
 </resources>

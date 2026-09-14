@@ -34,8 +34,7 @@ WHERE v.tenant_id = $1::uuid
   AND v.park_id = $2::uuid
   AND v.due_business_date = $3::date
   AND v.task_id = $4::uuid
-  AND v.work_state <> 'canceled'
-  AND ` + s.modulePredicate()
+  AND v.work_state <> 'canceled'`
 }
 
 // ListSubtasks implements ports.SubtaskSource.

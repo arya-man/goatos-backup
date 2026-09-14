@@ -18,7 +18,6 @@ import sg.mesha.goatos.core.analytics.NoopAnalytics
 import sg.mesha.goatos.core.analytics.NoopCrashReporter
 import sg.mesha.goatos.core.data.sync.SubmittedGrainsSource
 import sg.mesha.goatos.core.network.dto.PcCareRoundCardDto
-import sg.mesha.goatos.core.network.dto.PcCareRoundDto
 import sg.mesha.goatos.feature.pccare.PcCarePlanEvent
 
 /**
@@ -51,9 +50,7 @@ class PcCareRoundCardActionsTest {
         singleTaskId: String = "",
         workState: String = "",
         penCount: Int = 3,
-        penVisitChip: String = "",
     ) = PcCareRoundCardDto(
-        penVisitChip = penVisitChip,
         cardKey = roundId.ifBlank { singleTaskId },
         roundId = roundId,
         singleTaskId = singleTaskId,
@@ -154,37 +151,5 @@ class PcCareRoundCardActionsTest {
         advanceUntilIdle()
 
         assertEquals("Done", cardsOn(vm).single().statusLabel)
-    }
-
-    @Test
-    fun `a verified round whose pens still owe their visit reads the visit, not Done`() = runTest(dispatcher) {
-        val repo = FakePcCareRepository().apply { roundCards = listOf(card(penVisitChip = "Visit pens today")) }
-        val vm = viewModel(repo)
-        vm.bindMonitor("hoof_trimming", "Hoof Trimming")
-        advanceUntilIdle()
-
-        assertEquals("Visit pens today", cardsOn(vm).single().statusLabel)
-    }
-
-    @Test
-    fun `inside an opened round a verified pen still owing its visit reads the visit`() = runTest(dispatcher) {
-        val repo = FakePcCareRepository().apply {
-            roundCards = listOf(card(penVisitChip = "Visit pens today"))
-            roundDetail = PcCareRoundDto(
-                roundId = "round-1",
-                pens = listOf(
-                    pcCareTaskDtoFixture(taskId = "pen-a", status = "completed").copy(penVisitChip = "Visit pen today"),
-                    pcCareTaskDtoFixture(taskId = "pen-b", status = "pending_verification"),
-                ),
-            )
-        }
-        val vm = viewModel(repo)
-        vm.bindMonitor("hoof_trimming", "Hoof Trimming")
-        advanceUntilIdle()
-        vm.onEvent(PcCarePlanEvent.ToggleRoundCard(cardKey = "round-1", roundId = "round-1"))
-        advanceUntilIdle()
-
-        val pens = vm.state.value.openRoundPens
-        assertEquals(listOf("Visit pen today", "In review"), pens.map { it.statusLabel })
     }
 }

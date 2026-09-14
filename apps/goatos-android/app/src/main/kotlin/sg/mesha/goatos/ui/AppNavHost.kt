@@ -107,6 +107,8 @@ import sg.mesha.goatos.feature.leadershiptasks.LeadershipTaskListEvent
 import sg.mesha.goatos.feature.leadershiptasks.LeadershipTaskListScreen
 import sg.mesha.goatos.feature.penvisits.PenVisitDetailEvent
 import sg.mesha.goatos.feature.penvisits.PenVisitDetailScreen
+import sg.mesha.goatos.feature.penvisits.PenVisitListEvent
+import sg.mesha.goatos.feature.penvisits.PenVisitListScreen
 import sg.mesha.goatos.feature.workboard.WorkBoardDetailEvent
 import sg.mesha.goatos.feature.workboard.WorkBoardDetailScreen
 import sg.mesha.goatos.feature.workboard.WorkBoardEvent
@@ -272,6 +274,7 @@ import sg.mesha.goatos.viewmodel.LeadershipTaskComposeViewModel
 import sg.mesha.goatos.viewmodel.LeadershipTaskDetailViewModel
 import sg.mesha.goatos.viewmodel.LeadershipTaskListViewModel
 import sg.mesha.goatos.viewmodel.PenVisitDetailViewModel
+import sg.mesha.goatos.viewmodel.PenVisitListViewModel
 import sg.mesha.goatos.viewmodel.WorkBoardDetailViewModel
 import sg.mesha.goatos.viewmodel.WorkBoardViewModel
 import sg.mesha.goatos.viewmodel.FeedPurchaseCreateViewModel
@@ -758,10 +761,10 @@ object Routes {
         return Uri.decode(id)
     }
 
-    // Pen visits (maintainer decisions 2026-09-07 and 2026-09-12): the visit detail is a distinct
-    // hosted drill with Up/Back and NO root chrome, opened from the parent card (PC Care task,
-    // vaccination shed) or from a push naming the visit. PEN_VISITS is the route PREFIX only --
-    // the L0 "For me" list it once named is retired and no module offers it.
+    // Pen visits (maintainer decision 2026-09-07): the Tasks module's SECOND bottom-bar leaf for
+    // directors / park heads. The list is an L0 root whose href matches the backend-composed nav
+    // item VERBATIM ({key:"pen_visits", href:"/pen-visits"}); the visit detail is a distinct hosted
+    // drill with Up/Back and NO root chrome, never a prefix reuse of the L0 route.
     const val PEN_VISITS = "/pen-visits"
     const val PEN_VISIT_ID_ARG = "task_id"
     const val PEN_VISIT = "/pen-visits/{$PEN_VISIT_ID_ARG}"
@@ -1578,12 +1581,6 @@ fun AppNavHost(
                 showProtocolAdherenceCard = showProtocolAdherenceCard,
                 onEvent = { event ->
                     when (event) {
-                        // The pen's next-day visit (2026-09-12) opens as its own hosted drill.
-                        is ShedsEvent.OpenPenVisit -> {
-                            if (event.visitTaskId.isNotBlank()) {
-                                navController.navigate(Routes.penVisitRoute(event.visitTaskId)) { launchSingleTop = true }
-                            }
-                        }
                         is ShedsEvent.OpenShedRecord -> {
                             if (!canExecuteVaccination) {
                                 Toast.makeText(context, "Vaccination scan is not enabled for this login", Toast.LENGTH_SHORT).show()
@@ -2304,11 +2301,6 @@ fun AppNavHost(
                     showProtocolAdherenceCard = showProtocolAdherenceCard,
                     onEvent = { event ->
                         when (event) {
-                            is ShedsEvent.OpenPenVisit -> {
-                                if (event.visitTaskId.isNotBlank()) {
-                                    navController.navigate(Routes.penVisitRoute(event.visitTaskId)) { launchSingleTop = true }
-                                }
-                            }
                             is ShedsEvent.OpenShedRecord -> {
                                 if (!canExecuteVaccination) {
                                     Toast.makeText(context, "Vaccination scan is not enabled for this login", Toast.LENGTH_SHORT).show()
@@ -4111,10 +4103,46 @@ fun AppNavHost(
             )
         }
 
-        // --- Pen visits (maintainer decisions 2026-09-07 and 2026-09-12) --------------------
-        // The visit is the LAST STEP of a pen's care work, reached from the parent card (a PC Care
-        // task, a vaccination shed) -- never a list of its own. The retired "For me" L0 root is
-        // gone; only the hosted visit drill below remains.
+        // --- Pen visits (maintainer decision 2026-09-07) ------------------------------------
+        // The Tasks module's "For me" tab: ONE L0 list of the park head's own pen visits plus the
+        // hosted visit drill. Module visibility is backend-composed (`pen_visits.execute` on the
+        // nav item); nothing here gates on a role string.
+        composable(Routes.PEN_VISITS) {
+            val vm: PenVisitListViewModel = hiltViewModel()
+            // The backend nav label, so the header reads as the nav item does until the page's
+            // own title lands.
+            LaunchedEffect(vm) { vm.bind(PEN_VISITS_TAB_TITLE) }
+            val state by vm.state.collectAsStateWithLifecycle()
+            val rows = vm.rows.collectAsLazyPagingItems()
+            val refreshError = (rows.loadState.refresh as? LoadState.Error)?.error
+            val appendError = (rows.loadState.append as? LoadState.Error)?.error
+            LaunchedEffect(refreshError, appendError) {
+                (refreshError ?: appendError)?.let(vm::onRowsLoadFailed)
+            }
+            PenVisitListScreen(
+                state = state,
+                rows = rows,
+                onEvent = { event ->
+                    when (event) {
+                        PenVisitListEvent.Refresh -> {
+                            vm.onEvent(event)
+                            rows.refresh()
+                        }
+                        is PenVisitListEvent.SelectFilter -> {
+                            vm.onEvent(event)
+                            rows.refresh()
+                        }
+                        is PenVisitListEvent.OpenTask -> {
+                            vm.onEvent(event)
+                            navController.navigate(Routes.penVisitRoute(event.taskId)) {
+                                launchSingleTop = true
+                            }
+                        }
+                    }
+                },
+            )
+        }
+
         // The visit (L1 drill). CaptureAccessGate + BindVideoCaptureSource exactly as the PC Care
         // and Toxin drills bind them: without the binding ProofCaptureSource.captureVideo has no
         // recorder to open and "Record video" would do nothing.
@@ -4438,11 +4466,6 @@ fun AppNavHost(
                             sg.mesha.goatos.feature.pccare.PcCareTaskEvent.Back -> navController.popBackStack()
                             sg.mesha.goatos.feature.pccare.PcCareTaskEvent.ReconnectReader ->
                                 navController.navigate(Routes.RFID) { launchSingleTop = true }
-                            // The task's LAST step (maintainer decision 2026-09-12): the next-day
-                            // pen visit opens as its own hosted drill, from the task card -- never
-                            // from a tab of its own.
-                            is sg.mesha.goatos.feature.pccare.PcCareTaskEvent.OpenPenVisit ->
-                                navController.navigate(Routes.penVisitRoute(event.visitTaskId)) { launchSingleTop = true }
                             // Roster mode: a tap opens the animal's own capture drill with the
                             // video set as clearly-labeled cards (Feed completion-screen shape).
                             is sg.mesha.goatos.feature.pccare.PcCareTaskEvent.RosterTapped -> {
@@ -4858,6 +4881,9 @@ private val supportedRootDestinations = setOf(
 	Routes.LEAVE_APPROVALS,
 	// Leadership Tasks (maintainer request 2026-09-04): the module's "Raised by me" leaf.
 	Routes.LEADERSHIP_TASKS,
+	// Pen visits (maintainer decision 2026-09-07): the Tasks module's "For me" leaf — a real
+	// backend-composed bar item, so it is a root exactly like the tab beside it.
+	Routes.PEN_VISITS,
 	// Work Board / My Work (maintainer decision 2026-09-10): the `work_board` module's one
 	// backend-composed bar item, so it is a root exactly like every other module leaf.
 	Routes.WORK,
@@ -5159,6 +5185,7 @@ private const val LEADERSHIP_TASKS_TAB_TITLE = "Tasks"
 
 /** The backend's `nav.pen_visits` label, mirrored so the L0 header matches the nav item until
  *  the page's own backend title lands. */
+private const val PEN_VISITS_TAB_TITLE = "For me"
 
 private fun NavGraphBuilder.pcCareCategoryComposable(
     route: String,
@@ -5276,9 +5303,6 @@ internal fun pcCareMonitorEventAllowed(
 ): Boolean =
     event is sg.mesha.goatos.feature.pccare.PcCareTaskEvent.Back ||
         event is sg.mesha.goatos.feature.pccare.PcCareTaskEvent.Refresh ||
-        // Opening the pen-visit step is a READ (the drill itself gates recording on the
-        // server's can_submit), so a monitor may open it.
-        event is sg.mesha.goatos.feature.pccare.PcCareTaskEvent.OpenPenVisit ||
         // The PC Director's stock verdict (maintainer decision 2026-09-02): the read-only
         // monitor lock stays for every capture event; ONLY the verdict family passes, and only
         // for the approve-capable viewer. The server independently gates the route.

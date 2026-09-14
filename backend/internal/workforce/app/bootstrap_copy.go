@@ -486,14 +486,20 @@ var moduleNavRegistry = map[string]moduleDefinition{ //nav-composition:ignore: t
 		priority:    9,
 		// NO bottom bar for a CXO (maintainer decision 2026-09-05): their module is one list, so
 		// its bar held a single "Tasks" tab under a screen already titled Tasks. The drawer is
-		// how that principal leaves the module. The 2026-09-07 "For me" pen-visit tab was
-		// RETIRED on 2026-09-12: the visit is the last step of the care work and is reached
-		// from that work's own card (PC Care task, vaccination shed), never from a tab of its
-		// own -- so Tasks is one list again for everyone. barOnlyWhenSwitching stays: a second
-		// destination added tomorrow gets its bar without a code change.
+		// how that principal leaves the module. A director carries TWO tabs: "Raised by me"
+		// (the asks they raised) and "For me" (the work the system owes them -- today the pen
+		// visits the kernel raises the day after vaccination or preventive-care work; a future
+		// module adds a card type to that list, never a third tab). The "For me" tab was
+		// retired on 2026-09-12 in favour of a step on the parent card and RESTORED on
+		// 2026-09-14 ("that day was a mistake, keep it in Tasks only"). barOnlyWhenSwitching
+		// stays: a CXO with one destination still gets no bar.
 		barOnlyWhenSwitching: true,
 		contributions: []moduleNavContribution{
 			{key: "leadership_tasks", labelKey: "nav.leadership_tasks", href: "/leadership-tasks", shared_key: "", priority: 1, requiredPermission: permissions.LeadershipTasksRead}, //nav-composition:ignore: registry entry
+			// Pen visits: gated on PenVisitsExecute, the SAME permission its routes
+			// (/app/pen-visits*) require. Held by the director roles through the module's Do
+			// tick; a CXO holds it nowhere, so this tab and the bar never reach the CXO desk.
+			{key: "pen_visits", labelKey: "nav.pen_visits", href: "/pen-visits", shared_key: "", priority: 2, requiredPermission: permissions.PenVisitsExecute}, //nav-composition:ignore: registry entry
 		},
 	},
 	// PC Care (module_key pc_care, maintainer decision 2026-08-21; anti protozoan added
@@ -1775,6 +1781,7 @@ var bootstrapLabels = map[string]map[string]string{
 		"module.leadership_tasks": "Tasks",
 		"module.work_board":       "Work",
 		"nav.leadership_tasks":    "Raised by me",
+		"nav.pen_visits":          "For me",
 	},
 	"hi": {
 		"nav.overview":          "अवलोकन",
@@ -1838,6 +1845,7 @@ var bootstrapLabels = map[string]map[string]string{
 		"module.leadership_tasks": "कार्य",
 		"module.work_board":       "काम",
 		"nav.leadership_tasks":    "मेरे द्वारा उठाए",
+		"nav.pen_visits":          "मेरे लिए",
 	},
 	"kn": {
 		"nav.overview":          "ಅವಲೋಕನ",
@@ -1901,6 +1909,7 @@ var bootstrapLabels = map[string]map[string]string{
 		"module.leadership_tasks": "ಕಾರ್ಯಗಳು",
 		"module.work_board":       "ಕೆಲಸ",
 		"nav.leadership_tasks":    "ನಾನು ಎತ್ತಿದವು",
+		"nav.pen_visits":          "ನನಗಾಗಿ",
 	},
 	"te": {
 		"nav.overview":          "అవలోకనం",
@@ -1964,6 +1973,7 @@ var bootstrapLabels = map[string]map[string]string{
 		"module.leadership_tasks": "పనులు",
 		"module.work_board":       "పని",
 		"nav.leadership_tasks":    "నేను లేవనెత్తినవి",
+		"nav.pen_visits":          "నా కోసం",
 	},
 }
 

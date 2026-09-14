@@ -62,23 +62,6 @@ data class PcCareTaskDto(
     @SerialName("expected_slots") val expectedSlots: List<PcCareSlotDto> = emptyList(),
     @SerialName("inventory_requirements") val inventoryRequirements: List<PcCareInventoryRequirementDto> = emptyList(),
     @SerialName("task_proofs") val taskProofs: List<PcCareTaskProofDto> = emptyList(),
-    /**
-     * The task's LAST step (maintainer decision 2026-09-12): the next-day pen visit, with its own
-     * backend chip, instruction and `canSubmit` for THIS caller. Null until the pen-visit kernel
-     * raises it the morning after submit, and on tasks that owe none. Once the task's own videos
-     * are verified the card's chip follows this step; the task's `work_state` reaches
-     * `completed` only when the visit is verified too.
-     */
-    @SerialName("pen_visit") val penVisit: PenVisitDto? = null,
-    /** A visit is part of this task even before its row exists (a pen category with a shed). */
-    @SerialName("pen_visit_owed") val penVisitOwed: Boolean = false,
-    /**
-     * The CARD's chip once the task's own videos are verified and the visit is what remains --
-     * backend copy, VERBATIM; blank while the task's own status still leads.
-     */
-    @SerialName("pen_visit_chip") val penVisitChip: String = "",
-    /** `info` | `review` | `danger` | `success` | `muted` -- the chip's colour only. */
-    @SerialName("pen_visit_tone") val penVisitTone: String = "",
 )
 
 @Serializable
@@ -253,13 +236,6 @@ data class PcCareRoundCardDto(
     @SerialName("animal_count") val animalCount: Int = 0,
     @SerialName("removal_task_id") val removalTaskId: String = "",
     @SerialName("removal_status") val removalStatus: String = "",
-    /**
-     * The card's chip once its videos are verified while its pens still owe the next-day pen
-     * visit, the work's last step: "Visit pens today", never "Done". Backend copy, rendered
-     * verbatim in place of the status chip; blank when the status chip stands.
-     */
-    @SerialName("pen_visit_chip") val penVisitChip: String = "",
-    @SerialName("pen_visit_tone") val penVisitTone: String = "",
 )
 
 @Serializable

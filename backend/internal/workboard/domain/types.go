@@ -27,6 +27,10 @@ const (
 	ModuleToxin        Module = "toxin"
 	ModuleProcurement  Module = "procurement"
 	ModuleVerification Module = "verification"
+	// ModuleTasks is the Tasks module's half of the board (maintainer decision 2026-09-14): the
+	// work the system owes a person -- today the next-day pen visits -- rows here, never under
+	// the module whose work raised it. Appended last: the order is the cursor contract.
+	ModuleTasks Module = "tasks"
 )
 
 // Modules returns every module in board order. New modules append; the order is part of
@@ -35,6 +39,7 @@ func Modules() []Module {
 	return []Module{
 		ModuleFeed, ModuleHealth, ModuleVaccination, ModuleWeighing, ModuleCounts,
 		ModuleMilk, ModulePCCare, ModuleToxin, ModuleProcurement, ModuleVerification,
+		ModuleTasks,
 	}
 }
 
