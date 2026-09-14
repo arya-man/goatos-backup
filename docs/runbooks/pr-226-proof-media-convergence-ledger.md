@@ -15,7 +15,10 @@ proof upload, proof visibility, fullscreen playback, share, retry, or fresh-logi
 - A completed proof must remain visible after back navigation, app restart, logout/relogin, or another
   phone loading the same task.
 - A visible remote proof card must not automatically prepare, probe, stream, or refresh video bytes.
-- Remote bytes should move only after explicit user intent: play, open fullscreen, or share.
+- Opened/detail proof-photo cards may render the photo on first paint only when the read is
+  bounded to that visible item, cached by stable proof identity, attributed, and guard-annotated.
+  Hidden/off-viewport list media and remote video bytes should move only after explicit user
+  intent: play, open fullscreen, or share.
 - App/backend list APIs must not bulk-return fresh signed GCS URLs as durable UI state.
 - Guards must cover new direct-download patterns in Android, backend, admin, docs, and review workflows.
 

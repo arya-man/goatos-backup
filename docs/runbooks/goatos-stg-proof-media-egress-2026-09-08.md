@@ -129,9 +129,9 @@ Second adversarial sweep additions:
   the signed preview path.
 - Feed distribution, feed packing, feed transport, and feed wastage pass explicit
   feature-slot media identities instead of display copy such as the card title.
-- Verify photo preview is still tap-to-load, but a refreshed signed URL resets
-  the tap-armed state. The app must not keep a remote photo armed across URL
-  rotation and silently reload it.
+- Verify photo preview is visible on opened/detail proof screens, not tap-to-load. The app must
+  cache by stable proof identity, not by a refreshed signed URL, and hidden/off-viewport list
+  media must not silently load remote bytes.
 - Vaccination leadership's legacy `videoUrls` fallback no longer keys player
   state by list index alone; it uses the backend item id plus slot index instead
   of deriving identity from any signed URL.
