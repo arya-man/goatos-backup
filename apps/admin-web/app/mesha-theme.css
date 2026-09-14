@@ -2387,6 +2387,7 @@
   .followup-track-head>svg:last-child{margin-left:auto;color:var(--muted)}
   .followup-steps{display:flex;flex-direction:column;gap:10px;padding-top:10px}
   .followup-series-preview{grid-column:1/-1;margin-top:4px}
+  .followup-series-preview .followup-example-time{display:inline-block;width:72px;margin-left:6px;padding:2px 6px;font:inherit}
   .followup-series-preview ul{margin:4px 0 0;padding-left:18px;columns:2;column-gap:24px}
   .followup-series-preview li{break-inside:avoid;padding:1px 0}
   .followup-summary .htl{margin-bottom:6px}

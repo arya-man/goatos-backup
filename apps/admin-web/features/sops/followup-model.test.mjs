@@ -95,3 +95,19 @@ test("a series switched to run from the event emits basis/interval/count and exp
   const problems = followUpProblems(rows, {});
   assert.ok(problems.some((p) => p.includes("gap between rounds")) && problems.some((p) => p.includes("1 to 100")), problems.join("\n"));
 });
+
+test("next_sessions: a 15:00 example birth takes its ten rounds from the next session onward, none at night", () => {
+  const doc = JSON.parse(readFileSync(new URL("counts_birth.json", seedDir), "utf8"));
+  const rows = parseFollowUp({ follow_up: doc });
+  const series = rows.tracks.find((t) => t.key === "birth_kid").steps.find((s) => s.key === "colostrum_series");
+  series.basis = "next_sessions"; series.count = 10;
+  const rounds = expandSeriesRows(series, "15:00");
+  assert.equal(rounds.length, 10);
+  assert.deepEqual(rounds.slice(0, 3).map((r) => [r.dayOffset, r.time]), [[0, "18:30"], [0, "22:00"], [1, "07:00"]]);
+  assert.deepEqual(rounds[9], { title: "11th Colostrum", dayOffset: 2, time: "15:00" });
+  const step = emitFollowUp(rows).tracks.find((t) => t.key === "birth_kid").steps.find((s) => s.key === "colostrum_series");
+  assert.equal(step.schedule.basis, "next_sessions");
+  assert.equal(step.schedule.count, 10);
+  assert.equal(step.schedule.key_pattern, "colostrum_day_{day}_{hhmm}");
+  assert.deepEqual(followUpProblems(rows, {}), []);
+});
