@@ -244,7 +244,7 @@ gcloud run services describe goatos-api-stg \
   --format="value(metadata.labels.commit_sha,metadata.labels.deployed_by,status.latestReadyRevisionName,spec.template.metadata.annotations.autoscaling\\.knative\\.dev/minScale,spec.template.metadata.annotations.autoscaling\\.knative\\.dev/maxScale,spec.template.spec.containerConcurrency)"
 ```
 
-Expected API shape after deploy: `minScale=1`, `maxScale=4`,
+Expected API shape after deploy: `minScale=1`, `maxScale=2`,
 `containerConcurrency=20`.
 
 ## Break Glass

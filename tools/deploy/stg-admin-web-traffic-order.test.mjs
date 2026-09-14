@@ -118,6 +118,10 @@ test("analytics events has an isolated capped deploy lane", () => {
   assert.match(script, /GOATOS_PG_MAX_CONNS=2/);
   assert.match(script, /run_analytics_events_routing/);
   assert.match(script, /service_image "\$ANALYTICS_EVENTS_SERVICE"/);
+  assert.match(script, /smoke_public_events_route\(\)/);
+  assert.match(script, /curl[\s\S]*"\$STG_API_URL\/app\/analytics\/events"/);
+  assert.match(script, /resource\.labels\.service_name=\\?"\$ANALYTICS_EVENTS_SERVICE\\?"/);
+  assert.match(script, /public \/app\/analytics\/events smoke did not land on \$ANALYTICS_EVENTS_SERVICE/);
 });
 
 test("analytics events routing script isolates only the event path", () => {

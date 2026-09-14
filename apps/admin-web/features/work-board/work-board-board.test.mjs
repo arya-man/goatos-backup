@@ -29,3 +29,14 @@ test("work-board opened subtasks preserve the selected owner filter", () => {
   assert.match(apiSource, /owner\?: string/);
   assert.match(apiSource, /owner: scope\.owner/);
 });
+
+test("work-board page requests the optimized vocabulary shape only for module filters", () => {
+  const pageSource = readFileSync(new URL("./work-board-page.tsx", import.meta.url), "utf8");
+  const apiSource = readFileSync(new URL("../../lib/api/work-board-server.ts", import.meta.url), "utf8");
+
+  assert.match(apiSource, /client\.request<WorkBoardPageData>\("\/work-board\/page"/);
+  assert.match(apiSource, /page_lane: page\.lanes \? \(page\.lanes\.length \? page\.lanes\.join\(","\) : "__none__"\) : undefined/);
+  assert.match(apiSource, /include_vocabulary: scope\.modules && scope\.modules\.length \? "1" : undefined/);
+  assert.match(pageSource, /result\.data\.vocabulary_summary \?\? result\.data\.summary/);
+  assert.match(pageSource, /const vocabularySummary = mergeSummaries\(okVocabulary\) \?\? summary/);
+});
