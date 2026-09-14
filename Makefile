@@ -343,6 +343,10 @@ sop-driven-herd-operations-guard:
 	node tools/agent-hooks/check-sop-driven-herd-operations-guard.mjs --self-test
 	node tools/agent-hooks/check-sop-driven-herd-operations-guard.mjs
 
+procurement-sop-guard:
+	node tools/agent-hooks/check-procurement-sop-guard.mjs --self-test
+	node tools/agent-hooks/check-procurement-sop-guard.mjs
+
 weighing-operator-scope-guard:
 	node tools/agent-hooks/check-weighing-operator-scope-guard.mjs --self-test
 	node tools/agent-hooks/check-weighing-operator-scope-guard.mjs
