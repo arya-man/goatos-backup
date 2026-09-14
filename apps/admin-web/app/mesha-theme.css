@@ -2697,10 +2697,12 @@
 .market-config-add{margin-top:14px;padding-top:12px;border-top:1px dashed var(--line)}
 .market-config-footnote{margin:0;padding-top:4px}
 @media (max-width:900px){.market-config-columns{grid-template-columns:1fr}}
-.sales-ready-tolerance{display:grid;grid-template-columns:auto minmax(180px,320px) auto;align-items:center;gap:12px;margin:10px auto 0 0;padding:9px 12px;border:1px solid var(--line);border-radius:10px;background:var(--panel);width:fit-content;max-width:100%}
-.sales-ready-tolerance-head{display:flex;align-items:baseline;gap:8px;color:var(--muted);font-size:11px;font-weight:700;letter-spacing:.35px;text-transform:uppercase}
+/* Lives INSIDE the Over 35 kg card as its footer: full width, parted from the figure by a rule,
+   no panel box of its own, so it reads as that card's control rather than a page-wide one. */
+.sales-ready-tolerance{display:grid;grid-template-columns:auto minmax(120px,1fr) auto;align-items:center;gap:10px;margin-top:10px;padding-top:10px;border-top:1px solid var(--line);width:100%;max-width:100%;min-width:0}
+.sales-ready-tolerance-head{display:flex;align-items:baseline;gap:8px;color:var(--muted);font-size:11px;font-weight:700;letter-spacing:.35px;text-transform:uppercase;white-space:nowrap}
 .sales-ready-tolerance-head strong{color:var(--ink);font-size:12px;letter-spacing:0;text-transform:none;white-space:nowrap}
-.sales-ready-tolerance-row{display:grid;grid-template-columns:minmax(86px,1fr) auto;align-items:center;gap:8px}
+.sales-ready-tolerance-row{display:grid;grid-template-columns:minmax(60px,1fr) auto;align-items:center;gap:8px;min-width:0}
 .sales-ready-tolerance input[type="range"]{width:100%;min-width:0;accent-color:var(--brand)}
 .sales-ready-tolerance output{min-width:48px;color:var(--ink);font-size:12px;font-weight:700;text-align:right}
 .tag { border-radius: 999px; padding: 2px 9px; font-size: 11px; font-weight: 600; white-space: nowrap; display: inline-block; }
@@ -3700,7 +3702,7 @@ select:disabled { opacity: .45; }
      breathing room the page grid's own gap does not give a bare heading row. */
   .sales-block-hd-spaced{margin-top:8px}
 @media(max-width:760px){
-  .sales-ready-tolerance{width:100%;grid-template-columns:1fr}
+  .sales-ready-tolerance{grid-template-columns:1fr}
   .sales-ready-tolerance-head{justify-content:space-between}
   .sales-block .grid,.sales-block .g4,.sales-block .g3,.sales-kpi-row{display:grid;grid-template-columns:minmax(0,1fr)!important;width:100%}
   .sales-block .kpi,.sales-kpi-row .kpi{min-width:0;width:100%;max-width:100%;overflow:hidden}
