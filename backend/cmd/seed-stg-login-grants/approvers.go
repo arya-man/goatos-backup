@@ -1,9 +1,9 @@
 package main
 
 import (
-	"github.com/vgoats/goatos/backend/internal/parkscope"
 	"context"
 	"fmt"
+	"github.com/vgoats/goatos/backend/internal/parkscope"
 	"strings"
 
 	"github.com/jackc/pgx/v5/pgxpool"
