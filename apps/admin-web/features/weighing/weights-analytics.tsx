@@ -204,6 +204,7 @@ export async function WeighingWeightsAnalyticsPage({
   const wantsValue = wantsLoads && (valueChart?.enabled ?? false);
   const [weights, growth, demographics, loadwise, loadValues] = await Promise.all([
     getShedWeights(shedParams),
+    // sectioned-aggregate-reads:allow reason=analytics-route-renders-growth-tabs-from-full-payload
     wantsGrowth ? getWeighingGrowth({ ...scope, ...readWindow }) : null,
     wantsDemographics ? getWeightDemographics({ ...scope, ...readWindow }) : null,
     wantsLoads ? getLoadwiseWeights({ park_id: parkFilter || undefined }) : null,

@@ -176,6 +176,21 @@ func TestGetShedWeightsRejectsMalformedInput(t *testing.T) {
 	}
 }
 
+func TestGetLeadershipGrowthADGRejectsMalformedSections(t *testing.T) {
+	repo := &shedWeightsRepo{}
+	svc := NewService(repo)
+	ctx := swContext(permissions.ActiveGrant{
+		Role: permissions.RoleGrowthDirector, ScopeType: "tenant", ScopeID: swTenant,
+	})
+
+	if _, err := svc.GetLeadershipGrowthADG(ctx, swActor(), swParkA, "", "", "", "", "", "parks,magic"); err != ports.ErrInvalidArgument {
+		t.Fatalf("want ErrInvalidArgument, got %v", err)
+	}
+	if repo.gotScopeParkIDs != nil {
+		t.Fatalf("repository must not be reached for invalid sections, got %v", repo.gotScopeParkIDs)
+	}
+}
+
 func TestGetShedWeightsPassesSaleThresholdTolerance(t *testing.T) {
 	repo := &shedWeightsRepo{parks: []domain.WeighingPark{{ParkID: swParkA, Name: "Coimbatore"}}}
 	svc := NewService(repo)

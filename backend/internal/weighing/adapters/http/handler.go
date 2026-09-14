@@ -45,7 +45,7 @@ type Service interface {
 	WeighingProcessState(ctx context.Context, actor domain.Actor, campaignID, fromBusinessDate, toBusinessDate string) (domain.ProcessState, error)
 	ListAlerts(ctx context.Context, actor domain.Actor, cursor string, limit int) (domain.AlertPage, error)
 	GetWeightHistory(ctx context.Context, actor domain.Actor, parkID, campaignShedID string) (domain.WeightHistory, error)
-	GetLeadershipGrowthADG(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate, sex, origin, weighingCategory string) (domain.GrowthADG, error)
+	GetLeadershipGrowthADG(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate, sex, origin, weighingCategory, sections string) (domain.GrowthADG, error)
 	GetShedWeights(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate, sex, origin, weighingCategory, saleThresholdToleranceGrams string) (domain.ShedWeights, error)
 	GetWeighingDates(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate, sex, origin, weighingCategory string) (domain.WeighingDates, error)
 	GetWeightDemographics(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate, sex, origin, weighingCategory string) (domain.WeightDemographics, error)
@@ -193,6 +193,7 @@ func (h *Handler) GetLeadershipGrowthADG(w http.ResponseWriter, r *http.Request)
 		r.URL.Query().Get("sex"),
 		r.URL.Query().Get("origin"),
 		r.URL.Query().Get("weighing_category"),
+		r.URL.Query().Get("sections"),
 	)
 	h.respond(w, r, result, err)
 }

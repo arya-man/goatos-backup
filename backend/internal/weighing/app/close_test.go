@@ -372,7 +372,7 @@ func (r *scenarioRepo) GetWeightHistory(context.Context, string, []string, strin
 	return domain.WeightHistory{}, nil
 }
 
-func (r *scenarioRepo) GetLeadershipGrowthADG(context.Context, string, []string, time.Time, time.Time, string, string, string) (domain.GrowthADG, error) {
+func (r *scenarioRepo) GetLeadershipGrowthADG(context.Context, string, []string, time.Time, time.Time, string, string, string, string) (domain.GrowthADG, error) {
 	return domain.GrowthADG{}, nil
 }
 
@@ -401,7 +401,7 @@ func (r *multiParkScenarioRepo) GetWeightHistory(context.Context, string, []stri
 	return domain.WeightHistory{}, nil
 }
 
-func (r *multiParkScenarioRepo) GetLeadershipGrowthADG(context.Context, string, []string, time.Time, time.Time, string, string, string) (domain.GrowthADG, error) {
+func (r *multiParkScenarioRepo) GetLeadershipGrowthADG(context.Context, string, []string, time.Time, time.Time, string, string, string, string) (domain.GrowthADG, error) {
 	return domain.GrowthADG{}, nil
 }
 

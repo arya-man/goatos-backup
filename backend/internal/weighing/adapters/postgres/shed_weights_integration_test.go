@@ -695,11 +695,11 @@ ON CONFLICT DO NOTHING`, repoTenant, femaleGoat)
 	seedLoadLumpWeigh(t, ctx, pool, loadPartAOld, loadCampaignPartA, repoShedProof, 20.0, 10,
 		time.Date(2026, 7, 10, 6, 0, 0, 0, time.UTC))
 
-	female, err := repo.GetLeadershipGrowthADG(ctx, repoTenant, []string{repoPark}, from, to, "female", "", "")
+	female, err := repo.GetLeadershipGrowthADG(ctx, repoTenant, []string{repoPark}, from, to, "female", "", "", "")
 	if err != nil {
 		t.Fatalf("GetLeadershipGrowthADG(female): %v", err)
 	}
-	male, err := repo.GetLeadershipGrowthADG(ctx, repoTenant, []string{repoPark}, from, to, "male", "", "")
+	male, err := repo.GetLeadershipGrowthADG(ctx, repoTenant, []string{repoPark}, from, to, "male", "", "", "")
 	if err != nil {
 		t.Fatalf("GetLeadershipGrowthADG(male): %v", err)
 	}
@@ -781,7 +781,7 @@ ON CONFLICT DO NOTHING`, repoTenant, femaleGoat)
 	// good manners. Every block is checked, because a filter threaded into three of four is exactly
 	// the defect this test exists for.
 	const otherPark = "00000000-0000-4000-8000-0000000030fe"
-	scoped, err := repo.GetLeadershipGrowthADG(ctx, repoTenant, []string{otherPark}, from, to, "female", "", "")
+	scoped, err := repo.GetLeadershipGrowthADG(ctx, repoTenant, []string{otherPark}, from, to, "female", "", "", "")
 	if err != nil {
 		t.Fatalf("GetLeadershipGrowthADG(other park): %v", err)
 	}
@@ -807,7 +807,7 @@ INSERT INTO weighing_shed_observations (
   $4::uuid, $5::uuid, 'sexfilter-withdrawn', $6::timestamptz, 'rework', $6::timestamptz)`,
 		repoTenant, loadCampaignPartA, loadPartAOld, repoShedProofTwo, repoOperator,
 		time.Date(2026, 7, 11, 6, 0, 0, 0, time.UTC))
-	afterWithdrawn, err := repo.GetLeadershipGrowthADG(ctx, repoTenant, []string{repoPark}, from, to, "female", "", "")
+	afterWithdrawn, err := repo.GetLeadershipGrowthADG(ctx, repoTenant, []string{repoPark}, from, to, "female", "", "", "")
 	if err != nil {
 		t.Fatalf("GetLeadershipGrowthADG after a withdrawn weigh: %v", err)
 	}
@@ -861,11 +861,11 @@ ON CONFLICT DO NOTHING`, repoTenant, oldGoat)
 	// enough that any honest sale-readiness count must include her.
 	seedShedWeightScan(t, ctx, pool, "LONG-AGO-TAG", 41.0, from.AddDate(0, 0, -200))
 
-	female, err := repo.GetLeadershipGrowthADG(ctx, repoTenant, []string{repoPark}, from, to, "female", "", "")
+	female, err := repo.GetLeadershipGrowthADG(ctx, repoTenant, []string{repoPark}, from, to, "female", "", "", "")
 	if err != nil {
 		t.Fatalf("GetLeadershipGrowthADG(female): %v", err)
 	}
-	unfiltered, err := repo.GetLeadershipGrowthADG(ctx, repoTenant, []string{repoPark}, from, to, "", "", "")
+	unfiltered, err := repo.GetLeadershipGrowthADG(ctx, repoTenant, []string{repoPark}, from, to, "", "", "", "")
 	if err != nil {
 		t.Fatalf("GetLeadershipGrowthADG(unfiltered): %v", err)
 	}

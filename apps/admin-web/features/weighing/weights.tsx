@@ -286,9 +286,9 @@ export async function WeighingWeightsPage({
   };
   const [weights, growth, demographics, growthDirector] = await Promise.all([
     getShedWeights({ ...scope, ...window }),
-    getWeighingGrowth({ ...scope, ...window }),
+    getWeighingGrowth({ ...scope, ...window, sections: "rejected,shed_leaderboard,parks,losing_animals" }),
     getWeightDemographics({ ...scope, ...window }),
-    getGrowthDirector({ ...scope, ...window }),
+    getGrowthDirector({ ...scope, ...window, sections: "road_to_sale,fair_fight" }),
   ]);
 
   if (firstAuthRequiredError(weights, growth, demographics, growthDirector))

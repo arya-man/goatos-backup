@@ -29,7 +29,42 @@ If any of these don't match, stop and fix context before proceeding
 
 Nothing in this stack has been applied yet — live `goatos-stg` resources
 still need import into `gs://goatos-stg-tf-state` first (see
-`infra/envs/stg/README.md`). Once that's done:
+`infra/envs/stg/README.md`). Import at least the live Grafana durability
+surface before any broad apply:
+
+```bash
+cd infra/envs/stg
+terraform init
+
+terraform import \
+  google_cloud_run_v2_service.grafana \
+  projects/goatos-stg/locations/asia-south1/services/goatos-stg-grafana
+terraform import \
+  google_storage_bucket.grafana_provisioning \
+  goatos-stg-grafana-provisioning
+terraform import \
+  google_storage_bucket_object.grafana_datasources \
+  goatos-stg-grafana-provisioning/provisioning/datasources/datasources.yaml
+terraform import \
+  google_storage_bucket_object.grafana_dashboards_provider \
+  goatos-stg-grafana-provisioning/provisioning/dashboards/dashboards.yaml
+
+for file in ../../grafana/dashboards/*.json; do
+  name="$(basename "$file")"
+  terraform import \
+    "google_storage_bucket_object.grafana_dashboard_jsons[\"$name\"]" \
+    "goatos-stg-grafana-provisioning/dashboards/$name"
+done
+```
+
+If the service account, Secret Manager containers, IAM members, or bucket IAM
+bindings already exist live, import those matching `observability.tf` addresses
+too before applying. Secret versions remain out-of-band and must not be put in
+Terraform. The post-deploy smoke also needs the
+`google_cloud_run_v2_service_iam_member.grafana_deploy_smoke_invoker` binding
+for `goatos-github-deploy-stg@goatos-stg.iam.gserviceaccount.com`; import or
+apply that binding before relying on Cloud Build to run the smoke. Once imports
+are complete:
 
 ```bash
 # 1. Confirm project context (see §0)
@@ -98,58 +133,93 @@ curl -sS https://<api-stg-url>/app/bootstrap -H "Authorization: Bearer <token>"
 ### 2.2 Check GMP has metrics
 
 ```bash
-gcloud monitoring time-series list \
-  --project=goatos-stg \
-  --filter='metric.type="prometheus.googleapis.com/http_server_request_duration_seconds/histogram"' \
-  --interval-start-time="$(date -u -v-15M +%Y-%m-%dT%H:%M:%SZ)" \
-  --interval-end-time="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+START="$(date -u -v-24H +%Y-%m-%dT%H:%M:%SZ)"
+END="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+TOKEN="$(gcloud auth print-access-token)"
+
+curl -fsS -G \
+  -H "Authorization: Bearer $TOKEN" \
+  "https://monitoring.googleapis.com/v3/projects/goatos-stg/timeSeries" \
+  --data-urlencode 'filter=metric.type="prometheus.googleapis.com/http_server_requests_total/counter" AND resource.type="prometheus_target"' \
+  --data-urlencode "interval.startTime=$START" \
+  --data-urlencode "interval.endTime=$END" \
+  --data-urlencode 'view=FULL' \
+  --data-urlencode 'pageSize=5' \
+  | jq '.timeSeries | length'
 ```
 
-Expect at least one series. If empty: check the OTel Collector's own Cloud
-Run logs for exporter errors (`gcloud run services logs read
-goatos-stg-otel-collector --project=goatos-stg --region=asia-south1`), and
-confirm the caller (api/job) actually has `roles/run.invoker` on the
-collector (`otel_collector_invoker` binding in `observability.tf`).
+Expect at least one series. `goatos-stg` app metrics land under
+`resource.type="prometheus_target"`; `generic_task` is visible in Cloud Trace
+span resource labels but is **not** the Cloud Monitoring time-series resource
+for GMP metrics. If empty, inspect the OTel Collector sidecar logs on the
+producer service revision (`goatos-api-stg`, `goatos-kernel-worker-stg`, or
+`goatos-stg-grafana-alloy`) and confirm that service has
+`GOATOS_OBS_SINK=otlp`, `GOATOS_OTLP_ENDPOINT=http://localhost:4318`, and the
+sidecar container is ready.
 
 ### 2.3 Check Cloud Trace has spans
 
 ```bash
 gcloud logging read \
-  'resource.type="cloud_run_revision" AND resource.labels.service_name="goatos-stg-api"' \
+  'resource.type="cloud_run_revision" AND resource.labels.service_name="goatos-api-stg" AND trace:*' \
   --project=goatos-stg --limit=5 --format='value(trace)'
 ```
 
-Pick a trace id from the output and confirm it resolves in Cloud Trace
-(console, or `gcloud trace` if the CLI surface is available in your gcloud
-version). A healthy trace for a write request should show spans from the API
-handler down through the DB query **and** — if the write triggered an outbox
-publish — the async consumer/obligation spans on the same trace, since
-`traceparent` is propagated through the outbox envelope
-(`OBSERVABILITY_DESIGN.md` §2.2).
+Pick a trace id from the output and confirm it resolves in Cloud Trace. The
+CLI does not always include a `gcloud trace list` surface, so the REST API is
+the deterministic check:
+
+```bash
+TRACE_ID="<trace id without projects/goatos-stg/traces/>"
+TOKEN="$(gcloud auth print-access-token)"
+curl -fsS \
+  -H "Authorization: Bearer $TOKEN" \
+  "https://cloudtrace.googleapis.com/v1/projects/goatos-stg/traces/$TRACE_ID" \
+  | jq '.spans[] | {name, parentSpanId, labels}'
+```
+
+Current staging wiring is partial:
+
+- API request spans and `otelpgx` DB spans are live in one trace.
+- Kernel relay/consumer spans propagate from the relay publish span onward.
+- Browser -> backend is not fully live until the admin-web build sets
+  `NEXT_PUBLIC_FARO_COLLECTOR_URL`; the current deployed revision does not.
+- Producer write -> outbox relay -> consumer is not one continuous trace yet
+  because producer modules do not persist W3C `traceparent` into outbox
+  `headers` at insert time; the existing `trace_id` column is a business/audit
+  correlation label, not a W3C trace context.
 
 ### 2.4 Open each Grafana dashboard and confirm panels populate
 
 Using the access flow in `GRAFANA_ACCESS.md`:
 
 ```bash
-# Headless check via API — confirm the dashboard resolves and its panels'
-# datasource queries return data (spot-check a couple of panel queries
-# rather than every one).
-curl -sS "$GRAFANA_STG_URL/api/dashboards/uid/api-red" \
+# Durability smoke: compares every committed infra/grafana/dashboards/*.json
+# UID with live Grafana, failing if the live instance is empty or missing any
+# committed dashboard. This is also run by the staging backend/web deploy.
+node tools/deploy/smoke-stg-grafana-dashboards.mjs
+
+# Headless spot-check via API — confirm a dashboard resolves, then inspect a
+# couple of panel queries for real data rather than checking every panel here.
+curl -sS "$GRAFANA_STG_URL/api/dashboards/uid/goatos-stg-api-red" \
   -H "Authorization: Bearer $GRAFANA_STG_TOKEN"
 ```
 
-Walk all 6 (`docs/observability/README.md` has the full list) after traffic
+Walk all committed dashboards (`docs/observability/README.md` has the full list) after traffic
 generation:
 
-1. **API/RED** — request rate + p50/90/99 should show non-zero data for the
-   routes hit in §2.1.
-2. **DB** — query duration panels populate; Cloud SQL Insights panel needs the
-   `insights_config` apply from step 2 of §1 to have landed.
+1. **API/RED** — request rate + p50/p95/p99 should show data for the routes hit
+   in §2.1. Cloud Monitoring supports p50/p95/p99 aligners, not p90.
+2. **DB** — Cloud SQL CPU/memory/disk/connections are native Cloud Monitoring
+   metrics and should always populate for `goatos-stg-core-db`. DB pool and
+   `otelpgx` query-duration panels use GMP `prometheus_target` metrics; today
+   they group by `pgx_operation_type`, with table/query attribution remaining
+   in Cloud Trace / Query Insights until a low-cardinality metric label exists.
 3. **Kernel pipeline** — needs a write that triggers an outbox event (e.g. a
    goat move/stage change) to show non-zero outbox/consumer panels.
-4. **Frontend RUM** — needs admin-web's Faro SDK wired and a real browser
-   session hitting it; empty until that lane's rollout step runs.
+4. **Frontend RUM** — code has FaroProvider, but the deployed admin-web
+   revision must be rebuilt with `NEXT_PUBLIC_FARO_COLLECTOR_URL` before
+   browser traffic reaches `goatos-stg-grafana-alloy`.
 5. **Mobile** — needs the analytics rollup job to have run at least once
    (`goatos-stg-analytics-rollup`, triggered manually after reseed and before a demo —
    see §4) AND the `analytics.mobile_*_rollup` tables to exist (backend-owned

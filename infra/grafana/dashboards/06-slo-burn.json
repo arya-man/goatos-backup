@@ -1,21 +1,33 @@
 {
   "uid": "goatos-stg-slo-burn",
-  "title": "Goat OS stg — SLO / burn rate",
+  "title": "Goat OS — SLO / burn rate",
   "description": "Availability + latency SLOs with multi-window burn-rate framing per OBSERVABILITY_DESIGN.md section 7. Every threshold below is read directly from infra/envs/stg/variables.tf so this dashboard cannot drift from the alert policies in infra/envs/stg/monitoring.tf: api_availability_slo=99.5%, api_error_rate_alert_threshold_ratio=1%, api_latency_p99_read_slo_seconds=0.8s, api_latency_p99_write_slo_seconds=1.5s, consumer_lag_slo_seconds=60s, notification_success_slo_ratio=99% (failure alert threshold 1%). Queried through the 'Google Cloud Monitoring' (stackdriver) datasource — this environment has no Prometheus datasource; ratio panels use Cloud Monitoring's native MQL join (verified live) instead of PromQL.",
   "schemaVersion": 39,
   "version": 1,
   "editable": true,
   "graphTooltip": 1,
   "timezone": "Asia/Kolkata",
-  "time": { "from": "now-7d", "to": "now" },
+  "time": {
+    "from": "now-7d",
+    "to": "now"
+  },
   "refresh": "1m",
-  "tags": ["goatos", "stg", "slo", "burn-rate"],
+  "tags": [
+    "goatos",
+    "slo",
+    "burn-rate"
+  ],
   "panels": [
     {
       "id": 100,
       "title": "Error budget",
       "type": "row",
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
       "collapsed": false,
       "panels": []
     },
@@ -24,16 +36,47 @@
       "title": "API availability — 7d (SLO 99.5%)",
       "description": "100 * (1 - 5xx/total) over the dashboard's selected window (default 7d; widen to 30d via the time picker for the official monthly figure). SLO 99.5% = api_availability_slo.",
       "type": "stat",
-      "gridPos": { "h": 6, "w": 6, "x": 0, "y": 1 },
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 0,
+        "y": 1
+      },
       "datasource": "Google Cloud Monitoring",
       "fieldConfig": {
         "defaults": {
-          "unit": "percent", "min": 99, "max": 100,
-          "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "yellow", "value": 99.3 }, { "color": "green", "value": 99.5 }] }
+          "unit": "percent",
+          "min": 99,
+          "max": 100,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 99.3
+              },
+              {
+                "color": "green",
+                "value": 99.5
+              }
+            ]
+          }
         },
         "overrides": []
       },
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "graphMode": "area", "textMode": "value_and_name" },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "graphMode": "area",
+        "textMode": "value_and_name"
+      },
       "targets": [
         {
           "refId": "A",
@@ -41,7 +84,7 @@
           "queryType": "timeSeriesQuery",
           "timeSeriesQuery": {
             "projectName": "goatos-stg",
-            "query": "{ err: fetch generic_task :: 'prometheus.googleapis.com/http_server_requests_total/counter' | filter metric.status_class == '5xx' | align rate(1h) | every 1h | group_by [], [value: sum(val())] ; total: fetch generic_task :: 'prometheus.googleapis.com/http_server_requests_total/counter' | align rate(1h) | every 1h | group_by [], [value: sum(val())] } | join | value 100 * (1 - val(0) / val(1))"
+            "query": "{ err: fetch prometheus_target :: 'prometheus.googleapis.com/http_server_requests_total/counter' | filter metric.status_class == '5xx' | align rate(1h) | every 1h | group_by [], [value: sum(val())] ; total: fetch prometheus_target :: 'prometheus.googleapis.com/http_server_requests_total/counter' | align rate(1h) | every 1h | group_by [], [value: sum(val())] } | join | value 100 * (1 - val(0) / val(1))"
           }
         }
       ]
@@ -51,16 +94,45 @@
       "title": "Error budget remaining (this window)",
       "description": "100 - (100 * observed error rate / (1 - SLO)) as a percent-of-budget-remaining gauge. 0% means the entire 30-day error budget for 99.5% availability is exhausted at the current burn rate; negative means already over budget.",
       "type": "gauge",
-      "gridPos": { "h": 6, "w": 6, "x": 6, "y": 1 },
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 6,
+        "y": 1
+      },
       "datasource": "Google Cloud Monitoring",
       "fieldConfig": {
         "defaults": {
-          "unit": "percent", "min": 0, "max": 100,
-          "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "yellow", "value": 30 }, { "color": "green", "value": 60 }] }
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 30
+              },
+              {
+                "color": "green",
+                "value": 60
+              }
+            ]
+          }
         },
         "overrides": []
       },
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      },
       "targets": [
         {
           "refId": "A",
@@ -68,7 +140,7 @@
           "queryType": "timeSeriesQuery",
           "timeSeriesQuery": {
             "projectName": "goatos-stg",
-            "query": "{ err: fetch generic_task :: 'prometheus.googleapis.com/http_server_requests_total/counter' | filter metric.status_class == '5xx' | align rate(1h) | every 1h | group_by [], [value: sum(val())] ; total: fetch generic_task :: 'prometheus.googleapis.com/http_server_requests_total/counter' | align rate(1h) | every 1h | group_by [], [value: sum(val())] } | join | value 100 * (1 - (val(0) / val(1)) / 0.005)"
+            "query": "{ err: fetch prometheus_target :: 'prometheus.googleapis.com/http_server_requests_total/counter' | filter metric.status_class == '5xx' | align rate(1h) | every 1h | group_by [], [value: sum(val())] ; total: fetch prometheus_target :: 'prometheus.googleapis.com/http_server_requests_total/counter' | align rate(1h) | every 1h | group_by [], [value: sum(val())] } | join | value 100 * (1 - (val(0) / val(1)) / 0.005)"
           }
         }
       ]
@@ -78,17 +150,53 @@
       "title": "Error budget burn rate (1h / 6h windows)",
       "description": "Burn rate = observed error rate / (1 - SLO). A burn rate of 1.0 exhausts the full 30d error budget in exactly 30d. Threshold lines at 14.4x (fast/1h page, matches Google SRE multi-window guidance) and 6x (slow/6h page) — infra/envs/stg/monitoring.tf's api_error_rate_slo_burn policy currently pages on the simpler 'error rate over 5m exceeds 1%' condition rather than these exact multipliers; the lines below show where a genuine multi-window burn-rate alert would sit if adopted.",
       "type": "timeseries",
-      "gridPos": { "h": 6, "w": 12, "x": 12, "y": 1 },
+      "gridPos": {
+        "h": 6,
+        "w": 12,
+        "x": 12,
+        "y": 1
+      },
       "datasource": "Google Cloud Monitoring",
       "fieldConfig": {
         "defaults": {
           "unit": "short",
-          "custom": { "drawStyle": "line", "fillOpacity": 10, "lineWidth": 2, "thresholdsStyle": { "mode": "dashed" } },
-          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 6 }, { "color": "red", "value": 14.4 }] }
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 2,
+            "thresholdsStyle": {
+              "mode": "dashed"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 6
+              },
+              {
+                "color": "red",
+                "value": 14.4
+              }
+            ]
+          }
         },
         "overrides": []
       },
-      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
       "targets": [
         {
           "refId": "A",
@@ -97,7 +205,7 @@
           "queryType": "timeSeriesQuery",
           "timeSeriesQuery": {
             "projectName": "goatos-stg",
-            "query": "{ err: fetch generic_task :: 'prometheus.googleapis.com/http_server_requests_total/counter' | filter metric.status_class == '5xx' | align rate(1h) | every 5m | group_by [], [value: sum(val())] ; total: fetch generic_task :: 'prometheus.googleapis.com/http_server_requests_total/counter' | align rate(1h) | every 5m | group_by [], [value: sum(val())] } | join | value (val(0) / val(1)) / 0.005"
+            "query": "{ err: fetch prometheus_target :: 'prometheus.googleapis.com/http_server_requests_total/counter' | filter metric.status_class == '5xx' | align rate(1h) | every 5m | group_by [], [value: sum(val())] ; total: fetch prometheus_target :: 'prometheus.googleapis.com/http_server_requests_total/counter' | align rate(1h) | every 5m | group_by [], [value: sum(val())] } | join | value (val(0) / val(1)) / 0.005"
           }
         },
         {
@@ -107,7 +215,7 @@
           "queryType": "timeSeriesQuery",
           "timeSeriesQuery": {
             "projectName": "goatos-stg",
-            "query": "{ err: fetch generic_task :: 'prometheus.googleapis.com/http_server_requests_total/counter' | filter metric.status_class == '5xx' | align rate(6h) | every 5m | group_by [], [value: sum(val())] ; total: fetch generic_task :: 'prometheus.googleapis.com/http_server_requests_total/counter' | align rate(6h) | every 5m | group_by [], [value: sum(val())] } | join | value (val(0) / val(1)) / 0.005"
+            "query": "{ err: fetch prometheus_target :: 'prometheus.googleapis.com/http_server_requests_total/counter' | filter metric.status_class == '5xx' | align rate(6h) | every 5m | group_by [], [value: sum(val())] ; total: fetch prometheus_target :: 'prometheus.googleapis.com/http_server_requests_total/counter' | align rate(6h) | every 5m | group_by [], [value: sum(val())] } | join | value (val(0) / val(1)) / 0.005"
           }
         }
       ]
@@ -116,7 +224,12 @@
       "id": 101,
       "title": "Latency SLOs",
       "type": "row",
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 7 },
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 7
+      },
       "collapsed": false,
       "panels": []
     },
@@ -125,17 +238,49 @@
       "title": "Read-path p99 latency (SLO < 800ms)",
       "description": "prometheus.googleapis.com/http_server_request_duration_seconds/histogram, filtered to GET/HEAD, p99. Matches api_latency_p99_burn's read-path condition in monitoring.tf.",
       "type": "timeseries",
-      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 8 },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 0,
+        "y": 8
+      },
       "datasource": "Google Cloud Monitoring",
       "fieldConfig": {
         "defaults": {
           "unit": "s",
-          "custom": { "drawStyle": "line", "fillOpacity": 10, "lineWidth": 2, "thresholdsStyle": { "mode": "line" } },
-          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 0.8 }] }
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 2,
+            "thresholdsStyle": {
+              "mode": "line"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 0.8
+              }
+            ]
+          }
         },
         "overrides": []
       },
-      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "single" } },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "single"
+        }
+      },
       "targets": [
         {
           "refId": "A",
@@ -144,11 +289,11 @@
           "queryType": "timeSeriesList",
           "timeSeriesList": {
             "projectName": "goatos-stg",
-            "filters": ["metric.type", "=", "prometheus.googleapis.com/http_server_request_duration_seconds/histogram", "AND", "resource.type", "=", "generic_task", "AND", "metric.label.method", "=", "GET"],
             "view": "FULL",
             "perSeriesAligner": "ALIGN_PERCENTILE_99",
             "crossSeriesReducer": "REDUCE_MAX",
-            "alignmentPeriod": "300s"
+            "alignmentPeriod": "300s",
+            "filter": "metric.type = \"prometheus.googleapis.com/http_server_request_duration_seconds/histogram\" AND resource.type = \"prometheus_target\" AND metric.label.method = \"GET\""
           }
         }
       ]
@@ -158,17 +303,49 @@
       "title": "Write-path p99 latency (SLO < 1500ms)",
       "description": "Same histogram filtered to POST — matches api_latency_p99_write_burn's write-path condition (POST/PUT/PATCH/DELETE in monitoring.tf; Cloud Monitoring's classic filter DSL supports one_of(...) for the full method set, shown for POST here to keep the query single-metric and side-step the 'matches more than one metric' ambiguity seen with multi-value equality filters in testing).",
       "type": "timeseries",
-      "gridPos": { "h": 7, "w": 12, "x": 12, "y": 8 },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 12,
+        "y": 8
+      },
       "datasource": "Google Cloud Monitoring",
       "fieldConfig": {
         "defaults": {
           "unit": "s",
-          "custom": { "drawStyle": "line", "fillOpacity": 10, "lineWidth": 2, "thresholdsStyle": { "mode": "line" } },
-          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 1.5 }] }
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 2,
+            "thresholdsStyle": {
+              "mode": "line"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1.5
+              }
+            ]
+          }
         },
         "overrides": []
       },
-      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "single" } },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "single"
+        }
+      },
       "targets": [
         {
           "refId": "A",
@@ -177,11 +354,11 @@
           "queryType": "timeSeriesList",
           "timeSeriesList": {
             "projectName": "goatos-stg",
-            "filters": ["metric.type", "=", "prometheus.googleapis.com/http_server_request_duration_seconds/histogram", "AND", "resource.type", "=", "generic_task", "AND", "metric.label.method", "=", "POST"],
             "view": "FULL",
             "perSeriesAligner": "ALIGN_PERCENTILE_99",
             "crossSeriesReducer": "REDUCE_MAX",
-            "alignmentPeriod": "300s"
+            "alignmentPeriod": "300s",
+            "filter": "metric.type = \"prometheus.googleapis.com/http_server_request_duration_seconds/histogram\" AND resource.type = \"prometheus_target\" AND metric.label.method = \"POST\""
           }
         }
       ]
@@ -190,7 +367,12 @@
       "id": 102,
       "title": "Kernel SLOs",
       "type": "row",
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 15 },
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 15
+      },
       "collapsed": false,
       "panels": []
     },
@@ -199,17 +381,49 @@
       "title": "Outbox publish lag p99 + consumer lag (SLO consumer lag < 60s)",
       "description": "kernel.outbox.publish.duration p99 alongside kernel.consumer.lag. consumer_lag_slo_seconds = 60s (kernel_consumer_lag alert policy).",
       "type": "timeseries",
-      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 16 },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 0,
+        "y": 16
+      },
       "datasource": "Google Cloud Monitoring",
       "fieldConfig": {
         "defaults": {
           "unit": "s",
-          "custom": { "drawStyle": "line", "fillOpacity": 10, "lineWidth": 1, "thresholdsStyle": { "mode": "line" } },
-          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 60 }] }
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 1,
+            "thresholdsStyle": {
+              "mode": "line"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 60
+              }
+            ]
+          }
         },
         "overrides": []
       },
-      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
       "targets": [
         {
           "refId": "A",
@@ -218,11 +432,11 @@
           "queryType": "timeSeriesList",
           "timeSeriesList": {
             "projectName": "goatos-stg",
-            "filters": ["metric.type", "=", "prometheus.googleapis.com/kernel_outbox_publish_duration_seconds/histogram", "AND", "resource.type", "=", "generic_task"],
             "view": "FULL",
             "perSeriesAligner": "ALIGN_PERCENTILE_99",
             "crossSeriesReducer": "REDUCE_MAX",
-            "alignmentPeriod": "300s"
+            "alignmentPeriod": "300s",
+            "filter": "metric.type = \"prometheus.googleapis.com/kernel_outbox_publish_duration_seconds/histogram\" AND resource.type = \"prometheus_target\""
           }
         },
         {
@@ -232,11 +446,11 @@
           "queryType": "timeSeriesList",
           "timeSeriesList": {
             "projectName": "goatos-stg",
-            "filters": ["metric.type", "=", "prometheus.googleapis.com/kernel_consumer_lag_seconds/gauge", "AND", "resource.type", "=", "generic_task"],
             "view": "FULL",
             "perSeriesAligner": "ALIGN_MAX",
             "crossSeriesReducer": "REDUCE_MAX",
-            "alignmentPeriod": "300s"
+            "alignmentPeriod": "300s",
+            "filter": "metric.type = \"prometheus.googleapis.com/kernel_consumer_lag_seconds/gauge\" AND resource.type = \"prometheus_target\""
           }
         }
       ]
@@ -246,17 +460,55 @@
       "title": "Notification dispatch success rate (SLO > 99%)",
       "description": "100 * (1 - rate(kernel.notify.failures) / rate(kernel.notify.send.duration count)). notification_success_slo_ratio = 99%; failure alert threshold 1%.",
       "type": "timeseries",
-      "gridPos": { "h": 7, "w": 12, "x": 12, "y": 16 },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 12,
+        "y": 16
+      },
       "datasource": "Google Cloud Monitoring",
       "fieldConfig": {
         "defaults": {
-          "unit": "percent", "min": 90, "max": 100,
-          "custom": { "drawStyle": "line", "fillOpacity": 10, "lineWidth": 2, "thresholdsStyle": { "mode": "line" } },
-          "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "yellow", "value": 98.5 }, { "color": "green", "value": 99 }] }
+          "unit": "percent",
+          "min": 90,
+          "max": 100,
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 2,
+            "thresholdsStyle": {
+              "mode": "line"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 98.5
+              },
+              {
+                "color": "green",
+                "value": 99
+              }
+            ]
+          }
         },
         "overrides": []
       },
-      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "single" } },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "single"
+        }
+      },
       "targets": [
         {
           "refId": "A",
@@ -265,7 +517,7 @@
           "queryType": "timeSeriesQuery",
           "timeSeriesQuery": {
             "projectName": "goatos-stg",
-            "query": "{ fail: fetch generic_task :: 'prometheus.googleapis.com/kernel_notify_failures_total/counter' | align rate(15m) | every 5m | group_by [], [value: sum(val())] ; sent: fetch generic_task :: 'prometheus.googleapis.com/kernel_notify_send_duration_seconds/histogram' | align rate(15m) | every 5m | group_by [], [value: sum(val())] } | join | value 100 * (1 - val(0) / val(1))"
+            "query": "{ fail: fetch prometheus_target :: 'prometheus.googleapis.com/kernel_notify_failures_total/counter' | align rate(15m) | every 5m | group_by [], [value: sum(val())] ; sent: fetch prometheus_target :: 'prometheus.googleapis.com/kernel_notify_send_duration_seconds/histogram' | align rate(15m) | every 5m | group_by [], [value: sum(val())] } | join | value 100 * (1 - val(0) / val(1))"
           }
         }
       ]
@@ -274,7 +526,12 @@
       "id": 103,
       "title": "Alert policy reference",
       "type": "row",
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 23 },
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 23
+      },
       "collapsed": false,
       "panels": []
     },
@@ -282,7 +539,12 @@
       "id": 8,
       "title": "Active alert policies (from infra/envs/stg/monitoring.tf)",
       "type": "text",
-      "gridPos": { "h": 6, "w": 24, "x": 0, "y": 24 },
+      "gridPos": {
+        "h": 6,
+        "w": 24,
+        "x": 0,
+        "y": 24
+      },
       "options": {
         "mode": "markdown",
         "content": "| Policy | Condition | Threshold |\n|---|---|---|\n| `cloud_run_errors` | Cloud Run service/job emits an ERROR-severity log | any |\n| `outbox_relay_dead_letter` | outbox relay job logs `dead_letter > 0` | any |\n| `pubsub_dlq_backlog` | `num_undelivered_messages` on `goatos-stg-outbox-events-dlq-inspect` | > 0 for 5m |\n| `cloud_sql_cpu` | Cloud SQL CPU utilization | > 80% for 5m |\n| `api_error_rate_slo_burn` | 5xx rate / total rate | > 1% for 5m (SLO 99.5%) |\n| `api_latency_p99_burn` | read-path p99 | > 800ms for 5m |\n| `api_latency_p99_write_burn` | write-path p99 (POST/PUT/PATCH/DELETE) | > 1500ms for 5m |\n| `kernel_consumer_lag` | `kernel.consumer.lag` | > 60s for 5m |\n| `kernel_notification_failure_rate` | notify failure rate | > 1% for 5m (SLO success > 99%) |\n\nThis table is a read-only mirror for context — the alert policies themselves are Terraform-managed in `infra/envs/stg/monitoring.tf` / `infra/envs/stg/variables.tf`, not edited from Grafana."

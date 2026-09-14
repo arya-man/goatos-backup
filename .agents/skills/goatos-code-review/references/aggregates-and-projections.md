@@ -94,6 +94,13 @@ and page boundary independently.
    aggregate for every page. Prove one bounded aggregation, a materialized
    projection, or an indexed per-page lookup with an EXPLAIN/latency test at the
    applicable scale bar.
+   Admin-web has the same bounded-read rule for sectionable aggregate APIs:
+   a rendered route that only shows a few widgets must pass `sections` for those
+   widgets instead of fetching the whole aggregate payload. A full-payload call
+   needs an adjacent `sectioned-aggregate-reads:allow reason=<why>` exception
+   and proof that the route actually renders the full payload. New sectionable
+   APIs must be added to
+   `tools/agent-hooks/check-admin-web-sectioned-aggregate-reads.mjs`.
 7. **Backend-owned presentation contract** — labels, fallback text, and empty
    state copy returned by the contract must not be recreated as hardcoded
    frontend fallbacks.

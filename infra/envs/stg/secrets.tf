@@ -90,6 +90,12 @@ resource "google_secret_manager_secret_iam_member" "grafana_admin_password_acces
   member    = "serviceAccount:${google_service_account.grafana.email}"
 }
 
+resource "google_secret_manager_secret_iam_member" "grafana_admin_password_deploy_smoke_accessor" {
+  secret_id = google_secret_manager_secret.grafana_admin_password.id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.github_deployer.email}"
+}
+
 # Password for the read-only Postgres role Grafana's "Postgres (analytics
 # rollups)" datasource connects as (see docs/observability/INFRA.md for the
 # expected `goatos_grafana_ro` role grant, which is a backend/migration-owned

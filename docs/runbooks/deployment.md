@@ -293,6 +293,22 @@ Current public API hostname target:
 api.goatos.mesha.sg -> goatos-api-stg-backed production-facing API
 ```
 
+Proposed observability hostname target:
+
+```text
+grafana.mesha.sg -> goatos-stg-grafana through the existing goatos-stg HTTPS LB
+```
+
+Expose `grafana.mesha.sg` with IAP on the Grafana backend service, granting the
+same CEO/CXO Google SSO cohort used for admin-web verification:
+`ravi@mesha.sg`, `manohark@mesha.sg`, `manju@mesha.sg`, and
+`aryaman@mesha.sg`. Keep Grafana login as a second layer. Temporary fallback:
+public LB plus Grafana login only after anonymous access and sign-up are
+verified disabled, raw `*.run.app` access is closed with
+`internal-and-cloud-load-balancing` ingress, and the admin password/token
+handling is reviewed. The exact NEG/backend/cert/url-map/DNS steps live in
+`docs/observability/GRAFANA_ACCESS.md`.
+
 Legacy/internal dashboard hostnames:
 
 ```text

@@ -89,6 +89,30 @@ frontend request
 Do not let frontend/mobile read BigQuery, Sheets, Firestore, GCS, or operational
 databases directly.
 
+## Sectioned Aggregate Reads
+
+Admin-web routes must not fetch a whole sectionable aggregate payload when the
+page renders only a subset of that payload. This is the failure mode that turns
+a narrow dashboard into a seconds-class API read: the browser asks for four
+widgets, but the backend calculates every tab, table, leaderboard, and expensive
+aggregate branch.
+
+The rule is:
+
+- the backend may keep omitted `sections` as the full legacy/mobile-compatible
+  response;
+- admin-web rendered pages must pass `sections` matching the widgets currently
+  rendered by that route;
+- if a route truly renders the full aggregate payload, the call must carry an
+  adjacent `sectioned-aggregate-reads:allow reason=<why>` comment so reviewers
+  and future agents see the deliberate exception;
+- any new sectionable aggregate API must be added to
+  `tools/agent-hooks/check-admin-web-sectioned-aggregate-reads.mjs` in the same
+  PR that introduces the admin-web call.
+
+`make admin-web-sectioned-aggregate-reads-guard`, `make guardrails`, and the
+admin-web local CI lane enforce this for changed admin-web feature files.
+
 ## Relationship To Cube And Governed Metrics
 
 Cube remains the semantic owner for governed KPI definitions. Operational

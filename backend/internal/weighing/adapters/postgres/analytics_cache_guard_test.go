@@ -88,6 +88,42 @@ func TestGrowthAnalyticsReadFanoutIsBounded(t *testing.T) {
 	}
 }
 
+func TestGrowthADGSectionsOneToManyPageBoundaryParkScopeStatusMatrix(t *testing.T) {
+	all := growthADGSectionSet("")
+	for _, section := range []string{
+		"sale_readiness",
+		"rejected",
+		"eligibility",
+		"trend",
+		"weekly_gain",
+		"shed_leaderboard",
+		"distribution",
+		"lump_sum",
+		"parks",
+		"losing_animals",
+		"by_park",
+	} {
+		if !all[section] {
+			t.Fatalf("default growth ADG read must keep legacy full-payload section %q", section)
+		}
+	}
+
+	narrow := growthADGSectionSet("rejected,shed_leaderboard,parks,losing_animals")
+	for _, section := range []string{"rejected", "shed_leaderboard", "parks", "losing_animals"} {
+		if !narrow[section] {
+			t.Fatalf("narrowed growth ADG read dropped requested section %q", section)
+		}
+	}
+	for _, section := range []string{"sale_readiness", "eligibility", "trend", "weekly_gain", "distribution", "lump_sum", "by_park"} {
+		if narrow[section] {
+			t.Fatalf("narrowed growth ADG read must not run unrequested section %q", section)
+		}
+	}
+	if growthADGSectionKey(narrow) != "rejected,shed_leaderboard,parks,losing_animals" {
+		t.Fatalf("section cache key must be stable, got %q", growthADGSectionKey(narrow))
+	}
+}
+
 func readSource(t *testing.T, file string) string {
 	t.Helper()
 	b, err := os.ReadFile(file)

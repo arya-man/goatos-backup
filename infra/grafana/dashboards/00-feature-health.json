@@ -1,0 +1,1593 @@
+{
+  "annotations": {
+    "list": []
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": null,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {
+      "id": 1,
+      "title": "What this shows",
+      "type": "text",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 4
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "Top row uses Cloud Run native metrics that were verified in `goatos-stg` Cloud Monitoring. Feature rows use app route metrics (`http_server_requests_total` and `http_server_request_duration_seconds`) from Google Managed Prometheus under `resource.type=\"prometheus_target\"`, grouped by backend route template, so Weighing, Vaccination, Feed, Sales, Procurement and other feature traffic show separately when those routes receive requests in the selected time window."
+      }
+    },
+    {
+      "id": 2,
+      "title": "Admin web traffic",
+      "type": "stat",
+      "gridPos": {
+        "x": 0,
+        "y": 4,
+        "w": 6,
+        "h": 4
+      },
+      "datasource": "Google Cloud Monitoring",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": "Google Cloud Monitoring",
+          "aliasBy": "goatos-admin-web-stg",
+          "queryType": "timeSeriesList",
+          "timeSeriesList": {
+            "projectName": "goatos-stg",
+            "view": "FULL",
+            "groupBys": [],
+            "perSeriesAligner": "ALIGN_RATE",
+            "crossSeriesReducer": "REDUCE_SUM",
+            "alignmentPeriod": "300s",
+            "filter": "metric.type = \"run.googleapis.com/request_count\" AND resource.label.service_name = \"goatos-admin-web-stg\""
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.5
+              },
+              {
+                "color": "red",
+                "value": 1.5
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto"
+      }
+    },
+    {
+      "id": 3,
+      "title": "Business API traffic",
+      "type": "stat",
+      "gridPos": {
+        "x": 6,
+        "y": 4,
+        "w": 6,
+        "h": 4
+      },
+      "datasource": "Google Cloud Monitoring",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": "Google Cloud Monitoring",
+          "aliasBy": "goatos-api-stg",
+          "queryType": "timeSeriesList",
+          "timeSeriesList": {
+            "projectName": "goatos-stg",
+            "view": "FULL",
+            "groupBys": [],
+            "perSeriesAligner": "ALIGN_RATE",
+            "crossSeriesReducer": "REDUCE_SUM",
+            "alignmentPeriod": "300s",
+            "filter": "metric.type = \"run.googleapis.com/request_count\" AND resource.label.service_name = \"goatos-api-stg\""
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.5
+              },
+              {
+                "color": "red",
+                "value": 1.5
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto"
+      }
+    },
+    {
+      "id": 4,
+      "title": "Analytics events lane traffic",
+      "type": "stat",
+      "gridPos": {
+        "x": 12,
+        "y": 4,
+        "w": 6,
+        "h": 4
+      },
+      "datasource": "Google Cloud Monitoring",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": "Google Cloud Monitoring",
+          "aliasBy": "goatos-analytics-events-stg",
+          "queryType": "timeSeriesList",
+          "timeSeriesList": {
+            "projectName": "goatos-stg",
+            "view": "FULL",
+            "groupBys": [],
+            "perSeriesAligner": "ALIGN_RATE",
+            "crossSeriesReducer": "REDUCE_SUM",
+            "alignmentPeriod": "300s",
+            "filter": "metric.type = \"run.googleapis.com/request_count\" AND resource.label.service_name = \"goatos-analytics-events-stg\""
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.5
+              },
+              {
+                "color": "red",
+                "value": 1.5
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto"
+      }
+    },
+    {
+      "id": 5,
+      "title": "Grafana dashboard traffic",
+      "type": "stat",
+      "gridPos": {
+        "x": 18,
+        "y": 4,
+        "w": 6,
+        "h": 4
+      },
+      "datasource": "Google Cloud Monitoring",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": "Google Cloud Monitoring",
+          "aliasBy": "goatos-stg-grafana",
+          "queryType": "timeSeriesList",
+          "timeSeriesList": {
+            "projectName": "goatos-stg",
+            "view": "FULL",
+            "groupBys": [],
+            "perSeriesAligner": "ALIGN_RATE",
+            "crossSeriesReducer": "REDUCE_SUM",
+            "alignmentPeriod": "300s",
+            "filter": "metric.type = \"run.googleapis.com/request_count\" AND resource.label.service_name = \"goatos-stg-grafana\""
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.5
+              },
+              {
+                "color": "red",
+                "value": 1.5
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto"
+      }
+    },
+    {
+      "id": 10,
+      "title": "Business API status classes",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 8,
+        "w": 12,
+        "h": 7
+      },
+      "datasource": "Google Cloud Monitoring",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": "Google Cloud Monitoring",
+          "aliasBy": "{{metric.label.response_code_class}}",
+          "queryType": "timeSeriesList",
+          "timeSeriesList": {
+            "projectName": "goatos-stg",
+            "view": "FULL",
+            "groupBys": [
+              "metric.label.response_code_class"
+            ],
+            "perSeriesAligner": "ALIGN_RATE",
+            "crossSeriesReducer": "REDUCE_SUM",
+            "alignmentPeriod": "300s",
+            "filter": "metric.type = \"run.googleapis.com/request_count\" AND resource.label.service_name = \"goatos-api-stg\""
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.5
+              },
+              {
+                "color": "red",
+                "value": 1.5
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 11,
+      "title": "Business API latency p50/p95/p99",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 12,
+        "y": 8,
+        "w": 12,
+        "h": 7
+      },
+      "datasource": "Google Cloud Monitoring",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": "Google Cloud Monitoring",
+          "aliasBy": "goatos-api-stg",
+          "queryType": "timeSeriesList",
+          "timeSeriesList": {
+            "projectName": "goatos-stg",
+            "view": "FULL",
+            "groupBys": [],
+            "perSeriesAligner": "ALIGN_PERCENTILE_50",
+            "crossSeriesReducer": "REDUCE_NONE",
+            "alignmentPeriod": "300s",
+            "filter": "metric.type = \"run.googleapis.com/request_latencies\" AND resource.label.service_name = \"goatos-api-stg\""
+          }
+        },
+        {
+          "refId": "B",
+          "datasource": "Google Cloud Monitoring",
+          "aliasBy": "p95",
+          "queryType": "timeSeriesList",
+          "timeSeriesList": {
+            "projectName": "goatos-stg",
+            "view": "FULL",
+            "groupBys": [],
+            "perSeriesAligner": "ALIGN_PERCENTILE_95",
+            "crossSeriesReducer": "REDUCE_NONE",
+            "alignmentPeriod": "300s",
+            "filter": "metric.type = \"run.googleapis.com/request_latencies\" AND resource.label.service_name = \"goatos-api-stg\""
+          }
+        },
+        {
+          "refId": "C",
+          "datasource": "Google Cloud Monitoring",
+          "aliasBy": "p99",
+          "queryType": "timeSeriesList",
+          "timeSeriesList": {
+            "projectName": "goatos-stg",
+            "view": "FULL",
+            "groupBys": [],
+            "perSeriesAligner": "ALIGN_PERCENTILE_99",
+            "crossSeriesReducer": "REDUCE_NONE",
+            "alignmentPeriod": "300s",
+            "filter": "metric.type = \"run.googleapis.com/request_latencies\" AND resource.label.service_name = \"goatos-api-stg\""
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.5
+              },
+              {
+                "color": "red",
+                "value": 1.5
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 100,
+      "title": "Weights: request rate by route",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 15,
+        "w": 12,
+        "h": 7
+      },
+      "datasource": "Google Cloud Monitoring",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": "Google Cloud Monitoring",
+          "aliasBy": "{{metric.label.route}}",
+          "queryType": "timeSeriesList",
+          "timeSeriesList": {
+            "projectName": "goatos-stg",
+            "filter": "metric.type=\"prometheus.googleapis.com/http_server_requests_total/counter\" AND resource.type=\"prometheus_target\" AND metric.label.route=monitoring.regex.full_match(\".*weighing.*|.*growth-director.*\")",
+            "view": "FULL",
+            "groupBys": [
+              "metric.label.route",
+              "metric.label.status_class"
+            ],
+            "perSeriesAligner": "ALIGN_RATE",
+            "crossSeriesReducer": "REDUCE_SUM",
+            "alignmentPeriod": "300s"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.5
+              },
+              {
+                "color": "red",
+                "value": 1.5
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 101,
+      "title": "Weights: p95 latency by route",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 22,
+        "w": 12,
+        "h": 7
+      },
+      "datasource": "Google Cloud Monitoring",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": "Google Cloud Monitoring",
+          "aliasBy": "{{metric.label.route}}",
+          "queryType": "timeSeriesList",
+          "timeSeriesList": {
+            "projectName": "goatos-stg",
+            "filter": "metric.type=\"prometheus.googleapis.com/http_server_request_duration_seconds/histogram\" AND resource.type=\"prometheus_target\" AND metric.label.route=monitoring.regex.full_match(\".*weighing.*|.*growth-director.*\")",
+            "view": "FULL",
+            "groupBys": [
+              "metric.label.route"
+            ],
+            "perSeriesAligner": "ALIGN_PERCENTILE_95",
+            "crossSeriesReducer": "REDUCE_NONE",
+            "alignmentPeriod": "300s"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.5
+              },
+              {
+                "color": "red",
+                "value": 1.5
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 102,
+      "title": "Vaccination / PC: request rate by route",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 12,
+        "y": 15,
+        "w": 12,
+        "h": 7
+      },
+      "datasource": "Google Cloud Monitoring",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": "Google Cloud Monitoring",
+          "aliasBy": "{{metric.label.route}}",
+          "queryType": "timeSeriesList",
+          "timeSeriesList": {
+            "projectName": "goatos-stg",
+            "filter": "metric.type=\"prometheus.googleapis.com/http_server_requests_total/counter\" AND resource.type=\"prometheus_target\" AND metric.label.route=monitoring.regex.full_match(\".*vaccination.*|.*preventive.*|.*protocol-adherence.*|.*action-center.*\")",
+            "view": "FULL",
+            "groupBys": [
+              "metric.label.route",
+              "metric.label.status_class"
+            ],
+            "perSeriesAligner": "ALIGN_RATE",
+            "crossSeriesReducer": "REDUCE_SUM",
+            "alignmentPeriod": "300s"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.5
+              },
+              {
+                "color": "red",
+                "value": 1.5
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 103,
+      "title": "Vaccination / PC: p95 latency by route",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 12,
+        "y": 22,
+        "w": 12,
+        "h": 7
+      },
+      "datasource": "Google Cloud Monitoring",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": "Google Cloud Monitoring",
+          "aliasBy": "{{metric.label.route}}",
+          "queryType": "timeSeriesList",
+          "timeSeriesList": {
+            "projectName": "goatos-stg",
+            "filter": "metric.type=\"prometheus.googleapis.com/http_server_request_duration_seconds/histogram\" AND resource.type=\"prometheus_target\" AND metric.label.route=monitoring.regex.full_match(\".*vaccination.*|.*preventive.*|.*protocol-adherence.*|.*action-center.*\")",
+            "view": "FULL",
+            "groupBys": [
+              "metric.label.route"
+            ],
+            "perSeriesAligner": "ALIGN_PERCENTILE_95",
+            "crossSeriesReducer": "REDUCE_NONE",
+            "alignmentPeriod": "300s"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.5
+              },
+              {
+                "color": "red",
+                "value": 1.5
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 104,
+      "title": "Work Board / Tasks: request rate by route",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 29,
+        "w": 12,
+        "h": 7
+      },
+      "datasource": "Google Cloud Monitoring",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": "Google Cloud Monitoring",
+          "aliasBy": "{{metric.label.route}}",
+          "queryType": "timeSeriesList",
+          "timeSeriesList": {
+            "projectName": "goatos-stg",
+            "filter": "metric.type=\"prometheus.googleapis.com/http_server_requests_total/counter\" AND resource.type=\"prometheus_target\" AND metric.label.route=monitoring.regex.full_match(\".*work-board.*|.*workflows.*|.*tasks.*|.*approvals.*|.*verify.*\")",
+            "view": "FULL",
+            "groupBys": [
+              "metric.label.route",
+              "metric.label.status_class"
+            ],
+            "perSeriesAligner": "ALIGN_RATE",
+            "crossSeriesReducer": "REDUCE_SUM",
+            "alignmentPeriod": "300s"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.5
+              },
+              {
+                "color": "red",
+                "value": 1.5
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 105,
+      "title": "Work Board / Tasks: p95 latency by route",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 36,
+        "w": 12,
+        "h": 7
+      },
+      "datasource": "Google Cloud Monitoring",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": "Google Cloud Monitoring",
+          "aliasBy": "{{metric.label.route}}",
+          "queryType": "timeSeriesList",
+          "timeSeriesList": {
+            "projectName": "goatos-stg",
+            "filter": "metric.type=\"prometheus.googleapis.com/http_server_request_duration_seconds/histogram\" AND resource.type=\"prometheus_target\" AND metric.label.route=monitoring.regex.full_match(\".*work-board.*|.*workflows.*|.*tasks.*|.*approvals.*|.*verify.*\")",
+            "view": "FULL",
+            "groupBys": [
+              "metric.label.route"
+            ],
+            "perSeriesAligner": "ALIGN_PERCENTILE_95",
+            "crossSeriesReducer": "REDUCE_NONE",
+            "alignmentPeriod": "300s"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.5
+              },
+              {
+                "color": "red",
+                "value": 1.5
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 106,
+      "title": "Feed: request rate by route",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 12,
+        "y": 29,
+        "w": 12,
+        "h": 7
+      },
+      "datasource": "Google Cloud Monitoring",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": "Google Cloud Monitoring",
+          "aliasBy": "{{metric.label.route}}",
+          "queryType": "timeSeriesList",
+          "timeSeriesList": {
+            "projectName": "goatos-stg",
+            "filter": "metric.type=\"prometheus.googleapis.com/http_server_requests_total/counter\" AND resource.type=\"prometheus_target\" AND metric.label.route=monitoring.regex.full_match(\".*feed.*\")",
+            "view": "FULL",
+            "groupBys": [
+              "metric.label.route",
+              "metric.label.status_class"
+            ],
+            "perSeriesAligner": "ALIGN_RATE",
+            "crossSeriesReducer": "REDUCE_SUM",
+            "alignmentPeriod": "300s"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.5
+              },
+              {
+                "color": "red",
+                "value": 1.5
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 107,
+      "title": "Feed: p95 latency by route",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 12,
+        "y": 36,
+        "w": 12,
+        "h": 7
+      },
+      "datasource": "Google Cloud Monitoring",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": "Google Cloud Monitoring",
+          "aliasBy": "{{metric.label.route}}",
+          "queryType": "timeSeriesList",
+          "timeSeriesList": {
+            "projectName": "goatos-stg",
+            "filter": "metric.type=\"prometheus.googleapis.com/http_server_request_duration_seconds/histogram\" AND resource.type=\"prometheus_target\" AND metric.label.route=monitoring.regex.full_match(\".*feed.*\")",
+            "view": "FULL",
+            "groupBys": [
+              "metric.label.route"
+            ],
+            "perSeriesAligner": "ALIGN_PERCENTILE_95",
+            "crossSeriesReducer": "REDUCE_NONE",
+            "alignmentPeriod": "300s"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.5
+              },
+              {
+                "color": "red",
+                "value": 1.5
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 108,
+      "title": "Sales: request rate by route",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 43,
+        "w": 12,
+        "h": 7
+      },
+      "datasource": "Google Cloud Monitoring",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": "Google Cloud Monitoring",
+          "aliasBy": "{{metric.label.route}}",
+          "queryType": "timeSeriesList",
+          "timeSeriesList": {
+            "projectName": "goatos-stg",
+            "filter": "metric.type=\"prometheus.googleapis.com/http_server_requests_total/counter\" AND resource.type=\"prometheus_target\" AND metric.label.route=monitoring.regex.full_match(\".*sales.*\")",
+            "view": "FULL",
+            "groupBys": [
+              "metric.label.route",
+              "metric.label.status_class"
+            ],
+            "perSeriesAligner": "ALIGN_RATE",
+            "crossSeriesReducer": "REDUCE_SUM",
+            "alignmentPeriod": "300s"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.5
+              },
+              {
+                "color": "red",
+                "value": 1.5
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 109,
+      "title": "Sales: p95 latency by route",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 50,
+        "w": 12,
+        "h": 7
+      },
+      "datasource": "Google Cloud Monitoring",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": "Google Cloud Monitoring",
+          "aliasBy": "{{metric.label.route}}",
+          "queryType": "timeSeriesList",
+          "timeSeriesList": {
+            "projectName": "goatos-stg",
+            "filter": "metric.type=\"prometheus.googleapis.com/http_server_request_duration_seconds/histogram\" AND resource.type=\"prometheus_target\" AND metric.label.route=monitoring.regex.full_match(\".*sales.*\")",
+            "view": "FULL",
+            "groupBys": [
+              "metric.label.route"
+            ],
+            "perSeriesAligner": "ALIGN_PERCENTILE_95",
+            "crossSeriesReducer": "REDUCE_NONE",
+            "alignmentPeriod": "300s"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.5
+              },
+              {
+                "color": "red",
+                "value": 1.5
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 110,
+      "title": "Procurement: request rate by route",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 12,
+        "y": 43,
+        "w": 12,
+        "h": 7
+      },
+      "datasource": "Google Cloud Monitoring",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": "Google Cloud Monitoring",
+          "aliasBy": "{{metric.label.route}}",
+          "queryType": "timeSeriesList",
+          "timeSeriesList": {
+            "projectName": "goatos-stg",
+            "filter": "metric.type=\"prometheus.googleapis.com/http_server_requests_total/counter\" AND resource.type=\"prometheus_target\" AND metric.label.route=monitoring.regex.full_match(\".*procurement.*\")",
+            "view": "FULL",
+            "groupBys": [
+              "metric.label.route",
+              "metric.label.status_class"
+            ],
+            "perSeriesAligner": "ALIGN_RATE",
+            "crossSeriesReducer": "REDUCE_SUM",
+            "alignmentPeriod": "300s"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.5
+              },
+              {
+                "color": "red",
+                "value": 1.5
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 111,
+      "title": "Procurement: p95 latency by route",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 12,
+        "y": 50,
+        "w": 12,
+        "h": 7
+      },
+      "datasource": "Google Cloud Monitoring",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": "Google Cloud Monitoring",
+          "aliasBy": "{{metric.label.route}}",
+          "queryType": "timeSeriesList",
+          "timeSeriesList": {
+            "projectName": "goatos-stg",
+            "filter": "metric.type=\"prometheus.googleapis.com/http_server_request_duration_seconds/histogram\" AND resource.type=\"prometheus_target\" AND metric.label.route=monitoring.regex.full_match(\".*procurement.*\")",
+            "view": "FULL",
+            "groupBys": [
+              "metric.label.route"
+            ],
+            "perSeriesAligner": "ALIGN_PERCENTILE_95",
+            "crossSeriesReducer": "REDUCE_NONE",
+            "alignmentPeriod": "300s"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.5
+              },
+              {
+                "color": "red",
+                "value": 1.5
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 112,
+      "title": "Counts / Milk: request rate by route",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 57,
+        "w": 12,
+        "h": 7
+      },
+      "datasource": "Google Cloud Monitoring",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": "Google Cloud Monitoring",
+          "aliasBy": "{{metric.label.route}}",
+          "queryType": "timeSeriesList",
+          "timeSeriesList": {
+            "projectName": "goatos-stg",
+            "filter": "metric.type=\"prometheus.googleapis.com/http_server_requests_total/counter\" AND resource.type=\"prometheus_target\" AND metric.label.route=monitoring.regex.full_match(\".*counts.*|.*milk.*\")",
+            "view": "FULL",
+            "groupBys": [
+              "metric.label.route",
+              "metric.label.status_class"
+            ],
+            "perSeriesAligner": "ALIGN_RATE",
+            "crossSeriesReducer": "REDUCE_SUM",
+            "alignmentPeriod": "300s"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.5
+              },
+              {
+                "color": "red",
+                "value": 1.5
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 113,
+      "title": "Counts / Milk: p95 latency by route",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 64,
+        "w": 12,
+        "h": 7
+      },
+      "datasource": "Google Cloud Monitoring",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": "Google Cloud Monitoring",
+          "aliasBy": "{{metric.label.route}}",
+          "queryType": "timeSeriesList",
+          "timeSeriesList": {
+            "projectName": "goatos-stg",
+            "filter": "metric.type=\"prometheus.googleapis.com/http_server_request_duration_seconds/histogram\" AND resource.type=\"prometheus_target\" AND metric.label.route=monitoring.regex.full_match(\".*counts.*|.*milk.*\")",
+            "view": "FULL",
+            "groupBys": [
+              "metric.label.route"
+            ],
+            "perSeriesAligner": "ALIGN_PERCENTILE_95",
+            "crossSeriesReducer": "REDUCE_NONE",
+            "alignmentPeriod": "300s"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.5
+              },
+              {
+                "color": "red",
+                "value": 1.5
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 114,
+      "title": "Health / Herd Signals: request rate by route",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 12,
+        "y": 57,
+        "w": 12,
+        "h": 7
+      },
+      "datasource": "Google Cloud Monitoring",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": "Google Cloud Monitoring",
+          "aliasBy": "{{metric.label.route}}",
+          "queryType": "timeSeriesList",
+          "timeSeriesList": {
+            "projectName": "goatos-stg",
+            "filter": "metric.type=\"prometheus.googleapis.com/http_server_requests_total/counter\" AND resource.type=\"prometheus_target\" AND metric.label.route=monitoring.regex.full_match(\".*health.*|.*herd-signals.*\")",
+            "view": "FULL",
+            "groupBys": [
+              "metric.label.route",
+              "metric.label.status_class"
+            ],
+            "perSeriesAligner": "ALIGN_RATE",
+            "crossSeriesReducer": "REDUCE_SUM",
+            "alignmentPeriod": "300s"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.5
+              },
+              {
+                "color": "red",
+                "value": 1.5
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 115,
+      "title": "Health / Herd Signals: p95 latency by route",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 12,
+        "y": 64,
+        "w": 12,
+        "h": 7
+      },
+      "datasource": "Google Cloud Monitoring",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": "Google Cloud Monitoring",
+          "aliasBy": "{{metric.label.route}}",
+          "queryType": "timeSeriesList",
+          "timeSeriesList": {
+            "projectName": "goatos-stg",
+            "filter": "metric.type=\"prometheus.googleapis.com/http_server_request_duration_seconds/histogram\" AND resource.type=\"prometheus_target\" AND metric.label.route=monitoring.regex.full_match(\".*health.*|.*herd-signals.*\")",
+            "view": "FULL",
+            "groupBys": [
+              "metric.label.route"
+            ],
+            "perSeriesAligner": "ALIGN_PERCENTILE_95",
+            "crossSeriesReducer": "REDUCE_NONE",
+            "alignmentPeriod": "300s"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.5
+              },
+              {
+                "color": "red",
+                "value": 1.5
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 116,
+      "title": "APM status",
+      "type": "text",
+      "gridPos": {
+        "x": 0,
+        "y": 71,
+        "w": 24,
+        "h": 5
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "End-to-end APM is partly wired and live for server spans: API Cloud Run request spans and `otelpgx` DB spans are present in Cloud Trace, and Cloud SQL infrastructure plus pgx pool/query metrics are present in Cloud Monitoring. Missing pieces: the deployed admin-web revision does not have `NEXT_PUBLIC_FARO_COLLECTOR_URL`, so browser Faro/RUM traces are not entering Alloy; only selected admin-web proxy paths forward `traceparent`; and outbox producers still do not persist W3C `traceparent` into outbox headers, so producer write -> relay -> consumer is not one continuous trace yet."
+      }
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "style": "dark",
+  "tags": [
+    "goatos",
+    "features",
+    "live",
+    "weighing",
+    "vaccination",
+    "feed",
+    "sales",
+    "procurement"
+  ],
+  "templating": {
+    "list": []
+  },
+  "time": {
+    "from": "now-24h",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Goat OS — Feature health",
+  "uid": "goatos-feature-health",
+  "version": 2,
+  "weekStart": ""
+}

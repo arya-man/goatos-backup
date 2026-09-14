@@ -19,3 +19,14 @@ For true sub-500 ms cold reads, split the analytics payload by render need inste
 - add an opt-in `include`/`sections` query parameter or a new narrow endpoint for `/weighing/leadership/growth` so table-only consumers can request just headline plus losing animals or just headline plus weekly gain;
 - add an opt-in switch for `/weighing/shed-weights` to skip `by_load` when the caller renders only shed rows/KPIs;
 - keep existing defaults backward-compatible until admin-web is updated to request the narrower shapes explicitly.
+
+## 2026-09-15 PR update
+
+This PR implements the first safe split:
+
+- `/weighing/leadership/growth` now accepts `sections`. Blank remains the full legacy payload for mobile and analytics pages. The Weights landing page requests only `rejected,shed_leaderboard,parks,losing_animals`, so it skips eligibility, trend, weekly gain, distribution, sale readiness, lump-sum trend, and all-parks gain.
+- `/growth-director/weights` now accepts `sections`. Blank remains the full legacy payload. The Weights landing page requests only `road_to_sale,fair_fight`, so it skips slow-growth, feed-vs-growth, feed-problems, and trust widgets.
+- Admin-web source guards pin both narrowed calls so the page cannot silently drift back to broad cold-cache reads.
+- The remaining first-screen slow reads, `/weighing/shed-weights` and `/weighing/weight-demographics`, still feed visible content on the page. They should not be faked empty or dropped. The next safe cut is a backend contract split for exactly which visible panels need which demographic sections, plus live query-plan evidence before adding indexes.
+
+Expected effect after deploy: lower Weights page tail latency and less DB-pool pressure because two expensive analytics endpoints no longer compute sections the first screen does not render. This is not a claim that every Weights endpoint is now below 500 ms; staging proof must be taken after deploy with the same tenant, user, parks, date window, and page URL.

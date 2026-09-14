@@ -470,6 +470,7 @@ run_common() {
   # the runs that follow the change which caused the drift.
   step "push-hook-freshness-guard" bash tools/ci/check-push-hook-freshness.sh
   step "parallel-dispatch cleanup guard" bash tools/ci/check-parallel-dispatch-cleanup.sh
+  step "grafana-durability-guard" make grafana-durability-guard
   # gradle-worktree-lock guard: ~47s, all of it sandboxed sleeps. The guard runs
   # no Gradle ITSELF, but case (g) does drive `run-local-ci.sh android` under
   # trace — which is why this file is in its trigger set alongside the library.
@@ -673,6 +674,7 @@ run_admin_web() {
   step "admin-web typecheck"     npm --prefix apps/admin-web run typecheck
   step "admin-web unit tests"    npm --prefix apps/admin-web run test
   step "admin-web request reads" make admin-web-request-reads-guard
+  step "admin-web sectioned aggregate reads" make admin-web-sectioned-aggregate-reads-guard
   step "admin-web proof media egress" make admin-web-proof-media-egress-guard
   step "admin-web phone viewport"  make admin-web-phone-viewport-guard
   step "admin-web prefetch"      make admin-web-prefetch-guard

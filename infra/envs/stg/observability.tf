@@ -373,6 +373,14 @@ resource "google_cloud_run_v2_service_iam_member" "grafana_operator_invoker" {
   member   = each.value
 }
 
+resource "google_cloud_run_v2_service_iam_member" "grafana_deploy_smoke_invoker" {
+  project  = var.project_id
+  location = var.region
+  name     = google_cloud_run_v2_service.grafana.name
+  role     = "roles/run.invoker"
+  member   = "serviceAccount:${google_service_account.github_deployer.email}"
+}
+
 # ---------------------------------------------------------------------------
 # Grafana Alloy — Cloud Run service (public: admin-web's browser RUM SDK
 # posts directly to this endpoint from the user's browser, so it cannot be

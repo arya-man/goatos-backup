@@ -120,11 +120,12 @@ const breedSexJoin = `
 // GetGrowthDirectorWeights builds all six Growth Director widgets for one
 // half-open window. parkIDs must be non-empty and already authorization-checked
 // by the caller: this method does no scoping of its own.
-func (r *Repository) GetGrowthDirectorWeights(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time, sex, origin, weighingCategory string) (domain.GrowthDirectorWeights, error) {
+func (r *Repository) GetGrowthDirectorWeights(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time, sex, origin, weighingCategory, sections string) (domain.GrowthDirectorWeights, error) {
 	loc := biztime.DefaultLocation()
 	startDate := periodStart.In(loc).Format("2006-01-02")
 	endExclusiveDate := periodEnd.In(loc).Format("2006-01-02")
-	cacheKey := growthDirectorReadKey("weights", tenantID, strings.Join(append([]string{}, parkIDs...), ","), startDate, endExclusiveDate, sex, origin, weighingCategory)
+	sectionSet := growthDirectorSectionSet(sections)
+	cacheKey := growthDirectorReadKey("weights:"+growthDirectorSectionKey(sectionSet), tenantID, strings.Join(append([]string{}, parkIDs...), ","), startDate, endExclusiveDate, sex, origin, weighingCategory)
 	if cached, ok := r.getCachedRead(cacheKey); ok {
 		if out, ok := cached.(domain.GrowthDirectorWeights); ok {
 			return out, nil
@@ -216,32 +217,84 @@ func (r *Repository) GetGrowthDirectorWeights(ctx context.Context, tenantID stri
 	}
 	out.Parks = parks
 
-	if out.RoadToSale, err = r.roadToSale(ctx, tenantID, parkIDs, startDate, endExclusiveDate, sexFiltered, scope, idMap, weighingCategory); err != nil {
+	if sectionSet["road_to_sale"] {
+		out.RoadToSale, err = r.roadToSale(ctx, tenantID, parkIDs, startDate, endExclusiveDate, sexFiltered, scope, idMap, weighingCategory)
+	}
+	if err != nil {
 		flightErr = err
 		return out, err
 	}
-	if out.FairFight, err = r.fairFight(ctx, tenantID, parkIDs, startDate, endExclusiveDate, sexFiltered, scope, idMap, weighingCategory); err != nil {
+	if sectionSet["fair_fight"] {
+		out.FairFight, err = r.fairFight(ctx, tenantID, parkIDs, startDate, endExclusiveDate, sexFiltered, scope, idMap, weighingCategory)
+	}
+	if err != nil {
 		flightErr = err
 		return out, err
 	}
-	if out.SlowGrowth, err = r.slowGrowth(ctx, tenantID, parkIDs, startDate, endExclusiveDate, sexFiltered, scope, idMap, weighingCategory); err != nil {
+	if sectionSet["slow_growth"] {
+		out.SlowGrowth, err = r.slowGrowth(ctx, tenantID, parkIDs, startDate, endExclusiveDate, sexFiltered, scope, idMap, weighingCategory)
+	}
+	if err != nil {
 		flightErr = err
 		return out, err
 	}
-	if out.FeedVsGrowth, err = r.feedVsGrowth(ctx, tenantID, parkIDs, startDate, endExclusiveDate, sexFiltered, scope, idMap, weighingCategory); err != nil {
+	if sectionSet["feed_vs_growth"] {
+		out.FeedVsGrowth, err = r.feedVsGrowth(ctx, tenantID, parkIDs, startDate, endExclusiveDate, sexFiltered, scope, idMap, weighingCategory)
+	}
+	if err != nil {
 		flightErr = err
 		return out, err
 	}
-	if out.FeedProblems, err = r.feedProblems(ctx, tenantID, parkIDs, startDate, endExclusiveDate, sexFiltered, scope); err != nil {
+	if sectionSet["feed_problems"] {
+		out.FeedProblems, err = r.feedProblems(ctx, tenantID, parkIDs, startDate, endExclusiveDate, sexFiltered, scope)
+	}
+	if err != nil {
 		flightErr = err
 		return out, err
 	}
-	if out.Trust, err = r.trust(ctx, tenantID, parkIDs, startDate, endExclusiveDate, sexFiltered, scope, idMap, weighingCategory); err != nil {
+	if sectionSet["trust"] {
+		out.Trust, err = r.trust(ctx, tenantID, parkIDs, startDate, endExclusiveDate, sexFiltered, scope, idMap, weighingCategory)
+	}
+	if err != nil {
 		flightErr = err
 		return out, err
 	}
 	flightOut = out
 	return out, nil
+}
+
+func growthDirectorSectionSet(raw string) map[string]bool {
+	all := map[string]bool{
+		"road_to_sale":   true,
+		"fair_fight":     true,
+		"slow_growth":    true,
+		"feed_vs_growth": true,
+		"feed_problems":  true,
+		"trust":          true,
+	}
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return all
+	}
+	out := map[string]bool{}
+	for _, part := range strings.Split(raw, ",") {
+		key := strings.TrimSpace(part)
+		if all[key] {
+			out[key] = true
+		}
+	}
+	return out
+}
+
+func growthDirectorSectionKey(sections map[string]bool) string {
+	keys := []string{"road_to_sale", "fair_fight", "slow_growth", "feed_vs_growth", "feed_problems", "trust"}
+	var active []string
+	for _, key := range keys {
+		if sections[key] {
+			active = append(active, key)
+		}
+	}
+	return strings.Join(active, ",")
 }
 
 func emptyBands() []domain.WeightBand {

@@ -281,8 +281,9 @@ qualifying AS (
 //
 // periodStart/periodEnd are Asia/Kolkata business-day boundaries expressed as UTC instants by
 // the caller (the service layer), half-open [periodStart, periodEnd).
-func (r *Repository) GetLeadershipGrowthADG(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time, sex, origin, weighingCategory string) (out domain.GrowthADG, err error) {
-	cacheKey := weighingAnalyticsCacheKey("growth_adg", tenantID, parkIDs, periodStart, periodEnd, sex, origin, weighingCategory)
+func (r *Repository) GetLeadershipGrowthADG(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time, sex, origin, weighingCategory, sections string) (out domain.GrowthADG, err error) {
+	sectionSet := growthADGSectionSet(sections)
+	cacheKey := weighingAnalyticsCacheKey("growth_adg:"+growthADGSectionKey(sectionSet), tenantID, parkIDs, periodStart, periodEnd, sex, origin, weighingCategory)
 	if cached, ok := r.getReadCache(cacheKey); ok {
 		return cached.(domain.GrowthADG), nil
 	}
@@ -308,17 +309,19 @@ func (r *Repository) GetLeadershipGrowthADG(ctx context.Context, tenantID string
 	// Resolved ONCE for the whole read: every widget below must talk about the same kids, and
 	// resolving per helper would let a slow herd write land between two of them and show a
 	// leaderboard whose animals are not the ones the headline counted.
-	// WithAllTime: this read carries sale readiness, which reports latest-EVER weights and therefore
-	// needs the unwindowed tag list. Every other read on the page uses the plain resolver, so the
-	// all-history scan is paid once, here, by the one caller that reads it.
-	sexScope, scopeErr := r.resolveSexScopeWithAllTime(ctx, tenantID, parkIDs, sex, periodStart, periodEnd)
+	resolveSexScope := r.resolveSexScope
+	if sectionSet["sale_readiness"] {
+		resolveSexScope = r.resolveSexScopeWithAllTime
+	}
+	sexScope, scopeErr := resolveSexScope(ctx, tenantID, parkIDs, sex, periodStart, periodEnd)
 	if scopeErr != nil {
 		return domain.GrowthADG{}, scopeErr
 	}
-	// Origin resolves its all-time list too, for the same reason and by the same caller: sale
-	// readiness below reads AllTimeTags, and intersecting a resolved list against an unresolved
-	// (therefore empty) one would report zero sale-ready kids on every filtered page.
-	originScope, originErr := r.resolveOriginScopeWithAllTime(ctx, tenantID, parkIDs, origin, periodStart, periodEnd)
+	resolveOriginScope := r.resolveOriginScope
+	if sectionSet["sale_readiness"] {
+		resolveOriginScope = r.resolveOriginScopeWithAllTime
+	}
+	originScope, originErr := resolveOriginScope(ctx, tenantID, parkIDs, origin, periodStart, periodEnd)
 	if originErr != nil {
 		return domain.GrowthADG{}, originErr
 	}
@@ -326,11 +329,13 @@ func (r *Repository) GetLeadershipGrowthADG(ctx context.Context, tenantID string
 	// the same animals, and a map resolved per helper would let a herd write land between two of them
 	// and show a leaderboard keyed differently from the headline above it.
 	//
-	// ALL TIME, not the window, because this read carries sale readiness -- which reports each
-	// animal's latest-EVER weight, so an animal whose two tags were both last scanned before the
-	// window would otherwise be counted as two animals with two "latest" weights. The unbounded scan
-	// is the one sale readiness and the all-time sex scope on this same page already perform.
-	idMap, idErr := r.resolveAnimalIdentityMapAllTime(ctx, tenantID, parkIDs)
+	resolveIdentityMap := r.resolveAnimalIdentityMap
+	if sectionSet["sale_readiness"] {
+		resolveIdentityMap = func(ctx context.Context, tenantID string, parkIDs []string, _, _ time.Time) (AnimalIdentityMap, error) {
+			return r.resolveAnimalIdentityMapAllTime(ctx, tenantID, parkIDs)
+		}
+	}
+	idMap, idErr := resolveIdentityMap(ctx, tenantID, parkIDs, periodStart.AddDate(0, 0, -growthLookbackDays), periodEnd)
 	if idErr != nil {
 		return domain.GrowthADG{}, idErr
 	}
@@ -435,56 +440,76 @@ func (r *Repository) GetLeadershipGrowthADG(ctx context.Context, tenantID string
 	// enough to hide remote DB round-trip time, but not enough for one cold-cache request to monopolize
 	// the app's DB pool while the Weights page is also fetching shed weights, demographics, and Growth
 	// Director data.
-	run(func() error {
-		var err error
-		rejected, err = r.growthRejectedCount(ctx, tenantID, parkIDs, periodStart, periodEnd, weighingCategory)
-		return err
-	})
-	run(func() error {
-		var err error
-		eligibility, err = r.growthEligibility(ctx, tenantID, parkIDs, periodStart, periodEnd, sexFiltered, scope, idMap, weighingCategory)
-		return err
-	})
-	run(func() error {
-		var err error
-		trend, err = r.growthTrend(ctx, tenantID, parkIDs, lookbackStart, periodStart, periodEnd, sexFiltered, scope, idMap, weighingCategory)
-		return err
-	})
-	run(func() error {
-		var err error
-		weeklyGain, err = r.growthWeeklyGain(ctx, tenantID, parkIDs, lookbackStart, periodStart, periodEnd, sexFiltered, scope, idMap, weighingCategory)
-		return err
-	})
-	run(func() error {
-		var err error
-		leaderboard, err = r.growthShedLeaderboard(ctx, tenantID, parkIDs, lookbackStart, periodStart, periodEnd, sexFiltered, scope, idMap, weighingCategory)
-		return err
-	})
-	run(func() error {
-		var err error
-		distribution, err = r.growthDistribution(ctx, tenantID, parkIDs, lookbackStart, periodStart, periodEnd, sexFiltered, scope, idMap, weighingCategory)
-		return err
-	})
-	run(func() error {
-		var err error
-		saleReadiness, err = r.growthSaleReadiness(ctx, tenantID, parkIDs, sexFiltered, scope, idMap, weighingCategory)
-		return err
-	})
-	run(func() error {
-		var err error
-		lumpSum, err = r.growthLumpSumTrend(ctx, tenantID, parkIDs, periodStart, periodEnd, sexFiltered, scope, weighingCategory)
-		return err
-	})
-	run(func() error {
-		var err error
-		parks, err = r.growthParkNames(ctx, tenantID, parkIDs)
-		return err
-	})
-	run(func() error {
-		var err error
-		losing, err = r.growthLosingAnimals(ctx, tenantID, parkIDs, lookbackStart, periodStart, periodEnd, sexFiltered, scope, idMap, weighingCategory)
-		return err
-	})
+	if sectionSet["rejected"] {
+		run(func() error {
+			var err error
+			rejected, err = r.growthRejectedCount(ctx, tenantID, parkIDs, periodStart, periodEnd, weighingCategory)
+			return err
+		})
+	}
+	if sectionSet["eligibility"] {
+		run(func() error {
+			var err error
+			eligibility, err = r.growthEligibility(ctx, tenantID, parkIDs, periodStart, periodEnd, sexFiltered, scope, idMap, weighingCategory)
+			return err
+		})
+	}
+	if sectionSet["trend"] {
+		run(func() error {
+			var err error
+			trend, err = r.growthTrend(ctx, tenantID, parkIDs, lookbackStart, periodStart, periodEnd, sexFiltered, scope, idMap, weighingCategory)
+			return err
+		})
+	}
+	if sectionSet["weekly_gain"] {
+		run(func() error {
+			var err error
+			weeklyGain, err = r.growthWeeklyGain(ctx, tenantID, parkIDs, lookbackStart, periodStart, periodEnd, sexFiltered, scope, idMap, weighingCategory)
+			return err
+		})
+	}
+	if sectionSet["shed_leaderboard"] {
+		run(func() error {
+			var err error
+			leaderboard, err = r.growthShedLeaderboard(ctx, tenantID, parkIDs, lookbackStart, periodStart, periodEnd, sexFiltered, scope, idMap, weighingCategory)
+			return err
+		})
+	}
+	if sectionSet["distribution"] {
+		run(func() error {
+			var err error
+			distribution, err = r.growthDistribution(ctx, tenantID, parkIDs, lookbackStart, periodStart, periodEnd, sexFiltered, scope, idMap, weighingCategory)
+			return err
+		})
+	}
+	if sectionSet["sale_readiness"] {
+		run(func() error {
+			var err error
+			saleReadiness, err = r.growthSaleReadiness(ctx, tenantID, parkIDs, sexFiltered, scope, idMap, weighingCategory)
+			return err
+		})
+	}
+	if sectionSet["lump_sum"] {
+		run(func() error {
+			var err error
+			lumpSum, err = r.growthLumpSumTrend(ctx, tenantID, parkIDs, periodStart, periodEnd, sexFiltered, scope, weighingCategory)
+			return err
+		})
+	}
+	if sectionSet["parks"] {
+		run(func() error {
+			var err error
+			parks, err = r.growthParkNames(ctx, tenantID, parkIDs)
+			return err
+		})
+	}
+	if sectionSet["losing_animals"] {
+		run(func() error {
+			var err error
+			losing, err = r.growthLosingAnimals(ctx, tenantID, parkIDs, lookbackStart, periodStart, periodEnd, sexFiltered, scope, idMap, weighingCategory)
+			return err
+		})
+	}
 	wg.Wait()
 	close(errs)
 	if err := <-errs; err != nil {
@@ -495,7 +520,7 @@ func (r *Repository) GetLeadershipGrowthADG(ctx context.Context, tenantID string
 	// cut: with a single park in scope the headline above already IS that park's figure, so the
 	// query would cost a scan to restate a number the response carries twice.
 	byPark := []domain.GrowthParkGain{}
-	if len(parkIDs) > 1 {
+	if sectionSet["by_park"] && len(parkIDs) > 1 {
 		byPark, err = r.growthParkGains(ctx, tenantID, parkIDs, lookbackStart, periodStart, periodEnd, sexFiltered, scope, idMap, weighingCategory)
 		if err != nil {
 			return domain.GrowthADG{}, err
@@ -522,6 +547,45 @@ func (r *Repository) GetLeadershipGrowthADG(ctx context.Context, tenantID string
 	}
 	r.setReadCacheIfEpoch(cacheKey, out, cacheEpoch)
 	return out, nil
+}
+
+func growthADGSectionSet(raw string) map[string]bool {
+	all := map[string]bool{
+		"rejected":         true,
+		"eligibility":      true,
+		"trend":            true,
+		"weekly_gain":      true,
+		"shed_leaderboard": true,
+		"distribution":     true,
+		"sale_readiness":   true,
+		"lump_sum":         true,
+		"parks":            true,
+		"losing_animals":   true,
+		"by_park":          true,
+	}
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return all
+	}
+	out := map[string]bool{}
+	for _, part := range strings.Split(raw, ",") {
+		key := strings.TrimSpace(part)
+		if all[key] {
+			out[key] = true
+		}
+	}
+	return out
+}
+
+func growthADGSectionKey(sections map[string]bool) string {
+	keys := []string{"rejected", "eligibility", "trend", "weekly_gain", "shed_leaderboard", "distribution", "sale_readiness", "lump_sum", "parks", "losing_animals", "by_park"}
+	active := make([]string, 0, len(keys))
+	for _, key := range keys {
+		if sections[key] {
+			active = append(active, key)
+		}
+	}
+	return strings.Join(active, ",")
 }
 
 func (r *Repository) growthHeadlineStats(ctx context.Context, tenantID string, parkIDs []string, lookbackStart, periodStart, periodEnd time.Time, sexFiltered bool, scope SexScope, idMap AnimalIdentityMap, weighingCategory string) (domain.GrowthADGHeadline, error) {

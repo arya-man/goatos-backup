@@ -823,7 +823,7 @@ func (r *fakeRepo) GetWeightHistory(_ context.Context, _ string, _ []string, _, 
 }
 
 // GetLeadershipGrowthADG is a stub implementation for test fakes.
-func (r *fakeRepo) GetLeadershipGrowthADG(_ context.Context, _ string, _ []string, _, _ time.Time, _, _, _ string) (domain.GrowthADG, error) {
+func (r *fakeRepo) GetLeadershipGrowthADG(_ context.Context, _ string, _ []string, _, _ time.Time, _, _, _ string, _ string) (domain.GrowthADG, error) {
 	return domain.GrowthADG{}, nil
 }
 

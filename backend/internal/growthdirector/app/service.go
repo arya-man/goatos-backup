@@ -28,7 +28,7 @@ func NewService(repo ports.Repository) *Service {
 // Weights screen. Same capability and scope rules as the weighing leadership
 // reads (GetShedWeights / GetWeightDemographics): WeighingMonitor gate, then
 // the caller's own authorized-park scope, never wider.
-func (s *Service) GetGrowthDirectorWeights(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate, sex, origin, weighingCategory string) (domain.GrowthDirectorWeights, error) {
+func (s *Service) GetGrowthDirectorWeights(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate, sex, origin, weighingCategory, sections string) (domain.GrowthDirectorWeights, error) {
 	if !permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingMonitor}, false) {
 		return domain.GrowthDirectorWeights{}, ports.ErrForbidden
 	}
@@ -43,6 +43,9 @@ func (s *Service) GetGrowthDirectorWeights(ctx context.Context, actor domain.Act
 	if weighingCategory != "" && weighingCategory != "individual_animal" && weighingCategory != "per_shed_partition" {
 		return domain.GrowthDirectorWeights{}, ports.ErrInvalidArgument
 	}
+	if err := validateGrowthDirectorSections(sections); err != nil {
+		return domain.GrowthDirectorWeights{}, err
+	}
 	periodStart, periodEndExclusive, err := s.resolveWindow(fromBusinessDate, toBusinessDate)
 	if err != nil {
 		return domain.GrowthDirectorWeights{}, err
@@ -51,7 +54,27 @@ func (s *Service) GetGrowthDirectorWeights(ctx context.Context, actor domain.Act
 	if scopeErr != nil {
 		return domain.GrowthDirectorWeights{}, scopeErr
 	}
-	return s.repo.GetGrowthDirectorWeights(ctx, actor.TenantID, parkIDs, periodStart, periodEndExclusive, sex, origin, weighingCategory)
+	return s.repo.GetGrowthDirectorWeights(ctx, actor.TenantID, parkIDs, periodStart, periodEndExclusive, sex, origin, weighingCategory, sections)
+}
+
+func validateGrowthDirectorSections(raw string) error {
+	if strings.TrimSpace(raw) == "" {
+		return nil
+	}
+	allowed := map[string]bool{
+		"road_to_sale":   true,
+		"fair_fight":     true,
+		"slow_growth":    true,
+		"feed_vs_growth": true,
+		"feed_problems":  true,
+		"trust":          true,
+	}
+	for _, part := range strings.Split(raw, ",") {
+		if !allowed[strings.TrimSpace(part)] {
+			return ports.ErrInvalidArgument
+		}
+	}
+	return nil
 }
 
 // resolveMonitorParkScope turns an OPTIONAL park_id into the concrete park list

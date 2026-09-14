@@ -459,7 +459,7 @@ type Repository interface {
 	// weighing cadence rule -- and why lump-sum totals never feed per-animal ADG). parkIDs must
 	// be non-empty and every id must already be authorization-checked by the caller: this method
 	// does no scoping of its own.
-	GetLeadershipGrowthADG(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time, sex, origin, weighingCategory string) (domain.GrowthADG, error)
+	GetLeadershipGrowthADG(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time, sex, origin, weighingCategory, sections string) (domain.GrowthADG, error)
 
 	// GetShedWeights returns one row per SHED (not per campaign bucket) carrying that
 	// shed's most recent weigh inside the half-open period [periodStart, periodEnd),

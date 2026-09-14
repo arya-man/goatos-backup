@@ -73,6 +73,24 @@ Certificate: create/attach a managed cert that includes api.goatos.mesha.sg
 Android prod API_BASE_URL: https://api.goatos.mesha.sg/
 ```
 
+Proposed Grafana public host:
+
+```text
+URL:         https://grafana.mesha.sg/
+Project:     goatos-stg
+Region:      asia-south1
+Cloud Run:   goatos-stg-grafana
+Raw URL:     https://goatos-stg-grafana-awtrpmn4za-el.a.run.app
+LB IP:       8.233.143.24
+NEG:         goatos-stg-grafana-neg (to create)
+Backend:     goatos-stg-grafana-backend (to create)
+URL map:     goatos-stg-dashboard-map host rule grafana.mesha.sg -> grafana-host
+Certificate: create/attach a managed cert that includes grafana.mesha.sg
+Security:    IAP on the Grafana backend service for ravi@mesha.sg,
+             manohark@mesha.sg, manju@mesha.sg, and aryaman@mesha.sg;
+             see docs/observability/GRAFANA_ACCESS.md
+```
+
 DNS lives in Cloudflare, not Google Cloud DNS:
 
 ```text
@@ -81,6 +99,7 @@ Cloudflare account id: 13c352a0cade56bf65b77c0d8b78bf53
 Zone: mesha.sg
 Record: A dashboard -> 8.233.143.24
 Record: A api.goatos -> 8.233.143.24
+Record: A grafana -> 8.233.143.24 (only after the Grafana LB/cert/security path is ready)
 Proxy: DNS only
 TTL: Auto
 ```
@@ -97,6 +116,7 @@ Use this verification set after DNS or LB changes:
 ```bash
 dig +short dashboard.mesha.sg A
 dig +short api.goatos.mesha.sg A
+dig +short grafana.mesha.sg A
 gcloud compute ssl-certificates list \
   --project=goatos-stg \
   --global \
@@ -104,6 +124,7 @@ gcloud compute ssl-certificates list \
 curl -fsSI https://goatos-admin-web-stg-awtrpmn4za-el.a.run.app/login
 curl -fsSI https://dashboard.mesha.sg/login
 curl -sSI https://api.goatos.mesha.sg/app/bootstrap | sed -n '1,8p'
+curl -sSI https://grafana.mesha.sg/login | sed -n '1,8p'
 ```
 
 Do not set `GOATOS_CANONICAL_DASHBOARD_HOST=dashboard.mesha.sg` on admin-web

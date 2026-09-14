@@ -196,13 +196,15 @@ test("the Sex filter is a PAGE filter: every read carries it, and the page never
   assert.match(source, /rawSex === "female" \? "female" : rawSex === "all" \? "" : "male"/);
   assert.match(source, /landingWindow\(\s*\n\s*params,\s*\n\s*today,\s*\n\s*parkFilter,\s*\n\s*sexFilter,\s*\n\s*originFilter,\s*\n\s*weighingCategoryFilter,\s*\n\s*\)/);
   assert.match(source, /getShedWeights\(\{ \.\.\.scope, \.\.\.window \}\)/);
-  for (const read of ["getShedWeights", "getWeighingGrowth", "getWeightDemographics", "getGrowthDirector"]) {
+  for (const read of ["getShedWeights", "getWeightDemographics"]) {
     assert.match(
       source,
       new RegExp(`${read}\\(\\{ \\.\\.\\.scope, \\.\\.\\.window \\}\\)`),
       `${read} must carry the sex filter`,
     );
   }
+  assert.match(source, /getWeighingGrowth\(\{ \.\.\.scope, \.\.\.window, sections: "rejected,shed_leaderboard,parks,losing_animals" \}\)/);
+  assert.match(source, /getGrowthDirector\(\{ \.\.\.scope, \.\.\.window, sections: "road_to_sale,fair_fight" \}\)/);
   // The rows arrive ALREADY filtered, so the card renders what it was sent and never re-selects
   // by sex — a second implementation of one rule is a second thing to keep in step.
   assert.doesNotMatch(source, /gain_thresholds_by_breed[\s\S]{0,400}row\.sex/);

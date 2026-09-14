@@ -1507,11 +1507,14 @@ const growthDefaultPeriodDays = domain.ShedWeightsDefaultPeriodDays
 // Requires WeighingMonitor, park-scoped exactly like GetWeightHistory: a park-scoped monitor may
 // only request a park inside their own grant, and a tenant-wide monitor may request any park in
 // the tenant.
-func (s *Service) GetLeadershipGrowthADG(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate, sex, origin, weighingCategory string) (domain.GrowthADG, error) {
+func (s *Service) GetLeadershipGrowthADG(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate, sex, origin, weighingCategory, sections string) (domain.GrowthADG, error) {
 	if !permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingMonitor}, false) {
 		return domain.GrowthADG{}, ports.ErrForbidden
 	}
 	if err := validateWeighingCategoryFilter(weighingCategory); err != nil {
+		return domain.GrowthADG{}, err
+	}
+	if err := validateGrowthADGSections(sections); err != nil {
 		return domain.GrowthADG{}, err
 	}
 	weighingCategory = strings.TrimSpace(weighingCategory)
@@ -1576,7 +1579,32 @@ func (s *Service) GetLeadershipGrowthADG(ctx context.Context, actor domain.Actor
 		return domain.GrowthADG{}, scopeErr
 	}
 
-	return s.repo.GetLeadershipGrowthADG(ctx, actor.TenantID, parkIDs, periodStart, periodEndExclusive, sex, origin, weighingCategory)
+	return s.repo.GetLeadershipGrowthADG(ctx, actor.TenantID, parkIDs, periodStart, periodEndExclusive, sex, origin, weighingCategory, sections)
+}
+
+func validateGrowthADGSections(raw string) error {
+	if strings.TrimSpace(raw) == "" {
+		return nil
+	}
+	allowed := map[string]bool{
+		"rejected":         true,
+		"eligibility":      true,
+		"trend":            true,
+		"weekly_gain":      true,
+		"shed_leaderboard": true,
+		"distribution":     true,
+		"sale_readiness":   true,
+		"lump_sum":         true,
+		"parks":            true,
+		"losing_animals":   true,
+		"by_park":          true,
+	}
+	for _, part := range strings.Split(raw, ",") {
+		if !allowed[strings.TrimSpace(part)] {
+			return ports.ErrInvalidArgument
+		}
+	}
+	return nil
 }
 
 func validateWeighingCategoryFilter(weighingCategory string) error {

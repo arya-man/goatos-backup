@@ -38,11 +38,181 @@ browser and by the MCP.
   `bigquery.dataViewer`/`jobUser`, `cloudsql.client`) — datasources authenticate
   via that workload identity, no embedded secrets.
 
-**Hardening follow-up (recommended before prod / wider use):** put Grafana
-behind **IAP + a Load Balancer** on a clean subdomain (e.g.
-`grafana-stg.mesha.sg`, mirroring the admin-web LB) so browser access is Google
-SSO instead of network-open + Grafana-login. Until then the `*.run.app` URL is
-authoritative and login-gated.
+**Hardening follow-up (required before advertising `grafana.mesha.sg` beyond the
+current operator circle):** put Grafana behind the existing external HTTPS load
+balancer on `grafana.mesha.sg`, with **IAP on the Grafana backend service** so
+browser access uses Google SSO before Grafana login. Grant IAP access to the
+same four CEO/CXO Google identities verified for admin-web SSO:
+`ravi@mesha.sg`, `manohark@mesha.sg`, `manju@mesha.sg`, and
+`aryaman@mesha.sg`. The only temporary fallback is **public load balancer +
+Grafana login**, but only if anonymous access stays disabled, sign-up stays
+disabled, admin password/token handling is reviewed, and the service is
+restricted to load-balancer ingress so the raw `*.run.app` URL no longer
+bypasses the LB. Until that is done, the `*.run.app` URL remains the
+authoritative login-gated endpoint.
+
+## 1c. Proposed `grafana.mesha.sg` load-balancer path
+
+This is a runbook proposal only. Do not run these commands casually: the live
+staging load balancer was created manually and is not yet imported into
+Terraform, so the clean path is an additive manual change followed by
+documentation/import, not a speculative Terraform apply.
+
+Current live LB facts verified on 2026-09-15:
+
+```text
+Project:        goatos-stg
+Region:         asia-south1
+Cloud Run:      goatos-stg-grafana
+Current URL:    https://goatos-stg-grafana-awtrpmn4za-el.a.run.app
+Current IAM:    allUsers has roles/run.invoker; named operators also present
+Current ingress: all
+LB IP:          8.233.143.24 (goatos-stg-dashboard-ip)
+URL map:        goatos-stg-dashboard-map
+HTTPS proxy:    goatos-stg-dashboard-https-proxy
+Missing today:  grafana.mesha.sg DNS, managed cert, serverless NEG, backend
+```
+
+Security boundary for public `grafana.mesha.sg`:
+
+1. Required access model: enable IAP on `goatos-stg-grafana-backend`, grant
+   `roles/iap.httpsResourceAccessor` only to `user:ravi@mesha.sg`,
+   `user:manohark@mesha.sg`, `user:manju@mesha.sg`, and
+   `user:aryaman@mesha.sg`, keep Cloud CDN off for that backend, and keep
+   Grafana login enabled as a second layer.
+2. Temporary fallback, only while IAP is being wired: keep `allUsers` Cloud Run
+   invoker for LB reachability, but verify `GF_AUTH_ANONYMOUS_ENABLED=false`,
+   `GF_USERS_ALLOW_SIGN_UP=false`, a strong Secret Manager-backed admin
+   password, reviewed Grafana service accounts/tokens, no public dashboard
+   snapshots, and no anonymous API access.
+
+Either model must also update Grafana's public root URL before cutover:
+
+```bash
+gcloud run services update goatos-stg-grafana \
+  --project=goatos-stg \
+  --region=asia-south1 \
+  --ingress=internal-and-cloud-load-balancing \
+  --update-env-vars=GF_SERVER_ROOT_URL=https://grafana.mesha.sg/
+```
+
+Add the LB pieces, matching the existing admin-web/API/MCP naming pattern:
+
+```bash
+gcloud compute network-endpoint-groups create goatos-stg-grafana-neg \
+  --project=goatos-stg \
+  --region=asia-south1 \
+  --network-endpoint-type=serverless \
+  --cloud-run-service=goatos-stg-grafana
+
+gcloud compute backend-services create goatos-stg-grafana-backend \
+  --project=goatos-stg \
+  --global \
+  --load-balancing-scheme=EXTERNAL_MANAGED \
+  --protocol=HTTP \
+  --timeout=30s
+
+gcloud compute backend-services add-backend goatos-stg-grafana-backend \
+  --project=goatos-stg \
+  --global \
+  --network-endpoint-group=goatos-stg-grafana-neg \
+  --network-endpoint-group-region=asia-south1
+```
+
+If using IAP, enable it on the new backend before exposing DNS:
+
+```bash
+gcloud compute backend-services update goatos-stg-grafana-backend \
+  --project=goatos-stg \
+  --global \
+  --iap=enabled,oauth2-client-id=<IAP_OAUTH_CLIENT_ID>,oauth2-client-secret=<IAP_OAUTH_CLIENT_SECRET>
+
+gcloud iap web add-iam-policy-binding \
+  --project=goatos-stg \
+  --resource-type=backend-services \
+  --service=goatos-stg-grafana-backend \
+  --member='user:ravi@mesha.sg' \
+  --role='roles/iap.httpsResourceAccessor'
+gcloud iap web add-iam-policy-binding \
+  --project=goatos-stg \
+  --resource-type=backend-services \
+  --service=goatos-stg-grafana-backend \
+  --member='user:manohark@mesha.sg' \
+  --role='roles/iap.httpsResourceAccessor'
+gcloud iap web add-iam-policy-binding \
+  --project=goatos-stg \
+  --resource-type=backend-services \
+  --service=goatos-stg-grafana-backend \
+  --member='user:manju@mesha.sg' \
+  --role='roles/iap.httpsResourceAccessor'
+gcloud iap web add-iam-policy-binding \
+  --project=goatos-stg \
+  --resource-type=backend-services \
+  --service=goatos-stg-grafana-backend \
+  --member='user:aryaman@mesha.sg' \
+  --role='roles/iap.httpsResourceAccessor'
+```
+
+Create and attach the Google-managed certificate. It is fine to attach it before
+the cert is ACTIVE, but do not rely on the hostname until it is active.
+
+```bash
+gcloud compute ssl-certificates create goatos-grafana-cert \
+  --project=goatos-stg \
+  --global \
+  --domains=grafana.mesha.sg
+
+gcloud compute target-https-proxies update goatos-stg-dashboard-https-proxy \
+  --project=goatos-stg \
+  --ssl-certificates=goatos-stg-dashboard-cert,goatos-stg-api-cert,goatos-mcp-cert,goatos-mcp-cert-20260814,goatos-prod-facing-cert,goatos-grafana-cert
+```
+
+Add the host rule and path matcher to the existing URL map. Use an exported YAML
+edit or an equivalent reviewed command sequence; do not disturb the existing
+`api-host`, `mcp-host`, or default admin-web routing.
+
+```yaml
+hostRules:
+- hosts:
+  - grafana.mesha.sg
+  pathMatcher: grafana-host
+pathMatchers:
+- name: grafana-host
+  defaultService: https://www.googleapis.com/compute/v1/projects/goatos-stg/global/backendServices/goatos-stg-grafana-backend
+```
+
+Then add Cloudflare DNS as **DNS-only**:
+
+```text
+Zone:   mesha.sg
+Record: A grafana -> 8.233.143.24
+Proxy:  DNS only
+TTL:    Auto
+```
+
+Verification:
+
+```bash
+dig +short grafana.mesha.sg A
+gcloud compute ssl-certificates describe goatos-grafana-cert \
+  --project=goatos-stg \
+  --global \
+  --format='value(managed.status,managed.domainStatus)'
+gcloud compute url-maps describe goatos-stg-dashboard-map \
+  --project=goatos-stg \
+  --format='yaml(hostRules,pathMatchers)'
+curl -sS -o /dev/null -w '%{http_code}\n' https://grafana.mesha.sg/login
+curl -sS -o /dev/null -w '%{http_code}\n' https://grafana.mesha.sg/api/search
+```
+
+Expected security result:
+
+- IAP model: unauthenticated browser reaches the IAP challenge, authorized
+  Google identity reaches Grafana login, and unauthenticated Grafana API access
+  does not return data.
+- Grafana-login fallback: `/login` returns 200, `/api/search` returns 401
+  without a Grafana token, and raw `*.run.app` access is blocked by the new
+  Cloud Run ingress setting.
 
 **What is wired today:** datasources = Google Cloud Monitoring (default; also
 serves Google Managed Prometheus metrics via `prometheus.googleapis.com/*`) and

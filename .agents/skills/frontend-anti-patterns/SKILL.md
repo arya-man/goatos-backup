@@ -47,6 +47,11 @@ chapters below; do not review from the summary.
 - `npm --prefix apps/admin-web run check:mock-fidelity` — mandatory before any
   frontend push (IA guard, UI-contract literals, serial-await, request-plan, mock).
 - `make admin-web-request-reads-guard` — no SSR full-table request read.
+- `make admin-web-sectioned-aggregate-reads-guard` — no admin-web page may call a
+  sectionable aggregate endpoint for the whole payload when it renders only a
+  few sections. Pass `sections` matching the rendered widgets, or add an adjacent
+  `sectioned-aggregate-reads:allow reason=<why>` exception only when the route
+  truly renders the full aggregate payload.
 - API/SSR latency evidence when a page data read changes — p90 <= 300ms and
   p95/p99 <= 500ms. A green `ci-local` build is not latency evidence unless the
   latency gate ran against a live stack and recorded samples.
@@ -73,6 +78,10 @@ chapters below; do not review from the summary.
 - **No broad endpoint for a narrow screen:** a month schedule page must not call
   a broad calendar/events union and then reshape it. Use the endpoint whose
   contract owns that screen's grain/window.
+- **No full sectionable aggregate for a narrow page:** if the endpoint accepts
+  `sections`, the rendered page must pass exactly the sections it displays. Do
+  not make a landing page pay for hidden analytics tabs, leaderboard branches,
+  or full-route aggregate payloads.
 - **Selected-window drives fetch AND render:** one window for both; no implicit
   `now`/`today` substituted server-side; render the actual-returned window.
 - **Reminder/candidate completeness:** a paginated reminder loop must reach every

@@ -18984,6 +18984,8 @@ export interface operations {
                 to?: string;
                 /** @description Optional capture-mode narrowing. Omitted or `all` counts both capture modes. */
                 weighing_category?: "all" | "individual_animal" | "per_shed_partition";
+                /** @description Optional comma-separated response sections. Omitted means the full legacy payload. Unknown section names are rejected rather than silently ignored. */
+                sections?: string;
             };
             header?: never;
             path?: never;
@@ -19049,6 +19051,8 @@ export interface operations {
                 origin?: "farm_born" | "purchased";
                 /** @description Optional capture-mode narrowing. Omitted or `all` counts both capture modes. */
                 weighing_category?: "all" | "individual_animal" | "per_shed_partition";
+                /** @description Optional comma-separated response sections. Omitted means the full legacy payload. Unknown section names are rejected rather than silently ignored. */
+                sections?: string;
             };
             header?: never;
             path?: never;
@@ -19204,6 +19208,8 @@ export interface operations {
                 origin?: "farm_born" | "purchased";
                 /** @description `individual_animal` or `per_shed_partition` to report only that weighing mode; omitted means both. The filter reaches every weighing-backed Growth Director widget, while feed-only problem rows remain a feed-sheet health read. */
                 weighing_category?: "all" | "individual_animal" | "per_shed_partition";
+                /** @description Optional comma-separated response sections. Omitted means the full legacy payload. Unknown section names are rejected rather than silently ignored. */
+                sections?: string;
             };
             header?: never;
             path?: never;

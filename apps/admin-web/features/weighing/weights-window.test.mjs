@@ -138,9 +138,9 @@ test("weights page sends the weighing mode through every backend read", () => {
   assert.match(source, /landingWindow\(\s*\n\s*params,\s*\n\s*today,\s*\n\s*parkFilter,\s*\n\s*sexFilter,\s*\n\s*originFilter,\s*\n\s*weighingCategoryFilter,\s*\n\s*\)/);
   assert.match(source, /weighing_category: weighingCategoryFilter \|\| undefined/);
   assert.match(source, /getShedWeights\(\{ \.\.\.scope, \.\.\.window \}\)/);
-  assert.match(source, /getWeighingGrowth\(\{ \.\.\.scope, \.\.\.window \}\)/);
+  assert.match(source, /getWeighingGrowth\(\{ \.\.\.scope, \.\.\.window, sections: "rejected,shed_leaderboard,parks,losing_animals" \}\)/);
   assert.match(source, /getWeightDemographics\(\{ \.\.\.scope, \.\.\.window \}\)/);
-  assert.match(source, /getGrowthDirector\(\{ \.\.\.scope, \.\.\.window \}\)/);
+  assert.match(source, /getGrowthDirector\(\{ \.\.\.scope, \.\.\.window, sections: "road_to_sale,fair_fight" \}\)/);
   assert.doesNotMatch(source, /getWeighingGrowth\(\{ \.\.\.scope, \.\.\.window, park_id: park\.park_id \}\)/);
 });
 

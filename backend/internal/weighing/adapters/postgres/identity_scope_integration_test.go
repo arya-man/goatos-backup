@@ -83,7 +83,7 @@ func TestTwoRFIDsOnOneAnimalPairIntoOneADG(t *testing.T) {
 	seedGrowthObservation(t, ctx, pool, idScopePrimary, 20.0, first)
 	seedGrowthObservation(t, ctx, pool, idScopeSecondary, 22.1, first.AddDate(0, 0, 7))
 
-	adg, err := repo.GetLeadershipGrowthADG(ctx, repoTenant, []string{repoPark}, start, end, "", "", "")
+	adg, err := repo.GetLeadershipGrowthADG(ctx, repoTenant, []string{repoPark}, start, end, "", "", "", "")
 	if err != nil {
 		t.Fatalf("GetLeadershipGrowthADG: %v", err)
 	}
@@ -130,7 +130,7 @@ func TestMergedAnimalIsReportedUnderItsPrimaryRFID(t *testing.T) {
 	seedGrowthObservation(t, ctx, pool, idScopePrimary, 24.0, first)
 	seedGrowthObservation(t, ctx, pool, idScopeSecondary, 22.6, first.AddDate(0, 0, 7))
 
-	adg, err := repo.GetLeadershipGrowthADG(ctx, repoTenant, []string{repoPark}, start, end, "", "", "")
+	adg, err := repo.GetLeadershipGrowthADG(ctx, repoTenant, []string{repoPark}, start, end, "", "", "", "")
 	if err != nil {
 		t.Fatalf("GetLeadershipGrowthADG: %v", err)
 	}
@@ -169,7 +169,7 @@ func TestSingleTaggedAndUnknownTagsAreUntouched(t *testing.T) {
 	seedGrowthObservation(t, ctx, pool, "rfid-single-001", 21.4, first.AddDate(0, 0, 7))
 	seedGrowthObservation(t, ctx, pool, "rfid-not-in-register", 31.4, first.AddDate(0, 0, 7))
 
-	adg, err := repo.GetLeadershipGrowthADG(ctx, repoTenant, []string{repoPark}, start, end, "", "", "")
+	adg, err := repo.GetLeadershipGrowthADG(ctx, repoTenant, []string{repoPark}, start, end, "", "", "", "")
 	if err != nil {
 		t.Fatalf("GetLeadershipGrowthADG: %v", err)
 	}
@@ -201,7 +201,7 @@ func TestTemporaryTagDoesNotMergeWithPermanentRFID(t *testing.T) {
 	seedGrowthObservation(t, ctx, pool, "temp-birth-001", 20.0, first)
 	seedGrowthObservation(t, ctx, pool, idScopePrimary, 22.1, first.AddDate(0, 0, 7))
 
-	adg, err := repo.GetLeadershipGrowthADG(ctx, repoTenant, []string{repoPark}, start, end, "", "", "")
+	adg, err := repo.GetLeadershipGrowthADG(ctx, repoTenant, []string{repoPark}, start, end, "", "", "", "")
 	if err != nil {
 		t.Fatalf("GetLeadershipGrowthADG: %v", err)
 	}
@@ -234,7 +234,7 @@ func TestDisputedSecondIdentifierDoesNotMergeAnimals(t *testing.T) {
 	seedGrowthObservation(t, ctx, pool, idScopePrimary, 20.0, first)
 	seedGrowthObservation(t, ctx, pool, idScopeSecondary, 22.1, first.AddDate(0, 0, 7))
 
-	adg, err := repo.GetLeadershipGrowthADG(ctx, repoTenant, []string{repoPark}, start, end, "", "", "")
+	adg, err := repo.GetLeadershipGrowthADG(ctx, repoTenant, []string{repoPark}, start, end, "", "", "", "")
 	if err != nil {
 		t.Fatalf("GetLeadershipGrowthADG: %v", err)
 	}
@@ -361,7 +361,7 @@ WHERE tenant_id=$1::uuid AND weight_kg IN (20.0, 22.1, 23.5)`, repoTenant)
 			unmerged.UnverifiedObservationCount, merged.UnverifiedObservationCount)
 	}
 
-	adg, err := repo.GetLeadershipGrowthADG(ctx, repoTenant, []string{repoPark}, start, end, "", "", "")
+	adg, err := repo.GetLeadershipGrowthADG(ctx, repoTenant, []string{repoPark}, start, end, "", "", "", "")
 	if err != nil {
 		t.Fatalf("GetLeadershipGrowthADG: %v", err)
 	}

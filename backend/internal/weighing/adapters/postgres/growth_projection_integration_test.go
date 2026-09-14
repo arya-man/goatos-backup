@@ -51,7 +51,7 @@ func TestGrowthADGDateShiftIgnoresSameBusinessDayPairs(t *testing.T) {
 	seedGrowthObservation(t, ctx, pool, "same-day-tag", 15.0, day)
 	seedGrowthObservation(t, ctx, pool, "same-day-tag", 11.0, day.Add(111*time.Second))
 
-	adg, err := repo.GetLeadershipGrowthADG(ctx, repoTenant, []string{repoPark}, start, end, "", "", "")
+	adg, err := repo.GetLeadershipGrowthADG(ctx, repoTenant, []string{repoPark}, start, end, "", "", "", "")
 	if err != nil {
 		t.Fatalf("GetLeadershipGrowthADG: %v", err)
 	}
@@ -83,7 +83,7 @@ func TestGrowthADGDateShiftAcrossMidnightCountsWholeDays(t *testing.T) {
 	seedGrowthObservation(t, ctx, pool, "midnight-tag", 20.0, evening)
 	seedGrowthObservation(t, ctx, pool, "midnight-tag", 21.0, evening.Add(time.Hour))
 
-	adg, err := repo.GetLeadershipGrowthADG(ctx, repoTenant, []string{repoPark}, start, end, "", "", "")
+	adg, err := repo.GetLeadershipGrowthADG(ctx, repoTenant, []string{repoPark}, start, end, "", "", "", "")
 	if err != nil {
 		t.Fatalf("GetLeadershipGrowthADG: %v", err)
 	}
@@ -116,7 +116,7 @@ func TestGrowthADGOneToManyDoesNotMultiplyAnimals(t *testing.T) {
 		seedGrowthObservation(t, ctx, pool, "one-to-many-tag", kg, day.AddDate(0, 0, i))
 	}
 
-	adg, err := repo.GetLeadershipGrowthADG(ctx, repoTenant, []string{repoPark}, start, end, "", "", "")
+	adg, err := repo.GetLeadershipGrowthADG(ctx, repoTenant, []string{repoPark}, start, end, "", "", "", "")
 	if err != nil {
 		t.Fatalf("GetLeadershipGrowthADG: %v", err)
 	}
@@ -152,7 +152,7 @@ func TestGrowthADGStatusBucketsPlaceEachPairOnce(t *testing.T) {
 	seedGrowthObservation(t, ctx, pool, "loser-tag", 20.0, day)
 	seedGrowthObservation(t, ctx, pool, "loser-tag", 19.0, day.AddDate(0, 0, 1))
 
-	adg, err := repo.GetLeadershipGrowthADG(ctx, repoTenant, []string{repoPark}, start, end, "", "", "")
+	adg, err := repo.GetLeadershipGrowthADG(ctx, repoTenant, []string{repoPark}, start, end, "", "", "", "")
 	if err != nil {
 		t.Fatalf("GetLeadershipGrowthADG: %v", err)
 	}
@@ -184,7 +184,7 @@ func TestGrowthADGPaginationTotalsAreNotPageLocal(t *testing.T) {
 		seedGrowthObservation(t, ctx, pool, tag, 11.0, day.AddDate(0, 0, 1))
 	}
 
-	adg, err := repo.GetLeadershipGrowthADG(ctx, repoTenant, []string{repoPark}, start, end, "", "", "")
+	adg, err := repo.GetLeadershipGrowthADG(ctx, repoTenant, []string{repoPark}, start, end, "", "", "", "")
 	if err != nil {
 		t.Fatalf("GetLeadershipGrowthADG: %v", err)
 	}
@@ -217,7 +217,7 @@ func TestGrowthDistributionFillsTheOverflowBinAboveThreeHundred(t *testing.T) {
 	seedGrowthObservation(t, ctx, pool, "fast-grower", 20.0, first)
 	seedGrowthObservation(t, ctx, pool, "fast-grower", 26.0, first.AddDate(0, 0, 10))
 
-	adg, err := repo.GetLeadershipGrowthADG(ctx, repoTenant, []string{repoPark}, start, end, "", "", "")
+	adg, err := repo.GetLeadershipGrowthADG(ctx, repoTenant, []string{repoPark}, start, end, "", "", "", "")
 	if err != nil {
 		t.Fatalf("GetLeadershipGrowthADG: %v", err)
 	}
@@ -276,7 +276,7 @@ func TestGrowthPairsRequireBothWeighsInsideTheSelectedPeriodOneToManyPageBoundar
 	seedGrowthObservation(t, ctx, pool, "inside-window", 18.0, start.AddDate(0, 0, 3))
 	seedGrowthObservation(t, ctx, pool, "inside-window", 20.0, start.AddDate(0, 0, 13))
 
-	adg, err := repo.GetLeadershipGrowthADG(ctx, repoTenant, []string{repoPark}, start, end, "", "", "")
+	adg, err := repo.GetLeadershipGrowthADG(ctx, repoTenant, []string{repoPark}, start, end, "", "", "", "")
 	if err != nil {
 		t.Fatalf("GetLeadershipGrowthADG: %v", err)
 	}
@@ -302,7 +302,7 @@ func TestGrowthPairsRequireBothWeighsInsideTheSelectedPeriodOneToManyPageBoundar
 	}
 
 	otherPark := "00000000-0000-4000-8000-0000000030ff"
-	scoped, err := repo.GetLeadershipGrowthADG(ctx, repoTenant, []string{otherPark}, start, end, "", "", "")
+	scoped, err := repo.GetLeadershipGrowthADG(ctx, repoTenant, []string{otherPark}, start, end, "", "", "", "")
 	if err != nil {
 		t.Fatalf("GetLeadershipGrowthADG(other park): %v", err)
 	}

@@ -180,6 +180,13 @@ When you add a new guardrail, register it BEFORE the commit:
    is rejected
 5. Run `make guardrails` locally to verify the registration passes
 
+Admin-web sectionable aggregate reads are covered by
+`make admin-web-sectioned-aggregate-reads-guard`. When a page calls a backend
+aggregate endpoint that supports `sections`, local CI expects the page to pass
+only the rendered sections. The only permitted full-payload exception is an
+adjacent `sectioned-aggregate-reads:allow reason=<why>` comment reviewed with
+latency evidence.
+
 The `guardrail-registration-guard` runs first in `make guardrails`, so the
 textual registration failures it recognizes are caught immediately. Do not
 claim it prevents every silent/unwired guard hole until the F0 semantic

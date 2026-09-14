@@ -1208,6 +1208,7 @@ export async function getWeighingGrowth(params: {
    */
   origin?: string;
   weighing_category?: string;
+  sections?: string;
 }): Promise<ApiResult<WeighingGrowthResponse>> {
   const config = await getServerConfig();
   if (!config.ok) return config;
@@ -1240,6 +1241,7 @@ export async function getGrowthDirector(params: {
    */
   origin?: string;
   weighing_category?: string;
+  sections?: string;
 }): Promise<ApiResult<GrowthDirectorWeightsResponse>> {
   const config = await getServerConfig();
   if (!config.ok) return config;
