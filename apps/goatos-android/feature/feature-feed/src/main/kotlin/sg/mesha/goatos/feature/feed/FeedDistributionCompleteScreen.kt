@@ -453,6 +453,7 @@ private fun FeedDistPreview(
         expandable = true,
         onPreviewAction = onPreviewAction,
         playbackEnabled = playbackEnabled,
+        inlineRemotePhoto = kind == FeedDistPreviewKind.Photo,
     )
 }
 
