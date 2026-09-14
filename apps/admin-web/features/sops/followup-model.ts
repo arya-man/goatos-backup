@@ -10,6 +10,9 @@
 export const FOLLOW_UP_SCHEMA_VERSION = "goatos.sop-followup.v1";
 
 export type ScheduleKind = "immediately" | "after_event" | "at_fixed_time" | "series" | "after_step";
+// A repeating series runs either at fixed wall-clock times (event-day rounds already past are
+// skipped) or from the event instant (every N minutes, M rounds -- nothing skipped).
+export type SeriesBasis = "fixed_times" | "from_event";
 
 export type FollowUpStepRow = {
   id: string;
@@ -24,6 +27,9 @@ export type FollowUpStepRow = {
   proofVideos: number;
   proofPhotos: number;
   scheduleKind: ScheduleKind;
+  basis: SeriesBasis;
+  intervalMinutes: number;
+  count: number;
   offsetMinutes: number;
   dayOffset: number;
   time: string;
@@ -90,6 +96,9 @@ export function blankStep(taskType = "record_yes_no"): FollowUpStepRow {
     proofVideos: 0,
     proofPhotos: 0,
     scheduleKind: "immediately",
+    basis: "fixed_times",
+    intervalMinutes: 240,
+    count: 10,
     offsetMinutes: 0,
     dayOffset: 0,
     time: "",
@@ -158,6 +167,9 @@ export function parseFollowUp(formDsl: unknown): FollowUpRows | null {
                 proofVideos: int(proof["video"]),
                 proofPhotos: int(proof["photo"]),
                 scheduleKind: kind,
+                basis: str(sched["basis"]) === "from_event" ? "from_event" : "fixed_times",
+                intervalMinutes: int(sched["interval_minutes"], 240),
+                count: int(sched["count"], 10),
                 offsetMinutes: int(sched["offset_minutes"]),
                 dayOffset: int(sched["day_offset"]),
                 time: str(sched["time"]),
@@ -187,12 +199,24 @@ function emitSchedule(row: FollowUpStepRow): Record<string, unknown> {
     case "at_fixed_time":
       return { kind: "at_fixed_time", day_offset: row.dayOffset, time: row.time.trim() };
     case "series":
+      if (row.basis === "from_event") {
+        return {
+          kind: "series",
+          basis: "from_event",
+          interval_minutes: row.intervalMinutes,
+          count: row.count,
+          // Each round needs its own key; the fixed-times pattern ({day}_{hhmm}) cannot give one
+          // to rounds counted from the event, so derive a {n} pattern unless the author has one.
+          key_pattern: row.keyPattern.includes("{n}") ? row.keyPattern.trim() : `${row.key}_{n}`,
+          ordinal_start: row.ordinalStart,
+        };
+      }
       return {
         kind: "series",
         times: row.times.split(",").map((t) => t.trim()).filter(Boolean),
         days: row.days,
         pre_notify_minutes: row.preNotifyMinutes,
-        key_pattern: row.keyPattern.trim() || `${row.key}_{day}_{hhmm}`,
+        key_pattern: /\{day\}|\{hhmm\}/.test(row.keyPattern) ? row.keyPattern.trim() : `${row.key}_{day}_{hhmm}`,
         ordinal_start: row.ordinalStart,
       };
     case "after_step":
@@ -254,7 +278,10 @@ export function followUpProblems(rows: FollowUpRows, answerKinds: Record<string,
         problems.push(`${at}: a pick-one / pick-many step needs at least one choice`);
       }
       if (s.scheduleKind === "at_fixed_time" && !/^\d{2}:\d{2}$/.test(s.time.trim())) problems.push(`${at}: time must be HH:MM`);
-      if (s.scheduleKind === "series") {
+      if (s.scheduleKind === "series" && s.basis === "from_event") {
+        if (s.intervalMinutes <= 0) problems.push(`${at}: the gap between rounds must be positive`);
+        if (s.count < 1 || s.count > 100) problems.push(`${at}: a series needs 1 to 100 rounds`);
+      } else if (s.scheduleKind === "series") {
         const times = s.times.split(",").map((x) => x.trim()).filter(Boolean);
         if (times.length === 0 || times.some((x) => !/^\d{2}:\d{2}$/.test(x))) problems.push(`${at}: series times must be HH:MM, comma separated`);
         if (s.days < 1) problems.push(`${at}: a series needs at least one day`);
@@ -299,16 +326,28 @@ function sortedTimes(csv: string): string[] {
     .sort();
 }
 
-export type ExpandedRound = { title: string; dayOffset: number; time: string };
+// A fixed-times round carries its day/time; a from-event round carries minutes after the event.
+export type ExpandedRound = { title: string; dayOffset: number; time: string; afterMinutes?: number };
 
 // expandSeriesRows lists every round a series step produces: day 0 = the event day (rounds
 // already past at the event are skipped by the engine), then day 1, 2, … ; ordinals continue
 // from `ordinalStart` so "2nd Colostrum" follows the separately authored "1st Colostrum".
 export function expandSeriesRows(step: FollowUpStepRow): ExpandedRound[] {
   if (step.scheduleKind !== "series") return [];
-  const times = sortedTimes(step.times);
   const out: ExpandedRound[] = [];
   let n = step.ordinalStart;
+  if (step.basis === "from_event") {
+    for (let k = 1; k <= Math.min(100, Math.max(1, step.count)); k++) {
+      const mins = k * Math.max(1, step.intervalMinutes);
+      const title = step.titlePattern.trim()
+        ? step.titlePattern.replace("{ordinal}", ordinal(n)).replace("{time}", formatAfter(mins))
+        : `${ordinal(n)} ${step.title}`.trim();
+      out.push({ title, dayOffset: Math.floor(mins / 1440), time: "", afterMinutes: mins });
+      n += 1;
+    }
+    return out;
+  }
+  const times = sortedTimes(step.times);
   for (let d = 0; d < Math.max(1, step.days); d++) {
     for (const t of times) {
       const title = step.titlePattern.trim()
@@ -321,6 +360,13 @@ export function expandSeriesRows(step: FollowUpStepRow): ExpandedRound[] {
   return out;
 }
 
+export function formatAfter(mins: number): string {
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  if (h === 0) return `${m} min`;
+  return m === 0 ? `${h} h` : `${h} h ${m} min`;
+}
+
 export function describeDue(step: FollowUpStepRow, copy: FollowUpCopy, stepTitleByKey: Record<string, string> = {}): string {
   switch (step.scheduleKind) {
     case "after_event":
@@ -328,6 +374,9 @@ export function describeDue(step: FollowUpStepRow, copy: FollowUpCopy, stepTitle
     case "at_fixed_time":
       return copy("followup.due.fixed_time", { d: step.dayOffset, t: step.time.trim() });
     case "series":
+      if (step.basis === "from_event") {
+        return copy("followup.due.series_from_event", { n: step.count, every: formatAfter(step.intervalMinutes) });
+      }
       return copy("followup.due.series", { n: expandSeriesRows(step).length, times: sortedTimes(step.times).join(", "), days: step.days });
     case "after_step":
       return copy("followup.due.after_step", { n: step.offsetMinutes, step: stepTitleByKey[step.afterStep] || step.afterStep });
