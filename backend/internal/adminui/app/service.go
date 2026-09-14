@@ -3563,6 +3563,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"empty.pending":         "Nothing is waiting for a decision.",
 			"filter.load":           "Load",
 			"filter.load.all":       "All loads",
+			"label.load_answers":    "About this load",
 			"filter.decision":       "Show",
 			"filter.recorded_from":  "Recorded from",
 			"filter.recorded_to":    "to",

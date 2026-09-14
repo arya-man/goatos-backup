@@ -7722,6 +7722,8 @@ export interface components {
         AnimalPurchaseOptions: {
             questionnaire: components["schemas"]["AnimalPurchaseQuestion"][];
             questionnaire_version: number;
+            /** @description The load form of the same SOP version (PROCUREMENT SOP): what the desk answers when it opens a purchase load. vendor / farm / load_ref are locked; further pick-one / pick-many / number / text questions may be authored. The phone renders it in order. */
+            load_form?: components["schemas"]["AnimalPurchaseQuestion"][];
             species: components["schemas"]["AnimalPurchaseOption"][];
             sexes: components["schemas"]["AnimalPurchaseOption"][];
             conditions: components["schemas"]["AnimalPurchaseOption"][];
@@ -7761,6 +7763,20 @@ export interface components {
             /** Format: date-time */
             updated_at: string;
             row_version: number;
+            /** @description The SOP version the load form was answered on (0 for a load recorded before the Procurement SOP). */
+            questionnaire_version?: number;
+            /** @description The load form's answers as recorded, keyed by question id. */
+            answers?: {
+                [key: string]: unknown;
+            };
+            /** @description The EXTRA (authored) load answers rendered under their question text, in SOP order. */
+            answer_rows?: {
+                section: string;
+                question_id: string;
+                question: string;
+                answer: string;
+                attention: boolean;
+            }[];
         };
         AnimalPurchaseLoadPage: {
             loads: components["schemas"]["AnimalPurchaseLoad"][];
@@ -7775,6 +7791,12 @@ export interface components {
             farm: "CBE" | "CPT";
             expected_count?: number;
             notes?: string;
+            /** @description The SOP version whose load form the phone rendered; 0 = published. */
+            questionnaire_version?: number;
+            /** @description The load form's answers by question id (PROCUREMENT SOP). The identity answers mirror the typed fields above; extra authored questions live only here. Validated against the named version; a 422 names the question id in `field`. */
+            answers?: {
+                [key: string]: unknown;
+            };
         };
         AnimalPurchaseAnimal: {
             candidate_id: string;
