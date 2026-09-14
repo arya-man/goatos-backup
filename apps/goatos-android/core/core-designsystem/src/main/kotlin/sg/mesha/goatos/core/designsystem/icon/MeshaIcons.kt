@@ -495,6 +495,8 @@ object MeshaIcons {
         "feed_purchases" -> Package
         // Animal purchases (maintainer decision 2026-09-13): the animals on offer in a purchase load.
         "animal_purchases" -> Goat
+        // Market survey (maintainer decision 2026-09-14): the morning phone calls to the markets.
+        "market" -> Phone
         // The Sales module and its ledger tab (maintainer decision 2026-09-05) wear the price tag.
         "sales" -> Sale
         "pc_ticks" -> Tick
