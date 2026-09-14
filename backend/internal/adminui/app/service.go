@@ -163,6 +163,10 @@ func navigation() domain.NavigationContract {
 					navLeaf("sales-sold", "Summary", "/sales/sold", nil),
 					navLeaf("sales-farm-value", "Farm value", "/sales/farm-value", nil),
 					navLeaf("sales-loads", "Load wise", "/sales/loads", nil),
+					// Market analytics (maintainer decision 2026-09-14): what goat and sheep fetch in
+					// the markets phoned each morning, read back over time. Cities and questions are
+					// authored on Sales Config; prices are recorded on the phone.
+					navLeaf("sales-market-analytics", "Market analytics", "/sales/market-analytics", nil),
 					// The SELLING side of the one vendor register (maintainer decision 2026-09-05).
 					// Same table and same endpoint as Procurement > Vendors, narrowed to the record
 					// types the farm SELLS to. It is a Sales leaf because the person recording a sale
@@ -269,6 +273,7 @@ func routeLabels() []domain.RouteLabelRule {
 		{Pattern: "/procurement/animal-purchases", Label: "Animal purchases", Match: "exact"},
 		{Pattern: "/procurement/sops", Label: "Procurement SOP", Match: "exact"},
 		{Pattern: "/sales/sold", Label: "Summary", Match: "exact"},
+		{Pattern: "/sales/market-analytics", Label: "Market analytics", Match: "exact"},
 		{Pattern: "/sales/farm-value", Label: "Farm value", Match: "exact"},
 		{Pattern: "/counts/sops", Label: "Herd Operations SOP", Match: "exact"},
 		{Pattern: "/counts/herd", Label: "Herd Register", Match: "exact"},
@@ -501,6 +506,12 @@ func pages() []domain.PageContract {
 			[]domain.TableContract{
 				withoutRowClick(loadwiseTable()),
 			}),
+		// MARKET ANALYTICS (maintainer decision 2026-09-14): the morning market-price calls read
+		// back -- the latest price per city and question, and each one over time. READ-ONLY by
+		// contract, the /sales/sold shape: it declares no write control, so nothing here can
+		// open a form. Entry is the phone's Market tab; the cities and questions are Sales Config.
+		page("sales-market-analytics", "/sales/market-analytics", "/sales/market-analytics", "Market analytics", "What goat and sheep fetch in the markets phoned each morning — live, carcass and offals prices by city, today and over time.", "module-surface",
+			[]domain.TableContract{}),
 		// SALES > VENDORS (maintainer decision 2026-09-05): the vendor register's SELLING half.
 		//
 		// The SAME table contract and the SAME data source as /procurement/vendors, because it is
@@ -3539,6 +3550,40 @@ func pageSpecificCopy(id string) map[string]string {
 			// already says what this page is for, and repeating that sentence four lines later
 			// reads as a mistake.
 			"hint.read_only": "Read these records on",
+
+			// MARKET SURVEY config (maintainer decision 2026-09-14): the cities phoned each
+			// morning and the questions asked in each. A change here reaches the phone on its
+			// next refresh and applies from that day; entries already recorded keep the words
+			// they were recorded against.
+			"section.market.title":        "Market survey",
+			"section.market.sub":          "The cities phoned each morning and the questions asked in each. Prices are entered on the phone; changes here apply from today.",
+			"section.market.aria":         "Market survey configuration",
+			"market.cities.title":         "Cities",
+			"market.cities.hint":          "One card per city on the phone every morning.",
+			"market.questions.title":      "Questions",
+			"market.questions.hint":       "Asked in every city. The unit is the words the price is quoted in, such as ₹/kg or ₹/500 g.",
+			"market.field.city_name":      "City",
+			"market.field.question_label": "Question",
+			"market.field.unit_label":     "Unit",
+			"market.status.active":        "On the list",
+			"market.status.retired":       "Retired",
+			"market.action.add_city":      "Add city",
+			"market.action.add_question":  "Add question",
+			"market.action.save":          "Save",
+			"market.action.retire":        "Retire",
+			"market.action.restore":       "Put back",
+			"market.action.edit":          "Edit",
+			"market.action.cancel":        "Cancel",
+			"market.empty.cities":         "No cities yet. Add the first market to phone.",
+			"market.empty.questions":      "No questions yet. Add what to ask in every city.",
+			"market.saved.city":           "City saved.",
+			"market.saved.question":       "Question saved.",
+			"market.save_failed":          "Could not save. Check the fields and try again.",
+			"market.duplicate":            "That name is already on the list.",
+			"market.retired_note":         "Retired items stay in the history and can be put back.",
+			"disabled.market_config":      "Your current role can view the market survey but not change what is asked.",
+			"action.market_config.label":  "Change what is asked",
+			"link.sales_market_analytics": "See Market analytics",
 		} {
 			out[key] = value
 		}
@@ -3766,6 +3811,49 @@ func pageSpecificCopy(id string) map[string]string {
 			"error.load":                          "Could not load the feed purchase ledger. Refresh to try again.",
 			"error.options":                       "Could not load the purchase form options. Refresh to try again.",
 			"disabled.write":                      "Your current role can view feed purchases but not record them.",
+		}
+	case "sales-market-analytics":
+		// Backend-owned copy for the Market analytics page (maintainer decision 2026-09-14). The
+		// client renders these verbatim. Question labels, unit labels and city names are NOT here:
+		// they are the farm's own config, served on each row as the words the price was recorded
+		// against.
+		return map[string]string{
+			"crumb": "Sales",
+
+			"kpi.cities.label":      "Cities phoned",
+			"kpi.cities.hint":       "with a price in this window",
+			"kpi.days.label":        "Days recorded",
+			"kpi.days.hint":         "mornings with at least one price",
+			"kpi.latest.label":      "Latest prices on",
+			"kpi.latest.hint":       "the most recent morning recorded",
+			"kpi.coverage.label":    "Today's calls",
+			"kpi.coverage.hint":     "cities done of cities on the list",
+			"filter.window.label":   "Window",
+			"filter.window.30":      "Last 30 days",
+			"filter.window.90":      "Last 90 days",
+			"filter.window.180":     "Last 6 months",
+			"filter.window.365":     "Last year",
+			"filter.question.label": "Question",
+			"filter.question.all":   "All questions",
+			"filter.city.label":     "City",
+			"filter.city.all":       "All cities",
+
+			"section.latest.title": "Latest prices by city",
+			"section.latest.sub":   "The most recent morning's answer for each question, with the change from the morning before.",
+			"section.latest.aria":  "Latest market prices by city",
+			"column.city":          "City",
+			"column.recorded_on":   "Recorded on",
+			"column.change":        "Change",
+			"value.none":           "—",
+			"value.no_previous":    "first entry",
+			"section.trend.title":  "Price over time",
+			"section.trend.sub":    "One line per city. A question whose unit was changed starts a new line from that morning, so old prices are never rescaled.",
+			"section.trend.aria":   "Market price trend by city",
+			"chart.trend.empty":    "No prices recorded in this window yet.",
+			"empty.analytics":      "No market prices yet. They appear here as the morning calls are entered on the phone.",
+			"empty.config":         "No cities on the call list yet. Add the markets to phone on Sales Config.",
+			"link.sales_config":    "Manage cities and questions",
+			"error.load":           "Could not load the market prices. Refresh to try again.",
 		}
 	case "sales-sold", "sales-farm-value":
 		// Sold and Farm value (maintainer decision 2026-09-11) render the blocks of the retired

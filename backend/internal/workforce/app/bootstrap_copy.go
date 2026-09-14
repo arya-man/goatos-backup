@@ -426,6 +426,11 @@ var moduleNavRegistry = map[string]moduleDefinition{ //nav-composition:ignore: t
 			// permission the animal_purchases mobile module carries (migration 000302 ticks it for
 			// everyone already holding this module).
 			{key: "animal_purchases", labelKey: "nav.animal_purchases", href: "/vendors/animal-purchases", shared_key: "", priority: 3, requiredPermission: permissions.AnimalPurchaseRead}, //nav-composition:ignore: registry entry
+			// Market (maintainer decision 2026-09-14): the fourth tab -- one card per configured
+			// city each morning, the reporter records what goat and sheep fetch there. Gated on
+			// the ENTRY permission, held per person through market_reporter: a Sales reader who
+			// does not make the calls is never shown an entry form the server would refuse.
+			{key: "market", labelKey: "nav.market", href: "/vendors/market", shared_key: "", priority: 4, requiredPermission: permissions.MarketEntry}, //nav-composition:ignore: registry entry
 		},
 	},
 	// Sales (maintainer decision 2026-09-05): selling gets its own phone module, the same way it
@@ -1771,6 +1776,7 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.vendors":             "Vendors",
 		"nav.feed_purchases":      "Feed Purchases",
 		"nav.animal_purchases":    "Animal purchases",
+		"nav.market":              "Market",
 		"nav.sales":               "Sales",
 		"module.clock":            "Clock In / Out",
 		"nav.clock":               "My Clock",
@@ -1835,6 +1841,7 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.vendors":             "विक्रेता",
 		"nav.feed_purchases":      "चारा खरीद",
 		"nav.animal_purchases":    "पशु खरीद",
+		"nav.market":              "बाज़ार",
 		"nav.sales":               "बिक्री",
 		"module.clock":            "हाज़िरी",
 		"nav.clock":               "मेरी हाज़िरी",
@@ -1899,6 +1906,7 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.vendors":             "ಮಾರಾಟಗಾರರು",
 		"nav.feed_purchases":      "ಮೇವು ಖರೀದಿ",
 		"nav.animal_purchases":    "ಪ್ರಾಣಿ ಖರೀದಿ",
+		"nav.market":              "ಮಾರುಕಟ್ಟೆ",
 		"nav.sales":               "ಮಾರಾಟ",
 		"module.clock":            "ಹಾಜರಾತಿ",
 		"nav.clock":               "ನನ್ನ ಹಾಜರಾತಿ",
@@ -1963,6 +1971,7 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.vendors":             "విక్రేతలు",
 		"nav.feed_purchases":      "దాణా కొనుగోళ్లు",
 		"nav.animal_purchases":    "పశువుల కొనుగోళ్లు",
+		"nav.market":              "మార్కెట్",
 		"nav.sales":               "అమ్మకాలు",
 		"module.clock":            "హాజరు",
 		"nav.clock":               "నా హాజరు",

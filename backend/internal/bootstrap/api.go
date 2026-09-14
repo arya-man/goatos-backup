@@ -75,6 +75,9 @@ import (
 	locationshttp "github.com/vgoats/goatos/backend/internal/locations/adapters/http"
 	locationspg "github.com/vgoats/goatos/backend/internal/locations/adapters/postgres"
 	locationsapp "github.com/vgoats/goatos/backend/internal/locations/app"
+	markethttp "github.com/vgoats/goatos/backend/internal/market/adapters/http"
+	marketpg "github.com/vgoats/goatos/backend/internal/market/adapters/postgres"
+	marketapp "github.com/vgoats/goatos/backend/internal/market/app"
 	notificationaudiencehttp "github.com/vgoats/goatos/backend/internal/notificationaudience/adapters/http"
 	notificationaudiencepg "github.com/vgoats/goatos/backend/internal/notificationaudience/adapters/postgres"
 	notificationaudienceapp "github.com/vgoats/goatos/backend/internal/notificationaudience/app"
@@ -770,6 +773,9 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// routes here serve the tester's guided step flow and the CEO/CXO-only review.
 	toxinHandler := toxinhttp.NewHandler(
 		toxinapp.NewService(toxinpg.NewRepository(pool, cfg.Postgres.QueryTimeout), toxinproof.NewValidator(proofRepo)), log)
+	// Market survey (maintainer decision 2026-09-14): the morning market-price calls. Config
+	// and analytics under Sales on admin-web; the day's cards and the entry write on the phone.
+	marketHandler := markethttp.NewHandler(marketapp.NewService(marketpg.NewRepository(pool, cfg.Postgres.QueryTimeout)), log)
 	// Leadership Tasks (maintainer decision 2026-09-04): a director's ask of the CXO desk.
 	// The service also feeds the drawer badge (unseen assigned tasks) into /app/bootstrap.
 	leadershipTasksService := leadershiptasksapp.NewService(
@@ -1300,6 +1306,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 		procurementhttp.RegisterLoadwise(protectedMux, procurementLoadwiseHandler)
 		animalpurchasehttp.Register(protectedMux, animalPurchaseHandler)
 		toxinhttp.Register(protectedMux, toxinHandler)
+		markethttp.Register(protectedMux, marketHandler)
 		leadershiptaskshttp.Register(protectedMux, leadershipTasksHandler)
 		workboardhttp.Register(protectedMux, workBoardHandler)
 		penvisitshttp.Register(protectedMux, penVisitsHandler)

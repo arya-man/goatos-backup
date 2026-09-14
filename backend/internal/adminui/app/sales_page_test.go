@@ -143,17 +143,21 @@ func TestSalesPageContractAndNavigation(t *testing.T) {
 	// Five leaves: Sold and Farm value (the retired board divided in two, maintainer decision
 	// 2026-09-11), Purchase and Born, Vendors, and Sales Config last -- the one place a sales
 	// fact is entered or changed, which is why the read leaves come first.
-	if len(salesGroup.Leaves) != 5 ||
+	// Six leaves since 2026-09-14: Market analytics (the morning market calls read back) sits
+	// with the read leaves, before Vendors.
+	if len(salesGroup.Leaves) != 6 ||
 		salesGroup.Leaves[0].Href != "/sales/sold" ||
 		salesGroup.Leaves[0].Label != "Summary" ||
 		salesGroup.Leaves[1].Href != "/sales/farm-value" ||
 		salesGroup.Leaves[1].Label != "Farm value" ||
 		salesGroup.Leaves[2].Href != "/sales/loads" ||
 		salesGroup.Leaves[2].Label != "Load wise" ||
-		salesGroup.Leaves[3].Href != "/sales/vendors" ||
-		salesGroup.Leaves[3].Label != "Vendors" ||
-		salesGroup.Leaves[4].Href != "/sales/config" ||
-		salesGroup.Leaves[4].Label != "Sales Config" {
+		salesGroup.Leaves[3].Href != "/sales/market-analytics" ||
+		salesGroup.Leaves[3].Label != "Market analytics" ||
+		salesGroup.Leaves[4].Href != "/sales/vendors" ||
+		salesGroup.Leaves[4].Label != "Vendors" ||
+		salesGroup.Leaves[5].Href != "/sales/config" ||
+		salesGroup.Leaves[5].Label != "Sales Config" {
 		t.Fatalf("sales group leaves = %+v", salesGroup.Leaves)
 	}
 
@@ -549,8 +553,9 @@ func TestSalesReadPagesCarryNoWriteControl(t *testing.T) {
 		"delete_sales_deal_payment",
 		"update_sales_deal_status",
 		"record_load_cost",
+		"market_config_write",
 	}
-	for _, pageID := range []string{"sales-sold", "sales-farm-value", "sales-loads"} {
+	for _, pageID := range []string{"sales-sold", "sales-farm-value", "sales-loads", "sales-market-analytics"} {
 		page := pageByRouteID(t, resp.Pages, pageID)
 		for _, control := range page.Controls {
 			for _, banned := range writes {
@@ -764,5 +769,36 @@ func TestSalesConfigNavLeafRidesSalesRead(t *testing.T) {
 	required := permissionsForNav("sales-config")
 	if len(required) != 1 || required[0] != permissions.SalesRead {
 		t.Fatalf("permissionsForNav(sales-config) = %v, want exactly SalesRead", required)
+	}
+}
+
+// TestMarketConfigControlIsCapabilityGated pins the market survey's config write (maintainer
+// decision 2026-09-14) to ITS OWN permission: a procurement manager holds every sales write
+// there is and still sees "Change what is asked" disabled with a reason, because recording a
+// sale and deciding what the market is asked are different authorities. The CEO's row above
+// (TestSalesReadPagesCarryNoWriteControl) is the enabled half.
+func TestMarketConfigControlIsCapabilityGated(t *testing.T) {
+	resp := NewService(fakeFamilies{}).Bootstrap(context.Background(), BootstrapInput{
+		TenantID: "00000000-0000-4000-8000-000000000001",
+		ActorID:  "00000000-0000-4000-8000-000000000099",
+		Grants: []permissions.ActiveGrant{
+			{Role: permissions.RoleProcurementManager, ScopeType: "tenant", ScopeID: "00000000-0000-4000-8000-000000000001"},
+		},
+	})
+	config := pageByRouteID(t, resp.Pages, "sales-config")
+	if sale := controlByID(t, config.Controls, "record_sale"); !sale.Enabled {
+		t.Fatalf("record_sale disabled for the procurement manager, who holds sales.write")
+	}
+	market := controlByID(t, config.Controls, "market_config_write")
+	if market.Enabled || market.DisabledReason == "" {
+		t.Fatalf("market_config_write = %+v, want disabled with a reason for a principal without sales.market.config.write", market)
+	}
+	// The analytics page is reached on the survey's own read and never gates a write.
+	analytics := pageByRouteID(t, resp.Pages, "sales-market-analytics")
+	if len(analytics.Controls) != 0 {
+		t.Fatalf("sales-market-analytics declares controls %+v, want none", analytics.Controls)
+	}
+	if analytics.Copy["section.trend.title"] == "" || analytics.Copy["empty.config"] == "" {
+		t.Fatalf("sales-market-analytics copy missing its own keys: %v", analytics.Copy)
 	}
 }

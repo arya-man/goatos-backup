@@ -397,8 +397,31 @@ var moduleCapabilities = []ModuleCapability{
 		// which is the same trap migration 000251 was written to close for Vendors.
 		Surfaces: []string{SurfaceWeb, SurfaceMobile},
 		Levels: map[string][]string{
-			LevelView: {SalesRead},
-			LevelDo:   {SalesRead, SalesWrite},
+			// Market survey (maintainer decision 2026-09-14) rides these two levels: every Sales
+			// reader sees the Market analytics page, and the desks that record sales author the
+			// cities and questions on Sales Config. RECORDING the morning prices is not here --
+			// that is the per-person market_survey module below.
+			LevelView: {SalesRead, MarketRead},
+			LevelDo:   {SalesRead, SalesWrite, MarketRead},
+			// Configure is what is ASKED of the market -- the cities phoned and the questions
+			// asked in each. Held by the CEO/CXO and the Procurement Director, not by every
+			// sales writer: recording a sale and deciding the survey are different authorities.
+			LevelConfigure: {SalesRead, MarketRead, MarketConfigWrite},
+		},
+	},
+	{
+		// MARKET SURVEY entry (maintainer decision 2026-09-14). The phone's Market tab inside
+		// the Procurement module (nav module key `vendors`): one card per configured city each
+		// morning, the reporter types the day's goat and sheep prices in. Held per person
+		// through RoleMarketReporter (the toxin_tester shape) -- a Sales reader who does not
+		// make the calls never sees an entry form. Mobile only: the web reads the analytics
+		// through the Sales module above and authors the config there.
+		Key:      "market_survey",
+		Label:    "Market survey",
+		Blurb:    "Phoning the markets each morning and recording what goat and sheep fetch there.",
+		Surfaces: []string{SurfaceMobile},
+		Levels: map[string][]string{
+			LevelDo: {MarketRead, MarketEntry},
 		},
 	},
 	{

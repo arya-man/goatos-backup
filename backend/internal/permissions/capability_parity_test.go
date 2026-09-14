@@ -38,6 +38,7 @@ var benignReadGains = map[string]string{
 	CountsAlertsRead:        "a notification about herd movement, not the Counts screens (those are counts.read, deliberately held at LevelConfigure)",
 	VaccinationRead:         "the vaccination rows behind a screen the principal already works in",
 	VaccinationOverviewRead: "the summary card above data the principal already reads",
+	MarketRead:              "the market prices phoned in each morning, read beside the sales ledger the principal already reads (maintainer decision 2026-09-14)",
 	VaccinationAlertsRead:   "a notification about vaccination work the principal already owns",
 	WeighingMonitor:         "seeing the weighing board for work the principal already carries out",
 	PCCareMonitor:           "seeing the preventive-care board for work the principal already carries out",
@@ -71,6 +72,10 @@ var namedRoleGains = map[string]map[string]string{
 	RoleToxinTester: {
 		AdminWebBootstrap: "holding a module means the app opens. Like counts_approver, this is a per-person authority granted BY NAME alongside a job (maintainer decision 2026-08-25: the two named PARK HEADS), so every holder already carries a job role that admits them to the surface.",
 		AppBootstrap:      "same as admin_web.bootstrap above -- and the strip test is run ON the phone, so the mobile surface is the one that matters here",
+	},
+	RoleMarketReporter: {
+		AdminWebBootstrap: "holding a module means the app opens. Per-person authority granted BY NAME alongside a job (maintainer decision 2026-09-14: the procurement director makes the morning market calls), so every holder already carries a job role that admits them to the surface.",
+		AppBootstrap:      "same as admin_web.bootstrap above -- and the prices are recorded ON the phone, so the mobile surface is the one that matters here",
 	},
 	RoleParkHead: {
 		VerificationReview: "he holds verification.act today WITHOUT verification.review -- able to close or send back work he cannot see. This closes that gap rather than widening authority",
@@ -310,7 +315,10 @@ func TestUnknownRowsGrantNothing(t *testing.T) {
 	}{
 		{"unknown module", ModuleAssignment{Module: "not_a_module", Surface: SurfaceWeb, Capabilities: []string{LevelConfigure}}},
 		{"unknown surface", ModuleAssignment{Module: "weighing", Surface: "watch", Capabilities: []string{LevelConfigure}}},
-		{"unoffered level", ModuleAssignment{Module: "sales", Surface: SurfaceWeb, Capabilities: []string{LevelConfigure}}},
+		// sale_allocation offers exactly LevelDo, so Configure is genuinely unoffered there. This
+		// case used to name "sales" + Configure, which Sales began offering on 2026-09-14 (the
+		// market survey config), at which point the fixture would have tested a real grant.
+		{"unoffered level", ModuleAssignment{Module: "sale_allocation", Surface: SurfaceWeb, Capabilities: []string{LevelConfigure}}},
 		// sale_allocation, because it is still WEB-ONLY. This case used to name "sales", which
 		// gained SurfaceMobile on 2026-09-05 when Sales became a phone module -- at which point the
 		// fixture stopped testing the rule and started testing a real grant. The level named here

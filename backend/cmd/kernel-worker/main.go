@@ -177,6 +177,9 @@ func run(ctx context.Context, args []string) error {
 			// once-per-day mechanism as the low-stock alert above -- a business-date idempotency
 			// key, not a cron expression.
 			kernelstages.NewLoadAgeAlertStage(deps, tenantID, logger),
+			// Market survey (maintainer decision 2026-09-14): the 08:00 IST reminder to phone the
+			// markets; once per day through the notifier's business-date key.
+			kernelstages.NewMarketSurveyStage(deps, tenantID, logger),
 			// Feed-day reminder after a sale (maintainer decision 2026-09-07): once animals are
 			// tagged to a sale, the Feed Director is asked on the feed day the reduction lands on
 			// whether those pens' feed did reduce. Same lane and the same once-only mechanism --

@@ -330,6 +330,21 @@ var protectedRoutes = []Route{
 	// Director, WeighingMonitor) who does not hold SalesRead. This is a read-only reporting
 	// widening; the cost write below keeps its dedicated permission.
 	{OperationID: "listLoadwiseSales", Method: "GET", Pattern: "/procurement/loadwise-sales", Permissions: []string{SalesRead}},
+
+	// MARKET SURVEY (maintainer decision 2026-09-14). Config and analytics on admin-web under
+	// Sales; the day's entry on the phone. Patterns must stay byte-identical to
+	// market/adapters/http.Register. Reading the config is on MarketRead because the phone's
+	// day view is composed from it and every reader of the analytics may see what is asked;
+	// WRITING it is MarketConfigWrite (the sales desk), and RECORDING prices is MarketEntry
+	// (the named reporter) -- three authorities, none implied by another.
+	{OperationID: "getMarketConfig", Method: "GET", Pattern: "/market/config", Permissions: []string{MarketRead}},
+	{OperationID: "createMarketCity", Method: "POST", Pattern: "/market/cities", Permissions: []string{MarketConfigWrite}},
+	{OperationID: "updateMarketCity", Method: "PUT", Pattern: "/market/cities/{city_id}", Permissions: []string{MarketConfigWrite}},
+	{OperationID: "createMarketQuestion", Method: "POST", Pattern: "/market/questions", Permissions: []string{MarketConfigWrite}},
+	{OperationID: "updateMarketQuestion", Method: "PUT", Pattern: "/market/questions/{question_id}", Permissions: []string{MarketConfigWrite}},
+	{OperationID: "getMarketAnalytics", Method: "GET", Pattern: "/market/analytics", Permissions: []string{MarketRead}},
+	{OperationID: "getMarketSurveyDay", Method: "GET", Pattern: "/app/market/survey", Permissions: []string{MarketRead}},
+	{OperationID: "recordMarketSurveyCity", Method: "POST", Pattern: "/app/market/survey/{city_id}", Permissions: []string{MarketEntry}},
 	// The NARROW load read for the ADG Analytics Comparison tab (identity, counts, bought-at
 	// weight; no money). WeighingMonitor may read it; the priced read above stays SalesRead.
 	{OperationID: "listLoadwiseWeights", Method: "GET", Pattern: "/procurement/loadwise-weights", AnyPermissions: []string{SalesRead, WeighingMonitor}},

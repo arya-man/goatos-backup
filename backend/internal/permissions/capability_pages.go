@@ -105,6 +105,9 @@ var modulePages = []ModulePage{
 	// READ is the same commercial fact the board carries, so it ticks with the sales module; the
 	// load-cost write on it is gated separately on LoadCostWrite.
 	{Key: "sales-loads", Module: "sales", Label: "Load wise", Href: "/sales/loads", Permissions: []string{SalesRead}},
+	// Market analytics (maintainer decision 2026-09-14): what goat and sheep fetch in the
+	// markets the procurement director phones each morning, read back over time.
+	{Key: "sales-market-analytics", Module: "sales", Label: "Market analytics", Href: "/sales/market-analytics", Permissions: []string{MarketRead}},
 	// Sales Config: every sales entry form in one place (maintainer decision 2026-09-01). Ticked
 	// with the sales module and reached on SalesRead -- the WRITES on it carry their own keys
 	// (SalesWrite, and LoadCostWrite for a load's cost), so a read-only holder sees the page with
@@ -179,6 +182,7 @@ var moduleRoutePrefixes = map[string]string{
 	"/admin/goats/sale":             "sale_allocation",
 	"/sales":                        "sales",
 	"/sales/loads":                  "sales",
+	"/sales/market-analytics":       "sales",
 	"/sales/vendors":                "sales",
 	"/procurement/feed-purchases":   "feed_purchases",
 	"/procurement/animal-purchases": "animal_purchases",

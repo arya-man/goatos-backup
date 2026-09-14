@@ -107,6 +107,10 @@ var perPersonGrants = []personGrant{
 		roles: []string{
 			permissions.RoleFeedDirector,
 			permissions.RoleProcurementDirector,
+			// Market reporter (maintainer decision 2026-09-14): he phones the markets every
+			// morning and records what goat and sheep fetch there. Per person, never on the
+			// director job -- see permissions.RoleMarketReporter's doc comment.
+			permissions.RoleMarketReporter,
 		},
 	},
 }

@@ -1193,13 +1193,31 @@ func compileSalesConfigControls(controls []domain.Control, input BootstrapInput,
 	if !costAllowed {
 		costReason = controlCopy(copy, "disabled.load_cost", "Recording a load's cost needs the buying desk's access.")
 	}
-	return upsertControl(controls, domain.Control{
+	controls = upsertControl(controls, domain.Control{
 		ID:             "record_load_cost",
 		Label:          controlCopy(copy, "action.record_load_cost.label", "Record cost"),
 		Kind:           "row_action",
 		Enabled:        costAllowed,
 		DisabledReason: costReason,
 		Action:         "PUT /procurement/loads/{load_id}/cost",
+	})
+
+	// MARKET SURVEY config (maintainer decision 2026-09-14): which cities are phoned and what is
+	// asked. Its OWN permission, the Sales module's Configure level: recording a sale and
+	// deciding the survey are different authorities, so a sales recorder sees this section
+	// disabled with its reason while the rest of the page stays live.
+	marketAllowed := len(input.Grants) == 0 || grantsAuthorize(input.Grants, input.TenantID, []string{permissions.MarketConfigWrite})
+	marketReason := ""
+	if !marketAllowed {
+		marketReason = controlCopy(copy, "disabled.market_config", "Your current role can view the market survey but not change what is asked.")
+	}
+	return upsertControl(controls, domain.Control{
+		ID:             "market_config_write",
+		Label:          controlCopy(copy, "action.market_config.label", "Change what is asked"),
+		Kind:           "secondary_action",
+		Enabled:        marketAllowed,
+		DisabledReason: marketReason,
+		Action:         "POST /market/cities",
 	})
 }
 
@@ -2041,6 +2059,11 @@ func permissionsForNav(id string) []string {
 		// carrying "your role can view sales but not record them" is an answer. The WRITES on it
 		// are separately gated (SalesWrite, and LoadCostWrite for a load's cost).
 		return []string{permissions.SalesRead}
+	case "sales-market-analytics":
+		// The market survey's own read (maintainer decision 2026-09-14), which its data route
+		// (GET /market/analytics) requires. It rides the Sales module's View level, so every
+		// Sales reader holds it today; gated on its own name so the leaf and the route agree.
+		return []string{permissions.MarketRead}
 	case "procurement-animal-purchases":
 		// CEO/CXO only: the decide permission, which the procurement desk does not hold.
 		return []string{permissions.AnimalPurchaseDecide}

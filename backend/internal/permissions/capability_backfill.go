@@ -199,7 +199,7 @@ var flatRoleAssignments = map[string][]ModuleAssignment{
 		// Sales is on BOTH surfaces from 2026-09-05: it became its own phone module (the ledger
 		// moved out of the Procurement module and took the selling half of the vendor register
 		// with it). Migration 000257 copies the same mobile row onto everyone already backfilled.
-		bothSurfaces("sales", LevelView, LevelDo),
+		bothSurfaces("sales", LevelView, LevelDo, LevelConfigure),
 		one(assign("sale_allocation", SurfaceWeb, LevelDo)),
 		bothSurfaces("vendors", LevelView, LevelDo, LevelOversee),
 		// Animal purchases (2026-09-13): records loads and candidate animals on the phone.
@@ -235,6 +235,8 @@ var flatRoleAssignments = map[string][]ModuleAssignment{
 	// 2026-08-25), the same per-person shape as counts_approver. Carries testing
 	// authority and nothing else.
 	RoleToxinTester: bothSurfaces("toxin", LevelView, LevelDo),
+	// Market reporter (2026-09-14): per person, phone only -- the morning market calls.
+	RoleMarketReporter: one(assign("market_survey", SurfaceMobile, LevelDo)),
 	// The verifier casts verdicts and does not carry out the work being judged. This is the
 	// one principal for whom verification at LevelDo is correct rather than a risk.
 	RoleVerifier: rows(
@@ -269,7 +271,7 @@ var flatRoleAssignments = map[string][]ModuleAssignment{
 		// Sales is on BOTH surfaces from 2026-09-05: it became its own phone module (the ledger
 		// moved out of the Procurement module and took the selling half of the vendor register
 		// with it). Migration 000257 copies the same mobile row onto everyone already backfilled.
-		bothSurfaces("sales", LevelView, LevelDo),
+		bothSurfaces("sales", LevelView, LevelDo, LevelConfigure),
 		one(assign("sale_allocation", SurfaceWeb, LevelDo)),
 		one(assign("verification", SurfaceWeb, LevelConfigure)),
 		one(assign("config", SurfaceWeb, LevelView, LevelDo, LevelConfigure)),

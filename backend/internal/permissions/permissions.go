@@ -69,8 +69,15 @@ const (
 	// reviewer is CEO/CXO by maintainer decision, not the tenant verifier).
 	// Catalog row: migration 000214.
 	RoleToxinTester = "toxin_tester"
-	RoleOperator    = "operator"
-	RoleCEOInternal = "ceo_internal"
+	// RoleMarketReporter is a PER-PERSON authority grant, the toxin_tester shape exactly
+	// (maintainer decision 2026-09-14): the named person who phones the markets every morning
+	// and records what goat and sheep fetch there. It carries MarketRead + MarketEntry ONLY --
+	// never the config write, which stays with the desks that decide WHICH cities and questions
+	// are asked -- and is never anyone's primary job: a future Procurement Director inherits
+	// nothing by holding that job. Today: Hemant (perPersonGrants).
+	RoleMarketReporter = "market_reporter"
+	RoleOperator       = "operator"
+	RoleCEOInternal    = "ceo_internal"
 	// RoleProcurementManager runs the vendor register.
 	//
 	// Unlike RoleCountsApprover, this IS a job rather than a per-person authority: running the
@@ -377,6 +384,20 @@ const (
 	// them as sold. It deliberately does NOT ride SalesWrite: recording ledger/pipeline data and
 	// mutating canonical goat lifecycle are different authorities.
 	SalesAllocateAnimals = "sales.allocate_animals"
+	// MARKET SURVEY (maintainer decision 2026-09-14): the morning market-price calls.
+	//
+	// MarketRead gates reading the survey -- the Market analytics page under Sales
+	// (/sales/market-analytics, backend /market/*) and the phone's day view. It rides the SALES
+	// module's View level, so every Sales reader sees the analytics.
+	MarketRead = "sales.market.read"
+	// MarketConfigWrite gates authoring WHAT is asked: the cities phoned and the questions asked
+	// in each, with the unit each price is quoted in (Sales Config). Rides the Sales module's Do
+	// level -- the desks that record sales decide what the market is asked.
+	MarketConfigWrite = "sales.market.config.write"
+	// MarketEntry gates RECORDING the day's prices on the phone (POST /app/market/survey/...).
+	// Held per person through RoleMarketReporter, never on a job: the phone offers the Market tab
+	// on this permission, so a Sales reader who does not make the calls never sees an entry form.
+	MarketEntry = "sales.market.entry"
 	// FeedPurchaseRead gates the FEED PURCHASE LEDGER (/procurement/feed-purchases, backend
 	// /procurement/feed-purchases*): what feed the farm bought, from whom, at what landed cost, and
 	// whether it has been paid for.
@@ -1216,6 +1237,8 @@ var rolePermissions = map[string]map[string]struct{}{
 		// the CXO, the procurement director and this desk alike, so the manager now holds the
 		// same three sales authorities the director already held.
 		SalesRead: {}, SalesWrite: {}, SalesAllocateAnimals: {},
+		// Market survey (2026-09-14): reads the analytics; never authors what is asked.
+		MarketRead: {},
 	},
 	// RoleProcurementDirector: admin-web bootstrap plus stock-only Feed Analytics. AppBootstrap
 	// (maintainer decision 2026-09-03): the Procurement phone module is offered on VendorRead.
@@ -1228,6 +1251,8 @@ var rolePermissions = map[string]map[string]struct{}{
 		AdminWebBootstrap: {}, AppBootstrap: {},
 		LocationsRead: {},
 		SalesRead:     {}, SalesWrite: {}, SalesAllocateAnimals: {},
+		// Market survey (2026-09-14): reads the analytics and authors the cities/questions.
+		MarketRead: {}, MarketConfigWrite: {},
 		VendorRead: {}, VendorWrite: {}, VendorFinanceRead: {},
 		FeedPurchaseRead: {}, FeedPurchaseWrite: {}, LoadCostWrite: {},
 		AnimalPurchaseRead: {}, AnimalPurchaseWrite: {},
@@ -1269,6 +1294,14 @@ var rolePermissions = map[string]map[string]struct{}{
 	RoleToxinTester: {
 		ToxinRead:    {},
 		ToxinExecute: {},
+	},
+	// Per-person market reporting authority ONLY (maintainer decision 2026-09-14): read the
+	// survey and record the day's prices. Deliberately NO MarketConfigWrite -- the reporter
+	// answers the questions, the sales desk decides them -- and no bootstrap: a holder renders
+	// the Market tab through their real job role's AppBootstrap, the toxin_tester shape.
+	RoleMarketReporter: {
+		MarketRead:  {},
+		MarketEntry: {},
 	},
 	RoleOperator: {
 		GoatRead: {}, AppBootstrap: {}, TaskRead: {}, TaskExecute: {}, CalendarRead: {}, ProcurementRead: {}, ProcurementWrite: {},
@@ -1404,6 +1437,8 @@ var rolePermissions = map[string]map[string]struct{}{
 		// The sales module (/sales): ledger, overview and record-sale. Same
 		// founder/builder visibility invariant.
 		SalesRead: {}, SalesWrite: {}, SalesAllocateAnimals: {},
+		// Market survey (2026-09-14): reads the analytics and authors the cities/questions.
+		MarketRead: {}, MarketConfigWrite: {},
 		// The feed purchase ledger (/procurement/feed-purchases): what feed was bought, at what
 		// landed cost, from whom. Same founder/builder visibility invariant.
 		FeedPurchaseRead: {}, FeedPurchaseWrite: {}, LoadCostWrite: {},
