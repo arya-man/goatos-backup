@@ -642,6 +642,51 @@ class FeedDistributionCompleteViewModelTest {
     }
 
     @Test
+    fun `local video replacement after teammate adoption uses local preview identity`() = runTest(dispatcher) {
+        val teammates = FakeSplitFeedRepository(
+            listOf(
+                FeedDistributionCapturedSlotDto(
+                    fieldKey = "feed_distribution_video",
+                    proofRef = "server-proof-feed-video",
+                    capturedAt = "2026-08-14T03:45:26Z",
+                    mimeType = "video/mp4",
+                ),
+            ),
+        )
+        val viewModel = FeedDistributionCompleteViewModel(
+            syncRepository = RecordingFeedDistributionSyncRepository(),
+            proofCaptureSource = FakeProofCaptureSource(
+                mutableListOf(CapturedVideo(localUri = "/proof/local-feed-replacement.mp4", startedAtMs = 1L, endedAtMs = 2L)),
+            ),
+            photoCaptureSource = FakePhotoCaptureSource(mutableListOf()),
+            proofCaptureRepository = FakeProofCaptureRepository(),
+            feedRepository = teammates,
+            analytics = NoopAnalytics(),
+            crashReporter = NoopCrashReporter(),
+            appContext = ApplicationProvider.getApplicationContext(),
+            savedStateHandle = SavedStateHandle(
+                mapOf(
+                    FeedDistributionCompleteViewModel.ARG_PARK_ID to "park-1",
+                    FeedDistributionCompleteViewModel.ARG_SHED_ID to "shed-1",
+                    FeedDistributionCompleteViewModel.ARG_SESSION_NO to "1",
+                    FeedDistributionCompleteViewModel.ARG_WORKFLOW to "normal",
+                    FeedDistributionCompleteViewModel.ARG_TARGET_DATE to "2026-08-14",
+                    FeedDistributionCompleteViewModel.ARG_PARTITION_LABEL to "Part 1",
+                ),
+            ),
+        )
+        advanceUntilIdle()
+
+        assertEquals("server-proof-feed-video", viewModel.state.value.videoPreviewIdentity)
+
+        viewModel.onEvent(FeedDistributionEvent.RecordFeedVideo)
+        advanceUntilIdle()
+
+        assertEquals("/proof/local-feed-replacement.mp4", viewModel.state.value.videoPreviewPath)
+        assertEquals("proof-outbox-1", viewModel.state.value.videoPreviewIdentity)
+    }
+
+    @Test
     fun `captured proof rehydrates when the screen is reopened on a partitioned pen`() = runTest(dispatcher) {
         val syncRepository = RecordingFeedDistributionSyncRepository()
         // ONE repository across both view models: the durable Room-backed store that survives the
