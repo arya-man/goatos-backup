@@ -25,10 +25,10 @@ goatos-admin-web-stg
 goatos-api-stg
 ```
 
-Expected steady-state scaling for the API after the 2026-08-26 billing recovery:
+Expected steady-state scaling for the API:
 
 ```text
-goatos-api-stg min-instances=2 max-instances=2
+goatos-api-stg min-instances=1 max-instances=4 concurrency=20
 ```
 
 Keep runtime repair separate from a code deploy. If a code deploy is needed,
@@ -118,15 +118,20 @@ retry interval shown in the revision condition, then re-check.
 
 ## 5. Recovery Action
 
-For the 2026-08-26 incident, the API baseline requested by the maintainer is
-min/max 2:
+Restore the API to the normal staging latency shape. Do not cap the API at
+two instances; that can recreate business API queueing during small bursts.
+Do not raise the API beyond four instances without a billing note and a
+rollback plan; noisy event traffic should move to its own capped lane instead.
 
 ```bash
 gcloud run services update goatos-api-stg \
   --project=goatos-stg \
   --region=asia-south1 \
-  --min-instances=2 \
-  --max-instances=2
+  --min=1 \
+  --max=4 \
+  --min-instances=1 \
+  --max-instances=4 \
+  --concurrency=20
 ```
 
 If admin-web is also returning platform 429s, keep two warm admin-web instances:
@@ -163,5 +168,5 @@ Browser verification is mandatory:
    not the admin-web contract fallback.
 4. If logged in, confirm the real Mesha Admin shell renders.
 
-Record the exact UTC and IST time, final revision names, min/max values, and
-browser result in the handoff.
+Record the exact UTC and IST time, final revision names, API min/max/concurrency
+values, and browser result in the handoff.

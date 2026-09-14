@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -15,8 +17,9 @@ import (
 )
 
 type Handler struct {
-	pool *pgxpool.Pool
-	log  *slog.Logger
+	pool     *pgxpool.Pool
+	log      *slog.Logger
+	inFlight chan struct{}
 }
 
 func NewHandler(pool *pgxpool.Pool, log ...*slog.Logger) *Handler {
@@ -24,7 +27,7 @@ func NewHandler(pool *pgxpool.Pool, log ...*slog.Logger) *Handler {
 	if len(log) > 0 && log[0] != nil {
 		l = log[0]
 	}
-	return &Handler{pool: pool, log: l}
+	return &Handler{pool: pool, log: l, inFlight: make(chan struct{}, analyticsMaxInFlight())}
 }
 
 func Register(mux *http.ServeMux, h *Handler) {
@@ -46,6 +49,11 @@ type recordEventResponse struct {
 }
 
 func (h *Handler) RecordEvent(w http.ResponseWriter, r *http.Request) {
+	if !h.acquireEventSlot(w, r) {
+		return
+	}
+	defer h.releaseEventSlot()
+
 	var body recordEventRequest
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 256*1024)).Decode(&body); err != nil {
 		h.writeError(w, r, http.StatusBadRequest, "invalid_json", "invalid analytics event", err)
@@ -112,6 +120,30 @@ DO NOTHING`,
 	httpresponse.WriteJSON(w, http.StatusOK, recordEventResponse{Accepted: true})
 }
 
+func (h *Handler) acquireEventSlot(w http.ResponseWriter, r *http.Request) bool {
+	if h.inFlight == nil {
+		h.inFlight = make(chan struct{}, analyticsMaxInFlight())
+	}
+	select {
+	case h.inFlight <- struct{}{}:
+		return true
+	default:
+		w.Header().Set("Retry-After", "5")
+		h.writeError(w, r, http.StatusTooManyRequests, "analytics_backpressure", "analytics ingestion is busy; retry later", nil)
+		return false
+	}
+}
+
+func (h *Handler) releaseEventSlot() {
+	if h.inFlight == nil {
+		return
+	}
+	select {
+	case <-h.inFlight:
+	default:
+	}
+}
+
 func (h *Handler) writeError(w http.ResponseWriter, r *http.Request, status int, code, message string, cause error) {
 	httpresponse.WriteError(w, r, h.log, status, map[string]any{
 		"code":         code,
@@ -127,4 +159,20 @@ func nullableClientEventID(id string) any {
 		return nil
 	}
 	return id
+}
+
+func analyticsMaxInFlight() int {
+	const fallback = 2
+	raw := strings.TrimSpace(os.Getenv("GOATOS_ANALYTICS_MAX_IN_FLIGHT"))
+	if raw == "" {
+		return fallback
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil || n < 1 {
+		return fallback
+	}
+	if n > 16 {
+		return 16
+	}
+	return n
 }

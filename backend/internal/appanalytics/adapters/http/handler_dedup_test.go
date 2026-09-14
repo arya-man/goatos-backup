@@ -13,6 +13,26 @@ import (
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
 )
 
+func TestRecordEventBackpressureReturnsRetryableTooManyRequests(t *testing.T) {
+	h := &Handler{inFlight: make(chan struct{}, 1)}
+	h.inFlight <- struct{}{}
+
+	req := httptest.NewRequest("POST", "/app/analytics/events", strings.NewReader(`{"event_name":"screen_opened"}`))
+	rec := httptest.NewRecorder()
+
+	h.RecordEvent(rec, req)
+
+	if rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("status = %d, want %d body=%s", rec.Code, http.StatusTooManyRequests, rec.Body.String())
+	}
+	if got := rec.Header().Get("Retry-After"); got != "5" {
+		t.Fatalf("Retry-After = %q, want 5", got)
+	}
+	if got := len(h.inFlight); got != 1 {
+		t.Fatalf("in-flight slots changed on rejected request: got %d want 1", got)
+	}
+}
+
 // TestRecordEventClientEventIdDedup verifies that duplicate client_event_ids within
 // the same tenant result in only one stored event (ON CONFLICT DO NOTHING).
 func TestRecordEventClientEventIdDedup(t *testing.T) {

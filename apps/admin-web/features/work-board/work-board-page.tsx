@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import Link from "@/components/no-prefetch-link";
 import { actionFeedbackCopy, copy, tablePageSizes, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { firstAuthRequiredError } from "@/lib/api/server";
-import { getWorkBoardSummary, listWorkBoardRows, type WorkBoardRow, type WorkBoardSummary } from "@/lib/api/work-board-server";
+import { getWorkBoardPage, type WorkBoardLane, type WorkBoardRow, type WorkBoardSummary } from "@/lib/api/work-board-server";
 import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
 import { istDayPlus, todayIso } from "@/lib/format";
 import { boundedInt, hrefWithParams, one, type RouteSearchParams } from "@/lib/search-params";
@@ -132,34 +132,43 @@ export async function WorkBoardPage({ searchParams, pageContract }: { searchPara
   }
 
   const filterScope = { businessDate, modules: selectedModules, states: selectedStates, owner };
-  // One read per (column, park), each on its own cursor: a bounded fan-out (lanes are a closed
-  // set, parks are one or two), never per row. A park whose column is exhausted (its cursor is the
-  // end sentinel) is not re-read.
-  type LaneParkRead = { lane: string; parkKey: string; result: Awaited<ReturnType<typeof listWorkBoardRows>> };
-  const laneParkPlan: { lane: string; parkKey: string; cursor?: string }[] = [];
-  if (!noneSelected) {
-    for (const lane of laneKeys) {
-      for (const park of activeParks) {
+  // One backend read per park. The backend returns the summary plus every lane page while
+  // preserving per-lane cursors, so opening "All parks" is at most two API requests instead of
+  // two summaries plus eight row requests.
+  type LaneParkRead = { lane: string; parkKey: string; result: { ok: true; data: { rows: WorkBoardRow[]; next_cursor?: string; degraded?: string[] } } | { ok: false; error: { message: string } } };
+  const pagePlans: { parkKey: string; openLanes: WorkBoardLane[]; cursors: Partial<Record<WorkBoardLane, string | undefined>> }[] = [];
+  for (const park of activeParks) {
+    const cursors: Partial<Record<WorkBoardLane, string | undefined>> = {};
+    const openLanes: WorkBoardLane[] = [];
+    if (!noneSelected) {
+      for (const lane of laneKeys) {
         const raw = one(sp, laneParkCursorKey(lane, park.key));
         if (raw === LANE_PARK_END) continue;
-        laneParkPlan.push({ lane, parkKey: park.key, cursor: raw && raw.length ? raw : undefined });
+        const laneKey = lane as WorkBoardLane;
+        cursors[laneKey] = raw && raw.length ? raw : undefined;
+        openLanes.push(laneKey);
       }
     }
+    if (noneSelected || openLanes.length) pagePlans.push({ parkKey: park.key, openLanes, cursors });
   }
-  const summaryScopes = noneSelected ? [] : activeParks.map((park) => ({ ...filterScope, park: park.key }));
-  const [summaryResults, laneReadResults] = await Promise.all([
-    Promise.all(summaryScopes.map((scope) => getWorkBoardSummary(scope))), // request-plan:ignore owner=work-board issue=bounded-park-lane-fanout expires=2027-03-31 reason=parks<=caller's park count (<=2), lanes a fixed closed set of 4, so this is at most ~8 bounded reads, never unbounded pagination
-    Promise.all(laneParkPlan.map((plan) => listWorkBoardRows({ ...filterScope, park: plan.parkKey, lane: plan.lane }, { limit, cursor: plan.cursor }))), // request-plan:ignore owner=work-board issue=bounded-park-lane-fanout expires=2027-03-31 reason=parks<=caller's park count (<=2), lanes a fixed closed set of 4, so this is at most ~8 bounded reads, never unbounded pagination
-  ]);
-  const laneParkReads: LaneParkRead[] = laneParkPlan.map((plan, i) => ({ lane: plan.lane, parkKey: plan.parkKey, result: laneReadResults[i]! }));
-  // The wire's `modules` is the caller's set INTERSECTED with the request filter, so while a module
-  // filter is on, the Module menu's vocabulary comes from one unfiltered summary read per park.
-  const vocabularyResults =
-    noneSelected || selectedModules.length ? await Promise.all(activeParks.map((park) => getWorkBoardSummary({ park: park.key, businessDate }))) : []; // request-plan:ignore owner=work-board issue=bounded-park-lane-fanout expires=2027-03-31 reason=parks<=caller's park count (<=2), lanes a fixed closed set of 4, so this is at most ~8 bounded reads, never unbounded pagination
-  const allResults = [...summaryResults, ...vocabularyResults, ...laneReadResults];
+  const pageResults = await Promise.all(pagePlans.map((plan) => getWorkBoardPage({ ...filterScope, park: plan.parkKey }, { limit, lanes: plan.openLanes, cursors: plan.cursors }))); // request-plan:ignore owner=work-board issue=bounded-park-page-fanout expires=2027-03-31 reason=parks<=caller's park count (<=2); each backend page read serializes the requested lane reads instead of SSR fanning out 10 API calls
+  const summaryResults = noneSelected ? [] : pageResults.map((result) => (result.ok ? { ok: true as const, data: result.data.summary } : result));
+  const vocabularyResults = pageResults.flatMap((result) => (result.ok && (noneSelected || result.data.vocabulary_summary) ? [{ ok: true as const, data: result.data.vocabulary_summary ?? result.data.summary }] : []));
+  const laneParkReads: LaneParkRead[] = [];
+  pagePlans.forEach((plan, i) => {
+    const result = pageResults[i]!;
+    if (!result.ok) {
+      for (const lane of plan.openLanes) laneParkReads.push({ lane, parkKey: plan.parkKey, result });
+      return;
+    }
+    for (const lane of plan.openLanes) {
+      laneParkReads.push({ lane, parkKey: plan.parkKey, result: { ok: true as const, data: result.data.lanes[lane as WorkBoardLane] ?? { rows: [] } } });
+    }
+  });
+  const allResults = [...summaryResults, ...vocabularyResults, ...pageResults];
   if (firstAuthRequiredError(...allResults)) redirect(INTERNAL_LOGIN_PATH);
 
-  const rows: WorkBoardRow[] = laneReadResults.flatMap((result) => (result.ok ? result.data.rows : []));
+  const rows: WorkBoardRow[] = laneParkReads.flatMap((read) => (read.result.ok ? read.result.data.rows : []));
   const summary = mergeSummaries(summaryResults.flatMap((result) => (result.ok ? [result.data] : [])));
   const okVocabulary = vocabularyResults.flatMap((result) => (result.ok ? [result.data] : []));
   const okSummary = summaryResults.flatMap((result) => (result.ok ? [result.data] : []));

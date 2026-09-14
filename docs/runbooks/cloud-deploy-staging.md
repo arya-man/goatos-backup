@@ -241,8 +241,11 @@ gcloud deploy targets describe goatos-stg \
 gcloud run services describe goatos-api-stg \
   --project=goatos-stg \
   --region=asia-south1 \
-  --format="value(metadata.labels.commit_sha,metadata.labels.deployed_by,status.latestReadyRevisionName)"
+  --format="value(metadata.labels.commit_sha,metadata.labels.deployed_by,status.latestReadyRevisionName,spec.template.metadata.annotations.autoscaling\\.knative\\.dev/minScale,spec.template.metadata.annotations.autoscaling\\.knative\\.dev/maxScale,spec.template.spec.containerConcurrency)"
 ```
+
+Expected API shape after deploy: `minScale=1`, `maxScale=4`,
+`containerConcurrency=20`.
 
 ## Break Glass
 

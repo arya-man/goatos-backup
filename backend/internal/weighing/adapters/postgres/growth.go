@@ -27,6 +27,11 @@ const growthLookbackDays = 400
 // during fast sidebar/tab switching.
 const weighingAnalyticsCacheTTL = 30 * time.Second
 
+// Keep a single analytics request from occupying the whole DB pool on a cold-cache page load.
+// The admin Weights page already calls several weighing reads in parallel; letting this one fan out
+// into a dozen simultaneous aggregate scans made staging tail latency worse under shared API bursts.
+const weighingGrowthReadParallelism = 3
+
 func weighingAnalyticsCacheKey(prefix string, tenantID string, parkIDs []string, periodStart, periodEnd time.Time, sex, origin, weighingCategory string) string {
 	parks := append([]string(nil), parkIDs...)
 	sort.Strings(parks)
@@ -356,23 +361,33 @@ func (r *Repository) GetLeadershipGrowthADG(ctx context.Context, tenantID string
 		errs         = make(chan error, 2)
 		wg           sync.WaitGroup
 	)
-	wg.Add(2)
-	go func() {
-		defer wg.Done()
+	analyticsSlots := make(chan struct{}, weighingGrowthReadParallelism)
+	runGrowthRead := func(wg *sync.WaitGroup, errs chan<- error, fn func() error) {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			select {
+			case analyticsSlots <- struct{}{}:
+				defer func() { <-analyticsSlots }()
+			case <-ctx.Done():
+				errs <- ctx.Err()
+				return
+			}
+			if err := fn(); err != nil {
+				errs <- err
+			}
+		}()
+	}
+	runGrowthRead(&wg, errs, func() error {
 		var err error
 		headline, err = r.growthHeadlineStats(ctx, tenantID, parkIDs, lookbackStart, periodStart, periodEnd, sexFiltered, scope, idMap, weighingCategory)
-		if err != nil {
-			errs <- err
-		}
-	}()
-	go func() {
-		defer wg.Done()
+		return err
+	})
+	runGrowthRead(&wg, errs, func() error {
 		var err error
 		prevHeadline, err = r.growthHeadlineStats(ctx, tenantID, parkIDs, prevLookbackStart, prevStart, prevEnd, sexFiltered, scope, idMap, weighingCategory)
-		if err != nil {
-			errs <- err
-		}
-	}()
+		return err
+	})
 	wg.Wait()
 	close(errs)
 	if err := <-errs; err != nil {
@@ -414,16 +429,12 @@ func (r *Repository) GetLeadershipGrowthADG(ctx context.Context, tenantID string
 	errs = make(chan error, 10)
 	wg = sync.WaitGroup{}
 	run := func(fn func() error) {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			if err := fn(); err != nil {
-				errs <- err
-			}
-		}()
+		runGrowthRead(&wg, errs, fn)
 	}
-	// These arms are independent once sex/origin scope is resolved. Running them in parallel keeps
-	// the page truthful while avoiding a long chain of remote DB round trips on every cache miss.
+	// These arms are independent once sex/origin scope is resolved. Run them with bounded parallelism:
+	// enough to hide remote DB round-trip time, but not enough for one cold-cache request to monopolize
+	// the app's DB pool while the Weights page is also fetching shed weights, demographics, and Growth
+	// Director data.
 	run(func() error {
 		var err error
 		rejected, err = r.growthRejectedCount(ctx, tenantID, parkIDs, periodStart, periodEnd, weighingCategory)
