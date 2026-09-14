@@ -51,8 +51,8 @@ Latest functional change: `4769b8b6fbffb0e7f5cc4d828be46a83addb9c7d` (`fix(stg):
 | `/app/proofs/.../complete` | Pending investigation | Only 2 slow samples in baseline; not proven as repeated offender yet. Needs live query/log drilldown after deploy. |
 | `/app/leadership-tasks` | Pending investigation | Only 3 slow samples in baseline; not proven as repeated offender yet. Needs live query/log drilldown after deploy. |
 | `/auth/session-events` | Pending investigation | Small sample baseline. Need live post-deploy logs to separate cold/queueing/auth path cost. |
-| Judge review | Done for current head | Backend/infra judge found no blockers at `4769b8b6f`; Android/frontend judge cleared request-shape and UI guard changes after the shared secret-access fix. |
-| PR raised/pushed | Done | PR #259 is open, pushed at `4769b8b6f`, GitHub merge state is clean, and GitGuardian passed. |
+| Judge review | Done for current functional head | Backend/infra judge found no blockers at `4769b8b6f`; Android/frontend judge cleared request-shape and UI guard changes after the shared secret-access fix. Current PR head is doc-only `33a25d149`. |
+| PR raised/pushed | Done | PR #259 is open, pushed at `33a25d149`, GitHub merge state is clean, and GitGuardian passed. |
 | STG deploy | Blocked by maintainer confirmation | Do not deploy. Maintainer explicitly requires confirmation/signoff first and wants to know whether all bugs are fixed. |
 | Live STG verification | Pending | After deploy: Cloud Run logs, event route split, Work Board/Weights live E2E, public PageSpeed/Lighthouse. |
 | Final completion | Pending | Requires STG deploy/live verification or explicit instruction to stop at PR-only. |
