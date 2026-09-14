@@ -630,6 +630,15 @@ object AppModule {
     ): sg.mesha.goatos.core.data.SalesRepository =
         sg.mesha.goatos.core.data.DefaultSalesRepository(api = api, database = database)
 
+    // Market survey (maintainer decision 2026-09-14): the Procurement module's Market tab.
+    @Provides
+    @Singleton
+    fun provideMarketRepository(
+        api: AppApi,
+        database: GoatDatabase,
+    ): sg.mesha.goatos.core.data.MarketRepository =
+        sg.mesha.goatos.core.data.DefaultMarketRepository(api = api, database = database)
+
     /**
      * Leadership Tasks (maintainer request 2026-09-04). Room-backed offline-first READS; the
      * writes are online calls inside the repository itself (v1 decision — a raise needs the
@@ -995,6 +1004,9 @@ object AppModule {
         // Animal purchases (2026-09-13): same defect class -- without it a recorded load/animal never
         // reconciles into Room after its write lands.
         animalPurchaseRepository: sg.mesha.goatos.core.data.AnimalPurchaseRepository,
+        // Market survey (2026-09-14): same defect class -- without it a recorded card never
+        // reconciles into the cached day after its write lands.
+        marketRepository: sg.mesha.goatos.core.data.MarketRepository,
     ): SyncEngine {
         val pcCareRepository = DeferredPcCareRepository(pcCareRepositoryProvider)
         return SyncEngine(
@@ -1025,6 +1037,7 @@ object AppModule {
         vendorsRepository = vendorsRepository,
         salesRepository = salesRepository,
         animalPurchaseRepository = animalPurchaseRepository,
+        marketRepository = marketRepository,
         telemetry = outboxTelemetry,
         // Whole-page-blob reconcile: these opTypes affect cached lists/envelopes with no server-truth
         // row to write directly into. The reconcile is "refresh the page" or "forget the row",

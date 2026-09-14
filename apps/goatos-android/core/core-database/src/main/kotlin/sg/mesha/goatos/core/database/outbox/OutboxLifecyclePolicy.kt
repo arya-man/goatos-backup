@@ -160,6 +160,9 @@ val OutboxOpType.lifecyclePolicy: OutboxLifecyclePolicy
         // Sales (maintainer instruction 2026-09-04): the same shape -- queued banner at once, the
         // server's returned deal written straight into the Room ledger/detail caches.
         OutboxOpType.SALES_DEAL_CREATE -> overlayDirectReconcileLifecycle()
+        // Market survey (maintainer decision 2026-09-14): the card shows the queued figures at
+        // once, and the sync pass writes the server's RETURNED card straight into the cached day.
+        OutboxOpType.MARKET_SURVEY_RECORD -> overlayDirectReconcileLifecycle()
         // Editing a recorded sale, same shape: a receipt or a status change shows at once as an
         // outbox overlay, and the server's returned deal (its recomputed `payment_balance`
         // included) reconciles the ledger and detail caches directly.

@@ -131,6 +131,10 @@ import sg.mesha.goatos.feature.vendors.AnimalPurchaseLoadDetailEvent
 import sg.mesha.goatos.feature.vendors.AnimalPurchaseLoadDetailScreen
 import sg.mesha.goatos.feature.vendors.AnimalPurchaseLoadsEvent
 import sg.mesha.goatos.feature.vendors.AnimalPurchaseLoadsScreen
+import sg.mesha.goatos.feature.vendors.MarketCityEntryEvent
+import sg.mesha.goatos.feature.vendors.MarketCityEntryScreen
+import sg.mesha.goatos.feature.vendors.MarketSurveyEvent
+import sg.mesha.goatos.feature.vendors.MarketSurveyScreen
 import sg.mesha.goatos.feature.vendors.FeedPurchasesListEvent
 import sg.mesha.goatos.feature.vendors.FeedPurchasesListScreen
 import sg.mesha.goatos.feature.vendors.VendorCreateEvent
@@ -284,6 +288,8 @@ import sg.mesha.goatos.viewmodel.AnimalPurchaseAnimalDetailViewModel
 import sg.mesha.goatos.viewmodel.AnimalPurchaseLoadCreateViewModel
 import sg.mesha.goatos.viewmodel.AnimalPurchaseLoadDetailViewModel
 import sg.mesha.goatos.viewmodel.AnimalPurchaseLoadsViewModel
+import sg.mesha.goatos.viewmodel.MarketCityEntryViewModel
+import sg.mesha.goatos.viewmodel.MarketSurveyViewModel
 import sg.mesha.goatos.viewmodel.FeedPurchasesListViewModel
 import sg.mesha.goatos.viewmodel.VendorCreateViewModel
 import sg.mesha.goatos.viewmodel.VendorDetailViewModel
@@ -688,6 +694,16 @@ object Routes {
     fun animalPurchaseAnimalNewRoute(loadId: String): String = "/vendors/animal-purchases/loads/${Uri.encode(loadId)}/animals/new"
     fun animalPurchaseAnimalDetailRoute(loadId: String, candidateId: String): String =
         "/vendors/animal-purchases/loads/${Uri.encode(loadId)}/animals/animal/${Uri.encode(candidateId)}"
+
+    // Market survey (maintainer decision 2026-09-14): the Procurement module's FOURTH L0 root,
+    // whose href matches the backend-composed nav item VERBATIM (bootstrap_copy.go:
+    // {key:"market", href:"/vendors/market"}), and the `market_survey_due` push's target. One
+    // hosted drill: a city's entry form, under the literal `/city/` segment so the L0 can never
+    // be read as a city id.
+    const val VENDORS_MARKET = "/vendors/market"
+    const val MARKET_CITY_ID_ARG = "city_id"
+    const val MARKET_CITY_ENTRY = "/vendors/market/city/{$MARKET_CITY_ID_ARG}"
+    fun marketCityEntryRoute(cityId: String): String = "/vendors/market/city/${Uri.encode(cityId)}"
 
     /** The load id a `/vendors/animal-purchases/loads/<id>` push href names (the
      *  `animal_purchase_decided` push's target), or null for anything else. */
@@ -3657,6 +3673,43 @@ fun AppNavHost(
                 },
             )
         }
+        // --- Market survey (maintainer decision 2026-09-14) ---------------------------------
+        // The Procurement module's FOURTH L0 (today's city cards) plus one hosted drill (a
+        // city's entry form). Module visibility is backend-composed (offered on the
+        // sales.market.entry permission), so nothing here gates on a role string.
+        composable(Routes.VENDORS_MARKET) {
+            val vm: MarketSurveyViewModel = hiltViewModel()
+            LaunchedEffect(vm) { vm.bind(MARKET_TAB_TITLE) }
+            val state by vm.state.collectAsStateWithLifecycle()
+            MarketSurveyScreen(
+                state = state,
+                onEvent = { event ->
+                    when (event) {
+                        is MarketSurveyEvent.OpenCity -> {
+                            vm.onEvent(event)
+                            navController.navigate(Routes.marketCityEntryRoute(event.cityId)) { launchSingleTop = true }
+                        }
+                        else -> vm.onEvent(event)
+                    }
+                },
+            )
+        }
+        composable(
+            route = Routes.MARKET_CITY_ENTRY,
+            arguments = listOf(navArgument(Routes.MARKET_CITY_ID_ARG) { type = NavType.StringType }),
+        ) {
+            val vm: MarketCityEntryViewModel = hiltViewModel()
+            val state by vm.state.collectAsStateWithLifecycle()
+            MarketCityEntryScreen(
+                state = state,
+                onEvent = { event ->
+                    when (event) {
+                        MarketCityEntryEvent.Back -> navController.popBackStack()
+                        else -> vm.onEvent(event)
+                    }
+                },
+            )
+        }
         // --- Animal purchases (maintainer decision 2026-09-13) ------------------------------
         // The Procurement module's THIRD L0 (purchase loads) plus three hosted drills: add a load,
         // one load with its animals, add an animal. Module visibility is backend-composed (offered
@@ -4955,6 +5008,9 @@ private val supportedRootDestinations = setOf(
     // the composable alone would leave a notification or deep link naming it treated as unhosted
     // and bounced to home.
     Routes.VENDORS_ANIMAL_PURCHASES,
+    // Market survey (maintainer decision 2026-09-14): the Procurement module's fourth bar item,
+    // and the `market_survey_due` push's target.
+    Routes.VENDORS_MARKET,
 )
 
 /**
@@ -5059,6 +5115,7 @@ private const val VENDORS_TAB_TITLE = "Vendors"
 private const val FEED_PURCHASES_TAB_TITLE = "Feed Purchases"
 // Mirrors the backend nav label ("nav.animal_purchases" in bootstrap_copy.go).
 private const val ANIMAL_PURCHASES_TAB_TITLE = "Animal purchases"
+private const val MARKET_TAB_TITLE = "Market"
 
 /**
  * The Sales module's two L0 labels, mirrored from the backend's `nav.sales` / `nav.vendors`. The

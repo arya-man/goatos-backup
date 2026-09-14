@@ -175,6 +175,9 @@ class SyncEngine(
     // Room the same way. Same defect class as feedRepository/toxinRepository above: null here
     // silently no-ops the reconcile in production and the phone shows the row only after refresh.
     private val animalPurchaseRepository: sg.mesha.goatos.core.data.AnimalPurchaseRepository? = null,
+    // Market survey (maintainer decision 2026-09-14): the recorded card reconciles into the cached
+    // day the same way. Null silently no-ops the reconcile -- the same defect class as above.
+    private val marketRepository: sg.mesha.goatos.core.data.MarketRepository? = null,
     private val idGenerator: () -> String = { java.util.UUID.randomUUID().toString() },
     /**
      * Lifecycle visibility for the queue itself. Defaults to
@@ -608,6 +611,7 @@ class SyncEngine(
         OutboxOpType.VENDOR_UPDATE -> dispatchVendorUpdate(item)
         OutboxOpType.FEED_PURCHASE_CREATE -> dispatchFeedPurchaseCreate(item)
         OutboxOpType.SALES_DEAL_CREATE -> dispatchSalesDealCreate(item)
+        OutboxOpType.MARKET_SURVEY_RECORD -> dispatchMarketSurveyRecord(item)
         OutboxOpType.SALES_DEAL_PAYMENT_WRITE -> dispatchSalesDealPaymentWrite(item)
         OutboxOpType.SALES_DEAL_STATUS_SET -> dispatchSalesDealStatusSet(item)
         OutboxOpType.SALES_PIPELINE_WRITE -> dispatchSalesPipelineWrite(item)
@@ -891,6 +895,19 @@ class SyncEngine(
                     runCatching {
                         animalPurchaseRepository?.persistServerLoad(
                             syncJson.decodeFromString<sg.mesha.goatos.core.network.dto.AnimalPurchaseLoadDto>(resultJson),
+                        )
+                    }.onFailure { reportCacheReconcileFailure(item, it) }
+                }
+            }
+            // Market survey (2026-09-14): the write returns the city's card as the server now holds
+            // it (its status, every question's price), written straight into the cached day.
+            OutboxOpType.MARKET_SURVEY_RECORD -> {
+                item.resultJson?.let { resultJson ->
+                    runCatching {
+                        val payload = syncJson.decodeFromString<MarketSurveyRecordPayload>(item.payloadJson)
+                        marketRepository?.persistServerCard(
+                            payload.businessDate,
+                            syncJson.decodeFromString<sg.mesha.goatos.core.network.dto.MarketSurveyCardDto>(resultJson),
                         )
                     }.onFailure { reportCacheReconcileFailure(item, it) }
                 }
@@ -1205,6 +1222,13 @@ class SyncEngine(
             payload.request.copy(media = media),
         )
         return syncJson.encodeToString(created)
+    }
+
+    /** A city's morning prices; the stored key rides as the backend's Idempotency-Key. */
+    private suspend fun dispatchMarketSurveyRecord(item: OutboxEntity): String {
+        val payload = syncJson.decodeFromString<MarketSurveyRecordPayload>(item.payloadJson)
+        val card = api.recordMarketSurveyCity(payload.cityId, item.idempotencyKey, payload.request)
+        return syncJson.encodeToString(card)
     }
 
     /** A sale recorded on the phone; the stored key rides as the backend's Idempotency-Key. */

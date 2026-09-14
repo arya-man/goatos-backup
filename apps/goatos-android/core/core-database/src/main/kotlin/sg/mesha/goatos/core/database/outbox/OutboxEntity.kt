@@ -376,6 +376,14 @@ enum class OutboxOpType {
     SALES_DEAL_CREATE,
 
     /**
+     * Market survey (`POST /app/market/survey/{city_id}`, maintainer decision 2026-09-14): one
+     * city's morning prices for a business day. Its own (city, day) lane; the STABLE per-client-id
+     * idempotency key rides verbatim as the backend's `Idempotency-Key`. Adding an op type needs
+     * NO Room migration: [OutboxEntity.opType] is a plain TEXT column holding this enum's `name`.
+     */
+    MARKET_SURVEY_RECORD,
+
+    /**
      * EDITING a recorded sale (maintainer instruction 2026-09-04): a buyer receipt added, changed
      * or removed. ONE op type for the three verbs rather than three, because they share a payload,
      * a lane and a reconcile -- the verb rides in the payload's `op`. Every one returns the WHOLE

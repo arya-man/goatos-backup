@@ -139,6 +139,11 @@ import sg.mesha.goatos.core.network.dto.SalesSoldTagsWriteDto
 import sg.mesha.goatos.core.network.dto.SalesWeightCheckWriteDto
 import sg.mesha.goatos.core.network.dto.SalesDealPageDto
 import sg.mesha.goatos.core.network.dto.SalesDealWriteDto
+import sg.mesha.goatos.core.network.dto.MarketSurveyAnswerDto
+import sg.mesha.goatos.core.network.dto.MarketSurveyCardDto
+import sg.mesha.goatos.core.network.dto.MarketSurveyCardQuestionDto
+import sg.mesha.goatos.core.network.dto.MarketSurveyDayDto
+import sg.mesha.goatos.core.network.dto.MarketSurveyEntryRequestDto
 import sg.mesha.goatos.core.network.dto.SalesOptionsDto
 import sg.mesha.goatos.core.network.dto.SalesStatusOptionDto
 import sg.mesha.goatos.core.network.dto.SaleLocationParkDto
@@ -1669,6 +1674,18 @@ interface AppApi {
         idempotencyKey: String,
         request: AnimalPurchaseAnimalCreateRequestDto,
     ): AnimalPurchaseAnimalDto
+
+    // --- Market survey (maintainer decision 2026-09-14) -------------------------------------
+
+    /** GET /app/market/survey?date= — the day's city cards; blank date = today's IST business day. */
+    suspend fun getMarketSurveyDay(date: String?): MarketSurveyDayDto
+
+    /** POST /app/market/survey/{city_id} — a city's answers for the day. Idempotency-Key REQUIRED. */
+    suspend fun recordMarketSurveyCity(
+        cityId: String,
+        idempotencyKey: String,
+        request: MarketSurveyEntryRequestDto,
+    ): MarketSurveyCardDto
 
     /** POST /sales/deals — records a sale. The `Idempotency-Key` is REQUIRED. */
     suspend fun createSalesDeal(
@@ -3284,6 +3301,30 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
         decisionTone = "neutral",
         rowVersion = 1,
     )
+
+    override suspend fun getMarketSurveyDay(date: String?): MarketSurveyDayDto = MarketSurveyDayDto(
+        businessDate = date ?: "2026-09-14",
+        cards = listOf(
+            MarketSurveyCardDto(
+                cityId = "city-chennai", cityName = "Chennai", status = "pending", answered = 1, total = 2,
+                questions = listOf(
+                    MarketSurveyCardQuestionDto("q-goat-live", "Goat live price", "₹/kg", 620.0),
+                    MarketSurveyCardQuestionDto("q-sheep-live", "Sheep live price", "₹/kg", null),
+                ),
+            ),
+        ),
+        pending = 1,
+        done = 0,
+        canRecord = true,
+    )
+
+    override suspend fun recordMarketSurveyCity(cityId: String, idempotencyKey: String, request: MarketSurveyEntryRequestDto): MarketSurveyCardDto =
+        getMarketSurveyDay(null).cards.first().let { card ->
+            val priced = request.answers.associate { it.questionId to it.price }
+            val questions = card.questions.map { q -> priced[q.questionId]?.let { q.copy(price = it) } ?: q }
+            val answered = questions.count { it.price != null }
+            card.copy(cityId = cityId, questions = questions, answered = answered, status = if (answered == questions.size) "done" else "pending")
+        }
 
     override suspend fun createSalesDeal(idempotencyKey: String, request: SalesDealWriteDto): SalesDealDto =
         fakeSalesDeal().copy(dealId = "deal-new", buyerName = request.buyerName, salesValue = request.salesValue, paymentBalance = request.salesValue)

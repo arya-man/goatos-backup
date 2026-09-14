@@ -679,6 +679,17 @@ interface SyncRepository {
         proofOutboxItemIds: Map<String, List<String>>,
     ): AppResult<String> = AppResult.Err("animal purchase sync is not configured")
 
+    /**
+     * A city's morning market prices (`POST /app/market/survey/{city_id}`, maintainer decision
+     * 2026-09-14); [clientId] is stable across retries of the same save.
+     */
+    suspend fun enqueueMarketSurveyRecord(
+        clientId: String,
+        cityId: String,
+        businessDate: String,
+        request: sg.mesha.goatos.core.network.dto.MarketSurveyEntryRequestDto,
+    ): AppResult<String> = AppResult.Err("market survey sync is not configured")
+
     /** A sale recorded on the phone (`POST /sales/deals`); [clientId] is stable across retries. */
     suspend fun enqueueSalesDealCreate(
         clientId: String,
@@ -1821,6 +1832,20 @@ class DefaultSyncRepository(
                 request = request,
                 proofOutboxItemIds = proofOutboxItemIds,
             ),
+        ),
+    )
+
+    override suspend fun enqueueMarketSurveyRecord(
+        clientId: String,
+        cityId: String,
+        businessDate: String,
+        request: sg.mesha.goatos.core.network.dto.MarketSurveyEntryRequestDto,
+    ): AppResult<String> = enqueue(
+        opType = OutboxOpType.MARKET_SURVEY_RECORD,
+        groupKey = marketSurveyGroupKey(cityId.trim(), businessDate.trim()),
+        idempotencyKey = marketSurveyIdempotencyKey(clientId.trim()),
+        payloadJson = syncJson.encodeToString(
+            MarketSurveyRecordPayload(clientId = clientId.trim(), cityId = cityId.trim(), businessDate = businessDate.trim(), request = request),
         ),
     )
 

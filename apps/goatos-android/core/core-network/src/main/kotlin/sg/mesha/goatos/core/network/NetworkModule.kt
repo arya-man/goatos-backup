@@ -145,6 +145,9 @@ import sg.mesha.goatos.core.network.dto.SalesSoldTagsWriteDto
 import sg.mesha.goatos.core.network.dto.SalesWeightCheckWriteDto
 import sg.mesha.goatos.core.network.dto.SalesDealPageDto
 import sg.mesha.goatos.core.network.dto.SalesDealWriteDto
+import sg.mesha.goatos.core.network.dto.MarketSurveyCardDto
+import sg.mesha.goatos.core.network.dto.MarketSurveyDayDto
+import sg.mesha.goatos.core.network.dto.MarketSurveyEntryRequestDto
 import sg.mesha.goatos.core.network.dto.SalesOptionsDto
 import sg.mesha.goatos.core.network.dto.VendorOptionsDto
 import sg.mesha.goatos.core.network.dto.FeedTransportTaskPageDto
@@ -1152,6 +1155,16 @@ interface AppApiService {
         @Header("Idempotency-Key") idempotencyKey: String,
         @Body request: SalesDealWriteDto,
     ): SalesDealDto
+
+    @GET("app/market/survey")
+    suspend fun getMarketSurveyDay(@Query("date") date: String?): MarketSurveyDayDto
+
+    @POST("app/market/survey/{city_id}")
+    suspend fun recordMarketSurveyCity(
+        @Path("city_id") cityId: String,
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Body request: MarketSurveyEntryRequestDto,
+    ): MarketSurveyCardDto
 
     @GET("admin/goats/sale-locations")
     suspend fun getSaleLocations(): SaleLocationsDto
@@ -2427,6 +2440,11 @@ class RetrofitAppApi(
 
     override suspend fun addAnimalPurchaseAnimal(loadId: String, idempotencyKey: String, request: AnimalPurchaseAnimalCreateRequestDto): AnimalPurchaseAnimalDto =
         service.addAnimalPurchaseAnimal(loadId, idempotencyKey, request)
+
+    override suspend fun getMarketSurveyDay(date: String?): MarketSurveyDayDto = service.getMarketSurveyDay(date)
+
+    override suspend fun recordMarketSurveyCity(cityId: String, idempotencyKey: String, request: MarketSurveyEntryRequestDto): MarketSurveyCardDto =
+        service.recordMarketSurveyCity(cityId, idempotencyKey, request)
 
     override suspend fun createSalesDeal(idempotencyKey: String, request: SalesDealWriteDto): SalesDealDto =
         service.createSalesDeal(idempotencyKey, request)
