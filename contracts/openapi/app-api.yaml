@@ -18512,6 +18512,13 @@ components:
           type: array
           items: { $ref: "#/components/schemas/AnimalPurchaseQuestion" }
         questionnaire_version: { type: integer }
+        load_form:
+          description: >-
+            The load form of the same SOP version (PROCUREMENT SOP): what the desk answers when it
+            opens a purchase load. vendor / farm / load_ref are locked; further pick-one / pick-many /
+            number / text questions may be authored. The phone renders it in order.
+          type: array
+          items: { $ref: "#/components/schemas/AnimalPurchaseQuestion" }
         species:
           type: array
           items: { $ref: "#/components/schemas/AnimalPurchaseOption" }
@@ -18559,6 +18566,25 @@ components:
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
         row_version: { type: integer }
+        questionnaire_version:
+          type: integer
+          description: The SOP version the load form was answered on (0 for a load recorded before the Procurement SOP).
+        answers:
+          type: object
+          additionalProperties: true
+          description: The load form's answers as recorded, keyed by question id.
+        answer_rows:
+          type: array
+          description: The EXTRA (authored) load answers rendered under their question text, in SOP order.
+          items:
+            type: object
+            required: [section, question_id, question, answer, attention]
+            properties:
+              section: { type: string }
+              question_id: { type: string }
+              question: { type: string }
+              answer: { type: string }
+              attention: { type: boolean }
     AnimalPurchaseLoadPage:
       type: object
       required: [loads, can_record]
@@ -18579,6 +18605,17 @@ components:
         farm: { type: string, enum: [CBE, CPT] }
         expected_count: { type: integer, minimum: 0 }
         notes: { type: string, maxLength: 500 }
+        questionnaire_version:
+          type: integer
+          minimum: 0
+          description: The SOP version whose load form the phone rendered; 0 = published.
+        answers:
+          type: object
+          additionalProperties: true
+          description: >-
+            The load form's answers by question id (PROCUREMENT SOP). The identity answers mirror
+            the typed fields above; extra authored questions live only here. Validated against the
+            named version; a 422 names the question id in `field`.
     AnimalPurchaseAnimal:
       type: object
       required: [candidate_id, load_id, load_ref, seq_no, title, species, species_label, sex, sex_label, breed, condition, condition_label, temp_tag, notes, video_proof_ref, questionnaire_version, answers, answer_rows, media_slots, field_verdict, field_verdict_label, decision, decision_label, decision_tone, decided_by_name, decision_note, created_at, updated_at, row_version]

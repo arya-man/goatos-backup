@@ -2458,6 +2458,8 @@
   .sop-inspection .qfoot .condrow select{max-width:260px}
   .inspection-footer{position:sticky;bottom:0;background:var(--panel);border-top:1px solid var(--line);padding:10px 90px 10px 14px;margin-top:12px;display:flex;align-items:center;gap:10px;z-index:2}
   .inspection-summary .htl{margin-bottom:6px}
+  .ap-load-answers{display:flex;flex-wrap:wrap;gap:6px 18px;align-items:baseline;padding:8px 14px;border-top:1px solid var(--line2)}
+  .ap-load-answer{display:inline-flex;gap:6px;align-items:baseline;font-size:12.5px}
   .btn.ghost:hover{background:var(--brand-soft)}
 
   .weighing-page{display:grid;gap:16px}

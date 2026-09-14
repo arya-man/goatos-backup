@@ -236,6 +236,18 @@ export async function AnimalPurchasesPage({
             ) : null}
           </div>
         </div>
+        {/* PROCUREMENT SOP: the load's own authored answers (how it arrived, documents, ...) sit
+            with the load, not with any one animal, so the CEO reads them once here. */}
+        {selectedLoad && (selectedLoad.answer_rows ?? []).length > 0 ? (
+          <div className="ap-load-answers">
+            <span className="muted small b700">{copy(pageContract, "label.load_answers")}</span>
+            {(selectedLoad.answer_rows ?? []).map((row) => (
+              <span key={row.question_id} className="ap-load-answer">
+                <span className="muted small">{row.question}</span> <b>{row.answer}</b>
+              </span>
+            ))}
+          </div>
+        ) : null}
 
         {loads.length === 0 ? (
           <div className="empty">{copy(pageContract, "empty.loads")}</div>
