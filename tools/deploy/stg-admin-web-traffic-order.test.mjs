@@ -3,6 +3,10 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 
 const script = readFileSync(new URL("./stg-clouddeploy-task.sh", import.meta.url), "utf8");
+const analyticsRoutingScript = readFileSync(
+  new URL("./stg-analytics-events-routing.sh", import.meta.url),
+  "utf8",
+);
 const apiTerraform = readFileSync(
   new URL("../../infra/envs/stg/cloud_run_services.tf", import.meta.url),
   "utf8",
@@ -101,4 +105,37 @@ test("analytics events has an isolated capped deploy lane", () => {
   assert.match(script, /gcloud run services update "\$ANALYTICS_EVENTS_SERVICE"[\s\S]*?--max=1\s+\\/);
   assert.match(script, /GOATOS_API_ROUTE_MODE=events,GOATOS_ANALYTICS_MAX_IN_FLIGHT=2,GOATOS_PG_MAX_CONNS=2/);
   assert.match(script, /service_image "\$ANALYTICS_EVENTS_SERVICE"/);
+});
+
+test("analytics events routing script isolates only the event path", () => {
+  assert.match(
+    analyticsRoutingScript,
+    /EVENTS_PATH="\$\{EVENTS_PATH:-\/app\/analytics\/events\}"/,
+    "routing script must target only the analytics event endpoint",
+  );
+  assert.match(
+    analyticsRoutingScript,
+    /EVENTS_BACKEND="\$\{EVENTS_BACKEND:-goatos-analytics-events-stg-backend\}"/,
+    "routing script must use the analytics events backend",
+  );
+  assert.match(
+    analyticsRoutingScript,
+    /EVENTS_NEG="\$\{EVENTS_NEG:-goatos-analytics-events-stg-neg\}"/,
+    "routing script must use the analytics events serverless NEG",
+  );
+  assert.match(
+    analyticsRoutingScript,
+    /--cloud-run-service="\$EVENTS_SERVICE"/,
+    "serverless NEG must point at the analytics events Cloud Run service",
+  );
+  assert.match(
+    analyticsRoutingScript,
+    /path_rules\.insert\(0, \{"paths": \[events_path\], "service": events_backend\}\)/,
+    "routing script must add a path rule instead of changing the default API backend",
+  );
+  assert.doesNotMatch(
+    analyticsRoutingScript,
+    /defaultService"\]\s*=\s*events_backend/,
+    "routing script must not point the API host default service at events",
+  );
 });
