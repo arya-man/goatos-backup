@@ -93,6 +93,8 @@ func (h *AccessHandler) respond(w http.ResponseWriter, r *http.Request, payload 
 			"This person only holds park roles, so they belong to a park. Tick the park or parks they cover instead of Every park.")
 	case errors.Is(err, ports.ErrUnknownPark):
 		h.writeError(w, http.StatusBadRequest, "unknown_park", "One of the selected parks is no longer active. Reload and choose again.")
+	case errors.Is(err, app.ErrPenVisitorCannotReachTasks):
+		h.writeError(w, http.StatusBadRequest, "pen_visitor_cannot_reach_tasks", app.ErrPenVisitorCannotReachTasks.Error())
 	case errors.Is(err, ports.ErrPenVisitorHasNoLogin):
 		h.writeError(w, http.StatusBadRequest, "pen_visitor_has_no_login", "This person has not signed in to the app yet, so pen visits cannot be assigned to them. Ask them to sign in once, then try again.")
 	case errors.Is(err, app.ErrInvalidAccessRequest):

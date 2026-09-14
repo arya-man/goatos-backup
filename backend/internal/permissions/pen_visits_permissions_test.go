@@ -42,10 +42,12 @@ func TestPenVisitsExecuteIsDirectorsNeverCEO(t *testing.T) {
 }
 
 // TestPenVisitRoutesAreGatedOnPenVisitsExecute pins the route table: every pen-visit route,
-// and the proof upload handshake the visit video needs, admits a director and a care operator
-// (pc_care.execute, since a park may configure one as its visitor) and refuses a CXO, a park
-// head and a verifier. WHO may record a given visit is the service's per-row check against
-// the park's configured visitors, never the role.
+// and the proof upload handshake the visit video needs, admits a director (pen_visits.execute,
+// the Tasks module's Do tick -- the only screen a visit is recorded from, 2026-09-14) and
+// refuses a care operator, a CXO, a park head and a verifier. A route a role can call but has
+// no screen for would strand visits behind a push, so the route and the tab share one
+// permission. WHO may record a given visit is the service's per-row check against the park's
+// configured visitors, never the role.
 func TestPenVisitRoutesAreGatedOnPenVisitsExecute(t *testing.T) {
 	const id = "98000000-0000-4000-8000-000000000002"
 	for _, target := range []struct{ method, path string }{
@@ -57,13 +59,14 @@ func TestPenVisitRoutesAreGatedOnPenVisitsExecute(t *testing.T) {
 		if !ok {
 			t.Fatalf("%s %s is not registered", target.method, target.path)
 		}
-		for _, role := range []string{RoleGrowthDirector, RoleOperator} {
-			if !RolesAuthorizeAny([]string{role}, route.AnyPermissions) {
-				t.Errorf("%s must authorize %s %s", role, target.method, target.path)
-			}
+		if len(route.AnyPermissions) != 0 || len(route.Permissions) != 1 || route.Permissions[0] != PenVisitsExecute {
+			t.Errorf("%s %s must ride pen_visits.execute alone, got all=%v any=%v", target.method, target.path, route.Permissions, route.AnyPermissions)
 		}
-		for _, role := range []string{RoleCEOInternal, RoleParkHead, RoleVerifier} {
-			if RolesAuthorizeAny([]string{role}, route.AnyPermissions) {
+		if !RolesAuthorize([]string{RoleGrowthDirector}, route.Permissions, false) {
+			t.Errorf("a director must be authorized for %s %s", target.method, target.path)
+		}
+		for _, role := range []string{RoleOperator, RoleCEOInternal, RoleParkHead, RoleVerifier} {
+			if RolesAuthorize([]string{role}, route.Permissions, false) {
 				t.Errorf("%s must NOT authorize %s %s", role, target.method, target.path)
 			}
 		}

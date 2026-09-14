@@ -389,17 +389,17 @@ var protectedRoutes = []Route{
 	{OperationID: "markLeadershipTaskSeen", Method: "POST", Pattern: "/app/leadership-tasks/{task_id}/seen", Permissions: []string{LeadershipTasksRead}},
 	{OperationID: "downloadLeadershipTaskAttachment", Method: "GET", Pattern: "/app/leadership-tasks/{task_id}/attachments/{proof_id}/download", Permissions: []string{LeadershipTasksRead}},
 
-	// PEN VISITS (maintainer decisions 2026-09-07 and 2026-09-12): the kernel raises one visit
+	// PEN VISITS (maintainer decisions 2026-09-07 and 2026-09-14): the kernel raises one visit
 	// per pen the day after vaccination or PC Care work; one of the park's configured visitors
-	// records one live video and submits, and the clip goes to the verifier as the LAST step of
-	// that work. The visit is reached from the parent's own card, so the routes admit whoever
-	// can hold that card as a visitor: PenVisitsExecute (directors, park heads) OR PCCareExecute
-	// (the care operators a park may configure). The permission opens the routes only; WHO may
-	// record a given visit is decided per row against pen_visit_park_assignees, the HRMS config.
-	// Patterns must stay byte-identical to penvisits/adapters/http.Register.
-	{OperationID: "listPenVisits", Method: "GET", Pattern: "/app/pen-visits", AnyPermissions: []string{PenVisitsExecute, PCCareExecute}},
-	{OperationID: "getPenVisit", Method: "GET", Pattern: "/app/pen-visits/{task_id}", AnyPermissions: []string{PenVisitsExecute, PCCareExecute}},
-	{OperationID: "submitPenVisit", Method: "POST", Pattern: "/app/pen-visits/{task_id}/submit", AnyPermissions: []string{PenVisitsExecute, PCCareExecute}},
+	// records one live video and submits, and the clip goes to the verifier. The visit lives on
+	// the Tasks module's "For me" tab, so the routes ride the SAME permission that tab requires,
+	// PenVisitsExecute, and nothing else: a route a person can call but has no screen for is a
+	// visit stranded behind a push. /people refuses to configure a visitor who does not hold it.
+	// WHO may record a given visit is decided per row against pen_visit_park_assignees, the HRMS
+	// config. Patterns must stay byte-identical to penvisits/adapters/http.Register.
+	{OperationID: "listPenVisits", Method: "GET", Pattern: "/app/pen-visits", Permissions: []string{PenVisitsExecute}},
+	{OperationID: "getPenVisit", Method: "GET", Pattern: "/app/pen-visits/{task_id}", Permissions: []string{PenVisitsExecute}},
+	{OperationID: "submitPenVisit", Method: "POST", Pattern: "/app/pen-visits/{task_id}/submit", Permissions: []string{PenVisitsExecute}},
 
 	// SALES (/sales on admin-web). Gated on the dedicated SalesRead/SalesWrite rather
 	// than ProcurementRead: sales is the SELLING side -- revenue, buyer names, realized prices --

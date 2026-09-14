@@ -1,15 +1,14 @@
-// Package domain is the rulebook of the pen visit STEP (maintainer decision 2026-09-07, reshaped
-// 2026-09-12).
+// Package domain is the rulebook of the pen visit (maintainer decision 2026-09-07, the verifier
+// gate and per-park visitors added 2026-09-12, a task of its own again 2026-09-14).
 //
 // The day after any preventive-care work is SUBMITTED in a pen -- a vaccination shed proof or a
 // PC Care task (deworming, anti protozoan, ticks removal, hoof trimming, hair trimming) -- one of
 // the park's configured visitors goes to that pen, looks at the animals, records ONE live-camera
 // video and submits it. The video then goes to the VERIFIER like every other clip in the chain
 // (feed & water removal, the work itself), and the parent care task closes only once the visit is
-// approved. The visit is NOT a task of its own: it is raised by the kernel as the last step of the
-// work that happened in the pen, it is reached from that work's own card, and it may be recorded by
-// ANY person the park's HRMS config names -- "if multiple people are there, if anyone does then
-// enough".
+// approved. The visit IS a task of its own: it is raised by the kernel, it is listed on the Tasks
+// module's "For me" tab (never on the parent's card), and it may be recorded by ANY person the
+// park's HRMS config names -- "if multiple people are there, if anyone does then enough".
 //
 // Every string a screen shows -- the reason line, the state chip, the due label -- is composed
 // HERE and rendered verbatim by the phone. The pen's own name comes from oploc, never from this
