@@ -321,12 +321,9 @@ fun ProofMediaPreview(
     // full-screen. Proof surfaces opt in by default; pass false only for deliberately static media.
     expandable: Boolean = true,
     playbackEnabled: Boolean = true,
-    // Photos only. A signed remote photo is fetched INLINE so the picture itself is on screen the
-    // moment the card lands (maintainer decision 2026-09-14,
-    // docs/decisions/proof-photo-shown-on-open.md). It used to be tap-armed -- a blank tile until
-    // tapped -- and that read as a missing proof on every surface. Keep false only for deliberately
-    // non-visual/static call sites; a visible viewport image card should render the photo.
-    inlineRemotePhoto: Boolean = true,
+    // Photos only. Keep the shared default conservative: callers that can prove the media is
+    // visible in the current viewport opt in so list precomposition does not fetch remote bytes.
+    inlineRemotePhoto: Boolean = false,
 ) {
     val mediaKey = remember(mediaIdentity) { stableProofMediaIdentity(mediaIdentity) }
     var showFullscreen by remember(mediaKey) { mutableStateOf(false) }
