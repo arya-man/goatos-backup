@@ -377,8 +377,8 @@ private fun ProofPhotoPreview(
 ) {
     val context = LocalContext.current
     val isRemote = path.startsWith("http://") || path.startsWith("https://")
-    // Remote proof photos are signed object reads, fetched inline by default so the picture is on
-    // screen without a tap (see [ProofMediaPreview.inlineRemotePhoto]) and cached by [mediaKey].
+    // Remote proof photos are signed object reads. Inline loading is opt-in for callers that have
+    // proved viewport visibility; otherwise a tap opens the explicit fullscreen reader.
     val localBitmap = if (isRemote) null else remember(path) {
         BitmapFactory.decodeFile(Uri.parse(path).path ?: path) ?: decodeLocalProofPhoto(context, path)
     }
@@ -396,7 +396,7 @@ private fun ProofPhotoPreview(
             onPreviewAction("${ProofMediaPreviewActions.PHOTO_LOAD}:${if (bitmap != null) "success" else "failure"}")
         }
     }
-    val canExpand = onExpand != null && bitmap != null
+    val canExpand = onExpand != null && (bitmap != null || isRemote)
     val tapToExpand = if (canExpand) {
         Modifier.clickable(
             onClickLabel = "Open proof photo full screen",
@@ -431,6 +431,14 @@ private fun ProofPhotoPreview(
             }
         } else if (isLoading) {
             CircularProgressIndicator(modifier = Modifier.size(32.dp), strokeWidth = 2.dp, color = MeshaColors.Brand)
+        } else if (isRemote && canExpand) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Icon(MeshaIcons.Photo, contentDescription = null, tint = MeshaColors.Muted, modifier = Modifier.size(28.dp))
+                Text(text = "Open proof photo", color = MeshaColors.Muted, style = MeshaType.caption)
+            }
         } else {
             ProofPreviewUnavailable(icon = MeshaIcons.EyeOff, label = "Photo unavailable")
         }
@@ -972,14 +980,24 @@ private fun ProofMediaFullscreenDialog(
                 when (kind) {
                     ProofMediaPreviewKind.Photo -> {
                         val isRemote = path.startsWith("http://") || path.startsWith("https://")
-                        val bitmap by produceState<android.graphics.Bitmap?>(initialValue = null, path, mediaIdentity) {
-                            value = withContext(Dispatchers.IO) {
-                                withTimeoutOrNull(PROOF_REMOTE_PHOTO_LOAD_TIMEOUT_MS) {
-                                    loadProofPhotoBitmap(context, path, allowRemote = true, remoteImageLoader, mediaIdentity)
+                        val photoState by produceState<Pair<Boolean, android.graphics.Bitmap?>>(initialValue = true to null, path, mediaIdentity) {
+                            value = false to withContext(Dispatchers.IO) {
+                                if (isRemote) {
+                                    withTimeoutOrNull(PROOF_REMOTE_PHOTO_LOAD_TIMEOUT_MS) {
+                                        // proof-media-egress:ignore explicit fullscreen open for one proof photo; cached by stable mediaIdentity.
+                                        loadProofPhotoBitmap(context, path, allowRemote = true, remoteImageLoader, mediaIdentity)
+                                    }
+                                } else {
+                                    loadProofPhotoBitmap(context, path, allowRemote = false, remoteImageLoader, mediaIdentity)
                                 }
                             }
                         }
-                        val current = bitmap
+                        LaunchedEffect(isRemote, mediaIdentity, photoState.first, photoState.second) {
+                            if (isRemote && !photoState.first) {
+                                onPreviewAction("${ProofMediaPreviewActions.PHOTO_LOAD}:${if (photoState.second != null) "success" else "failure"}")
+                            }
+                        }
+                        val current = photoState.second
                         if (current != null) {
                             Image(
                                 bitmap = current.asImageBitmap(),
@@ -987,10 +1005,10 @@ private fun ProofMediaFullscreenDialog(
                                 contentScale = ContentScale.Fit,
                                 modifier = Modifier.fillMaxSize(),
                             )
-                        } else if (isRemote) {
-                            ProofPreviewUnavailable(icon = MeshaIcons.EyeOff, label = "Photo unavailable")
-                        } else {
+                        } else if (photoState.first) {
                             CircularProgressIndicator(modifier = Modifier.align(Alignment.Center), color = MeshaColors.Brand)
+                        } else {
+                            ProofPreviewUnavailable(icon = MeshaIcons.EyeOff, label = "Photo unavailable")
                         }
                     }
                     ProofMediaPreviewKind.Video -> if (player != null) {
