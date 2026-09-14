@@ -705,7 +705,7 @@ export function ExperimentPenEnroller({
 }
 
 /**
- * Add a feed item to the tenant's catalog — the "Add feed type" control.
+ * Add a feed item to the tenant's catalog — the "Add feed item" control.
  *
  * THE ONE CONTROL ON THIS SCREEN WHERE A BLANK IS NOT A REJECTION.
  *
