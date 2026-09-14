@@ -6,6 +6,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/vgoats/goatos/backend/internal/platform/oploc"
 	"github.com/vgoats/goatos/backend/internal/workboard/domain"
 	"github.com/vgoats/goatos/backend/internal/workboard/ports"
 )
@@ -32,28 +33,29 @@ const shedSubtaskRankExpr = `CASE
 // (rank, shed_id). The whole shed count rides count(*) OVER () before the keyset cut.
 //
 // projection-review: membership=the activity's rows for ONE tenant, park and work-day (the SAME
-// predicate metricsSQL binds); group_key=shed_id, pre-aggregated by MIN(laneRank)/BOOL_OR before
+// predicate metricsSQL binds); group_key=(shed_id, partition_label) the PEN, pre-aggregated by MIN(laneRank)/BOOL_OR before
 // ranking so a pen with several sessions is one line; join_cardinality=locations on its primary
-// key (1:1), no fan-out; pagination=keyset on (rank, shed_id) ASC after ($5,$6) with LIMIT $7,
+// key (1:1), no fan-out; pagination=keyset on (rank, pen_key) ASC after ($5,$6) with LIMIT $7,
 // total by count(*) OVER () computed before the cut; scope=tenant_id($1), business_date($2),
 // park_id($3), owner NULL($4).
 func subtasksSQL(units string) string {
 	return `
 WITH units AS (` + units + `),
-shed AS (
-  SELECT shed_id, MIN(` + laneRankExpr + `) AS lane_rank, BOOL_OR(st = 'rejected') AS any_rej
-  FROM units GROUP BY shed_id
+pen AS (
+  SELECT shed_id, partition_label, MIN(` + laneRankExpr + `) AS lane_rank, BOOL_OR(st = 'rejected') AS any_rej
+  FROM units GROUP BY shed_id, partition_label
 ),
 ranked AS (
-  SELECT s.shed_id, s.lane_rank, s.any_rej, ` + shedSubtaskRankExpr + ` AS rank,
+  SELECT s.shed_id, s.partition_label, s.lane_rank, s.any_rej, ` + shedSubtaskRankExpr + ` AS rank,
+         s.shed_id::text || '|' || s.partition_label AS pen_key,
          count(*) OVER () AS total
-  FROM shed s
+  FROM pen s
 )
-SELECT r.shed_id::text, r.lane_rank, r.any_rej, r.rank, r.total, COALESCE(loc.name, '')
+SELECT r.shed_id::text, r.partition_label, r.lane_rank, r.any_rej, r.rank, r.pen_key, r.total, COALESCE(loc.name, '')
 FROM ranked r
 LEFT JOIN locations loc ON loc.tenant_id = $1::uuid AND loc.location_id = r.shed_id
-WHERE (r.rank, r.shed_id::text) > ($5::int, $6::text)
-ORDER BY r.rank, r.shed_id
+WHERE (r.rank, r.pen_key) > ($5::int, $6::text)
+ORDER BY r.rank, r.pen_key
 LIMIT $7`
 }
 
@@ -101,11 +103,11 @@ func (s *Source) ListSubtasks(ctx context.Context, q ports.SubtaskQuery) (domain
 
 func scanShedSubtask(rows pgx.Rows) (domain.Subtask, int, error) {
 	var (
-		shedID, shedName  string
-		laneRank, rank, n int
-		anyRej            bool
+		shedID, partitionLabel, penKey, shedName string
+		laneRank, rank, n                        int
+		anyRej                                   bool
 	)
-	if err := rows.Scan(&shedID, &laneRank, &anyRej, &rank, &n, &shedName); err != nil {
+	if err := rows.Scan(&shedID, &partitionLabel, &laneRank, &anyRej, &rank, &penKey, &n, &shedName); err != nil {
 		return domain.Subtask{}, 0, fmt.Errorf("feed boardsource subtask scan: %w", err)
 	}
 	film := domain.Step{Name: "Film", State: domain.StepTodo}
@@ -126,12 +128,14 @@ func scanShedSubtask(rows pgx.Rows) (domain.Subtask, int, error) {
 		film.State = domain.StepInProgress
 		state, subtitle = domain.WorkStateInProgress, "Started"
 	}
-	name := shedName
+	// Pen name is shed + partition via the canonical helper ("Castro 1", "Godel 1 - Part 3",
+	// "Yashoda"); never a bare shed base when the pen has a partition (maintainer report 2026-09-14).
+	name := oploc.OperationalLocation{ShedName: shedName, PartitionLabel: partitionLabel}.Display()
 	if name == "" {
 		name = "Pen"
 	}
 	return domain.Subtask{
-		Key: domain.SubtaskKey(rank, shedID), Name: name, Subtitle: subtitle,
+		Key: domain.SubtaskKey(rank, penKey), Name: name, Subtitle: subtitle,
 		WorkState: state, NeedsAttention: anyRej,
 		Steps: []domain.Step{film, verify},
 	}.Finalize(), n, nil
