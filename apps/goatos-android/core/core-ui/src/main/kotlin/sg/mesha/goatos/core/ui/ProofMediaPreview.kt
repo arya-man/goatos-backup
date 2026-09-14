@@ -76,6 +76,7 @@ import sg.mesha.goatos.core.media.LocalProofPlayerFactory
 enum class ProofMediaPreviewKind { Photo, Video }
 
 object ProofMediaPreviewActions {
+    const val PHOTO_LOAD = "photo_load"
     const val PLAY = "play"
     const val PAUSE = "pause"
     const val FULLSCREEN_OPEN = "fullscreen_open"
@@ -393,6 +394,11 @@ private fun ProofPhotoPreview(
     }
     val bitmap = localBitmap ?: remoteState.value.second
     val isLoading = remoteState.value.first
+    LaunchedEffect(isRemote, inlineRemotePhoto, mediaKey, path, bitmap, isLoading) {
+        if (isRemote && inlineRemotePhoto && !isLoading) {
+            onPreviewAction("${ProofMediaPreviewActions.PHOTO_LOAD}:${if (bitmap != null) "success" else "failure"}")
+        }
+    }
     val canExpand = onExpand != null && bitmap != null
     val tapToExpand = if (canExpand) {
         Modifier.clickable(

@@ -18,6 +18,8 @@ class ProofMediaPreviewContractTest {
         assertTrue(source.contains("playStartedPositionMs + elapsed"))
         assertTrue(source.contains("mediaIdentity: String,"))
         assertTrue(source.contains("stableProofMediaIdentity(mediaIdentity)"))
+        assertTrue(source.contains("const val PHOTO_LOAD = \"photo_load\""))
+        assertTrue(source.contains("\"${'$'}{ProofMediaPreviewActions.PHOTO_LOAD}:${'$'}{if (bitmap != null) \"success\" else \"failure\"}\""))
         assertTrue(source.contains("loadCachedRemoteProofPhoto(context, path, mediaKey, remoteImageLoader)"))
         assertTrue(source.contains("proofPhotoMemoryCache.get(mediaKey)"))
         assertTrue(source.contains("allocationByteCount / 1024"))
