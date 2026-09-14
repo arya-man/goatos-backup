@@ -179,6 +179,31 @@ Rules that are the contract:
   `/vaccination/execution/sheds/{shed_id}?scope_mode=park&park=&partition_label=`. PC care
   has no web page and carries no href rather than a link that lands nowhere.
 
+## Feed activity cards roll up by ALL-OR-ANY, not by the leftmost lane (maintainer decision 2026-09-14)
+
+A feed card (packing, direction, transport, wastage) is one park's activity for the work-day
+with its PENS listed inside as subtasks -- `Godel 1 - Part 1`, `Castro 2`, never a bare shed
+base. The card's own lane is derived from those pens by one rule, applied at both grains
+(bags -> pen, pens -> card):
+
+| card lane | when |
+|---|---|
+| To do | NO pen has started |
+| In progress | any pen is in progress or sent back, OR the pens are mixed (some started, some not) |
+| In review | EVERY pen is handed in and at least one is still with the verifier |
+| Done | EVERY pen is completed |
+
+A card In progress with a pen sent back reads Rejected (same lane, amber), so the board points
+at the rework.
+
+This REPLACES the original leftmost-lane roll-up ("To do if any pen is unstarted"), which parked
+a packing day that was 62 of 63 done in To do because one pen had not started. Work on the card
+has begun the moment any pen has, so the card is In progress; it is In review only when the crew
+has nothing left to film; it is Done only when every pen is verified. Rulebook:
+`feeddirection/adapters/boardsource.rollupRankExpr`; pinned by
+`TestFeedActivityCardRollsUpByAllOrAny`, which walks one card To do -> In progress (one pen in
+review, one untouched) -> In review -> Done -> Rejected.
+
 ## The flag (phase 5, first half)
 
 `POST /work-board/flags` raises a **Leadership Task** to the park's head from a board

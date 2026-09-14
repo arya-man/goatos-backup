@@ -154,7 +154,7 @@ func byID(rows []domain.Row) map[string]domain.Row {
 }
 
 // TestFeedActivityCardsOnADatabaseRoundTrip asserts the four aggregate cards' output on a real
-// database: one card per activity per park, each rolled up to the leftmost lane its sheds hold.
+// database: one card per activity per park, each rolled up from its pens by the 2026-09-14 rule.
 func TestFeedActivityCardsOnADatabaseRoundTrip(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
@@ -182,10 +182,12 @@ func TestFeedActivityCardsOnADatabaseRoundTrip(t *testing.T) {
 		subtitle string
 	}
 	cases := map[string]want{
-		feedActivityID("packing"):   {"Feed packing", domain.WorkStateDue, domain.LaneToDo, domain.Counts{Done: 1, Pending: 2}, "3 pens · 1 done"},
-		feedActivityID("direction"): {"Feed direction", domain.WorkStateDue, domain.LaneToDo, domain.Counts{Pending: 2, NeedsAttention: 1}, "2 pens · 0 done"},
-		feedActivityID("transport"): {"Feed transport", domain.WorkStateDue, domain.LaneToDo, domain.Counts{Done: 1, Pending: 3, NeedsAttention: 1}, "4 pens · 1 done"},
-		feedActivityID("wastage"):   {"Feed wastage", domain.WorkStateDue, domain.LaneToDo, domain.Counts{Done: 1, Pending: 1}, "2 pens · 1 done"},
+		// Every card is a MIX of started and unstarted pens, so every card is In progress; a card
+		// with a pen sent back reads Rejected in that same lane.
+		feedActivityID("packing"):   {"Feed packing", domain.WorkStateInProgress, domain.LaneInProgress, domain.Counts{Done: 1, Pending: 2}, "3 pens · 1 done"},
+		feedActivityID("direction"): {"Feed direction", domain.WorkStateRejected, domain.LaneInProgress, domain.Counts{Pending: 2, NeedsAttention: 1}, "2 pens · 0 done"},
+		feedActivityID("transport"): {"Feed transport", domain.WorkStateRejected, domain.LaneInProgress, domain.Counts{Done: 1, Pending: 3, NeedsAttention: 1}, "4 pens · 1 done"},
+		feedActivityID("wastage"):   {"Feed wastage", domain.WorkStateInProgress, domain.LaneInProgress, domain.Counts{Done: 1, Pending: 1}, "2 pens · 1 done"},
 	}
 	for id, w := range cases {
 		r, ok := got[id]
@@ -202,12 +204,11 @@ func TestFeedActivityCardsOnADatabaseRoundTrip(t *testing.T) {
 			t.Errorf("%s: scope %s %s %s href %q", id, r.ParkID, r.ParkName, r.BusinessDate, r.Href)
 		}
 	}
-	// The direction card sits in To do because an issued pen (shed B) is still unfilled, which is
-	// the leftmost lane; a To do card is severity ok even though another pen was sent back (the
-	// rework pen carries its own attention in the counts). Rejected-is-amber is covered by the
-	// domain Finalize test.
-	if got[feedActivityID("direction")].Severity != domain.SeverityOK {
-		t.Errorf("direction card (To do, one pen unfilled) severity %s, want ok", got[feedActivityID("direction")].Severity)
+	// The direction card has one pen sent back and one still unfilled: work has begun and is
+	// not all handed in, so it is In progress, and the rework makes it Rejected (amber) so the
+	// board points at the pen that needs the operator again.
+	if got[feedActivityID("direction")].Severity != domain.SeverityWatch {
+		t.Errorf("direction card (rejected pen) severity %s, want watch", got[feedActivityID("direction")].Severity)
 	}
 }
 
@@ -264,12 +265,13 @@ func TestFeedActivityScopeKeysetOwnerLens(t *testing.T) {
 		t.Errorf("owner-lens transport counts %+v subtitle %q", tr.Counts, tr.Subtitle)
 	}
 
-	// CountByState over the whole filter: one card per lane here.
+	// CountByState over the whole filter agrees with the rows: two mixed cards In progress, two
+	// with a rejected pen.
 	counts, err := src.CountByState(ctx, query(""))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if counts[domain.WorkStateDue] != 4 {
+	if counts[domain.WorkStateInProgress] != 2 || counts[domain.WorkStateRejected] != 2 {
 		t.Fatalf("counts %+v", counts)
 	}
 
@@ -532,3 +534,82 @@ ON CONFLICT (completion_id) DO NOTHING`, bsTenant, bsPark, bsShedA, serve4, bsOp
 		t.Fatalf("display label should remain composed and human-readable, got %q", page.Subtasks[0].Name)
 	}
 }
+
+// TestFeedActivityCardRollsUpByAllOrAny pins the maintainer's 2026-09-14 roll-up: a card is To do
+// only while NO pen has started, In progress once any pen has started and not all are handed in
+// (a mix of unstarted and in-review pens is In progress, not To do), In review only when EVERY pen
+// is handed in and one is still with the verifier, and Done only when EVERY pen is completed.
+// The old leftmost-lane rule parked a 62/63-done card in To do; this walks one packing card
+// through all four lanes with two pens of one shed on a fresh work-day.
+func TestFeedActivityCardRollsUpByAllOrAny(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seed(t, ctx, pool)
+	const d3 = "2026-09-17"
+	const serve3 = "2026-09-18"
+	exec(t, ctx, pool, `
+INSERT INTO feed_direction_issues (feed_direction_issue_id, tenant_id, park_id, feed_day, workflow,
+  state, issued_at, generation_input_fingerprint, request_fingerprint, idempotency_key, generated_by,
+  source_contract, source_contract_version)
+VALUES ('00000000-0000-4000-8000-0000000082a3'::uuid, $1::uuid, $2::uuid, $3::date, 'normal',
+  'issued', now(), 'fp-d3', 'rfp-d3', 'idem-d3', 'test', 'feed.direction.sheet', '1')
+ON CONFLICT (feed_direction_issue_id) DO NOTHING`, bsTenant, bsPark, serve3)
+	for i, part := range []string{"Part 1", "Part 2"} {
+		exec(t, ctx, pool, `
+INSERT INTO feed_direction_issue_rows (tenant_id, feed_direction_issue_id, park_id, park_label,
+  shed_id, shed_label, partition_label, shed_tag, breed, ration_group, session_no, session_label,
+  head_count, head_count_informational, workflow, feed_item_label, quantity_kg, session_total_kg,
+  overdue_pending, row_seq, item_seq, amended)
+VALUES ($1::uuid, '00000000-0000-4000-8000-0000000082a3'::uuid, $2::uuid, 'CBE',
+  $3::uuid, 'Godel 1', $4, 'Dry', 'Beetal', 'Beetal', 1, 'Morning', 10, false,
+  'normal', 'Concentrate', 1.0, 1.0, false, $5, 0, false)
+ON CONFLICT DO NOTHING`, bsTenant, bsPark, bsShedA, part, i)
+	}
+	setPen := func(id, part, status string) {
+		exec(t, ctx, pool, `
+INSERT INTO feed_packing_completions (completion_id, tenant_id, park_id, shed_id, partition_label, session_no, target_date, workflow, status, packing_proof_ref, completed_by, idempotency_key)
+VALUES ($1::uuid,$2::uuid,$3::uuid,$4::uuid,$5,1,$6::date,'normal',$7,'proof:'||$1::text,$8::uuid,$1::text)
+ON CONFLICT (completion_id) DO UPDATE SET status = EXCLUDED.status`, id, bsTenant, bsPark, bsShedA, part, serve3, status, bsOperator)
+	}
+	card := func() domain.Row {
+		t.Helper()
+		rows := mustRows(t, ctx, src(pool), ports.SourceQuery{TenantID: bsTenant, ParkID: bsPark, BusinessDate: d3, Limit: 50})
+		for _, r := range rows {
+			if r.SourceID == feedActivityID("packing") {
+				return r
+			}
+		}
+		t.Fatal("packing card expected")
+		return domain.Row{}
+	}
+	const p1, p2 = "00000000-0000-4000-8000-0000000095b1", "00000000-0000-4000-8000-0000000095b2"
+
+	// Nothing started: To do.
+	if c := card(); c.WorkState != domain.WorkStateDue || c.Lane != domain.LaneToDo {
+		t.Fatalf("no pen started: state=%s lane=%s, want due/todo", c.WorkState, c.Lane)
+	}
+	// One pen handed in, the other untouched: a MIX is In progress, never To do.
+	setPen(p1, "Part 1", "pending_verification")
+	if c := card(); c.WorkState != domain.WorkStateInProgress || c.Lane != domain.LaneInProgress {
+		t.Fatalf("one in review, one unstarted: state=%s lane=%s, want in_progress", c.WorkState, c.Lane)
+	}
+	// Both handed in, one still with the verifier: In review.
+	setPen(p2, "Part 2", "completed")
+	if c := card(); c.WorkState != domain.WorkStateVerificationPending || c.Lane != domain.LaneInReview {
+		t.Fatalf("all handed in, one in review: state=%s lane=%s, want verification_pending", c.WorkState, c.Lane)
+	}
+	// Both completed: Done.
+	setPen(p1, "Part 1", "completed")
+	if c := card(); c.WorkState != domain.WorkStateCompleted || c.Lane != domain.LaneDone || c.Counts.Done != 2 {
+		t.Fatalf("all completed: state=%s lane=%s done=%d, want completed/2", c.WorkState, c.Lane, c.Counts.Done)
+	}
+	// A pen sent back pulls the card back to In progress and reads Rejected.
+	setPen(p2, "Part 2", "rework")
+	if c := card(); c.WorkState != domain.WorkStateRejected || c.Lane != domain.LaneInProgress {
+		t.Fatalf("one pen sent back: state=%s lane=%s, want rejected/in_progress", c.WorkState, c.Lane)
+	}
+}
+
+func src(pool *pgxpool.Pool) *Source { return New(pool, 5*time.Second) }

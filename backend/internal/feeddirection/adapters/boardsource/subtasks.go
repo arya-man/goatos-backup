@@ -12,7 +12,7 @@ import (
 )
 
 // Subtasks of a feed activity card are its PENS, one line each, worst first: the shed's own
-// roll-up state (the leftmost lane across that shed's bags/sessions) carried as a subtask so a
+// roll-up state (rollupRankExpr across that pen's bags/sessions) carried as a subtask so a
 // reader opens "Feed packing" and sees which pens are done, in review, sent back or owed.
 //
 // READ-ONLY and REPORTING-ONLY: nothing here submits, verifies or reworks feed work.
@@ -33,7 +33,7 @@ const shedSubtaskRankExpr = `CASE
 // (rank, shed_id). The whole shed count rides count(*) OVER () before the keyset cut.
 //
 // projection-review: membership=the activity's rows for ONE tenant, park and work-day (the SAME
-// predicate metricsSQL binds); group_key=(shed_id, partition_key) the PEN, pre-aggregated by MIN(laneRank)/BOOL_OR before
+// predicate metricsSQL binds); group_key=(shed_id, partition_key) the PEN, pre-aggregated by rollupRankExpr/BOOL_OR before
 // ranking so a pen with several sessions is one line; join_cardinality=locations on its primary
 // key (1:1), no fan-out; pagination=keyset on (rank, pen_key) ASC after ($5,$6) with LIMIT $7,
 // total by count(*) OVER () computed before the cut; scope=tenant_id($1), business_date($2),
@@ -41,13 +41,7 @@ const shedSubtaskRankExpr = `CASE
 func subtasksSQL(units string) string {
 	return `
 WITH units AS (` + units + `),
-pen AS (
-  SELECT shed_id, partition_key,
-         (ARRAY_AGG(partition_label ORDER BY (partition_label = lower(partition_label)), partition_label)
-          FILTER (WHERE partition_label <> ''))[1] AS partition_label,
-         MIN(` + laneRankExpr + `) AS lane_rank, BOOL_OR(st = 'rejected') AS any_rej
-  FROM units GROUP BY shed_id, partition_key
-),
+` + penCTE + `,
 ranked AS (
   SELECT s.shed_id, COALESCE(s.partition_label, '') AS partition_label, s.partition_key, s.lane_rank, s.any_rej, ` + shedSubtaskRankExpr + ` AS rank,
          s.shed_id::text || '|' || s.partition_key AS pen_key,
