@@ -364,7 +364,7 @@ private fun ProofPhotoPreview(
         BitmapFactory.decodeFile(Uri.parse(path).path ?: path) ?: decodeLocalProofPhoto(context, path)
     }
     val remoteImageLoader = LocalProofRemoteImageLoader.current
-    val remoteState = produceState<Pair<Boolean, android.graphics.Bitmap?>>(initialValue = (isRemote && inlineRemotePhoto) to null, path, inlineRemotePhoto) {
+    val remoteState = produceState<Pair<Boolean, android.graphics.Bitmap?>>(initialValue = (isRemote && inlineRemotePhoto) to null, path, inlineRemotePhoto, mediaKey) {
         if (isRemote && inlineRemotePhoto) {
             // proof-media-egress:ignore bounded to the one record's own captures on the screen the person opened; shown on open by maintainer decision 2026-09-14, lists pass inlineRemotePhoto=false
             value = false to withContext(Dispatchers.IO) { loadProofPhotoBitmap(context, path, allowRemote = true, remoteImageLoader, mediaKey) }
