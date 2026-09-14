@@ -302,11 +302,13 @@ export function LeadershipTasksPage({
               <thead>
                 <tr>
                   <th>Task</th>
+                  {/* The day counter sits beside the task, second column, so it is read without
+                      scrolling the table -- on a phone only the first two columns fit. */}
+                  <th className="lt-days-col">Days</th>
                   <th>Assignee</th>
                   <th>Raised by</th>
                   <th>Status</th>
                   <th>Evidence</th>
-                  <th>Days</th>
                 </tr>
               </thead>
               <tbody>
@@ -325,6 +327,16 @@ export function LeadershipTasksPage({
                         <b>{task.number}</b>
                         <span className="muted small">{task.title}</span>
                       </Link>
+                      {/* On a phone the table shows only its first column, so the same clock
+                          sits under the title there (CSS shows one or the other, never both). */}
+                      {task.deadlineTone ? (
+                        <div className="lt-clock-inline">
+                          <DeadlineClock task={task} compact />
+                        </div>
+                      ) : null}
+                    </td>
+                    <td className="lt-days-col">
+                      <DeadlineClock task={task} compact />
                     </td>
                     <td>
                       <div className="lt-opname">
@@ -362,9 +374,6 @@ export function LeadershipTasksPage({
                         <b>{task.attachments}</b>
                         <span className="muted small">{task.evidence}</span>
                       </span>
-                    </td>
-                    <td>
-                      <DeadlineClock task={task} compact />
                     </td>
                   </tr>
                 ))}

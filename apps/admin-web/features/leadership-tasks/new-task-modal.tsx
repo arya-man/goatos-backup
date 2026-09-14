@@ -168,9 +168,9 @@ export function NewTaskModal({
                   value={deadline}
                   onChange={(event) => setDeadline(event.target.value)}
                 />
-                <small className="lt-assignee-hint">
-                  <CalendarClock className="ic" aria-hidden="true" /> Date and time
-                  the task is due, farm clock (IST).
+                <small className="lt-assignee-hint lt-deadline-hint">
+                  <CalendarClock className="ic" aria-hidden="true" />
+                  <span>Date and time the task is due, farm clock (IST).</span>
                 </small>
               </label>
               <div className="fld">
