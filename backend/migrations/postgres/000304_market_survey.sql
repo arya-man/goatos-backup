@@ -1,4 +1,7 @@
 -- +goose Up
+-- seed-fixture-guard:ignore: market survey tables are operational (phone-written prices); the
+-- workforce_members join below only ticks per-person access rows for an existing module and
+-- changes no vaccination/HRMS seed source, fixture schema, or read-model.
 -- MARKET SURVEY (maintainer decision 2026-09-14).
 --
 -- Every morning the procurement director calls three or four markets and asks what goat and sheep
