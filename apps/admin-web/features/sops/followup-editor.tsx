@@ -250,6 +250,8 @@ function StepCard({
   onRemove: () => void;
   takenKeys: Set<string>;
 }) {
+  // Example event time for the next-sessions preview: the rounds depend on when the animal was born.
+  const [exampleTime, setExampleTime] = useState("15:00");
   const locked = ENGINE_BOUND_TASK_TYPES.has(step.taskType) && step.key !== "";
   const answerKind = step.answer || answerKinds[step.taskType] || "none";
   const needsOptions = answerKind === "select" || answerKind === "multiselect";
@@ -370,6 +372,7 @@ function StepCard({
               {copy(pc, "followup.step.basis")}
               <select value={step.basis} onChange={(e) => onChange({ basis: e.target.value as SeriesBasis })}>
                 <option value="fixed_times">{copy(pc, "followup.basis.fixed_times")}</option>
+                <option value="next_sessions">{copy(pc, "followup.basis.next_sessions")}</option>
                 <option value="from_event">{copy(pc, "followup.basis.from_event")}</option>
               </select>
             </label>
@@ -390,10 +393,17 @@ function StepCard({
                   {copy(pc, "followup.step.times")}
                   <input value={step.times} placeholder="07:00, 11:00, 15:00" onChange={(e) => onChange({ times: e.target.value })} />
                 </label>
-                <label className="numlbl">
-                  {copy(pc, "followup.step.days")}
-                  <input className="numfield" type="number" min={1} value={step.days} onChange={(e) => onChange({ days: Math.max(1, Number(e.target.value) || 1) })} />
-                </label>
+                {step.basis === "next_sessions" ? (
+                  <label className="numlbl">
+                    {copy(pc, "followup.step.count")}
+                    <input className="numfield" type="number" min={1} max={100} value={step.count} onChange={(e) => onChange({ count: Math.max(1, Number(e.target.value) || 1) })} />
+                  </label>
+                ) : (
+                  <label className="numlbl">
+                    {copy(pc, "followup.step.days")}
+                    <input className="numfield" type="number" min={1} value={step.days} onChange={(e) => onChange({ days: Math.max(1, Number(e.target.value) || 1) })} />
+                  </label>
+                )}
                 <label className="numlbl">
                   {copy(pc, "followup.step.pre_notify")}
                   <input className="numfield" type="number" min={0} value={step.preNotifyMinutes} onChange={(e) => onChange({ preNotifyMinutes: Number(e.target.value) || 0 })} />
@@ -401,9 +411,16 @@ function StepCard({
               </>
             )}
             <div className="followup-series-preview muted small">
-              {followUpCopy(pc)(step.basis === "from_event" ? "followup.preview.series_from_event" : "followup.preview.series", { n: expandSeriesRows(step).length })}
+              {step.basis === "next_sessions" ? (
+                <span>
+                  {followUpCopy(pc)("followup.preview.series_next_sessions", { n: step.count })}{" "}
+                  <input className="numfield followup-example-time" value={exampleTime} placeholder="15:00" aria-label={copy(pc, "followup.preview.example_time")} onChange={(e) => setExampleTime(e.target.value)} />
+                </span>
+              ) : (
+                followUpCopy(pc)(step.basis === "from_event" ? "followup.preview.series_from_event" : "followup.preview.series", { n: expandSeriesRows(step).length })
+              )}
               <ul>
-                {expandSeriesRows(step).map((r) => (
+                {expandSeriesRows(step, exampleTime).map((r) => (
                   <li key={`${r.dayOffset}-${r.time}-${r.afterMinutes ?? ""}`}>
                     {r.title} — {roundWhen(pc, r)}
                   </li>

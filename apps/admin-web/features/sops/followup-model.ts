@@ -12,7 +12,7 @@ export const FOLLOW_UP_SCHEMA_VERSION = "goatos.sop-followup.v1";
 export type ScheduleKind = "immediately" | "after_event" | "at_fixed_time" | "series" | "after_step";
 // A repeating series runs either at fixed wall-clock times (event-day rounds already past are
 // skipped) or from the event instant (every N minutes, M rounds -- nothing skipped).
-export type SeriesBasis = "fixed_times" | "from_event";
+export type SeriesBasis = "fixed_times" | "next_sessions" | "from_event";
 
 export type FollowUpStepRow = {
   id: string;
@@ -167,7 +167,7 @@ export function parseFollowUp(formDsl: unknown): FollowUpRows | null {
                 proofVideos: int(proof["video"]),
                 proofPhotos: int(proof["photo"]),
                 scheduleKind: kind,
-                basis: str(sched["basis"]) === "from_event" ? "from_event" : "fixed_times",
+                basis: (["from_event", "next_sessions"].includes(str(sched["basis"])) ? str(sched["basis"]) : "fixed_times") as SeriesBasis,
                 intervalMinutes: int(sched["interval_minutes"], 240),
                 count: int(sched["count"], 10),
                 offsetMinutes: int(sched["offset_minutes"]),
@@ -208,6 +208,17 @@ function emitSchedule(row: FollowUpStepRow): Record<string, unknown> {
           // Each round needs its own key; the fixed-times pattern ({day}_{hhmm}) cannot give one
           // to rounds counted from the event, so derive a {n} pattern unless the author has one.
           key_pattern: row.keyPattern.includes("{n}") ? row.keyPattern.trim() : `${row.key}_{n}`,
+          ordinal_start: row.ordinalStart,
+        };
+      }
+      if (row.basis === "next_sessions") {
+        return {
+          kind: "series",
+          basis: "next_sessions",
+          times: row.times.split(",").map((t) => t.trim()).filter(Boolean),
+          count: row.count,
+          pre_notify_minutes: row.preNotifyMinutes,
+          key_pattern: /\{day\}|\{hhmm\}/.test(row.keyPattern) ? row.keyPattern.trim() : `${row.key}_{day}_{hhmm}`,
           ordinal_start: row.ordinalStart,
         };
       }
@@ -284,7 +295,8 @@ export function followUpProblems(rows: FollowUpRows, answerKinds: Record<string,
       } else if (s.scheduleKind === "series") {
         const times = s.times.split(",").map((x) => x.trim()).filter(Boolean);
         if (times.length === 0 || times.some((x) => !/^\d{2}:\d{2}$/.test(x))) problems.push(`${at}: series times must be HH:MM, comma separated`);
-        if (s.days < 1) problems.push(`${at}: a series needs at least one day`);
+        if (s.basis === "next_sessions" && (s.count < 1 || s.count > 100)) problems.push(`${at}: a series needs 1 to 100 rounds`);
+        if (s.basis !== "next_sessions" && s.days < 1) problems.push(`${at}: a series needs at least one day`);
       }
       if (s.scheduleKind === "after_step") {
         const earlier = t.steps.slice(0, i).map((x) => x.key);
@@ -332,10 +344,32 @@ export type ExpandedRound = { title: string; dayOffset: number; time: string; af
 // expandSeriesRows lists every round a series step produces: day 0 = the event day (rounds
 // already past at the event are skipped by the engine), then day 1, 2, … ; ordinals continue
 // from `ordinalStart` so "2nd Colostrum" follows the separately authored "1st Colostrum".
-export function expandSeriesRows(step: FollowUpStepRow): ExpandedRound[] {
+// For next_sessions the rounds depend on the event time, so the preview takes an EXAMPLE event
+// time (HH:MM) and walks the farm's session slots from the next one onward, like the engine.
+export function expandSeriesRows(step: FollowUpStepRow, exampleEventTime = "15:00"): ExpandedRound[] {
   if (step.scheduleKind !== "series") return [];
   const out: ExpandedRound[] = [];
   let n = step.ordinalStart;
+  if (step.basis === "next_sessions") {
+    const times = sortedTimes(step.times);
+    if (times.length === 0) return out;
+    const [eh, em] = exampleEventTime.split(":").map(Number);
+    const eventMin = (eh || 0) * 60 + (em || 0);
+    const count = Math.min(100, Math.max(1, step.count));
+    for (let d = 0; out.length < count && d <= count; d++) {
+      for (const t of times) {
+        if (out.length >= count) break;
+        const [h, m] = t.split(":").map(Number);
+        if (d === 0 && h * 60 + m - step.preNotifyMinutes <= eventMin) continue;
+        const title = step.titlePattern.trim()
+          ? step.titlePattern.replace("{ordinal}", ordinal(n)).replace("{time}", t).replace("{day}", String(d))
+          : `${ordinal(n)} ${step.title}`.trim();
+        out.push({ title, dayOffset: d, time: t });
+        n += 1;
+      }
+    }
+    return out;
+  }
   if (step.basis === "from_event") {
     for (let k = 1; k <= Math.min(100, Math.max(1, step.count)); k++) {
       const mins = k * Math.max(1, step.intervalMinutes);
@@ -376,6 +410,9 @@ export function describeDue(step: FollowUpStepRow, copy: FollowUpCopy, stepTitle
     case "series":
       if (step.basis === "from_event") {
         return copy("followup.due.series_from_event", { n: step.count, every: formatAfter(step.intervalMinutes) });
+      }
+      if (step.basis === "next_sessions") {
+        return copy("followup.due.series_next_sessions", { n: step.count, times: sortedTimes(step.times).join(", ") });
       }
       return copy("followup.due.series", { n: expandSeriesRows(step).length, times: sortedTimes(step.times).join(", "), days: step.days });
     case "after_step":

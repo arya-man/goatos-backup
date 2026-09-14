@@ -138,15 +138,19 @@ type FollowUpSchedule struct {
 	// the authored wall-clock times for `days` days, skipping the event-day slots already past --
 	// a 15:00 birth loses the morning rounds. "from_event" runs `count` rounds every
 	// `interval_minutes` FROM THE EVENT TIME, so every animal gets the same number of rounds
-	// however late in the day it was born. Authored per step on /counts/sops.
+	// however late in the day it was born -- but a round can land at 02:00. "next_sessions" is
+	// the farm's answer to both: the authored wall-clock session times, and `count` rounds taken
+	// from the NEXT session after the event onward, spilling into following days, so a 15:00
+	// birth still gets ten feeds and none of them at midnight. Authored per step on /counts/sops.
 	Basis           string `json:"basis,omitempty"`
 	IntervalMinutes int    `json:"interval_minutes,omitempty"`
 	Count           int    `json:"count,omitempty"`
 }
 
 const (
-	SeriesBasisFixedTimes = "fixed_times"
-	SeriesBasisFromEvent  = "from_event"
+	SeriesBasisFixedTimes   = "fixed_times"
+	SeriesBasisFromEvent    = "from_event"
+	SeriesBasisNextSessions = "next_sessions"
 	// seriesMaxRounds bounds an authored series so a typo cannot stamp thousands of rows.
 	seriesMaxRounds = 100
 )
@@ -284,6 +288,18 @@ func ValidateFollowUp(d FollowUpDSL, taskTypes map[string]FollowUpTaskTy) []stri
 					}
 					if !strings.Contains(s.Schedule.KeyPattern, "{n}") {
 						add("%s.schedule.key_pattern: a series from the event must carry {n} so every round gets its own key", sp)
+					}
+				case SeriesBasisNextSessions:
+					if len(s.Schedule.Times) == 0 {
+						add("%s.schedule.times: a series needs at least one time", sp)
+					}
+					for _, tm := range s.Schedule.Times {
+						if _, _, err := parseWallClock(tm); err != nil {
+							add("%s.schedule.times: %v", sp, err)
+						}
+					}
+					if s.Schedule.Count < 1 || s.Schedule.Count > seriesMaxRounds {
+						add("%s.schedule.count: a series of next sessions needs 1..%d rounds", sp, seriesMaxRounds)
 					}
 				case SeriesBasisFixedTimes, "":
 					if len(s.Schedule.Times) == 0 {
@@ -466,6 +482,7 @@ func expandSeries(s FollowUpSchedule, eventAt time.Time) ([]seriesSession, error
 	if s.Basis == SeriesBasisFromEvent {
 		return expandSeriesFromEvent(s, eventAt)
 	}
+	nextSessions := s.Basis == SeriesBasisNextSessions
 	type slot struct{ h, m int }
 	var slots []slot
 	for _, raw := range s.Times {
@@ -485,13 +502,22 @@ func expandSeries(s FollowUpSchedule, eventAt time.Time) ([]seriesSession, error
 	day := biztime.BusinessDayStart(at)
 	preNotify := time.Duration(s.PreNotifyMinute) * time.Minute
 	var out []seriesSession
-	for d := 0; d < s.Days; d++ {
+	// fixed_times walks `days` days; next_sessions walks as many days as it takes to collect
+	// `count` rounds (bounded: at least one slot per day, count <= seriesMaxRounds).
+	days := s.Days
+	if nextSessions {
+		days = s.Count + 1
+	}
+	for d := 0; d < days; d++ {
 		for _, sl := range slots {
 			if d == 0 {
 				slotAt := time.Date(day.Year(), day.Month(), day.Day(), sl.h, sl.m, 0, 0, biztime.DefaultLocation())
 				if !at.Before(slotAt.Add(-preNotify)) {
 					continue
 				}
+			}
+			if nextSessions && len(out) >= s.Count {
+				return out, nil
 			}
 			out = append(out, seriesSession{DayOffset: d, Hour: sl.h, Minute: sl.m, Label: fmt.Sprintf("%02d:%02d", sl.h, sl.m)})
 		}
