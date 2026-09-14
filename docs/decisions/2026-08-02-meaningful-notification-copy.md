@@ -115,7 +115,7 @@ never the farm's word for the work.
 Rule, now the only composition for pending / approved / rework / closed:
 
 ```text
-Title:  <task noun> <state>            Pen move verified · Hoof trimming video pending
+Title:  <task noun> <state>            Pen move verified · Hoof trimming verification pending
 Body:   <item subject> (<park>) — <state sentence>
         Pen move · Sumathi 1 · from Ho Chi Minh 1 · 1 animal (Coimbatore) — video verified.
 ```

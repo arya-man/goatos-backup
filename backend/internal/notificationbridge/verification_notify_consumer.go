@@ -127,8 +127,8 @@ type pendingModuleProfile struct {
 	//
 	// Copy is deliberately NOT here any more. Title and body are composed per ITEM from the
 	// item's category (the task noun) and its own subject sentence -- see
-	// verification_task_copy.go -- so a pen move reads "Pen move video pending", not "Counts
-	// video pending", and the approved/closed pushes carry the same subject the pending one did.
+	// verification_task_copy.go -- so a pen move reads "Pen move verification pending", not "Counts
+	// verification pending", and the approved/closed pushes carry the same subject the pending one did.
 	leadershipScreen string
 	leadershipTarget string
 	approvedScreen   string
@@ -1008,13 +1008,15 @@ func (c *VerificationEventConsumer) handleItemPending(ctx context.Context, p Ver
 	}
 	eventKey := EventVerificationItemPending + ":" + eventKeySubject
 	// Task-level copy: the item's own subject sentence, then the state. The title names the
-	// TASK (from the category), never the module -- "Pen move video pending", not "Counts video
+	// TASK (from the category), never the module -- "Pen move verification pending", not "Counts verification
 	// pending". The verifier's copy is second person ("your"), leadership's is not.
 	noun := taskNoun(p.Category, p.Module)
 	animalSummary := c.subjectLine(ctx, tenantID, p, noun, parkID)
 	verifierTitle := noun + " video to verify"
 	verifierBody := animalSummary + " — video is waiting for your verification."
-	leadershipTitle := noun + " video pending"
+	// "verification pending", not "video pending": the operator HAS uploaded the video, so a
+	// title saying the video is pending read to leadership as proof still missing (2026-09-14).
+	leadershipTitle := noun + " verification pending"
 	leadershipBody := animalSummary + " — video verification is pending."
 	baseContext := map[string]string{
 		"type":            NotificationTypeVerificationPending,
