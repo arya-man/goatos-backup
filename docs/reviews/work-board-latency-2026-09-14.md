@@ -77,17 +77,23 @@ the slowest observed call.
   page-only/no-summary variant) plus an Android/admin contract update; changing the default summary
   would risk under-drawing feed for operators.
 
-## Events Backpressure
+## Events Separation
 
-- `/app/analytics/events` still runs on the main API service in this PR, but it no longer has
-  unlimited synchronous DB insert concurrency per API instance. Staging pins
-  `GOATOS_ANALYTICS_MAX_IN_FLIGHT=2`; when both slots are busy the handler returns `429` with
-  `Retry-After: 5` before touching Postgres.
-- This protects business reads from analytics write pileups without scaling the main API wide.
-  Android already treats normal analytics as best-effort fire-and-forget; critical analytics events
-  use the durable queue and will retry after a retryable failure.
-- The next infra step is still a separate capped event-ingest lane/service/queue. That would isolate
-  event backlog and billing completely from Work Board, weighing, vaccination, and bootstrap.
+- `/app/analytics/events` now has two protections in this PR:
+  - the handler has a per-instance non-blocking insert cap via `GOATOS_ANALYTICS_MAX_IN_FLIGHT=2`;
+  - staging has a separate `goatos-analytics-events-stg` Cloud Run service using
+    `GOATOS_API_ROUTE_MODE=events`, `GOATOS_PG_MAX_CONNS=2`, min scale `0`, max scale `1`, and
+    concurrency `20`.
+- Event-only route mode registers health/version plus `POST /app/analytics/events`; it deliberately
+  skips Work Board, weighing, vaccination, proof upload/download signed routes, auth session-events,
+  admin UI, and the rest of the business API.
+- The Cloud Deploy scripts now update and verify the event lane on every backend rollout, so it does
+  not stay on a stale image after this PR lands.
+- Remaining deployment requirement: live traffic must be routed to the events lane. The safe
+  transparent production shape is a URL-map path rule sending `/app/analytics/events` to
+  `goatos-analytics-events-stg` while all business API paths stay on `goatos-api-stg`. Until that
+  route is applied, the backpressure cap protects the main API but Android clients using the current
+  API base URL still post events to the main API service.
 
 ## Validation
 
@@ -119,9 +125,9 @@ precondition before accepting future "OCI reproduces staging" claims for this ro
   wide.
 - Align Cloud Run concurrency with the backend DB pool. Current shape allows many HTTP requests to
   pile into a much smaller DB connection pool, which creates queueing.
-- Split analytics/events into a separate ingestion lane: separate service and/or queue, separate
-  DB pool, and eventually BigQuery/PubSub style ingestion. Events can be captured more often, but
-  they must not have the same priority as Work Board, weighing, vaccination, or bootstrap reads.
+- Route `/app/analytics/events` to the separate `goatos-analytics-events-stg` service. Events can be
+  captured more often, but they must not have the same priority as Work Board, weighing,
+  vaccination, or bootstrap reads.
 - Add alerts for Work Board p95/p99, admin-web backend fetch timeout rate, Cloud Run instance cap
   pressure, DB backends, and event-ingestion backlog.
 
@@ -134,5 +140,6 @@ precondition before accepting future "OCI reproduces staging" claims for this ro
   are frequent, the cost-safe fix is a separate events service/queue, not a higher business API cap.
 - Upgrading Cloud SQL has a direct monthly cost increase; do it only if metrics show DB CPU/IO or
   connection pressure remains after request-shape fixes.
-- Splitting events adds small service/queue/storage cost, but it protects business APIs from noisy
-  telemetry and makes cost/performance visible per lane.
+- Splitting events adds at most one small Cloud Run instance during event bursts in this PR
+  (`min=0`, `max=1`) plus two database connections. It protects business APIs from noisy telemetry
+  without raising the main API above the cost-capped max of 4.

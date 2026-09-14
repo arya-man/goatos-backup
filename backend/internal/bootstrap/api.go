@@ -185,6 +185,7 @@ type Config struct {
 	Postgres                    platformpg.Config
 	Auth                        AuthConfig
 	BulkImportPreviewSigningKey string
+	RouteMode                   string
 }
 
 // AuthModeJWKS selects asymmetric RS256/ES256 token verification via a remote
@@ -195,6 +196,7 @@ const AuthModeJWKS = "jwks"
 const (
 	defaultAuthSessionRateLimitPerMinute = 120
 	defaultAppCheckJWKSURL               = "https://firebaseappcheck.googleapis.com/v1/jwks"
+	apiRouteModeEvents                   = "events"
 )
 
 type AuthConfig struct {
@@ -236,6 +238,7 @@ func ConfigFromEnv() Config {
 		HTTPAddr:                    addr,
 		Postgres:                    platformpg.ConfigFromEnv(),
 		BulkImportPreviewSigningKey: os.Getenv("GOATOS_BULK_IMPORT_PREVIEW_SIGNING_KEY"),
+		RouteMode:                   strings.ToLower(strings.TrimSpace(os.Getenv("GOATOS_API_ROUTE_MODE"))),
 		Auth: AuthConfig{
 			Mode:                             os.Getenv("GOATOS_AUTH_MODE"),
 			Issuer:                           os.Getenv("GOATOS_AUTH_ISSUER"),
@@ -380,6 +383,9 @@ func localProofStorageAllowed(env string) bool {
 }
 
 func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
+	if err := validateRouteMode(cfg.RouteMode); err != nil {
+		return nil, err
+	}
 	bulkPreviewSigningKey, err := bulkImportPreviewSigningKey(cfg)
 	if err != nil {
 		return nil, err
@@ -1258,61 +1264,65 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(body)
 	})
-	identityhttp.Register(protectedMux, identityHandler)
-	identityhttp.RegisterSaleAllocation(protectedMux, saleAllocationHandler)
-	bulkstatushttp.Register(protectedMux, bulkStatusHandler)
-	locationshttp.Register(protectedMux, locationsHandler)
-	workforcehttp.Register(protectedMux, workforceHandler)
-	workforcehttp.RegisterRoster(protectedMux, rosterHandler)
-	workforcehttp.RegisterPeople(protectedMux, peopleHandler)
-	workforcehttp.RegisterAccess(protectedMux, accessHandler)
-	notificationaudiencehttp.Register(protectedMux, notificationAudienceHandler)
-	workforcehttp.RegisterClock(protectedMux, clockHandler)
-	workforcehttp.RegisterLeave(protectedMux, leaveHandler)
-	proofhttp.Register(protectedMux, proofHandler)
-	sophttp.Register(protectedMux, sopHandler)
-	protocolhttp.Register(protectedMux, protocolHandler)
-	outboxhttp.Register(protectedMux, outboxHandler)
-	operationsaudithttp.Register(protectedMux, operationsAuditHandler)
-	processintegrityhttp.Register(protectedMux, processIntegrityHandler)
-	procurementhttp.Register(protectedMux, procurementHandler)
-	procurementhttp.RegisterVendors(protectedMux, procurementVendorHandler)
-	procurementhttp.RegisterFeedPurchases(protectedMux, procurementFeedPurchaseHandler)
-	procurementhttp.RegisterLoadwise(protectedMux, procurementLoadwiseHandler)
-	animalpurchasehttp.Register(protectedMux, animalPurchaseHandler)
-	toxinhttp.Register(protectedMux, toxinHandler)
-	leadershiptaskshttp.Register(protectedMux, leadershipTasksHandler)
-	workboardhttp.Register(protectedMux, workBoardHandler)
-	penvisitshttp.Register(protectedMux, penVisitsHandler)
-	saleshttp.Register(protectedMux, salesHandler)
-	vaccinationhttp.Register(protectedMux, vaccinationHandler)
-	vaccexechttp.Register(protectedMux, vaccExecHandler)
-	weighinghttp.Register(protectedMux, weighingHandler)
-	growthdirectorhttp.Register(protectedMux, growthDirectorHandler)
-	calendarhttp.Register(protectedMux, calendarHandler)
-	adminuihttp.Register(protectedMux, adminUIHandler)
-	appanalyticshttp.Register(protectedMux, appAnalyticsHandler)
-	appconfighttp.Register(protectedMux, appConfigHandler)
-	countshttp.Register(protectedMux, herdRegisterHandler)
-	countshttp.RegisterAppWrites(protectedMux, countsAppWriteHandler)
-	countshttp.RegisterApprovals(protectedMux, countsAppWriteHandler)
-	countshttp.RegisterAdminWebApprovals(protectedMux, countsAppWriteHandler)
-	countshttp.RegisterShiftingExecution(protectedMux, countsAppWriteHandler)
-	countshttp.RegisterPenReconciliation(protectedMux, countsAppWriteHandler)
-	taskshttp.Register(protectedMux, tasksWorkflowHandler)
-	healthhttp.Register(protectedMux, healthHandler)
-	healthhttp.RegisterConfig(protectedMux, healthConfigHandler)
-	herdsignalshttp.Register(protectedMux, herdSignalsHandler)
-	healthhttp.RegisterDiagnosis(protectedMux, healthDiagnosisHandler)
-	healthhttp.RegisterAnalytics(protectedMux, healthAnalyticsHandler)
-	healthhttp.RegisterDeathCauses(protectedMux, healthDeathCauseHandler)
-	feedhttp.Register(protectedMux, feedHandler)
-	feedconfighttp.Register(protectedMux, feedConfigHandler)
-	feeddirectionhttp.Register(protectedMux, feedDirectionHandler)
-	pccarehttp.Register(protectedMux, pcCareHandler)
-	passporthttp.Register(protectedMux, passportHandler)
-	verificationhttp.Register(protectedMux, verificationHandler)
-	ceoService.Register(protectedMux)
+	if cfg.RouteMode == apiRouteModeEvents {
+		appanalyticshttp.Register(protectedMux, appAnalyticsHandler)
+	} else {
+		identityhttp.Register(protectedMux, identityHandler)
+		identityhttp.RegisterSaleAllocation(protectedMux, saleAllocationHandler)
+		bulkstatushttp.Register(protectedMux, bulkStatusHandler)
+		locationshttp.Register(protectedMux, locationsHandler)
+		workforcehttp.Register(protectedMux, workforceHandler)
+		workforcehttp.RegisterRoster(protectedMux, rosterHandler)
+		workforcehttp.RegisterPeople(protectedMux, peopleHandler)
+		workforcehttp.RegisterAccess(protectedMux, accessHandler)
+		notificationaudiencehttp.Register(protectedMux, notificationAudienceHandler)
+		workforcehttp.RegisterClock(protectedMux, clockHandler)
+		workforcehttp.RegisterLeave(protectedMux, leaveHandler)
+		proofhttp.Register(protectedMux, proofHandler)
+		sophttp.Register(protectedMux, sopHandler)
+		protocolhttp.Register(protectedMux, protocolHandler)
+		outboxhttp.Register(protectedMux, outboxHandler)
+		operationsaudithttp.Register(protectedMux, operationsAuditHandler)
+		processintegrityhttp.Register(protectedMux, processIntegrityHandler)
+		procurementhttp.Register(protectedMux, procurementHandler)
+		procurementhttp.RegisterVendors(protectedMux, procurementVendorHandler)
+		procurementhttp.RegisterFeedPurchases(protectedMux, procurementFeedPurchaseHandler)
+		procurementhttp.RegisterLoadwise(protectedMux, procurementLoadwiseHandler)
+		animalpurchasehttp.Register(protectedMux, animalPurchaseHandler)
+		toxinhttp.Register(protectedMux, toxinHandler)
+		leadershiptaskshttp.Register(protectedMux, leadershipTasksHandler)
+		workboardhttp.Register(protectedMux, workBoardHandler)
+		penvisitshttp.Register(protectedMux, penVisitsHandler)
+		saleshttp.Register(protectedMux, salesHandler)
+		vaccinationhttp.Register(protectedMux, vaccinationHandler)
+		vaccexechttp.Register(protectedMux, vaccExecHandler)
+		weighinghttp.Register(protectedMux, weighingHandler)
+		growthdirectorhttp.Register(protectedMux, growthDirectorHandler)
+		calendarhttp.Register(protectedMux, calendarHandler)
+		adminuihttp.Register(protectedMux, adminUIHandler)
+		appanalyticshttp.Register(protectedMux, appAnalyticsHandler)
+		appconfighttp.Register(protectedMux, appConfigHandler)
+		countshttp.Register(protectedMux, herdRegisterHandler)
+		countshttp.RegisterAppWrites(protectedMux, countsAppWriteHandler)
+		countshttp.RegisterApprovals(protectedMux, countsAppWriteHandler)
+		countshttp.RegisterAdminWebApprovals(protectedMux, countsAppWriteHandler)
+		countshttp.RegisterShiftingExecution(protectedMux, countsAppWriteHandler)
+		countshttp.RegisterPenReconciliation(protectedMux, countsAppWriteHandler)
+		taskshttp.Register(protectedMux, tasksWorkflowHandler)
+		healthhttp.Register(protectedMux, healthHandler)
+		healthhttp.RegisterConfig(protectedMux, healthConfigHandler)
+		herdsignalshttp.Register(protectedMux, herdSignalsHandler)
+		healthhttp.RegisterDiagnosis(protectedMux, healthDiagnosisHandler)
+		healthhttp.RegisterAnalytics(protectedMux, healthAnalyticsHandler)
+		healthhttp.RegisterDeathCauses(protectedMux, healthDeathCauseHandler)
+		feedhttp.Register(protectedMux, feedHandler)
+		feedconfighttp.Register(protectedMux, feedConfigHandler)
+		feeddirectionhttp.Register(protectedMux, feedDirectionHandler)
+		pccarehttp.Register(protectedMux, pcCareHandler)
+		passporthttp.Register(protectedMux, passportHandler)
+		verificationhttp.Register(protectedMux, verificationHandler)
+		ceoService.Register(protectedMux)
+	}
 
 	// otelhttp owns real span creation for every protected request (server
 	// spans, W3C trace-context propagation); httpmiddleware.Metrics records
@@ -1336,8 +1346,10 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	)
 
 	mux := http.NewServeMux()
-	authaudit.Register(mux, authAuditHandler)
-	proofhttp.RegisterSigned(mux, proofHandler)
+	if cfg.RouteMode != apiRouteModeEvents {
+		authaudit.Register(mux, authAuditHandler)
+		proofhttp.RegisterSigned(mux, proofHandler)
+	}
 	mux.Handle("/", authz.Wrap(instrumentedProtectedMux))
 
 	// PanicRecovery is outermost so it catches panics in auth and RequestContext.
@@ -1361,6 +1373,15 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 		Server: server,
 		Close:  pool.Close,
 	}, nil
+}
+
+func validateRouteMode(mode string) error {
+	switch strings.TrimSpace(mode) {
+	case "", apiRouteModeEvents:
+		return nil
+	default:
+		return fmt.Errorf("unsupported GOATOS_API_ROUTE_MODE %q", mode)
+	}
 }
 
 func bulkImportPreviewSigningKey(cfg Config) (string, error) {

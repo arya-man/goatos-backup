@@ -3,6 +3,8 @@ package bootstrap
 import (
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -29,6 +31,48 @@ func TestBuildAuthVerifierDefaultsToBearerAndRejectsWeakConfig(t *testing.T) {
 		MaxTokenTTL: 24 * time.Hour,
 	}, nil); err != nil {
 		t.Fatalf("valid default bearer config rejected: %v", err)
+	}
+}
+
+func TestConfigFromEnvReadsRouteMode(t *testing.T) {
+	t.Setenv("GOATOS_API_ROUTE_MODE", " events ")
+	cfg := ConfigFromEnv()
+	if cfg.RouteMode != apiRouteModeEvents {
+		t.Fatalf("RouteMode=%q want %q", cfg.RouteMode, apiRouteModeEvents)
+	}
+}
+
+func TestValidateRouteMode(t *testing.T) {
+	for _, mode := range []string{"", apiRouteModeEvents} {
+		t.Run("valid/"+mode, func(t *testing.T) {
+			if err := validateRouteMode(mode); err != nil {
+				t.Fatalf("valid route mode rejected: %v", err)
+			}
+		})
+	}
+	if err := validateRouteMode("full-api-typo"); err == nil {
+		t.Fatal("unknown route mode accepted")
+	}
+}
+
+func TestEventsRouteModeKeepsBusinessAndUnsignedRoutesOutOfEventLane(t *testing.T) {
+	srcBytes, err := os.ReadFile("api.go")
+	if err != nil {
+		t.Fatalf("read api.go: %v", err)
+	}
+	src := string(srcBytes)
+	eventsBranch := `if cfg.RouteMode == apiRouteModeEvents {
+		appanalyticshttp.Register(protectedMux, appAnalyticsHandler)
+	} else {`
+	if !strings.Contains(src, eventsBranch) {
+		t.Fatal("events route mode must register only app analytics before the full-api branch")
+	}
+	signedProofGate := `if cfg.RouteMode != apiRouteModeEvents {
+		authaudit.Register(mux, authAuditHandler)
+		proofhttp.RegisterSigned(mux, proofHandler)
+	}`
+	if !strings.Contains(src, signedProofGate) {
+		t.Fatal("events route mode must not expose auth session or signed proof routes")
 	}
 }
 

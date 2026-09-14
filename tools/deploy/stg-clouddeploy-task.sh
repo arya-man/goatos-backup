@@ -6,6 +6,7 @@ PROJECT_NUMBER="${PROJECT_NUMBER:-514832198871}"
 REGION="${REGION:-asia-south1}"
 ARTIFACT_REPOSITORY="${ARTIFACT_REPOSITORY:-goatos}"
 API_SERVICE="${API_SERVICE:-goatos-api-stg}"
+ANALYTICS_EVENTS_SERVICE="${ANALYTICS_EVENTS_SERVICE:-goatos-analytics-events-stg}"
 MCP_SERVICE="${MCP_SERVICE:-goatos-mcp-stg}"
 KERNEL_WORKER_SERVICE="${KERNEL_WORKER_SERVICE:-goatos-kernel-worker-stg}"
 HERD_SIGNALS_MQTT_BRIDGE_SERVICE="${HERD_SIGNALS_MQTT_BRIDGE_SERVICE:-goatos-herd-signals-mqtt-bridge-stg}"
@@ -436,6 +437,26 @@ deploy() {
     --quiet
   wait_service_ready "$API_SERVICE" "post-migration restore"
 
+  run gcloud run services update "$ANALYTICS_EVENTS_SERVICE" \
+    --project="$PROJECT_ID" \
+    --region="$REGION" \
+    --image="$BACKEND_IMAGE" \
+    --ingress=all \
+    --min=0 \
+    --max=1 \
+    --min-instances=0 \
+    --max-instances=1 \
+    --concurrency=20 \
+    --update-env-vars="GOATOS_API_ROUTE_MODE=events,GOATOS_ANALYTICS_MAX_IN_FLIGHT=2,GOATOS_PG_MAX_CONNS=2,GOATOS_PG_QUERY_TIMEOUT=3s" \
+    --update-labels="commit_sha=${COMMIT_SHA},deployed_by=cloud-deploy" \
+    --quiet
+  run gcloud run services update-traffic "$ANALYTICS_EVENTS_SERVICE" \
+    --project="$PROJECT_ID" \
+    --region="$REGION" \
+    --to-latest \
+    --quiet
+  wait_service_ready "$ANALYTICS_EVENTS_SERVICE" "post-migration restore"
+
   run gcloud run services update "$KERNEL_WORKER_SERVICE" \
     --project="$PROJECT_ID" \
     --region="$REGION" \
@@ -533,6 +554,7 @@ deploy() {
     --quiet
 
   [[ "$(service_image "$API_SERVICE")" == "$BACKEND_IMAGE" ]] || die "$API_SERVICE image did not settle on $BACKEND_IMAGE"
+  [[ "$(service_image "$ANALYTICS_EVENTS_SERVICE")" == "$BACKEND_IMAGE" ]] || die "$ANALYTICS_EVENTS_SERVICE image did not settle on $BACKEND_IMAGE"
   [[ "$(service_image "$MCP_SERVICE")" == "$BACKEND_IMAGE" ]] || die "$MCP_SERVICE image did not settle on $BACKEND_IMAGE"
   [[ "$(service_image "$KERNEL_WORKER_SERVICE")" == "$BACKEND_IMAGE" ]] || die "$KERNEL_WORKER_SERVICE image did not settle on $BACKEND_IMAGE"
   [[ "$(service_image "$HERD_SIGNALS_MQTT_BRIDGE_SERVICE")" == "$BACKEND_IMAGE" ]] || die "$HERD_SIGNALS_MQTT_BRIDGE_SERVICE image did not settle on $BACKEND_IMAGE"

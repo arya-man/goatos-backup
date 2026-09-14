@@ -12,6 +12,10 @@ locals {
       account_id   = "goatos-api-stg"
       display_name = "Goat OS staging API runtime"
     }
+    analytics_events = {
+      account_id   = "goatos-events-stg"
+      display_name = "Goat OS staging analytics event ingest runtime"
+    }
     admin_web = {
       account_id   = "goatos-admin-web-stg"
       display_name = "Goat OS staging admin-web runtime"
@@ -69,6 +73,7 @@ locals {
 
   database_clients = toset([
     "api",
+    "analytics_events",
     "kernel_worker",
     "herd_signals_mqtt_bridge",
     "outbox_dlq",
@@ -82,6 +87,7 @@ locals {
       secret_id = "goatos-stg-database-url"
       accessors = [
         "api",
+        "analytics_events",
         "kernel_worker",
         "herd_signals_mqtt_bridge",
         "outbox_dlq",
@@ -100,6 +106,7 @@ locals {
       secret_id = "goatos-stg-auth-issuer"
       accessors = [
         "api",
+        "analytics_events",
         "mcp",
       ]
     }
@@ -107,6 +114,7 @@ locals {
       secret_id = "goatos-stg-auth-audience"
       accessors = [
         "api",
+        "analytics_events",
         "mcp",
       ]
     }
@@ -114,6 +122,7 @@ locals {
       secret_id = "goatos-stg-auth-jwks-url"
       accessors = [
         "api",
+        "analytics_events",
         "mcp",
       ]
     }
@@ -121,6 +130,7 @@ locals {
       secret_id = "goatos-stg-auth-allowed-emails"
       accessors = [
         "api",
+        "analytics_events",
         "mcp",
       ]
     }

@@ -40,12 +40,13 @@ output "cloud_run_explicit_jobs" {
 }
 
 output "cloud_run_services" {
-  description = "Cloud Run service URLs for staging API, admin-web, kernel worker, and external MCP."
+  description = "Cloud Run service URLs for staging API, analytics event ingest, admin-web, kernel worker, and external MCP."
   value = {
-    api           = google_cloud_run_v2_service.api.uri
-    admin_web     = google_cloud_run_v2_service.admin_web.uri
-    kernel_worker = google_cloud_run_v2_service.kernel_worker.uri
-    mcp           = google_cloud_run_v2_service.mcp.uri
+    api              = google_cloud_run_v2_service.api.uri
+    analytics_events = google_cloud_run_v2_service.analytics_events.uri
+    admin_web        = google_cloud_run_v2_service.admin_web.uri
+    kernel_worker    = google_cloud_run_v2_service.kernel_worker.uri
+    mcp              = google_cloud_run_v2_service.mcp.uri
   }
 }
 

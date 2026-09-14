@@ -254,6 +254,42 @@ expect_api_latency_shape() {
   echo "verified api latency shape: min=$min max=$max concurrency=$concurrency"
 }
 
+expect_analytics_events_shape() {
+  local line min max concurrency route_mode max_in_flight pg_max
+  line="$(
+    gcloud run services describe goatos-analytics-events-stg \
+      --project="$PROJECT_ID" \
+      --region="$REGION" \
+      --format=json | python3 -c '
+import json
+import sys
+
+doc = json.load(sys.stdin)
+template = doc.get("spec", {}).get("template", {})
+annotations = template.get("metadata", {}).get("annotations", {})
+spec = template.get("spec", {})
+containers = spec.get("containers", [])
+env = {item.get("name"): item.get("value", "") for item in (containers[0].get("env", []) if containers else [])}
+print("\t".join([
+    annotations.get("autoscaling.knative.dev/minScale", ""),
+    annotations.get("autoscaling.knative.dev/maxScale", ""),
+    str(spec.get("containerConcurrency", "")),
+    env.get("GOATOS_API_ROUTE_MODE", ""),
+    env.get("GOATOS_ANALYTICS_MAX_IN_FLIGHT", ""),
+    env.get("GOATOS_PG_MAX_CONNS", ""),
+]))
+'
+  )"
+  IFS=$'\t' read -r min max concurrency route_mode max_in_flight pg_max <<<"$line"
+  [[ "$min" == "0" ]] || die "goatos-analytics-events-stg min scale drift: got ${min:-unset} want 0"
+  [[ "$max" == "1" ]] || die "goatos-analytics-events-stg max scale drift: got ${max:-unset} want 1"
+  [[ "$concurrency" == "20" ]] || die "goatos-analytics-events-stg concurrency drift: got ${concurrency:-unset} want 20"
+  [[ "$route_mode" == "events" ]] || die "goatos-analytics-events-stg route mode drift: got ${route_mode:-unset} want events"
+  [[ "$max_in_flight" == "2" ]] || die "goatos-analytics-events-stg event cap drift: got ${max_in_flight:-unset} want 2"
+  [[ "$pg_max" == "2" ]] || die "goatos-analytics-events-stg pg pool drift: got ${pg_max:-unset} want 2"
+  echo "verified analytics events shape: min=$min max=$max concurrency=$concurrency route_mode=$route_mode event_cap=$max_in_flight pg_max=$pg_max"
+}
+
 expect_job_image() {
   local job="$1"
   local expected="$2"
@@ -271,10 +307,12 @@ expect_job_image() {
 verify_stg_images() {
   echo "Verifying staging images for $commit_sha"
   expect_service_image goatos-api-stg "$backend_image"
+  expect_service_image goatos-analytics-events-stg "$backend_image"
   expect_service_image goatos-admin-web-stg "$admin_web_image"
   expect_service_image goatos-kernel-worker-stg "$backend_image"
   expect_service_image goatos-mcp-stg "$backend_image"
   expect_api_latency_shape
+  expect_analytics_events_shape
   expect_job_image goatos-stg-migrate "$migration_image"
   expect_job_image goatos-stg-outbox-dlq "$backend_image"
   expect_job_image goatos-stg-analytics-rollup "$backend_image"
