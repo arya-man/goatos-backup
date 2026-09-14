@@ -14,7 +14,7 @@
 --
 -- seed-fixture-guard:ignore: SOP library document seed (sop_definitions/sop_versions rows only);
 -- no vaccination / HRMS / goats schema moves.
--- seed-migration-guard:ignore owner=claude issue=procurement-sop reason=library-document seed for an existing phone flow; idempotent definition + version insert, no read-model or clean-slate change
+-- seed-migration-guard:ignore owner=claude issue=procurement-sop reason=library-document seed for an existing phone flow; idempotent definition + version insert, no read-model or clean-slate change expiry=2026-10-31
 
 INSERT INTO public.sop_definitions (tenant_id, code, name, description, status)
 SELECT t.tenant_id, 'procurement.animal_purchase', 'Animal Purchase Inspection',
