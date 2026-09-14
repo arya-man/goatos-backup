@@ -312,7 +312,7 @@ class MarketCityEntryViewModel @Inject constructor(
                     mapOf(AnalyticsEvents.Params.REASON to outcome::class.simpleName.orEmpty().lowercase()),
                 )
                 if (outcome is QueuedWriteOutcome.Rejected) {
-                    repository.refreshDay(businessDate)
+                    repository.refreshDayAndTodayAliasIfCurrent(businessDate)
                 }
                 local.update {
                     when (outcome) {

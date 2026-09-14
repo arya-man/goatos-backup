@@ -36,6 +36,9 @@ interface MarketRepository {
     /** Network -> Room refresh. Non-blocking contract: a failure leaves the cache serving. */
     suspend fun refreshDay(businessDate: String): Result<MarketSurveyDayDto>
 
+    /** Refreshes a dated day and repairs the blank today alias only when it already points at that day. */
+    suspend fun refreshDayAndTodayAliasIfCurrent(businessDate: String): Result<MarketSurveyDayDto> = refreshDay(businessDate)
+
     /** Overlays queued answers onto the cached card so the screen shows them before the drain. */
     suspend fun applyLocalAnswers(businessDate: String, cityId: String, answers: List<MarketSurveyAnswerDto>)
 
@@ -78,13 +81,29 @@ class DefaultMarketRepository(
         // yesterday. The blank key is kept as an alias for the "today" screen.
         val dtoJson = json.encodeToString(day)
         database.vendorsBlobCacheDao().upsert(VendorsBlobCacheEntity(dayKey(day.businessDate), dtoJson, clock()))
-        if (businessDate.isBlank() || businessDate == day.businessDate) database.vendorsBlobCacheDao().upsert(VendorsBlobCacheEntity(dayKey(""), dtoJson, clock()))
+        if (businessDate.isBlank()) database.vendorsBlobCacheDao().upsert(VendorsBlobCacheEntity(dayKey(""), dtoJson, clock()))
         database.vendorsBlobCacheDao().enforceCacheBounds()
         Result.success(day)
     } catch (error: CancellationException) {
         throw error
     } catch (error: Exception) {
         Result.failure(error)
+    }
+
+    override suspend fun refreshDayAndTodayAliasIfCurrent(businessDate: String): Result<MarketSurveyDayDto> {
+        if (businessDate.isBlank()) return refreshDay(businessDate)
+        val result = refreshDay(businessDate)
+        val day = result.getOrNull() ?: return result
+        val todayEntity = database.vendorsBlobCacheDao().get(dayKey("")) ?: return result
+        val today = runCatching { json.decodeFromString<MarketSurveyDayDto>(todayEntity.dtoJson) }
+            .onFailure { database.vendorsBlobCacheDao().delete(dayKey("")) }
+            .getOrNull() ?: return result
+        if (today.businessDate == day.businessDate) {
+            database.vendorsBlobCacheDao().upsert(
+                VendorsBlobCacheEntity(dayKey(""), json.encodeToString(day), clock()),
+            )
+        }
+        return result
     }
 
     override suspend fun applyLocalAnswers(businessDate: String, cityId: String, answers: List<MarketSurveyAnswerDto>) {

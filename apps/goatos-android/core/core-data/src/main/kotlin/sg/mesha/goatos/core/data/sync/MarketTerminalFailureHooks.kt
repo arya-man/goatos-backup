@@ -10,5 +10,5 @@ fun marketSurveyRecordFailureHook(repository: MarketRepository): PostTerminalFai
         val payload = runCatching {
             marketFailureHookJson.decodeFromString<MarketSurveyRecordPayload>(payloadJson)
         }.getOrNull()
-        repository.refreshDay(payload?.businessDate.orEmpty())
+        repository.refreshDayAndTodayAliasIfCurrent(payload?.businessDate.orEmpty())
     }
