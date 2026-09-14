@@ -9,6 +9,7 @@ import {
   ENGINE_BOUND_TASK_TYPES,
   blankStep,
   emitFollowUp,
+  expandSeriesRows,
   followUpProblems,
   slugKey,
   type FollowUpRows,
@@ -16,6 +17,7 @@ import {
   type ScheduleKind,
 } from "./followup-model";
 import { publishFollowUpVersion, saveFollowUpVersion, type FollowUpSaveResult } from "./sop-actions";
+import { dayLabel, followUpCopy } from "./followup-summary";
 
 // SOP-DRIVEN HERD OPERATIONS (maintainer decision 2026-09-13,
 // docs/decisions/sop-driven-herd-operations.md). The operator-steps editor for a Herd Operations
@@ -375,6 +377,16 @@ function StepCard({
               {copy(pc, "followup.step.pre_notify")}
               <input className="numfield" type="number" min={0} value={step.preNotifyMinutes} onChange={(e) => onChange({ preNotifyMinutes: Number(e.target.value) || 0 })} />
             </label>
+            <div className="followup-series-preview muted small">
+              {followUpCopy(pc)("followup.preview.series", { n: expandSeriesRows(step).length })}
+              <ul>
+                {expandSeriesRows(step).map((r) => (
+                  <li key={`${r.dayOffset}-${r.time}`}>
+                    {r.title} — {dayLabel(pc, r.dayOffset)} · {r.time}
+                  </li>
+                ))}
+              </ul>
+            </div>
           </>
         ) : null}
         {step.scheduleKind === "after_step" ? (
@@ -426,7 +438,7 @@ function StepCard({
           <input type="checkbox" checked={step.waitForAll} onChange={(e) => onChange({ waitForAll: e.target.checked })} /> {copy(pc, "followup.step.wait_for_all")}
         </label>
         {earlier.length > 0 ? (
-          <div className="chkline followup-requires">
+          <div className="followup-requires">
             <span className="muted small">{copy(pc, "followup.step.requires")}</span>
             {earlier.map((s) => (
               <label key={s.key} className="chkline">

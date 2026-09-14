@@ -6793,7 +6793,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"action.next":                             "Next",
 			"action.close":                            "Close",
 			"action.new_sop_builder":                  "New SOP in builder",
-			"action.edit_operator_steps":              "Edit operator steps",
+			"action.edit_operator_steps":              "Change SOP",
 			"label.operator_steps":                    "operator steps",
 			"empty.title":                             "No vaccination SOPs yet",
 			"empty.body":                              "Create a vaccination SOP or publish one from a draft to make it available to obligations.",
@@ -6973,11 +6973,26 @@ func pageSpecificCopy(id string) map[string]string {
 			"followup.step.remove":         "Remove step",
 			"followup.step.move_up":        "Move up",
 			"followup.step.move_down":      "Move down",
-			"followup.action.publish":      "Publish operator steps",
+			"followup.action.publish":      "Publish SOP",
 			"followup.action.save_draft":   "Save as draft",
 			"followup.notice.locked_key":   "This step drives server behaviour; its key and type are fixed, everything else is yours to edit.",
 			"followup.notice.capture_kept": "The capture form the operator fills when recording the event is unchanged by this page.",
 			"followup.empty":               "No operator steps yet.",
+			// Read-side description of the authored steps (SOP drawer + the editor's series preview):
+			// the rounds the engine will schedule for one animal, in farm words.
+			"followup.drawer.title":        "What the operator does after the event",
+			"followup.drawer.subtitle":     "from the published SOP; a repeating round is listed once per time it runs",
+			"followup.preview.series":      "Runs {n} times per animal — rounds already past when the event is recorded are skipped:",
+			"followup.day.event":           "event day",
+			"followup.day.after":           "+{d} day(s)",
+			"followup.due.right_away":      "right away",
+			"followup.due.after_event":     "{n} min after the event",
+			"followup.due.fixed_time":      "day +{d} at {t}",
+			"followup.due.series":          "{n} rounds · {times} · {days} day(s)",
+			"followup.due.after_step":      "{n} min after \"{step}\"",
+			"followup.proof.videos":        "{n} video(s)",
+			"followup.proof.photos":        "{n} photo(s)",
+			"followup.step.only_when":      "only when the kid pen could not be resolved",
 		}
 		// Per-module copy: crumb names the owning vertical, and the builder's domain lock names
 		// the module the page is scoped to (SOP split, maintainer decision 2026-08-18).

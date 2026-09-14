@@ -1,7 +1,7 @@
 import { readFileSync, readdirSync } from "node:fs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { emitFollowUp, followUpProblems, parseFollowUp, slugKey } from "./followup-model.ts";
+import { describeDue, emitFollowUp, expandSeriesRows, followUpProblems, ordinal, parseFollowUp, slugKey } from "./followup-model.ts";
 
 // The seeded documents are the same bytes migration 000299 publishes (pinned by the Go test
 // TestMigrationEmbedsTheSeededDocuments). Parsing them into editor rows and emitting them back
@@ -59,4 +59,20 @@ test("slugKey derives a stable unique key from the title", () => {
 
 test("a document with no follow_up parses to null (a non herd-ops SOP)", () => {
   assert.equal(parseFollowUp({ fields: [] }), null);
+});
+
+test("the seeded colostrum series expands to the rounds the engine stamps: 2nd..11th over the event day and the next", () => {
+  const doc = JSON.parse(readFileSync(new URL("counts_birth.json", seedDir), "utf8"));
+  const kid = parseFollowUp({ follow_up: doc }).tracks.find((t) => t.key === "birth_kid");
+  const series = kid.steps.find((s) => s.key === "colostrum_series");
+  const rounds = expandSeriesRows(series);
+  assert.equal(rounds.length, 10);
+  assert.deepEqual(rounds[0], { title: "2nd Colostrum", dayOffset: 0, time: "07:00" });
+  assert.deepEqual(rounds[4], { title: "6th Colostrum", dayOffset: 0, time: "22:00" });
+  assert.deepEqual(rounds[9], { title: "11th Colostrum", dayOffset: 1, time: "22:00" });
+  const c = (k, v = {}) => `${k}:${JSON.stringify(v)}`;
+  assert.equal(describeDue(series, c), 'followup.due.series:{"n":10,"times":"07:00, 11:00, 15:00, 18:30, 22:00","days":2}');
+  assert.equal(ordinal(11), "11th");
+  assert.equal(ordinal(22), "22nd");
+  assert.equal(ordinal(13), "13th");
 });
