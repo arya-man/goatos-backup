@@ -3,7 +3,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { emitInspection, flattenInspection, inspectionProblems, parseInspection, slugKey } from "./inspection-model.ts";
 
-// The seeded document is the same bytes migration 000304 publishes (pinned by the Go test
+// The seeded document is the same bytes migration 000308 publishes (pinned by the Go test
 // TestMigrationEmbedsTheSeededInspection). Parsing it into editor rows and emitting it back must
 // reproduce it EXACTLY, or opening the editor and pressing Publish with no edits would change
 // what the phone runs.

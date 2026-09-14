@@ -85,7 +85,7 @@ type WorkflowAction struct {
 	AnswerValue   *string
 	ProofRef      *string
 	// SOP-driven attributes stamped at open from the pinned follow_up (sop_followup.go). Rows
-	// stamped before migration 000304 were backfilled so the generalized gates below read the
+	// stamped before migration 000308 were backfilled so the generalized gates below read the
 	// same thing the old key-matched code implied.
 	TaskType           string
 	AnswerType         string

@@ -1057,6 +1057,7 @@ class DefaultSyncRepository(
         store.observeActiveByOpType(OutboxOpType.MARKET_SURVEY_RECORD.name)
             .map { rows ->
                 rows.mapNotNull { row ->
+                    // exception:exempt corrupt market-survey outbox rows are skipped in the UI overlay; sync processing still owns terminal failure/reporting.
                     runCatching { syncJson.decodeFromString<MarketSurveyRecordPayload>(row.payloadJson) }.getOrNull()
                 }
             }

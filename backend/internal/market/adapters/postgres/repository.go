@@ -1,4 +1,4 @@
-// Package postgres stores the market survey (migration 000304).
+// Package postgres stores the market survey (migration 000306).
 package postgres
 
 import (

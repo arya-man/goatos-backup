@@ -10,11 +10,11 @@ import (
 	"github.com/vgoats/goatos/backend/internal/tasks/domain/sopseed"
 )
 
-// TestMigrationEmbedsTheSeededDocuments pins migration 000304 to the embedded seed JSON: every
+// TestMigrationEmbedsTheSeededDocuments pins migration 000308 to the embedded seed JSON: every
 // document the golden test proves equal to the old code template must be the SAME bytes the
 // database is seeded from, or the golden test proves nothing about what a tenant actually runs.
 func TestMigrationEmbedsTheSeededDocuments(t *testing.T) {
-	path := filepath.Join("..", "..", "..", "migrations", "postgres", "000304_sop_driven_herd_operations.sql")
+	path := filepath.Join("..", "..", "..", "migrations", "postgres", "000308_sop_driven_herd_operations.sql")
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
@@ -30,7 +30,7 @@ func TestMigrationEmbedsTheSeededDocuments(t *testing.T) {
 			t.Fatal(err)
 		}
 		if !strings.Contains(sql, "$seed$"+strings.TrimSpace(string(doc))+"$seed$") {
-			t.Fatalf("migration 000304 does not embed %s verbatim; regenerate the SQL from sopseed/%s", name, name)
+			t.Fatalf("migration 000308 does not embed %s verbatim; regenerate the SQL from sopseed/%s", name, name)
 		}
 		var v any
 		if err := json.Unmarshal(doc, &v); err != nil {

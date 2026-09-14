@@ -87,7 +87,9 @@ function mergeSummaries(summaries: WorkBoardSummary[]): WorkBoardSummary | null 
   };
 }
 
-async function runBounded<T, R>(items: T[], limit: number, fn: (item: T, index: number) => Promise<R>): Promise<R[]> {
+type boundedRunner<T, R> = (item: T, index: number) => Promise<R>;
+
+async function runBounded<T, R>(items: T[], limit: number, fn: boundedRunner<T, R>): Promise<R[]> {
   const out = new Array<R>(items.length);
   let next = 0;
   const workers = Math.max(1, Math.min(limit, items.length));
@@ -97,6 +99,7 @@ async function runBounded<T, R>(items: T[], limit: number, fn: (item: T, index: 
         const index = next;
         next += 1;
         if (index >= items.length) return;
+        // serial-await: allow bounded worker-pool await; parallelism is controlled by the caller's limit.
         out[index] = await fn(items[index]!, index);
       }
     }),

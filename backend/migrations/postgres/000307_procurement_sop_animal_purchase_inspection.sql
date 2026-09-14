@@ -1,5 +1,5 @@
 -- +goose Up
--- 000304_procurement_sop_animal_purchase_inspection.sql
+-- 000307_procurement_sop_animal_purchase_inspection.sql
 --
 -- PROCUREMENT SOP (maintainer decision 2026-09-14, docs/decisions/procurement-sop.md).
 -- The per-animal purchase inspection the phone runs -- which questions, on which page, which
@@ -728,7 +728,7 @@ jsonb_build_object(
 ),
 '{"subject_scope": "task", "types": ["video", "photo"], "required": true, "minimum_count": 3, "maximum_count": 20, "verify_before_apply": false}'::jsonb,
 '{"min_app_version": "0.2.0", "supported_field_types": ["text", "number", "date_time", "select", "multiselect", "goat_lookup", "animal_id_scan", "location_picker", "photo_proof", "video_proof"], "supported_proof_actions": ["video.capture", "photo.capture"]}'::jsonb,
-'{"valid": true, "errors": [], "warnings": [{"code": "seeded", "field": "form_dsl.inspection", "message": "Seeded from the code catalog this version replaces (migration 000304)."}]}'::jsonb,
+'{"valid": true, "errors": [], "warnings": [{"code": "seeded", "field": "form_dsl.inspection", "message": "Seeded from the code catalog this version replaces (migration 000307)."}]}'::jsonb,
 now()
 FROM public.sop_definitions sd
 WHERE sd.code = 'procurement.animal_purchase'

@@ -431,10 +431,12 @@ private val marketAnswersSerializer = ListSerializer(MarketSurveyAnswerDto.seria
 
 private fun readDraftTyped(savedStateHandle: SavedStateHandle): Map<String, String> =
     savedStateHandle.get<String>(KEY_TYPED)?.let { raw ->
+        // exception:exempt corrupt saved draft payload is discarded and the form repopulates from the cached/server market day.
         runCatching { marketJson.decodeFromString(marketTypedSerializer, raw) }.getOrNull()
     }.orEmpty()
 
 private fun readSaveAnswers(savedStateHandle: SavedStateHandle): List<MarketSurveyAnswerDto> =
     savedStateHandle.get<String>(KEY_SAVE_ANSWERS)?.let { raw ->
+        // exception:exempt corrupt pending-save payload drops the in-flight overlay; durable outbox/server state remains authoritative.
         runCatching { marketJson.decodeFromString(marketAnswersSerializer, raw) }.getOrNull()
     }.orEmpty()

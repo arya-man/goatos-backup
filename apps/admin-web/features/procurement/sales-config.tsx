@@ -111,6 +111,7 @@ export async function SalesConfigPage({
   // so a form that fetched on open would never see its own data arrive. Keep the reads serialized:
   // they are individually bounded, but firing all seven during Cloud Run warmup can still produce
   // the backend_down/admin-contract failure screens this page must avoid.
+  // serial-await: allow bounded sales/config bootstrap reads are intentionally serialized to avoid Cloud Run warmup fanout.
   const dealsResult = await listSalesDeals({ farm: "all", limit, offset });
   const loadwiseResult = await getLoadwiseSales();
   const buyerLeadsResult = canRecordPipeline
@@ -130,12 +131,15 @@ export async function SalesConfigPage({
       })
     : null;
   // The tag-animals picker's park/shed/pen vocabulary, backend-owned.
+  // serial-await: allow bounded vocabulary reads stay serialized with the sales/config bootstrap above.
   const saleLocations = await listSaleLocations();
   // Every sale is made TO a vendor (maintainer decision 2026-08-27). ONE bounded read, never
   // a paged walk of /procurement/vendors: that is the banned SSR full-walk shape.
+  // serial-await: allow one bounded vendor-options read after the sales/config core data.
   const vendorOptionsResult = await listProcurementVendorOptions();
   // The market survey's cities and questions (maintainer decision 2026-09-14): one bounded
   // read of the whole authored config.
+  // serial-await: allow one bounded market-config read after prior sales/config reads to avoid request fanout.
   const marketConfigResult = await getMarketConfig();
 
   if (firstAuthRequiredError(dealsResult, loadwiseResult)) redirect(INTERNAL_LOGIN_PATH);

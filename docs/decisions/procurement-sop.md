@@ -42,7 +42,7 @@ serves and validates it, but the catalog is the SOP document, not Go.
   including every media question -- may be added, moved, re-worded, made optional or removed.
 - **Day one is the current flow.** `inspectionseed/animal_purchase.json` is the old Go catalog split
   into its five pages; `TestSeededInspectionCompilesToTheLegacyQuestionnaire` pins that it compiles
-  to EXACTLY the old catalog, and migration `000304` publishes it as **v1** (the document embedded
+  to EXACTLY the old catalog, and migration `000307` publishes it as **v1** (the document embedded
   verbatim, pinned by `TestMigrationEmbedsTheSeededInspection`). Animals already recorded carry
   `questionnaire_version = 1` and keep reading it. A tenant with no authored version runs the seed.
 - **Web.** `/procurement/sops` is the sixth module-surface SOP route (recorded in
@@ -55,7 +55,7 @@ serves and validates it, but the catalog is the SOP document, not Go.
 - **Phone.** Renders the served catalog as before; the only change is sending
   `questionnaire_version` with the answers (`AnimalPurchaseViewModelsTest` pins it).
 
-## Proof (2026-09-14, OCI `goatos_procsop` cloned at main's 000296 and migrated to 000304)
+## Proof (2026-09-14, OCI `goatos_procsop` cloned at main's 000296 and migrated to 000307)
 
 - `/options` serves v1 with the 42 legacy questions and the same four page headings.
 - Web: opened Procurement SOP → Animal Purchase Inspection → Change SOP; made "Photo of teeth"
@@ -80,7 +80,7 @@ Add-load screen renders the served `load_form` (locked questions keep their widg
 render by kind) and validates as the server does.
 
 Two things the edge run found and fixed the same day: 000303's closed CHECK on the media slot
-refused every authored media question (000304 widens it to the slot-key shape; the SOP version
+refused every authored media question (000307 widens it to the slot-key shape; the SOP version
 validates the slot), and the editor was building on `latest_version` (a stray draft or a retired
 version above the published one) -- `SOPResponse.published_version` now exists and both the editor
 and the saves build on it. Also: a renamed choice's wire value follows its label, a capture whose

@@ -1,7 +1,7 @@
 // Package sopseed carries the SEEDED herd-operations SOP documents and the Task Type / Category
 // registries as embedded JSON. It is the single source for three readers:
 //
-//   - migration 000304 (which must embed the same bytes verbatim -- pinned by
+//   - migration 000308 (which must embed the same bytes verbatim -- pinned by
 //     tasks/domain.TestMigrationEmbedsTheSeededDocuments);
 //   - the golden test proving each seeded follow_up compiles to the legacy code template;
 //   - the sop validator's fallback registry when a tenant has no registry rows yet.

@@ -577,7 +577,7 @@ func nullableUUID(s string) *string {
 }
 
 // ---------------------------------------------------------------------------
-// SOP-driven questionnaire link (migration 000305)
+// SOP-driven questionnaire link (migration 000311)
 // ---------------------------------------------------------------------------
 
 const penReconciliationCardForWorkflowSQL = `

@@ -14,7 +14,7 @@ import (
 )
 
 // RECONCILE IS A SOP QUESTIONNAIRE (maintainer decision 2026-09-13,
-// docs/decisions/sop-driven-herd-operations.md; migration 000305).
+// docs/decisions/sop-driven-herd-operations.md; migration 000311).
 //
 // The card is still the unit of work and the verifier still judges ONE item per card. What the
 // operator does to close it is now the `reconcile` track of the published counts.reconcile SOP,

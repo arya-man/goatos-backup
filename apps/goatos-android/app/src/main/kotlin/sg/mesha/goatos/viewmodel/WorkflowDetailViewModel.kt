@@ -110,11 +110,13 @@ class WorkflowDetailViewModel @Inject constructor(
 
     private fun readPendingProofs(): Map<String, List<WorkflowProofOutboxRef>> =
         savedStateHandle.get<String>(KEY_PENDING_PROOFS)?.let { raw ->
+            // exception:exempt corrupt restored proof refs are treated as absent; durable proof outbox rows remain the recovery source.
             runCatching { workflowJson.decodeFromString(pendingProofsSerializer, raw) }.getOrNull()
         }.orEmpty()
 
     private fun readPendingAnswers(): Map<String, String> =
         savedStateHandle.get<String>(KEY_PENDING_ANSWERS)?.let { raw ->
+            // exception:exempt corrupt restored answers are treated as absent; incomplete actions stay visible instead of replaying bad state.
             runCatching { workflowJson.decodeFromString(pendingAnswersSerializer, raw) }.getOrNull()
         }.orEmpty()
 

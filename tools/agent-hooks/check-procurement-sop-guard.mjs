@@ -25,7 +25,7 @@ import { tmpdir } from "node:os";
 
 const REPO = resolve(new URL("../..", import.meta.url).pathname);
 const CATALOG_CALLS = /\bdomain\.(Questionnaire|QuestionByID|MediaSlots)\s*\(/g;
-const MIGRATION = "backend/migrations/postgres/000304_procurement_sop_animal_purchase_inspection.sql";
+const MIGRATION = "backend/migrations/postgres/000307_procurement_sop_animal_purchase_inspection.sql";
 const SEED = "backend/internal/animalpurchase/domain/inspectionseed/animal_purchase.json";
 const QUESTION_COPY = ["Goat or sheep", "Photo of teeth", "Is the animal pregnant?", "Rectal temperature of the goat?", "Udder or testicles media", "Face visual productivity check"];
 
@@ -56,7 +56,7 @@ export function check(root) {
   try { seed = readFileSync(join(root, SEED), "utf8").trim(); } catch { seed = ""; }
   try { migration = readFileSync(join(root, MIGRATION), "utf8"); } catch { migration = ""; }
   if (seed && !migration.includes("$seed$" + seed + "$seed$")) {
-    findings.push({ rule: "seed-drifted-from-migration", file: SEED, detail: "not embedded verbatim in migration 000304" });
+    findings.push({ rule: "seed-drifted-from-migration", file: SEED, detail: "not embedded verbatim in migration 000307" });
   }
   for (const f of walk(join(root, "apps/goatos-android"))) {
     if (!f.endsWith(".kt") || f.includes("/src/test/") || f.includes("/src/androidTest/")) continue;

@@ -155,6 +155,7 @@ guardrails:
 	$(MAKE) feed-submitted-overlay-wiring-guard
 	$(MAKE) feed-proof-collaboration-guard
 	$(MAKE) weighing-close-gate-guard
+	$(MAKE) procurement-sop-guard
 	$(MAKE) sop-driven-herd-operations-guard
 	$(MAKE) weighing-operator-scope-guard
 	$(MAKE) weighing-one-operator-per-bucket-guard

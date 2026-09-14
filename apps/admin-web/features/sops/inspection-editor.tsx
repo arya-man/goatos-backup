@@ -374,7 +374,13 @@ function QuestionCard({
             onChange={(e) => {
               if (isVendor) return;
               const kind = e.target.value as QuestionKind;
-              onChange({ kind, options: (kind === "choice" || kind === "multi") && q.options.length === 0 ? [{ value: "yes", label: "Yes" }, { value: "no", label: "No" }] : q.options, maxFiles: kind === "media" && q.maxFiles === 0 ? 1 : q.maxFiles });
+              onChange({
+                kind,
+                options: (kind === "choice" || kind === "multi") && q.options.length === 0
+                  ? [{ value: "yes", label: copy(pc, "option.yes") }, { value: "no", label: copy(pc, "option.no") }]
+                  : q.options,
+                maxFiles: kind === "media" && q.maxFiles === 0 ? 1 : q.maxFiles,
+              });
             }}
           >
             {isVendor ? <option value="vendor">{copy(pc, "inspection.kind.vendor")}</option> : null}

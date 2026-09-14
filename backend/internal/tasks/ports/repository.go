@@ -21,7 +21,7 @@ type OpenWorkflowCommand struct {
 	ParkID        *string
 	ShedID        *string
 	// SubjectRefID keys a workflow on a non-goat subject (a reconcile card, a shifting event).
-	// Uniqueness is (tenant, template_key, subject_ref_id) -- migration 000305.
+	// Uniqueness is (tenant, template_key, subject_ref_id) -- migration 000311.
 	SubjectRefID *string
 }
 

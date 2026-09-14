@@ -9766,6 +9766,8 @@ func inspectionEditorCopy() map[string]string {
 		"inspection.kind.number":            "Number",
 		"inspection.kind.media":             "Photo / video",
 		"inspection.kind.vendor":            "Vendor (from the register)",
+		"option.yes":                        "Yes",
+		"option.no":                         "No",
 		"inspection.loadform.title":         "Load form",
 		"inspection.loadform.subtitle":      "asked once when a purchase load is opened; vendor, farm and load number stay compulsory; photos and videos are per animal",
 		"inspection.accepts.photo":          "Photo only",

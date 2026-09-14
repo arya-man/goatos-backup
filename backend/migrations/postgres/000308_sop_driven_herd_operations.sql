@@ -1,5 +1,5 @@
 -- +goose Up
--- 000304_sop_driven_herd_operations.sql
+-- 000308_sop_driven_herd_operations.sql
 --
 -- seed-fixture-guard:ignore: DDL here is the SOP task-type / category registries and the tasks
 -- engine's workflow columns; sop_versions is only NAMED to publish the seeded herd-operations
@@ -215,7 +215,7 @@ SET form_dsl = sv.form_dsl || jsonb_build_object('follow_up', $seed${
     }
   ]
 }$seed$::jsonb),
-    validation_report = COALESCE(sv.validation_report, '{}'::jsonb) || '{"seeded_follow_up": "Seeded from the code template this version replaces (migration 000304)."}'::jsonb,
+    validation_report = COALESCE(sv.validation_report, '{}'::jsonb) || '{"seeded_follow_up": "Seeded from the code template this version replaces (migration 000308)."}'::jsonb,
     updated_at = now(), row_version = sv.row_version + 1
 FROM public.sop_definitions sd
 WHERE sd.tenant_id = sv.tenant_id AND sd.sop_id = sv.sop_id AND sd.code = 'counts.birth'
@@ -238,7 +238,7 @@ SET form_dsl = sv.form_dsl || jsonb_build_object('follow_up', $seed${
     }
   ]
 }$seed$::jsonb),
-    validation_report = COALESCE(sv.validation_report, '{}'::jsonb) || '{"seeded_follow_up": "Seeded from the code template this version replaces (migration 000304)."}'::jsonb,
+    validation_report = COALESCE(sv.validation_report, '{}'::jsonb) || '{"seeded_follow_up": "Seeded from the code template this version replaces (migration 000308)."}'::jsonb,
     updated_at = now(), row_version = sv.row_version + 1
 FROM public.sop_definitions sd
 WHERE sd.tenant_id = sv.tenant_id AND sd.sop_id = sv.sop_id AND sd.code = 'counts.death'
@@ -260,7 +260,7 @@ SET form_dsl = sv.form_dsl || jsonb_build_object('follow_up', $seed${
     }
   ]
 }$seed$::jsonb),
-    validation_report = COALESCE(sv.validation_report, '{}'::jsonb) || '{"seeded_follow_up": "Seeded from the code template this version replaces (migration 000304)."}'::jsonb,
+    validation_report = COALESCE(sv.validation_report, '{}'::jsonb) || '{"seeded_follow_up": "Seeded from the code template this version replaces (migration 000308)."}'::jsonb,
     updated_at = now(), row_version = sv.row_version + 1
 FROM public.sop_definitions sd
 WHERE sd.tenant_id = sv.tenant_id AND sd.sop_id = sv.sop_id AND sd.code = 'shifting'
@@ -292,7 +292,7 @@ SELECT sd.tenant_id, sd.sop_id, 1, 'Pen Reconcile v1', 'published',
        ),
        '{"subject_scope": "goat", "types": ["video"], "required": true, "minimum_count": 1, "verify_before_apply": true, "approval_before_apply": false}'::jsonb,
        '{"min_app_version": "0.2.0", "supported_field_types": ["animal_id_scan", "location_picker", "video_proof", "photo_proof", "boolean", "select", "multiselect", "number", "text"], "supported_proof_actions": ["photo.capture", "video.capture"], "supported_rule_operators": ["equals", "not_equals", "empty", "not_empty", "in"]}'::jsonb,
-       '{"valid": true, "errors": [], "warnings": [{"code": "seeded", "field": "form_dsl", "message": "Seeded from the shipped pen reconciliation card (migration 000304)."}]}'::jsonb,
+       '{"valid": true, "errors": [], "warnings": [{"code": "seeded", "field": "form_dsl", "message": "Seeded from the shipped pen reconciliation card (migration 000308)."}]}'::jsonb,
        now()
 FROM public.sop_definitions sd
 WHERE sd.code = 'counts.reconcile'

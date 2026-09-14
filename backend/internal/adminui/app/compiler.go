@@ -44,7 +44,7 @@ type ReferenceFamilies struct {
 	DeferStates        []ReferenceOption
 	SOPLabels          []ReferenceOption
 	FeedItems          []ReferenceOption
-	// SOPTaskTypes is the tenant's Task Type Registry (sop_task_types, migration 000304):
+	// SOPTaskTypes is the tenant's Task Type Registry (sop_task_types, migration 000308):
 	// Key = task type key, Label = name, Title = description. SOPTaskTypeAnswerKinds carries
 	// the same keys with Label = answer kind, so the builder knows which steps take options.
 	SOPTaskTypes           []ReferenceOption

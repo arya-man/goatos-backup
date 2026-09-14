@@ -56,6 +56,7 @@ const ALLOW_LINE = [
   /\bkey\s*=\s*["']/,  // React key attributes
   /\bnoun\s*=\s*["']/,  // technical parameters like noun="animal"
   /\.displayName\s*=\s*["']/,  // React component displayName assignments (technical identifiers for DevTools)
+  /^type\s+[a-z]\w*</,  // private generic helper aliases, not rendered copy
 ];
 const JSX_TEXT = />\s*[A-Z][^<{}`]{2,}\s*</;
 const VISIBLE_ATTR = /\b(?:placeholder|aria-label|title)=["'][A-Z][^"']{2,}["']/;

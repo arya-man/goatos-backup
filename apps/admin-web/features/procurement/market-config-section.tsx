@@ -61,8 +61,8 @@ export function MarketConfigSection({
 
       {!canConfigure ? <div className="note">{copy(pageContract, "disabled.market_config")}</div> : null}
 
-      {/* The ONE time each morning the cards appear on the phone and the reminder goes out
-          (maintainer decision 2026-09-14). A native time input; the value is "HH:MM" IST. */}
+      {/* The ONE time each morning the cards appear on the phone and the reminder goes out. */}
+      {/* Maintainer decision 2026-09-14: native time input; value is "HH:MM" IST. */}
       <div className="market-call-time" style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginBottom: 14 }}>
         <div>
           <h4 style={{ margin: "4px 0" }}>{copy(pageContract, "market.call_time.title")}</h4>

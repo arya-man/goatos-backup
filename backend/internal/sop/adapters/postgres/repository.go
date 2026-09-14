@@ -2910,7 +2910,7 @@ SELECT task_type_key, answer_kind, engine_hook
 FROM sop_task_types
 WHERE tenant_id = $1::uuid AND status = 'active'`
 
-// ListActiveTaskTypes reads the tenant's Task Type Registry (migration 000304) for follow_up
+// ListActiveTaskTypes reads the tenant's Task Type Registry (migration 000308) for follow_up
 // validation at version creation. Implements sop/app.TaskTypeSource.
 func (r *Repository) ListActiveTaskTypes(ctx context.Context, tenantID string) (tasksdomain.TaskTypeRegistry, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)

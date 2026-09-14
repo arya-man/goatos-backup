@@ -192,9 +192,9 @@ CREATE TABLE goatos_schema_migrations (
 		t.Fatalf("create goatos_schema_migrations: %v", err)
 	}
 	for _, stem := range []string{
-		"000305_market_survey_access_ticks",
-		"000306_market_survey_call_time",
-		"000306_workflow_action_rework_reason",
+		"000306_alpha",
+		"000306_beta",
+		"000305_prior",
 	} {
 		if _, err := pool.Exec(ctx,
 			`INSERT INTO goatos_schema_migrations (version, filename, checksum) VALUES ($1, $2, 'sha256:test')`,
