@@ -22,7 +22,7 @@ API-only timing is not enough for final acceptance.
 ## Progress Checklist
 
 Current PR: <https://github.com/vgoats/goatos/pull/259>  
-Current head: `cd2a250e66a2d49f25a2f32469fa0e6732bb2f17`
+Latest functional change: `cd2a250e66a2d49f25a2f32469fa0e6732bb2f17` (`fix(stg): keep business api billing cap`).
 
 | Item | Status | Evidence / next action |
 | --- | --- | --- |
@@ -50,7 +50,7 @@ Current head: `cd2a250e66a2d49f25a2f32469fa0e6732bb2f17`
 | `/app/leadership-tasks` | Pending investigation | Only 3 slow samples in baseline; not proven as repeated offender yet. Needs live query/log drilldown after deploy. |
 | `/auth/session-events` | Pending investigation | Small sample baseline. Need live post-deploy logs to separate cold/queueing/auth path cost. |
 | Judge review | Done for current iteration | Backend/admin judges reviewed; findings were folded into latest fixes. |
-| PR raised/pushed | Done | PR #259 is open and pushed at `cd2a250e6...`. |
+| PR raised/pushed | Done | PR #259 is open, pushed, and clean; latest functional change is `cd2a250e6...`. |
 | STG deploy | Pending | Official deploy path requires landed `origin/main` or explicit break-glass. Do not deploy this PR as normal STG until merge/landing decision. |
 | Live STG verification | Pending | After deploy: Cloud Run logs, event route split, Work Board/Weights live E2E, public PageSpeed/Lighthouse. |
 | Final completion | Pending | Requires STG deploy/live verification or explicit instruction to stop at PR-only. |
