@@ -39,8 +39,9 @@ const SourceType = "feed_activity"
 
 // activity is one feed card's spec: its stable source id, its keyset rank (display and paging
 // order), its farm-worded title and clock, and the SQL that lists its per-shed units for the
-// bound tenant/date/park. Every unitsSQL selects exactly (shed_id, st, owner_id) and binds
-// $1 tenant, $2 board date, $3 park, $4 owner-or-null.
+// bound tenant/date/park. Every unitsSQL selects exactly
+// (shed_id, partition_key, partition_label, st, owner_id) and binds $1 tenant, $2 board date,
+// $3 park, $4 owner-or-null.
 type activity struct {
 	key   string
 	rank  int
@@ -66,6 +67,7 @@ const laneRankExpr = `CASE st
 // attempt's operator (SubmitTransport records it on the attempt).
 const transportUnits = `
   SELECT t.shed_id AS shed_id,
+    'whole' AS partition_key,
     COALESCE(t.partition_label, '') AS partition_label,
     CASE
       WHEN t.status = 'completed' THEN 'completed'
@@ -97,6 +99,7 @@ func sheetSessionUnits(table, dateExpr string) string {
       AND r.tenant_id = $1::uuid AND r.park_id = $3::uuid
   )
   SELECT i.shed_id AS shed_id,
+    i.partition_key AS partition_key,
     i.partition_label AS partition_label,
     CASE
       WHEN c.status = 'completed' THEN 'completed'
@@ -127,6 +130,7 @@ const wastageUnits = `
       AND r.tenant_id = $1::uuid AND r.park_id = $3::uuid AND r.workflow = 'experiment'
   )
   SELECT i.shed_id AS shed_id,
+    i.partition_key AS partition_key,
     i.partition_label AS partition_label,
     CASE
       WHEN c.status = 'completed' THEN 'completed'
@@ -147,7 +151,7 @@ const wastageUnits = `
 // projection-review: membership=the activity's own rows for ONE tenant, park and work-day
 // (transport feed_transport_tasks by business_date excluding retired, one row per shed per day by
 // feed_transport_tasks_daily_shed_uq, and packing/direction/wastage by target_date one row per
-// (shed, session, workflow) by each table's natural key); group_key=(shed_id, partition_label) the PEN: units pre-aggregated
+// (shed, session, workflow) by each table's natural key); group_key=(shed_id, partition_key) the PEN: units pre-aggregated
 // to the pen by MIN(laneRank) and BOOL_OR(rejected) BEFORE the card MINs over pens, so a pen
 // with two sessions is one pen line and never fans the card's pen count; join_cardinality=
 // feed_transport_attempts on the task's current_attempt_id (1:{0,1}) and the park name a scalar
@@ -187,7 +191,7 @@ func activityFromSourceID(id string) (activity, bool) {
 // the leftmost lane holds a rejected shed, and the park name.
 //
 // projection-review: membership=one activity's units for ONE tenant, park and work-day (the units
-// SQL's own predicate); group_key=(shed_id, partition_label) the PEN: units pre-aggregated by MIN(laneRank) and
+// SQL's own predicate); group_key=(shed_id, partition_key) the PEN: units pre-aggregated by MIN(laneRank) and
 // BOOL_OR(rejected) so a pen with several sessions is one shed row before the card counts;
 // join_cardinality=no join in the roll-up (park name is a scalar subquery on locations' primary
 // key, 1:1), so each shed is counted once; pagination=one aggregate row per call, never row-paged
@@ -197,8 +201,8 @@ func metricsSQL(units string) string {
 	return `
 WITH units AS (` + units + `),
 pen AS (
-  SELECT shed_id, partition_label, MIN(` + laneRankExpr + `) AS lane_rank, BOOL_OR(st = 'rejected') AS any_rej
-  FROM units GROUP BY shed_id, partition_label
+  SELECT shed_id, partition_key, MIN(` + laneRankExpr + `) AS lane_rank, BOOL_OR(st = 'rejected') AS any_rej
+  FROM units GROUP BY shed_id, partition_key
 )
 SELECT
   count(*)::int,

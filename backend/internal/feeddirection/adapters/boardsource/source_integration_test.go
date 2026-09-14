@@ -466,3 +466,69 @@ ON CONFLICT (completion_id) DO NOTHING`, id, bsTenant, bsPark, bsShedA, partitio
 		}
 	}
 }
+
+// TestFeedActivityPenIdentityUsesPartitionKey is the guard for PR 255's follow-up review finding:
+// pen identity must be the normalized partition_key, not the raw display label. A sheet can carry
+// two feed items for the same pen/session where one row says "Part 3" and another says "part 3";
+// those are one operational pen and must roll up to one card count and one drawer line.
+func TestFeedActivityPenIdentityUsesPartitionKey(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seed(t, ctx, pool)
+	const d4 = "2026-09-19"
+	const serve4 = "2026-09-20"
+	const issueID = "00000000-0000-4000-8000-0000000084c1"
+	exec(t, ctx, pool, `
+INSERT INTO feed_direction_issues (feed_direction_issue_id, tenant_id, park_id, feed_day, workflow,
+  state, issued_at, generation_input_fingerprint, request_fingerprint, idempotency_key, generated_by,
+  source_contract, source_contract_version)
+VALUES ($1::uuid, $2::uuid, $3::uuid, $4::date, 'normal', 'issued', now(), $1::text, $1::text,
+  $1::text, 'test', 'feed.direction.sheet', '1')
+ON CONFLICT (feed_direction_issue_id) DO NOTHING`, issueID, bsTenant, bsPark, serve4)
+	penItem := func(rowSeq int, partitionLabel, item string) {
+		exec(t, ctx, pool, `
+INSERT INTO feed_direction_issue_rows (tenant_id, feed_direction_issue_id, park_id, park_label,
+  shed_id, shed_label, partition_label, shed_tag, breed, ration_group, session_no, session_label,
+  head_count, head_count_informational, workflow, feed_item_label, quantity_kg, session_total_kg,
+  overdue_pending, row_seq, item_seq, amended)
+VALUES ($1::uuid, $2::uuid, $3::uuid, 'CBE', $4::uuid, 'Godel 1', $5, 'Dry', 'Beetal',
+  'Beetal', 1, 'Morning', 10, false, 'normal', $6, 1.0, 2.0, false, $7, 0, false)
+ON CONFLICT DO NOTHING`, bsTenant, issueID, bsPark, bsShedA, partitionLabel, item, rowSeq)
+	}
+	penItem(0, "Part 3", "Concentrate")
+	penItem(1, "part 3", "Mineral Mix")
+	exec(t, ctx, pool, `
+INSERT INTO feed_packing_completions (completion_id, tenant_id, park_id, shed_id, partition_label, session_no, target_date, workflow, status, packing_proof_ref, completed_by, idempotency_key)
+VALUES ('00000000-0000-4000-8000-0000000097c1'::uuid,$1::uuid,$2::uuid,$3::uuid,'Part 3',1,$4::date,'normal','pending_verification','proof:partition-key',$5::uuid,'partition-key')
+ON CONFLICT (completion_id) DO NOTHING`, bsTenant, bsPark, bsShedA, serve4, bsOperator)
+
+	src := New(pool, 5000000000)
+	rows, err := src.ListRows(ctx, ports.SourceQuery{TenantID: bsTenant, ParkID: bsPark, BusinessDate: d4, Limit: 50})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var packing *domain.Row
+	for i := range rows {
+		if rows[i].SourceID == feedActivityID("packing") {
+			packing = &rows[i]
+		}
+	}
+	if packing == nil {
+		t.Fatal("packing card expected")
+	}
+	if packing.Counts != (domain.Counts{Pending: 1}) || packing.Subtitle != "1 pen · 0 done" {
+		t.Fatalf("cosmetic label variants must be one pen: counts=%+v subtitle=%q", packing.Counts, packing.Subtitle)
+	}
+	page, err := src.ListSubtasks(ctx, ports.SubtaskQuery{TenantID: bsTenant, ParkID: bsPark, BusinessDate: d4, SourceID: feedActivityID("packing"), Limit: 50})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if page.Total != 1 || len(page.Subtasks) != 1 {
+		t.Fatalf("cosmetic label variants must be one line: total=%d rows=%d", page.Total, len(page.Subtasks))
+	}
+	if page.Subtasks[0].Name != "Godel 1 - Part 3" {
+		t.Fatalf("display label should remain composed and human-readable, got %q", page.Subtasks[0].Name)
+	}
+}
