@@ -3682,9 +3682,11 @@ git rev-parse --show-toplevel  # Must print THIS repo root, not another checkout
   "Open photo" / "Tap to open photo" control, never a click the picture waits
   for. A tap ENLARGES the photo; it never REVEALS it. The tap-armed fetch was a
   LIST guardrail (dozens of paid object reads nobody opened) misapplied to the
-  one-item detail, where a blank reads as a missing proof. Lists still never
-  auto-fetch (`inlineRemotePhoto = false`); videos still wait for play. Canonical
-  prose: `docs/decisions/proof-photo-shown-on-open.md`.
+  one-item detail, where a blank reads as a missing proof. Visible viewport
+  photos may load, but they must cache by stable proof identity, never by the
+  rotating signed URL; hidden/off-viewport photos must not prefetch. Videos still
+  wait for play/open and must not auto-stream, auto-prepare, or remote-poster
+  probe. Canonical prose: `docs/decisions/proof-photo-shown-on-open.md`.
 - Vaccination proof grain is SOP/backend-owned. Do not hardcode "per goat",
   "shed level", "camera only", or "gallery allowed" in admin-web or Android.
   Backend SOP/form DSL/proof policy decides the proof mode, subject scope,

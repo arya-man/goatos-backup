@@ -2,10 +2,12 @@ package sg.mesha.goatos.core.ui
 
 import android.content.ActivityNotFoundException
 import android.content.Intent
+import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.SystemClock
+import android.util.LruCache
 import androidx.annotation.OptIn
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -56,7 +58,9 @@ import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.PlayerView
 import java.io.File
+import java.io.FileOutputStream
 import java.io.IOException
+import java.security.MessageDigest
 import kotlin.math.max
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -86,6 +90,8 @@ private sealed interface ProofPreviewLoad {
     data object ReadableWithoutPoster : ProofPreviewLoad
     data object Failed : ProofPreviewLoad
 }
+
+private val proofPhotoMemoryCache = LruCache<String, Bitmap>(PROOF_PHOTO_MEMORY_CACHE_ENTRIES)
 
 private fun android.content.Context.startProofShare(path: String, kind: ProofMediaPreviewKind): String? {
     try {
@@ -154,14 +160,13 @@ private suspend fun loadProofPhotoBitmap(
     path: String,
     allowRemote: Boolean,
     remoteImageLoader: ProofRemoteImageLoader,
+    mediaKey: String,
 ): android.graphics.Bitmap? {
     val isRemote = isRemoteProofPath(path)
     if (isRemote && !allowRemote) return null
     return try {
         if (isRemote) {
-            // proof-media-egress:ignore Remote proof photo bytes are fetched only after an
-            // explicit fullscreen/open action, over the same authenticated media client as video.
-            remoteImageLoader.load(context, path, PROOF_REMOTE_PHOTO_LOAD_TIMEOUT_MS)
+            loadCachedRemoteProofPhoto(context, path, mediaKey, remoteImageLoader)
         } else {
             val uri = Uri.parse(path)
             when (uri.scheme) {
@@ -177,6 +182,51 @@ private suspend fun loadProofPhotoBitmap(
         null
     } catch (_: IllegalArgumentException) {
         null
+    }
+}
+
+private suspend fun loadCachedRemoteProofPhoto(
+    context: android.content.Context,
+    path: String,
+    mediaKey: String,
+    remoteImageLoader: ProofRemoteImageLoader,
+): Bitmap? {
+    proofPhotoMemoryCache.get(mediaKey)?.let { return it }
+    proofPhotoCacheFile(context, mediaKey).takeIf { it.isFile }?.let { cached ->
+        BitmapFactory.decodeFile(cached.absolutePath)?.let { bitmap ->
+            proofPhotoMemoryCache.put(mediaKey, bitmap)
+            return bitmap
+        }
+    }
+    // proof-media-egress:ignore Visible viewport photo fetch, bounded by stable proof mediaIdentity;
+    // memory/disk cache is keyed by proof id, not the rotating signed URL, so recomposition,
+    // scrolling, and URL renewal do not repeatedly read the same GCS object on this device.
+    val bitmap = remoteImageLoader.load(context, path, PROOF_REMOTE_PHOTO_LOAD_TIMEOUT_MS) ?: return null
+    proofPhotoMemoryCache.put(mediaKey, bitmap)
+    writeProofPhotoCacheFile(context, mediaKey, bitmap)
+    return bitmap
+}
+
+private fun proofPhotoCacheFile(context: android.content.Context, mediaKey: String): File =
+    File(File(context.cacheDir, PROOF_PHOTO_CACHE_DIR).also { it.mkdirs() }, proofPhotoCacheName(mediaKey))
+
+private fun proofPhotoCacheName(mediaKey: String): String {
+    val digest = MessageDigest.getInstance("SHA-256")
+        .digest(mediaKey.toByteArray(Charsets.UTF_8))
+        .joinToString("") { byte -> "%02x".format(byte) }
+    return "$digest.png"
+}
+
+private fun writeProofPhotoCacheFile(context: android.content.Context, mediaKey: String, bitmap: Bitmap) {
+    try {
+        val file = proofPhotoCacheFile(context, mediaKey)
+        FileOutputStream(file).use { out ->
+            bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
+        }
+    } catch (_: IOException) {
+        // Best-effort cache only; the visible proof still rendered from memory.
+    } catch (_: SecurityException) {
+        // Best-effort cache only; the visible proof still rendered from memory.
     }
 }
 
@@ -272,7 +322,7 @@ fun ProofMediaPreview(
         null
     }
     when (kind) {
-        ProofMediaPreviewKind.Photo -> ProofPhotoPreview(path, modifier, onExpand?.let { expand -> { expand(0L) } }, onPreviewAction, inlineRemotePhoto)
+        ProofMediaPreviewKind.Photo -> ProofPhotoPreview(path, modifier, onExpand?.let { expand -> { expand(0L) } }, onPreviewAction, inlineRemotePhoto, mediaKey)
         ProofMediaPreviewKind.Video -> ProofVideoPreview(path, modifier, mediaKey, onPlaybackFailure, onExpand, showFullscreen, playbackEnabled, onPreviewAction, inlineResume)
     }
     if (showFullscreen) {
@@ -304,6 +354,7 @@ private fun ProofPhotoPreview(
     onExpand: (() -> Unit)? = null,
     onPreviewAction: (String) -> Unit = {},
     inlineRemotePhoto: Boolean = false,
+    mediaKey: String,
 ) {
     val context = LocalContext.current
     val isRemote = path.startsWith("http://") || path.startsWith("https://")
@@ -316,7 +367,7 @@ private fun ProofPhotoPreview(
     val remoteState = produceState<Pair<Boolean, android.graphics.Bitmap?>>(initialValue = (isRemote && inlineRemotePhoto) to null, path, inlineRemotePhoto) {
         if (isRemote && inlineRemotePhoto) {
             // proof-media-egress:ignore bounded to the one record's own captures on the screen the person opened; shown on open by maintainer decision 2026-09-14, lists pass inlineRemotePhoto=false
-            value = false to withContext(Dispatchers.IO) { loadProofPhotoBitmap(context, path, allowRemote = true, remoteImageLoader) }
+            value = false to withContext(Dispatchers.IO) { loadProofPhotoBitmap(context, path, allowRemote = true, remoteImageLoader, mediaKey) }
         }
     }
     val bitmap = localBitmap ?: remoteState.value.second
@@ -794,6 +845,8 @@ private fun ProofVideoPoster(path: String) {
 
 private const val PROOF_POSTER_LOAD_TIMEOUT_MS = 4_000L
 private const val PROOF_REMOTE_PHOTO_LOAD_TIMEOUT_MS = 10_000L
+private const val PROOF_PHOTO_MEMORY_CACHE_ENTRIES = 64
+private const val PROOF_PHOTO_CACHE_DIR = "proof-photo-preview"
 private val ProofInlinePlayTouchSize = 48.dp
 private val ProofInlinePlayButtonSize = 30.dp
 private val ProofInlinePlayIconSize = 16.dp
@@ -903,10 +956,10 @@ private fun ProofMediaFullscreenDialog(
                 when (kind) {
                     ProofMediaPreviewKind.Photo -> {
                         val isRemote = path.startsWith("http://") || path.startsWith("https://")
-                        val bitmap by produceState<android.graphics.Bitmap?>(initialValue = null, key1 = mediaIdentity) {
+                        val bitmap by produceState<android.graphics.Bitmap?>(initialValue = null, path, mediaIdentity) {
                             value = withContext(Dispatchers.IO) {
                                 withTimeoutOrNull(PROOF_REMOTE_PHOTO_LOAD_TIMEOUT_MS) {
-                                    loadProofPhotoBitmap(context, path, allowRemote = true, remoteImageLoader)
+                                    loadProofPhotoBitmap(context, path, allowRemote = true, remoteImageLoader, mediaIdentity)
                                 }
                             }
                         }
