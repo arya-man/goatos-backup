@@ -9,9 +9,9 @@ const sop = readFileSync(new URL("./animal-purchase-sop.tsx", import.meta.url), 
 const serverRead = readFileSync(new URL("../../lib/api/procurement-server.ts", import.meta.url), "utf8");
 const lightbox = readFileSync(new URL("./animal-purchase-lightbox.tsx", import.meta.url), "utf8");
 
-test("every animal's captures are on the card itself and a click opens one big, never a mint-on-preview gate", () => {
-  // Maintainer decision 2026-09-14: photos and videos are visible by default on every card and
-  // open big on click. The list read signs every capture; there is no per-animal media route.
+test("every animal's captures are tap-gated on the card and a click opens one big, never a mint-on-preview gate", () => {
+  // Maintainer decision 2026-09-14: every capture has a card tile and opens big on click. The
+  // tile itself is a proof-media egress gate: no remote proof bytes load just because a list rendered.
   assert.doesNotMatch(page, /getAnimalPurchaseMedia|preview_id|previewMedia/);
   assert.match(page, /url: animal\.media_url, kind: "video"/);
   assert.match(page, /copy\(pageContract, "video\.empty"\)/);
@@ -44,9 +44,11 @@ test("media slots render a photo thumbnail or an inline video by mime, never a g
   // the inspector recorded them.
   assert.match(sop, /kind: isImage\(item\) \? \("photo" as const\) : \("video" as const\)/);
   assert.match(sop, /<AnimalPurchaseLightbox items=\{items\}/);
-  // Uniform tiles: a photo is its image, a video its first frame (metadata only) under a play badge.
-  assert.match(lightbox, /className="ap-tile"[\s\S]*?<img src=\{item\.url\} alt="" loading="lazy" \/>/);
-  assert.match(lightbox, /<video src=\{item\.url\} preload="none" muted playsInline tabIndex=\{-1\} \/>/);
+  // Uniform tiles: remote proof bytes are tap-gated; photos/videos load only in the opened dialog.
+  assert.match(lightbox, /className="ap-tile"[\s\S]*?ap-tile-placeholder/);
+  assert.doesNotMatch(lightbox, /<img src=\{item\.url\}/);
+  assert.doesNotMatch(lightbox, /<video src=\{item\.url\}/);
+  assert.match(lightbox, /<img src=\{open\.url\} alt="" className="ap-lightbox-media" \/>/);
   assert.match(lightbox, /<video src=\{open\.url\} controls autoPlay playsInline/);
   assert.match(lightbox, /role="dialog"[\s\S]*?aria-modal="true"/);
   assert.match(lightbox, /event\.key === "Escape"/);

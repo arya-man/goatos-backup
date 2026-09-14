@@ -180,7 +180,14 @@ class DefaultAnimalPurchaseRepository(
 
     override fun observeAnimal(loadId: String, candidateId: String): Flow<AnimalPurchaseAnimalDto?> =
         database.animalPurchaseAnimalItemDao().observe(loadId, candidateId).map { row ->
-            row?.let { runCatching { json.decodeFromString<AnimalPurchaseAnimalDto>(it.dtoJson) }.getOrNull() }
+            row?.let {
+                runCatching { json.decodeFromString<AnimalPurchaseAnimalDto>(it.dtoJson) }
+                    .onFailure { err ->
+                        if (err is CancellationException) throw err
+                        android.util.Log.w(LOG_TAG, "animal_purchase_cached_animal_decode_failed load=$loadId candidate=$candidateId", err)
+                    }
+                    .getOrNull()
+            }
         }
 
     override suspend fun invalidateAnimals(loadId: String) {
@@ -244,7 +251,12 @@ class DefaultAnimalPurchaseRepository(
     override fun observeQueuedAnimals(loadId: String): Flow<List<QueuedAnimalPurchaseAnimal>> =
         activeOutboxRows(OutboxOpType.ANIMAL_PURCHASE_ANIMAL_CREATE.name).map { rows ->
             rows.mapNotNull { row ->
-                val payload = runCatching { json.decodeFromString<AnimalPurchaseAnimalCreatePayload>(row.payloadJson) }.getOrNull()
+                val payload = runCatching { json.decodeFromString<AnimalPurchaseAnimalCreatePayload>(row.payloadJson) }
+                    .onFailure { err ->
+                        if (err is CancellationException) throw err
+                        android.util.Log.w(LOG_TAG, "animal_purchase_queued_animal_payload_decode_failed item=${row.id}", err)
+                    }
+                    .getOrNull()
                     ?: return@mapNotNull null
                 if (payload.loadId != loadId) return@mapNotNull null
                 QueuedAnimalPurchaseAnimal(outboxItemId = row.id, loadId = loadId, request = payload.request, queuedAtMs = row.createdAt, proofOutboxItemIds = payload.allProofOutboxItemIds)

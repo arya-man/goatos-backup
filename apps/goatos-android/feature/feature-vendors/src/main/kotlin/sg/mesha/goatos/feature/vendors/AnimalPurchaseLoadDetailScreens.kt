@@ -217,9 +217,6 @@ private fun AnimalPurchaseAnimalCard(
                 mediaIdentity = card.previewIdentity,
                 modifier = Modifier.fillMaxWidth(),
                 onPreviewAction = onPreviewAction,
-                // ONE preview photo per animal, on the page of ~20 the person scrolled to (maintainer
-                // ask 2026-09-14: the picture itself must be on the card, not a tap-to-open tile).
-                inlineRemotePhoto = true,
             )
         }
     }
@@ -567,4 +564,3 @@ private fun AnimalPurchaseQueuedAnimalCard(card: AnimalPurchaseQueuedAnimalUi, o
         }
     }
 }
-

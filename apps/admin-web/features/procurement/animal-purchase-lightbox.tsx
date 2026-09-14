@@ -15,8 +15,8 @@ export type LightboxItem = {
  * An animal's captures as a strip of uniform tiles, each opening big in a client-local lightbox
  * (maintainer ask 2026-09-14: every photo and video visible on the card, a click shows it big).
  * Open/close is purely local state: no navigation, no query parameter, no request. Escape, the
- * scrim, and the X all close it and focus returns to the tile that opened it. A video tile shows
- * its first frame (metadata only) with a play badge and plays only once enlarged.
+ * scrim, and the X all close it and focus returns to the tile that opened it. The strip never
+ * loads remote proof bytes by itself; photos and videos fetch only after the reviewer opens one.
  */
 export function AnimalPurchaseLightbox({ items, openLabel, closeLabel }: { items: LightboxItem[]; openLabel: string; closeLabel: string }) {
   const [openRef, setOpenRef] = useState<string | null>(null);
@@ -54,12 +54,11 @@ export function AnimalPurchaseLightbox({ items, openLabel, closeLabel }: { items
             }}
           >
             {item.kind === "photo" ? (
-              // A signed proof link, not an optimizable static asset -- same as the verification drawer.
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={item.url} alt="" loading="lazy" />
+              <span className="ap-tile-placeholder" aria-hidden="true">
+                {item.title}
+              </span>
             ) : (
               <>
-                <video src={item.url} preload="none" muted playsInline tabIndex={-1} />
                 <span className="ap-tile-play" aria-hidden="true">
                   ▶
                 </span>

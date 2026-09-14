@@ -2,7 +2,7 @@
 
 // The Accept / Reject form for ONE pending animal on /procurement/animal-purchases.
 //
-// Rendered only for a pending row and only when the backend-declared `decide_animal_purchase`
+// Shown only for a pending row and only when the backend-declared `decide_animal_purchase`
 // control is enabled — the server component decides both; this file never inspects a role. Every
 // label arrives as a prop resolved from the page contract's copy map. Reject stays disabled until
 // a note is typed (copy `decision.note` says so); Accept is one click. Both post the same Server

@@ -234,6 +234,7 @@ func (s *Service) Media(ctx context.Context, tenantID string, rows []domain.Cand
 	}
 	out, err := s.media.ResolveMedia(ctx, tenantID, refs)
 	if err != nil {
+		// exception:exempt media signing is best-effort on read; callers render rows without playable media.
 		return nil
 	}
 	return out

@@ -339,7 +339,14 @@ class AnimalPurchaseLoadCreateViewModel @Inject constructor(
                 when (outcome) {
                     QueuedWriteOutcome.Saved -> {
                         val loadId = syncRepository.observeItem(itemId).first()?.resultJson
-                            ?.let { json -> runCatching { syncJson.decodeFromString<AnimalPurchaseLoadDto>(json).loadId }.getOrNull() }
+                            ?.let { json ->
+                                runCatching { syncJson.decodeFromString<AnimalPurchaseLoadDto>(json).loadId }
+                                    .onFailure {
+                                        if (it is CancellationException) throw it
+                                        android.util.Log.w(ANIMAL_PURCHASE_VM_LOG_TAG, "animal_purchase_load_result_decode_failed item=$itemId", it)
+                                    }
+                                    .getOrNull()
+                            }
                             ?.takeIf { it.isNotBlank() }
                         track(outcome, "saved")
                         local.update { it.copy(writeStatus = VendorsWriteStatus.SYNCED, writeMessage = MESSAGE_SAVED, createdLoadId = loadId) }
@@ -1546,7 +1553,16 @@ internal class SavedFormValues<F : Enum<F>>(
         val raw = savedStateHandle.get<ArrayList<String>>(stateKey) ?: return emptyMap()
         return raw.mapNotNull { entry ->
             val idx = entry.indexOf('=')
-            if (idx <= 0) null else runCatching { parse(entry.substring(0, idx)) to entry.substring(idx + 1) }.getOrNull()
+            if (idx <= 0) {
+                null
+            } else {
+                runCatching { parse(entry.substring(0, idx)) to entry.substring(idx + 1) }
+                    .onFailure {
+                        if (it is CancellationException) throw it
+                        android.util.Log.w(ANIMAL_PURCHASE_VM_LOG_TAG, "animal_purchase_saved_form_restore_dropped key=$stateKey", it)
+                    }
+                    .getOrNull()
+            }
         }.toMap()
     }
 
@@ -1561,4 +1577,4 @@ internal class SavedFormValues<F : Enum<F>>(
 
 private const val KEY_LOAD_VALUES = "animal_purchase_load_values"
 private const val KEY_ANIMAL_VALUES = "animal_purchase_animal_values"
-
+private const val ANIMAL_PURCHASE_VM_LOG_TAG = "GoatOsAnimalPurchase"
