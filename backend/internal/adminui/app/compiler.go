@@ -878,7 +878,7 @@ func compilePages(pages []domain.PageContract, families ReferenceFamilies, input
 			if out[i].RouteID == "feed-analytics" {
 				out[i].OptionGroups = compileFeedAnalyticsOptionGroups(out[i].OptionGroups, input)
 			}
-		case "counts-sops", "feed-sops", "milk-sops", "weighing-sops":
+		case "counts-sops", "feed-sops", "milk-sops", "weighing-sops", "procurement-sops":
 			// SOP-DRIVEN HERD OPERATIONS (2026-09-13): the follow-up step editor's task types are
 			// tenant registry rows, never constants in contract code -- same injection path feed
 			// items use. sop_task_type_answer_kinds is the metadata twin keyed on the same keys.
@@ -1782,6 +1782,9 @@ func defaultedDeferableStates(options []ReferenceOption) []ReferenceOption {
 }
 
 func replaceOptionGroup(groups []domain.OptionGroup, id string, options []domain.Option) []domain.OptionGroup {
+	if options == nil {
+		options = []domain.Option{}
+	}
 	out := make([]domain.OptionGroup, len(groups))
 	copy(out, groups)
 	for i := range out {
