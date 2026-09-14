@@ -87,6 +87,23 @@ function mergeSummaries(summaries: WorkBoardSummary[]): WorkBoardSummary | null 
   };
 }
 
+async function runBounded<T, R>(items: T[], limit: number, fn: (item: T, index: number) => Promise<R>): Promise<R[]> {
+  const out = new Array<R>(items.length);
+  let next = 0;
+  const workers = Math.max(1, Math.min(limit, items.length));
+  await Promise.all(
+    Array.from({ length: workers }, async () => {
+      for (;;) {
+        const index = next;
+        next += 1;
+        if (index >= items.length) return;
+        out[index] = await fn(items[index]!, index);
+      }
+    }),
+  );
+  return out;
+}
+
 // The Work Board: one business day, every module the caller may see, in four server-derived
 // columns. The board's rows and the lane counts are two reads of the SAME filter, fired together;
 // the counts are whole-filter, never the page's length.
@@ -151,7 +168,7 @@ export async function WorkBoardPage({ searchParams, pageContract }: { searchPara
     }
     if (noneSelected || openLanes.length) pagePlans.push({ parkKey: park.key, openLanes, cursors });
   }
-  const pageResults = await Promise.all(pagePlans.map((plan) => getWorkBoardPage({ ...filterScope, park: plan.parkKey }, { limit, lanes: plan.openLanes, cursors: plan.cursors }))); // request-plan:ignore owner=work-board issue=bounded-park-page-fanout expires=2027-03-31 reason=parks<=caller's park count (<=2); each backend page read serializes the requested lane reads instead of SSR fanning out 10 API calls
+  const pageResults = await runBounded(pagePlans, 2, (plan) => getWorkBoardPage({ ...filterScope, park: plan.parkKey }, { limit, lanes: plan.openLanes, cursors: plan.cursors })); // request-plan:ignore owner=work-board issue=bounded-park-page-fanout expires=2027-03-31 reason=all-parks reads are explicitly capped at two concurrent backend page requests; each backend page read serializes/short-circuits lane reads instead of SSR fanning out 10+ API calls
   const summaryResults = noneSelected ? [] : pageResults.map((result) => (result.ok ? { ok: true as const, data: result.data.summary } : result));
   const vocabularyResults = pageResults.flatMap((result) => (result.ok && (noneSelected || result.data.vocabulary_summary) ? [{ ok: true as const, data: result.data.vocabulary_summary ?? result.data.summary }] : []));
   const laneParkReads: LaneParkRead[] = [];

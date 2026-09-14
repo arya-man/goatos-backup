@@ -6,7 +6,9 @@
 
 CREATE INDEX CONCURRENTLY IF NOT EXISTS obligation_instances_tenant_due_target_protocol_idx
   ON public.obligation_instances (tenant_id, due_at, target_id, protocol_version_id)
-  WHERE target_type = 'goat';
+  WHERE target_type = 'goat'
+    AND status <> 'completed'
+    AND status <> 'canceled';
 
 -- +goose Down
 -- +goose NO TRANSACTION

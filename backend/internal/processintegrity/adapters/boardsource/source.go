@@ -255,9 +255,16 @@ func (s *Source) hasVaccinationDueWork(ctx context.Context, q ports.SourceQuery,
 	ctx, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()
 	dayEnd := dayStart.AddDate(0, 0, 1)
+	includeCompleted := len(q.WorkStates) == 0
+	for _, state := range q.WorkStates {
+		if state == domain.WorkStateCompleted {
+			includeCompleted = true
+			break
+		}
+	}
 	var ok bool
 	err := s.pool.QueryRow(ctx, `
-SELECT EXISTS (
+	SELECT EXISTS (
   SELECT 1
   FROM obligation_instances oi
   JOIN protocol_versions pv
@@ -271,14 +278,14 @@ SELECT EXISTS (
     ON g.tenant_id = oi.tenant_id
    AND g.goat_id = oi.target_id
    AND g.park_id = $2::uuid
-  WHERE oi.tenant_id = $1::uuid
-    AND oi.target_type = 'goat'
-    AND oi.status <> 'completed'
-    AND oi.status <> 'canceled'
-    AND oi.due_at >= $3::timestamptz
-    AND oi.due_at < $4::timestamptz
-  LIMIT 1
-)`, q.TenantID, q.ParkID, dayStart, dayEnd).Scan(&ok)
+	  WHERE oi.tenant_id = $1::uuid
+	    AND oi.target_type = 'goat'
+	    AND oi.status <> 'canceled'
+	    AND ($5::boolean OR oi.status <> 'completed')
+	    AND oi.due_at >= $3::timestamptz
+	    AND oi.due_at < $4::timestamptz
+	  LIMIT 1
+	)`, q.TenantID, q.ParkID, dayStart, dayEnd, includeCompleted).Scan(&ok)
 	if err != nil {
 		return false, fmt.Errorf("vaccination boardsource: due-work precheck: %w", err)
 	}

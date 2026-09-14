@@ -416,3 +416,9 @@ try {
 if (output) {
   writeFileSync(output, `${rows.map((row) => JSON.stringify(row)).join("\n")}\n`);
 }
+
+const failures = rows.filter((row) => !row.ok);
+if (failures.length) {
+  console.error(`sidebar_latency_failures=${JSON.stringify(failures)}`);
+  process.exitCode = 1;
+}

@@ -79,7 +79,13 @@ export async function getWorkBoardPage(
   return request(() =>
     client.request<WorkBoardPageData>("/work-board/page", {
       cache: "no-store",
-      query: compactQuery({ ...scopeQuery(scope), limit: page.limit ?? 25, page_lane: page.lanes ? (page.lanes.length ? page.lanes.join(",") : "__none__") : undefined, ...laneCursors }),
+      query: compactQuery({
+        ...scopeQuery(scope),
+        limit: page.limit ?? 25,
+        page_lane: page.lanes ? (page.lanes.length ? page.lanes.join(",") : "__none__") : undefined,
+        include_vocabulary: scope.modules && scope.modules.length ? "1" : undefined,
+        ...laneCursors,
+      }),
     }),
   );
 }

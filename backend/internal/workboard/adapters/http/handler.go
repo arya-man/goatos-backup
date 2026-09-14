@@ -206,6 +206,13 @@ func (h *Handler) Page(w http.ResponseWriter, r *http.Request) {
 			vocabCh <- summaryResult{payload: summaryPayload{Summary: vocab, BusinessDate: vocabQ.BusinessDate, ParkID: vocabQ.ParkID, OwnRowsOnly: own}}
 		}()
 	}
+	summary := <-summaryCh
+	if summary.err != nil {
+		h.writeServiceErr(w, r, summary.err)
+		return
+	}
+	out.Summary = summary.payload
+	out.Degraded = appendModules(out.Degraded, summary.payload.Degraded...)
 	type laneResult struct {
 		lane    domain.Lane
 		payload lanePagePayload
@@ -218,9 +225,14 @@ func (h *Handler) Page(w http.ResponseWriter, r *http.Request) {
 		if len(laneQ.WorkStates) == 0 && len(q.WorkStates) > 0 {
 			laneQ.WorkStates = []domain.WorkState{domain.WorkStateNone}
 		}
-		cursor, err := domain.ParseCursor(r.URL.Query().Get("cursor_" + string(lane)))
+		rawCursor := r.URL.Query().Get("cursor_" + string(lane))
+		cursor, err := domain.ParseCursor(rawCursor)
 		if err != nil {
 			results[i] = laneResult{lane: lane, payload: lanePagePayload{Rows: []domain.Row{}, Degraded: visibleModules}}
+			continue
+		}
+		if strings.TrimSpace(rawCursor) == "" && summary.payload.ByLane[lane] == 0 {
+			results[i] = laneResult{lane: lane, payload: lanePagePayload{Rows: []domain.Row{}}}
 			continue
 		}
 		laneQ.Cursor = cursor
@@ -237,13 +249,6 @@ func (h *Handler) Page(w http.ResponseWriter, r *http.Request) {
 		}(i, lane, laneQ)
 	}
 	wg.Wait()
-	summary := <-summaryCh
-	if summary.err != nil {
-		h.writeServiceErr(w, r, summary.err)
-		return
-	}
-	out.Summary = summary.payload
-	out.Degraded = appendModules(out.Degraded, summary.payload.Degraded...)
 	if vocabCh != nil {
 		vocab := <-vocabCh
 		if vocab.err != nil {

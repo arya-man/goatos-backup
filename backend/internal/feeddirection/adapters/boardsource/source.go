@@ -32,11 +32,13 @@ package boardsource
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/vgoats/goatos/backend/internal/workboard/domain"
@@ -291,6 +293,10 @@ func (s *Source) readCard(ctx context.Context, a activity, q ports.SourceQuery) 
 	err := s.pool.QueryRow(ctx, metricsSQL(a.units), q.TenantID, q.BusinessDate, q.ParkID, nullUUID(q.OwnerUserID)).
 		Scan(&m.sheds, &m.done, &m.pending, &m.attention, &m.cardRank, &m.anyRejected, &m.parkName)
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			m.cardRank = -1
+			return m, nil
+		}
 		return m, err
 	}
 	s.cacheMu.Lock()
