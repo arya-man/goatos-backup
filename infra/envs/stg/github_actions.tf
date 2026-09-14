@@ -73,6 +73,12 @@ resource "google_project_iam_member" "github_deployer_logging_writer" {
   member  = "serviceAccount:${google_service_account.github_deployer.email}"
 }
 
+resource "google_project_iam_member" "github_deployer_logging_viewer" {
+  project = var.project_id
+  role    = "roles/logging.viewer"
+  member  = "serviceAccount:${google_service_account.github_deployer.email}"
+}
+
 resource "google_project_iam_member" "github_deployer_remote_config_admin" {
   project = var.project_id
   role    = "roles/cloudconfig.admin"
