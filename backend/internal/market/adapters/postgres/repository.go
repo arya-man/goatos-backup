@@ -49,18 +49,123 @@ JOIN market_questions q ON q.id = e.question_id`
 	entryOrder = `c.sort_order, lower(c.name), q.sort_order, lower(q.label)`
 )
 
+// Every statement is a package-level named const so a query-plan test and the scale guard can
+// reach it (docs/decisions/scale-anti-patterns.md -> hot-path-inline-sql).
+const (
+	listCitiesSQL = `
+SELECT ` + cityColumns + `
+FROM market_cities
+WHERE tenant_id = $1::uuid
+ORDER BY (status = 'active') DESC, sort_order, lower(name), created_at
+LIMIT $2`
+
+	listQuestionsSQL = `
+SELECT ` + questionColumns + `
+FROM market_questions
+WHERE tenant_id = $1::uuid
+ORDER BY (status = 'active') DESC, sort_order, lower(label), created_at
+LIMIT $2`
+
+	getCitySQL = `SELECT ` + cityColumns + ` FROM market_cities WHERE tenant_id = $1::uuid AND id = $2::uuid`
+
+	countActiveCitiesSQL = `SELECT count(*) FROM market_cities WHERE tenant_id = $1::uuid AND status = 'active'`
+
+	insertCitySQL = `
+INSERT INTO market_cities (tenant_id, name, sort_order, status, created_by)
+VALUES ($1::uuid, $2, COALESCE((SELECT max(sort_order) FROM market_cities WHERE tenant_id = $1::uuid), 0) + 10, $3, nullif($4, '')::uuid)
+RETURNING ` + cityColumns
+
+	updateCitySQL = `
+UPDATE market_cities
+SET name = $3, status = $4, updated_at = now()
+WHERE tenant_id = $1::uuid AND id = $2::uuid
+RETURNING ` + cityColumns
+
+	getQuestionSQL = `SELECT ` + questionColumns + ` FROM market_questions WHERE tenant_id = $1::uuid AND id = $2::uuid`
+
+	countActiveQuestionsSQL = `SELECT count(*) FROM market_questions WHERE tenant_id = $1::uuid AND status = 'active'`
+
+	insertQuestionSQL = `
+INSERT INTO market_questions (tenant_id, label, unit_label, sort_order, status, created_by)
+VALUES ($1::uuid, $2, $3, COALESCE((SELECT max(sort_order) FROM market_questions WHERE tenant_id = $1::uuid), 0) + 10, $4, nullif($5, '')::uuid)
+RETURNING ` + questionColumns
+
+	updateQuestionSQL = `
+UPDATE market_questions
+SET label = $3, unit_label = $4, status = $5, updated_at = now()
+WHERE tenant_id = $1::uuid AND id = $2::uuid
+RETURNING ` + questionColumns
+
+	listDayEntriesSQL = `
+SELECT ` + entryColumns + `
+` + entryFrom + `
+WHERE e.tenant_id = $1::uuid AND e.business_date = $2::date
+ORDER BY ` + entryOrder + `
+LIMIT $3`
+
+	listEntriesBetweenSQL = `
+SELECT ` + entryColumns + `
+` + entryFrom + `
+WHERE e.tenant_id = $1::uuid AND e.business_date >= $2::date AND e.business_date <= $3::date
+ORDER BY e.business_date, ` + entryOrder + `
+LIMIT $4`
+
+	lockCitySQL = `SELECT name, status FROM market_cities WHERE tenant_id = $1::uuid AND id = $2::uuid FOR UPDATE`
+
+	upsertEntriesSQL = `
+INSERT INTO market_price_entries
+    (tenant_id, city_id, question_id, business_date, price, city_name, question_label, unit_label, recorded_by, recorded_at, updated_at)
+SELECT $1::uuid, $2::uuid, q.id, $3::date, a.price, $4, q.label, q.unit_label, nullif($7, '')::uuid, now(), now()
+FROM unnest($5::uuid[], $6::float8[]) AS a (question_id, price)
+JOIN market_questions q ON q.tenant_id = $1::uuid AND q.id = a.question_id AND q.status = 'active'
+ON CONFLICT (tenant_id, city_id, question_id, business_date) DO UPDATE
+SET price = EXCLUDED.price,
+    city_name = EXCLUDED.city_name,
+    question_label = EXCLUDED.question_label,
+    unit_label = EXCLUDED.unit_label,
+    recorded_by = EXCLUDED.recorded_by,
+    updated_at = now()`
+
+	cityDayEntriesSQL = `
+SELECT ` + entryColumns + `
+` + entryFrom + `
+WHERE e.tenant_id = $1::uuid AND e.city_id = $2::uuid AND e.business_date = $3::date
+ORDER BY ` + entryOrder + `
+LIMIT $4`
+
+	reporterUserIDsSQL = `
+SELECT DISTINCT user_id::text
+FROM user_scope_grants
+WHERE tenant_id = $1::uuid
+  AND role = $2
+  AND status = 'active'
+  AND (valid_to IS NULL OR valid_to > now())
+LIMIT 100`
+
+	reserveIdempotencySQL = `
+INSERT INTO idempotency_keys (idempotency_key, tenant_id, scope, request_hash, status)
+VALUES ($1, $2::uuid, $3, $4, 'started')
+ON CONFLICT (idempotency_key) DO NOTHING
+RETURNING idempotency_key`
+
+	readIdempotencySQL = `
+SELECT request_hash, status, COALESCE(result_type, ''), COALESCE(result_id::text, '')
+FROM idempotency_keys
+WHERE idempotency_key = $1`
+
+	completeIdempotencySQL = `
+UPDATE idempotency_keys
+SET status = 'completed', result_type = $2, result_id = nullif($3::text, '')::uuid, completed_at = now()
+WHERE idempotency_key = $1`
+)
+
 // GetConfig reads every city and question in shown order: active first, then by sort order and
 // name. Bounded by the config caps, never herd-sized.
 func (r *Repository) GetConfig(ctx context.Context, tenantID string) (domain.Config, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 	var cfg domain.Config
-	rows, err := r.pool.Query(ctx, `
-SELECT `+cityColumns+`
-FROM market_cities
-WHERE tenant_id = $1::uuid
-ORDER BY (status = 'active') DESC, sort_order, lower(name), created_at
-LIMIT $2`, tenantID, domain.MaxCities*2)
+	rows, err := r.pool.Query(ctx, listCitiesSQL, tenantID, domain.MaxCities*2)
 	if err != nil {
 		return cfg, fmt.Errorf("market: list cities: %w", err)
 	}
@@ -68,12 +173,7 @@ LIMIT $2`, tenantID, domain.MaxCities*2)
 	if err != nil {
 		return cfg, err
 	}
-	rows, err = r.pool.Query(ctx, `
-SELECT `+questionColumns+`
-FROM market_questions
-WHERE tenant_id = $1::uuid
-ORDER BY (status = 'active') DESC, sort_order, lower(label), created_at
-LIMIT $2`, tenantID, domain.MaxQuestion*2)
+	rows, err = r.pool.Query(ctx, listQuestionsSQL, tenantID, domain.MaxQuestion*2)
 	if err != nil {
 		return cfg, fmt.Errorf("market: list questions: %w", err)
 	}
@@ -94,20 +194,16 @@ func (r *Repository) CreateCity(ctx context.Context, tenantID, actorID, idempote
 			return err
 		}
 		if !res.proceed {
-			return tx.QueryRow(ctx, `SELECT `+cityColumns+` FROM market_cities WHERE tenant_id = $1::uuid AND id = $2::uuid`,
-				tenantID, res.resultID).Scan(&out.ID, &out.Name, &out.SortOrder, &out.Status, &out.CreatedAt, &out.UpdatedAt)
+			return tx.QueryRow(ctx, getCitySQL, tenantID, res.resultID).Scan(&out.ID, &out.Name, &out.SortOrder, &out.Status, &out.CreatedAt, &out.UpdatedAt)
 		}
 		var active int
-		if err := tx.QueryRow(ctx, `SELECT count(*) FROM market_cities WHERE tenant_id = $1::uuid AND status = 'active'`, tenantID).Scan(&active); err != nil {
+		if err := tx.QueryRow(ctx, countActiveCitiesSQL, tenantID).Scan(&active); err != nil {
 			return err
 		}
 		if active >= domain.MaxCities {
 			return ports.ErrTooMany
 		}
-		err = tx.QueryRow(ctx, `
-INSERT INTO market_cities (tenant_id, name, sort_order, status, created_by)
-VALUES ($1::uuid, $2, COALESCE((SELECT max(sort_order) FROM market_cities WHERE tenant_id = $1::uuid), 0) + 10, $3, nullif($4, '')::uuid)
-RETURNING `+cityColumns, tenantID, write.Name, write.Status, actorID).
+		err = tx.QueryRow(ctx, insertCitySQL, tenantID, write.Name, write.Status, actorID).
 			Scan(&out.ID, &out.Name, &out.SortOrder, &out.Status, &out.CreatedAt, &out.UpdatedAt)
 		if err != nil {
 			return mapUnique(err)
@@ -129,11 +225,7 @@ func (r *Repository) UpdateCity(ctx context.Context, tenantID, actorID, cityID s
 	defer cancel()
 	var out domain.City
 	err := r.inTx(ctx, func(tx pgx.Tx) error {
-		err := tx.QueryRow(ctx, `
-UPDATE market_cities
-SET name = $3, status = $4, updated_at = now()
-WHERE tenant_id = $1::uuid AND id = $2::uuid
-RETURNING `+cityColumns, tenantID, cityID, write.Name, write.Status).
+		err := tx.QueryRow(ctx, updateCitySQL, tenantID, cityID, write.Name, write.Status).
 			Scan(&out.ID, &out.Name, &out.SortOrder, &out.Status, &out.CreatedAt, &out.UpdatedAt)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ports.ErrNotFound
@@ -160,20 +252,16 @@ func (r *Repository) CreateQuestion(ctx context.Context, tenantID, actorID, idem
 			return err
 		}
 		if !res.proceed {
-			return tx.QueryRow(ctx, `SELECT `+questionColumns+` FROM market_questions WHERE tenant_id = $1::uuid AND id = $2::uuid`,
-				tenantID, res.resultID).Scan(&out.ID, &out.Label, &out.UnitLabel, &out.SortOrder, &out.Status, &out.CreatedAt, &out.UpdatedAt)
+			return tx.QueryRow(ctx, getQuestionSQL, tenantID, res.resultID).Scan(&out.ID, &out.Label, &out.UnitLabel, &out.SortOrder, &out.Status, &out.CreatedAt, &out.UpdatedAt)
 		}
 		var active int
-		if err := tx.QueryRow(ctx, `SELECT count(*) FROM market_questions WHERE tenant_id = $1::uuid AND status = 'active'`, tenantID).Scan(&active); err != nil {
+		if err := tx.QueryRow(ctx, countActiveQuestionsSQL, tenantID).Scan(&active); err != nil {
 			return err
 		}
 		if active >= domain.MaxQuestion {
 			return ports.ErrTooMany
 		}
-		err = tx.QueryRow(ctx, `
-INSERT INTO market_questions (tenant_id, label, unit_label, sort_order, status, created_by)
-VALUES ($1::uuid, $2, $3, COALESCE((SELECT max(sort_order) FROM market_questions WHERE tenant_id = $1::uuid), 0) + 10, $4, nullif($5, '')::uuid)
-RETURNING `+questionColumns, tenantID, write.Label, write.UnitLabel, write.Status, actorID).
+		err = tx.QueryRow(ctx, insertQuestionSQL, tenantID, write.Label, write.UnitLabel, write.Status, actorID).
 			Scan(&out.ID, &out.Label, &out.UnitLabel, &out.SortOrder, &out.Status, &out.CreatedAt, &out.UpdatedAt)
 		if err != nil {
 			return mapUnique(err)
@@ -196,11 +284,7 @@ func (r *Repository) UpdateQuestion(ctx context.Context, tenantID, actorID, ques
 	defer cancel()
 	var out domain.Question
 	err := r.inTx(ctx, func(tx pgx.Tx) error {
-		err := tx.QueryRow(ctx, `
-UPDATE market_questions
-SET label = $3, unit_label = $4, status = $5, updated_at = now()
-WHERE tenant_id = $1::uuid AND id = $2::uuid
-RETURNING `+questionColumns, tenantID, questionID, write.Label, write.UnitLabel, write.Status).
+		err := tx.QueryRow(ctx, updateQuestionSQL, tenantID, questionID, write.Label, write.UnitLabel, write.Status).
 			Scan(&out.ID, &out.Label, &out.UnitLabel, &out.SortOrder, &out.Status, &out.CreatedAt, &out.UpdatedAt)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ports.ErrNotFound
@@ -219,12 +303,7 @@ RETURNING `+questionColumns, tenantID, questionID, write.Label, write.UnitLabel,
 func (r *Repository) ListDayEntries(ctx context.Context, tenantID, businessDate string) ([]domain.Entry, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
-	rows, err := r.pool.Query(ctx, `
-SELECT `+entryColumns+`
-`+entryFrom+`
-WHERE e.tenant_id = $1::uuid AND e.business_date = $2::date
-ORDER BY `+entryOrder+`
-LIMIT $3`, tenantID, businessDate, domain.MaxCities*domain.MaxQuestion)
+	rows, err := r.pool.Query(ctx, listDayEntriesSQL, tenantID, businessDate, domain.MaxCities*domain.MaxQuestion)
 	if err != nil {
 		return nil, fmt.Errorf("market: list day entries: %w", err)
 	}
@@ -236,12 +315,7 @@ LIMIT $3`, tenantID, businessDate, domain.MaxCities*domain.MaxQuestion)
 func (r *Repository) ListEntriesBetween(ctx context.Context, tenantID, from, to string) ([]domain.Entry, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
-	rows, err := r.pool.Query(ctx, `
-SELECT `+entryColumns+`
-`+entryFrom+`
-WHERE e.tenant_id = $1::uuid AND e.business_date >= $2::date AND e.business_date <= $3::date
-ORDER BY e.business_date, `+entryOrder+`
-LIMIT $4`, tenantID, from, to, 400*domain.MaxCities*domain.MaxQuestion)
+	rows, err := r.pool.Query(ctx, listEntriesBetweenSQL, tenantID, from, to, 400*domain.MaxCities*domain.MaxQuestion)
 	if err != nil {
 		return nil, fmt.Errorf("market: list entries between: %w", err)
 	}
@@ -270,8 +344,7 @@ func (r *Repository) RecordDayEntry(ctx context.Context, p ports.RecordDayEntryP
 			return err
 		}
 		var cityName, cityStatus string
-		err = tx.QueryRow(ctx, `SELECT name, status FROM market_cities WHERE tenant_id = $1::uuid AND id = $2::uuid FOR UPDATE`,
-			p.TenantID, p.Write.CityID).Scan(&cityName, &cityStatus)
+		err = tx.QueryRow(ctx, lockCitySQL, p.TenantID, p.Write.CityID).Scan(&cityName, &cityStatus)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ports.ErrNotFound
 		}
@@ -290,20 +363,7 @@ func (r *Repository) RecordDayEntry(ctx context.Context, p ports.RecordDayEntryP
 			ids = append(ids, a.QuestionID)
 			prices = append(prices, a.Price)
 		}
-		tag, err := tx.Exec(ctx, `
-INSERT INTO market_price_entries
-    (tenant_id, city_id, question_id, business_date, price, city_name, question_label, unit_label, recorded_by, recorded_at, updated_at)
-SELECT $1::uuid, $2::uuid, q.id, $3::date, a.price, $4, q.label, q.unit_label, nullif($7, '')::uuid, now(), now()
-FROM unnest($5::uuid[], $6::float8[]) AS a (question_id, price)
-JOIN market_questions q ON q.tenant_id = $1::uuid AND q.id = a.question_id AND q.status = 'active'
-ON CONFLICT (tenant_id, city_id, question_id, business_date) DO UPDATE
-SET price = EXCLUDED.price,
-    city_name = EXCLUDED.city_name,
-    question_label = EXCLUDED.question_label,
-    unit_label = EXCLUDED.unit_label,
-    recorded_by = EXCLUDED.recorded_by,
-    updated_at = now()`,
-			p.TenantID, p.Write.CityID, p.Write.BusinessDate, cityName, ids, prices, p.ActorID)
+		tag, err := tx.Exec(ctx, upsertEntriesSQL, p.TenantID, p.Write.CityID, p.Write.BusinessDate, cityName, ids, prices, p.ActorID)
 		if err != nil {
 			return fmt.Errorf("market: upsert entries: %w", err)
 		}
@@ -326,12 +386,7 @@ SET price = EXCLUDED.price,
 }
 
 func (r *Repository) cityDayEntries(ctx context.Context, tx pgx.Tx, tenantID, cityID, businessDate string) ([]domain.Entry, error) {
-	rows, err := tx.Query(ctx, `
-SELECT `+entryColumns+`
-`+entryFrom+`
-WHERE e.tenant_id = $1::uuid AND e.city_id = $2::uuid AND e.business_date = $3::date
-ORDER BY `+entryOrder+`
-LIMIT $4`, tenantID, cityID, businessDate, domain.MaxQuestion*2)
+	rows, err := tx.Query(ctx, cityDayEntriesSQL, tenantID, cityID, businessDate, domain.MaxQuestion*2)
 	if err != nil {
 		return nil, fmt.Errorf("market: read city day: %w", err)
 	}
@@ -343,14 +398,7 @@ LIMIT $4`, tenantID, cityID, businessDate, domain.MaxQuestion*2)
 func (r *Repository) ReporterUserIDs(ctx context.Context, tenantID string) ([]string, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
-	rows, err := r.pool.Query(ctx, `
-SELECT DISTINCT user_id::text
-FROM user_scope_grants
-WHERE tenant_id = $1::uuid
-  AND role = $2
-  AND status = 'active'
-  AND (valid_to IS NULL OR valid_to > now())
-LIMIT 100`, tenantID, permissions.RoleMarketReporter)
+	rows, err := r.pool.Query(ctx, reporterUserIDsSQL, tenantID, permissions.RoleMarketReporter)
 	if err != nil {
 		return nil, fmt.Errorf("market: reporters: %w", err)
 	}
@@ -461,11 +509,7 @@ func reserveIdempotency(ctx context.Context, tx pgx.Tx, tenantID, scope, key, fi
 	}
 	scoped := idemScopedKey(tenantID, scope, key)
 	var claimed string
-	err := tx.QueryRow(ctx, `
-INSERT INTO idempotency_keys (idempotency_key, tenant_id, scope, request_hash, status)
-VALUES ($1, $2::uuid, $3, $4, 'started')
-ON CONFLICT (idempotency_key) DO NOTHING
-RETURNING idempotency_key`, scoped, tenantID, scope, fingerprint).Scan(&claimed)
+	err := tx.QueryRow(ctx, reserveIdempotencySQL, scoped, tenantID, scope, fingerprint).Scan(&claimed)
 	if err == nil {
 		return idemReservation{proceed: true}, nil
 	}
@@ -473,10 +517,7 @@ RETURNING idempotency_key`, scoped, tenantID, scope, fingerprint).Scan(&claimed)
 		return idemReservation{}, err
 	}
 	var existingHash, status, resultType, resultID string
-	if err := tx.QueryRow(ctx, `
-SELECT request_hash, status, COALESCE(result_type, ''), COALESCE(result_id::text, '')
-FROM idempotency_keys
-WHERE idempotency_key = $1`, scoped).Scan(&existingHash, &status, &resultType, &resultID); err != nil {
+	if err := tx.QueryRow(ctx, readIdempotencySQL, scoped).Scan(&existingHash, &status, &resultType, &resultID); err != nil {
 		return idemReservation{}, err
 	}
 	if existingHash != fingerprint {
@@ -487,9 +528,6 @@ WHERE idempotency_key = $1`, scoped).Scan(&existingHash, &status, &resultType, &
 
 func completeIdempotency(ctx context.Context, tx pgx.Tx, tenantID, scope, key, resultType, resultID string) error {
 	scoped := idemScopedKey(tenantID, scope, key)
-	_, err := tx.Exec(ctx, `
-UPDATE idempotency_keys
-SET status = 'completed', result_type = $2, result_id = nullif($3::text, '')::uuid, completed_at = now()
-WHERE idempotency_key = $1`, scoped, resultType, resultID)
+	_, err := tx.Exec(ctx, completeIdempotencySQL, scoped, resultType, resultID)
 	return err
 }
