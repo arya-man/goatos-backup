@@ -584,12 +584,48 @@ function buildItemMoney(stock: FeedAnalyticsStockResponse | null, dayKeys: strin
 }
 
 /** Money first: priced feeds by window ₹ descending, then unpriced feeds in their kg rank. */
-/** The pie's feed rule from the contract: comma-separated name fragments, any match keeps the feed. */
+/**
+ * The pie's feed rule from the contract: comma-separated feed NAMES, a feed is in when its label
+ * IS one of them (case-insensitive). Exact, not "contains" (maintainer request 2026-09-14): the
+ * fragment "Mesha" also caught the four retired split concentrates -- Mesha Adult Concentrate
+ * Goat / Sheep, Mesha Kids Goat / Sheep Concentrate -- beside the two merged ones, and a
+ * substring rule cannot name "Mesha Adult Concentrate" without also matching "Mesha Adult
+ * Concentrate Goat". An empty rule keeps every feed.
+ */
 function spendShareIncludes(rule: string, label: string): boolean {
-  const needles = rule.split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
-  if (needles.length === 0) return true;
-  const hay = label.toLowerCase();
-  return needles.some((n) => hay.includes(n));
+  const names = rule.split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
+  if (names.length === 0) return true;
+  return names.includes(label.trim().toLowerCase());
+}
+
+/** The per-item cards' hidden-feed rule: exact names, and an EMPTY rule hides nothing. */
+function itemCardHidden(rule: string, label: string): boolean {
+  const names = rule.split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
+  return names.includes(label.trim().toLowerCase());
+}
+
+/**
+ * Keep each slice's own item colour, but never two slices on one hue (maintainer request
+ * 2026-09-14). The item palette is ranked across EVERY feed and wraps past nine, so a feed ranked
+ * tenth comes back as a darker shade of the first -- Mesha Adult Concentrate sat next to Dry Masoor
+ * Bhusa in near-identical green. A slice whose base colour an earlier slice already holds takes the
+ * next palette colour no slice is using; a pie of three feeds is then three plainly different
+ * colours while the line charts, which never draw two feeds this close, keep their colours as is.
+ */
+function distinctSliceColors(slices: PieSlice[]): PieSlice[] {
+  // The HUE, not the token: `--brand-d` / `--brand-l` are the brand green darkened and
+  // lightened, and a colour-mix of a token is that token shaded -- all the same hue to a reader.
+  const hueOf = (colorVar: string) =>
+    (colorVar.match(/var\(--[a-z]+(?:-[a-z]+)*\)/)?.[0] ?? colorVar).replace(/-[dl]\)$/, ")");
+  const used = new Set<string>();
+  return slices.map((slice) => {
+    let colorVar = slice.colorVar;
+    if (used.has(hueOf(colorVar))) {
+      colorVar = FEED_SERIES_VARS.find((candidate) => !used.has(hueOf(candidate))) ?? colorVar;
+    }
+    used.add(hueOf(colorVar));
+    return { ...slice, colorVar };
+  });
 }
 
 function rankItemCards(
@@ -627,10 +663,12 @@ function DirectedTabs({
   // The pie's slices: the contract's feed rule applied to the priced feeds. Computed here so the
   // section is gated on what the pie would actually show — an empty pie is hidden, not captioned
   // with the directed-feed empty copy, which would say the wrong thing.
-  const spendShareSlices: PieSlice[] = rankItemCards(view.itemSeries, itemMoney).flatMap(({ series, money }) =>
-    money && money.pricedDays > 0 && spendShareIncludes(fa(pageContract, "chart.spend_share.feeds"), series.label)
-      ? [{ label: series.label, value: money.rupeesTotal / money.pricedDays, colorVar: series.colorVar }]
-      : [],
+  const spendShareSlices: PieSlice[] = distinctSliceColors(
+    rankItemCards(view.itemSeries, itemMoney).flatMap(({ series, money }) =>
+      money && money.pricedDays > 0 && spendShareIncludes(fa(pageContract, "chart.spend_share.feeds"), series.label)
+        ? [{ label: series.label, value: money.rupeesTotal / money.pricedDays, colorVar: series.colorVar }]
+        : [],
+    ),
   );
   const empty = data.days.length === 0;
   const noData = fa(pageContract, "empty.title");
@@ -849,7 +887,13 @@ function DirectedTabs({
           className="grid"
           style={{ gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 420px), 1fr))", gap: 14, marginTop: 14 }}
         >
-          {rankItemCards(view.itemSeries, itemMoney).map(({ series, money }) => {
+          {rankItemCards(view.itemSeries, itemMoney)
+            // The retired split concentrates are hidden here (maintainer request 2026-09-14): the
+            // farm feeds the two merged Mesha concentrates now, and four cards of sacks running
+            // down to zero drowned the feeds it actually buys. Same exact-name rule as the pie,
+            // authored on the contract, so the list of hidden feeds is one line of backend copy.
+            .filter(({ series }) => !itemCardHidden(fa(pageContract, "chart.item.hidden_feeds"), series.label))
+            .map(({ series, money }) => {
             const fedDays = series.points.filter((p) => p !== null).length;
             const fedKg = series.points.reduce<number>((acc, p) => acc + (p ?? 0), 0);
             const kgNoun = fa(pageContract, "unit.kg");
