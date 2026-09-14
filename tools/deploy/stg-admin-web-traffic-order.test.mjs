@@ -144,6 +144,12 @@ test("analytics events has an isolated capped deploy lane", () => {
 
   assert.match(script, /ANALYTICS_EVENTS_SERVICE="\$\{ANALYTICS_EVENTS_SERVICE:-goatos-analytics-events-stg\}"/);
   assert.match(script, /GOATOS_STG_TENANT_ID="\$\{GOATOS_STG_TENANT_ID:-00000000-0000-4000-8000-000000000001\}"/);
+  assert.match(script, /secret_accessor_exists\(\)/, "deploy must define a live Secret Manager IAM preflight");
+  assert.match(
+    script,
+    /secret_accessor_exists "goatos-stg-gcs-service-account-json" "\$ANALYTICS_EVENTS_SERVICE_ACCOUNT"/,
+    "deploy must fail before migrations when the events service cannot read the proof GCS secret",
+  );
   assert.match(script, /gcloud run deploy "\$ANALYTICS_EVENTS_SERVICE"[\s\S]*?--max-instances=1\s+\\/);
   assert.match(script, /--service-account="\$ANALYTICS_EVENTS_SERVICE_ACCOUNT"/);
   assert.match(script, /--allow-unauthenticated\s+\\/);
