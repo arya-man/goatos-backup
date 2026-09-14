@@ -103,6 +103,13 @@ every bus process behaves alike). The legacy one-video complete route stays serv
   queued, the card stayed `rework`, and it drained to `pending_verification` on restart. Process
   death mid multi-proof recovered cleanly. Death: two videos → Submit → both on the backend, stamped
   from Death Recording v2.
+- Final APK (commit after the guard fixes): the v4 kid's done steps render the uploaded photo and
+  video inline; play / full-screen open / full-screen close each emit
+  `workflow_proof_preview_action`. `make guardrails`, backend build/vet/tests for tasks / sop /
+  counts / adminui / eventwiring, admin-web 642 tests, Android WorkflowDetail VM tests all green.
+  The two durable buses (`kernelstages/bus.go`, `cmd/domain-event-consumer`) now call the shared
+  `RegisterWorkflowConsumers` instead of a hand list, so the reconcile rework reopener is live on
+  every bus process; the cascade guard reads that helper's constructor list.
 
 ## Phase 2 (not done)
 
