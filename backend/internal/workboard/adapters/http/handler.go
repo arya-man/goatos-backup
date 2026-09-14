@@ -216,17 +216,17 @@ func (h *Handler) Page(w http.ResponseWriter, r *http.Request) {
 	type laneResult struct {
 		lane    domain.Lane
 		payload lanePagePayload
+	}
+	results := make([]laneResult, len(pageLanes))
+	var wg sync.WaitGroup
+	queryValues := r.URL.Query()
+	for i, lane := range pageLanes {
+		laneQ := q
+		laneQ.WorkStates = intersectStates(q.WorkStates, domain.StatesInLane(lane))
+		if len(laneQ.WorkStates) == 0 && len(q.WorkStates) > 0 {
+			laneQ.WorkStates = []domain.WorkState{domain.WorkStateNone}
 		}
-		results := make([]laneResult, len(pageLanes))
-		var wg sync.WaitGroup
-		queryValues := r.URL.Query()
-		for i, lane := range pageLanes {
-			laneQ := q
-			laneQ.WorkStates = intersectStates(q.WorkStates, domain.StatesInLane(lane))
-			if len(laneQ.WorkStates) == 0 && len(q.WorkStates) > 0 {
-				laneQ.WorkStates = []domain.WorkState{domain.WorkStateNone}
-			}
-			rawCursor := queryValues.Get("cursor_" + string(lane))
+		rawCursor := queryValues.Get("cursor_" + string(lane))
 		cursor, err := domain.ParseCursor(rawCursor)
 		if err != nil {
 			results[i] = laneResult{lane: lane, payload: lanePagePayload{Rows: []domain.Row{}, Degraded: visibleModules}}
@@ -239,9 +239,9 @@ func (h *Handler) Page(w http.ResponseWriter, r *http.Request) {
 		laneQ.Cursor = cursor
 		results[i].lane = lane
 		wg.Add(1)
-			go func(i int, lane domain.Lane, laneQ domain.Query) {
-				defer wg.Done()
-				page, err := h.service.List(r.Context(), laneQ) // scale-guard:ignore: bounded fanout across visible Work Board lanes after summary zero-lane short-circuit; each call is cursor-scoped and user-page-limited.
+		go func(i int, lane domain.Lane, laneQ domain.Query) {
+			defer wg.Done()
+			page, err := h.service.List(r.Context(), laneQ) // scale-guard:ignore: bounded fanout across visible Work Board lanes after summary zero-lane short-circuit; each call is cursor-scoped and user-page-limited.
 			if err != nil {
 				results[i] = laneResult{lane: lane, payload: lanePagePayload{Rows: []domain.Row{}, Degraded: visibleModules}}
 				return
