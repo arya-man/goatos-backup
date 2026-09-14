@@ -5,5 +5,6 @@ RUN apt-get update \
   && rm -rf /var/lib/apt/lists/*
 
 COPY tools/deploy/stg-clouddeploy-task.sh /usr/local/bin/goatos-stg-clouddeploy-task
+COPY tools/deploy/stg-analytics-events-routing.sh /usr/local/bin/goatos-stg-analytics-events-routing
 
 ENTRYPOINT ["/usr/local/bin/goatos-stg-clouddeploy-task"]

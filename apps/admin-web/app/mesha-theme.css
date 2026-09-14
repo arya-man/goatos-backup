@@ -5090,6 +5090,7 @@ select:disabled { opacity: .45; }
   .wb .datenav a{min-width:40px;min-height:40px;display:grid;place-items:center}
   .wb .parkpick a,.wb .sel{min-height:40px;display:inline-flex;align-items:center}
   .wb .avs>.av,.wb .avs>.more{position:relative}.wb .avs>.av::after,.wb .avs>.more::after{content:"";position:absolute;inset:-5px;border-radius:50%}
+  .wb .avs>.more.assignee-empty::after{content:none}
   .wb .pgnav .more{min-height:40px;display:inline-flex;align-items:center}}
 
 /* issue view (Jira issue-view shape) */

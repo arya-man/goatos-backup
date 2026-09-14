@@ -152,7 +152,7 @@ export function GrowthDirectorSection({
             <span className="muted small">{gd(pageContract, "fair_fight.empty")}</span>
           </div>
         ) : (
-          <div className="ffboard">
+          <div className="ffboard" tabIndex={0} aria-label={gd(pageContract, "fair_fight.title")}>
             {fairFight.cohorts.map((cohort) => {
               // The backend ranks these sheds fastest-first; the board LISTS them
               // alphabetically (maintainer decision 2026-08-24), like every other shed list on

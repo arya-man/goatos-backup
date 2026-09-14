@@ -34,6 +34,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -248,8 +249,11 @@ FROM pen`
 
 // Source implements ports.Source: feed's aggregate activity cards.
 type Source struct {
-	pool    *pgxpool.Pool
-	timeout time.Duration
+	pool       *pgxpool.Pool
+	timeout    time.Duration
+	cacheMu    sync.Mutex
+	cardCache  map[string]cachedCard
+	cacheUntil func() time.Time
 }
 
 // New constructs the source.
@@ -257,7 +261,7 @@ func New(pool *pgxpool.Pool, timeout time.Duration) *Source {
 	if timeout <= 0 {
 		timeout = 5 * time.Second
 	}
-	return &Source{pool: pool, timeout: timeout}
+	return &Source{pool: pool, timeout: timeout, cardCache: map[string]cachedCard{}, cacheUntil: time.Now}
 }
 
 func (s *Source) Module() domain.Module { return domain.ModuleFeed }
@@ -269,10 +273,36 @@ type cardMetrics struct {
 	parkName                                  string
 }
 
+type cachedCard struct {
+	metrics cardMetrics
+	expires time.Time
+}
+
 func (s *Source) readCard(ctx context.Context, a activity, q ports.SourceQuery) (cardMetrics, error) {
+	key := strings.Join([]string{q.TenantID, q.ParkID, q.BusinessDate, q.OwnerUserID, a.key}, "\x00")
+	now := s.cacheUntil()
+	s.cacheMu.Lock()
+	if cached, ok := s.cardCache[key]; ok && now.Before(cached.expires) {
+		s.cacheMu.Unlock()
+		return cached.metrics, nil
+	}
+	s.cacheMu.Unlock()
 	var m cardMetrics
 	err := s.pool.QueryRow(ctx, metricsSQL(a.units), q.TenantID, q.BusinessDate, q.ParkID, nullUUID(q.OwnerUserID)).
 		Scan(&m.sheds, &m.done, &m.pending, &m.attention, &m.cardRank, &m.anyRejected, &m.parkName)
+	if err != nil {
+		return m, err
+	}
+	s.cacheMu.Lock()
+	s.cardCache[key] = cachedCard{metrics: m, expires: now.Add(30 * time.Second)}
+	if len(s.cardCache) > 256 {
+		for k, cached := range s.cardCache {
+			if !now.Before(cached.expires) {
+				delete(s.cardCache, k)
+			}
+		}
+	}
+	s.cacheMu.Unlock()
 	return m, err
 }
 

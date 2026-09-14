@@ -99,6 +99,7 @@ function buildRoutes({ goatId, procurementLoadId, workflowRowId, calendarEventId
     { name: "calendar-history", path: "/calendar?scope_mode=company&status=completed" },
     { name: "calendar-owner-pc", path: "/calendar?scope_mode=company&day=week&owner_key=pc" },
     { name: "protocol-adherence", path: "/protocol-adherence?scope_mode=company" },
+    { name: "work-board", path: "/work-board?scope_mode=company" },
     { name: "workflows", path: "/workflows?scope_mode=company" },
     { name: "approvals", path: "/approvals?scope_mode=company" },
     { name: "verify", path: "/verify?scope_mode=company" },
@@ -278,7 +279,8 @@ try {
         throw new Error(`${route.name} returned HTTP ${response.status()} for ${appPath(route.path)}`);
       }
       const html = await page.content();
-      assertHealthyHTML(route.name, html, bearerToken);
+      const visibleText = await page.locator("body").innerText({ timeout: 5_000 }).catch(() => "");
+      assertHealthyHTML(route.name, html, visibleText, bearerToken);
       await assertLayoutHealthy(page, route.name, viewport.label);
       await assertMobileWideTableGestures(page, route.name, viewport.label, screenshotDir);
       await assertA11y(page, route.name, viewport.label);
@@ -428,7 +430,7 @@ async function fetchSmokeJson(url, token, tenant, label) {
   return response.json();
 }
 
-function assertHealthyHTML(routeName, html, token) {
+function assertHealthyHTML(routeName, html, visibleText, token) {
   const forbidden = [
     "Server configuration missing",
     "Bearer authentication failed",
@@ -445,6 +447,16 @@ function assertHealthyHTML(routeName, html, token) {
   for (const marker of forbidden) {
     if (html.includes(marker)) {
       throw new Error(`${routeName} rendered failure marker: ${marker}`);
+    }
+  }
+  const visibleForbidden = [
+    "backend_down",
+    "The board could not be loaded",
+    "Weights could not be loaded",
+  ];
+  for (const marker of visibleForbidden) {
+    if (visibleText.includes(marker)) {
+      throw new Error(`${routeName} rendered visible failure marker: ${marker}`);
     }
   }
   if (token && html.includes(token)) {

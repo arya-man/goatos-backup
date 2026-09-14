@@ -290,6 +290,39 @@ print("\t".join([
   echo "verified analytics events shape: min=$min max=$max concurrency=$concurrency route_mode=$route_mode event_cap=$max_in_flight pg_max=$pg_max"
 }
 
+expect_analytics_events_route() {
+  local url_map_json backend_self_link
+  url_map_json="$(
+    gcloud compute url-maps describe goatos-stg-dashboard-map \
+      --project="$PROJECT_ID" \
+      --global \
+      --format=json
+  )"
+  backend_self_link="$(
+    gcloud compute backend-services describe goatos-analytics-events-stg-backend \
+      --project="$PROJECT_ID" \
+      --global \
+      --format='value(selfLink)'
+  )"
+  URL_MAP_JSON="$url_map_json" EVENTS_BACKEND_SELF_LINK="$backend_self_link" python3 - <<'PY'
+import json
+import os
+import sys
+
+doc = json.loads(os.environ["URL_MAP_JSON"])
+events_backend = os.environ["EVENTS_BACKEND_SELF_LINK"]
+for matcher in doc.get("pathMatchers", []):
+    if matcher.get("name") != "api-host":
+        continue
+    for rule in matcher.get("pathRules", []) or []:
+        if "/app/analytics/events" in (rule.get("paths", []) or []) and rule.get("service") == events_backend:
+            sys.exit(0)
+print("goatos-stg-dashboard-map does not route /app/analytics/events to goatos-analytics-events-stg-backend", file=sys.stderr)
+sys.exit(1)
+PY
+  echo "verified analytics events URL-map route"
+}
+
 expect_job_image() {
   local job="$1"
   local expected="$2"
@@ -313,6 +346,7 @@ verify_stg_images() {
   expect_service_image goatos-mcp-stg "$backend_image"
   expect_api_latency_shape
   expect_analytics_events_shape
+  expect_analytics_events_route
   expect_job_image goatos-stg-migrate "$migration_image"
   expect_job_image goatos-stg-outbox-dlq "$backend_image"
   expect_job_image goatos-stg-analytics-rollup "$backend_image"

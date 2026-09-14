@@ -7,11 +7,18 @@ const rounds = Number.parseInt(process.env.ADMIN_WEB_SIDEBAR_ROUNDS || "3", 10);
 const timeout = Number.parseInt(process.env.ADMIN_WEB_SIDEBAR_TIMEOUT_MS || "45000", 10);
 const bearerToken = process.env.GOATOS_BEARER_TOKEN || "";
 const onlyTabs = process.env.ADMIN_WEB_SIDEBAR_ONLY_TABS === "1";
+const onlyRoutes = new Set(
+  String(process.env.ADMIN_WEB_SIDEBAR_ONLY_ROUTES || "")
+    .split(",")
+    .map((route) => route.trim())
+    .filter(Boolean),
+);
 
 const routes = [
   "/action-center",
   "/calendar",
   "/protocol-adherence",
+  "/work-board",
   "/workflows",
   "/approvals",
   "/verify",
@@ -19,6 +26,7 @@ const routes = [
   "/counts/breakdown",
   "/counts/sops",
   "/counts/sops?compose=1",
+  "/weighing/weights",
   "/weighing/analytics",
   "/weighing/sops",
   "/sales",
@@ -41,7 +49,7 @@ const routes = [
   "/operations/audit",
   "/operations/dlq",
   "/people",
-];
+].filter((route) => onlyRoutes.size === 0 || onlyRoutes.has(route));
 
 const tabClickFlows = [
   {
@@ -72,6 +80,7 @@ const routeReady = new Map([
   ["/action-center", /Action Center/i],
   ["/calendar", /Calendar/i],
   ["/protocol-adherence", /Protocol Adherence/i],
+  ["/work-board", /Board|Work Board/i],
   ["/workflows", /Workflows/i],
   ["/approvals", /Approvals/i],
   ["/verify", /Verify/i],
@@ -148,6 +157,9 @@ async function pageProblem(page) {
     const h1 = document.querySelector("h1,h2")?.textContent?.trim() || "";
     const problem = [
       "Admin-web contract unavailable",
+      "backend_down",
+      "The board could not be loaded",
+      "Weights could not be loaded",
       "authorization lookup failed",
       "Sign in with Google",
       "Application error",
@@ -221,15 +233,22 @@ async function clickSidebarRoute(page, route) {
   for (let i = 0; i < count && !(await hasVisibleSidebarLink(page, expectedUrl)); i += 1) {
     await groups.nth(i).click();
   }
-  if (!(await hasVisibleSidebarLink(page, expectedUrl))) throw new Error(`missing sidebar link for ${route}`);
   const started = performance.now();
-  await clickVisibleSidebarLink(page, expectedUrl);
+  let direct = false;
+  if (await hasVisibleSidebarLink(page, expectedUrl)) {
+    await clickVisibleSidebarLink(page, expectedUrl);
+  } else if (onlyRoutes.size > 0) {
+    direct = true;
+    await page.goto(`${baseUrl}${route}`, { waitUntil: "domcontentloaded", timeout });
+  } else {
+    throw new Error(`missing sidebar link for ${route}`);
+  }
   await page.waitForURL((url) => url.pathname === expectedPath && paramsEqual(url.searchParams, expectedUrl.searchParams), { timeout });
   await waitUsable(page, expectedPath, expectedUrl.searchParams);
   const finished = performance.now();
   const problem = await pageProblem(page);
   if (problem.problem) throw new Error(`${route} rendered ${problem.problem}`);
-  return { ms: Math.round(finished - started), h1: problem.h1 };
+  return { ms: Math.round(finished - started), h1: problem.h1, direct };
 }
 
 async function hasVisibleSidebarLink(page, expectedUrl) {
@@ -374,7 +393,8 @@ try {
         console.log(JSON.stringify(row));
       }
     }
-    for (const flow of tabClickFlows) {
+    const tabFlows = onlyRoutes.size === 0 ? tabClickFlows : tabClickFlows.filter((flow) => onlyRoutes.has(flow.route));
+    for (const flow of tabFlows) {
       await clickSidebarRoute(page, scoped(flow.route));
       for (const tab of flow.tabs) {
         const started = performance.now();

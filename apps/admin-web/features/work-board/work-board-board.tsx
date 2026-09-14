@@ -128,7 +128,7 @@ function AssigneePicker({ pageContract, owners, cardsByOwner, selected, onSelect
         </button>
       ) : null}
       {owners.length === 0 || current ? (
-        <button type="button" className={`more${open ? " on" : ""}`} aria-expanded={open} aria-label={copy(pageContract, "filter.assignee")} onClick={toggle} style={owners.length === 0 ? { width: "auto", padding: "0 10px", borderRadius: 999 } : undefined}>
+        <button type="button" className={`more${owners.length === 0 ? " assignee-empty" : ""}${open ? " on" : ""}`} aria-expanded={open} aria-label={copy(pageContract, "filter.assignee")} onClick={toggle} style={owners.length === 0 ? { width: "auto", minWidth: 104, padding: "0 14px", borderRadius: 999, lineHeight: "1" } : undefined}>
           {owners.length === 0 ? copy(pageContract, "filter.assignee") : "▾"}
         </button>
       ) : null}
@@ -357,7 +357,7 @@ export function WorkBoardBoard({
         <span>{copy(pageContract, "board.rule")}</span>
         <span>{copy(pageContract, "board.attention")}</span>
       </div>
-      <div className="board" role="group" aria-label={copy(pageContract, "section.board.aria")}>
+      <div className="board" role="group" tabIndex={0} aria-label={copy(pageContract, "section.board.aria")}>
         {columns.map((column) => {
           const list = byLane.get(column.key) ?? [];
           const count = searching || !summary ? list.length : summary.by_lane[column.key] ?? 0;

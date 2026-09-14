@@ -7,6 +7,10 @@ const analyticsRoutingScript = readFileSync(
   new URL("./stg-analytics-events-routing.sh", import.meta.url),
   "utf8",
 );
+const runnerDockerfile = readFileSync(
+  new URL("../../deploy/clouddeploy/stg/runner.Dockerfile", import.meta.url),
+  "utf8",
+);
 const apiTerraform = readFileSync(
   new URL("../../infra/envs/stg/cloud_run_services.tf", import.meta.url),
   "utf8",
@@ -112,7 +116,7 @@ test("analytics events has an isolated capped deploy lane", () => {
   assert.match(script, /GOATOS_AUTH_SESSION_ALLOWED_TENANT_IDS=\$\{GOATOS_STG_TENANT_ID\}/);
   assert.match(script, /GOATOS_ANALYTICS_MAX_IN_FLIGHT=2/);
   assert.match(script, /GOATOS_PG_MAX_CONNS=2/);
-  assert.match(script, /tools\/deploy\/stg-analytics-events-routing\.sh/);
+  assert.match(script, /run_analytics_events_routing/);
   assert.match(script, /service_image "\$ANALYTICS_EVENTS_SERVICE"/);
 });
 
@@ -146,5 +150,10 @@ test("analytics events routing script isolates only the event path", () => {
     analyticsRoutingScript,
     /defaultService"\]\s*=\s*events_backend/,
     "routing script must not point the API host default service at events",
+  );
+  assert.match(
+    runnerDockerfile,
+    /COPY tools\/deploy\/stg-analytics-events-routing\.sh \/usr\/local\/bin\/goatos-stg-analytics-events-routing/,
+    "Cloud Deploy runner image must contain the routing script used by the deploy task",
   );
 });
