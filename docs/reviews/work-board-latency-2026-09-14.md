@@ -22,7 +22,7 @@ API-only timing is not enough for final acceptance.
 ## Progress Checklist
 
 Current PR: <https://github.com/vgoats/goatos/pull/259>
-Latest functional change: `cd2a250e66a2d49f25a2f32469fa0e6732bb2f17` (`fix(stg): keep business api billing cap`).
+Latest functional change: pending local verification after event-lane boot guard and Android Calendar load trim.
 
 | Item | Status | Evidence / next action |
 | --- | --- | --- |
@@ -38,20 +38,22 @@ Latest functional change: `cd2a250e66a2d49f25a2f32469fa0e6732bb2f17` (`fix(stg):
 | Local browser E2E | Done | Production-build visual smoke passed for Work Board and Weights on laptop and mobile. |
 | Local browser interaction timing | Done | Work Board sidebar: 519ms cold, then 414ms, 316ms, 262ms, 295ms. Weights warms to 632ms, 372ms, 389ms after cold route costs. |
 | Lighthouse local score | Done | Work Board 84 performance / 100 accessibility; Weights 83 performance / 100 accessibility. |
-| Events isolation | Done in PR, pending live proof | PR adds capped event lane (`min=0`, `max=1`, DB pool 2) and route tooling. Must verify after STG deploy. |
+| Events isolation | Fixed in PR, pending live proof | PR adds capped event lane (`min=0`, `max=1`, DB pool 2), route tooling, and boot env required by current shared bootstrap. Must verify after STG deploy. |
+| Events bootability judge finding | Fixed locally, pending push/judge recheck | The event-only service must include proof-media env because `api` bootstrap builds proof storage before route filtering. Terraform, deploy script, and deploy guard now check this. |
 | Billing guard | Done in PR, pending live proof | Business API is kept at max 2; event traffic moves to the separate max 1 event lane instead of raising business API scale. |
 | Slow API inventory | Done | Baseline table below lists every observed >1s API in the 14:40-15:00 IST window, not only Work Board. |
 | `/work-board/rows` and `/work-board/summary` | Done | Replaced by bundled `/work-board/page`; local OCI p95 is 465ms for full all-parks Work Board after fixes. |
 | `/admin-web/bootstrap` | Pending live proof | Not directly rewritten in this PR; expected to improve from less shared API/DB queueing and event split. Must verify from live logs after deploy. |
 | `/feed-packing/worklist` | Inspected, follow-up needed | Worklist summary is an intentionally whole-filter draw. No risky default-shape change in this PR; needs explicit page-only/no-summary contract if still >500ms live. |
 | `/weighing/leadership/growth` and `/weighing/shed-weights` | Guarded, pending live proof | Weights web E2E added and Work Board module reads improved. Dedicated endpoint tuning still requires live after metrics. |
-| `/app/vaccination/execution` | Done | App route now opts out of expensive card summaries unless requested. |
+| `/app/vaccination/execution` | Done | App route now opts out of expensive card summaries unless requested. Needs live after metric because current STG SHA still showed 17-18s before this PR deploys. |
+| `/calendar/vaccination/events` | Fixed locally, pending push/judge recheck | Android week overview now asks for marker/filter shape only (`markers_only=true`, `limit=1`) instead of full cards. Selected day still fetches full card rows. |
 | `/app/proofs/.../complete` | Pending investigation | Only 2 slow samples in baseline; not proven as repeated offender yet. Needs live query/log drilldown after deploy. |
 | `/app/leadership-tasks` | Pending investigation | Only 3 slow samples in baseline; not proven as repeated offender yet. Needs live query/log drilldown after deploy. |
 | `/auth/session-events` | Pending investigation | Small sample baseline. Need live post-deploy logs to separate cold/queueing/auth path cost. |
-| Judge review | Done for current iteration | Backend/admin judges reviewed; findings were folded into latest fixes. |
-| PR raised/pushed | Done | PR #259 is open, pushed, and clean; latest functional change is `cd2a250e6...`. |
-| STG deploy | Pending | Official deploy path requires landed `origin/main` or explicit break-glass. Do not deploy this PR as normal STG until merge/landing decision. |
+| Judge review | Re-review pending | Latest judge caught the analytics-event boot P0; that fix needs push and judge recheck before signoff. |
+| PR raised/pushed | In progress | PR #259 is open; local fixes must be committed/pushed after tests. |
+| STG deploy | Blocked by maintainer confirmation | Do not deploy. Maintainer explicitly requires confirmation/signoff first and wants to know whether all bugs are fixed. |
 | Live STG verification | Pending | After deploy: Cloud Run logs, event route split, Work Board/Weights live E2E, public PageSpeed/Lighthouse. |
 | Final completion | Pending | Requires STG deploy/live verification or explicit instruction to stop at PR-only. |
 
@@ -65,6 +67,10 @@ Latest functional change: `cd2a250e66a2d49f25a2f32469fa0e6732bb2f17` (`fix(stg):
 - Other APIs were also slow in the same window: `/admin-web/bootstrap` averaged about 7.6s,
   `/feed-packing/worklist` about 4.9s, `/weighing/leadership/growth` about 2.2s,
   `/weighing/shed-weights` about 2.1s, and `/app/vaccination/execution` about 1.1s.
+- A later live check on the still-unfixed deployed SHA also showed mobile
+  `/calendar/vaccination/events` calls at 10-16s and `/app/vaccination/execution` around 18s. The
+  PR fixes the safe request-shape issue for those paths, but the final proof must come from live
+  logs after a confirmed STG deploy.
 - The admin page opened "All parks" by firing 10 backend requests in parallel: two summaries and
   eight lane row reads. With a module filter it could add more summary reads for vocabulary.
 - Mobile analytics/events were high volume and shared the same API/DB lane, but Work Board was the
@@ -143,6 +149,11 @@ the slowest observed call.
   service yet. It fails closed unless the dedicated `goatos-events-stg` service account exists,
   preserving the separate service identity, route mode, event cap, DB pool cap, min scale `0`, and
   max scale `1`.
+- Because the current `api` bootstrap constructs proof storage before route filtering, the event
+  lane now also carries the proof-media boot env (`GOATOS_MEDIA_STORAGE=gcs`, the staging proof
+  bucket, and the proof GCS service account JSON secret). This is a boot requirement only; event
+  route mode still registers only the analytics-events route and does not expose proof endpoints on
+  the event lane.
 - Remaining deployment requirement: live traffic must be routed to the events lane. The safe
   transparent production shape is a URL-map path rule sending `/app/analytics/events` to
   `goatos-analytics-events-stg` while all business API paths stay on `goatos-api-stg`. This PR adds
