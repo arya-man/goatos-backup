@@ -6980,19 +6980,19 @@ func pageSpecificCopy(id string) map[string]string {
 			"followup.empty":               "No operator steps yet.",
 			// Read-side description of the authored steps (SOP drawer + the editor's series preview):
 			// the rounds the engine will schedule for one animal, in farm words.
-			"followup.drawer.title":        "What the operator does after the event",
-			"followup.drawer.subtitle":     "from the published SOP; a repeating round is listed once per time it runs",
-			"followup.preview.series":      "Runs {n} times per animal — rounds already past when the event is recorded are skipped:",
-			"followup.day.event":           "event day",
-			"followup.day.after":           "+{d} day(s)",
-			"followup.due.right_away":      "right away",
-			"followup.due.after_event":     "{n} min after the event",
-			"followup.due.fixed_time":      "day +{d} at {t}",
-			"followup.due.series":          "{n} rounds · {times} · {days} day(s)",
-			"followup.due.after_step":      "{n} min after \"{step}\"",
-			"followup.proof.videos":        "{n} video(s)",
-			"followup.proof.photos":        "{n} photo(s)",
-			"followup.step.only_when":      "only when the kid pen could not be resolved",
+			"followup.drawer.title":    "What the operator does after the event",
+			"followup.drawer.subtitle": "from the published SOP; a repeating round is listed once per time it runs",
+			"followup.preview.series":  "Runs {n} times per animal — rounds already past when the event is recorded are skipped:",
+			"followup.day.event":       "event day",
+			"followup.day.after":       "+{d} day(s)",
+			"followup.due.right_away":  "right away",
+			"followup.due.after_event": "{n} min after the event",
+			"followup.due.fixed_time":  "day +{d} at {t}",
+			"followup.due.series":      "{n} rounds · {times} · {days} day(s)",
+			"followup.due.after_step":  "{n} min after \"{step}\"",
+			"followup.proof.videos":    "{n} video(s)",
+			"followup.proof.photos":    "{n} photo(s)",
+			"followup.step.only_when":  "only when the kid pen could not be resolved",
 		}
 		// Per-module copy: crumb names the owning vertical, and the builder's domain lock names
 		// the module the page is scoped to (SOP split, maintainer decision 2026-08-18).
