@@ -114,16 +114,9 @@ export async function WorkBoardPage({ searchParams, pageContract }: { searchPara
   const sp = searchParams ?? {};
   const scope = parseScope(sp);
   const parks = parkOptions(pageContract);
-  // The board is bounded to one park per request. The top-bar park chip carries the choice;
-  // company-wide scope opens on the first park rather than fanning out one read per park.
-  const park = parks.find((option) => option.key === scope.parkId) ?? parks[0];
-  // ONE park, named ONCE. Opening on the first park while the URL still said company-wide
-  // left the top-bar chip reading "All parks" beside a board headed "CPT" -- two park
-  // controls on one screen disagreeing. The choice lives in the URL, so put it there: a
-  // company-wide or unknown-park request resolves to the park the board is about to show.
-  if (park && (scope.mode !== "park" || scope.parkId !== park.key)) {
-    redirect(hrefWithParams(WORK_BOARD_PATH, sp, { [PARAM_PARK]: park.key, scope_mode: "park" }));
-  }
+  const chosenPark = scope.parkId ? parks.find((option) => option.key === scope.parkId) : undefined;
+  // No park chosen = every park the caller has; a chosen chip narrows to that one park.
+  const activeParks = chosenPark ? [chosenPark] : parks;
   const requestedDate = one(sp, PARAM_DATE);
   const businessDate = requestedDate && DATE_RE.test(requestedDate) ? requestedDate : todayIso();
   const allModules = moduleOptions(pageContract);

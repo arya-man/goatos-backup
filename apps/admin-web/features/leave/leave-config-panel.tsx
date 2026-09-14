@@ -84,7 +84,7 @@ export function LeaveConfigPanel({
           </div>
         ) : null}
         {message ? (
-          <div className={`small ${message.tone === "ok" ? "" : "muted"}`} style={{ marginTop: 8, color: message.tone === "dng" ? "var(--dng)" : undefined }}>
+          <div className={`small ${message.tone === "ok" ? "" : "muted"}`} style={{ marginTop: 8, color: message.tone === "dng" ? "var(--danger)" : undefined }}>
             {message.text}
           </div>
         ) : null}

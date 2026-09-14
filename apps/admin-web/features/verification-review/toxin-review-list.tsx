@@ -260,32 +260,9 @@ function ToxinDrawer({
                 <div>
                   <div className="bt">{text("toxin.drawer.strip_photo")}</div>
                   {loaded?.proofUrls[task.strip_photo_ref] ? (
-                    // A signed, short-lived proof URL on an external media host: next/image would
-                    // proxy and cache evidence, so this stays a plain <img> (vr-image-proof
-                    // precedent in verification-review-drawer.tsx).
-                    //
-                    // The media box MUST be position:relative and sized. `.vr-image-link` is
-                    // `position:absolute; inset:0; background:#000` and `.vr-image-proof` is
-                    // width/height 100% -- both are built to fill the verification drawer's
-                    // positioned `.vr-player` box. Used without such a parent the link escapes to
-                    // the nearest positioned ancestor (the modal itself) and paints the WHOLE
-                    // drawer black: the reviewer sees no steps, no reading, and no Accept button.
-                    // This box is that parent, so the evidence stays a fixed area whatever the
-                    // media does -- including an image that cannot be decoded.
-                    //
-                    // Written as a `//` comment, NOT `{/* */}`: this sits in a JSX EXPRESSION
-                    // position (the `? (` branch), where a braced comment parses as an object
-                    // literal and breaks the file. Braced comments are for JSX CHILDREN only.
-                    <div style={{ position: "relative", height: 320, overflow: "hidden", borderRadius: "var(--r)" }}>
-                      <a href={loaded.proofUrls[task.strip_photo_ref] ?? undefined} target="_blank" rel="noreferrer" className="vr-image-link">
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img
-                          className="vr-image-proof"
-                          src={loaded.proofUrls[task.strip_photo_ref] ?? undefined}
-                          alt={text("toxin.drawer.strip_photo")}
-                        />
-                      </a>
-                    </div>
+                    <a className="lk" href={loaded.proofUrls[task.strip_photo_ref] ?? undefined} target="_blank" rel="noreferrer">
+                      {copy(pageContract, "drawer.media.open")}
+                    </a>
                   ) : (
                     <div className="muted small">{copy(pageContract, "drawer.media.empty")}</div>
                   )}

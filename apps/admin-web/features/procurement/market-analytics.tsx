@@ -224,7 +224,7 @@ export async function MarketAnalyticsPage({
                           return (
                             <td key={q.id} className="num" title={`${copy(pageContract, "column.recorded_on")} ${humanDate(cell.business_date)}`}>
                               <b>{priceWithUnit(cell.price, cell.unit_label)}</b>
-                              <div className="small" style={{ color: delta == null ? "var(--mut)" : delta > 0 ? "var(--ok)" : delta < 0 ? "var(--danger)" : "var(--mut)" }}>
+                              <div className="small" style={{ color: delta == null ? "var(--muted)" : delta > 0 ? "var(--ok)" : delta < 0 ? "var(--danger)" : "var(--muted)" }}>
                                 {delta == null
                                   ? copy(pageContract, "value.no_previous")
                                   : `${delta > 0 ? "▲" : delta < 0 ? "▼" : "•"} ${num(Math.abs(delta), Number.isInteger(delta) ? 0 : 2)}`}

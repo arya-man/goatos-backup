@@ -16,6 +16,8 @@ import type { ProcurementVendorOption, ProcurementVendorOptions } from "@/lib/ap
 import { ThemedDatePicker } from "@/components/themed-date-picker";
 import { fmtDate, istDayPlus, todayIso } from "@/lib/format";
 import { dealStatusTone, humanDate, inr, num } from "./sales-format";
+import { newSaleLine, type SaleLineDraft } from "./sale-lines";
+import { SaleLinesEditor } from "./sale-lines-editor";
 import {
   deleteSalesDealPaymentAction,
   recordSaleAction,

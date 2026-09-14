@@ -128,7 +128,7 @@ function AssigneePicker({ pageContract, owners, cardsByOwner, selected, onSelect
         </button>
       ) : null}
       {owners.length === 0 || current ? (
-        <button type="button" className={`more${owners.length === 0 ? " assignee-empty" : ""}${open ? " on" : ""}`} aria-expanded={open} aria-label={copy(pageContract, "filter.assignee")} onClick={toggle} style={owners.length === 0 ? { width: "auto", minWidth: 104, padding: "0 14px", borderRadius: 999, lineHeight: "1" } : undefined}>
+        <button type="button" className={`more${owners.length === 0 ? " assignee-empty" : ""}${open ? " on" : ""}`} aria-expanded={open} aria-label={copy(pageContract, "filter.assignee")} onClick={toggle} style={owners.length === 0 ? { width: "auto", minWidth: 104, padding: "0 14px", borderRadius: "var(--r-pill)", lineHeight: "1" } : undefined}>
           {owners.length === 0 ? copy(pageContract, "filter.assignee") : "▾"}
         </button>
       ) : null}

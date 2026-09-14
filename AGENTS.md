@@ -139,6 +139,13 @@ title after `gh pr create`, because `gh` takes it from your `--title` flag and
 will not correct it. Older titles in `git log` predate the rule; match the most
 recent merged PRs, not the historical average.
 
+Before giving Ravi any screenshot, screen recording, or image as proof of a UI
+state, Codex/Claude must validate the artifact visually first: open the captured
+file, confirm it shows the requested target screen/state and not login,
+loading, an error page, stale content, or the wrong route, and only then present
+it. If the artifact cannot be visually validated, do not present it as proof;
+say exactly what blocked validation and recapture or ask for the missing auth.
+
 ## PR Review + Land Main Rule
 
 When the maintainer asks to review a GitHub PR and land main, the task is not
