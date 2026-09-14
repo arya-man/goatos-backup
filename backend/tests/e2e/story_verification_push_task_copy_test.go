@@ -124,7 +124,7 @@ func TestKernelStory_VerificationPushCopyIsTaskLevel(t *testing.T) {
 
 	for _, who := range []struct{ name, token string }{{"park head", tokenParkHead}, {"health director", tokenDirector}, {"CEO", tokenCEO}} {
 		push := pushFor(fx, itemID, who.token, "verification_pending")
-		story.Assert(who.name+" pending title is 'Pen move video pending'", push.title == "Pen move video pending", "title=%q", push.title)
+		story.Assert(who.name+" pending title is 'Pen move verification pending'", push.title == "Pen move verification pending", "title=%q", push.title)
 		story.Assert(who.name+" pending body leads with the same subject",
 			push.body == head+" — video verification is pending.", "body=%q", push.body)
 		story.Assert(who.name+" pending copy never says 'counts'", !strings.Contains(strings.ToLower(push.title+push.body), "counts"), "%q / %q", push.title, push.body)

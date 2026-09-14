@@ -120,7 +120,7 @@ func TestLifecyclePushesLeadWithTheItemsOwnSubject(t *testing.T) {
 		{
 			name: "pending/leadership", event: EventVerificationItemPending,
 			notifType: NotificationTypeVerificationPending, messageKey: "counts.proof.pending.leadership",
-			wantTitle: "Pen move video pending",
+			wantTitle: "Pen move verification pending",
 			wantBody:  head + " — video verification is pending.",
 		},
 		{
@@ -222,7 +222,7 @@ func TestSubjectlessItemNamesTaskAndPen(t *testing.T) {
 		t.Fatalf("HandleEvent: %v", err)
 	}
 	got := queuedByType(t, queue, NotificationTypeVerificationPending, "feed.proof.pending.leadership")
-	if got.Title != "Feed transport video pending" {
+	if got.Title != "Feed transport verification pending" {
 		t.Errorf("title = %q", got.Title)
 	}
 	if want := "Feed transport · Sumathi 1 (Coimbatore) — video verification is pending."; got.Body != want {
