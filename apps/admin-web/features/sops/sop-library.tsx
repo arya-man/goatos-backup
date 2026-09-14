@@ -26,6 +26,7 @@ import {
   Zap,
 } from "lucide-react";
 import { type SopCardView, type SopTrigger } from "./sop-derive";
+import { FollowUpStepsSummary } from "./followup-summary";
 import { copy, tablePageSizes, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 
 // The New SOP builder is a dedicated full-page surface at <module SOP page>?compose=1 — the same
@@ -371,6 +372,7 @@ function SopDetailModal({ view, pageContract, onClose, onEdit }: { view: SopCard
               {copy(pageContract, "empty.no_published_fields")}
             </div>
           )}
+          {view.followUpStepCount > 0 ? <FollowUpStepsSummary pageContract={pageContract} formDsl={view.followUpFormDsl} /> : null}
         </div>
 
         <div className="cfgmf">

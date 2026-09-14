@@ -265,6 +265,8 @@ export type SopCardView = {
   fields: Array<{ label: string; type: string; required: boolean; options: string[]; helpText: string | null }>;
   // Operator steps authored in form_dsl.follow_up (SOP-driven herd operations); 0 when absent.
   followUpStepCount: number;
+  // The published version's follow_up document, for the drawer to list what the phone runs.
+  followUpFormDsl: unknown;
 };
 
 // toSopView maps the real API rows to the card facets. Everything is derived — no invented inventory.
@@ -292,6 +294,7 @@ export function toSopView(def: SopDefLike, version: SopVersionLike | null): SopC
       ? deriveFields(version.form_dsl).map((f) => ({ label: f.label, type: f.type, required: f.required, options: f.options, helpText: f.helpText }))
       : [],
     followUpStepCount: version ? deriveFollowUpStepCount(version.form_dsl) : 0,
+    followUpFormDsl: version ? version.form_dsl : null,
   };
 }
 

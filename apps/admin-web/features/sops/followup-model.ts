@@ -271,3 +271,74 @@ export function followUpProblems(rows: FollowUpRows, answerKinds: Record<string,
   }
   return problems;
 }
+
+// ---------------------------------------------------------------------------------------------
+// Read-side description of the authored steps: what the phone will actually schedule for ONE
+// animal. Mirrors tasks/domain.expandSeries (sorted times × days, ordinal titles) so the SOP
+// drawer and the editor's series preview show the same rounds the engine stamps.
+// ---------------------------------------------------------------------------------------------
+
+export type FollowUpCopy = (key: string, vars?: Record<string, string | number>) => string;
+
+export function ordinal(n: number): string {
+  const mod100 = n % 100;
+  if (mod100 >= 11 && mod100 <= 13) return `${n}th`;
+  switch (n % 10) {
+    case 1: return `${n}st`;
+    case 2: return `${n}nd`;
+    case 3: return `${n}rd`;
+    default: return `${n}th`;
+  }
+}
+
+function sortedTimes(csv: string): string[] {
+  return csv
+    .split(",")
+    .map((t) => t.trim())
+    .filter((t) => /^\d{2}:\d{2}$/.test(t))
+    .sort();
+}
+
+export type ExpandedRound = { title: string; dayOffset: number; time: string };
+
+// expandSeriesRows lists every round a series step produces: day 0 = the event day (rounds
+// already past at the event are skipped by the engine), then day 1, 2, … ; ordinals continue
+// from `ordinalStart` so "2nd Colostrum" follows the separately authored "1st Colostrum".
+export function expandSeriesRows(step: FollowUpStepRow): ExpandedRound[] {
+  if (step.scheduleKind !== "series") return [];
+  const times = sortedTimes(step.times);
+  const out: ExpandedRound[] = [];
+  let n = step.ordinalStart;
+  for (let d = 0; d < Math.max(1, step.days); d++) {
+    for (const t of times) {
+      const title = step.titlePattern.trim()
+        ? step.titlePattern.replace("{ordinal}", ordinal(n)).replace("{time}", t).replace("{day}", String(d))
+        : `${ordinal(n)} ${step.title}`.trim();
+      out.push({ title, dayOffset: d, time: t });
+      n += 1;
+    }
+  }
+  return out;
+}
+
+export function describeDue(step: FollowUpStepRow, copy: FollowUpCopy, stepTitleByKey: Record<string, string> = {}): string {
+  switch (step.scheduleKind) {
+    case "after_event":
+      return copy("followup.due.after_event", { n: step.offsetMinutes });
+    case "at_fixed_time":
+      return copy("followup.due.fixed_time", { d: step.dayOffset, t: step.time.trim() });
+    case "series":
+      return copy("followup.due.series", { n: expandSeriesRows(step).length, times: sortedTimes(step.times).join(", "), days: step.days });
+    case "after_step":
+      return copy("followup.due.after_step", { n: step.offsetMinutes, step: stepTitleByKey[step.afterStep] || step.afterStep });
+    default:
+      return copy("followup.due.right_away");
+  }
+}
+
+export function describeProof(step: FollowUpStepRow, copy: FollowUpCopy): string {
+  const parts: string[] = [];
+  if (step.proofVideos > 0) parts.push(copy("followup.proof.videos", { n: step.proofVideos }));
+  if (step.proofPhotos > 0) parts.push(copy("followup.proof.photos", { n: step.proofPhotos }));
+  return parts.join(" · ");
+}
