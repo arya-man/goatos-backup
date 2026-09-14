@@ -181,25 +181,23 @@ internal fun PenVisitCard(card: PenVisitCardUi, onOpen: () -> Unit) {
             )
         }
         Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Row(
+            // Backend-composed pen label, verbatim — the one line that names where to go. It
+            // owns the whole width and may wrap: sharing a row with the chip squeezed
+            // "Sumathi 2 - Part 1" down to "Su…" beside "Visit delayed since 10/09/2026"
+            // (maintainer, 2026-09-14), and a pen the park head cannot read is a card he
+            // cannot act on. The chip sits under it, where its length costs nothing.
+            Text(
+                text = card.penLabel,
+                color = MeshaColors.Ink,
+                style = MeshaType.cardTitle,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                // Backend-composed pen label, verbatim — the one line that names where to go.
-                Text(
-                    text = card.penLabel,
-                    color = MeshaColors.Ink,
-                    style = MeshaType.cardTitle,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f),
-                )
-                if (card.sending) {
-                    PenVisitSendingMark()
-                } else {
-                    PenVisitStateChip(label = card.stateChip, tone = card.tone)
-                }
+            )
+            if (card.sending) {
+                PenVisitSendingMark()
+            } else {
+                PenVisitStateChip(label = card.stateChip, tone = card.tone)
             }
             // Backend-composed reason line ("Vaccination yesterday"), verbatim -- WHY the pen is
             // on the list is the second thing a park head reads, right under WHERE.
