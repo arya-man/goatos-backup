@@ -62,7 +62,7 @@ resource "google_cloud_run_v2_service" "api" {
 
       env {
         name  = "GOATOS_ANALYTICS_MAX_IN_FLIGHT"
-        value = "2"
+        value = "1"
       }
 
       env {
@@ -449,7 +449,7 @@ resource "google_cloud_run_v2_service" "analytics_events" {
 
       env {
         name  = "GOATOS_ANALYTICS_MAX_IN_FLIGHT"
-        value = "2"
+        value = "1"
       }
 
       env {

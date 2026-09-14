@@ -173,6 +173,11 @@ test("analytics events has an isolated capped deploy lane", () => {
 
   assert.match(
     eventsService,
+    /GOATOS_ANALYTICS_MAX_IN_FLIGHT"[\s\S]*?value\s*=\s*"1"/,
+    "analytics events must allow only one in-flight event write per instance",
+  );
+  assert.match(
+    eventsService,
     /GOATOS_PG_MAX_CONNS"[\s\S]*?value\s*=\s*"2"/,
     "analytics events must have a tiny DB pool",
   );
@@ -200,7 +205,7 @@ test("analytics events has an isolated capped deploy lane", () => {
   assert.match(script, /GOATOS_GCS_BUCKET=goatos-stg-media/);
   assert.match(script, /GOATOS_GCS_SERVICE_ACCOUNT_JSON=goatos-stg-gcs-service-account-json:latest/);
   assert.match(script, /GOATOS_AUTH_SESSION_ALLOWED_TENANT_IDS=\$\{GOATOS_STG_TENANT_ID\}/);
-  assert.match(script, /GOATOS_ANALYTICS_MAX_IN_FLIGHT=2/);
+  assert.match(script, /GOATOS_ANALYTICS_MAX_IN_FLIGHT=1/);
   assert.match(script, /GOATOS_PG_MAX_CONNS=2/);
   assert.match(script, /run_analytics_events_routing/);
   assert.match(script, /service_image "\$ANALYTICS_EVENTS_SERVICE"/);

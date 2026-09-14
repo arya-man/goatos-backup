@@ -286,7 +286,7 @@ print("\t".join([
   [[ "$max" == "1" ]] || die "goatos-analytics-events-stg max scale drift: got ${max:-unset} want 1"
   [[ "$concurrency" == "20" ]] || die "goatos-analytics-events-stg concurrency drift: got ${concurrency:-unset} want 20"
   [[ "$route_mode" == "events" ]] || die "goatos-analytics-events-stg route mode drift: got ${route_mode:-unset} want events"
-  [[ "$max_in_flight" == "2" ]] || die "goatos-analytics-events-stg event cap drift: got ${max_in_flight:-unset} want 2"
+  [[ "$max_in_flight" == "1" ]] || die "goatos-analytics-events-stg event cap drift: got ${max_in_flight:-unset} want 1"
   [[ "$pg_max" == "2" ]] || die "goatos-analytics-events-stg pg pool drift: got ${pg_max:-unset} want 2"
   echo "verified analytics events shape: min=$min max=$max concurrency=$concurrency route_mode=$route_mode event_cap=$max_in_flight pg_max=$pg_max"
 }
