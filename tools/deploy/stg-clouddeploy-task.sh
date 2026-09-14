@@ -141,6 +141,26 @@ service_account_exists() {
   gcloud iam service-accounts describe "$1" --project="$PROJECT_ID" >/dev/null 2>&1
 }
 
+secret_accessor_exists() {
+  local secret="$1"
+  local service_account="$2"
+  local policy
+
+  policy="$(gcloud secrets get-iam-policy "$secret" --project="$PROJECT_ID" --format=json)"
+  python3 -c '
+import json
+import sys
+
+service_account = sys.argv[1]
+member = f"serviceAccount:{service_account}"
+policy = json.load(sys.stdin)
+for binding in policy.get("bindings", []):
+    if binding.get("role") == "roles/secretmanager.secretAccessor" and member in binding.get("members", []):
+        sys.exit(0)
+sys.exit(1)
+' "$service_account" <<<"$policy"
+}
+
 run_analytics_events_routing() {
   if [[ -x tools/deploy/stg-analytics-events-routing.sh ]]; then
     run tools/deploy/stg-analytics-events-routing.sh
@@ -364,6 +384,8 @@ deploy() {
   gcloud run services describe "$ADMIN_WEB_SERVICE" --project="$PROJECT_ID" --region="$REGION" >/dev/null
   service_account_exists "$ANALYTICS_EVENTS_SERVICE_ACCOUNT" ||
     die "analytics events service account $ANALYTICS_EVENTS_SERVICE_ACCOUNT is absent; apply infra or create the dedicated runtime account before deploy"
+  secret_accessor_exists "goatos-stg-gcs-service-account-json" "$ANALYTICS_EVENTS_SERVICE_ACCOUNT" ||
+    die "analytics events service account $ANALYTICS_EVENTS_SERVICE_ACCOUNT cannot read goatos-stg-gcs-service-account-json; apply infra before deploy"
   gcloud iam service-accounts describe "$HERD_SIGNALS_MQTT_BRIDGE_SERVICE_ACCOUNT" --project="$PROJECT_ID" >/dev/null
   gcloud run jobs describe "$MIGRATE_JOB" --project="$PROJECT_ID" --region="$REGION" >/dev/null
   if ! job_exists "$VACCINATION_SCHEDULE_PROJECTOR_JOB"; then
