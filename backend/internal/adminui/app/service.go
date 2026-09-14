@@ -5812,7 +5812,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"label.dry_matter_factor_note":    "Share of the item that is dry matter — greater than 0 and at most 1. Blank means not measured.",
 			"label.wastage_factor_note":       "Expected wastage share — at least 0 and less than 1. Blank means not measured; 0 means no wastage is expected.",
 			"label.display_order_note":        "Where the item sits in the lists on this page. Leave it blank to add the item at the end.",
-			"action.add_feed_item":            "Add feed type",
+			"action.add_feed_item":            "Add feed item",
 			// Both lines name BOTH remaining steps on purpose. Saying only "a rate still has to be
 			// entered" reads as though a quantity is sufficient, and it is not: a feed is served only
 			// once a session serves it, so an authored quantity on an undeclared feed reaches nobody.
