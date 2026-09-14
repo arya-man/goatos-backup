@@ -1,0 +1,30 @@
+<title>goatos docs viewer</title>
+<meta charset="utf-8">
+<style>
+body{margin:0;font:15px/1.6 -apple-system,system-ui,sans-serif;display:flex;height:100vh;color:#1f2328;background:#fff}
+nav{width:300px;overflow:auto;border-right:1px solid #ddd;padding:12px;background:#f6f8fa;flex-shrink:0}
+nav h3{margin:8px 0 4px;font-size:13px;text-transform:uppercase;color:#57606a}
+nav a{display:block;padding:3px 6px;color:#0969da;text-decoration:none;border-radius:4px;font-size:13px;word-break:break-all}
+nav a.on{background:#dbe9ff}
+main{flex:1;overflow:auto;padding:24px 40px;max-width:1000px}
+pre{background:#f6f8fa;padding:12px;overflow:auto}code{font-size:13px}
+table{border-collapse:collapse}td,th{border:1px solid #ddd;padding:4px 8px}
+</style>
+<nav id="nav"></nav><main id="doc">Pick a document.</main>
+<script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
+<script>
+mermaid.initialize({startOnLoad:false});
+const root=new URLSearchParams(location.search).get('root')||'litho.docs';
+fetch('files.json').then(r=>r.json()).then(all=>{
+  const files=all[root]||[];const nav=document.getElementById('nav');
+  nav.innerHTML=`<h3>${root}</h3>`+files.map(f=>`<a href="#${encodeURIComponent(f)}">${f}</a>`).join('');
+  const load=()=>{const f=decodeURIComponent(location.hash.slice(1))||files[0];if(!f)return;
+    nav.querySelectorAll('a').forEach(a=>a.classList.toggle('on',decodeURIComponent(a.hash.slice(1))===f));
+    fetch(root+'/'+f).then(r=>r.text()).then(t=>{
+      const d=document.getElementById('doc');
+      d.innerHTML=marked.parse(t.replace(/^---[\s\S]*?\n---\n/,''));
+      d.querySelectorAll('code.language-mermaid').forEach(c=>{const p=c.parentElement;const m=document.createElement('pre');m.className='mermaid';m.textContent=c.textContent;p.replaceWith(m)});
+      mermaid.run({querySelector:'.mermaid'}).catch(()=>{});d.scrollTop=0;});};
+  window.onhashchange=load;load();});
+</script>
