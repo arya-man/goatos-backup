@@ -33,7 +33,7 @@ const shedSubtaskRankExpr = `CASE
 // (rank, shed_id). The whole shed count rides count(*) OVER () before the keyset cut.
 //
 // projection-review: membership=the activity's rows for ONE tenant, park and work-day (the SAME
-// predicate metricsSQL binds); group_key=(shed_id, partition_label) the PEN, pre-aggregated by MIN(laneRank)/BOOL_OR before
+// predicate metricsSQL binds); group_key=(shed_id, partition_key) the PEN, pre-aggregated by MIN(laneRank)/BOOL_OR before
 // ranking so a pen with several sessions is one line; join_cardinality=locations on its primary
 // key (1:1), no fan-out; pagination=keyset on (rank, pen_key) ASC after ($5,$6) with LIMIT $7,
 // total by count(*) OVER () computed before the cut; scope=tenant_id($1), business_date($2),
@@ -42,12 +42,15 @@ func subtasksSQL(units string) string {
 	return `
 WITH units AS (` + units + `),
 pen AS (
-  SELECT shed_id, partition_label, MIN(` + laneRankExpr + `) AS lane_rank, BOOL_OR(st = 'rejected') AS any_rej
-  FROM units GROUP BY shed_id, partition_label
+  SELECT shed_id, partition_key,
+         (ARRAY_AGG(partition_label ORDER BY (partition_label = lower(partition_label)), partition_label)
+          FILTER (WHERE partition_label <> ''))[1] AS partition_label,
+         MIN(` + laneRankExpr + `) AS lane_rank, BOOL_OR(st = 'rejected') AS any_rej
+  FROM units GROUP BY shed_id, partition_key
 ),
 ranked AS (
-  SELECT s.shed_id, s.partition_label, s.lane_rank, s.any_rej, ` + shedSubtaskRankExpr + ` AS rank,
-         s.shed_id::text || '|' || s.partition_label AS pen_key,
+  SELECT s.shed_id, COALESCE(s.partition_label, '') AS partition_label, s.partition_key, s.lane_rank, s.any_rej, ` + shedSubtaskRankExpr + ` AS rank,
+         s.shed_id::text || '|' || s.partition_key AS pen_key,
          count(*) OVER () AS total
   FROM pen s
 )
