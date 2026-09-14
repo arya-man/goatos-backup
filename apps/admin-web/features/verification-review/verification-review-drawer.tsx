@@ -646,10 +646,7 @@ function VerificationReviewDrawerPanel({
                     <img className="vr-image-proof" src={resolvedMediaUrls[activeMedia.proof_id]} alt={activeMedia.label || subjectHeading || text("drawer.media.title")} />
                   </a>
 	                ) : (
-	                  <button type="button" className="vr-media-open" onClick={resolveActiveMedia} disabled={mediaPending}>
-	                    <span className="vr-media-open-mark"><ImageIcon className="ic" aria-hidden="true" /></span>
-	                    {text("drawer.media.open_photo")}
-	                  </button>
+	                  <div className="vr-player-empty">{text("drawer.media.loading_photo")}</div>
 	                )
               ) : (
                 <div className="vr-player-empty">{text("drawer.media.empty")}</div>
