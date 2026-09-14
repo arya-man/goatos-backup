@@ -82,6 +82,27 @@
       "ciStep": "admin-web-request-reads-guard"
     },
     {
+      "id": "admin-web-phone-viewport",
+      "script": "tools/agent-hooks/check-admin-web-phone-viewport.mjs",
+      "makeTarget": "admin-web-phone-viewport-guard",
+      "realCheck": "node tools/agent-hooks/check-admin-web-phone-viewport.mjs",
+      "selfTest": "node tools/agent-hooks/check-admin-web-phone-viewport.mjs --self-test",
+      "owningDoc": "docs/decisions/admin-web-phone-viewport.md",
+      "requiredInCI": true,
+      "ciStep": "admin-web-phone-viewport-guard",
+      "notes": "The admin-web dashboard is opened on phones: static scan for fixed px widths on non-scrolling boxes, grids whose px floor exceeds a phone, and overflow-x:hidden on page-level elements, ratcheted by a count baseline. Runtime proof is the 390px lane of smoke:visual:live."
+    },
+    {
+      "id": "admin-web-phone-viewport-on-edit",
+      "script": "tools/agent-hooks/check-admin-web-phone-viewport-on-edit.sh",
+      "makeTarget": null,
+      "realCheck": "bash tools/agent-hooks/check-admin-web-phone-viewport-on-edit.sh",
+      "selfTestExemptReason": "Editor-hook wrapper (PostToolUse in .claude/settings.json and .codex/hooks.json), not a CI gate: it re-runs the already-registered admin-web phone-viewport guard the moment an admin-web CSS/TSX file is edited so a fixed-width box surfaces at the decision point. The underlying guard carries the real check and its own self-test.",
+      "owningDoc": "docs/decisions/admin-web-phone-viewport.md",
+      "requiredInCI": false,
+      "ciStep": "check-admin-web-phone-viewport-on-edit.sh"
+    },
+    {
       "id": "admin-web-proof-media-egress",
       "script": "tools/agent-hooks/check-admin-web-proof-media-egress.mjs",
       "makeTarget": "admin-web-proof-media-egress-guard",

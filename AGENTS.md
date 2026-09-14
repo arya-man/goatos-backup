@@ -355,6 +355,25 @@ controllable. Only report "blocked" after naming the exact blocker and the exact
 command/browser step that proved it. Do not say the UI work is done until both
 visual regression and E2E are actually complete after the final edit.
 
+**HARD RULE - Admin-web must render on a PHONE (maintainer rule 2026-09-14, Claude
+AND Codex AND humans).** The dashboard is opened on phones as well as laptops, so
+every browser-visible `apps/admin-web` change -- a page, a table, a chart, a KPI
+strip, a drawer, a modal -- is proven at TWO widths, not one: the laptop mock
+width (1440px) AND a phone width (390px, Chrome device emulation). At phone width
+nothing may be clipped, nothing may be broken, and the page body must never scroll
+sideways; a wide table or chart may exceed the screen only inside its own
+`overflow-x: auto` wrapper a thumb can pan. The visual-regression proof above
+therefore includes a phone-width screenshot of the changed route after the final
+edit, next to the desktop one, and the click-through E2E is exercised at phone
+width too when the changed control is one a phone user would tap. Two halves
+enforce it: `make admin-web-phone-viewport-guard` (in the admin-web `ci-local`
+job; a static, count-ratcheted scan for fixed px widths >= 480 on non-scrolling
+boxes, grids whose px floor exceeds a phone, and `overflow-x:hidden` on page-level
+elements -- growing its baseline to land a finding is not accepted), and the 390px
+mobile lane of `npm --prefix apps/admin-web run smoke:visual:live`, which is the
+only thing that sees data-dependent overflow. A change proven only at laptop width
+is not proven. Canonical prose: `docs/decisions/admin-web-phone-viewport.md`.
+
 For any change that touches `apps/admin-web` Weights UI, Weights page copy,
 Weights charts, generated API contracts used by Weights, or backend read-model
 data consumed by `/weighing/weights`, verify the local Chrome page is not on

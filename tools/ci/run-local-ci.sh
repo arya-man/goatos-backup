@@ -672,6 +672,7 @@ run_admin_web() {
   step "admin-web unit tests"    npm --prefix apps/admin-web run test
   step "admin-web request reads" make admin-web-request-reads-guard
   step "admin-web proof media egress" make admin-web-proof-media-egress-guard
+  step "admin-web phone viewport"  make admin-web-phone-viewport-guard
   step "admin-web prefetch"      make admin-web-prefetch-guard
   step "admin-web local overlays" make admin-web-local-overlay-guard
   step "date-format-guard" make date-format-guard

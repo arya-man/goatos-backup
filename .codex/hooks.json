@@ -124,6 +124,12 @@
             "command": "bash tools/agent-hooks/check-weighing-isolation-on-edit.sh",
             "timeout": 60,
             "statusMessage": "Checking weighing isolation (no herd/vaccination tables)"
+          },
+          {
+            "type": "command",
+            "command": "bash tools/agent-hooks/check-admin-web-phone-viewport-on-edit.sh",
+            "timeout": 60,
+            "statusMessage": "Checking admin-web renders at phone width (no fixed-width boxes)"
           }
         ]
       },

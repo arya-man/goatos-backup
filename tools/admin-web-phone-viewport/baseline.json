@@ -1,0 +1,17 @@
+{
+  "_comment": "Count of known admin-web phone-viewport findings per file|rule. Shrink-only: regenerate with `node tools/agent-hooks/check-admin-web-phone-viewport.mjs --update-baseline` after FIXING debt; never grow it to land a new finding.",
+  "entries": {
+    "apps/admin-web/app/(admin)/action-center/loading.tsx|fixed-px-width": 1,
+    "apps/admin-web/app/(admin)/feed/config/loading.tsx|fixed-px-width": 1,
+    "apps/admin-web/app/(admin)/operations/audit/loading.tsx|fixed-px-width": 1,
+    "apps/admin-web/app/(admin)/people/loading.tsx|fixed-px-width": 1,
+    "apps/admin-web/app/(admin)/procurement/source-entry/loading.tsx|fixed-px-width": 1,
+    "apps/admin-web/app/(admin)/sales/loading.tsx|fixed-px-width": 1,
+    "apps/admin-web/app/(admin)/vaccination/loading.tsx|fixed-px-width": 1,
+    "apps/admin-web/app/(admin)/vaccination/plan/loading.tsx|fixed-px-width": 1,
+    "apps/admin-web/app/(admin)/verify/loading.tsx|fixed-px-width": 1,
+    "apps/admin-web/app/mesha-theme.css|fixed-px-width": 9,
+    "apps/admin-web/app/mesha-theme.css|page-overflow-hidden": 5,
+    "apps/admin-web/app/mesha-theme.css|px-grid-sum": 10
+  }
+}

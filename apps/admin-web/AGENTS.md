@@ -768,6 +768,16 @@ allowed product route or redirect.
   or old import-review screens.
 - Do not add direct BigQuery, Sheets, GCS, Firestore, or database access from
   frontend code.
+- **Every page renders on a phone** (maintainer rule 2026-09-14). The dashboard is
+  opened on phones; a change is proven at 1440px AND at 390px (Chrome device
+  emulation) after the final edit, and the phone screenshot goes in the handoff.
+  Nothing clipped, nothing broken, no sideways page scroll; wide tables/charts
+  scroll inside their own `overflow-x: auto` wrapper. Fixed px widths >= 480 on
+  ordinary boxes, grids with a px floor over 360, and `overflow-x: hidden` on
+  page-level elements are refused by `make admin-web-phone-viewport-guard`
+  (baseline is shrink-only); stack layouts under `@media (max-width: 600px)`
+  instead. The 390px lane of `npm run smoke:visual:live` is the runtime proof.
+  Canonical: `docs/decisions/admin-web-phone-viewport.md`.
 
 ## Removed From Active Admin-Web
 

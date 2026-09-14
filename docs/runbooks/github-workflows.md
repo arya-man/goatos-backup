@@ -351,6 +351,41 @@ The fix is a projection/summary endpoint that returns pre-aggregated counts. It 
 signature alone is NOT flagged — that is also the shape of a legitimate summary
 reader.
 
+### Step 4b: Admin-web phone-viewport guard
+
+Command:
+
+```text
+make admin-web-phone-viewport-guard            # what CI runs (whole tree, count-ratcheted)
+make admin-web-phone-viewport-guard-list       # every current finding with its line
+make admin-web-phone-viewport-baseline-update  # only after FIXING debt
+```
+
+Purpose:
+
+```text
+The admin-web dashboard is opened on phones (maintainer rule 2026-09-14): every
+page, table, chart and drawer must render at a 390px viewport without clipping,
+without breaking, and without the page body scrolling sideways. Runs
+tools/agent-hooks/check-admin-web-phone-viewport.mjs.
+```
+
+It flags `fixed-px-width` (a `width`/`min-width`/`flex-basis` >= 480px on a box that
+is not a table/svg/canvas/pre/media element or a named scroll container),
+`px-grid-sum` (a `grid-template-columns` whose px floor -- plain px tracks plus the
+minimum of each `minmax()`, times a numeric `repeat()` -- exceeds 360px) and
+`page-overflow-hidden` (`overflow-x: hidden` on `html`/`body`/`.main`/`.screen`/
+`.wrap`/`.page`, which hides the symptom). A declaration inside `@media (min-width…)`
+or overridden for the same selector inside a `@media (max-width: <=640px)` block is
+not flagged; `phone-viewport:ignore: <reason>` is the reviewer-facing escape hatch.
+Pre-existing debt is frozen per `(file, rule) -> count` in
+`tools/admin-web-phone-viewport/baseline.json`, shrink-only in both directions like
+the exception/telemetry ratchets. The runtime half is the 390px mobile lane of
+`npm --prefix apps/admin-web run smoke:visual:live`, which sees data-dependent
+overflow the static scan cannot. Both Claude and Codex also run the guard on every
+admin-web CSS/TSX edit through `check-admin-web-phone-viewport-on-edit.sh`
+(PostToolUse). Canonical prose: `docs/decisions/admin-web-phone-viewport.md`.
+
 ### Step 4b: Android bounded-memory guard
 
 Command:
