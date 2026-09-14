@@ -291,18 +291,20 @@ internal fun MarketSurveyCardDto?.fields(typed: Map<String, String>, errors: Map
  * but not a number, or a negative, is refused on the phone before anything is queued.
  */
 internal fun parseAnswers(fields: List<MarketQuestionFieldUi>): Pair<List<MarketSurveyAnswerDto>, Map<String, String>> {
-    val answers = mutableListOf<MarketSurveyAnswerDto>()
-    val errors = mutableMapOf<String, String>()
-    for (field in fields) {
-        val raw = field.value.trim()
-        if (raw.isEmpty()) continue
-        val parsed = raw.replace(",", "").toDoubleOrNull()
-        when {
-            parsed == null || parsed.isNaN() -> errors[field.questionId] = MarketCityEntryViewModel.ERROR_NOT_A_NUMBER
-            parsed < 0 -> errors[field.questionId] = MarketCityEntryViewModel.ERROR_NEGATIVE
-            else -> answers += MarketSurveyAnswerDto(questionId = field.questionId, price = parsed)
+    // One pass over the card's fields (bounded by the configured question count), each mapped to
+    // either an answer or the error naming why it is not one; blank fields map to neither.
+    val parsed = fields
+        .filter { it.value.isNotBlank() }
+        .map { field ->
+            val number = field.value.trim().replace(",", "").toDoubleOrNull()
+            field.questionId to when {
+                number == null || number.isNaN() -> Result.failure<Double>(IllegalArgumentException(MarketCityEntryViewModel.ERROR_NOT_A_NUMBER))
+                number < 0 -> Result.failure(IllegalArgumentException(MarketCityEntryViewModel.ERROR_NEGATIVE))
+                else -> Result.success(number)
+            }
         }
-    }
+    val answers = parsed.mapNotNull { (id, r) -> r.getOrNull()?.let { MarketSurveyAnswerDto(questionId = id, price = it) } }
+    val errors = parsed.mapNotNull { (id, r) -> r.exceptionOrNull()?.message?.let { id to it } }.toMap()
     return answers to errors
 }
 
