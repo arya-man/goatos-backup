@@ -20,7 +20,7 @@ ai-setup:
 	@if command -v uv >/dev/null 2>&1; then \
 		uv tool install --upgrade code-review-graph; \
 	elif command -v pipx >/dev/null 2>&1; then \
-		pipx install code-review-graph || pipx upgrade code-review-graph; \
+		pipx install code-review-graph || pipx upgrade code-review-graph || exit 1; \
 	else \
 		python3 -m pip install --user --upgrade code-review-graph; \
 	fi
@@ -29,7 +29,7 @@ ai-setup:
 	@if command -v uv >/dev/null 2>&1; then \
 		uv tool install --upgrade graphifyy; \
 	elif command -v pipx >/dev/null 2>&1; then \
-		pipx install graphifyy || pipx upgrade graphifyy; \
+		pipx install graphifyy || pipx upgrade graphifyy || exit 1; \
 	else \
 		python3 -m pip install --user --upgrade graphifyy; \
 	fi
@@ -67,7 +67,7 @@ ai-rebuild-docs:
 
 ai-rebuild-repowise:
 	@if command -v repowise >/dev/null 2>&1 && [ -d "$(REPO_ROOT)/.repowise" ]; then \
-		cd "$(REPO_ROOT)" && repowise update; \
+		cd "$(REPO_ROOT)" && repowise update --index-only; \
 	else \
 		bash tools/agent-hooks/repowise-setup.sh; \
 	fi

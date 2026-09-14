@@ -130,17 +130,42 @@ if [ "${REPOWISE_SETUP:-1}" != "0" ]; then
     require_cmd repowise
 fi
 
-if [ -d "$REPO/.code-review-graph" ]; then
-    note "  OK: .code-review-graph index present"
+is_head_or_parent() {
+    index_commit="$1"
+    [ -n "$index_commit" ] || return 1
+    head_commit="$(git rev-parse HEAD 2>/dev/null || true)"
+    parent_commit="$(git rev-parse HEAD^ 2>/dev/null || true)"
+    if [ "$index_commit" = "$head_commit" ]; then
+        return 0
+    fi
+    [ -n "$parent_commit" ] && [ "$index_commit" = "$parent_commit" ]
+}
+
+crg_db="$REPO/.code-review-graph/graph.db"
+if [ -s "$crg_db" ]; then
+    note "  OK: .code-review-graph/graph.db present"
 else
-    note "  MISSING: .code-review-graph index (run: make ai-setup)"
+    note "  MISSING: .code-review-graph/graph.db (run: make ai-setup)"
     fail=1
 fi
 if [ "${REPOWISE_SETUP:-1}" != "0" ]; then
-    if [ -d "$REPO/.repowise" ]; then
-        note "  OK: .repowise index present"
+    repowise_state="$REPO/.repowise/state.json"
+    repowise_db="$REPO/.repowise/wiki.db"
+    repowise_graph="$REPO/.repowise/knowledge-graph.json"
+    if [ -s "$repowise_state" ] && [ -s "$repowise_db" ] && [ -s "$repowise_graph" ]; then
+        repowise_commit="$(node -e 'const fs=require("fs"); const p=process.argv[1]; try { const s=JSON.parse(fs.readFileSync(p,"utf8")); process.stdout.write(s.last_sync_commit || ""); } catch (_) { process.exit(1); }' "$repowise_state" 2>/dev/null || true)"
+        repowise_mode="$(node -e 'const fs=require("fs"); const p=process.argv[1]; try { const s=JSON.parse(fs.readFileSync(p,"utf8")); process.stdout.write(s.run_mode || ""); } catch (_) { process.exit(1); }' "$repowise_state" 2>/dev/null || true)"
+        if [ -z "$repowise_commit" ]; then
+            note "  MISSING: .repowise/state.json last_sync_commit (run: make ai-setup)"
+            fail=1
+        elif is_head_or_parent "$repowise_commit"; then
+            note "  OK: .repowise index current enough (${repowise_commit}${repowise_mode:+, mode=$repowise_mode})"
+        else
+            note "  STALE: .repowise index at $repowise_commit, expected HEAD or HEAD^ (run: make ai-rebuild-repowise)"
+            fail=1
+        fi
     else
-        note "  MISSING: .repowise index (run: make ai-setup)"
+        note "  MISSING: .repowise index files state.json/wiki.db/knowledge-graph.json (run: make ai-setup)"
         fail=1
     fi
 fi

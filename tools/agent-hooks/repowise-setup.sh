@@ -24,7 +24,7 @@
 #   REPOWISE_SETUP=0            skip repowise entirely (CRG/Graphify/RTK still run)
 #   REPOWISE_GLOBAL_REGISTER=1  keep repowise's global registration (opt-in; only
 #                               safe on a single-org machine)
-set -uo pipefail
+set -euo pipefail
 
 [ "${REPOWISE_SETUP:-1}" = "0" ] && { echo "repowise-setup: skipped (REPOWISE_SETUP=0)"; exit 0; }
 
