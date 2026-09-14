@@ -20,9 +20,12 @@ class ProofMediaPreviewContractTest {
         assertTrue(source.contains("stableProofMediaIdentity(mediaIdentity)"))
         assertTrue(source.contains("loadCachedRemoteProofPhoto(context, path, mediaKey, remoteImageLoader)"))
         assertTrue(source.contains("proofPhotoMemoryCache.get(mediaKey)"))
+        assertTrue(source.contains("allocationByteCount / 1024"))
         assertTrue(source.contains("proofPhotoCacheFile(context, mediaKey)"))
         assertTrue(source.contains("proofPhotoCacheName(mediaKey)"))
         assertTrue(source.contains("not the rotating signed URL"))
+        assertTrue(source.contains("\"${'$'}{file.name}.tmp\""))
+        assertTrue(source.contains("pruneProofPhotoCache(file.parentFile)"))
         assertTrue(source.contains("playRequested by remember(mediaKey)"))
         assertTrue(source.contains("LaunchedEffect(path, player)"))
         assertTrue(source.contains("currentPlayer.setMediaItem(MediaItem.fromUri(Uri.parse(path)))"))
@@ -91,6 +94,10 @@ class ProofMediaPreviewContractTest {
         assertFalse(
             "The proof preview must not regress to a large text pill that covers the video frame.",
             source.contains("text = if (isPlaying) \"Pause\" else \"Play\""),
+        )
+        assertFalse(
+            "Photo proofs must not regress to a blank click-to-reveal tile.",
+            source.contains("Tap to open photo"),
         )
     }
 
