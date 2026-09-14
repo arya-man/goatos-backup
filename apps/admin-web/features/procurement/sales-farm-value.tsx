@@ -86,7 +86,7 @@ function FarmValueSections({
               <h3>{copy(pageContract, "section.farm_value.title")}</h3>
               <span className="muted small">{copy(pageContract, "section.farm_value.sub")}</span>
             </div>
-            <div className="grid g3 kpi-row sales-kpi-row">
+            <div className="grid g3 kpi-row sales-kpi-row sales-farm-value-row">
               <div className="kpi">
                 <div className="lab">{copy(pageContract, "kpi.farm_value")}</div>
                 <div className="val">{inr(overview.farm_valuation.total_value_rupees)}</div>

@@ -2699,7 +2699,7 @@
 @media (max-width:900px){.market-config-columns{grid-template-columns:1fr}}
 /* Lives INSIDE the Over 35 kg card as its footer: full width, parted from the figure by a rule,
    no panel box of its own, so it reads as that card's control rather than a page-wide one. */
-.sales-ready-tolerance{display:grid;grid-template-columns:auto minmax(120px,1fr) auto;align-items:center;gap:10px;margin-top:10px;padding-top:10px;border-top:1px solid var(--line);width:100%;max-width:100%;min-width:0}
+.sales-ready-tolerance{display:grid;grid-template-columns:auto minmax(120px,1fr) auto;align-items:center;gap:8px;margin-top:6px;padding-top:6px;border-top:1px solid var(--line);width:100%;max-width:100%;min-width:0}
 .sales-ready-tolerance-head{display:flex;align-items:baseline;gap:8px;color:var(--muted);font-size:11px;font-weight:700;letter-spacing:.35px;text-transform:uppercase;white-space:nowrap}
 .sales-ready-tolerance-head strong{color:var(--ink);font-size:12px;letter-spacing:0;text-transform:none;white-space:nowrap}
 .sales-ready-tolerance-row{display:grid;grid-template-columns:minmax(60px,1fr) auto;align-items:center;gap:8px;min-width:0}
@@ -3691,6 +3691,14 @@ select:disabled { opacity: .45; }
 .sales-vendor-search input{flex:1 1 auto;min-width:0}
 .sales-vendor-search .btn{flex:0 0 auto;white-space:nowrap}
 .sales-kpi-row .kpi .dl{color:var(--muted)}
+/* The Farm value row: the Over 35 kg card carries its margin footer, so the other two cards get
+   a little more room and their content is spread down the card rather than sitting on the lid. */
+.sales-farm-value-row .kpi{padding:18px 18px 16px}
+.sales-farm-value-row .kpi .val{margin-top:12px}
+.sales-farm-value-row .kpi .dl{margin-top:8px}
+.sales-farm-value-row .kpi:has(.sales-ready-tolerance){padding:14px 16px 12px}
+.sales-farm-value-row .kpi:has(.sales-ready-tolerance) .val{margin-top:4px}
+.sales-farm-value-row .kpi:has(.sales-ready-tolerance) .dl{margin-top:2px}
   /* Sales splits into two named blocks -- Farm value, then Sold (maintainer decision 2026-09-10).
      The heading is a rule-and-label, not another card: the tiles under it already carry the card
      edges, and wrapping a headed group in a second box would nest a card inside a card. */
