@@ -2,6 +2,7 @@ package e2e
 
 import (
 	"bytes"
+	"strings"
 	"testing"
 	"time"
 
@@ -160,31 +161,27 @@ func TestKernelStory_PenVisitAfterVaccination(t *testing.T) {
 		return
 	}
 
-	story.Step("The vaccination shed drilldown carries the visit as the pen's last step; the drive's buckets do not move",
-		"vaccinationexecution.ShedDrilldown attaches the pen's latest vaccination-raised visit through the "+
-			"pen-visit reader, composed for the caller; summary counts are the same with or without it.")
-	execService := vaccexecapp.NewService(fx.VaccExec).WithPenVisits(penRepo)
-	bare := vaccexecapp.NewService(fx.VaccExec)
+	story.Step("The visit is the visitor's own task on the Tasks module; the shed drilldown and the drive's buckets do not carry it",
+		"penvisits.ListMine serves the configured visitor's 'For me' list (maintainer decision 2026-09-14: a task of its own, "+
+			"never a step on the vaccination shed card); vaccinationexecution.ShedDrilldown reads no visit at all.")
+	execService := vaccexecapp.NewService(fx.VaccExec)
 	asOf := time.Now().UTC().Add(2 * time.Minute)
-	query := vaccexecdomain.ExecutionQuery{TenantID: fxTenant, ShedID: storyAAPtrString(shedID), ViewerActorID: visitorID, AsOf: asOf, DueBefore: now.AddDate(0, 0, 2), Limit: 20}
-	withStep, found, err := execService.ShedDrilldown(ctx, query)
-	without, foundBare, err2 := bare.ShedDrilldown(ctx, query)
-	story.Assert("the drilldown resolves the pen", err == nil && err2 == nil && found && foundBare, "err=%v/%v found=%v/%v", err, err2, found, foundBare)
-	story.Assert("the drilldown carries the visit step, owed today for the visitor, recordable by them", found && withStep.PenVisit != nil && withStep.PenVisit.TaskID == visit.TaskID && withStep.PenVisit.CanSubmit && !withStep.PenVisit.Verified, "penVisit=%+v", withStep.PenVisit)
-	story.Assert("the five-bucket summary is identical with and without the step attached", found && foundBare && withStep.Summary == without.Summary, "with=%+v without=%+v", withStep.Summary, without.Summary)
+	query := vaccexecdomain.ExecutionQuery{TenantID: fxTenant, ShedID: storyAAPtrString(shedID), AsOf: asOf, DueBefore: now.AddDate(0, 0, 2), Limit: 20}
+	before, found, err := execService.ShedDrilldown(ctx, query)
+	story.Assert("the drilldown resolves the pen", err == nil && found, "err=%v found=%v", err, found)
+	penVisits := penvisitsapp.NewService(penRepo).WithProofValidator(penvisitsproof.NewValidator(fx.Proof))
+	mine, err := penVisits.ListMine(ctx, fxTenant, visitorID, "todo", 20, "")
+	story.Assert("the visitor's For me list carries the visit, owed today, recordable by them", err == nil && len(mine.Rows) == 1 && mine.Rows[0].TaskID == visit.TaskID && mine.Rows[0].CanSubmit(penvisitsdomain.Actor{UserID: visitorID}) && !mine.Rows[0].IsVerified(), "err=%v rows=%+v", err, mine.Rows)
 
-	story.Step("On the visit's day the Work Board rows it under Vaccination, as the work continuing",
-		"A pen vaccinated alone rows under the Vaccination module -- never Preventive Care -- with the shed href.")
+	story.Step("On the visit's day the Work Board rows it under Tasks, as a task of its own",
+		"ONE pen-visit source rows every visit under the Tasks module -- never Preventive Care or Vaccination -- with no href (visits are phone-only).")
 	boardQuery := workboardports.SourceQuery{TenantID: fxTenant, ParkID: fxPark, BusinessDate: tomorrow, Limit: 50}
-	vaccRows, err := penvisitsboard.NewVaccination(fx.Pool, 10*time.Second).ListRows(ctx, boardQuery)
-	pcRows, err2 := penvisitsboard.NewPCCare(fx.Pool, 10*time.Second).ListRows(ctx, boardQuery)
-	story.Assert("the vaccination source rows the visit, titled as the work continuing, with the shed href", err == nil && len(vaccRows) == 1 && vaccRows[0].Module == workboarddomain.ModuleVaccination && vaccRows[0].Title == "Vaccination · E2E-PVV" && vaccRows[0].Href != "" && vaccRows[0].WorkState == workboarddomain.WorkStateDue, "err=%v rows=%+v", err, vaccRows)
-	story.Assert("the Preventive Care source does NOT row a vaccination-only visit (no double row)", err2 == nil && len(pcRows) == 0, "err=%v rows=%d", err2, len(pcRows))
+	vaccRows, err := penvisitsboard.New(fx.Pool, 10*time.Second).ListRows(ctx, boardQuery)
+	story.Assert("the Tasks source rows the visit, titled as the visit, the vaccination in its subtitle", err == nil && len(vaccRows) == 1 && vaccRows[0].Module == workboarddomain.ModuleTasks && vaccRows[0].Title == "Pen visit · E2E-PVV" && strings.HasPrefix(vaccRows[0].Subtitle, "Vaccination · work done ") && vaccRows[0].Href == "" && vaccRows[0].WorkState == workboarddomain.WorkStateDue, "err=%v rows=%+v", err, vaccRows)
 
-	story.Step("The visitor records the visit, the verifier approves it, the drilldown reads it as verified",
+	story.Step("The visitor records the visit, the verifier approves it, the For me list reads it as verified",
 		"Submit -> pen_visit.submitted -> the durable enqueue consumer -> ONE verifier item; approve ->"+
 			" the verdict applier -> the visit is verified on both dimensions.")
-	penVisits := penvisitsapp.NewService(penRepo).WithProofValidator(penvisitsproof.NewValidator(fx.Proof))
 	penvisitsapp.NewPendingVerificationHandler(penvisitsbridge.New(verification), nil).Register(fx.Bus)
 	relay := func() {
 		for i := 0; i < 2; i++ {
@@ -195,8 +192,8 @@ func TestKernelStory_PenVisitAfterVaccination(t *testing.T) {
 	submitted, err := penVisits.Submit(ctx, penvisitsports.SubmitParams{TenantID: fxTenant, Actor: penvisitsdomain.Actor{UserID: visitorID}, TaskID: visit.TaskID, ProofRef: captureVideo("task", visit.TaskID, "other", visit.TaskID, visitorID, "visit-1"), RowVersion: visit.RowVersion, IdempotencyKey: "pvv-visit-1", TraceID: "pvv-visit-1"})
 	story.Assert("the visit is submitted for review", err == nil && submitted.Status == penvisitsdomain.StatusPendingVerification, "err=%v visit=%+v", err, submitted)
 	relay()
-	inReview, found, err := execService.ShedDrilldown(ctx, query)
-	story.Assert("the drilldown's step reads in review and is no longer recordable", err == nil && found && inReview.PenVisit != nil && inReview.PenVisit.Status == penvisitsdomain.StatusPendingVerification && !inReview.PenVisit.CanSubmit, "err=%v penVisit=%+v", err, inReview.PenVisit)
+	inReview, err := penVisits.GetTask(ctx, fxTenant, penvisitsdomain.Actor{UserID: visitorID}, visit.TaskID)
+	story.Assert("the visit reads in review and is no longer recordable", err == nil && inReview.Status == penvisitsdomain.StatusPendingVerification && !inReview.CanSubmit(penvisitsdomain.Actor{UserID: visitorID}), "err=%v visit=%+v", err, inReview)
 	var itemIDStr, rowVersion string
 	if err := fx.Pool.QueryRow(ctx, `SELECT item_id::text, row_version::text FROM verification_items WHERE tenant_id=$1 AND source_module=$2 AND source_ref_id=$3::uuid ORDER BY created_at DESC LIMIT 1`, fxTenant, penvisitsapp.VerificationModule, visit.TaskID).Scan(&itemIDStr, &rowVersion); err != nil {
 		t.Fatalf("visit verification item: %v", err)
@@ -209,9 +206,10 @@ func TestKernelStory_PenVisitAfterVaccination(t *testing.T) {
 		t.Fatalf("verdict: %v", err)
 	}
 	relay()
-	verified, found, err := execService.ShedDrilldown(ctx, query)
-	story.Assert("the drilldown's step reads verified once the verifier approves the visit", err == nil && found && verified.PenVisit != nil && verified.PenVisit.Verified && verified.PenVisit.StateChip == "Visit verified", "err=%v penVisit=%+v", err, verified.PenVisit)
-	story.Assert("the drive's own buckets still did not move for the visit", found && verified.Summary == without.Summary, "after=%+v before=%+v", verified.Summary, without.Summary)
-	doneRows, err := penvisitsboard.NewVaccination(fx.Pool, 10*time.Second).ListRows(ctx, boardQuery)
+	verifiedVisit, err := penVisits.GetTask(ctx, fxTenant, penvisitsdomain.Actor{UserID: visitorID}, visit.TaskID)
+	story.Assert("the visit reads verified once the verifier approves it", err == nil && verifiedVisit.IsVerified() && penvisitsdomain.StateChip(verifiedVisit, tomorrow) == "Visit verified", "err=%v visit=%+v", err, verifiedVisit)
+	after, found, err := execService.ShedDrilldown(ctx, query)
+	story.Assert("the drive's own buckets did not move for the visit", err == nil && found && after.Summary == before.Summary, "after=%+v before=%+v", after.Summary, before.Summary)
+	doneRows, err := penvisitsboard.New(fx.Pool, 10*time.Second).ListRows(ctx, boardQuery)
 	story.Assert("the board's visit row is Done", err == nil && len(doneRows) == 1 && doneRows[0].WorkState == workboarddomain.WorkStateCompleted, "err=%v rows=%+v", err, doneRows)
 }

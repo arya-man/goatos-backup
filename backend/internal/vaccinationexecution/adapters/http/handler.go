@@ -626,9 +626,6 @@ func (h *Handler) executionQuery(w http.ResponseWriter, r *http.Request, default
 	// by applyExecutionParkScope -> ResolveAuthorizedParkScope: CEO = all parks, Park Head = his
 	// park). Scan/capture stays blocked on the client (operator capability); this only opens the
 	// read.
-	if actor := httpmiddleware.ActorIDFromContext(r.Context()); uuidutil.IsUUIDString(actor) {
-		q.ViewerActorID = actor
-	}
 	if isAppExecutionRoute(r) && !h.isLeadershipExecutionActor(r) {
 		q.OperatorScopeActorID = httpmiddleware.ActorIDFromContext(r.Context())
 		if q.OperatorScopeActorID == "" || !uuidutil.IsUUIDString(q.OperatorScopeActorID) {

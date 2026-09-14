@@ -4964,7 +4964,7 @@ select:disabled { opacity: .45; }
 .wb .menu .opt.on{color:var(--brand)}
 .wb .menu .foot{color:var(--muted);font-size:12px;border-top:1px solid var(--line2);margin-top:4px}
 .wb .etag{display:inline-block;font-size:10.5px;font-weight:800;letter-spacing:.4px;text-transform:uppercase;padding:2px 7px;border-radius:5px;color:#fff}
-.wb .e-feed{background:#2F7A2A} .wb .e-health{background:#B3403C} .wb .e-vaccination{background:#2B66B8} .wb .e-weighing{background:#13816F} .wb .e-counts{background:#6E4FC4} .wb .e-procurement{background:#B5791A} .wb .e-milk{background:#3E8E93} .wb .e-pc_care{background:#2B66B8} .wb .e-verification{background:#5A6B7A} .wb .e-toxin{background:#B5791A}
+.wb .e-feed{background:#2F7A2A} .wb .e-health{background:#B3403C} .wb .e-vaccination{background:#2B66B8} .wb .e-weighing{background:#13816F} .wb .e-counts{background:#6E4FC4} .wb .e-procurement{background:#B5791A} .wb .e-milk{background:#3E8E93} .wb .e-pc_care{background:#2B66B8} .wb .e-verification{background:#5A6B7A} .wb .e-toxin{background:#B5791A} .wb .e-tasks{background:#6E4FC4}
 .wb .etag.park{background:var(--panel-2);color:var(--muted);margin-left:4px}
 .wb .rule{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--muted);margin:-4px 0 12px}
 .wb .rule span b{color:var(--ink)}

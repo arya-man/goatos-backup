@@ -97,7 +97,7 @@
 </head>
 <body>
   <h1>Vaccination Kernel Story Report</h1>
-  <p class="subtitle">Generated 2026-09-12 11:27:47 UTC &middot; backend/tests/e2e</p>
+  <p class="subtitle">Generated 2026-09-14 13:44:35 UTC &middot; backend/tests/e2e</p>
 
   <p class="subtitle">Related reports in this category:
     <a href="vaccination-closure-audit-2026-07-19.html?v=10568bc2">Vaccination Closure Audit Report (2026-07-19)</a>
@@ -107,7 +107,7 @@
     <div class="tile"><span class="n">2</span>stories</div>
     <div class="tile pass"><span class="n">2</span>stories passed</div>
     <div class="tile fail"><span class="n">0</span>stories failed</div>
-    <div class="tile"><span class="n">55</span>assertions checked</div>
+    <div class="tile"><span class="n">54</span>assertions checked</div>
     <div class="tile pass"><span class="n">0</span>assertions failed</div>
     <div class="tile pass"><span class="n">2/2</span>certification surfaces declared</div>
   </div>
@@ -149,7 +149,7 @@
           <tr class="ok">
             <td>the sweeper created the shed&#39;s executable SOP task</td>
             <td>PASS</td>
-            <td class="detail">task_id=&#34;a5f89763-8c48-4d8f-8c7c-ddb47590d624&#34;</td>
+            <td class="detail">task_id=&#34;0a0b25e2-f43d-4b6c-a306-fac613cf7fbb&#34;</td>
           </tr>
 
         </tbody>
@@ -187,13 +187,13 @@
           <tr class="ok">
             <td>one visit was raised for the vaccinated pen</td>
             <td>PASS</td>
-            <td class="detail">err=&lt;nil&gt; result={SourceDate:2026-09-12 Created:1 Widened:0 ParksWithoutAssignee:[] PensSkipped:0}</td>
+            <td class="detail">err=&lt;nil&gt; result={SourceDate:2026-09-14 Created:1 Widened:0 ParksWithoutAssignee:[] PensSkipped:0}</td>
           </tr>
 
           <tr class="ok">
             <td>the visit is linked to the shed&#39;s SOP submission</td>
             <td>PASS</td>
-            <td class="detail">err=&lt;nil&gt; ok=true visit={TaskID:c4b76eb5-1698-4769-b8a4-6bd93deb0890 TenantID:00000000-0000-4000-8000-000000000001 ParkID:00000000-0000-4000-8000-000000003001 ParkName:Coimbatore ShedID:7f000000-0000-4000-8000-0000000f0201 ShedName:E2E-PVV Partition: PenLabel:E2E-PVV Reasons:[vaccination] SourceDate:2026-09-12 PlannedDate:2026-09-13 DueDate:2026-09-13 WorkState:scheduled Status:open VisitorIDs:[7f000000-0000-4000-8000-0000000f0210] Sources:[{Kind:sop_submission RefID:7f000000-0000-4000-8000-0000000f0301}] ProofRef:&lt;nil&gt; SubmittedBy:&lt;nil&gt; SubmittedAt:&lt;nil&gt; VerifiedBy:&lt;nil&gt; VerifiedAt:&lt;nil&gt; ReworkReason: RolledFwd:0 DelayedSince:&lt;nil&gt; RowVersion:1 CreatedAt:2026-09-12 11:29:37.723421 &#43;0000 UTC UpdatedAt:2026-09-12 11:29:37.723421 &#43;0000 UTC}</td>
+            <td class="detail">err=&lt;nil&gt; ok=true visit={TaskID:4b689cd8-d02f-4603-a24b-144b62906a87 TenantID:00000000-0000-4000-8000-000000000001 ParkID:00000000-0000-4000-8000-000000003001 ParkName:Coimbatore ShedID:7f000000-0000-4000-8000-0000000f0201 ShedName:E2E-PVV Partition: PenLabel:E2E-PVV Reasons:[vaccination] SourceDate:2026-09-14 PlannedDate:2026-09-15 DueDate:2026-09-15 WorkState:scheduled Status:open VisitorIDs:[7f000000-0000-4000-8000-0000000f0210] Sources:[{Kind:sop_submission RefID:7f000000-0000-4000-8000-0000000f0301}] ProofRef:&lt;nil&gt; SubmittedBy:&lt;nil&gt; SubmittedAt:&lt;nil&gt; VerifiedBy:&lt;nil&gt; VerifiedAt:&lt;nil&gt; ReworkReason: RolledFwd:0 DelayedSince:&lt;nil&gt; RowVersion:1 CreatedAt:2026-09-14 13:46:03.566554 &#43;0000 UTC UpdatedAt:2026-09-14 13:46:03.566554 &#43;0000 UTC}</td>
           </tr>
 
         </tbody>
@@ -202,8 +202,8 @@
     </div>
 
     <div class="step">
-      <h3>The vaccination shed drilldown carries the visit as the pen&#39;s last step; the drive&#39;s buckets do not move</h3>
-      <p class="narrative">vaccinationexecution.ShedDrilldown attaches the pen&#39;s latest vaccination-raised visit through the pen-visit reader, composed for the caller; summary counts are the same with or without it.</p>
+      <h3>The visit is the visitor&#39;s own task on the Tasks module; the shed drilldown and the drive&#39;s buckets do not carry it</h3>
+      <p class="narrative">penvisits.ListMine serves the configured visitor&#39;s &#39;For me&#39; list (maintainer decision 2026-09-14: a task of its own, never a step on the vaccination shed card); vaccinationexecution.ShedDrilldown reads no visit at all.</p>
 
       <table>
         <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
@@ -212,19 +212,13 @@
           <tr class="ok">
             <td>the drilldown resolves the pen</td>
             <td>PASS</td>
-            <td class="detail">err=&lt;nil&gt;/&lt;nil&gt; found=true/true</td>
+            <td class="detail">err=&lt;nil&gt; found=true</td>
           </tr>
 
           <tr class="ok">
-            <td>the drilldown carries the visit step, owed today for the visitor, recordable by them</td>
+            <td>the visitor&#39;s For me list carries the visit, owed today, recordable by them</td>
             <td>PASS</td>
-            <td class="detail">penVisit=&amp;{TaskID:c4b76eb5-1698-4769-b8a4-6bd93deb0890 Title:Visit E2E-PVV · Coimbatore ParkID:00000000-0000-4000-8000-000000003001 ParkName:Coimbatore ShedID:7f000000-0000-4000-8000-0000000f0201 ShedName:E2E-PVV Partition: PenLabel:E2E-PVV Reasons:[vaccination] ReasonLabels:[Vaccination] ReasonLine:Vaccination on 12/09/2026 SourceDate:2026-09-12 PlannedDate:2026-09-13 DueDate:2026-09-13 WorkState:scheduled Status:open StateChip:Visit pen 13/09/2026 StateTone:info Instruction:Go to the pen, look at the animals and record one video. It will submit automatically. DoneLine: ReworkReason: CanSubmit:true Verified:false ProofRef:&lt;nil&gt; SubmittedAt:&lt;nil&gt; VerifiedAt:&lt;nil&gt; RowVersion:1}</td>
-          </tr>
-
-          <tr class="ok">
-            <td>the five-bucket summary is identical with and without the step attached</td>
-            <td>PASS</td>
-            <td class="detail">with={Total:1 Due:0 Overdue:0 ProofPending:0 VerificationPending:0 Rejected:0 Deferred:0 Missed:0 Blocked:1 Completed:0} without={Total:1 Due:0 Overdue:0 ProofPending:0 VerificationPending:0 Rejected:0 Deferred:0 Missed:0 Blocked:1 Completed:0}</td>
+            <td class="detail">err=&lt;nil&gt; rows=[{TaskID:4b689cd8-d02f-4603-a24b-144b62906a87 TenantID:00000000-0000-4000-8000-000000000001 ParkID:00000000-0000-4000-8000-000000003001 ParkName:Coimbatore ShedID:7f000000-0000-4000-8000-0000000f0201 ShedName:E2E-PVV Partition: PenLabel:E2E-PVV Reasons:[vaccination] SourceDate:2026-09-14 PlannedDate:2026-09-15 DueDate:2026-09-15 WorkState:scheduled Status:open VisitorIDs:[7f000000-0000-4000-8000-0000000f0210] Sources:[{Kind:sop_submission RefID:7f000000-0000-4000-8000-0000000f0301}] ProofRef:&lt;nil&gt; SubmittedBy:&lt;nil&gt; SubmittedAt:&lt;nil&gt; VerifiedBy:&lt;nil&gt; VerifiedAt:&lt;nil&gt; ReworkReason: RolledFwd:0 DelayedSince:&lt;nil&gt; RowVersion:1 CreatedAt:2026-09-14 13:46:03.566554 &#43;0000 UTC UpdatedAt:2026-09-14 13:46:03.566554 &#43;0000 UTC}]</td>
           </tr>
 
         </tbody>
@@ -233,23 +227,17 @@
     </div>
 
     <div class="step">
-      <h3>On the visit&#39;s day the Work Board rows it under Vaccination, as the work continuing</h3>
-      <p class="narrative">A pen vaccinated alone rows under the Vaccination module -- never Preventive Care -- with the shed href.</p>
+      <h3>On the visit&#39;s day the Work Board rows it under Tasks, as a task of its own</h3>
+      <p class="narrative">ONE pen-visit source rows every visit under the Tasks module -- never Preventive Care or Vaccination -- with no href (visits are phone-only).</p>
 
       <table>
         <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
         <tbody>
 
           <tr class="ok">
-            <td>the vaccination source rows the visit, titled as the work continuing, with the shed href</td>
+            <td>the Tasks source rows the visit, titled as the visit, the vaccination in its subtitle</td>
             <td>PASS</td>
-            <td class="detail">err=&lt;nil&gt; rows=[{Module:vaccination SourceType:pen_visit_task SourceID:c4b76eb5-1698-4769-b8a4-6bd93deb0890 RowKey:vaccination|pen_visit_task|c4b76eb5-1698-4769-b8a4-6bd93deb0890 ParkID:00000000-0000-4000-8000-000000003001 ParkName:Coimbatore Pen:{ShedID:7f000000-0000-4000-8000-0000000f0201 ShedName:E2E-PVV PartitionLabel: Display:E2E-PVV} BusinessDate:2026-09-13 DueAt:&lt;nil&gt; ClockLabel:Visit due 13/09/2026 WorkState:due Lane:todo Severity:ok Owner:{UserID:7f000000-0000-4000-8000-0000000f0210 WorkforceMemberID:7f000000-0000-4000-8000-0000000f0210 Name:Chandrakant} OwnerState:assigned Title:Vaccination · E2E-PVV Subtitle:Pen visit · work done 12/09/2026 Counts:{Done:0 Pending:1 NeedsAttention:0} Href:/vaccination/execution/sheds/7f000000-0000-4000-8000-0000000f0201?scope_mode=park&amp;park=00000000-0000-4000-8000-000000003001}]</td>
-          </tr>
-
-          <tr class="ok">
-            <td>the Preventive Care source does NOT row a vaccination-only visit (no double row)</td>
-            <td>PASS</td>
-            <td class="detail">err=&lt;nil&gt; rows=0</td>
+            <td class="detail">err=&lt;nil&gt; rows=[{Module:tasks SourceType:pen_visit_task SourceID:4b689cd8-d02f-4603-a24b-144b62906a87 RowKey:tasks|pen_visit_task|4b689cd8-d02f-4603-a24b-144b62906a87 ParkID:00000000-0000-4000-8000-000000003001 ParkName:Coimbatore Pen:{ShedID:7f000000-0000-4000-8000-0000000f0201 ShedName:E2E-PVV PartitionLabel: Display:E2E-PVV} BusinessDate:2026-09-15 DueAt:&lt;nil&gt; ClockLabel:Visit due 15/09/2026 WorkState:due Lane:todo Severity:ok Owner:{UserID:7f000000-0000-4000-8000-0000000f0210 WorkforceMemberID:7f000000-0000-4000-8000-0000000f0210 Name:Chandrakant} OwnerState:assigned Title:Pen visit · E2E-PVV Subtitle:Vaccination · work done 14/09/2026 Counts:{Done:0 Pending:1 NeedsAttention:0} Href:}]</td>
           </tr>
 
         </tbody>
@@ -258,7 +246,7 @@
     </div>
 
     <div class="step">
-      <h3>The visitor records the visit, the verifier approves it, the drilldown reads it as verified</h3>
+      <h3>The visitor records the visit, the verifier approves it, the For me list reads it as verified</h3>
       <p class="narrative">Submit -&gt; pen_visit.submitted -&gt; the durable enqueue consumer -&gt; ONE verifier item; approve -&gt; the verdict applier -&gt; the visit is verified on both dimensions.</p>
 
       <table>
@@ -268,23 +256,23 @@
           <tr class="ok">
             <td>the visit is submitted for review</td>
             <td>PASS</td>
-            <td class="detail">err=&lt;nil&gt; visit={TaskID:c4b76eb5-1698-4769-b8a4-6bd93deb0890 TenantID:00000000-0000-4000-8000-000000000001 ParkID:00000000-0000-4000-8000-000000003001 ParkName:Coimbatore ShedID:7f000000-0000-4000-8000-0000000f0201 ShedName:E2E-PVV Partition: PenLabel:E2E-PVV Reasons:[vaccination] SourceDate:2026-09-12 PlannedDate:2026-09-13 DueDate:2026-09-13 WorkState:scheduled Status:pending_verification VisitorIDs:[7f000000-0000-4000-8000-0000000f0210] Sources:[{Kind:sop_submission RefID:7f000000-0000-4000-8000-0000000f0301}] ProofRef:0x57deea86a430 SubmittedBy:0x57deea86a440 SubmittedAt:2026-09-12 11:29:37.511755 &#43;0000 UTC VerifiedBy:&lt;nil&gt; VerifiedAt:&lt;nil&gt; ReworkReason: RolledFwd:0 DelayedSince:&lt;nil&gt; RowVersion:2 CreatedAt:2026-09-12 11:29:37.723421 &#43;0000 UTC UpdatedAt:2026-09-12 11:29:37.511755 &#43;0000 UTC}</td>
+            <td class="detail">err=&lt;nil&gt; visit={TaskID:4b689cd8-d02f-4603-a24b-144b62906a87 TenantID:00000000-0000-4000-8000-000000000001 ParkID:00000000-0000-4000-8000-000000003001 ParkName:Coimbatore ShedID:7f000000-0000-4000-8000-0000000f0201 ShedName:E2E-PVV Partition: PenLabel:E2E-PVV Reasons:[vaccination] SourceDate:2026-09-14 PlannedDate:2026-09-15 DueDate:2026-09-15 WorkState:scheduled Status:pending_verification VisitorIDs:[7f000000-0000-4000-8000-0000000f0210] Sources:[{Kind:sop_submission RefID:7f000000-0000-4000-8000-0000000f0301}] ProofRef:0x226cb4fd50f0 SubmittedBy:0x226cb4fd5100 SubmittedAt:2026-09-14 13:46:04.490721 &#43;0000 UTC VerifiedBy:&lt;nil&gt; VerifiedAt:&lt;nil&gt; ReworkReason: RolledFwd:0 DelayedSince:&lt;nil&gt; RowVersion:2 CreatedAt:2026-09-14 13:46:03.566554 &#43;0000 UTC UpdatedAt:2026-09-14 13:46:04.490721 &#43;0000 UTC}</td>
           </tr>
 
           <tr class="ok">
-            <td>the drilldown&#39;s step reads in review and is no longer recordable</td>
+            <td>the visit reads in review and is no longer recordable</td>
             <td>PASS</td>
-            <td class="detail">err=&lt;nil&gt; penVisit=&amp;{TaskID:c4b76eb5-1698-4769-b8a4-6bd93deb0890 Title:Visit E2E-PVV · Coimbatore ParkID:00000000-0000-4000-8000-000000003001 ParkName:Coimbatore ShedID:7f000000-0000-4000-8000-0000000f0201 ShedName:E2E-PVV Partition: PenLabel:E2E-PVV Reasons:[vaccination] ReasonLabels:[Vaccination] ReasonLine:Vaccination on 12/09/2026 SourceDate:2026-09-12 PlannedDate:2026-09-13 DueDate:2026-09-13 WorkState:scheduled Status:pending_verification StateChip:Visit in review StateTone:review Instruction:The visit video is with the verifier. The pen&#39;s work closes once it is approved. DoneLine:Visited 12/09/2026 · 4:59 pm ReworkReason: CanSubmit:false Verified:false ProofRef:0x57deea947b50 SubmittedAt:0x57deea947c70 VerifiedAt:&lt;nil&gt; RowVersion:2}</td>
+            <td class="detail">err=&lt;nil&gt; visit={TaskID:4b689cd8-d02f-4603-a24b-144b62906a87 TenantID:00000000-0000-4000-8000-000000000001 ParkID:00000000-0000-4000-8000-000000003001 ParkName:Coimbatore ShedID:7f000000-0000-4000-8000-0000000f0201 ShedName:E2E-PVV Partition: PenLabel:E2E-PVV Reasons:[vaccination] SourceDate:2026-09-14 PlannedDate:2026-09-15 DueDate:2026-09-15 WorkState:scheduled Status:pending_verification VisitorIDs:[7f000000-0000-4000-8000-0000000f0210] Sources:[{Kind:sop_submission RefID:7f000000-0000-4000-8000-0000000f0301}] ProofRef:0x226cb4fd42e0 SubmittedBy:0x226cb4fd42f0 SubmittedAt:2026-09-14 13:46:04.490721 &#43;0000 UTC VerifiedBy:&lt;nil&gt; VerifiedAt:&lt;nil&gt; ReworkReason: RolledFwd:0 DelayedSince:&lt;nil&gt; RowVersion:2 CreatedAt:2026-09-14 13:46:03.566554 &#43;0000 UTC UpdatedAt:2026-09-14 13:46:04.490721 &#43;0000 UTC}</td>
           </tr>
 
           <tr class="ok">
-            <td>the drilldown&#39;s step reads verified once the verifier approves the visit</td>
+            <td>the visit reads verified once the verifier approves it</td>
             <td>PASS</td>
-            <td class="detail">err=&lt;nil&gt; penVisit=&amp;{TaskID:c4b76eb5-1698-4769-b8a4-6bd93deb0890 Title:Visit E2E-PVV · Coimbatore ParkID:00000000-0000-4000-8000-000000003001 ParkName:Coimbatore ShedID:7f000000-0000-4000-8000-0000000f0201 ShedName:E2E-PVV Partition: PenLabel:E2E-PVV Reasons:[vaccination] ReasonLabels:[Vaccination] ReasonLine:Vaccination on 12/09/2026 SourceDate:2026-09-12 PlannedDate:2026-09-13 DueDate:2026-09-13 WorkState:completed Status:completed StateChip:Visit verified StateTone:success Instruction:The verifier approved the visit. This pen&#39;s work is closed. DoneLine:Visited 12/09/2026 · 4:59 pm · verified 12/09/2026 ReworkReason: CanSubmit:false Verified:true ProofRef:0x57deea91daa0 SubmittedAt:0x57deea91db50 VerifiedAt:0x57deea91db60 RowVersion:3}</td>
+            <td class="detail">err=&lt;nil&gt; visit={TaskID:4b689cd8-d02f-4603-a24b-144b62906a87 TenantID:00000000-0000-4000-8000-000000000001 ParkID:00000000-0000-4000-8000-000000003001 ParkName:Coimbatore ShedID:7f000000-0000-4000-8000-0000000f0201 ShedName:E2E-PVV Partition: PenLabel:E2E-PVV Reasons:[vaccination] SourceDate:2026-09-14 PlannedDate:2026-09-15 DueDate:2026-09-15 WorkState:completed Status:completed VisitorIDs:[7f000000-0000-4000-8000-0000000f0210] Sources:[{Kind:sop_submission RefID:7f000000-0000-4000-8000-0000000f0301}] ProofRef:0x226cb4fd5cb0 SubmittedBy:0x226cb4fd5cc0 SubmittedAt:2026-09-14 13:46:04.490721 &#43;0000 UTC VerifiedBy:0x226cb4fd5cd0 VerifiedAt:2026-09-14 13:46:22.303087 &#43;0000 UTC ReworkReason: RolledFwd:0 DelayedSince:&lt;nil&gt; RowVersion:3 CreatedAt:2026-09-14 13:46:03.566554 &#43;0000 UTC UpdatedAt:2026-09-14 13:46:22.303087 &#43;0000 UTC}</td>
           </tr>
 
           <tr class="ok">
-            <td>the drive&#39;s own buckets still did not move for the visit</td>
+            <td>the drive&#39;s own buckets did not move for the visit</td>
             <td>PASS</td>
             <td class="detail">after={Total:1 Due:0 Overdue:0 ProofPending:0 VerificationPending:0 Rejected:0 Deferred:0 Missed:0 Blocked:1 Completed:0} before={Total:1 Due:0 Overdue:0 ProofPending:0 VerificationPending:0 Rejected:0 Deferred:0 Missed:0 Blocked:1 Completed:0}</td>
           </tr>
@@ -292,7 +280,7 @@
           <tr class="ok">
             <td>the board&#39;s visit row is Done</td>
             <td>PASS</td>
-            <td class="detail">err=&lt;nil&gt; rows=[{Module:vaccination SourceType:pen_visit_task SourceID:c4b76eb5-1698-4769-b8a4-6bd93deb0890 RowKey:vaccination|pen_visit_task|c4b76eb5-1698-4769-b8a4-6bd93deb0890 ParkID:00000000-0000-4000-8000-000000003001 ParkName:Coimbatore Pen:{ShedID:7f000000-0000-4000-8000-0000000f0201 ShedName:E2E-PVV PartitionLabel: Display:E2E-PVV} BusinessDate:2026-09-13 DueAt:&lt;nil&gt; ClockLabel:Visit due 13/09/2026 WorkState:completed Lane:done Severity:ok Owner:{UserID:7f000000-0000-4000-8000-0000000f0210 WorkforceMemberID:7f000000-0000-4000-8000-0000000f0210 Name:Chandrakant} OwnerState:assigned Title:Vaccination · E2E-PVV Subtitle:Pen visit · work done 12/09/2026 Counts:{Done:1 Pending:0 NeedsAttention:0} Href:/vaccination/execution/sheds/7f000000-0000-4000-8000-0000000f0201?scope_mode=park&amp;park=00000000-0000-4000-8000-000000003001}]</td>
+            <td class="detail">err=&lt;nil&gt; rows=[{Module:tasks SourceType:pen_visit_task SourceID:4b689cd8-d02f-4603-a24b-144b62906a87 RowKey:tasks|pen_visit_task|4b689cd8-d02f-4603-a24b-144b62906a87 ParkID:00000000-0000-4000-8000-000000003001 ParkName:Coimbatore Pen:{ShedID:7f000000-0000-4000-8000-0000000f0201 ShedName:E2E-PVV PartitionLabel: Display:E2E-PVV} BusinessDate:2026-09-15 DueAt:&lt;nil&gt; ClockLabel:Visit due 15/09/2026 WorkState:completed Lane:done Severity:ok Owner:{UserID:7f000000-0000-4000-8000-0000000f0210 WorkforceMemberID:7f000000-0000-4000-8000-0000000f0210 Name:Chandrakant} OwnerState:assigned Title:Pen visit · E2E-PVV Subtitle:Vaccination · work done 14/09/2026 Counts:{Done:1 Pending:0 NeedsAttention:0} Href:}]</td>
           </tr>
 
         </tbody>
@@ -334,9 +322,9 @@
           </tr>
 
           <tr class="ok">
-            <td>the task read carries no visit yet (it is raised the morning after)</td>
+            <td>the task read shows the task&#39;s own state only (the visit is a task of its own, 2026-09-14)</td>
             <td>PASS</td>
-            <td class="detail">err=&lt;nil&gt; pen_visit=&lt;nil&gt;</td>
+            <td class="detail">err=&lt;nil&gt; row={TaskID:bb5dc5ad-67e8-4387-997e-2bcd2fba195a Category:deworming ParkID:00000000-0000-4000-8000-000000003001 ParkName:Coimbatore ShedID:7e000000-0000-4000-8000-0000000e0201 ShedName:E2E-PV PartitionLabel: VaccineLabel: PlannedBusinessDate:2026-09-14 DueBusinessDate:2026-09-14 WorkState:scheduled Status:completed CloseReason: ReworkReason: RowVersion:3 SubmittedBy:7e000000-0000-4000-8000-0000000e0301 SubmittedAt:2026-09-14 19:16:27.283634 &#43;0530 IST AssigneeUserIDs:[7e000000-0000-4000-8000-0000000e0301] AssigneeNames:[E2E Operator] AnimalCount:1 InventoryRequirements:[] TaskProofs:[] RemovalPenLabels:[] AnimalPenLabels:[]}</td>
           </tr>
 
           <tr class="ok">
@@ -346,9 +334,9 @@
           </tr>
 
           <tr class="ok">
-            <td>the Work Board row for the task reads IN PROGRESS, not Done, with the visit still to come</td>
+            <td>the Work Board row for the task reads DONE -- the operator&#39;s own work is verified; the visit rows on its own under Tasks</td>
             <td>PASS</td>
-            <td class="detail">err=&lt;nil&gt; state=&#34;in_progress&#34; subtitle=&#34;1 animal · Pen visit tomorrow&#34;</td>
+            <td class="detail">err=&lt;nil&gt; state=&#34;completed&#34; subtitle=&#34;1 animal&#34;</td>
           </tr>
 
         </tbody>
@@ -367,19 +355,19 @@
           <tr class="ok">
             <td>one visit was raised for the pen</td>
             <td>PASS</td>
-            <td class="detail">err=&lt;nil&gt; result={SourceDate:2026-09-12 Created:1 Widened:0 ParksWithoutAssignee:[] PensSkipped:0}</td>
+            <td class="detail">err=&lt;nil&gt; result={SourceDate:2026-09-14 Created:1 Widened:0 ParksWithoutAssignee:[] PensSkipped:0}</td>
           </tr>
 
           <tr class="ok">
             <td>the digest names both configured visitors</td>
             <td>PASS</td>
-            <td class="detail">digests=[{ParkID:00000000-0000-4000-8000-000000003001 ParkName:Coimbatore VisitorIDs:[7e000000-0000-4000-8000-0000000e0305 7e000000-0000-4000-8000-0000000e0306] DueDate:2026-09-13 Tasks:[{TaskID:57b5bba6-d794-44fc-b0c7-b24cc2c7e8c0 TenantID:00000000-0000-4000-8000-000000000001 ParkID:00000000-0000-4000-8000-000000003001 ParkName:Coimbatore ShedID:7e000000-0000-4000-8000-0000000e0201 ShedName:E2E-PV Partition: PenLabel:E2E-PV Reasons:[deworming] SourceDate:2026-09-12 PlannedDate:2026-09-13 DueDate:2026-09-13 WorkState:scheduled Status:open VisitorIDs:[7e000000-0000-4000-8000-0000000e0305 7e000000-0000-4000-8000-0000000e0306] Sources:[{Kind:pc_care_task RefID:5978a153-9be9-42ca-8a4e-79eab9ec2599}] ProofRef:&lt;nil&gt; SubmittedBy:&lt;nil&gt; SubmittedAt:&lt;nil&gt; VerifiedBy:&lt;nil&gt; VerifiedAt:&lt;nil&gt; ReworkReason: RolledFwd:0 DelayedSince:&lt;nil&gt; RowVersion:1 CreatedAt:2026-09-12 11:30:14.519761 &#43;0000 UTC UpdatedAt:2026-09-12 11:30:14.519761 &#43;0000 UTC}]}]</td>
+            <td class="detail">digests=[{ParkID:00000000-0000-4000-8000-000000003001 ParkName:Coimbatore VisitorIDs:[7e000000-0000-4000-8000-0000000e0305 7e000000-0000-4000-8000-0000000e0306] DueDate:2026-09-15 Tasks:[{TaskID:9c92a72d-c95f-4964-ac35-d13a812f7c14 TenantID:00000000-0000-4000-8000-000000000001 ParkID:00000000-0000-4000-8000-000000003001 ParkName:Coimbatore ShedID:7e000000-0000-4000-8000-0000000e0201 ShedName:E2E-PV Partition: PenLabel:E2E-PV Reasons:[deworming] SourceDate:2026-09-14 PlannedDate:2026-09-15 DueDate:2026-09-15 WorkState:scheduled Status:open VisitorIDs:[7e000000-0000-4000-8000-0000000e0305 7e000000-0000-4000-8000-0000000e0306] Sources:[{Kind:pc_care_task RefID:bb5dc5ad-67e8-4387-997e-2bcd2fba195a}] ProofRef:&lt;nil&gt; SubmittedBy:&lt;nil&gt; SubmittedAt:&lt;nil&gt; VerifiedBy:&lt;nil&gt; VerifiedAt:&lt;nil&gt; ReworkReason: RolledFwd:0 DelayedSince:&lt;nil&gt; RowVersion:1 CreatedAt:2026-09-14 13:46:45.748814 &#43;0000 UTC UpdatedAt:2026-09-14 13:46:45.748814 &#43;0000 UTC}]}]</td>
           </tr>
 
           <tr class="ok">
             <td>a replay tick raises nothing new</td>
             <td>PASS</td>
-            <td class="detail">err=&lt;nil&gt; replay={SourceDate:2026-09-12 Created:0 Widened:0 ParksWithoutAssignee:[] PensSkipped:0}</td>
+            <td class="detail">err=&lt;nil&gt; replay={SourceDate:2026-09-14 Created:0 Widened:0 ParksWithoutAssignee:[] PensSkipped:0}</td>
           </tr>
 
           <tr class="ok">
@@ -391,13 +379,7 @@
           <tr class="ok">
             <td>the visit is owed tomorrow, open on both dimensions</td>
             <td>PASS</td>
-            <td class="detail">visit={TaskID:57b5bba6-d794-44fc-b0c7-b24cc2c7e8c0 TenantID:00000000-0000-4000-8000-000000000001 ParkID:00000000-0000-4000-8000-000000003001 ParkName:Coimbatore ShedID:7e000000-0000-4000-8000-0000000e0201 ShedName:E2E-PV Partition: PenLabel:E2E-PV Reasons:[deworming] SourceDate:2026-09-12 PlannedDate:2026-09-13 DueDate:2026-09-13 WorkState:scheduled Status:open VisitorIDs:[7e000000-0000-4000-8000-0000000e0305 7e000000-0000-4000-8000-0000000e0306] Sources:[{Kind:pc_care_task RefID:5978a153-9be9-42ca-8a4e-79eab9ec2599}] ProofRef:&lt;nil&gt; SubmittedBy:&lt;nil&gt; SubmittedAt:&lt;nil&gt; VerifiedBy:&lt;nil&gt; VerifiedAt:&lt;nil&gt; ReworkReason: RolledFwd:0 DelayedSince:&lt;nil&gt; RowVersion:1 CreatedAt:2026-09-12 11:30:14.519761 &#43;0000 UTC UpdatedAt:2026-09-12 11:30:14.519761 &#43;0000 UTC}</td>
-          </tr>
-
-          <tr class="ok">
-            <td>the task read now carries its visit step</td>
-            <td>PASS</td>
-            <td class="detail">err=&lt;nil&gt; pen_visit=&amp;{TaskID:57b5bba6-d794-44fc-b0c7-b24cc2c7e8c0 TenantID:00000000-0000-4000-8000-000000000001 ParkID:00000000-0000-4000-8000-000000003001 ParkName:Coimbatore ShedID:7e000000-0000-4000-8000-0000000e0201 ShedName:E2E-PV Partition: PenLabel:E2E-PV Reasons:[deworming] SourceDate:2026-09-12 PlannedDate:2026-09-13 DueDate:2026-09-13 WorkState:scheduled Status:open VisitorIDs:[7e000000-0000-4000-8000-0000000e0305 7e000000-0000-4000-8000-0000000e0306] Sources:[{Kind:pc_care_task RefID:5978a153-9be9-42ca-8a4e-79eab9ec2599}] ProofRef:&lt;nil&gt; SubmittedBy:&lt;nil&gt; SubmittedAt:&lt;nil&gt; VerifiedBy:&lt;nil&gt; VerifiedAt:&lt;nil&gt; ReworkReason: RolledFwd:0 DelayedSince:&lt;nil&gt; RowVersion:1 CreatedAt:2026-09-12 11:30:14.519761 &#43;0000 UTC UpdatedAt:2026-09-12 11:30:14.519761 &#43;0000 UTC}</td>
+            <td class="detail">visit={TaskID:9c92a72d-c95f-4964-ac35-d13a812f7c14 TenantID:00000000-0000-4000-8000-000000000001 ParkID:00000000-0000-4000-8000-000000003001 ParkName:Coimbatore ShedID:7e000000-0000-4000-8000-0000000e0201 ShedName:E2E-PV Partition: PenLabel:E2E-PV Reasons:[deworming] SourceDate:2026-09-14 PlannedDate:2026-09-15 DueDate:2026-09-15 WorkState:scheduled Status:open VisitorIDs:[7e000000-0000-4000-8000-0000000e0305 7e000000-0000-4000-8000-0000000e0306] Sources:[{Kind:pc_care_task RefID:bb5dc5ad-67e8-4387-997e-2bcd2fba195a}] ProofRef:&lt;nil&gt; SubmittedBy:&lt;nil&gt; SubmittedAt:&lt;nil&gt; VerifiedBy:&lt;nil&gt; VerifiedAt:&lt;nil&gt; ReworkReason: RolledFwd:0 DelayedSince:&lt;nil&gt; RowVersion:1 CreatedAt:2026-09-14 13:46:45.748814 &#43;0000 UTC UpdatedAt:2026-09-14 13:46:45.748814 &#43;0000 UTC}</td>
           </tr>
 
         </tbody>
@@ -406,8 +388,8 @@
     </div>
 
     <div class="step">
-      <h3>Both configured visitors see it; a stranger sees nothing; the second visitor finds the task on their worklist</h3>
-      <p class="narrative">The visit list is &#39;the parks I am configured for&#39;; the PC Care worklist admits the visitor on the VISIT&#39;s day under the deworming tab, even though they are not an assignee of the task.</p>
+      <h3>Both configured visitors see it on their For me list; a stranger sees nothing; no PC Care worklist carries it</h3>
+      <p class="narrative">The visit list is &#39;the parks I am configured for&#39; (the Tasks module&#39;s For me tab). The PC Care worklist is the assignee&#39;s own list and never admits a visitor for a task they were not assigned.</p>
 
       <table>
         <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
@@ -426,9 +408,9 @@
           </tr>
 
           <tr class="ok">
-            <td>the visitor&#39;s deworming worklist carries the task on the visit&#39;s day</td>
+            <td>the visitor&#39;s deworming worklist does NOT carry the task (the visit lives on Tasks)</td>
             <td>PASS</td>
-            <td class="detail">err=&lt;nil&gt; items=1</td>
+            <td class="detail">err=&lt;nil&gt; items=0</td>
           </tr>
 
           <tr class="ok">
@@ -438,15 +420,15 @@
           </tr>
 
           <tr class="ok">
-            <td>on the visit&#39;s day the board rows the visit under Preventive Care AS THE WORK CONTINUING, on the visitor&#39;s own board naming THEM first</td>
+            <td>on the visit&#39;s day the board rows the visit under TASKS as a task of its own, on the visitor&#39;s own board naming THEM first</td>
             <td>PASS</td>
-            <td class="detail">err=&lt;nil&gt; rows=[{Module:pc_care SourceType:pen_visit_task SourceID:57b5bba6-d794-44fc-b0c7-b24cc2c7e8c0 RowKey:pc_care|pen_visit_task|57b5bba6-d794-44fc-b0c7-b24cc2c7e8c0 ParkID:00000000-0000-4000-8000-000000003001 ParkName:Coimbatore Pen:{ShedID:7e000000-0000-4000-8000-0000000e0201 ShedName:E2E-PV PartitionLabel: Display:E2E-PV} BusinessDate:2026-09-13 DueAt:&lt;nil&gt; ClockLabel:Visit due 13/09/2026 WorkState:due Lane:todo Severity:ok Owner:{UserID:7e000000-0000-4000-8000-0000000e0306 WorkforceMemberID:7e000000-0000-4000-8000-0000000e0306 Name:Second Visitor &#43;1} OwnerState:assigned Title:Deworming · E2E-PV Subtitle:Pen visit · work done 12/09/2026 Counts:{Done:0 Pending:1 NeedsAttention:0} Href:}]</td>
+            <td class="detail">err=&lt;nil&gt; rows=[{Module:tasks SourceType:pen_visit_task SourceID:9c92a72d-c95f-4964-ac35-d13a812f7c14 RowKey:tasks|pen_visit_task|9c92a72d-c95f-4964-ac35-d13a812f7c14 ParkID:00000000-0000-4000-8000-000000003001 ParkName:Coimbatore Pen:{ShedID:7e000000-0000-4000-8000-0000000e0201 ShedName:E2E-PV PartitionLabel: Display:E2E-PV} BusinessDate:2026-09-15 DueAt:&lt;nil&gt; ClockLabel:Visit due 15/09/2026 WorkState:due Lane:todo Severity:ok Owner:{UserID:7e000000-0000-4000-8000-0000000e0306 WorkforceMemberID:7e000000-0000-4000-8000-0000000e0306 Name:Second Visitor &#43;1} OwnerState:assigned Title:Pen visit · E2E-PV Subtitle:Deworming · work done 14/09/2026 Counts:{Done:0 Pending:1 NeedsAttention:0} Href:}]</td>
           </tr>
 
           <tr class="ok">
             <td>on the park&#39;s board the first configured visitor leads, with &#43;1 for the other</td>
             <td>PASS</td>
-            <td class="detail">err=&lt;nil&gt; rows=[{Module:pc_care SourceType:pen_visit_task SourceID:57b5bba6-d794-44fc-b0c7-b24cc2c7e8c0 RowKey:pc_care|pen_visit_task|57b5bba6-d794-44fc-b0c7-b24cc2c7e8c0 ParkID:00000000-0000-4000-8000-000000003001 ParkName:Coimbatore Pen:{ShedID:7e000000-0000-4000-8000-0000000e0201 ShedName:E2E-PV PartitionLabel: Display:E2E-PV} BusinessDate:2026-09-13 DueAt:&lt;nil&gt; ClockLabel:Visit due 13/09/2026 WorkState:due Lane:todo Severity:ok Owner:{UserID:7e000000-0000-4000-8000-0000000e0305 WorkforceMemberID:7e000000-0000-4000-8000-0000000e0305 Name:Dinakar &#43;1} OwnerState:assigned Title:Deworming · E2E-PV Subtitle:Pen visit · work done 12/09/2026 Counts:{Done:0 Pending:1 NeedsAttention:0} Href:}]</td>
+            <td class="detail">err=&lt;nil&gt; rows=[{Module:tasks SourceType:pen_visit_task SourceID:9c92a72d-c95f-4964-ac35-d13a812f7c14 RowKey:tasks|pen_visit_task|9c92a72d-c95f-4964-ac35-d13a812f7c14 ParkID:00000000-0000-4000-8000-000000003001 ParkName:Coimbatore Pen:{ShedID:7e000000-0000-4000-8000-0000000e0201 ShedName:E2E-PV PartitionLabel: Display:E2E-PV} BusinessDate:2026-09-15 DueAt:&lt;nil&gt; ClockLabel:Visit due 15/09/2026 WorkState:due Lane:todo Severity:ok Owner:{UserID:7e000000-0000-4000-8000-0000000e0305 WorkforceMemberID:7e000000-0000-4000-8000-0000000e0305 Name:Dinakar &#43;1} OwnerState:assigned Title:Pen visit · E2E-PV Subtitle:Deworming · work done 14/09/2026 Counts:{Done:0 Pending:1 NeedsAttention:0} Href:}]</td>
           </tr>
 
           <tr class="ok">
@@ -477,13 +459,13 @@
           <tr class="ok">
             <td>the second visitor&#39;s submit lands as pending verification on an open clock</td>
             <td>PASS</td>
-            <td class="detail">err=&lt;nil&gt; visit={TaskID:57b5bba6-d794-44fc-b0c7-b24cc2c7e8c0 TenantID:00000000-0000-4000-8000-000000000001 ParkID:00000000-0000-4000-8000-000000003001 ParkName:Coimbatore ShedID:7e000000-0000-4000-8000-0000000e0201 ShedName:E2E-PV Partition: PenLabel:E2E-PV Reasons:[deworming] SourceDate:2026-09-12 PlannedDate:2026-09-13 DueDate:2026-09-13 WorkState:scheduled Status:pending_verification VisitorIDs:[7e000000-0000-4000-8000-0000000e0305 7e000000-0000-4000-8000-0000000e0306] Sources:[{Kind:pc_care_task RefID:5978a153-9be9-42ca-8a4e-79eab9ec2599}] ProofRef:0x57deea6ec000 SubmittedBy:0x57deea6ec010 SubmittedAt:2026-09-12 11:30:14.806032 &#43;0000 UTC VerifiedBy:&lt;nil&gt; VerifiedAt:&lt;nil&gt; ReworkReason: RolledFwd:0 DelayedSince:&lt;nil&gt; RowVersion:2 CreatedAt:2026-09-12 11:30:14.519761 &#43;0000 UTC UpdatedAt:2026-09-12 11:30:14.806032 &#43;0000 UTC}</td>
+            <td class="detail">err=&lt;nil&gt; visit={TaskID:9c92a72d-c95f-4964-ac35-d13a812f7c14 TenantID:00000000-0000-4000-8000-000000000001 ParkID:00000000-0000-4000-8000-000000003001 ParkName:Coimbatore ShedID:7e000000-0000-4000-8000-0000000e0201 ShedName:E2E-PV Partition: PenLabel:E2E-PV Reasons:[deworming] SourceDate:2026-09-14 PlannedDate:2026-09-15 DueDate:2026-09-15 WorkState:scheduled Status:pending_verification VisitorIDs:[7e000000-0000-4000-8000-0000000e0305 7e000000-0000-4000-8000-0000000e0306] Sources:[{Kind:pc_care_task RefID:bb5dc5ad-67e8-4387-997e-2bcd2fba195a}] ProofRef:0x226cb4e0e0c0 SubmittedBy:0x226cb4e0e0d0 SubmittedAt:2026-09-14 13:46:47.294601 &#43;0000 UTC VerifiedBy:&lt;nil&gt; VerifiedAt:&lt;nil&gt; ReworkReason: RolledFwd:0 DelayedSince:&lt;nil&gt; RowVersion:2 CreatedAt:2026-09-14 13:46:45.748814 &#43;0000 UTC UpdatedAt:2026-09-14 13:46:47.294601 &#43;0000 UTC}</td>
           </tr>
 
           <tr class="ok">
             <td>the verifier holds ONE pen-visit item for the clip, in the Preventive Care tab</td>
             <td>PASS</td>
-            <td class="detail">item={ItemID:0648fc68-9285-4b62-844a-0445e10469de TenantID:00000000-0000-4000-8000-000000000001 Vertical:preventive_care Module:pen_visits Category:pen_visit SubjectLabel:0x57deea49f340 SubjectNote:&lt;nil&gt; ContextRows:[{Label:Visit after Value:Deworming} {Label:Work done on Value:12/09/2026} {Label:Park Value:Coimbatore}] MeasurementFields:[] Source:{Module:pen_visits TaskID:&lt;nil&gt; SubmissionID:&lt;nil&gt; RefType:pen_visit_task RefID:57b5bba6-d794-44fc-b0c7-b24cc2c7e8c0} MediaRefs:[5957f3f4-2cd9-4a2d-8c32-5d12282aea45] Status:pending VerdictReason:&lt;nil&gt; OperatorID:0x57deea49f350 OperatorName:&lt;nil&gt; ShedID:0x57deea49f360 ShedLabel:&lt;nil&gt; PartitionLabel:&lt;nil&gt; ParkID:0x57deea49f370 ParkLabel:&lt;nil&gt; CapturedAt:2026-09-12 11:30:14.806032 &#43;0000 UTC VerifiedBy:&lt;nil&gt; VerifiedByName:&lt;nil&gt; VerifiedAt:&lt;nil&gt; ClosedBy:&lt;nil&gt; ClosedAt:&lt;nil&gt; ApplierAckExpected:false AppliedAt:&lt;nil&gt; AppliedByModule:&lt;nil&gt; RowVersion:1 CreatedAt:2026-09-12 11:30:17.749905 &#43;0000 UTC UpdatedAt:2026-09-12 11:30:17.749905 &#43;0000 UTC}</td>
+            <td class="detail">item={ItemID:f71403c3-8b43-4953-9a7f-9cf5a7ae91ab TenantID:00000000-0000-4000-8000-000000000001 Vertical:preventive_care Module:pen_visits Category:pen_visit SubjectLabel:0x226cb4c3de80 SubjectNote:&lt;nil&gt; ContextRows:[{Label:Visit after Value:Deworming} {Label:Work done on Value:14/09/2026} {Label:Park Value:Coimbatore}] MeasurementFields:[] Source:{Module:pen_visits TaskID:&lt;nil&gt; SubmissionID:&lt;nil&gt; RefType:pen_visit_task RefID:9c92a72d-c95f-4964-ac35-d13a812f7c14} MediaRefs:[4fcaece2-9a6c-447b-b577-016e68c5e1a0] Status:pending VerdictReason:&lt;nil&gt; OperatorID:0x226cb4c3de90 OperatorName:&lt;nil&gt; ShedID:0x226cb4c3dea0 ShedLabel:&lt;nil&gt; PartitionLabel:&lt;nil&gt; ParkID:0x226cb4c3deb0 ParkLabel:&lt;nil&gt; CapturedAt:2026-09-14 13:46:47.294601 &#43;0000 UTC VerifiedBy:&lt;nil&gt; VerifiedByName:&lt;nil&gt; VerifiedAt:&lt;nil&gt; ClosedBy:&lt;nil&gt; ClosedAt:&lt;nil&gt; ApplierAckExpected:false AppliedAt:&lt;nil&gt; AppliedByModule:&lt;nil&gt; RowVersion:1 CreatedAt:2026-09-14 13:46:49.339435 &#43;0000 UTC UpdatedAt:2026-09-14 13:46:49.339435 &#43;0000 UTC}</td>
           </tr>
 
           <tr class="ok">
@@ -493,9 +475,15 @@
           </tr>
 
           <tr class="ok">
-            <td>the task&#39;s board row reads IN REVIEW now, from the visit</td>
+            <td>the task&#39;s own board row stays DONE; the review is the VISIT row&#39;s, under Tasks</td>
             <td>PASS</td>
-            <td class="detail">err=&lt;nil&gt; state=&#34;verification_pending&#34;</td>
+            <td class="detail">err=&lt;nil&gt; state=&#34;completed&#34;</td>
+          </tr>
+
+          <tr class="ok">
+            <td>the visit&#39;s Tasks row reads IN REVIEW</td>
+            <td>PASS</td>
+            <td class="detail">err=&lt;nil&gt; rows=[{Module:tasks SourceType:pen_visit_task SourceID:9c92a72d-c95f-4964-ac35-d13a812f7c14 RowKey:tasks|pen_visit_task|9c92a72d-c95f-4964-ac35-d13a812f7c14 ParkID:00000000-0000-4000-8000-000000003001 ParkName:Coimbatore Pen:{ShedID:7e000000-0000-4000-8000-0000000e0201 ShedName:E2E-PV PartitionLabel: Display:E2E-PV} BusinessDate:2026-09-15 DueAt:&lt;nil&gt; ClockLabel:Visit due 15/09/2026 WorkState:verification_pending Lane:in_review Severity:ok Owner:{UserID:7e000000-0000-4000-8000-0000000e0306 WorkforceMemberID:7e000000-0000-4000-8000-0000000e0306 Name:Second Visitor} OwnerState:assigned Title:Pen visit · E2E-PV Subtitle:Deworming · work done 14/09/2026 Counts:{Done:1 Pending:0 NeedsAttention:0} Href:}]</td>
           </tr>
 
         </tbody>
@@ -514,7 +502,7 @@
           <tr class="ok">
             <td>the visit is sent back with the verifier&#39;s words</td>
             <td>PASS</td>
-            <td class="detail">err=&lt;nil&gt; visit={TaskID:57b5bba6-d794-44fc-b0c7-b24cc2c7e8c0 TenantID:00000000-0000-4000-8000-000000000001 ParkID:00000000-0000-4000-8000-000000003001 ParkName:Coimbatore ShedID:7e000000-0000-4000-8000-0000000e0201 ShedName:E2E-PV Partition: PenLabel:E2E-PV Reasons:[deworming] SourceDate:2026-09-12 PlannedDate:2026-09-13 DueDate:2026-09-13 WorkState:scheduled Status:rework VisitorIDs:[7e000000-0000-4000-8000-0000000e0305 7e000000-0000-4000-8000-0000000e0306] Sources:[{Kind:pc_care_task RefID:5978a153-9be9-42ca-8a4e-79eab9ec2599}] ProofRef:0x57deea70e000 SubmittedBy:0x57deea70e010 SubmittedAt:2026-09-12 11:30:14.806032 &#43;0000 UTC VerifiedBy:&lt;nil&gt; VerifiedAt:&lt;nil&gt; ReworkReason:pen not in frame RolledFwd:0 DelayedSince:&lt;nil&gt; RowVersion:3 CreatedAt:2026-09-12 11:30:14.519761 &#43;0000 UTC UpdatedAt:2026-09-12 11:30:21.070006 &#43;0000 UTC}</td>
+            <td class="detail">err=&lt;nil&gt; visit={TaskID:9c92a72d-c95f-4964-ac35-d13a812f7c14 TenantID:00000000-0000-4000-8000-000000000001 ParkID:00000000-0000-4000-8000-000000003001 ParkName:Coimbatore ShedID:7e000000-0000-4000-8000-0000000e0201 ShedName:E2E-PV Partition: PenLabel:E2E-PV Reasons:[deworming] SourceDate:2026-09-14 PlannedDate:2026-09-15 DueDate:2026-09-15 WorkState:scheduled Status:rework VisitorIDs:[7e000000-0000-4000-8000-0000000e0305 7e000000-0000-4000-8000-0000000e0306] Sources:[{Kind:pc_care_task RefID:bb5dc5ad-67e8-4387-997e-2bcd2fba195a}] ProofRef:0x226cb4dd4c00 SubmittedBy:0x226cb4dd4c10 SubmittedAt:2026-09-14 13:46:47.294601 &#43;0000 UTC VerifiedBy:&lt;nil&gt; VerifiedAt:&lt;nil&gt; ReworkReason:pen not in frame RolledFwd:0 DelayedSince:&lt;nil&gt; RowVersion:3 CreatedAt:2026-09-14 13:46:45.748814 &#43;0000 UTC UpdatedAt:2026-09-14 13:46:53.968805 &#43;0000 UTC}</td>
           </tr>
 
           <tr class="ok">
@@ -524,15 +512,15 @@
           </tr>
 
           <tr class="ok">
-            <td>the task&#39;s board row reads REJECTED, from the visit</td>
+            <td>the visit&#39;s Tasks row reads REJECTED</td>
             <td>PASS</td>
-            <td class="detail">err=&lt;nil&gt; state=&#34;rejected&#34;</td>
+            <td class="detail">err=&lt;nil&gt; rows=[{Module:tasks SourceType:pen_visit_task SourceID:9c92a72d-c95f-4964-ac35-d13a812f7c14 RowKey:tasks|pen_visit_task|9c92a72d-c95f-4964-ac35-d13a812f7c14 ParkID:00000000-0000-4000-8000-000000003001 ParkName:Coimbatore Pen:{ShedID:7e000000-0000-4000-8000-0000000e0201 ShedName:E2E-PV PartitionLabel: Display:E2E-PV} BusinessDate:2026-09-15 DueAt:&lt;nil&gt; ClockLabel:Visit due 15/09/2026 WorkState:rejected Lane:in_progress Severity:at_risk Owner:{UserID:7e000000-0000-4000-8000-0000000e0306 WorkforceMemberID:7e000000-0000-4000-8000-0000000e0306 Name:Second Visitor} OwnerState:assigned Title:Pen visit · E2E-PV Subtitle:Deworming · work done 14/09/2026 Counts:{Done:0 Pending:1 NeedsAttention:1} Href:}]</td>
           </tr>
 
           <tr class="ok">
             <td>the first visitor&#39;s re-shoot is accepted for review</td>
             <td>PASS</td>
-            <td class="detail">err=&lt;nil&gt; visit={TaskID:57b5bba6-d794-44fc-b0c7-b24cc2c7e8c0 TenantID:00000000-0000-4000-8000-000000000001 ParkID:00000000-0000-4000-8000-000000003001 ParkName:Coimbatore ShedID:7e000000-0000-4000-8000-0000000e0201 ShedName:E2E-PV Partition: PenLabel:E2E-PV Reasons:[deworming] SourceDate:2026-09-12 PlannedDate:2026-09-13 DueDate:2026-09-13 WorkState:scheduled Status:pending_verification VisitorIDs:[7e000000-0000-4000-8000-0000000e0305 7e000000-0000-4000-8000-0000000e0306] Sources:[{Kind:pc_care_task RefID:5978a153-9be9-42ca-8a4e-79eab9ec2599}] ProofRef:0x57deea9cad20 SubmittedBy:0x57deea9cad30 SubmittedAt:2026-09-12 11:30:24.131763 &#43;0000 UTC VerifiedBy:&lt;nil&gt; VerifiedAt:&lt;nil&gt; ReworkReason: RolledFwd:0 DelayedSince:&lt;nil&gt; RowVersion:4 CreatedAt:2026-09-12 11:30:14.519761 &#43;0000 UTC UpdatedAt:2026-09-12 11:30:24.131763 &#43;0000 UTC}</td>
+            <td class="detail">err=&lt;nil&gt; visit={TaskID:9c92a72d-c95f-4964-ac35-d13a812f7c14 TenantID:00000000-0000-4000-8000-000000000001 ParkID:00000000-0000-4000-8000-000000003001 ParkName:Coimbatore ShedID:7e000000-0000-4000-8000-0000000e0201 ShedName:E2E-PV Partition: PenLabel:E2E-PV Reasons:[deworming] SourceDate:2026-09-14 PlannedDate:2026-09-15 DueDate:2026-09-15 WorkState:scheduled Status:pending_verification VisitorIDs:[7e000000-0000-4000-8000-0000000e0305 7e000000-0000-4000-8000-0000000e0306] Sources:[{Kind:pc_care_task RefID:bb5dc5ad-67e8-4387-997e-2bcd2fba195a}] ProofRef:0x226cb4dd5950 SubmittedBy:0x226cb4dd5960 SubmittedAt:2026-09-14 13:46:56.214089 &#43;0000 UTC VerifiedBy:&lt;nil&gt; VerifiedAt:&lt;nil&gt; ReworkReason: RolledFwd:0 DelayedSince:&lt;nil&gt; RowVersion:4 CreatedAt:2026-09-14 13:46:45.748814 &#43;0000 UTC UpdatedAt:2026-09-14 13:46:56.214089 &#43;0000 UTC}</td>
           </tr>
 
           <tr class="ok">
@@ -557,7 +545,7 @@
           <tr class="ok">
             <td>the visit is verified on both dimensions</td>
             <td>PASS</td>
-            <td class="detail">err=&lt;nil&gt; visit={TaskID:57b5bba6-d794-44fc-b0c7-b24cc2c7e8c0 TenantID:00000000-0000-4000-8000-000000000001 ParkID:00000000-0000-4000-8000-000000003001 ParkName:Coimbatore ShedID:7e000000-0000-4000-8000-0000000e0201 ShedName:E2E-PV Partition: PenLabel:E2E-PV Reasons:[deworming] SourceDate:2026-09-12 PlannedDate:2026-09-13 DueDate:2026-09-13 WorkState:completed Status:completed VisitorIDs:[7e000000-0000-4000-8000-0000000e0305 7e000000-0000-4000-8000-0000000e0306] Sources:[{Kind:pc_care_task RefID:5978a153-9be9-42ca-8a4e-79eab9ec2599}] ProofRef:0x57deea7bd8a0 SubmittedBy:0x57deea7bd8b0 SubmittedAt:2026-09-12 11:30:24.131763 &#43;0000 UTC VerifiedBy:0x57deea7bd8c0 VerifiedAt:2026-09-12 11:30:31.631034 &#43;0000 UTC ReworkReason: RolledFwd:0 DelayedSince:&lt;nil&gt; RowVersion:5 CreatedAt:2026-09-12 11:30:14.519761 &#43;0000 UTC UpdatedAt:2026-09-12 11:30:31.631034 &#43;0000 UTC}</td>
+            <td class="detail">err=&lt;nil&gt; visit={TaskID:9c92a72d-c95f-4964-ac35-d13a812f7c14 TenantID:00000000-0000-4000-8000-000000000001 ParkID:00000000-0000-4000-8000-000000003001 ParkName:Coimbatore ShedID:7e000000-0000-4000-8000-0000000e0201 ShedName:E2E-PV Partition: PenLabel:E2E-PV Reasons:[deworming] SourceDate:2026-09-14 PlannedDate:2026-09-15 DueDate:2026-09-15 WorkState:completed Status:completed VisitorIDs:[7e000000-0000-4000-8000-0000000e0305 7e000000-0000-4000-8000-0000000e0306] Sources:[{Kind:pc_care_task RefID:bb5dc5ad-67e8-4387-997e-2bcd2fba195a}] ProofRef:0x226cb4c65370 SubmittedBy:0x226cb4c65380 SubmittedAt:2026-09-14 13:46:56.214089 &#43;0000 UTC VerifiedBy:0x226cb4c653a0 VerifiedAt:2026-09-14 13:47:02.616867 &#43;0000 UTC ReworkReason: RolledFwd:0 DelayedSince:&lt;nil&gt; RowVersion:5 CreatedAt:2026-09-14 13:46:45.748814 &#43;0000 UTC UpdatedAt:2026-09-14 13:47:02.616867 &#43;0000 UTC}</td>
           </tr>
 
           <tr class="ok">
@@ -585,9 +573,15 @@
           </tr>
 
           <tr class="ok">
-            <td>the task read&#39;s step reads verified</td>
+            <td>the task read&#39;s clock is closed at last</td>
             <td>PASS</td>
-            <td class="detail">err=&lt;nil&gt; pen_visit=&amp;{TaskID:57b5bba6-d794-44fc-b0c7-b24cc2c7e8c0 TenantID:00000000-0000-4000-8000-000000000001 ParkID:00000000-0000-4000-8000-000000003001 ParkName:Coimbatore ShedID:7e000000-0000-4000-8000-0000000e0201 ShedName:E2E-PV Partition: PenLabel:E2E-PV Reasons:[deworming] SourceDate:2026-09-12 PlannedDate:2026-09-13 DueDate:2026-09-13 WorkState:completed Status:completed VisitorIDs:[7e000000-0000-4000-8000-0000000e0305 7e000000-0000-4000-8000-0000000e0306] Sources:[{Kind:pc_care_task RefID:5978a153-9be9-42ca-8a4e-79eab9ec2599}] ProofRef:0x57deea7bc2c0 SubmittedBy:0x57deea7bc2d0 SubmittedAt:2026-09-12 11:30:24.131763 &#43;0000 UTC VerifiedBy:0x57deea7bc2e0 VerifiedAt:2026-09-12 11:30:31.631034 &#43;0000 UTC ReworkReason: RolledFwd:0 DelayedSince:&lt;nil&gt; RowVersion:5 CreatedAt:2026-09-12 11:30:14.519761 &#43;0000 UTC UpdatedAt:2026-09-12 11:30:31.631034 &#43;0000 UTC}</td>
+            <td class="detail">err=&lt;nil&gt; row={TaskID:bb5dc5ad-67e8-4387-997e-2bcd2fba195a Category:deworming ParkID:00000000-0000-4000-8000-000000003001 ParkName:Coimbatore ShedID:7e000000-0000-4000-8000-0000000e0201 ShedName:E2E-PV PartitionLabel: VaccineLabel: PlannedBusinessDate:2026-09-14 DueBusinessDate:2026-09-14 WorkState:completed Status:completed CloseReason: ReworkReason: RowVersion:4 SubmittedBy:7e000000-0000-4000-8000-0000000e0301 SubmittedAt:2026-09-14 19:16:27.283634 &#43;0530 IST AssigneeUserIDs:[7e000000-0000-4000-8000-0000000e0301] AssigneeNames:[E2E Operator] AnimalCount:1 InventoryRequirements:[] TaskProofs:[] RemovalPenLabels:[] AnimalPenLabels:[]}</td>
+          </tr>
+
+          <tr class="ok">
+            <td>the visit itself reads verified on the visitor&#39;s own list</td>
+            <td>PASS</td>
+            <td class="detail">err=&lt;nil&gt; visit={TaskID:9c92a72d-c95f-4964-ac35-d13a812f7c14 TenantID:00000000-0000-4000-8000-000000000001 ParkID:00000000-0000-4000-8000-000000003001 ParkName:Coimbatore ShedID:7e000000-0000-4000-8000-0000000e0201 ShedName:E2E-PV Partition: PenLabel:E2E-PV Reasons:[deworming] SourceDate:2026-09-14 PlannedDate:2026-09-15 DueDate:2026-09-15 WorkState:completed Status:completed VisitorIDs:[7e000000-0000-4000-8000-0000000e0305 7e000000-0000-4000-8000-0000000e0306] Sources:[{Kind:pc_care_task RefID:bb5dc5ad-67e8-4387-997e-2bcd2fba195a}] ProofRef:0x226cb4c65920 SubmittedBy:0x226cb4c65930 SubmittedAt:2026-09-14 13:46:56.214089 &#43;0000 UTC VerifiedBy:0x226cb4c65940 VerifiedAt:2026-09-14 13:47:02.616867 &#43;0000 UTC ReworkReason: RolledFwd:0 DelayedSince:&lt;nil&gt; RowVersion:5 CreatedAt:2026-09-14 13:46:45.748814 &#43;0000 UTC UpdatedAt:2026-09-14 13:47:02.616867 &#43;0000 UTC}</td>
           </tr>
 
           <tr class="ok">
@@ -612,13 +606,13 @@
           <tr class="ok">
             <td>the late submit links onto the pen&#39;s ONE (already verified) visit rather than raising another</td>
             <td>PASS</td>
-            <td class="detail">err=&lt;nil&gt; result={SourceDate:2026-09-12 Created:0 Widened:0 ParksWithoutAssignee:[] PensSkipped:0}</td>
+            <td class="detail">err=&lt;nil&gt; result={SourceDate:2026-09-14 Created:0 Widened:0 ParksWithoutAssignee:[] PensSkipped:0}</td>
           </tr>
 
           <tr class="ok">
             <td>the ticks task is linked to the same visit</td>
             <td>PASS</td>
-            <td class="detail">err=&lt;nil&gt; linked=map[7eea315d-7355-4f71-8714-91b164839b25:{TaskID:57b5bba6-d794-44fc-b0c7-b24cc2c7e8c0 TenantID:00000000-0000-4000-8000-000000000001 ParkID:00000000-0000-4000-8000-000000003001 ParkName:Coimbatore ShedID:7e000000-0000-4000-8000-0000000e0201 ShedName:E2E-PV Partition: PenLabel:E2E-PV Reasons:[deworming] SourceDate:2026-09-12 PlannedDate:2026-09-13 DueDate:2026-09-13 WorkState:completed Status:completed VisitorIDs:[7e000000-0000-4000-8000-0000000e0305 7e000000-0000-4000-8000-0000000e0306] Sources:[{Kind:pc_care_task RefID:5978a153-9be9-42ca-8a4e-79eab9ec2599} {Kind:pc_care_task RefID:7eea315d-7355-4f71-8714-91b164839b25}] ProofRef:0x57deea59b750 SubmittedBy:0x57deea59b760 SubmittedAt:2026-09-12 11:30:24.131763 &#43;0000 UTC VerifiedBy:0x57deea59b780 VerifiedAt:2026-09-12 11:30:31.631034 &#43;0000 UTC ReworkReason: RolledFwd:0 DelayedSince:&lt;nil&gt; RowVersion:5 CreatedAt:2026-09-12 11:30:14.519761 &#43;0000 UTC UpdatedAt:2026-09-12 11:30:31.631034 &#43;0000 UTC}]</td>
+            <td class="detail">err=&lt;nil&gt; linked=map[c00a486e-07ad-4472-ae7f-058c3b7b3042:{TaskID:9c92a72d-c95f-4964-ac35-d13a812f7c14 TenantID:00000000-0000-4000-8000-000000000001 ParkID:00000000-0000-4000-8000-000000003001 ParkName:Coimbatore ShedID:7e000000-0000-4000-8000-0000000e0201 ShedName:E2E-PV Partition: PenLabel:E2E-PV Reasons:[deworming] SourceDate:2026-09-14 PlannedDate:2026-09-15 DueDate:2026-09-15 WorkState:completed Status:completed VisitorIDs:[7e000000-0000-4000-8000-0000000e0305 7e000000-0000-4000-8000-0000000e0306] Sources:[{Kind:pc_care_task RefID:bb5dc5ad-67e8-4387-997e-2bcd2fba195a} {Kind:pc_care_task RefID:c00a486e-07ad-4472-ae7f-058c3b7b3042}] ProofRef:0x226cb4bde0b0 SubmittedBy:0x226cb4bde0c0 SubmittedAt:2026-09-14 13:46:56.214089 &#43;0000 UTC VerifiedBy:0x226cb4bde0d0 VerifiedAt:2026-09-14 13:47:02.616867 &#43;0000 UTC ReworkReason: RolledFwd:0 DelayedSince:&lt;nil&gt; RowVersion:5 CreatedAt:2026-09-14 13:46:45.748814 &#43;0000 UTC UpdatedAt:2026-09-14 13:47:02.616867 &#43;0000 UTC}]</td>
           </tr>
 
           <tr class="ok">

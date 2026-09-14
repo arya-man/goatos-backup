@@ -60,7 +60,6 @@ import sg.mesha.goatos.feature.pccare.PcCareRosterRowUi
 import sg.mesha.goatos.feature.pccare.PcCareSlotChipUi
 import sg.mesha.goatos.feature.pccare.PcCareSlotState
 import sg.mesha.goatos.feature.pccare.PcCareTaskEvent
-import sg.mesha.goatos.feature.pccare.PcCarePenVisitStepUi
 import sg.mesha.goatos.feature.pccare.PcCareTaskUiState
 import sg.mesha.goatos.rfid.RfidReaderPort
 import sg.mesha.goatos.rfid.RfidReaderStatus
@@ -337,8 +336,6 @@ class PcCareTaskViewModel @Inject constructor(
             // Handled by the host: navigates to the per-animal capture drill (Feed Direction's
             // completion-screen shape — the three videos as clearly labeled options).
             is PcCareTaskEvent.RosterTapped -> Unit
-            // Handled by the host (navigates to the pen-visit drill).
-            is PcCareTaskEvent.OpenPenVisit -> Unit
             PcCareTaskEvent.Refresh -> refresh()
             // Handled by the host (navigates to the reader pairing screen).
             PcCareTaskEvent.ReconnectReader -> Unit
@@ -2307,7 +2304,6 @@ class PcCareTaskViewModel @Inject constructor(
                 else -> ""
             },
             reworkReason = detail?.takeIf { it.status == PC_CARE_STATUS_REWORK }?.reworkReason.orEmpty(),
-            penVisit = detail?.let(::pcCarePenVisitStep),
             scanInput = bits.scanInput,
             scanNotice = bits.scanNotice,
             animals = pcCareBuildAnimalUis(
@@ -3090,28 +3086,4 @@ internal fun pcCareEvaluateTaskProofSubmit(
         return PcCareSubmitEvaluation(ready = false, blockedReason = missingCopy)
     }
     return PcCareSubmitEvaluation(ready = true)
-}
-
-/**
- * The task's pen-visit step card (maintainer decision 2026-09-12), from the backend's own
- * `pen_visit` step and the card chip it sends. Before the visit row exists the card says what
- * the backend says ("Pen visit tomorrow"); once it exists every line is the step's own.
- */
-internal fun pcCarePenVisitStep(detail: PcCareTaskDto): PcCarePenVisitStepUi? {
-    if (!detail.penVisitOwed) return null
-    val visit = detail.penVisit
-    if (visit == null) {
-        val chip = detail.penVisitChip.ifBlank { return null }
-        return PcCarePenVisitStepUi(chipLabel = chip, chipTone = pcCarePenVisitTone(detail.penVisitTone))
-    }
-    return PcCarePenVisitStepUi(
-        visitTaskId = visit.taskId,
-        chipLabel = visit.stateChip,
-        chipTone = pcCarePenVisitTone(visit.stateTone),
-        reasonLine = visit.reasonLine,
-        instruction = visit.instruction,
-        reworkReason = visit.reworkReason,
-        canRecord = visit.canSubmit,
-        verified = visit.verified,
-    )
 }

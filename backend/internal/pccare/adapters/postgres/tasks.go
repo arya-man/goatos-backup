@@ -713,15 +713,11 @@ func (r *Repository) ListTasks(ctx context.Context, q ports.ListTasksQuery) (por
 	// PLAN time when the planner folds the row-comparison keyset arm, even though the `$n = ''`
 	// guard short-circuits at execution (first-page reads 500'd on STG, 2026-08-22).
 	//
-	// The pen visit is the task's LAST step (maintainer decision 2026-09-12). Two consequences
-	// here: (a) the CARRY branch excludes a task whose own videos are already verified
-	// (status 'completed') -- for the operator that work is done, even though the kernel
-	// clock stays open until the visit is verified, so it must not resurface day after day
-	// as work owed; (b) the VISITOR branch ($17) admits a task whose linked visit is the
-	// caller's to record, on the VISIT's due day (or carried while the visit is still owed),
-	// so a park visitor finds the task under its category tab on the morning after, rather
-	// than on a tab of its own. The visitor branch is judged against pen_visit_park_assignees,
-	// the HRMS config that says who visits which park.
+	// The next-day pen visit is a task of its own on the Tasks module (maintainer decision
+	// 2026-09-14) and never surfaces here. One consequence of it remains: the CARRY branch
+	// excludes a task whose own videos are already verified (status 'completed') -- for the
+	// operator that work is done, even though the kernel clock stays open until the visit is
+	// verified, so it must not resurface day after day as work owed.
 	listTasksPageSQL := `
 	WHERE t.tenant_id = $1::uuid
 	  AND (
@@ -729,18 +725,6 @@ func (r *Repository) ListTasks(ctx context.Context, q ports.ListTasksQuery) (por
 	        OR ($14::bool AND (
 	             (t.due_business_date = $2::date)
 	             OR (t.due_business_date < $2::date AND t.work_state IN ('scheduled', 'delayed') AND t.status <> 'completed')
-	        ))
-	        OR ($17::text <> '' AND EXISTS (
-	             SELECT 1
-	             FROM pen_visit_task_sources s
-	             JOIN pen_visit_tasks v ON v.tenant_id = s.tenant_id AND v.task_id = s.task_id
-	             JOIN pen_visit_park_assignees a ON a.tenant_id = v.tenant_id AND a.park_id = v.park_id
-	              AND a.user_id = nullif($17::text, '')::uuid
-	             WHERE s.tenant_id = t.tenant_id AND s.source_kind = 'pc_care_task' AND s.source_ref_id = t.task_id
-	               AND (
-	                     v.due_business_date = $2::date
-	                     OR (v.due_business_date < $2::date AND v.work_state IN ('scheduled', 'delayed'))
-	                   )
 	        ))
 	      )
   AND t.work_state <> 'canceled'
@@ -772,14 +756,7 @@ func (r *Repository) ListTasks(ctx context.Context, q ports.ListTasksQuery) (por
 	       OR EXISTS (
 	        SELECT 1 FROM pc_care_task_assignees mine
 	        WHERE mine.tenant_id = t.tenant_id AND mine.task_id = t.task_id
-	          AND mine.operator_user_id = nullif($7::text, '')::uuid)
-	       OR ($17::text <> '' AND EXISTS (
-	        SELECT 1
-	        FROM pen_visit_task_sources s
-	        JOIN pen_visit_tasks v ON v.tenant_id = s.tenant_id AND v.task_id = s.task_id
-	        JOIN pen_visit_park_assignees a ON a.tenant_id = v.tenant_id AND a.park_id = v.park_id
-	         AND a.user_id = nullif($17::text, '')::uuid
-	        WHERE s.tenant_id = t.tenant_id AND s.source_kind = 'pc_care_task' AND s.source_ref_id = t.task_id)))
+	          AND mine.operator_user_id = nullif($7::text, '')::uuid))
 	  AND (
 	        $9::text = ''
 	        OR (park.name, coalesce(shed.name, coalesce(t.vaccine_label, '')), t.partition_key, t.category, t.task_id)
@@ -808,7 +785,7 @@ func (r *Repository) ListTasks(ctx context.Context, q ports.ListTasksQuery) (por
 		q.TenantID, q.DueBusinessDate, q.TenantWide, q.AuthorizedParkIDs,
 		q.ParkID, q.Category, q.AssigneeUserID, limit+1,
 		afterPark, afterShed, afterPartition, afterCategory, afterTask, q.CurrentOrCarry,
-		now, removalCutoffSQLTime, strings.TrimSpace(q.VisitorUserID))
+		now, removalCutoffSQLTime)
 	if err != nil {
 		return ports.TaskPage{}, fmt.Errorf("pccare: list tasks: %w", err)
 	}

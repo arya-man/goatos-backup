@@ -191,39 +191,21 @@ func TestPenTaskClosesOnlyWhenBothTheWorkAndTheVisitAreVerified(t *testing.T) {
 		t.Fatalf("a sent-back visit must leave the task open: %s/%s", status, workState)
 	}
 
-	// The park's configured visitor (not an assignee) finds the tasks on THEIR worklist on
-	// the visit's day (every category tab here), and the operator's carry list no longer
-	// resurfaces a verified task as work owed.
+	// The visit is a task of its own on the Tasks module (2026-09-14): the park's configured
+	// visitor does NOT find the parent task on a PC Care worklist, and the operator's carry
+	// list no longer resurfaces a verified task as work owed.
 	cutoff := pcCutoff
 	visitorList, err := repo.ListTasks(ctx, ports.ListTasksQuery{
 		TenantID: pcTenant, TenantWide: true, DueBusinessDate: "2026-08-22",
-		CurrentOrCarry: true, AssigneeUserID: pcVisitor2, VisitorUserID: pcVisitor2,
+		CurrentOrCarry: true, AssigneeUserID: pcVisitor2,
 		Now: pcBusinessDay(2026, 8, 22), RemovalCutoff: cutoff, Limit: 50,
 	})
-	if err != nil {
-		t.Fatalf("visitor worklist: %v", err)
-	}
-	ids := map[string]bool{}
-	for _, row := range visitorList.Items {
-		ids[row.TaskID] = true
-	}
-	// workFirst's visit is due today (listed even though verified -- the day's own row);
-	// sentBack's visit is older and still owed, so it is carried; visitFirst's older visit
-	// is verified and gone from the visitor's day.
-	if !ids[workFirst.TaskID] || !ids[sentBack.TaskID] || ids[visitFirst.TaskID] {
-		t.Fatalf("visitor's worklist on the visit day: want today's and the carried open visit, not the old verified one; got %v", ids)
-	}
-	outsider, err := repo.ListTasks(ctx, ports.ListTasksQuery{
-		TenantID: pcTenant, TenantWide: true, DueBusinessDate: "2026-08-22",
-		CurrentOrCarry: true, AssigneeUserID: pcOutsider, VisitorUserID: pcOutsider,
-		Now: pcBusinessDay(2026, 8, 22), RemovalCutoff: cutoff, Limit: 50,
-	})
-	if err != nil || len(outsider.Items) != 0 {
-		t.Fatalf("someone who is neither assignee nor visitor sees nothing, got %d err %v", len(outsider.Items), err)
+	if err != nil || len(visitorList.Items) != 0 {
+		t.Fatalf("a visitor who is not an assignee sees no PC Care work (the visit lives on Tasks), got %d err %v", len(visitorList.Items), err)
 	}
 	operatorCarry, err := repo.ListTasks(ctx, ports.ListTasksQuery{
 		TenantID: pcTenant, TenantWide: true, DueBusinessDate: "2026-08-22",
-		CurrentOrCarry: true, AssigneeUserID: pcOperator1, VisitorUserID: pcOperator1,
+		CurrentOrCarry: true, AssigneeUserID: pcOperator1,
 		Now: pcBusinessDay(2026, 8, 22), RemovalCutoff: cutoff, Limit: 50,
 	})
 	if err != nil {

@@ -23,6 +23,10 @@ var moduleVisibility = map[domain.Module][]string{
 	// phone. The review authority is the desk that owns a load's state.
 	domain.ModuleProcurement:  {permissions.ProcurementReview},
 	domain.ModuleVerification: {permissions.VerificationReview, permissions.VerificationVerdict},
+	// Tasks (2026-09-14): the pen visits the kernel owes a park's visitors. Visible to whoever
+	// can record one (the Tasks module's Do tick) and to whoever reads the Tasks module at all,
+	// so a director or the CXO desk sees the park's visits beside the work that raised them.
+	domain.ModuleTasks: {permissions.PenVisitsExecute, permissions.LeadershipTasksRead},
 }
 
 // VisibleModules returns, in board order, the modules a caller holding perms may see.

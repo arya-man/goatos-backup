@@ -24,6 +24,7 @@
     <string name="work_board_module_toxin">మేత పరీక్ష</string>
     <string name="work_board_module_procurement">కొనుగోలు</string>
     <string name="work_board_module_verification">ధృవీకరణ</string>
+    <string name="work_board_module_tasks">పనులు</string>
 
     <string name="work_board_state_scheduled">నిర్ణయించబడింది</string>
     <string name="work_board_state_due">ఈరోజు చేయాలి</string>

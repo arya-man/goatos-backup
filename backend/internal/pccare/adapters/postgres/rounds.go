@@ -1042,7 +1042,7 @@ func (r *Repository) ListRoundCards(ctx context.Context, q ports.ListRoundCardsQ
 		if err := rows.Scan(
 			&c.CardKey, &roundID, &singleTaskID, &c.Category, &c.ParkID, &c.ParkName,
 			&c.PlannedBusinessDate, &c.DueBusinessDate, &c.PenCount, &c.PenLabels,
-			&penStatuses, &penWorkStates, &c.VisitOwedTaskIDs, &c.AssigneeNames, &c.AnimalCount, &removalTaskID, &removalStatus,
+			&penStatuses, &penWorkStates, &c.AssigneeNames, &c.AnimalCount, &removalTaskID, &removalStatus,
 		); err != nil {
 			return ports.RoundCardPage{}, fmt.Errorf("pccare: scan round card: %w", err)
 		}
@@ -1279,9 +1279,6 @@ SELECT
   array_remove(array_agg(s.operational_location_display ORDER BY s.operational_location_display), '') AS pen_labels,
   array_agg(s.status) AS pen_statuses,
   array_agg(s.work_state) AS pen_work_states,
-  -- Pens whose videos are verified while the clock is still open: they owe the visit that
-  -- is the work's last step, and the card's chip is rolled up over them in the service.
-  coalesce(array_agg(s.task_id::text) FILTER (WHERE s.status = 'completed' AND s.work_state IN ('scheduled', 'delayed') AND s.shed_id IS NOT NULL), ARRAY[]::text[]) AS visit_owed_task_ids,
   coalesce(min(crew.names), ARRAY[]::text[]) AS assignee_names,
   coalesce(min(animals.animal_count), 0)::int AS animal_count,
   min(removal.task_id::text) AS removal_task_id,

@@ -124,7 +124,6 @@ func TestKernelStory_PenVisitIsTheCareWorksLastStep(t *testing.T) {
 		WithProofValidator(pccareproof.NewValidator(fx.Proof)).
 		WithVerificationEnqueuer(pccarebridge.New(verification)).
 		WithFeedWaterRemovalCutoff(fwrports.StaticCutoff{Cutoff: fwrdomain.MustCutoff(20, 0)}).
-		WithPenVisits(penRepo).
 		WithNow(func() time.Time { return pcNow })
 	penVisits := penvisitsapp.NewService(penRepo).WithProofValidator(penvisitsproof.NewValidator(fx.Proof))
 	// The two pen-visit consumers production registers on every durable bus: the submit ->
@@ -238,7 +237,7 @@ func TestKernelStory_PenVisitIsTheCareWorksLastStep(t *testing.T) {
 	story.Assert("the deworming's own videos are verified", status == pccaredomain.StatusCompleted, "status=%q", status)
 	story.Assert("but the task's clock stays OPEN for the visit", workState == pccaredomain.WorkStateScheduled, "work_state=%q", workState)
 	rowAfterOwnApproval, err := pcCare.GetTask(ctx, ceo, deworming.TaskID)
-	story.Assert("the task read carries no visit yet (it is raised the morning after)", err == nil && rowAfterOwnApproval.PenVisit == nil, "err=%v pen_visit=%+v", err, rowAfterOwnApproval.PenVisit)
+	story.Assert("the task read shows the task's own state only (the visit is a task of its own, 2026-09-14)", err == nil && rowAfterOwnApproval.Status == pccaredomain.StatusCompleted && rowAfterOwnApproval.WorkState == pccaredomain.WorkStateScheduled, "err=%v row=%+v", err, rowAfterOwnApproval)
 	sweep, err := pcRepo.SweepTaskRollForward(ctx, fxTenant, biztime.BusinessDayStart(time.Now()).AddDate(0, 0, 3), 200, 50)
 	story.Assert("the kernel roll-forward does not roll a verified task as late work", err == nil && sweep.RolledForward == 0, "err=%v rolled=%d", err, sweep.RolledForward)
 
@@ -247,7 +246,7 @@ func TestKernelStory_PenVisitIsTheCareWorksLastStep(t *testing.T) {
 	}
 	pcSource := pccareBoardSource(fx)
 	rowsToday, err := pcSource.ListRows(ctx, boardQuery(today, ""))
-	story.Assert("the Work Board row for the task reads IN PROGRESS, not Done, with the visit still to come", err == nil && boardState(rowsToday, deworming.TaskID) == workboarddomain.WorkStateInProgress && boardSubtitle(rowsToday, deworming.TaskID) == "1 animal · Pen visit tomorrow",
+	story.Assert("the Work Board row for the task reads DONE -- the operator's own work is verified; the visit rows on its own under Tasks", err == nil && boardState(rowsToday, deworming.TaskID) == workboarddomain.WorkStateCompleted && boardSubtitle(rowsToday, deworming.TaskID) == "1 animal",
 		"err=%v state=%q subtitle=%q", err, boardState(rowsToday, deworming.TaskID), boardSubtitle(rowsToday, deworming.TaskID))
 
 	// ---------------------------------------------------------------------------
@@ -266,12 +265,10 @@ func TestKernelStory_PenVisitIsTheCareWorksLastStep(t *testing.T) {
 		return
 	}
 	story.Assert("the visit is owed tomorrow, open on both dimensions", visit.DueDate == tomorrow && visit.WorkState == penvisitsdomain.WorkStateScheduled && visit.Status == penvisitsdomain.StatusOpen, "visit=%+v", visit)
-	rowWithVisit, err := pcCare.GetTask(ctx, ceo, deworming.TaskID)
-	story.Assert("the task read now carries its visit step", err == nil && rowWithVisit.PenVisit != nil && rowWithVisit.PenVisit.TaskID == visit.TaskID, "err=%v pen_visit=%+v", err, rowWithVisit.PenVisit)
 
-	story.Step("Both configured visitors see it; a stranger sees nothing; the second visitor finds the task on their worklist",
-		"The visit list is 'the parks I am configured for'; the PC Care worklist admits the visitor on "+
-			"the VISIT's day under the deworming tab, even though they are not an assignee of the task.")
+	story.Step("Both configured visitors see it on their For me list; a stranger sees nothing; no PC Care worklist carries it",
+		"The visit list is 'the parks I am configured for' (the Tasks module's For me tab). The PC Care "+
+			"worklist is the assignee's own list and never admits a visitor for a task they were not assigned.")
 	dinakarList, err := penVisits.ListMine(ctx, fxTenant, dinakarID, "todo", 20, "")
 	secondList, err2 := penVisits.ListMine(ctx, fxTenant, secondID, "todo", 20, "")
 	strangerList, err3 := penVisits.ListMine(ctx, fxTenant, strangerID, "todo", 20, "")
@@ -280,15 +277,15 @@ func TestKernelStory_PenVisitIsTheCareWorksLastStep(t *testing.T) {
 	secondActor := pccaredomain.Actor{TenantID: fxTenant, UserID: secondID, Roles: []string{permissions.RolePCDirector}}
 	pcNow = biztime.BusinessDayStart(time.Now()).AddDate(0, 0, 1).Add(8 * time.Hour)
 	visitorWorklist, err := pcCare.Worklist(ctx, secondActor, pccaredomain.CategoryDeworming, tomorrow, "", 20)
-	story.Assert("the visitor's deworming worklist carries the task on the visit's day", err == nil && hasTask(visitorWorklist.Items, deworming.TaskID), "err=%v items=%d", err, len(visitorWorklist.Items))
+	story.Assert("the visitor's deworming worklist does NOT carry the task (the visit lives on Tasks)", err == nil && !hasTask(visitorWorklist.Items, deworming.TaskID), "err=%v items=%d", err, len(visitorWorklist.Items))
 	operatorCarry, err := pcCare.Worklist(ctx, operator, pccaredomain.CategoryDeworming, tomorrow, "", 20)
 	story.Assert("the operator's carry list no longer shows the verified task as work owed", err == nil && !hasTask(operatorCarry.Items, deworming.TaskID), "err=%v items=%d", err, len(operatorCarry.Items))
-	visitRows, err := penvisitsboard.NewPCCare(fx.Pool, 10*time.Second).ListRows(ctx, boardQuery(tomorrow, secondID))
-	story.Assert("on the visit's day the board rows the visit under Preventive Care AS THE WORK CONTINUING, on the visitor's own board naming THEM first", err == nil && len(visitRows) == 1 && visitRows[0].Title == "Deworming · E2E-PV" && visitRows[0].WorkState == workboarddomain.WorkStateDue && visitRows[0].Owner.Name == "Second Visitor +1" && visitRows[0].Subtitle == "Pen visit · work done "+biztime.FarmDateFromBusinessDate(today),
+	visitRows, err := penvisitsboard.New(fx.Pool, 10*time.Second).ListRows(ctx, boardQuery(tomorrow, secondID))
+	story.Assert("on the visit's day the board rows the visit under TASKS as a task of its own, on the visitor's own board naming THEM first", err == nil && len(visitRows) == 1 && visitRows[0].Module == workboarddomain.ModuleTasks && visitRows[0].Title == "Pen visit · E2E-PV" && visitRows[0].WorkState == workboarddomain.WorkStateDue && visitRows[0].Owner.Name == "Second Visitor +1" && visitRows[0].Subtitle == "Deworming · work done "+biztime.FarmDateFromBusinessDate(today),
 		"err=%v rows=%+v", err, visitRows)
-	unscopedRows, err := penvisitsboard.NewPCCare(fx.Pool, 10*time.Second).ListRows(ctx, boardQuery(tomorrow, ""))
+	unscopedRows, err := penvisitsboard.New(fx.Pool, 10*time.Second).ListRows(ctx, boardQuery(tomorrow, ""))
 	story.Assert("on the park's board the first configured visitor leads, with +1 for the other", err == nil && len(unscopedRows) == 1 && unscopedRows[0].Owner.Name == "Dinakar +1", "err=%v rows=%+v", err, unscopedRows)
-	strangerRows, err := penvisitsboard.NewPCCare(fx.Pool, 10*time.Second).ListRows(ctx, boardQuery(tomorrow, strangerID))
+	strangerRows, err := penvisitsboard.New(fx.Pool, 10*time.Second).ListRows(ctx, boardQuery(tomorrow, strangerID))
 	story.Assert("the stranger's board carries no visit", err == nil && len(strangerRows) == 0, "err=%v rows=%d", err, len(strangerRows))
 
 	// ---------------------------------------------------------------------------
@@ -309,7 +306,9 @@ func TestKernelStory_PenVisitIsTheCareWorksLastStep(t *testing.T) {
 	status, workState = taskStates(deworming.TaskID)
 	story.Assert("the deworming task is still open while the visit is with the verifier", status == pccaredomain.StatusCompleted && workState == pccaredomain.WorkStateScheduled, "status=%q work_state=%q", status, workState)
 	rowsToday, err = pcSource.ListRows(ctx, boardQuery(today, ""))
-	story.Assert("the task's board row reads IN REVIEW now, from the visit", err == nil && boardState(rowsToday, deworming.TaskID) == workboarddomain.WorkStateVerificationPending, "err=%v state=%q", err, boardState(rowsToday, deworming.TaskID))
+	story.Assert("the task's own board row stays DONE; the review is the VISIT row's, under Tasks", err == nil && boardState(rowsToday, deworming.TaskID) == workboarddomain.WorkStateCompleted, "err=%v state=%q", err, boardState(rowsToday, deworming.TaskID))
+	visitRowsInReview, err := penvisitsboard.New(fx.Pool, 10*time.Second).ListRows(ctx, boardQuery(tomorrow, ""))
+	story.Assert("the visit's Tasks row reads IN REVIEW", err == nil && len(visitRowsInReview) == 1 && visitRowsInReview[0].WorkState == workboarddomain.WorkStateVerificationPending, "err=%v rows=%+v", err, visitRowsInReview)
 
 	// ---------------------------------------------------------------------------
 	story.Step("The verifier REJECTS the visit: the visitor records again, the task waits",
@@ -320,8 +319,8 @@ func TestKernelStory_PenVisitIsTheCareWorksLastStep(t *testing.T) {
 	story.Assert("the visit is sent back with the verifier's words", err == nil && bounced.Status == penvisitsdomain.StatusRework && bounced.ReworkReason == "pen not in frame", "err=%v visit=%+v", err, bounced)
 	status, workState = taskStates(deworming.TaskID)
 	story.Assert("the deworming task is still open after the visit was sent back", status == pccaredomain.StatusCompleted && workState == pccaredomain.WorkStateScheduled, "status=%q work_state=%q", status, workState)
-	rowsToday, err = pcSource.ListRows(ctx, boardQuery(today, ""))
-	story.Assert("the task's board row reads REJECTED, from the visit", err == nil && boardState(rowsToday, deworming.TaskID) == workboarddomain.WorkStateRejected, "err=%v state=%q", err, boardState(rowsToday, deworming.TaskID))
+	visitRowsRejected, err := penvisitsboard.New(fx.Pool, 10*time.Second).ListRows(ctx, boardQuery(tomorrow, ""))
+	story.Assert("the visit's Tasks row reads REJECTED", err == nil && len(visitRowsRejected) == 1 && visitRowsRejected[0].WorkState == workboarddomain.WorkStateRejected, "err=%v rows=%+v", err, visitRowsRejected)
 	reshot, err := penVisits.Submit(ctx, penvisitsports.SubmitParams{TenantID: fxTenant, Actor: penvisitsdomain.Actor{UserID: dinakarID}, TaskID: visit.TaskID, ProofRef: captureVideo("task", visit.TaskID, dinakarID, "visit-2"), RowVersion: bounced.RowVersion, IdempotencyKey: "pv-visit-2", TraceID: "pv-visit-2"})
 	story.Assert("the first visitor's re-shoot is accepted for review", err == nil && reshot.Status == penvisitsdomain.StatusPendingVerification && reshot.RowVersion > bounced.RowVersion, "err=%v visit=%+v", err, reshot)
 	relay()
@@ -345,7 +344,9 @@ func TestKernelStory_PenVisitIsTheCareWorksLastStep(t *testing.T) {
 	rowsToday, err = pcSource.ListRows(ctx, boardQuery(today, ""))
 	story.Assert("the task's board row reads DONE at last", err == nil && boardState(rowsToday, deworming.TaskID) == workboarddomain.WorkStateCompleted, "err=%v state=%q", err, boardState(rowsToday, deworming.TaskID))
 	finalRow, err := pcCare.GetTask(ctx, ceo, deworming.TaskID)
-	story.Assert("the task read's step reads verified", err == nil && finalRow.PenVisit != nil && finalRow.PenVisit.IsVerified(), "err=%v pen_visit=%+v", err, finalRow.PenVisit)
+	story.Assert("the task read's clock is closed at last", err == nil && finalRow.WorkState == pccaredomain.WorkStateCompleted, "err=%v row=%+v", err, finalRow)
+	finalVisit, err := penVisits.GetTask(ctx, fxTenant, penvisitsdomain.Actor{UserID: dinakarID}, visit.TaskID)
+	story.Assert("the visit itself reads verified on the visitor's own list", err == nil && finalVisit.IsVerified(), "err=%v visit=%+v", err, finalVisit)
 	var completedEvents int
 	if err := fx.Pool.QueryRow(ctx, `SELECT count(*) FROM outbox_messages WHERE tenant_id=$1 AND event_type='pc_care.task.completed' AND aggregate_id=$2::uuid`, fxTenant, deworming.TaskID).Scan(&completedEvents); err != nil {
 		t.Fatalf("count completed events: %v", err)

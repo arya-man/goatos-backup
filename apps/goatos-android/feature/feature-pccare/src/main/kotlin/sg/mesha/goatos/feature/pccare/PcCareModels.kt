@@ -44,8 +44,6 @@ data class PcCareTaskCardUi(
     val inventoryRequirements: List<PcCareInventoryRequirementUi> = emptyList(),
     /** The verifier's rejection sentence, backend-owned, rendered VERBATIM; blank unless rework. */
     val reworkReason: String = "",
-    /** The pen-visit step's own line (the verifier's words on a sent-back visit), VERBATIM; blank otherwise. */
-    val penVisitLine: String = "",
     /** True while an open-for-cancel action is offered (planner monitor only). */
     /** Whether this card offers CLOSE — work that is still open and unsubmitted. */
     val closable: Boolean = false,
@@ -213,36 +211,6 @@ data class PcCareTaskUiState(
     val verdictInFlight: Boolean = false,
     val showRejectDialog: Boolean = false,
     val rejectReasonInput: String = "",
-    /**
-     * The task's LAST step (maintainer decision 2026-09-12): the next-day pen visit, rendered
-     * as one card under the task's own work. Null on tasks that owe none (a park-grain stock
-     * check, a removal card).
-     */
-    val penVisit: PcCarePenVisitStepUi? = null,
-)
-
-/**
- * The pen-visit step as the task screen shows it. EVERY sentence is backend copy carried
- * verbatim (`pen_visit_chip`, the step's `reason_line`, `instruction`, `rework_reason`); the
- * screen owns only its chrome (the "Open pen visit" button) and navigates to the visit drill.
- */
-@Immutable
-data class PcCarePenVisitStepUi(
-    /** The visit task id the drill opens; blank before the visit row exists. */
-    val visitTaskId: String = "",
-    /** Backend chip ("Pen visit tomorrow" / "Visit pen today" / "Visit in review" / "Visit verified"). */
-    val chipLabel: String,
-    val chipTone: PcCareStatusTone,
-    /** Backend reason line ("Deworming yesterday"); blank before the row exists. */
-    val reasonLine: String = "",
-    /** Backend instruction for the visitor; blank before the row exists. */
-    val instruction: String = "",
-    /** The verifier's words on a sent-back visit, verbatim; blank otherwise. */
-    val reworkReason: String = "",
-    /** True when THIS viewer may record the visit now (the backend's `can_submit`). */
-    val canRecord: Boolean = false,
-    /** The verifier approved the visit. */
-    val verified: Boolean = false,
 )
 
 @Immutable
@@ -288,9 +256,6 @@ sealed interface PcCareTaskEvent {
 
     /** Tap on a pen-roster row (roster mode): record this animal's video. */
     data class RosterTapped(val tagKey: String) : PcCareTaskEvent
-
-    /** Open the task's pen-visit step (the hosted visit drill); the host navigates. */
-    data class OpenPenVisit(val visitTaskId: String) : PcCareTaskEvent
 
     // -- PC Director's stock verdict (maintainer decision 2026-09-02) ------------------------
     /** Approve the submitted fridge proof — the task completes. */

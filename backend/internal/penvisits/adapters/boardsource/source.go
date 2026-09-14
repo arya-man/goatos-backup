@@ -1,14 +1,13 @@
 // Package boardsource is the pen visit's contribution to the cross-module Work Board
-// (maintainer decision 2026-09-12): on the day a pen's next-day visit is DUE, the board shows
-// the parent work continuing -- "Deworming · Castro 2", subtitle "Pen visit", clock "Visit due
-// today" -- under the parent's own module. It is not a separate task on the board any more
-// than it is on the phone: the title is the work that happened in the pen, and the row's
-// state is the visit's step of that work's chain.
+// (maintainer decision 2026-09-14, retiring the 2026-09-12 shape): on the day a pen's
+// next-day visit is DUE, the board rows it under TASKS -- "Pen visit · Castro 2", subtitle
+// "Deworming yesterday" -- the same place the phone lists it (the Tasks module's "For me"
+// tab). It is a task of its own on the board as on the phone; the module whose work raised
+// it (Preventive Care, Vaccination) shows only that work's own state.
 //
-// One Source per parent module: a visit raised by PC Care work rows under Preventive Care; a
-// visit raised by vaccination alone rows under Vaccination. Both read pen_visit_tasks,
-// pen_visit_park_assignees and pen_visit_task_sources (this module's own tables) plus the org
-// tables every module may read (locations, workforce_members).
+// ONE source, whatever raised the visit. It reads pen_visit_tasks and pen_visit_park_assignees
+// (this module's own tables) plus the org tables every module may read (locations,
+// workforce_members).
 //
 // READ-ONLY and REPORTING-ONLY. Nothing here gates a submit or a verdict; the mapping from a
 // visit's (status, work_state) to a board work state is the ONLY business meaning this file
@@ -18,7 +17,6 @@ package boardsource
 import (
 	"context"
 	"fmt"
-	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -36,43 +34,22 @@ import (
 // SourceType is the ref type carried on every pen visit board row.
 const SourceType = "pen_visit_task"
 
-// Source implements ports.Source over the visits raised by ONE parent module's work.
+// Source implements ports.Source over every pen visit, under the Tasks module.
 type Source struct {
 	pool    *pgxpool.Pool
 	timeout time.Duration
-	module  domain.Module
 }
 
-// NewPCCare constructs the source for visits raised by PC Care work (any pc reason).
-func NewPCCare(pool *pgxpool.Pool, timeout time.Duration) *Source {
-	return newSource(pool, timeout, domain.ModulePCCare)
-}
-
-// NewVaccination constructs the source for visits raised by vaccination ALONE. A pen both
-// vaccinated and dewormed on one day is one visit, and it rows under Preventive Care -- the
-// two sources are disjoint on the reasons array, so no visit rows twice.
-func NewVaccination(pool *pgxpool.Pool, timeout time.Duration) *Source {
-	return newSource(pool, timeout, domain.ModuleVaccination)
-}
-
-func newSource(pool *pgxpool.Pool, timeout time.Duration, module domain.Module) *Source {
+// New constructs the one pen-visit board source.
+func New(pool *pgxpool.Pool, timeout time.Duration) *Source {
 	if timeout <= 0 {
 		timeout = 5 * time.Second
 	}
-	return &Source{pool: pool, timeout: timeout, module: module}
+	return &Source{pool: pool, timeout: timeout}
 }
 
-func (s *Source) Module() domain.Module { return s.module }
+func (s *Source) Module() domain.Module { return domain.ModuleTasks }
 func (s *Source) SourceType() string    { return SourceType }
-
-// modulePredicate splits visits between the two sources on the reasons array: PC Care takes
-// every visit with at least one pc reason; vaccination takes the rest.
-func (s *Source) modulePredicate() string {
-	if s.module == domain.ModuleVaccination {
-		return "NOT (v.reasons && ARRAY['deworming','anti_protozoan','ticks_removal','hoof_trimming','hair_trimming']::text[])"
-	}
-	return "(v.reasons && ARRAY['deworming','anti_protozoan','ticks_removal','hoof_trimming','hair_trimming']::text[])"
-}
 
 // workStateSQL is the one place a visit becomes a board work state. The gate speaks first
 // (a clip with the verifier, or sent back) and the kernel clock only while a recording is
@@ -106,13 +83,12 @@ func (s *Source) baseWhere() string {
   AND v.park_id = $2::uuid
   AND v.due_business_date = $3::date
   AND v.work_state <> 'canceled'
-  AND ` + s.modulePredicate() + `
   AND ($4::uuid IS NULL OR EXISTS (
         SELECT 1 FROM pen_visit_park_assignees a
         WHERE a.tenant_id = v.tenant_id AND a.park_id = v.park_id AND a.user_id = $4::uuid))`
 }
 
-// projection-review: membership=pen_visit_tasks rows of ONE tenant, park and due_business_date (canceled excluded) split on the reasons array between the two sources so a visit rows exactly once, one row per visit (primary key); group_key=(tenant_id, task_id) for the list and the derived board_state for the count; join_cardinality=the owner is a LATERAL LIMIT 1 over pen_visit_park_assignees ordered by the scoped caller then profile (one row), the visitor count a window inside it, locations park/shed join on their primary key (1:1), and the owner-scope EXISTS on pen_visit_park_assignees matches ANY configured visitor without multiplying rows; pagination=keyset on task_id ASC after the cursor with LIMIT, state filter inside WHERE; scope=tenant_id, park_id, due_business_date, the module split and the optional visitor EXISTS, repeated verbatim in the count query.
+// projection-review: membership=pen_visit_tasks rows of ONE tenant, park and due_business_date (canceled excluded), one row per visit (primary key); group_key=(tenant_id, task_id) for the list and the derived board_state for the count; join_cardinality=the owner is a LATERAL LIMIT 1 over pen_visit_park_assignees ordered by the scoped caller then profile (one row), the visitor count a window inside it, locations park/shed join on their primary key (1:1), and the owner-scope EXISTS on pen_visit_park_assignees matches ANY configured visitor without multiplying rows; pagination=keyset on task_id ASC after the cursor with LIMIT, state filter inside WHERE; scope=tenant_id, park_id, due_business_date and the optional visitor EXISTS, repeated verbatim in the count query.
 func (s *Source) listSQL() string {
 	return `
 WITH visits AS (
@@ -155,7 +131,7 @@ ORDER BY i.task_id
 LIMIT $7`
 }
 
-// projection-review: membership=pen_visit_tasks rows of ONE tenant, park and due_business_date (canceled excluded) split on the reasons array between the two sources, one row per visit (primary key); group_key=(tenant_id, task_id) (the count groups by the SAME derived board_state over the SAME membership); join_cardinality=none in the count (the owner-scope EXISTS matches ANY configured visitor without multiplying rows); pagination=none, whole-filter aggregate; scope=tenant_id, park_id, due_business_date, the module split and the optional visitor EXISTS, repeated verbatim from the list query.
+// projection-review: membership=pen_visit_tasks rows of ONE tenant, park and due_business_date (canceled excluded), one row per visit (primary key); group_key=(tenant_id, task_id) (the count groups by the SAME derived board_state over the SAME membership); join_cardinality=none in the count (the owner-scope EXISTS matches ANY configured visitor without multiplying rows); pagination=none, whole-filter aggregate; scope=tenant_id, park_id, due_business_date and the optional visitor EXISTS, repeated verbatim from the list query.
 func (s *Source) countSQL() string {
 	return `
 SELECT board_state, count(*)
@@ -253,9 +229,12 @@ func (s *Source) scanRow(rows pgx.Rows) (domain.Row, error) {
 		severity = domain.SeverityAtRisk
 	}
 
-	// Title: the WORK that happened in the pen, continuing -- "Deworming · Castro 2",
-	// "Vaccination, deworming · Castro 2" -- never "Pen visit" alone, because on the board
-	// as on the phone the visit is that work's last step, not a task of its own.
+	// Title: the visit itself -- "Pen visit · Castro 2" -- the same words the phone's Tasks tab
+	// uses; the subtitle names what happened in the pen and when, so the reader knows why.
+	title := "Pen visit"
+	if pen.Display != "" {
+		title += " · " + pen.Display
+	}
 	labels := make([]string, 0, len(reasons))
 	for i, r := range pvdomain.SortReasons(reasons) {
 		l := pvdomain.ReasonLabel(r)
@@ -264,14 +243,11 @@ func (s *Source) scanRow(rows pgx.Rows) (domain.Row, error) {
 		}
 		labels = append(labels, l)
 	}
-	title := strings.Join(labels, ", ")
-	if title == "" {
-		title = "Preventive care"
+	subtitle := strings.Join(labels, ", ")
+	if subtitle == "" {
+		subtitle = "Preventive care"
 	}
-	if pen.Display != "" {
-		title += " · " + pen.Display
-	}
-	subtitle := "Pen visit · work done " + biztime.FarmDateFromBusinessDate(sourceDate)
+	subtitle += " · work done " + biztime.FarmDateFromBusinessDate(sourceDate)
 
 	counts := domain.Counts{}
 	switch state {
@@ -294,23 +270,15 @@ func (s *Source) scanRow(rows pgx.Rows) (domain.Row, error) {
 		ownerState = domain.OwnerStateMissing
 	}
 
-	// A vaccination-raised visit opens on the shed's execution page, the same href the
-	// vaccination row carries; PC Care has no web page and carries none.
-	href := ""
-	if s.module == domain.ModuleVaccination && shedID != "" {
-		href = "/vaccination/execution/sheds/" + url.PathEscape(shedID) + "?scope_mode=park&park=" + url.QueryEscape(parkID)
-		if partitionLabel != "" {
-			href += "&partition_label=" + url.QueryEscape(partitionLabel)
-		}
-	}
+	// Visits are phone-only (recorded on the Tasks module's "For me" tab); there is no web
+	// page to land on, so the row carries no href rather than one that lands nowhere.
 	return domain.Row{
-		Module: s.module, SourceType: SourceType, SourceID: taskID,
+		Module: domain.ModuleTasks, SourceType: SourceType, SourceID: taskID,
 		ParkID: parkID, ParkName: parkName, Pen: pen,
 		BusinessDate: due, ClockLabel: clock,
 		WorkState: state, Severity: severity,
 		Owner: owner, OwnerState: ownerState,
 		Title: title, Subtitle: subtitle, Counts: counts,
-		Href: href,
 	}.Finalize(), nil
 }
 

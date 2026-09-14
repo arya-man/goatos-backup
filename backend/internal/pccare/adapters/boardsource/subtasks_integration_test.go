@@ -14,30 +14,6 @@ func subtaskQuery(sourceID string) ports.SubtaskQuery {
 	return ports.SubtaskQuery{TenantID: bsTenant, ParkID: bsPark, BusinessDate: bsDate, SourceID: sourceID, Limit: 10}
 }
 
-// withoutVisit drops the "Pen visit" unit every pen task carries (2026-09-12), so the animal
-// assertions below read the animal grain alone; the visit unit is asserted on its own.
-func withoutVisit(page domain.SubtaskPage) domain.SubtaskPage {
-	out := domain.SubtaskPage{Total: page.Total - 1, NextCursor: page.NextCursor}
-	for _, st := range page.Subtasks {
-		if st.Name == "Pen visit" {
-			continue
-		}
-		out.Subtasks = append(out.Subtasks, st)
-	}
-	return out
-}
-
-func visitUnit(t *testing.T, page domain.SubtaskPage) domain.Subtask {
-	t.Helper()
-	for _, st := range page.Subtasks {
-		if st.Name == "Pen visit" {
-			return st
-		}
-	}
-	t.Fatalf("every pen task drills into a Pen visit unit; got %+v", page)
-	return domain.Subtask{}
-}
-
 func states(steps []domain.Step) string {
 	out := ""
 	for _, s := range steps {
@@ -67,19 +43,14 @@ func TestPCCareSubtasksAreScannedAnimalsOnADatabaseRoundTrip(t *testing.T) {
 			t.Fatalf("PC Care has no web page yet; %s must carry no href, got %q", r.SourceID, r.Href)
 		}
 	}
-	// Three animals scanned into the deworming task: two filmed, one not -- plus the pen
-	// visit still to come, as the task's last unit.
-	full, err := src.ListSubtasks(ctx, subtaskQuery(tScanning))
+	// Three animals scanned into the deworming task: two filmed, one not.
+	page, err := src.ListSubtasks(ctx, subtaskQuery(tScanning))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if full.Total != 4 || len(full.Subtasks) != 4 || full.NextCursor != "" {
-		t.Fatalf("scanning task %+v", full)
+	if page.Total != 3 || len(page.Subtasks) != 3 || page.NextCursor != "" {
+		t.Fatalf("scanning task %+v", page)
 	}
-	if v := visitUnit(t, full); v.WorkState != domain.WorkStateDue || v.Subtitle != "The day after" || states(v.Steps) != "todo locked " {
-		t.Fatalf("visit unit before the visit exists %+v", v)
-	}
-	page := withoutVisit(full)
 	byName := map[string]domain.Subtask{}
 	for _, st := range page.Subtasks {
 		byName[st.Name] = st
@@ -99,7 +70,6 @@ func TestPCCareSubtasksAreScannedAnimalsOnADatabaseRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	page = withoutVisit(page)
 	if len(page.Subtasks) != 1 || page.Subtasks[0].Name != "tag-d" || page.Subtasks[0].WorkState != domain.WorkStateVerificationPending || states(page.Subtasks[0].Steps) != "done done done in_review " {
 		t.Fatalf("submitted animal %+v", page)
 	}
@@ -109,7 +79,6 @@ func TestPCCareSubtasksAreScannedAnimalsOnADatabaseRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	page = withoutVisit(page)
 	if page.Total != 1 || len(page.Subtasks) != 1 {
 		t.Fatalf("a live task never drills into nothing: %+v", page)
 	}
@@ -122,7 +91,6 @@ func TestPCCareSubtasksAreScannedAnimalsOnADatabaseRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	page = withoutVisit(page)
 	if len(page.Subtasks) != 1 || !page.Subtasks[0].NeedsAttention || page.Subtasks[0].WorkState != domain.WorkStateRejected || page.Subtasks[0].Steps[3].State != domain.StepRework {
 		t.Fatalf("rework task %+v", page)
 	}
@@ -130,7 +98,6 @@ func TestPCCareSubtasksAreScannedAnimalsOnADatabaseRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	page = withoutVisit(page)
 	if len(page.Subtasks) != 1 || !page.Subtasks[0].NeedsAttention || page.Subtasks[0].WorkState != domain.WorkStateOverdue || page.Subtasks[0].Name != "Hair Trimming" {
 		t.Fatalf("delayed task %+v", page)
 	}
@@ -138,21 +105,8 @@ func TestPCCareSubtasksAreScannedAnimalsOnADatabaseRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	page = withoutVisit(page)
 	if len(page.Subtasks) != 1 || page.Subtasks[0].WorkState != domain.WorkStateCompleted || states(page.Subtasks[0].Steps) != "done done done done " {
 		t.Fatalf("verified task %+v", page)
-	}
-	// The visit unit carries the visit row's own state once it exists: recorded, with the
-	// verifier, named by the visitor, and it sorts after the done animal (worst first).
-	full, err = src.ListSubtasks(ctx, subtaskQuery(tVisitReview))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if full.Total != 2 || len(full.Subtasks) != 2 {
-		t.Fatalf("visit-in-review task %+v", full)
-	}
-	if v := visitUnit(t, full); v.WorkState != domain.WorkStateVerificationPending || states(v.Steps) != "done in_review " || v.Owner.Name != "Dinakar" || v.Subtitle != "Due 11/09/2026" {
-		t.Fatalf("visit unit in review %+v", v)
 	}
 	for name, q := range map[string]ports.SubtaskQuery{
 		"canceled":   subtaskQuery(tCanceled),

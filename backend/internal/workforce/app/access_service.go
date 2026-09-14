@@ -55,7 +55,7 @@ func (s *AccessService) GetPersonAccess(ctx context.Context, tenantID, personID 
 		HomeParkID:      record.HomeParkID,
 		PenVisitParkIDs: orEmpty(record.PenVisitParkIDs),
 		PenVisitLabel:   "Pen visits",
-		PenVisitBlurb:   "The day after vaccination or preventive care in a pen, this person goes to that pen and records one video. Tick the parks they walk; anyone ticked for a park may go.",
+		PenVisitBlurb:   "The day after vaccination or preventive care in a pen, this person goes to that pen and records one video. Tick the parks they walk; anyone ticked for a park may go. The visits appear on the For me tab of their Tasks module.",
 		Modules:         moduleRows(record.Assignments),
 		Capabilities:    capabilityOptions(),
 		Parks:           parkOptions(parks),

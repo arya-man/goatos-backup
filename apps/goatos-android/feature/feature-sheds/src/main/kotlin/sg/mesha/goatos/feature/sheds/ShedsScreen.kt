@@ -46,7 +46,6 @@ import sg.mesha.goatos.core.designsystem.component.MeshaScreenHeader
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
@@ -208,17 +207,6 @@ data class ShedRow(
     val taskRowVersion: Int? = null,
     val opensRecordOnly: Boolean = false,
     val canOpen: Boolean = true,
-    /**
-     * The pen's next-day visit after its latest vaccination submit (maintainer decision
-     * 2026-09-12): the LAST step of the pen's work. The chip and its tone are backend copy,
-     * VERBATIM; blank until the pen-visit kernel raises the visit the morning after.
-     */
-    val penVisitChip: String = "",
-    val penVisitTone: ShedStatusTone = ShedStatusTone.INFO,
-    /** The visit task id the "Pen visit" line opens; blank until the visit exists. */
-    val penVisitTaskId: String = "",
-    /** True when THIS viewer may record the visit now (the backend's `can_submit`). */
-    val penVisitCanRecord: Boolean = false,
 )
 
 @Immutable
@@ -293,9 +281,6 @@ data class ShedsUiState(
 
 sealed interface ShedsEvent {
     data class OpenShedRecord(val shedId: String) : ShedsEvent
-
-    /** Open the pen's next-day visit (the hosted visit drill); the nav host navigates. */
-    data class OpenPenVisit(val visitTaskId: String) : ShedsEvent
     data class SelectDay(val dateKey: String) : ShedsEvent
     data class SelectPark(val parkId: String?) : ShedsEvent
     data object Refresh : ShedsEvent
@@ -486,20 +471,12 @@ fun ShedsScreen(
                         ParkGroupHeader(group)
                     }
                     items(group.rows, key = { it.id }) { row ->
-                        ShedCard(
-                            row = row,
-                            onOpen = { onEvent(ShedsEvent.OpenShedRecord(row.id)) },
-                            onOpenPenVisit = { onEvent(ShedsEvent.OpenPenVisit(row.penVisitTaskId)) },
-                        )
+                        ShedCard(row = row, onOpen = { onEvent(ShedsEvent.OpenShedRecord(row.id)) })
                     }
                 }
             } else {
                 items(state.rows, key = { it.id }) { row ->
-                    ShedCard(
-                        row = row,
-                        onOpen = { onEvent(ShedsEvent.OpenShedRecord(row.id)) },
-                        onOpenPenVisit = { onEvent(ShedsEvent.OpenPenVisit(row.penVisitTaskId)) },
-                    )
+                    ShedCard(row = row, onOpen = { onEvent(ShedsEvent.OpenShedRecord(row.id)) })
                 }
             }
             if (state.isLoadingMore) {
@@ -1160,7 +1137,7 @@ private fun SectionCaption(text: String) {
 // ---------------------------------------------------------------------------
 
 @Composable
-private fun ShedCard(row: ShedRow, onOpen: () -> Unit, onOpenPenVisit: () -> Unit = {}) {
+private fun ShedCard(row: ShedRow, onOpen: () -> Unit) {
     val tone = toneFor(row.status)
     // The whole card is the tap target; the redundant "Open shed ›" CTA text is not rendered.
     Card(
@@ -1184,44 +1161,6 @@ private fun ShedCard(row: ShedRow, onOpen: () -> Unit, onOpenPenVisit: () -> Uni
             NumsRow(row)
             Spacer(Modifier.height(12.dp))
             ProgressBar(row.progressFraction)
-            // The pen's LAST step (2026-09-12): the next-day visit, its backend chip verbatim,
-            // and its own tap target -- the card's own tap still opens the shed record.
-            if (row.penVisitChip.isNotBlank()) {
-                Spacer(Modifier.height(12.dp))
-                PenVisitStrip(row = row, onOpen = onOpenPenVisit)
-            }
-        }
-    }
-}
-
-@Composable
-private fun PenVisitStrip(row: ShedRow, onOpen: () -> Unit) {
-    val openable = row.penVisitTaskId.isNotBlank()
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(10.dp))
-            .background(Surf2)
-            .border(1.dp, Hair, RoundedCornerShape(10.dp))
-            .clickable(enabled = openable, onClick = onOpen)
-            .padding(horizontal = 10.dp, vertical = 8.dp)
-            .testTag("shed_pen_visit_strip"),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(
-            text = stringResource(R.string.sheds_pen_visit_label),
-            color = Muted,
-            style = MeshaType.caption,
-            modifier = Modifier.weight(1f),
-        )
-        StatusPill(label = row.penVisitChip, tone = toneFor(row.penVisitTone))
-        if (openable) {
-            Text(
-                text = stringResource(if (row.penVisitCanRecord) R.string.sheds_pen_visit_record else R.string.sheds_pen_visit_open),
-                color = Brand,
-                style = MeshaType.caption,
-            )
         }
     }
 }

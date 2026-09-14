@@ -1,11 +1,64 @@
 # Pen visits: the day-after check on a treated pen
 
 Maintainer decision, 2026-09-07 (chat session with the maintainer). Status: ACCEPTED,
-landed. **SUPERSEDED IN PART on 2026-09-12** -- read the section immediately below first;
-the rest of this document describes the 2026-09-07 shape and stays as the record of what
-did not change (the trigger, the natural key, the kernel clock, the materializer, the push).
+landed. **Reshaped on 2026-09-12 and RESHAPED BACK on 2026-09-14** -- read the two dated
+sections immediately below first; the rest of this document describes the 2026-09-07 shape and
+stays as the record of what never changed (the trigger, the natural key, the kernel clock, the
+materializer, the push).
 
-## 2026-09-12: the visit is the care work's LAST STEP, not a task of its own
+## 2026-09-14: a task of its own on the Tasks module -- the 2026-09-12 fold is retired
+
+Maintainer instruction (chat, 2026-09-14), on being shown that the 2026-09-12 fold hid the
+visit behind the parent's "In review" while the verifier's queue lagged, and asked which way to
+go: **"that day was a mistake -- keep it in Tasks module only; the common board also, it should
+come like this only, under Tasks only."** Asked whether the parent card keeps a step, whether
+every director sees the tab, and what "other tasks in future" means: Tasks only; the same
+people as before; and the tab is the generic list of work the system owes a person, of which
+pen visits are the first card type -- a future module adds a card type, not a tab.
+
+What came BACK from 2026-09-07:
+
+1. **The "For me" tab** on the Tasks module (`/pen-visits`; bar served beside "Raised by me"
+   through `barOnlyWhenSwitching`; `nav.pen_visits` in four locales), its list screen and
+   ViewModel on the phone, the L0 route, and the per-tab badge (`penvisits/app.ModuleBadges`
+   on `leadership_tasks` / `/pen-visits`). The morning push lands on `/pen-visits` again.
+2. **The card the park head taps**: pen label, reason line ("Deworming yesterday"), park,
+   state chip; tap -> the visit drill -> record one video -> it submits itself.
+
+What was REMOVED from 2026-09-12 (each a wire field or a read, gone on every surface):
+
+- `PCCareTask.pen_visit` / `pen_visit_owed` / `pen_visit_chip` / `pen_visit_tone`, the
+  "Pen visit" step card on the task screen, the chip on the worklist card, and the round
+  card's `pen_visit_chip` (`VisitOwedTaskIDs` and `RollupChip` are deleted).
+- `ShedCardSummary.penVisit` and the shed drilldown's `penVisit`; the vaccination shed card's
+  strip; `ExecutionQuery.ViewerActorID` and `vaccinationexecution` no longer read the pen-visit
+  module at all.
+- `ListTasksQuery.VisitorUserID`: the PC Care worklist is the assignee's list and admits no
+  visitor.
+- The PC Care board row deriving its state and subtitle from the visit, and its "Pen visit"
+  issue unit; the two per-parent-module board sources.
+
+What 2026-09-12 got RIGHT and is KEPT: the visit video is VERIFIED (item 1 below -- category
+`pen_visit`, rework re-shoots, the drill's in-review / sent-back / verified rendering); the
+PARENT CLOSES ON THE VISIT (item 2 below -- `pen_visit_task_sources`, `pen_visit.verified`,
+`pccare.Repository.PenVisitVerified`, the sweep skipping a verified task); WHO VISITS is
+per-park HRMS config on /people, one or more people (item 3 below). A deworming card whose own
+clips are verified therefore reads "Done" while its kernel clock quietly waits for the visit.
+
+**THE WORK BOARD rows the visit under TASKS.** `workboard/domain.ModuleTasks` (`tasks`,
+appended LAST so the keyset order holds; visible on `pen_visits.execute` or
+`leadership_tasks.read`; labelled Tasks on web and in four phone locales) carries ONE
+`penvisits/adapters/boardsource` source: "Pen visit · Castro 2", subtitle "Deworming · work
+done <date>", no href. Canonical rows: `docs/decisions/work-board.md`.
+
+Pinned by the two kernel E2E stories (`TestKernelStory_PenVisitIsTheCareWorksLastStep`,
+`TestKernelStory_PenVisitAfterVaccination`, rewritten to the Tasks shape),
+`workforce/app.TestLeadershipTasksModuleIsOfferedToDirectorsCEOAndParkHeads` (two tabs for a
+director, none for a CXO or park head), `penvisits/adapters/boardsource`'s round trip (six rows
+under Tasks), `pccare/app.TestWorklistIsScopedToTheAssigneeAlone`, and the Android
+`PenVisitListViewModelTest` and `TopLevelChromeTest`.
+
+## 2026-09-12 (SUPERSEDED 2026-09-14 in the parts marked above): the visit as the care work's last step
 
 Maintainer instruction (chat, 2026-09-12): "the care task should close when the park head
 visits the shed on the next day ... first it will be fasting, removing feed and water, then

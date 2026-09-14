@@ -67,7 +67,7 @@ func TestPenVisitDueCopyNamesParkPensAndReasons(t *testing.T) {
 		t.Fatalf("queued %d, asked %v", len(queue.queued), recipients.asked)
 	}
 	q := queue.queued[0]
-	if q.NotificationType != NotificationTypePenVisitDue || !strings.HasPrefix(q.EventKey, "pen_visit.due:2026-09-07:park-cbe:") || q.Context["href"] != "/pc/deworming" {
+	if q.NotificationType != NotificationTypePenVisitDue || !strings.HasPrefix(q.EventKey, "pen_visit.due:2026-09-07:park-cbe:") || q.Context["href"] != "/pen-visits" {
 		t.Fatalf("queued = %+v", q)
 	}
 	if len(q.Recipients) != 2 || q.Recipients[0].FCMToken != "tok-u-dinakar" || q.Recipients[1].FCMToken != "tok-u-second" {

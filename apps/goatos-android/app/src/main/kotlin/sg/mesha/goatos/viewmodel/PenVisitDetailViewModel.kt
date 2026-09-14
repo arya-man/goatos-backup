@@ -598,6 +598,7 @@ internal fun penVisitVideoState(
 internal const val PEN_VISIT_WORK_STATE_COMPLETED = "completed"
 
 /** The wire `status` values of the verifier gate on a visit. */
+internal const val PEN_VISIT_STATUS_OPEN = "open"
 internal const val PEN_VISIT_STATUS_PENDING_VERIFICATION = "pending_verification"
 internal const val PEN_VISIT_STATUS_REWORK = "rework"
 internal const val PEN_VISIT_STATUS_COMPLETED = "completed"

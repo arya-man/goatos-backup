@@ -34,6 +34,7 @@
     <string name="work_board_module_toxin">Feed tests</string>
     <string name="work_board_module_procurement">Procurement</string>
     <string name="work_board_module_verification">Verification</string>
+    <string name="work_board_module_tasks">Tasks</string>
 
     <string name="work_board_state_scheduled">Scheduled</string>
     <string name="work_board_state_due">Due</string>

@@ -107,25 +107,24 @@ func byID(rows []domain.Row) map[string]domain.Row {
 }
 
 // TestPenVisitBoardRowsOnADatabaseRoundTrip asserts the OUTPUT STRINGS and states of every
-// branch on a real database: the gate-then-clock mapping, the module split on the reasons
-// array (a pen vaccinated AND dewormed rows once, under Preventive Care), the title as the
-// parent work continuing, the visitor owner with its " +N", the visit-day clock label, and
-// the vaccination href.
+// branch on a real database: the gate-then-clock mapping, ONE row per visit under the Tasks
+// module whatever raised it (a pen vaccinated AND dewormed rows once), the title as the visit
+// itself with the raising work in the subtitle, the visitor owner with its " +N", the visit-day
+// clock label, and no href (visits are phone-only).
 func TestPenVisitBoardRowsOnADatabaseRoundTrip(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
 	pool := pgtest.StartPostgres(t, ctx)
 	defer pool.Close()
 	seed(t, ctx, pool)
-	pc := NewPCCare(pool, 5*time.Second)
-	vacc := NewVaccination(pool, 5*time.Second)
+	pc := New(pool, 5*time.Second)
 
 	rows, err := pc.ListRows(ctx, query(""))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(rows) != 5 {
-		t.Fatalf("5 care-raised visits on the park-day expected (vaccination-only, other park, tomorrow excluded), got %d", len(rows))
+	if len(rows) != 6 {
+		t.Fatalf("6 visits on the park-day expected (other park and tomorrow excluded), got %d", len(rows))
 	}
 	got := byID(rows)
 	want := map[string]struct {
@@ -138,6 +137,7 @@ func TestPenVisitBoardRowsOnADatabaseRoundTrip(t *testing.T) {
 		vSentBack: {domain.WorkStateRejected, domain.LaneInProgress, domain.SeverityAtRisk},
 		vVerified: {domain.WorkStateCompleted, domain.LaneDone, domain.SeverityOK},
 		vLate:     {domain.WorkStateOverdue, domain.LaneToDo, domain.SeverityAtRisk},
+		vVaccOnly: {domain.WorkStateDue, domain.LaneToDo, domain.SeverityOK},
 	}
 	for id, w := range want {
 		r, ok := got[id]
@@ -147,16 +147,17 @@ func TestPenVisitBoardRowsOnADatabaseRoundTrip(t *testing.T) {
 		if r.WorkState != w.state || r.Lane != w.lane || r.Severity != w.sev {
 			t.Errorf("%s: state=%s lane=%s sev=%s, want %s/%s/%s", id, r.WorkState, r.Lane, r.Severity, w.state, w.lane, w.sev)
 		}
-		if r.Module != domain.ModulePCCare || r.SourceType != SourceType || r.RowKey != "pc_care|"+SourceType+"|"+id {
+		if r.Module != domain.ModuleTasks || r.SourceType != SourceType || r.RowKey != "tasks|"+SourceType+"|"+id {
 			t.Errorf("%s: identity %s/%s/%s", id, r.Module, r.SourceType, r.RowKey)
 		}
 		if r.BusinessDate != bsDate || r.ParkID != bsPark || r.ParkName != "Coimbatore" || r.Href != "" {
 			t.Errorf("%s: scope %s %s %s href %q", id, r.BusinessDate, r.ParkID, r.ParkName, r.Href)
 		}
 	}
-	// The title is the WORK continuing: both reasons, display order, pen through oploc.
+	// The title is the visit itself, pen through oploc; the subtitle names the work that raised
+	// it -- both reasons, display order -- and when.
 	owed := got[vOwed]
-	if owed.Title != "Vaccination, deworming · Godel 1 - Part 3" || owed.Subtitle != "Pen visit · work done 10/09/2026" || owed.ClockLabel != "Visit due 11/09/2026" {
+	if owed.Title != "Pen visit · Godel 1 - Part 3" || owed.Subtitle != "Vaccination, deworming · work done 10/09/2026" || owed.ClockLabel != "Visit due 11/09/2026" {
 		t.Errorf("owed title %q subtitle %q clock %q", owed.Title, owed.Subtitle, owed.ClockLabel)
 	}
 	// Owed to either configured visitor: the profiled one leads, " +1" says another may go.
@@ -165,7 +166,7 @@ func TestPenVisitBoardRowsOnADatabaseRoundTrip(t *testing.T) {
 	}
 	// A submitted visit names the person who went, even the unprofiled one, and with no +N.
 	review := got[vInReview]
-	if review.Owner.UserID != bsSecond || review.Owner.Name != "" || review.Title != "Ticks removal · Godel 1" || review.Counts != (domain.Counts{Done: 1}) {
+	if review.Owner.UserID != bsSecond || review.Owner.Name != "" || review.Title != "Pen visit · Godel 1" || review.Subtitle != "Ticks removal · work done 10/09/2026" || review.Counts != (domain.Counts{Done: 1}) {
 		t.Errorf("in-review owner %+v title %q counts %+v", review.Owner, review.Title, review.Counts)
 	}
 	late := got[vLate]
@@ -176,18 +177,11 @@ func TestPenVisitBoardRowsOnADatabaseRoundTrip(t *testing.T) {
 		t.Errorf("sent-back row must need attention: %+v", got[vSentBack].Counts)
 	}
 
-	// The vaccination source holds exactly the vaccination-only visit, with the shed href.
-	vrows, err := vacc.ListRows(ctx, query(""))
-	if err != nil {
-		t.Fatal(err)
+	// A pen vaccinated alone rows under Tasks like every other visit, with no href.
+	if v := got[vVaccOnly]; v.Title != "Pen visit · Godel 1 - Part 7" || v.Subtitle != "Vaccination · work done 10/09/2026" || v.Href != "" {
+		t.Errorf("vaccination-only row title %q subtitle %q href %q", v.Title, v.Subtitle, v.Href)
 	}
-	if len(vrows) != 1 || vrows[0].SourceID != vVaccOnly || vrows[0].Module != domain.ModuleVaccination {
-		t.Fatalf("vaccination source rows %+v", vrows)
-	}
-	if vrows[0].Title != "Vaccination · Godel 1 - Part 7" || vrows[0].Href != "/vaccination/execution/sheds/"+bsShed+"?scope_mode=park&park="+bsPark+"&partition_label=Part+7" {
-		t.Errorf("vaccination row title %q href %q", vrows[0].Title, vrows[0].Href)
-	}
-	for _, r := range append(rows, vrows...) {
+	for _, r := range rows {
 		for _, s := range []string{r.Title, r.Subtitle, r.ClockLabel} {
 			if containsFold(s, "shed") {
 				t.Errorf("visible copy says shed: %q", s)
@@ -197,8 +191,8 @@ func TestPenVisitBoardRowsOnADatabaseRoundTrip(t *testing.T) {
 
 	// Owner lens: a configured visitor sees every visit of the park; someone else sees none.
 	mine, err := pc.ListRows(ctx, query(bsSecond))
-	if err != nil || len(mine) != 5 {
-		t.Fatalf("configured visitor lens = %d rows err %v, want 5", len(mine), err)
+	if err != nil || len(mine) != 6 {
+		t.Fatalf("configured visitor lens = %d rows err %v, want 6", len(mine), err)
 	}
 	none, err := pc.ListRows(ctx, query(bsOther))
 	if err != nil || len(none) != 0 {
@@ -206,19 +200,15 @@ func TestPenVisitBoardRowsOnADatabaseRoundTrip(t *testing.T) {
 	}
 	// State filter and counts agree with the rows.
 	open, err := pc.ListRows(ctx, query("", domain.WorkStateDue, domain.WorkStateOverdue))
-	if err != nil || len(open) != 2 {
+	if err != nil || len(open) != 3 {
 		t.Fatalf("due+overdue = %d err %v", len(open), err)
 	}
 	counts, err := pc.CountByState(ctx, query(""))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if sum(counts) != 5 || counts[domain.WorkStateDue] != 1 || counts[domain.WorkStateOverdue] != 1 || counts[domain.WorkStateVerificationPending] != 1 || counts[domain.WorkStateRejected] != 1 || counts[domain.WorkStateCompleted] != 1 {
+	if sum(counts) != 6 || counts[domain.WorkStateDue] != 2 || counts[domain.WorkStateOverdue] != 1 || counts[domain.WorkStateVerificationPending] != 1 || counts[domain.WorkStateRejected] != 1 || counts[domain.WorkStateCompleted] != 1 {
 		t.Fatalf("counts %+v", counts)
-	}
-	vcounts, err := vacc.CountByState(ctx, query(""))
-	if err != nil || sum(vcounts) != 1 {
-		t.Fatalf("vaccination counts %+v err %v", vcounts, err)
 	}
 	// Keyset walk: page size 2 sees every row once.
 	seen := map[string]bool{}
@@ -242,8 +232,8 @@ func TestPenVisitBoardRowsOnADatabaseRoundTrip(t *testing.T) {
 			after = r.SourceID
 		}
 	}
-	if len(seen) != 5 {
-		t.Fatalf("keyset walk saw %d rows, want 5", len(seen))
+	if len(seen) != 6 {
+		t.Fatalf("keyset walk saw %d rows, want 6", len(seen))
 	}
 	if _, err := pc.ListRows(ctx, ports.SourceQuery{TenantID: bsTenant, ParkID: bsPark, BusinessDate: bsDate, AfterSourceID: "garbage"}); err != domain.ErrInvalidCursor {
 		t.Fatalf("garbage cursor = %v, want ErrInvalidCursor", err)
@@ -263,7 +253,7 @@ func TestPenVisitBoardRowsOnADatabaseRoundTrip(t *testing.T) {
 	if err != nil || len(sub.Subtasks) != 1 || sub.Subtasks[0].WorkState != domain.WorkStateCompleted || sub.Subtasks[0].Steps[0].State != domain.StepDone || sub.Subtasks[0].Steps[1].State != domain.StepDone {
 		t.Fatalf("verified unit %+v err %v", sub, err)
 	}
-	for name, id := range map[string]string{"vaccination-only on the care source": vVaccOnly, "other park": vOtherPark, "tomorrow": vTomorrow} {
+	for name, id := range map[string]string{"other park": vOtherPark, "tomorrow": vTomorrow} {
 		sub, err := pc.ListSubtasks(ctx, ports.SubtaskQuery{TenantID: bsTenant, ParkID: bsPark, BusinessDate: bsDate, SourceID: id, Limit: 10})
 		if err != nil || sub.Total != 0 || len(sub.Subtasks) != 0 {
 			t.Fatalf("%s must drill into nothing: %+v err %v", name, sub, err)

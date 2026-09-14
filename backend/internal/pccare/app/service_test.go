@@ -197,7 +197,9 @@ func TestCEOCanMonitorInventoryVaccineTasksTenantWide(t *testing.T) {
 	}
 }
 
-func TestWorklistPassesActorAsPenVisitVisitor(t *testing.T) {
+// The worklist is the ASSIGNEE's list and nothing else: the next-day pen visit is a task of
+// its own on the Tasks module (2026-09-14), so no visitor scope rides this query.
+func TestWorklistIsScopedToTheAssigneeAlone(t *testing.T) {
 	store := &fakeStore{}
 	svc := NewService(store)
 
@@ -207,9 +209,6 @@ func TestWorklistPassesActorAsPenVisitVisitor(t *testing.T) {
 	}
 	if store.lastList.AssigneeUserID != testOutsider {
 		t.Fatalf("AssigneeUserID = %q, want actor", store.lastList.AssigneeUserID)
-	}
-	if store.lastList.VisitorUserID != testOutsider {
-		t.Fatalf("VisitorUserID = %q, want actor for pen-visit HRMS scope", store.lastList.VisitorUserID)
 	}
 	if !store.lastList.CurrentOrCarry {
 		t.Fatalf("CurrentOrCarry = false, want true for worklist")
