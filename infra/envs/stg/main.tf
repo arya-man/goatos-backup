@@ -144,6 +144,7 @@ locals {
       secret_id = "goatos-stg-gcs-service-account-json"
       accessors = [
         "api",
+        "analytics_events",
       ]
     }
     firebase_web_config = {

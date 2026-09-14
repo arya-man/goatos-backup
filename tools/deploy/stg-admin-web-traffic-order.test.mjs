@@ -15,6 +15,10 @@ const apiTerraform = readFileSync(
   new URL("../../infra/envs/stg/cloud_run_services.tf", import.meta.url),
   "utf8",
 );
+const stgMainTerraform = readFileSync(
+  new URL("../../infra/envs/stg/main.tf", import.meta.url),
+  "utf8",
+);
 
 function indexOfOrThrow(needle) {
   const index = script.indexOf(needle);
@@ -115,6 +119,18 @@ test("analytics events has an isolated capped deploy lane", () => {
     /GOATOS_GCS_SERVICE_ACCOUNT_JSON"[\s\S]*?proof_gcs_service_account_json/,
     "analytics events must include the proof media signer secret required by shared bootstrap",
   );
+
+  const proofSecretStart = stgMainTerraform.indexOf("proof_gcs_service_account_json = {");
+  const proofSecretEnd = stgMainTerraform.indexOf("firebase_web_config = {", proofSecretStart);
+  assert.notEqual(proofSecretStart, -1, "staging secret map must declare proof_gcs_service_account_json");
+  assert.notEqual(proofSecretEnd, -1, "staging secret map must keep proof secret before firebase config");
+  const proofSecret = stgMainTerraform.slice(proofSecretStart, proofSecretEnd);
+  assert.match(
+    proofSecret,
+    /accessors\s*=\s*\[[\s\S]*?"api"[\s\S]*?"analytics_events"[\s\S]*?\]/,
+    "analytics events must have Secret Manager access to every secret injected into its Cloud Run env",
+  );
+
   assert.match(
     eventsService,
     /GOATOS_PG_MAX_CONNS"[\s\S]*?value\s*=\s*"2"/,
