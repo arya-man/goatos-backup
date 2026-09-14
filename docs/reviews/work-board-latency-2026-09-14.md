@@ -91,9 +91,15 @@ the slowest observed call.
   not stay on a stale image after this PR lands.
 - Remaining deployment requirement: live traffic must be routed to the events lane. The safe
   transparent production shape is a URL-map path rule sending `/app/analytics/events` to
-  `goatos-analytics-events-stg` while all business API paths stay on `goatos-api-stg`. Until that
-  route is applied, the backpressure cap protects the main API but Android clients using the current
-  API base URL still post events to the main API service.
+  `goatos-analytics-events-stg` while all business API paths stay on `goatos-api-stg`. This PR adds
+  `tools/deploy/stg-analytics-events-routing.sh` to create/use the serverless NEG/backend service
+  and patch the existing non-Terraform URL map safely. Until that route is applied, the backpressure
+  cap protects the main API but Android clients using the current API base URL still post events to
+  the main API service.
+- Live check while preparing the PR update: `goatos-stg-dashboard-map` had `api-host` defaulting to
+  `goatos-api-stg-backend` with no path rules, and `goatos-analytics-events-stg` did not exist yet.
+  Therefore the service/Terraform change must be applied before running the routing script and before
+  claiming live event separation.
 
 ## Validation
 

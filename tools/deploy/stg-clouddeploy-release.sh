@@ -50,7 +50,7 @@ payload = {
             {"title": "Release", "value": release, "short": True},
             {
                 "title": "Verified services",
-                "value": "goatos-api-stg, goatos-admin-web-stg, goatos-kernel-worker-stg, goatos-mcp-stg, migrate/outbox/analytics jobs",
+                "value": "goatos-api-stg, goatos-analytics-events-stg, goatos-admin-web-stg, goatos-kernel-worker-stg, goatos-mcp-stg, migrate/outbox/analytics jobs",
                 "short": False,
             },
             {"title": "Triggered by", "value": triggered_by, "short": False},
