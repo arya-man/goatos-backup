@@ -15,10 +15,19 @@
 // task's business_date is already the staging day = D). One card therefore gathers "what the
 // crew should film today", never "what is eaten today".
 //
-// THE CARD SITS WHERE THE WORK IS. A card holds many sheds in different states; it lands in
-// the LEFTMOST lane that still has a shed -- To do if any shed is unstarted, else In progress,
-// else In review, else Done -- so the board always points at outstanding feed work. Each
-// shed's own state is carried on its subtask line inside the card.
+// THE CARD SITS WHERE THE WORK IS (maintainer decision 2026-09-14, REPLACING the leftmost-lane
+// roll-up). A card holds many pens in different states and reads as ONE piece of work:
+//
+//	To do        no pen has started
+//	In progress  any pen is in progress or sent back, OR the pens are mixed (some started,
+//	             some not) -- work on the card has begun and is not all handed in
+//	In review    EVERY pen is handed in and at least one is still with the verifier
+//	Done         EVERY pen is completed
+//
+// The old rule parked a card in To do while one pen was unstarted even when the crew was
+// filming the rest, so a packing day that was 62/63 done read as not started. Each pen's own
+// state is still carried on its subtask line inside the card, and a pen with several bags rolls
+// up by the same rule (see rollupRankExpr / penCTE).
 package boardsource
 
 import (
@@ -51,8 +60,8 @@ type activity struct {
 }
 
 // laneRankExpr is the SQL twin of domain.LaneFor over a unit's work state: 3 Done, 2 In
-// review, 1 In progress, 0 To do. A shed's rank is the MIN over its units (leftmost lane), and
-// a card's rank is the MIN over its sheds, so "where the work is" is one MIN chained twice.
+// review, 1 In progress, 0 To do. Units roll up to a pen and pens to a card by rollupRankExpr,
+// applied twice.
 const laneRankExpr = `CASE st
   WHEN 'completed' THEN 3
   WHEN 'verification_pending' THEN 2
@@ -61,6 +70,31 @@ const laneRankExpr = `CASE st
   WHEN 'proof_pending' THEN 1
   WHEN 'blocked' THEN 1
   ELSE 0 END`
+
+// rollupRankExpr folds a group's member ranks (MIN and MAX of laneRankExpr) into the group's own
+// rank under the 2026-09-14 rule: all done -> 3; everything handed in with one still in review
+// -> 2; nothing started -> 0; anything else (a member in progress, or a mix of started and
+// unstarted) -> 1. The same expression rolls units to a pen and pens to a card.
+func rollupRankExpr(minCol, maxCol string) string {
+	return `CASE
+  WHEN ` + minCol + ` = 3 THEN 3
+  WHEN ` + minCol + ` >= 2 THEN 2
+  WHEN ` + maxCol + ` = 0 THEN 0
+  ELSE 1 END`
+}
+
+// penCTE rolls one activity's units up to pens keyed by (shed_id, partition_key): the pen's
+// rank by rollupRankExpr, whether any bag was sent back, and the human partition label (the
+// first non-empty one, capitalised spelling preferred). Shared by the card metrics and the
+// subtask list so both read one number.
+var penCTE = `pen AS (
+  SELECT shed_id, partition_key,
+         (ARRAY_AGG(partition_label ORDER BY (partition_label = lower(partition_label)), partition_label)
+          FILTER (WHERE partition_label <> ''))[1] AS partition_label,
+         ` + rollupRankExpr("MIN("+laneRankExpr+")", "MAX("+laneRankExpr+")") + ` AS lane_rank,
+         BOOL_OR(st = 'rejected') AS any_rej
+  FROM units GROUP BY shed_id, partition_key
+)`
 
 // transportUnits lists one unit per transport task (one trip per physical shed per day),
 // excluding retired tasks. The owner is the task's operator or, once filmed, the current
@@ -152,7 +186,7 @@ const wastageUnits = `
 // (transport feed_transport_tasks by business_date excluding retired, one row per shed per day by
 // feed_transport_tasks_daily_shed_uq, and packing/direction/wastage by target_date one row per
 // (shed, session, workflow) by each table's natural key); group_key=(shed_id, partition_key) the PEN: units pre-aggregated
-// to the pen by MIN(laneRank) and BOOL_OR(rejected) BEFORE the card MINs over pens, so a pen
+// to the pen by rollupRankExpr and BOOL_OR(rejected) BEFORE the card rolls up over pens, so a pen
 // with two sessions is one pen line and never fans the card's pen count; join_cardinality=
 // feed_transport_attempts on the task's current_attempt_id (1:{0,1}) and the park name a scalar
 // subquery on locations' primary key (1:1), so the card counts each shed once; pagination=at most
@@ -186,13 +220,13 @@ func activityFromSourceID(id string) (activity, bool) {
 	return activityByKey(id)
 }
 
-// metricsSQL rolls one activity's units up to its card: the shed count, done/pending/attention
-// shed tallies, the card's lane rank (MIN over sheds, -1 when the card has no shed), whether
-// the leftmost lane holds a rejected shed, and the park name.
+// metricsSQL rolls one activity's units up to its card: the pen count, done/pending/attention
+// pen tallies, the card's rank (rollupRankExpr over the pens, -1 when the card has no pen),
+// whether any pen was sent back, and the park name.
 //
 // projection-review: membership=one activity's units for ONE tenant, park and work-day (the units
-// SQL's own predicate); group_key=(shed_id, partition_key) the PEN: units pre-aggregated by MIN(laneRank) and
-// BOOL_OR(rejected) so a pen with several sessions is one shed row before the card counts;
+// SQL's own predicate); group_key=(shed_id, partition_key) the PEN: units pre-aggregated by rollupRankExpr and
+// BOOL_OR(rejected) so a pen with several sessions is one pen row before the card counts;
 // join_cardinality=no join in the roll-up (park name is a scalar subquery on locations' primary
 // key, 1:1), so each shed is counted once; pagination=one aggregate row per call, never row-paged
 // (the four cards are keyset-ordered by activity rank in ListRows); scope=tenant_id($1),
@@ -200,17 +234,14 @@ func activityFromSourceID(id string) (activity, bool) {
 func metricsSQL(units string) string {
 	return `
 WITH units AS (` + units + `),
-pen AS (
-  SELECT shed_id, partition_key, MIN(` + laneRankExpr + `) AS lane_rank, BOOL_OR(st = 'rejected') AS any_rej
-  FROM units GROUP BY shed_id, partition_key
-)
+` + penCTE + `
 SELECT
   count(*)::int,
   count(*) FILTER (WHERE lane_rank = 3)::int,
   count(*) FILTER (WHERE lane_rank < 3)::int,
   count(*) FILTER (WHERE any_rej)::int,
-  COALESCE(MIN(lane_rank), -1)::int,
-  COALESCE(BOOL_OR(any_rej AND lane_rank = 1), false),
+  CASE WHEN count(*) = 0 THEN -1 ELSE ` + rollupRankExpr("MIN(lane_rank)", "MAX(lane_rank)") + ` END::int,
+  COALESCE(BOOL_OR(any_rej), false),
   (SELECT COALESCE(name, '') FROM locations WHERE tenant_id = $1::uuid AND location_id = $3::uuid)
 FROM pen`
 }
@@ -234,18 +265,19 @@ func (s *Source) SourceType() string    { return SourceType }
 
 type cardMetrics struct {
 	sheds, done, pending, attention, cardRank int
-	rejAtProgress                             bool
+	anyRejected                               bool
 	parkName                                  string
 }
 
 func (s *Source) readCard(ctx context.Context, a activity, q ports.SourceQuery) (cardMetrics, error) {
 	var m cardMetrics
 	err := s.pool.QueryRow(ctx, metricsSQL(a.units), q.TenantID, q.BusinessDate, q.ParkID, nullUUID(q.OwnerUserID)).
-		Scan(&m.sheds, &m.done, &m.pending, &m.attention, &m.cardRank, &m.rejAtProgress, &m.parkName)
+		Scan(&m.sheds, &m.done, &m.pending, &m.attention, &m.cardRank, &m.anyRejected, &m.parkName)
 	return m, err
 }
 
-// cardState maps a card's lane rank (MIN over sheds) back to one board work state.
+// cardState maps a card's rolled-up rank back to one board work state. A card In progress with
+// any pen sent back reads Rejected (same lane, amber) so the board points at the rework.
 func cardState(m cardMetrics) domain.WorkState {
 	switch m.cardRank {
 	case 3:
@@ -253,7 +285,7 @@ func cardState(m cardMetrics) domain.WorkState {
 	case 2:
 		return domain.WorkStateVerificationPending
 	case 1:
-		if m.rejAtProgress {
+		if m.anyRejected {
 			return domain.WorkStateRejected
 		}
 		return domain.WorkStateInProgress
