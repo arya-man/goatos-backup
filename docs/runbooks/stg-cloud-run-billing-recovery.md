@@ -28,7 +28,7 @@ goatos-api-stg
 Expected steady-state scaling for the API:
 
 ```text
-goatos-api-stg min-instances=1 max-instances=4 concurrency=20
+goatos-api-stg min-instances=1 max-instances=2 concurrency=20
 ```
 
 Keep runtime repair separate from a code deploy. If a code deploy is needed,
@@ -118,19 +118,19 @@ retry interval shown in the revision condition, then re-check.
 
 ## 5. Recovery Action
 
-Restore the API to the normal staging latency shape. Do not cap the API at
-two instances; that can recreate business API queueing during small bursts.
-Do not raise the API beyond four instances without a billing note and a
-rollback plan; noisy event traffic should move to its own capped lane instead.
+Restore the API to the normal staging latency shape. Keep the business API capped
+at two instances for staging cost control. If small bursts still queue after the
+request-shape fixes, first verify that analytics events are on their separate
+capped lane before raising the business API cap.
 
 ```bash
 gcloud run services update goatos-api-stg \
   --project=goatos-stg \
   --region=asia-south1 \
   --min=1 \
-  --max=4 \
+  --max=2 \
   --min-instances=1 \
-  --max-instances=4 \
+  --max-instances=2 \
   --concurrency=20
 ```
 

@@ -48,9 +48,9 @@ test("api post-migration restore preserves staging latency scale settings", () =
   const restoreBlock = script.slice(restore, apiTraffic);
 
   assert.match(restoreBlock, /--min=1\s+\\/, "api restore must keep one warm instance");
-  assert.match(restoreBlock, /--max=4\s+\\/, "api restore must restore the intended cost-capped max scale");
+  assert.match(restoreBlock, /--max=2\s+\\/, "api restore must restore the intended cost-capped max scale");
   assert.match(restoreBlock, /--min-instances=1\s+\\/, "api restore must preserve min instance annotation");
-  assert.match(restoreBlock, /--max-instances=4\s+\\/, "api restore must preserve max instance annotation");
+  assert.match(restoreBlock, /--max-instances=2\s+\\/, "api restore must preserve max instance annotation");
   assert.match(restoreBlock, /--concurrency=20\s+\\/, "api restore must cap per-instance request concurrency");
 });
 
@@ -61,7 +61,7 @@ test("api terraform and deploy restore keep the same latency shape", () => {
     "terraform must pin api request concurrency",
   );
   assert.match(apiTerraform, /min_instance_count\s*=\s*1/, "terraform must keep one warm api instance");
-  assert.match(apiTerraform, /max_instance_count\s*=\s*4/, "terraform must allow bounded api burst scale");
+  assert.match(apiTerraform, /max_instance_count\s*=\s*2/, "terraform must preserve the staging api billing cap");
 
   const migrate = indexOfOrThrow('run gcloud run jobs execute "$MIGRATE_JOB"');
   const restore = indexOfOrThrowAfter('run gcloud run services update "$API_SERVICE"', migrate);
@@ -69,7 +69,7 @@ test("api terraform and deploy restore keep the same latency shape", () => {
   const restoreBlock = script.slice(restore, apiTraffic);
 
   assert.match(restoreBlock, /--min=1\s+\\/, "deploy restore must match terraform min scale");
-  assert.match(restoreBlock, /--max=4\s+\\/, "deploy restore must match terraform max scale");
+  assert.match(restoreBlock, /--max=2\s+\\/, "deploy restore must match terraform max scale");
   assert.match(restoreBlock, /--concurrency=20\s+\\/, "deploy restore must match terraform concurrency");
 });
 
