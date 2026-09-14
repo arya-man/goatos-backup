@@ -46,7 +46,7 @@ func TestToolsList(t *testing.T) {
 		names[tool.Name] = true
 		requiredByTool[tool.Name] = tool.InputSchema.Required
 	}
-	for _, want := range []string{"ask_goatos", "get_vaccination_today", "get_action_center", "get_verification_backlog", "get_feed_today", "get_procurement_pipeline", "get_sales_overview", "get_sales_deals", "get_counts_summary", "get_health_today", "get_health_work_items", "get_milk_feeding_today", "get_workforce_coverage", "get_weighing_progress", "get_weighing_growth_adg", "get_weighing_shed_weights", "get_weighing_process_state", "get_weighing_weight_demographics", "list_goatos_capabilities", "goatos_mcp_health"} {
+	for _, want := range []string{"ask_goatos", "get_vaccination_today", "get_action_center", "get_verification_backlog", "get_feed_today", "get_procurement_pipeline", "get_sales_overview", "get_sales_deals", "get_counts_summary", "get_health_today", "get_health_work_items", "get_milk_feeding_today", "get_workforce_coverage", "get_weighing_progress", "get_weighing_growth_adg", "get_weighing_shed_weights", "get_weighing_process_state", "get_weighing_weight_demographics", "list_goatos_capabilities", "goatos_mcp_health", "list_goatos_docs", "read_goatos_doc", "search_goatos_docs"} {
 		if !names[want] {
 			t.Fatalf("missing tool %s in %+v", want, names)
 		}
@@ -67,6 +67,193 @@ func TestToolsList(t *testing.T) {
 				t.Fatalf("%s required=%v, missing %s", tool, requiredByTool[tool], item)
 			}
 		}
+	}
+}
+
+func TestDocsToolsListReadAndSearchPublishedCorpus(t *testing.T) {
+	docs := map[string]string{
+		"/files.json": `{
+			"terrain.docs": [
+				"1.Overview.md",
+				"4.Deep-Exploration/feed-direction.md",
+				"4.Deep-Exploration/procurement-sales-toxin.md"
+			],
+			"litho.docs": [
+				"4.Deep-Exploration/Feed Management Domain.md",
+				"4.Deep-Exploration/Procurement & Supply Chain Domain.md",
+				"__Litho_Summary_Detail__.md"
+			]
+		}`,
+		"/terrain.docs/1.Overview.md":                                                 "# Terrain Overview\nGoat OS uses module maps and human docs.",
+		"/terrain.docs/4.Deep-Exploration/feed-direction.md":                          "# Feed Direction\nFeed direction uses event driven obligation flows and packing reopen events.",
+		"/terrain.docs/4.Deep-Exploration/procurement-sales-toxin.md":                 "# Procurement Sales Toxin\nInventory coordinates stock reservations for vaccine and medicine lots.",
+		"/litho.docs/4.Deep-Exploration/Feed%20Management%20Domain.md":                "# Feed Management\nFeed config covers feed items, ration rates and session template items.",
+		"/litho.docs/4.Deep-Exploration/Procurement%20&%20Supply%20Chain%20Domain.md": "# Procurement\nInventory tracks stock lots, expiry, reservation and consumption.",
+		"/litho.docs/__Litho_Summary_Detail__.md":                                     "# Litho Detail\nOperational kernel writes outbox events for cross-module communication.",
+	}
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, ok := docs[r.URL.EscapedPath()]
+		if !ok {
+			t.Fatalf("unexpected docs path: path=%s escaped=%s", r.URL.Path, r.URL.EscapedPath())
+		}
+		_, _ = io.WriteString(w, body)
+	}))
+	defer upstream.Close()
+
+	s := newServer(config{
+		UpstreamAskURL:  "http://example.invalid/ceo-ai/ask",
+		DocsBaseURL:     upstream.URL,
+		MCPPath:         "/mcp",
+		UpstreamTimeout: time.Second,
+	}, upstream.Client(), nil)
+
+	for _, tc := range []struct {
+		name string
+		body string
+		want []string
+	}{
+		{
+			name: "list",
+			body: `{"jsonrpc":"2.0","id":"docs","method":"tools/call","params":{"name":"list_goatos_docs","arguments":{"root":"terrain.docs"}}}`,
+			want: []string{"terrain.docs (3 docs)", "feed-direction.md", `"structuredContent"`},
+		},
+		{
+			name: "read encoded litho path",
+			body: `{"jsonrpc":"2.0","id":"docs","method":"tools/call","params":{"name":"read_goatos_doc","arguments":{"root":"litho.docs","path":"4.Deep-Exploration/Procurement & Supply Chain Domain.md"}}}`,
+			want: []string{"Inventory tracks stock lots", "Procurement", "Supply%20Chain%20Domain.md", `"structuredContent"`},
+		},
+		{
+			name: "read underscore summary path",
+			body: `{"jsonrpc":"2.0","id":"docs","method":"tools/call","params":{"name":"read_goatos_doc","arguments":{"root":"litho.docs","path":"__Litho_Summary_Detail__.md"}}}`,
+			want: []string{"Operational kernel writes outbox events", "__Litho_Summary_Detail__.md"},
+		},
+		{
+			name: "search across roots",
+			body: `{"jsonrpc":"2.0","id":"docs","method":"tools/call","params":{"name":"search_goatos_docs","arguments":{"query":"inventory vaccine stock reservation event driven","limit":3}}}`,
+			want: []string{"Goat OS docs search", "procurement-sales-toxin.md", "Feed Direction", `"results"`},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(tc.body))
+			rec := httptest.NewRecorder()
+			s.handleMCP(rec, req)
+			if rec.Code != http.StatusOK {
+				t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+			}
+			for _, want := range tc.want {
+				if !strings.Contains(rec.Body.String(), want) {
+					t.Fatalf("missing %q in body=%s", want, rec.Body.String())
+				}
+			}
+		})
+	}
+}
+
+func TestDocsToolsRejectTraversalBeforeFetch(t *testing.T) {
+	calls := 0
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if r.URL.Path != "/files.json" {
+			t.Fatalf("unexpected docs fetch after invalid path: %s", r.URL.Path)
+		}
+		_, _ = io.WriteString(w, `{"terrain.docs":["1.Overview.md"],"litho.docs":[]}`)
+	}))
+	defer upstream.Close()
+
+	s := newServer(config{
+		UpstreamAskURL: "http://example.invalid/ceo-ai/ask",
+		DocsBaseURL:    upstream.URL,
+		MCPPath:        "/mcp",
+	}, upstream.Client(), nil)
+	req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(`{"jsonrpc":"2.0","id":"docs","method":"tools/call","params":{"name":"read_goatos_doc","arguments":{"root":"terrain.docs","path":"../secret.md"}}}`))
+	rec := httptest.NewRecorder()
+
+	s.handleMCP(rec, req)
+
+	if calls != 0 {
+		t.Fatalf("invalid path should not fetch remote files, calls=%d", calls)
+	}
+	if !strings.Contains(rec.Body.String(), "doc_path_required") {
+		t.Fatalf("body=%s", rec.Body.String())
+	}
+}
+
+func TestDocsToolsVerifyBearerWhenVerifierConfigured(t *testing.T) {
+	calls := 0
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		_, _ = io.WriteString(w, `{"terrain.docs":["1.Overview.md"],"litho.docs":[]}`)
+	}))
+	defer upstream.Close()
+
+	s := newServer(config{
+		UpstreamAskURL: "http://example.invalid/ceo-ai/ask",
+		DocsBaseURL:    upstream.URL,
+		MCPPath:        "/mcp",
+		AllowedEmails:  mustEmailSet(t, "aryaman@mesha.sg"),
+		TokenVerifier:  staticTokenVerifier{err: io.ErrUnexpectedEOF},
+	}, upstream.Client(), nil)
+
+	for _, tc := range []struct {
+		name string
+		body string
+	}{
+		{
+			name: "tools list",
+			body: `{"jsonrpc":"2.0","id":"docs","method":"tools/list"}`,
+		},
+		{
+			name: "docs list",
+			body: `{"jsonrpc":"2.0","id":"docs","method":"tools/call","params":{"name":"list_goatos_docs","arguments":{}}}`,
+		},
+		{
+			name: "docs search",
+			body: `{"jsonrpc":"2.0","id":"docs","method":"tools/call","params":{"name":"search_goatos_docs","arguments":{"query":"inventory"}}}`,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(tc.body))
+			req.Header.Set("Authorization", "Bearer garbage")
+			rec := httptest.NewRecorder()
+
+			s.handleMCP(rec, req)
+
+			if !strings.Contains(rec.Body.String(), "invalid_authorization_bearer") {
+				t.Fatalf("body=%s", rec.Body.String())
+			}
+		})
+	}
+	if calls != 0 {
+		t.Fatalf("invalid bearer should not fetch docs, calls=%d", calls)
+	}
+}
+
+func TestDocsToolsRejectDisallowedEmailBeforeFetch(t *testing.T) {
+	calls := 0
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		_, _ = io.WriteString(w, `{"terrain.docs":["1.Overview.md"],"litho.docs":[]}`)
+	}))
+	defer upstream.Close()
+
+	s := newServer(config{
+		UpstreamAskURL: "http://example.invalid/ceo-ai/ask",
+		DocsBaseURL:    upstream.URL,
+		MCPPath:        "/mcp",
+		AllowedEmails:  mustEmailSet(t, "aryaman@mesha.sg"),
+		TokenVerifier:  staticTokenVerifier{claims: platformauth.Claims{Email: "someone@example.com", EmailVerified: boolPtr(true)}},
+	}, upstream.Client(), nil)
+	req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(`{"jsonrpc":"2.0","id":"docs","method":"tools/call","params":{"name":"read_goatos_doc","arguments":{"root":"terrain.docs","path":"1.Overview.md"}}}`))
+	req.Header.Set("Authorization", "Bearer user-token")
+	rec := httptest.NewRecorder()
+
+	s.handleMCP(rec, req)
+
+	if calls != 0 {
+		t.Fatalf("disallowed actor should not fetch docs, calls=%d", calls)
+	}
+	if !strings.Contains(rec.Body.String(), "actor_email_not_allowed") {
+		t.Fatalf("body=%s", rec.Body.String())
 	}
 }
 

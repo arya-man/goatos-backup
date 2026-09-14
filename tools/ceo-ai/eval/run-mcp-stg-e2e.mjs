@@ -79,6 +79,15 @@ const compositeCases = [
   },
 ];
 
+const docsCases = [
+  docsCase("docs-list-terrain", "list_goatos_docs", { root: "terrain.docs" }, ["terrain.docs", "operational-kernel.md", "feed-direction.md"]),
+  docsCase("docs-events", "search_goatos_docs", { query: "event driven outbox cross module communication operational kernel", limit: 3 }, ["event", "outbox", "operational"]),
+  docsCase("docs-inventory-vaccine-stock", "search_goatos_docs", { query: "inventory vaccine medicine feed stock reservation consumption expiry", limit: 3 }, ["inventory", "vaccine", "stock"]),
+  docsCase("docs-vaccination-protocol", "search_goatos_docs", { query: "vaccination protocol dose sequence eligibility booster gap publish version rules", limit: 3 }, ["vaccination", "protocol"]),
+  docsCase("docs-tasks-work-board", "search_goatos_docs", { query: "tasks work board verification proof action sequence due status", limit: 3 }, ["task", "verification"]),
+  docsCase("docs-read-operational-kernel", "read_goatos_doc", { root: "terrain.docs", path: "4.Deep-Exploration/operational-kernel.md", limit: 1200 }, ["Operational Kernel", "outbox"]),
+];
+
 const answerScenarios = [
   ...salesQuestionScenarios(),
   ...weighingQuestionScenarios(),
@@ -94,6 +103,9 @@ const typedResults = [];
 for (const c of typedCases) typedResults.push(await runTypedCase(c));
 for (const c of compositeCases) typedResults.push(await runCompositeCase(c));
 
+const docsResults = [];
+for (const c of docsCases) docsResults.push(await runDocsCase(c));
+
 const answerResults = [];
 for (const s of answerScenarios) answerResults.push(await runAnswerScenario(s));
 
@@ -107,19 +119,26 @@ const report = {
   park_id: parkID,
   typed_total: typedResults.length,
   typed_passed: typedResults.filter((r) => r.passed).length,
+  docs_total: docsResults.length,
+  docs_passed: docsResults.filter((r) => r.passed).length,
   messy_total: answerResults.length,
   messy_passed: answerResults.filter((r) => r.passed).length,
-  failed: [...typedResults, ...answerResults].filter((r) => !r.passed).length,
+  failed: [...typedResults, ...docsResults, ...answerResults].filter((r) => !r.passed).length,
   typed_results: typedResults,
+  docs_results: docsResults,
   messy_results: answerResults,
 };
 mkdirSync(dirname(resolve(outPath)), { recursive: true });
 writeFileSync(outPath, `${JSON.stringify(report, null, 2)}\n`);
-console.log(`mcp-stg-e2e: typed ${report.typed_passed}/${report.typed_total}, messy ${report.messy_passed}/${report.messy_total}; wrote ${outPath}`);
+console.log(`mcp-stg-e2e: typed ${report.typed_passed}/${report.typed_total}, docs ${report.docs_passed}/${report.docs_total}, messy ${report.messy_passed}/${report.messy_total}; wrote ${outPath}`);
 if (report.failed > 0) process.exit(1);
 
 function exact(tool, path, args) {
   return { tool, path, args, query: stringifyQuery(args) };
+}
+
+function docsCase(id, tool, args, mustMention) {
+  return { id, tool, args, mustMention };
 }
 
 async function runTypedCase(c) {
@@ -152,6 +171,27 @@ async function runCompositeCase(c) {
     assertDeepSubset(normalizeForCompare(c.extract(structured)), normalizeForCompare(direct), "data");
     row.passed = true;
     row.keys = Object.keys(direct || {}).sort();
+  } catch (error) {
+    row.error = error.message;
+  }
+  return row;
+}
+
+async function runDocsCase(c) {
+  const row = { kind: "docs", id: c.id, tool: c.tool, args: c.args, passed: false };
+  try {
+    assert.equal(toolNames.has(c.tool), true, `tools/list missing ${c.tool}`);
+    const answer = await rpc("tools/call", { name: c.tool, arguments: c.args });
+    const structured = answer.structuredContent || {};
+    const text = `${answerText(answer)}\n${JSON.stringify(structured)}`;
+    row.answer_preview = text.slice(0, 800);
+    row.required_terms = [];
+    for (const term of c.mustMention || []) {
+      const passed = containsLoose(text, term);
+      row.required_terms.push({ term, passed });
+      assert.equal(passed, true, `missing required docs term ${term}`);
+    }
+    row.passed = true;
   } catch (error) {
     row.error = error.message;
   }

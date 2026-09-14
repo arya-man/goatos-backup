@@ -19,6 +19,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -30,11 +31,14 @@ import (
 )
 
 const (
-	defaultAddr             = ":8080"
-	defaultMCPPath          = "/mcp"
-	defaultAPIAskPath       = "/ceo-ai/ask"
-	maxBodyBytes      int64 = 1 << 20
-	firebaseTokenTTL        = 3600
+	defaultAddr              = ":8080"
+	defaultMCPPath           = "/mcp"
+	defaultAPIAskPath        = "/ceo-ai/ask"
+	defaultDocsBaseURL       = "https://vgoats.github.io/goatos/litho"
+	maxBodyBytes       int64 = 1 << 20
+	firebaseTokenTTL         = 3600
+	maxDocsSearchBytes       = 12 << 20
+	maxDocReadBytes          = 2 << 20
 )
 
 func main() {
@@ -78,6 +82,7 @@ type config struct {
 	DefaultParkID   string
 	UpstreamBaseURL string
 	UpstreamAskURL  string
+	DocsBaseURL     string
 	UpstreamTimeout time.Duration
 	AllowedEmails   authallow.EmailSet
 	TokenVerifier   tokenVerifier
@@ -114,6 +119,7 @@ func configFromEnv() (config, error) {
 		DefaultParkID:   firstNonEmpty(os.Getenv("MESHA_MCP_DEFAULT_PARK_ID"), os.Getenv("GOATOS_E2E_PARK_ID")),
 		UpstreamBaseURL: upstreamBaseURL(base, ask),
 		UpstreamAskURL:  ask,
+		DocsBaseURL:     strings.TrimRight(envOr("GOATOS_DOCS_BASE_URL", defaultDocsBaseURL), "/"),
 		UpstreamTimeout: timeout,
 		AllowedEmails:   allowed,
 		TokenVerifier:   verifier,
@@ -242,6 +248,8 @@ type server struct {
 	log        *slog.Logger
 	oauthCodes map[string]oauthCode
 	oauthMu    sync.Mutex
+	docsMu     sync.Mutex
+	docsCache  docsIndexCache
 }
 
 func newServer(cfg config, client *http.Client, log *slog.Logger) *server {
@@ -761,6 +769,10 @@ func (s *server) handleMCP(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
+		if _, _, code, msg := s.optionalVerifiedAuthorization(r); msg != "" {
+			writeJSON(w, http.StatusOK, rpcError(req.ID, code, msg))
+			return
+		}
 		writeJSON(w, http.StatusOK, rpcResult(req.ID, map[string]any{"tools": tools()}))
 	case "tools/call":
 		if isNotification {
@@ -877,6 +889,46 @@ func tools() []map[string]any {
 			"annotations": readOnlyToolAnnotations(),
 			"inputSchema": map[string]any{"type": "object", "properties": map[string]any{}},
 		},
+		{
+			"name":        "list_goatos_docs",
+			"description": "List the published Goat OS architecture/documentation corpus exposed through GitHub Pages. Use this before reading exact docs or when a user asks what documentation exists.",
+			"annotations": readOnlyToolAnnotations(),
+			"inputSchema": map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"root": map[string]any{"type": "string", "enum": []string{"terrain.docs", "litho.docs"}, "description": "Optional docs root. terrain.docs is concise Terrain output; litho.docs is the deeper Litho/DeepWiki output."},
+				},
+			},
+		},
+		{
+			"name":        "read_goatos_doc",
+			"description": "Read one published Goat OS architecture/documentation markdown file by root and path. Use this for exact citations from Terrain or Litho docs.",
+			"annotations": readOnlyToolAnnotations(),
+			"inputSchema": map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"root":  map[string]any{"type": "string", "enum": []string{"terrain.docs", "litho.docs"}, "description": "Published docs root."},
+					"path":  map[string]any{"type": "string", "description": "Markdown path from list_goatos_docs, for example 4.Deep-Exploration/feed-direction.md."},
+					"limit": map[string]any{"type": "integer", "description": "Optional max characters to return. Defaults to 12000, max 40000."},
+				},
+				"required": []string{"root", "path"},
+			},
+		},
+		{
+			"name":        "search_goatos_docs",
+			"description": "Search the published Goat OS architecture/documentation corpus. Use this for questions about architecture, events, inventory, vaccination, feed, operational kernel, MCP/tooling, or module design before falling back to ask_goatos.",
+			"annotations": readOnlyToolAnnotations(),
+			"inputSchema": map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"query":        map[string]any{"type": "string", "description": "Search query."},
+					"root":         map[string]any{"type": "string", "enum": []string{"terrain.docs", "litho.docs"}, "description": "Optional docs root. Omit to search both."},
+					"limit":        map[string]any{"type": "integer", "description": "Optional result count. Defaults to 5, max 10."},
+					"snippet_size": map[string]any{"type": "integer", "description": "Optional snippet size per hit. Defaults to 700, max 1600."},
+				},
+				"required": []string{"query"},
+			},
+		},
 	}
 	for _, def := range apiReadTools() {
 		out = append(out, def.mcpTool())
@@ -912,12 +964,408 @@ func (s *server) callTool(ctx context.Context, r *http.Request, raw json.RawMess
 		return textToolResult("Goat OS MCP exposes read-only leadership tools backed by live STG Goat OS APIs. For dynamic dashboards, call the relevant typed tools and render the returned structuredContent; refresh by re-calling the tools because the database can change. Use get_vaccination_today for schedule/progress, get_action_center for blocked/overdue work, get_verification_backlog for proof review, get_feed_today for issued feed sheets, get_procurement_pipeline for source-entry loads, get_sales_overview/get_sales_deals for sales, get_counts_summary for herd census, get_health_today/get_health_work_items/get_milk_feeding_today for health and milk work, get_workforce_coverage for staffing gaps, and the get_weighing_* tools for weighing. Use ask_goatos only as fallback for broader covered questions. Access is restricted to the configured CEO allowlist and the upstream Goat OS backend remains the authority for tenant scope, ceo_internal role, auditing, and safety."), 0, ""
 	case "goatos_mcp_health":
 		return textToolResult("Goat OS MCP is running. Upstream assistant endpoint: " + s.cfg.UpstreamAskURL), 0, ""
+	case "list_goatos_docs":
+		return s.listGoatOSDocs(ctx, r, params.Arguments)
+	case "read_goatos_doc":
+		return s.readGoatOSDoc(ctx, r, params.Arguments)
+	case "search_goatos_docs":
+		return s.searchGoatOSDocs(ctx, r, params.Arguments)
 	default:
 		if def, ok := apiReadToolByName(params.Name); ok {
 			return s.getAPIReadTool(ctx, r, params.Arguments, def)
 		}
 		return nil, -32602, "unknown_tool"
 	}
+}
+
+type docsIndexCache struct {
+	loadedAt time.Time
+	baseURL  string
+	files    map[string][]string
+}
+
+type docsArgs struct {
+	Root        string `json:"root"`
+	Path        string `json:"path"`
+	Query       string `json:"query"`
+	Limit       int    `json:"limit"`
+	SnippetSize int    `json:"snippet_size"`
+}
+
+func (s *server) listGoatOSDocs(ctx context.Context, r *http.Request, raw json.RawMessage) (map[string]any, int, string) {
+	var args docsArgs
+	if len(raw) > 0 {
+		if err := json.Unmarshal(raw, &args); err != nil {
+			return nil, -32602, "invalid_list_goatos_docs_arguments"
+		}
+	}
+	if _, _, code, msg := s.optionalVerifiedAuthorization(r); msg != "" {
+		return nil, code, msg
+	}
+	root := strings.TrimSpace(args.Root)
+	if root != "" && !validDocsRoot(root) {
+		return nil, -32602, "invalid_docs_root"
+	}
+	files, err := s.docsFiles(ctx)
+	if err != nil {
+		s.log.Warn("goatos_mcp_docs_index_failed", slog.Any("error", err))
+		return nil, -32603, "goatos_docs_unreachable"
+	}
+	structured := map[string]any{
+		"source": s.docsBaseURL() + "/files.json",
+		"roots":  map[string]any{},
+	}
+	var b strings.Builder
+	b.WriteString("Published Goat OS docs:\n")
+	roots := docsRoots(root)
+	for _, item := range roots {
+		paths := append([]string(nil), files[item]...)
+		sort.Strings(paths)
+		structured["roots"].(map[string]any)[item] = paths
+		b.WriteString("\n" + item + " (" + strconv.Itoa(len(paths)) + " docs)\n")
+		for _, path := range paths {
+			b.WriteString("- " + path + "\n")
+		}
+	}
+	return structuredTextToolResult(strings.TrimSpace(b.String()), structured), 0, ""
+}
+
+func (s *server) readGoatOSDoc(ctx context.Context, r *http.Request, raw json.RawMessage) (map[string]any, int, string) {
+	var args docsArgs
+	if len(raw) > 0 {
+		if err := json.Unmarshal(raw, &args); err != nil {
+			return nil, -32602, "invalid_read_goatos_doc_arguments"
+		}
+	}
+	if _, _, code, msg := s.optionalVerifiedAuthorization(r); msg != "" {
+		return nil, code, msg
+	}
+	root := strings.TrimSpace(args.Root)
+	path := cleanDocsPath(args.Path)
+	if !validDocsRoot(root) {
+		return nil, -32602, "invalid_docs_root"
+	}
+	if path == "" {
+		return nil, -32602, "doc_path_required"
+	}
+	files, err := s.docsFiles(ctx)
+	if err != nil {
+		s.log.Warn("goatos_mcp_docs_index_failed", slog.String("root", root), slog.String("path", path), slog.Any("error", err))
+		return nil, -32603, "goatos_docs_unreachable"
+	}
+	if !docsPathExists(files, root, path) {
+		return nil, -32602, "doc_path_not_found"
+	}
+	body, source, err := s.fetchDoc(ctx, root, path)
+	if err != nil {
+		s.log.Warn("goatos_mcp_doc_fetch_failed", slog.String("root", root), slog.String("path", path), slog.String("source", source), slog.Any("error", err))
+		return nil, -32603, "goatos_doc_unreachable"
+	}
+	limit := clampInt(args.Limit, 12000, 40000)
+	truncated := len(body) > limit
+	if truncated {
+		body = body[:limit]
+	}
+	text := fmt.Sprintf("Source: %s\n\n%s", source, body)
+	if truncated {
+		text += "\n\n[truncated]"
+	}
+	return structuredTextToolResult(text, map[string]any{
+		"source":    source,
+		"root":      root,
+		"path":      path,
+		"truncated": truncated,
+		"content":   body,
+	}), 0, ""
+}
+
+func (s *server) searchGoatOSDocs(ctx context.Context, r *http.Request, raw json.RawMessage) (map[string]any, int, string) {
+	var args docsArgs
+	if len(raw) > 0 {
+		if err := json.Unmarshal(raw, &args); err != nil {
+			return nil, -32602, "invalid_search_goatos_docs_arguments"
+		}
+	}
+	if _, _, code, msg := s.optionalVerifiedAuthorization(r); msg != "" {
+		return nil, code, msg
+	}
+	query := strings.TrimSpace(args.Query)
+	if query == "" {
+		return nil, -32602, "query_required"
+	}
+	root := strings.TrimSpace(args.Root)
+	if root != "" && !validDocsRoot(root) {
+		return nil, -32602, "invalid_docs_root"
+	}
+	files, err := s.docsFiles(ctx)
+	if err != nil {
+		s.log.Warn("goatos_mcp_docs_index_failed", slog.String("root", root), slog.String("query", query), slog.Any("error", err))
+		return nil, -32603, "goatos_docs_unreachable"
+	}
+	limit := clampInt(args.Limit, 5, 10)
+	snippetSize := clampInt(args.SnippetSize, 700, 1600)
+	terms := searchTerms(query)
+	if len(terms) == 0 {
+		return nil, -32602, "query_required"
+	}
+	var hits []docsSearchHit
+	readBytes := 0
+	for _, docsRoot := range docsRoots(root) {
+		for _, path := range files[docsRoot] {
+			if readBytes > maxDocsSearchBytes {
+				break
+			}
+			body, source, err := s.fetchDoc(ctx, docsRoot, path)
+			if err != nil {
+				continue
+			}
+			readBytes += len(body)
+			score, pos := docsScore(body, docsRoot+"/"+path, terms)
+			if score == 0 {
+				continue
+			}
+			hits = append(hits, docsSearchHit{
+				Root:    docsRoot,
+				Path:    path,
+				Source:  source,
+				Score:   score,
+				Snippet: snippetAt(body, pos, snippetSize),
+			})
+		}
+	}
+	sort.Slice(hits, func(i, j int) bool {
+		if hits[i].Score == hits[j].Score {
+			return hits[i].Root+"/"+hits[i].Path < hits[j].Root+"/"+hits[j].Path
+		}
+		return hits[i].Score > hits[j].Score
+	})
+	if len(hits) > limit {
+		hits = hits[:limit]
+	}
+	var b strings.Builder
+	b.WriteString("Goat OS docs search: " + query + "\n")
+	for i, hit := range hits {
+		b.WriteString(fmt.Sprintf("\n%d. %s/%s\nSource: %s\n%s\n", i+1, hit.Root, hit.Path, hit.Source, hit.Snippet))
+	}
+	if len(hits) == 0 {
+		b.WriteString("\nNo matching published docs found.")
+	}
+	return structuredTextToolResult(strings.TrimSpace(b.String()), map[string]any{
+		"query":   query,
+		"source":  s.docsBaseURL() + "/files.json",
+		"results": hits,
+	}), 0, ""
+}
+
+type docsSearchHit struct {
+	Root    string `json:"root"`
+	Path    string `json:"path"`
+	Source  string `json:"source"`
+	Score   int    `json:"score"`
+	Snippet string `json:"snippet"`
+}
+
+func (s *server) docsFiles(ctx context.Context) (map[string][]string, error) {
+	base := s.docsBaseURL()
+	s.docsMu.Lock()
+	if s.docsCache.baseURL == base && time.Since(s.docsCache.loadedAt) < 5*time.Minute && len(s.docsCache.files) > 0 {
+		files := cloneDocsFiles(s.docsCache.files)
+		s.docsMu.Unlock()
+		return files, nil
+	}
+	s.docsMu.Unlock()
+
+	var files map[string][]string
+	if err := s.getJSON(ctx, base+"/files.json", maxDocReadBytes, &files); err != nil {
+		return nil, err
+	}
+	normalized := map[string][]string{}
+	for _, root := range docsRoots("") {
+		for _, path := range files[root] {
+			if clean := cleanDocsPath(path); clean != "" {
+				normalized[root] = append(normalized[root], clean)
+			}
+		}
+		sort.Strings(normalized[root])
+	}
+	s.docsMu.Lock()
+	s.docsCache = docsIndexCache{loadedAt: time.Now(), baseURL: base, files: cloneDocsFiles(normalized)}
+	s.docsMu.Unlock()
+	return normalized, nil
+}
+
+func (s *server) fetchDoc(ctx context.Context, root, path string) (string, string, error) {
+	source := s.docsBaseURL() + "/" + encodeDocsPath(root) + "/" + encodeDocsPath(path)
+	body, err := s.getText(ctx, source, maxDocReadBytes)
+	return body, source, err
+}
+
+func (s *server) getJSON(ctx context.Context, source string, limit int64, dst any) error {
+	body, err := s.getBytes(ctx, source, limit)
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(body, dst)
+}
+
+func (s *server) getText(ctx context.Context, source string, limit int64) (string, error) {
+	body, err := s.getBytes(ctx, source, limit)
+	if err != nil {
+		return "", err
+	}
+	return string(body), nil
+}
+
+func (s *server) getBytes(ctx context.Context, source string, limit int64) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, source, nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(io.LimitReader(resp.Body, limit+1))
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("docs status %d", resp.StatusCode)
+	}
+	if int64(len(body)) > limit {
+		return nil, errors.New("docs response too large")
+	}
+	return body, nil
+}
+
+func (s *server) docsBaseURL() string {
+	if base := strings.TrimRight(strings.TrimSpace(s.cfg.DocsBaseURL), "/"); base != "" {
+		return base
+	}
+	return defaultDocsBaseURL
+}
+
+func docsRoots(root string) []string {
+	switch root {
+	case "terrain.docs", "litho.docs":
+		return []string{root}
+	default:
+		return []string{"terrain.docs", "litho.docs"}
+	}
+}
+
+func validDocsRoot(root string) bool {
+	return root == "terrain.docs" || root == "litho.docs"
+}
+
+func docsPathExists(files map[string][]string, root, path string) bool {
+	for _, candidate := range files[root] {
+		if candidate == path {
+			return true
+		}
+	}
+	return false
+}
+
+func cleanDocsPath(path string) string {
+	path = strings.TrimSpace(strings.ReplaceAll(path, "\\", "/"))
+	path = strings.TrimPrefix(path, "/")
+	if path == "" || strings.Contains(path, "../") || strings.HasPrefix(path, ".") {
+		return ""
+	}
+	return path
+}
+
+func encodeDocsPath(path string) string {
+	parts := strings.Split(path, "/")
+	for i, part := range parts {
+		parts[i] = url.PathEscape(part)
+	}
+	return strings.Join(parts, "/")
+}
+
+func cloneDocsFiles(in map[string][]string) map[string][]string {
+	out := map[string][]string{}
+	for key, value := range in {
+		out[key] = append([]string(nil), value...)
+	}
+	return out
+}
+
+func clampInt(value, def, max int) int {
+	if value <= 0 {
+		return def
+	}
+	if value > max {
+		return max
+	}
+	return value
+}
+
+func searchTerms(query string) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, term := range strings.FieldsFunc(strings.ToLower(query), func(r rune) bool {
+		return !(r >= 'a' && r <= 'z' || r >= '0' && r <= '9')
+	}) {
+		if len(term) < 3 || seen[term] {
+			continue
+		}
+		seen[term] = true
+		out = append(out, term)
+	}
+	return out
+}
+
+func docsScore(body, identity string, terms []string) (int, int) {
+	haystack := strings.ToLower(identity + "\n" + body)
+	bestPos := -1
+	score := 0
+	for _, term := range terms {
+		count := strings.Count(haystack, term)
+		if count == 0 {
+			continue
+		}
+		score += minInt(count, 10)
+		if pos := strings.Index(strings.ToLower(body), term); pos >= 0 && (bestPos == -1 || pos < bestPos) {
+			bestPos = pos
+		}
+	}
+	if bestPos < 0 {
+		bestPos = 0
+	}
+	return score, bestPos
+}
+
+func snippetAt(body string, pos, size int) string {
+	if len(body) <= size {
+		return strings.TrimSpace(body)
+	}
+	start := pos - size/3
+	if start < 0 {
+		start = 0
+	}
+	end := start + size
+	if end > len(body) {
+		end = len(body)
+		start = maxInt(0, end-size)
+	}
+	snippet := strings.TrimSpace(body[start:end])
+	if start > 0 {
+		snippet = "..." + snippet
+	}
+	if end < len(body) {
+		snippet += "..."
+	}
+	return snippet
+}
+
+func minInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 type apiReadTool struct {
@@ -1667,6 +2115,13 @@ func (s *server) verifiedAuthorization(r *http.Request) (authz, email string, co
 		return "", "", -32001, "actor_email_not_allowed"
 	}
 	return authz, email, 0, ""
+}
+
+func (s *server) optionalVerifiedAuthorization(r *http.Request) (authz, email string, code int, msg string) {
+	if s.cfg.TokenVerifier == nil {
+		return "", "", 0, ""
+	}
+	return s.verifiedAuthorization(r)
 }
 
 func (s *server) proxyAskGoatOS(ctx context.Context, r *http.Request, authz, email, question, conversationID string) (map[string]any, int, string) {
