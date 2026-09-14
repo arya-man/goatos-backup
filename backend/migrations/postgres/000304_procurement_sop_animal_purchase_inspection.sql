@@ -14,8 +14,8 @@
 --
 -- seed-fixture-guard:ignore: SOP library document seed (sop_definitions/sop_versions rows only);
 -- no vaccination / HRMS / goats schema moves.
--- seed-migration-guard:ignore owner=claude issue=procurement-sop reason=library-document seed for an existing phone flow; idempotent definition + version insert, no read-model or clean-slate change expiry=2026-10-31
 
+-- seed-migration-guard:ignore owner=claude issue=procurement-sop reason=library-document seed for an existing phone flow; idempotent definition + version insert, no read-model or clean-slate change expiry=2026-10-31
 INSERT INTO public.sop_definitions (tenant_id, code, name, description, status)
 SELECT t.tenant_id, 'procurement.animal_purchase', 'Animal Purchase Inspection',
        'The per-animal inspection the procurement desk records inside a purchase load: pages of questions, the photos and videos each needs, and the inspector''s own verdict. The CEO/CXO accepts or rejects each animal on the web.',
@@ -23,6 +23,7 @@ SELECT t.tenant_id, 'procurement.animal_purchase', 'Animal Purchase Inspection',
 FROM public.tenants t
 ON CONFLICT (tenant_id, code) DO NOTHING;
 
+-- seed-migration-guard:ignore owner=claude issue=procurement-sop reason=library-document seed for an existing phone flow; idempotent definition + version insert, no read-model or clean-slate change expiry=2026-10-31
 INSERT INTO public.sop_versions
   (tenant_id, sop_id, version, version_label, status, form_dsl, proof_policy, compatibility, validation_report, published_at)
 SELECT sd.tenant_id, sd.sop_id, 1, 'Animal Purchase Inspection v1', 'published',
