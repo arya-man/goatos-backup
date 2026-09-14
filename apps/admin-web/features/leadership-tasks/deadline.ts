@@ -1,6 +1,6 @@
 /**
  * The task form's `datetime-local` value (`YYYY-MM-DDTHH:MM`, no zone) is the deadline on the
- * FARM's clock, so it is stamped with the IST offset before it goes on the wire -- Goat OS
+ * FARM's clock, so it is stamped with the IST offset before it goes on the wire -- Mesha
  * business time is Asia/Kolkata whatever the browser's zone. Anything that is not that shape
  * is treated as missing; the backend validates the instant itself (must be after the raise).
  */
