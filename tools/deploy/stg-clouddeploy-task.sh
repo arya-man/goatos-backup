@@ -7,6 +7,9 @@ REGION="${REGION:-asia-south1}"
 ARTIFACT_REPOSITORY="${ARTIFACT_REPOSITORY:-goatos}"
 API_SERVICE="${API_SERVICE:-goatos-api-stg}"
 ANALYTICS_EVENTS_SERVICE="${ANALYTICS_EVENTS_SERVICE:-goatos-analytics-events-stg}"
+ANALYTICS_EVENTS_SERVICE_ACCOUNT="${ANALYTICS_EVENTS_SERVICE_ACCOUNT:-goatos-events-stg@goatos-stg.iam.gserviceaccount.com}"
+API_SERVICE_ACCOUNT="${API_SERVICE_ACCOUNT:-goatos-api-stg@goatos-stg.iam.gserviceaccount.com}"
+GOATOS_STG_TENANT_ID="${GOATOS_STG_TENANT_ID:-00000000-0000-4000-8000-000000000001}"
 MCP_SERVICE="${MCP_SERVICE:-goatos-mcp-stg}"
 KERNEL_WORKER_SERVICE="${KERNEL_WORKER_SERVICE:-goatos-kernel-worker-stg}"
 HERD_SIGNALS_MQTT_BRIDGE_SERVICE="${HERD_SIGNALS_MQTT_BRIDGE_SERVICE:-goatos-herd-signals-mqtt-bridge-stg}"
@@ -133,6 +136,10 @@ job_image() {
 
 job_exists() {
   gcloud run jobs describe "$1" --project="$PROJECT_ID" --region="$REGION" >/dev/null 2>&1
+}
+
+service_account_exists() {
+  gcloud iam service-accounts describe "$1" --project="$PROJECT_ID" >/dev/null 2>&1
 }
 
 capture_serving_revisions() {
@@ -315,6 +322,10 @@ deploy() {
   gcloud run services describe "$MCP_SERVICE" --project="$PROJECT_ID" --region="$REGION" >/dev/null
   gcloud run services describe "$KERNEL_WORKER_SERVICE" --project="$PROJECT_ID" --region="$REGION" >/dev/null
   gcloud run services describe "$ADMIN_WEB_SERVICE" --project="$PROJECT_ID" --region="$REGION" >/dev/null
+  if ! service_account_exists "$ANALYTICS_EVENTS_SERVICE_ACCOUNT"; then
+    echo "analytics events service account $ANALYTICS_EVENTS_SERVICE_ACCOUNT is absent; using $API_SERVICE_ACCOUNT until Terraform applies the dedicated runtime account"
+    ANALYTICS_EVENTS_SERVICE_ACCOUNT="$API_SERVICE_ACCOUNT"
+  fi
   gcloud iam service-accounts describe "$HERD_SIGNALS_MQTT_BRIDGE_SERVICE_ACCOUNT" --project="$PROJECT_ID" >/dev/null
   gcloud run jobs describe "$MIGRATE_JOB" --project="$PROJECT_ID" --region="$REGION" >/dev/null
   if ! job_exists "$VACCINATION_SCHEDULE_PROJECTOR_JOB"; then
@@ -437,17 +448,19 @@ deploy() {
     --quiet
   wait_service_ready "$API_SERVICE" "post-migration restore"
 
-  run gcloud run services update "$ANALYTICS_EVENTS_SERVICE" \
+  run gcloud run deploy "$ANALYTICS_EVENTS_SERVICE" \
     --project="$PROJECT_ID" \
     --region="$REGION" \
     --image="$BACKEND_IMAGE" \
     --ingress=all \
-    --min=0 \
-    --max=1 \
+    --service-account="$ANALYTICS_EVENTS_SERVICE_ACCOUNT" \
+    --allow-unauthenticated \
+    --add-cloudsql-instances="${PROJECT_ID}:${REGION}:goatos-stg-core-db" \
     --min-instances=0 \
     --max-instances=1 \
     --concurrency=20 \
-    --update-env-vars="GOATOS_API_ROUTE_MODE=events,GOATOS_ANALYTICS_MAX_IN_FLIGHT=2,GOATOS_PG_MAX_CONNS=2,GOATOS_PG_QUERY_TIMEOUT=3s" \
+    --set-env-vars="GOATOS_ENV=stg,GOATOS_HTTP_ADDR=:8080,GOATOS_API_ROUTE_MODE=events,GOATOS_AUTH_MODE=jwks,GOATOS_AUTH_SESSION_ALLOWED_TENANT_IDS=${GOATOS_STG_TENANT_ID},GOATOS_ANALYTICS_MAX_IN_FLIGHT=2,GOATOS_PG_MAX_CONNS=2,GOATOS_PG_QUERY_TIMEOUT=3s" \
+    --set-secrets="DATABASE_URL=goatos-stg-database-url:latest,GOATOS_AUTH_ISSUER=goatos-stg-auth-issuer:latest,GOATOS_AUTH_AUDIENCE=goatos-stg-auth-audience:latest,GOATOS_AUTH_JWKS_URL=goatos-stg-auth-jwks-url:latest,GOATOS_AUTH_ALLOWED_EMAILS=goatos-stg-auth-allowed-emails:latest" \
     --update-labels="commit_sha=${COMMIT_SHA},deployed_by=cloud-deploy" \
     --quiet
   run gcloud run services update-traffic "$ANALYTICS_EVENTS_SERVICE" \
@@ -456,6 +469,7 @@ deploy() {
     --to-latest \
     --quiet
   wait_service_ready "$ANALYTICS_EVENTS_SERVICE" "post-migration restore"
+  tools/deploy/stg-analytics-events-routing.sh
 
   run gcloud run services update "$KERNEL_WORKER_SERVICE" \
     --project="$PROJECT_ID" \

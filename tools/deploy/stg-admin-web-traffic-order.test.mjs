@@ -102,8 +102,17 @@ test("analytics events has an isolated capped deploy lane", () => {
   );
 
   assert.match(script, /ANALYTICS_EVENTS_SERVICE="\$\{ANALYTICS_EVENTS_SERVICE:-goatos-analytics-events-stg\}"/);
-  assert.match(script, /gcloud run services update "\$ANALYTICS_EVENTS_SERVICE"[\s\S]*?--max=1\s+\\/);
-  assert.match(script, /GOATOS_API_ROUTE_MODE=events,GOATOS_ANALYTICS_MAX_IN_FLIGHT=2,GOATOS_PG_MAX_CONNS=2/);
+  assert.match(script, /GOATOS_STG_TENANT_ID="\$\{GOATOS_STG_TENANT_ID:-00000000-0000-4000-8000-000000000001\}"/);
+  assert.match(script, /gcloud run deploy "\$ANALYTICS_EVENTS_SERVICE"[\s\S]*?--max-instances=1\s+\\/);
+  assert.match(script, /--service-account="\$ANALYTICS_EVENTS_SERVICE_ACCOUNT"/);
+  assert.match(script, /--allow-unauthenticated\s+\\/);
+  assert.match(script, /--add-cloudsql-instances="\$\{PROJECT_ID\}:\$\{REGION\}:goatos-stg-core-db"/);
+  assert.match(script, /--set-secrets="DATABASE_URL=goatos-stg-database-url:latest/);
+  assert.match(script, /GOATOS_API_ROUTE_MODE=events/);
+  assert.match(script, /GOATOS_AUTH_SESSION_ALLOWED_TENANT_IDS=\$\{GOATOS_STG_TENANT_ID\}/);
+  assert.match(script, /GOATOS_ANALYTICS_MAX_IN_FLIGHT=2/);
+  assert.match(script, /GOATOS_PG_MAX_CONNS=2/);
+  assert.match(script, /tools\/deploy\/stg-analytics-events-routing\.sh/);
   assert.match(script, /service_image "\$ANALYTICS_EVENTS_SERVICE"/);
 });
 

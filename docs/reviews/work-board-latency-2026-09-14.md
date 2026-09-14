@@ -88,7 +88,11 @@ the slowest observed call.
   skips Work Board, weighing, vaccination, proof upload/download signed routes, auth session-events,
   admin UI, and the rest of the business API.
 - The Cloud Deploy scripts now update and verify the event lane on every backend rollout, so it does
-  not stay on a stale image after this PR lands.
+  not stay on a stale image after this PR lands. The deploy path uses `gcloud run deploy` for the
+  events service, so the first rollout can create it if Terraform has not applied it yet. If the
+  dedicated `goatos-events-stg` service account is not present yet, deploy falls back to the
+  existing API runtime service account while preserving the separate service, route mode, event cap,
+  DB pool cap, min scale `0`, and max scale `1`.
 - Remaining deployment requirement: live traffic must be routed to the events lane. The safe
   transparent production shape is a URL-map path rule sending `/app/analytics/events` to
   `goatos-analytics-events-stg` while all business API paths stay on `goatos-api-stg`. This PR adds
@@ -98,8 +102,7 @@ the slowest observed call.
   the main API service.
 - Live check while preparing the PR update: `goatos-stg-dashboard-map` had `api-host` defaulting to
   `goatos-api-stg-backend` with no path rules, and `goatos-analytics-events-stg` did not exist yet.
-  Therefore the service/Terraform change must be applied before running the routing script and before
-  claiming live event separation.
+  Therefore a new staging deploy from this PR is required before claiming live event separation.
 
 ## Validation
 
