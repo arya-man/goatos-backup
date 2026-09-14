@@ -29,9 +29,10 @@ const (
 // fakeService records the query the handler built, which is the whole point of these
 // tests: every scope rule lives in the handler, and the service must receive its result.
 type fakeService struct {
-	mu    sync.Mutex
-	last  domain.Query
-	lists []domain.Query
+	mu     sync.Mutex
+	last   domain.Query
+	lists  []domain.Query
+	counts map[domain.WorkState]int
 	// found is what FindRow answers; lastRowKey / lastAfter / lastLimit record the subtask read.
 	found      bool
 	lastRowKey string
@@ -75,7 +76,11 @@ func (f *fakeService) Summary(_ context.Context, q domain.Query) (domain.Summary
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.last = q
-	return domain.NewSummary(q.Modules), nil
+	sum := domain.NewSummary(q.Modules)
+	for state, n := range f.counts {
+		sum.Add(domain.ModuleFeed, map[domain.WorkState]int{state: n})
+	}
+	return sum, nil
 }
 
 // RegisteredModules mirrors production: procurement and toxin have no source yet.
@@ -217,7 +222,12 @@ func TestBadInputsAreRefusedWithStableCodes(t *testing.T) {
 // TestPageBundlesSummaryAndLaneRows proves the admin-web can open one park with one backend
 // request instead of separate summary plus per-lane row calls.
 func TestPageBundlesSummaryAndLaneRows(t *testing.T) {
-	svc := &fakeService{}
+	svc := &fakeService{counts: map[domain.WorkState]int{
+		domain.WorkStateDue:                 1,
+		domain.WorkStateInProgress:          1,
+		domain.WorkStateVerificationPending: 1,
+		domain.WorkStateCompleted:           1,
+	}}
 	h := NewHandler(svc, nil)
 	rec, body := get(t, h, "/work-board/page?park="+parkCBE+"&limit=10&cursor_done=feed|feed_task|completed", actorCEO, tenantGrant(permissions.RoleCEOInternal))
 	if rec.Code != http.StatusOK {
@@ -249,8 +259,42 @@ func TestPageBundlesSummaryAndLaneRows(t *testing.T) {
 	}
 }
 
-func TestPageHonorsRequestedLanes(t *testing.T) {
+func TestPageSkipsZeroCountLaneReads(t *testing.T) {
+	svc := &fakeService{counts: map[domain.WorkState]int{domain.WorkStateDue: 1}}
+	h := NewHandler(svc, nil)
+	rec, body := get(t, h, "/work-board/page?park="+parkCBE, actorCEO, tenantGrant(permissions.RoleCEOInternal))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status %d %v", rec.Code, body)
+	}
+	if len(svc.lists) != 1 {
+		t.Fatalf("expected only non-empty todo lane to read rows, got %d: %#v", len(svc.lists), svc.lists)
+	}
+	if got := svc.lists[0].WorkStates; len(got) == 0 || domain.LaneFor(got[0]) != domain.LaneToDo {
+		t.Fatalf("expected todo lane read, got %#v", svc.lists[0])
+	}
+	lanes := body["lanes"].(map[string]any)
+	if _, ok := lanes[string(domain.LaneDone)]; !ok {
+		t.Fatalf("zero-count lanes must still be present in payload: %#v", lanes)
+	}
+}
+
+func TestPageCursorForcesLaneReadEvenWhenSummaryIsZero(t *testing.T) {
 	svc := &fakeService{}
+	h := NewHandler(svc, nil)
+	rec, body := get(t, h, "/work-board/page?park="+parkCBE+"&cursor_done=feed|feed_task|completed", actorCEO, tenantGrant(permissions.RoleCEOInternal))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status %d %v", rec.Code, body)
+	}
+	if len(svc.lists) != 1 {
+		t.Fatalf("cursor lane must be read even when summary count is zero, got %d: %#v", len(svc.lists), svc.lists)
+	}
+	if svc.lists[0].Cursor.SourceID != "completed" {
+		t.Fatalf("cursor did not flow to forced lane read: %#v", svc.lists[0])
+	}
+}
+
+func TestPageHonorsRequestedLanes(t *testing.T) {
+	svc := &fakeService{counts: map[domain.WorkState]int{domain.WorkStateDue: 1, domain.WorkStateCompleted: 1}}
 	h := NewHandler(svc, nil)
 	rec, body := get(t, h, "/work-board/page?park="+parkCBE+"&page_lane=todo,done", actorCEO, tenantGrant(permissions.RoleCEOInternal))
 	if rec.Code != http.StatusOK {

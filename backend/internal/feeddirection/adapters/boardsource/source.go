@@ -23,11 +23,13 @@ package boardsource
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/vgoats/goatos/backend/internal/workboard/domain"
@@ -202,11 +204,11 @@ SELECT
   count(*)::int,
   count(*) FILTER (WHERE lane_rank = 3)::int,
   count(*) FILTER (WHERE lane_rank < 3)::int,
-  count(*) FILTER (WHERE any_rej)::int,
-  COALESCE(MIN(lane_rank), -1)::int,
-  COALESCE(BOOL_OR(any_rej AND lane_rank = 1), false),
-  (SELECT COALESCE(name, '') FROM locations WHERE tenant_id = $1::uuid AND location_id = $3::uuid)
-FROM shed`
+	  count(*) FILTER (WHERE any_rej)::int,
+	  COALESCE(MIN(lane_rank), -1)::int,
+	  COALESCE(BOOL_OR(any_rej AND lane_rank = 1), false),
+	  COALESCE((SELECT name FROM locations WHERE tenant_id = $1::uuid AND location_id = $3::uuid), '')
+	FROM shed`
 }
 
 // Source implements ports.Source: feed's aggregate activity cards.
@@ -253,6 +255,10 @@ func (s *Source) readCard(ctx context.Context, a activity, q ports.SourceQuery) 
 	err := s.pool.QueryRow(ctx, metricsSQL(a.units), q.TenantID, q.BusinessDate, q.ParkID, nullUUID(q.OwnerUserID)).
 		Scan(&m.sheds, &m.done, &m.pending, &m.attention, &m.cardRank, &m.rejAtProgress, &m.parkName)
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			m.cardRank = -1
+			return m, nil
+		}
 		return m, err
 	}
 	s.cacheMu.Lock()

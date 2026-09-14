@@ -135,6 +135,9 @@ the slowest observed call.
 - Passed: `node --test tools/deploy/stg-admin-web-traffic-order.test.mjs`
 - Passed: `npm run build`
 - Passed: `git diff --check`
+- Passed after final latency edits: `go test ./internal/feeddirection/adapters/boardsource ./internal/processintegrity/adapters/boardsource ./internal/workboard/adapters/http ./internal/workboard/... ./migrations/postgres`
+- Passed after final latency edits: `npm test -- --test-name-pattern='work-board|visual smoke|Lighthouse|weights page|growth director'`
+- Passed after final latency edits: production-build visual smoke for Work Board and Weights on laptop and mobile.
 
 ## Local OCI E2E
 
@@ -154,7 +157,7 @@ Business date used for Work Board reproduction: `2026-08-10`.
 | --- | ---: | ---: |
 | Origin-main admin-web fanout, all parks, 10 calls/sample | p50 9.5s, p95 11.5s, max 11.5s | replaced by 2 bundled page calls/sample |
 | Initial bundled page before lane/source fixes | p50 20.1s, p95 20.3s, max 20.3s | fixed |
-| Final bundled Work Board page, all parks parallel | p50 1.35s, p95 1.59s, max 1.59s | current PR |
+| Final bundled Work Board page, all parks parallel | p50 270ms, p95 465ms, max 898ms cold first request | current PR |
 | Feed module page, all parks parallel | p50 496ms, p95 842ms | current PR |
 | Weighing module page, all parks parallel | p50 315ms, p95 585ms | current PR |
 | Health module page, all parks parallel | p50 336ms, p95 534ms | current PR |
@@ -164,16 +167,14 @@ Business date used for Work Board reproduction: `2026-08-10`.
 | Counts module page, all parks parallel | p50 249ms, p95 578ms | current PR |
 | Milk module page, all parks parallel | p50 190ms, p95 444ms | current PR |
 
-Plain-English read: the PR kills the 8-20s class and removes the request burst that was taking the
-site down. It does not honestly prove every full Work Board read is under 500ms yet. Most
-module-filtered reads are around or near that target; the full all-modules/all-parks page is still
-about 1.3-1.6s locally because it has to compute summary plus four lanes across the source registry.
-That is the remaining backend optimization target after this PR.
+Plain-English read: the PR kills the 8-20s class, removes the request burst that was taking the
+site down, and brings the measured full all-modules/all-parks Work Board read under 500ms p95 after
+the initial cold request. The final run returned no degraded modules. The remaining outlier is the
+first cold sample at 898ms, so staging should still be watched for cold-start/pool-warm behavior.
 
-Vaccination-specific tradeoff: the Work Board vaccination source now short-circuits completed-only
-historical obligation rows before entering the heavier process-integrity read. That keeps completed
-history from taking the board down, but means completed-only vaccination history is not what drives
-the live Work Board page.
+Correctness note: the vaccination fast precheck is state-aware. It excludes completed rows only when
+the requested lane/state filter cannot include Done work; whole-board and Done reads still preserve
+completed vaccination visibility.
 
 ### Browser E2E Numbers
 
@@ -181,8 +182,8 @@ Production build served locally on `127.0.0.1:3401` against the OCI-backed API:
 
 | Route | Local interaction result |
 | --- | ---: |
-| `/work-board` sidebar navigation | 779ms, 828ms, 1,234ms, 655ms, 649ms |
-| `/weighing/weights` direct route fallback | 4,056ms cold, 2,909ms second, then 372ms, 372ms, 373ms |
+| `/work-board` sidebar navigation | 519ms cold, then 414ms, 316ms, 262ms, 295ms |
+| `/weighing/weights` direct route fallback | 4,209ms cold, 2,884ms second, then 632ms, 372ms, 389ms |
 
 The route guard now fails if these visible strings appear: `Admin-web contract unavailable`,
 `backend_down`, `The board could not be loaded`, or `Weights could not be loaded`.
@@ -197,7 +198,7 @@ npm run smoke:visual:live
 ```
 
 Screenshot proof was captured under
-`.codex-goatos-render/admin-web-screenshots/2026-09-14T11-54-12-789Z`; the mobile Work Board and
+`.codex-goatos-render/admin-web-screenshots/2026-09-14T12-09-27-327Z`; the mobile Work Board and
 Weights images were visually checked and showed loaded pages, not the failure screens above.
 
 ### Lighthouse
@@ -208,8 +209,8 @@ score.
 
 | Route | Performance | Accessibility | Best Practices | SEO |
 | --- | ---: | ---: | ---: | ---: |
-| `/work-board` | 86 | 100 | 96 | 100 |
-| `/weighing/weights` | 84 | 100 | 96 | 100 |
+| `/work-board` | 84 | 100 | 96 | 100 |
+| `/weighing/weights` | 83 | 100 | 96 | 100 |
 
 ## Infra Plan
 
