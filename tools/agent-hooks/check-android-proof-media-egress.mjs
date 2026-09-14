@@ -362,6 +362,27 @@ function scanTapArmedRemoteImageRotation(rel, text) {
   return findings;
 }
 
+function scanInlineRemotePhotoListRegression(rel, text) {
+  if (!text.includes("inlineRemotePhoto") || !text.includes("items(")) return [];
+  const findings = [];
+  const itemBlockRe = /\bitems\s*\([\s\S]{0,700}?\)\s*\{[\s\S]{0,2200}?\binlineRemotePhoto\s*=\s*([^,\n)]+)/g;
+  for (const match of text.matchAll(itemBlockRe)) {
+    const value = match[1]?.trim() ?? "";
+    if (value === "false") continue;
+    const absolute = (match.index ?? 0) + match[0].lastIndexOf("inlineRemotePhoto");
+    const line = text.split("\n")[lineNo(text, absolute) - 1] ?? "";
+    const suppression = suppressionFor(text, absolute);
+    if (suppression?.startsWith("proof-media-egress:ignore ")) continue;
+    findings.push({
+      rel,
+      line: lineNo(text, absolute),
+      reason: "lazy list rows must not inline-load remote proof photos; keep opened/detail photo previews inline instead",
+      snippet: line.trim().slice(0, 180),
+    });
+  }
+  return findings;
+}
+
 function scanText(rel, text, externalRemoteMediaHelpers = new Set()) {
   const findings = [];
   for (const rule of rules) {
@@ -440,6 +461,7 @@ function scanText(rel, text, externalRemoteMediaHelpers = new Set()) {
   }
   findings.push(...scanRemoteMediaHelperCalls(rel, text, new Set([...remoteMediaHelperNames(text), ...externalRemoteMediaHelpers])));
   findings.push(...scanTapArmedRemoteImageRotation(rel, text));
+  findings.push(...scanInlineRemotePhotoListRegression(rel, text));
   findings.push(...scanReplacementStateRegression(rel, text));
   if (!/ProofMediaPreview|VerifyProofPhoto|VerifyVideoPlayer|FullscreenVideoDialog/.test(text)) return findings;
   const tainted = taintedIdentifiers(text);
@@ -591,6 +613,10 @@ function selfTest() {
     ["viewmodel-url-hydration", scanText("apps/goatos-android/app/src/main/kotlin/sg/mesha/goatos/viewmodel/FooViewModel.kt", "repository.proofDownloadUrl(proofRef)\n").length, 1],
     ["replacement-erases-old-proof", scanText("apps/goatos-android/app/src/main/kotlin/sg/mesha/goatos/viewmodel/FooViewModel.kt", "when (proofCaptureRepository.captureReplacingLatest()) { is AppResult.Err -> state.update { it.copy(videoCaptured = false) } }\n").length, 1],
     ["replacement-preserves-old-proof", scanText("apps/goatos-android/app/src/main/kotlin/sg/mesha/goatos/viewmodel/FooViewModel.kt", "when (proofCaptureRepository.captureReplacingLatest()) { is AppResult.Err -> state.update { it.copy(videoCaptured = it.videoCaptured) } }\n").length, 0],
+    ["inline-photo-lazy-list", scanText(rel, "LazyColumn {\nitems(rows) { card ->\nProofMediaPreview(path = card.url, mediaIdentity = card.id, inlineRemotePhoto = true)\n}\n}\n").length, 1],
+    ["inline-photo-lazy-list-expression", scanText(rel, "LazyColumn {\nitems(rows) { card ->\nAnimalCard(inlineRemotePhoto = visibleRowKeys.contains(card.id))\n}\n}\n").length, 1],
+    ["inline-photo-lazy-list-false", scanText(rel, "LazyColumn {\nitems(rows) { card ->\nProofMediaPreview(path = card.url, mediaIdentity = card.id, inlineRemotePhoto = false)\n}\n}\n").length, 0],
+    ["inline-photo-opened-detail", scanText(rel, "Column {\nProofMediaPreview(path = media.url, mediaIdentity = media.proofRef, inlineRemotePhoto = true)\n}\n").length, 0],
     ["remember-url", scanText(rel, proof + "val player = remember(media.url) { factory.create(context) }").length, 2],
   ];
   const tempTargets = ["apps/goatos-android/app/src/main/kotlin/sg/mesha/goatos/GoatOsApplication.kt"];
