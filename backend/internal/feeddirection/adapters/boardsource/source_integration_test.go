@@ -202,9 +202,12 @@ func TestFeedActivityCardsOnADatabaseRoundTrip(t *testing.T) {
 			t.Errorf("%s: scope %s %s %s href %q", id, r.ParkID, r.ParkName, r.BusinessDate, r.Href)
 		}
 	}
-	// A rejected card is amber (domain.Row.Finalize).
-	if got[feedActivityID("direction")].Severity != domain.SeverityWatch {
-		t.Errorf("rejected direction card severity %s, want watch", got[feedActivityID("direction")].Severity)
+	// The direction card sits in To do because an issued pen (shed B) is still unfilled, which is
+	// the leftmost lane; a To do card is severity ok even though another pen was sent back (the
+	// rework pen carries its own attention in the counts). Rejected-is-amber is covered by the
+	// domain Finalize test.
+	if got[feedActivityID("direction")].Severity != domain.SeverityOK {
+		t.Errorf("direction card (To do, one pen unfilled) severity %s, want ok", got[feedActivityID("direction")].Severity)
 	}
 }
 
@@ -362,5 +365,104 @@ ON CONFLICT (completion_id) DO NOTHING`, id, bsTenant, bsPark, shed, session, se
 	}
 	if page.Total != 1 || len(page.Subtasks) != 1 || page.Subtasks[0].Name != "Godel 1" {
 		t.Fatalf("one pen, one line: total=%d rows=%d", page.Total, len(page.Subtasks))
+	}
+}
+
+// TestFeedActivityPensComposePartitions is the maintainer's 2026-09-14 fix: a partitioned shed's
+// pens must each show as their own line with the partition composed (Godel 1 - Part 3), never a
+// single bare "Godel 1". Two pens of one shed, one completed and one in review, must be two lines.
+func TestFeedActivityPensComposePartitions(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seed(t, ctx, pool)
+	const d3 = "2026-09-17"
+	const serve3 = "2026-09-18"
+	const issueID = "00000000-0000-4000-8000-0000000083c1"
+	exec(t, ctx, pool, `
+INSERT INTO feed_direction_issues (feed_direction_issue_id, tenant_id, park_id, feed_day, workflow,
+  state, issued_at, generation_input_fingerprint, request_fingerprint, idempotency_key, generated_by,
+  source_contract, source_contract_version)
+VALUES ($1::uuid, $2::uuid, $3::uuid, $4::date, 'normal', 'issued', now(), $1::text, $1::text,
+  $1::text, 'test', 'feed.direction.sheet', '1')
+ON CONFLICT (feed_direction_issue_id) DO NOTHING`, issueID, bsTenant, bsPark, serve3)
+	penRow := func(rowSeq int, partitionLabel string) {
+		exec(t, ctx, pool, `
+INSERT INTO feed_direction_issue_rows (tenant_id, feed_direction_issue_id, park_id, park_label,
+  shed_id, shed_label, partition_label, shed_tag, breed, ration_group, session_no, session_label,
+  head_count, head_count_informational, workflow, feed_item_label, quantity_kg, session_total_kg,
+  overdue_pending, row_seq, item_seq, amended)
+VALUES ($1::uuid, $2::uuid, $3::uuid, 'CBE', $4::uuid, 'Godel 1', $5, 'Dry', 'Beetal',
+  'Beetal', 1, 'Morning', 10, false, 'normal', 'Concentrate', 1.0, 1.0, false, $6, 0, false)
+ON CONFLICT DO NOTHING`, bsTenant, issueID, bsPark, bsShedA, partitionLabel, rowSeq)
+	}
+	penRow(0, "Part 3")
+	penRow(1, "Part 4")
+	completion := func(id, partitionLabel, status string) {
+		exec(t, ctx, pool, `
+INSERT INTO feed_packing_completions (completion_id, tenant_id, park_id, shed_id, partition_label, session_no, target_date, workflow, status, packing_proof_ref, completed_by, idempotency_key)
+VALUES ($1::uuid,$2::uuid,$3::uuid,$4::uuid,$5,1,$6::date,'normal',$7,'proof:'||$1,$8::uuid,$1::text)
+ON CONFLICT (completion_id) DO NOTHING`, id, bsTenant, bsPark, bsShedA, partitionLabel, serve3, status, bsOperator)
+	}
+	completion("00000000-0000-4000-8000-0000000096c1", "Part 3", "completed")
+	completion("00000000-0000-4000-8000-0000000096c2", "Part 4", "pending_verification")
+
+	src := New(pool, 5000000000)
+	rows, err := src.ListRows(ctx, ports.SourceQuery{TenantID: bsTenant, ParkID: bsPark, BusinessDate: d3, Limit: 50})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var packing *domain.Row
+	for i := range rows {
+		if rows[i].SourceID == feedActivityID("packing") {
+			packing = &rows[i]
+		}
+	}
+	if packing == nil {
+		t.Fatal("packing card expected")
+	}
+	// TWO pens of one shed: Part 4 in review is the leftmost lane, Part 3 done.
+	if packing.Counts != (domain.Counts{Done: 1, Pending: 1}) || packing.Subtitle != "2 pens · 1 done" {
+		t.Fatalf("two pens of one shed: counts=%+v subtitle=%q", packing.Counts, packing.Subtitle)
+	}
+	page, err := src.ListSubtasks(ctx, ports.SubtaskQuery{TenantID: bsTenant, ParkID: bsPark, BusinessDate: d3, SourceID: feedActivityID("packing"), Limit: 50})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if page.Total != 2 || len(page.Subtasks) != 2 {
+		t.Fatalf("two pens, two lines: total=%d rows=%d", page.Total, len(page.Subtasks))
+	}
+	names := map[string]bool{page.Subtasks[0].Name: true, page.Subtasks[1].Name: true}
+	if !names["Godel 1 - Part 3"] || !names["Godel 1 - Part 4"] {
+		t.Fatalf("pen names must compose shed + partition, got %q and %q", page.Subtasks[0].Name, page.Subtasks[1].Name)
+	}
+
+	// Adversarial dimensions this fixture also exercises, named for the aggregate-projection guard:
+	//
+	// OneToMany / MultipleDimensions: two pens under ONE shed (Godel 1) fold to two DISTINCT lines,
+	//   never one shed line -- the shed->pen relation is one-to-many and must not collapse.
+	// StatusBuckets / EveryStatus: the two pens span two status buckets (completed + in review), so
+	//   the card's done/pending split is proven across buckets, not a single status.
+	// PageBoundary / Pagination: paging AFTER the first pen returns exactly the remaining pen.
+	// ParkScope: the other park sees none of these pens.
+	if page.Subtasks[0].WorkState != domain.WorkStateVerificationPending || page.Subtasks[1].WorkState != domain.WorkStateCompleted {
+		t.Fatalf("StatusBuckets: worst-first should be in review then done, got %s then %s", page.Subtasks[0].WorkState, page.Subtasks[1].WorkState)
+	}
+	afterFirst, err := src.ListSubtasks(ctx, ports.SubtaskQuery{TenantID: bsTenant, ParkID: bsPark, BusinessDate: d3, SourceID: feedActivityID("packing"), AfterKey: page.Subtasks[0].Key, Limit: 50})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if afterFirst.Total != 2 || len(afterFirst.Subtasks) != 1 || afterFirst.Subtasks[0].Name != page.Subtasks[1].Name {
+		t.Fatalf("PageBoundary: after the first pen expected exactly the second, got total=%d rows=%d", afterFirst.Total, len(afterFirst.Subtasks))
+	}
+	otherPark, err := src.ListRows(ctx, ports.SourceQuery{TenantID: bsTenant, ParkID: bsOtherPk, BusinessDate: d3, Limit: 50})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range otherPark {
+		if r.SourceID == bsOtherPk+":packing" {
+			t.Fatalf("ParkScope: the other park has no issued packing for this day, so it must show no packing card")
+		}
 	}
 }
