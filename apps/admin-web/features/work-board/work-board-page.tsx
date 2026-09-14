@@ -166,7 +166,7 @@ export async function WorkBoardPage({ searchParams, pageContract }: { searchPara
         openLanes.push(laneKey);
       }
     }
-    if (noneSelected || openLanes.length) pagePlans.push({ parkKey: park.key, openLanes, cursors });
+    pagePlans.push({ parkKey: park.key, openLanes, cursors });
   }
   const pageResults = await runBounded(pagePlans, 2, (plan) => getWorkBoardPage({ ...filterScope, park: plan.parkKey }, { limit, lanes: plan.openLanes, cursors: plan.cursors })); // request-plan:ignore owner=work-board issue=bounded-park-page-fanout expires=2027-03-31 reason=all-parks reads are explicitly capped at two concurrent backend page requests; each backend page read serializes/short-circuits lane reads instead of SSR fanning out 10+ API calls
   const summaryResults = noneSelected ? [] : pageResults.map((result) => (result.ok ? { ok: true as const, data: result.data.summary } : result));

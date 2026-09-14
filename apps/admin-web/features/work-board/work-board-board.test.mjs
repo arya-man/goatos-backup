@@ -40,3 +40,10 @@ test("work-board page requests the optimized vocabulary shape only for module fi
   assert.match(pageSource, /result\.data\.vocabulary_summary \?\? result\.data\.summary/);
   assert.match(pageSource, /const vocabularySummary = mergeSummaries\(okVocabulary\) \?\? summary/);
 });
+
+test("work-board keeps reading summary when every lane cursor is exhausted", () => {
+  const pageSource = readFileSync(new URL("./work-board-page.tsx", import.meta.url), "utf8");
+  assert.match(pageSource, /if \(raw === LANE_PARK_END\) continue/);
+  assert.match(pageSource, /pagePlans\.push\(\{ parkKey: park\.key, openLanes, cursors \}\)/);
+  assert.doesNotMatch(pageSource, /if \(noneSelected \|\| openLanes\.length\) pagePlans\.push/);
+});
