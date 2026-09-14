@@ -457,6 +457,9 @@ class AnimalPurchaseViewModelsTest {
 
         val queued = sync.animalCreates.single()
         assertEquals(LOAD_ID, queued.loadId)
+        // PROCUREMENT SOP: the version the form rendered rides with the answers, so the backend
+        // validates against THAT version even if a newer one was published meanwhile.
+        assertEquals(7, queued.request.questionnaireVersion)
         val answers = queued.request.answers
         assertEquals("goat", answers["species"]!!.jsonPrimitive.content)
         assertEquals("V-17", answers["goat_id"]!!.jsonPrimitive.content)
@@ -812,7 +815,7 @@ private class FakeAnimalPurchaseRepository(
             conditions = listOf(AnimalPurchaseOptionDto("healthy", "Healthy")),
             farms = listOf(AnimalPurchaseOptionDto("CBE", "CBE"), AnimalPurchaseOptionDto("CPT", "CPT")),
             questionnaire = questionnaire,
-            questionnaireVersion = 1,
+            questionnaireVersion = 7,
             copy = mapOf(
                 "animal.form.title" to "Inspect an animal",
                 "animal.form.hint" to "The procurement SOP, one animal at a time.",

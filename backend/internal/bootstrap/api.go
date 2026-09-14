@@ -530,7 +530,10 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	proofService := proofapp.NewService(proofRepo, proofStorage)
 	proofHandler := proofhttp.NewHandler(proofService, log)
 	sopRepo := soppg.NewRepository(pool, cfg.Postgres.QueryTimeout)
-	sopService := sopapp.NewService(sopRepo).WithProofValidator(proofService).WithTaskTypeSource(sopRepo)
+	sopService := sopapp.NewService(sopRepo).WithProofValidator(proofService).
+		WithTaskTypeSource(sopRepo).
+		// The animal-purchase inspection document is validated by the module that compiles it.
+		WithFormDSLContract(animalpurchaseapp.InspectionSOPContract)
 
 	protocolRepo := protocolpg.NewRepository(pool, cfg.Postgres.QueryTimeout)
 	obligationRepo := obligationpg.NewRepository(pool, cfg.Postgres.QueryTimeout)
@@ -747,7 +750,9 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 		animalpurchaseapp.NewService(
 			animalpurchasepg.NewRepository(pool, cfg.Postgres.QueryTimeout),
 			animalpurchaseproof.NewValidator(proofRepo),
-			animalpurchaseproof.NewMedia(proofService)), log)
+			animalpurchaseproof.NewMedia(proofService)).
+			// PROCUREMENT SOP: the inspection questionnaire is the published SOP version.
+			WithCatalogSource(animalpurchasepg.NewCatalogSource(pool)), log)
 	// Toxin (maintainer decision 2026-08-25): the aflatoxin strip-test module. Tasks are
 	// born from procurement.feed_purchase.reached (consumer wired in kernelstages); the
 	// routes here serve the tester's guided step flow and the CEO/CXO-only review.

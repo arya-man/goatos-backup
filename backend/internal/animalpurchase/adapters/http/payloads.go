@@ -162,6 +162,9 @@ type createLoadBody struct {
 }
 
 type addAnimalBody struct {
+	// The SOP version the phone rendered (from /options); 0 = the published one. The write is
+	// validated against THAT version, so a publish never breaks a form already open.
+	QuestionnaireVersion int `json:"questionnaire_version"`
 	// {question_id: answer}, per the questionnaire served on /options.
 	Answers domain.Answers `json:"answers"`
 	// {slot: [proof refs in position order]}.
@@ -186,14 +189,16 @@ func toLoadPayload(l domain.Load) loadPayload {
 	}
 }
 
-func toCandidatePayload(c domain.Candidate, media map[string]ports.Media) candidatePayload {
+// toCandidatePayload renders one row; cat is the SOP version the row was answered on (an empty
+// catalog leaves the answers unlabelled rather than mislabelling them with another version).
+func toCandidatePayload(c domain.Candidate, media map[string]ports.Media, cat domain.Catalog) candidatePayload {
 	// Legacy single video (rows recorded before the questionnaire) keeps its top-level link.
 	var mediaURL, mediaMime string
 	if m, ok := media[c.VideoProofRef]; ok {
 		mediaURL, mediaMime = m.URL, m.MimeType
 	}
-	slots := make([]mediaSlotPayload, 0, len(domain.MediaSlots()))
-	for _, q := range domain.MediaSlots() {
+	slots := make([]mediaSlotPayload, 0, len(cat.MediaSlots()))
+	for _, q := range cat.MediaSlots() {
 		refs := c.Media[q.Slot]
 		if len(refs) == 0 {
 			continue
@@ -210,7 +215,7 @@ func toCandidatePayload(c domain.Candidate, media map[string]ports.Media) candid
 		answers = domain.Answers{}
 	}
 	return candidatePayload{
-		QuestionnaireVersion: c.QuestionnaireVersion, Answers: answers, AnswerRows: answerRows(c), MediaSlots: slots,
+		QuestionnaireVersion: c.QuestionnaireVersion, Answers: answers, AnswerRows: answerRows(c, cat), MediaSlots: slots,
 		FieldVerdict: c.FieldVerdict, FieldVerdictLabel: domain.FieldVerdictLabel(c.FieldVerdict),
 		HeightCm: c.HeightCm, RectalTempC: c.RectalTempC,
 		CandidateID: c.CandidateID, LoadID: c.LoadID, LoadRef: c.LoadRef, SeqNo: c.SeqNo, Title: domain.CandidateTitle(c),
@@ -226,13 +231,13 @@ func toCandidatePayload(c domain.Candidate, media map[string]ports.Media) candid
 
 // answerRows renders the recorded answers under their questions, in SOP order, skipping
 // unanswered optional questions, section rows and media (media has its own slots).
-func answerRows(c domain.Candidate) []answerRowPayload {
+func answerRows(c domain.Candidate, cat domain.Catalog) []answerRowPayload {
 	if c.QuestionnaireVersion == 0 || c.Answers == nil {
 		return []answerRowPayload{}
 	}
 	out := make([]answerRowPayload, 0, 40)
 	section := ""
-	for _, q := range domain.Questionnaire() {
+	for _, q := range cat.Questions {
 		switch q.Kind {
 		case domain.KindSection:
 			section = q.Title

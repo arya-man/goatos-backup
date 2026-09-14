@@ -63,6 +63,9 @@ export function classifyDomain(code: string, name: string): DomainId | "general"
   // them the keywords mislabel milk.* as "Breeding" ("milk") and weighing.* as "Counts" ("weigh").
   if (c.startsWith("milk.")) return "milk";
   if (c === "weighing" || c.startsWith("weighing.")) return "weighing";
+  // Procurement SOP (maintainer decision 2026-09-14): procurement.* is the animal purchase
+  // inspection's own prefix.
+  if (c.startsWith("procurement.")) return "procurement";
   const hay = `${code} ${name}`.toLowerCase();
   for (const rule of DOMAIN_KEYWORDS) {
     if (rule.words.some((w) => hay.includes(w))) return rule.id;
@@ -76,8 +79,9 @@ export function classifyDomain(code: string, name: string): DomainId | "general"
 // (maintainer decision): their codes are module-prefixed by migration 000186, so the prefix is
 // authoritative — keyword guessing would file milk.* under "Breeding" ("milk") and weighing.*
 // under "Counts" ("weigh").
-export function sopSliceKey(code: string, name: string): "vaccination" | "counts" | "feed" | "milk" | "weighing" | "general" {
+export function sopSliceKey(code: string, name: string): "vaccination" | "counts" | "feed" | "milk" | "weighing" | "procurement" | "general" {
   const c = (code || "").toLowerCase();
+  if (c.startsWith("procurement.")) return "procurement";
   if (c.startsWith("milk.")) return "milk";
   if (c === "weighing" || c.startsWith("weighing.")) return "weighing";
   if (isVaccinationSop(code, name)) return "vaccination";
@@ -90,12 +94,13 @@ export function sopSliceKey(code: string, name: string): "vaccination" | "counts
 // vaccination, plus the migration-seeded Counts (birth / death / shifting) and Feed (distribution /
 // packing / transport) library documents. isVaccinationSop still decides which cards carry the
 // "Vaccination" chip label and which map to the vaccination filter chip.
-export const SOP_SLICE_LABEL: Record<"vaccination" | "counts" | "feed" | "milk" | "weighing", string> = {
+export const SOP_SLICE_LABEL: Record<"vaccination" | "counts" | "feed" | "milk" | "weighing" | "procurement", string> = {
   vaccination: "Vaccination",
   counts: "Herd Operations",
   feed: "Feed",
   milk: "Milk",
   weighing: "Weighing",
+  procurement: "Procurement",
 };
 export const VACCINATION_SLICE_LABEL = SOP_SLICE_LABEL.vaccination;
 
@@ -267,6 +272,10 @@ export type SopCardView = {
   followUpStepCount: number;
   // The published version's follow_up document, for the drawer to list what the phone runs.
   followUpFormDsl: unknown;
+  // PROCUREMENT SOP (2026-09-14): the published version's form_dsl when it carries an
+  // `inspection` document (pages of questions the phone runs); null otherwise.
+  inspectionFormDsl: unknown;
+  inspectionQuestionCount: number;
 };
 
 // toSopView maps the real API rows to the card facets. Everything is derived — no invented inventory.
@@ -290,6 +299,8 @@ export function toSopView(def: SopDefLike, version: SopVersionLike | null): SopC
     versionNumber: version ? version.version : null,
     versionStatus: version ? version.status : null,
     hasVersion: Boolean(version),
+    inspectionFormDsl: version && hasInspection(version.form_dsl) ? version.form_dsl : null,
+    inspectionQuestionCount: version ? deriveInspectionQuestionCount(version.form_dsl) : 0,
     fields: version
       ? deriveFields(version.form_dsl).map((f) => ({ label: f.label, type: f.type, required: f.required, options: f.options, helpText: f.helpText }))
       : [],
@@ -308,6 +319,23 @@ export function deriveFollowUpStepCount(formDsl: unknown): number {
   return (fu["tracks"] as unknown[]).reduce<number>((n, raw) => {
     const t = asObject(raw);
     return n + (t && Array.isArray(t["steps"]) ? (t["steps"] as unknown[]).length : 0);
+  }, 0);
+}
+
+function hasInspection(formDsl: unknown): boolean {
+  const dsl = asObject(formDsl);
+  return Boolean(dsl && asObject(dsl["inspection"]));
+}
+
+// deriveInspectionQuestionCount counts the authored questions across every page of
+// form_dsl.inspection (Procurement SOP); 0 when absent.
+export function deriveInspectionQuestionCount(formDsl: unknown): number {
+  const dsl = asObject(formDsl);
+  const ins = dsl ? asObject(dsl["inspection"]) : null;
+  if (!ins || !Array.isArray(ins["pages"])) return 0;
+  return (ins["pages"] as unknown[]).reduce<number>((n, raw) => {
+    const p = asObject(raw);
+    return n + (p && Array.isArray(p["questions"]) ? (p["questions"] as unknown[]).length : 0);
   }, 0);
 }
 
@@ -475,7 +503,7 @@ export type SubjectScope = "batch" | "goat";
 
 // The New SOP builder is locked by its mounted module page. The domain is not a free choice inside
 // the builder; each route passes its own slice so new SOPs stay visible on the page that authored them.
-export type SopSliceDomain = "vaccination" | "counts" | "feed" | "milk" | "weighing";
+export type SopSliceDomain = "vaccination" | "counts" | "feed" | "milk" | "weighing" | "procurement";
 
 export type SopBuilderInput = {
   name: string;

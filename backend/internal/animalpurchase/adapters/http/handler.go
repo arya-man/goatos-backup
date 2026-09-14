@@ -136,7 +136,7 @@ func (h *Handler) AddAnimal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	c, err := h.service.AddCandidate(r.Context(), ports.AddCandidateParams{
-		TenantID: tenantID(r), LoadID: r.PathValue("load_id"),
+		TenantID: tenantID(r), LoadID: r.PathValue("load_id"), QuestionnaireVersion: body.QuestionnaireVersion,
 		Write:   domain.CandidateWrite{Answers: body.Answers, Media: body.Media},
 		ActorID: httpmiddleware.ActorIDFromContext(r.Context()), IdempotencyKey: key,
 	})
@@ -207,8 +207,11 @@ func (h *Handler) candidates(r *http.Request, rows []domain.Candidate) []candida
 	if media == nil {
 		media = map[string]ports.Media{}
 	}
+	// One catalog read per distinct SOP version on the page: each row is labelled by the
+	// version it was answered on, never by whatever is published now.
+	catalogs := h.service.CatalogFor(r.Context(), tenantID(r), rows)
 	for _, c := range rows {
-		out = append(out, toCandidatePayload(c, media))
+		out = append(out, toCandidatePayload(c, media, catalogs[c.QuestionnaireVersion]))
 	}
 	return out
 }

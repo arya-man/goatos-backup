@@ -7884,8 +7884,9 @@ export interface components {
             next_cursor?: string;
             can_record: boolean;
         };
-        /** @description The SOP inspection. `answers` is keyed by question id from the questionnaire served on /options: choice answers carry the option value (free text for an "other" choice rides under `<id>_other`), multi answers an array of option values, numbers as numbers, text as text. `media` is keyed by slot with the finished in-app-camera proof references in order. Validated server-side against the same questionnaire; a 422 names the question id in `field`. */
+        /** @description The SOP inspection. `answers` is keyed by question id from the questionnaire served on /options: choice answers carry the option value (free text for an "other" choice rides under `<id>_other`), multi answers an array of option values, numbers as numbers, text as text. `media` is keyed by slot with the finished in-app-camera proof references in order. Validated server-side against the same questionnaire; a 422 names the question id in `field`. `questionnaire_version` is the SOP version the form rendered (from /options): the write is validated against THAT version, so a newer publish never refuses a form already open; 0 or absent means the currently published version; a version the farm never published is refused with 409 `questionnaire_unknown`. */
         AnimalPurchaseAnimalCreateRequest: {
+            questionnaire_version?: number;
             answers: {
                 [key: string]: unknown;
             };

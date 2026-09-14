@@ -2065,7 +2065,7 @@ func permissionsForNav(id string) []string {
 		// deliberately OFF feature held back by exactly counts.read, so this also stops the
 		// leaf advertising a module that is switched off.
 		return []string{permissions.CountsRead}
-	case "counts-sops", "milk-sops", "feed-sops", "weighing-sops":
+	case "counts-sops", "milk-sops", "feed-sops", "weighing-sops", "procurement-sops":
 		return []string{permissions.SOPRead}
 	case "health-analytics":
 		// health.read, which is what this screen's own data route requires. It must

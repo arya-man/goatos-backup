@@ -520,7 +520,7 @@ func (r *Repository) AddCandidate(ctx context.Context, p ports.AddCandidateParam
 	var seqNo int
 	err = tx.QueryRow(ctx, sqlInsertCandidate,
 		p.TenantID, p.LoadID, w.Species, w.Sex, w.Breed, w.WeightKg, w.TempTag, w.Notes,
-		domain.QuestionnaireVersion, answersJSON, w.FieldVerdict, w.HeightCm, w.RectalTempC,
+		p.QuestionnaireVersion, answersJSON, w.FieldVerdict, w.HeightCm, w.RectalTempC,
 		p.ActorID, p.IdempotencyKey).Scan(&candidateID, &seqNo)
 	if err != nil {
 		return domain.Candidate{}, fmt.Errorf("animal purchase: insert candidate: %w", err)
@@ -528,7 +528,7 @@ func (r *Repository) AddCandidate(ctx context.Context, p ports.AddCandidateParam
 	var slots []string
 	var positions []int
 	var refs []string
-	for _, q := range domain.MediaSlots() {
+	for _, q := range w.Catalog.MediaSlots() {
 		for i, ref := range w.Media[q.Slot] {
 			slots = append(slots, q.Slot)
 			positions = append(positions, i)
@@ -552,7 +552,7 @@ func (r *Repository) AddCandidate(ctx context.Context, p ports.AddCandidateParam
 		Metadata: map[string]any{
 			"domain": "procurement", "module": "animal_purchases", "load_id": p.LoadID, "seq_no": seqNo,
 			"species": w.Species, "sex": w.Sex, "breed": w.Breed, "field_verdict": w.FieldVerdict,
-			"questionnaire_version": domain.QuestionnaireVersion, "media_count": len(refs),
+			"questionnaire_version": p.QuestionnaireVersion, "media_count": len(refs),
 		},
 	}); err != nil {
 		return domain.Candidate{}, fmt.Errorf("animal purchase: audit candidate: %w", err)

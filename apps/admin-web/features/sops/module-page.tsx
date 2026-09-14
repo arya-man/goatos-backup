@@ -5,6 +5,8 @@ import type { SopCardView } from "@/features/sops";
 import { getSop, isAuthRequiredError, listSops, requireAdminWebPageContract } from "@/lib/api/server";
 import type { RouteSearchParams } from "@/lib/search-params";
 import type { SopSliceDomain } from "./sop-derive";
+import { InspectionEditor } from "./inspection-editor";
+import { parseInspection } from "./inspection-model";
 
 // Shared server renderer for the per-module SOP pages (SOP split, maintainer decision 2026-08-18):
 // /vaccination/sops, /counts/sops, and /feed/sops each mount this with their own page-contract key,
@@ -46,6 +48,24 @@ export async function renderSopModulePage(
               sopCode={detail.data.sop.code}
               versionLabel={`${version.version_label} · ${version.status}`}
               initial={followUp}
+            />
+          );
+        }
+        // PROCUREMENT SOP (maintainer decision 2026-09-14): a SOP carrying an `inspection`
+        // document (pages of questions the phone runs) is edited through the inspection editor;
+        // the load form it also carries is passed through verbatim on save.
+        const inspection = parseInspection(version.form_dsl);
+        if (inspection) {
+          const pageContract = await pageContractPromise;
+          return (
+            <InspectionEditor
+              pageContract={pageContract}
+              basePath={basePath}
+              sopId={editId}
+              sopName={detail.data.sop.name}
+              sopCode={detail.data.sop.code}
+              versionLabel={`${version.version_label} · ${version.status}`}
+              initial={inspection}
             />
           );
         }

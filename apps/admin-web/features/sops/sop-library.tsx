@@ -27,6 +27,7 @@ import {
 } from "lucide-react";
 import { type SopCardView, type SopTrigger } from "./sop-derive";
 import { FollowUpStepsSummary } from "./followup-summary";
+import { InspectionSummary } from "./inspection-summary";
 import { copy, tablePageSizes, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 
 // The New SOP builder is a dedicated full-page surface at <module SOP page>?compose=1 — the same
@@ -198,6 +199,7 @@ export function SopLibrary({ sops, error, authRequired, pageContract, basePath }
                     <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
                       <span className="tag t-mut">{s.domainLabel}</span>
                       {s.trigger ? <span className="tag t-info">{s.trigger}</span> : null}
+                      {s.inspectionQuestionCount > 0 ? <span className="tag t-info">{s.inspectionQuestionCount} {copy(pageContract, "label.inspection_questions")}</span> : null}
                       {s.stepCount !== null ? <span className="tag t-ok">{s.stepCount} {copy(pageContract, "label.steps")}</span> : null}
                       {s.followUpStepCount > 0 ? <span className="tag t-info">{s.followUpStepCount} {copy(pageContract, "label.operator_steps")}</span> : null}
                       <StatusTag view={s} />
@@ -375,6 +377,7 @@ function SopDetailModal({ view, pageContract, onClose, onEdit, editPending = fal
             </div>
           )}
           {view.followUpStepCount > 0 ? <FollowUpStepsSummary pageContract={pageContract} formDsl={view.followUpFormDsl} /> : null}
+          {view.inspectionFormDsl ? <InspectionSummary pageContract={pageContract} formDsl={view.inspectionFormDsl} /> : null}
         </div>
 
         <div className="cfgmf">
@@ -388,7 +391,9 @@ function SopDetailModal({ view, pageContract, onClose, onEdit, editPending = fal
               ? copy(pageContract, "action.opening_editor")
               : view.followUpStepCount > 0
                 ? copy(pageContract, "action.edit_operator_steps")
-                : copy(pageContract, "action.new_sop_builder")}
+                : view.inspectionFormDsl
+                  ? copy(pageContract, "action.edit_inspection")
+                  : copy(pageContract, "action.new_sop_builder")}
           </button>
         </div>
       </div>

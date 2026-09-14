@@ -1557,3 +1557,18 @@ leadership fact, KPI, `ceo_ai.*` view, Cube metric or MCP tool.
 | func:IsDependencyTimed, func:HasHook, func:ProofSatisfied, func:TemplateLabel, func:AllProofRefs | EXCLUDED | Workflow step predicates and labels (dependency-timed due, engine hook present, n-of-m proof met, backend-owned card label, every proof ref on a workflow) used by the tasks engine and the existing workflow DTOs. Row-level helpers on already-excluded operator work rows. |
 | func:OpenSubjectWorkflow, func:WithCompletionHook, func:ReopenForRework, func:WorkflowIDBySubjectRef, func:ReopenProofStepsForRework, func:NewSubjectWorkflowVerdictHandler, func:Register, func:HandleEvent | EXCLUDED | The tasks engine's non-goat subject workflow path: open a questionnaire on a subject ref, call the owning module's completion hook when the last step completes, and reopen the proof-bearing steps on a verifier rework (event consumer on `verification.verdict.rework`, registered through the shared `RegisterWorkflowConsumers`). Write path and event plumbing of operator work. |
 | func:EnsureWorkflow, func:OnWorkflowCompleted, func:WithWorkflowEngine, func:NewReconcileWorkflowEngine, func:EnsurePenReconciliationWorkflow, func:PenReconciliationCardForWorkflow, func:SetPenReconciliationWorkflow, func:PenReconciliationCardIDByWorkflow | EXCLUDED | Counts-side bridge that links a reconcile card to its questionnaire workflow and runs the SAME `Complete` path the legacy one-video route uses when the workflow finishes. Mutation and linkage of the card rows excluded above; composes no leadership fact. |
+
+## Procurement SOP: the animal purchase inspection is authored on the web (2026-09-14)
+
+The per-animal inspection (`docs/decisions/procurement-sop.md`) moved from a Go catalog into the
+`inspection` section of the published `procurement.animal_purchase` SOP version, authored on
+`/procurement/sops`. Everything below is document parsing, compilation and the version-resolving
+plumbing of an operator flow already covered above; no new leadership fact, KPI, `ceo_ai.*` view,
+Cube metric or MCP tool.
+
+| Surface | Decision | Reason |
+| --- | --- | --- |
+| func:ParseInspection, func:ValidateInspection, func:CompileInspection, func:SeededInspectionJSON, func:SeededCatalog, func:LockedQuestionIDs, func:InspectionSOPContract | EXCLUDED | Parse / validate / compile the authored inspection document and the day-one seed; the sop/app contract hook that refuses a version the phone could not run. Document shaping, no read API, no aggregate. |
+| func:PublishedCatalog, func:CatalogVersion, func:NewCatalogSource, func:WithCatalogSource, func:Catalog, func:CatalogFor, func:MediaSlots, func:ByID, func:AllMediaRefs | EXCLUDED | Resolve the inspection catalog by SOP version for the phone form, the write validation and the review labels (one read per distinct version per page). Plumbing of the already-excluded animal purchase surfaces. |
+| func:WithFormDSLContract | EXCLUDED | sop/app seam registering a module-owned form_dsl validator at version create; composition wiring. |
+| /procurement/sops | EXCLUDED | Admin authoring page (SOP library scoped to `procurement.` codes) for the CEO; a config surface, not a reporting read. |

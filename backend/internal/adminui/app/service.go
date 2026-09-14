@@ -195,6 +195,7 @@ func navigation() domain.NavigationContract {
 					navLeaf("procurement-vendors", "Vendors", "/procurement/vendors", nil),
 					navLeaf("procurement-feed-purchases", "Feed Purchases", "/procurement/feed-purchases", nil),
 					navLeaf("procurement-animal-purchases", "Animal purchases", "/procurement/animal-purchases", nil),
+					navLeaf("procurement-sops", "Procurement SOP", "/procurement/sops", nil),
 				},
 			},
 			{
@@ -266,6 +267,7 @@ func routeLabels() []domain.RouteLabelRule {
 		{Pattern: "/procurement/vendors", Label: "Vendors", Match: "exact"},
 		{Pattern: "/procurement/feed-purchases", Label: "Feed Purchases", Match: "exact"},
 		{Pattern: "/procurement/animal-purchases", Label: "Animal purchases", Match: "exact"},
+		{Pattern: "/procurement/sops", Label: "Procurement SOP", Match: "exact"},
 		{Pattern: "/sales/sold", Label: "Sold", Match: "exact"},
 		{Pattern: "/sales/farm-value", Label: "Farm value", Match: "exact"},
 		{Pattern: "/counts/sops", Label: "Herd Operations SOP", Match: "exact"},
@@ -872,6 +874,11 @@ func pages() []domain.PageContract {
 			[]domain.TableContract{table("sop-library", "Milk SOPs", "/admin/sops", []string{"sop", "domain", "trigger", "steps", "gates", "status"}, "sop_id")}),
 		page("weighing-sops", "/weighing/sops", "/weighing/sops", "Weighing SOP", "The scan-and-submit weighing session document.", "module-surface",
 			[]domain.TableContract{table("sop-library", "Weighing SOPs", "/admin/sops", []string{"sop", "domain", "trigger", "steps", "gates", "status"}, "sop_id")}),
+		// PROCUREMENT SOP (maintainer decision 2026-09-14): the animal-purchase inspection --
+		// its pages, questions, proof and compulsory flags -- is authored here and served to the
+		// phone from the published version.
+		page("procurement-sops", "/procurement/sops", "/procurement/sops", "Procurement SOP", "The animal purchase inspection the phone runs: pages, questions, proof and what is compulsory.", "module-surface",
+			[]domain.TableContract{table("sop-library", "Procurement SOPs", "/admin/sops", []string{"sop", "domain", "trigger", "steps", "gates", "status"}, "sop_id")}),
 		page("goat-passport", "/goats/{goat_id}", "/goats/{goat_id}", "Goat Passport", "Contextual goat identity, timeline, and vaccination passport detail.", "record-drilldown",
 			[]domain.TableContract{
 				table("vaccination-open-obligations", "Open obligations", "/goats/{goat_id}/passport", []string{"scheduled_for", "vaccine", "status", "workflow", "action_center"}, "obligation_id"),
@@ -6781,7 +6788,7 @@ func pageSpecificCopy(id string) map[string]string {
 		}
 	// Vaccination is deliberately absent: its SOP page is gone, and its content lives on
 	// the vaccination plan console. milk and weighing arrived on main meanwhile and stay.
-	case "counts-sops", "feed-sops", "milk-sops", "weighing-sops":
+	case "counts-sops", "feed-sops", "milk-sops", "weighing-sops", "procurement-sops":
 		m := map[string]string{
 			"filter.search_label":                     "Search SOPs",
 			"filter.search_placeholder":               "Search SOP name, trigger, step, or proof...",
@@ -7027,6 +7034,15 @@ func pageSpecificCopy(id string) map[string]string {
 			m["modal.builder.domain_aria"] = "Domain — locked to Feed"
 			m["modal.builder.domain_title"] = "Domain is locked to Feed on this page"
 			m["modal.builder.domain_label"] = "Feed"
+		case "procurement-sops":
+			m["crumb"] = "Procurement"
+			m["filter.domain.current"] = "This page shows Procurement SOPs (animal purchase inspection)"
+			m["modal.builder.domain_aria"] = "Domain — locked to Procurement"
+			m["modal.builder.domain_title"] = "Domain is locked to Procurement on this page"
+			m["modal.builder.domain_label"] = "Procurement"
+			for k, v := range inspectionEditorCopy() {
+				m[k] = v
+			}
 		case "milk-sops":
 			m["crumb"] = "Milk"
 			m["filter.domain.current"] = "This page shows Milk SOPs (preparation, feeding)"
@@ -7821,6 +7837,8 @@ func pageOptionGroups(id string) []domain.OptionGroup {
 	// the vaccination plan console. milk and weighing arrived on main meanwhile and stay.
 	case "counts-sops", "feed-sops", "milk-sops", "weighing-sops":
 		return withGenericOptionGroups(sopOptionGroups())
+	case "procurement-sops":
+		return withGenericOptionGroups(append(sopOptionGroups(), inspectionOptionGroups()...))
 	case "action-center":
 		return withGenericOptionGroups([]domain.OptionGroup{
 			{
@@ -9593,6 +9611,91 @@ func displayRules() []domain.DisplayRule {
 			Summary:      "Frontend must not invent product words, module availability, server filter semantics, or write-action availability.",
 			FrontendOwns: []string{"CSS classes", "hover/focus behavior", "local menu state", "theme preview"},
 			BackendOwns:  []string{"labels", "hrefs", "badges", "role lens text", "route labels", "page contracts"},
+		},
+	}
+}
+
+// inspectionEditorCopy is the Procurement SOP page's editor copy (PROCUREMENT SOP, maintainer
+// decision 2026-09-14): the animal-purchase inspection authored as pages of questions.
+func inspectionEditorCopy() map[string]string {
+	return map[string]string{
+		"action.edit_inspection":            "Change SOP",
+		"action.opening_editor":             "Opening…",
+		"label.inspection_questions":        "questions",
+		"label.inspection_pages":            "pages",
+		"inspection.title":                  "Animal purchase inspection",
+		"inspection.subtitle":               "What the inspector answers for each animal, page by page. Each question names its kind, whether it is compulsory, and the photo or video it needs. Publishing applies to animals recorded from then on; a form already open on a phone submits on the version it rendered.",
+		"inspection.drawer.title":           "What the inspector answers, page by page",
+		"inspection.drawer.subtitle":        "from the published SOP",
+		"inspection.page":                   "Page",
+		"inspection.page.title":             "Page heading",
+		"inspection.page.hint":              "Page note",
+		"inspection.page.add":               "Add page",
+		"inspection.page.remove":            "Remove page",
+		"inspection.page.first_untitled":    "The first page has no heading; every later page needs one.",
+		"inspection.question.kind":          "Question kind",
+		"inspection.question.title":         "Question the inspector sees",
+		"inspection.question.hint":          "Instruction",
+		"inspection.question.required":      "Compulsory",
+		"inspection.question.options":       "Choices",
+		"inspection.question.add_option":    "Add choice",
+		"inspection.question.allow_other":   "The \"other\" choice asks for free text (where / what)",
+		"inspection.question.accepts":       "Capture",
+		"inspection.question.max_files":     "Up to (files)",
+		"inspection.question.unit":          "Unit",
+		"inspection.question.min":           "Min",
+		"inspection.question.max":           "Max",
+		"inspection.question.only_if":       "Ask only when",
+		"inspection.question.only_if_value": "is",
+		"inspection.question.always":        "Always asked",
+		"inspection.question.add":           "Add question",
+		"inspection.question.remove":        "Remove question",
+		"inspection.question.move_up":       "Move up",
+		"inspection.question.move_down":     "Move down",
+		"inspection.question.move_page":     "Move to page",
+		"inspection.question.key":           "Question key",
+		"inspection.notice.locked":          "The register reads this answer; its kind and choices are fixed, everything else is yours to edit.",
+		"inspection.notice.capture_kept":    "The load form (vendor, farm, load number) is unchanged by this page.",
+		"inspection.action.publish":         "Publish SOP",
+		"inspection.action.save_draft":      "Save as draft",
+		"inspection.empty":                  "No questions yet.",
+		"inspection.result.saved_draft":     "Inspection saved as a draft version.",
+		"inspection.result.published":       "Published. Animals recorded from now on use this inspection.",
+		"inspection.kind.choice":            "Pick one",
+		"inspection.kind.multi":             "Pick many",
+		"inspection.kind.text":              "Free text",
+		"inspection.kind.number":            "Number",
+		"inspection.kind.media":             "Photo / video",
+		"inspection.accepts.photo":          "Photo only",
+		"inspection.accepts.video":          "Video only",
+		"inspection.accepts.both":           "Photo or video",
+		"inspection.summary.required":       "compulsory",
+		"inspection.summary.optional":       "optional",
+		"inspection.summary.only_if":        "only when {question} is {value}",
+		"inspection.summary.files":          "up to {n}",
+	}
+}
+
+// inspectionOptionGroups are the editor's closed vocabularies.
+func inspectionOptionGroups() []domain.OptionGroup {
+	return []domain.OptionGroup{
+		{
+			ID: "inspection_question_kinds",
+			Options: []domain.Option{
+				option("choice", "Pick one", "The inspector picks one of the choices.", ""),
+				option("multi", "Pick many", "The inspector ticks every choice that applies.", ""),
+				option("text", "Free text", "A short typed answer.", ""),
+				option("number", "Number", "A number, optionally within a range and with a unit.", ""),
+				option("media", "Photo / video", "One or more in-app-camera captures.", ""),
+			},
+		},
+		{
+			ID: "inspection_capture_kinds",
+			Options: []domain.Option{
+				option("both", "Photo or video", "", ""),
+				option("photo", "Photo only", "", ""),
+				option("video", "Video only", "", ""),
+			},
 		},
 	}
 }

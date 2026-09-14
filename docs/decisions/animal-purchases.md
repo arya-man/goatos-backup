@@ -2,6 +2,11 @@
 
 Maintainer decision, 2026-09-13.
 
+> **Superseded in part (2026-09-14):** the inspection questionnaire in rule 2 is no longer a Go
+> catalog. It is the `inspection` section of the published `procurement.animal_purchase` SOP,
+> authored on `/procurement/sops` -- see `docs/decisions/procurement-sop.md`. Everything else here
+> stands.
+
 ## The rule
 
 1. **The procurement director records a purchase LOAD on the phone**, in the Procurement

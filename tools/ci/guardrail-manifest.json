@@ -903,6 +903,17 @@
       "notes": "Maintainer decision 2026-08-02: blocks abstract count-only notification copy (e.g. \"Vaccination(s) due soon - 3\") in backend/internal/notificationbridge/**. Requires park/shed/vaccine-name/date specificity in Title/Body. Composes with ui-vaccine-labels (raw-token humanization) rather than duplicating it."
     },
     {
+      "id": "procurement-sop",
+      "script": "tools/agent-hooks/check-procurement-sop-guard.mjs",
+      "makeTarget": "procurement-sop-guard",
+      "realCheck": "node tools/agent-hooks/check-procurement-sop-guard.mjs",
+      "selfTest": "node tools/agent-hooks/check-procurement-sop-guard.mjs --self-test",
+      "owningDoc": "docs/decisions/procurement-sop.md",
+      "requiredInCI": true,
+      "ciStep": "procurement-sop-guard",
+      "notes": "Maintainer decision 2026-09-14: the animal purchase inspection (pages, questions, proof, compulsory flags) is compiled from the PUBLISHED procurement.animal_purchase SOP version; no production Go reads the legacy catalog, the seed is embedded verbatim in migration 000304, and the phone hardcodes no question title."
+    },
+    {
       "id": "offline-first-reads",
       "script": "tools/agent-hooks/check-offline-first-reads.mjs",
       "makeTarget": "offline-first-guard",
