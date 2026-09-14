@@ -141,6 +141,12 @@ fun PenReconciliationScreen(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
             )
         }
+        state.openError?.let { message ->
+            CountsResultBanner(
+                result = CountsWriteResultUi(CountsWriteStatus.FAILED, message),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+            )
+        }
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(bottom = 20.dp),
