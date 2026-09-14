@@ -54,6 +54,7 @@ Latest functional change: `4769b8b6fbffb0e7f5cc4d828be46a83addb9c7d` (`fix(stg):
 | Judge review | Done for current functional head | Backend/infra judge found no blockers at `4769b8b6f`; Android/frontend judge cleared request-shape and UI guard changes after the shared secret-access fix. Current PR head is doc-only `33a25d149`. |
 | PR raised/pushed | Done | PR #259 is open, pushed at `33a25d149`, GitHub merge state is clean, and GitGuardian passed. |
 | STG deploy | Blocked by maintainer confirmation | Do not deploy. Maintainer explicitly requires confirmation/signoff first and wants to know whether all bugs are fixed. |
+| Mixed-route capacity receipt | Pending live proof | After deploy under business API max 2 / concurrency 10 and event lane max 1 / DB pool 2: run a repeatable mixed Work Board + Weights + `/admin-web/bootstrap` + mobile analytics-event smoke and attach the receipt. This is required before landing unless the maintainer explicitly accepts PR-only evidence. |
 | Live STG verification | Pending | After deploy: Cloud Run logs, event route split, Work Board/Weights live E2E, public PageSpeed/Lighthouse. |
 | Final completion | Pending | Requires STG deploy/live verification or explicit instruction to stop at PR-only. |
 
@@ -136,7 +137,7 @@ the slowest observed call.
 ## Events Separation
 
 - `/app/analytics/events` now has two protections in this PR:
-  - the handler has a per-instance non-blocking insert cap via `GOATOS_ANALYTICS_MAX_IN_FLIGHT=2`;
+  - the handler has a per-instance non-blocking insert cap via `GOATOS_ANALYTICS_MAX_IN_FLIGHT=1`;
   - staging has a separate `goatos-analytics-events-stg` Cloud Run service using
     `GOATOS_API_ROUTE_MODE=events`, `GOATOS_PG_MAX_CONNS=2`, min scale `0`, max scale `1`, and
     concurrency `20`.
