@@ -53,8 +53,13 @@ test("clicking the queue thumbnail opens the drawer with a play intent", () => {
   );
   assert.match(
     drawerSource,
+    /text\("drawer\.media\.loading_photo"\)/,
+    "photo proofs should show a passive loading state while automatic resolution finishes",
+  );
+  assert.doesNotMatch(
+    drawerSource,
     /text\("drawer\.media\.open_photo"\)/,
-    "photo proofs should have their own open-photo label",
+    "photo proofs must not render the retired open-photo tap-to-reveal label",
   );
   assert.match(
     drawerSource,

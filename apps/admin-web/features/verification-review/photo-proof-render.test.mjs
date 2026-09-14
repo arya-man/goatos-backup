@@ -26,7 +26,17 @@ test("an image proof renders as a picture, not as the missing-media state", () =
   assert.match(
     drawerSource,
     /<img[\s\S]{0,240}src=\{resolvedMediaUrls\[activeMedia\.proof_id\]\}/,
-    "an image/* proof must render an <img> only after the proof URL is resolved by click",
+    "an image/* proof must render an <img> after the proof URL is resolved",
+  );
+  assert.match(
+    drawerSource,
+    /activeMedia\?\.mime_type\?\.startsWith\("image\/"\)[\s\S]{0,1100}drawer\.media\.loading_photo/,
+    "a pending image/* proof must show a passive loading state, not an open-photo CTA",
+  );
+  assert.doesNotMatch(
+    drawerSource,
+    /activeMedia\?\.mime_type\?\.startsWith\("image\/"\)[\s\S]{0,1100}drawer\.media\.open_photo/,
+    "the image branch must not render the retired Open photo tap-to-reveal control",
   );
 });
 

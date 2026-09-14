@@ -62,5 +62,6 @@ The paid-read concern is real and is kept where it applies:
   `feature-verify/.../VerifyDetailScreen.kt` — no `loadPhoto` arm; tap opens
   fullscreen directly.
 - Android shared preview: `ProofMediaPreview.inlineRemotePhoto` defaults to
-  `true`; visible remote photos load through the proof media HTTP path and cache
+  `false`; list/detail callers opt in only when the proof is the visible item
+  being shown, so remote photos load through the proof media HTTP path and cache
   by stable `mediaIdentity`, while videos remain click-to-play.
