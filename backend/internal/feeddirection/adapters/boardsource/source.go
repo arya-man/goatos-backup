@@ -66,6 +66,7 @@ const laneRankExpr = `CASE st
 // attempt's operator (SubmitTransport records it on the attempt).
 const transportUnits = `
   SELECT t.shed_id AS shed_id,
+    COALESCE(t.partition_label, '') AS partition_label,
     CASE
       WHEN t.status = 'completed' THEN 'completed'
       WHEN t.status = 'verification_due' THEN 'verification_pending'
@@ -87,7 +88,7 @@ const transportUnits = `
 func sheetSessionUnits(table, dateExpr string) string {
 	return `
   WITH issued AS (
-    SELECT DISTINCT r.shed_id, r.partition_key, r.session_no, r.workflow
+    SELECT DISTINCT r.shed_id, r.partition_key, COALESCE(r.partition_label, '') AS partition_label, r.session_no, r.workflow
     FROM feed_direction_issues i
     JOIN feed_direction_issue_rows r
       ON r.tenant_id = i.tenant_id AND r.feed_direction_issue_id = i.feed_direction_issue_id
@@ -96,6 +97,7 @@ func sheetSessionUnits(table, dateExpr string) string {
       AND r.tenant_id = $1::uuid AND r.park_id = $3::uuid
   )
   SELECT i.shed_id AS shed_id,
+    i.partition_label AS partition_label,
     CASE
       WHEN c.status = 'completed' THEN 'completed'
       WHEN c.status = 'rework' THEN 'rejected'
@@ -116,7 +118,7 @@ func sheetSessionUnits(table, dateExpr string) string {
 // shed/partition before joining the completion table.
 const wastageUnits = `
   WITH issued AS (
-    SELECT DISTINCT r.shed_id, r.partition_key
+    SELECT DISTINCT r.shed_id, r.partition_key, COALESCE(r.partition_label, '') AS partition_label
     FROM feed_direction_issues i
     JOIN feed_direction_issue_rows r
       ON r.tenant_id = i.tenant_id AND r.feed_direction_issue_id = i.feed_direction_issue_id
@@ -125,6 +127,7 @@ const wastageUnits = `
       AND r.tenant_id = $1::uuid AND r.park_id = $3::uuid AND r.workflow = 'experiment'
   )
   SELECT i.shed_id AS shed_id,
+    i.partition_label AS partition_label,
     CASE
       WHEN c.status = 'completed' THEN 'completed'
       WHEN c.status = 'rework' THEN 'rejected'
@@ -144,9 +147,9 @@ const wastageUnits = `
 // projection-review: membership=the activity's own rows for ONE tenant, park and work-day
 // (transport feed_transport_tasks by business_date excluding retired, one row per shed per day by
 // feed_transport_tasks_daily_shed_uq, and packing/direction/wastage by target_date one row per
-// (shed, session, workflow) by each table's natural key); group_key=shed_id, units pre-aggregated
-// to the shed by MIN(laneRank) and BOOL_OR(rejected) BEFORE the card MINs over sheds, so a pen
-// with two sessions is one shed line and never fans the card's shed count; join_cardinality=
+// (shed, session, workflow) by each table's natural key); group_key=(shed_id, partition_label) the PEN: units pre-aggregated
+// to the pen by MIN(laneRank) and BOOL_OR(rejected) BEFORE the card MINs over pens, so a pen
+// with two sessions is one pen line and never fans the card's pen count; join_cardinality=
 // feed_transport_attempts on the task's current_attempt_id (1:{0,1}) and the park name a scalar
 // subquery on locations' primary key (1:1), so the card counts each shed once; pagination=at most
 // four cards per park, ordered by activity rank and keyset after the activity key, never
@@ -184,7 +187,7 @@ func activityFromSourceID(id string) (activity, bool) {
 // the leftmost lane holds a rejected shed, and the park name.
 //
 // projection-review: membership=one activity's units for ONE tenant, park and work-day (the units
-// SQL's own predicate); group_key=shed_id, units pre-aggregated to the shed by MIN(laneRank) and
+// SQL's own predicate); group_key=(shed_id, partition_label) the PEN: units pre-aggregated by MIN(laneRank) and
 // BOOL_OR(rejected) so a pen with several sessions is one shed row before the card counts;
 // join_cardinality=no join in the roll-up (park name is a scalar subquery on locations' primary
 // key, 1:1), so each shed is counted once; pagination=one aggregate row per call, never row-paged
@@ -193,9 +196,9 @@ func activityFromSourceID(id string) (activity, bool) {
 func metricsSQL(units string) string {
 	return `
 WITH units AS (` + units + `),
-shed AS (
-  SELECT shed_id, MIN(` + laneRankExpr + `) AS lane_rank, BOOL_OR(st = 'rejected') AS any_rej
-  FROM units GROUP BY shed_id
+pen AS (
+  SELECT shed_id, partition_label, MIN(` + laneRankExpr + `) AS lane_rank, BOOL_OR(st = 'rejected') AS any_rej
+  FROM units GROUP BY shed_id, partition_label
 )
 SELECT
   count(*)::int,
@@ -205,7 +208,7 @@ SELECT
   COALESCE(MIN(lane_rank), -1)::int,
   COALESCE(BOOL_OR(any_rej AND lane_rank = 1), false),
   (SELECT COALESCE(name, '') FROM locations WHERE tenant_id = $1::uuid AND location_id = $3::uuid)
-FROM shed`
+FROM pen`
 }
 
 // Source implements ports.Source: feed's aggregate activity cards.
