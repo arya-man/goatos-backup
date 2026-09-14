@@ -22,7 +22,7 @@ API-only timing is not enough for final acceptance.
 ## Progress Checklist
 
 Current PR: <https://github.com/vgoats/goatos/pull/259>
-Latest functional change: pending local verification after event-lane boot guard and Android Calendar load trim.
+Latest functional change: `4769b8b6fbffb0e7f5cc4d828be46a83addb9c7d` (`fix(stg): preflight event lane secret access`).
 
 | Item | Status | Evidence / next action |
 | --- | --- | --- |
@@ -38,8 +38,8 @@ Latest functional change: pending local verification after event-lane boot guard
 | Local browser E2E | Done | Production-build visual smoke passed for Work Board and Weights on laptop and mobile. |
 | Local browser interaction timing | Done | Work Board sidebar: 519ms cold, then 414ms, 316ms, 262ms, 295ms. Weights warms to 632ms, 372ms, 389ms after cold route costs. |
 | Lighthouse local score | Done | Work Board 84 performance / 100 accessibility; Weights 83 performance / 100 accessibility. |
-| Events isolation | Fixed in PR, pending live proof | PR adds capped event lane (`min=0`, `max=1`, DB pool 2), route tooling, and boot env required by current shared bootstrap. Must verify after STG deploy. |
-| Events bootability judge finding | Fixed locally, pending push/judge recheck | The event-only service must include proof-media env because `api` bootstrap builds proof storage before route filtering. Terraform, deploy script, and deploy guard now check this. |
+| Events isolation | Fixed in PR, pending live proof | PR adds capped event lane (`min=0`, `max=1`, DB pool 2), route tooling, boot env required by current shared bootstrap, Secret Manager access, and pre-deploy live IAM guard. Must verify after STG deploy. |
+| Events bootability judge findings | Fixed and judge-cleared | Event lane now has proof-media boot env, Terraform secret accessor, and deploy preflight that fails before migration/API changes if live Secret Manager IAM is missing. |
 | Billing guard | Done in PR, pending live proof | Business API is kept at max 2; event traffic moves to the separate max 1 event lane instead of raising business API scale. |
 | Slow API inventory | Done | Baseline table below lists every observed >1s API in the 14:40-15:00 IST window, not only Work Board. |
 | `/work-board/rows` and `/work-board/summary` | Done | Replaced by bundled `/work-board/page`; local OCI p95 is 465ms for full all-parks Work Board after fixes. |
@@ -47,12 +47,12 @@ Latest functional change: pending local verification after event-lane boot guard
 | `/feed-packing/worklist` | Inspected, follow-up needed | Worklist summary is an intentionally whole-filter draw. No risky default-shape change in this PR; needs explicit page-only/no-summary contract if still >500ms live. |
 | `/weighing/leadership/growth` and `/weighing/shed-weights` | Guarded, pending live proof | Weights web E2E added and Work Board module reads improved. Dedicated endpoint tuning still requires live after metrics. |
 | `/app/vaccination/execution` | Done | App route now opts out of expensive card summaries unless requested. Needs live after metric because current STG SHA still showed 17-18s before this PR deploys. |
-| `/calendar/vaccination/events` | Fixed locally, pending push/judge recheck | Android week overview now asks for marker/filter shape only (`markers_only=true`, `limit=1`) instead of full cards. Selected day still fetches full card rows. |
+| `/calendar/vaccination/events` | Fixed in PR, judge-checked | Android week overview now asks for marker/filter shape only (`markers_only=true`, `limit=1`) instead of full cards. Selected day still fetches full card rows. |
 | `/app/proofs/.../complete` | Pending investigation | Only 2 slow samples in baseline; not proven as repeated offender yet. Needs live query/log drilldown after deploy. |
 | `/app/leadership-tasks` | Pending investigation | Only 3 slow samples in baseline; not proven as repeated offender yet. Needs live query/log drilldown after deploy. |
 | `/auth/session-events` | Pending investigation | Small sample baseline. Need live post-deploy logs to separate cold/queueing/auth path cost. |
-| Judge review | Re-review pending | Latest judge caught the analytics-event boot P0; that fix needs push and judge recheck before signoff. |
-| PR raised/pushed | In progress | PR #259 is open; local fixes must be committed/pushed after tests. |
+| Judge review | Done for current head | Backend/infra judge found no blockers at `4769b8b6f`; Android/frontend judge cleared request-shape and UI guard changes after the shared secret-access fix. |
+| PR raised/pushed | Done | PR #259 is open, pushed at `4769b8b6f`, GitHub merge state is clean, and GitGuardian passed. |
 | STG deploy | Blocked by maintainer confirmation | Do not deploy. Maintainer explicitly requires confirmation/signoff first and wants to know whether all bugs are fixed. |
 | Live STG verification | Pending | After deploy: Cloud Run logs, event route split, Work Board/Weights live E2E, public PageSpeed/Lighthouse. |
 | Final completion | Pending | Requires STG deploy/live verification or explicit instruction to stop at PR-only. |
@@ -154,6 +154,10 @@ the slowest observed call.
   bucket, and the proof GCS service account JSON secret). This is a boot requirement only; event
   route mode still registers only the analytics-events route and does not expose proof endpoints on
   the event lane.
+- The proof GCS secret is paired with Terraform IAM for `analytics_events`, and Cloud Deploy now
+  checks the live Secret Manager policy before migrations or API/admin traffic changes. If Terraform
+  has not yet granted `goatos-events-stg` access to `goatos-stg-gcs-service-account-json`, deploy
+  fails early instead of half-rolling staging.
 - Remaining deployment requirement: live traffic must be routed to the events lane. The safe
   transparent production shape is a URL-map path rule sending `/app/analytics/events` to
   `goatos-analytics-events-stg` while all business API paths stay on `goatos-api-stg`. This PR adds
@@ -185,6 +189,11 @@ the slowest observed call.
 - Passed after final latency edits: `go test ./internal/feeddirection/adapters/boardsource ./internal/processintegrity/adapters/boardsource ./internal/workboard/adapters/http ./internal/workboard/... ./migrations/postgres`
 - Passed after final latency edits: `npm test -- --test-name-pattern='work-board|visual smoke|Lighthouse|weights page|growth director'`
 - Passed after final latency edits: production-build visual smoke for Work Board and Weights on laptop and mobile.
+- Passed at final pushed head `4769b8b6f`: `node --test tools/deploy/stg-admin-web-traffic-order.test.mjs`
+- Passed at final pushed head `4769b8b6f`: `bash -n tools/deploy/stg-clouddeploy-task.sh tools/deploy/stg-analytics-events-routing.sh tools/deploy/stg-clouddeploy-release.sh`
+- Passed at final pushed head `4769b8b6f`: `go test ./internal/bootstrap ./internal/appanalytics/adapters/http ./internal/workboard/adapters/http ./internal/processintegrity/adapters/boardsource ./internal/feeddirection/adapters/boardsource ./internal/vaccinationexecution/adapters/http`
+- Passed at final pushed head `4769b8b6f`: Android `:app:compileProdDebugKotlin` and `CalendarViewModelTest` focused unit test.
+- Passed at final pushed head `4769b8b6f`: backend/infra judge review; no blockers found. Android/frontend judge verified marker-only Calendar change, Work Board/Weights guards, and Lighthouse/PageSpeed budget tooling after the shared secret-access fix.
 
 ## Local OCI E2E
 
