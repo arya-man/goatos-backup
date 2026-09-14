@@ -66,8 +66,41 @@ serves and validates it, but the catalog is the SOP document, not Go.
   hoof photo; with 1 (retired) they were judged by v1's rules (teeth photo still compulsory); with 99
   they were refused as unknown.
 
+## The load form is authored too (same day)
+
+`form_dsl.inspection.load_form` is what the desk answers when it opens a load: `load_ref`, `vendor`
+(the register picker, kind `vendor`), `farm` stay locked and compulsory; `expected_count` and `notes`
+may be re-worded or made compulsory; pick-one / pick-many / number / text questions (with "other"
+free text and "ask only when") may be added. Photos and videos are recorded per ANIMAL, never on a
+load -- the validator refuses a media question there. Answers land in
+`animal_purchase_loads.sop_answers` + `questionnaire_version`; the identity answers fill the typed
+columns (an older APK sending typed fields only still works); the extra answers render as
+`answer_rows` on the load payload and as "About this load" on the CEO's review page. The phone's
+Add-load screen renders the served `load_form` (locked questions keep their widgets, authored ones
+render by kind) and validates as the server does.
+
+Two things the edge run found and fixed the same day: 000303's closed CHECK on the media slot
+refused every authored media question (000304 widens it to the slot-key shape; the SOP version
+validates the slot), and the editor was building on `latest_version` (a stray draft or a retired
+version above the published one) -- `SOPResponse.published_version` now exists and both the editor
+and the saves build on it. Also: a renamed choice's wire value follows its label, a capture whose
+kind the slot does not accept is refused server-side, and the animalpurchase transport logs the
+cause of a 500.
+
+## Edge run (2026-09-14, v6 authored in Chrome, phone as the procurement director)
+
+Load form: compulsory count refused blank; Truck / Tractor / Other with free text; documents
+pick-many; distance 0-2000 km refused at 9999 on the phone and at 5000 on the server; driver phone
+only when Truck (given with Tractor it is ignored); an old-APK create (v1, typed fields only)
+accepted; unknown version refused. Inspection page 6: photo-only hoof (compulsory), yes/no with a
+conditional text, 4-choice radio, optional pick-many, video-only walking (compulsory), photo-only
+ear tag (optional), either-with-cap-3 evidence (4 refused), horn 0-60 cm refused at 75; a photo in
+the video-only slot refused server-side. The animal landed on v6 with every answer and slot, the
+phone showed the authored slots by title with the captures inline, the CEO accepted it on the web
+and the phone read "1 accepted".
+
 ## Not here
 
-Editing the load form (vendor, farm, load number) -- it stays canonical; the `/config` registry
+Editing the load's identity questions (vendor, farm, load number) -- they stay canonical; the `/config` registry
 editor for question kinds; promotion of accepted animals into the herd (unchanged scope of
 `animal-purchases.md`).
