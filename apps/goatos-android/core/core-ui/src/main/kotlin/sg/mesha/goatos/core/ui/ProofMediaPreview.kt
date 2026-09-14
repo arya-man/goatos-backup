@@ -91,7 +91,9 @@ private sealed interface ProofPreviewLoad {
     data object Failed : ProofPreviewLoad
 }
 
-private val proofPhotoMemoryCache = LruCache<String, Bitmap>(PROOF_PHOTO_MEMORY_CACHE_ENTRIES)
+private val proofPhotoMemoryCache = object : LruCache<String, Bitmap>(PROOF_PHOTO_MEMORY_CACHE_KB) {
+    override fun sizeOf(key: String, value: Bitmap): Int = (value.allocationByteCount / 1024).coerceAtLeast(1)
+}
 
 private fun android.content.Context.startProofShare(path: String, kind: ProofMediaPreviewKind): String? {
     try {
@@ -197,6 +199,7 @@ private suspend fun loadCachedRemoteProofPhoto(
             proofPhotoMemoryCache.put(mediaKey, bitmap)
             return bitmap
         }
+        cached.delete()
     }
     // proof-media-egress:ignore Visible viewport photo fetch, bounded by stable proof mediaIdentity;
     // memory/disk cache is keyed by proof id, not the rotating signed URL, so recomposition,
@@ -220,13 +223,31 @@ private fun proofPhotoCacheName(mediaKey: String): String {
 private fun writeProofPhotoCacheFile(context: android.content.Context, mediaKey: String, bitmap: Bitmap) {
     try {
         val file = proofPhotoCacheFile(context, mediaKey)
-        FileOutputStream(file).use { out ->
+        val tmp = File(file.parentFile, "${file.name}.tmp")
+        FileOutputStream(tmp).use { out ->
             bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
         }
+        if (!tmp.renameTo(file)) {
+            file.delete()
+            tmp.renameTo(file)
+        }
+        pruneProofPhotoCache(file.parentFile)
     } catch (_: IOException) {
         // Best-effort cache only; the visible proof still rendered from memory.
     } catch (_: SecurityException) {
         // Best-effort cache only; the visible proof still rendered from memory.
+    }
+}
+
+private fun pruneProofPhotoCache(dir: File?) {
+    val files = dir?.listFiles { file -> file.isFile && file.name.endsWith(".png") }?.toMutableList() ?: return
+    var totalBytes = files.sumOf { it.length() }
+    if (totalBytes <= PROOF_PHOTO_DISK_CACHE_BYTES) return
+    files.sortBy { it.lastModified() }
+    for (file in files) {
+        if (totalBytes <= PROOF_PHOTO_DISK_CACHE_BYTES) break
+        val size = file.length()
+        if (file.delete()) totalBytes -= size
     }
 }
 
@@ -302,8 +323,8 @@ fun ProofMediaPreview(
     // Photos only. A signed remote photo is fetched INLINE so the picture itself is on screen the
     // moment the card lands (maintainer decision 2026-09-14,
     // docs/decisions/proof-photo-shown-on-open.md). It used to be tap-armed -- a blank tile until
-    // tapped -- and that read as a missing proof on every surface. Pass false only for a scrolling
-    // list that would fetch dozens of paid object reads nobody opened.
+    // tapped -- and that read as a missing proof on every surface. Keep false only for deliberately
+    // non-visual/static call sites; a visible viewport image card should render the photo.
     inlineRemotePhoto: Boolean = true,
 ) {
     val mediaKey = remember(mediaIdentity) { stableProofMediaIdentity(mediaIdentity) }
@@ -359,7 +380,7 @@ private fun ProofPhotoPreview(
     val context = LocalContext.current
     val isRemote = path.startsWith("http://") || path.startsWith("https://")
     // Remote proof photos are signed object reads, fetched inline by default so the picture is on
-    // screen without a tap (see [ProofMediaPreview.inlineRemotePhoto]); a list opts out.
+    // screen without a tap (see [ProofMediaPreview.inlineRemotePhoto]) and cached by [mediaKey].
     val localBitmap = if (isRemote) null else remember(path) {
         BitmapFactory.decodeFile(Uri.parse(path).path ?: path) ?: decodeLocalProofPhoto(context, path)
     }
@@ -372,7 +393,7 @@ private fun ProofPhotoPreview(
     }
     val bitmap = localBitmap ?: remoteState.value.second
     val isLoading = remoteState.value.first
-    val canExpand = onExpand != null && (bitmap != null || isRemote)
+    val canExpand = onExpand != null && bitmap != null
     val tapToExpand = if (canExpand) {
         Modifier.clickable(
             onClickLabel = "Open proof photo full screen",
@@ -407,15 +428,6 @@ private fun ProofPhotoPreview(
             }
         } else if (isLoading) {
             CircularProgressIndicator(modifier = Modifier.size(32.dp), strokeWidth = 2.dp, color = MeshaColors.Brand)
-        } else if (isRemote && canExpand) {
-            ProofPreviewUnavailable(icon = MeshaIcons.EyeOff, label = "Tap to open photo")
-            ProofPreviewActions(
-                path = path,
-                kind = ProofMediaPreviewKind.Photo,
-                onExpand = onExpand,
-                onAction = onPreviewAction,
-                modifier = Modifier.align(Alignment.TopStart),
-            )
         } else {
             ProofPreviewUnavailable(icon = MeshaIcons.EyeOff, label = "Photo unavailable")
         }
@@ -845,7 +857,8 @@ private fun ProofVideoPoster(path: String) {
 
 private const val PROOF_POSTER_LOAD_TIMEOUT_MS = 4_000L
 private const val PROOF_REMOTE_PHOTO_LOAD_TIMEOUT_MS = 10_000L
-private const val PROOF_PHOTO_MEMORY_CACHE_ENTRIES = 64
+private const val PROOF_PHOTO_MEMORY_CACHE_KB = 24 * 1024
+private const val PROOF_PHOTO_DISK_CACHE_BYTES = 96L * 1024L * 1024L
 private const val PROOF_PHOTO_CACHE_DIR = "proof-photo-preview"
 private val ProofInlinePlayTouchSize = 48.dp
 private val ProofInlinePlayButtonSize = 30.dp

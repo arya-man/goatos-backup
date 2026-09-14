@@ -398,6 +398,7 @@ class FeedDistributionCompleteViewModel @Inject constructor(
                             isCapturingFeedWeightPhoto = false,
                             feedWeightPhotoCaptured = true,
                             feedWeightPhotoPreviewPath = captured.localUri,
+                            feedWeightPhotoPreviewIdentity = previewIdentity(ProofSlot.FEED_WEIGHT_PHOTO),
                             feedWeightPhotoStatus = FeedDistributionProofStatus.QUEUED,
                             feedWeightPhotoMessage = PROOF_QUEUED,
                         )
@@ -1197,19 +1198,28 @@ class FeedDistributionCompleteViewModel @Inject constructor(
         viewModelScope.launch {
             _state.update {
                 when (slot) {
-                    ProofSlot.FEED_WEIGHT_PHOTO -> it.copy(feedWeightPhotoRemoteUrl = null)
-                    ProofSlot.FEED_VIDEO -> it.copy(videoRemoteUrl = null)
-                    ProofSlot.WATER_VIDEO -> it.copy(waterVideoRemoteUrl = null)
+                    ProofSlot.FEED_WEIGHT_PHOTO -> it.copy(feedWeightPhotoRemoteUrl = null, feedWeightPhotoPreviewIdentity = previewIdentity(slot))
+                    ProofSlot.FEED_VIDEO -> it.copy(videoRemoteUrl = null, videoPreviewIdentity = previewIdentity(slot))
+                    ProofSlot.WATER_VIDEO -> it.copy(waterVideoRemoteUrl = null, waterVideoPreviewIdentity = previewIdentity(slot))
                 }
             }
             _state.update {
                 when (slot) {
-                    ProofSlot.FEED_WEIGHT_PHOTO -> it.copy(feedWeightPhotoRemoteUrl = feedBackendProofUrl(proofRef))
-                    ProofSlot.FEED_VIDEO -> it.copy(videoRemoteUrl = feedBackendProofUrl(proofRef))
-                    ProofSlot.WATER_VIDEO -> it.copy(waterVideoRemoteUrl = feedBackendProofUrl(proofRef))
+                    ProofSlot.FEED_WEIGHT_PHOTO -> it.copy(feedWeightPhotoRemoteUrl = feedBackendProofUrl(proofRef), feedWeightPhotoPreviewIdentity = previewIdentity(slot))
+                    ProofSlot.FEED_VIDEO -> it.copy(videoRemoteUrl = feedBackendProofUrl(proofRef), videoPreviewIdentity = previewIdentity(slot))
+                    ProofSlot.WATER_VIDEO -> it.copy(waterVideoRemoteUrl = feedBackendProofUrl(proofRef), waterVideoPreviewIdentity = previewIdentity(slot))
                 }
             }
         }
+    }
+
+    private fun previewIdentity(slot: ProofSlot): String = when (slot) {
+        ProofSlot.FEED_WEIGHT_PHOTO ->
+            feedWeightRemoteRef.value ?: feedWeightPhotoProofItemId.value ?: feedWeightPhotoProofRowId.value ?: "feed-distribution:feed-weight-photo"
+        ProofSlot.FEED_VIDEO ->
+            videoRemoteRef.value ?: videoProofItemId.value ?: videoProofRowId.value ?: "feed-distribution:feed-video"
+        ProofSlot.WATER_VIDEO ->
+            waterVideoRemoteRef.value ?: waterVideoProofItemId.value ?: waterVideoProofRowId.value ?: "feed-distribution:water-video"
     }
 
     private fun clearProofRowId(slot: ProofSlot) {
@@ -1270,18 +1280,21 @@ class FeedDistributionCompleteViewModel @Inject constructor(
                 ProofSlot.FEED_WEIGHT_PHOTO -> it.copy(
                     feedWeightPhotoCaptured = true,
                     feedWeightPhotoPreviewPath = preview ?: it.feedWeightPhotoPreviewPath,
+                    feedWeightPhotoPreviewIdentity = previewIdentity(slot),
                     feedWeightPhotoStatus = status,
                     feedWeightPhotoMessage = row.toProofMessage(status, PROOF_QUEUED, PROOF_UPLOADING, PROOF_SYNCED, PROOF_FAILED),
                 )
                 ProofSlot.FEED_VIDEO -> it.copy(
                     videoCaptured = true,
                     videoPreviewPath = preview ?: it.videoPreviewPath,
+                    videoPreviewIdentity = previewIdentity(slot),
                     videoStatus = status,
                     videoMessage = row.toProofMessage(status, PROOF_QUEUED, PROOF_UPLOADING, PROOF_SYNCED, PROOF_FAILED),
                 )
                 ProofSlot.WATER_VIDEO -> it.copy(
                     waterVideoCaptured = true,
                     waterVideoPreviewPath = preview ?: it.waterVideoPreviewPath,
+                    waterVideoPreviewIdentity = previewIdentity(slot),
                     waterVideoStatus = status,
                     waterVideoMessage = row.toProofMessage(status, PROOF_QUEUED, PROOF_UPLOADING, PROOF_SYNCED, PROOF_FAILED),
                 )
@@ -1308,18 +1321,21 @@ class FeedDistributionCompleteViewModel @Inject constructor(
                 ProofSlot.FEED_WEIGHT_PHOTO -> it.copy(
                     feedWeightPhotoCaptured = it.feedWeightPhotoCaptured || item.localFilePath != null,
                     feedWeightPhotoPreviewPath = item.localFilePath ?: it.feedWeightPhotoPreviewPath,
+                    feedWeightPhotoPreviewIdentity = previewIdentity(slot),
                     feedWeightPhotoStatus = proofStatus,
                     feedWeightPhotoMessage = message,
                 )
                 ProofSlot.FEED_VIDEO -> it.copy(
                     videoCaptured = it.videoCaptured || item.localFilePath != null,
                     videoPreviewPath = item.localFilePath ?: it.videoPreviewPath,
+                    videoPreviewIdentity = previewIdentity(slot),
                     videoStatus = proofStatus,
                     videoMessage = message,
                 )
                 ProofSlot.WATER_VIDEO -> it.copy(
                     waterVideoCaptured = it.waterVideoCaptured || item.localFilePath != null,
                     waterVideoPreviewPath = item.localFilePath ?: it.waterVideoPreviewPath,
+                    waterVideoPreviewIdentity = previewIdentity(slot),
                     waterVideoStatus = proofStatus,
                     waterVideoMessage = message,
                 )
