@@ -23,7 +23,11 @@
   "__Litho_Summary_Brief__.md",
   "__Litho_Summary_Detail__.md"
  ],
- ".terrain/human": [
+ ".terrain/agent": [
+  "context.md",
+  "meta-inputs.md"
+ ],
+ "terrain.docs": [
   "1.Overview.md",
   "2.Architecture.md",
   "3.Workflows.md",
@@ -44,9 +48,5 @@
   "4.Deep-Exploration/workforce-permissions-scope.md",
   "5.Boundaries-Interfaces.md",
   "6.Database-Overview.md"
- ],
- ".terrain/agent": [
-  "context.md",
-  "meta-inputs.md"
  ]
 }
