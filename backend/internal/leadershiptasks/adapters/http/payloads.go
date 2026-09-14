@@ -54,15 +54,16 @@ type taskPayload struct {
 	DoneAt         *string `json:"done_at"`
 	SeenAt         *string `json:"seen_at"`
 	IsSeen         bool    `json:"is_seen"`
-	// The deadline and the day counter (domain/deadline.go), composed here from the server
-	// clock and rendered verbatim: DeadlineAt / DeadlineLabel name the deadline; DaysTaken is
-	// the big number (nil without a deadline) with DaysTakenLabel its worded form; DeadlineTone
-	// is "ok" (green) / "late" (red) / "" (no deadline); DeadlineStateLabel is the sentence
-	// beneath the number.
+	// The deadline and the countdown (domain/deadline.go), composed here from the server clock
+	// and rendered verbatim: DeadlineAt / DeadlineLabel name the deadline; DaysLeft is the big
+	// number (days to the deadline day, 0 = due today, negative = overdue; nil without a
+	// deadline) with DaysLeftLabel its worded form ("5 days left" / "Due today" / "3 days
+	// over"); DeadlineTone is "ok" (green) / "near" / "over" (both red) / "" (no deadline);
+	// DeadlineStateLabel is the sentence beneath the number.
 	DeadlineAt         *string `json:"deadline_at"`
 	DeadlineLabel      string  `json:"deadline_label"`
-	DaysTaken          *int    `json:"days_taken"`
-	DaysTakenLabel     string  `json:"days_taken_label"`
+	DaysLeft           *int    `json:"days_left"`
+	DaysLeftLabel      string  `json:"days_left_label"`
 	DeadlineTone       string  `json:"deadline_tone"`
 	DeadlineStateLabel string  `json:"deadline_state_label"`
 	// IsAssignee / IsRaiser name the caller's party to the task explicitly. The phone holds
@@ -211,8 +212,8 @@ func toTaskPayload(t domain.Task, actor domain.Actor, now time.Time) taskPayload
 		IsSeen:             t.SeenAt != nil,
 		DeadlineAt:         rfc3339Ptr(t.DeadlineAt),
 		DeadlineLabel:      domain.DeadlineLabel(t.DeadlineAt),
-		DaysTaken:          daysTakenPtr(t, now),
-		DaysTakenLabel:     daysTakenLabel(t, now),
+		DaysLeft:           daysLeftPtr(t, now),
+		DaysLeftLabel:      domain.DaysLeftLabel(t, now),
 		DeadlineTone:       domain.DeadlineTone(t, now),
 		DeadlineStateLabel: domain.DeadlineStateLabel(t, now),
 		IsAssignee:         t.IsAssignee(actor),
@@ -265,20 +266,13 @@ func toScopePayloads(selected string, page ports.Page, actor domain.Actor) []fil
 	return out
 }
 
-// daysTakenPtr is the big number, or nil when the task has no deadline and so shows none.
-func daysTakenPtr(t domain.Task, now time.Time) *int {
+// daysLeftPtr is the big number, or nil when the task has no deadline and so shows none.
+func daysLeftPtr(t domain.Task, now time.Time) *int {
 	if t.DeadlineAt == nil {
 		return nil
 	}
-	days := domain.DaysTaken(t, now)
+	days := domain.DaysLeft(t, now)
 	return &days
-}
-
-func daysTakenLabel(t domain.Task, now time.Time) string {
-	if t.DeadlineAt == nil {
-		return ""
-	}
-	return domain.DaysTakenLabel(domain.DaysTaken(t, now))
 }
 
 // parseDeadline reads an RFC3339 deadline off a request; blank means none was sent.

@@ -196,16 +196,16 @@ internal fun LeadershipTaskDto.toCardUi(): LeadershipTaskCardUi = LeadershipTask
 )
 
 /**
- * The deadline clock as the backend composed it, or null when the task carries no deadline
- * (`days_taken` null / blank tone) so the screen draws nothing. Nothing here counts a day or
+ * The deadline countdown as the backend composed it, or null when the task carries no deadline
+ * (`days_left` null / blank tone) so the screen draws nothing. Nothing here counts a day or
  * picks a colour: the number, the tone and every label are carried verbatim.
  */
 internal fun LeadershipTaskDto.toDeadlineClockUi(): LeadershipDeadlineClockUi? {
-    val days = daysTaken ?: return null
+    val days = daysLeft ?: return null
     if (deadlineTone.isBlank()) return null
     return LeadershipDeadlineClockUi(
-        daysTaken = days,
-        daysTakenLabel = daysTakenLabel,
+        daysLeft = days,
+        daysLeftLabel = daysLeftLabel,
         tone = deadlineTone,
         deadlineLabel = deadlineLabel,
         stateLabel = deadlineStateLabel,

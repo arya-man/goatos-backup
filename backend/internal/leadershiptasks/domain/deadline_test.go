@@ -11,91 +11,108 @@ func ist(y int, m time.Month, d, hh, mm int) time.Time {
 	return time.Date(y, m, d, hh, mm, 0, 0, time.FixedZone("IST", 5*3600+1800))
 }
 
-// The counter is the number of farm-calendar DAYS between the raise day and today -- raised
-// today reads 0, raised yesterday evening reads 1 even if fewer than 24 hours passed -- and
-// it never depends on the hour the screen is opened.
-func TestDaysTakenCountsFarmCalendarDaysFromTheRaiseDay(t *testing.T) {
-	task := sample(StatusOpen)
-	task.RaisedAt = ist(2026, time.September, 10, 23, 30)
+func withDeadline(status string, raised, deadline time.Time) Task {
+	t := sample(status)
+	t.RaisedAt = raised
+	t.DeadlineAt = &deadline
+	return t
+}
+
+// The countdown is the number of farm-calendar DAYS from today to the deadline day -- due
+// tomorrow reads 1 even late tonight, due today reads 0, a day missed reads -1 -- and never
+// depends on the hour the screen is opened.
+func TestDaysLeftCountsFarmCalendarDaysToTheDeadlineDay(t *testing.T) {
+	task := withDeadline(StatusOpen, ist(2026, time.September, 10, 9, 0), ist(2026, time.September, 15, 17, 0))
 	cases := []struct {
 		now  time.Time
 		want int
 	}{
-		{ist(2026, time.September, 10, 23, 45), 0},
-		{ist(2026, time.September, 11, 0, 15), 1},
-		{ist(2026, time.September, 14, 9, 0), 4},
+		{ist(2026, time.September, 10, 9, 30), 5},
+		{ist(2026, time.September, 14, 23, 45), 1},
+		{ist(2026, time.September, 15, 0, 15), 0},
+		{ist(2026, time.September, 15, 18, 0), 0},
+		{ist(2026, time.September, 18, 9, 0), -3},
 	}
 	for _, c := range cases {
-		if got := DaysTaken(task, c.now); got != c.want {
-			t.Fatalf("now=%s: days=%d want %d", c.now, got, c.want)
+		if got := DaysLeft(task, c.now); got != c.want {
+			t.Fatalf("now=%s: days left=%d want %d", c.now, got, c.want)
 		}
 	}
-	// A clock skewed before the raise never reads negative.
-	if got := DaysTaken(task, ist(2026, time.September, 9, 12, 0)); got != 0 {
-		t.Fatalf("pre-raise clock: %d want 0", got)
+}
+
+// Green while more than 2 days remain; red from 2 days left onward (near), and red once the
+// deadline instant has passed (over) -- the deadline is a date AND time, so 17:01 on the
+// deadline day is already over.
+func TestDeadlineToneTurnsRedNearTheDeadlineAndStaysRedAfterIt(t *testing.T) {
+	task := withDeadline(StatusInProgress, ist(2026, time.September, 10, 9, 0), ist(2026, time.September, 15, 17, 0))
+	cases := []struct {
+		now  time.Time
+		want string
+	}{
+		{ist(2026, time.September, 12, 9, 0), DeadlineToneOK},   // 3 days left
+		{ist(2026, time.September, 13, 9, 0), DeadlineToneNear}, // 2 days left
+		{ist(2026, time.September, 15, 17, 0), DeadlineToneNear},
+		{ist(2026, time.September, 15, 17, 1), DeadlineToneOver},
+		{ist(2026, time.September, 20, 9, 0), DeadlineToneOver},
+	}
+	for _, c := range cases {
+		if got := DeadlineTone(task, c.now); got != c.want {
+			t.Fatalf("now=%s: tone=%q want %q", c.now, got, c.want)
+		}
 	}
 }
 
-// A finished task freezes its clock: the number reads how long it actually took and stops
-// growing, and the colour records whether it met its deadline at the moment it finished.
+// A finished task freezes its clock at the finish instant: the number and colour record
+// whether it made the deadline and by how much, however much later the screen is opened.
 func TestFinishedTaskFreezesTheClockAtTheFinishInstant(t *testing.T) {
-	deadline := ist(2026, time.September, 15, 17, 0)
-	raised := ist(2026, time.September, 10, 9, 0)
+	raised, deadline := ist(2026, time.September, 10, 9, 0), ist(2026, time.September, 15, 17, 0)
 	later := ist(2026, time.October, 1, 9, 0)
 
-	done := sample(StatusDone)
-	done.RaisedAt, done.DeadlineAt = raised, &deadline
+	early := withDeadline(StatusDone, raised, deadline)
 	doneAt := ist(2026, time.September, 13, 18, 0)
-	done.DoneAt = &doneAt
-	if got := DaysTaken(done, later); got != 3 {
-		t.Fatalf("done days=%d want 3 (frozen at done_at)", got)
+	early.DoneAt = &doneAt
+	if got := DaysLeft(early, later); got != 2 {
+		t.Fatalf("done early days=%d want 2 (frozen at done_at)", got)
 	}
-	if got := DeadlineTone(done, later); got != DeadlineToneOK {
-		t.Fatalf("done within deadline tone=%q want %q", got, DeadlineToneOK)
+	if got := DeadlineStateLabel(early, later); got != "Finished 2 days early" {
+		t.Fatalf("done early state=%q", got)
+	}
+	// Finishing 2 days early is inside the "near" window, but a finished task is never red for
+	// nearness -- it made its deadline, so it is green.
+	if got := DeadlineTone(early, later); got != DeadlineToneOK {
+		t.Fatalf("done early tone=%q want ok", got)
 	}
 
-	late := sample(StatusDone)
-	late.RaisedAt, late.DeadlineAt = raised, &deadline
+	late := withDeadline(StatusDone, raised, deadline)
 	lateAt := ist(2026, time.September, 16, 8, 0)
 	late.DoneAt = &lateAt
-	if got := DeadlineTone(late, later); got != DeadlineToneLate {
-		t.Fatalf("done after deadline tone=%q want %q", got, DeadlineToneLate)
+	if got := DeadlineTone(late, later); got != DeadlineToneOver {
+		t.Fatalf("done late tone=%q", got)
+	}
+	if got := DeadlineStateLabel(late, later); got != "Finished 1 day late" {
+		t.Fatalf("done late state=%q", got)
+	}
+	if got := DaysLeftLabel(late, later); got != "1 day late" {
+		t.Fatalf("done late number label=%q", got)
+	}
+	if got := DaysLeftLabel(early, later); got != "2 days early" {
+		t.Fatalf("done early number label=%q", got)
 	}
 
-	cancelled := sample(StatusCancelled)
-	cancelled.RaisedAt, cancelled.DeadlineAt = raised, &deadline
+	cancelled := withDeadline(StatusCancelled, raised, deadline)
 	cancelledAt := ist(2026, time.September, 12, 8, 0)
 	cancelled.CancelledAt = &cancelledAt
-	if got := DaysTaken(cancelled, later); got != 2 {
-		t.Fatalf("cancelled days=%d want 2 (frozen at cancelled_at)", got)
+	if got := DaysLeft(cancelled, later); got != 3 {
+		t.Fatalf("cancelled days=%d want 3 (frozen at cancelled_at)", got)
 	}
 }
 
-// Green while the clock is inside the deadline, red the instant it passes -- the deadline is a
-// date AND time, so 17:01 on the deadline day is already late.
-func TestDeadlineToneFlipsAtTheDeadlineInstant(t *testing.T) {
-	deadline := ist(2026, time.September, 15, 17, 0)
-	task := sample(StatusInProgress)
-	task.RaisedAt = ist(2026, time.September, 10, 9, 0)
-	task.DeadlineAt = &deadline
-	if got := DeadlineTone(task, ist(2026, time.September, 15, 17, 0)); got != DeadlineToneOK {
-		t.Fatalf("at the deadline: %q want ok", got)
-	}
-	if got := DeadlineTone(task, ist(2026, time.September, 15, 17, 1)); got != DeadlineToneLate {
-		t.Fatalf("a minute past: %q want late", got)
-	}
-}
-
-// A task raised before deadlines existed carries none: no tone, no counter, and blank labels
-// -- the screen shows nothing rather than a number in no colour.
+// A task raised before deadlines existed carries none: no tone, no counter, blank labels.
 func TestTaskWithoutDeadlineShowsNoCounter(t *testing.T) {
 	task := sample(StatusOpen)
 	now := ist(2026, time.September, 14, 9, 0)
-	if got := DeadlineTone(task, now); got != "" {
-		t.Fatalf("tone=%q want blank", got)
-	}
-	if DeadlineLabel(task.DeadlineAt) != "" || DeadlineStateLabel(task, now) != "" {
-		t.Fatalf("labels must be blank without a deadline")
+	if DeadlineTone(task, now) != "" || DeadlineLabel(task.DeadlineAt) != "" || DaysLeftLabel(task, now) != "" || DeadlineStateLabel(task, now) != "" {
+		t.Fatalf("everything must be blank without a deadline")
 	}
 }
 
@@ -104,29 +121,26 @@ func TestDeadlineCopyIsFarmWorded(t *testing.T) {
 	if got := DeadlineLabel(&deadline); got != "15/09/2026 17:00" {
 		t.Fatalf("label=%q", got)
 	}
-	for n, want := range map[int]string{0: "0 days", 1: "1 day", 12: "12 days"} {
-		if got := DaysTakenLabel(n); got != want {
-			t.Fatalf("%d: %q want %q", n, got, want)
+	open := withDeadline(StatusOpen, ist(2026, time.September, 10, 9, 0), deadline)
+	cases := []struct {
+		now        time.Time
+		wantNumber string
+		wantState  string
+	}{
+		{ist(2026, time.September, 10, 9, 0), "5 days left", "Due in 5 days"},
+		{ist(2026, time.September, 14, 9, 0), "1 day left", "Due in 1 day"},
+		{ist(2026, time.September, 15, 9, 0), "Due today", "Due today"},
+		{ist(2026, time.September, 15, 18, 0), "Due today, time passed", "Due today, time passed"},
+		{ist(2026, time.September, 16, 9, 0), "1 day over", "Overdue by 1 day"},
+		{ist(2026, time.September, 18, 9, 0), "3 days over", "Overdue by 3 days"},
+	}
+	for _, c := range cases {
+		if got := DaysLeftLabel(open, c.now); got != c.wantNumber {
+			t.Fatalf("now=%s: number label=%q want %q", c.now, got, c.wantNumber)
 		}
-	}
-	open := sample(StatusOpen)
-	open.RaisedAt, open.DeadlineAt = ist(2026, time.September, 10, 9, 0), &deadline
-	if got := DeadlineStateLabel(open, ist(2026, time.September, 14, 9, 0)); got != "Within deadline" {
-		t.Fatalf("open within: %q", got)
-	}
-	if got := DeadlineStateLabel(open, ist(2026, time.September, 16, 9, 0)); got != "Past deadline" {
-		t.Fatalf("open late: %q", got)
-	}
-	done := sample(StatusDone)
-	done.RaisedAt, done.DeadlineAt = open.RaisedAt, &deadline
-	doneAt := ist(2026, time.September, 16, 9, 0)
-	done.DoneAt = &doneAt
-	if got := DeadlineStateLabel(done, ist(2026, time.October, 1, 9, 0)); got != "Finished after deadline" {
-		t.Fatalf("done late: %q", got)
-	}
-	doneAt = ist(2026, time.September, 12, 9, 0)
-	if got := DeadlineStateLabel(done, ist(2026, time.October, 1, 9, 0)); got != "Finished within deadline" {
-		t.Fatalf("done within: %q", got)
+		if got := DeadlineStateLabel(open, c.now); got != c.wantState {
+			t.Fatalf("now=%s: state=%q want %q", c.now, got, c.wantState)
+		}
 	}
 }
 

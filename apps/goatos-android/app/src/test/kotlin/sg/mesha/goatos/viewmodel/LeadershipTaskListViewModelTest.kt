@@ -53,21 +53,25 @@ class LeadershipTaskListViewModelTest {
         assertEquals(3, card.attachmentCount)
         assertTrue("an unseen assigned task carries the rail", card.unseen)
         val clock = card.deadline ?: error("a task with a deadline carries its clock")
-        assertEquals(4, clock.daysTaken)
-        assertEquals("4 days", clock.daysTakenLabel)
+        assertEquals(4, clock.daysLeft)
+        assertEquals("4 days left", clock.daysLeftLabel)
         assertEquals("15/09/2026 17:00", clock.deadlineLabel)
-        assertEquals("Within deadline", clock.stateLabel)
-        assertFalse(clock.isLate)
+        assertEquals("Due in 4 days", clock.stateLabel)
+        assertFalse(clock.isRed)
     }
 
     @Test
-    fun `the day counter is the backend's number and colour, and a task without a deadline shows none`() {
-        // Maintainer decision 2026-09-14: the phone counts no days and picks no colour.
-        val late = leadershipTask(daysTaken = 9, deadlineTone = "late").toCardUi().deadline ?: error("late clock")
-        assertEquals(9, late.daysTaken)
-        assertTrue(late.isLate)
-        assertEquals("Past deadline", late.stateLabel)
-        assertEquals("no deadline, no counter", null, leadershipTask(deadlineAt = null, daysTaken = null, deadlineTone = "").toCardUi().deadline)
+    fun `the countdown is the backend's number and colour, and a task without a deadline shows none`() {
+        // Maintainer decision 2026-09-14: the phone counts no days and picks no colour; near and
+        // over are both red, and only ok is green.
+        val near = leadershipTask(daysLeft = 2, deadlineTone = "near").toCardUi().deadline ?: error("near clock")
+        assertEquals(2, near.daysLeft)
+        assertTrue(near.isRed)
+        val over = leadershipTask(daysLeft = -3, deadlineTone = "over").toCardUi().deadline ?: error("over clock")
+        assertEquals("3 days over", over.daysLeftLabel)
+        assertTrue(over.isRed)
+        assertEquals("Overdue by 3 days", over.stateLabel)
+        assertEquals("no deadline, no counter", null, leadershipTask(deadlineAt = null, daysLeft = null, deadlineTone = "").toCardUi().deadline)
     }
 
     @Test

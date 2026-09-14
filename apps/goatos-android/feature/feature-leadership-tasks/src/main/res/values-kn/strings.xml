@@ -40,7 +40,5 @@
     <string name="leadership_tasks_deadline_pick_time">ಸಮಯ</string>
     <string name="leadership_tasks_deadline_ok">ಸರಿ</string>
     <string name="leadership_tasks_deadline_cancel">ರದ್ದುಮಾಡಿ</string>
-    <string name="leadership_tasks_deadline_unit_days">ದಿನಗಳು</string>
-    <string name="leadership_tasks_deadline_unit_day">ದಿನ</string>
     <string name="leadership_tasks_deadline_prefix">ಗಡುವು</string>
 </resources>

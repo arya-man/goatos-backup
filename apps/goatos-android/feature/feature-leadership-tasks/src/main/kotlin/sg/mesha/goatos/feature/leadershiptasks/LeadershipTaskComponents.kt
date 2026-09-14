@@ -52,17 +52,18 @@ private const val LOG_TAG = "LeadershipTasksUi"
 val LEADERSHIP_FARM_ZONE: ZoneId = ZoneId.of("Asia/Kolkata")
 
 /**
- * THE BIG NUMBER (maintainer decision 2026-09-14): days taken so far, GREEN within the deadline
- * and RED past it, with the deadline beneath. Every value is backend-composed; this maps the
- * backend's tone onto a colour and draws. [compact] is the list-card form (number and deadline
- * only); the full form adds the state sentence for the detail screen.
+ * THE BIG NUMBER (maintainer decision 2026-09-14): days left to the deadline, GREEN while more
+ * than two days remain and RED from two days out and once overdue, with the deadline beneath.
+ * Every value is backend-composed; this maps the backend's tone onto a colour, splits the worded
+ * label into number + unit, and draws. [compact] is the list-card form (number only); the full
+ * form adds the state sentence and the deadline for the detail screen.
  */
 @Composable
 internal fun LeadershipDeadlineClock(clock: LeadershipDeadlineClockUi, compact: Boolean = false, modifier: Modifier = Modifier) {
-    val accent = if (clock.isLate) MeshaColors.Danger else MeshaColors.Ok
-    val unit = stringResource(
-        if (clock.daysTaken == 1) R.string.leadership_tasks_deadline_unit_day else R.string.leadership_tasks_deadline_unit_days,
-    )
+    val accent = if (clock.isRed) MeshaColors.Danger else MeshaColors.Ok
+    // "5 days left" -> "5" + "days left"; "Due today" has no number and shows the words alone.
+    val unit = clock.daysLeftLabel.replace(Regex("^\\d+\\s*"), "")
+    val number = if (clock.daysLeft == 0) "" else kotlin.math.abs(clock.daysLeft).toString()
     Row(
         modifier = modifier
             .clip(RoundedCornerShape(if (compact) 10.dp else 14.dp))
@@ -73,8 +74,10 @@ internal fun LeadershipDeadlineClock(clock: LeadershipDeadlineClockUi, compact: 
         horizontalArrangement = Arrangement.spacedBy(if (compact) 8.dp else 12.dp),
     ) {
         Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(text = clock.daysTaken.toString(), color = accent, style = if (compact) MeshaType.screenTitle else MeshaType.heroNumber)
-            Text(text = unit, color = accent, style = MeshaType.overline, modifier = Modifier.padding(bottom = if (compact) 4.dp else 6.dp))
+            if (number.isNotEmpty()) {
+                Text(text = number, color = accent, style = if (compact) MeshaType.avatarInitials else MeshaType.heroNumber)
+            }
+            Text(text = unit, color = accent, style = MeshaType.overline, modifier = Modifier.padding(bottom = if (compact) 3.dp else 5.dp))
         }
         if (!compact) {
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {

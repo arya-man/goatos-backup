@@ -49,7 +49,5 @@
     <string name="leadership_tasks_deadline_pick_time">Time</string>
     <string name="leadership_tasks_deadline_ok">OK</string>
     <string name="leadership_tasks_deadline_cancel">Cancel</string>
-    <string name="leadership_tasks_deadline_unit_days">days</string>
-    <string name="leadership_tasks_deadline_unit_day">day</string>
     <string name="leadership_tasks_deadline_prefix">Deadline</string>
 </resources>

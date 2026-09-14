@@ -3410,13 +3410,14 @@ select:disabled { opacity: .45; }
 .lt-page .lt-detail-meta .k,.lt-page .lt-detail-meta .v{display:block;min-height:0;background:transparent;padding:0}
 .lt-page .lt-detail-meta .k{font-size:10px;line-height:1;letter-spacing:.75px}
 .lt-page .lt-detail-meta .v{margin:0;font-size:13.5px;line-height:1.3;font-weight:720;overflow-wrap:break-word}
-/* The deadline clock (maintainer decision 2026-09-14): ONE big number of days taken, green
-   within the deadline and red past it. Tone classes come from the backend's deadline_tone. */
+/* The deadline countdown (maintainer decision 2026-09-14): ONE number of days left, green while
+   more than two days remain, red from two days out and once overdue. Tone classes come from
+   the backend's deadline_tone (ok -> green, near/over -> red). */
 .lt-page .lt-clock{display:flex;align-items:center;gap:12px;padding:12px 14px;border:1px solid var(--line);border-radius:10px;margin:0 0 14px;min-width:0}
 .lt-page .lt-clock-ok{background:var(--okx);border-color:color-mix(in srgb,var(--ok) 45%,var(--line))}
 .lt-page .lt-clock-late{background:var(--dangerx);border-color:color-mix(in srgb,var(--danger) 45%,var(--line))}
 .lt-page .lt-clock-num{display:flex;align-items:baseline;gap:5px;flex:none;font-variant-numeric:tabular-nums;line-height:1}
-.lt-page .lt-clock-num b{font-size:34px;font-weight:850;letter-spacing:-.5px}
+.lt-page .lt-clock-num b{font-size:26px;font-weight:850;letter-spacing:-.4px}
 .lt-page .lt-clock-num span{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.5px}
 .lt-page .lt-clock-ok .lt-clock-num{color:var(--ok)}
 .lt-page .lt-clock-late .lt-clock-num{color:var(--danger)}
@@ -3424,7 +3425,7 @@ select:disabled { opacity: .45; }
 .lt-page .lt-clock-state{font-weight:750;color:var(--ink)}
 .lt-page .lt-clock-deadline{color:var(--muted);overflow-wrap:anywhere}
 .lt-page .lt-clock-compact{margin:0;padding:6px 10px;gap:2px;border-radius:8px;flex-direction:column;align-items:flex-start;width:max-content}
-.lt-page .lt-clock-compact .lt-clock-num b{font-size:24px}
+.lt-page .lt-clock-compact .lt-clock-num b{font-size:20px}
 .lt-page .lt-clock-compact .lt-clock-num span{font-size:10px}
 .lt-page .lt-clock-compact .lt-clock-meta{font-size:10px}
 .lt-page .lt-clock-compact .lt-clock-state{display:none}

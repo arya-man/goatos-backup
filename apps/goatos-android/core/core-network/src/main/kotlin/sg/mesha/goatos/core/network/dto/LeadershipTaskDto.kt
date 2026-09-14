@@ -92,17 +92,18 @@ data class LeadershipTaskDto(
     @SerialName("seen_at") val seenAt: String? = null,
     @SerialName("is_seen") val isSeen: Boolean = false,
     /**
-     * The deadline and the day counter (maintainer decision 2026-09-14), ALL backend-composed and
+     * The deadline and the countdown (maintainer decision 2026-09-14), ALL backend-composed and
      * rendered verbatim: [deadlineAt] is the RFC3339 instant, [deadlineLabel] its farm form
-     * ("15/09/2026 17:00"); [daysTaken] is THE BIG NUMBER (days since the raise day, frozen once
-     * finished; null without a deadline -> no counter drawn), [daysTakenLabel] its worded form;
-     * [deadlineTone] is `ok` (green) / `late` (red) / blank; [deadlineStateLabel] is the sentence
-     * beneath. The phone counts no days and decides no colour.
+     * ("15/09/2026 17:00"); [daysLeft] is THE BIG NUMBER (days to the deadline day, 0 = due today,
+     * negative = overdue, frozen once finished; null without a deadline -> no counter drawn),
+     * [daysLeftLabel] its worded form ("5 days left" / "Due today" / "3 days over");
+     * [deadlineTone] is `ok` (green) / `near` / `over` (both red) / blank; [deadlineStateLabel]
+     * is the sentence beneath. The phone counts no days and decides no colour.
      */
     @SerialName("deadline_at") val deadlineAt: String? = null,
     @SerialName("deadline_label") val deadlineLabel: String = "",
-    @SerialName("days_taken") val daysTaken: Int? = null,
-    @SerialName("days_taken_label") val daysTakenLabel: String = "",
+    @SerialName("days_left") val daysLeft: Int? = null,
+    @SerialName("days_left_label") val daysLeftLabel: String = "",
     @SerialName("deadline_tone") val deadlineTone: String = "",
     @SerialName("deadline_state_label") val deadlineStateLabel: String = "",
     /** The caller is the person this task is for / raised it -- backend-resolved party. */

@@ -62,25 +62,26 @@ data class LeadershipAttachmentUi(
 )
 
 /**
- * The deadline clock beside a task (maintainer decision 2026-09-14): ONE big number of days
- * taken, GREEN within the deadline and RED past it, with the deadline beneath. Every value is
- * BACKEND-COMPOSED and carried verbatim; the renderer counts nothing and decides no colour --
- * it maps [tone] onto a colour and nothing else. Null on a task with no deadline: nothing drawn.
+ * The deadline countdown beside a task (maintainer decision 2026-09-14): ONE number of days
+ * left, GREEN while more than two days remain, RED from two days out and once overdue, with
+ * the deadline beneath. Every value is BACKEND-COMPOSED and carried verbatim; the renderer
+ * counts nothing and decides no colour -- it maps [tone] onto a colour and nothing else. Null
+ * on a task with no deadline: nothing drawn.
  */
 @Immutable
 data class LeadershipDeadlineClockUi(
-    /** The big number. */
-    val daysTaken: Int,
-    /** "4 days" / "1 day". */
-    val daysTakenLabel: String,
-    /** `ok` (green) or `late` (red). */
+    /** Days to the deadline day: positive = left, 0 = due today, negative = overdue. */
+    val daysLeft: Int,
+    /** "5 days left" / "Due today" / "3 days over". */
+    val daysLeftLabel: String,
+    /** `ok` (green), `near` or `over` (red). */
     val tone: String,
     /** "15/09/2026 17:00". */
     val deadlineLabel: String,
     /** "Within deadline" / "Past deadline" / "Finished within deadline" / "Finished after deadline". */
     val stateLabel: String,
 ) {
-    val isLate: Boolean get() = tone == "late"
+    val isRed: Boolean get() = tone != "ok"
 }
 
 /** One task as the list renders it. */

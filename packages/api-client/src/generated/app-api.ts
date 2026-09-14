@@ -8128,16 +8128,16 @@ export interface components {
             deadline_at?: string | null;
             /** @description Farm-readable IST deadline, "15/09/2026 17:00"; blank without a deadline. */
             deadline_label: string;
-            /** @description THE BIG NUMBER, backend-composed: farm-calendar days from the raise day to today, frozen at the finish instant once the task is done or cancelled. Null without a deadline (the screen shows no counter). Clients render it verbatim and never count days themselves. */
-            days_taken?: number | null;
-            /** @description "4 days" / "1 day"; blank without a deadline. */
-            days_taken_label: string;
+            /** @description THE BIG NUMBER, backend-composed: farm-calendar days from today to the deadline day (0 = due today, negative = days overdue), frozen at the finish instant once the task is done or cancelled. Null without a deadline (the screen shows no counter). Clients render it verbatim and never count days themselves. */
+            days_left?: number | null;
+            /** @description "5 days left" / "1 day left" / "Due today" / "3 days over"; blank without a deadline. */
+            days_left_label: string;
             /**
-             * @description The number's colour -- ok is GREEN (within the deadline), late is RED (past it), blank means no deadline.
+             * @description The number's colour -- ok is GREEN (more than 2 days left), near is RED (2 days left or fewer), over is RED (deadline passed), blank means no deadline.
              * @enum {string}
              */
-            deadline_tone: "" | "ok" | "late";
-            /** @description The sentence beneath the number -- "Within deadline", "Past deadline", "Finished within deadline", "Finished after deadline"; blank without a deadline. */
+            deadline_tone: "" | "ok" | "near" | "over";
+            /** @description The sentence beneath the number -- "Due in 5 days", "Due today", "Overdue by 3 days", "Finished 2 days early", "Finished 1 day late"; blank without a deadline. */
             deadline_state_label: string;
             /** @description The caller is the person this task is for. */
             is_assignee: boolean;

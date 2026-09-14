@@ -51,14 +51,14 @@ type TaskRow = {
     created_at: string;
   }>;
   /**
-   * The deadline clock, backend-composed and rendered verbatim (maintainer decision
-   * 2026-09-14): the big number of days taken, its tone (ok = green, late = red), the
-   * deadline itself and the sentence beneath. A task without a deadline carries none of
-   * these and shows no counter.
+   * The deadline countdown, backend-composed and rendered verbatim (maintainer decision
+   * 2026-09-14): days left to the deadline (0 = due today, negative = overdue), its tone
+   * (ok = green; near and over = red), the deadline itself and the sentence beneath. A task
+   * without a deadline carries none of these and shows no counter.
    */
-  daysTaken: number | null;
-  daysTakenLabel: string;
-  deadlineTone: "" | "ok" | "late";
+  daysLeft: number | null;
+  daysLeftLabel: string;
+  deadlineTone: "" | "ok" | "near" | "over";
   deadlineLabel: string;
   deadlineStateLabel: string;
 };
@@ -102,11 +102,11 @@ const fixtureTasks: TaskRow[] = [
         created_at: new Date().toISOString(),
       },
     ],
-    daysTaken: 3,
-    daysTakenLabel: "3 days",
+    daysLeft: 4,
+    daysLeftLabel: "4 days left",
     deadlineTone: "ok",
     deadlineLabel: "18/09/2026 17:00",
-    deadlineStateLabel: "Within deadline",
+    deadlineStateLabel: "Due in 4 days",
   },
   {
     id: "2",
@@ -134,11 +134,11 @@ const fixtureTasks: TaskRow[] = [
         created_at: new Date().toISOString(),
       },
     ],
-    daysTaken: 9,
-    daysTakenLabel: "9 days",
-    deadlineTone: "late",
+    daysLeft: -4,
+    daysLeftLabel: "4 days over",
+    deadlineTone: "over",
     deadlineLabel: "10/09/2026 12:00",
-    deadlineStateLabel: "Past deadline",
+    deadlineStateLabel: "Overdue by 4 days",
   },
   {
     id: "3",
@@ -166,8 +166,8 @@ const fixtureTasks: TaskRow[] = [
         created_at: new Date().toISOString(),
       },
     ],
-    daysTaken: null,
-    daysTakenLabel: "",
+    daysLeft: null,
+    daysLeftLabel: "",
     deadlineTone: "",
     deadlineLabel: "",
     deadlineStateLabel: "",
@@ -633,8 +633,8 @@ function rowsFromPage(page: LeadershipTaskPage): TaskRow[] {
       attachmentKinds,
       attachmentRows: task.attachments ?? [],
       notes: task.notes ?? [],
-      daysTaken: task.days_taken ?? null,
-      daysTakenLabel: task.days_taken_label ?? "",
+      daysLeft: task.days_left ?? null,
+      daysLeftLabel: task.days_left_label ?? "",
       deadlineTone: (task.deadline_tone ?? "") as TaskRow["deadlineTone"],
       deadlineLabel: task.deadline_label ?? "",
       deadlineStateLabel: task.deadline_state_label ?? "",
@@ -761,27 +761,31 @@ function statusTone(status: TaskStatus): Tone {
 }
 
 /**
- * THE BIG NUMBER: days taken so far, green within the deadline and red past it, with the
- * deadline beneath. Every value is the backend's -- this component counts nothing and decides
- * no colour; it only maps the tone the backend named onto a class. A task without a deadline
- * renders a quiet dash so the column still lines up.
+ * THE BIG NUMBER: days left to the deadline, green while more than two days remain and red
+ * from two days out and once overdue, with the deadline beneath. Every value is the
+ * backend's -- this component counts nothing and decides no colour; it only maps the tone the
+ * backend named onto a class and splits the worded label into number + unit. A task without a
+ * deadline renders a quiet dash so the column still lines up.
  */
 function DeadlineClock({ task, compact = false }: { task: TaskRow; compact?: boolean }) {
-  if (!task.deadlineTone || task.daysTaken === null) {
+  if (!task.deadlineTone || task.daysLeft === null) {
     return compact ? (
       <span className="muted small">—</span>
     ) : null;
   }
-  const tone = task.deadlineTone === "late" ? "lt-clock-late" : "lt-clock-ok";
+  const tone = task.deadlineTone === "ok" ? "lt-clock-ok" : "lt-clock-late";
+  // "5 days left" -> 5 + "days left"; "Due today" has no number and shows the words alone.
+  const unit = task.daysLeftLabel.replace(/^\d+\s*/, "");
+  const showNumber = task.daysLeft !== 0;
   return (
     <div
       className={`lt-clock ${tone}${compact ? " lt-clock-compact" : ""}`}
       role="group"
-      aria-label={`${task.daysTakenLabel}, ${task.deadlineStateLabel.toLowerCase()}, deadline ${task.deadlineLabel}`}
+      aria-label={`${task.daysLeftLabel}, ${task.deadlineStateLabel.toLowerCase()}, deadline ${task.deadlineLabel}`}
     >
       <div className="lt-clock-num">
-        <b>{task.daysTaken}</b>
-        <span>{task.daysTaken === 1 ? "day" : "days"}</span>
+        {showNumber ? <b>{Math.abs(task.daysLeft)}</b> : null}
+        <span>{unit}</span>
       </div>
       <div className="lt-clock-meta">
         <span className="lt-clock-state">{task.deadlineStateLabel}</span>

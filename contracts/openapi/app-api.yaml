@@ -18932,7 +18932,7 @@ components:
         - attachments
         - notes
         - deadline_label
-        - days_taken_label
+        - days_left_label
         - deadline_tone
         - deadline_state_label
       properties:
@@ -18961,21 +18961,22 @@ components:
         deadline_label:
           type: string
           description: Farm-readable IST deadline, "15/09/2026 17:00"; blank without a deadline.
-        days_taken:
+        days_left:
           type: integer
           nullable: true
           description: >-
-            THE BIG NUMBER, backend-composed: farm-calendar days from the raise day to today, frozen at the
-            finish instant once the task is done or cancelled. Null without a deadline (the screen shows no
-            counter). Clients render it verbatim and never count days themselves.
-        days_taken_label: { type: string, description: '"4 days" / "1 day"; blank without a deadline.' }
+            THE BIG NUMBER, backend-composed: farm-calendar days from today to the deadline day (0 = due
+            today, negative = days overdue), frozen at the finish instant once the task is done or
+            cancelled. Null without a deadline (the screen shows no counter). Clients render it verbatim
+            and never count days themselves.
+        days_left_label: { type: string, description: '"5 days left" / "1 day left" / "Due today" / "3 days over"; blank without a deadline.' }
         deadline_tone:
           type: string
-          enum: ["", ok, late]
-          description: The number's colour -- ok is GREEN (within the deadline), late is RED (past it), blank means no deadline.
+          enum: ["", ok, near, over]
+          description: The number's colour -- ok is GREEN (more than 2 days left), near is RED (2 days left or fewer), over is RED (deadline passed), blank means no deadline.
         deadline_state_label:
           type: string
-          description: The sentence beneath the number -- "Within deadline", "Past deadline", "Finished within deadline", "Finished after deadline"; blank without a deadline.
+          description: The sentence beneath the number -- "Due in 5 days", "Due today", "Overdue by 3 days", "Finished 2 days early", "Finished 1 day late"; blank without a deadline.
         is_assignee: { type: boolean, description: The caller is the person this task is for. }
         is_raiser: { type: boolean, description: The caller raised this task. }
         meta_line:

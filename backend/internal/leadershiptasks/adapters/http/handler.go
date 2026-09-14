@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -89,7 +90,7 @@ func (h *Handler) ListTasks(w http.ResponseWriter, r *http.Request) {
 	scopeKey := domain.ScopeKeyOrDefault(q.Get("scope"), actor)
 	page, err := h.service.ListTasks(r.Context(), tenantID(r), actor.UserID, scopeKey, filterKey, limit, q.Get("cursor"), actor)
 	if err != nil {
-		h.writeErr(w, r, toAppError(err))
+		h.writeCause(w, r, err)
 		return
 	}
 	now := h.service.Now()
@@ -118,7 +119,7 @@ func (h *Handler) ListTasks(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) ListAssignees(w http.ResponseWriter, r *http.Request) {
 	assignees, err := h.service.ListAssignees(r.Context(), tenantID(r))
 	if err != nil {
-		h.writeErr(w, r, toAppError(err))
+		h.writeCause(w, r, err)
 		return
 	}
 	out := make([]assigneePayload, 0, len(assignees))
@@ -133,7 +134,7 @@ func (h *Handler) GetTask(w http.ResponseWriter, r *http.Request) {
 	actor := actorFrom(r)
 	task, err := h.service.GetTask(r.Context(), tenantID(r), actor, r.PathValue("task_id"))
 	if err != nil {
-		h.writeErr(w, r, toAppError(err))
+		h.writeCause(w, r, err)
 		return
 	}
 	httpresponse.WriteJSON(w, http.StatusOK, taskDetailPayload{Task: toTaskPayload(task, actor, h.service.Now()), TraceID: traceID(r)})
@@ -167,7 +168,7 @@ func (h *Handler) Raise(w http.ResponseWriter, r *http.Request) {
 		DeadlineAt:       deadline,
 	})
 	if err != nil {
-		h.writeErr(w, r, toAppError(err))
+		h.writeCause(w, r, err)
 		return
 	}
 	httpresponse.WriteJSON(w, http.StatusCreated, taskDetailPayload{Task: toTaskPayload(task, actor, h.service.Now()), TraceID: traceID(r)})
@@ -201,7 +202,7 @@ func (h *Handler) Edit(w http.ResponseWriter, r *http.Request) {
 		DeadlineAt:     deadline,
 	})
 	if err != nil {
-		h.writeErr(w, r, toAppError(err))
+		h.writeCause(w, r, err)
 		return
 	}
 	httpresponse.WriteJSON(w, http.StatusOK, taskDetailPayload{Task: toTaskPayload(task, actor, h.service.Now()), TraceID: traceID(r)})
@@ -227,7 +228,7 @@ func (h *Handler) ChangeStatus(w http.ResponseWriter, r *http.Request) {
 		IdempotencyKey: key,
 	})
 	if err != nil {
-		h.writeErr(w, r, toAppError(err))
+		h.writeCause(w, r, err)
 		return
 	}
 	httpresponse.WriteJSON(w, http.StatusOK, taskDetailPayload{Task: toTaskPayload(task, actor, h.service.Now()), TraceID: traceID(r)})
@@ -252,7 +253,7 @@ func (h *Handler) SetComment(w http.ResponseWriter, r *http.Request) {
 		IdempotencyKey: key,
 	})
 	if err != nil {
-		h.writeErr(w, r, toAppError(err))
+		h.writeCause(w, r, err)
 		return
 	}
 	httpresponse.WriteJSON(w, http.StatusOK, taskDetailPayload{Task: toTaskPayload(task, actor, h.service.Now()), TraceID: traceID(r)})
@@ -264,7 +265,7 @@ func (h *Handler) MarkSeen(w http.ResponseWriter, r *http.Request) {
 	actor := actorFrom(r)
 	task, err := h.service.MarkSeen(r.Context(), tenantID(r), actor, r.PathValue("task_id"))
 	if err != nil {
-		h.writeErr(w, r, toAppError(err))
+		h.writeCause(w, r, err)
 		return
 	}
 	httpresponse.WriteJSON(w, http.StatusOK, taskDetailPayload{Task: toTaskPayload(task, actor, h.service.Now()), TraceID: traceID(r)})
@@ -281,7 +282,7 @@ func (h *Handler) DownloadAttachment(w http.ResponseWriter, r *http.Request) {
 		r.PathValue("proof_id"),
 	)
 	if err != nil {
-		h.writeErr(w, r, toAppError(err))
+		h.writeCause(w, r, err)
 		return
 	}
 	proof := download.Artifact
@@ -398,6 +399,20 @@ func toAppError(err error) *app.Error {
 		return appErr
 	}
 	return app.HTTPError(err)
+}
+
+// writeCause maps a module error onto the transport shape and logs the ORIGINAL error beside
+// the code. Logging only the mapped code left a 500 on the phone's task list with no cause in
+// the log (2026-09-14); a storage or timeout error must be readable from the request line.
+func (h *Handler) writeCause(w http.ResponseWriter, r *http.Request, err error) {
+	appErr := toAppError(err)
+	if appErr == nil {
+		return
+	}
+	httpresponse.WriteError(w, r, h.log, appErr.HTTPStatus, map[string]any{
+		"error":   appErr.Code,
+		"message": appErr.Message,
+	}, fmt.Errorf("%s: %w", appErr.Code, err))
 }
 
 func (h *Handler) writeErr(w http.ResponseWriter, r *http.Request, appErr *app.Error) {

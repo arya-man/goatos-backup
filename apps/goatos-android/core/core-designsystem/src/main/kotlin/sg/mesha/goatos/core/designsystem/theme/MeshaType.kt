@@ -19,8 +19,8 @@ object MeshaType {
     /** Big screen title ("Calendar", "You", "Alerts"). */
     val screenTitle = TextStyle(fontSize = 22.sp, fontWeight = FontWeight.W700)
 
-    /** A single hero figure read at a glance (the task day counter): larger than any title, tight tracking. */
-    val heroNumber = TextStyle(fontSize = 30.sp, fontWeight = FontWeight.W800, letterSpacing = (-0.6).sp)
+    /** A single hero figure read at a glance (the task deadline countdown): a step above the screen title, tight tracking. */
+    val heroNumber = TextStyle(fontSize = 24.sp, fontWeight = FontWeight.W800, letterSpacing = (-0.5).sp)
 
     /** `.vhead h3` — compact in-header title. */
     val headerTitle = TextStyle(fontSize = 16.5.sp, fontWeight = FontWeight.W700, letterSpacing = (-0.3).sp)

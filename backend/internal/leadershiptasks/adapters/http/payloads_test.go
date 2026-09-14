@@ -66,8 +66,8 @@ func TestTaskPayloadCarriesBackendCopyAndCapabilitiesPerParty(t *testing.T) {
 		// No deadline: no counter, no tone, blank labels -- the screen draws nothing.
 		"deadline_at":          nil,
 		"deadline_label":       "",
-		"days_taken":           nil,
-		"days_taken_label":     "",
+		"days_left":            nil,
+		"days_left_label":      "",
 		"deadline_tone":        "",
 		"deadline_state_label": "",
 	} {
@@ -122,7 +122,7 @@ func TestFilterPayloadsAreWholeListCountsWithTheSelectedChipMarked(t *testing.T)
 // The deadline and the day counter ride the payload composed from the server clock: the big
 // number, its worded form, the green/red tone and the sentence beneath it. The phone and
 // admin-web render these verbatim and count nothing themselves.
-func TestTaskPayloadCarriesTheDeadlineAndTheDayCounter(t *testing.T) {
+func TestTaskPayloadCarriesTheDeadlineAndTheCountdown(t *testing.T) {
 	ist := time.FixedZone("IST", 5*3600+1800)
 	deadline := time.Date(2026, 9, 15, 17, 0, 0, 0, ist)
 	task := domain.Task{
@@ -149,23 +149,26 @@ func TestTaskPayloadCarriesTheDeadlineAndTheDayCounter(t *testing.T) {
 		return got
 	}
 
-	within := decode(time.Date(2026, 9, 14, 9, 0, 0, 0, ist))
+	far := decode(time.Date(2026, 9, 11, 9, 0, 0, 0, ist))
 	for key, want := range map[string]any{
 		"deadline_at":          "2026-09-15T11:30:00Z",
 		"deadline_label":       "15/09/2026 17:00",
-		"days_taken":           float64(4),
-		"days_taken_label":     "4 days",
+		"days_left":            float64(4),
+		"days_left_label":      "4 days left",
 		"deadline_tone":        "ok",
-		"deadline_state_label": "Within deadline",
+		"deadline_state_label": "Due in 4 days",
 	} {
-		if within[key] != want {
-			t.Errorf("within: %s = %v, want %v", key, within[key], want)
+		if far[key] != want {
+			t.Errorf("far: %s = %v, want %v", key, far[key], want)
 		}
 	}
-
-	late := decode(time.Date(2026, 9, 16, 9, 0, 0, 0, ist))
-	if late["days_taken"] != float64(6) || late["deadline_tone"] != "late" || late["deadline_state_label"] != "Past deadline" {
-		t.Fatalf("late payload = days %v tone %v state %v", late["days_taken"], late["deadline_tone"], late["deadline_state_label"])
+	near := decode(time.Date(2026, 9, 14, 9, 0, 0, 0, ist))
+	if near["days_left"] != float64(1) || near["deadline_tone"] != "near" || near["days_left_label"] != "1 day left" {
+		t.Fatalf("near payload = days %v tone %v label %v", near["days_left"], near["deadline_tone"], near["days_left_label"])
+	}
+	over := decode(time.Date(2026, 9, 18, 9, 0, 0, 0, ist))
+	if over["days_left"] != float64(-3) || over["deadline_tone"] != "over" || over["deadline_state_label"] != "Overdue by 3 days" {
+		t.Fatalf("over payload = days %v tone %v state %v", over["days_left"], over["deadline_tone"], over["deadline_state_label"])
 	}
 }
 
