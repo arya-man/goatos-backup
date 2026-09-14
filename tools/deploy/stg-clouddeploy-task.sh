@@ -440,9 +440,9 @@ deploy() {
     --image="$BACKEND_IMAGE" \
     --ingress=all \
     --min=1 \
-    --max=4 \
+    --max=2 \
     --min-instances=1 \
-    --max-instances=4 \
+    --max-instances=2 \
     --concurrency=20 \
     --update-labels="commit_sha=${COMMIT_SHA},deployed_by=cloud-deploy" \
     --quiet

@@ -249,7 +249,7 @@ expect_api_latency_shape() {
   )"
   IFS=$'\t' read -r min max concurrency <<<"$line"
   [[ "$min" == "1" ]] || die "goatos-api-stg min scale drift: got ${min:-unset} want 1"
-  [[ "$max" == "4" ]] || die "goatos-api-stg max scale drift: got ${max:-unset} want 4"
+  [[ "$max" == "2" ]] || die "goatos-api-stg max scale drift: got ${max:-unset} want 2"
   [[ "$concurrency" == "20" ]] || die "goatos-api-stg concurrency drift: got ${concurrency:-unset} want 20"
   echo "verified api latency shape: min=$min max=$max concurrency=$concurrency"
 }

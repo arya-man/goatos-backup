@@ -22,7 +22,7 @@ API-only timing is not enough for final acceptance.
 ## Progress Checklist
 
 Current PR: <https://github.com/vgoats/goatos/pull/259>  
-Current head: `b1b52d4382e737826c8af8dcf3fae7f41ed1b16a`
+Current head: `b58b5a97d9d97c714b7677d6ae99a472a56f99f9`
 
 | Item | Status | Evidence / next action |
 | --- | --- | --- |
@@ -39,9 +39,18 @@ Current head: `b1b52d4382e737826c8af8dcf3fae7f41ed1b16a`
 | Local browser interaction timing | Done | Work Board sidebar: 519ms cold, then 414ms, 316ms, 262ms, 295ms. Weights warms to 632ms, 372ms, 389ms after cold route costs. |
 | Lighthouse local score | Done | Work Board 84 performance / 100 accessibility; Weights 83 performance / 100 accessibility. |
 | Events isolation | Done in PR, pending live proof | PR adds capped event lane (`min=0`, `max=1`, DB pool 2) and route tooling. Must verify after STG deploy. |
-| Billing guard | Partially done | PR uses business API max 4, not 10. This is still higher than the prior max 2 cost cap and needs maintainer acceptance before deploy/merge. |
+| Billing guard | Done in PR, pending live proof | Business API is kept at max 2; event traffic moves to the separate max 1 event lane instead of raising business API scale. |
+| Slow API inventory | Done | Baseline table below lists every observed >1s API in the 14:40-15:00 IST window, not only Work Board. |
+| `/work-board/rows` and `/work-board/summary` | Done | Replaced by bundled `/work-board/page`; local OCI p95 is 465ms for full all-parks Work Board after fixes. |
+| `/admin-web/bootstrap` | Pending live proof | Not directly rewritten in this PR; expected to improve from less shared API/DB queueing and event split. Must verify from live logs after deploy. |
+| `/feed-packing/worklist` | Inspected, follow-up needed | Worklist summary is an intentionally whole-filter draw. No risky default-shape change in this PR; needs explicit page-only/no-summary contract if still >500ms live. |
+| `/weighing/leadership/growth` and `/weighing/shed-weights` | Guarded, pending live proof | Weights web E2E added and Work Board module reads improved. Dedicated endpoint tuning still requires live after metrics. |
+| `/app/vaccination/execution` | Done | App route now opts out of expensive card summaries unless requested. |
+| `/app/proofs/.../complete` | Pending investigation | Only 2 slow samples in baseline; not proven as repeated offender yet. Needs live query/log drilldown after deploy. |
+| `/app/leadership-tasks` | Pending investigation | Only 3 slow samples in baseline; not proven as repeated offender yet. Needs live query/log drilldown after deploy. |
+| `/auth/session-events` | Pending investigation | Small sample baseline. Need live post-deploy logs to separate cold/queueing/auth path cost. |
 | Judge review | Done for current iteration | Backend/admin judges reviewed; findings were folded into latest fixes. |
-| PR raised/pushed | Done | PR #259 is open, mergeable, not draft, at `b1b52d438...`. |
+| PR raised/pushed | Done | PR #259 is open, mergeable, not draft, at `b58b5a97...` before this billing-cap correction. |
 | STG deploy | Pending | Official deploy path requires landed `origin/main` or explicit break-glass. Do not deploy this PR as normal STG until merge/landing decision. |
 | Live STG verification | Pending | After deploy: Cloud Run logs, event route split, Work Board/Weights live E2E, public PageSpeed/Lighthouse. |
 | Final completion | Pending | Requires STG deploy/live verification or explicit instruction to stop at PR-only. |
@@ -241,10 +250,8 @@ score.
 
 ## Infra Plan
 
-- Restore API Cloud Run max scale to the intended Terraform value and prevent deploy restore from
-  leaving staging capped at 2 instances. This PR uses a cost-capped API max of 4, not 10; noisy
-  event traffic should move to a separate capped lane instead of forcing the business API to scale
-  wide.
+- Keep API Cloud Run max scale at the intended staging billing cap of 2 instances. Noisy event
+  traffic moves to a separate capped lane instead of forcing the business API to scale wider.
 - Align Cloud Run concurrency with the backend DB pool. Current shape allows many HTTP requests to
   pile into a much smaller DB connection pool, which creates queueing.
 - Route `/app/analytics/events` to the separate `goatos-analytics-events-stg` service. Events can be
@@ -257,11 +264,11 @@ score.
 
 - This PR itself should reduce waste: fewer admin-web backend requests and less repeated auth/HTTP
   overhead.
-- Raising API max scale or lowering concurrency can increase Cloud Run instance time during bursts,
-  but it buys lower latency. This PR caps the API at 4 instances to bound that spend; if event bursts
-  are frequent, the cost-safe fix is a separate events service/queue, not a higher business API cap.
+- Raising API max scale or lowering concurrency can increase Cloud Run instance time during bursts.
+  This PR keeps the business API capped at 2 and uses request-shape fixes plus event isolation for
+  latency instead of buying performance by widening the main API.
 - Upgrading Cloud SQL has a direct monthly cost increase; do it only if metrics show DB CPU/IO or
   connection pressure remains after request-shape fixes.
 - Splitting events adds at most one small Cloud Run instance during event bursts in this PR
   (`min=0`, `max=1`) plus two database connections. It protects business APIs from noisy telemetry
-  without raising the main API above the cost-capped max of 4.
+  without raising the main API above the cost-capped max of 2.
