@@ -28,7 +28,7 @@ goatos-api-stg
 Expected steady-state scaling for the API:
 
 ```text
-goatos-api-stg min-instances=1 max-instances=2 concurrency=20
+goatos-api-stg min-instances=1 max-instances=2 concurrency=10
 ```
 
 Keep runtime repair separate from a code deploy. If a code deploy is needed,

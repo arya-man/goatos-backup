@@ -95,6 +95,16 @@ test("release wrapper verifies the same api latency shape and has safe deploy de
     /\[\[ "\$concurrency" == "10" \]\] \|\| die "goatos-api-stg concurrency drift: got \$\{concurrency:-unset\} want 10"/,
     "release receipt must expect the API concurrency pinned by terraform and the deploy task",
   );
+  assert.doesNotMatch(
+    releaseScript,
+    /--format='value\([^']*autoscaling\\\.knative\\\.dev\/minScale/,
+    "release receipt must not use gcloud value(...) projections for slash-containing annotation keys",
+  );
+  assert.match(
+    releaseScript,
+    /--format=json \| python3 -c/,
+    "release receipt must parse Cloud Run annotations from JSON so slash-containing keys are safe",
+  );
 });
 
 test("analytics events has an isolated capped deploy lane", () => {

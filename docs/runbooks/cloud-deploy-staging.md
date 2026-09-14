@@ -245,7 +245,7 @@ gcloud run services describe goatos-api-stg \
 ```
 
 Expected API shape after deploy: `minScale=1`, `maxScale=2`,
-`containerConcurrency=20`.
+`containerConcurrency=10`.
 
 ## Break Glass
 

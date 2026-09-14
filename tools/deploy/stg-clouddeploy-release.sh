@@ -246,7 +246,20 @@ expect_api_latency_shape() {
     gcloud run services describe goatos-api-stg \
       --project="$PROJECT_ID" \
       --region="$REGION" \
-      --format='value(spec.template.metadata.annotations.autoscaling\.knative\.dev/minScale,spec.template.metadata.annotations.autoscaling\.knative\.dev/maxScale,spec.template.spec.containerConcurrency)'
+      --format=json | python3 -c '
+import json
+import sys
+
+doc = json.load(sys.stdin)
+template = doc.get("spec", {}).get("template", {})
+annotations = template.get("metadata", {}).get("annotations", {})
+spec = template.get("spec", {})
+print("\t".join([
+    annotations.get("autoscaling.knative.dev/minScale", ""),
+    annotations.get("autoscaling.knative.dev/maxScale", ""),
+    str(spec.get("containerConcurrency", "")),
+]))
+'
   )"
   IFS=$'\t' read -r min max concurrency <<<"$line"
   [[ "$min" == "1" ]] || die "goatos-api-stg min scale drift: got ${min:-unset} want 1"
