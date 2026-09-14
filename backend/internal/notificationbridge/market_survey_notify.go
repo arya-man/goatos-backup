@@ -16,8 +16,9 @@ import (
 // Morning market-survey push (maintainer decision 2026-09-14).
 //
 // The procurement director phones a handful of markets every morning for goat and sheep prices.
-// This bridge is the reminder: on the first tick at or after MarketSurveyCutoff IST it tells each
-// market reporter which cities are still to be called today, and it says nothing once every
+// This bridge is the reminder: on the first tick at or after the tenant's configured call time
+// (Sales Config, default 08:00 IST -- the same instant the cards appear on the phone) it tells
+// each market reporter which cities are still to be called today, and it says nothing once every
 // city's card is done.
 //
 // ONCE PER DAY, without a private scheduler: the stage rides the shared operational cadence and the
@@ -31,18 +32,9 @@ import (
 // NotificationTypeMarketSurveyDue is the notification_requests.notification_type for the push.
 const NotificationTypeMarketSurveyDue = "market_survey_due"
 
-// MarketSurveyCutoff is the IST time of day from which the reminder may be sent.
-var MarketSurveyCutoff = struct{ Hour, Minute int }{Hour: 8, Minute: 0}
-
-// MarketSurveyCutoffPassed reports whether now is at or after the cutoff on its own IST day.
-func MarketSurveyCutoffPassed(now time.Time) bool {
-	local := now.In(biztime.DefaultLocation())
-	cutoff := time.Date(local.Year(), local.Month(), local.Day(),
-		MarketSurveyCutoff.Hour, MarketSurveyCutoff.Minute, 0, 0, biztime.DefaultLocation())
-	return !local.Before(cutoff)
-}
-
-// MarketDayReader is the slice of the market service this bridge needs.
+// MarketDayReader is the slice of the market service this bridge needs. GetDay applies the
+// configured call time itself: before it the view is closed (Open=false), so the notifier
+// needs no clock rule of its own -- the time the cards appear IS the time the push goes.
 type MarketDayReader interface {
 	GetDay(ctx context.Context, tenantID, businessDate string) (marketapp.DayView, error)
 }
@@ -82,14 +74,13 @@ func (n *MarketSurveyNotifier) NotifyDue(ctx context.Context, tenantID string) e
 	if tenantID == "" {
 		return fmt.Errorf("market survey notification: tenant id is required")
 	}
-	now := n.now()
-	if !MarketSurveyCutoffPassed(now) {
-		return nil
-	}
-	businessDate := biztime.BusinessDate(now)
+	businessDate := biztime.BusinessDate(n.now())
 	view, err := n.day.GetDay(ctx, tenantID, businessDate)
 	if err != nil {
 		return fmt.Errorf("market survey notification: read day: %w", err)
+	}
+	if !view.Open {
+		return nil
 	}
 	pending := make([]string, 0, len(view.Cards))
 	for _, c := range view.Cards {

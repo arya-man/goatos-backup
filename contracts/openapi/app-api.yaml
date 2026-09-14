@@ -8557,6 +8557,39 @@ paths:
           $ref: "#/components/responses/UnprocessableEntity"
         "500":
           $ref: "#/components/responses/ServerError"
+  /market/config/call-time:
+    put:
+      tags:
+        - Sales
+      operationId: setMarketCallTime
+      summary: Set the local time the day's market calls open.
+      description: >-
+        ONE "HH:MM" Asia/Kolkata time per tenant (maintainer decision 2026-09-14): at that time the
+        reporter's phone shows the day's city cards AND the reminder push goes out; before it the day
+        view is closed and a save is refused. Naturally idempotent. Requires sales.market.config.write.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MarketCallTimeWrite"
+      responses:
+        "200":
+          description: The stored call time.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MarketCallTime"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "500":
+          $ref: "#/components/responses/ServerError"
   /market/analytics:
     get:
       tags:
@@ -19319,7 +19352,7 @@ components:
           enum: [active, retired]
     MarketConfig:
       type: object
-      required: [cities, questions]
+      required: [cities, questions, call_time]
       properties:
         cities:
           type: array
@@ -19329,6 +19362,21 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/MarketQuestion"
+        call_time:
+          type: string
+          description: '"HH:MM" Asia/Kolkata -- when the day''s cards appear and the reminder goes; 08:00 when none is stored.'
+    MarketCallTimeWrite:
+      type: object
+      required: [call_time]
+      properties:
+        call_time:
+          type: string
+          description: '"HH:MM" Asia/Kolkata.'
+    MarketCallTime:
+      type: object
+      required: [call_time]
+      properties:
+        call_time: { type: string }
     MarketCityWrite:
       type: object
       required: [name]
@@ -19400,8 +19448,14 @@ components:
             $ref: "#/components/schemas/MarketSurveyCardQuestion"
     MarketSurveyDay:
       type: object
-      required: [business_date, cards, pending, done, can_record]
+      required: [business_date, cards, pending, done, can_record, open, opens_at]
       properties:
+        open:
+          type: boolean
+          description: Whether the day's calls have opened. Before the configured call time, cards is empty.
+        opens_at:
+          type: string
+          description: 'The configured call time, "HH:MM" Asia/Kolkata.'
         business_date: { type: string, format: date }
         cards:
           type: array

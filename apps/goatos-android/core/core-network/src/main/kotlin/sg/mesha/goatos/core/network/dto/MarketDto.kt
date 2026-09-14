@@ -43,6 +43,10 @@ data class MarketSurveyDayDto(
     @SerialName("done") val done: Int = 0,
     /** Whether THIS caller holds sales.market.entry — the server's answer, never a role string. */
     @SerialName("can_record") val canRecord: Boolean = false,
+    /** Whether the day's calls have opened; before the configured call time [cards] is empty. */
+    @SerialName("open") val open: Boolean = true,
+    /** The configured call time, "HH:MM" IST — rendered verbatim in the closed state. */
+    @SerialName("opens_at") val opensAt: String = "",
 )
 
 @Serializable

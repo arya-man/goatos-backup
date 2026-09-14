@@ -17,6 +17,7 @@ export type MarketAnalytics = AppApiComponents["schemas"]["MarketAnalytics"];
 export type MarketSeries = AppApiComponents["schemas"]["MarketSeries"];
 export type MarketLatestCell = AppApiComponents["schemas"]["MarketLatestCell"];
 export type MarketSurveyDay = AppApiComponents["schemas"]["MarketSurveyDay"];
+export type MarketCallTime = AppApiComponents["schemas"]["MarketCallTime"];
 
 function idempotentHeaders(idempotencyKey: string) {
   return { "Idempotency-Key": idempotencyKey };
@@ -79,6 +80,20 @@ export async function updateMarketQuestion(questionId: string, body: MarketQuest
       method: "PUT",
       cache: "no-store",
       body,
+    }),
+  );
+}
+
+/** The local IST time the day's calls open -- when the cards appear and the reminder goes. */
+export async function setMarketCallTime(callTime: string): Promise<ApiResult<MarketCallTime>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<MarketCallTime>("/market/config/call-time", {
+      method: "PUT",
+      cache: "no-store",
+      body: { call_time: callTime },
     }),
   );
 }

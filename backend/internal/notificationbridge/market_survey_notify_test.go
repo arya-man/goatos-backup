@@ -38,7 +38,7 @@ type stubReporters struct{ ids []string }
 func (s stubReporters) ReporterUserIDs(context.Context, string) ([]string, error) { return s.ids, nil }
 
 func marketView(pending, done int) marketapp.DayView {
-	v := marketapp.DayView{Pending: pending, Done: done}
+	v := marketapp.DayView{Pending: pending, Done: done, Open: true, OpensAt: "08:00"}
 	names := []string{"Chennai", "Salem", "Madurai", "Erode"}
 	for i := 0; i < pending+done; i++ {
 		status := marketdomain.CardPending
@@ -50,8 +50,9 @@ func marketView(pending, done int) marketapp.DayView {
 	return v
 }
 
-// Morning market reminder (maintainer decision 2026-09-14): sent to the named reporters at or
-// after 08:00 IST, naming the cities still to call, and not at all once every card is done.
+// Morning market reminder (maintainer decision 2026-09-14): sent to the named reporters once the
+// day's calls are OPEN (the configured call time, which the day view applies), naming the cities
+// still to call, and not at all once every card is done.
 func TestMarketSurveyNotifierNamesPendingCitiesAfterTheCutoff(t *testing.T) {
 	queue := &recordingQueue{}
 	n := NewMarketSurveyNotifier(stubMarketDay{marketView(2, 1)}, stubReporters{[]string{"u1"}}, marketTestRecipients{}, queue, nil).
@@ -76,10 +77,12 @@ func TestMarketSurveyNotifierNamesPendingCitiesAfterTheCutoff(t *testing.T) {
 
 func TestMarketSurveyNotifierIsSilentBeforeTheCutoffAndWhenEveryCityIsDone(t *testing.T) {
 	queue := &recordingQueue{}
-	early := NewMarketSurveyNotifier(stubMarketDay{marketView(2, 0)}, stubReporters{[]string{"u1"}}, marketTestRecipients{}, queue, nil).
+	closed := marketView(2, 0)
+	closed.Open = false
+	early := NewMarketSurveyNotifier(stubMarketDay{closed}, stubReporters{[]string{"u1"}}, marketTestRecipients{}, queue, nil).
 		WithClock(func() time.Time { return istTime(t, "2026-09-14 07:59") })
 	if err := early.NotifyDue(context.Background(), "tenant-1"); err != nil || len(queue.queued) != 0 {
-		t.Fatalf("before the cutoff: queued %d, err %v", len(queue.queued), err)
+		t.Fatalf("before the call time (view closed): queued %d, err %v", len(queue.queued), err)
 	}
 	done := NewMarketSurveyNotifier(stubMarketDay{marketView(0, 3)}, stubReporters{[]string{"u1"}}, marketTestRecipients{}, queue, nil).
 		WithClock(func() time.Time { return istTime(t, "2026-09-14 09:00") })

@@ -89,6 +89,12 @@ class MarketViewModelsTest {
         assertEquals(MarketSurveyViewModel.EMPTY_NO_CITIES, noCities.emptyMessage)
         assertFalse(noCities.isErrorEmpty)
         assertFalse(composeDayState("Market", day.copy(canRecord = false), false, null, false).canRecord)
+
+        // Before the configured call time the server holds the cards back and names the time.
+        val closed = composeDayState("Market", day.copy(cards = emptyList(), pending = 2, done = 0, open = false, opensAt = "08:30"), false, null, false)
+        assertEquals("Today's market calls open at 08:30", closed.emptyMessage)
+        assertEquals("2 cities to call", closed.summaryLine)
+        assertFalse(closed.isErrorEmpty)
     }
 
     @Test

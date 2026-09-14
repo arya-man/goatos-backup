@@ -11,6 +11,7 @@ import { actionRedirect, optionalString, requiredString } from "@/lib/action-hel
 import {
   createMarketCity,
   createMarketQuestion,
+  setMarketCallTime,
   updateMarketCity,
   updateMarketQuestion,
 } from "@/lib/api/market-server";
@@ -65,4 +66,11 @@ export async function updateMarketQuestionAction(formData: FormData): Promise<vo
   if (!result.ok) actionRedirect(formData, "error", failureKey(result));
   revalidatePath(SALES_CONFIG_PATH);
   actionRedirect(formData, "success", "action.market_question_saved");
+}
+
+export async function setMarketCallTimeAction(formData: FormData): Promise<void> {
+  const result = await setMarketCallTime(requiredString(formData, "call_time"));
+  if (!result.ok) actionRedirect(formData, "error", failureKey(result));
+  revalidatePath(SALES_CONFIG_PATH);
+  actionRedirect(formData, "success", "action.market_call_time_saved");
 }

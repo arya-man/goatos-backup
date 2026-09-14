@@ -133,6 +133,14 @@ WHERE e.tenant_id = $1::uuid AND e.city_id = $2::uuid AND e.business_date = $3::
 ORDER BY ` + entryOrder + `
 LIMIT $4`
 
+	getCallTimeSQL = `SELECT to_char(call_time, 'HH24:MI') FROM market_survey_config WHERE tenant_id = $1::uuid`
+
+	setCallTimeSQL = `
+INSERT INTO market_survey_config (tenant_id, call_time, updated_by, updated_at)
+VALUES ($1::uuid, $2::time, nullif($3, '')::uuid, now())
+ON CONFLICT (tenant_id) DO UPDATE
+SET call_time = EXCLUDED.call_time, updated_by = EXCLUDED.updated_by, updated_at = now()`
+
 	reporterUserIDsSQL = `
 SELECT DISTINCT user_id::text
 FROM user_scope_grants
@@ -178,7 +186,29 @@ func (r *Repository) GetConfig(ctx context.Context, tenantID string) (domain.Con
 		return cfg, fmt.Errorf("market: list questions: %w", err)
 	}
 	cfg.Questions, err = scanQuestions(rows)
-	return cfg, err
+	if err != nil {
+		return cfg, err
+	}
+	// A tenant with no row reads blank and the domain falls back to the default; only a real
+	// storage error is an error.
+	if err := r.pool.QueryRow(ctx, getCallTimeSQL, tenantID).Scan(&cfg.CallTime); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return cfg, fmt.Errorf("market: read call time: %w", err)
+	}
+	return cfg, nil
+}
+
+// SetCallTime stores the local time the day's calls open. Naturally idempotent.
+func (r *Repository) SetCallTime(ctx context.Context, tenantID, actorID, callTime string) error {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	return r.inTx(ctx, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, setCallTimeSQL, tenantID, callTime, actorID); err != nil {
+			return fmt.Errorf("market: set call time: %w", err)
+		}
+		return r.audit(ctx, tx, tenantID, actorID, "market.call_time.set", "market_survey_config", tenantID, map[string]any{
+			"call_time": callTime,
+		})
+	})
 }
 
 // CreateCity appends a city after the current last one. Idempotent on the key: an exact replay

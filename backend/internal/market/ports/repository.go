@@ -33,8 +33,11 @@ type RecordDayEntryParams struct {
 
 // Repository is the market survey's storage.
 type Repository interface {
-	// GetConfig reads every city and question, active and retired, in shown order.
+	// GetConfig reads every city and question, active and retired, in shown order, plus the
+	// configured call time (blank when no row is stored).
 	GetConfig(ctx context.Context, tenantID string) (domain.Config, error)
+	// SetCallTime stores the "HH:MM" local time the day's calls open.
+	SetCallTime(ctx context.Context, tenantID, actorID, callTime string) error
 	CreateCity(ctx context.Context, tenantID, actorID, idempotencyKey string, write domain.CityWrite) (domain.City, error)
 	UpdateCity(ctx context.Context, tenantID, actorID, cityID string, write domain.CityWrite) (domain.City, error)
 	CreateQuestion(ctx context.Context, tenantID, actorID, idempotencyKey string, write domain.QuestionWrite) (domain.Question, error)

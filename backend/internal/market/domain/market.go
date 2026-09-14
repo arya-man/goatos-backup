@@ -77,11 +77,68 @@ type Question struct {
 	UpdatedAt time.Time
 }
 
+// DefaultCallTime is the local IST time the calls open when a tenant has no configured row.
+const DefaultCallTime = "08:00"
+
 // Config is the whole authored survey: every city and question, active and retired, in shown
-// order. Retired rows ride along so the config screen can reactivate them.
+// order, plus the ONE local time the day's calls open. Retired rows ride along so the config
+// screen can reactivate them.
 type Config struct {
 	Cities    []City
 	Questions []Question
+	// CallTime is "HH:MM" in Asia/Kolkata: when the cards appear on the phone and the reminder
+	// goes out (maintainer decision 2026-09-14). Blank means DefaultCallTime.
+	CallTime string
+}
+
+// EffectiveCallTime is the configured call time, or the default when none is stored.
+func (c Config) EffectiveCallTime() string {
+	if strings.TrimSpace(c.CallTime) == "" {
+		return DefaultCallTime
+	}
+	return c.CallTime
+}
+
+// ParseCallTime validates an "HH:MM" local time.
+func ParseCallTime(raw string) (string, error) {
+	raw = strings.TrimSpace(raw)
+	t, err := time.Parse("15:04", raw)
+	if err != nil {
+		return "", ErrFieldValidation{Field: "call_time", Reason: "must be a time like 08:00"}
+	}
+	return t.Format("15:04"), nil
+}
+
+// CallsOpenAt is the instant the calls open on a business date, in the farm's own zone.
+func CallsOpenAt(businessDate, callTime string) (time.Time, error) {
+	d, err := time.Parse("2006-01-02", businessDate)
+	if err != nil {
+		return time.Time{}, err
+	}
+	t, err := time.Parse("15:04", callTime)
+	if err != nil {
+		return time.Time{}, err
+	}
+	loc := biztime.DefaultLocation()
+	return time.Date(d.Year(), d.Month(), d.Day(), t.Hour(), t.Minute(), 0, 0, loc), nil
+}
+
+// CallsOpen reports whether the day's calls have opened by now: a PAST business day is always
+// open (a call the reporter forgot to type in is still real), today's opens at the call time,
+// and a future day never is.
+func CallsOpen(businessDate, callTime string, now time.Time) bool {
+	today := biztime.BusinessDate(now)
+	if businessDate < today {
+		return true
+	}
+	if businessDate > today {
+		return false
+	}
+	openAt, err := CallsOpenAt(businessDate, callTime)
+	if err != nil {
+		return true
+	}
+	return !now.Before(openAt)
 }
 
 // ActiveCities filters the config to the cities phoned today.

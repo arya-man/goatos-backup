@@ -342,6 +342,7 @@ var protectedRoutes = []Route{
 	{OperationID: "updateMarketCity", Method: "PUT", Pattern: "/market/cities/{city_id}", Permissions: []string{MarketConfigWrite}},
 	{OperationID: "createMarketQuestion", Method: "POST", Pattern: "/market/questions", Permissions: []string{MarketConfigWrite}},
 	{OperationID: "updateMarketQuestion", Method: "PUT", Pattern: "/market/questions/{question_id}", Permissions: []string{MarketConfigWrite}},
+	{OperationID: "setMarketCallTime", Method: "PUT", Pattern: "/market/config/call-time", Permissions: []string{MarketConfigWrite}},
 	{OperationID: "getMarketAnalytics", Method: "GET", Pattern: "/market/analytics", Permissions: []string{MarketRead}},
 	{OperationID: "getMarketSurveyDay", Method: "GET", Pattern: "/app/market/survey", Permissions: []string{MarketRead}},
 	{OperationID: "recordMarketSurveyCity", Method: "POST", Pattern: "/app/market/survey/{city_id}", Permissions: []string{MarketEntry}},

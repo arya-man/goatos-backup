@@ -85,6 +85,15 @@ func (s *Service) UpdateQuestion(ctx context.Context, tenantID, actorID, questio
 	return s.repo.UpdateQuestion(ctx, tenantID, actorID, strings.TrimSpace(questionID), write)
 }
 
+// SetCallTime stores the local time the day's calls open (Sales Config).
+func (s *Service) SetCallTime(ctx context.Context, tenantID, actorID, raw string) (string, error) {
+	callTime, err := domain.ParseCallTime(raw)
+	if err != nil {
+		return "", err
+	}
+	return callTime, s.repo.SetCallTime(ctx, tenantID, actorID, callTime)
+}
+
 // DayView is the phone's screen for one business day.
 type DayView struct {
 	BusinessDate string
@@ -92,6 +101,10 @@ type DayView struct {
 	// Pending and Done are whole-day counts, never page-local: the screen has one page.
 	Pending int
 	Done    int
+	// Open is whether the day's calls have opened; before OpensAt (today's configured call
+	// time, "HH:MM" IST) Cards is empty and the phone says when they open.
+	Open    bool
+	OpensAt string
 }
 
 // GetDay composes the cards for a business day: today when blank. A future date is refused --
@@ -105,11 +118,18 @@ func (s *Service) GetDay(ctx context.Context, tenantID, businessDate string) (Da
 	if err != nil {
 		return DayView{}, err
 	}
+	callTime := cfg.EffectiveCallTime()
+	if !domain.CallsOpen(date, callTime, s.now()) {
+		// Not yet: the cards are held back so the reporter is not asked for prices before the
+		// markets are worth phoning. The count of cities is still honest (Pending) so the tab
+		// can say how many calls the day holds.
+		return DayView{BusinessDate: date, Cards: []domain.DayCard{}, Pending: len(cfg.ActiveCities()), Open: false, OpensAt: callTime}, nil
+	}
 	entries, err := s.repo.ListDayEntries(ctx, tenantID, date)
 	if err != nil {
 		return DayView{}, err
 	}
-	view := DayView{BusinessDate: date, Cards: domain.BuildDayCards(cfg, entries)}
+	view := DayView{BusinessDate: date, Cards: domain.BuildDayCards(cfg, entries), Open: true, OpensAt: callTime}
 	for _, c := range view.Cards {
 		if c.Status == domain.CardDone {
 			view.Done++
@@ -136,6 +156,13 @@ func (s *Service) RecordDay(ctx context.Context, tenantID, actorID, idempotencyK
 	}
 	if err := write.Validate(); err != nil {
 		return domain.DayCard{}, err
+	}
+	cfg, err := s.repo.GetConfig(ctx, tenantID)
+	if err != nil {
+		return domain.DayCard{}, err
+	}
+	if !domain.CallsOpen(date, cfg.EffectiveCallTime(), s.now()) {
+		return domain.DayCard{}, ErrNotOpenYet
 	}
 	if _, err := s.repo.RecordDayEntry(ctx, ports.RecordDayEntryParams{
 		TenantID: tenantID, ActorID: actorID, IdempotencyKey: idempotencyKey, Write: write,
@@ -209,6 +236,9 @@ func (s *Service) resolveDate(raw string) (string, error) {
 	return raw, nil
 }
 
+// ErrNotOpenYet is a save for today before the configured call time.
+var ErrNotOpenYet = errors.New("market: today's calls have not opened yet")
+
 // Error is the transport-facing error shape: a stable code plus a farm-worded message.
 type Error struct {
 	Code       string
@@ -240,6 +270,8 @@ func HTTPError(err error) *Error {
 		return &Error{Code: "city_retired", Message: "This city is no longer on the morning call list.", HTTPStatus: http.StatusUnprocessableEntity}
 	case errors.Is(err, ports.ErrTooMany):
 		return &Error{Code: "too_many", Message: "The list is full. Retire one before adding another.", HTTPStatus: http.StatusUnprocessableEntity}
+	case errors.Is(err, ErrNotOpenYet):
+		return &Error{Code: "not_open_yet", Message: "Today's market calls have not opened yet.", HTTPStatus: http.StatusUnprocessableEntity}
 	case errors.Is(err, domain.ErrNothingToRecord):
 		return &Error{Code: "nothing_to_record", Message: "Enter at least one price before saving.", HTTPStatus: http.StatusUnprocessableEntity}
 	case errors.Is(err, domain.ErrUnknownQuestion):
@@ -257,7 +289,7 @@ func fieldMessage(e domain.ErrFieldValidation) string {
 	label := map[string]string{
 		"name": "City name", "label": "Question", "unit_label": "Unit", "status": "Status",
 		"price": "Price", "business_date": "Date", "city_id": "City", "question_id": "Question",
-		"from": "From date", "to": "To date",
+		"from": "From date", "to": "To date", "call_time": "Call time",
 	}[e.Field]
 	if label == "" {
 		label = e.Field

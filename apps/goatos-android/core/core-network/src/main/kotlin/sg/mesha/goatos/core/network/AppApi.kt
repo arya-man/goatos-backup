@@ -3316,6 +3316,8 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
         pending = 1,
         done = 0,
         canRecord = true,
+        open = true,
+        opensAt = "08:00",
     )
 
     override suspend fun recordMarketSurveyCity(cityId: String, idempotencyKey: String, request: MarketSurveyEntryRequestDto): MarketSurveyCardDto =

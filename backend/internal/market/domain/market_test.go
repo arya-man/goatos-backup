@@ -3,6 +3,8 @@ package domain
 import (
 	"testing"
 	"time"
+
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 )
 
 func f(v float64) *float64 { return &v }
@@ -90,4 +92,32 @@ func TestDefaultBusinessDateIsTheISTDay(t *testing.T) {
 		t.Fatalf("business date = %s, want 2026-09-14", got)
 	}
 	_ = f
+}
+
+func TestCallsOpenFollowsTheConfiguredISTTime(t *testing.T) {
+	ist := biztime.DefaultLocation()
+	before := time.Date(2026, 9, 14, 7, 59, 0, 0, ist)
+	at := time.Date(2026, 9, 14, 8, 0, 0, 0, ist)
+	if CallsOpen("2026-09-14", "08:00", before) {
+		t.Fatal("open at 07:59 for an 08:00 call time")
+	}
+	if !CallsOpen("2026-09-14", "08:00", at) {
+		t.Fatal("closed at 08:00 for an 08:00 call time")
+	}
+	if !CallsOpen("2026-09-14", "09:30", time.Date(2026, 9, 14, 9, 30, 0, 0, ist)) {
+		t.Fatal("a configured 09:30 did not open at 09:30")
+	}
+	// Yesterday is always open (a forgotten call is still real); tomorrow never is.
+	if !CallsOpen("2026-09-13", "08:00", before) || CallsOpen("2026-09-15", "08:00", at) {
+		t.Fatal("past/future day open rule")
+	}
+	if _, err := ParseCallTime("8am"); err == nil {
+		t.Fatal("accepted a non HH:MM time")
+	}
+	if got, _ := ParseCallTime(" 09:05 "); got != "09:05" {
+		t.Fatalf("parsed %q", got)
+	}
+	if (Config{}).EffectiveCallTime() != DefaultCallTime {
+		t.Fatal("blank call time did not fall back to the default")
+	}
 }

@@ -38,6 +38,7 @@ func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("PUT /market/cities/{city_id}", h.UpdateCity)
 	mux.HandleFunc("POST /market/questions", h.CreateQuestion)
 	mux.HandleFunc("PUT /market/questions/{question_id}", h.UpdateQuestion)
+	mux.HandleFunc("PUT /market/config/call-time", h.SetCallTime)
 	mux.HandleFunc("GET /market/analytics", h.GetAnalytics)
 	mux.HandleFunc("GET /app/market/survey", h.GetSurveyDay)
 	mux.HandleFunc("POST /app/market/survey/{city_id}", h.RecordSurveyCity)
@@ -65,6 +66,16 @@ type questionPayload struct {
 type configPayload struct {
 	Cities    []cityPayload     `json:"cities"`
 	Questions []questionPayload `json:"questions"`
+	// CallTime is the "HH:MM" IST time the day's calls open (the default when none is stored).
+	CallTime string `json:"call_time"`
+}
+
+type callTimeWritePayload struct {
+	CallTime string `json:"call_time"`
+}
+
+type callTimePayload struct {
+	CallTime string `json:"call_time"`
 }
 
 type cityWritePayload struct {
@@ -113,6 +124,10 @@ type dayViewPayload struct {
 	// same grants the write route authorizes against, so the phone never offers a form the
 	// server would refuse.
 	CanRecord bool `json:"can_record"`
+	// Open is whether the day's calls have opened; OpensAt is today's configured call time
+	// ("HH:MM" IST). Before it, Cards is empty and the phone says when they open.
+	Open    bool   `json:"open"`
+	OpensAt string `json:"opens_at"`
 }
 
 type seriesPointPayload struct {
@@ -157,7 +172,7 @@ func toQuestion(q domain.Question) questionPayload {
 }
 
 func toConfig(cfg domain.Config) configPayload {
-	out := configPayload{Cities: make([]cityPayload, 0, len(cfg.Cities)), Questions: make([]questionPayload, 0, len(cfg.Questions))}
+	out := configPayload{Cities: make([]cityPayload, 0, len(cfg.Cities)), Questions: make([]questionPayload, 0, len(cfg.Questions)), CallTime: cfg.EffectiveCallTime()}
 	for _, c := range cfg.Cities {
 		out.Cities = append(out.Cities, toCity(c))
 	}
@@ -266,6 +281,20 @@ func (h *Handler) UpdateQuestion(w http.ResponseWriter, r *http.Request) {
 	httpresponse.WriteJSON(w, http.StatusOK, toQuestion(q))
 }
 
+// SetCallTime serves PUT /market/config/call-time.
+func (h *Handler) SetCallTime(w http.ResponseWriter, r *http.Request) {
+	var body callTimeWritePayload
+	if !h.decode(w, r, &body) {
+		return
+	}
+	callTime, err := h.service.SetCallTime(r.Context(), tenantID(r), actorID(r), body.CallTime)
+	if err != nil {
+		h.writeErr(w, r, toAppError(err))
+		return
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, callTimePayload{CallTime: callTime})
+}
+
 // GetAnalytics serves GET /market/analytics?from=&to=.
 func (h *Handler) GetAnalytics(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
@@ -307,7 +336,7 @@ func (h *Handler) RecordSurveyCity(w http.ResponseWriter, r *http.Request) {
 }
 
 func toDayView(v app.DayView, canRecord bool) dayViewPayload {
-	out := dayViewPayload{BusinessDate: v.BusinessDate, Pending: v.Pending, Done: v.Done, CanRecord: canRecord,
+	out := dayViewPayload{BusinessDate: v.BusinessDate, Pending: v.Pending, Done: v.Done, CanRecord: canRecord, Open: v.Open, OpensAt: v.OpensAt,
 		Cards: make([]dayCardPayload, 0, len(v.Cards))}
 	for _, c := range v.Cards {
 		out.Cards = append(out.Cards, toCard(c))

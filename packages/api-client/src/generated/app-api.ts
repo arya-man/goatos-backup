@@ -3256,6 +3256,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/market/config/call-time": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set the local time the day's market calls open.
+         * @description ONE "HH:MM" Asia/Kolkata time per tenant (maintainer decision 2026-09-14): at that time the reporter's phone shows the day's city cards AND the reminder push goes out; before it the day view is closed and a save is refused. Naturally idempotent. Requires sales.market.config.write.
+         */
+        put: operations["setMarketCallTime"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/market/analytics": {
         parameters: {
             query?: never;
@@ -8221,6 +8241,15 @@ export interface components {
         MarketConfig: {
             cities: components["schemas"]["MarketCity"][];
             questions: components["schemas"]["MarketQuestion"][];
+            /** @description "HH:MM" Asia/Kolkata -- when the day's cards appear and the reminder goes; 08:00 when none is stored. */
+            call_time: string;
+        };
+        MarketCallTimeWrite: {
+            /** @description "HH:MM" Asia/Kolkata. */
+            call_time: string;
+        };
+        MarketCallTime: {
+            call_time: string;
         };
         MarketCityWrite: {
             name: string;
@@ -8278,6 +8307,10 @@ export interface components {
             questions: components["schemas"]["MarketSurveyCardQuestion"][];
         };
         MarketSurveyDay: {
+            /** @description Whether the day's calls have opened. Before the configured call time, cards is empty. */
+            open: boolean;
+            /** @description The configured call time, "HH:MM" Asia/Kolkata. */
+            opens_at: string;
             /** Format: date */
             business_date: string;
             cards: components["schemas"]["MarketSurveyCard"][];
@@ -23769,6 +23802,35 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFoundOrNotAllowed"];
             409: components["responses"]["WriteConflict"];
+            422: components["responses"]["UnprocessableEntity"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    setMarketCallTime: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MarketCallTimeWrite"];
+            };
+        };
+        responses: {
+            /** @description The stored call time. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MarketCallTime"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
             422: components["responses"]["UnprocessableEntity"];
             500: components["responses"]["ServerError"];
         };

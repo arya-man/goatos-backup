@@ -95,6 +95,7 @@ class MarketSurveyViewModel @Inject constructor(
     companion object {
         const val EMPTY_NO_CITIES = "No cities on the call list yet. They are added on Sales Config."
         const val EMPTY_LOAD_FAILED = "Could not load today's market calls. Pull to refresh."
+        const val EMPTY_NOT_OPEN_PREFIX = "Today's market calls open at "
         const val LABEL_DONE = "Done"
         const val LABEL_PENDING = "Pending"
     }
@@ -122,13 +123,16 @@ internal fun composeDayState(
     val empty = when {
         cards.isNotEmpty() -> null
         day == null && loadError -> MarketSurveyViewModel.EMPTY_LOAD_FAILED
+        // Before the configured call time the server holds the cards back; say when they open
+        // (the time is the server's, rendered verbatim) rather than "no cities".
+        day != null && !day.open -> MarketSurveyViewModel.EMPTY_NOT_OPEN_PREFIX + day.opensAt
         day != null -> MarketSurveyViewModel.EMPTY_NO_CITIES
         else -> null
     }
     return MarketSurveyUiState(
         title = title,
         dateLine = day?.businessDate?.let(::farmDate).orEmpty(),
-        summaryLine = day?.let { "${it.done} of ${it.cards.size} cities done" }.orEmpty(),
+        summaryLine = day?.let { if (it.open) "${it.done} of ${it.cards.size} cities done" else "${it.pending} cities to call" }.orEmpty(),
         cards = cards,
         isRefreshing = isRefreshing,
         lastSyncedAt = lastSyncedAt,

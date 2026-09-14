@@ -8,6 +8,7 @@ import type { MarketCity, MarketConfig, MarketQuestion } from "@/lib/api/market-
 import {
   addMarketCityAction,
   addMarketQuestionAction,
+  setMarketCallTimeAction,
   updateMarketCityAction,
   updateMarketQuestionAction,
 } from "./market-actions";
@@ -38,7 +39,7 @@ export function MarketConfigSection({
   canConfigure: boolean;
   returnTo: string;
 }) {
-  const config = configResult.ok ? configResult.data : { cities: [], questions: [] };
+  const config = configResult.ok ? configResult.data : { cities: [], questions: [], call_time: "" };
   return (
     <section className="card" aria-label={copy(pageContract, "section.market.aria")}>
       <div className="hd">
@@ -59,6 +60,27 @@ export function MarketConfigSection({
       ) : null}
 
       {!canConfigure ? <div className="note">{copy(pageContract, "disabled.market_config")}</div> : null}
+
+      {/* The ONE time each morning the cards appear on the phone and the reminder goes out
+          (maintainer decision 2026-09-14). A native time input; the value is "HH:MM" IST. */}
+      <div className="market-call-time" style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginBottom: 14 }}>
+        <div>
+          <h4 style={{ margin: "4px 0" }}>{copy(pageContract, "market.call_time.title")}</h4>
+          <p className="muted small" style={{ margin: 0 }}>{copy(pageContract, "market.call_time.hint")}</p>
+        </div>
+        <div className="sp" style={{ flex: 1 }} />
+        {canConfigure ? (
+          <form action={setMarketCallTimeAction} style={{ display: "flex", gap: 8, alignItems: "center" }} data-market-call-time>
+            <input type="hidden" name="return_to" value={returnTo} />
+            <input type="time" name="call_time" defaultValue={config.call_time} required aria-label={copy(pageContract, "market.call_time.title")} />
+            <button type="submit" className="btn sm primary">
+              {copy(pageContract, "market.action.save_call_time")}
+            </button>
+          </form>
+        ) : (
+          <Tag tone="info">{config.call_time}</Tag>
+        )}
+      </div>
 
       <div className="grid g2" style={{ gap: 16, alignItems: "start" }}>
         <div>
