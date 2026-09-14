@@ -33,6 +33,25 @@ export function InspectionSummary({ pageContract, formDsl }: { pageContract: Adm
       <div className="b700" style={{ margin: "14px 0 8px" }}>
         {copy(pageContract, "inspection.drawer.title")} <span className="muted small">— {copy(pageContract, "inspection.drawer.subtitle")}</span>
       </div>
+      {rows.loadForm.length > 0 ? (
+        <div>
+          <div className="muted small b700" style={{ margin: "8px 0 4px" }}>
+            {copy(pageContract, "inspection.loadform.title")}
+          </div>
+          <div className="htl">
+            {rows.loadForm.map((q, qi) => (
+              <div className="hrow" key={q.id}>
+                <div className="htx">
+                  <b>
+                    {qi + 1}. {q.title}
+                  </b>
+                  <div className="hmeta muted small">{questionMeta(pageContract, q, Object.fromEntries(rows.loadForm.map((x) => [x.key, x.title])))}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
       {rows.pages.map((page, pi) => (
         <div key={page.id}>
           <div className="muted small b700" style={{ margin: "8px 0 4px" }}>

@@ -13,8 +13,10 @@ import { useRouter } from "next/navigation";
 import { AlertTriangle, Check, ChevronDown, ChevronLeft, ChevronUp, Lock, Plus, X } from "lucide-react";
 import { copy, optionGroup, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import {
+  LOCKED_LOAD_KEYS,
   LOCKED_OPTION_KEYS,
   LOCKED_QUESTION_KEYS,
+  REQUIRED_LOAD_KEYS,
   blankPage,
   blankQuestion,
   emitInspection,
@@ -45,21 +47,48 @@ export function InspectionEditor({ pageContract: pc, basePath, sopId, sopName, s
   const [result, setResult] = useState<InspectionSaveResult | null>(null);
   const [pending, startTransition] = useTransition();
   const kinds = optionGroup(pc, "inspection_question_kinds");
+  const loadKinds = kinds.filter((k) => k.key !== "media");
   const captures = optionGroup(pc, "inspection_capture_kinds");
   const problems = useMemo(() => inspectionProblems(rows), [rows]);
   const questionCount = rows.pages.reduce((n, p) => n + p.questions.length, 0);
   const takenKeys = useMemo(() => new Set(rows.pages.flatMap((p) => p.questions.map((q) => q.key))), [rows]);
 
+  function updateLoadQuestion(qid: string, patch: Partial<InspectionQuestionRow>) {
+    setRows((r) => ({ ...r, loadForm: r.loadForm.map((q) => (q.id === qid ? { ...q, ...patch } : q)) }));
+  }
+  function moveLoadQuestion(qid: string, dir: -1 | 1) {
+    setRows((r) => {
+      const i = r.loadForm.findIndex((q) => q.id === qid);
+      const j = i + dir;
+      if (i < 0 || j < 0 || j >= r.loadForm.length) return r;
+      const next = [...r.loadForm];
+      [next[i], next[j]] = [next[j], next[i]];
+      return { ...r, loadForm: next };
+    });
+  }
+  function removeLoadQuestion(qid: string) {
+    setRows((r) => ({ ...r, loadForm: r.loadForm.filter((q) => q.id !== qid) }));
+  }
+  function addLoadQuestion() {
+    setRows((r) => ({ ...r, loadForm: [...r.loadForm, blankQuestion()] }));
+  }
+  // A renamed choice value: every question conditioned on (questionKey, oldValue) follows.
+  function renameOptionRefs(questionKey: string, from: string, to: string) {
+    const follow = (q: InspectionQuestionRow) => (q.onlyIfQuestion === questionKey && q.onlyIfValue === from ? { ...q, onlyIfValue: to } : q);
+    setRows((r) => ({ loadForm: r.loadForm.map(follow), pages: r.pages.map((p) => ({ ...p, questions: p.questions.map(follow) })) }));
+  }
   function updatePage(id: string, patch: Partial<InspectionPageRow>) {
-    setRows((r) => ({ pages: r.pages.map((p) => (p.id === id ? { ...p, ...patch } : p)) }));
+    setRows((r) => ({ ...r, pages: r.pages.map((p) => (p.id === id ? { ...p, ...patch } : p)) }));
   }
   function updateQuestion(pageId: string, qid: string, patch: Partial<InspectionQuestionRow>) {
     setRows((r) => ({
+      ...r,
       pages: r.pages.map((p) => (p.id !== pageId ? p : { ...p, questions: p.questions.map((q) => (q.id === qid ? { ...q, ...patch } : q)) })),
     }));
   }
   function moveQuestion(pageId: string, qid: string, dir: -1 | 1) {
     setRows((r) => ({
+      ...r,
       pages: r.pages.map((p) => {
         if (p.id !== pageId) return p;
         const i = p.questions.findIndex((q) => q.id === qid);
@@ -77,6 +106,7 @@ export function InspectionEditor({ pageContract: pc, basePath, sopId, sopName, s
       const q = r.pages.find((p) => p.id === fromPageId)?.questions.find((x) => x.id === qid);
       if (!q) return r;
       return {
+        ...r,
         pages: r.pages.map((p) => {
           if (p.id === fromPageId) return { ...p, questions: p.questions.filter((x) => x.id !== qid) };
           if (p.id === toPageId) return { ...p, questions: [...p.questions, q] };
@@ -86,11 +116,11 @@ export function InspectionEditor({ pageContract: pc, basePath, sopId, sopName, s
     });
   }
   function removeQuestion(pageId: string, qid: string) {
-    setRows((r) => ({ pages: r.pages.map((p) => (p.id !== pageId ? p : { ...p, questions: p.questions.filter((q) => q.id !== qid) })) }));
+    setRows((r) => ({ ...r, pages: r.pages.map((p) => (p.id !== pageId ? p : { ...p, questions: p.questions.filter((q) => q.id !== qid) })) }));
   }
   function addQuestion(pageId: string) {
     const q = blankQuestion();
-    setRows((r) => ({ pages: r.pages.map((p) => (p.id !== pageId ? p : { ...p, questions: [...p.questions, q] })) }));
+    setRows((r) => ({ ...r, pages: r.pages.map((p) => (p.id !== pageId ? p : { ...p, questions: [...p.questions, q] })) }));
   }
   function movePage(id: string, dir: -1 | 1) {
     setRows((r) => {
@@ -99,16 +129,16 @@ export function InspectionEditor({ pageContract: pc, basePath, sopId, sopName, s
       if (i < 0 || j < 0 || j >= r.pages.length) return r;
       const next = [...r.pages];
       [next[i], next[j]] = [next[j], next[i]];
-      return { pages: next };
+      return { ...r, pages: next };
     });
   }
   function addPage() {
     const p = blankPage();
-    setRows((r) => ({ pages: [...r.pages, p] }));
+    setRows((r) => ({ ...r, pages: [...r.pages, p] }));
     setOpenPage(p.id);
   }
   function removePage(id: string) {
-    setRows((r) => ({ pages: r.pages.filter((p) => p.id !== id) }));
+    setRows((r) => ({ ...r, pages: r.pages.filter((p) => p.id !== id) }));
   }
 
   function submit(publish: boolean) {
@@ -151,6 +181,43 @@ export function InspectionEditor({ pageContract: pc, basePath, sopId, sopName, s
           ) : null}
         </div>
       ) : null}
+
+      <section className="card inspection-page inspection-loadform">
+        <div className="inspection-page-head" style={{ cursor: "default" }}>
+          <span className="qnum">L</span>
+          <strong>{copy(pc, "inspection.loadform.title")}</strong>
+          <span className="muted small">{copy(pc, "inspection.loadform.subtitle")}</span>
+        </div>
+        <div className="bd">
+          <div className="qlist">
+            {rows.loadForm.map((q, qi) => (
+              <QuestionCard
+                key={q.id}
+                pc={pc}
+                page={null}
+                pages={[]}
+                index={qi}
+                count={rows.loadForm.length}
+                q={q}
+                kinds={loadKinds}
+                captures={captures}
+                earlier={rows.loadForm.slice(0, qi)}
+                takenKeys={new Set(rows.loadForm.map((x) => x.key))}
+                lockedKeys={LOCKED_LOAD_KEYS}
+                requiredKeys={REQUIRED_LOAD_KEYS}
+                onChange={(patch) => updateLoadQuestion(q.id, patch)}
+                onOptionRenamed={(from, to) => renameOptionRefs(q.key, from, to)}
+                onMove={(dir) => moveLoadQuestion(q.id, dir)}
+                onMovePage={() => undefined}
+                onRemove={() => removeLoadQuestion(q.id)}
+              />
+            ))}
+            <button type="button" className="btn sm ghost" onClick={addLoadQuestion}>
+              <Plus className="ic" /> {copy(pc, "inspection.question.add")}
+            </button>
+          </div>
+        </div>
+      </section>
 
       <div className="qlist">
         {rows.pages.map((page, pi) => {
@@ -223,7 +290,10 @@ export function InspectionEditor({ pageContract: pc, basePath, sopId, sopName, s
                         captures={captures}
                         earlier={rows.pages.flatMap((p) => p.questions).slice(0, rows.pages.flatMap((p) => p.questions).findIndex((x) => x.id === q.id))}
                         takenKeys={takenKeys}
+                        lockedKeys={LOCKED_QUESTION_KEYS}
+                        requiredKeys={new Set()}
                         onChange={(patch) => updateQuestion(page.id, q.id, patch)}
+                        onOptionRenamed={(from, to) => renameOptionRefs(q.key, from, to)}
                         onMove={(dir) => moveQuestion(page.id, q.id, dir)}
                         onMovePage={(to) => moveQuestionToPage(page.id, q.id, to)}
                         onRemove={() => removeQuestion(page.id, q.id)}
@@ -267,10 +337,10 @@ export function InspectionEditor({ pageContract: pc, basePath, sopId, sopName, s
 }
 
 function QuestionCard({
-  pc, page, pages, index, count, q, kinds, captures, earlier, takenKeys, onChange, onMove, onMovePage, onRemove,
+  pc, page, pages, index, count, q, kinds, captures, earlier, takenKeys, lockedKeys, requiredKeys, onChange, onOptionRenamed, onMove, onMovePage, onRemove,
 }: {
   pc: AdminUiPageContract;
-  page: InspectionPageRow;
+  page: InspectionPageRow | null;
   pages: InspectionPageRow[];
   index: number;
   count: number;
@@ -279,13 +349,19 @@ function QuestionCard({
   captures: { key: string; label: string }[];
   earlier: InspectionQuestionRow[];
   takenKeys: Set<string>;
+  lockedKeys: Set<string>;
+  requiredKeys: Set<string>;
   onChange: (patch: Partial<InspectionQuestionRow>) => void;
+  /** A choice's wire value changed: every "ask only when" that pointed at the old value follows. */
+  onOptionRenamed: (oldValue: string, newValue: string) => void;
   onMove: (dir: -1 | 1) => void;
   onMovePage: (toPageId: string) => void;
   onRemove: () => void;
 }) {
-  const locked = LOCKED_QUESTION_KEYS.has(q.key);
+  const locked = lockedKeys.has(q.key);
   const optionsLocked = LOCKED_OPTION_KEYS.has(q.key);
+  const requiredLocked = requiredKeys.has(q.key);
+  const isVendor = q.kind === "vendor";
   const dep = earlier.find((e) => e.key === q.onlyIfQuestion);
   return (
     <div className="qcard">
@@ -296,10 +372,12 @@ function QuestionCard({
             value={q.kind}
             disabled={locked}
             onChange={(e) => {
+              if (isVendor) return;
               const kind = e.target.value as QuestionKind;
               onChange({ kind, options: (kind === "choice" || kind === "multi") && q.options.length === 0 ? [{ value: "yes", label: "Yes" }, { value: "no", label: "No" }] : q.options, maxFiles: kind === "media" && q.maxFiles === 0 ? 1 : q.maxFiles });
             }}
           >
+            {isVendor ? <option value="vendor">{copy(pc, "inspection.kind.vendor")}</option> : null}
             {kinds.map((k) => (
               <option key={k.key} value={k.key} title={k.title}>
                 {k.label}
@@ -364,8 +442,14 @@ function QuestionCard({
                   disabled={optionsLocked}
                   onChange={(e) => {
                     const label = e.target.value;
-                    const options = q.options.map((x, j) => (j === i ? { label, value: x.value || slugKey(label, new Set(q.options.map((y) => y.value)), "choice") } : x));
+                    // The wire value follows the label (unique within the question), so a renamed
+                    // Yes/No default becomes truck/tractor, never "yes" wearing a Truck label. The
+                    // "other" value is kept: it is what attaches the free text.
+                    const others = new Set(q.options.filter((_, j) => j !== i).map((y) => y.value));
+                    const value = o.value === "other" ? "other" : slugKey(label, others, "choice");
+                    const options = q.options.map((x, j) => (j === i ? { label, value } : x));
                     onChange({ options });
+                    if (o.value && o.value !== value) onOptionRenamed(o.value, value);
                   }}
                 />
                 <code className="muted small">{o.value}</code>
@@ -426,7 +510,7 @@ function QuestionCard({
 
         <div className="qfoot">
           <label className="chkline">
-            <input type="checkbox" checked={q.required} onChange={(e) => onChange({ required: e.target.checked })} /> {copy(pc, "inspection.question.required")}
+            <input type="checkbox" checked={q.required} disabled={requiredLocked} onChange={(e) => onChange({ required: e.target.checked })} /> {copy(pc, "inspection.question.required")}
           </label>
           <span className="condrow">
             {copy(pc, "inspection.question.only_if")}
@@ -452,7 +536,7 @@ function QuestionCard({
               </>
             ) : null}
           </span>
-          {pages.length > 1 ? (
+          {page && pages.length > 1 ? (
             <span className="condrow">
               {copy(pc, "inspection.question.move_page")}
               <select value={page.id} onChange={(e) => onMovePage(e.target.value)}>

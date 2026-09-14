@@ -73,7 +73,10 @@ type SOPListResponse struct {
 type SOPResponse struct {
 	SOP           SOPDefinition `json:"sop"`
 	LatestVersion *SOPVersion   `json:"latest_version,omitempty"`
-	TraceID       string        `json:"trace_id"`
+	// PublishedVersion is the version in force (what the phone runs). LatestVersion may be a
+	// draft or a retired version above it; editors open and build on THIS one.
+	PublishedVersion *SOPVersion `json:"published_version,omitempty"`
+	TraceID          string      `json:"trace_id"`
 }
 
 type SOPVersionResponse struct {

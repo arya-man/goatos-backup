@@ -10,7 +10,7 @@ const dir = new URL("./", import.meta.url);
 const backend = readFileSync(new URL("../../../../backend/internal/adminui/app/service.go", import.meta.url), "utf8");
 const declared = new Set([...backend.matchAll(/"([a-z0-9_.]+)"(?::\s+"|\]\s*=\s*")/g)].map((m) => m[1]));
 // Keys composed at runtime from a closed vocabulary (kind / capture), listed explicitly here.
-for (const k of ["choice", "multi", "text", "number", "media"]) declared.add(`inspection.kind.${k}`);
+for (const k of ["choice", "multi", "text", "number", "media", "vendor"]) declared.add(`inspection.kind.${k}`);
 for (const k of ["photo", "video", "both"]) declared.add(`inspection.accepts.${k}`);
 
 test("every copy key read by the SOP screens is declared in the backend copy map", () => {

@@ -200,7 +200,18 @@ func (s *Service) GetSOP(ctx context.Context, tenantID, sopID, traceID string) (
 	if err != nil {
 		return nil, mapRepoErr(err)
 	}
-	return &domain.SOPResponse{SOP: sop, LatestVersion: version, TraceID: traceID}, nil
+	out := &domain.SOPResponse{SOP: sop, LatestVersion: version, TraceID: traceID}
+	if version != nil {
+		switch published, err := s.repo.PublishedVersion(ctx, tenantID, sopID); {
+		case err == nil:
+			out.PublishedVersion = &published
+		case errors.Is(err, ports.ErrNotFound):
+			// nothing published yet: a draft-only SOP
+		default:
+			return nil, mapRepoErr(err)
+		}
+	}
+	return out, nil
 }
 
 func (s *Service) CreateVersion(ctx context.Context, cmd ports.CreateVersionCommand, traceID string) (*domain.SOPVersionResponse, error) {

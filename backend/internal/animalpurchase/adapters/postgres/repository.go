@@ -72,7 +72,7 @@ WHERE idempotency_key = $1`
   l.load_id::text, l.tenant_id::text, l.load_ref, l.vendor_id::text, l.vendor_name,
   COALESCE(l.park_id::text, ''), l.farm_label, l.expected_count, l.notes, l.status,
   COALESCE(l.recorded_by::text, ''), l.created_at, l.updated_at, l.row_version,
-  c.total, c.pending, c.accepted, c.rejected`
+  c.total, c.pending, c.accepted, c.rejected, l.questionnaire_version, l.sop_answers`
 
 	// loadCountsJoin pre-aggregates the many side (candidates) to ONE row per load before the
 	// join, so the load page is 1:1 with loads and the counts are whole-load, never page sums.
@@ -110,12 +110,12 @@ WHERE tenant_id = $1::uuid AND vendor_id = $2::uuid AND status <> 'banned'`
 	sqlInsertLoad = `
 INSERT INTO public.animal_purchase_loads (
   tenant_id, load_ref, vendor_id, vendor_name, park_id, farm_label, expected_count, notes,
-  recorded_by, idempotency_key
+  recorded_by, idempotency_key, questionnaire_version, sop_answers
 ) VALUES (
   $1::uuid, $2, $3::uuid, $4,
   (SELECT l.location_id FROM public.locations l
     WHERE l.tenant_id = $1::uuid AND l.location_type = 'park' AND upper(l.location_code) = $5 LIMIT 1),
-  $5, $6, $7, nullif($8, '')::uuid, $9
+  $5, $6, $7, nullif($8, '')::uuid, $9, $10, $11
 ) RETURNING load_id::text`
 
 	sqlTouchLoad = `UPDATE public.animal_purchase_loads SET updated_at = now(), row_version = row_version + 1
@@ -260,10 +260,15 @@ func isUnique(err error, constraint string) bool {
 
 func scanLoad(row pgx.Row) (domain.Load, error) {
 	var l domain.Load
+	var answers []byte
 	err := row.Scan(&l.LoadID, &l.TenantID, &l.LoadRef, &l.VendorID, &l.VendorName,
 		&l.ParkID, &l.FarmLabel, &l.ExpectedCount, &l.Notes, &l.Status,
 		&l.RecordedBy, &l.CreatedAt, &l.UpdatedAt, &l.RowVersion,
-		&l.Counts.Total, &l.Counts.Pending, &l.Counts.Accepted, &l.Counts.Rejected)
+		&l.Counts.Total, &l.Counts.Pending, &l.Counts.Accepted, &l.Counts.Rejected,
+		&l.QuestionnaireVersion, &answers)
+	if err == nil && len(answers) > 0 {
+		_ = json.Unmarshal(answers, &l.Answers)
+	}
 	return l, err
 }
 
@@ -357,8 +362,13 @@ func (r *Repository) CreateLoad(ctx context.Context, p ports.CreateLoadParams) (
 	}
 
 	var loadID string
+	loadAnswers, err := json.Marshal(w.Answers)
+	if err != nil {
+		return domain.Load{}, fmt.Errorf("animal purchase: encode load answers: %w", err)
+	}
 	err = tx.QueryRow(ctx, sqlInsertLoad,
-		p.TenantID, w.LoadRef, w.VendorID, vendorName, w.FarmLabel, w.ExpectedCount, w.Notes, p.ActorID, p.IdempotencyKey).Scan(&loadID)
+		p.TenantID, w.LoadRef, w.VendorID, vendorName, w.FarmLabel, w.ExpectedCount, w.Notes, p.ActorID, p.IdempotencyKey,
+		p.QuestionnaireVersion, loadAnswers).Scan(&loadID)
 	if isUnique(err, "animal_purchase_loads_ref_uq") {
 		return domain.Load{}, ports.ErrLoadRefTaken
 	}

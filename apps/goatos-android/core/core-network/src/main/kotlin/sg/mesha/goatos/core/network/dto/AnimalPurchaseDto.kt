@@ -63,6 +63,8 @@ data class AnimalPurchaseOptionsDto(
     /** The SOP questionnaire in display order; empty until the server has served it. */
     @SerialName("questionnaire") val questionnaire: List<AnimalPurchaseQuestionDto> = emptyList(),
     @SerialName("questionnaire_version") val questionnaireVersion: Int = 0,
+    /** The load form of the same version (PROCUREMENT SOP): what the desk answers when it opens a load. */
+    @SerialName("load_form") val loadForm: List<AnimalPurchaseQuestionDto> = emptyList(),
     @SerialName("species") val species: List<AnimalPurchaseOptionDto> = emptyList(),
     @SerialName("sexes") val sexes: List<AnimalPurchaseOptionDto> = emptyList(),
     @SerialName("conditions") val conditions: List<AnimalPurchaseOptionDto> = emptyList(),
@@ -123,6 +125,9 @@ data class AnimalPurchaseLoadCreateRequestDto(
     @SerialName("farm") val farm: String,
     @SerialName("expected_count") val expectedCount: Int = 0,
     @SerialName("notes") val notes: String = "",
+    /** PROCUREMENT SOP: the load form's answers by question id and the version rendered. */
+    @SerialName("questionnaire_version") val questionnaireVersion: Int = 0,
+    @SerialName("answers") val answers: JsonObject = JsonObject(emptyMap()),
 )
 
 /** One recorded answer rendered for display under its own question text, in SOP order. */

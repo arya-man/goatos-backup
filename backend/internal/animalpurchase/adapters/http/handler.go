@@ -55,7 +55,7 @@ func (h *Handler) Options(w http.ResponseWriter, r *http.Request) {
 	}
 	httpresponse.WriteJSON(w, http.StatusOK, optionsPayload{
 		Species: opts.Species, Sexes: opts.Sexes, Conditions: opts.Conditions, Farms: opts.Farms,
-		BreedSuggestions: opts.BreedSuggestions, Questionnaire: opts.Questionnaire, QuestionnaireVersion: opts.QuestionnaireVersion,
+		BreedSuggestions: opts.BreedSuggestions, Questionnaire: opts.Questionnaire, QuestionnaireVersion: opts.QuestionnaireVersion, LoadForm: opts.LoadForm,
 		Copy: formCopy(),
 	})
 }
@@ -71,8 +71,19 @@ func (h *Handler) ListLoads(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	out := loadPagePayload{Loads: make([]loadPayload, 0, len(page.Loads)), NextCursor: page.NextCursor, CanRecord: callerCanRecord(r)}
+	// One catalog read per distinct SOP version on the page (never one per row).
+	loadCatalogs := map[int]domain.Catalog{}
 	for _, l := range page.Loads {
-		out.Loads = append(out.Loads, toLoadPayload(l))
+		if l.QuestionnaireVersion == 0 {
+			continue
+		}
+		if _, done := loadCatalogs[l.QuestionnaireVersion]; done {
+			continue
+		}
+		loadCatalogs[l.QuestionnaireVersion] = h.loadCatalog(r, l)
+	}
+	for _, l := range page.Loads {
+		out.Loads = append(out.Loads, toLoadPayload(l, loadCatalogs[l.QuestionnaireVersion]))
 	}
 	httpresponse.WriteJSON(w, http.StatusOK, out)
 }
@@ -84,16 +95,16 @@ func (h *Handler) CreateLoad(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	load, err := h.service.CreateLoad(r.Context(), ports.CreateLoadParams{
-		TenantID: tenantID(r),
+		TenantID: tenantID(r), QuestionnaireVersion: body.QuestionnaireVersion,
 		Write: domain.LoadWrite{LoadRef: body.LoadRef, VendorID: body.VendorID, FarmLabel: body.Farm,
-			ExpectedCount: body.ExpectedCount, Notes: body.Notes},
+			ExpectedCount: body.ExpectedCount, Notes: body.Notes, Answers: body.Answers},
 		ActorID: httpmiddleware.ActorIDFromContext(r.Context()), IdempotencyKey: key,
 	})
 	if err != nil {
 		h.writeErr(w, r, app.HTTPError(err))
 		return
 	}
-	httpresponse.WriteJSON(w, http.StatusCreated, toLoadPayload(load))
+	httpresponse.WriteJSON(w, http.StatusCreated, toLoadPayload(load, h.loadCatalog(r, load)))
 }
 
 func (h *Handler) GetLoad(w http.ResponseWriter, r *http.Request) {
@@ -110,7 +121,7 @@ func (h *Handler) GetLoad(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httpresponse.WriteJSON(w, http.StatusOK, loadDetailPayload{
-		Load: toLoadPayload(load), Animals: h.candidates(r, page.Candidates), NextCursor: page.NextCursor, CanRecord: callerCanRecord(r),
+		Load: toLoadPayload(load, h.loadCatalog(r, load)), Animals: h.candidates(r, page.Candidates), NextCursor: page.NextCursor, CanRecord: callerCanRecord(r),
 	})
 }
 
@@ -336,4 +347,18 @@ func formCopy() map[string]string {
 		"animal.detail.attention": "Needs a close look",
 		"required.hint":           "Fields marked * are required.",
 	}
+}
+
+// loadCatalog resolves the SOP version one load was answered on (its extra answers are labelled by
+// that version's load form); an unreadable version leaves the rows unlabelled.
+func (h *Handler) loadCatalog(r *http.Request, l domain.Load) domain.Catalog {
+	if l.QuestionnaireVersion == 0 {
+		return domain.Catalog{}
+	}
+	cat, err := h.service.Catalog(r.Context(), tenantID(r), l.QuestionnaireVersion)
+	if err != nil {
+		// exception:exempt an unreadable version renders the load without its extra answer labels; the answers themselves are still on the row.
+		return domain.Catalog{}
+	}
+	return cat
 }

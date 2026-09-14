@@ -31,7 +31,9 @@ export async function renderSopModulePage(
     if (editId) {
       const [pageContract, detail] = await Promise.all([pageContractPromise, getSop(editId)]);
       if (detail.ok && detail.data.latest_version) {
-        const version = detail.data.latest_version;
+        // The editor opens the version IN FORCE (what the phone runs); an abandoned draft or a
+        // retired version above it is never the base of the next publish.
+        const version = detail.data.published_version ?? detail.data.latest_version;
         // SOP-DRIVEN HERD OPERATIONS (maintainer decision 2026-09-13): a SOP that carries
         // operator steps (form_dsl.follow_up) is edited through the operator-steps editor. The
         // capture form it also carries is passed through verbatim on save (P1), so the old

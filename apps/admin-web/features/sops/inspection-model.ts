@@ -8,7 +8,7 @@
 
 export const INSPECTION_SCHEMA_VERSION = "goatos.sop-inspection.v1";
 
-export type QuestionKind = "choice" | "multi" | "text" | "number" | "media";
+export type QuestionKind = "choice" | "multi" | "text" | "number" | "media" | "vendor";
 export type CaptureKind = "both" | "photo" | "video";
 
 export type InspectionOptionRow = { value: string; label: string };
@@ -34,12 +34,15 @@ export type InspectionQuestionRow = {
 
 export type InspectionPageRow = { id: string; key: string; title: string; hint: string; questions: InspectionQuestionRow[] };
 
-export type InspectionRows = { pages: InspectionPageRow[] };
+// The load form is one page of questions recorded once per purchase load (no media).
+export type InspectionRows = { loadForm: InspectionQuestionRow[]; pages: InspectionPageRow[] };
 
 // Questions the register reads (typed columns, list titles, review chips): kind and closed
 // choices are fixed by the backend; title, hint, compulsory, page and position stay editable.
 export const LOCKED_QUESTION_KEYS = new Set(["species", "goat_id", "sex", "weight_kg", "height_cm", "rectal_temp_c", "field_verdict", "breed", "notes"]);
-export const LOCKED_OPTION_KEYS = new Set(["species", "sex", "field_verdict"]);
+export const LOCKED_OPTION_KEYS = new Set(["species", "sex", "field_verdict", "farm"]);
+export const LOCKED_LOAD_KEYS = new Set(["load_ref", "vendor", "farm", "expected_count", "notes"]);
+export const REQUIRED_LOAD_KEYS = new Set(["load_ref", "vendor", "farm"]);
 
 function str(v: unknown, fallback = ""): string {
   return typeof v === "string" ? v : fallback;
@@ -89,12 +92,42 @@ function acceptsOf(v: unknown): CaptureKind {
   return "both";
 }
 
+function parseQuestion(rq: unknown): InspectionQuestionRow[] {
+  const q = obj(rq);
+  if (!q) return [];
+  const onlyIf = obj(q["only_if"]);
+  const options = Array.isArray(q["options"]) ? q["options"].flatMap((o) => { const oo = obj(o); return oo ? [{ value: str(oo["value"]), label: str(oo["label"]) }] : []; }) : [];
+  return [
+    {
+      id: newRowId(),
+      key: str(q["id"]),
+      kind: (str(q["kind"], "choice") || "choice") as QuestionKind,
+      title: str(q["title"]),
+      hint: str(q["hint"]),
+      required: q["required"] === true,
+      options,
+      allowOther: q["allow_other"] === true,
+      slot: str(q["slot"]),
+      maxFiles: typeof q["max_files"] === "number" ? Math.trunc(q["max_files"] as number) : 0,
+      accepts: acceptsOf(q["accepts"]),
+      min: num(q["min"]),
+      max: num(q["max"]),
+      unit: str(q["unit"]),
+      onlyIfQuestion: onlyIf ? str(onlyIf["question_id"]) : "",
+      onlyIfValue: onlyIf ? str(onlyIf["value"]) : "",
+    },
+  ];
+}
+
 export function parseInspection(formDsl: unknown): InspectionRows | null {
   const dsl = obj(formDsl);
   const ins = dsl ? obj(dsl["inspection"]) : null;
   if (!ins) return null;
   const pages = Array.isArray(ins["pages"]) ? ins["pages"] : [];
+  const lf = obj(ins["load_form"]);
+  const loadQs = lf && Array.isArray(lf["questions"]) ? lf["questions"] : [];
   return {
+    loadForm: loadQs.flatMap(parseQuestion),
     pages: pages.flatMap((raw) => {
       const p = obj(raw);
       if (!p) return [];
@@ -105,32 +138,7 @@ export function parseInspection(formDsl: unknown): InspectionRows | null {
           key: str(p["key"]),
           title: str(p["title"]),
           hint: str(p["hint"]),
-          questions: qs.flatMap((rq) => {
-            const q = obj(rq);
-            if (!q) return [];
-            const onlyIf = obj(q["only_if"]);
-            const options = Array.isArray(q["options"]) ? q["options"].flatMap((o) => { const oo = obj(o); return oo ? [{ value: str(oo["value"]), label: str(oo["label"]) }] : []; }) : [];
-            return [
-              {
-                id: newRowId(),
-                key: str(q["id"]),
-                kind: (str(q["kind"], "choice") || "choice") as QuestionKind,
-                title: str(q["title"]),
-                hint: str(q["hint"]),
-                required: q["required"] === true,
-                options,
-                allowOther: q["allow_other"] === true,
-                slot: str(q["slot"]),
-                maxFiles: typeof q["max_files"] === "number" ? Math.trunc(q["max_files"] as number) : 0,
-                accepts: acceptsOf(q["accepts"]),
-                min: num(q["min"]),
-                max: num(q["max"]),
-                unit: str(q["unit"]),
-                onlyIfQuestion: onlyIf ? str(onlyIf["question_id"]) : "",
-                onlyIfValue: onlyIf ? str(onlyIf["value"]) : "",
-              } satisfies InspectionQuestionRow,
-            ];
-          }),
+          questions: qs.flatMap(parseQuestion),
         },
       ];
     }),
@@ -162,6 +170,7 @@ function emitQuestion(q: InspectionQuestionRow): Record<string, unknown> {
 export function emitInspection(rows: InspectionRows): Record<string, unknown> {
   return {
     schema_version: INSPECTION_SCHEMA_VERSION,
+    load_form: { questions: rows.loadForm.map(emitQuestion) },
     pages: rows.pages.map((p) => {
       const out: Record<string, unknown> = { key: p.key };
       if (p.title.trim()) out.title = p.title;
@@ -176,6 +185,27 @@ export function emitInspection(rows: InspectionRows): Record<string, unknown> {
 // authority (its 400 names the path too).
 export function inspectionProblems(rows: InspectionRows): string[] {
   const problems: string[] = [];
+  const loadSeen = new Map<string, InspectionQuestionRow>();
+  rows.loadForm.forEach((q, qi) => {
+    const at = `Load form · question ${qi + 1}`;
+    if (!q.key.trim()) problems.push(`${at}: needs a key`);
+    if (loadSeen.has(q.key)) problems.push(`${at}: key "${q.key}" is used twice`);
+    if (!q.title.trim()) problems.push(`${at}: needs the question text`);
+    if (q.kind === "media") problems.push(`${at}: photos and videos are recorded per animal, not on the load`);
+    if ((q.kind === "choice" || q.kind === "multi") && q.options.filter((o) => o.value.trim() && o.label.trim()).length === 0) problems.push(`${at}: a pick-one / pick-many question needs at least one choice`);
+    if (q.kind === "number" && q.min.trim() && q.max.trim() && Number(q.min) > Number(q.max)) problems.push(`${at}: min must not exceed max`);
+    if (REQUIRED_LOAD_KEYS.has(q.key) && !q.required) problems.push(`${at}: "${q.key}" must stay compulsory`);
+    if (q.onlyIfQuestion) {
+      const dep = loadSeen.get(q.onlyIfQuestion);
+      if (!dep) problems.push(`${at}: "ask only when" must name an earlier question`);
+      else if (dep.kind !== "choice") problems.push(`${at}: "ask only when" must name a pick-one question`);
+      else if (!dep.options.some((o) => o.value === q.onlyIfValue)) problems.push(`${at}: "ask only when" needs one of that question's choices`);
+    }
+    loadSeen.set(q.key, q);
+  });
+  for (const k of LOCKED_LOAD_KEYS) {
+    if (!loadSeen.has(k)) problems.push(`The load reads "${k}" — it must stay in the load form`);
+  }
   const seen = new Map<string, InspectionQuestionRow>();
   const pageKeys = new Set<string>();
   if (rows.pages.length === 0) problems.push("Add at least one page");

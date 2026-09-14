@@ -428,6 +428,8 @@ private fun AnimalPurchaseQuestionItem(
         AnimalPurchaseQuestionKind.MEDIA -> AnimalPurchaseQuestionGroup(question) {
             AnimalPurchaseCaptureBlock(question = question, copy = copy, locked = locked, onEvent = onEvent)
         }
+        // The vendor picker belongs to the load form; an animal never carries one.
+        AnimalPurchaseQuestionKind.VENDOR -> Unit
     }
 }
 
@@ -443,7 +445,7 @@ private fun AnimalPurchaseQuestionGroup(question: AnimalPurchaseQuestionUi, cont
 
 /** One radio (single) or checkbox (multi) row, the whole row tappable. */
 @Composable
-private fun AnimalPurchaseOptionRow(label: String, selected: Boolean, single: Boolean, enabled: Boolean, onClick: () -> Unit) {
+internal fun AnimalPurchaseOptionRow(label: String, selected: Boolean, single: Boolean, enabled: Boolean, onClick: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()

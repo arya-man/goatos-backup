@@ -1794,6 +1794,17 @@ func (f *fakeRepo) LatestVersionsFor(_ context.Context, _ string, sopIDs []strin
 func (f *fakeRepo) CreateSOP(context.Context, ports.CreateSOPCommand) (domain.SOPDefinition, error) {
 	return domain.SOPDefinition{}, nil
 }
+func (f *fakeRepo) PublishedVersion(ctx context.Context, tenantID, sopID string) (domain.SOPVersion, error) {
+	_, v, err := f.GetSOP(ctx, tenantID, sopID)
+	if err != nil {
+		return domain.SOPVersion{}, err
+	}
+	if v == nil || v.Status != "published" {
+		return domain.SOPVersion{}, ports.ErrNotFound
+	}
+	return *v, nil
+}
+
 func (f *fakeRepo) GetSOP(context.Context, string, string) (domain.SOPDefinition, *domain.SOPVersion, error) {
 	return f.sop, &f.version, nil
 }

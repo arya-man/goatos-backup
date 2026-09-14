@@ -18,6 +18,7 @@ test("the seeded inspection round-trips through the editor model byte-faithfully
   const rows = parseInspection({ inspection: doc });
   assert.ok(rows);
   assert.equal(rows.pages.length, 5);
+  assert.deepEqual(rows.loadForm.map((q) => q.key), ["load_ref", "vendor", "farm", "expected_count", "notes"]);
   assert.equal(canonical(emitInspection(rows)), canonical(doc));
   assert.deepEqual(inspectionProblems(rows), []);
   assert.equal(flattenInspection(rows).length, 38);
@@ -43,4 +44,17 @@ test("a media question emits accepts by capture kind and defaults its slot to it
   const q = emitted.pages[0].questions.at(-1);
   assert.deepEqual(q, { id: "hoof_photo", kind: "media", title: "Hoof photo", required: true, slot: "hoof_photo", max_files: 2, accepts: ["photo"] });
   assert.equal(slugKey("Hoof photo (left)", new Set(["hoof_photo_left"])), "hoof_photo_left_2");
+});
+
+test("the load form: extra questions are authored, media refused, identity stays compulsory", () => {
+  const rows = parseInspection({ inspection: JSON.parse(readFileSync(seedPath, "utf8")) });
+  rows.loadForm.push({ id: "t", key: "transport", kind: "choice", title: "How did the load arrive?", hint: "", required: true, options: [{ value: "truck", label: "Truck" }, { value: "walk", label: "On foot" }], allowOther: false, slot: "", maxFiles: 0, accepts: "both", min: "", max: "", unit: "", onlyIfQuestion: "", onlyIfValue: "" });
+  assert.deepEqual(inspectionProblems(rows), []);
+  const emitted = emitInspection(rows);
+  assert.equal(emitted.load_form.questions.length, 6);
+  assert.deepEqual(emitted.load_form.questions[5], { id: "transport", kind: "choice", title: "How did the load arrive?", required: true, options: [{ value: "truck", label: "Truck" }, { value: "walk", label: "On foot" }] });
+  rows.loadForm.push({ ...rows.loadForm[5], id: "m", key: "truck_photo", kind: "media", options: [] });
+  rows.loadForm.find((q) => q.key === "farm").required = false;
+  const problems = inspectionProblems(rows);
+  assert.ok(problems.some((p) => p.includes("recorded per animal")) && problems.some((p) => p.includes('"farm" must stay compulsory')), problems.join("\n"));
 });

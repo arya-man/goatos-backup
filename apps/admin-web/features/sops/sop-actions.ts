@@ -219,7 +219,8 @@ export async function saveInspectionVersion(sopId: string, inspection: Record<st
   if (!sopId) return { ok: false, message: "SOP id is required" };
   const detail = await getSop(sopId);
   if (!detail.ok) return { ok: false, message: detail.error.message ?? "SOP could not be read", code: detail.error.code };
-  const base = detail.data.latest_version;
+  // Build on the version in force, never on a stray draft / retired version above it.
+  const base = detail.data.published_version ?? detail.data.latest_version;
   if (!base) return { ok: false, message: "This SOP has no version to build on." };
   const formDsl = { ...(base.form_dsl as Record<string, unknown>), inspection };
   const version = await createSopVersion(sopId, {

@@ -2022,6 +2022,30 @@ LIMIT 1`), tenantID, sopID)
 	return items[0], nil
 }
 
+// PublishedVersion is the version the phone and the runners actually use: the one published row
+// (at most one per SOP by the partial unique index). ErrNotFound when nothing is published.
+func (r *Repository) PublishedVersion(ctx context.Context, tenantID, sopID string) (domain.SOPVersion, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	rows, err := r.pool.Query(ctx, versionSelectSQL(`
+WHERE sv.tenant_id = $1::uuid
+  AND sv.sop_id = $2::uuid
+  AND sv.status = 'published'
+ORDER BY sv.version DESC
+LIMIT 1`), tenantID, sopID)
+	if err != nil {
+		return domain.SOPVersion{}, err
+	}
+	items, err := scanVersions(rows)
+	if err != nil {
+		return domain.SOPVersion{}, err
+	}
+	if len(items) == 0 {
+		return domain.SOPVersion{}, ports.ErrNotFound
+	}
+	return items[0], nil
+}
+
 // latestVersionsForSQL selects the single highest-version row per sop_id in one pass via DISTINCT ON.
 // Column order is identical to versionSelectSQL so scanVersions decodes it unchanged. It cannot reuse
 // versionSelectSQL because DISTINCT ON must lead the SELECT list.
