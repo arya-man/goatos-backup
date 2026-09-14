@@ -96,7 +96,12 @@ class DefaultMarketRepository(
     private suspend fun updateCard(businessDate: String, cityId: String, transform: (MarketSurveyCardDto) -> MarketSurveyCardDto) {
         for (key in listOf(businessDate, "").distinct()) {
             val entity = database.vendorsBlobCacheDao().get(dayKey(key)) ?: continue
-            val day = runCatching { json.decodeFromString<MarketSurveyDayDto>(entity.dtoJson) }.getOrNull() ?: continue
+            // A row that no longer decodes (schema drift after a downgrade, a partial write) is
+            // QUARANTINED -- deleted so the next refresh repopulates it -- never left wedged, the
+            // readCachedJson rule every blob cache here follows.
+            val day = runCatching { json.decodeFromString<MarketSurveyDayDto>(entity.dtoJson) }
+                .onFailure { database.vendorsBlobCacheDao().delete(dayKey(key)) }
+                .getOrNull() ?: continue
             if (key.isNotBlank() && day.businessDate != businessDate) continue
             if (key.isBlank() && day.businessDate != businessDate) continue
             val cards = day.cards.map { if (it.cityId == cityId) transform(it) else it }
