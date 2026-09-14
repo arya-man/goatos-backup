@@ -484,7 +484,7 @@ the NEXT workflow opened; a workflow already open keeps the steps it started wit
 rules of thumb apply here too: a question, a proof count or a time frame typed into Go or Kotlin for
 one of these flows is a defect, not a shortcut. `tasks/domain/templates.go` is the golden ORACLE for
 the seeded documents and nothing else; `make sop-driven-herd-operations-guard` blocks a production
-call to it, a seed that drifted from migration 000299, and a step title hardcoded on the phone.
+call to it, a seed that drifted from migration 000304, and a step title hardcoded on the phone.
 
 The framework (`goatOS_Config_Framework.pdf` v2) is DATA: the Category Registry (`sop_categories`)
 and the Task Type Registry (`sop_task_types`, with `answer_kind` + `engine_hook` + `parameter_schema`)

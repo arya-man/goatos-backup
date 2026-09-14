@@ -107,7 +107,7 @@ type PenReconciliationRepository interface {
 	CompletePenReconciliationCard(ctx context.Context, in domain.PenReconciliationCompletionCommand) (domain.PenReconciliationCompletionResult, bool, error)
 
 	// PenReconciliationCardForWorkflow / SetPenReconciliationWorkflow / PenReconciliationCardIDByWorkflow
-	// link a card to its SOP-driven questionnaire workflow (migration 000300).
+	// link a card to its SOP-driven questionnaire workflow (migration 000305).
 	PenReconciliationCardForWorkflow(ctx context.Context, tenantID, cardID string) (domain.PenReconciliationWorkflowFacts, error)
 	SetPenReconciliationWorkflow(ctx context.Context, tenantID, cardID, workflowID string) error
 	PenReconciliationCardIDByWorkflow(ctx context.Context, tenantID, workflowID string) (string, error)

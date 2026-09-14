@@ -1,5 +1,5 @@
 -- +goose Up
--- 000300_pen_reconciliation_sop_workflow.sql
+-- 000305_pen_reconciliation_sop_workflow.sql
 --
 -- RECONCILE IS A SOP QUESTIONNAIRE, NOT ONE VIDEO (maintainer decision 2026-09-13,
 -- docs/decisions/sop-driven-herd-operations.md; supersedes the "exactly one video" half of

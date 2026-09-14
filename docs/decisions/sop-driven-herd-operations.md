@@ -32,8 +32,8 @@ still runs the fixed shifting execute screen; wiring it onto the engine is phase
 
 | Framework concept | Goat OS implementation |
 |---|---|
-| Category Registry (meta) | `sop_categories` (Commodity / Problem / Event / Action / Equipment), seeded by `000299`; editing UI = phase 2 under `/config`. Herd Operations items are **Action**. |
-| Task Type Registry (meta) | `sop_task_types` with `answer_kind`, `engine_hook`, `parameter_schema`, seeded by `000299` from `tasks/domain/sopseed/task_types.json`; served to the builder as the `sop_task_types` / `sop_task_type_answer_kinds` option groups (tenant rows, never constants). |
+| Category Registry (meta) | `sop_categories` (Commodity / Problem / Event / Action / Equipment), seeded by `000304`; editing UI = phase 2 under `/config`. Herd Operations items are **Action**. |
+| Task Type Registry (meta) | `sop_task_types` with `answer_kind`, `engine_hook`, `parameter_schema`, seeded by `000304` from `tasks/domain/sopseed/task_types.json`; served to the builder as the `sop_task_types` / `sop_task_type_answer_kinds` option groups (tenant rows, never constants). |
 | Item | `sop_definitions` + `category_key`, `subcategory`, `triggers` (chaining = phase 2). |
 | SOP = ordered tasks + schedule | `form_dsl.follow_up.tracks[].steps[]` -- `task_type`, `title`, `detail`, `options`, `proof {video, photo}`, `schedule` (`immediately` / `after_event` / `at_fixed_time` / `series` / `after_step`), `section`, `hard_time_gate`, `wait_for_all`, `requires`, `when`. |
 | Schedule entry | `workflow_actions` rows stamped by `tasks/domain.CompileTrack`, carrying `task_type`, `answer_type`, `engine_hook`, `proof_min_videos/photos`, `proof_refs`, gates, `rework_reason`. |
@@ -45,13 +45,13 @@ A step the server must act on names a registry task type whose `engine_hook` sel
 answer `<shed_id>|<partition_label>`), `colostrum_feed` (Colostrum lens), `death_evidence`
 (released to Verify on approval), `return_to_pen` (reconcile). The hook is matched on the step KEY,
 so a relabel never detaches it; the web editor keeps those steps' key and type fixed and everything
-else editable. Rows stamped before `000299` are backfilled so the generalized gates
+else editable. Rows stamped before `000304` are backfilled so the generalized gates
 (`hard_time_gate`, `wait_for_all`, `requires_keys`, `after_action_key`) reproduce the old
 key-matched behaviour exactly.
 
 ### Day-one behaviour did not move
 
-The seeded documents (`tasks/domain/sopseed/*.json`, embedded verbatim in `000299`) are added
+The seeded documents (`tasks/domain/sopseed/*.json`, embedded verbatim in `000304`) are added
 IN PLACE to each tenant's currently published library version -- on STG that is Birth Recording
 v1, Death Recording v1, Shifting v2 -- so the version a farm sees on deploy is the one it already
 had, now carrying the steps (no workflow is pinned to a version before this migration; a later web
@@ -73,7 +73,7 @@ immediately and enqueues ONE completion/answer carrying all of them by outbox re
 (`proof_outbox_items` → `proofs [{ref, kind}]`); the backend rejects `422 proof_required` when a kind
 is short. Answers: yes/no, pick-one, pick-many (joined with `|`), number, text, and the pen picker.
 Uploaded proofs of a done step render INLINE (photo bytes, video player) -- `ProofMediaPreview`'s
-`autoLoadRemote` is a detail-screen opt-in; lists keep it off (one signed read per proof id, bounded
+`inlineRemotePhoto` is a detail-screen opt-in; lists keep it off (one signed read per proof id, bounded
 to one workflow). A verifier's rejection reopens exactly the proof-bearing steps and copies the
 reason onto them (`rework_reason`), so the operator sees what to re-shoot.
 

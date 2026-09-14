@@ -13,7 +13,7 @@
 //                                   TemplateByKeyAt / TemplateBirthKidAt / TemplateBirthMother /
 //                                   TemplateDeath (the compiler path is the only way to open).
 //   2. seed-drifted-from-migration -- every embedded document in tasks/domain/sopseed/*.json is
-//                                   present verbatim in migration 000299 (the Go test pins the
+//                                   present verbatim in migration 000304 (the Go test pins the
 //                                   same thing; this catches it before a compile).
 //   3. hardcoded-step-copy-on-phone -- the Android workflow drill-in must not hardcode an
 //                                   operator step title (e.g. "Is the kid clean?", "1st Colostrum",
@@ -59,14 +59,14 @@ export function check(root) {
   // 2. seed vs migration
   const seedDir = join(root, "backend/internal/tasks/domain/sopseed");
   const migration = (() => {
-    try { return readFileSync(join(root, "backend/migrations/postgres/000299_sop_driven_herd_operations.sql"), "utf8"); } catch { return ""; }
+    try { return readFileSync(join(root, "backend/migrations/postgres/000304_sop_driven_herd_operations.sql"), "utf8"); } catch { return ""; }
   })();
   let seeds = [];
   try { seeds = readdirSync(seedDir).filter((n) => n.endsWith(".json")); } catch { seeds = []; }
   for (const n of seeds) {
     const doc = readFileSync(join(seedDir, n), "utf8").trim();
     if (!migration.includes("$seed$" + doc + "$seed$")) {
-      findings.push({ rule: "seed-drifted-from-migration", file: "backend/internal/tasks/domain/sopseed/" + n, detail: "not embedded verbatim in migration 000299" });
+      findings.push({ rule: "seed-drifted-from-migration", file: "backend/internal/tasks/domain/sopseed/" + n, detail: "not embedded verbatim in migration 000304" });
     }
   }
   // 3. phone hardcoded step copy
@@ -92,7 +92,7 @@ function selfTest() {
     // bad: production call, drifted seed, hardcoded copy
     writeFileSync(join(tmp, "backend/internal/counts/app/x.go"), 'package app\nfunc f() { _ = domain.TemplateDeath() }\n');
     writeFileSync(join(tmp, "backend/internal/tasks/domain/sopseed/counts_death.json"), '{"a":1}');
-    writeFileSync(join(tmp, "backend/migrations/postgres/000299_sop_driven_herd_operations.sql"), "$seed${\"a\":2}$seed$");
+    writeFileSync(join(tmp, "backend/migrations/postgres/000304_sop_driven_herd_operations.sql"), "$seed${\"a\":2}$seed$");
     writeFileSync(join(tmp, "apps/goatos-android/app/src/main/WorkflowDetailScreen.kt"), 'val t = "Is the kid clean?"\n');
     const bad = check(tmp);
     const rules = new Set(bad.map((b) => b.rule));
@@ -102,7 +102,7 @@ function selfTest() {
     // the golden test file is allowed to call the templates; tests are skipped
     writeFileSync(join(tmp, "backend/internal/counts/app/x.go"), "package app\n");
     writeFileSync(join(tmp, "backend/internal/counts/app/x_test.go"), 'package app\nfunc f() { _ = domain.TemplateDeath() }\n');
-    writeFileSync(join(tmp, "backend/migrations/postgres/000299_sop_driven_herd_operations.sql"), "$seed${\"a\":1}$seed$");
+    writeFileSync(join(tmp, "backend/migrations/postgres/000304_sop_driven_herd_operations.sql"), "$seed${\"a\":1}$seed$");
     writeFileSync(join(tmp, "apps/goatos-android/app/src/main/WorkflowDetailScreen.kt"), 'val t = stringResource(R.string.x)\n');
     const good = check(tmp);
     if (good.length) { console.error("self-test: expected clean, got", good); process.exit(1); }

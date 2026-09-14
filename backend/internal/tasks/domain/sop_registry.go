@@ -5,7 +5,7 @@ import "github.com/vgoats/goatos/backend/internal/tasks/domain/sopseed"
 // TaskTypeRegistry is the compiler's view of the Task Type Registry, keyed by task type key.
 type TaskTypeRegistry map[string]FollowUpTaskTy
 
-// SeededTaskTypes returns the registry as seeded by migration 000299. The postgres adapter reads
+// SeededTaskTypes returns the registry as seeded by migration 000304. The postgres adapter reads
 // the live `sop_task_types` rows instead; this is the oracle for the golden test and the fallback
 // for validation on a tenant whose registry has not been seeded.
 func SeededTaskTypes() (TaskTypeRegistry, error) {
