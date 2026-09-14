@@ -1858,6 +1858,8 @@ export interface components {
         SOPResponse: {
             sop: components["schemas"]["SOPDefinition"];
             latest_version?: components["schemas"]["SOPVersion"] | null;
+            /** @description The version in force (what the phone runs). latest_version may be a draft or a retired version above it; editors open and build on this one. */
+            published_version?: components["schemas"]["SOPVersion"] | null;
             trace_id: string;
         };
         SOPVersionResponse: {

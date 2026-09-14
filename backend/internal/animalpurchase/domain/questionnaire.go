@@ -411,12 +411,17 @@ func AnswerLabel(q Question, a Answers) string {
 		}
 		label := labelOf(q.Options, v)
 		if v == "other" && q.AllowOther {
-			// The option's form wording is an instruction ("Yes, please mention where"); the
-			// reviewer reads the fact: "Yes · left rear hoof".
-			if other := a.Text(q.ID + "_other"); other != "" {
-				return "Yes · " + other
+			// The option's form wording may be an instruction ("Yes, please mention where"); the
+			// reviewer reads the fact: "Yes · left rear hoof". An authored plain "Other" keeps its
+			// own word: "Other · by boat".
+			head := strings.TrimSpace(strings.SplitN(label, ",", 2)[0])
+			if head == "" {
+				head = "Yes"
 			}
-			return "Yes"
+			if other := a.Text(q.ID + "_other"); other != "" {
+				return head + " · " + other
+			}
+			return head
 		}
 		return label
 	case KindMulti:

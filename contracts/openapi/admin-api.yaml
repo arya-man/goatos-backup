@@ -4318,6 +4318,13 @@ components:
           oneOf:
             - $ref: "#/components/schemas/SOPVersion"
             - type: "null"
+        published_version:
+          description: >-
+            The version in force (what the phone runs). latest_version may be a draft or a retired
+            version above it; editors open and build on this one.
+          oneOf:
+            - $ref: "#/components/schemas/SOPVersion"
+            - type: "null"
         trace_id:
           type: string
     SOPVersionResponse:

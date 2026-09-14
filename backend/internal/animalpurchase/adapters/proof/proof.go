@@ -28,6 +28,18 @@ func NewValidator(repo proofports.Repository) *Validator { return &Validator{rep
 var _ ports.ProofValidator = (*Validator)(nil)
 
 func (v *Validator) ValidateCandidateMedia(ctx context.Context, tenantID string, proofRefs []string) error {
+	allowed := make(map[string][]string, len(proofRefs))
+	for _, ref := range proofRefs {
+		allowed[ref] = []string{"photo", "video"}
+	}
+	return v.ValidateCandidateMediaKinds(ctx, tenantID, allowed)
+}
+
+func (v *Validator) ValidateCandidateMediaKinds(ctx context.Context, tenantID string, allowedByRef map[string][]string) error {
+	proofRefs := make([]string, 0, len(allowedByRef))
+	for ref := range allowedByRef {
+		proofRefs = append(proofRefs, ref)
+	}
 	if len(proofRefs) == 0 {
 		return nil
 	}
@@ -55,6 +67,15 @@ func (v *Validator) ValidateCandidateMedia(ctx context.Context, tenantID string,
 		case kind == "photo" && strings.HasPrefix(mime, "image/"):
 		default:
 			return ports.ErrInvalidVideo
+		}
+		accepted := false
+		for _, a := range allowedByRef[ref] {
+			if a == kind {
+				accepted = true
+			}
+		}
+		if !accepted {
+			return ports.ErrMediaKindNotAccepted
 		}
 	}
 	return nil

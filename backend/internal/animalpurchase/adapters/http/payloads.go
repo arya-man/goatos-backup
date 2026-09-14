@@ -31,6 +31,12 @@ type loadPayload struct {
 	CreatedAt  time.Time `json:"created_at"`
 	UpdatedAt  time.Time `json:"updated_at"`
 	RowVersion int       `json:"row_version"`
+	// The load form's answers as recorded and the SOP version they were answered on; the answer
+	// rows render the extra questions under their own text (identity questions are the typed
+	// fields above).
+	QuestionnaireVersion int                `json:"questionnaire_version"`
+	Answers              domain.Answers     `json:"answers"`
+	AnswerRows           []answerRowPayload `json:"answer_rows"`
 }
 
 type loadPagePayload struct {
@@ -147,7 +153,9 @@ type optionsPayload struct {
 	Farms            []domain.Option `json:"farms"`
 	BreedSuggestions []string        `json:"breed_suggestions"`
 	// The SOP questionnaire the phone renders in order, and its version stamped on answers.
-	Questionnaire        []domain.Question `json:"questionnaire"`
+	Questionnaire []domain.Question `json:"questionnaire"`
+	// LoadForm is the load's own questions of the same version (PROCUREMENT SOP).
+	LoadForm             []domain.Question `json:"load_form"`
 	QuestionnaireVersion int               `json:"questionnaire_version"`
 	// Copy the phone form renders verbatim.
 	Copy map[string]string `json:"copy"`
@@ -159,6 +167,10 @@ type createLoadBody struct {
 	Farm          string `json:"farm"`
 	ExpectedCount int    `json:"expected_count"`
 	Notes         string `json:"notes"`
+	// PROCUREMENT SOP: the load form's answers by question id (the identity questions mirror the
+	// typed fields above; extra authored questions live only here) and the SOP version rendered.
+	QuestionnaireVersion int            `json:"questionnaire_version"`
+	Answers              domain.Answers `json:"answers"`
 }
 
 type addAnimalBody struct {
@@ -181,12 +193,41 @@ func toCounts(c domain.DecisionCounts) countsPayload {
 	return countsPayload{Total: c.Total, Pending: c.Pending, Accepted: c.Accepted, Rejected: c.Rejected}
 }
 
-func toLoadPayload(l domain.Load) loadPayload {
+func toLoadPayload(l domain.Load, cat domain.Catalog) loadPayload {
+	answers := l.Answers
+	if answers == nil {
+		answers = domain.Answers{}
+	}
 	return loadPayload{
 		LoadID: l.LoadID, LoadRef: l.LoadRef, Title: domain.LoadTitle(l), VendorID: l.VendorID, VendorName: l.VendorName,
 		Farm: l.FarmLabel, ExpectedCount: l.ExpectedCount, Notes: l.Notes, Status: l.Status, Counts: toCounts(l.Counts),
 		Summary: loadSummary(l), RecordedBy: l.RecordedBy, CreatedAt: l.CreatedAt, UpdatedAt: l.UpdatedAt, RowVersion: l.RowVersion,
+		QuestionnaireVersion: l.QuestionnaireVersion, Answers: answers, AnswerRows: loadAnswerRows(l, cat),
 	}
+}
+
+// loadAnswerRows renders the load's EXTRA answers under their question text (the identity
+// questions are typed fields the screens already show).
+func loadAnswerRows(l domain.Load, cat domain.Catalog) []answerRowPayload {
+	out := []answerRowPayload{}
+	if l.QuestionnaireVersion == 0 || l.Answers == nil {
+		return out
+	}
+	for _, q := range cat.LoadQuestions {
+		switch q.ID {
+		case "load_ref", "vendor", "farm", "expected_count", "notes":
+			continue
+		}
+		if q.Kind == domain.KindVendor || !l.Answers.Applies(q) {
+			continue
+		}
+		label := domain.AnswerLabel(q, l.Answers)
+		if label == "" {
+			continue
+		}
+		out = append(out, answerRowPayload{QuestionID: q.ID, Question: q.Title, Answer: label})
+	}
+	return out
 }
 
 // toCandidatePayload renders one row; cat is the SOP version the row was answered on (an empty

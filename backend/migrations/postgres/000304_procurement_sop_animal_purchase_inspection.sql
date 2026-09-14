@@ -42,6 +42,55 @@ jsonb_build_object(
   ]'::jsonb,
   'rules', '[]'::jsonb,
   'inspection', $seed${
+  "schema_version": "goatos.sop-inspection.v1",
+  "load_form": {
+    "questions": [
+      {
+        "id": "load_ref",
+        "kind": "text",
+        "title": "Load number",
+        "hint": "The number the farm gives this load.",
+        "required": true
+      },
+      {
+        "id": "vendor",
+        "kind": "vendor",
+        "title": "Vendor",
+        "hint": "From the vendor register.",
+        "required": true
+      },
+      {
+        "id": "farm",
+        "kind": "choice",
+        "title": "Farm",
+        "required": true,
+        "options": [
+          {
+            "value": "CBE",
+            "label": "CBE"
+          },
+          {
+            "value": "CPT",
+            "label": "CPT"
+          }
+        ]
+      },
+      {
+        "id": "expected_count",
+        "kind": "number",
+        "title": "Roughly how many animals",
+        "required": false,
+        "min": 0,
+        "max": 10000
+      },
+      {
+        "id": "notes",
+        "kind": "text",
+        "title": "Note",
+        "required": false
+      }
+    ]
+  },
   "pages": [
     {
       "key": "identity",
@@ -674,8 +723,7 @@ jsonb_build_object(
         }
       ]
     }
-  ],
-  "schema_version": "goatos.sop-inspection.v1"
+  ]
 }$seed$::jsonb
 ),
 '{"subject_scope": "task", "types": ["video", "photo"], "required": true, "minimum_count": 3, "maximum_count": 20, "verify_before_apply": false}'::jsonb,
@@ -685,6 +733,12 @@ now()
 FROM public.sop_definitions sd
 WHERE sd.code = 'procurement.animal_purchase'
 ON CONFLICT (tenant_id, sop_id, version) DO NOTHING;
+
+-- The load form's answers (PROCUREMENT SOP): the identity questions mirror the typed columns;
+-- extra authored questions live only here. Stamped with the SOP version the phone rendered.
+ALTER TABLE public.animal_purchase_loads
+  ADD COLUMN IF NOT EXISTS sop_answers jsonb NOT NULL DEFAULT '{}'::jsonb,
+  ADD COLUMN IF NOT EXISTS questionnaire_version integer NOT NULL DEFAULT 0;
 
 -- +goose Down
 -- Forward-only: the document is the day-one inspection; retiring it is a maintainer decision.

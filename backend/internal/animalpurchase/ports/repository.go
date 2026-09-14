@@ -52,10 +52,12 @@ type ReviewQuery struct {
 
 // CreateLoadParams is the load write.
 type CreateLoadParams struct {
-	TenantID       string
-	Write          domain.LoadWrite
-	ActorID        string
-	IdempotencyKey string
+	TenantID string
+	// QuestionnaireVersion is the SOP version whose load form the phone rendered; 0 = published.
+	QuestionnaireVersion int
+	Write                domain.LoadWrite
+	ActorID              string
+	IdempotencyKey       string
 }
 
 // AddCandidateParams is the animal write.
@@ -110,7 +112,15 @@ type CatalogSource interface {
 // photo or video upload in the caller's tenant, in ONE read. Fails closed with ErrInvalidVideo.
 type ProofValidator interface {
 	ValidateCandidateMedia(ctx context.Context, tenantID string, proofRefs []string) error
+	// ValidateCandidateMediaKinds is the SOP-aware check: every proof ref must be a finished
+	// in-app-camera upload AND of a kind its slot accepts (a photo in a video-only slot is
+	// refused server-side, not only by the phone's buttons). refsByKind maps each ref to the
+	// kinds allowed ("photo" / "video").
+	ValidateCandidateMediaKinds(ctx context.Context, tenantID string, allowedByRef map[string][]string) error
 }
+
+// ErrMediaKindNotAccepted: a capture is not the kind its SOP slot asks for.
+var ErrMediaKindNotAccepted = errors.New("animal purchase: capture kind not accepted by its slot")
 
 // Media is one signed playback link.
 type Media struct {

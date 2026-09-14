@@ -231,7 +231,11 @@ class AnimalPurchaseLoadCreateViewModel @Inject constructor(
 
     private data class Local(
         val values: Map<AnimalPurchaseLoadField, String> = emptyMap(),
+        /** Authored (non-locked) load questions: scalar answers by question id, multi ticks by id. */
+        val answers: Map<String, String> = emptyMap(),
+        val multiAnswers: Map<String, Set<String>> = emptyMap(),
         val fieldErrors: Set<AnimalPurchaseLoadField> = emptySet(),
+        val questionErrors: Map<String, String> = emptyMap(),
         val writeStatus: VendorsWriteStatus = VendorsWriteStatus.IDLE,
         val writeMessage: String = "",
         val submitInFlight: Boolean = false,
@@ -244,14 +248,27 @@ class AnimalPurchaseLoadCreateViewModel @Inject constructor(
     private val draftKey = DraftIdempotencyKey(savedStateHandle, KEY_LOAD_DRAFT, "ap-load")
     /** Typed values outlive a process death (the pen-visit lesson): the form comes back as left. */
     private val savedValues = SavedFormValues(savedStateHandle, KEY_LOAD_VALUES, AnimalPurchaseLoadField::valueOf)
+    /** The authored questions' answers, same durability. */
+    private val savedAnswers = SavedStringMap(savedStateHandle, KEY_LOAD_ANSWERS)
+    private val savedMulti = SavedStringMap(savedStateHandle, KEY_LOAD_MULTI)
+    /** The served load form, mirrored so submit reads it synchronously. */
+    private var latestLoadForm: List<AnimalPurchaseQuestionDto> = emptyList()
+    private var latestLoadFormVersion: Int = 0
 
     /** The queued row id, persisted so a recreated ViewModel keeps following the same write. */
     private val queuedItemId = DraftOutboxItemId(savedStateHandle, KEY_LOAD_OUTBOX_ITEM)
 
     init {
         analytics.track(AnalyticsEventsAnimalPurchase.LOAD_ADD_OPENED)
+        local.update { it.copy(values = savedValues.read(), answers = savedAnswers.read(), multiAnswers = savedMulti.read().mapValues { (_, v) -> v.split('|').filter { x -> x.isNotBlank() }.toSet() }) }
         viewModelScope.launch { repository.refreshOptions() }
         viewModelScope.launch { salesRepository.refreshVendorOptions() }
+        viewModelScope.launch {
+            repository.observeOptions().collect {
+                latestLoadForm = it?.loadForm.orEmpty()
+                latestLoadFormVersion = it?.questionnaireVersion ?: 0
+            }
+        }
         queuedItemId.value?.let { followWrite(it) }
     }
 
@@ -262,10 +279,18 @@ class AnimalPurchaseLoadCreateViewModel @Inject constructor(
     ) { l, options, vendorOptions ->
         val o = options ?: AnimalPurchaseOptionsDto()
         val farms = o.farms.map { VendorsOptionUi(it.value, it.label) }
+        // The served load form, keeping only the questions whose `only_if` currently holds; a
+        // locked question's title / hint / compulsory flag are the SOP's, its widget the screen's.
+        val scalarForRules = l.answers + loadFieldAnswers(l.values)
+        val questions = loadFormQuestions(o.loadForm, scalarForRules, l.questionErrors)
         AnimalPurchaseLoadCreateUiState(
             copy = o.copy,
             // One farm to choose from is no choice at all: preselect it.
             values = if (l.values[AnimalPurchaseLoadField.FARM].isNullOrBlank() && farms.size == 1) l.values + (AnimalPurchaseLoadField.FARM to farms.first().value) else l.values,
+            questions = questions,
+            questionnaireVersion = o.questionnaireVersion,
+            answers = l.answers,
+            multiAnswers = l.multiAnswers,
             vendors = vendorOptions?.vendors.orEmpty().map { VendorsOptionUi(it.vendorId, it.businessName) },
             farms = farms,
             fieldErrors = l.fieldErrors,
@@ -280,8 +305,19 @@ class AnimalPurchaseLoadCreateViewModel @Inject constructor(
         val locked = local.value.writeStatus == VendorsWriteStatus.QUEUED || local.value.writeStatus == VendorsWriteStatus.SYNCED
         when (event) {
             is AnimalPurchaseLoadCreateEvent.FieldChanged -> if (!locked) {
-                local.update { it.copy(values = it.values + (event.field to event.value), fieldErrors = it.fieldErrors - event.field) }
+                local.update { it.copy(values = it.values + (event.field to event.value), fieldErrors = it.fieldErrors - event.field, questionErrors = it.questionErrors - loadFieldQuestionId(event.field)) }
                 savedValues.write(local.value.values)
+            }
+            is AnimalPurchaseLoadCreateEvent.AnswerChanged -> if (!locked) {
+                local.update { it.copy(answers = it.answers + (event.questionId to event.value), questionErrors = it.questionErrors - event.questionId) }
+                savedAnswers.write(local.value.answers)
+            }
+            is AnimalPurchaseLoadCreateEvent.MultiToggled -> if (!locked) {
+                local.update {
+                    val current = it.multiAnswers[event.questionId].orEmpty()
+                    it.copy(multiAnswers = it.multiAnswers + (event.questionId to (if (event.checked) current + event.value else current - event.value)), questionErrors = it.questionErrors - event.questionId)
+                }
+                savedMulti.write(local.value.multiAnswers.mapValues { (_, v) -> v.joinToString("|") })
             }
             AnimalPurchaseLoadCreateEvent.Submit -> if (!locked) submit()
             AnimalPurchaseLoadCreateEvent.DismissMessage -> local.update { it.copy(writeMessage = "", writeStatus = if (it.writeStatus == VendorsWriteStatus.FAILED) VendorsWriteStatus.IDLE else it.writeStatus) }
@@ -291,15 +327,39 @@ class AnimalPurchaseLoadCreateViewModel @Inject constructor(
 
     private fun submit() {
         val values = state.value.values
+        val form = latestLoadForm
+        val requiredOf = { field: AnimalPurchaseLoadField -> form.firstOrNull { it.id == loadFieldQuestionId(field) }?.required ?: (field == AnimalPurchaseLoadField.LOAD_REF || field == AnimalPurchaseLoadField.VENDOR || field == AnimalPurchaseLoadField.FARM) }
         val errors = buildSet {
             if (values[AnimalPurchaseLoadField.LOAD_REF].isNullOrBlank()) add(AnimalPurchaseLoadField.LOAD_REF)
             if (values[AnimalPurchaseLoadField.VENDOR].isNullOrBlank()) add(AnimalPurchaseLoadField.VENDOR)
             if (values[AnimalPurchaseLoadField.FARM].isNullOrBlank()) add(AnimalPurchaseLoadField.FARM)
             val expected = values[AnimalPurchaseLoadField.EXPECTED_COUNT].orEmpty().trim()
             if (expected.isNotBlank() && (expected.toIntOrNull() == null || expected.toInt() < 0)) add(AnimalPurchaseLoadField.EXPECTED_COUNT)
+            // The SOP may make an optional locked question compulsory (roughly how many, note).
+            if (expected.isBlank() && requiredOf(AnimalPurchaseLoadField.EXPECTED_COUNT)) add(AnimalPurchaseLoadField.EXPECTED_COUNT)
+            if (values[AnimalPurchaseLoadField.NOTES].isNullOrBlank() && requiredOf(AnimalPurchaseLoadField.NOTES)) add(AnimalPurchaseLoadField.NOTES)
         }
-        if (errors.isNotEmpty()) {
-            local.update { it.copy(fieldErrors = errors) }
+        // Authored questions, validated as the server does: compulsory when they apply, numbers
+        // in range, pick-one/pick-many among the offered choices.
+        val scalar = local.value.answers + loadFieldAnswers(values)
+        val questionErrors = buildMap {
+            val hint = state.value.copy[COPY_REQUIRED_HINT].orEmpty()
+            for (q in form) {
+                if (q.id in LOCKED_LOAD_QUESTION_IDS || !q.appliesGiven(AnimalPurchaseAnswers(scalar = scalar))) continue
+                when (animalPurchaseQuestionKind(q.kind)) {
+                    AnimalPurchaseQuestionKind.MULTI -> if (q.required && local.value.multiAnswers[q.id].isNullOrEmpty()) put(q.id, hint)
+                    AnimalPurchaseQuestionKind.NUMBER -> {
+                        val raw = local.value.answers[q.id].orEmpty().trim()
+                        val n = raw.toDoubleOrNull()
+                        if (raw.isBlank()) { if (q.required) put(q.id, hint) }
+                        else if (n == null || (q.min != null && n < q.min!!) || (q.max != null && n > q.max!!)) put(q.id, animalPurchaseRangeLine(q.min, q.max, q.unit).ifBlank { hint })
+                    }
+                    else -> if (q.required && local.value.answers[q.id].isNullOrBlank()) put(q.id, hint)
+                }
+            }
+        }
+        if (errors.isNotEmpty() || questionErrors.isNotEmpty()) {
+            local.update { it.copy(fieldErrors = errors, questionErrors = questionErrors) }
             return
         }
         val request = AnimalPurchaseLoadCreateRequestDto(
@@ -308,6 +368,8 @@ class AnimalPurchaseLoadCreateViewModel @Inject constructor(
             farm = values[AnimalPurchaseLoadField.FARM].orEmpty().trim(),
             expectedCount = values[AnimalPurchaseLoadField.EXPECTED_COUNT].orEmpty().trim().toIntOrNull() ?: 0,
             notes = values[AnimalPurchaseLoadField.NOTES].orEmpty().trim(),
+            questionnaireVersion = latestLoadFormVersion,
+            answers = buildLoadAnswersJson(form, scalar, local.value.multiAnswers),
         )
         viewModelScope.launch {
             local.update { it.copy(submitInFlight = true, fieldErrors = emptySet()) }
@@ -1284,6 +1346,7 @@ private const val QUESTION_KIND_TEXT = "text"
 private const val QUESTION_KIND_NUMBER = "number"
 private const val QUESTION_KIND_MEDIA = "media"
 private const val QUESTION_KIND_SECTION = "section"
+private const val QUESTION_KIND_VENDOR = "vendor"
 private const val ACCEPTS_PHOTO = "photo"
 private const val ACCEPTS_VIDEO = "video"
 
@@ -1293,6 +1356,7 @@ internal fun animalPurchaseQuestionKind(wire: String): AnimalPurchaseQuestionKin
     QUESTION_KIND_NUMBER -> AnimalPurchaseQuestionKind.NUMBER
     QUESTION_KIND_MEDIA -> AnimalPurchaseQuestionKind.MEDIA
     QUESTION_KIND_SECTION -> AnimalPurchaseQuestionKind.SECTION
+    QUESTION_KIND_VENDOR -> AnimalPurchaseQuestionKind.VENDOR
     else -> AnimalPurchaseQuestionKind.TEXT
 }
 
@@ -1553,6 +1617,64 @@ private const val MESSAGE_SEND_FAILED = "Could not send · tap to retry"
  * ViewModel recreated after process death rebuilds the same map. Enum keys go through [parse]
  * so a renamed field drops silently instead of crashing the restore.
  */
+/** The locked load questions and the typed field each one mirrors. */
+internal val LOCKED_LOAD_QUESTION_IDS = setOf("load_ref", "vendor", "farm", "expected_count", "notes")
+
+internal fun loadFieldQuestionId(field: AnimalPurchaseLoadField): String = when (field) {
+    AnimalPurchaseLoadField.LOAD_REF -> "load_ref"
+    AnimalPurchaseLoadField.VENDOR -> "vendor"
+    AnimalPurchaseLoadField.FARM -> "farm"
+    AnimalPurchaseLoadField.EXPECTED_COUNT -> "expected_count"
+    AnimalPurchaseLoadField.NOTES -> "notes"
+}
+
+internal fun loadQuestionField(id: String): AnimalPurchaseLoadField? = AnimalPurchaseLoadField.entries.firstOrNull { loadFieldQuestionId(it) == id }
+
+/** The typed load values as scalar answers (so `only_if` rules can name farm / load_ref). */
+internal fun loadFieldAnswers(values: Map<AnimalPurchaseLoadField, String>): Map<String, String> =
+    values.entries.associate { (f, v) -> loadFieldQuestionId(f) to v }
+
+/** The served load form as UI rows: only the questions whose `only_if` holds, errors attached. */
+internal fun loadFormQuestions(form: List<AnimalPurchaseQuestionDto>, scalar: Map<String, String>, questionErrors: Map<String, String>): List<AnimalPurchaseQuestionUi> =
+    form.filter { it.appliesGiven(AnimalPurchaseAnswers(scalar = scalar)) }.map { q ->
+        AnimalPurchaseQuestionUi(
+            id = q.id,
+            kind = animalPurchaseQuestionKind(q.kind),
+            title = q.title,
+            hint = q.hint,
+            required = q.required,
+            options = q.options.map { VendorsOptionUi(it.value, it.label) },
+            allowOther = q.allowOther,
+            unit = q.unit,
+            rangeLine = animalPurchaseRangeLine(q.min, q.max, q.unit),
+            error = questionErrors[q.id],
+        )
+    }
+
+/** Every answer -- locked and authored -- keyed by question id, as the server reads it. */
+internal fun buildLoadAnswersJson(form: List<AnimalPurchaseQuestionDto>, scalar: Map<String, String>, multi: Map<String, Set<String>>): JsonObject = buildJsonObject {
+    for (q in form) {
+        when (animalPurchaseQuestionKind(q.kind)) {
+            AnimalPurchaseQuestionKind.MULTI -> multi[q.id]?.takeIf { it.isNotEmpty() }?.let { put(q.id, JsonArray(it.map { v -> JsonPrimitive(v) })) }
+            AnimalPurchaseQuestionKind.NUMBER -> scalar[q.id]?.trim()?.toDoubleOrNull()?.let { put(q.id, it) }
+            else -> scalar[q.id]?.trim()?.takeIf { it.isNotBlank() }?.let { put(q.id, it) }
+        }
+        scalar["${q.id}_other"]?.trim()?.takeIf { it.isNotBlank() }?.let { put("${q.id}_other", it) }
+    }
+}
+
+/** A string→string map that outlives a process death (the authored load answers). */
+internal class SavedStringMap(private val savedStateHandle: SavedStateHandle, private val stateKey: String) {
+    fun read(): Map<String, String> = savedStateHandle.get<ArrayList<String>>(stateKey).orEmpty().mapNotNull { entry ->
+        val idx = entry.indexOf('=')
+        if (idx <= 0) null else entry.substring(0, idx) to entry.substring(idx + 1)
+    }.toMap()
+
+    fun write(values: Map<String, String>) {
+        savedStateHandle[stateKey] = ArrayList(values.map { (k, v) -> "$k=$v" })
+    }
+}
+
 internal class SavedFormValues<F : Enum<F>>(
     private val savedStateHandle: SavedStateHandle,
     private val stateKey: String,
@@ -1585,5 +1707,7 @@ internal class SavedFormValues<F : Enum<F>>(
 }
 
 private const val KEY_LOAD_VALUES = "animal_purchase_load_values"
+private const val KEY_LOAD_ANSWERS = "animal_purchase_load_answers"
+private const val KEY_LOAD_MULTI = "animal_purchase_load_multi"
 private const val KEY_ANIMAL_VALUES = "animal_purchase_animal_values"
 private const val ANIMAL_PURCHASE_VM_LOG_TAG = "GoatOsAnimalPurchase"

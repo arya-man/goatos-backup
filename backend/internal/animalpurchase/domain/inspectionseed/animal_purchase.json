@@ -1,4 +1,53 @@
 {
+  "schema_version": "goatos.sop-inspection.v1",
+  "load_form": {
+    "questions": [
+      {
+        "id": "load_ref",
+        "kind": "text",
+        "title": "Load number",
+        "hint": "The number the farm gives this load.",
+        "required": true
+      },
+      {
+        "id": "vendor",
+        "kind": "vendor",
+        "title": "Vendor",
+        "hint": "From the vendor register.",
+        "required": true
+      },
+      {
+        "id": "farm",
+        "kind": "choice",
+        "title": "Farm",
+        "required": true,
+        "options": [
+          {
+            "value": "CBE",
+            "label": "CBE"
+          },
+          {
+            "value": "CPT",
+            "label": "CPT"
+          }
+        ]
+      },
+      {
+        "id": "expected_count",
+        "kind": "number",
+        "title": "Roughly how many animals",
+        "required": false,
+        "min": 0,
+        "max": 10000
+      },
+      {
+        "id": "notes",
+        "kind": "text",
+        "title": "Note",
+        "required": false
+      }
+    ]
+  },
   "pages": [
     {
       "key": "identity",
@@ -631,6 +680,5 @@
         }
       ]
     }
-  ],
-  "schema_version": "goatos.sop-inspection.v1"
+  ]
 }

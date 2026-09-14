@@ -29,7 +29,9 @@ export async function renderSopModulePage(
     if (editId) {
       const [pageContract, detail] = await Promise.all([pageContractPromise, getSop(editId)]);
       if (detail.ok && detail.data.latest_version) {
-        const version = detail.data.latest_version;
+        // The editor opens the version IN FORCE (what the phone runs); an abandoned draft or a
+        // retired version above it is never the base of the next publish.
+        const version = detail.data.published_version ?? detail.data.latest_version;
         // PROCUREMENT SOP (maintainer decision 2026-09-14): a SOP carrying an `inspection`
         // document (pages of questions the phone runs) is edited through the inspection editor;
         // the load form it also carries is passed through verbatim on save.

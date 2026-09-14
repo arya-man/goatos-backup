@@ -96,3 +96,50 @@ func TestAuthoredChangesReachTheCatalog(t *testing.T) {
 		t.Fatalf("new page must compile to a section row, got %+v", sec)
 	}
 }
+
+// The load form: the seed carries the five load questions; an authored extra question is
+// validated on the write; media is refused on a load; identity questions stay locked.
+func TestLoadFormIsAuthoredAndValidated(t *testing.T) {
+	dsl, _ := ParseInspection(map[string]any{"inspection": json.RawMessage(SeededInspectionJSON())})
+	if got := len(dsl.LoadForm.Questions); got != 5 {
+		t.Fatalf("seeded load form has %d questions, want 5", got)
+	}
+	dsl.LoadForm.Questions = append(dsl.LoadForm.Questions,
+		Question{ID: "transport", Kind: KindChoice, Title: "How did the load arrive?", Required: true, Options: []Option{{"truck", "Truck"}, {"walk", "On foot"}}},
+		Question{ID: "driver_phone", Kind: KindText, Title: "Driver phone", OnlyIf: &Condition{QuestionID: "transport", Value: "truck"}},
+	)
+	if problems := ValidateInspection(dsl); len(problems) > 0 {
+		t.Fatalf("extra load questions should validate: %v", problems)
+	}
+	cat := Catalog{Version: 2, Questions: CompileInspection(dsl), LoadQuestions: dsl.LoadForm.Questions}
+	w := LoadWrite{Catalog: cat, Answers: Answers{"load_ref": j("L-9"), "vendor": j("11111111-1111-4111-8111-111111111111"), "farm": j("CBE")}}
+	w.Normalize()
+	if w.LoadRef != "L-9" || w.FarmLabel != "CBE" {
+		t.Fatalf("identity answers must fill the typed columns: %+v", w)
+	}
+	if err := w.Validate(); field(err) != "transport" {
+		t.Fatalf("the compulsory extra question must be demanded, got %v", err)
+	}
+	w.Answers["transport"] = j("truck")
+	if err := w.Validate(); err != nil {
+		t.Fatalf("driver phone is optional: %v", err)
+	}
+	w.Answers["transport"] = j("tractor")
+	if err := w.Validate(); field(err) != "transport" {
+		t.Fatalf("an unoffered choice must be refused, got %v", err)
+	}
+
+	bad, _ := ParseInspection(map[string]any{"inspection": json.RawMessage(SeededInspectionJSON())})
+	bad.LoadForm.Questions = append(bad.LoadForm.Questions, Question{ID: "truck_photo", Kind: KindMedia, Title: "Truck photo", Accepts: []string{"photo"}})
+	for i := range bad.LoadForm.Questions {
+		if bad.LoadForm.Questions[i].ID == "farm" {
+			bad.LoadForm.Questions[i].Required = false
+		}
+	}
+	problems := strings.Join(ValidateInspection(bad), "\n")
+	for _, want := range []string{"recorded per animal, not on the load", `"farm" must stay compulsory`} {
+		if !strings.Contains(problems, want) {
+			t.Errorf("expected %q in:\n%s", want, problems)
+		}
+	}
+}

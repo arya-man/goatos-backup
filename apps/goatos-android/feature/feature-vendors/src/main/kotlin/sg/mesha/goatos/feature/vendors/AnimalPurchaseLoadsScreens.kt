@@ -26,6 +26,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
@@ -184,56 +185,18 @@ fun AnimalPurchaseLoadCreateScreen(
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             item(key = "result") { VendorsResultBanner(status = state.writeStatus, message = state.writeMessage) }
-            item(key = "load_ref") {
-                VendorsTextField(
-                    value = state.values[AnimalPurchaseLoadField.LOAD_REF].orEmpty(),
-                    onValueChange = { onEvent(AnimalPurchaseLoadCreateEvent.FieldChanged(AnimalPurchaseLoadField.LOAD_REF, it)) },
-                    label = copy[COPY_LOAD_FIELD_LOAD_REF].orEmpty(),
-                    required = true,
-                    readOnly = locked,
-                    error = requiredHint.takeIf { AnimalPurchaseLoadField.LOAD_REF in state.fieldErrors },
-                )
-            }
-            item(key = "vendor") {
-                AnimalPurchaseVendorSearchField(
-                    label = copy[COPY_LOAD_FIELD_VENDOR].orEmpty(),
-                    selectedValue = state.values[AnimalPurchaseLoadField.VENDOR].orEmpty(),
-                    options = state.vendors,
-                    readOnly = locked,
-                    onSelect = { onEvent(AnimalPurchaseLoadCreateEvent.FieldChanged(AnimalPurchaseLoadField.VENDOR, it)) },
-                    error = requiredHint.takeIf { AnimalPurchaseLoadField.VENDOR in state.fieldErrors },
-                )
-            }
-            item(key = "farm") {
-                VendorsFormGroup(title = copy[COPY_LOAD_FIELD_FARM].orEmpty()) {
-                    VendorsSegmented(
-                        options = state.farms,
-                        selectedValue = state.values[AnimalPurchaseLoadField.FARM].orEmpty(),
-                        onSelect = { if (!locked) onEvent(AnimalPurchaseLoadCreateEvent.FieldChanged(AnimalPurchaseLoadField.FARM, it)) },
-                    )
-                    if (AnimalPurchaseLoadField.FARM in state.fieldErrors) {
-                        Text(text = requiredHint, color = MeshaColors.Danger, style = MeshaType.caption)
-                    }
+            if (state.questions.isNotEmpty()) {
+                // PROCUREMENT SOP: the served load form, in the SOP's order. Locked questions keep
+                // their own widget; every authored question renders by kind.
+                items(state.questions, key = { "q:" + it.id }) { question ->
+                    AnimalPurchaseLoadQuestion(question = question, state = state, locked = locked, requiredHint = requiredHint, onEvent = onEvent)
                 }
-            }
-            item(key = "expected") {
-                VendorsTextField(
-                    value = state.values[AnimalPurchaseLoadField.EXPECTED_COUNT].orEmpty(),
-                    onValueChange = { onEvent(AnimalPurchaseLoadCreateEvent.FieldChanged(AnimalPurchaseLoadField.EXPECTED_COUNT, it)) },
-                    label = copy[COPY_LOAD_FIELD_EXPECTED].orEmpty(),
-                    keyboard = KeyboardType.Number,
-                    readOnly = locked,
-                    error = requiredHint.takeIf { AnimalPurchaseLoadField.EXPECTED_COUNT in state.fieldErrors },
-                )
-            }
-            item(key = "notes") {
-                VendorsTextField(
-                    value = state.values[AnimalPurchaseLoadField.NOTES].orEmpty(),
-                    onValueChange = { onEvent(AnimalPurchaseLoadCreateEvent.FieldChanged(AnimalPurchaseLoadField.NOTES, it)) },
-                    label = copy[COPY_LOAD_FIELD_NOTES].orEmpty(),
-                    singleLine = false,
-                    readOnly = locked,
-                )
+            } else {
+                item(key = "load_ref") { LoadRefField(state, locked, requiredHint, copy[COPY_LOAD_FIELD_LOAD_REF].orEmpty(), true, null, onEvent) }
+                item(key = "vendor") { VendorField(state, locked, requiredHint, copy[COPY_LOAD_FIELD_VENDOR].orEmpty(), onEvent) }
+                item(key = "farm") { FarmField(state, locked, requiredHint, copy[COPY_LOAD_FIELD_FARM].orEmpty(), onEvent) }
+                item(key = "expected") { ExpectedField(state, locked, requiredHint, copy[COPY_LOAD_FIELD_EXPECTED].orEmpty(), false, null, onEvent) }
+                item(key = "notes") { NotesField(state, locked, requiredHint, copy[COPY_LOAD_FIELD_NOTES].orEmpty(), false, null, onEvent) }
             }
             item(key = "hint") { Text(text = requiredHint, color = MeshaColors.Muted, style = MeshaType.caption) }
         }
@@ -243,6 +206,157 @@ fun AnimalPurchaseLoadCreateScreen(
                 enabled = !locked && !state.submitInFlight,
                 onClick = { onEvent(AnimalPurchaseLoadCreateEvent.Submit) },
                 modifier = Modifier.weight(1f),
+            )
+        }
+    }
+}
+
+@Composable
+private fun LoadRefField(state: AnimalPurchaseLoadCreateUiState, locked: Boolean, requiredHint: String, label: String, required: Boolean, hint: String?, onEvent: (AnimalPurchaseLoadCreateEvent) -> Unit) {
+    VendorsTextField(
+        value = state.values[AnimalPurchaseLoadField.LOAD_REF].orEmpty(),
+        onValueChange = { onEvent(AnimalPurchaseLoadCreateEvent.FieldChanged(AnimalPurchaseLoadField.LOAD_REF, it)) },
+        label = label,
+        required = required,
+        readOnly = locked,
+        supporting = hint,
+        error = requiredHint.takeIf { AnimalPurchaseLoadField.LOAD_REF in state.fieldErrors },
+    )
+}
+
+@Composable
+private fun VendorField(state: AnimalPurchaseLoadCreateUiState, locked: Boolean, requiredHint: String, label: String, onEvent: (AnimalPurchaseLoadCreateEvent) -> Unit) {
+    AnimalPurchaseVendorSearchField(
+        label = label,
+        selectedValue = state.values[AnimalPurchaseLoadField.VENDOR].orEmpty(),
+        options = state.vendors,
+        readOnly = locked,
+        onSelect = { onEvent(AnimalPurchaseLoadCreateEvent.FieldChanged(AnimalPurchaseLoadField.VENDOR, it)) },
+        error = requiredHint.takeIf { AnimalPurchaseLoadField.VENDOR in state.fieldErrors },
+    )
+}
+
+@Composable
+private fun FarmField(state: AnimalPurchaseLoadCreateUiState, locked: Boolean, requiredHint: String, label: String, onEvent: (AnimalPurchaseLoadCreateEvent) -> Unit) {
+    VendorsFormGroup(title = label) {
+        VendorsSegmented(
+            options = state.farms,
+            selectedValue = state.values[AnimalPurchaseLoadField.FARM].orEmpty(),
+            onSelect = { if (!locked) onEvent(AnimalPurchaseLoadCreateEvent.FieldChanged(AnimalPurchaseLoadField.FARM, it)) },
+        )
+        if (AnimalPurchaseLoadField.FARM in state.fieldErrors) {
+            Text(text = requiredHint, color = MeshaColors.Danger, style = MeshaType.caption)
+        }
+    }
+}
+
+@Composable
+private fun ExpectedField(state: AnimalPurchaseLoadCreateUiState, locked: Boolean, requiredHint: String, label: String, required: Boolean, hint: String?, onEvent: (AnimalPurchaseLoadCreateEvent) -> Unit) {
+    VendorsTextField(
+        value = state.values[AnimalPurchaseLoadField.EXPECTED_COUNT].orEmpty(),
+        onValueChange = { onEvent(AnimalPurchaseLoadCreateEvent.FieldChanged(AnimalPurchaseLoadField.EXPECTED_COUNT, it)) },
+        label = label,
+        required = required,
+        keyboard = KeyboardType.Number,
+        readOnly = locked,
+        supporting = hint,
+        error = requiredHint.takeIf { AnimalPurchaseLoadField.EXPECTED_COUNT in state.fieldErrors },
+    )
+}
+
+@Composable
+private fun NotesField(state: AnimalPurchaseLoadCreateUiState, locked: Boolean, requiredHint: String, label: String, required: Boolean, hint: String?, onEvent: (AnimalPurchaseLoadCreateEvent) -> Unit) {
+    VendorsTextField(
+        value = state.values[AnimalPurchaseLoadField.NOTES].orEmpty(),
+        onValueChange = { onEvent(AnimalPurchaseLoadCreateEvent.FieldChanged(AnimalPurchaseLoadField.NOTES, it)) },
+        label = label,
+        required = required,
+        singleLine = false,
+        readOnly = locked,
+        supporting = hint,
+        error = requiredHint.takeIf { AnimalPurchaseLoadField.NOTES in state.fieldErrors },
+    )
+}
+
+/**
+ * One served load-form question. The five locked questions (load_ref / vendor / farm /
+ * expected_count / notes) keep the widgets the load has always had, but their title, hint and
+ * compulsory mark are the SOP's; every other question renders by kind exactly like the animal
+ * form -- pick-one (segmented when short), pick-many, number with unit and range, free text.
+ */
+@Composable
+private fun AnimalPurchaseLoadQuestion(
+    question: AnimalPurchaseQuestionUi,
+    state: AnimalPurchaseLoadCreateUiState,
+    locked: Boolean,
+    requiredHint: String,
+    onEvent: (AnimalPurchaseLoadCreateEvent) -> Unit,
+) {
+    val hint = question.hint.takeIf { it.isNotBlank() }
+    when (question.id) {
+        "load_ref" -> LoadRefField(state, locked, requiredHint, question.title, question.required, hint, onEvent)
+        "vendor" -> VendorField(state, locked, requiredHint, question.title, onEvent)
+        "farm" -> FarmField(state, locked, requiredHint, question.title, onEvent)
+        "expected_count" -> ExpectedField(state, locked, requiredHint, question.title, question.required, hint, onEvent)
+        "notes" -> NotesField(state, locked, requiredHint, question.title, question.required, hint, onEvent)
+        else -> when (question.kind) {
+            AnimalPurchaseQuestionKind.CHOICE -> VendorsFormGroup(title = if (question.required) question.title + " *" else question.title) {
+                hint?.let { Text(text = it, color = MeshaColors.Muted, style = MeshaType.caption) }
+                val selected = state.answers[question.id].orEmpty()
+                val segmented = question.options.size <= 3 && question.options.all { it.label.length <= 14 }
+                if (segmented) {
+                    VendorsSegmented(options = question.options, selectedValue = selected, onSelect = { if (!locked) onEvent(AnimalPurchaseLoadCreateEvent.AnswerChanged(question.id, it)) })
+                } else {
+                    Column(Modifier.fillMaxWidth()) {
+                        question.options.forEach { option ->
+                            AnimalPurchaseOptionRow(label = option.label, selected = option.value == selected, single = true, enabled = !locked) {
+                                onEvent(AnimalPurchaseLoadCreateEvent.AnswerChanged(question.id, option.value))
+                            }
+                        }
+                    }
+                }
+                if (question.allowOther && selected == "other") {
+                    VendorsTextField(
+                        value = state.answers[question.id + "_other"].orEmpty(),
+                        onValueChange = { onEvent(AnimalPurchaseLoadCreateEvent.AnswerChanged(question.id + "_other", it)) },
+                        label = state.copy[COPY_ANIMAL_OTHER_HINT].orEmpty(),
+                        readOnly = locked,
+                    )
+                }
+                question.error?.let { Text(text = it, color = MeshaColors.Danger, style = MeshaType.caption) }
+            }
+            AnimalPurchaseQuestionKind.MULTI -> VendorsFormGroup(title = if (question.required) question.title + " *" else question.title) {
+                hint?.let { Text(text = it, color = MeshaColors.Muted, style = MeshaType.caption) }
+                val ticked = state.multiAnswers[question.id].orEmpty()
+                Column(Modifier.fillMaxWidth()) {
+                    question.options.forEach { option ->
+                        val checked = option.value in ticked
+                        AnimalPurchaseOptionRow(label = option.label, selected = checked, single = false, enabled = !locked) {
+                            onEvent(AnimalPurchaseLoadCreateEvent.MultiToggled(question.id, option.value, !checked))
+                        }
+                    }
+                }
+                question.error?.let { Text(text = it, color = MeshaColors.Danger, style = MeshaType.caption) }
+            }
+            AnimalPurchaseQuestionKind.NUMBER -> VendorsTextField(
+                value = state.answers[question.id].orEmpty(),
+                onValueChange = { onEvent(AnimalPurchaseLoadCreateEvent.AnswerChanged(question.id, it)) },
+                label = question.title,
+                required = question.required,
+                keyboard = KeyboardType.Decimal,
+                readOnly = locked,
+                error = question.error,
+                supporting = listOf(question.hint, question.rangeLine).filter { it.isNotBlank() }.joinToString(" · ").takeIf { it.isNotBlank() },
+                trailing = question.unit.takeIf { it.isNotBlank() }?.let { unit -> { Text(text = unit, color = MeshaColors.Muted, style = MeshaType.rowValue) } },
+            )
+            else -> VendorsTextField(
+                value = state.answers[question.id].orEmpty(),
+                onValueChange = { onEvent(AnimalPurchaseLoadCreateEvent.AnswerChanged(question.id, it)) },
+                label = question.title,
+                required = question.required,
+                readOnly = locked,
+                error = question.error,
+                supporting = hint,
             )
         }
     }

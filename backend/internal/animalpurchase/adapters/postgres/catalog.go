@@ -91,5 +91,5 @@ func (c *CatalogSource) read(ctx context.Context, sql string, args ...any) (doma
 	if problems := domain.ValidateInspection(dsl); len(problems) > 0 {
 		return domain.Catalog{}, false, fmt.Errorf("animal purchase: inspection sop v%d invalid: %s", version, problems[0])
 	}
-	return domain.Catalog{Version: version, Questions: domain.CompileInspection(dsl)}, true, nil
+	return domain.Catalog{Version: version, Questions: domain.CompileInspection(dsl), LoadQuestions: dsl.LoadForm.Questions}, true, nil
 }

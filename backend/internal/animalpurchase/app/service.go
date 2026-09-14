@@ -123,6 +123,8 @@ type Options struct {
 	BreedSuggestions     []string
 	Questionnaire        []domain.Question
 	QuestionnaireVersion int
+	// LoadForm is the load's own questions of the same version (PROCUREMENT SOP).
+	LoadForm []domain.Question
 }
 
 func (s *Service) Options(ctx context.Context, tenantID string) (Options, error) {
@@ -142,6 +144,7 @@ func (s *Service) Options(ctx context.Context, tenantID string) (Options, error)
 		BreedSuggestions:     breeds,
 		Questionnaire:        cat.Questions,
 		QuestionnaireVersion: cat.Version,
+		LoadForm:             cat.LoadQuestions,
 	}, nil
 }
 
@@ -149,6 +152,12 @@ func (s *Service) CreateLoad(ctx context.Context, p ports.CreateLoadParams) (dom
 	if err := requireIdempotencyKey(p.IdempotencyKey); err != nil {
 		return domain.Load{}, err
 	}
+	cat, err := s.Catalog(ctx, p.TenantID, p.QuestionnaireVersion)
+	if err != nil {
+		return domain.Load{}, err
+	}
+	p.Write.Catalog = cat
+	p.QuestionnaireVersion = cat.Version
 	p.Write.Normalize()
 	if err := p.Write.Validate(); err != nil {
 		return domain.Load{}, err
@@ -187,7 +196,17 @@ func (s *Service) AddCandidate(ctx context.Context, p ports.AddCandidateParams) 
 		return domain.Candidate{}, err
 	}
 	if s.proofs != nil {
-		if err := s.proofs.ValidateCandidateMedia(ctx, p.TenantID, p.Write.AllMediaRefs()); err != nil {
+		// Each capture must be a finished in-app upload of a kind its SOP slot accepts.
+		allowed := map[string][]string{}
+		for _, q := range cat.MediaSlots() {
+			for _, ref := range p.Write.Media[q.Slot] {
+				allowed[ref] = q.Accepts
+			}
+		}
+		if err := s.proofs.ValidateCandidateMediaKinds(ctx, p.TenantID, allowed); err != nil {
+			if errors.Is(err, ports.ErrMediaKindNotAccepted) {
+				return domain.Candidate{}, &Error{Code: "media_kind_not_accepted", Message: "A capture is not the kind this step asks for (photo or video). Record it again.", Field: "media", HTTPStatus: http.StatusUnprocessableEntity}
+			}
 			return domain.Candidate{}, err
 		}
 	}

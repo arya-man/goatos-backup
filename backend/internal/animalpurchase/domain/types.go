@@ -136,6 +136,9 @@ type Load struct {
 	UpdatedAt     time.Time
 	RowVersion    int
 	Counts        DecisionCounts
+	// The load form's answers and the SOP version they were answered on (PROCUREMENT SOP).
+	QuestionnaireVersion int
+	Answers              Answers
 }
 
 // Candidate is one animal on offer in a load.
@@ -196,10 +199,37 @@ type LoadWrite struct {
 	FarmLabel     string
 	ExpectedCount int
 	Notes         string
+	// Answers are the load form's answers as recorded (PROCUREMENT SOP): the locked identity
+	// questions mirror the typed columns above; extra questions live only here. Catalog is the
+	// SOP version the phone rendered (set by the service).
+	Answers Answers
+	Catalog Catalog
 }
 
 // Normalize trims and upper-cases what the write compares on.
 func (w *LoadWrite) Normalize() {
+	if w.Answers == nil {
+		w.Answers = Answers{}
+	}
+	// A phone on the SOP-driven form sends the identity in the answers; the typed fields win when
+	// both are present (older APK), the answers fill them when only the answers are.
+	if w.LoadRef == "" {
+		w.LoadRef = w.Answers.Text("load_ref")
+	}
+	if w.VendorID == "" {
+		w.VendorID = w.Answers.Text("vendor")
+	}
+	if w.FarmLabel == "" {
+		w.FarmLabel = w.Answers.Choice("farm")
+	}
+	if w.ExpectedCount == 0 {
+		if n := w.Answers.Number("expected_count"); n != nil {
+			w.ExpectedCount = int(*n)
+		}
+	}
+	if w.Notes == "" {
+		w.Notes = w.Answers.Text("notes")
+	}
 	w.LoadRef = strings.TrimSpace(w.LoadRef)
 	w.VendorID = strings.TrimSpace(w.VendorID)
 	w.FarmLabel = strings.ToUpper(strings.TrimSpace(w.FarmLabel))
@@ -225,6 +255,9 @@ func (w LoadWrite) Validate() error {
 	}
 	if len(w.Notes) > maxTextLength {
 		return invalid("notes", "The note is too long.")
+	}
+	if len(w.Catalog.LoadQuestions) > 0 {
+		return w.Catalog.ValidateLoadAnswers(w.Answers)
 	}
 	return nil
 }

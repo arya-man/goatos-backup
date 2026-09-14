@@ -60,6 +60,13 @@ data class AnimalPurchaseLoadCreateUiState(
     /** The backend `copy` map, read by key at render time (`load.form.title`, `load.field.*`, `load.save`). */
     val copy: Map<String, String> = emptyMap(),
     val values: Map<AnimalPurchaseLoadField, String> = emptyMap(),
+    /** The served load form (PROCUREMENT SOP), in order, only the questions that currently apply;
+     *  each locked question (load_ref / vendor / farm / expected_count / notes) renders its own
+     *  widget over [values], every other question over [answers] / [multiAnswers]. Empty until served. */
+    val questions: List<AnimalPurchaseQuestionUi> = emptyList(),
+    val questionnaireVersion: Int = 0,
+    val answers: Map<String, String> = emptyMap(),
+    val multiAnswers: Map<String, Set<String>> = emptyMap(),
     /** The ACTIVE vendor register, labels verbatim. */
     val vendors: List<VendorsOptionUi> = emptyList(),
     /** The backend farm choices, labels verbatim. */
@@ -75,6 +82,9 @@ data class AnimalPurchaseLoadCreateUiState(
 
 sealed interface AnimalPurchaseLoadCreateEvent {
     data class FieldChanged(val field: AnimalPurchaseLoadField, val value: String) : AnimalPurchaseLoadCreateEvent
+    /** An authored (non-locked) load question: pick-one / text / number. */
+    data class AnswerChanged(val questionId: String, val value: String) : AnimalPurchaseLoadCreateEvent
+    data class MultiToggled(val questionId: String, val value: String, val checked: Boolean) : AnimalPurchaseLoadCreateEvent
     data object Submit : AnimalPurchaseLoadCreateEvent
     data object Back : AnimalPurchaseLoadCreateEvent
     /** The screen's reaction to [AnimalPurchaseLoadCreateUiState.createdLoadId]: open that load. */
@@ -251,7 +261,7 @@ sealed interface AnimalPurchaseAnimalDetailEvent {
 // ---------------------------------------------------------------------------------------------
 
 /** The question kinds the phone renders, one widget each; [SECTION] is a heading with no answer. */
-enum class AnimalPurchaseQuestionKind { CHOICE, MULTI, TEXT, NUMBER, MEDIA, SECTION }
+enum class AnimalPurchaseQuestionKind { CHOICE, MULTI, TEXT, NUMBER, MEDIA, SECTION, VENDOR }
 
 /** One capture already taken for a media question, durable on this phone. */
 @Immutable
