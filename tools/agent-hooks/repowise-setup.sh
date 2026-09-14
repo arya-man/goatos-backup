@@ -32,16 +32,18 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(cd "$HERE/../.." && pwd)"
 cd "$REPO" || exit 1
 
-# 1. Install repowise if missing (same fallback ladder as CRG/Graphify).
-if ! command -v repowise >/dev/null 2>&1; then
-    echo "repowise-setup: installing repowise..."
-    if command -v uv >/dev/null 2>&1; then uv tool install repowise
-    elif command -v pipx >/dev/null 2>&1; then pipx install repowise
-    else python3 -m pip install --user repowise; fi
+# 1. Install or upgrade repowise (same fallback ladder as CRG/Graphify).
+echo "repowise-setup: installing/upgrading repowise..."
+if command -v uv >/dev/null 2>&1; then
+    uv tool install --upgrade repowise
+elif command -v pipx >/dev/null 2>&1; then
+    pipx install repowise || pipx upgrade repowise
+else
+    python3 -m pip install --user --upgrade repowise
 fi
 if ! command -v repowise >/dev/null 2>&1; then
-    echo "repowise-setup: repowise unavailable (offline / no installer) — skipping, non-fatal."
-    exit 0
+    echo "repowise-setup: repowise unavailable after install attempt."
+    exit 1
 fi
 
 # 2. Snapshot global config so init's global writes can be reverted (org-safe).
@@ -70,12 +72,13 @@ if [ "${REPOWISE_GLOBAL_REGISTER:-0}" != "1" ]; then
     snapshot_one "$DESKTOP_CFG" desktop
 fi
 
-# 3. Build the index (deterministic layers only — no LLM, no network, no codex/
-#    agents/claude-md side-writes). Wiki docs are opt-in later via `repowise init`
-#    with an LLM key; the dashboard + all query tools work without them.
-echo "repowise-setup: building index (graph/git/health/dead-code/decisions, no LLM)..."
-repowise init --index-only --no-codex --no-agents --no-claude-md -y \
-    || echo "repowise-setup: init returned nonzero (continuing; check 'repowise init' manually)."
+# 3. Build the fast index (deterministic layers only — no LLM, no key writes).
+#    Latest repowise's standard mode can exceed SQLite's parameter limit on this
+#    repo during health persistence; fast mode is the supported first-pass mode
+#    for very large repos and keeps the token-saving graph/editor layer active.
+echo "repowise-setup: building fast index (graph + essential git, no LLM)..."
+repowise init --mode fast --skip-tests --no-prose --distill-hook --no-save-key --no-codex --no-agents --no-claude-md -y \
+    || { echo "repowise-setup: init failed."; exit 1; }
 
 # 4. Install a repo-local post-commit auto-update hook (append-safe, marker-guarded).
 GIT_DIR="$(git rev-parse --git-dir 2>/dev/null || printf '.git')"

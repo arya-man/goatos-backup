@@ -66,6 +66,7 @@ FETCH_LOG="$LOG_DIR/sync.log"
 
 while IFS=$'\t' read -r slug library query; do
   [[ -z "${slug:-}" || "$slug" == \#* ]] && continue
+  mkdir -p "$PRIMARY_DIR" "$GRAPH_DIR"
   out="$PRIMARY_DIR/${slug}.md"
   response="$PRIMARY_DIR/${slug}.response"
   printf '[context7-docs] fetch %s %s\n' "$slug" "$library" | tee -a "$FETCH_LOG"

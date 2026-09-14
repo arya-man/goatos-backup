@@ -19,7 +19,7 @@
 # repo root from an unrelated cwd (catches an abspath removal that resolves to
 # the wrong dir — the lint alone cannot see that).
 #
-# Usage: tools/agent-hooks/ai-doctor.sh   # exit 0 = portable, non-zero = breaker
+# Usage: tools/agent-hooks/ai-doctor.sh   # exit 0 = ready, non-zero = breaker
 set -uo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -105,6 +105,46 @@ for f in graphify-out/__ai_doctor_probe__.json .code-review-graph/__ai_doctor_pr
     fi
 done
 
+# Runtime readiness — the setup is only useful if the tools are installed and
+# this checkout has its local indexes. Doctor must not pass a half-installed AI
+# stack and make the app look ready when CRG/Graphify/repowise are absent.
+note "ai-doctor: runtime readiness"
+require_cmd() {
+    name="$1"
+    if command -v "$name" >/dev/null 2>&1; then
+        version="$("$name" --version 2>/dev/null | head -1 || true)"
+        if [ -n "$version" ]; then
+            note "  OK: $name ($version)"
+        else
+            note "  OK: $name ($(command -v "$name"))"
+        fi
+    else
+        note "  MISSING: $name (run: make ai-setup)"
+        fail=1
+    fi
+}
+require_cmd code-review-graph
+require_cmd graphify
+require_cmd rtk
+if [ "${REPOWISE_SETUP:-1}" != "0" ]; then
+    require_cmd repowise
+fi
+
+if [ -d "$REPO/.code-review-graph" ]; then
+    note "  OK: .code-review-graph index present"
+else
+    note "  MISSING: .code-review-graph index (run: make ai-setup)"
+    fail=1
+fi
+if [ "${REPOWISE_SETUP:-1}" != "0" ]; then
+    if [ -d "$REPO/.repowise" ]; then
+        note "  OK: .repowise index present"
+    else
+        note "  MISSING: .repowise index (run: make ai-setup)"
+        fail=1
+    fi
+fi
+
 # Resolve-smoke — repo-relative resolution must find the repo from any cwd.
 note "ai-doctor: resolve smoke"
 if ( cd /tmp && bash "$REPO/tools/agent-hooks/goatos-docs-corpus.sh" --matches AGENTS.md ) >/dev/null 2>&1; then
@@ -115,8 +155,8 @@ else
 fi
 
 if [ "$fail" -eq 0 ]; then
-    note "ai-doctor: PASS — AI tooling is clone-portable and graph artifacts are local-only"
+    note "ai-doctor: PASS — AI tooling is installed, indexed, clone-portable, and graph artifacts are local-only"
 else
-    note "ai-doctor: FAIL — fix the breakers above before push"
+    note "ai-doctor: FAIL — run make ai-setup or fix the breakers above before relying on token-saving tools"
 fi
 exit "$fail"

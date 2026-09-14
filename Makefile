@@ -6,6 +6,7 @@ GOATOS_DEV_DASHBOARD_ADMIN_EMAILS ?= aryaman@mesha.sg manju@mesha.sg manohark@me
 GOATOS_STG_DASHBOARD_ADMIN_EMAILS ?= $(GOATOS_DEV_DASHBOARD_ADMIN_EMAILS)
 REPO_ROOT ?= $(shell git rev-parse --show-toplevel 2>/dev/null || pwd)
 AI_BACKEND ?= auto
+export PATH := $(HOME)/.local/bin:$(PATH)
 
 .PHONY: commandboard-query-plan-guard commandboard-query-plan-wiring-guard additive-publish-guard seed-state-guard check guardrails herd-signals-language-guard exception-guard-ratchet telemetry-guard-ratchet exception-guard-ratchet-regenerate telemetry-guard-ratchet-regenerate exception-guard-ratchet-v2 telemetry-guard-ratchet-v2 exception-guard-ratchet-v2-regenerate telemetry-guard-ratchet-v2-regenerate git-identity-guard guardrail-registration-guard backend-foundations-guard test-execution-integrity-guard operator-cap-fail-closed-guard stg-operator-scope-guard cascade-event-wiring-guard frontend-foundations-guard domain-event-architecture-guard operational-read-model-contract-guard critical-animal-action-availability-guard leadership-assistant-coverage-guard assistant-route-closure-guard local-ci-evidence-guard kernel-worker-retirement-gate-guard stg-disposable-topology-guard stg-promotion-guard stg-promotion-guard-install e2e-integrity-guard aggregate-projection-guard vaccination-schedule-canonical-guard vaccination-shared-source-sync-guard calendar-endpoint-grain-guard goat-shed-scope-guard operational-partition-identity-guard role-scoped-ui-contract-guard goat-shed-integrity-db-proof scale-certification-docs-guard scale-guard clinical-defer-guard ceo-ai-boundary-guard operational-location-guard vaccination-drive-clubbing-guard vaccination-adult-drive-contract-guard vaccination-drive-clubbing-db-proof vaccination-shed-ack-guard vaccination-hrms-seed-fixture-guard vaccination-hrms-source-audit fcm-recipient-routing-guard sweeper-deployment-guard deployed-job-flags-guard secret-accessors-guard worker-stage-budgets-guard idempotency-writes-guard atomic-readmodel-sync-guard config-validate-guard ui-vaccine-labels-guard notification-specificity-guard review-lens-ledger-guard seed-migration-guard india-date-guard offline-first-guard local-single-db-guard local-gcp-kernel-parity-guard ci-local ci-local-screenshots screenshot-remediation-guard push-hook-freshness-guard parallel-dispatch-cleanup-guard gradle-worktree-lock-guard land-main land-main-self-test mobile-guard mobile-guard-audit backend-proof-media-egress-guard android-runtime-permission-sdk-gates-guard android-runtime-permission-sdk-gates-guard-audit android-row-action-scope-guard android-vaccination-submit-gate-guard android-navigation-stack-guard nav-entry-point-placement-guard nav-entry-point-placement-guard-audit telemetry-guard telemetry-guard-audit admin-web-request-reads-guard admin-web-request-reads-guard-audit admin-web-prefetch-guard android-bounded-memory-guard android-bounded-memory-guard-audit nav-composition-guard nav-composition-guard-audit mobile-contract-ownership-guard mobile-contract-ownership-guard-audit weighing-partition-composition-guard exception-guard exception-guard-audit test api-client-generate api-client-check sqlc-generate sqlc-check validate-hot-index-migrations validate-migrations validate-sqlc-plans pre-google-readiness seed-calendar-vaccination-dev seed-dev-email-grants seed-stg-email-grants seed-stg-firebase-password-users seed-stg-9-person-login seed-stg-postflight verify-stg-9-person-login seed-closeout seed-closeout-dry-run seed-vaccination-source-full seed-checkout-staleness-gate seed-vaccination-cpt-operator-drive legacy-god-sheet-sync-dry-run legacy-god-sheet-sync-apply verify-google-dev-seed-fixtures api-latency-policy-test api-latency-gate high-scale-kernel-e2e-all high-scale-kernel-e2e-data high-scale-kernel-e2e-certification bulk-status-kernel-it scale-kernel-gate scale-kernel-gate-smoke admin-web-e2e-smoke docker-storage-report docker-cleanup-goatos-dry-run docker-cleanup-goatos-execute docker-storage-scripts-test db-mutation-guard-test local-stack-service-guard dev-local dev-local-kernel-up dev-local-kernel-status dev-local-kernel-logs dev-local-kernel-smoke dev-local-service-install dev-local-service-start dev-local-service-stop dev-local-service-restart dev-local-service-status dev-local-service-logs dev-local-service-uninstall setup-crg update-docs-graph kernel-worker-cutover-guard seed-feed-ration ceo-ai-eval ceo-ai-eval-selftest e2e-mcp-smoke oci-stg-db-parity grant-assistant-public-read
 .PHONY: ai-setup ai-doctor ai-rebuild ai-rebuild-code ai-rebuild-docs ai-rebuild-repowise ai-repowise-coverage docs-graph-open ai-telemetry ai-telemetry-ui
@@ -15,22 +16,27 @@ AI_BACKEND ?= auto
 setup-crg: ai-setup
 
 ai-setup:
-	@echo "Installing local AI token-saving tools for this checkout..."
-	@if ! command -v code-review-graph >/dev/null 2>&1; then \
-		if command -v uv >/dev/null 2>&1; then uv tool install code-review-graph; \
-		elif command -v pipx >/dev/null 2>&1; then pipx install code-review-graph; \
-		else python3 -m pip install --user code-review-graph; fi; \
+	@echo "Installing/upgrading local AI token-saving tools for this checkout..."
+	@if command -v uv >/dev/null 2>&1; then \
+		uv tool install --upgrade code-review-graph; \
+	elif command -v pipx >/dev/null 2>&1; then \
+		pipx install code-review-graph || pipx upgrade code-review-graph; \
+	else \
+		python3 -m pip install --user --upgrade code-review-graph; \
 	fi
 	code-review-graph install --repo "$(REPO_ROOT)" --no-instructions -y
 	code-review-graph build --repo "$(REPO_ROOT)"
-	@if ! command -v graphify >/dev/null 2>&1; then \
-		if command -v uv >/dev/null 2>&1; then uv tool install graphifyy; \
-		elif command -v pipx >/dev/null 2>&1; then pipx install graphifyy; \
-		else python3 -m pip install --user graphifyy; fi; \
+	@if command -v uv >/dev/null 2>&1; then \
+		uv tool install --upgrade graphifyy; \
+	elif command -v pipx >/dev/null 2>&1; then \
+		pipx install graphifyy || pipx upgrade graphifyy; \
+	else \
+		python3 -m pip install --user --upgrade graphifyy; \
 	fi
-	@if ! command -v rtk >/dev/null 2>&1; then \
-		if command -v brew >/dev/null 2>&1; then brew install rtk; \
-		else echo "RTK is missing. Install from https://www.rtk-ai.app/ or use: brew install rtk"; fi; \
+	@if command -v brew >/dev/null 2>&1; then \
+		brew upgrade rtk || brew install rtk; \
+	elif ! command -v rtk >/dev/null 2>&1; then \
+		echo "RTK is missing. Install from https://www.rtk-ai.app/ or use: brew install rtk"; exit 1; \
 	fi
 	bash tools/agent-hooks/repowise-setup.sh
 	bash tools/agent-hooks/install-stg-push-guard.sh
