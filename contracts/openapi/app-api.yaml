@@ -8371,6 +8371,308 @@ paths:
           $ref: "#/components/responses/WriteConflict"
         "500":
           $ref: "#/components/responses/ServerError"
+  /market/config:
+    get:
+      tags:
+        - Sales
+      operationId: getMarketConfig
+      summary: The market survey's cities and questions, active and retired.
+      description: >-
+        Market survey (maintainer decision 2026-09-14): the cities the procurement director phones
+        each morning and the questions asked in each, with the unit each price is quoted in.
+        Authored on Sales Config; the phone composes its day cards from the ACTIVE rows. Retired
+        rows ride along so the config screen can put them back. Requires sales.market.read.
+      responses:
+        "200":
+          description: The whole authored survey.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MarketConfig"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /market/cities:
+    post:
+      tags:
+        - Sales
+      operationId: createMarketCity
+      summary: Add a city to the morning call list.
+      description: >-
+        Appends a city after the current last one; it is a card on the phone from today. The
+        `Idempotency-Key` header is REQUIRED. A second active city with the same name answers 409
+        duplicate_name. Requires sales.market.config.write.
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MarketCityWrite"
+      responses:
+        "201":
+          description: The city as stored.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MarketCity"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /market/cities/{city_id}:
+    put:
+      tags:
+        - Sales
+      operationId: updateMarketCity
+      summary: Rename, retire or put back a city.
+      description: >-
+        Retire, never delete: a retired city's entries stay readable and putting it back resumes
+        the series. Naturally idempotent, so no key. Requires sales.market.config.write.
+      parameters:
+        - name: city_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MarketCityWrite"
+      responses:
+        "200":
+          description: The city as stored.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MarketCity"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /market/questions:
+    post:
+      tags:
+        - Sales
+      operationId: createMarketQuestion
+      summary: Add a question asked in every city.
+      description: >-
+        A label plus the unit the price is quoted in ("₹/kg", "₹/500 g"). The `Idempotency-Key`
+        header is REQUIRED. Requires sales.market.config.write.
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MarketQuestionWrite"
+      responses:
+        "201":
+          description: The question as stored.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MarketQuestion"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /market/questions/{question_id}:
+    put:
+      tags:
+        - Sales
+      operationId: updateMarketQuestion
+      summary: Relabel, change the unit of, retire or put back a question.
+      description: >-
+        Entries already recorded keep the label and unit they were recorded against (their own
+        snapshot), so this never rewrites history; a unit change starts a new analytics line
+        from the next morning. Naturally idempotent. Requires sales.market.config.write.
+      parameters:
+        - name: question_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MarketQuestionWrite"
+      responses:
+        "200":
+          description: The question as stored.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MarketQuestion"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /market/analytics:
+    get:
+      tags:
+        - Sales
+      operationId: getMarketAnalytics
+      summary: Market prices over a window, for the Market analytics page.
+      description: >-
+        The window's entries as one line per (city, question, unit) plus the latest price per
+        (city, question). A question whose unit was changed starts a NEW line from that morning
+        rather than rescaling the old one, and every row carries the words the price was recorded
+        against. Blank bounds mean the last 90 days ending today; the window is capped at 400
+        days. Requires sales.market.read.
+      parameters:
+        - name: from
+          in: query
+          required: false
+          schema: { type: string, format: date }
+        - name: to
+          in: query
+          required: false
+          schema: { type: string, format: date }
+      responses:
+        "200":
+          description: The window's series and latest table.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MarketAnalytics"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /app/market/survey:
+    get:
+      tags:
+        - Sales
+      operationId: getMarketSurveyDay
+      summary: The phone's market cards for one business day.
+      description: >-
+        One card per ACTIVE city with every ACTIVE question on it and the price recorded so far.
+        A card is `done` only when every question has a price. `date` defaults to today's IST
+        business day; a future date, or one more than 7 days back, is refused. `can_record` is
+        whether THIS caller may save answers (sales.market.entry). Requires sales.market.read.
+      parameters:
+        - name: date
+          in: query
+          required: false
+          schema: { type: string, format: date }
+      responses:
+        "200":
+          description: The day's cards.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MarketSurveyDay"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /app/market/survey/{city_id}:
+    post:
+      tags:
+        - Sales
+      operationId: recordMarketSurveyCity
+      summary: Record a city's prices for a business day.
+      description: >-
+        Upserts the named questions' prices for the city and day -- only the answers sent are
+        written, so a card can be answered in two sittings and a figure corrected the same
+        morning. Each row snapshots the live city name and the question's label and unit. The
+        `Idempotency-Key` header is REQUIRED; an exact replay returns the card without writing.
+        A retired city answers 422 city_retired; a question the config no longer carries answers
+        422 unknown_question and writes nothing. Requires sales.market.entry.
+      parameters:
+        - name: city_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MarketSurveyEntryRequest"
+      responses:
+        "200":
+          description: The city's card as it now stands.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MarketSurveyCard"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "500":
+          $ref: "#/components/responses/ServerError"
   /work-board/rows:
     get:
       tags:
@@ -18992,6 +19294,182 @@ components:
           type: integer
           format: int64
           description: The row_version the reviewer loaded; a stale value answers 409 version_conflict.
+    MarketCity:
+      type: object
+      required: [id, name, sort_order, status]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        sort_order: { type: integer }
+        status:
+          type: string
+          enum: [active, retired]
+    MarketQuestion:
+      type: object
+      required: [id, label, unit_label, sort_order, status]
+      properties:
+        id: { type: string, format: uuid }
+        label: { type: string }
+        unit_label:
+          type: string
+          description: The words the price is quoted in, e.g. "₹/kg" or "₹/500 g". Rendered verbatim.
+        sort_order: { type: integer }
+        status:
+          type: string
+          enum: [active, retired]
+    MarketConfig:
+      type: object
+      required: [cities, questions]
+      properties:
+        cities:
+          type: array
+          items:
+            $ref: "#/components/schemas/MarketCity"
+        questions:
+          type: array
+          items:
+            $ref: "#/components/schemas/MarketQuestion"
+    MarketCityWrite:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, maxLength: 80 }
+        status:
+          type: string
+          enum: [active, retired]
+          description: Blank means active.
+    MarketQuestionWrite:
+      type: object
+      required: [label, unit_label]
+      properties:
+        label: { type: string, maxLength: 80 }
+        unit_label: { type: string, maxLength: 24 }
+        status:
+          type: string
+          enum: [active, retired]
+          description: Blank means active.
+    MarketSurveyAnswer:
+      type: object
+      required: [question_id, price]
+      properties:
+        question_id: { type: string, format: uuid }
+        price:
+          type: number
+          format: double
+          minimum: 0
+    MarketSurveyEntryRequest:
+      type: object
+      required: [answers]
+      properties:
+        business_date:
+          type: string
+          format: date
+          description: Blank means today's IST business day.
+        answers:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/MarketSurveyAnswer"
+    MarketSurveyCardQuestion:
+      type: object
+      required: [question_id, label, unit_label, price]
+      properties:
+        question_id: { type: string, format: uuid }
+        label: { type: string }
+        unit_label: { type: string }
+        price:
+          type: number
+          format: double
+          nullable: true
+          description: Null until recorded for this day.
+    MarketSurveyCard:
+      type: object
+      required: [city_id, city_name, status, answered, total, questions]
+      properties:
+        city_id: { type: string, format: uuid }
+        city_name: { type: string }
+        status:
+          type: string
+          enum: [pending, done]
+          description: done only when every active question has a price.
+        answered: { type: integer }
+        total: { type: integer }
+        questions:
+          type: array
+          items:
+            $ref: "#/components/schemas/MarketSurveyCardQuestion"
+    MarketSurveyDay:
+      type: object
+      required: [business_date, cards, pending, done, can_record]
+      properties:
+        business_date: { type: string, format: date }
+        cards:
+          type: array
+          items:
+            $ref: "#/components/schemas/MarketSurveyCard"
+        pending:
+          type: integer
+          description: "Whole-day count of cards not yet done (grain: city)."
+        done:
+          type: integer
+          description: "Whole-day count of cards done (grain: city)."
+        can_record:
+          type: boolean
+          description: Whether this caller holds sales.market.entry.
+    MarketSeriesPoint:
+      type: object
+      required: [business_date, price]
+      properties:
+        business_date: { type: string, format: date }
+        price: { type: number, format: double }
+    MarketSeries:
+      type: object
+      required: [city_id, city_name, question_id, question_label, unit_label, points]
+      properties:
+        city_id: { type: string, format: uuid }
+        city_name: { type: string }
+        question_id: { type: string, format: uuid }
+        question_label: { type: string }
+        unit_label:
+          type: string
+          description: "Part of the line's identity: a unit change starts a new line."
+        points:
+          type: array
+          items:
+            $ref: "#/components/schemas/MarketSeriesPoint"
+    MarketLatestCell:
+      type: object
+      required: [city_id, city_name, question_id, question_label, unit_label, business_date, price, previous_price]
+      properties:
+        city_id: { type: string, format: uuid }
+        city_name: { type: string }
+        question_id: { type: string, format: uuid }
+        question_label: { type: string }
+        unit_label: { type: string }
+        business_date: { type: string, format: date }
+        price: { type: number, format: double }
+        previous_price:
+          type: number
+          format: double
+          nullable: true
+          description: The price recorded the morning before the latest one inside the window; null for a first entry.
+    MarketAnalytics:
+      type: object
+      required: [from, to, days, latest, series]
+      properties:
+        from: { type: string, format: date }
+        to: { type: string, format: date }
+        days:
+          type: integer
+          description: "Distinct business days with at least one price in the window (grain: day)."
+        latest:
+          type: array
+          items:
+            $ref: "#/components/schemas/MarketLatestCell"
+        series:
+          type: array
+          items:
+            $ref: "#/components/schemas/MarketSeries"
     PenVisit:
       type: object
       description: >-

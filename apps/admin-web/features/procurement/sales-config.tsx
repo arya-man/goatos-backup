@@ -31,6 +31,8 @@ import { SaleAllocationDrawer } from "./sale-allocation-drawer";
 import { SalesPipelineDrawers, type SalesPanel } from "./sales-pipeline-drawers";
 import { BUYER_LEAD_PARAMS, FPO_LEAD_PARAMS } from "./sales-lead-params";
 import { LoadCostDrawer } from "./load-cost-drawer";
+import { getMarketConfig } from "@/lib/api/market-server";
+import { MarketConfigSection } from "./market-config-section";
 
 const PAGE_PATH = "/sales/config";
 const DEFAULT_LIMIT = 25;
@@ -108,7 +110,7 @@ export async function SalesConfigPage({
   // The whole screen's data in ONE parallel read. Every drawer opens from this data: a
   // LocalOverlayLink changes the URL without an RSC request, so a form that fetched on open would
   // never see its own data arrive.
-  const [dealsResult, loadwiseResult, buyerLeadsResult, fpoLeadsResult, saleLocations, vendorOptionsResult] =
+  const [dealsResult, loadwiseResult, buyerLeadsResult, fpoLeadsResult, saleLocations, vendorOptionsResult, marketConfigResult] =
     await Promise.all([
       listSalesDeals({ farm: "all", limit, offset }),
       getLoadwiseSales(),
@@ -133,6 +135,9 @@ export async function SalesConfigPage({
       // Every sale is made TO a vendor (maintainer decision 2026-08-27). ONE bounded read, never
       // a paged walk of /procurement/vendors: that is the banned SSR full-walk shape.
       listProcurementVendorOptions(),
+      // The market survey's cities and questions (maintainer decision 2026-09-14): one bounded
+      // read of the whole authored config.
+      getMarketConfig(),
     ]);
 
   if (firstAuthRequiredError(dealsResult, loadwiseResult)) redirect(INTERNAL_LOGIN_PATH);
@@ -157,6 +162,7 @@ export async function SalesConfigPage({
   const canRecord = controlEnabled(pageContract, "record_sale", false);
   const canAllocateAnimals = controlEnabled(pageContract, "allocate_sale_animals", false);
   const canRecordCost = controlEnabled(pageContract, "record_load_cost", false);
+  const canConfigureMarket = controlEnabled(pageContract, "market_config_write", false);
   const none = copy(pageContract, "value.none");
   const dealColumns = tableLabels(pageContract, "sales-deals");
   // The reopened-row parameters are cleared here and re-added by the edit form itself: they mean
@@ -397,6 +403,15 @@ export async function SalesConfigPage({
           </div>
         )}
       </section>
+
+      {/* 4 — Market survey: what the morning calls ask. Its own permission (the Sales module's
+          Configure level), so like the load-cost section it can be the inert one on a live page. */}
+      <MarketConfigSection
+        pageContract={pageContract}
+        configResult={marketConfigResult}
+        canConfigure={canConfigureMarket}
+        returnTo={listHref}
+      />
 
       {/* Always mounted: LocalOverlayLink changes the URL without an RSC request, so an overlay
           gated on a server-read search param would never appear. */}

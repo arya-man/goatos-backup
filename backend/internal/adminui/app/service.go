@@ -3576,14 +3576,16 @@ func pageSpecificCopy(id string) map[string]string {
 			"market.action.cancel":        "Cancel",
 			"market.empty.cities":         "No cities yet. Add the first market to phone.",
 			"market.empty.questions":      "No questions yet. Add what to ask in every city.",
-			"market.saved.city":           "City saved.",
-			"market.saved.question":       "Question saved.",
-			"market.save_failed":          "Could not save. Check the fields and try again.",
-			"market.duplicate":            "That name is already on the list.",
-			"market.retired_note":         "Retired items stay in the history and can be put back.",
-			"disabled.market_config":      "Your current role can view the market survey but not change what is asked.",
-			"action.market_config.label":  "Change what is asked",
-			"link.sales_market_analytics": "See Market analytics",
+			// Write feedback rides the action_key query the page already renders; keys must
+			// start with "action." for actionRedirect to carry them.
+			"action.market_city_saved":     "City saved. It is on the phone from today.",
+			"action.market_question_saved": "Question saved. It is asked from today; earlier prices keep the words they were recorded with.",
+			"action.market_save_failed":    "Could not save. Check the fields and try again.",
+			"action.market_duplicate":      "That name is already on the list.",
+			"market.retired_note":          "Retired items stay in the history and can be put back.",
+			"disabled.market_config":       "Your current role can view the market survey but not change what is asked.",
+			"action.market_config.label":   "Change what is asked",
+			"link.sales_market_analytics":  "See Market analytics",
 		} {
 			out[key] = value
 		}

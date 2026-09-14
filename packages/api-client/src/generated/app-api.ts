@@ -3156,6 +3156,166 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/market/config": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The market survey's cities and questions, active and retired.
+         * @description Market survey (maintainer decision 2026-09-14): the cities the procurement director phones each morning and the questions asked in each, with the unit each price is quoted in. Authored on Sales Config; the phone composes its day cards from the ACTIVE rows. Retired rows ride along so the config screen can put them back. Requires sales.market.read.
+         */
+        get: operations["getMarketConfig"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/market/cities": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Add a city to the morning call list.
+         * @description Appends a city after the current last one; it is a card on the phone from today. The `Idempotency-Key` header is REQUIRED. A second active city with the same name answers 409 duplicate_name. Requires sales.market.config.write.
+         */
+        post: operations["createMarketCity"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/market/cities/{city_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Rename, retire or put back a city.
+         * @description Retire, never delete: a retired city's entries stay readable and putting it back resumes the series. Naturally idempotent, so no key. Requires sales.market.config.write.
+         */
+        put: operations["updateMarketCity"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/market/questions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Add a question asked in every city.
+         * @description A label plus the unit the price is quoted in ("₹/kg", "₹/500 g"). The `Idempotency-Key` header is REQUIRED. Requires sales.market.config.write.
+         */
+        post: operations["createMarketQuestion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/market/questions/{question_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Relabel, change the unit of, retire or put back a question.
+         * @description Entries already recorded keep the label and unit they were recorded against (their own snapshot), so this never rewrites history; a unit change starts a new analytics line from the next morning. Naturally idempotent. Requires sales.market.config.write.
+         */
+        put: operations["updateMarketQuestion"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/market/analytics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Market prices over a window, for the Market analytics page.
+         * @description The window's entries as one line per (city, question, unit) plus the latest price per (city, question). A question whose unit was changed starts a NEW line from that morning rather than rescaling the old one, and every row carries the words the price was recorded against. Blank bounds mean the last 90 days ending today; the window is capped at 400 days. Requires sales.market.read.
+         */
+        get: operations["getMarketAnalytics"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/market/survey": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The phone's market cards for one business day.
+         * @description One card per ACTIVE city with every ACTIVE question on it and the price recorded so far. A card is `done` only when every question has a price. `date` defaults to today's IST business day; a future date, or one more than 7 days back, is refused. `can_record` is whether THIS caller may save answers (sales.market.entry). Requires sales.market.read.
+         */
+        get: operations["getMarketSurveyDay"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/market/survey/{city_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Record a city's prices for a business day.
+         * @description Upserts the named questions' prices for the city and day -- only the answers sent are written, so a card can be answered in two sittings and a figure corrected the same morning. Each row snapshots the live city name and the question's label and unit. The `Idempotency-Key` header is REQUIRED; an exact replay returns the card without writing. A retired city answers 422 city_retired; a question the config no longer carries answers 422 unknown_question and writes nothing. Requires sales.market.entry.
+         */
+        post: operations["recordMarketSurveyCity"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/work-board/rows": {
         parameters: {
             query?: never;
@@ -8039,6 +8199,139 @@ export interface components {
              * @description The row_version the reviewer loaded; a stale value answers 409 version_conflict.
              */
             row_version: number;
+        };
+        MarketCity: {
+            /** Format: uuid */
+            id: string;
+            name: string;
+            sort_order: number;
+            /** @enum {string} */
+            status: "active" | "retired";
+        };
+        MarketQuestion: {
+            /** Format: uuid */
+            id: string;
+            label: string;
+            /** @description The words the price is quoted in, e.g. "₹/kg" or "₹/500 g". Rendered verbatim. */
+            unit_label: string;
+            sort_order: number;
+            /** @enum {string} */
+            status: "active" | "retired";
+        };
+        MarketConfig: {
+            cities: components["schemas"]["MarketCity"][];
+            questions: components["schemas"]["MarketQuestion"][];
+        };
+        MarketCityWrite: {
+            name: string;
+            /**
+             * @description Blank means active.
+             * @enum {string}
+             */
+            status?: "active" | "retired";
+        };
+        MarketQuestionWrite: {
+            label: string;
+            unit_label: string;
+            /**
+             * @description Blank means active.
+             * @enum {string}
+             */
+            status?: "active" | "retired";
+        };
+        MarketSurveyAnswer: {
+            /** Format: uuid */
+            question_id: string;
+            /** Format: double */
+            price: number;
+        };
+        MarketSurveyEntryRequest: {
+            /**
+             * Format: date
+             * @description Blank means today's IST business day.
+             */
+            business_date?: string;
+            answers: components["schemas"]["MarketSurveyAnswer"][];
+        };
+        MarketSurveyCardQuestion: {
+            /** Format: uuid */
+            question_id: string;
+            label: string;
+            unit_label: string;
+            /**
+             * Format: double
+             * @description Null until recorded for this day.
+             */
+            price: number | null;
+        };
+        MarketSurveyCard: {
+            /** Format: uuid */
+            city_id: string;
+            city_name: string;
+            /**
+             * @description done only when every active question has a price.
+             * @enum {string}
+             */
+            status: "pending" | "done";
+            answered: number;
+            total: number;
+            questions: components["schemas"]["MarketSurveyCardQuestion"][];
+        };
+        MarketSurveyDay: {
+            /** Format: date */
+            business_date: string;
+            cards: components["schemas"]["MarketSurveyCard"][];
+            /** @description Whole-day count of cards not yet done (grain: city). */
+            pending: number;
+            /** @description Whole-day count of cards done (grain: city). */
+            done: number;
+            /** @description Whether this caller holds sales.market.entry. */
+            can_record: boolean;
+        };
+        MarketSeriesPoint: {
+            /** Format: date */
+            business_date: string;
+            /** Format: double */
+            price: number;
+        };
+        MarketSeries: {
+            /** Format: uuid */
+            city_id: string;
+            city_name: string;
+            /** Format: uuid */
+            question_id: string;
+            question_label: string;
+            /** @description Part of the line's identity: a unit change starts a new line. */
+            unit_label: string;
+            points: components["schemas"]["MarketSeriesPoint"][];
+        };
+        MarketLatestCell: {
+            /** Format: uuid */
+            city_id: string;
+            city_name: string;
+            /** Format: uuid */
+            question_id: string;
+            question_label: string;
+            unit_label: string;
+            /** Format: date */
+            business_date: string;
+            /** Format: double */
+            price: number;
+            /**
+             * Format: double
+             * @description The price recorded the morning before the latest one inside the window; null for a first entry.
+             */
+            previous_price: number | null;
+        };
+        MarketAnalytics: {
+            /** Format: date */
+            from: string;
+            /** Format: date */
+            to: string;
+            /** @description Distinct business days with at least one price in the window (grain: day). */
+            days: number;
+            latest: components["schemas"]["MarketLatestCell"][];
+            series: components["schemas"]["MarketSeries"][];
         };
         /** @description The next-day pen visit as the Tasks module's "For me" tab and the visit drill render it (maintainer decision 2026-09-14: the visit is a task of its own, never a step on the PC Care task or the vaccination shed card). Every string is backend-composed; the client maps state_tone to a colour and renders the rest verbatim. The visit video goes to the verifier: status is the gate (open -> pending_verification -> completed | rework) and work_state reaches completed only on approval; verified is the parent's closure signal (the care task that raised the visit closes on it, invisibly to this shape). */
         PenVisit: {
@@ -23324,6 +23617,247 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFoundOrNotAllowed"];
             409: components["responses"]["WriteConflict"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    getMarketConfig: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The whole authored survey. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MarketConfig"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    createMarketCity: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MarketCityWrite"];
+            };
+        };
+        responses: {
+            /** @description The city as stored. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MarketCity"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["WriteConflict"];
+            422: components["responses"]["UnprocessableEntity"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    updateMarketCity: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                city_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MarketCityWrite"];
+            };
+        };
+        responses: {
+            /** @description The city as stored. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MarketCity"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
+            422: components["responses"]["UnprocessableEntity"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    createMarketQuestion: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MarketQuestionWrite"];
+            };
+        };
+        responses: {
+            /** @description The question as stored. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MarketQuestion"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["WriteConflict"];
+            422: components["responses"]["UnprocessableEntity"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    updateMarketQuestion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                question_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MarketQuestionWrite"];
+            };
+        };
+        responses: {
+            /** @description The question as stored. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MarketQuestion"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
+            422: components["responses"]["UnprocessableEntity"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    getMarketAnalytics: {
+        parameters: {
+            query?: {
+                from?: string;
+                to?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The window's series and latest table. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MarketAnalytics"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["UnprocessableEntity"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    getMarketSurveyDay: {
+        parameters: {
+            query?: {
+                date?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The day's cards. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MarketSurveyDay"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["UnprocessableEntity"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    recordMarketSurveyCity: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                city_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MarketSurveyEntryRequest"];
+            };
+        };
+        responses: {
+            /** @description The city's card as it now stands. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MarketSurveyCard"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
+            422: components["responses"]["UnprocessableEntity"];
             500: components["responses"]["ServerError"];
         };
     };

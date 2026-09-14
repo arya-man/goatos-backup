@@ -343,8 +343,12 @@ func (h *Handler) writeErr(w http.ResponseWriter, r *http.Request, appErr *app.E
 	if appErr == nil {
 		return
 	}
+	// Both keys: `error` is the shape the older module handlers emit and the phone reads;
+	// `code` is what admin-web's envelope parser (and this package's own error logging) keys
+	// on, so a 409 duplicate_name reaches the config screen as its own sentence.
 	httpresponse.WriteError(w, r, h.log, appErr.HTTPStatus, map[string]any{
 		"error":   appErr.Code,
+		"code":    appErr.Code,
 		"message": appErr.Message,
 	}, errors.New(appErr.Code))
 }

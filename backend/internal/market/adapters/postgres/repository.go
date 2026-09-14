@@ -39,8 +39,14 @@ var _ ports.Repository = (*Repository)(nil)
 const (
 	cityColumns     = `id::text, name, sort_order, status, created_at, updated_at`
 	questionColumns = `id::text, label, unit_label, sort_order, status, created_at, updated_at`
-	entryColumns    = `id::text, city_id::text, question_id::text, business_date::text, price::float8,
-		city_name, question_label, unit_label, COALESCE(recorded_by::text, ''), recorded_at`
+	entryColumns    = `e.id::text, e.city_id::text, e.question_id::text, e.business_date::text, e.price::float8,
+		e.city_name, e.question_label, e.unit_label, COALESCE(e.recorded_by::text, ''), e.recorded_at`
+	// entryFrom joins the config ONLY to order rows the way the screen lists cities and
+	// questions; every rendered word still comes from the entry's own snapshot columns.
+	entryFrom = `FROM market_price_entries e
+JOIN market_cities c ON c.id = e.city_id
+JOIN market_questions q ON q.id = e.question_id`
+	entryOrder = `c.sort_order, lower(c.name), q.sort_order, lower(q.label)`
 )
 
 // GetConfig reads every city and question in shown order: active first, then by sort order and
@@ -215,9 +221,9 @@ func (r *Repository) ListDayEntries(ctx context.Context, tenantID, businessDate 
 	defer cancel()
 	rows, err := r.pool.Query(ctx, `
 SELECT `+entryColumns+`
-FROM market_price_entries
-WHERE tenant_id = $1::uuid AND business_date = $2::date
-ORDER BY city_id, question_id
+`+entryFrom+`
+WHERE e.tenant_id = $1::uuid AND e.business_date = $2::date
+ORDER BY `+entryOrder+`
 LIMIT $3`, tenantID, businessDate, domain.MaxCities*domain.MaxQuestion)
 	if err != nil {
 		return nil, fmt.Errorf("market: list day entries: %w", err)
@@ -232,9 +238,9 @@ func (r *Repository) ListEntriesBetween(ctx context.Context, tenantID, from, to 
 	defer cancel()
 	rows, err := r.pool.Query(ctx, `
 SELECT `+entryColumns+`
-FROM market_price_entries
-WHERE tenant_id = $1::uuid AND business_date >= $2::date AND business_date <= $3::date
-ORDER BY business_date, city_id, question_id
+`+entryFrom+`
+WHERE e.tenant_id = $1::uuid AND e.business_date >= $2::date AND e.business_date <= $3::date
+ORDER BY e.business_date, `+entryOrder+`
 LIMIT $4`, tenantID, from, to, 400*domain.MaxCities*domain.MaxQuestion)
 	if err != nil {
 		return nil, fmt.Errorf("market: list entries between: %w", err)
@@ -322,9 +328,9 @@ SET price = EXCLUDED.price,
 func (r *Repository) cityDayEntries(ctx context.Context, tx pgx.Tx, tenantID, cityID, businessDate string) ([]domain.Entry, error) {
 	rows, err := tx.Query(ctx, `
 SELECT `+entryColumns+`
-FROM market_price_entries
-WHERE tenant_id = $1::uuid AND city_id = $2::uuid AND business_date = $3::date
-ORDER BY question_id
+`+entryFrom+`
+WHERE e.tenant_id = $1::uuid AND e.city_id = $2::uuid AND e.business_date = $3::date
+ORDER BY `+entryOrder+`
 LIMIT $4`, tenantID, cityID, businessDate, domain.MaxQuestion*2)
 	if err != nil {
 		return nil, fmt.Errorf("market: read city day: %w", err)
