@@ -3,7 +3,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { describeDue, emitFollowUp, expandSeriesRows, followUpProblems, ordinal, parseFollowUp, slugKey } from "./followup-model.ts";
 
-// The seeded documents are the same bytes migration 000299 publishes (pinned by the Go test
+// The seeded documents are the same bytes migration 000304 publishes (pinned by the Go test
 // TestMigrationEmbedsTheSeededDocuments). Parsing them into editor rows and emitting them back
 // must reproduce the document EXACTLY, or opening the editor and pressing Publish with no edits
 // would silently change what the phone runs.

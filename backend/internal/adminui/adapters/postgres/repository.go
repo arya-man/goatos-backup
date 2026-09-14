@@ -365,7 +365,7 @@ WHERE tenant_id = $1::uuid AND status = 'active'
 ORDER BY sort_order, task_type_key
 LIMIT 200`
 
-// listSOPTaskTypes reads the Task Type Registry (migration 000299) for the SOP builder's
+// listSOPTaskTypes reads the Task Type Registry (migration 000304) for the SOP builder's
 // follow-up step editor: one option list for the picker, one metadata twin carrying answer kinds.
 func (r *Repository) listSOPTaskTypes(ctx context.Context, tenantID string) ([]app.ReferenceOption, []app.ReferenceOption, string, error) {
 	rows, err := r.pool.Query(ctx, listSOPTaskTypesSQL, tenantID)

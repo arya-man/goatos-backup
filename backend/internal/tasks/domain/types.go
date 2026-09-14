@@ -85,7 +85,7 @@ type WorkflowAction struct {
 	AnswerValue   *string
 	ProofRef      *string
 	// SOP-driven attributes stamped at open from the pinned follow_up (sop_followup.go). Rows
-	// stamped before migration 000299 were backfilled so the generalized gates below read the
+	// stamped before migration 000304 were backfilled so the generalized gates below read the
 	// same thing the old key-matched code implied.
 	TaskType           string
 	AnswerType         string
@@ -121,7 +121,7 @@ const (
 	ProofKindPhoto = "photo"
 )
 
-// HasHook reports whether the step carries an engine hook. Pre-000299 rows and rows whose
+// HasHook reports whether the step carries an engine hook. Pre-000304 rows and rows whose
 // task type carries no hook fall back to the legacy step-key match, so a behaviour never
 // detaches on old data.
 func (a WorkflowAction) HasHook(hook string) bool {
@@ -164,7 +164,7 @@ func (a WorkflowAction) proofCounts() (videos, photos int) {
 }
 
 // ProofSatisfied reports whether the step's captured proofs meet its authored minimums. A
-// pre-000299 row has ProofMinVideos backfilled from requires_video, so the legacy one-video rule
+// pre-000304 row has ProofMinVideos backfilled from requires_video, so the legacy one-video rule
 // is the same check.
 func (a WorkflowAction) ProofSatisfied() bool {
 	v, p := a.proofCounts()

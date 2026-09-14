@@ -83,6 +83,6 @@ func (s *Service) taskTypeRegistry(ctx context.Context, tenantID string) (tasksd
 		}
 	}
 	// A tenant whose registry has not been seeded validates against the seeded registry, which is
-	// what migration 000299 inserts; the compiler at open reads the live rows.
+	// what migration 000304 inserts; the compiler at open reads the live rows.
 	return tasksdomain.SeededTaskTypes()
 }

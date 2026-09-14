@@ -38,7 +38,7 @@ WHERE tenant_id = $1::uuid AND status = 'active'`
 // This is a deliberate cross-module READ of sop_versions / sop_definitions / sop_task_types: the
 // SOP module is the canonical store of authored operating procedure and the tasks engine is its
 // consumer. A tenant that has NEVER had the SOP authored (no published version at all -- a
-// tenant created after migration 000299, or a test fixture) runs the SEEDED document from
+// tenant created after migration 000304, or a test fixture) runs the SEEDED document from
 // tasks/domain/sopseed, which the golden test proves equal to the old code template, and the
 // workflow is pinned to no version (sop_version_id NULL = "seeded default"). Everything else
 // fails CLOSED: a published version with no follow_up section, no track for the key, or a
@@ -120,7 +120,7 @@ func (r *Repository) taskTypeRegistry(ctx context.Context, tenantID string, allo
 		if allowSeeded {
 			return domain.SeededTaskTypes()
 		}
-		return nil, fmt.Errorf("%w: tenant has no active task types (migration 000299 not applied?)", domain.ErrFollowUpInvalid)
+		return nil, fmt.Errorf("%w: tenant has no active task types (migration 000304 not applied?)", domain.ErrFollowUpInvalid)
 	}
 	return out, nil
 }

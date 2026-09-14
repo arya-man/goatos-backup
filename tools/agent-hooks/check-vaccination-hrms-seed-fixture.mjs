@@ -211,9 +211,9 @@ function migrationCouplesToSeedContract(diff) {
     });
     if (onlyShedPartitionDdl) return false;
 
-    // Same idea, generalized (2026-09-14, migration 000299): a marked migration whose added DDL
+    // Same idea, generalized (2026-09-14, migration 000304): a marked migration whose added DDL
     // names NO seed-contract table at all does not couple, even though a term matched
-    // elsewhere in its Up block. 000299 built the SOP task-type / category registries and
+    // elsewhere in its Up block. 000304 built the SOP task-type / category registries and
     // widened the tasks-engine workflow tables, and only NAMED `sop_versions` to publish the
     // seeded herd-operations documents -- no vaccination/HRMS/goats schema moved, so the seven
     // vaccination companions would have been ritual. The marker cannot launder a real change:
