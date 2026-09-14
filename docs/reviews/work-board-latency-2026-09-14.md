@@ -19,6 +19,33 @@ Judges and reviewers must treat those strings as explicit E2E failure markers. B
 this PR must load the real Work Board and Weights pages and fail if any of those strings render.
 API-only timing is not enough for final acceptance.
 
+## Progress Checklist
+
+Current PR: <https://github.com/vgoats/goatos/pull/259>  
+Current head: `b1b52d4382e737826c8af8dcf3fae7f41ed1b16a`
+
+| Item | Status | Evidence / next action |
+| --- | --- | --- |
+| Find the user-visible outage screens | Done | Screenshots showed Work Board `backend_down`, board load failure, and Weights load failure. |
+| Identify root cause class | Done | Work Board fanout and slow source reads were the main business API failure path; events were noisy shared-lane pressure. |
+| Reproduce with OCI/local staging DB path | Done | OCI restored from staging refresh dump, measured with default tenant, 2 parks, 1,681 goats, 2,231 weighing observations. |
+| Before API numbers | Done | Origin-main fanout: p50 9.5s, p95 11.5s, max 11.5s. First bundled attempt: p50 20.1s, p95 20.3s. |
+| Backend Work Board fix | Done | Bundled `/work-board/page`, lane short-circuit from summary, feed empty-day no-degrade, vaccination precheck state-aware. |
+| API after numbers | Done | Final all-parks Work Board: p50 270ms, p95 465ms, max 898ms cold first request; no degraded modules. |
+| Frontend Work Board fix | Done | Admin-web reads one bundled page per active park and caps all-parks backend page concurrency at 2. |
+| Weights failure guard | Done | Visual smoke covers `/weighing/weights` desktop/mobile and fails on `Weights could not be loaded`. |
+| Exact outage string guards | Done | Visual smoke and sidebar latency checks fail on `Admin-web contract unavailable`, `backend_down`, board load failure, and Weights load failure. |
+| Local browser E2E | Done | Production-build visual smoke passed for Work Board and Weights on laptop and mobile. |
+| Local browser interaction timing | Done | Work Board sidebar: 519ms cold, then 414ms, 316ms, 262ms, 295ms. Weights warms to 632ms, 372ms, 389ms after cold route costs. |
+| Lighthouse local score | Done | Work Board 84 performance / 100 accessibility; Weights 83 performance / 100 accessibility. |
+| Events isolation | Done in PR, pending live proof | PR adds capped event lane (`min=0`, `max=1`, DB pool 2) and route tooling. Must verify after STG deploy. |
+| Billing guard | Partially done | PR uses business API max 4, not 10. This is still higher than the prior max 2 cost cap and needs maintainer acceptance before deploy/merge. |
+| Judge review | Done for current iteration | Backend/admin judges reviewed; findings were folded into latest fixes. |
+| PR raised/pushed | Done | PR #259 is open, mergeable, not draft, at `b1b52d438...`. |
+| STG deploy | Pending | Official deploy path requires landed `origin/main` or explicit break-glass. Do not deploy this PR as normal STG until merge/landing decision. |
+| Live STG verification | Pending | After deploy: Cloud Run logs, event route split, Work Board/Weights live E2E, public PageSpeed/Lighthouse. |
+| Final completion | Pending | Requires STG deploy/live verification or explicit instruction to stop at PR-only. |
+
 ## What Was Happening
 
 - Live staging screenshots at 14:47-14:50 IST showed `/work-board` failing and the shell reporting
