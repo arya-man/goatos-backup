@@ -379,6 +379,152 @@ resource "google_cloud_run_v2_service" "admin_web" {
   depends_on = [google_project_service.enabled]
 }
 
+resource "google_cloud_run_v2_service" "analytics_events" {
+  name                = "goatos-analytics-events-stg"
+  location            = var.region
+  deletion_protection = false
+  ingress             = "INGRESS_TRAFFIC_ALL"
+  labels              = merge(local.labels, { lane = "analytics-events" })
+
+  template {
+    service_account = google_service_account.runtime["analytics_events"].email
+    max_instance_request_concurrency = 20
+
+    scaling {
+      min_instance_count = 0
+      max_instance_count = 1
+    }
+
+    containers {
+      name  = "analytics-events"
+      image = local.backend_image
+
+      ports {
+        container_port = 8080
+      }
+
+      resources {
+        limits = {
+          cpu    = "1"
+          memory = "512Mi"
+        }
+      }
+
+      env {
+        name  = "GOATOS_ENV"
+        value = "stg"
+      }
+
+      env {
+        name  = "GOATOS_HTTP_ADDR"
+        value = ":8080"
+      }
+
+      env {
+        name  = "GOATOS_API_ROUTE_MODE"
+        value = "events"
+      }
+
+      env {
+        name  = "GOATOS_AUTH_MODE"
+        value = "jwks"
+      }
+
+      env {
+        name  = "GOATOS_AUTH_SESSION_ALLOWED_TENANT_IDS"
+        value = var.stg_tenant_id
+      }
+
+      env {
+        name  = "GOATOS_ANALYTICS_MAX_IN_FLIGHT"
+        value = "2"
+      }
+
+      env {
+        name  = "GOATOS_PG_MAX_CONNS"
+        value = "2"
+      }
+
+      env {
+        name  = "GOATOS_PG_QUERY_TIMEOUT"
+        value = "3s"
+      }
+
+      env {
+        name = "GOATOS_AUTH_ISSUER"
+        value_source {
+          secret_key_ref {
+            secret  = google_secret_manager_secret.container["auth_issuer"].secret_id
+            version = "latest"
+          }
+        }
+      }
+
+      env {
+        name = "GOATOS_AUTH_AUDIENCE"
+        value_source {
+          secret_key_ref {
+            secret  = google_secret_manager_secret.container["auth_audience"].secret_id
+            version = "latest"
+          }
+        }
+      }
+
+      env {
+        name = "GOATOS_AUTH_JWKS_URL"
+        value_source {
+          secret_key_ref {
+            secret  = google_secret_manager_secret.container["auth_jwks_url"].secret_id
+            version = "latest"
+          }
+        }
+      }
+
+      env {
+        name = "GOATOS_AUTH_ALLOWED_EMAILS"
+        value_source {
+          secret_key_ref {
+            secret  = google_secret_manager_secret.container["auth_allowed_emails"].secret_id
+            version = "latest"
+          }
+        }
+      }
+
+      env {
+        name = "DATABASE_URL"
+        value_source {
+          secret_key_ref {
+            secret  = google_secret_manager_secret.container["database_url"].secret_id
+            version = "latest"
+          }
+        }
+      }
+
+      volume_mounts {
+        name       = "cloudsql"
+        mount_path = "/cloudsql"
+      }
+    }
+
+    volumes {
+      name = "cloudsql"
+      cloud_sql_instance {
+        instances = [google_sql_database_instance.core.connection_name]
+      }
+    }
+  }
+
+  depends_on = [google_project_service.enabled]
+}
+
+resource "google_cloud_run_v2_service_iam_member" "analytics_events_public_invoker" {
+  project  = var.project_id
+  location = var.region
+  name     = google_cloud_run_v2_service.analytics_events.name
+  role     = "roles/run.invoker"
+  member   = "allUsers"
+}
+
 resource "google_cloud_run_v2_service" "mcp" {
   name                = "goatos-mcp-stg"
   location            = var.region
