@@ -1000,13 +1000,17 @@ private fun VerifyProofPhoto(
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
+    // The photo is ON SCREEN as soon as the card lands (maintainer decision 2026-09-14,
+    // docs/decisions/proof-photo-shown-on-open.md). It used to be tap-armed -- a blank tile the
+    // verifier had to tap before the picture fetched -- and that read as a broken proof on both
+    // the phone and the web drawer. The card is one photo for the one item she opened, so the
+    // paid read is bounded to that record; the egress guard's concern is lists, not this.
+    //
     // Tap to enlarge. A feed-weight photo is judged by READING A NUMBER off a scale, and at card
-    // width on a phone that number is often a few pixels tall — a photo proof that cannot be
+    // width on a phone that number is often a few pixels tall -- a photo proof that cannot be
     // enlarged is a proof the verifier has to approve on faith.
-    var loadPhoto by rememberSaveable(media.proofSubject) { mutableStateOf(false) }
     var isFullscreen by rememberSaveable(media.proofSubject) { mutableStateOf(false) }
     LaunchedEffect(media.signedUrl) {
-        loadPhoto = false
         isFullscreen = false
     }
     Box(
@@ -1015,68 +1019,52 @@ private fun VerifyProofPhoto(
             .background(MeshaColors.Surf2)
             .aspectRatio(16f / 9f)
             .clickable {
-                if (loadPhoto) {
-                    onPreview(
-                        VerifyDetailEvent.PhotoPreview(
-                            proofSubject = media.proofSubject,
-                            mimeType = media.mimeType,
-                            action = "fullscreen_open",
-                            outcome = "attempt",
-                        ),
-                    )
-                    isFullscreen = true
-                } else {
-                    onPreview(
-                        VerifyDetailEvent.PhotoPreview(
-                            proofSubject = media.proofSubject,
-                            mimeType = media.mimeType,
-                            action = "open",
-                            outcome = "attempt",
-                        ),
-                    )
-                    loadPhoto = true
-                }
+                onPreview(
+                    VerifyDetailEvent.PhotoPreview(
+                        proofSubject = media.proofSubject,
+                        mimeType = media.mimeType,
+                        action = "fullscreen_open",
+                        outcome = "attempt",
+                    ),
+                )
+                isFullscreen = true
             },
         contentAlignment = Alignment.Center,
     ) {
-        if (loadPhoto) {
-            AsyncImage(
-                // proof-media-egress:ignore Photo is tap-armed and Coil cache-keyed by stable proof id.
-                model = ImageRequest.Builder(context)
-                    .data(media.signedUrl)
-                    .memoryCacheKey("verify-proof-photo-${media.proofSubject}")
-                    .diskCacheKey("verify-proof-photo-${media.proofSubject}")
-                    .build(),
-                onSuccess = {
-                    onPreview(
-                        VerifyDetailEvent.PhotoPreview(
-                            proofSubject = media.proofSubject,
-                            mimeType = media.mimeType,
-                            action = "load",
-                            outcome = "success",
-                        ),
-                    )
-                },
-                onError = { result ->
-                    onPreview(
-                        VerifyDetailEvent.PhotoPreview(
-                            proofSubject = media.proofSubject,
-                            mimeType = media.mimeType,
-                            action = "load",
-                            outcome = "failure",
-                            reason = result.result.throwable.message ?: result.result.throwable::class.simpleName,
-                        ),
-                    )
-                },
-                // Farm language, and it describes the EVIDENCE rather than the file: a screen reader user
-                // verifying feed hears what they are being asked to judge.
-                contentDescription = stringResource(R.string.verify_detail_photo_description),
-                contentScale = ContentScale.Fit,
-                modifier = Modifier.fillMaxWidth(),
-            )
-        } else {
-            Icon(MeshaIcons.EyeOff, contentDescription = null, tint = MeshaColors.Muted)
-        }
+        AsyncImage(
+            // proof-media-egress:ignore one photo for the one item the verifier opened (bounded, not a list); Coil cache-keyed by stable proof id.
+            model = ImageRequest.Builder(context)
+                .data(media.signedUrl)
+                .memoryCacheKey("verify-proof-photo-${media.proofSubject}")
+                .diskCacheKey("verify-proof-photo-${media.proofSubject}")
+                .build(),
+            onSuccess = {
+                onPreview(
+                    VerifyDetailEvent.PhotoPreview(
+                        proofSubject = media.proofSubject,
+                        mimeType = media.mimeType,
+                        action = "load",
+                        outcome = "success",
+                    ),
+                )
+            },
+            onError = { result ->
+                onPreview(
+                    VerifyDetailEvent.PhotoPreview(
+                        proofSubject = media.proofSubject,
+                        mimeType = media.mimeType,
+                        action = "load",
+                        outcome = "failure",
+                        reason = result.result.throwable.message ?: result.result.throwable::class.simpleName,
+                    ),
+                )
+            },
+            // Farm language, and it describes the EVIDENCE rather than the file: a screen reader user
+            // verifying feed hears what they are being asked to judge.
+            contentDescription = stringResource(R.string.verify_detail_photo_description),
+            contentScale = ContentScale.Fit,
+            modifier = Modifier.fillMaxWidth(),
+        )
     }
     if (isFullscreen) {
         Dialog(
@@ -1112,7 +1100,7 @@ private fun VerifyProofPhoto(
                 contentAlignment = Alignment.Center,
             ) {
                 AsyncImage(
-                    // proof-media-egress:ignore Photo is tap-armed and Coil cache-keyed by stable proof id.
+                    // proof-media-egress:ignore explicit tap to enlarge the same one photo; Coil cache-keyed by stable proof id, so no second read.
                     model = ImageRequest.Builder(context)
                         .data(media.signedUrl)
                         .memoryCacheKey("verify-proof-photo-${media.proofSubject}")
