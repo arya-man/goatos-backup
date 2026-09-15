@@ -147,7 +147,13 @@ func (s *Service) listFirstPage(ctx context.Context, q domain.Query) (domain.Pag
 	}
 	results := make([]result, len(scoped))
 	var wg sync.WaitGroup
-	sem := make(chan struct{}, maxLaneSourceConcurrency)
+	sourceConcurrency := maxLaneSourceConcurrency
+	if ports.HasRequestReadMemo(ctx) {
+		// Four bundled lanes each run two sources: the same eight-source ceiling
+		// as two lanes with four sources, without delaying short memoized lanes.
+		sourceConcurrency = 2
+	}
+	sem := make(chan struct{}, sourceConcurrency)
 	for i, src := range scoped {
 		wg.Add(1)
 		go func(i int, src ports.Source) {

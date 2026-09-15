@@ -300,7 +300,7 @@ func (h *Handler) Page(w http.ResponseWriter, r *http.Request) {
 	writeJSONBytes(w, http.StatusOK, body)
 }
 
-const maxPageLaneServiceConcurrency = 2
+const maxPageLaneServiceConcurrency = 4
 
 type pageTiming struct {
 	enabled bool

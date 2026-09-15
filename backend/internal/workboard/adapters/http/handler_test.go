@@ -442,8 +442,8 @@ func TestPageBoundsLaneServiceConcurrency(t *testing.T) {
 	if len(svc.lists) != len(domain.Lanes()) {
 		t.Fatalf("expected every lane to be read, got %d", len(svc.lists))
 	}
-	if svc.maxList > maxPageLaneServiceConcurrency {
-		t.Fatalf("max concurrent lane service reads=%d want <= %d", svc.maxList, maxPageLaneServiceConcurrency)
+	if svc.maxList != maxPageLaneServiceConcurrency {
+		t.Fatalf("max concurrent lane service reads=%d want %d", svc.maxList, maxPageLaneServiceConcurrency)
 	}
 }
 

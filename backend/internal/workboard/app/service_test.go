@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -595,5 +596,80 @@ func TestBadCursorStillFailsTheRead(t *testing.T) {
 	svc := NewService(bad)
 	if _, err := svc.List(context.Background(), baseQuery()); err == nil {
 		t.Fatal("an invalid cursor must fail the read, not degrade")
+	}
+}
+
+type requestConcurrencySource struct {
+	fakeSource
+	kind         string
+	active, peak *atomic.Int32
+	entered      chan<- struct{}
+	release      <-chan struct{}
+}
+
+func (s *requestConcurrencySource) Module() domain.Module { return domain.ModuleFeed }
+func (s *requestConcurrencySource) SourceType() string    { return s.kind }
+func (s *requestConcurrencySource) CountByState(context.Context, ports.SourceQuery) (map[domain.WorkState]int, error) {
+	return nil, nil
+}
+func (s *requestConcurrencySource) ListRows(ctx context.Context, q ports.SourceQuery) ([]domain.Row, error) {
+	current := s.active.Add(1)
+	defer s.active.Add(-1)
+	for {
+		old := s.peak.Load()
+		if current <= old || s.peak.CompareAndSwap(old, current) {
+			break
+		}
+	}
+	s.entered <- struct{}{}
+	select {
+	case <-s.release:
+		return nil, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+func TestBundledFourLanesKeepEightSourceCeiling(t *testing.T) {
+	var active, peak atomic.Int32
+	entered := make(chan struct{}, 24)
+	release := make(chan struct{})
+	sources := []ports.Source{}
+	for i := 0; i < 6; i++ {
+		sources = append(sources, &requestConcurrencySource{kind: fmt.Sprint(i), active: &active, peak: &peak, entered: entered, release: release})
+	}
+	svc := NewService(sources...)
+	ctx, cancel := context.WithTimeout(ports.WithRequestReadMemo(context.Background()), 2*time.Second)
+	defer cancel()
+	var wg sync.WaitGroup
+	for _, state := range []domain.WorkState{domain.WorkStateDue, domain.WorkStateInProgress, domain.WorkStateVerificationPending, domain.WorkStateCompleted} {
+		wg.Add(1)
+		go func(state domain.WorkState) {
+			defer wg.Done()
+			q := baseQuery()
+			q.WorkStates = []domain.WorkState{state}
+			if _, err := svc.List(ctx, q); err != nil {
+				t.Error(err)
+			}
+		}(state)
+	}
+	for i := 0; i < 8; i++ {
+		select {
+		case <-entered:
+		case <-ctx.Done():
+			close(release)
+			wg.Wait()
+			t.Fatal("four lanes did not start their two-source wave")
+		}
+	}
+	if got := active.Load(); got != 8 {
+		t.Errorf("first wave active=%d want8", got)
+	}
+	close(release)
+	wg.Wait()
+	if got := peak.Load(); got != 8 {
+		t.Fatalf("peak source reads=%d want8", got)
+	}
+	if active.Load() != 0 {
+		t.Fatal("source reads remained active")
 	}
 }
