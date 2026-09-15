@@ -613,3 +613,57 @@ ON CONFLICT (completion_id) DO UPDATE SET status = EXCLUDED.status`, id, bsTenan
 }
 
 func src(pool *pgxpool.Pool) *Source { return New(pool, 5*time.Second) }
+
+// Reuse the same long-lived source across writes, as the API does. Summary and
+// lane reads must immediately reflect another request completing or reopening work.
+func TestFeedActivityFreshLaneAndCountsAfterMutation(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seed(t, ctx, pool)
+	src := New(pool, 5*time.Second)
+	if _, err := src.CountByState(ctx, query("")); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := src.ListRows(ctx, query(""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if before := byID(rows)[feedActivityID("transport")]; before.WorkState != domain.WorkStateRejected || before.Counts.Done != 1 {
+		t.Fatalf("fixture must start with partially completed transport: %+v", before)
+	}
+	for _, step := range []struct {
+		name, status string
+		completed    int
+		state        domain.WorkState
+	}{
+		{"complete", "completed", 1, domain.WorkStateCompleted},
+		{"reopen", "rework", 0, domain.WorkStateRejected},
+	} {
+		t.Run(step.name, func(t *testing.T) {
+			exec(t, ctx, pool, `UPDATE feed_transport_tasks SET status = $4 WHERE tenant_id = $1::uuid AND park_id = $2::uuid AND business_date = $3::date`, bsTenant, bsPark, bsDate, step.status)
+			counts, err := src.CountByState(ctx, query(""))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if counts[domain.WorkStateCompleted] != step.completed {
+				t.Fatalf("stale feed summary after %s: %+v", step.name, counts)
+			}
+			rows, err := src.ListRows(ctx, query("", step.state))
+			if err != nil {
+				t.Fatal(err)
+			}
+			current, ok := byID(rows)[feedActivityID("transport")]
+			if !ok || current.WorkState != step.state {
+				t.Fatalf("fresh lane missing transport after %s: %+v", step.name, rows)
+			}
+			if step.completed == 1 && (current.Counts.Done != 4 || current.Counts.Pending != 0) {
+				t.Fatalf("completed card has stale pen counts: %+v", current)
+			}
+			if step.completed == 0 && (current.Counts.Done != 0 || current.Counts.NeedsAttention != 4) {
+				t.Fatalf("reopened card has stale pen counts: %+v", current)
+			}
+		})
+	}
+}

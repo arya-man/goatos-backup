@@ -1585,3 +1585,4 @@ Cube metric or MCP tool.
 - `WithTiming`: EXCLUDED from assistant tools; request-local diagnostic timing callback, with no business facts or independent read surface.
 - `ResolveAccessSnapshot`: EXCLUDED from assistant tools; internal authorization lookup used by HTTP middleware, not a leadership data endpoint. Tenant and current grants remain enforced before reporting reads.
 - `ListRowsOnly`: EXCLUDED as a separate assistant surface; an internal Work Board adapter optimization over the same canonical process-integrity rows and cursor. Leadership counts remain on the canonical summary API.
+- `CountByWorkStateLive`: EXCLUDED as a separate assistant surface; internal Work Board aggregation over the existing canonical process-integrity count query. It bypasses the reporting cache so lane pruning reflects completed mutations; the public summary API and authorization remain unchanged.
