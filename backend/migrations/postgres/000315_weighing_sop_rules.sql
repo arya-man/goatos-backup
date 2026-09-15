@@ -1,5 +1,5 @@
 -- +goose Up
--- 000314_weighing_sop_rules.sql
+-- 000315_weighing_sop_rules.sql
 --
 -- WEIGHING SOP (maintainer decision 2026-09-15, docs/decisions/weighing-sop.md).
 -- The Weighing Session SOP stops being a library document (000186): the rules a weighing

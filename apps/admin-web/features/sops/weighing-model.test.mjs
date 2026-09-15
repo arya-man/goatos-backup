@@ -3,7 +3,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { blankProofSlot, blankQuestion, emitWeighing, parseWeighing, weighingProblems } from "./weighing-model.ts";
 
-// The seeded document is the same bytes migration 000314 adds to each tenant's published
+// The seeded document is the same bytes migration 000315 adds to each tenant's published
 // weighing.session version (pinned by the Go test TestMigrationEmbedsTheSeededWeighingSOP).
 // Parsing it into editor rows and emitting it back must reproduce it EXACTLY, or opening the
 // editor and pressing Publish with no edits would change what the planner and the phone run.

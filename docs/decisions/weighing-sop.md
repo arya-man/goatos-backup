@@ -43,7 +43,7 @@ document only so that it states the rule; `video_required: false` is refused at 
 everything should work." So the removal card's captures are no longer two fixed clips. The
 document carries `feed_water_removal.proofs[]` -- key, title, hint, kind `video` / `photo` /
 `either`, `required` -- and the evidence row stores them as `sop_proofs {slot key: proof ref}`
-(migration `000315`; the legacy `feed_proof_ref` / `water_proof_ref` pair mirrors the seeded
+(migration `000316`; the legacy `feed_proof_ref` / `water_proof_ref` pair mirrors the seeded
 `feed_video` / `water_video` slots and is backfilled, so every pre-existing reader still
 reads). The verifier item and the midnight gate are built from the ordered slot refs. Limits:
 one to eight slots, unique keys in the id pattern, at least one compulsory slot unless the
@@ -103,7 +103,7 @@ author typed, not a built-in.
 - **Day one is the current behaviour.** `weighing/domain/sopseed/weighing_session.json` is the
   pre-SOP behaviour byte for byte -- removal required, both clips, no questions, cap 100, 1..5
   lump-sum videos, both modes -- pinned by `TestSeededWeighingSOPIsThePreSOPBehaviour`.
-  Migration `000314` adds it IN PLACE to each tenant's currently published `weighing.session`
+  Migration `000315` adds it IN PLACE to each tenant's currently published `weighing.session`
   version (the 000308 shape: the version a farm sees on deploy is the one it already had, now
   carrying the rules), inserts the 000186 definition + v1 for a tenant that has none, adds the
   two columns, and embeds the seed verbatim (`TestMigrationEmbedsTheSeededWeighingSOP`).
@@ -161,7 +161,7 @@ submitted), `weighing_video_count`, `weighing_sop_version_unknown`, `fasting_ans
   (`weighing-free-flow-guard`, `mobile-guard`, `design-system-guard`, `telemetry-guard`,
   `exception-guard`, `room-migration-guard`, `android-navigation-stack-guard`) green.
 - Live run (2026-09-15, OCI `goatos_wsopqa` cloned from a 000304 STG-like DB and migrated to
-  000314; API :8107, admin-web :3397, Realme JJ6LVC8DCMFYMN4P): 000314 added the section IN
+  000315; API :8107, admin-web :3397, Realme JJ6LVC8DCMFYMN4P): 000315 added the section IN
   PLACE to the published v1 (45 tasks read `sop_version NULL`). Chromium: the drawer summary,
   Change SOP → mode `optional`, instruction, a pick-one question, lump-sum max 3 → **Published
   v2**; a max of 9 is refused before publish. API under v2: declined today → 200 pinned v2 with
@@ -176,7 +176,7 @@ submitted), `weighing_video_count`, `weighing_sop_version_unknown`, `fasting_ans
   the same commits fixed: the planner handler dropped `sop`, and the editor's checkbox rows were
   stretched by the inspection page's input rule.
 
-- Second live run (2026-09-15, same stack, API :8108, migrated to 000315). Web: v3 published
+- Second live run (2026-09-15, same stack, API :8108, migrated to 000316). Web: v3 published
   with cutoff 21:30, feed VIDEO + water PHOTO + optional "Gate closed" either, four question
   kinds, lump max 2; all-optional slots / a bad time / min > max / no captures each refused
   before publish; v4 = off (drawer "Never"); `video_required: false` refused by name. API under
@@ -223,7 +223,7 @@ submitted), `weighing_video_count`, `weighing_sop_version_unknown`, `fasting_ans
   publish no longer offers is refused on a NEW task while a task pinned to the older version
   still edits under its own modes. The verifier's queue named and typed every proof BY
   POSITION from the registry ("Water removal video", `video/mp4` for a photo) -- fixed by
-  `verification_items.media_meta` (000316), proven on the web drawer (three tabs titled by the
+  `verification_items.media_meta` (000317), proven on the web drawer (three tabs titled by the
   SOP, the photo slots rendering an image). The campaign PUT has never carried a version fence
   (a stale `row_version` is accepted, last write wins) -- pre-existing, unchanged here.
 

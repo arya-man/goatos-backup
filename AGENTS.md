@@ -2852,7 +2852,7 @@ Purpose:
   STAMPED with the version (`weighing_campaigns.sop_version`) and the task runs on that version
   to the end (edit, lump-sum submit, removal card and its answers all read the PIN, never the
   latest publish). The seeded document is the pre-SOP behaviour byte for byte and migration
-  000314 adds it IN PLACE to the published version, so deploy changes nothing. WEIGHING STAYS
+  000315 adds it IN PLACE to the published version, so deploy changes nothing. WEIGHING STAYS
   ISOLATED: `backend/internal/weighing` never names `sop_versions`; it holds
   `ports.SOPRulesSource` and the only file naming the SOP tables on its behalf is
   `backend/internal/weighingsop/adapters/postgres/rules_source.go` (the `feedwaterremoval`

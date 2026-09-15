@@ -15,7 +15,7 @@ import (
 const rulesTenant = "7f000000-0000-4000-8000-0000000000ee"
 
 // The rules source is the ONLY place that names sop_versions on weighing's behalf. Proved on a
-// migrated database: migration 000314 leaves every tenant's published weighing.session version
+// migrated database: migration 000315 leaves every tenant's published weighing.session version
 // carrying the seeded section (the pre-SOP behaviour); a tenant created AFTER it runs the seeded
 // rules (version 0); publishing v2 with a different removal mode is read as the published rules
 // on the very next call while v1 stays readable by number for the tasks pinned to it; and a
@@ -27,7 +27,7 @@ func TestRulesSourceReadsPublishedAndPinnedVersions(t *testing.T) {
 	defer pool.Close()
 	src := NewRulesSource(pool, 5*time.Second)
 
-	// 000314: no published weighing.session version lacks the section.
+	// 000315: no published weighing.session version lacks the section.
 	var lacking int
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM sop_versions v
 JOIN sop_definitions d ON d.tenant_id = v.tenant_id AND d.sop_id = v.sop_id
@@ -35,7 +35,7 @@ WHERE d.code = 'weighing.session' AND v.status = 'published' AND NOT (v.form_dsl
 		t.Fatalf("count versions lacking the section: %v", err)
 	}
 	if lacking != 0 {
-		t.Fatalf("migration 000314 left %d published weighing.session version(s) without the weighing section", lacking)
+		t.Fatalf("migration 000315 left %d published weighing.session version(s) without the weighing section", lacking)
 	}
 
 	// A tenant created after the migration: no version, the seeded rules, version 0.
@@ -50,7 +50,7 @@ WHERE d.code = 'weighing.session' AND v.status = 'published' AND NOT (v.form_dsl
 		t.Fatalf("unauthored tenant rules = v%d/%s, want the seed v0/required", rules.Version, rules.FeedWaterRemoval.Mode)
 	}
 
-	// Publish v1 = the seeded document (what 000314 does for an existing tenant), then v2 with
+	// Publish v1 = the seeded document (what 000315 does for an existing tenant), then v2 with
 	// the removal optional and a question; v1 is retired.
 	var sopID string
 	if err := pool.QueryRow(ctx, `INSERT INTO sop_definitions (tenant_id, code, name, description, status)

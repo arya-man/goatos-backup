@@ -32,7 +32,7 @@ import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 
 const REPO = resolve(new URL("../..", import.meta.url).pathname);
-const MIGRATION = "backend/migrations/postgres/000314_weighing_sop_rules.sql";
+const MIGRATION = "backend/migrations/postgres/000315_weighing_sop_rules.sql";
 const SEED = "backend/internal/weighing/domain/sopseed/weighing_session.json";
 const RULES_FILE = "backend/internal/weighing/app/sop_rules.go";
 const WEIGHING_APP = "backend/internal/weighing/app";
@@ -71,7 +71,7 @@ export function check(root) {
     const marker = "$seed$" + seed + "$seed$";
     const count = migration.split(marker).length - 1;
     if (count !== 2) {
-      findings.push({ rule: "seed-drifted-from-migration", file: SEED, detail: `embedded verbatim ${count} time(s) in migration 000314, want 2` });
+      findings.push({ rule: "seed-drifted-from-migration", file: SEED, detail: `embedded verbatim ${count} time(s) in migration 000315, want 2` });
     }
   }
   for (const f of walk(join(root, WEIGHING_DIR))) {

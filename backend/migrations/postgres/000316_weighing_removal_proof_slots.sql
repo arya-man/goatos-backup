@@ -1,5 +1,5 @@
 -- +goose Up
--- 000315_weighing_removal_proof_slots.sql
+-- 000316_weighing_removal_proof_slots.sql
 --
 -- WEIGHING SOP, second decision the same day (2026-09-15, docs/decisions/weighing-sop.md):
 -- the removal card's CAPTURES are authored, not only their wording. A slot may be a live-camera

@@ -7,12 +7,12 @@ import (
 	"testing"
 )
 
-// TestMigrationEmbedsTheSeededWeighingSOP pins migration 000314 to the embedded seed: the
+// TestMigrationEmbedsTheSeededWeighingSOP pins migration 000315 to the embedded seed: the
 // section it adds to each tenant's published weighing.session version is the same bytes the
 // code compiles for a tenant with no authored version, so day one on STG is the current
 // behaviour exactly. The seed appears twice (the fresh-tenant insert and the in-place add).
 func TestMigrationEmbedsTheSeededWeighingSOP(t *testing.T) {
-	path := filepath.Join("..", "..", "..", "migrations", "postgres", "000314_weighing_sop_rules.sql")
+	path := filepath.Join("..", "..", "..", "migrations", "postgres", "000315_weighing_sop_rules.sql")
 	sql, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
