@@ -36,3 +36,13 @@ test("publishedHref round-trips through the library's search params", () => {
   assert.equal(publishedFromSearch({}), null);
   assert.equal(publishedHref("/procurement/sops", "sop-2"), "/procurement/sops?published=sop-2");
 });
+
+// Review finding on PR 267: /milk/sops and /weighing/sops were missing, so a publish from those
+// modules landed on a still-cached library with the old version on the card.
+test("every module SOP route the sidebar serves is revalidated after a SOP mutation", () => {
+  const actions = readFileSync(new URL("./sop-actions.ts", import.meta.url), "utf8");
+  const service = readFileSync(new URL("../../../../backend/internal/adminui/app/service.go", import.meta.url), "utf8");
+  const served = [...new Set([...service.matchAll(/navLeaf(?:Domain)?\("[^"]+", "[^"]+", "(\/[a-z]+\/sops)"/g)].map((m) => m[1]))].sort();
+  const listed = [...actions.match(/const SOP_PAGE_PATHS = \[([^\]]+)\]/)[1].matchAll(/"([^"]+)"/g)].map((m) => m[1]).sort();
+  assert.deepEqual(listed, served);
+});
