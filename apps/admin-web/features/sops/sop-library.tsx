@@ -66,15 +66,28 @@ export interface SopLibraryProps {
   pageContract: AdminUiPageContract;
   /** The module SOP page path this library is mounted on (e.g. "/vaccination/sops"). */
   basePath: string;
+  /** Set when an editor just published: the banner names the version and that card is lit. */
+  published?: { sopId: string; version: number | null } | null;
 }
 
 // SOP Library client console. Ported from the mock SOP Library screen (header, search, domain chips,
 // card grid, detail modal). "New SOP" / "Edit" navigate to the dedicated full-page builder
 // (<basePath>?compose=1 [&edit=<sop_id>]). Cards render ONLY real `/admin/sops` data; facets are derived from
 // real code/description/form_dsl/proof_policy. No mock inventory, no fake source rows.
-export function SopLibrary({ sops, error, authRequired, pageContract, basePath }: SopLibraryProps) {
+export function SopLibrary({ sops, error, authRequired, pageContract, basePath, published }: SopLibraryProps) {
   const router = useRouter();
   const builderHref = `${basePath}?compose=1`;
+  // The just-published banner is dismissed locally (no navigation) and is only shown while the
+  // named SOP is actually on this page.
+  const [publishedDismissed, setPublishedDismissed] = useState(false);
+  const publishedSop = published && !publishedDismissed ? sops.find((s) => s.sopId === published.sopId) ?? null : null;
+  const publishedVersion = published?.version ?? publishedSop?.versionNumber ?? null;
+  const publishedTitle = publishedSop
+    ? copy(pageContract, "notice.published.title")
+        .replace("{version}", publishedVersion === null ? "" : String(publishedVersion))
+        .replace("v — ", "— ")
+        .replace("{name}", publishedSop.name)
+    : "";
   const [query, setQuery] = useState("");
   const [detail, setDetail] = useState<SopCardView | null>(null);
   const openBuilder = () => router.push(builderHref);
@@ -135,6 +148,19 @@ export function SopLibrary({ sops, error, authRequired, pageContract, basePath }
         </div>
       </div>
 
+      {publishedSop ? (
+        <div className="alert ok sop-published-banner" role="status" style={{ marginBottom: 14 }} data-published-sop={publishedSop.sopId}>
+          <Check className="ic" aria-hidden="true" />
+          <div style={{ flex: 1 }}>
+            <b>{publishedTitle}</b>
+            <div className="small" style={{ marginTop: 2 }}>{copy(pageContract, "notice.published.body")}</div>
+          </div>
+          <button type="button" className="btn sm" onClick={() => setPublishedDismissed(true)}>
+            {copy(pageContract, "notice.published.dismiss")}
+          </button>
+        </div>
+      ) : null}
+
       {authRequired ? (
         <div className="alert warn" style={{ marginBottom: 14 }}>
           <Users className="ic" />
@@ -177,7 +203,7 @@ export function SopLibrary({ sops, error, authRequired, pageContract, basePath }
               return (
                 <div
                   key={s.sopId}
-                  className="card"
+                  className={`card${publishedSop && s.sopId === publishedSop.sopId ? " sop-just-published" : ""}`}
                   role="button"
                   tabIndex={0}
                   style={{ cursor: "pointer" }}

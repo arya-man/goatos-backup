@@ -127,6 +127,8 @@ export interface PublishSopResult {
   ok: boolean;
   message: string;
   code?: string;
+  /** The version number that was published, so the editor can hand it to the library banner. */
+  versionNumber?: number;
 }
 
 // publishSop publishes the immutable version (real RowVersionRequest). No fake publish state — the
@@ -136,7 +138,7 @@ export async function publishSop(sopId: string, versionId: string, rowVersion: n
   const res = await publishSopVersion(sopId, versionId, rowVersion);
   if (!res.ok) return { ok: false, message: res.error.message ?? "publish failed", code: res.error.code };
   for (const path of SOP_PAGE_PATHS) revalidatePath(path);
-  return { ok: true, message: "Published — immutable version; tasks pin to it." };
+  return { ok: true, message: "Published — immutable version; tasks pin to it.", versionNumber: res.data.version.version };
 }
 
 // ---------------------------------------------------------------------------
@@ -149,6 +151,8 @@ export interface FollowUpSaveResult {
   code?: string;
   versionId?: string;
   rowVersion?: number;
+  /** The version number that was published, so the editor can hand it to the library banner. */
+  versionNumber?: number;
   report?: SOPValidationReport;
 }
 
@@ -198,7 +202,7 @@ export async function publishFollowUpVersion(sopId: string, followUp: Record<str
     return { ok: false, message: published.error.message ?? "publish failed", code: published.error.code, versionId: saved.versionId };
   }
   for (const path of SOP_PAGE_PATHS) revalidatePath(path);
-  return { ok: true, message: `Published v${published.data.version.version}. New workflows use these steps from now on.`, versionId: saved.versionId, rowVersion: published.data.version.row_version };
+  return { ok: true, message: `Published v${published.data.version.version}. New workflows use these steps from now on.`, versionId: saved.versionId, rowVersion: published.data.version.row_version, versionNumber: published.data.version.version };
 }
 
 // PROCUREMENT SOP (maintainer decision 2026-09-14): the inspection editor saves a new version = the

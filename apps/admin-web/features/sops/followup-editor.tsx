@@ -18,6 +18,7 @@ import {
   type SeriesBasis,
 } from "./followup-model";
 import { publishFollowUpVersion, saveFollowUpVersion, type FollowUpSaveResult } from "./sop-actions";
+import { publishedHref } from "./published-href";
 import { followUpCopy, roundWhen } from "./followup-summary";
 
 // SOP-DRIVEN HERD OPERATIONS (maintainer decision 2026-09-13,
@@ -116,6 +117,10 @@ export function FollowUpEditor({
       const res = publish ? await publishFollowUpVersion(sopId, doc) : await saveFollowUpVersion(sopId, doc);
       setNotice(res);
       if (res.ok && publish) {
+        // Publish CLOSES the editor: the library reopens with a banner naming the version and
+        // the card it belongs to (maintainer report 2026-09-15: a note above an unchanged
+        // editor did not read as "your change is live").
+        router.push(publishedHref(basePath, sopId, res.versionNumber));
         router.refresh();
       }
     });

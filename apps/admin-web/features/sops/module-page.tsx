@@ -6,6 +6,7 @@ import { getSop, isAuthRequiredError, listSops, requireAdminWebPageContract } fr
 import type { RouteSearchParams } from "@/lib/search-params";
 import type { SopSliceDomain } from "./sop-derive";
 import { InspectionEditor } from "./inspection-editor";
+import { publishedFromSearch } from "./published-href";
 import { parseInspection } from "./inspection-model";
 
 // Shared server renderer for the per-module SOP pages (SOP split, maintainer decision 2026-08-18):
@@ -100,5 +101,8 @@ export async function renderSopModulePage(
 
   const sops: SopCardView[] = defs.map((def) => toSopView(def, latestVersions[def.sop_id] ?? null));
 
-  return <SopLibrary sops={sops} pageContract={pageContract} basePath={basePath} />;
+  // `?published=<sop_id>&v=<n>` is where an editor lands after Publish: the library says which
+  // version just went live and lights up that card, so the change is visibly reflected instead
+  // of a small note above an unchanged editor (maintainer report 2026-09-15).
+  return <SopLibrary sops={sops} pageContract={pageContract} basePath={basePath} published={publishedFromSearch(sp)} />;
 }

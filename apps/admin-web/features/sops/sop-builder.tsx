@@ -20,6 +20,7 @@ import {
   type SubjectScope,
 } from "./sop-derive";
 import { publishSop, runDryRun, saveSopDraft, saveSopVersionDraft, type SaveSopResult } from "./sop-actions";
+import { publishedHref } from "./published-href";
 import { QuestionCard, type PriorStep } from "./question-card";
 import { BuilderPreview } from "./builder-preview";
 import type { DryRunResponse } from "@/lib/api/server";
@@ -199,7 +200,7 @@ export function SopBuilder({
       const res = await publishSop(saved.sopId!, saved.versionId!, saved.rowVersion!);
       setNotice({ ok: res.ok, message: res.message });
       if (res.ok) {
-        router.push(basePath);
+        router.push(publishedHref(basePath, saved.sopId!, res.versionNumber));
         router.refresh();
       }
     });

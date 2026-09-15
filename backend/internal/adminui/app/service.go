@@ -6966,6 +6966,12 @@ func pageSpecificCopy(id string) map[string]string {
 			"followup.step.move_down":      "Move down",
 			"followup.action.publish":      "Publish SOP",
 			"followup.action.save_draft":   "Save as draft",
+			// After Publish the editor CLOSES and the library says so, loudly (maintainer report
+			// 2026-09-15: "on top I'm seeing v3 published but nothing is changing visually, so I
+			// can't tell whether my change is reflected"). {version} and {name} are filled in.
+			"notice.published.title":       "Published v{version} — {name}",
+			"notice.published.body":        "The phone uses this version from now on. Earlier records keep the version they were made with.",
+			"notice.published.dismiss":     "Dismiss",
 			"followup.notice.locked_key":   "This step drives server behaviour; its key and type are fixed, everything else is yours to edit.",
 			"followup.notice.capture_kept": "The capture form the operator fills when recording the event is unchanged by this page.",
 			"followup.empty":               "No operator steps yet.",

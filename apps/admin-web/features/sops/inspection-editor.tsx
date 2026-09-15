@@ -29,6 +29,7 @@ import {
   type QuestionKind,
 } from "./inspection-model";
 import { publishInspectionVersion, saveInspectionVersion, type InspectionSaveResult } from "./sop-actions";
+import { publishedHref } from "./published-href";
 
 type Props = {
   pageContract: AdminUiPageContract;
@@ -146,7 +147,12 @@ export function InspectionEditor({ pageContract: pc, basePath, sopId, sopName, s
     startTransition(async () => {
       const res = publish ? await publishInspectionVersion(sopId, doc) : await saveInspectionVersion(sopId, doc);
       setResult(res);
-      if (res.ok && publish) router.refresh();
+      if (res.ok && publish) {
+        // Publish CLOSES the editor: the library reopens with a banner naming the version and
+        // the card it belongs to (maintainer report 2026-09-15).
+        router.push(publishedHref(basePath, sopId, res.versionNumber));
+        router.refresh();
+      }
     });
   }
 
