@@ -285,7 +285,7 @@ spec = template.get("spec", {})
 containers = spec.get("containers", [])
 env = {item.get("name"): item.get("value", "") for item in (containers[0].get("env", []) if containers else [])}
 print("\t".join([
-    annotations.get("autoscaling.knative.dev/minScale", ""),
+    annotations.get("autoscaling.knative.dev/minScale", "0"),
     annotations.get("autoscaling.knative.dev/maxScale", ""),
     str(spec.get("containerConcurrency", "")),
     env.get("GOATOS_API_ROUTE_MODE", ""),
