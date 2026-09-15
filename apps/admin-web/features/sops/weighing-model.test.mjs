@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { blankQuestion, emitWeighing, parseWeighing, weighingProblems } from "./weighing-model.ts";
+import { blankProofSlot, blankQuestion, emitWeighing, parseWeighing, weighingProblems } from "./weighing-model.ts";
 
 // The seeded document is the same bytes migration 000314 adds to each tenant's published
 // weighing.session version (pinned by the Go test TestMigrationEmbedsTheSeededWeighingSOP).
@@ -19,7 +19,7 @@ test("the seeded weighing rules round-trip through the editor model byte-faithfu
   assert.ok(rows);
   assert.equal(rows.removalMode, "required");
   assert.deepEqual(rows.modes, ["individual_animal", "per_shed_partition"]);
-  assert.deepEqual(rows.removalProofs.map((p) => p.key), ["feed_video", "water_video"]);
+  assert.deepEqual(rows.removalProofs.map((p) => [p.key, p.kind, p.required]), [["feed_video", "video", true], ["water_video", "video", true]]);
   assert.equal(rows.removalQuestions.length, 0);
   assert.equal(canonical(emitWeighing(rows)), canonical(doc));
   assert.deepEqual(weighingProblems(rows), []);
@@ -38,6 +38,7 @@ test("pre-checks name the rule: no mode, per-animal video off, lump-sum window, 
   rows.lumpSumVideoMax = "9";
   rows.defaultCapPerDay = "0";
   rows.removalProofs[1].title = "";
+  rows.removalProofs.forEach((p) => { p.required = false; });
   const q = blankQuestion("number");
   q.key = "buckets";
   q.title = "";
@@ -49,7 +50,8 @@ test("pre-checks name the rule: no mode, per-animal video off, lump-sum window, 
   for (const want of [
     "Offer at least one way of weighing",
     "Default animals per day",
-    "water video slot needs a title",
+    "Capture 2: needs a title",
+    "At least one capture must be compulsory",
     "Removal question 1: needs the question text",
     "Removal question 1: min must not exceed max",
     'Removal question 2: "ask only when" must name a pick-one question',
@@ -78,5 +80,22 @@ test("an authored question and a changed mode emit the wire shape the backend va
     id: "all_pens", kind: "choice", title: "Every pen emptied?", required: true,
     options: [{ value: "yes", label: "Yes" }, { value: "no", label: "No" }, { value: "other", label: "Other" }], allow_other: true,
   });
+  assert.deepEqual(weighingProblems(rows), []);
+});
+
+test("authored capture slots: a photo beside the videos, a video swapped for a photo, an optional slot, a removed slot", () => {
+  const rows = parseWeighing({ weighing: JSON.parse(readFileSync(seedPath, "utf8")) });
+  rows.removalProofs[1].kind = "photo";
+  rows.removalProofs[1].title = "Empty water trough";
+  rows.removalProofs.push({ ...blankProofSlot(), key: "gate", title: "Gate closed", kind: "either", required: false });
+  assert.deepEqual(weighingProblems(rows), []);
+  const out = emitWeighing(rows);
+  assert.deepEqual(out.feed_water_removal.proofs.map((p) => [p.key, p.kind, p.required]), [["feed_video", "video", true], ["water_video", "photo", true], ["gate", "either", false]]);
+  // Round-trips.
+  assert.equal(canonical(emitWeighing(parseWeighing({ weighing: out }))), canonical(out));
+  // Drop every slot: refused while the removal is on; fine when it is off.
+  rows.removalProofs = [];
+  assert.ok(weighingProblems(rows).some((p) => p.includes("at least one capture")));
+  rows.removalMode = "off";
   assert.deepEqual(weighingProblems(rows), []);
 });

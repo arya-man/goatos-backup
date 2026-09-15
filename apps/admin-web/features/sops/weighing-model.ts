@@ -17,10 +17,12 @@ export const WEIGHING_MODES: WeighingMode[] = ["individual_animal", "per_shed_pa
 export type RemovalMode = "required" | "optional" | "off";
 export const REMOVAL_MODES: RemovalMode[] = ["required", "optional", "off"];
 
-// The two removal clips are FIXED: the evidence table carries exactly these, the verifier
-// reviews them and the midnight gate counts them. Only their wording is the author's.
-export const REMOVAL_PROOF_KEYS = ["feed_video", "water_video"] as const;
-export type RemovalProofKey = (typeof REMOVAL_PROOF_KEYS)[number];
+// The removal card's captures are the author's (second 2026-09-15 decision): any number of
+// slots, each a live-camera video, a photo or either, compulsory or optional. The seed's two are
+// feed_video and water_video. At least one slot must be compulsory.
+export type RemovalProofKind = "video" | "photo" | "either";
+export const REMOVAL_PROOF_KINDS: RemovalProofKind[] = ["video", "photo", "either"];
+export const MAX_REMOVAL_PROOF_SLOTS = 8;
 
 export type WeighingQuestionKind = "choice" | "multi" | "text" | "number";
 
@@ -42,7 +44,7 @@ export type WeighingQuestionRow = {
   onlyIfValue: string;
 };
 
-export type RemovalProofRow = { key: RemovalProofKey; title: string; hint: string };
+export type RemovalProofRow = { id: string; key: string; title: string; hint: string; kind: RemovalProofKind; required: boolean };
 
 export type WeighingRows = {
   modes: WeighingMode[];
@@ -130,9 +132,18 @@ export function parseWeighing(formDsl: unknown): WeighingRows | null {
   const lumpSum = obj(capture["lump_sum"]) ?? {};
   const modes = Array.isArray(planning["modes"]) ? planning["modes"].filter((m): m is WeighingMode => m === "individual_animal" || m === "per_shed_partition") : [];
   const proofsRaw = Array.isArray(removal["proofs"]) ? removal["proofs"] : [];
-  const proofs: RemovalProofRow[] = REMOVAL_PROOF_KEYS.map((key) => {
-    const found = proofsRaw.map(obj).find((p) => p && p["key"] === key);
-    return { key, title: found ? str(found["title"]) : "", hint: found ? str(found["hint"]) : "" };
+  const proofs: RemovalProofRow[] = proofsRaw.flatMap((raw) => {
+    const p = obj(raw);
+    if (!p) return [];
+    const kind = str(p["kind"], "video");
+    return [{
+      id: newRowId("ws"),
+      key: str(p["key"]),
+      title: str(p["title"]),
+      hint: str(p["hint"]),
+      kind: (kind === "photo" || kind === "either" ? kind : "video") as RemovalProofKind,
+      required: p["required"] === true,
+    }];
   });
   const questions = Array.isArray(removal["questions"]) ? removal["questions"].flatMap(parseQuestion) : [];
   return {
@@ -171,7 +182,8 @@ export function emitWeighing(rows: WeighingRows): Record<string, unknown> {
   removal.proofs = rows.removalProofs.map((p) => {
     const out: Record<string, unknown> = { key: p.key, title: p.title };
     if (p.hint.trim()) out.hint = p.hint;
-    out.kind = "video";
+    out.kind = p.kind;
+    out.required = p.required;
     return out;
   });
   removal.questions = rows.removalQuestions.map(emitQuestion);
@@ -194,8 +206,18 @@ export function weighingProblems(rows: WeighingRows): string[] {
   const cap = Number(rows.defaultCapPerDay);
   if (!rows.defaultCapPerDay.trim() || !Number.isInteger(cap) || cap < 1 || cap > 10000) problems.push("Default animals per day must be a whole number from 1 to 10000");
   if (!REMOVAL_MODES.includes(rows.removalMode)) problems.push("Say when feed & water removal applies");
-  rows.removalProofs.forEach((p) => {
-    if (!p.title.trim()) problems.push(`The ${p.key === "feed_video" ? "feed" : "water"} video slot needs a title`);
+  if (rows.removalMode !== "off") {
+    if (rows.removalProofs.length === 0) problems.push("The removal card needs at least one capture");
+    if (rows.removalProofs.length > MAX_REMOVAL_PROOF_SLOTS) problems.push(`At most ${MAX_REMOVAL_PROOF_SLOTS} captures per pen`);
+    if (!rows.removalProofs.some((p) => p.required)) problems.push("At least one capture must be compulsory — a removal is proven by something the verifier can see");
+  }
+  const seenSlot = new Set<string>();
+  rows.removalProofs.forEach((p, pi) => {
+    const at = `Capture ${pi + 1}`;
+    if (!p.key.trim()) problems.push(`${at}: needs a key`);
+    if (seenSlot.has(p.key)) problems.push(`${at}: key "${p.key}" is used twice`);
+    seenSlot.add(p.key);
+    if (!p.title.trim()) problems.push(`${at}: needs a title`);
   });
   const seen = new Map<string, WeighingQuestionRow>();
   rows.removalQuestions.forEach((q, qi) => {
@@ -222,4 +244,8 @@ export function weighingProblems(rows: WeighingRows): string[] {
   if (!Number.isInteger(max) || max < 1 || max > LUMP_SUM_VIDEO_CEILING) problems.push(`Whole-pen videos: at most ${LUMP_SUM_VIDEO_CEILING}`);
   if (Number.isInteger(min) && Number.isInteger(max) && min > max) problems.push("Whole-pen minimum videos must not exceed the maximum");
   return problems;
+}
+
+export function blankProofSlot(): RemovalProofRow {
+  return { id: newRowId("ws"), key: "", title: "", hint: "", kind: "video", required: true };
 }

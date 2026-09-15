@@ -41,7 +41,9 @@ export function WeighingSummary({ pageContract: pc, formDsl }: { pageContract: A
             <b>{copy(pc, "wsop.section.removal")}</b>
             <div className="hmeta muted small">
               {copy(pc, `wsop.removal.mode.${rows.removalMode}`)}
-              {rows.removalMode !== "off" ? ` · ${rows.removalProofs.map((p) => p.title).join(" + ")}` : ""}
+              {rows.removalMode !== "off"
+                ? ` · ${rows.removalProofs.map((p) => `${p.title} (${copy(pc, `wsop.proof.kind.${p.kind}`)}${p.required ? "" : `, ${copy(pc, "inspection.summary.optional")}`})`).join(" + ")}`
+                : ""}
             </div>
             {rows.removalMode !== "off" && rows.removalInstruction ? <div className="muted small">{rows.removalInstruction}</div> : null}
           </div>

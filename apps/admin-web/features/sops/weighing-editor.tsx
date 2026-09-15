@@ -16,11 +16,13 @@ import { copy, optionGroup, type AdminUiPageContract } from "@/lib/admin-ui-cont
 import {
   LUMP_SUM_VIDEO_CEILING,
   WEIGHING_MODES,
+  blankProofSlot,
   blankQuestion,
   emitWeighing,
   slugKey,
   weighingProblems,
   type RemovalMode,
+  type RemovalProofKind,
   type WeighingMode,
   type WeighingQuestionKind,
   type WeighingQuestionRow,
@@ -45,6 +47,7 @@ export function WeighingEditor({ pageContract: pc, basePath, sopId, sopName, sop
   const [pending, startTransition] = useTransition();
   const kinds = optionGroup(pc, "wsop_question_kinds");
   const removalModes = optionGroup(pc, "wsop_removal_modes");
+  const proofKinds = optionGroup(pc, "wsop_proof_kinds");
   const problems = useMemo(() => weighingProblems(rows), [rows]);
   const takenKeys = useMemo(() => new Set(rows.removalQuestions.map((q) => q.key)), [rows]);
 
@@ -69,6 +72,25 @@ export function WeighingEditor({ pageContract: pc, basePath, sopId, sopName, sop
   }
   function addQuestion() {
     setRows((r) => ({ ...r, removalQuestions: [...r.removalQuestions, blankQuestion()] }));
+  }
+  function updateSlot(id: string, patch: Partial<import("./weighing-model").RemovalProofRow>) {
+    setRows((r) => ({ ...r, removalProofs: r.removalProofs.map((p) => (p.id === id ? { ...p, ...patch } : p)) }));
+  }
+  function moveSlot(id: string, dir: -1 | 1) {
+    setRows((r) => {
+      const i = r.removalProofs.findIndex((p) => p.id === id);
+      const j = i + dir;
+      if (i < 0 || j < 0 || j >= r.removalProofs.length) return r;
+      const next = [...r.removalProofs];
+      [next[i], next[j]] = [next[j], next[i]];
+      return { ...r, removalProofs: next };
+    });
+  }
+  function removeSlot(id: string) {
+    setRows((r) => ({ ...r, removalProofs: r.removalProofs.filter((p) => p.id !== id) }));
+  }
+  function addSlot() {
+    setRows((r) => ({ ...r, removalProofs: [...r.removalProofs, blankProofSlot()] }));
   }
   // A renamed choice value: every question conditioned on (questionKey, oldValue) follows.
   function renameOptionRefs(questionKey: string, from: string, to: string) {
@@ -179,24 +201,68 @@ export function WeighingEditor({ pageContract: pc, basePath, sopId, sopName, sop
               <div className="qcfg" style={{ marginTop: 10 }}>
                 <div className="qcfg-head">
                   <span className="qcfg-title">{copy(pc, "wsop.removal.proofs")}</span>
-                  <span className="muted small" title={copy(pc, "wsop.removal.proofs.locked")}>
-                    <Lock className="ic" style={{ width: 12 }} /> {copy(pc, "wsop.removal.proofs.locked_short")}
-                  </span>
+                  <span className="muted small">{copy(pc, "wsop.removal.proofs.subtitle")}</span>
                 </div>
-                {rows.removalProofs.map((p, i) => (
-                  <div className="rowf" key={p.key}>
-                    <label className="numfield">
-                      <span className="numlbl">
-                        {copy(pc, "wsop.removal.proof.title")} · <code>{p.key}</code>
-                      </span>
-                      <input value={p.title} onChange={(e) => setRows((r) => ({ ...r, removalProofs: r.removalProofs.map((x, j) => (j === i ? { ...x, title: e.target.value } : x)) }))} />
-                    </label>
-                    <label className="numfield">
-                      <span className="numlbl">{copy(pc, "wsop.removal.proof.hint")}</span>
-                      <input value={p.hint} onChange={(e) => setRows((r) => ({ ...r, removalProofs: r.removalProofs.map((x, j) => (j === i ? { ...x, hint: e.target.value } : x)) }))} />
-                    </label>
-                  </div>
-                ))}
+                <div className="qlist">
+                  {rows.removalProofs.map((p, i) => (
+                    <div className="qcard" key={p.id}>
+                      <div className="qhead">
+                        <span className="qnum">{i + 1}</span>
+                        <span className="qtype">
+                          <select value={p.kind} onChange={(e) => updateSlot(p.id, { kind: e.target.value as RemovalProofKind })}>
+                            {proofKinds.map((k) => (
+                              <option key={k.key} value={k.key} title={k.title}>
+                                {k.label}
+                              </option>
+                            ))}
+                          </select>
+                        </span>
+                        {p.key ? <code className="muted small">{p.key}</code> : null}
+                        <span className="sp" style={{ flex: 1 }} />
+                        <button type="button" className="ia" aria-label={copy(pc, "inspection.question.move_up")} disabled={i === 0} onClick={() => moveSlot(p.id, -1)}>
+                          <ChevronUp className="ic" />
+                        </button>
+                        <button type="button" className="ia" aria-label={copy(pc, "inspection.question.move_down")} disabled={i === rows.removalProofs.length - 1} onClick={() => moveSlot(p.id, 1)}>
+                          <ChevronDown className="ic" />
+                        </button>
+                        <button type="button" className="ia del" aria-label={copy(pc, "wsop.removal.proof.remove")} onClick={() => removeSlot(p.id)}>
+                          <X className="ic" />
+                        </button>
+                      </div>
+                      <div className="qbody">
+                        <label className="numfield">
+                          <span className="numlbl">{copy(pc, "wsop.removal.proof.title")}</span>
+                          <input
+                            className="qtext"
+                            value={p.title}
+                            onChange={(e) => {
+                              const title = e.target.value;
+                              updateSlot(p.id, { title, key: p.key || slugKey(title, new Set(rows.removalProofs.map((x) => x.key)), "capture") });
+                            }}
+                          />
+                        </label>
+                        <label className="numfield">
+                          <span className="numlbl">{copy(pc, "wsop.removal.proof.hint")}</span>
+                          <input value={p.hint} onChange={(e) => updateSlot(p.id, { hint: e.target.value })} />
+                        </label>
+                        {!p.key ? (
+                          <label className="numfield">
+                            <span className="numlbl">{copy(pc, "inspection.question.key")}</span>
+                            <input value={p.key} onChange={(e) => updateSlot(p.id, { key: e.target.value })} />
+                          </label>
+                        ) : null}
+                        <div className="qfoot">
+                          <label className="chkline">
+                            <input type="checkbox" checked={p.required} onChange={(e) => updateSlot(p.id, { required: e.target.checked })} /> {copy(pc, "inspection.question.required")}
+                          </label>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                  <button type="button" className="btn sm ghost" onClick={addSlot}>
+                    <Plus className="ic" /> {copy(pc, "wsop.removal.proof.add")}
+                  </button>
+                </div>
               </div>
               <div className="qcfg" style={{ marginTop: 10 }}>
                 <div className="qcfg-head">
