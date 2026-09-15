@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	fwrdomain "github.com/vgoats/goatos/backend/internal/feedwaterremoval/domain"
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/platform/pgtest"
 	"github.com/vgoats/goatos/backend/internal/weighing/domain"
@@ -76,6 +77,26 @@ func TestSOPPinAndRemovalAnswersRoundTripThroughPostgres(t *testing.T) {
 	if string(card.Answers["all_pens"]) != `"yes"` {
 		t.Fatalf("card answers = %v, want the recorded answers", card.Answers)
 	}
+	// The window opens at the PINNED version's evening: with v4 set to 21:00 the card is
+	// not yet listed at 20:00 even though the farm default has opened; an override for a
+	// version the task is not pinned to changes nothing; the versions read names the pin.
+	versions, err := repo.FastingCardSOPVersions(ctx, repoTenant, fastingOperator)
+	if err != nil || len(versions) != 1 || versions[0] != 4 {
+		t.Fatalf("pinned versions = %v err %v, want [4]", versions, err)
+	}
+	ninePM := fwrdomain.MustCutoff(21, 0)
+	held, err := repo.ListFastingShedCardsForOperator(ctx, repoTenant, fastingOperator, atOpen, ports.RemovalCutoffs{Default: eightPMCutoff, ByVersion: map[int]fwrdomain.Cutoff{4: ninePM}}, "", 20)
+	if err != nil {
+		t.Fatalf("list cards under a later pinned evening: %v", err)
+	}
+	if len(held.Items) != 0 {
+		t.Fatalf("cards listed at 20:00 under a 21:00 pinned evening: %d, want none", len(held.Items))
+	}
+	shown, err := repo.ListFastingShedCardsForOperator(ctx, repoTenant, fastingOperator, atOpen, ports.RemovalCutoffs{Default: eightPMCutoff, ByVersion: map[int]fwrdomain.Cutoff{7: ninePM}}, "", 20)
+	if err != nil || len(shown.Items) != len(page.Items) {
+		t.Fatalf("an override for another version changed the list: %d vs %d (err %v)", len(shown.Items), len(page.Items), err)
+	}
+
 	other, ok := cardByShed(page.Items, repoShedScope)
 	if !ok || other.Answers != nil {
 		t.Fatalf("unsubmitted shed B answers = %v, want none", other.Answers)
