@@ -227,6 +227,18 @@ submitted), `weighing_video_count`, `weighing_sop_version_unknown`, `fasting_ans
   SOP, the photo slots rendering an image). The campaign PUT has never carried a version fence
   (a stale `row_version` is accepted, last write wins) -- pre-existing, unchanged here.
 
+- PR #274 review (2026-09-15, four findings, all fixed with red→green tests): (1) a corrected
+  answer over the same captures collided with the refused submit's outbox row -- the phone's
+  submit key now folds a digest of the normalized answers in (a card with no answers keeps the
+  pre-SOP key shape); (2) a create retried after a later publish conflicted because the stored
+  fingerprint was the RULE-STAMPED command -- the service fixes `RequestFingerprint` from the
+  client's request before the rules touch it and the store keys replay on that
+  (`TestCreateCampaignReplaysAfterALaterPublishMovedTheStamps`); (3) a retried verification
+  enqueue lost an `either` slot's photo kind -- the kind each capture IS is read from the proof
+  register on every path (`TestEitherSlotCapturedKindRidesEveryRead`); (4) the phone reopened an
+  `either` photo as a video without local state -- the card serves `proof_kinds {slot: kind}`
+  and the preview runs after the slot list exists.
+
 ## Not here (phase 2)
 
 Authored questions on the lump-sum pen submit and per animal; the `/config` registry editor for
