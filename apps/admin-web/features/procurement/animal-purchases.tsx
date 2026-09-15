@@ -393,7 +393,7 @@ export async function AnimalPurchasesPage({
         {/* Decision chips are the response's own filters: label and WHOLE-FILTER count verbatim,
             selection as the backend reports it. A filter switch drops the cursor by construction. */}
         {filters.length > 0 ? (
-          <div className="chips" role="group" aria-label={copy(pageContract, "filter.decision")} style={{ marginBottom: 14 }}>
+          <div className="chips ap-decision-chips" role="group" aria-label={copy(pageContract, "filter.decision")}>
             <span className="muted small" style={{ marginRight: 6 }}>
               {copy(pageContract, "filter.decision")}
             </span>
