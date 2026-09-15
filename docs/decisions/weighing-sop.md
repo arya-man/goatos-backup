@@ -208,6 +208,25 @@ submitted), `weighing_video_count`, `weighing_sop_version_unknown`, `fasting_ans
   the person-resolved set (`domain.Actor.Holds`), the pccare shape; Amit's planner catalog went
   403 → 200 on the tick alone.
 
+- Third pass (2026-09-15, evening). The SOP document validation matrix through the API -- 24
+  refusals each naming its path (duplicate / malformed / ninth slot, unknown kind, empty title,
+  duplicate question id, `only_if` on a later or missing question, a choice with no options,
+  `allow_other` without an "other" option, min > max, cutoff `24:00` / prose, unknown mode, no
+  planning mode, cap 0 / 10001, lump min 0 / max 6, the per-animal video off, a wrong schema
+  version, the section missing) plus **an unknown key** (`cutoff_tme`), which the lenient
+  parser used to drop silently and is now refused at save by path; a draft never moves the
+  served rules. Task lifecycle: `required` refuses a missing operator and ignores a decline
+  (round created); cap 0 takes the document's default and an explicit cap is kept; the same
+  idempotency key replays the same task and a changed payload is `409 idempotency_conflict`;
+  under `optional` an edit adds the removal before the evening (round created) and removes it
+  again (round deleted) while an edit silent on the removal keeps what the task has; a mode the
+  publish no longer offers is refused on a NEW task while a task pinned to the older version
+  still edits under its own modes. The verifier's queue named and typed every proof BY
+  POSITION from the registry ("Water removal video", `video/mp4` for a photo) -- fixed by
+  `verification_items.media_meta` (000316), proven on the web drawer (three tabs titled by the
+  SOP, the photo slots rendering an image). The campaign PUT has never carried a version fence
+  (a stale `row_version` is accepted, last write wins) -- pre-existing, unchanged here.
+
 ## Not here (phase 2)
 
 Authored questions on the lump-sum pen submit and per animal; the `/config` registry editor for
