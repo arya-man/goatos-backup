@@ -341,6 +341,13 @@
     <string name="weighing_wizard_fasting_title">Feed &amp; water removal</string>
     <string name="weighing_wizard_fasting_subtitle">Who removes feed &amp; water from these sheds the evening before?</string>
     <string name="weighing_wizard_fasting_prompt">Pick a person…</string>
+    <string name="weighing_removal_answer_required_fmt">Answer: %1$s</string>
+    <string name="weighing_removal_question_optional">optional</string>
+    <string name="weighing_removal_question_other_hint">Say which</string>
+    <string name="weighing_wizard_date_no_removal">Too late to remove feed &amp; water the evening before — weighed without it</string>
+    <string name="weighing_wizard_fasting_not_possible">Too late to remove feed &amp; water the evening before this day, so this weighing runs without it.</string>
+    <string name="weighing_wizard_fasting_skipped">No feed &amp; water removal for this weighing.</string>
+    <string name="weighing_wizard_fasting_none">Not planned</string>
     <string name="weighing_wizard_lopsided_fmt">All %1$d shed buckets go to %2$s.</string>
     <string name="weighing_wizard_per_bucket">Per shed bucket</string>
     <string name="weighing_wizard_field_empty">—</string>

@@ -144,3 +144,29 @@ func (s *Service) removalCardCopy(ctx context.Context, tenantID string, cards []
 	}
 	return nil
 }
+
+// decorateCampaignRules attaches each task's PINNED rule set (Campaign.SOP). A page may hold
+// tasks pinned to different versions; the rule sets are memoized per version, so a page costs
+// one source read per DISTINCT version, bounded by the page size. A task pinned to a version
+// the farm never published is left without rules rather than failing the whole page -- the
+// write paths still refuse it by name.
+func (s *Service) decorateCampaignRules(ctx context.Context, tenantID string, items []domain.Campaign) error {
+	byVersion := map[int]*domain.Rules{}
+	for i := range items {
+		rules, seen := byVersion[items[i].SOPVersion]
+		if !seen {
+			resolved, err := s.rulesForVersion(ctx, tenantID, items[i].SOPVersion)
+			switch {
+			case errors.Is(err, ports.ErrSOPVersionUnknown):
+				rules = nil
+			case err != nil:
+				return err
+			default:
+				rules = &resolved
+			}
+			byVersion[items[i].SOPVersion] = rules
+		}
+		items[i].SOP = rules
+	}
+	return nil
+}

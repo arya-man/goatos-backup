@@ -269,6 +269,13 @@
     <string name="weighing_wizard_fasting_title">चारा और पानी हटाना</string>
     <string name="weighing_wizard_fasting_subtitle">पिछली शाम इन शेडों से चारा और पानी कौन हटाएगा?</string>
     <string name="weighing_wizard_fasting_prompt">किसी व्यक्ति को चुनें…</string>
+    <string name="weighing_removal_answer_required_fmt">उत्तर दें: %1$s</string>
+    <string name="weighing_removal_question_optional">वैकल्पिक</string>
+    <string name="weighing_removal_question_other_hint">बताएँ कौन सा</string>
+    <string name="weighing_wizard_date_no_removal">पिछली शाम चारा और पानी हटाने में देर हो चुकी — इसके बिना तौल होगी</string>
+    <string name="weighing_wizard_fasting_not_possible">इस दिन से पहले की शाम चारा और पानी हटाने में देर हो चुकी है, इसलिए यह तौल इसके बिना होगी।</string>
+    <string name="weighing_wizard_fasting_skipped">इस तौल के लिए चारा और पानी नहीं हटाया जाएगा।</string>
+    <string name="weighing_wizard_fasting_none">योजना नहीं</string>
     <string name="weighing_removal_section_title">चारा और पानी हटाना</string>
     <string name="weighing_removal_card_type">चारा और पानी हटाएँ</string>
     <string name="weighing_removal_screen_title">चारा और पानी हटाएँ</string>

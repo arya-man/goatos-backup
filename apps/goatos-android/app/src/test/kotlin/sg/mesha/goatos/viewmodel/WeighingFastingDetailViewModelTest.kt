@@ -111,6 +111,76 @@ class WeighingFastingDetailViewModelTest {
         ),
     )
 
+    /**
+     * WEIGHING SOP (maintainer decision 2026-09-15): the card renders the task's pinned SOP copy
+     * and asks its authored questions; a required one left blank blocks the submit BY NAME, and
+     * the answers ride the queued submit in the backend's wire shape (a conditional whose
+     * condition failed is not sent). Mutation check: drop `firstMissingAnswer()` from
+     * `recomputeSubmit` and this goes red on the first assertion after the clips.
+     */
+    @Test
+    fun `authored removal questions gate the submit and ride it as answers`() = runTest(dispatcher) {
+        val sync = RecordingFastingSyncRepository()
+        val source = FakeProofCaptureSource(mutableListOf(video("/proof/b-feed.mp4"), video("/proof/b-water.mp4")))
+        val fastingRepository = FakeWeighingFastingRepository()
+        val vm = viewModel(proofCaptureSource = source, syncRepository = sync, fastingRepository = fastingRepository)
+        val base = card().dto
+        fastingRepository.cardFlow.value = WeighingFastingCard(
+            base.copy(
+                instruction = "Empty every trough before dark.",
+                proofs = listOf(
+                    sg.mesha.goatos.core.network.dto.WeighingRemovalProofSlotDto(key = "feed_video", title = "Feed away", hint = "Show the empty trough."),
+                    sg.mesha.goatos.core.network.dto.WeighingRemovalProofSlotDto(key = "water_video", title = "Water away"),
+                ),
+                questions = listOf(
+                    sg.mesha.goatos.core.network.dto.WeighingSopQuestionDto(
+                        id = "all_pens", kind = "choice", title = "Every pen emptied?", required = true,
+                        options = listOf(
+                            sg.mesha.goatos.core.network.dto.WeighingSopOptionDto("yes", "Yes"),
+                            sg.mesha.goatos.core.network.dto.WeighingSopOptionDto("no", "No"),
+                        ),
+                    ),
+                    sg.mesha.goatos.core.network.dto.WeighingSopQuestionDto(
+                        id = "why_not", kind = "text", title = "Why not", required = true,
+                        onlyIf = sg.mesha.goatos.core.network.dto.WeighingSopConditionDto("all_pens", "no"),
+                    ),
+                    sg.mesha.goatos.core.network.dto.WeighingSopQuestionDto(id = "buckets", kind = "number", title = "Buckets removed", unit = "buckets"),
+                ),
+            ),
+        )
+        advanceUntilIdle()
+        assertEquals("Empty every trough before dark.", vm.state.value.instruction)
+        assertEquals("the SOP's slot wording wins", "Feed away", vm.state.value.feedSlot.title)
+        assertEquals("Show the empty trough.", vm.state.value.feedSlot.hint)
+        assertEquals("the conditional is hidden until its answer holds", listOf("all_pens", "buckets"), vm.state.value.questions.filter { it.applies }.map { it.id })
+
+        vm.onEvent(WeighingFastingDetailEvent.RecordSlot(WeighingFastingSlotKind.FEED))
+        advanceUntilIdle()
+        vm.onEvent(WeighingFastingDetailEvent.RecordSlot(WeighingFastingSlotKind.WATER))
+        advanceUntilIdle()
+        assertEquals("both clips in, the required question still blocks", false, vm.state.value.submitEnabled)
+        assertTrue(vm.state.value.submitBlockedReason.contains("Every pen emptied?"))
+
+        vm.onEvent(WeighingFastingDetailEvent.SetAnswer("all_pens", "no"))
+        advanceUntilIdle()
+        assertTrue("answering no reveals the conditional", vm.state.value.questions.first { it.id == "why_not" }.applies)
+        assertTrue(vm.state.value.submitBlockedReason.contains("Why not"))
+
+        vm.onEvent(WeighingFastingDetailEvent.SetAnswer("all_pens", "yes"))
+        vm.onEvent(WeighingFastingDetailEvent.SetAnswer("why_not", "stale"))
+        vm.onEvent(WeighingFastingDetailEvent.SetAnswer("buckets", "12"))
+        advanceUntilIdle()
+        assertEquals(true, vm.state.value.submitEnabled)
+
+        vm.onEvent(WeighingFastingDetailEvent.Submit)
+        advanceUntilIdle()
+        assertEquals(1, sync.fastingSubmits.size)
+        val answers = sync.lastFastingAnswers
+        assertEquals("\"yes\"", answers["all_pens"].toString())
+        assertEquals("a number rides as a number", "12.0", answers["buckets"].toString())
+        assertEquals("a conditional whose condition failed is not sent", null, answers["why_not"])
+    }
+
     @Test
     fun `submit blocked until both videos are recorded`() = runTest(dispatcher) {
         val sync = RecordingFastingSyncRepository()
@@ -388,6 +458,8 @@ internal class RecordingFastingSyncRepository : SyncRepository {
     )
 
     val fastingSubmits = mutableListOf<FastingSubmit>()
+
+    var lastFastingAnswers: kotlinx.serialization.json.JsonObject = kotlinx.serialization.json.JsonObject(emptyMap())
     private val status = MutableStateFlow(SyncStatus.empty(online = true))
     private val items = mutableMapOf<String, MutableStateFlow<SyncQueueItem?>>()
 
@@ -450,7 +522,9 @@ internal class RecordingFastingSyncRepository : SyncRepository {
         campaignShedId: String,
         feedProofOutboxItemId: String,
         waterProofOutboxItemId: String,
+        answers: kotlinx.serialization.json.JsonObject,
     ): AppResult<String> {
+        lastFastingAnswers = answers
         fastingSubmits += FastingSubmit(
             groupKey,
             idempotencyKey,

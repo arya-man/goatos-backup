@@ -2096,6 +2096,7 @@ fun AppNavHost(
                 onBucketCategory = vm::setBucketCategory,
                 onBucketOperator = vm::setBucketOperator,
                 onFastingOperator = vm::selectFastingOperator,
+                onFeedWaterRemovalRequested = vm::setFeedWaterRemovalRequested,
                 onToggleConfigPick = vm::toggleConfigPick,
                 onPickAllShown = vm::pickAllShownConfigRows,
                 onClearPicks = vm::clearConfigPicks,

@@ -1072,6 +1072,7 @@ class WeighingViewModel @Inject constructor(
                 editCampaignId = campaignId,
                 editWeighDate = task.weighDate,
                 fastingOperatorUserId = task.fastingOperatorUserId.takeIf { it.isNotBlank() },
+                sop = task.sop,
             ),
         )
         return campaignId
@@ -2263,6 +2264,12 @@ class WeighingViewModel @Inject constructor(
             message.value = "Capture and sync at least one group video before submitting."
             return
         }
+        val videoMin = lumpSumVideoMin()
+        if (syncedProofIds.size < videoMin) {
+            // The task's SOP asks for more than one pen video (WEIGHING SOP): say how many.
+            message.value = "This pen needs at least $videoMin synced group videos before submitting."
+            return
+        }
         if (actionInFlight.value) return
         if (category != PER_SHED_PARTITION_CATEGORY) {
             message.value = "This weighing scope expects animal RFID scans."
@@ -2510,6 +2517,20 @@ class WeighingViewModel @Inject constructor(
 
     private fun lumpSumWeightKey(draftKey: String): String = "weighing.lumpSum.weight:$draftKey"
 
+    /**
+     * WEIGHING SOP (2026-09-15): the lump-sum video window is the TASK's pinned rule, carried on
+     * its assignment rows; the proof policy's 1..[MAX_SHED_GROUP_VIDEOS] ceiling stands when the
+     * row is not loaded yet or the server sent no rules.
+     */
+    private fun scopeAssignment(): WeighingAssignment? =
+        assignments.value.firstOrNull { it.campaignShedId == campaignShedId }
+
+    private fun lumpSumVideoMax(): Int =
+        scopeAssignment()?.lumpSumVideoMax?.coerceIn(1, MAX_SHED_GROUP_VIDEOS) ?: MAX_SHED_GROUP_VIDEOS
+
+    private fun lumpSumVideoMin(): Int =
+        scopeAssignment()?.lumpSumVideoMin?.coerceIn(1, lumpSumVideoMax()) ?: 1
+
     private fun captureShedVideo(replacingProofId: String?) {
         val key = scopeKey ?: return
         if (category != PER_SHED_PARTITION_CATEGORY || actionInFlight.value) return
@@ -2518,8 +2539,9 @@ class WeighingViewModel @Inject constructor(
             .sortedBy { it.capturedAtMs }
         val existing = shedProofs.size
         val replacingIndex = replacingProofId?.let { id -> shedProofs.indexOfFirst { it.id == id } } ?: -1
-        if (replacingProofId == null && existing >= MAX_SHED_GROUP_VIDEOS) {
-            message.value = "Maximum 5 group videos reached."
+        val videoMax = lumpSumVideoMax()
+        if (replacingProofId == null && existing >= videoMax) {
+            message.value = "Maximum $videoMax group videos reached."
             return
         }
         if (replacingProofId != null && replacingIndex < 0) {
@@ -2592,9 +2614,9 @@ class WeighingViewModel @Inject constructor(
                     featureCategory = PER_SHED_PARTITION_CATEGORY,
                     subjectScope = "shed",
                     expectedSubjects = listOf("shed"),
-                    minimumCount = 1,
-                    maximumCount = MAX_SHED_GROUP_VIDEOS,
-                    maximumCountPerSubject = MAX_SHED_GROUP_VIDEOS,
+                    minimumCount = lumpSumVideoMin(),
+                    maximumCount = videoMax,
+                    maximumCountPerSubject = videoMax,
                 )
                 val proof = if (replacingProofId != null) {
                     proofCaptureRepository.captureReplacingProof(

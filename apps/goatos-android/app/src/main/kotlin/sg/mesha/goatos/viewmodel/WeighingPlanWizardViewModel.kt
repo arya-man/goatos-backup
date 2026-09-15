@@ -22,6 +22,7 @@ import sg.mesha.goatos.core.common.AppResult
 import sg.mesha.goatos.core.data.BootstrapRepository
 import sg.mesha.goatos.core.data.weighing.WeighingPlanDraft
 import sg.mesha.goatos.core.data.weighing.WeighingPlannerCatalog
+import sg.mesha.goatos.core.data.weighing.WeighingSopRules
 import sg.mesha.goatos.core.data.weighing.WeighingPlannerPark
 import sg.mesha.goatos.core.data.weighing.WeighingPlannerOperator
 import sg.mesha.goatos.core.data.weighing.WeighingPlannerShed
@@ -121,6 +122,11 @@ class WeighingPlanWizardViewModel @Inject constructor(
             // validated this person against the park when the task was planned.
             fastingOperatorUserId = repeatSeed?.fastingOperatorUserId
                 ?.takeIf { editCampaignId != null && it.isNotBlank() },
+            // WEIGHING SOP: an EDIT runs on the rules the task was PLANNED on (its pinned
+            // version, carried on the seed), never on the latest publish. A create reads the
+            // published rules below.
+            sop = repeatSeed?.sop?.takeIf { editCampaignId != null },
+            sopPinned = editCampaignId != null && repeatSeed?.sop != null,
             // The MAINTAINER DECISION: an edit must never be able to change the task's date or
             // park, so neither step is just pre-filled -- both are UNREACHABLE. An edit opens
             // straight on BUCKETS -- the first step that can still change -- and [back] refuses to
@@ -180,9 +186,39 @@ class WeighingPlanWizardViewModel @Inject constructor(
             val cutoff = parseFeedWaterRemovalCutoff(bootstrapRepository.feedWaterRemovalCutoffTime())
             applyRemovalCutoff(cutoff)
         }
+        // WEIGHING SOP (maintainer decision 2026-09-15): the PUBLISHED rules decide what the
+        // DATE step may offer (today is plannable when the removal is not required), which ways
+        // of weighing the configure step offers, and the default cap. They are read from Room
+        // and refreshed once; a task being EDITED keeps the rules it was planned on instead.
+        if (!raw.value.sopPinned) {
+            viewModelScope.launch {
+                repository.observePlannerSop().collect { published ->
+                    if (published != null && !raw.value.sopPinned) {
+                        raw.update { it.copy(sop = published) }
+                    }
+                }
+            }
+            viewModelScope.launch {
+                val probeDate = earliestPlannableDateWithFeedRemoval(java.time.ZonedDateTime.now(INDIA_BUSINESS_ZONE), raw.value.removalCutoff)
+                when (val result = repository.refreshPlannerSop(probeDate.format(ISO_DATE))) {
+                    is AppResult.Ok -> Unit
+                    is AppResult.Err -> crashReporter.log("weighing planner sop refresh failed: ${result.message}")
+                }
+            }
+        }
         // Editing pre-selects its date (see [raw]'s init above), so the catalog for it starts
         // loading now rather than waiting for a DATE-step tap this flow never asks for.
         raw.value.date?.takeIf { editCampaignId != null }?.let { loadCatalog(it) }
+    }
+
+    /**
+     * Whether the planner wants the evening-before removal on THIS task, under the SOP's
+     * `optional` mode. Ignored under `required` (always on) and `off` (never offered).
+     */
+    fun setFeedWaterRemovalRequested(requested: Boolean) {
+        val current = raw.value
+        if (!current.rules().removalOptional) return
+        raw.value = current.copy(removalRequested = requested)
     }
 
     /** Emits the step-reached event ONCE per distinct step this wizard instance visits. */
@@ -276,7 +312,7 @@ class WeighingPlanWizardViewModel @Inject constructor(
         // 2026-09-03), so the earliest plannable date follows the farm's CONFIGURED removal-evening
         // cutoff — today is never offerable, and past dates never were. Client picker hint only; the
         // server still refuses with its own farm copy (422 fasting_window_closed).
-        val earliest = earliestPlannableDateWithFeedRemoval(java.time.ZonedDateTime.now(INDIA_BUSINESS_ZONE), current.removalCutoff)
+        val earliest = current.firstOfferedDate()
         val parsed = runCatching {
             // exception:exempt date validation; unparseable date rejects state change
             LocalDate.parse(isoDate, ISO_DATE)
@@ -299,9 +335,9 @@ class WeighingPlanWizardViewModel @Inject constructor(
     }
 
     private fun applyRemovalCutoff(cutoff: java.time.LocalTime?) {
-        val earliest = earliestPlannableDateWithFeedRemoval(java.time.ZonedDateTime.now(INDIA_BUSINESS_ZONE), cutoff)
         var reloadDate: String? = null
         raw.update { current ->
+            val earliest = current.copy(removalCutoff = cutoff).firstOfferedDate()
             val selectedDate = current.date
             if (current.editCampaignId != null || selectedDate == null) {
                 current.copy(removalCutoff = cutoff)
@@ -482,6 +518,8 @@ class WeighingPlanWizardViewModel @Inject constructor(
             return
         }
         val current = raw.value
+        // WEIGHING SOP: a way of weighing the published rules do not offer is not a pick.
+        if (!current.rules().modeAllowed(category)) return
         val selection = current.selections[locationId] ?: return
         raw.value = current.copy(
             selections = current.selections + (locationId to selection.copy(category = category)),
@@ -579,13 +617,18 @@ class WeighingPlanWizardViewModel @Inject constructor(
             raw.value = current.copy(message = "Every shed bucket needs one operator before this task can be saved.")
             return
         }
-        val fastingOperatorUserId = current.fastingOperatorUserId.orEmpty()
-        if (fastingOperatorUserId.isBlank()) {
-            // The removal is what lets the weigh day run at all, so it blocks the save the same
-            // way an unassigned bucket does — with a sentence, before any network call.
+        // WEIGHING SOP: whether this task carries the evening-before removal is the rules' call
+        // (always / the planner's toggle / never). When it does, the operator blocks the save the
+        // same way an unassigned bucket does — with a sentence, before any network call. When it
+        // does not, no operator travels and the server creates no removal round.
+        val rules = current.rules()
+        val removalOn = current.removalApplies()
+        val fastingOperatorUserId = if (removalOn) current.fastingOperatorUserId.orEmpty() else ""
+        if (removalOn && fastingOperatorUserId.isBlank()) {
             raw.value = current.copy(message = "Pick who removes feed & water the evening before.")
             return
         }
+        val feedWaterRemovalRequested: Boolean? = if (rules.removalOptional) removalOn else null
         raw.value = current.copy(busy = true, message = null)
         analytics.track(AnalyticsEvents.WEIGHING_PLAN_SAVE_ATTEMPTED)
         viewModelScope.launch {
@@ -596,9 +639,10 @@ class WeighingPlanWizardViewModel @Inject constructor(
                 periodStartDate = date,
                 periodEndDate = date,
                 startBusinessDate = date,
-                plannedCapPerDay = DEFAULT_PLANNED_CAP_PER_DAY,
+                plannedCapPerDay = rules.defaultCapPerDay.takeIf { it > 0 } ?: DEFAULT_PLANNED_CAP_PER_DAY,
                 operatorUserId = rows.first().second.operatorUserId,
                 fastingOperatorUserId = fastingOperatorUserId,
+                feedWaterRemovalRequested = feedWaterRemovalRequested,
                 sheds = rows.map { (bucketKey, selection) ->
                     val shed = current.shedsInPark().first { it.operationalKey() == bucketKey }
                     WeighingPlannerShed(
@@ -883,6 +927,15 @@ private data class WizardRaw(
      */
     val fastingOperatorUserId: String? = null,
     /**
+     * WEIGHING SOP (2026-09-15): the rules this wizard runs under -- the edited task's PINNED
+     * version ([sopPinned]) or the PUBLISHED rules the catalog serves; null until either lands,
+     * which reads as the seeded behaviour (removal required on every task).
+     */
+    val sop: WeighingSopRules? = null,
+    val sopPinned: Boolean = false,
+    /** The planner's toggle under the SOP's `optional` removal mode; on by default. */
+    val removalRequested: Boolean = true,
+    /**
      * True when the route named a task this wizard should have opened FROM, but the in-process
      * seed that would say what it was is gone (process death). See [WeighingPlanWizardViewModel.seedLost].
      * Blocks [canContinue] and [WeighingPlanWizardViewModel.commit] outright rather than letting
@@ -1032,7 +1085,44 @@ private fun WizardRaw.selectionFor(
             operatorUserId = seeded.operatorUserId.takeIf { it in operatorIds }.orEmpty(),
         )
     }
-    return WizardSelection(category = PER_SHED_PARTITION_CATEGORY, operatorUserId = defaultOperatorId())
+    return WizardSelection(category = defaultCategory(), operatorUserId = defaultOperatorId())
+}
+
+/** The first way of weighing the rules offer: lump-sum when offered, else animal by animal. */
+private fun WizardRaw.defaultCategory(): String =
+    if (rules().modeAllowed(PER_SHED_PARTITION_CATEGORY)) PER_SHED_PARTITION_CATEGORY else INDIVIDUAL_ANIMAL_CATEGORY
+
+/** The rules this wizard runs under: the edited task's pinned version, else the published ones, else the seed. */
+private fun WizardRaw.rules(): WeighingSopRules = sop ?: WeighingSopRules.Seeded
+
+/**
+ * The first day the DATE step offers. With the removal REQUIRED the farm's evening cutoff rule
+ * applies and today is never offerable (its evening was yesterday); otherwise today is a real
+ * plan -- no evening's work is being scheduled for it.
+ */
+private fun WizardRaw.firstOfferedDate(): LocalDate {
+    val now = java.time.ZonedDateTime.now(INDIA_BUSINESS_ZONE)
+    return if (rules().removalRequired) earliestPlannableDateWithFeedRemoval(now, removalCutoff) else now.toLocalDate()
+}
+
+/** Whether the chosen date still has a removal evening ahead of it (the create cutoff). */
+private fun WizardRaw.removalPossibleForDate(): Boolean {
+    val selected = date?.let { runCatching { LocalDate.parse(it, ISO_DATE) }.getOrNull() } ?: return true
+    return !selected.isBefore(earliestPlannableDateWithFeedRemoval(java.time.ZonedDateTime.now(INDIA_BUSINESS_ZONE), removalCutoff))
+}
+
+/**
+ * Whether THIS task carries the evening-before removal: always under `required`, never under
+ * `off`, and the planner's toggle under `optional` -- which reads as off for a date whose
+ * removal evening is already gone (today), because nobody can be assigned into it.
+ */
+private fun WizardRaw.removalApplies(): Boolean {
+    val rules = rules()
+    return when {
+        rules.removalOff -> false
+        rules.removalRequired -> true
+        else -> removalRequested && removalPossibleForDate()
+    }
 }
 
 private fun WizardRaw.canContinue(): Boolean {
@@ -1073,9 +1163,11 @@ private fun WizardRaw.filteredSelections(): List<Pair<String, WizardSelection>> 
 }
 
 private fun WizardRaw.toUiState(): WeighingWizardUiState {
-    // Weighing needs the removal evening before every weigh date, so the offered days start at
-    // the configured cutoff rule's earliest — today disappears entirely (its evening was yesterday).
-    val firstOfferedDate = earliestPlannableDateWithFeedRemoval(java.time.ZonedDateTime.now(INDIA_BUSINESS_ZONE), removalCutoff)
+    // With the removal REQUIRED the offered days start at the configured cutoff rule's earliest
+    // (today disappears: its evening was yesterday); otherwise today is offered too.
+    val firstOfferedDate = firstOfferedDate()
+    val earliestWithRemoval = earliestPlannableDateWithFeedRemoval(java.time.ZonedDateTime.now(INDIA_BUSINESS_ZONE), removalCutoff)
+    val rules = rules()
     val sheds = shedsInPark()
     val shedsById = sheds.associateBy { it.operationalKey() }
     val ordered = orderedSelections()
@@ -1131,10 +1223,17 @@ private fun WizardRaw.toUiState(): WeighingWizardUiState {
             WeighingWizardDateOption(
                 isoDate = day.format(ISO_DATE),
                 label = day.format(WIZARD_DAY),
-                note = "",
+                // Under the optional removal a day whose evening is already gone can only be
+                // weighed WITHOUT the removal; the screen words it.
+                noRemovalPossible = rules.removalOptional && day.isBefore(earliestWithRemoval),
                 selected = date == day.format(ISO_DATE),
             )
         },
+        removalMode = rules.removalMode,
+        removalRequested = removalRequested,
+        removalPossible = removalPossibleForDate(),
+        removalApplies = removalApplies(),
+        allowedCategories = rules.modes.filter { it == INDIVIDUAL_ANIMAL_CATEGORY || it == PER_SHED_PARTITION_CATEGORY },
         selectedDate = date,
         dateLabel = dateLabel,
         parkOptions = catalog?.parks.orEmpty().map { park ->

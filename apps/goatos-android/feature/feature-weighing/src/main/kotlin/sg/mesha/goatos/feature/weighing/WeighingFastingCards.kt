@@ -17,6 +17,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -235,10 +239,43 @@ data class WeighingFastingSlotUi(
     val serverProofId: String? = null,
 )
 
+/**
+ * WEIGHING SOP (maintainer decision 2026-09-15): one authored question on the removal card,
+ * rendered verbatim from the task's pinned SOP version. Kinds: choice / multi / text / number.
+ */
+@Immutable
+data class WeighingFastingQuestionUi(
+    val id: String,
+    val kind: String,
+    val title: String,
+    val hint: String = "",
+    val required: Boolean = false,
+    val options: List<Pair<String, String>> = emptyList(),
+    val allowOther: Boolean = false,
+    val unit: String = "",
+    /** Farm-worded range line ("0–50") for a number question; blank when unbounded. */
+    val rangeLabel: String = "",
+    /** False when an "ask only when" condition on an earlier answer is not met; hidden then. */
+    val applies: Boolean = true,
+)
+
+/** The operator's answer to one question, as typed/picked. Multi answers are the ticked values. */
+@Immutable
+data class WeighingFastingAnswerUi(
+    val value: String = "",
+    val values: List<String> = emptyList(),
+    val otherText: String = "",
+)
+
 @Immutable
 data class WeighingFastingDetailUiState(
     /** Backend-owned subject label, verbatim — the screen title body. */
     val title: String = "",
+    /** The SOP's operator instruction for this task, verbatim; blank when the SOP has none. */
+    val instruction: String = "",
+    /** The SOP's authored questions, in order, with their current answers. */
+    val questions: List<WeighingFastingQuestionUi> = emptyList(),
+    val answers: Map<String, WeighingFastingAnswerUi> = emptyMap(),
     val dateLabel: String = "",
     val status: String = "",
     /** True once this shed card can no longer be recorded (submitted / approved). */
@@ -266,6 +303,10 @@ data class WeighingFastingDetailUiState(
 sealed interface WeighingFastingDetailEvent {
     data class RecordSlot(val kind: WeighingFastingSlotKind) : WeighingFastingDetailEvent
     data class PreviewAction(val kind: WeighingFastingSlotKind, val action: String) : WeighingFastingDetailEvent
+    /** WEIGHING SOP: an answer to one authored question -- a pick, a tick, typed text or a number. */
+    data class SetAnswer(val questionId: String, val value: String) : WeighingFastingDetailEvent
+    data class ToggleAnswer(val questionId: String, val value: String) : WeighingFastingDetailEvent
+    data class SetOtherText(val questionId: String, val text: String) : WeighingFastingDetailEvent
     data object Submit : WeighingFastingDetailEvent
     data object Refresh : WeighingFastingDetailEvent
     data object DismissMessage : WeighingFastingDetailEvent
@@ -322,6 +363,16 @@ fun WeighingFastingDetailScreen(
             }
             item(key = "removal-status") {
                 FastingStatusCard(state = state, onSubmit = { onEvent(WeighingFastingDetailEvent.Submit) })
+            }
+            // WEIGHING SOP: the authored questions sit between the status and the two clips, one
+            // card each, and only the ones whose "ask only when" holds are shown.
+            items(state.questions.filter { it.applies }, key = { "removal-question-${it.id}" }) { question ->
+                FastingQuestionCard(
+                    question = question,
+                    answer = state.answers[question.id] ?: WeighingFastingAnswerUi(),
+                    locked = state.isReadOnly || state.submitQueued,
+                    onEvent = onEvent,
+                )
             }
             item(key = "removal-slot-feed") {
                 FastingProofAction(
@@ -393,7 +444,12 @@ private fun FastingStatusCard(state: WeighingFastingDetailUiState, onSubmit: () 
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        Text(text = stringResource(R.string.weighing_removal_caption), color = MeshaColors.Muted, style = MeshaType.body)
+        // The SOP's own instruction when the task carries one; the app's caption otherwise.
+        Text(
+            text = state.instruction.ifBlank { stringResource(R.string.weighing_removal_caption) },
+            color = MeshaColors.Muted,
+            style = MeshaType.body,
+        )
         Text(text = statusText, color = tone, style = MeshaType.caption)
         if (state.submitEnabled) {
             FastingCtaButton(label = stringResource(R.string.weighing_removal_submit), onClick = onSubmit)
@@ -523,4 +579,99 @@ private fun FastingCtaButton(label: String, enabled: Boolean = true, onClick: ()
             .clickable(enabled = enabled, onClick = onClick)
             .padding(horizontal = 12.dp, vertical = 13.dp),
     )
+}
+
+
+/**
+ * One authored removal question (WEIGHING SOP): pick-one as radio rows, pick-many as tick rows,
+ * text and number as a field. Locked once the card is submitted; the answers then render as
+ * recorded.
+ */
+@Composable
+private fun FastingQuestionCard(
+    question: WeighingFastingQuestionUi,
+    answer: WeighingFastingAnswerUi,
+    locked: Boolean,
+    onEvent: (WeighingFastingDetailEvent) -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(18.dp))
+            .background(MeshaColors.Surf)
+            .border(1.dp, MeshaColors.Hair, RoundedCornerShape(18.dp))
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text(
+            text = if (question.required) question.title else "${question.title} · ${stringResource(R.string.weighing_removal_question_optional)}",
+            color = MeshaColors.Ink,
+            style = MeshaType.listTitle,
+        )
+        if (question.hint.isNotBlank()) {
+            Text(text = question.hint, color = MeshaColors.Muted, style = MeshaType.caption)
+        }
+        when (question.kind) {
+            "choice", "multi" -> {
+                question.options.forEach { (value, label) ->
+                    val picked = if (question.kind == "choice") answer.value == value else value in answer.values
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(if (picked) MeshaColors.BrandTint else MeshaColors.Surf2)
+                            .clickable(enabled = !locked) {
+                                onEvent(
+                                    if (question.kind == "choice") {
+                                        WeighingFastingDetailEvent.SetAnswer(question.id, value)
+                                    } else {
+                                        WeighingFastingDetailEvent.ToggleAnswer(question.id, value)
+                                    },
+                                )
+                            }
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Text(
+                            text = label,
+                            color = if (picked) MeshaColors.BrandD else MeshaColors.Ink,
+                            style = MeshaType.body,
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                }
+                if (question.kind == "choice" && question.allowOther && answer.value == "other") {
+                    OutlinedTextField(
+                        value = answer.otherText,
+                        onValueChange = { onEvent(WeighingFastingDetailEvent.SetOtherText(question.id, it)) },
+                        enabled = !locked,
+                        singleLine = true,
+                        placeholder = { Text(stringResource(R.string.weighing_removal_question_other_hint)) },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            }
+            "number" -> {
+                OutlinedTextField(
+                    value = answer.value,
+                    onValueChange = { onEvent(WeighingFastingDetailEvent.SetAnswer(question.id, it)) },
+                    enabled = !locked,
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    suffix = if (question.unit.isNotBlank()) ({ Text(question.unit) }) else null,
+                    supportingText = if (question.rangeLabel.isNotBlank()) ({ Text(question.rangeLabel) }) else null,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+            else -> {
+                OutlinedTextField(
+                    value = answer.value,
+                    onValueChange = { onEvent(WeighingFastingDetailEvent.SetAnswer(question.id, it)) },
+                    enabled = !locked,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        }
+    }
 }

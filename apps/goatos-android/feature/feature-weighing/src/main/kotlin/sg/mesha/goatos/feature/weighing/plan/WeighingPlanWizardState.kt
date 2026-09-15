@@ -15,7 +15,12 @@ enum class WeighingBucketFilter { AVAILABLE, TAKEN, ADDED, ALL }
 data class WeighingWizardDateOption(
     val isoDate: String,
     val label: String,
-    val note: String,
+    /**
+     * WEIGHING SOP: under the `optional` removal mode, a day whose removal evening is already
+     * gone (today, or tomorrow after the cutoff) can only be weighed WITHOUT the evening-before
+     * removal. The screen words it; the ViewModel forces the toggle off for such a day.
+     */
+    val noRemovalPossible: Boolean = false,
     val selected: Boolean,
 )
 
@@ -147,6 +152,18 @@ data class WeighingWizardUiState(
      */
     val fastingOperatorUserId: String? = null,
     val fastingOperatorLabel: String = "",
+    /**
+     * WEIGHING SOP (maintainer decision 2026-09-15): how the published (or, on an edit, the
+     * task's pinned) weighing SOP treats the evening-before removal -- required / optional / off.
+     * [removalRequested] is the planner's toggle under `optional`; [removalPossible] is false
+     * when the chosen date's evening is already gone; [removalApplies] is the resolved answer
+     * the save sends. [allowedCategories] are the ways of weighing the rules offer.
+     */
+    val removalMode: String = "required",
+    val removalRequested: Boolean = true,
+    val removalPossible: Boolean = true,
+    val removalApplies: Boolean = true,
+    val allowedCategories: List<String> = listOf("individual_animal", "per_shed_partition"),
 
     /**
      * Set only when this task is being started FROM an existing one: names where the answers came

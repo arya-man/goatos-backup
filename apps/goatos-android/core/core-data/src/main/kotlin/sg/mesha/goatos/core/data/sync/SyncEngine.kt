@@ -1494,6 +1494,7 @@ class SyncEngine(
                 // the WHOLE submit, permanently-failed terminalizes it.
                 feedProofRef = resolveUploadedProofRef(payload.feedProofOutboxItemId),
                 waterProofRef = resolveUploadedProofRef(payload.waterProofOutboxItemId),
+                answers = payload.answers,
             ),
         )
         return syncJson.encodeToString(response)

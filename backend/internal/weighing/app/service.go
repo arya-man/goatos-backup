@@ -520,7 +520,11 @@ func (s *Service) ListCampaigns(ctx context.Context, actor domain.Actor, scope d
 	if scope == domain.CampaignListScopeMine {
 		// ScopeMine is already narrowed to the actor's OWN assignments, so it needs no park
 		// authority: an operator can only ever be assigned work in a park they work in.
-		return s.repo.ListCampaignsForOperator(ctx, actor.TenantID, actor.UserID, parkID, filter, strings.TrimSpace(cursor), limit)
+		page, err := s.repo.ListCampaignsForOperator(ctx, actor.TenantID, actor.UserID, parkID, filter, strings.TrimSpace(cursor), limit)
+		if err != nil {
+			return domain.CampaignPage{}, err
+		}
+		return page, s.decorateCampaignRules(ctx, actor.TenantID, page.Items)
 	}
 	// ScopeAll and ScopeOperators page across EVERY campaign in the tenant -- the repository
 	// has no notion of the actor's scope, only the optional parkID row filter. So the park
@@ -561,7 +565,11 @@ func (s *Service) ListCampaigns(ctx context.Context, actor domain.Actor, scope d
 			}
 		}
 	}
-	return s.repo.ListCampaigns(ctx, actor.TenantID, parkID, filter, strings.TrimSpace(cursor), limit)
+	page, err := s.repo.ListCampaigns(ctx, actor.TenantID, parkID, filter, strings.TrimSpace(cursor), limit)
+	if err != nil {
+		return domain.CampaignPage{}, err
+	}
+	return page, s.decorateCampaignRules(ctx, actor.TenantID, page.Items)
 }
 
 // PlannerCatalog returns the PARK-grain planner vocabulary for ONE weigh date: every park
@@ -892,14 +900,13 @@ func (s *Service) GetCampaign(ctx context.Context, actor domain.Actor, campaignI
 	if err != nil {
 		return domain.Campaign{}, err
 	}
-	// WEIGHING SOP: the single-task read carries the task's PINNED rule set so the phone
-	// renders the lump-sum video cap and the removal copy the task actually runs under.
-	rules, err := s.rulesForVersion(ctx, actor.TenantID, campaign.SOPVersion)
-	if err != nil {
+	// WEIGHING SOP: the task read carries the task's PINNED rule set so the phone renders
+	// the lump-sum video cap and the removal copy the task actually runs under.
+	items := []domain.Campaign{campaign}
+	if err := s.decorateCampaignRules(ctx, actor.TenantID, items); err != nil {
 		return domain.Campaign{}, err
 	}
-	campaign.SOP = &rules
-	return campaign, nil
+	return items[0], nil
 }
 
 // CampaignCapabilities answers which task-level writes this caller may attempt on THIS task.

@@ -399,6 +399,8 @@ interface SyncRepository {
         campaignShedId: String,
         feedProofOutboxItemId: String,
         waterProofOutboxItemId: String,
+        /** WEIGHING SOP: answers to the card's authored questions, keyed by question id. */
+        answers: kotlinx.serialization.json.JsonObject = kotlinx.serialization.json.JsonObject(emptyMap()),
     ): AppResult<String> = AppResult.Err("removal submit sync is not configured")
 
     /**
@@ -1459,6 +1461,7 @@ class DefaultSyncRepository(
         campaignShedId: String,
         feedProofOutboxItemId: String,
         waterProofOutboxItemId: String,
+        answers: kotlinx.serialization.json.JsonObject,
     ): AppResult<String> = enqueue(
         opType = OutboxOpType.WEIGHING_FASTING_SUBMIT,
         groupKey = groupKey,
@@ -1469,6 +1472,7 @@ class DefaultSyncRepository(
                 campaignShedId = campaignShedId,
                 feedProofOutboxItemId = feedProofOutboxItemId,
                 waterProofOutboxItemId = waterProofOutboxItemId,
+                answers = answers,
             ),
         ),
     )

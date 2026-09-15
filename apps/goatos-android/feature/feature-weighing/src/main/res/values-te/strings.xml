@@ -269,6 +269,13 @@
     <string name="weighing_wizard_fasting_title">మేత మరియు నీరు తీసివేత</string>
     <string name="weighing_wizard_fasting_subtitle">ముందు రోజు సాయంత్రం ఈ షెడ్ల నుండి మేత, నీరు ఎవరు తీసేస్తారు?</string>
     <string name="weighing_wizard_fasting_prompt">ఒక వ్యక్తిని ఎంచుకోండి…</string>
+    <string name="weighing_removal_answer_required_fmt">సమాధానం ఇవ్వండి: %1$s</string>
+    <string name="weighing_removal_question_optional">ఐచ్ఛికం</string>
+    <string name="weighing_removal_question_other_hint">ఏది అని చెప్పండి</string>
+    <string name="weighing_wizard_date_no_removal">ముందు రోజు సాయంత్రం మేత, నీరు తీసేయడానికి ఆలస్యమైంది — అది లేకుండా తూకం</string>
+    <string name="weighing_wizard_fasting_not_possible">ఈ రోజు ముందు సాయంత్రం మేత, నీరు తీసేయడానికి ఆలస్యమైంది, కాబట్టి ఈ తూకం అది లేకుండా జరుగుతుంది.</string>
+    <string name="weighing_wizard_fasting_skipped">ఈ తూకానికి మేత, నీరు తీసివేత లేదు.</string>
+    <string name="weighing_wizard_fasting_none">ప్రణాళిక లేదు</string>
     <string name="weighing_removal_section_title">మేత మరియు నీరు తీసివేత</string>
     <string name="weighing_removal_card_type">మేత మరియు నీరు తొలగించండి</string>
     <string name="weighing_removal_screen_title">మేత మరియు నీరు తీసేయండి</string>

@@ -3271,6 +3271,11 @@ class WeighingViewModelTest {
             WeighingPlannerCatalogCache(catalog = cachedPlannerCatalog, hasCache = true),
         )
 
+        /** WEIGHING SOP: the published rules the wizard's DATE step reads; null = seeded behaviour. */
+        var plannerSop: sg.mesha.goatos.core.data.weighing.WeighingSopRules? = null
+        override fun observePlannerSop(): Flow<sg.mesha.goatos.core.data.weighing.WeighingSopRules?> = MutableStateFlow(plannerSop)
+        override suspend fun refreshPlannerSop(periodStartDate: String): AppResult<Unit> = AppResult.Ok(Unit)
+
         /**
          * A catalog refresh reports the seeded outcome, and the cache above holds whatever it
          * produced — an Err seeds NOTHING, which is what a first read that never landed looks like.

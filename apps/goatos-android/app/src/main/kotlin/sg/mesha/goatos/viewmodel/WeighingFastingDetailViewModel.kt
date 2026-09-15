@@ -14,6 +14,12 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import sg.mesha.goatos.BuildConfig
 import sg.mesha.goatos.capture.ProofCaptureContext
 import sg.mesha.goatos.capture.ProofCaptureSource
@@ -33,7 +39,10 @@ import sg.mesha.goatos.core.data.sync.SyncItemStatus
 import sg.mesha.goatos.core.data.sync.SyncQueueItem
 import sg.mesha.goatos.core.data.sync.SyncRepository
 import sg.mesha.goatos.core.data.weighing.WeighingFastingRepository
+import sg.mesha.goatos.core.network.dto.WeighingSopQuestionDto
+import sg.mesha.goatos.feature.weighing.WeighingFastingAnswerUi
 import sg.mesha.goatos.feature.weighing.WeighingFastingDetailEvent
+import sg.mesha.goatos.feature.weighing.WeighingFastingQuestionUi
 import sg.mesha.goatos.feature.weighing.WeighingFastingDetailUiState
 import sg.mesha.goatos.feature.weighing.WeighingFastingSlotKind
 import sg.mesha.goatos.feature.weighing.WeighingFastingSlotStatus
@@ -84,6 +93,14 @@ class WeighingFastingDetailViewModel @Inject constructor(
 
     private val submitOutboxItemId = DraftOutboxItemId(savedStateHandle, KEY_SUBMIT_OUTBOX_ITEM_ID)
 
+    /**
+     * WEIGHING SOP (2026-09-15): the card's authored questions as the backend served them (the
+     * task's pinned version) and the operator's answers. Answers live in the SavedStateHandle so
+     * a process death mid-card keeps what was typed alongside the recorded clips.
+     */
+    private var questionDtos: List<WeighingSopQuestionDto> = emptyList()
+    private var answers: Map<String, WeighingFastingAnswerUi> = restoreAnswers()
+
     private var submitEnqueueInFlight = false
     private val proofJobs = mutableMapOf<WeighingFastingSlotKind, Job>()
     private var submitJob: Job? = null
@@ -117,6 +134,11 @@ class WeighingFastingDetailViewModel @Inject constructor(
         when (event) {
             is WeighingFastingDetailEvent.RecordSlot -> recordSlot(event.kind)
             is WeighingFastingDetailEvent.PreviewAction -> trackPreviewAction(event.kind, event.action)
+            is WeighingFastingDetailEvent.SetAnswer -> setAnswer(event.questionId) { it.copy(value = event.value) }
+            is WeighingFastingDetailEvent.ToggleAnswer -> setAnswer(event.questionId) { current ->
+                current.copy(values = if (event.value in current.values) current.values - event.value else current.values + event.value)
+            }
+            is WeighingFastingDetailEvent.SetOtherText -> setAnswer(event.questionId) { it.copy(otherText = event.text) }
             WeighingFastingDetailEvent.Submit -> submit()
             WeighingFastingDetailEvent.Refresh -> refresh()
             WeighingFastingDetailEvent.DismissMessage -> _state.update { it.copy(message = null) }
@@ -183,10 +205,20 @@ class WeighingFastingDetailViewModel @Inject constructor(
                         // The verifier's own sentence about THIS shed, verbatim, only while sent back.
                         reworkReason = if (status == STATUS_REWORK) dto.reworkReason.orEmpty() else "",
                         submitQueued = submitOutboxItemId.value != null && current.submitQueued,
-                        feedSlot = mergedSlot(WeighingFastingSlotKind.FEED, current),
-                        waterSlot = mergedSlot(WeighingFastingSlotKind.WATER, current),
+                        feedSlot = mergedSlot(WeighingFastingSlotKind.FEED, current).withSopCopy(dto.proofs, WeighingFastingSlotKind.FEED),
+                        waterSlot = mergedSlot(WeighingFastingSlotKind.WATER, current).withSopCopy(dto.proofs, WeighingFastingSlotKind.WATER),
+                        // The SOP's copy for this task, verbatim: the instruction and the questions.
+                        instruction = dto.instruction,
+                        questions = questionRows(),
+                        answers = answers,
                     )
                 }
+                // A read-only card shows the answers the backend recorded, not this device's draft.
+                questionDtos = dto.questions
+                if (readOnly && dto.answers.isNotEmpty()) {
+                    answers = recordedAnswers(dto.answers)
+                }
+                _state.update { it.copy(questions = questionRows(), answers = answers) }
                 recomputeSubmit()
             }
         }
@@ -224,6 +256,131 @@ class WeighingFastingDetailViewModel @Inject constructor(
                     slotItemId(kind) != null
             }
         return live ?: emptySlot(kind)
+    }
+
+    /** The SOP's slot title and hint override the app's defaults when the task carries them. */
+    private fun WeighingFastingSlotUi.withSopCopy(
+        proofs: List<sg.mesha.goatos.core.network.dto.WeighingRemovalProofSlotDto>,
+        kind: WeighingFastingSlotKind,
+    ): WeighingFastingSlotUi {
+        val key = if (kind == WeighingFastingSlotKind.FEED) "feed_video" else "water_video"
+        val slot = proofs.firstOrNull { it.key == key } ?: return this
+        return copy(
+            title = slot.title.ifBlank { title },
+            hint = slot.hint.ifBlank { hint },
+        )
+    }
+
+    // ------------------------------------------------------------------ SOP questions
+
+    private fun setAnswer(questionId: String, transform: (WeighingFastingAnswerUi) -> WeighingFastingAnswerUi) {
+        val current = _state.value
+        if (current.isReadOnly || current.submitQueued) return
+        answers = answers + (questionId to transform(answers[questionId] ?: WeighingFastingAnswerUi()))
+        persistAnswers()
+        _state.update { it.copy(questions = questionRows(), answers = answers) }
+        recomputeSubmit()
+    }
+
+    /** Whether a question's "ask only when" holds against the current answers. */
+    private fun applies(q: WeighingSopQuestionDto): Boolean {
+        val cond = q.onlyIf ?: return true
+        return answers[cond.questionId]?.value?.trim() == cond.value
+    }
+
+    private fun questionRows(): List<WeighingFastingQuestionUi> = questionDtos.map { q ->
+        WeighingFastingQuestionUi(
+            id = q.id,
+            kind = q.kind,
+            title = q.title,
+            hint = q.hint,
+            required = q.required,
+            options = q.options.map { it.value to it.label },
+            allowOther = q.allowOther,
+            unit = q.unit,
+            rangeLabel = listOfNotNull(q.min, q.max).takeIf { it.size == 2 }?.let { (min, max) -> "${trimNumber(min)}–${trimNumber(max)}" }
+                ?: q.min?.let { "≥ ${trimNumber(it)}" } ?: q.max?.let { "≤ ${trimNumber(it)}" } ?: "",
+            applies = applies(q),
+        )
+    }
+
+    /**
+     * The first unanswered required question that applies, as the submit block reason -- the
+     * same sentence the backend would answer with (422 fasting_answer_invalid), stated before
+     * any queueing.
+     */
+    private fun firstMissingAnswer(): String? = questionDtos.firstOrNull { q ->
+        if (!q.required || !applies(q)) return@firstOrNull false
+        val a = answers[q.id]
+        when (q.kind) {
+            "multi" -> a == null || a.values.isEmpty()
+            "choice" -> a == null || a.value.isBlank() || (a.value == "other" && q.allowOther && a.otherText.isBlank())
+            else -> a == null || a.value.isBlank()
+        }
+    }?.title
+
+    /** The answers as the backend's wire shape: only applicable questions, typed by kind. */
+    private fun answersJson(): JsonObject = buildJsonObject {
+        questionDtos.forEach { q ->
+            if (!applies(q)) return@forEach
+            val a = answers[q.id] ?: return@forEach
+            when (q.kind) {
+                "multi" -> if (a.values.isNotEmpty()) put(q.id, JsonArray(a.values.map { JsonPrimitive(it) }))
+                "number" -> a.value.trim().toDoubleOrNull()?.let { put(q.id, JsonPrimitive(it)) }
+                "choice" -> if (a.value.isNotBlank()) {
+                    put(q.id, JsonPrimitive(a.value))
+                    if (a.value == "other" && q.allowOther && a.otherText.isNotBlank()) put("${q.id}_other", JsonPrimitive(a.otherText))
+                }
+                else -> if (a.value.isNotBlank()) put(q.id, JsonPrimitive(a.value))
+            }
+        }
+    }
+
+    /** The recorded answers of a submitted card, re-read from the backend for display. */
+    private fun recordedAnswers(recorded: JsonObject): Map<String, WeighingFastingAnswerUi> {
+        val out = mutableMapOf<String, WeighingFastingAnswerUi>()
+        recorded.forEach { (id, element) ->
+            if (id.endsWith("_other")) {
+                val base = id.removeSuffix("_other")
+                out[base] = (out[base] ?: WeighingFastingAnswerUi()).copy(otherText = (element as? JsonPrimitive)?.content.orEmpty())
+                return@forEach
+            }
+            out[id] = when (element) {
+                is JsonArray -> (out[id] ?: WeighingFastingAnswerUi()).copy(values = element.mapNotNull { (it as? JsonPrimitive)?.content })
+                is JsonPrimitive -> (out[id] ?: WeighingFastingAnswerUi()).copy(value = element.content)
+                else -> out[id] ?: WeighingFastingAnswerUi()
+            }
+        }
+        return out
+    }
+
+    private fun answersStateKey(): String = "$KEY_ANSWERS_PREFIX:$campaignShedId"
+
+    private fun persistAnswers() {
+        val encoded = buildJsonObject {
+            answers.forEach { (id, a) ->
+                put(id, buildJsonObject {
+                    put("v", JsonPrimitive(a.value))
+                    put("vs", JsonArray(a.values.map { JsonPrimitive(it) }))
+                    put("o", JsonPrimitive(a.otherText))
+                })
+            }
+        }
+        savedStateHandle[answersStateKey()] = encoded.toString()
+    }
+
+    private fun restoreAnswers(): Map<String, WeighingFastingAnswerUi> {
+        val raw = savedStateHandle.get<String>(answersStateKey())?.takeIf { it.isNotBlank() } ?: return emptyMap()
+        // exception:exempt a draft that no longer parses is an empty draft; the operator answers again
+        val obj = runCatching { Json.parseToJsonElement(raw) as? JsonObject }.getOrNull() ?: return emptyMap()
+        return obj.mapValues { (_, el) ->
+            val o = el as? JsonObject ?: return@mapValues WeighingFastingAnswerUi()
+            WeighingFastingAnswerUi(
+                value = (o["v"] as? JsonPrimitive)?.content.orEmpty(),
+                values = (o["vs"] as? JsonArray)?.mapNotNull { (it as? JsonPrimitive)?.content }.orEmpty(),
+                otherText = (o["o"] as? JsonPrimitive)?.content.orEmpty(),
+            )
+        }
     }
 
     private fun emptySlot(kind: WeighingFastingSlotKind): WeighingFastingSlotUi = WeighingFastingSlotUi(
@@ -413,10 +570,11 @@ class WeighingFastingDetailViewModel @Inject constructor(
         // queueing.
         val feedItem = slotItemId(WeighingFastingSlotKind.FEED)
         val waterItem = slotItemId(WeighingFastingSlotKind.WATER)
-        if (current.isReadOnly || current.submitQueued || feedItem == null || waterItem == null) {
+        if (current.isReadOnly || current.submitQueued || feedItem == null || waterItem == null || firstMissingAnswer() != null) {
             recomputeSubmit()
             return
         }
+        val answersPayload = answersJson()
         submitEnqueueInFlight = true
         viewModelScope.launch {
             when (
@@ -432,6 +590,7 @@ class WeighingFastingDetailViewModel @Inject constructor(
                     campaignShedId = campaignShedId,
                     feedProofOutboxItemId = feedItem,
                     waterProofOutboxItemId = waterItem,
+                    answers = answersPayload,
                 )
             ) {
                 is AppResult.Ok -> {
@@ -568,12 +727,15 @@ class WeighingFastingDetailViewModel @Inject constructor(
             // the button; the drain waits for the uploads by resolving the outbox ids.
             val bothReady = slotItemId(WeighingFastingSlotKind.FEED) != null &&
                 slotItemId(WeighingFastingSlotKind.WATER) != null
-            val enabled = bothReady && !current.isReadOnly && !current.submitQueued
+            // WEIGHING SOP: a required authored question left unanswered blocks the submit by name.
+            val missingAnswer = firstMissingAnswer()
+            val enabled = bothReady && missingAnswer == null && !current.isReadOnly && !current.submitQueued
             current.copy(
                 submitEnabled = enabled,
                 submitBlockedReason = when {
                     enabled || current.submitQueued || current.isReadOnly -> ""
-                    else -> SUBMIT_BLOCKED_BOTH_VIDEOS
+                    !bothReady -> SUBMIT_BLOCKED_BOTH_VIDEOS
+                    else -> appContext.getString(WeighingR.string.weighing_removal_answer_required_fmt, missingAnswer.orEmpty())
                 },
             )
         }
@@ -756,6 +918,9 @@ class WeighingFastingDetailViewModel @Inject constructor(
         private const val KEY_SLOT_PROOF_ITEM_ID_PREFIX = "weighing_fasting_proof_item_id"
         private const val KEY_SLOT_PREVIEW_PATH_PREFIX = "weighing_fasting_proof_preview_path"
         private const val KEY_SUBMIT_OUTBOX_ITEM_ID = "weighing_fasting_submit_outbox_item_id"
+        private const val KEY_ANSWERS_PREFIX = "weighing_fasting_answers"
+
+        private fun trimNumber(v: Double): String = if (v == v.toLong().toDouble()) v.toLong().toString() else v.toString()
 
         private const val STATUS_PENDING_VERIFICATION = "pending_verification"
         private const val STATUS_COMPLETED = "completed"

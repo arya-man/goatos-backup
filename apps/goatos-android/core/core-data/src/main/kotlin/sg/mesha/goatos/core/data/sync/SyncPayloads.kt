@@ -215,6 +215,8 @@ data class WeighingFastingSubmitPayload(
     @SerialName("feed_proof_outbox_item_id") val feedProofOutboxItemId: String? = null,
     /** Outbox id of THIS shed's freshly recorded water-removal VIDEO's PROOF_UPLOAD item. */
     @SerialName("water_proof_outbox_item_id") val waterProofOutboxItemId: String? = null,
+    /** WEIGHING SOP: answers to the card's authored questions, keyed by question id. */
+    @SerialName("answers") val answers: kotlinx.serialization.json.JsonObject = kotlinx.serialization.json.JsonObject(emptyMap()),
 )
 
 /** Outbox payload for [sg.mesha.goatos.core.database.outbox.OutboxOpType.WEIGHING_SCOPE_SUBMIT]. */

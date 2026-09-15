@@ -269,6 +269,13 @@
     <string name="weighing_wizard_fasting_title">ಮೇವು ಮತ್ತು ನೀರು ತೆಗೆಯುವಿಕೆ</string>
     <string name="weighing_wizard_fasting_subtitle">ಹಿಂದಿನ ಸಂಜೆ ಈ ಶೆಡ್‌ಗಳಿಂದ ಮೇವು ಮತ್ತು ನೀರು ಯಾರು ತೆಗೆಯುತ್ತಾರೆ?</string>
     <string name="weighing_wizard_fasting_prompt">ಒಬ್ಬ ವ್ಯಕ್ತಿಯನ್ನು ಆರಿಸಿ…</string>
+    <string name="weighing_removal_answer_required_fmt">ಉತ್ತರಿಸಿ: %1$s</string>
+    <string name="weighing_removal_question_optional">ಐಚ್ಛಿಕ</string>
+    <string name="weighing_removal_question_other_hint">ಯಾವುದು ಎಂದು ತಿಳಿಸಿ</string>
+    <string name="weighing_wizard_date_no_removal">ಹಿಂದಿನ ಸಂಜೆ ಮೇವು ಮತ್ತು ನೀರು ತೆಗೆಯಲು ತಡವಾಗಿದೆ — ಅದಿಲ್ಲದೆ ತೂಕ</string>
+    <string name="weighing_wizard_fasting_not_possible">ಈ ದಿನದ ಹಿಂದಿನ ಸಂಜೆ ಮೇವು ಮತ್ತು ನೀರು ತೆಗೆಯಲು ತಡವಾಗಿದೆ, ಆದ್ದರಿಂದ ಈ ತೂಕ ಅದಿಲ್ಲದೆ ನಡೆಯುತ್ತದೆ.</string>
+    <string name="weighing_wizard_fasting_skipped">ಈ ತೂಕಕ್ಕೆ ಮೇವು ಮತ್ತು ನೀರು ತೆಗೆಯುವಿಕೆ ಇಲ್ಲ.</string>
+    <string name="weighing_wizard_fasting_none">ಯೋಜಿಸಿಲ್ಲ</string>
     <string name="weighing_removal_section_title">ಮೇವು ಮತ್ತು ನೀರು ತೆಗೆಯುವಿಕೆ</string>
     <string name="weighing_removal_card_type">ಮೇವು ಮತ್ತು ನೀರು ತೆಗೆದುಹಾಕಿ</string>
     <string name="weighing_removal_screen_title">ಮೇವು ಮತ್ತು ನೀರು ತೆಗೆಯಿರಿ</string>

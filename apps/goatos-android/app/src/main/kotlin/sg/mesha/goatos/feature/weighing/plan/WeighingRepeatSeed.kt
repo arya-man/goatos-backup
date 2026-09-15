@@ -38,6 +38,12 @@ data class WeighingRepeatSeed(
      * predates the precondition.
      */
     val fastingOperatorUserId: String? = null,
+    /**
+     * WEIGHING SOP (2026-09-15): the rules the edited task was PLANNED on, so the edit wizard
+     * offers what that version offers (an edit never re-pins). Null for a repeat, which is a new
+     * task and runs on the published rules the catalog serves.
+     */
+    val sop: sg.mesha.goatos.core.data.weighing.WeighingSopRules? = null,
 )
 
 /**
