@@ -842,7 +842,7 @@ func TestVaccinationExecutionPageCanSkipCardSummariesForLatencySensitiveClients(
 	}
 }
 
-func TestVaccinationExecutionPageKeepsLegacyCardSummariesByDefault(t *testing.T) {
+func TestVaccinationExecutionPageBuildsDefaultCardSummariesFromCompletePage(t *testing.T) {
 	t.Parallel()
 
 	cardCalls := 0
@@ -859,11 +859,42 @@ func TestVaccinationExecutionPageKeepsLegacyCardSummariesByDefault(t *testing.T)
 	if err != nil {
 		t.Fatalf("VaccinationExecutionPage failed: %v", err)
 	}
-	if cardCalls != 1 {
-		t.Fatalf("nil IncludeCardSummaries must keep the legacy card summary default; got %d calls", cardCalls)
+	if cardCalls != 0 {
+		t.Fatalf("complete first page should build card summaries without the SQL aggregate; got %d calls", cardCalls)
 	}
 	if resp.CardSummaries == nil {
 		t.Fatal("default card summaries should be included for legacy callers")
+	}
+}
+
+func TestVaccinationExecutionPageBuildsSmallCrossPageCardSummariesFromBoundedFullPage(t *testing.T) {
+	t.Parallel()
+
+	asOf := time.Date(2026, 8, 16, 10, 0, 0, 0, time.UTC)
+	cardCalls := 0
+	rows := []domain.ExecutionProjection{
+		projection("shed-1", asOf.Add(24*time.Hour), 1, nil),
+		projection("shed-2", asOf.Add(24*time.Hour), 1, nil),
+	}
+	svc := NewService(&paginatingFakeRepo{fakeRepo: fakeRepo{rows: rows, cardCalls: &cardCalls}})
+
+	resp, err := svc.VaccinationExecutionPage(context.Background(), domain.ExecutionQuery{
+		TenantID:  "tenant",
+		AsOf:      asOf,
+		DueBefore: asOf.Add(30 * 24 * time.Hour),
+		Limit:     1,
+	})
+	if err != nil {
+		t.Fatalf("VaccinationExecutionPage failed: %v", err)
+	}
+	if cardCalls != 0 {
+		t.Fatalf("small multi-page response should avoid the SQL aggregate; got %d calls", cardCalls)
+	}
+	if resp.NextCursor == nil {
+		t.Fatal("test fixture should have produced a second page")
+	}
+	if len(resp.CardSummaries) != 2 {
+		t.Fatalf("card summaries = %d, want full-filter summaries for both cards", len(resp.CardSummaries))
 	}
 }
 
@@ -1260,6 +1291,71 @@ func TestCardSummaryReflectsAllRowsNotPaginatedSubset(t *testing.T) {
 	}
 	if summary.OpenCount != wantOpenCount {
 		t.Errorf("OpenCount = %d, want %d (rows 1-10). BUG: aggregates only paginated subset!", summary.OpenCount, wantOpenCount)
+	}
+}
+
+func TestCardSummaryPreservesVerificationPendingState(t *testing.T) {
+	t.Parallel()
+
+	asOf := time.Date(2026, 8, 16, 10, 0, 0, 0, time.UTC)
+	due := asOf.Add(24 * time.Hour)
+	batchID := "batch-review"
+	rows := []domain.ExecutionRow{rowFromProjection(projection("shed-review", due, 1, func(p *domain.ExecutionProjection) {
+		p.BatchID = &batchID
+		p.ObligationCount = 1
+		p.DoneCount = 1
+		p.ProofSubmittedCount = 1
+		p.CompletionAccepted = 0
+		p.OperatorName = strPtr("Amit")
+		p.WorkState = domain.WorkStateVerificationPending
+	}), domain.ExecutionQuery{AsOf: asOf})}
+
+	cardID := domain.BuildCardID("shed-review", "whole", "", batchID, "")
+	summary := computeCardSummariesFromRows(rows)[cardID]
+	if summary == nil {
+		t.Fatalf("missing card summary %q", cardID)
+	}
+	if summary.Status != domain.WorkStateVerificationPending {
+		t.Fatalf("card status = %q, want %q so Android/In-review cards do not regress to Pending", summary.Status, domain.WorkStateVerificationPending)
+	}
+}
+
+func TestVaccinationExecutionPageCompletePageCardSummaryPreservesVerificationPendingAsInReview(t *testing.T) {
+	t.Parallel()
+
+	asOf := time.Date(2026, 8, 16, 10, 0, 0, 0, time.UTC)
+	due := asOf.Add(24 * time.Hour)
+	batchID := "batch-page-review"
+	includeCardSummaries := true
+	svc := NewService(fakeRepo{rows: []domain.ExecutionProjection{
+		projection("shed-page-review", due, 1, func(p *domain.ExecutionProjection) {
+			p.BatchID = &batchID
+			p.ObligationCount = 1
+			p.DoneCount = 1
+			p.ProofSubmittedCount = 1
+			p.CompletionAccepted = 0
+			p.OperatorName = strPtr("Amit")
+		}),
+	}})
+
+	resp, err := svc.VaccinationExecutionPage(context.Background(), domain.ExecutionQuery{
+		TenantID:             "tenant",
+		AsOf:                 asOf,
+		DueBefore:            asOf.Add(30 * 24 * time.Hour),
+		Limit:                20,
+		IncludeCardSummaries: &includeCardSummaries,
+	})
+	if err != nil {
+		t.Fatalf("VaccinationExecutionPage() error = %v", err)
+	}
+
+	cardID := domain.BuildCardID("shed-page-review", "whole", "", batchID, "")
+	summary := resp.CardSummaries[cardID]
+	if summary == nil {
+		t.Fatalf("missing card summary %q", cardID)
+	}
+	if summary.Status != domain.WorkStateVerificationPending {
+		t.Fatalf("complete-page shortcut card status = %q, want %q", summary.Status, domain.WorkStateVerificationPending)
 	}
 }
 

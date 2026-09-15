@@ -144,7 +144,7 @@
             "perSeriesAligner": "ALIGN_MAX",
             "crossSeriesReducer": "REDUCE_SUM",
             "alignmentPeriod": "60s",
-            "filter": "metric.type = \"pubsub.googleapis.com/subscription/num_undelivered_messages\" AND resource.label.subscription_id = \"goatos-stg-outbox-events-dlq-inspect\""
+            "filter": "resource.type = \"pubsub_subscription\" AND metric.type = \"pubsub.googleapis.com/subscription/num_undelivered_messages\" AND resource.label.subscription_id = \"goatos-stg-outbox-events-dlq-inspect\""
           }
         }
       ]
@@ -536,7 +536,7 @@
             "perSeriesAligner": "ALIGN_MAX",
             "crossSeriesReducer": "REDUCE_NONE",
             "alignmentPeriod": "60s",
-            "filter": "metric.type = \"pubsub.googleapis.com/subscription/num_undelivered_messages\" AND resource.label.subscription_id = \"goatos-stg-domain-events\""
+            "filter": "resource.type = \"pubsub_subscription\" AND metric.type = \"pubsub.googleapis.com/subscription/num_undelivered_messages\" AND resource.label.subscription_id = \"goatos-stg-domain-events\""
           }
         }
       ]
@@ -601,7 +601,7 @@
             "perSeriesAligner": "ALIGN_MAX",
             "crossSeriesReducer": "REDUCE_NONE",
             "alignmentPeriod": "60s",
-            "filter": "metric.type = \"pubsub.googleapis.com/subscription/num_undelivered_messages\" AND resource.label.subscription_id = \"goatos-stg-outbox-events-dlq-inspect\""
+            "filter": "resource.type = \"pubsub_subscription\" AND metric.type = \"pubsub.googleapis.com/subscription/num_undelivered_messages\" AND resource.label.subscription_id = \"goatos-stg-outbox-events-dlq-inspect\""
           }
         }
       ]

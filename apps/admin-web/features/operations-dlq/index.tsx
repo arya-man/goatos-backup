@@ -133,8 +133,8 @@ export async function OperationsDLQPage({
           <div className="sp" style={{ flex: 1 }} />
           <span className="pill">{copy(pageContract, "pager.fixed_reason")}</span>
         </div>
-        <div className="bd" style={{ padding: 0, overflowX: "auto" }} tabIndex={0} role="group" aria-label={copy(pageContract, "section.events.aria")}>
-          <table data-enh="1">
+        <div className="bd twrap" style={{ padding: 0 }} tabIndex={0} role="group" aria-label={copy(pageContract, "section.events.aria")}>
+          <table data-enh="1" className="operations-dlq-table">
             <thead>
               <tr>
                 {cols.map((label) => (

@@ -456,7 +456,7 @@ resource "google_monitoring_alert_policy" "api_error_rate_slo_burn" {
       # Numerator: rate of 5xx errors
       filter = join(" ", [
         "metric.type=\"prometheus.googleapis.com/http_server_requests_total/counter\"",
-        "AND resource.type=\"generic_task\"",
+        "AND resource.type=\"prometheus_target\"",
         "AND metric.labels.status_class=\"5xx\"",
       ])
       comparison      = "COMPARISON_GT"
@@ -472,7 +472,7 @@ resource "google_monitoring_alert_policy" "api_error_rate_slo_burn" {
       # Denominator: rate of ALL requests (compute true ratio: 5xx/total)
       denominator_filter = join(" ", [
         "metric.type=\"prometheus.googleapis.com/http_server_requests_total/counter\"",
-        "AND resource.type=\"generic_task\"",
+        "AND resource.type=\"prometheus_target\"",
       ])
 
       denominator_aggregations {
@@ -507,7 +507,7 @@ resource "google_monitoring_alert_policy" "api_latency_p99_burn" {
     condition_threshold {
       filter = join(" ", [
         "metric.type=\"prometheus.googleapis.com/http_server_request_duration_seconds/histogram\"",
-        "AND resource.type=\"generic_task\"",
+        "AND resource.type=\"prometheus_target\"",
       ])
       comparison      = "COMPARISON_GT"
       duration        = "300s"
@@ -545,7 +545,7 @@ resource "google_monitoring_alert_policy" "api_latency_p99_write_burn" {
     condition_threshold {
       filter = join(" ", [
         "metric.type=\"prometheus.googleapis.com/http_server_request_duration_seconds/histogram\"",
-        "AND resource.type=\"generic_task\"",
+        "AND resource.type=\"prometheus_target\"",
         "AND metric.labels.method=one_of(\"POST\",\"PUT\",\"PATCH\",\"DELETE\")",
       ])
       comparison      = "COMPARISON_GT"
@@ -584,7 +584,7 @@ resource "google_monitoring_alert_policy" "kernel_consumer_lag" {
     condition_threshold {
       filter = join(" ", [
         "metric.type=\"prometheus.googleapis.com/kernel_consumer_lag_seconds/gauge\"",
-        "AND resource.type=\"generic_task\"",
+        "AND resource.type=\"prometheus_target\"",
       ])
       comparison      = "COMPARISON_GT"
       duration        = "300s"
@@ -628,7 +628,7 @@ resource "google_monitoring_alert_policy" "kernel_notification_backlog_age" {
     condition_threshold {
       filter = join(" ", [
         "metric.type=\"prometheus.googleapis.com/kernel_notify_backlog_age_seconds/gauge\"",
-        "AND resource.type=\"generic_task\"",
+        "AND resource.type=\"prometheus_target\"",
       ])
       comparison = "COMPARISON_GT"
       duration   = "300s"
@@ -675,7 +675,7 @@ resource "google_monitoring_alert_policy" "kernel_worker_metrics_absent" {
     condition_absent {
       filter = join(" ", [
         "metric.type=\"prometheus.googleapis.com/kernel_notify_backlog_age_seconds/gauge\"",
-        "AND resource.type=\"generic_task\"",
+        "AND resource.type=\"prometheus_target\"",
       ])
       duration = "600s"
 
@@ -710,7 +710,7 @@ resource "google_monitoring_alert_policy" "kernel_notification_failure_rate" {
     condition_threshold {
       filter = join(" ", [
         "metric.type=\"prometheus.googleapis.com/kernel_notify_failures_total/counter\"",
-        "AND resource.type=\"generic_task\"",
+        "AND resource.type=\"prometheus_target\"",
       ])
       comparison      = "COMPARISON_GT"
       duration        = "300s"

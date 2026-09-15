@@ -37,7 +37,14 @@ import retrofit2.HttpException
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
 class ExecutionRepositoryPaginationTest {
-    private data class Request(val shedId: String, val taskId: String?, val cursor: String?, val limit: Int?, val partitionLabel: String?)
+    private data class Request(
+        val shedId: String,
+        val taskId: String?,
+        val cursor: String?,
+        val limit: Int?,
+        val partitionLabel: String?,
+        val includeCardSummaries: Boolean? = null,
+    )
 
     @Test
     fun `execution continuation merges unique rows and advances cursor`() {
@@ -116,6 +123,19 @@ class ExecutionRepositoryPaginationTest {
             assertEquals(listOf(null), requests.map { it.cursor })
             val cached = repository.observeRows(limit = PAGE_SIZE).first().data
             assertEquals(listOf("shed-a"), cached?.rows?.map { it.shedId })
+        }
+    }
+
+    @Test
+    fun `mobile execution rows keep truthful card summaries enabled`() = runTest {
+        withRepository { repository, backend, requests ->
+            backend.executionResponse = {
+                VaccinationExecutionResponseDto(rows = listOf(executionRow("shed-a", "task-a")))
+            }
+
+            repository.refreshRows(limit = PAGE_SIZE).getOrThrow()
+
+            assertEquals(listOf(true), requests.map { it.includeCardSummaries })
         }
     }
 
@@ -541,6 +561,7 @@ class ExecutionRepositoryPaginationTest {
                             cursor = args?.get(6) as String?,
                             limit = args?.get(5) as Int?,
                             partitionLabel = null,
+                            includeCardSummaries = args?.get(8) as Boolean?,
                         )
                         requests += request
                         backend.executionResponse(request.cursor)

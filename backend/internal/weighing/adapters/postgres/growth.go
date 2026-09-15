@@ -25,7 +25,7 @@ const growthLookbackDays = 400
 // the serving process, but Cloud Run instances do not share invalidation, so the TTL must stay low
 // enough for close/rework/correction writes to settle quickly while avoiding repeated heavy reads
 // during fast sidebar/tab switching.
-const weighingAnalyticsCacheTTL = 30 * time.Second
+const weighingAnalyticsCacheTTL = 2 * time.Minute
 
 // Keep a single analytics request from occupying the whole DB pool on a cold-cache page load.
 // The admin Weights page already calls several weighing reads in parallel; letting this one fan out
@@ -309,21 +309,31 @@ func (r *Repository) GetLeadershipGrowthADG(ctx context.Context, tenantID string
 	// Resolved ONCE for the whole read: every widget below must talk about the same kids, and
 	// resolving per helper would let a slow herd write land between two of them and show a
 	// leaderboard whose animals are not the ones the headline counted.
-	resolveSexScope := r.resolveSexScope
-	if sectionSet["sale_readiness"] {
-		resolveSexScope = r.resolveSexScopeWithAllTime
+	sexApplied := strings.TrimSpace(sex) != ""
+	sexScope := SexScope{}
+	if sexApplied {
+		resolveSexScope := r.resolveSexScope
+		if sectionSet["sale_readiness"] {
+			resolveSexScope = r.resolveSexScopeWithAllTime
+		}
+		var scopeErr error
+		sexScope, scopeErr = resolveSexScope(ctx, tenantID, parkIDs, sex, periodStart, periodEnd)
+		if scopeErr != nil {
+			return domain.GrowthADG{}, scopeErr
+		}
 	}
-	sexScope, scopeErr := resolveSexScope(ctx, tenantID, parkIDs, sex, periodStart, periodEnd)
-	if scopeErr != nil {
-		return domain.GrowthADG{}, scopeErr
-	}
-	resolveOriginScope := r.resolveOriginScope
-	if sectionSet["sale_readiness"] {
-		resolveOriginScope = r.resolveOriginScopeWithAllTime
-	}
-	originScope, originErr := resolveOriginScope(ctx, tenantID, parkIDs, origin, periodStart, periodEnd)
-	if originErr != nil {
-		return domain.GrowthADG{}, originErr
+	originApplied := strings.TrimSpace(origin) != ""
+	originScope := SexScope{}
+	if originApplied {
+		resolveOriginScope := r.resolveOriginScope
+		if sectionSet["sale_readiness"] {
+			resolveOriginScope = r.resolveOriginScopeWithAllTime
+		}
+		var originErr error
+		originScope, originErr = resolveOriginScope(ctx, tenantID, parkIDs, origin, periodStart, periodEnd)
+		if originErr != nil {
+			return domain.GrowthADG{}, originErr
+		}
 	}
 	// The same-animal map, resolved ONCE for the same reason the scopes are: every widget must merge
 	// the same animals, and a map resolved per helper would let a herd write land between two of them
@@ -339,8 +349,6 @@ func (r *Repository) GetLeadershipGrowthADG(ctx context.Context, tenantID string
 	if idErr != nil {
 		return domain.GrowthADG{}, idErr
 	}
-	sexApplied := strings.TrimSpace(sex) != ""
-	originApplied := strings.TrimSpace(origin) != ""
 	scope := IntersectScopes(sexScope, sexApplied, originScope, originApplied)
 	sexFiltered := sexApplied || originApplied
 
@@ -383,32 +391,38 @@ func (r *Repository) GetLeadershipGrowthADG(ctx context.Context, tenantID string
 			}
 		}()
 	}
-	runGrowthRead(&wg, errs, func() error {
-		var err error
-		headline, err = r.growthHeadlineStats(ctx, tenantID, parkIDs, lookbackStart, periodStart, periodEnd, sexFiltered, scope, idMap, weighingCategory)
-		return err
-	})
-	runGrowthRead(&wg, errs, func() error {
-		var err error
-		prevHeadline, err = r.growthHeadlineStats(ctx, tenantID, parkIDs, prevLookbackStart, prevStart, prevEnd, sexFiltered, scope, idMap, weighingCategory)
-		return err
-	})
-	wg.Wait()
-	close(errs)
-	if err := <-errs; err != nil {
-		return domain.GrowthADG{}, err
-	}
-	// ZERO must never stand in for UNKNOWN: Status/PreviousStatus (set inside growthHeadlineStats)
-	// are the explicit markers, and AverageADGGPerDay/PositiveADGPercent are already nil there when
-	// there is no qualifying pair. The delta and the previous-period figure are derived HERE, and
-	// they inherit the same rule -- a delta computed against a nil (unknown) previous average would
-	// silently read as a real number derived from a fabricated 0, which is exactly the fake-delta
-	// defect this guards against.
-	headline.PreviousAverageADGGPerDay = prevHeadline.AverageADGGPerDay
-	headline.PreviousStatus = prevHeadline.Status
-	if headline.AverageADGGPerDay != nil && prevHeadline.AverageADGGPerDay != nil {
-		delta := *headline.AverageADGGPerDay - *prevHeadline.AverageADGGPerDay
-		headline.DeltaGPerDay = &delta
+	if sectionSet["headline"] {
+		runGrowthRead(&wg, errs, func() error {
+			var err error
+			headline, err = r.growthHeadlineStats(ctx, tenantID, parkIDs, lookbackStart, periodStart, periodEnd, sexFiltered, scope, idMap, weighingCategory)
+			return err
+		})
+		if sectionSet["headline_previous"] {
+			runGrowthRead(&wg, errs, func() error {
+				var err error
+				prevHeadline, err = r.growthHeadlineStats(ctx, tenantID, parkIDs, prevLookbackStart, prevStart, prevEnd, sexFiltered, scope, idMap, weighingCategory)
+				return err
+			})
+		}
+		wg.Wait()
+		close(errs)
+		if err := <-errs; err != nil {
+			return domain.GrowthADG{}, err
+		}
+		// ZERO must never stand in for UNKNOWN: Status/PreviousStatus (set inside growthHeadlineStats)
+		// are the explicit markers, and AverageADGGPerDay/PositiveADGPercent are already nil there when
+		// there is no qualifying pair. The delta and the previous-period figure are derived HERE, and
+		// they inherit the same rule -- a delta computed against a nil (unknown) previous average would
+		// silently read as a real number derived from a fabricated 0, which is exactly the fake-delta
+		// defect this guards against.
+		if sectionSet["headline_previous"] {
+			headline.PreviousAverageADGGPerDay = prevHeadline.AverageADGGPerDay
+			headline.PreviousStatus = prevHeadline.Status
+			if headline.AverageADGGPerDay != nil && prevHeadline.AverageADGGPerDay != nil {
+				delta := *headline.AverageADGGPerDay - *prevHeadline.AverageADGGPerDay
+				headline.DeltaGPerDay = &delta
+			}
+		}
 	}
 
 	// ParkID stays the single-park value only when exactly one park was requested (the
@@ -440,7 +454,7 @@ func (r *Repository) GetLeadershipGrowthADG(ctx context.Context, tenantID string
 	// enough to hide remote DB round-trip time, but not enough for one cold-cache request to monopolize
 	// the app's DB pool while the Weights page is also fetching shed weights, demographics, and Growth
 	// Director data.
-	if sectionSet["rejected"] {
+	if sectionSet["headline"] || sectionSet["rejected"] {
 		run(func() error {
 			var err error
 			rejected, err = r.growthRejectedCount(ctx, tenantID, parkIDs, periodStart, periodEnd, weighingCategory)
@@ -515,7 +529,9 @@ func (r *Repository) GetLeadershipGrowthADG(ctx context.Context, tenantID string
 	if err := <-errs; err != nil {
 		return domain.GrowthADG{}, err
 	}
-	headline.RejectedObservationCount = rejected
+	if sectionSet["headline"] || sectionSet["rejected"] {
+		headline.RejectedObservationCount = rejected
+	}
 	// Per-park cut of the SAME headline statistic, and only when there is more than one park to
 	// cut: with a single park in scope the headline above already IS that park's figure, so the
 	// query would cost a scan to restate a number the response carries twice.
@@ -527,13 +543,15 @@ func (r *Repository) GetLeadershipGrowthADG(ctx context.Context, tenantID string
 		}
 	}
 	// The tile drills into this list, so the count it shows must be the length of THIS list.
-	headline.LosingAnimalCount = len(losing)
+	if sectionSet["losing_animals"] {
+		headline.LosingAnimalCount = len(losing)
+	}
 	out = domain.GrowthADG{
 		ParkID:          singlePark,
 		ParkIDs:         parkIDs,
 		Parks:           parks,
 		ByPark:          byPark,
-		LosingAnimals:   losing,
+		LosingAnimals:   growthADGLosingAnimals(sectionSet, losing),
 		PeriodStart:     periodStart.Format("2006-01-02"),
 		PeriodEnd:       periodEnd.Add(-24 * time.Hour).Format("2006-01-02"),
 		Headline:        headline,
@@ -549,19 +567,28 @@ func (r *Repository) GetLeadershipGrowthADG(ctx context.Context, tenantID string
 	return out, nil
 }
 
+func growthADGLosingAnimals(sectionSet map[string]bool, losing []domain.GrowthLosingAnimal) []domain.GrowthLosingAnimal {
+	if !sectionSet["losing_animals"] {
+		return nil
+	}
+	return losing
+}
+
 func growthADGSectionSet(raw string) map[string]bool {
 	all := map[string]bool{
-		"rejected":         true,
-		"eligibility":      true,
-		"trend":            true,
-		"weekly_gain":      true,
-		"shed_leaderboard": true,
-		"distribution":     true,
-		"sale_readiness":   true,
-		"lump_sum":         true,
-		"parks":            true,
-		"losing_animals":   true,
-		"by_park":          true,
+		"headline":          true,
+		"headline_previous": true,
+		"rejected":          true,
+		"eligibility":       true,
+		"trend":             true,
+		"weekly_gain":       true,
+		"shed_leaderboard":  true,
+		"distribution":      true,
+		"sale_readiness":    true,
+		"lump_sum":          true,
+		"parks":             true,
+		"losing_animals":    true,
+		"by_park":           true,
 	}
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
@@ -578,7 +605,7 @@ func growthADGSectionSet(raw string) map[string]bool {
 }
 
 func growthADGSectionKey(sections map[string]bool) string {
-	keys := []string{"rejected", "eligibility", "trend", "weekly_gain", "shed_leaderboard", "distribution", "sale_readiness", "lump_sum", "parks", "losing_animals", "by_park"}
+	keys := []string{"headline", "headline_previous", "rejected", "eligibility", "trend", "weekly_gain", "shed_leaderboard", "distribution", "sale_readiness", "lump_sum", "parks", "losing_animals", "by_park"}
 	active := make([]string, 0, len(keys))
 	for _, key := range keys {
 		if sections[key] {
@@ -1295,21 +1322,66 @@ func (r *Repository) growthLosingAnimals(
 	idMap AnimalIdentityMap,
 	weighingCategory string,
 ) ([]domain.GrowthLosingAnimal, error) {
-	q := `WITH ` + growthPairsCTE + `),
-inperiod AS (
-  SELECT * FROM qualifying
-  WHERE accepted_at >= $5::timestamptz
-    AND ($10::text = '' OR weighing_category = $10::text)
+	q := `
+WITH args AS (
+  SELECT $3::timestamptz AS lookback_start
 ),
-latest_pair AS (
-  SELECT DISTINCT ON (animal_key) *
-  FROM inperiod
-  ORDER BY animal_key, accepted_at DESC
+latest_two AS (
+  SELECT COALESCE(akmap.canonical_tag, lower(btrim(wo.scanned_identifier))) AS animal_key,
+         wcs.location_id,
+         wcs.display_name AS shed_name,
+         COALESCE(wcs.partition_label, '') AS partition_label,
+         wo.weight_kg::float8 AS weight_kg,
+         wo.accepted_at,
+         wo.observation_id,
+         row_number() OVER (
+           PARTITION BY COALESCE(akmap.canonical_tag, lower(btrim(wo.scanned_identifier)))
+           ORDER BY wo.accepted_at DESC, wo.observation_id DESC
+         ) AS rn
+    FROM weighing_observations wo
+    JOIN weighing_campaign_sheds wcs
+      ON wcs.campaign_shed_id = wo.campaign_shed_id AND wcs.tenant_id = wo.tenant_id
+    JOIN weighing_campaigns wc
+      ON wc.campaign_id = wcs.campaign_id AND wc.tenant_id = wo.tenant_id
+    LEFT JOIN unnest($8::text[], $9::text[]) AS akmap(tag, canonical_tag)
+      ON akmap.tag = lower(btrim(wo.scanned_identifier))
+   WHERE wo.tenant_id = $1::uuid
+     AND wc.park_id = ANY($2::uuid[])
+     AND wo.verification_status <> 'rejected'
+     AND wo.accepted_at >= $3::timestamptz
+     AND wo.accepted_at < $4::timestamptz
+     AND ($10::text = '' OR wcs.weighing_category = $10::text)
+     AND (NOT $6::bool OR lower(btrim(wo.scanned_identifier)) = ANY($7::text[]))
+),
+pairs AS (
+  SELECT latest.animal_key,
+         latest.location_id,
+         latest.shed_name,
+         latest.partition_label,
+         previous.weight_kg AS prev_weight,
+         latest.weight_kg,
+         (
+           (latest.weight_kg - previous.weight_kg) * 1000.0
+           / NULLIF((TIMEZONE('Asia/Kolkata', latest.accepted_at)::date - TIMEZONE('Asia/Kolkata', previous.accepted_at)::date), 0)
+         ) AS adg_g_per_day,
+         (TIMEZONE('Asia/Kolkata', latest.accepted_at)::date - TIMEZONE('Asia/Kolkata', previous.accepted_at)::date) AS days_between,
+         latest.accepted_at
+    FROM latest_two latest
+    JOIN LATERAL (
+      SELECT candidate.weight_kg, candidate.accepted_at
+      FROM latest_two candidate
+      WHERE candidate.animal_key = latest.animal_key
+        AND TIMEZONE('Asia/Kolkata', candidate.accepted_at)::date < TIMEZONE('Asia/Kolkata', latest.accepted_at)::date
+      ORDER BY candidate.accepted_at DESC, candidate.observation_id DESC
+      LIMIT 1
+    ) previous ON TRUE
+   WHERE latest.rn = 1
+     AND latest.accepted_at >= $5::timestamptz
 )
 SELECT animal_key, shed_name, partition_label, location_id::text, prev_weight, weight_kg,
        adg_g_per_day, days_between,
        to_char(TIMEZONE('Asia/Kolkata', accepted_at)::date, 'YYYY-MM-DD')
-FROM latest_pair
+FROM pairs
 WHERE adg_g_per_day < 0
 ORDER BY adg_g_per_day ASC
 LIMIT 200`

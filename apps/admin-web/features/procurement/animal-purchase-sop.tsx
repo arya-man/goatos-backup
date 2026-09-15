@@ -135,7 +135,7 @@ export function AnimalPurchaseAnswers({ rows, copy }: { rows: AnswerRow[]; copy:
                   data-question={row.question_id}
                 >
                   <dt>
-                    {row.attention ? <span className="dot l" title={copy.attentionHint} aria-label={copy.attentionHint} /> : null}
+                    {row.attention ? <span className="ap-attention-dot" title={copy.attentionHint} aria-label={copy.attentionHint} /> : null}
                     {row.question}
                   </dt>
                   <dd>{row.answer}</dd>

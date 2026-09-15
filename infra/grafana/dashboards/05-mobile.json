@@ -75,7 +75,7 @@
             "perSeriesAligner": "ALIGN_PERCENTILE_50",
             "crossSeriesReducer": "REDUCE_MAX",
             "alignmentPeriod": "900s",
-            "filter": "metric.type = \"prometheus.googleapis.com/http_client_request_duration_seconds/histogram\" AND resource.label.service_name = \"goatos-android\""
+            "filter": "metric.type = \"prometheus.googleapis.com/http_client_request_duration_seconds/histogram\" AND resource.type = \"prometheus_target\" AND resource.label.service_name = \"goatos-android\""
           }
         },
         {
@@ -89,7 +89,7 @@
             "perSeriesAligner": "ALIGN_PERCENTILE_95",
             "crossSeriesReducer": "REDUCE_MAX",
             "alignmentPeriod": "900s",
-            "filter": "metric.type = \"prometheus.googleapis.com/http_client_request_duration_seconds/histogram\" AND resource.label.service_name = \"goatos-android\""
+            "filter": "metric.type = \"prometheus.googleapis.com/http_client_request_duration_seconds/histogram\" AND resource.type = \"prometheus_target\" AND resource.label.service_name = \"goatos-android\""
           }
         },
         {
@@ -103,7 +103,7 @@
             "perSeriesAligner": "ALIGN_PERCENTILE_99",
             "crossSeriesReducer": "REDUCE_MAX",
             "alignmentPeriod": "900s",
-            "filter": "metric.type = \"prometheus.googleapis.com/http_client_request_duration_seconds/histogram\" AND resource.label.service_name = \"goatos-android\""
+            "filter": "metric.type = \"prometheus.googleapis.com/http_client_request_duration_seconds/histogram\" AND resource.type = \"prometheus_target\" AND resource.label.service_name = \"goatos-android\""
           }
         }
       ]

@@ -105,7 +105,7 @@ export function VaccinationShedBoardSkeleton({
           <div key={i} className="skel" style={{ width: w, height: 30, borderRadius: 999 }} />
         ))}
       </div>
-      <div className="bd" style={{ padding: 0, overflowX: "auto" }}>
+      <div className="bd twrap" style={{ padding: 0 }}>
         <table className="shed-summary-table">
           <thead>
             <tr>
@@ -265,7 +265,7 @@ export async function VaccinationShedBoard({
         </div>
       ) : (
         <>
-          <div className="bd" style={{ padding: 0, overflowX: "auto" }} tabIndex={0} role="group" aria-label={copy(pageContract, "section.sheds.title")}>
+          <div className="bd twrap" style={{ padding: 0 }} tabIndex={0} role="group" aria-label={copy(pageContract, "section.sheds.title")}>
             <table className="shed-summary-table">
               <thead>
                 <tr>

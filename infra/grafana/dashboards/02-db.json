@@ -528,7 +528,7 @@
             "perSeriesAligner": "ALIGN_MEAN",
             "crossSeriesReducer": "REDUCE_NONE",
             "alignmentPeriod": "60s",
-            "filter": "metric.type = \"cloudsql.googleapis.com/database/cpu/utilization\" AND resource.label.database_id = \"goatos-stg:goatos-stg-core-db\""
+            "filter": "resource.type = \"cloudsql_database\" AND metric.type = \"cloudsql.googleapis.com/database/cpu/utilization\" AND resource.label.database_id = \"goatos-stg:goatos-stg-core-db\""
           }
         }
       ]
@@ -578,7 +578,7 @@
             "perSeriesAligner": "ALIGN_MEAN",
             "crossSeriesReducer": "REDUCE_NONE",
             "alignmentPeriod": "60s",
-            "filter": "metric.type = \"cloudsql.googleapis.com/database/memory/utilization\" AND resource.label.database_id = \"goatos-stg:goatos-stg-core-db\""
+            "filter": "resource.type = \"cloudsql_database\" AND metric.type = \"cloudsql.googleapis.com/database/memory/utilization\" AND resource.label.database_id = \"goatos-stg:goatos-stg-core-db\""
           }
         }
       ]
@@ -645,7 +645,7 @@
             "perSeriesAligner": "ALIGN_MEAN",
             "crossSeriesReducer": "REDUCE_NONE",
             "alignmentPeriod": "60s",
-            "filter": "metric.type = \"cloudsql.googleapis.com/database/disk/utilization\" AND resource.label.database_id = \"goatos-stg:goatos-stg-core-db\""
+            "filter": "resource.type = \"cloudsql_database\" AND metric.type = \"cloudsql.googleapis.com/database/disk/utilization\" AND resource.label.database_id = \"goatos-stg:goatos-stg-core-db\""
           }
         }
       ]
@@ -693,7 +693,7 @@
             "perSeriesAligner": "ALIGN_MEAN",
             "crossSeriesReducer": "REDUCE_NONE",
             "alignmentPeriod": "60s",
-            "filter": "metric.type = \"cloudsql.googleapis.com/database/postgresql/num_backends\" AND resource.label.database_id = \"goatos-stg:goatos-stg-core-db\""
+            "filter": "resource.type = \"cloudsql_database\" AND metric.type = \"cloudsql.googleapis.com/database/postgresql/num_backends\" AND resource.label.database_id = \"goatos-stg:goatos-stg-core-db\""
           }
         }
       ]
@@ -742,7 +742,7 @@
             "perSeriesAligner": "ALIGN_RATE",
             "crossSeriesReducer": "REDUCE_NONE",
             "alignmentPeriod": "60s",
-            "filter": "metric.type = \"cloudsql.googleapis.com/database/disk/read_ops_count\" AND resource.label.database_id = \"goatos-stg:goatos-stg-core-db\""
+            "filter": "resource.type = \"cloudsql_database\" AND metric.type = \"cloudsql.googleapis.com/database/disk/read_ops_count\" AND resource.label.database_id = \"goatos-stg:goatos-stg-core-db\""
           }
         },
         {
@@ -756,7 +756,7 @@
             "perSeriesAligner": "ALIGN_RATE",
             "crossSeriesReducer": "REDUCE_NONE",
             "alignmentPeriod": "60s",
-            "filter": "metric.type = \"cloudsql.googleapis.com/database/disk/write_ops_count\" AND resource.label.database_id = \"goatos-stg:goatos-stg-core-db\""
+            "filter": "resource.type = \"cloudsql_database\" AND metric.type = \"cloudsql.googleapis.com/database/disk/write_ops_count\" AND resource.label.database_id = \"goatos-stg:goatos-stg-core-db\""
           }
         }
       ]

@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/vgoats/goatos/backend/internal/permissions"
 	"github.com/vgoats/goatos/backend/internal/workboard/domain"
@@ -20,6 +22,7 @@ type fakeSource struct {
 	kind     string
 	rows     []domain.Row
 	calls    []ports.SourceQuery
+	delay    time.Duration
 	failWith error // when set, ListRows and CountByState return it (a slow/broken source)
 
 	subtasks     []domain.Subtask
@@ -31,6 +34,9 @@ func (f *fakeSource) SourceType() string    { return f.kind }
 func (f *fakeSource) ListRows(_ context.Context, q ports.SourceQuery) ([]domain.Row, error) {
 	if f.failWith != nil {
 		return nil, f.failWith
+	}
+	if f.delay > 0 {
+		time.Sleep(f.delay)
 	}
 	f.calls = append(f.calls, q)
 	out := []domain.Row{}
@@ -48,6 +54,99 @@ func (f *fakeSource) ListRows(_ context.Context, q ports.SourceQuery) ([]domain.
 	}
 	return out, nil
 }
+
+func TestListFirstPageReadsSourcesConcurrentlyAndKeepsBoardOrder(t *testing.T) {
+	feed := mk(domain.ModuleFeed, "transport", 1, domain.WorkStateDue, "")
+	weighing := mk(domain.ModuleWeighing, "bucket", 1, domain.WorkStateDue, "")
+	verify := mk(domain.ModuleVerification, "item", 1, domain.WorkStateDue, "")
+	feed.delay = 120 * time.Millisecond
+	weighing.delay = 120 * time.Millisecond
+	verify.delay = 120 * time.Millisecond
+	svc := NewService(weighing, verify, feed)
+
+	start := time.Now()
+	page, err := svc.List(context.Background(), baseQuery())
+	if err != nil {
+		t.Fatal(err)
+	}
+	elapsed := time.Since(start)
+	if elapsed >= 280*time.Millisecond {
+		t.Fatalf("first page source reads took %s; want concurrent reads, not serial 360ms", elapsed)
+	}
+	want := []string{
+		"feed|transport|transport-001",
+		"weighing|bucket|bucket-001",
+		"verification|item|item-001",
+	}
+	if strings.Join(keys(page.Rows), ",") != strings.Join(want, ",") {
+		t.Fatalf("board order changed\n got %v\nwant %v", keys(page.Rows), want)
+	}
+}
+
+func TestListFirstPageBoundsLaneSourceConcurrency(t *testing.T) {
+	var active atomic.Int32
+	var maxActive atomic.Int32
+	sources := make([]ports.Source, 0, 6)
+	for i := 0; i < 6; i++ {
+		sources = append(sources, &concurrencySource{
+			fakeSource: fakeSource{
+				module: domain.ModuleFeed,
+				kind:   fmt.Sprintf("bounded-%02d", i),
+				rows:   []domain.Row{{Module: domain.ModuleFeed, SourceType: fmt.Sprintf("bounded-%02d", i), SourceID: fmt.Sprintf("row-%02d", i), WorkState: domain.WorkStateDue}},
+			},
+			active:    &active,
+			maxActive: &maxActive,
+		})
+	}
+	svc := NewService(sources...)
+	if _, err := svc.List(context.Background(), baseQuery()); err != nil {
+		t.Fatal(err)
+	}
+	if got := maxActive.Load(); got > maxLaneSourceConcurrency {
+		t.Fatalf("max lane source concurrency=%d want <= %d", got, maxLaneSourceConcurrency)
+	}
+}
+
+func TestListFirstPageDoesNotDegradeUnreadLaterSourcesWhenPageIsFull(t *testing.T) {
+	feed := mk(domain.ModuleFeed, "transport", 5, domain.WorkStateDue, "")
+	weighing := mk(domain.ModuleWeighing, "bucket", 1, domain.WorkStateDue, "")
+	weighing.failWith = errors.New("unreached later source failed")
+	svc := NewService(weighing, feed)
+
+	page, err := svc.List(context.Background(), baseQuery())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Rows) != 5 {
+		t.Fatalf("expected first page to fill from feed, got %d rows", len(page.Rows))
+	}
+	if len(page.Degraded) != 0 {
+		t.Fatalf("later source beyond a full first page must not degrade this page, got %v", page.Degraded)
+	}
+	if len(weighing.calls) != 0 {
+		t.Fatalf("failed fake source should not record a successful call, got %d", len(weighing.calls))
+	}
+}
+
+type concurrencySource struct {
+	fakeSource
+	active    *atomic.Int32
+	maxActive *atomic.Int32
+}
+
+func (f *concurrencySource) ListRows(ctx context.Context, q ports.SourceQuery) ([]domain.Row, error) {
+	now := f.active.Add(1)
+	for {
+		max := f.maxActive.Load()
+		if now <= max || f.maxActive.CompareAndSwap(max, now) {
+			break
+		}
+	}
+	time.Sleep(25 * time.Millisecond)
+	f.active.Add(-1)
+	return f.fakeSource.ListRows(ctx, q)
+}
+
 func (f *fakeSource) CountByState(_ context.Context, q ports.SourceQuery) (map[domain.WorkState]int, error) {
 	if f.failWith != nil {
 		return nil, f.failWith

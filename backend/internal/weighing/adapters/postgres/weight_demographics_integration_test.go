@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-
 	"github.com/vgoats/goatos/backend/internal/platform/pgtest"
 	"github.com/vgoats/goatos/backend/internal/weighing/domain"
 )
@@ -92,7 +91,7 @@ SET goat_id=EXCLUDED.goat_id, identifier_value=EXCLUDED.identifier_value, status
 
 	from := time.Date(2026, 7, 29, 0, 0, 0, 0, time.UTC)
 	to := time.Date(2026, 7, 30, 0, 0, 0, 0, time.UTC)
-	out, err := repo.GetWeightDemographics(ctx, repoTenant, []string{repoPark}, from, to, "", "", "", true)
+	out, err := repo.GetWeightDemographics(ctx, repoTenant, []string{repoPark}, from, to, "", "", "", "")
 	if err != nil {
 		t.Fatalf("GetWeightDemographics: %v", err)
 	}
@@ -123,6 +122,41 @@ SET goat_id=EXCLUDED.goat_id, identifier_value=EXCLUDED.identifier_value, status
 	}
 	if !found {
 		t.Fatalf("missing composition for shed %s in %#v", repoExpectedShed, out.ShedComposition)
+	}
+}
+
+func TestWeightDemographicsSectionedDimensionsOnly(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedWeighingObservationFixture(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+
+	execWeighingTestSQL(t, ctx, pool, `
+UPDATE goats
+SET breed='Anantapur Sheep', sex='female'
+WHERE tenant_id=$1::uuid AND goat_id=$2::uuid`,
+		repoTenant, repoAnimal)
+	execWeighingTestSQL(t, ctx, pool, `
+INSERT INTO goat_identifiers (tenant_id, goat_id, identifier_type, identifier_value, normalized_value, scope_key, is_primary_for_goat, status, valid_from, normalizer_version)
+VALUES ($1::uuid, $2::uuid, 'animal_identifier_1', 'chip-dim-section', 'chip-dim-section', 'global', true, 'active', now(), 'test')
+ON CONFLICT (tenant_id, normalized_value) DO UPDATE
+SET goat_id=EXCLUDED.goat_id, identifier_value=EXCLUDED.identifier_value, status='active'`,
+		repoTenant, repoAnimal)
+	seedShedWeightScan(t, ctx, pool, "chip-dim-section", 24.0, time.Date(2026, 7, 29, 6, 0, 0, 0, time.UTC))
+
+	out, err := repo.GetWeightDemographics(ctx, repoTenant, []string{repoPark},
+		time.Date(2026, 7, 29, 0, 0, 0, 0, time.UTC),
+		time.Date(2026, 7, 30, 0, 0, 0, 0, time.UTC), "", "", "", "dimensions")
+	if err != nil {
+		t.Fatalf("GetWeightDemographics(dimensions): %v", err)
+	}
+	if len(out.ByBreed) == 0 || len(out.BySex) == 0 || len(out.ByStage) == 0 {
+		t.Fatalf("sectioned dimensions must return weight dimensions, got breed=%#v sex=%#v stage=%#v", out.ByBreed, out.BySex, out.ByStage)
+	}
+	if len(out.ShedComposition) != 0 || len(out.GainByBreedOrigin) != 0 || len(out.GainByBreedShedType) != 0 || len(out.ByWeightBand) != 0 || len(out.GainByBreedWeek) != 0 || len(out.GainThresholdsByBreed) != 0 {
+		t.Fatalf("dimensions-only read returned unrelated sections: %#v", out)
 	}
 }
 
@@ -242,7 +276,7 @@ SET shed_id=EXCLUDED.shed_id, partition_label=EXCLUDED.partition_label, source_s
 
 	out, err := repo.GetWeightDemographics(ctx, repoTenant, []string{repoPark},
 		time.Date(2026, 7, 10, 0, 0, 0, 0, time.UTC),
-		time.Date(2026, 7, 11, 0, 0, 0, 0, time.UTC), "", "", "", true)
+		time.Date(2026, 7, 11, 0, 0, 0, 0, time.UTC), "", "", "", "")
 	if err != nil {
 		t.Fatalf("GetWeightDemographics: %v", err)
 	}
@@ -304,7 +338,7 @@ SET breed=EXCLUDED.breed, sex=EXCLUDED.sex, management_stage=EXCLUDED.management
 
 	out, err := repo.GetWeightDemographics(ctx, repoTenant, []string{repoPark},
 		time.Date(2026, 7, 10, 0, 0, 0, 0, time.UTC),
-		time.Date(2026, 7, 18, 0, 0, 0, 0, time.UTC), "", "", "", true)
+		time.Date(2026, 7, 18, 0, 0, 0, 0, time.UTC), "", "", "", "")
 	if err != nil {
 		t.Fatalf("GetWeightDemographics: %v", err)
 	}
@@ -408,7 +442,7 @@ SET goat_id=EXCLUDED.goat_id, identifier_value=EXCLUDED.identifier_value, status
 	seedShedWeightScan(t, ctx, pool, "chip-slow", 21.5, time.Date(2026, 7, 29, 6, 10, 0, 0, time.UTC))
 
 	out, err := repo.GetWeightDemographics(ctx, repoTenant, []string{repoPark},
-		time.Date(2026, 7, 29, 0, 0, 0, 0, time.UTC), time.Date(2026, 7, 30, 0, 0, 0, 0, time.UTC), "", "", "", true)
+		time.Date(2026, 7, 29, 0, 0, 0, 0, time.UTC), time.Date(2026, 7, 30, 0, 0, 0, 0, time.UTC), "", "", "", "")
 	if err != nil {
 		t.Fatalf("GetWeightDemographics: %v", err)
 	}
@@ -482,7 +516,7 @@ ON CONFLICT (tenant_id, normalized_value) DO UPDATE SET goat_id=EXCLUDED.goat_id
 	seedShedWeightScan(t, ctx, pool, tag, 23.0, time.Date(2026, 7, 29, 8, 0, 0, 0, time.UTC))
 
 	out, err := repo.GetWeightDemographics(ctx, repoTenant, []string{repoPark},
-		time.Date(2026, 7, 29, 0, 0, 0, 0, time.UTC), time.Date(2026, 7, 30, 0, 0, 0, 0, time.UTC), "", "", "", true)
+		time.Date(2026, 7, 29, 0, 0, 0, 0, time.UTC), time.Date(2026, 7, 30, 0, 0, 0, 0, time.UTC), "", "", "", "")
 	if err != nil {
 		t.Fatalf("GetWeightDemographics: %v", err)
 	}
@@ -594,7 +628,7 @@ WHERE tenant_id=$1::uuid AND lower(btrim(scanned_identifier))='thresh-slow'`, re
 
 	windowFrom := time.Date(2026, 7, 29, 0, 0, 0, 0, time.UTC)
 	windowTo := time.Date(2026, 7, 30, 0, 0, 0, 0, time.UTC)
-	out, err := repo.GetWeightDemographics(ctx, repoTenant, []string{repoPark}, windowFrom, windowTo, "", "", "", true)
+	out, err := repo.GetWeightDemographics(ctx, repoTenant, []string{repoPark}, windowFrom, windowTo, "", "", "", "")
 	if err != nil {
 		t.Fatalf("GetWeightDemographics: %v", err)
 	}
@@ -617,7 +651,7 @@ WHERE tenant_id=$1::uuid AND lower(btrim(scanned_identifier))='thresh-slow'`, re
 
 	// PARK SCOPE. The same window under a park these kids are not in returns nothing for this
 	// breed — the park filter is a real predicate, not a label on an unscoped aggregate.
-	otherPark, err := repo.GetWeightDemographics(ctx, repoTenant, []string{weightDemoGodelShed}, windowFrom, windowTo, "", "", "", true)
+	otherPark, err := repo.GetWeightDemographics(ctx, repoTenant, []string{weightDemoGodelShed}, windowFrom, windowTo, "", "", "", "")
 	if err != nil {
 		t.Fatalf("GetWeightDemographics(other park): %v", err)
 	}
@@ -716,7 +750,7 @@ SET shed_id = EXCLUDED.shed_id, partition_label = EXCLUDED.partition_label`,
 
 	out, err := repo.GetWeightDemographics(ctx, repoTenant, []string{repoPark},
 		time.Date(2026, 7, 10, 0, 0, 0, 0, time.UTC),
-		time.Date(2026, 7, 18, 0, 0, 0, 0, time.UTC), "", "", "", true)
+		time.Date(2026, 7, 18, 0, 0, 0, 0, time.UTC), "", "", "", "")
 	if err != nil {
 		t.Fatalf("GetWeightDemographics: %v", err)
 	}
@@ -799,7 +833,7 @@ SET shed_id = EXCLUDED.shed_id, partition_label = EXCLUDED.partition_label`,
 	from := time.Date(2026, 7, 10, 0, 0, 0, 0, time.UTC)
 	to := time.Date(2026, 7, 18, 0, 0, 0, 0, time.UTC)
 
-	demo, err := repo.GetWeightDemographics(ctx, repoTenant, []string{repoPark}, from, to, "female", "", "", true)
+	demo, err := repo.GetWeightDemographics(ctx, repoTenant, []string{repoPark}, from, to, "female", "", "", "")
 	if err != nil {
 		t.Fatalf("GetWeightDemographics: %v", err)
 	}
@@ -920,6 +954,20 @@ SET shed_id = EXCLUDED.shed_id, partition_label = EXCLUDED.partition_label`,
 	// the line that would go red if the Time-wise tab were ever repointed at `trend`.
 	if len(growth.Trend) != 0 {
 		t.Fatalf("no kid was scanned in this fixture, so the pair trend must be empty: %#v", growth.Trend)
+	}
+
+	demo, err := repo.GetWeightDemographics(ctx, repoTenant, []string{repoPark}, from, to, "female", "", "", "weekly_gain")
+	if err != nil {
+		t.Fatalf("GetWeightDemographics(weekly_gain section): %v", err)
+	}
+	if len(demo.GainByBreedWeek) != 1 {
+		t.Fatalf("weekly_gain section must return the one whole-shed week, got %#v", demo.GainByBreedWeek)
+	}
+	if demo.GainByBreedWeek[0].WeekStart != "2026-07-13" {
+		t.Fatalf("weekly_gain section bucket week = %q, want 2026-07-13", demo.GainByBreedWeek[0].WeekStart)
+	}
+	if len(demo.ByBreed) != 0 || len(demo.ByWeightBand) != 0 || len(demo.GainByBreedOrigin) != 0 || len(demo.GainByBreedShedType) != 0 || len(demo.ShedComposition) != 0 {
+		t.Fatalf("weekly_gain-only read returned unrelated sections: %#v", demo)
 	}
 }
 
@@ -1183,7 +1231,7 @@ ON CONFLICT DO NOTHING`, repoTenant, partALoad, weightDemoGoat)
 
 	demoFor := func(t *testing.T, origin string) domain.WeightDemographics {
 		t.Helper()
-		out, err := repo.GetWeightDemographics(ctx, repoTenant, []string{repoPark}, from, to, "", origin, "", true)
+		out, err := repo.GetWeightDemographics(ctx, repoTenant, []string{repoPark}, from, to, "", origin, "", "")
 		if err != nil {
 			t.Fatalf("GetWeightDemographics(origin=%q): %v", origin, err)
 		}
@@ -1227,6 +1275,23 @@ ON CONFLICT DO NOTHING`, repoTenant, partALoad, weightDemoGoat)
 	if out := demoFor(t, OriginFarmBorn); out.LumpSumAnimals != 10 || out.LumpSumUnattributedAnimals != 0 {
 		t.Fatalf("farm-born counters must exclude the purchased pen, got lump=%d unattributed=%d",
 			out.LumpSumAnimals, out.LumpSumUnattributedAnimals)
+	}
+
+	sectioned, err := repo.GetWeightDemographics(ctx, repoTenant, []string{repoPark}, from, to, "", "", "", "origin")
+	if err != nil {
+		t.Fatalf("GetWeightDemographics(origin section): %v", err)
+	}
+	var originsSeen int
+	for _, bucket := range sectioned.GainByBreedOrigin {
+		if bucket.Label == "Partition Breed" {
+			originsSeen++
+		}
+	}
+	if originsSeen != 2 {
+		t.Fatalf("origin section must return purchased and farm-born buckets for Partition Breed, got %#v", sectioned.GainByBreedOrigin)
+	}
+	if len(sectioned.ByBreed) != 0 || len(sectioned.ByWeightBand) != 0 || len(sectioned.GainByBreedShedType) != 0 || len(sectioned.GainByBreedWeek) != 0 || len(sectioned.ShedComposition) != 0 {
+		t.Fatalf("origin-only read returned unrelated sections: %#v", sectioned)
 	}
 }
 
@@ -1382,7 +1447,7 @@ SET shed_id=EXCLUDED.shed_id, partition_label=EXCLUDED.partition_label`,
 
 	out, err := repo.GetWeightDemographics(ctx, repoTenant, []string{repoPark, secondPark},
 		time.Date(2026, 7, 10, 0, 0, 0, 0, time.UTC),
-		time.Date(2026, 7, 18, 0, 0, 0, 0, time.UTC), "", "", "", true)
+		time.Date(2026, 7, 18, 0, 0, 0, 0, time.UTC), "", "", "", "")
 	if err != nil {
 		t.Fatalf("GetWeightDemographics: %v", err)
 	}
@@ -1429,6 +1494,19 @@ SET shed_id=EXCLUDED.shed_id, partition_label=EXCLUDED.partition_label`,
 			t.Fatalf("a pen holding another breed must not be named under this breed's bar: %v", named["Shed Type Breed/elevated"])
 		}
 	}
+	sectioned, err := repo.GetWeightDemographics(ctx, repoTenant, []string{repoPark, secondPark},
+		time.Date(2026, 7, 10, 0, 0, 0, 0, time.UTC),
+		time.Date(2026, 7, 18, 0, 0, 0, 0, time.UTC), "", "", "", "shed_type")
+	if err != nil {
+		t.Fatalf("GetWeightDemographics(shed_type section): %v", err)
+	}
+	if len(sectioned.GainByBreedShedType) == 0 || len(sectioned.ShedTypeMembers) == 0 {
+		t.Fatalf("shed_type section must return bars and members, got bars=%#v members=%#v",
+			sectioned.GainByBreedShedType, sectioned.ShedTypeMembers)
+	}
+	if len(sectioned.ByBreed) != 0 || len(sectioned.ByWeightBand) != 0 || len(sectioned.GainByBreedOrigin) != 0 || len(sectioned.GainByBreedWeek) != 0 || len(sectioned.ShedComposition) != 0 {
+		t.Fatalf("shed_type-only read returned unrelated sections: %#v", sectioned)
+	}
 	// PARK SCOPE: the list inherits the page's park filter, so another park's pens are not named
 	// under this park's bars. Every pen above lives in repoPark, so a different park must return
 	// an EMPTY list rather than the same one -- the failure a missing park predicate produces.
@@ -1439,7 +1517,7 @@ VALUES ($1::uuid, $2::uuid, 'park', 'Shed Type Other Park', 'active')
 ON CONFLICT (tenant_id, location_id) DO NOTHING`, otherPark, repoTenant)
 	elsewhere, err := repo.GetWeightDemographics(ctx, repoTenant, []string{otherPark},
 		time.Date(2026, 7, 10, 0, 0, 0, 0, time.UTC),
-		time.Date(2026, 7, 18, 0, 0, 0, 0, time.UTC), "", "", "", true)
+		time.Date(2026, 7, 18, 0, 0, 0, 0, time.UTC), "", "", "", "")
 	if err != nil {
 		t.Fatalf("GetWeightDemographics(other park): %v", err)
 	}
@@ -1532,11 +1610,11 @@ func TestPenWeekGainRowsAddUpToTheWeeklyPoint(t *testing.T) {
 	}
 	week := growth.WeeklyGain[0]
 
-	demo, err := repo.GetWeightDemographics(ctx, repoTenant, []string{repoPark}, from, to, "", "", "", true)
+	demo, err := repo.GetWeightDemographics(ctx, repoTenant, []string{repoPark}, from, to, "", "", "", "weekly_gain")
 	if err != nil {
 		t.Fatalf("GetWeightDemographics: %v", err)
 	}
-	light, err := repo.GetWeightDemographics(ctx, repoTenant, []string{repoPark}, from, to, "", "", "", false)
+	light, err := repo.GetWeightDemographics(ctx, repoTenant, []string{repoPark}, from, to, "", "", "", "dimensions")
 	if err != nil {
 		t.Fatalf("GetWeightDemographics(light): %v", err)
 	}
@@ -1582,14 +1660,14 @@ func TestPenWeekGainRowsAddUpToTheWeeklyPoint(t *testing.T) {
 	}
 
 	// The Sex filter claims a whole-shed pen only through its live cohort, both ways.
-	female, err := repo.GetWeightDemographics(ctx, repoTenant, []string{repoPark}, from, to, "female", "", "", true)
+	female, err := repo.GetWeightDemographics(ctx, repoTenant, []string{repoPark}, from, to, "female", "", "", "weekly_gain")
 	if err != nil {
 		t.Fatalf("GetWeightDemographics(female): %v", err)
 	}
 	if len(female.GainByPenWeek) != 2 {
 		t.Fatalf("both pens hold females, so the female page keeps both rows: %#v", female.GainByPenWeek)
 	}
-	male, err := repo.GetWeightDemographics(ctx, repoTenant, []string{repoPark}, from, to, "male", "", "", true)
+	male, err := repo.GetWeightDemographics(ctx, repoTenant, []string{repoPark}, from, to, "male", "", "", "weekly_gain")
 	if err != nil {
 		t.Fatalf("GetWeightDemographics(male): %v", err)
 	}
@@ -1618,7 +1696,7 @@ func TestLoadWeekGainRowsAreThePenRowsAttributedByLoadTag(t *testing.T) {
 	from := time.Date(2026, 7, 10, 0, 0, 0, 0, time.UTC)
 	to := time.Date(2026, 7, 18, 0, 0, 0, 0, time.UTC)
 
-	demo, err := repo.GetWeightDemographics(ctx, repoTenant, []string{repoPark}, from, to, "", "", "", true)
+	demo, err := repo.GetWeightDemographics(ctx, repoTenant, []string{repoPark}, from, to, "", "", "", "weekly_gain")
 	if err != nil {
 		t.Fatalf("GetWeightDemographics: %v", err)
 	}
@@ -1642,7 +1720,7 @@ func TestLoadWeekGainRowsAreThePenRowsAttributedByLoadTag(t *testing.T) {
 		t.Fatalf("the load's gain is the animal-weighted mean of its pens (%.2f): %#v", want, row)
 	}
 
-	male, err := repo.GetWeightDemographics(ctx, repoTenant, []string{repoPark}, from, to, "male", "", "", true)
+	male, err := repo.GetWeightDemographics(ctx, repoTenant, []string{repoPark}, from, to, "male", "", "", "weekly_gain")
 	if err != nil {
 		t.Fatalf("GetWeightDemographics(male): %v", err)
 	}
@@ -1655,7 +1733,7 @@ func TestLoadWeekGainRowsAreThePenRowsAttributedByLoadTag(t *testing.T) {
 	// through the repository drops it; otherwise the second read replays the one-load answer.
 	seedLoadTag(t, ctx, pool, weightDemoPartitionShed, "L-43", "Other Supplier")
 	repo.invalidateReadCache()
-	twoLoads, err := repo.GetWeightDemographics(ctx, repoTenant, []string{repoPark}, from, to, "", "", "", true)
+	twoLoads, err := repo.GetWeightDemographics(ctx, repoTenant, []string{repoPark}, from, to, "", "", "", "weekly_gain")
 	if err != nil {
 		t.Fatalf("GetWeightDemographics(two loads): %v", err)
 	}
@@ -1698,7 +1776,7 @@ func TestPenAndLoadWeekGainOneToManyPageBoundaryParkScopeStatusBuckets(t *testin
 	to := time.Date(2026, 7, 18, 0, 0, 0, 0, time.UTC)
 
 	// One-to-many: two pens under one tag are one load row and still two pen rows.
-	whole, err := repo.GetWeightDemographics(ctx, repoTenant, []string{repoPark}, from, to, "", "", "", true)
+	whole, err := repo.GetWeightDemographics(ctx, repoTenant, []string{repoPark}, from, to, "", "", "", "weekly_gain")
 	if err != nil {
 		t.Fatalf("GetWeightDemographics: %v", err)
 	}
@@ -1708,7 +1786,7 @@ func TestPenAndLoadWeekGainOneToManyPageBoundaryParkScopeStatusBuckets(t *testin
 
 	// Park scope: the same tenant, another park -- nothing.
 	otherPark := "00000000-0000-4000-8000-0000000041ff"
-	scoped, err := repo.GetWeightDemographics(ctx, repoTenant, []string{otherPark}, from, to, "", "", "", true)
+	scoped, err := repo.GetWeightDemographics(ctx, repoTenant, []string{otherPark}, from, to, "", "", "", "weekly_gain")
 	if err != nil {
 		t.Fatalf("GetWeightDemographics(other park): %v", err)
 	}
@@ -1717,7 +1795,7 @@ func TestPenAndLoadWeekGainOneToManyPageBoundaryParkScopeStatusBuckets(t *testin
 	}
 
 	// Window boundary: a period closed before the second weigh holds no pair.
-	early, err := repo.GetWeightDemographics(ctx, repoTenant, []string{repoPark}, from, time.Date(2026, 7, 12, 0, 0, 0, 0, time.UTC), "", "", "", true)
+	early, err := repo.GetWeightDemographics(ctx, repoTenant, []string{repoPark}, from, time.Date(2026, 7, 12, 0, 0, 0, 0, time.UTC), "", "", "", "weekly_gain")
 	if err != nil {
 		t.Fatalf("GetWeightDemographics(early window): %v", err)
 	}
@@ -1732,7 +1810,7 @@ func TestPenAndLoadWeekGainOneToManyPageBoundaryParkScopeStatusBuckets(t *testin
 UPDATE weighing_shed_observations SET withdrawn_at = now()
 WHERE tenant_id = $1::uuid AND campaign_shed_id = $2::uuid`, repoTenant, loadPartBNew)
 	repo.invalidateReadCache()
-	withdrawn, err := repo.GetWeightDemographics(ctx, repoTenant, []string{repoPark}, from, to, "", "", "", true)
+	withdrawn, err := repo.GetWeightDemographics(ctx, repoTenant, []string{repoPark}, from, to, "", "", "", "weekly_gain")
 	if err != nil {
 		t.Fatalf("GetWeightDemographics(withdrawn): %v", err)
 	}

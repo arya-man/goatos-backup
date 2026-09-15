@@ -1,6 +1,6 @@
 import "server-only";
 
-import { randomUUID } from "crypto";
+import { createHash, randomUUID } from "crypto";
 import {
   createAdminApiClient,
   createAppApiClient,
@@ -19,8 +19,11 @@ import { resolveFirebaseIdToken } from "@/lib/auth/server-session";
 import { mintLocalDevBearerToken } from "./local-dev-token";
 import type { ParkScopeOption } from "./park-scope";
 import { AdminBootstrapCache } from "./admin-bootstrap-cache";
+import { ShortReadCache } from "./short-read-cache";
 
 type ErrorEnvelope = AppApiComponents["schemas"]["ErrorEnvelope"];
+const SHORT_READ_CACHE_TTL_MS = 0;
+const shortReadCache = new ShortReadCache(SHORT_READ_CACHE_TTL_MS);
 
 export type AdminWebBootstrapResponse =
   AppApiComponents["schemas"]["AdminWebBootstrapResponse"];
@@ -758,6 +761,7 @@ async function timedBackendFetch(
         surface: "admin_web_server",
         method,
         path: url.pathname,
+        query: url.search,
         status: response.status,
         status_class: `${Math.floor(response.status / 100)}xx`,
         duration_ms: durationMs,
@@ -777,6 +781,7 @@ async function timedBackendFetch(
         surface: "admin_web_server",
         method,
         path: url.pathname,
+        query: url.search,
         status: 0,
         status_class: "network_error",
         duration_ms: durationMs,
@@ -1102,11 +1107,15 @@ export async function getShedWeights(params: {
   const config = await getServerConfig();
   if (!config.ok) return config;
   const client = createAppApiClient(apiClientOptions(config.data));
-  return request(() =>
-    client.request<ShedWeightsResponse>("/weighing/shed-weights", {
-      cache: "no-store",
-      query: compactQuery(params),
-    }),
+  return cachedShortRead(
+    apiReadCacheKey("/weighing/shed-weights", config.data, params),
+    () =>
+      request(() =>
+        client.request<ShedWeightsResponse>("/weighing/shed-weights", {
+          cache: "no-store",
+          query: compactQuery(params),
+        }),
+      ),
   );
 }
 
@@ -1176,21 +1185,25 @@ export async function getWeightDemographics(params: {
    */
   origin?: string;
   /** `individual_animal` / `per_shed_partition` narrows aggregate figures to one capture mode. */
-	  weighing_category?: string;
-	  /** Time-wise weekly grids are opt-in so other tabs do not pay for the heavy week arms. */
-	  include_week_grids?: boolean;
-	}): Promise<ApiResult<WeightDemographicsResponse>> {
+  weighing_category?: string;
+  /** Comma-list of rendered sections; omitted keeps the legacy full payload. */
+  sections?: string;
+}): Promise<ApiResult<WeightDemographicsResponse>> {
   const config = await getServerConfig();
   if (!config.ok) return config;
   const client = createAppApiClient(apiClientOptions(config.data));
-  return request(() =>
-    client.request<WeightDemographicsResponse>(
-      "/weighing/weight-demographics",
-      {
-        cache: "no-store",
-        query: compactQuery(params),
-      },
-    ),
+  return cachedShortRead(
+    apiReadCacheKey("/weighing/weight-demographics", config.data, params),
+    () =>
+      request(() =>
+        client.request<WeightDemographicsResponse>(
+          "/weighing/weight-demographics",
+          {
+            cache: "no-store",
+            query: compactQuery(params),
+          },
+        ),
+      ),
   );
 }
 
@@ -1215,11 +1228,15 @@ export async function getWeighingGrowth(params: {
   const config = await getServerConfig();
   if (!config.ok) return config;
   const client = createAppApiClient(apiClientOptions(config.data));
-  return request(() =>
-    client.request<WeighingGrowthResponse>("/weighing/leadership/growth", {
-      cache: "no-store",
-      query: compactQuery(params),
-    }),
+  return cachedShortRead(
+    apiReadCacheKey("/weighing/leadership/growth", config.data, params),
+    () =>
+      request(() =>
+        client.request<WeighingGrowthResponse>("/weighing/leadership/growth", {
+          cache: "no-store",
+          query: compactQuery(params),
+        }),
+      ),
   );
 }
 
@@ -5449,6 +5466,26 @@ export async function request<T>(fn: () => Promise<T>): Promise<ApiResult<T>> {
   } catch (error) {
     return { ok: false, error: normalizeApiError(error) };
   }
+}
+
+function cachedShortRead<T>(
+  key: string,
+  fn: () => Promise<ApiResult<T>>,
+): Promise<ApiResult<T>> {
+  return shortReadCache.read(key, fn) as Promise<ApiResult<T>>;
+}
+
+function apiReadCacheKey(endpoint: string, config: ServerConfig, params: Record<string, unknown>): string {
+  const query = Object.entries(params)
+    .filter(([, value]) => value !== null && value !== undefined && value !== "")
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([key, value]) => `${key}=${Array.isArray(value) ? value.join(",") : String(value)}`)
+    .join("&");
+  return `${endpoint}|${config.baseUrl}|${config.tenantId}|auth=${authCacheFingerprint(config.bearerToken)}|${query}`;
+}
+
+function authCacheFingerprint(token: string): string {
+  return createHash("sha256").update(token).digest("base64url").slice(0, 16);
 }
 
 export async function withApiTimeout<T>(

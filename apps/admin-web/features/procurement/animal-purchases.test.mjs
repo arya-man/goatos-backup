@@ -83,9 +83,12 @@ test("answers group by served section and an attention row is flagged", () => {
   assert.match(sop, /copy\.verdictSection/);
   assert.match(sop, /\{group\.section \? <h4 className="ap-sop-section-title">\{group\.section\}<\/h4> : null\}/);
   assert.match(sop, /<dt>[\s\S]*?\{row\.question\}[\s\S]*?<\/dt>\s*<dd>\{row\.answer\}<\/dd>/);
-  // The reject signal: a class the stylesheet colours warn, plus a warn dot with the backend hint.
+  // The reject signal: a class the stylesheet colours warn, plus a local inline marker with the backend hint.
   assert.match(sop, /className=\{row\.attention \? "ap-sop-row attention" : "ap-sop-row"\}/);
-  assert.match(sop, /\{row\.attention \? <span className="dot l" title=\{copy\.attentionHint\}/);
+  assert.match(sop, /\{row\.attention \? <span className="ap-attention-dot" title=\{copy\.attentionHint\}/);
+  assert.match(styles, /\.ap-attention-dot\{width:9px;height:9px;border-radius:50%;display:inline-block;flex:0 0 9px;align-self:center;background:var\(--warn\)\}/);
+  assert.doesNotMatch(styles, /\.ap-sop-row dt \.dot/);
+  assert.doesNotMatch(sop, /className="dot l"/);
 });
 
 test("the field verdict chip renders from the backend label with the tone of the verdict", () => {

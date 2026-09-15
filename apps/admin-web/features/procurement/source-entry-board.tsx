@@ -295,7 +295,7 @@ export async function SourceEntryBoardPage({
 	          <span className="muted small">{loads.length} {copy(pageContract, "label.rows")}</span>
 	          <span className="muted small">{copy(pageContract, "section.loads.row_hint")}</span>
 	        </div>
-	        <div style={{ overflowX: "auto" }} tabIndex={0} role="group" aria-label={copy(pageContract, "section.loads.aria")}>
+	        <div className="twrap" tabIndex={0} role="group" aria-label={copy(pageContract, "section.loads.aria")}>
           <table className="source-loads-table">
             <thead>
               <tr>

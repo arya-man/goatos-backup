@@ -147,7 +147,7 @@ export async function ApprovalsPage({ searchParams }: { searchParams?: RouteSear
           <Gavel className="ic" style={{ color: "var(--brand)" }} aria-hidden="true" />
           <h3>{COPY.title}</h3>
         </div>
-        <div className="bd" style={{ padding: 0, overflowX: "auto" }} tabIndex={0} role="group">
+        <div className="bd twrap" style={{ padding: 0 }} tabIndex={0} role="group">
           <table data-enh="1">
             <thead>
               <tr>

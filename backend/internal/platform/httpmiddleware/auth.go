@@ -8,7 +8,9 @@ import (
 	"log/slog"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/vgoats/goatos/backend/internal/permissions"
 	platformauth "github.com/vgoats/goatos/backend/internal/platform/auth"
@@ -30,6 +32,19 @@ const (
 var (
 	ErrInvalidAuthConfig = errors.New("invalid auth config")
 )
+
+type activeGrantResult struct {
+	grants []permissions.ActiveGrant
+	err    error
+}
+
+type personAccessAuthResult struct {
+	permissions []string
+	scopeMode   string
+	parkIDs     []string
+	provisioned bool
+	err         error
+}
 
 type TokenVerifier interface {
 	Verify(token string) (platformauth.Claims, error)
@@ -76,6 +91,16 @@ type PersonAccessSource interface {
 	// authority a person's ticks were used to remove.
 	ResolvePermissions(ctx context.Context, tenantID, userID string) (perms []string, provisioned bool, err error)
 	ResolveParkScope(ctx context.Context, tenantID, userID string) (scopeMode string, parkIDs []string, provisioned bool, err error)
+}
+
+type PersonAccessSnapshot struct {
+	Permissions []string
+	ScopeMode   string
+	ParkIDs     []string
+}
+
+type PersonAccessSnapshotSource interface {
+	ResolveAccessSnapshot(ctx context.Context, tenantID, userID string) (PersonAccessSnapshot, bool, error)
 }
 
 // SetPersonAccessSource wires the per-person resolver. Called at composition time.
@@ -147,12 +172,26 @@ func (a *AuthMiddleware) Wrap(next http.Handler) http.Handler {
 			return
 		}
 
+		debugTiming := authDebugTiming(r)
+		timingStart := time.Now()
+		lastTiming := timingStart
+		timing := []slog.Attr{}
+		markTiming := func(name string) {
+			if !debugTiming {
+				return
+			}
+			now := time.Now()
+			timing = append(timing, slog.Int64("phase_"+name+"_ms", now.Sub(lastTiming).Milliseconds()))
+			lastTiming = now
+		}
 		ctx, userID, tenantID, ok := a.authenticate(w, r)
+		markTiming("authenticate")
 		if !ok {
 			return
 		}
 
 		route, ok := permissions.Match(r.Method, r.URL.Path)
+		markTiming("match_route")
 		if !ok {
 			a.logAuthFailure(r, http.StatusForbidden, "route_not_registered",
 				slog.String("route", r.Method+" "+r.URL.Path),
@@ -163,7 +202,67 @@ func (a *AuthMiddleware) Wrap(next http.Handler) http.Handler {
 			return
 		}
 
-		grants, err := a.grants.ActiveTenantGrants(ctx, userID, tenantID)
+		grantsStart := time.Now()
+		personStart := grantsStart
+		grantsCh := make(chan activeGrantResult, 1)
+		personCh := make(chan personAccessAuthResult, 1)
+		go func() {
+			grants, err := a.grants.ActiveTenantGrants(ctx, userID, tenantID)
+			grantsCh <- activeGrantResult{grants: grants, err: err}
+		}()
+		if a.personAccess != nil {
+			go func() {
+				perms, scopeMode, parkIDs, provisioned, err := a.resolvePersonAccessForAuth(ctx, tenantID, userID)
+				personCh <- personAccessAuthResult{permissions: perms, scopeMode: scopeMode, parkIDs: parkIDs, provisioned: provisioned, err: err}
+			}()
+		}
+		var earlyPersonResult *personAccessAuthResult
+		if a.personAccess != nil && routeCanProceedWithoutGrantContext(route) {
+			got := <-personCh
+			earlyPersonResult = &got
+			fastCtx, authorized, source := a.decideWithPersonResult(ctx, route, nil, tenantID, userID, &got)
+			if source != "role" {
+				if debugTiming {
+					timing = append(timing, slog.Int64("phase_person_access_decide_ms", time.Since(personStart).Milliseconds()))
+				}
+				if !authorized {
+					a.logAuthFailure(r, http.StatusForbidden, "permission_denied",
+						slog.String("route", route.OperationID),
+						slog.String("actor_id", userID),
+						slog.String("tenant_id", tenantID),
+						slog.String("roles", ""),
+						slog.String("decided_by", source),
+						slog.String("required_permissions", strings.Join(route.Permissions, ",")),
+						slog.String("required_any_permissions", strings.Join(route.AnyPermissions, ",")),
+						slog.Bool("required_admin_only", route.AdminOnly),
+					)
+					writeAuthError(w, r.WithContext(fastCtx), http.StatusForbidden, "permission_denied", "permission denied")
+					return
+				}
+				if debugTiming {
+					header := authTimingHeader(timing, time.Since(timingStart))
+					w.Header().Set("X-GoatOS-Auth-Timing", header)
+					attrs := []slog.Attr{
+						slog.String("request_id", RequestIDFromContext(fastCtx)),
+						slog.String("trace_id", TraceIDFromContext(fastCtx)),
+						slog.String("route", route.OperationID),
+						slog.String("tenant_id", tenantID),
+						slog.String("actor_id", userID),
+						slog.String("decided_by", source),
+						slog.Int64("total_ms", time.Since(timingStart).Milliseconds()),
+					}
+					attrs = append(attrs, timing...)
+					a.log.LogAttrs(fastCtx, slog.LevelInfo, "auth_timing", attrs...)
+				}
+				next.ServeHTTP(w, r.WithContext(fastCtx))
+				return
+			}
+		}
+		grantsResult := <-grantsCh
+		if debugTiming {
+			timing = append(timing, slog.Int64("phase_active_tenant_grants_ms", time.Since(grantsStart).Milliseconds()))
+		}
+		grants, err := grantsResult.grants, grantsResult.err
 		if err != nil {
 			a.log.ErrorContext(ctx, "auth_grant_lookup_failed",
 				slog.String("request_id", RequestIDFromContext(ctx)),
@@ -194,7 +293,19 @@ func (a *AuthMiddleware) Wrap(next http.Handler) http.Handler {
 		// exception is the deploy window before the migration has run, which Postgres names
 		// precisely (undefined table) and which the repository reports as
 		// ErrPersonAccessNotProvisioned; failing closed there would 403 the whole farm.
-		ctx, authorized, source := a.decide(ctx, route, roles, tenantID, userID)
+		var personResult *personAccessAuthResult
+		if a.personAccess != nil {
+			if earlyPersonResult != nil {
+				personResult = earlyPersonResult
+			} else {
+				got := <-personCh
+				personResult = &got
+			}
+		}
+		ctx, authorized, source := a.decideWithPersonResult(ctx, route, roles, tenantID, userID, personResult)
+		if debugTiming {
+			timing = append(timing, slog.Int64("phase_person_access_decide_ms", time.Since(personStart).Milliseconds()))
+		}
 		if !authorized {
 			// required_* travel with the denial: `roles:""` alone says the caller
 			// held nothing, but not what the route WANTED — and that missing half
@@ -213,8 +324,50 @@ func (a *AuthMiddleware) Wrap(next http.Handler) http.Handler {
 			writeAuthError(w, r.WithContext(ctx), http.StatusForbidden, "permission_denied", "permission denied")
 			return
 		}
+		if debugTiming {
+			header := authTimingHeader(timing, time.Since(timingStart))
+			w.Header().Set("X-GoatOS-Auth-Timing", header)
+			attrs := []slog.Attr{
+				slog.String("request_id", RequestIDFromContext(ctx)),
+				slog.String("trace_id", TraceIDFromContext(ctx)),
+				slog.String("route", route.OperationID),
+				slog.String("tenant_id", tenantID),
+				slog.String("actor_id", userID),
+				slog.String("decided_by", source),
+				slog.Int64("total_ms", time.Since(timingStart).Milliseconds()),
+			}
+			attrs = append(attrs, timing...)
+			a.log.LogAttrs(ctx, slog.LevelInfo, "auth_timing", attrs...)
+		}
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
+}
+
+func authDebugTiming(r *http.Request) bool {
+	raw := strings.TrimSpace(strings.ToLower(r.URL.Query().Get("debug_timing")))
+	header := strings.TrimSpace(strings.ToLower(r.Header.Get("X-GoatOS-Debug-Timing")))
+	return raw == "1" || raw == "true" || raw == "yes" || header == "1" || header == "true" || header == "yes"
+}
+
+func routeCanProceedWithoutGrantContext(route permissions.Route) bool {
+	if route.AdminOnly {
+		return false
+	}
+	switch route.Pattern {
+	case "/work-board/summary", "/work-board/page", "/work-board/rows", "/work-board/rows/{row_key}/subtasks":
+		return true
+	default:
+		return false
+	}
+}
+
+func authTimingHeader(phases []slog.Attr, total time.Duration) string {
+	parts := make([]string, 0, len(phases)+1)
+	for _, phase := range phases {
+		parts = append(parts, strings.TrimPrefix(phase.Key, "phase_")+"="+phase.Value.String())
+	}
+	parts = append(parts, "total="+strconv.FormatInt(total.Milliseconds(), 10)+"ms")
+	return strings.Join(parts, ";")
 }
 
 func (a *AuthMiddleware) authenticate(w http.ResponseWriter, r *http.Request) (context.Context, string, string, bool) {
@@ -752,74 +905,114 @@ func AuthorizedParkIDsForCapability(grants []permissions.ActiveGrant, capability
 // blip could hand back authority a person's ticks removed, and that is not a property to
 // leave to an integration test.
 func (a *AuthMiddleware) decide(ctx context.Context, route permissions.Route, roles []string, tenantID, userID string) (context.Context, bool, string) {
-	return decideAuthorization(ctx, a.personAccess, route, roles, tenantID, userID, a.log)
+	if a.personAccess == nil {
+		return decideAuthorization(ctx, nil, route, roles, tenantID, userID, a.log)
+	}
+	held, scopeMode, parkIDs, provisioned, err := a.resolvePersonAccessForAuth(ctx, tenantID, userID)
+	return decideAuthorizationFromPersonResult(ctx, route, roles, tenantID, userID, personAccessAuthResult{
+		permissions: held,
+		scopeMode:   scopeMode,
+		parkIDs:     parkIDs,
+		provisioned: provisioned,
+		err:         err,
+	}, a.log)
+}
+
+func (a *AuthMiddleware) decideWithPersonResult(ctx context.Context, route permissions.Route, roles []string, tenantID, userID string, personResult *personAccessAuthResult) (context.Context, bool, string) {
+	if personResult == nil {
+		return ctx, permissions.AuthorizeRoute(route, roles), "role"
+	}
+	return decideAuthorizationFromPersonResult(ctx, route, roles, tenantID, userID, *personResult, a.log)
 }
 
 func decideAuthorization(ctx context.Context, src PersonAccessSource, route permissions.Route, roles []string, tenantID, userID string, logs ...*slog.Logger) (context.Context, bool, string) {
+	if src == nil {
+		return ctx, permissions.AuthorizeRoute(route, roles), "role"
+	}
+	held, scopeMode, parkIDs, provisioned, err := resolvePersonAccessForAuth(ctx, src, tenantID, userID)
+	return decideAuthorizationFromPersonResult(ctx, route, roles, tenantID, userID, personAccessAuthResult{
+		permissions: held,
+		scopeMode:   scopeMode,
+		parkIDs:     parkIDs,
+		provisioned: provisioned,
+		err:         err,
+	}, logs...)
+}
+
+func decideAuthorizationFromPersonResult(ctx context.Context, route permissions.Route, roles []string, tenantID, userID string, result personAccessAuthResult, logs ...*slog.Logger) (context.Context, bool, string) {
 	log := slog.Default()
 	if len(logs) > 0 && logs[0] != nil {
 		log = logs[0]
 	}
 	authorized := permissions.AuthorizeRoute(route, roles)
 	source := "role"
-	if src != nil {
-		held, provisioned, err := src.ResolvePermissions(ctx, tenantID, userID)
-		switch {
-		case err == nil && !provisioned:
-			// The tables are not there yet. Same answer as "this person has no rows":
-			// take the role path, and say so.
-			log.WarnContext(ctx, "person_access_not_provisioned_falling_back_to_role",
-				slog.String("actor_id", userID),
-				slog.String("tenant_id", tenantID),
-				slog.String("route", route.OperationID),
-			)
-		case err != nil:
-			// FAIL CLOSED. Anything else -- a timeout, a dropped connection, a broken
-			// query -- must not restore authority the ticks removed.
-			log.ErrorContext(ctx, "person_access_lookup_failed",
-				slog.String("request_id", RequestIDFromContext(ctx)),
-				slog.String("trace_id", TraceIDFromContext(ctx)),
-				slog.String("actor_id", userID),
-				slog.String("route", route.OperationID),
-				slog.String("error", err.Error()),
-			)
-			authorized = false
-			source = "person_unavailable"
-		default:
-			if allowed, decidable := permissions.AuthorizePermissionSet(route, held); decidable {
-				authorized = allowed
-				source = "person"
-				// The ticks decided; hand the SAME set to the module's own re-check so the
-				// service cannot answer from the role map the ticks just overrode.
-				ctx = WithPersonPermissions(ctx, held)
-				if allowed {
-					scopeMode, parkIDs, scopeProvisioned, err := src.ResolveParkScope(ctx, tenantID, userID)
-					switch {
-					case err == nil && scopeProvisioned:
-						ctx = WithPersonParkScope(ctx, PersonParkScope{
-							TenantWide: strings.EqualFold(strings.TrimSpace(scopeMode), "tenant"),
-							ParkIDs:    parkIDs,
-						})
-					case err == nil && !scopeProvisioned:
-						log.WarnContext(ctx, "person_access_scope_not_provisioned_falling_back_to_role",
-							slog.String("actor_id", userID),
-							slog.String("tenant_id", tenantID),
-							slog.String("route", route.OperationID),
-						)
-					default:
-						log.ErrorContext(ctx, "person_access_scope_lookup_failed",
-							slog.String("request_id", RequestIDFromContext(ctx)),
-							slog.String("trace_id", TraceIDFromContext(ctx)),
-							slog.String("actor_id", userID),
-							slog.String("route", route.OperationID),
-							slog.String("error", err.Error()),
-						)
-						authorized = false
-						source = "person_unavailable"
-					}
-				}
+	switch {
+	case result.err == nil && !result.provisioned:
+		// The tables are not there yet. Same answer as "this person has no rows":
+		// take the role path, and say so.
+		log.WarnContext(ctx, "person_access_not_provisioned_falling_back_to_role",
+			slog.String("actor_id", userID),
+			slog.String("tenant_id", tenantID),
+			slog.String("route", route.OperationID),
+		)
+	case result.err != nil:
+		// FAIL CLOSED. Anything else -- a timeout, a dropped connection, a broken
+		// query -- must not restore authority the ticks removed.
+		log.ErrorContext(ctx, "person_access_lookup_failed",
+			slog.String("request_id", RequestIDFromContext(ctx)),
+			slog.String("trace_id", TraceIDFromContext(ctx)),
+			slog.String("actor_id", userID),
+			slog.String("route", route.OperationID),
+			slog.String("error", result.err.Error()),
+		)
+		authorized = false
+		source = "person_unavailable"
+	default:
+		if allowed, decidable := permissions.AuthorizePermissionSet(route, result.permissions); decidable {
+			authorized = allowed
+			source = "person"
+			// The ticks decided; hand the SAME set to the module's own re-check so the
+			// service cannot answer from the role map the ticks just overrode.
+			ctx = WithPersonPermissions(ctx, result.permissions)
+			if allowed {
+				ctx = WithPersonParkScope(ctx, PersonParkScope{
+					TenantWide: strings.EqualFold(strings.TrimSpace(result.scopeMode), "tenant"),
+					ParkIDs:    result.parkIDs,
+				})
 			}
 		}
 	}
 	return ctx, authorized, source
+}
+
+func resolvePersonAccessForAuth(ctx context.Context, src PersonAccessSource, tenantID, userID string) ([]string, string, []string, bool, error) {
+	if snapshotSource, ok := src.(PersonAccessSnapshotSource); ok {
+		snapshot, provisioned, err := snapshotSource.ResolveAccessSnapshot(ctx, tenantID, userID)
+		return snapshot.Permissions, snapshot.ScopeMode, snapshot.ParkIDs, provisioned, err
+	}
+	perms, provisioned, err := src.ResolvePermissions(ctx, tenantID, userID)
+	if err != nil || !provisioned {
+		return perms, "", nil, provisioned, err
+	}
+	scopeMode, parkIDs, scopeProvisioned, err := src.ResolveParkScope(ctx, tenantID, userID)
+	if err != nil {
+		return perms, "", nil, true, err
+	}
+	if !scopeProvisioned {
+		return perms, "", nil, false, nil
+	}
+	return perms, scopeMode, parkIDs, true, nil
+}
+
+func (a *AuthMiddleware) resolvePersonAccessForAuth(ctx context.Context, tenantID, userID string) ([]string, string, []string, bool, error) {
+	return resolvePersonAccessForAuth(ctx, a.personAccess, tenantID, userID)
+}
+
+func cloneStrings(values []string) []string {
+	if values == nil {
+		return nil
+	}
+	out := make([]string, len(values))
+	copy(out, values)
+	return out
 }

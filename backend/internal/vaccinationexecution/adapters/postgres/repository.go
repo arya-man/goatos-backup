@@ -4448,7 +4448,7 @@ WHERE operator_id = (SELECT wm.workforce_member_id FROM workforce_members wm
 GROUP BY eff_date::date, protocol_name, dose_code
 ORDER BY eff_date::date, protocol_name, dose_code
 `
-	rows, err := r.pool.Query(ctx, sql, q.TenantID, q.OperatorScopeActorID, q.AsOf, q.DueBefore)
+	rows, err := r.pool.Query(ctx, sql, pgx.QueryExecModeExec, q.TenantID, q.OperatorScopeActorID, q.AsOf, q.DueBefore)
 	if err != nil {
 		return nil, fmt.Errorf("vaccination execution: carry summary query: %w", err)
 	}
@@ -4508,6 +4508,14 @@ func (r *Repository) VaccinationExecutionCardSummaries(ctx context.Context, q do
 		dueBefore = q.AsOf.Add(defaultExecutionHorizon)
 	}
 	closedAfter := q.AsOf.Add(-defaultClosedHistoryAge)
+	cacheKey := fmt.Sprintf("execution_card_summaries|%s|%s|%s|%s|%s|%s|%t|%s|%s|%s",
+		q.TenantID, parkID, shedID, vaccinationCacheExactTime(dueBefore), workState,
+		vaccinationCacheExactTime(q.AsOf), q.OpenOnly, q.OperatorScopeActorID, partitionLabel, severity)
+	if cached, ok := r.getVaccinationReadCache(cacheKey); ok {
+		if summaries, ok := cached.(map[string]*domain.ShedCardSummary); ok {
+			return summaries, nil
+		}
+	}
 
 	// projection-review: membership=all execution rows matching card identity (shed_id, partition_label, task_id/batch_id/drive_id);
 	// group_key=(shed_uuid, partition_key, task_id, batch_id, drive_id) WITH aggregates over matching rows;
@@ -4528,7 +4536,7 @@ func (r *Repository) VaccinationExecutionCardSummaries(ctx context.Context, q do
 	}
 
 	// projection-review: summary counts now respect work_state, severity, and open-only filters (identical to page query predicate set) to prevent badge counts from misrepresenting the filtered page view.
-	rows, err := r.pool.Query(ctx, cardSummariesSQL,
+	rows, err := r.pool.Query(ctx, cardSummariesSQL, pgx.QueryExecModeExec,
 		q.TenantID, parkID, shedID, dueBefore, q.Limit, workState, q.AsOf, closedAfter, severity,
 		q.OpenOnly, q.Cursor != nil, cursorRank, cursorDueMicros, cursorRowKey, q.OperatorScopeActorID, partitionLabel)
 	if err != nil {
@@ -4636,6 +4644,7 @@ func (r *Repository) VaccinationExecutionCardSummaries(ctx context.Context, q do
 		return nil, fmt.Errorf("vaccination execution: card summaries rows: %w", err)
 	}
 
+	r.setVaccinationReadCache(cacheKey, summaries)
 	return summaries, nil
 }
 

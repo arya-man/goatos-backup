@@ -1587,17 +1587,40 @@ func validateGrowthADGSections(raw string) error {
 		return nil
 	}
 	allowed := map[string]bool{
-		"rejected":         true,
-		"eligibility":      true,
-		"trend":            true,
-		"weekly_gain":      true,
-		"shed_leaderboard": true,
-		"distribution":     true,
-		"sale_readiness":   true,
-		"lump_sum":         true,
-		"parks":            true,
-		"losing_animals":   true,
-		"by_park":          true,
+		"headline":          true,
+		"headline_previous": true,
+		"rejected":          true,
+		"eligibility":       true,
+		"trend":             true,
+		"weekly_gain":       true,
+		"shed_leaderboard":  true,
+		"distribution":      true,
+		"sale_readiness":    true,
+		"lump_sum":          true,
+		"parks":             true,
+		"losing_animals":    true,
+		"by_park":           true,
+	}
+	for _, part := range strings.Split(raw, ",") {
+		if !allowed[strings.TrimSpace(part)] {
+			return ports.ErrInvalidArgument
+		}
+	}
+	return nil
+}
+
+func validateWeightDemographicsSections(raw string) error {
+	if strings.TrimSpace(raw) == "" {
+		return nil
+	}
+	allowed := map[string]bool{
+		"composition":     true,
+		"dimensions":      true,
+		"origin":          true,
+		"shed_type":       true,
+		"weight_bands":    true,
+		"weekly_gain":     true,
+		"gain_thresholds": true,
 	}
 	for _, part := range strings.Split(raw, ",") {
 		if !allowed[strings.TrimSpace(part)] {
@@ -1685,9 +1708,12 @@ func (s *Service) resolveMonitorParkScope(ctx context.Context, actor domain.Acto
 
 // GetWeightDemographics serves the breed / sex / stage breakdown on the Weights
 // screen. Same capability and scope rules as the other leadership reads.
-func (s *Service) GetWeightDemographics(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate, sex, origin, weighingCategory string, includeWeekGrids bool) (domain.WeightDemographics, error) {
+func (s *Service) GetWeightDemographics(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate, sex, origin, weighingCategory, sections string) (domain.WeightDemographics, error) {
 	if !permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingMonitor}, false) {
 		return domain.WeightDemographics{}, ports.ErrForbidden
+	}
+	if err := validateWeightDemographicsSections(sections); err != nil {
+		return domain.WeightDemographics{}, err
 	}
 	periodStart, periodEndExclusive, err := s.resolveWeighingWindow(fromBusinessDate, toBusinessDate)
 	if err != nil {
@@ -1697,7 +1723,7 @@ func (s *Service) GetWeightDemographics(ctx context.Context, actor domain.Actor,
 	if scopeErr != nil {
 		return domain.WeightDemographics{}, scopeErr
 	}
-	return s.repo.GetWeightDemographics(ctx, actor.TenantID, parkIDs, periodStart, periodEndExclusive, sex, origin, weighingCategory, includeWeekGrids)
+	return s.repo.GetWeightDemographics(ctx, actor.TenantID, parkIDs, periodStart, periodEndExclusive, sex, origin, weighingCategory, sections)
 }
 
 // GetShedWeights serves the admin-web "Kids — Weights" screen: one row per shed
@@ -1851,12 +1877,21 @@ func (s *Service) shedWeightsFor(ctx context.Context, actor domain.Actor, parkID
 	// The SELECTION is authorization-checked through the same helper (it rejects a park the actor
 	// may not see), and the SCOPE is resolved separately with no filter. The park dropdown is built
 	// from the scope, so choosing CPT no longer removes CBE from the list.
-	if _, scopeErr := s.resolveMonitorParkScope(ctx, actor, parkID); scopeErr != nil {
-		return domain.ShedWeights{}, scopeErr
-	}
 	scopeParkIDs, scopeErr := s.resolveMonitorParkScope(ctx, actor, "")
 	if scopeErr != nil {
 		return domain.ShedWeights{}, scopeErr
+	}
+	if parkID != "" {
+		found := false
+		for _, id := range scopeParkIDs {
+			if id == parkID {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return domain.ShedWeights{}, ports.ErrNotFound
+		}
 	}
 
 	out, err := s.repo.GetShedWeights(ctx, actor.TenantID, scopeParkIDs, parkID, periodStart, periodEndExclusive, sex, origin, weighingCategory, saleThresholdToleranceKg)

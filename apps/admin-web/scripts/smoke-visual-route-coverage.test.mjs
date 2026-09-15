@@ -14,24 +14,40 @@ test("visual smoke visits every live sidebar navigation leaf", () => {
   const required = new Map([
     ["control-tower", "/?scope_mode=company&lens=control-tower"],
     ["action-center", "/action-center?scope_mode=company"],
+    ["action-center-verify", "/action-center?scope_mode=company&bucket=verify"],
+    ["action-center-overdue", "/action-center?scope_mode=company&state=overdue"],
+    ["action-center-due", "/action-center?scope_mode=company&state=due"],
     ["calendar", "/calendar?scope_mode=company&day=week"],
     ["calendar-month", "/calendar?scope_mode=company&view=month"],
     ["calendar-history", "/calendar?scope_mode=company&status=completed"],
     ["calendar-owner-pc", "/calendar?scope_mode=company&day=week&owner_key=pc"],
     ["protocol-adherence", "/protocol-adherence?scope_mode=company"],
+    ["protocol-adherence-high", "/protocol-adherence?scope_mode=company&severity=high"],
+    ["protocol-adherence-overdue", "/protocol-adherence?scope_mode=company&state=overdue"],
     ["work-board", "/work-board?scope_mode=company"],
     ["workflows", "/workflows?scope_mode=company"],
     ["procurement-source-entry", "/procurement/source-entry?scope_mode=company"],
+    ["procurement-source-entry-health-pending", "/procurement/source-entry?scope_mode=company&status=health_pending"],
+    ["procurement-source-entry-arrival-review", "/procurement/source-entry?scope_mode=company&status=arrival_review"],
+    ["procurement-source-entry-accepted-intake", "/procurement/source-entry?scope_mode=company&status=accepted_intake"],
     ["procurement-vendors", "/procurement/vendors?scope_mode=company"],
     ["procurement-feed-purchases", "/procurement/feed-purchases?scope_mode=company"],
     ["procurement-animal-purchases", "/procurement/animal-purchases?scope_mode=company"],
     ["procurement-sops", "/procurement/sops?scope_mode=company"],
     ["approvals", "/approvals?scope_mode=company"],
+    ["approvals-approved", "/approvals?scope_mode=company&status=approved"],
+    ["approvals-rejected", "/approvals?scope_mode=company&status=rejected"],
     ["verify", "/verify?scope_mode=company"],
+    ["verify-all", "/verify?scope_mode=company&status=all"],
+    ["verify-approved", "/verify?scope_mode=company&status=approved"],
+    ["verify-rejected", "/verify?scope_mode=company&status=rejected"],
+    ["verify-toxin", "/verify?scope_mode=company&toxin=1"],
     ["actions", "/actions?scope_mode=company"],
     ["verification", "/verification?scope_mode=company"],
     ["vaccination", "/vaccination?scope_mode=company"],
     ["vaccination-execution", "/vaccination?scope_mode=company#execution"],
+    ["vaccination-sheds-status-action", "/vaccination?scope_mode=company&sheds_status=needs_review#execution"],
+    ["vaccination-sheds-capacity-action", "/vaccination?scope_mode=company&sheds_capacity=capacity_breach#execution"],
     ["vaccination-live-tracker", "/vaccination/live-tracker?scope_mode=company"],
     ["vaccination-plan", "/vaccination/plan?scope_mode=company"],
     ["vaccination-plan-edit", "/vaccination/plan/edit?scope_mode=company"],
@@ -40,6 +56,7 @@ test("visual smoke visits every live sidebar navigation leaf", () => {
     ["sales-loads", "/sales/loads?scope_mode=company"],
     ["sales-loads-farm-born", "/sales/loads?scope_mode=company&view=farm_born"],
     ["sales-market-analytics", "/sales/market-analytics?scope_mode=company"],
+    ["sales-buyer-analytics", "/sales/buyer-analytics?scope_mode=company"],
     ["sales-config", "/sales/config?scope_mode=company"],
     ["sales-vendors", "/sales/vendors?scope_mode=company"],
     ["feed-config", "/feed/config?scope_mode=company"],
@@ -52,8 +69,9 @@ test("visual smoke visits every live sidebar navigation leaf", () => {
     ["feed-sops", "/feed/sops?scope_mode=company"],
     ["feed-direction", "/feed/direction?scope_mode=company"],
     ["feed-packing", "/feed/packing?scope_mode=company"],
-    ["weighing-analytics", "/weighing/analytics?scope_mode=company"],
+    ["weighing-analytics", "/weighing/analytics?scope_mode=company&tab=general"],
     ["weighing-analytics-breed", "/weighing/analytics?scope_mode=company&tab=breed"],
+    ["weighing-analytics-breed-wide", "/weighing/analytics?scope_mode=company&tab=breed&wt_from=${dynamic}&wt_to=${dynamic}"],
     ["weighing-analytics-birth", "/weighing/analytics?scope_mode=company&tab=birth"],
     ["weighing-analytics-shed", "/weighing/analytics?scope_mode=company&tab=shed"],
     ["weighing-analytics-weight", "/weighing/analytics?scope_mode=company&tab=weight"],
@@ -81,13 +99,21 @@ test("visual smoke visits every live sidebar navigation leaf", () => {
     ["health-analytics-engine", "/health/analytics?scope_mode=company&tab=engine"],
     ["health-config", "/health/config?scope_mode=company"],
     ["operations-audit", "/operations/audit?scope_mode=company"],
+    ["operations-audit-awaiting", "/operations/audit?scope_mode=company&status=verification_pending"],
+    ["operations-audit-rejected", "/operations/audit?scope_mode=company&result=rejected"],
+    ["operations-audit-proof-gaps", "/operations/audit?scope_mode=company&proof_gaps=true"],
     ["operations-dlq", "/operations/dlq?scope_mode=company"],
+    ["operations-dlq-failed", "/operations/dlq?scope_mode=company&status=failed"],
+    ["operations-dlq-discarded", "/operations/dlq?scope_mode=company&status=discarded"],
     ["people", "/people?scope_mode=company"],
     ["people-vaccination", "/people?scope_mode=company&tab=vaccination"],
     ["people-clock", "/people?scope_mode=company&tab=clock"],
     ["people-notifications", "/people?scope_mode=company&tab=notifications"],
     ["ceo-ai-admin", "/ceo-ai-admin?scope_mode=company"],
     ["leave", "/leave?scope_mode=company"],
+    ["leave-approved", "/leave?scope_mode=company&status=approved"],
+    ["leave-rejected", "/leave?scope_mode=company&status=rejected"],
+    ["leave-withdrawn", "/leave?scope_mode=company&status=withdrawn"],
     ["tasks", "/tasks?scope_mode=company"],
   ]);
 
@@ -122,4 +148,15 @@ test("pager-required routes cannot pass silently when the pager is missing", () 
   assert.match(pagerBlock, /const bodyText = \(await page\.locator\("body"\)\.innerText\(\)\.catch\(\(\) => ""\)\)\.replace/);
   assert.match(pagerBlock, /0 rows\|0 results\|Nothing\|No rows\|No data/);
   assert.match(pagerBlock, /expected at least \$\{minimum\} pager2 footer\(s\), found none/);
+});
+
+test("PR264 routes record route-specific product signals in browser evidence", () => {
+  assert.match(smokeSource, /const routeSignals = await assertRouteLoadedSignal\(page, route\.name, visibleText\);/);
+  assert.match(smokeSource, /route_signals: routeSignals/);
+  assert.match(smokeSource, /routeName === "work-board"[\s\S]*lane_counts/);
+  assert.match(smokeSource, /routeName === "weighing-weights"[\s\S]*has_losing_weight_table/);
+  assert.match(smokeSource, /routeName === "weighing-analytics"[\s\S]*has_weighing_kpis/);
+  assert.match(smokeSource, /routeName === "weighing-analytics-breed" \|\| routeName === "weighing-analytics-breed-wide"[\s\S]*has_breed_breakdown/);
+  assert.match(smokeSource, /routeName === "weighing-analytics-time"[\s\S]*has_weekly_growth/);
+  assert.match(smokeSource, /routeName === "weighing-analytics-load"[\s\S]*has_load_breakdown/);
 });

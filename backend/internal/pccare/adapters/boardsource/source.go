@@ -76,6 +76,19 @@ const workStateSQL = `CASE
   ELSE 'due'
 END`
 
+const countWorkStateSQL = `CASE
+  WHEN t.status = 'completed' THEN 'completed'
+  WHEN t.status = 'pending_verification' THEN 'verification_pending'
+  WHEN t.status = 'rework' THEN 'rejected'
+  WHEN t.work_state = 'closed' THEN 'completed'
+  WHEN t.work_state = 'delayed' THEN 'overdue'
+  WHEN EXISTS (
+    SELECT 1 FROM pc_care_task_animals an
+    WHERE an.tenant_id = t.tenant_id AND an.task_id = t.task_id
+  ) THEN 'in_progress'
+  ELSE 'due'
+END`
+
 // animalsLateral counts the task's own captures ONCE per task on
 // pc_care_task_animals_task_idx (tenant_id, task_id, animal_row_id). Two "complete" counts
 // are returned so the single-video vs before/while/after rule stays in Go
@@ -162,9 +175,8 @@ LIMIT $7`
 const countSQL = `
 SELECT board_state, count(*)
 FROM (
-  SELECT ` + workStateSQL + ` AS board_state
+  SELECT ` + countWorkStateSQL + ` AS board_state
   FROM pc_care_tasks t
-  ` + animalsLateral + `
   WHERE ` + baseWhere + `
 ) x
 WHERE ($5::text[] IS NULL OR board_state = ANY($5::text[]))

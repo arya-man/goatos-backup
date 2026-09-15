@@ -604,7 +604,7 @@ export async function VerificationReviewPage({
             <span className="hint">{copy(pageContract, "table.hint")}</span>
           </div>
 
-          <div style={{ overflowX: "auto" }} tabIndex={0} role="group">
+          <div className="twrap" tabIndex={0} role="group">
             <table data-enh="1" className="vr-table">
               <thead>
                 <tr>

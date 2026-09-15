@@ -354,7 +354,7 @@ export async function ProtocolAdherencePage({
           </span>
 	          <span className="muted small">{copy(pageContract, "filter.click_row")}</span>
 	        </div>
-	        <div style={{ overflowX: "auto" }} tabIndex={0} role="group" aria-label={copy(pageContract, "section.ledger.aria")}>
+	        <div className="twrap" tabIndex={0} role="group" aria-label={copy(pageContract, "section.ledger.aria")}>
           <table className="table-fixed adherence-table">
             <colgroup>
               <col style={{ width: "27%" }} />

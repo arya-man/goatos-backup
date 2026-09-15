@@ -314,7 +314,7 @@ export async function VaccinationActionCenterPage({
 	              </p>
 	            </div>
 	          ) : (
-	            <div style={{ overflowX: "auto" }} tabIndex={0} role="group" aria-label={copy(pageContract, "section.verification.aria")}>
+	            <div className="twrap" tabIndex={0} role="group" aria-label={copy(pageContract, "section.verification.aria")}>
 	              <table>
 	                <thead>
 	                  <tr>

@@ -1049,3 +1049,66 @@ func TestPermissionDeniedLogNamesRequiredPermissions(t *testing.T) {
 		}
 	}
 }
+
+func TestWorkBoardGrantlessFastPathReadRoutesOnly(t *testing.T) {
+	readRoutes := []permissions.Route{
+		{Pattern: "/work-board/summary"},
+		{Pattern: "/work-board/page"},
+		{Pattern: "/work-board/rows"},
+		{Pattern: "/work-board/rows/{row_key}/subtasks"},
+	}
+	for _, route := range readRoutes {
+		if !routeCanProceedWithoutGrantContext(route) {
+			t.Fatalf("read route %s did not use person-access fast path", route.Pattern)
+		}
+	}
+	if routeCanProceedWithoutGrantContext(permissions.Route{Pattern: "/work-board/flags"}) {
+		t.Fatalf("mutating work-board flags route must not skip grant context")
+	}
+}
+
+func TestPersonAccessSnapshotIsResolvedPerRequest(t *testing.T) {
+	src := &countingPersonAccessSnapshotSource{
+		snapshot: PersonAccessSnapshot{
+			Permissions: []string{permissions.WorkBoardRead},
+			ScopeMode:   "tenant",
+		},
+		provisioned: true,
+	}
+	mw := testBearerMiddleware(t, fakeGrantSource{})
+	mw.SetPersonAccessSource(src)
+	handler := mw.Wrap(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	for i := 0; i < 2; i++ {
+		req := httptest.NewRequest(http.MethodGet, "/work-board/page?park=00000000-0000-4000-8000-000000003001", nil)
+		req.Header.Set("Authorization", "Bearer "+testTokenStatic(authTestUser, authTestTenant, nil))
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		if rec.Code != http.StatusNoContent {
+			t.Fatalf("request %d status=%d body=%s", i+1, rec.Code, rec.Body.String())
+		}
+	}
+	if got := src.calls; got != 2 {
+		t.Fatalf("ResolveAccessSnapshot calls=%d want 2", got)
+	}
+}
+
+type countingPersonAccessSnapshotSource struct {
+	snapshot    PersonAccessSnapshot
+	provisioned bool
+	calls       int
+}
+
+func (s *countingPersonAccessSnapshotSource) ResolveAccessSnapshot(context.Context, string, string) (PersonAccessSnapshot, bool, error) {
+	s.calls++
+	return s.snapshot, s.provisioned, nil
+}
+
+func (s *countingPersonAccessSnapshotSource) ResolvePermissions(context.Context, string, string) ([]string, bool, error) {
+	panic("ResolvePermissions should not be called when ResolveAccessSnapshot is available")
+}
+
+func (s *countingPersonAccessSnapshotSource) ResolveParkScope(context.Context, string, string) (string, []string, bool, error) {
+	panic("ResolveParkScope should not be called when ResolveAccessSnapshot is available")
+}

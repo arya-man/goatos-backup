@@ -21,7 +21,7 @@ test("the Time-wise tab reads gain_by_load_week off the demographics response", 
   assert.match(pageSource, /loadRef: point\.load_ref/, "the load number is the farm's own reference, rendered verbatim");
   assert.match(pageSource, /source: point\.owner_name/, "the supplier is the backend's owner name, rendered verbatim");
   assert.match(pageSource, /table\(pageContract, "load-week-gain"\)/, "fixed columns come from the load-week-gain contract");
-  assert.match(pageSource, /include_week_grids: tab === "time"/, "weekly grids must be opt-in so unrelated demographics tabs stay light");
+  assert.match(pageSource, /tab === "time"[\s\S]*\? "weekly_gain"/, "weekly grids must be opt-in so unrelated demographics tabs stay light");
 });
 
 test("the load grid composes no copy of its own and renders through the shared pivot", () => {

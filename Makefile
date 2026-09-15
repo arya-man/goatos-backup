@@ -255,6 +255,8 @@ guardrail-registration-guard:
 # grafana-durability-guard: if dashboard JSONs exist, Terraform must keep
 # file-provider provisioning wired and staging deploy must smoke live Grafana.
 grafana-durability-guard:
+	node --check tools/deploy/smoke-stg-grafana-dashboards.mjs
+	node tools/deploy/smoke-stg-grafana-dashboards.mjs --self-test
 	node tools/ci/check-grafana-durability.mjs --self-test
 	node tools/ci/check-grafana-durability.mjs
 
@@ -1467,7 +1469,7 @@ verify-google-dev-seed-fixtures:
 	python3 tools/dev/verify-google-dev-seed-fixtures.py
 
 api-latency-policy-test:
-	node --test tools/perf/api-latency-policy.test.mjs tools/perf/api-latency-evidence.test.mjs tools/perf/request-path-evidence.test.mjs
+	node --test tools/perf/api-latency-policy.test.mjs tools/perf/api-latency-evidence.test.mjs tools/perf/api-latency-compare.test.mjs tools/perf/request-path-evidence.test.mjs
 
 api-latency-gate:
 	for manifest in tools/perf/hot-paths.*.json; do node tools/perf/api-latency-gate.mjs --manifest "$$manifest"; done

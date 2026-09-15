@@ -58,3 +58,19 @@ func TestCommandBoardCachesUseExactAsOfSnapshots(t *testing.T) {
 		}
 	}
 }
+
+func TestVaccinationExecutionSideReadsAvoidPreparedGenericPlan(t *testing.T) {
+	srcBytes, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(srcBytes)
+	for _, required := range []string{
+		`r.pool.Query(ctx, sql, pgx.QueryExecModeExec, q.TenantID, q.OperatorScopeActorID, q.AsOf, q.DueBefore)`,
+		`r.pool.Query(ctx, cardSummariesSQL, pgx.QueryExecModeExec,`,
+	} {
+		if !strings.Contains(src, required) {
+			t.Fatalf("vaccination execution repeated app reads must force exec mode to avoid slow prepared generic plans; missing %q", required)
+		}
+	}
+}

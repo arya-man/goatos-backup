@@ -941,7 +941,7 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
                 <h3>{copy(pageContract, "command_board.shed_vaccine.title")}</h3>
                 <span className="cbm-meta">{copy(pageContract, "command_board.shed_vaccine.meta")}</span>
               </div>
-              <div className="cbm-hm" tabIndex={0} aria-label={copy(pageContract, "command_board.shed_vaccine.title")}>
+              <div className="cbm-hm twrap" tabIndex={0} aria-label={copy(pageContract, "command_board.shed_vaccine.title")}>
                 <table className="cbm-heat cbm-sv-heat">
                   <thead>
                     <tr>
@@ -1062,7 +1062,7 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
           {pendingVaccinesByShed.length === 0 ? (
             <p className="cbm-empty">{copy(pageContract, "command_board.pending_sheds.empty")}</p>
           ) : (
-            <div className="cbm-hm" tabIndex={0} aria-label={copy(pageContract, "command_board.pending_sheds.title")}>
+            <div className="cbm-hm twrap" tabIndex={0} aria-label={copy(pageContract, "command_board.pending_sheds.title")}>
               <table className="cbm-heat cbm-pending-table">
                 <thead>
                   <tr>
@@ -1141,7 +1141,7 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
                 <h3>{copy(pageContract, "command_board.shed_matrix.title")}</h3>
                 <span className="cbm-meta">{copy(pageContract, "command_board.shed_matrix.meta")}</span>
               </div>
-              <div className="cbm-hm" tabIndex={0} aria-label={copy(pageContract, "command_board.shed_matrix.title")}>
+              <div className="cbm-hm twrap" tabIndex={0} aria-label={copy(pageContract, "command_board.shed_matrix.title")}>
                 <table className="cbm-heat">
                   <thead>
                     <tr>
@@ -1269,7 +1269,7 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
                 farms.map(({ farm, vaccines, rows }) => (
                   <div key={farm} className="cbm-farm-block">
                     <h4 className="cbm-farm-name">{farm || copy(pageContract, "command_board.cohort_matrix.no_farm")}</h4>
-                    <div className="cbm-hm" tabIndex={0} aria-label={copy(pageContract, "command_board.cohort_matrix.title")}>
+                    <div className="cbm-hm twrap" tabIndex={0} aria-label={copy(pageContract, "command_board.cohort_matrix.title")}>
                       <table className="cbm-heat cbm-cohort-heat">
                         <thead>
                           <tr>

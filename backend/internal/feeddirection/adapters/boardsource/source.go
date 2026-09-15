@@ -400,12 +400,28 @@ func (s *Source) CountByState(ctx context.Context, q ports.SourceQuery) (map[dom
 	ctx, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()
 	want := stateSet(q.WorkStates)
+	type result struct {
+		key string
+		m   cardMetrics
+		err error
+	}
+	results := make([]result, len(activities))
+	var wg sync.WaitGroup
+	for i, a := range activities {
+		wg.Add(1)
+		go func(i int, a activity) {
+			defer wg.Done()
+			m, err := s.readCard(ctx, a, q)
+			results[i] = result{key: a.key, m: m, err: err}
+		}(i, a)
+	}
+	wg.Wait()
 	out := map[domain.WorkState]int{}
-	for _, a := range activities {
-		m, err := s.readCard(ctx, a, q)
-		if err != nil {
-			return nil, fmt.Errorf("feed boardsource count %s: %w", a.key, err)
+	for _, result := range results {
+		if result.err != nil {
+			return nil, fmt.Errorf("feed boardsource count %s: %w", result.key, result.err)
 		}
+		m := result.m
 		if m.cardRank < 0 {
 			continue
 		}

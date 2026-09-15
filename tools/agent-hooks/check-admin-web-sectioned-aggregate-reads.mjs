@@ -16,6 +16,7 @@ const repo = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 
 const SECTIONABLE_CALLS = [
   { fn: "getWeighingGrowth", reason: "GET /weighing/leadership/growth fans out into ADG/Growth aggregate sections" },
+  { fn: "getWeightDemographics", reason: "GET /weighing/weight-demographics fans out into demographics aggregate sections" },
   { fn: "getGrowthDirector", reason: "GET /growth-director/weights fans out into Growth Director aggregate sections" },
   { fn: "getFeedAnalyticsExecution", reason: "GET /feed-analytics/execution supports sectioned execution reads" },
   { fn: "getFeedAnalyticsStock", reason: "GET /feed-analytics/stock supports sectioned stock reads" },
@@ -23,7 +24,6 @@ const SECTIONABLE_CALLS = [
 
 const FILE_RE = /^apps\/admin-web\/features\/.*\.(?:tsx|ts|jsx|js)$/;
 const TEST_RE = /(?:^|\/)(?:[^/]+\.test\.[cm]?[jt]s|[^/]+\.spec\.[cm]?[jt]s)$/;
-const EXCEPTION_RE = /sectioned-aggregate-reads:allow\s+reason=\S/;
 
 function git(args, allowFailure = false) {
   try {
@@ -88,11 +88,6 @@ export function inspectSource(source, file = "<inline>") {
       const args = source.slice(open + 1, close);
       if (!/\bsections\s*:/.test(args)) {
         const line = source.slice(0, match.index).split("\n").length;
-        const nearby = source.split("\n").slice(Math.max(0, line - 4), line).join("\n");
-        if (EXCEPTION_RE.test(nearby)) {
-          pattern.lastIndex = close + 1;
-          continue;
-        }
         findings.push(`${file}:${line}: ${call.fn} must pass sections; ${call.reason}`);
       }
       pattern.lastIndex = close + 1;
@@ -103,16 +98,12 @@ export function inspectSource(source, file = "<inline>") {
 
 function selfTest() {
   assert.deepEqual(inspectSource("await getWeighingGrowth({ ...scope, ...window, sections: \"rejected\" })"), []);
+  assert.deepEqual(inspectSource("await getWeightDemographics({ ...scope, ...window, sections: \"dimensions\" })"), []);
   assert.deepEqual(inspectSource("await getGrowthDirector({ ...scope, sections: directorSections })"), []);
-  assert.deepEqual(
-    inspectSource("// sectioned-aggregate-reads:allow reason=full-analytics-route\nawait getWeighingGrowth({ ...scope, ...window })"),
-    [],
-  );
   assert.match(inspectSource("await getWeighingGrowth({ ...scope, ...window })")[0], /getWeighingGrowth must pass sections/);
-  assert.match(
-    inspectSource("// sectioned-aggregate-reads:allow\nawait getWeighingGrowth({ ...scope, ...window })")[0],
-    /getWeighingGrowth must pass sections/,
-  );
+  assert.match(inspectSource("await getWeightDemographics({ ...scope, ...window })")[0], /getWeightDemographics must pass sections/);
+  assert.match(inspectSource("// sectioned-aggregate-reads:allow reason=full-analytics-route\nawait getWeighingGrowth({ ...scope, ...window })")[0], /getWeighingGrowth must pass sections/);
+  assert.match(inspectSource("// sectioned-aggregate-reads:allow\nawait getWeighingGrowth({ ...scope, ...window })")[0], /getWeighingGrowth must pass sections/);
   assert.match(inspectSource("await getGrowthDirector({ park_id: parkId })")[0], /getGrowthDirector must pass sections/);
   assert.match(inspectSource("await getFeedAnalyticsExecution({ ...params })")[0], /getFeedAnalyticsExecution must pass sections/);
   console.log("admin-web sectioned aggregate reads guard self-test: OK");
@@ -131,7 +122,7 @@ function main() {
     console.error("admin-web sectioned aggregate reads guard failed:");
     for (const finding of findings) console.error(`- ${finding}`);
     console.error("\nFix: pass a `sections` list matching the widgets rendered on that route, or split the read.");
-    console.error("A full-route exception must be adjacent and explicit: `sectioned-aggregate-reads:allow reason=<why-full-payload-is-rendered>`.");
+    console.error("No inline exception is allowed: split the route or pass explicit sections.");
     process.exit(1);
   }
   console.log("admin-web sectioned aggregate reads guard: OK");

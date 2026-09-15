@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/vgoats/goatos/backend/internal/parkscope"
 	"github.com/vgoats/goatos/backend/internal/permissions"
+	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
 	"github.com/vgoats/goatos/backend/internal/workforce/ports"
 )
 
@@ -515,6 +516,77 @@ func (r *AccessRepository) ResolvePermissions(ctx context.Context, tenantID, use
 		})
 	}
 	return permissions.PermissionsForAssignmentsWithBaseline(assignments), true, nil
+}
+
+func (r *AccessRepository) ResolveAccessSnapshot(ctx context.Context, tenantID, userID string) (httpmiddleware.PersonAccessSnapshot, bool, error) {
+	var (
+		hasAccess  bool
+		scopeMode  string
+		modulesRaw []byte
+		parksRaw   []byte
+	)
+	err := r.pool.QueryRow(ctx,
+		`SELECT a.workforce_member_id IS NOT NULL AS has_access,
+		        coalesce(a.scope_mode, 'parks') AS scope_mode,
+		        coalesce(
+		          (SELECT jsonb_agg(jsonb_build_object(
+		                    'module', ma.module_key,
+		                    'surface', ma.surface,
+		                    'capabilities', to_jsonb(ma.capabilities))
+		                  ORDER BY ma.module_key, ma.surface)
+		             FROM person_module_access ma
+		            WHERE ma.tenant_id = m.tenant_id
+		              AND ma.workforce_member_id = m.workforce_member_id),
+		          '[]'::jsonb) AS modules,
+		        coalesce(
+		          (SELECT jsonb_agg(ps.park_id::text ORDER BY ps.park_id::text)
+		             FROM person_park_scope ps
+		            WHERE ps.tenant_id = m.tenant_id
+		              AND ps.workforce_member_id = m.workforce_member_id),
+		          '[]'::jsonb) AS park_ids
+		   FROM workforce_members m
+		   LEFT JOIN person_access a
+		     ON a.tenant_id = m.tenant_id
+		    AND a.workforce_member_id = m.workforce_member_id
+		  WHERE m.tenant_id = $1::uuid
+		    AND m.user_id = $2::uuid
+		    AND m.status = 'active'`,
+		tenantID, userID,
+	).Scan(&hasAccess, &scopeMode, &modulesRaw, &parksRaw)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return httpmiddleware.PersonAccessSnapshot{}, false, nil
+	}
+	if err != nil {
+		perms, provisioned, err := provisionedOrErr(err)
+		return httpmiddleware.PersonAccessSnapshot{Permissions: perms}, provisioned, err
+	}
+	if !hasAccess {
+		return httpmiddleware.PersonAccessSnapshot{}, false, nil
+	}
+	var rows []moduleRowJSON
+	if err := json.Unmarshal(modulesRaw, &rows); err != nil {
+		return httpmiddleware.PersonAccessSnapshot{}, true, fmt.Errorf("decode runtime module rows: %w", err)
+	}
+	assignments := make([]permissions.ModuleAssignment, 0, 32)
+	for _, row := range rows {
+		assignments = append(assignments, permissions.ModuleAssignment{
+			Module:       row.Module,
+			Surface:      row.Surface,
+			Capabilities: row.Capabilities,
+		})
+	}
+	var parkIDs []string
+	if err := json.Unmarshal(parksRaw, &parkIDs); err != nil {
+		return httpmiddleware.PersonAccessSnapshot{}, true, fmt.Errorf("decode runtime park scope: %w", err)
+	}
+	if parkIDs == nil {
+		parkIDs = []string{}
+	}
+	return httpmiddleware.PersonAccessSnapshot{
+		Permissions: permissions.PermissionsForAssignmentsWithBaseline(assignments),
+		ScopeMode:   scopeMode,
+		ParkIDs:     parkIDs,
+	}, true, nil
 }
 
 // ResolveParkScope is the REQUEST PATH scope read for a principal whose per-person permissions

@@ -146,7 +146,7 @@ function InventoryProgressContent({
             {copy(pageContract, "inventory_progress.empty")}
           </div>
         ) : (
-          <div style={{ overflowX: "auto" }}>
+          <div className="twrap" tabIndex={0} role="group" aria-label={copy(pageContract, "inventory_progress.title")}>
             <table className="data-table">
               <thead>
                 <tr>

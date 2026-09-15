@@ -106,7 +106,7 @@ export function ToxinReviewList({
         </div>
       ) : null}
 
-      <div style={{ overflowX: "auto" }} tabIndex={0} role="group">
+      <div className="twrap" tabIndex={0} role="group">
         <table data-enh="1" className="vr-table">
           <thead>
             <tr>
@@ -128,7 +128,7 @@ export function ToxinReviewList({
               rows.map((row) => (
                 <tr key={row.taskId} className="vr-row">
                   <td>
-                    <button type="button" className="vr-rowlink" style={{ all: "unset", cursor: "pointer", display: "block", width: "100%" }} onClick={() => openRow(row.taskId)}>
+                    <button type="button" className="vr-rowlink toxin-row-button" onClick={() => openRow(row.taskId)}>
                       <div className="vr-subj">
                         <span className="t">{row.contextLine}</span>
                         {/* The purchase date is NOT repeated here: context_line already ends with
@@ -144,12 +144,12 @@ export function ToxinReviewList({
                     </button>
                   </td>
                   <td className="muted" style={{ whiteSpace: "nowrap" }}>
-                    <button type="button" style={{ all: "unset", cursor: "pointer", display: "block", width: "100%" }} onClick={() => openRow(row.taskId)}>
+                    <button type="button" className="toxin-row-button" onClick={() => openRow(row.taskId)}>
                       {row.outcomeLabel || "—"}
                     </button>
                   </td>
                   <td style={{ whiteSpace: "nowrap" }}>
-                    <button type="button" style={{ all: "unset", cursor: "pointer", display: "block", width: "100%" }} onClick={() => openRow(row.taskId)}>
+                    <button type="button" className="toxin-row-button" onClick={() => openRow(row.taskId)}>
                       <Tag tone="warn">{row.statusChip}</Tag>
                     </button>
                   </td>

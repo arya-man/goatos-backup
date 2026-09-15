@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	ltdomain "github.com/vgoats/goatos/backend/internal/leadershiptasks/domain"
 	ltports "github.com/vgoats/goatos/backend/internal/leadershiptasks/ports"
@@ -29,15 +30,20 @@ const (
 // fakeService records the query the handler built, which is the whole point of these
 // tests: every scope rule lives in the handler, and the service must receive its result.
 type fakeService struct {
-	mu     sync.Mutex
-	last   domain.Query
-	lists  []domain.Query
-	counts map[domain.WorkState]int
+	mu        sync.Mutex
+	last      domain.Query
+	lists     []domain.Query
+	summaries int
+	counts    map[domain.WorkState]int
+	degraded  []domain.Module
 	// found is what FindRow answers; lastRowKey / lastAfter / lastLimit record the subtask read.
 	found      bool
 	lastRowKey string
 	lastAfter  string
 	lastLimit  int
+	listDelay  time.Duration
+	activeList int
+	maxList    int
 }
 
 func (f *fakeService) FindRow(_ context.Context, q domain.Query, rowKey string) (domain.Row, bool, error) {
@@ -64,7 +70,19 @@ func (f *fakeService) List(_ context.Context, q domain.Query) (domain.Page, erro
 	f.mu.Lock()
 	f.last = q
 	f.lists = append(f.lists, q)
+	f.activeList++
+	if f.activeList > f.maxList {
+		f.maxList = f.activeList
+	}
 	f.mu.Unlock()
+	if f.listDelay > 0 {
+		time.Sleep(f.listDelay)
+	}
+	defer func() {
+		f.mu.Lock()
+		f.activeList--
+		f.mu.Unlock()
+	}()
 	state := domain.WorkStateDue
 	if len(q.WorkStates) > 0 {
 		state = q.WorkStates[0]
@@ -76,10 +94,12 @@ func (f *fakeService) Summary(_ context.Context, q domain.Query) (domain.Summary
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.last = q
+	f.summaries++
 	sum := domain.NewSummary(q.Modules)
 	for state, n := range f.counts {
 		sum.Add(domain.ModuleFeed, map[domain.WorkState]int{state: n})
 	}
+	sum.Degraded = append(sum.Degraded, f.degraded...)
 	return sum, nil
 }
 
@@ -259,6 +279,34 @@ func TestPageBundlesSummaryAndLaneRows(t *testing.T) {
 	}
 }
 
+func TestPageCachesSameScopedBundleOnly(t *testing.T) {
+	svc := &fakeService{counts: map[domain.WorkState]int{domain.WorkStateDue: 1}}
+	h := NewHandler(svc, nil)
+
+	rec, _ := get(t, h, "/work-board/page?park="+parkCBE+"&business_date=2026-09-10&limit=5&debug_timing=1", actorCEO, tenantGrant(permissions.RoleCEOInternal))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("first read: %d", rec.Code)
+	}
+	rec, _ = get(t, h, "/work-board/page?park="+parkCBE+"&business_date=2026-09-10&limit=5&debug_timing=1", actorCEO, tenantGrant(permissions.RoleCEOInternal))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("cached read: %d", rec.Code)
+	}
+	if !strings.Contains(rec.Header().Get("X-GoatOS-Route-Timing"), "cache_hit") {
+		t.Fatalf("cached read did not report cache_hit timing: %q", rec.Header().Get("X-GoatOS-Route-Timing"))
+	}
+	if svc.summaries != 1 {
+		t.Fatalf("same scoped page should reuse the first bundle, summary calls=%d", svc.summaries)
+	}
+
+	rec, _ = get(t, h, "/work-board/page?park="+parkCBE+"&business_date=2026-09-10&limit=5&debug_timing=1", actorOp, parkHeadGrant(parkCBE))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("changed actor read: %d", rec.Code)
+	}
+	if svc.summaries != 2 {
+		t.Fatalf("changed actor/scope must miss cache, summary calls=%d", svc.summaries)
+	}
+}
+
 func TestPageSkipsZeroCountLaneReads(t *testing.T) {
 	svc := &fakeService{counts: map[domain.WorkState]int{domain.WorkStateDue: 1}}
 	h := NewHandler(svc, nil)
@@ -293,6 +341,29 @@ func TestPageCursorForcesLaneReadEvenWhenSummaryIsZero(t *testing.T) {
 	}
 }
 
+func TestPageDoesNotPruneDegradedSummaryModules(t *testing.T) {
+	svc := &fakeService{
+		counts:   map[domain.WorkState]int{domain.WorkStateDue: 1},
+		degraded: []domain.Module{domain.ModuleVaccination},
+	}
+	h := NewHandler(svc, nil)
+	rec, body := get(t, h, "/work-board/page?park="+parkCBE, actorCEO, tenantGrant(permissions.RoleCEOInternal))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status %d %v", rec.Code, body)
+	}
+	foundVaccination := false
+	for _, q := range svc.lists {
+		for _, module := range q.Modules {
+			if module == domain.ModuleVaccination {
+				foundVaccination = true
+			}
+		}
+	}
+	if !foundVaccination {
+		t.Fatalf("a degraded summary module is unknown, not zero; lane reads must still include it: %#v", svc.lists)
+	}
+}
+
 func TestPageHonorsRequestedLanes(t *testing.T) {
 	svc := &fakeService{counts: map[domain.WorkState]int{domain.WorkStateDue: 1, domain.WorkStateCompleted: 1}}
 	h := NewHandler(svc, nil)
@@ -306,6 +377,29 @@ func TestPageHonorsRequestedLanes(t *testing.T) {
 	}
 	if len(svc.lists) != 2 {
 		t.Fatalf("expected two lane reads, got %d", len(svc.lists))
+	}
+}
+
+func TestPageBoundsLaneServiceConcurrency(t *testing.T) {
+	svc := &fakeService{
+		counts: map[domain.WorkState]int{
+			domain.WorkStateDue:                 1,
+			domain.WorkStateInProgress:          1,
+			domain.WorkStateVerificationPending: 1,
+			domain.WorkStateCompleted:           1,
+		},
+		listDelay: 10 * time.Millisecond,
+	}
+	h := NewHandler(svc, nil)
+	rec, body := get(t, h, "/work-board/page?park="+parkCBE, actorCEO, tenantGrant(permissions.RoleCEOInternal))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status %d %v", rec.Code, body)
+	}
+	if len(svc.lists) != len(domain.Lanes()) {
+		t.Fatalf("expected every lane to be read, got %d", len(svc.lists))
+	}
+	if svc.maxList > maxPageLaneServiceConcurrency {
+		t.Fatalf("max concurrent lane service reads=%d want <= %d", svc.maxList, maxPageLaneServiceConcurrency)
 	}
 }
 

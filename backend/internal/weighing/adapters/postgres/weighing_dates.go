@@ -57,7 +57,8 @@ SELECT max(d)::text FROM (
   FROM weighing_observations o
   JOIN weighing_campaign_sheds cs ON cs.campaign_shed_id = o.campaign_shed_id AND cs.tenant_id = o.tenant_id
   JOIN weighing_campaigns c ON c.campaign_id = cs.campaign_id AND c.tenant_id = cs.tenant_id
-	WHERE o.tenant_id = $1::uuid AND c.park_id = ANY($2::uuid[])
+	WHERE ($9::text = '' OR $9::text = 'individual_animal')
+	    AND o.tenant_id = $1::uuid AND c.park_id = ANY($2::uuid[])
 	    AND cs.status <> 'canceled'
 	    AND ($9::text = '' OR cs.weighing_category = $9::text)
 	    AND o.verification_status <> 'rejected'
@@ -68,7 +69,8 @@ SELECT max(d)::text FROM (
   FROM weighing_shed_observations sh
   JOIN weighing_campaign_sheds cs ON cs.campaign_shed_id = sh.campaign_shed_id AND cs.tenant_id = sh.tenant_id
   JOIN weighing_campaigns c ON c.campaign_id = cs.campaign_id AND c.tenant_id = cs.tenant_id
-	WHERE sh.tenant_id = $1::uuid AND c.park_id = ANY($2::uuid[])
+	WHERE ($9::text = '' OR $9::text = 'per_shed_partition')
+	    AND sh.tenant_id = $1::uuid AND c.park_id = ANY($2::uuid[])
 	    AND cs.status <> 'canceled'
 	    AND ($9::text = '' OR cs.weighing_category = $9::text)
 	    AND sh.withdrawn_at IS NULL AND sh.verification_status <> 'rejected'
@@ -116,18 +118,26 @@ func (r *Repository) GetWeighingDates(ctx context.Context, tenantID string, park
 		return flight.value.(domain.WeighingDates), nil
 	}
 
-	sexScope, err := r.resolveSexScope(ctx, tenantID, parkIDs, sex, periodStart, periodEnd)
-	if err != nil {
-		r.finishReadFlight(cacheKey, flight, nil, err)
-		return domain.WeighingDates{}, err
-	}
-	originScope, err := r.resolveOriginScope(ctx, tenantID, parkIDs, origin, periodStart, periodEnd)
-	if err != nil {
-		r.finishReadFlight(cacheKey, flight, nil, err)
-		return domain.WeighingDates{}, err
-	}
 	sexApplied := strings.TrimSpace(sex) != ""
 	originApplied := strings.TrimSpace(origin) != ""
+	var sexScope ReportScope
+	if sexApplied {
+		var err error
+		sexScope, err = r.resolveSexScope(ctx, tenantID, parkIDs, sex, periodStart, periodEnd)
+		if err != nil {
+			r.finishReadFlight(cacheKey, flight, nil, err)
+			return domain.WeighingDates{}, err
+		}
+	}
+	var originScope ReportScope
+	if originApplied {
+		var err error
+		originScope, err = r.resolveOriginScope(ctx, tenantID, parkIDs, origin, periodStart, periodEnd)
+		if err != nil {
+			r.finishReadFlight(cacheKey, flight, nil, err)
+			return domain.WeighingDates{}, err
+		}
+	}
 	scope := IntersectScopes(sexScope, sexApplied, originScope, originApplied)
 	out, err := r.weighingDates(ctx, tenantID, parkIDs, periodStart, periodEnd, sexApplied || originApplied, scope, strings.TrimSpace(weighingCategory))
 	if err != nil {

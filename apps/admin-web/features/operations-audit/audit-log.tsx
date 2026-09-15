@@ -265,7 +265,7 @@ export async function OperationsAuditPage({
               {pageTrailMeta(page, rows.length, Boolean(nextHref), pageContract)}
             </span>
           </div>
-	          <div className="bd" style={{ padding: 0, overflowX: "auto" }} tabIndex={0} role="group" aria-label={copy(pageContract, "table.activity.aria")}>
+	          <div className="bd twrap" style={{ padding: 0 }} tabIndex={0} role="group" aria-label={copy(pageContract, "table.activity.aria")}>
 	            <Pager prevHref={prevHref} nextHref={nextHref} page={page} count={rows.length} pageContract={pageContract} top />
             <table data-enh="1">
               <thead>

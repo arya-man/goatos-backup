@@ -55,6 +55,23 @@ func (f *fakeLister) ListRows(_ context.Context, q pidomain.Query) (pidomain.Lis
 	return res, nil
 }
 
+type slowCounterLister struct {
+	listCalls  int
+	countCalls int
+}
+
+func (f *slowCounterLister) ListRows(ctx context.Context, q pidomain.Query) (pidomain.ListResult, error) {
+	f.listCalls++
+	<-ctx.Done()
+	return pidomain.ListResult{}, ctx.Err()
+}
+
+func (f *slowCounterLister) CountByWorkState(ctx context.Context, q pidomain.Query) ([]pidomain.CountByWorkState, error) {
+	f.countCalls++
+	<-ctx.Done()
+	return nil, ctx.Err()
+}
+
 type fakeMembers struct{ byUser map[string]string }
 
 func (f fakeMembers) WorkforceMemberIDForUser(_ context.Context, _ string, userID string) (string, bool, error) {
@@ -270,6 +287,33 @@ func TestVaccinationBoardKeysetStateFilterAndCounts(t *testing.T) {
 	}
 }
 
+func TestVaccinationBoardCountsUseAggregateAndBoundSlowProcessIntegrity(t *testing.T) {
+	repo := &slowCounterLister{}
+	src := New(repo).WithClock(func() time.Time { return dueAt() })
+	src.timeout = time.Millisecond
+
+	start := time.Now()
+	_, err := src.CountByState(context.Background(), query(""))
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("CountByState err = %v, want deadline", err)
+	}
+	if elapsed := time.Since(start); elapsed > 100*time.Millisecond {
+		t.Fatalf("CountByState should fail fast for Work Board degradation, elapsed=%s", elapsed)
+	}
+	if repo.countCalls != 1 || repo.listCalls != 0 {
+		t.Fatalf("summary counts must use aggregate only, list=%d count=%d", repo.listCalls, repo.countCalls)
+	}
+
+	start = time.Now()
+	_, err = src.ListRows(context.Background(), query(""))
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("ListRows err = %v, want deadline", err)
+	}
+	if elapsed := time.Since(start); elapsed > 100*time.Millisecond {
+		t.Fatalf("ListRows should fail fast for Work Board degradation, elapsed=%s", elapsed)
+	}
+}
+
 func TestVaccinationDueWorkPrecheckMatchesEffectiveExecutionDateSources(t *testing.T) {
 	for _, needle := range []string{
 		"obligation_batches ob",
@@ -283,6 +327,21 @@ func TestVaccinationDueWorkPrecheckMatchesEffectiveExecutionDateSources(t *testi
 		if !strings.Contains(vaccinationDueWorkPrecheckSQL, needle) {
 			t.Fatalf("vaccination due-work precheck must include %q so effective planned-date rows cannot be hidden", needle)
 		}
+	}
+}
+
+func TestVaccinationWorkBoardReadBudgetCoversLocalOCICountPath(t *testing.T) {
+	if workBoardVaccinationPrecheckBudget < 300*time.Millisecond {
+		t.Fatalf("vaccination work-board precheck budget %s is too tight for the local OCI no-work path", workBoardVaccinationPrecheckBudget)
+	}
+	if workBoardVaccinationPrecheckBudget >= workBoardVaccinationReadBudget {
+		t.Fatalf("vaccination work-board precheck budget %s must stay below read budget %s", workBoardVaccinationPrecheckBudget, workBoardVaccinationReadBudget)
+	}
+	if workBoardVaccinationReadBudget < 400*time.Millisecond {
+		t.Fatalf("vaccination work-board read budget %s is too tight for the local OCI count path", workBoardVaccinationReadBudget)
+	}
+	if workBoardVaccinationReadBudget > 500*time.Millisecond {
+		t.Fatalf("vaccination work-board read budget %s must stay below the route latency target", workBoardVaccinationReadBudget)
 	}
 }
 

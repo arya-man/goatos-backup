@@ -21,7 +21,7 @@
       },
       "options": {
         "mode": "markdown",
-        "content": "Top row uses Cloud Run native metrics that were verified in `goatos-stg` Cloud Monitoring. Feature rows use app route metrics (`http_server_requests_total` and `http_server_request_duration_seconds`) from Google Managed Prometheus under `resource.type=\"prometheus_target\"`, grouped by backend route template, so Weighing, Vaccination, Feed, Sales, Procurement and other feature traffic show separately when those routes receive requests in the selected time window."
+        "content": "Top row queries Cloud Run native metrics; current non-empty data must be proven by the live Grafana smoke for the deployed environment. Feature rows use app route metrics (`http_server_requests_total` and `http_server_request_duration_seconds`) from Google Managed Prometheus under `resource.type=\"prometheus_target\"`, grouped by backend route template, so Weighing, Vaccination, Feed, Sales, Procurement and other feature traffic show separately when those routes receive requests in the selected time window."
       }
     },
     {
@@ -48,7 +48,7 @@
             "perSeriesAligner": "ALIGN_RATE",
             "crossSeriesReducer": "REDUCE_SUM",
             "alignmentPeriod": "300s",
-            "filter": "metric.type = \"run.googleapis.com/request_count\" AND resource.label.service_name = \"goatos-admin-web-stg\""
+            "filter": "resource.type = \"cloud_run_revision\" AND metric.type = \"run.googleapis.com/request_count\" AND resource.label.service_name = \"goatos-admin-web-stg\""
           }
         }
       ],
@@ -114,7 +114,7 @@
             "perSeriesAligner": "ALIGN_RATE",
             "crossSeriesReducer": "REDUCE_SUM",
             "alignmentPeriod": "300s",
-            "filter": "metric.type = \"run.googleapis.com/request_count\" AND resource.label.service_name = \"goatos-api-stg\""
+            "filter": "resource.type = \"cloud_run_revision\" AND metric.type = \"run.googleapis.com/request_count\" AND resource.label.service_name = \"goatos-api-stg\""
           }
         }
       ],
@@ -180,7 +180,7 @@
             "perSeriesAligner": "ALIGN_RATE",
             "crossSeriesReducer": "REDUCE_SUM",
             "alignmentPeriod": "300s",
-            "filter": "metric.type = \"run.googleapis.com/request_count\" AND resource.label.service_name = \"goatos-analytics-events-stg\""
+            "filter": "resource.type = \"cloud_run_revision\" AND metric.type = \"run.googleapis.com/request_count\" AND resource.label.service_name = \"goatos-analytics-events-stg\""
           }
         }
       ],
@@ -246,7 +246,7 @@
             "perSeriesAligner": "ALIGN_RATE",
             "crossSeriesReducer": "REDUCE_SUM",
             "alignmentPeriod": "300s",
-            "filter": "metric.type = \"run.googleapis.com/request_count\" AND resource.label.service_name = \"goatos-stg-grafana\""
+            "filter": "resource.type = \"cloud_run_revision\" AND metric.type = \"run.googleapis.com/request_count\" AND resource.label.service_name = \"goatos-stg-grafana\""
           }
         }
       ],
@@ -314,7 +314,7 @@
             "perSeriesAligner": "ALIGN_RATE",
             "crossSeriesReducer": "REDUCE_SUM",
             "alignmentPeriod": "300s",
-            "filter": "metric.type = \"run.googleapis.com/request_count\" AND resource.label.service_name = \"goatos-api-stg\""
+            "filter": "resource.type = \"cloud_run_revision\" AND metric.type = \"run.googleapis.com/request_count\" AND resource.label.service_name = \"goatos-api-stg\""
           }
         }
       ],
@@ -380,7 +380,7 @@
             "perSeriesAligner": "ALIGN_PERCENTILE_50",
             "crossSeriesReducer": "REDUCE_NONE",
             "alignmentPeriod": "300s",
-            "filter": "metric.type = \"run.googleapis.com/request_latencies\" AND resource.label.service_name = \"goatos-api-stg\""
+            "filter": "resource.type = \"cloud_run_revision\" AND metric.type = \"run.googleapis.com/request_latencies\" AND resource.label.service_name = \"goatos-api-stg\""
           }
         },
         {
@@ -395,7 +395,7 @@
             "perSeriesAligner": "ALIGN_PERCENTILE_95",
             "crossSeriesReducer": "REDUCE_NONE",
             "alignmentPeriod": "300s",
-            "filter": "metric.type = \"run.googleapis.com/request_latencies\" AND resource.label.service_name = \"goatos-api-stg\""
+            "filter": "resource.type = \"cloud_run_revision\" AND metric.type = \"run.googleapis.com/request_latencies\" AND resource.label.service_name = \"goatos-api-stg\""
           }
         },
         {
@@ -410,7 +410,7 @@
             "perSeriesAligner": "ALIGN_PERCENTILE_99",
             "crossSeriesReducer": "REDUCE_NONE",
             "alignmentPeriod": "300s",
-            "filter": "metric.type = \"run.googleapis.com/request_latencies\" AND resource.label.service_name = \"goatos-api-stg\""
+            "filter": "resource.type = \"cloud_run_revision\" AND metric.type = \"run.googleapis.com/request_latencies\" AND resource.label.service_name = \"goatos-api-stg\""
           }
         }
       ],
@@ -1560,7 +1560,7 @@
       },
       "options": {
         "mode": "markdown",
-        "content": "End-to-end APM is partly wired and live for server spans: API Cloud Run request spans and `otelpgx` DB spans are present in Cloud Trace, and Cloud SQL infrastructure plus pgx pool/query metrics are present in Cloud Monitoring. Missing pieces: the deployed admin-web revision does not have `NEXT_PUBLIC_FARO_COLLECTOR_URL`, so browser Faro/RUM traces are not entering Alloy; only selected admin-web proxy paths forward `traceparent`; and outbox producers still do not persist W3C `traceparent` into outbox headers, so producer write -> relay -> consumer is not one continuous trace yet."
+        "content": "End-to-end APM is partly wired, but current live Cloud Trace/APM proof must come from the post-deploy Grafana smoke. Expected server-side signals are API Cloud Run request spans, `otelpgx` DB spans, Cloud SQL infrastructure metrics, and pgx pool/query metrics; local guards only verify dashboard and smoke wiring. Pending Faro/RUM: the deployed admin-web revision must set `NEXT_PUBLIC_FARO_COLLECTOR_URL` before browser traces enter Alloy. Pending Cloud Trace dashboarding: the Cloud Trace datasource exists, but browser-to-API panels still need live Faro spans before they can prove a joined trace. Pending `traceparent` continuity: only selected admin-web proxy paths forward `traceparent`, and outbox producers still do not persist W3C `traceparent` into outbox headers, so producer write -> relay -> consumer is not one continuous trace yet."
       }
     }
   ],

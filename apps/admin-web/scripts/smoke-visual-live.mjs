@@ -37,6 +37,8 @@ let baselineCompared = 0;
 let baselineUpdated = 0;
 const wideTableScrollOwnerSelector =
   ".tablewrap,.twrap,.cfgtablewrap,.feed-stock-tablewrap,.pa-gridwrap,.lt-tablewrap,.sales-market-wrap,.health-analytics-scroll,.cbm-future-table-wrap,.vplan .scroll";
+const smokeWideWindowTo = new Date().toISOString().slice(0, 10);
+const smokeWideWindowFrom = new Date(Date.now() - 43 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 
 // Optional focused run: GOATOS_SMOKE_ONLY_ROUTES=calendar,counts-herd restricts the sweep to those
 // routes so a targeted assertion (e.g. calendar identity) can run without an unrelated earlier route
@@ -94,15 +96,26 @@ function buildRoutes({ goatId, procurementLoadId, workflowRowId, calendarEventId
   const routes = [
     { name: "control-tower", path: "/?scope_mode=company&lens=control-tower" },
     { name: "action-center", path: "/action-center?scope_mode=company" },
+    { name: "action-center-verify", path: "/action-center?scope_mode=company&bucket=verify" },
+    { name: "action-center-overdue", path: "/action-center?scope_mode=company&state=overdue" },
+    { name: "action-center-due", path: "/action-center?scope_mode=company&state=due" },
     { name: "calendar", path: "/calendar?scope_mode=company&day=week" },
     { name: "calendar-month", path: "/calendar?scope_mode=company&view=month" },
     { name: "calendar-history", path: "/calendar?scope_mode=company&status=completed" },
     { name: "calendar-owner-pc", path: "/calendar?scope_mode=company&day=week&owner_key=pc" },
     { name: "protocol-adherence", path: "/protocol-adherence?scope_mode=company" },
+    { name: "protocol-adherence-high", path: "/protocol-adherence?scope_mode=company&severity=high" },
+    { name: "protocol-adherence-overdue", path: "/protocol-adherence?scope_mode=company&state=overdue" },
     { name: "work-board", path: "/work-board?scope_mode=company" },
     { name: "workflows", path: "/workflows?scope_mode=company" },
     { name: "approvals", path: "/approvals?scope_mode=company" },
+    { name: "approvals-approved", path: "/approvals?scope_mode=company&status=approved" },
+    { name: "approvals-rejected", path: "/approvals?scope_mode=company&status=rejected" },
     { name: "verify", path: "/verify?scope_mode=company" },
+    { name: "verify-all", path: "/verify?scope_mode=company&status=all" },
+    { name: "verify-approved", path: "/verify?scope_mode=company&status=approved" },
+    { name: "verify-rejected", path: "/verify?scope_mode=company&status=rejected" },
+    { name: "verify-toxin", path: "/verify?scope_mode=company&toxin=1" },
     { name: "actions", path: "/actions?scope_mode=company" },
     { name: "verification", path: "/verification?scope_mode=company" },
     { name: "vaccination", path: "/vaccination?scope_mode=company" },
@@ -111,6 +124,8 @@ function buildRoutes({ goatId, procurementLoadId, workflowRowId, calendarEventId
     path: `/vaccination?scope_mode=company&view=schedule&schedule_year=${new Date().getFullYear()}`,
   },
     { name: "vaccination-execution", path: "/vaccination?scope_mode=company#execution" },
+    { name: "vaccination-sheds-status-action", path: "/vaccination?scope_mode=company&sheds_status=needs_review#execution" },
+    { name: "vaccination-sheds-capacity-action", path: "/vaccination?scope_mode=company&sheds_capacity=capacity_breach#execution" },
     { name: "vaccination-live-tracker", path: "/vaccination/live-tracker?scope_mode=company" },
     { name: "vaccination-plan", path: "/vaccination/plan?scope_mode=company" },
     { name: "vaccination-plan-edit", path: "/vaccination/plan/edit?scope_mode=company" },
@@ -119,6 +134,9 @@ function buildRoutes({ goatId, procurementLoadId, workflowRowId, calendarEventId
       path: `${vaccinationShedPath ?? "/vaccination/execution/sheds/placeholder?scope_mode=company"}`,
     },
     { name: "procurement-source-entry", path: "/procurement/source-entry?scope_mode=company" },
+    { name: "procurement-source-entry-health-pending", path: "/procurement/source-entry?scope_mode=company&status=health_pending" },
+    { name: "procurement-source-entry-arrival-review", path: "/procurement/source-entry?scope_mode=company&status=arrival_review" },
+    { name: "procurement-source-entry-accepted-intake", path: "/procurement/source-entry?scope_mode=company&status=accepted_intake" },
     { name: "procurement-vendors", path: "/procurement/vendors?scope_mode=company" },
     { name: "procurement-feed-purchases", path: "/procurement/feed-purchases?scope_mode=company" },
     { name: "procurement-animal-purchases", path: "/procurement/animal-purchases?scope_mode=company" },
@@ -128,6 +146,7 @@ function buildRoutes({ goatId, procurementLoadId, workflowRowId, calendarEventId
     { name: "sales-loads", path: "/sales/loads?scope_mode=company" },
     { name: "sales-loads-farm-born", path: "/sales/loads?scope_mode=company&view=farm_born" },
     { name: "sales-market-analytics", path: "/sales/market-analytics?scope_mode=company" },
+    { name: "sales-buyer-analytics", path: "/sales/buyer-analytics?scope_mode=company" },
     { name: "sales-config", path: "/sales/config?scope_mode=company" },
     { name: "sales-vendors", path: "/sales/vendors?scope_mode=company" },
     { name: "feed-config", path: "/feed/config?scope_mode=company" },
@@ -140,8 +159,12 @@ function buildRoutes({ goatId, procurementLoadId, workflowRowId, calendarEventId
     { name: "feed-sops", path: "/feed/sops?scope_mode=company" },
     { name: "feed-direction", path: "/feed/direction?scope_mode=company" },
     { name: "feed-packing", path: "/feed/packing?scope_mode=company" },
-    { name: "weighing-analytics", path: "/weighing/analytics?scope_mode=company" },
+    { name: "weighing-analytics", path: "/weighing/analytics?scope_mode=company&tab=general" },
     { name: "weighing-analytics-breed", path: "/weighing/analytics?scope_mode=company&tab=breed" },
+    {
+      name: "weighing-analytics-breed-wide",
+      path: `/weighing/analytics?scope_mode=company&tab=breed&wt_from=${smokeWideWindowFrom}&wt_to=${smokeWideWindowTo}`,
+    },
     { name: "weighing-analytics-birth", path: "/weighing/analytics?scope_mode=company&tab=birth" },
     { name: "weighing-analytics-shed", path: "/weighing/analytics?scope_mode=company&tab=shed" },
     { name: "weighing-analytics-weight", path: "/weighing/analytics?scope_mode=company&tab=weight" },
@@ -169,13 +192,21 @@ function buildRoutes({ goatId, procurementLoadId, workflowRowId, calendarEventId
     { name: "health-analytics-engine", path: "/health/analytics?scope_mode=company&tab=engine" },
     { name: "health-config", path: "/health/config?scope_mode=company" },
     { name: "operations-audit", path: "/operations/audit?scope_mode=company" },
+    { name: "operations-audit-awaiting", path: "/operations/audit?scope_mode=company&status=verification_pending" },
+    { name: "operations-audit-rejected", path: "/operations/audit?scope_mode=company&result=rejected" },
+    { name: "operations-audit-proof-gaps", path: "/operations/audit?scope_mode=company&proof_gaps=true" },
     { name: "operations-dlq", path: "/operations/dlq?scope_mode=company" },
+    { name: "operations-dlq-failed", path: "/operations/dlq?scope_mode=company&status=failed" },
+    { name: "operations-dlq-discarded", path: "/operations/dlq?scope_mode=company&status=discarded" },
     { name: "people", path: "/people?scope_mode=company" },
     { name: "people-vaccination", path: "/people?scope_mode=company&tab=vaccination" },
     { name: "people-clock", path: "/people?scope_mode=company&tab=clock" },
     { name: "people-notifications", path: "/people?scope_mode=company&tab=notifications" },
     { name: "ceo-ai-admin", path: "/ceo-ai-admin?scope_mode=company" },
     { name: "leave", path: "/leave?scope_mode=company" },
+    { name: "leave-approved", path: "/leave?scope_mode=company&status=approved" },
+    { name: "leave-rejected", path: "/leave?scope_mode=company&status=rejected" },
+    { name: "leave-withdrawn", path: "/leave?scope_mode=company&status=withdrawn" },
     { name: "tasks", path: "/tasks?scope_mode=company" },
     { name: "workflow-record", path: `/workflows/${encodeURIComponent(workflowRowId)}?scope_mode=company` },
     { name: "calendar-drive-detail", path: `/calendar/drive/${encodeURIComponent(calendarEventId)}?scope_mode=company` },
@@ -231,6 +262,21 @@ const pagerMinimums = new Map([
   ["people", 1],
 ]);
 
+const failureScreenMarkers = [
+  "backend_down",
+  "Admin-web contract unavailable",
+  "The board could not be loaded",
+  "Weights could not be loaded",
+];
+const browserEvidence = {
+  schema_version: "1.0.0",
+  same_api_build: process.env.GOATOS_SMOKE_SAME_API_BUILD === "1",
+  api_base_url: apiBaseUrl,
+  admin_web_base_url: appBaseUrl,
+  api_build_sha: process.env.GOATOS_SMOKE_API_BUILD_SHA ?? null,
+  routes: [],
+};
+
 const browser = await chromium.launch({ channel: process.env.GOATOS_SMOKE_BROWSER_CHANNEL || "chrome" });
 try {
   for (const viewport of [
@@ -265,38 +311,51 @@ try {
         expires: Math.floor(Date.now() / 1000) + 3600,
       },
     ]);
-    const page = await context.newPage();
     for (const route of selectedRoutes) {
       if (route.viewports && !route.viewports.includes(viewport.label)) continue;
       console.log(`visual_route_start=${viewport.label}:${route.name}`);
-      const url = `${appBaseUrl}${appPath(route.path)}`;
-      const response = await gotoWithRetry(page, url);
-      await page.waitForLoadState("networkidle", { timeout: 5_000 }).catch(() => {});
-      if (!response) {
-        await page.waitForURL(url, { timeout: 5_000 }).catch(() => undefined);
-        if (page.url() !== url) {
-          throw new Error(`${route.name} returned HTTP no-response for ${appPath(route.path)}`);
+      const page = await context.newPage();
+      try {
+        const url = `${appBaseUrl}${appPath(route.path)}`;
+        const response = await gotoWithRetry(page, url);
+        await page.waitForLoadState("networkidle", { timeout: 5_000 }).catch(() => {});
+        if (!response) {
+          await page.waitForURL(url, { timeout: 5_000 }).catch(() => undefined);
+          if (page.url() !== url) {
+            throw new Error(`${route.name} returned HTTP no-response for ${appPath(route.path)}`);
+          }
+        } else if (!response.ok()) {
+          throw new Error(`${route.name} returned HTTP ${response.status()} for ${appPath(route.path)}`);
         }
-      } else if (!response.ok()) {
-        throw new Error(`${route.name} returned HTTP ${response.status()} for ${appPath(route.path)}`);
+        const html = await page.content();
+        const visibleText = await page.locator("body").innerText({ timeout: 5_000 }).catch(() => "");
+        assertHealthyHTML(route.name, html, visibleText, bearerToken);
+        const routeSignals = await assertRouteLoadedSignal(page, route.name, visibleText);
+        browserEvidence.routes.push({
+          name: route.name,
+          route: appPath(route.path),
+          viewport: viewport.label,
+          loaded: true,
+          forbidden_strings_absent: failureScreenMarkers,
+          route_signals: routeSignals,
+        });
+        await assertLayoutHealthy(page, route.name, viewport.label);
+        await assertMobileWideTableGestures(page, route.name, viewport.label, screenshotDir);
+        await assertA11y(page, route.name, viewport.label);
+        await assertTruncationContracts(page, route.name, viewport.label);
+        await assertPaginationControls(page, route.name, viewport.label);
+        await assertCoreInteractions(page, route.name, viewport.label);
+        await settleAtTop(page);
+        const screenshotName = `${viewport.label}-${route.name}.png`;
+        const screenshotPath = join(screenshotDir, screenshotName);
+        await page.screenshot({ path: screenshotPath, fullPage: true });
+        if (baselineDir) {
+          compareOrUpdateBaseline(screenshotName, screenshotPath);
+        }
+        console.log(`visual_route_done=${viewport.label}:${route.name}`);
+      } finally {
+        await page.close().catch(() => {});
       }
-      const html = await page.content();
-      const visibleText = await page.locator("body").innerText({ timeout: 5_000 }).catch(() => "");
-      assertHealthyHTML(route.name, html, visibleText, bearerToken);
-      await assertLayoutHealthy(page, route.name, viewport.label);
-      await assertMobileWideTableGestures(page, route.name, viewport.label, screenshotDir);
-      await assertA11y(page, route.name, viewport.label);
-      await assertTruncationContracts(page, route.name, viewport.label);
-      await assertPaginationControls(page, route.name, viewport.label);
-      await assertCoreInteractions(page, route.name, viewport.label);
-      await settleAtTop(page);
-      const screenshotName = `${viewport.label}-${route.name}.png`;
-      const screenshotPath = join(screenshotDir, screenshotName);
-      await page.screenshot({ path: screenshotPath, fullPage: true });
-      if (baselineDir) {
-        compareOrUpdateBaseline(screenshotName, screenshotPath);
-      }
-      console.log(`visual_route_done=${viewport.label}:${route.name}`);
     }
     await context.close();
   }
@@ -324,6 +383,7 @@ writeFileSync(
     2,
   ),
 );
+writeFileSync(join(screenshotDir, "browser-evidence.json"), `${JSON.stringify(browserEvidence, null, 2)}\n`);
 
 console.log(`screenshots_dir=${relativeToRepo(screenshotDir)}`);
 console.log(`goat_id=${goatId}`);
@@ -451,11 +511,7 @@ function assertHealthyHTML(routeName, html, visibleText, token) {
       throw new Error(`${routeName} rendered failure marker: ${marker}`);
     }
   }
-  const visibleForbidden = [
-    "backend_down",
-    "The board could not be loaded",
-    "Weights could not be loaded",
-  ];
+  const visibleForbidden = failureScreenMarkers.filter((marker) => marker !== "Admin-web contract unavailable");
   for (const marker of visibleForbidden) {
     if (visibleText.includes(marker)) {
       throw new Error(`${routeName} rendered visible failure marker: ${marker}`);
@@ -464,6 +520,84 @@ function assertHealthyHTML(routeName, html, visibleText, token) {
   if (token && html.includes(token)) {
     throw new Error(`${routeName} rendered GOATOS_BEARER_TOKEN into HTML`);
   }
+}
+
+async function assertRouteLoadedSignal(page, routeName, visibleText) {
+  const normalized = visibleText.replace(/\s+/g, " ").trim();
+  if (routeName === "work-board") {
+    const laneCounts = {
+      todo: extractCountAfter(normalized, "TO DO"),
+      in_progress: extractCountAfter(normalized, "IN PROGRESS"),
+      in_review: extractCountAfter(normalized, "IN REVIEW"),
+      done: extractCountAfter(normalized, "DONE"),
+    };
+    const hasLaneCounters = Object.values(laneCounts).every((value) => value !== null);
+    const hasHealthyEmptyState = normalized.includes("No work on this board for the day.");
+    const hasWorkCards = await page.locator("[data-work-board-row], [data-work-row-key]").count().catch(() => 0);
+    const degraded = /Some work couldn't load right now/.test(normalized);
+    if ((!hasLaneCounters && !hasWorkCards && !hasHealthyEmptyState) || degraded) {
+      throw new Error(`${routeName} did not prove a loaded Work Board state`);
+    }
+    if (!hasWorkCards && !hasHealthyEmptyState) {
+      throw new Error(`${routeName} has no cards but did not render the healthy empty-board copy`);
+    }
+    return { lane_counts: laneCounts, work_cards: hasWorkCards, healthy_empty_state: hasHealthyEmptyState };
+  }
+  if (routeName === "weighing-weights") {
+    if (!/Kids losing weight/i.test(normalized) || !/\bkg\b/i.test(normalized) || !/\bPage\b/i.test(normalized)) {
+      throw new Error(`${routeName} did not prove loaded Weighing weights data`);
+    }
+    return { has_losing_weight_table: true };
+  }
+  if (routeName === "weighing-analytics") {
+    if (!/Pens weighed:/i.test(normalized) || !/\bkg\b/i.test(normalized) || !/\bDaily gain\b/i.test(normalized)) {
+      throw new Error(`${routeName} did not prove loaded Weighing analytics data`);
+    }
+    return { has_weighing_kpis: true, tab: "general" };
+  }
+  if (routeName === "weighing-analytics-breed" || routeName === "weighing-analytics-breed-wide") {
+    if (!/Breed-wise/i.test(normalized) || !/\bkg\b/i.test(normalized) || !/Average weight/i.test(normalized)) {
+      throw new Error(`${routeName} did not prove loaded breed-wise Weighing analytics data`);
+    }
+    return { has_breed_breakdown: true, tab: "breed", selected_window: routeName.endsWith("-wide") };
+  }
+  if (routeName === "weighing-analytics-birth") {
+    if (!/Birth-wise/i.test(normalized) || !/Farm born vs purchased/i.test(normalized) || !/\bg\b/i.test(normalized)) {
+      throw new Error(`${routeName} did not prove loaded birth-origin Weighing analytics data`);
+    }
+    return { has_origin_breakdown: true, tab: "birth" };
+  }
+  if (routeName === "weighing-analytics-shed") {
+    if (!/Pen-wise/i.test(normalized) || !/Elevated vs ground pens/i.test(normalized) || !/\bg\b/i.test(normalized)) {
+      throw new Error(`${routeName} did not prove loaded shed-type Weighing analytics data`);
+    }
+    return { has_shed_type_breakdown: true, tab: "shed" };
+  }
+  if (routeName === "weighing-analytics-weight") {
+    if (!/Weight-wise/i.test(normalized) || !/\bkg\b/i.test(normalized) || !/Average weight/i.test(normalized)) {
+      throw new Error(`${routeName} did not prove loaded weight-band Weighing analytics data`);
+    }
+    return { has_weight_band_breakdown: true, tab: "weight" };
+  }
+  if (routeName === "weighing-analytics-time") {
+    if (!/Weekly growth/i.test(normalized) || !/\bkids\b/i.test(normalized) || !/\bg\b/i.test(normalized)) {
+      throw new Error(`${routeName} did not prove loaded time-wise Weighing analytics data`);
+    }
+    return { has_weekly_growth: true, tab: "time" };
+  }
+  if (routeName === "weighing-analytics-load") {
+    if (!/Purchased weight against/i.test(normalized) || !/Latest weighing/i.test(normalized) || !/At purchase/i.test(normalized)) {
+      throw new Error(`${routeName} did not prove loaded load-wise Weighing analytics data`);
+    }
+    return { has_load_breakdown: true, tab: "load" };
+  }
+  return {};
+}
+
+function extractCountAfter(text, label) {
+  const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const match = text.match(new RegExp(`${escaped}(?:\\s+[^\\d\\s]+)?\\s+(\\d+)`));
+  return match ? Number(match[1]) : null;
 }
 
 async function assertLayoutHealthy(page, routeName, viewportLabel) {
@@ -683,7 +817,7 @@ async function assertMobileWideTableGestures(page, routeName, viewportLabel, scr
   if (viewportLabel !== "mobile") return;
   const scrollOwners = await page.locator(wideTableScrollOwnerSelector).evaluateAll((elements) =>
     elements
-      .map((element, index) => {
+      .map((element, domIndex) => {
         if (!(element instanceof HTMLElement)) return null;
         const table = element.querySelector("table");
         if (!table) return null;
@@ -692,7 +826,7 @@ async function assertMobileWideTableGestures(page, routeName, viewportLabel, scr
         if (rect.width <= 0 || rect.height <= 0 || style.visibility === "hidden" || style.display === "none") return null;
         if (element.scrollWidth <= element.clientWidth + 2) return null;
         return {
-          index,
+          domIndex,
           label: element.getAttribute("aria-label") || table.getAttribute("aria-label") || table.textContent?.trim().replace(/\s+/g, " ").slice(0, 60) || "wide table",
         };
       })
@@ -700,7 +834,7 @@ async function assertMobileWideTableGestures(page, routeName, viewportLabel, scr
   );
 
   for (const owner of scrollOwners) {
-    const locator = page.locator(wideTableScrollOwnerSelector).nth(owner.index);
+    const locator = page.locator(wideTableScrollOwnerSelector).nth(owner.domIndex);
     await locator.evaluate((element) => {
       element.scrollLeft = 0;
       element.scrollIntoView({ block: "center", inline: "nearest" });
@@ -719,7 +853,7 @@ async function assertMobileWideTableGestures(page, routeName, viewportLabel, scr
       element.scrollLeft = element.scrollWidth;
     });
     await locator.screenshot({
-      path: join(screenshotRoot, `${viewportLabel}-${routeName}-wide-table-${owner.index}-right.png`),
+      path: join(screenshotRoot, `${viewportLabel}-${routeName}-wide-table-${owner.domIndex}-right.png`),
     });
   }
 }

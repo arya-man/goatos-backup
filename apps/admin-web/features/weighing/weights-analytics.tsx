@@ -180,9 +180,23 @@ export async function WeighingWeightsAnalyticsPage({
   // Every tab needs the shed read: it carries the park vocabulary the filter bar renders, plus
   // the whole-shed gain figures the Shed-wise tab reads. Only the tab's own extra reads are
   // fetched beside it, so opening Breed-wise does not pay for the Growth queries.
-  const wantsGrowth = tab === "general" || tab === "shed" || tab === "time";
+  const growthSections =
+    tab === "general" ? "headline,shed_leaderboard,by_park" : tab === "time" ? "weekly_gain" : "";
+  const wantsGrowth = growthSections !== "";
   const wantsDemographics =
     tab === "breed" || tab === "shed" || tab === "birth" || tab === "weight" || tab === "time";
+  const demographicsSections =
+    tab === "breed"
+      ? "dimensions"
+      : tab === "birth"
+        ? "origin"
+        : tab === "shed"
+          ? "shed_type"
+          : tab === "weight"
+            ? "weight_bands"
+            : tab === "time"
+              ? "weekly_gain"
+              : "";
 
   // The Load-wise tab reads the purchase ledger beside the ONE shed-weights request every tab
   // makes — but on that tab the shed read carries the tab's own basis instead of the page
@@ -206,9 +220,8 @@ export async function WeighingWeightsAnalyticsPage({
   const wantsValue = wantsLoads && (valueChart?.enabled ?? false);
   const [weights, growth, demographics, loadwise, loadValues] = await Promise.all([
     getShedWeights(shedParams),
-    // sectioned-aggregate-reads:allow reason=analytics-route-renders-growth-tabs-from-full-payload
-    wantsGrowth ? getWeighingGrowth({ ...scope, ...readWindow }) : null,
-    wantsDemographics ? getWeightDemographics({ ...scope, ...readWindow, include_week_grids: tab === "time" }) : null,
+    wantsGrowth ? getWeighingGrowth({ ...scope, ...readWindow, sections: growthSections }) : null,
+    wantsDemographics ? getWeightDemographics({ ...scope, ...readWindow, sections: demographicsSections }) : null,
     wantsLoads ? getLoadwiseWeights({ park_id: parkFilter || undefined }) : null,
     wantsValue ? getLoadwiseSales({ park_id: parkFilter || undefined }) : null,
   ]);
