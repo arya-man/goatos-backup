@@ -108,33 +108,49 @@ func (r *Repository) GetShedWeights(ctx context.Context, tenantID string, scopeP
 	if selectedParkID != "" {
 		parkIDs = []string{selectedParkID}
 	}
-	// The Sex filter narrows WHICH WEIGHS are counted, never which sheds exist: sheds_in_scope
-	// stays the whole scope, so "N of 65 sheds weighed" keeps one denominator across every filter
-	// position and a reader can see that the male half covers fewer sheds. Resolving identity is
-	// sex_scope.go's job — nothing in THIS file knows what an animal is; it is handed a list of
-	// tag strings and a list of buckets.
-	sexScope, scopeErr := r.resolveSexScope(ctx, tenantID, parkIDs, sex, periodStart, periodEnd)
-	if scopeErr != nil {
-		return domain.ShedWeights{}, scopeErr
-	}
-	// Origin (farm born / purchased) narrows the SAME rows through the SAME opaque shape, so the
-	// two filters compose without this file learning what either of them means. Both selected at
-	// once means the rows in BOTH, which is what a reader picking "Female" and "Purchased" asks
-	// for; the unfiltered page resolves neither and runs the query it always ran.
-	originScope, originErr := r.resolveOriginScope(ctx, tenantID, parkIDs, origin, periodStart, periodEnd)
-	if originErr != nil {
-		return domain.ShedWeights{}, originErr
-	}
 	sexApplied := strings.TrimSpace(sex) != ""
 	originApplied := strings.TrimSpace(origin) != ""
+	var sexScope ReportScope
+	if sexApplied {
+		// The Sex filter narrows WHICH WEIGHS are counted, never which sheds exist: sheds_in_scope
+		// stays the whole scope, so "N of 65 sheds weighed" keeps one denominator across every filter
+		// position and a reader can see that the male half covers fewer sheds. Resolving identity is
+		// sex_scope.go's job — nothing in THIS file knows what an animal is; it is handed a list of
+		// tag strings and a list of buckets.
+		var scopeErr error
+		sexScope, scopeErr = r.resolveSexScope(ctx, tenantID, parkIDs, sex, periodStart, periodEnd)
+		if scopeErr != nil {
+			return domain.ShedWeights{}, scopeErr
+		}
+	}
+	var originScope ReportScope
+	if originApplied {
+		// Origin (farm born / purchased) narrows the SAME rows through the SAME opaque shape, so the
+		// two filters compose without this file learning what either of them means. Both selected at
+		// once means the rows in BOTH, which is what a reader picking "Female" and "Purchased" asks
+		// for; the unfiltered page resolves neither and runs the query it always ran.
+		var originErr error
+		originScope, originErr = r.resolveOriginScope(ctx, tenantID, parkIDs, origin, periodStart, periodEnd)
+		if originErr != nil {
+			return domain.ShedWeights{}, originErr
+		}
+	}
 	scope := IntersectScopes(sexScope, sexApplied, originScope, originApplied)
-	// The same-animal map (identity_scope.go). Window-bounded and widened by the SAME gain lookback
-	// the pairing arm below reads, or an animal whose previous weigh sits before the window would
-	// merge in the growth read and not in this one -- two numbers on one page disagreeing about how
-	// many animals a shed holds, which is exactly the cross-surface split this fix exists to close.
-	idMap, idErr := r.resolveAnimalIdentityMap(ctx, tenantID, parkIDs, periodStart.AddDate(0, 0, -growthLookbackDays), periodEnd)
-	if idErr != nil {
-		return domain.ShedWeights{}, idErr
+	var idMap AnimalIdentityMap
+	if weighingCategory != domain.CategoryPerShedPartition {
+		// The same-animal map (identity_scope.go). Window-bounded and widened by the SAME gain lookback
+		// the pairing arm below reads, or an animal whose previous weigh sits before the window would
+		// merge in the growth read and not in this one -- two numbers on one page disagreeing about how
+		// many animals a shed holds, which is exactly the cross-surface split this fix exists to close.
+		//
+		// Whole-shed-only pages never read scanned-tag rows, so resolving RFID identity there only burns
+		// DB time before the query. Keep the arrays empty for that category and let the individual CTEs
+		// remain naturally empty under the category predicate.
+		var idErr error
+		idMap, idErr = r.resolveAnimalIdentityMap(ctx, tenantID, parkIDs, periodStart.AddDate(0, 0, -growthLookbackDays), periodEnd)
+		if idErr != nil {
+			return domain.ShedWeights{}, idErr
+		}
 	}
 	sexFiltered := sexApplied || originApplied
 
@@ -171,7 +187,7 @@ WITH scoped AS (
     AND cs.status <> 'canceled'
     AND ($13::text = '' OR cs.weighing_category = $13::text)
 ),
-ind AS (
+ind AS MATERIALIZED (
   -- projection-review: membership=scoped buckets whose weighing_category is individual_animal, each joined to its own deduplicated scans; group_key=s.campaign_shed_id (weighing_campaign_sheds PK, so one row per bucket); join_cardinality=LATERAL latest is 1 row per DISTINCT scanned tag and the GROUP BY collapses it to exactly 1 row per bucket, no side multiplies; pagination=NONE, bounded by the outer LIMIT and the tenant+park+date window; scope=s.tenant_id carried into the correlated subquery
   --
   -- ONE ROW PER ANIMAL, NOT ONE PER CAPTURE.
@@ -223,9 +239,10 @@ ind AS (
              o.accepted_at DESC, o.observation_id DESC
   ) latest ON true
   WHERE s.weighing_category = 'individual_animal'
+    AND $13::text <> 'per_shed_partition'
   GROUP BY s.campaign_shed_id
 ),
-lump AS (
+lump AS MATERIALIZED (
   -- projection-review: membership=scoped buckets whose weighing_category is per_shed_partition, joined to their LIVE shed observation; group_key=s.campaign_shed_id (no aggregation -- the uidx makes this 1:1); join_cardinality=weighing_shed_observations 0..1 GIVEN withdrawn_at IS NULL (UNIQUE weighing_shed_observations_one_open_scope_uidx, PARTIAL, per 000067); pagination=NONE, bounded by the outer LIMIT and the tenant+park+date window; scope=s.tenant_id joined explicitly
   --
   -- withdrawn_at IS REQUIRED, not decorative: 000067 replaced the total
@@ -262,7 +279,7 @@ lump AS (
 -- Anchor on the first and latest weighed business dates inside the reader's
 -- selected window. If a shed has only one weighed date inside the window, its
 -- selected-range gain is unknown rather than borrowing an older four-week baseline.
-shed_span AS (
+shed_span AS MATERIALIZED (
   SELECT latest.location_id, latest.partition_label,
          (latest.average_weight_kg - first.average_weight_kg) * 1000.0
            / NULLIF(latest.d - first.d, 0) AS g_per_day,
@@ -331,7 +348,7 @@ latest_bucket AS (
            (last_weighed IS NULL), last_weighed DESC,
            period_start_date DESC, created_at DESC, campaign_shed_id DESC
 ),
-summary_individual AS (
+summary_individual AS MATERIALIZED (
   -- KPI GRAIN, shared with the daily-gain cards. A tag is counted here only when
   -- it has a prior weigh and a selected-window endpoint, so every visible "kids
   -- weighed" count on the page speaks about the same population.
@@ -356,6 +373,7 @@ summary_individual AS (
         LEFT JOIN unnest($14::text[], $15::text[]) AS akmap(tag, canonical_tag)
           ON akmap.tag = lower(btrim(o.scanned_identifier))
         WHERE s.weighing_category = 'individual_animal'
+          AND $13::text <> 'per_shed_partition'
           AND o.accepted_at >= ($3::timestamptz - ($12::int * INTERVAL '1 day'))
           AND o.accepted_at <  $4::timestamptz
           AND o.verification_status <> 'rejected'
@@ -404,7 +422,7 @@ summary_lump_first AS (
   FROM summary_lump_points
   ORDER BY park_id, location_id, partition_label, accepted_at ASC, shed_observation_id ASC
 ),
-summary_lump AS (
+summary_lump AS MATERIALIZED (
   -- Same whole-shed denominator as growth.go: a pen contributes only when there
   -- is a prior point and a latest point, and it contributes the latest head count.
   --
@@ -424,7 +442,7 @@ summary_lump AS (
    AND f.partition_label = l.partition_label
   WHERE l.d > f.d
 ),
-summary_rollup AS (
+summary_rollup AS MATERIALIZED (
   SELECT
     COALESCE(si.animals, 0) + COALESCE(sl.animals, 0) AS animals_weighed,
     COALESCE(si.animals, 0) AS individual_animals_weighed,

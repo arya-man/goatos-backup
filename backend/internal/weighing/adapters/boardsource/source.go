@@ -83,6 +83,15 @@ const workStateSQL = `CASE
   ELSE 'due'
 END`
 
+const countWorkStateSQL = `CASE
+  WHEN w.work_state = 'closed' OR b.status = 'closed' THEN 'completed'
+  WHEN w.work_state = 'completed' OR b.status = 'completed' THEN 'verification_pending'
+  WHEN b.status = 'in_progress' AND (` + reworkExistsSQL + `) THEN 'rejected'
+  WHEN w.work_state = 'delayed' AND (w.due_business_date - w.planned_business_date) > ` + "2" + ` THEN 'overdue'
+  WHEN b.status = 'in_progress' THEN 'in_progress'
+  ELSE 'due'
+END`
+
 // reworkCountSQL is the module's own rework_count (close.go), verbatim in shape: submitted
 // individual scans bounced by the verifier plus a bounced open whole-pen weigh. Weighing
 // tables only.
@@ -93,6 +102,16 @@ const reworkCountSQL = `
   + (SELECT count(*) FROM weighing_shed_observations wso
       WHERE wso.tenant_id = w.tenant_id AND wso.campaign_shed_id = w.campaign_shed_id
         AND wso.withdrawn_at IS NULL AND wso.verification_status = 'rework')`
+
+const reworkExistsSQL = `
+  EXISTS (
+    SELECT 1 FROM weighing_observations wo
+    WHERE wo.tenant_id = w.tenant_id AND wo.campaign_shed_id = w.campaign_shed_id
+      AND wo.submitted_at IS NOT NULL AND wo.verification_status = 'rework')
+  OR EXISTS (
+    SELECT 1 FROM weighing_shed_observations wso
+    WHERE wso.tenant_id = w.tenant_id AND wso.campaign_shed_id = w.campaign_shed_id
+      AND wso.withdrawn_at IS NULL AND wso.verification_status = 'rework')`
 
 // baseWhere binds every read to one tenant, one park and one business date, which is
 // what keeps the scan on weighing_work_items_sweep_due_idx / the park+date index rather
@@ -138,11 +157,74 @@ WHERE ($6::text[] IS NULL OR i.board_state = ANY($6::text[]))
 ORDER BY i.work_item_id
 LIMIT $7`
 
+const listClosedSQL = `
+WITH items AS (
+  SELECT w.work_item_id, w.campaign_id, w.campaign_shed_id, w.park_id, w.operator_user_id,
+         w.weighing_category, w.shed_label, w.shed_location_id,
+         w.planned_business_date, w.due_business_date, w.work_state, w.rolled_forward_count,
+         b.status AS bucket_status, COALESCE(b.partition_label, '') AS partition_label,
+         0 AS rework,
+         'completed' AS board_state
+  FROM weighing_work_items w
+  JOIN weighing_campaign_sheds b
+    ON b.tenant_id = w.tenant_id AND b.campaign_shed_id = w.campaign_shed_id
+  WHERE ` + baseWhere + `
+    AND ($5::uuid IS NULL OR w.work_item_id > $5::uuid)
+    AND (w.work_state = 'closed' OR b.status = 'closed')
+)
+SELECT i.work_item_id::text, i.campaign_id::text, i.campaign_shed_id::text, i.park_id::text,
+       COALESCE(park.name, ''),
+       i.shed_location_id::text, COALESCE(NULLIF(shed.name, ''), i.shed_label), i.partition_label,
+       i.weighing_category, i.planned_business_date::text, i.due_business_date::text,
+       i.work_state, i.bucket_status, i.board_state, i.rework,
+       COALESCE(i.operator_user_id::text, ''), COALESCE(m.workforce_member_id::text, ''), COALESCE(m.display_name, ''),
+       (SELECT count(*) FROM weighing_observations o
+         WHERE o.tenant_id = $1::uuid AND o.campaign_shed_id = i.campaign_shed_id) AS observed
+FROM items i
+LEFT JOIN locations park ON park.tenant_id = $1::uuid AND park.location_id = i.park_id
+LEFT JOIN locations shed ON shed.tenant_id = $1::uuid AND shed.location_id = i.shed_location_id
+LEFT JOIN workforce_members m
+  ON m.tenant_id = $1::uuid AND m.user_id = i.operator_user_id AND m.status = 'active'
+ORDER BY i.work_item_id
+LIMIT $6`
+
+const listVerificationPendingSQL = `
+WITH items AS (
+  SELECT w.work_item_id, w.campaign_id, w.campaign_shed_id, w.park_id, w.operator_user_id,
+         w.weighing_category, w.shed_label, w.shed_location_id,
+         w.planned_business_date, w.due_business_date, w.work_state, w.rolled_forward_count,
+         b.status AS bucket_status, COALESCE(b.partition_label, '') AS partition_label,
+         0 AS rework,
+         'verification_pending' AS board_state
+  FROM weighing_work_items w
+  JOIN weighing_campaign_sheds b
+    ON b.tenant_id = w.tenant_id AND b.campaign_shed_id = w.campaign_shed_id
+  WHERE ` + baseWhere + `
+    AND ($5::uuid IS NULL OR w.work_item_id > $5::uuid)
+    AND NOT (w.work_state = 'closed' OR b.status = 'closed')
+    AND (w.work_state = 'completed' OR b.status = 'completed')
+)
+SELECT i.work_item_id::text, i.campaign_id::text, i.campaign_shed_id::text, i.park_id::text,
+       COALESCE(park.name, ''),
+       i.shed_location_id::text, COALESCE(NULLIF(shed.name, ''), i.shed_label), i.partition_label,
+       i.weighing_category, i.planned_business_date::text, i.due_business_date::text,
+       i.work_state, i.bucket_status, i.board_state, i.rework,
+       COALESCE(i.operator_user_id::text, ''), COALESCE(m.workforce_member_id::text, ''), COALESCE(m.display_name, ''),
+       (SELECT count(*) FROM weighing_observations o
+         WHERE o.tenant_id = $1::uuid AND o.campaign_shed_id = i.campaign_shed_id) AS observed
+FROM items i
+LEFT JOIN locations park ON park.tenant_id = $1::uuid AND park.location_id = i.park_id
+LEFT JOIN locations shed ON shed.tenant_id = $1::uuid AND shed.location_id = i.shed_location_id
+LEFT JOIN workforce_members m
+  ON m.tenant_id = $1::uuid AND m.user_id = i.operator_user_id AND m.status = 'active'
+ORDER BY i.work_item_id
+LIMIT $6`
+
 // projection-review: membership=weighing_work_items rows of ONE tenant, park and due business date (canceled excluded on the item AND on its bucket), one row per campaign bucket (weighing_work_items_bucket_uidx); group_key=(tenant_id, work_item_id) (the count query groups by the SAME derived board_state over the SAME membership); join_cardinality=weighing_campaign_sheds joined on its primary key (1:1), locations park/shed on their primary key (1:1), workforce_members filtered to status='active' whose (tenant_id,user_id) is unique by the partial active index (at most 1), and the observed and rework counts are CORRELATED SUBQUERIES over weighing_observations and weighing_shed_observations per row, so nothing fans a bucket out; pagination=keyset on work_item_id ASC after $5, LIMIT $7, with the state filter inside WHERE so a page is never short after the cut; scope=tenant_id, park_id, due_business_date and the optional owner predicate, repeated verbatim in countSQL so rows and counts describe one set.
 const countSQL = `
 SELECT board_state, count(*)
 FROM (
-  SELECT ` + workStateSQL + ` AS board_state
+  SELECT ` + countWorkStateSQL + ` AS board_state
   FROM weighing_work_items w
   JOIN weighing_campaign_sheds b
     ON b.tenant_id = w.tenant_id AND b.campaign_shed_id = w.campaign_shed_id
@@ -162,8 +244,35 @@ func (s *Source) ListRows(ctx context.Context, q ports.SourceQuery) ([]domain.Ro
 	if limit <= 0 {
 		limit = domain.DefaultLimit
 	}
+	if onlyWorkState(q.WorkStates, domain.WorkStateCompleted) {
+		return s.listRowsFast(ctx, listClosedSQL, q, limit)
+	}
+	if onlyWorkState(q.WorkStates, domain.WorkStateVerificationPending) {
+		return s.listRowsFast(ctx, listVerificationPendingSQL, q, limit)
+	}
 	rows, err := s.pool.Query(ctx, listSQL,
 		q.TenantID, q.ParkID, q.BusinessDate, nullUUID(q.OwnerUserID), nullUUID(q.AfterSourceID), statesArg(q.WorkStates), limit)
+	if err != nil {
+		return nil, fmt.Errorf("weighing boardsource list: %w", err)
+	}
+	defer rows.Close()
+	out := make([]domain.Row, 0, limit)
+	for rows.Next() {
+		r, err := scanRow(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("weighing boardsource list rows: %w", err)
+	}
+	return out, nil
+}
+
+func (s *Source) listRowsFast(ctx context.Context, sql string, q ports.SourceQuery, limit int) ([]domain.Row, error) {
+	rows, err := s.pool.Query(ctx, sql,
+		q.TenantID, q.ParkID, q.BusinessDate, nullUUID(q.OwnerUserID), nullUUID(q.AfterSourceID), limit)
 	if err != nil {
 		return nil, fmt.Errorf("weighing boardsource list: %w", err)
 	}
@@ -280,6 +389,10 @@ func scanRow(rows pgx.Rows) (domain.Row, error) {
 		// land, so that is where "Open in module" goes.
 		Href: "/weighing/weights?park=" + url.QueryEscape(parkID) + "&weighing=" + url.QueryEscape(category),
 	}.Finalize(), nil
+}
+
+func onlyWorkState(states []domain.WorkState, want domain.WorkState) bool {
+	return len(states) == 1 && states[0] == want
 }
 
 func nullUUID(s string) *string {

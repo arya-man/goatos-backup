@@ -559,7 +559,9 @@ func (h *Handler) ListVaccinationExecution(w http.ResponseWriter, r *http.Reques
 	if !ok {
 		return
 	}
+	start := time.Now()
 	page, err := h.reader.VaccinationExecutionPage(r.Context(), q)
+	h.maybeWriteExecutionTiming(w, r, "vaccination_execution_page", start)
 	if err != nil {
 		h.internal(w, r, err)
 		return
@@ -580,6 +582,25 @@ func (h *Handler) ListVaccinationExecution(w http.ResponseWriter, r *http.Reques
 		page.ViewerReadOnly = true
 	}
 	httpresponse.WriteJSON(w, http.StatusOK, page)
+}
+
+func (h *Handler) maybeWriteExecutionTiming(w http.ResponseWriter, r *http.Request, name string, start time.Time) {
+	if !debugTimingEnabled(r) {
+		return
+	}
+	elapsed := time.Since(start)
+	w.Header().Set("X-GoatOS-Vaccination-Timing", name+"_service="+strconv.FormatInt(elapsed.Milliseconds(), 10)+"ms")
+	h.log.InfoContext(r.Context(), "vaccination_route_timing",
+		slog.String("request_id", httpmiddleware.RequestIDFromContext(r.Context())),
+		slog.String("trace_id", httpmiddleware.TraceIDFromContext(r.Context())),
+		slog.String("route", name),
+		slog.Int64("service_ms", elapsed.Milliseconds()))
+}
+
+func debugTimingEnabled(r *http.Request) bool {
+	raw := strings.TrimSpace(strings.ToLower(r.URL.Query().Get("debug_timing")))
+	header := strings.TrimSpace(strings.ToLower(r.Header.Get("X-GoatOS-Debug-Timing")))
+	return raw == "1" || raw == "true" || raw == "yes" || header == "1" || header == "true" || header == "yes"
 }
 
 // GetShedDrilldown returns the vaccination execution context for a single shed.
@@ -613,6 +634,9 @@ func (h *Handler) GetShedDrilldown(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) executionQuery(w http.ResponseWriter, r *http.Request, defaultLimit int) (vaccexecd.ExecutionQuery, bool) {
 	query := r.URL.Query()
 	asOf := h.now()
+	if isAppExecutionRoute(r) && query.Get("as_of") == "" {
+		asOf = asOf.Truncate(30 * time.Second)
+	}
 	q := vaccexecd.ExecutionQuery{
 		TenantID:  tenantID(r),
 		AsOf:      asOf,

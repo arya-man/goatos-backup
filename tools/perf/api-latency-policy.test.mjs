@@ -159,6 +159,55 @@ test("STG slow manifest captures the observed over-1s endpoint groups", () => {
   assert.doesNotMatch(byName.get("stg_feed_shed_feed_analytics")?.path ?? "", /[?&](limit|offset)=/);
 });
 
+test("PR264 performance manifest measures rendered route shapes, not broad shortcuts", () => {
+  const manifest = readHotPathManifest("hot-paths.pr264.json");
+  const byName = new Map(manifest.endpoints.map((endpoint) => [endpoint.name, endpoint]));
+  const required = [
+    "pr264_weighing_dates",
+    "pr264_weighing_shed_weights",
+    "pr264_weighing_weight_demographics",
+    "pr264_weighing_weight_demographics_dimensions_section",
+    "pr264_weighing_weight_demographics_origin_section",
+    "pr264_weighing_weight_demographics_shed_type_section",
+    "pr264_weighing_weight_demographics_weight_bands_section",
+    "pr264_weighing_weight_demographics_weekly_gain_section",
+    "pr264_weighing_growth_weights_sections",
+    "pr264_weighing_growth_general_sections",
+    "pr264_weighing_growth_time_sections",
+    "pr264_growth_director_weights_sections",
+    "pr264_work_board_page_cbe",
+    "pr264_work_board_page_cpt",
+    "pr264_app_vaccination_execution_with_card_summaries",
+  ];
+  assert.deepEqual(manifest.scope.required_hot_paths, required);
+  assert.deepEqual(manifest.scope.included, required);
+  assert.deepEqual(manifest.scope.evidence_boundaries.local_oci_pr264_route_reads, required);
+  assert.deepEqual(manifest.scope.evidence_boundaries.pr264_browser_render_routes, [
+    "/work-board?scope_mode=company",
+    "/weighing/weights?scope_mode=company",
+    "/weighing/analytics?scope_mode=company&tab=general",
+    "/weighing/analytics?scope_mode=company&tab=time",
+  ]);
+  assert.match(
+    byName.get("pr264_weighing_weight_demographics")?.path ?? "",
+    /[?&]sections=composition,dimensions,gain_thresholds(?:&|$)/,
+  );
+  assert.match(byName.get("pr264_weighing_weight_demographics_dimensions_section")?.path ?? "", /[?&]sections=dimensions(?:&|$)/);
+  assert.match(byName.get("pr264_weighing_weight_demographics_origin_section")?.path ?? "", /[?&]sections=origin(?:&|$)/);
+  assert.match(byName.get("pr264_weighing_weight_demographics_shed_type_section")?.path ?? "", /[?&]sections=shed_type(?:&|$)/);
+  assert.match(byName.get("pr264_weighing_weight_demographics_weight_bands_section")?.path ?? "", /[?&]sections=weight_bands(?:&|$)/);
+  assert.match(byName.get("pr264_weighing_weight_demographics_weekly_gain_section")?.path ?? "", /[?&]sections=weekly_gain(?:&|$)/);
+  assert.match(byName.get("pr264_weighing_growth_weights_sections")?.path ?? "", /[?&]sections=headline,shed_leaderboard,losing_animals(?:&|$)/);
+  assert.match(byName.get("pr264_weighing_growth_general_sections")?.path ?? "", /[?&]sections=headline,shed_leaderboard,by_park(?:&|$)/);
+  assert.match(byName.get("pr264_weighing_growth_time_sections")?.path ?? "", /[?&]sections=weekly_gain(?:&|$)/);
+  assert.match(byName.get("pr264_growth_director_weights_sections")?.path ?? "", /[?&]sections=road_to_sale,fair_fight(?:&|$)/);
+  assert.match(byName.get("pr264_app_vaccination_execution_with_card_summaries")?.path ?? "", /[?&]include_card_summaries=true(?:&|$)/);
+  assert.match(byName.get("pr264_work_board_page_cbe")?.path ?? "", /^\/work-board\/page\?/);
+  assert.match(byName.get("pr264_work_board_page_cpt")?.path ?? "", /^\/work-board\/page\?/);
+  assert.equal(byName.get("pr264_work_board_page_cbe")?.assertion?.min, 1);
+  assert.equal(byName.get("pr264_app_vaccination_execution_with_card_summaries")?.assertion?.min, 1);
+});
+
 for (const [key, ceilingMs] of Object.entries(API_LATENCY_POLICY_MS)) {
   test(`rejects a manifest that relaxes ${key}`, () => {
     assert.throws(

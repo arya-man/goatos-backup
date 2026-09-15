@@ -52,7 +52,7 @@ test("visual smoke visits every live sidebar navigation leaf", () => {
     ["feed-sops", "/feed/sops?scope_mode=company"],
     ["feed-direction", "/feed/direction?scope_mode=company"],
     ["feed-packing", "/feed/packing?scope_mode=company"],
-    ["weighing-analytics", "/weighing/analytics?scope_mode=company"],
+    ["weighing-analytics", "/weighing/analytics?scope_mode=company&tab=general"],
     ["weighing-analytics-breed", "/weighing/analytics?scope_mode=company&tab=breed"],
     ["weighing-analytics-birth", "/weighing/analytics?scope_mode=company&tab=birth"],
     ["weighing-analytics-shed", "/weighing/analytics?scope_mode=company&tab=shed"],
@@ -122,4 +122,13 @@ test("pager-required routes cannot pass silently when the pager is missing", () 
   assert.match(pagerBlock, /const bodyText = \(await page\.locator\("body"\)\.innerText\(\)\.catch\(\(\) => ""\)\)\.replace/);
   assert.match(pagerBlock, /0 rows\|0 results\|Nothing\|No rows\|No data/);
   assert.match(pagerBlock, /expected at least \$\{minimum\} pager2 footer\(s\), found none/);
+});
+
+test("PR264 routes record route-specific product signals in browser evidence", () => {
+  assert.match(smokeSource, /const routeSignals = await assertRouteLoadedSignal\(page, route\.name, visibleText\);/);
+  assert.match(smokeSource, /route_signals: routeSignals/);
+  assert.match(smokeSource, /routeName === "work-board"[\s\S]*lane_counts/);
+  assert.match(smokeSource, /routeName === "weighing-weights"[\s\S]*has_losing_weight_table/);
+  assert.match(smokeSource, /routeName === "weighing-analytics"[\s\S]*has_weighing_kpis/);
+  assert.match(smokeSource, /routeName === "weighing-analytics-time"[\s\S]*has_weekly_growth/);
 });

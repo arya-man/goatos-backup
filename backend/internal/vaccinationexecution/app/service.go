@@ -75,8 +75,69 @@ func (s *Service) VaccinationExecution(ctx context.Context, q domain.ExecutionQu
 // total. The repository fetches limit+1 rows in the same query, so pagination never adds a count call.
 // For app/mobile requests (OperatorScopeActorID != ""), includes per-day carry summary (page-independent).
 func (s *Service) VaccinationExecutionPage(ctx context.Context, q domain.ExecutionQuery) (domain.ExecutionResponse, error) {
-	page, err := s.repo.ListVaccinationExecutionPage(ctx, q)
+	callCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	includeCardSummaries := q.IncludeCardSummaries == nil || *q.IncludeCardSummaries
+
+	var wg sync.WaitGroup
+	var carrySummary *domain.CarrySummary
+	var filterOptions *domain.ExecutionFilters
+	var filterErr error
+
+	// The page rows, carry summary, and filter options are independent reads.
+	// Keep the small side reads parallel, but defer card summaries until we know
+	// whether the first page already covers the whole filtered result.
+	if q.OperatorScopeActorID != "" {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			carryLines, err := s.repo.VaccinationExecutionCarrySummary(callCtx, q)
+			if err != nil || len(carryLines) == 0 {
+				return
+			}
+			carryByDate := make(map[string][]domain.VaccineCarrySummary)
+			dayTotals := make(map[string]int64)
+			for _, line := range carryLines {
+				carryByDate[line.Date] = append(carryByDate[line.Date], domain.VaccineCarrySummary{
+					VaccineLabel:   line.VaccineLabel,
+					RemainingDoses: line.RemainingDoses,
+					TotalDoses:     line.TotalDoses,
+				})
+				dayTotals[line.Date] += line.RemainingDoses
+			}
+			carryDays := make([]domain.CarryDay, 0, len(carryByDate))
+			for _, line := range carryLines {
+				if len(carryDays) > 0 && carryDays[len(carryDays)-1].Date == line.Date {
+					continue
+				}
+				carryDays = append(carryDays, domain.CarryDay{
+					Date:             line.Date,
+					VaccineBreakdown: carryByDate[line.Date],
+					TotalRemaining:   dayTotals[line.Date],
+				})
+			}
+			carrySummary = &domain.CarrySummary{CarryByDay: carryDays}
+		}()
+	}
+	if q.IncludeFilterOptions {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			parks, err := s.repo.AuthorizedParkOptions(callCtx, q.TenantID, q.AuthorizedParkIDs)
+			if err != nil {
+				filterErr = err
+				cancel()
+				return
+			}
+			filterOptions = &domain.ExecutionFilters{Parks: parks}
+		}()
+	}
+
+	page, err := s.repo.ListVaccinationExecutionPage(callCtx, q)
 	if err != nil {
+		cancel()
+		wg.Wait()
 		return domain.ExecutionResponse{}, err
 	}
 	rows := make([]domain.ExecutionRow, 0, len(page.Rows))
@@ -93,61 +154,62 @@ func (s *Service) VaccinationExecutionPage(ctx context.Context, q domain.Executi
 		next = &encoded
 	}
 
-	// For app/mobile requests: fetch per-day carry summary (page-independent, full-date-range aggregation)
-	var carrySummary *domain.CarrySummary
-	if q.OperatorScopeActorID != "" {
-		carryLines, err := s.repo.VaccinationExecutionCarrySummary(ctx, q)
-		if err == nil && len(carryLines) > 0 {
-			// Group by date, aggregate per-date vaccines and totals
-			carryByDate := make(map[string][]domain.VaccineCarrySummary)
-			dayTotals := make(map[string]int64)
-			for _, line := range carryLines {
-				carryByDate[line.Date] = append(carryByDate[line.Date], domain.VaccineCarrySummary{
-					VaccineLabel:   line.VaccineLabel,
-					RemainingDoses: line.RemainingDoses,
-					TotalDoses:     line.TotalDoses,
-				})
-				dayTotals[line.Date] += line.RemainingDoses
-			}
-			// Build ordered CarryDay slice
-			carryDays := make([]domain.CarryDay, 0, len(carryByDate))
-			for _, line := range carryLines {
-				// Avoid duplicates by checking if we've already seen this date
-				if len(carryDays) > 0 && carryDays[len(carryDays)-1].Date == line.Date {
-					continue
-				}
-				carryDays = append(carryDays, domain.CarryDay{
-					Date:             line.Date,
-					VaccineBreakdown: carryByDate[line.Date],
-					TotalRemaining:   dayTotals[line.Date],
-				})
-			}
-			carrySummary = &domain.CarrySummary{CarryByDay: carryDays}
-		}
-	}
-
-	var filterOptions *domain.ExecutionFilters
-	if q.IncludeFilterOptions {
-		parks, err := s.repo.AuthorizedParkOptions(ctx, q.TenantID, q.AuthorizedParkIDs)
-		if err != nil {
-			return domain.ExecutionResponse{}, err
-		}
-		filterOptions = &domain.ExecutionFilters{Parks: parks}
-	}
-
-	includeCardSummaries := q.IncludeCardSummaries == nil || *q.IncludeCardSummaries
 	var cardSummaries map[string]*domain.ShedCardSummary
 	if includeCardSummaries {
-		// Per-card summaries are page-independent full-filter aggregation. They are useful
-		// when explicitly requested, but expensive enough for mobile to opt out.
-		var err error
-		cardSummaries, err = s.repo.VaccinationExecutionCardSummaries(ctx, q)
-		if err != nil {
-			return domain.ExecutionResponse{}, err
+		if executionPageCoversFullFilter(page, len(rows)) {
+			cardSummaries = computeCardSummariesFromRows(rows)
+		} else if page.TotalCount > 0 && page.TotalCount <= 500 {
+			summaryQ := q
+			summaryQ.Cursor = nil
+			summaryQ.Limit = int(page.TotalCount)
+			summaryPage, err := s.repo.ListVaccinationExecutionPage(callCtx, summaryQ)
+			if err != nil {
+				cancel()
+				wg.Wait()
+				return domain.ExecutionResponse{}, err
+			}
+			summaryRows := make([]domain.ExecutionRow, 0, len(summaryPage.Rows))
+			for _, p := range summaryPage.Rows {
+				summaryRows = append(summaryRows, rowFromProjection(p, q))
+			}
+			if executionPageCoversFullFilter(summaryPage, len(summaryRows)) {
+				cardSummaries = computeCardSummariesFromRows(summaryRows)
+			} else {
+				var err error
+				cardSummaries, err = s.repo.VaccinationExecutionCardSummaries(callCtx, q)
+				if err != nil {
+					cancel()
+					wg.Wait()
+					return domain.ExecutionResponse{}, err
+				}
+			}
+		} else {
+			var err error
+			cardSummaries, err = s.repo.VaccinationExecutionCardSummaries(callCtx, q)
+			if err != nil {
+				cancel()
+				wg.Wait()
+				return domain.ExecutionResponse{}, err
+			}
 		}
+	}
+
+	wg.Wait()
+	if filterErr != nil {
+		return domain.ExecutionResponse{}, filterErr
 	}
 
 	return domain.ExecutionResponse{Source: domain.SourceAPI, Rows: rows, TotalCount: page.TotalCount, NextCursor: next, Freshness: page.Freshness, CarrySummary: carrySummary, FilterOptions: filterOptions, CardSummaries: cardSummaries}, nil
+}
+
+func executionPageCoversFullFilter(page domain.ExecutionProjectionPage, rowCount int) bool {
+	if page.NextCursor != nil {
+		return false
+	}
+	if page.TotalCount == 0 {
+		return true
+	}
+	return int64(rowCount) >= page.TotalCount
 }
 
 // computeCardSummariesFromRows groups all ExecutionRows by card identity (shedId, partitionLabel,

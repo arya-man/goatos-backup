@@ -135,19 +135,22 @@ shed_targets AS (
            CASE WHEN EXISTS (SELECT 1 FROM goats gg WHERE gg.tenant_id = $1::uuid
                               AND gg.lifecycle_status = 'alive' AND gg.shed_id = s.location_id)
                 THEN s.location_id END,
-           (SELECT phys.location_id FROM locations phys
-            JOIN locations l ON l.location_id = s.location_id AND l.tenant_id = $1::uuid
-            WHERE phys.tenant_id = l.tenant_id
-              AND phys.parent_location_id = l.parent_location_id
-              AND phys.location_type = 'shed'
-              AND phys.name = regexp_replace(l.name, '\s*(-\s*)?(Part\s*)?[0-9]+$', '')
-            LIMIT 1)
+           phys.location_id
          ) AS resolved_id,
          COALESCE(NULLIF(s.partition_label, ''),
-                  NULLIF((regexp_match((SELECT l.name FROM locations l WHERE l.location_id = s.location_id),
-                                       '\s*(?:-\s*)?(?:Part\s*)?([0-9]+)$'))[1], ''),
+                  NULLIF((regexp_match(loc.name, '\s*(?:-\s*)?(?:Part\s*)?([0-9]+)$'))[1], ''),
                   '') AS resolved_partition_label
   FROM scoped s
+  JOIN locations loc ON loc.location_id = s.location_id AND loc.tenant_id = $1::uuid
+  LEFT JOIN LATERAL (
+    SELECT phys.location_id
+    FROM locations phys
+    WHERE phys.tenant_id = loc.tenant_id
+      AND phys.parent_location_id = loc.parent_location_id
+      AND phys.location_type = 'shed'
+      AND phys.name = regexp_replace(loc.name, '\s*(-\s*)?(Part\s*)?[0-9]+$', '')
+    LIMIT 1
+  ) phys ON TRUE
 ),
 origin_buckets AS (
   SELECT src.location_id, src.partition_label

@@ -16,6 +16,7 @@ import (
 type Config struct {
 	DatabaseURL    string
 	MaxConns       int32
+	MinConns       int32
 	ConnectTimeout time.Duration
 	QueryTimeout   time.Duration
 }
@@ -26,6 +27,7 @@ func ConfigFromEnv() Config {
 	return Config{
 		DatabaseURL:    os.Getenv("DATABASE_URL"),
 		MaxConns:       envInt32("GOATOS_PG_MAX_CONNS", 10),
+		MinConns:       envInt32("GOATOS_PG_MIN_CONNS", 0),
 		ConnectTimeout: envDuration("GOATOS_PG_CONNECT_TIMEOUT", 5*time.Second),
 		QueryTimeout:   envDuration("GOATOS_PG_QUERY_TIMEOUT", 3*time.Second),
 	}
@@ -36,18 +38,14 @@ func Connect(ctx context.Context, cfg Config) (*pgxpool.Pool, error) {
 	if cfg.DatabaseURL == "" {
 		return nil, errors.New("DATABASE_URL is required")
 	}
-	if cfg.ConnectTimeout <= 0 {
-		cfg.ConnectTimeout = 5 * time.Second
-	}
-	if cfg.MaxConns <= 0 {
-		cfg.MaxConns = 10
-	}
+	cfg = normalizedConfig(cfg)
 
 	poolCfg, err := pgxpool.ParseConfig(cfg.DatabaseURL)
 	if err != nil {
 		return nil, fmt.Errorf("parse postgres config: %w", err)
 	}
 	poolCfg.MaxConns = cfg.MaxConns
+	poolCfg.MinConns = cfg.MinConns
 	configureOLTPRuntime(poolCfg)
 	// otelpgx attaches a span per query/batch/copy/prepare/acquire (using the
 	// OTel global TracerProvider/MeterProvider, which observability.SetupTelemetry
@@ -70,6 +68,22 @@ func Connect(ctx context.Context, cfg Config) (*pgxpool.Pool, error) {
 		return nil, fmt.Errorf("ping postgres: %w", err)
 	}
 	return pool, nil
+}
+
+func normalizedConfig(cfg Config) Config {
+	if cfg.ConnectTimeout <= 0 {
+		cfg.ConnectTimeout = 5 * time.Second
+	}
+	if cfg.MaxConns <= 0 {
+		cfg.MaxConns = 10
+	}
+	if cfg.MinConns < 0 {
+		cfg.MinConns = 0
+	}
+	if cfg.MinConns > cfg.MaxConns {
+		cfg.MinConns = cfg.MaxConns
+	}
+	return cfg
 }
 
 func configureOLTPRuntime(poolCfg *pgxpool.Config) {

@@ -140,7 +140,7 @@ function buildRoutes({ goatId, procurementLoadId, workflowRowId, calendarEventId
     { name: "feed-sops", path: "/feed/sops?scope_mode=company" },
     { name: "feed-direction", path: "/feed/direction?scope_mode=company" },
     { name: "feed-packing", path: "/feed/packing?scope_mode=company" },
-    { name: "weighing-analytics", path: "/weighing/analytics?scope_mode=company" },
+    { name: "weighing-analytics", path: "/weighing/analytics?scope_mode=company&tab=general" },
     { name: "weighing-analytics-breed", path: "/weighing/analytics?scope_mode=company&tab=breed" },
     { name: "weighing-analytics-birth", path: "/weighing/analytics?scope_mode=company&tab=birth" },
     { name: "weighing-analytics-shed", path: "/weighing/analytics?scope_mode=company&tab=shed" },
@@ -231,6 +231,21 @@ const pagerMinimums = new Map([
   ["people", 1],
 ]);
 
+const failureScreenMarkers = [
+  "backend_down",
+  "Admin-web contract unavailable",
+  "The board could not be loaded",
+  "Weights could not be loaded",
+];
+const browserEvidence = {
+  schema_version: "1.0.0",
+  same_api_build: process.env.GOATOS_SMOKE_SAME_API_BUILD === "1",
+  api_base_url: apiBaseUrl,
+  admin_web_base_url: appBaseUrl,
+  api_build_sha: process.env.GOATOS_SMOKE_API_BUILD_SHA ?? null,
+  routes: [],
+};
+
 const browser = await chromium.launch({ channel: process.env.GOATOS_SMOKE_BROWSER_CHANNEL || "chrome" });
 try {
   for (const viewport of [
@@ -283,6 +298,15 @@ try {
       const html = await page.content();
       const visibleText = await page.locator("body").innerText({ timeout: 5_000 }).catch(() => "");
       assertHealthyHTML(route.name, html, visibleText, bearerToken);
+      const routeSignals = await assertRouteLoadedSignal(page, route.name, visibleText);
+      browserEvidence.routes.push({
+        name: route.name,
+        route: appPath(route.path),
+        viewport: viewport.label,
+        loaded: true,
+        forbidden_strings_absent: failureScreenMarkers,
+        route_signals: routeSignals,
+      });
       await assertLayoutHealthy(page, route.name, viewport.label);
       await assertMobileWideTableGestures(page, route.name, viewport.label, screenshotDir);
       await assertA11y(page, route.name, viewport.label);
@@ -324,6 +348,7 @@ writeFileSync(
     2,
   ),
 );
+writeFileSync(join(screenshotDir, "browser-evidence.json"), `${JSON.stringify(browserEvidence, null, 2)}\n`);
 
 console.log(`screenshots_dir=${relativeToRepo(screenshotDir)}`);
 console.log(`goat_id=${goatId}`);
@@ -451,11 +476,7 @@ function assertHealthyHTML(routeName, html, visibleText, token) {
       throw new Error(`${routeName} rendered failure marker: ${marker}`);
     }
   }
-  const visibleForbidden = [
-    "backend_down",
-    "The board could not be loaded",
-    "Weights could not be loaded",
-  ];
+  const visibleForbidden = failureScreenMarkers.filter((marker) => marker !== "Admin-web contract unavailable");
   for (const marker of visibleForbidden) {
     if (visibleText.includes(marker)) {
       throw new Error(`${routeName} rendered visible failure marker: ${marker}`);
@@ -464,6 +485,54 @@ function assertHealthyHTML(routeName, html, visibleText, token) {
   if (token && html.includes(token)) {
     throw new Error(`${routeName} rendered GOATOS_BEARER_TOKEN into HTML`);
   }
+}
+
+async function assertRouteLoadedSignal(page, routeName, visibleText) {
+  const normalized = visibleText.replace(/\s+/g, " ").trim();
+  if (routeName === "work-board") {
+    const laneCounts = {
+      todo: extractCountAfter(normalized, "TO DO"),
+      in_progress: extractCountAfter(normalized, "IN PROGRESS"),
+      in_review: extractCountAfter(normalized, "IN REVIEW"),
+      done: extractCountAfter(normalized, "DONE"),
+    };
+    const hasLaneCounters = Object.values(laneCounts).every((value) => value !== null);
+    const hasHealthyEmptyState = normalized.includes("No work on this board for the day.");
+    const hasWorkCards = await page.locator("[data-work-board-row], [data-work-row-key]").count().catch(() => 0);
+    const degraded = /Some work couldn't load right now|Retry/.test(normalized);
+    if ((!hasLaneCounters && !hasWorkCards) || degraded) {
+      throw new Error(`${routeName} did not prove a loaded Work Board state`);
+    }
+    if (!hasWorkCards && !hasHealthyEmptyState) {
+      throw new Error(`${routeName} has no cards but did not render the healthy empty-board copy`);
+    }
+    return { lane_counts: laneCounts, work_cards: hasWorkCards, healthy_empty_state: hasHealthyEmptyState };
+  }
+  if (routeName === "weighing-weights") {
+    if (!/Kids losing weight/i.test(normalized) || !/\bkg\b/i.test(normalized) || !/\bPage\b/i.test(normalized)) {
+      throw new Error(`${routeName} did not prove loaded Weighing weights data`);
+    }
+    return { has_losing_weight_table: true };
+  }
+  if (routeName === "weighing-analytics") {
+    if (!/Pens weighed:/i.test(normalized) || !/\bkg\b/i.test(normalized) || !/\bDaily gain\b/i.test(normalized)) {
+      throw new Error(`${routeName} did not prove loaded Weighing analytics data`);
+    }
+    return { has_weighing_kpis: true, tab: "general" };
+  }
+  if (routeName === "weighing-analytics-time") {
+    if (!/Weekly growth/i.test(normalized) || !/\bkids\b/i.test(normalized) || !/\bg\b/i.test(normalized)) {
+      throw new Error(`${routeName} did not prove loaded time-wise Weighing analytics data`);
+    }
+    return { has_weekly_growth: true, tab: "time" };
+  }
+  return {};
+}
+
+function extractCountAfter(text, label) {
+  const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const match = text.match(new RegExp(`${escaped}(?:\\s+[^\\d\\s]+)?\\s+(\\d+)`));
+  return match ? Number(match[1]) : null;
 }
 
 async function assertLayoutHealthy(page, routeName, viewportLabel) {

@@ -18,10 +18,23 @@ const defaults = {
   dashboardsProvider: "infra/grafana/provisioning/dashboards/dashboards.yaml",
   datasourcesProvider: "infra/grafana/provisioning/datasources/datasources.yaml",
   terraform: "infra/envs/stg/observability.tf",
+  monitoring: "infra/envs/stg/monitoring.tf",
   secrets: "infra/envs/stg/secrets.tf",
   deployScript: "tools/deploy/stg-cloudbuild-release.sh",
+  cloudDeployReleaseScript: "tools/deploy/stg-clouddeploy-release.sh",
   smokeScript: "tools/deploy/smoke-stg-grafana-dashboards.mjs",
 };
+
+const featurePanelRequirements = [
+  { feature: "Weights", routeRegex: ".*weighing.*|.*growth-director.*" },
+  { feature: "Vaccination / PC", routeRegex: ".*vaccination.*|.*preventive.*|.*protocol-adherence.*|.*action-center.*" },
+  { feature: "Work Board / Tasks", routeRegex: ".*work-board.*|.*workflows.*|.*tasks.*|.*approvals.*|.*verify.*" },
+  { feature: "Feed", routeRegex: ".*feed.*" },
+  { feature: "Sales", routeRegex: ".*sales.*" },
+  { feature: "Procurement", routeRegex: ".*procurement.*" },
+  { feature: "Counts / Milk", routeRegex: ".*counts.*|.*milk.*" },
+  { feature: "Health / Herd Signals", routeRegex: ".*health.*|.*herd-signals.*" },
+];
 
 function readText(root, relativePath) {
   return readFileSync(path.join(root, relativePath), "utf8");
@@ -37,6 +50,84 @@ function dashboardFiles(root, dashboardDir = defaults.dashboardDir) {
 function includesAll(text, snippets, label, problems) {
   for (const snippet of snippets) {
     if (!text.includes(snippet)) problems.push(`${label}: missing ${JSON.stringify(snippet)}`);
+  }
+}
+
+function collectFilterStrings(value, out = []) {
+  if (!value || typeof value !== "object") return out;
+  if (Array.isArray(value)) {
+    for (const item of value) collectFilterStrings(item, out);
+    return out;
+  }
+  for (const [key, child] of Object.entries(value)) {
+    if (key === "filter" && typeof child === "string") out.push(child);
+    collectFilterStrings(child, out);
+  }
+  return out;
+}
+
+function validateGrafanaFilterShape(filter, label, problems) {
+  if (filter.includes("prometheus.googleapis.com/") && !/resource\.type\s*=\s*"prometheus_target"/.test(filter)) {
+    problems.push(`${label}: GMP metric filters must include resource.type = "prometheus_target"`);
+  }
+  if (filter.includes("run.googleapis.com/") && !/resource\.type\s*=\s*"cloud_run_revision"/.test(filter)) {
+    problems.push(`${label}: Cloud Run metric filters must include resource.type = "cloud_run_revision"`);
+  }
+  if (filter.includes("cloudsql.googleapis.com/") && !/resource\.type\s*=\s*"cloudsql_database"/.test(filter)) {
+    problems.push(`${label}: Cloud SQL metric filters must include resource.type = "cloudsql_database"`);
+  }
+  if (filter.includes("pubsub.googleapis.com/") && !/resource\.type\s*=\s*"pubsub_subscription"/.test(filter)) {
+    problems.push(`${label}: Pub/Sub metric filters must include resource.type = "pubsub_subscription"`);
+  }
+}
+
+function panelTargets(panel) {
+  return Array.isArray(panel?.targets) ? panel.targets : [];
+}
+
+function findPanelByTitle(doc, title) {
+  return Array.isArray(doc?.panels) ? doc.panels.find((panel) => panel?.title === title) : null;
+}
+
+function panelHasGmpFilter(panel, { metric, routeRegex }) {
+  return panelTargets(panel).some((target) => {
+    const filter = target?.timeSeriesList?.filter;
+    return typeof filter === "string"
+      && filter.includes(`metric.type="${metric}"`)
+      && filter.includes('resource.type="prometheus_target"')
+      && filter.includes(`metric.label.route=monitoring.regex.full_match("${routeRegex}")`);
+  });
+}
+
+function validateFeatureHealthPanels(doc, relative, problems) {
+  for (const { feature, routeRegex } of featurePanelRequirements) {
+    const requestTitle = `${feature}: request rate by route`;
+    const latencyTitle = `${feature}: p95 latency by route`;
+    const requestPanel = findPanelByTitle(doc, requestTitle);
+    const latencyPanel = findPanelByTitle(doc, latencyTitle);
+    if (!requestPanel) {
+      problems.push(`${relative}: missing feature-wise request panel ${JSON.stringify(requestTitle)}`);
+    } else if (!panelHasGmpFilter(requestPanel, {
+      metric: "prometheus.googleapis.com/http_server_requests_total/counter",
+      routeRegex,
+    })) {
+      problems.push(`${relative}: ${requestTitle} must query current GMP request telemetry for ${routeRegex}`);
+    }
+    if (!latencyPanel) {
+      problems.push(`${relative}: missing feature-wise latency panel ${JSON.stringify(latencyTitle)}`);
+    } else if (!panelHasGmpFilter(latencyPanel, {
+      metric: "prometheus.googleapis.com/http_server_request_duration_seconds/histogram",
+      routeRegex,
+    })) {
+      problems.push(`${relative}: ${latencyTitle} must query current GMP latency telemetry for ${routeRegex}`);
+    }
+  }
+  const apmStatus = findPanelByTitle(doc, "APM status");
+  const apmContent = apmStatus?.options?.content ?? "";
+  for (const pending of ["Faro/RUM", "Cloud Trace", "traceparent"]) {
+    if (!apmContent.includes(pending)) {
+      problems.push(`${relative}: APM status must explicitly document pending ${pending} wiring instead of implying end-to-end APM is complete`);
+    }
   }
 }
 
@@ -71,6 +162,8 @@ export function validate(root = repo) {
     }
     if (typeof doc.title !== "string" || doc.title.trim() === "") {
       problems.push(`${relative}: missing dashboard title`);
+    } else if (/\bGoat OS stg\b/i.test(doc.title)) {
+      problems.push(`${relative}: dashboard title must use Goat OS, not Goat OS stg`);
     }
     if (!Array.isArray(doc.panels) || doc.panels.length === 0) {
       problems.push(`${relative}: dashboard must contain at least one panel`);
@@ -84,6 +177,12 @@ export function validate(root = repo) {
     }
     if (serialized.includes('resource.type="generic_task"') || serialized.includes("fetch generic_task ::")) {
       problems.push(`${relative}: GMP metrics in goatos-stg are prometheus_target, not generic_task`);
+    }
+    for (const filter of collectFilterStrings(doc)) {
+      validateGrafanaFilterShape(filter, relative, problems);
+    }
+    if (doc.uid === "goatos-feature-health") {
+      validateFeatureHealthPanels(doc, relative, problems);
     }
   }
 
@@ -127,6 +226,20 @@ export function validate(root = repo) {
     'member = "serviceAccount:${google_service_account.grafana.email}"',
   ], defaults.terraform, problems);
 
+  const monitoring = readText(root, defaults.monitoring);
+  if (/resource\.type=\\?"generic_task\\?"/.test(monitoring)) {
+    problems.push(`${defaults.monitoring}: GMP metrics in goatos-stg are prometheus_target, not generic_task`);
+  }
+  for (const [index, line] of monitoring.split("\n").entries()) {
+    if (!line.includes("prometheus.googleapis.com/")) continue;
+    if (line.includes("resource.label.")) {
+      problems.push(`${defaults.monitoring}:${index + 1}: Cloud Monitoring alert filters must use resource.labels.*, not Grafana query resource.label.*`);
+    }
+    if (line.includes("metric.label.")) {
+      problems.push(`${defaults.monitoring}:${index + 1}: Cloud Monitoring alert filters must use metric.labels.*, not Grafana query metric.label.*`);
+    }
+  }
+
   const secrets = readText(root, defaults.secrets);
   includesAll(secrets, [
     'resource "google_secret_manager_secret_iam_member" "grafana_admin_password_deploy_smoke_accessor"',
@@ -144,27 +257,43 @@ export function validate(root = repo) {
     problems.push(`${defaults.deployScript}: Grafana smoke must fail closed; remove REQUIRE_GRAFANA_SMOKE warning-only bypass`);
   }
 
+  const cloudDeployReleaseScript = readText(root, defaults.cloudDeployReleaseScript);
+  includesAll(cloudDeployReleaseScript, [
+    "--build-arg NEXT_PUBLIC_FARO_COLLECTOR_URL=https://goatos-stg-grafana-alloy-awtrpmn4za-el.a.run.app/collect",
+    "--build-arg NEXT_PUBLIC_GOATOS_ENV=stg",
+    "--build-arg NEXT_PUBLIC_APP_VERSION=",
+  ], defaults.cloudDeployReleaseScript, problems);
+
   const smokeScript = readText(root, defaults.smokeScript);
   includesAll(smokeScript, [
     "/api/search?type=dash-db",
     "/api/dashboards/uid/",
+    "/api/ds/query",
+    "representative live data queries",
+    "feature-wise live data queries",
     "goatos-stg-grafana",
   ], defaults.smokeScript, problems);
+  for (const filter of smokeScript.matchAll(/filter:\s*(`[^`]+`|'[^']+'|"[^"]+")/g)) {
+    validateGrafanaFilterShape(filter[1], defaults.smokeScript, problems);
+  }
 
   return problems;
 }
 
 function writeFixture(root, overrides = {}) {
+  rmSync(path.join(root, defaults.dashboardDir), { recursive: true, force: true });
   mkdirSync(path.join(root, defaults.dashboardDir), { recursive: true });
   mkdirSync(path.join(root, path.dirname(defaults.dashboardsProvider)), { recursive: true });
   mkdirSync(path.join(root, path.dirname(defaults.datasourcesProvider)), { recursive: true });
   mkdirSync(path.join(root, path.dirname(defaults.terraform)), { recursive: true });
+  mkdirSync(path.join(root, path.dirname(defaults.monitoring)), { recursive: true });
   mkdirSync(path.join(root, path.dirname(defaults.secrets)), { recursive: true });
   mkdirSync(path.join(root, path.dirname(defaults.deployScript)), { recursive: true });
+  mkdirSync(path.join(root, path.dirname(defaults.cloudDeployReleaseScript)), { recursive: true });
 
   writeFileSync(path.join(root, defaults.dashboardDir, "01-api-red.json"), JSON.stringify({
     uid: "goatos-stg-api-red",
-    title: "Goat OS stg - API / RED",
+    title: "Goat OS - API / RED",
     panels: [{ id: 1, title: "Requests", type: "timeseries" }],
   }, null, 2));
   writeFileSync(path.join(root, defaults.dashboardsProvider), overrides.dashboardsYaml ?? `
@@ -218,6 +347,15 @@ resource "google_storage_bucket_iam_member" "grafana_provisioning_grafana_reader
   member = "serviceAccount:\${google_service_account.grafana.email}"
 }
 `);
+  writeFileSync(path.join(root, defaults.monitoring), overrides.monitoring ?? `
+resource "google_monitoring_alert_policy" "api_error_rate_slo_burn" {
+  conditions {
+    condition_threshold {
+      filter = "metric.type=\\"prometheus.googleapis.com/http_server_requests_total/counter\\" AND resource.type=\\"prometheus_target\\" AND metric.labels.status_class=\\"5xx\\""
+    }
+  }
+}
+`);
   writeFileSync(path.join(root, defaults.secrets), overrides.secrets ?? `
 resource "google_secret_manager_secret_iam_member" "grafana_admin_password_deploy_smoke_accessor" {
   secret_id = google_secret_manager_secret.grafana_admin_password.id
@@ -234,10 +372,21 @@ smoke_grafana_dashboards() {
 }
 smoke_grafana_dashboards
 `);
+  writeFileSync(path.join(root, defaults.cloudDeployReleaseScript), overrides.cloudDeployReleaseScript ?? `
+docker build --platform linux/amd64 \\
+  --build-arg NEXT_PUBLIC_FIREBASE_PERFORMANCE_ENABLED=1 \\
+  --build-arg NEXT_PUBLIC_FARO_COLLECTOR_URL=https://goatos-stg-grafana-alloy-awtrpmn4za-el.a.run.app/collect \\
+  --build-arg NEXT_PUBLIC_GOATOS_ENV=stg \\
+  --build-arg NEXT_PUBLIC_APP_VERSION="$commit_sha" \\
+  -f apps/admin-web/Dockerfile -t "$admin_web_image" .
+`);
   writeFileSync(path.join(root, defaults.smokeScript), `
 const service = "goatos-stg-grafana";
 fetch("/api/search?type=dash-db");
 fetch("/api/dashboards/uid/" + service);
+fetch("/api/ds/query", { method: "POST" });
+console.log("representative live data queries");
+console.log("feature-wise live data queries");
 `);
 }
 
@@ -273,6 +422,124 @@ smoke_grafana_dashboards() {
 if [[ "\${REQUIRE_GRAFANA_SMOKE:-0}" == "1" ]]; then return 1; fi
 ` });
     assert(validate(root).some((problem) => problem.includes("REQUIRE_GRAFANA_SMOKE")));
+
+    writeFixture(root, {
+      cloudDeployReleaseScript: "docker build --platform linux/amd64 --build-arg NEXT_PUBLIC_FIREBASE_PERFORMANCE_ENABLED=1 -f apps/admin-web/Dockerfile -t $admin_web_image .",
+    });
+    assert(validate(root).some((problem) => problem.includes("NEXT_PUBLIC_FARO_COLLECTOR_URL")));
+
+    writeFixture(root, { monitoring: 'filter = "metric.type=\\"prometheus.googleapis.com/http_server_requests_total/counter\\" AND resource.type=\\"generic_task\\" AND metric.label.status_class=\\"5xx\\""\n' });
+    const monitoringProblems = validate(root);
+    assert(monitoringProblems.some((problem) => problem.includes("prometheus_target")));
+    assert(monitoringProblems.some((problem) => problem.includes("metric.labels.*")));
+
+    writeFixture(root);
+    writeFileSync(path.join(root, defaults.dashboardDir, "01-api-red.json"), JSON.stringify({
+      uid: "goatos-stg-api-red",
+      title: "Goat OS - API / RED",
+      panels: [{
+        id: 1,
+        title: "Requests",
+        type: "timeseries",
+        targets: [{
+          timeSeriesList: {
+            filter: 'metric.type = "run.googleapis.com/request_count" AND resource.label.service_name = "goatos-api-stg"',
+          },
+        }],
+      }],
+    }));
+    assert(validate(root).some((problem) => problem.includes('resource.type = "cloud_run_revision"')));
+
+    writeFixture(root);
+    writeFileSync(path.join(root, defaults.dashboardDir, "01-api-red.json"), JSON.stringify({
+      uid: "goatos-stg-api-red",
+      title: "Goat OS - API / RED",
+      panels: [{
+        id: 1,
+        title: "OTel metric",
+        type: "timeseries",
+        targets: [{
+          timeSeriesList: {
+            filter: 'metric.type = "prometheus.googleapis.com/http_client_request_duration_seconds/histogram" AND resource.label.service_name = "goatos-android"',
+          },
+        }],
+      }],
+    }));
+    assert(validate(root).some((problem) => problem.includes('resource.type = "prometheus_target"')));
+
+    writeFixture(root);
+    writeFileSync(path.join(root, defaults.dashboardDir, "01-api-red.json"), JSON.stringify({
+      uid: "goatos-stg-api-red",
+      title: "Goat OS - Kernel",
+      panels: [{
+        id: 1,
+        title: "Pub/Sub",
+        type: "timeseries",
+        targets: [{
+          timeSeriesList: {
+            filter: 'metric.type = "pubsub.googleapis.com/subscription/num_undelivered_messages" AND resource.label.subscription_id = "goatos-stg-domain-events"',
+          },
+        }],
+      }],
+    }));
+    assert(validate(root).some((problem) => problem.includes('resource.type = "pubsub_subscription"')));
+
+    writeFixture(root);
+    writeFileSync(path.join(root, defaults.smokeScript), `
+fetch("/api/search?type=dash-db");
+fetch("/api/dashboards/uid/goatos-stg-grafana");
+fetch("/api/ds/query");
+console.log("representative live data queries");
+const q = { filter: 'metric.type = "cloudsql.googleapis.com/database/postgresql/num_backends" AND resource.label.database_id = "goatos-stg:goatos-stg-core-db"' };
+`);
+    assert(validate(root).some((problem) => problem.includes('resource.type = "cloudsql_database"')));
+
+    writeFixture(root);
+    writeFileSync(path.join(root, defaults.dashboardDir, "01-api-red.json"), JSON.stringify({
+      uid: "goatos-stg-api-red",
+      title: "Goat OS stg - API / RED",
+      panels: [{ id: 1, title: "Requests", type: "timeseries" }],
+    }));
+    assert(validate(root).some((problem) => problem.includes("Goat OS, not Goat OS stg")));
+
+    writeFixture(root);
+    writeFileSync(path.join(root, defaults.dashboardDir, "00-feature-health.json"), JSON.stringify({
+      uid: "goatos-feature-health",
+      title: "Goat OS — Feature health",
+      panels: [
+        {
+          id: 116,
+          title: "APM status",
+          type: "text",
+          options: { content: "Server spans are present. Pending Faro/RUM, Cloud Trace datasource, and traceparent outbox propagation." },
+        },
+        ...featurePanelRequirements.flatMap(({ feature, routeRegex }, index) => [
+          {
+            id: 1000 + index,
+            title: `${feature}: request rate by route`,
+            type: "timeseries",
+            targets: [{ timeSeriesList: { filter: `metric.type="prometheus.googleapis.com/http_server_requests_total/counter" AND resource.type="prometheus_target" AND metric.label.route=monitoring.regex.full_match("${routeRegex}")` } }],
+          },
+          {
+            id: 1100 + index,
+            title: `${feature}: p95 latency by route`,
+            type: "timeseries",
+            targets: [{ timeSeriesList: { filter: `metric.type="prometheus.googleapis.com/http_server_request_duration_seconds/histogram" AND resource.type="prometheus_target" AND metric.label.route=monitoring.regex.full_match("${routeRegex}")` } }],
+          },
+        ]),
+      ],
+    }));
+    assert.deepEqual(validate(root), []);
+
+    writeFixture(root);
+    writeFileSync(path.join(root, defaults.dashboardDir, "00-feature-health.json"), JSON.stringify({
+      uid: "goatos-feature-health",
+      title: "Goat OS — Feature health",
+      panels: [{ id: 116, title: "APM status", type: "text", options: { content: "APM complete." } }],
+    }));
+    const featureProblems = validate(root);
+    assert(featureProblems.some((problem) => problem.includes("missing feature-wise request panel")));
+    assert(featureProblems.some((problem) => problem.includes("APM status must explicitly document pending Faro/RUM")));
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

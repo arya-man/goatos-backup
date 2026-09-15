@@ -1,6 +1,6 @@
 import "server-only";
 
-import { randomUUID } from "crypto";
+import { createHash, randomUUID } from "crypto";
 import {
   createAdminApiClient,
   createAppApiClient,
@@ -21,6 +21,12 @@ import type { ParkScopeOption } from "./park-scope";
 import { AdminBootstrapCache } from "./admin-bootstrap-cache";
 
 type ErrorEnvelope = AppApiComponents["schemas"]["ErrorEnvelope"];
+type CachedApiRead<T> = {
+  expires: number;
+  promise: Promise<ApiResult<T>>;
+};
+const shortReadCache = new Map<string, CachedApiRead<unknown>>();
+const SHORT_READ_CACHE_TTL_MS = 120_000;
 
 export type AdminWebBootstrapResponse =
   AppApiComponents["schemas"]["AdminWebBootstrapResponse"];
@@ -758,6 +764,7 @@ async function timedBackendFetch(
         surface: "admin_web_server",
         method,
         path: url.pathname,
+        query: url.search,
         status: response.status,
         status_class: `${Math.floor(response.status / 100)}xx`,
         duration_ms: durationMs,
@@ -777,6 +784,7 @@ async function timedBackendFetch(
         surface: "admin_web_server",
         method,
         path: url.pathname,
+        query: url.search,
         status: 0,
         status_class: "network_error",
         duration_ms: durationMs,
@@ -1102,11 +1110,15 @@ export async function getShedWeights(params: {
   const config = await getServerConfig();
   if (!config.ok) return config;
   const client = createAppApiClient(apiClientOptions(config.data));
-  return request(() =>
-    client.request<ShedWeightsResponse>("/weighing/shed-weights", {
-      cache: "no-store",
-      query: compactQuery(params),
-    }),
+  return cachedShortRead(
+    apiReadCacheKey("/weighing/shed-weights", config.data, params),
+    () =>
+      request(() =>
+        client.request<ShedWeightsResponse>("/weighing/shed-weights", {
+          cache: "no-store",
+          query: compactQuery(params),
+        }),
+      ),
   );
 }
 
@@ -1177,6 +1189,8 @@ export async function getWeightDemographics(params: {
   origin?: string;
   /** `individual_animal` / `per_shed_partition` narrows aggregate figures to one capture mode. */
   weighing_category?: string;
+  /** Comma-list of rendered sections; omitted keeps the legacy full payload. */
+  sections?: string;
 }): Promise<ApiResult<WeightDemographicsResponse>> {
   const config = await getServerConfig();
   if (!config.ok) return config;
@@ -1213,11 +1227,15 @@ export async function getWeighingGrowth(params: {
   const config = await getServerConfig();
   if (!config.ok) return config;
   const client = createAppApiClient(apiClientOptions(config.data));
-  return request(() =>
-    client.request<WeighingGrowthResponse>("/weighing/leadership/growth", {
-      cache: "no-store",
-      query: compactQuery(params),
-    }),
+  return cachedShortRead(
+    apiReadCacheKey("/weighing/leadership/growth", config.data, params),
+    () =>
+      request(() =>
+        client.request<WeighingGrowthResponse>("/weighing/leadership/growth", {
+          cache: "no-store",
+          query: compactQuery(params),
+        }),
+      ),
   );
 }
 
@@ -5447,6 +5465,41 @@ export async function request<T>(fn: () => Promise<T>): Promise<ApiResult<T>> {
   } catch (error) {
     return { ok: false, error: normalizeApiError(error) };
   }
+}
+
+function cachedShortRead<T>(
+  key: string,
+  fn: () => Promise<ApiResult<T>>,
+): Promise<ApiResult<T>> {
+  const now = Date.now();
+  const cached = shortReadCache.get(key);
+  if (cached && cached.expires > now) {
+    return cached.promise as Promise<ApiResult<T>>;
+  }
+  if (shortReadCache.size > 256) {
+    shortReadCache.clear();
+  }
+  const promise = fn().finally(() => {
+    const current = shortReadCache.get(key);
+    if (current?.promise === promise && current.expires <= Date.now()) {
+      shortReadCache.delete(key);
+    }
+  });
+  shortReadCache.set(key, { expires: now + SHORT_READ_CACHE_TTL_MS, promise });
+  return promise;
+}
+
+function apiReadCacheKey(endpoint: string, config: ServerConfig, params: Record<string, unknown>): string {
+  const query = Object.entries(params)
+    .filter(([, value]) => value !== null && value !== undefined && value !== "")
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([key, value]) => `${key}=${Array.isArray(value) ? value.join(",") : String(value)}`)
+    .join("&");
+  return `${endpoint}|${config.baseUrl}|${config.tenantId}|auth=${authCacheFingerprint(config.bearerToken)}|${query}`;
+}
+
+function authCacheFingerprint(token: string): string {
+  return createHash("sha256").update(token).digest("base64url").slice(0, 16);
 }
 
 export async function withApiTimeout<T>(

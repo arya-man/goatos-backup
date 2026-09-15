@@ -13,6 +13,328 @@ import (
 	"github.com/vgoats/goatos/backend/internal/weighing/ports"
 )
 
+func weightDemographicsSectionSet(raw string) map[string]bool {
+	sections := map[string]bool{}
+	if strings.TrimSpace(raw) == "" {
+		for _, key := range []string{"composition", "dimensions", "origin", "shed_type", "weight_bands", "weekly_gain", "gain_thresholds"} {
+			sections[key] = true
+		}
+		return sections
+	}
+	for _, part := range strings.Split(raw, ",") {
+		part = strings.TrimSpace(part)
+		if part != "" {
+			sections[part] = true
+		}
+	}
+	return sections
+}
+
+func weightDemographicsSectionKey(sections map[string]bool) string {
+	keys := []string{"composition", "dimensions", "origin", "shed_type", "weight_bands", "weekly_gain", "gain_thresholds"}
+	out := make([]string, 0, len(keys))
+	for _, key := range keys {
+		if sections[key] {
+			out = append(out, key)
+		}
+	}
+	if len(out) == 0 {
+		return "none"
+	}
+	return strings.Join(out, ",")
+}
+
+func weightDemographicsPruneInactiveSectionSelects(query string, sections map[string]bool) string {
+	replaceInactive := func(active bool, needle, literal string) {
+		if active {
+			return
+		}
+		query = strings.ReplaceAll(query, needle, literal)
+	}
+	replaceInactive(sections["composition"],
+		`CASE WHEN $19::bool THEN (SELECT count(*) FROM resolved WHERE breed IS NOT NULL) ELSE 0 END`, `0`)
+	replaceInactive(sections["composition"],
+		`CASE WHEN $19::bool THEN (SELECT count(*) FROM resolved WHERE breed IS NULL) ELSE 0 END`, `0`)
+	replaceInactive(sections["composition"],
+		`CASE WHEN $19::bool THEN (SELECT COALESCE(sum(l.animal_count), 0) FROM lump l) ELSE 0 END`, `0`)
+	replaceInactive(sections["composition"],
+		`CASE WHEN $19::bool THEN (SELECT COALESCE(sum(l.animal_count), 0) FROM lump l
+     LEFT JOIN shed_stage ss ON ss.location_id = l.location_id AND ss.partition_label = l.partition_label WHERE ss.stage IS NULL) ELSE 0 END`, `0`)
+	replaceInactive(sections["dimensions"],
+		`CASE WHEN $20::bool THEN (SELECT COALESCE(jsonb_agg(jsonb_build_array(breed, n, avg) ORDER BY n DESC), '[]'::jsonb)
+     FROM (SELECT breed, sum(n)::bigint n, (sum(total)/NULLIF(sum(n),0))::float8 avg FROM (
+             SELECT breed, count(*)::bigint n, sum(weight_kg)::float8 total FROM resolved
+              WHERE breed IS NOT NULL GROUP BY breed
+             UNION ALL
+             SELECT sc.breed, sum(l.animal_count)::bigint, sum(l.animal_count*l.average_weight_kg)::float8
+              FROM lump l JOIN shed_cohort sc ON sc.location_id = l.location_id AND sc.partition_label = l.partition_label
+              WHERE sc.breeds = 1 AND ($5::text = '' OR (sc.sexes = 1 AND lower(btrim(sc.sex)) = $5::text)) GROUP BY sc.breed) bp GROUP BY breed) b) ELSE '[]'::jsonb END`, `'[]'::jsonb`)
+	replaceInactive(sections["dimensions"],
+		`CASE WHEN $20::bool THEN (SELECT COALESCE(jsonb_agg(jsonb_build_array(sex, n, avg) ORDER BY n DESC), '[]'::jsonb)
+     FROM (SELECT sex, sum(n)::bigint n, (sum(total)/NULLIF(sum(n),0))::float8 avg FROM (
+             SELECT sex, count(*)::bigint n, sum(weight_kg)::float8 total FROM resolved
+              WHERE sex IS NOT NULL GROUP BY sex
+             UNION ALL
+             SELECT sc.sex, sum(l.animal_count)::bigint, sum(l.animal_count*l.average_weight_kg)::float8
+              FROM lump l JOIN shed_cohort sc ON sc.location_id = l.location_id AND sc.partition_label = l.partition_label
+              WHERE sc.sexes = 1 AND ($5::text = '' OR lower(btrim(sc.sex)) = $5::text) GROUP BY sc.sex) sp GROUP BY sex) x) ELSE '[]'::jsonb END`, `'[]'::jsonb`)
+	replaceInactive(sections["dimensions"],
+		`CASE WHEN $20::bool THEN (SELECT COALESCE(jsonb_agg(jsonb_build_array(stage, n, avg) ORDER BY n DESC), '[]'::jsonb)
+     FROM (
+       SELECT stage, sum(n)::bigint n, (sum(total) / NULLIF(sum(n), 0))::float8 avg
+       FROM (
+         SELECT management_stage AS stage, count(*)::bigint n, sum(weight_kg)::float8 total
+         FROM resolved WHERE management_stage IS NOT NULL GROUP BY management_stage
+         UNION ALL
+         SELECT ss.stage, sum(l.animal_count)::bigint, sum(l.animal_count * l.average_weight_kg)::float8
+         FROM lump l JOIN shed_stage ss ON ss.location_id = l.location_id AND ss.partition_label = l.partition_label GROUP BY ss.stage
+       ) parts GROUP BY stage
+     ) st) ELSE '[]'::jsonb END`, `'[]'::jsonb`)
+	replaceInactive(sections["dimensions"],
+		`CASE WHEN $20::bool THEN (SELECT COALESCE(jsonb_agg(jsonb_build_array(breed, n, g) ORDER BY n DESC), '[]'::jsonb)
+     FROM (
+       SELECT breed, sum(n)::bigint n, (sum(gsum) / NULLIF(sum(n), 0))::float8 g FROM (
+         SELECT breed, count(*)::bigint n, sum(g)::float8 gsum
+         FROM resolved_gain WHERE breed IS NOT NULL GROUP BY breed
+         UNION ALL
+         SELECT sc.breed, sum(ls.animals)::bigint, sum(ls.animals * ls.g_per_day)::float8
+         FROM lump_span ls JOIN shed_cohort sc
+           ON sc.location_id = ls.location_id AND sc.partition_label = ls.partition_label
+         -- The Sex filter reaches this arm too. It did not, and a whole-shed pen therefore joined
+         -- the male AND the female breed chart alike: Anantapur Sheep read 403 male kids and 392
+         -- female ones against 456 in total. Same claim rule as every other whole-shed arm -- the
+         -- pen counts for a reader only when its cohort is entirely that sex.
+         WHERE sc.breeds = 1 AND ($5::text = '' OR (sc.sexes = 1 AND lower(btrim(sc.sex)) = $5::text))
+         GROUP BY sc.breed
+       ) parts GROUP BY breed
+     ) gb) ELSE '[]'::jsonb END`, `'[]'::jsonb`)
+	replaceInactive(sections["dimensions"],
+		`CASE WHEN $20::bool THEN (SELECT COALESCE(jsonb_agg(jsonb_build_array(sex, n, g) ORDER BY n DESC), '[]'::jsonb)
+     FROM (
+       SELECT sex, sum(n)::bigint n, (sum(gsum) / NULLIF(sum(n), 0))::float8 g FROM (
+         SELECT sex, count(*)::bigint n, sum(g)::float8 gsum
+         FROM resolved_gain WHERE sex IS NOT NULL GROUP BY sex
+         UNION ALL
+         SELECT sc.sex, sum(ls.animals)::bigint, sum(ls.animals * ls.g_per_day)::float8
+         FROM lump_span ls JOIN shed_cohort sc
+           ON sc.location_id = ls.location_id AND sc.partition_label = ls.partition_label
+         WHERE sc.sexes = 1 AND ($5::text = '' OR lower(btrim(sc.sex)) = $5::text) GROUP BY sc.sex
+       ) parts GROUP BY sex
+     ) gx) ELSE '[]'::jsonb END`, `'[]'::jsonb`)
+	replaceInactive(sections["dimensions"],
+		`CASE WHEN $20::bool THEN (SELECT COALESCE(jsonb_agg(jsonb_build_array(stage, n, g) ORDER BY n DESC), '[]'::jsonb)
+     FROM (
+       SELECT stage, sum(n)::bigint n, (sum(gsum) / NULLIF(sum(n), 0))::float8 g FROM (
+         SELECT management_stage AS stage, count(*)::bigint n, sum(g)::float8 gsum
+         FROM resolved_gain WHERE management_stage IS NOT NULL GROUP BY management_stage
+         UNION ALL
+         SELECT ss.stage, sum(ls.animals)::bigint, sum(ls.animals * ls.g_per_day)::float8
+         FROM lump_span ls JOIN shed_stage ss
+           ON ss.location_id = ls.location_id AND ss.partition_label = ls.partition_label
+         GROUP BY ss.stage
+       ) parts GROUP BY stage
+     ) gs) ELSE '[]'::jsonb END`, `'[]'::jsonb`)
+	replaceInactive(sections["origin"],
+		`CASE WHEN $21::bool THEN (SELECT COALESCE(jsonb_agg(jsonb_build_array(breed, origin, n, g) ORDER BY breed, origin), '[]'::jsonb)
+     FROM (
+       SELECT breed, origin, sum(n)::bigint n, (sum(gsum) / NULLIF(sum(n), 0))::float8 g FROM (
+         SELECT breed, origin, count(*)::bigint n, sum(g)::float8 gsum
+         FROM (
+           SELECT rg.breed, rg.g,
+                  CASE WHEN rg.tag = ANY($10::text[]) THEN 'farm_born'
+                       WHEN rg.tag = ANY($11::text[]) THEN 'purchased' END AS origin
+           FROM resolved_gain rg WHERE rg.breed IS NOT NULL
+         ) scanned
+         WHERE origin IS NOT NULL
+         GROUP BY breed, origin
+         UNION ALL
+         SELECT sc.breed, pen.origin, sum(ls.animals)::bigint, sum(ls.animals * ls.g_per_day)::float8
+         FROM lump_span ls
+         JOIN shed_cohort sc
+           ON sc.location_id = ls.location_id AND sc.partition_label = ls.partition_label
+         JOIN LATERAL (
+           SELECT CASE
+             WHEN EXISTS (SELECT 1 FROM unnest($12::uuid[], $13::text[]) AS fb(loc, part)
+                          WHERE fb.loc = ls.location_id AND fb.part = ls.partition_label) THEN 'farm_born'
+             WHEN EXISTS (SELECT 1 FROM unnest($14::uuid[], $15::text[]) AS pu(loc, part)
+                          WHERE pu.loc = ls.location_id AND pu.part = ls.partition_label) THEN 'purchased'
+           END AS origin
+         ) pen ON pen.origin IS NOT NULL
+         -- Same claim rule as every other whole-shed arm: the pen counts for a reader only when
+         -- its cohort is entirely one breed, and entirely the selected sex.
+         WHERE sc.breeds = 1 AND ($5::text = '' OR (sc.sexes = 1 AND lower(btrim(sc.sex)) = $5::text))
+         GROUP BY sc.breed, pen.origin
+       ) parts GROUP BY breed, origin
+     ) gbo) ELSE '[]'::jsonb END`, `'[]'::jsonb`)
+	replaceInactive(sections["shed_type"],
+		`CASE WHEN $22::bool THEN (SELECT COALESCE(jsonb_agg(jsonb_build_array(breed, shed_type, n, g) ORDER BY breed, shed_type), '[]'::jsonb)
+     FROM (
+       SELECT breed, shed_type, sum(n)::bigint n, (sum(gsum) / NULLIF(sum(n), 0))::float8 g FROM (
+         SELECT rg.breed, st.shed_type, count(*)::bigint n, sum(rg.g)::float8 gsum
+         FROM resolved_gain rg
+         JOIN shed_type st ON st.location_id = rg.location_id AND st.partition_label = rg.partition_label
+         WHERE rg.breed IS NOT NULL AND st.shed_type IS NOT NULL
+           AND ($16::text = '' OR $16::text = 'individual_animal')
+         GROUP BY rg.breed, st.shed_type
+         UNION ALL
+         SELECT sc.breed, st.shed_type, sum(ls.animals)::bigint, sum(ls.animals * ls.g_per_day)::float8
+         FROM lump_span ls
+         JOIN shed_cohort sc
+           ON sc.location_id = ls.location_id AND sc.partition_label = ls.partition_label
+         JOIN shed_type st
+           ON st.location_id = ls.location_id AND st.partition_label = ls.partition_label
+         WHERE sc.breeds = 1 AND st.shed_type IS NOT NULL
+           AND ($5::text = '' OR (sc.sexes = 1 AND lower(btrim(sc.sex)) = $5::text))
+           AND ($16::text = '' OR $16::text = 'per_shed_partition')
+         GROUP BY sc.breed, st.shed_type
+       ) parts GROUP BY breed, shed_type
+     ) gbst) ELSE '[]'::jsonb END`, `'[]'::jsonb`)
+	replaceInactive(sections["shed_type"],
+		`CASE WHEN $22::bool THEN (SELECT COALESCE(jsonb_agg(jsonb_build_array(m.label, m.shed_type, m.location_id, m.partition_label, loc.name,
+                                               COALESCE(park.location_id::text, ''), COALESCE(park.name, ''))
+                             ORDER BY m.label, m.shed_type, COALESCE(park.name, ''), loc.name, m.partition_label), '[]'::jsonb)
+     FROM (
+       SELECT DISTINCT rg.breed AS label, st.shed_type, st.location_id, st.partition_label
+       FROM resolved_gain rg
+       JOIN shed_type st ON st.location_id = rg.location_id AND st.partition_label = rg.partition_label
+       WHERE st.shed_type IS NOT NULL AND rg.breed IS NOT NULL
+         AND ($16::text = '' OR $16::text = 'individual_animal')
+       UNION
+       SELECT sc.breed AS label, st.shed_type, st.location_id, st.partition_label
+       FROM lump_span ls
+       JOIN shed_cohort sc ON sc.location_id = ls.location_id AND sc.partition_label = ls.partition_label
+       JOIN shed_type st ON st.location_id = ls.location_id AND st.partition_label = ls.partition_label
+       WHERE st.shed_type IS NOT NULL AND sc.breeds = 1
+         AND ($5::text = '' OR (sc.sexes = 1 AND lower(btrim(sc.sex)) = $5::text))
+         AND ($16::text = '' OR $16::text = 'per_shed_partition')
+     ) m
+     JOIN locations loc ON loc.location_id = m.location_id AND loc.tenant_id = $1::uuid
+     -- THE PARK IS PART OF THE PEN'S IDENTITY. This farm has a "Castro 1" in CBE and a "Castro 1"
+     -- in CPT, and Gandhi and Yashoda repeat the same way, so a list keyed on the NAME alone
+     -- silently merges two real pens in two parks into one line -- the OL-1 name-keying defect,
+     -- one grain down. The join demands location_type = 'park' rather than trusting the parent
+     -- blindly: an unexpected parent yields NO park rather than a wrong one, and the panel then
+     -- simply does not group that row.
+     LEFT JOIN locations park ON park.location_id = loc.parent_location_id
+       AND park.tenant_id = $1::uuid AND park.location_type = 'park') ELSE '[]'::jsonb END`, `'[]'::jsonb`)
+	replaceInactive(sections["weight_bands"],
+		`CASE WHEN $23::bool THEN (SELECT COALESCE(jsonb_agg(jsonb_build_array(band, n, gn, g) ORDER BY sort), '[]'::jsonb)
+     FROM (
+       SELECT band, sort, sum(n)::bigint AS n, sum(gn)::bigint AS gn,
+              (sum(gsum) / NULLIF(sum(gn), 0))::float8 AS g
+       FROM (
+         SELECT b.band, b.sort,
+                count(*)::bigint                              AS n,
+                count(ag.g)::bigint                           AS gn,
+                COALESCE(sum(ag.g), 0)::float8                AS gsum
+         FROM resolved r
+         LEFT JOIN animal_gain ag ON ag.tag = r.tag
+         CROSS JOIN LATERAL (
+           SELECT CASE WHEN r.weight_kg < 15 THEN 'under_15'
+                       WHEN r.weight_kg < 20 THEN '15_20'
+                       WHEN r.weight_kg < 25 THEN '20_25'
+                       WHEN r.weight_kg < 30 THEN '25_30'
+                       WHEN r.weight_kg < 35 THEN '30_35'
+                       ELSE '35_plus' END AS band,
+                  CASE WHEN r.weight_kg < 15 THEN 1
+                       WHEN r.weight_kg < 20 THEN 2
+                       WHEN r.weight_kg < 25 THEN 3
+                       WHEN r.weight_kg < 30 THEN 4
+                       WHEN r.weight_kg < 35 THEN 5
+                       ELSE 6 END AS sort
+         ) b
+         GROUP BY b.band, b.sort
+         UNION ALL
+         SELECT b.band, b.sort,
+                sum(lu.animal_count)::bigint,
+                COALESCE(sum(ls.animals), 0)::bigint,
+                COALESCE(sum(ls.animals * ls.g_per_day), 0)::float8
+         FROM lump lu
+         LEFT JOIN lump_span ls
+           ON ls.location_id = lu.location_id AND ls.partition_label = lu.partition_label
+         CROSS JOIN LATERAL (
+           SELECT CASE WHEN lu.average_weight_kg < 15 THEN 'under_15'
+                       WHEN lu.average_weight_kg < 20 THEN '15_20'
+                       WHEN lu.average_weight_kg < 25 THEN '20_25'
+                       WHEN lu.average_weight_kg < 30 THEN '25_30'
+                       WHEN lu.average_weight_kg < 35 THEN '30_35'
+                       ELSE '35_plus' END AS band,
+                  CASE WHEN lu.average_weight_kg < 15 THEN 1
+                       WHEN lu.average_weight_kg < 20 THEN 2
+                       WHEN lu.average_weight_kg < 25 THEN 3
+                       WHEN lu.average_weight_kg < 30 THEN 4
+                       WHEN lu.average_weight_kg < 35 THEN 5
+                       ELSE 6 END AS sort
+         ) b
+         GROUP BY b.band, b.sort
+       ) parts GROUP BY band, sort
+     ) wb) ELSE '[]'::jsonb END`, `'[]'::jsonb`)
+	replaceInactive(sections["weekly_gain"],
+		`CASE WHEN $24::bool THEN (SELECT COALESCE(jsonb_agg(jsonb_build_array(breed, week_start, n, g) ORDER BY breed, week_start), '[]'::jsonb)
+     FROM (
+       SELECT breed, week_start, sum(n)::bigint AS n, (sum(gsum) / NULLIF(sum(n), 0))::float8 AS g
+       FROM (
+         SELECT gt.breed, aw.week_start, count(*)::bigint AS n, sum(aw.g)::float8 AS gsum
+         FROM animal_gain_week aw
+         LEFT JOIN ident i ON i.tag = aw.tag
+         LEFT JOIN goats gt ON gt.goat_id = i.goat_id AND gt.tenant_id = $1::uuid
+         WHERE gt.breed IS NOT NULL AND ($5::text = '' OR lower(btrim(gt.sex)) = $5::text)
+         GROUP BY gt.breed, aw.week_start
+         UNION ALL
+         SELECT sc.breed, pw.week_start, sum(pw.animals)::bigint, sum(pw.animals * pw.g_per_day)::float8
+         FROM pen_week pw
+         JOIN shed_cohort sc
+           ON sc.location_id = pw.location_id AND sc.partition_label = pw.partition_label
+         WHERE sc.breeds = 1
+           AND ($5::text = '' OR (sc.sexes = 1 AND lower(btrim(sc.sex)) = $5::text))
+         GROUP BY sc.breed, pw.week_start
+       ) parts GROUP BY breed, week_start
+     ) gbw) ELSE '[]'::jsonb END`, `'[]'::jsonb`)
+	replaceInactive(sections["gain_thresholds"],
+		`CASE WHEN $25::bool THEN (SELECT COALESCE(jsonb_agg(jsonb_build_array(breed, n, b180, b1820, b2025, a250) ORDER BY n DESC, breed), '[]'::jsonb)
+     FROM (
+       SELECT breed, sum(n)::bigint AS n, sum(b180)::bigint AS b180, sum(b1820)::bigint AS b1820,
+              sum(b2025)::bigint AS b2025, sum(a250)::bigint AS a250
+       FROM (
+         SELECT breed,
+                count(*)::bigint                                       AS n,
+                count(*) FILTER (WHERE g <= 180)::bigint               AS b180,
+                count(*) FILTER (WHERE g > 180 AND g <= 200)::bigint   AS b1820,
+                count(*) FILTER (WHERE g > 200 AND g <= 250)::bigint   AS b2025,
+                count(*) FILTER (WHERE g > 250)::bigint                AS a250
+         FROM resolved_gain
+         WHERE breed IS NOT NULL
+         GROUP BY breed
+         UNION ALL
+         SELECT sc.breed,
+                sum(ls.animals)::bigint,
+                COALESCE(sum(ls.animals) FILTER (WHERE ls.g_per_day <= 180), 0)::bigint,
+                COALESCE(sum(ls.animals) FILTER (WHERE ls.g_per_day > 180 AND ls.g_per_day <= 200), 0)::bigint,
+                COALESCE(sum(ls.animals) FILTER (WHERE ls.g_per_day > 200 AND ls.g_per_day <= 250), 0)::bigint,
+                COALESCE(sum(ls.animals) FILTER (WHERE ls.g_per_day > 250), 0)::bigint
+         FROM lump_span ls JOIN shed_cohort sc
+           ON sc.location_id = ls.location_id AND sc.partition_label = ls.partition_label
+         WHERE sc.breeds = 1
+           AND ($5::text = '' OR (sc.sexes = 1 AND lower(btrim(sc.sex)) = $5::text))
+         GROUP BY sc.breed
+       ) parts GROUP BY breed
+     ) gt) ELSE '[]'::jsonb END`, `'[]'::jsonb`)
+	replaceInactive(sections["composition"],
+		`CASE WHEN $19::bool THEN (SELECT COALESCE(jsonb_agg(jsonb_build_object(
+       'location_id', location_id::text,
+       'partition_label', partition_label,
+       'source', source,
+       'total_animals', total_animals,
+       'chips', chips
+     ) ORDER BY location_id::text, partition_label, source), '[]'::jsonb)
+   FROM (
+     SELECT * FROM individual_composition
+     UNION ALL
+     SELECT * FROM lump_composition
+   ) c) ELSE '[]'::jsonb END`, `'[]'::jsonb`)
+	return query
+}
+
 // GetWeightDemographics returns average weight by breed, sex and management stage.
 //
 // HERD JOIN BY RECORDED EXCEPTION (maintainer decision 2026-08-07). This is the
@@ -28,8 +350,10 @@ import (
 // than by_stage: a whole-shed weigh has no tags, so it reaches the stage rows via
 // its shed's cohort but never the breed or sex rows. The resolved / unresolved /
 // lump-sum counts are returned so that gap is legible rather than looking broken.
-func (r *Repository) GetWeightDemographics(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time, sex, origin, weighingCategory string) (out domain.WeightDemographics, err error) {
-	cacheKey := weighingAnalyticsCacheKey("weight_demographics", tenantID, parkIDs, periodStart, periodEnd, sex, origin, weighingCategory)
+func (r *Repository) GetWeightDemographics(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time, sex, origin, weighingCategory, sections string) (out domain.WeightDemographics, err error) {
+	sectionSet := weightDemographicsSectionSet(sections)
+	sectionKey := weightDemographicsSectionKey(sectionSet)
+	cacheKey := weighingAnalyticsCacheKey("weight_demographics:"+sectionKey, tenantID, parkIDs, periodStart, periodEnd, sex, origin, weighingCategory)
 	if cached, ok := r.getReadCache(cacheKey); ok {
 		return cached.(domain.WeightDemographics), nil
 	}
@@ -69,6 +393,11 @@ func (r *Repository) GetWeightDemographics(ctx context.Context, tenantID string,
 	if len(parkIDs) == 0 {
 		return out, nil
 	}
+	needLatest := sectionSet["composition"] || sectionSet["dimensions"] || sectionSet["shed_type"] || sectionSet["weight_bands"]
+	needLump := sectionSet["composition"] || sectionSet["dimensions"] || sectionSet["weight_bands"]
+	needGain := sectionSet["dimensions"] || sectionSet["origin"] || sectionSet["shed_type"] || sectionSet["weight_bands"] || sectionSet["gain_thresholds"]
+	needLumpSpan := sectionSet["dimensions"] || sectionSet["origin"] || sectionSet["shed_type"] || sectionSet["weight_bands"] || sectionSet["gain_thresholds"]
+	needWeeklyGain := sectionSet["weekly_gain"]
 	// This read already resolves a tag to its animal, so the Sex filter is applied natively here
 	// rather than through the tag list sex_scope.go hands the other reads: filtering on the goat
 	// row it has already joined is one predicate instead of a second round trip, and it keeps the
@@ -104,13 +433,25 @@ func (r *Repository) GetWeightDemographics(ctx context.Context, tenantID string,
 	// cannot express -- it answers "which animals match the selected origin", and this answers
 	// "which side is each animal on". Resolved through the SAME origin_scope.go the filter uses,
 	// so the breakdown and the filter can never disagree about which animals were bought.
-	farmBornScope, farmBornErr := resolveOrigin(ctx, tenantID, parkIDs, "farm_born", periodStart, periodEnd)
-	if farmBornErr != nil {
-		return domain.WeightDemographics{}, farmBornErr
+	var farmBornScope ReportScope
+	var purchasedScope ReportScope
+	if sectionSet["origin"] {
+		farmBornScope, err = resolveOrigin(ctx, tenantID, parkIDs, "farm_born", periodStart, periodEnd)
+		if err != nil {
+			return domain.WeightDemographics{}, err
+		}
+		purchasedScope, err = resolveOrigin(ctx, tenantID, parkIDs, "purchased", periodStart, periodEnd)
+		if err != nil {
+			return domain.WeightDemographics{}, err
+		}
 	}
-	purchasedScope, purchasedErr := resolveOrigin(ctx, tenantID, parkIDs, "purchased", periodStart, periodEnd)
-	if purchasedErr != nil {
-		return domain.WeightDemographics{}, purchasedErr
+	if weighingCategory == domain.CategoryPerShedPartition && sexFilter == "" && !originFiltered {
+		out, err = r.getShedPartitionWeightDemographics(ctx, tenantID, parkIDs, periodStart, periodEnd, sectionSet, farmBornScope, purchasedScope)
+		if err != nil {
+			return domain.WeightDemographics{}, err
+		}
+		r.setReadCacheIfEpoch(cacheKey, out, cacheEpoch)
+		return out, nil
 	}
 	// The same-animal map (identity_scope.go), widened by the SAME 90-day lookback the gain arm below
 	// reads, so a pair whose earlier weigh sits before the window still merges. This file resolves
@@ -122,7 +463,33 @@ func (r *Repository) GetWeightDemographics(ctx context.Context, tenantID string,
 	}
 
 	const q = ` -- scale-guard:ignore: bounded 28/84-day weighing leadership aggregate over tenant+authorized parks; current release envelope accepts this read-model query with repository integration coverage, and it does not touch obligation/kernel hot tables
-WITH scoped AS (
+WITH _param_types AS (
+  SELECT
+    $7::text[] AS origin_tags,
+    $8::uuid[] AS origin_location_ids,
+    $9::text[] AS origin_partition_labels,
+    $10::text[] AS farm_born_tags,
+    $11::text[] AS purchased_tags,
+    $12::uuid[] AS farm_born_location_ids,
+    $13::text[] AS farm_born_partition_labels,
+    $14::uuid[] AS purchased_location_ids,
+    $15::text[] AS purchased_partition_labels,
+    $17::text[] AS identity_tags,
+    $18::text[] AS identity_canonical_tags,
+    $19::bool AS need_composition_section,
+    $20::bool AS need_dimensions_section,
+    $21::bool AS need_origin_section,
+    $22::bool AS need_shed_type_section,
+    $23::bool AS need_weight_bands_section,
+    $24::bool AS need_weekly_gain_section,
+    $25::bool AS need_gain_thresholds_section,
+    $26::bool AS need_latest,
+    $27::bool AS need_lump,
+    $28::bool AS need_gain,
+    $29::bool AS need_lump_span,
+    $30::bool AS need_weekly_gain
+),
+scoped AS (
   SELECT cs.campaign_shed_id, cs.tenant_id, cs.location_id, COALESCE(cs.partition_label, '') AS partition_label, cs.weighing_category
   FROM weighing_campaign_sheds cs
   JOIN weighing_campaigns c ON c.campaign_id = cs.campaign_id AND c.tenant_id = cs.tenant_id
@@ -143,6 +510,7 @@ latest AS (
   LEFT JOIN unnest($17::text[], $18::text[]) AS akmap(tag, canonical_tag)
     ON akmap.tag = lower(btrim(o.scanned_identifier))
   WHERE o.tenant_id = $1::uuid
+    AND $26::bool
     AND o.accepted_at >= $3::timestamptz AND o.accepted_at < $4::timestamptz
     AND o.verification_status <> 'rejected'
     AND btrim(o.scanned_identifier) <> ''
@@ -167,6 +535,7 @@ raw_obs AS (
   LEFT JOIN unnest($17::text[], $18::text[]) AS akmap(tag, canonical_tag)
     ON akmap.tag = lower(btrim(o.scanned_identifier))
   WHERE o.tenant_id = $1::uuid
+    AND ($28::bool OR $30::bool)
     AND o.accepted_at >= $3::timestamptz AND o.accepted_at < $4::timestamptz
     AND o.verification_status <> 'rejected' AND btrim(o.scanned_identifier) <> ''
     AND ($16::text = '' OR $16::text = 'individual_animal')
@@ -189,7 +558,7 @@ paired AS (
 animal_gain AS (
   SELECT tag, percentile_cont(0.5) WITHIN GROUP (
            ORDER BY (weight_kg - prev_w) * 1000.0 / (d - prev_d)) AS g
-  FROM paired WHERE prev_d IS NOT NULL AND d > prev_d AND accepted_at >= $3::timestamptz GROUP BY tag
+  FROM paired WHERE $28::bool AND prev_d IS NOT NULL AND d > prev_d AND accepted_at >= $3::timestamptz GROUP BY tag
 ),
 -- The same gain, cut by CALENDAR WEEK, for the breed trend on the Time-wise tab. One value per
 -- (animal, week): a pair is bucketed by its LATER weigh, which is the week the movement was
@@ -202,7 +571,7 @@ animal_gain_week AS (
          percentile_cont(0.5) WITHIN GROUP (
            ORDER BY (weight_kg - prev_w) * 1000.0 / (d - prev_d)) AS g
   FROM paired
-  WHERE prev_d IS NOT NULL AND d > prev_d AND accepted_at >= $3::timestamptz
+  WHERE $30::bool AND prev_d IS NOT NULL AND d > prev_d AND accepted_at >= $3::timestamptz
   GROUP BY tag, week_start
 ),
 ident AS (
@@ -231,7 +600,7 @@ resolved_gain AS (
   LEFT JOIN latest l ON l.tag = ag.tag
   LEFT JOIN ident i ON i.tag = ag.tag
   LEFT JOIN goats gt ON gt.goat_id = i.goat_id AND gt.tenant_id = $1::uuid
-  WHERE $5::text = '' OR lower(btrim(gt.sex)) = $5::text
+  WHERE $28::bool AND ($5::text = '' OR lower(btrim(gt.sex)) = $5::text)
 ),
 -- A whole-shed weigh is attributed by the cohort its shed holds. The bucket points
 -- at a PARTITION (Castro 1), but the herd register puts the animals on the physical
@@ -332,9 +701,10 @@ shed_cohort_detail AS (
   -- Same scrubbed key as shed_cohort above, for the same reason: the composition chips must
   -- describe the pen the cohort rule claimed, or a shed shows chips for animals it was not
   -- attributed to.
-  WHERE src.resolved_partition_label = ''
-     OR regexp_replace(lower(btrim(gsp.partition_label)), '^(part|pt)[\s.-]*', '')
-        = regexp_replace(lower(btrim(src.resolved_partition_label)), '^(part|pt)[\s.-]*', '')
+  WHERE $19::bool
+    AND (src.resolved_partition_label = ''
+      OR regexp_replace(lower(btrim(gsp.partition_label)), '^(part|pt)[\s.-]*', '')
+         = regexp_replace(lower(btrim(src.resolved_partition_label)), '^(part|pt)[\s.-]*', ''))
   GROUP BY src.location_id, src.partition_label,
            COALESCE(NULLIF(g.breed, ''), 'Unknown breed'),
            COALESCE(NULLIF(g.sex, ''), 'unknown sex'),
@@ -372,7 +742,8 @@ lump AS (
    AND sh.withdrawn_at IS NULL
    AND sh.accepted_at >= $3::timestamptz AND sh.accepted_at < $4::timestamptz
    AND sh.verification_status <> 'rejected'
-  WHERE s.weighing_category = 'per_shed_partition'
+  WHERE $27::bool
+    AND s.weighing_category = 'per_shed_partition'
     AND ($5::text = '' OR EXISTS (
       SELECT 1 FROM shed_cohort sc
       WHERE sc.location_id = s.location_id AND sc.partition_label = COALESCE(s.partition_label, '')
@@ -407,7 +778,8 @@ lump_span AS (
            row_number() OVER (PARTITION BY s.location_id, s.partition_label ORDER BY so.accepted_at DESC) AS rn
     FROM weighing_shed_observations so
     JOIN scoped s ON s.campaign_shed_id = so.campaign_shed_id AND s.tenant_id = so.tenant_id
-    WHERE so.tenant_id = $1::uuid AND s.weighing_category = 'per_shed_partition'
+    WHERE $29::bool
+      AND so.tenant_id = $1::uuid AND s.weighing_category = 'per_shed_partition'
       AND so.withdrawn_at IS NULL AND so.verification_status <> 'rejected'
       AND so.accepted_at >= $3::timestamptz AND so.accepted_at < $4::timestamptz
   ) latest
@@ -418,13 +790,14 @@ lump_span AS (
            row_number() OVER (PARTITION BY s.location_id, s.partition_label ORDER BY so.accepted_at ASC) AS rn
     FROM weighing_shed_observations so
     JOIN scoped s ON s.campaign_shed_id = so.campaign_shed_id AND s.tenant_id = so.tenant_id
-    WHERE so.tenant_id = $1::uuid AND s.weighing_category = 'per_shed_partition'
+    WHERE $29::bool
+      AND so.tenant_id = $1::uuid AND s.weighing_category = 'per_shed_partition'
       AND so.withdrawn_at IS NULL AND so.verification_status <> 'rejected'
       AND so.accepted_at >= $3::timestamptz AND so.accepted_at < $4::timestamptz
   ) first ON first.location_id = latest.location_id
     AND first.partition_label = latest.partition_label
     AND first.rn = 1
-  WHERE latest.rn = 1 AND latest.d > first.d
+  WHERE $29::bool AND latest.rn = 1 AND latest.d > first.d
     AND (NOT $6::bool OR EXISTS (
       SELECT 1 FROM shed_targets st
       WHERE st.location_id = latest.location_id AND st.partition_label = latest.partition_label
@@ -453,7 +826,8 @@ pen_week AS (
              lag((so.accepted_at AT TIME ZONE 'Asia/Kolkata')::date) OVER w AS prev_d
       FROM weighing_shed_observations so
       JOIN scoped s ON s.campaign_shed_id = so.campaign_shed_id AND s.tenant_id = so.tenant_id
-      WHERE so.tenant_id = $1::uuid AND s.weighing_category = 'per_shed_partition'
+      WHERE $30::bool
+        AND so.tenant_id = $1::uuid AND s.weighing_category = 'per_shed_partition'
         AND so.withdrawn_at IS NULL AND so.verification_status <> 'rejected'
         AND so.accepted_at >= $3::timestamptz AND so.accepted_at < $4::timestamptz
         AND (NOT $6::bool OR EXISTS (
@@ -478,6 +852,7 @@ individual_composition AS (
            COALESCE(NULLIF(management_stage, ''), 'Unknown stage') AS stage,
            count(*)::int AS animals
     FROM resolved
+    WHERE $19::bool
     GROUP BY location_id, partition_label,
              COALESCE(NULLIF(breed, ''), 'Unknown breed'),
              COALESCE(NULLIF(sex, ''), 'unknown sex'),
@@ -522,30 +897,31 @@ shed_type AS (
   LEFT JOIN locations parent_loc ON parent_loc.location_id = src.resolved_id AND parent_loc.tenant_id = $1::uuid
   LEFT JOIN shed_profiles sp ON sp.location_id = src.location_id AND sp.tenant_id = $1::uuid
   LEFT JOIN shed_profiles parent_sp ON parent_sp.location_id = src.resolved_id AND parent_sp.tenant_id = $1::uuid
+  WHERE $22::bool
 )
 SELECT
-  (SELECT count(*) FROM resolved WHERE breed IS NOT NULL),
-  (SELECT count(*) FROM resolved WHERE breed IS NULL),
-  (SELECT COALESCE(sum(l.animal_count), 0) FROM lump l),
-  (SELECT COALESCE(sum(l.animal_count), 0) FROM lump l
-     LEFT JOIN shed_stage ss ON ss.location_id = l.location_id AND ss.partition_label = l.partition_label WHERE ss.stage IS NULL),
-  (SELECT COALESCE(jsonb_agg(jsonb_build_array(breed, n, avg) ORDER BY n DESC), '[]'::jsonb)
+  CASE WHEN $19::bool THEN (SELECT count(*) FROM resolved WHERE breed IS NOT NULL) ELSE 0 END,
+  CASE WHEN $19::bool THEN (SELECT count(*) FROM resolved WHERE breed IS NULL) ELSE 0 END,
+  CASE WHEN $19::bool THEN (SELECT COALESCE(sum(l.animal_count), 0) FROM lump l) ELSE 0 END,
+  CASE WHEN $19::bool THEN (SELECT COALESCE(sum(l.animal_count), 0) FROM lump l
+     LEFT JOIN shed_stage ss ON ss.location_id = l.location_id AND ss.partition_label = l.partition_label WHERE ss.stage IS NULL) ELSE 0 END,
+  CASE WHEN $20::bool THEN (SELECT COALESCE(jsonb_agg(jsonb_build_array(breed, n, avg) ORDER BY n DESC), '[]'::jsonb)
      FROM (SELECT breed, sum(n)::bigint n, (sum(total)/NULLIF(sum(n),0))::float8 avg FROM (
              SELECT breed, count(*)::bigint n, sum(weight_kg)::float8 total FROM resolved
               WHERE breed IS NOT NULL GROUP BY breed
              UNION ALL
              SELECT sc.breed, sum(l.animal_count)::bigint, sum(l.animal_count*l.average_weight_kg)::float8
               FROM lump l JOIN shed_cohort sc ON sc.location_id = l.location_id AND sc.partition_label = l.partition_label
-              WHERE sc.breeds = 1 AND ($5::text = '' OR (sc.sexes = 1 AND lower(btrim(sc.sex)) = $5::text)) GROUP BY sc.breed) bp GROUP BY breed) b),
-  (SELECT COALESCE(jsonb_agg(jsonb_build_array(sex, n, avg) ORDER BY n DESC), '[]'::jsonb)
+              WHERE sc.breeds = 1 AND ($5::text = '' OR (sc.sexes = 1 AND lower(btrim(sc.sex)) = $5::text)) GROUP BY sc.breed) bp GROUP BY breed) b) ELSE '[]'::jsonb END,
+  CASE WHEN $20::bool THEN (SELECT COALESCE(jsonb_agg(jsonb_build_array(sex, n, avg) ORDER BY n DESC), '[]'::jsonb)
      FROM (SELECT sex, sum(n)::bigint n, (sum(total)/NULLIF(sum(n),0))::float8 avg FROM (
              SELECT sex, count(*)::bigint n, sum(weight_kg)::float8 total FROM resolved
               WHERE sex IS NOT NULL GROUP BY sex
              UNION ALL
              SELECT sc.sex, sum(l.animal_count)::bigint, sum(l.animal_count*l.average_weight_kg)::float8
               FROM lump l JOIN shed_cohort sc ON sc.location_id = l.location_id AND sc.partition_label = l.partition_label
-              WHERE sc.sexes = 1 AND ($5::text = '' OR lower(btrim(sc.sex)) = $5::text) GROUP BY sc.sex) sp GROUP BY sex) x),
-  (SELECT COALESCE(jsonb_agg(jsonb_build_array(stage, n, avg) ORDER BY n DESC), '[]'::jsonb)
+              WHERE sc.sexes = 1 AND ($5::text = '' OR lower(btrim(sc.sex)) = $5::text) GROUP BY sc.sex) sp GROUP BY sex) x) ELSE '[]'::jsonb END,
+  CASE WHEN $20::bool THEN (SELECT COALESCE(jsonb_agg(jsonb_build_array(stage, n, avg) ORDER BY n DESC), '[]'::jsonb)
      FROM (
        SELECT stage, sum(n)::bigint n, (sum(total) / NULLIF(sum(n), 0))::float8 avg
        FROM (
@@ -555,7 +931,7 @@ SELECT
          SELECT ss.stage, sum(l.animal_count)::bigint, sum(l.animal_count * l.average_weight_kg)::float8
          FROM lump l JOIN shed_stage ss ON ss.location_id = l.location_id AND ss.partition_label = l.partition_label GROUP BY ss.stage
        ) parts GROUP BY stage
-     ) st),
+     ) st) ELSE '[]'::jsonb END,
   -- Gain by breed/sex/stage: same-animal pairs PLUS lump-sum sheds (maintainer
   -- decision 2026-08-25). A lump-sum shed has no per-animal identity, so its
   -- animals ride at the SHED grain: every animal of the shed carries the shed's
@@ -570,7 +946,7 @@ SELECT
   -- key); animals is the latest submission's frozen head count, so sum(animals)
   -- ranges over disjoint sheds. The weighted mean's numerator and denominator
   -- range over the identical UNION row set (same FROM, same GROUP BY).
-  (SELECT COALESCE(jsonb_agg(jsonb_build_array(breed, n, g) ORDER BY n DESC), '[]'::jsonb)
+  CASE WHEN $20::bool THEN (SELECT COALESCE(jsonb_agg(jsonb_build_array(breed, n, g) ORDER BY n DESC), '[]'::jsonb)
      FROM (
        SELECT breed, sum(n)::bigint n, (sum(gsum) / NULLIF(sum(n), 0))::float8 g FROM (
          SELECT breed, count(*)::bigint n, sum(g)::float8 gsum
@@ -586,8 +962,8 @@ SELECT
          WHERE sc.breeds = 1 AND ($5::text = '' OR (sc.sexes = 1 AND lower(btrim(sc.sex)) = $5::text))
          GROUP BY sc.breed
        ) parts GROUP BY breed
-     ) gb),
-  (SELECT COALESCE(jsonb_agg(jsonb_build_array(sex, n, g) ORDER BY n DESC), '[]'::jsonb)
+     ) gb) ELSE '[]'::jsonb END,
+  CASE WHEN $20::bool THEN (SELECT COALESCE(jsonb_agg(jsonb_build_array(sex, n, g) ORDER BY n DESC), '[]'::jsonb)
      FROM (
        SELECT sex, sum(n)::bigint n, (sum(gsum) / NULLIF(sum(n), 0))::float8 g FROM (
          SELECT sex, count(*)::bigint n, sum(g)::float8 gsum
@@ -598,8 +974,8 @@ SELECT
            ON sc.location_id = ls.location_id AND sc.partition_label = ls.partition_label
          WHERE sc.sexes = 1 AND ($5::text = '' OR lower(btrim(sc.sex)) = $5::text) GROUP BY sc.sex
        ) parts GROUP BY sex
-     ) gx),
-  (SELECT COALESCE(jsonb_agg(jsonb_build_array(stage, n, g) ORDER BY n DESC), '[]'::jsonb)
+     ) gx) ELSE '[]'::jsonb END,
+  CASE WHEN $20::bool THEN (SELECT COALESCE(jsonb_agg(jsonb_build_array(stage, n, g) ORDER BY n DESC), '[]'::jsonb)
      FROM (
        SELECT stage, sum(n)::bigint n, (sum(gsum) / NULLIF(sum(n), 0))::float8 g FROM (
          SELECT management_stage AS stage, count(*)::bigint n, sum(g)::float8 gsum
@@ -610,7 +986,7 @@ SELECT
            ON ss.location_id = ls.location_id AND ss.partition_label = ls.partition_label
          GROUP BY ss.stage
        ) parts GROUP BY stage
-     ) gs),
+     ) gs) ELSE '[]'::jsonb END,
   -- BREED x ORIGIN: the same weighted mean as gb above, split by where the animals came from.
   -- It is computed HERE, in the one query, rather than by asking this read twice under the two
   -- origins: this whole response is a single round trip of a heavy aggregate, and two of them
@@ -629,7 +1005,7 @@ SELECT
   -- exactly those two columns after each arm is already at its own grain, so the UNION ALL cannot
   -- fan out. The weighted mean's numerator sum(gsum) and denominator sum(n) range over the
   -- identical row set (same FROM, same GROUP BY) -- one key set, stated identical.
-  (SELECT COALESCE(jsonb_agg(jsonb_build_array(breed, origin, n, g) ORDER BY breed, origin), '[]'::jsonb)
+  CASE WHEN $21::bool THEN (SELECT COALESCE(jsonb_agg(jsonb_build_array(breed, origin, n, g) ORDER BY breed, origin), '[]'::jsonb)
      FROM (
        SELECT breed, origin, sum(n)::bigint n, (sum(gsum) / NULLIF(sum(n), 0))::float8 g FROM (
          SELECT breed, origin, count(*)::bigint n, sum(g)::float8 gsum
@@ -659,12 +1035,12 @@ SELECT
          WHERE sc.breeds = 1 AND ($5::text = '' OR (sc.sexes = 1 AND lower(btrim(sc.sex)) = $5::text))
          GROUP BY sc.breed, pen.origin
        ) parts GROUP BY breed, origin
-     ) gbo),
+     ) gbo) ELSE '[]'::jsonb END,
   -- BREED x SHED TYPE: Manju's Shed-wise view. This is not a per-pen leaderboard; it compares the
   -- two physical shed classes the farm asked for, inside each breed. The class is read from explicit
   -- shed metadata when present; ground sheds also include the named sheds called out in the review
   -- note until that classification is modeled as first-class data.
-  (SELECT COALESCE(jsonb_agg(jsonb_build_array(breed, shed_type, n, g) ORDER BY breed, shed_type), '[]'::jsonb)
+  CASE WHEN $22::bool THEN (SELECT COALESCE(jsonb_agg(jsonb_build_array(breed, shed_type, n, g) ORDER BY breed, shed_type), '[]'::jsonb)
      FROM (
        SELECT breed, shed_type, sum(n)::bigint n, (sum(gsum) / NULLIF(sum(n), 0))::float8 g FROM (
          SELECT rg.breed, st.shed_type, count(*)::bigint n, sum(rg.g)::float8 gsum
@@ -685,7 +1061,7 @@ SELECT
            AND ($16::text = '' OR $16::text = 'per_shed_partition')
          GROUP BY sc.breed, st.shed_type
        ) parts GROUP BY breed, shed_type
-     ) gbst),
+     ) gbst) ELSE '[]'::jsonb END,
   -- WHICH SHEDS ARE BEHIND EACH BAR. The bars above are produced by a classification rule the
   -- reader cannot see, so the page names the pens beside them -- PER BREED AND CLASS, the grain of
   -- one bar (maintainer, 2026-09-02). Naming them per class only would answer "which pens are
@@ -712,7 +1088,7 @@ SELECT
   -- which is a distinct group key here and the same display name. decodeShedTypeMembers collapses
   -- that by name WITHIN A PARK -- never across parks, where the same name is two different pens.
   -- Pinned by TestShedTypeMembersPerBreedOneToManyAliasRowsPageBoundaryParkScopeAndContributionOnly.
-  (SELECT COALESCE(jsonb_agg(jsonb_build_array(m.label, m.shed_type, m.location_id, m.partition_label, loc.name,
+  CASE WHEN $22::bool THEN (SELECT COALESCE(jsonb_agg(jsonb_build_array(m.label, m.shed_type, m.location_id, m.partition_label, loc.name,
                                                COALESCE(park.location_id::text, ''), COALESCE(park.name, ''))
                              ORDER BY m.label, m.shed_type, COALESCE(park.name, ''), loc.name, m.partition_label), '[]'::jsonb)
      FROM (
@@ -738,7 +1114,7 @@ SELECT
      -- blindly: an unexpected parent yields NO park rather than a wrong one, and the panel then
      -- simply does not group that row.
      LEFT JOIN locations park ON park.location_id = loc.parent_location_id
-       AND park.tenant_id = $1::uuid AND park.location_type = 'park'),
+       AND park.tenant_id = $1::uuid AND park.location_type = 'park') ELSE '[]'::jsonb END,
   -- WEIGHT BANDS: how many animals sit in each weight bracket, and how fast that bracket is
   -- growing. Both arms, always -- a page that banded only the scanned kids would describe this
   -- farm from a minority of it, since most of its animals are weighed by the whole shed.
@@ -766,7 +1142,7 @@ SELECT
   -- cannot fan out. animal_gain is 1:0..1 per tag (GROUP BY tag) and lump_span is 1:0..1 per pen
   -- (rn=1 joined to rn=1), so neither LEFT JOIN multiplies a row. The mean's numerator sum(gsum)
   -- and denominator sum(gn) range over the identical row set.
-  (SELECT COALESCE(jsonb_agg(jsonb_build_array(band, n, gn, g) ORDER BY sort), '[]'::jsonb)
+  CASE WHEN $23::bool THEN (SELECT COALESCE(jsonb_agg(jsonb_build_array(band, n, gn, g) ORDER BY sort), '[]'::jsonb)
      FROM (
        SELECT band, sort, sum(n)::bigint AS n, sum(gn)::bigint AS gn,
               (sum(gsum) / NULLIF(sum(gn), 0))::float8 AS g
@@ -816,7 +1192,7 @@ SELECT
          ) b
          GROUP BY b.band, b.sort
        ) parts GROUP BY band, sort
-     ) wb),
+     ) wb) ELSE '[]'::jsonb END,
   -- BREED x WEEK: the Time-wise tab's per-breed trend, over the same weeks the overall series
   -- covers. Both arms again -- a breed trend built from scanned kids only would describe this farm
   -- from a minority of it, and the overall weekly line beside it counts pens.
@@ -831,7 +1207,7 @@ SELECT
   -- is already at its own grain, so the UNION ALL cannot fan out. ident is 1:0..1 per tag
   -- (DISTINCT ON) and shed_cohort is 1:1 per pen (GROUPed by that key), so neither join multiplies
   -- a row. The mean's numerator and denominator range over the identical row set.
-  (SELECT COALESCE(jsonb_agg(jsonb_build_array(breed, week_start, n, g) ORDER BY breed, week_start), '[]'::jsonb)
+  CASE WHEN $24::bool THEN (SELECT COALESCE(jsonb_agg(jsonb_build_array(breed, week_start, n, g) ORDER BY breed, week_start), '[]'::jsonb)
      FROM (
        SELECT breed, week_start, sum(n)::bigint AS n, (sum(gsum) / NULLIF(sum(n), 0))::float8 AS g
        FROM (
@@ -850,7 +1226,7 @@ SELECT
            AND ($5::text = '' OR (sc.sexes = 1 AND lower(btrim(sc.sex)) = $5::text))
          GROUP BY sc.breed, pw.week_start
        ) parts GROUP BY breed, week_start
-     ) gbw),
+     ) gbw) ELSE '[]'::jsonb END,
   -- How many animals of each breed fell into each daily-gain band. DISJOINT bands
   -- (maintainer, 2026-08-24): an animal at 260 g/day is counted by the >250 filter ONLY,
   -- and the four counts partition n exactly — every animal with a gain lands in one band.
@@ -867,7 +1243,7 @@ SELECT
   -- when its residents are all one sex. Dropping this arm is how a rewrite once turned
   -- Anantapur Sheep's 380 kids into 117: the individually scanned ones survived and every
   -- whole-shed kid silently vanished from the card.
-  (SELECT COALESCE(jsonb_agg(jsonb_build_array(breed, n, b180, b1820, b2025, a250) ORDER BY n DESC, breed), '[]'::jsonb)
+  CASE WHEN $25::bool THEN (SELECT COALESCE(jsonb_agg(jsonb_build_array(breed, n, b180, b1820, b2025, a250) ORDER BY n DESC, breed), '[]'::jsonb)
      FROM (
        SELECT breed, sum(n)::bigint AS n, sum(b180)::bigint AS b180, sum(b1820)::bigint AS b1820,
               sum(b2025)::bigint AS b2025, sum(a250)::bigint AS a250
@@ -894,8 +1270,8 @@ SELECT
            AND ($5::text = '' OR (sc.sexes = 1 AND lower(btrim(sc.sex)) = $5::text))
          GROUP BY sc.breed
        ) parts GROUP BY breed
-     ) gt),
-  (SELECT COALESCE(jsonb_agg(jsonb_build_object(
+     ) gt) ELSE '[]'::jsonb END,
+  CASE WHEN $19::bool THEN (SELECT COALESCE(jsonb_agg(jsonb_build_object(
        'location_id', location_id::text,
        'partition_label', partition_label,
        'source', source,
@@ -906,7 +1282,7 @@ SELECT
      SELECT * FROM individual_composition
      UNION ALL
      SELECT * FROM lump_composition
-   ) c)`
+   ) c) ELSE '[]'::jsonb END`
 
 	var (
 		resolvedCount, unresolvedCount, lumpTotal, lumpUnattributed int
@@ -920,13 +1296,18 @@ SELECT
 		gainThresholdBreedJSON                                      []byte
 		compositionJSON                                             []byte
 	)
-	if err := r.pool.QueryRow(ctx, q, tenantID, parkIDs, periodStart, periodEnd, sexFilter,
+	query := weightDemographicsPruneInactiveSectionSelects(q, sectionSet)
+	if err := r.pool.QueryRow(ctx, query, tenantID, parkIDs, periodStart, periodEnd, sexFilter,
 		originFiltered, originScope.Tags, originScope.LocationIDs, originScope.PartitionLabels,
 		farmBornScope.Tags, purchasedScope.Tags,
 		farmBornScope.LocationIDs, farmBornScope.PartitionLabels,
 		purchasedScope.LocationIDs, purchasedScope.PartitionLabels,
 		weighingCategory,
-		idMap.Tags, idMap.CanonicalTags).Scan(
+		idMap.Tags, idMap.CanonicalTags,
+		sectionSet["composition"], sectionSet["dimensions"], sectionSet["origin"],
+		sectionSet["shed_type"], sectionSet["weight_bands"], sectionSet["weekly_gain"],
+		sectionSet["gain_thresholds"],
+		needLatest, needLump, needGain, needLumpSpan, needWeeklyGain).Scan(
 		&resolvedCount, &unresolvedCount, &lumpTotal, &lumpUnattributed,
 		&breedJSON, &sexJSON, &stageJSON,
 		&gainBreedJSON, &gainSexJSON, &gainStageJSON,
@@ -985,6 +1366,322 @@ SELECT
 		return domain.WeightDemographics{}, err
 	}
 	r.setReadCacheIfEpoch(cacheKey, out, cacheEpoch)
+	return out, nil
+}
+
+func (r *Repository) getShedPartitionWeightDemographics(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time, sections map[string]bool, farmBornScope, purchasedScope ReportScope) (domain.WeightDemographics, error) {
+	out := domain.WeightDemographics{
+		GainThresholdsByBreed: []domain.WeightGainThresholdBucket{},
+		ByBreed:               []domain.WeightDemographicBucket{},
+		BySex:                 []domain.WeightDemographicBucket{},
+		ByStage:               []domain.WeightDemographicBucket{},
+		ShedComposition:       []domain.ShedComposition{},
+		ByWeightBand:          []domain.WeightBandBucket{},
+		GainByBreedWeek:       []domain.WeightGainBreedWeekBucket{},
+		GainByBreedOrigin:     []domain.WeightGainOriginBucket{},
+		GainByBreedShedType:   []domain.WeightGainShedTypeBucket{},
+	}
+	if len(parkIDs) == 0 {
+		return out, nil
+	}
+	const q = `
+WITH scoped AS (
+  SELECT cs.campaign_shed_id, cs.tenant_id, cs.location_id, COALESCE(cs.partition_label, '') AS partition_label
+  FROM weighing_campaign_sheds cs
+  JOIN weighing_campaigns c ON c.campaign_id = cs.campaign_id AND c.tenant_id = cs.tenant_id
+  WHERE cs.tenant_id = $1::uuid AND c.park_id = ANY($2::uuid[])
+    AND cs.status <> 'canceled'
+    AND cs.weighing_category = 'per_shed_partition'
+),
+latest AS (
+  SELECT DISTINCT ON (s.location_id, s.partition_label)
+         s.location_id, s.partition_label, sh.animal_count, sh.average_weight_kg
+  FROM scoped s
+  JOIN weighing_shed_observations sh
+    ON sh.campaign_shed_id = s.campaign_shed_id AND sh.tenant_id = s.tenant_id
+   AND sh.withdrawn_at IS NULL
+   AND sh.accepted_at >= $3::timestamptz AND sh.accepted_at < $4::timestamptz
+   AND sh.verification_status <> 'rejected'
+  WHERE ($5::bool OR $8::bool OR $9::bool OR $11::bool)
+  ORDER BY s.location_id, s.partition_label, sh.accepted_at DESC, sh.shed_observation_id DESC
+),
+shed_targets AS (
+  SELECT DISTINCT s.location_id, s.partition_label,
+         COALESCE(
+           CASE WHEN EXISTS (SELECT 1 FROM goats gg WHERE gg.tenant_id = $1::uuid
+                              AND gg.lifecycle_status = 'alive' AND gg.shed_id = s.location_id)
+                THEN s.location_id END,
+           (SELECT phys.location_id FROM locations phys
+            JOIN locations l ON l.location_id = s.location_id AND l.tenant_id = s.tenant_id
+            WHERE phys.tenant_id = l.tenant_id
+              AND phys.parent_location_id = l.parent_location_id
+              AND phys.location_type = 'shed'
+              AND phys.name = regexp_replace(l.name, '\s*(-\s*)?(Part\s*)?[0-9]+$', '')
+              AND EXISTS (
+                SELECT 1
+                FROM goat_shed_partitions gsp
+                WHERE gsp.tenant_id = l.tenant_id
+                  AND gsp.shed_id = phys.location_id
+                  AND regexp_replace(lower(btrim(gsp.partition_label)), '^(part|pt)[\s.-]*', '')
+                      = regexp_replace(lower(btrim(COALESCE(NULLIF(s.partition_label, ''),
+                          NULLIF((regexp_match(l.name, '\s*(?:-\s*)?(?:Part\s*)?([0-9]+)$'))[1], '')))),
+                          '^(part|pt)[\s.-]*', '')
+              )
+            LIMIT 1)
+         ) AS resolved_id,
+         COALESCE(NULLIF(s.partition_label, ''),
+                  NULLIF((regexp_match((SELECT l.name FROM locations l WHERE l.location_id = s.location_id),
+                                       '\s*(?:-\s*)?(?:Part\s*)?([0-9]+)$'))[1], ''),
+                  '') AS resolved_partition_label
+  FROM scoped s
+),
+shed_cohort AS (
+  SELECT src.location_id,
+         src.partition_label,
+         min(g.breed)            FILTER (WHERE TRUE) AS breed,
+         min(g.sex)              FILTER (WHERE TRUE) AS sex,
+         min(g.management_stage) FILTER (WHERE TRUE) AS stage,
+         count(DISTINCT g.breed)            AS breeds,
+         count(DISTINCT g.sex)              AS sexes,
+         count(DISTINCT g.management_stage) AS stages
+  FROM shed_targets src
+  JOIN goats g ON g.shed_id = src.resolved_id AND g.tenant_id = $1::uuid
+   AND g.lifecycle_status = 'alive'
+  LEFT JOIN goat_shed_partitions gsp ON gsp.tenant_id = g.tenant_id AND gsp.goat_id = g.goat_id
+  WHERE src.resolved_partition_label = ''
+     OR regexp_replace(lower(btrim(gsp.partition_label)), '^(part|pt)[\s.-]*', '')
+        = regexp_replace(lower(btrim(src.resolved_partition_label)), '^(part|pt)[\s.-]*', '')
+  GROUP BY src.location_id, src.partition_label
+),
+span AS (
+  SELECT latest.location_id, latest.partition_label,
+         (latest.average_weight_kg - first.average_weight_kg) * 1000.0
+          / NULLIF(latest.d - first.d, 0) AS g_per_day,
+         latest.animal_count AS animals
+  FROM (
+    SELECT s.location_id, s.partition_label, so.average_weight_kg, so.animal_count,
+           (so.accepted_at AT TIME ZONE 'Asia/Kolkata')::date AS d,
+           row_number() OVER (PARTITION BY s.location_id, s.partition_label ORDER BY so.accepted_at DESC) AS rn
+    FROM weighing_shed_observations so
+    JOIN scoped s ON s.campaign_shed_id = so.campaign_shed_id AND s.tenant_id = so.tenant_id
+    WHERE ($6::bool OR $7::bool OR $8::bool OR $9::bool OR $10::bool)
+      AND so.tenant_id = $1::uuid
+      AND so.withdrawn_at IS NULL AND so.verification_status <> 'rejected'
+      AND so.accepted_at >= $3::timestamptz AND so.accepted_at < $4::timestamptz
+  ) latest
+  JOIN (
+    SELECT s.location_id, s.partition_label, so.average_weight_kg,
+           (so.accepted_at AT TIME ZONE 'Asia/Kolkata')::date AS d,
+           row_number() OVER (PARTITION BY s.location_id, s.partition_label ORDER BY so.accepted_at ASC) AS rn
+    FROM weighing_shed_observations so
+    JOIN scoped s ON s.campaign_shed_id = so.campaign_shed_id AND s.tenant_id = so.tenant_id
+    WHERE ($6::bool OR $7::bool OR $8::bool OR $9::bool OR $10::bool)
+      AND so.tenant_id = $1::uuid
+      AND so.withdrawn_at IS NULL AND so.verification_status <> 'rejected'
+      AND so.accepted_at >= $3::timestamptz AND so.accepted_at < $4::timestamptz
+  ) first ON first.location_id = latest.location_id
+    AND first.partition_label = latest.partition_label
+    AND first.rn = 1
+  WHERE latest.rn = 1 AND latest.d > first.d
+),
+pen_week AS (
+  SELECT week_start, location_id, partition_label, animals, g_per_day FROM (
+    SELECT (date_trunc('week', d::timestamp))::date AS week_start,
+           location_id, partition_label,
+           animal_count::float8 AS animals,
+           (average_weight_kg - prev_w) * 1000.0 / NULLIF(d - prev_d, 0) AS g_per_day,
+           row_number() OVER (
+             PARTITION BY location_id, partition_label, (date_trunc('week', d::timestamp))::date
+             ORDER BY d DESC
+           ) AS rn
+    FROM (
+      SELECT s.location_id, COALESCE(s.partition_label, '') AS partition_label,
+             so.average_weight_kg, so.animal_count,
+             (so.accepted_at AT TIME ZONE 'Asia/Kolkata')::date AS d,
+             lag(so.average_weight_kg) OVER w AS prev_w,
+             lag((so.accepted_at AT TIME ZONE 'Asia/Kolkata')::date) OVER w AS prev_d
+      FROM weighing_shed_observations so
+      JOIN scoped s ON s.campaign_shed_id = so.campaign_shed_id AND s.tenant_id = so.tenant_id
+      WHERE $10::bool
+        AND so.tenant_id = $1::uuid
+        AND so.withdrawn_at IS NULL AND so.verification_status <> 'rejected'
+        AND so.accepted_at >= $3::timestamptz AND so.accepted_at < $4::timestamptz
+      WINDOW w AS (PARTITION BY s.location_id, COALESCE(s.partition_label, '')
+                   ORDER BY (so.accepted_at AT TIME ZONE 'Asia/Kolkata')::date)
+    ) pairs
+    WHERE prev_w IS NOT NULL AND d > prev_d
+  ) ranked WHERE rn = 1
+),
+shed_type AS (
+  SELECT DISTINCT src.location_id, src.partition_label,
+         CASE
+           WHEN lower(coalesce(loc.operational_notes, '') || ' ' || coalesce(parent_loc.operational_notes, '') || ' ' ||
+                      coalesce(sp.notes, '') || ' ' || coalesce(sp.context::text, '') || ' ' ||
+                      coalesce(parent_sp.notes, '') || ' ' || coalesce(parent_sp.context::text, '')) ~ '\m(elevated|elevate)\M'
+             THEN 'elevated'
+           WHEN lower(coalesce(loc.operational_notes, '') || ' ' || coalesce(parent_loc.operational_notes, '') || ' ' ||
+                      coalesce(sp.notes, '') || ' ' || coalesce(sp.context::text, '') || ' ' ||
+                      coalesce(parent_sp.notes, '') || ' ' || coalesce(parent_sp.context::text, '')) ~ '\m(crown|crowned|ground)\M'
+             THEN 'ground'
+           WHEN lower(loc.name) ~ '\m(gandhi|castro|ho chi minh|old yashoda|yashoda old)\M'
+             OR lower(coalesce(parent_loc.name, '')) ~ '\m(gandhi|castro|ho chi minh|old yashoda|yashoda old)\M'
+             THEN 'ground'
+           WHEN lower(loc.name) ~ '\m(mandela|godel|sumathi|new yashoda|yashoda new|yashoda)\M'
+             OR lower(coalesce(parent_loc.name, '')) ~ '\m(mandela|godel|sumathi|new yashoda|yashoda new|yashoda)\M'
+             THEN 'elevated'
+         END AS shed_type
+  FROM shed_targets src
+  JOIN locations loc ON loc.location_id = src.location_id AND loc.tenant_id = $1::uuid
+  LEFT JOIN locations parent_loc ON parent_loc.location_id = src.resolved_id AND parent_loc.tenant_id = $1::uuid
+  LEFT JOIN shed_profiles sp ON sp.location_id = src.location_id AND sp.tenant_id = $1::uuid
+  LEFT JOIN shed_profiles parent_sp ON parent_sp.location_id = src.resolved_id AND parent_sp.tenant_id = $1::uuid
+  WHERE $8::bool
+)
+SELECT
+  CASE WHEN $5::bool THEN (SELECT COALESCE(jsonb_agg(jsonb_build_array(label, n, avg) ORDER BY n DESC), '[]'::jsonb)
+    FROM (
+      SELECT sc.breed AS label, sum(l.animal_count)::bigint AS n,
+             (sum(l.animal_count * l.average_weight_kg) / NULLIF(sum(l.animal_count), 0))::float8 AS avg
+      FROM latest l JOIN shed_cohort sc ON sc.location_id = l.location_id AND sc.partition_label = l.partition_label
+      WHERE sc.breeds = 1 GROUP BY sc.breed
+    ) rows) ELSE '[]'::jsonb END,
+  CASE WHEN $5::bool THEN (SELECT COALESCE(jsonb_agg(jsonb_build_array(label, n, avg) ORDER BY n DESC), '[]'::jsonb)
+    FROM (
+      SELECT sc.sex AS label, sum(l.animal_count)::bigint AS n,
+             (sum(l.animal_count * l.average_weight_kg) / NULLIF(sum(l.animal_count), 0))::float8 AS avg
+      FROM latest l JOIN shed_cohort sc ON sc.location_id = l.location_id AND sc.partition_label = l.partition_label
+      WHERE sc.sexes = 1 GROUP BY sc.sex
+    ) rows) ELSE '[]'::jsonb END,
+  CASE WHEN $5::bool THEN (SELECT COALESCE(jsonb_agg(jsonb_build_array(label, n, avg) ORDER BY n DESC), '[]'::jsonb)
+    FROM (
+      SELECT sc.stage AS label, sum(l.animal_count)::bigint AS n,
+             (sum(l.animal_count * l.average_weight_kg) / NULLIF(sum(l.animal_count), 0))::float8 AS avg
+      FROM latest l JOIN shed_cohort sc ON sc.location_id = l.location_id AND sc.partition_label = l.partition_label
+      WHERE sc.stages = 1 GROUP BY sc.stage
+    ) rows) ELSE '[]'::jsonb END,
+  CASE WHEN $5::bool THEN (SELECT COALESCE(jsonb_agg(jsonb_build_array(label, n, g) ORDER BY n DESC), '[]'::jsonb)
+    FROM (
+      SELECT sc.breed AS label, sum(sp.animals)::bigint AS n,
+             (sum(sp.animals * sp.g_per_day) / NULLIF(sum(sp.animals), 0))::float8 AS g
+      FROM span sp JOIN shed_cohort sc ON sc.location_id = sp.location_id AND sc.partition_label = sp.partition_label
+      WHERE sc.breeds = 1 GROUP BY sc.breed
+    ) rows) ELSE '[]'::jsonb END,
+  CASE WHEN $5::bool THEN (SELECT COALESCE(jsonb_agg(jsonb_build_array(label, n, g) ORDER BY n DESC), '[]'::jsonb)
+    FROM (
+      SELECT sc.sex AS label, sum(sp.animals)::bigint AS n,
+             (sum(sp.animals * sp.g_per_day) / NULLIF(sum(sp.animals), 0))::float8 AS g
+      FROM span sp JOIN shed_cohort sc ON sc.location_id = sp.location_id AND sc.partition_label = sp.partition_label
+      WHERE sc.sexes = 1 GROUP BY sc.sex
+    ) rows) ELSE '[]'::jsonb END,
+  CASE WHEN $5::bool THEN (SELECT COALESCE(jsonb_agg(jsonb_build_array(label, n, g) ORDER BY n DESC), '[]'::jsonb)
+    FROM (
+      SELECT sc.stage AS label, sum(sp.animals)::bigint AS n,
+             (sum(sp.animals * sp.g_per_day) / NULLIF(sum(sp.animals), 0))::float8 AS g
+      FROM span sp JOIN shed_cohort sc ON sc.location_id = sp.location_id AND sc.partition_label = sp.partition_label
+      WHERE sc.stages = 1 GROUP BY sc.stage
+    ) rows) ELSE '[]'::jsonb END,
+  CASE WHEN $7::bool THEN (SELECT COALESCE(jsonb_agg(jsonb_build_array(label, origin, n, g) ORDER BY label, origin), '[]'::jsonb)
+    FROM (
+      SELECT sc.breed AS label, pen.origin, sum(sp.animals)::bigint AS n,
+             (sum(sp.animals * sp.g_per_day) / NULLIF(sum(sp.animals), 0))::float8 AS g
+      FROM span sp
+      JOIN shed_cohort sc ON sc.location_id = sp.location_id AND sc.partition_label = sp.partition_label
+      JOIN LATERAL (
+        SELECT CASE
+          WHEN EXISTS (SELECT 1 FROM unnest($12::uuid[], $13::text[]) AS fb(loc, part)
+                       WHERE fb.loc = sp.location_id AND fb.part = sp.partition_label) THEN 'farm_born'
+          WHEN EXISTS (SELECT 1 FROM unnest($14::uuid[], $15::text[]) AS pu(loc, part)
+                       WHERE pu.loc = sp.location_id AND pu.part = sp.partition_label) THEN 'purchased'
+        END AS origin
+      ) pen ON pen.origin IS NOT NULL
+      WHERE sc.breeds = 1 GROUP BY sc.breed, pen.origin
+    ) rows) ELSE '[]'::jsonb END,
+  CASE WHEN $8::bool THEN (SELECT COALESCE(jsonb_agg(jsonb_build_array(label, shed_type, n, g) ORDER BY label, shed_type), '[]'::jsonb)
+    FROM (
+      SELECT sc.breed AS label, st.shed_type, sum(sp.animals)::bigint AS n,
+             (sum(sp.animals * sp.g_per_day) / NULLIF(sum(sp.animals), 0))::float8 AS g
+      FROM span sp
+      JOIN shed_cohort sc ON sc.location_id = sp.location_id AND sc.partition_label = sp.partition_label
+      JOIN shed_type st ON st.location_id = sp.location_id AND st.partition_label = sp.partition_label
+      WHERE sc.breeds = 1 AND st.shed_type IS NOT NULL GROUP BY sc.breed, st.shed_type
+    ) rows) ELSE '[]'::jsonb END,
+  CASE WHEN $9::bool THEN (SELECT COALESCE(jsonb_agg(jsonb_build_array(band, n, gn, g) ORDER BY sort), '[]'::jsonb)
+    FROM (
+      SELECT b.band, b.sort, sum(l.animal_count)::bigint AS n,
+             COALESCE(sum(sp.animals), 0)::bigint AS gn,
+             (sum(sp.animals * sp.g_per_day) / NULLIF(sum(sp.animals), 0))::float8 AS g
+      FROM latest l
+      LEFT JOIN span sp ON sp.location_id = l.location_id AND sp.partition_label = l.partition_label
+      CROSS JOIN LATERAL (
+        SELECT CASE WHEN l.average_weight_kg < 15 THEN 'under_15'
+                    WHEN l.average_weight_kg < 20 THEN '15_20'
+                    WHEN l.average_weight_kg < 25 THEN '20_25'
+                    WHEN l.average_weight_kg < 30 THEN '25_30'
+                    WHEN l.average_weight_kg < 35 THEN '30_35'
+                    ELSE '35_plus' END AS band,
+               CASE WHEN l.average_weight_kg < 15 THEN 1
+                    WHEN l.average_weight_kg < 20 THEN 2
+                    WHEN l.average_weight_kg < 25 THEN 3
+                    WHEN l.average_weight_kg < 30 THEN 4
+                    WHEN l.average_weight_kg < 35 THEN 5
+                    ELSE 6 END AS sort
+      ) b
+      GROUP BY b.band, b.sort
+    ) rows) ELSE '[]'::jsonb END,
+  CASE WHEN $10::bool THEN (SELECT COALESCE(jsonb_agg(jsonb_build_array(label, week_start, n, g) ORDER BY label, week_start), '[]'::jsonb)
+    FROM (
+      SELECT sc.breed AS label, pw.week_start, sum(pw.animals)::bigint AS n,
+             (sum(pw.animals * pw.g_per_day) / NULLIF(sum(pw.animals), 0))::float8 AS g
+      FROM pen_week pw
+      JOIN shed_cohort sc ON sc.location_id = pw.location_id AND sc.partition_label = pw.partition_label
+      WHERE sc.breeds = 1 GROUP BY sc.breed, pw.week_start
+    ) rows) ELSE '[]'::jsonb END`
+
+	var breedJSON, sexJSON, stageJSON []byte
+	var gainBreedJSON, gainSexJSON, gainStageJSON []byte
+	var originJSON, shedTypeJSON, weightBandJSON, weekJSON []byte
+	err := r.pool.QueryRow(ctx, q,
+		tenantID, parkIDs, periodStart, periodEnd,
+		sections["dimensions"],
+		sections["dimensions"] || sections["origin"] || sections["shed_type"] || sections["weight_bands"] || sections["gain_thresholds"],
+		sections["origin"], sections["shed_type"], sections["weight_bands"], sections["weekly_gain"], sections["composition"],
+		farmBornScope.LocationIDs, farmBornScope.PartitionLabels,
+		purchasedScope.LocationIDs, purchasedScope.PartitionLabels,
+	).Scan(&breedJSON, &sexJSON, &stageJSON, &gainBreedJSON, &gainSexJSON, &gainStageJSON, &originJSON, &shedTypeJSON, &weightBandJSON, &weekJSON)
+	if err != nil {
+		return domain.WeightDemographics{}, err
+	}
+	var decodeErr error
+	if out.ByBreed, decodeErr = decodeWeightDemographicBuckets(breedJSON); decodeErr != nil {
+		return domain.WeightDemographics{}, decodeErr
+	}
+	if out.BySex, decodeErr = decodeWeightDemographicBuckets(sexJSON); decodeErr != nil {
+		return domain.WeightDemographics{}, decodeErr
+	}
+	if out.ByStage, decodeErr = decodeWeightDemographicBuckets(stageJSON); decodeErr != nil {
+		return domain.WeightDemographics{}, decodeErr
+	}
+	if out.GainByBreed, decodeErr = decodeWeightGainBuckets(gainBreedJSON); decodeErr != nil {
+		return domain.WeightDemographics{}, decodeErr
+	}
+	if out.GainBySex, decodeErr = decodeWeightGainBuckets(gainSexJSON); decodeErr != nil {
+		return domain.WeightDemographics{}, decodeErr
+	}
+	if out.GainByStage, decodeErr = decodeWeightGainBuckets(gainStageJSON); decodeErr != nil {
+		return domain.WeightDemographics{}, decodeErr
+	}
+	if out.GainByBreedOrigin, decodeErr = decodeWeightGainOriginBuckets(originJSON); decodeErr != nil {
+		return domain.WeightDemographics{}, decodeErr
+	}
+	if out.GainByBreedShedType, decodeErr = decodeWeightGainShedTypeBuckets(shedTypeJSON); decodeErr != nil {
+		return domain.WeightDemographics{}, decodeErr
+	}
+	if out.ByWeightBand, decodeErr = decodeWeightBandBuckets(weightBandJSON); decodeErr != nil {
+		return domain.WeightDemographics{}, decodeErr
+	}
+	if out.GainByBreedWeek, decodeErr = decodeWeightGainBreedWeekBuckets(weekJSON); decodeErr != nil {
+		return domain.WeightDemographics{}, decodeErr
+	}
 	return out, nil
 }
 

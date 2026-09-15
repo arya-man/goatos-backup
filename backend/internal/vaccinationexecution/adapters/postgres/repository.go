@@ -4508,6 +4508,14 @@ func (r *Repository) VaccinationExecutionCardSummaries(ctx context.Context, q do
 		dueBefore = q.AsOf.Add(defaultExecutionHorizon)
 	}
 	closedAfter := q.AsOf.Add(-defaultClosedHistoryAge)
+	cacheKey := fmt.Sprintf("execution_card_summaries|%s|%s|%s|%s|%s|%s|%t|%s|%s|%s",
+		q.TenantID, parkID, shedID, vaccinationCacheExactTime(dueBefore), workState,
+		vaccinationCacheExactTime(q.AsOf), q.OpenOnly, q.OperatorScopeActorID, partitionLabel, severity)
+	if cached, ok := r.getVaccinationReadCache(cacheKey); ok {
+		if summaries, ok := cached.(map[string]*domain.ShedCardSummary); ok {
+			return summaries, nil
+		}
+	}
 
 	// projection-review: membership=all execution rows matching card identity (shed_id, partition_label, task_id/batch_id/drive_id);
 	// group_key=(shed_uuid, partition_key, task_id, batch_id, drive_id) WITH aggregates over matching rows;
@@ -4636,6 +4644,7 @@ func (r *Repository) VaccinationExecutionCardSummaries(ctx context.Context, q do
 		return nil, fmt.Errorf("vaccination execution: card summaries rows: %w", err)
 	}
 
+	r.setVaccinationReadCache(cacheKey, summaries)
 	return summaries, nil
 }
 

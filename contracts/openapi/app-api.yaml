@@ -1512,7 +1512,7 @@ paths:
             Unknown section names are rejected rather than silently ignored.
           schema:
             type: string
-            pattern: '^(rejected|eligibility|trend|weekly_gain|shed_leaderboard|distribution|sale_readiness|lump_sum|parks|losing_animals|by_park)(,(rejected|eligibility|trend|weekly_gain|shed_leaderboard|distribution|sale_readiness|lump_sum|parks|losing_animals|by_park))*$'
+            pattern: '^(headline|headline_previous|rejected|eligibility|trend|weekly_gain|shed_leaderboard|distribution|sale_readiness|lump_sum|parks|losing_animals|by_park)(,(headline|headline_previous|rejected|eligibility|trend|weekly_gain|shed_leaderboard|distribution|sale_readiness|lump_sum|parks|losing_animals|by_park))*$'
       responses:
         "200":
           description: Growth/ADG read model for the requested park or herd-wide scope.
@@ -1632,6 +1632,7 @@ paths:
             Unknown section names are rejected rather than silently ignored.
           schema:
             type: string
+            pattern: '^(headline|headline_previous|rejected|eligibility|trend|weekly_gain|shed_leaderboard|distribution|sale_readiness|lump_sum|parks|losing_animals|by_park)(,(headline|headline_previous|rejected|eligibility|trend|weekly_gain|shed_leaderboard|distribution|sale_readiness|lump_sum|parks|losing_animals|by_park))*$'
       responses:
         "200":
           description: Growth/ADG read model for the requested park or herd-wide scope.
@@ -1870,50 +1871,6 @@ paths:
             tag and is claimed only when the shed's own cohort is entirely that sex, so a mixed
             shed is claimed by neither side rather than split.
           schema: {type: string, enum: [male, female]}
-        - name: sex
-          in: query
-          required: false
-          description: >-
-            `male` or `female` to report on that half of the herd only; omitted means every kid.
-            An unknown value is REJECTED rather than ignored, because silently widening a filter
-            shows a reader more kids than the heading they are reading says. An individual weigh
-            is claimed through the animal its scanned tag resolves to; a whole-shed weigh has no
-            tag and is claimed only when the shed's own cohort is entirely that sex, so a mixed
-            shed is claimed by neither side rather than split.
-          schema: {type: string, enum: [male, female]}
-        - name: sex
-          in: query
-          required: false
-          description: >-
-            `male` or `female` to report on that half of the herd only; omitted means every kid.
-            An unknown value is REJECTED rather than ignored, because silently widening a filter
-            shows a reader more kids than the heading they are reading says. An individual weigh
-            is claimed through the animal its scanned tag resolves to; a whole-shed weigh has no
-            tag and is claimed only when the shed's own cohort is entirely that sex, so a mixed
-            shed is claimed by neither side rather than split.
-          schema: {type: string, enum: [male, female]}
-        - name: sex
-          in: query
-          required: false
-          description: >-
-            `male` or `female` to report on that half of the herd only; omitted means every kid.
-            An unknown value is REJECTED rather than ignored, because silently widening a filter
-            shows a reader more kids than the heading they are reading says. An individual weigh
-            is claimed through the animal its scanned tag resolves to; a whole-shed weigh has no
-            tag and is claimed only when the shed's own cohort is entirely that sex, so a mixed
-            shed is claimed by neither side rather than split.
-          schema: {type: string, enum: [male, female]}
-        - name: sex
-          in: query
-          required: false
-          description: >-
-            `male` or `female` to report on that half of the herd only; omitted means every kid.
-            An unknown value is REJECTED rather than ignored, because silently widening a filter
-            shows a reader more kids than the heading they are reading says. An individual weigh
-            is claimed through the animal its scanned tag resolves to; a whole-shed weigh has no
-            tag and is claimed only when the shed's own cohort is entirely that sex, so a mixed
-            shed is claimed by neither side rather than split.
-          schema: {type: string, enum: [male, female]}
         - name: origin
           in: query
           required: false
@@ -1945,6 +1902,15 @@ paths:
             means both. The two modes are mutually exclusive at campaign-shed grain, so this filter
             narrows the read before aggregates are built rather than hiding rows in the browser.
           schema: {type: string, enum: [all, individual_animal, per_shed_partition]}
+        - name: sections
+          in: query
+          required: false
+          description: >-
+            Comma-separated aggregate sections to compute for rendered admin routes. Omitted keeps
+            the legacy full response.
+          schema:
+            type: string
+            pattern: "^(composition|dimensions|origin|shed_type|weight_bands|weekly_gain|gain_thresholds)(,(composition|dimensions|origin|shed_type|weight_bands|weekly_gain|gain_thresholds))*$"
       responses:
         "200":
           description: Weight broken down by breed, sex and stage.

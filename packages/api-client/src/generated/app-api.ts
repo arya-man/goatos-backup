@@ -19168,6 +19168,8 @@ export interface operations {
                 origin?: "farm_born" | "purchased";
                 /** @description `individual_animal` or `per_shed_partition` to report only that weighing mode; omitted means both. The two modes are mutually exclusive at campaign-shed grain, so this filter narrows the read before aggregates are built rather than hiding rows in the browser. */
                 weighing_category?: "all" | "individual_animal" | "per_shed_partition";
+                /** @description Comma-separated aggregate sections to compute for rendered admin routes. Omitted keeps the legacy full response. */
+                sections?: string;
             };
             header?: never;
             path?: never;

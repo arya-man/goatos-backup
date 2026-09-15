@@ -50,6 +50,23 @@ const REQUIRED_HOT_PATH_PROFILES = Object.freeze({
     "feed_stock_analytics",
     "feed_shed_feed_analytics",
   ]),
+  pr264_performance: Object.freeze([
+    "pr264_weighing_dates",
+    "pr264_weighing_shed_weights",
+    "pr264_weighing_weight_demographics",
+    "pr264_weighing_weight_demographics_dimensions_section",
+    "pr264_weighing_weight_demographics_origin_section",
+    "pr264_weighing_weight_demographics_shed_type_section",
+    "pr264_weighing_weight_demographics_weight_bands_section",
+    "pr264_weighing_weight_demographics_weekly_gain_section",
+    "pr264_weighing_growth_weights_sections",
+    "pr264_weighing_growth_general_sections",
+    "pr264_weighing_growth_time_sections",
+    "pr264_growth_director_weights_sections",
+    "pr264_work_board_page_cbe",
+    "pr264_work_board_page_cpt",
+    "pr264_app_vaccination_execution_with_card_summaries",
+  ]),
 });
 
 export function validateApiLatencyEvidence(report, expectedSha) {
@@ -81,6 +98,12 @@ export function validateApiLatencyEvidence(report, expectedSha) {
     } else if (profile === "analytics_local_oci"
       && !Array.isArray(report.scope.evidence_boundaries.local_oci_ceo_route_switch_reads)) {
       failures.push("analytics local OCI evidence boundary is missing");
+    } else if (profile === "pr264_performance"
+      && !Array.isArray(report.scope.evidence_boundaries.local_oci_pr264_route_reads)) {
+      failures.push("PR264 local OCI route-read evidence boundary is missing");
+    } else if (profile === "pr264_performance"
+      && !Array.isArray(report.scope.evidence_boundaries.pr264_browser_render_routes)) {
+      failures.push("PR264 browser render evidence boundary is missing");
     }
   }
   const evidenceProfile = report.scope?.evidence_profile ?? "canonical_5k_50k";
@@ -103,9 +126,19 @@ export function validateApiLatencyEvidence(report, expectedSha) {
     if (report.dataset.certification_boundary !== "local_oci_latency_only") {
       failures.push("analytics local OCI evidence must use local_oci_latency_only certification boundary");
     }
+  } else if (evidenceProfile === "pr264_performance") {
+    if (!String(report.dataset.label ?? "").includes("oci")) {
+      failures.push("PR264 performance evidence must label the OCI/staging-equivalent dataset");
+    }
+    if (report.dataset.certification_boundary !== "local_oci_latency_only") {
+      failures.push("PR264 performance evidence must use local_oci_latency_only certification boundary");
+    }
   }
 
   const requiredHotPaths = REQUIRED_HOT_PATH_PROFILES[evidenceProfile] ?? REQUIRED_HOT_PATHS;
+  if (evidenceProfile === "pr264_performance") {
+    validatePr264BrowserEvidence(report, failures);
+  }
   if (Array.isArray(report.scope?.required_hot_paths)
     && JSON.stringify(report.scope.required_hot_paths) !== JSON.stringify(requiredHotPaths)) {
     failures.push(`${evidenceProfile} required_hot_paths must match the verifier-owned profile`);
@@ -151,6 +184,100 @@ export function validateApiLatencyEvidence(report, expectedSha) {
   return failures;
 }
 
+function validatePr264BrowserEvidence(report, failures) {
+  const requiredRoutes = [
+    { route: "/work-board?scope_mode=company", viewports: ["desktop", "mobile"], signal: "lane_counts" },
+    { route: "/weighing/weights?scope_mode=company", viewports: ["desktop", "mobile"], signal: "has_losing_weight_table" },
+    { route: "/weighing/analytics?scope_mode=company&tab=general", viewports: ["desktop", "mobile"], signal: "has_weighing_kpis" },
+    { route: "/weighing/analytics?scope_mode=company&tab=time", viewports: ["desktop", "mobile"], signal: "has_weekly_growth" },
+  ];
+  const requiredForbidden = [
+    "backend_down",
+    "Admin-web contract unavailable",
+    "The board could not be loaded",
+    "Weights could not be loaded",
+  ];
+  const browser = report.browser_evidence;
+  if (!browser || typeof browser !== "object") {
+    failures.push("PR264 browser evidence is missing");
+    return;
+  }
+  if (browser.same_api_build !== true) {
+    failures.push("PR264 browser evidence must use the same API build as the latency report");
+  }
+  const routes = Array.isArray(browser.routes) ? browser.routes : [];
+  const routeEvidence = groupedBrowserRoutes(routes);
+  for (const requirement of requiredRoutes) {
+    const evidence = routeEvidence.get(requirement.route);
+    if (!evidence) {
+      failures.push(`PR264 browser evidence missing route ${requirement.route}`);
+      continue;
+    }
+    if (evidence.loaded !== true) {
+      failures.push(`PR264 browser route ${requirement.route} did not load successfully`);
+    }
+    for (const viewport of requirement.viewports) {
+      const viewports = Array.isArray(evidence.viewports) ? evidence.viewports : [];
+      const viewportEvidence = viewports.find((item) => item?.name === viewport);
+      if (!viewportEvidence || viewportEvidence.loaded !== true) {
+        failures.push(`PR264 browser route ${requirement.route} missing loaded ${viewport} proof`);
+      } else if (!viewportEvidence.route_signals || !hasRouteSignal(viewportEvidence.route_signals, requirement.signal)) {
+        failures.push(`PR264 browser route ${requirement.route} missing ${viewport} product signal ${requirement.signal}`);
+      }
+    }
+    for (const forbidden of requiredForbidden) {
+      if (!Array.isArray(evidence.forbidden_strings_absent) || !evidence.forbidden_strings_absent.includes(forbidden)) {
+        failures.push(`PR264 browser route ${requirement.route} missing forbidden-string proof for ${forbidden}`);
+      }
+    }
+  }
+}
+
+function groupedBrowserRoutes(routes) {
+  const grouped = new Map();
+  for (const item of routes) {
+    if (!item?.route) continue;
+    const current = grouped.get(item.route) ?? {
+      route: item.route,
+      loaded: true,
+      viewports: [],
+      forbidden_strings_absent: [],
+    };
+    current.loaded = current.loaded && item.loaded === true;
+    if (Array.isArray(item.viewports)) {
+      for (const viewport of item.viewports) current.viewports.push(viewport);
+    } else if (item.viewport) {
+      current.viewports.push({
+        name: normalizeBrowserViewport(item.viewport),
+        loaded: item.loaded === true,
+        route_signals: item.route_signals,
+      });
+    }
+    if (Array.isArray(item.forbidden_strings_absent)) {
+      if (current.forbidden_strings_absent.length === 0) {
+        current.forbidden_strings_absent = [...item.forbidden_strings_absent];
+      } else {
+        current.forbidden_strings_absent = current.forbidden_strings_absent.filter((marker) => item.forbidden_strings_absent.includes(marker));
+      }
+    }
+    grouped.set(item.route, current);
+  }
+  return grouped;
+}
+
+function hasRouteSignal(signals, signal) {
+  if (!signals || typeof signals !== "object") return false;
+  if (signal === "lane_counts") {
+    return signals.lane_counts && Object.values(signals.lane_counts).every((value) => Number.isFinite(value));
+  }
+  return signals[signal] === true;
+}
+
+function normalizeBrowserViewport(viewport) {
+  if (viewport === "laptop") return "desktop";
+  return viewport;
+}
+
 function parseArgs(argv) {
   const out = {};
   for (let index = 0; index < argv.length; index += 1) {
@@ -164,10 +291,13 @@ function parseArgs(argv) {
 if (process.argv[1]?.endsWith("api-latency-evidence.mjs")) {
   const args = parseArgs(process.argv.slice(2));
   if (!args.report || !args["expected-sha"]) {
-    console.error("usage: api-latency-evidence.mjs --report FILE --expected-sha SHA");
+    console.error("usage: api-latency-evidence.mjs --report FILE --expected-sha SHA [--browser-evidence FILE]");
     process.exit(2);
   }
   const report = JSON.parse(readFileSync(args.report, "utf8"));
+  if (args["browser-evidence"]) {
+    report.browser_evidence = JSON.parse(readFileSync(args["browser-evidence"], "utf8"));
+  }
   const failures = validateApiLatencyEvidence(report, args["expected-sha"]);
   if (failures.length > 0) {
     for (const failure of failures) console.error(`API latency evidence: ${failure}`);

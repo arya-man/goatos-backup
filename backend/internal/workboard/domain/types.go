@@ -427,13 +427,14 @@ type Page struct {
 // Summary is the WHOLE-FILTER aggregate the lane headers and the KPI tiles render. It is
 // never a page-local sum.
 type Summary struct {
-	Total     int               `json:"total"`
-	ByLane    map[Lane]int      `json:"by_lane"`
-	ByState   map[WorkState]int `json:"by_state"`
-	ByModule  map[Module]int    `json:"by_module"`
-	Attention int               `json:"needs_attention"`
-	Modules   []Module          `json:"modules"`
-	Lanes     []Lane            `json:"lanes"`
+	Total        int                     `json:"total"`
+	ByLane       map[Lane]int            `json:"by_lane"`
+	ByState      map[WorkState]int       `json:"by_state"`
+	ByModule     map[Module]int          `json:"by_module"`
+	ByModuleLane map[Module]map[Lane]int `json:"by_module_lane"`
+	Attention    int                     `json:"needs_attention"`
+	Modules      []Module                `json:"modules"`
+	Lanes        []Lane                  `json:"lanes"`
 	// Degraded names the modules whose aggregate read failed on THIS request; their counts are
 	// absent from the totals above rather than blanking the whole summary.
 	Degraded []Module `json:"degraded,omitempty"`
@@ -442,12 +443,23 @@ type Summary struct {
 // NewSummary returns an empty summary with every lane and module present, so a client
 // renders a zero rather than an absent key.
 func NewSummary(modules []Module) Summary {
-	s := Summary{ByLane: map[Lane]int{}, ByState: map[WorkState]int{}, ByModule: map[Module]int{}, Modules: modules, Lanes: Lanes()}
+	s := Summary{
+		ByLane:       map[Lane]int{},
+		ByState:      map[WorkState]int{},
+		ByModule:     map[Module]int{},
+		ByModuleLane: map[Module]map[Lane]int{},
+		Modules:      modules,
+		Lanes:        Lanes(),
+	}
 	for _, l := range Lanes() {
 		s.ByLane[l] = 0
 	}
 	for _, m := range modules {
 		s.ByModule[m] = 0
+		s.ByModuleLane[m] = map[Lane]int{}
+		for _, l := range Lanes() {
+			s.ByModuleLane[m][l] = 0
+		}
 	}
 	return s
 }
@@ -460,8 +472,13 @@ func (s *Summary) Add(module Module, byState map[WorkState]int) {
 		}
 		s.Total += n
 		s.ByState[state] += n
-		s.ByLane[LaneFor(state)] += n
+		lane := LaneFor(state)
+		s.ByLane[lane] += n
 		s.ByModule[module] += n
+		if s.ByModuleLane[module] == nil {
+			s.ByModuleLane[module] = map[Lane]int{}
+		}
+		s.ByModuleLane[module][lane] += n
 		if state == WorkStateOverdue || state == WorkStateMissed || state == WorkStateRejected || state == WorkStateBlocked {
 			s.Attention += n
 		}

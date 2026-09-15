@@ -4578,6 +4578,21 @@ one** — an adversarial audit found ~150 `exception-guard` FAILs and 51
 
 ## Goat OS Hot-Path Performance Guardrail
 
+For Goat OS performance, availability, Grafana/APM, or deployment work, use a
+local-first loop: test, document, then promote. Do not push to `main`, merge,
+land, or deploy to staging until the relevant local or staging-equivalent proof
+is green and written in a local progress document with scope, done, pending,
+exact tests/E2E, known failures, before/after metrics, judge status, current
+SHA, and deployment state. Repeated staging deployments are not an accepted
+debugging loop for API latency or observability issues.
+
+Grafana/dashboard work is not a substitute for proving the product APIs and
+pages themselves. Before claiming a performance fix, prove the affected route,
+payload size, row counts, request fanout, browser route, and failure strings
+locally or against a read-only staging-equivalent dataset. If proof is missing,
+stale, blocked, or only inferred, say so plainly and do not promote unless the
+maintainer explicitly asks to bypass in that same turn.
+
 When editing route-critical backend reads or admin-web/mobile pages that load
 Calendar, Vaccination live tracker, Weighing analytics, Feed analytics, Action
 Center, Protocol Adherence, or Control Tower, update the matching

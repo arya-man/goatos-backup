@@ -50,6 +50,12 @@ const (
 	// this is a data defect, not a page.
 	maxWalkPages = 20
 	maxWalkRows  = maxWalkPages * walkPageSize
+	// The Work Board must load even when the canonical process-integrity read is slow for a
+	// park/day. The app-level composer records this source as degraded and serves the rest of
+	// the board; waiting for the full process-integrity repository timeout recreated the
+	// 5s-7s page load that surfaced as "The board could not be loaded" on admin-web.
+	workBoardVaccinationPrecheckBudget = 300 * time.Millisecond
+	workBoardVaccinationReadBudget     = 400 * time.Millisecond
 )
 
 const vaccinationDueWorkPrecheckSQL = `
@@ -117,6 +123,13 @@ type Lister interface {
 	ListRows(ctx context.Context, q pidomain.Query) (pidomain.ListResult, error)
 }
 
+// Counter is the aggregate half of the process-integrity repository. The Work Board summary
+// needs counts only, so using this avoids fetching and sorting a vaccination row page just to
+// throw the rows away.
+type Counter interface {
+	CountByWorkState(ctx context.Context, q pidomain.Query) ([]pidomain.CountByWorkState, error)
+}
+
 // MemberResolver answers "which workforce member is this user" for the owner lens. The
 // wrapped read keys its operator by workforce_member_id, the board scopes by user id, and
 // workforce_members is the one org table that joins the two.
@@ -131,6 +144,7 @@ type MemberResolver interface {
 // Source implements ports.Source over the process-integrity vaccination read.
 type Source struct {
 	repo    Lister
+	counter Counter
 	members MemberResolver
 	now     func() time.Time
 	// pool serves the per-animal subtask read (subtasks.go); nil until WithPool.
@@ -140,7 +154,11 @@ type Source struct {
 
 // New constructs the source over the process-integrity repository.
 func New(repo Lister) *Source {
-	return &Source{repo: repo, now: func() time.Time { return time.Now().In(biztime.DefaultLocation()) }}
+	s := &Source{repo: repo, now: func() time.Time { return time.Now().In(biztime.DefaultLocation()) }}
+	if counter, ok := repo.(Counter); ok {
+		s.counter = counter
+	}
+	return s
 }
 
 // WithMemberResolver enables the owner (operator lens) scope.
@@ -185,6 +203,13 @@ func (s *Source) ListRows(ctx context.Context, q ports.SourceQuery) ([]domain.Ro
 
 // CountByState implements ports.Source.
 func (s *Source) CountByState(ctx context.Context, q ports.SourceQuery) (map[domain.WorkState]int, error) {
+	if s.counter != nil && q.OwnerUserID == "" {
+		counts, err := s.countByState(ctx, q)
+		if err != nil {
+			return nil, err
+		}
+		return counts, nil
+	}
 	rows, err := s.collect(ctx, q)
 	if err != nil {
 		return nil, err
@@ -192,6 +217,41 @@ func (s *Source) CountByState(ctx context.Context, q ports.SourceQuery) (map[dom
 	out := map[domain.WorkState]int{}
 	for _, r := range rows {
 		out[r.WorkState]++
+	}
+	return out, nil
+}
+
+func (s *Source) countByState(ctx context.Context, q ports.SourceQuery) (map[domain.WorkState]int, error) {
+	dayStart, err := time.ParseInLocation("2006-01-02", strings.TrimSpace(q.BusinessDate), biztime.DefaultLocation())
+	if err != nil {
+		return nil, fmt.Errorf("vaccination boardsource: business date %q (%v): %w", q.BusinessDate, err, domain.ErrInvalidQuery)
+	}
+	hasWork, err := s.hasVaccinationDueWork(ctx, q, dayStart)
+	if err != nil {
+		return nil, err
+	}
+	if !hasWork {
+		return map[domain.WorkState]int{}, nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, s.readBudget())
+	defer cancel()
+	counts, err := s.counter.CountByWorkState(ctx, processIntegrityQuery(q, dayStart, s.now()))
+	if err != nil {
+		return nil, fmt.Errorf("vaccination boardsource count: %w", err)
+	}
+	want := map[domain.WorkState]struct{}{}
+	for _, state := range q.WorkStates {
+		want[state] = struct{}{}
+	}
+	out := map[domain.WorkState]int{}
+	for _, count := range counts {
+		state := domain.WorkState(count.WorkState)
+		if len(want) > 0 {
+			if _, ok := want[state]; !ok {
+				continue
+			}
+		}
+		out[state] += int(count.Count)
 	}
 	return out, nil
 }
@@ -210,6 +270,8 @@ func (s *Source) collect(ctx context.Context, q ports.SourceQuery) ([]domain.Row
 	if !hasWork {
 		return nil, nil
 	}
+	ctx, cancel := context.WithTimeout(ctx, s.readBudget())
+	defer cancel()
 	memberID := ""
 	if q.OwnerUserID != "" {
 		if s.members == nil {
@@ -227,22 +289,7 @@ func (s *Source) collect(ctx context.Context, q ports.SourceQuery) ([]domain.Row
 		memberID = id
 	}
 
-	category := pidomain.CategoryVaccination
-	park := q.ParkID
-	piq := pidomain.Query{
-		TenantID: q.TenantID,
-		Category: &category,
-		ParkID:   &park,
-		// Both bounds inside the business day: the repository normalises DueAfter to the IST
-		// day start and DueBefore to that day's last instant, so the window IS the day.
-		DueAfter:  &dayStart,
-		DueBefore: dayStart,
-		AsOf:      s.now(),
-		// Completed pens belong in the Done lane; without this the read hides them once
-		// their due date is behind the closed-history age.
-		IncludeCompleted: true,
-		Limit:            walkPageSize,
-	}
+	piq := processIntegrityQuery(q, dayStart, s.now())
 	if memberID != "" {
 		// The wrapped $8 owner filter matches operator OR park head OR verifier OR escalation
 		// owner; it is a superset, narrowed below to the row's own operator.
@@ -298,11 +345,37 @@ func (s *Source) collect(ctx context.Context, q ports.SourceQuery) ([]domain.Row
 	return out, nil
 }
 
+func (s *Source) readBudget() time.Duration {
+	if s.timeout > 0 && s.timeout < workBoardVaccinationReadBudget {
+		return s.timeout
+	}
+	return workBoardVaccinationReadBudget
+}
+
+func processIntegrityQuery(q ports.SourceQuery, dayStart, asOf time.Time) pidomain.Query {
+	category := pidomain.CategoryVaccination
+	park := q.ParkID
+	return pidomain.Query{
+		TenantID: q.TenantID,
+		Category: &category,
+		ParkID:   &park,
+		// Both bounds inside the business day: the repository normalises DueAfter to the IST
+		// day start and DueBefore to that day's last instant, so the window IS the day.
+		DueAfter:  &dayStart,
+		DueBefore: dayStart,
+		AsOf:      asOf,
+		// Completed pens belong in the Done lane; without this the read hides them once
+		// their due date is behind the closed-history age.
+		IncludeCompleted: true,
+		Limit:            walkPageSize,
+	}
+}
+
 func (s *Source) hasVaccinationDueWork(ctx context.Context, q ports.SourceQuery, dayStart time.Time) (bool, error) {
 	if s.pool == nil {
 		return true, nil
 	}
-	ctx, cancel := context.WithTimeout(ctx, s.timeout)
+	ctx, cancel := context.WithTimeout(ctx, s.precheckBudget())
 	defer cancel()
 	dayEnd := dayStart.AddDate(0, 0, 1)
 	includeCompleted := len(q.WorkStates) == 0
@@ -315,9 +388,21 @@ func (s *Source) hasVaccinationDueWork(ctx context.Context, q ports.SourceQuery,
 	var ok bool
 	err := s.pool.QueryRow(ctx, vaccinationDueWorkPrecheckSQL, q.TenantID, q.ParkID, dayStart, dayEnd, includeCompleted).Scan(&ok)
 	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) || errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			// The precheck is only a skip optimization. If it is slow, fail open so a valid
+			// vaccination card cannot be hidden before the bounded canonical read gets a chance.
+			return true, nil
+		}
 		return false, fmt.Errorf("vaccination boardsource: due-work precheck: %w", err)
 	}
 	return ok, nil
+}
+
+func (s *Source) precheckBudget() time.Duration {
+	if s.timeout > 0 && s.timeout < workBoardVaccinationPrecheckBudget {
+		return s.timeout
+	}
+	return workBoardVaccinationPrecheckBudget
 }
 
 // fillOwnerUserIDs resolves the page's workforce member ids to user ids in ONE batched read,

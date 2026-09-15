@@ -5,10 +5,11 @@
 > Grafana until it is supplied). Read that section first for the *why*; this
 > doc is the *how*, for both humans and agents (Claude/Codex).
 
-## 1. Where Grafana lives — DEPLOYED (stg)
+## 1. Where Grafana lives — staging target
 
-Grafana is the Cloud Run service `goatos-stg-grafana`, project `goatos-stg`,
-region `asia-south1`, running `grafana/grafana:11.3.0`.
+Grafana's staging target is the Cloud Run service `goatos-stg-grafana`,
+project `goatos-stg`, region `asia-south1`, running `grafana/grafana:11.3.0`
+when deployed.
 
 ```text
 GRAFANA_STG_URL = https://goatos-stg-grafana-awtrpmn4za-el.a.run.app
@@ -22,14 +23,14 @@ observability Terraform would collide with live resources (see the memory note
 `observability.tf` remains the source-of-truth definition for when stg is
 brought under IaC (import-then-apply).
 
-**Access model:** the Cloud Run service is invokable by `allUsers` at the
-network layer, but **gated by Grafana's own auth** — anonymous is disabled
-(`GF_AUTH_ANONYMOUS_ENABLED=false`), sign-up off, a strong admin password lives
-in Secret Manager (`goatos-stg-grafana-admin-password`), and API access needs a
-Grafana service-account token. Verified: unauthenticated API → 401, anon
-dashboard search → 401, login page → 200, SA-token API → 200. This is the
-standard "internal Grafana on Cloud Run" pattern and makes the URL usable in a
-browser and by the MCP.
+**Access model:** when live-smoked, the Cloud Run service is expected to be
+invokable by `allUsers` at the network layer, but **gated by Grafana's own
+auth** — anonymous disabled (`GF_AUTH_ANONYMOUS_ENABLED=false`), sign-up off, a
+strong admin password in Secret Manager
+(`goatos-stg-grafana-admin-password`), and API access requiring a Grafana
+service-account token. The deploy smoke must verify unauthenticated API, anon
+dashboard search, login page, and SA-token API behavior before anyone claims the
+current live endpoint is usable.
 
 - **Browser login:** open the URL, sign in as `admin`. Get the password with
   `gcloud secrets versions access latest --secret=goatos-stg-grafana-admin-password --project=goatos-stg`.
@@ -58,7 +59,8 @@ staging load balancer was created manually and is not yet imported into
 Terraform, so the clean path is an additive manual change followed by
 documentation/import, not a speculative Terraform apply.
 
-Current live LB facts verified on 2026-09-15:
+Last known LB facts from the 2026-09-15 runbook snapshot; re-verify during the
+next live Grafana smoke before treating them as current:
 
 ```text
 Project:        goatos-stg
@@ -214,21 +216,24 @@ Expected security result:
   without a Grafana token, and raw `*.run.app` access is blocked by the new
   Cloud Run ingress setting.
 
-**What is wired today:** datasources = Google Cloud Monitoring (default; also
-serves Google Managed Prometheus metrics via `prometheus.googleapis.com/*`) and
-BigQuery. All 6 dashboards imported (API/RED, Database, Kernel pipeline,
-Frontend RUM, Mobile, SLO/burn). Panels are **empty until the backend telemetry
-rollout** (api + kernel jobs must run with `GOATOS_OBS_SINK=otlp` + the
-collector sidecar) and the `analytics.*` rollup runs. Follow-ups: Cloud Trace /
-Cloud Logging / Postgres datasources, the GMP query-frontend sidecar, and
-GCS-volume-based provisioning (so datasources+dashboards self-restore on redeploy).
+**Runbook target:** datasources = Google Cloud Monitoring (default; also serves
+Google Managed Prometheus metrics via `prometheus.googleapis.com/*`) and
+BigQuery. The dashboard set is API/RED, Database, Kernel pipeline, Frontend
+RUM, Mobile, and SLO/burn. Treat dashboard import, datasource health, and
+non-empty panels as current only after the live Grafana smoke runs against that
+deployment. Panels are **empty until the backend telemetry rollout** (api +
+kernel jobs must run with `GOATOS_OBS_SINK=otlp` + the collector sidecar) and
+the `analytics.*` rollup runs. Follow-ups: Cloud Trace / Cloud Logging /
+Postgres datasources, the GMP query-frontend sidecar, and GCS-volume-based
+provisioning (so datasources+dashboards self-restore on redeploy).
 
 ## 1b. Viewing the dashboards (first-time gotcha)
 
 **Grafana's Home page shows a "Welcome to Grafana" tutorial panel by default, NOT your
 dashboards** — new users think "nothing is here." The 6 Goat OS dashboards live under the
-left-nav **Dashboards** menu (`/dashboards`). Fixed for stg by setting the **org default
-home dashboard** to "Goat OS stg — API / RED" so Home shows live data immediately:
+left-nav **Dashboards** menu (`/dashboards`). During live smoke, set the **org default
+home dashboard** to "Goat OS — API / RED"; only claim Home shows current live
+data after `/api/ds/query` returns representative non-empty frames in that environment:
 
 ```bash
 # (admin auth) point Home at a dashboard by uid

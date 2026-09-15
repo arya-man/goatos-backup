@@ -40,10 +40,13 @@ type Service interface {
 
 // Handler serves the board routes.
 type Handler struct {
-	service Service
-	flags   FlagService
-	log     *slog.Logger
-	now     func() time.Time
+	service   Service
+	flags     FlagService
+	log       *slog.Logger
+	now       func() time.Time
+	cacheTTL  time.Duration
+	cacheMu   sync.Mutex
+	pageCache map[string]pageCacheEntry
 }
 
 // NewHandler constructs the transport.
@@ -51,7 +54,7 @@ func NewHandler(service Service, log *slog.Logger) *Handler {
 	if log == nil {
 		log = slog.Default()
 	}
-	return &Handler{service: service, log: log, now: time.Now}
+	return &Handler{service: service, log: log, now: time.Now, cacheTTL: 30 * time.Second, pageCache: map[string]pageCacheEntry{}}
 }
 
 // Register mounts the routes. Patterns must stay byte-identical to permissions/routes.go.
@@ -153,12 +156,17 @@ func (h *Handler) Summary(w http.ResponseWriter, r *http.Request) {
 // per park; doing it here keeps the user-facing lane cursors while avoiding an SSR
 // request stampede into the shared API/DB pool.
 func (h *Handler) Page(w http.ResponseWriter, r *http.Request) {
+	prof := newPageTiming(r, h.now)
+	defer prof.log(h.log, r)
+	ctx := app.WithTiming(r.Context(), prof.addDuration)
 	q, own, ok := h.query(w, r)
+	prof.mark("query_scope")
 	if !ok {
 		return
 	}
 	visibleModules := app.StrictIntersect(app.VisibleModules(callerPermissions(r.Context())), h.service.RegisteredModules())
 	pageLanes, ok := h.pageLanes(w, r)
+	prof.mark("visibility_and_lanes")
 	if !ok {
 		return
 	}
@@ -169,6 +177,12 @@ func (h *Handler) Page(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		q.Limit = n
+	}
+	cacheKey := h.pageCacheKey(r, q, own, pageLanes)
+	if body, ok := h.getPageCache(cacheKey); ok {
+		prof.addDuration("cache_hit", 0)
+		writeCachedPage(w, body, prof)
+		return
 	}
 	out := pagePayload{
 		Lanes:        map[domain.Lane]lanePagePayload{},
@@ -183,7 +197,9 @@ func (h *Handler) Page(w http.ResponseWriter, r *http.Request) {
 	}
 	summaryCh := make(chan summaryResult, 1)
 	go func() {
-		sum, err := h.service.Summary(r.Context(), q) // scale-guard:ignore: one summary read runs beside an optional vocabulary summary to keep bundled page latency bounded.
+		start := h.now()
+		sum, err := h.service.Summary(ctx, q) // scale-guard:ignore: one summary read runs beside an optional vocabulary summary to keep bundled page latency bounded.
+		prof.addAsync("summary_service", start)
 		if err != nil {
 			summaryCh <- summaryResult{err: err}
 			return
@@ -198,7 +214,9 @@ func (h *Handler) Page(w http.ResponseWriter, r *http.Request) {
 		vocabQ.Cursor = domain.Cursor{}
 		vocabCh = make(chan summaryResult, 1)
 		go func() {
-			vocab, err := h.service.Summary(r.Context(), vocabQ) // scale-guard:ignore: optional vocabulary summary is a second bounded read, only when the module filter requests it.
+			start := h.now()
+			vocab, err := h.service.Summary(ctx, vocabQ) // scale-guard:ignore: optional vocabulary summary is a second bounded read, only when the module filter requests it.
+			prof.addAsync("vocabulary_summary_service", start)
 			if err != nil {
 				vocabCh <- summaryResult{err: err}
 				return
@@ -207,6 +225,7 @@ func (h *Handler) Page(w http.ResponseWriter, r *http.Request) {
 		}()
 	}
 	summary := <-summaryCh
+	prof.mark("summary_wait")
 	if summary.err != nil {
 		h.writeServiceErr(w, r, summary.err)
 		return
@@ -219,6 +238,7 @@ func (h *Handler) Page(w http.ResponseWriter, r *http.Request) {
 	}
 	results := make([]laneResult, len(pageLanes))
 	var wg sync.WaitGroup
+	laneSem := make(chan struct{}, maxPageLaneServiceConcurrency)
 	queryValues := r.URL.Query()
 	for i, lane := range pageLanes {
 		laneQ := q
@@ -237,11 +257,21 @@ func (h *Handler) Page(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		laneQ.Cursor = cursor
+		if strings.TrimSpace(rawCursor) == "" {
+			laneQ.Modules = modulesWithLaneRows(summary.payload.Summary, lane, q.Modules)
+			if len(laneQ.Modules) == 0 {
+				laneQ.NoModules = true
+			}
+		}
 		results[i].lane = lane
 		wg.Add(1)
 		go func(i int, lane domain.Lane, laneQ domain.Query) {
 			defer wg.Done()
-			page, err := h.service.List(r.Context(), laneQ) // scale-guard:ignore: bounded fanout across visible Work Board lanes after summary zero-lane short-circuit; each call is cursor-scoped and user-page-limited.
+			laneSem <- struct{}{}
+			defer func() { <-laneSem }()
+			start := h.now()
+			page, err := h.service.List(ctx, laneQ) // scale-guard:ignore: bounded by maxPageLaneServiceConcurrency plus service-level source fanout cap after summary zero-lane short-circuit; each call is cursor-scoped and user-page-limited.
+			prof.addAsync("lane_service_"+string(lane), start)
 			if err != nil {
 				results[i] = laneResult{lane: lane, payload: lanePagePayload{Rows: []domain.Row{}, Degraded: visibleModules}}
 				return
@@ -250,8 +280,10 @@ func (h *Handler) Page(w http.ResponseWriter, r *http.Request) {
 		}(i, lane, laneQ)
 	}
 	wg.Wait()
+	prof.mark("lane_wait")
 	if vocabCh != nil {
 		vocab := <-vocabCh
+		prof.mark("vocabulary_wait")
 		if vocab.err != nil {
 			h.writeServiceErr(w, r, vocab.err)
 			return
@@ -263,12 +295,274 @@ func (h *Handler) Page(w http.ResponseWriter, r *http.Request) {
 		out.Lanes[result.lane] = result.payload
 		out.Degraded = appendModules(out.Degraded, result.payload.Degraded...)
 	}
-	httpresponse.WriteJSON(w, http.StatusOK, out)
+	body, err := json.Marshal(out)
+	if err != nil {
+		httpresponse.WriteJSON(w, http.StatusInternalServerError, map[string]any{"error": "internal_error", "message": "The board could not be loaded. Try again."})
+		return
+	}
+	body = append(body, '\n')
+	h.setPageCache(cacheKey, body)
+	if prof.enabled {
+		prof.writeJSONBytes(w, http.StatusOK, body)
+		return
+	}
+	writeJSONBytes(w, http.StatusOK, body)
+}
+
+const maxPageLaneServiceConcurrency = 2
+
+type pageTiming struct {
+	enabled bool
+	now     func() time.Time
+	start   time.Time
+	last    time.Time
+	mu      sync.Mutex
+	phases  []pageTimingPhase
+	bytes   int
+}
+
+type pageCacheEntry struct {
+	expires time.Time
+	body    []byte
+}
+
+type pageTimingPhase struct {
+	Name string `json:"name"`
+	MS   int64  `json:"ms"`
+}
+
+func (h *Handler) getPageCache(key string) ([]byte, bool) {
+	if h.cacheTTL <= 0 || key == "" {
+		return nil, false
+	}
+	h.cacheMu.Lock()
+	defer h.cacheMu.Unlock()
+	entry, ok := h.pageCache[key]
+	if !ok || !h.now().Before(entry.expires) {
+		if ok {
+			delete(h.pageCache, key)
+		}
+		return nil, false
+	}
+	return append([]byte(nil), entry.body...), true
+}
+
+func (h *Handler) setPageCache(key string, body []byte) {
+	if h.cacheTTL <= 0 || key == "" || len(body) == 0 {
+		return
+	}
+	h.cacheMu.Lock()
+	defer h.cacheMu.Unlock()
+	if len(h.pageCache) > 256 {
+		h.pageCache = map[string]pageCacheEntry{}
+	}
+	h.pageCache[key] = pageCacheEntry{expires: h.now().Add(h.cacheTTL), body: append([]byte(nil), body...)}
+}
+
+func (h *Handler) pageCacheKey(r *http.Request, q domain.Query, own bool, lanes []domain.Lane) string {
+	query := r.URL.Query()
+	query.Del("debug_timing")
+	parts := []string{
+		httpmiddleware.TenantIDFromContext(r.Context()),
+		httpmiddleware.ActorIDFromContext(r.Context()),
+		strconv.FormatBool(own),
+		q.TenantID,
+		q.ParkID,
+		q.BusinessDate,
+		q.OwnerUserID,
+		strconv.Itoa(q.Limit),
+		strconv.FormatBool(q.NoModules),
+		modulesKey(q.Modules),
+		statesKey(q.WorkStates),
+		lanesKey(lanes),
+		query.Encode(),
+	}
+	return strings.Join(parts, "\x00")
+}
+
+func newPageTiming(r *http.Request, now func() time.Time) *pageTiming {
+	if now == nil {
+		now = time.Now
+	}
+	start := now()
+	raw := strings.TrimSpace(strings.ToLower(r.URL.Query().Get("debug_timing")))
+	header := strings.TrimSpace(strings.ToLower(r.Header.Get("X-GoatOS-Debug-Timing")))
+	return &pageTiming{
+		enabled: raw == "1" || raw == "true" || raw == "yes" || header == "1" || header == "true" || header == "yes",
+		now:     now,
+		start:   start,
+		last:    start,
+	}
+}
+
+func (p *pageTiming) mark(name string) {
+	if !p.enabled {
+		return
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	now := p.now()
+	p.phases = append(p.phases, pageTimingPhase{Name: name, MS: now.Sub(p.last).Milliseconds()})
+	p.last = now
+}
+
+func (p *pageTiming) addAsync(name string, start time.Time) {
+	if !p.enabled {
+		return
+	}
+	p.addDuration(name, p.now().Sub(start))
+}
+
+func (p *pageTiming) addDuration(name string, elapsed time.Duration) {
+	if !p.enabled {
+		return
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.phases = append(p.phases, pageTimingPhase{Name: name, MS: elapsed.Milliseconds()})
+}
+
+func (p *pageTiming) writeJSON(w http.ResponseWriter, status int, payload any) {
+	start := p.now()
+	body, err := json.Marshal(payload)
+	p.mu.Lock()
+	if err == nil {
+		p.bytes = len(body) + 1
+	}
+	p.phases = append(p.phases, pageTimingPhase{Name: "json_encode", MS: p.now().Sub(start).Milliseconds()})
+	p.mu.Unlock()
+	if err != nil {
+		httpresponse.WriteJSON(w, http.StatusInternalServerError, map[string]any{"error": "internal_error", "message": "The board could not be loaded. Try again."})
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("X-GoatOS-Route-Timing", p.summary())
+	w.WriteHeader(status)
+	writeStart := p.now()
+	_, _ = w.Write(body)
+	_, _ = w.Write([]byte("\n"))
+	p.mu.Lock()
+	p.phases = append(p.phases, pageTimingPhase{Name: "http_write", MS: p.now().Sub(writeStart).Milliseconds()})
+	p.mu.Unlock()
+}
+
+func (p *pageTiming) writeJSONBytes(w http.ResponseWriter, status int, body []byte) {
+	p.mu.Lock()
+	p.bytes = len(body)
+	p.phases = append(p.phases, pageTimingPhase{Name: "json_encode", MS: 0})
+	p.mu.Unlock()
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("X-GoatOS-Route-Timing", p.summary())
+	w.WriteHeader(status)
+	writeStart := p.now()
+	_, _ = w.Write(body)
+	p.mu.Lock()
+	p.phases = append(p.phases, pageTimingPhase{Name: "http_write", MS: p.now().Sub(writeStart).Milliseconds()})
+	p.mu.Unlock()
+}
+
+func writeCachedPage(w http.ResponseWriter, body []byte, prof *pageTiming) {
+	if prof != nil && prof.enabled {
+		prof.writeJSONBytes(w, http.StatusOK, body)
+		return
+	}
+	writeJSONBytes(w, http.StatusOK, body)
+}
+
+func writeJSONBytes(w http.ResponseWriter, status int, body []byte) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_, _ = w.Write(body)
+}
+
+func (p *pageTiming) summary() string {
+	if !p.enabled {
+		return ""
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	parts := make([]string, 0, len(p.phases)+2)
+	for _, phase := range p.phases {
+		parts = append(parts, phase.Name+"="+strconv.FormatInt(phase.MS, 10)+"ms")
+	}
+	parts = append(parts, "response_bytes="+strconv.Itoa(p.bytes))
+	parts = append(parts, "total="+strconv.FormatInt(p.now().Sub(p.start).Milliseconds(), 10)+"ms")
+	return strings.Join(parts, ";")
+}
+
+func (p *pageTiming) log(log *slog.Logger, r *http.Request) {
+	if !p.enabled || log == nil {
+		return
+	}
+	p.mu.Lock()
+	phases := append([]pageTimingPhase(nil), p.phases...)
+	bytes := p.bytes
+	totalMS := p.now().Sub(p.start).Milliseconds()
+	p.mu.Unlock()
+	attrs := []slog.Attr{
+		slog.String("request_id", httpmiddleware.RequestIDFromContext(r.Context())),
+		slog.String("trace_id", httpmiddleware.TraceIDFromContext(r.Context())),
+		slog.String("tenant_id", httpmiddleware.TenantIDFromContext(r.Context())),
+		slog.String("actor_id", httpmiddleware.ActorIDFromContext(r.Context())),
+		slog.String("park_id", strings.TrimSpace(r.URL.Query().Get("park"))),
+		slog.String("business_date", strings.TrimSpace(r.URL.Query().Get("business_date"))),
+		slog.Int("response_bytes", bytes),
+		slog.Int64("total_ms", totalMS),
+	}
+	for _, phase := range phases {
+		attrs = append(attrs, slog.Int64("phase_"+phase.Name+"_ms", phase.MS))
+	}
+	log.LogAttrs(r.Context(), slog.LevelInfo, "work_board_page_timing", attrs...)
 }
 
 func shouldIncludeVocabulary(r *http.Request) bool {
 	raw := strings.TrimSpace(strings.ToLower(r.URL.Query().Get("include_vocabulary")))
 	return raw == "1" || raw == "true" || raw == "yes"
+}
+
+func modulesWithLaneRows(sum domain.Summary, lane domain.Lane, fallback []domain.Module) []domain.Module {
+	if len(sum.ByModuleLane) == 0 {
+		return fallback
+	}
+	degraded := map[domain.Module]struct{}{}
+	for _, module := range sum.Degraded {
+		degraded[module] = struct{}{}
+	}
+	out := []domain.Module{}
+	for _, module := range fallback {
+		if _, ok := degraded[module]; ok {
+			out = append(out, module)
+			continue
+		}
+		if sum.ByModuleLane[module][lane] > 0 {
+			out = append(out, module)
+		}
+	}
+	return out
+}
+
+func modulesKey(modules []domain.Module) string {
+	out := make([]string, 0, len(modules))
+	for _, module := range modules {
+		out = append(out, string(module))
+	}
+	return strings.Join(out, ",")
+}
+
+func statesKey(states []domain.WorkState) string {
+	out := make([]string, 0, len(states))
+	for _, state := range states {
+		out = append(out, string(state))
+	}
+	return strings.Join(out, ",")
+}
+
+func lanesKey(lanes []domain.Lane) string {
+	out := make([]string, 0, len(lanes))
+	for _, lane := range lanes {
+		out = append(out, string(lane))
+	}
+	return strings.Join(out, ",")
 }
 
 // subtasksPayload is the wire shape of one subtask page.

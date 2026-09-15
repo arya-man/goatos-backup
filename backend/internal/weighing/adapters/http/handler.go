@@ -9,7 +9,9 @@ import (
 	"log/slog"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
+	"time"
 
 	fwrports "github.com/vgoats/goatos/backend/internal/feedwaterremoval/ports"
 	"github.com/vgoats/goatos/backend/internal/permissions"
@@ -48,7 +50,7 @@ type Service interface {
 	GetLeadershipGrowthADG(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate, sex, origin, weighingCategory, sections string) (domain.GrowthADG, error)
 	GetShedWeights(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate, sex, origin, weighingCategory, saleThresholdToleranceGrams string) (domain.ShedWeights, error)
 	GetWeighingDates(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate, sex, origin, weighingCategory string) (domain.WeighingDates, error)
-	GetWeightDemographics(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate, sex, origin, weighingCategory string) (domain.WeightDemographics, error)
+	GetWeightDemographics(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate, sex, origin, weighingCategory, sections string) (domain.WeightDemographics, error)
 	ExportCampaignCSV(ctx context.Context, actor domain.Actor, campaignID string, writer io.Writer) error
 	ExportCSV(ctx context.Context, actor domain.Actor, fromBusinessDate, toBusinessDate, parkID string, shedLocationIDs []string, sex, origin, weighingCategory string, writer io.Writer) error
 	// Fasting (feed & water removal) precondition cards, maintainer decision
@@ -184,6 +186,7 @@ func (h *Handler) GetWeightHistory(w http.ResponseWriter, r *http.Request) {
 //     own kids and buys them in loads, and the two grow differently enough that reading them
 //     together answers nothing. Selecting both filters reports the kids in BOTH.
 func (h *Handler) GetLeadershipGrowthADG(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
 	result, err := h.service.GetLeadershipGrowthADG(
 		r.Context(),
 		actor(r),
@@ -195,6 +198,7 @@ func (h *Handler) GetLeadershipGrowthADG(w http.ResponseWriter, r *http.Request)
 		r.URL.Query().Get("weighing_category"),
 		r.URL.Query().Get("sections"),
 	)
+	h.maybeWriteTiming(w, r, "leadership_growth", start)
 	h.respond(w, r, result, err)
 }
 
@@ -219,6 +223,7 @@ func (h *Handler) GetWeighingDates(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) GetShedWeights(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
 	result, err := h.service.GetShedWeights(
 		r.Context(),
 		actor(r),
@@ -230,17 +235,21 @@ func (h *Handler) GetShedWeights(w http.ResponseWriter, r *http.Request) {
 		r.URL.Query().Get("weighing_category"),
 		r.URL.Query().Get("sale_threshold_tolerance_g"),
 	)
+	h.maybeWriteTiming(w, r, "shed_weights", start)
 	h.respond(w, r, result, err)
 }
 
 // GetWeightDemographics serves the breed / sex / stage breakdown on the Weights
 // screen. This is the one weighing read that resolves a scanned tag to its animal.
 func (h *Handler) GetWeightDemographics(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
 	result, err := h.service.GetWeightDemographics(
 		r.Context(), actor(r),
 		r.URL.Query().Get("park_id"), r.URL.Query().Get("from"), r.URL.Query().Get("to"),
 		r.URL.Query().Get("sex"), r.URL.Query().Get("origin"), r.URL.Query().Get("weighing_category"),
+		r.URL.Query().Get("sections"),
 	)
+	h.maybeWriteTiming(w, r, "weight_demographics", start)
 	h.respond(w, r, result, err)
 }
 
@@ -929,6 +938,25 @@ func (h *Handler) respond(w http.ResponseWriter, r *http.Request, body any, err 
 	default:
 		httpresponse.WriteError(w, r, h.log, http.StatusInternalServerError, errorEnvelope{Code: "internal_error", Message: "internal server error", TraceID: traceID(r)}, err)
 	}
+}
+
+func (h *Handler) maybeWriteTiming(w http.ResponseWriter, r *http.Request, name string, start time.Time) {
+	if !debugTimingEnabled(r) {
+		return
+	}
+	elapsed := time.Since(start)
+	w.Header().Set("X-GoatOS-Weighing-Timing", name+"_service="+strconv.FormatInt(elapsed.Milliseconds(), 10)+"ms")
+	h.log.InfoContext(r.Context(), "weighing_route_timing",
+		slog.String("request_id", httpmiddleware.RequestIDFromContext(r.Context())),
+		slog.String("trace_id", httpmiddleware.TraceIDFromContext(r.Context())),
+		slog.String("route", name),
+		slog.Int64("service_ms", elapsed.Milliseconds()))
+}
+
+func debugTimingEnabled(r *http.Request) bool {
+	raw := strings.TrimSpace(strings.ToLower(r.URL.Query().Get("debug_timing")))
+	header := strings.TrimSpace(strings.ToLower(r.Header.Get("X-GoatOS-Debug-Timing")))
+	return raw == "1" || raw == "true" || raw == "yes" || header == "1" || header == "true" || header == "yes"
 }
 
 func (h *Handler) badRequest(w http.ResponseWriter, r *http.Request, code, msg string) {

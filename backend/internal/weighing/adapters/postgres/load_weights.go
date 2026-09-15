@@ -134,6 +134,7 @@ ind_daily AS (
              o.accepted_at DESC, o.observation_id DESC
   ) x ON x.campaign_shed_id = s.campaign_shed_id
   WHERE s.weighing_category = 'individual_animal'
+    AND $9::text <> 'per_shed_partition'
   GROUP BY s.location_id, s.partition_label, x.d
 ),
 daily AS (

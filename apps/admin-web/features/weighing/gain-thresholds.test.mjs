@@ -196,14 +196,19 @@ test("the Sex filter is a PAGE filter: every read carries it, and the page never
   assert.match(source, /rawSex === "female" \? "female" : rawSex === "all" \? "" : "male"/);
   assert.match(source, /landingWindow\(\s*\n\s*params,\s*\n\s*today,\s*\n\s*parkFilter,\s*\n\s*sexFilter,\s*\n\s*originFilter,\s*\n\s*weighingCategoryFilter,\s*\n\s*\)/);
   assert.match(source, /getShedWeights\(\{ \.\.\.scope, \.\.\.window \}\)/);
-  for (const read of ["getShedWeights", "getWeightDemographics"]) {
+  for (const read of ["getShedWeights"]) {
     assert.match(
       source,
       new RegExp(`${read}\\(\\{ \\.\\.\\.scope, \\.\\.\\.window \\}\\)`),
       `${read} must carry the sex filter`,
     );
   }
-  assert.match(source, /getWeighingGrowth\(\{ \.\.\.scope, \.\.\.window, sections: "rejected,shed_leaderboard,parks,losing_animals" \}\)/);
+  assert.match(
+    source,
+    /getWeightDemographics\(\{\s*\.\.\.scope,\s*\.\.\.window,\s*sections: "composition,dimensions,gain_thresholds",?\s*\}\)/,
+    "getWeightDemographics must carry page filters and explicitly request only the page-rendered sections",
+  );
+  assert.match(source, /getWeighingGrowth\(\{ \.\.\.scope, \.\.\.window, sections: "headline,shed_leaderboard,losing_animals" \}\)/);
   assert.match(source, /getGrowthDirector\(\{ \.\.\.scope, \.\.\.window, sections: "road_to_sale,fair_fight" \}\)/);
   // The rows arrive ALREADY filtered, so the card renders what it was sent and never re-selects
   // by sex — a second implementation of one rule is a second thing to keep in step.
@@ -211,6 +216,23 @@ test("the Sex filter is a PAGE filter: every read carries it, and the page never
   assert.doesNotMatch(stripComments(source), /gain_thresholds_by_breed[\s\S]{0,600}\breduce\(/);
   // The share stays row-local: a male share is taken against that row's own denominator.
   assert.match(source, /sharesOfWhole\(counts, row\.animals\)/);
+});
+
+test("Growth ADG sections stay in sync between admin-web and the OpenAPI contract", () => {
+  for (const path of ["/app/weighing/leadership/growth:", "/weighing/leadership/growth:"]) {
+    const pathIndex = openapi.indexOf(`\n  ${path}`);
+    assert.notEqual(pathIndex, -1, `${path} must exist as its own OpenAPI path`);
+    const endpoint = openapi.slice(pathIndex, openapi.indexOf("\n  /", pathIndex + 1));
+    const sectionsIndex = endpoint.indexOf("- name: sections");
+    assert.notEqual(sectionsIndex, -1, `${path} must expose a sections parameter`);
+    const sections = endpoint.slice(sectionsIndex, endpoint.indexOf('responses:', sectionsIndex));
+    assert.match(sections, /pattern: '\^\(headline\|headline_previous\|rejected\|eligibility\|trend\|weekly_gain\|shed_leaderboard\|distribution\|sale_readiness\|lump_sum\|parks\|losing_animals\|by_park\)/, `${path} sections must allow headline`);
+    const park = endpoint.slice(endpoint.indexOf("- name: park_id"), endpoint.indexOf("- name: from", endpoint.indexOf("- name: park_id")));
+    assert.doesNotMatch(park, /weekly_gain|shed_leaderboard|losing_animals/, `${path} park_id must stay a UUID, not a sections enum`);
+    const from = endpoint.slice(endpoint.indexOf("- name: from"), endpoint.indexOf("- name: to", endpoint.indexOf("- name: from")));
+    assert.doesNotMatch(from, /weekly_gain|shed_leaderboard|losing_animals/, `${path} from must stay a date, not a sections enum`);
+  }
+  assert.match(source, /sections: "headline,shed_leaderboard,losing_animals"/);
 });
 
 test("Sex sits in the filter bar beside Weighing, defaults to Male, and carries its own All", () => {
@@ -296,7 +318,7 @@ test("the sex filter reaches the demographics read on both arms", () => {
     "utf8",
   );
   // The per-animal arm is narrowed upstream, where the tag is already resolved to its animal...
-  assert.match(repo, /WHERE \$5::text = '' OR lower\(btrim\(gt\.sex\)\) = \$5::text/);
+  assert.match(repo, /\$28::bool AND \(\$5::text = '' OR lower\(btrim\(gt\.sex\)\) = \$5::text\)/);
   // ...and an unknown value is refused rather than silently widening the filter.
   assert.match(repo, /sexFilter, sexErr := normalizeSexFilter\(sex\)/);
   // An empty filter keeps every row INCLUDING tags that resolve to no animal, which is what the

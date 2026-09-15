@@ -842,7 +842,7 @@ func TestVaccinationExecutionPageCanSkipCardSummariesForLatencySensitiveClients(
 	}
 }
 
-func TestVaccinationExecutionPageKeepsLegacyCardSummariesByDefault(t *testing.T) {
+func TestVaccinationExecutionPageBuildsDefaultCardSummariesFromCompletePage(t *testing.T) {
 	t.Parallel()
 
 	cardCalls := 0
@@ -859,11 +859,42 @@ func TestVaccinationExecutionPageKeepsLegacyCardSummariesByDefault(t *testing.T)
 	if err != nil {
 		t.Fatalf("VaccinationExecutionPage failed: %v", err)
 	}
-	if cardCalls != 1 {
-		t.Fatalf("nil IncludeCardSummaries must keep the legacy card summary default; got %d calls", cardCalls)
+	if cardCalls != 0 {
+		t.Fatalf("complete first page should build card summaries without the SQL aggregate; got %d calls", cardCalls)
 	}
 	if resp.CardSummaries == nil {
 		t.Fatal("default card summaries should be included for legacy callers")
+	}
+}
+
+func TestVaccinationExecutionPageBuildsSmallCrossPageCardSummariesFromBoundedFullPage(t *testing.T) {
+	t.Parallel()
+
+	asOf := time.Date(2026, 8, 16, 10, 0, 0, 0, time.UTC)
+	cardCalls := 0
+	rows := []domain.ExecutionProjection{
+		projection("shed-1", asOf.Add(24*time.Hour), 1, nil),
+		projection("shed-2", asOf.Add(24*time.Hour), 1, nil),
+	}
+	svc := NewService(&paginatingFakeRepo{fakeRepo: fakeRepo{rows: rows, cardCalls: &cardCalls}})
+
+	resp, err := svc.VaccinationExecutionPage(context.Background(), domain.ExecutionQuery{
+		TenantID:  "tenant",
+		AsOf:      asOf,
+		DueBefore: asOf.Add(30 * 24 * time.Hour),
+		Limit:     1,
+	})
+	if err != nil {
+		t.Fatalf("VaccinationExecutionPage failed: %v", err)
+	}
+	if cardCalls != 0 {
+		t.Fatalf("small multi-page response should avoid the SQL aggregate; got %d calls", cardCalls)
+	}
+	if resp.NextCursor == nil {
+		t.Fatal("test fixture should have produced a second page")
+	}
+	if len(resp.CardSummaries) != 2 {
+		t.Fatalf("card summaries = %d, want full-filter summaries for both cards", len(resp.CardSummaries))
 	}
 }
 

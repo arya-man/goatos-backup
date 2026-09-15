@@ -20,6 +20,14 @@ const contract = readFileSync(
   "utf8",
 );
 
+test("admin weighing read coalescer covers the browser route sweep", () => {
+  assert.match(serverSource, /const SHORT_READ_CACHE_TTL_MS = 120_000;/);
+  assert.match(serverSource, /getShedWeights[\s\S]*cachedShortRead\(/);
+  assert.match(serverSource, /getWeighingGrowth[\s\S]*cachedShortRead\(/);
+  assert.match(serverSource, /auth=\$\{authCacheFingerprint\(config\.bearerToken\)\}/);
+  assert.match(serverSource, /createHash\("sha256"\)\.update\(token\)\.digest\("base64url"\)\.slice\(0, 16\)/);
+});
+
 test("the period control is a calendar, not a fixed-window select", () => {
   assert.match(source, /kind: "daterange"/);
   // The two presets and the vocabulary behind them are GONE, not left unused: a stale option group
@@ -70,8 +78,8 @@ test("weights analytics time-wise uses the same selected/default period as every
   // and its caption says so. Every other tab still reads the page's own scope and window.
   assert.match(analyticsSource, /const shedParams = wantsLoads\s*\n\s*\? \{ park_id: parkFilter \|\| undefined, from: LOAD_TAB_ALL_TIME_FROM, to: today \}\s*\n\s*: \{ \.\.\.scope, \.\.\.readWindow \};/);
   assert.match(analyticsSource, /getShedWeights\(shedParams\)/);
-  assert.match(analyticsSource, /getWeighingGrowth\(\{ \.\.\.scope, \.\.\.readWindow \}\)/);
-  assert.match(analyticsSource, /getWeightDemographics\(\{ \.\.\.scope, \.\.\.readWindow \}\)/);
+  assert.match(analyticsSource, /getWeighingGrowth\(\{ \.\.\.scope, \.\.\.readWindow, sections: growthSections \}\)/);
+  assert.match(analyticsSource, /getWeightDemographics\(\{ \.\.\.scope, \.\.\.readWindow, sections: demographicsSections \}\)/);
   assert.doesNotMatch(contract, /last 12 weeks/);
   assert.doesNotMatch(contract, /those 12 weeks/);
   assert.doesNotMatch(contract, /not moved by the period filter/);
@@ -108,8 +116,8 @@ test("weights analytics sends the weighing mode through every tab read", () => {
   // The shed read routes through shedParams so the Load-wise tab can drop the page filters a
   // whole load cannot honour; on every other tab shedParams IS { ...scope, ...readWindow }.
   assert.match(analyticsSource, /getShedWeights\(shedParams\)/);
-  assert.match(analyticsSource, /getWeighingGrowth\(\{ \.\.\.scope, \.\.\.readWindow \}\)/);
-  assert.match(analyticsSource, /getWeightDemographics\(\{ \.\.\.scope, \.\.\.readWindow \}\)/);
+  assert.match(analyticsSource, /getWeighingGrowth\(\{ \.\.\.scope, \.\.\.readWindow, sections: growthSections \}\)/);
+  assert.match(analyticsSource, /getWeightDemographics\(\{ \.\.\.scope, \.\.\.readWindow, sections: demographicsSections \}\)/);
   assert.match(analyticsSource, /weighingCategory=\{modeFilter !== "all" \? modeFilter : undefined\}/);
 });
 
@@ -138,10 +146,37 @@ test("weights page sends the weighing mode through every backend read", () => {
   assert.match(source, /landingWindow\(\s*\n\s*params,\s*\n\s*today,\s*\n\s*parkFilter,\s*\n\s*sexFilter,\s*\n\s*originFilter,\s*\n\s*weighingCategoryFilter,\s*\n\s*\)/);
   assert.match(source, /weighing_category: weighingCategoryFilter \|\| undefined/);
   assert.match(source, /getShedWeights\(\{ \.\.\.scope, \.\.\.window \}\)/);
-  assert.match(source, /getWeighingGrowth\(\{ \.\.\.scope, \.\.\.window, sections: "rejected,shed_leaderboard,parks,losing_animals" \}\)/);
-  assert.match(source, /getWeightDemographics\(\{ \.\.\.scope, \.\.\.window \}\)/);
+  assert.match(source, /getWeighingGrowth\(\{ \.\.\.scope, \.\.\.window, sections: "headline,shed_leaderboard,losing_animals" \}\)/);
+  assert.match(source, /sections: "composition,dimensions,gain_thresholds"/);
+  assert.doesNotMatch(source, /sections: "composition,dimensions,origin,shed_type,weight_bands,weekly_gain,gain_thresholds"/);
   assert.match(source, /getGrowthDirector\(\{ \.\.\.scope, \.\.\.window, sections: "road_to_sale,fair_fight" \}\)/);
   assert.doesNotMatch(source, /getWeighingGrowth\(\{ \.\.\.scope, \.\.\.window, park_id: park\.park_id \}\)/);
+});
+
+test("weights analytics tabs request only the growth sections they render", () => {
+  assert.match(analyticsSource, /tab === "general" \? "headline,shed_leaderboard,by_park" : tab === "time" \? "weekly_gain" : ""/);
+  assert.match(analyticsSource, /const wantsGrowth = growthSections !== "";/);
+  assert.match(analyticsSource, /wantsGrowth \? getWeighingGrowth\(\{ \.\.\.scope, \.\.\.readWindow, sections: growthSections \}\) : null/);
+  assert.doesNotMatch(analyticsSource, /sectioned-aggregate-reads:allow/);
+  assert.doesNotMatch(analyticsSource, /getWeighingGrowth\(\{ \.\.\.scope, \.\.\.readWindow \}\)/);
+});
+
+test("weights analytics tabs request only the demographics sections they render", () => {
+  assert.match(analyticsSource, /tab === "breed"[\s\S]*\? "dimensions"/);
+  assert.match(analyticsSource, /tab === "birth"[\s\S]*\? "origin"/);
+  assert.match(analyticsSource, /tab === "shed"[\s\S]*\? "shed_type"/);
+  assert.match(analyticsSource, /tab === "weight"[\s\S]*\? "weight_bands"/);
+  assert.match(analyticsSource, /tab === "time"[\s\S]*\? "weekly_gain"/);
+  assert.match(analyticsSource, /wantsDemographics \? getWeightDemographics\(\{ \.\.\.scope, \.\.\.readWindow, sections: demographicsSections \}\) : null/);
+  assert.doesNotMatch(analyticsSource, /getWeightDemographics\(\{ \.\.\.scope, \.\.\.readWindow \}\)/);
+});
+
+test("weights page requests every growth section it renders", () => {
+  assert.match(source, /growth\.data\.headline\.average_adg_g_per_day/);
+  assert.match(source, /growth\.data\.headline\.headline_animals/);
+  assert.match(source, /growth\.data\.shed_leaderboard/);
+  assert.match(source, /growth\.data\.losing_animals/);
+  assert.match(source, /sections: "headline,shed_leaderboard,losing_animals"/);
 });
 
 test("weights reads use the longer live-latency backend timeout", () => {

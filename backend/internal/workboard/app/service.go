@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/vgoats/goatos/backend/internal/workboard/domain"
 	"github.com/vgoats/goatos/backend/internal/workboard/ports"
@@ -56,21 +57,22 @@ func (s *Service) List(ctx context.Context, q domain.Query) (domain.Page, error)
 	if err != nil {
 		return domain.Page{}, err
 	}
+	if q.Cursor.IsZero() {
+		return s.listFirstPage(ctx, q)
+	}
 	page := domain.Page{Rows: []domain.Row{}}
 	start := 0
 	after := ""
-	if !q.Cursor.IsZero() {
-		start = -1
-		for i, src := range s.sources {
-			if src.Module() == q.Cursor.Module && src.SourceType() == q.Cursor.SourceType {
-				start = i
-				after = q.Cursor.SourceID
-				break
-			}
+	start = -1
+	for i, src := range s.sources {
+		if src.Module() == q.Cursor.Module && src.SourceType() == q.Cursor.SourceType {
+			start = i
+			after = q.Cursor.SourceID
+			break
 		}
-		if start < 0 {
-			return domain.Page{}, domain.ErrInvalidCursor
-		}
+	}
+	if start < 0 {
+		return domain.Page{}, domain.ErrInvalidCursor
 	}
 	// scale-guard:ignore: bounded walk over the fixed source registry (one entry per module
 	// source type, ~10), not a per-row fan-out; each call is one indexed keyset read bounded
@@ -85,11 +87,13 @@ func (s *Service) List(ctx context.Context, q domain.Query) (domain.Page, error)
 		if need <= 0 {
 			break
 		}
+		sourceStart := time.Now()
 		rows, err := src.ListRows(ctx, ports.SourceQuery{
 			TenantID: q.TenantID, ParkID: q.ParkID, BusinessDate: q.BusinessDate,
 			OwnerUserID: q.OwnerUserID, WorkStates: q.WorkStates,
 			AfterSourceID: after, Limit: need + 1,
 		})
+		recordTiming(ctx, "source_list_"+string(src.Module())+"_"+src.SourceType()+"_"+laneTimingName(q.WorkStates), sourceStart)
 		if err != nil {
 			// A bad cursor is the client's error and fails the read; any other source failure
 			// (a timeout on the heavy process-integrity read, a transient DB blip) must NOT
@@ -121,6 +125,79 @@ func (s *Service) List(ctx context.Context, q domain.Query) (domain.Page, error)
 	if len(page.Rows) == q.Limit && start < len(s.sources) {
 		last := page.Rows[len(page.Rows)-1]
 		page.NextCursor = domain.Cursor{Module: last.Module, SourceType: last.SourceType, SourceID: last.SourceID}.String()
+	}
+	return page, nil
+}
+
+func (s *Service) listFirstPage(ctx context.Context, q domain.Query) (domain.Page, error) {
+	page := domain.Page{Rows: []domain.Row{}}
+	type result struct {
+		sourceIndex int
+		module      domain.Module
+		rows        []domain.Row
+		err         error
+	}
+	scoped := make([]ports.Source, 0, len(s.sources))
+	sourceIndexes := make([]int, 0, len(s.sources))
+	for i, src := range s.sources {
+		if q.WantsModule(src.Module()) {
+			scoped = append(scoped, src)
+			sourceIndexes = append(sourceIndexes, i)
+		}
+	}
+	results := make([]result, len(scoped))
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, maxLaneSourceConcurrency)
+	for i, src := range scoped {
+		wg.Add(1)
+		go func(i int, src ports.Source) {
+			defer wg.Done()
+			select {
+			case sem <- struct{}{}:
+				defer func() { <-sem }()
+			case <-ctx.Done():
+				results[i] = result{sourceIndex: sourceIndexes[i], module: src.Module(), err: ctx.Err()}
+				return
+			}
+			sourceStart := time.Now()
+			rows, err := src.ListRows(ctx, ports.SourceQuery{
+				TenantID: q.TenantID, ParkID: q.ParkID, BusinessDate: q.BusinessDate,
+				OwnerUserID: q.OwnerUserID, WorkStates: q.WorkStates,
+				Limit: q.Limit + 1,
+			})
+			recordTiming(ctx, "source_list_"+string(src.Module())+"_"+src.SourceType()+"_"+laneTimingName(q.WorkStates), sourceStart)
+			results[i] = result{sourceIndex: sourceIndexes[i], module: src.Module(), rows: rows, err: err}
+		}(i, src)
+	}
+	wg.Wait()
+	for _, r := range results {
+		need := q.Limit - len(page.Rows)
+		if need <= 0 {
+			break
+		}
+		if r.err != nil {
+			if errors.Is(r.err, domain.ErrInvalidCursor) {
+				return domain.Page{}, r.err
+			}
+			page.Degraded = appendModule(page.Degraded, r.module)
+			continue
+		}
+		more := len(r.rows) > need
+		rows := r.rows
+		if more {
+			rows = rows[:need]
+		}
+		page.Rows = append(page.Rows, rows...)
+		if more {
+			last := rows[len(rows)-1]
+			page.NextCursor = domain.Cursor{Module: last.Module, SourceType: last.SourceType, SourceID: last.SourceID}.String()
+			return page, nil
+		}
+		if len(page.Rows) == q.Limit && r.sourceIndex < len(s.sources)-1 {
+			last := page.Rows[len(page.Rows)-1]
+			page.NextCursor = domain.Cursor{Module: last.Module, SourceType: last.SourceType, SourceID: last.SourceID}.String()
+			return page, nil
+		}
 	}
 	return page, nil
 }
@@ -170,10 +247,14 @@ func (s *Service) Summary(ctx context.Context, q domain.Query) (domain.Summary, 
 				results[i] = result{module: src.Module(), degraded: true}
 				return
 			}
-			counts, err := src.CountByState(ctx, ports.SourceQuery{
+			sourceCtx, cancel := context.WithTimeout(ctx, maxSummarySourceDuration)
+			defer cancel()
+			sourceStart := time.Now()
+			counts, err := src.CountByState(sourceCtx, ports.SourceQuery{
 				TenantID: q.TenantID, ParkID: q.ParkID, BusinessDate: q.BusinessDate,
 				OwnerUserID: q.OwnerUserID, WorkStates: q.WorkStates,
 			})
+			recordTiming(ctx, "source_count_"+string(src.Module())+"_"+src.SourceType(), sourceStart)
 			if err != nil {
 				results[i] = result{module: src.Module(), degraded: true}
 				return
@@ -211,9 +292,17 @@ func moduleIndex(m domain.Module) int {
 // as not found rather than walking further.
 const maxFindPages = 20
 
-// maxSummarySourceConcurrency keeps one board summary below the default staging DB pool while
-// still allowing slow sources to degrade independently.
-const maxSummarySourceConcurrency = 3
+// maxSummarySourceConcurrency keeps one board summary bounded while avoiding multiple waves of
+// small aggregate reads.
+const maxSummarySourceConcurrency = 9
+
+// maxLaneSourceConcurrency prevents multi-lane page reads from stampeding the DB pool when
+// several lanes have rows across the fixed source registry.
+const maxLaneSourceConcurrency = 4
+
+// maxSummarySourceDuration is per source, not for the whole page. It catches pathological source
+// stalls without treating normal OCI jitter as an empty-board success.
+const maxSummarySourceDuration = 1500 * time.Millisecond
 
 // FindRow looks one row up by key on the board the query describes: the same tenant, park,
 // business date and module visibility as List, so a caller can only find what List would
@@ -322,4 +411,17 @@ func appendModule(list []domain.Module, m domain.Module) []domain.Module {
 		}
 	}
 	return append(list, m)
+}
+
+func laneTimingName(states []domain.WorkState) string {
+	if len(states) == 0 {
+		return "all"
+	}
+	lane := domain.LaneFor(states[0])
+	for _, state := range states[1:] {
+		if domain.LaneFor(state) != lane {
+			return "mixed"
+		}
+	}
+	return string(lane)
 }

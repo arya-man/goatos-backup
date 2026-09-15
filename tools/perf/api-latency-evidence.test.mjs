@@ -49,6 +49,37 @@ function passingReport() {
   };
 }
 
+function pr264BrowserEvidence({ includeSignals = true } = {}) {
+  const signals = new Map([
+    ["/work-board?scope_mode=company", { lane_counts: { todo: 0, in_progress: 0, in_review: 0, done: 0 }, healthy_empty_state: true }],
+    ["/weighing/weights?scope_mode=company", { has_losing_weight_table: true }],
+    ["/weighing/analytics?scope_mode=company&tab=general", { has_weighing_kpis: true, tab: "general" }],
+    ["/weighing/analytics?scope_mode=company&tab=time", { has_weekly_growth: true, tab: "time" }],
+  ]);
+  return {
+    same_api_build: true,
+    routes: [
+      "/work-board?scope_mode=company",
+      "/weighing/weights?scope_mode=company",
+      "/weighing/analytics?scope_mode=company&tab=general",
+      "/weighing/analytics?scope_mode=company&tab=time",
+    ].map((route) => ({
+      route,
+      loaded: true,
+      viewports: [
+        { name: "desktop", loaded: true, ...(includeSignals ? { route_signals: signals.get(route) } : {}) },
+        { name: "mobile", loaded: true, ...(includeSignals ? { route_signals: signals.get(route) } : {}) },
+      ],
+      forbidden_strings_absent: [
+        "backend_down",
+        "Admin-web contract unavailable",
+        "The board could not be loaded",
+        "Weights could not be loaded",
+      ],
+    })),
+  };
+}
+
 test("accepts complete current-SHA live evidence", () => {
   assert.deepEqual(validateApiLatencyEvidence(passingReport(), sha), []);
 });
@@ -124,6 +155,171 @@ test("accepts local OCI analytics evidence without canonical scale certification
   report.scope.required_hot_paths = report.scope.included;
   report.scope.evidence_boundaries = { local_oci_ceo_route_switch_reads: report.scope.included };
   report.results = report.scope.included.map((name) => ({ ...report.results[0], name }));
+  assert.deepEqual(validateApiLatencyEvidence(report, sha), []);
+});
+
+test("accepts PR264 local OCI performance evidence only when every required route is present", () => {
+  const report = passingReport();
+  const required = [
+    "pr264_weighing_dates",
+    "pr264_weighing_shed_weights",
+    "pr264_weighing_weight_demographics",
+    "pr264_weighing_weight_demographics_dimensions_section",
+    "pr264_weighing_weight_demographics_origin_section",
+    "pr264_weighing_weight_demographics_shed_type_section",
+    "pr264_weighing_weight_demographics_weight_bands_section",
+    "pr264_weighing_weight_demographics_weekly_gain_section",
+    "pr264_weighing_growth_weights_sections",
+    "pr264_weighing_growth_general_sections",
+    "pr264_weighing_growth_time_sections",
+    "pr264_growth_director_weights_sections",
+    "pr264_work_board_page_cbe",
+    "pr264_work_board_page_cpt",
+    "pr264_app_vaccination_execution_with_card_summaries",
+  ];
+  report.dataset = {
+    label: "pr264_oci_staging_refresh",
+    animal_equivalent_cardinality: 0,
+    canonical_rows: 0,
+    certification_boundary: "local_oci_latency_only",
+  };
+  report.scope.evidence_profile = "pr264_performance";
+  report.scope.included = required;
+  report.scope.required_hot_paths = required;
+  report.scope.evidence_boundaries = {
+    local_oci_pr264_route_reads: required,
+    pr264_browser_render_routes: [
+      "/work-board?scope_mode=company",
+      "/weighing/weights?scope_mode=company",
+      "/weighing/analytics?scope_mode=company&tab=general",
+      "/weighing/analytics?scope_mode=company&tab=time",
+    ],
+  };
+  report.results = required.map((name) => ({ ...report.results[0], name }));
+  report.browser_evidence = pr264BrowserEvidence();
+  assert.deepEqual(validateApiLatencyEvidence(report, sha), []);
+
+  report.results = report.results.filter((result) => result.name !== "pr264_app_vaccination_execution_with_card_summaries");
+  assert.ok(
+    validateApiLatencyEvidence(report, sha).some((failure) => failure.includes("pr264_app_vaccination_execution_with_card_summaries is missing")),
+  );
+});
+
+test("rejects PR264 performance evidence without browser proof for the observed failure screens", () => {
+  const report = passingReport();
+  const required = [
+    "pr264_weighing_dates",
+    "pr264_weighing_shed_weights",
+    "pr264_weighing_weight_demographics",
+    "pr264_weighing_weight_demographics_dimensions_section",
+    "pr264_weighing_weight_demographics_origin_section",
+    "pr264_weighing_weight_demographics_shed_type_section",
+    "pr264_weighing_weight_demographics_weight_bands_section",
+    "pr264_weighing_weight_demographics_weekly_gain_section",
+    "pr264_weighing_growth_weights_sections",
+    "pr264_weighing_growth_general_sections",
+    "pr264_weighing_growth_time_sections",
+    "pr264_growth_director_weights_sections",
+    "pr264_work_board_page_cbe",
+    "pr264_work_board_page_cpt",
+    "pr264_app_vaccination_execution_with_card_summaries",
+  ];
+  report.dataset = {
+    label: "pr264_oci_staging_refresh",
+    animal_equivalent_cardinality: 0,
+    canonical_rows: 0,
+    certification_boundary: "local_oci_latency_only",
+  };
+  report.scope.evidence_profile = "pr264_performance";
+  report.scope.included = required;
+  report.scope.required_hot_paths = required;
+  report.scope.evidence_boundaries = {
+    local_oci_pr264_route_reads: required,
+    pr264_browser_render_routes: [
+      "/work-board?scope_mode=company",
+      "/weighing/weights?scope_mode=company",
+      "/weighing/analytics?scope_mode=company&tab=general",
+      "/weighing/analytics?scope_mode=company&tab=time",
+    ],
+  };
+  report.results = required.map((name) => ({ ...report.results[0], name }));
+  assert.ok(validateApiLatencyEvidence(report, sha).some((failure) => failure.includes("PR264 browser evidence is missing")));
+
+  report.browser_evidence = pr264BrowserEvidence();
+  report.browser_evidence.routes[0].forbidden_strings_absent = ["backend_down"];
+  assert.ok(validateApiLatencyEvidence(report, sha).some((failure) => failure.includes("The board could not be loaded")));
+});
+
+test("rejects PR264 browser proof without route-specific product signals", () => {
+  const report = passingReport();
+  report.dataset.certification_boundary = "local_oci_latency_only";
+  report.scope.evidence_profile = "pr264_performance";
+  report.scope.included = REQUIRED_HOT_PATHS.filter((name) => name.startsWith("pr264_"));
+  report.scope.evidence_boundaries = { local_oci_latency_only: report.scope.included };
+  report.results = report.results.filter((result) => result.name.startsWith("pr264_"));
+  report.browser_evidence = pr264BrowserEvidence({ includeSignals: false });
+
+  const failures = validateApiLatencyEvidence(report, sha);
+  assert.ok(failures.some((failure) => failure.includes("product signal")));
+});
+
+test("accepts PR264 browser evidence produced as one flat record per viewport", () => {
+  const report = passingReport();
+  const required = [
+    "pr264_weighing_dates",
+    "pr264_weighing_shed_weights",
+    "pr264_weighing_weight_demographics",
+    "pr264_weighing_weight_demographics_dimensions_section",
+    "pr264_weighing_weight_demographics_origin_section",
+    "pr264_weighing_weight_demographics_shed_type_section",
+    "pr264_weighing_weight_demographics_weight_bands_section",
+    "pr264_weighing_weight_demographics_weekly_gain_section",
+    "pr264_weighing_growth_weights_sections",
+    "pr264_weighing_growth_general_sections",
+    "pr264_weighing_growth_time_sections",
+    "pr264_growth_director_weights_sections",
+    "pr264_work_board_page_cbe",
+    "pr264_work_board_page_cpt",
+    "pr264_app_vaccination_execution_with_card_summaries",
+  ];
+  report.dataset = {
+    label: "pr264_oci_staging_refresh",
+    animal_equivalent_cardinality: 0,
+    canonical_rows: 0,
+    certification_boundary: "local_oci_latency_only",
+  };
+  report.scope.evidence_profile = "pr264_performance";
+  report.scope.included = required;
+  report.scope.required_hot_paths = required;
+  report.scope.evidence_boundaries = {
+    local_oci_pr264_route_reads: required,
+    pr264_browser_render_routes: [
+      "/work-board?scope_mode=company",
+      "/weighing/weights?scope_mode=company",
+      "/weighing/analytics?scope_mode=company&tab=general",
+      "/weighing/analytics?scope_mode=company&tab=time",
+    ],
+  };
+  report.results = required.map((name) => ({ ...report.results[0], name }));
+  const forbidden = [
+    "backend_down",
+    "Admin-web contract unavailable",
+    "The board could not be loaded",
+    "Weights could not be loaded",
+  ];
+  const signals = new Map([
+    ["/work-board?scope_mode=company", { lane_counts: { todo: 0, in_progress: 0, in_review: 0, done: 0 }, healthy_empty_state: true }],
+    ["/weighing/weights?scope_mode=company", { has_losing_weight_table: true }],
+    ["/weighing/analytics?scope_mode=company&tab=general", { has_weighing_kpis: true, tab: "general" }],
+    ["/weighing/analytics?scope_mode=company&tab=time", { has_weekly_growth: true, tab: "time" }],
+  ]);
+  report.browser_evidence = {
+    same_api_build: true,
+    routes: report.scope.evidence_boundaries.pr264_browser_render_routes.flatMap((route) => [
+      { route, viewport: "laptop", loaded: true, forbidden_strings_absent: forbidden, route_signals: signals.get(route) },
+      { route, viewport: "mobile", loaded: true, forbidden_strings_absent: forbidden, route_signals: signals.get(route) },
+    ]),
+  };
   assert.deepEqual(validateApiLatencyEvidence(report, sha), []);
 });
 

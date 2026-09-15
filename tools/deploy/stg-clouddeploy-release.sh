@@ -163,7 +163,13 @@ else
   docker build --platform linux/amd64 --build-arg GIT_SHA="$commit_sha" -f backend/Dockerfile.migrate -t "$migration_image" .
   docker push "$migration_image"
 
-  docker build --platform linux/amd64 --build-arg NEXT_PUBLIC_FIREBASE_PERFORMANCE_ENABLED=1 -f apps/admin-web/Dockerfile -t "$admin_web_image" .
+  docker build --platform linux/amd64 \
+    --build-arg NEXT_PUBLIC_FIREBASE_PERFORMANCE_ENABLED=1 \
+    --build-arg NEXT_PUBLIC_FARO_COLLECTOR_URL=https://goatos-stg-grafana-alloy-awtrpmn4za-el.a.run.app/collect \
+    --build-arg NEXT_PUBLIC_GOATOS_ENV=stg \
+    --build-arg NEXT_PUBLIC_APP_VERSION="$commit_sha" \
+    -f apps/admin-web/Dockerfile \
+    -t "$admin_web_image" .
   docker push "$admin_web_image"
 fi
 

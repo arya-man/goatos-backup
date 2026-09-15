@@ -17,13 +17,15 @@ import (
 // the fake made up. A scope regression is invisible if the fake ignores its input.
 type shedWeightsRepo struct {
 	fakeRepo
-	gotScopeParkIDs []string
-	gotSelectedPark string
-	gotStart        time.Time
-	gotEnd          time.Time
-	gotToleranceKg  float64
-	parks           []domain.WeighingPark
-	shedWeights     domain.ShedWeights
+	gotScopeParkIDs        []string
+	gotSelectedPark        string
+	gotStart               time.Time
+	gotEnd                 time.Time
+	gotToleranceKg         float64
+	gotDemographicsSection string
+	parks                  []domain.WeighingPark
+	listParksCalls         int
+	shedWeights            domain.ShedWeights
 }
 
 func (r *shedWeightsRepo) GetShedWeights(_ context.Context, _ string, scopeParkIDs []string, selectedParkID string, start, end time.Time, _, _, _ string, toleranceKg float64) (domain.ShedWeights, error) {
@@ -50,7 +52,15 @@ func (r *shedWeightsRepo) GetWeighingDates(context.Context, string, []string, ti
 	return domain.WeighingDates{}, nil
 }
 
+func (r *shedWeightsRepo) GetWeightDemographics(_ context.Context, _ string, scopeParkIDs []string, start, end time.Time, _, _, _, sections string) (domain.WeightDemographics, error) {
+	r.gotScopeParkIDs = append([]string(nil), scopeParkIDs...)
+	r.gotStart, r.gotEnd = start, end
+	r.gotDemographicsSection = sections
+	return domain.WeightDemographics{}, nil
+}
+
 func (r *shedWeightsRepo) ListParks(context.Context, string) ([]domain.WeighingPark, error) {
+	r.listParksCalls++
 	return r.parks, nil
 }
 
@@ -153,6 +163,9 @@ func TestGetShedWeightsPassesHalfOpenBusinessDayWindow(t *testing.T) {
 	if got := repo.gotEnd.Format("2006-01-02"); got != "2026-07-29" {
 		t.Fatalf("period end must be exclusive midnight after the last day: want 2026-07-29, got %s", got)
 	}
+	if repo.listParksCalls != 1 {
+		t.Fatalf("selected tenant-wide read should resolve the park list once, got %d calls", repo.listParksCalls)
+	}
 }
 
 func TestGetShedWeightsRejectsMalformedInput(t *testing.T) {
@@ -188,6 +201,45 @@ func TestGetLeadershipGrowthADGRejectsMalformedSections(t *testing.T) {
 	}
 	if repo.gotScopeParkIDs != nil {
 		t.Fatalf("repository must not be reached for invalid sections, got %v", repo.gotScopeParkIDs)
+	}
+}
+
+func TestGetWeightDemographicsRejectsMalformedSections(t *testing.T) {
+	repo := &shedWeightsRepo{}
+	svc := NewService(repo)
+	ctx := swContext(permissions.ActiveGrant{
+		Role: permissions.RoleGrowthDirector, ScopeType: "tenant", ScopeID: swTenant,
+	})
+
+	if _, err := svc.GetWeightDemographics(ctx, swActor(), swParkA, "", "", "", "", "", "origin,magic"); err != ports.ErrInvalidArgument {
+		t.Fatalf("want ErrInvalidArgument, got %v", err)
+	}
+	if repo.gotScopeParkIDs != nil {
+		t.Fatalf("repository must not be reached for invalid demographics sections, got %v", repo.gotScopeParkIDs)
+	}
+}
+
+func TestGetWeightDemographicsPassesSectionsToRepository(t *testing.T) {
+	repo := &shedWeightsRepo{parks: []domain.WeighingPark{{ParkID: swParkA, Name: "Coimbatore"}}}
+	svc := NewService(repo)
+	ctx := swContext(permissions.ActiveGrant{
+		Role: permissions.RoleGrowthDirector, ScopeType: "park", ScopeID: swParkA,
+	})
+
+	if _, err := svc.GetWeightDemographics(ctx, swActor(), "", "2026-07-01", "2026-07-28", "", "", "", "weekly_gain"); err != nil {
+		t.Fatalf("GetWeightDemographics: %v", err)
+	}
+	if repo.gotDemographicsSection != "weekly_gain" {
+		t.Fatalf("sections passed to repo = %q, want weekly_gain", repo.gotDemographicsSection)
+	}
+	if len(repo.gotScopeParkIDs) != 1 || repo.gotScopeParkIDs[0] != swParkA {
+		t.Fatalf("expected repository scoped to park A only, got %v", repo.gotScopeParkIDs)
+	}
+	if got := repo.gotStart.Format("2006-01-02"); got != "2026-07-01" {
+		t.Fatalf("period start: want 2026-07-01, got %s", got)
+	}
+	if got := repo.gotEnd.Format("2006-01-02"); got != "2026-07-29" {
+		t.Fatalf("period end must be exclusive midnight after the last day: want 2026-07-29, got %s", got)
 	}
 }
 
