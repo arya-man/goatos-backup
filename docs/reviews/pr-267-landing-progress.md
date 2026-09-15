@@ -15,6 +15,10 @@ Scope: land PR 267 (`fix/admin-web-in-place-feedback`) to `main`.
 - No blocking review finding found in the PR pass.
 - Verified the Sales guard, proof-media egress guard, and backend admin UI package tests.
 - Verified targeted Market Config and SOP publish tests directly.
+- Added this landing progress note and committed it on top of the PR branch.
+- First `make land-main` attempt reached local CI but failed on `agent: ai-doctor` because `.repowise` index files were missing.
+- Rebuilt the local `.repowise` index with `make ai-rebuild-repowise`.
+- Re-ran `bash tools/agent-hooks/ai-doctor.sh` and it passed.
 
 ## Pending
 
@@ -29,6 +33,9 @@ Scope: land PR 267 (`fix/admin-web-in-place-feedback`) to `main`.
 - `ADMIN_WEB_PROOF_MEDIA_EGRESS_BASE=origin/main node tools/agent-hooks/check-admin-web-proof-media-egress.mjs` — passed, 13 files checked.
 - `go test ./internal/adminui/app` from `backend` — passed.
 - `git diff --check origin/main...HEAD` — passed.
+- First landing attempt: `make land-main` — failed at `agent: ai-doctor`; all shown backend/admin-web/android build and test steps passed, but no valid push receipt was produced because local CI was red.
+- Repair: `make ai-rebuild-repowise` — passed.
+- Repair verification: `bash tools/agent-hooks/ai-doctor.sh` — passed.
 
 Known local limitations before landing:
 
@@ -37,5 +44,6 @@ Known local limitations before landing:
 
 ## Current State
 
-- Candidate SHA before landing gate: `a9250a014`.
+- Candidate SHA before first landing gate: `b30d0d5e7`.
+- Candidate SHA after recording ai-doctor repair: pending commit.
 - Deployment state: not deployed; this entry is for main landing only.
