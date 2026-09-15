@@ -1945,6 +1945,14 @@ paths:
             means both. The two modes are mutually exclusive at campaign-shed grain, so this filter
             narrows the read before aggregates are built rather than hiding rows in the browser.
           schema: {type: string, enum: [all, individual_animal, per_shed_partition]}
+        - name: include_week_grids
+          in: query
+          required: false
+          description: >-
+            Set true only for the Time-wise tab to include the per-breed, per-pen, and per-load
+            weekly gain grids. Other demographics tabs leave this false so those heavier weekly
+            arms cannot make unrelated views fail to load.
+          schema: {type: boolean, default: false}
       responses:
         "200":
           description: Weight broken down by breed, sex and stage.
@@ -21615,7 +21623,7 @@ components:
         convention.
       required:
         [park_id, park_label, shed_id, shed_label, partition_label,
-         operational_location_display, items, directed_kg]
+         operational_location_display, items, directed_kg, days]
       properties:
         park_id:
           type: string
@@ -21641,6 +21649,32 @@ components:
         directed_kg:
           type: string
           description: The pen's total across every item, decimal string kg.
+        days:
+          type: array
+          description: >-
+            The pen's day-by-day series over the window, ascending. A day where every cell was
+            blocked is ABSENT (never a zero bar); a day authored 0 kg is present at 0.
+          items:
+            $ref: "#/components/schemas/FeedAnalyticsShedFeedDay"
+    FeedAnalyticsShedFeedDay:
+      type: object
+      description: >-
+        One pen's feed for ONE feed day: directed kg across every item, the pen's head count that
+        day (each shed-tag x breed grain counted ONCE, never per session or item cell), and the
+        two divided as grams per animal. What the overview's per-pen bars draw.
+      required: [feed_day, directed_kg, head_count, per_head_grams]
+      properties:
+        feed_day:
+          type: string
+          format: date
+        directed_kg:
+          type: string
+          description: Decimal string kg across every item that day.
+        head_count:
+          type: integer
+        per_head_grams:
+          type: string
+          description: Decimal string grams per animal per day; EMPTY when the pen had no heads that day.
     FeedAnalyticsShedFeedResponse:
       type: object
       description: The per-pen feed-mix rollup. DIRECTED kg only — the sheet's instruction, not a measured weight.
@@ -34708,6 +34742,54 @@ components:
           type: integer
           description: This breed's kids with a gain that week, plus the head counts of its single-breed pens that moved.
         average_gain_g_per_day: {type: number, format: double}
+    WeighingWeightGainPenWeekBucket:
+      type: object
+      additionalProperties: false
+      required: [location_id, park_id, park_name, shed_name, partition_label, operational_location_display, week_start, animals, average_gain_g_per_day]
+      description: >-
+        One pen's daily gain in one calendar week, for the Time-wise per-pen table. Same statistic
+        as every other gain figure: a scanned animal at the median of its own pairs that week,
+        claimed by the pen of its latest weigh; a whole-shed pen at its average-weight movement
+        once per animal. A pen needs no single-cohort claim to be itself, so a mixed pen IS listed;
+        only the page's Sex filter narrows it. A pen with no gain in a week is ABSENT, never
+        zero-filled.
+      properties:
+        location_id: {type: string, format: uuid}
+        park_id: {type: string}
+        park_name: {type: string}
+        shed_name: {type: string}
+        partition_label: {type: string}
+        operational_location_display:
+          type: string
+          description: Backend-composed pen label ("Godel 2 - Part 1", "Castro 1"); render verbatim.
+        week_start:
+          type: string
+          format: date
+          description: Monday (ISO week) in Asia/Kolkata; a pair spanning weeks is bucketed by its later weigh.
+        animals:
+          type: integer
+          description: The pen's scanned kids with a gain that week, or its head count when weighed whole.
+        average_gain_g_per_day: {type: number, format: double}
+    WeighingWeightGainLoadWeekBucket:
+      type: object
+      additionalProperties: false
+      required: [load_ref, owner_name, week_start, animals, average_gain_g_per_day]
+      description: >-
+        One purchased load's daily gain in one calendar week, for the Time-wise per-load table:
+        the pen-week rows one grain up, attributed to a load through the weighing-owned shed load
+        mapping exactly as the Load-wise by-load read attributes. A shed tagged to two loads is
+        claimed by neither; a load with no gain in a week is ABSENT, never zero-filled.
+      properties:
+        load_ref: {type: string, description: The farm's own load number, verbatim.}
+        owner_name: {type: string, description: The supplier the load was bought from; empty when unrecorded.}
+        week_start:
+          type: string
+          format: date
+          description: Monday (ISO week) in Asia/Kolkata; a pair spanning weeks is bucketed by its later weigh.
+        animals:
+          type: integer
+          description: The load's pens' scanned kids with a gain that week, plus the head counts of its pens weighed whole.
+        average_gain_g_per_day: {type: number, format: double}
     WeighingWeightGainThresholdBucket:
       type: object
       additionalProperties: false
@@ -34772,7 +34854,7 @@ components:
     WeighingWeightDemographicsResponse:
       type: object
       additionalProperties: false
-      required: [by_breed, by_sex, by_stage, gain_by_breed, gain_by_sex, gain_by_stage, gain_by_breed_origin, gain_by_breed_shed_type, shed_type_members, by_weight_band, gain_by_breed_week, gain_thresholds_by_breed, resolved_animals, unresolved_animals, lump_sum_animals, lump_sum_unattributed_animals, shed_composition]
+      required: [by_breed, by_sex, by_stage, gain_by_breed, gain_by_sex, gain_by_stage, gain_by_breed_origin, gain_by_breed_shed_type, shed_type_members, by_weight_band, gain_by_breed_week, gain_by_pen_week, gain_by_load_week, gain_thresholds_by_breed, resolved_animals, unresolved_animals, lump_sum_animals, lump_sum_unattributed_animals, shed_composition]
       properties:
         by_breed:
           type: array
@@ -34816,9 +34898,17 @@ components:
           type: array
           description: The same gain cut by breed AND calendar week, for the Time-wise per-breed trend.
           items: {$ref: "#/components/schemas/WeighingWeightGainBreedWeekBucket"}
+        gain_by_pen_week:
+          type: array
+          description: The same gain cut by PEN and calendar week, for the Time-wise per-pen table. Ordered by park, pen, week.
+          items: {$ref: "#/components/schemas/WeighingWeightGainPenWeekBucket"}
+        gain_by_load_week:
+          type: array
+          description: The same gain cut by purchased LOAD and calendar week, for the Time-wise per-load table. Ordered by load, week.
+          items: {$ref: "#/components/schemas/WeighingWeightGainLoadWeekBucket"}
         gain_thresholds_by_breed:
           type: array
-          description: "How many animals of each breed clear 180 / 200 / 250 g per day. Same same-animal population as gain_by_breed; the marks are cumulative."
+          description: "How many animals of each breed fall into disjoint daily-gain bands over the same same-animal population as gain_by_breed."
           items: {$ref: "#/components/schemas/WeighingWeightGainThresholdBucket"}
         resolved_animals: {type: integer}
         unresolved_animals:

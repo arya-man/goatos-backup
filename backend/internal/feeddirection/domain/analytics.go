@@ -907,6 +907,23 @@ type ShedFeedItemTotal struct {
 	DirectedKg    string
 }
 
+// ShedFeedPenDay is one pen's feed for ONE feed day: the kg the sheet directed
+// there across every item, the pen's head count that day, and the two divided
+// as grams per animal. This is what the Feed Analytics overview's per-pen bars
+// draw (maintainer request 2026-09-14: "seven bars, each the average per
+// animal"), so Castro 1, 2 and 3 can be compared day by day on one scale.
+//
+// HeadCount is the pen's head count as generated for that day: the pen-grain
+// (shed tag x breed) head counts summed, each taken ONCE per day rather than per
+// session or per item cell. PerHeadGrams is EMPTY when the pen had no heads that
+// day -- a figure over a herd nobody counted is not reported as a number.
+type ShedFeedPenDay struct {
+	FeedDay      string
+	DirectedKg   string
+	HeadCount    int
+	PerHeadGrams string
+}
+
 // ShedFeedPenRow is one operational location's (shed + optional partition)
 // feed-mix rollup for the window: which feed items the sheet directed there and
 // how many kg of each, plus the pen's total across items.
@@ -927,6 +944,10 @@ type ShedFeedPenRow struct {
 	Items []ShedFeedItemTotal
 	// DirectedKg is the pen's total across every item in Items.
 	DirectedKg string
+	// Days is the pen's day-by-day series over the window, ascending. A day the
+	// sheet directed nothing resolvable to the pen (every cell blocked) is
+	// ABSENT rather than drawn as zero; a day authored 0 is present at 0.
+	Days []ShedFeedPenDay
 }
 
 // ShedFeedAnalytics is the /feed-analytics/shed-feed payload: every pen the

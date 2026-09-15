@@ -2615,28 +2615,75 @@ pen_item AS (
     -- the surviving items still equals the per-item chart series, because a
     -- zero total adds nothing there either.
     HAVING COALESCE(SUM(r.quantity_kg), 0) > 0
+),
+-- The pen's DAY series (maintainer request 2026-09-14): kg per day across items,
+-- over the pen's head count that day. Heads are taken at the pen-grain (shed
+-- tag x breed) with MAX() across sessions and items -- head_count repeats per
+-- session and per item cell by generation, so summing cells would inflate the
+-- denominator ~6x, the same rule directedAnalyticsSQL's per_head_grams follows.
+--
+-- projection-review: membership=feed_direction_issue_rows of the window's issues (iss), at its natural key; group_key=(park_id, shed_id, partition_key, feed_day) -- pen_grain_day first collapses to (that key + shed_tag_key, breed_key) with SUM(kg) and MAX(heads), then pen_day groups to the consumer key; join_cardinality=iss->rows is 1:N and is the grain being aggregated, pen_days is 1 row per (park_id, shed_id, partition_key) so its LEFT JOIN onto pens is 0..1 and cannot fan a pen out, and per_head_grams divides day_kg by day_heads where BOTH are sums over the SAME pen_grain_day rows of that group (same FROM, same GROUP BY) -- one key set, stated identical; pagination=NONE, the pen set is the window's bounded pens; scope=tenant_id = $1 plus the caller's park set and the 7-day window through iss
+pen_grain_day AS (
+    SELECT r.park_id, r.shed_id, r.partition_key, i.feed_day, r.shed_tag_key, r.breed_key,
+	           SUM(r.quantity_kg)                                             AS grain_kg,
+	           MAX(r.head_count) FILTER (WHERE r.quantity_kg IS NOT NULL) AS grain_heads
+    FROM iss i
+    JOIN feed_direction_issue_rows r
+      ON r.tenant_id = $1
+     AND r.feed_direction_issue_id = i.feed_direction_issue_id
+    GROUP BY r.park_id, r.shed_id, r.partition_key, i.feed_day, r.shed_tag_key, r.breed_key
+),
+pen_day AS (
+    SELECT park_id, shed_id, partition_key, feed_day,
+           SUM(grain_kg)    AS day_kg,
+           SUM(grain_heads) AS day_heads
+    FROM pen_grain_day
+    GROUP BY park_id, shed_id, partition_key, feed_day
+    -- A day where every cell was blocked has NULL kg: absent, never a zero bar.
+    HAVING SUM(grain_kg) IS NOT NULL
+),
+pen_days AS (
+    SELECT park_id, shed_id, partition_key,
+           jsonb_agg(
+             jsonb_build_object(
+               'feed_day',       feed_day::text,
+               'directed_kg',    day_kg::text,
+               'head_count',     day_heads,
+               'per_head_grams', COALESCE(round(day_kg * 1000 / NULLIF(day_heads, 0), 1)::text, '')
+             )
+             ORDER BY feed_day
+           ) AS days
+    FROM pen_day
+    GROUP BY park_id, shed_id, partition_key
+),
+pens AS (
+    SELECT park_id, shed_id, partition_key,
+           MAX(park_label)                                                     AS park_label,
+           MAX(shed_label)                                                     AS shed_label,
+           CASE WHEN partition_key = 'whole' THEN ''
+                ELSE COALESCE(MAX(partition_label), '') END                    AS partition_label,
+           COALESCE(SUM(item_kg), 0)::text                                     AS pen_kg,
+           COALESCE(
+             jsonb_agg(
+               jsonb_build_object(
+                 'feed_item_label', feed_item_label,
+                 'feed_item_key',   feed_item_key,
+                 'directed_kg',     item_kg::text
+               )
+               ORDER BY item_kg DESC, feed_item_label
+             ) FILTER (WHERE item_kg IS NOT NULL),
+             '[]'::jsonb
+           )                                                                   AS items
+    FROM pen_item
+    GROUP BY park_id, shed_id, partition_key
 )
-SELECT park_id::text,
-       MAX(park_label)                                                     AS park_label,
-       shed_id::text,
-       MAX(shed_label)                                                     AS shed_label,
-       CASE WHEN partition_key = 'whole' THEN ''
-            ELSE COALESCE(MAX(partition_label), '') END                    AS partition_label,
-       COALESCE(SUM(item_kg), 0)::text                                     AS pen_kg,
-       COALESCE(
-         jsonb_agg(
-           jsonb_build_object(
-             'feed_item_label', feed_item_label,
-             'feed_item_key',   feed_item_key,
-             'directed_kg',     item_kg::text
-           )
-           ORDER BY item_kg DESC, feed_item_label
-         ) FILTER (WHERE item_kg IS NOT NULL),
-         '[]'::jsonb
-       )                                                                   AS items
-FROM pen_item
-GROUP BY park_id, shed_id, partition_key
-ORDER BY MAX(park_label), MAX(shed_label), partition_key`
+SELECT p.park_id::text, p.park_label, p.shed_id::text, p.shed_label, p.partition_label,
+       p.pen_kg, p.items,
+       COALESCE(pd.days, '[]'::jsonb) AS days
+FROM pens p
+LEFT JOIN pen_days pd
+  ON pd.park_id = p.park_id AND pd.shed_id = p.shed_id AND pd.partition_key = p.partition_key
+ORDER BY p.park_label, p.shed_label, p.partition_key`
 
 // shedFeedItemWire matches the jsonb_build_object keys above; built by this
 // file's own SQL, so unknown keys cannot occur.
@@ -2644,6 +2691,14 @@ type shedFeedItemWire struct {
 	FeedItemLabel string `json:"feed_item_label"`
 	FeedItemKey   string `json:"feed_item_key"`
 	DirectedKg    string `json:"directed_kg"`
+}
+
+// shedFeedDayWire matches pen_days' jsonb_build_object keys above.
+type shedFeedDayWire struct {
+	FeedDay      string `json:"feed_day"`
+	DirectedKg   string `json:"directed_kg"`
+	HeadCount    int    `json:"head_count"`
+	PerHeadGrams string `json:"per_head_grams"`
 }
 
 // ShedFeedAnalytics serves the per-pen feed-mix rollup. One set-based read; the
@@ -2676,10 +2731,18 @@ func (r *Repository) ShedFeedAnalytics(ctx context.Context, tenantID string, q d
 	out := domain.ShedFeedAnalytics{Rows: []domain.ShedFeedPenRow{}}
 	for rows.Next() {
 		var row domain.ShedFeedPenRow
-		var itemsJSON []byte
+		var itemsJSON, daysJSON []byte
 		if err := rows.Scan(&row.ParkID, &row.ParkLabel, &row.ShedID, &row.ShedLabel,
-			&row.PartitionLabel, &row.DirectedKg, &itemsJSON); err != nil {
+			&row.PartitionLabel, &row.DirectedKg, &itemsJSON, &daysJSON); err != nil {
 			return domain.ShedFeedAnalytics{}, fmt.Errorf("feed analytics shed feed scan: %w", err)
+		}
+		var dayWire []shedFeedDayWire
+		if err := json.Unmarshal(daysJSON, &dayWire); err != nil {
+			return domain.ShedFeedAnalytics{}, fmt.Errorf("feed analytics shed feed days decode: %w", err)
+		}
+		row.Days = make([]domain.ShedFeedPenDay, 0, len(dayWire))
+		for _, d := range dayWire {
+			row.Days = append(row.Days, domain.ShedFeedPenDay(d))
 		}
 		var wire []shedFeedItemWire
 		if err := json.Unmarshal(itemsJSON, &wire); err != nil {

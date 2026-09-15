@@ -1264,6 +1264,19 @@
   .main .sfmix-label{color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .main .sfmix-kg{margin-left:auto;padding-left:14px;font-weight:600;font-variant-numeric:tabular-nums;color:var(--ink);white-space:nowrap}
   .main table.tbl td:has(.sfmix){vertical-align:top}
+  /* Feed Analytics "Feed by pen" charts: one card per pen of the chosen name, seven
+     day slots, a bar per day at the feed directed per animal. Plain HTML bars so the
+     labels stay legible in a third-width card (an SVG viewBox would shrink them);
+     the track height is fixed so the cards of one name line up bar for bar. */
+  .main .penbars{border:1px solid var(--line2);border-radius:10px;padding:10px 12px 8px;background:var(--panel-2)}
+  .main .penbars-title{display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin-bottom:6px}
+  .main .penbars-bars{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;gap:6px;align-items:end}
+  .main .penbars-slot{display:flex;flex-direction:column;align-items:center;gap:3px;min-width:0}
+  .main .penbars-value{font-variant-numeric:tabular-nums;line-height:1;min-height:1em;color:var(--ink)}
+  .main .penbars-track{width:100%;height:96px;display:flex;align-items:flex-end;justify-content:center}
+  .main .penbars-bar{width:70%;max-width:26px;border-radius:3px 3px 0 0;background:var(--brand)}
+  .main .penbars-gap{width:70%;max-width:26px;height:2px;border-top:1px dashed var(--faint)}
+  .main .penbars-day{white-space:nowrap;line-height:1}
   .main table.feed-stock-table{width:100%;min-width:0;table-layout:fixed}
   .main table.feed-stock-table th,.main table.feed-stock-table td{padding-left:9px;padding-right:9px;white-space:normal;overflow-wrap:anywhere;vertical-align:middle}
   .main table.feed-stock-table th{font-size:10px;letter-spacing:.08em;line-height:1.25}
