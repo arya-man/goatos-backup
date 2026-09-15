@@ -37,6 +37,21 @@ func (s *Service) publishedRules(ctx context.Context, tenantID string) (domain.R
 	return s.sopRules.PublishedRules(ctx, tenantID)
 }
 
+// withEffectiveCutoff fills the served rule set's cutoff with the evening the task actually
+// runs against (the SOP's own, else the farm config), so the phone renders and never derives
+// it. A farm with no evening at all leaves it blank; the create refuses that by name.
+func (s *Service) withEffectiveCutoff(ctx context.Context, tenantID string, rules domain.Rules) domain.Rules {
+	if rules.FeedWaterRemoval.Mode == domain.RemovalModeOff {
+		return rules
+	}
+	cutoff, err := s.removalCutoff(ctx, tenantID, rules)
+	if err != nil {
+		return rules
+	}
+	rules.FeedWaterRemoval.CutoffTime = cutoff.String()
+	return rules
+}
+
 func (s *Service) rulesForVersion(ctx context.Context, tenantID string, version int) (domain.Rules, error) {
 	if version == 0 || s.sopRules == nil {
 		return domain.SeededRules(), nil
@@ -165,6 +180,10 @@ func (s *Service) decorateCampaignRules(ctx context.Context, tenantID string, it
 				rules = &resolved
 			}
 			byVersion[items[i].SOPVersion] = rules
+		}
+		if rules != nil {
+			effective := s.withEffectiveCutoff(ctx, tenantID, *rules)
+			rules = &effective
 		}
 		items[i].SOP = rules
 	}

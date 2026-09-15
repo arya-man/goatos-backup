@@ -13829,6 +13829,8 @@ export interface components {
                 mode: "required" | "optional" | "off";
                 /** @description Operator-facing sentence on every removal card; rendered verbatim. */
                 instruction?: string;
+                /** @description The removal evening this task runs against, HH:MM Asia/Kolkata wall clock — the weighing SOP's own when its document sets one, else the farm-wide feed_water_removal_config evening. Always the EFFECTIVE value on a served rule set; the phone renders it and never resolves it. Absent only under `off`, or when the farm has no evening at all (the create then refuses). */
+                cutoff_time?: string;
                 proofs: components["schemas"]["WeighingRemovalProofSlot"][];
                 questions: components["schemas"]["WeighingSOPQuestion"][];
             };

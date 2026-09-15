@@ -197,6 +197,13 @@ export function WeighingEditor({ pageContract: pc, basePath, sopId, sopName, sop
                   <span className="numlbl">{copy(pc, "wsop.removal.instruction")}</span>
                   <textarea className="qhelp" rows={3} value={rows.removalInstruction} onChange={(e) => setRows((r) => ({ ...r, removalInstruction: e.target.value }))} />
                 </label>
+                <div className="rowf" style={{ marginTop: 8 }}>
+                  <label className="numfield">
+                    <span className="numlbl">{copy(pc, "wsop.removal.cutoff")}</span>
+                    <input type="time" value={rows.removalCutoffTime} onChange={(e) => setRows((r) => ({ ...r, removalCutoffTime: e.target.value }))} />
+                    <span className="muted small">{copy(pc, "wsop.removal.cutoff.hint")}</span>
+                  </label>
+                </div>
               </div>
               <div className="qcfg" style={{ marginTop: 10 }}>
                 <div className="qcfg-head">

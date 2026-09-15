@@ -46,6 +46,11 @@ export function WeighingSummary({ pageContract: pc, formDsl }: { pageContract: A
                 : ""}
             </div>
             {rows.removalMode !== "off" && rows.removalInstruction ? <div className="muted small">{rows.removalInstruction}</div> : null}
+            {rows.removalMode !== "off" ? (
+              <div className="muted small">
+                {copy(pc, "wsop.removal.cutoff")}: {rows.removalCutoffTime || copy(pc, "wsop.removal.cutoff.farm")}
+              </div>
+            ) : null}
           </div>
         </div>
         <div className="hrow">

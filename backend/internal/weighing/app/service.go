@@ -65,8 +65,17 @@ func (s *Service) WithFeedWaterRemovalCutoff(reader fwrports.CutoffReader) *Serv
 	return s
 }
 
-// removalCutoff resolves the tenant's configured cutoff or fails closed.
-func (s *Service) removalCutoff(ctx context.Context, tenantID string) (fwrdomain.Cutoff, error) {
+// removalCutoff resolves the removal evening a task runs against: the weighing SOP's own
+// cutoff when its document sets one (WEIGHING SOP, 2026-09-15 -- configurable per SOP
+// version, pinned with the task), else the tenant's farm-wide config; fails closed on neither.
+func (s *Service) removalCutoff(ctx context.Context, tenantID string, rules domain.Rules) (fwrdomain.Cutoff, error) {
+	if ct := strings.TrimSpace(rules.FeedWaterRemoval.CutoffTime); ct != "" {
+		cutoff, err := fwrdomain.ParseCutoff(ct)
+		if err != nil {
+			return fwrdomain.Cutoff{}, fmt.Errorf("weighing: sop cutoff %q: %w", ct, err)
+		}
+		return cutoff, nil
+	}
 	if s.cutoffs == nil {
 		return fwrdomain.Cutoff{}, fwrports.ErrCutoffNotConfigured
 	}
@@ -308,7 +317,7 @@ func (s *Service) CreateCampaign(ctx context.Context, actor domain.Actor, cmd do
 		// after it, the day after. Checked here, on the service clock and the
 		// configured cutoff, so the repository and its tests never read time.Now
 		// or a literal hour themselves.
-		cutoff, err := s.removalCutoff(ctx, actor.TenantID)
+		cutoff, err := s.removalCutoff(ctx, actor.TenantID, rules)
 		if err != nil {
 			return domain.Campaign{}, err
 		}
@@ -391,7 +400,7 @@ func (s *Service) UpdateCampaign(ctx context.Context, actor domain.Actor, campai
 			if fastingSubmitted {
 				return domain.Campaign{}, ports.ErrFastingSubmittedDateLocked
 			}
-			cutoff, err := s.removalCutoff(ctx, actor.TenantID)
+			cutoff, err := s.removalCutoff(ctx, actor.TenantID, rules)
 			if err != nil {
 				return domain.Campaign{}, err
 			}
@@ -594,6 +603,7 @@ func (s *Service) PlannerCatalog(ctx context.Context, actor domain.Actor, period
 	if catalog.SOP, err = s.publishedRules(ctx, actor.TenantID); err != nil {
 		return domain.PlannerCatalog{}, err
 	}
+	catalog.SOP = s.withEffectiveCutoff(ctx, actor.TenantID, catalog.SOP)
 	// The repository has no park filter (it returns the whole tenant's parks), and the role
 	// check above only says the actor may plan SOMEWHERE. Without this a park-scoped planner
 	// got every park in the tenant as a pickable option -- and each option carries that park's

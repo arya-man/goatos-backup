@@ -32461,6 +32461,14 @@ components:
             instruction:
               type: string
               description: Operator-facing sentence on every removal card; rendered verbatim.
+            cutoff_time:
+              type: string
+              description: >-
+                The removal evening this task runs against, HH:MM Asia/Kolkata wall clock —
+                the weighing SOP's own when its document sets one, else the farm-wide
+                feed_water_removal_config evening. Always the EFFECTIVE value on a served
+                rule set; the phone renders it and never resolves it. Absent only under
+                `off`, or when the farm has no evening at all (the create then refuses).
             proofs:
               type: array
               items:

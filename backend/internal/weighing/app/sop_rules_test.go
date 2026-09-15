@@ -443,3 +443,34 @@ func TestSubmitFastingShedJudgesCapturesByThePinnedSlots(t *testing.T) {
 }
 
 func ctxBg() context.Context { return context.Background() }
+
+// The removal evening is the SOP's when its document sets one, else the farm's: at 20:30 IST a
+// farm evening of 20:00 refuses tomorrow while a SOP evening of 21:00 still allows it, and the
+// served rule set carries the EFFECTIVE value so the phone never resolves it. Mutation-tested by
+// making removalCutoff ignore rules.FeedWaterRemoval.CutoffTime (the first case goes red).
+func TestTheSOPCutoffOverridesTheFarmEvening(t *testing.T) {
+	ceo := domain.Actor{TenantID: testTenant, UserID: testActor, Roles: []string{permissions.RoleCEOInternal}}
+	evening := beforeCutoffClock("2026-07-29")().Add(10*time.Hour + 30*time.Minute) // 20:30 IST on the 28th
+	cmd := validCreate()                                                          // weigh date 2026-07-29
+
+	sopEvening := rulesWithMode(3, domain.RemovalModeRequired)
+	sopEvening.Rules.FeedWaterRemoval.CutoffTime = "21:00"
+	service := NewService(&capturingRepo{}).WithFeedWaterRemovalCutoff(eightPM).WithClock(func() time.Time { return evening }).WithSOPRules(sopEvening, pinnedVersion(0))
+	if _, err := service.CreateCampaign(context.Background(), ceo, cmd); err != nil {
+		t.Fatalf("20:30 under a 21:00 SOP evening err = %v, want allowed", err)
+	}
+	catalog, err := service.PlannerCatalog(context.Background(), ceo, "2026-07-29")
+	if err != nil || catalog.SOP.FeedWaterRemoval.CutoffTime != "21:00" {
+		t.Fatalf("served cutoff = %q err %v, want the SOP's 21:00", catalog.SOP.FeedWaterRemoval.CutoffTime, err)
+	}
+
+	farmEvening := rulesWithMode(3, domain.RemovalModeRequired) // no cutoff of its own
+	service = NewService(&capturingRepo{}).WithFeedWaterRemovalCutoff(eightPM).WithClock(func() time.Time { return evening }).WithSOPRules(farmEvening, pinnedVersion(0))
+	if _, err := service.CreateCampaign(context.Background(), ceo, cmd); !errors.Is(err, ports.ErrFastingWindowClosed) {
+		t.Fatalf("20:30 under the farm's 20:00 err = %v, want ErrFastingWindowClosed", err)
+	}
+	catalog, err = service.PlannerCatalog(context.Background(), ceo, "2026-07-29")
+	if err != nil || catalog.SOP.FeedWaterRemoval.CutoffTime != "20:00" {
+		t.Fatalf("served cutoff = %q err %v, want the farm's 20:00 filled in", catalog.SOP.FeedWaterRemoval.CutoffTime, err)
+	}
+}

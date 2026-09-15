@@ -51,6 +51,8 @@ export type WeighingRows = {
   defaultCapPerDay: string;
   removalMode: RemovalMode;
   removalInstruction: string;
+  /** "HH:MM" Asia/Kolkata; blank = the farm-wide removal evening (feed_water_removal_config). */
+  removalCutoffTime: string;
   removalProofs: RemovalProofRow[];
   removalQuestions: WeighingQuestionRow[];
   individualVideoRequired: boolean;
@@ -151,6 +153,7 @@ export function parseWeighing(formDsl: unknown): WeighingRows | null {
     defaultCapPerDay: num(planning["default_cap_per_day"]),
     removalMode: (str(removal["mode"], "required") || "required") as RemovalMode,
     removalInstruction: str(removal["instruction"]),
+    removalCutoffTime: str(removal["cutoff_time"]),
     removalProofs: proofs,
     removalQuestions: questions,
     individualVideoRequired: individual["video_required"] !== false,
@@ -179,6 +182,7 @@ function emitQuestion(q: WeighingQuestionRow): Record<string, unknown> {
 export function emitWeighing(rows: WeighingRows): Record<string, unknown> {
   const removal: Record<string, unknown> = { mode: rows.removalMode };
   if (rows.removalInstruction.trim()) removal.instruction = rows.removalInstruction;
+  if (rows.removalCutoffTime.trim()) removal.cutoff_time = rows.removalCutoffTime.trim();
   removal.proofs = rows.removalProofs.map((p) => {
     const out: Record<string, unknown> = { key: p.key, title: p.title };
     if (p.hint.trim()) out.hint = p.hint;
@@ -206,6 +210,7 @@ export function weighingProblems(rows: WeighingRows): string[] {
   const cap = Number(rows.defaultCapPerDay);
   if (!rows.defaultCapPerDay.trim() || !Number.isInteger(cap) || cap < 1 || cap > 10000) problems.push("Default animals per day must be a whole number from 1 to 10000");
   if (!REMOVAL_MODES.includes(rows.removalMode)) problems.push("Say when feed & water removal applies");
+  if (rows.removalCutoffTime.trim() && !/^([01]\d|2[0-3]):[0-5]\d$/.test(rows.removalCutoffTime.trim())) problems.push("The removal evening must be a time like 20:00");
   if (rows.removalMode !== "off") {
     if (rows.removalProofs.length === 0) problems.push("The removal card needs at least one capture");
     if (rows.removalProofs.length > MAX_REMOVAL_PROOF_SLOTS) problems.push(`At most ${MAX_REMOVAL_PROOF_SLOTS} captures per pen`);

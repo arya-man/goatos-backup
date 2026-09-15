@@ -99,3 +99,14 @@ test("authored capture slots: a photo beside the videos, a video swapped for a p
   rows.removalMode = "off";
   assert.deepEqual(weighingProblems(rows), []);
 });
+
+test("the removal evening: blank means the farm's, HH:MM is emitted, anything else is refused", () => {
+  const rows = parseWeighing({ weighing: JSON.parse(readFileSync(seedPath, "utf8")) });
+  assert.equal(rows.removalCutoffTime, "");
+  assert.equal(emitWeighing(rows).feed_water_removal.cutoff_time, undefined);
+  rows.removalCutoffTime = "21:30";
+  assert.deepEqual(weighingProblems(rows), []);
+  assert.equal(emitWeighing(rows).feed_water_removal.cutoff_time, "21:30");
+  rows.removalCutoffTime = "9pm";
+  assert.ok(weighingProblems(rows).some((p) => p.includes("time like 20:00")));
+});

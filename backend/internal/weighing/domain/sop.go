@@ -103,6 +103,13 @@ type PlanningRules struct {
 // RemovalRules governs the feed & water removal precondition.
 type RemovalRules struct {
 	Mode string `json:"mode"`
+	// CutoffTime is the weighing SOP's OWN removal evening ("HH:MM", Asia/Kolkata wall clock),
+	// authored on the SOP page (third 2026-09-15 decision: "cutoff time is configurable").
+	// Blank means the farm-wide evening in feed_water_removal_config, which deworming still
+	// shares; set, weighing runs on this instead. On a SERVED rule set (planner catalog, task
+	// read, removal card) it is always filled with the EFFECTIVE value so the phone never
+	// resolves it.
+	CutoffTime string `json:"cutoff_time,omitempty"`
 	// Instruction is the operator-facing sentence on every removal card, rendered verbatim.
 	Instruction string             `json:"instruction,omitempty"`
 	Proofs      []RemovalProofSlot `json:"proofs"`
@@ -276,6 +283,11 @@ func ValidateWeighingSOP(dsl WeighingSOP) []string {
 	}
 	if len(dsl.FeedWaterRemoval.Instruction) > maxSOPTextLength {
 		add("weighing.feed_water_removal.instruction: too long")
+	}
+	if ct := strings.TrimSpace(dsl.FeedWaterRemoval.CutoffTime); ct != "" {
+		if _, err := time.Parse("15:04", ct); err != nil {
+			add("weighing.feed_water_removal.cutoff_time: %q is not HH:MM (24-hour, Asia/Kolkata)", ct)
+		}
 	}
 	seenSlot := map[string]bool{}
 	requiredSlots := 0
