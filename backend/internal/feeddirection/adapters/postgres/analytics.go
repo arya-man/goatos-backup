@@ -2625,8 +2625,8 @@ pen_item AS (
 -- projection-review: membership=feed_direction_issue_rows of the window's issues (iss), at its natural key; group_key=(park_id, shed_id, partition_key, feed_day) -- pen_grain_day first collapses to (that key + shed_tag_key, breed_key) with SUM(kg) and MAX(heads), then pen_day groups to the consumer key; join_cardinality=iss->rows is 1:N and is the grain being aggregated, pen_days is 1 row per (park_id, shed_id, partition_key) so its LEFT JOIN onto pens is 0..1 and cannot fan a pen out, and per_head_grams divides day_kg by day_heads where BOTH are sums over the SAME pen_grain_day rows of that group (same FROM, same GROUP BY) -- one key set, stated identical; pagination=NONE, the pen set is the window's bounded pens; scope=tenant_id = $1 plus the caller's park set and the 7-day window through iss
 pen_grain_day AS (
     SELECT r.park_id, r.shed_id, r.partition_key, i.feed_day, r.shed_tag_key, r.breed_key,
-           SUM(r.quantity_kg)  AS grain_kg,
-           MAX(r.head_count)   AS grain_heads
+	           SUM(r.quantity_kg)                                             AS grain_kg,
+	           MAX(r.head_count) FILTER (WHERE r.quantity_kg IS NOT NULL) AS grain_heads
     FROM iss i
     JOIN feed_direction_issue_rows r
       ON r.tenant_id = $1

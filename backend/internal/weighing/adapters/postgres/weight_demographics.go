@@ -28,8 +28,8 @@ import (
 // than by_stage: a whole-shed weigh has no tags, so it reaches the stage rows via
 // its shed's cohort but never the breed or sex rows. The resolved / unresolved /
 // lump-sum counts are returned so that gap is legible rather than looking broken.
-func (r *Repository) GetWeightDemographics(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time, sex, origin, weighingCategory string) (out domain.WeightDemographics, err error) {
-	cacheKey := weighingAnalyticsCacheKey("weight_demographics", tenantID, parkIDs, periodStart, periodEnd, sex, origin, weighingCategory)
+func (r *Repository) GetWeightDemographics(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time, sex, origin, weighingCategory string, includeWeekGrids bool) (out domain.WeightDemographics, err error) {
+	cacheKey := weighingAnalyticsCacheKey("weight_demographics", tenantID, parkIDs, periodStart, periodEnd, sex, origin, weighingCategory+"|week_grids="+fmt.Sprintf("%t", includeWeekGrids))
 	if cached, ok := r.getReadCache(cacheKey); ok {
 		return cached.(domain.WeightDemographics), nil
 	}
@@ -834,9 +834,9 @@ SELECT
   -- is already at its own grain, so the UNION ALL cannot fan out. ident is 1:0..1 per tag
   -- (DISTINCT ON) and shed_cohort is 1:1 per pen (GROUPed by that key), so neither join multiplies
   -- a row. The mean's numerator and denominator range over the identical row set.
-  (SELECT COALESCE(jsonb_agg(jsonb_build_array(breed, week_start, n, g) ORDER BY breed, week_start), '[]'::jsonb)
-     FROM (
-       SELECT breed, week_start, sum(n)::bigint AS n, (sum(gsum) / NULLIF(sum(n), 0))::float8 AS g
+	  CASE WHEN $19::boolean THEN (SELECT COALESCE(jsonb_agg(jsonb_build_array(breed, week_start, n, g) ORDER BY breed, week_start), '[]'::jsonb)
+	     FROM (
+	       SELECT breed, week_start, sum(n)::bigint AS n, (sum(gsum) / NULLIF(sum(n), 0))::float8 AS g
        FROM (
          SELECT gt.breed, aw.week_start, count(*)::bigint AS n, sum(aw.g)::float8 AS gsum
          FROM animal_gain_week aw
@@ -850,10 +850,11 @@ SELECT
          JOIN shed_cohort sc
            ON sc.location_id = pw.location_id AND sc.partition_label = pw.partition_label
          WHERE sc.breeds = 1
-           AND ($5::text = '' OR (sc.sexes = 1 AND lower(btrim(sc.sex)) = $5::text))
-         GROUP BY sc.breed, pw.week_start
-       ) parts GROUP BY breed, week_start
-     ) gbw),
+	           AND ($5::text = '' OR (sc.sexes = 1 AND lower(btrim(sc.sex)) = $5::text))
+	         GROUP BY sc.breed, pw.week_start
+	       ) parts GROUP BY breed, week_start
+	     ) gbw)
+	  ) ELSE '[]'::jsonb END,
   -- PEN x WEEK: the Time-wise tab's per-pen table (maintainer request 2026-09-08) -- every pen's
   -- daily gain in every calendar week of the selected period, over the SAME weeks the overall
   -- series and the breed rows above cover. Both arms again, and the SAME statistic: a scanned
@@ -872,8 +873,8 @@ SELECT
   -- nothing, locations 1 per PK, and pp is 1 per location_id (a bucket's shed sits in exactly one
   -- campaign park, so DISTINCT collapses it). The mean's numerator
   -- and denominator range over the identical row set.
-  (SELECT COALESCE(jsonb_agg(jsonb_build_array(location_id::text, partition_label, week_start, n, g, shed_name, park_id::text, park_name)
-                             ORDER BY park_name, shed_name, partition_label, week_start), '[]'::jsonb)
+	  CASE WHEN $19::boolean THEN (SELECT COALESCE(jsonb_agg(jsonb_build_array(location_id::text, partition_label, week_start, n, g, shed_name, park_id::text, park_name)
+	                             ORDER BY park_name, shed_name, partition_label, week_start), '[]'::jsonb)
      FROM (
        SELECT p.location_id, p.partition_label, p.week_start,
               sum(p.n)::bigint AS n, (sum(p.gsum) / NULLIF(sum(p.n), 0))::float8 AS g,
@@ -900,9 +901,10 @@ SELECT
        LEFT JOIN locations sh ON sh.location_id = p.location_id
        LEFT JOIN (SELECT DISTINCT location_id, park_id FROM scoped) pp
          ON pp.location_id = p.location_id
-       LEFT JOIN locations pk ON pk.location_id = pp.park_id
-       GROUP BY p.location_id, p.partition_label, p.week_start, sh.name, pp.park_id, pk.location_code, pk.name
-     ) gpw),
+	       LEFT JOIN locations pk ON pk.location_id = pp.park_id
+	       GROUP BY p.location_id, p.partition_label, p.week_start, sh.name, pp.park_id, pk.location_code, pk.name
+	     ) gpw)
+	  ) ELSE '[]'::jsonb END,
   -- LOAD x WEEK: the Time-wise tab's per-load table (maintainer request 2026-09-14, "Time-wise
   -- ADG for each shed/load") -- the pen rows above, one grain up. The SAME two producers
   -- (animal_gain_week claimed by the pen of its latest weigh, pen_week for whole-shed pens), the
@@ -920,8 +922,8 @@ SELECT
   -- pen-week row out. latest is 1 per tag (DISTINCT ON), ident 1:0..1 per tag, goats 1 per PK,
   -- shed_cohort read through EXISTS multiplies nothing. The mean's numerator sum(gsum) and
   -- denominator sum(n) range over the identical row set (same FROM, same GROUP BY).
-  (SELECT COALESCE(jsonb_agg(jsonb_build_array(load_ref, owner_name, week_start, n, g)
-                             ORDER BY load_ref, week_start), '[]'::jsonb)
+	  CASE WHEN $19::boolean THEN (SELECT COALESCE(jsonb_agg(jsonb_build_array(load_ref, owner_name, week_start, n, g)
+	                             ORDER BY load_ref, week_start), '[]'::jsonb)
      FROM (
        SELECT t.load_ref, COALESCE(t.owner_name, '') AS owner_name, p.week_start,
               sum(p.n)::bigint AS n, (sum(p.gsum) / NULLIF(sum(p.n), 0))::float8 AS g
@@ -948,9 +950,10 @@ SELECT
          WHERE tenant_id = $1::uuid
          GROUP BY location_id
          HAVING count(*) = 1
-       ) t ON t.location_id = p.location_id
-       GROUP BY t.load_ref, COALESCE(t.owner_name, ''), p.week_start
-     ) glw),
+	       ) t ON t.location_id = p.location_id
+	       GROUP BY t.load_ref, COALESCE(t.owner_name, ''), p.week_start
+	     ) glw)
+	  ) ELSE '[]'::jsonb END,
   -- How many animals of each breed fell into each daily-gain band. DISJOINT bands
   -- (maintainer, 2026-08-24): an animal at 260 g/day is counted by the >250 filter ONLY,
   -- and the four counts partition n exactly — every animal with a gain lands in one band.
@@ -1028,7 +1031,7 @@ SELECT
 		farmBornScope.LocationIDs, farmBornScope.PartitionLabels,
 		purchasedScope.LocationIDs, purchasedScope.PartitionLabels,
 		weighingCategory,
-		idMap.Tags, idMap.CanonicalTags).Scan(
+		idMap.Tags, idMap.CanonicalTags, includeWeekGrids).Scan(
 		&resolvedCount, &unresolvedCount, &lumpTotal, &lumpUnattributed,
 		&breedJSON, &sexJSON, &stageJSON,
 		&gainBreedJSON, &gainSexJSON, &gainStageJSON,

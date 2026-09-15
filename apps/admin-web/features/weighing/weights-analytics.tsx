@@ -208,7 +208,7 @@ export async function WeighingWeightsAnalyticsPage({
     getShedWeights(shedParams),
     // sectioned-aggregate-reads:allow reason=analytics-route-renders-growth-tabs-from-full-payload
     wantsGrowth ? getWeighingGrowth({ ...scope, ...readWindow }) : null,
-    wantsDemographics ? getWeightDemographics({ ...scope, ...readWindow }) : null,
+	    wantsDemographics ? getWeightDemographics({ ...scope, ...readWindow, include_week_grids: tab === "time" }) : null,
     wantsLoads ? getLoadwiseWeights({ park_id: parkFilter || undefined }) : null,
     wantsValue ? getLoadwiseSales({ park_id: parkFilter || undefined }) : null,
   ]);

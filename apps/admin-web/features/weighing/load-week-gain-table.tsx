@@ -34,11 +34,12 @@ export function LoadWeekGainTable({
   const rows: WeekGainRow[] = [];
   const seen = new Set<string>();
   const cells: WeekGainCell[] = points.map((point) => {
-    if (!seen.has(point.loadRef)) {
-      seen.add(point.loadRef);
-      rows.push({ key: point.loadRef, fixed: { [loadKey ?? "load"]: point.loadRef, [sourceKey ?? "source"]: point.source } });
+    const rowKey = `${point.loadRef}\u0000${point.source}`;
+    if (!seen.has(rowKey)) {
+      seen.add(rowKey);
+      rows.push({ key: rowKey, fixed: { [loadKey ?? "load"]: point.loadRef, [sourceKey ?? "source"]: point.source } });
     }
-    return { rowKey: point.loadRef, weekStart: point.weekStart, animals: point.animals, gainGPerDay: point.gainGPerDay };
+    return { rowKey, weekStart: point.weekStart, animals: point.animals, gainGPerDay: point.gainGPerDay };
   });
   return <WeekGainTable contract={contract} rows={rows} cells={cells} labels={labels} className="wt-loadweek" />;
 }

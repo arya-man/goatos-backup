@@ -21,6 +21,7 @@ test("the Time-wise tab reads gain_by_load_week off the demographics response", 
   assert.match(pageSource, /loadRef: point\.load_ref/, "the load number is the farm's own reference, rendered verbatim");
   assert.match(pageSource, /source: point\.owner_name/, "the supplier is the backend's owner name, rendered verbatim");
   assert.match(pageSource, /table\(pageContract, "load-week-gain"\)/, "fixed columns come from the load-week-gain contract");
+  assert.match(pageSource, /include_week_grids: tab === "time"/, "weekly grids must be opt-in so unrelated demographics tabs stay light");
 });
 
 test("the load grid composes no copy of its own and renders through the shared pivot", () => {
@@ -31,4 +32,10 @@ test("the load grid composes no copy of its own and renders through the shared p
   assert.doesNotMatch(tableSource, />\s*(Load|Source|Week|No data|Supplier)\s*</, "no literal column or empty copy");
   assert.match(tableSource, /from "\.\/week-gain-table"/, "one pivot for pens and loads, so the two grids cannot drift");
   assert.doesNotMatch(tableSource, /\?\? 0\b/, "a missing gain must never be coerced to 0");
+});
+
+test("the load grid keys rows by load and source", () => {
+  assert.ok(tableSource.includes("const rowKey = `${point.loadRef}\\u0000${point.source}`;"), "same load ref from two suppliers must not collapse");
+  assert.match(tableSource, /seen\.has\(rowKey\)/, "row de-dupe must use the composite key");
+  assert.ok(tableSource.includes("return { rowKey, weekStart:"), "cells must address the same composite row");
 });

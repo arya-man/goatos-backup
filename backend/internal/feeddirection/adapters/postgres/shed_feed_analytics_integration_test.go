@@ -217,10 +217,15 @@ func TestShedFeedAnalyticsDaySeriesDividesByPenHeadsOncePerDay(t *testing.T) {
 	persist("2026-08-08", "fp-sfd-3", []domain.StoredCell{
 		cell("Beetal", 10, 1, kg("0.000"), 0),
 	})
+	// Day 4: one grain fed and one grain blocked -> divide by the fed grain's heads only.
+	persist("2026-08-09", "fp-sfd-4", []domain.StoredCell{
+		cell("Beetal", 10, 1, kg("2.000"), 0),
+		cell("Sirohi", 5, 1, nil, 1),
+	})
 
 	got, err := repo.ShedFeedAnalytics(ctx, fdiTenant, domain.DirectedAnalyticsQuery{
 		DateFrom: time.Date(2026, 8, 6, 0, 0, 0, 0, biztime.DefaultLocation()),
-		DateTo:   time.Date(2026, 8, 8, 0, 0, 0, 0, biztime.DefaultLocation()),
+		DateTo:   time.Date(2026, 8, 9, 0, 0, 0, 0, biztime.DefaultLocation()),
 	})
 	if err != nil {
 		t.Fatalf("ShedFeedAnalytics: %v", err)
@@ -229,14 +234,17 @@ func TestShedFeedAnalyticsDaySeriesDividesByPenHeadsOncePerDay(t *testing.T) {
 		t.Fatalf("want the one pen Castro 1, got %+v", got.Rows)
 	}
 	days := got.Rows[0].Days
-	if len(days) != 2 {
-		t.Fatalf("want 2 days (the all-blocked day absent), got %+v", days)
+	if len(days) != 3 {
+		t.Fatalf("want 3 days (the all-blocked day absent), got %+v", days)
 	}
 	if days[0].FeedDay != "2026-08-06" || days[0].DirectedKg != "3.500" || days[0].HeadCount != 15 || days[0].PerHeadGrams != "233.3" {
 		t.Errorf("day 1: want 3.500 kg over 15 head = 233.3 g/animal (heads once per grain per day), got %+v", days[0])
 	}
 	if days[1].FeedDay != "2026-08-08" || days[1].DirectedKg != "0.000" || days[1].HeadCount != 10 || days[1].PerHeadGrams != "0.0" {
 		t.Errorf("day 3: want an authored-zero day present at 0.000 kg / 10 head / 0.0 g, got %+v", days[1])
+	}
+	if days[2].FeedDay != "2026-08-09" || days[2].DirectedKg != "2.000" || days[2].HeadCount != 10 || days[2].PerHeadGrams != "200.0" {
+		t.Errorf("day 4: want blocked grain excluded from heads (2.000 kg / 10 head / 200.0 g), got %+v", days[2])
 	}
 }
 

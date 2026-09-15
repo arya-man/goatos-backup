@@ -1176,8 +1176,10 @@ export async function getWeightDemographics(params: {
    */
   origin?: string;
   /** `individual_animal` / `per_shed_partition` narrows aggregate figures to one capture mode. */
-  weighing_category?: string;
-}): Promise<ApiResult<WeightDemographicsResponse>> {
+	  weighing_category?: string;
+	  /** Time-wise weekly grids are opt-in so other tabs do not pay for the heavy week arms. */
+	  include_week_grids?: boolean;
+	}): Promise<ApiResult<WeightDemographicsResponse>> {
   const config = await getServerConfig();
   if (!config.ok) return config;
   const client = createAppApiClient(apiClientOptions(config.data));
