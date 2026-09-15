@@ -15,7 +15,7 @@ Weighing SOP** (`/weighing/sops`):
 | Rule | What the author decides | Who reads it |
 | --- | --- | --- |
 | **Planning** | which ways of weighing the planner may pick (animal by animal / whole pen) and the default animals per day | the plan wizard (offered modes, prefilled cap); the create (a mode the SOP does not offer is refused, `422 weighing_mode_not_offered`) |
-| **Feed & water removal** | `required` (every task, the 2026-09-03 rule) / **`optional` (the planner decides per task, on by default)** / `off` (never); the instruction on the removal card; the two proof slots' titles and hints; extra **questions** the removal operator answers per pen | the plan wizard (removal step shown / toggle / hidden; today offerable when the removal does not apply); the create and edit (operator mandatory only when the removal applies; the evening cutoff only then; a past date `422 weigh_date_in_past`); the removal card (copy, questions); the pen submit (`422 fasting_answer_invalid` naming the question) |
+| **Feed & water removal** | `required` (every task, the 2026-09-03 rule) / **`optional` (the planner decides per task, on by default)** / `off` (never); **the evening cutoff** (`cutoff_time`, blank = the farm-wide `feed_water_removal_config` evening shared with deworming); the instruction on the removal card; **the captures the card asks for** -- up to eight slots, each with a key, title, hint, kind (`video` / `photo` / `either`) and a required flag, at least one compulsory; extra **questions** the removal operator answers per pen | the plan wizard (removal step shown / toggle / hidden; today offerable when the removal does not apply; the toggle forced off with the reason once the pinned evening is gone); the create and edit (operator mandatory only when the removal applies; the effective evening only then, `422 fasting_window_closed` past it; a past date `422 weigh_date_in_past`); the removal card (copy, slots, questions, the effective evening); the pen submit (`422 fasting_proof_slot_invalid` naming the slot, `422 fasting_answer_invalid` naming the question); the card list (opens at each card's PINNED evening) |
 | **Capture** | the lump-sum video window (min..max, inside the proof policy's ceiling of 5); the per-animal video, shown **locked on** | the phone's lump-sum capture (cap and submit gate); the backend submit (`422 weighing_video_count`) |
 
 This is what the maintainer asked for on 2026-09-15 -- "everything should be SOP; keeping
@@ -35,18 +35,51 @@ The scan-and-submit locks stay locks and the document says so on screen: free-fl
 tag is stored as scanned, never checked against a pen or roster), the one business rule (no
 duplicate scan in a pen before submit), evidence-grain verification, the approve-carries-the-
 weight correction, the unconditional close gate. The per-animal video is a field in the
-document only so that it states the rule; `video_required: false` is refused at save. The two
-removal clips are fixed in KEY and KIND (`feed_video`, `water_video`, video): the evidence table
-carries exactly those two, the verifier item is built from them and the midnight gate counts
-them -- their WORDING is the author's. The removal evening cutoff stays in
-`feed_water_removal_config` (one farm evening, shared with PC Care deworming; maintainer
-decision 2026-09-07) and is not moved into this document.
+document only so that it states the rule; `video_required: false` is refused at save.
+
+## The removal card's captures are authored (maintainer ask 2026-09-15, same day)
+
+"If I want to add a photo also with video, or replace video with photo, or add one more step,
+everything should work." So the removal card's captures are no longer two fixed clips. The
+document carries `feed_water_removal.proofs[]` -- key, title, hint, kind `video` / `photo` /
+`either`, `required` -- and the evidence row stores them as `sop_proofs {slot key: proof ref}`
+(migration `000315`; the legacy `feed_proof_ref` / `water_proof_ref` pair mirrors the seeded
+`feed_video` / `water_video` slots and is backfilled, so every pre-existing reader still
+reads). The verifier item and the midnight gate are built from the ordered slot refs. Limits:
+one to eight slots, unique keys in the id pattern, at least one compulsory slot unless the
+mode is `off`, a slot `required` flag that is ABSENT reads as compulsory (a document authored
+before the flag existed keeps its meaning). The submit is judged slot by slot: a compulsory
+slot missing, an unknown slot, one capture proving two slots, or a capture of the wrong kind
+for its slot is `422 fasting_proof_slot_invalid` naming the slot; an older phone that still
+sends the legacy pair is mapped onto the seeded slot keys and judged the same way.
+
+**The evening cutoff is authored too.** `feed_water_removal.cutoff_time` (`HH:MM`, Asia/Kolkata)
+overrides the farm-wide `feed_water_removal_config` evening for weighing; blank keeps the farm
+evening, which is what the seed says, so deploy changes nothing and deworming is untouched.
+Every served rule set carries the EFFECTIVE evening (`cutoff_time` filled with the SOP's own or
+the farm's) -- planner catalog, task read, list rows and removal cards -- so no client resolves
+it. The pin decides: a task planned under 21:30 runs under 21:30 to the end, its card prints
+21:30 and its card OPENS at 21:30 (`ports.RemovalCutoffs`, resolved per pinned version and
+bound into the list SQL as jsonb), whatever a later publish chose.
+
+**Who may plan is already per person and stays that way.** `/people` -> Weighing module ->
+level "Set up" grants `weighing.plan` to a named person (`permissions/capability.go`,
+`LevelConfigure`); the SOP document does not name people, because access is an HRMS fact and
+a rulebook is not. The maintainer's "for the person who is creating the task, access should be
+configurable" is answered by that existing tick, not by a new field here.
+
+**What "compulsory or configurable" means, precisely.** The removal mode is the farm's rule:
+`required` = every task, no one is asked; `optional` = the person planning the task decides
+per task (on by default, forced off when the pinned evening is gone); `off` = never. The
+questions are free-form authored -- "Every pen emptied?" in the live run was a sample the
+author typed, not a built-in.
 
 ## The shape
 
 - `form_dsl.weighing` (`schema_version: goatos.sop-weighing.v1`) = `planning {modes[],
-  default_cap_per_day}`, `feed_water_removal {mode, instruction, proofs[{key,title,hint,kind}],
-  questions[]}`, `capture {individual {video_required}, lump_sum {video_min, video_max}}`. A
+  default_cap_per_day}`, `feed_water_removal {mode, cutoff_time, instruction,
+  proofs[{key,title,hint,kind,required}], questions[]}`, `capture {individual {video_required},
+  lump_sum {video_min, video_max}}`. A
   question carries the same fields the procurement inspection's questions do (`id`, `kind`
   choice / multi / text / number, `title`, `hint`, `required`, `options` + `allow_other`,
   `min` / `max` / `unit`, `only_if`); there is no media kind, because the two clips ARE the
@@ -99,11 +132,13 @@ decision 2026-09-07) and is not moved into this document.
 `WeighingSOPRules` on `WeighingPlannerCatalogResponse.sop` and `WeighingCampaign.sop`
 (+ `sop_version`); `feed_water_removal_requested` on `CreateWeighingCampaignRequest`
 (`fasting_operator_user_id` no longer required by the contract -- it is required by the RULES
-when the removal applies); `instruction`, `proofs`, `questions`, `answers` on
-`WeighingFastingShedCard`; `answers` on `SubmitWeighingFastingShedRequest`. New refusals:
-`weighing_mode_not_offered`, `feed_water_removal_not_offered`, `weigh_date_in_past`,
-`feed_water_removal_locked` (switching the removal off after a pen was submitted),
-`weighing_video_count`, `weighing_sop_version_unknown`, `fasting_answer_invalid`.
+when the removal applies); `instruction`, `proofs`, `questions`, `answers`, `proof_refs` on
+`WeighingFastingShedCard`; `answers` and `proofs` (slot key -> proof ref) on
+`SubmitWeighingFastingShedRequest`, the legacy `feed_proof_ref` / `water_proof_ref` pair still
+accepted. New refusals: `weighing_mode_not_offered`, `feed_water_removal_not_offered`,
+`weigh_date_in_past`, `feed_water_removal_locked` (switching the removal off after a pen was
+submitted), `weighing_video_count`, `weighing_sop_version_unknown`, `fasting_answer_invalid`,
+`fasting_proof_slot_invalid`.
 
 ## Proof
 
@@ -144,6 +179,6 @@ when the removal applies); `instruction`, `proofs`, `questions`, `answers` on
 ## Not here (phase 2)
 
 Authored questions on the lump-sum pen submit and per animal; the `/config` registry editor for
-question kinds; moving the removal cutoff into the document (it is a farm-wide evening shared
-with deworming and stays config); making a removal clip optional (the evidence table, the
-midnight gate and the verifier item are built on both).
+question kinds; authored captures on the WEIGH itself (the per-animal video stays locked on and
+the lump-sum window is a count, not a slot list); a media kind for questions (the slots ARE the
+card's media).
