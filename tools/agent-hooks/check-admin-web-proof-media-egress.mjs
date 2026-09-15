@@ -52,9 +52,9 @@ function changedSources() {
       }
     }
   };
-  collect(`git diff --name-only ${BASE}...HEAD`);
-  collect("git diff --name-only --cached");
-  collect("git diff --name-only");
+  collect(`git diff --name-only --diff-filter=d ${BASE}...HEAD`);
+  collect("git diff --name-only --diff-filter=d --cached");
+  collect("git diff --name-only --diff-filter=d");
   return [...names];
 }
 
