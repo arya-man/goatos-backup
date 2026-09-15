@@ -1,0 +1,461 @@
+{
+  "source": {
+    "spreadsheetId": "1uvDO_vipNsLcB4S0O7Bj-L8VCSMCd0eX5U9cJS8F-QE",
+    "title": "Health DB",
+    "readDate": "2026-09-15",
+    "access": "Google Drive connector as ravi@mesha.sg",
+    "purpose": "Read-only source example; no clinical validation or inferred units"
+  },
+  "tabs": [
+    {
+      "tab": "Adults SOP",
+      "gid": 582297317,
+      "range": "C2:J18",
+      "headers": [
+        "Day",
+        "Session",
+        "Record Type",
+        "Medicine",
+        "Dosage",
+        "Dosage Denominator",
+        "Medicine Route",
+        "Treatment"
+      ],
+      "rows": [
+        {
+          "sourceRow": 3,
+          "values": [
+            "1",
+            "Morning",
+            "Action",
+            null,
+            null,
+            null,
+            null,
+            "Check temperature"
+          ]
+        },
+        {
+          "sourceRow": 4,
+          "values": [
+            "1",
+            "Morning",
+            "Action",
+            null,
+            null,
+            null,
+            null,
+            "Follow Not Eating SOP if the goat is not eating."
+          ]
+        },
+        {
+          "sourceRow": 5,
+          "values": [
+            "1",
+            "Morning",
+            "Action",
+            null,
+            null,
+            null,
+            null,
+            "All not eating goats, except bucks shall be in Sumathi 2 Part 7 or Yashoda 2 in case of K4 kids"
+          ]
+        },
+        {
+          "sourceRow": 6,
+          "values": [
+            "1",
+            "Morning",
+            "Medication",
+            "Chocolate injection",
+            "0.033",
+            "kg",
+            "SQ",
+            null
+          ]
+        },
+        {
+          "sourceRow": 7,
+          "values": [
+            "1",
+            "Morning",
+            "Medication",
+            "Tylosin",
+            "0.1",
+            "kg",
+            "IM",
+            null
+          ]
+        },
+        {
+          "sourceRow": 8,
+          "values": [
+            "1",
+            "Morning",
+            "Medication",
+            "Meloxicam Paracetamol",
+            "0.1",
+            "kg",
+            "IM",
+            null
+          ]
+        },
+        {
+          "sourceRow": 9,
+          "values": [
+            "2",
+            "Morning",
+            "Action",
+            null,
+            null,
+            null,
+            null,
+            "Check temperature"
+          ]
+        },
+        {
+          "sourceRow": 10,
+          "values": [
+            "2",
+            "Morning",
+            "Action",
+            null,
+            null,
+            null,
+            null,
+            "Follow Not Eating SOP if the goat is not eating."
+          ]
+        },
+        {
+          "sourceRow": 11,
+          "values": [
+            "2",
+            "Morning",
+            "Action",
+            null,
+            null,
+            null,
+            null,
+            "All not eating goats, except bucks shall be in Sumathi 2 Part 7 or Yashoda 2 in case of K4 kids"
+          ]
+        },
+        {
+          "sourceRow": 12,
+          "values": [
+            "2",
+            "Morning",
+            "Medication",
+            "Tylosin",
+            "0.1",
+            "kg",
+            "IM",
+            null
+          ]
+        },
+        {
+          "sourceRow": 13,
+          "values": [
+            "2",
+            "Morning",
+            "Medication",
+            "Meloxicam Paracetamol",
+            "0.1",
+            "kg",
+            "IM",
+            null
+          ]
+        },
+        {
+          "sourceRow": 14,
+          "values": [
+            "3",
+            "Morning",
+            "Action",
+            null,
+            null,
+            null,
+            null,
+            "Check temperature"
+          ]
+        },
+        {
+          "sourceRow": 15,
+          "values": [
+            "3",
+            "Morning",
+            "Action",
+            null,
+            null,
+            null,
+            null,
+            "Follow Not Eating SOP if the goat is not eating."
+          ]
+        },
+        {
+          "sourceRow": 16,
+          "values": [
+            "3",
+            "Morning",
+            "Action",
+            null,
+            null,
+            null,
+            null,
+            "All not eating goats, except bucks shall be in Sumathi 2 Part 7 or Yashoda 2 in case of K4 kids"
+          ]
+        },
+        {
+          "sourceRow": 17,
+          "values": [
+            "3",
+            "Morning",
+            "Medication",
+            "Tylosin",
+            "0.1",
+            "kg",
+            "IM",
+            null
+          ]
+        },
+        {
+          "sourceRow": 18,
+          "values": [
+            "3",
+            "Morning",
+            "Medication",
+            "Meloxicam Paracetamol",
+            "0.1",
+            "kg",
+            "IM",
+            null
+          ]
+        }
+      ]
+    },
+    {
+      "tab": "Kids SOP",
+      "gid": 541230517,
+      "range": "C2:J18",
+      "headers": [
+        "Day",
+        "Session",
+        "Record Type",
+        "Medicine",
+        "Dosage",
+        "Dosage Denominator",
+        "Medicine Route",
+        "Treatment"
+      ],
+      "rows": [
+        {
+          "sourceRow": 3,
+          "values": [
+            "1",
+            "Morning",
+            "Action",
+            null,
+            null,
+            null,
+            null,
+            "Check temperature"
+          ]
+        },
+        {
+          "sourceRow": 4,
+          "values": [
+            "1",
+            "Morning",
+            "Action",
+            null,
+            null,
+            null,
+            null,
+            "Follow Not Eating SOP if the goat is not eating."
+          ]
+        },
+        {
+          "sourceRow": 5,
+          "values": [
+            "1",
+            "Morning",
+            "Action",
+            null,
+            null,
+            null,
+            null,
+            "All not eating goats, except bucks shall be in Sumathi 2 Part 7 or Yashoda 2 in case of K4 kids"
+          ]
+        },
+        {
+          "sourceRow": 6,
+          "values": [
+            "1",
+            "Morning",
+            "Medication",
+            "Chocolate injection",
+            "0.033",
+            "kg",
+            "SQ",
+            null
+          ]
+        },
+        {
+          "sourceRow": 7,
+          "values": [
+            "1",
+            "Morning",
+            "Medication",
+            "Tylosin",
+            "0.1",
+            "kg",
+            "IM",
+            null
+          ]
+        },
+        {
+          "sourceRow": 8,
+          "values": [
+            "1",
+            "Morning",
+            "Medication",
+            "Meloxicam Paracetamol",
+            "0.1",
+            "kg",
+            "IM",
+            null
+          ]
+        },
+        {
+          "sourceRow": 9,
+          "values": [
+            "2",
+            "Morning",
+            "Action",
+            null,
+            null,
+            null,
+            null,
+            "Check temperature"
+          ]
+        },
+        {
+          "sourceRow": 10,
+          "values": [
+            "2",
+            "Morning",
+            "Action",
+            null,
+            null,
+            null,
+            null,
+            "Follow Not Eating SOP if the goat is not eating."
+          ]
+        },
+        {
+          "sourceRow": 11,
+          "values": [
+            "2",
+            "Morning",
+            "Action",
+            null,
+            null,
+            null,
+            null,
+            "All not eating goats, except bucks shall be in Sumathi 2 Part 7 or Yashoda 2 in case of K4 kids"
+          ]
+        },
+        {
+          "sourceRow": 12,
+          "values": [
+            "2",
+            "Morning",
+            "Medication",
+            "Tylosin",
+            "0.1",
+            "kg",
+            "IM",
+            null
+          ]
+        },
+        {
+          "sourceRow": 13,
+          "values": [
+            "2",
+            "Morning",
+            "Medication",
+            "Meloxicam Paracetamol",
+            "0.1",
+            "kg",
+            "IM",
+            null
+          ]
+        },
+        {
+          "sourceRow": 14,
+          "values": [
+            "3",
+            "Morning",
+            "Action",
+            null,
+            null,
+            null,
+            null,
+            "Check temperature"
+          ]
+        },
+        {
+          "sourceRow": 15,
+          "values": [
+            "3",
+            "Morning",
+            "Action",
+            null,
+            null,
+            null,
+            null,
+            "Follow Not Eating SOP if the goat is not eating."
+          ]
+        },
+        {
+          "sourceRow": 16,
+          "values": [
+            "3",
+            "Morning",
+            "Action",
+            null,
+            null,
+            null,
+            null,
+            "All not eating goats, except bucks shall be in Sumathi 2 Part 7 or Yashoda 2 in case of K4 kids"
+          ]
+        },
+        {
+          "sourceRow": 17,
+          "values": [
+            "3",
+            "Morning",
+            "Medication",
+            "Tylosin",
+            "0.1",
+            "kg",
+            "IM",
+            null
+          ]
+        },
+        {
+          "sourceRow": 18,
+          "values": [
+            "3",
+            "Morning",
+            "Medication",
+            "Meloxicam Paracetamol",
+            "0.1",
+            "kg",
+            "IM",
+            null
+          ]
+        }
+      ]
+    }
+  ]
+}

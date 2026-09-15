@@ -1,0 +1,11 @@
+// Ownership and live dependencies, adopted from comparative UX review.
+const ownershipConfigView=configView;
+configView=function(){
+ ownershipConfigView();
+ const content=document.querySelector('#content');if(!content)return;
+ const owned=document.createElement('div');owned.className='notice';owned.innerHTML=`<b>Owned by ${esc(current)}</b> · Company scope · ${canEdit()?'Edit this module’s rules below.':'Published values · read only.'} Changes to other modules stay with their owners.`;content.prepend(owned);
+ const sources=visibleSources(current).filter(s=>s.owner!==current);
+ const rows=sources.map(s=>`<tr><td><b>${esc(s.name)}</b><br><span class="muted">${sourceOptions(s,current).length} active choices</span></td><td>${esc(s.owner)}</td><td>Company · source v${s.revision}</td><td>SOP questions & resource actions</td><td><button onclick="go('Common','Data sources')">View source →</button></td></tr>`);
+ if(current==='Weighing')rows.unshift(`<tr><td><b>Sale eligibility & valuation</b><br><span class="muted">${esc(state.sales.comparison)} ${state.sales.weight-state.sales.margin} kg · ₹${state.sales.rate}/kg</span></td><td>Sales</td><td>Company · published v${state.sales.version}</td><td>Sale-ready counts & value projection</td><td><button onclick="go('Sales','Configuration')">View owner →</button></td></tr>`);
+ const section=document.createElement('section');section.className='card';section.innerHTML=`<div class="cardheader"><div><h2>Read from other modules</h2><span class="muted">Live references. Availability in a builder does not grant operational permission.</span></div><span class="badge blue">${rows.length} sources</span></div>${rows.length?`<p class="muted">On narrow screens, scroll the table sideways for source links.</p><div class="tablewrap" tabindex="0" aria-label="External sources table, scroll horizontally"><table><thead><tr><th>Resource / current value</th><th>Owner</th><th>Scope / version</th><th>Available for</th><th></th></tr></thead><tbody>${rows.join('')}</tbody></table></div>`:'<p class="muted">No external sources are shared with this module yet.</p><button onclick="go(\'Common\',\'Data sources\')">Manage source sharing →</button>'}`;content.append(section);
+};
