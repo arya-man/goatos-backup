@@ -330,6 +330,11 @@ var protectedRoutes = []Route{
 	// Director, WeighingMonitor) who does not hold SalesRead. This is a read-only reporting
 	// widening; the cost write below keeps its dedicated permission.
 	{OperationID: "listLoadwiseSales", Method: "GET", Pattern: "/procurement/loadwise-sales", Permissions: []string{SalesRead}},
+	// BUYER ANALYTICS (maintainer request 2026-09-15): who the farm sells to, read back per
+	// buyer. Sales money, so SalesRead; the phone number on each row is REGISTER data and the
+	// handler blanks it unless the caller also holds VendorRead -- the same reason the
+	// /sales/vendors leaf rides VendorRead. Pattern byte-identical to procurementhttp.RegisterBuyerAnalytics.
+	{OperationID: "listBuyerAnalytics", Method: "GET", Pattern: "/procurement/buyer-analytics", Permissions: []string{SalesRead}},
 
 	// MARKET SURVEY (maintainer decision 2026-09-14). Config and analytics on admin-web under
 	// Sales; the day's entry on the phone. Patterns must stay byte-identical to

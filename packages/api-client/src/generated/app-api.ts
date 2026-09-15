@@ -3824,6 +3824,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/procurement/buyer-analytics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Every buyer the farm has sold to, one row each, for the Sales > Buyer analytics page.
+         * @description One row per BUYER over the closed deals in the filter, served by the procurement read that joins the vendor register to the sales ledger (the load-wise shape). A deal is claimed by the vendor its `buyer_vendor_id` names when that row still exists; otherwise by the ONE vendor whose business name matches the typed buyer name (case- and whitespace-insensitively; a name held by two vendors is claimed by neither); otherwise by the typed name itself, reported with `in_register: false`.
+         *
+         *     `purchases` counts closed deals; `repeat` is true once a buyer has bought more than once and `avg_days_between` is the span from first to last sale over the gaps between them (absent for a one-time buyer, and absent when every purchase landed on one day). `summary` and `total_buyers` are WHOLE-FILTER figures; `limit`/`offset` page the rows only.
+         *
+         *     `phone_number` is vendor register data: it rides a row only when the buyer is in the register AND the caller holds the vendor register permission; `phones_visible` says which case the response is in, so an absent column reads as a permission and never as "no buyer has a number".
+         */
+        get: operations["listBuyerAnalytics"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/procurement/loads/{load_id}/cost": {
         parameters: {
             query?: never;
@@ -7541,6 +7565,73 @@ export interface components {
             /** @description The tenant-wide average sold price used as the remaining-stock fallback basis. */
             overall_avg_sold_price?: number | null;
             summary: components["schemas"]["LoadwiseSummary"];
+        };
+        BuyerAnalyticsRow: {
+            /** @description The resolved identity, `vendor:<id>` or `name:<normalized name>`; stable across pages. */
+            buyer_key: string;
+            /** @description The vendor register row this buyer resolved to; absent for a name-only buyer. */
+            vendor_id?: string;
+            /** @description False for a buyer known only by the name typed on their deals. */
+            in_register: boolean;
+            buyer_name: string;
+            /** @description Present only for a register-backed buyer AND a caller who may read the vendor register (see `phones_visible`). */
+            phone_number?: string;
+            /** @description The register's record type (Agent, Butcher, Farmer, ...); absent for a name-only buyer. */
+            category?: string;
+            /** @description The register's city and state, or the typed place on the newest deal for a name-only buyer. */
+            place?: string;
+            /** @description Closed deals so far. */
+            purchases: number;
+            animals: number;
+            revenue: number;
+            /** @description This buyer's share of the whole-filter revenue, in percent. */
+            share_pct: number;
+            /** @description What the buyer still owes across their deals; never negative per deal. */
+            outstanding: number;
+            /** Format: date */
+            first_sale_date: string;
+            /** Format: date */
+            last_sale_date: string;
+            /** @description True once the buyer has bought more than once. */
+            repeat: boolean;
+            /** @description Every purchase after the first. */
+            repeat_purchases: number;
+            /** @description Mean days between purchases; absent for a one-time buyer or when every purchase landed on one day. */
+            avg_days_between?: number;
+            /** @description Whole days from the latest purchase to today's business date. */
+            days_since_last?: number;
+            product_types: string[];
+        };
+        BuyerAnalyticsSummary: {
+            buyers: number;
+            repeat_buyers: number;
+            one_time_buyers: number;
+            /** @description Buyers known by a typed name only. */
+            not_in_register: number;
+            purchases: number;
+            animals: number;
+            revenue: number;
+            /** @description Revenue brought by buyers who have bought more than once. */
+            repeat_revenue: number;
+            /** @description repeat_revenue as a share of revenue; 0 when revenue is 0. */
+            repeat_revenue_pct: number;
+            outstanding: number;
+            /** Format: date */
+            period_from?: string;
+            /** Format: date */
+            period_to?: string;
+        };
+        BuyerAnalytics: {
+            buyers: components["schemas"]["BuyerAnalyticsRow"][];
+            /** @description The WHOLE-FILTER buyer count; `buyers` is one page of it. */
+            total_buyers: number;
+            summary: components["schemas"]["BuyerAnalyticsSummary"];
+            /** @description The page size actually applied, after clamping. */
+            limit: number;
+            /** @description The offset actually applied. */
+            offset: number;
+            /** @description Whether phone numbers were included at all for this caller. */
+            phones_visible: boolean;
         };
         /** @description The full cost state of one load. Nullable so "not entered" stays distinct from "entered as 0"; transport and other costs are rejected without an animal cost, and all three null clears the recorded cost. */
         LoadCostWrite: {
@@ -24715,6 +24806,37 @@ export interface operations {
                     "application/json": components["schemas"]["LoadwiseWeights"];
                 };
             };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    listBuyerAnalytics: {
+        parameters: {
+            query?: {
+                /** @description Farm filter, the Sales pages' toggle value. Absent or `all` is the whole company; an unknown value is rejected, never silently widened. */
+                farm?: "all" | "CBE" | "CPT";
+                /** @description Page size; clamped to 25 by default and 100 at most. */
+                limit?: number;
+                /** @description Row offset into the revenue-ordered buyer list. */
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The buyer analytics read. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BuyerAnalytics"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             500: components["responses"]["ServerError"];

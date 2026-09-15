@@ -145,7 +145,9 @@ func TestSalesPageContractAndNavigation(t *testing.T) {
 	// fact is entered or changed, which is why the read leaves come first.
 	// Six leaves since 2026-09-14: Market analytics (the morning market calls read back) sits
 	// with the read leaves, before Vendors.
-	if len(salesGroup.Leaves) != 6 ||
+	// Seven leaves since 2026-09-15: Buyer analytics (who the farm sells to, read back per
+	// buyer) sits with the read leaves, after Market analytics and before Vendors.
+	if len(salesGroup.Leaves) != 7 ||
 		salesGroup.Leaves[0].Href != "/sales/sold" ||
 		salesGroup.Leaves[0].Label != "Summary" ||
 		salesGroup.Leaves[1].Href != "/sales/farm-value" ||
@@ -154,10 +156,12 @@ func TestSalesPageContractAndNavigation(t *testing.T) {
 		salesGroup.Leaves[2].Label != "Load wise" ||
 		salesGroup.Leaves[3].Href != "/sales/market-analytics" ||
 		salesGroup.Leaves[3].Label != "Market analytics" ||
-		salesGroup.Leaves[4].Href != "/sales/vendors" ||
-		salesGroup.Leaves[4].Label != "Vendors" ||
-		salesGroup.Leaves[5].Href != "/sales/config" ||
-		salesGroup.Leaves[5].Label != "Sales Config" {
+		salesGroup.Leaves[4].Href != "/sales/buyer-analytics" ||
+		salesGroup.Leaves[4].Label != "Buyer analytics" ||
+		salesGroup.Leaves[5].Href != "/sales/vendors" ||
+		salesGroup.Leaves[5].Label != "Vendors" ||
+		salesGroup.Leaves[6].Href != "/sales/config" ||
+		salesGroup.Leaves[6].Label != "Sales Config" {
 		t.Fatalf("sales group leaves = %+v", salesGroup.Leaves)
 	}
 
@@ -555,7 +559,7 @@ func TestSalesReadPagesCarryNoWriteControl(t *testing.T) {
 		"record_load_cost",
 		"market_config_write",
 	}
-	for _, pageID := range []string{"sales-sold", "sales-farm-value", "sales-loads", "sales-market-analytics"} {
+	for _, pageID := range []string{"sales-sold", "sales-farm-value", "sales-loads", "sales-market-analytics", "sales-buyer-analytics"} {
 		page := pageByRouteID(t, resp.Pages, pageID)
 		for _, control := range page.Controls {
 			for _, banned := range writes {

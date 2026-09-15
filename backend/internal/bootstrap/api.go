@@ -776,6 +776,10 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// 2026-08-31, docs/decisions/sales-loadwise.md).
 	procurementLoadwiseHandler := procurementhttp.NewLoadwiseHandler(
 		procurementapp.NewLoadwiseService(procurementpg.NewRepository(pool, cfg.Postgres.QueryTimeout)), log)
+	// Buyer analytics (maintainer request 2026-09-15): the same recorded procurement-reads-sales
+	// shape as load-wise, one read behind /sales/buyer-analytics.
+	procurementBuyerAnalyticsHandler := procurementhttp.NewBuyerAnalyticsHandler(
+		procurementapp.NewBuyerAnalyticsService(procurementpg.NewRepository(pool, cfg.Postgres.QueryTimeout)), log)
 	// Animal purchases (maintainer decision 2026-09-13): the buying desk's loads and candidate
 	// animals with a video each, and the CEO/CXO's accept / reject.
 	animalPurchaseHandler := animalpurchasehttp.NewHandler(
@@ -1308,6 +1312,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	procurementhttp.RegisterVendors(protectedMux, procurementVendorHandler)
 	procurementhttp.RegisterFeedPurchases(protectedMux, procurementFeedPurchaseHandler)
 	procurementhttp.RegisterLoadwise(protectedMux, procurementLoadwiseHandler)
+	procurementhttp.RegisterBuyerAnalytics(protectedMux, procurementBuyerAnalyticsHandler)
 	animalpurchasehttp.Register(protectedMux, animalPurchaseHandler)
 	toxinhttp.Register(protectedMux, toxinHandler)
 	markethttp.Register(protectedMux, marketHandler)

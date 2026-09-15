@@ -108,6 +108,10 @@ var modulePages = []ModulePage{
 	// Market analytics (maintainer decision 2026-09-14): what goat and sheep fetch in the
 	// markets the procurement director phones each morning, read back over time.
 	{Key: "sales-market-analytics", Module: "sales", Label: "Market analytics", Href: "/sales/market-analytics", Permissions: []string{MarketRead}},
+	// Buyer analytics (maintainer request 2026-09-15): the buyers read back per counterparty.
+	// Sales money, so it ticks with the sales module on SalesRead; the phone column on it is
+	// separately gated on VendorRead at the endpoint and the page contract.
+	{Key: "sales-buyer-analytics", Module: "sales", Label: "Buyer analytics", Href: "/sales/buyer-analytics", Permissions: []string{SalesRead}},
 	// Sales Config: every sales entry form in one place (maintainer decision 2026-09-01). Ticked
 	// with the sales module and reached on SalesRead -- the WRITES on it carry their own keys
 	// (SalesWrite, and LoadCostWrite for a load's cost), so a read-only holder sees the page with
@@ -183,6 +187,7 @@ var moduleRoutePrefixes = map[string]string{
 	"/sales":                        "sales",
 	"/sales/loads":                  "sales",
 	"/sales/market-analytics":       "sales",
+	"/sales/buyer-analytics":        "sales",
 	"/sales/vendors":                "sales",
 	"/procurement/feed-purchases":   "feed_purchases",
 	"/procurement/animal-purchases": "animal_purchases",

@@ -29,6 +29,11 @@ export type LoadwiseSummary = AppApiComponents["schemas"]["LoadwiseSummary"];
 export type LoadwisePriorOutcome = AppApiComponents["schemas"]["LoadwisePriorOutcome"];
 export type LoadCostWrite = AppApiComponents["schemas"]["LoadCostWrite"];
 
+// Buyer analytics — every buyer the farm has sold to (/procurement/buyer-analytics).
+export type BuyerAnalytics = AppApiComponents["schemas"]["BuyerAnalytics"];
+export type BuyerAnalyticsRow = AppApiComponents["schemas"]["BuyerAnalyticsRow"];
+export type BuyerAnalyticsSummary = AppApiComponents["schemas"]["BuyerAnalyticsSummary"];
+
 // Feed purchases — the buying side of the feed chain (/procurement/feed-purchases).
 export type FeedPurchase = AppApiComponents["schemas"]["FeedPurchase"];
 export type FeedPurchasePage = AppApiComponents["schemas"]["FeedPurchasePage"];
