@@ -34,8 +34,9 @@ import { one, type RouteSearchParams } from "@/lib/search-params";
 import {
   defaultWindow,
   landingWindow,
+  weightsWindowSettings,
 } from "./landing-window";
-import { WINDOW_FROM_PARAM, WINDOW_MIN_DATE, WINDOW_TO_PARAM } from "./landing-window-constants";
+import { WINDOW_FROM_PARAM, WINDOW_TO_PARAM } from "./landing-window-constants";
 import { WeightsAnalyticsTabLoading } from "./weights-analytics-tab-loading";
 
 const PAGE_PATH = "/weighing/analytics";
@@ -157,6 +158,9 @@ export async function WeighingWeightsAnalyticsPage({
   const offset = boundedOffset(one(params, "offset"));
 
   const today = todayIso();
+  // The window the page opens on and the earliest calendar day: the Weighing SOP's weights_pages
+  // block, served on this page's contract copy (backend-owned; the constants are the fallback).
+  const windowSettings = weightsWindowSettings(pageContract.copy, today);
   const weighingCategoryFilter = modeFilter !== "all" ? modeFilter : "";
   const window = await landingWindow(
     params,
@@ -165,6 +169,7 @@ export async function WeighingWeightsAnalyticsPage({
     sexFilter,
     originFilter,
     weighingCategoryFilter,
+    windowSettings,
   );
   // Every tab reads the same selected/default period, including Time-wise. That keeps the tab strip
   // as slices of one population instead of silently changing the date range under the reader.
@@ -279,9 +284,9 @@ export async function WeighingWeightsAnalyticsPage({
       from: window.from,
       to: window.to,
       today,
-      minDate: WINDOW_MIN_DATE,
-      defaultFrom: defaultWindow(today).from,
-      defaultTo: defaultWindow(today).to,
+      minDate: windowSettings.earliestDate,
+      defaultFrom: defaultWindow(today, windowSettings).from,
+      defaultTo: defaultWindow(today, windowSettings).to,
       labels: {
         field: copy(pageContract, "filter.period.label"),
         today: copy(pageContract, "filter.period.today"),

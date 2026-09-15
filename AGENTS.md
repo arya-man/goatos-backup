@@ -2851,7 +2851,10 @@ Purpose:
   compulsory or optional -- the evidence row stores them slot-keyed, `sop_proofs`, and the
   verifier item names each proof by its slot title and kind through
   `verification_items.media_meta`) and extra QUESTIONS the removal operator answers per pen; and
-  the lump-sum video window -- are `form_dsl.weighing` of the PUBLISHED `weighing.session` version.
+  the lump-sum video window; and the admin-web Weights / ADG Analytics pages' WINDOW (the
+  period they open on, fixed date or rolling days, and the earliest calendar day; page
+  settings read from the published version, never pinned) -- are `form_dsl.weighing` of the
+  PUBLISHED `weighing.session` version.
   The backend validates it at save (`weighingsop/app.WeighingSOPContract`), the create is
   STAMPED with the version (`weighing_campaigns.sop_version`) and the task runs on that version
   to the end (edit, lump-sum submit, removal card and its answers all read the PIN, never the

@@ -116,3 +116,26 @@ test("a capture slot without the required flag (a pre-flag document) is compulso
   assert.deepEqual(rows.removalProofs.map((p) => p.required), [true, false]);
   assert.deepEqual(weighingProblems(rows), []);
 });
+
+test("the Weights pages' window: fixed date or rolling days, never before the earliest day, seeded when absent", () => {
+  const seed = JSON.parse(readFileSync(seedPath, "utf8"));
+  const rows = parseWeighing({ weighing: seed });
+  assert.equal(rows.weightsFromMode, "fixed_date");
+  assert.equal(rows.weightsFromDate, "2026-08-03");
+  assert.equal(rows.weightsEarliestDate, "2026-08-01");
+  assert.deepEqual(emitWeighing(rows).weights_pages, { default_from_mode: "fixed_date", default_from_date: "2026-08-03", earliest_date: "2026-08-01" });
+
+  // A document published before the block existed reads as the seed, exactly as the backend does.
+  const { weights_pages: _dropped, ...older } = seed;
+  const olderRows = parseWeighing({ weighing: older });
+  assert.equal(olderRows.weightsFromDate, "2026-08-03");
+  assert.equal(olderRows.weightsEarliestDate, "2026-08-01");
+
+  const rolling = { ...rows, weightsFromMode: "rolling_days", weightsFromDays: "45" };
+  assert.deepEqual(weighingProblems(rolling), []);
+  assert.deepEqual(emitWeighing(rolling).weights_pages, { default_from_mode: "rolling_days", default_from_days: 45, earliest_date: "2026-08-01" });
+  assert.ok(weighingProblems({ ...rolling, weightsFromDays: "0" }).some((p) => p.includes("1 to 3650")));
+  assert.ok(weighingProblems({ ...rows, weightsFromDate: "2026-07-20" }).some((p) => p.includes("cannot be before the earliest day")));
+  assert.ok(weighingProblems({ ...rows, weightsEarliestDate: "" }).some((p) => p.includes("earliest day the calendar offers")));
+  assert.ok(weighingProblems({ ...rows, weightsFromDate: "3 Aug" }).some((p) => p.includes("pick the day the pages open from")));
+});

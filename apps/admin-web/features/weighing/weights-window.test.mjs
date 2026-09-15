@@ -31,7 +31,7 @@ test("the period control is a calendar, not a fixed-window select", () => {
   assert.doesNotMatch(contract, /"filter\.period\.12w"/);
 });
 
-test("the page lands on 2026-08-03 through the latest weighing when no period is selected", () => {
+test("the page lands on the SOP's default start (seed: 2026-08-03) through the latest weighing when no period is selected", () => {
   assert.match(landingConstantsSource, /export const DEFAULT_WINDOW_FROM = "2026-08-03";/);
   assert.match(landingConstantsSource, /export const LATEST_LUMP_LOOKBACK_DAYS = 400;/);
   assert.match(landingConstantsSource, /export const WINDOW_MIN_DATE = "2026-08-01";/);
@@ -41,7 +41,9 @@ test("the page lands on 2026-08-03 through the latest weighing when no period is
   assert.match(landingSource, /origin: originFilter \|\| undefined,/);
   assert.match(landingSource, /weighing_category: weighingCategoryFilter \|\| undefined,/);
   assert.doesNotMatch(landingSource, /dates\[dates\.length - 2\]/);
-  assert.match(landingSource, /from: DEFAULT_WINDOW_FROM > today \? today : DEFAULT_WINDOW_FROM,/);
+  // WEIGHING SOP weights_pages (2026-09-16): the start is the SERVED setting, the constant its fallback.
+  assert.match(landingSource, /const from = settings\?\.defaultFrom \?\? DEFAULT_WINDOW_FROM;/);
+  assert.match(landingSource, /from: from > today \? today : from,/);
   // THE END IS NOT A LUMP DATE. On 25 Aug 2026 the farm scanned 199 kids across 17 sheds and weighed
   // no shed whole, so that day never entered lump_weighing_dates and a window closing on the later
   // lump date shut a day early -- dropping all 199 from the KPIs while the period label read as
@@ -53,7 +55,7 @@ test("the page lands on 2026-08-03 through the latest weighing when no period is
   // The date is BACKEND-owned. A max taken across the returned rows would be the page deriving
   // business truth from its own rows, which is the rollup-from-a-slice shape this repo bans.
   assert.doesNotMatch(landingSource, /Math\.max\([^)]*last_weighed_date/);
-  assert.match(landingSource, /return \{ from: DEFAULT_WINDOW_FROM > today \? today : DEFAULT_WINDOW_FROM, to: today \};/);
+  assert.match(landingSource, /return \{ from: from > today \? today : from, to: today \};/);
   // istDayPlus is pure calendar arithmetic on an already-resolved IST day. Re-entering a timezone
   // here (or hardcoding +05:30) is what the shared helper exists to prevent.
   assert.match(landingSource, /import \{ istDayPlus \} from "@\/lib\/format";/);
@@ -103,7 +105,7 @@ test("weights analytics sends the weighing mode through every tab read", () => {
   assert.match(analyticsSource, /function weighingModeFilter\(raw: string \| undefined\): string/);
   assert.match(analyticsSource, /const modeFilter = weighingModeFilter\(one\(params, "weighing"\)\);/);
   assert.match(analyticsSource, /const weighingCategoryFilter = modeFilter !== "all" \? modeFilter : "";/);
-  assert.match(analyticsSource, /landingWindow\(\s*\n\s*params,\s*\n\s*today,\s*\n\s*parkFilter,\s*\n\s*sexFilter,\s*\n\s*originFilter,\s*\n\s*weighingCategoryFilter,\s*\n\s*\)/);
+  assert.match(analyticsSource, /landingWindow\(\s*\n\s*params,\s*\n\s*today,\s*\n\s*parkFilter,\s*\n\s*sexFilter,\s*\n\s*originFilter,\s*\n\s*weighingCategoryFilter,\s*\n\s*windowSettings,\s*\n\s*\)/);
   assert.match(analyticsSource, /weighing_category: weighingCategoryFilter \|\| undefined/);
   // The shed read routes through shedParams so the Load-wise tab can drop the page filters a
   // whole load cannot honour; on every other tab shedParams IS { ...scope, ...readWindow }.
@@ -135,7 +137,7 @@ test("weights page sends the weighing mode through every backend read", () => {
   assert.match(source, /function weighingModeFilter\(raw: string \| undefined\): string/);
   assert.match(source, /const modeFilter = weighingModeFilter\(one\(params, "weighing"\)\);/);
   assert.match(source, /const weighingCategoryFilter = modeFilter !== "all" \? modeFilter : "";/);
-  assert.match(source, /landingWindow\(\s*\n\s*params,\s*\n\s*today,\s*\n\s*parkFilter,\s*\n\s*sexFilter,\s*\n\s*originFilter,\s*\n\s*weighingCategoryFilter,\s*\n\s*\)/);
+  assert.match(source, /landingWindow\(\s*\n\s*params,\s*\n\s*today,\s*\n\s*parkFilter,\s*\n\s*sexFilter,\s*\n\s*originFilter,\s*\n\s*weighingCategoryFilter,\s*\n\s*windowSettings,\s*\n\s*\)/);
   assert.match(source, /weighing_category: weighingCategoryFilter \|\| undefined/);
   assert.match(source, /getShedWeights\(\{ \.\.\.scope, \.\.\.window \}\)/);
   assert.match(source, /getWeighingGrowth\(\{ \.\.\.scope, \.\.\.window, sections: "rejected,shed_leaderboard,parks,losing_animals" \}\)/);
@@ -156,7 +158,7 @@ test("the default window is passed as NAMED fields, never spread", () => {
   // `{...defaultWindow(today)}` spreads `{from, to}` — the same two keys the SELECTED window uses —
   // and would silently overwrite the resolved latest-two-weighings window. It typechecks and
   // renders; only the data is wrong.
-  assert.match(source, /defaultFrom: defaultWindow\(today\)\.from,\s*\n\s*defaultTo: defaultWindow\(today\)\.to,/);
+  assert.match(source, /defaultFrom: defaultWindow\(today, windowSettings\)\.from,\s*\n\s*defaultTo: defaultWindow\(today, windowSettings\)\.to,/);
   assert.doesNotMatch(landingSource, /\.\.\.defaultWindow\(/);
 });
 
@@ -165,9 +167,9 @@ test("a hand-edited window falls back instead of taking the page down", () => {
   // because a weigh cannot have happened tomorrow.
   assert.match(landingSource, /rawFrom <= rawTo/);
   assert.match(landingSource, /rawFrom > today \? today : rawFrom/);
-  assert.match(landingSource, /if \(rawFrom \|\| rawTo\) return defaultWindow\(today\);/);
+  assert.match(landingSource, /if \(rawFrom \|\| rawTo\) return defaultWindow\(today, settings\);/);
   assert.doesNotMatch(landingSource, /ADMIN_WEB_FAST_SIDEBAR_WINDOWS/);
-  assert.match(landingSource, /return defaultWindow\(today\);/);
+  assert.match(landingSource, /return defaultWindow\(today, settings\);/);
 });
 
 test("the headline row is five cards, and the gain figure is stated once", () => {
@@ -429,4 +431,20 @@ test("lump marker proxy reads a calendar window independently of the report rang
   assert.match(route, /origin: origin === "farm_born" \|\| origin === "purchased" \? origin : undefined,/);
   assert.match(route, /weighing_category:\s*\n\s*weighing === "individual_animal" \|\| weighing === "per_shed_partition" \? weighing : undefined,/);
   assert.match(route, /dates: result\.data\.lump_weighing_dates/);
+});
+
+test("both Weights pages and the export drawer take the window from the page contract, never the constants", () => {
+  // WEIGHING SOP weights_pages (maintainer request 2026-09-16): the default start and the earliest
+  // calendar day are authored on /weighing/sops and served on the page contract's copy.
+  for (const src of [source, analyticsSource]) {
+    assert.match(src, /const windowSettings = weightsWindowSettings\(pageContract\.copy, today\);/);
+    assert.match(src, /minDate: windowSettings\.earliestDate,/);
+    assert.doesNotMatch(src, /WINDOW_MIN_DATE/);
+  }
+  const exportSource = readFileSync(new URL("./weights-export.tsx", import.meta.url), "utf8");
+  assert.match(exportSource, /minDate=\{weightsWindowSettings\(pageContract\.copy, today\)\.earliestDate\}/);
+  assert.doesNotMatch(exportSource, /WINDOW_MIN_DATE/);
+  // The resolver: fixed date, rolling days (never before the earliest day), and the seed fallback.
+  assert.match(landingConstantsSource, /if \(mode === "rolling_days"\)/);
+  assert.match(landingConstantsSource, /if \(defaultFrom < earliestDate\) defaultFrom = earliestDate;/);
 });

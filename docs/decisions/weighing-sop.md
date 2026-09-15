@@ -17,6 +17,7 @@ Weighing SOP** (`/weighing/sops`):
 | **Planning** | which ways of weighing the planner may pick (animal by animal / whole pen) and the default animals per day | the plan wizard (offered modes, prefilled cap); the create (a mode the SOP does not offer is refused, `422 weighing_mode_not_offered`) |
 | **Feed & water removal** | `required` (every task, the 2026-09-03 rule) / **`optional` (the planner decides per task, on by default)** / `off` (never); **the evening cutoff** (`cutoff_time`, blank = the farm-wide `feed_water_removal_config` evening shared with deworming); the instruction on the removal card; **the captures the card asks for** -- up to eight slots, each with a key, title, hint, kind (`video` / `photo` / `either`) and a required flag, at least one compulsory; extra **questions** the removal operator answers per pen | the plan wizard (removal step shown / toggle / hidden; today offerable when the removal does not apply; the toggle forced off with the reason once the pinned evening is gone); the create and edit (operator mandatory only when the removal applies; the effective evening only then, `422 fasting_window_closed` past it; a past date `422 weigh_date_in_past`); the removal card (copy, slots, questions, the effective evening); the pen submit (`422 fasting_proof_slot_invalid` naming the slot, `422 fasting_answer_invalid` naming the question); the card list (opens at each card's PINNED evening) |
 | **Capture** | the lump-sum video window (min..max, inside the proof policy's ceiling of 5); the per-animal video, shown **locked on** | the phone's lump-sum capture (cap and submit gate); the backend submit (`422 weighing_video_count`) |
+| **Weights pages** (maintainer request 2026-09-16) | the period the admin-web Weights and ADG Analytics pages OPEN on -- a fixed date or the last N days -- and the earliest day their calendars offer (earlier days greyed) | the two page contracts (`weights.window.*` copy, compiled by adminui from the PUBLISHED version; page settings, not pinned per task); the seed carries the values the pages used to hardcode (`2026-08-03`, `2026-08-01`) so deploy changes nothing |
 
 This is what the maintainer asked for on 2026-09-15 -- "everything should be SOP; keeping
 optional of feed and water removal, that should be from SOP" -- and it supersedes, for the
@@ -79,7 +80,9 @@ author typed, not a built-in.
 - `form_dsl.weighing` (`schema_version: goatos.sop-weighing.v1`) = `planning {modes[],
   default_cap_per_day}`, `feed_water_removal {mode, cutoff_time, instruction,
   proofs[{key,title,hint,kind,required}], questions[]}`, `capture {individual {video_required},
-  lump_sum {video_min, video_max}}`. A
+  lump_sum {video_min, video_max}}`, `weights_pages {default_from_mode fixed_date|rolling_days,
+  default_from_date, default_from_days, earliest_date}` (absent on an older document = the
+  seed). A
   question carries the same fields the procurement inspection's questions do (`id`, `kind`
   choice / multi / text / number, `title`, `hint`, `required`, `options` + `allow_other`,
   `min` / `max` / `unit`, `only_if`); there is no media kind, because the two clips ARE the

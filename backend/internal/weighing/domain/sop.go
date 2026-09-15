@@ -90,6 +90,31 @@ type WeighingSOP struct {
 	Planning         PlanningRules `json:"planning"`
 	FeedWaterRemoval RemovalRules  `json:"feed_water_removal"`
 	Capture          CaptureRules  `json:"capture"`
+	// WeightsPages governs the admin-web Weights and ADG Analytics pages (maintainer request
+	// 2026-09-16): the period they OPEN on and the earliest day their calendars offer. Page
+	// settings, not task rules -- read from the PUBLISHED version, never pinned. A document
+	// without the block (published before it existed) reads as the seeded values.
+	WeightsPages *WeightsPagesRules `json:"weights_pages,omitempty"`
+}
+
+// The two ways the Weights pages' default period may start.
+const (
+	// WeightsFromFixedDate: the pages open from an authored calendar date.
+	WeightsFromFixedDate = "fixed_date"
+	// WeightsFromRollingDays: the pages open from N days before today, moving every day.
+	WeightsFromRollingDays = "rolling_days"
+)
+
+// WeightsPagesRules is form_dsl.weighing.weights_pages.
+type WeightsPagesRules struct {
+	// DefaultFromMode is WeightsFromFixedDate or WeightsFromRollingDays.
+	DefaultFromMode string `json:"default_from_mode"`
+	// DefaultFromDate is the day the pages open from under fixed_date ("YYYY-MM-DD").
+	DefaultFromDate string `json:"default_from_date,omitempty"`
+	// DefaultFromDays is how many days back the pages open from under rolling_days (1..3650).
+	DefaultFromDays int `json:"default_from_days,omitempty"`
+	// EarliestDate is the first day the calendars offer; earlier days are disabled.
+	EarliestDate string `json:"earliest_date"`
 }
 
 // PlanningRules governs the plan wizard.
@@ -256,7 +281,20 @@ func ParseWeighingSOP(formDSL map[string]any) (WeighingSOP, error) {
 	if err := json.Unmarshal(b, &dsl); err != nil {
 		return WeighingSOP{}, fmt.Errorf("%w: %v", ErrWeighingSOPInvalid, err)
 	}
+	if dsl.WeightsPages == nil {
+		// Published before the block existed: the pages keep the seeded window.
+		seeded := seededWeightsPages()
+		dsl.WeightsPages = &seeded
+	}
 	return dsl, nil
+}
+
+func seededWeightsPages() WeightsPagesRules {
+	var seed struct {
+		WeightsPages WeightsPagesRules `json:"weights_pages"`
+	}
+	_ = json.Unmarshal(seededWeighingSOPJSON, &seed)
+	return seed.WeightsPages
 }
 
 // UnknownWeighingSOPKeys names every key the document carries that the schema does not,
@@ -281,7 +319,8 @@ func UnknownWeighingSOPKeys(formDSL map[string]any) []string {
 			}
 		}
 	}
-	walk("", raw, map[string]bool{"schema_version": true, "planning": true, "feed_water_removal": true, "capture": true})
+	walk("", raw, map[string]bool{"schema_version": true, "planning": true, "feed_water_removal": true, "capture": true, "weights_pages": true})
+	walk("weights_pages.", raw["weights_pages"], map[string]bool{"default_from_mode": true, "default_from_date": true, "default_from_days": true, "earliest_date": true})
 	walk("planning.", raw["planning"], map[string]bool{"modes": true, "default_cap_per_day": true})
 	walk("feed_water_removal.", raw["feed_water_removal"], map[string]bool{"mode": true, "cutoff_time": true, "instruction": true, "proofs": true, "questions": true})
 	if fwr, ok := raw["feed_water_removal"].(map[string]any); ok {
@@ -404,6 +443,26 @@ func ValidateWeighingSOP(dsl WeighingSOP) []string {
 	if ls.VideoMin > ls.VideoMax {
 		add("weighing.capture.lump_sum.video_min: must not exceed video_max")
 	}
+	if wp := dsl.WeightsPages; wp != nil {
+		switch wp.DefaultFromMode {
+		case WeightsFromFixedDate:
+			if _, err := time.Parse("2006-01-02", wp.DefaultFromDate); err != nil {
+				add("weighing.weights_pages.default_from_date: %q is not YYYY-MM-DD", wp.DefaultFromDate)
+			}
+		case WeightsFromRollingDays:
+			if wp.DefaultFromDays < 1 || wp.DefaultFromDays > 3650 {
+				add("weighing.weights_pages.default_from_days: 1..3650")
+			}
+		default:
+			add("weighing.weights_pages.default_from_mode: %q is not fixed_date / rolling_days", wp.DefaultFromMode)
+		}
+		if _, err := time.Parse("2006-01-02", wp.EarliestDate); err != nil {
+			add("weighing.weights_pages.earliest_date: %q is not YYYY-MM-DD", wp.EarliestDate)
+		} else if wp.DefaultFromMode == WeightsFromFixedDate && wp.DefaultFromDate != "" && wp.DefaultFromDate < wp.EarliestDate {
+			add("weighing.weights_pages.default_from_date: must not be before earliest_date")
+		}
+	}
+
 	return problems
 }
 

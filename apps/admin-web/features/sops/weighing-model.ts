@@ -58,7 +58,22 @@ export type WeighingRows = {
   individualVideoRequired: boolean;
   lumpSumVideoMin: string;
   lumpSumVideoMax: string;
+  /**
+   * The Weights / ADG Analytics pages' window (maintainer request 2026-09-16): the period the pages
+   * open on -- a fixed date or the last N days -- and the earliest day their calendars offer.
+   */
+  weightsFromMode: WeightsFromMode;
+  weightsFromDate: string;
+  weightsFromDays: string;
+  weightsEarliestDate: string;
 };
+
+export type WeightsFromMode = "fixed_date" | "rolling_days";
+
+// The seeded window, which is what the pages hardcoded before the block existed.
+export const SEEDED_WEIGHTS_FROM_DATE = "2026-08-03";
+export const SEEDED_WEIGHTS_EARLIEST_DATE = "2026-08-01";
+const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
 
 // The proof policy's ceiling (weighing/domain.MaxShedProofArtifacts); the backend refuses more.
 export const LUMP_SUM_VIDEO_CEILING = 5;
@@ -132,6 +147,9 @@ export function parseWeighing(formDsl: unknown): WeighingRows | null {
   const capture = obj(w["capture"]) ?? {};
   const individual = obj(capture["individual"]) ?? {};
   const lumpSum = obj(capture["lump_sum"]) ?? {};
+  // Absent on a document published before the block: the seed, as the backend reads it.
+  const weights = obj(w["weights_pages"]) ?? {};
+  const weightsFromMode: WeightsFromMode = weights["default_from_mode"] === "rolling_days" ? "rolling_days" : "fixed_date";
   const modes = Array.isArray(planning["modes"]) ? planning["modes"].filter((m): m is WeighingMode => m === "individual_animal" || m === "per_shed_partition") : [];
   const proofsRaw = Array.isArray(removal["proofs"]) ? removal["proofs"] : [];
   const proofs: RemovalProofRow[] = proofsRaw.flatMap((raw) => {
@@ -160,6 +178,10 @@ export function parseWeighing(formDsl: unknown): WeighingRows | null {
     individualVideoRequired: individual["video_required"] !== false,
     lumpSumVideoMin: num(lumpSum["video_min"]),
     lumpSumVideoMax: num(lumpSum["video_max"]),
+    weightsFromMode,
+    weightsFromDate: str(weights["default_from_date"], SEEDED_WEIGHTS_FROM_DATE) || SEEDED_WEIGHTS_FROM_DATE,
+    weightsFromDays: num(weights["default_from_days"]) || "60",
+    weightsEarliestDate: str(weights["earliest_date"], SEEDED_WEIGHTS_EARLIEST_DATE) || SEEDED_WEIGHTS_EARLIEST_DATE,
   };
 }
 
@@ -200,6 +222,10 @@ export function emitWeighing(rows: WeighingRows): Record<string, unknown> {
       individual: { video_required: rows.individualVideoRequired },
       lump_sum: { video_min: Number(rows.lumpSumVideoMin), video_max: Number(rows.lumpSumVideoMax) },
     },
+    weights_pages:
+      rows.weightsFromMode === "rolling_days"
+        ? { default_from_mode: "rolling_days", default_from_days: Number(rows.weightsFromDays), earliest_date: rows.weightsEarliestDate.trim() }
+        : { default_from_mode: "fixed_date", default_from_date: rows.weightsFromDate.trim(), earliest_date: rows.weightsEarliestDate.trim() },
   };
 }
 
@@ -249,6 +275,16 @@ export function weighingProblems(rows: WeighingRows): string[] {
   if (!Number.isInteger(min) || min < 1) problems.push("A whole pen needs at least 1 video");
   if (!Number.isInteger(max) || max < 1 || max > LUMP_SUM_VIDEO_CEILING) problems.push(`Whole-pen videos: at most ${LUMP_SUM_VIDEO_CEILING}`);
   if (Number.isInteger(min) && Number.isInteger(max) && min > max) problems.push("Whole-pen minimum videos must not exceed the maximum");
+  if (!ISO_DAY.test(rows.weightsEarliestDate.trim())) problems.push("Weights pages: pick the earliest day the calendar offers");
+  if (rows.weightsFromMode === "rolling_days") {
+    const days = Number(rows.weightsFromDays);
+    if (!Number.isInteger(days) || days < 1 || days > 3650) problems.push("Weights pages: open on the last 1 to 3650 days");
+  } else {
+    if (!ISO_DAY.test(rows.weightsFromDate.trim())) problems.push("Weights pages: pick the day the pages open from");
+    else if (ISO_DAY.test(rows.weightsEarliestDate.trim()) && rows.weightsFromDate.trim() < rows.weightsEarliestDate.trim()) {
+      problems.push("Weights pages: the opening day cannot be before the earliest day the calendar offers");
+    }
+  }
   return problems;
 }
 

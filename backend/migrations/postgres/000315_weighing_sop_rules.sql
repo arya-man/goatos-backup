@@ -80,6 +80,11 @@ jsonb_build_object(
   "capture": {
     "individual": {"video_required": true},
     "lump_sum": {"video_min": 1, "video_max": 5}
+  },
+  "weights_pages": {
+    "default_from_mode": "fixed_date",
+    "default_from_date": "2026-08-03",
+    "earliest_date": "2026-08-01"
   }
 }$seed$::jsonb
 ),
@@ -118,6 +123,11 @@ SET form_dsl = v.form_dsl || jsonb_build_object('weighing', $seed${
   "capture": {
     "individual": {"video_required": true},
     "lump_sum": {"video_min": 1, "video_max": 5}
+  },
+  "weights_pages": {
+    "default_from_mode": "fixed_date",
+    "default_from_date": "2026-08-03",
+    "earliest_date": "2026-08-01"
   }
 }$seed$::jsonb)
 FROM public.sop_definitions sd

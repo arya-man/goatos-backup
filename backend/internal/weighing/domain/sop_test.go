@@ -283,3 +283,47 @@ func TestUnknownWeighingSOPKeysAreNamedByPath(t *testing.T) {
 		t.Fatalf("the seed must carry no unknown key, got %v", keys)
 	}
 }
+
+// The Weights pages' window (maintainer request 2026-09-16): a fixed date or a rolling count of
+// days, plus the earliest day the calendars offer -- validated by path, defaulted to the seed
+// for a document published before the block existed.
+func TestWeightsPagesRulesAreValidatedAndDefaulted(t *testing.T) {
+	seed := SeededRules()
+	if seed.WeightsPages == nil || seed.WeightsPages.DefaultFromMode != WeightsFromFixedDate || seed.WeightsPages.DefaultFromDate != "2026-08-03" || seed.WeightsPages.EarliestDate != "2026-08-01" {
+		t.Fatalf("seed weights pages = %+v, want fixed 2026-08-03 / earliest 2026-08-01 (today's constants)", seed.WeightsPages)
+	}
+	var old map[string]any
+	if err := json.Unmarshal(SeededWeighingSOPJSON(), &old); err != nil {
+		t.Fatal(err)
+	}
+	delete(old, "weights_pages")
+	parsed, err := ParseWeighingSOP(map[string]any{"weighing": old})
+	if err != nil || parsed.WeightsPages == nil || parsed.WeightsPages.DefaultFromDate != "2026-08-03" {
+		t.Fatalf("a document without the block must read as the seed: %+v err %v", parsed.WeightsPages, err)
+	}
+	bad := func(mutate func(w *WeightsPagesRules)) []string {
+		d := SeededRules().WeighingSOP
+		w := *d.WeightsPages
+		mutate(&w)
+		d.WeightsPages = &w
+		return ValidateWeighingSOP(d)
+	}
+	cases := map[string]func(w *WeightsPagesRules){
+		"mode":          func(w *WeightsPagesRules) { w.DefaultFromMode = "sometimes" },
+		"date":          func(w *WeightsPagesRules) { w.DefaultFromDate = "3 Aug" },
+		"days_low":      func(w *WeightsPagesRules) { w.DefaultFromMode = WeightsFromRollingDays; w.DefaultFromDays = 0 },
+		"days_high":     func(w *WeightsPagesRules) { w.DefaultFromMode = WeightsFromRollingDays; w.DefaultFromDays = 4000 },
+		"earliest":      func(w *WeightsPagesRules) { w.EarliestDate = "" },
+		"from<earliest": func(w *WeightsPagesRules) { w.DefaultFromDate = "2026-07-01" },
+	}
+	for name, mutate := range cases {
+		if problems := bad(mutate); len(problems) == 0 || !strings.Contains(problems[0], "weighing.weights_pages.") {
+			t.Fatalf("%s: problems = %v, want one naming weighing.weights_pages.*", name, problems)
+		}
+	}
+	rolling := SeededRules().WeighingSOP
+	rolling.WeightsPages = &WeightsPagesRules{DefaultFromMode: WeightsFromRollingDays, DefaultFromDays: 60, EarliestDate: "2026-08-01"}
+	if problems := ValidateWeighingSOP(rolling); len(problems) != 0 {
+		t.Fatalf("rolling 60 days: %v", problems)
+	}
+}

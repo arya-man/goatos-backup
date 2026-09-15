@@ -27,6 +27,7 @@ import {
   type WeighingQuestionKind,
   type WeighingQuestionRow,
   type WeighingRows,
+  type WeightsFromMode,
 } from "./weighing-model";
 import { publishWeighingVersion, saveWeighingVersion, type WeighingSaveResult } from "./sop-actions";
 
@@ -342,6 +343,46 @@ export function WeighingEditor({ pageContract: pc, basePath, sopId, sopName, sop
           <p className="muted small" style={{ marginTop: 8 }}>
             {copy(pc, "wsop.capture.locked_rules")}
           </p>
+        </div>
+      </section>
+
+      {/* 4. Weights pages (maintainer request 2026-09-16) */}
+      <section className="card inspection-page sop-weighing-weights">
+        <div className="inspection-page-head" style={{ cursor: "default" }}>
+          <span className="qnum">4</span>
+          <strong>{copy(pc, "wsop.section.weights")}</strong>
+          <span className="muted small">{copy(pc, "wsop.section.weights.subtitle")}</span>
+        </div>
+        <div className="bd">
+          <div className="qcfg">
+            <div className="rowf">
+              <label className="numfield">
+                <span className="numlbl">{copy(pc, "wsop.weights.from_mode")}</span>
+                <select value={rows.weightsFromMode} onChange={(e) => setRows((r) => ({ ...r, weightsFromMode: e.target.value as WeightsFromMode }))}>
+                  <option value="fixed_date">{copy(pc, "wsop.weights.from_mode.fixed_date")}</option>
+                  <option value="rolling_days">{copy(pc, "wsop.weights.from_mode.rolling_days")}</option>
+                </select>
+              </label>
+              {rows.weightsFromMode === "rolling_days" ? (
+                <label className="numfield">
+                  <span className="numlbl">{copy(pc, "wsop.weights.from_days")}</span>
+                  <input inputMode="numeric" value={rows.weightsFromDays} onChange={(e) => setRows((r) => ({ ...r, weightsFromDays: e.target.value }))} />
+                </label>
+              ) : (
+                <label className="numfield">
+                  <span className="numlbl">{copy(pc, "wsop.weights.from_date")}</span>
+                  <input type="date" value={rows.weightsFromDate} min={rows.weightsEarliestDate || undefined} onChange={(e) => setRows((r) => ({ ...r, weightsFromDate: e.target.value }))} />
+                </label>
+              )}
+              <label className="numfield">
+                <span className="numlbl">{copy(pc, "wsop.weights.earliest_date")}</span>
+                <input type="date" value={rows.weightsEarliestDate} onChange={(e) => setRows((r) => ({ ...r, weightsEarliestDate: e.target.value }))} />
+              </label>
+            </div>
+            <p className="muted small" style={{ marginTop: 8 }}>
+              {copy(pc, "wsop.weights.note")}
+            </p>
+          </div>
         </div>
       </section>
 

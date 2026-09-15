@@ -6,7 +6,9 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	weighingdomain "github.com/vgoats/goatos/backend/internal/weighing/domain"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -50,7 +52,12 @@ type ReferenceFamilies struct {
 	SOPTaskTypes           []ReferenceOption
 	SOPTaskTypeAnswerKinds []ReferenceOption
 	UIConfig               []ConfigEntry
-	RevisionInputs         map[string]string
+	// WeighingWeightsPages is the published weighing.session SOP's weights_pages block, read
+	// by the adminui repository (adminui is not weighing, so it may name sop_versions) and
+	// compiled into the Weights / ADG Analytics page contracts' copy as the window the pages
+	// open on and the earliest calendar day. Nil = no published version = the seeded values.
+	WeighingWeightsPages *weighingdomain.WeightsPagesRules
+	RevisionInputs       map[string]string
 }
 
 type ReferenceOption struct {
@@ -919,6 +926,10 @@ func compilePages(pages []domain.PageContract, families ReferenceFamilies, input
 			// the group empty; the parks themselves are tenant rows and must never be
 			// constants in contract code.
 			out[i].OptionGroups = replaceOptionGroup(out[i].OptionGroups, "weighing_parks", optionsFromReferences(families.Parks, "info"))
+			// WEIGHING SOP weights_pages (maintainer request 2026-09-16): the window the two
+			// pages open on and the earliest calendar day come from the PUBLISHED document, not
+			// a client constant. Served as copy keys the pages read verbatim.
+			out[i].Copy = withWeightsWindowCopy(out[i].Copy, families.WeighingWeightsPages)
 			if out[i].RouteID == "weighing-analytics" {
 				// The Comparison tab's value chart, gated on SalesRead (see compileWeightsAnalyticsControls).
 				out[i].Controls = compileWeightsAnalyticsControls(out[i].Controls, input, out[i].Copy)
@@ -2199,6 +2210,7 @@ func familyHashes(resp domain.BootstrapResponse, families ReferenceFamilies, inp
 		"locations":   hashStruct(families.Parks),
 		"config":      hashStruct(struct{ Breeds, Health, Repro, Defer, SOP []ReferenceOption }{families.Breeds, families.HealthStatuses, families.ReproductiveStates, families.DeferStates, families.SOPLabels}),
 		"ui-config":   hashStruct(families.UIConfig),
+		"weights":     hashStruct(families.WeighingWeightsPages),
 	}
 	for key, value := range families.RevisionInputs {
 		hashes["db:"+key] = hashString(value)
@@ -2220,4 +2232,23 @@ func hashStruct(v any) string {
 func hashString(value string) string {
 	sum := sha256.Sum256([]byte(value))
 	return hex.EncodeToString(sum[:12])
+}
+
+// withWeightsWindowCopy writes the Weights pages' window onto a page contract's copy.
+// Absent rules (no published version, or a source error) fall back to the seeded document,
+// which is exactly what the pages hardcoded before the block existed.
+func withWeightsWindowCopy(copyMap map[string]string, rules *weighingdomain.WeightsPagesRules) map[string]string {
+	out := make(map[string]string, len(copyMap)+4)
+	for k, v := range copyMap {
+		out[k] = v
+	}
+	if rules == nil {
+		seeded := weighingdomain.SeededRules().WeightsPages
+		rules = seeded
+	}
+	out["weights.window.default_from_mode"] = rules.DefaultFromMode
+	out["weights.window.default_from_date"] = rules.DefaultFromDate
+	out["weights.window.default_from_days"] = strconv.Itoa(rules.DefaultFromDays)
+	out["weights.window.earliest_date"] = rules.EarliestDate
+	return out
 }

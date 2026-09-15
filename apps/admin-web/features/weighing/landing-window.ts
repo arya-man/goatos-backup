@@ -19,12 +19,14 @@ import {
   WINDOW_FROM_PARAM,
   WINDOW_TO_PARAM,
 } from "./landing-window-constants";
-export { DEFAULT_WINDOW_FROM, WINDOW_FROM_PARAM, WINDOW_TO_PARAM } from "./landing-window-constants";
+export { DEFAULT_WINDOW_FROM, WINDOW_FROM_PARAM, WINDOW_TO_PARAM, weightsWindowSettings, type WeightsWindowSettings } from "./landing-window-constants";
+import { type WeightsWindowSettings } from "./landing-window-constants";
 
 export type Window = { from: string; to: string };
 
-export function defaultWindow(today: string): Window {
-  return { from: DEFAULT_WINDOW_FROM > today ? today : DEFAULT_WINDOW_FROM, to: today };
+export function defaultWindow(today: string, settings?: WeightsWindowSettings): Window {
+  const from = settings?.defaultFrom ?? DEFAULT_WINDOW_FROM;
+  return { from: from > today ? today : from, to: today };
 }
 
 /**
@@ -34,17 +36,17 @@ export function defaultWindow(today: string): Window {
  * hand-edited URL must not take the page down. A future end is clamped to today, because a weigh
  * cannot have happened tomorrow and the reads would return an empty span for it.
  */
-export function explicitWindow(params: RouteSearchParams, today: string): Window | null {
+export function explicitWindow(params: RouteSearchParams, today: string, settings?: WeightsWindowSettings): Window | null {
   const rawFrom = one(params, WINDOW_FROM_PARAM)?.trim();
   const rawTo = one(params, WINDOW_TO_PARAM)?.trim();
   if (rawFrom && rawTo && BUSINESS_DAY.test(rawFrom) && BUSINESS_DAY.test(rawTo) && rawFrom <= rawTo) {
     return { from: rawFrom > today ? today : rawFrom, to: rawTo > today ? today : rawTo };
   }
-  if (rawFrom || rawTo) return defaultWindow(today);
+  if (rawFrom || rawTo) return defaultWindow(today, settings);
   return null;
 }
 
-/** The window a page opens on: the reader's own selection, else 2026-08-03 through latest weighing. */
+/** The window a page opens on: the reader's own selection, else the SOP's default start through the latest weighing. */
 export async function landingWindow(
   params: RouteSearchParams,
   today: string,
@@ -52,8 +54,9 @@ export async function landingWindow(
   sexFilter: string,
   originFilter = "",
   weighingCategoryFilter = "",
+  settings?: WeightsWindowSettings,
 ): Promise<Window> {
-  const selected = explicitWindow(params, today);
+  const selected = explicitWindow(params, today, settings);
   if (selected) return selected;
   const lookback = {
     from: istDayPlus(today, -(LATEST_LUMP_LOOKBACK_DAYS - 1)),
@@ -74,15 +77,16 @@ export async function landingWindow(
     origin: originFilter || undefined,
     weighing_category: weighingCategoryFilter || undefined,
   });
-  if (!result.ok) return defaultWindow(today);
+  if (!result.ok) return defaultWindow(today, settings);
 
   // END from the last day the farm weighed ANYTHING, not just a lump-sum day.
   // The backend owns the date (`latest_weighing_date`, whole-filter over both weighing grains);
   // an empty value falls back to today so the page still renders.
   const latest = result.data.latest_weighing_date ?? "";
   const end = BUSINESS_DAY.test(latest) ? latest : today;
+  const from = settings?.defaultFrom ?? DEFAULT_WINDOW_FROM;
   return {
-    from: DEFAULT_WINDOW_FROM > today ? today : DEFAULT_WINDOW_FROM,
+    from: from > today ? today : from,
     to: end > today ? today : end,
   };
 }
