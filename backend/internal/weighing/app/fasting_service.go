@@ -129,7 +129,7 @@ func (s *Service) SubmitFastingShed(ctx context.Context, actor domain.Actor, cmd
 	// raised item no-ops while a missing item is repaired.
 	if result.Evidence.FastingShedID != "" && result.Task.FastingTaskID != "" {
 		mediaRefs := orderedRefs(rules, result.Evidence)
-		if err := s.enqueueFastingShedVerification(ctx, result.Task, result.Evidence, mediaRefs); err != nil {
+		if err := s.enqueueFastingShedVerification(ctx, result.Task, result.Evidence, mediaRefs, mediaMetaFor(rules, result.Evidence, mediaRefs)); err != nil {
 			return domain.FastingShedCard{}, err
 		}
 	}
@@ -177,7 +177,36 @@ func orderedRefs(rules domain.Rules, shed domain.FastingShedProof) []string {
 	return out
 }
 
-func (s *Service) enqueueFastingShedVerification(ctx context.Context, task domain.FastingTask, shed domain.FastingShedProof, mediaRefs []string) error {
+// mediaMetaFor names each ordered ref for the verifier: the pinned slot's title and the kind the
+// register judged the capture to be (an `either` slot's answer), else the slot's own kind. A ref
+// on no known slot (legacy pair, or a slot the pin no longer names) carries no meta and renders
+// the registry's positional copy, exactly as before authored slots.
+func mediaMetaFor(rules domain.Rules, shed domain.FastingShedProof, refs []string) []VerificationMediaMeta {
+	if len(shed.Proofs) == 0 {
+		return nil
+	}
+	slotByRef := map[string]domain.RemovalProofSlot{}
+	for _, slot := range rules.RemovalProofs() {
+		if ref := shed.Proofs[slot.Key]; ref != "" {
+			slotByRef[ref] = slot
+		}
+	}
+	out := make([]VerificationMediaMeta, len(refs))
+	for i, ref := range refs {
+		slot, ok := slotByRef[ref]
+		if !ok {
+			continue
+		}
+		kind := shed.ProofKinds[ref]
+		if kind == "" && slot.Kind != domain.RemovalProofKindEither {
+			kind = slot.Kind
+		}
+		out[i] = VerificationMediaMeta{Label: slot.Title, Kind: kind}
+	}
+	return out
+}
+
+func (s *Service) enqueueFastingShedVerification(ctx context.Context, task domain.FastingTask, shed domain.FastingShedProof, mediaRefs []string, meta []VerificationMediaMeta) error {
 	if s.enqueuer == nil {
 		return nil
 	}
@@ -187,6 +216,7 @@ func (s *Service) enqueueFastingShedVerification(ctx context.Context, task domai
 		ObservationID:  shed.FastingShedID,
 		CampaignID:     task.CampaignID,
 		MediaRefs:      mediaRefs,
+		MediaMeta:      meta,
 		OperatorID:     task.OperatorUserID,
 		ShedID:         shed.ShedLocationID,
 		ParkID:         task.ParkID,

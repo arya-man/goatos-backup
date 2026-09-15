@@ -234,3 +234,62 @@ func TestMeasurementFieldsRoundTripThroughBothReadPaths_RealPostgres(t *testing.
 		t.Errorf("stored measurement_fields = %q, want %q -- null fails the array CHECK", stored, "[]")
 	}
 }
+
+// media_meta (000316) rides both read paths, positional against media_refs; an item attaching
+// none reads back empty, never null.
+func TestMediaMetaRoundTripThroughBothReadPaths_RealPostgres(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	repo := NewRepository(pool, 5*time.Second)
+	tenantID := newTenant(t, ctx, pool)
+	parkID := newPark(t, ctx, pool, tenantID)
+
+	want := []domain.MediaMeta{{Label: "Feed removed", Kind: "video"}, {Label: "Empty water trough", Kind: "photo"}}
+	created, err := repo.CreateItem(ctx, domain.CreateItem{
+		TenantID: tenantID, Vertical: "weighing", Module: "weighing", Category: "weighing_fasting",
+		Source:         domain.SourceRef{Module: "weighing", RefType: "weighing_fasting_shed", RefID: tenantID},
+		ParkID:         &parkID,
+		MediaRefs:      []string{"proof-1", "proof-2"},
+		MediaMeta:      want,
+		CapturedAt:     time.Now().In(biztime.DefaultLocation()),
+		IdempotencyKey: "weighing-fasting-verification:meta-1",
+	})
+	if err != nil {
+		t.Fatalf("CreateItem: %v", err)
+	}
+	got, err := repo.GetItem(ctx, tenantID, created.Item.ItemID)
+	if err != nil {
+		t.Fatalf("GetItem: %v", err)
+	}
+	if len(got.MediaMeta) != 2 || got.MediaMeta[1] != want[1] {
+		t.Fatalf("GetItem media_meta = %+v, want %+v", got.MediaMeta, want)
+	}
+	rows, err := repo.ListQueue(ctx, ports.ListQueueParams{TenantID: tenantID, Status: domain.StatusPending, Limit: 10})
+	if err != nil || len(rows) == 0 {
+		t.Fatalf("ListQueue: rows %d err %v", len(rows), err)
+	}
+	if len(rows[0].MediaMeta) != 2 || rows[0].MediaMeta[0] != want[0] {
+		t.Fatalf("ListQueue media_meta = %+v, want %+v", rows[0].MediaMeta, want)
+	}
+	bare, err := repo.CreateItem(ctx, domain.CreateItem{
+		TenantID: tenantID, Vertical: "weighing", Module: "weighing", Category: "weighing_fasting",
+		Source:         domain.SourceRef{Module: "weighing", RefType: "weighing_fasting_shed", RefID: parkID},
+		ParkID:         &parkID,
+		MediaRefs:      []string{"proof-3"},
+		CapturedAt:     time.Now().In(biztime.DefaultLocation()),
+		IdempotencyKey: "weighing-fasting-verification:meta-2",
+	})
+	if err != nil {
+		t.Fatalf("CreateItem bare: %v", err)
+	}
+	var stored string
+	if err := pool.QueryRow(ctx, `SELECT media_meta::text FROM verification_items WHERE item_id = $1::uuid`, bare.Item.ItemID).Scan(&stored); err != nil {
+		t.Fatal(err)
+	}
+	if stored != "[]" {
+		t.Fatalf("bare media_meta stored as %s, want []", stored)
+	}
+}

@@ -389,7 +389,7 @@ func TestSubmitFastingShedJudgesCapturesByThePinnedSlots(t *testing.T) {
 	newStore := func() *fakeFastingStore {
 		return &fakeFastingStore{submitResult: domain.FastingShedSubmitResult{
 			Card:     domain.FastingShedCard{FastingTaskID: fastingTaskID, CampaignShedID: shedB, FastingShedID: "00000000-0000-4000-8000-000000000902", Status: domain.FastingStatusPendingVerification, RowVersion: 1},
-			Evidence: domain.FastingShedProof{FastingShedID: "00000000-0000-4000-8000-000000000902", CampaignShedID: shedB, Proofs: domain.RemovalProofRefs{"feed_video": proofThree, "trough_photo": proofFour, "gate": proofOne}, RowVersion: 1},
+			Evidence: domain.FastingShedProof{FastingShedID: "00000000-0000-4000-8000-000000000902", CampaignShedID: shedB, Proofs: domain.RemovalProofRefs{"feed_video": proofThree, "trough_photo": proofFour, "gate": proofOne}, ProofKinds: map[string]string{proofOne: "photo"}, RowVersion: 1},
 			Task:     domain.FastingTask{TenantID: testTenant, FastingTaskID: fastingTaskID, CampaignID: "00000000-0000-4000-8000-000000000501", OperatorUserID: testOp, SubmittedAt: &submittedAt},
 		}}
 	}
@@ -422,6 +422,12 @@ func TestSubmitFastingShedJudgesCapturesByThePinnedSlots(t *testing.T) {
 	}
 	if got := enqueuer.received.MediaRefs; len(got) != 3 || got[1] != proofFour {
 		t.Fatalf("verifier media refs = %v, want every capture in slot order", got)
+	}
+	// Each proof names itself for the verifier: the slot's title, and the kind the register judged
+	// the capture to be -- the `either` gate was answered with a photo.
+	meta := enqueuer.received.MediaMeta
+	if len(meta) != 3 || meta[0] != (VerificationMediaMeta{Label: "Feed removed", Kind: "video"}) || meta[1] != (VerificationMediaMeta{Label: "Empty trough", Kind: "photo"}) || meta[2] != (VerificationMediaMeta{Label: "Gate closed", Kind: "photo"}) {
+		t.Fatalf("verifier media meta = %+v, want the slot titles with the captured kinds", meta)
 	}
 
 	// An older phone: the legacy pair under the SEEDED document maps onto feed_video / water_video.

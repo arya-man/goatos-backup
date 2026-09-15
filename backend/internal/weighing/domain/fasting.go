@@ -80,6 +80,11 @@ type FastingShedProof struct {
 	// slot. FeedProofRef / WaterProofRef above mirror the seeded feed_video / water_video slots
 	// for older readers and are blank when the document has no such slot.
 	Proofs RemovalProofRefs `json:"proofs,omitempty"`
+	// ProofKinds is {proof ref: video | photo} as the proof register judged each capture at
+	// submit -- an `either` slot's answer, carried to the verifier item's per-proof kind. Not
+	// stored on the row and not served; a replay that must re-raise the item falls back to the
+	// slot's own kind.
+	ProofKinds map[string]string `json:"-"`
 	// ShedLocationID routes the verifier item's shed filter; internal, not wire.
 	ShedLocationID string `json:"-"`
 }

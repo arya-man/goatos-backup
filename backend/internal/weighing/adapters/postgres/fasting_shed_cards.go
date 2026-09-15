@@ -377,7 +377,8 @@ func (r *Repository) SubmitFastingShed(ctx context.Context, cmd domain.SubmitFas
 	if reused {
 		return domain.FastingShedSubmitResult{}, ports.ErrFastingProofInvalid
 	}
-	if err := r.validateFastingProofsTx(ctx, tx, cmd.TenantID, expectedProofKinds(cmd)); err != nil {
+	capturedKinds, err := r.validateFastingProofsTx(ctx, tx, cmd.TenantID, expectedProofKinds(cmd))
+	if err != nil {
 		return domain.FastingShedSubmitResult{}, err
 	}
 
@@ -456,6 +457,7 @@ func (r *Repository) SubmitFastingShed(ctx context.Context, cmd domain.SubmitFas
 		RowVersion:     rowVersion,
 		Answers:        cmd.Answers,
 		Proofs:         proofs,
+		ProofKinds:     capturedKinds,
 	}
 
 	if err := audit.NewTxRecorder(tx).Record(ctx, audit.Event{

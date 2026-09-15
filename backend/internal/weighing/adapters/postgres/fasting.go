@@ -481,13 +481,13 @@ func (r *Repository) fastingShedsForTaskTx(ctx context.Context, tx pgx.Tx, tenan
 	return r.loadFastingLiveSheds(ctx, tx, tenantID, campaignID, fastingTaskID)
 }
 
-// validateFastingProofsTx asserts the two refs are DISTINCT, tenant-owned,
-// COMPLETED uploads, VIDEO artifacts, captured by the in-app camera. One
-// set-based read for the pair, mirroring the feed proof validator's contract.
 // validateFastingProofsTx checks each capture against the proof register: completed, taken
 // with the in-app camera, and of the TYPE its slot accepts (WEIGHING SOP: video / photo /
-// either per slot -- a photo in a video slot is refused, and so is a gallery file).
-func (r *Repository) validateFastingProofsTx(ctx context.Context, tx pgx.Tx, tenantID string, expected map[string]string) error {
+// either per slot -- a photo in a video slot is refused, and so is a gallery file). One
+// set-based read, mirroring the feed proof validator's contract. It judges every capture against its slot's kind and returns the kind each
+// capture actually IS (video / photo) -- an `either` slot's answer, which the document cannot
+// know and the verifier item names.
+func (r *Repository) validateFastingProofsTx(ctx context.Context, tx pgx.Tx, tenantID string, expected map[string]string) (map[string]string, error) {
 	refs := make([]string, 0, len(expected))
 	for ref := range expected {
 		refs = append(refs, ref)
@@ -495,15 +495,17 @@ func (r *Repository) validateFastingProofsTx(ctx context.Context, tx pgx.Tx, ten
 	rows, err := tx.Query(ctx, fastingProofValidateSQL,
 		tenantID, refs)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer rows.Close()
 	valid := map[string]bool{}
+	kinds := map[string]string{}
 	for rows.Next() {
 		var proofID, uploadState, proofType, mimeType, captureSource string
 		if err := rows.Scan(&proofID, &uploadState, &proofType, &mimeType, &captureSource); err != nil {
-			return err
+			return nil, err
 		}
+		kinds[proofID] = proofType
 		kind := expected[proofID]
 		typeOK := false
 		switch kind {
@@ -517,14 +519,14 @@ func (r *Repository) validateFastingProofsTx(ctx context.Context, tx pgx.Tx, ten
 		valid[proofID] = uploadState == "completed" && typeOK && captureSource == "in_app_camera"
 	}
 	if err := rows.Err(); err != nil {
-		return err
+		return nil, err
 	}
 	for _, ref := range refs {
 		if !valid[ref] {
-			return ports.ErrFastingProofInvalid
+			return nil, ports.ErrFastingProofInvalid
 		}
 	}
-	return nil
+	return kinds, nil
 }
 
 // ApplyFastingVerdict applies a verifier approve/rework to the fasting row.

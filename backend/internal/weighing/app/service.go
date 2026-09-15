@@ -108,6 +108,12 @@ type VerificationEnqueuer interface {
 	EnqueueWeighingVerification(ctx context.Context, in VerificationEnqueueRequest) error
 }
 
+// VerificationMediaMeta is one proof's header and kind, handed to the verification bridge.
+type VerificationMediaMeta struct {
+	Label string
+	Kind  string
+}
+
 type VerificationEnqueueRequest struct {
 	TenantID       string
 	Category       string
@@ -115,8 +121,12 @@ type VerificationEnqueueRequest struct {
 	CampaignID     string
 	CampaignShedID string
 	MediaRefs      []string
-	OperatorID     string
-	ShedID         string
+	// MediaMeta names each ref (label + kind), positional against MediaRefs -- for a removal pen
+	// the pinned SOP's slot titles and kinds, so the verifier reads "Empty water trough" over a
+	// photo player rather than the registry's fixed "Water removal video". Nil for weigh proofs.
+	MediaMeta  []VerificationMediaMeta
+	OperatorID string
+	ShedID     string
 	// ParkID is the campaign's park. It is MANDATORY routing data, not decoration:
 	// the verification notification consumer resolves the park's verify-duty holders
 	// from it, and an item enqueued without a park notifies nobody.

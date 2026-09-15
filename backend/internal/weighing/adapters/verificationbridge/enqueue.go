@@ -127,6 +127,7 @@ func (e *Enqueuer) EnqueueWeighingVerification(ctx context.Context, in weighinga
 			RefID:   in.ObservationID,
 		},
 		MediaRefs:  in.MediaRefs,
+		MediaMeta:  mediaMeta(in.MediaMeta),
 		OperatorID: ptrIfSet(in.OperatorID),
 		ShedID:     ptrIfSet(in.ShedID),
 		// ParkID is the notification routing key: the verification pending consumer resolves the
@@ -150,4 +151,16 @@ func ptrIfSet(s string) *string {
 		return nil
 	}
 	return &s
+}
+
+// mediaMeta carries the producer's per-proof headers and kinds across the module boundary.
+func mediaMeta(in []weighingapp.VerificationMediaMeta) []verificationdomain.MediaMeta {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]verificationdomain.MediaMeta, 0, len(in))
+	for _, m := range in {
+		out = append(out, verificationdomain.MediaMeta{Label: m.Label, Kind: m.Kind})
+	}
+	return out
 }
