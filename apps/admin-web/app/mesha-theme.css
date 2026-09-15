@@ -5240,6 +5240,11 @@ select:disabled { opacity: .45; }
 .ap-filter-select,.ap-filter-date{height:32px;padding:0 10px;border-radius:9px;border:1px solid var(--line);background:var(--panel);color:var(--ink);font:inherit;font-size:13px}
 .ap-filter-select{max-width:320px}
 .ap-filter-select:focus,.ap-filter-date:focus{outline:none;border-color:var(--brand-l)}
+.ap-decision-chips{margin-bottom:14px;padding-left:12px}
+/* Native date/time pickers follow the console theme. The browser paints the popup calendar from
+   color-scheme, not from our CSS, so without this every calendar opened white on the dark console. */
+input[type=date],input[type=datetime-local],input[type=time],input[type=month],input[type=week]{color-scheme:dark}
+:root.light input[type=date],:root.light input[type=datetime-local],:root.light input[type=time],:root.light input[type=month],:root.light input[type=week]{color-scheme:light}
 
 /* SOP library: the card whose version was JUST published (maintainer report 2026-09-15 — after
    Publish the editor closes and the change has to be visibly reflected on the library). */
