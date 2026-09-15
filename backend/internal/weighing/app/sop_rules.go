@@ -228,6 +228,11 @@ func (s *Service) removalCardCopy(ctx context.Context, tenantID string, cards []
 // write paths still refuse it by name.
 func (s *Service) decorateCampaignRules(ctx context.Context, tenantID string, items []domain.Campaign) error {
 	byVersion := map[int]*domain.Rules{}
+	// Farm configuration is live per request, but identical for every row/version on
+	// this page. Cache errors too so a missing config cannot cause N repeated reads.
+	var farm fwrdomain.Cutoff
+	var farmErr error
+	farmRead := false
 	for i := range items {
 		rules, seen := byVersion[items[i].SOPVersion]
 		if !seen {
@@ -242,9 +247,16 @@ func (s *Service) decorateCampaignRules(ctx context.Context, tenantID string, it
 			}
 			byVersion[items[i].SOPVersion] = rules
 		}
-		if rules != nil {
-			effective := s.withEffectiveCutoff(ctx, tenantID, *rules)
-			rules = &effective
+		if rules != nil && rules.FeedWaterRemoval.Mode != domain.RemovalModeOff && rules.FeedWaterRemoval.CutoffTime == "" {
+			if !farmRead {
+				farm, farmErr = s.removalCutoff(ctx, tenantID, domain.SeededRules())
+				farmRead = true
+			}
+			if farmErr == nil {
+				effective := *rules
+				effective.FeedWaterRemoval.CutoffTime = farm.String()
+				rules = &effective
+			}
 		}
 		items[i].SOP = rules
 	}

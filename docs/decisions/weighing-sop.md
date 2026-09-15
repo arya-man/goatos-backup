@@ -294,3 +294,16 @@ Authored questions on the lump-sum pen submit and per animal; the `/config` regi
 question kinds; authored captures on the WEIGH itself (the per-animal video stays locked on and
 the lump-sum window is a count, not a slot list); a media kind for questions (the slots ARE the
 card's media).
+
+## PR 274 review follow-up: request reads and conditional ancestry
+
+Campaign list decoration resolves the live farm cutoff once per request, shared across
+all fallback versions; an explicit pinned evening and removal-off rules do not read it.
+The immutable pinned-rule cache never stores the resolved farm evening. Regression tests
+cover 20/100 rows, mixed pins, and a farm configuration change between requests.
+
+Conditional questions require their entire earlier-question ancestry to apply. Hidden
+draft answers may remain locally so toggling back restores input, but they cannot activate
+a descendant or enter submitted evidence. Backend validation/normalization and Android
+visibility/submit gating/serialization use the same ordered applicability rule. Tests
+exercise A -> B -> C, changing A after answering B, and reopening the branch.

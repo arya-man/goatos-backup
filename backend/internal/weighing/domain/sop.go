@@ -672,6 +672,7 @@ func answerInvalid(id, msg string) error {
 // skipped -- an answer given to it is dropped by NormalizeRemovalAnswers, not refused.
 func (r Rules) ValidateRemovalAnswers(a SOPAnswers) error {
 	questions := r.FeedWaterRemoval.Questions
+	applicable := r.applicableRemovalQuestions(a)
 	known := map[string]bool{}
 	for _, q := range questions {
 		known[q.ID] = true
@@ -685,7 +686,7 @@ func (r Rules) ValidateRemovalAnswers(a SOPAnswers) error {
 		}
 	}
 	for _, q := range questions {
-		if !a.applies(q) {
+		if !applicable[q.ID] {
 			continue
 		}
 		switch q.Kind {
@@ -748,8 +749,9 @@ func (r Rules) ValidateRemovalAnswers(a SOPAnswers) error {
 // asked. Returns an empty (non-nil) map when the document asks nothing.
 func (r Rules) NormalizeRemovalAnswers(a SOPAnswers) SOPAnswers {
 	out := SOPAnswers{}
+	applicable := r.applicableRemovalQuestions(a)
 	for _, q := range r.FeedWaterRemoval.Questions {
-		if !a.applies(q) {
+		if !applicable[q.ID] {
 			continue
 		}
 		if raw, ok := a[q.ID]; ok {
@@ -764,11 +766,16 @@ func (r Rules) NormalizeRemovalAnswers(a SOPAnswers) SOPAnswers {
 	return out
 }
 
-func (a SOPAnswers) applies(q SOPQuestion) bool {
-	if q.OnlyIf == nil {
-		return true
+// Conditions may only reference earlier questions (validated at publish), so a
+// single ordered pass resolves the entire ancestry. Hidden draft answers cannot
+// activate descendants, even when the operator previously answered that branch.
+func (r Rules) applicableRemovalQuestions(a SOPAnswers) map[string]bool {
+	out := make(map[string]bool, len(r.FeedWaterRemoval.Questions))
+	for _, q := range r.FeedWaterRemoval.Questions {
+		cond := q.OnlyIf
+		out[q.ID] = cond == nil || (out[cond.QuestionID] && a.choice(cond.QuestionID) == cond.Value)
 	}
-	return a.choice(q.OnlyIf.QuestionID) == q.OnlyIf.Value
+	return out
 }
 
 func (a SOPAnswers) choice(id string) string {

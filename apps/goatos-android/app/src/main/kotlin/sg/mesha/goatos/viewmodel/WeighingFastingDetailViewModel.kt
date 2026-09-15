@@ -328,26 +328,34 @@ class WeighingFastingDetailViewModel @Inject constructor(
         recomputeSubmit()
     }
 
-    /** Whether a question's "ask only when" holds against the current answers. */
-    private fun applies(q: WeighingSopQuestionDto): Boolean {
-        val cond = q.onlyIf ?: return true
-        return answers[cond.questionId]?.value?.trim() == cond.value
+    /** Published conditions only name earlier questions. Resolve ancestry in order so
+     * a retained draft answer on a hidden parent cannot activate its descendants. */
+    private fun applicableQuestionIds(): Set<String> = buildSet {
+        questionDtos.forEach { q ->
+            val cond = q.onlyIf
+            if (cond == null || (cond.questionId in this && answers[cond.questionId]?.value?.trim() == cond.value)) {
+                add(q.id)
+            }
+        }
     }
 
-    private fun questionRows(): List<WeighingFastingQuestionUi> = questionDtos.map { q ->
-        WeighingFastingQuestionUi(
-            id = q.id,
-            kind = q.kind,
-            title = q.title,
-            hint = q.hint,
-            required = q.required,
-            options = q.options.map { it.value to it.label },
-            allowOther = q.allowOther,
-            unit = q.unit,
-            rangeLabel = listOfNotNull(q.min, q.max).takeIf { it.size == 2 }?.let { (min, max) -> "${trimNumber(min)}–${trimNumber(max)}" }
-                ?: q.min?.let { "≥ ${trimNumber(it)}" } ?: q.max?.let { "≤ ${trimNumber(it)}" } ?: "",
-            applies = applies(q),
-        )
+    private fun questionRows(): List<WeighingFastingQuestionUi> {
+        val applicable = applicableQuestionIds()
+        return questionDtos.map { q ->
+            WeighingFastingQuestionUi(
+                id = q.id,
+                kind = q.kind,
+                title = q.title,
+                hint = q.hint,
+                required = q.required,
+                options = q.options.map { it.value to it.label },
+                allowOther = q.allowOther,
+                unit = q.unit,
+                rangeLabel = listOfNotNull(q.min, q.max).takeIf { it.size == 2 }?.let { (min, max) -> "${trimNumber(min)}–${trimNumber(max)}" }
+                    ?: q.min?.let { "≥ ${trimNumber(it)}" } ?: q.max?.let { "≤ ${trimNumber(it)}" } ?: "",
+                applies = q.id in applicable,
+            )
+        }
     }
 
     /**
@@ -355,20 +363,24 @@ class WeighingFastingDetailViewModel @Inject constructor(
      * same sentence the backend would answer with (422 fasting_answer_invalid), stated before
      * any queueing.
      */
-    private fun firstMissingAnswer(): String? = questionDtos.firstOrNull { q ->
-        if (!q.required || !applies(q)) return@firstOrNull false
-        val a = answers[q.id]
-        when (q.kind) {
-            "multi" -> a == null || a.values.isEmpty()
-            "choice" -> a == null || a.value.isBlank() || (a.value == "other" && q.allowOther && a.otherText.isBlank())
-            else -> a == null || a.value.isBlank()
-        }
-    }?.title
+    private fun firstMissingAnswer(): String? {
+        val applicable = applicableQuestionIds()
+        return questionDtos.firstOrNull { q ->
+            if (!q.required || q.id !in applicable) return@firstOrNull false
+            val a = answers[q.id]
+            when (q.kind) {
+                "multi" -> a == null || a.values.isEmpty()
+                "choice" -> a == null || a.value.isBlank() || (a.value == "other" && q.allowOther && a.otherText.isBlank())
+                else -> a == null || a.value.isBlank()
+            }
+        }?.title
+    }
 
     /** The answers as the backend's wire shape: only applicable questions, typed by kind. */
     private fun answersJson(): JsonObject = buildJsonObject {
+        val applicable = applicableQuestionIds()
         questionDtos.forEach { q ->
-            if (!applies(q)) return@forEach
+            if (q.id !in applicable) return@forEach
             val a = answers[q.id] ?: return@forEach
             when (q.kind) {
                 "multi" -> if (a.values.isNotEmpty()) put(q.id, JsonArray(a.values.map { JsonPrimitive(it) }))

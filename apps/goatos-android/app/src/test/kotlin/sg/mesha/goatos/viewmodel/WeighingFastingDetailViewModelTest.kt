@@ -221,6 +221,48 @@ class WeighingFastingDetailViewModelTest {
     }
 
     @Test
+    fun `hidden ancestor hides descendants and excludes their answers from submit`() = runTest(dispatcher) {
+        val sync = RecordingFastingSyncRepository()
+        val source = FakeProofCaptureSource(mutableListOf(video("/proof/chain-feed.mp4"), video("/proof/chain-water.mp4")))
+        val repository = FakeWeighingFastingRepository()
+        val vm = viewModel(proofCaptureSource = source, syncRepository = sync, fastingRepository = repository)
+        val options = listOf(
+            sg.mesha.goatos.core.network.dto.WeighingSopOptionDto("yes", "Yes"),
+            sg.mesha.goatos.core.network.dto.WeighingSopOptionDto("no", "No"),
+        )
+        repository.cardFlow.value = WeighingFastingCard(card().dto.copy(questions = listOf(
+            sg.mesha.goatos.core.network.dto.WeighingSopQuestionDto(id = "first", kind = "choice", title = "First", required = true, options = options),
+            sg.mesha.goatos.core.network.dto.WeighingSopQuestionDto(id = "second", kind = "choice", title = "Second", required = true, options = options,
+                onlyIf = sg.mesha.goatos.core.network.dto.WeighingSopConditionDto("first", "yes")),
+            sg.mesha.goatos.core.network.dto.WeighingSopQuestionDto(id = "third", kind = "text", title = "Third", required = true,
+                onlyIf = sg.mesha.goatos.core.network.dto.WeighingSopConditionDto("second", "yes")),
+        )))
+        advanceUntilIdle()
+        vm.onEvent(WeighingFastingDetailEvent.RecordSlot(WeighingFastingSlotKind.FEED))
+        advanceUntilIdle()
+        vm.onEvent(WeighingFastingDetailEvent.RecordSlot(WeighingFastingSlotKind.WATER))
+        advanceUntilIdle()
+        vm.onEvent(WeighingFastingDetailEvent.SetAnswer("first", "yes"))
+        vm.onEvent(WeighingFastingDetailEvent.SetAnswer("second", "yes"))
+        advanceUntilIdle()
+        assertTrue(vm.state.value.submitBlockedReason.contains("Third"))
+        vm.onEvent(WeighingFastingDetailEvent.SetAnswer("first", "no"))
+        advanceUntilIdle()
+        assertEquals(listOf("first"), vm.state.value.questions.filter { it.applies }.map { it.id })
+        assertTrue(vm.state.value.submitEnabled)
+        // Draft answers can remain for toggling back, but must never activate hidden children.
+        vm.onEvent(WeighingFastingDetailEvent.SetAnswer("third", "stale answer"))
+        vm.onEvent(WeighingFastingDetailEvent.SetAnswer("first", "yes"))
+        advanceUntilIdle()
+        assertEquals(3, vm.state.value.questions.count { it.applies })
+        vm.onEvent(WeighingFastingDetailEvent.SetAnswer("first", "no"))
+        vm.onEvent(WeighingFastingDetailEvent.Submit)
+        advanceUntilIdle()
+        assertEquals(1, sync.fastingSubmits.size)
+        assertEquals(setOf("first"), sync.lastFastingAnswers.keys)
+    }
+
+    @Test
     fun `submit blocked until both videos are recorded`() = runTest(dispatcher) {
         val sync = RecordingFastingSyncRepository()
         val source = FakeProofCaptureSource(mutableListOf(video("/proof/b-feed.mp4")))
