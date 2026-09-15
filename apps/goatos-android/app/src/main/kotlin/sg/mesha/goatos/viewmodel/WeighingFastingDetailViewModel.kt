@@ -244,16 +244,17 @@ class WeighingFastingDetailViewModel @Inject constructor(
         if (proofRef.isBlank()) return
         if (_state.value.slotOf(slot.key).let { it.remoteUrl != null || it.previewPath != null }) return
         updateSlot(slot.key) {
+            // A recorded capture on a photo slot is a photo; an `either` slot's kind is
+            // whatever was captured, which the server does not echo -- render as video only
+            // when the slot cannot be a photo.
+            val kind = if (slot.kind == WeighingFastingCaptureKind.VIDEO) WeighingFastingCaptureKind.VIDEO else WeighingFastingCaptureKind.PHOTO.takeIf { slot.kind == WeighingFastingCaptureKind.PHOTO } ?: slotCapturedKind(slot.key)
             it.copy(
                 captured = true,
                 status = WeighingFastingSlotStatus.SYNCED,
-                statusLabel = PROOF_SYNCED_LABEL,
+                statusLabel = proofStatusLabel(kind, WeighingFastingSlotStatus.SYNCED),
                 remoteUrl = weighingBackendProofUrl(proofRef),
                 serverProofId = proofRef,
-                // A recorded capture on a photo slot is a photo; an `either` slot's kind is
-                // whatever was captured, which the server does not echo -- render as video only
-                // when the slot cannot be a photo.
-                capturedKind = if (slot.kind == WeighingFastingCaptureKind.VIDEO) WeighingFastingCaptureKind.VIDEO else WeighingFastingCaptureKind.PHOTO.takeIf { slot.kind == WeighingFastingCaptureKind.PHOTO } ?: slotCapturedKind(slot.key),
+                capturedKind = kind,
             )
         }
     }
@@ -569,7 +570,7 @@ class WeighingFastingDetailViewModel @Inject constructor(
                                 busy = false,
                                 captured = true,
                                 status = WeighingFastingSlotStatus.QUEUED,
-                                statusLabel = PROOF_QUEUED_LABEL,
+                                statusLabel = proofStatusLabel(captured.kind, WeighingFastingSlotStatus.QUEUED),
                                 previewPath = captured.localUri,
                                 capturedKind = captured.kind,
                                 localProofRowId = result.value.id,
@@ -690,13 +691,8 @@ class WeighingFastingDetailViewModel @Inject constructor(
             it.copy(
                 captured = true,
                 status = status,
-                statusLabel = when (status) {
-                    WeighingFastingSlotStatus.SYNCED -> PROOF_SYNCED_LABEL
-                    WeighingFastingSlotStatus.UPLOADING -> PROOF_UPLOADING_LABEL
-                    // The server's (or transport's) own reason, verbatim where one exists.
-                    WeighingFastingSlotStatus.FAILED -> item.lastError ?: PROOF_FAILED_LABEL
-                    else -> PROOF_QUEUED_LABEL
-                },
+                // The server's (or transport's) own failure reason, verbatim where one exists.
+                statusLabel = item.lastError.takeIf { status == WeighingFastingSlotStatus.FAILED } ?: proofStatusLabel(it.capturedKind, status),
             )
         }
         if (item.status == SyncItemStatus.SUCCEEDED || item.isTerminalFailure) {
@@ -1008,10 +1004,19 @@ class WeighingFastingDetailViewModel @Inject constructor(
 
         // Device-local pre-sync status copy (mobile-contract:ignore: device-local outbox state
         // has no backend contract to carry it; server copy rides lastError verbatim above).
-        private const val PROOF_QUEUED_LABEL = "Video saved. It will upload on its own."
-        private const val PROOF_UPLOADING_LABEL = "Video on its way…"
-        private const val PROOF_SYNCED_LABEL = "Video sent"
-        private const val PROOF_FAILED_LABEL = "Video didn't go through. Record again."
+        /**
+         * Farm-worded live status for a slot's capture, naming what was captured: a photo slot
+         * says "Photo sent", never "Video sent" (found on the Realme, 2026-09-15).
+         */
+        internal fun proofStatusLabel(kind: String?, status: WeighingFastingSlotStatus): String {
+            val noun = if (kind == WeighingFastingCaptureKind.PHOTO) "Photo" else "Video"
+            return when (status) {
+                WeighingFastingSlotStatus.SYNCED -> "$noun sent"
+                WeighingFastingSlotStatus.UPLOADING -> "$noun on its way…"
+                WeighingFastingSlotStatus.FAILED -> "$noun didn't go through. ${if (kind == WeighingFastingCaptureKind.PHOTO) "Take it again." else "Record again."}"
+                else -> "$noun saved. It will upload on its own."
+            }
+        }
         private const val SUBMIT_QUEUED_MESSAGE = "Saved. It will be sent when the network allows."
         private const val SUBMIT_SYNCED_MESSAGE = "Sent. The videos will be checked later."
     }

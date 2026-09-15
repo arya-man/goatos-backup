@@ -555,6 +555,16 @@ internal class RecordingFastingSyncRepository : SyncRepository {
 class WeighingFastingDetailViewModelSlotsTest {
     private val dispatcher = kotlinx.coroutines.test.StandardTestDispatcher()
 
+    @org.junit.Test
+    fun `a photo slot's status names a photo, a video slot a video`() {
+        val photo = WeighingFastingDetailViewModel.proofStatusLabel(sg.mesha.goatos.feature.weighing.WeighingFastingCaptureKind.PHOTO, sg.mesha.goatos.feature.weighing.WeighingFastingSlotStatus.SYNCED)
+        val video = WeighingFastingDetailViewModel.proofStatusLabel(sg.mesha.goatos.feature.weighing.WeighingFastingCaptureKind.VIDEO, sg.mesha.goatos.feature.weighing.WeighingFastingSlotStatus.SYNCED)
+        val unknown = WeighingFastingDetailViewModel.proofStatusLabel(null, sg.mesha.goatos.feature.weighing.WeighingFastingSlotStatus.FAILED)
+        org.junit.Assert.assertEquals("Photo sent", photo)
+        org.junit.Assert.assertEquals("Video sent", video)
+        org.junit.Assert.assertTrue(unknown, unknown.startsWith("Video didn't go through"))
+    }
+
     @org.junit.Before
     fun setUp() = kotlinx.coroutines.Dispatchers.setMain(dispatcher)
 
