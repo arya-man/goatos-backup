@@ -19,12 +19,11 @@ Scope: land PR 267 (`fix/admin-web-in-place-feedback`) to `main`.
 - First `make land-main` attempt reached local CI but failed on `agent: ai-doctor` because `.repowise` index files were missing.
 - Rebuilt the local `.repowise` index with `make ai-rebuild-repowise`.
 - Re-ran `bash tools/agent-hooks/ai-doctor.sh` and it passed.
+- Second `make land-main` attempt passed the local CI gate and pushed the certified SHA to `main`.
 
 ## Pending
 
-- Rebase the candidate onto fresh `origin/main`.
-- Run the repo landing gate with `make land-main`.
-- Confirm `origin/main` contains the certified landed SHA.
+- None for main landing.
 
 ## Tests And Guards Performed Before Landing
 
@@ -36,6 +35,7 @@ Scope: land PR 267 (`fix/admin-web-in-place-feedback`) to `main`.
 - First landing attempt: `make land-main` — failed at `agent: ai-doctor`; all shown backend/admin-web/android build and test steps passed, but no valid push receipt was produced because local CI was red.
 - Repair: `make ai-rebuild-repowise` — passed.
 - Repair verification: `bash tools/agent-hooks/ai-doctor.sh` — passed.
+- Second landing attempt: `make land-main` — passed. Local CI selected `common,backend,admin-web,android`, recorded a green all receipt for `eaea3e0e3f17`, pushed `HEAD -> main`, and verified `origin/main` is `eaea3e0e3f17`.
 
 Known local limitations before landing:
 
@@ -45,5 +45,6 @@ Known local limitations before landing:
 ## Current State
 
 - Candidate SHA before first landing gate: `b30d0d5e7`.
-- Candidate SHA after recording ai-doctor repair: pending commit.
+- Candidate SHA after recording ai-doctor repair: `eaea3e0e3f17`.
+- Landed `main` SHA: `eaea3e0e3f17`.
 - Deployment state: not deployed; this entry is for main landing only.
