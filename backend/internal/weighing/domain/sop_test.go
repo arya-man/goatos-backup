@@ -340,7 +340,7 @@ func TestRemovalAnswerRowsRenderInFarmWords(t *testing.T) {
 		{ID: "issues", Kind: SOPQuestionMulti, Title: "Issues seen", Options: []SOPOption{{Value: "leak", Label: "Leak"}, {Value: "broken_trough", Label: "Broken trough"}}},
 	}
 	rows := rules.RemovalAnswerRows(SOPAnswers{
-		"issues":                 json.RawMessage(`["leak","broken_trough"]`),
+		"issues":                  json.RawMessage(`["leak","broken_trough"]`),
 		"every_pen_emptied":       json.RawMessage(`"other"`),
 		"every_pen_emptied_other": json.RawMessage(`"two pens left"`),
 		"buckets":                 json.RawMessage(`12`),
