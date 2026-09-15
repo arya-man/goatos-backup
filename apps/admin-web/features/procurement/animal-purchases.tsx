@@ -236,16 +236,47 @@ export async function AnimalPurchasesPage({
             ) : null}
           </div>
         </div>
-        {/* PROCUREMENT SOP: the load's own authored answers (how it arrived, documents, ...) sit
-            with the load, not with any one animal, so the CEO reads them once here. */}
-        {selectedLoad && (selectedLoad.answer_rows ?? []).length > 0 ? (
-          <div className="ap-load-answers">
+        {/* The selected load's own record: what the buying desk typed when it opened the load on
+            the phone (load number, vendor, farm, expected count, note), who recorded it and when,
+            plus any EXTRA authored SOP answers (how it arrived, documents, ...). These sit with the
+            load, not with any one animal, so the CEO reads them once here. A recorder whose roster
+            name cannot be resolved is dropped, never shown as an id. */}
+        {selectedLoad ? (
+          <div className="ap-load-answers" data-testid="ap-load-detail" aria-label={copy(pageContract, "label.load_answers")}>
             <span className="muted small b700">{copy(pageContract, "label.load_answers")}</span>
+            <span className="ap-load-answer">
+              <span className="muted small">{copy(pageContract, "column.load_ref")}</span> <b>{selectedLoad.load_ref}</b>
+            </span>
+            <span className="ap-load-answer">
+              <span className="muted small">{copy(pageContract, "column.vendor_name")}</span> <b>{selectedLoad.vendor_name || none}</b>
+            </span>
+            <span className="ap-load-answer">
+              <span className="muted small">{copy(pageContract, "column.farm")}</span> <b>{selectedLoad.farm}</b>
+            </span>
+            <span className="ap-load-answer">
+              <span className="muted small">{copy(pageContract, "column.expected_count")}</span> <b>{num(selectedLoad.expected_count)}</b>
+            </span>
+            <span className="ap-load-answer">
+              <span className="muted small">{copy(pageContract, "label.load.status")}</span>{" "}
+              <b>{copy(pageContract, `status.load.${selectedLoad.status}`, selectedLoad.status)}</b>
+            </span>
+            {selectedLoad.recorded_by_name ? (
+              <span className="ap-load-answer">
+                <span className="muted small">{copy(pageContract, "label.load.recorded_by")}</span> <b>{selectedLoad.recorded_by_name}</b>
+              </span>
+            ) : null}
+            <span className="ap-load-answer">
+              <span className="muted small">{copy(pageContract, "label.load.added_on")}</span> <b>{fmtDateTime(selectedLoad.created_at)}</b>
+            </span>
             {(selectedLoad.answer_rows ?? []).map((row) => (
               <span key={row.question_id} className="ap-load-answer">
                 <span className="muted small">{row.question}</span> <b>{row.answer}</b>
               </span>
             ))}
+            <span className="ap-load-answer ap-load-note">
+              <span className="muted small">{copy(pageContract, "label.load.notes")}</span>{" "}
+              {selectedLoad.notes ? <b>{selectedLoad.notes}</b> : <span className="muted">{copy(pageContract, "label.load.no_notes")}</span>}
+            </span>
           </div>
         ) : null}
 

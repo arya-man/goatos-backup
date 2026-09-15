@@ -20,6 +20,13 @@ const COPY_FALLBACKS: Record<string, Record<string, string>> = {
     "verdict.section": "Procurement director's verdict",
     "field_verdict.hint": "The buying desk's own call on the farm; the decision here is yours.",
     "attention.hint": "The farm check reads this answer as a reason to reject.",
+    "label.load.notes": "Note",
+    "label.load.no_notes": "No note was added.",
+    "label.load.recorded_by": "Recorded by",
+    "label.load.added_on": "Added on",
+    "label.load.status": "Status",
+    "status.load.open": "Open",
+    "status.load.closed": "Closed",
   },
   "counts-breakdown": {
     "summary_card.total_animals.label": "Total animals",
