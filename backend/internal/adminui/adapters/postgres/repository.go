@@ -401,16 +401,18 @@ func (r *Repository) listSOPTaskTypes(ctx context.Context, tenantID string) ([]a
 // the window the admin-web Weights / ADG Analytics pages open on and the earliest calendar
 // day (maintainer request 2026-09-16). No published version, or a document without the block,
 // reads as nil, which the compiler renders as the seeded values.
-func (r *Repository) loadWeighingWeightsPages(ctx context.Context, tenantID string) (*weighingdomain.WeightsPagesRules, string, error) {
-	var version int
-	var formDSL []byte
-	err := r.pool.QueryRow(ctx, `
+const sqlPublishedWeighingSOPDocument = `
 SELECT v.version, v.form_dsl
 FROM sop_versions v
 JOIN sop_definitions d ON d.tenant_id = v.tenant_id AND d.sop_id = v.sop_id
 WHERE v.tenant_id = $1::uuid AND d.code = $2 AND v.status = 'published'
 ORDER BY v.version DESC
-LIMIT 1`, tenantID, weighingdomain.SOPCodeWeighingSession).Scan(&version, &formDSL)
+LIMIT 1`
+
+func (r *Repository) loadWeighingWeightsPages(ctx context.Context, tenantID string) (*weighingdomain.WeightsPagesRules, string, error) {
+	var version int
+	var formDSL []byte
+	err := r.pool.QueryRow(ctx, sqlPublishedWeighingSOPDocument, tenantID, weighingdomain.SOPCodeWeighingSession).Scan(&version, &formDSL)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, "", nil
 	}
@@ -423,7 +425,7 @@ LIMIT 1`, tenantID, weighingdomain.SOPCodeWeighingSession).Scan(&version, &formD
 	}
 	dsl, err := weighingdomain.ParseWeighingSOP(doc)
 	if err != nil {
-		// A document the weighing service could not run either: the pages keep the seed.
+		// exception:exempt a document the weighing service refuses too (the SOP save contract never stores one; only a hand-edited row reaches here) keeps the Weights pages on the seeded window rather than failing every family loaded after this one and taking option groups off the whole console.
 		return nil, "", nil
 	}
 	return dsl.WeightsPages, fmt.Sprintf("v%d:%+v", version, dsl.WeightsPages), nil
