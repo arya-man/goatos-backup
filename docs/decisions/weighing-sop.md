@@ -252,6 +252,26 @@ submitted), `weighing_video_count`, `weighing_sop_version_unknown`, `fasting_ans
   authored slot's upload observer is reconnected when the card's slot list lands after
   process death.
 
+- PR #274 review round 3 (two findings, fixed): (1) the card list read every historically pinned
+  version on every refresh -- the versions read is now bounded (rounds of the last 90 days, the
+  20 newest versions) and a pinned version's rules are cached per process
+  (`TestCardRefreshReadsEachPinnedVersionOnceNotPerRefresh`: 50 versions, one read each, none on
+  the second refresh); (2) the operator's answers now ride the verifier item as context rows in
+  farm words (`Rules.RemovalAnswerRows`), on the fresh enqueue and on a replay.
+- Final E2E on the landing code (2026-09-16 02:00-03:00 IST, API :8108 on the throwaway clone,
+  admin-web :3397, Realme as CEO and as Amit): the Weights-pages window authored on the SOP
+  (fixed 10/08 + floor 05/08 → both pages open 10/08 with 1-4 Aug greyed; rolling 30 → both
+  open 18/08; refusals for from < floor and 0 days; seed restored); the 25-case document matrix
+  and the lifecycle matrix on the final binary; the wizard creating tomorrow's task with the
+  removal under a still-open evening and pinning it; the removal card with four question kinds
+  (No → "Why not?", 7 buckets, Broken trough), feed VIDEO + water PHOTO + gate as VIDEO →
+  `sop_proofs` three slots, verifier item with three media metas and four context rows,
+  rendered on the web drawer with the SOP titles, the answers and an image player; verifier
+  reject → rework on the phone (reason, slots emptied, answers kept) → fresh video + photo
+  resubmit → a second item; an identical create retried after a publish withdrew its mode
+  replays the task while a new request is refused; Amit's per-person tick keeps Tasks + My
+  work + Alerts and the planner catalog.
+
 ## Not here (phase 2)
 
 Authored questions on the lump-sum pen submit and per animal; the `/config` registry editor for
