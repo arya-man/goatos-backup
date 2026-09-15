@@ -240,7 +240,9 @@ smoke_grafana_dashboards() {
   if node tools/deploy/smoke-stg-grafana-dashboards.mjs \
     --project "$PROJECT_ID" \
     --region "$REGION" \
-    --service goatos-stg-grafana; then
+    --service goatos-stg-grafana \
+    --iam-service-account "goatos-github-deploy-stg@${PROJECT_ID}.iam.gserviceaccount.com" \
+    --direct-iam; then
     return 0
   fi
   echo "ERROR: Grafana dashboard smoke failed; refusing to report backend/web deploy success with missing or empty live dashboards." >&2

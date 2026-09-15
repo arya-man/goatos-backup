@@ -2,8 +2,9 @@
 // Post-deploy smoke for staging Grafana dashboard durability.
 //
 // Compares committed infra/grafana/dashboards/*.json UIDs against the live
-// Grafana API. It starts a local `gcloud run services proxy` by default because
-// the staging Grafana service is Cloud Run IAM-protected and internal-only.
+// Grafana API. It starts a local `gcloud run services proxy` by default for
+// developer laptops. In Cloud Build, use --direct-iam so Grafana keeps its Basic
+// auth header while Cloud Run IAM gets X-Serverless-Authorization.
 
 import { execFileSync, spawn } from "node:child_process";
 import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
@@ -53,12 +54,36 @@ function authHeader(password) {
   return `Basic ${Buffer.from(`admin:${password}`, "utf8").toString("base64")}`;
 }
 
-async function fetchJson(baseUrl, apiPath, password, timeoutMs) {
+function serviceUrl({ project, region, service }) {
+  return shellOut("gcloud", [
+    "run",
+    "services",
+    "describe",
+    service,
+    `--project=${project}`,
+    `--region=${region}`,
+    "--format=value(status.url)",
+  ]);
+}
+
+function identityToken(audience, serviceAccount = "") {
+  const args = [
+    "auth",
+    "print-identity-token",
+    `--audiences=${audience}`,
+  ];
+  if (serviceAccount) args.push(`--impersonate-service-account=${serviceAccount}`);
+  return shellOut("gcloud", args);
+}
+
+async function fetchJson(baseUrl, apiPath, password, timeoutMs, iamToken = "") {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
+    const headers = { Authorization: authHeader(password) };
+    if (iamToken) headers["X-Serverless-Authorization"] = `Bearer ${iamToken}`;
     const response = await fetch(new URL(apiPath, baseUrl), {
-      headers: { Authorization: authHeader(password) },
+      headers,
       signal: controller.signal,
     });
     const body = await response.text();
@@ -71,12 +96,12 @@ async function fetchJson(baseUrl, apiPath, password, timeoutMs) {
   }
 }
 
-async function waitForGrafana(baseUrl, password, timeoutMs) {
+async function waitForGrafana(baseUrl, password, timeoutMs, iamToken = "") {
   const started = Date.now();
   let lastError = null;
   while (Date.now() - started < timeoutMs) {
     try {
-      await fetchJson(baseUrl, "/api/health", password, 5000);
+      await fetchJson(baseUrl, "/api/health", password, 5000, iamToken);
       return;
     } catch (error) {
       lastError = error;
@@ -129,6 +154,8 @@ async function main() {
   const service = arg("--service", process.env.GRAFANA_CLOUD_RUN_SERVICE || "goatos-stg-grafana");
   const timeoutMs = Number(arg("--timeout-ms", process.env.GRAFANA_SMOKE_TIMEOUT_MS || "90000"));
   const explicitUrl = arg("--url", process.env.GRAFANA_STG_URL || "");
+  const directIam = hasFlag("--direct-iam") || process.env.GRAFANA_DIRECT_IAM === "1";
+  const iamServiceAccount = arg("--iam-service-account", process.env.GRAFANA_IAM_SERVICE_ACCOUNT || "");
   const password = process.env.GRAFANA_ADMIN_PASSWORD || shellOut("gcloud", [
     "secrets",
     "versions",
@@ -141,18 +168,25 @@ async function main() {
 
   let proxy = null;
   let baseUrl = explicitUrl;
+  let iamToken = "";
   if (!baseUrl) {
-    if (hasFlag("--no-proxy")) {
+    if (directIam) {
+      baseUrl = serviceUrl({ project, region, service });
+      iamToken = identityToken(baseUrl, iamServiceAccount);
+    } else if (hasFlag("--no-proxy")) {
       throw new Error("GRAFANA_STG_URL or --url is required with --no-proxy");
+    } else {
+      const port = Number(arg("--proxy-port", process.env.GRAFANA_PROXY_PORT || await freePort()));
+      proxy = startProxy({ project, region, service, port });
+      baseUrl = proxy.url;
     }
-    const port = Number(arg("--proxy-port", process.env.GRAFANA_PROXY_PORT || await freePort()));
-    proxy = startProxy({ project, region, service, port });
-    baseUrl = proxy.url;
+  } else if (directIam) {
+    iamToken = identityToken(baseUrl, iamServiceAccount);
   }
 
   try {
-    await waitForGrafana(baseUrl, password, timeoutMs);
-    const search = await fetchJson(baseUrl, "/api/search?type=dash-db", password, 15000);
+    await waitForGrafana(baseUrl, password, timeoutMs, iamToken);
+    const search = await fetchJson(baseUrl, "/api/search?type=dash-db", password, 15000, iamToken);
     const liveUids = new Set((Array.isArray(search) ? search : []).map((item) => item.uid).filter(Boolean));
     if (liveUids.size < dashboards.length) {
       throw new Error(`Grafana search returned ${liveUids.size} dashboards, but ${dashboards.length} dashboard JSONs are committed`);
@@ -161,7 +195,7 @@ async function main() {
     const missing = [];
     for (const dashboard of dashboards) {
       if (!liveUids.has(dashboard.uid)) missing.push(`${dashboard.uid} (${dashboard.file})`);
-      const live = await fetchJson(baseUrl, `/api/dashboards/uid/${encodeURIComponent(dashboard.uid)}`, password, 15000);
+      const live = await fetchJson(baseUrl, `/api/dashboards/uid/${encodeURIComponent(dashboard.uid)}`, password, 15000, iamToken);
       const livePanels = live?.dashboard?.panels;
       if (!Array.isArray(livePanels) || livePanels.length === 0) {
         throw new Error(`Live Grafana dashboard ${dashboard.uid} has no panels`);
