@@ -9,7 +9,6 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	fwrdomain "github.com/vgoats/goatos/backend/internal/feedwaterremoval/domain"
 	fwrports "github.com/vgoats/goatos/backend/internal/feedwaterremoval/ports"
 	"github.com/vgoats/goatos/backend/internal/platform/audit"
 	"github.com/vgoats/goatos/backend/internal/platform/oploc"
@@ -67,7 +66,10 @@ LEFT JOIN locations p
   ON p.tenant_id = ft.tenant_id AND p.location_id = ft.park_id
 WHERE ft.tenant_id = $1::uuid
   AND ft.operator_user_id = $2::uuid
-  AND ($3::timestamptz AT TIME ZONE 'Asia/Kolkata') >= ((ft.weigh_business_date - 1) + $7::time)
+  -- The window opens at the evening of the task's PINNED SOP version ($8, jsonb keyed by
+  -- version, bound by the service), else the farm default ($7). Bind, never a join: the
+  -- rules and the config live outside weighing.
+  AND ($3::timestamptz AT TIME ZONE 'Asia/Kolkata') >= ((ft.weigh_business_date - 1) + COALESCE(($8::jsonb ->> COALESCE(c.sop_version, 0)::text)::time, $7::time))
   AND (ft.submitted_at IS NOT NULL OR EXISTS (
         SELECT 1 FROM weighing_campaigns c
         WHERE c.tenant_id = ft.tenant_id AND c.campaign_id = ft.campaign_id
@@ -78,15 +80,49 @@ WHERE ft.tenant_id = $1::uuid
 ORDER BY ft.weigh_business_date DESC, cs.campaign_shed_id DESC
 LIMIT $6`
 
-// The visibility window's opening time is the tenant's CONFIGURED cutoff
-// (maintainer decision 2026-09-07), bound as $7 by the service from
-// feedwaterremoval/ports.CutoffReader. Weighing is isolated from every
-// non-weighing table, so the config is a bind, never a join here; an unset
-// cutoff is refused rather than defaulted, because a literal here would be a
-// second copy of the rule.
-func (r *Repository) ListFastingShedCardsForOperator(ctx context.Context, tenantID, operatorUserID string, now time.Time, cutoff fwrdomain.Cutoff, cursor string, limit int) (domain.FastingShedCardPage, error) {
-	if !cutoff.Valid() {
+// fastingCardSOPVersionsSQL lists the distinct versions the operator's candidate rounds are
+// pinned to: a handful of small integers, bounded by the number of versions ever published.
+const fastingCardSOPVersionsSQL = `
+SELECT DISTINCT COALESCE(c.sop_version, 0)
+FROM weighing_fasting_tasks ft
+JOIN weighing_campaigns c
+  ON c.tenant_id = ft.tenant_id AND c.campaign_id = ft.campaign_id
+WHERE ft.tenant_id = $1::uuid
+  AND ft.operator_user_id = $2::uuid
+  AND (ft.submitted_at IS NOT NULL OR c.status NOT IN ('completed','closed','canceled'))`
+
+// FastingCardSOPVersions implements ports.FastingStore.
+func (r *Repository) FastingCardSOPVersions(ctx context.Context, tenantID, operatorUserID string) ([]int, error) {
+	ctx, cancel := r.timeout(ctx)
+	defer cancel()
+	rows, err := r.pool.Query(ctx, fastingCardSOPVersionsSQL, tenantID, operatorUserID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	versions := []int{}
+	for rows.Next() {
+		var v int
+		if err := rows.Scan(&v); err != nil {
+			return nil, err
+		}
+		versions = append(versions, v)
+	}
+	return versions, rows.Err()
+}
+
+// The visibility window's opening time is the removal cutoff of each card's PINNED SOP
+// version, else the tenant's CONFIGURED cutoff (maintainer decision 2026-09-07), bound as
+// $8 / $7 by the service. Weighing is isolated from every non-weighing table, so the rules
+// and the config are binds, never joins here; an unset default is refused rather than
+// defaulted, because a literal here would be a second copy of the rule.
+func (r *Repository) ListFastingShedCardsForOperator(ctx context.Context, tenantID, operatorUserID string, now time.Time, cutoffs ports.RemovalCutoffs, cursor string, limit int) (domain.FastingShedCardPage, error) {
+	if !cutoffs.Default.Valid() {
 		return domain.FastingShedCardPage{}, fwrports.ErrCutoffNotConfigured
+	}
+	byVersion, err := json.Marshal(cutoffs.SQLByVersion())
+	if err != nil {
+		return domain.FastingShedCardPage{}, err
 	}
 	ctx, cancel := r.timeout(ctx)
 	defer cancel()
@@ -103,7 +139,7 @@ func (r *Repository) ListFastingShedCardsForOperator(ctx context.Context, tenant
 	rows, err := r.pool.Query(ctx, fastingShedCardsSQL,
 		tenantID, operatorUserID, now.UTC(),
 		nullableString(cur.Date), nullableUUIDString(cur.ID), limit+1,
-		cutoff.SQLTime())
+		cutoffs.Default.SQLTime(), string(byVersion))
 	if err != nil {
 		return domain.FastingShedCardPage{}, err
 	}

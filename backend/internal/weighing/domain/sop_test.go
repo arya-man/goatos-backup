@@ -241,7 +241,6 @@ func TestAuthoredProofSlotsShapeTheSubmit(t *testing.T) {
 
 func mustErr(_ []string, err error) error { return err }
 
-
 // A slot published before `required` existed reads as COMPULSORY (the shape those documents
 // meant); an explicit false stays optional. Found by the play-through: v2 on the proof clone
 // 500'd every planner read once the flag was introduced.

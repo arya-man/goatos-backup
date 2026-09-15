@@ -3,6 +3,7 @@ package ports
 import (
 	"context"
 	"errors"
+	"strconv"
 	"time"
 
 	fwrdomain "github.com/vgoats/goatos/backend/internal/feedwaterremoval/domain"
@@ -47,14 +48,49 @@ var (
 // FastingStore is the fasting task read/write side. It is deliberately NOT part
 // of Repository so the existing planner/execution fakes keep compiling
 // unchanged; the postgres Repository implements both and is wired twice.
+// RemovalCutoffs is the card list's visibility window, PER PINNED VERSION
+// (WEIGHING SOP): a task runs on the version it was planned under, and the
+// evening its card prints is the evening it opens at -- not the evening a
+// later publish chose. Default is the farm's configured cutoff, used for a
+// version with no entry (the seed, or a version the farm never published).
+type RemovalCutoffs struct {
+	Default   fwrdomain.Cutoff
+	ByVersion map[int]fwrdomain.Cutoff
+}
+
+// For returns the cutoff a card pinned to version opens at.
+func (c RemovalCutoffs) For(version int) fwrdomain.Cutoff {
+	if v, ok := c.ByVersion[version]; ok && v.Valid() {
+		return v
+	}
+	return c.Default
+}
+
+// SQLByVersion renders the per-version overrides as a jsonb object keyed by
+// version, valued "HH:MM:SS", for the list SQL to COALESCE over the default.
+func (c RemovalCutoffs) SQLByVersion() map[string]string {
+	out := map[string]string{}
+	for v, cutoff := range c.ByVersion {
+		if cutoff.Valid() {
+			out[strconv.Itoa(v)] = cutoff.SQLTime()
+		}
+	}
+	return out
+}
+
 type FastingStore interface {
 
 	// ListFastingShedCardsForOperator serves ONE CARD PER SHED (maintainer
-	// correction #2, 2026-09-03) under the configured-cutoff visibility window
-	// and terminal-campaign withholding. cutoff is the tenant's configured
-	// removal cutoff, resolved by the service and BOUND into the SQL, so the
-	// weighing package names no config table.
-	ListFastingShedCardsForOperator(ctx context.Context, tenantID, operatorUserID string, now time.Time, cutoff fwrdomain.Cutoff, cursor string, limit int) (domain.FastingShedCardPage, error)
+	// correction #2, 2026-09-03) under the removal-cutoff visibility window
+	// and terminal-campaign withholding. cutoffs carries the evening PER PINNED
+	// SOP VERSION plus the farm default, resolved by the service and BOUND into
+	// the SQL, so the weighing package names no config or SOP table.
+	ListFastingShedCardsForOperator(ctx context.Context, tenantID, operatorUserID string, now time.Time, cutoffs RemovalCutoffs, cursor string, limit int) (domain.FastingShedCardPage, error)
+
+	// FastingCardSOPVersions lists the distinct SOP versions pinned by the
+	// operator's candidate removal rounds (0 = the seeded rules), so the
+	// service can resolve each version's evening before the list is windowed.
+	FastingCardSOPVersions(ctx context.Context, tenantID, operatorUserID string) ([]int, error)
 
 	// SubmitFastingShed records ONE shed's pair in one transaction: pair
 	// validated (distinct, completed, live-camera, this tenant, not the shed's

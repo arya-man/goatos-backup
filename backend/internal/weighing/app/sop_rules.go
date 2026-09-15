@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	fwrdomain "github.com/vgoats/goatos/backend/internal/feedwaterremoval/domain"
 	"strings"
 
 	"github.com/vgoats/goatos/backend/internal/platform/uuidutil"
@@ -131,6 +132,40 @@ func validateRemovalAssignment(cmd domain.CreateCampaign) error {
 // page may belong to different tasks pinned to different versions; the resolved rule sets are
 // memoized per version so a page costs one source read per DISTINCT version, bounded by the
 // page size.
+// removalCardCutoffs resolves the card list's window per pinned version: the farm's
+// configured evening as the default, and each pinned version's own evening where the
+// document sets one. A version the farm never published falls back to the default, the
+// same leniency removalCardCopy gives its copy, so tonight's card is still listed.
+func (s *Service) removalCardCutoffs(ctx context.Context, tenantID, operatorUserID string) (ports.RemovalCutoffs, error) {
+	farm, err := s.removalCutoff(ctx, tenantID, domain.SeededRules())
+	if err != nil {
+		return ports.RemovalCutoffs{}, err
+	}
+	out := ports.RemovalCutoffs{Default: farm, ByVersion: map[int]fwrdomain.Cutoff{}}
+	versions, err := s.fasting.FastingCardSOPVersions(ctx, tenantID, operatorUserID)
+	if err != nil {
+		return ports.RemovalCutoffs{}, err
+	}
+	for _, v := range versions {
+		rules, err := s.rulesForVersion(ctx, tenantID, v)
+		if errors.Is(err, ports.ErrSOPVersionUnknown) {
+			continue
+		}
+		if err != nil {
+			return ports.RemovalCutoffs{}, err
+		}
+		if rules.FeedWaterRemoval.CutoffTime == "" {
+			continue
+		}
+		cutoff, err := s.removalCutoff(ctx, tenantID, rules)
+		if err != nil {
+			return ports.RemovalCutoffs{}, err
+		}
+		out.ByVersion[v] = cutoff
+	}
+	return out, nil
+}
+
 func (s *Service) removalCardCopy(ctx context.Context, tenantID string, cards []domain.FastingShedCard) error {
 	byVersion := map[int]domain.Rules{}
 	for i := range cards {

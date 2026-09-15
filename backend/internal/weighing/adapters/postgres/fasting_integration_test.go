@@ -115,7 +115,7 @@ func TestFastingListVisibilityOpensAtTheConfiguredCutoff(t *testing.T) {
 
 	ist := biztime.DefaultLocation()
 	before := time.Date(2026, 9, 3, 19, 59, 0, 0, ist)
-	page, err := repo.ListFastingShedCardsForOperator(ctx, repoTenant, fastingOperator, before, eightPMCutoff, "", 20)
+	page, err := repo.ListFastingShedCardsForOperator(ctx, repoTenant, fastingOperator, before, ports.RemovalCutoffs{Default: eightPMCutoff}, "", 20)
 	if err != nil {
 		t.Fatalf("list before window: %v", err)
 	}
@@ -124,7 +124,7 @@ func TestFastingListVisibilityOpensAtTheConfiguredCutoff(t *testing.T) {
 	}
 
 	atOpen := time.Date(2026, 9, 3, 20, 0, 0, 0, ist)
-	page, err = repo.ListFastingShedCardsForOperator(ctx, repoTenant, fastingOperator, atOpen, eightPMCutoff, "", 20)
+	page, err = repo.ListFastingShedCardsForOperator(ctx, repoTenant, fastingOperator, atOpen, ports.RemovalCutoffs{Default: eightPMCutoff}, "", 20)
 	if err != nil {
 		t.Fatalf("list at window open: %v", err)
 	}
@@ -160,14 +160,14 @@ func TestFastingListVisibilityOpensAtTheConfiguredCutoff(t *testing.T) {
 	// THE HOUR IS THE FARM'S: under a 21:00 cutoff the same 20:00 instant is
 	// still before the evening, so the cards stay hidden; at 21:00 they open.
 	ninePM := fwrdomain.MustCutoff(21, 0)
-	page, err = repo.ListFastingShedCardsForOperator(ctx, repoTenant, fastingOperator, atOpen, ninePM, "", 20)
+	page, err = repo.ListFastingShedCardsForOperator(ctx, repoTenant, fastingOperator, atOpen, ports.RemovalCutoffs{Default: ninePM}, "", 20)
 	if err != nil {
 		t.Fatalf("list at 20:00 under a 21:00 cutoff: %v", err)
 	}
 	if len(page.Items) != 0 {
 		t.Fatalf("cards visible at 20:00 IST under a 21:00 cutoff; the bound cutoff must decide, not a literal")
 	}
-	page, err = repo.ListFastingShedCardsForOperator(ctx, repoTenant, fastingOperator, time.Date(2026, 9, 3, 21, 0, 0, 0, ist), ninePM, "", 20)
+	page, err = repo.ListFastingShedCardsForOperator(ctx, repoTenant, fastingOperator, time.Date(2026, 9, 3, 21, 0, 0, 0, ist), ports.RemovalCutoffs{Default: ninePM}, "", 20)
 	if err != nil {
 		t.Fatalf("list at 21:00 under a 21:00 cutoff: %v", err)
 	}
@@ -175,12 +175,12 @@ func TestFastingListVisibilityOpensAtTheConfiguredCutoff(t *testing.T) {
 		t.Fatalf("cards at 21:00 IST under a 21:00 cutoff = %d, want 2", len(page.Items))
 	}
 	// An UNSET cutoff is refused, never defaulted.
-	if _, err := repo.ListFastingShedCardsForOperator(ctx, repoTenant, fastingOperator, atOpen, fwrdomain.Cutoff{}, "", 20); !errors.Is(err, fwrports.ErrCutoffNotConfigured) {
+	if _, err := repo.ListFastingShedCardsForOperator(ctx, repoTenant, fastingOperator, atOpen, ports.RemovalCutoffs{}, "", 20); !errors.Is(err, fwrports.ErrCutoffNotConfigured) {
 		t.Fatalf("unset cutoff list err = %v, want ErrCutoffNotConfigured", err)
 	}
 
 	// Another operator sees nothing: the cards belong to their assignee.
-	page, err = repo.ListFastingShedCardsForOperator(ctx, repoTenant, repoOperator, atOpen, eightPMCutoff, "", 20)
+	page, err = repo.ListFastingShedCardsForOperator(ctx, repoTenant, repoOperator, atOpen, ports.RemovalCutoffs{Default: eightPMCutoff}, "", 20)
 	if err != nil {
 		t.Fatalf("other-operator list: %v", err)
 	}
@@ -317,7 +317,7 @@ func TestReworkResubmitRefusesTheRejectedClipAndAcceptsFreshOnes(t *testing.T) {
 		t.Fatalf("approve verdict: %v", err)
 	}
 	atOpen := time.Date(2026, 9, 3, 20, 0, 0, 0, biztime.DefaultLocation())
-	page, err := repo.ListFastingShedCardsForOperator(ctx, repoTenant, fastingOperator, atOpen, eightPMCutoff, "", 20)
+	page, err := repo.ListFastingShedCardsForOperator(ctx, repoTenant, fastingOperator, atOpen, ports.RemovalCutoffs{Default: eightPMCutoff}, "", 20)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -595,7 +595,7 @@ func TestFastingCardsAreOnePerLiveBucket(t *testing.T) {
 	if _, err := repo.SubmitFastingShed(ctx, fastingSubmitShedA(fastingID, "fasting-onetomany-a")); err != nil {
 		t.Fatal(err)
 	}
-	page, err := repo.ListFastingShedCardsForOperator(ctx, repoTenant, fastingOperator, atOpen, eightPMCutoff, "", 20)
+	page, err := repo.ListFastingShedCardsForOperator(ctx, repoTenant, fastingOperator, atOpen, ports.RemovalCutoffs{Default: eightPMCutoff}, "", 20)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -609,7 +609,7 @@ func TestFastingCardsAreOnePerLiveBucket(t *testing.T) {
 	}
 	// Cancel one bucket: its card disappears; the sibling's stays.
 	execWeighingTestSQL(t, ctx, pool, `UPDATE weighing_campaign_sheds SET status='canceled' WHERE tenant_id=$1::uuid AND campaign_shed_id=$2::uuid`, repoTenant, repoShedScope)
-	page, err = repo.ListFastingShedCardsForOperator(ctx, repoTenant, fastingOperator, atOpen, eightPMCutoff, "", 20)
+	page, err = repo.ListFastingShedCardsForOperator(ctx, repoTenant, fastingOperator, atOpen, ports.RemovalCutoffs{Default: eightPMCutoff}, "", 20)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -645,14 +645,14 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, '2026-09-05', '2026-09-05', 'fas
 ON CONFLICT (tenant_id, campaign_id) DO NOTHING`, repoTenant, extraCampaign, repoPark, fastingOperator)
 	afterAll := time.Date(2026, 9, 5, 20, 30, 0, 0, biztime.DefaultLocation())
 
-	first, err := repo.ListFastingShedCardsForOperator(ctx, repoTenant, fastingOperator, afterAll, eightPMCutoff, "", 2)
+	first, err := repo.ListFastingShedCardsForOperator(ctx, repoTenant, fastingOperator, afterAll, ports.RemovalCutoffs{Default: eightPMCutoff}, "", 2)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(first.Items) != 2 || first.NextCursor == "" {
 		t.Fatalf("page 1 = %d items cursor=%q, want 2 items + cursor", len(first.Items), first.NextCursor)
 	}
-	second, err := repo.ListFastingShedCardsForOperator(ctx, repoTenant, fastingOperator, afterAll, eightPMCutoff, first.NextCursor, 2)
+	second, err := repo.ListFastingShedCardsForOperator(ctx, repoTenant, fastingOperator, afterAll, ports.RemovalCutoffs{Default: eightPMCutoff}, first.NextCursor, 2)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -683,11 +683,11 @@ func TestFastingListParkScopeIsAssigneeOnly(t *testing.T) {
 	repo := NewRepository(pool, 5*time.Second)
 	atOpen := time.Date(2026, 9, 3, 20, 0, 0, 0, biztime.DefaultLocation())
 
-	mine, err := repo.ListFastingShedCardsForOperator(ctx, repoTenant, fastingOperator, atOpen, eightPMCutoff, "", 20)
+	mine, err := repo.ListFastingShedCardsForOperator(ctx, repoTenant, fastingOperator, atOpen, ports.RemovalCutoffs{Default: eightPMCutoff}, "", 20)
 	if err != nil {
 		t.Fatal(err)
 	}
-	theirs, err := repo.ListFastingShedCardsForOperator(ctx, repoTenant, repoOperator, atOpen, eightPMCutoff, "", 20)
+	theirs, err := repo.ListFastingShedCardsForOperator(ctx, repoTenant, repoOperator, atOpen, ports.RemovalCutoffs{Default: eightPMCutoff}, "", 20)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -714,7 +714,7 @@ func TestFastingListServesEveryShedStatusOnceVisible(t *testing.T) {
 	}
 	for _, status := range []string{"pending_verification", "rework", "completed"} {
 		execWeighingTestSQL(t, ctx, pool, `UPDATE weighing_fasting_shed_proofs SET status=$3 WHERE tenant_id=$1::uuid AND fasting_task_id=$2::uuid AND campaign_shed_id=$4::uuid`, repoTenant, fastingID, status, repoAnimalScope)
-		page, err := repo.ListFastingShedCardsForOperator(ctx, repoTenant, fastingOperator, atOpen, eightPMCutoff, "", 20)
+		page, err := repo.ListFastingShedCardsForOperator(ctx, repoTenant, fastingOperator, atOpen, ports.RemovalCutoffs{Default: eightPMCutoff}, "", 20)
 		if err != nil {
 			t.Fatalf("status %s: %v", status, err)
 		}

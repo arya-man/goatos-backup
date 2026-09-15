@@ -28,16 +28,23 @@ type fakeFastingStore struct {
 	listCalls     int
 	listNow       time.Time
 	listCutoff    fwrdomain.Cutoff
+	listCutoffs   ports.RemovalCutoffs
+	cardVersions  []int
 	startDate     string
 	fastingSubbed bool
 	hasFasting    bool
 }
 
-func (f *fakeFastingStore) ListFastingShedCardsForOperator(_ context.Context, _, _ string, now time.Time, cutoff fwrdomain.Cutoff, _ string, _ int) (domain.FastingShedCardPage, error) {
+func (f *fakeFastingStore) ListFastingShedCardsForOperator(_ context.Context, _, _ string, now time.Time, cutoffs ports.RemovalCutoffs, _ string, _ int) (domain.FastingShedCardPage, error) {
 	f.listCalls++
 	f.listNow = now
-	f.listCutoff = cutoff
+	f.listCutoffs = cutoffs
+	f.listCutoff = cutoffs.Default
 	return domain.FastingShedCardPage{Items: []domain.FastingShedCard{}}, nil
+}
+
+func (f *fakeFastingStore) FastingCardSOPVersions(context.Context, string, string) ([]int, error) {
+	return f.cardVersions, nil
 }
 
 func (f *fakeFastingStore) FastingTaskByID(_ context.Context, _, fastingTaskID, _ string) (domain.FastingTask, error) {

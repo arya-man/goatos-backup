@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	fwrdomain "github.com/vgoats/goatos/backend/internal/feedwaterremoval/domain"
 	"github.com/vgoats/goatos/backend/internal/permissions"
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/weighing/domain"
@@ -366,7 +365,7 @@ func (v versionedRules) RulesVersion(_ context.Context, _ string, version int) (
 
 type twoCardStore struct{ fakeFastingStore }
 
-func (s *twoCardStore) ListFastingShedCardsForOperator(context.Context, string, string, time.Time, fwrdomain.Cutoff, string, int) (domain.FastingShedCardPage, error) {
+func (s *twoCardStore) ListFastingShedCardsForOperator(context.Context, string, string, time.Time, ports.RemovalCutoffs, string, int) (domain.FastingShedCardPage, error) {
 	return domain.FastingShedCardPage{Items: []domain.FastingShedCard{
 		{FastingTaskID: fastingTaskID, CampaignShedID: shedB, SOPVersion: 2},
 		{FastingTaskID: "00000000-0000-4000-8000-000000000903", CampaignShedID: shedB, SOPVersion: 3},
@@ -451,7 +450,7 @@ func ctxBg() context.Context { return context.Background() }
 func TestTheSOPCutoffOverridesTheFarmEvening(t *testing.T) {
 	ceo := domain.Actor{TenantID: testTenant, UserID: testActor, Roles: []string{permissions.RoleCEOInternal}}
 	evening := beforeCutoffClock("2026-07-29")().Add(10*time.Hour + 30*time.Minute) // 20:30 IST on the 28th
-	cmd := validCreate()                                                          // weigh date 2026-07-29
+	cmd := validCreate()                                                            // weigh date 2026-07-29
 
 	sopEvening := rulesWithMode(3, domain.RemovalModeRequired)
 	sopEvening.Rules.FeedWaterRemoval.CutoffTime = "21:00"
@@ -472,5 +471,35 @@ func TestTheSOPCutoffOverridesTheFarmEvening(t *testing.T) {
 	catalog, err = service.PlannerCatalog(context.Background(), ceo, "2026-07-29")
 	if err != nil || catalog.SOP.FeedWaterRemoval.CutoffTime != "20:00" {
 		t.Fatalf("served cutoff = %q err %v, want the farm's 20:00 filled in", catalog.SOP.FeedWaterRemoval.CutoffTime, err)
+	}
+}
+
+// The card list's window opens at the evening of EACH card's PINNED version, not the
+// evening the latest publish chose: v2 sets 21:30, v3 (the published one) sets 23:00, the
+// seed sets nothing (farm 20:00), and a version the farm never published (9) falls back to
+// the farm evening so tonight's card is still listed.
+func TestListMyFastingShedCardsWindowsEachCardOnItsPinnedEvening(t *testing.T) {
+	operator := domain.Actor{TenantID: testTenant, UserID: testOp, Roles: []string{permissions.RoleOperator}}
+	v2 := rulesWithMode(2, domain.RemovalModeRequired).Rules
+	v2.FeedWaterRemoval.CutoffTime = "21:30"
+	v3 := rulesWithMode(3, domain.RemovalModeRequired).Rules
+	v3.FeedWaterRemoval.CutoffTime = "23:00"
+	store := &fakeFastingStore{cardVersions: []int{0, 2, 3, 9}}
+	service := NewService(&fakeRepo{}).WithFeedWaterRemovalCutoff(eightPM).WithFastingStore(store).WithSOPRules(versionedRules{2: v2, 3: v3}, pinnedVersion(0))
+	if _, err := service.ListMyFastingShedCards(context.Background(), operator, "", 20); err != nil {
+		t.Fatal(err)
+	}
+	got := store.listCutoffs
+	if got.Default.String() != "20:00" {
+		t.Fatalf("default = %s, want the farm evening 20:00", got.Default)
+	}
+	if got.For(2).String() != "21:30" || got.For(3).String() != "23:00" {
+		t.Fatalf("per-version = v2 %s / v3 %s, want 21:30 / 23:00", got.For(2), got.For(3))
+	}
+	if got.For(0).String() != "20:00" || got.For(9).String() != "20:00" {
+		t.Fatalf("seed / unknown = %s / %s, want the farm evening", got.For(0), got.For(9))
+	}
+	if _, ok := got.ByVersion[9]; ok {
+		t.Fatal("an unpublished version must not carry an override")
 	}
 }

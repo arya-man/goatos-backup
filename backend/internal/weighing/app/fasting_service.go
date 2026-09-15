@@ -28,19 +28,15 @@ func (s *Service) ListMyFastingShedCards(ctx context.Context, actor domain.Actor
 	if s.fasting == nil {
 		return domain.FastingShedCardPage{}, ports.ErrNotFound
 	}
-	// The visibility window opens at the removal cutoff -- the PUBLISHED weighing SOP's own
-	// evening when it sets one, else the farm's config -- resolved here and bound into the
-	// store's SQL so the read names no config table. (One instant for the whole list: a card
-	// pinned to an older version with a different evening opens at the current one.)
-	published, err := s.publishedRules(ctx, actor.TenantID)
+	// The visibility window opens at the removal cutoff of each card's PINNED weighing SOP
+	// version -- its own evening when it sets one, else the farm's config -- resolved here per
+	// version and bound into the store's SQL so the read names no config or SOP table. The
+	// evening a card prints is the evening it opens at, whatever a later publish chose.
+	cutoffs, err := s.removalCardCutoffs(ctx, actor.TenantID, actor.UserID)
 	if err != nil {
 		return domain.FastingShedCardPage{}, err
 	}
-	cutoff, err := s.removalCutoff(ctx, actor.TenantID, published)
-	if err != nil {
-		return domain.FastingShedCardPage{}, err
-	}
-	page, err := s.fasting.ListFastingShedCardsForOperator(ctx, actor.TenantID, actor.UserID, s.clock(), cutoff, cursor, limit)
+	page, err := s.fasting.ListFastingShedCardsForOperator(ctx, actor.TenantID, actor.UserID, s.clock(), cutoffs, cursor, limit)
 	if err != nil {
 		return domain.FastingShedCardPage{}, err
 	}

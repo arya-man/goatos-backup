@@ -9,6 +9,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/platform/pgtest"
 	"github.com/vgoats/goatos/backend/internal/weighing/domain"
+	"github.com/vgoats/goatos/backend/internal/weighing/ports"
 )
 
 // WEIGHING SOP (maintainer decision 2026-09-15): the pin and the answers are DATABASE facts.
@@ -61,7 +62,7 @@ func TestSOPPinAndRemovalAnswersRoundTripThroughPostgres(t *testing.T) {
 
 	// The card list carries the pin and the recorded answers back to the phone.
 	atOpen := time.Date(2026, 9, 3, 20, 0, 0, 0, biztime.DefaultLocation())
-	page, err := repo.ListFastingShedCardsForOperator(ctx, repoTenant, fastingOperator, atOpen, eightPMCutoff, "", 20)
+	page, err := repo.ListFastingShedCardsForOperator(ctx, repoTenant, fastingOperator, atOpen, ports.RemovalCutoffs{Default: eightPMCutoff}, "", 20)
 	if err != nil {
 		t.Fatalf("list cards: %v", err)
 	}
