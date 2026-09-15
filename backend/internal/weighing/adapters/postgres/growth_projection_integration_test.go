@@ -19,8 +19,8 @@ import (
 func seedGrowthObservation(t *testing.T, ctx context.Context, pool *pgxpool.Pool, tag string, weightKg float64, at time.Time) {
 	t.Helper()
 	execWeighingTestSQL(t, ctx, pool, `
-INSERT INTO weighing_observations (tenant_id, campaign_id, campaign_shed_id, scanned_identifier, weight_kg, proof_artifact_id, recorded_by, idempotency_key, accepted_at)
-VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5, $6::uuid, $7::uuid, $8, $9::timestamptz)`,
+INSERT INTO weighing_observations (tenant_id, campaign_id, campaign_shed_id, scanned_identifier, weight_kg, proof_artifact_id, recorded_by, idempotency_key, accepted_at, submitted_at)
+VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5, $6::uuid, $7::uuid, $8, $9::timestamptz, $9::timestamptz)`,
 		repoTenant, repoCampaign, repoAnimalScope, tag, weightKg, repoAnimalProof, repoOperator,
 		fmt.Sprintf("growth:%s:%d", tag, at.UnixNano()), at)
 }
@@ -308,5 +308,28 @@ func TestGrowthPairsRequireBothWeighsInsideTheSelectedPeriodOneToManyPageBoundar
 	}
 	if scoped.Headline.PairCount != 0 {
 		t.Fatalf("park scope leaked %d pair(s) into another park", scoped.Headline.PairCount)
+	}
+}
+
+func TestGrowthLosingAnimalsPreservesCanonicalSameDayPairSemantics(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedWeighingObservationFixture(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+	start, end := growthWindow()
+	day := time.Date(2026, 8, 5, 4, 0, 0, 0, time.UTC)
+	// Only the first pair spans business days. The final same-day correction
+	// must not introduce a losing pair that the canonical growth model excludes.
+	seedGrowthObservation(t, ctx, pool, "corrected-tag", 20, day)
+	seedGrowthObservation(t, ctx, pool, "corrected-tag", 21, day.Add(24*time.Hour))
+	seedGrowthObservation(t, ctx, pool, "corrected-tag", 19, day.Add(25*time.Hour))
+	losing, err := repo.growthLosingAnimals(ctx, repoTenant, []string{repoPark}, start.AddDate(0, 0, -growthLookbackDays), start, end, false, SexScope{}, AnimalIdentityMap{}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(losing) != 0 {
+		t.Fatalf("same-day correction invented a losing pair absent from canonical growth: %+v", losing)
 	}
 }

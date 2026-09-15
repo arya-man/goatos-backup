@@ -1578,3 +1578,10 @@ Cube metric or MCP tool.
 | func:PublishedCatalog, func:CatalogVersion, func:NewCatalogSource, func:WithCatalogSource, func:Catalog, func:CatalogFor, func:MediaSlots, func:ByID, func:AllMediaRefs | EXCLUDED | Resolve the inspection catalog by SOP version for the phone form, the write validation and the review labels (one read per distinct version per page). Plumbing of the already-excluded animal purchase surfaces. |
 | func:WithFormDSLContract | EXCLUDED | sop/app seam registering a module-owned form_dsl validator at version create; composition wiring. |
 | /procurement/sops | EXCLUDED | Admin authoring page (SOP library scoped to `procurement.` codes) for the CEO; a config surface, not a reporting read. |
+
+## PR273 read-path implementation coverage
+
+- `GetWeightDemographics`: covered by the existing `/weighing/weight-demographics` read API; section selectors preserve the same authorized reporting surface and canonical growth semantics.
+- `WithTiming`: EXCLUDED from assistant tools; request-local diagnostic timing callback, with no business facts or independent read surface.
+- `ResolveAccessSnapshot`: EXCLUDED from assistant tools; internal authorization lookup used by HTTP middleware, not a leadership data endpoint. Tenant and current grants remain enforced before reporting reads.
+- `ListRowsOnly`: EXCLUDED as a separate assistant surface; an internal Work Board adapter optimization over the same canonical process-integrity rows and cursor. Leadership counts remain on the canonical summary API.

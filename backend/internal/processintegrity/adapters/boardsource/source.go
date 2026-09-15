@@ -123,6 +123,12 @@ type Lister interface {
 	ListRows(ctx context.Context, q pidomain.Query) (pidomain.ListResult, error)
 }
 
+// RowsOnlyLister avoids recomputing the canonical summary on every bounded page.
+// The Work Board obtains its summary through Counter independently.
+type RowsOnlyLister interface {
+	ListRowsOnly(ctx context.Context, q pidomain.Query) (pidomain.ListResult, error)
+}
+
 // Counter is the aggregate half of the process-integrity repository. The Work Board summary
 // needs counts only, so using this avoids fetching and sorting a vaccination row page just to
 // throw the rows away.
@@ -297,12 +303,16 @@ func (s *Source) collect(ctx context.Context, q ports.SourceQuery) ([]domain.Row
 		piq.OwnerID = &owner
 	}
 
+	listRows := s.repo.ListRows
+	if rowsOnly, ok := s.repo.(RowsOnlyLister); ok {
+		listRows = rowsOnly.ListRowsOnly
+	}
 	out := make([]domain.Row, 0, walkPageSize)
 	// A bounded PAGE walk, not a per-row fan-out: at most maxWalkPages keyset pages of
 	// walkPageSize over one park-day (pens x drives on one day); see the KEYSET NOTE in the
 	// package doc. The wrapped read's own cursor advances piq each page.
 	for page := 0; page < maxWalkPages; page++ {
-		res, err := s.repo.ListRows(ctx, piq) // scale-guard:ignore: bounded park-day page walk (<= maxWalkPages keyset pages), one read per PAGE not per row; the wrapped read has no row_id keyset yet (KEYSET NOTE)
+		res, err := listRows(ctx, piq) // scale-guard:ignore: bounded park-day page walk (<= maxWalkPages keyset pages), one read per PAGE not per row; the wrapped read has no row_id keyset yet (KEYSET NOTE)
 		if err != nil {
 			return nil, fmt.Errorf("vaccination boardsource: %w", err)
 		}

@@ -161,8 +161,9 @@ func TestGrowthLosingAnimalsPairsAcrossReportStartBoundary(t *testing.T) {
 	}
 	body := src[start:]
 	for _, required := range []string{
-		`AND wo.accepted_at >= $3::timestamptz`,
-		`AND latest.accepted_at >= $5::timestamptz`,
+		`growthPairsCTE`,
+		`FROM qualifying`,
+		`WHERE accepted_at >= $5::timestamptz`,
 	} {
 		if !strings.Contains(body, required) {
 			t.Fatalf("losing animals must pair from lookback and filter on the later report-period weigh; missing %q", required)

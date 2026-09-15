@@ -3,6 +3,7 @@ package boardsource
 import (
 	"context"
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -390,5 +391,36 @@ func TestVaccinationBoardOwnerLensResolvesTheMemberAndNarrowsToTheOperator(t *te
 	none, err := src.ListRows(ctx, query("00000000-0000-4000-8000-000000000999"))
 	if err != nil || len(none) != 0 {
 		t.Fatalf("unprofiled user: rows=%d err=%v", len(none), err)
+	}
+}
+
+type rowsOnlyFake struct {
+	*fakeLister
+	fullCalls int
+}
+
+func (f *rowsOnlyFake) ListRows(context.Context, pidomain.Query) (pidomain.ListResult, error) {
+	f.fullCalls++
+	return pidomain.ListResult{}, errors.New("unexpected aggregate-backed list")
+}
+func (f *rowsOnlyFake) ListRowsOnly(ctx context.Context, q pidomain.Query) (pidomain.ListResult, error) {
+	return f.fakeLister.ListRows(ctx, q)
+}
+func TestBoardWalkUsesRowsOnlyWithoutChangingRowsOrCursor(t *testing.T) {
+	q := ports.SourceQuery{TenantID: vsTenant, ParkID: vsPark, BusinessDate: vsDate, Limit: 100}
+	want, err := New(fixture()).ListRows(context.Background(), q)
+	if err != nil {
+		t.Fatal(err)
+	}
+	repo := &rowsOnlyFake{fakeLister: fixture()}
+	got, err := New(repo).ListRows(context.Background(), q)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if repo.fullCalls != 0 || len(repo.queries) < 2 {
+		t.Fatalf("full list calls=%d pages=%d", repo.fullCalls, len(repo.queries))
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("rows-only walk changed rows: got=%+v want=%+v", got, want)
 	}
 }

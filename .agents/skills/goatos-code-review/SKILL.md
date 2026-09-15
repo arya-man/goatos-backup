@@ -153,6 +153,17 @@ to a backend-induced mobile anti-pattern, and the skill review is the only catch
 The same holds for backend/kernel/DB reach: a small migration or shared-query
 change with wide impact still runs the kernel/scale checks of the tables it reaches.
 
+## Work Board latency evidence
+
+A Work Board performance review must run `tools/perf/workboard-latency.mjs`
+against the same actor, tenant, parks, date and page size before and after.
+Measure the legacy summary plus four lane requests separately from `/work-board/page`.
+Reject degraded payloads and compare ordered row identities, counts and pagination;
+retain failed sample timings but never present partial responses as successful speed evidence.
+Read `/version` from the measured API. Fixed-URL warm-cache timings alone do not
+prove serving cost. Operational task pages must reflect mutation results without
+an uninvalidateable cross-request response cache.
+
 ## Fix-quality / regression audit — the primary question for any "fix"
 
 When the change is a **fix** (a commit/PR/diff that claims to resolve a bug,

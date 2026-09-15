@@ -30,12 +30,13 @@ const (
 // fakeService records the query the handler built, which is the whole point of these
 // tests: every scope rule lives in the handler, and the service must receive its result.
 type fakeService struct {
-	mu        sync.Mutex
-	last      domain.Query
-	lists     []domain.Query
-	summaries int
-	counts    map[domain.WorkState]int
-	degraded  []domain.Module
+	mu           sync.Mutex
+	last         domain.Query
+	lists        []domain.Query
+	summaries    int
+	counts       map[domain.WorkState]int
+	degraded     []domain.Module
+	listDegraded []domain.Module
 	// found is what FindRow answers; lastRowKey / lastAfter / lastLimit record the subtask read.
 	found      bool
 	lastRowKey string
@@ -88,7 +89,7 @@ func (f *fakeService) List(_ context.Context, q domain.Query) (domain.Page, erro
 		state = q.WorkStates[0]
 	}
 	row := domain.Row{Module: domain.ModuleFeed, SourceType: "feed_task", SourceID: string(state), ParkID: q.ParkID, BusinessDate: q.BusinessDate, WorkState: state, Title: "Feed work"}.Finalize()
-	return domain.Page{Rows: []domain.Row{row}}, nil
+	return domain.Page{Rows: []domain.Row{row}, Degraded: f.listDegraded}, nil
 }
 func (f *fakeService) Summary(_ context.Context, q domain.Query) (domain.Summary, error) {
 	f.mu.Lock()
@@ -279,31 +280,29 @@ func TestPageBundlesSummaryAndLaneRows(t *testing.T) {
 	}
 }
 
-func TestPageCachesSameScopedBundleOnly(t *testing.T) {
+func TestPageReadsFreshScopedBundleAfterMutation(t *testing.T) {
 	svc := &fakeService{counts: map[domain.WorkState]int{domain.WorkStateDue: 1}}
 	h := NewHandler(svc, nil)
-
-	rec, _ := get(t, h, "/work-board/page?park="+parkCBE+"&business_date=2026-09-10&limit=5&debug_timing=1", actorCEO, tenantGrant(permissions.RoleCEOInternal))
+	path := "/work-board/page?park=" + parkCBE + "&business_date=2026-09-10&limit=5"
+	rec, _ := get(t, h, path, actorCEO, tenantGrant(permissions.RoleCEOInternal))
 	if rec.Code != http.StatusOK {
-		t.Fatalf("first read: %d", rec.Code)
+		t.Fatalf("initial status %d", rec.Code)
 	}
-	rec, _ = get(t, h, "/work-board/page?park="+parkCBE+"&business_date=2026-09-10&limit=5&debug_timing=1", actorCEO, tenantGrant(permissions.RoleCEOInternal))
+	// Simulate another request completing the last outstanding task.
+	svc.counts = map[domain.WorkState]int{domain.WorkStateCompleted: 1}
+	rec, body := get(t, h, path, actorCEO, tenantGrant(permissions.RoleCEOInternal))
 	if rec.Code != http.StatusOK {
-		t.Fatalf("cached read: %d", rec.Code)
+		t.Fatalf("fresh status %d", rec.Code)
 	}
-	if !strings.Contains(rec.Header().Get("X-GoatOS-Route-Timing"), "cache_hit") {
-		t.Fatalf("cached read did not report cache_hit timing: %q", rec.Header().Get("X-GoatOS-Route-Timing"))
+	lanes := body["lanes"].(map[string]any)
+	todo := lanes["todo"].(map[string]any)["rows"].([]any)
+	done := lanes["done"].(map[string]any)["rows"].([]any)
+	if svc.summaries != 2 || len(todo) != 0 || len(done) != 1 {
+		t.Fatalf("completed task remained stale: reads=%d todo=%d done=%d", svc.summaries, len(todo), len(done))
 	}
-	if svc.summaries != 1 {
-		t.Fatalf("same scoped page should reuse the first bundle, summary calls=%d", svc.summaries)
-	}
-
-	rec, _ = get(t, h, "/work-board/page?park="+parkCBE+"&business_date=2026-09-10&limit=5&debug_timing=1", actorOp, parkHeadGrant(parkCBE))
-	if rec.Code != http.StatusOK {
-		t.Fatalf("changed actor read: %d", rec.Code)
-	}
-	if svc.summaries != 2 {
-		t.Fatalf("changed actor/scope must miss cache, summary calls=%d", svc.summaries)
+	rec, _ = get(t, h, path, actorOp, parkHeadGrant(parkCBE))
+	if rec.Code != http.StatusOK || svc.summaries != 3 || svc.last.ParkID != parkCBE {
+		t.Fatalf("changed actor scope: status=%d reads=%d query=%+v", rec.Code, svc.summaries, svc.last)
 	}
 }
 
@@ -361,6 +360,51 @@ func TestPageDoesNotPruneDegradedSummaryModules(t *testing.T) {
 	}
 	if !foundVaccination {
 		t.Fatalf("a degraded summary module is unknown, not zero; lane reads must still include it: %#v", svc.lists)
+	}
+}
+
+func TestPageReadsZeroCountLaneWhenSummaryDegraded(t *testing.T) {
+	svc := &fakeService{degraded: []domain.Module{domain.ModuleFeed}}
+	h := NewHandler(svc, nil)
+	rec, body := get(t, h, "/work-board/page?park="+parkCBE+"&page_lane=todo", actorCEO, tenantGrant(permissions.RoleCEOInternal))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status %d %v", rec.Code, body)
+	}
+	lanes := body["lanes"].(map[string]any)
+	rows := lanes["todo"].(map[string]any)["rows"].([]any)
+	if len(rows) == 0 || len(svc.lists) != 1 {
+		t.Fatalf("unknown count suppressed recoverable rows: lists=%d rows=%d", len(svc.lists), len(rows))
+	}
+	if svc.lists[0].NoModules {
+		t.Fatal("degraded source must remain eligible")
+	}
+}
+
+func TestPageDoesNotCacheDegradedBundle(t *testing.T) {
+	for _, source := range []string{"summary", "lane"} {
+		t.Run(source, func(t *testing.T) {
+			svc := &fakeService{counts: map[domain.WorkState]int{domain.WorkStateDue: 1}}
+			if source == "summary" {
+				svc.degraded = []domain.Module{domain.ModuleFeed}
+			} else {
+				svc.listDegraded = []domain.Module{domain.ModuleFeed}
+			}
+			h := NewHandler(svc, nil)
+			path := "/work-board/page?park=" + parkCBE + "&page_lane=todo&debug_timing=1"
+			rec, _ := get(t, h, path, actorCEO, tenantGrant(permissions.RoleCEOInternal))
+			if rec.Code != http.StatusOK {
+				t.Fatalf("first status %d", rec.Code)
+			}
+			svc.degraded = nil
+			svc.listDegraded = nil
+			rec, body := get(t, h, path, actorCEO, tenantGrant(permissions.RoleCEOInternal))
+			if svc.summaries != 2 || strings.Contains(rec.Header().Get("X-GoatOS-Route-Timing"), "cache_hit") {
+				t.Fatalf("transient degradation was cached: summary reads=%d", svc.summaries)
+			}
+			if degraded, _ := body["degraded"].([]any); len(degraded) > 0 {
+				t.Fatalf("recovered response still degraded: %v", degraded)
+			}
+		})
 	}
 }
 

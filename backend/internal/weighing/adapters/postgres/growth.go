@@ -1322,66 +1322,21 @@ func (r *Repository) growthLosingAnimals(
 	idMap AnimalIdentityMap,
 	weighingCategory string,
 ) ([]domain.GrowthLosingAnimal, error) {
-	q := `
-WITH args AS (
-  SELECT $3::timestamptz AS lookback_start
+	q := `WITH ` + growthPairsCTE + `),
+inperiod AS (
+  SELECT * FROM qualifying
+  WHERE accepted_at >= $5::timestamptz
+    AND ($10::text = '' OR weighing_category = $10::text)
 ),
-latest_two AS (
-  SELECT COALESCE(akmap.canonical_tag, lower(btrim(wo.scanned_identifier))) AS animal_key,
-         wcs.location_id,
-         wcs.display_name AS shed_name,
-         COALESCE(wcs.partition_label, '') AS partition_label,
-         wo.weight_kg::float8 AS weight_kg,
-         wo.accepted_at,
-         wo.observation_id,
-         row_number() OVER (
-           PARTITION BY COALESCE(akmap.canonical_tag, lower(btrim(wo.scanned_identifier)))
-           ORDER BY wo.accepted_at DESC, wo.observation_id DESC
-         ) AS rn
-    FROM weighing_observations wo
-    JOIN weighing_campaign_sheds wcs
-      ON wcs.campaign_shed_id = wo.campaign_shed_id AND wcs.tenant_id = wo.tenant_id
-    JOIN weighing_campaigns wc
-      ON wc.campaign_id = wcs.campaign_id AND wc.tenant_id = wo.tenant_id
-    LEFT JOIN unnest($8::text[], $9::text[]) AS akmap(tag, canonical_tag)
-      ON akmap.tag = lower(btrim(wo.scanned_identifier))
-   WHERE wo.tenant_id = $1::uuid
-     AND wc.park_id = ANY($2::uuid[])
-     AND wo.verification_status <> 'rejected'
-     AND wo.accepted_at >= $3::timestamptz
-     AND wo.accepted_at < $4::timestamptz
-     AND ($10::text = '' OR wcs.weighing_category = $10::text)
-     AND (NOT $6::bool OR lower(btrim(wo.scanned_identifier)) = ANY($7::text[]))
-),
-pairs AS (
-  SELECT latest.animal_key,
-         latest.location_id,
-         latest.shed_name,
-         latest.partition_label,
-         previous.weight_kg AS prev_weight,
-         latest.weight_kg,
-         (
-           (latest.weight_kg - previous.weight_kg) * 1000.0
-           / NULLIF((TIMEZONE('Asia/Kolkata', latest.accepted_at)::date - TIMEZONE('Asia/Kolkata', previous.accepted_at)::date), 0)
-         ) AS adg_g_per_day,
-         (TIMEZONE('Asia/Kolkata', latest.accepted_at)::date - TIMEZONE('Asia/Kolkata', previous.accepted_at)::date) AS days_between,
-         latest.accepted_at
-    FROM latest_two latest
-    JOIN LATERAL (
-      SELECT candidate.weight_kg, candidate.accepted_at
-      FROM latest_two candidate
-      WHERE candidate.animal_key = latest.animal_key
-        AND TIMEZONE('Asia/Kolkata', candidate.accepted_at)::date < TIMEZONE('Asia/Kolkata', latest.accepted_at)::date
-      ORDER BY candidate.accepted_at DESC, candidate.observation_id DESC
-      LIMIT 1
-    ) previous ON TRUE
-   WHERE latest.rn = 1
-     AND latest.accepted_at >= $5::timestamptz
+latest_pair AS (
+  SELECT DISTINCT ON (animal_key) *
+  FROM inperiod
+  ORDER BY animal_key, accepted_at DESC
 )
 SELECT animal_key, shed_name, partition_label, location_id::text, prev_weight, weight_kg,
        adg_g_per_day, days_between,
        to_char(TIMEZONE('Asia/Kolkata', accepted_at)::date, 'YYYY-MM-DD')
-FROM pairs
+FROM latest_pair
 WHERE adg_g_per_day < 0
 ORDER BY adg_g_per_day ASC
 LIMIT 200`

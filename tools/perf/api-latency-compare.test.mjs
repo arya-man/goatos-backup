@@ -33,6 +33,7 @@ function result(name, path, overrides = {}) {
   return {
     name,
     path,
+    response_observations: [{ assertion_value: 10, row_counts: { rows: 10 }, degraded: [] }],
     p90_ms: 120,
     p95_ms: 150,
     p99_ms: 220,
@@ -101,4 +102,11 @@ test("allows a failing before report but still requires after to pass", () => {
   const failures = compareApiLatencyEvidence(before, after);
   assert.ok(!failures.some((failure) => failure.includes("before report did not pass")));
   assert.ok(failures.some((failure) => failure.includes("after report did not pass")));
+});
+
+test("rejects lost rows even when the latency improves", () => {
+  const before = report();
+  const after = report({git_sha: "after-sha"});
+  after.results[0].response_observations[0].row_counts.rows = 0;
+  assert.match(compareApiLatencyEvidence(before, after).join(), /cardinality decreased/);
 });

@@ -4,6 +4,8 @@ import { dirname, resolve } from "node:path";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 
+import { observeApiPayload } from "./api-latency-evidence.mjs";
+
 import { normalizeApiLatencyEndpoints } from "./api-latency-policy.mjs";
 
 const defaultEndpoints = [
@@ -64,15 +66,25 @@ if (!bearerToken && !cookie) {
   fail("GOATOS_BEARER_TOKEN, GOATOS_PERF_COOKIE, --bearer-token, or --cookie is required");
 }
 
+const observedBuildSha = await readApiBuildSha();
+if (observedBuildSha !== (expectedSha || gitSha)) {
+  fail(`API build ${observedBuildSha} does not match expected ${expectedSha || gitSha}`);
+}
 const results = [];
 for (const endpoint of endpoints) {
   results.push(await runEndpoint(endpoint));
 }
 
+const finalBuildSha = await readApiBuildSha();
+if (finalBuildSha !== observedBuildSha) fail("API build changed during latency measurement");
+
 const report = {
   schema_version: "1.0.0",
   passed: results.every((result) => result.passed),
   git_sha: gitSha,
+  api_build_sha: observedBuildSha,
+  api_build_sha_end: finalBuildSha,
+  api_build_identity_source: "/version",
   worktree_dirty: worktree.dirty,
   worktree_diff_sha256: worktree.diffSha256,
   worktree_status_short: worktree.statusShort,
@@ -100,6 +112,22 @@ if (failOnThreshold && results.some((result) => !result.passed)) {
   process.exit(1);
 }
 
+async function readApiBuildSha() {
+  const response = await fetch(`${baseUrl}/version`, {
+    headers: {
+      Accept: "application/json", "X-GoatOS-Tenant-ID": tenantId,
+      ...(bearerToken ? { Authorization: `Bearer ${bearerToken}` } : {}),
+      ...(cookie ? { Cookie: cookie } : {}),
+    },
+    cache: "no-store", signal: AbortSignal.timeout(timeoutMs),
+  });
+  if (!response.ok) fail(`API /version HTTP ${response.status}`);
+  const version = await response.json();
+  if (typeof version.build_sha !== "string" || !version.build_sha.trim()
+    || ["unknown", "dev"].includes(version.build_sha)) fail("API /version must identify the actual build_sha");
+  return version.build_sha;
+}
+
 async function runEndpoint(endpoint) {
   endpoint = { ...endpoint, path: expandPath(endpoint.path) };
   const failures = [];
@@ -115,6 +143,7 @@ async function runEndpoint(endpoint) {
   }
   const samples = [];
   const responseBytes = [];
+  const observations = [];
   let remaining = iterations;
   while (remaining > 0) {
     const batchSize = Math.min(concurrency, remaining);
@@ -124,6 +153,7 @@ async function runEndpoint(endpoint) {
       if (item.status === "fulfilled") {
         samples.push(item.value.ms);
         responseBytes.push(item.value.responseBytes);
+        observations.push(item.value.observation);
       } else {
         failures.push(item.reason instanceof Error ? item.reason.message : String(item.reason));
       }
@@ -150,6 +180,7 @@ async function runEndpoint(endpoint) {
     response_bytes_max: responseBytes.length > 0 ? Math.max(...responseBytes) : 0,
     response_bytes_threshold: endpoint.max_response_bytes,
     assertion: endpoint.assertion ?? null,
+    response_observations: observations,
   };
   result.passed = result.failures === 0
     && result.p90_ms <= result.p90_threshold_ms
@@ -183,9 +214,10 @@ async function requestOnce(endpoint) {
     }
     const body = await response.text();
     const payload = JSON.parse(body);
+    const observation = observeApiPayload(endpoint, payload);
     assertPayload(endpoint, payload);
     const ms = performance.now() - started;
-    return { ms, responseBytes: Buffer.byteLength(body, "utf8") };
+    return { ms, responseBytes: Buffer.byteLength(body, "utf8"), observation };
   } finally {
     clearTimeout(timer);
   }

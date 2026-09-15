@@ -40,13 +40,10 @@ type Service interface {
 
 // Handler serves the board routes.
 type Handler struct {
-	service   Service
-	flags     FlagService
-	log       *slog.Logger
-	now       func() time.Time
-	cacheTTL  time.Duration
-	cacheMu   sync.Mutex
-	pageCache map[string]pageCacheEntry
+	service Service
+	flags   FlagService
+	log     *slog.Logger
+	now     func() time.Time
 }
 
 // NewHandler constructs the transport.
@@ -54,7 +51,7 @@ func NewHandler(service Service, log *slog.Logger) *Handler {
 	if log == nil {
 		log = slog.Default()
 	}
-	return &Handler{service: service, log: log, now: time.Now, cacheTTL: 30 * time.Second, pageCache: map[string]pageCacheEntry{}}
+	return &Handler{service: service, log: log, now: time.Now}
 }
 
 // Register mounts the routes. Patterns must stay byte-identical to permissions/routes.go.
@@ -178,12 +175,6 @@ func (h *Handler) Page(w http.ResponseWriter, r *http.Request) {
 		}
 		q.Limit = n
 	}
-	cacheKey := h.pageCacheKey(r, q, own, pageLanes)
-	if body, ok := h.getPageCache(cacheKey); ok {
-		prof.addDuration("cache_hit", 0)
-		writeCachedPage(w, body, prof)
-		return
-	}
 	out := pagePayload{
 		Lanes:        map[domain.Lane]lanePagePayload{},
 		BusinessDate: q.BusinessDate,
@@ -252,7 +243,8 @@ func (h *Handler) Page(w http.ResponseWriter, r *http.Request) {
 			results[i] = laneResult{lane: lane, payload: lanePagePayload{Rows: []domain.Row{}, Degraded: visibleModules}}
 			continue
 		}
-		if strings.TrimSpace(rawCursor) == "" && summary.payload.ByLane[lane] == 0 {
+		// A failed aggregate is unknown, not zero: the row read may still recover.
+		if strings.TrimSpace(rawCursor) == "" && summary.payload.ByLane[lane] == 0 && len(summary.payload.Degraded) == 0 {
 			results[i] = laneResult{lane: lane, payload: lanePagePayload{Rows: []domain.Row{}}}
 			continue
 		}
@@ -301,7 +293,6 @@ func (h *Handler) Page(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	body = append(body, '\n')
-	h.setPageCache(cacheKey, body)
 	if prof.enabled {
 		prof.writeJSONBytes(w, http.StatusOK, body)
 		return
@@ -321,63 +312,9 @@ type pageTiming struct {
 	bytes   int
 }
 
-type pageCacheEntry struct {
-	expires time.Time
-	body    []byte
-}
-
 type pageTimingPhase struct {
 	Name string `json:"name"`
 	MS   int64  `json:"ms"`
-}
-
-func (h *Handler) getPageCache(key string) ([]byte, bool) {
-	if h.cacheTTL <= 0 || key == "" {
-		return nil, false
-	}
-	h.cacheMu.Lock()
-	defer h.cacheMu.Unlock()
-	entry, ok := h.pageCache[key]
-	if !ok || !h.now().Before(entry.expires) {
-		if ok {
-			delete(h.pageCache, key)
-		}
-		return nil, false
-	}
-	return append([]byte(nil), entry.body...), true
-}
-
-func (h *Handler) setPageCache(key string, body []byte) {
-	if h.cacheTTL <= 0 || key == "" || len(body) == 0 {
-		return
-	}
-	h.cacheMu.Lock()
-	defer h.cacheMu.Unlock()
-	if len(h.pageCache) > 256 {
-		h.pageCache = map[string]pageCacheEntry{}
-	}
-	h.pageCache[key] = pageCacheEntry{expires: h.now().Add(h.cacheTTL), body: append([]byte(nil), body...)}
-}
-
-func (h *Handler) pageCacheKey(r *http.Request, q domain.Query, own bool, lanes []domain.Lane) string {
-	query := r.URL.Query()
-	query.Del("debug_timing")
-	parts := []string{
-		httpmiddleware.TenantIDFromContext(r.Context()),
-		httpmiddleware.ActorIDFromContext(r.Context()),
-		strconv.FormatBool(own),
-		q.TenantID,
-		q.ParkID,
-		q.BusinessDate,
-		q.OwnerUserID,
-		strconv.Itoa(q.Limit),
-		strconv.FormatBool(q.NoModules),
-		modulesKey(q.Modules),
-		statesKey(q.WorkStates),
-		lanesKey(lanes),
-		query.Encode(),
-	}
-	return strings.Join(parts, "\x00")
 }
 
 func newPageTiming(r *http.Request, now func() time.Time) *pageTiming {
@@ -461,14 +398,6 @@ func (p *pageTiming) writeJSONBytes(w http.ResponseWriter, status int, body []by
 	p.mu.Unlock()
 }
 
-func writeCachedPage(w http.ResponseWriter, body []byte, prof *pageTiming) {
-	if prof != nil && prof.enabled {
-		prof.writeJSONBytes(w, http.StatusOK, body)
-		return
-	}
-	writeJSONBytes(w, http.StatusOK, body)
-}
-
 func writeJSONBytes(w http.ResponseWriter, status int, body []byte) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
@@ -539,30 +468,6 @@ func modulesWithLaneRows(sum domain.Summary, lane domain.Lane, fallback []domain
 		}
 	}
 	return out
-}
-
-func modulesKey(modules []domain.Module) string {
-	out := make([]string, 0, len(modules))
-	for _, module := range modules {
-		out = append(out, string(module))
-	}
-	return strings.Join(out, ",")
-}
-
-func statesKey(states []domain.WorkState) string {
-	out := make([]string, 0, len(states))
-	for _, state := range states {
-		out = append(out, string(state))
-	}
-	return strings.Join(out, ",")
-}
-
-func lanesKey(lanes []domain.Lane) string {
-	out := make([]string, 0, len(lanes))
-	for _, lane := range lanes {
-		out = append(out, string(lane))
-	}
-	return strings.Join(out, ",")
 }
 
 // subtasksPayload is the wire shape of one subtask page.

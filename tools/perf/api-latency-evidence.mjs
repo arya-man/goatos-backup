@@ -69,12 +69,46 @@ const REQUIRED_HOT_PATH_PROFILES = Object.freeze({
   ]),
 });
 
+// Keep observed cardinalities beside latency so missing work cannot look like a speedup.
+export function observeApiPayload(endpoint, payload) {
+  const rowCounts = {};
+  const degraded = [];
+  function visit(value, path = "") {
+    if (!value || typeof value !== "object") return;
+    for (const [key, child] of Object.entries(value)) {
+      const childPath = path ? `${path}.${key}` : key;
+      if (key === "degraded" && Array.isArray(child)) {
+        degraded.push(...child.map((module) => `${childPath}:${String(module)}`));
+      }
+      if (Array.isArray(child)) rowCounts[childPath] = child.length;
+      else visit(child, childPath);
+    }
+  }
+  visit(payload);
+  if (degraded.length) throw new Error(`${endpoint.name} degraded response: ${degraded.join(", ")}`);
+  const value = String(endpoint.assertion?.path ?? "").split(".").filter(Boolean)
+    .reduce((current, key) => current?.[key], payload);
+  const assertionValue = endpoint.assertion?.type === "array_min" ? value?.length : value;
+  // Missing/null numeric fields must not be converted into a successful zero.
+  if (endpoint.assertion && (typeof assertionValue !== "number" || !Number.isFinite(assertionValue))) {
+    throw new Error(`${endpoint.name} assertion ${endpoint.assertion.path} has no numeric observation`);
+  }
+  // Degraded arrays are health markers, not business rows.
+  for (const path of Object.keys(rowCounts)) {
+    if (path === "degraded" || path.endsWith(".degraded")) delete rowCounts[path];
+  }
+  return { assertion_value: assertionValue ?? null, row_counts: rowCounts, degraded };
+}
+
 export function validateApiLatencyEvidence(report, expectedSha) {
   const failures = [];
   if (!report || typeof report !== "object" || Array.isArray(report)) {
     return ["latency evidence must be a JSON object"];
   }
   if (!expectedSha) failures.push("expected SHA is required");
+  if (!report.api_build_sha || report.api_build_sha !== expectedSha) failures.push("observed api_build_sha must match expected SHA");
+  if (!report.api_build_sha_end || report.api_build_sha_end !== report.api_build_sha) failures.push("API build changed or final build identity is missing");
+  if (report.api_build_identity_source !== "/version") failures.push("API build identity must come from /version");
   if (report.git_sha !== expectedSha) failures.push(`report git_sha ${report.git_sha ?? "<missing>"} does not match ${expectedSha}`);
   if (report.expected_sha !== expectedSha) failures.push(`report expected_sha ${report.expected_sha ?? "<missing>"} does not match ${expectedSha}`);
   if (typeof report.worktree_dirty !== "boolean") failures.push("worktree_dirty evidence is missing");
@@ -151,6 +185,17 @@ export function validateApiLatencyEvidence(report, expectedSha) {
       failures.push(`required hot path ${name} is missing`);
       continue;
     }
+    if (evidenceProfile === "pr264_performance") {
+      const observations = result.response_observations;
+      if (!Array.isArray(observations) || observations.length !== result.samples || observations.length === 0
+        || observations.some((item) => !Number.isFinite(item?.assertion_value)
+          || item.assertion_value < Number(result.assertion?.min ?? 1)
+          || !item.row_counts || typeof item.row_counts !== "object"
+          || Object.values(item.row_counts).some((count) => !Number.isInteger(count) || count < 0)
+          || !Array.isArray(item.degraded) || item.degraded.length > 0)) {
+        failures.push(`${name} response observations must cover every sample with valid counts and no degraded modules`);
+      }
+    }
     if (result.samples <= 0) failures.push(`${name} has no measured samples`);
     if (result.failures !== 0) failures.push(`${name} has ${result.failures} request failures`);
     if (!result.assertion) {
@@ -212,6 +257,9 @@ function validatePr264BrowserEvidence(report, failures) {
   if (!browser || typeof browser !== "object") {
     failures.push("PR264 browser evidence is missing");
     return;
+  }
+  if (!browser.api_build_sha || browser.api_build_sha !== report.git_sha) {
+    failures.push("PR264 browser api_build_sha must match the latency report git_sha");
   }
   if (browser.same_api_build !== true) {
     failures.push("PR264 browser evidence must use the same API build as the latency report");

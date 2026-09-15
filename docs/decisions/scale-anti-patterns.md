@@ -1247,3 +1247,12 @@ Register's kid/adult split stays trigger-maintained on `goats.age_band`.
 <!-- Coupling review 2026-08-30: raising the compatible same-day vaccine cap to 3 is a bounded scheduler/config change, not a source-data expansion. It avoids request-path recomputation and does not mutate HRMS fixture rows, source vaccination history, SOP proof grain, or seed-time fan-out; persisted DBs get the cap through vaccination_capacity_config. -->
 <!-- Coupling review 2026-09-01: assignment-lane uniqueness adds vaccine_rule_ids to the persisted drive-assignment conflict key so one operator card cannot merge unrelated vaccine lanes. This is a bounded write-path identity fix, not a request-path recompute or seed fan-out; caps are clamped at 200 before planning and in DB constraints. -->
 <!-- Coupling review 2026-09-01: feed experiment per-animal conversion uses one grouped live-goat count per pen in a schema migration/seed reconcile path, not a request-path aggregate or vaccination seed fan-out. Raw HRMS/vaccination fixtures, trusted source dates, SOP proof grain, and roster capacity stay unchanged. -->
+
+## Replayed canonical CTEs in Work Board aggregates
+
+PR273 exposed a planner shape that inlined the same vaccination source once per
+shed: 125 loops and roughly 229,500 obligation index scans for eleven output rows.
+Inspect `EXPLAIN (ANALYZE, BUFFERS)` actual loops, not just returned rows or one
+warm response. A narrowly placed materialization fence can prevent repeated
+computation without changing membership or status semantics; compare row identities
+and counts against the canonical unfenced query before accepting it.

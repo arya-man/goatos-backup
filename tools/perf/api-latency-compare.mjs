@@ -39,6 +39,28 @@ export function compareApiLatencyEvidence(before, after, options = {}) {
   for (const [name, beforeResult] of beforeByName.entries()) {
     const afterResult = afterByName.get(name);
     if (!afterResult) continue;
+    if (before.scope?.evidence_profile === "pr264_performance") {
+      const prior = beforeResult.response_observations;
+      const current = afterResult.response_observations;
+      if (!Array.isArray(prior) || !prior.length || !Array.isArray(current) || !current.length) {
+        failures.push(`${name} before/after response observations are missing`);
+      } else {
+        const bounds = (items) => {
+          const counts = {};
+          for (const item of items) {
+            for (const [key, value] of Object.entries({ assertion_value: item.assertion_value, ...item.row_counts })) {
+              counts[key] ??= [];
+              counts[key].push(value);
+            }
+          }
+          return Object.fromEntries(Object.entries(counts).map(([key, values]) => [key, [Math.min(...values), Math.max(...values)]]));
+        };
+        const oldCounts = bounds(prior), newCounts = bounds(current);
+        for (const [key, range] of Object.entries(oldCounts)) {
+          if (!newCounts[key] || newCounts[key][0] < range[0] || newCounts[key][1] < range[1]) failures.push(`${name} ${key} cardinality decreased or disappeared`);
+        }
+      }
+    }
     if (beforeResult.path !== afterResult.path) failures.push(`${name} path differs between reports`);
     if (beforeResult.response_bytes_threshold !== afterResult.response_bytes_threshold) {
       failures.push(`${name} response byte threshold differs between reports`);

@@ -205,6 +205,28 @@ func (r *Repository) ListRows(ctx context.Context, q domain.Query) (domain.ListR
 	return result, nil
 }
 
+// ListRowsOnly serves bounded consumers that need the canonical rows and cursor but
+// already obtain their summary separately. It deliberately omits the second aggregate
+// query and does not populate the full-response cache with incomplete metadata.
+func (r *Repository) ListRowsOnly(ctx context.Context, q domain.Query) (domain.ListResult, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	q = normalizeQuery(q)
+	rows, cursor, more, err := r.fetchCanonicalRows(ctx, q, queryArgs(q))
+	if err != nil {
+		return domain.ListResult{}, err
+	}
+	var next *string
+	if more && cursor != nil {
+		encoded, err := domain.EncodeCursor(*cursor)
+		if err != nil {
+			return domain.ListResult{}, err
+		}
+		next = &encoded
+	}
+	return domain.ListResult{Rows: rows, NextCursor: next, Projection: canonicalProjectionMetadata(q)}, nil
+}
+
 func (r *Repository) CountByWorkState(ctx context.Context, q domain.Query) ([]domain.CountByWorkState, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
@@ -782,19 +804,23 @@ due_window_batches AS (
   -- oi.batch_id, and the LATERAL's legacy fallback keys on assignment.batch_id = oi.batch_id) or
   -- through an exact vaccination_drive_assignment_members row. Collecting those keys from the SMALL
   -- planning tables turns the window bound into a bare-column predicate the indexes can serve.
+  -- Apply both optional lower and upper bounds: an override outside this window cannot
+  -- supply the effective date of a qualifying row; retaining old batches repeats historical work.
   SELECT ob.batch_id
   FROM obligation_batches ob
   WHERE ob.tenant_id = $1::uuid
     AND (ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') <= $5::timestamptz
+    AND ($4::timestamptz IS NULL OR (ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') >= $4::timestamptz)
   UNION
   SELECT assignment.batch_id
   FROM vaccination_drive_assignments assignment
   WHERE assignment.tenant_id = $1::uuid
     AND (assignment.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') <= $5::timestamptz
+    AND ($4::timestamptz IS NULL OR (assignment.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') >= $4::timestamptz)
 ),
 due_window_members AS (
   -- The EXACT membership override path (migration 000040): an obligation whose own assignment arm is
-  -- planned at/below the window top, regardless of its batch's own planned_date or its due_at.
+  -- planned inside the requested window, regardless of its batch's own planned_date or its due_at.
   SELECT vdam.obligation_id
   FROM vaccination_drive_assignment_members vdam
   JOIN vaccination_drive_assignments assignment
@@ -802,6 +828,7 @@ due_window_members AS (
    AND assignment.assignment_id = vdam.assignment_id
   WHERE vdam.tenant_id = $1::uuid
     AND (assignment.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') <= $5::timestamptz
+    AND ($4::timestamptz IS NULL OR (assignment.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') >= $4::timestamptz)
 ),
 legacy_binding_obligations AS (
   -- Driving set for the LEGACY (pre-000040, no-membership-row) drive-assignment fallback only, so the
@@ -1095,7 +1122,10 @@ raw AS (
       OR (oi.status = 'completed' AND oi.completed_at >= $11::timestamptz AND oi.completed_at <= $10::timestamptz)
     )
 ),
-located AS (
+-- Evaluate canonical obligation membership once before the dimensional joins below.
+-- Without this fence PostgreSQL can replay the entire raw read per shed: the CPT
+-- 125-shed plan performed 229,500 obligation index probes for just 11 board rows.
+located AS MATERIALIZED (
   SELECT
     raw.*,
     COALESCE(raw.direct_park_uuid, shed_loc.parent_location_id) AS park_uuid,

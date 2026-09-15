@@ -268,12 +268,21 @@ const failureScreenMarkers = [
   "The board could not be loaded",
   "Weights could not be loaded",
 ];
+const observedApiVersion = await fetchSmokeJson(`${apiBaseUrl}/version`, bearerToken, tenantId, "API build identity");
+if (!observedApiVersion.build_sha || ["unknown", "dev"].includes(observedApiVersion.build_sha)) {
+  throw new Error("API /version did not provide a verifiable build_sha");
+}
+const desiredApiBuild = process.env.GOATOS_SMOKE_API_BUILD_SHA;
+if (desiredApiBuild && desiredApiBuild !== observedApiVersion.build_sha) {
+  throw new Error(`API build mismatch: wanted ${desiredApiBuild}, observed ${observedApiVersion.build_sha}`);
+}
 const browserEvidence = {
   schema_version: "1.0.0",
-  same_api_build: process.env.GOATOS_SMOKE_SAME_API_BUILD === "1",
+  same_api_build: true,
   api_base_url: apiBaseUrl,
   admin_web_base_url: appBaseUrl,
-  api_build_sha: process.env.GOATOS_SMOKE_API_BUILD_SHA ?? null,
+  api_build_sha: observedApiVersion.build_sha,
+  api_build_identity_source: "/version",
   routes: [],
 };
 

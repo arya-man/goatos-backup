@@ -9,6 +9,9 @@ const sha = "0123456789abcdef";
 function passingReport() {
   return {
     git_sha: sha,
+    api_build_sha: sha,
+    api_build_sha_end: sha,
+    api_build_identity_source: "/version",
     worktree_dirty: false,
     worktree_diff_sha256: "clean-worktree-hash",
     worktree_status_short: [],
@@ -34,6 +37,7 @@ function passingReport() {
     results: REQUIRED_HOT_PATHS.map((name) => ({
       name,
       samples: 20,
+      response_observations: Array.from({ length: 20 }, () => ({ assertion_value: 1, row_counts: { rows: 1 }, degraded: [] })),
       failures: 0,
       p90_ms: API_LATENCY_POLICY_MS.p90_ms,
       p95_ms: API_LATENCY_POLICY_MS.p95_ms,
@@ -64,6 +68,7 @@ function pr264BrowserEvidence({ includeSignals = true } = {}) {
   ]);
   return {
     same_api_build: true,
+    api_build_sha: sha,
     routes: [
       "/work-board?scope_mode=company",
       "/weighing/weights?scope_mode=company",
@@ -351,6 +356,7 @@ test("accepts PR264 browser evidence produced as one flat record per viewport", 
   ]);
   report.browser_evidence = {
     same_api_build: true,
+    api_build_sha: sha,
     routes: report.scope.evidence_boundaries.pr264_browser_render_routes.flatMap((route) => [
       { route, viewport: "laptop", loaded: true, forbidden_strings_absent: forbidden, route_signals: signals.get(route) },
       { route, viewport: "mobile", loaded: true, forbidden_strings_absent: forbidden, route_signals: signals.get(route) },
@@ -382,4 +388,54 @@ test("rejects empty array assertions unless the endpoint declares that empty is 
 
   report.results[0].assertion.allow_empty = true;
   assert.deepEqual(validateApiLatencyEvidence(report, sha), []);
+});
+
+test("rejects browser evidence from a different or undeclared API build", () => {
+  const report = passingReport();
+  report.scope.evidence_profile = "pr264_performance";
+  report.browser_evidence = pr264BrowserEvidence();
+  for (const apiBuild of [undefined, "stale-build"]) {
+    report.browser_evidence.api_build_sha = apiBuild;
+    assert.ok(validateApiLatencyEvidence(report, sha).some((failure) => failure.includes("api_build_sha")));
+  }
+});
+
+test("observes response cardinalities and refuses partial Work Board success", async () => {
+  const { observeApiPayload } = await import("./api-latency-evidence.mjs");
+  const endpoint = { name: "board", assertion: { type: "array_min", path: "lanes.todo.rows", min: 1 } };
+  const payload = { lanes: { todo: { rows: [{ id: "one" }], degraded: [] } } };
+  assert.deepEqual(observeApiPayload(endpoint, payload), { assertion_value: 1, row_counts: { "lanes.todo.rows": 1 }, degraded: [] });
+  payload.lanes.todo.degraded = ["weighing"];
+  assert.throws(() => observeApiPayload(endpoint, payload), /degraded.*weighing/);
+  assert.throws(() => observeApiPayload(endpoint, { ...payload, degraded: ["feed"] }), /degraded/);
+});
+
+test("rejects missing, partial, or degraded measured observations", () => {
+  const report = passingReport();
+  report.scope.evidence_profile = "pr264_performance";
+  report.results[0].name = "pr264_weighing_dates";
+  for (const observations of [undefined, [], [{ assertion_value: 1, row_counts: {}, degraded: ["weighing"] }]]) {
+    report.results[0].response_observations = observations;
+    assert.ok(validateApiLatencyEvidence(report, sha).some((failure) => failure.includes("response observations")));
+  }
+});
+
+test("does not treat null numeric payloads as zero-cardinality success", async () => {
+  const { observeApiPayload } = await import("./api-latency-evidence.mjs");
+  const endpoint = { name: "growth", assertion: { type: "number_min", path: "headline.animals", min: 0 } };
+  assert.throws(() => observeApiPayload(endpoint, { headline: { animals: null } }), /no numeric observation/);
+  assert.equal(observeApiPayload(endpoint, { headline: { animals: 0 } }).assertion_value, 0);
+});
+
+
+test("rejects checkout-only identity and API build changes during measurement", () => {
+  for (const update of [
+    { api_build_sha: undefined },
+    { api_build_sha: "different-build" },
+    { api_build_sha_end: "different-build" },
+    { api_build_sha_end: undefined },
+    { api_build_identity_source: "checkout" },
+  ]) {
+    assert.ok(validateApiLatencyEvidence({ ...passingReport(), ...update }, sha).some((failure) => /build/i.test(failure)));
+  }
 });

@@ -992,3 +992,38 @@ below. It is retained as chronology from the first rebase pass.
   - Backend/RCA/perf judge: pending.
   - Browser/Grafana/UI judge: pending.
 - Branch still needs a `--force-with-lease` push after fresh judge signoff.
+
+## PR273 independent repair — 2026-09-16
+
+Current baseline: `73c50f282ef335cd6d92203bf88252c0e9a30399`.
+Scope: independent review, correctness fixes, matched OCI HTTP before/after,
+Chrome laptop/mobile proof, judges, local CI, then PR-branch push only.
+
+Confirmed defects and changes in progress:
+- Degraded summary zero counts suppressed recoverable lane reads.
+- A 30-second Work Board response cache retained completed tasks in Todo and
+  hid compute time in fixed-URL latency tests. Removed the response cache.
+- Vaccination presentation-row summaries lost dose labels and changed status
+  precedence. Restored canonical summaries alongside independent page reads.
+- Growth losing-animal shortcut disagreed with canonical same-day pair rules.
+  Restored the canonical qualifying-pair read; integration proof in progress.
+- CPT vaccination source replayed its raw computation per shed: 125 loops,
+  about 229,500 index scans, 11.48s query execution for 11 completed rows.
+  Query-plan repair and semantic proof in progress.
+- Evidence guards now reject degraded responses, preserve row counts and
+  require actual API build identity. Matched Work Board harness compares
+  legacy five-request fanout and bundled page with row identities.
+
+Local proof so far: 693 admin-web tests; web production build; mock fidelity;
+route-coverage tests; focused Go suites and Work Board/auth race tests pass.
+Failing-before tests reproduced stale tasks, lost degraded-lane rows and
+vaccination summary loss. Initial common CI failed assistant coverage and
+AI tooling readiness; tooling rebuilt, coverage documented, final CI pending.
+
+Baseline fixed-URL gate was green but warmed the removed response cache.
+Stricter CBE uncached page: p95 267.8ms, p99 277.0ms, 101246 bytes.
+CPT baseline failed every sample with missing vaccination data; those partial
+responses are not valid speed evidence. Full fresh metrics remain pending.
+
+Judge status: source/SQL/evidence reviews active. No promotion performed.
+Detailed raw evidence and ongoing progress: `.codex-goatos-render/pr273-proof/`.

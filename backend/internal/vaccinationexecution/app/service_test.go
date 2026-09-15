@@ -3,6 +3,8 @@ package app
 import (
 	"context"
 	"fmt"
+	"sort"
+	"strings"
 	"testing"
 	"time"
 
@@ -842,7 +844,7 @@ func TestVaccinationExecutionPageCanSkipCardSummariesForLatencySensitiveClients(
 	}
 }
 
-func TestVaccinationExecutionPageBuildsDefaultCardSummariesFromCompletePage(t *testing.T) {
+func TestVaccinationExecutionPageUsesCanonicalCardSummariesForCompletePage(t *testing.T) {
 	t.Parallel()
 
 	cardCalls := 0
@@ -859,15 +861,15 @@ func TestVaccinationExecutionPageBuildsDefaultCardSummariesFromCompletePage(t *t
 	if err != nil {
 		t.Fatalf("VaccinationExecutionPage failed: %v", err)
 	}
-	if cardCalls != 0 {
-		t.Fatalf("complete first page should build card summaries without the SQL aggregate; got %d calls", cardCalls)
+	if cardCalls != 1 {
+		t.Fatalf("complete first page must use the canonical summary; got %d calls", cardCalls)
 	}
 	if resp.CardSummaries == nil {
 		t.Fatal("default card summaries should be included for legacy callers")
 	}
 }
 
-func TestVaccinationExecutionPageBuildsSmallCrossPageCardSummariesFromBoundedFullPage(t *testing.T) {
+func TestVaccinationExecutionPageUsesCanonicalCardSummariesAcrossSmallPages(t *testing.T) {
 	t.Parallel()
 
 	asOf := time.Date(2026, 8, 16, 10, 0, 0, 0, time.UTC)
@@ -887,8 +889,8 @@ func TestVaccinationExecutionPageBuildsSmallCrossPageCardSummariesFromBoundedFul
 	if err != nil {
 		t.Fatalf("VaccinationExecutionPage failed: %v", err)
 	}
-	if cardCalls != 0 {
-		t.Fatalf("small multi-page response should avoid the SQL aggregate; got %d calls", cardCalls)
+	if cardCalls != 1 {
+		t.Fatalf("small multi-page response must use the canonical summary; got %d calls", cardCalls)
 	}
 	if resp.NextCursor == nil {
 		t.Fatal("test fixture should have produced a second page")
@@ -1483,4 +1485,203 @@ func (fakeRepo) ListAlerts(
 	_ context.Context, _, _ string, _ bool, _ []string, _ string, _ int,
 ) (domain.AlertPage, error) {
 	return domain.AlertPage{Items: []domain.Alert{}}, nil
+}
+
+// Canonical summaries carry obligation-level dose labels and status inputs that
+// ExecutionRow intentionally omits; page completeness cannot recover them.
+type canonicalSummaryRepo struct {
+	paginatingFakeRepo
+	summaries map[string]*domain.ShedCardSummary
+}
+
+func (r *canonicalSummaryRepo) VaccinationExecutionCardSummaries(context.Context, domain.ExecutionQuery) (map[string]*domain.ShedCardSummary, error) {
+	return r.summaries, nil
+}
+func TestVaccinationExecutionPagePreservesCanonicalSummaryRegardlessOfPageSize(t *testing.T) {
+	asOf := time.Date(2026, 8, 16, 10, 0, 0, 0, time.UTC)
+	for _, limit := range []int{1, 20} {
+		t.Run(fmt.Sprint(limit), func(t *testing.T) {
+			expected := &domain.ShedCardSummary{Status: domain.WorkStateOverdue, NeedsRedo: false,
+				VaccineGroups: []domain.VaccineGroupSummary{{Label: "FMD", CountLabel: "17 doses", Full: false}}}
+			repo := &canonicalSummaryRepo{paginatingFakeRepo: paginatingFakeRepo{fakeRepo: fakeRepo{rows: []domain.ExecutionProjection{
+				projection("shed-1", asOf, 17, nil), projection("shed-2", asOf, 1, nil),
+			}}}, summaries: map[string]*domain.ShedCardSummary{"canonical": expected}}
+			resp, err := NewService(repo).VaccinationExecutionPage(context.Background(), domain.ExecutionQuery{TenantID: "tenant", AsOf: asOf, DueBefore: asOf.Add(24 * time.Hour), Limit: limit})
+			if err != nil {
+				t.Fatal(err)
+			}
+			actual := resp.CardSummaries["canonical"]
+			if actual == nil || actual.Status != expected.Status || actual.NeedsRedo || len(actual.VaccineGroups) != 1 || actual.VaccineGroups[0].CountLabel != "17 doses" {
+				t.Fatalf("canonical status/dose label lost at limit %d: %#v", limit, resp.CardSummaries)
+			}
+		})
+	}
+}
+
+// computeCardSummariesFromRows supports the service test fake only. It cannot
+// replace the canonical repository summary: presentation rows omit per-dose
+// counts and some status inputs used by the SQL aggregate.
+func computeCardSummariesFromRows(rows []domain.ExecutionRow) map[string]*domain.ShedCardSummary {
+	if len(rows) == 0 {
+		return nil
+	}
+
+	// Group rows by card identity: (shedId, partitionLabel, taskId/batchId/driveId)
+	type cardKey struct {
+		shedID         string
+		partitionLabel string
+		taskID         string
+		batchID        string
+		driveID        string
+	}
+	cardGroups := make(map[cardKey][]domain.ExecutionRow)
+	for _, r := range rows {
+		partition := strings.TrimSpace(r.Partition)
+		if partition == "" {
+			partition = "whole"
+		}
+		key := cardKey{
+			shedID:         r.ShedID,
+			partitionLabel: partition,
+			taskID:         domain.StringOrEmpty(r.SOPTaskID),
+			batchID:        domain.StringOrEmpty(r.BatchID),
+			driveID:        domain.StringOrEmpty(r.DriveID),
+		}
+		cardGroups[key] = append(cardGroups[key], r)
+	}
+
+	// Compute summary for each card
+	summaries := make(map[string]*domain.ShedCardSummary)
+	for key, cardRows := range cardGroups {
+		summary := summarizeCardFromRows(cardRows, key.partitionLabel)
+		cardID := domain.BuildCardID(key.shedID, key.partitionLabel, key.taskID, key.batchID, key.driveID)
+		summaries[cardID] = summary
+	}
+	return summaries
+}
+
+// summarizeCardFromRows approximates a summary for the in-memory test fake.
+// It does not represent the authoritative SQL dose labels and status inputs.
+// projection-review: grain=(shed_id, partition_label, task_id/batch_id/drive_id); membership=all execution rows matching card identity;
+// counts=sum of obligation_count/done_count/open_count across all rows in the card; parity=status f(redo + final_closed + delayed state).
+func summarizeCardFromRows(rows []domain.ExecutionRow, partitionLabel string) *domain.ShedCardSummary {
+	if len(rows) == 0 {
+		return nil
+	}
+
+	first := rows[0]
+	var targetCount, totalDone, totalOpen int
+	hasRedo := false
+	vaccineGroupMap := make(map[string]map[int]bool) // label -> (index -> full)
+
+	// Aggregate counts and redo state across all rows: SUM for counts (not max), ANY for redo state.
+	for idx, r := range rows {
+		targetCount += r.TargetCount // SUM: total obligations across all rows
+		totalDone += r.DoneCount     // SUM: total done across all rows
+		totalOpen += r.OpenCount     // SUM: total open across all rows
+
+		// Check if any row needs redo (rejected/deferred)
+		if r.WorkState == domain.WorkStateRejected || r.WorkState == domain.WorkStateDeferred {
+			hasRedo = true
+		}
+
+		// Per-row vaccine groups: mark as "full" if open==0 and no redo on this row
+		for _, label := range r.VaccineLabels {
+			if vaccineGroupMap[label] == nil {
+				vaccineGroupMap[label] = make(map[int]bool)
+			}
+			isFull := r.OpenCount == 0 && !(r.WorkState == domain.WorkStateRejected || r.WorkState == domain.WorkStateDeferred)
+			vaccineGroupMap[label][idx] = isFull
+		}
+	}
+
+	// Compute card-level status. The status field is meant to be interpreted by the client
+	// using the same logic as ShedsViewModel.shedStatusForRows():
+	// - If any row has needsRedo (rejected/deferred) -> SENT_BACK
+	// - Else if any row has overdue/missed/blocked -> DELAYED
+	// - Else if all rows final-closed (accepted/closed/completed) -> DONE
+	// - Else -> PENDING
+	// We use WorkStateCompleted as the status value to report final-closed state.
+	var status domain.WorkState
+	if hasRedo {
+		status = domain.WorkStateRejected // Signal to client: map to SENT_BACK
+	} else if anyRowHasStateFromRows(rows, domain.WorkStateVerificationPending, domain.WorkStateProofPending) {
+		status = domain.WorkStateVerificationPending
+	} else if anyRowHasStateFromRows(rows, domain.WorkStateOverdue, domain.WorkStateMissed, domain.WorkStateBlocked) {
+		status = domain.WorkStateOverdue // Signal to client: map to DELAYED
+	} else if allRowsFinalClosedFromRows(rows) {
+		status = domain.WorkStateCompleted // Signal to client: map to DONE
+	} else {
+		status = domain.WorkStateDue // Signal to client: map to PENDING
+	}
+
+	// Build vaccine group summaries: a group is "full" only if ALL rows have it full
+	vaccineGroups := make([]domain.VaccineGroupSummary, 0, len(vaccineGroupMap))
+	for label, rowStates := range vaccineGroupMap {
+		full := true
+		for _, isFull := range rowStates {
+			if !isFull {
+				full = false
+				break
+			}
+		}
+		vaccineGroups = append(vaccineGroups, domain.VaccineGroupSummary{Label: label, Full: full})
+	}
+	sort.Slice(vaccineGroups, func(i, j int) bool {
+		return vaccineGroups[i].Label < vaccineGroups[j].Label
+	})
+
+	var partLabel *string
+	if partitionLabel != "" && partitionLabel != "whole" {
+		partLabel = &partitionLabel
+	}
+
+	return &domain.ShedCardSummary{
+		ShedID:         first.ShedID,
+		PartitionLabel: partLabel,
+		TaskID:         first.SOPTaskID,
+		BatchID:        first.BatchID,
+		DriveID:        first.DriveID,
+		Status:         status,
+		DoneCount:      totalDone,
+		TargetCount:    targetCount,
+		OpenCount:      totalOpen,
+		NeedsRedo:      hasRedo,
+		VaccineGroups:  vaccineGroups,
+	}
+}
+
+func maxInt(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+func anyRowHasStateFromRows(rows []domain.ExecutionRow, states ...domain.WorkState) bool {
+	for _, r := range rows {
+		for _, s := range states {
+			if r.WorkState == s {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func allRowsFinalClosedFromRows(rows []domain.ExecutionRow) bool {
+	if len(rows) == 0 {
+		return false
+	}
+	for _, r := range rows {
+		if !isFinalClosedFromRow(r) {
+			return false
+		}
+	}
+	return true
+}
+
+func isFinalClosedFromRow(r domain.ExecutionRow) bool {
+	return r.SOPStatus == domain.SOPStatusAccepted ||
+		r.WorkState == domain.WorkStateCompleted
 }
