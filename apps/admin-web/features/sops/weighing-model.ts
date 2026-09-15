@@ -144,7 +144,8 @@ export function parseWeighing(formDsl: unknown): WeighingRows | null {
       title: str(p["title"]),
       hint: str(p["hint"]),
       kind: (kind === "photo" || kind === "either" ? kind : "video") as RemovalProofKind,
-      required: p["required"] === true,
+      // A slot published before the flag existed is compulsory (the shape those documents meant).
+      required: p["required"] !== false,
     }];
   });
   const questions = Array.isArray(removal["questions"]) ? removal["questions"].flatMap(parseQuestion) : [];

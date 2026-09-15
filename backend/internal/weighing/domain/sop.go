@@ -130,6 +130,26 @@ type RemovalProofSlot struct {
 	Required bool `json:"required"`
 }
 
+// UnmarshalJSON reads a slot with `required` ABSENT as compulsory: documents published before
+// the flag existed (the first 2026-09-15 shape) carried two compulsory clips, and reading them
+// as optional would refuse every rule read on a farm that published that day.
+func (p *RemovalProofSlot) UnmarshalJSON(data []byte) error {
+	type raw struct {
+		Key      string `json:"key"`
+		Title    string `json:"title"`
+		Hint     string `json:"hint"`
+		Kind     string `json:"kind"`
+		Required *bool  `json:"required"`
+	}
+	var r raw
+	if err := json.Unmarshal(data, &r); err != nil {
+		return err
+	}
+	p.Key, p.Title, p.Hint, p.Kind = r.Key, r.Title, r.Hint, r.Kind
+	p.Required = r.Required == nil || *r.Required
+	return nil
+}
+
 // Accepts reports whether a slot takes a capture of the given proof type (video / photo).
 func (p RemovalProofSlot) Accepts(proofType string) bool {
 	switch p.Kind {

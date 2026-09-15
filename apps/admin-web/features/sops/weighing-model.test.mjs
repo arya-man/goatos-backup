@@ -110,3 +110,9 @@ test("the removal evening: blank means the farm's, HH:MM is emitted, anything el
   rows.removalCutoffTime = "9pm";
   assert.ok(weighingProblems(rows).some((p) => p.includes("time like 20:00")));
 });
+
+test("a capture slot without the required flag (a pre-flag document) is compulsory", () => {
+  const rows = parseWeighing({ weighing: { schema_version: "goatos.sop-weighing.v1", planning: { modes: ["individual_animal"], default_cap_per_day: 100 }, feed_water_removal: { mode: "required", proofs: [{ key: "feed_video", title: "Feed", kind: "video" }, { key: "gate", title: "Gate", kind: "photo", required: false }], questions: [] }, capture: { individual: { video_required: true }, lump_sum: { video_min: 1, video_max: 5 } } } });
+  assert.deepEqual(rows.removalProofs.map((p) => p.required), [true, false]);
+  assert.deepEqual(weighingProblems(rows), []);
+});

@@ -240,3 +240,21 @@ func TestAuthoredProofSlotsShapeTheSubmit(t *testing.T) {
 }
 
 func mustErr(_ []string, err error) error { return err }
+
+
+// A slot published before `required` existed reads as COMPULSORY (the shape those documents
+// meant); an explicit false stays optional. Found by the play-through: v2 on the proof clone
+// 500'd every planner read once the flag was introduced.
+func TestASlotWithoutTheRequiredFlagIsCompulsory(t *testing.T) {
+	doc := map[string]any{"weighing": json.RawMessage(`{"schema_version":"goatos.sop-weighing.v1","planning":{"modes":["individual_animal"],"default_cap_per_day":100},"feed_water_removal":{"mode":"required","proofs":[{"key":"feed_video","title":"Feed","kind":"video"},{"key":"gate","title":"Gate","kind":"photo","required":false}],"questions":[]},"capture":{"individual":{"video_required":true},"lump_sum":{"video_min":1,"video_max":5}}}`)}
+	dsl, err := ParseWeighingSOP(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !dsl.FeedWaterRemoval.Proofs[0].Required || dsl.FeedWaterRemoval.Proofs[1].Required {
+		t.Fatalf("required flags = %v / %v, want absent=true, false=false", dsl.FeedWaterRemoval.Proofs[0].Required, dsl.FeedWaterRemoval.Proofs[1].Required)
+	}
+	if problems := ValidateWeighingSOP(dsl); len(problems) != 0 {
+		t.Fatalf("a pre-flag document must still validate, got %v", problems)
+	}
+}
