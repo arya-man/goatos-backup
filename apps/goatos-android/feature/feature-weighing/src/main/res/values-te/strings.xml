@@ -270,6 +270,9 @@
     <string name="weighing_wizard_fasting_title">మేత మరియు నీరు తీసివేత</string>
     <string name="weighing_wizard_fasting_subtitle">ముందు రోజు సాయంత్రం ఈ షెడ్ల నుండి మేత, నీరు ఎవరు తీసేస్తారు?</string>
     <string name="weighing_wizard_fasting_prompt">ఒక వ్యక్తిని ఎంచుకోండి…</string>
+    <string name="weighing_removal_capture_required_fmt">రికార్డ్ చేయండి: %1$s</string>
+    <string name="weighing_removal_photo">ఫోటో తీయండి</string>
+    <string name="weighing_removal_photo_again">మళ్లీ ఫోటో తీయండి</string>
     <string name="weighing_removal_answer_required_fmt">సమాధానం ఇవ్వండి: %1$s</string>
     <string name="weighing_removal_question_optional">ఐచ్ఛికం</string>
     <string name="weighing_removal_question_other_hint">ఏది అని చెప్పండి</string>

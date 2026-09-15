@@ -342,6 +342,9 @@
     <string name="weighing_wizard_fasting_title">Feed &amp; water removal</string>
     <string name="weighing_wizard_fasting_subtitle">Who removes feed &amp; water from these sheds the evening before?</string>
     <string name="weighing_wizard_fasting_prompt">Pick a person…</string>
+    <string name="weighing_removal_capture_required_fmt">Record: %1$s</string>
+    <string name="weighing_removal_photo">Take photo</string>
+    <string name="weighing_removal_photo_again">Retake photo</string>
     <string name="weighing_removal_answer_required_fmt">Answer: %1$s</string>
     <string name="weighing_removal_question_optional">optional</string>
     <string name="weighing_removal_question_other_hint">Say which</string>

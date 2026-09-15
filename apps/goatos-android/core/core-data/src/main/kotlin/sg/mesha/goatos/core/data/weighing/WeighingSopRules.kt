@@ -16,6 +16,8 @@ data class WeighingSopRules(
     val modes: List<String>,
     val defaultCapPerDay: Int,
     val removalMode: String,
+    /** The EFFECTIVE removal evening ("HH:MM" IST) the planner catalog served; blank = unknown. */
+    val removalCutoffTime: String,
     val removalInstruction: String,
     val removalProofs: List<WeighingRemovalProofSlot>,
     val removalQuestions: List<WeighingSopQuestionDto>,
@@ -47,6 +49,7 @@ data class WeighingSopRules(
             modes = listOf("individual_animal", "per_shed_partition"),
             defaultCapPerDay = 100,
             removalMode = REMOVAL_REQUIRED,
+            removalCutoffTime = "",
             removalInstruction = "",
             removalProofs = emptyList(),
             removalQuestions = emptyList(),
@@ -56,15 +59,16 @@ data class WeighingSopRules(
     }
 }
 
-data class WeighingRemovalProofSlot(val key: String, val title: String, val hint: String)
+data class WeighingRemovalProofSlot(val key: String, val title: String, val hint: String, val kind: String = "video", val required: Boolean = true)
 
 fun WeighingSopRulesDto.toRules(): WeighingSopRules = WeighingSopRules(
     version = version,
     modes = planning.modes,
     defaultCapPerDay = planning.defaultCapPerDay.takeIf { it > 0 } ?: WeighingSopRules.Seeded.defaultCapPerDay,
     removalMode = feedWaterRemoval.mode.ifBlank { WeighingSopRules.REMOVAL_REQUIRED },
+    removalCutoffTime = feedWaterRemoval.cutoffTime,
     removalInstruction = feedWaterRemoval.instruction,
-    removalProofs = feedWaterRemoval.proofs.map { WeighingRemovalProofSlot(it.key, it.title, it.hint) },
+    removalProofs = feedWaterRemoval.proofs.map { WeighingRemovalProofSlot(it.key, it.title, it.hint, it.kind, it.required) },
     removalQuestions = feedWaterRemoval.questions,
     lumpSumVideoMin = capture.lumpSum.videoMin.coerceAtLeast(1),
     lumpSumVideoMax = capture.lumpSum.videoMax.coerceAtLeast(1),

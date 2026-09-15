@@ -123,6 +123,12 @@ object MeshaIcons {
         "M4 7.5h9a1.5 1.5 0 0 1 1.5 1.5v6a1.5 1.5 0 0 1 -1.5 1.5h-9a1.5 1.5 0 0 1 -1.5 -1.5v-6a1.5 1.5 0 0 1 1.5 -1.5z",
         "M14.5 11 20.5 8v8l-6 -3",
     )
+    /** Still camera — a photo capture slot (the weighing SOP's photo proofs). */
+    val Camera: ImageVector = strokeIcon(
+        "camera",
+        "M4 8.5h3l1.5 -2.5h7l1.5 2.5h3a1.5 1.5 0 0 1 1.5 1.5v8a1.5 1.5 0 0 1 -1.5 1.5H4a1.5 1.5 0 0 1 -1.5 -1.5v-8A1.5 1.5 0 0 1 4 8.5z",
+        "M12 17a3.5 3.5 0 1 0 0 -7 3.5 3.5 0 0 0 0 7z",
+    )
     val Play: ImageVector = strokeIcon("play", "M8 5.5v13l10-6.5z")
     val Pause: ImageVector = strokeIcon("pause", "M8.5 5.5v13M15.5 5.5v13")
     val Flash: ImageVector = strokeIcon(

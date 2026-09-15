@@ -64,6 +64,7 @@ class WeighingFastingDetailViewModelTest {
     private fun viewModel(
         proofCaptureRepository: FakeProofCaptureRepository = FakeProofCaptureRepository(),
         proofCaptureSource: FakeProofCaptureSource = FakeProofCaptureSource(),
+        photoCaptureSource: sg.mesha.goatos.capture.FakePhotoCaptureSource = sg.mesha.goatos.capture.FakePhotoCaptureSource(),
         syncRepository: RecordingFastingSyncRepository = RecordingFastingSyncRepository(),
         fastingRepository: FakeWeighingFastingRepository = FakeWeighingFastingRepository(),
         analytics: sg.mesha.goatos.core.analytics.AnalyticsPort = NoopAnalytics(),
@@ -78,6 +79,7 @@ class WeighingFastingDetailViewModelTest {
         fastingRepository = fastingRepository,
         proofCaptureRepository = proofCaptureRepository,
         proofCaptureSource = proofCaptureSource,
+        photoCaptureSource = photoCaptureSource,
         syncRepository = syncRepository,
         analytics = analytics,
         crashReporter = NoopCrashReporter(),
@@ -460,6 +462,7 @@ internal class RecordingFastingSyncRepository : SyncRepository {
     val fastingSubmits = mutableListOf<FastingSubmit>()
 
     var lastFastingAnswers: kotlinx.serialization.json.JsonObject = kotlinx.serialization.json.JsonObject(emptyMap())
+    var lastFastingProofItems: Map<String, String> = emptyMap()
     private val status = MutableStateFlow(SyncStatus.empty(online = true))
     private val items = mutableMapOf<String, MutableStateFlow<SyncQueueItem?>>()
 
@@ -523,8 +526,10 @@ internal class RecordingFastingSyncRepository : SyncRepository {
         feedProofOutboxItemId: String,
         waterProofOutboxItemId: String,
         answers: kotlinx.serialization.json.JsonObject,
+        proofOutboxItems: Map<String, String>,
     ): AppResult<String> {
         lastFastingAnswers = answers
+        lastFastingProofItems = proofOutboxItems
         fastingSubmits += FastingSubmit(
             groupKey,
             idempotencyKey,
@@ -534,5 +539,88 @@ internal class RecordingFastingSyncRepository : SyncRepository {
             waterProofOutboxItemId,
         )
         return AppResult.Ok("outbox-fasting-${fastingSubmits.size}")
+    }
+}
+
+
+/**
+ * WEIGHING SOP, second 2026-09-15 decision: the card's captures are the SOP's slots. Three slots
+ * -- a compulsory video, a compulsory PHOTO, an optional either -- render in order; the photo slot
+ * opens the photo camera; the optional slot may be skipped; the submit is blocked by name until
+ * every compulsory capture exists, and then carries {slot key: outbox item} for exactly the
+ * captured slots under a slot-keyed idempotency key. Mutation check: make firstMissingCapture
+ * ignore `required` and the "optional may be skipped" assertion goes red.
+ */
+@RunWith(RobolectricTestRunner::class)
+class WeighingFastingDetailViewModelSlotsTest {
+    private val dispatcher = kotlinx.coroutines.test.StandardTestDispatcher()
+
+    @org.junit.Before
+    fun setUp() = kotlinx.coroutines.Dispatchers.setMain(dispatcher)
+
+    @org.junit.After
+    fun tearDown() = kotlinx.coroutines.Dispatchers.resetMain()
+
+    private fun slot(key: String, kind: String, required: Boolean, title: String) =
+        sg.mesha.goatos.core.network.dto.WeighingRemovalProofSlotDto(key = key, title = title, kind = kind, required = required)
+
+    @org.junit.Test
+    fun `authored slots drive the camera mode, the submit gate and the payload`() = kotlinx.coroutines.test.runTest(dispatcher) {
+        val sync = RecordingFastingSyncRepository()
+        val video = FakeProofCaptureSource(mutableListOf(CapturedVideo(localUri = "/proof/feed.mp4", mimeType = "video/mp4", startedAtMs = 1L, endedAtMs = 2L)))
+        val photo = sg.mesha.goatos.capture.FakePhotoCaptureSource(mutableListOf(sg.mesha.goatos.capture.CapturedPhoto(localUri = "/proof/trough.jpg", capturedAtMs = 3L)))
+        val fastingRepository = FakeWeighingFastingRepository()
+        val vm = WeighingFastingDetailViewModel(
+            fastingRepository = fastingRepository,
+            proofCaptureRepository = FakeProofCaptureRepository(),
+            proofCaptureSource = video,
+            photoCaptureSource = photo,
+            syncRepository = sync,
+            analytics = NoopAnalytics(),
+            crashReporter = NoopCrashReporter(),
+            appContext = ApplicationProvider.getApplicationContext(),
+            savedStateHandle = SavedStateHandle(
+                mapOf(
+                    Routes.WEIGHING_FASTING_TASK_ARG to "task-1",
+                    Routes.WEIGHING_FASTING_SHED_ARG to "shed-b",
+                    Routes.WEIGHING_FASTING_TITLE_ARG to "Remove feed & water · Castro 2",
+                ),
+            ),
+        )
+        fastingRepository.cardFlow.value = WeighingFastingCard(
+            WeighingFastingShedCardDto(
+                fastingTaskId = "task-1", campaignShedId = "shed-b", shedLabel = "Castro 2",
+                subjectLabel = "Remove feed & water · Castro 2", status = "open", removalBusinessDate = "2026-09-03",
+                proofs = listOf(
+                    slot("feed_video", "video", true, "Feed removed"),
+                    slot("trough_photo", "photo", true, "Empty trough"),
+                    slot("gate", "either", false, "Gate closed"),
+                ),
+            ),
+        )
+        advanceUntilIdle()
+        assertEquals(listOf("feed_video", "trough_photo", "gate"), vm.state.value.slots.map { it.slotKey })
+        assertEquals(listOf("video", "photo", "either"), vm.state.value.slots.map { it.captureKind })
+        assertEquals(listOf(true, true, false), vm.state.value.slots.map { it.required })
+        assertTrue(vm.state.value.submitBlockedReason.contains("Feed removed"))
+
+        vm.onEvent(WeighingFastingDetailEvent.RecordSlot("feed_video"))
+        advanceUntilIdle()
+        assertEquals("the video slot opened the video camera", 1, video.captureCount)
+        assertEquals(0, photo.captureCount)
+        assertTrue("the next compulsory capture is named", vm.state.value.submitBlockedReason.contains("Empty trough"))
+
+        vm.onEvent(WeighingFastingDetailEvent.RecordSlot("trough_photo"))
+        advanceUntilIdle()
+        assertEquals("the photo slot opened the photo camera", 1, photo.captureCount)
+        assertEquals("photo", vm.state.value.slots.first { it.slotKey == "trough_photo" }.capturedKind)
+        assertEquals("the optional slot may be skipped", true, vm.state.value.submitEnabled)
+
+        vm.onEvent(WeighingFastingDetailEvent.Submit)
+        advanceUntilIdle()
+        val submit = sync.fastingSubmits.single()
+        assertEquals(setOf("feed_video", "trough_photo"), sync.lastFastingProofItems.keys)
+        assertTrue("water is not one of this document's slots", submit.waterProofOutboxItemId.isEmpty())
+        assertTrue(submit.idempotencyKey.startsWith("weighing-fasting-submit:task-1:shed-b:feed_video=") && submit.idempotencyKey.contains("|trough_photo="))
     }
 }

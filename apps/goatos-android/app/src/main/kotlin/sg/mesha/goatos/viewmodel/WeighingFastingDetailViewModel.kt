@@ -21,6 +21,8 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import sg.mesha.goatos.BuildConfig
+import sg.mesha.goatos.capture.PhotoCaptureContext
+import sg.mesha.goatos.capture.PhotoCaptureSource
 import sg.mesha.goatos.capture.ProofCaptureContext
 import sg.mesha.goatos.capture.ProofCaptureSource
 import sg.mesha.goatos.core.analytics.AnalyticsEvents
@@ -41,6 +43,7 @@ import sg.mesha.goatos.core.data.sync.SyncRepository
 import sg.mesha.goatos.core.data.weighing.WeighingFastingRepository
 import sg.mesha.goatos.core.network.dto.WeighingSopQuestionDto
 import sg.mesha.goatos.feature.weighing.WeighingFastingAnswerUi
+import sg.mesha.goatos.feature.weighing.WeighingFastingCaptureKind
 import sg.mesha.goatos.feature.weighing.WeighingFastingDetailEvent
 import sg.mesha.goatos.feature.weighing.WeighingFastingQuestionUi
 import sg.mesha.goatos.feature.weighing.WeighingFastingDetailUiState
@@ -78,6 +81,7 @@ class WeighingFastingDetailViewModel @Inject constructor(
     private val fastingRepository: WeighingFastingRepository,
     private val proofCaptureRepository: ProofCaptureRepository,
     private val proofCaptureSource: ProofCaptureSource,
+    private val photoCaptureSource: PhotoCaptureSource,
     private val syncRepository: SyncRepository,
     private val analytics: AnalyticsPort,
     private val crashReporter: CrashReporter,
@@ -102,15 +106,20 @@ class WeighingFastingDetailViewModel @Inject constructor(
     private var answers: Map<String, WeighingFastingAnswerUi> = restoreAnswers()
 
     private var submitEnqueueInFlight = false
-    private val proofJobs = mutableMapOf<WeighingFastingSlotKind, Job>()
+    private val proofJobs = mutableMapOf<String, Job>()
     private var submitJob: Job? = null
     private var refreshInFlight = false
+
+    /**
+     * The card's slots as the SOP authored them (WEIGHING SOP). Until the card lands the seeded
+     * two stand in, so a draft restored after process death observes its proof items.
+     */
+    private var slotDtos: List<sg.mesha.goatos.core.network.dto.WeighingRemovalProofSlotDto> = seededSlotDtos()
 
     private val _state = MutableStateFlow(
         WeighingFastingDetailUiState(
             title = titleHint,
-            feedSlot = emptySlot(WeighingFastingSlotKind.FEED),
-            waterSlot = emptySlot(WeighingFastingSlotKind.WATER),
+            slots = slotDtos.map { emptySlot(it) },
             submitQueued = submitOutboxItemId.value != null,
         ),
     )
@@ -123,8 +132,8 @@ class WeighingFastingDetailViewModel @Inject constructor(
         )
         observeCard()
         submitOutboxItemId.value?.let(::observeSubmitItem)
-        WeighingFastingSlotKind.entries.forEach { kind ->
-            slotItemId(kind)?.let { observeProofItem(kind, it) }
+        _state.value.slots.forEach { slot ->
+            slotItemId(slot.slotKey)?.let { observeProofItem(slot.slotKey, it) }
         }
         recomputeSubmit()
         refresh()
@@ -132,8 +141,8 @@ class WeighingFastingDetailViewModel @Inject constructor(
 
     fun onEvent(event: WeighingFastingDetailEvent) {
         when (event) {
-            is WeighingFastingDetailEvent.RecordSlot -> recordSlot(event.kind)
-            is WeighingFastingDetailEvent.PreviewAction -> trackPreviewAction(event.kind, event.action)
+            is WeighingFastingDetailEvent.RecordSlot -> recordSlot(event.slotKey, event.photo)
+            is WeighingFastingDetailEvent.PreviewAction -> trackPreviewAction(event.slotKey, event.action)
             is WeighingFastingDetailEvent.SetAnswer -> setAnswer(event.questionId) { it.copy(value = event.value) }
             is WeighingFastingDetailEvent.ToggleAnswer -> setAnswer(event.questionId) { current ->
                 current.copy(values = if (event.value in current.values) current.values - event.value else current.values + event.value)
@@ -145,13 +154,13 @@ class WeighingFastingDetailViewModel @Inject constructor(
         }
     }
 
-    private fun trackPreviewAction(kind: WeighingFastingSlotKind, action: String) {
+    private fun trackPreviewAction(slotKey: String, action: String) {
         val previewAction = ProofPreviewActionTrace.from(action)
-        val slot = _state.value.slotOf(kind)
+        val slot = _state.value.slotOf(slotKey)
         analytics.track(
             AnalyticsEventsWeighing.WEIGHING_REMOVAL_PROOF_PREVIEW_ACTION,
             weighingFastingAnalyticsProps(
-                kind,
+                slotKey = slotKey,
                 action = previewAction.action,
                 source = "proof_preview",
                 outcome = previewAction.outcome,
@@ -178,12 +187,20 @@ class WeighingFastingDetailViewModel @Inject constructor(
                     submitJob?.cancel()
                     clearSlots()
                 }
+                // The SOP's slot list for this task; an older server sends none and the seeded
+                // two stand.
+                slotDtos = dto.proofs.ifEmpty { seededSlotDtos() }
                 if (readOnly) {
-                    // A submitted/approved card renders its clips from the server (a reinstall
+                    // A submitted/approved card renders its captures from the server (a reinstall
                     // holds no local file). Enrichment only — fetched async, best effort, retried
                     // on the next Room emit; the feed-distribution screen's exact behaviour.
-                    fetchRemotePreview(WeighingFastingSlotKind.FEED, dto.feedProofRef.orEmpty())
-                    fetchRemotePreview(WeighingFastingSlotKind.WATER, dto.waterProofRef.orEmpty())
+                    val recorded = dto.proofRefs.ifEmpty {
+                        buildMap {
+                            dto.feedProofRef?.takeIf { it.isNotBlank() }?.let { put("feed_video", it) }
+                            dto.waterProofRef?.takeIf { it.isNotBlank() }?.let { put("water_video", it) }
+                        }
+                    }
+                    slotDtos.forEach { slot -> fetchRemotePreview(slot, recorded[slot.key].orEmpty()) }
                 }
                 _state.update { current ->
                     current.copy(
@@ -205,8 +222,7 @@ class WeighingFastingDetailViewModel @Inject constructor(
                         // The verifier's own sentence about THIS shed, verbatim, only while sent back.
                         reworkReason = if (status == STATUS_REWORK) dto.reworkReason.orEmpty() else "",
                         submitQueued = submitOutboxItemId.value != null && current.submitQueued,
-                        feedSlot = mergedSlot(WeighingFastingSlotKind.FEED, current).withSopCopy(dto.proofs, WeighingFastingSlotKind.FEED),
-                        waterSlot = mergedSlot(WeighingFastingSlotKind.WATER, current).withSopCopy(dto.proofs, WeighingFastingSlotKind.WATER),
+                        slots = slotDtos.map { slot -> mergedSlot(slot, current) },
                         // The SOP's copy for this task, verbatim: the instruction and the questions.
                         instruction = dto.instruction,
                         questions = questionRows(),
@@ -224,52 +240,63 @@ class WeighingFastingDetailViewModel @Inject constructor(
         }
     }
 
-    private fun fetchRemotePreview(kind: WeighingFastingSlotKind, proofRef: String) {
+    private fun fetchRemotePreview(slot: sg.mesha.goatos.core.network.dto.WeighingRemovalProofSlotDto, proofRef: String) {
         if (proofRef.isBlank()) return
-        if (_state.value.slotOf(kind).let { it.remoteUrl != null || it.previewPath != null }) return
-        updateSlot(kind) {
+        if (_state.value.slotOf(slot.key).let { it.remoteUrl != null || it.previewPath != null }) return
+        updateSlot(slot.key) {
             it.copy(
                 captured = true,
                 status = WeighingFastingSlotStatus.SYNCED,
                 statusLabel = PROOF_SYNCED_LABEL,
                 remoteUrl = weighingBackendProofUrl(proofRef),
                 serverProofId = proofRef,
+                // A recorded capture on a photo slot is a photo; an `either` slot's kind is
+                // whatever was captured, which the server does not echo -- render as video only
+                // when the slot cannot be a photo.
+                capturedKind = if (slot.kind == WeighingFastingCaptureKind.VIDEO) WeighingFastingCaptureKind.VIDEO else WeighingFastingCaptureKind.PHOTO.takeIf { slot.kind == WeighingFastingCaptureKind.PHOTO } ?: slotCapturedKind(slot.key),
             )
         }
     }
 
-    /** One slot, merging any live local capture state over a clean baseline. */
+    /** One slot, merging any live local capture state over a clean baseline of the SOP's copy. */
     private fun mergedSlot(
-        kind: WeighingFastingSlotKind,
+        slot: sg.mesha.goatos.core.network.dto.WeighingRemovalProofSlotDto,
         current: WeighingFastingDetailUiState,
     ): WeighingFastingSlotUi {
         // Reuse the live slot only while something real backs it (a capture in flight, a
         // failure to show, or a persisted outbox item). A card whose slots were just reset
-        // for rework therefore falls through to a clean "Record video" slot.
-        val live = current.slotOf(kind)
-            .takeIf { it.fieldKey == fieldKey(kind) }
+        // for rework therefore falls through to a clean "Record" slot.
+        val live = current.slots.firstOrNull { it.slotKey == slot.key }
+            ?.takeIf { it.fieldKey == fieldKey(slot.key) }
             ?.takeIf {
                 it.busy ||
                     it.status == WeighingFastingSlotStatus.FAILED ||
                     it.remoteUrl != null ||
                     it.serverProofId != null ||
-                    slotItemId(kind) != null
+                    slotItemId(slot.key) != null
             }
-        return live ?: emptySlot(kind)
-    }
-
-    /** The SOP's slot title and hint override the app's defaults when the task carries them. */
-    private fun WeighingFastingSlotUi.withSopCopy(
-        proofs: List<sg.mesha.goatos.core.network.dto.WeighingRemovalProofSlotDto>,
-        kind: WeighingFastingSlotKind,
-    ): WeighingFastingSlotUi {
-        val key = if (kind == WeighingFastingSlotKind.FEED) "feed_video" else "water_video"
-        val slot = proofs.firstOrNull { it.key == key } ?: return this
-        return copy(
-            title = slot.title.ifBlank { title },
-            hint = slot.hint.ifBlank { hint },
+        val base = live ?: emptySlot(slot)
+        return base.copy(
+            title = slot.title.ifBlank { base.title },
+            hint = slot.hint.ifBlank { base.hint },
+            captureKind = slot.kind.ifBlank { WeighingFastingCaptureKind.VIDEO },
+            required = slot.required,
         )
     }
+
+    /** The seeded document's two slots, for a server that sends none. */
+    private fun seededSlotDtos(): List<sg.mesha.goatos.core.network.dto.WeighingRemovalProofSlotDto> = listOf(
+        sg.mesha.goatos.core.network.dto.WeighingRemovalProofSlotDto(
+            key = WeighingFastingSlotKind.FEED.slotKey,
+            title = appContext.getString(WeighingR.string.weighing_removal_feed_slot),
+            hint = appContext.getString(WeighingR.string.weighing_removal_feed_hint),
+        ),
+        sg.mesha.goatos.core.network.dto.WeighingRemovalProofSlotDto(
+            key = WeighingFastingSlotKind.WATER.slotKey,
+            title = appContext.getString(WeighingR.string.weighing_removal_water_slot),
+            hint = appContext.getString(WeighingR.string.weighing_removal_water_hint),
+        ),
+    )
 
     // ------------------------------------------------------------------ SOP questions
 
@@ -383,27 +410,19 @@ class WeighingFastingDetailViewModel @Inject constructor(
         }
     }
 
-    private fun emptySlot(kind: WeighingFastingSlotKind): WeighingFastingSlotUi = WeighingFastingSlotUi(
-        fieldKey = fieldKey(kind),
-        kind = kind,
-        title = appContext.getString(
-            if (kind == WeighingFastingSlotKind.FEED) {
-                WeighingR.string.weighing_removal_feed_slot
-            } else {
-                WeighingR.string.weighing_removal_water_slot
-            },
-        ),
-        hint = appContext.getString(
-            if (kind == WeighingFastingSlotKind.FEED) {
-                WeighingR.string.weighing_removal_feed_hint
-            } else {
-                WeighingR.string.weighing_removal_water_hint
-            },
-        ),
-        captured = slotItemId(kind) != null,
+    private fun emptySlot(slot: sg.mesha.goatos.core.network.dto.WeighingRemovalProofSlotDto): WeighingFastingSlotUi = WeighingFastingSlotUi(
+        fieldKey = fieldKey(slot.key),
+        kind = WeighingFastingSlotKind.forKey(slot.key) ?: WeighingFastingSlotKind.FEED,
+        slotKey = slot.key,
+        captureKind = slot.kind.ifBlank { WeighingFastingCaptureKind.VIDEO },
+        required = slot.required,
+        capturedKind = slotCapturedKind(slot.key),
+        title = slot.title,
+        hint = slot.hint,
+        captured = slotItemId(slot.key) != null,
         // This device's own recording survives process death alongside the outbox item id, so
         // the preview comes back with the draft (the feed-distribution screen's behaviour).
-        previewPath = slotPreviewPath(kind),
+        previewPath = slotPreviewPath(slot.key),
     )
 
     private fun refresh() {
@@ -429,27 +448,40 @@ class WeighingFastingDetailViewModel @Inject constructor(
         }
     }
 
-    private fun recordSlot(kind: WeighingFastingSlotKind) {
+    private fun recordSlot(slotKey: String, photo: Boolean) {
         val current = _state.value
         if (current.isReadOnly || current.submitQueued) return
-        val slotUi = current.slotOf(kind)
+        val slotUi = current.slots.firstOrNull { it.slotKey == slotKey } ?: return
         if (slotUi.busy) return
-        updateSlot(kind) { it.copy(busy = true) }
+        // The slot decides the camera mode: a photo slot always photographs, a video slot always
+        // records, an `either` slot follows the button the operator pressed.
+        val takePhoto = when (slotUi.captureKind) {
+            WeighingFastingCaptureKind.PHOTO -> true
+            WeighingFastingCaptureKind.VIDEO -> false
+            else -> photo
+        }
+        updateSlot(slotKey) { it.copy(busy = true) }
         viewModelScope.launch {
             try {
-                val captured = try {
-                    proofCaptureSource.captureVideo(
-                        ProofCaptureContext(
-                            title = slotUi.title,
-                            // The SHED the clip must show — the backend-owned card title, which
-                            // names the shed — front and centre.
-                            primaryTag = current.title.ifBlank { slotUi.title },
-                            workLabel = slotUi.title,
-                            headerTitle = appContext.getString(WeighingR.string.weighing_removal_screen_title),
-                        ),
-                    )
+                val captured: CapturedSlotMedia? = try {
+                    if (takePhoto) {
+                        photoCaptureSource.capturePhoto(
+                            PhotoCaptureContext(title = slotUi.title, instruction = slotUi.hint.ifBlank { current.title }),
+                        )?.let { CapturedSlotMedia(it.localUri, it.mimeType, it.capturedAtMs, it.capturedAtMs, it.captureSource, WeighingFastingCaptureKind.PHOTO) }
+                    } else {
+                        proofCaptureSource.captureVideo(
+                            ProofCaptureContext(
+                                title = slotUi.title,
+                                // The SHED the clip must show — the backend-owned card title, which
+                                // names the shed — front and centre.
+                                primaryTag = current.title.ifBlank { slotUi.title },
+                                workLabel = slotUi.title,
+                                headerTitle = appContext.getString(WeighingR.string.weighing_removal_screen_title),
+                            ),
+                        )?.let { CapturedSlotMedia(it.localUri, it.mimeType, it.startedAtMs, it.endedAtMs, it.captureSource, WeighingFastingCaptureKind.VIDEO) }
+                    }
                 } catch (error: Exception) {
-                    crashReporter.recordException(error, "weighing removal video capture failed")
+                    crashReporter.recordException(error, "weighing removal capture failed")
                     trackFailure(slotUi.fieldKey, "camera_exception")
                     null
                 }
@@ -457,17 +489,17 @@ class WeighingFastingDetailViewModel @Inject constructor(
                     analytics.track(
                         AnalyticsEventsWeighing.WEIGHING_REMOVAL_SLOT_CAPTURED,
                         weighingFastingAnalyticsProps(
-                            kind = kind,
+                            slotKey = slotKey,
                             action = "capture_cancelled",
                             source = "camera",
                             outcome = "cancelled",
                             reason = "camera_cancelled",
                         ),
                     )
-                    updateSlot(kind) { it.copy(busy = false) }
+                    updateSlot(slotKey) { it.copy(busy = false) }
                     return@launch
                 }
-                val fieldKey = fieldKey(kind)
+                val fieldKey = fieldKey(slotKey)
                 val slot = EvidenceSlot(
                     identity = ProofIdentity(
                         flow = ProofFlow.WEIGHING_FASTING,
@@ -489,7 +521,7 @@ class WeighingFastingDetailViewModel @Inject constructor(
                         capturedStartMs = captured.startedAtMs,
                         capturedEndMs = captured.endedAtMs,
                         capturedByPrincipalId = null,
-                        proofPolicy = weighingFastingProofPolicy(captured.captureSource),
+                        proofPolicy = weighingFastingProofPolicy(captured.captureSource, captured.kind),
                         awaitUploadEnqueue = true,
                         // PER-SLOT upload group: each clip is independent field work, so one
                         // backed-off upload must never strand the other as "waiting". The submit
@@ -503,11 +535,11 @@ class WeighingFastingDetailViewModel @Inject constructor(
                             trackFailure(
                                 fieldKey = fieldKey,
                                 reason = "missing_upload_outbox",
-                                kind = kind,
+                                slotKey = slotKey,
                                 proofRowId = result.value.id,
                                 serverProofId = result.value.serverProofId,
                             )
-                            updateSlot(kind) {
+                            updateSlot(slotKey) {
                                 it.copy(
                                     busy = false,
                                     status = WeighingFastingSlotStatus.FAILED,
@@ -516,13 +548,14 @@ class WeighingFastingDetailViewModel @Inject constructor(
                             }
                             return@launch
                         }
-                        setSlotItemId(kind, proofOutboxId)
-                        setSlotPreviewPath(kind, captured.localUri)
-                        observeProofItem(kind, proofOutboxId)
+                        setSlotItemId(slotKey, proofOutboxId)
+                        setSlotPreviewPath(slotKey, captured.localUri)
+                        setSlotCapturedKind(slotKey, captured.kind)
+                        observeProofItem(slotKey, proofOutboxId)
                         analytics.track(
                             AnalyticsEventsWeighing.WEIGHING_REMOVAL_SLOT_CAPTURED,
                             weighingFastingAnalyticsProps(
-                                kind = kind,
+                                slotKey = slotKey,
                                 action = "captured",
                                 source = "capture_repository",
                                 outcome = "success",
@@ -531,13 +564,14 @@ class WeighingFastingDetailViewModel @Inject constructor(
                                 serverProofId = result.value.serverProofId,
                             ),
                         )
-                        updateSlot(kind) {
+                        updateSlot(slotKey) {
                             it.copy(
                                 busy = false,
                                 captured = true,
                                 status = WeighingFastingSlotStatus.QUEUED,
                                 statusLabel = PROOF_QUEUED_LABEL,
                                 previewPath = captured.localUri,
+                                capturedKind = captured.kind,
                                 localProofRowId = result.value.id,
                                 serverProofId = result.value.serverProofId,
                             )
@@ -546,8 +580,8 @@ class WeighingFastingDetailViewModel @Inject constructor(
                     }
                     is AppResult.Err -> {
                         result.cause?.let { crashReporter.recordException(it, "weighing removal proof enqueue failed") }
-                        trackFailure(fieldKey, result.message, kind = kind)
-                        updateSlot(kind) {
+                        trackFailure(fieldKey, result.message, slotKey = slotKey)
+                        updateSlot(slotKey) {
                             it.copy(
                                 busy = false,
                                 status = WeighingFastingSlotStatus.FAILED,
@@ -557,7 +591,7 @@ class WeighingFastingDetailViewModel @Inject constructor(
                     }
                 }
             } finally {
-                updateSlot(kind) { it.copy(busy = false) }
+                updateSlot(slotKey) { it.copy(busy = false) }
             }
         }
     }
@@ -565,15 +599,16 @@ class WeighingFastingDetailViewModel @Inject constructor(
     private fun submit() {
         if (submitEnqueueInFlight) return
         val current = _state.value
-        // BOTH of this shed's clips, always: a submit missing one would be refused server-side
-        // anyway (proof-shaped 422, backend farm copy), so the block is stated here before any
-        // queueing.
-        val feedItem = slotItemId(WeighingFastingSlotKind.FEED)
-        val waterItem = slotItemId(WeighingFastingSlotKind.WATER)
-        if (current.isReadOnly || current.submitQueued || feedItem == null || waterItem == null || firstMissingAnswer() != null) {
+        // Every COMPULSORY capture of this shed, always: a submit missing one would be refused
+        // server-side anyway (proof-shaped 422, backend farm copy), so the block is stated here
+        // before any queueing. Optional slots ride along only when captured.
+        val proofItems = capturedProofItems()
+        if (current.isReadOnly || current.submitQueued || firstMissingCapture() != null || firstMissingAnswer() != null) {
             recomputeSubmit()
             return
         }
+        val feedItem = proofItems[WeighingFastingSlotKind.FEED.slotKey].orEmpty()
+        val waterItem = proofItems[WeighingFastingSlotKind.WATER.slotKey].orEmpty()
         val answersPayload = answersJson()
         submitEnqueueInFlight = true
         viewModelScope.launch {
@@ -583,14 +618,15 @@ class WeighingFastingDetailViewModel @Inject constructor(
                     // in order. The proofs are NOT on this group — each rides its own per-slot
                     // upload lane and the dispatcher resolves them by outbox id.
                     groupKey = submitGroupKey(),
-                    // STABLE per (task, shed, clip pair): a retry replays for free; a post-rework
+                    // STABLE per (task, shed, capture set): a retry replays for free; a post-rework
                     // re-shoot names new proofs and is a genuinely new act under a new key.
-                    idempotencyKey = submitIdempotencyKey(feedItem, waterItem),
+                    idempotencyKey = submitIdempotencyKey(proofItems),
                     fastingTaskId = fastingTaskId,
                     campaignShedId = campaignShedId,
                     feedProofOutboxItemId = feedItem,
                     waterProofOutboxItemId = waterItem,
                     answers = answersPayload,
+                    proofOutboxItems = proofItems,
                 )
             ) {
                 is AppResult.Ok -> {
@@ -633,24 +669,24 @@ class WeighingFastingDetailViewModel @Inject constructor(
         }
     }
 
-    private fun observeProofItem(kind: WeighingFastingSlotKind, itemId: String) {
-        proofJobs.remove(kind)?.cancel()
-        proofJobs[kind] = viewModelScope.launch {
+    private fun observeProofItem(slotKey: String, itemId: String) {
+        proofJobs.remove(slotKey)?.cancel()
+        proofJobs[slotKey] = viewModelScope.launch {
             syncRepository.observeItem(itemId)
                 .filterNotNull()
                 .distinctUntilChanged()
-                .collect { item -> applyProofItem(kind, item) }
+                .collect { item -> applyProofItem(slotKey, item) }
         }
     }
 
-    private fun applyProofItem(kind: WeighingFastingSlotKind, item: SyncQueueItem) {
+    private fun applyProofItem(slotKey: String, item: SyncQueueItem) {
         val status = when {
             item.status == SyncItemStatus.SUCCEEDED -> WeighingFastingSlotStatus.SYNCED
             item.isTerminalFailure -> WeighingFastingSlotStatus.FAILED
             item.status == SyncItemStatus.IN_FLIGHT -> WeighingFastingSlotStatus.UPLOADING
             else -> WeighingFastingSlotStatus.QUEUED
         }
-        updateSlot(kind) {
+        updateSlot(slotKey) {
             it.copy(
                 captured = true,
                 status = status,
@@ -664,12 +700,12 @@ class WeighingFastingDetailViewModel @Inject constructor(
             )
         }
         if (item.status == SyncItemStatus.SUCCEEDED || item.isTerminalFailure) {
-            val slot = _state.value.slotOf(kind)
+            val slot = _state.value.slotOf(slotKey)
             analytics.track(
                 AnalyticsEventsWeighing.WEIGHING_REMOVAL_FAILURE.takeIf { item.isTerminalFailure }
                     ?: AnalyticsEventsWeighing.WEIGHING_REMOVAL_SLOT_CAPTURED,
                 weighingFastingAnalyticsProps(
-                    kind = kind,
+                    slotKey = slotKey,
                     action = "upload_${item.status.name.lowercase()}",
                     source = "proof_outbox_observer",
                     outcome = if (item.status == SyncItemStatus.SUCCEEDED) "sync_success" else "sync_terminal_failure",
@@ -712,8 +748,8 @@ class WeighingFastingDetailViewModel @Inject constructor(
                                 reason = item.lastError,
                                 source = "submit_outbox_observer",
                                 submitOutboxId = item.id,
-                                feedProofOutboxItemId = slotItemId(WeighingFastingSlotKind.FEED),
-                                waterProofOutboxItemId = slotItemId(WeighingFastingSlotKind.WATER),
+                                feedProofOutboxItemId = slotItemId(WeighingFastingSlotKind.FEED.slotKey),
+                                waterProofOutboxItemId = slotItemId(WeighingFastingSlotKind.WATER.slotKey),
                             ),
                         )
                     }
@@ -723,18 +759,18 @@ class WeighingFastingDetailViewModel @Inject constructor(
 
     private fun recomputeSubmit() {
         _state.update { current ->
-            // BOTH of this shed's clips recorded (their outbox items exist) — nothing else gates
+            // Every COMPULSORY capture recorded (its outbox item exists) — nothing else gates
             // the button; the drain waits for the uploads by resolving the outbox ids.
-            val bothReady = slotItemId(WeighingFastingSlotKind.FEED) != null &&
-                slotItemId(WeighingFastingSlotKind.WATER) != null
-            // WEIGHING SOP: a required authored question left unanswered blocks the submit by name.
+            // WEIGHING SOP: a missing compulsory capture, then a required authored question left
+            // unanswered, each block the submit BY NAME.
+            val missingCapture = firstMissingCapture()
             val missingAnswer = firstMissingAnswer()
-            val enabled = bothReady && missingAnswer == null && !current.isReadOnly && !current.submitQueued
+            val enabled = missingCapture == null && missingAnswer == null && !current.isReadOnly && !current.submitQueued
             current.copy(
                 submitEnabled = enabled,
                 submitBlockedReason = when {
                     enabled || current.submitQueued || current.isReadOnly -> ""
-                    !bothReady -> SUBMIT_BLOCKED_BOTH_VIDEOS
+                    missingCapture != null -> appContext.getString(WeighingR.string.weighing_removal_capture_required_fmt, missingCapture)
                     else -> appContext.getString(WeighingR.string.weighing_removal_answer_required_fmt, missingAnswer.orEmpty())
                 },
             )
@@ -742,62 +778,87 @@ class WeighingFastingDetailViewModel @Inject constructor(
     }
 
     private fun updateSlot(
-        kind: WeighingFastingSlotKind,
+        slotKey: String,
         transform: (WeighingFastingSlotUi) -> WeighingFastingSlotUi,
     ) {
         _state.update { current ->
-            if (kind == WeighingFastingSlotKind.FEED) {
-                current.copy(feedSlot = transform(current.feedSlot))
-            } else {
-                current.copy(waterSlot = transform(current.waterSlot))
-            }
+            current.copy(slots = current.slots.map { if (it.slotKey == slotKey) transform(it) else it })
         }
     }
+
+    /** {slot key: proof outbox item id} for every slot this device has captured. */
+    private fun capturedProofItems(): Map<String, String> = buildMap {
+        _state.value.slots.forEach { slot -> slotItemId(slot.slotKey)?.let { put(slot.slotKey, it) } }
+    }
+
+    /** The first compulsory slot still without a capture, by title -- the submit's block reason. */
+    private fun firstMissingCapture(): String? =
+        _state.value.slots.firstOrNull { it.required && slotItemId(it.slotKey) == null }?.title
 
     // ------------------------------------------------------------------ per-slot draft identity
 
-    /** Field keys are part of the durable capture identity — never rename casually. The shed id
-     *  stays in the key exactly as the per-shed sections carried it. */
-    internal fun fieldKey(kind: WeighingFastingSlotKind): String =
-        if (kind == WeighingFastingSlotKind.FEED) {
-            "${FIELD_FEED_VIDEO_PREFIX}$campaignShedId"
-        } else {
-            "${FIELD_WATER_VIDEO_PREFIX}$campaignShedId"
-        }
+    /**
+     * Field keys are part of the durable capture identity — never rename casually. The seeded
+     * two keep the exact keys the per-shed sections carried, so an in-flight draft survives the
+     * move to authored slots; an authored slot is keyed by its SOP key.
+     */
+    internal fun fieldKey(slotKey: String): String = when (slotKey) {
+        WeighingFastingSlotKind.FEED.slotKey -> "${FIELD_FEED_VIDEO_PREFIX}$campaignShedId"
+        WeighingFastingSlotKind.WATER.slotKey -> "${FIELD_WATER_VIDEO_PREFIX}$campaignShedId"
+        else -> "${FIELD_SLOT_PREFIX}${slotKey}_$campaignShedId"
+    }
 
-    private fun slotStateKey(kind: WeighingFastingSlotKind): String =
-        "$KEY_SLOT_PROOF_ITEM_ID_PREFIX:$campaignShedId:${kind.name.lowercase()}"
+    internal fun fieldKey(kind: WeighingFastingSlotKind): String = fieldKey(kind.slotKey)
 
-    private fun slotItemId(kind: WeighingFastingSlotKind): String? =
-        savedStateHandle.get<String>(slotStateKey(kind))?.takeIf { it.isNotBlank() }
+    /** The seeded slots keep their pre-SOP state keys ("feed" / "water") so drafts survive. */
+    private fun slotStateSuffix(slotKey: String): String = when (slotKey) {
+        WeighingFastingSlotKind.FEED.slotKey -> "feed"
+        WeighingFastingSlotKind.WATER.slotKey -> "water"
+        else -> slotKey
+    }
 
-    private fun setSlotItemId(kind: WeighingFastingSlotKind, itemId: String?) {
-        val key = slotStateKey(kind)
+    private fun slotStateKey(slotKey: String): String =
+        "$KEY_SLOT_PROOF_ITEM_ID_PREFIX:$campaignShedId:${slotStateSuffix(slotKey)}"
+
+    private fun slotItemId(slotKey: String): String? =
+        savedStateHandle.get<String>(slotStateKey(slotKey))?.takeIf { it.isNotBlank() }
+
+    private fun setSlotItemId(slotKey: String, itemId: String?) {
+        val key = slotStateKey(slotKey)
         if (itemId == null) savedStateHandle.remove<String>(key) else savedStateHandle[key] = itemId
     }
 
-    private fun slotPreviewKey(kind: WeighingFastingSlotKind): String =
-        "$KEY_SLOT_PREVIEW_PATH_PREFIX:$campaignShedId:${kind.name.lowercase()}"
+    private fun slotPreviewKey(slotKey: String): String =
+        "$KEY_SLOT_PREVIEW_PATH_PREFIX:$campaignShedId:${slotStateSuffix(slotKey)}"
 
-    private fun slotPreviewPath(kind: WeighingFastingSlotKind): String? =
-        savedStateHandle.get<String>(slotPreviewKey(kind))?.takeIf { it.isNotBlank() }
+    private fun slotPreviewPath(slotKey: String): String? =
+        savedStateHandle.get<String>(slotPreviewKey(slotKey))?.takeIf { it.isNotBlank() }
 
-    private fun setSlotPreviewPath(kind: WeighingFastingSlotKind, path: String?) {
-        val key = slotPreviewKey(kind)
+    private fun setSlotPreviewPath(slotKey: String, path: String?) {
+        val key = slotPreviewKey(slotKey)
         if (path == null) savedStateHandle.remove<String>(key) else savedStateHandle[key] = path
     }
 
+    private fun slotCapturedKindKey(slotKey: String): String =
+        "$KEY_SLOT_CAPTURED_KIND_PREFIX:$campaignShedId:${slotStateSuffix(slotKey)}"
+
+    private fun slotCapturedKind(slotKey: String): String =
+        savedStateHandle.get<String>(slotCapturedKindKey(slotKey))?.takeIf { it.isNotBlank() } ?: WeighingFastingCaptureKind.VIDEO
+
+    private fun setSlotCapturedKind(slotKey: String, kind: String?) {
+        val key = slotCapturedKindKey(slotKey)
+        if (kind == null) savedStateHandle.remove<String>(key) else savedStateHandle[key] = kind
+    }
+
     private fun clearSlots() {
-        WeighingFastingSlotKind.entries.forEach { kind ->
-            setSlotItemId(kind, null)
-            setSlotPreviewPath(kind, null)
-            proofJobs.remove(kind)?.cancel()
+        _state.value.slots.forEach { slot ->
+            setSlotItemId(slot.slotKey, null)
+            setSlotPreviewPath(slot.slotKey, null)
+            setSlotCapturedKind(slot.slotKey, null)
+            proofJobs.remove(slot.slotKey)?.cancel()
         }
-        _state.update {
-            it.copy(
-                feedSlot = emptySlot(WeighingFastingSlotKind.FEED),
-                waterSlot = emptySlot(WeighingFastingSlotKind.WATER),
-            )
+        _state.update { current ->
+            current.copy(slots = slotDtos.map { emptySlot(it) })
         }
     }
 
@@ -808,27 +869,41 @@ class WeighingFastingDetailViewModel @Inject constructor(
     /** Scoped to the (fasting task, campaign shed) pair — the per-shed submit's own lane. */
     internal fun submitGroupKey(): String = "weighing-fasting:$fastingTaskId:$campaignShedId"
 
-    /** STABLE across retries, NEW after any re-shoot: the shed plus its two clip outbox ids. */
+    /** STABLE across retries, NEW after any re-shoot: the shed plus its capture outbox ids. */
     internal fun submitIdempotencyKey(feedItemId: String, waterItemId: String): String =
-        "weighing-fasting-submit:$fastingTaskId:$campaignShedId:$feedItemId|$waterItemId"
+        submitIdempotencyKey(mapOf(WeighingFastingSlotKind.FEED.slotKey to feedItemId, WeighingFastingSlotKind.WATER.slotKey to waterItemId))
+
+    /**
+     * The seeded pair keeps the pre-SOP key shape (`feed|water`) so a queued draft replays under
+     * the key it was minted with; any other capture set is keyed by its sorted slot pairs.
+     */
+    internal fun submitIdempotencyKey(proofItems: Map<String, String>): String {
+        val seededOnly = proofItems.keys == setOf(WeighingFastingSlotKind.FEED.slotKey, WeighingFastingSlotKind.WATER.slotKey)
+        val tail = if (seededOnly) {
+            "${proofItems[WeighingFastingSlotKind.FEED.slotKey]}|${proofItems[WeighingFastingSlotKind.WATER.slotKey]}"
+        } else {
+            proofItems.entries.sortedBy { it.key }.joinToString("|") { "${it.key}=${it.value}" }
+        }
+        return "weighing-fasting-submit:$fastingTaskId:$campaignShedId:$tail"
+    }
 
     private fun trackFailure(
         fieldKey: String,
         reason: String,
-        kind: WeighingFastingSlotKind? = null,
+        slotKey: String? = null,
         outcome: String = "failure",
         source: String = "viewmodel",
         proofRowId: String? = null,
-        proofOutboxItemId: String? = kind?.let(::slotItemId),
-        serverProofId: String? = kind?.let { _state.value.slotOf(it).serverProofId },
+        proofOutboxItemId: String? = slotKey?.let(::slotItemId),
+        serverProofId: String? = slotKey?.let { _state.value.slotOf(it).serverProofId },
         feedProofOutboxItemId: String? = null,
         waterProofOutboxItemId: String? = null,
     ) {
         analytics.track(
             AnalyticsEventsWeighing.WEIGHING_REMOVAL_FAILURE,
-            if (kind != null) {
+            if (slotKey != null) {
                 weighingFastingAnalyticsProps(
-                    kind = kind,
+                    slotKey = slotKey,
                     action = "failure",
                     source = source,
                     outcome = outcome,
@@ -851,18 +926,18 @@ class WeighingFastingDetailViewModel @Inject constructor(
     }
 
     private fun weighingFastingAnalyticsProps(
-        kind: WeighingFastingSlotKind,
+        slotKey: String,
         action: String,
         source: String,
         outcome: String? = null,
         reason: String? = null,
         proofRowId: String? = null,
-        proofOutboxItemId: String? = slotItemId(kind),
-        serverProofId: String? = _state.value.slotOf(kind).serverProofId,
+        proofOutboxItemId: String? = slotItemId(slotKey),
+        serverProofId: String? = _state.value.slotOf(slotKey).serverProofId,
     ): Map<String, String> = buildMap {
         put(AnalyticsEvents.Params.SOURCE, source)
-        put(AnalyticsEvents.Params.FIELD, fieldKey(kind))
-        put(AnalyticsEvents.Params.KIND, kind.name.lowercase())
+        put(AnalyticsEvents.Params.FIELD, fieldKey(slotKey))
+        put(AnalyticsEvents.Params.KIND, slotStateSuffix(slotKey))
         put(AnalyticsEvents.Params.ACTION, action)
         put(AnalyticsEvents.Params.ITEM_ID, submitGroupKey())
         put(AnalyticsEvents.Params.CAMPAIGN_ID, fastingTaskId)
@@ -886,8 +961,8 @@ class WeighingFastingDetailViewModel @Inject constructor(
         source: String,
         reason: String? = null,
         submitOutboxId: String? = submitOutboxItemId.value,
-        feedProofOutboxItemId: String? = slotItemId(WeighingFastingSlotKind.FEED),
-        waterProofOutboxItemId: String? = slotItemId(WeighingFastingSlotKind.WATER),
+        feedProofOutboxItemId: String? = slotItemId(WeighingFastingSlotKind.FEED.slotKey),
+        waterProofOutboxItemId: String? = slotItemId(WeighingFastingSlotKind.WATER.slotKey),
     ): Map<String, String> = buildMap {
         put(AnalyticsEvents.Params.SOURCE, source)
         put(AnalyticsEvents.Params.ACTION, "submit")
@@ -914,9 +989,12 @@ class WeighingFastingDetailViewModel @Inject constructor(
          *  durable capture identity, never renamed casually. */
         const val FIELD_FEED_VIDEO_PREFIX = "weighing_fasting_feed_video_"
         const val FIELD_WATER_VIDEO_PREFIX = "weighing_fasting_water_video_"
+        /** An AUTHORED slot's field key: `weighing_fasting_slot_<slot key>_<campaignShedId>`. */
+        const val FIELD_SLOT_PREFIX = "weighing_fasting_slot_"
 
         private const val KEY_SLOT_PROOF_ITEM_ID_PREFIX = "weighing_fasting_proof_item_id"
         private const val KEY_SLOT_PREVIEW_PATH_PREFIX = "weighing_fasting_proof_preview_path"
+        private const val KEY_SLOT_CAPTURED_KIND_PREFIX = "weighing_fasting_proof_captured_kind"
         private const val KEY_SUBMIT_OUTBOX_ITEM_ID = "weighing_fasting_submit_outbox_item_id"
         private const val KEY_ANSWERS_PREFIX = "weighing_fasting_answers"
 
@@ -934,7 +1012,6 @@ class WeighingFastingDetailViewModel @Inject constructor(
         private const val PROOF_UPLOADING_LABEL = "Video on its way…"
         private const val PROOF_SYNCED_LABEL = "Video sent"
         private const val PROOF_FAILED_LABEL = "Video didn't go through. Record again."
-        private const val SUBMIT_BLOCKED_BOTH_VIDEOS = "Record both videos to finish."
         private const val SUBMIT_QUEUED_MESSAGE = "Saved. It will be sent when the network allows."
         private const val SUBMIT_SYNCED_MESSAGE = "Sent. The videos will be checked later."
     }
@@ -943,14 +1020,25 @@ class WeighingFastingDetailViewModel @Inject constructor(
 private fun weighingBackendProofUrl(proofRef: String): String =
     BuildConfig.API_BASE_URL.trimEnd('/') + "/app/proofs/${proofRef.trim()}/download"
 
-private fun WeighingFastingDetailUiState.slotOf(kind: WeighingFastingSlotKind): WeighingFastingSlotUi =
-    if (kind == WeighingFastingSlotKind.FEED) feedSlot else waterSlot
+private fun WeighingFastingDetailUiState.slotOf(slotKey: String): WeighingFastingSlotUi =
+    slots.firstOrNull { it.slotKey == slotKey } ?: WeighingFastingSlotUi(fieldKey = "", slotKey = slotKey, title = "")
 
-/** One proof per slot: the shed's feed clip and water clip are distinct required steps, never
- *  repeat takes of one thing — the same per-field cap of 1 feed distribution uses. */
-internal fun weighingFastingProofPolicy(captureSource: String): ProofPolicy =
+/** One capture the operator took for a slot, whichever camera mode produced it. */
+private data class CapturedSlotMedia(
+    val localUri: String,
+    val mimeType: String,
+    val startedAtMs: Long,
+    val endedAtMs: Long,
+    val captureSource: String,
+    val kind: String,
+)
+
+/** One proof per slot: each capture is a distinct required step, never a repeat take of one
+ *  thing — the same per-field cap of 1 feed distribution uses. */
+internal fun weighingFastingProofPolicy(captureSource: String, kind: String = WeighingFastingCaptureKind.VIDEO): ProofPolicy =
     ProofPolicy.Default.copy(
-        proofMode = "task_video",
+        types = listOf("video", "photo"),
+        proofMode = if (kind == WeighingFastingCaptureKind.PHOTO) "task_photo" else "task_video",
         subjectScope = ProofSubject.TASK.wireValue,
         expectedSubjects = listOf(ProofSubject.TASK.wireValue),
         captureSource = captureSource,

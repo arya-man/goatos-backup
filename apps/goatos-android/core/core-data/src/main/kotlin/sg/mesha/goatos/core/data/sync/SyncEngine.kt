@@ -1476,25 +1476,31 @@ class SyncEngine(
      */
     private suspend fun dispatchWeighingFastingSubmit(item: OutboxEntity): String {
         val payload = syncJson.decodeFromString<WeighingFastingSubmitPayload>(item.payloadJson)
-        // A row missing its shed or either clip reference can never satisfy the per-shed submit —
-        // terminal with a farm-worded reason (also covers any pre-per-shed queued row; the card
-        // returns to the operator's list as work still needing action).
-        if (payload.campaignShedId.isBlank() ||
-            payload.feedProofOutboxItemId.isNullOrBlank() ||
-            payload.waterProofOutboxItemId.isNullOrBlank()
-        ) {
-            throw NonRetryableSyncException("This pen's removal needs both videos. Please record them again.")
+        // The card's captures: the SOP-keyed map (WEIGHING SOP) or, on a row queued before slots
+        // existed, the legacy pair mapped onto the seeded keys. A row with no capture at all can
+        // never satisfy the submit — terminal with a farm-worded reason.
+        val proofItems: Map<String, String> = payload.proofOutboxItems.ifEmpty {
+            buildMap {
+                payload.feedProofOutboxItemId?.takeIf { it.isNotBlank() }?.let { put("feed_video", it) }
+                payload.waterProofOutboxItemId?.takeIf { it.isNotBlank() }?.let { put("water_video", it) }
+            }
         }
+        if (payload.campaignShedId.isBlank() || proofItems.isEmpty()) {
+            throw NonRetryableSyncException("This pen's removal needs its captures. Please record them again.")
+        }
+        // Each fresh capture resolves through its own PROOF_UPLOAD row — pending suspends the
+        // WHOLE submit, permanently-failed terminalizes it.
+        val proofs = proofItems.mapValues { (_, outboxId) -> resolveUploadedProofRef(outboxId) }
         val response = api.submitWeighingFastingShed(
             payload.fastingTaskId,
             payload.campaignShedId,
             item.idempotencyKey,
             sg.mesha.goatos.core.network.dto.SubmitWeighingFastingShedRequestDto(
-                // Each fresh clip resolves through its own PROOF_UPLOAD row — pending suspends
-                // the WHOLE submit, permanently-failed terminalizes it.
-                feedProofRef = resolveUploadedProofRef(payload.feedProofOutboxItemId),
-                waterProofRef = resolveUploadedProofRef(payload.waterProofOutboxItemId),
+                // The seeded slots also ride the legacy fields for an older server.
+                feedProofRef = proofs["feed_video"],
+                waterProofRef = proofs["water_video"],
                 answers = payload.answers,
+                proofs = proofs,
             ),
         )
         return syncJson.encodeToString(response)

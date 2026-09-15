@@ -1102,13 +1102,21 @@ private fun WizardRaw.rules(): WeighingSopRules = sop ?: WeighingSopRules.Seeded
  */
 private fun WizardRaw.firstOfferedDate(): LocalDate {
     val now = java.time.ZonedDateTime.now(INDIA_BUSINESS_ZONE)
-    return if (rules().removalRequired) earliestPlannableDateWithFeedRemoval(now, removalCutoff) else now.toLocalDate()
+    return if (rules().removalRequired) earliestPlannableDateWithFeedRemoval(now, effectiveCutoff()) else now.toLocalDate()
 }
+
+/**
+ * The removal evening the wizard's date arithmetic uses: the SOP's EFFECTIVE cutoff when the
+ * catalog served one (WEIGHING SOP: the document's own evening, else the farm's -- resolved by
+ * the server), falling back to the bootstrap's farm cutoff on an older server.
+ */
+private fun WizardRaw.effectiveCutoff(): java.time.LocalTime? =
+    parseFeedWaterRemovalCutoff(sop?.removalCutoffTime?.takeIf { it.isNotBlank() }) ?: removalCutoff
 
 /** Whether the chosen date still has a removal evening ahead of it (the create cutoff). */
 private fun WizardRaw.removalPossibleForDate(): Boolean {
     val selected = date?.let { runCatching { LocalDate.parse(it, ISO_DATE) }.getOrNull() } ?: return true
-    return !selected.isBefore(earliestPlannableDateWithFeedRemoval(java.time.ZonedDateTime.now(INDIA_BUSINESS_ZONE), removalCutoff))
+    return !selected.isBefore(earliestPlannableDateWithFeedRemoval(java.time.ZonedDateTime.now(INDIA_BUSINESS_ZONE), effectiveCutoff()))
 }
 
 /**
@@ -1166,7 +1174,7 @@ private fun WizardRaw.toUiState(): WeighingWizardUiState {
     // With the removal REQUIRED the offered days start at the configured cutoff rule's earliest
     // (today disappears: its evening was yesterday); otherwise today is offered too.
     val firstOfferedDate = firstOfferedDate()
-    val earliestWithRemoval = earliestPlannableDateWithFeedRemoval(java.time.ZonedDateTime.now(INDIA_BUSINESS_ZONE), removalCutoff)
+    val earliestWithRemoval = earliestPlannableDateWithFeedRemoval(java.time.ZonedDateTime.now(INDIA_BUSINESS_ZONE), effectiveCutoff())
     val rules = rules()
     val sheds = shedsInPark()
     val shedsById = sheds.associateBy { it.operationalKey() }

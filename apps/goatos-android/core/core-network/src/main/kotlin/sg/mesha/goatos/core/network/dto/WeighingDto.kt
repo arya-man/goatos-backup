@@ -293,6 +293,8 @@ data class WeighingSopPlanningDto(
 data class WeighingSopRemovalDto(
     /** required = every task; optional = the planner decides per task (default on); off = never. */
     @SerialName("mode") val mode: String = "required",
+    /** The EFFECTIVE removal evening, "HH:MM" IST (the SOP's own or the farm's); blank under off. */
+    @SerialName("cutoff_time") val cutoffTime: String = "",
     /** Operator-facing sentence on every removal card; rendered verbatim. */
     @SerialName("instruction") val instruction: String = "",
     @SerialName("proofs") val proofs: List<WeighingRemovalProofSlotDto> = emptyList(),
@@ -301,11 +303,13 @@ data class WeighingSopRemovalDto(
 
 @Serializable
 data class WeighingRemovalProofSlotDto(
-    /** feed_video | water_video. */
+    /** The SOP's slot key (the seed's are feed_video / water_video). */
     @SerialName("key") val key: String = "",
     @SerialName("title") val title: String = "",
     @SerialName("hint") val hint: String = "",
+    /** video | photo | either. */
     @SerialName("kind") val kind: String = "video",
+    @SerialName("required") val required: Boolean = true,
 )
 
 /**
@@ -503,6 +507,8 @@ data class WeighingFastingShedCardDto(
     @SerialName("proofs") val proofs: List<WeighingRemovalProofSlotDto> = emptyList(),
     @SerialName("questions") val questions: List<WeighingSopQuestionDto> = emptyList(),
     @SerialName("answers") val answers: JsonObject = JsonObject(emptyMap()),
+    /** {slot key: proof ref} already recorded on this shed. */
+    @SerialName("proof_refs") val proofRefs: Map<String, String> = emptyMap(),
 )
 
 /** ONE keyset page of the caller's per-shed removal cards, newest window first. */
@@ -521,10 +527,13 @@ data class WeighingFastingShedCardListResponseDto(
  */
 @Serializable
 data class SubmitWeighingFastingShedRequestDto(
-    @SerialName("feed_proof_ref") val feedProofRef: String,
-    @SerialName("water_proof_ref") val waterProofRef: String,
+    /** LEGACY mirrors of the seeded feed_video / water_video slots; null when the SOP has no such slot. */
+    @SerialName("feed_proof_ref") val feedProofRef: String? = null,
+    @SerialName("water_proof_ref") val waterProofRef: String? = null,
     /** Answers to the card's authored questions, keyed by question id (WEIGHING SOP). */
     @SerialName("answers") val answers: JsonObject = JsonObject(emptyMap()),
+    /** {slot key: proof ref} for every capture the card asked for (WEIGHING SOP). */
+    @SerialName("proofs") val proofs: Map<String, String> = emptyMap(),
 )
 
 @Serializable

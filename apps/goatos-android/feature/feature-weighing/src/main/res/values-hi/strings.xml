@@ -270,6 +270,9 @@
     <string name="weighing_wizard_fasting_title">चारा और पानी हटाना</string>
     <string name="weighing_wizard_fasting_subtitle">पिछली शाम इन शेडों से चारा और पानी कौन हटाएगा?</string>
     <string name="weighing_wizard_fasting_prompt">किसी व्यक्ति को चुनें…</string>
+    <string name="weighing_removal_capture_required_fmt">रिकॉर्ड करें: %1$s</string>
+    <string name="weighing_removal_photo">फ़ोटो लें</string>
+    <string name="weighing_removal_photo_again">फिर से फ़ोटो लें</string>
     <string name="weighing_removal_answer_required_fmt">उत्तर दें: %1$s</string>
     <string name="weighing_removal_question_optional">वैकल्पिक</string>
     <string name="weighing_removal_question_other_hint">बताएँ कौन सा</string>

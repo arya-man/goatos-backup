@@ -270,6 +270,9 @@
     <string name="weighing_wizard_fasting_title">ಮೇವು ಮತ್ತು ನೀರು ತೆಗೆಯುವಿಕೆ</string>
     <string name="weighing_wizard_fasting_subtitle">ಹಿಂದಿನ ಸಂಜೆ ಈ ಶೆಡ್‌ಗಳಿಂದ ಮೇವು ಮತ್ತು ನೀರು ಯಾರು ತೆಗೆಯುತ್ತಾರೆ?</string>
     <string name="weighing_wizard_fasting_prompt">ಒಬ್ಬ ವ್ಯಕ್ತಿಯನ್ನು ಆರಿಸಿ…</string>
+    <string name="weighing_removal_capture_required_fmt">ರೆಕಾರ್ಡ್ ಮಾಡಿ: %1$s</string>
+    <string name="weighing_removal_photo">ಫೋಟೋ ತೆಗೆಯಿರಿ</string>
+    <string name="weighing_removal_photo_again">ಮತ್ತೆ ಫೋಟೋ ತೆಗೆಯಿರಿ</string>
     <string name="weighing_removal_answer_required_fmt">ಉತ್ತರಿಸಿ: %1$s</string>
     <string name="weighing_removal_question_optional">ಐಚ್ಛಿಕ</string>
     <string name="weighing_removal_question_other_hint">ಯಾವುದು ಎಂದು ತಿಳಿಸಿ</string>
