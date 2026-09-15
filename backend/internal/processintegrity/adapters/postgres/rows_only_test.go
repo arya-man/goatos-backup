@@ -28,6 +28,35 @@ func TestListRowsOnlyPreservesCanonicalPaginationWithoutPoisoningSummary(t *test
 	seedProcessIntegrityProjection(t, ctx, pool)
 	repo := NewRepository(pool, 5*time.Second)
 	q := domain.Query{TenantID: piTenant, AsOf: time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC), DueBefore: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC), Limit: 1}
+	// The Work Board may count a complete canonical first page. Prove parity
+	// against the independent live SQL aggregate, using the same vaccination scope.
+	whole := q
+	whole.Limit = 100
+	category := "vaccination"
+	whole.Category = &category
+	whole.IncludeCompleted = true
+	complete, err := repo.ListRowsOnly(ctx, whole)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if complete.NextCursor != nil {
+		t.Fatal("fixture must be a complete canonical page")
+	}
+	counts, err := repo.CountByWorkStateLive(ctx, whole)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fromRows := map[domain.WorkState]int64{}
+	for _, row := range complete.Rows {
+		fromRows[row.WorkState]++
+	}
+	fromSQL := map[domain.WorkState]int64{}
+	for _, count := range counts {
+		fromSQL[count.WorkState] += count.Count
+	}
+	if len(complete.Rows) == 0 || !reflect.DeepEqual(fromRows, fromSQL) {
+		t.Fatalf("complete canonical state parity rows=%v SQL=%v", fromRows, fromSQL)
+	}
 	total := 0
 	for page := 0; page < 20; page++ {
 		only, err := repo.ListRowsOnly(ctx, q)

@@ -246,11 +246,27 @@ func (s *Source) countByState(ctx context.Context, q ports.SourceQuery) (map[dom
 	}
 	ctx, cancel := context.WithTimeout(ctx, s.readBudget())
 	defer cancel()
+	// A complete canonical first page has exactly the same membership and state
+	// grain as COUNT(*) GROUP BY work_state. Share it only within this bundled
+	// request. Overflow falls back to the full aggregate; never count a partial page.
+	piq := processIntegrityQuery(q, dayStart, s.now())
+	if rowsOnly, ok := s.repo.(RowsOnlyLister); ok && ports.HasRequestReadMemo(ctx) {
+		result, readErr := s.firstCanonicalPage(ctx, piq, rowsOnly.ListRowsOnly)
+		if readErr == nil && (result.NextCursor == nil || *result.NextCursor == "") {
+			counts := map[domain.WorkState]int{}
+			for _, row := range result.Rows {
+				if row.Category == pidomain.CategoryVaccination && wantsState(q.WorkStates, row.WorkState) {
+					counts[domain.WorkState(row.WorkState)]++
+				}
+			}
+			return counts, nil
+		}
+	}
 	countRows := s.counter.CountByWorkState
 	if live, ok := s.counter.(LiveCounter); ok {
 		countRows = live.CountByWorkStateLive
 	}
-	counts, err := countRows(ctx, processIntegrityQuery(q, dayStart, s.now()))
+	counts, err := countRows(ctx, piq)
 	if err != nil {
 		return nil, fmt.Errorf("vaccination boardsource count: %w", err)
 	}
@@ -321,7 +337,7 @@ func (s *Source) collect(ctx context.Context, q ports.SourceQuery) ([]domain.Row
 	// walkPageSize over one park-day (pens x drives on one day); see the KEYSET NOTE in the
 	// package doc. The wrapped read's own cursor advances piq each page.
 	for page := 0; page < maxWalkPages; page++ {
-		res, err := listRows(ctx, piq) // scale-guard:ignore: bounded park-day page walk (<= maxWalkPages keyset pages), one read per PAGE not per row; the wrapped read has no row_id keyset yet (KEYSET NOTE)
+		res, err := s.firstCanonicalPage(ctx, piq, listRows) // scale-guard:ignore: bounded park-day page walk (<= maxWalkPages keyset pages), one read per PAGE not per row; the wrapped read has no row_id keyset yet (KEYSET NOTE)
 		if err != nil {
 			return nil, fmt.Errorf("vaccination boardsource: %w", err)
 		}
@@ -364,6 +380,28 @@ func (s *Source) collect(ctx context.Context, q ports.SourceQuery) ([]domain.Row
 	return out, nil
 }
 
+// The source query always uses one fixed page size and canonical all-state
+// membership; lane filters are applied after reading. Owner and cursor retain
+// their exact scope, and the Source pointer isolates different repository instances.
+type canonicalPageKey struct {
+	source                   *Source
+	tenant, park, day, owner string
+}
+
+func (s *Source) firstCanonicalPage(ctx context.Context, q pidomain.Query, read func(context.Context, pidomain.Query) (pidomain.ListResult, error)) (pidomain.ListResult, error) {
+	if q.Cursor != nil {
+		return read(ctx, q)
+	}
+	key := canonicalPageKey{source: s, tenant: q.TenantID, day: q.DueBefore.Format("2006-01-02")}
+	if q.ParkID != nil {
+		key.park = *q.ParkID
+	}
+	if q.OwnerID != nil {
+		key.owner = *q.OwnerID
+	}
+	return ports.RequestRead(ctx, key, func(ctx context.Context) (pidomain.ListResult, error) { return read(ctx, q) })
+}
+
 func (s *Source) readBudget() time.Duration {
 	if s.timeout > 0 && s.timeout < workBoardVaccinationReadBudget {
 		return s.timeout
@@ -390,12 +428,16 @@ func processIntegrityQuery(q ports.SourceQuery, dayStart, asOf time.Time) pidoma
 	}
 }
 
+type dueWorkKey struct {
+	source            *Source
+	tenant, park, day string
+	includeCompleted  bool
+}
+
 func (s *Source) hasVaccinationDueWork(ctx context.Context, q ports.SourceQuery, dayStart time.Time) (bool, error) {
 	if s.pool == nil {
 		return true, nil
 	}
-	ctx, cancel := context.WithTimeout(ctx, s.precheckBudget())
-	defer cancel()
 	dayEnd := dayStart.AddDate(0, 0, 1)
 	includeCompleted := len(q.WorkStates) == 0
 	for _, state := range q.WorkStates {
@@ -404,17 +446,25 @@ func (s *Source) hasVaccinationDueWork(ctx context.Context, q ports.SourceQuery,
 			break
 		}
 	}
-	var ok bool
-	err := s.pool.QueryRow(ctx, vaccinationDueWorkPrecheckSQL, q.TenantID, q.ParkID, dayStart, dayEnd, includeCompleted).Scan(&ok)
-	if err != nil {
-		if errors.Is(err, context.DeadlineExceeded) || errors.Is(ctx.Err(), context.DeadlineExceeded) {
-			// The precheck is only a skip optimization. If it is slow, fail open so a valid
-			// vaccination card cannot be hidden before the bounded canonical read gets a chance.
-			return true, nil
-		}
-		return false, fmt.Errorf("vaccination boardsource: due-work precheck: %w", err)
+	if ports.HasRequestReadMemo(ctx) {
+		includeCompleted = true
 	}
-	return ok, nil
+	key := dueWorkKey{source: s, tenant: q.TenantID, park: q.ParkID, day: q.BusinessDate, includeCompleted: includeCompleted}
+	return ports.RequestRead(ctx, key, func(ctx context.Context) (bool, error) {
+		ctx, cancel := context.WithTimeout(ctx, s.precheckBudget())
+		defer cancel()
+		var ok bool
+		err := s.pool.QueryRow(ctx, vaccinationDueWorkPrecheckSQL, q.TenantID, q.ParkID, dayStart, dayEnd, includeCompleted).Scan(&ok)
+		if err != nil {
+			if errors.Is(err, context.DeadlineExceeded) || errors.Is(ctx.Err(), context.DeadlineExceeded) {
+				// The precheck is only a skip optimization. If it is slow, fail open so a valid
+				// vaccination card cannot be hidden before the bounded canonical read gets a chance.
+				return true, nil
+			}
+			return false, fmt.Errorf("vaccination boardsource: due-work precheck: %w", err)
+		}
+		return ok, nil
+	})
 }
 
 func (s *Source) precheckBudget() time.Duration {

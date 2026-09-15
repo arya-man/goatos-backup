@@ -155,7 +155,7 @@ func (h *Handler) Summary(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) Page(w http.ResponseWriter, r *http.Request) {
 	prof := newPageTiming(r, h.now)
 	defer prof.log(h.log, r)
-	ctx := app.WithTiming(r.Context(), prof.addDuration)
+	ctx := app.WithTiming(ports.WithRequestReadMemo(r.Context()), prof.addDuration)
 	q, own, ok := h.query(w, r)
 	prof.mark("query_scope")
 	if !ok {

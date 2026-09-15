@@ -206,10 +206,17 @@ func (a *AuthMiddleware) Wrap(next http.Handler) http.Handler {
 		personStart := grantsStart
 		grantsCh := make(chan activeGrantResult, 1)
 		personCh := make(chan personAccessAuthResult, 1)
-		go func() {
+		personCanDecide := a.personAccess != nil && routeCanProceedWithoutGrantContext(route)
+		readGrants := func() {
 			grants, err := a.grants.ActiveTenantGrants(ctx, userID, tenantID)
 			grantsCh <- activeGrantResult{grants: grants, err: err}
-		}()
+		}
+		// These read routes consume authoritative person scope, not legacy grants.
+		// Start the legacy read only for a migration fallback; an unused background
+		// query otherwise competes with the product reads for a pool connection.
+		if !personCanDecide {
+			go readGrants()
+		}
 		if a.personAccess != nil {
 			go func() {
 				perms, scopeMode, parkIDs, provisioned, err := a.resolvePersonAccessForAuth(ctx, tenantID, userID)
@@ -217,7 +224,7 @@ func (a *AuthMiddleware) Wrap(next http.Handler) http.Handler {
 			}()
 		}
 		var earlyPersonResult *personAccessAuthResult
-		if a.personAccess != nil && routeCanProceedWithoutGrantContext(route) {
+		if personCanDecide {
 			got := <-personCh
 			earlyPersonResult = &got
 			fastCtx, authorized, source := a.decideWithPersonResult(ctx, route, nil, tenantID, userID, &got)
@@ -257,6 +264,9 @@ func (a *AuthMiddleware) Wrap(next http.Handler) http.Handler {
 				next.ServeHTTP(w, r.WithContext(fastCtx))
 				return
 			}
+		}
+		if personCanDecide {
+			go readGrants()
 		}
 		grantsResult := <-grantsCh
 		if debugTiming {

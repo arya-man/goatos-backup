@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -1095,6 +1096,7 @@ func TestPersonAccessSnapshotIsResolvedPerRequest(t *testing.T) {
 }
 
 type countingPersonAccessSnapshotSource struct {
+	err         error
 	snapshot    PersonAccessSnapshot
 	provisioned bool
 	calls       int
@@ -1102,7 +1104,7 @@ type countingPersonAccessSnapshotSource struct {
 
 func (s *countingPersonAccessSnapshotSource) ResolveAccessSnapshot(context.Context, string, string) (PersonAccessSnapshot, bool, error) {
 	s.calls++
-	return s.snapshot, s.provisioned, nil
+	return s.snapshot, s.provisioned, s.err
 }
 
 func (s *countingPersonAccessSnapshotSource) ResolvePermissions(context.Context, string, string) ([]string, bool, error) {
@@ -1111,4 +1113,64 @@ func (s *countingPersonAccessSnapshotSource) ResolvePermissions(context.Context,
 
 func (s *countingPersonAccessSnapshotSource) ResolveParkScope(context.Context, string, string) (string, []string, bool, error) {
 	panic("ResolveParkScope should not be called when ResolveAccessSnapshot is available")
+}
+
+// Authoritative person reads must not leave an unused legacy-grants query running.
+// A missing person record still resolves roles through the migration bridge.
+func TestBoardPersonDecisionDoesNotReadUnusedGrants(t *testing.T) {
+	for _, tc := range []struct {
+		name                 string
+		provisioned, allowed bool
+		err                  error
+		status               int
+	}{
+		{"allow", true, true, nil, http.StatusNoContent},
+		{"deny", true, false, nil, http.StatusForbidden},
+		{"lookup_error", true, true, errors.New("database unavailable"), http.StatusForbidden},
+		{"migration_fallback", false, false, nil, http.StatusForbidden},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			perms := []string{}
+			if tc.allowed {
+				perms = []string{permissions.WorkBoardRead}
+			}
+			source := &countingPersonAccessSnapshotSource{snapshot: PersonAccessSnapshot{Permissions: perms, ScopeMode: "tenant"}, provisioned: tc.provisioned, err: tc.err}
+			mw := testBearerMiddleware(t, fakeGrantSource{})
+			calls := make(chan struct{}, 1)
+			mw.grants = observedGrantSource{calls: calls}
+			mw.SetPersonAccessSource(source)
+			handler := mw.Wrap(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) }))
+			req := httptest.NewRequest(http.MethodGet, "/work-board/page", nil)
+			req.Header.Set("Authorization", "Bearer "+testTokenStatic(authTestUser, authTestTenant, nil))
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, req)
+			if rec.Code != tc.status {
+				t.Fatalf("status=%d want%d", rec.Code, tc.status)
+			}
+			if tc.provisioned {
+				select {
+				case <-calls:
+					t.Fatal("unused legacy grants read")
+				case <-time.After(20 * time.Millisecond):
+				}
+			} else {
+				select {
+				case <-calls:
+				default:
+					t.Fatal("missing migration fallback grant read")
+				}
+			}
+		})
+	}
+}
+
+type observedGrantSource struct{ calls chan struct{} }
+
+func (s observedGrantSource) ActiveTenantGrants(context.Context, string, string) ([]permissions.ActiveGrant, error) {
+	s.calls <- struct{}{}
+	return nil, nil
+}
+
+func (s observedGrantSource) ActiveTenantRoles(context.Context, string, string) ([]string, error) {
+	panic("role lookup must use scoped grants")
 }

@@ -3,6 +3,7 @@ package boardsource
 import (
 	"context"
 	"errors"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -454,5 +455,144 @@ func TestBoardSummarySeesLaneTransitionWithoutCachedZero(t *testing.T) {
 	}
 	if before[domain.WorkStateDue] != 1 || after[domain.WorkStateCompleted] != 1 || after[domain.WorkStateDue] != 0 || f.cachedCalls != 0 || f.liveCalls != 2 {
 		t.Fatalf("transition hidden: before=%v after=%v cached=%d live=%d", before, after, f.cachedCalls, f.liveCalls)
+	}
+}
+
+type snapshotFake struct {
+	*fakeLister
+	liveCalls int
+	failFirst bool
+}
+
+func (f *snapshotFake) ListRowsOnly(ctx context.Context, q pidomain.Query) (pidomain.ListResult, error) {
+	if f.failFirst {
+		f.failFirst = false
+		return pidomain.ListResult{}, errors.New("transient list failure")
+	}
+	return f.fakeLister.ListRows(ctx, q)
+}
+func (f *snapshotFake) CountByWorkState(ctx context.Context, q pidomain.Query) ([]pidomain.CountByWorkState, error) {
+	return f.CountByWorkStateLive(ctx, q)
+}
+func (f *snapshotFake) CountByWorkStateLive(context.Context, pidomain.Query) ([]pidomain.CountByWorkState, error) {
+	f.liveCalls++
+	m := map[pidomain.WorkState]int64{}
+	for _, page := range f.pages {
+		for _, r := range page {
+			if r.Category == pidomain.CategoryVaccination {
+				m[r.WorkState]++
+			}
+		}
+	}
+	out := []pidomain.CountByWorkState{}
+	for state, n := range m {
+		out = append(out, pidomain.CountByWorkState{WorkState: state, Count: n})
+	}
+	return out, nil
+}
+
+func TestRequestSnapshotCountsCompleteCanonicalPageAndFallsBackOnOverflow(t *testing.T) {
+	states := []pidomain.WorkState{pidomain.WorkStateDue, pidomain.WorkStateOverdue, pidomain.WorkStateInProgress, pidomain.WorkStateVerificationPending, pidomain.WorkStateCompleted, pidomain.WorkStateRejected, pidomain.WorkStateBlocked}
+	for _, n := range []int{0, 99, 100, 101, 205} {
+		t.Run(fmt.Sprint(n), func(t *testing.T) {
+			f := &snapshotFake{fakeLister: &fakeLister{}}
+			want := map[domain.WorkState]int{}
+			for i := 0; i < n; i++ {
+				if i%walkPageSize == 0 {
+					f.pages = append(f.pages, []pidomain.Row{})
+				}
+				state := states[i%len(states)]
+				f.pages[len(f.pages)-1] = append(f.pages[len(f.pages)-1], piRow(fmt.Sprintf("row-%03d", i), "dose", state, pidomain.SeverityOK, nil, nil, 1, 0, 0))
+				want[domain.WorkState(state)]++
+			}
+			s := New(f)
+			ctx := ports.WithRequestReadMemo(context.Background())
+			q := ports.SourceQuery{TenantID: vsTenant, ParkID: vsPark, BusinessDate: vsDate, Limit: 300}
+			counts, err := s.CountByState(ctx, q)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(counts, want) {
+				t.Fatalf("counts=%v want=%v", counts, want)
+			}
+			expectedCalls := 0
+			if n > walkPageSize {
+				expectedCalls = 1
+			}
+			if f.liveCalls != expectedCalls {
+				t.Fatalf("canonical aggregate calls=%d want=%d", f.liveCalls, expectedCalls)
+			}
+			firstReads := len(f.queries)
+			for _, state := range states {
+				laneQ := q
+				laneQ.WorkStates = []domain.WorkState{domain.WorkState(state)}
+				rows, err := s.ListRows(ctx, laneQ)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if len(rows) != want[domain.WorkState(state)] {
+					t.Fatalf("state %s rows=%d want=%d", state, len(rows), want[domain.WorkState(state)])
+				}
+			}
+			if n <= walkPageSize && len(f.queries) != firstReads {
+				t.Fatalf("complete canonical page fetched again: %d -> %d", firstReads, len(f.queries))
+			}
+		})
+	}
+}
+
+func TestRequestSnapshotScopeAndFreshNextRequest(t *testing.T) {
+	f := &snapshotFake{fakeLister: fixture()}
+	s := New(f).WithMemberResolver(fakeMembers{byUser: map[string]string{vsUser: vsMember}})
+	q := ports.SourceQuery{TenantID: vsTenant, ParkID: vsPark, BusinessDate: vsDate, Limit: 100}
+	// Use one complete canonical page so the snapshot's post-mutation count is unambiguous.
+	f.pages = [][]pidomain.Row{{piRow(rowA, "dose", pidomain.WorkStateDue, pidomain.SeverityOK, str(vsMember), str("Operator"), 1, 0, 0)}}
+	ctx := ports.WithRequestReadMemo(context.Background())
+	before, err := s.CountByState(ctx, q)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, scope := range []string{"park", "day", "tenant", "owner"} {
+		other := q
+		switch scope {
+		case "park":
+			other.ParkID = vsShed
+		case "day":
+			other.BusinessDate = "2026-09-11"
+		case "tenant":
+			other.TenantID = vsUser
+		case "owner":
+			other.OwnerUserID = vsUser
+		}
+		old := len(f.queries)
+		if _, err = s.ListRows(ctx, other); err != nil {
+			t.Fatal(err)
+		}
+		if len(f.queries) != old+1 {
+			t.Fatalf("%s reused another scope", scope)
+		}
+	}
+	f.pages = [][]pidomain.Row{{piRow(rowA, "dose", pidomain.WorkStateCompleted, pidomain.SeverityOK, str(vsMember), str("Operator"), 1, 1, 0)}}
+	after, err := s.CountByState(ports.WithRequestReadMemo(context.Background()), q)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if before[domain.WorkStateDue] != 1 || after[domain.WorkStateCompleted] != 1 || after[domain.WorkStateDue] != 0 {
+		t.Fatalf("fresh request hid transition: before=%v after=%v", before, after)
+	}
+}
+
+func TestRequestSnapshotReadFailureFallsBackAndLaneCanRecover(t *testing.T) {
+	f := &snapshotFake{fakeLister: &fakeLister{pages: [][]pidomain.Row{{piRow(rowA, "dose", pidomain.WorkStateDue, pidomain.SeverityOK, nil, nil, 1, 0, 0)}}}, failFirst: true}
+	s := New(f)
+	q := ports.SourceQuery{TenantID: vsTenant, ParkID: vsPark, BusinessDate: vsDate, Limit: 100}
+	ctx := ports.WithRequestReadMemo(context.Background())
+	counts, err := s.CountByState(ctx, q)
+	if err != nil || counts[domain.WorkStateDue] != 1 || f.liveCalls != 1 {
+		t.Fatalf("fallback: counts=%v calls=%d err=%v", counts, f.liveCalls, err)
+	}
+	rows, err := s.ListRows(ctx, q)
+	if err != nil || len(rows) != 1 {
+		t.Fatalf("lane recovery rows=%d err=%v", len(rows), err)
 	}
 }

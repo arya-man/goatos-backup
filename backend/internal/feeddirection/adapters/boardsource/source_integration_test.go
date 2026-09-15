@@ -618,7 +618,7 @@ func src(pool *pgxpool.Pool) *Source { return New(pool, 5*time.Second) }
 // lane reads must immediately reflect another request completing or reopening work.
 func TestFeedActivityFreshLaneAndCountsAfterMutation(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
-	ctx := context.Background()
+	ctx := ports.WithRequestReadMemo(context.Background())
 	pool := pgtest.StartPostgres(t, ctx)
 	defer pool.Close()
 	seed(t, ctx, pool)
@@ -643,6 +643,16 @@ func TestFeedActivityFreshLaneAndCountsAfterMutation(t *testing.T) {
 	} {
 		t.Run(step.name, func(t *testing.T) {
 			exec(t, ctx, pool, `UPDATE feed_transport_tasks SET status = $4 WHERE tenant_id = $1::uuid AND park_id = $2::uuid AND business_date = $3::date`, bsTenant, bsPark, bsDate, step.status)
+			// The previous request keeps its single read snapshot even if another
+			// request writes meanwhile. A new page must own a fresh memo scope.
+			previous, err := src.ListRows(ctx, query(""))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if before := byID(previous)[feedActivityID("transport")]; before.WorkState == step.state {
+				t.Fatalf("same request unexpectedly repeated its metrics query: %+v", before)
+			}
+			ctx = ports.WithRequestReadMemo(context.Background())
 			counts, err := src.CountByState(ctx, query(""))
 			if err != nil {
 				t.Fatal(err)

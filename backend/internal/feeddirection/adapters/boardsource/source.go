@@ -272,7 +272,21 @@ type cardMetrics struct {
 	parkName                                  string
 }
 
+type cardReadKey struct {
+	source                              *Source
+	tenant, park, date, owner, activity string
+}
+
 func (s *Source) readCard(ctx context.Context, a activity, q ports.SourceQuery) (cardMetrics, error) {
+	// State and page filters are applied after metrics; all lanes in this request
+	// share the same tenant/park/day/owner/activity facts.
+	key := cardReadKey{s, q.TenantID, q.ParkID, q.BusinessDate, q.OwnerUserID, a.key}
+	return ports.RequestRead(ctx, key, func(ctx context.Context) (cardMetrics, error) {
+		return s.readCardFresh(ctx, a, q)
+	})
+}
+
+func (s *Source) readCardFresh(ctx context.Context, a activity, q ports.SourceQuery) (cardMetrics, error) {
 	var m cardMetrics
 	err := s.pool.QueryRow(ctx, metricsSQL(a.units), q.TenantID, q.BusinessDate, q.ParkID, nullUUID(q.OwnerUserID)).
 		Scan(&m.sheds, &m.done, &m.pending, &m.attention, &m.cardRank, &m.anyRejected, &m.parkName)
