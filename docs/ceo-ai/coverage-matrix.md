@@ -1578,3 +1578,22 @@ Cube metric or MCP tool.
 | func:PublishedCatalog, func:CatalogVersion, func:NewCatalogSource, func:WithCatalogSource, func:Catalog, func:CatalogFor, func:MediaSlots, func:ByID, func:AllMediaRefs | EXCLUDED | Resolve the inspection catalog by SOP version for the phone form, the write validation and the review labels (one read per distinct version per page). Plumbing of the already-excluded animal purchase surfaces. |
 | func:WithFormDSLContract | EXCLUDED | sop/app seam registering a module-owned form_dsl validator at version create; composition wiring. |
 | /procurement/sops | EXCLUDED | Admin authoring page (SOP library scoped to `procurement.` codes) for the CEO; a config surface, not a reporting read. |
+
+## Weighing SOP: the weighing session rules are authored on the web (2026-09-15)
+
+The rules a weighing task is planned on and runs under (`docs/decisions/weighing-sop.md`) -- the
+capture modes offered, the default cap, whether the evening-before feed & water removal is
+required / optional / off, the removal card's copy and authored questions, and the lump-sum
+video window -- moved from code constants into the `weighing` section of the published
+`weighing.session` SOP version, authored on `/weighing/sops`, and each task is pinned to the
+version it was planned on (`weighing_campaigns.sop_version`). Everything below is document
+parsing, rule resolution and the version-pinning plumbing of operator flows already covered
+above; no new leadership fact, KPI, `ceo_ai.*` view, Cube metric or MCP tool. Leadership
+weighing answers still come from `GET /weighing/campaigns` and `GET /weighing/process-state`.
+
+| Surface | Decision | Reason |
+| --- | --- | --- |
+| func:ParseWeighingSOP, func:ValidateWeighingSOP, func:SeededWeighingSOPJSON, func:SeededRules, func:ModeAllowed, func:RemovalApplies, func:RemovalProof, func:ValidateRemovalAnswers, func:NormalizeRemovalAnswers, func:WeighDateAllowsPlainCreate, func:Error, func:WeighingSOPContract | EXCLUDED | Parse / validate the authored weighing document and the day-one seed, the rule readers a plan and a removal submit are judged by, and the sop/app contract hook that refuses a version the planner could not run. Document shaping and write-path validation; no read API, no aggregate. |
+| func:PublishedRules, func:RulesVersion, func:NewRulesSource, func:WithSOPRules, func:CampaignSOPVersion | EXCLUDED | Resolve the rule set by SOP version (the published one at plan time, the task's pinned one afterwards) through the out-of-package adapter `backend/internal/weighingsop`, and read a task's pin. Plumbing of the already-excluded weighing planner / removal surfaces; the rules are echoed on `WeighingPlannerCatalogResponse.sop` and `WeighingCampaign.sop` for the phone to render, never as a leadership fact. |
+| weighing_campaigns.sop_version, weighing_fasting_shed_proofs.sop_answers | EXCLUDED | The pin and the removal operator's answers to the SOP's authored questions on a pen's evidence row (migration 000314). Operational provenance of the excluded removal precondition, not a KPI. |
+| /weighing/sops (rules editor) | EXCLUDED | Admin authoring page (SOP library scoped to `weighing.` codes) for the CEO; a config surface, not a reporting read. |

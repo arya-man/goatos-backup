@@ -4,6 +4,14 @@ Maintainer decision 2026-09-03.
 
 ## The rule
 
+> **Superseded in part (maintainer decision 2026-09-15, `docs/decisions/weighing-sop.md`):**
+> for WEIGHING, whether this precondition applies is now the published `weighing.session`
+> SOP's call -- `required` (every task, as below), `optional` (the planner decides per task,
+> on by default) or `off` (never). The seed says `required`, so the rule below is what ships
+> until a farm publishes otherwise. Everything else here -- the cutoff, the second operator,
+> the per-pen cards, the two clips, the midnight gate, the roll-forward -- is unchanged, and
+> the deworming half is untouched.
+
 Animals must have feed and water removed the **evening before** they are
 weighed, and the evening before a **tablet-form (in-feed) deworming** — or the
 work is wrong (wrong weights; tablets not eaten). The app now owns that

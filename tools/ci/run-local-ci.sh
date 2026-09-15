@@ -526,6 +526,7 @@ run_backend() {
   step "stg-operator-scope-guard" make stg-operator-scope-guard
   step "cascade-event-wiring-guard" make cascade-event-wiring-guard
   step "procurement-sop-guard"      make procurement-sop-guard
+  step "weighing-sop-guard"         make weighing-sop-guard
   step "backend go mod verify" bash -c 'cd backend && go mod verify'
   step "backend go vet" bash -c 'cd backend && go vet ./...'
   step "backend govulncheck" bash -c 'cd backend && go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./...'
