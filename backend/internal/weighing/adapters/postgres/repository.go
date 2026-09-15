@@ -130,12 +130,9 @@ func (r *Repository) CreateCampaign(ctx context.Context, cmd domain.CreateCampai
 	}
 	defer tx.Rollback(ctx)
 	// The replay identity is the client's request as the service fingerprinted it BEFORE the
-	// SOP rules stamped the command (domain.CreateCampaign.RequestFingerprint); the fallback
-	// keeps older callers that pass none on the command they hand over.
-	requestFingerprint := cmd.RequestFingerprint
-	if requestFingerprint == "" {
-		requestFingerprint = idempotencyFingerprint(cmd)
-	}
+	// SOP rules stamped the command (domain.CreateCampaign.RequestFingerprint, honoured inside
+	// idempotencyFingerprint); an older caller passing none is fingerprinted as handed over.
+	requestFingerprint := idempotencyFingerprint(cmd)
 	if existing, ok, err := r.campaignByIdempotencyMatchOnly(ctx, tx, cmd.TenantID, "weighing.campaign_created", cmd.IdempotencyKey, requestFingerprint); err != nil || ok {
 		return existing, err
 	}
@@ -4406,6 +4403,12 @@ ON CONFLICT (tenant_id, event_type, idempotency_key) DO NOTHING`,
 }
 
 func idempotencyFingerprint(payload any) string {
+	// A create command that carries the CLIENT's own fingerprint (fixed by the service before
+	// the SOP rules stamped it) is keyed on that, so a retry after a later publish replays the
+	// task it created rather than conflicting on server-side stamps (PR #274 review, finding 2).
+	if cmd, ok := payload.(domain.CreateCampaign); ok && cmd.RequestFingerprint != "" {
+		return cmd.RequestFingerprint
+	}
 	raw, _ := json.Marshal(payload)
 	sum := sha256.Sum256(raw)
 	return hex.EncodeToString(sum[:])
