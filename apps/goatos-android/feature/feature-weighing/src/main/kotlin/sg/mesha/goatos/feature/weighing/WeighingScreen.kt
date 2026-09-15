@@ -1407,6 +1407,11 @@ private fun WeighingExecutionScanScreen(
                     .fillMaxWidth()
                     .background(MeshaColors.PageBg),
             ) {
+                // Lump-sum capture has no RFID feed to show its messages. Keep policy and
+                // submit rejections visible beside Submit even when the video list is scrolled.
+                if (state.isShedPartition) {
+                    state.message?.takeIf { it.isNotBlank() }?.let { MessageStrip(it) }
+                }
                 // Disabled-with-reason: never a dead button on its own. The line says which
                 // single thing is holding the submission up (usually a video still going up).
                 state.submitBlockedReason?.let { reason ->
