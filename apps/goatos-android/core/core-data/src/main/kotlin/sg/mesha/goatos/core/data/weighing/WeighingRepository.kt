@@ -832,6 +832,10 @@ interface WeighingRepository {
      * "author the whole task again"; nothing here writes a status directly.
      */
     suspend fun publishCampaign(campaignId: String): AppResult<Unit>
+    /** Pinned capture rules for one task, observed from the bounded Room cache. */
+    fun observeCaptureSop(campaignId: String): Flow<WeighingSopRules?> = kotlinx.coroutines.flow.flowOf(null)
+    suspend fun refreshCaptureSop(campaignId: String): AppResult<Unit> = AppResult.Ok(Unit)
+
     suspend fun refreshScope(campaignId: String, workGroupId: String, campaignShedId: String, maxRows: Int = WEIGHING_PAGE_SIZE): AppResult<Int>
     suspend fun replaceRoster(scopeKey: String, rows: List<WeighingRosterRowEntity>)
     suspend fun matchTag(scopeKey: String, scannedTag: String): WeighingScanMatch
@@ -1006,6 +1010,7 @@ class DefaultWeighingRepository(
         val requestCursor = cursor?.takeIf { it.isNotBlank() }
         runCatching {
             val response = client.listWeighingCampaigns(scope = scope, cursor = requestCursor, limit = WEIGHING_PAGE_SIZE, parkId = parkId)
+            response.items.forEach { cacheCaptureSop(it) }
             val assignments = response.items.flatMap { it.toAssignments(scope) }
             AppResult.Ok(
                 WeighingPage(
@@ -1081,6 +1086,7 @@ class DefaultWeighingRepository(
                     shedId = filter.shedId?.takeIf { it.isNotBlank() },
                     partitionLabel = filter.partitionLabel?.takeIf { filter.shedId?.isNotBlank() == true },
                 )
+                response.items.forEach { cacheCaptureSop(it) }
                 val nextCursor = response.nextCursor.nextWeighingCursorAfter(cursor)
                 val now = clock()
                 // Rows and their cursor commit TOGETHER: a crash between them would leave the cursor
@@ -1956,6 +1962,39 @@ class DefaultWeighingRepository(
             client.publishWeighingCampaign(campaignId, "weighing:publish:$campaignId")
             AppResult.Ok(Unit)
         }.getOrElse { AppResult.Err(it.userFacingMessage("Could not publish this weighing task."), it) }
+    }
+
+    override fun observeCaptureSop(campaignId: String): Flow<WeighingSopRules?> =
+        (pensCacheDao?.observe("weighing.capture.sop:$campaignId") ?: kotlinx.coroutines.flow.flowOf(null))
+            .map { row -> row?.let {
+                // exception:exempt schema drift makes this a cache miss; capture stays blocked
+                // until a successful refresh restores the task's pinned rules.
+                runCatching { cacheJson.decodeFromString<WeighingSopRulesDto>(it.dtoJson).toRules() }.getOrNull()
+            } }
+            .flowOn(Dispatchers.Default)
+
+    private suspend fun cacheCaptureSop(campaign: WeighingCampaignDto) {
+        val dao = pensCacheDao ?: return
+        // Only a successful server answer without SOP metadata licenses the legacy rules.
+        // A missing nonzero pin must never silently become the seeded video window.
+        val sop = campaign.sop ?: if (campaign.sopVersion == 0) WeighingSopRulesDto() else return
+        dao.upsert(WeighingAlertsCacheEntity(
+            cacheKey = "weighing.capture.sop:${campaign.campaignId}",
+            dtoJson = cacheJson.encodeToString(sop), updatedAt = clock(),
+        ))
+        dao.enforceCacheBounds()
+    }
+
+    override suspend fun refreshCaptureSop(campaignId: String): AppResult<Unit> = withContext(Dispatchers.IO) {
+        val client = api ?: return@withContext AppResult.Err("This task is not configured.")
+        runCatching {
+            val campaign = client.getWeighingCampaign(campaignId).campaign
+            if (campaign.sop == null && campaign.sopVersion != 0) {
+                return@withContext AppResult.Err("This task's weighing rules are unavailable.")
+            }
+            cacheCaptureSop(campaign)
+            AppResult.Ok(Unit)
+        }.getOrElse { AppResult.Err(it.userFacingMessage("Could not load this task's weighing rules.")) }
     }
 
     override suspend fun refreshScope(

@@ -188,6 +188,8 @@ class WeighingViewModel @Inject constructor(
     // mobile-guard:ignore: same per-scope lifetime as reportedProofUploadTrouble above.
     private val proofUploadAttempts = mutableMapOf<String, Int>() // mobile-guard:ignore: per-scope ViewModel, dies with the bucket; <= one shed's captures
     private var currentPrincipalId: String? = null
+    private val captureSop = MutableStateFlow<sg.mesha.goatos.core.data.weighing.WeighingSopRules?>(null)
+
     private val assignments = MutableStateFlow<List<WeighingAssignment>>(emptyList())
     private val assignmentsNextCursor = MutableStateFlow<String?>(null)
 
@@ -1146,6 +1148,9 @@ class WeighingViewModel @Inject constructor(
             },
         )
         if (scopeKey != null) {
+            viewModelScope.launch {
+                repository.observeCaptureSop(campaignId).collect { captureSop.value = it }
+            }
             refreshScope()
             viewModelScope.launch { refreshScopeSubmitted() }
             viewModelScope.launch {
@@ -1736,6 +1741,10 @@ class WeighingViewModel @Inject constructor(
 
     private fun refreshScope() {
         viewModelScope.launch {
+            when (val rules = repository.refreshCaptureSop(campaignId)) {
+                is AppResult.Ok -> Unit
+                is AppResult.Err -> if (captureSop.value == null) reportReadFailure(rules.message)
+            }
             when (val refreshed = repository.refreshScope(campaignId, workGroupId, campaignShedId, ROSTER_SYNC_MAX_ROWS)) {
                 // Weighing is FREE-FLOW: any scanned tag is accepted, and nothing is gated on a
                 // roster. The scope sync only pre-warms labels, so an empty window is ordinary --
@@ -2264,7 +2273,12 @@ class WeighingViewModel @Inject constructor(
             message.value = "Capture and sync at least one group video before submitting."
             return
         }
+        if (!captureRulesReady()) return
         val videoMin = lumpSumVideoMin()
+        if (syncedProofIds.size > lumpSumVideoMax()) {
+            message.value = "This pen allows at most ${lumpSumVideoMax()} group videos."
+            return
+        }
         if (syncedProofIds.size < videoMin) {
             // The task's SOP asks for more than one pen video (WEIGHING SOP): say how many.
             message.value = "This pen needs at least $videoMin synced group videos before submitting."
@@ -2519,17 +2533,20 @@ class WeighingViewModel @Inject constructor(
 
     /**
      * WEIGHING SOP (2026-09-15): the lump-sum video window is the TASK's pinned rule, carried on
-     * its assignment rows; the proof policy's 1..[MAX_SHED_GROUP_VIDEOS] ceiling stands when the
-     * row is not loaded yet or the server sent no rules.
+     * the campaign cache, independently of the assignment-list ViewModel. Capture and submit
+     * wait for known rules; cached rules remain available offline.
      */
-    private fun scopeAssignment(): WeighingAssignment? =
-        assignments.value.firstOrNull { it.campaignShedId == campaignShedId }
-
     private fun lumpSumVideoMax(): Int =
-        scopeAssignment()?.lumpSumVideoMax?.coerceIn(1, MAX_SHED_GROUP_VIDEOS) ?: MAX_SHED_GROUP_VIDEOS
+        captureSop.value?.lumpSumVideoMax?.coerceIn(1, MAX_SHED_GROUP_VIDEOS) ?: MAX_SHED_GROUP_VIDEOS
 
     private fun lumpSumVideoMin(): Int =
-        scopeAssignment()?.lumpSumVideoMin?.coerceIn(1, lumpSumVideoMax()) ?: 1
+        captureSop.value?.lumpSumVideoMin?.coerceIn(1, lumpSumVideoMax()) ?: 1
+
+    private fun captureRulesReady(): Boolean {
+        if (captureSop.value != null) return true
+        message.value = "Connect to load this task's weighing rules, then try again."
+        return false
+    }
 
     private fun captureShedVideo(replacingProofId: String?) {
         val key = scopeKey ?: return
@@ -2539,6 +2556,7 @@ class WeighingViewModel @Inject constructor(
             .sortedBy { it.capturedAtMs }
         val existing = shedProofs.size
         val replacingIndex = replacingProofId?.let { id -> shedProofs.indexOfFirst { it.id == id } } ?: -1
+        if (!captureRulesReady()) return
         val videoMax = lumpSumVideoMax()
         if (replacingProofId == null && existing >= videoMax) {
             message.value = "Maximum $videoMax group videos reached."

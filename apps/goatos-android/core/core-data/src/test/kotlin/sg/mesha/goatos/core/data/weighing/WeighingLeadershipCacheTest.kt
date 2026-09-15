@@ -64,6 +64,55 @@ class WeighingLeadershipCacheTest {
         clock = { 1_000L },
     )
 
+    @Test
+    fun `capture rules survive repository recreation and failed refresh and stay task scoped`() = runTest {
+        var online = true
+        val api = object : AppApi by FakeAppApi() {
+            override suspend fun getWeighingCampaign(campaignId: String): sg.mesha.goatos.core.network.dto.WeighingCampaignDetailResponseDto {
+                check(online) { "offline" }
+                return sg.mesha.goatos.core.network.dto.WeighingCampaignDetailResponseDto(
+                    campaign = WeighingCampaignDto(campaignId = campaignId, sopVersion = 7,
+                        sop = sg.mesha.goatos.core.network.dto.WeighingSopRulesDto(version = 7,
+                            capture = sg.mesha.goatos.core.network.dto.WeighingSopCaptureDto(
+                                lumpSum = sg.mesha.goatos.core.network.dto.WeighingSopLumpSumCaptureDto(videoMin = 3, videoMax = 3),
+                            ),
+                        ),
+                    ),
+                )
+            }
+        }
+        val first = repository(api)
+        assertEquals(null, first.observeCaptureSop("task-a").first())
+        assertTrue(first.refreshCaptureSop("task-a") is AppResult.Ok)
+        online = false
+        val restored = repository(api)
+        assertTrue(restored.refreshCaptureSop("task-a") is AppResult.Err)
+        assertEquals(3, restored.observeCaptureSop("task-a").first()?.lumpSumVideoMin)
+        assertEquals(3, restored.observeCaptureSop("task-a").first()?.lumpSumVideoMax)
+        assertEquals(null, restored.observeCaptureSop("task-b").first())
+    }
+
+    @Test
+    fun `missing pinned rules stay unknown while legacy tasks use seeded limits`() = runTest {
+        val api = object : AppApi by FakeAppApi() {
+            override suspend fun getWeighingCampaign(campaignId: String) =
+                sg.mesha.goatos.core.network.dto.WeighingCampaignDetailResponseDto(
+                    campaign = WeighingCampaignDto(campaignId = campaignId,
+                        sopVersion = if (campaignId == "legacy") 0 else 7),
+                )
+        }
+        val repo = repository(api)
+        assertTrue(repo.refreshCaptureSop("pinned") is AppResult.Err)
+        assertEquals(null, repo.observeCaptureSop("pinned").first())
+        assertTrue(repo.refreshCaptureSop("legacy") is AppResult.Ok)
+        assertEquals(1, repo.observeCaptureSop("legacy").first()?.lumpSumVideoMin)
+        assertEquals(5, repo.observeCaptureSop("legacy").first()?.lumpSumVideoMax)
+        db.weighingAlertsCacheDao().upsert(
+            sg.mesha.goatos.core.data.cache.WeighingAlertsCacheEntity("weighing.capture.sop:legacy", "broken-json", 1_000L),
+        )
+        assertEquals(null, repo.observeCaptureSop("legacy").first())
+    }
+
     // --- L0 task list -------------------------------------------------------------------
 
     @Test

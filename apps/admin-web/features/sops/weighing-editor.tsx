@@ -29,6 +29,7 @@ import {
   type WeighingRows,
   type WeightsFromMode,
 } from "./weighing-model";
+import { publishedHref } from "./published-href";
 import { publishWeighingVersion, saveWeighingVersion, type WeighingSaveResult } from "./sop-actions";
 
 type Props = {
@@ -106,7 +107,10 @@ export function WeighingEditor({ pageContract: pc, basePath, sopId, sopName, sop
     startTransition(async () => {
       const res = publish ? await publishWeighingVersion(sopId, doc) : await saveWeighingVersion(sopId, doc);
       setResult(res);
-      if (res.ok && publish) router.refresh();
+      if (res.ok && publish) {
+        router.push(publishedHref(basePath, sopId, res.versionNumber));
+        router.refresh();
+      }
     });
   }
 
