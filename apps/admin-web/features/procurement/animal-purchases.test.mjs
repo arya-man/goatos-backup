@@ -127,3 +127,22 @@ test("no visible string says shed", () => {
   assert.doesNotMatch(form, /shed/i);
   assert.doesNotMatch(sop, /shed/i);
 });
+
+test("selecting a load shows what the buying desk entered for it, not only its extra SOP answers", () => {
+  // Defect 2026-09-15: clicking a load only filtered the animals; the "About this load" block
+  // rendered solely from answer_rows, which the seeded load form (load number, vendor, farm,
+  // expected count, note — all identity fields the backend excludes from answer_rows) leaves
+  // EMPTY, so nothing about the load ever appeared. The panel is now gated on the SELECTION and
+  // carries the typed fields, the recorder and the time, with the extra answers after them.
+  const panel = page.slice(page.indexOf('data-testid="ap-load-detail"'), page.indexOf("{loads.length === 0 ? ("));
+  assert.match(page, /\{selectedLoad \? \(\s*<div className="ap-load-answers" data-testid="ap-load-detail"/);
+  for (const key of ["column.load_ref", "column.vendor_name", "column.farm", "column.expected_count", "label.load.status", "label.load.recorded_by", "label.load.added_on", "label.load.notes", "label.load.no_notes"]) {
+    assert.match(panel, new RegExp(`copy\\(pageContract, "${key.replace(/\./g, "\\.")}"`), key);
+  }
+  assert.match(panel, /selectedLoad\.notes \? <b>\{selectedLoad\.notes\}<\/b>/);
+  assert.match(panel, /fmtDateTime\(selectedLoad\.created_at\)/);
+  assert.match(panel, /\(selectedLoad\.answer_rows \?\? \[\]\)\.map/);
+  // The recorder is the backend-resolved roster NAME, dropped when unresolvable; the id never renders.
+  assert.match(panel, /selectedLoad\.recorded_by_name \? \(/);
+  assert.doesNotMatch(panel, /selectedLoad\.recorded_by\b(?!_name)/);
+});

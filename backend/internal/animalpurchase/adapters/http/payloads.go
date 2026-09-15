@@ -26,11 +26,14 @@ type loadPayload struct {
 	Status        string        `json:"status"`
 	Counts        countsPayload `json:"counts"`
 	// Summary is the backend-owned one-liner under the title: "12 animals · 3 awaiting decision".
-	Summary    string    `json:"summary"`
-	RecordedBy string    `json:"recorded_by,omitempty"`
-	CreatedAt  time.Time `json:"created_at"`
-	UpdatedAt  time.Time `json:"updated_at"`
-	RowVersion int       `json:"row_version"`
+	Summary    string `json:"summary"`
+	RecordedBy string `json:"recorded_by,omitempty"`
+	// RecordedByName is the recorder's roster name ("" when unresolvable; the client then drops
+	// the line rather than rendering an id).
+	RecordedByName string    `json:"recorded_by_name"`
+	CreatedAt      time.Time `json:"created_at"`
+	UpdatedAt      time.Time `json:"updated_at"`
+	RowVersion     int       `json:"row_version"`
 	// The load form's answers as recorded and the SOP version they were answered on; the answer
 	// rows render the extra questions under their own text (identity questions are the typed
 	// fields above).
@@ -201,7 +204,7 @@ func toLoadPayload(l domain.Load, cat domain.Catalog) loadPayload {
 	return loadPayload{
 		LoadID: l.LoadID, LoadRef: l.LoadRef, Title: domain.LoadTitle(l), VendorID: l.VendorID, VendorName: l.VendorName,
 		Farm: l.FarmLabel, ExpectedCount: l.ExpectedCount, Notes: l.Notes, Status: l.Status, Counts: toCounts(l.Counts),
-		Summary: loadSummary(l), RecordedBy: l.RecordedBy, CreatedAt: l.CreatedAt, UpdatedAt: l.UpdatedAt, RowVersion: l.RowVersion,
+		Summary: loadSummary(l), RecordedBy: l.RecordedBy, RecordedByName: l.RecordedByName, CreatedAt: l.CreatedAt, UpdatedAt: l.UpdatedAt, RowVersion: l.RowVersion,
 		QuestionnaireVersion: l.QuestionnaireVersion, Answers: answers, AnswerRows: loadAnswerRows(l, cat),
 	}
 }

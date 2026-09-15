@@ -132,10 +132,13 @@ type Load struct {
 	Notes         string
 	Status        string
 	RecordedBy    string
-	CreatedAt     time.Time
-	UpdatedAt     time.Time
-	RowVersion    int
-	Counts        DecisionCounts
+	// RecordedByName is the recorder's roster name, resolved by the read ("" when the profile is
+	// gone); the screens show the person, never the id.
+	RecordedByName string
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+	RowVersion     int
+	Counts         DecisionCounts
 	// The load form's answers and the SOP version they were answered on (PROCUREMENT SOP).
 	QuestionnaireVersion int
 	Answers              Answers

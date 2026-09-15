@@ -72,7 +72,9 @@ WHERE idempotency_key = $1`
   l.load_id::text, l.tenant_id::text, l.load_ref, l.vendor_id::text, l.vendor_name,
   COALESCE(l.park_id::text, ''), l.farm_label, l.expected_count, l.notes, l.status,
   COALESCE(l.recorded_by::text, ''), l.created_at, l.updated_at, l.row_version,
-  c.total, c.pending, c.accepted, c.rejected, l.questionnaire_version, l.sop_answers`
+  c.total, c.pending, c.accepted, c.rejected, l.questionnaire_version, l.sop_answers,
+  COALESCE((SELECT max(wm.display_name) FROM public.workforce_members wm
+            WHERE wm.tenant_id = l.tenant_id AND wm.user_id = l.recorded_by AND wm.status = 'active'), '')`
 
 	// loadCountsJoin pre-aggregates the many side (candidates) to ONE row per load before the
 	// join, so the load page is 1:1 with loads and the counts are whole-load, never page sums.
@@ -265,7 +267,7 @@ func scanLoad(row pgx.Row) (domain.Load, error) {
 		&l.ParkID, &l.FarmLabel, &l.ExpectedCount, &l.Notes, &l.Status,
 		&l.RecordedBy, &l.CreatedAt, &l.UpdatedAt, &l.RowVersion,
 		&l.Counts.Total, &l.Counts.Pending, &l.Counts.Accepted, &l.Counts.Rejected,
-		&l.QuestionnaireVersion, &answers)
+		&l.QuestionnaireVersion, &answers, &l.RecordedByName)
 	if err == nil && len(answers) > 0 {
 		_ = json.Unmarshal(answers, &l.Answers)
 	}

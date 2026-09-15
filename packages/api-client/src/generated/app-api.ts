@@ -8103,6 +8103,8 @@ export interface components {
             /** @description Backend-owned line under the title. */
             summary: string;
             recorded_by?: string;
+            /** @description Roster name of the person who recorded the load ("" when unresolvable; clients drop the line, never render an id). */
+            recorded_by_name?: string;
             /** Format: date-time */
             created_at: string;
             /** Format: date-time */

@@ -19232,6 +19232,9 @@ components:
         counts: { $ref: "#/components/schemas/AnimalPurchaseCounts" }
         summary: { type: string, description: Backend-owned line under the title. }
         recorded_by: { type: string }
+        recorded_by_name:
+          type: string
+          description: Roster name of the person who recorded the load ("" when unresolvable; clients drop the line, never render an id).
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
         row_version: { type: integer }
