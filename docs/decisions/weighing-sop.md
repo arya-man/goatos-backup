@@ -125,9 +125,21 @@ when the removal applies); `instruction`, `proofs`, `questions`, `answers` on
   `WeighingPlanWizardEditHydrationTest`, core-data weighing / sync suites green; guards
   (`weighing-free-flow-guard`, `mobile-guard`, `design-system-guard`, `telemetry-guard`,
   `exception-guard`, `room-migration-guard`, `android-navigation-stack-guard`) green.
-- **Not yet done:** a live run -- migration 000314 on a STG clone, the editor exercised in
-  Chrome, a plan under `optional` and a removal card with questions on the Realme. The phone
-  and web work is unit-tested and compiled, not surface-proven.
+- Live run (2026-09-15, OCI `goatos_wsopqa` cloned from a 000304 STG-like DB and migrated to
+  000314; API :8107, admin-web :3397, Realme JJ6LVC8DCMFYMN4P): 000314 added the section IN
+  PLACE to the published v1 (45 tasks read `sop_version NULL`). Chromium: the drawer summary,
+  Change SOP → mode `optional`, instruction, a pick-one question, lump-sum max 3 → **Published
+  v2**; a max of 9 is refused before publish. API under v2: declined today → 200 pinned v2 with
+  no round and cap 100; requested without operator → 422 `fasting_operator_required`; yesterday
+  → 422 `weigh_date_in_past`; requested with operator → 200 with a round; the task read carries
+  v2's question and max 3. Phone as the CEO: the date step offered today with the SOP note, the
+  configure step showed the toggle on, switching it off hid the operator picker and the review
+  read "Not planned", Publish → task pinned v2, no round, request logged from `realme RMX3785`.
+  Phone as Amit Kumar: tonight's card showed the authored instruction, slot wording and the
+  question; answered Yes, recorded both clips, Submit → the evidence row holds
+  `{"every_pen_emptied": "yes"}`, both clips, round stamped. Two defects the surface found and
+  the same commits fixed: the planner handler dropped `sop`, and the editor's checkbox rows were
+  stretched by the inspection page's input rule.
 
 ## Not here (phase 2)
 
