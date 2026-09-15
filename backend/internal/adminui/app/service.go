@@ -7226,6 +7226,9 @@ func pageSpecificCopy(id string) map[string]string {
 			m["modal.builder.domain_title"] = "Domain is locked to Counts / Herd Operations on this page"
 			m["modal.builder.domain_label"] = "Counts / Herd Operations"
 			m["modal.builder.policy_label"] = "herd operations policy"
+			m["modal.builder.default_name"] = "Herd operation"
+			m["modal.builder.placeholder.name"] = "Herd operation"
+			m["modal.builder.eyebrow"] = "SOP · COUNTS / HERD OPERATIONS"
 			m["empty.title"] = "No herd operations SOPs yet"
 			m["empty.body"] = "Publish a birth, death, shifting or reconcile SOP to drive the operator's steps on the phone."
 			m["builder.subtitle"] = "Build it like a form — add questions, choose a type, set choices and conditional logic. Herd Operations SOPs also carry the operator steps the phone runs after the event."
@@ -7235,12 +7238,25 @@ func pageSpecificCopy(id string) map[string]string {
 			m["modal.builder.domain_aria"] = "Domain — locked to Feed"
 			m["modal.builder.domain_title"] = "Domain is locked to Feed on this page"
 			m["modal.builder.domain_label"] = "Feed"
+			// The builder's name and policy wording are the module's own: a new Feed SOP is not a
+			// "Vaccination session" under a "vaccination drive/session policy".
+			m["modal.builder.default_name"] = "Feed session"
+			m["modal.builder.placeholder.name"] = "Feed session"
+			m["modal.builder.policy_label"] = "feed chain policy"
+			m["modal.builder.eyebrow"] = "SOP · FEED"
+			m["empty.title"] = "No feed SOPs yet"
+			m["empty.body"] = "Publish a distribution, packing or transport SOP for the feed chain."
 		case "procurement-sops":
 			m["crumb"] = "Procurement"
 			m["filter.domain.current"] = "This page shows Procurement SOPs (animal purchase inspection)"
 			m["modal.builder.domain_aria"] = "Domain — locked to Procurement"
 			m["modal.builder.domain_title"] = "Domain is locked to Procurement on this page"
 			m["modal.builder.domain_label"] = "Procurement"
+			m["modal.builder.default_name"] = "Animal purchase inspection"
+			m["modal.builder.placeholder.name"] = "Animal purchase inspection"
+			m["modal.builder.policy_label"] = "procurement policy"
+			m["modal.builder.eyebrow"] = "SOP · PROCUREMENT"
+			m["empty.title"] = "No procurement SOPs yet"
 			for k, v := range inspectionEditorCopy() {
 				m[k] = v
 			}
@@ -7250,15 +7266,24 @@ func pageSpecificCopy(id string) map[string]string {
 			m["modal.builder.domain_aria"] = "Domain — locked to Milk"
 			m["modal.builder.domain_title"] = "Domain is locked to Milk on this page"
 			m["modal.builder.domain_label"] = "Milk"
+			m["modal.builder.default_name"] = "Milk round"
+			m["modal.builder.placeholder.name"] = "Milk round"
+			m["modal.builder.policy_label"] = "kid-milk policy"
+			m["modal.builder.eyebrow"] = "SOP · MILK"
+			m["empty.title"] = "No milk SOPs yet"
+			m["empty.body"] = "Publish a preparation or feeding SOP for the kid-milk round."
 		case "weighing-sops":
 			m["crumb"] = "Weighing"
 			m["filter.domain.current"] = "This page shows Weighing SOPs (scan-and-submit sessions)"
 			m["modal.builder.domain_aria"] = "Domain — locked to Weighing"
 			m["modal.builder.domain_title"] = "Domain is locked to Weighing on this page"
 			m["modal.builder.domain_label"] = "Weighing"
-			for k, v := range weighingSOPEditorCopy() {
-				m[k] = v
-			}
+			m["modal.builder.default_name"] = "Weighing session"
+			m["modal.builder.placeholder.name"] = "Weighing session"
+			m["modal.builder.policy_label"] = "weighing session policy"
+			m["modal.builder.eyebrow"] = "SOP · WEIGHING"
+			m["empty.title"] = "No weighing SOPs yet"
+			m["empty.body"] = "Publish the scan-and-submit weighing session SOP."
 		}
 		return m
 	case "goat-passport":
@@ -8050,12 +8075,10 @@ func pageOptionGroups(id string) []domain.OptionGroup {
 		return withGenericOptionGroups(configOptionGroups())
 	// Vaccination is deliberately absent: its SOP page is gone, and its content lives on
 	// the vaccination plan console. milk and weighing arrived on main meanwhile and stay.
-	case "counts-sops", "feed-sops", "milk-sops":
-		return withGenericOptionGroups(sopOptionGroups())
-	case "weighing-sops":
-		return withGenericOptionGroups(append(sopOptionGroups(), weighingSOPOptionGroups()...))
+	case "counts-sops", "feed-sops", "milk-sops", "weighing-sops":
+		return withGenericOptionGroups(sopOptionGroupsFor(id))
 	case "procurement-sops":
-		return withGenericOptionGroups(append(sopOptionGroups(), inspectionOptionGroups()...))
+		return withGenericOptionGroups(append(sopOptionGroupsFor(id), inspectionOptionGroups()...))
 	case "action-center":
 		return withGenericOptionGroups([]domain.OptionGroup{
 			{
@@ -8484,6 +8507,55 @@ func configOptionGroups() []domain.OptionGroup {
 			},
 		},
 	}
+}
+
+// sopOptionGroupsFor is sopOptionGroups with the builder's STARTER QUESTIONS chosen for the
+// module page. The starter set used to be the vaccination session for every page, so "New SOP" on
+// /feed/sops opened a form asking for a vaccine batch, cold chain and dose volume (found
+// 2026-09-16). Each module now starts from the questions its own work actually captures; the
+// author edits from there.
+func sopOptionGroupsFor(pageID string) []domain.OptionGroup {
+	groups := sopOptionGroups()
+	seed, ok := sopSeedStepsByModule[pageID]
+	if !ok {
+		return groups
+	}
+	for i := range groups {
+		if groups[i].ID == "sop_seed_steps" {
+			groups[i] = domain.OptionGroup{ID: "sop_seed_steps", Options: seed}
+		}
+	}
+	return groups
+}
+
+// sopSeedStepsByModule is the builder's starter question list per module SOP page. Keys are
+// sop_step_types keys. Vaccination keeps the historical default in sopOptionGroups.
+var sopSeedStepsByModule = map[string][]domain.Option{
+	"feed-sops": {
+		option("shed_picker", "Pen", "", ""),
+		option("number", "Session", "", ""),
+		option("video_proof", "Proof video of the feed", "", ""),
+	},
+	"milk-sops": {
+		option("shed_picker", "Pen", "", ""),
+		option("number", "Quantity prepared (litres)", "", ""),
+		option("video_proof", "Proof video of the feeding", "", ""),
+	},
+	"weighing-sops": {
+		option("shed_picker", "Pen", "", ""),
+		option("goat_scan", "Scan Animal ID", "", ""),
+		option("number", "Weight (kg)", "", ""),
+		option("video_proof", "Proof video of the weighing", "", ""),
+	},
+	"counts-sops": {
+		option("shed_picker", "Pen", "", ""),
+		option("goat_scan", "Scan Animal ID", "", ""),
+		option("video_proof", "Proof video", "", ""),
+	},
+	"procurement-sops": {
+		option("goat_scan", "Scan Animal ID", "", ""),
+		option("photo_proof", "Photo of the animal", "", ""),
+	},
 }
 
 func sopOptionGroups() []domain.OptionGroup {
