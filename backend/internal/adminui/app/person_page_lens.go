@@ -145,6 +145,7 @@ func applyPersonPageLens(resp domain.BootstrapResponse, access permissions.PageA
 		// Page contracts are matched on ROUTE, not on the nav id: a drilldown has no leaf,
 		// and requireAdminWebPageContract is what makes a typed URL fail closed.
 		if access.Allows("", page.Href) {
+			page = applyPersonPageControlLens(page, access)
 			pages = append(pages, page)
 		}
 	}
@@ -158,4 +159,23 @@ func applyPersonPageLens(resp domain.BootstrapResponse, access permissions.PageA
 	}
 	resp.RouteLabels = labels
 	return resp
+}
+
+func applyPersonPageControlLens(page domain.PageContract, access permissions.PageAccess) domain.PageContract {
+	if page.RouteID != "sales-buyer-analytics" {
+		return page
+	}
+	if access.Allows("sales-vendors", "/sales/vendors") {
+		return page
+	}
+	copy := page.Copy
+	reason := controlCopy(copy, "hint.phone_hidden", "Phone numbers are on the vendor register, which your current role cannot open.")
+	page.Controls = upsertControl(page.Controls, domain.Control{
+		ID:             "buyer_phone_column",
+		Label:          controlCopy(copy, "column.phone_number", "Phone"),
+		Kind:           "table_column",
+		Enabled:        false,
+		DisabledReason: reason,
+	})
+	return page
 }
