@@ -158,3 +158,18 @@ Clean branch design/config-sop-studio from origin/main03ebe28194bc86777c5d24d811
 - User authorized pushing the completed fix to the existing mock PR (#275, design/config-sop-studio).
 - Final verification: run-checks.sh and check-connection-drag.cjs both passed after final code edits; git diff --check passed. Browser checks cover 1440px and 760px.
 - Scope: the two canvas files, focused browser regression script, and this receipt. No main merge or staging deployment.
+
+### Referenced question deletion
+- Removed deletion hard block: deleting a question clears matching primary and compound decision sources and detached rule ownership. Decisions remain editable; validation blocks incomplete source checks. Undo restores the complete graph.
+- All run-checks.sh suites passed. Chromium tests at 1440px and 760px passed actual X deletion, both source clearances, invalidation and exact graph undo, plus arrow regression checks.
+- Preview server initially returned empty response; restarted owned server with redirected logs. Local preview synchronized. Changes uncommitted; no push/deploy requested.
+
+### Existing Chrome tabs retained old script
+- Screenshot still showed removed guard. Live HTTP script was verified to contain new deletion behavior; added script version query to index.html and synchronized standalone preview index.
+- Reloaded all existing localhost:4318 Chrome tabs through Chrome's reload command; preserved browser localStorage drafts. No new tab opened.
+
+### Main landing requested
+- Scope: arrow reconnection, box drops, referenced-question deletion, preview script cache refresh, regression checks.
+- Done: focused mock and Chromium checks passed at 1440px/760px.
+- Pending: commit final deletion fix, isolated rebase, exact-SHA make land-main receipt and remote verification.
+- Known failures: none remaining in focused checks; preview server restart resolved empty response. Performance metrics: not applicable. Judge: focused automated checks only. Base candidate: 3e8ed42c6. Deployment: local preview; no STG deployment requested.

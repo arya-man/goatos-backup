@@ -5,7 +5,7 @@ const assert=require('node:assert/strict');
  try{
  for(const width of [1440,760]){
  const page=await browser.newPage({viewport:{width,height:1000}});
- if(process.env.BASELINE_JS)await page.route('**/canvas-editor.js',r=>r.fulfill({path:process.env.BASELINE_JS,contentType:'text/javascript'}));
+ if(process.env.BASELINE_JS)await page.route('**/canvas-editor.js*',r=>r.fulfill({path:process.env.BASELINE_JS,contentType:'text/javascript'}));
  await page.goto('http://127.0.0.1:4318/#Procurement/Editor');
  await page.waitForSelector('.flow-node');
  const ids=await page.evaluate(()=>{
@@ -44,6 +44,17 @@ const assert=require('node:assert/strict');
  }
  console.log(`PASS ${width}px: existing arrow line / endpoint / plus drag and undo`);
  console.log(`PASS ${width}px: real pointer drag onto box, highlight, undo, click-connect, Escape`);
+ const beforeDelete=await page.evaluate(ids=>{
+ const q=sop().nodes.find(n=>n.id===ids.from);const decision={id:'delete-check',type:'condition',label:'Check the answer',source:q.id,clauses:[{source:q.id,op:'>',value:'0'}],op:'>',value:'0',yes:ids.to,no:ids.to,x:350,y:190};sop().nodes.push(decision);selected=q.id;drawGraph();return JSON.stringify(sop().nodes);
+ },ids);
+ await page.locator(`[data-node="${ids.from}"] .flow-delete`).click();
+ assert.equal(await page.locator(`[data-node="${ids.from}"]`).count(),0,'X removes referenced question');
+ assert.equal(await page.evaluate(()=>sop().nodes.find(n=>n.id==='delete-check').source),'');
+ assert.equal(await page.evaluate(()=>sop().nodes.find(n=>n.id==='delete-check').clauses[0].source),'');
+ assert.ok(await page.evaluate(()=>validateWorkflow(sop()).some(e=>e.includes('answer source for every check'))));
+ await page.evaluate(()=>canvasUndo());
+ assert.equal(await page.evaluate(()=>JSON.stringify(sop().nodes)),beforeDelete,'Undo restores question and every source');
+ console.log(`PASS ${width}px: delete referenced question via X, invalidate affected checks, full undo`);
  await page.close();
  }
  }finally{await browser.close()}
