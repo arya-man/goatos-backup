@@ -16,7 +16,8 @@
       "pr264_growth_director_weights_sections",
       "pr264_work_board_page_cbe",
       "pr264_work_board_page_cpt",
-      "pr264_app_vaccination_execution_with_card_summaries"
+      "pr264_app_vaccination_execution_with_card_summaries",
+      "pr264_app_vaccination_execution_fresh_as_of"
     ],
     "included": [
       "pr264_weighing_dates",
@@ -33,7 +34,8 @@
       "pr264_growth_director_weights_sections",
       "pr264_work_board_page_cbe",
       "pr264_work_board_page_cpt",
-      "pr264_app_vaccination_execution_with_card_summaries"
+      "pr264_app_vaccination_execution_with_card_summaries",
+      "pr264_app_vaccination_execution_fresh_as_of"
     ],
     "evidence_boundaries": {
       "local_oci_pr264_route_reads": [
@@ -51,7 +53,8 @@
         "pr264_growth_director_weights_sections",
         "pr264_work_board_page_cbe",
         "pr264_work_board_page_cpt",
-        "pr264_app_vaccination_execution_with_card_summaries"
+        "pr264_app_vaccination_execution_with_card_summaries",
+        "pr264_app_vaccination_execution_fresh_as_of"
       ],
       "pr264_browser_render_routes": [
         "/procurement/animal-purchases?scope_mode=company",
@@ -177,6 +180,14 @@
       "name": "pr264_app_vaccination_execution_with_card_summaries",
       "method": "GET",
       "path": "/app/vaccination/execution?limit=20&include_filter_options=true&include_card_summaries=true",
+      "max_response_bytes": 1048576,
+      "assertion": { "type": "array_min", "path": "rows", "min": 1 }
+    },
+    {
+      "name": "pr264_app_vaccination_execution_fresh_as_of",
+      "method": "GET",
+      "path": "/app/vaccination/execution?limit=20&include_filter_options=true&include_card_summaries=true",
+      "request_strategy": "fresh_as_of",
       "max_response_bytes": 1048576,
       "assertion": { "type": "array_min", "path": "rows", "min": 1 }
     }

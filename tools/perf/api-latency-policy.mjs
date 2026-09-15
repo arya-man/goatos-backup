@@ -1,3 +1,4 @@
+import { validateRequestStrategy } from "./api-latency-request.mjs";
 export const API_LATENCY_POLICY_MS = Object.freeze({
   p90_ms: 300,
   p95_ms: 500,
@@ -15,6 +16,7 @@ export function normalizeApiLatencyEndpoint(endpoint, index = 0) {
     throw new TypeError(`API latency endpoint at index ${index} must be an object`);
   }
 
+  validateRequestStrategy(endpoint);
   const name = endpoint.name || endpoint.path || `endpoint[${index}]`;
   const thresholds = {};
   for (const [key, ceilingMs] of Object.entries(API_LATENCY_POLICY_MS)) {

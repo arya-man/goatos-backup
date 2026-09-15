@@ -371,7 +371,7 @@ func (r *Repository) GetLeadershipGrowthADG(ctx context.Context, tenantID string
 	var (
 		headline     domain.GrowthADGHeadline
 		prevHeadline domain.GrowthADGHeadline
-		errs         = make(chan error, 2)
+		errs         = make(chan error, 13) // one slot for each optional read; workers never block reporting errors
 		wg           sync.WaitGroup
 	)
 	analyticsSlots := make(chan struct{}, weighingGrowthReadParallelism)
@@ -404,25 +404,6 @@ func (r *Repository) GetLeadershipGrowthADG(ctx context.Context, tenantID string
 				return err
 			})
 		}
-		wg.Wait()
-		close(errs)
-		if err := <-errs; err != nil {
-			return domain.GrowthADG{}, err
-		}
-		// ZERO must never stand in for UNKNOWN: Status/PreviousStatus (set inside growthHeadlineStats)
-		// are the explicit markers, and AverageADGGPerDay/PositiveADGPercent are already nil there when
-		// there is no qualifying pair. The delta and the previous-period figure are derived HERE, and
-		// they inherit the same rule -- a delta computed against a nil (unknown) previous average would
-		// silently read as a real number derived from a fabricated 0, which is exactly the fake-delta
-		// defect this guards against.
-		if sectionSet["headline_previous"] {
-			headline.PreviousAverageADGGPerDay = prevHeadline.AverageADGGPerDay
-			headline.PreviousStatus = prevHeadline.Status
-			if headline.AverageADGGPerDay != nil && prevHeadline.AverageADGGPerDay != nil {
-				delta := *headline.AverageADGGPerDay - *prevHeadline.AverageADGGPerDay
-				headline.DeltaGPerDay = &delta
-			}
-		}
 	}
 
 	// ParkID stays the single-park value only when exactly one park was requested (the
@@ -445,12 +426,13 @@ func (r *Repository) GetLeadershipGrowthADG(ctx context.Context, tenantID string
 		parks         []domain.GrowthPark
 		losing        []domain.GrowthLosingAnimal
 	)
-	errs = make(chan error, 10)
-	wg = sync.WaitGroup{}
 	run := func(fn func() error) {
 		runGrowthRead(&wg, errs, fn)
 	}
-	// These arms are independent once sex/origin scope is resolved. Run them with bounded parallelism:
+	// Headline, breakdowns and the per-park cut are independent after scope resolution.
+	// Share one three-slot pool across all of them, including the headline queries above,
+	// instead of serial headline/breakdown/park waves. Results are read only after wg.Wait.
+	// Run them with bounded parallelism:
 	// enough to hide remote DB round-trip time, but not enough for one cold-cache request to monopolize
 	// the app's DB pool while the Weights page is also fetching shed weights, demographics, and Growth
 	// Director data.
@@ -524,23 +506,40 @@ func (r *Repository) GetLeadershipGrowthADG(ctx context.Context, tenantID string
 			return err
 		})
 	}
-	wg.Wait()
-	close(errs)
-	if err := <-errs; err != nil {
-		return domain.GrowthADG{}, err
-	}
-	if sectionSet["headline"] || sectionSet["rejected"] {
-		headline.RejectedObservationCount = rejected
-	}
 	// Per-park cut of the SAME headline statistic, and only when there is more than one park to
 	// cut: with a single park in scope the headline above already IS that park's figure, so the
 	// query would cost a scan to restate a number the response carries twice.
 	byPark := []domain.GrowthParkGain{}
 	if sectionSet["by_park"] && len(parkIDs) > 1 {
-		byPark, err = r.growthParkGains(ctx, tenantID, parkIDs, lookbackStart, periodStart, periodEnd, sexFiltered, scope, idMap, weighingCategory)
-		if err != nil {
-			return domain.GrowthADG{}, err
+		run(func() error {
+			var readErr error
+			byPark, readErr = r.growthParkGains(ctx, tenantID, parkIDs, lookbackStart, periodStart, periodEnd, sexFiltered, scope, idMap, weighingCategory)
+			return readErr
+		})
+	}
+	wg.Wait()
+	close(errs)
+	if err := <-errs; err != nil {
+		return domain.GrowthADG{}, err
+	}
+	if sectionSet["headline"] {
+		// ZERO must never stand in for UNKNOWN: Status/PreviousStatus (set inside growthHeadlineStats)
+		// are the explicit markers, and AverageADGGPerDay/PositiveADGPercent are already nil there when
+		// there is no qualifying pair. The delta and the previous-period figure are derived HERE, and
+		// they inherit the same rule -- a delta computed against a nil (unknown) previous average would
+		// silently read as a real number derived from a fabricated 0, which is exactly the fake-delta
+		// defect this guards against.
+		if sectionSet["headline_previous"] {
+			headline.PreviousAverageADGGPerDay = prevHeadline.AverageADGGPerDay
+			headline.PreviousStatus = prevHeadline.Status
+			if headline.AverageADGGPerDay != nil && prevHeadline.AverageADGGPerDay != nil {
+				delta := *headline.AverageADGGPerDay - *prevHeadline.AverageADGGPerDay
+				headline.DeltaGPerDay = &delta
+			}
 		}
+	}
+	if sectionSet["headline"] || sectionSet["rejected"] {
+		headline.RejectedObservationCount = rejected
 	}
 	// The tile drills into this list, so the count it shows must be the length of THIS list.
 	if sectionSet["losing_animals"] {

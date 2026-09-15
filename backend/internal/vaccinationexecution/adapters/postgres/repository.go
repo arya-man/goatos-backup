@@ -231,7 +231,7 @@ func (r *Repository) ListVaccinationExecutionPage(ctx context.Context, q domain.
 	return page, nil
 }
 
-func scanExecutionProjectionPage(rows pgx.Rows, limit int) (domain.ExecutionProjectionPage, error) {
+func scanExecutionProjectionPage(rows executionRows, limit int) (domain.ExecutionProjectionPage, error) {
 	out := []domain.ExecutionProjection{}
 	var totalCount int64
 	for rows.Next() {
@@ -1386,9 +1386,12 @@ asof_terminal AS MATERIALIZED (
     AND event_type IN ('missed', 'waived', 'deferred')
   GROUP BY obligation_id
 ),
-raw AS (
+-- projection-review: membership=the same tenant/category/status/effective-date obligations before canceled-task filtering; group_key=obligation_id; join_cardinality=global primary-key identity lookups retain tenant checks and decorate at most one row; pagination=all classified rows still feed unchanged keyset and whole-filter badges; scope=tenant/park/shed/owner predicates retained, task cancellation applied in raw.
+raw_obligations AS MATERIALIZED (
   SELECT
     oi.obligation_id,
+    oi.tenant_id, oi.target_type, oi.target_id,
+    COALESCE(oi.sop_task_id, ob.sop_task_id) AS task_lookup_id,
     CASE WHEN oi.target_type = 'goat' THEN oi.target_id ELSE NULL END AS animal_id,
     oi.rule_id,
     oi.batch_id,
@@ -1411,18 +1414,11 @@ raw AS (
     COALESCE(NULLIF(btrim(gsp.partition_label), ''), NULLIF(btrim(vda_member.partition_label), ''), 'whole') AS partition_label,
     regexp_replace(lower(btrim(COALESCE(NULLIF(btrim(gsp.partition_label), ''), NULLIF(btrim(vda_member.partition_label), ''), 'whole'))), '^part[[:space:]]+', '') AS partition_key,
     NULLIF(btrim(gsp.source_shed_name), '') AS source_shed_name,
-    st.state AS task_state,
-    st.task_id AS sop_task_id,
-    st.sop_version_id AS sop_version_id,
-    st.row_version AS sop_task_row_version,
-    st.assigned_to,
     g.lifecycle_status AS goat_lifecycle_status,
     g.health_status AS goat_health_status,
     g.management_stage AS goat_stage,
     c.effective_status AS completion_status,
     c.completion_id,
-    sc.capture_id IS NOT NULL AS scanned,
-    goat_proof.proofed_at IS NOT NULL AS proofed,
     CASE
       WHEN g.shed_id IS NOT NULL THEN g.shed_id
       WHEN oi.target_type = 'shed' THEN oi.target_id
@@ -1436,27 +1432,35 @@ raw AS (
       ELSE NULL
     END AS direct_park_uuid
   FROM obligation_instances oi
-  JOIN protocol_versions pv
-    ON pv.tenant_id = oi.tenant_id
-   AND pv.protocol_version_id = oi.protocol_version_id
-  JOIN protocol_definitions pd
-    ON pd.tenant_id = pv.tenant_id
-   AND pd.protocol_id = pv.protocol_id
-   AND pd.category = 'vaccination'
-  JOIN protocol_rules pr
-    ON pr.tenant_id = oi.tenant_id
-   AND pr.rule_id = oi.rule_id
+  JOIN LATERAL (
+    SELECT pv.tenant_id, pv.protocol_id FROM protocol_versions pv
+    WHERE pv.tenant_id = oi.tenant_id AND pv.protocol_version_id = oi.protocol_version_id
+    LIMIT 1
+  ) pv ON true
+  JOIN LATERAL (
+    SELECT pd.name FROM protocol_definitions pd
+    WHERE pd.tenant_id = pv.tenant_id AND pd.protocol_id = pv.protocol_id AND pd.category = 'vaccination'
+    LIMIT 1
+  ) pd ON true
+  JOIN LATERAL (
+    SELECT pr.tenant_id, pr.rule_id, pr.dose_code FROM protocol_rules pr
+    WHERE pr.tenant_id = oi.tenant_id AND pr.rule_id = oi.rule_id
+    LIMIT 1
+  ) pr ON true
   LEFT JOIN LATERAL (
     SELECT MIN(NULLIF(dim.vaccine_code, '')) AS vaccine_code
     FROM protocol_rule_dimensions dim
     WHERE dim.tenant_id = pr.tenant_id
       AND dim.rule_id = pr.rule_id
   ) prd ON true
-  LEFT JOIN goats g
-    ON oi.target_type = 'goat'
-   AND g.tenant_id = oi.tenant_id
-   AND g.goat_id = oi.target_id
-   AND g.merged_into_goat_id IS NULL
+  -- Resolve the global goat PK first; the ON clause retains the tenant boundary.
+  -- Combining tenant and PK inside this lookup picked a tenant-only scan on OCI.
+  LEFT JOIN LATERAL (
+    SELECT g.tenant_id, g.goat_id, g.shed_id, g.park_id, g.lifecycle_status, g.health_status, g.management_stage
+    FROM goats g
+    WHERE oi.target_type = 'goat' AND g.goat_id = oi.target_id AND g.merged_into_goat_id IS NULL
+    LIMIT 1
+  ) g ON g.tenant_id = oi.tenant_id
   LEFT JOIN goat_shed_partitions gsp
     ON gsp.tenant_id = g.tenant_id
    AND gsp.goat_id = g.goat_id
@@ -1534,44 +1538,13 @@ raw AS (
     WHERE member_assignment.tenant_id = assignment.tenant_id
       AND member_assignment.assignment_id = assignment.assignment_id
   ) vda_member ON assignment.assignment_id IS NOT NULL
-  LEFT JOIN sop_tasks st
-    ON st.tenant_id = oi.tenant_id
-   AND st.task_id = COALESCE(oi.sop_task_id, ob.sop_task_id)
   LEFT JOIN completions c
     ON c.obligation_id = oi.obligation_id
-  LEFT JOIN LATERAL (
-    SELECT scan.capture_id
-    FROM sop_task_scan_captures scan
-    WHERE scan.tenant_id = oi.tenant_id
-      AND scan.task_id = st.task_id
-      AND scan.field_key IN ('goat_ids', '__scan_roster__')
-      AND (
-        scan.obligation_id = oi.obligation_id
-        OR (scan.obligation_id IS NULL AND scan.goat_id = oi.target_id)
-      )
-    ORDER BY scan.captured_at DESC, scan.capture_id DESC
-    LIMIT 1
-  ) sc ON st.task_id IS NOT NULL
-  LEFT JOIN LATERAL (
-    SELECT proof.created_at AS proofed_at
-    FROM proof_artifacts proof
-    WHERE proof.tenant_id = oi.tenant_id
-      AND proof.scope_type = 'task'
-      AND proof.scope_id = st.task_id
-      AND proof.subject_type = 'goat'
-      AND proof.subject_id = oi.target_id
-      AND proof.upload_state = 'completed'
-      AND proof.proof_type = 'video'
-      AND proof.created_at <= $7::timestamptz
-    ORDER BY proof.created_at DESC, proof.proof_id DESC
-    LIMIT 1
-  ) goat_proof ON st.task_id IS NOT NULL AND oi.target_type = 'goat'
   LEFT JOIN asof_terminal te
     ON te.obligation_id = oi.obligation_id
   WHERE oi.tenant_id = $1::uuid
     AND oi.status IN ('scheduled', 'due', 'in_progress', 'deferred', 'completed', 'missed', 'waived')
     AND COALESCE(ob.status, '') NOT IN ('canceled', 'superseded')
-    AND COALESCE(st.state, '') <> 'canceled'
     AND ($15::text = '' OR COALESCE(vda_member.operator_id, vda_guess.operator_id) IS NOT NULL)
     AND COALESCE(COALESCE(vda_member.assignment_planned_at, vda_guess.assignment_planned_at), ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata', oi.due_at) <= $4::timestamptz
     AND (
@@ -1580,6 +1553,61 @@ raw AS (
       -- A row 'completed' NOW but finalized AFTER as_of was still open at as_of; pull it to re-bucket.
       OR (oi.status = 'completed' AND oi.completed_at > $7::timestamptz)
     )
+),
+-- projection-review: membership=the same allowed task scan fields with exact-obligation or legacy null-obligation goat matching; group_key=task_id; join_cardinality=deduplicated identifier arrays preserve existence without multiplying obligations; pagination=scan state still rolls up at animal then card grain; scope=tenant-bound task identity restricted to the raw obligation task set, with no new as-of or status filter.
+task_scan_keys AS MATERIALIZED (
+  SELECT task_id,
+    ARRAY_AGG(DISTINCT obligation_id) FILTER (WHERE obligation_id IS NOT NULL) AS obligation_ids,
+    ARRAY_AGG(DISTINCT goat_id) FILTER (WHERE obligation_id IS NULL AND goat_id IS NOT NULL) AS goat_ids
+  FROM sop_task_scan_captures
+  WHERE tenant_id=$1::uuid AND field_key IN ('goat_ids', '__scan_roster__')
+    AND task_id = ANY(ARRAY(SELECT DISTINCT task_lookup_id FROM raw_obligations WHERE task_lookup_id IS NOT NULL))
+  GROUP BY task_id
+),
+raw AS MATERIALIZED (
+ SELECT r.*,
+    st.state AS task_state,
+    st.task_id AS sop_task_id,
+    st.sop_version_id,
+    st.row_version AS sop_task_row_version,
+    st.assigned_to,
+    (r.obligation_id = ANY(sc.obligation_ids) OR r.target_id = ANY(sc.goat_ids)) IS TRUE AS scanned,
+    goat_proof.proofed_at IS NOT NULL AS proofed
+ FROM raw_obligations r
+ LEFT JOIN LATERAL (
+   SELECT st.task_id, st.state, st.sop_version_id, st.row_version, st.assigned_to
+   FROM sop_tasks st WHERE st.tenant_id=r.tenant_id AND st.task_id=r.task_lookup_id
+   LIMIT 1
+ ) st ON true
+  LEFT JOIN task_scan_keys sc ON sc.task_id = st.task_id
+  LEFT JOIN LATERAL (
+    SELECT proof.created_at AS proofed_at
+    FROM proof_artifacts proof
+    WHERE proof.tenant_id = r.tenant_id
+      AND proof.scope_type = 'task'
+      AND proof.scope_id = st.task_id
+      AND proof.subject_type = 'goat'
+      AND proof.subject_id = r.target_id
+      AND proof.upload_state = 'completed'
+      AND proof.proof_type = 'video'
+      AND proof.created_at <= $7::timestamptz
+    ORDER BY proof.created_at DESC, proof.proof_id DESC
+    LIMIT 1
+  ) goat_proof ON st.task_id IS NOT NULL AND r.target_type = 'goat'
+ WHERE COALESCE(st.state, '') <> 'canceled'
+),
+-- projection-review: membership=the same submitted/needs-review completed shed-video proof references; group_key=task_id and subject_id; join_cardinality=one proof aggregate per task/shed replaces repeated scalar counts; pagination=unchanged animal/card state and whole-filter badges; scope=tenant and exact task/shed binding retained, restricted to the raw obligation task set.
+shed_proof_counts AS MATERIALIZED (
+  SELECT submission.task_id, proof.ref ->> 'subject_id' AS shed_id, COUNT(*)::bigint AS submitted_count
+  FROM sop_submissions submission
+  CROSS JOIN LATERAL jsonb_array_elements(submission.proof_refs) AS proof(ref)
+  WHERE submission.tenant_id = $1::uuid
+    AND submission.task_id = ANY(ARRAY(SELECT DISTINCT task_lookup_id FROM raw_obligations WHERE task_lookup_id IS NOT NULL))
+    AND submission.state IN ('submitted', 'needs_review')
+    AND proof.ref ->> 'upload_state' = 'completed'
+    AND proof.ref ->> 'proof_type' = 'video'
+    AND proof.ref ->> 'subject_type' = 'shed'
+  GROUP BY submission.task_id, proof.ref ->> 'subject_id'
 ),
 located AS (
   SELECT
@@ -1605,22 +1633,9 @@ located AS (
       ELSE (CASE WHEN (COALESCE(raw.assignment_planned_at, raw.batch_planned_at, raw.due_at) AT TIME ZONE 'Asia/Kolkata')::date < ($7::timestamptz AT TIME ZONE 'Asia/Kolkata')::date THEN 'overdue' WHEN (COALESCE(raw.assignment_planned_at, raw.batch_planned_at, raw.window_start, raw.due_at) AT TIME ZONE 'Asia/Kolkata')::date <= ($7::timestamptz AT TIME ZONE 'Asia/Kolkata')::date THEN 'due' ELSE 'scheduled' END)
     END AS eff_status
   FROM raw
-  LEFT JOIN locations shed_loc
-    ON shed_loc.tenant_id = $1::uuid
-   AND shed_loc.location_id = raw.shed_uuid
-   AND shed_loc.location_type = 'shed'
-  LEFT JOIN LATERAL (
-    SELECT COUNT(*)::bigint AS submitted_count
-    FROM sop_submissions submission
-    CROSS JOIN LATERAL jsonb_array_elements(submission.proof_refs) AS proof(ref)
-    WHERE submission.tenant_id = $1::uuid
-      AND submission.task_id = raw.sop_task_id
-      AND submission.state IN ('submitted', 'needs_review')
-      AND proof.ref ->> 'upload_state' = 'completed'
-      AND proof.ref ->> 'proof_type' = 'video'
-      AND proof.ref ->> 'subject_type' = 'shed'
-      AND proof.ref ->> 'subject_id' = raw.shed_uuid::text
-  ) shed_proof ON raw.sop_task_id IS NOT NULL AND raw.shed_uuid IS NOT NULL
+  LEFT JOIN LATERAL (SELECT l.tenant_id,l.parent_location_id,l.location_type FROM locations l WHERE l.location_id=raw.shed_uuid LIMIT 1) shed_loc ON shed_loc.tenant_id=$1::uuid AND shed_loc.location_type='shed'
+  LEFT JOIN shed_proof_counts shed_proof
+    ON shed_proof.task_id = raw.sop_task_id AND shed_proof.shed_id = raw.shed_uuid::text
   WHERE raw.shed_uuid IS NOT NULL
 ),
 animal_rollup AS (
@@ -1661,7 +1676,7 @@ animal_rollup AS (
     )
   GROUP BY located.park_uuid, located.shed_uuid, located.partition_key, located.batch_id, located.animal_id
 ),
-animal_counts AS (
+animal_counts AS MATERIALIZED (
   SELECT
     animal_rollup.park_uuid,
     animal_rollup.shed_uuid,
@@ -1686,7 +1701,7 @@ animal_counts AS (
 ),
 -- projection-review: membership=located obligation-grain rows after tenant/category/scope resolution, with batch planned_date carried as execution_due_at for batched rows; group_key=(park_uuid,shed_uuid,partition_key,batch_id) so sibling partitions under one physical shed remain separate mobile/admin execution cards while counts stay at distinct-animal grain; join_cardinality=completions pre-aggregates 0:N completion history to one effective row per obligation, goat/batch/task joins are keyed 1:1, drive assignments are collapsed through LEFT JOIN LATERAL ... LIMIT 1 before grouping, and animal-stage joins use tenant-scoped unique id/code keys so COUNT/ARRAY_AGG stay at animal grain; pagination=grouped rows feed classified keyset pagination and total_count over the full filtered set; scope=park/shed/partition via located.park_uuid/shed_uuid/partition_key and tenant-scoped location joins.
 -- projection-review: bucket-grain=business-day eff_status and work_state overdue compare the IST (Asia/Kolkata) calendar DATE of the execution date against the IST date of as_of ($7), so a row whose drive is planned for today reads due (not overdue) at any clock instant and rolls to overdue only on the next business day
-grouped AS (
+grouped_details AS MATERIALIZED (
   SELECT
     located.park_uuid,
     located.shed_uuid,
@@ -1700,24 +1715,10 @@ grouped AS (
     ARRAY_AGG(CONCAT_WS(E'\x1f', located.protocol_name, located.dose_code) ORDER BY located.protocol_name, located.dose_code)
       FILTER (WHERE NULLIF(located.dose_code, '') IS NOT NULL) AS vaccine_label_keys,
     MIN(located.execution_due_at) AS due_at,
-    MAX(animal_counts.obligation_count) AS obligation_count,
     -- Mobile shows drive animals, not obligation/dose rows. Bucket counts use the
     -- as_of-effective status at distinct-animal grain; completion counts use the
     -- pre-aggregated, as-of-bounded completion projection above.
-    MAX(animal_counts.done_count) AS done_count,
-    MAX(animal_counts.scheduled_count) AS scheduled_count,
-    MAX(animal_counts.due_count) AS due_count,
-    MAX(animal_counts.in_progress_count) AS in_progress_count,
-    MAX(animal_counts.completed_count) AS completed_count,
-    MAX(animal_counts.missed_count) AS missed_count,
-    MAX(animal_counts.deferred_count) AS deferred_count,
     0::bigint AS canceled_count,
-    MAX(animal_counts.completion_recorded) AS completion_recorded,
-    MAX(animal_counts.completion_accepted) AS completion_accepted,
-    MAX(animal_counts.completion_rejected) AS completion_rejected,
-    MAX(animal_counts.completion_reversed) AS completion_reversed,
-    MAX(animal_counts.scanned_count) AS scanned_count,
-    MAX(animal_counts.proof_submitted_count) AS proof_submitted_count,
     (ARRAY_AGG(located.batch_status ORDER BY
       CASE located.batch_status
         WHEN 'in_progress' THEN 0
@@ -1783,16 +1784,8 @@ grouped AS (
     (ARRAY_AGG(located.sop_task_row_version ORDER BY located.execution_due_at DESC NULLS LAST, located.due_at DESC NULLS LAST, located.sop_task_id DESC NULLS LAST) FILTER (WHERE located.sop_task_id IS NOT NULL))[1] AS sop_task_row_version,
     (ARRAY_AGG(located.completion_id ORDER BY located.execution_due_at DESC NULLS LAST, located.due_at DESC NULLS LAST, located.completion_id DESC NULLS LAST))[1]::text AS completion_id
   FROM located
-  JOIN locations shed
-    ON shed.tenant_id = $1::uuid
-   AND shed.location_id = located.shed_uuid
-   AND shed.location_type = 'shed'
-   AND shed.status = 'active'
-  JOIN locations park
-    ON park.tenant_id = $1::uuid
-   AND park.location_id = located.park_uuid
-   AND park.location_type = 'park'
-   AND park.status = 'active'
+  JOIN LATERAL (SELECT l.tenant_id,l.location_id,l.name,l.location_type,l.status FROM locations l WHERE l.location_id=located.shed_uuid LIMIT 1) shed ON shed.tenant_id=$1::uuid AND shed.location_type='shed' AND shed.status='active'
+  JOIN LATERAL (SELECT l.tenant_id,l.location_id,l.name,l.location_type,l.status FROM locations l WHERE l.location_id=located.park_uuid LIMIT 1) park ON park.tenant_id=$1::uuid AND park.location_type='park' AND park.status='active'
   LEFT JOIN shed_profiles sp
     ON sp.tenant_id = $1::uuid
    AND sp.location_id = located.shed_uuid
@@ -1811,11 +1804,6 @@ grouped AS (
     ON operator.tenant_id = $1::uuid
    AND operator.workforce_member_id = COALESCE(located.conducted_by, located.assigned_to)
    AND operator.status = 'active'
-  JOIN animal_counts
-    ON animal_counts.park_uuid = located.park_uuid
-   AND animal_counts.shed_uuid = located.shed_uuid
-   AND animal_counts.partition_key = located.partition_key
-   AND animal_counts.batch_id IS NOT DISTINCT FROM located.batch_id
   WHERE located.park_uuid IS NOT NULL
     AND ($2::text = '' OR located.park_uuid = $2::uuid)
     AND ($3::text = '' OR located.shed_uuid = $3::uuid)
@@ -1828,6 +1816,30 @@ grouped AS (
       OR located.partition_key = regexp_replace(lower(btrim($16::text)), '^part[[:space:]]+', '')
     )
   GROUP BY located.park_uuid, located.shed_uuid, located.partition_key, located.batch_id
+),
+-- projection-review: membership=the same filtered active-location card groups; group_key=(park_uuid,shed_uuid,partition_key,batch_id); join_cardinality=animal_counts is unique on the identical grouping key and now joins once per card rather than once per obligation; pagination=the same full card set precedes classified keyset pagination; scope=tenant and park/shed/operator/partition filters remain in grouped_details.
+grouped AS MATERIALIZED (
+ SELECT grouped_details.*,
+   animal_counts.obligation_count,
+   animal_counts.done_count,
+   animal_counts.scheduled_count,
+   animal_counts.due_count,
+   animal_counts.in_progress_count,
+   animal_counts.completed_count,
+   animal_counts.missed_count,
+   animal_counts.deferred_count,
+   animal_counts.completion_recorded,
+   animal_counts.completion_accepted,
+   animal_counts.completion_rejected,
+   animal_counts.completion_reversed,
+   animal_counts.scanned_count,
+   animal_counts.proof_submitted_count
+ FROM grouped_details
+ JOIN animal_counts
+ ON animal_counts.park_uuid=grouped_details.park_uuid
+ AND animal_counts.shed_uuid=grouped_details.shed_uuid
+ AND animal_counts.partition_key=grouped_details.partition_key
+ AND animal_counts.batch_id IS NOT DISTINCT FROM grouped_details.batch_id
 ),
 enriched AS (
   SELECT
@@ -4546,98 +4558,11 @@ func (r *Repository) VaccinationExecutionCardSummaries(ctx context.Context, q do
 
 	summaries := make(map[string]*domain.ShedCardSummary)
 	for rows.Next() {
-		var shedID string
-		var partLabel *string
-		var taskID *string
-		var batchID *string
-		var driveID *string
-		var obligationCount, doneCount, openCount int64
-		var hasMissed, hasDeferred, hasOverdue, hasReviewPending, hasRejected bool
-		var vaccineLabels []string
-		var vaccineLabelCounts []string
-
-		if err := rows.Scan(&shedID, &partLabel, &taskID, &batchID, &driveID, &obligationCount, &doneCount, &openCount,
-			&hasMissed, &hasDeferred, &hasOverdue, &hasReviewPending, &hasRejected, &vaccineLabels, &vaccineLabelCounts); err != nil {
+		var record executionCardSummaryRecord
+		if err := rows.Scan(&record.ShedID, &record.PartitionLabel, &record.TaskID, &record.BatchID, &record.DriveID, &record.ObligationCount, &record.DoneCount, &record.OpenCount, &record.HasMissed, &record.HasDeferred, &record.HasOverdue, &record.HasReviewPending, &record.HasRejected, &record.VaccineLabels, &record.VaccineLabelCounts); err != nil {
 			return nil, fmt.Errorf("vaccination execution: card summaries scan: %w", err)
 		}
-
-		// Compute status: DONE | DELAYED | SENT_BACK | PENDING
-		var status domain.WorkState
-		if hasRejected {
-			status = domain.WorkStateRejected // SENT_BACK
-		} else if hasOverdue || hasMissed {
-			status = domain.WorkStateOverdue // DELAYED
-		} else if hasReviewPending {
-			status = domain.WorkStateVerificationPending
-		} else if openCount == 0 && obligationCount > 0 {
-			status = domain.WorkStateCompleted // DONE
-		} else {
-			status = domain.WorkStateDue // PENDING
-		}
-
-		// Build vaccine group summaries
-		countByLabel := make(map[string]int64, len(vaccineLabelCounts))
-		for _, entry := range vaccineLabelCounts {
-			protocolName, doseCode, ok := strings.Cut(entry, "\x1f")
-			if !ok {
-				doseCode = entry
-			}
-			label := domain.VaccinationDoseDisplayLabel(protocolName, doseCode)
-			if label == "" {
-				continue
-			}
-			countByLabel[label]++
-		}
-		displayLabels := make([]string, 0, len(countByLabel))
-		seenDisplayLabel := make(map[string]struct{}, len(countByLabel))
-		for label := range countByLabel {
-			if _, exists := seenDisplayLabel[label]; exists {
-				continue
-			}
-			seenDisplayLabel[label] = struct{}{}
-			displayLabels = append(displayLabels, label)
-		}
-		if len(displayLabels) == 0 {
-			for _, label := range vaccineLabels {
-				displayLabel := domain.VaccinationDoseDisplayLabel("", label)
-				if displayLabel == "" {
-					continue
-				}
-				if _, exists := seenDisplayLabel[displayLabel]; exists {
-					continue
-				}
-				seenDisplayLabel[displayLabel] = struct{}{}
-				displayLabels = append(displayLabels, displayLabel)
-			}
-		}
-		sort.Strings(displayLabels)
-		vaccineGroups := make([]domain.VaccineGroupSummary, 0, len(displayLabels))
-		for _, label := range displayLabels {
-			countLabel := ""
-			if count := countByLabel[label]; count > 0 {
-				countLabel = fmt.Sprintf("%d doses", count)
-			}
-			vaccineGroups = append(vaccineGroups, domain.VaccineGroupSummary{
-				Label:      label,
-				CountLabel: countLabel,
-				Full:       openCount == 0,
-			})
-		}
-
-		cardID := domain.BuildCardID(shedID, domain.StringOrEmpty(partLabel), domain.StringOrEmpty(taskID), domain.StringOrEmpty(batchID), domain.StringOrEmpty(driveID))
-		summaries[cardID] = &domain.ShedCardSummary{
-			ShedID:         shedID,
-			PartitionLabel: partLabel,
-			TaskID:         taskID,
-			BatchID:        batchID,
-			DriveID:        driveID,
-			Status:         status,
-			DoneCount:      int(doneCount),
-			TargetCount:    int(obligationCount),
-			OpenCount:      int(openCount),
-			NeedsRedo:      hasRejected,
-			VaccineGroups:  vaccineGroups,
-		}
+		addExecutionCardSummary(summaries, record)
 	}
 
 	if err := rows.Err(); err != nil {

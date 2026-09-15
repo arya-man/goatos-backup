@@ -614,15 +614,14 @@ resolved_gain AS (
 -- honest: Castro's residents share one breed, one sex and one stage, so it can be
 -- attributed; Godel 2 holds nine breeds and six stages, so it is attributed to
 -- nothing rather than guessed at.
+-- projection-review: membership=distinct scoped weighing buckets with unchanged live-resident or physical-shed partition fallback; group_key=(tenant_id,location_id,partition_label); join_cardinality=locations is 0..1 by global primary key and each fallback is 0..1 via LIMIT 1, no goat partition fanout; pagination=NONE, all scoped buckets retained; scope=tenant plus authorized park campaign scope, with fallback tenant and parent-location checks retained.
 shed_targets AS (
   SELECT DISTINCT s.location_id, s.partition_label,
          COALESCE(
-           CASE WHEN EXISTS (SELECT 1 FROM goats gg WHERE gg.tenant_id = $1::uuid
-                              AND gg.lifecycle_status = 'alive' AND gg.shed_id = s.location_id)
-                THEN s.location_id END,
+           CASE WHEN live.present THEN s.location_id END,
            (SELECT phys.location_id FROM locations phys
-            JOIN locations l ON l.location_id = s.location_id AND l.tenant_id = s.tenant_id
-            WHERE phys.tenant_id = l.tenant_id
+            WHERE l.tenant_id = s.tenant_id
+              AND phys.tenant_id = l.tenant_id
               AND phys.parent_location_id = l.parent_location_id
               AND phys.location_type = 'shed'
               AND phys.name = regexp_replace(l.name, '\s*(-\s*)?(Part\s*)?[0-9]+$', '')
@@ -643,10 +642,23 @@ shed_targets AS (
             LIMIT 1)
          ) AS resolved_id,
          COALESCE(NULLIF(s.partition_label, ''),
-                  NULLIF((regexp_match((SELECT l.name FROM locations l WHERE l.location_id = s.location_id),
-                                       '\s*(?:-\s*)?(?:Part\s*)?([0-9]+)$'))[1], ''),
+                  -- A physical shed named "Plain 1" is still whole when its own
+                  -- residents exist. Name suffixes identify only fallback aliases.
+                  CASE WHEN live.present THEN '' ELSE
+                    NULLIF((regexp_match(l.name,
+                                         '\s*(?:-\s*)?(?:Part\s*)?([0-9]+)$'))[1], '') END,
                   '') AS resolved_partition_label
-  FROM scoped s
+  -- Resolve one physical location per operational bucket, before considering the
+  -- fallback herd partitions. Looking up l inside that join can rescan it once
+  -- per candidate goat partition instead of once per bucket.
+  FROM (SELECT DISTINCT tenant_id, location_id, partition_label FROM scoped) s
+  LEFT JOIN locations l ON l.location_id = s.location_id
+  LEFT JOIN LATERAL (
+    SELECT true AS present FROM goats gg
+    WHERE gg.tenant_id = $1::uuid
+      AND gg.lifecycle_status = 'alive' AND gg.shed_id = s.location_id
+    LIMIT 1
+  ) live ON true
   -- Origin filter, whole-shed half. A lump-sum bucket is claimed by the pen it was weighed in,
   -- which origin_scope.go has already decided; the alias spellings of one pen ("Godel 2 - Part 1"
   -- the location vs "Godel 2" carrying label "Part 1") are reconciled there, so this predicate is
@@ -1463,15 +1475,14 @@ latest AS (
   WHERE ($5::bool OR $8::bool OR $9::bool OR $11::bool)
   ORDER BY s.location_id, s.partition_label, sh.accepted_at DESC, sh.shed_observation_id DESC
 ),
+-- projection-review: membership=distinct scoped weighing buckets with unchanged live-resident or physical-shed partition fallback; group_key=(tenant_id,location_id,partition_label); join_cardinality=locations is 0..1 by global primary key and each fallback is 0..1 via LIMIT 1, no goat partition fanout; pagination=NONE, all scoped buckets retained; scope=tenant plus authorized park campaign scope, with fallback tenant and parent-location checks retained.
 shed_targets AS (
   SELECT DISTINCT s.location_id, s.partition_label,
          COALESCE(
-           CASE WHEN EXISTS (SELECT 1 FROM goats gg WHERE gg.tenant_id = $1::uuid
-                              AND gg.lifecycle_status = 'alive' AND gg.shed_id = s.location_id)
-                THEN s.location_id END,
+           CASE WHEN live.present THEN s.location_id END,
            (SELECT phys.location_id FROM locations phys
-            JOIN locations l ON l.location_id = s.location_id AND l.tenant_id = s.tenant_id
-            WHERE phys.tenant_id = l.tenant_id
+            WHERE l.tenant_id = s.tenant_id
+              AND phys.tenant_id = l.tenant_id
               AND phys.parent_location_id = l.parent_location_id
               AND phys.location_type = 'shed'
               AND phys.name = regexp_replace(l.name, '\s*(-\s*)?(Part\s*)?[0-9]+$', '')
@@ -1488,10 +1499,20 @@ shed_targets AS (
             LIMIT 1)
          ) AS resolved_id,
          COALESCE(NULLIF(s.partition_label, ''),
-                  NULLIF((regexp_match((SELECT l.name FROM locations l WHERE l.location_id = s.location_id),
-                                       '\s*(?:-\s*)?(?:Part\s*)?([0-9]+)$'))[1], ''),
+                  -- A physical shed named "Plain 1" is still whole when its own
+                  -- residents exist. Name suffixes identify only fallback aliases.
+                  CASE WHEN live.present THEN '' ELSE
+                    NULLIF((regexp_match(l.name,
+                                         '\s*(?:-\s*)?(?:Part\s*)?([0-9]+)$'))[1], '') END,
                   '') AS resolved_partition_label
-  FROM scoped s
+  FROM (SELECT DISTINCT tenant_id, location_id, partition_label FROM scoped) s
+  LEFT JOIN locations l ON l.location_id = s.location_id
+  LEFT JOIN LATERAL (
+    SELECT true AS present FROM goats gg
+    WHERE gg.tenant_id = $1::uuid
+      AND gg.lifecycle_status = 'alive' AND gg.shed_id = s.location_id
+    LIMIT 1
+  ) live ON true
 ),
 shed_cohort AS (
   SELECT src.location_id,

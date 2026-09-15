@@ -174,9 +174,35 @@ func TestGrowthLosingAnimalsPairsAcrossReportStartBoundary(t *testing.T) {
 	}
 }
 
-func TestWeighingAnalyticsCacheCoversBrowserSmokeSweep(t *testing.T) {
-	if weighingAnalyticsCacheTTL < 2*time.Minute {
-		t.Fatalf("weighing analytics cache TTL %s is too short for the local browser route sweep", weighingAnalyticsCacheTTL)
+func TestWeighingAnalyticsCacheExpiryAndInvalidationRejectStaleResults(t *testing.T) {
+	repo := NewRepository(nil, time.Second)
+	epoch := repo.readCacheEpoch()
+	repo.setReadCacheIfEpoch("scope", "before", epoch)
+	if value, ok := repo.getReadCache("scope"); !ok || value != "before" {
+		t.Fatal("fresh result was not reusable")
+	}
+	// Expiry must force a fresh read; the length of a browser sweep is not
+	// a freshness contract and must never determine the minimum cache TTL.
+	entry := repo.readCache["scope"]
+	entry.expiresAt = time.Now().Add(-time.Second)
+	repo.readCache["scope"] = entry
+	if _, ok := repo.getReadCache("scope"); ok {
+		t.Fatal("expired result was served")
+	}
+	repo.setReadCacheIfEpoch("scope", "before", epoch)
+	repo.invalidateReadCache()
+	if _, ok := repo.getReadCache("scope"); ok {
+		t.Fatal("invalidated result was served")
+	}
+	// A read started before a write must not repopulate the cache after
+	// invalidation, even when that read completes later.
+	repo.setReadCacheIfEpoch("scope", "stale completion", epoch)
+	if _, ok := repo.getReadCache("scope"); ok {
+		t.Fatal("an old in-flight result repopulated the cache")
+	}
+	repo.setReadCacheIfEpoch("scope", "after", repo.readCacheEpoch())
+	if value, ok := repo.getReadCache("scope"); !ok || value != "after" {
+		t.Fatal("fresh result after invalidation was not reusable")
 	}
 }
 

@@ -178,6 +178,7 @@ test("PR264 performance manifest measures rendered route shapes, not broad short
     "pr264_work_board_page_cbe",
     "pr264_work_board_page_cpt",
     "pr264_app_vaccination_execution_with_card_summaries",
+    "pr264_app_vaccination_execution_fresh_as_of",
   ];
   assert.deepEqual(manifest.scope.required_hot_paths, required);
   assert.deepEqual(manifest.scope.included, required);
@@ -252,3 +253,50 @@ function readHotPathManifest(name) {
   if (Array.isArray(manifest)) return { endpoints: manifest };
   return manifest;
 }
+
+test("fresh-as-of workload preserves the default endpoint and requires bounded unique request evidence", async () => {
+  const { VACCINATION_PATH, createRequestPlanner, freshAsOfEvidenceFailures } = await import("./api-latency-request.mjs");
+  const endpoint = { method: "GET", path: VACCINATION_PATH, request_strategy: "fresh_as_of", assertion: { type: "array_min", path: "rows", min: 1 } };
+  const plan = createRequestPlanner();
+  const samples = [plan(endpoint, 1800000000000), plan(endpoint, 1800000000000)];
+  const valid = { ...endpoint, response_observations: samples };
+  assert.deepEqual(freshAsOfEvidenceFailures(valid), []);
+  assert.equal(plan({ path: VACCINATION_PATH }, 1800000000000).request_path, VACCINATION_PATH);
+  for (const mutate of [
+    (x) => { x.response_observations[1] = { ...x.response_observations[0] }; },
+    (x) => { x.response_observations[0].request_path = VACCINATION_PATH; },
+    (x) => { x.response_observations[0].request_path = x.response_observations[0].request_path.replace("limit=20", "limit=1"); },
+    (x) => { x.response_observations[0].request_started_at = "2020-01-01T00:00:00Z"; },
+    (x) => { x.request_strategy = null; },
+    (x) => { x.assertion.min = 0; },
+  ]) {
+    const bad = structuredClone(valid); mutate(bad); assert.ok(freshAsOfEvidenceFailures(bad).length > 0);
+  }
+  for (const bad of [{ ...endpoint, path: "/work-board/page" }, { ...endpoint, request_strategy: "cachebuster" }, { ...endpoint, path: VACCINATION_PATH + "&as_of=2020-01-01" }]) {
+    assert.throws(() => normalizeApiLatencyEndpoint(bad), /fresh_as_of/);
+  }
+});
+
+test("PR264 warmup guard refuses discarded or slow initial cache misses", async () => {
+  const { warmupEvidenceFailures } = await import("./api-latency-request.mjs");
+  const valid = {
+    assertion: { type: "array_min", path: "rows", min: 1 },
+    warmup_samples_ms: [500, 60], warmup_max_ms: 500,
+    warmup_response_bytes: [64000, 64000], response_bytes_threshold: 524288,
+    warmup_response_observations: Array.from({ length: 2 }, () => ({ assertion_value: 1, row_counts: { rows: 1 }, degraded: [] })),
+  };
+  assert.deepEqual(warmupEvidenceFailures(valid, 2), []);
+  for (const mutate of [
+    (x) => { delete x.warmup_samples_ms; },
+    (x) => { delete x.warmup_response_bytes; },
+    (x) => { x.warmup_response_bytes[0] = 524289; },
+    (x) => { x.warmup_response_bytes[0] = 1048577; x.response_bytes_threshold = 2097152; },
+    (x) => { x.warmup_samples_ms[0] = 1607; x.warmup_max_ms = 1607; },
+    (x) => { x.warmup_max_ms = 60; },
+    (x) => { x.warmup_samples_ms.pop(); },
+    (x) => { x.warmup_response_observations.pop(); },
+    (x) => { x.warmup_response_observations[0].degraded = ["vaccination"]; },
+    (x) => { x.warmup_response_observations[0].assertion_value = 0; },
+  ]) { const bad = structuredClone(valid); mutate(bad); assert.ok(warmupEvidenceFailures(bad, 2).length > 0); }
+  assert.ok(warmupEvidenceFailures(valid, 0).length > 0);
+});

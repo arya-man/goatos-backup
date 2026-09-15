@@ -4,9 +4,13 @@ import { dirname, resolve } from "node:path";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 
+import { createRequestPlanner, warmupEvidenceFailures } from "./api-latency-request.mjs";
+
 import { observeApiPayload } from "./api-latency-evidence.mjs";
 
 import { normalizeApiLatencyEndpoints } from "./api-latency-policy.mjs";
+
+const requestPlanner = createRequestPlanner();
 
 const defaultEndpoints = [
   { name: "control_tower", method: "GET", path: "/control-tower/vaccination?category=vaccination", p90_ms: 300, p95_ms: 500, p99_ms: 500 },
@@ -27,19 +31,8 @@ const tenantId = args.tenantId ?? process.env.GOATOS_TENANT_ID ?? "00000000-0000
 const bearerToken = args.bearerToken ?? process.env.GOATOS_BEARER_TOKEN ?? "";
 const cookie = args.cookie ?? process.env.GOATOS_PERF_COOKIE ?? "";
 const iterations = numberArg(args.iterations ?? process.env.GOATOS_PERF_ITERATIONS, 20);
-// FIVE, not two. The warmup exists so the samples measure steady-state serving latency rather than
-// connection establishment, and two sequential warmup requests cannot do that for a FAN-OUT endpoint:
-// /vaccination/command issues six concurrent queries, so against a freshly started API whose pgxpool
-// is still empty the early samples were paying connection setup, not query time.
-//
-// Measured on a cold pool, same build, same budget: warmup=2 -> board p90 342 (fail);
-// warmup=5 -> p90 257 (pass). Warm runs were 259-272 either way, which is what identifies the
-// difference as measurement noise rather than endpoint latency.
-//
-// Stated plainly because it was found while a NEW endpoint of mine was failing cold, and that is
-// exactly the situation where a warmup bump deserves scrutiny: this changes what is MEASURED, never
-// the threshold. The p90/p95/p99 ceilings are untouched and api-latency-policy.mjs still hard-caps
-// p90 at 300ms. If steady-state latency regresses, this gate still fails.
+// Preserve initial requests separately from steady-state percentiles. PR264 also
+// requires every warmup response within 500ms so cache/pool warmup cannot hide a miss.
 const warmup = numberArg(args.warmup ?? process.env.GOATOS_PERF_WARMUP, 5, true);
 const concurrency = numberArg(args.concurrency ?? process.env.GOATOS_PERF_CONCURRENCY, 1);
 const timeoutMs = numberArg(args.timeoutMs ?? process.env.GOATOS_PERF_TIMEOUT_MS, 30000);
@@ -131,9 +124,15 @@ async function readApiBuildSha() {
 async function runEndpoint(endpoint) {
   endpoint = { ...endpoint, path: expandPath(endpoint.path) };
   const failures = [];
+  const warmupSamples = [];
+  const warmupObservations = [];
+  const warmupBytes = [];
   for (let i = 0; i < warmup; i++) {
     try {
-      await requestOnce(endpoint);
+      const sample = await requestOnce(endpoint);
+      warmupSamples.push(sample.ms);
+      warmupBytes.push(sample.responseBytes);
+      warmupObservations.push(sample.observation);
     } catch (err) {
       failures.push(`warmup: ${err instanceof Error ? err.message : String(err)}`);
       if (failOnThreshold) {
@@ -165,6 +164,7 @@ async function runEndpoint(endpoint) {
     name: endpoint.name,
     method: endpoint.method ?? "GET",
     path: endpoint.path,
+    request_strategy: endpoint.request_strategy ?? null,
     samples: samples.length,
     failures: failures.length,
     first_failure: failures[0] ?? null,
@@ -181,8 +181,15 @@ async function runEndpoint(endpoint) {
     response_bytes_threshold: endpoint.max_response_bytes,
     assertion: endpoint.assertion ?? null,
     response_observations: observations,
+    warmup_samples_ms: warmupSamples,
+    warmup_response_bytes: warmupBytes,
+    warmup_response_observations: warmupObservations,
+    warmup_max_ms: warmupSamples.length ? Math.max(...warmupSamples) : null,
   };
+  result.warmup_guard_failures = manifestDocument.scope?.evidence_profile === "pr264_performance"
+    ? warmupEvidenceFailures(result, warmup) : [];
   result.passed = result.failures === 0
+    && result.warmup_guard_failures.length === 0
     && result.p90_ms <= result.p90_threshold_ms
     && result.p95_ms <= result.p95_threshold_ms
     && result.p99_ms <= result.p99_threshold_ms
@@ -200,9 +207,10 @@ async function requestOnce(endpoint) {
   };
   if (bearerToken) headers.Authorization = `Bearer ${bearerToken}`;
   if (cookie) headers.Cookie = cookie;
+  const request = requestPlanner(endpoint);
   const started = performance.now();
   try {
-    const response = await fetch(`${baseUrl}${endpoint.path}`, {
+    const response = await fetch(`${baseUrl}${request.request_path}`, {
       method: endpoint.method ?? "GET",
       headers,
       cache: "no-store",
@@ -214,7 +222,7 @@ async function requestOnce(endpoint) {
     }
     const body = await response.text();
     const payload = JSON.parse(body);
-    const observation = observeApiPayload(endpoint, payload);
+    const observation = { ...observeApiPayload(endpoint, payload), ...request };
     assertPayload(endpoint, payload);
     const ms = performance.now() - started;
     return { ms, responseBytes: Buffer.byteLength(body, "utf8"), observation };

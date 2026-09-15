@@ -137,9 +137,9 @@ func TestVaccinationExecutionScannedCountOneToManyPaginationDateShiftParkScopeSt
 	t.Log("OneToMany Pagination DateShift ParkScope StatusMatrix: execution read model counts per-goat draft scan captures without changing row cardinality")
 	requiredFragments := map[string]string{
 		"scan capture lateral join": "LEFT JOIN LATERAL",
-		"scan capture table":        "FROM sop_task_scan_captures scan",
-		"scan capture task scope":   "scan.task_id = st.task_id",
-		"scan capture roster field": "scan.field_key IN ('goat_ids', '__scan_roster__')",
+		"scan capture table":        "FROM sop_task_scan_captures",
+		"scan capture task scope":   "sc.task_id = st.task_id",
+		"scan capture roster field": "field_key IN ('goat_ids', '__scan_roster__')",
 		"animal rollup input grain": "CASE WHEN oi.target_type = 'goat' THEN oi.target_id ELSE NULL END AS animal_id",
 		"scan capture goat grain":   "COUNT(*) FILTER (WHERE animal_rollup.has_scan)::bigint AS scanned_count",
 	}
@@ -2521,7 +2521,7 @@ func seedVaccinationExecutionProjection(t *testing.T, ctx context.Context, pool 
 	exec("operator",
 		`INSERT INTO workforce_members (workforce_member_id, tenant_id, display_code, display_name, status, primary_role_hint, primary_location_id)
 		 VALUES ($1, $2, 'OP-PROJ', 'Operator A', 'active', 'operator', $3)`,
-		testOperator, testTenant, testShed)
+		testOperator, testTenant, testPark)
 	exec("park head",
 		`INSERT INTO workforce_members (workforce_member_id, tenant_id, display_code, display_name, status, primary_role_hint, primary_location_id)
 		 VALUES ($1, $2, 'PH-PROJ', 'Park Head', 'active', 'park_head', $3)`,

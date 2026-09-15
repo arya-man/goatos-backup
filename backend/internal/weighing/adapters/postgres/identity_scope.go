@@ -115,7 +115,7 @@ func (m AnimalIdentityMap) Empty() bool { return len(m.Tags) == 0 }
 // more active permanent RFID identifiers AND was weighed in scope through at least one of them;
 // group_key=the normalized identifier value; join_cardinality=ident is 0..1 per tag because
 // DISTINCT ON collapses re-issued rows for one tag string to the newest, weighed_goats is 1 row per
-// goat_id (DISTINCT), and the final join is ident 1:1 back to its own goat; pagination=NONE,
+// goat_id (DISTINCT), and membership filters never multiply identifier rows; pagination=NONE,
 // bounded by the tags actually weighed in the window and the two RFID slots each of their animals
 // can carry; scope=tenant_id + park_id = ANY($2) + the window.
 //
@@ -159,8 +159,8 @@ WITH scoped AS (
 weighed AS (
   SELECT DISTINCT lower(btrim(o.scanned_identifier)) AS tag
   FROM weighing_observations o
-  JOIN scoped s ON s.campaign_shed_id = o.campaign_shed_id AND s.tenant_id = o.tenant_id
   WHERE o.tenant_id = $1::uuid
+    AND (o.campaign_shed_id IN (SELECT s.campaign_shed_id FROM scoped s)) IS TRUE
     -- The window is OPT-IN: a zero time binds NULL and drops that side of the bound, which is how
     -- the all-time caller asks for every tag ever weighed in scope without a second query text.
     -- Written as an IS NULL disjunction rather than a sentinel date so "no bound" cannot be
@@ -192,10 +192,13 @@ ident AS (
 -- The animals actually weighed in scope, reached through WHICHEVER tag was scanned. Anchoring on
 -- weighed tags rather than on the herd is what keeps this bounded: a park with 50,000 animals and
 -- 300 weighs resolves at most 300 animals.
+-- These are membership tests, not row-producing joins. IS TRUE keeps the IN predicates as
+-- hashable subplans instead of flattening them into underestimated nested-loop joins. Each
+-- membership set is built once, avoiding a linear array scan for every identifier as well.
 weighed_goats AS (
   SELECT DISTINCT i.goat_id
-  FROM weighed w
-  JOIN ident i ON i.tag = w.tag
+  FROM ident i
+  WHERE (i.tag IN (SELECT w.tag FROM weighed w)) IS TRUE
 ),
 -- EVERY active tag of those animals, including one that was never scanned in this window. That
 -- tag costs nothing (no observation joins to it) and it keeps the canonical target STABLE: if the
@@ -209,7 +212,7 @@ all_tags AS (
          ) AS canonical_tag,
          count(*) OVER (PARTITION BY i.goat_id) AS tag_count
   FROM ident i
-  JOIN weighed_goats wg ON wg.goat_id = i.goat_id
+  WHERE (i.goat_id IN (SELECT wg.goat_id FROM weighed_goats wg)) IS TRUE
 )
 -- tag_count > 1 is what keeps a single-tag animal out of the map entirely, so a page with no
 -- double-tagged animal is byte-for-byte the page that existed before this file. A tag whose

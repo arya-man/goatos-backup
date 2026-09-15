@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { FRESH_AS_OF_NAME, freshAsOfEvidenceFailures, warmupEvidenceFailures } from "./api-latency-request.mjs";
 import { readFileSync } from "node:fs";
 
 import { API_LATENCY_POLICY_MS, API_RESPONSE_BYTES_CEILING } from "./api-latency-policy.mjs";
@@ -66,6 +67,7 @@ const REQUIRED_HOT_PATH_PROFILES = Object.freeze({
     "pr264_work_board_page_cbe",
     "pr264_work_board_page_cpt",
     "pr264_app_vaccination_execution_with_card_summaries",
+    "pr264_app_vaccination_execution_fresh_as_of",
   ]),
 });
 
@@ -185,7 +187,9 @@ export function validateApiLatencyEvidence(report, expectedSha) {
       failures.push(`required hot path ${name} is missing`);
       continue;
     }
+    if (name === FRESH_AS_OF_NAME) failures.push(...freshAsOfEvidenceFailures(result));
     if (evidenceProfile === "pr264_performance") {
+      failures.push(...warmupEvidenceFailures(result, report.warmup).map((failure) => `${name} ${failure}`));
       const observations = result.response_observations;
       if (!Array.isArray(observations) || observations.length !== result.samples || observations.length === 0
         || observations.some((item) => !Number.isFinite(item?.assertion_value)
@@ -269,6 +273,22 @@ function validatePr264BrowserEvidence(report, failures) {
   if (browser.same_api_build !== true) {
     failures.push("PR264 browser evidence must use the same API build as the latency report");
   }
+  const receipt = browser.local_stack_launch_receipt;
+  const build = receipt?.build_provenance;
+  if (browser.api_build_identity_source !== "/version"
+    || receipt?.git_sha !== report.git_sha || receipt?.mode !== "start"
+    || build?.git_sha !== report.git_sha || !build?.build_id || build?.clean_source !== true
+    || !Array.isArray(build?.source_status_start) || build.source_status_start.length !== 0
+    || !Array.isArray(build?.source_status_end) || build.source_status_end.length !== 0
+    || !browser.api_base_url || receipt?.api_base_url !== browser.api_base_url
+    || !browser.admin_web_base_url || receipt?.admin_web_base_url !== browser.admin_web_base_url) {
+    failures.push("PR264 browser production launch receipt must bind clean frontend and API build identities");
+  }
+  if (!browser.actor?.user_id || !browser.actor?.tenant_id
+    || receipt?.local_user_id !== browser.actor.user_id || receipt?.tenant_id !== browser.actor.tenant_id
+    || (report.tenant_id && report.tenant_id !== browser.actor.tenant_id)) {
+    failures.push("PR264 browser actor must match the frontend runtime user and tenant");
+  }
   const routes = Array.isArray(browser.routes) ? browser.routes : [];
   const routeEvidence = groupedBrowserRoutes(routes);
   for (const requirement of requiredRoutes) {
@@ -288,6 +308,8 @@ function validatePr264BrowserEvidence(report, failures) {
       const viewportEvidence = viewports.find((item) => item?.name === viewport);
       if (!viewportEvidence || viewportEvidence.loaded !== true) {
         failures.push(`PR264 browser route ${requirement.route} missing loaded ${viewport} proof`);
+      } else if (viewportEvidence.actual_pathname !== requirement.route.split("?")[0]) {
+        failures.push(`PR264 browser route ${requirement.route} missing matching ${viewport} actual pathname`);
       } else if (!viewportEvidence.route_signals || !hasRouteSignal(viewportEvidence.route_signals, requirement.signal)) {
         failures.push(`PR264 browser route ${requirement.route} missing ${viewport} product signal ${requirement.signal}`);
       }
@@ -308,7 +330,7 @@ function groupedBrowserRoutes(routes) {
       route: item.route,
       loaded: true,
       viewports: [],
-      forbidden_strings_absent: [],
+      forbidden_strings_absent: null,
     };
     current.loaded = current.loaded && item.loaded === true;
     if (Array.isArray(item.viewports)) {
@@ -318,15 +340,13 @@ function groupedBrowserRoutes(routes) {
         name: normalizeBrowserViewport(item.viewport),
         loaded: item.loaded === true,
         route_signals: item.route_signals,
+        actual_pathname: item.actual_pathname,
       });
     }
-    if (Array.isArray(item.forbidden_strings_absent)) {
-      if (current.forbidden_strings_absent.length === 0) {
-        current.forbidden_strings_absent = [...item.forbidden_strings_absent];
-      } else {
-        current.forbidden_strings_absent = current.forbidden_strings_absent.filter((marker) => item.forbidden_strings_absent.includes(marker));
-      }
-    }
+    const markers = Array.isArray(item.forbidden_strings_absent) ? item.forbidden_strings_absent : [];
+    current.forbidden_strings_absent = current.forbidden_strings_absent === null
+      ? [...markers]
+      : current.forbidden_strings_absent.filter((marker) => markers.includes(marker));
     grouped.set(item.route, current);
   }
   return grouped;

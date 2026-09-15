@@ -71,6 +71,10 @@ func (s *Service) VaccinationExecution(ctx context.Context, q domain.ExecutionQu
 	return page.Rows, nil
 }
 
+type executionFirstPageSummaryReader interface {
+	ListVaccinationExecutionFirstPageWithSummaries(context.Context, domain.ExecutionQuery) (domain.ExecutionProjectionPage, map[string]*domain.ShedCardSummary, error)
+}
+
 // VaccinationExecutionPage returns one server-filtered keyset page plus the authoritative filtered
 // total. The repository fetches limit+1 rows in the same query, so pagination never adds a count call.
 // For app/mobile requests (OperatorScopeActorID != ""), includes per-day carry summary (page-independent).
@@ -86,7 +90,9 @@ func (s *Service) VaccinationExecutionPage(ctx context.Context, q domain.Executi
 	var filterErr error
 	var cardSummaries map[string]*domain.ShedCardSummary
 	var cardErr error
-	if includeCardSummaries {
+	combined, canCombine := s.repo.(executionFirstPageSummaryReader)
+	useCombined := canCombine && includeCardSummaries && q.Cursor == nil
+	if includeCardSummaries && !useCombined {
 		// Canonical summaries retain obligation-level dose counts and status inputs
 		// absent from the presentation rows, even when the page is complete.
 		wg.Add(1)
@@ -147,7 +153,13 @@ func (s *Service) VaccinationExecutionPage(ctx context.Context, q domain.Executi
 		}()
 	}
 
-	page, err := s.repo.ListVaccinationExecutionPage(callCtx, q)
+	var page domain.ExecutionProjectionPage
+	var err error
+	if useCombined {
+		page, cardSummaries, err = combined.ListVaccinationExecutionFirstPageWithSummaries(callCtx, q)
+	} else {
+		page, err = s.repo.ListVaccinationExecutionPage(callCtx, q)
+	}
 	if err != nil {
 		cancel()
 		wg.Wait()

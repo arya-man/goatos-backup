@@ -1256,3 +1256,23 @@ Inspect `EXPLAIN (ANALYZE, BUFFERS)` actual loops, not just returned rows or one
 warm response. A narrowly placed materialization fence can prevent repeated
 computation without changing membership or status semantics; compare row identities
 and counts against the canonical unfenced query before accepting it.
+
+## Cached latency hiding expensive initial reads
+
+Repeated requests can measure only a response cache. PR273's app vaccination
+handler rounded the effective time to 30 seconds, so a warm 60 ms response hid
+an uncached read above 1.6 seconds at the next time boundary. Weighing analytics
+had the same problem behind its two-minute reporting cache.
+
+The PR264 gate retains initial-request timings, payload sizes and row counts,
+and rejects any initial request above 500 ms. It also measures a separate
+vaccination workload with a fresh live effective time on every request, while
+retaining the ordinary default route. Measured p90/p95/p99 limits remain
+300/500/500 ms. Cache duration must not be increased to cover a browser test.
+
+Inspect actual join loops using the same time bounds and scope as HTTP: an
+all-time plan can differ substantially from a date-bounded plan. Preserve full
+result parity when replacing repeated joins with membership checks or resolving
+an operational location once per distinct location and partition. Query-plan
+timings are diagnostic; certify complete HTTP requests after other test loads
+finish and bind the evidence to the API build and browser routes.

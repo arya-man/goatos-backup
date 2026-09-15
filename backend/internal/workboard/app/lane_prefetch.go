@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"strings"
+	"time"
 
 	"github.com/vgoats/goatos/backend/internal/workboard/domain"
 	"github.com/vgoats/goatos/backend/internal/workboard/ports"
@@ -42,7 +43,11 @@ func (s *Service) sourceRows(ctx context.Context, index int, src ports.Source, q
 		states[i] = string(state)
 	}
 	key := sourceRowsKey{s, index, query.TenantID, query.ParkID, query.BusinessDate, query.OwnerUserID, strings.Join(states, "\x00"), query.AfterSourceID, query.Limit}
-	return ports.RequestRead(ctx, key, func(ctx context.Context) ([]domain.Row, error) { return src.ListRows(ctx, query) })
+	return ports.RequestRead(ctx, key, func(ctx context.Context) ([]domain.Row, error) {
+		start := time.Now()
+		defer recordTiming(ctx, "source_read_"+string(src.Module())+"_"+src.SourceType()+"_"+laneTimingName(query.WorkStates), start)
+		return src.ListRows(ctx, query)
+	})
 }
 
 // Called inside the existing summary worker's permit, sequentially. It creates

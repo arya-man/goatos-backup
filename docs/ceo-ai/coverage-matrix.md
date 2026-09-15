@@ -1582,6 +1582,8 @@ Cube metric or MCP tool.
 ## PR273 read-path implementation coverage
 
 - `GetWeightDemographics`: covered by the existing `/weighing/weight-demographics` read API; section selectors preserve the same authorized reporting surface and canonical growth semantics.
+- `GetLeadershipGrowthADG`: covered by the existing `/weighing/leadership/growth` read API; independent reads share the same bounded query pool and retain the canonical result fields.
+- `ResolveAnimalIdentityMap`: EXCLUDED as a separate assistant surface; internal reporting identity resolution behind the existing weighing APIs. Permanent identifier selection, reassignment and date/park scope remain unchanged.
 - `WithTiming`: EXCLUDED from assistant tools; request-local diagnostic timing callback, with no business facts or independent read surface.
 - `ResolveAccessSnapshot`: EXCLUDED from assistant tools; internal authorization lookup used by HTTP middleware, not a leadership data endpoint. Tenant and current grants remain enforced before reporting reads.
 - `ListRowsOnly`: EXCLUDED as a separate assistant surface; an internal Work Board adapter optimization over the same canonical process-integrity rows and cursor. Leadership counts remain on the canonical summary API.

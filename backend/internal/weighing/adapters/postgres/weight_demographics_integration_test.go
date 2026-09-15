@@ -194,18 +194,18 @@ ON CONFLICT (tenant_id, location_id) DO UPDATE SET name=EXCLUDED.name, parent_lo
 	execWeighingTestSQL(t, ctx, pool, `
 INSERT INTO goats (goat_id, tenant_id, display_id, breed, sex, age_band, lifecycle_status, management_stage, custodian_party_id, current_location_id, park_id, shed_id)
 VALUES
-  ($1::uuid, $4::uuid, 'WG-GODEL-P1', 'Anantapur Sheep', 'male', 'kid', 'alive', 'F2-Male', $5::uuid, $6::uuid, $8::uuid, $6::uuid),
-  ($2::uuid, $4::uuid, 'WG-GODEL-P2', 'Beetal', 'female', 'kid', 'alive', 'F2-Female', $5::uuid, $6::uuid, $8::uuid, $6::uuid),
-  ($3::uuid, $4::uuid, 'WG-CASTRO-1', 'Anantapur Sheep', 'male', 'kid', 'alive', 'F2-Male', $5::uuid, $7::uuid, $8::uuid, $7::uuid),
-  ($9::uuid, $4::uuid, 'WG-CASTRO-2', 'Beetal', 'female', 'kid', 'alive', 'F2-Female', $5::uuid, $7::uuid, $8::uuid, $7::uuid),
-  ($10::uuid, $4::uuid, 'WG-CASTRO-3', 'Sirohi', 'male', 'kid', 'alive', 'K3-Male', $5::uuid, $7::uuid, $8::uuid, $7::uuid),
-  ($11::uuid, $4::uuid, 'WG-GANDHI-1', 'Malai', 'female', 'kid', 'alive', 'F2-Female', $5::uuid, $12::uuid, $8::uuid, $12::uuid),
-  ($13::uuid, $4::uuid, 'WG-GANDHI-2', 'Sojat', 'male', 'kid', 'alive', 'F2-Male', $5::uuid, $12::uuid, $8::uuid, $12::uuid),
-  ($14::uuid, $4::uuid, 'WG-GANDHI-3', 'Osmanabadi', 'female', 'kid', 'alive', 'K3-Female', $5::uuid, $12::uuid, $8::uuid, $12::uuid),
-  ($15::uuid, $4::uuid, 'WG-GANDI-1', 'Malai', 'male', 'kid', 'alive', 'F2-Male', $5::uuid, $16::uuid, $8::uuid, $16::uuid),
-  ($17::uuid, $4::uuid, 'WG-GANDI-2', 'Sojat', 'female', 'kid', 'alive', 'F2-Female', $5::uuid, $16::uuid, $8::uuid, $16::uuid),
-  ($18::uuid, $4::uuid, 'WG-GANDI-3', 'Osmanabadi', 'male', 'kid', 'alive', 'K3-Male', $5::uuid, $16::uuid, $8::uuid, $16::uuid),
-  ($19::uuid, $4::uuid, 'WG-PLAIN-1', 'Plain Breed', 'female', 'kid', 'alive', 'Plain-Stage', $5::uuid, $20::uuid, $8::uuid, $20::uuid)
+  ($1::uuid, $4::uuid, 'G-870101', 'Anantapur Sheep', 'male', 'kid', 'alive', 'F2-Male', $5::uuid, $6::uuid, $8::uuid, $6::uuid),
+  ($2::uuid, $4::uuid, 'G-870102', 'Beetal', 'female', 'kid', 'alive', 'F2-Female', $5::uuid, $6::uuid, $8::uuid, $6::uuid),
+  ($3::uuid, $4::uuid, 'G-870103', 'Anantapur Sheep', 'male', 'kid', 'alive', 'F2-Male', $5::uuid, $7::uuid, $8::uuid, $7::uuid),
+  ($9::uuid, $4::uuid, 'G-870104', 'Beetal', 'female', 'kid', 'alive', 'F2-Female', $5::uuid, $7::uuid, $8::uuid, $7::uuid),
+  ($10::uuid, $4::uuid, 'G-870105', 'Sirohi', 'male', 'kid', 'alive', 'K3-Male', $5::uuid, $7::uuid, $8::uuid, $7::uuid),
+  ($11::uuid, $4::uuid, 'G-870106', 'Malai', 'female', 'kid', 'alive', 'F2-Female', $5::uuid, $12::uuid, $8::uuid, $12::uuid),
+  ($13::uuid, $4::uuid, 'G-870107', 'Sojat', 'male', 'kid', 'alive', 'F2-Male', $5::uuid, $12::uuid, $8::uuid, $12::uuid),
+  ($14::uuid, $4::uuid, 'G-870108', 'Osmanabadi', 'female', 'kid', 'alive', 'K3-Female', $5::uuid, $12::uuid, $8::uuid, $12::uuid),
+  ($15::uuid, $4::uuid, 'G-870109', 'Malai', 'male', 'kid', 'alive', 'F2-Male', $5::uuid, $16::uuid, $8::uuid, $16::uuid),
+  ($17::uuid, $4::uuid, 'G-870110', 'Sojat', 'female', 'kid', 'alive', 'F2-Female', $5::uuid, $16::uuid, $8::uuid, $16::uuid),
+  ($18::uuid, $4::uuid, 'G-870111', 'Osmanabadi', 'male', 'kid', 'alive', 'K3-Male', $5::uuid, $16::uuid, $8::uuid, $16::uuid),
+  ($19::uuid, $4::uuid, 'G-870112', 'Plain Breed', 'female', 'kid', 'alive', 'Plain-Stage', $5::uuid, $20::uuid, $8::uuid, $20::uuid)
 ON CONFLICT (goat_id) DO UPDATE
 SET breed=EXCLUDED.breed, sex=EXCLUDED.sex, management_stage=EXCLUDED.management_stage,
     current_location_id=EXCLUDED.current_location_id, park_id=EXCLUDED.park_id, shed_id=EXCLUDED.shed_id`,
@@ -317,11 +317,26 @@ ON CONFLICT (tenant_id, location_id) DO NOTHING`,
 		weightDemoPartitionShed, repoTenant, repoPark)
 	execWeighingTestSQL(t, ctx, pool, `
 INSERT INTO goats (goat_id, tenant_id, display_id, breed, sex, age_band, lifecycle_status, management_stage, custodian_party_id, current_location_id, park_id, shed_id)
-VALUES ($1::uuid, $2::uuid, 'WG-PART-1', 'Partition Breed', 'female', 'kid', 'alive', 'kid', $3::uuid, $4::uuid, $5::uuid, $4::uuid)
+VALUES ($1::uuid, $2::uuid, 'G-870113', 'Partition Breed', 'female', 'kid', 'alive', 'kid', $3::uuid, $4::uuid, $5::uuid, $4::uuid)
 ON CONFLICT (goat_id) DO UPDATE
 SET breed=EXCLUDED.breed, sex=EXCLUDED.sex, management_stage=EXCLUDED.management_stage,
     current_location_id=EXCLUDED.current_location_id, park_id=EXCLUDED.park_id, shed_id=EXCLUDED.shed_id`,
 		weightDemoGoat, repoTenant, repoParty, weightDemoPartitionShed, repoPark)
+
+	// Each explicit partition must have its own resident cohort. A whole-shed
+	// resident without a partition is not evidence for either Part A or Part B.
+	execWeighingTestSQL(t, ctx, pool, `
+INSERT INTO goats (goat_id, tenant_id, display_id, breed, sex, age_band, lifecycle_status, management_stage, custodian_party_id, current_location_id, park_id, shed_id)
+VALUES ($1::uuid, $2::uuid, 'G-870114', 'Partition Breed', 'female', 'kid', 'alive', 'kid', $3::uuid, $4::uuid, $5::uuid, $4::uuid)`,
+		weightDemoGoatTwo, repoTenant, repoParty, weightDemoPartitionShed, repoPark)
+	execWeighingTestSQL(t, ctx, pool, `
+INSERT INTO goat_shed_partitions (tenant_id, goat_id, shed_id, partition_label, source_shed_name)
+VALUES ($1::uuid, $2::uuid, $4::uuid, 'Part A', 'Partition Demo Shed'),
+       ($1::uuid, $3::uuid, $4::uuid, 'Part B', 'Partition Demo Shed')`,
+		repoTenant, weightDemoGoat, weightDemoGoatTwo, weightDemoPartitionShed)
+	for _, proofID := range []string{repoShedProof, repoShedProofTwo, repoShedProofThree, repoShedProofFour} {
+		insertProof(t, ctx, pool, proofID, "video", "completed", "shed", weightDemoPartitionShed, "shed", weightDemoPartitionShed)
+	}
 
 	seedLoadBucketPartition(t, ctx, pool, loadPartAOld, loadCampaignPartA, weightDemoPartitionShed, "Part A", "per_shed_partition")
 	seedLoadBucketPartition(t, ctx, pool, loadPartANew, loadCampaignPartB, weightDemoPartitionShed, "Part A", "per_shed_partition")

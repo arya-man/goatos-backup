@@ -1,3 +1,4 @@
+import { FRESH_AS_OF_NAME, VACCINATION_PATH, createRequestPlanner } from "./api-latency-request.mjs";
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -8,6 +9,7 @@ const sha = "0123456789abcdef";
 
 function passingReport() {
   return {
+    warmup: 5,
     git_sha: sha,
     api_build_sha: sha,
     api_build_sha_end: sha,
@@ -37,6 +39,10 @@ function passingReport() {
     results: REQUIRED_HOT_PATHS.map((name) => ({
       name,
       samples: 20,
+      warmup_samples_ms: [100, 100, 100, 100, 100],
+      warmup_response_bytes: [64000, 64000, 64000, 64000, 64000],
+      warmup_max_ms: 100,
+      warmup_response_observations: Array.from({ length: 5 }, () => ({ assertion_value: 1, row_counts: { rows: 1 }, degraded: [] })),
       response_observations: Array.from({ length: 20 }, () => ({ assertion_value: 1, row_counts: { rows: 1 }, degraded: [] })),
       failures: 0,
       p90_ms: API_LATENCY_POLICY_MS.p90_ms,
@@ -69,6 +75,7 @@ function pr264BrowserEvidence({ includeSignals = true } = {}) {
     ["/weighing/analytics?scope_mode=company&tab=load", { has_load_breakdown: true, tab: "load" }],
   ]);
   return {
+    ...browserProvenance(),
     same_api_build: true,
     api_build_sha: sha,
     api_build_sha_end: sha,
@@ -89,8 +96,8 @@ function pr264BrowserEvidence({ includeSignals = true } = {}) {
       route,
       loaded: true,
       viewports: [
-        { name: "desktop", loaded: true, ...(includeSignals ? { route_signals: signals.get(route) } : {}) },
-        { name: "mobile", loaded: true, ...(includeSignals ? { route_signals: signals.get(route) } : {}) },
+        { name: "desktop", loaded: true, actual_pathname: route.split("?")[0], ...(includeSignals ? { route_signals: signals.get(route) } : {}) },
+        { name: "mobile", loaded: true, actual_pathname: route.split("?")[0], ...(includeSignals ? { route_signals: signals.get(route) } : {}) },
       ],
       forbidden_strings_absent: [
         "backend_down",
@@ -198,6 +205,7 @@ test("accepts PR264 local OCI performance evidence only when every required rout
     "pr264_work_board_page_cbe",
     "pr264_work_board_page_cpt",
     "pr264_app_vaccination_execution_with_card_summaries",
+    "pr264_app_vaccination_execution_fresh_as_of",
   ];
   report.dataset = {
     label: "pr264_oci_staging_refresh",
@@ -225,7 +233,7 @@ test("accepts PR264 local OCI performance evidence only when every required rout
       "/weighing/analytics?scope_mode=company&tab=load",
     ],
   };
-  report.results = required.map((name) => ({ ...report.results[0], name }));
+  report.results = required.map((name) => pr264Result(report.results[0], name));
   report.browser_evidence = pr264BrowserEvidence();
   assert.deepEqual(validateApiLatencyEvidence(report, sha), []);
 
@@ -271,6 +279,7 @@ test("rejects PR264 performance evidence without browser proof for the observed 
     "pr264_work_board_page_cbe",
     "pr264_work_board_page_cpt",
     "pr264_app_vaccination_execution_with_card_summaries",
+    "pr264_app_vaccination_execution_fresh_as_of",
   ];
   report.dataset = {
     label: "pr264_oci_staging_refresh",
@@ -298,7 +307,7 @@ test("rejects PR264 performance evidence without browser proof for the observed 
       "/weighing/analytics?scope_mode=company&tab=load",
     ],
   };
-  report.results = required.map((name) => ({ ...report.results[0], name }));
+  report.results = required.map((name) => pr264Result(report.results[0], name));
   assert.ok(validateApiLatencyEvidence(report, sha).some((failure) => failure.includes("PR264 browser evidence is missing")));
 
   report.browser_evidence = pr264BrowserEvidence();
@@ -337,6 +346,7 @@ test("accepts PR264 browser evidence produced as one flat record per viewport", 
     "pr264_work_board_page_cbe",
     "pr264_work_board_page_cpt",
     "pr264_app_vaccination_execution_with_card_summaries",
+    "pr264_app_vaccination_execution_fresh_as_of",
   ];
   report.dataset = {
     label: "pr264_oci_staging_refresh",
@@ -364,7 +374,7 @@ test("accepts PR264 browser evidence produced as one flat record per viewport", 
       "/weighing/analytics?scope_mode=company&tab=load",
     ],
   };
-  report.results = required.map((name) => ({ ...report.results[0], name }));
+  report.results = required.map((name) => pr264Result(report.results[0], name));
   const forbidden = [
     "backend_down",
     "Admin-web contract unavailable",
@@ -386,15 +396,31 @@ test("accepts PR264 browser evidence produced as one flat record per viewport", 
     ["/weighing/analytics?scope_mode=company&tab=load", { has_load_breakdown: true, tab: "load" }],
   ]);
   report.browser_evidence = {
+    ...browserProvenance(),
     same_api_build: true,
     api_build_sha: sha,
     api_build_sha_end: sha,
     routes: report.scope.evidence_boundaries.pr264_browser_render_routes.flatMap((route) => [
-      { route, viewport: "laptop", loaded: true, forbidden_strings_absent: forbidden, route_signals: signals.get(route) },
-      { route, viewport: "mobile", loaded: true, forbidden_strings_absent: forbidden, route_signals: signals.get(route) },
+      { route, viewport: "laptop", loaded: true, actual_pathname: route.split("?")[0], forbidden_strings_absent: forbidden, route_signals: signals.get(route) },
+      { route, viewport: "mobile", loaded: true, actual_pathname: route.split("?")[0], forbidden_strings_absent: forbidden, route_signals: signals.get(route) },
     ]),
   };
   assert.deepEqual(validateApiLatencyEvidence(report, sha), []);
+  for (const markers of [undefined, [], ["backend_down"]]) {
+    const bad = structuredClone(report);
+    bad.browser_evidence.routes[0].forbidden_strings_absent = markers;
+    assert.ok(validateApiLatencyEvidence(bad, sha).some((failure) => failure.includes("forbidden-string proof")));
+  }
+  for (const mutate of [
+    (b) => { b.actor.user_id = "wrong-actor"; },
+    (b) => { b.local_stack_launch_receipt.git_sha = "old-build"; },
+    (b) => { b.local_stack_launch_receipt.build_provenance.clean_source = false; },
+    (b) => { b.local_stack_launch_receipt.mode = "dev"; },
+    (b) => { b.routes[0].actual_pathname = "/approvals"; },
+  ]) {
+    const bad = structuredClone(report); mutate(bad.browser_evidence);
+    assert.ok(validateApiLatencyEvidence(bad, sha).length > 0);
+  }
 });
 
 test("rejects oversized or unmeasured response payloads", () => {
@@ -482,3 +508,37 @@ test("exact-SHA certification rejects dirty diagnostic evidence and inconsistent
     assert.ok(validateApiLatencyEvidence({...passingReport(), ...change}, sha).some((failure) => failure.includes('exact-SHA certification')));
   }
 });
+
+function pr264Result(template, name) {
+  const result = { ...template, name };
+  if (name === FRESH_AS_OF_NAME) {
+    const plan = createRequestPlanner();
+    Object.assign(result, {
+      method: "GET", path: VACCINATION_PATH, request_strategy: "fresh_as_of",
+      assertion: { type: "array_min", path: "rows", min: 1 },
+    });
+    result.warmup_response_observations = result.warmup_response_observations.map((sample) => ({
+      ...sample, ...plan(result, 1800000000000),
+    }));
+    result.response_observations = result.response_observations.map((sample) => ({
+      ...sample, ...plan(result, 1800000000000),
+    }));
+  }
+  return result;
+}
+
+function browserProvenance() {
+  const api = "http://127.0.0.1:18174";
+  const web = "http://127.0.0.1:13473";
+  const user = "00000000-0000-4000-8000-000000000002";
+  const tenant = "00000000-0000-4000-8000-000000000001";
+  return {
+    api_build_identity_source: "/version", api_base_url: api, admin_web_base_url: web,
+    actor: { user_id: user, tenant_id: tenant },
+    local_stack_launch_receipt: {
+      git_sha: sha, mode: "start", api_base_url: api, admin_web_base_url: web,
+      local_user_id: user, tenant_id: tenant,
+      build_provenance: { git_sha: sha, build_id: "actual-next-build", clean_source: true, source_status_start: [], source_status_end: [] },
+    },
+  };
+}

@@ -284,7 +284,7 @@ func TestVaccinationExecutionCardSummariesScopesToRequestedPartition(t *testing.
 	execProjectionSQL(t, ctx, pool, "other operator",
 		`INSERT INTO workforce_members (workforce_member_id, tenant_id, display_code, display_name, status, primary_role_hint, primary_location_id)
 		 VALUES ($1, $2, 'OP-PART-SUM-B', 'Operator Summary B', 'active', 'operator', $3)`,
-		otherOperator, testTenant, testShed)
+		otherOperator, testTenant, testPark)
 	insertProjectionGoat(t, ctx, pool, secondGoat, testShed, testPark)
 	insertProjectionObligation(t, ctx, pool, secondObl, testBatch, secondGoat, "due", "2026-06-24 00:00:00+00", "vaccexec-cardsum-partition-second")
 	execProjectionSQL(t, ctx, pool, "first goat partition",
