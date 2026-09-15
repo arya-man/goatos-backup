@@ -405,9 +405,9 @@ func (h *Handler) listCampaigns(w http.ResponseWriter, r *http.Request, fallback
 // (Service.CampaignCapabilities) and is what a task screen gates its buttons on.
 func campaignCapabilities(caller domain.Actor) map[string]bool {
 	return map[string]bool{
-		"can_publish": permissions.RolesAuthorize(caller.Roles, []string{permissions.WeighingPlan}, false),
-		"can_end":     permissions.RolesAuthorize(caller.Roles, []string{permissions.WeighingMonitor}, false),
-		"can_reopen":  permissions.RolesAuthorize(caller.Roles, []string{permissions.WeighingMonitor}, false),
+		"can_publish": caller.Holds(permissions.WeighingPlan),
+		"can_end":     caller.Holds(permissions.WeighingMonitor),
+		"can_reopen":  caller.Holds(permissions.WeighingMonitor),
 	}
 }
 
@@ -980,7 +980,10 @@ func actor(r *http.Request) domain.Actor {
 	for _, grant := range grants {
 		roles = append(roles, grant.Role)
 	}
-	return domain.Actor{TenantID: tenantID(r), UserID: httpmiddleware.ActorIDFromContext(r.Context()), Roles: roles}
+	// When the person's own access rows decided the route, carry that SAME permission set into
+	// the service; otherwise the role map decides there too. See domain.Actor.
+	perms, resolved := httpmiddleware.PersonPermissionsFromContext(r.Context())
+	return domain.Actor{TenantID: tenantID(r), UserID: httpmiddleware.ActorIDFromContext(r.Context()), Roles: roles, Permissions: perms, PermissionsResolved: resolved}
 }
 
 func tenantID(r *http.Request) string { return httpmiddleware.TenantIDFromContext(r.Context()) }
@@ -993,7 +996,7 @@ func (h *Handler) ExportCampaignCSV(w http.ResponseWriter, r *http.Request) {
 	a := actor(r)
 
 	// Check authorization: WeighingMonitor only
-	if !permissions.RolesAuthorize(a.Roles, []string{permissions.WeighingMonitor}, false) {
+	if !a.Holds(permissions.WeighingMonitor) {
 		httpresponse.WriteError(w, r, h.log, http.StatusForbidden, errorEnvelope{
 			Code:    "permission_denied",
 			Message: "requires weighing monitor permission",
@@ -1055,7 +1058,7 @@ func (h *Handler) ExportCSV(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	a := actor(r)
 
-	if !permissions.RolesAuthorize(a.Roles, []string{permissions.WeighingMonitor}, false) {
+	if !a.Holds(permissions.WeighingMonitor) {
 		httpresponse.WriteError(w, r, h.log, http.StatusForbidden, errorEnvelope{
 			Code:    "permission_denied",
 			Message: "requires weighing monitor permission",

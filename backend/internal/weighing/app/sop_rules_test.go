@@ -503,3 +503,30 @@ func TestListMyFastingShedCardsWindowsEachCardOnItsPinnedEvening(t *testing.T) {
 		t.Fatal("an unpublished version must not carry an override")
 	}
 }
+
+// A person ticked Weighing "Set up" on /people holds weighing.plan through their OWN access rows
+// while their job role (operator) does not. The route gate lets them in on the person set; the
+// service must judge from the SAME set, or the tick is route-green / service-403 (found on the
+// throwaway stack, 2026-09-15). And the reverse: rows that resolved WITHOUT weighing.plan refuse
+// a role that would have had it.
+func TestPlannerCatalogHonoursThePersonResolvedPermissionSet(t *testing.T) {
+	service := NewService(&fakeRepo{}).WithSOPRules(rulesWithMode(1, domain.RemovalModeRequired), pinnedVersion(0))
+	ticked := domain.Actor{
+		TenantID: testTenant, UserID: testOp, Roles: []string{permissions.RoleOperator},
+		Permissions: []string{permissions.WeighingMonitor, permissions.WeighingPlan}, PermissionsResolved: true,
+	}
+	if _, err := service.PlannerCatalog(context.Background(), ticked, "2026-09-16"); err != nil {
+		t.Fatalf("person-granted planner refused: %v", err)
+	}
+	roleOnly := domain.Actor{TenantID: testTenant, UserID: testOp, Roles: []string{permissions.RoleOperator}}
+	if _, err := service.PlannerCatalog(context.Background(), roleOnly, "2026-09-16"); !errors.Is(err, ports.ErrForbidden) {
+		t.Fatalf("operator role without the tick: err = %v, want forbidden", err)
+	}
+	narrowed := domain.Actor{
+		TenantID: testTenant, UserID: testOp, Roles: []string{permissions.RoleCEOInternal},
+		Permissions: []string{permissions.WeighingExecute}, PermissionsResolved: true,
+	}
+	if _, err := service.PlannerCatalog(context.Background(), narrowed, "2026-09-16"); !errors.Is(err, ports.ErrForbidden) {
+		t.Fatalf("rows resolved without weighing.plan must refuse even a planning role: err = %v", err)
+	}
+}

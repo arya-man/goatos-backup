@@ -249,7 +249,7 @@ func (s *Service) checkParkScopeForCapability(ctx context.Context, tenantID, par
 // pagination on this read: the summary is a whole-filter aggregate computed in the
 // database, so it is page-size independent by construction.
 func (s *Service) WeighingProcessState(ctx context.Context, actor domain.Actor, campaignID, fromBusinessDate, toBusinessDate string) (domain.ProcessState, error) {
-	if !permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingMonitor}, false) {
+	if !actor.Holds(permissions.WeighingMonitor) {
 		return domain.ProcessState{}, ports.ErrForbidden
 	}
 	if s.processState == nil {
@@ -288,7 +288,7 @@ func isBusinessDate(value string) bool {
 }
 
 func (s *Service) CreateCampaign(ctx context.Context, actor domain.Actor, cmd domain.CreateCampaign) (domain.Campaign, error) {
-	if !permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingPlan}, false) {
+	if !actor.Holds(permissions.WeighingPlan) {
 		return domain.Campaign{}, ports.ErrForbidden
 	}
 	cmd.TenantID = actor.TenantID
@@ -338,7 +338,7 @@ func (s *Service) CreateCampaign(ctx context.Context, actor domain.Actor, cmd do
 }
 
 func (s *Service) UpdateCampaign(ctx context.Context, actor domain.Actor, campaignID string, cmd domain.UpdateCampaign) (domain.Campaign, error) {
-	if !permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingPlan}, false) {
+	if !actor.Holds(permissions.WeighingPlan) {
 		return domain.Campaign{}, ports.ErrForbidden
 	}
 	if !uuidutil.IsUUIDString(campaignID) {
@@ -428,7 +428,7 @@ func (s *Service) UpdateCampaign(ctx context.Context, actor domain.Actor, campai
 }
 
 func (s *Service) PublishCampaign(ctx context.Context, actor domain.Actor, campaignID, idempotencyKey string) (domain.Campaign, error) {
-	if !permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingPlan}, false) {
+	if !actor.Holds(permissions.WeighingPlan) {
 		return domain.Campaign{}, ports.ErrForbidden
 	}
 	if !uuidutil.IsUUIDString(campaignID) || strings.TrimSpace(idempotencyKey) == "" {
@@ -499,12 +499,12 @@ func (s *Service) ListCampaigns(ctx context.Context, actor domain.Actor, scope d
 	var allowed bool
 	switch scope {
 	case domain.CampaignListScopeMine:
-		allowed = permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingExecute}, false)
+		allowed = actor.Holds(permissions.WeighingExecute)
 	case domain.CampaignListScopeAll:
-		allowed = permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingPlan}, false) ||
-			permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingMonitor}, false)
+		allowed = actor.Holds(permissions.WeighingPlan) ||
+			actor.Holds(permissions.WeighingMonitor)
 	case domain.CampaignListScopeOperators:
-		allowed = permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingOverseeOperators}, false)
+		allowed = actor.Holds(permissions.WeighingOverseeOperators)
 	default:
 		return domain.CampaignPage{}, ports.ErrInvalidArgument
 	}
@@ -698,10 +698,10 @@ func (s *Service) PlannerParkBuckets(ctx context.Context, actor domain.Actor, pa
 // canPlanOrMonitor is the planner's read gate: the planner writes belong to WeighingPlan,
 // but read-only oversight (WeighingMonitor) may look at the same vocabulary.
 func (s *Service) canPlanOrMonitor(actor domain.Actor) bool {
-	if permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingPlan}, false) {
+	if actor.Holds(permissions.WeighingPlan) {
 		return true
 	}
-	return permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingMonitor}, false)
+	return actor.Holds(permissions.WeighingMonitor)
 }
 
 // planOrMonitorParkCapabilities is the alternative set behind every planner/oversight surface:
@@ -747,7 +747,7 @@ func authorizedParkSet(ctx context.Context, tenantID string, capabilities ...str
 }
 
 func (s *Service) ListScopeRoster(ctx context.Context, actor domain.Actor, campaignID, campaignShedID string, observationsCursor string, limit int) (domain.RosterPage, error) {
-	if !permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingExecute}, false) {
+	if !actor.Holds(permissions.WeighingExecute) {
 		return domain.RosterPage{}, ports.ErrForbidden
 	}
 	if !uuidutil.IsUUIDString(campaignID) || !uuidutil.IsUUIDString(campaignShedID) {
@@ -781,9 +781,9 @@ func (s *Service) ListScopeRoster(ctx context.Context, actor domain.Actor, campa
 // admits a bucket and the park on the bucket's task are one value, not two reads of a moving
 // one. See the assembly below.
 func (s *Service) ListCampaignSheds(ctx context.Context, actor domain.Actor, campaignID, cursor string, limit int) (domain.CampaignShedPage, error) {
-	canMonitor := permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingMonitor}, false)
-	canPlan := permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingPlan}, false)
-	canExecute := permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingExecute}, false)
+	canMonitor := actor.Holds(permissions.WeighingMonitor)
+	canPlan := actor.Holds(permissions.WeighingPlan)
+	canExecute := actor.Holds(permissions.WeighingExecute)
 	if !canMonitor && !canPlan && !canExecute {
 		return domain.CampaignShedPage{}, ports.ErrForbidden
 	}
@@ -858,9 +858,9 @@ func (s *Service) ListCampaignSheds(ctx context.Context, actor domain.Actor, cam
 // and its operator names. The authority travels INTO the read rather than being checked before
 // it, so the park that admits the row and the park on the row are one value, not two reads.
 func (s *Service) GetCampaign(ctx context.Context, actor domain.Actor, campaignID string) (domain.Campaign, error) {
-	canMonitor := permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingMonitor}, false)
-	canPlan := permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingPlan}, false)
-	canExecute := permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingExecute}, false)
+	canMonitor := actor.Holds(permissions.WeighingMonitor)
+	canPlan := actor.Holds(permissions.WeighingPlan)
+	canExecute := actor.Holds(permissions.WeighingExecute)
 	if !canMonitor && !canPlan && !canExecute {
 		return domain.Campaign{}, ports.ErrForbidden
 	}
@@ -938,7 +938,7 @@ func (s *Service) CampaignCapabilities(ctx context.Context, actor domain.Actor, 
 		return domain.CampaignCapabilities{}
 	}
 	can := func(capability string) bool {
-		if !permissions.RolesAuthorize(actor.Roles, []string{capability}, false) {
+		if !actor.Holds(capability) {
 			return false
 		}
 		return s.checkParkScopeForCapability(ctx, actor.TenantID, campaign.ParkID, capability) == nil
@@ -964,7 +964,7 @@ func (s *Service) CampaignCapabilities(ctx context.Context, actor domain.Actor, 
 // and a chip they cannot use would 403 the list read behind it anyway.
 func (s *Service) ListParks(ctx context.Context, actor domain.Actor) ([]domain.WeighingPark, error) {
 	if !s.canPlanOrMonitor(actor) &&
-		!permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingOverseeOperators}, false) {
+		!actor.Holds(permissions.WeighingOverseeOperators) {
 		return nil, ports.ErrForbidden
 	}
 	// The park set spans every capability that admits a surface WITH park chips, because the
@@ -990,7 +990,7 @@ func (s *Service) ListParks(ctx context.Context, actor domain.Actor) ([]domain.W
 }
 
 func (s *Service) GetLeadershipShedVideos(ctx context.Context, actor domain.Actor, campaignID, campaignShedID, cursor string, limit int) (domain.LeadershipShedVideos, error) {
-	if !permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingMonitor}, false) {
+	if !actor.Holds(permissions.WeighingMonitor) {
 		return domain.LeadershipShedVideos{}, ports.ErrForbidden
 	}
 	if !uuidutil.IsUUIDString(campaignID) || !uuidutil.IsUUIDString(campaignShedID) {
@@ -1042,7 +1042,7 @@ func (s *Service) GetLeadershipShedVideos(ctx context.Context, actor domain.Acto
 // Paginating over already-authorized rows is the only shape in which a page boundary and an
 // authorization boundary cannot collide.
 func (s *Service) ListLeadershipSheds(ctx context.Context, actor domain.Actor, cursor string, limit int) (domain.LeadershipShedPage, error) {
-	if !permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingMonitor}, false) {
+	if !actor.Holds(permissions.WeighingMonitor) {
 		return domain.LeadershipShedPage{}, ports.ErrForbidden
 	}
 	if limit <= 0 {
@@ -1081,7 +1081,7 @@ func hasTenantWideCapability(grants []permissions.ActiveGrant, tenantID, capabil
 }
 
 func (s *Service) RecordAnimalObservation(ctx context.Context, actor domain.Actor, cmd domain.RecordAnimalObservation) (domain.Observation, error) {
-	if !permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingExecute}, false) {
+	if !actor.Holds(permissions.WeighingExecute) {
 		return domain.Observation{}, ports.ErrForbidden
 	}
 	cmd.TenantID = actor.TenantID
@@ -1141,7 +1141,7 @@ func (s *Service) RecordAnimalObservation(ctx context.Context, actor domain.Acto
 }
 
 func (s *Service) RecordShedObservation(ctx context.Context, actor domain.Actor, cmd domain.RecordShedObservation) (domain.Observation, error) {
-	if !permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingExecute}, false) {
+	if !actor.Holds(permissions.WeighingExecute) {
 		return domain.Observation{}, ports.ErrForbidden
 	}
 	cmd.TenantID = actor.TenantID
@@ -1324,7 +1324,7 @@ func isPositiveFinite(value float64) bool {
 }
 
 func (s *Service) SubmitIndividualScope(ctx context.Context, actor domain.Actor, campaignID, campaignShedID, idempotencyKey string, scannedIdentifiers []string) error {
-	if !permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingExecute}, false) {
+	if !actor.Holds(permissions.WeighingExecute) {
 		return ports.ErrForbidden
 	}
 	if !uuidutil.IsUUIDString(campaignID) || !uuidutil.IsUUIDString(campaignShedID) || strings.TrimSpace(idempotencyKey) == "" || len(scannedIdentifiers) == 0 {
@@ -1346,7 +1346,7 @@ func (s *Service) SubmitIndividualScope(ctx context.Context, actor domain.Actor,
 }
 
 func (s *Service) ReopenScope(ctx context.Context, actor domain.Actor, campaignID, campaignShedID, idempotencyKey, reason string) error {
-	if !permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingMonitor}, false) {
+	if !actor.Holds(permissions.WeighingMonitor) {
 		return ports.ErrForbidden
 	}
 	if !uuidutil.IsUUIDString(campaignID) || !uuidutil.IsUUIDString(campaignShedID) || strings.TrimSpace(idempotencyKey) == "" {
@@ -1386,7 +1386,7 @@ func (s *Service) ReopenScope(ctx context.Context, actor domain.Actor, campaignI
 // allowed to strand work that was never accepted, and the reason is the only
 // record of why.
 func (s *Service) CloseScope(ctx context.Context, actor domain.Actor, campaignID, campaignShedID, idempotencyKey, reason string) (domain.CloseResult, error) {
-	if !permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingMonitor}, false) {
+	if !actor.Holds(permissions.WeighingMonitor) {
 		return domain.CloseResult{}, ports.ErrForbidden
 	}
 	reason = strings.TrimSpace(reason)
@@ -1411,7 +1411,7 @@ func (s *Service) CloseScope(ctx context.Context, actor domain.Actor, campaignID
 // CloseCampaign ends a whole weighing campaign and every bucket still open under
 // it. Buckets whose work was never accepted stay not accepted.
 func (s *Service) CloseCampaign(ctx context.Context, actor domain.Actor, campaignID, idempotencyKey, reason string) (domain.CloseResult, error) {
-	if !permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingMonitor}, false) {
+	if !actor.Holds(permissions.WeighingMonitor) {
 		return domain.CloseResult{}, ports.ErrForbidden
 	}
 	reason = strings.TrimSpace(reason)
@@ -1531,7 +1531,7 @@ func validateCreate(cmd domain.CreateCampaign) error {
 // - Truncation flag if the result hit a cap (too many tags, too many days, or too many points)
 func (s *Service) GetWeightHistory(ctx context.Context, actor domain.Actor, parkID, campaignShedID string) (domain.WeightHistory, error) {
 	// Require WeighingMonitor: this is CEO/leadership oversight only.
-	if !permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingMonitor}, false) {
+	if !actor.Holds(permissions.WeighingMonitor) {
 		return domain.WeightHistory{}, ports.ErrForbidden
 	}
 	// Both filters come off the query string. They are bound as parameters in the repository, so
@@ -1601,7 +1601,7 @@ const growthDefaultPeriodDays = domain.ShedWeightsDefaultPeriodDays
 // only request a park inside their own grant, and a tenant-wide monitor may request any park in
 // the tenant.
 func (s *Service) GetLeadershipGrowthADG(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate, sex, origin, weighingCategory, sections string) (domain.GrowthADG, error) {
-	if !permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingMonitor}, false) {
+	if !actor.Holds(permissions.WeighingMonitor) {
 		return domain.GrowthADG{}, ports.ErrForbidden
 	}
 	if err := validateWeighingCategoryFilter(weighingCategory); err != nil {
@@ -1779,7 +1779,7 @@ func (s *Service) resolveMonitorParkScope(ctx context.Context, actor domain.Acto
 // GetWeightDemographics serves the breed / sex / stage breakdown on the Weights
 // screen. Same capability and scope rules as the other leadership reads.
 func (s *Service) GetWeightDemographics(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate, sex, origin, weighingCategory string, includeWeekGrids bool) (domain.WeightDemographics, error) {
-	if !permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingMonitor}, false) {
+	if !actor.Holds(permissions.WeighingMonitor) {
 		return domain.WeightDemographics{}, ports.ErrForbidden
 	}
 	periodStart, periodEndExclusive, err := s.resolveWeighingWindow(fromBusinessDate, toBusinessDate)
@@ -1799,7 +1799,7 @@ func (s *Service) GetWeightDemographics(ctx context.Context, actor domain.Actor,
 // Same capability and scope rules as GetLeadershipGrowthADG — this is a leadership
 // read of the same estate, so it must not be reachable on a weaker check.
 func (s *Service) GetShedWeights(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate, sex, origin, weighingCategory, saleThresholdToleranceGrams string) (domain.ShedWeights, error) {
-	if !permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingMonitor}, false) {
+	if !actor.Holds(permissions.WeighingMonitor) {
 		return domain.ShedWeights{}, ports.ErrForbidden
 	}
 	saleReadyWindow := strings.TrimSpace(saleThresholdToleranceGrams) != ""
@@ -1868,7 +1868,7 @@ func clampSaleReadyPeriodStart(periodStart time.Time) time.Time {
 // full read over a 400-day lookback ran four queries and discarded all but these two fields, which
 // against a cloud database is the dominant cost of every page load and tab switch.
 func (s *Service) GetWeighingDates(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate, sex, origin, weighingCategory string) (domain.WeighingDates, error) {
-	if !permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingMonitor}, false) {
+	if !actor.Holds(permissions.WeighingMonitor) {
 		return domain.WeighingDates{}, ports.ErrForbidden
 	}
 	parkID = strings.TrimSpace(parkID)
@@ -1981,12 +1981,12 @@ func (s *Service) ListAlerts(ctx context.Context, actor domain.Actor, cursor str
 	// consumer addresses "weighing.proof.pending.verifier" alerts to the VERIFIER, who holds no
 	// weighing capability. Without it this guard rejected the very person the system had chosen as
 	// the recipient, and their Alerts tab stayed empty with messages waiting.
-	if !permissions.RolesAuthorizeAny(actor.Roles, []string{
+	if !actor.HoldsAny(
 		permissions.WeighingExecute,
 		permissions.WeighingMonitor,
 		permissions.WeighingPlan,
 		permissions.VerificationReview,
-	}) {
+	) {
 		return domain.AlertPage{}, ports.ErrForbidden
 	}
 	if limit <= 0 {
@@ -2032,7 +2032,7 @@ func (s *Service) ListAlerts(ctx context.Context, actor domain.Actor, cursor str
 // It requires WeighingMonitor permission and enforces park scoping.
 func (s *Service) ExportCampaignCSV(ctx context.Context, actor domain.Actor, campaignID string, writer io.Writer) error {
 	// Check authorization
-	if !permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingMonitor}, false) {
+	if !actor.Holds(permissions.WeighingMonitor) {
 		return ports.ErrForbidden
 	}
 
@@ -2056,7 +2056,7 @@ func (s *Service) ExportCampaignCSV(ctx context.Context, actor domain.Actor, cam
 // optionally narrows to one authorized park; shedLocationIDs optionally narrow
 // to selected shed locations within that scope.
 func (s *Service) ExportCSV(ctx context.Context, actor domain.Actor, fromBusinessDate, toBusinessDate, parkID string, shedLocationIDs []string, sex, origin, weighingCategory string, writer io.Writer) error {
-	if !permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingMonitor}, false) {
+	if !actor.Holds(permissions.WeighingMonitor) {
 		return ports.ErrForbidden
 	}
 

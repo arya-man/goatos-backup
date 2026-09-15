@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"github.com/vgoats/goatos/backend/internal/permissions"
 	"strings"
 	"time"
 )
@@ -63,6 +64,55 @@ type Actor struct {
 	TenantID string
 	UserID   string
 	Roles    []string
+	// Permissions is the per-person resolved permission set when the person's OWN access rows
+	// (the /people ticks -- Weighing "Set up" grants weighing.plan) decided the request;
+	// PermissionsResolved says whether they did. When true, every capability check in this
+	// module judges from Permissions and never from Roles: the route gate did the same, and a
+	// re-check from the role map would refuse a tick that is not also a job (route-green /
+	// service-403, which is how a person-granted planner was refused on 2026-09-15). When
+	// false the role map decides, exactly as before the per-person cutover.
+	Permissions         []string
+	PermissionsResolved bool
+}
+
+// Holds reports whether the actor holds EVERY listed permission, from whichever source
+// decided the request (the per-person set when resolved, else the role map).
+func (a Actor) Holds(required ...string) bool {
+	if len(required) == 0 {
+		return false
+	}
+	if a.PermissionsResolved {
+		for _, want := range required {
+			if !a.holdsResolved(want) {
+				return false
+			}
+		}
+		return true
+	}
+	return permissions.RolesAuthorize(a.Roles, required, false)
+}
+
+// HoldsAny reports whether the actor holds AT LEAST ONE of the listed permissions, from the
+// same source Holds reads.
+func (a Actor) HoldsAny(anyOf ...string) bool {
+	if a.PermissionsResolved {
+		for _, want := range anyOf {
+			if a.holdsResolved(want) {
+				return true
+			}
+		}
+		return false
+	}
+	return permissions.RolesAuthorizeAny(a.Roles, anyOf)
+}
+
+func (a Actor) holdsResolved(want string) bool {
+	for _, have := range a.Permissions {
+		if have == want {
+			return true
+		}
+	}
+	return false
 }
 
 type Campaign struct {

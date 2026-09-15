@@ -22,7 +22,7 @@ import (
 // applied inside the store's SQL with the service clock bound as a parameter;
 // this method only decides WHO is asking.
 func (s *Service) ListMyFastingShedCards(ctx context.Context, actor domain.Actor, cursor string, limit int) (domain.FastingShedCardPage, error) {
-	if !permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingExecute}, false) {
+	if !actor.Holds(permissions.WeighingExecute) {
 		return domain.FastingShedCardPage{}, ports.ErrForbidden
 	}
 	if s.fasting == nil {
@@ -53,7 +53,7 @@ func (s *Service) ListMyFastingShedCards(ctx context.Context, actor domain.Actor
 // shed's submit. Verification is post-hoc and follows the EVIDENCE: one item
 // per shed, carrying that shed's feed and water clips and naming the shed.
 func (s *Service) SubmitFastingShed(ctx context.Context, actor domain.Actor, cmd domain.SubmitFastingShed) (domain.FastingShedCard, error) {
-	if !permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingExecute}, false) {
+	if !actor.Holds(permissions.WeighingExecute) {
 		return domain.FastingShedCard{}, ports.ErrForbidden
 	}
 	if s.fasting == nil {
