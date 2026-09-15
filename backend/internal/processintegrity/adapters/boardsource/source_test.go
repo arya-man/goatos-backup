@@ -492,7 +492,7 @@ func (f *snapshotFake) CountByWorkStateLive(context.Context, pidomain.Query) ([]
 }
 
 func TestRequestSnapshotCountsCompleteCanonicalPageAndFallsBackOnOverflow(t *testing.T) {
-	states := []pidomain.WorkState{pidomain.WorkStateDue, pidomain.WorkStateOverdue, pidomain.WorkStateInProgress, pidomain.WorkStateVerificationPending, pidomain.WorkStateCompleted, pidomain.WorkStateRejected, pidomain.WorkStateBlocked}
+	states := []pidomain.WorkState{pidomain.WorkStateScheduled, pidomain.WorkStateDue, pidomain.WorkStateOverdue, pidomain.WorkStateInProgress, pidomain.WorkStateProofPending, pidomain.WorkStateVerificationPending, pidomain.WorkStateCompleted, pidomain.WorkStateRejected, pidomain.WorkStateDeferred, pidomain.WorkStateMissed, pidomain.WorkStateBlocked}
 	for _, n := range []int{0, 99, 100, 101, 205} {
 		t.Run(fmt.Sprint(n), func(t *testing.T) {
 			f := &snapshotFake{fakeLister: &fakeLister{}}
@@ -546,7 +546,7 @@ func TestRequestSnapshotScopeAndFreshNextRequest(t *testing.T) {
 	s := New(f).WithMemberResolver(fakeMembers{byUser: map[string]string{vsUser: vsMember}})
 	q := ports.SourceQuery{TenantID: vsTenant, ParkID: vsPark, BusinessDate: vsDate, Limit: 100}
 	// Use one complete canonical page so the snapshot's post-mutation count is unambiguous.
-	f.pages = [][]pidomain.Row{{piRow(rowA, "dose", pidomain.WorkStateDue, pidomain.SeverityOK, str(vsMember), str("Operator"), 1, 0, 0)}}
+	f.pages = [][]pidomain.Row{{piRow(rowA, "dose", pidomain.WorkStateDue, pidomain.SeverityOK, str(vsMember), str("Operator"), 1, 0, 0), piRow(rowB, "dose", pidomain.WorkStateCompleted, pidomain.SeverityOK, str(vsOtherMem), str("Other"), 1, 1, 0)}}
 	ctx := ports.WithRequestReadMemo(context.Background())
 	before, err := s.CountByState(ctx, q)
 	if err != nil {
@@ -571,6 +571,12 @@ func TestRequestSnapshotScopeAndFreshNextRequest(t *testing.T) {
 		if len(f.queries) != old+1 {
 			t.Fatalf("%s reused another scope", scope)
 		}
+	}
+	ownerQuery := q
+	ownerQuery.OwnerUserID = vsUser
+	owned, err := s.CountByState(ctx, ownerQuery)
+	if err != nil || owned[domain.WorkStateDue] != 1 || owned[domain.WorkStateCompleted] != 0 {
+		t.Fatalf("owner count leaked another operator: %v err=%v", owned, err)
 	}
 	f.pages = [][]pidomain.Row{{piRow(rowA, "dose", pidomain.WorkStateCompleted, pidomain.SeverityOK, str(vsMember), str("Operator"), 1, 1, 0)}}
 	after, err := s.CountByState(ports.WithRequestReadMemo(context.Background()), q)

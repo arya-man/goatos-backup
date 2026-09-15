@@ -964,7 +964,11 @@ assignment_binding AS (
     cand.assignment_id ASC
 ),
 -- projection-review: membership=obligation_instances after tenant/category/date filtering, optionally decorated with one generated drive-assignment row for the same batch+shed; group_key=obligation_id at raw grain before grouped CTE collapses to park/shed/batch/rule/date; join_cardinality=vaccination_drive_assignments is bound EXACTLY via vaccination_drive_assignment_members (tenant_id, obligation_id) which is UNIQUE, so at most one assignment decorates each obligation and obligation membership cannot fan out; only obligations with NO membership row (legacy, pre-000040) fall back to the set-based assignment_binding CTE's ranked legacy arm (DISTINCT ON per obligation, reproducing the retired LIMIT 1 LATERAL's ranking exactly) ranked on rule_id (vaccine_rule_ids) then goat_shed_partitions partition_label (1:1 by PK (tenant_id, goat_id)), where the pick is a DETERMINISTIC REPRESENTATIVE (earliest planned_date, then lowest operator_id) and the capacity facts are aggregated over the full split cohort in the enriched CTE so the split stays explicit; pagination=raw feeds grouped/all_rows keyset and full-window aggregates, no page-local count; scope=park/shed/protocol/owner/category filters remain explicit downstream.
-raw AS (
+-- projection-review: membership=tenant status and effective-date-window obligations, unchanged; group_key=obligation_id before grouped park/shed/partition/drive grains; join_cardinality=rule and goat identity lookups are unique and all other decorations preserve the existing canonical membership; pagination=rows and whole-window counts retain their existing outer clauses; scope=tenant/date predicates remain inside raw and park/shed/owner filters remain downstream.
+-- Fence obligation decoration separately from dimensional grouping: this reduces
+-- custom-plan join search from ~55ms to ~23ms on the populated CPT snapshot,
+-- while preserving the same canonical obligation membership and later scope filters.
+raw AS MATERIALIZED (
   SELECT
     oi.obligation_id,
     oi.protocol_version_id,

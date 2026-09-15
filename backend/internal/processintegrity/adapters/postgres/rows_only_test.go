@@ -14,6 +14,9 @@ func TestCanonicalMembershipCannotBeReplayedPerShed(t *testing.T) {
 	// CPT's 125-shed plan replayed the obligation query 125 times before this
 	// optimization fence (229,500 index probes / 11.48s for 11 board rows).
 	for name, sql := range map[string]string{"rows": processIntegrityCanonicalRowsSQL, "counts": processIntegrityCanonicalCountsSQL, "adherence": processIntegrityCanonicalAdherenceSummarySQL} {
+		if !strings.Contains(sql, "raw AS MATERIALIZED (") {
+			t.Fatalf("%s lost the bounded obligation decoration planning fence", name)
+		}
 		if !strings.Contains(sql, "located AS MATERIALIZED (") {
 			t.Fatalf("%s must evaluate canonical membership once before dimension joins", name)
 		}
