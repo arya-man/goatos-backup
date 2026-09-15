@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { validateLocalStackReceipt, validateBuildProvenance, sourceStatus, cleanBuildSource } from './local-stack-receipt.mjs';
+import { validateLocalStackReceipt, validateBuildProvenance, sourceStatus, cleanBuildSource, validateSmokeActor, localRuntimeActor } from './local-stack-receipt.mjs';
 const receipt = {schema_version: 1, pid: 123, process_identity: 'started now', created_at: new Date().toISOString(), git_sha: 'sha', api_base_url: 'http://127.0.0.1:18174', admin_web_base_url: 'http://127.0.0.1:13473'};
 test('controlled launch receipt matches exact API, admin origin and build', () => {
   assert.equal(validateLocalStackReceipt(receipt, receipt, () => 'started now'), receipt);
@@ -46,4 +46,16 @@ test('source status excludes ignored proof/build files but catches untracked sou
     writeFileSync(join(dir,'new-source.ts'), 'export {};');
     assert.equal(sourceStatus(dir).length, 1);
   } finally {rmSync(dir,{recursive:true,force:true});}
+});
+
+test('browser proof binds bearer subject and tenant to actual frontend runtime', () => {
+  const tenant='00000000-0000-4000-8000-000000000001', user='1b777bf8-d973-5870-8473-ca0b196a5ed0';
+  const receipt = localRuntimeActor({GOATOS_TENANT_ID:tenant,GOATOS_LOCAL_USER_ID:user});
+  const token=(sub, tenant_id) => `header.${Buffer.from(JSON.stringify({sub,tenant_id})).toString('base64url')}.signature`;
+  assert.deepEqual(validateSmokeActor(receipt, token(user,tenant), tenant), {user_id:user,tenant_id:tenant});
+  assert.throws(() => validateSmokeActor(receipt,token('90000000-0000-4000-8000-000000000101',tenant),tenant), /differs/);
+  assert.throws(() => validateSmokeActor(receipt,token(user,user),tenant), /differs/);
+  assert.throws(() => validateSmokeActor(receipt,token(user,tenant),user), /differs/);
+  assert.throws(() => validateSmokeActor({},token(user,tenant),tenant), /UUIDs/);
+  assert.equal(localRuntimeActor({GOATOS_TENANT_ID:tenant}).local_user_id,'90000000-0000-4000-8000-000000000101');
 });

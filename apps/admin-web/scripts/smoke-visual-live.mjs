@@ -1,4 +1,5 @@
-import { validateLocalStackReceipt } from "./lib/local-stack-receipt.mjs";
+import { assertSmokeRouteIdentity, assertAnimalPurchaseHeading } from "./lib/smoke-route-identity.mjs";
+import { validateLocalStackReceipt, validateSmokeActor } from "./lib/local-stack-receipt.mjs";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -285,10 +286,12 @@ if (requiresLocalReceipt && !launchReceiptPath) throw new Error("PR264 local bro
 const launchReceipt = launchReceiptPath ? validateLocalStackReceipt(JSON.parse(readFileSync(launchReceiptPath, "utf8")), {
   git_sha: observedApiVersion.build_sha, api_base_url: apiBaseUrl, admin_web_base_url: appBaseUrl,
 }) : null;
+const browserActor = launchReceipt ? validateSmokeActor(launchReceipt, bearerToken, tenantId) : null;
 const browserEvidence = {
   schema_version: "1.0.0",
   same_api_build: Boolean(launchReceipt),
   local_stack_launch_receipt: launchReceipt,
+  actor: browserActor,
   api_base_url: apiBaseUrl,
   admin_web_base_url: appBaseUrl,
   api_build_sha: observedApiVersion.build_sha,
@@ -346,6 +349,7 @@ try {
         } else if (!response.ok()) {
           throw new Error(`${route.name} returned HTTP ${response.status()} for ${appPath(route.path)}`);
         }
+        const actualPathname = assertSmokeRouteIdentity(url, page.url());
         const html = await page.content();
         const visibleText = await page.locator("body").innerText({ timeout: 5_000 }).catch(() => "");
         assertHealthyHTML(route.name, html, visibleText, bearerToken);
@@ -353,6 +357,7 @@ try {
         browserEvidence.routes.push({
           name: route.name,
           route: appPath(route.path),
+          actual_pathname: actualPathname,
           viewport: viewport.label,
           loaded: true,
           forbidden_strings_absent: failureScreenMarkers,
@@ -549,6 +554,10 @@ function assertHealthyHTML(routeName, html, visibleText, token) {
 
 async function assertRouteLoadedSignal(page, routeName, visibleText) {
   const normalized = visibleText.replace(/\s+/g, " ").trim();
+  if (routeName === "procurement-animal-purchases") {
+    const heading = await page.locator("h1").innerText();
+    return { has_animal_purchase_review: assertAnimalPurchaseHeading(heading) };
+  }
   if (routeName === "work-board" || routeName === "work-board-populated") {
     const laneCounts = {
       todo: extractCountAfter(normalized, "TO DO"),

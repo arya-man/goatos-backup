@@ -231,6 +231,7 @@ export function validateApiLatencyEvidence(report, expectedSha) {
 
 function validatePr264BrowserEvidence(report, failures) {
   const requiredRoutes = [
+    { route: "/procurement/animal-purchases?scope_mode=company", viewports: ["desktop", "mobile"], signal: "has_animal_purchase_review" },
     { route: "/work-board?scope_mode=company", viewports: ["desktop", "mobile"], signal: "lane_counts" },
     { route: "/work-board?scope_mode=company&date=2026-08-10", viewports: ["desktop", "mobile"], signal: "populated_work_cards" },
     { route: "/weighing/weights?scope_mode=company", viewports: ["desktop", "mobile"], signal: "has_losing_weight_table" },

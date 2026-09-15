@@ -1,4 +1,4 @@
-import { processIdentity, validateBuildProvenance } from "./lib/local-stack-receipt.mjs";
+import { processIdentity, validateBuildProvenance, localRuntimeActor } from "./lib/local-stack-receipt.mjs";
 import { execFileSync, spawn } from "node:child_process";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -70,6 +70,7 @@ if (receiptPath) {
   child.once("spawn", () => {
     const receipt = {
       build_provenance: buildProvenance, mode,
+      ...localRuntimeActor(childEnv),
       schema_version: 1, pid: child.pid, process_identity: processIdentity(child.pid),
       git_sha: execFileSync("git", ["-C", repoRoot, "rev-parse", "HEAD"], { encoding: "utf8" }).trim(),
       api_base_url: childEnv.GOATOS_API_BASE_URL.replace(/\/+$/, ""),

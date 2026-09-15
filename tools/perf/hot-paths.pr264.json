@@ -54,6 +54,7 @@
         "pr264_app_vaccination_execution_with_card_summaries"
       ],
       "pr264_browser_render_routes": [
+        "/procurement/animal-purchases?scope_mode=company",
         "/work-board?scope_mode=company",
         "/work-board?scope_mode=company&date=2026-08-10",
         "/weighing/weights?scope_mode=company",

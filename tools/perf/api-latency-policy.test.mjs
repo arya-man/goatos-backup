@@ -183,6 +183,7 @@ test("PR264 performance manifest measures rendered route shapes, not broad short
   assert.deepEqual(manifest.scope.included, required);
   assert.deepEqual(manifest.scope.evidence_boundaries.local_oci_pr264_route_reads, required);
   assert.deepEqual(manifest.scope.evidence_boundaries.pr264_browser_render_routes, [
+    "/procurement/animal-purchases?scope_mode=company",
     "/work-board?scope_mode=company",
     "/work-board?scope_mode=company&date=2026-08-10",
     "/weighing/weights?scope_mode=company",

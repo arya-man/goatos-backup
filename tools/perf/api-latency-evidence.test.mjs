@@ -55,6 +55,7 @@ function passingReport() {
 
 function pr264BrowserEvidence({ includeSignals = true } = {}) {
   const signals = new Map([
+    ["/procurement/animal-purchases?scope_mode=company", { has_animal_purchase_review: true }],
     ["/work-board?scope_mode=company", { lane_counts: { todo: 0, in_progress: 0, in_review: 0, done: 0 }, healthy_empty_state: true }],
     ["/work-board?scope_mode=company&date=2026-08-10", { lane_counts: { todo: 1, in_progress: 0, in_review: 0, done: 0 }, work_cards: 1, degraded: false }],
     ["/weighing/weights?scope_mode=company", { has_losing_weight_table: true }],
@@ -72,6 +73,7 @@ function pr264BrowserEvidence({ includeSignals = true } = {}) {
     api_build_sha: sha,
     api_build_sha_end: sha,
     routes: [
+      "/procurement/animal-purchases?scope_mode=company",
       "/work-board?scope_mode=company",
       "/work-board?scope_mode=company&date=2026-08-10",
       "/weighing/weights?scope_mode=company",
@@ -209,6 +211,7 @@ test("accepts PR264 local OCI performance evidence only when every required rout
   report.scope.evidence_boundaries = {
     local_oci_pr264_route_reads: required,
     pr264_browser_render_routes: [
+      "/procurement/animal-purchases?scope_mode=company",
       "/work-board?scope_mode=company",
       "/work-board?scope_mode=company&date=2026-08-10",
       "/weighing/weights?scope_mode=company",
@@ -226,6 +229,11 @@ test("accepts PR264 local OCI performance evidence only when every required rout
   report.browser_evidence = pr264BrowserEvidence();
   assert.deepEqual(validateApiLatencyEvidence(report, sha), []);
 
+  const procurement = report.browser_evidence.routes.find((item) => item.route.startsWith("/procurement/animal-purchases"));
+  const procurementSignals = procurement.viewports[0].route_signals;
+  procurement.viewports[0].route_signals = {};
+  assert.ok(validateApiLatencyEvidence(report, sha).some((failure) => failure.includes("has_animal_purchase_review")));
+  procurement.viewports[0].route_signals = procurementSignals;
   for (const endSHA of [undefined, "changed-build"]) {
     report.browser_evidence.api_build_sha_end = endSHA;
     assert.ok(validateApiLatencyEvidence(report, sha).some((failure) => failure.includes("browser final API build")));
@@ -276,6 +284,7 @@ test("rejects PR264 performance evidence without browser proof for the observed 
   report.scope.evidence_boundaries = {
     local_oci_pr264_route_reads: required,
     pr264_browser_render_routes: [
+      "/procurement/animal-purchases?scope_mode=company",
       "/work-board?scope_mode=company",
       "/work-board?scope_mode=company&date=2026-08-10",
       "/weighing/weights?scope_mode=company",
@@ -341,6 +350,7 @@ test("accepts PR264 browser evidence produced as one flat record per viewport", 
   report.scope.evidence_boundaries = {
     local_oci_pr264_route_reads: required,
     pr264_browser_render_routes: [
+      "/procurement/animal-purchases?scope_mode=company",
       "/work-board?scope_mode=company",
       "/work-board?scope_mode=company&date=2026-08-10",
       "/weighing/weights?scope_mode=company",
@@ -362,6 +372,7 @@ test("accepts PR264 browser evidence produced as one flat record per viewport", 
     "Weights could not be loaded",
   ];
   const signals = new Map([
+    ["/procurement/animal-purchases?scope_mode=company", { has_animal_purchase_review: true }],
     ["/work-board?scope_mode=company", { lane_counts: { todo: 0, in_progress: 0, in_review: 0, done: 0 }, healthy_empty_state: true }],
     ["/work-board?scope_mode=company&date=2026-08-10", { lane_counts: { todo: 1, in_progress: 0, in_review: 0, done: 0 }, work_cards: 1, degraded: false }],
     ["/weighing/weights?scope_mode=company", { has_losing_weight_table: true }],

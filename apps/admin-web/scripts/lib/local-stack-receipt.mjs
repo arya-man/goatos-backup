@@ -32,3 +32,21 @@ export function sourceStatus(repoRoot) {
 export function cleanBuildSource(before, after) {
   return Array.isArray(before) && Array.isArray(after) && before.length === 0 && after.length === 0;
 }
+
+export function localRuntimeActor(env) {
+  const tenant_id = (env.GOATOS_TENANT_ID ?? '').trim();
+  const local_user_id = (env.GOATOS_LOCAL_USER_ID ?? '90000000-0000-4000-8000-000000000101').trim();
+  const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (!uuid.test(tenant_id) || !uuid.test(local_user_id)) throw new Error('Local runtime actor must use tenant and user UUIDs');
+  return {tenant_id, local_user_id};
+}
+export function validateSmokeActor(receipt, token, tenant) {
+  let claims;
+  try {claims = JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString());}
+  catch {throw new Error('Browser proof requires a readable JWT identity');}
+  const actor = localRuntimeActor({GOATOS_TENANT_ID: receipt?.tenant_id, GOATOS_LOCAL_USER_ID: receipt?.local_user_id ?? ''});
+  if (claims.sub !== actor.local_user_id || claims.tenant_id !== actor.tenant_id || tenant !== actor.tenant_id) {
+    throw new Error('Browser bearer actor/tenant differs from frontend runtime actor');
+  }
+  return {user_id: actor.local_user_id, tenant_id: actor.tenant_id};
+}
