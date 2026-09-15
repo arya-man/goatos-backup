@@ -41,7 +41,9 @@ const shedB = "00000000-0000-4000-8000-000000000802"
 
 type pinnedVersion int
 
-func (p pinnedVersion) CampaignSOPVersion(context.Context, string, string) (int, error) { return int(p), nil }
+func (p pinnedVersion) CampaignSOPVersion(context.Context, string, string) (int, error) {
+	return int(p), nil
+}
 
 func rulesWithMode(version int, mode string) ports.StaticRules {
 	r := domain.SeededRules()
