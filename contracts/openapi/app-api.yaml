@@ -9855,6 +9855,70 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "500":
           $ref: "#/components/responses/ServerError"
+  /procurement/buyer-analytics:
+    get:
+      tags:
+        - Procurement
+      operationId: listBuyerAnalytics
+      summary: Every buyer the farm has sold to, one row each, for the Sales > Buyer analytics page.
+      description: >-
+        One row per BUYER over the closed deals in the filter, served by the procurement read
+        that joins the vendor register to the sales ledger (the load-wise shape). A deal is
+        claimed by the vendor its `buyer_vendor_id` names when that row still exists; otherwise
+        by the ONE vendor whose business name matches the typed buyer name (case- and
+        whitespace-insensitively; a name held by two vendors is claimed by neither); otherwise
+        by the typed name itself, reported with `in_register: false`.
+
+
+        `purchases` counts closed deals; `repeat` is true once a buyer has bought more than once
+        and `avg_days_between` is the span from first to last sale over the gaps between them
+        (absent for a one-time buyer, and absent when every purchase landed on one day).
+        `summary` and `total_buyers` are WHOLE-FILTER figures; `limit`/`offset` page the rows
+        only.
+
+
+        `phone_number` is vendor register data: it rides a row only when the buyer is in the
+        register AND the caller holds the vendor register permission; `phones_visible` says
+        which case the response is in, so an absent column reads as a permission and never as
+        "no buyer has a number".
+      parameters:
+        - name: farm
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [all, CBE, CPT]
+          description: Farm filter, the Sales pages' toggle value. Absent or `all` is the whole company; an unknown value is rejected, never silently widened.
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+          description: Page size; clamped to 25 by default and 100 at most.
+        - name: offset
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+          description: Row offset into the revenue-ordered buyer list.
+      responses:
+        "200":
+          description: The buyer analytics read.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BuyerAnalytics"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
   /procurement/loads/{load_id}/cost:
     put:
       tags:
@@ -18415,6 +18479,109 @@ components:
           description: The tenant-wide average sold price used as the remaining-stock fallback basis.
         summary:
           $ref: "#/components/schemas/LoadwiseSummary"
+    BuyerAnalyticsRow:
+      type: object
+      required: [buyer_key, in_register, buyer_name, purchases, animals, revenue, share_pct, outstanding, first_sale_date, last_sale_date, repeat, repeat_purchases, product_types]
+      properties:
+        buyer_key:
+          type: string
+          description: The resolved identity, `vendor:<id>` or `name:<normalized name>`; stable across pages.
+        vendor_id:
+          type: string
+          description: The vendor register row this buyer resolved to; absent for a name-only buyer.
+        in_register:
+          type: boolean
+          description: False for a buyer known only by the name typed on their deals.
+        buyer_name:
+          type: string
+        phone_number:
+          type: string
+          description: Present only for a register-backed buyer AND a caller who may read the vendor register (see `phones_visible`).
+        category:
+          type: string
+          description: The register's record type (Agent, Butcher, Farmer, ...); absent for a name-only buyer.
+        place:
+          type: string
+          description: The register's city and state, or the typed place on the newest deal for a name-only buyer.
+        purchases:
+          type: integer
+          description: Closed deals so far.
+        animals:
+          type: number
+        revenue:
+          type: number
+        share_pct:
+          type: number
+          description: This buyer's share of the whole-filter revenue, in percent.
+        outstanding:
+          type: number
+          description: What the buyer still owes across their deals; never negative per deal.
+        first_sale_date:
+          type: string
+          format: date
+        last_sale_date:
+          type: string
+          format: date
+        repeat:
+          type: boolean
+          description: True once the buyer has bought more than once.
+        repeat_purchases:
+          type: integer
+          description: Every purchase after the first.
+        avg_days_between:
+          type: integer
+          description: Mean days between purchases; absent for a one-time buyer or when every purchase landed on one day.
+        days_since_last:
+          type: integer
+          description: Whole days from the latest purchase to today's business date.
+        product_types:
+          type: array
+          items:
+            type: string
+    BuyerAnalyticsSummary:
+      type: object
+      required: [buyers, repeat_buyers, one_time_buyers, not_in_register, purchases, animals, revenue, repeat_revenue, repeat_revenue_pct, outstanding]
+      properties:
+        buyers: { type: integer }
+        repeat_buyers: { type: integer }
+        one_time_buyers: { type: integer }
+        not_in_register:
+          type: integer
+          description: Buyers known by a typed name only.
+        purchases: { type: integer }
+        animals: { type: number }
+        revenue: { type: number }
+        repeat_revenue:
+          type: number
+          description: Revenue brought by buyers who have bought more than once.
+        repeat_revenue_pct:
+          type: number
+          description: repeat_revenue as a share of revenue; 0 when revenue is 0.
+        outstanding: { type: number }
+        period_from: { type: string, format: date }
+        period_to: { type: string, format: date }
+    BuyerAnalytics:
+      type: object
+      required: [buyers, total_buyers, summary, limit, offset, phones_visible]
+      properties:
+        buyers:
+          type: array
+          items:
+            $ref: "#/components/schemas/BuyerAnalyticsRow"
+        total_buyers:
+          type: integer
+          description: The WHOLE-FILTER buyer count; `buyers` is one page of it.
+        summary:
+          $ref: "#/components/schemas/BuyerAnalyticsSummary"
+        limit:
+          type: integer
+          description: The page size actually applied, after clamping.
+        offset:
+          type: integer
+          description: The offset actually applied.
+        phones_visible:
+          type: boolean
+          description: Whether phone numbers were included at all for this caller.
     LoadCostWrite:
       type: object
       description: >-

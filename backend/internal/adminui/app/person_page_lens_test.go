@@ -13,10 +13,16 @@ type stubPageAccess struct {
 	access   permissions.PageAccess
 	assigned bool
 	err      error
+	perms    []string
+	permErr  error
 }
 
 func (s stubPageAccess) ResolvePageAccess(context.Context, string, string) (permissions.PageAccess, bool, error) {
 	return s.access, s.assigned, s.err
+}
+
+func (s stubPageAccess) ResolvePermissions(context.Context, string, string) ([]string, bool, error) {
+	return s.perms, s.assigned, s.permErr
 }
 
 func leafHrefs(resp domain.BootstrapResponse) []string {
@@ -45,7 +51,7 @@ func TestRetiredProcurementDirectorLensIsReproducedByTicks(t *testing.T) {
 	// feed_director -- and the retired lens applied anyway. Stacking them here is the case
 	// that matters, not procurement_director alone.
 	access := accessFor(permissions.RoleProcurementDirector, permissions.RoleFeedDirector)
-	resp := applyPersonPageLens(compileForTest(), access)
+	resp := applyPersonPageLens(compileForTest(), access, nil, false)
 
 	want := []string{
 		"/sales/config",
@@ -90,7 +96,7 @@ func TestRetiredProcurementDirectorLensIsReproducedByTicks(t *testing.T) {
 // narrow a leadership principal.
 func TestCeoIsNeverNarrowed(t *testing.T) {
 	access := accessFor(permissions.RoleCEOInternal, permissions.RoleProcurementDirector)
-	resp := applyPersonPageLens(compileForTest(), access)
+	resp := applyPersonPageLens(compileForTest(), access, nil, false)
 	for _, want := range []string{"/weighing/analytics", "/people", "/feed/config", "/feed/analytics", "/feed/sops", "/sales/sold", "/sales/farm-value", "/sales/config", "/procurement/source-entry", "/procurement/vendors", "/procurement/feed-purchases", "/verify", "/vaccination"} {
 		found := false
 		for _, href := range leafHrefs(resp) {
@@ -168,9 +174,10 @@ func TestUnassignedAndErroringPeopleAreNotNarrowed(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			svc := NewService().WithPersonPageAccess(tc.src)
-			_, assigned, err := svc.personPageAccessFor(context.Background(), BootstrapInput{
+			snapshot := svc.personPageAccessFor(context.Background(), BootstrapInput{
 				TenantID: "t", ActorID: "u",
 			})
+			assigned, err := snapshot.pageAccessAssigned, snapshot.pageAccessErr
 			if assigned {
 				t.Fatal("narrowing applied; the person would lose pages they are authorized for")
 			}
@@ -195,7 +202,7 @@ func TestAModuleTickWithoutPageTicksKeepsEveryPageItCanOpen(t *testing.T) {
 	access := permissions.PageAccessForAssignments([]permissions.ModuleAssignment{
 		{Module: "feed_direction", Surface: permissions.SurfaceWeb, Capabilities: []string{permissions.LevelView}},
 	})
-	if got := leafHrefs(applyPersonPageLens(compileForTest(), access)); len(got) != 1 || got[0] != "/feed/analytics" {
+	if got := leafHrefs(applyPersonPageLens(compileForTest(), access, nil, false)); len(got) != 1 || got[0] != "/feed/analytics" {
 		t.Fatalf("sidebar is %v; want [/feed/analytics]", got)
 	}
 
@@ -205,7 +212,7 @@ func TestAModuleTickWithoutPageTicksKeepsEveryPageItCanOpen(t *testing.T) {
 		{Module: "feed_direction", Surface: permissions.SurfaceWeb, Capabilities: []string{permissions.LevelConfigure}},
 		{Module: "config", Surface: permissions.SurfaceWeb, Capabilities: []string{permissions.LevelView}},
 	})
-	got := leafHrefs(applyPersonPageLens(compileForTest(), access))
+	got := leafHrefs(applyPersonPageLens(compileForTest(), access, nil, false))
 	want := []string{"/feed/config", "/feed/analytics", "/feed/sops"}
 	if len(got) != len(want) {
 		t.Fatalf("sidebar is %v; want %v", got, want)

@@ -58,7 +58,7 @@ func TestParkedPagesStayTickableSoTypedURLsCanFailClosed(t *testing.T) {
 		Capabilities: []string{permissions.LevelView},
 		Pages:        []string{"preventive-care-vaccination"},
 	}})
-	resp := applyPersonPageLens(compileForTest(), access)
+	resp := applyPersonPageLens(compileForTest(), access, nil, false)
 	for _, banned := range []string{"/?lens=control-tower", "/action-center", "/protocol-adherence", "/workflows", "/calendar"} {
 		for _, page := range resp.Pages {
 			if page.Href == banned {

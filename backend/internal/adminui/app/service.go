@@ -167,6 +167,9 @@ func navigation() domain.NavigationContract {
 					// the markets phoned each morning, read back over time. Cities and questions are
 					// authored on Sales Config; prices are recorded on the phone.
 					navLeaf("sales-market-analytics", "Market analytics", "/sales/market-analytics", nil),
+					// Buyer analytics (maintainer request 2026-09-15): who the farm sells to, one row
+					// per buyer -- name, phone, category, purchases so far and whether they come back.
+					navLeaf("sales-buyer-analytics", "Buyer analytics", "/sales/buyer-analytics", nil),
 					// The SELLING side of the one vendor register (maintainer decision 2026-09-05).
 					// Same table and same endpoint as Procurement > Vendors, narrowed to the record
 					// types the farm SELLS to. It is a Sales leaf because the person recording a sale
@@ -274,6 +277,7 @@ func routeLabels() []domain.RouteLabelRule {
 		{Pattern: "/procurement/sops", Label: "Procurement SOP", Match: "exact"},
 		{Pattern: "/sales/sold", Label: "Summary", Match: "exact"},
 		{Pattern: "/sales/market-analytics", Label: "Market analytics", Match: "exact"},
+		{Pattern: "/sales/buyer-analytics", Label: "Buyer analytics", Match: "exact"},
 		{Pattern: "/sales/loads", Label: "Load wise", Match: "exact"},
 		{Pattern: "/sales/farm-value", Label: "Farm value", Match: "exact"},
 		{Pattern: "/sales/config", Label: "Sales Config", Match: "exact"},
@@ -514,6 +518,14 @@ func pages() []domain.PageContract {
 		// open a form. Entry is the phone's Market tab; the cities and questions are Sales Config.
 		page("sales-market-analytics", "/sales/market-analytics", "/sales/market-analytics", "Market analytics", "What goat and sheep fetch in the markets phoned each morning — live, carcass and offals prices by city, today and over time.", "module-surface",
 			[]domain.TableContract{}),
+		// BUYER ANALYTICS (maintainer request 2026-09-15): every buyer the farm has sold to, one
+		// row each, served by the procurement read that joins the vendor register to the sales
+		// ledger (the load-wise shape; docs/decisions/sales-buyer-analytics.md). READ-ONLY by
+		// contract, the /sales/sold shape: no write control, so nothing here opens a form. The
+		// phone column is a capability-gated READ control (compileBuyerAnalyticsControls): the
+		// number is register data and follows VendorRead, exactly as the Vendors leaf does.
+		page("sales-buyer-analytics", "/sales/buyer-analytics", "/sales/buyer-analytics", "Buyer analytics", "Who buys from the farm — each buyer's contact, how many times they have bought, how many animals, how much, and whether they come back.", "module-surface",
+			[]domain.TableContract{withoutRowClick(buyerAnalyticsTable())}),
 		// SALES > VENDORS (maintainer decision 2026-09-05): the vendor register's SELLING half.
 		//
 		// The SAME table contract and the SAME data source as /procurement/vendors, because it is
@@ -978,6 +990,22 @@ func loadwiseTable() domain.TableContract {
 		[]string{"load", "farm", "purchased", "sold", "mortality", "remaining", "unaccounted", "purchase_value", "landed_price_per_kg", "sold_value", "profit_loss"},
 		"load_id", []int{60})
 	copy := pageCopy("sales-loads")
+	for i := range t.Columns {
+		if label := strings.TrimSpace(copy["column."+t.Columns[i].Key]); label != "" {
+			t.Columns[i].Label = label
+		}
+	}
+	return t
+}
+
+// buyerAnalyticsTable builds the buyer analytics table contract. Labels come from the page's own
+// copy map, the loadwiseTable shape, because the farm says "Purchases so far" and "Comes back",
+// not "Purchases" and "Repeat"; the header and any detail cell read ONE source.
+func buyerAnalyticsTable() domain.TableContract {
+	t := tableP("sales-buyer-analytics", "Buyers", "/procurement/buyer-analytics",
+		[]string{"buyer_name", "phone_number", "category", "place", "purchases", "animals", "revenue", "share_pct", "repeat", "first_sale_date", "last_sale_date", "outstanding"},
+		"", []int{25, 50, 100})
+	copy := pageCopy("sales-buyer-analytics")
 	for i := range t.Columns {
 		if label := strings.TrimSpace(copy["column."+t.Columns[i].Key]); label != "" {
 			t.Columns[i].Label = label
@@ -3784,6 +3812,68 @@ func pageSpecificCopy(id string) map[string]string {
 			"error.load":                          "Could not load the feed purchase ledger. Refresh to try again.",
 			"error.options":                       "Could not load the purchase form options. Refresh to try again.",
 			"disabled.write":                      "Your current role can view feed purchases but not record them.",
+		}
+	case "sales-buyer-analytics":
+		// Backend-owned copy for the Buyer analytics page (maintainer request 2026-09-15). The
+		// client renders these verbatim: every heading, column, chip, KPI and empty state. Farm
+		// language only. The farm toggle and pager words are the sales pages' own, copied here
+		// by key so the toggle reads identically on every Sales page.
+		return map[string]string{
+			"crumb": "Sales",
+
+			"filter.farm": "Farm",
+			"filter.all":  "All farms",
+
+			// Headline tiles -- whole-filter figures, never the page's.
+			"section.headline.aria":     "Buyer headline figures",
+			"kpi.buyers":                "Buyers",
+			"kpi.buyers.detail":         "not in the vendor register",
+			"kpi.repeat_buyers":         "Come back",
+			"kpi.repeat_buyers.detail":  "bought more than once",
+			"kpi.repeat_revenue":        "Revenue from repeat buyers",
+			"kpi.repeat_revenue.detail": "of all revenue",
+			"kpi.outstanding":           "Still owed",
+			"kpi.outstanding.detail":    "across every closed sale",
+			"kpi.purchases.detail":      "sales",
+			"kpi.animals.detail":        "animals",
+
+			// The buyer table.
+			"section.buyers.title":    "Buyers",
+			"section.buyers.subtitle": "One row per buyer. Purchases count closed sales; a buyer comes back once they have bought more than once.",
+			"column.buyer_name":       "Buyer",
+			"column.phone_number":     "Phone",
+			"column.category":         "Category",
+			"column.place":            "Place",
+			"column.purchases":        "Purchases so far",
+			"column.animals":          "Animals",
+			"column.revenue":          "Revenue",
+			"column.share_pct":        "Share",
+			"column.repeat":           "Comes back",
+			"column.first_sale_date":  "First sale",
+			"column.last_sale_date":   "Last sale",
+			"column.outstanding":      "Still owed",
+
+			// Chips and cell copy.
+			"chip.repeat":            "Repeat",
+			"chip.one_time":          "One-time",
+			"chip.not_in_register":   "Not in register",
+			"value.every_days":       "about every {days} days",
+			"value.days_ago":         "{days} days ago",
+			"value.today":            "today",
+			"value.repeat_purchases": "{count} more after the first",
+			"value.settled":          "Nothing owed",
+			"value.none":             "Not recorded",
+			"hint.not_in_register":   "Known only by the name typed on the sale. Add them on Vendors to keep their number here.",
+			"hint.phone_hidden":      "Phone numbers are on the vendor register, which your current role cannot open.",
+
+			"summary.buyers":   "buyers",
+			"pager.page":       "Page",
+			"pager.of":         "of",
+			"action.prev_page": "Back",
+			"action.next_page": "Next",
+
+			"empty.buyers": "No buyers yet. Buyers appear here as sales close.",
+			"error.load":   "Could not load the buyer figures. Refresh to try again.",
 		}
 	case "sales-market-analytics":
 		// Backend-owned copy for the Market analytics page (maintainer decision 2026-09-14). The
@@ -7427,7 +7517,7 @@ func pageOptionGroups(id string) []domain.OptionGroup {
 				},
 			},
 		})
-	case "sales", "sales-sold", "sales-farm-value", "sales-config":
+	case "sales", "sales-sold", "sales-farm-value", "sales-config", "sales-buyer-analytics":
 		// The config page renders every sales form, so it needs exactly the board's vocabulary:
 		// farms, product types and the per-product breed groups. Shared, never a second copy --
 		// a form offering different breeds from the page that reads them back is the drift this

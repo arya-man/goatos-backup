@@ -13,7 +13,7 @@ import {
   request,
   type ApiResult,
 } from "@/lib/api/server";
-import type { LoadCostWrite, LoadwiseSales, LoadwiseWeights,
+import type { LoadCostWrite, LoadwiseSales, LoadwiseWeights, BuyerAnalytics,
   AnimalPurchaseAnimal,
   AnimalPurchaseCounts,
   AnimalPurchaseDecisionRequest,
@@ -265,6 +265,23 @@ export async function getLoadwiseSales(
     client.request<LoadwiseSales>("/procurement/loadwise-sales", {
       cache: "no-store",
       query: compactQuery({ park_id: params.park_id }),
+    }),
+  );
+}
+
+// Buyer analytics: one page of buyers plus whole-filter totals, served by the procurement read
+// that joins the vendor register to the sales ledger. ONE bounded request per render; the farm
+// value is the Sales pages' toggle, limit/offset page the rows only.
+export async function getBuyerAnalytics(
+  params: { farm?: string; limit?: number; offset?: number } = {},
+): Promise<ApiResult<BuyerAnalytics>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<BuyerAnalytics>("/procurement/buyer-analytics", {
+      cache: "no-store",
+      query: compactQuery({ farm: params.farm, limit: params.limit, offset: params.offset }),
     }),
   );
 }

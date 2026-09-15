@@ -282,6 +282,7 @@ export function MeshaShell({
     "/weighing/analytics",
     "/sales/sold",
     "/sales/farm-value",
+    "/sales/buyer-analytics",
   ];
   const lockTopBarParkSelector = PAGES_OWNING_PARK_SCOPE.includes(pathname);
   const [navOpen, setNavOpen] = useState(false);

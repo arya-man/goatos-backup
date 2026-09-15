@@ -84,7 +84,10 @@ func (s *Service) bootstrapCached(ctx context.Context, input BootstrapInput) dom
 	//
 	// The resolved value is carried into compile() rather than read again, so this costs
 	// ONE small indexed read per bootstrap, not two.
-	access, assigned, accessErr := s.personPageAccessFor(ctx, input)
+	personAccess := s.personPageAccessFor(ctx, input)
+	access := personAccess.pageAccess
+	assigned := personAccess.pageAccessAssigned
+	accessErr := personAccess.pageAccessErr
 	if procurementDirectorStockOnly(input) {
 		// Sales > Vendors is the one page here that follows the person's own HRMS tick
 		// (maintainer instruction 2026-09-08): it shows only when ticked on /people.
@@ -111,10 +114,16 @@ func (s *Service) bootstrapCached(ctx context.Context, input BootstrapInput) dom
 		if salesVendorsTicked {
 			access.Pages["sales-vendors"] = struct{}{}
 		}
+		personAccess.pageAccess = access
+		personAccess.pageAccessAssigned = true
+		personAccess.pageAccessErr = nil
 		assigned = true
 		accessErr = nil
 	}
 	fingerprint := pageAccessFingerprint(access, assigned)
+	if assigned {
+		fingerprint += "::" + personPermissionsFingerprint(personAccess.permissions, personAccess.permissionsResolved)
+	}
 	revisionKey := ""
 	if revisions, ok := s.loadFamilyRevisions(ctx, input.TenantID); ok {
 		revisionKey = s.cacheKey(input, ReferenceFamilies{RevisionInputs: revisions}, nil) + "::" + fingerprint
@@ -127,7 +136,7 @@ func (s *Service) bootstrapCached(ctx context.Context, input BootstrapInput) dom
 	if cached, ok := s.cached(key, now); ok {
 		return cached
 	}
-	resp := s.compile(ctx, input, families, familyErr, access, assigned, accessErr)
+	resp := s.compile(ctx, input, families, familyErr, personAccess, accessErr)
 	expiresAt := now.Add(s.cacheTTL)
 	s.storeCache(key, resp, now, expiresAt)
 	if revisionKey != "" && familyErr == nil {
@@ -247,13 +256,21 @@ func pageAccessFingerprint(access permissions.PageAccess, assigned bool) string 
 	return "pages:" + hashString(strings.Join(parts, ","))
 }
 
+func personPermissionsFingerprint(perms []string, resolved bool) string {
+	if !resolved {
+		return "perms:unresolved"
+	}
+	parts := append([]string(nil), perms...)
+	sort.Strings(parts)
+	return "perms:" + hashString(strings.Join(parts, ","))
+}
+
 func (s *Service) compile(
 	ctx context.Context,
 	input BootstrapInput,
 	families ReferenceFamilies,
 	familyErr error,
-	access permissions.PageAccess,
-	pageAccessAssigned bool,
+	personAccess personAccessSnapshot,
 	pageAccessErr error,
 ) domain.BootstrapResponse {
 	families.UIConfig = applicableConfigEntries(families.UIConfig)
@@ -265,11 +282,11 @@ func (s *Service) compile(
 	// It runs before familyHashes so the contract revision reflects what is actually served.
 	if isVerifierLensPrincipal(input) {
 		resp = applyVerifierLens(resp, s.verifierNavModules(ctx, input))
-	} else if pageAccessAssigned {
+	} else if personAccess.pageAccessAssigned {
 		// Per-person page narrowing (maintainer decision 2026-08-27). This REPLACES the
 		// hand-coded procurement-director lens: "only Procurement and Feed, and not Feed
 		// Config" is now that person's ticks on /people rather than a Go file.
-		resp = applyPersonPageLens(resp, access)
+		resp = applyPersonPageLens(resp, personAccess.pageAccess, personAccess.permissions, personAccess.permissionsResolved)
 	} else if pageAccessErr != nil {
 		// The read failed. The contract is served UNNARROWED -- a person must not be locked
 		// out of a product they are authorized for by a database blip -- and it SAYS so.
@@ -921,6 +938,11 @@ func compilePages(pages []domain.PageContract, families ReferenceFamilies, input
 			// compileSalesWeightCards. It lived on /sales until the 2026-09-11 split; /sales
 			// itself now declares no control at all.
 			out[i].Controls = compileSalesWeightCards(out[i].Controls, input, out[i].Copy)
+		case "sales-buyer-analytics":
+			// READ control for the phone column: register data, gated on VendorRead exactly like
+			// the Vendors leaf. The endpoint blanks the number for the same caller, so the column
+			// and the payload agree (both halves of the capability-gated lock).
+			out[i].Controls = compileBuyerAnalyticsControls(out[i].Controls, input, out[i].Copy)
 		case "sales-loads":
 			// READ control for the "weighs now" series on the load chart -- weighing's
 			// permission, gated exactly like the Sales board's Over 35 kg card.
@@ -1087,6 +1109,29 @@ func compileLoadsWeightSeries(controls []domain.Control, input BootstrapInput, c
 		ID:             "weights_current_average_series",
 		Label:          controlCopy(copy, "chart.series.current_avg_weight", "Weighs now"),
 		Kind:           "chart_series",
+		Enabled:        allowed,
+		DisabledReason: reason,
+	})
+}
+
+// compileBuyerAnalyticsControls declares the Buyer analytics page's phone column as a READ
+// control on VendorRead. A sales reader who was never given the vendor register sees the column
+// absent with the backend's reason rather than a column of blanks that reads as "no buyer has a
+// number". Declares no Action; the page stays read-only by contract.
+//
+// Every role holding SalesRead today also holds VendorRead, so by ROLE the disabled branch is
+// unreachable; it exists for the per-person path, where the endpoint (callerMaySeePhones) reads
+// the ticked permission set and this control is the contract's matching half.
+func compileBuyerAnalyticsControls(controls []domain.Control, input BootstrapInput, copy map[string]string) []domain.Control {
+	allowed := len(input.Grants) == 0 || grantsAuthorize(input.Grants, input.TenantID, []string{permissions.VendorRead})
+	reason := ""
+	if !allowed {
+		reason = controlCopy(copy, "hint.phone_hidden", "Phone numbers are on the vendor register, which your current role cannot open.")
+	}
+	return upsertControl(controls, domain.Control{
+		ID:             "buyer_phone_column",
+		Label:          controlCopy(copy, "column.phone_number", "Phone"),
+		Kind:           "table_column",
 		Enabled:        allowed,
 		DisabledReason: reason,
 	})
@@ -2045,6 +2090,10 @@ func permissionsForNav(id string) []string {
 		// the health-config shape -- a missing leaf reads as a broken product, a disabled button
 		// carrying "your role can view sales but not record them" is an answer. The WRITES on it
 		// are separately gated (SalesWrite, and LoadCostWrite for a load's cost).
+		return []string{permissions.SalesRead}
+	case "sales-buyer-analytics":
+		// Sales money per buyer, so the sales permission; the phone column on it is a separate
+		// capability-gated read control (compileBuyerAnalyticsControls) that follows VendorRead.
 		return []string{permissions.SalesRead}
 	case "sales-market-analytics":
 		// The market survey's own read (maintainer decision 2026-09-14), which its data route
