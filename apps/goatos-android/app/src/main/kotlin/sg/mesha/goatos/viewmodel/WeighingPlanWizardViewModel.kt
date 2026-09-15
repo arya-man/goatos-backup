@@ -1115,6 +1115,7 @@ private fun WizardRaw.effectiveCutoff(): java.time.LocalTime? =
 
 /** Whether the chosen date still has a removal evening ahead of it (the create cutoff). */
 private fun WizardRaw.removalPossibleForDate(): Boolean {
+    // exception:exempt date validation; an unparseable date reads as "no date chosen yet"
     val selected = date?.let { runCatching { LocalDate.parse(it, ISO_DATE) }.getOrNull() } ?: return true
     return !selected.isBefore(earliestPlannableDateWithFeedRemoval(java.time.ZonedDateTime.now(INDIA_BUSINESS_ZONE), effectiveCutoff()))
 }
