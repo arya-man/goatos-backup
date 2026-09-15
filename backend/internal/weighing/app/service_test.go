@@ -1014,11 +1014,11 @@ func (r *shedObservationRepo) RecordShedObservation(_ context.Context, cmd domai
 	}, nil
 }
 
-func (f fakeRepo) CampaignByIdempotencyKey(_ context.Context, _, key, fingerprint string) (domain.Campaign, bool, error) {
+func (f fakeRepo) CampaignByIdempotencyKey(_ context.Context, cmd domain.CreateCampaign) (domain.Campaign, bool, error) {
 	if f.replays == nil {
 		return domain.Campaign{}, false, nil
 	}
-	c, ok := f.replays[key+"|"+fingerprint]
+	c, ok := f.replays[cmd.IdempotencyKey+"|"+domain.RequestFingerprint(cmd)]
 	return c, ok, nil
 }
 
@@ -1171,7 +1171,7 @@ func newScenarioRepo() *scenarioRepo {
 	}
 }
 
-func (r *scenarioRepo) CampaignByIdempotencyKey(context.Context, string, string, string) (domain.Campaign, bool, error) {
+func (r *scenarioRepo) CampaignByIdempotencyKey(context.Context, domain.CreateCampaign) (domain.Campaign, bool, error) {
 	return domain.Campaign{}, false, nil
 }
 

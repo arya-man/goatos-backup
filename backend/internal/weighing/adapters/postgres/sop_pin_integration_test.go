@@ -150,10 +150,11 @@ func TestCreateCampaignReplaysAfterALaterPublishMovedTheStamps(t *testing.T) {
 	}
 	// The pre-rules replay lookup the service asks first: exact fingerprint -> the task; a
 	// different fingerprint or key -> nothing (never a conflict; the create decides that).
-	if found, ok, err := repo.CampaignByIdempotencyKey(ctx, repoTenant, client.IdempotencyKey, fingerprint); err != nil || !ok || found.CampaignID != created.CampaignID {
+	if found, ok, err := repo.CampaignByIdempotencyKey(ctx, client); err != nil || !ok || found.CampaignID != created.CampaignID {
 		t.Fatalf("replay lookup = %v ok %v err %v, want the created task", found.CampaignID, ok, err)
 	}
-	if _, ok, err := repo.CampaignByIdempotencyKey(ctx, repoTenant, client.IdempotencyKey, "not-that-request"); err != nil || ok {
+	client.PlannedCapPerDay++
+	if _, ok, err := repo.CampaignByIdempotencyKey(ctx, client); err != nil || ok {
 		t.Fatalf("replay lookup with another fingerprint: ok %v err %v, want not found", ok, err)
 	}
 	changed := client

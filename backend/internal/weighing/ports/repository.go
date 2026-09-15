@@ -301,7 +301,7 @@ type Repository interface {
 	// must not turn an exact retry of an already-created task into a refusal (PR #274 review
 	// round 2, finding 2). A same-key DIFFERENT request is not this method's call; the create
 	// itself still answers it with ErrIdempotencyConflict.
-	CampaignByIdempotencyKey(ctx context.Context, tenantID, idempotencyKey, requestFingerprint string) (domain.Campaign, bool, error)
+	CampaignByIdempotencyKey(ctx context.Context, cmd domain.CreateCampaign) (domain.Campaign, bool, error)
 	UpdateCampaign(ctx context.Context, campaignID string, cmd domain.UpdateCampaign) (domain.Campaign, error)
 	PublishCampaign(ctx context.Context, tenantID, campaignID, actorID, idempotencyKey string) (domain.Campaign, error)
 	// ListCampaigns / ListCampaignsForOperator page the task list. parkID is an

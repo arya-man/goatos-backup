@@ -336,3 +336,19 @@ Regression coverage: `pr274_review_repro_test.go` and
 - A restored rework card hydrates its authored slots before clearing rejected
   captures. Reset covers both rendered slots and incoming authored slots, so
   process restoration cannot reconnect uploads from the rejected submission.
+
+### Deployment replay and reporting windows
+
+- Adding SOP command fields must preserve the fingerprint of legacy requests.
+  Absent optional fields and derived rule metadata do not change that identity.
+  The seeded proof-slot map is equivalent to the same legacy feed/water pair;
+  extra slots, changed refs, answers, and explicit removal choices still change
+  the fingerprint. Pre-SOP campaign fingerprints may contain normalized partition
+  labels and must be matched before applying the current planning rules.
+- CSV export accepts the same explicit date window as the Weights report,
+  including fixed-date and multi-year SOP defaults. It streams through the existing
+  repository timeout; inverted dates and unauthorized scope remain refused.
+- Regression coverage: `review274_legacy_fingerprint_test.go` covers pre-deploy
+  create/update/removal identities, database replay, and changed-request refusal;
+  `review274_export_window_test.go` covers the served report range and timeout
+  propagation.

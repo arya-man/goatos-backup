@@ -325,7 +325,7 @@ func (s *Service) CreateCampaign(ctx context.Context, actor domain.Actor, cmd do
 	// and find it BEFORE the current publish's rules judge the retry, because a mode withdrawn
 	// since would otherwise refuse the exact request that already succeeded (review finding).
 	cmd.RequestFingerprint = domain.RequestFingerprint(cmd)
-	if existing, ok, err := s.repo.CampaignByIdempotencyKey(ctx, cmd.TenantID, cmd.IdempotencyKey, cmd.RequestFingerprint); err != nil {
+	if existing, ok, err := s.repo.CampaignByIdempotencyKey(ctx, cmd); err != nil {
 		return domain.Campaign{}, err
 	} else if ok {
 		// Replay uses the current row, so authorize its current park, not the
@@ -2090,8 +2090,8 @@ func (s *Service) ExportCampaignCSV(ctx context.Context, actor domain.Actor, cam
 
 // ExportCSV exports the selected leadership weighing window as CSV.
 // The default is 36 inclusive business dates: today plus the previous 35 days.
-// The Weights page's download drawer sends an explicit range; anything up to a
-// year is served, because the export exists to reconcile past periods. parkID
+// The download drawer sends the report's explicit range, including SOP-authored
+// multi-year windows. The repository streams rows under its query timeout. parkID
 // optionally narrows to one authorized park; shedLocationIDs optionally narrow
 // to selected shed locations within that scope.
 func (s *Service) ExportCSV(ctx context.Context, actor domain.Actor, fromBusinessDate, toBusinessDate, parkID string, shedLocationIDs []string, sex, origin, weighingCategory string, writer io.Writer) error {
@@ -2108,7 +2108,7 @@ func (s *Service) ExportCSV(ctx context.Context, actor domain.Actor, fromBusines
 	if err != nil {
 		return ports.ErrInvalidArgument
 	}
-	if from.After(to) || to.Sub(from) > 366*24*time.Hour {
+	if from.After(to) {
 		return ports.ErrInvalidArgument
 	}
 

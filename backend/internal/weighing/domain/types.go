@@ -926,7 +926,7 @@ type CreateCampaign struct {
 	// `optional` removal mode: nil means "not said" (reads as ON, so an older APK that
 	// always sends the operator keeps its behaviour), false switches the precondition off
 	// for THIS task. Under `required` and `off` it is ignored -- the SOP decides.
-	FeedWaterRemovalRequested *bool
+	FeedWaterRemovalRequested *bool `json:",omitempty"`
 	// RequestFingerprint is the idempotency fingerprint of the CLIENT's request, taken by the
 	// service BEFORE the SOP rules normalize the command (stamp the version, default the cap,
 	// drop a removal operator the rules do not ask for). The store keys replay on it: a retry
@@ -936,10 +936,10 @@ type CreateCampaign struct {
 	RequestFingerprint string `json:"-"`
 	// SOPVersion is stamped by the service from the published rules at create; the
 	// repository stores it verbatim and never resolves it.
-	SOPVersion int
+	SOPVersion int `json:"-"`
 	// RemoveFasting is set by the service on an EDIT that switches the precondition off for
 	// a task that carries an unsubmitted removal round: the repository deletes the round.
-	RemoveFasting  bool
+	RemoveFasting  bool `json:"-"`
 	IdempotencyKey string
 	Sheds          []CreateCampaignShed
 	CreatedBy      string
@@ -1077,8 +1077,8 @@ type WeighingParkShed struct {
 }
 
 // RequestFingerprint hashes a create command as the client sent it. Server-stamped fields are
-// excluded by their json:"-" tags (SOPVersion is not: it is zero on the client's request and
-// zero here, because this runs before the rules stamp it).
+// excluded by their json:"-" tags. Optional additions are omitted when absent so a
+// legacy request keeps its pre-SOP fingerprint across a deployment.
 func RequestFingerprint(cmd CreateCampaign) string {
 	cmd.RequestFingerprint = ""
 	raw, _ := json.Marshal(cmd)

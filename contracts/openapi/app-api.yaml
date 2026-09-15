@@ -912,7 +912,7 @@ paths:
       description: >
         Streams a CSV attachment across the caller's WeighingMonitor park scope, optionally
         narrowed to one park and selected shed locations. The default window is today plus the
-        previous 35 business dates (36 inclusive dates); an explicit range up to 366 days is
+        previous 35 business dates (36 inclusive dates); an explicit report range (including SOP-authored multi-year windows) is
         served. Columns follow the operations Weight-check sheet, minus its video-link column:
         date, rfid, rfid_2, old_id, old_id_suffix, breed, gender, park, shed, type, count, operator,
         approval, verified_weight_kg. Pending video verification is included and reported in

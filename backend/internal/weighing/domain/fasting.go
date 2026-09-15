@@ -228,15 +228,15 @@ type SubmitFastingShed struct {
 	// Proofs is {slot key: proof ref}, validated against the task's pinned rules by the service
 	// (every compulsory slot present, no unknown slot, no ref twice) and by the store (each ref a
 	// completed in-app capture of the slot's kind, unused by a sibling shed, not a rejected clip).
-	Proofs RemovalProofRefs
+	Proofs RemovalProofRefs `json:",omitempty"`
 	// SlotKinds is {slot key: video | photo | either}, resolved by the service from the pinned
 	// rules for the store's type check. OrderedRefs is the same captures in slot order, what the
 	// verifier item is built from.
-	SlotKinds   map[string]string
-	OrderedRefs []string
+	SlotKinds   map[string]string `json:"-"`
+	OrderedRefs []string          `json:"-"`
 	// Answers to the SOP's authored removal questions, validated against the task's pinned
 	// rules by the service and stored on the shed's evidence row.
-	Answers        SOPAnswers
+	Answers        SOPAnswers `json:",omitempty"`
 	IdempotencyKey string
 	SubmittedBy    string
 }

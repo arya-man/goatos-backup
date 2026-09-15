@@ -256,7 +256,7 @@ type multiParkScenarioRepo struct {
 	closeScopeCalls []domain.CloseCommand
 }
 
-func (r *multiParkScenarioRepo) CampaignByIdempotencyKey(context.Context, string, string, string) (domain.Campaign, bool, error) {
+func (r *multiParkScenarioRepo) CampaignByIdempotencyKey(context.Context, domain.CreateCampaign) (domain.Campaign, bool, error) {
 	return domain.Campaign{}, false, nil
 }
 

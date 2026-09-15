@@ -123,8 +123,10 @@ WHERE NOT EXISTS (
 
 // CampaignByIdempotencyKey implements ports.Repository: an exact-fingerprint replay lookup, read
 // before the service applies the current publish's rules to a retry.
-func (r *Repository) CampaignByIdempotencyKey(ctx context.Context, tenantID, idempotencyKey, requestFingerprint string) (domain.Campaign, bool, error) {
-	if strings.TrimSpace(idempotencyKey) == "" || strings.TrimSpace(requestFingerprint) == "" {
+func (r *Repository) CampaignByIdempotencyKey(ctx context.Context, cmd domain.CreateCampaign) (domain.Campaign, bool, error) {
+	tenantID, idempotencyKey := cmd.TenantID, cmd.IdempotencyKey
+	requestFingerprint := domain.RequestFingerprint(cmd)
+	if strings.TrimSpace(idempotencyKey) == "" {
 		return domain.Campaign{}, false, nil
 	}
 	ctx, cancel := r.timeout(ctx)
@@ -135,8 +137,20 @@ func (r *Repository) CampaignByIdempotencyKey(ctx context.Context, tenantID, ide
 	}
 	defer tx.Rollback(ctx)
 	id, resourceType, _, ok, matched, err := r.idempotencyResourceLookup(ctx, tx, tenantID, "weighing.campaign_created", idempotencyKey, requestFingerprint)
-	if err != nil || !ok || !matched || resourceType != "weighing_campaign" {
+	if err != nil || !ok || resourceType != "weighing_campaign" {
 		return domain.Campaign{}, false, err
+	}
+	if !matched {
+		// Pre-SOP creates stored the partition-hydrated command. Resolve that
+		// legacy shape before today's rules can reject an already accepted plan.
+		cmd.Sheds, err = r.hydrateCreateCampaignShedPartitions(ctx, tx, tenantID, cmd.Sheds)
+		if err != nil {
+			return domain.Campaign{}, false, err
+		}
+		_, _, _, _, matched, err = r.idempotencyResourceLookup(ctx, tx, tenantID, "weighing.campaign_created", idempotencyKey, domain.RequestFingerprint(cmd))
+		if err != nil || !matched {
+			return domain.Campaign{}, false, err
+		}
 	}
 	c, err := r.getCampaignTx(ctx, tx, tenantID, id)
 	if err != nil {
@@ -4432,6 +4446,17 @@ func idempotencyFingerprint(payload any) string {
 	// task it created rather than conflicting on server-side stamps (PR #274 review, finding 2).
 	if cmd, ok := payload.(domain.CreateCampaign); ok && cmd.RequestFingerprint != "" {
 		return cmd.RequestFingerprint
+	}
+	// The service maps the old feed/water pair onto SOP slots. That derived
+	// map is not a new request: preserve the original hash only for exactly
+	// those two refs. Extra slots and answers must still conflict on replay.
+	if cmd, ok := payload.(domain.SubmitFastingShed); ok {
+		if len(cmd.Proofs) == 2 && cmd.FeedProofRef != "" && cmd.WaterProofRef != "" &&
+			cmd.Proofs[domain.RemovalProofFeed] == cmd.FeedProofRef &&
+			cmd.Proofs[domain.RemovalProofWater] == cmd.WaterProofRef {
+			cmd.Proofs = nil
+		}
+		payload = cmd
 	}
 	raw, _ := json.Marshal(payload)
 	sum := sha256.Sum256(raw)

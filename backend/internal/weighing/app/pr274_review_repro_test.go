@@ -16,7 +16,7 @@ type reviewReplayRepo struct {
 	saved domain.Campaign
 }
 
-func (r *reviewReplayRepo) CampaignByIdempotencyKey(context.Context, string, string, string) (domain.Campaign, bool, error) {
+func (r *reviewReplayRepo) CampaignByIdempotencyKey(context.Context, domain.CreateCampaign) (domain.Campaign, bool, error) {
 	return r.saved, true, nil
 }
 
