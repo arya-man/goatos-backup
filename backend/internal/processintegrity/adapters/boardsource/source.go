@@ -136,6 +136,11 @@ type Counter interface {
 	CountByWorkState(ctx context.Context, q pidomain.Query) ([]pidomain.CountByWorkState, error)
 }
 
+// LiveCounter prevents a cached aggregate from pruning newly moved board rows.
+type LiveCounter interface {
+	CountByWorkStateLive(ctx context.Context, q pidomain.Query) ([]pidomain.CountByWorkState, error)
+}
+
 // MemberResolver answers "which workforce member is this user" for the owner lens. The
 // wrapped read keys its operator by workforce_member_id, the board scopes by user id, and
 // workforce_members is the one org table that joins the two.
@@ -241,7 +246,11 @@ func (s *Source) countByState(ctx context.Context, q ports.SourceQuery) (map[dom
 	}
 	ctx, cancel := context.WithTimeout(ctx, s.readBudget())
 	defer cancel()
-	counts, err := s.counter.CountByWorkState(ctx, processIntegrityQuery(q, dayStart, s.now()))
+	countRows := s.counter.CountByWorkState
+	if live, ok := s.counter.(LiveCounter); ok {
+		countRows = live.CountByWorkStateLive
+	}
+	counts, err := countRows(ctx, processIntegrityQuery(q, dayStart, s.now()))
 	if err != nil {
 		return nil, fmt.Errorf("vaccination boardsource count: %w", err)
 	}

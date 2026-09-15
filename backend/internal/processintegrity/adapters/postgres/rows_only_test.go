@@ -64,6 +64,13 @@ func TestListRowsOnlyPreservesCanonicalPaginationWithoutPoisoningSummary(t *test
 }
 
 func TestCanonicalBatchRepresentativeIsStableWhenTimestampsTie(t *testing.T) {
+	for _, prefix := range []string{"located.task_id::text", "located.task_row_version"} {
+		want := "ARRAY_AGG(" + prefix + " ORDER BY located.execution_due_at DESC NULLS LAST, located.due_at DESC NULLS LAST, located.task_id DESC NULLS LAST)"
+		if !strings.Contains(processIntegrityCanonicalRowsSQL, want) {
+			t.Fatalf("unstable task representative for %s", prefix)
+		}
+	}
+
 	// IDs, states and proof refs must choose the same submission when batch imports
 	// give many animals equal timestamps. Otherwise changing a valid query plan
 	// changes which proof the same board row opens.
@@ -78,5 +85,38 @@ func TestCanonicalBatchRepresentativeIsStableWhenTimestampsTie(t *testing.T) {
 		if !strings.Contains(processIntegrityCanonicalRowsSQL, want) {
 			t.Fatalf("unstable completion representative for %s", prefix)
 		}
+	}
+}
+
+func TestLiveCountsIgnoreCachedStateAfterCanonicalMutation(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedProcessIntegrityProjection(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+	category := "vaccination"
+	q := domain.Query{TenantID: piTenant, Category: &category, AsOf: time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC), DueBefore: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC), Limit: 10}
+	before, err := repo.CountByWorkState(ctx, q)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(before) == 0 {
+		t.Fatal("fixture must populate count cache")
+	}
+	execPI(t, ctx, pool, "cancel fixture work", `UPDATE obligation_instances SET status='canceled' WHERE tenant_id=$1`, piTenant)
+	stale, err := repo.CountByWorkState(ctx, q)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(stale, before) {
+		t.Fatal("test did not retain a stale cache entry")
+	}
+	live, err := repo.CountByWorkStateLive(ctx, q)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(live) != 0 {
+		t.Fatalf("live board aggregate retained canceled work: %v", live)
 	}
 }

@@ -227,6 +227,17 @@ func (r *Repository) ListRowsOnly(ctx context.Context, q domain.Query) (domain.L
 	return domain.ListResult{Rows: rows, NextCursor: next, Projection: canonicalProjectionMetadata(q)}, nil
 }
 
+// CountByWorkStateLive is the uncached companion to ListRowsOnly. Work Board
+// uses this aggregate to decide which lane reads can be skipped, so a cached
+// zero must never conceal work that moved into a lane after a write.
+func (r *Repository) CountByWorkStateLive(ctx context.Context, q domain.Query) ([]domain.CountByWorkState, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	q = normalizeQuery(q)
+	counts, _, err := r.countByWorkStateCanonical(ctx, countQueryArgs(queryArgs(q)))
+	return counts, err
+}
+
 func (r *Repository) CountByWorkState(ctx context.Context, q domain.Query) ([]domain.CountByWorkState, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
@@ -1187,8 +1198,8 @@ grouped AS (
     located.protocol_name,
     located.dose_code,
     MIN(located.obligation_id::text) AS obligation_id,
-    (ARRAY_AGG(located.task_id::text ORDER BY located.execution_due_at DESC NULLS LAST, located.due_at DESC NULLS LAST) FILTER (WHERE located.task_id IS NOT NULL))[1] AS task_id,
-    (ARRAY_AGG(located.task_row_version ORDER BY located.execution_due_at DESC NULLS LAST, located.due_at DESC NULLS LAST) FILTER (WHERE located.task_id IS NOT NULL))[1] AS task_row_version,
+    (ARRAY_AGG(located.task_id::text ORDER BY located.execution_due_at DESC NULLS LAST, located.due_at DESC NULLS LAST, located.task_id DESC NULLS LAST) FILTER (WHERE located.task_id IS NOT NULL))[1] AS task_id,
+    (ARRAY_AGG(located.task_row_version ORDER BY located.execution_due_at DESC NULLS LAST, located.due_at DESC NULLS LAST, located.task_id DESC NULLS LAST) FILTER (WHERE located.task_id IS NOT NULL))[1] AS task_row_version,
     -- Equal timestamps are common for batch imports. Stable IDs keep the chosen
     -- submission/proof and completion consistent across equivalent query plans.
     (ARRAY_AGG(located.submission_id::text ORDER BY located.submitted_at DESC NULLS LAST, located.submission_id DESC NULLS LAST) FILTER (WHERE located.submission_id IS NOT NULL))[1] AS submission_id,

@@ -1,4 +1,4 @@
-import { processIdentity } from "./lib/local-stack-receipt.mjs";
+import { processIdentity, validateBuildProvenance } from "./lib/local-stack-receipt.mjs";
 import { execFileSync, spawn } from "node:child_process";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -50,6 +50,16 @@ if (mode === "dev") {
   nextArgs.push("--webpack");
 }
 
+let buildProvenance = null;
+if (process.env.GOATOS_LOCAL_STACK_RECEIPT_FILE && mode === "start") {
+  const appRoot = path.join(repoRoot, "apps/admin-web");
+  buildProvenance = validateBuildProvenance(
+    JSON.parse(fs.readFileSync(path.join(appRoot, ".next/local-build-provenance.json"), "utf8")),
+    fs.readFileSync(path.join(appRoot, ".next/BUILD_ID"), "utf8").trim(),
+    execFileSync("git", ["-C", repoRoot, "rev-parse", "HEAD"], { encoding: "utf8" }).trim(),
+  );
+}
+
 const child = spawn("next", nextArgs, {
   stdio: "inherit",
   env: { ...childEnv, HOSTNAME: host, PORT: String(port) },
@@ -59,6 +69,7 @@ const receiptPath = process.env.GOATOS_LOCAL_STACK_RECEIPT_FILE;
 if (receiptPath) {
   child.once("spawn", () => {
     const receipt = {
+      build_provenance: buildProvenance, mode,
       schema_version: 1, pid: child.pid, process_identity: processIdentity(child.pid),
       git_sha: execFileSync("git", ["-C", repoRoot, "rev-parse", "HEAD"], { encoding: "utf8" }).trim(),
       api_base_url: childEnv.GOATOS_API_BASE_URL.replace(/\/+$/, ""),

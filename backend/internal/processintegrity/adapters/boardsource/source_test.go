@@ -424,3 +424,35 @@ func TestBoardWalkUsesRowsOnlyWithoutChangingRowsOrCursor(t *testing.T) {
 		t.Fatalf("rows-only walk changed rows: got=%+v want=%+v", got, want)
 	}
 }
+
+type liveCountFake struct {
+	*fakeLister
+	cachedCalls, liveCalls int
+	state                  pidomain.WorkState
+}
+
+func (f *liveCountFake) CountByWorkState(context.Context, pidomain.Query) ([]pidomain.CountByWorkState, error) {
+	f.cachedCalls++
+	return []pidomain.CountByWorkState{{WorkState: pidomain.WorkStateDue, Count: 1}}, nil
+}
+func (f *liveCountFake) CountByWorkStateLive(context.Context, pidomain.Query) ([]pidomain.CountByWorkState, error) {
+	f.liveCalls++
+	return []pidomain.CountByWorkState{{WorkState: f.state, Count: 1}}, nil
+}
+func TestBoardSummarySeesLaneTransitionWithoutCachedZero(t *testing.T) {
+	f := &liveCountFake{fakeLister: fixture(), state: pidomain.WorkStateDue}
+	s := New(f)
+	q := ports.SourceQuery{TenantID: vsTenant, ParkID: vsPark, BusinessDate: vsDate}
+	before, err := s.CountByState(context.Background(), q)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.state = pidomain.WorkStateCompleted
+	after, err := s.CountByState(context.Background(), q)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if before[domain.WorkStateDue] != 1 || after[domain.WorkStateCompleted] != 1 || after[domain.WorkStateDue] != 0 || f.cachedCalls != 0 || f.liveCalls != 2 {
+		t.Fatalf("transition hidden: before=%v after=%v cached=%d live=%d", before, after, f.cachedCalls, f.liveCalls)
+	}
+}

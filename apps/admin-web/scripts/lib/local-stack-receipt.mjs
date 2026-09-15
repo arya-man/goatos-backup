@@ -11,7 +11,15 @@ export function validateLocalStackReceipt(receipt, expected, identity = processI
   for (const key of ['git_sha', 'api_base_url', 'admin_web_base_url']) {
     if (!receipt[key] || receipt[key] !== expected[key]) throw new Error(`Local stack receipt ${key} mismatch`);
   }
+  if (receipt.mode === 'start') validateBuildProvenance(receipt.build_provenance, receipt.build_provenance?.build_id, expected.git_sha);
   if (!receipt.created_at || !Number.isFinite(Date.parse(receipt.created_at))) throw new Error('Missing launch timestamp');
   if (!receipt.process_identity || identity(receipt.pid) !== receipt.process_identity) throw new Error('Local stack process stopped or PID was reused');
   return receipt;
+}
+
+export function validateBuildProvenance(provenance, buildId, sha) {
+  if (!provenance || !buildId || provenance.build_id !== buildId || provenance.git_sha !== sha) {
+    throw new Error('Admin-web .next build does not match current HEAD; run npm run build before certification');
+  }
+  return provenance;
 }

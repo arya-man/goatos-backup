@@ -402,6 +402,9 @@ writeFileSync(
     2,
   ),
 );
+const finalApiVersion = await fetchSmokeJson(`${apiBaseUrl}/version`, bearerToken, tenantId, "Final API build identity");
+if (finalApiVersion.build_sha !== observedApiVersion.build_sha) throw new Error("API build changed during browser E2E");
+browserEvidence.api_build_sha_end = finalApiVersion.build_sha;
 if (launchReceipt) validateLocalStackReceipt(launchReceipt, {
   git_sha: observedApiVersion.build_sha, api_base_url: apiBaseUrl, admin_web_base_url: appBaseUrl,
 });
