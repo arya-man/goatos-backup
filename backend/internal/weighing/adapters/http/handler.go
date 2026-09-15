@@ -444,7 +444,9 @@ func (h *Handler) UpdateCampaign(w http.ResponseWriter, r *http.Request) {
 // split removes. The many-side page is PlannerParkBuckets.
 func (h *Handler) PlannerCatalog(w http.ResponseWriter, r *http.Request) {
 	catalog, err := h.service.PlannerCatalog(r.Context(), actor(r), r.URL.Query().Get("period_start_date"))
-	h.respond(w, r, map[string]any{"parks": catalog.Parks, "operators": catalog.Operators, "trace_id": traceID(r)}, err)
+	// "sop" is the PUBLISHED weighing SOP rule set a task planned now is stamped with (WEIGHING
+	// SOP, 2026-09-15); the wizard renders its modes, cap and removal mode from it.
+	h.respond(w, r, map[string]any{"parks": catalog.Parks, "operators": catalog.Operators, "sop": catalog.SOP, "trace_id": traceID(r)}, err)
 }
 
 func (h *Handler) PlannerParkBuckets(w http.ResponseWriter, r *http.Request) {

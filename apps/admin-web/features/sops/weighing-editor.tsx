@@ -245,10 +245,12 @@ export function WeighingEditor({ pageContract: pc, basePath, sopId, sopName, sop
         <div className="bd">
           <div className="qcfg">
             <label className="chkline" title={copy(pc, "wsop.capture.individual.locked")}>
-              <input type="checkbox" checked={rows.individualVideoRequired} disabled /> {copy(pc, "wsop.capture.individual.video")}
-              <span className="muted small">
-                {" "}
-                <Lock className="ic" style={{ width: 12 }} /> {copy(pc, "wsop.capture.individual.locked_short")}
+              <input type="checkbox" checked={rows.individualVideoRequired} disabled />
+              <span>
+                {copy(pc, "wsop.capture.individual.video")}{" "}
+                <span className="muted small">
+                  <Lock className="ic" style={{ width: 12 }} /> {copy(pc, "wsop.capture.individual.locked_short")}
+                </span>
               </span>
             </label>
             <div className="rowf" style={{ marginTop: 8 }}>
