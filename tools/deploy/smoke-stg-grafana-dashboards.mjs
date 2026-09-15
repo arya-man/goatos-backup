@@ -67,12 +67,13 @@ function serviceUrl({ project, region, service }) {
 }
 
 function identityToken(audience, serviceAccount = "") {
+  const activeAccount = shellOut("gcloud", ["config", "get-value", "account"]);
   const args = [
     "auth",
     "print-identity-token",
     `--audiences=${audience}`,
   ];
-  if (serviceAccount) args.push(`--impersonate-service-account=${serviceAccount}`);
+  if (serviceAccount && serviceAccount !== activeAccount) args.push(`--impersonate-service-account=${serviceAccount}`);
   return shellOut("gcloud", args);
 }
 
