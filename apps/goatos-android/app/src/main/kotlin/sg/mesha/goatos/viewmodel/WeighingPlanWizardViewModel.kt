@@ -127,6 +127,13 @@ class WeighingPlanWizardViewModel @Inject constructor(
             // published rules below.
             sop = repeatSeed?.sop?.takeIf { editCampaignId != null },
             sopPinned = editCampaignId != null && repeatSeed?.sop != null,
+            // An EDIT opens on the task's OWN choice: a task that carries a removal round (it
+            // has a removal operator) keeps it, one that does not stays without. Under
+            // `optional` the toggle would otherwise open ON for every edit and -- worse -- read
+            // as OFF once the evening had passed, so saving an unchanged task deleted its round
+            // (PR #274 review round 2, finding 1).
+            removalRequested = if (editCampaignId != null) !repeatSeed?.fastingOperatorUserId.isNullOrBlank() else true,
+            editHadRemoval = editCampaignId != null && !repeatSeed?.fastingOperatorUserId.isNullOrBlank(),
             // The MAINTAINER DECISION: an edit must never be able to change the task's date or
             // park, so neither step is just pre-filled -- both are UNREACHABLE. An edit opens
             // straight on BUCKETS -- the first step that can still change -- and [back] refuses to
@@ -936,6 +943,12 @@ private data class WizardRaw(
     /** The planner's toggle under the SOP's `optional` removal mode; on by default. */
     val removalRequested: Boolean = true,
     /**
+     * An EDIT of a task that already carries its removal round. The create cutoff does not
+     * apply to a round that exists (the backend keeps it on an unchanged date, whatever the
+     * clock says), so the toggle stays live and ON rather than forced off "too late".
+     */
+    val editHadRemoval: Boolean = false,
+    /**
      * True when the route named a task this wizard should have opened FROM, but the in-process
      * seed that would say what it was is gone (process death). See [WeighingPlanWizardViewModel.seedLost].
      * Blocks [canContinue] and [WeighingPlanWizardViewModel.commit] outright rather than letting
@@ -1113,8 +1126,13 @@ private fun WizardRaw.firstOfferedDate(): LocalDate {
 private fun WizardRaw.effectiveCutoff(): java.time.LocalTime? =
     parseFeedWaterRemovalCutoff(sop?.removalCutoffTime?.takeIf { it.isNotBlank() }) ?: removalCutoff
 
-/** Whether the chosen date still has a removal evening ahead of it (the create cutoff). */
+/**
+ * Whether the chosen date still has a removal evening ahead of it (the create cutoff). A task
+ * edited WITH its existing round is never "too late": the round is already planned for that
+ * evening and the backend keeps it on an unchanged date.
+ */
 private fun WizardRaw.removalPossibleForDate(): Boolean {
+    if (editHadRemoval) return true
     // exception:exempt date validation; an unparseable date reads as "no date chosen yet"
     val selected = date?.let { runCatching { LocalDate.parse(it, ISO_DATE) }.getOrNull() } ?: return true
     return !selected.isBefore(earliestPlannableDateWithFeedRemoval(java.time.ZonedDateTime.now(INDIA_BUSINESS_ZONE), effectiveCutoff()))

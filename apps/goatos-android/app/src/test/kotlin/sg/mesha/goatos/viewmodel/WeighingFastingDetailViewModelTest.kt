@@ -688,4 +688,55 @@ class WeighingFastingDetailViewModelSlotsTest {
         assertEquals("the server's recorded kind picks the player, not the video default", "photo", gate.capturedKind)
         assertEquals("video", vm.state.value.slots.first { it.slotKey == "feed_video" }.capturedKind)
     }
+
+    /**
+     * PR #274 review round 2, finding 3: after process death the constructor knows only the seeded
+     * two slots. An AUTHORED slot whose capture is still in the outbox arrives with the card from
+     * Room; its upload must keep reporting -- here a later failure -- on the card.
+     */
+    @org.junit.Test
+    fun `an authored slot's upload keeps reporting after process death`() = kotlinx.coroutines.test.runTest(dispatcher) {
+        val sync = RecordingFastingSyncRepository()
+        val fastingRepository = FakeWeighingFastingRepository()
+        val vm = WeighingFastingDetailViewModel(
+            fastingRepository = fastingRepository,
+            proofCaptureRepository = FakeProofCaptureRepository(),
+            proofCaptureSource = FakeProofCaptureSource(mutableListOf()),
+            photoCaptureSource = sg.mesha.goatos.capture.FakePhotoCaptureSource(mutableListOf()),
+            syncRepository = sync,
+            analytics = NoopAnalytics(),
+            crashReporter = NoopCrashReporter(),
+            appContext = ApplicationProvider.getApplicationContext(),
+            // The persisted draft of a custom "gate" slot survived process death; the seeded
+            // slots were never captured.
+            savedStateHandle = SavedStateHandle(
+                mapOf(
+                    Routes.WEIGHING_FASTING_TASK_ARG to "task-1",
+                    Routes.WEIGHING_FASTING_SHED_ARG to "shed-b",
+                    "weighing_fasting_proof_item_id:shed-b:gate" to "proof-outbox-gate",
+                ),
+            ),
+        )
+        advanceUntilIdle()
+        fastingRepository.cardFlow.value = WeighingFastingCard(
+            WeighingFastingShedCardDto(
+                fastingTaskId = "task-1", campaignShedId = "shed-b", shedLabel = "Castro 2",
+                subjectLabel = "Remove feed & water · Castro 2", status = "open", removalBusinessDate = "2026-09-03",
+                proofs = listOf(slot("feed_video", "video", true, "Feed removed"), slot("gate", "either", false, "Gate closed")),
+            ),
+        )
+        advanceUntilIdle()
+        assertTrue("the persisted capture is on the card", vm.state.value.slots.first { it.slotKey == "gate" }.captured)
+        sync.emitItem(
+            SyncQueueItem(
+                id = "proof-outbox-gate", idempotencyKey = "proof-upload-gate", opType = "PROOF_UPLOAD",
+                groupKey = "weighing-fasting:task-1:shed-b:gate", status = SyncItemStatus.FAILED,
+                attemptCount = 5, maxAttempts = 5, conflict = false, createdAt = 1L, updatedAt = 2L, lastError = "upload_403",
+            ),
+        )
+        advanceUntilIdle()
+        val gate = vm.state.value.slots.first { it.slotKey == "gate" }
+        assertEquals("the later failure reaches the authored slot", sg.mesha.goatos.feature.weighing.WeighingFastingSlotStatus.FAILED, gate.status)
+        assertEquals("upload_403", gate.statusLabel)
+    }
 }

@@ -121,6 +121,30 @@ WHERE NOT EXISTS (
 	return rows.Err()
 }
 
+// CampaignByIdempotencyKey implements ports.Repository: an exact-fingerprint replay lookup, read
+// before the service applies the current publish's rules to a retry.
+func (r *Repository) CampaignByIdempotencyKey(ctx context.Context, tenantID, idempotencyKey, requestFingerprint string) (domain.Campaign, bool, error) {
+	if strings.TrimSpace(idempotencyKey) == "" || strings.TrimSpace(requestFingerprint) == "" {
+		return domain.Campaign{}, false, nil
+	}
+	ctx, cancel := r.timeout(ctx)
+	defer cancel()
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{AccessMode: pgx.ReadOnly})
+	if err != nil {
+		return domain.Campaign{}, false, err
+	}
+	defer tx.Rollback(ctx)
+	id, resourceType, _, ok, matched, err := r.idempotencyResourceLookup(ctx, tx, tenantID, "weighing.campaign_created", idempotencyKey, requestFingerprint)
+	if err != nil || !ok || !matched || resourceType != "weighing_campaign" {
+		return domain.Campaign{}, false, err
+	}
+	c, err := r.getCampaignTx(ctx, tx, tenantID, id)
+	if err != nil {
+		return domain.Campaign{}, false, err
+	}
+	return c, true, nil
+}
+
 func (r *Repository) CreateCampaign(ctx context.Context, cmd domain.CreateCampaign) (domain.Campaign, error) {
 	ctx, cancel := r.timeout(ctx)
 	defer cancel()

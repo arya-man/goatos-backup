@@ -307,8 +307,15 @@ func (s *Service) CreateCampaign(ctx context.Context, actor domain.Actor, cmd do
 		return domain.Campaign{}, err
 	}
 	// The replay identity is the CLIENT's request, fixed here before any rule stamps it: a
-	// retry of an identical request after a later publish must find the task it created.
+	// retry of an identical request after a later publish must find the task it created --
+	// and find it BEFORE the current publish's rules judge the retry, because a mode withdrawn
+	// since would otherwise refuse the exact request that already succeeded (review finding).
 	cmd.RequestFingerprint = domain.RequestFingerprint(cmd)
+	if existing, ok, err := s.repo.CampaignByIdempotencyKey(ctx, cmd.TenantID, cmd.IdempotencyKey, cmd.RequestFingerprint); err != nil {
+		return domain.Campaign{}, err
+	} else if ok {
+		return existing, nil
+	}
 	// WEIGHING SOP (maintainer decision 2026-09-15): the task is planned on the PUBLISHED
 	// rules and stamped with their version. They decide the capture modes offered, the
 	// default cap and whether this task carries the feed & water removal precondition.

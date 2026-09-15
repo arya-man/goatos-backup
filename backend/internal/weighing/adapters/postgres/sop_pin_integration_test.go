@@ -146,6 +146,14 @@ func TestCreateCampaignReplaysAfterALaterPublishMovedTheStamps(t *testing.T) {
 	if replayed.CampaignID != created.CampaignID || replayed.SOPVersion != 3 || replayed.PlannedCapPerDay != 100 {
 		t.Fatalf("replay = %s v%d cap %d, want the FIRST task %s v3 cap 100", replayed.CampaignID, replayed.SOPVersion, replayed.PlannedCapPerDay, created.CampaignID)
 	}
+	// The pre-rules replay lookup the service asks first: exact fingerprint -> the task; a
+	// different fingerprint or key -> nothing (never a conflict; the create decides that).
+	if found, ok, err := repo.CampaignByIdempotencyKey(ctx, repoTenant, client.IdempotencyKey, fingerprint); err != nil || !ok || found.CampaignID != created.CampaignID {
+		t.Fatalf("replay lookup = %v ok %v err %v, want the created task", found.CampaignID, ok, err)
+	}
+	if _, ok, err := repo.CampaignByIdempotencyKey(ctx, repoTenant, client.IdempotencyKey, "not-that-request"); err != nil || ok {
+		t.Fatalf("replay lookup with another fingerprint: ok %v err %v, want not found", ok, err)
+	}
 	changed := client
 	changed.PeriodEndDate = "2026-11-09"
 	changed.RequestFingerprint, changed.SOPVersion, changed.PlannedCapPerDay = domain.RequestFingerprint(changed), 4, 250

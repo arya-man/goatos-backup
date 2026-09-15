@@ -519,8 +519,12 @@ class WeighingPlanWizardEditHydrationTest {
             return AppResult.Ok("campaign-new")
         }
 
-        override suspend fun updatePlan(campaignId: String, draft: WeighingPlanDraft): AppResult<WeighingAssignment?> =
-            AppResult.Ok(null)
+        var lastUpdateDraft: WeighingPlanDraft? = null
+
+        override suspend fun updatePlan(campaignId: String, draft: WeighingPlanDraft): AppResult<WeighingAssignment?> {
+            lastUpdateDraft = draft
+            return AppResult.Ok(null)
+        }
 
         override suspend fun publishCampaign(campaignId: String): AppResult<Unit> = AppResult.Ok(Unit)
 

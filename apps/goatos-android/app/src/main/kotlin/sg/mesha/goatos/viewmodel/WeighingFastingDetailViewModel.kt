@@ -190,6 +190,11 @@ class WeighingFastingDetailViewModel @Inject constructor(
                 // The SOP's slot list for this task; an older server sends none and the seeded
                 // two stand.
                 slotDtos = dto.proofs.ifEmpty { seededSlotDtos() }
+                // After process death the constructor knew only the seeded two; an AUTHORED slot
+                // whose capture is still in the outbox arrives only now, so its upload observer is
+                // (re)connected here or its later success/failure would never reach the card
+                // (PR #274 review round 2, finding 3).
+                reconnectSlotObservers()
                 _state.update { current ->
                     current.copy(
                         title = dto.subjectLabel.ifBlank { current.title },
@@ -683,6 +688,15 @@ class WeighingFastingDetailViewModel @Inject constructor(
                     _state.update { it.copy(message = result.message) }
                 }
             }
+        }
+    }
+
+    /** Observe every slot that has a persisted outbox item but no live observer yet. */
+    private fun reconnectSlotObservers() {
+        slotDtos.forEach { slot ->
+            val itemId = slotItemId(slot.key) ?: return@forEach
+            val live = proofJobs[slot.key]?.isActive == true
+            if (!live) observeProofItem(slot.key, itemId)
         }
     }
 

@@ -1,6 +1,9 @@
 package sg.mesha.goatos.viewmodel
 
 import androidx.lifecycle.SavedStateHandle
+import sg.mesha.goatos.ui.Routes
+import sg.mesha.goatos.feature.weighing.plan.WeighingRepeatBucket
+import sg.mesha.goatos.feature.weighing.plan.WeighingRepeatSeed
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.launch
@@ -172,5 +175,69 @@ class WeighingPlanWizardSopRulesTest {
         vm.setBucketCategory(vm.state.value.configRows.single().locationId, "per_shed_partition")
         advanceUntilIdle()
         assertEquals("individual_animal", vm.state.value.configRows.single().category)
+    }
+
+    /**
+     * PR #274 review round 2, finding 1: an EDIT under `optional` opens on the task's OWN choice.
+     * A task that carries its removal round (it has a removal operator) keeps it even when the
+     * evening is already gone -- the round exists, the backend keeps it on an unchanged date --
+     * so saving the unchanged task sends the removal ON with its operator, never a delete.
+     * A task planned WITHOUT the removal opens with the toggle off.
+     */
+    @Test
+    fun `an edit keeps the task's own removal choice, even past the evening`() = runTest(dispatcher) {
+        val yesterday = LocalDate.now(ZoneId.of("Asia/Kolkata")).minusDays(1).toString()
+        val withRound = WeighingPlanWizardEditHydrationTest.RaceReproducingWeighingRepository().apply { plannerSop = rules("optional") }
+        val seeds = WeighingRepeatSeedStore()
+        seeds.stage(
+            sourceCampaignId = "campaign-cbe",
+            seed = WeighingRepeatSeed(
+                parkId = "park-cbe", parkName = "CBE", sourceDateLabel = "yesterday",
+                buckets = listOf(WeighingRepeatBucket("loc-yashoda-1", "individual_animal", "user-pramod")),
+                editCampaignId = "campaign-cbe", editWeighDate = yesterday,
+                fastingOperatorUserId = "user-dinakar", sop = rules("optional"),
+            ),
+        )
+        val vm = WeighingPlanWizardViewModel(
+            repository = withRound, repeatSeedStore = seeds, analytics = NoopAnalytics(), crashReporter = NoopCrashReporter(),
+            bootstrapRepository = FakeCutoffBootstrapRepository(),
+            savedStateHandle = SavedStateHandle(mapOf(Routes.WEIGHING_REPEAT_OF_ARG to "campaign-cbe")),
+        )
+        backgroundScope.launch(dispatcher) { vm.state.collect {} }
+        advanceUntilIdle()
+        withRound.catalogRefreshGate.complete(Unit)
+        advanceUntilIdle()
+        assertTrue("the existing round is never 'too late'", vm.state.value.removalPossible)
+        assertTrue("the task's own choice opens ON", vm.state.value.removalApplies)
+        vm.commit(publish = false)
+        advanceUntilIdle()
+        assertEquals("user-dinakar", withRound.lastUpdateDraft?.fastingOperatorUserId)
+        assertEquals(true, withRound.lastUpdateDraft?.feedWaterRemovalRequested)
+
+        val without = WeighingPlanWizardEditHydrationTest.RaceReproducingWeighingRepository().apply { plannerSop = rules("optional") }
+        val seeds2 = WeighingRepeatSeedStore()
+        seeds2.stage(
+            sourceCampaignId = "campaign-cpt",
+            seed = WeighingRepeatSeed(
+                parkId = "park-cbe", parkName = "CBE", sourceDateLabel = "later",
+                buckets = listOf(WeighingRepeatBucket("loc-yashoda-1", "individual_animal", "user-pramod")),
+                editCampaignId = "campaign-cpt", editWeighDate = LocalDate.now(ZoneId.of("Asia/Kolkata")).plusDays(3).toString(),
+                fastingOperatorUserId = null, sop = rules("optional"),
+            ),
+        )
+        val vm2 = WeighingPlanWizardViewModel(
+            repository = without, repeatSeedStore = seeds2, analytics = NoopAnalytics(), crashReporter = NoopCrashReporter(),
+            bootstrapRepository = FakeCutoffBootstrapRepository(),
+            savedStateHandle = SavedStateHandle(mapOf(Routes.WEIGHING_REPEAT_OF_ARG to "campaign-cpt")),
+        )
+        backgroundScope.launch(dispatcher) { vm2.state.collect {} }
+        advanceUntilIdle()
+        without.catalogRefreshGate.complete(Unit)
+        advanceUntilIdle()
+        assertEquals("a task planned without the removal opens with the toggle off", false, vm2.state.value.removalApplies)
+        vm2.commit(publish = false)
+        advanceUntilIdle()
+        assertEquals(false, without.lastUpdateDraft?.feedWaterRemovalRequested)
+        assertEquals("", without.lastUpdateDraft?.fastingOperatorUserId)
     }
 }

@@ -576,3 +576,40 @@ func TestCreateCampaignReplayIdentityIsTheClientsRequestNotTheStampedCommand(t *
 		t.Fatal("a DIFFERENT client request must not share the replay identity")
 	}
 }
+
+// PR #274 review round 2, finding 2: the create succeeded, the response was lost, and a later
+// publish WITHDREW the way of weighing the task used. The identical retry must replay the task
+// it created; the current publish's rules must not judge a request that already succeeded.
+func TestCreateCampaignReplaysBeforeTheCurrentPublishJudgesTheRetry(t *testing.T) {
+	ceo := domain.Actor{TenantID: testTenant, UserID: testActor, Roles: []string{permissions.RoleCEOInternal}}
+	raw := validCreate()
+	raw.IdempotencyKey = "lost-response-retry"
+	created := domain.Campaign{CampaignID: "00000000-0000-4000-8000-000000000777", SOPVersion: 3}
+	// The service fingerprints the request AFTER stamping the actor's tenant and identity.
+	asSeen := raw
+	asSeen.TenantID, asSeen.CreatedBy = ceo.TenantID, ceo.UserID
+	repo := &capturingRepo{}
+	repo.replays = map[string]domain.Campaign{raw.IdempotencyKey + "|" + domain.RequestFingerprint(asSeen): created}
+
+	withdrawn := rulesWithMode(4, domain.RemovalModeRequired)
+	withdrawn.Rules.Planning.Modes = []string{domain.CategoryPerShedPartition}
+	for _, shed := range raw.Sheds {
+		if withdrawn.Rules.ModeAllowed(shed.WeighingCategory) {
+			t.Fatalf("test premise: the retry's mode %q must be one the later publish withdrew", shed.WeighingCategory)
+		}
+	}
+	service := NewService(repo).WithClock(todayClock()).WithSOPRules(withdrawn, pinnedVersion(0))
+	got, err := service.CreateCampaign(context.Background(), ceo, raw)
+	if err != nil {
+		t.Fatalf("identical retry after the mode was withdrawn: err = %v, want the created task replayed", err)
+	}
+	if got.CampaignID != created.CampaignID || repo.created.IdempotencyKey == raw.IdempotencyKey {
+		t.Fatalf("replay = %+v (store reached: %v), want the task created earlier and no new create", got, repo.created.IdempotencyKey != "")
+	}
+	// A genuinely NEW request under the withdrawn mode is still refused.
+	fresh := raw
+	fresh.IdempotencyKey = "brand-new"
+	if _, err := service.CreateCampaign(context.Background(), ceo, fresh); !errors.Is(err, ports.ErrModeNotAllowed) {
+		t.Fatalf("new request under a withdrawn mode: err = %v, want ErrModeNotAllowed", err)
+	}
+}

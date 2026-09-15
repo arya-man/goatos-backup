@@ -207,6 +207,10 @@ func (r *parkScopeCheckRepo) CampaignParkID(ctx context.Context, tenantID, campa
 	return r.campaignParkID, nil
 }
 
+func (r *parkScopeCheckRepo) CampaignByIdempotencyKey(context.Context, string, string, string) (domain.Campaign, bool, error) {
+	return domain.Campaign{}, false, nil
+}
+
 func (r *parkScopeCheckRepo) CreateCampaign(ctx context.Context, cmd domain.CreateCampaign) (domain.Campaign, error) {
 	return domain.Campaign{}, nil
 }
