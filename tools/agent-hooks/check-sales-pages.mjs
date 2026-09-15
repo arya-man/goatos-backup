@@ -96,9 +96,9 @@ export function boardRetiredFailures({ boardExists, boardRoute, service }) {
 /** RULE 3. */
 export function ledgerLastFailures(sold) {
   const ledger = sold.lastIndexOf("sales-deals-table");
-  const lastBlock = sold.lastIndexOf("evidence.audit.title");
+  const lastBlock = sold.lastIndexOf("section.buyers.title");
   if (ledger < 0) return [`${SOLD}: the deals ledger (sales-deals-table) is missing from Sold`];
-  if (lastBlock < 0 || ledger < lastBlock) return [`${SOLD}: the deals ledger must be the LAST block on Sold, after the sale evidence`];
+  if (lastBlock < 0 || ledger < lastBlock) return [`${SOLD}: the deals ledger must be the LAST block on Sold, after the buyer board`];
   return [];
 }
 
@@ -124,7 +124,7 @@ export function smokeFailures(smoke, coverage) {
 
 function selfTest() {
   const shell = `const PAGES_OWNING_PARK_SCOPE = [\n  "/counts/breakdown",\n  "/sales/sold",\n  "/sales/farm-value",\n];`;
-  const sold = `const PAGE_PATH = "/sales/sold";\n<SalesFarmToggle pageContract={pageContract} />\n copy(pageContract, "evidence.audit.title")\n <table className="sales-deals-table">`;
+  const sold = `const PAGE_PATH = "/sales/sold";\n<SalesFarmToggle pageContract={pageContract} />\n copy(pageContract, "section.buyers.title")\n <table className="sales-deals-table">`;
   const farmValue = `const PAGE_PATH = "/sales/farm-value";\n<SalesFarmToggle />\n {num(bucket.male_count)} {num(bucket.female_count)}`;
   const pages = { [SOLD]: sold, [FARM_VALUE]: farmValue };
   const boardRoute = `import { redirect } from "next/navigation";\nredirect("/sales/sold");`;
@@ -143,7 +143,7 @@ function selfTest() {
     ["board component back caught", boardRetiredFailures({ boardExists: true, boardRoute, service }).length, 1],
     ["board route rendering a page caught", boardRetiredFailures({ boardExists: false, boardRoute: `import { SalesPage } from "@/features/procurement";`, service }).length, 1],
     ["board contract and leaf back caught", boardRetiredFailures({ boardExists: false, boardRoute, service: `navLeaf("sales-board", "Sales", "/sales", nil)\npage("sales", "/sales", "/sales", ...)` }).length, 2],
-    ["ledger before the evidence caught", ledgerLastFailures(`<table className="sales-deals-table">\n copy(pageContract, "evidence.audit.title")`).length, 1],
+    ["ledger before the buyer board caught", ledgerLastFailures(`<table className="sales-deals-table">\n copy(pageContract, "section.buyers.title")`).length, 1],
     ["missing-sex count back caught", farmValueCardFailures(farmValue + " {bucket.sex_missing_count}").length, 1],
     ["weighed count back caught", farmValueCardFailures(farmValue + " {bucket.weighed_animals}").length, 1],
     ["split removed caught", farmValueCardFailures(`const PAGE_PATH = "/sales/farm-value";`).length, 1],
