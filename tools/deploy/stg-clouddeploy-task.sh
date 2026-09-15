@@ -297,7 +297,7 @@ smoke_http() {
 }
 
 smoke_public_events_route() {
-  local trace_id span_id traceparent code seen
+  local trace_id span_id traceparent code seen filter
 
   trace_id="$(python3 - <<'PY'
 import secrets
@@ -318,13 +318,17 @@ PY
   [[ "$code" =~ ^(200|202|204|400|401|403)$ ]] ||
     die "$STG_API_URL/app/analytics/events returned unexpected smoke status $code"
 
-  sleep 3
-  seen="$(gcloud logging read \
-    "resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"$ANALYTICS_EVENTS_SERVICE\" AND jsonPayload.msg=\"http_request\" AND jsonPayload.trace_id=\"$traceparent\"" \
-    --project="$PROJECT_ID" \
-    --freshness=10m \
-    --limit=1 \
-    --format='value(resource.labels.service_name)')"
+  filter="resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"$ANALYTICS_EVENTS_SERVICE\" AND (jsonPayload.trace_id=\"$traceparent\" OR trace=\"projects/$PROJECT_ID/traces/$trace_id\")"
+  for _ in {1..10}; do
+    seen="$(gcloud logging read \
+      "$filter" \
+      --project="$PROJECT_ID" \
+      --freshness=10m \
+      --limit=1 \
+      --format='value(resource.labels.service_name)')"
+    [[ "$seen" == "$ANALYTICS_EVENTS_SERVICE" ]] && break
+    sleep 3
+  done
   [[ "$seen" == "$ANALYTICS_EVENTS_SERVICE" ]] ||
     die "public /app/analytics/events smoke did not land on $ANALYTICS_EVENTS_SERVICE (status=$code traceparent=$traceparent)"
 }
