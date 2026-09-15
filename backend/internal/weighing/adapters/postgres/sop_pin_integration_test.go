@@ -291,3 +291,46 @@ func TestFastingCutoffVersionsKeepAllTonightPins(t *testing.T) {
 		t.Fatalf("IST day boundary: %v %v", versions, err)
 	}
 }
+
+// No farm default is needed when tonight's pin owns its cutoff. Old evenings
+// remain visible; future and unresolved tonight pins must never open early.
+func TestSOPCardVisibilityWithoutFarmDefault(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedFastingFixture(t, ctx, pool, "2026-09-04")
+	if _, err := pool.Exec(ctx, `UPDATE weighing_campaigns SET sop_version=7 WHERE tenant_id=$1::uuid AND campaign_id=$2::uuid`, repoTenant, repoCampaign); err != nil {
+		t.Fatal(err)
+	}
+	repo := NewRepository(pool, 5*time.Second)
+	for _, tc := range []struct {
+		name, now string
+		override  bool
+		visible   bool
+	}{
+		{"future", "2026-09-02 23:59", true, false},
+		{"before", "2026-09-03 21:29", true, false},
+		{"at cutoff", "2026-09-03 21:30", true, true},
+		{"unresolved tonight", "2026-09-03 23:59", false, false},
+		{"past evening", "2026-09-04 00:00", false, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			now, err := time.ParseInLocation("2006-01-02 15:04", tc.now, biztime.DefaultLocation())
+			if err != nil {
+				t.Fatal(err)
+			}
+			cutoffs := ports.RemovalCutoffs{}
+			if tc.override {
+				cutoffs.ByVersion = map[int]fwrdomain.Cutoff{7: fwrdomain.MustCutoff(21, 30)}
+			}
+			page, err := repo.ListFastingShedCardsForOperator(ctx, repoTenant, fastingOperator, now, cutoffs, "", 20)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if (len(page.Items) > 0) != tc.visible {
+				t.Fatalf("got %d cards; visible=%v", len(page.Items), tc.visible)
+			}
+		})
+	}
+}

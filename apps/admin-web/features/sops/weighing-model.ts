@@ -260,7 +260,11 @@ export function weighingProblems(rows: WeighingRows): string[] {
     if (!q.title.trim()) problems.push(`${at}: needs the question text`);
     if ((q.kind === "choice" || q.kind === "multi") && q.options.filter((o) => o.value.trim() && o.label.trim()).length === 0) problems.push(`${at}: a pick-one / pick-many question needs at least one choice`);
     if (q.allowOther && !q.options.some((o) => o.value.trim() === "other")) problems.push(`${at}: the free-text "other" needs a choice whose value is "other"`);
-    if (q.kind === "number" && q.min.trim() && q.max.trim() && Number(q.min) > Number(q.max)) problems.push(`${at}: min must not exceed max`);
+    if (q.kind === "number") {
+      if (q.min.trim() && !Number.isFinite(Number(q.min))) problems.push(`${at}: min must be a finite number`);
+      if (q.max.trim() && !Number.isFinite(Number(q.max))) problems.push(`${at}: max must be a finite number`);
+      if (q.min.trim() && q.max.trim() && Number(q.min) > Number(q.max)) problems.push(`${at}: min must not exceed max`);
+    }
     if (q.onlyIfQuestion) {
       const dep = seen.get(q.onlyIfQuestion);
       if (!dep) problems.push(`${at}: "ask only when" must name an earlier question`);

@@ -307,3 +307,32 @@ draft answers may remain locally so toggling back restores input, but they canno
 a descendant or enter submitted evidence. Backend validation/normalization and Android
 visibility/submit gating/serialization use the same ordered applicability rule. Tests
 exercise A -> B -> C, changing A after answering B, and reopening the branch.
+
+
+### Replay authorization and independent evening configuration
+
+Create retries may bypass the latest published rules, but never the caller's current
+park grants. Authorize the park on the saved campaign returned by replay, because
+both grants and the campaign's park may have changed since the original request.
+
+Removal card lists resolve the farm cutoff only for tonight's candidate versions
+that lack their own cutoff (including legacy or unknown pins). A SOP-owned evening
+works without farm configuration. Earlier removal evenings are already open and
+later evenings remain closed; neither needs a substitute literal cutoff. An
+unresolved tonight pin stays hidden rather than opening at midnight.
+
+Regression coverage: `pr274_review_repro_test.go` and
+`TestSOPCardVisibilityWithoutFarmDefault` in `sop_pin_integration_test.go`.
+
+
+### Further independent review regressions
+
+- Optional-removal disable locks the fasting task before reading whether any pen
+  has submitted. The evidence check uses a fresh statement snapshot after the
+  lock, so a concurrent partial submission cannot be cascade-deleted.
+- Nonblank number-question bounds must be finite numbers before the editor allows
+  save or publish; malformed values must not silently become unbounded questions.
+
+- A restored rework card hydrates its authored slots before clearing rejected
+  captures. Reset covers both rendered slots and incoming authored slots, so
+  process restoration cannot reconnect uploads from the rejected submission.

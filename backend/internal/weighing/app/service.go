@@ -328,6 +328,11 @@ func (s *Service) CreateCampaign(ctx context.Context, actor domain.Actor, cmd do
 	if existing, ok, err := s.repo.CampaignByIdempotencyKey(ctx, cmd.TenantID, cmd.IdempotencyKey, cmd.RequestFingerprint); err != nil {
 		return domain.Campaign{}, err
 	} else if ok {
+		// Replay uses the current row, so authorize its current park, not the
+		// original request park. Grants can change after the first create.
+		if err := s.checkParkScopeForCapability(ctx, actor.TenantID, existing.ParkID, permissions.WeighingPlan); err != nil {
+			return domain.Campaign{}, err
+		}
 		return existing, nil
 	}
 	// WEIGHING SOP (maintainer decision 2026-09-15): the task is planned on the PUBLISHED

@@ -9,7 +9,6 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	fwrports "github.com/vgoats/goatos/backend/internal/feedwaterremoval/ports"
 	"github.com/vgoats/goatos/backend/internal/platform/audit"
 	"github.com/vgoats/goatos/backend/internal/platform/oploc"
 	"github.com/vgoats/goatos/backend/internal/weighing/domain"
@@ -75,7 +74,11 @@ WHERE ft.tenant_id = $1::uuid
   -- The window opens at the evening of the task's PINNED SOP version ($8, jsonb keyed by
   -- version, bound by the service), else the farm default ($7). Bind, never a join: the
   -- rules and the config live outside weighing.
-  AND ($3::timestamptz AT TIME ZONE 'Asia/Kolkata') >= ((ft.weigh_business_date - 1) + COALESCE(($8::jsonb ->> COALESCE(c.sop_version, 0)::text)::time, $7::time))
+  AND (
+    ft.weigh_business_date <= ($3::timestamptz AT TIME ZONE 'Asia/Kolkata')::date
+    OR (ft.weigh_business_date = ($3::timestamptz AT TIME ZONE 'Asia/Kolkata')::date + 1
+      AND ($3::timestamptz AT TIME ZONE 'Asia/Kolkata')::time >= COALESCE(($8::jsonb ->> COALESCE(c.sop_version, 0)::text)::time, $7::time))
+  )
   AND (ft.submitted_at IS NOT NULL OR EXISTS (
         SELECT 1 FROM weighing_campaigns c
         WHERE c.tenant_id = ft.tenant_id AND c.campaign_id = ft.campaign_id
@@ -122,12 +125,16 @@ func (r *Repository) FastingCardSOPVersions(ctx context.Context, tenantID, opera
 
 // The visibility window's opening time is the removal cutoff of each card's PINNED SOP
 // version, else the tenant's CONFIGURED cutoff (maintainer decision 2026-09-07), bound as
-// $8 / $7 by the service. Weighing is isolated from every non-weighing table, so the rules
-// and the config are binds, never joins here; an unset default is refused rather than
-// defaulted, because a literal here would be a second copy of the rule.
+// $8 / $7 by the service. Only tonight needs these binds: earlier evenings are
+// already open and future evenings remain closed. The default may be absent when
+// every candidate tonight has its own SOP cutoff.
 func (r *Repository) ListFastingShedCardsForOperator(ctx context.Context, tenantID, operatorUserID string, now time.Time, cutoffs ports.RemovalCutoffs, cursor string, limit int) (domain.FastingShedCardPage, error) {
-	if !cutoffs.Default.Valid() {
-		return domain.FastingShedCardPage{}, fwrports.ErrCutoffNotConfigured
+	// Only tonight needs a cutoff: older removal evenings have already opened,
+	// and later ones have not. An unresolved tonight pin remains hidden (NULL),
+	// including a pin introduced concurrently after the service resolved versions.
+	var defaultTime any
+	if cutoffs.Default.Valid() {
+		defaultTime = cutoffs.Default.SQLTime()
 	}
 	byVersion, err := json.Marshal(cutoffs.SQLByVersion())
 	if err != nil {
@@ -148,7 +155,7 @@ func (r *Repository) ListFastingShedCardsForOperator(ctx context.Context, tenant
 	rows, err := r.pool.Query(ctx, fastingShedCardsSQL,
 		tenantID, operatorUserID, now.UTC(),
 		nullableString(cur.Date), nullableUUIDString(cur.ID), limit+1,
-		cutoffs.Default.SQLTime(), string(byVersion))
+		defaultTime, string(byVersion))
 	if err != nil {
 		return domain.FastingShedCardPage{}, err
 	}

@@ -118,7 +118,7 @@ func TestCreateCampaignRefusesWhenTheRemovalCutoffIsNotConfigured(t *testing.T) 
 	if _, err := unset.CreateCampaign(context.Background(), ceo, cmd); !errors.Is(err, fwrports.ErrCutoffNotConfigured) {
 		t.Fatalf("unset reader create err = %v, want ErrCutoffNotConfigured", err)
 	}
-	store := &fakeFastingStore{}
+	store := &fakeFastingStore{cardVersions: []int{0}}
 	operator := domain.Actor{TenantID: testTenant, UserID: testOp, Roles: []string{permissions.RoleOperator}}
 	list := NewService(&fakeRepo{}).WithFastingStore(store).WithClock(beforeCutoffClock("2026-07-29"))
 	if _, err := list.ListMyFastingShedCards(context.Background(), operator, "", 20); !errors.Is(err, fwrports.ErrCutoffNotConfigured) {
@@ -275,7 +275,7 @@ func TestSubmitFastingShedAuthorization(t *testing.T) {
 // predicate binds it — never a second wall-clock read.
 func TestListMyFastingShedCardsThreadsThePinnedClock(t *testing.T) {
 	operator := domain.Actor{TenantID: testTenant, UserID: testOp, Roles: []string{permissions.RoleOperator}}
-	store := &fakeFastingStore{}
+	store := &fakeFastingStore{cardVersions: []int{0}}
 	pinned := time.Date(2026, 9, 3, 20, 30, 0, 0, time.UTC)
 	service := NewService(&fakeRepo{}).WithFeedWaterRemovalCutoff(eightPM).WithFastingStore(store).WithClock(func() time.Time { return pinned })
 	if _, err := service.ListMyFastingShedCards(context.Background(), operator, "", 20); err != nil {

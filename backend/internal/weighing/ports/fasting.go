@@ -54,6 +54,7 @@ var (
 // later publish chose. Default is the farm's configured cutoff, used for a
 // version with no entry (the seed, or a version the farm never published).
 type RemovalCutoffs struct {
+	// Default is unset when no candidate tonight needs the farm evening.
 	Default   fwrdomain.Cutoff
 	ByVersion map[int]fwrdomain.Cutoff
 }

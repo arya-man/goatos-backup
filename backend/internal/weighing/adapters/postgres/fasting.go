@@ -328,6 +328,21 @@ func (r *Repository) syncFastingTaskOnUpdateTx(ctx context.Context, tx pgx.Tx, c
 // removal precondition off. A round that exists but cannot be deleted (a pen was submitted)
 // refuses the edit with ErrRemovalChangeLocked; a campaign with no round is a no-op.
 func (r *Repository) deleteUnsubmittedFastingTaskTx(ctx context.Context, tx pgx.Tx, tenantID, campaignID string) error {
+	// Serialize with a pen submit before taking the DELETE statement's snapshot.
+	// A partial submit locks this parent but only inserts a child evidence row;
+	// waiting inside DELETE would retain a snapshot that cannot see that child,
+	// and its ON DELETE CASCADE could erase the just-committed submission.
+	var taskID string
+	err := tx.QueryRow(ctx, `SELECT fasting_task_id::text
+FROM weighing_fasting_tasks
+WHERE tenant_id = $1::uuid AND campaign_id = $2::uuid
+FOR UPDATE`, tenantID, campaignID).Scan(&taskID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
 	tag, err := tx.Exec(ctx, fastingDeleteUnsubmittedSQL, tenantID, campaignID)
 	if err != nil {
 		return err

@@ -13,6 +13,29 @@ function canonical(v) {
   return JSON.stringify(v, (_k, val) => (val && typeof val === "object" && !Array.isArray(val) ? Object.fromEntries(Object.keys(val).sort().map((k) => [k, val[k]])) : val));
 }
 
+test("number question bounds cannot silently disappear when saving a draft or publishing", () => {
+  const doc = JSON.parse(readFileSync(seedPath, "utf8"));
+  const rows = parseWeighing({ weighing: doc });
+  const question = { ...blankQuestion("number"), key: "count", title: "Count" };
+  rows.removalQuestions = [question];
+  for (const bound of ["min", "max"]) {
+    for (const invalid of ["abc", "NaN", "Infinity", "-Infinity", "1e309"]) {
+      question[bound] = invalid;
+      assert.ok(weighingProblems(rows).includes(`Removal question 1: ${bound} must be a finite number`), `${bound}=${invalid} must block saving`);
+    }
+    question[bound] = "";
+  }
+  assert.deepEqual(weighingProblems(rows), []);
+  assert.equal("min" in emitWeighing(rows).feed_water_removal.questions[0], false);
+  assert.equal("max" in emitWeighing(rows).feed_water_removal.questions[0], false);
+  question.min = "-2.5";
+  question.max = "0";
+  assert.deepEqual(weighingProblems(rows), []);
+  const emitted = emitWeighing(rows).feed_water_removal.questions[0];
+  assert.equal(emitted.min, -2.5);
+  assert.equal(emitted.max, 0);
+});
+
 test("the seeded weighing rules round-trip through the editor model byte-faithfully", () => {
   const doc = JSON.parse(readFileSync(seedPath, "utf8"));
   const rows = parseWeighing({ weighing: doc });

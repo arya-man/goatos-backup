@@ -179,6 +179,9 @@ class WeighingFastingDetailViewModel @Inject constructor(
                 val status = dto.status.trim().lowercase()
                 val readOnly = status == STATUS_PENDING_VERIFICATION || status == STATUS_COMPLETED
                 val todayIst = LocalDate.now(ZoneId.of("Asia/Kolkata")).toString()
+                // Hydrate authored slots before resetting a restored submission: a new
+                // ViewModel initially knows only the legacy pair, not the saved authored slots.
+                slotDtos = dto.proofs.ifEmpty { seededSlotDtos() }
                 // The card came BACK from the verifier while a queued submit marker is still
                 // held: that submit's clips were the judged act. Hand the card back — drop the
                 // queued marker and reset both slots so THIS shed requires FRESH clips.
@@ -187,9 +190,6 @@ class WeighingFastingDetailViewModel @Inject constructor(
                     submitJob?.cancel()
                     clearSlots()
                 }
-                // The SOP's slot list for this task; an older server sends none and the seeded
-                // two stand.
-                slotDtos = dto.proofs.ifEmpty { seededSlotDtos() }
                 // After process death the constructor knew only the seeded two; an AUTHORED slot
                 // whose capture is still in the outbox arrives only now, so its upload observer is
                 // (re)connected here or its later success/failure would never reach the card
@@ -892,11 +892,13 @@ class WeighingFastingDetailViewModel @Inject constructor(
     }
 
     private fun clearSlots() {
-        _state.value.slots.forEach { slot ->
-            setSlotItemId(slot.slotKey, null)
-            setSlotPreviewPath(slot.slotKey, null)
-            setSlotCapturedKind(slot.slotKey, null)
-            proofJobs.remove(slot.slotKey)?.cancel()
+        // Include both the rendered slots and newly hydrated authored slots. On process
+        // restoration the former can still be the seeded pair when rework arrives first.
+        (_state.value.slots.map { it.slotKey } + slotDtos.map { it.key }).distinct().forEach { slotKey ->
+            setSlotItemId(slotKey, null)
+            setSlotPreviewPath(slotKey, null)
+            setSlotCapturedKind(slotKey, null)
+            proofJobs.remove(slotKey)?.cancel()
         }
         _state.update { current ->
             current.copy(slots = slotDtos.map { emptySlot(it) })

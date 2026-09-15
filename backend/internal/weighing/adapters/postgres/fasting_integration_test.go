@@ -9,7 +9,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	fwrdomain "github.com/vgoats/goatos/backend/internal/feedwaterremoval/domain"
-	fwrports "github.com/vgoats/goatos/backend/internal/feedwaterremoval/ports"
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/platform/pgtest"
 	"github.com/vgoats/goatos/backend/internal/weighing/domain"
@@ -174,9 +173,12 @@ func TestFastingListVisibilityOpensAtTheConfiguredCutoff(t *testing.T) {
 	if len(page.Items) != 2 {
 		t.Fatalf("cards at 21:00 IST under a 21:00 cutoff = %d, want 2", len(page.Items))
 	}
-	// An UNSET cutoff is refused, never defaulted.
-	if _, err := repo.ListFastingShedCardsForOperator(ctx, repoTenant, fastingOperator, atOpen, ports.RemovalCutoffs{}, "", 20); !errors.Is(err, fwrports.ErrCutoffNotConfigured) {
-		t.Fatalf("unset cutoff list err = %v, want ErrCutoffNotConfigured", err)
+	// An unresolved tonight cutoff never becomes a literal midnight opening.
+	// The service refuses missing farm config when a candidate needs it; the
+	// repository also safely hides a concurrently introduced unresolved pin.
+	page, err = repo.ListFastingShedCardsForOperator(ctx, repoTenant, fastingOperator, atOpen, ports.RemovalCutoffs{}, "", 20)
+	if err != nil || len(page.Items) != 0 {
+		t.Fatalf("unset cutoff should hide tonight's cards: count=%d err=%v", len(page.Items), err)
 	}
 
 	// Another operator sees nothing: the cards belong to their assignee.

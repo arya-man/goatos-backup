@@ -166,11 +166,7 @@ func validateRemovalAssignment(cmd domain.CreateCampaign) error {
 // document sets one. A version the farm never published falls back to the default, the
 // same leniency removalCardCopy gives its copy, so tonight's card is still listed.
 func (s *Service) removalCardCutoffs(ctx context.Context, tenantID, operatorUserID string) (ports.RemovalCutoffs, error) {
-	farm, err := s.removalCutoff(ctx, tenantID, domain.SeededRules())
-	if err != nil {
-		return ports.RemovalCutoffs{}, err
-	}
-	out := ports.RemovalCutoffs{Default: farm, ByVersion: map[int]fwrdomain.Cutoff{}}
+	out := ports.RemovalCutoffs{ByVersion: map[int]fwrdomain.Cutoff{}}
 	versions, err := s.fasting.FastingCardSOPVersions(ctx, tenantID, operatorUserID, s.clock())
 	if err != nil {
 		return ports.RemovalCutoffs{}, err
@@ -179,15 +175,23 @@ func (s *Service) removalCardCutoffs(ctx context.Context, tenantID, operatorUser
 	if err != nil {
 		return ports.RemovalCutoffs{}, err
 	}
-	for _, rules := range resolved {
-		if rules.FeedWaterRemoval.CutoffTime == "" {
+	for _, version := range versions {
+		rules, found := resolved[version]
+		if !found || rules.FeedWaterRemoval.CutoffTime == "" {
+			if !out.Default.Valid() {
+				farm, err := s.removalCutoff(ctx, tenantID, domain.SeededRules())
+				if err != nil {
+					return ports.RemovalCutoffs{}, err
+				}
+				out.Default = farm
+			}
 			continue
 		}
 		cutoff, err := s.removalCutoff(ctx, tenantID, rules)
 		if err != nil {
 			return ports.RemovalCutoffs{}, err
 		}
-		out.ByVersion[rules.Version] = cutoff
+		out.ByVersion[version] = cutoff
 	}
 	return out, nil
 }
