@@ -923,11 +923,13 @@
   .ap-sop{display:flex;flex-direction:column;gap:12px;padding:14px 16px}
   /* Captures: one strip of uniform tiles in recorded order, a caption under each. */
   .ap-sop-media{min-width:0}
-  .ap-tiles{display:flex;flex-wrap:wrap;gap:12px 14px}
-  .ap-tile{margin:0;width:112px;display:flex;flex-direction:column;gap:4px}
+.ap-tiles{display:flex;flex-wrap:wrap;gap:12px 14px}
+.ap-lightbox-strip{display:contents}
+.ap-tile{margin:0;width:112px;display:flex;flex-direction:column;gap:4px}
   .ap-tile figcaption{line-height:1.25;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
   .ap-tile-btn{position:relative;display:block;width:112px;height:112px;padding:0;border:1px solid var(--line);border-radius:12px;overflow:hidden;background:var(--panel-2);cursor:zoom-in}
-  .ap-tile-btn img,.ap-tile-btn video{display:block;width:100%;height:100%;object-fit:cover;pointer-events:none}
+.ap-tile-btn img,.ap-tile-btn video{display:block;width:100%;height:100%;object-fit:cover;pointer-events:none}
+.ap-tile-preview{background:#07130d}
   .ap-tile-placeholder{display:grid;place-items:center;width:100%;height:100%;padding:8px;color:var(--muted);font-size:12px;line-height:1.2;text-align:center}
   .ap-tile-btn:hover,.ap-tile-btn:focus-visible{border-color:var(--brand-l);outline:none;box-shadow:0 0 0 2px color-mix(in srgb,var(--brand) 35%,transparent)}
   .ap-tile-btn.empty{display:grid;place-items:center;border-style:dashed;cursor:default;text-align:center;padding:8px}

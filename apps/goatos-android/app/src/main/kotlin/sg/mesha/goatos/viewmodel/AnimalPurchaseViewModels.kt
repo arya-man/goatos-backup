@@ -738,7 +738,7 @@ internal fun AnimalPurchaseAnimalDto.toCardUi(): AnimalPurchaseAnimalCardUi = An
     fieldVerdictTone = animalPurchaseFieldVerdictTone(fieldVerdict),
     decidedByName = decidedByName,
     decisionNote = decisionNote,
-    previewUrl = animalPurchaseMediaUrl(preview?.mediaUrl.orEmpty()),
+    previewUrl = animalPurchaseMediaUrl(preview?.previewUrl.orEmpty()),
     previewIsPhoto = preview?.mediaMime.orEmpty().startsWith("image/", ignoreCase = true),
     previewIdentity = preview?.proofRef?.takeIf { it.isNotBlank() } ?: candidateId,
 )
@@ -749,9 +749,14 @@ internal fun AnimalPurchaseAnimalDto.toCardUi(): AnimalPurchaseAnimalCardUi = An
  */
 private val AnimalPurchaseAnimalDto.preview: AnimalPurchaseMediaItemDto?
     get() = if (questionnaireVersion > 0) {
-        mediaSlots.asSequence().flatMap { it.items.asSequence() }.firstOrNull { it.mediaUrl.isNotBlank() }
+        mediaSlots.asSequence().flatMap { it.items.asSequence() }.firstOrNull { it.previewUrl.isNotBlank() }
     } else {
-        mediaUrl.takeIf { it.isNotBlank() }?.let { AnimalPurchaseMediaItemDto(proofRef = videoProofRef, mediaUrl = it, mediaMime = mediaMime) }
+        null
+    }
+
+private val AnimalPurchaseMediaItemDto.previewUrl: String
+    get() = thumbnailUrl.ifBlank {
+        mediaUrl.takeIf { mediaMime.startsWith("image/", ignoreCase = true) }.orEmpty()
     }
 
 /** The inspector's own verdict: `selected` reads OK, `on_hold` reads as a warning, none is neutral. */

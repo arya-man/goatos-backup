@@ -146,6 +146,7 @@ data class AnimalPurchaseAnswerRowDto(
 data class AnimalPurchaseMediaItemDto(
     @SerialName("proof_ref") val proofRef: String = "",
     @SerialName("media_url") val mediaUrl: String = "",
+    @SerialName("thumbnail_url") val thumbnailUrl: String = "",
     @SerialName("media_mime") val mediaMime: String = "",
 )
 

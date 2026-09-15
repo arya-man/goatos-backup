@@ -4,6 +4,8 @@ package proof
 
 import (
 	"context"
+	"net/url"
+	"path"
 	"strings"
 
 	"github.com/vgoats/goatos/backend/internal/animalpurchase/ports"
@@ -98,7 +100,45 @@ func (m *Media) ResolveMedia(ctx context.Context, tenantID string, proofRefs []s
 	}
 	out := make(map[string]ports.Media, len(artifacts))
 	for id, artifact := range artifacts {
-		out[id] = ports.Media{URL: "/app/proofs/" + id + "/download", MimeType: artifact.MimeType}
+		downloadRoute := "/app/proofs/" + id + "/download"
+		out[id] = ports.Media{URL: downloadRoute, ThumbnailURL: previewURL(downloadRoute, artifact.MimeType, artifact.Metadata), MimeType: artifact.MimeType}
 	}
 	return out, nil
+}
+
+func previewURL(downloadRoute, mimeType string, metadata map[string]any) string {
+	for _, key := range []string{"thumbnail_url", "poster_url"} {
+		value, _ := metadata[key].(string)
+		if value = strings.TrimSpace(value); value != "" {
+			if !safeDerivativePreviewURL(value) {
+				continue
+			}
+			return value
+		}
+	}
+	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(mimeType)), "image/") {
+		return downloadRoute
+	}
+	return ""
+}
+
+func safeDerivativePreviewURL(value string) bool {
+	if strings.Contains(value, "/app/proofs/") || strings.Contains(value, "X-Goog-Signature=") || strings.Contains(value, "X-Goog-Credential=") {
+		return false
+	}
+	u, err := url.Parse(value)
+	if err != nil {
+		return false
+	}
+	host := strings.ToLower(u.Hostname())
+	if host == "storage.googleapis.com" || strings.HasSuffix(host, ".storage.googleapis.com") || strings.HasSuffix(host, ".googleapis.com") {
+		return false
+	}
+	ext := strings.ToLower(path.Ext(u.Path))
+	switch ext {
+	case ".jpg", ".jpeg", ".png", ".webp", ".avif":
+		return true
+	default:
+		return false
+	}
 }

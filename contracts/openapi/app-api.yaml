@@ -19359,6 +19359,9 @@ components:
             properties:
               proof_ref: { type: string }
               media_url: { type: string }
+              thumbnail_url:
+                type: string
+                description: Bounded tile preview URL. Images may reuse the proof download route; videos only use backend-provided thumbnail/poster derivatives. Clients must not probe original video media to create a thumbnail.
               media_mime: { type: string }
     AnimalPurchaseAnimalPage:
       type: object

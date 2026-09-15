@@ -834,7 +834,13 @@ function absolutizeAnimalPurchaseMedia(page: AnimalPurchaseReviewPage, baseUrl: 
       media_slots: (animal.media_slots ?? []).map((slot) => ({
         ...slot,
         items: slot.items.map((item) =>
-          item.media_url ? { ...item, media_url: browserProofMediaURL(item.media_url, baseUrl) } : item,
+          item.media_url || item.thumbnail_url
+            ? {
+                ...item,
+                media_url: item.media_url ? browserProofMediaURL(item.media_url, baseUrl) : item.media_url,
+                thumbnail_url: item.thumbnail_url ? browserProofMediaURL(item.thumbnail_url, baseUrl) : item.thumbnail_url,
+              }
+            : item,
         ),
       })),
     })),

@@ -8217,6 +8217,8 @@ export interface components {
             items: {
                 proof_ref: string;
                 media_url?: string;
+                /** @description Bounded tile preview URL. Images may reuse the proof download route; videos only use backend-provided thumbnail/poster derivatives. Clients must not probe original video media to create a thumbnail. */
+                thumbnail_url?: string;
                 media_mime?: string;
             }[];
         };

@@ -67,7 +67,15 @@ export function AnimalPurchaseMedia({ slots, copy }: { slots: MediaSlot[]; copy:
   const items = slots.flatMap((slot) =>
     slot.items.flatMap((item) =>
       item.media_url && (isImage(item) || isVideo(item))
-        ? [{ proofRef: item.proof_ref, url: item.media_url, kind: isImage(item) ? ("photo" as const) : ("video" as const), title: slot.title }]
+        ? [
+            {
+              proofRef: item.proof_ref,
+              url: item.media_url,
+              thumbnailUrl: item.thumbnail_url ?? (isImage(item) ? item.media_url : undefined),
+              kind: isImage(item) ? ("photo" as const) : ("video" as const),
+              title: slot.title,
+            },
+          ]
         : [],
     ),
   );

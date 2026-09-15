@@ -142,11 +142,12 @@ class AnimalPurchaseViewModelsTest {
         val pending = animal(decision = "pending", decisionLabel = "Awaiting decision", decisionTone = "neutral").toCardUi()
         assertEquals(VendorsTone.NEUTRAL, pending.decisionTone)
         assertEquals("", pending.decidedByName)
-        // A legacy row (questionnaire_version 0) keeps its single video and carries no verdict chip.
+        // A legacy row (questionnaire_version 0) keeps its single video for explicit detail play,
+        // but the card never binds the original MP4 as an auto-loaded preview.
         val legacy = animal(decision = "pending", decisionLabel = "Awaiting decision", decisionTone = "neutral")
             .copy(mediaUrl = "https://signed/legacy.mp4", mediaMime = "video/mp4").toCardUi()
         assertEquals("", legacy.fieldVerdictLabel)
-        assertEquals("https://signed/legacy.mp4", legacy.previewUrl)
+        assertEquals("", legacy.previewUrl)
         assertFalse(legacy.previewIsPhoto)
     }
 
@@ -157,15 +158,15 @@ class AnimalPurchaseViewModelsTest {
             fieldVerdict = "on_hold",
             fieldVerdictLabel = "On hold on farm",
             mediaSlots = listOf(
+                AnimalPurchaseMediaSlotDto(slot = "animal", title = "Goat video", items = listOf(AnimalPurchaseMediaItemDto(proofRef = "p-2", mediaUrl = "https://signed/animal.mp4", thumbnailUrl = "https://cdn.example/animal-poster.jpg", mediaMime = "video/mp4"))),
                 AnimalPurchaseMediaSlotDto(slot = "teeth", title = "Photo of teeth", items = listOf(AnimalPurchaseMediaItemDto(proofRef = "p-1", mediaUrl = "https://signed/teeth.jpg", mediaMime = "image/jpeg"))),
-                AnimalPurchaseMediaSlotDto(slot = "animal", title = "Goat video", items = listOf(AnimalPurchaseMediaItemDto(proofRef = "p-2", mediaUrl = "https://signed/animal.mp4", mediaMime = "video/mp4"))),
             ),
         ).toCardUi()
         assertEquals("On hold on farm", card.fieldVerdictLabel)
         assertEquals(VendorsTone.WARN, card.fieldVerdictTone)
-        assertEquals("https://signed/teeth.jpg", card.previewUrl)
-        assertTrue(card.previewIsPhoto)
-        assertEquals("p-1", card.previewIdentity)
+        assertEquals("https://cdn.example/animal-poster.jpg", card.previewUrl)
+        assertFalse(card.previewIsPhoto)
+        assertEquals("p-2", card.previewIdentity)
         assertEquals(VendorsTone.OK, animalPurchaseFieldVerdictTone("selected"))
     }
 

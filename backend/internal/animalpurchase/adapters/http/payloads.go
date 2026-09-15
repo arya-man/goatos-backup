@@ -112,9 +112,10 @@ type mediaSlotPayload struct {
 }
 
 type mediaItemPayload struct {
-	ProofRef  string `json:"proof_ref"`
-	MediaURL  string `json:"media_url,omitempty"`
-	MediaMime string `json:"media_mime,omitempty"`
+	ProofRef     string `json:"proof_ref"`
+	MediaURL     string `json:"media_url,omitempty"`
+	ThumbnailURL string `json:"thumbnail_url,omitempty"`
+	MediaMime    string `json:"media_mime,omitempty"`
 }
 
 type candidatePagePayload struct {
@@ -247,7 +248,7 @@ func toCandidatePayload(c domain.Candidate, media map[string]ports.Media, cat do
 		items := make([]mediaItemPayload, 0, len(refs))
 		for _, ref := range refs {
 			m := media[ref]
-			items = append(items, mediaItemPayload{ProofRef: ref, MediaURL: m.URL, MediaMime: m.MimeType})
+			items = append(items, mediaItemPayload{ProofRef: ref, MediaURL: m.URL, ThumbnailURL: m.ThumbnailURL, MediaMime: m.MimeType})
 		}
 		slots = append(slots, mediaSlotPayload{Slot: q.Slot, Title: q.Title, Items: items})
 	}

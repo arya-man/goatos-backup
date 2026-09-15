@@ -124,8 +124,9 @@ var ErrMediaKindNotAccepted = errors.New("animal purchase: capture kind not acce
 
 // Media is one proof download route with stored metadata.
 type Media struct {
-	URL      string
-	MimeType string
+	URL          string
+	ThumbnailURL string
+	MimeType     string
 }
 
 // MediaResolver resolves proof metadata for MANY refs at once without signing or reading backing

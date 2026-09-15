@@ -166,6 +166,16 @@ function scanClientText(rel, source) {
       }
     }
   }
+  const thumbnailMediaTag = /<(?:video|audio|source)\b[^>]*\bsrc=\{?[^>\n]*(?:thumbnailUrl|thumbnail_url)\b/g;
+  for (const match of source.matchAll(thumbnailMediaTag)) {
+    const line = source.split("\n")[lineNo(source, match.index ?? 0) - 1] ?? "";
+    addFinding(findings, {
+      rel,
+      line: lineNo(source, match.index ?? 0),
+      reason: "admin proof thumbnails must render as images only; never attach thumbnail/poster URLs to video/audio/source tags",
+      snippet: line.trim().slice(0, 180),
+    });
+  }
   return findings;
 }
 
@@ -221,6 +231,19 @@ export function Lightbox({ items }) {
     <img src={open.url} alt="" />
   ) : null;
 }`;
+  const clientThumbnailGood = `'use client';
+export function Tile({ item }) {
+  return <img src={item.thumbnailUrl} alt="" loading="lazy" decoding="async" />;
+}`;
+  const clientThumbnailVideoBad = `'use client';
+export function Tile({ item }) {
+  return <video src={item.thumbnailUrl} />;
+}`;
+  const clientThumbnailVideoSuppressedBad = `'use client';
+export function Tile({ item }) {
+  // admin-proof-media-egress:ignore bounded thumbnail preview
+  return <video src={item.thumbnailUrl} />;
+}`;
   const cases = [
     ["server-bad", scanText("apps/admin-web/features/x/actions.ts", serverBad).length, 1],
     ["server-arrow-bad", scanText("apps/admin-web/features/x/actions.ts", serverBad.replace("export async function loadToxinTaskDetailAction(id: string)", "export const loadToxinTaskDetailAction = async (id: string) =>")).length, 1],
@@ -232,6 +255,9 @@ export function Lightbox({ items }) {
     ["client-good", scanText("apps/admin-web/features/x/drawer.tsx", clientGood).length, 0],
     ["client-generic-open-bad", scanText("apps/admin-web/features/x/lightbox.tsx", clientGenericOpenBad).length, 1],
     ["client-generic-open-good", scanText("apps/admin-web/features/x/lightbox.tsx", clientGenericOpenGood).length, 0],
+    ["client-thumbnail-good", scanText("apps/admin-web/features/x/tile.tsx", clientThumbnailGood).length, 0],
+    ["client-thumbnail-video-bad", scanText("apps/admin-web/features/x/tile.tsx", clientThumbnailVideoBad).length, 1],
+    ["client-thumbnail-video-suppressed-bad", scanText("apps/admin-web/features/x/tile.tsx", clientThumbnailVideoSuppressedBad).length, 1],
   ];
   const ok = cases.every(([, got, want]) => got === want);
   if (!ok) {

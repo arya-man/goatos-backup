@@ -8,6 +8,7 @@ const action = readFileSync(new URL("./animal-purchase-actions.ts", import.meta.
 const sop = readFileSync(new URL("./animal-purchase-sop.tsx", import.meta.url), "utf8");
 const serverRead = readFileSync(new URL("../../lib/api/procurement-server.ts", import.meta.url), "utf8");
 const lightbox = readFileSync(new URL("./animal-purchase-lightbox.tsx", import.meta.url), "utf8");
+const styles = readFileSync(new URL("../../app/mesha-theme.css", import.meta.url), "utf8");
 
 test("every animal's captures are tap-gated on the card and a click opens one big, never a mint-on-preview gate", () => {
   // Maintainer decision 2026-09-14: every capture has a card tile and opens big on click. The
@@ -38,15 +39,24 @@ test("a legacy row (questionnaire_version 0) still takes the single-video branch
 test("media slots render byte-free tiles that open one selected proof by mime, never a guess", () => {
   assert.match(sop, /startsWith\("image\/"\)/);
   assert.match(sop, /startsWith\("video\/"\)/);
-  // Every capture with a link and a known mime is a byte-free tile in the order the inspector
-  // recorded it. Clicking one opens the selected proof in the in-page lightbox; no list tile
-  // fetches media bytes.
+  // Every capture with a link and a known mime is a tile in the order the inspector recorded it.
+  // Preview bytes are bounded to the visible/lookahead viewport band; clicking opens the selected
+  // proof in the in-page lightbox.
   assert.match(sop, /kind: isImage\(item\) \? \("photo" as const\) : \("video" as const\)/);
+  assert.match(sop, /thumbnailUrl: item\.thumbnail_url \?\? \(isImage\(item\) \? item\.media_url : undefined\)/);
   assert.match(sop, /<AnimalPurchaseLightbox items=\{items\}/);
-  // Uniform tiles: remote proof bytes are tap-gated; photos/videos load only in the opened dialog.
-  assert.match(lightbox, /className="ap-tile"[\s\S]*?ap-tile-placeholder/);
+  // Uniform tiles: image/poster previews attach only after IntersectionObserver marks the tile
+  // visible or near-visible. Original videos still load only in the opened dialog.
+  assert.match(lightbox, /new IntersectionObserver/);
+  assert.match(lightbox, /rootMargin: "320px 0px"/);
+  assert.match(lightbox, /closest\("\.ap-animal"\)/);
+  assert.match(lightbox, /previewsEnabled && item\.thumbnailUrl/);
+  assert.match(lightbox, /key=\{`\$\{item\.proofRef\}-\$\{index\}`\}/);
+  assert.match(styles, /\.ap-lightbox-strip\{display:contents\}/);
+  assert.match(lightbox, /<img src=\{item\.thumbnailUrl\} alt="" className="ap-tile-preview" loading="lazy" decoding="async" \/>/);
   assert.doesNotMatch(lightbox, /<img src=\{item\.url\}/);
   assert.doesNotMatch(lightbox, /<video src=\{item\.url\}/);
+  assert.doesNotMatch(lightbox, /<video src=\{item\.thumbnailUrl\}/);
   assert.match(lightbox, /admin-proof-media-egress:ignore[\s\S]*?<img src=\{open\.url\} alt="" className="ap-lightbox-media" \/>/);
   assert.match(lightbox, /<video src=\{open\.url\} controls autoPlay playsInline/);
   assert.match(lightbox, /role="dialog"[\s\S]*?aria-modal="true"/);
@@ -59,7 +69,7 @@ test("media slots render byte-free tiles that open one selected proof by mime, n
   // /api/proof-media proxy, never absolutized onto the API host.
   assert.match(serverRead, /media_slots: \(animal\.media_slots \?\? \[\]\)\.map/);
   assert.match(serverRead, /media_url: animal\.media_url \? browserProofMediaURL\(animal\.media_url, baseUrl\)/);
-  assert.match(serverRead, /item\.media_url \? \{ \.\.\.item, media_url: browserProofMediaURL\(item\.media_url, baseUrl\) \} : item/);
+  assert.match(serverRead, /thumbnail_url: item\.thumbnail_url \? browserProofMediaURL\(item\.thumbnail_url, baseUrl\) : item\.thumbnail_url/);
   assert.match(serverRead, /PROOF_DOWNLOAD_ROUTE = \/\^\\\/app\\\/proofs\\\/\(\[\^\/\?#\]\+\)\\\/download\$\//);
   assert.match(serverRead, /return `\/api\/proof-media\/\$\{encodeURIComponent\(decodeURIComponent\(match\[1\]\)\)\}`/);
   assert.doesNotMatch(serverRead, /media_url: absolutizeAgainstApi\(/);
