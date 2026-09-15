@@ -283,8 +283,8 @@
     <string name="weighing_removal_section_title">ಮೇವು ಮತ್ತು ನೀರು ತೆಗೆಯುವಿಕೆ</string>
     <string name="weighing_removal_card_type">ಮೇವು ಮತ್ತು ನೀರು ತೆಗೆದುಹಾಕಿ</string>
     <string name="weighing_removal_screen_title">ಮೇವು ಮತ್ತು ನೀರು ತೆಗೆಯಿರಿ</string>
-    <string name="weighing_removal_status_open">ಇಂದು ರಾತ್ರಿಯ ತೆಗೆಯುವಿಕೆಯನ್ನು ರೆಕಾರ್ಡ್ ಮಾಡಿ</string>
-    <string name="weighing_removal_status_in_review">ಸಲ್ಲಿಸಲಾಗಿದೆ — ವೀಡಿಯೊ ಪರಿಶೀಲನೆಯಲ್ಲಿದೆ</string>
+    <string name="weighing_removal_status_open">ಇಂದು ರಾತ್ರಿಯ ಕ್ಯಾಪ್ಚರ್‌ಗಳನ್ನು ರೆಕಾರ್ಡ್ ಮಾಡಿ</string>
+    <string name="weighing_removal_status_in_review">ಸಲ್ಲಿಸಲಾಗಿದೆ — ಕ್ಯಾಪ್ಚರ್‌ಗಳು ಪರಿಶೀಲನೆಯಲ್ಲಿವೆ</string>
     <string name="weighing_removal_status_sent_back">ಹಿಂದಕ್ಕೆ ಕಳುಹಿಸಲಾಗಿದೆ — ಮತ್ತೆ ರೆಕಾರ್ಡ್ ಮಾಡಿ</string>
     <string name="weighing_removal_status_done">ಅನುಮೋದಿಸಲಾಗಿದೆ</string>
     <string name="weighing_removal_date_tonight">ಇಂದು ರಾತ್ರಿ</string>
@@ -295,8 +295,8 @@
     <string name="weighing_removal_recording">ರೆಕಾರ್ಡ್ ಆಗುತ್ತಿದೆ…</string>
     <string name="weighing_removal_submit">ಸಲ್ಲಿಸಿ</string>
     <string name="weighing_removal_submitted">ಕಳುಹಿಸಲಾಗಿದೆ</string>
-    <string name="weighing_removal_submitted_line">ಕಳುಹಿಸಲಾಗಿದೆ. ವೀಡಿಯೊಗಳನ್ನು ನಂತರ ಪರಿಶೀಲಿಸಲಾಗುತ್ತದೆ.</string>
-    <string name="weighing_removal_ready">ಎರಡೂ ವೀಡಿಯೊಗಳು ರೆಕಾರ್ಡ್ ಆಗಿವೆ — ಸಲ್ಲಿಸಲು ಸಿದ್ಧ.</string>
+    <string name="weighing_removal_submitted_line">ಕಳುಹಿಸಲಾಗಿದೆ. ಕ್ಯಾಪ್ಚರ್‌ಗಳನ್ನು ನಂತರ ಪರಿಶೀಲಿಸಲಾಗುತ್ತದೆ.</string>
+    <string name="weighing_removal_ready">ಎಲ್ಲಾ ಕ್ಯಾಪ್ಚರ್‌ಗಳು ರೆಕಾರ್ಡ್ ಆಗಿವೆ — ಸಲ್ಲಿಸಲು ಸಿದ್ಧ.</string>
     <string name="weighing_removal_caption">ನಾಳೆಗಾಗಿ ಈ ಪೆನ್ನಿನ ಮೇವು ಮತ್ತು ನೀರನ್ನು ತೆಗೆದು, ಪ್ರತಿಯೊಂದು ಹಂತವನ್ನೂ ರೆಕಾರ್ಡ್ ಮಾಡಿ.</string>
     <string name="weighing_removal_feed_hint">ಈ ಪೆನ್ನಿನಿಂದ ಮೇವು ತೆಗೆದುಹಾಕುತ್ತಿರುವುದನ್ನು ತೋರಿಸಿ</string>
     <string name="weighing_removal_water_hint">ಈ ಪೆನ್ನಿನಿಂದ ನೀರು ತೆಗೆದುಹಾಕುತ್ತಿರುವುದನ್ನು ತೋರಿಸಿ</string>

@@ -283,8 +283,8 @@
     <string name="weighing_removal_section_title">మేత మరియు నీరు తీసివేత</string>
     <string name="weighing_removal_card_type">మేత మరియు నీరు తొలగించండి</string>
     <string name="weighing_removal_screen_title">మేత మరియు నీరు తీసేయండి</string>
-    <string name="weighing_removal_status_open">ఈ రాత్రి తీసివేతను రికార్డ్ చేయండి</string>
-    <string name="weighing_removal_status_in_review">సమర్పించారు — వీడియో పరిశీలనలో ఉంది</string>
+    <string name="weighing_removal_status_open">ఈ రాత్రి క్యాప్చర్‌లను రికార్డ్ చేయండి</string>
+    <string name="weighing_removal_status_in_review">సమర్పించారు — క్యాప్చర్‌లు సమీక్షలో ఉన్నాయి</string>
     <string name="weighing_removal_status_sent_back">వెనక్కి పంపారు — మళ్లీ రికార్డ్ చేయండి</string>
     <string name="weighing_removal_status_done">ఆమోదించారు</string>
     <string name="weighing_removal_date_tonight">ఈ రాత్రి</string>
@@ -295,8 +295,8 @@
     <string name="weighing_removal_recording">రికార్డ్ అవుతోంది…</string>
     <string name="weighing_removal_submit">సమర్పించండి</string>
     <string name="weighing_removal_submitted">పంపారు</string>
-    <string name="weighing_removal_submitted_line">పంపారు. వీడియోలను తర్వాత తనిఖీ చేస్తారు.</string>
-    <string name="weighing_removal_ready">రెండు వీడియోలు రికార్డ్ అయ్యాయి — సమర్పించడానికి సిద్ధం.</string>
+    <string name="weighing_removal_submitted_line">పంపారు. క్యాప్చర్‌లను తర్వాత తనిఖీ చేస్తారు.</string>
+    <string name="weighing_removal_ready">అన్ని క్యాప్చర్‌లు రికార్డ్ అయ్యాయి — సమర్పించడానికి సిద్ధం.</string>
     <string name="weighing_removal_caption">రేపటి కోసం ఈ పెన్‌లోని మేత మరియు నీటిని తీసి, ప్రతి దశను రికార్డ్ చేయండి.</string>
     <string name="weighing_removal_feed_hint">ఈ పెన్ నుండి మేత తీస్తున్నది చూపించండి</string>
     <string name="weighing_removal_water_hint">ఈ పెన్ నుండి నీరు తీస్తున్నది చూపించండి</string>

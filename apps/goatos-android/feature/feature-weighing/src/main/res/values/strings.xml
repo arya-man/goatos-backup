@@ -322,8 +322,8 @@
     <string name="weighing_removal_section_title">Removal of feed and water</string>
     <string name="weighing_removal_card_type">Remove feed &amp; water</string>
     <string name="weighing_removal_screen_title">Remove feed &amp; water</string>
-    <string name="weighing_removal_status_open">Record videos</string>
-    <string name="weighing_removal_status_in_review">Submitted — video in review</string>
+    <string name="weighing_removal_status_open">Record the captures</string>
+    <string name="weighing_removal_status_in_review">Submitted — captures in review</string>
     <string name="weighing_removal_status_sent_back">Sent back — record again</string>
     <string name="weighing_removal_status_done">Approved</string>
     <string name="weighing_removal_date_tonight">Tonight</string>
@@ -334,8 +334,8 @@
     <string name="weighing_removal_recording">Recording…</string>
     <string name="weighing_removal_submit">Submit</string>
     <string name="weighing_removal_submitted">Sent</string>
-    <string name="weighing_removal_submitted_line">Sent. The videos will be checked later.</string>
-    <string name="weighing_removal_ready">Both videos recorded — ready to submit.</string>
+    <string name="weighing_removal_submitted_line">Sent. The captures will be checked later.</string>
+    <string name="weighing_removal_ready">Every capture recorded — ready to submit.</string>
     <string name="weighing_removal_caption">Take out this pen\'s feed and water for tomorrow, and record each step.</string>
     <string name="weighing_removal_feed_hint">Show the feed being taken out of this pen</string>
     <string name="weighing_removal_water_hint">Show the water being taken out of this pen</string>

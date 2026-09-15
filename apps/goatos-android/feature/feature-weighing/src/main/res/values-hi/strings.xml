@@ -283,8 +283,8 @@
     <string name="weighing_removal_section_title">चारा और पानी हटाना</string>
     <string name="weighing_removal_card_type">चारा और पानी हटाएँ</string>
     <string name="weighing_removal_screen_title">चारा और पानी हटाएँ</string>
-    <string name="weighing_removal_status_open">आज रात का हटाना रिकॉर्ड करें</string>
-    <string name="weighing_removal_status_in_review">भेज दिया गया — वीडियो जाँच में है</string>
+    <string name="weighing_removal_status_open">आज रात के कैप्चर रिकॉर्ड करें</string>
+    <string name="weighing_removal_status_in_review">भेज दिया गया — कैप्चर जाँच में हैं</string>
     <string name="weighing_removal_status_sent_back">वापस भेजा गया — फिर से रिकॉर्ड करें</string>
     <string name="weighing_removal_status_done">स्वीकृत</string>
     <string name="weighing_removal_date_tonight">आज रात</string>
@@ -295,8 +295,8 @@
     <string name="weighing_removal_recording">रिकॉर्डिंग…</string>
     <string name="weighing_removal_submit">सबमिट करें</string>
     <string name="weighing_removal_submitted">भेज दिया गया</string>
-    <string name="weighing_removal_submitted_line">भेज दिया गया। वीडियो बाद में जाँचे जाएँगे।</string>
-    <string name="weighing_removal_ready">दोनों वीडियो रिकॉर्ड हो गए — सबमिट करने के लिए तैयार।</string>
+    <string name="weighing_removal_submitted_line">भेज दिया गया। कैप्चर बाद में जाँचे जाएँगे।</string>
+    <string name="weighing_removal_ready">सभी कैप्चर रिकॉर्ड हो गए — सबमिट करने के लिए तैयार।</string>
     <string name="weighing_removal_caption">कल के लिए इस पेन का चारा और पानी निकालें, और हर चरण रिकॉर्ड करें।</string>
     <string name="weighing_removal_feed_hint">इस पेन से चारा निकालते हुए दिखाएँ</string>
     <string name="weighing_removal_water_hint">इस पेन से पानी निकालते हुए दिखाएँ</string>
