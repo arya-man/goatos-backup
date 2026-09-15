@@ -673,3 +673,35 @@ func TestBundledFourLanesKeepEightSourceCeiling(t *testing.T) {
 		t.Fatal("source reads remained active")
 	}
 }
+
+func TestBundledQueuedSourcesHonorCancellation(t *testing.T) {
+	var active, peak atomic.Int32
+	entered := make(chan struct{}, 6)
+	release := make(chan struct{})
+	sources := []ports.Source{}
+	for i := 0; i < 6; i++ {
+		sources = append(sources, &requestConcurrencySource{kind: fmt.Sprint(i), active: &active, peak: &peak, entered: entered, release: release})
+	}
+	ctx, cancel := context.WithCancel(ports.WithRequestReadMemo(context.Background()))
+	defer cancel()
+	done := make(chan struct{})
+	go func() { defer close(done); _, _ = NewService(sources...).List(ctx, baseQuery()) }()
+	for i := 0; i < 2; i++ {
+		select {
+		case <-entered:
+		case <-time.After(time.Second):
+			cancel()
+			t.Fatal("source wave did not start")
+		}
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		close(release)
+		t.Fatal("canceled source queue did not stop")
+	}
+	if active.Load() != 0 || peak.Load() > 2 {
+		t.Fatalf("canceled lane leaked concurrency: active=%d peak=%d", active.Load(), peak.Load())
+	}
+}

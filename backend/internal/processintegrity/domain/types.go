@@ -109,6 +109,8 @@ const (
 )
 
 type Owner struct {
+	// OperatorUserID is resolved by the canonical owner join for board adapters; it is not part of the process-integrity API contract.
+	OperatorUserID      *string `json:"-"`
 	OperatorID          *string `json:"operator_id,omitempty"`
 	OperatorName        *string `json:"operator_name,omitempty"`
 	ParkHeadID          *string `json:"park_head_id,omitempty"`

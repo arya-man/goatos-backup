@@ -1,3 +1,4 @@
+import { sourceStatus, cleanBuildSource } from './lib/local-stack-receipt.mjs';
 import { execFileSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -7,11 +8,15 @@ const head = () => execFileSync('git', ['-C', repoRoot, 'rev-parse', 'HEAD'], {e
 // ordinary deployment builds still use Next's build ID without a local receipt.
 let sha;
 try { sha = head(); } catch { sha = null; }
+const initialSourceStatus = sha ? sourceStatus(repoRoot) : null;
 execFileSync('next', ['build', '--webpack', ...process.argv.slice(2)], {stdio: 'inherit'});
 execFileSync(process.execPath, ['scripts/check-token-leak.mjs'], {stdio: 'inherit'});
 if (sha) {
   if (sha !== head()) throw new Error('HEAD changed during admin-web build');
+  const finalSourceStatus = sourceStatus(repoRoot);
   writeFileSync('.next/local-build-provenance.json', JSON.stringify({
+    clean_source: cleanBuildSource(initialSourceStatus, finalSourceStatus),
+    source_status_start: initialSourceStatus, source_status_end: finalSourceStatus,
     git_sha: sha, build_id: readFileSync('.next/BUILD_ID', 'utf8').trim(), created_at: new Date().toISOString(),
   }, null, 2));
 }

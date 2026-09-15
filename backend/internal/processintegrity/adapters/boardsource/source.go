@@ -520,12 +520,15 @@ func mapRow(pr pidomain.Row) domain.Row {
 	// OWNER IDENTITY DOMAIN. The wrapped SQL emits operator_id as
 	// `operator.workforce_member_id::text` (workforce_members joined on
 	// COALESCE(conducted_by, assigned_to)), so OperatorID is a WORKFORCE MEMBER id, never a
-	// user id. It lands on Owner.WorkforceMemberID; Owner.UserID is deliberately left blank
-	// rather than guessed. No owner -> missing; the read never invents an operator fallback.
+	// user id. It lands on Owner.WorkforceMemberID; the separate OperatorUserID
+	// comes from that same canonical workforce row and never guesses identity. No owner -> missing; the read never invents an operator fallback.
 	owner := domain.Owner{}
 	ownerState := domain.OwnerStateMissing
 	if pr.Owner.OperatorID != nil && *pr.Owner.OperatorID != "" {
 		owner.WorkforceMemberID = *pr.Owner.OperatorID
+		if pr.Owner.OperatorUserID != nil {
+			owner.UserID = *pr.Owner.OperatorUserID
+		}
 		if pr.Owner.OperatorName != nil {
 			owner.Name = *pr.Owner.OperatorName
 		}

@@ -602,3 +602,33 @@ func TestRequestSnapshotReadFailureFallsBackAndLaneCanRecover(t *testing.T) {
 		t.Fatalf("lane recovery rows=%d err=%v", len(rows), err)
 	}
 }
+
+type unexpectedMemberLookup struct{ fakeMembers }
+
+func (unexpectedMemberLookup) UserIDsForMembers(context.Context, string, []string) (map[string]string, error) {
+	return nil, errors.New("unexpected owner lookup")
+}
+func TestCanonicalOwnerUserIdentityAvoidsLookup(t *testing.T) {
+	member, user := vsMember, vsUser
+	row := mapRow(pidomain.Row{Owner: pidomain.Owner{OperatorID: &member, OperatorUserID: &user}})
+	if row.Owner.UserID != user || row.Owner.WorkforceMemberID != member {
+		t.Fatalf("wrong identity: %+v", row.Owner)
+	}
+	s := &Source{members: unexpectedMemberLookup{}}
+	if err := s.fillOwnerUserIDs(context.Background(), vsTenant, []domain.Row{row}); err != nil {
+		t.Fatal(err)
+	}
+	// Older adapters still resolve the workforce ID; it is never treated as a user ID.
+	fallback := mapRow(pidomain.Row{Owner: pidomain.Owner{OperatorID: &member}})
+	if fallback.Owner.UserID != "" {
+		t.Fatal("invented owner user")
+	}
+	s.members = fakeMembers{byUser: map[string]string{user: member}}
+	rows := []domain.Row{fallback}
+	if err := s.fillOwnerUserIDs(context.Background(), vsTenant, rows); err != nil {
+		t.Fatal(err)
+	}
+	if rows[0].Owner.UserID != user {
+		t.Fatal("legacy identity resolution lost")
+	}
+}

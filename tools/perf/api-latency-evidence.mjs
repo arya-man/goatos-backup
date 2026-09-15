@@ -111,9 +111,9 @@ export function validateApiLatencyEvidence(report, expectedSha) {
   if (report.api_build_identity_source !== "/version") failures.push("API build identity must come from /version");
   if (report.git_sha !== expectedSha) failures.push(`report git_sha ${report.git_sha ?? "<missing>"} does not match ${expectedSha}`);
   if (report.expected_sha !== expectedSha) failures.push(`report expected_sha ${report.expected_sha ?? "<missing>"} does not match ${expectedSha}`);
-  if (typeof report.worktree_dirty !== "boolean") failures.push("worktree_dirty evidence is missing");
+  if (report.worktree_dirty !== false) failures.push("worktree_dirty must be false for exact-SHA certification");
   if (!report.worktree_diff_sha256) failures.push("worktree_diff_sha256 evidence is missing");
-  if (!Array.isArray(report.worktree_status_short)) failures.push("worktree_status_short evidence is missing");
+  if (!Array.isArray(report.worktree_status_short) || report.worktree_status_short.length !== 0) failures.push("worktree_status_short must be an empty array for exact-SHA certification");
   if (!report.manifest_sha256) failures.push("manifest_sha256 is missing");
   if (!report.started_at || !report.finished_at) failures.push("started_at/finished_at evidence is missing");
   if (!report.scope || !Array.isArray(report.scope.included) || typeof report.scope.excluded !== "object") {
@@ -261,6 +261,9 @@ function validatePr264BrowserEvidence(report, failures) {
   }
   if (!browser.api_build_sha || browser.api_build_sha !== report.git_sha) {
     failures.push("PR264 browser api_build_sha must match the latency report git_sha");
+  }
+  if (!browser.api_build_sha_end || browser.api_build_sha_end !== browser.api_build_sha) {
+    failures.push("PR264 browser final API build identity is missing or changed");
   }
   if (browser.same_api_build !== true) {
     failures.push("PR264 browser evidence must use the same API build as the latency report");

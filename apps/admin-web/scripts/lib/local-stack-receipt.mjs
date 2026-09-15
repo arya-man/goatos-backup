@@ -21,5 +21,14 @@ export function validateBuildProvenance(provenance, buildId, sha) {
   if (!provenance || !buildId || provenance.build_id !== buildId || provenance.git_sha !== sha) {
     throw new Error('Admin-web .next build does not match current HEAD; run npm run build before certification');
   }
+  if (provenance.clean_source !== true || !cleanBuildSource(provenance.source_status_start, provenance.source_status_end)) throw new Error('Admin-web build used dirty or unverified source; build from clean HEAD before certification');
   return provenance;
+}
+
+export function sourceStatus(repoRoot) {
+  // Git excludes ignored .next and local evidence artifacts by default.
+  return execFileSync('git', ['-C', repoRoot, 'status', '--porcelain=v1', '--untracked-files=all'], {encoding: 'utf8'}).split('\n').filter(Boolean);
+}
+export function cleanBuildSource(before, after) {
+  return Array.isArray(before) && Array.isArray(after) && before.length === 0 && after.length === 0;
 }

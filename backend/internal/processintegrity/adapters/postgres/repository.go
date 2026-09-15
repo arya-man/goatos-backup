@@ -413,7 +413,7 @@ func scanRow(rows rowScanner) (domain.Row, domain.Cursor, error) {
 	var batchStatus, submissionState, completionState, blockerReason, latestRejection, auditRef pgtype.Text
 	var driveCapacityState, driveMedicalDeferReason pgtype.Text
 	var driveAnimalsRequired, driveAnimalsAssigned, driveOperatorCap, driveAvailableOperators pgtype.Int4
-	var operatorID, operatorName, parkHeadID, parkHeadName, verifierID, verifierName, escalationOwnerID, escalationOwnerName pgtype.Text
+	var operatorID, operatorName, operatorUserID, parkHeadID, parkHeadName, verifierID, verifierName, escalationOwnerID, escalationOwnerName pgtype.Text
 	var dueAt pgtype.Timestamptz
 	var proofIDsCSV string
 	var sortPriority int
@@ -476,6 +476,7 @@ func scanRow(rows rowScanner) (domain.Row, domain.Cursor, error) {
 		&row.ProcessIntact,
 		&operatorID,
 		&operatorName,
+		&operatorUserID,
 		&parkHeadID,
 		&parkHeadName,
 		&verifierID,
@@ -553,6 +554,7 @@ func scanRow(rows rowScanner) (domain.Row, domain.Cursor, error) {
 	row.Owner = domain.Owner{
 		OperatorID:          textPtr(operatorID),
 		OperatorName:        textPtr(operatorName),
+		OperatorUserID:      textPtr(operatorUserID),
 		ParkHeadID:          textPtr(parkHeadID),
 		ParkHeadName:        textPtr(parkHeadName),
 		VerifierID:          textPtr(verifierID),
@@ -1569,11 +1571,13 @@ with_locations AS (
     ON shed.tenant_id = $1::uuid
    AND shed.location_id = derived.shed_uuid
 ),
+-- projection-review: membership=unchanged canonical rows; group_key=existing canonical row grain; join_cardinality=existing tenant-bound active operator identity join adds only user_id; pagination=unchanged canonical keyset and aggregate wrappers; scope=operator user identity is internal to board adapters and retains tenant and member binding.
 with_owners AS (
   SELECT
     with_locations.*,
     operator.workforce_member_id::text AS operator_id,
     operator.display_name AS operator_name,
+    operator.user_id::text AS operator_user_id,
     park_head.workforce_member_id::text AS park_head_id,
     park_head.display_name AS park_head_name,
     verifier.workforce_member_id::text AS verifier_id,
@@ -1705,6 +1709,7 @@ feed_exception_rows AS (
     e.status IN ('resolved', 'dismissed') AS process_intact,
     NULL::text AS operator_id,
     NULL::text AS operator_name,
+    NULL::text AS operator_user_id,
     NULL::text AS park_head_id,
     NULL::text AS park_head_name,
     NULL::text AS verifier_id,
@@ -1835,6 +1840,7 @@ all_rows AS (
     process_intact,
     operator_id,
     operator_name,
+    operator_user_id,
     park_head_id,
     park_head_name,
     verifier_id,
@@ -1911,6 +1917,7 @@ all_rows AS (
     process_intact,
     operator_id,
     operator_name,
+    operator_user_id,
     park_head_id,
     park_head_name,
     verifier_id,
@@ -2057,6 +2064,7 @@ SELECT
   process_intact,
   operator_id,
   operator_name,
+  operator_user_id,
   park_head_id,
   park_head_name,
   verifier_id,

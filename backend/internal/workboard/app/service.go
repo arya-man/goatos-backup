@@ -88,7 +88,7 @@ func (s *Service) List(ctx context.Context, q domain.Query) (domain.Page, error)
 			break
 		}
 		sourceStart := time.Now()
-		rows, err := src.ListRows(ctx, ports.SourceQuery{
+		rows, err := s.sourceRows(ctx, i, src, ports.SourceQuery{
 			TenantID: q.TenantID, ParkID: q.ParkID, BusinessDate: q.BusinessDate,
 			OwnerUserID: q.OwnerUserID, WorkStates: q.WorkStates,
 			AfterSourceID: after, Limit: need + 1,
@@ -166,7 +166,7 @@ func (s *Service) listFirstPage(ctx context.Context, q domain.Query) (domain.Pag
 				return
 			}
 			sourceStart := time.Now()
-			rows, err := src.ListRows(ctx, ports.SourceQuery{
+			rows, err := s.sourceRows(ctx, sourceIndexes[i], src, ports.SourceQuery{
 				TenantID: q.TenantID, ParkID: q.ParkID, BusinessDate: q.BusinessDate,
 				OwnerUserID: q.OwnerUserID, WorkStates: q.WorkStates,
 				Limit: q.Limit + 1,
@@ -234,9 +234,11 @@ func (s *Service) Summary(ctx context.Context, q domain.Query) (domain.Summary, 
 	// scale-guard:ignore: bounded fan-out over the fixed source registry (~10 entries), each
 	// a single indexed aggregate bounded to one tenant, park and business date.
 	scoped := make([]ports.Source, 0, len(s.sources))
-	for _, src := range s.sources {
+	sourceIndexes := make([]int, 0, len(s.sources))
+	for sourceIndex, src := range s.sources {
 		if q.WantsModule(src.Module()) {
 			scoped = append(scoped, src)
+			sourceIndexes = append(sourceIndexes, sourceIndex)
 		}
 	}
 	results := make([]result, len(scoped))
@@ -266,6 +268,7 @@ func (s *Service) Summary(ctx context.Context, q domain.Query) (domain.Summary, 
 				return
 			}
 			results[i] = result{module: src.Module(), counts: counts}
+			s.prefetchSourceLanes(sourceCtx, sourceIndexes[i], src, q, counts)
 		}(i, src)
 	}
 	wg.Wait()

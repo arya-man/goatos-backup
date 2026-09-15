@@ -652,7 +652,7 @@ async function assertLayoutHealthy(page, routeName, viewportLabel) {
     const clippedControls = Array.from(document.querySelectorAll("a, button"))
       .filter(isVisible)
       .filter((element) => (element.textContent ?? "").trim().length > 0)
-      .filter((element) => element.scrollWidth > element.clientWidth + 2 || element.scrollHeight > element.clientHeight + 8)
+      .filter((element) => (element.scrollWidth > element.clientWidth + 2 || element.scrollHeight > element.clientHeight + 8) && !unclippedAvatarText(element))
       .slice(0, 5)
       .map(describeElement);
     const clippedNavLabels = Array.from(document.querySelectorAll('nav[aria-label^="Mesha"] span'))
@@ -701,15 +701,45 @@ async function assertLayoutHealthy(page, routeName, viewportLabel) {
     // and both independent button centers must still receive pointer hits.
     function reachableStackAvatar(element) {
       if (!element.matches('.wb .avs > button.av, .wb .avs > button.more')) return false;
+      // The mobile toolbar intentionally scrolls horizontally. Prove the target
+      // can be reached inside that scroll owner, then restore its position.
+      const toolbar = element.closest('.wb .tbar');
+      const previousScroll = toolbar?.scrollLeft;
+      if (toolbar && ['auto', 'scroll'].includes(getComputedStyle(toolbar).overflowX)) {
+        const box = toolbar.getBoundingClientRect(), button = element.getBoundingClientRect();
+        if (button.left < box.left || button.right > box.right) toolbar.scrollLeft += button.left + button.width / 2 - box.left - box.width / 2;
+      }
       const rect = element.getBoundingClientRect();
       const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
-      return rect.width === 30 && rect.height === 30 && !element.disabled
+      const reachable = rect.width === 30 && (rect.height === 30 || (document.documentElement.clientWidth < 600 && rect.height === 40)) && !element.disabled
         && Boolean(hit && (hit === element || element.contains(hit)));
+      if (toolbar) toolbar.scrollLeft = previousScroll;
+      return reachable;
+    }
+    function unclippedAvatarText(element) {
+      if (!reachableStackAvatar(element) || document.documentElement.clientWidth >= 600) return false;
+      const halo = getComputedStyle(element, '::after');
+      if (halo.content === 'none' || halo.position !== 'absolute'
+        || !['top', 'right', 'bottom', 'left'].every((side) => halo[side] === '-5px')) return false;
+      const box = element.getBoundingClientRect();
+      const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+      let found = false;
+      for (let text = walker.nextNode(); text; text = walker.nextNode()) {
+        if (!text.textContent.trim()) continue;
+        found = true;
+        const range = document.createRange();
+        range.selectNodeContents(text);
+        for (const rect of range.getClientRects()) {
+          if (rect.left < box.left + element.clientLeft - 1 || rect.right > box.left + element.clientLeft + element.clientWidth + 1
+            || rect.top < box.top + element.clientTop - 1 || rect.bottom > box.top + element.clientTop + element.clientHeight + 1) return false;
+        }
+      }
+      return found;
     }
     function intentionalAvatarOverlap(first, second, xOverlap, yOverlap) {
       if (first.parentElement !== second.parentElement || !reachableStackAvatar(first) || !reachableStackAvatar(second)) return false;
       const a = first.getBoundingClientRect(), b = second.getBoundingClientRect();
-      return xOverlap > 0 && xOverlap <= 8 && yOverlap === 30 && Math.abs(a.top - b.top) < 1;
+      return xOverlap > 0 && xOverlap <= 8 && a.height === b.height && yOverlap === a.height && Math.abs(a.top - b.top) < 1;
     }
     const overlaps = [];
     for (let i = 0; i < interactives.length; i += 1) {

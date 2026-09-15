@@ -175,6 +175,22 @@ func (h *Handler) Page(w http.ResponseWriter, r *http.Request) {
 		}
 		q.Limit = n
 	}
+	// Only first-page lane queries can be prefetched with an exact per-source limit.
+	prefetchQueries := []domain.Query{}
+	prefetchValues := r.URL.Query()
+	for _, lane := range pageLanes {
+		if strings.TrimSpace(prefetchValues.Get("cursor_"+string(lane))) != "" {
+			continue
+		}
+		laneQ := q
+		laneQ.WorkStates = intersectStates(q.WorkStates, domain.StatesInLane(lane))
+		if len(laneQ.WorkStates) == 0 {
+			continue
+		}
+		laneQ.Cursor = domain.Cursor{}
+		prefetchQueries = append(prefetchQueries, laneQ)
+	}
+	summaryCtx := app.WithPageLanePrefetch(ctx, prefetchQueries)
 	out := pagePayload{
 		Lanes:        map[domain.Lane]lanePagePayload{},
 		BusinessDate: q.BusinessDate,
@@ -189,7 +205,7 @@ func (h *Handler) Page(w http.ResponseWriter, r *http.Request) {
 	summaryCh := make(chan summaryResult, 1)
 	go func() {
 		start := h.now()
-		sum, err := h.service.Summary(ctx, q) // scale-guard:ignore: one summary read runs beside an optional vocabulary summary to keep bundled page latency bounded.
+		sum, err := h.service.Summary(summaryCtx, q) // scale-guard:ignore: one summary read runs beside an optional vocabulary summary to keep bundled page latency bounded.
 		prof.addAsync("summary_service", start)
 		if err != nil {
 			summaryCh <- summaryResult{err: err}

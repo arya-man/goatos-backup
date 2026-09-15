@@ -70,6 +70,7 @@ function pr264BrowserEvidence({ includeSignals = true } = {}) {
   return {
     same_api_build: true,
     api_build_sha: sha,
+    api_build_sha_end: sha,
     routes: [
       "/work-board?scope_mode=company",
       "/work-board?scope_mode=company&date=2026-08-10",
@@ -225,6 +226,11 @@ test("accepts PR264 local OCI performance evidence only when every required rout
   report.browser_evidence = pr264BrowserEvidence();
   assert.deepEqual(validateApiLatencyEvidence(report, sha), []);
 
+  for (const endSHA of [undefined, "changed-build"]) {
+    report.browser_evidence.api_build_sha_end = endSHA;
+    assert.ok(validateApiLatencyEvidence(report, sha).some((failure) => failure.includes("browser final API build")));
+  }
+  report.browser_evidence.api_build_sha_end = sha;
   const historical = report.browser_evidence.routes.find((item) => item.route === "/work-board?scope_mode=company&date=2026-08-10");
   for (const invalid of [{work_cards: 0, degraded: false}, {work_cards: 1, degraded: true}]) {
     const original = historical.viewports[1].route_signals;
@@ -371,6 +377,7 @@ test("accepts PR264 browser evidence produced as one flat record per viewport", 
   report.browser_evidence = {
     same_api_build: true,
     api_build_sha: sha,
+    api_build_sha_end: sha,
     routes: report.scope.evidence_boundaries.pr264_browser_render_routes.flatMap((route) => [
       { route, viewport: "laptop", loaded: true, forbidden_strings_absent: forbidden, route_signals: signals.get(route) },
       { route, viewport: "mobile", loaded: true, forbidden_strings_absent: forbidden, route_signals: signals.get(route) },
@@ -451,5 +458,16 @@ test("rejects checkout-only identity and API build changes during measurement", 
     { api_build_identity_source: "checkout" },
   ]) {
     assert.ok(validateApiLatencyEvidence({ ...passingReport(), ...update }, sha).some((failure) => /build/i.test(failure)));
+  }
+});
+
+test("exact-SHA certification rejects dirty diagnostic evidence and inconsistent status", () => {
+  assert.deepEqual(validateApiLatencyEvidence(passingReport(), sha), []);
+  for (const change of [
+    {worktree_dirty: true},
+    {worktree_dirty: false, worktree_status_short: [' M backend/file.go']},
+    {worktree_dirty: false, worktree_status_short: ['?? new-source.ts']},
+  ]) {
+    assert.ok(validateApiLatencyEvidence({...passingReport(), ...change}, sha).some((failure) => failure.includes('exact-SHA certification')));
   }
 });
