@@ -1,0 +1,225 @@
+// WEIGHING SOP (maintainer decision 2026-09-15, docs/decisions/weighing-sop.md).
+//
+// Pure model of `form_dsl.weighing`: the rules a weighing task is planned on and runs under,
+// authored on /weighing/sops -- the capture modes the planner may pick, the default cap per day,
+// whether the evening-before feed & water removal is required / optional / off, the removal
+// card's instruction, the two proof slots' wording, the questions the removal operator answers
+// per pen, and the lump-sum video window. Parses the backend document into editor rows and emits
+// it back byte-faithfully, so a round-trip with no edits publishes the SAME document. The backend
+// (weighing/domain.ValidateWeighingSOP) is the authority on what is valid; this file only shapes
+// and pre-checks so the author gets the message beside the field.
+
+export const WEIGHING_SCHEMA_VERSION = "goatos.sop-weighing.v1";
+
+export type WeighingMode = "individual_animal" | "per_shed_partition";
+export const WEIGHING_MODES: WeighingMode[] = ["individual_animal", "per_shed_partition"];
+
+export type RemovalMode = "required" | "optional" | "off";
+export const REMOVAL_MODES: RemovalMode[] = ["required", "optional", "off"];
+
+// The two removal clips are FIXED: the evidence table carries exactly these, the verifier
+// reviews them and the midnight gate counts them. Only their wording is the author's.
+export const REMOVAL_PROOF_KEYS = ["feed_video", "water_video"] as const;
+export type RemovalProofKey = (typeof REMOVAL_PROOF_KEYS)[number];
+
+export type WeighingQuestionKind = "choice" | "multi" | "text" | "number";
+
+export type WeighingOptionRow = { value: string; label: string };
+
+export type WeighingQuestionRow = {
+  id: string; // editor row id
+  key: string; // question id on the wire
+  kind: WeighingQuestionKind;
+  title: string;
+  hint: string;
+  required: boolean;
+  options: WeighingOptionRow[];
+  allowOther: boolean;
+  min: string;
+  max: string;
+  unit: string;
+  onlyIfQuestion: string;
+  onlyIfValue: string;
+};
+
+export type RemovalProofRow = { key: RemovalProofKey; title: string; hint: string };
+
+export type WeighingRows = {
+  modes: WeighingMode[];
+  defaultCapPerDay: string;
+  removalMode: RemovalMode;
+  removalInstruction: string;
+  removalProofs: RemovalProofRow[];
+  removalQuestions: WeighingQuestionRow[];
+  individualVideoRequired: boolean;
+  lumpSumVideoMin: string;
+  lumpSumVideoMax: string;
+};
+
+// The proof policy's ceiling (weighing/domain.MaxShedProofArtifacts); the backend refuses more.
+export const LUMP_SUM_VIDEO_CEILING = 5;
+
+function str(v: unknown, fallback = ""): string {
+  return typeof v === "string" ? v : fallback;
+}
+function num(v: unknown): string {
+  return typeof v === "number" && Number.isFinite(v) ? String(v) : "";
+}
+function obj(v: unknown): Record<string, unknown> | null {
+  return v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : null;
+}
+
+let seq = 0;
+export function newRowId(prefix = "wq"): string {
+  seq += 1;
+  return `${prefix}-${Date.now().toString(36)}-${seq}`;
+}
+
+export function blankQuestion(kind: WeighingQuestionKind = "choice"): WeighingQuestionRow {
+  return {
+    id: newRowId(), key: "", kind, title: "", hint: "", required: true,
+    options: kind === "choice" ? [{ value: "yes", label: "Yes" }, { value: "no", label: "No" }] : [],
+    allowOther: false, min: "", max: "", unit: "", onlyIfQuestion: "", onlyIfValue: "",
+  };
+}
+
+// slugKey derives a stable key from a title for NEW rows (an existing key is never rewritten).
+export function slugKey(title: string, taken: Set<string>, fallback = "question"): string {
+  const base = title.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "").replace(/^[^a-z]+/, "").slice(0, 40) || fallback;
+  let key = base;
+  let n = 2;
+  while (taken.has(key)) {
+    key = `${base}_${n}`;
+    n += 1;
+  }
+  return key;
+}
+
+function parseQuestion(rq: unknown): WeighingQuestionRow[] {
+  const q = obj(rq);
+  if (!q) return [];
+  const onlyIf = obj(q["only_if"]);
+  const options = Array.isArray(q["options"]) ? q["options"].flatMap((o) => { const oo = obj(o); return oo ? [{ value: str(oo["value"]), label: str(oo["label"]) }] : []; }) : [];
+  return [
+    {
+      id: newRowId(),
+      key: str(q["id"]),
+      kind: (str(q["kind"], "choice") || "choice") as WeighingQuestionKind,
+      title: str(q["title"]),
+      hint: str(q["hint"]),
+      required: q["required"] === true,
+      options,
+      allowOther: q["allow_other"] === true,
+      min: num(q["min"]),
+      max: num(q["max"]),
+      unit: str(q["unit"]),
+      onlyIfQuestion: onlyIf ? str(onlyIf["question_id"]) : "",
+      onlyIfValue: onlyIf ? str(onlyIf["value"]) : "",
+    },
+  ];
+}
+
+export function parseWeighing(formDsl: unknown): WeighingRows | null {
+  const dsl = obj(formDsl);
+  const w = dsl ? obj(dsl["weighing"]) : null;
+  if (!w) return null;
+  const planning = obj(w["planning"]) ?? {};
+  const removal = obj(w["feed_water_removal"]) ?? {};
+  const capture = obj(w["capture"]) ?? {};
+  const individual = obj(capture["individual"]) ?? {};
+  const lumpSum = obj(capture["lump_sum"]) ?? {};
+  const modes = Array.isArray(planning["modes"]) ? planning["modes"].filter((m): m is WeighingMode => m === "individual_animal" || m === "per_shed_partition") : [];
+  const proofsRaw = Array.isArray(removal["proofs"]) ? removal["proofs"] : [];
+  const proofs: RemovalProofRow[] = REMOVAL_PROOF_KEYS.map((key) => {
+    const found = proofsRaw.map(obj).find((p) => p && p["key"] === key);
+    return { key, title: found ? str(found["title"]) : "", hint: found ? str(found["hint"]) : "" };
+  });
+  const questions = Array.isArray(removal["questions"]) ? removal["questions"].flatMap(parseQuestion) : [];
+  return {
+    modes,
+    defaultCapPerDay: num(planning["default_cap_per_day"]),
+    removalMode: (str(removal["mode"], "required") || "required") as RemovalMode,
+    removalInstruction: str(removal["instruction"]),
+    removalProofs: proofs,
+    removalQuestions: questions,
+    individualVideoRequired: individual["video_required"] !== false,
+    lumpSumVideoMin: num(lumpSum["video_min"]),
+    lumpSumVideoMax: num(lumpSum["video_max"]),
+  };
+}
+
+function emitQuestion(q: WeighingQuestionRow): Record<string, unknown> {
+  const out: Record<string, unknown> = { id: q.key, kind: q.kind, title: q.title };
+  if (q.hint.trim()) out.hint = q.hint;
+  out.required = q.required;
+  if (q.kind === "choice" || q.kind === "multi") {
+    out.options = q.options.map((o) => ({ value: o.value.trim(), label: o.label.trim() })).filter((o) => o.value && o.label);
+    if (q.allowOther) out.allow_other = true;
+  }
+  if (q.kind === "number") {
+    if (q.min.trim() !== "" && Number.isFinite(Number(q.min))) out.min = Number(q.min);
+    if (q.max.trim() !== "" && Number.isFinite(Number(q.max))) out.max = Number(q.max);
+    if (q.unit.trim()) out.unit = q.unit.trim();
+  }
+  if (q.onlyIfQuestion) out.only_if = { question_id: q.onlyIfQuestion, value: q.onlyIfValue };
+  return out;
+}
+
+export function emitWeighing(rows: WeighingRows): Record<string, unknown> {
+  const removal: Record<string, unknown> = { mode: rows.removalMode };
+  if (rows.removalInstruction.trim()) removal.instruction = rows.removalInstruction;
+  removal.proofs = rows.removalProofs.map((p) => {
+    const out: Record<string, unknown> = { key: p.key, title: p.title };
+    if (p.hint.trim()) out.hint = p.hint;
+    out.kind = "video";
+    return out;
+  });
+  removal.questions = rows.removalQuestions.map(emitQuestion);
+  return {
+    schema_version: WEIGHING_SCHEMA_VERSION,
+    planning: { modes: rows.modes, default_cap_per_day: Number(rows.defaultCapPerDay) },
+    feed_water_removal: removal,
+    capture: {
+      individual: { video_required: rows.individualVideoRequired },
+      lump_sum: { video_min: Number(rows.lumpSumVideoMin), video_max: Number(rows.lumpSumVideoMax) },
+    },
+  };
+}
+
+// Client-side pre-checks mirroring the backend validator's cheapest rules; the backend stays the
+// authority (its 400 names the path too).
+export function weighingProblems(rows: WeighingRows): string[] {
+  const problems: string[] = [];
+  if (rows.modes.length === 0) problems.push("Offer at least one way of weighing");
+  const cap = Number(rows.defaultCapPerDay);
+  if (!rows.defaultCapPerDay.trim() || !Number.isInteger(cap) || cap < 1 || cap > 10000) problems.push("Default animals per day must be a whole number from 1 to 10000");
+  if (!REMOVAL_MODES.includes(rows.removalMode)) problems.push("Say when feed & water removal applies");
+  rows.removalProofs.forEach((p) => {
+    if (!p.title.trim()) problems.push(`The ${p.key === "feed_video" ? "feed" : "water"} video slot needs a title`);
+  });
+  const seen = new Map<string, WeighingQuestionRow>();
+  rows.removalQuestions.forEach((q, qi) => {
+    const at = `Removal question ${qi + 1}`;
+    if (!q.key.trim()) problems.push(`${at}: needs a key`);
+    if (q.key.endsWith("_other")) problems.push(`${at}: a key cannot end in _other`);
+    if (seen.has(q.key)) problems.push(`${at}: key "${q.key}" is used twice`);
+    if (!q.title.trim()) problems.push(`${at}: needs the question text`);
+    if ((q.kind === "choice" || q.kind === "multi") && q.options.filter((o) => o.value.trim() && o.label.trim()).length === 0) problems.push(`${at}: a pick-one / pick-many question needs at least one choice`);
+    if (q.allowOther && !q.options.some((o) => o.value.trim() === "other")) problems.push(`${at}: the free-text "other" needs a choice whose value is "other"`);
+    if (q.kind === "number" && q.min.trim() && q.max.trim() && Number(q.min) > Number(q.max)) problems.push(`${at}: min must not exceed max`);
+    if (q.onlyIfQuestion) {
+      const dep = seen.get(q.onlyIfQuestion);
+      if (!dep) problems.push(`${at}: "ask only when" must name an earlier question`);
+      else if (dep.kind !== "choice") problems.push(`${at}: "ask only when" must name a pick-one question`);
+      else if (!dep.options.some((o) => o.value === q.onlyIfValue)) problems.push(`${at}: "ask only when" needs one of that question's choices`);
+    }
+    seen.set(q.key, q);
+  });
+  if (!rows.individualVideoRequired) problems.push("The per-animal video cannot be switched off: it is what the verifier reviews");
+  const min = Number(rows.lumpSumVideoMin);
+  const max = Number(rows.lumpSumVideoMax);
+  if (!Number.isInteger(min) || min < 1) problems.push("A whole pen needs at least 1 video");
+  if (!Number.isInteger(max) || max < 1 || max > LUMP_SUM_VIDEO_CEILING) problems.push(`Whole-pen videos: at most ${LUMP_SUM_VIDEO_CEILING}`);
+  if (Number.isInteger(min) && Number.isInteger(max) && min > max) problems.push("Whole-pen minimum videos must not exceed the maximum");
+  return problems;
+}

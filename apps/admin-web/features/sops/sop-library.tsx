@@ -28,6 +28,7 @@ import {
 import { type SopCardView, type SopTrigger } from "./sop-derive";
 import { FollowUpStepsSummary } from "./followup-summary";
 import { InspectionSummary } from "./inspection-summary";
+import { WeighingSummary } from "./weighing-summary";
 import { copy, tablePageSizes, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 
 // The New SOP builder is a dedicated full-page surface at <module SOP page>?compose=1 — the same
@@ -409,6 +410,7 @@ function SopDetailModal({ view, pageContract, onClose, onEdit, editPending = fal
           )}
           {view.followUpStepCount > 0 ? <FollowUpStepsSummary pageContract={pageContract} formDsl={view.followUpFormDsl} /> : null}
           {view.inspectionFormDsl ? <InspectionSummary pageContract={pageContract} formDsl={view.inspectionFormDsl} /> : null}
+          {view.weighingFormDsl ? <WeighingSummary pageContract={pageContract} formDsl={view.weighingFormDsl} /> : null}
         </div>
 
         <div className="cfgmf">
@@ -424,7 +426,9 @@ function SopDetailModal({ view, pageContract, onClose, onEdit, editPending = fal
                 ? copy(pageContract, "action.edit_operator_steps")
                 : view.inspectionFormDsl
                   ? copy(pageContract, "action.edit_inspection")
-                  : copy(pageContract, "action.new_sop_builder")}
+                  : view.weighingFormDsl
+                    ? copy(pageContract, "action.edit_weighing")
+                    : copy(pageContract, "action.new_sop_builder")}
           </button>
         </div>
       </div>

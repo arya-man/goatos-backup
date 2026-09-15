@@ -8,6 +8,8 @@ import type { SopSliceDomain } from "./sop-derive";
 import { InspectionEditor } from "./inspection-editor";
 import { publishedFromSearch } from "./published-href";
 import { parseInspection } from "./inspection-model";
+import { WeighingEditor } from "./weighing-editor";
+import { parseWeighing } from "./weighing-model";
 
 // Shared server renderer for the per-module SOP pages (SOP split, maintainer decision 2026-08-18):
 // /vaccination/sops, /counts/sops, and /feed/sops each mount this with their own page-contract key,
@@ -69,6 +71,24 @@ export async function renderSopModulePage(
               sopCode={detail.data.sop.code}
               versionLabel={`${version.version_label} · ${version.status}`}
               initial={inspection}
+            />
+          );
+        }
+        // WEIGHING SOP (maintainer decision 2026-09-15): a SOP carrying a `weighing` rules
+        // section is edited through the rules editor; the capture form it also carries is
+        // passed through verbatim on save.
+        const weighing = parseWeighing(version.form_dsl);
+        if (weighing) {
+          const pageContract = await pageContractPromise;
+          return (
+            <WeighingEditor
+              pageContract={pageContract}
+              basePath={basePath}
+              sopId={editId}
+              sopName={detail.data.sop.name}
+              sopCode={detail.data.sop.code}
+              versionLabel={`${version.version_label} · ${version.status}`}
+              initial={weighing}
             />
           );
         }
