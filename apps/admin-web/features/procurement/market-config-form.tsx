@@ -41,7 +41,8 @@ export function MarketConfigForm({
   const message = state.status === "idle" ? "" : outcomes[state.code] || outcomes.market_save_failed || "";
   return (
     <div className={className} style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-      <form action={formAction} style={style} aria-busy={pending} {...rest}>
+      {/* Every market form is one horizontal line of controls; the layout lives in .market-config-line. */}
+      <form action={formAction} className="market-config-line" style={style} aria-busy={pending} {...rest}>
         {children}
       </form>
       {message ? (

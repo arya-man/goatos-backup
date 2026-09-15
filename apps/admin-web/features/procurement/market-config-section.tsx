@@ -67,6 +67,8 @@ export function MarketConfigSection({
       </div>
       <p className="muted small sales-config-card-copy">{copy(pageContract, "section.market.sub")}</p>
 
+      {/* Body padding comes from the card's own .bd; the rows/blocks are spaced by the market-config-* rules. */}
+      <div className="bd market-config-body">
       {!configResult.ok ? (
         <div className="alert" style={{ marginBottom: 14 }}>
           <b>{configResult.error.code ?? configResult.error.kind}</b>&nbsp;
@@ -78,14 +80,14 @@ export function MarketConfigSection({
 
       {/* The ONE time each morning the cards appear on the phone and the reminder goes out. */}
       {/* Maintainer decision 2026-09-14: native time input; value is "HH:MM" IST. */}
-      <div className="market-call-time" style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginBottom: 14 }}>
+      <div className="market-call-time">
         <div>
-          <h4 style={{ margin: "4px 0" }}>{copy(pageContract, "market.call_time.title")}</h4>
-          <p className="muted small" style={{ margin: 0 }}>{copy(pageContract, "market.call_time.hint")}</p>
+          <h4 className="market-config-h4">{copy(pageContract, "market.call_time.title")}</h4>
+          <p className="muted small market-config-hint">{copy(pageContract, "market.call_time.hint")}</p>
         </div>
         <div className="sp" style={{ flex: 1 }} />
         {canConfigure ? (
-          <MarketConfigForm action={setMarketCallTimeAction} outcomes={outcomes} style={{ display: "flex", gap: 8, alignItems: "center" }} data-market-call-time="">
+          <MarketConfigForm action={setMarketCallTimeAction} outcomes={outcomes} className="market-config-row" data-market-call-time="">
             <input type="time" name="call_time" defaultValue={config.call_time} required aria-label={copy(pageContract, "market.call_time.title")} />
             <button type="submit" className="btn sm primary">
               {copy(pageContract, "market.action.save_call_time")}
@@ -96,23 +98,26 @@ export function MarketConfigSection({
         )}
       </div>
 
-      <div className="grid g2" style={{ gap: 16, alignItems: "start" }}>
-        <div>
-          <h4 style={{ margin: "4px 0" }}>{copy(pageContract, "market.cities.title")}</h4>
-          <p className="muted small">{copy(pageContract, "market.cities.hint")}</p>
+      <div className="grid g2 market-config-columns">
+        <div className="market-config-column">
+          <h4 className="market-config-h4">
+            {copy(pageContract, "market.cities.title")}
+            <span className="market-config-count">{config.cities.filter((c) => c.status === "active").length}</span>
+          </h4>
+          <p className="muted small market-config-hint">{copy(pageContract, "market.cities.hint")}</p>
           {config.cities.length === 0 ? (
             <div className="empty">{copy(pageContract, "market.empty.cities")}</div>
           ) : (
-            <ul className="market-config-list" style={{ listStyle: "none", padding: 0, margin: 0 }}>
+            <ul className="market-config-list">
               {config.cities.map((city) => (
-                <li key={city.id} style={{ padding: "6px 0", borderBottom: "1px solid var(--line)" }}>
+                <li key={city.id} className={city.status === "active" ? undefined : "is-retired"}>
                   <CityRow city={city} pageContract={pageContract} canConfigure={canConfigure} outcomes={outcomes} />
                 </li>
               ))}
             </ul>
           )}
           {canConfigure ? (
-            <MarketConfigForm action={addMarketCityAction} outcomes={outcomes} className="market-config-add" style={{ display: "flex", gap: 8, marginTop: 10 }}>
+            <MarketConfigForm action={addMarketCityAction} outcomes={outcomes} className="market-config-add">
               <input
                 name="name"
                 required
@@ -128,22 +133,25 @@ export function MarketConfigSection({
           ) : null}
         </div>
 
-        <div>
-          <h4 style={{ margin: "4px 0" }}>{copy(pageContract, "market.questions.title")}</h4>
-          <p className="muted small">{copy(pageContract, "market.questions.hint")}</p>
+        <div className="market-config-column">
+          <h4 className="market-config-h4">
+            {copy(pageContract, "market.questions.title")}
+            <span className="market-config-count">{config.questions.filter((q) => q.status === "active").length}</span>
+          </h4>
+          <p className="muted small market-config-hint">{copy(pageContract, "market.questions.hint")}</p>
           {config.questions.length === 0 ? (
             <div className="empty">{copy(pageContract, "market.empty.questions")}</div>
           ) : (
-            <ul className="market-config-list" style={{ listStyle: "none", padding: 0, margin: 0 }}>
+            <ul className="market-config-list">
               {config.questions.map((question) => (
-                <li key={question.id} style={{ padding: "6px 0", borderBottom: "1px solid var(--line)" }}>
+                <li key={question.id} className={question.status === "active" ? undefined : "is-retired"}>
                   <QuestionRow question={question} pageContract={pageContract} canConfigure={canConfigure} outcomes={outcomes} />
                 </li>
               ))}
             </ul>
           )}
           {canConfigure ? (
-            <MarketConfigForm action={addMarketQuestionAction} outcomes={outcomes} className="market-config-add" style={{ display: "flex", gap: 8, marginTop: 10 }}>
+            <MarketConfigForm action={addMarketQuestionAction} outcomes={outcomes} className="market-config-add">
               <input
                 name="label"
                 required
@@ -167,9 +175,10 @@ export function MarketConfigSection({
           ) : null}
         </div>
       </div>
-      <p className="muted small" style={{ marginTop: 10 }}>
+      <p className="muted small market-config-footnote">
         {copy(pageContract, "market.retired_note")}
       </p>
+      </div>
     </section>
   );
 }
@@ -195,7 +204,7 @@ function CityRow({
 }) {
   if (!canConfigure) {
     return (
-      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+      <div className="market-config-line">
         <span style={{ flex: 1 }}>{city.name}</span>
         <StatusTag status={city.status} pageContract={pageContract} />
       </div>
@@ -203,7 +212,7 @@ function CityRow({
   }
   const flipped = city.status === "active" ? "retired" : "active";
   return (
-    <MarketConfigForm action={updateMarketCityAction} outcomes={outcomes} style={{ display: "flex", gap: 8, alignItems: "center" }} data-market-city={city.id}>
+    <MarketConfigForm action={updateMarketCityAction} outcomes={outcomes} className="market-config-row" data-market-city={city.id}>
       <input type="hidden" name="city_id" value={city.id} />
       <input name="name" defaultValue={city.name} required maxLength={80} aria-label={copy(pageContract, "market.field.city_name")} style={{ flex: 1 }} />
       <StatusTag status={city.status} pageContract={pageContract} />
@@ -230,7 +239,7 @@ function QuestionRow({
 }) {
   if (!canConfigure) {
     return (
-      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+      <div className="market-config-line">
         <span style={{ flex: 2 }}>{question.label}</span>
         <span className="muted" style={{ flex: 1 }}>{question.unit_label}</span>
         <StatusTag status={question.status} pageContract={pageContract} />
@@ -239,7 +248,7 @@ function QuestionRow({
   }
   const flipped = question.status === "active" ? "retired" : "active";
   return (
-    <MarketConfigForm action={updateMarketQuestionAction} outcomes={outcomes} style={{ display: "flex", gap: 8, alignItems: "center" }} data-market-question={question.id}>
+    <MarketConfigForm action={updateMarketQuestionAction} outcomes={outcomes} className="market-config-row" data-market-question={question.id}>
       <input type="hidden" name="question_id" value={question.id} />
       <input name="label" defaultValue={question.label} required maxLength={80} aria-label={copy(pageContract, "market.field.question_label")} style={{ flex: 2 }} />
       <input name="unit_label" defaultValue={question.unit_label} required maxLength={24} aria-label={copy(pageContract, "market.field.unit_label")} style={{ flex: 1 }} />
