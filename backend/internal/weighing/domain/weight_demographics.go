@@ -194,6 +194,56 @@ type WeightGainBreedWeekBucket struct {
 	AverageGainGPerDay float64 `json:"average_gain_g_per_day"`
 }
 
+// WeightGainPenWeekBucket is one pen's daily gain in one calendar week, for the Time-wise tab's
+// per-pen table (maintainer request 2026-09-08). Same statistic and claim rules as every other
+// gain figure on the page: a scanned animal at the median of its own pairs that week, claimed by
+// the pen of its latest weigh; a whole-shed pen at its average-weight movement once per animal. A
+// pen is listed whatever it holds -- the breed rows' single-cohort claim does not apply, because
+// a pen needs no claim to be itself -- and only the page's Sex filter narrows it, under which a
+// whole-shed pen counts when its live cohort is entirely that sex. A pen with no gain in a week
+// is simply ABSENT: the screen leaves the cell blank rather than writing a zero, which would read
+// as a week the pen stopped growing.
+type WeightGainPenWeekBucket struct {
+	// LocationID is the weighing bucket's shed location; with PartitionLabel it is the pen.
+	LocationID     string `json:"location_id"`
+	ParkID         string `json:"park_id"`
+	ParkName       string `json:"park_name"`
+	ShedName       string `json:"shed_name"`
+	PartitionLabel string `json:"partition_label"`
+	// OperationalLocationDisplay is the backend-composed pen label ("Godel 2 - Part 1",
+	// "Castro 1"); the screen renders it verbatim and composes nothing of its own.
+	OperationalLocationDisplay string `json:"operational_location_display"`
+	// WeekStart is the Monday (ISO week) in Asia/Kolkata, YYYY-MM-DD, bucketed by the LATER weigh.
+	WeekStart string `json:"week_start"`
+	// Animals is the denominator: the pen's scanned kids with a gain that week, or its head count
+	// when it was weighed whole.
+	Animals int `json:"animals"`
+	// AverageGainGPerDay is the animal-weighted mean for this pen and week.
+	AverageGainGPerDay float64 `json:"average_gain_g_per_day"`
+}
+
+// WeightGainLoadWeekBucket is one purchased load's daily gain in one calendar week, for the
+// Time-wise tab's per-load table (maintainer request 2026-09-14, "Time-wise ADG for each
+// shed/load"). It is the per-pen series one grain up: the SAME pen-week rows, attributed to the
+// load whose pens they are through the weighing-owned load mapping (weighing_shed_load_tags) --
+// the identical attribution the Load-wise tab's own by-load read uses, so a load's weekly rows
+// here and its figures there can never disagree about which pens are its. A shed tagged to two
+// loads is claimed by NEITHER (its one average cannot be split between two suppliers), and a load
+// with no gain in a week is ABSENT rather than zero.
+type WeightGainLoadWeekBucket struct {
+	// LoadRef is the farm's own load number, rendered verbatim.
+	LoadRef string `json:"load_ref"`
+	// OwnerName is the supplier the load was bought from; empty when unrecorded.
+	OwnerName string `json:"owner_name"`
+	// WeekStart is the Monday (ISO week) in Asia/Kolkata, YYYY-MM-DD, bucketed by the LATER weigh.
+	WeekStart string `json:"week_start"`
+	// Animals is the denominator: the load's pens' scanned kids with a gain that week, plus the
+	// head counts of its pens weighed whole.
+	Animals int `json:"animals"`
+	// AverageGainGPerDay is the animal-weighted mean for this load and week.
+	AverageGainGPerDay float64 `json:"average_gain_g_per_day"`
+}
+
 // ShedCompositionChip is one real breed+sex cohort visible in a shed row. It is
 // context, not weight attribution: mixed whole-shed averages are not split across
 // these chips.
@@ -244,6 +294,10 @@ type WeightDemographics struct {
 	ByWeightBand []WeightBandBucket `json:"by_weight_band"`
 	// The same gain cut by breed AND calendar week, for the Time-wise tab's per-breed trend.
 	GainByBreedWeek []WeightGainBreedWeekBucket `json:"gain_by_breed_week"`
+	// The same gain cut by PEN and calendar week, for the Time-wise tab's per-pen table.
+	GainByPenWeek []WeightGainPenWeekBucket `json:"gain_by_pen_week"`
+	// The same gain cut by purchased LOAD and calendar week, for the Time-wise tab's per-load table.
+	GainByLoadWeek []WeightGainLoadWeekBucket `json:"gain_by_load_week"`
 	// How many animals of each breed fell into each daily-gain band. DISJOINT bands
 	// over the same population GainByBreed uses — same-animal pairs plus
 	// homogeneous lump-sum sheds, each shed's animals landing whole in the ONE band

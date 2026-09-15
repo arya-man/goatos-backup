@@ -63,6 +63,8 @@ func (r *Repository) GetWeightDemographics(ctx context.Context, tenantID string,
 		ShedComposition:       []domain.ShedComposition{},
 		ByWeightBand:          []domain.WeightBandBucket{},
 		GainByBreedWeek:       []domain.WeightGainBreedWeekBucket{},
+		GainByPenWeek:         []domain.WeightGainPenWeekBucket{},
+		GainByLoadWeek:        []domain.WeightGainLoadWeekBucket{},
 		GainByBreedOrigin:     []domain.WeightGainOriginBucket{},
 		GainByBreedShedType:   []domain.WeightGainShedTypeBucket{},
 	}
@@ -123,7 +125,8 @@ func (r *Repository) GetWeightDemographics(ctx context.Context, tenantID string,
 
 	const q = ` -- scale-guard:ignore: bounded 28/84-day weighing leadership aggregate over tenant+authorized parks; current release envelope accepts this read-model query with repository integration coverage, and it does not touch obligation/kernel hot tables
 WITH scoped AS (
-  SELECT cs.campaign_shed_id, cs.tenant_id, cs.location_id, COALESCE(cs.partition_label, '') AS partition_label, cs.weighing_category
+  SELECT cs.campaign_shed_id, cs.tenant_id, cs.location_id, COALESCE(cs.partition_label, '') AS partition_label, cs.weighing_category,
+         c.park_id
   FROM weighing_campaign_sheds cs
   JOIN weighing_campaigns c ON c.campaign_id = cs.campaign_id AND c.tenant_id = cs.tenant_id
   WHERE cs.tenant_id = $1::uuid AND c.park_id = ANY($2::uuid[]) AND cs.status <> 'canceled'
@@ -851,6 +854,103 @@ SELECT
          GROUP BY sc.breed, pw.week_start
        ) parts GROUP BY breed, week_start
      ) gbw),
+  -- PEN x WEEK: the Time-wise tab's per-pen table (maintainer request 2026-09-08) -- every pen's
+  -- daily gain in every calendar week of the selected period, over the SAME weeks the overall
+  -- series and the breed rows above cover. Both arms again, and the SAME statistic: a scanned
+  -- animal at the median of its own pairs for that week, claimed by the pen of its latest weigh;
+  -- a whole-shed pen at its average-weight movement once per animal. A pen needs no cohort claim
+  -- to be itself, so unlike the breed rows a mixed pen IS listed here -- the only claim rule that
+  -- applies is the page's Sex filter, under which a whole-shed pen counts only when its live
+  -- cohort is entirely that sex (the identical rule the gain charts use). A pen with no gain in a
+  -- week is ABSENT and the screen renders a blank cell, never a zero.
+  --
+  -- projection-review: producer grain is one animal_gain_week row per (tag, week) and one pen_week
+  -- row per (pen, week); consumer grain is (location_id, partition_label, week_start), reached by
+  -- GROUP BY after each arm is already at its own grain, so the UNION ALL cannot fan out. latest is
+  -- 1 row per tag (DISTINCT ON), ident is 1:0..1 per tag (DISTINCT ON), goats 1 per goat_id (PK),
+  -- shed_cohort is 1:1 per pen (GROUPed by that key) and is read through EXISTS so it multiplies
+  -- nothing, locations 1 per PK, and pp is 1 per location_id (a bucket's shed sits in exactly one
+  -- campaign park, so DISTINCT collapses it). The mean's numerator
+  -- and denominator range over the identical row set.
+  (SELECT COALESCE(jsonb_agg(jsonb_build_array(location_id::text, partition_label, week_start, n, g, shed_name, park_id::text, park_name)
+                             ORDER BY park_name, shed_name, partition_label, week_start), '[]'::jsonb)
+     FROM (
+       SELECT p.location_id, p.partition_label, p.week_start,
+              sum(p.n)::bigint AS n, (sum(p.gsum) / NULLIF(sum(p.n), 0))::float8 AS g,
+              COALESCE(sh.name, '') AS shed_name,
+              pp.park_id,
+              COALESCE(NULLIF(pk.location_code, ''), pk.name, '') AS park_name
+       FROM (
+         SELECT l.location_id, l.partition_label, aw.week_start, count(*)::bigint AS n, sum(aw.g)::float8 AS gsum
+         FROM animal_gain_week aw
+         JOIN latest l ON l.tag = aw.tag
+         LEFT JOIN ident i ON i.tag = aw.tag
+         LEFT JOIN goats gt ON gt.goat_id = i.goat_id AND gt.tenant_id = $1::uuid
+         WHERE $5::text = '' OR lower(btrim(gt.sex)) = $5::text
+         GROUP BY l.location_id, l.partition_label, aw.week_start
+         UNION ALL
+         SELECT pw.location_id, pw.partition_label, pw.week_start, sum(pw.animals)::bigint, sum(pw.animals * pw.g_per_day)::float8
+         FROM pen_week pw
+         WHERE $5::text = '' OR EXISTS (
+           SELECT 1 FROM shed_cohort sc
+           WHERE sc.location_id = pw.location_id AND sc.partition_label = pw.partition_label
+             AND sc.sexes = 1 AND lower(btrim(sc.sex)) = $5::text)
+         GROUP BY pw.location_id, pw.partition_label, pw.week_start
+       ) p
+       LEFT JOIN locations sh ON sh.location_id = p.location_id
+       LEFT JOIN (SELECT DISTINCT location_id, park_id FROM scoped) pp
+         ON pp.location_id = p.location_id
+       LEFT JOIN locations pk ON pk.location_id = pp.park_id
+       GROUP BY p.location_id, p.partition_label, p.week_start, sh.name, pp.park_id, pk.location_code, pk.name
+     ) gpw),
+  -- LOAD x WEEK: the Time-wise tab's per-load table (maintainer request 2026-09-14, "Time-wise
+  -- ADG for each shed/load") -- the pen rows above, one grain up. The SAME two producers
+  -- (animal_gain_week claimed by the pen of its latest weigh, pen_week for whole-shed pens), the
+  -- SAME sex claim rule, attributed to a purchased load through weighing_shed_load_tags: the
+  -- weighing-owned mapping the Load-wise tab's by-load read (load_weights.go) attributes by, with
+  -- its EXACTLY-ONE-LOAD-PER-SHED rule copied verbatim. A shed tagged to two loads is claimed by
+  -- neither, because one pen average cannot be split between two suppliers; it is still in the
+  -- pen rows above under its own name. No herd or procurement table is read for this arm: a load
+  -- here is a fact about the PEN, which is the grain both producers already carry.
+  --
+  -- projection-review: producer grain is one animal_gain_week row per (tag, week) and one pen_week
+  -- row per (pen, week), each arm GROUPed to (location_id, partition_label, week_start) before the
+  -- UNION ALL; consumer grain is (load_ref, owner_name, week_start), reached by GROUP BY over the
+  -- join to tag, which is 0..1 per location_id (GROUP BY + HAVING count(*) = 1) so it cannot fan a
+  -- pen-week row out. latest is 1 per tag (DISTINCT ON), ident 1:0..1 per tag, goats 1 per PK,
+  -- shed_cohort read through EXISTS multiplies nothing. The mean's numerator sum(gsum) and
+  -- denominator sum(n) range over the identical row set (same FROM, same GROUP BY).
+  (SELECT COALESCE(jsonb_agg(jsonb_build_array(load_ref, owner_name, week_start, n, g)
+                             ORDER BY load_ref, week_start), '[]'::jsonb)
+     FROM (
+       SELECT t.load_ref, COALESCE(t.owner_name, '') AS owner_name, p.week_start,
+              sum(p.n)::bigint AS n, (sum(p.gsum) / NULLIF(sum(p.n), 0))::float8 AS g
+       FROM (
+         SELECT l.location_id, l.partition_label, aw.week_start, count(*)::bigint AS n, sum(aw.g)::float8 AS gsum
+         FROM animal_gain_week aw
+         JOIN latest l ON l.tag = aw.tag
+         LEFT JOIN ident i ON i.tag = aw.tag
+         LEFT JOIN goats gt ON gt.goat_id = i.goat_id AND gt.tenant_id = $1::uuid
+         WHERE $5::text = '' OR lower(btrim(gt.sex)) = $5::text
+         GROUP BY l.location_id, l.partition_label, aw.week_start
+         UNION ALL
+         SELECT pw.location_id, pw.partition_label, pw.week_start, sum(pw.animals)::bigint, sum(pw.animals * pw.g_per_day)::float8
+         FROM pen_week pw
+         WHERE $5::text = '' OR EXISTS (
+           SELECT 1 FROM shed_cohort sc
+           WHERE sc.location_id = pw.location_id AND sc.partition_label = pw.partition_label
+             AND sc.sexes = 1 AND lower(btrim(sc.sex)) = $5::text)
+         GROUP BY pw.location_id, pw.partition_label, pw.week_start
+       ) p
+       JOIN (
+         SELECT location_id, min(load_ref) AS load_ref, min(owner_name) AS owner_name
+         FROM weighing_shed_load_tags
+         WHERE tenant_id = $1::uuid
+         GROUP BY location_id
+         HAVING count(*) = 1
+       ) t ON t.location_id = p.location_id
+       GROUP BY t.load_ref, COALESCE(t.owner_name, ''), p.week_start
+     ) glw),
   -- How many animals of each breed fell into each daily-gain band. DISJOINT bands
   -- (maintainer, 2026-08-24): an animal at 260 g/day is counted by the >250 filter ONLY,
   -- and the four counts partition n exactly — every animal with a gain lands in one band.
@@ -917,6 +1017,8 @@ SELECT
 		shedTypeMembersJSON                                         []byte
 		weightBandJSON                                              []byte
 		gainBreedWeekJSON                                           []byte
+		gainPenWeekJSON                                             []byte
+		gainLoadWeekJSON                                            []byte
 		gainThresholdBreedJSON                                      []byte
 		compositionJSON                                             []byte
 	)
@@ -935,6 +1037,8 @@ SELECT
 		&shedTypeMembersJSON,
 		&weightBandJSON,
 		&gainBreedWeekJSON,
+		&gainPenWeekJSON,
+		&gainLoadWeekJSON,
 		&gainThresholdBreedJSON,
 		&compositionJSON,
 	); err != nil {
@@ -976,6 +1080,12 @@ SELECT
 		return domain.WeightDemographics{}, err
 	}
 	if out.GainByBreedWeek, err = decodeWeightGainBreedWeekBuckets(gainBreedWeekJSON); err != nil {
+		return domain.WeightDemographics{}, err
+	}
+	if out.GainByPenWeek, err = decodeWeightGainPenWeekBuckets(gainPenWeekJSON); err != nil {
+		return domain.WeightDemographics{}, err
+	}
+	if out.GainByLoadWeek, err = decodeWeightGainLoadWeekBuckets(gainLoadWeekJSON); err != nil {
 		return domain.WeightDemographics{}, err
 	}
 	if out.GainThresholdsByBreed, err = decodeWeightGainThresholdBuckets(gainThresholdBreedJSON); err != nil {
@@ -1407,6 +1517,117 @@ func decodeWeightGainBreedWeekBuckets(raw []byte) ([]domain.WeightGainBreedWeekB
 		}
 		out = append(out, domain.WeightGainBreedWeekBucket{
 			Label: label, WeekStart: week, Animals: animals, AverageGainGPerDay: gain,
+		})
+	}
+	return out, nil
+}
+
+// decodeWeightGainPenWeekBuckets reads the eight-element rows gpw emits: location id, partition
+// label, week start, animals, gain, shed name, park id, park name. A row missing its location or
+// its week is SKIPPED rather than defaulted -- a gain with no pen or no week has no cell to land
+// in, and inventing either would file a measurement on a row it does not belong to.
+//
+// The pen's display label is composed HERE, once, so the screen renders it verbatim: the same
+// doubling guard shed_weights.go and growth.go apply, because a partitioned bucket's location row
+// is routinely already named for the pen it covers ("Castro 1" carrying label "1"), and handing
+// that to oploc, which appends the partition to a SHED name, would render "Castro 1 1".
+func decodeWeightGainPenWeekBuckets(raw []byte) ([]domain.WeightGainPenWeekBucket, error) {
+	out := []domain.WeightGainPenWeekBucket{}
+	if len(raw) == 0 {
+		return out, nil
+	}
+	var rows [][]json.RawMessage
+	if err := json.Unmarshal(raw, &rows); err != nil {
+		return nil, err
+	}
+	for _, row := range rows {
+		if len(row) != 8 {
+			continue
+		}
+		var locationID, partition, week, shedName, parkID, parkName string
+		var animals int
+		var gain float64
+		if json.Unmarshal(row[0], &locationID) != nil || locationID == "" {
+			continue
+		}
+		if json.Unmarshal(row[2], &week) != nil || week == "" {
+			continue
+		}
+		if json.Unmarshal(row[3], &animals) != nil || json.Unmarshal(row[4], &gain) != nil {
+			continue
+		}
+		// The three names are context, not identity: a blank one degrades the label, never the row.
+		_ = json.Unmarshal(row[1], &partition)
+		_ = json.Unmarshal(row[5], &shedName)
+		_ = json.Unmarshal(row[6], &parkID)
+		_ = json.Unmarshal(row[7], &parkName)
+		display := shedName
+		if !(partition != "" && strings.HasSuffix(shedName, partition)) {
+			display = (oploc.OperationalLocation{
+				ShedID:         locationID,
+				ShedName:       shedName,
+				PartitionLabel: partition,
+			}).Display()
+		}
+		out = append(out, domain.WeightGainPenWeekBucket{
+			LocationID:                 locationID,
+			ParkID:                     parkID,
+			ParkName:                   parkName,
+			ShedName:                   shedName,
+			PartitionLabel:             partition,
+			OperationalLocationDisplay: display,
+			WeekStart:                  week,
+			Animals:                    animals,
+			AverageGainGPerDay:         gain,
+		})
+	}
+	return out, nil
+}
+
+// decodeWeightGainLoadWeekBuckets reads the five-element rows glw emits: load ref, owner name,
+// week start, animals, gain. Rows arrive ordered by (load_ref, week_start) and are kept so.
+func decodeWeightGainLoadWeekBuckets(raw []byte) ([]domain.WeightGainLoadWeekBucket, error) {
+	out := []domain.WeightGainLoadWeekBucket{}
+	if len(raw) == 0 {
+		return out, nil
+	}
+	var rows [][]json.RawMessage
+	if err := json.Unmarshal(raw, &rows); err != nil {
+		return nil, fmt.Errorf("decode load-week gain buckets: %w", err)
+	}
+	for _, row := range rows {
+		if len(row) != 5 {
+			return nil, fmt.Errorf("decode load-week gain buckets: expected 5 elements, got %d", len(row))
+		}
+		var (
+			loadRef, ownerName, weekStart string
+			animals                       int64
+			gain                          *float64
+		)
+		if err := json.Unmarshal(row[0], &loadRef); err != nil {
+			return nil, fmt.Errorf("decode load-week load_ref: %w", err)
+		}
+		if err := json.Unmarshal(row[1], &ownerName); err != nil {
+			return nil, fmt.Errorf("decode load-week owner_name: %w", err)
+		}
+		if err := json.Unmarshal(row[2], &weekStart); err != nil {
+			return nil, fmt.Errorf("decode load-week week_start: %w", err)
+		}
+		if err := json.Unmarshal(row[3], &animals); err != nil {
+			return nil, fmt.Errorf("decode load-week animals: %w", err)
+		}
+		if err := json.Unmarshal(row[4], &gain); err != nil {
+			return nil, fmt.Errorf("decode load-week gain: %w", err)
+		}
+		if gain == nil {
+			continue
+		}
+		out = append(out, domain.WeightGainLoadWeekBucket{
+			LoadRef:            loadRef,
+			OwnerName:          ownerName,
+			WeekStart:          weekStart,
+			Animals:            int(animals),
+			AverageGainGPerDay: *gain,
 		})
 	}
 	return out, nil

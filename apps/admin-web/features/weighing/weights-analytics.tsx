@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { CalendarRange, Scale, Sprout, Warehouse } from "lucide-react";
+import { CalendarRange, LayoutGrid, PackageOpen, Scale, Sprout, Warehouse } from "lucide-react";
 
 import { GroupedBars, type BarGroup, type GroupedBar } from "./grouped-bars";
 import { LoadComparisonTab } from "./load-comparison-tab";
@@ -11,6 +11,8 @@ import { WorklistFilters, type WorklistFilterField } from "@/components/worklist
 import { WorklistPager } from "@/components/worklist-pager";
 import { copy, optionGroup, table, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { PensTable, type PensTableRow } from "./pens-table";
+import { PenWeekGainTable, type PenWeekGainPoint } from "./pen-week-gain-table";
+import { LoadWeekGainTable, type LoadWeekGainPoint } from "./load-week-gain-table";
 import { fmtDate, todayIso } from "@/lib/format";
 import {
   firstAuthRequiredError,
@@ -1031,6 +1033,28 @@ function TimeTab({
     });
   }
 
+  // The per-pen grid reads `gain_by_pen_week` as served -- ordered by park, pen, week -- and
+  // composes no label of its own: the pen name is the backend's operational location display.
+  const penWeekPoints: PenWeekGainPoint[] = (demo?.gain_by_pen_week ?? []).map((point) => ({
+    locationId: point.location_id,
+    partitionLabel: point.partition_label,
+    park: point.park_name,
+    pen: point.operational_location_display || point.shed_name,
+    weekStart: point.week_start,
+    animals: point.animals,
+    gainGPerDay: point.average_gain_g_per_day,
+  }));
+
+  // The per-load grid reads `gain_by_load_week` as served -- ordered by load, week -- and renders
+  // the farm's own load number and supplier verbatim.
+  const loadWeekPoints: LoadWeekGainPoint[] = (demo?.gain_by_load_week ?? []).map((point) => ({
+    loadRef: point.load_ref,
+    source: point.owner_name,
+    weekStart: point.week_start,
+    animals: point.animals,
+    gainGPerDay: point.average_gain_g_per_day,
+  }));
+
   return (
     <>
     <section className="card wchart" aria-label={copy(pageContract, "section.time.aria")}>
@@ -1066,6 +1090,56 @@ function TimeTab({
         emptyLabel={copy(pageContract, "empty.time.breed.body")}
         chartLabel={copy(pageContract, "section.time.breed.aria")}
       />
+    </section>
+    {/* Every pen, every week (maintainer request 2026-09-08): the weekly line above cut one pen at
+        a time. A TABLE rather than a third chart: the farm has dozens of pens and the question is
+        "how did THIS pen do THIS week", which a grid answers on sight and a forest of bars does
+        not. Unlike the breed rows a pen needs no single-cohort claim to be itself, so a mixed pen
+        is listed here; only the page's own filters narrow it. */}
+    <section className="card wchart" aria-label={copy(pageContract, "section.time.pen.aria")}>
+      <h2 className="h">
+        <LayoutGrid className="ic" size={15} aria-hidden /> {copy(pageContract, "section.time.pen.title")}
+      </h2>
+      <p className="muted small">{copy(pageContract, "section.time.pen.caption")}</p>
+      {/* A long period is many week columns, so the grid scrolls inside its own box rather
+          than pushing the page sideways. */}
+      <div className="tablewrap" style={{ overflowX: "auto" }} tabIndex={0} role="group" aria-label={copy(pageContract, "section.time.pen.aria")}>
+        <PenWeekGainTable
+          contract={table(pageContract, "pen-week-gain")}
+          points={penWeekPoints}
+          labels={{
+            ariaLabel: copy(pageContract, "section.time.pen.aria"),
+            blank: copy(pageContract, "value.time.pen.blank"),
+            unit: copy(pageContract, "value.time.pen.unit"),
+            animals: copy(pageContract, "value.time.animals"),
+            empty: copy(pageContract, "empty.time.pen.body"),
+          }}
+        />
+      </div>
+    </section>
+    {/* Every purchased load, every week (maintainer request 2026-09-14, "Time-wise ADG for each
+        shed/load"): the pen grid above one grain up. A load is its tagged pens -- the SAME
+        attribution the Load-wise tab uses -- so its weekly figure is those pens' gain weighted by
+        animals, and a pen tagged to two loads counts toward neither. The same grid shape, because
+        the question is the same: "how did THIS load do THIS week". */}
+    <section className="card wchart" aria-label={copy(pageContract, "section.time.load.aria")}>
+      <h2 className="h">
+        <PackageOpen className="ic" size={15} aria-hidden /> {copy(pageContract, "section.time.load.title")}
+      </h2>
+      <p className="muted small">{copy(pageContract, "section.time.load.caption")}</p>
+      <div className="tablewrap" style={{ overflowX: "auto" }} tabIndex={0} role="group" aria-label={copy(pageContract, "section.time.load.aria")}>
+        <LoadWeekGainTable
+          contract={table(pageContract, "load-week-gain")}
+          points={loadWeekPoints}
+          labels={{
+            ariaLabel: copy(pageContract, "section.time.load.aria"),
+            blank: copy(pageContract, "value.time.pen.blank"),
+            unit: copy(pageContract, "value.time.pen.unit"),
+            animals: copy(pageContract, "value.time.animals"),
+            empty: copy(pageContract, "empty.time.load.body"),
+          }}
+        />
+      </div>
     </section>
     </>
   );

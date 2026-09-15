@@ -671,6 +671,15 @@ func pages() []domain.PageContract {
 				// no weighing attribution, or no recorded purchase weight, reports absence, never
 				// a zero or an invented multiple. No row click: there is no load record to open.
 				withoutRowClick(tableP("load-comparison", "Loads", "/procurement/loadwise-sales", []string{"load", "vendor", "animals", "purchased_avg", "latest_avg", "multiple"}, "", []int{10, 25, 50})),
+				// The Time-wise tab's two week-pivot tables (maintainer requests 2026-09-08 and
+				// 2026-09-14): every pen's, and every purchased load's, daily gain in every
+				// calendar week of the selected period. Only the FIXED columns are declared here;
+				// the week columns are data (the weeks the response actually carries) and are
+				// headed by a date, not a label. Both read the SAME demographics response the
+				// breed rows use, so the three can never describe different weeks. No row click:
+				// there is no record to open, and no pagination: the grid is the whole period.
+				withoutRowClick(tableP("pen-week-gain", "Weekly growth by pen", "/weighing/weight-demographics", []string{"park", "shed"}, "", []int{50})),
+				withoutRowClick(tableP("load-week-gain", "Weekly growth by load", "/weighing/weight-demographics", []string{"load", "source"}, "", []int{50})),
 			}),
 		page("milk-preparation", "/counts/milk-preparation", "/counts/milk-preparation", "Milk Preparation", "Current per-pen milk direction plus park-day step-video verification state for K1, K2, and K3 cohorts.", "module-surface",
 			[]domain.TableContract{tableP("milk-preparation", "Milk preparation worklist", "/counts/milk-preparation", []string{"park", "shed", "cohort", "head_count", "session_1", "session_2", "session_3", "session_4", "daily_total", "status"}, "milk_preparation_row", []int{10, 25, 50})}),
@@ -718,10 +727,10 @@ func pages() []domain.PageContract {
 				// nobody fed -- the status filter and the four counts do the finding, so the page only
 				// has to stay short enough to read.
 				tableP("distribution-completions", "Feed direction completion", "/feed-analytics/execution", []string{"park", "pen", "session", "status", "videos", "submitted_by", "submitted_at"}, "fdc_row", []int{10, 25, 50}),
-				// The overview's per-pen feed-mix table pages at TEN by default and
-				// states its own last-7-days basis; farm / shed / feed-item narrowing
-				// runs over the served bounded pen set, like the completion table above.
-				tableP("shed-feed-mix", "Feed by pen", "/feed-analytics/shed-feed", []string{"park", "pen", "items"}, "fsf_row", []int{10, 25, 50}),
+				// The overview's "Feed by pen" section is CHARTS, not a table (maintainer
+				// request 2026-09-14: "table is not needed, replace it by graphs"), so it
+				// declares no TableContract -- a contract for a chart would be one nothing
+				// can honour. Its copy is authored under `shedfeed.*` below.
 			}),
 		page("feed-config", "/feed/config", "/feed/config", "Feed Config — Ration Rules", "Feed-owned authority screen for the authored ration grid, per-feed factors, session template and feeding schedule.", "module-surface",
 			[]domain.TableContract{
@@ -4550,6 +4559,22 @@ func pageSpecificCopy(id string) map[string]string {
 			"section.time.breed.aria":    "Daily gain by breed and week",
 			"empty.time.breed.body":      "No breed has a kid or a single-breed pen weighed twice in this period.",
 			"note.time.gaps":             "A week nobody weighed in has no bar. It is left out rather than drawn as zero, which would read as a week the kids stopped growing.",
+			// Time-wise, per pen and per load (maintainer requests 2026-09-08 and 2026-09-14): one
+			// row per pen or purchased load, one column per calendar week, daily gain in each
+			// cell. A blank cell is a week that pen or load was not weighed twice -- absence,
+			// never a zero. The load rows are the pen rows one grain up: a pen counts toward a
+			// load only when it is tagged to exactly that one load, the same attribution the
+			// Load-wise tab uses.
+			"section.time.pen.title":    "Weekly growth by pen",
+			"section.time.pen.caption":  "Daily gain for every pen in every week of the selected period, under the selected weighing mode. A pen is listed whatever it holds; the sex filter keeps a whole-pen weigh only when the pen holds that sex alone.",
+			"section.time.pen.aria":     "Daily gain by pen and week",
+			"empty.time.pen.body":       "No pen has a kid or a whole-pen weigh paired inside this period.",
+			"value.time.pen.blank":      "—",
+			"value.time.pen.unit":       "g/day",
+			"section.time.load.title":   "Weekly growth by load",
+			"section.time.load.caption": "The same weeks, one row per purchased load: the daily gain of the pens that load sits in, weighted by animals. A pen tagged to two loads counts toward neither, and a load whose pens were not weighed twice in a week shows a blank for it.",
+			"section.time.load.aria":    "Daily gain by purchased load and week",
+			"empty.time.load.body":      "No purchased load has a pen weighed twice inside this period.",
 
 			// ---------------------------------------------------------------------------
 			// LOAD-WISE (maintainer request 2026-09-03). One chart and one table: per
@@ -5288,19 +5313,23 @@ func pageSpecificCopy(id string) map[string]string {
 			"completion.action.details":     "View details",
 			"completion.pager.noun":         "pen",
 
-			// The overview's per-pen feed-mix table: every shed and pen across the
-			// farms, with the feed items and kg the sheet directed there over the
-			// LAST 7 DAYS (its own window, independent of the page's range chips).
+			// The overview's "Feed by pen" charts (maintainer request 2026-09-14, replacing
+			// the feed-mix table): pick a shed and every pen in it -- Castro 1, 2, 3 --
+			// gets its own chart of the LAST 7 DAYS (its own window, independent of the
+			// page's range chips), one bar per day, each bar the feed directed per animal
+			// that day. The charts of one shed share ONE scale, because the point is to
+			// compare the pens side by side and two scales would make a taller bar mean
+			// less. A day the sheet directed nothing resolvable to the pen is a gap, never
+			// a zero bar; the head count behind each bar rides on its tooltip.
 			"shedfeed.title":                 "Feed by pen — last 7 days",
-			"shedfeed.hint":                  "What each pen was directed over the last 7 days, by feed item — directed kg, up to yesterday",
+			"shedfeed.hint":                  "Pick a pen name and each of its pens gets a chart: one bar per day, each bar the feed directed per animal that day, up to yesterday. Pens of the same name share one scale.",
 			"shedfeed.empty":                 "No feed sheet was issued in the last 7 days, so there is nothing to show.",
 			"shedfeed.empty_filtered":        "No pens match these filters.",
-			"shedfeed.filter.item":           "Feed item",
 			"shedfeed.filter.shed":           "Pen",
-			"shedfeed.pager.noun":            "pen",
-			"col.shedfeed.park":              "Farm",
-			"col.shedfeed.pen":               "Pen",
-			"col.shedfeed.items":             "Feed given (kg, 7 days)",
+			"shedfeed.chart.aria":            "Feed per animal by day",
+			"shedfeed.day.gap":               "Nothing directed",
+			"shedfeed.day.animals":           "animals",
+			"shedfeed.day.total":             "kg in total",
 			"drawer.completion.aria":         "Feeding detail",
 			"drawer.completion.close_label":  "Close feeding detail",
 			"drawer.completion.eyebrow":      "Feed direction",

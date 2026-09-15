@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/vgoats/goatos/backend/internal/platform/pgtest"
 	"github.com/vgoats/goatos/backend/internal/weighing/domain"
 )
@@ -1452,5 +1454,286 @@ ON CONFLICT (tenant_id, location_id) DO NOTHING`, otherPark, repoTenant)
 		if member.OperationalLocationDisplay == "Castro 2" {
 			t.Fatalf("a pen weighed once has no gain and must not be named beside the bars, got %#v", member)
 		}
+	}
+}
+
+// THE PEN x WEEK TABLE SPEAKS FOR THE SAME KIDS AS THE WEEKLY LINE ABOVE IT.
+//
+// The Time-wise tab's per-pen table (maintainer request 2026-09-08) is the weekly headline cut one
+// pen at a time, so on a fixture where every movement is one week the pen rows must (a) land on
+// the same Monday the weekly point lands on, (b) add up, animal for animal, to that point's
+// denominator, and (c) weight back to the same gain. Each pen's own figure is pinned too: Part A
+// moved 20 -> 27 kg over 7 days (1000 g/day, 10 head) and Part B 30 -> 31 kg (142.9 g/day, 10
+// head). The label is asserted as the OUTPUT STRING -- "Partition Demo Shed - Part A" -- not as
+// field presence, and the Sex filter is driven both ways: the pens hold females, so a female page
+// keeps both rows and a male page keeps none.
+// seedPenWeekFixture is the two-pen, one-week fixture the Time-wise per-pen and per-load tests
+// share: Partition Demo Shed's Part A moves 20 -> 27 kg over 7 days (1000 g/day, 10 head) and
+// Part B 30 -> 31 kg (142.9 g/day, 10 head), both whole-shed, both female.
+func seedPenWeekFixture(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
+	t.Helper()
+	seedWeighingObservationFixture(t, ctx, pool)
+	seedShedWeightsCampaign(t, ctx, pool, loadCampaignPartA, "2026-07-10")
+	seedShedWeightsCampaign(t, ctx, pool, loadCampaignPartB, "2026-07-17")
+	for _, proofID := range []string{repoShedProofTwo, repoShedProofThree, repoShedProofFour} {
+		insertProof(t, ctx, pool, proofID, "video", "completed", "shed", repoPerShed, "shed", repoPerShed)
+	}
+	execWeighingTestSQL(t, ctx, pool, `
+INSERT INTO locations (location_id, tenant_id, location_type, name, parent_location_id, status)
+VALUES ($1::uuid, $2::uuid, 'shed', 'Partition Demo Shed', $3::uuid, 'active')
+ON CONFLICT (tenant_id, location_id) DO NOTHING`,
+		weightDemoPartitionShed, repoTenant, repoPark)
+	execWeighingTestSQL(t, ctx, pool, `
+INSERT INTO goats (goat_id, tenant_id, display_id, breed, sex, age_band, lifecycle_status, management_stage, custodian_party_id, current_location_id, park_id, shed_id)
+VALUES ($1::uuid, $2::uuid, 'G-990915', 'Partition Breed', 'female', 'kid', 'alive', 'kid', $4::uuid, $5::uuid, $6::uuid, $5::uuid),
+       ($3::uuid, $2::uuid, 'G-990916', 'Partition Breed', 'female', 'kid', 'alive', 'kid', $4::uuid, $5::uuid, $6::uuid, $5::uuid)
+ON CONFLICT (goat_id) DO UPDATE SET sex = EXCLUDED.sex, shed_id = EXCLUDED.shed_id`,
+		weightDemoGoat, repoTenant, weightDemoGoatTwo, repoParty, weightDemoPartitionShed, repoPark)
+	execWeighingTestSQL(t, ctx, pool, `
+INSERT INTO goat_shed_partitions (tenant_id, goat_id, shed_id, partition_label, source_shed_name)
+VALUES ($1::uuid, $2::uuid, $4::uuid, 'Part A', 'Partition Demo Shed'),
+       ($1::uuid, $3::uuid, $4::uuid, 'Part B', 'Partition Demo Shed')
+ON CONFLICT (tenant_id, goat_id) DO UPDATE
+SET shed_id = EXCLUDED.shed_id, partition_label = EXCLUDED.partition_label`,
+		repoTenant, weightDemoGoat, weightDemoGoatTwo, weightDemoPartitionShed)
+
+	seedLoadBucketPartition(t, ctx, pool, loadPartAOld, loadCampaignPartA, weightDemoPartitionShed, "Part A", "per_shed_partition")
+	seedLoadBucketPartition(t, ctx, pool, loadPartANew, loadCampaignPartB, weightDemoPartitionShed, "Part A", "per_shed_partition")
+	seedLoadBucketPartition(t, ctx, pool, loadPartBOld, loadCampaignPartA, weightDemoPartitionShed, "Part B", "per_shed_partition")
+	seedLoadBucketPartition(t, ctx, pool, loadPartBNew, loadCampaignPartB, weightDemoPartitionShed, "Part B", "per_shed_partition")
+	seedLoadLumpWeigh(t, ctx, pool, loadPartAOld, loadCampaignPartA, repoShedProof, 20.0, 10,
+		time.Date(2026, 7, 10, 6, 0, 0, 0, time.UTC))
+	seedLoadLumpWeigh(t, ctx, pool, loadPartANew, loadCampaignPartB, repoShedProofTwo, 27.0, 10,
+		time.Date(2026, 7, 17, 6, 0, 0, 0, time.UTC))
+	seedLoadLumpWeigh(t, ctx, pool, loadPartBOld, loadCampaignPartA, repoShedProofThree, 30.0, 10,
+		time.Date(2026, 7, 10, 6, 0, 0, 0, time.UTC))
+	seedLoadLumpWeigh(t, ctx, pool, loadPartBNew, loadCampaignPartB, repoShedProofFour, 31.0, 10,
+		time.Date(2026, 7, 17, 6, 0, 0, 0, time.UTC))
+
+}
+
+func TestPenWeekGainRowsAddUpToTheWeeklyPoint(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedPenWeekFixture(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+
+	from := time.Date(2026, 7, 10, 0, 0, 0, 0, time.UTC)
+	to := time.Date(2026, 7, 18, 0, 0, 0, 0, time.UTC)
+
+	growth, err := repo.GetLeadershipGrowthADG(ctx, repoTenant, []string{repoPark}, from, to, "", "", "", "")
+	if err != nil {
+		t.Fatalf("GetLeadershipGrowthADG: %v", err)
+	}
+	if len(growth.WeeklyGain) != 1 {
+		t.Fatalf("expected exactly one weekly point, got %#v", growth.WeeklyGain)
+	}
+	week := growth.WeeklyGain[0]
+
+	demo, err := repo.GetWeightDemographics(ctx, repoTenant, []string{repoPark}, from, to, "", "", "")
+	if err != nil {
+		t.Fatalf("GetWeightDemographics: %v", err)
+	}
+	if len(demo.GainByPenWeek) != 2 {
+		t.Fatalf("two pens moved in one week, so two pen-week rows are expected: %#v", demo.GainByPenWeek)
+	}
+	byPen := map[string]domain.WeightGainPenWeekBucket{}
+	animals := 0
+	weighted := 0.0
+	for _, row := range demo.GainByPenWeek {
+		if row.WeekStart != week.WeekStart {
+			t.Fatalf("a pen row must land on the same Monday as the weekly point (%s): %#v", week.WeekStart, row)
+		}
+		if row.LocationID != weightDemoPartitionShed || row.ParkID != repoPark || row.ShedName != "Partition Demo Shed" {
+			t.Fatalf("pen row must carry its location, park and shed name: %#v", row)
+		}
+		if row.ParkName == "" {
+			t.Fatalf("pen row must carry a park name for the table's park column: %#v", row)
+		}
+		byPen[row.OperationalLocationDisplay] = row
+		animals += row.Animals
+		weighted += float64(row.Animals) * row.AverageGainGPerDay
+	}
+	partA, ok := byPen["Partition Demo Shed - Part A"]
+	if !ok {
+		t.Fatalf("the pen label must be the composed OUTPUT STRING, got keys %v", keysOf(byPen))
+	}
+	partB := byPen["Partition Demo Shed - Part B"]
+	if partA.Animals != 10 || math.Abs(partA.AverageGainGPerDay-1000) > 0.01 {
+		t.Fatalf("Part A moved 20 -> 27 kg over 7 days for 10 head: %#v", partA)
+	}
+	if partB.Animals != 10 || math.Abs(partB.AverageGainGPerDay-1000.0/7.0) > 0.01 {
+		t.Fatalf("Part B moved 30 -> 31 kg over 7 days for 10 head: %#v", partB)
+	}
+	if animals != week.Animals {
+		t.Fatalf("the pen rows must add up to the weekly point's denominator: pens=%d week=%d", animals, week.Animals)
+	}
+	if got, want := weighted/float64(animals), week.AverageADGGPerDay; math.Abs(got-want) > 0.5 {
+		t.Fatalf("the pen rows must weight back to the weekly point: pens=%.2f week=%.2f", got, want)
+	}
+
+	// The Sex filter claims a whole-shed pen only through its live cohort, both ways.
+	female, err := repo.GetWeightDemographics(ctx, repoTenant, []string{repoPark}, from, to, "female", "", "")
+	if err != nil {
+		t.Fatalf("GetWeightDemographics(female): %v", err)
+	}
+	if len(female.GainByPenWeek) != 2 {
+		t.Fatalf("both pens hold females, so the female page keeps both rows: %#v", female.GainByPenWeek)
+	}
+	male, err := repo.GetWeightDemographics(ctx, repoTenant, []string{repoPark}, from, to, "male", "", "")
+	if err != nil {
+		t.Fatalf("GetWeightDemographics(male): %v", err)
+	}
+	if len(male.GainByPenWeek) != 0 {
+		t.Fatalf("neither pen holds a male, so the male page must claim no pen row: %#v", male.GainByPenWeek)
+	}
+}
+
+// The per-load table (maintainer request 2026-09-14, "Time-wise ADG for each shed/load") is the
+// pen rows one grain up, attributed through weighing_shed_load_tags exactly as the Load-wise tab's
+// by-load read attributes. On the shared fixture the one tagged shed's two pens must collapse to
+// ONE load-week row on the same Monday, whose denominator is both pens' head counts and whose
+// gain is their animal-weighted mean (10 x 1000 + 10 x 142.9) / 20 = 571.4 g/day. Driven three
+// more ways: the owner name rides on the row as served; a male page claims no row because the
+// pens hold females; and a shed tagged to TWO loads is claimed by neither, while its pen rows
+// stay listed under their own names.
+func TestLoadWeekGainRowsAreThePenRowsAttributedByLoadTag(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedPenWeekFixture(t, ctx, pool)
+	seedLoadTag(t, ctx, pool, weightDemoPartitionShed, "L-42", "Demo Supplier")
+	repo := NewRepository(pool, 5*time.Second)
+
+	from := time.Date(2026, 7, 10, 0, 0, 0, 0, time.UTC)
+	to := time.Date(2026, 7, 18, 0, 0, 0, 0, time.UTC)
+
+	demo, err := repo.GetWeightDemographics(ctx, repoTenant, []string{repoPark}, from, to, "", "", "")
+	if err != nil {
+		t.Fatalf("GetWeightDemographics: %v", err)
+	}
+	if len(demo.GainByPenWeek) != 2 {
+		t.Fatalf("the pen rows are unchanged by a load tag: %#v", demo.GainByPenWeek)
+	}
+	if len(demo.GainByLoadWeek) != 1 {
+		t.Fatalf("one tagged shed with two pens moving in one week is ONE load-week row: %#v", demo.GainByLoadWeek)
+	}
+	row := demo.GainByLoadWeek[0]
+	if row.LoadRef != "L-42" || row.OwnerName != "Demo Supplier" {
+		t.Fatalf("the load row carries the tag's load ref and owner verbatim: %#v", row)
+	}
+	if row.WeekStart != demo.GainByPenWeek[0].WeekStart {
+		t.Fatalf("the load row lands on the same Monday as its pen rows: %#v vs %#v", row, demo.GainByPenWeek[0])
+	}
+	if row.Animals != 20 {
+		t.Fatalf("the load's denominator is both pens' head counts: %#v", row)
+	}
+	if want := (10*1000.0 + 10*1000.0/7.0) / 20; math.Abs(row.AverageGainGPerDay-want) > 0.01 {
+		t.Fatalf("the load's gain is the animal-weighted mean of its pens (%.2f): %#v", want, row)
+	}
+
+	male, err := repo.GetWeightDemographics(ctx, repoTenant, []string{repoPark}, from, to, "male", "", "")
+	if err != nil {
+		t.Fatalf("GetWeightDemographics(male): %v", err)
+	}
+	if len(male.GainByLoadWeek) != 0 {
+		t.Fatalf("the pens hold no male, so the male page claims no load row: %#v", male.GainByLoadWeek)
+	}
+
+	// A second load on the same shed makes it a two-load shed: claimed by neither load. The tag
+	// is seeded behind the repository's back, so its read cache is dropped the way a real write
+	// through the repository drops it; otherwise the second read replays the one-load answer.
+	seedLoadTag(t, ctx, pool, weightDemoPartitionShed, "L-43", "Other Supplier")
+	repo.invalidateReadCache()
+	twoLoads, err := repo.GetWeightDemographics(ctx, repoTenant, []string{repoPark}, from, to, "", "", "")
+	if err != nil {
+		t.Fatalf("GetWeightDemographics(two loads): %v", err)
+	}
+	if len(twoLoads.GainByLoadWeek) != 0 {
+		t.Fatalf("a shed tagged to two loads is claimed by neither: %#v", twoLoads.GainByLoadWeek)
+	}
+	if len(twoLoads.GainByPenWeek) != 2 {
+		t.Fatalf("its pen rows are still listed under their own names: %#v", twoLoads.GainByPenWeek)
+	}
+}
+
+func keysOf(m map[string]domain.WeightGainPenWeekBucket) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	return out
+}
+
+// The two week grids, driven adversarially the way every other demographics arm is:
+//
+//	one-to-many  a load tag on a shed with TWO measured pens folds to ONE load-week row (the
+//	             pen rows stay two), and never multiplies them;
+//	park scope   another park sees no pen row and no load row -- the grids are scoped through
+//	             weighing_campaigns.park_id, never by shed name;
+//	status       a WITHDRAWN whole-pen weigh drops out of both grids, so the pen it belonged to
+//	             loses its pair and the load's denominator shrinks with it;
+//	boundary     a period that ends before the later weigh has no pair inside it and both grids
+//	             are EMPTY rather than a row built from a weigh outside the window.
+func TestPenAndLoadWeekGainOneToManyPageBoundaryParkScopeStatusBuckets(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedPenWeekFixture(t, ctx, pool)
+	seedLoadTag(t, ctx, pool, weightDemoPartitionShed, "L-42", "Demo Supplier")
+	repo := NewRepository(pool, 5*time.Second)
+
+	from := time.Date(2026, 7, 10, 0, 0, 0, 0, time.UTC)
+	to := time.Date(2026, 7, 18, 0, 0, 0, 0, time.UTC)
+
+	// One-to-many: two pens under one tag are one load row and still two pen rows.
+	whole, err := repo.GetWeightDemographics(ctx, repoTenant, []string{repoPark}, from, to, "", "", "")
+	if err != nil {
+		t.Fatalf("GetWeightDemographics: %v", err)
+	}
+	if len(whole.GainByPenWeek) != 2 || len(whole.GainByLoadWeek) != 1 || whole.GainByLoadWeek[0].Animals != 20 {
+		t.Fatalf("two tagged pens are two pen rows and ONE load row of 20 animals: pens=%#v loads=%#v", whole.GainByPenWeek, whole.GainByLoadWeek)
+	}
+
+	// Park scope: the same tenant, another park -- nothing.
+	otherPark := "00000000-0000-4000-8000-0000000041ff"
+	scoped, err := repo.GetWeightDemographics(ctx, repoTenant, []string{otherPark}, from, to, "", "", "")
+	if err != nil {
+		t.Fatalf("GetWeightDemographics(other park): %v", err)
+	}
+	if len(scoped.GainByPenWeek) != 0 || len(scoped.GainByLoadWeek) != 0 {
+		t.Fatalf("another park must see neither grid: pens=%#v loads=%#v", scoped.GainByPenWeek, scoped.GainByLoadWeek)
+	}
+
+	// Window boundary: a period closed before the second weigh holds no pair.
+	early, err := repo.GetWeightDemographics(ctx, repoTenant, []string{repoPark}, from, time.Date(2026, 7, 12, 0, 0, 0, 0, time.UTC), "", "", "")
+	if err != nil {
+		t.Fatalf("GetWeightDemographics(early window): %v", err)
+	}
+	if len(early.GainByPenWeek) != 0 || len(early.GainByLoadWeek) != 0 {
+		t.Fatalf("a window with one weigh per pen has no gain to grid: pens=%#v loads=%#v", early.GainByPenWeek, early.GainByLoadWeek)
+	}
+
+	// Status bucket: withdraw Part B's later weigh; Part B loses its pair and the load shrinks to
+	// Part A's 10 head at 1000 g/day. Seeded behind the repository's back, so its read cache is
+	// dropped as a repository write would drop it.
+	execWeighingTestSQL(t, ctx, pool, `
+UPDATE weighing_shed_observations SET withdrawn_at = now()
+WHERE tenant_id = $1::uuid AND campaign_shed_id = $2::uuid`, repoTenant, loadPartBNew)
+	repo.invalidateReadCache()
+	withdrawn, err := repo.GetWeightDemographics(ctx, repoTenant, []string{repoPark}, from, to, "", "", "")
+	if err != nil {
+		t.Fatalf("GetWeightDemographics(withdrawn): %v", err)
+	}
+	if len(withdrawn.GainByPenWeek) != 1 || withdrawn.GainByPenWeek[0].OperationalLocationDisplay != "Partition Demo Shed - Part A" {
+		t.Fatalf("a withdrawn weigh leaves only Part A with a pair: %#v", withdrawn.GainByPenWeek)
+	}
+	if len(withdrawn.GainByLoadWeek) != 1 || withdrawn.GainByLoadWeek[0].Animals != 10 ||
+		math.Abs(withdrawn.GainByLoadWeek[0].AverageGainGPerDay-1000) > 0.01 {
+		t.Fatalf("the load row is now Part A alone, 10 head at 1000 g/day: %#v", withdrawn.GainByLoadWeek)
 	}
 }

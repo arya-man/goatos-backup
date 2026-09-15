@@ -25,7 +25,7 @@ import { getCensusLocations } from "@/lib/api/herd-locations";
 import { FeedFilters, type FeedFilterField } from "./feed-filters";
 import { FeedPager } from "./feed-pager";
 import { FeedCompletionTable } from "./feed-completion-table";
-import { FeedShedFeedTable } from "./feed-shed-feed-table";
+import { FeedShedFeedCharts } from "./feed-shed-feed-charts";
 import { feedHref, feedLimit, feedOffset } from "./feed-scope";
 import { SegmentedLinks } from "@/components/segmented-links";
 import { SvgBars } from "@/components/svg-bars";
@@ -347,11 +347,11 @@ export async function FeedAnalyticsPage({
     tab === "overview"
       ? "expenditure,spend,item_expenditure"
       : "items,farm_items,forecast";
-  // The overview's "Feed by shed" table reads its OWN last-7-days window
+  // The overview's "Feed by pen" charts read their OWN last-7-days window
   // (ending yesterday, the page's stated basis), independent of the range
-  // chips — the maintainer asked for a 7-day default while the charts default
-  // to 30. Its farm/shed/feed-item filters and ten-row pager run client-side
-  // over the served bounded pen set, like the completion table's narrowing.
+  // chips — the maintainer asked for 7 days there while the charts above
+  // default to 30. Its farm/pen-name filters run client-side over the served
+  // bounded pen set, like the completion table's narrowing.
   const wantShedFeed = tab === "overview";
   const shedFeedTo = istDayPlus(todayIso(), -1);
   const shedFeedWindow = { date_from: istDayPlus(shedFeedTo, -6), date_to: shedFeedTo };
@@ -482,18 +482,14 @@ export async function FeedAnalyticsPage({
       ) : null}
 
       {tab === "overview" && shedFeed?.ok ? (
-        <FeedShedFeedTable
+        <FeedShedFeedCharts
           data={shedFeed.data}
-          searchParams={searchParams}
           basePath={PAGE_PATH}
           pageContract={pageContract}
           parkScopeLocked={Boolean(parkId)}
           filters={{
             park: parkId || (one(searchParams, "fsf_park") ?? ""),
             shed: one(searchParams, "fsf_shed") ?? "",
-            item: one(searchParams, "fsf_item") ?? "",
-            offset: feedOffset(searchParams, "fsf_offset"),
-            limit: feedOffset(searchParams, "fsf_limit"),
           }}
         />
       ) : null}

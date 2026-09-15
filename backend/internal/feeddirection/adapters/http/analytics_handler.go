@@ -737,6 +737,14 @@ type shedFeedPenRowDTO struct {
 	OperationalLocationDisplay string            `json:"operational_location_display"`
 	Items                      []shedFeedItemDTO `json:"items"`
 	DirectedKg                 string            `json:"directed_kg"`
+	Days                       []shedFeedDayDTO  `json:"days"`
+}
+
+type shedFeedDayDTO struct {
+	FeedDay      string `json:"feed_day"`
+	DirectedKg   string `json:"directed_kg"`
+	HeadCount    int    `json:"head_count"`
+	PerHeadGrams string `json:"per_head_grams"`
 }
 
 type shedFeedAnalyticsDTO struct {
@@ -769,7 +777,12 @@ func (h *Handler) GetShedFeedAnalytics(w http.ResponseWriter, r *http.Request) {
 		for _, it := range row.Items {
 			items = append(items, shedFeedItemDTO(it))
 		}
+		days := make([]shedFeedDayDTO, 0, len(row.Days))
+		for _, d := range row.Days {
+			days = append(days, shedFeedDayDTO(d))
+		}
 		dto.Rows = append(dto.Rows, shedFeedPenRowDTO{
+			Days:                       days,
 			ParkID:                     row.ParkID,
 			ParkLabel:                  row.ParkLabel,
 			ShedID:                     row.ShedID,

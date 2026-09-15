@@ -161,6 +161,85 @@ func TestShedFeedAnalyticsPenGrainAndDisplayRoundTrip(t *testing.T) {
 	}
 }
 
+// The per-pen DAY series behind the overview's bar charts (maintainer request
+// 2026-09-14: one chart per pen, seven bars, each the average per animal).
+// Adversarial on the denominator, which is where a per-head figure goes wrong:
+// Castro 1 holds TWO breed grains (Beetal 10 head, Sirohi 5 head) and the Beetal
+// grain is fed in TWO sessions, so the day's heads must be 15 -- each grain's head
+// count taken ONCE, never once per session (30) or once per item cell -- and the
+// day's kg is every cell summed (2.0 + 1.0 + 0.5 = 3.5), giving 233.3 g/animal.
+// A day where every cell is BLOCKED is ABSENT from the series rather than a zero
+// bar; a day authored 0 kg is PRESENT at 0 with per-head "0.0".
+func TestShedFeedAnalyticsDaySeriesDividesByPenHeadsOncePerDay(t *testing.T) {
+	ctx := context.Background()
+	repo, _ := setupIssueDB(t, ctx)
+	issuedAt := time.Date(2026, 8, 5, 9, 0, 0, 0, biztime.DefaultLocation())
+
+	cell := func(breed string, heads int64, session int32, qty *string, rowSeq int32) domain.StoredCell {
+		c := domain.StoredCell{
+			ParkID: fdiPark, ParkLabel: "CBE", ShedID: fdiShedA, ShedLabel: "Castro",
+			PartitionLabel: "1", ShedTag: "Non-Pregnant", Breed: breed,
+			RationGroup: "Beetal/Sirohi", SessionNo: session, SessionLabel: "S",
+			HeadCount: heads, Workflow: domain.WorkflowNormal,
+			FeedItemLabel: "Masur Busa", FeedItemKey: "masur busa", QuantityKg: qty,
+			SessionTotalKg: "0.000", RowSeq: rowSeq, ItemSeq: 0,
+		}
+		if qty == nil {
+			code := domain.BlockReasonNoRationRate
+			detail := "no rate"
+			c.BlockedReasonCode, c.BlockedReasonDetail = &code, &detail
+		}
+		return c
+	}
+	persist := func(feedDay, fingerprint string, cells []domain.StoredCell) {
+		t.Helper()
+		if _, err := repo.PersistIssue(ctx, ports.PersistIssueCommand{
+			TenantID: fdiTenant, ParkID: fdiPark, FeedDay: feedDay, Workflow: domain.WorkflowNormal,
+			IssuedAt: issuedAt, Fingerprint: fingerprint,
+			IdempotencyKey: "issue:" + fdiTenant + ":" + fdiPark + ":" + feedDay + ":shedfeedday",
+			GeneratedBy:    "test", Cells: cells,
+		}); err != nil {
+			t.Fatalf("persist %s: %v", feedDay, err)
+		}
+	}
+	// Day 1: two grains, one of them fed twice -> 3.5 kg over 15 head.
+	persist("2026-08-06", "fp-sfd-1", []domain.StoredCell{
+		cell("Beetal", 10, 1, kg("2.000"), 0),
+		cell("Beetal", 10, 2, kg("1.000"), 1),
+		cell("Sirohi", 5, 1, kg("0.500"), 2),
+	})
+	// Day 2: everything blocked -> the day is absent.
+	persist("2026-08-07", "fp-sfd-2", []domain.StoredCell{
+		cell("Beetal", 10, 1, nil, 0),
+		cell("Sirohi", 5, 1, nil, 1),
+	})
+	// Day 3: authored zero -> present at 0.
+	persist("2026-08-08", "fp-sfd-3", []domain.StoredCell{
+		cell("Beetal", 10, 1, kg("0.000"), 0),
+	})
+
+	got, err := repo.ShedFeedAnalytics(ctx, fdiTenant, domain.DirectedAnalyticsQuery{
+		DateFrom: time.Date(2026, 8, 6, 0, 0, 0, 0, biztime.DefaultLocation()),
+		DateTo:   time.Date(2026, 8, 8, 0, 0, 0, 0, biztime.DefaultLocation()),
+	})
+	if err != nil {
+		t.Fatalf("ShedFeedAnalytics: %v", err)
+	}
+	if len(got.Rows) != 1 || got.Rows[0].OperationalLocationDisplay != "Castro 1" {
+		t.Fatalf("want the one pen Castro 1, got %+v", got.Rows)
+	}
+	days := got.Rows[0].Days
+	if len(days) != 2 {
+		t.Fatalf("want 2 days (the all-blocked day absent), got %+v", days)
+	}
+	if days[0].FeedDay != "2026-08-06" || days[0].DirectedKg != "3.500" || days[0].HeadCount != 15 || days[0].PerHeadGrams != "233.3" {
+		t.Errorf("day 1: want 3.500 kg over 15 head = 233.3 g/animal (heads once per grain per day), got %+v", days[0])
+	}
+	if days[1].FeedDay != "2026-08-08" || days[1].DirectedKg != "0.000" || days[1].HeadCount != 10 || days[1].PerHeadGrams != "0.0" {
+		t.Errorf("day 3: want an authored-zero day present at 0.000 kg / 10 head / 0.0 g, got %+v", days[1])
+	}
+}
+
 func shedFeedDisplays(m map[string]domain.ShedFeedPenRow) []string {
 	out := make([]string, 0, len(m))
 	for k := range m {
