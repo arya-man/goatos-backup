@@ -365,8 +365,7 @@ class WeighingFastingDetailViewModel @Inject constructor(
 
     /** The recorded answers of a submitted card, re-read from the backend for display. */
     private fun recordedAnswers(recorded: JsonObject): Map<String, WeighingFastingAnswerUi> {
-        // mobile-guard:ignore: bounded by the card's question count (<= 50 per SOP); rebuilt per emit, never accumulated
-        val out = mutableMapOf<String, WeighingFastingAnswerUi>()
+        val out = mutableMapOf<String, WeighingFastingAnswerUi>() // mobile-guard:ignore: bounded by the card's question count (<= 50 per SOP); rebuilt per emit, never accumulated
         recorded.forEach { (id, element) ->
             if (id.endsWith("_other")) {
                 val base = id.removeSuffix("_other")
