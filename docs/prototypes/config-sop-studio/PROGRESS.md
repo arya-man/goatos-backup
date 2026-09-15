@@ -137,3 +137,24 @@ Pending: final code review, boundary tests and Chrome walkthrough after edits. N
 
 ### PR packaging
 Clean branch design/config-sop-studio from origin/main03ebe28194bc86777c5d24d811e8910e60fb9f63. Mock added under docs/prototypes/config-sop-studio. All11 focused Node scripts pass from packaged directory; local assets resolve; credential-pattern scan clear. Optional health oracle now takes HEALTH_SOP_SOURCE. No production integration, merge, or deployment.
+
+## 2026-09-16 — Box connection drop interaction
+- Scope: draw from an output handle onto the destination box; snap preview to input and highlight valid destinations; enlarge handle hit area. Click-handle then box also connects. Existing node movement and cycle restrictions remain supported.
+- Done: changed canvas-editor.js/CSS and synchronized the standalone local preview copy.
+- Tests: check-connection-drag.cjs runs real Chromium pointer input on Procurement/Editor at 1440x1000 and 760x1000. Box drop, highlight, undo, click-connect and Escape pass. Original HEAD fails the target-highlight assertion. run-checks.sh passes all existing judge scripts, including 27 canvas checks.
+- Before/after: original drop lookup accepts only data-input; new lookup accepts the valid destination node body and snaps the preview. No performance claim.
+- Known failures: none in current focused checks. Browser test requires PLAYWRIGHT_MODULE when dependencies are external to this checkout.
+- Judge: automated regression/browser checks passed; no separate agent review.
+- Base SHA: 1590f87515766d8f35a34b3afefe114a69df7979; changes are local and uncommitted.
+- Pending: maintainer review of interaction; no push or promotion requested. Deployment: local preview only, served on 127.0.0.1:4318; no STG deployment.
+
+### Follow-up: existing arrow drag (02:00 report)
+- Previous fix did not implement dragging existing arrows; user correctly reported this missing interaction.
+- Added pointer dragging from existing edge paths, central insert controls, and unambiguous input endpoints. Drag threshold preserves ordinary line selection and + insertion clicks. Destination changes use existing validation and undo. Canvas disables browser text selection.
+- Actual Chromium tests at 1440px and 760px pass line/endpoint/+ drag onto destination box and undo, plus prior output-handle/click/Escape cases. Before-fix JS fails the line-drag destination assertion. Existing run-checks.sh passes.
+- Synced local preview JS/CSS; still uncommitted, not pushed or deployed.
+
+### PR push requested
+- User authorized pushing the completed fix to the existing mock PR (#275, design/config-sop-studio).
+- Final verification: run-checks.sh and check-connection-drag.cjs both passed after final code edits; git diff --check passed. Browser checks cover 1440px and 760px.
+- Scope: the two canvas files, focused browser regression script, and this receipt. No main merge or staging deployment.

@@ -2,3 +2,7 @@
 @media(min-width:761px){.editorpage main{height:calc(100vh - 64px);display:flex;flex-direction:column;overflow:hidden;padding:18px 20px 14px}.editorpage main>.eyebrow{flex:none}.editorpage main>.heading{flex:none;margin-bottom:5px}.editorpage main>.heading h1{font-size:21px}.editorpage main>.heading p{margin-bottom:8px}.editorpage main>.toolbar{flex:none}.editorpage .direct-editor{flex:1;min-height:0!important}.editorpage .direct-canvas{height:100%;min-height:0}.editorpage .direct-editor .inspector{height:100%;min-height:0;max-height:none;overflow:auto}.editorpage main>.hint{flex:none;font-size:10px}.editorpage aside{width:64px;padding:10px 4px}.editorpage aside button{font-size:0;padding:13px}.editorpage aside button span{font-size:19px}.editorpage aside .section,.editorpage aside .sub,.editorpage aside .foot{display:none}.editorpage main{margin-left:64px}.editorpage.collapsed main{margin-left:0}}
 .direct-graph>.wire-plus{position:absolute;z-index:3}
 .flow-node{touch-action:none;transition:none}.flow-node.dragging{will-change:transform;cursor:grabbing;z-index:7}
+
+.flow-node.connection-target{outline:3px solid #a3e271;outline-offset:5px;box-shadow:0 0 0 9px #84c85633}.flow-port::after{content:"";position:absolute;inset:-7px;border-radius:50%}
+
+.direct-canvas{user-select:none;-webkit-user-select:none}.wire-hit{cursor:grab}.reconnecting{opacity:.18}.flow-port.input{cursor:grab}
