@@ -93,6 +93,11 @@ VALUES ($1::uuid, $2::uuid, 2, 'v2', 'published', $3::jsonb, '{}'::jsonb, '{}'::
 	if pinned.Version != 1 || pinned.FeedWaterRemoval.Mode != domain.RemovalModeRequired || pinned.Capture.LumpSum.VideoMax != domain.MaxShedProofArtifacts {
 		t.Fatalf("pinned v1 = v%d/%s/max %d, want v1/required/%d", pinned.Version, pinned.FeedWaterRemoval.Mode, pinned.Capture.LumpSum.VideoMax, domain.MaxShedProofArtifacts)
 	}
+	batch, err := src.RulesVersions(ctx, rulesTenant, []int{0, 1, 2, 9})
+	if err != nil || len(batch) != 3 || batch[1].FeedWaterRemoval.Mode != domain.RemovalModeRequired || batch[2].FeedWaterRemoval.Mode != domain.RemovalModeOptional {
+		t.Fatalf("batch does not preserve retired and current pins: %+v, %v", batch, err)
+	}
+
 	if _, err := src.RulesVersion(ctx, rulesTenant, 9); !errors.Is(err, ports.ErrSOPVersionUnknown) {
 		t.Fatalf("unpublished version err = %v, want ErrSOPVersionUnknown", err)
 	}

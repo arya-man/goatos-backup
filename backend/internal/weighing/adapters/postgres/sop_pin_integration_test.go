@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -81,7 +83,7 @@ func TestSOPPinAndRemovalAnswersRoundTripThroughPostgres(t *testing.T) {
 	// The window opens at the PINNED version's evening: with v4 set to 21:00 the card is
 	// not yet listed at 20:00 even though the farm default has opened; an override for a
 	// version the task is not pinned to changes nothing; the versions read names the pin.
-	versions, err := repo.FastingCardSOPVersions(ctx, repoTenant, fastingOperator)
+	versions, err := repo.FastingCardSOPVersions(ctx, repoTenant, fastingOperator, atOpen)
 	if err != nil || len(versions) != 1 || versions[0] != 4 {
 		t.Fatalf("pinned versions = %v err %v, want [4]", versions, err)
 	}
@@ -211,5 +213,81 @@ ON CONFLICT (proof_id) DO NOTHING`, gatePhoto, repoTenant, repoPark, fastingOper
 	card, ok := cardByShed(page.Items, repoAnimalScope)
 	if !ok || card.ProofKinds["gate"] != "photo" || card.ProofKinds["feed_video"] != "video" {
 		t.Fatalf("card list kinds = %v (found %v), want gate photo / feed_video video", card.ProofKinds, ok)
+	}
+}
+
+// History and future tasks must not displace tonight's oldest active pin.
+func TestFastingCutoffVersionsKeepAllTonightPins(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedFastingFixture(t, ctx, pool, "2026-09-04")
+	repo := NewRepository(pool, 5*time.Second)
+	for v := 1; v <= 52; v++ {
+		date := "2026-09-04"
+		if v == 51 {
+			date = "2026-09-03"
+		}
+		if v == 52 {
+			date = "2026-09-05"
+		}
+		id := fmt.Sprintf("00000000-0000-4000-8000-%012d", 20000+v)
+		execWeighingTestSQL(t, ctx, pool, `INSERT INTO weighing_campaigns
+   (campaign_id, tenant_id, park_id, period_start_date, period_end_date, start_business_date, status, planned_cap_per_day, operator_user_id, created_by, sop_version)
+   VALUES ($1::uuid,$2::uuid,$3::uuid,$4::date,$4::date,$4::date,'published',100,$5::uuid,$5::uuid,$6)`, id, repoTenant, repoPark, date, repoOperator, v)
+		execWeighingTestSQL(t, ctx, pool, `INSERT INTO weighing_fasting_tasks
+   (tenant_id,campaign_id,park_id,operator_user_id,planned_weigh_date,weigh_business_date,idempotency_key,created_by)
+   VALUES ($1::uuid,$2::uuid,$3::uuid,$4::uuid,$5::date,$5::date,$6,$4::uuid)`, repoTenant, id, repoPark, fastingOperator, date, fmt.Sprintf("pin-%d", v))
+	}
+	at := time.Date(2026, 9, 3, 18, 0, 0, 0, biztime.DefaultLocation())
+	versions, err := repo.FastingCardSOPVersions(ctx, repoTenant, fastingOperator, at)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := map[int]bool{}
+	for _, v := range versions {
+		seen[v] = true
+	}
+	if len(versions) != 51 || !seen[1] || !seen[50] || seen[51] || seen[52] {
+		t.Fatalf("tonight pins truncated or wrong date slice: %v", versions)
+	}
+	// Execute the old capped shape against the same fixture: the failing-before counterexample.
+	oldRows, err := pool.Query(ctx, fastingCardSOPVersionsSQL+" LIMIT 20", repoTenant, fastingOperator, at)
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldCount, oldHasFirst := 0, false
+	for oldRows.Next() {
+		var v int
+		if err := oldRows.Scan(&v); err != nil {
+			t.Fatal(err)
+		}
+		oldCount++
+		oldHasFirst = oldHasFirst || v == 1
+	}
+	oldRows.Close()
+	if oldCount != 20 || oldHasFirst {
+		t.Fatalf("old-shape premise failed: count=%d oldest=%v", oldCount, oldHasFirst)
+	}
+	plans, err := pool.Query(ctx, "EXPLAIN (ANALYZE, BUFFERS) "+fastingCardSOPVersionsSQL, repoTenant, fastingOperator, at)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var plan []string
+	for plans.Next() {
+		var line string
+		if err := plans.Scan(&line); err != nil {
+			t.Fatal(err)
+		}
+		plan = append(plan, line)
+	}
+	plans.Close()
+	t.Logf("same-fixture coverage: old=%d, fixed=%d (includes v1); plan:\n%s", oldCount, len(versions), strings.Join(plan, "\n"))
+
+	// Same business-day slice even when UTC and IST calendar dates differ.
+	versions, err = repo.FastingCardSOPVersions(ctx, repoTenant, fastingOperator, time.Date(2026, 9, 2, 20, 0, 0, 0, time.UTC))
+	if err != nil || len(versions) != 51 {
+		t.Fatalf("IST day boundary: %v %v", versions, err)
 	}
 }

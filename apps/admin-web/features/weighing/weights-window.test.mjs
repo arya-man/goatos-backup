@@ -43,15 +43,15 @@ test("the page lands on the SOP's default start (seed: 2026-08-03) through the l
   assert.doesNotMatch(landingSource, /dates\[dates\.length - 2\]/);
   // WEIGHING SOP weights_pages (2026-09-16): the start is the SERVED setting, the constant its fallback.
   assert.match(landingSource, /const from = settings\?\.defaultFrom \?\? DEFAULT_WINDOW_FROM;/);
-  assert.match(landingSource, /from: from > today \? today : from,/);
+  assert.match(landingSource, /return windowThroughLatest\(today, result\.data\.latest_weighing_date \?\? "", settings\);/);
   // THE END IS NOT A LUMP DATE. On 25 Aug 2026 the farm scanned 199 kids across 17 sheds and weighed
   // no shed whole, so that day never entered lump_weighing_dates and a window closing on the later
   // lump date shut a day early -- dropping all 199 from the KPIs while the period label read as
   // though nothing was missing.
-  assert.match(landingSource, /const latest = result\.data\.latest_weighing_date \?\? "";/);
-  assert.match(landingSource, /const end = BUSINESS_DAY\.test\(latest\) \? latest : today;/);
+  assert.match(landingConstantsSource, /latest >= from/);
+
   // Clamped, like every other window this file resolves: a future end is never rendered.
-  assert.match(landingSource, /to: end > today \? today : end,/);
+  assert.match(landingConstantsSource, /latest <= today/);
   // The date is BACKEND-owned. A max taken across the returned rows would be the page deriving
   // business truth from its own rows, which is the rollup-from-a-slice shape this repo bans.
   assert.doesNotMatch(landingSource, /Math\.max\([^)]*last_weighed_date/);

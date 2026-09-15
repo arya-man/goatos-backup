@@ -97,6 +97,17 @@ SET goat_id=EXCLUDED.goat_id, identifier_value=EXCLUDED.identifier_value, status
 		t.Fatalf("GetWeightDemographics: %v", err)
 	}
 
+	// Both page modes must execute real SQL; text-only CASE guards missed unmatched parentheses.
+	withoutGrids, err := repo.GetWeightDemographics(ctx, repoTenant, []string{repoPark}, from, to, "", "", "", false)
+	if err != nil {
+		t.Fatalf("GetWeightDemographics without weekly grids: %v", err)
+	}
+	if len(withoutGrids.ShedComposition) != len(out.ShedComposition) {
+		t.Fatal("weekly-grid switch changed the main composition")
+	}
+	if len(withoutGrids.GainByBreedWeek)+len(withoutGrids.GainByPenWeek)+len(withoutGrids.GainByLoadWeek) != 0 {
+		t.Fatal("disabled weekly grids returned data")
+	}
 	var found bool
 	for _, shed := range out.ShedComposition {
 		if shed.LocationID != repoExpectedShed {

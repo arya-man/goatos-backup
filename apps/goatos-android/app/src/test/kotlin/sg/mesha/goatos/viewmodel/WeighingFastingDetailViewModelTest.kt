@@ -113,6 +113,43 @@ class WeighingFastingDetailViewModelTest {
         ),
     )
 
+
+    @Test
+    fun `authored feed and water captures never alias legacy drafts and survive restoration`() = runTest(dispatcher) {
+        val keys = listOf("feed_video", "water_video", "feed", "water")
+        val handle = SavedStateHandle(mapOf(
+            Routes.WEIGHING_FASTING_TASK_ARG to "task-1",
+            Routes.WEIGHING_FASTING_SHED_ARG to "shed-b",
+        ))
+        val repo = FakeWeighingFastingRepository()
+        repo.cardFlow.value = WeighingFastingCard(card().dto.copy(proofs = keys.map {
+            sg.mesha.goatos.core.network.dto.WeighingRemovalProofSlotDto(key = it, title = it)
+        }))
+        val sync = RecordingFastingSyncRepository()
+        val vm = viewModel(fastingRepository = repo, syncRepository = sync, savedStateHandle = handle,
+            proofCaptureSource = FakeProofCaptureSource(keys.map { video("/proof/$it.mp4") }.toMutableList()))
+        advanceUntilIdle()
+        keys.forEachIndexed { index, key ->
+            vm.onEvent(WeighingFastingDetailEvent.RecordSlot(key))
+            advanceUntilIdle()
+            assertEquals("each compulsory slot needs its OWN capture", index == keys.lastIndex, vm.state.value.submitEnabled)
+        }
+        // The original seeded draft keys must still be readable across the app upgrade.
+        assertEquals("proof-outbox-1", handle.get<String>("weighing_fasting_proof_item_id:shed-b:feed"))
+        assertEquals("proof-outbox-2", handle.get<String>("weighing_fasting_proof_item_id:shed-b:water"))
+        val restored = viewModel(fastingRepository = repo, syncRepository = sync,
+            savedStateHandle = SavedStateHandle(handle.keys().associateWith { handle.get<Any?>(it) }))
+        advanceUntilIdle()
+        assertTrue(restored.state.value.submitEnabled)
+        assertEquals(keys.map { "/proof/$it.mp4" }, restored.state.value.slots.map { it.previewPath })
+        restored.onEvent(WeighingFastingDetailEvent.Submit)
+        advanceUntilIdle()
+        assertEquals(keys.toSet(), sync.lastFastingProofItems.keys)
+        assertEquals(4, sync.lastFastingProofItems.values.toSet().size)
+        assertEquals("proof-outbox-1", sync.lastFastingProofItems["feed_video"])
+        assertEquals("proof-outbox-3", sync.lastFastingProofItems["feed"])
+    }
+
     /**
      * WEIGHING SOP (maintainer decision 2026-09-15): the card renders the task's pinned SOP copy
      * and asks its authored questions; a required one left blank blocks the submit BY NAME, and

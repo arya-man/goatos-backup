@@ -56,3 +56,12 @@ function shiftIsoDay(iso: string, days: number): string {
   const t = Date.UTC(y, (m ?? 1) - 1, d ?? 1) + days * 86_400_000;
   return new Date(t).toISOString().slice(0, 10);
 }
+
+/** Keep the authored start when the latest weighing predates it: render an empty
+ * current period instead of sending an inverted range to the reporting APIs. */
+export function windowThroughLatest(today: string, latest: string, settings?: WeightsWindowSettings): { from: string; to: string } {
+  const requestedFrom = settings?.defaultFrom ?? DEFAULT_WINDOW_FROM;
+  const from = requestedFrom > today ? today : requestedFrom;
+  const end = BUSINESS_DAY.test(latest) && latest <= today && latest >= from ? latest : today;
+  return { from, to: end };
+}

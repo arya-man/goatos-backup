@@ -18,6 +18,7 @@ import {
   LATEST_LUMP_LOOKBACK_DAYS,
   WINDOW_FROM_PARAM,
   WINDOW_TO_PARAM,
+  windowThroughLatest,
 } from "./landing-window-constants";
 export { DEFAULT_WINDOW_FROM, WINDOW_FROM_PARAM, WINDOW_TO_PARAM, weightsWindowSettings, type WeightsWindowSettings } from "./landing-window-constants";
 import { type WeightsWindowSettings } from "./landing-window-constants";
@@ -82,11 +83,5 @@ export async function landingWindow(
   // END from the last day the farm weighed ANYTHING, not just a lump-sum day.
   // The backend owns the date (`latest_weighing_date`, whole-filter over both weighing grains);
   // an empty value falls back to today so the page still renders.
-  const latest = result.data.latest_weighing_date ?? "";
-  const end = BUSINESS_DAY.test(latest) ? latest : today;
-  const from = settings?.defaultFrom ?? DEFAULT_WINDOW_FROM;
-  return {
-    from: from > today ? today : from,
-    to: end > today ? today : end,
-  };
+  return windowThroughLatest(today, result.data.latest_weighing_date ?? "", settings);
 }

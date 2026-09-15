@@ -96,6 +96,10 @@ func (s *RulesSource) read(ctx context.Context, sql string, args ...any) (domain
 	if err != nil {
 		return domain.Rules{}, false, fmt.Errorf("weighing sop: read version: %w", err)
 	}
+	return parseRules(version, raw)
+}
+
+func parseRules(version int, raw []byte) (domain.Rules, bool, error) {
 	var formDSL map[string]any
 	if err := json.Unmarshal(raw, &formDSL); err != nil {
 		return domain.Rules{}, false, fmt.Errorf("weighing sop: v%d form_dsl: %w", version, err)
@@ -114,3 +118,46 @@ func (s *RulesSource) read(ctx context.Context, sql string, args ...any) (domain
 	}
 	return domain.Rules{Version: version, WeighingSOP: dsl}, true, nil
 }
+
+// RulesVersions uses one indexed set read per batch, rather than one round trip per pin.
+func (s *RulesSource) RulesVersions(ctx context.Context, tenantID string, versions []int) (map[int]domain.Rules, error) {
+	if s.queryTimeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, s.queryTimeout)
+		defer cancel()
+	}
+	out := map[int]domain.Rules{}
+	if len(versions) == 0 {
+		return out, nil
+	}
+	for _, v := range versions {
+		if v == 0 {
+			out[0] = domain.SeededRules()
+		}
+	}
+	rows, err := s.pool.Query(ctx, sqlWeighingSOPVersions, tenantID, domain.SOPCodeWeighingSession, versions)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var version int
+		var raw []byte
+		if err := rows.Scan(&version, &raw); err != nil {
+			return nil, err
+		}
+		rules, _, err := parseRules(version, raw)
+		if err != nil {
+			return nil, err
+		}
+		out[version] = rules
+	}
+	return out, rows.Err()
+}
+
+const sqlWeighingSOPVersions = `
+SELECT v.version, v.form_dsl
+FROM public.sop_versions v
+JOIN public.sop_definitions d ON d.tenant_id = v.tenant_id AND d.sop_id = v.sop_id
+WHERE v.tenant_id = $1::uuid AND d.code = $2 AND v.version = ANY($3::int[])
+  AND v.status IN ('published', 'retired')`

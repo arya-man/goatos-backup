@@ -45,6 +45,8 @@ type SOPRulesSource interface {
 	// RulesVersion is the exact rule set a task was planned on. Version 0 is the seeded
 	// document; an unpublished version is ErrSOPVersionUnknown.
 	RulesVersion(ctx context.Context, tenantID string, version int) (domain.Rules, error)
+	// RulesVersions resolves a batch; unknown versions are omitted.
+	RulesVersions(ctx context.Context, tenantID string, versions []int) (map[int]domain.Rules, error)
 }
 
 // StaticRules is a SOPRulesSource over one fixed rule set -- for tests and fakes, so a service
@@ -79,4 +81,19 @@ func (s StaticRules) RulesVersion(_ context.Context, _ string, version int) (dom
 // postgres Repository implements it and is wired alongside the rules source.
 type SOPPinReader interface {
 	CampaignSOPVersion(ctx context.Context, tenantID, campaignID string) (int, error)
+}
+
+func (s StaticRules) RulesVersions(ctx context.Context, tenantID string, versions []int) (map[int]domain.Rules, error) {
+	out := map[int]domain.Rules{}
+	for _, v := range versions {
+		r, err := s.RulesVersion(ctx, tenantID, v)
+		if errors.Is(err, ErrSOPVersionUnknown) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		out[v] = r
+	}
+	return out, nil
 }

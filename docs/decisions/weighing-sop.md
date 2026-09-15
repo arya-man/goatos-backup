@@ -272,6 +272,22 @@ submitted), `weighing_video_count`, `weighing_sop_version_unknown`, `fasting_ans
   replays the task while a new request is refused; Amit's per-person tick keeps Tasks + My
   work + Alerts and the planner catalog.
 
+## PR 274 regression follow-up (2026-09-16)
+
+- A fixed or rolling Weights start newer than the latest observation now ends today,
+  preserving the requested empty period instead of sending a reversed range to the API.
+- Authored capture keys `feed` and `water` use a disjoint saved-state namespace; legacy
+  `feed_video` / `water_video` drafts keep their existing keys. A ViewModel test captures
+  all four, restores the draft, and verifies four distinct submitted proofs.
+- Supersedes round 3's newest-20 bound: load every pin for tomorrow's weigh date in IST,
+  the only date whose evening cutoff affects today's card membership. Cold rules are
+  read in batches of 256; repeat reads use the bounded cache without truncating results.
+  Guards cover 51 tonight pins, an old active version, IST midnight, and 600 cached pins.
+- Real-route validation exposed inherited weekly-grid SQL syntax errors. All three CASE
+  branches are corrected; PostgreSQL coverage exercises grids enabled and disabled.
+  The broader demographics suite still has pre-existing invalid display-ID/proof fixtures
+  and a plain numbered-shed composition failure; these are not a green merge receipt.
+
 ## Not here (phase 2)
 
 Authored questions on the lump-sum pen submit and per animal; the `/config` registry editor for

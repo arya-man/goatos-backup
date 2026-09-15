@@ -626,7 +626,8 @@ func TestCreateCampaignReplaysBeforeTheCurrentPublishJudgesTheRetry(t *testing.T
 // countingRules counts how many times a pinned version is read from the source.
 type countingRules struct {
 	versionedRules
-	reads int
+	reads      int
+	batchReads int
 }
 
 func (c *countingRules) RulesVersion(ctx context.Context, tenantID string, version int) (domain.Rules, error) {
@@ -673,5 +674,59 @@ func TestCardRefreshReadsEachPinnedVersionOnceNotPerRefresh(t *testing.T) {
 	}
 	if source.reads != first {
 		t.Fatalf("second refresh read the source %d more time(s); a pinned version is immutable and must be served from the cache", source.reads-first)
+	}
+}
+
+func (v versionedRules) RulesVersions(ctx context.Context, tenantID string, versions []int) (map[int]domain.Rules, error) {
+	out := map[int]domain.Rules{}
+	for _, version := range versions {
+		r, err := v.RulesVersion(ctx, tenantID, version)
+		if errors.Is(err, ports.ErrSOPVersionUnknown) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		out[version] = r
+	}
+	return out, nil
+}
+
+func (c *countingRules) RulesVersions(ctx context.Context, tenantID string, versions []int) (map[int]domain.Rules, error) {
+	c.batchReads++
+	return c.versionedRules.RulesVersions(ctx, tenantID, versions)
+}
+
+func TestCutoffsKeepOldActivePinsBeyondTwentyVersionsInOneBatch(t *testing.T) {
+	source := &countingRules{versionedRules: versionedRules{}}
+	store := &fakeFastingStore{}
+	for v := 1; v <= 50; v++ {
+		r := rulesWithMode(v, domain.RemovalModeRequired).Rules
+		r.FeedWaterRemoval.CutoffTime = "21:30"
+		source.versionedRules[v] = r
+		store.cardVersions = append(store.cardVersions, v)
+	}
+	service := NewService(&fakeRepo{}).WithFeedWaterRemovalCutoff(eightPM).WithFastingStore(store).WithSOPRules(source, pinnedVersion(0))
+	for attempt := 0; attempt < 2; attempt++ {
+		got, err := service.removalCardCutoffs(context.Background(), testTenant, testOp)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(got.ByVersion) != 50 || got.ByVersion[1].String() != "21:30" {
+			t.Fatalf("older active pin lost: %+v", got)
+		}
+	}
+	if source.batchReads != 1 || source.reads != 0 {
+		t.Fatalf("reads: batch=%d individual=%d; want one batch, cached repeat", source.batchReads, source.reads)
+	}
+	// Exceed the process cache without dropping pins or falling back to per-version reads.
+	versions := []int{}
+	for v := 1; v <= 600; v++ {
+		versions = append(versions, v)
+		source.versionedRules[v] = rulesWithMode(v, domain.RemovalModeRequired).Rules
+	}
+	got, err := service.rulesForVersions(context.Background(), testTenant, versions)
+	if err != nil || len(got) != 600 || source.batchReads != 4 {
+		t.Fatalf("overflow: %d pins, %d batches, err %v", len(got), source.batchReads, err)
 	}
 }

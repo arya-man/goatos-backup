@@ -840,6 +840,9 @@ class WeighingFastingDetailViewModel @Inject constructor(
     private fun slotStateSuffix(slotKey: String): String = when (slotKey) {
         WeighingFastingSlotKind.FEED.slotKey -> "feed"
         WeighingFastingSlotKind.WATER.slotKey -> "water"
+        // These authored names would alias the legacy slots. ':' cannot occur in an SOP
+        // key, so this namespace is disjoint; all other existing draft keys stay stable.
+        "feed", "water" -> "slot:$slotKey"
         else -> slotKey
     }
 

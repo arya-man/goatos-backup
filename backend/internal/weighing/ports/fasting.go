@@ -90,7 +90,7 @@ type FastingStore interface {
 	// FastingCardSOPVersions lists the distinct SOP versions pinned by the
 	// operator's candidate removal rounds (0 = the seeded rules), so the
 	// service can resolve each version's evening before the list is windowed.
-	FastingCardSOPVersions(ctx context.Context, tenantID, operatorUserID string) ([]int, error)
+	FastingCardSOPVersions(ctx context.Context, tenantID, operatorUserID string, now time.Time) ([]int, error)
 
 	// SubmitFastingShed records ONE shed's pair in one transaction: pair
 	// validated (distinct, completed, live-camera, this tenant, not the shed's

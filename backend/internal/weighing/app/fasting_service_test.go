@@ -43,7 +43,7 @@ func (f *fakeFastingStore) ListFastingShedCardsForOperator(_ context.Context, _,
 	return domain.FastingShedCardPage{Items: []domain.FastingShedCard{}}, nil
 }
 
-func (f *fakeFastingStore) FastingCardSOPVersions(context.Context, string, string) ([]int, error) {
+func (f *fakeFastingStore) FastingCardSOPVersions(context.Context, string, string, time.Time) ([]int, error) {
 	return f.cardVersions, nil
 }
 

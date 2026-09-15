@@ -86,13 +86,9 @@ WHERE ft.tenant_id = $1::uuid
 ORDER BY ft.weigh_business_date DESC, cs.campaign_shed_id DESC
 LIMIT $6`
 
-// fastingCardSOPVersionsSQL lists the distinct versions the operator's candidate rounds are
-// pinned to. BOUNDED twice (PR #274 review round 3, finding 1): to rounds whose weigh date is
-// within the last 90 days -- a submitted round is listable forever, but its evening only
-// matters while an operator would scroll back to it -- and to the 20 newest versions, so a
-// farm that publishes often cannot turn one list refresh into a read per version ever
-// published. A card outside both bounds opens at the farm evening rather than its pin, which
-// for a months-old submitted card changes nothing an operator can act on.
+// Only tomorrow's weigh date can change visibility at an evening cutoff today.
+// Earlier dates are already open under every valid HH:MM; later dates are still closed.
+// Resolve ALL pins in that date slice, never truncate by version number.
 const fastingCardSOPVersionsSQL = `
 SELECT DISTINCT COALESCE(c.sop_version, 0) AS sop_version
 FROM weighing_fasting_tasks ft
@@ -100,16 +96,15 @@ JOIN weighing_campaigns c
   ON c.tenant_id = ft.tenant_id AND c.campaign_id = ft.campaign_id
 WHERE ft.tenant_id = $1::uuid
   AND ft.operator_user_id = $2::uuid
-  AND ft.weigh_business_date >= (CURRENT_DATE - INTERVAL '90 days')::date
+  AND ft.weigh_business_date = ($3::timestamptz AT TIME ZONE 'Asia/Kolkata')::date + 1
   AND (ft.submitted_at IS NOT NULL OR c.status NOT IN ('completed','closed','canceled'))
-ORDER BY sop_version DESC
-LIMIT 20`
+ORDER BY sop_version DESC`
 
 // FastingCardSOPVersions implements ports.FastingStore.
-func (r *Repository) FastingCardSOPVersions(ctx context.Context, tenantID, operatorUserID string) ([]int, error) {
+func (r *Repository) FastingCardSOPVersions(ctx context.Context, tenantID, operatorUserID string, now time.Time) ([]int, error) {
 	ctx, cancel := r.timeout(ctx)
 	defer cancel()
-	rows, err := r.pool.Query(ctx, fastingCardSOPVersionsSQL, tenantID, operatorUserID)
+	rows, err := r.pool.Query(ctx, fastingCardSOPVersionsSQL, tenantID, operatorUserID, now)
 	if err != nil {
 		return nil, err
 	}

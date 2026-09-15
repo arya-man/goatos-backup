@@ -171,18 +171,15 @@ func (s *Service) removalCardCutoffs(ctx context.Context, tenantID, operatorUser
 		return ports.RemovalCutoffs{}, err
 	}
 	out := ports.RemovalCutoffs{Default: farm, ByVersion: map[int]fwrdomain.Cutoff{}}
-	versions, err := s.fasting.FastingCardSOPVersions(ctx, tenantID, operatorUserID)
+	versions, err := s.fasting.FastingCardSOPVersions(ctx, tenantID, operatorUserID, s.clock())
 	if err != nil {
 		return ports.RemovalCutoffs{}, err
 	}
-	for _, v := range versions {
-		rules, err := s.rulesForVersion(ctx, tenantID, v)
-		if errors.Is(err, ports.ErrSOPVersionUnknown) {
-			continue
-		}
-		if err != nil {
-			return ports.RemovalCutoffs{}, err
-		}
+	resolved, err := s.rulesForVersions(ctx, tenantID, versions)
+	if err != nil {
+		return ports.RemovalCutoffs{}, err
+	}
+	for _, rules := range resolved {
 		if rules.FeedWaterRemoval.CutoffTime == "" {
 			continue
 		}
@@ -190,7 +187,7 @@ func (s *Service) removalCardCutoffs(ctx context.Context, tenantID, operatorUser
 		if err != nil {
 			return ports.RemovalCutoffs{}, err
 		}
-		out.ByVersion[v] = cutoff
+		out.ByVersion[rules.Version] = cutoff
 	}
 	return out, nil
 }
@@ -252,4 +249,43 @@ func (s *Service) decorateCampaignRules(ctx context.Context, tenantID string, it
 		items[i].SOP = rules
 	}
 	return nil
+}
+
+// Resolve every relevant pin, batching cold misses. The result remains complete even when
+// more pins than the bounded process cache fit; eviction must never change card membership.
+func (s *Service) rulesForVersions(ctx context.Context, tenantID string, versions []int) (map[int]domain.Rules, error) {
+	out := map[int]domain.Rules{}
+	missing := []int{}
+	for _, v := range versions {
+		if v == 0 || s.sopRules == nil {
+			out[v] = domain.SeededRules()
+			continue
+		}
+		key := tenantID + "|" + strconv.Itoa(v)
+		s.versionRulesMu.Lock()
+		r, ok := s.versionRules[key]
+		s.versionRulesMu.Unlock()
+		if ok {
+			out[v] = r
+		} else {
+			missing = append(missing, v)
+		}
+	}
+	for start := 0; start < len(missing); start += versionRulesCacheCap {
+		end := min(start+versionRulesCacheCap, len(missing))
+		batch, err := s.sopRules.RulesVersions(ctx, tenantID, missing[start:end])
+		if err != nil {
+			return nil, err
+		}
+		s.versionRulesMu.Lock()
+		for v, r := range batch {
+			out[v] = r
+			if s.versionRules == nil || len(s.versionRules) >= versionRulesCacheCap {
+				s.versionRules = map[string]domain.Rules{}
+			}
+			s.versionRules[tenantID+"|"+strconv.Itoa(v)] = r
+		}
+		s.versionRulesMu.Unlock()
+	}
+	return out, nil
 }

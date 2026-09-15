@@ -853,7 +853,7 @@ SELECT
 	           AND ($5::text = '' OR (sc.sexes = 1 AND lower(btrim(sc.sex)) = $5::text))
 	         GROUP BY sc.breed, pw.week_start
 	       ) parts GROUP BY breed, week_start
-	     ) gbw)
+	     ) gbw
 	  ) ELSE '[]'::jsonb END,
   -- PEN x WEEK: the Time-wise tab's per-pen table (maintainer request 2026-09-08) -- every pen's
   -- daily gain in every calendar week of the selected period, over the SAME weeks the overall
@@ -903,7 +903,7 @@ SELECT
          ON pp.location_id = p.location_id
 	       LEFT JOIN locations pk ON pk.location_id = pp.park_id
 	       GROUP BY p.location_id, p.partition_label, p.week_start, sh.name, pp.park_id, pk.location_code, pk.name
-	     ) gpw)
+	     ) gpw
 	  ) ELSE '[]'::jsonb END,
   -- LOAD x WEEK: the Time-wise tab's per-load table (maintainer request 2026-09-14, "Time-wise
   -- ADG for each shed/load") -- the pen rows above, one grain up. The SAME two producers
@@ -952,7 +952,7 @@ SELECT
          HAVING count(*) = 1
 	       ) t ON t.location_id = p.location_id
 	       GROUP BY t.load_ref, COALESCE(t.owner_name, ''), p.week_start
-	     ) glw)
+	     ) glw
 	  ) ELSE '[]'::jsonb END,
   -- How many animals of each breed fell into each daily-gain band. DISJOINT bands
   -- (maintainer, 2026-08-24): an animal at 260 g/day is counted by the >250 filter ONLY,
