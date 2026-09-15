@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 
 import { redirect } from "next/navigation";
-import { Banknote, Boxes, ClipboardList } from "lucide-react";
+import { Banknote, Boxes } from "lucide-react";
 
 import Link from "@/components/no-prefetch-link";
 import { LocalOverlayLink } from "@/components/local-overlay-link";
@@ -17,28 +17,18 @@ import {
 import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
 import { firstAuthRequiredError, listProcurementVendorOptions, listSaleLocations } from "@/lib/api/server";
 import type { ProcurementVendorOptions, SaleLocationCatalog } from "@/lib/api/server";
-import {
-  getLoadwiseSales,
-  listSalesBuyerLeads,
-  listSalesDeals,
-  listSalesFpoLeads,
-} from "@/lib/api/procurement-server";
+import { getLoadwiseSales, listSalesDeals } from "@/lib/api/procurement-server";
 import type { LoadwiseLoad, SalesDeal } from "@/lib/api/procurement";
 import { boundedInt, one, type RouteSearchParams } from "@/lib/search-params";
 import { dealStatusTone, humanDate, inr, num } from "./sales-format";
 import { SalesRecordDrawer } from "./sales-record-drawer";
 import { SaleAllocationDrawer } from "./sale-allocation-drawer";
-import { SalesPipelineDrawers, type SalesPanel } from "./sales-pipeline-drawers";
-import { BUYER_LEAD_PARAMS, FPO_LEAD_PARAMS } from "./sales-lead-params";
 import { LoadCostDrawer } from "./load-cost-drawer";
 import { getMarketConfig } from "@/lib/api/market-server";
 import { MarketConfigSection } from "./market-config-section";
 
 const PAGE_PATH = "/sales/config";
 const DEFAULT_LIMIT = 25;
-// One drawer-sized page of leads. Small enough to read inside the panel, and paged over the
-// backend's whole-filter total so every one of the 208 buyers is reachable.
-const LEAD_PAGE_SIZE = 20;
 
 function hrefWithQuery(sp: RouteSearchParams, patch: Record<string, string | null>): string {
   const query = new URLSearchParams();
@@ -54,22 +44,12 @@ function hrefWithQuery(sp: RouteSearchParams, patch: Record<string, string | nul
   return qs ? `${PAGE_PATH}?${qs}` : PAGE_PATH;
 }
 
-/** One pipeline/evidence entry button. Shown only when the backend grants the write. */
-function panelButton(href: string, label: string) {
-  return (
-    <LocalOverlayLink href={href} className="btn sm" scroll={false}>
-      {label}
-    </LocalOverlayLink>
-  );
-}
-
 /**
  * Sales Config — the ONE place a sales fact is entered or changed (maintainer decision
  * 2026-09-01).
  *
- * Every sales write lives here: recording a sale and the animals it is made of, the buyer and
- * farmer-group leads, market quotes, sold-tag lists and weight checks the retired Sales DB sheet
- * used to carry, the payments and status edits on a deal, and a purchased load's landed cost.
+ * Every sales write lives here: recording a sale and the animals it is made of, the payments
+ * and status edits on a deal, and a purchased load's landed cost.
  * `/sales` and `/sales/loads` read those same facts back and declare no write of their own.
  *
  * Why one page rather than a button on each read page: the two boards are read at a different
@@ -94,42 +74,15 @@ export async function SalesConfigPage({
   const pageSizes = dealsTable.page_size_options.length > 0 ? dealsTable.page_size_options : [DEFAULT_LIMIT];
   const limit = boundedInt(one(sp, "limit"), pageSizes[0], 1, 100);
   const offset = boundedInt(one(sp, "offset"), 0, 0, 10000);
-  const canRecordPipeline = controlEnabled(pageContract, "record_pipeline", false);
-
-  // The two lead boards' own search, facet and page, each under its own parameter names so the two
-  // panels sharing one URL cannot narrow each other. Bounds match the backend's own: offset is
-  // capped where the endpoint caps it, so a hand-typed page past the end fails as a normal empty
-  // result rather than an error.
-  const buyerSearch = one(sp, BUYER_LEAD_PARAMS.search) ?? "";
-  const buyerStatus = one(sp, BUYER_LEAD_PARAMS.status) ?? "";
-  const buyerOffset = boundedInt(one(sp, BUYER_LEAD_PARAMS.offset), 0, 0, 10000);
-  const groupSearch = one(sp, FPO_LEAD_PARAMS.search) ?? "";
-  const groupStatus = one(sp, FPO_LEAD_PARAMS.status) ?? "";
-  const groupOffset = boundedInt(one(sp, FPO_LEAD_PARAMS.offset), 0, 0, 10000);
 
   // Every drawer opens from this data: a LocalOverlayLink changes the URL without an RSC request,
   // so a form that fetched on open would never see its own data arrive. Keep the reads serialized:
-  // they are individually bounded, but firing all seven during Cloud Run warmup can still produce
+  // they are individually bounded, but firing all of them during Cloud Run warmup can still produce
   // the backend_down/admin-contract failure screens this page must avoid.
   // serial-await: allow bounded sales/config bootstrap reads are intentionally serialized to avoid Cloud Run warmup fanout.
   const dealsResult = await listSalesDeals({ farm: "all", limit, offset });
   const loadwiseResult = await getLoadwiseSales();
-  const buyerLeadsResult = canRecordPipeline
-    ? await listSalesBuyerLeads({
-        limit: LEAD_PAGE_SIZE,
-        offset: buyerOffset,
-        search: buyerSearch || undefined,
-        status: buyerStatus || undefined,
-      })
-    : null;
-  const fpoLeadsResult = canRecordPipeline
-    ? await listSalesFpoLeads({
-        limit: LEAD_PAGE_SIZE,
-        offset: groupOffset,
-        search: groupSearch || undefined,
-        status: groupStatus || undefined,
-      })
-    : null;
+
   // The tag-animals picker's park/shed/pen vocabulary, backend-owned.
   // serial-await: allow bounded vocabulary reads stay serialized with the sales/config bootstrap above.
   const saleLocations = await listSaleLocations();
@@ -156,8 +109,6 @@ export async function SalesConfigPage({
   // null means the register could NOT be read (its own permission), which is a different fact
   // from an EMPTY register; the drawer gives the two different copy.
   const vendorOptions: ProcurementVendorOptions | null = vendorOptionsResult.ok ? vendorOptionsResult.data : null;
-  const buyerLeadPage = buyerLeadsResult?.ok ? buyerLeadsResult.data : { leads: [], total: 0, status_options: [] };
-  const fpoLeadPage = fpoLeadsResult?.ok ? fpoLeadsResult.data : { leads: [], total: 0, status_options: [] };
 
   const actionStatus = one(sp, "action_status");
   const actionKey = one(sp, "action_key");
@@ -167,13 +118,7 @@ export async function SalesConfigPage({
   const canConfigureMarket = controlEnabled(pageContract, "market_config_write", false);
   const none = copy(pageContract, "value.none");
   const dealColumns = tableLabels(pageContract, "sales-deals");
-  // The reopened-row parameters are cleared here and re-added by the edit form itself: they mean
-  // "the save just came back from this row", so carrying an old one forward would reopen a lead
-  // nobody touched on the next save.
-  const clearOpen = { [BUYER_LEAD_PARAMS.open]: null, [FPO_LEAD_PARAMS.open]: null };
-  const listHref = hrefWithQuery(sp, { deal_id: null, panel: null, cost_load: null, tag_sale: null, ...clearOpen });
-  const panelHrefFor = (panel: SalesPanel) =>
-    hrefWithQuery(sp, { deal_id: null, cost_load: null, panel, ...clearOpen });
+  const listHref = hrefWithQuery(sp, { deal_id: null, cost_load: null, tag_sale: null });
   const pagerHref = (nextOffset: number) => hrefWithQuery(sp, { offset: nextOffset > 0 ? String(nextOffset) : null });
 
   return (
@@ -311,25 +256,6 @@ export async function SalesConfigPage({
         ) : null}
       </section>
 
-      {canRecordPipeline ? (
-        <section className="card">
-          <div className="hd">
-            <ClipboardList className="ic" style={{ color: "var(--warn)" }} aria-hidden="true" />
-            <h3>{copy(pageContract, "section.pipeline_entry.title")}</h3>
-          </div>
-          <p className="muted small sales-config-card-copy">
-            {copy(pageContract, "section.pipeline_entry.subtitle")}
-          </p>
-          <div className="chips">
-            {panelButton(panelHrefFor("buyer_leads"), copy(pageContract, "action.add_lead"))}
-            {panelButton(panelHrefFor("fpo_leads"), copy(pageContract, "action.add_fpo"))}
-            {panelButton(panelHrefFor("quote"), copy(pageContract, "action.add_quote"))}
-            {panelButton(panelHrefFor("tags"), copy(pageContract, "action.add_tags"))}
-            {panelButton(panelHrefFor("weight_check"), copy(pageContract, "action.add_weight_check"))}
-          </div>
-        </section>
-      ) : null}
-
       {/* 3 — Purchase and Born: a load's landed cost. Its own permission, so this section can be
           the only inert one on an otherwise live page. */}
       <section className="card">
@@ -432,38 +358,6 @@ export async function SalesConfigPage({
           listHref={listHref}
         />
       ) : null}
-      <SalesPipelineDrawers
-        pageContract={pageContract}
-        listHref={listHref}
-        panelHrefs={{
-          buyer_leads: panelHrefFor("buyer_leads"),
-          fpo_leads: panelHrefFor("fpo_leads"),
-          quote: panelHrefFor("quote"),
-          tags: panelHrefFor("tags"),
-          weight_check: panelHrefFor("weight_check"),
-        }}
-        canRecord={canRecordPipeline}
-        buyerBoard={{
-          leads: buyerLeadPage.leads,
-          total: buyerLeadPage.total,
-          statusOptions: buyerLeadPage.status_options,
-          limit: LEAD_PAGE_SIZE,
-          offset: buyerOffset,
-          search: buyerSearch,
-          status: buyerStatus,
-          openLeadId: one(sp, BUYER_LEAD_PARAMS.open) ?? "",
-        }}
-        fpoBoard={{
-          leads: fpoLeadPage.leads,
-          total: fpoLeadPage.total,
-          statusOptions: fpoLeadPage.status_options,
-          limit: LEAD_PAGE_SIZE,
-          offset: groupOffset,
-          search: groupSearch,
-          status: groupStatus,
-          openLeadId: one(sp, FPO_LEAD_PARAMS.open) ?? "",
-        }}
-      />
       <LoadCostDrawer
         loads={loads}
         pageContract={pageContract}

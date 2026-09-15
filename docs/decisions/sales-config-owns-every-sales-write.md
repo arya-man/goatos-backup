@@ -18,8 +18,6 @@ sales alike:
 | Record a sale | `/sales` header button |
 | Tag the animals a sale is made of | `/sales` header button |
 | A deal's payments and status | `/sales` deal drawer |
-| Buyer leads, farmer-group leads | `/sales` pipeline section headers |
-| Market quotes, sold-tag lists, weight checks | `/sales` evidence section headers |
 | A purchased load's landed cost | `/sales/loads` row click |
 
 `/sales` (the board) and `/sales/loads` (Purchase and Born) are **for seeing**.
@@ -32,7 +30,7 @@ Farm value, Purchase and Born, Vendors, Sales Config.
 
 | Page | Route | Holds |
 | --- | --- | --- |
-| Sold | `/sales/sold` | Headline figures, sold weight bands, month by month, price per kg by breed, buyers, demand pipeline, sale evidence, and LAST the deals ledger with its read-only deal drawer |
+| Sold | `/sales/sold` | Headline figures, sold weight bands, month by month, price per kg by breed, buyers, and LAST the deals ledger with its read-only deal drawer |
 | Farm value | `/sales/farm-value` | Total farm value, total meat, Over 35 kg with its error margin, and the by-category breakdown |
 
 They share the retired board's copy map and its farm toggle (`salesHref` takes
@@ -63,7 +61,7 @@ action from every role at once and leaves no per-role conditional to drift.
 
 Sharing a page is not sharing authority. On `/sales/config`:
 
-- `record_sale`, `record_pipeline`, `record_sales_deal_payment` and
+- `record_sale`, `record_sales_deal_payment` and
   `update_sales_deal_status` are gated on `permissions.SalesWrite`.
 - `record_load_cost` keeps `permissions.LoadCostWrite`. Costing a load is the
   buying desk's money, not the sales desk's, and the two desks are different
@@ -114,3 +112,12 @@ idempotency keys and the blocked-safe boundaries are unchanged by this decision.
   the load-cost control ever started riding the page's own permission.
 - `TestRetiredProcurementDirectorLensIsReproducedByTicks` — the procurement
   director, who owns the load-cost write, gains the new leaf.
+
+## Removed 2026-09-15: the pipeline and evidence surfaces
+
+The admin-web pipeline and evidence entry (the "Pipeline and evidence" card
+and its five drawers on `/sales/config`, control `record_pipeline`) and the
+Sold page's Buyer pipeline, Farmer group pipeline, Sold animal tags and Weight
+check panels are removed (maintainer request 2026-09-15). The backend routes,
+tables and the overview payload fields (`buyer_pipeline`, `fpo_pipeline`,
+`tag_roster`, `weight_audit`) stay as they are; only the web surfaces went.

@@ -200,7 +200,7 @@ test("Sold ends with the deals ledger and Farm value carries no sold block", () 
   const farmValue = readFileSync(new URL("./sales-farm-value.tsx", import.meta.url), "utf8");
   assert.doesNotMatch(sold, /farm_valuation|getShedWeights/);
   assert.match(sold, /listSalesDeals\(/);
-  assert.ok(sold.lastIndexOf("sales-deals-table") > sold.lastIndexOf("evidence.audit.title"), "the ledger renders after the last sold block");
+  assert.ok(sold.lastIndexOf("sales-deals-table") > sold.lastIndexOf("section.buyers.title"), "the ledger renders after the last sold block");
   assert.doesNotMatch(farmValue, /listSalesDeals|MonthColumns|HBarList|sales-deals-table/);
   assert.ok(!existsSync(new URL("./sales.tsx", import.meta.url)), "the retired board component must not come back");
 });

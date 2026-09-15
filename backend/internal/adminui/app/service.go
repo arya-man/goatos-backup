@@ -480,7 +480,7 @@ func pages() []domain.PageContract {
 		// buying desk's screen the moment anyone read the contract literally.
 		page("vendors", "/procurement/vendors", "/procurement/vendors", "Vendors", "The procurement register: livestock agents and stockists, transport, feed, manure, labour, insurance and site trades.", "module-surface",
 			[]domain.TableContract{tableP("vendors", "Vendors", "/procurement/vendors?side=procurement", []string{"business_name", "record_type", "phone_number", "location_display", "status"}, "vendor_id", []int{25, 50, 100})}),
-		// The SALES module: animal and manure sales, demand pipelines and evidence panels. The deals
+		// The SALES module: animal and manure sales. The deals
 		// ledger is server-paged; the buyer board rides on GET /sales/overview and is paged in the
 		// renderer, so its contract declares the page size and no row click -- there is no buyer
 		// record to open, and a declared row click the page cannot honour would be a contract lie.
@@ -489,11 +489,11 @@ func pages() []domain.PageContract {
 		// valuation, the closed-sale blocks and the deals ledger on one screen. It is divided
 		// into two pages and retired -- there is no "sales" page contract any more, and /sales
 		// redirects to /sales/sold. SOLD holds what has sold (headline figures, sold weight
-		// bands, month by month, price per kg by breed, buyers, demand pipeline, sale evidence)
+		// bands, month by month, price per kg by breed, buyers)
 		// with the deals ledger LAST; FARM VALUE holds the live-herd valuation -- total farm
 		// value, total meat, Over 35 kg with its error margin, and the by-category breakdown.
 		// Both stay read-only by contract; entry is still /sales/config alone.
-		page("sales-sold", "/sales/sold", "/sales/sold", "Summary", "What has sold across CBE and CPT — revenue, animals, price per kg, buyers, demand pipeline, sale evidence and the deals ledger.", "module-surface",
+		page("sales-sold", "/sales/sold", "/sales/sold", "Summary", "What has sold across CBE and CPT — revenue, animals, price per kg, buyers and the deals ledger.", "module-surface",
 			[]domain.TableContract{
 				tableP("sales-deals", "Deals", "/sales/deals", []string{"sale_date", "farm", "buyer_name", "product_type", "breed", "animal_count", "total_weight_kg", "sales_value", "status"}, "deal_id", []int{25, 50, 100}),
 				withoutRowClick(tableP("sales-buyers", "Buyers", "/sales/overview", []string{"buyer_name", "buyer_place", "product_types", "deals", "animals", "revenue", "share_pct"}, "", []int{10, 25, 50})),
@@ -534,7 +534,7 @@ func pages() []domain.PageContract {
 		// ledger (row click opens the deal, which carries the payment and status edits) and the
 		// load list (row click opens the cost drawer) -- because a row that opens a form must
 		// declare the param that form opens on.
-		page("sales-config", "/sales/config", "/sales/config", "Sales Config", "Record a sale, tag its animals, enter buyer leads, quotes, tag lists and weight checks, and cost a purchased load. The sales board and Load wise show these facts; this is where they are entered and changed.", "module-surface",
+		page("sales-config", "/sales/config", "/sales/config", "Sales Config", "Record a sale, tag its animals, and cost a purchased load. Sold and Load wise show these facts; this is where they are entered and changed.", "module-surface",
 			[]domain.TableContract{
 				tableP("sales-deals", "Deals", "/sales/deals", []string{"sale_date", "farm", "buyer_name", "product_type", "breed", "animal_count", "total_weight_kg", "sales_value", "status"}, "deal_id", []int{25, 50, 100}),
 				loadwiseTable(),
@@ -3501,48 +3501,13 @@ func pageSpecificCopy(id string) map[string]string {
 
 			// The page's own headings: one card per entry surface, each saying what it is for so
 			// the person picks the right form without opening three.
-			"section.sales_entry.title":       "Sales",
-			"section.sales_entry.subtitle":    "Record a sale, then tag the animals it is made of. Click any sale below to add a payment or change its status.",
-			"section.pipeline_entry.title":    "Pipeline and evidence",
-			"section.pipeline_entry.subtitle": "Buyer and farmer-group leads, market quotes, sold-animal tag lists and weight checks.",
-			"section.load_entry.title":        "Load wise",
-			"section.load_entry.subtitle":     "What each purchased load cost to buy and bring in. Click a load to record or change its cost.",
-			"section.load_entry.row_hint":     "click a load to record its cost",
-			"section.sales_entry.row_hint":    "click a sale to add a payment or change its status",
-			"empty.loads":                     "No purchased loads yet. Loads appear here as source entry accepts them into the herd.",
-			// The two lead boards inside the pipeline drawer. Each is the WHOLE pipeline --
-			// 208 buyers, 53 farmer groups -- so it carries a search, a call-status facet and a
-			// pager; listing only the newest twenty left 188 buyers with no way to reach them.
-			"drawer.add_lead.all":             "All buyer leads",
-			"drawer.add_fpo.all":              "All farmer groups",
-			"section.leads.row_hint":          "click a lead to see and edit its details",
-			"section.groups.row_hint":         "click a group to see and edit its details",
-			"filter.lead_search.label":        "Search buyer leads",
-			"filter.lead_search.placeholder":  "Search a buyer by name, place, animal or number",
-			"filter.group_search.label":       "Search farmer groups",
-			"filter.group_search.placeholder": "Search a group by name, district, state or number",
-			"filter.lead_status":              "Call status",
-			"filter.lead_status.all":          "Any call status",
-			"filter.apply":                    "Apply",
-			"filter.applying":                 "Applying...",
-			"filter.apply.nothing_staged":     "Change the search or the call status first.",
-			"empty.lead_search":               "No buyer leads match this search.",
-			"empty.group_search":              "No farmer groups match this search.",
-			// The number is the point of a call list, so it gets its own label, its own empty
-			// state and its own dial control rather than sitting inside a detail blob.
-			"field.phone_number":        "Phone number",
-			"value.no_phone":            "No number yet",
-			"hint.no_phone":             "Add the number here so this lead can be called.",
-			"action.call":               "Call this number",
-			"action.expand_lead":        "Show details",
-			"action.collapse_lead":      "Hide details",
-			"action.save_lead":          "Save lead",
-			"action.save_group":         "Save group",
-			"action.lead_updated":       "Buyer lead updated.",
-			"action.lead_update_failed": "Could not update this lead. Check the fields and try again.",
-			"action.fpo_updated":        "Farmer group updated.",
-			"action.fpo_update_failed":  "Could not update this farmer group. Check the fields and try again.",
-
+			"section.sales_entry.title":    "Sales",
+			"section.sales_entry.subtitle": "Record a sale, then tag the animals it is made of. Click any sale below to add a payment or change its status.",
+			"section.load_entry.title":     "Load wise",
+			"section.load_entry.subtitle":  "What each purchased load cost to buy and bring in. Click a load to record or change its cost.",
+			"section.load_entry.row_hint":  "click a load to record its cost",
+			"section.sales_entry.row_hint": "click a sale to add a payment or change its status",
+			"empty.loads":                  "No purchased loads yet. Loads appear here as source entry accepts them into the herd.",
 			// Where the entered facts are READ back. Named so the person who just recorded
 			// something knows where it shows up, without guessing from the sidebar.
 			"link.sales_sold":       "See what has sold",
@@ -3915,10 +3880,6 @@ func pageSpecificCopy(id string) map[string]string {
 			"section.market.subtitle":      "What other sellers quote per kg, next to our own realized price.",
 			"section.buyers.title":         "Buyers",
 			"section.buyers.subtitle":      "Who buys from us, what they buy, and how much of the revenue they carry.",
-			"section.pipeline.title":       "Demand pipeline",
-			"section.pipeline.subtitle":    "Buyers and farmer groups we are talking to, and where the calls stand.",
-			"section.evidence.title":       "Sale evidence",
-			"section.evidence.subtitle":    "Tag lists handed over at sale, and video weight checked against the book.",
 			"section.ledger.title":         "Deals",
 			"section.ledger.aria":          "Sales ledger",
 			"section.ledger.row_hint":      "click a row to see full details",
@@ -3955,13 +3916,12 @@ func pageSpecificCopy(id string) map[string]string {
 			// The fattening and kid cards' sex split (maintainer request 2026-09-11): male and
 			// female only -- the maintainer asked not to show the unrecorded remainder, so an
 			// animal with no recorded sex is counted in the card and named in neither figure.
-			"value.sex.male":           "Male",
-			"value.sex.female":         "Female",
-			"value.weighed":            "weighed",
-			"value.per_kg_suffix":      "per kg",
-			"value.none":               "Not recorded",
-			"value.farm_all":           "Both farms",
-			"value.status.uncontacted": "Not yet called",
+			"value.sex.male":      "Male",
+			"value.sex.female":    "Female",
+			"value.weighed":       "weighed",
+			"value.per_kg_suffix": "per kg",
+			"value.none":          "Not recorded",
+			"value.farm_all":      "Both farms",
 
 			// Charts: label, what the value is, and the empty state -- one set per chart.
 			"chart.monthly_revenue.title": "Sales revenue by month",
@@ -3992,24 +3952,6 @@ func pageSpecificCopy(id string) map[string]string {
 			"column.share_pct":     "Share of revenue",
 			"empty.buyers":         "No buyers on the board yet. Buyers appear as deals close.",
 
-			// Pipeline panels.
-			"pipeline.buyers.title":   "Buyer pipeline",
-			"pipeline.buyers.total":   "buyer leads",
-			"pipeline.buyers.places":  "Where the interest is",
-			"pipeline.fpo.title":      "Farmer group pipeline",
-			"pipeline.fpo.total":      "farmer groups",
-			"pipeline.fpo.districts":  "Districts covered",
-			"pipeline.status_heading": "Where the calls stand",
-			"empty.buyer_pipeline":    "No buyer leads recorded yet.",
-			"empty.fpo_pipeline":      "No farmer groups recorded yet.",
-
-			// Evidence panels.
-			"evidence.tags.title":   "Sold animal tags",
-			"evidence.tags.total":   "animals tagged at sale",
-			"evidence.tags.sales":   "sales covered",
-			"evidence.tags.by_type": "By animal",
-			"empty.tags":            "No tag lists recorded yet.",
-			"evidence.audit.title":  "Weight check",
 			// Sold animals by weight (maintainer decision 2026-09-08): the live weight recorded
 			// when each animal was tagged to its sale, in the maintainer's four bands.
 			"section.sold_weight.title":    "Sold animals by weight",
@@ -4024,12 +3966,6 @@ func pageSpecificCopy(id string) map[string]string {
 			"empty.sold_weight":            "No animals tagged to a sale yet.",
 			"field.animal_weight":          "Weight (kg)",
 			"hint.animal_weight":           "Enter every animal's live weight in kg before confirming.",
-			"evidence.audit.subtitle":      "Video weight against the book, per animal.",
-			"evidence.audit.within_0_3":    "Matches the book (within 0.3 kg)",
-			"evidence.audit.within_1":      "Slightly off (0.3 – 1 kg)",
-			"evidence.audit.over_1":        "More than 1 kg apart",
-			"evidence.audit.max_gap":       "Largest gap",
-			"empty.audit":                  "No weight checks recorded yet.",
 
 			// Market check table.
 			"column.market":              "Market",
@@ -4191,65 +4127,6 @@ func pageSpecificCopy(id string) map[string]string {
 			"action.sale_recorded":       "Sale recorded.",
 			"action.sale_record_failed":  "Could not record this sale. Check the fields and try again.",
 			"action.error_form":          "Could not complete that action.",
-
-			// Pipeline and evidence entry (the retired Sales DB sheet's job, now done in the app).
-			"action.record_pipeline.label":  "Add record",
-			"action.add_lead":               "Add / update leads",
-			"action.add_fpo":                "Add / update groups",
-			"action.add_quote":              "Add quote",
-			"action.add_tags":               "Add tag list",
-			"action.add_weight_check":       "Add weight check",
-			"action.update_status":          "Update",
-			"drawer.add_lead.title":         "Buyer leads",
-			"drawer.add_lead.new":           "New buyer lead",
-			"drawer.add_lead.recent":        "Recent leads",
-			"drawer.add_fpo.title":          "Farmer groups",
-			"drawer.add_fpo.new":            "New farmer group",
-			"drawer.add_fpo.recent":         "Recent groups",
-			"drawer.add_quote.title":        "Add a market quote",
-			"drawer.add_tags.title":         "Add a sold-animal tag list",
-			"drawer.add_tags.hint":          "One animal per line: animal, tag number, weight in kg. Tag and weight are optional.",
-			"drawer.add_tags.example":       "Malai Goat, 155, 23.5",
-			"drawer.add_weight_check.title": "Add a weight check",
-			"field.recorded_date":           "Date",
-			"field.buyer_lead_name":         "Buyer name",
-			"field.animal_type":             "Animal type",
-			"field.call_status":             "Call status",
-			"field.call_status.uncontacted": "Not yet called",
-			"field.fpo_name":                "Farmer group name",
-			"field.crops":                   "Crops",
-			"field.district":                "District",
-			"field.taluk":                   "Taluk",
-			"field.state":                   "State",
-			"field.market":                  "Market",
-			"field.quote_category":          "Animal",
-			"field.quote_source":            "Quoted by",
-			"field.ex_farm_rate":            "Ex-farm rate",
-			"field.transport_rate":          "Transport rate",
-			"field.landing_cost_per_kg":     "Landed cost per kg",
-			"field.market_price_per_kg":     "Market price per kg",
-			"field.tag_rows":                "Animals",
-			"field.tag_number":              "Tag number",
-			"field.book_weight_kg":          "Book weight (kg)",
-			"field.video_weight_kg":         "Video weight (kg)",
-			"field.farm_born":               "Born on the farm",
-			"required.hint.lead":            "Buyer name is required.",
-			"required.hint.fpo":             "Farmer group name is required.",
-			"required.hint.quote":           "Breed is required.",
-			"required.hint.tags":            "Every line needs at least the animal.",
-			"required.hint.weight_check":    "Book weight and video weight are required.",
-			"action.lead_recorded":          "Buyer lead recorded.",
-			"action.lead_record_failed":     "Could not record this lead. Check the fields and try again.",
-			"action.lead_status_updated":    "Call status updated.",
-			"action.lead_status_failed":     "Could not update that call status. Try again.",
-			"action.fpo_recorded":           "Farmer group recorded.",
-			"action.fpo_record_failed":      "Could not record this farmer group. Check the fields and try again.",
-			"action.quote_recorded":         "Market quote recorded.",
-			"action.quote_record_failed":    "Could not record this quote. Check the fields and try again.",
-			"action.tags_recorded":          "Tag list recorded.",
-			"action.tags_record_failed":     "Could not record this tag list. Check the lines and try again.",
-			"action.weight_check_recorded":  "Weight check recorded.",
-			"action.weight_check_failed":    "Could not record this weight check. Check the fields and try again.",
 
 			// Load/permission states.
 			"error.load":     "Could not load the sales board. Refresh to try again.",

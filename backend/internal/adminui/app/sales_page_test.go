@@ -59,14 +59,12 @@ func TestSalesPageContractAndNavigation(t *testing.T) {
 	// Backend-owned copy: every key the renderer needs must be published, farm language only.
 	for _, key := range []string{
 		"section.headline.title", "section.monthly.title", "section.price_bands.title",
-		"section.market.title", "section.buyers.title", "section.pipeline.title",
-		"section.evidence.title", "section.ledger.title",
+		"section.market.title", "section.buyers.title", "section.ledger.title",
 		"kpi.revenue", "kpi.animals", "kpi.realized_price", "kpi.manure",
 		"chart.monthly_revenue.title", "chart.monthly_animals.title",
 		"chart.monthly_manure.title", "chart.price_bands.title",
 		"chart.monthly_revenue.empty", "chart.price_bands.empty",
 		"chart.monthly_animals.sub", "chart.monthly_manure.sub",
-		"evidence.audit.within_0_3", "evidence.audit.within_1", "evidence.audit.over_1",
 		"kpi.farm_value", "kpi.farm_value.detail", "kpi.total_meat", "kpi.total_meat.detail",
 		"value.excluded_animals", "value.live_animals", "value.not_valued", "value.valued_animals", "value.weighed",
 		"action.record_sale.label", "field.sale_date", "field.farm", "field.product_type",
@@ -88,9 +86,6 @@ func TestSalesPageContractAndNavigation(t *testing.T) {
 		if page.Copy[key] == "" {
 			t.Fatalf("sales copy missing %q", key)
 		}
-	}
-	if page.Copy["evidence.audit.within_0_3"] != "Matches the book (within 0.3 kg)" {
-		t.Fatalf("weight-audit bucket copy drifted: %q", page.Copy["evidence.audit.within_0_3"])
 	}
 
 	// Option groups: farm scope, product types, and per-product breed groups.
@@ -546,7 +541,6 @@ func TestSalesReadPagesCarryNoWriteControl(t *testing.T) {
 
 	writes := []string{
 		"record_sale",
-		"record_pipeline",
 		"allocate_sale_animals",
 		"record_sales_deal_payment",
 		"update_sales_deal_payment",
@@ -609,11 +603,10 @@ func TestSalesSoldAndFarmValuePageContracts(t *testing.T) {
 	}
 	for _, key := range []string{
 		"section.sold.title", "section.sold.aria", "section.sold_weight.title", "section.monthly.title", "section.ledger.title",
-		"section.price_bands.title", "section.buyers.title", "section.pipeline.title", "section.evidence.title",
+		"section.price_bands.title", "section.buyers.title",
 		"kpi.revenue", "kpi.animals", "kpi.realized_price", "kpi.manure",
 		"chart.monthly_revenue.title", "chart.monthly_animals.title", "chart.monthly_manure.title",
-		"chart.price_bands.title", "column.buyer_name", "pipeline.buyers.title",
-		"pipeline.fpo.title", "evidence.tags.title", "evidence.audit.title",
+		"chart.price_bands.title", "column.buyer_name",
 		"filter.farm", "value.none", "error.load", "crumb",
 	} {
 		if sold.Copy[key] == "" {
@@ -689,8 +682,8 @@ func TestSalesSoldAndFarmValuePageContracts(t *testing.T) {
 // rows open a form, and the backend-owned copy the client renders verbatim.
 //
 // The copy list is deliberately drawn from BOTH read pages plus the page's own headings, because
-// this one page mounts every drawer they used to: the record-sale form, the tag-animals flow, the
-// five pipeline panels and the load-cost drawer. A key missing here is a label the entry form
+// this one page mounts every drawer they used to: the record-sale form, the tag-animals flow and
+// the load-cost drawer. A key missing here is a label the entry form
 // cannot render, on the only screen that can record the fact.
 func TestSalesConfigPageContract(t *testing.T) {
 	resp := NewService(fakeFamilies{}).Bootstrap(context.Background(), BootstrapInput{
@@ -726,7 +719,6 @@ func TestSalesConfigPageContract(t *testing.T) {
 		"crumb", "value.none", "error.load",
 		// Its own headings.
 		"section.sales_entry.title", "section.sales_entry.subtitle", "section.sales_entry.row_hint",
-		"section.pipeline_entry.title", "section.pipeline_entry.subtitle",
 		"section.load_entry.title", "section.load_entry.subtitle", "section.load_entry.row_hint",
 		"empty.loads", "hint.read_only", "link.sales_sold", "link.sales_farm_value", "link.sales_loads",
 		// Inherited from the board: the record-sale form, the payments block, the status edit,

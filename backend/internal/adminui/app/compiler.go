@@ -1116,22 +1116,6 @@ func compileSalesConfigControls(controls []domain.Control, input BootstrapInput,
 		DisabledReason: reason,
 		Action:         "POST /sales/deals",
 	})
-	// One capability gate for the pipeline/evidence writes (leads, farmer groups, market quotes,
-	// tag lists, weight checks): they all ride SalesWrite, and the sheet they replaced is retired
-	// (maintainer decision 2026-08-18), so entry lives here or nowhere.
-	pipelineAllowed := allowed && !procurementDirectorStockOnly(input)
-	pipelineReason := reason
-	if allowed && !pipelineAllowed {
-		pipelineReason = controlCopy(copy, "disabled.pipeline", "Pipeline and evidence entry is not enabled for your current role.")
-	}
-	controls = upsertControl(controls, domain.Control{
-		ID:             "record_pipeline",
-		Label:          controlCopy(copy, "action.record_pipeline.label", "Add record"),
-		Kind:           "secondary_action",
-		Enabled:        pipelineAllowed,
-		DisabledReason: pipelineReason,
-		Action:         "POST /sales/buyer-leads",
-	})
 	allocateAllowed := len(input.Grants) == 0 || grantsAuthorize(input.Grants, input.TenantID, []string{permissions.SalesAllocateAnimals})
 	allocateReason := ""
 	if !allocateAllowed {

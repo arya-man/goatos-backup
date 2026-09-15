@@ -49,7 +49,7 @@ const BUYERS_PAGE_SIZE = 10;
 /**
  * Sold — what has already left the farm (the retired Sales board divided in two, maintainer
  * decision 2026-09-11): the headline figures, sold animals by weight, month by month, price per
- * kg by breed, the buyer board, the demand pipeline, the sale evidence, and LAST the deals
+ * kg by breed, the buyer board, and LAST the deals
  * ledger with its read-only deal drawer. These are the board's own blocks, moved here verbatim;
  * Farm value keeps the live-herd valuation and /sales redirects here.
  *
@@ -74,8 +74,6 @@ function SoldSections({
   const kgSuffix = copy(pageContract, "value.kg_suffix");
   const perKgSuffix = copy(pageContract, "value.per_kg_suffix");
   const seriesLabel = (productType: string) => copy(pageContract, `chart.series.${productType.toLowerCase()}`);
-  const statusLabel = (status: string) =>
-    status === "uncontacted" ? copy(pageContract, "value.status.uncontacted") : status;
   // The buyer board rides on the overview response (a bounded, pre-aggregated board), so its pages
   // are sliced here rather than re-fetched. The page SIZE is the backend contract's, not a local
   // literal, and the pager reports the whole-list total -- never the sliced page's length.
@@ -313,161 +311,6 @@ function SoldSections({
                 )}
               </div>
             ) : null}
-          </section>
-
-          {/* 6 — demand pipeline: buyer leads and farmer groups, status shape plus geography. */}
-          <section className="grid g2" aria-label={copy(pageContract, "section.pipeline.title")}>
-            <div className="card sales-card">
-              <div className="hd">
-                <h3>{copy(pageContract, "pipeline.buyers.title")}</h3>
-                <Tag tone={overview.buyer_pipeline.total > 0 ? "info" : "mut"}>
-                  {num(overview.buyer_pipeline.total)} {copy(pageContract, "pipeline.buyers.total")}
-                </Tag>
-                <div className="sp" style={{ flex: 1 }} />
-              </div>
-              {overview.buyer_pipeline.total === 0 ? (
-                <div className="empty">{copy(pageContract, "empty.buyer_pipeline")}</div>
-              ) : (
-                <>
-                  <div className="mt">{copy(pageContract, "pipeline.status_heading")}</div>
-                  <HBarList
-                    data={overview.buyer_pipeline.statuses.map((status) => ({
-                      key: status.status,
-                      label: statusLabel(status.status),
-                      value: status.count,
-                    }))}
-                    emptyLabel={copy(pageContract, "empty.buyer_pipeline")}
-                    valueNoun={copy(pageContract, "pipeline.buyers.total")}
-                    chartLabel={copy(pageContract, "pipeline.status_heading")}
-                    maxBars={10}
-                  />
-                  <div className="mt" style={{ marginTop: 8 }}>
-                    {copy(pageContract, "pipeline.buyers.places")}
-                  </div>
-                  <div className="chips">
-                    {overview.buyer_pipeline.top_places.map((place) => (
-                      <Tag key={place.place} tone="mut">
-                        {place.place} · {num(place.count)}
-                      </Tag>
-                    ))}
-                  </div>
-                </>
-              )}
-            </div>
-            <div className="card sales-card">
-              <div className="hd">
-                <h3>{copy(pageContract, "pipeline.fpo.title")}</h3>
-                <Tag tone={overview.fpo_pipeline.total > 0 ? "info" : "mut"}>
-                  {num(overview.fpo_pipeline.total)} {copy(pageContract, "pipeline.fpo.total")}
-                </Tag>
-                <div className="sp" style={{ flex: 1 }} />
-              </div>
-              {overview.fpo_pipeline.total === 0 ? (
-                <div className="empty">{copy(pageContract, "empty.fpo_pipeline")}</div>
-              ) : (
-                <>
-                  <div className="mt">{copy(pageContract, "pipeline.status_heading")}</div>
-                  <HBarList
-                    data={overview.fpo_pipeline.statuses.map((status) => ({
-                      key: status.status,
-                      label: statusLabel(status.status),
-                      value: status.count,
-                    }))}
-                    emptyLabel={copy(pageContract, "empty.fpo_pipeline")}
-                    valueNoun={copy(pageContract, "pipeline.fpo.total")}
-                    chartLabel={copy(pageContract, "pipeline.status_heading")}
-                    maxBars={10}
-                  />
-                  <div className="mt" style={{ marginTop: 8 }}>
-                    {copy(pageContract, "pipeline.fpo.districts")}
-                  </div>
-                  <div className="chips">
-                    {overview.fpo_pipeline.districts.map((district) => (
-                      <Tag key={district.place} tone="mut">
-                        {district.place} · {num(district.count)}
-                      </Tag>
-                    ))}
-                  </div>
-                </>
-              )}
-            </div>
-          </section>
-
-          {/* 7 — sale evidence: tag handovers and the video-vs-book weight check. */}
-          <section className="grid g2" aria-label={copy(pageContract, "section.evidence.title")}>
-            <div className="card sales-card">
-              <div className="hd">
-                <h3 style={{ whiteSpace: "nowrap" }}>{copy(pageContract, "evidence.tags.title")}</h3>
-                <div className="sp" style={{ flex: 1 }} />
-              </div>
-              <p className="muted small" style={{ marginTop: 0 }}>
-                {copy(pageContract, "section.evidence.subtitle")}
-              </p>
-              {overview.tag_roster.total === 0 ? (
-                <div className="empty">{copy(pageContract, "empty.tags")}</div>
-              ) : (
-                <>
-                  <p className="muted small">
-                    {num(overview.tag_roster.total)} {copy(pageContract, "evidence.tags.total")}
-                    {" · "}
-                    {num(overview.tag_roster.sales_count)} {copy(pageContract, "evidence.tags.sales")}
-                  </p>
-                  <div className="mt">{copy(pageContract, "evidence.tags.by_type")}</div>
-                  <HBarList
-                    data={overview.tag_roster.by_type.map((entry) => ({
-                      key: entry.label,
-                      label: entry.label,
-                      value: entry.count,
-                    }))}
-                    emptyLabel={copy(pageContract, "empty.tags")}
-                    valueNoun={copy(pageContract, "evidence.tags.total")}
-                    chartLabel={copy(pageContract, "evidence.tags.by_type")}
-                    maxBars={10}
-                  />
-                </>
-              )}
-            </div>
-            <div className="card sales-card">
-              <div className="hd">
-                <h3 style={{ whiteSpace: "nowrap" }}>{copy(pageContract, "evidence.audit.title")}</h3>
-                <div className="sp" style={{ flex: 1 }} />
-              </div>
-              <p className="muted small" style={{ marginTop: 0 }}>
-                {copy(pageContract, "evidence.audit.subtitle")}
-              </p>
-              {overview.weight_audit.total === 0 ? (
-                <div className="empty">{copy(pageContract, "empty.audit")}</div>
-              ) : (
-                <>
-                  <HBarList
-                    data={[
-                      {
-                        key: "within_0_3",
-                        label: copy(pageContract, "evidence.audit.within_0_3"),
-                        value: overview.weight_audit.within_0_3_kg,
-                      },
-                      {
-                        key: "within_1",
-                        label: copy(pageContract, "evidence.audit.within_1"),
-                        value: overview.weight_audit.within_1_kg,
-                      },
-                      {
-                        key: "over_1",
-                        label: copy(pageContract, "evidence.audit.over_1"),
-                        value: overview.weight_audit.over_1_kg,
-                      },
-                    ]}
-                    emptyLabel={copy(pageContract, "empty.audit")}
-                    valueNoun={copy(pageContract, "evidence.tags.total")}
-                    chartLabel={copy(pageContract, "evidence.audit.title")}
-                  />
-                  <p className="muted small">
-                    {copy(pageContract, "evidence.audit.max_gap")}: {num(overview.weight_audit.max_gap_kg, 1)}{" "}
-                    {kgSuffix}
-                  </p>
-                </>
-              )}
-            </div>
           </section>
     </>
   );
