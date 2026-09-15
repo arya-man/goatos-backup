@@ -25,6 +25,7 @@ test("visual smoke visits every live sidebar navigation leaf", () => {
     ["protocol-adherence-high", "/protocol-adherence?scope_mode=company&severity=high"],
     ["protocol-adherence-overdue", "/protocol-adherence?scope_mode=company&state=overdue"],
     ["work-board", "/work-board?scope_mode=company"],
+    ["work-board-populated", "/work-board?scope_mode=company&date=2026-08-10"],
     ["workflows", "/workflows?scope_mode=company"],
     ["procurement-source-entry", "/procurement/source-entry?scope_mode=company"],
     ["procurement-source-entry-health-pending", "/procurement/source-entry?scope_mode=company&status=health_pending"],
@@ -159,4 +160,10 @@ test("PR264 routes record route-specific product signals in browser evidence", (
   assert.match(smokeSource, /routeName === "weighing-analytics-breed" \|\| routeName === "weighing-analytics-breed-wide"[\s\S]*has_breed_breakdown/);
   assert.match(smokeSource, /routeName === "weighing-analytics-time"[\s\S]*has_weekly_growth/);
   assert.match(smokeSource, /routeName === "weighing-analytics-load"[\s\S]*has_load_breakdown/);
+});
+
+test("historical Work Board proof requires actual rendered cards", () => {
+  assert.ok(smokeSource.includes('page.locator(".card[data-filter-row]")'));
+  assert.match(smokeSource, /routeName === "work-board-populated" && hasWorkCards <= 0/);
+  assert.ok(!smokeSource.includes('[data-work-board-row]'));
 });

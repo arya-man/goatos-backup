@@ -418,7 +418,7 @@ const BANNED_SHADOW_RE = /^(goats|goat_\w+|weighing_expected_animals|vaccination
 function cteNames(body) {
   const names = new Set();
   const shadows = new Set();
-  const re = /(?:\bWITH\s+|,\s*)([a-z_][a-z0-9_]*)\s+AS\s*\(/gi;
+  const re = /(?:\bWITH\s+|,\s*)([a-z_][a-z0-9_]*)\s+AS\s*(?:(?:NOT\s+)?MATERIALIZED\s*)?\(/gi;
   let m;
   while ((m = re.exec(body)) !== null) {
     const name = m[1].toLowerCase();
@@ -561,8 +561,9 @@ export function anyPathTableFindings(rel, source) {
   // concatenates every SQL literal in the file, and a query can be assembled from several
   // literals (a shared base CTE in one const, the SELECT that uses it in another). Any
   // `name AS (` in the scanned text is a local CTE, not a table.
-  for (const m of body.matchAll(/\b([a-z_][a-z0-9_]*)\s+AS\s*\(/gi)) {
-    ctes.add(m[1].toLowerCase());
+  for (const m of body.matchAll(/\b([a-z_][a-z0-9_]*)\s+AS\s*(?:(?:NOT\s+)?MATERIALIZED\s*)?\(/gi)) {
+    const name = m[1].toLowerCase();
+    if (!BANNED_SHADOW_RE.test(name)) ctes.add(name);
   }
   const re = /(?<!\bDISTINCT\s)\b(?:FROM|JOIN|INTO|UPDATE)\s+(?:public\.)?([a-z_][a-z0-9_]*)/gi;
   let m;
@@ -1736,6 +1737,26 @@ UPDATE weighing_observations observation
     throw new Error(
       `self-test failed: SQL operator false positive -- IS DISTINCT FROM / FOR UPDATE OF must not be read as tables. got: ${JSON.stringify(operatorFindings)}`,
     );
+  }
+
+  // Materialization changes planning, not ownership. Every CTE form must permit
+  // local references while still detecting forbidden reads inside it and shadows.
+  for (const hint of ["", "MATERIALIZED ", "NOT MATERIALIZED "]) {
+    const sql = `WITH ind AS ${hint}(SELECT * FROM weighing_observations),
+      lump AS ${hint}(SELECT * FROM weighing_shed_observations)
+      SELECT * FROM ind JOIN lump ON true`;
+    const source = "const q = `" + sql + "`";
+    if (anyPathTableFindings("fake.go", source).length || writePathTableFindings("fake.go", "write", sql).length) {
+      throw new Error(`self-test failed: local CTE ${hint} misidentified as table`);
+    }
+    const bad = sql.replace("FROM weighing_observations", "FROM goats");
+    if (!anyPathTableFindings("fake.go", "const q = `" + bad + "`").length || !writePathTableFindings("fake.go", "write", bad).length) {
+      throw new Error(`self-test failed: ${hint} hid forbidden CTE input`);
+    }
+    const shadow = `WITH goats AS ${hint}(SELECT * FROM goats) SELECT * FROM goats`;
+    if (!anyPathTableFindings("fake.go", "const q = `" + shadow + "`").length || !writePathTableFindings("fake.go", "write", shadow).length) {
+      throw new Error(`self-test failed: ${hint} CTE shadow bypassed guard`);
+    }
   }
 
   // Mode 16: shed_partitions ALLOWED, goat_shed_partitions BANNED except for the

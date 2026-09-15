@@ -1,3 +1,4 @@
+import { processIdentity } from "./lib/local-stack-receipt.mjs";
 import { execFileSync, spawn } from "node:child_process";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -54,7 +55,23 @@ const child = spawn("next", nextArgs, {
   env: { ...childEnv, HOSTNAME: host, PORT: String(port) },
 });
 
+const receiptPath = process.env.GOATOS_LOCAL_STACK_RECEIPT_FILE;
+if (receiptPath) {
+  child.once("spawn", () => {
+    const receipt = {
+      schema_version: 1, pid: child.pid, process_identity: processIdentity(child.pid),
+      git_sha: execFileSync("git", ["-C", repoRoot, "rev-parse", "HEAD"], { encoding: "utf8" }).trim(),
+      api_base_url: childEnv.GOATOS_API_BASE_URL.replace(/\/+$/, ""),
+      admin_web_base_url: `http://${host}:${port}`,
+      created_at: new Date().toISOString(),
+    };
+    fs.mkdirSync(path.dirname(path.resolve(receiptPath)), { recursive: true });
+    fs.writeFileSync(receiptPath, `${JSON.stringify(receipt, null, 2)}\n`, { mode: 0o600 });
+  });
+}
+
 child.on("exit", (code, signal) => {
+  if (receiptPath) fs.rmSync(receiptPath, { force: true });
   if (signal) {
     process.kill(process.pid, signal);
     return;

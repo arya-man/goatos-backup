@@ -56,6 +56,7 @@ function passingReport() {
 function pr264BrowserEvidence({ includeSignals = true } = {}) {
   const signals = new Map([
     ["/work-board?scope_mode=company", { lane_counts: { todo: 0, in_progress: 0, in_review: 0, done: 0 }, healthy_empty_state: true }],
+    ["/work-board?scope_mode=company&date=2026-08-10", { lane_counts: { todo: 1, in_progress: 0, in_review: 0, done: 0 }, work_cards: 1, degraded: false }],
     ["/weighing/weights?scope_mode=company", { has_losing_weight_table: true }],
     ["/weighing/analytics?scope_mode=company&tab=general", { has_weighing_kpis: true, tab: "general" }],
     ["/weighing/analytics?scope_mode=company&tab=breed", { has_breed_breakdown: true, tab: "breed" }],
@@ -71,6 +72,7 @@ function pr264BrowserEvidence({ includeSignals = true } = {}) {
     api_build_sha: sha,
     routes: [
       "/work-board?scope_mode=company",
+      "/work-board?scope_mode=company&date=2026-08-10",
       "/weighing/weights?scope_mode=company",
       "/weighing/analytics?scope_mode=company&tab=general",
       "/weighing/analytics?scope_mode=company&tab=breed",
@@ -207,6 +209,7 @@ test("accepts PR264 local OCI performance evidence only when every required rout
     local_oci_pr264_route_reads: required,
     pr264_browser_render_routes: [
       "/work-board?scope_mode=company",
+      "/work-board?scope_mode=company&date=2026-08-10",
       "/weighing/weights?scope_mode=company",
       "/weighing/analytics?scope_mode=company&tab=general",
       "/weighing/analytics?scope_mode=company&tab=breed",
@@ -221,6 +224,14 @@ test("accepts PR264 local OCI performance evidence only when every required rout
   report.results = required.map((name) => ({ ...report.results[0], name }));
   report.browser_evidence = pr264BrowserEvidence();
   assert.deepEqual(validateApiLatencyEvidence(report, sha), []);
+
+  const historical = report.browser_evidence.routes.find((item) => item.route === "/work-board?scope_mode=company&date=2026-08-10");
+  for (const invalid of [{work_cards: 0, degraded: false}, {work_cards: 1, degraded: true}]) {
+    const original = historical.viewports[1].route_signals;
+    historical.viewports[1].route_signals = invalid;
+    assert.ok(validateApiLatencyEvidence(report, sha).some((failure) => failure.includes("2026-08-10")));
+    historical.viewports[1].route_signals = original;
+  }
 
   report.results = report.results.filter((result) => result.name !== "pr264_app_vaccination_execution_with_card_summaries");
   assert.ok(
@@ -260,6 +271,7 @@ test("rejects PR264 performance evidence without browser proof for the observed 
     local_oci_pr264_route_reads: required,
     pr264_browser_render_routes: [
       "/work-board?scope_mode=company",
+      "/work-board?scope_mode=company&date=2026-08-10",
       "/weighing/weights?scope_mode=company",
       "/weighing/analytics?scope_mode=company&tab=general",
       "/weighing/analytics?scope_mode=company&tab=breed",
@@ -324,6 +336,7 @@ test("accepts PR264 browser evidence produced as one flat record per viewport", 
     local_oci_pr264_route_reads: required,
     pr264_browser_render_routes: [
       "/work-board?scope_mode=company",
+      "/work-board?scope_mode=company&date=2026-08-10",
       "/weighing/weights?scope_mode=company",
       "/weighing/analytics?scope_mode=company&tab=general",
       "/weighing/analytics?scope_mode=company&tab=breed",
@@ -344,6 +357,7 @@ test("accepts PR264 browser evidence produced as one flat record per viewport", 
   ];
   const signals = new Map([
     ["/work-board?scope_mode=company", { lane_counts: { todo: 0, in_progress: 0, in_review: 0, done: 0 }, healthy_empty_state: true }],
+    ["/work-board?scope_mode=company&date=2026-08-10", { lane_counts: { todo: 1, in_progress: 0, in_review: 0, done: 0 }, work_cards: 1, degraded: false }],
     ["/weighing/weights?scope_mode=company", { has_losing_weight_table: true }],
     ["/weighing/analytics?scope_mode=company&tab=general", { has_weighing_kpis: true, tab: "general" }],
     ["/weighing/analytics?scope_mode=company&tab=breed", { has_breed_breakdown: true, tab: "breed" }],

@@ -1027,3 +1027,11 @@ responses are not valid speed evidence. Full fresh metrics remain pending.
 
 Judge status: source/SQL/evidence reviews active. No promotion performed.
 Detailed raw evidence and ongoing progress: `.codex-goatos-render/pr273-proof/`.
+
+## PR273 resumed final validation — 2026-09-16
+
+Scope remains PR branch only; no merge or deployment. Baseline 73c50f282. Further CPT canonical SQL optimization reduces the measured SQL plan from 209ms to 82ms while preserving all 11 full rows in the fixed-scope parity check. This is SQL evidence, not yet an HTTP under-500ms verdict. Deterministic evidence timestamp ties added.
+
+First full local CI completed RED at 740f57129: ai-doctor stale index, grpc vulnerability, aggregate review/test markers, inline SQL scale guards, and MATERIALIZED CTE parsing guard. Source/guard fixes are prepared; govulncheck now reports zero reachable vulnerabilities. Final full CI rerun required after commit. New growth multiplicity/status/date tests are running in isolated PostgreSQL.
+
+Browser proof now requires populated historical Work Board desktop/mobile, actual card selectors, no degraded warnings, runtime API SHA, and a live local-server launch receipt. Earlier 22-route Chrome run passed but was on an older build and empty current-day board; final rerun remains pending. Final baseline/after uncached HTTP measurements, judges, and PR push remain pending. No deployment performed.

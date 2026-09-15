@@ -145,6 +145,38 @@ func (r *AccessRepository) LoadPersonAccess(ctx context.Context, tenantID, perso
 	return rec, nil
 }
 
+const activePersonAccessParksSQL = `SELECT location_id::text FROM locations
+			  WHERE tenant_id = $1::uuid
+			    AND location_id = ANY($2::uuid[])
+			    AND location_type = 'park'
+			    AND status = 'active'`
+
+const resolvePersonAccessSnapshotSQL = `SELECT a.workforce_member_id IS NOT NULL AS has_access,
+		        coalesce(a.scope_mode, 'parks') AS scope_mode,
+		        coalesce(
+		          (SELECT jsonb_agg(jsonb_build_object(
+		                    'module', ma.module_key,
+		                    'surface', ma.surface,
+		                    'capabilities', to_jsonb(ma.capabilities))
+		                  ORDER BY ma.module_key, ma.surface)
+		             FROM person_module_access ma
+		            WHERE ma.tenant_id = m.tenant_id
+		              AND ma.workforce_member_id = m.workforce_member_id),
+		          '[]'::jsonb) AS modules,
+		        coalesce(
+		          (SELECT jsonb_agg(ps.park_id::text ORDER BY ps.park_id::text)
+		             FROM person_park_scope ps
+		            WHERE ps.tenant_id = m.tenant_id
+		              AND ps.workforce_member_id = m.workforce_member_id),
+		          '[]'::jsonb) AS park_ids
+		   FROM workforce_members m
+		   LEFT JOIN person_access a
+		     ON a.tenant_id = m.tenant_id
+		    AND a.workforce_member_id = m.workforce_member_id
+		  WHERE m.tenant_id = $1::uuid
+		    AND m.user_id = $2::uuid
+		    AND m.status = 'active'`
+
 func (r *AccessRepository) SavePersonAccess(ctx context.Context, cmd ports.SavePersonAccessCommand) (ports.PersonAccessRecord, error) {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
@@ -207,11 +239,7 @@ func (r *AccessRepository) SavePersonAccess(ctx context.Context, cmd ports.SaveP
 	parksToValidate = append(parksToValidate, cmd.PenVisitParkIDs...)
 	if len(parksToValidate) > 0 {
 		rows, err := tx.Query(ctx,
-			`SELECT location_id::text FROM locations
-			  WHERE tenant_id = $1::uuid
-			    AND location_id = ANY($2::uuid[])
-			    AND location_type = 'park'
-			    AND status = 'active'`,
+			activePersonAccessParksSQL,
 			cmd.TenantID, parksToValidate)
 		if err != nil {
 			return ports.PersonAccessRecord{}, err
@@ -526,31 +554,7 @@ func (r *AccessRepository) ResolveAccessSnapshot(ctx context.Context, tenantID, 
 		parksRaw   []byte
 	)
 	err := r.pool.QueryRow(ctx,
-		`SELECT a.workforce_member_id IS NOT NULL AS has_access,
-		        coalesce(a.scope_mode, 'parks') AS scope_mode,
-		        coalesce(
-		          (SELECT jsonb_agg(jsonb_build_object(
-		                    'module', ma.module_key,
-		                    'surface', ma.surface,
-		                    'capabilities', to_jsonb(ma.capabilities))
-		                  ORDER BY ma.module_key, ma.surface)
-		             FROM person_module_access ma
-		            WHERE ma.tenant_id = m.tenant_id
-		              AND ma.workforce_member_id = m.workforce_member_id),
-		          '[]'::jsonb) AS modules,
-		        coalesce(
-		          (SELECT jsonb_agg(ps.park_id::text ORDER BY ps.park_id::text)
-		             FROM person_park_scope ps
-		            WHERE ps.tenant_id = m.tenant_id
-		              AND ps.workforce_member_id = m.workforce_member_id),
-		          '[]'::jsonb) AS park_ids
-		   FROM workforce_members m
-		   LEFT JOIN person_access a
-		     ON a.tenant_id = m.tenant_id
-		    AND a.workforce_member_id = m.workforce_member_id
-		  WHERE m.tenant_id = $1::uuid
-		    AND m.user_id = $2::uuid
-		    AND m.status = 'active'`,
+		resolvePersonAccessSnapshotSQL,
 		tenantID, userID,
 	).Scan(&hasAccess, &scopeMode, &modulesRaw, &parksRaw)
 	if errors.Is(err, pgx.ErrNoRows) {

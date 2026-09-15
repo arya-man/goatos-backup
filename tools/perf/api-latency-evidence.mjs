@@ -232,6 +232,7 @@ export function validateApiLatencyEvidence(report, expectedSha) {
 function validatePr264BrowserEvidence(report, failures) {
   const requiredRoutes = [
     { route: "/work-board?scope_mode=company", viewports: ["desktop", "mobile"], signal: "lane_counts" },
+    { route: "/work-board?scope_mode=company&date=2026-08-10", viewports: ["desktop", "mobile"], signal: "populated_work_cards" },
     { route: "/weighing/weights?scope_mode=company", viewports: ["desktop", "mobile"], signal: "has_losing_weight_table" },
     { route: "/weighing/analytics?scope_mode=company&tab=general", viewports: ["desktop", "mobile"], signal: "has_weighing_kpis" },
     { route: "/weighing/analytics?scope_mode=company&tab=breed", viewports: ["desktop", "mobile"], signal: "has_breed_breakdown" },
@@ -329,6 +330,9 @@ function groupedBrowserRoutes(routes) {
 
 function hasRouteSignal(signals, signal) {
   if (!signals || typeof signals !== "object") return false;
+  if (signal === "populated_work_cards") {
+    return Number.isInteger(signals.work_cards) && signals.work_cards > 0 && signals.degraded === false;
+  }
   if (signal === "lane_counts") {
     return signals.lane_counts && Object.values(signals.lane_counts).every((value) => Number.isFinite(value));
   }

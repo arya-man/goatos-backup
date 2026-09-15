@@ -1,3 +1,4 @@
+import { validateLocalStackReceipt } from "./lib/local-stack-receipt.mjs";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -107,6 +108,7 @@ function buildRoutes({ goatId, procurementLoadId, workflowRowId, calendarEventId
     { name: "protocol-adherence-high", path: "/protocol-adherence?scope_mode=company&severity=high" },
     { name: "protocol-adherence-overdue", path: "/protocol-adherence?scope_mode=company&state=overdue" },
     { name: "work-board", path: "/work-board?scope_mode=company" },
+    { name: "work-board-populated", path: "/work-board?scope_mode=company&date=2026-08-10" },
     { name: "workflows", path: "/workflows?scope_mode=company" },
     { name: "approvals", path: "/approvals?scope_mode=company" },
     { name: "approvals-approved", path: "/approvals?scope_mode=company&status=approved" },
@@ -276,9 +278,17 @@ const desiredApiBuild = process.env.GOATOS_SMOKE_API_BUILD_SHA;
 if (desiredApiBuild && desiredApiBuild !== observedApiVersion.build_sha) {
   throw new Error(`API build mismatch: wanted ${desiredApiBuild}, observed ${observedApiVersion.build_sha}`);
 }
+const launchReceiptPath = process.env.GOATOS_LOCAL_STACK_RECEIPT_FILE;
+const requiresLocalReceipt = new URL(appBaseUrl).hostname.match(/^(localhost|127\.0\.0\.1|\[::1\])$/)
+  && (onlyRoutes.length === 0 || onlyRoutes.some((name) => /work-board|weighing/.test(name)));
+if (requiresLocalReceipt && !launchReceiptPath) throw new Error("PR264 local browser proof requires GOATOS_LOCAL_STACK_RECEIPT_FILE from run-local-next");
+const launchReceipt = launchReceiptPath ? validateLocalStackReceipt(JSON.parse(readFileSync(launchReceiptPath, "utf8")), {
+  git_sha: observedApiVersion.build_sha, api_base_url: apiBaseUrl, admin_web_base_url: appBaseUrl,
+}) : null;
 const browserEvidence = {
   schema_version: "1.0.0",
-  same_api_build: true,
+  same_api_build: Boolean(launchReceipt),
+  local_stack_launch_receipt: launchReceipt,
   api_base_url: apiBaseUrl,
   admin_web_base_url: appBaseUrl,
   api_build_sha: observedApiVersion.build_sha,
@@ -392,6 +402,9 @@ writeFileSync(
     2,
   ),
 );
+if (launchReceipt) validateLocalStackReceipt(launchReceipt, {
+  git_sha: observedApiVersion.build_sha, api_base_url: apiBaseUrl, admin_web_base_url: appBaseUrl,
+});
 writeFileSync(join(screenshotDir, "browser-evidence.json"), `${JSON.stringify(browserEvidence, null, 2)}\n`);
 
 console.log(`screenshots_dir=${relativeToRepo(screenshotDir)}`);
@@ -533,7 +546,7 @@ function assertHealthyHTML(routeName, html, visibleText, token) {
 
 async function assertRouteLoadedSignal(page, routeName, visibleText) {
   const normalized = visibleText.replace(/\s+/g, " ").trim();
-  if (routeName === "work-board") {
+  if (routeName === "work-board" || routeName === "work-board-populated") {
     const laneCounts = {
       todo: extractCountAfter(normalized, "TO DO"),
       in_progress: extractCountAfter(normalized, "IN PROGRESS"),
@@ -542,7 +555,7 @@ async function assertRouteLoadedSignal(page, routeName, visibleText) {
     };
     const hasLaneCounters = Object.values(laneCounts).every((value) => value !== null);
     const hasHealthyEmptyState = normalized.includes("No work on this board for the day.");
-    const hasWorkCards = await page.locator("[data-work-board-row], [data-work-row-key]").count().catch(() => 0);
+    const hasWorkCards = await page.locator(".card[data-filter-row]").count().catch(() => 0);
     const degraded = /Some work couldn't load right now/.test(normalized);
     if ((!hasLaneCounters && !hasWorkCards && !hasHealthyEmptyState) || degraded) {
       throw new Error(`${routeName} did not prove a loaded Work Board state`);
@@ -550,7 +563,10 @@ async function assertRouteLoadedSignal(page, routeName, visibleText) {
     if (!hasWorkCards && !hasHealthyEmptyState) {
       throw new Error(`${routeName} has no cards but did not render the healthy empty-board copy`);
     }
-    return { lane_counts: laneCounts, work_cards: hasWorkCards, healthy_empty_state: hasHealthyEmptyState };
+    if (routeName === "work-board-populated" && hasWorkCards <= 0) {
+      throw new Error("work-board-populated requires actual historical workload cards");
+    }
+    return { lane_counts: laneCounts, work_cards: hasWorkCards, degraded: false, healthy_empty_state: hasHealthyEmptyState };
   }
   if (routeName === "weighing-weights") {
     if (!/Kids losing weight/i.test(normalized) || !/\bkg\b/i.test(normalized) || !/\bPage\b/i.test(normalized)) {

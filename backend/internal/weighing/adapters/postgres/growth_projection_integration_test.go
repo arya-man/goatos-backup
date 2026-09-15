@@ -333,3 +333,49 @@ func TestGrowthLosingAnimalsPreservesCanonicalSameDayPairSemantics(t *testing.T)
 		t.Fatalf("same-day correction invented a losing pair absent from canonical growth: %+v", losing)
 	}
 }
+
+// Multiple observations must not multiply animal rows, and pending/rework facts
+// remain real weights under the same canonical status rules as verified facts.
+func TestGrowthLosingAnimalsOneToManyDateShiftStatusMatrix(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedWeighingObservationFixture(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+	start, end := growthWindow()
+	day := time.Date(2026, 8, 5, 4, 0, 0, 0, time.UTC)
+	for _, tag := range []string{"loser-a", "loser-b"} {
+		for i, weight := range []float64{22, 21, 20} {
+			seedGrowthObservation(t, ctx, pool, tag, weight, day.AddDate(0, 0, i))
+		}
+	}
+	for _, status := range []string{"pending", "verified", "rework"} {
+		t.Run(status, func(t *testing.T) {
+			execWeighingTestSQL(t, ctx, pool, `UPDATE weighing_observations SET verification_status = $2 WHERE tenant_id = $1::uuid`, repoTenant, status)
+			losing, err := repo.growthLosingAnimals(ctx, repoTenant, []string{repoPark}, start.AddDate(0, 0, -growthLookbackDays), start, end, false, SexScope{}, AnimalIdentityMap{}, "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(losing) != 2 {
+				t.Fatalf("%s: six observations must produce exactly two animals, got %+v", status, losing)
+			}
+			// Moving the report start past every endpoint must exclude the animals
+			// even though all their observations remain in the pairing lookback.
+			shifted, err := repo.growthLosingAnimals(ctx, repoTenant, []string{repoPark}, start.AddDate(0, 0, -growthLookbackDays), day.AddDate(0, 0, 3), end, false, SexScope{}, AnimalIdentityMap{}, "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(shifted) != 0 {
+				t.Fatalf("%s: report boundary retained historical losing rows: %+v", status, shifted)
+			}
+			seen := map[string]bool{}
+			for _, animal := range losing {
+				if seen[animal.ScannedIdentifier] || animal.PreviousWeightKg != 21 || animal.LatestWeightKg != 20 || animal.ADGGPerDay != -1000 || animal.DaysBetween != 1 {
+					t.Fatalf("%s: duplicated animal or changed latest qualifying pair: %+v", status, losing)
+				}
+				seen[animal.ScannedIdentifier] = true
+			}
+		})
+	}
+}

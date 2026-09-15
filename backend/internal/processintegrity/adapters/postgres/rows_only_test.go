@@ -62,3 +62,21 @@ func TestListRowsOnlyPreservesCanonicalPaginationWithoutPoisoningSummary(t *test
 	}
 	t.Fatal("cursor walk did not terminate")
 }
+
+func TestCanonicalBatchRepresentativeIsStableWhenTimestampsTie(t *testing.T) {
+	// IDs, states and proof refs must choose the same submission when batch imports
+	// give many animals equal timestamps. Otherwise changing a valid query plan
+	// changes which proof the same board row opens.
+	for _, prefix := range []string{"located.submission_id::text", "located.submission_state", "located.proof_refs"} {
+		want := "ARRAY_AGG(" + prefix + " ORDER BY located.submitted_at DESC NULLS LAST, located.submission_id DESC NULLS LAST)"
+		if !strings.Contains(processIntegrityCanonicalRowsSQL, want) {
+			t.Fatalf("unstable submission representative for %s", prefix)
+		}
+	}
+	for _, prefix := range []string{"located.completion_id::text", "located.completion_status", "located.rejection_reason"} {
+		want := "ARRAY_AGG(" + prefix + " ORDER BY located.completion_updated_at DESC NULLS LAST, located.completion_id DESC NULLS LAST)"
+		if !strings.Contains(processIntegrityCanonicalRowsSQL, want) {
+			t.Fatalf("unstable completion representative for %s", prefix)
+		}
+	}
+}

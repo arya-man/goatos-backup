@@ -830,6 +830,28 @@ due_window_members AS (
     AND (assignment.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') <= $5::timestamptz
     AND ($4::timestamptz IS NULL OR (assignment.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') >= $4::timestamptz)
 ),
+-- projection-review: membership=tenant date-window obligations without exact drive membership, unchanged from the legacy binding WHERE; group_key=obligation_id; join_cardinality=NOT EXISTS only removes exact-membership rows and each PK-bounded rule/goat lookup decorates at most one row; pagination=canonical rows retain existing keyset and counts retain whole-window aggregation; scope=tenant/status/date predicates are applied before legacy goat and partition decoration.
+legacy_unassigned_obligations AS MATERIALIZED (
+  -- Reject exact-membership obligations before goat/partition decoration. These
+  -- rows use the exact assignment arm and must not pay the legacy binding work.
+  SELECT oi.obligation_id, oi.tenant_id, oi.batch_id, oi.rule_id,
+    oi.target_type, oi.target_id, oi.scope_type, oi.scope_id
+  FROM obligation_instances oi
+  WHERE oi.tenant_id = $1::uuid
+    AND oi.status IN ('scheduled', 'due', 'in_progress', 'deferred', 'completed', 'missed', 'waived')
+    AND oi.batch_id IS NOT NULL
+    AND NOT EXISTS (
+      SELECT 1
+      FROM vaccination_drive_assignment_members vdam
+      WHERE vdam.tenant_id = oi.tenant_id
+        AND vdam.obligation_id = oi.obligation_id
+    )
+    AND (
+      (oi.due_at <= $5::timestamptz AND ($4::timestamptz IS NULL OR oi.due_at >= $4::timestamptz))
+      OR oi.batch_id = ANY (ARRAY(SELECT batch_id FROM due_window_batches))
+      OR oi.obligation_id = ANY (ARRAY(SELECT obligation_id FROM due_window_members))
+    )
+),
 legacy_binding_obligations AS (
   -- Driving set for the LEGACY (pre-000040, no-membership-row) drive-assignment fallback only, so the
   -- binding below is one SET operation instead of a per-row LATERAL probe. Bounded three ways:
@@ -851,7 +873,7 @@ legacy_binding_obligations AS (
       ELSE NULL
     END AS binding_shed_id,
     COALESCE(gsp.partition_label, 'whole') AS binding_partition_label
-  FROM obligation_instances oi
+  FROM legacy_unassigned_obligations oi
   LEFT JOIN goats g
     ON oi.target_type = 'goat'
    AND g.tenant_id = oi.tenant_id
@@ -861,20 +883,6 @@ legacy_binding_obligations AS (
     ON gsp.tenant_id = g.tenant_id
    AND gsp.goat_id = g.goat_id
    AND gsp.shed_id = g.shed_id
-  WHERE oi.tenant_id = $1::uuid
-    AND oi.status IN ('scheduled', 'due', 'in_progress', 'deferred', 'completed', 'missed', 'waived')
-    AND oi.batch_id IS NOT NULL
-    AND NOT EXISTS (
-      SELECT 1
-      FROM vaccination_drive_assignment_members vdam
-      WHERE vdam.tenant_id = oi.tenant_id
-        AND vdam.obligation_id = oi.obligation_id
-    )
-    AND (
-      (oi.due_at <= $5::timestamptz AND ($4::timestamptz IS NULL OR oi.due_at >= $4::timestamptz))
-      OR oi.batch_id = ANY (ARRAY(SELECT batch_id FROM due_window_batches))
-      OR oi.obligation_id = ANY (ARRAY(SELECT obligation_id FROM due_window_members))
-    )
 ),
 assignment_binding AS (
   -- ONE winning drive-assignment arm per obligation, resolved set-based. Replaces a correlated
@@ -1027,14 +1035,23 @@ raw AS (
     ON pd.tenant_id = pv.tenant_id
    AND pd.protocol_id = pv.protocol_id
    AND pd.category = 'vaccination'
-  JOIN protocol_rules pr
-    ON pr.tenant_id = oi.tenant_id
-   AND pr.rule_id = oi.rule_id
-  LEFT JOIN goats g
-    ON oi.target_type = 'goat'
-   AND g.tenant_id = oi.tenant_id
-   AND g.goat_id = oi.target_id
-   AND g.merged_into_goat_id IS NULL
+  -- These keys are unique. LIMIT 1 is an execution fence, not a winner selection:
+  -- decorate each selected obligation once instead of crossing every protocol/rule
+  -- pair or goat/partition pair before applying the obligation's foreign keys.
+  JOIN LATERAL (
+    SELECT rules.sop_version_id, rules.proof_policy, rules.dose_code FROM protocol_rules rules
+    WHERE rules.tenant_id = oi.tenant_id AND rules.rule_id = oi.rule_id
+    LIMIT 1
+  ) pr ON true
+  LEFT JOIN LATERAL (
+    SELECT animal.tenant_id, animal.goat_id, animal.lifecycle_status, animal.health_status,
+      animal.management_stage, animal.cohort_id, animal.shed_id, animal.park_id
+    FROM goats animal
+    WHERE oi.target_type = 'goat'
+      AND animal.tenant_id = oi.tenant_id AND animal.goat_id = oi.target_id
+      AND animal.merged_into_goat_id IS NULL
+    LIMIT 1
+  ) g ON true
   -- Canonical per-goat shed partition (1:1 by PK (tenant_id, goat_id)); the drive-assignment binding
   -- below matches it against vaccination_drive_assignments.partition_label.
   LEFT JOIN goat_shed_partitions gsp
@@ -1172,8 +1189,10 @@ grouped AS (
     MIN(located.obligation_id::text) AS obligation_id,
     (ARRAY_AGG(located.task_id::text ORDER BY located.execution_due_at DESC NULLS LAST, located.due_at DESC NULLS LAST) FILTER (WHERE located.task_id IS NOT NULL))[1] AS task_id,
     (ARRAY_AGG(located.task_row_version ORDER BY located.execution_due_at DESC NULLS LAST, located.due_at DESC NULLS LAST) FILTER (WHERE located.task_id IS NOT NULL))[1] AS task_row_version,
-    (ARRAY_AGG(located.submission_id::text ORDER BY located.submitted_at DESC NULLS LAST) FILTER (WHERE located.submission_id IS NOT NULL))[1] AS submission_id,
-    (ARRAY_AGG(located.completion_id::text ORDER BY located.completion_updated_at DESC NULLS LAST) FILTER (WHERE located.completion_id IS NOT NULL))[1] AS completion_id,
+    -- Equal timestamps are common for batch imports. Stable IDs keep the chosen
+    -- submission/proof and completion consistent across equivalent query plans.
+    (ARRAY_AGG(located.submission_id::text ORDER BY located.submitted_at DESC NULLS LAST, located.submission_id DESC NULLS LAST) FILTER (WHERE located.submission_id IS NOT NULL))[1] AS submission_id,
+    (ARRAY_AGG(located.completion_id::text ORDER BY located.completion_updated_at DESC NULLS LAST, located.completion_id DESC NULLS LAST) FILTER (WHERE located.completion_id IS NOT NULL))[1] AS completion_id,
     CASE WHEN COUNT(DISTINCT located.goat_id) = 1 THEN MAX(located.goat_id::text) ELSE NULL END AS goat_id,
     located.goat_partition_label AS partition_label,
     CASE WHEN COUNT(DISTINCT located.goat_cohort_id) = 1 THEN MAX(located.goat_cohort_id::text) ELSE NULL END AS cohort_id,
@@ -1210,7 +1229,7 @@ grouped AS (
     COUNT(*) FILTER (WHERE located.completion_status = 'recorded')::int AS completion_recorded,
     COUNT(*) FILTER (WHERE located.completion_status = 'accepted')::int AS completion_accepted,
     COUNT(*) FILTER (WHERE located.completion_status = 'rejected')::int AS completion_rejected,
-    (ARRAY_AGG(located.completion_status ORDER BY located.completion_updated_at DESC NULLS LAST) FILTER (WHERE located.completion_status IS NOT NULL))[1] AS completion_state,
+    (ARRAY_AGG(located.completion_status ORDER BY located.completion_updated_at DESC NULLS LAST, located.completion_id DESC NULLS LAST) FILTER (WHERE located.completion_status IS NOT NULL))[1] AS completion_state,
     (ARRAY_AGG(located.batch_status ORDER BY
       CASE located.batch_status
         WHEN 'in_progress' THEN 0
@@ -1236,11 +1255,11 @@ grouped AS (
       located.execution_due_at DESC NULLS LAST,
       located.due_at DESC NULLS LAST
     ) FILTER (WHERE located.task_state IS NOT NULL))[1] AS task_state,
-    (ARRAY_AGG(located.submission_state ORDER BY located.submitted_at DESC NULLS LAST) FILTER (WHERE located.submission_state IS NOT NULL))[1] AS submission_state,
-    (ARRAY_AGG(located.proof_refs ORDER BY located.submitted_at DESC NULLS LAST) FILTER (WHERE located.proof_refs IS NOT NULL))[1] AS latest_proof_refs,
+    (ARRAY_AGG(located.submission_state ORDER BY located.submitted_at DESC NULLS LAST, located.submission_id DESC NULLS LAST) FILTER (WHERE located.submission_state IS NOT NULL))[1] AS submission_state,
+    (ARRAY_AGG(located.proof_refs ORDER BY located.submitted_at DESC NULLS LAST, located.submission_id DESC NULLS LAST) FILTER (WHERE located.proof_refs IS NOT NULL))[1] AS latest_proof_refs,
     MAX(jsonb_array_length(COALESCE(located.proof_refs, '[]'::jsonb)))::int AS proof_count,
     MAX(located.submitted_at) AS latest_evidence_at,
-    (ARRAY_AGG(located.rejection_reason ORDER BY located.completion_updated_at DESC NULLS LAST) FILTER (WHERE located.rejection_reason IS NOT NULL AND located.rejection_reason <> ''))[1] AS latest_rejection_reason,
+    (ARRAY_AGG(located.rejection_reason ORDER BY located.completion_updated_at DESC NULLS LAST, located.completion_id DESC NULLS LAST) FILTER (WHERE located.rejection_reason IS NOT NULL AND located.rejection_reason <> ''))[1] AS latest_rejection_reason,
     -- Distinct drive assignments this grain's obligations actually bound to. Deduplicated by
     -- assignment_id so the capacity rollup below cannot fan out per obligation.
     ARRAY_REMOVE(ARRAY_AGG(DISTINCT located.assignment_id), NULL)::uuid[] AS drive_assignment_ids,

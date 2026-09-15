@@ -1442,22 +1442,7 @@ SELECT
 	return out, nil
 }
 
-func (r *Repository) getShedPartitionWeightDemographics(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time, sections map[string]bool, farmBornScope, purchasedScope ReportScope) (domain.WeightDemographics, error) {
-	out := domain.WeightDemographics{
-		GainThresholdsByBreed: []domain.WeightGainThresholdBucket{},
-		ByBreed:               []domain.WeightDemographicBucket{},
-		BySex:                 []domain.WeightDemographicBucket{},
-		ByStage:               []domain.WeightDemographicBucket{},
-		ShedComposition:       []domain.ShedComposition{},
-		ByWeightBand:          []domain.WeightBandBucket{},
-		GainByBreedWeek:       []domain.WeightGainBreedWeekBucket{},
-		GainByBreedOrigin:     []domain.WeightGainOriginBucket{},
-		GainByBreedShedType:   []domain.WeightGainShedTypeBucket{},
-	}
-	if len(parkIDs) == 0 {
-		return out, nil
-	}
-	const q = `
+const shedPartitionWeightDemographicsSQL = `
 WITH scoped AS (
   SELECT cs.campaign_shed_id, cs.tenant_id, cs.location_id, COALESCE(cs.partition_label, '') AS partition_label
   FROM weighing_campaign_sheds cs
@@ -1710,10 +1695,26 @@ SELECT
       WHERE sc.breeds = 1 GROUP BY sc.breed, pw.week_start
     ) rows) ELSE '[]'::jsonb END`
 
+func (r *Repository) getShedPartitionWeightDemographics(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time, sections map[string]bool, farmBornScope, purchasedScope ReportScope) (domain.WeightDemographics, error) {
+	out := domain.WeightDemographics{
+		GainThresholdsByBreed: []domain.WeightGainThresholdBucket{},
+		ByBreed:               []domain.WeightDemographicBucket{},
+		BySex:                 []domain.WeightDemographicBucket{},
+		ByStage:               []domain.WeightDemographicBucket{},
+		ShedComposition:       []domain.ShedComposition{},
+		ByWeightBand:          []domain.WeightBandBucket{},
+		GainByBreedWeek:       []domain.WeightGainBreedWeekBucket{},
+		GainByBreedOrigin:     []domain.WeightGainOriginBucket{},
+		GainByBreedShedType:   []domain.WeightGainShedTypeBucket{},
+	}
+	if len(parkIDs) == 0 {
+		return out, nil
+	}
+
 	var breedJSON, sexJSON, stageJSON []byte
 	var gainBreedJSON, gainSexJSON, gainStageJSON []byte
 	var originJSON, shedTypeJSON, weightBandJSON, weekJSON []byte
-	err := r.pool.QueryRow(ctx, q,
+	err := r.pool.QueryRow(ctx, shedPartitionWeightDemographicsSQL,
 		tenantID, parkIDs, periodStart, periodEnd,
 		sections["dimensions"],
 		sections["dimensions"] || sections["origin"] || sections["shed_type"] || sections["weight_bands"] || sections["gain_thresholds"],
