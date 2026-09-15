@@ -1496,7 +1496,7 @@ func seedProcessIntegrityProjection(t *testing.T, ctx context.Context, pool *pgx
 	execPI(t, ctx, pool, "operator",
 		`INSERT INTO workforce_members (workforce_member_id, tenant_id, display_code, display_name, status, primary_role_hint, primary_location_id)
 		 VALUES ($1, $2, 'OP-PI', 'Operator PI', 'active', 'operator', $3)`,
-		piOperator, piTenant, piShed)
+		piOperator, piTenant, piPark)
 	execPI(t, ctx, pool, "park head",
 		`INSERT INTO workforce_members (workforce_member_id, tenant_id, display_code, display_name, status, primary_role_hint, primary_location_id)
 		 VALUES ($1, $2, 'PH-PI', 'Park Head PI', 'active', 'park_head', $3)`,
