@@ -854,6 +854,13 @@ func (h *Handler) respond(w http.ResponseWriter, r *http.Request, body any, err 
 		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity, errorEnvelope{Code: "weighing_video_count", Message: "This pen needs a different number of videos than were sent. Check the pen's video count, then submit again.", TraceID: traceID(r)}, nil)
 	case errors.Is(err, ports.ErrSOPVersionUnknown):
 		httpresponse.WriteError(w, r, h.log, http.StatusConflict, errorEnvelope{Code: "weighing_sop_version_unknown", Message: "This task was planned on a weighing SOP version that no longer exists. Ask an admin to check the SOP.", TraceID: traceID(r)}, nil)
+	case errors.Is(err, domain.ErrSOPProofInvalid):
+		var proofErr *domain.ProofError
+		message := "One of the captures is missing or not part of this card. Check the card, then submit again."
+		if errors.As(err, &proofErr) {
+			message = proofErr.Message
+		}
+		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity, errorEnvelope{Code: "fasting_proof_slot_invalid", Message: message, TraceID: traceID(r)}, nil)
 	case errors.Is(err, domain.ErrSOPAnswerInvalid):
 		var answerErr *domain.AnswerError
 		message := "One of the answers is missing or not allowed. Check the answers, then submit again."
@@ -866,9 +873,9 @@ func (h *Handler) respond(w http.ResponseWriter, r *http.Request, body any, err 
 	case errors.Is(err, ports.ErrFastingNotAssigned):
 		httpresponse.WriteError(w, r, h.log, http.StatusForbidden, errorEnvelope{Code: "fasting_not_assigned", Message: "This feed and water removal is assigned to someone else.", TraceID: traceID(r)}, nil)
 	case errors.Is(err, ports.ErrFastingProofRequired):
-		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity, errorEnvelope{Code: "fasting_proof_required", Message: "Two videos are needed: one of the feed being removed and one of the water being removed.", TraceID: traceID(r)}, nil)
+		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity, errorEnvelope{Code: "fasting_proof_required", Message: "This pen's removal needs its captures before it can be submitted.", TraceID: traceID(r)}, nil)
 	case errors.Is(err, ports.ErrFastingProofInvalid):
-		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity, errorEnvelope{Code: "fasting_proof_invalid", Message: "One of the videos is not ready or was not recorded with the app camera. Record both videos in the app, wait for them to finish uploading, then submit again.", TraceID: traceID(r)}, nil)
+		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity, errorEnvelope{Code: "fasting_proof_invalid", Message: "One of the captures is not ready, is the wrong kind for its slot, or was not taken with the app camera. Record it in the app, wait for it to finish uploading, then submit again.", TraceID: traceID(r)}, nil)
 	case errors.Is(err, ports.ErrFastingAlreadySubmitted):
 		httpresponse.WriteError(w, r, h.log, http.StatusConflict, errorEnvelope{Code: "fasting_already_submitted", Message: "This feed and water removal was already submitted.", TraceID: traceID(r)}, nil)
 	case errors.Is(err, ports.ErrFastingSubmittedDateLocked):

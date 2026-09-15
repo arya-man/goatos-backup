@@ -30,6 +30,9 @@ type submitFastingShedRequest struct {
 	WaterProofRef string `json:"water_proof_ref"`
 	// Answers to the SOP's authored removal questions, keyed by question id (WEIGHING SOP).
 	Answers domain.SOPAnswers `json:"answers,omitempty"`
+	// Proofs is {slot key: proof ref} for every capture the card asked for. An older phone
+	// sends the legacy feed/water pair instead; the service maps it onto the seeded slots.
+	Proofs domain.RemovalProofRefs `json:"proofs,omitempty"`
 }
 
 // SubmitFastingShed records ONE shed's two removal videos. The round runs
@@ -46,6 +49,7 @@ func (h *Handler) SubmitFastingShed(w http.ResponseWriter, r *http.Request) {
 		FeedProofRef:   req.FeedProofRef,
 		WaterProofRef:  req.WaterProofRef,
 		Answers:        req.Answers,
+		Proofs:         req.Proofs,
 		IdempotencyKey: r.Header.Get("Idempotency-Key"),
 	})
 	h.respond(w, r, map[string]any{"fasting_shed_card": card, "trace_id": traceID(r)}, err)

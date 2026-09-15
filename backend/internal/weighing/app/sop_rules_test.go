@@ -372,3 +372,74 @@ func (s *twoCardStore) ListFastingShedCardsForOperator(context.Context, string, 
 		{FastingTaskID: "00000000-0000-4000-8000-000000000903", CampaignShedID: shedB, SOPVersion: 3},
 	}}, nil
 }
+
+// The removal card's captures are the pinned document's slots: a compulsory photo missing is
+// refused by name before the store, a full submit hands the store every slot's kind and the
+// captures in slot order (what the verifier item carries), and an older phone's legacy pair
+// maps onto the seeded slots. Mutation-tested by dropping the legacy-pair mapping (the last
+// case goes red).
+func TestSubmitFastingShedJudgesCapturesByThePinnedSlots(t *testing.T) {
+	operator := domain.Actor{TenantID: testTenant, UserID: testOp, Roles: []string{permissions.RoleOperator}}
+	rules := rulesWithMode(7, domain.RemovalModeRequired)
+	rules.Rules.FeedWaterRemoval.Proofs = []domain.RemovalProofSlot{
+		{Key: "feed_video", Title: "Feed removed", Kind: domain.RemovalProofKindVideo, Required: true},
+		{Key: "trough_photo", Title: "Empty trough", Kind: domain.RemovalProofKindPhoto, Required: true},
+		{Key: "gate", Title: "Gate closed", Kind: domain.RemovalProofKindEither, Required: false},
+	}
+	submittedAt := time.Date(2026, 7, 28, 15, 0, 0, 0, time.UTC)
+	newStore := func() *fakeFastingStore {
+		return &fakeFastingStore{submitResult: domain.FastingShedSubmitResult{
+			Card:     domain.FastingShedCard{FastingTaskID: fastingTaskID, CampaignShedID: shedB, FastingShedID: "00000000-0000-4000-8000-000000000902", Status: domain.FastingStatusPendingVerification, RowVersion: 1},
+			Evidence: domain.FastingShedProof{FastingShedID: "00000000-0000-4000-8000-000000000902", CampaignShedID: shedB, Proofs: domain.RemovalProofRefs{"feed_video": proofThree, "trough_photo": proofFour, "gate": proofOne}, RowVersion: 1},
+			Task:     domain.FastingTask{TenantID: testTenant, FastingTaskID: fastingTaskID, CampaignID: "00000000-0000-4000-8000-000000000501", OperatorUserID: testOp, SubmittedAt: &submittedAt},
+		}}
+	}
+	store := newStore()
+	enqueuer := &captureVerificationEnqueuer{}
+	service := NewService(&fakeRepo{}).WithFastingStore(store).WithVerificationEnqueuer(enqueuer).WithSOPRules(rules, pinnedVersion(7))
+
+	cmd := domain.SubmitFastingShed{FastingTaskID: fastingTaskID, CampaignShedID: shedB, IdempotencyKey: "fast-slots", Proofs: domain.RemovalProofRefs{"feed_video": proofThree}}
+	_, err := service.SubmitFastingShed(ctxBg(), operator, cmd)
+	var pe *domain.ProofError
+	if !errors.Is(err, domain.ErrSOPProofInvalid) || !errors.As(err, &pe) || pe.SlotKey != "trough_photo" {
+		t.Fatalf("missing compulsory photo err = %v, want ErrSOPProofInvalid naming trough_photo", err)
+	}
+	if store.submitCalls != 0 {
+		t.Fatal("store must not be reached by a submit missing a compulsory capture")
+	}
+
+	cmd.Proofs = domain.RemovalProofRefs{"gate": proofOne, "trough_photo": proofFour, "feed_video": proofThree}
+	if _, err := service.SubmitFastingShed(ctxBg(), operator, cmd); err != nil {
+		t.Fatalf("full submit err = %v", err)
+	}
+	if store.submitted.SlotKinds["trough_photo"] != domain.RemovalProofKindPhoto || store.submitted.SlotKinds["gate"] != domain.RemovalProofKindEither {
+		t.Fatalf("store slot kinds = %v, want the document's kinds", store.submitted.SlotKinds)
+	}
+	if got := store.submitted.OrderedRefs; len(got) != 3 || got[0] != proofThree || got[1] != proofFour || got[2] != proofOne {
+		t.Fatalf("ordered refs = %v, want slot order [feed trough gate]", got)
+	}
+	if store.submitted.FeedProofRef != proofThree || store.submitted.WaterProofRef != "" {
+		t.Fatalf("legacy mirrors = feed %q water %q, want feed_video mirrored and no water slot", store.submitted.FeedProofRef, store.submitted.WaterProofRef)
+	}
+	if got := enqueuer.received.MediaRefs; len(got) != 3 || got[1] != proofFour {
+		t.Fatalf("verifier media refs = %v, want every capture in slot order", got)
+	}
+
+	// An older phone: the legacy pair under the SEEDED document maps onto feed_video / water_video.
+	store = newStore()
+	service = NewService(&fakeRepo{}).WithFastingStore(store).WithVerificationEnqueuer(&captureVerificationEnqueuer{}).WithSOPRules(rules, pinnedVersion(0))
+	legacy := domain.SubmitFastingShed{FastingTaskID: fastingTaskID, CampaignShedID: shedB, IdempotencyKey: "fast-legacy", FeedProofRef: proofThree, WaterProofRef: proofFour}
+	if _, err := service.SubmitFastingShed(ctxBg(), operator, legacy); err != nil {
+		t.Fatalf("legacy pair under the seed err = %v", err)
+	}
+	if store.submitted.Proofs["feed_video"] != proofThree || store.submitted.Proofs["water_video"] != proofFour {
+		t.Fatalf("legacy pair mapped to %v, want the seeded slots", store.submitted.Proofs)
+	}
+	// ...but under the document above (no water_video slot) that same phone is refused by name.
+	service = NewService(&fakeRepo{}).WithFastingStore(newStore()).WithSOPRules(rules, pinnedVersion(7))
+	if _, err := service.SubmitFastingShed(ctxBg(), operator, legacy); !errors.Is(err, domain.ErrSOPProofInvalid) {
+		t.Fatalf("legacy pair under a re-authored document err = %v, want ErrSOPProofInvalid", err)
+	}
+}
+
+func ctxBg() context.Context { return context.Background() }

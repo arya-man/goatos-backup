@@ -120,7 +120,8 @@ SELECT cs.campaign_shed_id::text,
        COALESCE(sp.water_proof_ref::text, ''),
        COALESCE(sp.rework_reason, ''),
        COALESCE(sp.row_version, 0),
-       COALESCE(sp.sop_answers, '{}'::jsonb)
+       COALESCE(sp.sop_answers, '{}'::jsonb),
+       COALESCE(sp.sop_proofs, '{}'::jsonb)
 FROM weighing_campaign_sheds cs
 LEFT JOIN weighing_fasting_shed_proofs sp
   ON sp.tenant_id = cs.tenant_id AND sp.campaign_shed_id = cs.campaign_shed_id
@@ -142,7 +143,8 @@ SELECT ft.fasting_task_id::text,
        COALESCE(sp.water_proof_ref::text, ''),
        COALESCE(sp.rework_reason, ''),
        COALESCE(sp.row_version, 0),
-       COALESCE(sp.sop_answers, '{}'::jsonb)
+       COALESCE(sp.sop_answers, '{}'::jsonb),
+       COALESCE(sp.sop_proofs, '{}'::jsonb)
 FROM weighing_fasting_tasks ft
 JOIN weighing_campaign_sheds cs
   ON cs.tenant_id = ft.tenant_id AND cs.campaign_id = ft.campaign_id AND cs.status <> 'canceled'
@@ -155,14 +157,15 @@ ORDER BY cs.display_name, cs.campaign_shed_id`
 const fastingShedUpsertSQL = `
 INSERT INTO weighing_fasting_shed_proofs (
   tenant_id, fasting_task_id, campaign_shed_id, shed_label,
-  feed_proof_ref, water_proof_ref, status, sop_answers
+  feed_proof_ref, water_proof_ref, status, sop_answers, sop_proofs
 )
-VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5::uuid, $6::uuid, 'pending_verification', $7::jsonb)
+VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5::uuid, $6::uuid, 'pending_verification', $7::jsonb, $8::jsonb)
 ON CONFLICT (tenant_id, fasting_task_id, campaign_shed_id) DO UPDATE SET
   shed_label = EXCLUDED.shed_label,
   feed_proof_ref = EXCLUDED.feed_proof_ref,
   water_proof_ref = EXCLUDED.water_proof_ref,
   sop_answers = EXCLUDED.sop_answers,
+  sop_proofs = EXCLUDED.sop_proofs,
   status = 'pending_verification',
   rework_reason = NULL,
   row_version = weighing_fasting_shed_proofs.row_version + 1,
@@ -405,7 +408,7 @@ func (r *Repository) attachFastingSheds(ctx context.Context, items []domain.Fast
 		var displayName, partitionLabel string
 		if err := rows.Scan(&taskID, &shed.CampaignShedID, &displayName, &partitionLabel, &shed.ShedLocationID,
 			&shed.FastingShedID, &shed.Status, &shed.FeedProofRef, &shed.WaterProofRef,
-			&shed.ReworkReason, &shed.RowVersion, &shed.Answers); err != nil {
+			&shed.ReworkReason, &shed.RowVersion, &shed.Answers, &shed.Proofs); err != nil {
 			return err
 		}
 		if len(shed.Answers) == 0 {
@@ -461,7 +464,7 @@ func scanFastingShedRows(rows pgx.Rows) ([]domain.FastingShedProof, error) {
 		var displayName, partitionLabel string
 		if err := rows.Scan(&shed.CampaignShedID, &displayName, &partitionLabel, &shed.ShedLocationID,
 			&shed.FastingShedID, &shed.Status, &shed.FeedProofRef, &shed.WaterProofRef,
-			&shed.ReworkReason, &shed.RowVersion, &shed.Answers); err != nil {
+			&shed.ReworkReason, &shed.RowVersion, &shed.Answers, &shed.Proofs); err != nil {
 			return nil, err
 		}
 		if len(shed.Answers) == 0 {
@@ -481,7 +484,14 @@ func (r *Repository) fastingShedsForTaskTx(ctx context.Context, tx pgx.Tx, tenan
 // validateFastingProofsTx asserts the two refs are DISTINCT, tenant-owned,
 // COMPLETED uploads, VIDEO artifacts, captured by the in-app camera. One
 // set-based read for the pair, mirroring the feed proof validator's contract.
-func (r *Repository) validateFastingProofsTx(ctx context.Context, tx pgx.Tx, tenantID string, refs []string) error {
+// validateFastingProofsTx checks each capture against the proof register: completed, taken
+// with the in-app camera, and of the TYPE its slot accepts (WEIGHING SOP: video / photo /
+// either per slot -- a photo in a video slot is refused, and so is a gallery file).
+func (r *Repository) validateFastingProofsTx(ctx context.Context, tx pgx.Tx, tenantID string, expected map[string]string) error {
+	refs := make([]string, 0, len(expected))
+	for ref := range expected {
+		refs = append(refs, ref)
+	}
 	rows, err := tx.Query(ctx, fastingProofValidateSQL,
 		tenantID, refs)
 	if err != nil {
@@ -494,10 +504,17 @@ func (r *Repository) validateFastingProofsTx(ctx context.Context, tx pgx.Tx, ten
 		if err := rows.Scan(&proofID, &uploadState, &proofType, &mimeType, &captureSource); err != nil {
 			return err
 		}
-		valid[proofID] = uploadState == "completed" &&
-			proofType == "video" &&
-			strings.HasPrefix(mimeType, "video/") &&
-			captureSource == "in_app_camera"
+		kind := expected[proofID]
+		typeOK := false
+		switch kind {
+		case domain.RemovalProofKindPhoto:
+			typeOK = proofType == "photo" && strings.HasPrefix(mimeType, "image/")
+		case domain.RemovalProofKindEither:
+			typeOK = (proofType == "video" && strings.HasPrefix(mimeType, "video/")) || (proofType == "photo" && strings.HasPrefix(mimeType, "image/"))
+		default:
+			typeOK = proofType == "video" && strings.HasPrefix(mimeType, "video/")
+		}
+		valid[proofID] = uploadState == "completed" && typeOK && captureSource == "in_app_camera"
 	}
 	if err := rows.Err(); err != nil {
 		return err

@@ -32501,22 +32501,29 @@ components:
                   maximum: 5
     WeighingRemovalProofSlot:
       type: object
+      description: >-
+        One capture the removal card asks for. The slot LIST is authored on the weighing SOP
+        (second 2026-09-15 decision): a slot may be added, removed, re-worded, be a live-camera
+        video, a photo or either, and be compulsory or optional. The seed's two slots are
+        feed_video and water_video.
       additionalProperties: false
       required:
         - key
         - title
         - kind
+        - required
       properties:
         key:
           type: string
-          enum: [feed_video, water_video]
         title:
           type: string
         hint:
           type: string
         kind:
           type: string
-          enum: [video]
+          enum: [video, photo, either]
+        required:
+          type: boolean
     WeighingSOPQuestion:
       type: object
       description: >-
@@ -33642,6 +33649,13 @@ components:
           type: object
           additionalProperties: true
           description: Answers already recorded on this shed (a submitted or rework card), keyed by question id.
+        proof_refs:
+          type: object
+          additionalProperties:
+            type: string
+          description: >-
+            {slot key: proof ref} already recorded on this shed, so a read-only card renders every
+            capture; feed_proof_ref / water_proof_ref mirror the seeded feed_video / water_video slots.
     WeighingFastingShedCardListResponse:
       type: object
       additionalProperties: false
@@ -33659,20 +33673,28 @@ components:
     SubmitWeighingFastingShedRequest:
       type: object
       additionalProperties: false
-      required:
-        - feed_proof_ref
-        - water_proof_ref
       properties:
+        proofs:
+          type: object
+          additionalProperties:
+            type: string
+            format: uuid
+          description: >-
+            {slot key: proof ref} for the card's captures (WeighingFastingShedCard.proofs).
+            Judged by the task's PINNED SOP version: a compulsory slot left empty, a slot the
+            version does not ask for, or one capture in two slots -> 422
+            fasting_proof_slot_invalid naming the slot; a capture of the wrong kind for its slot
+            (a photo in a video slot), not completed, not from the app camera, reused by a
+            sibling shed, or a rejected clip re-sent -> 422 fasting_proof_invalid /
+            409 weighing_rejected_proof_reuse. Either this or the legacy pair below.
         feed_proof_ref:
           type: string
           format: uuid
-          description: Completed live-camera VIDEO of THIS shed's feed being removed.
+          description: "LEGACY (older phones): maps onto the feed_video slot when `proofs` is absent."
         water_proof_ref:
           type: string
           format: uuid
-          description: >-
-            Completed live-camera VIDEO of THIS shed's water being removed. The two
-            clips must be distinct and unused by any sibling shed of the round.
+          description: "LEGACY (older phones): maps onto the water_video slot when `proofs` is absent."
         answers:
           type: object
           additionalProperties: true

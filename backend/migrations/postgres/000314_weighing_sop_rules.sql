@@ -72,8 +72,8 @@ jsonb_build_object(
     "mode": "required",
     "instruction": "Remove feed and water from every selected pen the evening before the weighing. Film the feed being removed and the water being removed as two separate live-camera videos per pen and submit each pen before midnight.",
     "proofs": [
-      {"key": "feed_video", "title": "Feed removed", "hint": "Live-camera video of this pen's feed being taken away.", "kind": "video"},
-      {"key": "water_video", "title": "Water removed", "hint": "Live-camera video of this pen's water being taken away.", "kind": "video"}
+      {"key": "feed_video", "title": "Feed removed", "hint": "Live-camera video of this pen's feed being taken away.", "kind": "video", "required": true},
+      {"key": "water_video", "title": "Water removed", "hint": "Live-camera video of this pen's water being taken away.", "kind": "video", "required": true}
     ],
     "questions": []
   },
@@ -110,8 +110,8 @@ SET form_dsl = v.form_dsl || jsonb_build_object('weighing', $seed${
     "mode": "required",
     "instruction": "Remove feed and water from every selected pen the evening before the weighing. Film the feed being removed and the water being removed as two separate live-camera videos per pen and submit each pen before midnight.",
     "proofs": [
-      {"key": "feed_video", "title": "Feed removed", "hint": "Live-camera video of this pen's feed being taken away.", "kind": "video"},
-      {"key": "water_video", "title": "Water removed", "hint": "Live-camera video of this pen's water being taken away.", "kind": "video"}
+      {"key": "feed_video", "title": "Feed removed", "hint": "Live-camera video of this pen's feed being taken away.", "kind": "video", "required": true},
+      {"key": "water_video", "title": "Water removed", "hint": "Live-camera video of this pen's water being taken away.", "kind": "video", "required": true}
     ],
     "questions": []
   },

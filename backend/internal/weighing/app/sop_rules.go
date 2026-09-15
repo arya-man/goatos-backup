@@ -136,7 +136,7 @@ func (s *Service) removalCardCopy(ctx context.Context, tenantID string, cards []
 			byVersion[cards[i].SOPVersion] = rules
 		}
 		cards[i].Instruction = rules.FeedWaterRemoval.Instruction
-		cards[i].Proofs = []domain.RemovalProofSlot{rules.RemovalProof(domain.RemovalProofFeed), rules.RemovalProof(domain.RemovalProofWater)}
+		cards[i].Proofs = rules.RemovalProofs()
 		cards[i].Questions = rules.FeedWaterRemoval.Questions
 		if cards[i].Questions == nil {
 			cards[i].Questions = []domain.SOPQuestion{}

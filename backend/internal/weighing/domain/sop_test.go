@@ -21,8 +21,11 @@ func TestSeededWeighingSOPIsThePreSOPBehaviour(t *testing.T) {
 	if !r.RemovalApplies(nil) || !r.RemovalApplies(boolPtr(false)) {
 		t.Fatal("under required the planner cannot opt out")
 	}
-	if len(r.FeedWaterRemoval.Proofs) != 2 || r.RemovalProof(RemovalProofFeed).Title == "" || r.RemovalProof(RemovalProofWater).Title == "" {
-		t.Fatalf("seeded proofs = %+v, want the feed and water clips with titles", r.FeedWaterRemoval.Proofs)
+	feed, okFeed := r.RemovalProof(RemovalProofFeed)
+	water, okWater := r.RemovalProof(RemovalProofWater)
+	if len(r.FeedWaterRemoval.Proofs) != 2 || !okFeed || !okWater || feed.Title == "" || water.Title == "" ||
+		feed.Kind != RemovalProofKindVideo || water.Kind != RemovalProofKindVideo || !feed.Required || !water.Required {
+		t.Fatalf("seeded proofs = %+v, want the feed and water clips: video, compulsory, titled", r.FeedWaterRemoval.Proofs)
 	}
 	if len(r.FeedWaterRemoval.Questions) != 0 {
 		t.Fatal("the seed asks no removal questions")
@@ -52,11 +55,15 @@ func TestValidateWeighingSOPRefusesTheLockedRules(t *testing.T) {
 		{"lump-sum min zero", func(d *WeighingSOP) { d.Capture.LumpSum.VideoMin = 0 }, "video_min: at least 1"},
 		{"lump-sum min over max", func(d *WeighingSOP) { d.Capture.LumpSum.VideoMin = 4; d.Capture.LumpSum.VideoMax = 3 }, "must not exceed video_max"},
 		{"unknown removal mode", func(d *WeighingSOP) { d.FeedWaterRemoval.Mode = "sometimes" }, "mode: \"sometimes\""},
-		{"water slot missing", func(d *WeighingSOP) { d.FeedWaterRemoval.Proofs = d.FeedWaterRemoval.Proofs[:1] }, "\"water_video\" must be present"},
-		{"a third slot", func(d *WeighingSOP) {
-			d.FeedWaterRemoval.Proofs = append(d.FeedWaterRemoval.Proofs, RemovalProofSlot{Key: "gate_video", Title: "Gate", Kind: "video"})
-		}, "carries exactly feed_video and water_video"},
-		{"photo slot", func(d *WeighingSOP) { d.FeedWaterRemoval.Proofs[0].Kind = "photo" }, "removal proof is a live-camera video"},
+		{"no compulsory capture", func(d *WeighingSOP) {
+			d.FeedWaterRemoval.Proofs = []RemovalProofSlot{{Key: "gate_photo", Title: "Gate", Kind: "photo", Required: false}}
+		}, "at least one compulsory capture"},
+		{"unknown capture kind", func(d *WeighingSOP) { d.FeedWaterRemoval.Proofs[0].Kind = "audio" }, "is not video / photo / either"},
+		{"duplicate slot key", func(d *WeighingSOP) {
+			d.FeedWaterRemoval.Proofs = append(d.FeedWaterRemoval.Proofs, RemovalProofSlot{Key: "feed_video", Title: "Again", Kind: "photo"})
+		}, "is listed twice"},
+		{"bad slot key", func(d *WeighingSOP) { d.FeedWaterRemoval.Proofs[0].Key = "Feed Video" }, "must be a-z, 0-9 and _"},
+		{"untitled slot", func(d *WeighingSOP) { d.FeedWaterRemoval.Proofs[1].Title = "" }, "title: required"},
 		{"no capture mode", func(d *WeighingSOP) { d.Planning.Modes = nil }, "at least one capture mode"},
 		{"unknown capture mode", func(d *WeighingSOP) { d.Planning.Modes = []string{"by_truck"} }, "is not a capture mode"},
 		{"cap zero", func(d *WeighingSOP) { d.Planning.DefaultCapPerDay = 0 }, "default_cap_per_day: 1..10000"},
@@ -183,3 +190,53 @@ func TestValidateRemovalAnswersJudgesByTheDocument(t *testing.T) {
 
 func boolPtr(b bool) *bool { return &b }
 func f(v float64) *float64 { return &v }
+
+// The slot list is the author's: a photo beside the videos, a video swapped for a photo, a slot
+// dropped, an optional slot -- each validates, and a submit is judged by it. Mutation-tested by
+// making ValidateRemovalProofRefs skip the Required check (the missing-compulsory case goes red).
+func TestAuthoredProofSlotsShapeTheSubmit(t *testing.T) {
+	r := SeededRules()
+	r.FeedWaterRemoval.Proofs = []RemovalProofSlot{
+		{Key: "feed_video", Title: "Feed removed", Kind: RemovalProofKindVideo, Required: true},
+		{Key: "water_photo", Title: "Empty water trough", Kind: RemovalProofKindPhoto, Required: true},
+		{Key: "gate", Title: "Gate closed", Kind: RemovalProofKindEither, Required: false},
+	}
+	if problems := ValidateWeighingSOP(r.WeighingSOP); len(problems) != 0 {
+		t.Fatalf("a video + photo + optional either document must validate, got %v", problems)
+	}
+	proofErr := func(err error) *ProofError {
+		var pe *ProofError
+		if !errors.Is(err, ErrSOPProofInvalid) || !errors.As(err, &pe) {
+			t.Fatalf("err = %v, want an ErrSOPProofInvalid naming the slot", err)
+		}
+		return pe
+	}
+	const a, b, c = "00000000-0000-4000-8000-00000000000a", "00000000-0000-4000-8000-00000000000b", "00000000-0000-4000-8000-00000000000c"
+	if pe := proofErr(mustErr(r.ValidateRemovalProofRefs(RemovalProofRefs{"feed_video": a}))); pe.SlotKey != "water_photo" {
+		t.Fatalf("missing compulsory photo -> %v, want water_photo", pe)
+	}
+	if pe := proofErr(mustErr(r.ValidateRemovalProofRefs(RemovalProofRefs{"feed_video": a, "water_photo": b, "roof": c}))); pe.SlotKey != "roof" {
+		t.Fatalf("unknown slot -> %v, want roof", pe)
+	}
+	if pe := proofErr(mustErr(r.ValidateRemovalProofRefs(RemovalProofRefs{"feed_video": a, "water_photo": a}))); pe.SlotKey != "water_photo" {
+		t.Fatalf("one capture in two slots -> %v, want water_photo", pe)
+	}
+	ordered, err := r.ValidateRemovalProofRefs(RemovalProofRefs{"gate": c, "feed_video": a, "water_photo": b})
+	if err != nil || len(ordered) != 3 || ordered[0] != a || ordered[1] != b || ordered[2] != c {
+		t.Fatalf("ordered refs = %v err %v, want [a b c] in SLOT order", ordered, err)
+	}
+	// The optional slot may be left empty; blanks are dropped on normalize.
+	ordered, err = r.ValidateRemovalProofRefs(RemovalProofRefs{"feed_video": a, "water_photo": b, "gate": " "})
+	if err != nil || len(ordered) != 2 {
+		t.Fatalf("optional slot empty -> %v err %v, want two refs", ordered, err)
+	}
+	if n := NormalizeRemovalProofRefs(RemovalProofRefs{"feed_video": a, "gate": ""}); len(n) != 1 {
+		t.Fatalf("normalize = %v, want the one real capture", n)
+	}
+	// Kind acceptance, per slot.
+	if !r.FeedWaterRemoval.Proofs[2].Accepts("photo") || !r.FeedWaterRemoval.Proofs[2].Accepts("video") || r.FeedWaterRemoval.Proofs[1].Accepts("video") || r.FeedWaterRemoval.Proofs[0].Accepts("photo") {
+		t.Fatal("either accepts both; a photo slot refuses video; a video slot refuses photo")
+	}
+}
+
+func mustErr(_ []string, err error) error { return err }

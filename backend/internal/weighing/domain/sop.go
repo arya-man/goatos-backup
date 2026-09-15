@@ -57,14 +57,22 @@ const (
 	RemovalModeOff = "off"
 )
 
-// The two removal proof slots. Their KEYS are fixed: the evidence table carries exactly these
-// two clips, the verifier item is built from them and the midnight gate counts them. Title and
-// hint are the author's.
+// The seeded removal proof slots. Since 2026-09-15 (second decision the same day) the slot
+// LIST is the author's: a slot may be added, removed, re-worded, switched between video / photo /
+// either, or made optional. These two keys are only the seed's -- and the legacy wire fields
+// `feed_proof_ref` / `water_proof_ref` map onto them when an older phone submits.
 const (
 	RemovalProofFeed  = "feed_video"
 	RemovalProofWater = "water_video"
-	RemovalProofKind  = "video"
+
+	RemovalProofKindVideo  = "video"
+	RemovalProofKindPhoto  = "photo"
+	RemovalProofKindEither = "either"
 )
+
+// MaxRemovalProofSlots bounds the removal card: a card asking for more captures than this is
+// not an evening's work.
+const MaxRemovalProofSlots = 8
 
 // Removal-card question kinds. The phone renders each with its own widget; there is no media
 // kind here because the two proof slots ARE the card's media.
@@ -103,12 +111,26 @@ type RemovalRules struct {
 	Questions []SOPQuestion `json:"questions"`
 }
 
-// RemovalProofSlot is one of the two clips a pen card owes.
+// RemovalProofSlot is one capture a pen card asks for: a live-camera VIDEO, a PHOTO, or EITHER,
+// compulsory or not. One capture per slot; a card wanting two captures asks two slots.
 type RemovalProofSlot struct {
 	Key   string `json:"key"`
 	Title string `json:"title"`
 	Hint  string `json:"hint,omitempty"`
 	Kind  string `json:"kind"`
+	// Required: the pen cannot be submitted without this capture. At least one slot of a
+	// document is required, so a removal is always proven by something the verifier can see.
+	Required bool `json:"required"`
+}
+
+// Accepts reports whether a slot takes a capture of the given proof type (video / photo).
+func (p RemovalProofSlot) Accepts(proofType string) bool {
+	switch p.Kind {
+	case RemovalProofKindEither:
+		return proofType == RemovalProofKindVideo || proofType == RemovalProofKindPhoto
+	default:
+		return proofType == p.Kind
+	}
 }
 
 // SOPQuestion is one authored question. Wire-shaped the same way the procurement inspection's
@@ -256,12 +278,14 @@ func ValidateWeighingSOP(dsl WeighingSOP) []string {
 		add("weighing.feed_water_removal.instruction: too long")
 	}
 	seenSlot := map[string]bool{}
+	requiredSlots := 0
+	if len(dsl.FeedWaterRemoval.Proofs) > MaxRemovalProofSlots {
+		add("weighing.feed_water_removal.proofs: at most %d captures per pen", MaxRemovalProofSlots)
+	}
 	for i, p := range dsl.FeedWaterRemoval.Proofs {
 		pp := fmt.Sprintf("weighing.feed_water_removal.proofs.%d", i)
-		switch p.Key {
-		case RemovalProofFeed, RemovalProofWater:
-		default:
-			add("%s.key: %q -- the removal card carries exactly %s and %s", pp, p.Key, RemovalProofFeed, RemovalProofWater)
+		if !sopIDPattern.MatchString(p.Key) {
+			add("%s.key: %q must be a-z, 0-9 and _ (start with a letter)", pp, p.Key)
 		}
 		if seenSlot[p.Key] {
 			add("%s.key: %q is listed twice", pp, p.Key)
@@ -270,14 +294,17 @@ func ValidateWeighingSOP(dsl WeighingSOP) []string {
 		if strings.TrimSpace(p.Title) == "" {
 			add("%s.title: required", pp)
 		}
-		if p.Kind != RemovalProofKind {
-			add("%s.kind: %q -- removal proof is a live-camera video", pp, p.Kind)
+		switch p.Kind {
+		case RemovalProofKindVideo, RemovalProofKindPhoto, RemovalProofKindEither:
+		default:
+			add("%s.kind: %q is not video / photo / either", pp, p.Kind)
+		}
+		if p.Required {
+			requiredSlots++
 		}
 	}
-	for _, key := range []string{RemovalProofFeed, RemovalProofWater} {
-		if !seenSlot[key] {
-			add("weighing.feed_water_removal.proofs: %q must be present (the pen card owes it and the verifier reviews it)", key)
-		}
+	if dsl.FeedWaterRemoval.Mode != RemovalModeOff && requiredSlots == 0 {
+		add("weighing.feed_water_removal.proofs: at least one compulsory capture -- a removal must be proven by something the verifier can see")
 	}
 	if len(dsl.FeedWaterRemoval.Questions) > maxRemovalQuestions {
 		add("weighing.feed_water_removal.questions: at most %d", maxRemovalQuestions)
@@ -396,21 +423,87 @@ func (r Rules) RemovalApplies(requested *bool) bool {
 	}
 }
 
-// RemovalProof returns the slot's authored copy, falling back to the seeded copy for a slot
-// the document does not name (validation refuses that, so this is belt and braces for a
-// version stored before the section existed).
-func (r Rules) RemovalProof(key string) RemovalProofSlot {
+// RemovalProof returns the slot with the given key, if the document asks for it.
+func (r Rules) RemovalProof(key string) (RemovalProofSlot, bool) {
 	for _, p := range r.FeedWaterRemoval.Proofs {
 		if p.Key == key {
-			return p
+			return p, true
 		}
 	}
-	for _, p := range SeededRules().FeedWaterRemoval.Proofs {
-		if p.Key == key {
-			return p
+	return RemovalProofSlot{}, false
+}
+
+// RemovalProofs is the ordered slot list; never nil.
+func (r Rules) RemovalProofs() []RemovalProofSlot {
+	if r.FeedWaterRemoval.Proofs == nil {
+		return []RemovalProofSlot{}
+	}
+	return r.FeedWaterRemoval.Proofs
+}
+
+// RemovalProofRefs is {slot key: proof artifact ref} as a pen submit carries it. A blank ref is
+// "not captured"; the map is stored on the evidence row and is what the verifier item is built
+// from, in slot order.
+type RemovalProofRefs map[string]string
+
+// ProofError names the slot a submit failed on, for the phone to point at.
+type ProofError struct {
+	SlotKey string
+	Message string
+}
+
+func (e *ProofError) Error() string { return e.SlotKey + ": " + e.Message }
+
+// ErrSOPProofInvalid wraps every ProofError so callers can errors.Is it.
+var ErrSOPProofInvalid = errors.New("weighing: sop proof invalid")
+
+func proofInvalid(key, msg string) error {
+	return fmt.Errorf("%w: %w", ErrSOPProofInvalid, &ProofError{SlotKey: key, Message: msg})
+}
+
+// ValidateRemovalProofRefs checks a pen submit's captures against THESE rules: every compulsory
+// slot carries a ref, no ref lands in a slot the document does not ask for, and no ref is used
+// in two slots (one capture cannot prove two things). The refs' TYPES are checked by the store
+// against the proof register (a photo in a video slot is refused there). Returns the refs in
+// slot order for the verifier item.
+func (r Rules) ValidateRemovalProofRefs(refs RemovalProofRefs) ([]string, error) {
+	known := map[string]bool{}
+	for _, p := range r.RemovalProofs() {
+		known[p.Key] = true
+	}
+	for key := range refs {
+		if !known[key] {
+			return nil, proofInvalid(key, "This capture is not part of the removal card.")
 		}
 	}
-	return RemovalProofSlot{Key: key, Title: key, Kind: RemovalProofKind}
+	seen := map[string]string{}
+	ordered := make([]string, 0, len(refs))
+	for _, p := range r.RemovalProofs() {
+		ref := strings.TrimSpace(refs[p.Key])
+		if ref == "" {
+			if p.Required {
+				return nil, proofInvalid(p.Key, "Record: "+p.Title)
+			}
+			continue
+		}
+		if other, dup := seen[ref]; dup {
+			return nil, proofInvalid(p.Key, "The same capture cannot prove both "+other+" and "+p.Title+".")
+		}
+		seen[ref] = p.Title
+		ordered = append(ordered, ref)
+	}
+	return ordered, nil
+}
+
+// NormalizeRemovalProofRefs drops blank entries so the stored map holds only real captures.
+func NormalizeRemovalProofRefs(refs RemovalProofRefs) RemovalProofRefs {
+	out := RemovalProofRefs{}
+	for k, v := range refs {
+		if strings.TrimSpace(v) != "" {
+			out[k] = strings.TrimSpace(v)
+		}
+	}
+	return out
 }
 
 // --- Removal-card answers -----------------------------------------------------------------
