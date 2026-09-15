@@ -121,7 +121,10 @@ SELECT cs.campaign_shed_id::text,
        COALESCE(sp.rework_reason, ''),
        COALESCE(sp.row_version, 0),
        COALESCE(sp.sop_answers, '{}'::jsonb),
-       COALESCE(sp.sop_proofs, '{}'::jsonb)
+       COALESCE(sp.sop_proofs, '{}'::jsonb),
+       COALESCE((SELECT jsonb_object_agg(e.value, pa.proof_type)
+                 FROM jsonb_each_text(COALESCE(sp.sop_proofs, '{}'::jsonb)) e
+                 JOIN proof_artifacts pa ON pa.tenant_id = sp.tenant_id AND pa.proof_id = e.value::uuid), '{}'::jsonb)
 FROM weighing_campaign_sheds cs
 LEFT JOIN weighing_fasting_shed_proofs sp
   ON sp.tenant_id = cs.tenant_id AND sp.campaign_shed_id = cs.campaign_shed_id
@@ -144,7 +147,10 @@ SELECT ft.fasting_task_id::text,
        COALESCE(sp.rework_reason, ''),
        COALESCE(sp.row_version, 0),
        COALESCE(sp.sop_answers, '{}'::jsonb),
-       COALESCE(sp.sop_proofs, '{}'::jsonb)
+       COALESCE(sp.sop_proofs, '{}'::jsonb),
+       COALESCE((SELECT jsonb_object_agg(e.value, pa.proof_type)
+                 FROM jsonb_each_text(COALESCE(sp.sop_proofs, '{}'::jsonb)) e
+                 JOIN proof_artifacts pa ON pa.tenant_id = sp.tenant_id AND pa.proof_id = e.value::uuid), '{}'::jsonb)
 FROM weighing_fasting_tasks ft
 JOIN weighing_campaign_sheds cs
   ON cs.tenant_id = ft.tenant_id AND cs.campaign_id = ft.campaign_id AND cs.status <> 'canceled'
@@ -408,11 +414,14 @@ func (r *Repository) attachFastingSheds(ctx context.Context, items []domain.Fast
 		var displayName, partitionLabel string
 		if err := rows.Scan(&taskID, &shed.CampaignShedID, &displayName, &partitionLabel, &shed.ShedLocationID,
 			&shed.FastingShedID, &shed.Status, &shed.FeedProofRef, &shed.WaterProofRef,
-			&shed.ReworkReason, &shed.RowVersion, &shed.Answers, &shed.Proofs); err != nil {
+			&shed.ReworkReason, &shed.RowVersion, &shed.Answers, &shed.Proofs, &shed.ProofKinds); err != nil {
 			return err
 		}
 		if len(shed.Answers) == 0 {
 			shed.Answers = nil
+		}
+		if len(shed.ProofKinds) == 0 {
+			shed.ProofKinds = nil
 		}
 		shed.ShedLabel = oploc.OperationalLocation{ShedName: displayName, PartitionLabel: partitionLabel}.Display()
 		idx, ok := byTask[taskID]
@@ -464,8 +473,11 @@ func scanFastingShedRows(rows pgx.Rows) ([]domain.FastingShedProof, error) {
 		var displayName, partitionLabel string
 		if err := rows.Scan(&shed.CampaignShedID, &displayName, &partitionLabel, &shed.ShedLocationID,
 			&shed.FastingShedID, &shed.Status, &shed.FeedProofRef, &shed.WaterProofRef,
-			&shed.ReworkReason, &shed.RowVersion, &shed.Answers, &shed.Proofs); err != nil {
+			&shed.ReworkReason, &shed.RowVersion, &shed.Answers, &shed.Proofs, &shed.ProofKinds); err != nil {
 			return nil, err
+		}
+		if len(shed.ProofKinds) == 0 {
+			shed.ProofKinds = nil
 		}
 		if len(shed.Answers) == 0 {
 			shed.Answers = nil

@@ -129,7 +129,13 @@ func (r *Repository) CreateCampaign(ctx context.Context, cmd domain.CreateCampai
 		return domain.Campaign{}, err
 	}
 	defer tx.Rollback(ctx)
-	requestFingerprint := idempotencyFingerprint(cmd)
+	// The replay identity is the client's request as the service fingerprinted it BEFORE the
+	// SOP rules stamped the command (domain.CreateCampaign.RequestFingerprint); the fallback
+	// keeps older callers that pass none on the command they hand over.
+	requestFingerprint := cmd.RequestFingerprint
+	if requestFingerprint == "" {
+		requestFingerprint = idempotencyFingerprint(cmd)
+	}
 	if existing, ok, err := r.campaignByIdempotencyMatchOnly(ctx, tx, cmd.TenantID, "weighing.campaign_created", cmd.IdempotencyKey, requestFingerprint); err != nil || ok {
 		return existing, err
 	}

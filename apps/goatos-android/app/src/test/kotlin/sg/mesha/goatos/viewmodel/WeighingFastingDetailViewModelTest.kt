@@ -633,4 +633,59 @@ class WeighingFastingDetailViewModelSlotsTest {
         assertTrue("water is not one of this document's slots", submit.waterProofOutboxItemId.isEmpty())
         assertTrue(submit.idempotencyKey.startsWith("weighing-fasting-submit:task-1:shed-b:feed_video=") && submit.idempotencyKey.contains("|trough_photo="))
     }
+
+    @org.junit.Test
+    fun `a corrected answer over the same captures is a new submission, not a conflicting replay`() {
+        val vm = WeighingFastingDetailViewModel(
+            fastingRepository = FakeWeighingFastingRepository(),
+            proofCaptureRepository = FakeProofCaptureRepository(),
+            proofCaptureSource = FakeProofCaptureSource(mutableListOf()),
+            photoCaptureSource = sg.mesha.goatos.capture.FakePhotoCaptureSource(mutableListOf()),
+            syncRepository = RecordingFastingSyncRepository(),
+            analytics = NoopAnalytics(),
+            crashReporter = NoopCrashReporter(),
+            appContext = ApplicationProvider.getApplicationContext(),
+            savedStateHandle = SavedStateHandle(mapOf(Routes.WEIGHING_FASTING_TASK_ARG to "task-1", Routes.WEIGHING_FASTING_SHED_ARG to "shed-b")),
+        )
+        val proofs = mapOf("feed_video" to "item-f", "water_video" to "item-w")
+        val sixty = kotlinx.serialization.json.buildJsonObject { put("water_buckets_removed", kotlinx.serialization.json.JsonPrimitive(60)) }
+        val twelve = kotlinx.serialization.json.buildJsonObject { put("water_buckets_removed", kotlinx.serialization.json.JsonPrimitive(12)) }
+        // No answers keeps the pre-SOP key shape, so a queued draft replays under its own key.
+        assertEquals("weighing-fasting-submit:task-1:shed-b:item-f|item-w", vm.submitIdempotencyKey(proofs))
+        val refused = vm.submitIdempotencyKey(proofs, sixty)
+        val corrected = vm.submitIdempotencyKey(proofs, twelve)
+        assertTrue(refused != corrected)
+        assertEquals("the same answers replay under the same key", refused, vm.submitIdempotencyKey(proofs, sixty))
+        assertTrue(refused.startsWith("weighing-fasting-submit:task-1:shed-b:item-f|item-w:a="))
+    }
+
+    @org.junit.Test
+    fun `a card reopened with no local state renders an either-slot photo as a photo`() = kotlinx.coroutines.test.runTest(dispatcher) {
+        val fastingRepository = FakeWeighingFastingRepository()
+        val vm = WeighingFastingDetailViewModel(
+            fastingRepository = fastingRepository,
+            proofCaptureRepository = FakeProofCaptureRepository(),
+            proofCaptureSource = FakeProofCaptureSource(mutableListOf()),
+            photoCaptureSource = sg.mesha.goatos.capture.FakePhotoCaptureSource(mutableListOf()),
+            syncRepository = RecordingFastingSyncRepository(),
+            analytics = NoopAnalytics(),
+            crashReporter = NoopCrashReporter(),
+            appContext = ApplicationProvider.getApplicationContext(),
+            // A fresh SavedStateHandle: no locally remembered capture kind for any slot.
+            savedStateHandle = SavedStateHandle(mapOf(Routes.WEIGHING_FASTING_TASK_ARG to "task-1", Routes.WEIGHING_FASTING_SHED_ARG to "shed-b")),
+        )
+        fastingRepository.cardFlow.value = WeighingFastingCard(
+            WeighingFastingShedCardDto(
+                fastingTaskId = "task-1", campaignShedId = "shed-b", shedLabel = "Castro 2",
+                subjectLabel = "Remove feed & water · Castro 2", status = "pending_verification", removalBusinessDate = "2026-09-03",
+                proofs = listOf(slot("feed_video", "video", true, "Feed removed"), slot("gate", "either", false, "Gate closed")),
+                proofRefs = mapOf("feed_video" to "ref-feed", "gate" to "ref-gate"),
+                proofKinds = mapOf("feed_video" to "video", "gate" to "photo"),
+            ),
+        )
+        advanceUntilIdle()
+        val gate = vm.state.value.slots.first { it.slotKey == "gate" }
+        assertEquals("the server's recorded kind picks the player, not the video default", "photo", gate.capturedKind)
+        assertEquals("video", vm.state.value.slots.first { it.slotKey == "feed_video" }.capturedKind)
+    }
 }

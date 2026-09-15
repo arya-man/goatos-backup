@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 	"time"
 
@@ -107,5 +108,94 @@ func TestSOPPinAndRemovalAnswersRoundTripThroughPostgres(t *testing.T) {
 	replay, err := repo.SubmitFastingShed(ctx, cmd)
 	if err != nil || !replay.Replayed {
 		t.Fatalf("exact replay = replayed:%v err %v", replay.Replayed, err)
+	}
+}
+
+// PR #274 review, finding 2: a create succeeds but its response is lost; a later publish moves
+// the stamps (version, default cap); the identical client request is retried. The replay
+// identity is the CLIENT's fingerprint the service fixed before the rules, so the retry returns
+// the task it created rather than 409.
+func TestCreateCampaignReplaysAfterALaterPublishMovedTheStamps(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedWeighingObservationFixture(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+
+	client := domain.CreateCampaign{
+		TenantID: repoTenant, ParkID: repoPark,
+		PeriodStartDate: "2026-11-02", PeriodEndDate: "2026-11-08", StartBusinessDate: "2026-11-04",
+		OperatorUserID: repoOperator, CreatedBy: repoOperator, IdempotencyKey: "sop-replay-after-publish",
+		Sheds: []domain.CreateCampaignShed{{LocationID: lcpShedOne, LocationType: "shed", DisplayName: "CBE Godel 1 - Part 8", WeighingCategory: domain.CategoryPerShedPartition}},
+	}
+	fingerprint := domain.RequestFingerprint(client)
+
+	first := client
+	first.RequestFingerprint, first.SOPVersion, first.PlannedCapPerDay = fingerprint, 3, 100
+	created, err := repo.CreateCampaign(ctx, first)
+	if err != nil {
+		t.Fatalf("first create: %v", err)
+	}
+	retry := client
+	retry.RequestFingerprint, retry.SOPVersion, retry.PlannedCapPerDay = fingerprint, 4, 250
+	replayed, err := repo.CreateCampaign(ctx, retry)
+	if err != nil {
+		t.Fatalf("retry after a later publish: err = %v, want the created task replayed", err)
+	}
+	if replayed.CampaignID != created.CampaignID || replayed.SOPVersion != 3 || replayed.PlannedCapPerDay != 100 {
+		t.Fatalf("replay = %s v%d cap %d, want the FIRST task %s v3 cap 100", replayed.CampaignID, replayed.SOPVersion, replayed.PlannedCapPerDay, created.CampaignID)
+	}
+	changed := client
+	changed.PeriodEndDate = "2026-11-09"
+	changed.RequestFingerprint, changed.SOPVersion, changed.PlannedCapPerDay = domain.RequestFingerprint(changed), 4, 250
+	if _, err := repo.CreateCampaign(ctx, changed); !errors.Is(err, ports.ErrIdempotencyConflict) {
+		t.Fatalf("a DIFFERENT request on the same key: err = %v, want idempotency conflict", err)
+	}
+}
+
+// PR #274 review, findings 3 and 4: the kind the register judged an `either` capture to be
+// rides every read -- the fresh submit, an exact replay (a retried verification enqueue) and
+// the card list (the phone reopening the card with no local state) -- as {ref: kind} on the
+// evidence and {slot key: kind} on the card.
+func TestEitherSlotCapturedKindRidesEveryRead(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	fastingID := seedFastingFixture(t, ctx, pool, "2026-09-04")
+	repo := NewRepository(pool, 5*time.Second)
+	const gatePhoto = "00000000-0000-4000-8000-0000000000e1"
+	execWeighingTestSQL(t, ctx, pool, `
+INSERT INTO proof_artifacts (proof_id, tenant_id, storage_provider, object_key, mime_type, upload_state, scope_type, scope_id, subject_type, subject_id, proof_type, uploaded_by, uploaded_at, metadata)
+VALUES ($1::uuid, $2::uuid, 'local', 'weighing-fasting-test/' || $1, 'image/jpeg', 'completed', 'park', $3::uuid, 'shed', $3::uuid, 'photo', $4::uuid, now(), '{"capture_source":"in_app_camera"}'::jsonb)
+ON CONFLICT (proof_id) DO NOTHING`, gatePhoto, repoTenant, repoPark, fastingOperator)
+
+	cmd := fastingSubmitShedA(fastingID, "either-kind-1")
+	cmd.Proofs = domain.RemovalProofRefs{"feed_video": fastingFeedProof, "water_video": fastingWaterProof, "gate": gatePhoto}
+	cmd.SlotKinds = map[string]string{"feed_video": domain.RemovalProofKindVideo, "water_video": domain.RemovalProofKindVideo, "gate": domain.RemovalProofKindEither}
+	cmd.OrderedRefs = []string{fastingFeedProof, fastingWaterProof, gatePhoto}
+	first, err := repo.SubmitFastingShed(ctx, cmd)
+	if err != nil {
+		t.Fatalf("submit: %v", err)
+	}
+	if first.Evidence.ProofKinds[gatePhoto] != "photo" || first.Card.ProofKinds["gate"] != "photo" {
+		t.Fatalf("fresh submit kinds = evidence %v card %v, want the gate as a photo", first.Evidence.ProofKinds, first.Card.ProofKinds)
+	}
+	replay, err := repo.SubmitFastingShed(ctx, cmd)
+	if err != nil || !replay.Replayed {
+		t.Fatalf("replay: err %v replayed %v", err, replay.Replayed)
+	}
+	if replay.Evidence.ProofKinds[gatePhoto] != "photo" {
+		t.Fatalf("replay evidence kinds = %v, want the gate still a photo (a retried enqueue must not fall back to video)", replay.Evidence.ProofKinds)
+	}
+	atOpen := time.Date(2026, 9, 3, 20, 0, 0, 0, biztime.DefaultLocation())
+	page, err := repo.ListFastingShedCardsForOperator(ctx, repoTenant, fastingOperator, atOpen, ports.RemovalCutoffs{Default: eightPMCutoff}, "", 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	card, ok := cardByShed(page.Items, repoAnimalScope)
+	if !ok || card.ProofKinds["gate"] != "photo" || card.ProofKinds["feed_video"] != "video" {
+		t.Fatalf("card list kinds = %v (found %v), want gate photo / feed_video video", card.ProofKinds, ok)
 	}
 }

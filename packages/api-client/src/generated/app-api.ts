@@ -14313,6 +14313,10 @@ export interface components {
             proof_refs?: {
                 [key: string]: string;
             };
+            /** @description {slot key: video | photo} -- the kind the proof register judged each recorded capture to be, which an `either` slot cannot say on its own. The phone picks the player from it when the card is reopened with no local state. */
+            proof_kinds?: {
+                [key: string]: "video" | "photo";
+            };
         };
         WeighingFastingShedCardListResponse: {
             fasting_shed_cards: components["schemas"]["WeighingFastingShedCard"][];

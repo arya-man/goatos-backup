@@ -509,6 +509,12 @@ data class WeighingFastingShedCardDto(
     @SerialName("answers") val answers: JsonObject = JsonObject(emptyMap()),
     /** {slot key: proof ref} already recorded on this shed. */
     @SerialName("proof_refs") val proofRefs: Map<String, String> = emptyMap(),
+    /**
+     * {slot key: video | photo} -- the kind the register judged each recorded capture to be,
+     * which an `either` slot cannot say on its own; picks the player when the card is reopened
+     * with no local state.
+     */
+    @SerialName("proof_kinds") val proofKinds: Map<String, String> = emptyMap(),
 )
 
 /** ONE keyset page of the caller's per-shed removal cards, newest window first. */

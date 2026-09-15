@@ -536,3 +536,43 @@ func TestPlannerCatalogHonoursThePersonResolvedPermissionSet(t *testing.T) {
 		t.Fatalf("rows resolved without weighing.plan must refuse even a planning role: err = %v", err)
 	}
 }
+
+// A retry of an IDENTICAL client request must replay the task it created even after a later
+// publish moved the stamps (version, default cap, dropped operator): the replay identity is the
+// client's request, fixed BEFORE the rules touch the command (PR #274 review, finding 2).
+func TestCreateCampaignReplayIdentityIsTheClientsRequestNotTheStampedCommand(t *testing.T) {
+	ceo := domain.Actor{TenantID: testTenant, UserID: testActor, Roles: []string{permissions.RoleCEOInternal}}
+	no := false
+	raw := validCreate()
+	raw.PlannedCapPerDay = 0 // the SOP default fills this in
+	raw.FastingOperatorUserID = ""
+	raw.FeedWaterRemovalRequested = &no
+
+	v3 := rulesWithMode(3, domain.RemovalModeOptional)
+	v3.Rules.Planning.DefaultCapPerDay = 100
+	first := &capturingRepo{}
+	if _, err := NewService(first).WithClock(todayClock()).WithSOPRules(v3, pinnedVersion(0)).CreateCampaign(context.Background(), ceo, raw); err != nil {
+		t.Fatal(err)
+	}
+	v4 := rulesWithMode(4, domain.RemovalModeOff)
+	v4.Rules.Planning.DefaultCapPerDay = 250
+	retry := &capturingRepo{}
+	if _, err := NewService(retry).WithClock(todayClock()).WithSOPRules(v4, pinnedVersion(0)).CreateCampaign(context.Background(), ceo, raw); err != nil {
+		t.Fatal(err)
+	}
+	if first.created.SOPVersion == retry.created.SOPVersion || first.created.PlannedCapPerDay == retry.created.PlannedCapPerDay {
+		t.Fatalf("test premise: the stamped commands must differ (v%d cap %d vs v%d cap %d)", first.created.SOPVersion, first.created.PlannedCapPerDay, retry.created.SOPVersion, retry.created.PlannedCapPerDay)
+	}
+	if first.created.RequestFingerprint == "" || first.created.RequestFingerprint != retry.created.RequestFingerprint {
+		t.Fatalf("replay identity = %q vs %q, want the SAME client fingerprint on both stamped commands", first.created.RequestFingerprint, retry.created.RequestFingerprint)
+	}
+	changed := raw
+	changed.PlannedCapPerDay = 9
+	other := &capturingRepo{}
+	if _, err := NewService(other).WithClock(todayClock()).WithSOPRules(v4, pinnedVersion(0)).CreateCampaign(context.Background(), ceo, changed); err != nil {
+		t.Fatal(err)
+	}
+	if other.created.RequestFingerprint == first.created.RequestFingerprint {
+		t.Fatal("a DIFFERENT client request must not share the replay identity")
+	}
+}

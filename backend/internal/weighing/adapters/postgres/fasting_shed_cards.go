@@ -51,7 +51,13 @@ SELECT ft.fasting_task_id::text,
        COALESCE(sp.row_version, 0),
        COALESCE(c.sop_version, 0),
        COALESCE(sp.sop_answers, '{}'::jsonb),
-       COALESCE(sp.sop_proofs, '{}'::jsonb)
+       COALESCE(sp.sop_proofs, '{}'::jsonb),
+       -- The kind the register judged each capture to be (video / photo), keyed by ref: an
+       -- either-slot's answer, which the phone needs to pick the player and the verifier
+       -- item names. Proof plumbing is on weighing's allowlist.
+       COALESCE((SELECT jsonb_object_agg(e.value, pa.proof_type)
+                 FROM jsonb_each_text(COALESCE(sp.sop_proofs, '{}'::jsonb)) e
+                 JOIN proof_artifacts pa ON pa.tenant_id = sp.tenant_id AND pa.proof_id = e.value::uuid), '{}'::jsonb)
 FROM weighing_fasting_tasks ft
 JOIN weighing_campaign_sheds cs
   ON cs.tenant_id = ft.tenant_id AND cs.campaign_id = ft.campaign_id AND cs.status <> 'canceled'
@@ -153,9 +159,10 @@ func (r *Repository) ListFastingShedCardsForOperator(ctx context.Context, tenant
 			&displayName, &partitionLabel, &card.ParkName,
 			&card.Status, &card.ReworkReason, &card.FeedProofRef, &card.WaterProofRef,
 			&card.PlannedWeighDate, &card.WeighBusinessDate, &submittedAt, &card.RowVersion,
-			&card.SOPVersion, &card.Answers, &card.ProofRefs); err != nil {
+			&card.SOPVersion, &card.Answers, &card.ProofRefs, &card.ProofKinds); err != nil {
 			return domain.FastingShedCardPage{}, err
 		}
+		card.ProofKinds = domain.SlotKinds(card.ProofRefs, card.ProofKinds)
 		if len(card.Answers) == 0 {
 			card.Answers = nil
 		}
@@ -245,7 +252,10 @@ const fastingSubmitReplayEvidenceSQL = `
 SELECT sp.fasting_shed_id::text, sp.campaign_shed_id::text, sp.shed_label,
        cs.location_id::text, COALESCE(sp.feed_proof_ref::text, ''),
        COALESCE(sp.water_proof_ref::text, ''), sp.status, sp.row_version,
-       COALESCE(sp.sop_proofs, '{}'::jsonb)
+       COALESCE(sp.sop_proofs, '{}'::jsonb),
+       COALESCE((SELECT jsonb_object_agg(e.value, pa.proof_type)
+                 FROM jsonb_each_text(COALESCE(sp.sop_proofs, '{}'::jsonb)) e
+                 JOIN proof_artifacts pa ON pa.tenant_id = sp.tenant_id AND pa.proof_id = e.value::uuid), '{}'::jsonb)
 FROM weighing_fasting_shed_proofs sp
 JOIN weighing_campaign_sheds cs
   ON cs.tenant_id = sp.tenant_id AND cs.campaign_shed_id = sp.campaign_shed_id
@@ -283,7 +293,7 @@ func (r *Repository) SubmitFastingShed(ctx context.Context, cmd domain.SubmitFas
 		err := tx.QueryRow(ctx, fastingSubmitReplayEvidenceSQL,
 			cmd.TenantID, cmd.FastingTaskID, cmd.CampaignShedID).Scan(
 			&shed.FastingShedID, &shed.CampaignShedID, &shed.ShedLabel, &shed.ShedLocationID,
-			&shed.FeedProofRef, &shed.WaterProofRef, &shed.Status, &shed.RowVersion, &shed.Proofs,
+			&shed.FeedProofRef, &shed.WaterProofRef, &shed.Status, &shed.RowVersion, &shed.Proofs, &shed.ProofKinds,
 		)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return domain.FastingShedSubmitResult{Card: replay, Replayed: true}, nil
@@ -445,6 +455,7 @@ func (r *Repository) SubmitFastingShed(ctx context.Context, cmd domain.SubmitFas
 		RowVersion:          rowVersion,
 		Answers:             cmd.Answers,
 		ProofRefs:           proofs,
+		ProofKinds:          domain.SlotKinds(proofs, capturedKinds),
 	}
 	proofRow := domain.FastingShedProof{
 		FastingShedID:  fastingShedID,

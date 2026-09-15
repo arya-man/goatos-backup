@@ -306,6 +306,9 @@ func (s *Service) CreateCampaign(ctx context.Context, actor domain.Actor, cmd do
 	if err := validateCreate(cmd); err != nil {
 		return domain.Campaign{}, err
 	}
+	// The replay identity is the CLIENT's request, fixed here before any rule stamps it: a
+	// retry of an identical request after a later publish must find the task it created.
+	cmd.RequestFingerprint = domain.RequestFingerprint(cmd)
 	// WEIGHING SOP (maintainer decision 2026-09-15): the task is planned on the PUBLISHED
 	// rules and stamped with their version. They decide the capture modes offered, the
 	// default cap and whether this task carries the feed & water removal precondition.

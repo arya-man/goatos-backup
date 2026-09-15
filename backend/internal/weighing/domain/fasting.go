@@ -80,10 +80,9 @@ type FastingShedProof struct {
 	// slot. FeedProofRef / WaterProofRef above mirror the seeded feed_video / water_video slots
 	// for older readers and are blank when the document has no such slot.
 	Proofs RemovalProofRefs `json:"proofs,omitempty"`
-	// ProofKinds is {proof ref: video | photo} as the proof register judged each capture at
-	// submit -- an `either` slot's answer, carried to the verifier item's per-proof kind. Not
-	// stored on the row and not served; a replay that must re-raise the item falls back to the
-	// slot's own kind.
+	// ProofKinds is {proof ref: video | photo} as the proof register judged each capture --
+	// an `either` slot's answer. Read from the register on EVERY path (submit, replay, card
+	// list), so a retried verification enqueue names the same kind the first one did.
 	ProofKinds map[string]string `json:"-"`
 	// ShedLocationID routes the verifier item's shed filter; internal, not wire.
 	ShedLocationID string `json:"-"`
@@ -173,6 +172,10 @@ type FastingShedCard struct {
 	Questions   []SOPQuestion      `json:"questions"`
 	// Answers are the answers already recorded on this shed (a submitted or rework card).
 	Answers SOPAnswers `json:"answers,omitempty"`
+	// ProofKinds is {slot key: video | photo} for every recorded capture -- the kind the
+	// register judged it to be, which an `either` slot cannot say on its own. The phone picks
+	// the player from it when it reopens the card without its own local state.
+	ProofKinds map[string]string `json:"proof_kinds,omitempty"`
 	// ProofRefs is {slot key: proof ref} already recorded on this shed, so a read-only card
 	// renders every capture, not only the two seeded ones.
 	ProofRefs RemovalProofRefs `json:"proof_refs,omitempty"`
@@ -307,4 +310,22 @@ func FastingSubjectLabel(parkName string, shedCount int) string {
 		label += fmt.Sprintf(" · %d sheds", shedCount)
 	}
 	return label
+}
+
+// SlotKinds re-keys the register's {ref: kind} onto the card's {slot key: kind}; a ref the
+// register does not know is left out rather than guessed.
+func SlotKinds(refs RemovalProofRefs, kindsByRef map[string]string) map[string]string {
+	if len(refs) == 0 || len(kindsByRef) == 0 {
+		return nil
+	}
+	out := map[string]string{}
+	for key, ref := range refs {
+		if kind := kindsByRef[ref]; kind != "" {
+			out[key] = kind
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }

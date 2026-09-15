@@ -1,6 +1,9 @@
 package domain
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"github.com/vgoats/goatos/backend/internal/permissions"
 	"strings"
 	"time"
@@ -924,6 +927,13 @@ type CreateCampaign struct {
 	// always sends the operator keeps its behaviour), false switches the precondition off
 	// for THIS task. Under `required` and `off` it is ignored -- the SOP decides.
 	FeedWaterRemovalRequested *bool
+	// RequestFingerprint is the idempotency fingerprint of the CLIENT's request, taken by the
+	// service BEFORE the SOP rules normalize the command (stamp the version, default the cap,
+	// drop a removal operator the rules do not ask for). The store keys replay on it: a retry
+	// of the same request after a later publish must return the task it already created, not
+	// conflict because the server-side stamps moved (PR #274 review, finding 2). Blank means the
+	// store fingerprints the command it receives, as it always did.
+	RequestFingerprint string `json:"-"`
 	// SOPVersion is stamped by the service from the published rules at create; the
 	// repository stores it verbatim and never resolves it.
 	SOPVersion int
@@ -1064,4 +1074,14 @@ type WeighingParkShed struct {
 	ParkID         string `json:"park_id"`
 	// LocationID is the underlying location.
 	LocationID string `json:"location_id"`
+}
+
+// RequestFingerprint hashes a create command as the client sent it. Server-stamped fields are
+// excluded by their json:"-" tags (SOPVersion is not: it is zero on the client's request and
+// zero here, because this runs before the rules stamp it).
+func RequestFingerprint(cmd CreateCampaign) string {
+	cmd.RequestFingerprint = ""
+	raw, _ := json.Marshal(cmd)
+	sum := sha256.Sum256(raw)
+	return hex.EncodeToString(sum[:])
 }

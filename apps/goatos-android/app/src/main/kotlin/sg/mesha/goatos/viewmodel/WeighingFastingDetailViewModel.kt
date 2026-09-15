@@ -190,18 +190,6 @@ class WeighingFastingDetailViewModel @Inject constructor(
                 // The SOP's slot list for this task; an older server sends none and the seeded
                 // two stand.
                 slotDtos = dto.proofs.ifEmpty { seededSlotDtos() }
-                if (readOnly) {
-                    // A submitted/approved card renders its captures from the server (a reinstall
-                    // holds no local file). Enrichment only — fetched async, best effort, retried
-                    // on the next Room emit; the feed-distribution screen's exact behaviour.
-                    val recorded = dto.proofRefs.ifEmpty {
-                        buildMap {
-                            dto.feedProofRef?.takeIf { it.isNotBlank() }?.let { put("feed_video", it) }
-                            dto.waterProofRef?.takeIf { it.isNotBlank() }?.let { put("water_video", it) }
-                        }
-                    }
-                    slotDtos.forEach { slot -> fetchRemotePreview(slot, recorded[slot.key].orEmpty()) }
-                }
                 _state.update { current ->
                     current.copy(
                         title = dto.subjectLabel.ifBlank { current.title },
@@ -229,6 +217,21 @@ class WeighingFastingDetailViewModel @Inject constructor(
                         answers = answers,
                     )
                 }
+                if (readOnly) {
+                    // A submitted/approved card renders its captures from the server (a reinstall
+                    // holds no local file). Enrichment only — fetched async, best effort, retried
+                    // on the next Room emit; the feed-distribution screen's exact behaviour. AFTER
+                    // the slot list above exists: updateSlot maps only slots already in state, so
+                    // on the FIRST emit an earlier call touched nothing and the served kind was
+                    // lost until the next emit (PR #274 review, finding 4).
+                    val recorded = dto.proofRefs.ifEmpty {
+                        buildMap {
+                            dto.feedProofRef?.takeIf { it.isNotBlank() }?.let { put("feed_video", it) }
+                            dto.waterProofRef?.takeIf { it.isNotBlank() }?.let { put("water_video", it) }
+                        }
+                    }
+                    slotDtos.forEach { slot -> fetchRemotePreview(slot, recorded[slot.key].orEmpty(), dto.proofKinds[slot.key]) }
+                }
                 // A read-only card shows the answers the backend recorded, not this device's draft.
                 questionDtos = dto.questions
                 if (readOnly && dto.answers.isNotEmpty()) {
@@ -240,14 +243,24 @@ class WeighingFastingDetailViewModel @Inject constructor(
         }
     }
 
-    private fun fetchRemotePreview(slot: sg.mesha.goatos.core.network.dto.WeighingRemovalProofSlotDto, proofRef: String) {
+    private fun fetchRemotePreview(slot: sg.mesha.goatos.core.network.dto.WeighingRemovalProofSlotDto, proofRef: String, recordedKind: String?) {
         if (proofRef.isBlank()) return
         if (_state.value.slotOf(slot.key).let { it.remoteUrl != null || it.previewPath != null }) return
         updateSlot(slot.key) {
-            // A recorded capture on a photo slot is a photo; an `either` slot's kind is
-            // whatever was captured, which the server does not echo -- render as video only
-            // when the slot cannot be a photo.
-            val kind = if (slot.kind == WeighingFastingCaptureKind.VIDEO) WeighingFastingCaptureKind.VIDEO else WeighingFastingCaptureKind.PHOTO.takeIf { slot.kind == WeighingFastingCaptureKind.PHOTO } ?: slotCapturedKind(slot.key)
+            // A recorded capture on a photo slot is a photo; an `either` slot's kind is whatever
+            // was captured -- the server names it per slot (`proof_kinds`, from the proof
+            // register), so a card reopened with no local state still gets the right player
+            // (PR #274 review, finding 4). The saved-state kind is the fallback for an older
+            // backend that does not echo it.
+            val kind = when {
+                slot.kind == WeighingFastingCaptureKind.VIDEO -> WeighingFastingCaptureKind.VIDEO
+                slot.kind == WeighingFastingCaptureKind.PHOTO -> WeighingFastingCaptureKind.PHOTO
+                recordedKind == WeighingFastingCaptureKind.PHOTO || recordedKind == WeighingFastingCaptureKind.VIDEO -> recordedKind
+                else -> slotCapturedKind(slot.key)
+            }
+            // Remember it where every slot rebuild reads the kind from (emptySlot ->
+            // slotCapturedKind), so a later card emit cannot reset the player to the default.
+            setSlotCapturedKind(slot.key, kind)
             it.copy(
                 captured = true,
                 status = WeighingFastingSlotStatus.SYNCED,
@@ -619,9 +632,12 @@ class WeighingFastingDetailViewModel @Inject constructor(
                     // in order. The proofs are NOT on this group — each rides its own per-slot
                     // upload lane and the dispatcher resolves them by outbox id.
                     groupKey = submitGroupKey(),
-                    // STABLE per (task, shed, capture set): a retry replays for free; a post-rework
-                    // re-shoot names new proofs and is a genuinely new act under a new key.
-                    idempotencyKey = submitIdempotencyKey(proofItems),
+                    // STABLE per (task, shed, capture set, answers): a retry replays for free; a
+                    // post-rework re-shoot names new proofs and is a genuinely new act under a new
+                    // key -- and so is a CORRECTED answer after the backend refused one (PR #274
+                    // review, finding 1): same captures, different payload, must not collide with
+                    // the refused submit's outbox row.
+                    idempotencyKey = submitIdempotencyKey(proofItems, answersPayload),
                     fastingTaskId = fastingTaskId,
                     campaignShedId = campaignShedId,
                     feedProofOutboxItemId = feedItem,
@@ -873,14 +889,24 @@ class WeighingFastingDetailViewModel @Inject constructor(
      * The seeded pair keeps the pre-SOP key shape (`feed|water`) so a queued draft replays under
      * the key it was minted with; any other capture set is keyed by its sorted slot pairs.
      */
-    internal fun submitIdempotencyKey(proofItems: Map<String, String>): String {
+    internal fun submitIdempotencyKey(proofItems: Map<String, String>, answers: JsonObject = JsonObject(emptyMap())): String {
         val seededOnly = proofItems.keys == setOf(WeighingFastingSlotKind.FEED.slotKey, WeighingFastingSlotKind.WATER.slotKey)
         val tail = if (seededOnly) {
             "${proofItems[WeighingFastingSlotKind.FEED.slotKey]}|${proofItems[WeighingFastingSlotKind.WATER.slotKey]}"
         } else {
             proofItems.entries.sortedBy { it.key }.joinToString("|") { "${it.key}=${it.value}" }
         }
-        return "weighing-fasting-submit:$fastingTaskId:$campaignShedId:$tail"
+        // The answers are part of the submission's identity: a corrected answer over the same
+        // captures is a new submission, not a conflicting replay of the refused one. A card with
+        // no answers keeps the pre-SOP key shape so a queued draft replays under its own key.
+        val answerTail = if (answers.isEmpty()) "" else ":a=" + answersDigest(answers)
+        return "weighing-fasting-submit:$fastingTaskId:$campaignShedId:$tail$answerTail"
+    }
+
+    private fun answersDigest(answers: JsonObject): String {
+        val canonical = answers.entries.sortedBy { it.key }.joinToString("&") { "${it.key}=${it.value}" }
+        val digest = java.security.MessageDigest.getInstance("SHA-256").digest(canonical.toByteArray(Charsets.UTF_8))
+        return digest.take(8).joinToString("") { "%02x".format(it) }
     }
 
     private fun trackFailure(
