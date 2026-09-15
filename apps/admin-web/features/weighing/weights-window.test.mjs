@@ -71,7 +71,7 @@ test("weights analytics time-wise uses the same selected/default period as every
   assert.match(analyticsSource, /const shedParams = wantsLoads\s*\n\s*\? \{ park_id: parkFilter \|\| undefined, from: LOAD_TAB_ALL_TIME_FROM, to: today \}\s*\n\s*: \{ \.\.\.scope, \.\.\.readWindow \};/);
   assert.match(analyticsSource, /getShedWeights\(shedParams\)/);
   assert.match(analyticsSource, /getWeighingGrowth\(\{ \.\.\.scope, \.\.\.readWindow \}\)/);
-  assert.match(analyticsSource, /getWeightDemographics\(\{ \.\.\.scope, \.\.\.readWindow \}\)/);
+  assert.match(analyticsSource, /getWeightDemographics\(\{ \.\.\.scope, \.\.\.readWindow, include_week_grids: tab === "time" \}\)/);
   assert.doesNotMatch(contract, /last 12 weeks/);
   assert.doesNotMatch(contract, /those 12 weeks/);
   assert.doesNotMatch(contract, /not moved by the period filter/);
@@ -109,7 +109,7 @@ test("weights analytics sends the weighing mode through every tab read", () => {
   // whole load cannot honour; on every other tab shedParams IS { ...scope, ...readWindow }.
   assert.match(analyticsSource, /getShedWeights\(shedParams\)/);
   assert.match(analyticsSource, /getWeighingGrowth\(\{ \.\.\.scope, \.\.\.readWindow \}\)/);
-  assert.match(analyticsSource, /getWeightDemographics\(\{ \.\.\.scope, \.\.\.readWindow \}\)/);
+  assert.match(analyticsSource, /getWeightDemographics\(\{ \.\.\.scope, \.\.\.readWindow, include_week_grids: tab === "time" \}\)/);
   assert.match(analyticsSource, /weighingCategory=\{modeFilter !== "all" \? modeFilter : undefined\}/);
 });
 
