@@ -123,6 +123,12 @@ resource "google_service_account_iam_member" "cloudbuild_act_as_github_deployer"
   member             = "serviceAccount:${google_project_service_identity.cloudbuild.email}"
 }
 
+resource "google_service_account_iam_member" "github_deployer_token_creator_self" {
+  service_account_id = google_service_account.github_deployer.name
+  role               = "roles/iam.serviceAccountTokenCreator"
+  member             = "serviceAccount:${google_service_account.github_deployer.email}"
+}
+
 resource "google_service_account_iam_member" "github_deployer_workload_identity_user" {
   service_account_id = google_service_account.github_deployer.name
   role               = "roles/iam.workloadIdentityUser"

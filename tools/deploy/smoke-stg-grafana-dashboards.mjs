@@ -68,13 +68,19 @@ function serviceUrl({ project, region, service }) {
 
 function identityToken(audience, serviceAccount = "") {
   const activeAccount = shellOut("gcloud", ["config", "get-value", "account"]);
-  const args = [
+  const baseArgs = [
     "auth",
     "print-identity-token",
     `--audiences=${audience}`,
   ];
-  if (serviceAccount && serviceAccount !== activeAccount) args.push(`--impersonate-service-account=${serviceAccount}`);
-  return shellOut("gcloud", args);
+  if (!serviceAccount) return shellOut("gcloud", baseArgs);
+  const impersonatedArgs = [...baseArgs, `--impersonate-service-account=${serviceAccount}`];
+  if (serviceAccount !== activeAccount) return shellOut("gcloud", impersonatedArgs);
+  try {
+    return shellOut("gcloud", baseArgs);
+  } catch {
+    return shellOut("gcloud", impersonatedArgs);
+  }
 }
 
 async function fetchJson(baseUrl, apiPath, password, timeoutMs, iamToken = "") {
