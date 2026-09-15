@@ -14812,7 +14812,7 @@ export interface components {
             gain_by_pen_week: components["schemas"]["WeighingWeightGainPenWeekBucket"][];
             /** @description The same gain cut by purchased LOAD and calendar week, for the Time-wise per-load table. Ordered by load, week. */
             gain_by_load_week: components["schemas"]["WeighingWeightGainLoadWeekBucket"][];
-            /** @description How many animals of each breed clear 180 / 200 / 250 g per day. Same same-animal population as gain_by_breed; the marks are cumulative. */
+            /** @description How many animals of each breed fall into disjoint daily-gain bands over the same same-animal population as gain_by_breed. */
             gain_thresholds_by_breed: components["schemas"]["WeighingWeightGainThresholdBucket"][];
             resolved_animals: number;
             /** @description Scanned tags with no animal in the herd register. Real weighs, reported not dropped. */
@@ -19220,6 +19220,8 @@ export interface operations {
                 origin?: "farm_born" | "purchased";
                 /** @description `individual_animal` or `per_shed_partition` to report only that weighing mode; omitted means both. The two modes are mutually exclusive at campaign-shed grain, so this filter narrows the read before aggregates are built rather than hiding rows in the browser. */
                 weighing_category?: "all" | "individual_animal" | "per_shed_partition";
+                /** @description Set true only for the Time-wise tab to include the per-breed, per-pen, and per-load weekly gain grids. Other demographics tabs leave this false so those heavier weekly arms cannot make unrelated views fail to load. */
+                include_week_grids?: boolean;
             };
             header?: never;
             path?: never;
