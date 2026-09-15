@@ -12,6 +12,7 @@ import {
   updateMarketCityAction,
   updateMarketQuestionAction,
 } from "./market-actions";
+import { MarketConfigForm, type MarketActionOutcomes } from "./market-config-form";
 
 /**
  * Market survey config on Sales Config (maintainer decision 2026-09-14): the cities the
@@ -27,19 +28,33 @@ import {
  * Gated on the page's `market_config_write` control: without it the forms are not rendered and
  * the backend's disabled reason is shown instead. The route behind each form requires the same
  * permission, so the control is the honest label, not the lock.
+ *
+ * Every form posts through MarketConfigForm and lands IN PLACE: the outcome sentence appears
+ * under the row that was saved and the list re-reads itself in the same response. No redirect,
+ * no `?notice=`, no scroll to the top (maintainer report 2026-09-15).
  */
+
+/** The outcome sentences every market form may show, resolved once from the page contract. */
+function marketOutcomes(pageContract: AdminUiPageContract): MarketActionOutcomes {
+  return {
+    market_city_saved: copy(pageContract, "action.market_city_saved"),
+    market_question_saved: copy(pageContract, "action.market_question_saved"),
+    market_call_time_saved: copy(pageContract, "action.market_call_time_saved"),
+    market_save_failed: copy(pageContract, "action.market_save_failed"),
+    market_duplicate: copy(pageContract, "action.market_duplicate"),
+  };
+}
 export function MarketConfigSection({
   pageContract,
   configResult,
   canConfigure,
-  returnTo,
 }: {
   pageContract: AdminUiPageContract;
   configResult: ApiResult<MarketConfig>;
   canConfigure: boolean;
-  returnTo: string;
 }) {
   const config = configResult.ok ? configResult.data : { cities: [], questions: [], call_time: "" };
+  const outcomes = marketOutcomes(pageContract);
   return (
     <section className="card" aria-label={copy(pageContract, "section.market.aria")}>
       <div className="hd">
@@ -70,13 +85,12 @@ export function MarketConfigSection({
         </div>
         <div className="sp" style={{ flex: 1 }} />
         {canConfigure ? (
-          <form action={setMarketCallTimeAction} style={{ display: "flex", gap: 8, alignItems: "center" }} data-market-call-time>
-            <input type="hidden" name="return_to" value={returnTo} />
+          <MarketConfigForm action={setMarketCallTimeAction} outcomes={outcomes} style={{ display: "flex", gap: 8, alignItems: "center" }} data-market-call-time="">
             <input type="time" name="call_time" defaultValue={config.call_time} required aria-label={copy(pageContract, "market.call_time.title")} />
             <button type="submit" className="btn sm primary">
               {copy(pageContract, "market.action.save_call_time")}
             </button>
-          </form>
+          </MarketConfigForm>
         ) : (
           <Tag tone="info">{config.call_time}</Tag>
         )}
@@ -92,14 +106,13 @@ export function MarketConfigSection({
             <ul className="market-config-list" style={{ listStyle: "none", padding: 0, margin: 0 }}>
               {config.cities.map((city) => (
                 <li key={city.id} style={{ padding: "6px 0", borderBottom: "1px solid var(--line)" }}>
-                  <CityRow city={city} pageContract={pageContract} canConfigure={canConfigure} returnTo={returnTo} />
+                  <CityRow city={city} pageContract={pageContract} canConfigure={canConfigure} outcomes={outcomes} />
                 </li>
               ))}
             </ul>
           )}
           {canConfigure ? (
-            <form action={addMarketCityAction} className="market-config-add" style={{ display: "flex", gap: 8, marginTop: 10 }}>
-              <input type="hidden" name="return_to" value={returnTo} />
+            <MarketConfigForm action={addMarketCityAction} outcomes={outcomes} className="market-config-add" style={{ display: "flex", gap: 8, marginTop: 10 }}>
               <input
                 name="name"
                 required
@@ -111,7 +124,7 @@ export function MarketConfigSection({
               <button type="submit" className="btn sm primary">
                 {copy(pageContract, "market.action.add_city")}
               </button>
-            </form>
+            </MarketConfigForm>
           ) : null}
         </div>
 
@@ -124,14 +137,13 @@ export function MarketConfigSection({
             <ul className="market-config-list" style={{ listStyle: "none", padding: 0, margin: 0 }}>
               {config.questions.map((question) => (
                 <li key={question.id} style={{ padding: "6px 0", borderBottom: "1px solid var(--line)" }}>
-                  <QuestionRow question={question} pageContract={pageContract} canConfigure={canConfigure} returnTo={returnTo} />
+                  <QuestionRow question={question} pageContract={pageContract} canConfigure={canConfigure} outcomes={outcomes} />
                 </li>
               ))}
             </ul>
           )}
           {canConfigure ? (
-            <form action={addMarketQuestionAction} className="market-config-add" style={{ display: "flex", gap: 8, marginTop: 10 }}>
-              <input type="hidden" name="return_to" value={returnTo} />
+            <MarketConfigForm action={addMarketQuestionAction} outcomes={outcomes} className="market-config-add" style={{ display: "flex", gap: 8, marginTop: 10 }}>
               <input
                 name="label"
                 required
@@ -151,7 +163,7 @@ export function MarketConfigSection({
               <button type="submit" className="btn sm primary">
                 {copy(pageContract, "market.action.add_question")}
               </button>
-            </form>
+            </MarketConfigForm>
           ) : null}
         </div>
       </div>
@@ -174,12 +186,12 @@ function CityRow({
   city,
   pageContract,
   canConfigure,
-  returnTo,
+  outcomes,
 }: {
   city: MarketCity;
   pageContract: AdminUiPageContract;
   canConfigure: boolean;
-  returnTo: string;
+  outcomes: MarketActionOutcomes;
 }) {
   if (!canConfigure) {
     return (
@@ -191,8 +203,7 @@ function CityRow({
   }
   const flipped = city.status === "active" ? "retired" : "active";
   return (
-    <form action={updateMarketCityAction} style={{ display: "flex", gap: 8, alignItems: "center" }} data-market-city={city.id}>
-      <input type="hidden" name="return_to" value={returnTo} />
+    <MarketConfigForm action={updateMarketCityAction} outcomes={outcomes} style={{ display: "flex", gap: 8, alignItems: "center" }} data-market-city={city.id}>
       <input type="hidden" name="city_id" value={city.id} />
       <input name="name" defaultValue={city.name} required maxLength={80} aria-label={copy(pageContract, "market.field.city_name")} style={{ flex: 1 }} />
       <StatusTag status={city.status} pageContract={pageContract} />
@@ -202,7 +213,7 @@ function CityRow({
       <button type="submit" name="status" value={flipped} className="btn sm">
         {city.status === "active" ? copy(pageContract, "market.action.retire") : copy(pageContract, "market.action.restore")}
       </button>
-    </form>
+    </MarketConfigForm>
   );
 }
 
@@ -210,12 +221,12 @@ function QuestionRow({
   question,
   pageContract,
   canConfigure,
-  returnTo,
+  outcomes,
 }: {
   question: MarketQuestion;
   pageContract: AdminUiPageContract;
   canConfigure: boolean;
-  returnTo: string;
+  outcomes: MarketActionOutcomes;
 }) {
   if (!canConfigure) {
     return (
@@ -228,8 +239,7 @@ function QuestionRow({
   }
   const flipped = question.status === "active" ? "retired" : "active";
   return (
-    <form action={updateMarketQuestionAction} style={{ display: "flex", gap: 8, alignItems: "center" }} data-market-question={question.id}>
-      <input type="hidden" name="return_to" value={returnTo} />
+    <MarketConfigForm action={updateMarketQuestionAction} outcomes={outcomes} style={{ display: "flex", gap: 8, alignItems: "center" }} data-market-question={question.id}>
       <input type="hidden" name="question_id" value={question.id} />
       <input name="label" defaultValue={question.label} required maxLength={80} aria-label={copy(pageContract, "market.field.question_label")} style={{ flex: 2 }} />
       <input name="unit_label" defaultValue={question.unit_label} required maxLength={24} aria-label={copy(pageContract, "market.field.unit_label")} style={{ flex: 1 }} />
@@ -240,6 +250,6 @@ function QuestionRow({
       <button type="submit" name="status" value={flipped} className="btn sm">
         {question.status === "active" ? copy(pageContract, "market.action.retire") : copy(pageContract, "market.action.restore")}
       </button>
-    </form>
+    </MarketConfigForm>
   );
 }

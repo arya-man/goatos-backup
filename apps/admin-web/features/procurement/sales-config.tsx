@@ -338,7 +338,6 @@ export async function SalesConfigPage({
         pageContract={pageContract}
         configResult={marketConfigResult}
         canConfigure={canConfigureMarket}
-        returnTo={listHref}
       />
 
       {/* Always mounted: LocalOverlayLink changes the URL without an RSC request, so an overlay
