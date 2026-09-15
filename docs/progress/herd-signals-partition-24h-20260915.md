@@ -11,10 +11,10 @@
 - Backend/API now exposes `motion_delta_24h` as a rolling 24h motion-counter delta, explicitly not step count.
 - Admin-web Live Monitor, drawer/history detail, CSV export, local API type, OpenAPI, and checked-in generated client include `motion_delta_24h`.
 - Judge review completed; P2 hot-path issue fixed by fetching 24h deltas only for returned/exported rows, not the full risk-comparison cohort. P3 display-only sort concern accepted and test wording clarified.
+- Full local landing receipt passed and the change was pushed to `main`.
 
 ## Pending
-- Final local landing receipt after final rebase to `origin/main`.
-- Push to `main` only after green local proof.
+- None.
 
 ## Tests / E2E Performed
 - `go test ./internal/herdsignals/app ./internal/herdsignals/adapters/postgres` from `/backend`: PASS.
@@ -30,11 +30,13 @@
 - `node tools/agent-hooks/check-leadership-assistant-coverage.mjs`: PASS at `53e208508`.
 - `bash tools/agent-hooks/ai-doctor.sh`: PASS at `53e208508`.
 - `git rebase origin/main`: PASS; rebased candidate is `8c3a689c2`.
+- `make ai-rebuild-repowise`: PASS after final progress-doc amend.
+- `GOATOS_SQLC_PLAN_ADMIN_DSN=<set> GOATOS_PGTEST_ADMIN_DSN=<set> make land-main`: GREEN at `ad88028df`; pushed `ad88028df` to `origin/main`.
 
 ## Known Failures
 - Earlier `npm --prefix packages/api-client run generate` failed before dependencies were installed in the clean worktree. The local CI contract-drift step subsequently regenerated `packages/api-client/src/generated/app-api.ts`; that generated diff is committed.
 - Full `make land-main` at `16cb01913` failed before push. Root causes observed: leadership coverage guard needed the new `GetMotionDeltas24h` backend function recorded in `docs/ceo-ai/coverage-matrix.md`; `ai-doctor` needed `.repowise` refreshed after the amend; OCI query-plan DB tunnel dropped during the query-plan phase. Coverage matrix was fixed and amended, `.repowise` was rebuilt, and the OCI tunnel was restarted.
-- Full `make land-main` is pending again after rebase to `origin/main`; no push has happened yet.
+- Full `make land-main` rerun after the fixes passed at `ad88028df` and pushed to `main`.
 
 ## Before / After Metrics
 - Before: Live Monitor Pen column can show only shed + park when a shed has multiple active partitions; Motion Count is a raw cumulative counter with 15m/1h deltas only.
@@ -44,7 +46,8 @@
 - Completed. P2 fixed; P3 accepted as display-only aggregate with explicit copy/test wording.
 
 ## Current SHA
-- `8c3a689c2` (`fix/herd-signals-partition-24h`, clean isolated worktree after rebase).
+- Implementation landing SHA: `ad88028df`.
+- This progress receipt may have a docs-only follow-up commit on top; use `git rev-parse origin/main` for the latest landed SHA.
 
 ## Deployment State
-- Not deployed.
+- Landed on `origin/main`. Staging deployment was not run in this task.
