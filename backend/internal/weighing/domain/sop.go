@@ -846,3 +846,107 @@ func deref(p *float64) float64 {
 func WeighDateAllowsPlainCreate(weighDate string, now time.Time) bool {
 	return weighDate >= biztime.BusinessDate(now)
 }
+
+// AnswerRow is one recorded answer in farm words -- the question's title and the answer as the
+// operator would read it (a choice's label, every picked label, the number with its unit, the
+// text) -- for the verifier's context rows.
+type AnswerRow struct {
+	Label string
+	Value string
+}
+
+// RemovalAnswerRows renders a pen's recorded answers against the PINNED document's questions,
+// in the document's order, for the verifier item (PR #274 review round 3, finding 2: an
+// operator's "No" or its explanation must be in front of the verifier when they judge the
+// clips). A question with no answer is left out; an answer to a question the document no
+// longer names is rendered under its id so nothing recorded goes unseen.
+func (r Rules) RemovalAnswerRows(answers SOPAnswers) []AnswerRow {
+	if len(answers) == 0 {
+		return nil
+	}
+	out := []AnswerRow{}
+	seen := map[string]bool{}
+	for _, q := range r.FeedWaterRemoval.Questions {
+		raw, ok := answers[q.ID]
+		if !ok {
+			continue
+		}
+		seen[q.ID] = true
+		value := renderAnswer(q, raw, answers)
+		if value == "" {
+			continue
+		}
+		out = append(out, AnswerRow{Label: q.Title, Value: value})
+	}
+	keys := make([]string, 0, len(answers))
+	for k := range answers {
+		if !seen[k] && !strings.HasSuffix(k, "_other") {
+			keys = append(keys, k)
+		}
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		if v := plainAnswer(answers[k]); v != "" {
+			out = append(out, AnswerRow{Label: k, Value: v})
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func renderAnswer(q SOPQuestion, raw json.RawMessage, answers SOPAnswers) string {
+	label := func(v string) string {
+		for _, o := range q.Options {
+			if o.Value == v && strings.TrimSpace(o.Label) != "" {
+				return o.Label
+			}
+		}
+		return v
+	}
+	switch q.Kind {
+	case SOPQuestionChoice:
+		var v string
+		if json.Unmarshal(raw, &v) != nil {
+			return plainAnswer(raw)
+		}
+		if v == "other" && q.AllowOther {
+			var other string
+			if o, ok := answers[q.ID+"_other"]; ok && json.Unmarshal(o, &other) == nil && strings.TrimSpace(other) != "" {
+				return label(v) + ": " + strings.TrimSpace(other)
+			}
+		}
+		return label(v)
+	case SOPQuestionMulti:
+		var vs []string
+		if json.Unmarshal(raw, &vs) != nil {
+			return plainAnswer(raw)
+		}
+		parts := make([]string, 0, len(vs))
+		for _, v := range vs {
+			parts = append(parts, label(v))
+		}
+		return strings.Join(parts, ", ")
+	case SOPQuestionNumber:
+		var n float64
+		if json.Unmarshal(raw, &n) != nil {
+			return plainAnswer(raw)
+		}
+		v := strconv.FormatFloat(n, 'f', -1, 64)
+		if strings.TrimSpace(q.Unit) != "" {
+			return v + " " + strings.TrimSpace(q.Unit)
+		}
+		return v
+	default:
+		return plainAnswer(raw)
+	}
+}
+
+func plainAnswer(raw json.RawMessage) string {
+	var s string
+	if json.Unmarshal(raw, &s) == nil {
+		return strings.TrimSpace(s)
+	}
+	return strings.TrimSpace(string(raw))
+}

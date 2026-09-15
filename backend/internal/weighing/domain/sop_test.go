@@ -327,3 +327,40 @@ func TestWeightsPagesRulesAreValidatedAndDefaulted(t *testing.T) {
 		t.Fatalf("rolling 60 days: %v", problems)
 	}
 }
+
+// PR #274 review round 3, finding 2: the verifier sees the operator's answers in farm words --
+// a choice's label, "other" with its text, every picked label, a number with its unit, text --
+// in the document's order, and an answer to a question the pin no longer names under its id.
+func TestRemovalAnswerRowsRenderInFarmWords(t *testing.T) {
+	rules := SeededRules()
+	rules.FeedWaterRemoval.Questions = []SOPQuestion{
+		{ID: "every_pen_emptied", Kind: SOPQuestionChoice, Title: "Every pen emptied?", Options: []SOPOption{{Value: "yes", Label: "Yes"}, {Value: "no", Label: "No"}, {Value: "other", Label: "Other"}}, AllowOther: true},
+		{ID: "why_not", Kind: SOPQuestionText, Title: "Why not?"},
+		{ID: "buckets", Kind: SOPQuestionNumber, Title: "Water buckets removed", Unit: "buckets"},
+		{ID: "issues", Kind: SOPQuestionMulti, Title: "Issues seen", Options: []SOPOption{{Value: "leak", Label: "Leak"}, {Value: "broken_trough", Label: "Broken trough"}}},
+	}
+	rows := rules.RemovalAnswerRows(SOPAnswers{
+		"issues":                 json.RawMessage(`["leak","broken_trough"]`),
+		"every_pen_emptied":       json.RawMessage(`"other"`),
+		"every_pen_emptied_other": json.RawMessage(`"two pens left"`),
+		"buckets":                 json.RawMessage(`12`),
+		"gone_question":           json.RawMessage(`"still recorded"`),
+	})
+	want := []AnswerRow{
+		{Label: "Every pen emptied?", Value: "Other: two pens left"},
+		{Label: "Water buckets removed", Value: "12 buckets"},
+		{Label: "Issues seen", Value: "Leak, Broken trough"},
+		{Label: "gone_question", Value: "still recorded"},
+	}
+	if len(rows) != len(want) {
+		t.Fatalf("rows = %+v, want %+v", rows, want)
+	}
+	for i := range want {
+		if rows[i] != want[i] {
+			t.Fatalf("row %d = %+v, want %+v", i, rows[i], want[i])
+		}
+	}
+	if rules.RemovalAnswerRows(nil) != nil {
+		t.Fatal("no answers must render no rows")
+	}
+}

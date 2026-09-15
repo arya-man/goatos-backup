@@ -129,7 +129,7 @@ func (s *Service) SubmitFastingShed(ctx context.Context, actor domain.Actor, cmd
 	// raised item no-ops while a missing item is repaired.
 	if result.Evidence.FastingShedID != "" && result.Task.FastingTaskID != "" {
 		mediaRefs := orderedRefs(rules, result.Evidence)
-		if err := s.enqueueFastingShedVerification(ctx, result.Task, result.Evidence, mediaRefs, mediaMetaFor(rules, result.Evidence, mediaRefs)); err != nil {
+		if err := s.enqueueFastingShedVerification(ctx, result.Task, result.Evidence, mediaRefs, mediaMetaFor(rules, result.Evidence, mediaRefs), answerRowsFor(rules, result.Evidence)); err != nil {
 			return domain.FastingShedCard{}, err
 		}
 	}
@@ -206,7 +206,22 @@ func mediaMetaFor(rules domain.Rules, shed domain.FastingShedProof, refs []strin
 	return out
 }
 
-func (s *Service) enqueueFastingShedVerification(ctx context.Context, task domain.FastingTask, shed domain.FastingShedProof, mediaRefs []string, meta []VerificationMediaMeta) error {
+// answerRowsFor renders the pen's recorded answers under the pinned questions for the verifier
+// (PR #274 review round 3, finding 2). Read from the EVIDENCE row so an exact replay that must
+// re-raise the item carries the same rows the first enqueue did.
+func answerRowsFor(rules domain.Rules, shed domain.FastingShedProof) []VerificationContextRow {
+	rows := rules.RemovalAnswerRows(shed.Answers)
+	if len(rows) == 0 {
+		return nil
+	}
+	out := make([]VerificationContextRow, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, VerificationContextRow{Label: r.Label, Value: r.Value})
+	}
+	return out
+}
+
+func (s *Service) enqueueFastingShedVerification(ctx context.Context, task domain.FastingTask, shed domain.FastingShedProof, mediaRefs []string, meta []VerificationMediaMeta, context []VerificationContextRow) error {
 	if s.enqueuer == nil {
 		return nil
 	}
@@ -217,6 +232,7 @@ func (s *Service) enqueueFastingShedVerification(ctx context.Context, task domai
 		CampaignID:     task.CampaignID,
 		MediaRefs:      mediaRefs,
 		MediaMeta:      meta,
+		ContextRows:    context,
 		OperatorID:     task.OperatorUserID,
 		ShedID:         shed.ShedLocationID,
 		ParkID:         task.ParkID,

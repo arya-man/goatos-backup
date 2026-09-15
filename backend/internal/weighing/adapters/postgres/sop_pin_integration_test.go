@@ -180,6 +180,7 @@ VALUES ($1::uuid, $2::uuid, 'local', 'weighing-fasting-test/' || $1, 'image/jpeg
 ON CONFLICT (proof_id) DO NOTHING`, gatePhoto, repoTenant, repoPark, fastingOperator)
 
 	cmd := fastingSubmitShedA(fastingID, "either-kind-1")
+	cmd.Answers = domain.SOPAnswers{"all_pens": json.RawMessage(`"yes"`)}
 	cmd.Proofs = domain.RemovalProofRefs{"feed_video": fastingFeedProof, "water_video": fastingWaterProof, "gate": gatePhoto}
 	cmd.SlotKinds = map[string]string{"feed_video": domain.RemovalProofKindVideo, "water_video": domain.RemovalProofKindVideo, "gate": domain.RemovalProofKindEither}
 	cmd.OrderedRefs = []string{fastingFeedProof, fastingWaterProof, gatePhoto}
@@ -196,6 +197,11 @@ ON CONFLICT (proof_id) DO NOTHING`, gatePhoto, repoTenant, repoPark, fastingOper
 	}
 	if replay.Evidence.ProofKinds[gatePhoto] != "photo" {
 		t.Fatalf("replay evidence kinds = %v, want the gate still a photo (a retried enqueue must not fall back to video)", replay.Evidence.ProofKinds)
+	}
+	// The replay evidence carries the recorded ANSWERS too, so a retried enqueue can hand the
+	// verifier the same context rows the first one did (review round 3, finding 2).
+	if string(replay.Evidence.Answers["all_pens"]) != `"yes"` {
+		t.Fatalf("replay evidence answers = %v, want the submitted answers", replay.Evidence.Answers)
 	}
 	atOpen := time.Date(2026, 9, 3, 20, 0, 0, 0, biztime.DefaultLocation())
 	page, err := repo.ListFastingShedCardsForOperator(ctx, repoTenant, fastingOperator, atOpen, ports.RemovalCutoffs{Default: eightPMCutoff}, "", 20)

@@ -87,15 +87,23 @@ ORDER BY ft.weigh_business_date DESC, cs.campaign_shed_id DESC
 LIMIT $6`
 
 // fastingCardSOPVersionsSQL lists the distinct versions the operator's candidate rounds are
-// pinned to: a handful of small integers, bounded by the number of versions ever published.
+// pinned to. BOUNDED twice (PR #274 review round 3, finding 1): to rounds whose weigh date is
+// within the last 90 days -- a submitted round is listable forever, but its evening only
+// matters while an operator would scroll back to it -- and to the 20 newest versions, so a
+// farm that publishes often cannot turn one list refresh into a read per version ever
+// published. A card outside both bounds opens at the farm evening rather than its pin, which
+// for a months-old submitted card changes nothing an operator can act on.
 const fastingCardSOPVersionsSQL = `
-SELECT DISTINCT COALESCE(c.sop_version, 0)
+SELECT DISTINCT COALESCE(c.sop_version, 0) AS sop_version
 FROM weighing_fasting_tasks ft
 JOIN weighing_campaigns c
   ON c.tenant_id = ft.tenant_id AND c.campaign_id = ft.campaign_id
 WHERE ft.tenant_id = $1::uuid
   AND ft.operator_user_id = $2::uuid
-  AND (ft.submitted_at IS NOT NULL OR c.status NOT IN ('completed','closed','canceled'))`
+  AND ft.weigh_business_date >= (CURRENT_DATE - INTERVAL '90 days')::date
+  AND (ft.submitted_at IS NOT NULL OR c.status NOT IN ('completed','closed','canceled'))
+ORDER BY sop_version DESC
+LIMIT 20`
 
 // FastingCardSOPVersions implements ports.FastingStore.
 func (r *Repository) FastingCardSOPVersions(ctx context.Context, tenantID, operatorUserID string) ([]int, error) {
@@ -253,6 +261,7 @@ SELECT sp.fasting_shed_id::text, sp.campaign_shed_id::text, sp.shed_label,
        cs.location_id::text, COALESCE(sp.feed_proof_ref::text, ''),
        COALESCE(sp.water_proof_ref::text, ''), sp.status, sp.row_version,
        COALESCE(sp.sop_proofs, '{}'::jsonb),
+       COALESCE(sp.sop_answers, '{}'::jsonb),
        COALESCE((SELECT jsonb_object_agg(e.value, pa.proof_type)
                  FROM jsonb_each_text(COALESCE(sp.sop_proofs, '{}'::jsonb)) e
                  JOIN proof_artifacts pa ON pa.tenant_id = sp.tenant_id AND pa.proof_id = e.value::uuid), '{}'::jsonb)
@@ -293,7 +302,7 @@ func (r *Repository) SubmitFastingShed(ctx context.Context, cmd domain.SubmitFas
 		err := tx.QueryRow(ctx, fastingSubmitReplayEvidenceSQL,
 			cmd.TenantID, cmd.FastingTaskID, cmd.CampaignShedID).Scan(
 			&shed.FastingShedID, &shed.CampaignShedID, &shed.ShedLabel, &shed.ShedLocationID,
-			&shed.FeedProofRef, &shed.WaterProofRef, &shed.Status, &shed.RowVersion, &shed.Proofs, &shed.ProofKinds,
+			&shed.FeedProofRef, &shed.WaterProofRef, &shed.Status, &shed.RowVersion, &shed.Proofs, &shed.Answers, &shed.ProofKinds,
 		)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return domain.FastingShedSubmitResult{Card: replay, Replayed: true}, nil

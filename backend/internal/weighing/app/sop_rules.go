@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	fwrdomain "github.com/vgoats/goatos/backend/internal/feedwaterremoval/domain"
+	"strconv"
 	"strings"
 
 	"github.com/vgoats/goatos/backend/internal/platform/uuidutil"
@@ -53,12 +54,40 @@ func (s *Service) withEffectiveCutoff(ctx context.Context, tenantID string, rule
 	return rules
 }
 
+// rulesForVersion reads one PINNED version's rules. A published version's document is
+// immutable (an edit is a new version; a retired one still serves the tasks pinned to it),
+// so the read is cached per (tenant, version) for the life of the process: the card list
+// resolves every candidate version's evening and copy on every refresh, and without this
+// each refresh was one SOP read per version ever pinned (PR #274 review round 3, finding 1).
+// The published version itself is never cached here -- publishedRules reads it each time.
 func (s *Service) rulesForVersion(ctx context.Context, tenantID string, version int) (domain.Rules, error) {
 	if version == 0 || s.sopRules == nil {
 		return domain.SeededRules(), nil
 	}
-	return s.sopRules.RulesVersion(ctx, tenantID, version)
+	key := tenantID + "|" + strconv.Itoa(version)
+	s.versionRulesMu.Lock()
+	cached, ok := s.versionRules[key]
+	s.versionRulesMu.Unlock()
+	if ok {
+		return cached, nil
+	}
+	rules, err := s.sopRules.RulesVersion(ctx, tenantID, version)
+	if err != nil {
+		return domain.Rules{}, err
+	}
+	s.versionRulesMu.Lock()
+	if s.versionRules == nil || len(s.versionRules) >= versionRulesCacheCap {
+		// Bounded: a farm cannot publish its way into an unbounded map. Dropping the whole
+		// map on overflow is a cold refresh, never a wrong answer.
+		s.versionRules = map[string]domain.Rules{}
+	}
+	s.versionRules[key] = rules
+	s.versionRulesMu.Unlock()
+	return rules, nil
 }
+
+// versionRulesCacheCap bounds the per-process pinned-version cache (tenants x versions).
+const versionRulesCacheCap = 256
 
 func (s *Service) rulesForCampaign(ctx context.Context, tenantID, campaignID string) (domain.Rules, error) {
 	if s.sopPins == nil {

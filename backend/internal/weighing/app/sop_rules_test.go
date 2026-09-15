@@ -385,11 +385,15 @@ func TestSubmitFastingShedJudgesCapturesByThePinnedSlots(t *testing.T) {
 		{Key: "trough_photo", Title: "Empty trough", Kind: domain.RemovalProofKindPhoto, Required: true},
 		{Key: "gate", Title: "Gate closed", Kind: domain.RemovalProofKindEither, Required: false},
 	}
+	rules.Rules.FeedWaterRemoval.Questions = []domain.SOPQuestion{
+		{ID: "all_pens", Kind: domain.SOPQuestionChoice, Title: "Every pen emptied?", Required: false, Options: []domain.SOPOption{{Value: "yes", Label: "Yes"}, {Value: "no", Label: "No"}}},
+		{ID: "why", Kind: domain.SOPQuestionText, Title: "Why not?", Required: false},
+	}
 	submittedAt := time.Date(2026, 7, 28, 15, 0, 0, 0, time.UTC)
 	newStore := func() *fakeFastingStore {
 		return &fakeFastingStore{submitResult: domain.FastingShedSubmitResult{
 			Card:     domain.FastingShedCard{FastingTaskID: fastingTaskID, CampaignShedID: shedB, FastingShedID: "00000000-0000-4000-8000-000000000902", Status: domain.FastingStatusPendingVerification, RowVersion: 1},
-			Evidence: domain.FastingShedProof{FastingShedID: "00000000-0000-4000-8000-000000000902", CampaignShedID: shedB, Proofs: domain.RemovalProofRefs{"feed_video": proofThree, "trough_photo": proofFour, "gate": proofOne}, ProofKinds: map[string]string{proofOne: "photo"}, RowVersion: 1},
+			Evidence: domain.FastingShedProof{FastingShedID: "00000000-0000-4000-8000-000000000902", CampaignShedID: shedB, Proofs: domain.RemovalProofRefs{"feed_video": proofThree, "trough_photo": proofFour, "gate": proofOne}, ProofKinds: map[string]string{proofOne: "photo"}, Answers: domain.SOPAnswers{"all_pens": json.RawMessage(`"no"`), "why": json.RawMessage(`"gate stuck"`)}, RowVersion: 1},
 			Task:     domain.FastingTask{TenantID: testTenant, FastingTaskID: fastingTaskID, CampaignID: "00000000-0000-4000-8000-000000000501", OperatorUserID: testOp, SubmittedAt: &submittedAt},
 		}}
 	}
@@ -428,6 +432,11 @@ func TestSubmitFastingShedJudgesCapturesByThePinnedSlots(t *testing.T) {
 	meta := enqueuer.received.MediaMeta
 	if len(meta) != 3 || meta[0] != (VerificationMediaMeta{Label: "Feed removed", Kind: "video"}) || meta[1] != (VerificationMediaMeta{Label: "Empty trough", Kind: "photo"}) || meta[2] != (VerificationMediaMeta{Label: "Gate closed", Kind: "photo"}) {
 		t.Fatalf("verifier media meta = %+v, want the slot titles with the captured kinds", meta)
+	}
+	// The operator's answers reach the verifier as context rows, in farm words (review round 3).
+	ctxRows := enqueuer.received.ContextRows
+	if len(ctxRows) != 2 || ctxRows[0] != (VerificationContextRow{Label: "Every pen emptied?", Value: "No"}) || ctxRows[1] != (VerificationContextRow{Label: "Why not?", Value: "gate stuck"}) {
+		t.Fatalf("verifier context rows = %+v, want the recorded answers under the question titles", ctxRows)
 	}
 
 	// An older phone: the legacy pair under the SEEDED document maps onto feed_video / water_video.
@@ -611,5 +620,58 @@ func TestCreateCampaignReplaysBeforeTheCurrentPublishJudgesTheRetry(t *testing.T
 	fresh.IdempotencyKey = "brand-new"
 	if _, err := service.CreateCampaign(context.Background(), ceo, fresh); !errors.Is(err, ports.ErrModeNotAllowed) {
 		t.Fatalf("new request under a withdrawn mode: err = %v, want ErrModeNotAllowed", err)
+	}
+}
+
+// countingRules counts how many times a pinned version is read from the source.
+type countingRules struct {
+	versionedRules
+	reads int
+}
+
+func (c *countingRules) RulesVersion(ctx context.Context, tenantID string, version int) (domain.Rules, error) {
+	c.reads++
+	return c.versionedRules.RulesVersion(ctx, tenantID, version)
+}
+
+type manyVersionsStore struct {
+	fakeFastingStore
+	cards []domain.FastingShedCard
+}
+
+func (s *manyVersionsStore) ListFastingShedCardsForOperator(context.Context, string, string, time.Time, ports.RemovalCutoffs, string, int) (domain.FastingShedCardPage, error) {
+	return domain.FastingShedCardPage{Items: s.cards}, nil
+}
+
+// PR #274 review round 3, finding 1: a farm with a long publish history must not pay one SOP
+// read per version on EVERY card refresh. A pinned version is immutable, so it is read ONCE per
+// process: the first refresh reads each candidate version once, the second reads nothing.
+func TestCardRefreshReadsEachPinnedVersionOnceNotPerRefresh(t *testing.T) {
+	operator := domain.Actor{TenantID: testTenant, UserID: testOp, Roles: []string{permissions.RoleOperator}}
+	source := &countingRules{versionedRules: versionedRules{}}
+	versions := make([]int, 0, 50)
+	cards := make([]domain.FastingShedCard, 0, 50)
+	for v := 1; v <= 50; v++ {
+		r := rulesWithMode(v, domain.RemovalModeRequired).Rules
+		r.FeedWaterRemoval.CutoffTime = "21:30"
+		source.versionedRules[v] = r
+		versions = append(versions, v)
+		cards = append(cards, domain.FastingShedCard{FastingTaskID: fastingTaskID, CampaignShedID: shedB, SOPVersion: v})
+	}
+	store := &manyVersionsStore{cards: cards}
+	store.cardVersions = versions
+	service := NewService(&fakeRepo{}).WithFeedWaterRemovalCutoff(eightPM).WithFastingStore(store).WithSOPRules(source, pinnedVersion(0))
+	if _, err := service.ListMyFastingShedCards(context.Background(), operator, "", 1); err != nil {
+		t.Fatal(err)
+	}
+	if source.reads > 50 {
+		t.Fatalf("first refresh read the source %d times for 50 candidate versions; want at most one read per version", source.reads)
+	}
+	first := source.reads
+	if _, err := service.ListMyFastingShedCards(context.Background(), operator, "", 1); err != nil {
+		t.Fatal(err)
+	}
+	if source.reads != first {
+		t.Fatalf("second refresh read the source %d more time(s); a pinned version is immutable and must be served from the cache", source.reads-first)
 	}
 }

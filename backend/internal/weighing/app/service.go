@@ -7,6 +7,7 @@ import (
 	"math"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	fwrdomain "github.com/vgoats/goatos/backend/internal/feedwaterremoval/domain"
@@ -35,6 +36,10 @@ type Service struct {
 	// means the seeded rules -- the pre-SOP behaviour -- never a refusal.
 	sopRules ports.SOPRulesSource
 	sopPins  ports.SOPPinReader
+	// versionRules caches immutable PINNED versions' rules per (tenant, version); see
+	// rulesForVersion.
+	versionRulesMu sync.Mutex
+	versionRules   map[string]domain.Rules
 	// now is the service clock behind the fasting create cutoff and the
 	// fasting card's visibility window. Injectable so tests pin it; defaults
 	// to time.Now.
@@ -108,6 +113,12 @@ type VerificationEnqueuer interface {
 	EnqueueWeighingVerification(ctx context.Context, in VerificationEnqueueRequest) error
 }
 
+// VerificationContextRow is one label/value line of verifier context, handed to the bridge.
+type VerificationContextRow struct {
+	Label string
+	Value string
+}
+
 // VerificationMediaMeta is one proof's header and kind, handed to the verification bridge.
 type VerificationMediaMeta struct {
 	Label string
@@ -124,9 +135,12 @@ type VerificationEnqueueRequest struct {
 	// MediaMeta names each ref (label + kind), positional against MediaRefs -- for a removal pen
 	// the pinned SOP's slot titles and kinds, so the verifier reads "Empty water trough" over a
 	// photo player rather than the registry's fixed "Water removal video". Nil for weigh proofs.
-	MediaMeta  []VerificationMediaMeta
-	OperatorID string
-	ShedID     string
+	MediaMeta []VerificationMediaMeta
+	// ContextRows is what the verifier judges the proofs AGAINST, in farm words -- for a
+	// removal pen the operator's recorded answers under the pinned questions' titles.
+	ContextRows []VerificationContextRow
+	OperatorID  string
+	ShedID      string
 	// ParkID is the campaign's park. It is MANDATORY routing data, not decoration:
 	// the verification notification consumer resolves the park's verify-duty holders
 	// from it, and an item enqueued without a park notifies nobody.
