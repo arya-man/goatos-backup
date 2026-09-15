@@ -181,7 +181,7 @@ steps:
         fi
         export COMMIT_SHA="$${REQUESTED_COMMIT_SHA:-$${RESOLVED_COMMIT_SHA}}"
         apt-get update
-        apt-get install -y --no-install-recommends ca-certificates curl dnsutils git nodejs python3
+        apt-get install -y --no-install-recommends ca-certificates curl dnsutils git google-cloud-cli-cloud-run-proxy nodejs python3
         tools/deploy/stg-cloudbuild-release.sh
 
   - id: stg-release-tag-bookkeeping
