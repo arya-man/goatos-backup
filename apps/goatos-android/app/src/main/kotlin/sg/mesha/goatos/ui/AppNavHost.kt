@@ -2168,8 +2168,10 @@ fun AppNavHost(
 
         // The feed & water removal recording screen (maintainer decision 2026-09-03): a hosted
         // drill with Up/Back and no root chrome, entered ONLY from the removal card on the
-        // operator's weighing list. CaptureAccessGate + BindVideoCaptureSource for the two
-        // mandatory live-camera videos, exactly like every other capture destination.
+        // operator's weighing list. CaptureAccessGate + BindVideoCaptureSource AND
+        // BindPhotoCaptureSource: the card's captures are the pinned SOP's slots, each a
+        // live-camera video or photo (or either), so both delegates must be bound here --
+        // an unbound photo delegate answers null and the tap reads as "cancelled".
         composable(
             route = "${Routes.WEIGHING_REMOVAL}?${Routes.WEIGHING_FASTING_TASK_ARG}={${Routes.WEIGHING_FASTING_TASK_ARG}}&${Routes.WEIGHING_FASTING_SHED_ARG}={${Routes.WEIGHING_FASTING_SHED_ARG}}&${Routes.WEIGHING_FASTING_TITLE_ARG}={${Routes.WEIGHING_FASTING_TITLE_ARG}}",
             arguments = listOf(
@@ -2185,6 +2187,7 @@ fun AppNavHost(
             val removalState by vm.state.collectAsStateWithLifecycle()
             CaptureAccessGate {
                 BindVideoCaptureSource(rememberDelegatingProofCaptureSource())
+                BindPhotoCaptureSource(rememberDelegatingPhotoCaptureSource())
                 WeighingFastingDetailScreen(
                     state = removalState,
                     onEvent = vm::onEvent,
