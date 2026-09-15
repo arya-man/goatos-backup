@@ -257,3 +257,29 @@ func TestASlotWithoutTheRequiredFlagIsCompulsory(t *testing.T) {
 		t.Fatalf("a pre-flag document must still validate, got %v", problems)
 	}
 }
+
+// A misspelt key is refused at save by name; the lenient parser would otherwise drop it and
+// the farm would run on the farm evening believing it authored its own.
+func TestUnknownWeighingSOPKeysAreNamedByPath(t *testing.T) {
+	doc := map[string]any{"weighing": map[string]any{
+		"schema_version": WeighingSOPSchemaVersion,
+		"planning":       map[string]any{"modes": []any{"individual_animal"}, "default_cap_per_day": 100},
+		"feed_water_removal": map[string]any{"mode": "optional", "cutoff_tme": "21:30",
+			"proofs":    []any{map[string]any{"key": "feed_video", "title": "Feed", "kind": "video", "requried": true}},
+			"questions": []any{map[string]any{"id": "q1", "kind": "text", "title": "T", "hnt": "x"}}},
+		"capture": map[string]any{"individual": map[string]any{"video_required": true}, "lump_sum": map[string]any{"video_min": 1, "video_max": 5, "audio": true}},
+		"bonus":   1,
+	}}
+	got := UnknownWeighingSOPKeys(doc)
+	want := []string{"bonus", "capture.lump_sum.audio", "feed_water_removal.cutoff_tme", "feed_water_removal.proofs.0.requried", "feed_water_removal.questions.0.hnt"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("unknown keys = %v, want %v", got, want)
+	}
+	var seed map[string]any
+	if err := json.Unmarshal(SeededWeighingSOPJSON(), &seed); err != nil {
+		t.Fatal(err)
+	}
+	if keys := UnknownWeighingSOPKeys(map[string]any{"weighing": seed}); len(keys) != 0 {
+		t.Fatalf("the seed must carry no unknown key, got %v", keys)
+	}
+}

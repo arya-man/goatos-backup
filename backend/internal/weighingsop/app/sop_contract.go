@@ -24,4 +24,11 @@ func WeighingSOPContract(sopCode string, formDSL map[string]any, report *sopdoma
 		report.Valid = false
 		report.Errors = append(report.Errors, sopdomain.ValidationIssue{Field: "form_dsl." + problem, Code: "invalid", Message: problem})
 	}
+	// A key the schema does not know is refused at SAVE: the lenient parser drops it, and a
+	// misspelt `cutoff_tme` would otherwise publish as "farm evening" without a word.
+	for _, key := range domain.UnknownWeighingSOPKeys(formDSL) {
+		report.Valid = false
+		problem := "weighing." + key + ": not a field of this document"
+		report.Errors = append(report.Errors, sopdomain.ValidationIssue{Field: "form_dsl." + problem, Code: "invalid", Message: problem})
+	}
 }

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -256,6 +257,52 @@ func ParseWeighingSOP(formDSL map[string]any) (WeighingSOP, error) {
 		return WeighingSOP{}, fmt.Errorf("%w: %v", ErrWeighingSOPInvalid, err)
 	}
 	return dsl, nil
+}
+
+// UnknownWeighingSOPKeys names every key the document carries that the schema does not,
+// each by path ("feed_water_removal.cutoff_tme"). A save refuses them: a misspelt key is
+// silently dropped by the lenient parser, and a farm that typed `cutoff_tme: 21:30` would
+// otherwise run on the farm evening believing it set its own. The read paths stay lenient
+// so a stored document never fails to load.
+func UnknownWeighingSOPKeys(formDSL map[string]any) []string {
+	raw, ok := formDSL["weighing"].(map[string]any)
+	if !ok {
+		return nil
+	}
+	var out []string
+	walk := func(path string, node any, allowed map[string]bool) {
+		m, ok := node.(map[string]any)
+		if !ok {
+			return
+		}
+		for k := range m {
+			if !allowed[k] {
+				out = append(out, path+k)
+			}
+		}
+	}
+	walk("", raw, map[string]bool{"schema_version": true, "planning": true, "feed_water_removal": true, "capture": true})
+	walk("planning.", raw["planning"], map[string]bool{"modes": true, "default_cap_per_day": true})
+	walk("feed_water_removal.", raw["feed_water_removal"], map[string]bool{"mode": true, "cutoff_time": true, "instruction": true, "proofs": true, "questions": true})
+	if fwr, ok := raw["feed_water_removal"].(map[string]any); ok {
+		if proofs, ok := fwr["proofs"].([]any); ok {
+			for i, p := range proofs {
+				walk(fmt.Sprintf("feed_water_removal.proofs.%d.", i), p, map[string]bool{"key": true, "title": true, "hint": true, "kind": true, "required": true})
+			}
+		}
+		if qs, ok := fwr["questions"].([]any); ok {
+			for i, q := range qs {
+				walk(fmt.Sprintf("feed_water_removal.questions.%d.", i), q, map[string]bool{"id": true, "kind": true, "title": true, "hint": true, "required": true, "options": true, "allow_other": true, "min": true, "max": true, "unit": true, "only_if": true})
+			}
+		}
+	}
+	walk("capture.", raw["capture"], map[string]bool{"individual": true, "lump_sum": true})
+	if c, ok := raw["capture"].(map[string]any); ok {
+		walk("capture.individual.", c["individual"], map[string]bool{"video_required": true})
+		walk("capture.lump_sum.", c["lump_sum"], map[string]bool{"video_min": true, "video_max": true})
+	}
+	sort.Strings(out)
+	return out
 }
 
 var sopIDPattern = regexp.MustCompile(`^[a-z][a-z0-9_]{0,47}$`)
