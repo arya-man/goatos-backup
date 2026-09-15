@@ -10,7 +10,7 @@ test("live table defaults to a stable Smart tag sort", () => {
   assert.match(params, /hs_sort: params\.sort === "smart_tag" \? undefined : params\.sort/, "default sort should keep the URL clean");
 });
 
-test("live table exposes the operator-requested sort keys", () => {
+test("live table exposes the operator-requested sort keys and motion headers", () => {
   const params = read("./params.ts");
   for (const key of ["smart_tag", "tag_temp", "last_seen", "motion_count", "delta_15m", "delta_1h"]) {
     assert.match(params, new RegExp(`"${key}"`), `${key} must be accepted as a live-table sort key`);
@@ -20,6 +20,7 @@ test("live table exposes the operator-requested sort keys", () => {
   for (const label of ["Smart tag", "Tag temp", "Last seen", "Motion count", "15m delta", "1h delta"]) {
     assert.match(table, new RegExp(label), `${label} must render as a sortable header`);
   }
+  assert.match(table, /24h delta/, "24h delta must render as a display-only aggregate header");
 });
 
 test("live table keeps tag temperature beside motion count", () => {
@@ -36,6 +37,8 @@ test("live table keeps tag temperature beside motion count", () => {
     ["Motion count", "Tag temp", "15m delta"],
     "Tag temp must remain immediately after Motion count in the live table rows",
   );
+  assert.match(table, /Rolling 24-hour motion-counter delta/, "24h delta must explain it is a rolling motion-counter value");
+  assert.match(table, /not a step count/, "24h delta must not be presented as steps");
 });
 
 test("tag temperature renders Celsius and Fahrenheit", () => {

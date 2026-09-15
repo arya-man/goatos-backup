@@ -18,6 +18,8 @@ type fakeRepo struct {
 	livePages        []domain.TagLatest
 	goats            map[string]ports.GoatData
 	resolvedTags     map[string]string
+	motionDeltas24h  map[string]int64
+	shedLocations    map[string]ports.ShedLocation
 }
 
 func (f *fakeRepo) IngestPackets(_ context.Context, _ string, _ domain.Gateway, packets []domain.Packet) (int, int, error) {
@@ -86,10 +88,20 @@ func (f *fakeRepo) GetGoatsByIDs(_ context.Context, _ string, _ []string) (map[s
 }
 
 func (f *fakeRepo) GetShedLocations(_ context.Context, _ string, _ []string) (map[string]ports.ShedLocation, error) {
+	if f.shedLocations != nil {
+		return f.shedLocations, nil
+	}
 	return map[string]ports.ShedLocation{}, nil
 }
 
 func (f *fakeRepo) GetBaselineDeltas(_ context.Context, _ string, _ []string) (map[string]int64, error) {
+	return map[string]int64{}, nil
+}
+
+func (f *fakeRepo) GetMotionDeltas24h(_ context.Context, _ string, _ []string) (map[string]int64, error) {
+	if f.motionDeltas24h != nil {
+		return f.motionDeltas24h, nil
+	}
 	return map[string]int64{}, nil
 }
 
@@ -379,5 +391,62 @@ func TestListLiveMovementFilterUsesWholePenForGroupComparisons(t *testing.T) {
 	}
 	if resp.Items[0].GroupTempDeltaC == nil || *resp.Items[0].GroupTempDeltaC != 1 {
 		t.Fatalf("group temp delta = %v, want +1.0 from whole-pen median", resp.Items[0].GroupTempDeltaC)
+	}
+}
+
+func TestListLiveUsesAnimalPartitionForPenDisplay(t *testing.T) {
+	now := time.Now().UTC()
+	shedID := "30000000-0000-4000-8000-000000000001"
+	parkID := "40000000-0000-4000-8000-000000000001"
+	goatID := "10000000-0000-4000-8000-000000000001"
+	partition := "2"
+	repo := &fakeRepo{
+		livePages: []domain.TagLatest{
+			{TagID: "A0002A", LastSeenAt: now, MappingState: "mapped", MovementState: "moving", PatternState: "normal"},
+		},
+		resolvedTags: map[string]string{"A0002A": goatID},
+		goats: map[string]ports.GoatData{
+			goatID: {DisplayID: "G-1", ShedID: &shedID, ParkID: &parkID, PartitionLabel: &partition},
+		},
+		shedLocations: map[string]ports.ShedLocation{
+			shedID: {ShedName: "Yashoda", ParkID: parkID, ParkName: "Channapatna"},
+		},
+	}
+	svc := NewService(repo)
+	resp, err := svc.ListLive(context.Background(), domain.Actor{TenantID: "tenant-1", UserID: "user-1"}, nil, nil, nil, nil, nil, nil, nil, "", 10, domain.LiveSort{Key: "smart_tag", Dir: "asc"})
+	if err != nil {
+		t.Fatalf("ListLive: %v", err)
+	}
+	if len(resp.Items) != 1 {
+		t.Fatalf("items = %d, want 1", len(resp.Items))
+	}
+	item := resp.Items[0]
+	if item.PartitionLabel == nil || *item.PartitionLabel != "2" {
+		t.Fatalf("partition_label = %v, want animal current partition 2", item.PartitionLabel)
+	}
+	if item.OperationalLocationDisplay == nil || *item.OperationalLocationDisplay != "Yashoda 2" {
+		t.Fatalf("operational_location_display = %v, want Yashoda 2", item.OperationalLocationDisplay)
+	}
+}
+
+func TestListLiveIncludesRolling24hMotionDelta(t *testing.T) {
+	now := time.Now().UTC()
+	delta24h := int64(1234)
+	repo := &fakeRepo{
+		livePages: []domain.TagLatest{
+			{TagID: "A0002A", LastSeenAt: now, MappingState: "unmapped", MovementState: "moving", PatternState: "normal"},
+		},
+		motionDeltas24h: map[string]int64{"A0002A": delta24h},
+	}
+	svc := NewService(repo)
+	resp, err := svc.ListLive(context.Background(), domain.Actor{TenantID: "tenant-1", UserID: "user-1"}, nil, nil, nil, nil, nil, nil, nil, "", 10, domain.LiveSort{Key: "smart_tag", Dir: "asc"})
+	if err != nil {
+		t.Fatalf("ListLive: %v", err)
+	}
+	if len(resp.Items) != 1 {
+		t.Fatalf("items = %d, want 1", len(resp.Items))
+	}
+	if resp.Items[0].MotionDelta24h == nil || *resp.Items[0].MotionDelta24h != delta24h {
+		t.Fatalf("motion_delta_24h = %v, want %d", resp.Items[0].MotionDelta24h, delta24h)
 	}
 }

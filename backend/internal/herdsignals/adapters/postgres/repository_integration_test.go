@@ -1387,6 +1387,108 @@ func TestGatewayWindowStatsStatusMatrixIdleGatewayAbsent(t *testing.T) {
 	}
 }
 
+func TestGetMotionDeltas24hOneToManyBucketsAndTags(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := setupHerdSignalsDB(t, ctx)
+	defer pool.Close()
+
+	exec := func(sql string, args ...any) {
+		t.Helper()
+		if _, err := pool.Exec(ctx, sql, args...); err != nil {
+			t.Fatalf("seed: %v", err)
+		}
+	}
+
+	base := time.Now().UTC().Add(-2 * time.Hour).Truncate(5 * time.Minute)
+	exec(`INSERT INTO herd_signal_activity_windows
+		(tenant_id, tag_id, bucket_start, bucket_seconds, motion_delta, packet_count, gap_delta)
+	VALUES
+		($1::uuid, 'motion-24h-a', $2, 300, 10, 2, false),
+		($1::uuid, 'motion-24h-a', $3, 300, 15, 3, false),
+		($1::uuid, 'motion-24h-b', $2, 300, 7, 1, false),
+		($1::uuid, 'motion-24h-b', $3, 300, 11, 1, false)`,
+		hsiTenant, base, base.Add(5*time.Minute))
+
+	deltas, err := repo.GetMotionDeltas24h(ctx, hsiTenant, []string{"motion-24h-a", "motion-24h-b"})
+	if err != nil {
+		t.Fatalf("GetMotionDeltas24h: %v", err)
+	}
+	if got := deltas["motion-24h-a"]; got != 25 {
+		t.Fatalf("motion-24h-a delta = %d, want 25 from two buckets counted once each", got)
+	}
+	if got := deltas["motion-24h-b"]; got != 18 {
+		t.Fatalf("motion-24h-b delta = %d, want 18 from its own buckets only", got)
+	}
+}
+
+func TestGetMotionDeltas24hPageBoundaryIsWholeRequestedTagSet(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := setupHerdSignalsDB(t, ctx)
+	defer pool.Close()
+
+	exec := func(sql string, args ...any) {
+		t.Helper()
+		if _, err := pool.Exec(ctx, sql, args...); err != nil {
+			t.Fatalf("seed: %v", err)
+		}
+	}
+
+	base := time.Now().UTC().Add(-90 * time.Minute).Truncate(5 * time.Minute)
+	for i := 0; i < 4; i++ {
+		exec(`INSERT INTO herd_signal_activity_windows
+			(tenant_id, tag_id, bucket_start, bucket_seconds, motion_delta, packet_count, gap_delta)
+		VALUES ($1::uuid, $2, $3, 300, $4, 1, false)`,
+			hsiTenant, fmt.Sprintf("motion-page-%d", i), base.Add(time.Duration(i)*5*time.Minute), int64(10+i))
+	}
+
+	tagIDs := []string{"motion-page-0", "motion-page-1", "motion-page-2", "motion-page-3"}
+	deltas, err := repo.GetMotionDeltas24h(ctx, hsiTenant, tagIDs)
+	if err != nil {
+		t.Fatalf("GetMotionDeltas24h: %v", err)
+	}
+	if len(deltas) != len(tagIDs) {
+		t.Fatalf("24h delta must cover the whole requested tag set, not a page-local subset: got %d want %d", len(deltas), len(tagIDs))
+	}
+	for i, tagID := range tagIDs {
+		if got, want := deltas[tagID], int64(10+i); got != want {
+			t.Fatalf("%s delta = %d, want %d", tagID, got, want)
+		}
+	}
+}
+
+func TestGetMotionDeltas24hScopeHierarchyTenantIsolation(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := setupHerdSignalsDB(t, ctx)
+	defer pool.Close()
+
+	exec := func(sql string, args ...any) {
+		t.Helper()
+		if _, err := pool.Exec(ctx, sql, args...); err != nil {
+			t.Fatalf("seed: %v", err)
+		}
+	}
+
+	otherTenant := hsiUUID(t, "motion-tenant", 1)
+	tagID := "motion-scope-shared"
+	base := time.Now().UTC().Add(-30 * time.Minute).Truncate(5 * time.Minute)
+	exec(`INSERT INTO tenants (tenant_id, name, status) VALUES ($1::uuid, 'Herd Signals Scope Tenant', 'active')`,
+		otherTenant)
+	exec(`INSERT INTO herd_signal_activity_windows
+		(tenant_id, tag_id, bucket_start, bucket_seconds, motion_delta, packet_count, gap_delta)
+	VALUES
+		($1::uuid, $3, $4, 300, 13, 1, false),
+		($2::uuid, $3, $4, 300, 99, 1, false)`,
+		hsiTenant, otherTenant, tagID, base)
+
+	deltas, err := repo.GetMotionDeltas24h(ctx, hsiTenant, []string{tagID})
+	if err != nil {
+		t.Fatalf("GetMotionDeltas24h: %v", err)
+	}
+	if got := deltas[tagID]; got != 13 {
+		t.Fatalf("tenant scope must bind tag movement to the requested tenant only: got %d want 13", got)
+	}
+}
+
 // hsiIntPtr renders a nullable window aggregate by VALUE. Comparing or printing the
 // *int itself compares addresses, so two equal counts read as a changed aggregate and
 // every failure message shows a pointer instead of the number under test.

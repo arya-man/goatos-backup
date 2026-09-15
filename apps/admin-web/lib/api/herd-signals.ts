@@ -84,6 +84,7 @@ export interface HerdSignalItem {
   motion_count: number | null;
   motion_delta: number | null;
   motion_delta_1h: number | null;
+  motion_delta_24h: number | null;
   motion_window_seconds: number | null;
   movement_state: HerdSignalMovementState | null;
   pattern_state: HerdSignalPatternState | null;

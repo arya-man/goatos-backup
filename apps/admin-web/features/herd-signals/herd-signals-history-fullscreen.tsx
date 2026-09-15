@@ -564,6 +564,11 @@ export function HerdSignalsHistoryFullscreen({ rows, closeHref }: { rows: HerdSi
                     : "—"}
                   <span className="srcl derived">Derived</span>
                 </dd>
+                <dt>24h delta</dt>
+                <dd title="Rolling 24-hour motion-counter delta. Movement units, not steps.">
+                  {item.motion_delta_24h !== null ? "+" + item.motion_delta_24h.toLocaleString("en-IN") : "—"}
+                  <span className="srcl derived">Derived</span>
+                </dd>
                 <dt>Movement state</dt>
                 <dd>
                   {item.movement_state ? MOVEMENT_LABEL[item.movement_state] : "—"}

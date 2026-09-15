@@ -53,6 +53,7 @@ func (s *Service) ExportCSV(ctx context.Context, actor domain.Actor, parkID, she
 		"Motion Count",
 		"Motion Delta (15m)",
 		"Motion Delta (1h)",
+		"Motion Delta (24h)",
 		"Delta Includes Reconnect Gap",
 		"Movement State",
 		"Pattern",
@@ -81,7 +82,7 @@ func (s *Service) ExportCSV(ctx context.Context, actor domain.Actor, parkID, she
 		// Same enrichment the live view applies (animal display id, shed/park names, battery
 		// trend composition), batched per page -- so a cell in this file holds exactly what the
 		// same cell on screen holds.
-		items := s.enrichTagsBatch(ctx, actor.TenantID, tags, nil)
+		items := s.enrichTagsBatch(ctx, actor.TenantID, tags, nil, true)
 
 		for _, item := range items {
 			if err := csvutil.WriteSafeRow(writer, exportRow(item)); err != nil {
@@ -121,13 +122,14 @@ func exportRow(item domain.LiveItem) []string {
 		strFromPtr(item.DisplayID),
 		item.TagID,
 		item.TagMAC,
-		strFromPtr(item.ShedName),
+		strFromPtr(item.OperationalLocationDisplay),
 		strFromPtr(item.GatewayID),
 		intFromPtr16(item.RSSIdbm),
 		strFromPtr(item.SignalState),
 		int64FromPtr(item.MotionCount),
 		int64FromPtr(item.MotionDelta),
 		int64FromPtr(item.MotionDelta1h),
+		int64FromPtr(item.MotionDelta24h),
 		boolText(item.GapDelta),
 		strFromPtr(item.MovementState),
 		strFromPtr(item.PatternState),

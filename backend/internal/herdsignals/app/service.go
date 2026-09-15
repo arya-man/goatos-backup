@@ -189,7 +189,7 @@ func (s *Service) ListLive(ctx context.Context, actor domain.Actor, parkID, shed
 			s.log.Error("failed to list tags latest for signal filter", "error", err)
 			return domain.LiveResponse{}, fmt.Errorf("list tags failed: %w", err)
 		}
-		cohortItems := s.enrichTagsBatch(ctx, actor.TenantID, cohortTags, nil)
+		cohortItems := s.enrichTagsBatch(ctx, actor.TenantID, cohortTags, nil, false)
 		applyRiskSignals(cohortItems, riskGroupStatsFromItems(cohortItems))
 
 		filtered := make([]domain.LiveItem, 0, len(cohortItems))
@@ -216,6 +216,7 @@ func (s *Service) ListLive(ctx context.Context, actor domain.Actor, parkID, shed
 		}
 		summary := summaryFromItems(summaryItems)
 		filtered, nextCursor := pageRiskFilteredItems(filtered, cursor, limit, sort)
+		s.populateMotionDeltas24h(ctx, actor.TenantID, filtered)
 		return domain.LiveResponse{
 			Summary:    summary,
 			Items:      filtered,
@@ -236,9 +237,9 @@ func (s *Service) ListLive(ctx context.Context, actor domain.Actor, parkID, shed
 		s.log.Warn("failed to fetch live cohort for signal comparisons", "error", err)
 		cohortTags = tags
 	}
-	cohortItems := s.enrichTagsBatch(ctx, actor.TenantID, cohortTags, nil)
+	cohortItems := s.enrichTagsBatch(ctx, actor.TenantID, cohortTags, nil, false)
 	applyRiskSignals(cohortItems, riskGroupStatsFromItems(cohortItems))
-	items := s.enrichTagsBatch(ctx, actor.TenantID, tags, riskGroupStatsFromItems(cohortItems))
+	items := s.enrichTagsBatch(ctx, actor.TenantID, tags, riskGroupStatsFromItems(cohortItems), true)
 
 	return domain.LiveResponse{
 		Summary:    summary,
@@ -630,7 +631,7 @@ func (s *Service) GetInsights(ctx context.Context, actor domain.Actor) (domain.I
 // enrichTagsBatch enriches a page of tags with animal mapping and location data using batched
 // lookups (one query per lookup kind for the whole page, never one per row -- AGENTS.md
 // operational read model contract).
-func (s *Service) enrichTagsBatch(ctx context.Context, tenantID string, tags []domain.TagLatest, groupStats map[string]riskGroupStats) []domain.LiveItem {
+func (s *Service) enrichTagsBatch(ctx context.Context, tenantID string, tags []domain.TagLatest, groupStats map[string]riskGroupStats, includeMotionDelta24h bool) []domain.LiveItem {
 	items := make([]domain.LiveItem, 0, len(tags))
 	if len(tags) == 0 {
 		return items
@@ -761,7 +762,6 @@ func (s *Service) enrichTagsBatch(ctx context.Context, tenantID string, tags []d
 			b := baseline
 			item.BaselineDelta = &b
 		}
-
 		if tag.TagMAC != nil {
 			item.TagMAC = *tag.TagMAC
 		}
@@ -796,8 +796,11 @@ func (s *Service) enrichTagsBatch(ctx context.Context, tenantID string, tags []d
 					if loc, ok := shedLocations[*gd.ShedID]; ok {
 						shedName := loc.ShedName
 						item.ShedName = &shedName
-						if loc.PartitionLabel != "" {
-							partitionLabel := loc.PartitionLabel
+						partitionLabel := loc.PartitionLabel
+						if gd.PartitionLabel != nil && *gd.PartitionLabel != "" {
+							partitionLabel = *gd.PartitionLabel
+						}
+						if partitionLabel != "" {
 							item.PartitionLabel = &partitionLabel
 						}
 						if loc.ParkName != "" {
@@ -808,7 +811,7 @@ func (s *Service) enrichTagsBatch(ctx context.Context, tenantID string, tags []d
 							parkID := loc.ParkID
 							item.ParkID = &parkID
 						}
-						opLoc := oploc.OperationalLocation{ShedName: loc.ShedName, PartitionLabel: loc.PartitionLabel}
+						opLoc := oploc.OperationalLocation{ShedName: loc.ShedName, PartitionLabel: partitionLabel}
 						display := opLoc.Display()
 						item.OperationalLocationDisplay = &display
 					}
@@ -822,7 +825,31 @@ func (s *Service) enrichTagsBatch(ctx context.Context, tenantID string, tags []d
 	if groupStats != nil {
 		applyRiskSignals(items, groupStats)
 	}
+	if includeMotionDelta24h {
+		s.populateMotionDeltas24h(ctx, tenantID, items)
+	}
 	return items
+}
+
+func (s *Service) populateMotionDeltas24h(ctx context.Context, tenantID string, items []domain.LiveItem) {
+	if len(items) == 0 {
+		return
+	}
+	tagIDs := make([]string, 0, len(items))
+	for _, item := range items {
+		tagIDs = append(tagIDs, item.TagID)
+	}
+	motionDeltas24h, err := s.repo.GetMotionDeltas24h(ctx, tenantID, tagIDs)
+	if err != nil {
+		s.log.Warn("failed to batch-fetch 24h motion deltas", "error", err)
+		return
+	}
+	for i := range items {
+		if delta24h, ok := motionDeltas24h[items[i].TagID]; ok {
+			d := delta24h
+			items[i].MotionDelta24h = &d
+		}
+	}
 }
 
 type riskGroupStats struct {

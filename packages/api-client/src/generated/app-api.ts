@@ -6277,6 +6277,11 @@ export interface components {
              * @description Real 1-hour (3600s-tier) delta -- distinct from motion_delta.
              */
             motion_delta_1h: number | null;
+            /**
+             * Format: int64
+             * @description Rolling 24-hour motion-counter delta. This is movement units
+             */
+            motion_delta_24h: number | null;
             motion_window_seconds: number | null;
             movement_state: components["schemas"]["HerdSignalMovementState"] | null;
             pattern_state: components["schemas"]["HerdSignalPatternState"] | null;

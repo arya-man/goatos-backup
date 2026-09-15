@@ -270,14 +270,19 @@ export function HerdSignalsDrawer({
               {fmtDelta(item.motion_count)}
               <span className="srcl direct">Direct</span>
             </dd>
-            <dt>15m motion delta</dt>
-            <dd title={item.gap_delta ? "Accumulated across a reception gap — timing within the gap is unknown, not a normal 15m reading" : undefined}>
+                    <dt>15m motion delta</dt>
+                    <dd title={item.gap_delta ? "Accumulated across a reception gap — timing within the gap is unknown, not a normal 15m reading" : undefined}>
 
-              {fmtDelta(item.motion_delta)}
-              {item.gap_delta ? <sup title="Gap total">*</sup> : null}
-              <span className="srcl derived">Derived</span>
-            </dd>
-            <dt>Movement state</dt>
+                      {fmtDelta(item.motion_delta)}
+                      {item.gap_delta ? <sup title="Gap total">*</sup> : null}
+                      <span className="srcl derived">Derived</span>
+                    </dd>
+                    <dt>24h motion delta</dt>
+                    <dd title="Rolling 24-hour motion-counter delta. Movement units, not steps.">
+                      {fmtDelta(item.motion_delta_24h)}
+                      <span className="srcl derived">Derived</span>
+                    </dd>
+                    <dt>Movement state</dt>
             <dd>
               {item.movement_state ? <Tag tone={MOVEMENT_TONE[item.movement_state]}>{MOVEMENT_LABEL[item.movement_state]}</Tag> : "—"}
               <span className="srcl inferred">Inferred</span>

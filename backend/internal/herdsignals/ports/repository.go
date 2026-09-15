@@ -86,6 +86,10 @@ type Repository interface {
 	// from the result has no non-gap 24h history yet.
 	GetBaselineDeltas(ctx context.Context, tenantID string, tagIDs []string) (map[string]int64, error)
 
+	// GetMotionDeltas24h computes a rolling 24h movement-unit delta for many tags in ONE query from
+	// persisted activity windows. This is a movement counter delta, not a step count.
+	GetMotionDeltas24h(ctx context.Context, tenantID string, tagIDs []string) (map[string]int64, error)
+
 	// GetBatteryHistory computes the first/last battery_mv reading (and their timestamps) within
 	// the configured trend window for many tags in ONE query, mirroring GetBaselineDeltas: never
 	// a per-row historical scan on GET /herd-signals/live. A tag absent from the result has no
@@ -211,4 +215,5 @@ type GoatData struct {
 	AgeDays           *int
 	ShedID            *string
 	ParkID            *string
+	PartitionLabel    *string
 }

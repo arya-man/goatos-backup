@@ -995,13 +995,22 @@ func (r *Repository) GetGoatsByIDs(ctx context.Context, tenantID string, goatIDs
 	}
 
 	query := `
-			SELECT g.goat_id, g.display_id, g.shed_id, g.park_id,
-			       COALESCE(b.canonical_name, g.breed) AS breed,
-			       g.sex,
-			       (((now() AT TIME ZONE 'Asia/Kolkata')::date) - COALESCE(g.dob, g.approx_dob))::int AS age_days,
-			       ident1.animal_identifier_1, prov.mapped_by, to_char(prov.mapped_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SSZ') AS mapped_at, ident2.animal_identifier_2, prov.mapped_by, to_char(prov.mapped_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SSZ')
-			FROM public.goats g
-			LEFT JOIN public.breeds b ON b.breed_id = g.breed_id
+				SELECT g.goat_id, g.display_id, g.shed_id, g.park_id,
+				       COALESCE(b.canonical_name, g.breed) AS breed,
+				       g.sex,
+				       (((now() AT TIME ZONE 'Asia/Kolkata')::date) - COALESCE(g.dob, g.approx_dob))::int AS age_days,
+				       ident1.animal_identifier_1, prov.mapped_by, to_char(prov.mapped_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SSZ') AS mapped_at,
+				       ident2.animal_identifier_2, prov.mapped_by, to_char(prov.mapped_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SSZ'),
+				       CASE
+				         WHEN lower(btrim(COALESCE(gsp.partition_label, ''))) = 'whole' THEN NULL
+				         ELSE NULLIF(btrim(gsp.partition_label), '')
+				       END AS partition_label
+				FROM public.goats g
+				LEFT JOIN public.breeds b ON b.breed_id = g.breed_id
+				LEFT JOIN public.goat_shed_partitions gsp
+				       ON gsp.tenant_id = g.tenant_id
+				      AND gsp.goat_id = g.goat_id
+				      AND gsp.shed_id = g.shed_id
 		-- Provenance belongs to the BINDING, not to the animal's ear tag.
 		--
 		-- mapped_by/mapped_at are stamped on the rows THIS MODULE creates to carry a BLE binding
@@ -1053,10 +1062,10 @@ func (r *Repository) GetGoatsByIDs(ctx context.Context, tenantID string, goatIDs
 	result := make(map[string]ports.GoatData)
 	for rows.Next() {
 		var goatID, displayID string
-		var animalIdentifier1, animalIdentifier2, breed, sex, shedID, parkID *string
+		var animalIdentifier1, animalIdentifier2, breed, sex, shedID, parkID, partitionLabel *string
 		var ageDays *int
 		var mappedBy1, mappedAt1, mappedBy2, mappedAt2 *string
-		if err := rows.Scan(&goatID, &displayID, &shedID, &parkID, &breed, &sex, &ageDays, &animalIdentifier1, &mappedBy1, &mappedAt1, &animalIdentifier2, &mappedBy2, &mappedAt2); err != nil {
+		if err := rows.Scan(&goatID, &displayID, &shedID, &parkID, &breed, &sex, &ageDays, &animalIdentifier1, &mappedBy1, &mappedAt1, &animalIdentifier2, &mappedBy2, &mappedAt2, &partitionLabel); err != nil {
 			return nil, err
 		}
 		result[goatID] = ports.GoatData{
@@ -1072,6 +1081,7 @@ func (r *Repository) GetGoatsByIDs(ctx context.Context, tenantID string, goatIDs
 			AgeDays:           ageDays,
 			ShedID:            shedID,
 			ParkID:            parkID,
+			PartitionLabel:    partitionLabel,
 		}
 	}
 	return result, rows.Err()
@@ -1233,6 +1243,7 @@ func (r *Repository) GetBaselineDeltas(ctx context.Context, tenantID string, tag
 	//     thing the system would tell a farm about a newly tagged goat is derived from exactly
 	//     that.
 	rows, err := r.db.Query(ctx, `
+		-- projection-review: membership=herd_signal_activity_windows rows for the caller-supplied tag_id list only, in the rolling 24h baseline window, 300s tier, packet_count > 0, non-gap buckets, and not earlier than herd_signal_tag_latest.animal_monitoring_since; group_key=w.tag_id; join_cardinality=herd_signal_tag_latest is joined on (tenant_id, tag_id), its primary grain is one latest row per tag so it cannot multiply activity-window rows; pagination=whole supplied tag list aggregate, independent of the live table page size and never derived from a page-local row count; scope=w.tenant_id plus bounded tag_id array supplied by the service after park/risk filtering
 		SELECT w.tag_id, percentile_disc(0.75) WITHIN GROUP (ORDER BY w.motion_delta)
 		FROM public.herd_signal_activity_windows w
 		JOIN public.herd_signal_tag_latest tl
@@ -1255,6 +1266,42 @@ func (r *Repository) GetBaselineDeltas(ctx context.Context, tenantID string, tag
 			return nil, err
 		}
 		result[tagID] = baseline
+	}
+	return result, rows.Err()
+}
+
+const motionDeltas24hSQL = `
+	-- projection-review: membership=herd_signal_activity_windows rows for the caller-supplied tag_id list only, in the rolling 24h window, 300s tier, packet_count > 0, reconnect-gap buckets excluded; group_key=tag_id; join_cardinality=no joins and every source row contributes to exactly one tag_id sum; pagination=whole supplied page/export tag list aggregate, independent of the live table page size and never derived from a page-local row count; scope=tenant_id plus bounded tag_id array supplied by the service after park/risk filtering
+	SELECT tag_id, COALESCE(SUM(motion_delta), 0)::bigint
+	FROM public.herd_signal_activity_windows
+	WHERE tenant_id = $1
+	  AND tag_id = ANY($2)
+	  AND bucket_seconds = 300
+	  AND bucket_start >= now() - interval '24 hours'
+	  AND packet_count > 0
+	  AND gap_delta IS NOT TRUE
+	GROUP BY tag_id
+`
+
+// GetMotionDeltas24h computes rolling 24h movement units from the persisted 300s activity-window
+// tier. This is the tag's opaque motion counter delta over the last day, not a step count.
+func (r *Repository) GetMotionDeltas24h(ctx context.Context, tenantID string, tagIDs []string) (map[string]int64, error) {
+	result := make(map[string]int64)
+	if len(tagIDs) == 0 {
+		return result, nil
+	}
+	rows, err := r.db.Query(ctx, motionDeltas24hSQL, tenantID, tagIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var tagID string
+		var delta int64
+		if err := rows.Scan(&tagID, &delta); err != nil {
+			return nil, err
+		}
+		result[tagID] = delta
 	}
 	return result, rows.Err()
 }
@@ -1302,7 +1349,7 @@ func (r *Repository) GetGatewayWindowStats(ctx context.Context, tenantID string)
 	// herd_signal_activity_windows is pre-bucketed at 60s, 300s, and 3600s tiers.
 	// Query the 300s tier to cover 15 minutes efficiently (5-minute buckets).
 	// Aggregate by gateway_id from the windows table (the gateway that actually heard the packets).
-	// projection-review: membership=herd_signal_activity_windows.tag_id; group_key=gateway_id; aggregation=count distinct tags, count distinct tags with motion, sum packet_count; pagination=none whole-result aggregate time-windowed to 15 minutes; scope=tenant_id with gateway_id filter
+	// projection-review: membership=herd_signal_activity_windows rows in the rolling 15-minute 300s tier with gateway_id present; group_key=gateway_id; join_cardinality=no joins and DISTINCT tag_id prevents multiple windows for one tag from inflating tag counts; pagination=none whole-result aggregate time-windowed to 15 minutes; scope=tenant_id with gateway_id filter
 	rows, err := r.db.Query(ctx, `
 		SELECT
 			hw.gateway_id,

@@ -16255,6 +16255,7 @@ components:
         motion_count: { type: integer, format: int64, nullable: true }
         motion_delta: { type: integer, format: int64, nullable: true, description: 15-minute window delta. }
         motion_delta_1h: { type: integer, format: int64, nullable: true, description: Real 1-hour (3600s-tier) delta -- distinct from motion_delta. }
+        motion_delta_24h: { type: integer, format: int64, nullable: true, description: Rolling 24-hour motion-counter delta. This is movement units, not a step count. }
         motion_window_seconds: { type: integer, nullable: true }
         movement_state: { allOf: [{ $ref: '#/components/schemas/HerdSignalMovementState' }], nullable: true }
         pattern_state: { allOf: [{ $ref: '#/components/schemas/HerdSignalPatternState' }], nullable: true }
@@ -16278,7 +16279,7 @@ components:
             as an ordinary delta.
         mapped_by: { type: string, nullable: true, description: User ID of the operator who bound this tag to an identifier (mapping provenance). }
         mapped_at: { type: string, format: date-time, nullable: true, description: Server timestamp when this tag was bound to an identifier (mapping provenance). }
-      required: [tag_id, tag_mac, goat_id, display_id, animal_identifier_1, animal_identifier_2, breed, sex, age_days, park_id, park_name, shed_id, shed_name, partition_label, operational_location_display, gateway_id, last_seen_at, rssi_dbm, signal_state, battery_mv, battery_state, battery_trend, tag_temperature_c, motion_count, motion_delta, motion_delta_1h, motion_window_seconds, movement_state, pattern_state, baseline_delta, risk_state, risk_reasons, own_motion_delta_pct, group_motion_delta_pct, group_temp_delta_c, sensor_state, temperature_sensor_ok, accelerometer_sensor_ok, mapping_state, gap_delta]
+      required: [tag_id, tag_mac, goat_id, display_id, animal_identifier_1, animal_identifier_2, breed, sex, age_days, park_id, park_name, shed_id, shed_name, partition_label, operational_location_display, gateway_id, last_seen_at, rssi_dbm, signal_state, battery_mv, battery_state, battery_trend, tag_temperature_c, motion_count, motion_delta, motion_delta_1h, motion_delta_24h, motion_window_seconds, movement_state, pattern_state, baseline_delta, risk_state, risk_reasons, own_motion_delta_pct, group_motion_delta_pct, group_temp_delta_c, sensor_state, temperature_sensor_ok, accelerometer_sensor_ok, mapping_state, gap_delta]
     HerdSignalsLiveResponse:
       type: object
       properties:

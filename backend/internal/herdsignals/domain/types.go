@@ -177,6 +177,7 @@ type TagLatest struct {
 	MotionCount           *int64
 	MotionDelta           *int64 // 15-minute window delta (motion_window_seconds=900)
 	MotionDelta1h         *int64 // real 1-hour (3600s-tier) delta -- distinct from MotionDelta, see 000194
+	MotionDelta24h        *int64 // rolling 24-hour motion-unit delta; not steps
 	PreviousMotionCount   *int64
 	PreviousSeenAt        *time.Time
 	MotionWindowSeconds   *int
@@ -323,6 +324,7 @@ type LiveItem struct {
 	MotionCount         *int64                `json:"motion_count"`
 	MotionDelta         *int64                `json:"motion_delta"`
 	MotionDelta1h       *int64                `json:"motion_delta_1h"`
+	MotionDelta24h      *int64                `json:"motion_delta_24h"`
 	MotionWindowSeconds *int                  `json:"motion_window_seconds"`
 	MovementState       *string               `json:"movement_state"`
 	PatternState        *string               `json:"pattern_state"`

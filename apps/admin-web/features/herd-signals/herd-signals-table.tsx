@@ -331,6 +331,10 @@ export function HerdSignalsTable({
               {sortableHead("Tag temp", "tag_temp", "num", "Tag housing temperature, not the animal's body temperature.")}
               {sortableHead("15m delta", "delta_15m", "num", "Current 15-minute motion-count delta: latest counter minus the baseline reading for the window.")}
               {sortableHead("1h delta", "delta_1h", "num", "Current 1-hour motion-count delta when enough readings exist; blank means the window is not established yet.")}
+              <th className="num">
+                24h delta
+                <InfoTip label="24h delta rules" text="Rolling 24-hour motion-counter delta. This is movement units from the tag firmware, not a step count." />
+              </th>
               <th>
                 Activity
                 <InfoTip label="Activity rules" text={ACTIVITY_RULES} />
@@ -361,6 +365,7 @@ export function HerdSignalsTable({
               const delta15 = fmtSignedDelta(item.motion_delta);
               const delta1hText = fmtDelta1h(item.motion_delta_1h, item.motion_delta);
               const delta1h = delta1hText === "—" ? { text: "—", tone: "zero" as const } : fmtSignedDelta(item.motion_delta_1h);
+              const delta24h = fmtSignedDelta(item.motion_delta_24h);
               const href = rowHref(item);
               return (
                 <tr
@@ -420,6 +425,9 @@ export function HerdSignalsTable({
                   </td>
                   <td data-l="1h delta" className="num">
                     <span className={`delta ${delta1h.tone}`}>{delta1h.text}</span>
+                  </td>
+                  <td data-l="24h delta" className="num">
+                    <span className={`delta ${delta24h.tone}`}>{delta24h.text}</span>
                   </td>
                   <td data-l="Activity">
                     {item.movement_state ? (
