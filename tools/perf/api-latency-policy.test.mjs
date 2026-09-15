@@ -388,7 +388,7 @@ test("executable latency gate measures the landing date lookup before default pa
   const server = createServer((request, response) => {
     requests.push(request.url);
     response.setHeader("Content-Type", "application/json");
-    response.end(JSON.stringify(request.url === "/version" ? { build_sha: sha } : {
+    response.end(JSON.stringify(request.url === "/version" ? { build_sha: sha } : request.url === "/app/me" ? { actor_id: "internal-user" } : {
       latest_weighing_date: latest, lump_weighing_dates: [latest], rows: [{ id: "one" }],
       by_breed: [{}], gain_by_breed_origin: [{}], gain_by_breed_shed_type: [{}],
       by_weight_band: [{}], gain_by_breed_week: [{}], by_park: [{}], weekly_gain: [{}],
@@ -400,13 +400,16 @@ test("executable latency gate measures the landing date lookup before default pa
   try {
     const {stdout} = await promisify(execFile)(process.execPath, [
       "tools/perf/api-latency-gate.mjs", "--base-url", `http://127.0.0.1:${server.address().port}`,
-      "--bearer-token", "synthetic-test-only", "--manifest", "tools/perf/hot-paths.pr264.json",
+      "--bearer-token", `header.${Buffer.from(JSON.stringify({ sub: "internal-user" })).toString("base64url")}.signature`, "--manifest", "tools/perf/hot-paths.pr264.json",
       "--iterations", "1", "--warmup", "1", "--timeout-ms", "5000",
     ], { cwd: root, maxBuffer: 2 * 1024 * 1024, timeout: 20000 });
     const report = JSON.parse(stdout);
     assert.equal(report.results.length, 16);
     assert.deepEqual(weighingEvidenceFailures(report), []);
-    assert.match(requests[1], /^\/weighing\/weighing-dates\?/);
+    assert.equal(report.actor.user_id, "internal-user");
+    assert.equal(report.actor_identity_source, "/app/me");
+    assert.equal(requests.filter((path) => path === "/app/me").length, 2);
+    assert.match(requests[2], /^\/weighing\/weighing-dates\?/);
     for (const result of report.results.filter(({name}) => WEIGHING_WORKLOADS[name] && name !== WEIGHING_DATES_NAME)) {
       assert.equal(new URL(result.path, "http://local.invalid").searchParams.get("to"), latest);
       assert.ok(requests.includes(result.path));

@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { actorEvidenceFailures } from "./api-latency-actor.mjs";
 import { FRESH_AS_OF_NAME, freshAsOfEvidenceFailures, warmupEvidenceFailures } from "./api-latency-request.mjs";
 import { WEIGHING_DATES_NAME, weighingEvidenceFailures } from "./weighing-workload.mjs";
 import { readFileSync } from "node:fs";
@@ -110,6 +111,7 @@ export function validateApiLatencyEvidence(report, expectedSha) {
   if (!report || typeof report !== "object" || Array.isArray(report)) {
     return ["latency evidence must be a JSON object"];
   }
+  failures.push(...actorEvidenceFailures(report));
   if (!expectedSha) failures.push("expected SHA is required");
   if (!report.api_build_sha || report.api_build_sha !== expectedSha) failures.push("observed api_build_sha must match expected SHA");
   if (!report.api_build_sha_end || report.api_build_sha_end !== report.api_build_sha) failures.push("API build changed or final build identity is missing");
@@ -290,7 +292,9 @@ function validatePr264BrowserEvidence(report, failures) {
   }
   if (!browser.actor?.user_id || !browser.actor?.tenant_id
     || receipt?.local_user_id !== browser.actor.user_id || receipt?.tenant_id !== browser.actor.tenant_id
-    || (report.tenant_id && report.tenant_id !== browser.actor.tenant_id)) {
+    || report.actor?.user_id !== browser.actor.user_id
+    || report.actor?.tenant_id !== browser.actor.tenant_id
+    || report.tenant_id !== browser.actor.tenant_id) {
     failures.push("PR264 browser actor must match the frontend runtime user and tenant");
   }
   const routes = Array.isArray(browser.routes) ? browser.routes : [];

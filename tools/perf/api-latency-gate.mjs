@@ -11,6 +11,8 @@ import { observeApiPayload } from "./api-latency-evidence.mjs";
 
 import { normalizeApiLatencyEndpoints } from "./api-latency-policy.mjs";
 
+import { readApiActor, assertNoActorHeaderOverrides } from "./api-latency-actor.mjs";
+
 const requestPlanner = createRequestPlanner();
 
 const defaultEndpoints = [
@@ -42,6 +44,7 @@ const output = args.output ?? process.env.GOATOS_PERF_OUTPUT ?? process.env.GOAT
 const manifest = args.manifest ?? process.env.GOATOS_PERF_MANIFEST ?? "";
 const manifestDocument = loadManifest(manifest);
 const endpoints = normalizeApiLatencyEndpoints(manifestDocument.endpoints);
+for (const endpoint of endpoints) assertNoActorHeaderOverrides(endpoint.headers);
 const gitSha = currentGitSha();
 const worktree = currentWorktreeState();
 const expectedSha = String(args.expectedSha ?? process.env.GOATOS_PERF_EXPECTED_SHA ?? "").trim();
@@ -66,6 +69,8 @@ const observedBuildSha = await readApiBuildSha();
 if (observedBuildSha !== (expectedSha || gitSha)) {
   fail(`API build ${observedBuildSha} does not match expected ${expectedSha || gitSha}`);
 }
+const actorOptions = { baseUrl, tenantId, bearerToken, cookie, timeoutMs };
+const actor = await readApiActor(actorOptions);
 const results = [];
 for (const endpoint of endpoints) {
   const result = await runEndpoint(endpoint);
@@ -76,7 +81,12 @@ for (const endpoint of endpoints) {
 const finalBuildSha = await readApiBuildSha();
 if (finalBuildSha !== observedBuildSha) fail("API build changed during latency measurement");
 
+const finalActor = await readApiActor(actorOptions);
+if (finalActor.user_id !== actor.user_id || finalActor.tenant_id !== actor.tenant_id) fail("Authenticated actor changed during latency measurement");
+
 const report = {
+  actor,
+  actor_identity_source: "/app/me",
   schema_version: "1.0.0",
   passed: results.every((result) => result.passed),
   git_sha: gitSha,

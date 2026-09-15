@@ -6,6 +6,8 @@ import { compareApiLatencyEvidence } from "./api-latency-compare.mjs";
 function report(overrides = {}) {
   const base = {
     git_sha: "before-sha",
+    actor: { user_id: "actor-a", tenant_id: "11111111-1111-4111-8111-111111111111" },
+    actor_identity_source: "/app/me",
     tenant_id: "11111111-1111-4111-8111-111111111111",
     manifest_sha256: "manifest-hash",
     iterations: 15,
@@ -109,4 +111,12 @@ test("rejects lost rows even when the latency improves", () => {
   const after = report({git_sha: "after-sha"});
   after.results[0].response_observations[0].row_counts.rows = 0;
   assert.match(compareApiLatencyEvidence(before, after).join(), /cardinality decreased/);
+});
+
+test("rejects missing or different authenticated actors with otherwise equal workloads", () => {
+  const before = report();
+  for (const actor of [undefined, {}, { ...before.actor, user_id: "actor-b" }, { ...before.actor, tenant_id: "other" }]) {
+    assert.ok(compareApiLatencyEvidence(before, report({ git_sha: "after-sha", actor })).some((f) => /actor/.test(f)));
+  }
+  assert.ok(compareApiLatencyEvidence(report({ actor: undefined }), report({ git_sha: "after-sha", actor: undefined })).some((f) => /actor/.test(f)));
 });

@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { actorEvidenceFailures } from "./api-latency-actor.mjs";
 import { readFileSync } from "node:fs";
 
 const DEFAULT_ALLOWED_REGRESSION_MS = 25;
@@ -10,6 +11,8 @@ export function compareApiLatencyEvidence(before, after, options = {}) {
     : DEFAULT_ALLOWED_REGRESSION_MS;
   if (!before || typeof before !== "object") return ["before latency report must be a JSON object"];
   if (!after || typeof after !== "object") return ["after latency report must be a JSON object"];
+  failures.push(...actorEvidenceFailures(before).map((f) => `before ${f}`), ...actorEvidenceFailures(after).map((f) => `after ${f}`));
+  if (before.actor?.user_id !== after.actor?.user_id || before.actor?.tenant_id !== after.actor?.tenant_id) failures.push("authenticated actor differs between reports");
   if (!before.git_sha || !after.git_sha) failures.push("both reports must carry git_sha");
   if (before.git_sha && after.git_sha && before.git_sha === after.git_sha) {
     failures.push("before and after git_sha must be different");

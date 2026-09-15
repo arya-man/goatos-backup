@@ -1,3 +1,4 @@
+import "./api-latency-actor.test.mjs";
 import { WEIGHING_WORKLOADS, WEIGHING_DATES_NAME, weighingWindow, expandWeighingPath } from "./weighing-workload.mjs";
 import { FRESH_AS_OF_NAME, VACCINATION_PATH, createRequestPlanner } from "./api-latency-request.mjs";
 import assert from "node:assert/strict";
@@ -10,6 +11,9 @@ const sha = "0123456789abcdef";
 
 function passingReport() {
   return {
+    tenant_id: "00000000-0000-4000-8000-000000000001",
+    actor: { user_id: "00000000-0000-4000-8000-000000000002", tenant_id: "00000000-0000-4000-8000-000000000001" },
+    actor_identity_source: "/app/me",
     warmup: 5,
     git_sha: sha,
     api_build_sha: sha,
@@ -557,3 +561,14 @@ function browserProvenance() {
     },
   };
 }
+
+test("rejects missing API actor and browser/API user mismatch", () => {
+  const missing = passingReport();
+  delete missing.actor;
+  assert.ok(validateApiLatencyEvidence(missing, sha).some((f) => /actor/.test(f)));
+  const report = passingReport();
+  report.scope.evidence_profile = "pr264_performance";
+  report.browser_evidence = pr264BrowserEvidence();
+  report.actor.user_id = "different-user";
+  assert.ok(validateApiLatencyEvidence(report, sha).some((f) => /actor/.test(f)));
+});

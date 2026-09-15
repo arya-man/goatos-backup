@@ -1082,3 +1082,29 @@ Performance: this fixes workload validity and bounds freshness; no new real-DB
 latency improvement is claimed. Full exact-SHA CI, real HTTP latency and browser
 certification for the overall PR remain pending. No merge/main push/deployment.
 Local continuation details: `.codex-goatos-render/pr273-independent-review/`.
+
+
+## PR273 actor-binding review fix — 2026-09-16
+
+Scope: fix and push the independent-review actor-binding finding to PR273 first,
+per the maintainer's latest priority. PR274 integration/rebase, main landing and
+staging/mobile deployment are pending and have not started.
+
+Baseline/current committed SHA: `9f570d4cc0f83133690f23d63a7e25978ede263a`.
+Done: reproduced comparator accepting different users with zero failures;
+confirmed the API benchmark report does not record its authenticated actor.
+Implementation complete: bind server-observed `/app/me` user identity to benchmark
+start/end, before/after comparison, and browser proof. JWT tenant/header mismatch
+and endpoint identity-header overrides fail closed. Cookie-only certification is
+explicitly unsupported because it cannot establish the backend tenant binding.
+No credentials or full profile responses are retained.
+Tests: actor regressions failed before implementation; final
+`make api-latency-policy-test` passed 64/64 and `git diff --check` passed.
+Baseline focused Go suites and 147 Node tests also passed.
+Known failures: the reported actor-binding defect is fixed; overall PR performance
+certification remains pending as recorded below.
+Before/after metrics: correctness-only evidence repair; no latency improvement
+claimed. Final real-DB latency and production browser certification remain pending.
+Judge: independent actor-fix review approved; no blocking findings. Reviewer
+independently reran the 64 tests and diff check.
+Deployment: none; no main push, merge, or deployment authorized before green proof.
