@@ -30,6 +30,11 @@ type Service struct {
 	// cutoff, edit cutoff, card visibility — resolves it through this seam and
 	// refuses with ErrCutoffNotConfigured when it is unwired or unset.
 	cutoffs fwrports.CutoffReader
+	// sopRules / sopPins resolve the weighing.session SOP rules a task is planned on and
+	// runs under (WEIGHING SOP, maintainer decision 2026-09-15, app/sop_rules.go). Unwired
+	// means the seeded rules -- the pre-SOP behaviour -- never a refusal.
+	sopRules ports.SOPRulesSource
+	sopPins  ports.SOPPinReader
 	// now is the service clock behind the fasting create cutoff and the
 	// fasting card's visibility window. Injectable so tests pin it; defaults
 	// to time.Now.
@@ -282,26 +287,43 @@ func (s *Service) CreateCampaign(ctx context.Context, actor domain.Actor, cmd do
 	if err := validateCreate(cmd); err != nil {
 		return domain.Campaign{}, err
 	}
-	// FASTING CREATE CUTOFF (maintainer decision 2026-09-03): the weigh date
-	// must still have a fastable evening ahead of it. Strictly before the
-	// tenant's configured cutoff the earliest weigh date is tomorrow; at or
-	// after it, the day after. Checked here, on the service clock and the
-	// configured cutoff, so the repository and its tests never read time.Now
-	// or a literal hour themselves.
-	cutoff, err := s.removalCutoff(ctx, actor.TenantID)
+	// WEIGHING SOP (maintainer decision 2026-09-15): the task is planned on the PUBLISHED
+	// rules and stamped with their version. They decide the capture modes offered, the
+	// default cap and whether this task carries the feed & water removal precondition.
+	rules, err := s.publishedRules(ctx, actor.TenantID)
 	if err != nil {
 		return domain.Campaign{}, err
 	}
-	if !domain.WeighDateAllowsFastingCreate(cmd.StartBusinessDate, s.clock(), cutoff) {
-		return domain.Campaign{}, ports.ErrFastingWindowClosed
+	removal, err := applyPlanningRules(rules, &cmd, false)
+	if err != nil {
+		return domain.Campaign{}, err
+	}
+	if removal {
+		if err := validateRemovalAssignment(cmd); err != nil {
+			return domain.Campaign{}, err
+		}
+		// FASTING CREATE CUTOFF (maintainer decision 2026-09-03): the weigh date
+		// must still have a fastable evening ahead of it. Strictly before the
+		// tenant's configured cutoff the earliest weigh date is tomorrow; at or
+		// after it, the day after. Checked here, on the service clock and the
+		// configured cutoff, so the repository and its tests never read time.Now
+		// or a literal hour themselves.
+		cutoff, err := s.removalCutoff(ctx, actor.TenantID)
+		if err != nil {
+			return domain.Campaign{}, err
+		}
+		if !domain.WeighDateAllowsFastingCreate(cmd.StartBusinessDate, s.clock(), cutoff) {
+			return domain.Campaign{}, ports.ErrFastingWindowClosed
+		}
+	} else if !domain.WeighDateAllowsPlainCreate(cmd.StartBusinessDate, s.clock()) {
+		// No evening's work is being scheduled, so no cutoff applies -- but a weigh date
+		// in the past is still not a plan.
+		return domain.Campaign{}, ports.ErrWeighDateInPast
 	}
 	// The WeighingPlan role check is park-blind. The campaign names its own park, so a planner
 	// scoped to one park could otherwise CREATE weighing work in another park's sheds.
 	if err := s.checkParkScopeForCapability(ctx, actor.TenantID, cmd.ParkID, permissions.WeighingPlan); err != nil {
 		return domain.Campaign{}, err
-	}
-	if cmd.PlannedCapPerDay <= 0 {
-		cmd.PlannedCapPerDay = 100
 	}
 	return s.repo.CreateCampaign(ctx, cmd)
 }
@@ -333,17 +355,39 @@ func (s *Service) UpdateCampaign(ctx context.Context, actor domain.Actor, campai
 	if err := s.checkParkScopeForCapability(ctx, actor.TenantID, parkID, permissions.WeighingPlan); err != nil {
 		return domain.Campaign{}, err
 	}
-	// FASTING RULES ON EDIT: an edit that keeps the current weigh date is
-	// always allowed (the date was valid when planned), but a MOVED date must
-	// itself still be fastable (create cutoff), and a date can no longer move
-	// at all once the fasting task was submitted — the fast was performed for
-	// the planned night and cannot be transplanted onto another one.
+	// WEIGHING SOP: an edit runs under the rules the task was PLANNED on (pinned version),
+	// never the latest publish -- a publish changes the next task, not this one.
+	rules, err := s.rulesForCampaign(ctx, actor.TenantID, campaignID)
+	if err != nil {
+		return domain.Campaign{}, err
+	}
+	var currentDate string
+	var fastingSubmitted, hasFasting bool
 	if s.fasting != nil {
-		currentDate, fastingSubmitted, hasFasting, err := s.fasting.CampaignStartDate(ctx, actor.TenantID, campaignID)
+		currentDate, fastingSubmitted, hasFasting, err = s.fasting.CampaignStartDate(ctx, actor.TenantID, campaignID)
 		if err != nil {
 			return domain.Campaign{}, err
 		}
-		if hasFasting && cmd.StartBusinessDate != currentDate {
+	}
+	removal, err := applyPlanningRules(rules, &cmd, hasFasting)
+	if err != nil {
+		return domain.Campaign{}, err
+	}
+	// The pin is the task's own, never re-stamped by an edit.
+	cmd.SOPVersion = 0
+	switch {
+	case removal:
+		if err := validateRemovalAssignment(cmd); err != nil {
+			return domain.Campaign{}, err
+		}
+		// FASTING RULES ON EDIT: an edit that keeps the current weigh date is
+		// always allowed (the date was valid when planned), but a MOVED date must
+		// itself still be fastable (create cutoff), and a date can no longer move
+		// at all once the fasting task was submitted — the fast was performed for
+		// the planned night and cannot be transplanted onto another one. A task
+		// that had NO round and now gains one is planned afresh: its date must
+		// be fastable.
+		if !hasFasting || cmd.StartBusinessDate != currentDate {
 			if fastingSubmitted {
 				return domain.Campaign{}, ports.ErrFastingSubmittedDateLocked
 			}
@@ -355,9 +399,21 @@ func (s *Service) UpdateCampaign(ctx context.Context, actor domain.Actor, campai
 				return domain.Campaign{}, ports.ErrFastingWindowClosed
 			}
 		}
-	}
-	if cmd.PlannedCapPerDay <= 0 {
-		cmd.PlannedCapPerDay = 100
+	case hasFasting:
+		// The edit switches the precondition OFF for a task that carries a round: allowed
+		// only while nothing of that round was performed. The repository deletes the round
+		// under the same guard (a pen already submitted refuses the whole edit).
+		if fastingSubmitted {
+			return domain.Campaign{}, ports.ErrRemovalChangeLocked
+		}
+		cmd.RemoveFasting = true
+		if cmd.StartBusinessDate != currentDate && !domain.WeighDateAllowsPlainCreate(cmd.StartBusinessDate, s.clock()) {
+			return domain.Campaign{}, ports.ErrWeighDateInPast
+		}
+	default:
+		if cmd.StartBusinessDate != currentDate && !domain.WeighDateAllowsPlainCreate(cmd.StartBusinessDate, s.clock()) {
+			return domain.Campaign{}, ports.ErrWeighDateInPast
+		}
 	}
 	return s.repo.UpdateCampaign(ctx, campaignID, cmd)
 }
@@ -523,6 +579,11 @@ func (s *Service) PlannerCatalog(ctx context.Context, actor domain.Actor, period
 	}
 	catalog, err := s.repo.PlannerCatalog(ctx, actor.TenantID, periodStartDate)
 	if err != nil {
+		return domain.PlannerCatalog{}, err
+	}
+	// The wizard renders the PUBLISHED weighing SOP's planning rules (capture modes, default
+	// cap, removal mode) -- the same rule set a create is stamped with.
+	if catalog.SOP, err = s.publishedRules(ctx, actor.TenantID); err != nil {
 		return domain.PlannerCatalog{}, err
 	}
 	// The repository has no park filter (it returns the whole tenant's parks), and the role
@@ -827,7 +888,18 @@ func (s *Service) GetCampaign(ctx context.Context, actor domain.Actor, campaignI
 	}
 	// An actor admitted by neither arm gets ErrNotFound from the repository -- existence is not
 	// leaked, and the cross-park refusal is unchanged.
-	return s.repo.CampaignByID(ctx, actor.TenantID, campaignID, access)
+	campaign, err := s.repo.CampaignByID(ctx, actor.TenantID, campaignID, access)
+	if err != nil {
+		return domain.Campaign{}, err
+	}
+	// WEIGHING SOP: the single-task read carries the task's PINNED rule set so the phone
+	// renders the lump-sum video cap and the removal copy the task actually runs under.
+	rules, err := s.rulesForVersion(ctx, actor.TenantID, campaign.SOPVersion)
+	if err != nil {
+		return domain.Campaign{}, err
+	}
+	campaign.SOP = &rules
+	return campaign, nil
 }
 
 // CampaignCapabilities answers which task-level writes this caller may attempt on THIS task.
@@ -1075,6 +1147,9 @@ func (s *Service) RecordShedObservation(ctx context.Context, actor domain.Actor,
 	if !uuidutil.IsUUIDString(cmd.CampaignID) || !uuidutil.IsUUIDString(cmd.CampaignShedID) || strings.TrimSpace(cmd.IdempotencyKey) == "" {
 		return domain.Observation{}, ports.ErrInvalidArgument
 	}
+	// The hard ceiling is the proof policy (MaxShedProofArtifacts); how many videos THIS task's
+	// lump-sum pen owes inside it is the WEIGHING SOP's call, read from the task's pinned
+	// version. A count outside the SOP's window is the named proof error, not a bare 400.
 	if len(cmd.ProofArtifactIDs) < 1 || len(cmd.ProofArtifactIDs) > domain.MaxShedProofArtifacts {
 		return domain.Observation{}, ports.ErrInvalidArgument
 	}
@@ -1082,6 +1157,13 @@ func (s *Service) RecordShedObservation(ctx context.Context, actor domain.Actor,
 		if !uuidutil.IsUUIDString(proofID) {
 			return domain.Observation{}, ports.ErrInvalidArgument
 		}
+	}
+	rules, err := s.rulesForCampaign(ctx, cmd.TenantID, cmd.CampaignID)
+	if err != nil {
+		return domain.Observation{}, err
+	}
+	if n := len(cmd.ProofArtifactIDs); n < rules.Capture.LumpSum.VideoMin || n > rules.Capture.LumpSum.VideoMax {
+		return domain.Observation{}, ports.ErrLumpSumVideoCount
 	}
 	// Resolve the notification routing park BEFORE persisting. The park is the routing key of
 	// the verification item, and an observation row only knows its shed -- so it is read from
@@ -1361,16 +1443,10 @@ func validateCreate(cmd domain.CreateCampaign) error {
 	if !uuidutil.IsUUIDString(cmd.TenantID) || !uuidutil.IsUUIDString(cmd.ParkID) || !uuidutil.IsUUIDString(cmd.OperatorUserID) || strings.TrimSpace(cmd.IdempotencyKey) == "" {
 		return ports.ErrInvalidArgument
 	}
-	// The feed & water removal operator is MANDATORY on every new weighing
-	// task (maintainer decision 2026-09-03): a weighing whose animals were not
-	// fasted overnight produces wrong weights, so a task with nobody assigned
-	// to tonight's removal is not a plannable task. A present-but-malformed id
-	// is the ordinary invalid-argument; an absent one gets its own named error
-	// so the planner is told which assignment is missing.
-	if strings.TrimSpace(cmd.FastingOperatorUserID) == "" {
-		return ports.ErrFastingOperatorRequired
-	}
-	if !uuidutil.IsUUIDString(cmd.FastingOperatorUserID) {
+	// Whether the feed & water removal operator is required is the WEIGHING SOP's call
+	// (validateRemovalAssignment, once applyPlanningRules has decided the task carries the
+	// precondition). Here only a present-but-malformed id is refused.
+	if strings.TrimSpace(cmd.FastingOperatorUserID) != "" && !uuidutil.IsUUIDString(cmd.FastingOperatorUserID) {
 		return ports.ErrInvalidArgument
 	}
 	if len(cmd.Sheds) == 0 {

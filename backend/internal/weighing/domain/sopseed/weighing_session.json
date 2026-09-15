@@ -1,0 +1,20 @@
+{
+  "schema_version": "goatos.sop-weighing.v1",
+  "planning": {
+    "modes": ["individual_animal", "per_shed_partition"],
+    "default_cap_per_day": 100
+  },
+  "feed_water_removal": {
+    "mode": "required",
+    "instruction": "Remove feed and water from every selected pen the evening before the weighing. Film the feed being removed and the water being removed as two separate live-camera videos per pen and submit each pen before midnight.",
+    "proofs": [
+      {"key": "feed_video", "title": "Feed removed", "hint": "Live-camera video of this pen's feed being taken away.", "kind": "video"},
+      {"key": "water_video", "title": "Water removed", "hint": "Live-camera video of this pen's water being taken away.", "kind": "video"}
+    ],
+    "questions": []
+  },
+  "capture": {
+    "individual": {"video_required": true},
+    "lump_sum": {"video_min": 1, "video_max": 5}
+  }
+}

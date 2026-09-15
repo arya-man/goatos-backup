@@ -84,6 +84,18 @@ SET operator_user_id = $3::uuid,
 WHERE tenant_id = $1::uuid AND campaign_id = $2::uuid
   AND submitted_at IS NULL`
 
+// fastingDeleteUnsubmittedSQL removes a round the planner switched off (WEIGHING SOP,
+// optional mode). Guarded twice inside the statement: the round is unstamped AND no pen of
+// it holds evidence -- a submitted pen is work performed, and the edit refuses it.
+const fastingDeleteUnsubmittedSQL = `
+DELETE FROM weighing_fasting_tasks ft
+WHERE ft.tenant_id = $1::uuid AND ft.campaign_id = $2::uuid
+  AND ft.submitted_at IS NULL
+  AND NOT EXISTS (
+    SELECT 1 FROM weighing_fasting_shed_proofs sp
+    WHERE sp.tenant_id = ft.tenant_id AND sp.fasting_task_id = ft.fasting_task_id
+  )`
+
 const fastingExistsSQL = `
 SELECT EXISTS (
   SELECT 1 FROM weighing_fasting_tasks
@@ -107,7 +119,8 @@ SELECT cs.campaign_shed_id::text,
        COALESCE(sp.feed_proof_ref::text, ''),
        COALESCE(sp.water_proof_ref::text, ''),
        COALESCE(sp.rework_reason, ''),
-       COALESCE(sp.row_version, 0)
+       COALESCE(sp.row_version, 0),
+       COALESCE(sp.sop_answers, '{}'::jsonb)
 FROM weighing_campaign_sheds cs
 LEFT JOIN weighing_fasting_shed_proofs sp
   ON sp.tenant_id = cs.tenant_id AND sp.campaign_shed_id = cs.campaign_shed_id
@@ -128,7 +141,8 @@ SELECT ft.fasting_task_id::text,
        COALESCE(sp.feed_proof_ref::text, ''),
        COALESCE(sp.water_proof_ref::text, ''),
        COALESCE(sp.rework_reason, ''),
-       COALESCE(sp.row_version, 0)
+       COALESCE(sp.row_version, 0),
+       COALESCE(sp.sop_answers, '{}'::jsonb)
 FROM weighing_fasting_tasks ft
 JOIN weighing_campaign_sheds cs
   ON cs.tenant_id = ft.tenant_id AND cs.campaign_id = ft.campaign_id AND cs.status <> 'canceled'
@@ -141,13 +155,14 @@ ORDER BY cs.display_name, cs.campaign_shed_id`
 const fastingShedUpsertSQL = `
 INSERT INTO weighing_fasting_shed_proofs (
   tenant_id, fasting_task_id, campaign_shed_id, shed_label,
-  feed_proof_ref, water_proof_ref, status
+  feed_proof_ref, water_proof_ref, status, sop_answers
 )
-VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5::uuid, $6::uuid, 'pending_verification')
+VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5::uuid, $6::uuid, 'pending_verification', $7::jsonb)
 ON CONFLICT (tenant_id, fasting_task_id, campaign_shed_id) DO UPDATE SET
   shed_label = EXCLUDED.shed_label,
   feed_proof_ref = EXCLUDED.feed_proof_ref,
   water_proof_ref = EXCLUDED.water_proof_ref,
+  sop_answers = EXCLUDED.sop_answers,
   status = 'pending_verification',
   rework_reason = NULL,
   row_version = weighing_fasting_shed_proofs.row_version + 1,
@@ -300,6 +315,40 @@ func (r *Repository) syncFastingTaskOnUpdateTx(ctx context.Context, tx pgx.Tx, c
 	return r.createFastingTaskTx(ctx, tx, cmd, campaignID)
 }
 
+// deleteUnsubmittedFastingTaskTx drops the campaign's round when the edit switched the
+// removal precondition off. A round that exists but cannot be deleted (a pen was submitted)
+// refuses the edit with ErrRemovalChangeLocked; a campaign with no round is a no-op.
+func (r *Repository) deleteUnsubmittedFastingTaskTx(ctx context.Context, tx pgx.Tx, tenantID, campaignID string) error {
+	tag, err := tx.Exec(ctx, fastingDeleteUnsubmittedSQL, tenantID, campaignID)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() > 0 {
+		return nil
+	}
+	var exists bool
+	if err := tx.QueryRow(ctx, fastingExistsSQL, tenantID, campaignID).Scan(&exists); err != nil {
+		return err
+	}
+	if exists {
+		return ports.ErrRemovalChangeLocked
+	}
+	return nil
+}
+
+// CampaignSOPVersion reads the weighing.session SOP version the task was planned on
+// (ports.SOPPinReader). 0 on a task planned before the pin existed.
+func (r *Repository) CampaignSOPVersion(ctx context.Context, tenantID, campaignID string) (int, error) {
+	ctx, cancel := r.timeout(ctx)
+	defer cancel()
+	var version int
+	err := r.pool.QueryRow(ctx, `SELECT COALESCE(sop_version, 0) FROM weighing_campaigns WHERE tenant_id=$1::uuid AND campaign_id=$2::uuid`, tenantID, campaignID).Scan(&version)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, ports.ErrNotFound
+	}
+	return version, err
+}
+
 // fastingCursor is the operator list keyset: (weigh_business_date DESC,
 // fasting_task_id DESC).
 type fastingCursor struct {
@@ -356,8 +405,11 @@ func (r *Repository) attachFastingSheds(ctx context.Context, items []domain.Fast
 		var displayName, partitionLabel string
 		if err := rows.Scan(&taskID, &shed.CampaignShedID, &displayName, &partitionLabel, &shed.ShedLocationID,
 			&shed.FastingShedID, &shed.Status, &shed.FeedProofRef, &shed.WaterProofRef,
-			&shed.ReworkReason, &shed.RowVersion); err != nil {
+			&shed.ReworkReason, &shed.RowVersion, &shed.Answers); err != nil {
 			return err
+		}
+		if len(shed.Answers) == 0 {
+			shed.Answers = nil
 		}
 		shed.ShedLabel = oploc.OperationalLocation{ShedName: displayName, PartitionLabel: partitionLabel}.Display()
 		idx, ok := byTask[taskID]
@@ -409,8 +461,11 @@ func scanFastingShedRows(rows pgx.Rows) ([]domain.FastingShedProof, error) {
 		var displayName, partitionLabel string
 		if err := rows.Scan(&shed.CampaignShedID, &displayName, &partitionLabel, &shed.ShedLocationID,
 			&shed.FastingShedID, &shed.Status, &shed.FeedProofRef, &shed.WaterProofRef,
-			&shed.ReworkReason, &shed.RowVersion); err != nil {
+			&shed.ReworkReason, &shed.RowVersion, &shed.Answers); err != nil {
 			return nil, err
+		}
+		if len(shed.Answers) == 0 {
+			shed.Answers = nil
 		}
 		shed.ShedLabel = oploc.OperationalLocation{ShedName: displayName, PartitionLabel: partitionLabel}.Display()
 		out = append(out, shed)

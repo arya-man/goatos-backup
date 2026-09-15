@@ -145,11 +145,11 @@ func (r *Repository) CreateCampaign(ctx context.Context, cmd domain.CreateCampai
 	}
 	var c domain.Campaign
 	err = tx.QueryRow(ctx, `
-INSERT INTO weighing_campaigns (tenant_id, park_id, period_start_date, period_end_date, start_business_date, planned_cap_per_day, operator_user_id, created_by)
-VALUES ($1::uuid,$2::uuid,$3::date,$4::date,$5::date,$6,$7::uuid,$8::uuid)
-RETURNING campaign_id::text, tenant_id::text, park_id::text, period_start_date::text, period_end_date::text, start_business_date::text, status, planned_cap_per_day, operator_user_id::text, created_by::text, created_at, updated_at, row_version`,
-		cmd.TenantID, cmd.ParkID, cmd.PeriodStartDate, cmd.PeriodEndDate, cmd.StartBusinessDate, cmd.PlannedCapPerDay, cmd.OperatorUserID, cmd.CreatedBy).
-		Scan(&c.CampaignID, &c.TenantID, &c.ParkID, &c.PeriodStartDate, &c.PeriodEndDate, &c.StartBusinessDate, &c.Status, &c.PlannedCapPerDay, &c.OperatorUserID, &c.CreatedBy, &c.CreatedAt, &c.UpdatedAt, &c.RowVersion)
+INSERT INTO weighing_campaigns (tenant_id, park_id, period_start_date, period_end_date, start_business_date, planned_cap_per_day, operator_user_id, created_by, sop_version)
+VALUES ($1::uuid,$2::uuid,$3::date,$4::date,$5::date,$6,$7::uuid,$8::uuid,$9)
+RETURNING campaign_id::text, tenant_id::text, park_id::text, period_start_date::text, period_end_date::text, start_business_date::text, status, planned_cap_per_day, operator_user_id::text, created_by::text, created_at, updated_at, row_version, COALESCE(sop_version, 0)`,
+		cmd.TenantID, cmd.ParkID, cmd.PeriodStartDate, cmd.PeriodEndDate, cmd.StartBusinessDate, cmd.PlannedCapPerDay, cmd.OperatorUserID, cmd.CreatedBy, cmd.SOPVersion).
+		Scan(&c.CampaignID, &c.TenantID, &c.ParkID, &c.PeriodStartDate, &c.PeriodEndDate, &c.StartBusinessDate, &c.Status, &c.PlannedCapPerDay, &c.OperatorUserID, &c.CreatedBy, &c.CreatedAt, &c.UpdatedAt, &c.RowVersion, &c.SOPVersion)
 	if err != nil {
 		// NO park-week uniqueness mapping here on purpose. A park-week may hold
 		// SEVERAL tasks: the capture category is a per-BUCKET property, so
@@ -476,8 +476,14 @@ RETURNING campaign_shed_id::text`, campaignID, cmd.TenantID, shed.LocationID, sh
 	}
 
 	// Keep the fasting row aligned with the edit (new date / park / removal
-	// operator), in the SAME transaction as the campaign change.
-	if err := r.syncFastingTaskOnUpdateTx(ctx, tx, cmd, campaignID); err != nil {
+	// operator), in the SAME transaction as the campaign change. An edit that
+	// switches the precondition off (WEIGHING SOP, optional mode) deletes the
+	// round instead -- only while no pen of it was submitted.
+	if cmd.RemoveFasting {
+		if err := r.deleteUnsubmittedFastingTaskTx(ctx, tx, cmd.TenantID, campaignID); err != nil {
+			return domain.Campaign{}, err
+		}
+	} else if err := r.syncFastingTaskOnUpdateTx(ctx, tx, cmd, campaignID); err != nil {
 		return domain.Campaign{}, err
 	}
 	c, err := r.getCampaignTx(ctx, tx, cmd.TenantID, campaignID)
@@ -698,7 +704,8 @@ SELECT weighing_campaigns.campaign_id::text, weighing_campaigns.tenant_id::text,
   COALESCE(weighing_campaigns.close_reason, ''),
   COALESCE(weighing_campaigns.closure_kind, ''),
   COALESCE(ft.operator_user_id::text, ''),
-  COALESCE(ft.status, '')
+  COALESCE(ft.status, ''),
+  COALESCE(weighing_campaigns.sop_version, 0)
 FROM weighing_campaigns
 LEFT JOIN locations park
        ON park.tenant_id=weighing_campaigns.tenant_id
@@ -807,7 +814,7 @@ LIMIT $5`, orderDirection), tenantID, nullableString(cur.PeriodStartDate), nulla
 	ids := make([]string, 0, limit+1)
 	for rows.Next() {
 		var c domain.Campaign
-		if err := rows.Scan(&c.CampaignID, &c.TenantID, &c.ParkID, &c.ParkName, &c.PeriodStartDate, &c.PeriodEndDate, &c.StartBusinessDate, &c.Status, &c.PlannedCapPerDay, &c.OperatorUserID, &c.CreatedBy, &c.CreatedAt, &c.UpdatedAt, &c.RowVersion, &c.CloseReason, &c.ClosureKind, &c.FastingOperatorUserID, &c.FastingStatus); err != nil {
+		if err := rows.Scan(&c.CampaignID, &c.TenantID, &c.ParkID, &c.ParkName, &c.PeriodStartDate, &c.PeriodEndDate, &c.StartBusinessDate, &c.Status, &c.PlannedCapPerDay, &c.OperatorUserID, &c.CreatedBy, &c.CreatedAt, &c.UpdatedAt, &c.RowVersion, &c.CloseReason, &c.ClosureKind, &c.FastingOperatorUserID, &c.FastingStatus, &c.SOPVersion); err != nil {
 			return domain.CampaignPage{}, err
 		}
 		out = append(out, c)
@@ -3785,8 +3792,8 @@ func (r *Repository) getCampaignTx(ctx context.Context, tx pgx.Tx, tenantID, cam
 	// The fasting echo (LEFT JOIN, at most one row per campaign via the
 	// UNIQUE (tenant_id, campaign_id) on weighing_fasting_tasks) lets the edit
 	// wizard prefill the removal operator; blank on pre-feature campaigns.
-	err := tx.QueryRow(ctx, `SELECT c.campaign_id::text, c.tenant_id::text, c.park_id::text, c.period_start_date::text, c.period_end_date::text, c.start_business_date::text, c.status, c.planned_cap_per_day, c.operator_user_id::text, c.created_by::text, c.created_at, c.updated_at, c.row_version, COALESCE(c.close_reason, ''), COALESCE(c.closure_kind, ''), COALESCE(ft.operator_user_id::text, ''), COALESCE(ft.status, '') FROM weighing_campaigns c LEFT JOIN weighing_fasting_tasks ft ON ft.tenant_id=c.tenant_id AND ft.campaign_id=c.campaign_id WHERE c.tenant_id=$1::uuid AND c.campaign_id=$2::uuid`, tenantID, campaignID).
-		Scan(&c.CampaignID, &c.TenantID, &c.ParkID, &c.PeriodStartDate, &c.PeriodEndDate, &c.StartBusinessDate, &c.Status, &c.PlannedCapPerDay, &c.OperatorUserID, &c.CreatedBy, &c.CreatedAt, &c.UpdatedAt, &c.RowVersion, &c.CloseReason, &c.ClosureKind, &c.FastingOperatorUserID, &c.FastingStatus)
+	err := tx.QueryRow(ctx, `SELECT c.campaign_id::text, c.tenant_id::text, c.park_id::text, c.period_start_date::text, c.period_end_date::text, c.start_business_date::text, c.status, c.planned_cap_per_day, c.operator_user_id::text, c.created_by::text, c.created_at, c.updated_at, c.row_version, COALESCE(c.close_reason, ''), COALESCE(c.closure_kind, ''), COALESCE(ft.operator_user_id::text, ''), COALESCE(ft.status, ''), COALESCE(c.sop_version, 0) FROM weighing_campaigns c LEFT JOIN weighing_fasting_tasks ft ON ft.tenant_id=c.tenant_id AND ft.campaign_id=c.campaign_id WHERE c.tenant_id=$1::uuid AND c.campaign_id=$2::uuid`, tenantID, campaignID).
+		Scan(&c.CampaignID, &c.TenantID, &c.ParkID, &c.PeriodStartDate, &c.PeriodEndDate, &c.StartBusinessDate, &c.Status, &c.PlannedCapPerDay, &c.OperatorUserID, &c.CreatedBy, &c.CreatedAt, &c.UpdatedAt, &c.RowVersion, &c.CloseReason, &c.ClosureKind, &c.FastingOperatorUserID, &c.FastingStatus, &c.SOPVersion)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.Campaign{}, ports.ErrNotFound
 	}

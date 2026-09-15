@@ -48,10 +48,16 @@ SELECT ft.fasting_task_id::text,
        ft.planned_weigh_date::text,
        ft.weigh_business_date::text,
        ft.submitted_at,
-       COALESCE(sp.row_version, 0)
+       COALESCE(sp.row_version, 0),
+       COALESCE(c.sop_version, 0),
+       COALESCE(sp.sop_answers, '{}'::jsonb)
 FROM weighing_fasting_tasks ft
 JOIN weighing_campaign_sheds cs
   ON cs.tenant_id = ft.tenant_id AND cs.campaign_id = ft.campaign_id AND cs.status <> 'canceled'
+-- The task's pinned SOP version (WEIGHING SOP): weighing_campaigns is keyed on
+-- (tenant_id, campaign_id), so this join is exactly 1:1 and never multiplies rows.
+JOIN weighing_campaigns c
+  ON c.tenant_id = ft.tenant_id AND c.campaign_id = ft.campaign_id
 LEFT JOIN weighing_fasting_shed_proofs sp
   ON sp.tenant_id = ft.tenant_id AND sp.fasting_task_id = ft.fasting_task_id
        AND sp.campaign_shed_id = cs.campaign_shed_id
@@ -108,8 +114,12 @@ func (r *Repository) ListFastingShedCardsForOperator(ctx context.Context, tenant
 		if err := rows.Scan(&card.FastingTaskID, &card.CampaignShedID, &card.FastingShedID,
 			&displayName, &partitionLabel, &card.ParkName,
 			&card.Status, &card.ReworkReason, &card.FeedProofRef, &card.WaterProofRef,
-			&card.PlannedWeighDate, &card.WeighBusinessDate, &submittedAt, &card.RowVersion); err != nil {
+			&card.PlannedWeighDate, &card.WeighBusinessDate, &submittedAt, &card.RowVersion,
+			&card.SOPVersion, &card.Answers); err != nil {
 			return domain.FastingShedCardPage{}, err
+		}
+		if len(card.Answers) == 0 {
+			card.Answers = nil
 		}
 		card.ShedLabel = oploc.OperationalLocation{ShedName: displayName, PartitionLabel: partitionLabel}.Display()
 		card.SubjectLabel = domain.FastingShedSubjectLabel(card.ShedLabel)
@@ -309,9 +319,17 @@ func (r *Repository) SubmitFastingShed(ctx context.Context, cmd domain.SubmitFas
 	shedLabel := oploc.OperationalLocation{ShedName: displayName, PartitionLabel: partitionLabel}.Display()
 	var fastingShedID string
 	var rowVersion int
+	answers := cmd.Answers
+	if answers == nil {
+		answers = domain.SOPAnswers{}
+	}
+	answersJSON, err := json.Marshal(answers)
+	if err != nil {
+		return domain.FastingShedSubmitResult{}, err
+	}
 	if err := tx.QueryRow(ctx, fastingShedUpsertSQL,
 		cmd.TenantID, cmd.FastingTaskID, cmd.CampaignShedID, shedLabel,
-		cmd.FeedProofRef, cmd.WaterProofRef).Scan(&fastingShedID, &rowVersion); err != nil {
+		cmd.FeedProofRef, cmd.WaterProofRef, answersJSON).Scan(&fastingShedID, &rowVersion); err != nil {
 		return domain.FastingShedSubmitResult{}, err
 	}
 
@@ -345,6 +363,7 @@ func (r *Repository) SubmitFastingShed(ctx context.Context, cmd domain.SubmitFas
 		RemovalBusinessDate: task.RemovalBusinessDate,
 		SubmittedAt:         task.SubmittedAt,
 		RowVersion:          rowVersion,
+		Answers:             cmd.Answers,
 	}
 	proofRow := domain.FastingShedProof{
 		FastingShedID:  fastingShedID,
@@ -355,6 +374,7 @@ func (r *Repository) SubmitFastingShed(ctx context.Context, cmd domain.SubmitFas
 		WaterProofRef:  cmd.WaterProofRef,
 		Status:         domain.FastingStatusPendingVerification,
 		RowVersion:     rowVersion,
+		Answers:        cmd.Answers,
 	}
 
 	if err := audit.NewTxRecorder(tx).Record(ctx, audit.Event{
@@ -373,6 +393,7 @@ func (r *Repository) SubmitFastingShed(ctx context.Context, cmd domain.SubmitFas
 			"shed_label":             shedLabel,
 			"feed_proof_ref":         cmd.FeedProofRef,
 			"water_proof_ref":        cmd.WaterProofRef,
+			"sop_answers":            answers,
 			"round_complete":         roundComplete,
 			"client_idempotency_key": cmd.IdempotencyKey,
 		},

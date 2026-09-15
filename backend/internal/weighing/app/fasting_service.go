@@ -33,7 +33,15 @@ func (s *Service) ListMyFastingShedCards(ctx context.Context, actor domain.Actor
 	if err != nil {
 		return domain.FastingShedCardPage{}, err
 	}
-	return s.fasting.ListFastingShedCardsForOperator(ctx, actor.TenantID, actor.UserID, s.clock(), cutoff, cursor, limit)
+	page, err := s.fasting.ListFastingShedCardsForOperator(ctx, actor.TenantID, actor.UserID, s.clock(), cutoff, cursor, limit)
+	if err != nil {
+		return domain.FastingShedCardPage{}, err
+	}
+	// WEIGHING SOP: every card carries its task's pinned instruction, slot copy and questions.
+	if err := s.removalCardCopy(ctx, actor.TenantID, page.Items); err != nil {
+		return domain.FastingShedCardPage{}, err
+	}
+	return page, nil
 }
 
 // SubmitFastingShed records ONE shed's removal videos. The round's midnight
@@ -62,9 +70,37 @@ func (s *Service) SubmitFastingShed(ctx context.Context, actor domain.Actor, cmd
 	if !uuidutil.IsUUIDString(cmd.FeedProofRef) || !uuidutil.IsUUIDString(cmd.WaterProofRef) {
 		return domain.FastingShedCard{}, ports.ErrInvalidArgument
 	}
+	// WEIGHING SOP: the authored questions are answered with the clips and judged by the
+	// rules the task was PLANNED on -- the same document the card rendered -- never by a
+	// later publish. The task is read as the caller (assignment predicate inside the query),
+	// so an unassigned caller learns nothing here that the submit would not tell them.
+	task, err := s.fasting.FastingTaskByID(ctx, actor.TenantID, cmd.FastingTaskID, actor.UserID)
+	if err != nil {
+		return domain.FastingShedCard{}, err
+	}
+	rules, err := s.rulesForCampaign(ctx, actor.TenantID, task.CampaignID)
+	if err != nil {
+		return domain.FastingShedCard{}, err
+	}
+	if cmd.Answers == nil {
+		cmd.Answers = domain.SOPAnswers{}
+	}
+	if err := rules.ValidateRemovalAnswers(cmd.Answers); err != nil {
+		return domain.FastingShedCard{}, err
+	}
+	cmd.Answers = rules.NormalizeRemovalAnswers(cmd.Answers)
 	result, err := s.fasting.SubmitFastingShed(ctx, cmd)
 	if err != nil {
 		return domain.FastingShedCard{}, err
+	}
+	if !result.Replayed || result.Card.Proofs == nil {
+		result.Card.SOPVersion = rules.Version
+		result.Card.Instruction = rules.FeedWaterRemoval.Instruction
+		result.Card.Proofs = []domain.RemovalProofSlot{rules.RemovalProof(domain.RemovalProofFeed), rules.RemovalProof(domain.RemovalProofWater)}
+		result.Card.Questions = rules.FeedWaterRemoval.Questions
+		if result.Card.Questions == nil {
+			result.Card.Questions = []domain.SOPQuestion{}
+		}
 	}
 	// A replay may be the operator retrying after the submit committed but the
 	// post-commit verification enqueue failed. Re-run the enqueue from the

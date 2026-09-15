@@ -40,8 +40,9 @@ func (f *fakeFastingStore) ListFastingShedCardsForOperator(_ context.Context, _,
 	return domain.FastingShedCardPage{Items: []domain.FastingShedCard{}}, nil
 }
 
-func (f *fakeFastingStore) FastingTaskByID(_ context.Context, _, _, _ string) (domain.FastingTask, error) {
-	return domain.FastingTask{}, ports.ErrNotFound
+func (f *fakeFastingStore) FastingTaskByID(_ context.Context, _, fastingTaskID, _ string) (domain.FastingTask, error) {
+	// The submit path reads the round to find its campaign (the SOP pin lives there).
+	return domain.FastingTask{FastingTaskID: fastingTaskID, CampaignID: "00000000-0000-4000-8000-000000000501", OperatorUserID: testOp}, nil
 }
 
 func (f *fakeFastingStore) SubmitFastingShed(_ context.Context, cmd domain.SubmitFastingShed) (domain.FastingShedSubmitResult, error) {

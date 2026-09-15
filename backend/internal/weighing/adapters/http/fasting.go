@@ -28,6 +28,8 @@ func (h *Handler) ListMyFastingShedCards(w http.ResponseWriter, r *http.Request)
 type submitFastingShedRequest struct {
 	FeedProofRef  string `json:"feed_proof_ref"`
 	WaterProofRef string `json:"water_proof_ref"`
+	// Answers to the SOP's authored removal questions, keyed by question id (WEIGHING SOP).
+	Answers domain.SOPAnswers `json:"answers,omitempty"`
 }
 
 // SubmitFastingShed records ONE shed's two removal videos. The round runs
@@ -43,6 +45,7 @@ func (h *Handler) SubmitFastingShed(w http.ResponseWriter, r *http.Request) {
 		CampaignShedID: r.PathValue("campaign_shed_id"),
 		FeedProofRef:   req.FeedProofRef,
 		WaterProofRef:  req.WaterProofRef,
+		Answers:        req.Answers,
 		IdempotencyKey: r.Header.Get("Idempotency-Key"),
 	})
 	h.respond(w, r, map[string]any{"fasting_shed_card": card, "trace_id": traceID(r)}, err)

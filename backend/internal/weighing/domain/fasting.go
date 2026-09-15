@@ -73,6 +73,9 @@ type FastingShedProof struct {
 	// ReworkReason is the verifier's rejection for THIS shed, verbatim.
 	ReworkReason string `json:"rework_reason,omitempty"`
 	RowVersion   int    `json:"row_version,omitempty"`
+	// Answers are the removal operator's answers to the SOP's authored questions, as
+	// submitted with this shed's clips (WEIGHING SOP, domain/sop.go).
+	Answers SOPAnswers `json:"answers,omitempty"`
 	// ShedLocationID routes the verifier item's shed filter; internal, not wire.
 	ShedLocationID string `json:"-"`
 }
@@ -149,6 +152,17 @@ type FastingShedCard struct {
 	RemovalBusinessDate string     `json:"removal_business_date"`
 	SubmittedAt         *time.Time `json:"submitted_at,omitempty"`
 	RowVersion          int        `json:"row_version"`
+	// SOPVersion is the parent task's pinned weighing.session version; the service resolves
+	// it into the card copy below. Internal, not wire.
+	SOPVersion int `json:"-"`
+	// Instruction, Proofs and Questions are the SOP's authored card copy (WEIGHING SOP,
+	// domain/sop.go): the operator sentence, the two proof slots' titles and hints, and the
+	// questions answered with the clips. Rendered verbatim; the phone composes none of it.
+	Instruction string             `json:"instruction,omitempty"`
+	Proofs      []RemovalProofSlot `json:"proofs"`
+	Questions   []SOPQuestion      `json:"questions"`
+	// Answers are the answers already recorded on this shed (a submitted or rework card).
+	Answers SOPAnswers `json:"answers,omitempty"`
 }
 
 // FastingShedCardPage is one keyset page of per-shed cards.
@@ -193,6 +207,9 @@ type SubmitFastingShed struct {
 	CampaignShedID string
 	FeedProofRef   string
 	WaterProofRef  string
+	// Answers to the SOP's authored removal questions, validated against the task's pinned
+	// rules by the service and stored on the shed's evidence row.
+	Answers        SOPAnswers
 	IdempotencyKey string
 	SubmittedBy    string
 }

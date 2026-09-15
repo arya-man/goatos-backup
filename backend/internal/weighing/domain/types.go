@@ -92,10 +92,18 @@ type Campaign struct {
 	// removal task (maintainer decision 2026-09-03, domain/fasting.go) so the
 	// EDIT wizard can prefill the removal assignment and monitor surfaces can
 	// show whether tonight's removal happened. Blank on pre-feature campaigns.
-	FastingOperatorUserID string         `json:"fasting_operator_user_id,omitempty"`
-	FastingStatus         string         `json:"fasting_status,omitempty"`
-	Sheds                 []CampaignShed `json:"sheds,omitempty"`
-	Progress              Progress       `json:"progress"`
+	FastingOperatorUserID string `json:"fasting_operator_user_id,omitempty"`
+	FastingStatus         string `json:"fasting_status,omitempty"`
+	// SOPVersion is the weighing.session SOP version this task was PLANNED on and runs
+	// under to the end (WEIGHING SOP, maintainer decision 2026-09-15, domain/sop.go). 0 on a
+	// task planned before the rule existed or on a tenant that never published one: both run
+	// the seeded rules, which are the pre-SOP behaviour.
+	SOPVersion int `json:"sop_version"`
+	// SOP is the compiled rule set of SOPVersion, populated on the single-task read so the
+	// phone renders the lump-sum video cap and the removal card copy from it; nil on list rows.
+	SOP      *Rules         `json:"sop,omitempty"`
+	Sheds    []CampaignShed `json:"sheds,omitempty"`
+	Progress Progress       `json:"progress"`
 }
 
 type CampaignPage struct {
@@ -334,6 +342,10 @@ func ParseCampaignListScope(raw string, fallback CampaignListScope) (CampaignLis
 type PlannerCatalog struct {
 	Parks     []PlannerPark     `json:"parks"`
 	Operators []PlannerOperator `json:"operators"`
+	// SOP is the PUBLISHED weighing.session rule set a task planned now is stamped with:
+	// the wizard renders its capture modes, its default cap and the feed & water removal
+	// mode (required / optional / off) from it, never from a client constant.
+	SOP Rules `json:"sop"`
 }
 
 type PlannerPark struct {
@@ -857,9 +869,20 @@ type CreateCampaign struct {
 	// the weighing shift are different people, which is why this is its own
 	// assignment and never defaults to the weighing operator.
 	FastingOperatorUserID string
-	IdempotencyKey        string
-	Sheds                 []CreateCampaignShed
-	CreatedBy             string
+	// FeedWaterRemovalRequested is the planner's per-task choice under the SOP's
+	// `optional` removal mode: nil means "not said" (reads as ON, so an older APK that
+	// always sends the operator keeps its behaviour), false switches the precondition off
+	// for THIS task. Under `required` and `off` it is ignored -- the SOP decides.
+	FeedWaterRemovalRequested *bool
+	// SOPVersion is stamped by the service from the published rules at create; the
+	// repository stores it verbatim and never resolves it.
+	SOPVersion int
+	// RemoveFasting is set by the service on an EDIT that switches the precondition off for
+	// a task that carries an unsubmitted removal round: the repository deletes the round.
+	RemoveFasting  bool
+	IdempotencyKey string
+	Sheds          []CreateCampaignShed
+	CreatedBy      string
 }
 
 type UpdateCampaign = CreateCampaign

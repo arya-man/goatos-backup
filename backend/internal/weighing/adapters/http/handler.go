@@ -293,8 +293,13 @@ type createCampaignRequest struct {
 	OperatorUserID    string `json:"operator_user_id"`
 	// FastingOperatorUserID is the feed & water removal operator, mandatory on
 	// create (maintainer decision 2026-09-03, domain/fasting.go).
-	FastingOperatorUserID string                      `json:"fasting_operator_user_id"`
-	Sheds                 []domain.CreateCampaignShed `json:"sheds"`
+	FastingOperatorUserID string `json:"fasting_operator_user_id"`
+	// FeedWaterRemovalRequested is the planner's per-task choice when the weighing SOP
+	// has the removal `optional` (WEIGHING SOP, maintainer decision 2026-09-15). Absent
+	// means "not said" (an older APK that always sends the operator keeps its behaviour);
+	// false switches the precondition off for this task. Ignored under `required` / `off`.
+	FeedWaterRemovalRequested *bool                       `json:"feed_water_removal_requested,omitempty"`
+	Sheds                     []domain.CreateCampaignShed `json:"sheds"`
 }
 
 // animalObservationRequest is the free-flow scan write request. It carries the
@@ -414,7 +419,8 @@ func (h *Handler) CreateCampaign(w http.ResponseWriter, r *http.Request) {
 	c, err := h.service.CreateCampaign(r.Context(), actor(r), domain.CreateCampaign{
 		ParkID: req.ParkID, PeriodStartDate: req.PeriodStartDate, PeriodEndDate: req.PeriodEndDate, StartBusinessDate: req.StartBusinessDate,
 		PlannedCapPerDay: req.PlannedCapPerDay, OperatorUserID: req.OperatorUserID, FastingOperatorUserID: req.FastingOperatorUserID,
-		IdempotencyKey: r.Header.Get("Idempotency-Key"), Sheds: req.Sheds,
+		FeedWaterRemovalRequested: req.FeedWaterRemovalRequested,
+		IdempotencyKey:            r.Header.Get("Idempotency-Key"), Sheds: req.Sheds,
 	})
 	h.respond(w, r, map[string]any{"campaign": c, "trace_id": traceID(r)}, err)
 }
@@ -427,7 +433,8 @@ func (h *Handler) UpdateCampaign(w http.ResponseWriter, r *http.Request) {
 	c, err := h.service.UpdateCampaign(r.Context(), actor(r), r.PathValue("campaign_id"), domain.UpdateCampaign{
 		ParkID: req.ParkID, PeriodStartDate: req.PeriodStartDate, PeriodEndDate: req.PeriodEndDate, StartBusinessDate: req.StartBusinessDate,
 		PlannedCapPerDay: req.PlannedCapPerDay, OperatorUserID: req.OperatorUserID, FastingOperatorUserID: req.FastingOperatorUserID,
-		IdempotencyKey: r.Header.Get("Idempotency-Key"), Sheds: req.Sheds,
+		FeedWaterRemovalRequested: req.FeedWaterRemovalRequested,
+		IdempotencyKey:            r.Header.Get("Idempotency-Key"), Sheds: req.Sheds,
 	})
 	h.respond(w, r, map[string]any{"campaign": c, "trace_id": traceID(r)}, err)
 }
@@ -830,6 +837,28 @@ func (h *Handler) respond(w http.ResponseWriter, r *http.Request, body any, err 
 		// 422: the farm has no removal cutoff configured, so no fasting-gated
 		// date can be judged. The remedy is a config fix, never a retry.
 		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity, errorEnvelope{Code: "feed_water_removal_cutoff_missing", Message: "The feed and water removal cutoff time is not set up for this farm yet. Ask an admin to set it, then try again.", TraceID: traceID(r)}, nil)
+	// WEIGHING SOP refusals (maintainer decision 2026-09-15): each names what the SOP
+	// decided so the planner or operator knows the remedy is a different plan or a SOP
+	// publish, never a retry.
+	case errors.Is(err, ports.ErrModeNotAllowed):
+		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity, errorEnvelope{Code: "weighing_mode_not_offered", Message: "The weighing SOP does not offer that way of weighing. Pick one of the offered modes, or change the SOP first.", TraceID: traceID(r)}, nil)
+	case errors.Is(err, ports.ErrRemovalNotOffered):
+		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity, errorEnvelope{Code: "feed_water_removal_not_offered", Message: "The weighing SOP has feed and water removal switched off, so this task cannot ask for it.", TraceID: traceID(r)}, nil)
+	case errors.Is(err, ports.ErrWeighDateInPast):
+		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity, errorEnvelope{Code: "weigh_date_in_past", Message: "That date has already passed. Pick today or a later day.", TraceID: traceID(r)}, nil)
+	case errors.Is(err, ports.ErrRemovalChangeLocked):
+		httpresponse.WriteError(w, r, h.log, http.StatusConflict, errorEnvelope{Code: "feed_water_removal_locked", Message: "A pen's feed and water removal was already submitted for this weighing, so the removal cannot be switched off. Plan the change as its own task.", TraceID: traceID(r)}, nil)
+	case errors.Is(err, ports.ErrLumpSumVideoCount):
+		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity, errorEnvelope{Code: "weighing_video_count", Message: "This pen needs a different number of videos than were sent. Check the pen's video count, then submit again.", TraceID: traceID(r)}, nil)
+	case errors.Is(err, ports.ErrSOPVersionUnknown):
+		httpresponse.WriteError(w, r, h.log, http.StatusConflict, errorEnvelope{Code: "weighing_sop_version_unknown", Message: "This task was planned on a weighing SOP version that no longer exists. Ask an admin to check the SOP.", TraceID: traceID(r)}, nil)
+	case errors.Is(err, domain.ErrSOPAnswerInvalid):
+		var answerErr *domain.AnswerError
+		message := "One of the answers is missing or not allowed. Check the answers, then submit again."
+		if errors.As(err, &answerErr) {
+			message = answerErr.Message
+		}
+		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity, errorEnvelope{Code: "fasting_answer_invalid", Message: message, TraceID: traceID(r)}, nil)
 	case errors.Is(err, ports.ErrFastingOperatorRequired):
 		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity, errorEnvelope{Code: "fasting_operator_required", Message: "Choose who will remove feed and water the evening before this weighing.", TraceID: traceID(r)}, nil)
 	case errors.Is(err, ports.ErrFastingNotAssigned):
