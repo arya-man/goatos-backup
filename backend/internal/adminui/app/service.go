@@ -9849,6 +9849,7 @@ func weighingSOPEditorCopy() map[string]string {
 		"wsop.removal.questions.empty":          "No questions yet — the card asks only for the two videos.",
 		"wsop.removal.off_note":                 "With the removal switched off, no task carries the evening-before precondition and the plan wizard offers no removal step.",
 		"wsop.question.title":                   "Question the operator sees",
+		"wsop.question.remove_choice":           "Remove choice",
 		"wsop.section.capture":                  "Weighing capture",
 		"wsop.section.capture.subtitle":         "the evidence each weigh carries",
 		"wsop.capture.individual.video":         "One live-camera video per animal",

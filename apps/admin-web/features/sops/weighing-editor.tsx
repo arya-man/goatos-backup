@@ -468,7 +468,7 @@ function QuestionCard({
                   }}
                 />
                 <code className="muted small">{o.value}</code>
-                <button type="button" className="ia del" aria-label={copy(pc, "inspection.question.remove")} onClick={() => onChange({ options: q.options.filter((_, j) => j !== i) })}>
+                <button type="button" className="ia del" aria-label={copy(pc, "wsop.question.remove_choice")} onClick={() => onChange({ options: q.options.filter((_, j) => j !== i) })}>
                   <X className="ic" />
                 </button>
               </div>
