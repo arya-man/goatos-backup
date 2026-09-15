@@ -50,6 +50,15 @@ function committedDashboards(dir) {
     });
 }
 
+const requiredDatasourceUids = [
+  "cloud-monitoring",
+  "gmp-prometheus",
+  "cloud-trace",
+  "cloud-logging",
+  "postgres-analytics",
+  "bigquery-analytics",
+];
+
 function authHeader(password) {
   return `Basic ${Buffer.from(`admin:${password}`, "utf8").toString("base64")}`;
 }
@@ -193,6 +202,13 @@ async function main() {
 
   try {
     await waitForGrafana(baseUrl, password, timeoutMs, iamToken);
+    const datasources = await fetchJson(baseUrl, "/api/datasources", password, 15000, iamToken);
+    const datasourceUids = new Set((Array.isArray(datasources) ? datasources : []).map((item) => item.uid).filter(Boolean));
+    const missingDatasources = requiredDatasourceUids.filter((uid) => !datasourceUids.has(uid));
+    if (missingDatasources.length) {
+      throw new Error(`Live Grafana is missing provisioned datasources: ${missingDatasources.join(", ")}`);
+    }
+
     const search = await fetchJson(baseUrl, "/api/search?type=dash-db", password, 15000, iamToken);
     const liveUids = new Set((Array.isArray(search) ? search : []).map((item) => item.uid).filter(Boolean));
     if (liveUids.size < dashboards.length) {
@@ -211,7 +227,7 @@ async function main() {
     if (missing.length) {
       throw new Error(`Live Grafana is missing committed dashboards: ${missing.join(", ")}`);
     }
-    console.log(`grafana-smoke: OK (${dashboards.length} committed dashboards present in live Grafana)`);
+    console.log(`grafana-smoke: OK (${dashboards.length} committed dashboards and ${requiredDatasourceUids.length} datasources present in live Grafana)`);
   } catch (error) {
     const proxyDiag = proxy?.diagnostics();
     if (proxyDiag) console.error(proxyDiag);
