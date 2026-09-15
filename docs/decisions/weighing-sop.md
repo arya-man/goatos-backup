@@ -176,6 +176,38 @@ submitted), `weighing_video_count`, `weighing_sop_version_unknown`, `fasting_ans
   the same commits fixed: the planner handler dropped `sop`, and the editor's checkbox rows were
   stretched by the inspection page's input rule.
 
+- Second live run (2026-09-15, same stack, API :8108, migrated to 000315). Web: v3 published
+  with cutoff 21:30, feed VIDEO + water PHOTO + optional "Gate closed" either, four question
+  kinds, lump max 2; all-optional slots / a bad time / min > max / no captures each refused
+  before publish; v4 = off (drawer "Never"); `video_required: false` refused by name. API under
+  the pins: catalog carries the effective evening; a create for tomorrow with the removal at
+  13:40 (farm 12:00 gone, SOP 21:30 ahead) → 200 pinned v5 with a round, and under v6 (13:00)
+  → `422 fasting_window_closed`; submit refusals by name -- compulsory photo missing, unknown
+  slot, one capture in two slots, legacy pair mapped onto slots then judged, number out of
+  range, conditional "Why not?" missing, choice outside options, "other" without its text,
+  multi with an unknown option; removal switched off after a submitted pen → `409
+  feed_water_removal_locked` while an ordinary edit stays on v2; three lump-sum videos under max
+  2 → `422 weighing_video_count`; the v5 (21:30) card stayed hidden at 14:01 after v6 published
+  13:00 (per-pin window). Phone as Amit (v7): the card rendered the instruction, three slots
+  with kind-matched buttons, the conditional question appearing on "No" and vanishing on
+  "Yes", "Other" with its free text, number with its range, multi choice; feed video, water
+  PHOTO and the optional gate photo → `sop_proofs` holds all three (video, photo, photo, all
+  completed), the legacy pair mirrored, the round stamped, one verifier item with three media;
+  a verifier reject (relayed through the outbox) put the pen in rework with the reason on the
+  card and every slot emptied; replaying the rejected refs → `409 weighing_rejected_proof_reuse`;
+  fresh video + photo resubmitted with the optional slot omitted → a second verifier item with
+  two media. Phone as the CEO (v7 optional, evening 14:07 gone): today and tomorrow marked
+  "Too late … weighed without it", tomorrow's configure step forces the toggle off with the
+  reason, Thursday's toggle is on by default with the operator picker, off hides it, the review
+  reads "Not planned", Publish → pinned v7, no round, cap 100 from the document. Three defects
+  the surface found and the same commits fixed: the removal route never bound the photo capture
+  delegate (every "Take photo" read as cancelled), a photo slot's status said "Video sent", and
+  the card list windowed on the published evening rather than each card's pin. A fourth, older
+  than this branch: a person ticked Weighing "Set up" on `/people` was admitted by the route
+  gate on the person set and refused by the service's role re-check -- weighing now judges from
+  the person-resolved set (`domain.Actor.Holds`), the pccare shape; Amit's planner catalog went
+  403 → 200 on the tick alone.
+
 ## Not here (phase 2)
 
 Authored questions on the lump-sum pen submit and per animal; the `/config` registry editor for
