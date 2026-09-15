@@ -45,5 +45,5 @@ export function PenWeekGainTable({
     }
     return { rowKey: key, weekStart: point.weekStart, animals: point.animals, gainGPerDay: point.gainGPerDay };
   });
-  return <WeekGainTable contract={contract} rows={rows} cells={cells} labels={labels} className="wt-penweek" />;
+  return <WeekGainTable contract={contract} rows={rows} cells={cells} labels={labels} className="wt-penweek" emphasisKey={penKey} />;
 }

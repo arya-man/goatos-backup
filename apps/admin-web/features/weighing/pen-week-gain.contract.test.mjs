@@ -55,4 +55,5 @@ test("a week without a second weigh renders the blank marker, never zero", () =>
 
 test("the pen grid keys its rows on the pen's identity, never its name", () => {
   assert.match(tableSource, /`\$\{point\.locationId\}::\$\{point\.partitionLabel\}`/, "two parks can hold a pen of the same name");
+  assert.match(tableSource, /emphasisKey=\{penKey\}/, "the grid must emphasise the pen column, not the park column");
 });

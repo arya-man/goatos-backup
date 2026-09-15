@@ -43,12 +43,14 @@ export function WeekGainTable({
   cells,
   labels,
   className,
+  emphasisKey,
 }: {
   contract: AdminUiTableContract;
   rows: readonly WeekGainRow[];
   cells: readonly WeekGainCell[];
   labels: WeekGainLabels;
   className: string;
+  emphasisKey?: string;
 }) {
   const fixed = contract.columns.filter((column) => column.visible);
   const weeks = [...new Set(cells.map((cell) => cell.weekStart))].sort();
@@ -62,7 +64,7 @@ export function WeekGainTable({
     row.set(cell.weekStart, cell);
   }
   const columnCount = fixed.length + weeks.length;
-  const nameKey = fixed[0]?.key;
+  const nameKey = emphasisKey ?? fixed[0]?.key;
 
   return (
     <table className={`tbl ${className}`} aria-label={labels.ariaLabel}>
