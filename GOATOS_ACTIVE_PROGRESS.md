@@ -1052,3 +1052,33 @@ Populated Chrome dev proof passes93cards on laptop/mobile (12/4/67/318 lane coun
 
 ### Production screenshot review correction
 Full local CI passed clean8be3122f (allreceipt), and finalmatched HTTP gate passed: CBEpagep95/p99=235.12/237.79ms, CPT=287.89/292.35ms; no finaldegraded samples. Backend/SQLjudges approved. Screenshot judge found procurement had redirected the PCdirector to Approvals, so the24-route run is not accepted as complete procurement proof. Added strict origin/path/query preservation and real Animal purchases heading guards. An existing OCI CEO user has all required stored page grants; no grant or business-data changes were made. Browser proof will bind its actor/tenant to the local frontend runtime. Final guard commit requires refreshed exact-SHA local CI/API build/productionChrome beforepush. Orange-dot actual-component syntheticfixture passeddesktop/mobile; liveOCIprocurement has no rows.
+
+
+## PR273 independent review follow-up — 2026-09-16
+
+Scope: fix the default-Weights benchmark mismatch and cross-instance cache
+freshness regression; push to the PR branch only. Baseline SHA
+`e9e0a4c7c525f12b2a1b8c45caac1a70690dbd25`.
+
+Done:
+- Restored analytics cache TTL from 120s to 30s. Two repository instances
+  reproduce the stale sibling-cache failure before the fix and expiry after it.
+- Benchmark now uses Male and both weighing modes. It measures the same
+  400-day date lookup as the landing pages, then derives August 3 through the
+  observed latest weighing date for aggregate requests. The verifier rejects
+  changed filters, sections, dates, and individual sample URLs.
+- Added guards tying benchmark defaults to both product pages and an executable
+  synthetic-HTTP test of the 16-endpoint benchmark workflow.
+
+Validation: both targeted regressions failed before the fix;
+`make api-latency-policy-test` passed 57/57;
+`go test -race ./internal/weighing/adapters/postgres -count=1` passed (live
+PostgreSQL cases remain opt-in and were not run); `git diff --check` passed.
+AI Doctor was attempted: executables passed, isolated-checkout CRG/Repowise
+indexes are missing. Source inspection was used; no graph evidence is claimed.
+Self-review complete; no independent judge was requested for this follow-up.
+
+Performance: this fixes workload validity and bounds freshness; no new real-DB
+latency improvement is claimed. Full exact-SHA CI, real HTTP latency and browser
+certification for the overall PR remain pending. No merge/main push/deployment.
+Local continuation details: `.codex-goatos-render/pr273-independent-review/`.

@@ -39,7 +39,6 @@ func TestWeighingAnalyticsCacheOneToManyPageBoundaryParkScopeStatusMatrix(t *tes
 func TestWeighingAnalyticsCacheInvalidationUsesEpoch(t *testing.T) {
 	src := readSource(t, "growth.go")
 	for _, required := range []string{
-		"const weighingAnalyticsCacheTTL = 2 * time.Minute",
 		"func (r *Repository) readCacheEpoch() uint64",
 		"func (r *Repository) setReadCacheIfEpoch(",
 		"if r.cacheEpoch != epoch",
@@ -342,4 +341,25 @@ func readSource(t *testing.T, file string) string {
 		t.Fatal(err)
 	}
 	return string(b)
+}
+
+// A write on one API instance cannot evict a sibling instance's cache. Exercise
+// the real cache expiry rather than asserting the spelling of the TTL constant.
+func TestAnalyticsSiblingInstanceExpiresWithinThirtySeconds(t *testing.T) {
+	writer := NewRepository(nil, time.Second)
+	reader := NewRepository(nil, time.Second)
+	const key = "same-tenant-same-report"
+	reader.setReadCacheIfEpoch(key, "before-correction", reader.readCacheEpoch())
+	writer.invalidateReadCache()
+	if _, ok := reader.getReadCache(key); !ok {
+		t.Fatal("fixture must model independent API instance caches")
+	}
+	reader.cacheMu.Lock()
+	entry := reader.readCache[key]
+	entry.expiresAt = entry.expiresAt.Add(-31 * time.Second)
+	reader.readCache[key] = entry
+	reader.cacheMu.Unlock()
+	if _, ok := reader.getReadCache(key); ok {
+		t.Fatal("sibling API instance still serves pre-correction analytics after 31 seconds")
+	}
 }

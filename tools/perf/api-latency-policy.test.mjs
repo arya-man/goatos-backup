@@ -1,3 +1,8 @@
+import { createServer } from "node:http";
+import { execFile, execFileSync } from "node:child_process";
+import { promisify } from "node:util";
+import { fileURLToPath } from "node:url";
+import { WEIGHING_WORKLOADS, WEIGHING_DATES_NAME, WEIGHING_WINDOW_FROM, WEIGHING_LOOKBACK_DAYS, validateWeighingManifest, weighingWindow, weighingWindowFromResult, expandWeighingPath, weighingEvidenceFailures } from "./weighing-workload.mjs";
 import assert from "node:assert/strict";
 import { readdirSync, readFileSync } from "node:fs";
 import test from "node:test";
@@ -299,4 +304,114 @@ test("PR264 warmup guard refuses discarded or slow initial cache misses", async 
     (x) => { x.warmup_response_observations[0].assertion_value = 0; },
   ]) { const bad = structuredClone(valid); mutate(bad); assert.ok(warmupEvidenceFailures(bad, 2).length > 0); }
   assert.ok(warmupEvidenceFailures(valid, 0).length > 0);
+});
+
+
+test("PR273 Weights workloads keep the real landing filters and window", () => {
+  const manifest = readHotPathManifest("hot-paths.pr264.json");
+  for (const endpoint of manifest.endpoints.filter(({name}) => name.startsWith("pr264_weighing_") || name === "pr264_growth_director_weights_sections")) {
+    const url = new URL(endpoint.path, "http://local.invalid");
+    assert.equal(url.searchParams.get("sex"), "male", endpoint.name);
+    assert.equal(url.searchParams.has("weighing_category"), false, endpoint.name);
+    assert.equal(url.searchParams.get("from"), endpoint.name === "pr264_weighing_dates" ? "{weighing_lookback_from}" : "{weighing_from}", endpoint.name);
+    assert.equal(url.searchParams.get("to"), endpoint.name === "pr264_weighing_dates" ? "{weighing_today}" : "{weighing_to}", endpoint.name);
+  }
+});
+
+
+test("Weights benchmark defaults remain tied to both actual pages", () => {
+  const constants = readFileSync(new URL("../../apps/admin-web/features/weighing/landing-window-constants.ts", import.meta.url), "utf8");
+  assert.match(constants, new RegExp(`DEFAULT_WINDOW_FROM = "${WEIGHING_WINDOW_FROM}"`));
+  assert.match(constants, new RegExp(`LATEST_LUMP_LOOKBACK_DAYS = ${WEIGHING_LOOKBACK_DAYS}`));
+  for (const file of ["weights.tsx", "weights-analytics.tsx"]) {
+    const source = readFileSync(new URL(`../../apps/admin-web/features/weighing/${file}`, import.meta.url), "utf8");
+    assert.match(source, /rawSex === "female" \? "female" : rawSex === "all" \? "" : "male"/);
+    assert.match(source, /return raw === "individual_animal" \|\| raw === "per_shed_partition" \? raw : "all"/);
+    assert.match(source, /sex: sexFilter \|\| undefined/);
+  }
+  validateWeighingManifest(readHotPathManifest("hot-paths.pr264.json").endpoints);
+});
+
+test("Weights manifest rejects the old shortcut, short date range, and reordered date lookup", () => {
+  const endpoints = readHotPathManifest("hot-paths.pr264.json").endpoints;
+  const index = endpoints.findIndex(({name}) => name === "pr264_weighing_weight_demographics_dimensions_section");
+  for (const mutate of [
+    (path) => path.replace("&sex=male", ""),
+    (path) => `${path}&weighing_category=per_shed_partition`,
+    (path) => path.replace("{weighing_from}", "2026-09-01"),
+    (path) => path.replace("sections=dimensions", "sections=origin"),
+  ]) {
+    const bad = structuredClone(endpoints);
+    bad[index].path = mutate(bad[index].path);
+    assert.throws(() => validateWeighingManifest(bad), /default Male/);
+  }
+  assert.throws(() => validateWeighingManifest([...endpoints.slice(1), endpoints[0]]), /before resolving/);
+});
+
+test("Weights window uses measured latest date, 400-day lookback and IST midnight", () => {
+  const stamp = "2026-09-15T20:00:00Z"; // Already September 16 in India.
+  const window = weighingWindow(stamp, "2026-09-09");
+  assert.equal(window.weighing_today, "2026-09-16");
+  assert.equal(window.weighing_from, "2026-08-03");
+  assert.equal(window.weighing_to, "2026-09-09");
+  assert.equal((Date.parse(window.weighing_today) - Date.parse(window.weighing_lookback_from)) / 86400000, 399);
+  assert.equal(weighingWindow(stamp).weighing_to, "2026-09-16");
+  assert.equal(weighingWindow(stamp, "2026-10-01").weighing_to, "2026-09-16");
+  assert.throws(() => expandWeighingPath("?to={weighing_to}", {}), /Missing measured/);
+  const result = { response_observations: [{ latest_weighing_date: "2026-09-09" }] };
+  assert.deepEqual(weighingWindowFromResult(stamp, result), window);
+  result.warmup_response_observations = [{ latest_weighing_date: "2026-09-08" }];
+  assert.throws(() => weighingWindowFromResult(stamp, result), /changed during measurement/);
+  assert.throws(() => weighingWindowFromResult(stamp, { response_observations: [{}] }), /must include/);
+});
+
+test("Weights evidence rejects altered sample URLs even when declared paths are correct", () => {
+  const started_at = "2026-09-16T00:00:00Z";
+  const window = weighingWindow(started_at, "2026-09-15");
+  const results = Object.entries(WEIGHING_WORKLOADS).map(([name, template]) => {
+    const path = expandWeighingPath(template, window);
+    return { name, method: "GET", path, response_observations: [{ request_path: path,
+      ...(name === WEIGHING_DATES_NAME ? { latest_weighing_date: "2026-09-15" } : {}),
+    }] };
+  });
+  assert.deepEqual(weighingEvidenceFailures({ started_at, results }), []);
+  results[1].response_observations[0].request_path += "&weighing_category=per_shed_partition";
+  assert.match(weighingEvidenceFailures({ started_at, results }).join(), /sample request differs/);
+});
+
+
+test("executable latency gate measures the landing date lookup before default page requests", async () => {
+  const root = fileURLToPath(new URL("../../", import.meta.url));
+  const sha = execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim();
+  const requests = [];
+  const latest = "2026-09-09";
+  const server = createServer((request, response) => {
+    requests.push(request.url);
+    response.setHeader("Content-Type", "application/json");
+    response.end(JSON.stringify(request.url === "/version" ? { build_sha: sha } : {
+      latest_weighing_date: latest, lump_weighing_dates: [latest], rows: [{ id: "one" }],
+      by_breed: [{}], gain_by_breed_origin: [{}], gain_by_breed_shed_type: [{}],
+      by_weight_band: [{}], gain_by_breed_week: [{}], by_park: [{}], weekly_gain: [{}],
+      headline: { headline_animals: 1 }, road_to_sale: { total_animals: 1 },
+      lanes: { todo: { rows: [{}] } },
+    }));
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  try {
+    const {stdout} = await promisify(execFile)(process.execPath, [
+      "tools/perf/api-latency-gate.mjs", "--base-url", `http://127.0.0.1:${server.address().port}`,
+      "--bearer-token", "synthetic-test-only", "--manifest", "tools/perf/hot-paths.pr264.json",
+      "--iterations", "1", "--warmup", "1", "--timeout-ms", "5000",
+    ], { cwd: root, maxBuffer: 2 * 1024 * 1024, timeout: 20000 });
+    const report = JSON.parse(stdout);
+    assert.equal(report.results.length, 16);
+    assert.deepEqual(weighingEvidenceFailures(report), []);
+    assert.match(requests[1], /^\/weighing\/weighing-dates\?/);
+    for (const result of report.results.filter(({name}) => WEIGHING_WORKLOADS[name] && name !== WEIGHING_DATES_NAME)) {
+      assert.equal(new URL(result.path, "http://local.invalid").searchParams.get("to"), latest);
+      assert.ok(requests.includes(result.path));
+    }
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
 });

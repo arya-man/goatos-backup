@@ -81,84 +81,84 @@
     {
       "name": "pr264_weighing_dates",
       "method": "GET",
-      "path": "/weighing/weighing-dates?from=2026-09-01&to=2026-09-09&weighing_category=per_shed_partition",
+      "path": "/weighing/weighing-dates?from={weighing_lookback_from}&to={weighing_today}&sex=male",
       "max_response_bytes": 262144,
       "assertion": { "type": "array_min", "path": "lump_weighing_dates", "min": 1 }
     },
     {
       "name": "pr264_weighing_shed_weights",
       "method": "GET",
-      "path": "/weighing/shed-weights?from=2026-09-01&to=2026-09-09&weighing_category=per_shed_partition",
+      "path": "/weighing/shed-weights?from={weighing_from}&to={weighing_to}&sex=male",
       "max_response_bytes": 524288,
       "assertion": { "type": "array_min", "path": "rows", "min": 1 }
     },
     {
       "name": "pr264_weighing_weight_demographics",
       "method": "GET",
-      "path": "/weighing/weight-demographics?from=2026-09-01&to=2026-09-09&weighing_category=per_shed_partition&sections=composition,dimensions,gain_thresholds",
+      "path": "/weighing/weight-demographics?from={weighing_from}&to={weighing_to}&sex=male&sections=composition,dimensions,gain_thresholds",
       "max_response_bytes": 262144,
       "assertion": { "type": "array_min", "path": "by_breed", "min": 1 }
     },
     {
       "name": "pr264_weighing_weight_demographics_dimensions_section",
       "method": "GET",
-      "path": "/weighing/weight-demographics?from=2026-09-01&to=2026-09-09&weighing_category=per_shed_partition&sections=dimensions",
+      "path": "/weighing/weight-demographics?from={weighing_from}&to={weighing_to}&sex=male&sections=dimensions",
       "max_response_bytes": 262144,
       "assertion": { "type": "array_min", "path": "by_breed", "min": 1 }
     },
     {
       "name": "pr264_weighing_weight_demographics_origin_section",
       "method": "GET",
-      "path": "/weighing/weight-demographics?from=2026-09-01&to=2026-09-09&weighing_category=per_shed_partition&sections=origin",
+      "path": "/weighing/weight-demographics?from={weighing_from}&to={weighing_to}&sex=male&sections=origin",
       "max_response_bytes": 262144,
       "assertion": { "type": "array_min", "path": "gain_by_breed_origin", "min": 1 }
     },
     {
       "name": "pr264_weighing_weight_demographics_shed_type_section",
       "method": "GET",
-      "path": "/weighing/weight-demographics?from=2026-09-01&to=2026-09-09&weighing_category=per_shed_partition&sections=shed_type",
+      "path": "/weighing/weight-demographics?from={weighing_from}&to={weighing_to}&sex=male&sections=shed_type",
       "max_response_bytes": 262144,
       "assertion": { "type": "array_min", "path": "gain_by_breed_shed_type", "min": 1 }
     },
     {
       "name": "pr264_weighing_weight_demographics_weight_bands_section",
       "method": "GET",
-      "path": "/weighing/weight-demographics?from=2026-09-01&to=2026-09-09&weighing_category=per_shed_partition&sections=weight_bands",
+      "path": "/weighing/weight-demographics?from={weighing_from}&to={weighing_to}&sex=male&sections=weight_bands",
       "max_response_bytes": 262144,
       "assertion": { "type": "array_min", "path": "by_weight_band", "min": 1 }
     },
     {
       "name": "pr264_weighing_weight_demographics_weekly_gain_section",
       "method": "GET",
-      "path": "/weighing/weight-demographics?from=2026-09-01&to=2026-09-09&weighing_category=per_shed_partition&sections=weekly_gain",
+      "path": "/weighing/weight-demographics?from={weighing_from}&to={weighing_to}&sex=male&sections=weekly_gain",
       "max_response_bytes": 262144,
       "assertion": { "type": "array_min", "path": "gain_by_breed_week", "min": 1 }
     },
     {
       "name": "pr264_weighing_growth_weights_sections",
       "method": "GET",
-      "path": "/weighing/leadership/growth?from=2026-09-01&to=2026-09-09&weighing_category=per_shed_partition&sections=headline,shed_leaderboard,losing_animals",
+      "path": "/weighing/leadership/growth?from={weighing_from}&to={weighing_to}&sex=male&sections=headline,shed_leaderboard,losing_animals",
       "max_response_bytes": 262144,
       "assertion": { "type": "number_min", "path": "headline.headline_animals", "min": 0 }
     },
     {
       "name": "pr264_weighing_growth_general_sections",
       "method": "GET",
-      "path": "/weighing/leadership/growth?from=2026-09-01&to=2026-09-09&weighing_category=per_shed_partition&sections=headline,shed_leaderboard,by_park",
+      "path": "/weighing/leadership/growth?from={weighing_from}&to={weighing_to}&sex=male&sections=headline,shed_leaderboard,by_park",
       "max_response_bytes": 262144,
       "assertion": { "type": "array_min", "path": "by_park", "min": 1 }
     },
     {
       "name": "pr264_weighing_growth_time_sections",
       "method": "GET",
-      "path": "/weighing/leadership/growth?from=2026-09-01&to=2026-09-09&weighing_category=per_shed_partition&sections=weekly_gain",
+      "path": "/weighing/leadership/growth?from={weighing_from}&to={weighing_to}&sex=male&sections=weekly_gain",
       "max_response_bytes": 262144,
       "assertion": { "type": "array_min", "path": "weekly_gain", "min": 1 }
     },
     {
       "name": "pr264_growth_director_weights_sections",
       "method": "GET",
-      "path": "/growth-director/weights?from=2026-09-01&to=2026-09-09&weighing_category=per_shed_partition&sections=road_to_sale,fair_fight",
+      "path": "/growth-director/weights?from={weighing_from}&to={weighing_to}&sex=male&sections=road_to_sale,fair_fight",
       "max_response_bytes": 524288,
       "assertion": { "type": "number_min", "path": "road_to_sale.total_animals", "min": 0 }
     },

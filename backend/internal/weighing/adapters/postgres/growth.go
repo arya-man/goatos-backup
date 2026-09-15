@@ -25,7 +25,7 @@ const growthLookbackDays = 400
 // the serving process, but Cloud Run instances do not share invalidation, so the TTL must stay low
 // enough for close/rework/correction writes to settle quickly while avoiding repeated heavy reads
 // during fast sidebar/tab switching.
-const weighingAnalyticsCacheTTL = 2 * time.Minute
+const weighingAnalyticsCacheTTL = 30 * time.Second
 
 // Keep a single analytics request from occupying the whole DB pool on a cold-cache page load.
 // The admin Weights page already calls several weighing reads in parallel; letting this one fan out

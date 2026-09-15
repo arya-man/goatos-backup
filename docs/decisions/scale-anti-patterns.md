@@ -1276,3 +1276,22 @@ result parity when replacing repeated joins with membership checks or resolving
 an operational location once per distinct location and partition. Query-plan
 timings are diagnostic; certify complete HTTP requests after other test loads
 finish and bind the evidence to the API build and browser routes.
+
+
+### A benchmark must exercise the rendered page's filters and date resolver
+
+Weights defaults to Male, both weighing modes, and August 3 through the latest
+weighing date. An unfiltered, whole-shed-only, short-window benchmark exercises
+a different SQL branch and cannot certify that landing page. The PR264 manifest
+now measures the page's 400-day date lookup first, carries its observed latest
+date into every aggregate, and checks every recorded request URL. Keep alternate
+filters as separately named workloads rather than substituting them for the
+landing scenario. `make api-latency-policy-test` rejects filter, section, date,
+and sample-request drift and runs the executable gate against a synthetic HTTP
+server. This verifies benchmark plumbing, not real database performance.
+
+Weighing analytics cache invalidation is process-local. Keep its lifetime at
+most 30 seconds until cross-instance invalidation exists; increasing it hides
+both stale corrected figures and repeated query cost. The two-repository
+`TestAnalyticsSiblingInstanceExpiresWithinThirtySeconds` exercises that bound
+without needing a live database or sleeping.

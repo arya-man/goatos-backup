@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { FRESH_AS_OF_NAME, freshAsOfEvidenceFailures, warmupEvidenceFailures } from "./api-latency-request.mjs";
+import { WEIGHING_DATES_NAME, weighingEvidenceFailures } from "./weighing-workload.mjs";
 import { readFileSync } from "node:fs";
 
 import { API_LATENCY_POLICY_MS, API_RESPONSE_BYTES_CEILING } from "./api-latency-policy.mjs";
@@ -99,7 +100,9 @@ export function observeApiPayload(endpoint, payload) {
   for (const path of Object.keys(rowCounts)) {
     if (path === "degraded" || path.endsWith(".degraded")) delete rowCounts[path];
   }
-  return { assertion_value: assertionValue ?? null, row_counts: rowCounts, degraded };
+  return { assertion_value: assertionValue ?? null, row_counts: rowCounts, degraded,
+    ...(endpoint.name === WEIGHING_DATES_NAME ? { latest_weighing_date: payload.latest_weighing_date ?? "" } : {}),
+  };
 }
 
 export function validateApiLatencyEvidence(report, expectedSha) {
@@ -174,6 +177,7 @@ export function validateApiLatencyEvidence(report, expectedSha) {
   const requiredHotPaths = REQUIRED_HOT_PATH_PROFILES[evidenceProfile] ?? REQUIRED_HOT_PATHS;
   if (evidenceProfile === "pr264_performance") {
     validatePr264BrowserEvidence(report, failures);
+    failures.push(...weighingEvidenceFailures(report));
   }
   if (Array.isArray(report.scope?.required_hot_paths)
     && JSON.stringify(report.scope.required_hot_paths) !== JSON.stringify(requiredHotPaths)) {

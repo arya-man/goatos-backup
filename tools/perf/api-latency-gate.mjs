@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { WEIGHING_DATES_NAME, validateWeighingManifest, weighingWindow, weighingWindowFromResult, expandWeighingPath } from "./weighing-workload.mjs";
 import { existsSync, lstatSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { execFileSync } from "node:child_process";
@@ -45,6 +46,8 @@ const gitSha = currentGitSha();
 const worktree = currentWorktreeState();
 const expectedSha = String(args.expectedSha ?? process.env.GOATOS_PERF_EXPECTED_SHA ?? "").trim();
 const startedAt = new Date().toISOString();
+let landingWindow = weighingWindow(startedAt);
+if (manifestDocument.scope?.evidence_profile === "pr264_performance") validateWeighingManifest(endpoints);
 const dataset = {
   label: args.datasetLabel ?? process.env.GOATOS_PERF_DATASET_LABEL ?? "unspecified",
   animal_equivalent_cardinality: numberArg(args.datasetAnimals ?? process.env.GOATOS_PERF_DATASET_ANIMALS, 0, true),
@@ -65,7 +68,9 @@ if (observedBuildSha !== (expectedSha || gitSha)) {
 }
 const results = [];
 for (const endpoint of endpoints) {
-  results.push(await runEndpoint(endpoint));
+  const result = await runEndpoint(endpoint);
+  results.push(result);
+  if (endpoint.name === WEIGHING_DATES_NAME) landingWindow = weighingWindowFromResult(startedAt, result);
 }
 
 const finalBuildSha = await readApiBuildSha();
@@ -122,7 +127,7 @@ async function readApiBuildSha() {
 }
 
 async function runEndpoint(endpoint) {
-  endpoint = { ...endpoint, path: expandPath(endpoint.path) };
+  endpoint = { ...endpoint, path: expandPath(expandWeighingPath(endpoint.path, landingWindow)) };
   const failures = [];
   const warmupSamples = [];
   const warmupObservations = [];

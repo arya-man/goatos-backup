@@ -1,3 +1,4 @@
+import { WEIGHING_WORKLOADS, WEIGHING_DATES_NAME, weighingWindow, expandWeighingPath } from "./weighing-workload.mjs";
 import { FRESH_AS_OF_NAME, VACCINATION_PATH, createRequestPlanner } from "./api-latency-request.mjs";
 import assert from "node:assert/strict";
 import test from "node:test";
@@ -19,8 +20,8 @@ function passingReport() {
     worktree_status_short: [],
     expected_sha: sha,
     manifest_sha256: "manifest-hash",
-    started_at: "2026-07-12T00:00:00Z",
-    finished_at: "2026-07-12T00:01:00Z",
+    started_at: "2026-09-16T00:00:00Z",
+    finished_at: "2026-09-16T00:01:00Z",
     dataset: {
       label: "ci_canonical_5k_50k",
       animal_equivalent_cardinality: 50_000,
@@ -236,6 +237,11 @@ test("accepts PR264 local OCI performance evidence only when every required rout
   report.results = required.map((name) => pr264Result(report.results[0], name));
   report.browser_evidence = pr264BrowserEvidence();
   assert.deepEqual(validateApiLatencyEvidence(report, sha), []);
+  const workload = report.results.find(({name}) => name === "pr264_weighing_weight_demographics_dimensions_section");
+  const expectedPath = workload.path;
+  workload.path = expectedPath.replace("&sex=male", "");
+  assert.ok(validateApiLatencyEvidence(report, sha).some((failure) => failure.includes("default Weights landing request")));
+  workload.path = expectedPath;
 
   const procurement = report.browser_evidence.routes.find((item) => item.route.startsWith("/procurement/animal-purchases"));
   const procurementSignals = procurement.viewports[0].route_signals;
@@ -511,6 +517,15 @@ test("exact-SHA certification rejects dirty diagnostic evidence and inconsistent
 
 function pr264Result(template, name) {
   const result = { ...template, name };
+  if (WEIGHING_WORKLOADS[name]) {
+    result.method = "GET";
+    result.path = expandWeighingPath(WEIGHING_WORKLOADS[name], weighingWindow("2026-09-16T00:00:00Z", "2026-09-15"));
+    for (const key of ["warmup_response_observations", "response_observations"]) {
+      result[key] = result[key].map((sample) => ({ ...sample, request_path: result.path,
+        ...(name === WEIGHING_DATES_NAME ? { latest_weighing_date: "2026-09-15" } : {}),
+      }));
+    }
+  }
   if (name === FRESH_AS_OF_NAME) {
     const plan = createRequestPlanner();
     Object.assign(result, {
