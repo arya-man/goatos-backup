@@ -225,6 +225,7 @@
     <string name="weighing_wizard_title_configure">शेड समूह सेट करें</string>
     <string name="weighing_wizard_title_review">समीक्षा और प्रकाशन</string>
     <string name="weighing_wizard_sub_date">चारा और पानी एक शाम पहले हटाया जाता है, इसलिए सबसे पहला दिन कल है।</string>
+    <string name="weighing_wizard_sub_date_optional">तौल का दिन चुनें।</string>
     <string name="weighing_wizard_loading_parks_fmt">%1$s के पार्क लोड हो रहे हैं…</string>
     <string name="weighing_wizard_sub_buckets_fmt">%2$s में %1$d · %3$s</string>
     <string name="weighing_wizard_sub_configure_fmt">%1$d चुने गए</string>

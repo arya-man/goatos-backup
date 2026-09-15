@@ -257,7 +257,12 @@ private fun StepTitle(state: WeighingWizardUiState) {
         WeighingWizardStep.REVIEW -> stringResource(R.string.weighing_wizard_title_review)
     }
     val subtitle = when (state.step) {
-        WeighingWizardStep.DATE -> stringResource(R.string.weighing_wizard_sub_date)
+        // WEIGHING SOP: the evening-before rule only narrows the dates when the SOP requires it.
+        WeighingWizardStep.DATE -> if (state.removalMode == "required") {
+            stringResource(R.string.weighing_wizard_sub_date)
+        } else {
+            stringResource(R.string.weighing_wizard_sub_date_optional)
+        }
         WeighingWizardStep.PARK -> if (state.loading) {
             stringResource(R.string.weighing_wizard_loading_parks_fmt, state.dateLabel)
         } else {

@@ -277,6 +277,7 @@
     <string name="weighing_wizard_title_configure">Configure shed buckets</string>
     <string name="weighing_wizard_title_review">Review &amp; publish</string>
     <string name="weighing_wizard_sub_date">Feed and water are removed the evening before, so the earliest day is tomorrow.</string>
+    <string name="weighing_wizard_sub_date_optional">Pick the day of the weighing.</string>
     <string name="weighing_wizard_loading_parks_fmt">Loading parks for %1$s…</string>
     <string name="weighing_wizard_sub_buckets_fmt">%1$d in %2$s · %3$s</string>
     <string name="weighing_wizard_sub_configure_fmt">%1$d selected</string>

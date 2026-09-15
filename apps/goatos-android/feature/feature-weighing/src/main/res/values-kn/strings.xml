@@ -225,6 +225,7 @@
     <string name="weighing_wizard_title_configure">ಶೆಡ್ ಗುಂಪುಗಳನ್ನು ಹೊಂದಿಸಿ</string>
     <string name="weighing_wizard_title_review">ಪರಿಶೀಲನೆ ಮತ್ತು ಪ್ರಕಟಣೆ</string>
     <string name="weighing_wizard_sub_date">ಹಿಂದಿನ ಸಂಜೆ ಮೇವು ಮತ್ತು ನೀರು ತೆಗೆಯಲಾಗುತ್ತದೆ, ಆದ್ದರಿಂದ ಮೊದಲ ದಿನ ನಾಳೆ.</string>
+    <string name="weighing_wizard_sub_date_optional">ತೂಕದ ದಿನವನ್ನು ಆರಿಸಿ.</string>
     <string name="weighing_wizard_loading_parks_fmt">%1$s ಗಾಗಿ ಪಾರ್ಕ್‌ಗಳು ಲೋಡ್ ಆಗುತ್ತಿವೆ…</string>
     <string name="weighing_wizard_sub_buckets_fmt">%2$s ನಲ್ಲಿ %1$d · %3$s</string>
     <string name="weighing_wizard_sub_configure_fmt">%1$d ಆಯ್ಕೆಯಾಗಿವೆ</string>

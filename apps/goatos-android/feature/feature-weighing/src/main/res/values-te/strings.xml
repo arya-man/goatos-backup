@@ -225,6 +225,7 @@
     <string name="weighing_wizard_title_configure">షెడ్ సమూహాలను సెట్ చేయండి</string>
     <string name="weighing_wizard_title_review">సమీక్ష మరియు ప్రచురణ</string>
     <string name="weighing_wizard_sub_date">మేత మరియు నీరు ముందు రోజు సాయంత్రం తీసేస్తారు, కాబట్టి మొదటి రోజు రేపు.</string>
+    <string name="weighing_wizard_sub_date_optional">తూకం రోజు ఎంచుకోండి.</string>
     <string name="weighing_wizard_loading_parks_fmt">%1$s కోసం పార్కులు లోడ్ అవుతున్నాయి…</string>
     <string name="weighing_wizard_sub_buckets_fmt">%2$s లో %1$d · %3$s</string>
     <string name="weighing_wizard_sub_configure_fmt">%1$d ఎంచుకున్నారు</string>
