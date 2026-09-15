@@ -31,6 +31,16 @@ import (
 // or reporting no rows, the compiled contract is served unnarrowed.
 type PersonPageAccessSource interface {
 	ResolvePageAccess(ctx context.Context, tenantID, userID string) (permissions.PageAccess, bool, error)
+	ResolvePermissions(ctx context.Context, tenantID, userID string) ([]string, bool, error)
+}
+
+type personAccessSnapshot struct {
+	pageAccess          permissions.PageAccess
+	pageAccessAssigned  bool
+	pageAccessErr       error
+	permissions         []string
+	permissionsResolved bool
+	permissionsErr      error
 }
 
 // WithPersonPageAccess injects the per-person page resolver. A setter for the same reason
@@ -48,19 +58,26 @@ func (s *Service) WithPersonPageAccess(source PersonPageAccessSource) *Service {
 // it already has a way to say "a dependency failed and what I served is degraded": a DisplayRule,
 // the same shape compile() uses for a failed reference-family load. That is where this error goes.
 // It is swallowed nowhere, and it is visible in the thing that was actually served.
-func (s *Service) personPageAccessFor(ctx context.Context, input BootstrapInput) (permissions.PageAccess, bool, error) {
+func (s *Service) personPageAccessFor(ctx context.Context, input BootstrapInput) personAccessSnapshot {
 	if s.personPageAccess == nil || input.ActorID == "" || input.TenantID == "" {
-		return permissions.PageAccess{}, false, nil
+		return personAccessSnapshot{}
 	}
 	access, assigned, err := s.personPageAccess.ResolvePageAccess(ctx, input.TenantID, input.ActorID)
 	if err != nil {
 		// Not fatal, and deliberately NOT a narrowing -- see the header.
-		return permissions.PageAccess{}, false, err
+		return personAccessSnapshot{pageAccessErr: err}
 	}
 	if !assigned {
-		return permissions.PageAccess{}, false, nil
+		return personAccessSnapshot{}
 	}
-	return access, true, nil
+	perms, resolved, permErr := s.personPageAccess.ResolvePermissions(ctx, input.TenantID, input.ActorID)
+	return personAccessSnapshot{
+		pageAccess:          access,
+		pageAccessAssigned:  true,
+		permissions:         perms,
+		permissionsResolved: resolved,
+		permissionsErr:      permErr,
+	}
 }
 
 // personPageAccessUnavailableRule declares that this contract was compiled WITHOUT the person's own
@@ -107,7 +124,7 @@ func enableTickedLeaf(item domain.NavigationItem) domain.NavigationItem {
 	return item
 }
 
-func applyPersonPageLens(resp domain.BootstrapResponse, access permissions.PageAccess) domain.BootstrapResponse {
+func applyPersonPageLens(resp domain.BootstrapResponse, access permissions.PageAccess, personPerms []string, personPermsResolved bool) domain.BootstrapResponse {
 	primary := make([]domain.NavigationItem, 0, len(resp.Navigation.Primary))
 	for _, item := range resp.Navigation.Primary {
 		if access.Allows(item.ID, item.Href) {
@@ -145,7 +162,7 @@ func applyPersonPageLens(resp domain.BootstrapResponse, access permissions.PageA
 		// Page contracts are matched on ROUTE, not on the nav id: a drilldown has no leaf,
 		// and requireAdminWebPageContract is what makes a typed URL fail closed.
 		if access.Allows("", page.Href) {
-			page = applyPersonPageControlLens(page, access)
+			page = applyPersonPageControlLens(page, personPerms, personPermsResolved)
 			pages = append(pages, page)
 		}
 	}
@@ -161,21 +178,30 @@ func applyPersonPageLens(resp domain.BootstrapResponse, access permissions.PageA
 	return resp
 }
 
-func applyPersonPageControlLens(page domain.PageContract, access permissions.PageAccess) domain.PageContract {
+func applyPersonPageControlLens(page domain.PageContract, personPerms []string, personPermsResolved bool) domain.PageContract {
 	if page.RouteID != "sales-buyer-analytics" {
 		return page
 	}
-	if access.Allows("sales-vendors", "/sales/vendors") {
-		return page
+	allowed := personPermsResolved && personPermissionsAuthorize(personPerms, permissions.VendorRead)
+	reason := ""
+	if !allowed {
+		reason = controlCopy(page.Copy, "hint.phone_hidden", "Phone numbers are on the vendor register, which your current role cannot open.")
 	}
-	copy := page.Copy
-	reason := controlCopy(copy, "hint.phone_hidden", "Phone numbers are on the vendor register, which your current role cannot open.")
 	page.Controls = upsertControl(page.Controls, domain.Control{
 		ID:             "buyer_phone_column",
-		Label:          controlCopy(copy, "column.phone_number", "Phone"),
+		Label:          controlCopy(page.Copy, "column.phone_number", "Phone"),
 		Kind:           "table_column",
-		Enabled:        false,
+		Enabled:        allowed,
 		DisabledReason: reason,
 	})
 	return page
+}
+
+func personPermissionsAuthorize(perms []string, required string) bool {
+	for _, perm := range perms {
+		if perm == required {
+			return true
+		}
+	}
+	return false
 }

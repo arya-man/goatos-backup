@@ -84,7 +84,10 @@ func (s *Service) bootstrapCached(ctx context.Context, input BootstrapInput) dom
 	//
 	// The resolved value is carried into compile() rather than read again, so this costs
 	// ONE small indexed read per bootstrap, not two.
-	access, assigned, accessErr := s.personPageAccessFor(ctx, input)
+	personAccess := s.personPageAccessFor(ctx, input)
+	access := personAccess.pageAccess
+	assigned := personAccess.pageAccessAssigned
+	accessErr := personAccess.pageAccessErr
 	if procurementDirectorStockOnly(input) {
 		// Sales > Vendors is the one page here that follows the person's own HRMS tick
 		// (maintainer instruction 2026-09-08): it shows only when ticked on /people.
@@ -111,10 +114,16 @@ func (s *Service) bootstrapCached(ctx context.Context, input BootstrapInput) dom
 		if salesVendorsTicked {
 			access.Pages["sales-vendors"] = struct{}{}
 		}
+		personAccess.pageAccess = access
+		personAccess.pageAccessAssigned = true
+		personAccess.pageAccessErr = nil
 		assigned = true
 		accessErr = nil
 	}
 	fingerprint := pageAccessFingerprint(access, assigned)
+	if assigned {
+		fingerprint += "::" + personPermissionsFingerprint(personAccess.permissions, personAccess.permissionsResolved)
+	}
 	revisionKey := ""
 	if revisions, ok := s.loadFamilyRevisions(ctx, input.TenantID); ok {
 		revisionKey = s.cacheKey(input, ReferenceFamilies{RevisionInputs: revisions}, nil) + "::" + fingerprint
@@ -127,7 +136,7 @@ func (s *Service) bootstrapCached(ctx context.Context, input BootstrapInput) dom
 	if cached, ok := s.cached(key, now); ok {
 		return cached
 	}
-	resp := s.compile(ctx, input, families, familyErr, access, assigned, accessErr)
+	resp := s.compile(ctx, input, families, familyErr, personAccess, accessErr)
 	expiresAt := now.Add(s.cacheTTL)
 	s.storeCache(key, resp, now, expiresAt)
 	if revisionKey != "" && familyErr == nil {
@@ -247,13 +256,21 @@ func pageAccessFingerprint(access permissions.PageAccess, assigned bool) string 
 	return "pages:" + hashString(strings.Join(parts, ","))
 }
 
+func personPermissionsFingerprint(perms []string, resolved bool) string {
+	if !resolved {
+		return "perms:unresolved"
+	}
+	parts := append([]string(nil), perms...)
+	sort.Strings(parts)
+	return "perms:" + hashString(strings.Join(parts, ","))
+}
+
 func (s *Service) compile(
 	ctx context.Context,
 	input BootstrapInput,
 	families ReferenceFamilies,
 	familyErr error,
-	access permissions.PageAccess,
-	pageAccessAssigned bool,
+	personAccess personAccessSnapshot,
 	pageAccessErr error,
 ) domain.BootstrapResponse {
 	families.UIConfig = applicableConfigEntries(families.UIConfig)
@@ -265,11 +282,11 @@ func (s *Service) compile(
 	// It runs before familyHashes so the contract revision reflects what is actually served.
 	if isVerifierLensPrincipal(input) {
 		resp = applyVerifierLens(resp, s.verifierNavModules(ctx, input))
-	} else if pageAccessAssigned {
+	} else if personAccess.pageAccessAssigned {
 		// Per-person page narrowing (maintainer decision 2026-08-27). This REPLACES the
 		// hand-coded procurement-director lens: "only Procurement and Feed, and not Feed
 		// Config" is now that person's ticks on /people rather than a Go file.
-		resp = applyPersonPageLens(resp, access)
+		resp = applyPersonPageLens(resp, personAccess.pageAccess, personAccess.permissions, personAccess.permissionsResolved)
 	} else if pageAccessErr != nil {
 		// The read failed. The contract is served UNNARROWED -- a person must not be locked
 		// out of a product they are authorized for by a database blip -- and it SAYS so.
