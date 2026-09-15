@@ -246,6 +246,7 @@ func (s *Source) countByState(ctx context.Context, q ports.SourceQuery) (map[dom
 	}
 	ctx, cancel := context.WithTimeout(ctx, s.readBudget())
 	defer cancel()
+	// projection-review: membership=complete canonical vaccination rows with no next cursor; group_key=work_state; join_cardinality=each canonical grouped row contributes once; pagination=only a complete first page is counted and overflow uses the full SQL aggregate; scope=tenant/park/business date from the canonical query and requested work states filtered below, while owner-scoped summaries use collect.
 	// A complete canonical first page has exactly the same membership and state
 	// grain as COUNT(*) GROUP BY work_state. Share it only within this bundled
 	// request. Overflow falls back to the full aggregate; never count a partial page.

@@ -688,10 +688,29 @@ async function assertLayoutHealthy(page, routeName, viewportLabel) {
             return labelRect.width < min || labelRect.height < min;
           }
         }
+        if (root.clientWidth < 600 && reachableStackAvatar(element)) {
+          const halo = getComputedStyle(element, '::after');
+          if (halo.content !== 'none' && halo.position === 'absolute'
+            && ['top', 'right', 'bottom', 'left'].every((side) => halo[side] === '-5px')) return false;
+        }
         return rect.width < min || rect.height < min;
       })
       .slice(0, 5)
       .map(describeElement);
+    // Intentional Work Board assignee stack: only the designed 8px overlap is allowed,
+    // and both independent button centers must still receive pointer hits.
+    function reachableStackAvatar(element) {
+      if (!element.matches('.wb .avs > button.av, .wb .avs > button.more')) return false;
+      const rect = element.getBoundingClientRect();
+      const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+      return rect.width === 30 && rect.height === 30 && !element.disabled
+        && Boolean(hit && (hit === element || element.contains(hit)));
+    }
+    function intentionalAvatarOverlap(first, second, xOverlap, yOverlap) {
+      if (first.parentElement !== second.parentElement || !reachableStackAvatar(first) || !reachableStackAvatar(second)) return false;
+      const a = first.getBoundingClientRect(), b = second.getBoundingClientRect();
+      return xOverlap > 0 && xOverlap <= 8 && yOverlap === 30 && Math.abs(a.top - b.top) < 1;
+    }
     const overlaps = [];
     for (let i = 0; i < interactives.length; i += 1) {
       for (let j = i + 1; j < interactives.length; j += 1) {
@@ -702,7 +721,7 @@ async function assertLayoutHealthy(page, routeName, viewportLabel) {
         const b = second.getBoundingClientRect();
         const xOverlap = Math.max(0, Math.min(a.right, b.right) - Math.max(a.left, b.left));
         const yOverlap = Math.max(0, Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top));
-        if (xOverlap > 4 && yOverlap > 4) {
+        if (xOverlap > 4 && yOverlap > 4 && !intentionalAvatarOverlap(first, second, xOverlap, yOverlap)) {
           overlaps.push({ first: describeElement(first), second: describeElement(second), xOverlap: Math.round(xOverlap), yOverlap: Math.round(yOverlap) });
         }
         if (overlaps.length >= 5) break;
