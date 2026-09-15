@@ -239,6 +239,16 @@ submitted), `weighing_video_count`, `weighing_sop_version_unknown`, `fasting_ans
   `either` photo as a video without local state -- the card serves `proof_kinds {slot: kind}`
   and the preview runs after the slot list exists.
 
+- PR #274 review round 2 (three findings, fixed with red→green and mutation-tested where
+  client-side): (1) an EDIT under `optional` opens on the task's own choice and an existing
+  round is never "too late", so saving an unchanged task past the evening keeps its round
+  (proven on the Realme: the 16/09 task edited after its evening, toggle on, Amit kept,
+  round intact); (2) the service asks the store for an exact-fingerprint replay BEFORE the
+  current publish's rules judge the retry (`ports.Repository.CampaignByIdempotencyKey`), so a
+  mode withdrawn since cannot refuse the identical retry of a task that exists; (3) an
+  authored slot's upload observer is reconnected when the card's slot list lands after
+  process death.
+
 ## Not here (phase 2)
 
 Authored questions on the lump-sum pen submit and per animal; the `/config` registry editor for
