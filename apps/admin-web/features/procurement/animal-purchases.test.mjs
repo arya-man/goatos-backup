@@ -54,9 +54,15 @@ test("media slots render byte-free tiles that open one selected proof by mime, n
   assert.doesNotMatch(lightbox, /useRouter|router\.push|href=/);
   // Anything else says so with backend copy rather than rendering a broken tag.
   assert.match(sop, /\{copy\.mediaEmpty\}/);
-  // The proof download routes are relative to the API; every slot item is absolutized like the legacy video.
+  // The proof download routes are bearer-only API routes the browser cannot load (STG 401,
+  // 2026-09-15): the legacy video and every slot item are rewritten onto the same-origin
+  // /api/proof-media proxy, never absolutized onto the API host.
   assert.match(serverRead, /media_slots: \(animal\.media_slots \?\? \[\]\)\.map/);
-  assert.match(serverRead, /item\.media_url \? \{ \.\.\.item, media_url: absolutizeAgainstApi\(item\.media_url, baseUrl\) \} : item/);
+  assert.match(serverRead, /media_url: animal\.media_url \? browserProofMediaURL\(animal\.media_url, baseUrl\)/);
+  assert.match(serverRead, /item\.media_url \? \{ \.\.\.item, media_url: browserProofMediaURL\(item\.media_url, baseUrl\) \} : item/);
+  assert.match(serverRead, /PROOF_DOWNLOAD_ROUTE = \/\^\\\/app\\\/proofs\\\/\(\[\^\/\?#\]\+\)\\\/download\$\//);
+  assert.match(serverRead, /return `\/api\/proof-media\/\$\{encodeURIComponent\(decodeURIComponent\(match\[1\]\)\)\}`/);
+  assert.doesNotMatch(serverRead, /media_url: absolutizeAgainstApi\(/);
 });
 
 test("answers group by served section and an attention row is flagged", () => {

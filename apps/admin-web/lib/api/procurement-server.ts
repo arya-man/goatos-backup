@@ -801,22 +801,36 @@ export async function listAnimalPurchaseReview(
 }
 
 // Both the legacy single video and every questionnaire media-slot item carry the same relative
-// backend proof download route, so both are absolutized; an item without a route is left as it is
-// (the card says "not available" for it rather than pointing at nothing).
+// backend proof download route (`/app/proofs/{id}/download`), and that route needs a bearer the
+// BROWSER does not hold: pointing an <img>/<video> at it on the API host is a 401 and a blank
+// tile (STG, 2026-09-15). So each one is rewritten onto admin-web's own same-origin proof proxy,
+// `/api/proof-media/{id}`, which authenticates server-side and redirects the tag to the signed
+// object URL -- the route the Verify drawer already plays proofs through. A URL of any other
+// shape is absolutized against the API as before; an item without a route is left as it is (the
+// card says "not available" for it rather than pointing at nothing).
 function absolutizeAnimalPurchaseMedia(page: AnimalPurchaseReviewPage, baseUrl: string): AnimalPurchaseReviewPage {
   return {
     ...page,
     animals: page.animals.map((animal) => ({
       ...animal,
-      media_url: animal.media_url ? absolutizeAgainstApi(animal.media_url, baseUrl) : animal.media_url,
+      media_url: animal.media_url ? browserProofMediaURL(animal.media_url, baseUrl) : animal.media_url,
       media_slots: (animal.media_slots ?? []).map((slot) => ({
         ...slot,
         items: slot.items.map((item) =>
-          item.media_url ? { ...item, media_url: absolutizeAgainstApi(item.media_url, baseUrl) } : item,
+          item.media_url ? { ...item, media_url: browserProofMediaURL(item.media_url, baseUrl) } : item,
         ),
       })),
     })),
   };
+}
+
+const PROOF_DOWNLOAD_ROUTE = /^\/app\/proofs\/([^/?#]+)\/download$/;
+
+// A backend proof download route becomes the same-origin proxy the browser can actually load.
+function browserProofMediaURL(value: string, baseUrl: string): string {
+  const match = PROOF_DOWNLOAD_ROUTE.exec(value.trim());
+  if (match) return `/api/proof-media/${encodeURIComponent(decodeURIComponent(match[1]))}`;
+  return absolutizeAgainstApi(value, baseUrl);
 }
 
 /**
