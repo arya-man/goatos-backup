@@ -3,6 +3,7 @@ package http
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"testing"
 	"time"
@@ -19,15 +20,20 @@ import (
 // did before the SOP fields existed; the approvals queue carries the raise capture.
 
 // ShiftingEventByIdempotencyKey lets the fake repo answer the raise replay pre-check.
-func (f *fakeShiftingRepo) ShiftingEventByIdempotencyKey(_ context.Context, _, idempotencyKey, fingerprint string) (string, bool, error) {
+func (f *fakeShiftingRepo) ShiftingEventByIdempotencyKey(_ context.Context, _, idempotencyKey, fingerprint string) (string, json.RawMessage, bool, error) {
 	stored, ok := f.byIdempotencyKey[idempotencyKey]
 	if !ok {
-		return "", false, nil
+		return "", nil, false, nil
 	}
 	if stored != fingerprint {
-		return "", false, ports.ErrIdempotencyConflict
+		return "", nil, false, ports.ErrIdempotencyConflict
 	}
-	return f.idByKey[idempotencyKey], true, nil
+	// The fake keeps the last inserted event; its stored snapshot answers the replay.
+	var capture json.RawMessage
+	if f.lastEvent.IdempotencyKey == idempotencyKey {
+		capture = f.lastEvent.RaiseCaptureEvidence
+	}
+	return f.idByKey[idempotencyKey], capture, true, nil
 }
 
 func (f *fakeShiftingRepo) ShiftingSOPPin(context.Context, string, string) (ports.ShiftingSOPPin, error) {
@@ -410,5 +416,56 @@ func TestSeededEmptyRaiseCardAddsNoCaptureToTheApproval(t *testing.T) {
 	decodeBody(t, rec, &got)
 	if len(got.Items) != 1 || got.Items[0].Capture != nil {
 		t.Fatalf("empty stored capture listed as %+v", got.Items)
+	}
+}
+
+// failFirstSubmitWorkflow fails the first approval submit (a transient error after the movement row
+// was written), then behaves normally.
+type failFirstSubmitWorkflow struct {
+	*fakeApprovalWorkflow
+	failed bool
+}
+
+func (f *failFirstSubmitWorkflow) SubmitRequest(ctx context.Context, in domain.ApprovalRequestSubmission) (domain.ApprovalRequest, bool, error) {
+	if !f.failed {
+		f.failed = true
+		return domain.ApprovalRequest{}, false, errors.New("transient: approval insert timed out")
+	}
+	return f.fakeApprovalWorkflow.SubmitRequest(ctx, in)
+}
+
+// The movement row and its approval request are two transactions; a retry with the same key
+// converges by replaying the row and creating the missing request. Found in review of the E2E: the
+// replay path skipped the raise card and built the approval payload with NO capture, so the park
+// head never saw the answers and photos the raiser gave. The retry now carries the capture the
+// movement stored at its first attempt.
+func TestRaiseRetryAfterApprovalSubmitFailureKeepsTheCaptureForTheApprover(t *testing.T) {
+	repo := newFakeShiftingRepo()
+	approvals := &failFirstSubmitWorkflow{fakeApprovalWorkflow: newFakeApprovalWorkflow()}
+	svc := countsapp.NewShiftingExecutionService(repo, func() time.Time { return time.Date(2026, 9, 16, 9, 0, 0, 0, time.UTC) }).
+		WithSOPRules(&ports.StaticShiftingSOPRules{Published: raiseRules(3, true)}, repo)
+	mux := http.NewServeMux()
+	handler := NewAppWriteHandler(countsapp.NewService(repo), nil).
+		WithApprovalWorkflow(approvals, newFakeGoatValidator()).
+		WithShiftingExecutionWorkflow(svc)
+	RegisterAppWrites(mux, handler)
+	body := shiftingBody(4)
+	body["answers"] = map[string]any{"why": "Overcrowded"}
+	if rec := post(t, mux, appShiftingEventRoute, "shift-sop-orphan", body); rec.Code == http.StatusOK {
+		t.Fatalf("first attempt should fail on the approval submit: %s", rec.Body.String())
+	}
+	if repo.inserts != 1 {
+		t.Fatalf("inserts = %d, want the movement row written once", repo.inserts)
+	}
+	if rec := post(t, mux, appShiftingEventRoute, "shift-sop-orphan", body); rec.Code != http.StatusOK {
+		t.Fatalf("retry status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(approvals.lastSubmission.Payload, &payload); err != nil {
+		t.Fatal(err)
+	}
+	c, ok := payload["capture"].(map[string]any)
+	if !ok || c["version_label"] != "SOP v3" {
+		t.Fatalf("retried approval carries capture %v, want the stored raise capture", payload["capture"])
 	}
 }

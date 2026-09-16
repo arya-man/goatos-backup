@@ -2,6 +2,7 @@ package ports
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 
 	"github.com/vgoats/goatos/backend/internal/counts/domain"
@@ -146,6 +147,7 @@ type ShiftingSOPStore interface {
 	// ShiftingEventByIdempotencyKey answers a raise retry BEFORE the raise card is judged: an exact
 	// replay (same key, same fingerprint) must return the movement it already recorded even if a
 	// version published since added a required question. found=false when the key is unknown; a
-	// known key with another fingerprint is ErrIdempotencyConflict.
-	ShiftingEventByIdempotencyKey(ctx context.Context, tenantID, idempotencyKey, requestFingerprint string) (shiftingEventID string, found bool, err error)
+	// known key with another fingerprint is ErrIdempotencyConflict. raiseCapture is the approver's
+	// snapshot the movement stored (nil when the raise recorded nothing).
+	ShiftingEventByIdempotencyKey(ctx context.Context, tenantID, idempotencyKey, requestFingerprint string) (shiftingEventID string, raiseCapture json.RawMessage, found bool, err error)
 }
