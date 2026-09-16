@@ -662,9 +662,11 @@ func BirthStepReviewKey(a WorkflowAction) string {
 // approved: in_review -> completed. rejected: in_review -> rework, proofs cleared so the re-shoot is
 // mandatory, the verifier's reason kept for the operator, Tag the kid keeps its assigned RFID. A
 // verdict for a step that is not awaiting one is a benign redelivery and changes nothing (the
-// caller reports changed=false). Pure: the postgres adapter and the fakes share it.
-func ApplyStepVerdict(a WorkflowAction, approved bool, reason string) (WorkflowAction, bool) {
-	if a.Status != ActionStatusInReview {
+// caller reports changed=false). The immutable recording key must match as well: a delayed
+// verdict for a rejected recording must never consume a later re-shoot, even with the same proofs.
+// Missing keys fail closed. Pure: the postgres adapter and the fakes share it.
+func ApplyStepVerdict(a WorkflowAction, recordingKey string, approved bool, reason string) (WorkflowAction, bool) {
+	if a.Status != ActionStatusInReview || recordingKey == "" || recordingKey != BirthStepReviewKey(a) {
 		return a, false
 	}
 	if approved {

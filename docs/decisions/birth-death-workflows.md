@@ -436,3 +436,13 @@ destinations, no root chrome).
 - Runtime-conditional scheduling grammar (`FUNC_ORS_2`, `RUNTIMECOND:*`),
   refusal counts, and `MODAL_FORM` / auto action types.
 - Retiring the legacy combined route's backend pieces beyond nav removal.
+
+### Per-step verdict recording identity
+
+Birth-step verdict events carry `source.recording_key`, the verification item's immutable
+creation idempotency key (`counts-birth-step:<action>:r<row_version>:<proofs>`).
+The workflow mutation compares it to the current recording under the workflow row lock.
+Missing or stale keys do not change the step, including a delayed rejection after a re-shoot
+with identical proof references. Legacy whole-track verdicts keep their existing consumer.
+Each step also sends positional `media_meta` with its SOP title and each proof's actual kind,
+so photo and mixed-media steps retain the correct verifier player.

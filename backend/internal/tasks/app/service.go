@@ -46,6 +46,8 @@ type DeathVerificationEnqueueRequest struct {
 // and a rejection sends back exactly that step). ref (module=counts,
 // ref_type=workflow_birth_action, ref_id=action_id); ProofRefs are that step's own proofs only.
 type BirthStepVerificationEnqueueRequest struct {
+	Proofs                                                                   []domain.ProofItem
+	ProofLabel                                                               string
 	TenantID, WorkflowID, ActionID, OperatorID, ParkID, ShedID, SubjectLabel string
 	ProofRefs                                                                []string
 	CapturedAt                                                               time.Time
@@ -310,7 +312,8 @@ func (s *Service) enqueueBirthStepIfRecorded(ctx context.Context, tenantID strin
 	return s.enqueuer.EnqueueBirthStepVerification(ctx, BirthStepVerificationEnqueueRequest{
 		TenantID: tenantID, WorkflowID: w.WorkflowID, ActionID: step.ActionID,
 		OperatorID: derefOr(step.CompletedBy), ParkID: derefOr(w.ParkID), ShedID: shedID,
-		ProofRefs:      step.AllProofRefs(),
+		ProofRefs: step.AllProofRefs(),
+		Proofs:    step.ProofRefs, ProofLabel: step.Title,
 		SubjectLabel:   step.Title + " · " + subject + " · " + w.EventDate,
 		CapturedAt:     capturedAt,
 		IdempotencyKey: domain.BirthStepReviewKey(step),

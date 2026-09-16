@@ -163,13 +163,13 @@ const itemColumns = `item_id::text, tenant_id::text, vertical, module, category,
   source_task_id::text, source_submission_id::text, source_ref_type, source_ref_id::text, subject_label, subject_note, media_refs, context_rows, measurement_fields, media_meta,
   status, verdict_reason, operator_id::text, shed_id::text, partition_label, park_id::text, captured_at, verified_by::text,
   verified_at, closed_by::text, closed_at, applier_ack_expected, applied_at, applied_by_module,
-  row_version, created_at, updated_at`
+  row_version, created_at, updated_at, idempotency_key`
 
 const itemColumnsWithLabels = `vi.item_id::text, vi.tenant_id::text, vi.vertical, vi.module, vi.category, vi.source_module,
   vi.source_task_id::text, vi.source_submission_id::text, vi.source_ref_type, vi.source_ref_id::text, vi.subject_label, vi.subject_note, vi.media_refs, vi.context_rows, vi.measurement_fields, vi.media_meta,
   vi.status, vi.verdict_reason, vi.operator_id::text, vi.shed_id::text, vi.partition_label, vi.park_id::text, vi.captured_at, vi.verified_by::text,
   vi.verified_at, vi.closed_by::text, vi.closed_at, vi.applier_ack_expected, vi.applied_at, vi.applied_by_module,
-  vi.row_version, vi.created_at, vi.updated_at,
+  vi.row_version, vi.created_at, vi.updated_at, vi.idempotency_key,
   operator.display_name::text, verifier.display_name::text,
   shed_loc.name::text, park_loc.name::text`
 
@@ -2249,6 +2249,7 @@ func verificationVerdictPayload(item domain.Item) map[string]any {
 			"submission_id": derefStr(item.Source.SubmissionID),
 			"ref_type":      item.Source.RefType,
 			"ref_id":        item.Source.RefID,
+			"recording_key": item.IdempotencyKey,
 			// The PRIMARY proof only. Producers that attach several artefacts to one item
 			// (a lump-sum shed submission) put the observation's own proof_artifact_id
 			// first -- that is the single id the producing module stores on its record and
@@ -2631,7 +2632,7 @@ func scanItem(row rowScanner) (domain.Item, error) {
 		&subjectLabel, &subjectNote, &mediaJSON, &contextJSON, &fieldsJSON, &metaJSON, &item.Status, &verdictReason, &operatorID, &shedID, &partitionLabel, &parkID,
 		&item.CapturedAt, &verifiedBy, &verifiedAt, &closedBy, &closedAt,
 		&item.ApplierAckExpected, &appliedAt, &appliedByModule,
-		&item.RowVersion, &item.CreatedAt, &item.UpdatedAt,
+		&item.RowVersion, &item.CreatedAt, &item.UpdatedAt, &item.IdempotencyKey,
 	); err != nil {
 		return domain.Item{}, err
 	}
@@ -2693,7 +2694,7 @@ func scanItemWithLabels(row rowScanner) (domain.Item, error) {
 		&subjectLabel, &subjectNote, &mediaJSON, &contextJSON, &fieldsJSON, &metaJSON, &item.Status, &verdictReason, &operatorID, &shedID, &partitionLabel, &parkID,
 		&item.CapturedAt, &verifiedBy, &verifiedAt, &closedBy, &closedAt,
 		&item.ApplierAckExpected, &appliedAt, &appliedByModule,
-		&item.RowVersion, &item.CreatedAt, &item.UpdatedAt,
+		&item.RowVersion, &item.CreatedAt, &item.UpdatedAt, &item.IdempotencyKey,
 		&operatorName, &verifiedByName, &shedLabel, &parkLabel,
 	); err != nil {
 		return domain.Item{}, err
