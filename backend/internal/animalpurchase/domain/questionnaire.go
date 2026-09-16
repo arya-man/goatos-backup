@@ -279,7 +279,7 @@ func (c Catalog) ValidateAnswers(a Answers, media MediaRefs) error {
 				return invalid(q.ID, "Enter a number for: "+q.Title)
 			}
 			if (q.Min != nil && n < *q.Min) || (q.Max != nil && n > *q.Max) {
-				return invalid(q.ID, fmt.Sprintf("Enter a value between %g and %g for: %s", nz(q.Min), nz(q.Max), q.Title))
+				return invalid(q.ID, numberRangeMessage(q.Min, q.Max, q.Title))
 			}
 		case KindText:
 			t := a.text(q.ID)
@@ -303,6 +303,18 @@ func (c Catalog) ValidateAnswers(a Answers, media MediaRefs) error {
 		}
 	}
 	return nil
+}
+
+// numberRangeMessage names only the bounds the author set: an absent maximum is no bound, never 0.
+func numberRangeMessage(min, max *float64, title string) string {
+	switch {
+	case min != nil && max != nil:
+		return fmt.Sprintf("Enter a value between %g and %g for: %s", *min, *max, title)
+	case min != nil:
+		return fmt.Sprintf("Enter a value of at least %g for: %s", *min, title)
+	default:
+		return fmt.Sprintf("Enter a value of at most %g for: %s", nz(max), title)
+	}
 }
 
 func nz(p *float64) float64 {
