@@ -45,3 +45,20 @@ test("a context row group starts a titled section when it changes", () => {
     "a changed group renders the backend's own header verbatim in a vr-fact-group block before the row",
   );
 });
+
+// A step that asks one question groups its answer under the step title, which is often the question
+// itself: the drawer read "WAS THE GATE LATCHED?" as a header and again as the row label. A header
+// equal to the row's own label says nothing, so it is not rendered.
+test("a group header equal to the row's own label is not repeated", () => {
+  const match = drawerSource.match(/export function contextRowGroupStart\(([^)]*)\)[^{]*\{([\s\S]*?)\n\}/);
+  assert.ok(match, "the drawer must still define contextRowGroupStart");
+  // eslint-disable-next-line no-new-func
+  const start = new Function("rows", "index", match[2]);
+  const rows = [
+    { label: "Pen", value: "Castro 2" },
+    { label: "Was the gate latched?", value: "Yes", group: " was the gate latched? " },
+    { label: "Trough clean?", value: "Yes", group: "Crew answers" },
+    { label: "Water fresh?", value: "No", group: "Crew answers" },
+  ];
+  assert.deepEqual(rows.map((_, i) => start(rows, i)), ["", "", "Crew answers", ""]);
+});
