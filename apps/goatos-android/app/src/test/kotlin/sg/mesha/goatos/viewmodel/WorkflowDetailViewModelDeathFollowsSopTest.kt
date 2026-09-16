@@ -190,6 +190,38 @@ class WorkflowDetailViewModelDeathFollowsSopTest {
         assertNull(saved.get<Int>("workflowDetail.deathSubmittedSteps"))
     }
 
+    @Test
+    fun `an answer-only death finalizes on its confirmed step writes though it holds no drafts`() = runTest(dispatcher) {
+        val repo = DraftingWorkflowsRepository(
+            death(
+                WorkflowActionDto(actionId = "q1", actionKey = "vet_called", seq = 1, section = "main", actionType = "question", answerType = "yes_no", title = "Vet called?", status = "pending"),
+                WorkflowActionDto(actionId = "q2", actionKey = "buried", seq = 2, section = "main", actionType = "question", answerType = "yes_no", title = "Buried?", status = "pending"),
+            ),
+        )
+        val vm = viewModel(repo)
+        advanceUntilIdle()
+        vm.onEvent(WorkflowDetailEvent.Answer("q1", "yes"))
+        vm.onEvent(WorkflowDetailEvent.Answer("q2", "no"))
+        advanceUntilIdle()
+        assertTrue(vm.state.value.deathSubmissionEnabled)
+
+        vm.onEvent(WorkflowDetailEvent.SubmitDeath)
+        advanceUntilIdle()
+        assertEquals(listOf("q1", "q2"), sync.answers.map { it.actionId })
+        assertTrue("an answer-only death has no video drafts to mark", repo.drafts.value.isEmpty())
+        assertFalse("a sent answer-only death cannot be sent again while it is in flight", vm.state.value.deathSubmissionEnabled)
+
+        sync.succeed(count = 1)
+        advanceUntilIdle()
+        assertFalse("one of two answers confirmed is not submitted", vm.state.value.returnToList)
+
+        sync.succeed(count = 2)
+        advanceUntilIdle()
+        assertTrue("every answer confirmed: the death reads as submitted", vm.state.value.returnToList)
+        assertTrue(repo.answers.value.isEmpty())
+        assertNull(saved.get<Int>("workflowDetail.deathSubmittedSteps"))
+    }
+
     private fun videoStep(id: String, key: String, seq: Int) = WorkflowActionDto(
         actionId = id, actionKey = key, seq = seq, section = "main", actionType = "action",
         title = key, requiresVideo = true, status = "pending",
