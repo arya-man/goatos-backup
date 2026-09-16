@@ -227,13 +227,27 @@ type CaptureRules struct {
 // states the rule, and a version that sets it false is refused.
 type IndividualCaptureRules struct {
 	VideoRequired bool `json:"video_required"`
+	// Proofs are the per-animal capture slots (2026-09-16: the weigh captures are authored). Nil
+	// on a document published before slots existed = the seeded "Weighing video" slot; the
+	// accessor Rules.IndividualProofs fills it. At least one slot is compulsory.
+	Proofs []RemovalProofSlot `json:"proofs,omitempty"`
+	// Questions are answered PER ANIMAL, beside the captures. Separate from the whole-pen
+	// questions below: the two sections are authored independently and never merged.
+	Questions []SOPQuestion `json:"questions,omitempty"`
 }
 
 // LumpSumCaptureRules: how many pen videos one lump-sum submission carries. VideoMax is bounded
 // by MaxShedProofArtifacts, the proof policy leadership reads ("3 of 5").
 type LumpSumCaptureRules struct {
+	// VideoMin / VideoMax are the pre-slot window. With Proofs set they are a DERIVED MIRROR
+	// (Σ of the video / either slots, clamped 1..5) kept for phones that predate slots; without
+	// Proofs they ARE the rule and the accessor turns them into the seeded pen_video slot.
 	VideoMin int `json:"video_min"`
 	VideoMax int `json:"video_max"`
+	// Proofs are the whole-pen COUNTED capture slots (each min..max). Nil = the seeded slot.
+	Proofs []CountedProofSlot `json:"proofs,omitempty"`
+	// Questions are answered ONCE PER PEN submit. Never the per-animal list.
+	Questions []SOPQuestion `json:"questions,omitempty"`
 }
 
 // Rules is one COMPILED, VERSIONED rule set: what a task was planned on and runs under.
@@ -335,10 +349,35 @@ func UnknownWeighingSOPKeys(formDSL map[string]any) []string {
 			}
 		}
 	}
+	questionKeys := map[string]bool{"id": true, "kind": true, "title": true, "hint": true, "required": true, "options": true, "allow_other": true, "min": true, "max": true, "unit": true, "only_if": true}
 	walk("capture.", raw["capture"], map[string]bool{"individual": true, "lump_sum": true})
 	if c, ok := raw["capture"].(map[string]any); ok {
-		walk("capture.individual.", c["individual"], map[string]bool{"video_required": true})
-		walk("capture.lump_sum.", c["lump_sum"], map[string]bool{"video_min": true, "video_max": true})
+		walk("capture.individual.", c["individual"], map[string]bool{"video_required": true, "proofs": true, "questions": true})
+		walk("capture.lump_sum.", c["lump_sum"], map[string]bool{"video_min": true, "video_max": true, "proofs": true, "questions": true})
+		if ind, ok := c["individual"].(map[string]any); ok {
+			if proofs, ok := ind["proofs"].([]any); ok {
+				for i, p := range proofs {
+					walk(fmt.Sprintf("capture.individual.proofs.%d.", i), p, map[string]bool{"key": true, "title": true, "hint": true, "kind": true, "required": true})
+				}
+			}
+			if qs, ok := ind["questions"].([]any); ok {
+				for i, q := range qs {
+					walk(fmt.Sprintf("capture.individual.questions.%d.", i), q, questionKeys)
+				}
+			}
+		}
+		if lump, ok := c["lump_sum"].(map[string]any); ok {
+			if proofs, ok := lump["proofs"].([]any); ok {
+				for i, p := range proofs {
+					walk(fmt.Sprintf("capture.lump_sum.proofs.%d.", i), p, map[string]bool{"key": true, "title": true, "hint": true, "kind": true, "min": true, "max": true})
+				}
+			}
+			if qs, ok := lump["questions"].([]any); ok {
+				for i, q := range qs {
+					walk(fmt.Sprintf("capture.lump_sum.questions.%d.", i), q, questionKeys)
+				}
+			}
+		}
 	}
 	sort.Strings(out)
 	return out
@@ -429,20 +468,8 @@ func ValidateWeighingSOP(dsl WeighingSOP) []string {
 	}
 	validateSOPQuestions("weighing.feed_water_removal.questions", dsl.FeedWaterRemoval.Questions, add)
 
-	// Capture.
-	if !dsl.Capture.Individual.VideoRequired {
-		add("weighing.capture.individual.video_required: fixed to true -- one video per animal is the evidence the verifier reviews")
-	}
-	ls := dsl.Capture.LumpSum
-	if ls.VideoMin < 1 {
-		add("weighing.capture.lump_sum.video_min: at least 1 -- a lump-sum weigh without a pen video has no evidence to review")
-	}
-	if ls.VideoMax < 1 || ls.VideoMax > MaxShedProofArtifacts {
-		add("weighing.capture.lump_sum.video_max: 1..%d", MaxShedProofArtifacts)
-	}
-	if ls.VideoMin > ls.VideoMax {
-		add("weighing.capture.lump_sum.video_min: must not exceed video_max")
-	}
+	// Capture: the two authored sections (capture_sop.go).
+	validateCaptureSections(dsl, add)
 	if wp := dsl.WeightsPages; wp != nil {
 		switch wp.DefaultFromMode {
 		case WeightsFromFixedDate:
@@ -674,8 +701,14 @@ func answerInvalid(id, msg string) error {
 // no answer to a question the document does not ask. A question whose only_if does not hold is
 // skipped -- an answer given to it is dropped by NormalizeRemovalAnswers, not refused.
 func (r Rules) ValidateRemovalAnswers(a SOPAnswers) error {
-	questions := r.FeedWaterRemoval.Questions
-	applicable := r.applicableRemovalQuestions(a)
+	return validateSOPAnswers(r.FeedWaterRemoval.Questions, a, "This question is not part of the removal card.")
+}
+
+// validateSOPAnswers is the ONE answer engine, shared by the removal card and the two weigh
+// capture sections; each caller passes its OWN question list, so an answer to a whole-pen
+// question is unknown on a per-animal submit and vice versa.
+func validateSOPAnswers(questions []SOPQuestion, a SOPAnswers, unknownMessage string) error {
+	applicable := applicableSOPQuestions(questions, a)
 	known := map[string]bool{}
 	for _, q := range questions {
 		known[q.ID] = true
@@ -685,7 +718,7 @@ func (r Rules) ValidateRemovalAnswers(a SOPAnswers) error {
 	}
 	for id := range a {
 		if !known[id] {
-			return answerInvalid(id, "This question is not part of the removal card.")
+			return answerInvalid(id, unknownMessage)
 		}
 	}
 	for _, q := range questions {
@@ -751,9 +784,13 @@ func (r Rules) ValidateRemovalAnswers(a SOPAnswers) error {
 // condition failed is dropped rather than stored), so the stored row reads exactly as the card
 // asked. Returns an empty (non-nil) map when the document asks nothing.
 func (r Rules) NormalizeRemovalAnswers(a SOPAnswers) SOPAnswers {
+	return normalizeSOPAnswers(r.FeedWaterRemoval.Questions, a)
+}
+
+func normalizeSOPAnswers(questions []SOPQuestion, a SOPAnswers) SOPAnswers {
 	out := SOPAnswers{}
-	applicable := r.applicableRemovalQuestions(a)
-	for _, q := range r.FeedWaterRemoval.Questions {
+	applicable := applicableSOPQuestions(questions, a)
+	for _, q := range questions {
 		if !applicable[q.ID] {
 			continue
 		}
@@ -777,9 +814,9 @@ func (r Rules) NormalizeRemovalAnswers(a SOPAnswers) SOPAnswers {
 // Conditions may only reference earlier questions (validated at publish), so a
 // single ordered pass resolves the entire ancestry. Hidden draft answers cannot
 // activate descendants, even when the operator previously answered that branch.
-func (r Rules) applicableRemovalQuestions(a SOPAnswers) map[string]bool {
-	out := make(map[string]bool, len(r.FeedWaterRemoval.Questions))
-	for _, q := range r.FeedWaterRemoval.Questions {
+func applicableSOPQuestions(questions []SOPQuestion, a SOPAnswers) map[string]bool {
+	out := make(map[string]bool, len(questions))
+	for _, q := range questions {
 		cond := q.OnlyIf
 		out[q.ID] = cond == nil || (out[cond.QuestionID] && a.choice(cond.QuestionID) == cond.Value)
 	}
@@ -881,12 +918,16 @@ type AnswerRow struct {
 // clips). A question with no answer is left out; an answer to a question the document no
 // longer names is rendered under its id so nothing recorded goes unseen.
 func (r Rules) RemovalAnswerRows(answers SOPAnswers) []AnswerRow {
+	return sopAnswerRows(r.FeedWaterRemoval.Questions, answers)
+}
+
+func sopAnswerRows(questions []SOPQuestion, answers SOPAnswers) []AnswerRow {
 	if len(answers) == 0 {
 		return nil
 	}
 	out := []AnswerRow{}
 	seen := map[string]bool{}
-	for _, q := range r.FeedWaterRemoval.Questions {
+	for _, q := range questions {
 		raw, ok := answers[q.ID]
 		if !ok {
 			continue
