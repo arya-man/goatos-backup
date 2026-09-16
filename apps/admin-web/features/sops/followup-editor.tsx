@@ -10,7 +10,9 @@ import {
   blankStep,
   emitFollowUp,
   expandSeriesRows,
+  followStepKey,
   followUpProblems,
+  keyForTitle,
   slugKey,
   type FollowUpRows,
   type FollowUpStepRow,
@@ -58,6 +60,9 @@ export function FollowUpEditor({
   const sections = optionGroup(pc, "sop_step_sections");
 
   const [rows, setRows] = useState<FollowUpRows>(initial);
+  // Step keys the loaded version already carries never move (the engine and stamped rows match on
+  // them); a new step's key follows its whole title (keyForTitle).
+  const [savedKeys] = useState<Set<string>>(() => new Set(initial.tracks.flatMap((t) => t.steps.map((s) => s.key)).filter(Boolean)));
   const [notice, setNotice] = useState<FollowUpSaveResult | null>(null);
   const [pending, startTransition] = useTransition();
   const [openTrack, setOpenTrack] = useState<string>(initial.tracks[0]?.key ?? "");
@@ -66,7 +71,7 @@ export function FollowUpEditor({
 
   function updateStep(trackKey: string, id: string, patch: Partial<FollowUpStepRow>) {
     setRows((prev) => ({
-      tracks: prev.tracks.map((t) => (t.key !== trackKey ? t : { ...t, steps: t.steps.map((s) => (s.id === id ? { ...s, ...patch } : s)) })),
+      tracks: prev.tracks.map((t) => (t.key !== trackKey ? t : { ...t, steps: followStepKey(t.steps, id, patch) })),
     }));
   }
   function moveStep(trackKey: string, id: string, dir: -1 | 1) {
@@ -191,6 +196,7 @@ export function FollowUpEditor({
                     onMove={(dir) => moveStep(track.key, step.id, dir)}
                     onRemove={() => removeStep(track.key, step.id)}
                     takenKeys={new Set(track.steps.filter((s) => s.id !== step.id).map((s) => s.key))}
+                    savedKeys={savedKeys}
                   />
                 ))}
                 <button type="button" className="btn sm ghost" onClick={() => addStep(track.key)}>
@@ -240,6 +246,7 @@ function StepCard({
   onMove,
   onRemove,
   takenKeys,
+  savedKeys,
 }: {
   pc: AdminUiPageContract;
   index: number;
@@ -254,10 +261,13 @@ function StepCard({
   onMove: (dir: -1 | 1) => void;
   onRemove: () => void;
   takenKeys: Set<string>;
+  /** Step keys the loaded version carries; a new step's key follows its title until saved. */
+  savedKeys: Set<string>;
 }) {
   // Example event time for the next-sessions preview: the rounds depend on when the animal was born.
   const [exampleTime, setExampleTime] = useState("15:00");
-  const locked = ENGINE_BOUND_TASK_TYPES.has(step.taskType) && step.key !== "";
+  // An engine-bound step the loaded version carries keeps its key and type; a new one is still being named.
+  const locked = ENGINE_BOUND_TASK_TYPES.has(step.taskType) && savedKeys.has(step.key);
   const answerKind = step.answer || answerKinds[step.taskType] || "none";
   const needsOptions = answerKind === "select" || answerKind === "multiselect";
   const typeDescription = taskTypes.find((t) => t.key === step.taskType)?.title;
@@ -302,7 +312,7 @@ function StepCard({
           placeholder={step.titlePattern || ""}
           onChange={(e) => {
             const title = e.target.value;
-            onChange(locked || step.key ? { title } : { title, key: slugKey(title, takenKeys) });
+            onChange(locked ? { title } : { title, key: keyForTitle(title, step.key, savedKeys, takenKeys) });
           }}
           onBlur={() => {
             if (!locked && !step.key && step.title) onChange({ key: slugKey(step.title, takenKeys) });

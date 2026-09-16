@@ -25,6 +25,7 @@ import {
   emitWeighing,
   legacyVideoWindow,
   parseCaptureDefaults,
+  followQuestionKey,
   keyForTitle,
   slugKey,
   weighingProblems,
@@ -56,6 +57,17 @@ export function WeighingEditor({ pageContract: pc, basePath, sopId, sopName, sop
   // The editor is handed rows parsed before the page contract was in hand; the contract's seeded
   // slot document (`wsop.capture.defaults`) fills the sections the document left implicit.
   const [rows, setRows] = useState<WeighingRows>(() => withCaptureDefaults(initial, parseCaptureDefaults(copy(pc, CAPTURE_DEFAULTS_COPY_KEY, ""))));
+  // Keys the loaded version already carries never move (phones stamp them, answers are stored under
+  // them); a new capture / question key follows its whole title (keyForTitle).
+  const [savedKeys] = useState<Set<string>>(
+    () =>
+      new Set(
+        [
+          ...initial.removalProofs, ...initial.individualProofs, ...initial.lumpSumProofs,
+          ...initial.removalQuestions, ...initial.individualQuestions, ...initial.lumpSumQuestions,
+        ].map((x) => x.key).filter(Boolean),
+      ),
+  );
   const [result, setResult] = useState<WeighingSaveResult | null>(null);
   const [pending, startTransition] = useTransition();
   const kinds = optionGroup(pc, "wsop_question_kinds");
@@ -81,7 +93,7 @@ export function WeighingEditor({ pageContract: pc, basePath, sopId, sopName, sop
     return next;
   }
   function updateQuestion(list: QuestionList, qid: string, patch: Partial<WeighingQuestionRow>) {
-    setRows((r) => ({ ...r, [list]: r[list].map((q) => (q.id === qid ? { ...q, ...patch } : q)) }));
+    setRows((r) => ({ ...r, [list]: followQuestionKey(r[list], qid, patch) }));
   }
   function moveQuestion(list: QuestionList, qid: string, dir: -1 | 1) {
     setRows((r) => ({ ...r, [list]: move(r[list], qid, dir) }));
@@ -140,6 +152,7 @@ export function WeighingEditor({ pageContract: pc, basePath, sopId, sopName, sop
             kinds={kinds}
             earlier={qs.slice(0, qi)}
             takenKeys={taken}
+            savedKeys={savedKeys}
             onChange={(patch) => updateQuestion(list, q.id, patch)}
             onOptionRenamed={(from, to) => renameOptionRefs(list, q.key, from, to)}
             onMove={(dir) => moveQuestion(list, q.id, dir)}
@@ -190,7 +203,7 @@ export function WeighingEditor({ pageContract: pc, basePath, sopId, sopName, sop
               value={p.title}
               onChange={(e) => {
                 const title = e.target.value;
-                updateSlot(list, p.id, { title, key: p.key || slugKey(title, new Set(slots.map((x) => x.key)), "capture") });
+                updateSlot(list, p.id, { title, key: keyForTitle(title, p.key, savedKeys, new Set(slots.map((x) => x.key)), "capture") });
               }}
             />
           </label>
@@ -250,7 +263,7 @@ export function WeighingEditor({ pageContract: pc, basePath, sopId, sopName, sop
               value={p.title}
               onChange={(e) => {
                 const title = e.target.value;
-                updateCounted(p.id, { title, key: p.key || slugKey(title, new Set(rows.lumpSumProofs.map((x) => x.key)), "capture") });
+                updateCounted(p.id, { title, key: keyForTitle(title, p.key, savedKeys, new Set(rows.lumpSumProofs.map((x) => x.key)), "capture") });
               }}
             />
           </label>
@@ -538,8 +551,8 @@ export function QuestionCard({
   kinds: { key: string; label: string; title?: string }[];
   earlier: WeighingQuestionRow[];
   takenKeys: Set<string>;
-  /** When given, a question id the loaded version does not carry follows its title (keyForTitle). */
-  savedKeys?: Set<string>;
+  /** Keys the loaded version carries; any other question id follows its title (keyForTitle). */
+  savedKeys: Set<string>;
   onChange: (patch: Partial<WeighingQuestionRow>) => void;
   onOptionRenamed: (oldValue: string, newValue: string) => void;
   onMove: (dir: -1 | 1) => void;
@@ -590,7 +603,7 @@ export function QuestionCard({
             value={q.title}
             onChange={(e) => {
               const title = e.target.value;
-              onChange({ title, key: savedKeys ? keyForTitle(title, q.key, savedKeys, takenKeys) : q.key || slugKey(title, takenKeys) });
+              onChange({ title, key: keyForTitle(title, q.key, savedKeys, takenKeys) });
             }}
           />
         </label>

@@ -176,6 +176,17 @@ export function keyForTitle(title: string, currentKey: string, savedKeys: Set<st
   return slugKey(title, taken, fallback);
 }
 
+/**
+ * followQuestionKey applies a patch to one question row. When the patch MOVES that row's key (an
+ * unsaved key following its title, keyForTitle), every question whose "ask only when" pointed at the
+ * old key follows it, so a condition authored before the title was finished is not orphaned.
+ */
+export function followQuestionKey<T extends { id: string; key: string; onlyIfQuestion: string }>(rows: T[], id: string, patch: Partial<T>): T[] {
+  const current = rows.find((r) => r.id === id);
+  const moved = current && patch.key !== undefined && patch.key !== current.key && current.key ? current.key : "";
+  return rows.map((r) => (r.id === id ? { ...r, ...patch } : moved && r.onlyIfQuestion === moved ? { ...r, onlyIfQuestion: patch.key as string } : r));
+}
+
 export function parseQuestion(rq: unknown): WeighingQuestionRow[] {
   const q = obj(rq);
   if (!q) return [];

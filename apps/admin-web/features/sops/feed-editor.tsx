@@ -15,7 +15,7 @@ import Link from "@/components/no-prefetch-link";
 import { useRouter } from "next/navigation";
 import { AlertTriangle, Check, ChevronDown, ChevronLeft, ChevronUp, Lock, Plus, X } from "lucide-react";
 import { copy, optionGroup, type AdminUiPageContract } from "@/lib/admin-ui-contract";
-import { blankProofSlot, blankQuestion, keyForTitle, slugKey, type RemovalProofKind, type RemovalProofRow, type WeighingQuestionRow } from "./weighing-model";
+import { blankProofSlot, blankQuestion, keyForTitle, type RemovalProofKind, type RemovalProofRow, type WeighingQuestionRow } from "./weighing-model";
 import { QuestionCard } from "./weighing-editor";
 import { FEED_STAGES_BY_CODE, emitFeed, feedProblems, type FeedRows, type FeedStage, type FeedStageRows } from "./feed-model";
 import { publishedHref } from "./published-href";
@@ -252,8 +252,8 @@ export function SlotCard({
   slot: RemovalProofRow;
   proofKinds: { key: string; label: string; title?: string }[];
   takenKeys: Set<string>;
-  /** When given, a key the loaded version does not carry follows its title (keyForTitle). */
-  savedKeys?: Set<string>;
+  /** Keys the loaded version carries; any other key follows its title (keyForTitle). */
+  savedKeys: Set<string>;
   onChange: (patch: Partial<RemovalProofRow>) => void;
   onMove: (dir: -1 | 1) => void;
   onRemove: () => void;
@@ -293,7 +293,7 @@ export function SlotCard({
               const title = e.target.value;
               // A NEW slot's key follows its title until saved; an existing key is never rewritten
               // (it is what the phones stamp on uploads).
-              onChange({ title, key: savedKeys ? keyForTitle(title, slot.key, savedKeys, takenKeys, "capture") : slot.key || slugKey(title, takenKeys, "capture") });
+              onChange({ title, key: keyForTitle(title, slot.key, savedKeys, takenKeys, "capture") });
             }}
           />
         </label>
