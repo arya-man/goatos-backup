@@ -482,8 +482,8 @@ const (
 	//
 	// The verifier deliberately holds neither: her queue is /verify, and the board is a
 	// lens over work, not a second verdict surface.
-	WorkBoardRead        = "work_board.read"
-	WorkBoardOversee     = "work_board.oversee"
+	WorkBoardRead    = "work_board.read"
+	WorkBoardOversee = "work_board.oversee"
 	// Alerts (maintainer decision 2026-09-16): the page below the Work Board that lists what is
 	// OFF today -- a pen whose feed sheet moved against yesterday with no shifting recorded to
 	// explain it, a feed that runs out inside the configured days, and whatever rule is added
@@ -976,7 +976,7 @@ var rolePermissions = map[string]map[string]struct{}{
 		WorkBoardRead: {}, WorkBoardOversee: {},
 		// Alerts (2026-09-16): reads the page; configuring is ticked per person on /people.
 		AlertsRead: {},
-		GoatRead: {}, GoatWriteHealth: {},
+		GoatRead:   {}, GoatWriteHealth: {},
 		LocationsRead: {},
 		OperatorsRead: {}, OperatorsManageRoster: {}, OperatorsManageDevice: {}, OperatorsViewAudit: {}, AppBootstrap: {}, AdminWebBootstrap: {},
 		SOPRead: {}, TaskRead: {}, TaskAssign: {}, TaskExecute: {}, TaskVerify: {},
@@ -1054,7 +1054,7 @@ var rolePermissions = map[string]map[string]struct{}{
 		// modules their other permissions already open.
 		WorkBoardRead: {}, WorkBoardOversee: {},
 		// Alerts (2026-09-16): reads the page; configuring is ticked per person on /people.
-		AlertsRead: {},
+		AlertsRead:   {},
 		AppBootstrap: {}, AdminWebBootstrap: {},
 		LocationsRead: {}, OperatorsRead: {},
 		// NOT WeighingPlan: planning a weighing task is CEO-only (maintainer decision
@@ -1105,7 +1105,7 @@ var rolePermissions = map[string]map[string]struct{}{
 		// modules their other permissions already open.
 		WorkBoardRead: {}, WorkBoardOversee: {},
 		// Alerts (2026-09-16): reads the page; configuring is ticked per person on /people.
-		AlertsRead: {},
+		AlertsRead:   {},
 		AppBootstrap: {}, AdminWebBootstrap: {},
 		LocationsRead: {}, OperatorsRead: {},
 		OperatorsManageRoster: {}, OperatorsManageDevice: {}, OperatorsViewAudit: {},
@@ -1159,7 +1159,7 @@ var rolePermissions = map[string]map[string]struct{}{
 		// modules their other permissions already open.
 		WorkBoardRead: {}, WorkBoardOversee: {},
 		// Alerts (2026-09-16): reads the page; configuring is ticked per person on /people.
-		AlertsRead: {},
+		AlertsRead:   {},
 		AppBootstrap: {}, AdminWebBootstrap: {},
 		LocationsRead: {}, OperatorsRead: {},
 		OperatorsManageRoster: {}, OperatorsManageDevice: {}, OperatorsViewAudit: {},
@@ -1272,7 +1272,7 @@ var rolePermissions = map[string]map[string]struct{}{
 		// modules their other permissions already open.
 		WorkBoardRead: {}, WorkBoardOversee: {},
 		// Alerts (2026-09-16): reads the page; configuring is ticked per person on /people.
-		AlertsRead: {},
+		AlertsRead:        {},
 		AdminWebBootstrap: {}, AppBootstrap: {},
 		LocationsRead: {},
 		SalesRead:     {}, SalesWrite: {}, SalesAllocateAnimals: {},
@@ -1297,9 +1297,9 @@ var rolePermissions = map[string]map[string]struct{}{
 		WorkBoardRead: {}, WorkBoardOversee: {},
 		AppBootstrap: {}, AdminWebBootstrap: {},
 		LocationsRead: {}, OperatorsRead: {}, RosterRead: {},
-		PCCareMonitor:      {},
+		PCCareMonitor: {},
 		// Alerts (2026-09-16): every director reads the page; configuring is per person.
-		AlertsRead: {},
+		AlertsRead:         {},
 		PCCarePlanTrimming: {},
 	},
 	RoleHR: {
