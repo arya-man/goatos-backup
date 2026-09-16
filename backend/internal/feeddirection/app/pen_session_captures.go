@@ -38,6 +38,9 @@ type PenSessionCapturesInput struct {
 // editable for up to one poll interval (field bug 2026-08-15). Slots and status now travel
 // together so the screen paints both from the same instant.
 type PenSessionCapturesResult struct {
+	// Card is the distribution card THIS pen-session is proven against: the sheet's pinned
+	// version (FEED SOP, 2026-09-16). Every phone on the session renders the same slots from it.
+	Card  domain.CardContract
 	Slots []ports.CapturedProofSlot
 	// SessionStatus is the RAW feed_distribution_completions status for this exact pen-session
 	// ("pending_verification", "completed", "rework"); empty when no completion row exists yet.
@@ -117,5 +120,9 @@ func (s *Service) ListPenSessionCaptures(
 			}
 		}
 	}
-	return PenSessionCapturesResult{Slots: slots, SessionStatus: status}, nil
+	rules, err := s.sheetRules(ctx, in.TenantID, in.ParkID, biztime.BusinessDate(in.TargetDate), in.Workflow, domain.StageDistribution)
+	if err != nil {
+		return PenSessionCapturesResult{}, err
+	}
+	return PenSessionCapturesResult{Card: cardContract(rules), Slots: slots, SessionStatus: status}, nil
 }

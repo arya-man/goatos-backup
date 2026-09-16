@@ -51,16 +51,30 @@ func (s *Service) IssueDirection(ctx context.Context, req IssueRequest) (Lifecyc
 	if err != nil {
 		return LifecycleReport{}, err
 	}
+	// THE PIN (FEED SOP, 2026-09-16): the sheet is stamped with the feed.direction and
+	// feed.packing versions in force at issue, and every distribution / wastage / packing card of
+	// this sheet runs on them to the end. A publish tonight changes tomorrow's sheet, never the
+	// bags the crew is already packing against this one.
+	direction, err := s.publishedRules(ctx, req.TenantID, domain.StageDistribution)
+	if err != nil {
+		return LifecycleReport{}, err
+	}
+	packing, err := s.publishedRules(ctx, req.TenantID, domain.StagePacking)
+	if err != nil {
+		return LifecycleReport{}, err
+	}
 	result, err := s.issues.PersistIssue(ctx, ports.PersistIssueCommand{
-		TenantID:       req.TenantID,
-		ParkID:         req.ParkID,
-		FeedDay:        prep.feedDay,
-		Workflow:       prep.workflow,
-		IssuedAt:       prep.asOf,
-		Fingerprint:    prep.fingerprint,
-		IdempotencyKey: issueIdempotencyKey(req.TenantID, req.ParkID, prep.feedDay, prep.workflow),
-		GeneratedBy:    s.generatedBy,
-		Cells:          prep.cells,
+		TenantID:          req.TenantID,
+		ParkID:            req.ParkID,
+		FeedDay:           prep.feedDay,
+		Workflow:          prep.workflow,
+		IssuedAt:          prep.asOf,
+		Fingerprint:       prep.fingerprint,
+		IdempotencyKey:    issueIdempotencyKey(req.TenantID, req.ParkID, prep.feedDay, prep.workflow),
+		GeneratedBy:       s.generatedBy,
+		SOPVersion:        direction.Version,
+		PackingSOPVersion: packing.Version,
+		Cells:             prep.cells,
 	})
 	if err != nil {
 		return LifecycleReport{}, err
@@ -410,7 +424,7 @@ func (s *Service) servePreview(ctx context.Context, q domain.PreviewQuery) (doma
 		return domain.PreviewPage{}, fmt.Errorf("feeddirection: issue store is required to serve issued sheets")
 	}
 	feedDay := biztime.BusinessDate(q.TargetDate)
-	scopeRows, lifecycle, served, err := s.loadServedRows(ctx, q.TenantID, q.ParkID, feedDay, q.Workflow)
+	scopeRows, lifecycle, headers, served, err := s.loadServedSheet(ctx, q.TenantID, q.ParkID, feedDay, q.Workflow)
 	if err != nil {
 		return domain.PreviewPage{}, err
 	}
@@ -431,7 +445,7 @@ func (s *Service) servePreview(ctx context.Context, q domain.PreviewQuery) (doma
 				Offset:     q.Offset,
 			}, nil
 		}
-		scopeRows, lifecycle, served, err = s.loadServedRows(ctx, q.TenantID, q.ParkID, feedDay, q.Workflow)
+		scopeRows, lifecycle, headers, served, err = s.loadServedSheet(ctx, q.TenantID, q.ParkID, feedDay, q.Workflow)
 		if err != nil {
 			return domain.PreviewPage{}, err
 		}
@@ -461,9 +475,14 @@ func (s *Service) servePreview(ctx context.Context, q domain.PreviewQuery) (doma
 	pageRows := rowsForShedIDs(scopeRows, pageSheds)
 	items := domain.DistinctFeedItems(scopeRows)
 
+	sop, err := s.sheetCards(ctx, q.TenantID, headers, domain.StageDistribution)
+	if err != nil {
+		return domain.PreviewPage{}, err
+	}
 	return domain.PreviewPage{
 		Items:      pageRows,
 		Summary:    domain.SummarizeScope(scopeRows, items),
+		SOP:        sop,
 		Lifecycle:  lifecycle,
 		TargetDate: feedDay,
 		Limit:      q.Limit,
@@ -472,13 +491,34 @@ func (s *Service) servePreview(ctx context.Context, q domain.PreviewQuery) (doma
 	}, nil
 }
 
+// sheetCards compiles, per served workflow, the card a stage of the sheet runs under -- from each
+// header's pin (FEED SOP, 2026-09-16). Two headers (normal + experiment) may pin different versions.
+func (s *Service) sheetCards(ctx context.Context, tenantID string, headers []domain.IssueHeader, stage string) (map[string]domain.CardContract, error) {
+	if len(headers) == 0 {
+		return nil, nil
+	}
+	out := make(map[string]domain.CardContract, len(headers))
+	for _, h := range headers {
+		version := h.SOPVersion
+		if stage == domain.StagePacking {
+			version = h.PackingSOPVersion
+		}
+		rules, err := s.pinnedRules(ctx, tenantID, stage, version)
+		if err != nil {
+			return nil, err
+		}
+		out[h.Workflow] = cardContract(rules)
+	}
+	return out, nil
+}
+
 // servePacking is the packing-worklist twin of servePreview.
 func (s *Service) servePacking(ctx context.Context, q domain.PackingQuery) (domain.PackingPage, error) {
 	if s.issues == nil {
 		return domain.PackingPage{}, fmt.Errorf("feeddirection: issue store is required to serve issued sheets")
 	}
 	feedDay := biztime.BusinessDate(q.TargetDate)
-	scopeRows, lifecycle, served, err := s.loadServedRows(ctx, q.TenantID, q.ParkID, feedDay, q.Workflow)
+	scopeRows, lifecycle, headers, served, err := s.loadServedSheet(ctx, q.TenantID, q.ParkID, feedDay, q.Workflow)
 	if err != nil {
 		return domain.PackingPage{}, err
 	}
@@ -499,7 +539,7 @@ func (s *Service) servePacking(ctx context.Context, q domain.PackingQuery) (doma
 				Offset:     q.Offset,
 			}, nil
 		}
-		scopeRows, lifecycle, served, err = s.loadServedRows(ctx, q.TenantID, q.ParkID, feedDay, q.Workflow)
+		scopeRows, lifecycle, headers, served, err = s.loadServedSheet(ctx, q.TenantID, q.ParkID, feedDay, q.Workflow)
 		if err != nil {
 			return domain.PackingPage{}, err
 		}
@@ -543,10 +583,15 @@ func (s *Service) servePacking(ctx context.Context, q domain.PackingQuery) (doma
 	// filter — statusFilter "").
 	scopePacking := stampAndFilterPackingRows(domain.BuildPackingRows(scopeRows, items), statusMap, "")
 	pagePacking := stampAndFilterPackingRows(domain.BuildPackingRows(pageRows, items), statusMap, "")
+	sop, err := s.sheetCards(ctx, q.TenantID, headers, domain.StagePacking)
+	if err != nil {
+		return domain.PackingPage{}, err
+	}
 
 	return domain.PackingPage{
 		Items:      pagePacking,
 		Summary:    domain.SummarizePacking(scopePacking, items),
+		SOP:        sop,
 		Lifecycle:  lifecycle,
 		TargetDate: feedDay,
 		Limit:      q.Limit,
@@ -559,12 +604,19 @@ func (s *Service) servePacking(ctx context.Context, q domain.PackingQuery) (doma
 // caller then GENERATES a preview instead (see servePreviewGenerated / servePackingGenerated), so no
 // lifecycle is built here for the unserved case.
 func (s *Service) loadServedRows(ctx context.Context, tenantID, parkID, feedDay, workflow string) ([]domain.DirectionRow, domain.Lifecycle, bool, error) {
+	rows, lifecycle, _, served, err := s.loadServedSheet(ctx, tenantID, parkID, feedDay, workflow)
+	return rows, lifecycle, served, err
+}
+
+// loadServedSheet is loadServedRows plus the served HEADERS, whose pins name the cards the sheet's
+// stages run under (FEED SOP, 2026-09-16).
+func (s *Service) loadServedSheet(ctx context.Context, tenantID, parkID, feedDay, workflow string) ([]domain.DirectionRow, domain.Lifecycle, []domain.IssueHeader, bool, error) {
 	headers, err := s.issues.LoadIssueHeaders(ctx, tenantID, parkID, feedDay, workflow)
 	if err != nil {
-		return nil, domain.Lifecycle{}, false, err
+		return nil, domain.Lifecycle{}, nil, false, err
 	}
 	if len(headers) == 0 {
-		return nil, domain.Lifecycle{}, false, nil
+		return nil, domain.Lifecycle{}, nil, false, nil
 	}
 
 	issueIDs := make([]string, 0, len(headers))
@@ -573,14 +625,14 @@ func (s *Service) loadServedRows(ctx context.Context, tenantID, parkID, feedDay,
 	}
 	rowsByIssue, err := s.issues.LoadIssueRows(ctx, tenantID, issueIDs)
 	if err != nil {
-		return nil, domain.Lifecycle{}, false, err
+		return nil, domain.Lifecycle{}, nil, false, err
 	}
 
 	scopeRows := make([]domain.DirectionRow, 0)
 	for _, h := range headers {
 		scopeRows = append(scopeRows, domain.ReconstructRows(rowsByIssue[h.IssueID])...)
 	}
-	return scopeRows, aggregateLifecycle(headers), true, nil
+	return scopeRows, aggregateLifecycle(headers), headers, true, nil
 }
 
 // servePreviewGenerated LIVE-GENERATES the full scope for a feed day that has NO issued sheet and

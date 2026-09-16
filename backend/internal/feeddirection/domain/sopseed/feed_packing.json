@@ -1,0 +1,10 @@
+{
+  "schema_version": "goatos.sop-feed.v1",
+  "packing": {
+    "instruction": "Pack one pen and one session per bag and film it being weighed out and packed.",
+    "proofs": [
+      {"key": "feed_packing_video", "title": "Packing proof video", "hint": "This session's share being weighed out and packed for this pen.", "kind": "video", "required": true}
+    ],
+    "questions": []
+  }
+}

@@ -108,6 +108,8 @@ type WastageSummary struct {
 type WastagePage struct {
 	Items   []WastageRow   `json:"items"`
 	Summary WastageSummary `json:"summary"`
+	// SOP is the wastage CARD every pen on this page is proven against (FEED SOP, 2026-09-16).
+	SOP *CardContract `json:"sop,omitempty"`
 	// Lifecycle carries the same issue-state metadata as PackingPage: the worklist exists once the
 	// experiment sheet for the day is frozen, and before that the client is told when it arrives.
 	Lifecycle Lifecycle `json:"lifecycle"`

@@ -113,6 +113,29 @@ func (v *Validator) ValidateFeedProofMedia(ctx context.Context, tenantID string,
 	return nil
 }
 
+// DescribeFeedProofMedia reports each proof's stored kind (photo / video) for the ids that
+// resolve; an id that does not resolve is absent. Used after validation to record what an
+// `either` slot actually received.
+func (v *Validator) DescribeFeedProofMedia(ctx context.Context, tenantID string, proofIDs []string) (map[string]fdports.MediaKind, error) {
+	out := map[string]fdports.MediaKind{}
+	if len(proofIDs) == 0 {
+		return out, nil
+	}
+	found, err := v.repo.GetProofsByIDs(ctx, tenantID, proofIDs)
+	if err != nil {
+		return nil, err
+	}
+	for id, art := range found {
+		switch strings.ToLower(strings.TrimSpace(art.ProofType)) {
+		case "photo":
+			out[id] = fdports.MediaKindPhoto
+		case "video":
+			out[id] = fdports.MediaKindVideo
+		}
+	}
+	return out, nil
+}
+
 // matchesKind reports whether a stored artifact is the requested capture kind. The declared
 // proof_type and the actual mime prefix must BOTH agree with the expectation.
 func matchesKind(proofType, mimeType string, kind fdports.MediaKind) bool {
@@ -123,6 +146,9 @@ func matchesKind(proofType, mimeType string, kind fdports.MediaKind) bool {
 		return declared == "photo" && strings.HasPrefix(mime, "image/")
 	case fdports.MediaKindVideo:
 		return declared == "video" && strings.HasPrefix(mime, "video/")
+	case fdports.MediaKindEither:
+		return (declared == "photo" && strings.HasPrefix(mime, "image/")) ||
+			(declared == "video" && strings.HasPrefix(mime, "video/"))
 	default:
 		// An unknown expectation is a programming error, and the safe reading of "I do not know what
 		// this step wants" is to reject rather than to wave the proof through.

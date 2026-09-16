@@ -87,6 +87,12 @@ type IssueHeader struct {
 	LockedAt                   *time.Time
 	GenerationInputFingerprint string
 	AmendmentCount             int32
+	// SOPVersion is the feed.direction SOP version the sheet was ISSUED under; its distribution
+	// and wastage cards run on it to the end (FEED SOP, 2026-09-16). 0 = the seeded cards.
+	SOPVersion int
+	// PackingSOPVersion is the feed.packing SOP version the sheet was issued under; every bag of
+	// the sheet is packed on it. 0 = the seeded card.
+	PackingSOPVersion int
 }
 
 // StoredCell is one feed_direction_issue_rows row: a single (grain, session, feed_item) cell of the

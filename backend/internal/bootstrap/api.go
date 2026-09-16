@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	feedsoppg "github.com/vgoats/goatos/backend/internal/feedsop/adapters/postgres"
+	feedsopapp "github.com/vgoats/goatos/backend/internal/feedsop/app"
 	"log/slog"
 	"net/http"
 	"os"
@@ -574,7 +576,11 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 		// WEIGHING SOP (maintainer decision 2026-09-15): the weighing.session version's
 		// `weighing` section is validated here so a document the planner could not run
 		// is never saved.
-		WithFormDSLContract(weighingsopapp.WeighingSOPContract)
+		WithFormDSLContract(weighingsopapp.WeighingSOPContract).
+		// FEED SOP (maintainer decision 2026-09-16): the feed.direction / feed.packing /
+		// feed.transport versions' `feed` section -- the cards the crew runs -- is validated here
+		// so a card the phone could not render is never saved.
+		WithFormDSLContract(feedsopapp.FeedSOPContract)
 
 	protocolRepo := protocolpg.NewRepository(pool, cfg.Postgres.QueryTimeout)
 	obligationRepo := obligationpg.NewRepository(pool, cfg.Postgres.QueryTimeout)
@@ -754,6 +760,10 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 		// seam is wired below, once verificationService exists.
 		WithWastageStore(feedDirectionRepo).
 		WithTransportStore(feedDirectionRepo).
+		// FEED SOP (2026-09-16): the cards -- capture slots and questions per stage -- from the
+		// published feed.* SOP versions; the sheet pins them at issue, the completions judge
+		// against the pin, the reads serve them to the phone.
+		WithSOPRules(feedsoppg.NewRulesSource(pool, cfg.Postgres.QueryTimeout)).
 		WithProofValidator(feeddirectionproof.NewValidatorWithPool(proofRepo, pool)).
 		WithAnalyticsReader(feedDirectionRepo).
 		// The feed module's own lifecycle alerts feed (GET /app/feed/alerts), the twin of

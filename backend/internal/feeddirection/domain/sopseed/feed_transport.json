@@ -1,0 +1,10 @@
+{
+  "schema_version": "goatos.sop-feed.v1",
+  "transport": {
+    "instruction": "Film the packed feed loaded and staged outside the shed before the cutoff.",
+    "proofs": [
+      {"key": "feed_transport_video", "title": "Transport video", "hint": "The shed's packed feed loaded and staged outside the shed.", "kind": "video", "required": true}
+    ],
+    "questions": []
+  }
+}

@@ -6,6 +6,8 @@ package verificationbridge
 import (
 	"context"
 	"fmt"
+	feeddirectionports "github.com/vgoats/goatos/backend/internal/feeddirection/ports"
+	"github.com/vgoats/goatos/backend/internal/sop/authored"
 
 	feeddirectionapp "github.com/vgoats/goatos/backend/internal/feeddirection/app"
 	feeddirectiondomain "github.com/vgoats/goatos/backend/internal/feeddirection/domain"
@@ -56,7 +58,9 @@ func (e *Enqueuer) EnqueueFeedDistributionVerification(ctx context.Context, in f
 		// A blank weight ref is DROPPED rather than sent as an empty entry: a grandfathered row
 		// (migration 000151) re-enqueued after a rework verdict genuinely has no weight photo, and an
 		// empty string would reach the verifier as a media slot that can never load.
-		MediaRefs:      mediaRefs(in.FeedWeightProofRef, in.DistributionProofRef, in.WaterProofRef),
+		MediaRefs:      distributionMediaRefs(in),
+		MediaMeta:      mediaMeta(in.MediaMeta),
+		ContextRows:    answerRows(in.ContextRows),
 		OperatorID:     ptrIfSet(in.OperatorID),
 		ShedID:         ptrIfSet(in.ShedID),
 		PartitionLabel: ptrIfSet(in.PartitionLabel),
@@ -100,4 +104,37 @@ func ptrIfSet(s string) *string {
 		return nil
 	}
 	return &s
+}
+
+// distributionMediaRefs prefers the card-ordered list the service composed (FEED SOP, 2026-09-16);
+// a request without one -- the legacy import, an old fake -- keeps the fixed capture order.
+func distributionMediaRefs(in feeddirectionapp.FeedDistributionVerificationEnqueueRequest) []string {
+	if len(in.MediaRefs) > 0 {
+		return mediaRefs(in.MediaRefs...)
+	}
+	return mediaRefs(in.FeedWeightProofRef, in.DistributionProofRef, in.WaterProofRef)
+}
+
+// mediaMeta maps the producer's per-proof {label, kind} onto the verification module's MediaMeta.
+func mediaMeta(in []feeddirectionports.ProofMeta) []verificationdomain.MediaMeta {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]verificationdomain.MediaMeta, 0, len(in))
+	for _, m := range in {
+		out = append(out, verificationdomain.MediaMeta{Label: m.Label, Kind: m.Kind})
+	}
+	return out
+}
+
+// answerRows renders the crew's answers as the item's context rows.
+func answerRows(in []authored.AnswerRow) []verificationdomain.ContextRow {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]verificationdomain.ContextRow, 0, len(in))
+	for _, r := range in {
+		out = append(out, verificationdomain.ContextRow{Label: r.Title, Value: r.Value})
+	}
+	return out
 }

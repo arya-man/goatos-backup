@@ -1,0 +1,19 @@
+{
+  "schema_version": "goatos.sop-feed.v1",
+  "distribution": {
+    "instruction": "Weigh the feed, film it being given out, and film the water being given out. Any operator on the park may record any capture; the pen is submitted once every compulsory capture is in.",
+    "proofs": [
+      {"key": "feed_distribution_feed_weight_photo", "title": "Feed weight photo", "hint": "The weighed feed on the scale, reading visible, before it is given out.", "kind": "photo", "required": true},
+      {"key": "feed_distribution_video", "title": "Feed distribution video", "hint": "Feed actually being given to the animals in this pen.", "kind": "video", "required": true},
+      {"key": "feed_distribution_water_video", "title": "Water distribution video", "hint": "Water being given to the animals in this pen.", "kind": "video", "required": true}
+    ],
+    "questions": []
+  },
+  "wastage": {
+    "instruction": "Film the leftover feed in the pen before it is cleared.",
+    "proofs": [
+      {"key": "feed_wastage_video", "title": "Leftover feed video", "hint": "The leftover feed in the trough before it is cleared; the verifier reads the weight off the clip.", "kind": "video", "required": true}
+    ],
+    "questions": []
+  }
+}

@@ -60,6 +60,8 @@ type Service struct {
 	planners domain.PlannerSet
 	issues   ports.IssueStore
 	schedule ports.ScheduleReader
+	// sopRules is the OPTIONAL feed SOP card source (FEED SOP, 2026-09-16). Nil = the seeded cards.
+	sopRules ports.SOPRulesSource
 	// now resolves "today" for the past-business-date regeneration guard (see
 	// ports.ErrPastDateRegenerationBlocked) and stamps the lifecycle issue/amend/lock instants.
 	// Injectable so a test can pin a fixed clock rather than racing the real wall clock -- a
@@ -136,6 +138,15 @@ func (s *Service) WithRoundingPolicy(policy domain.RoundingPolicy) *Service {
 // generation work; the issued/pending serve path and the lifecycle ops require it.
 func (s *Service) WithIssueStore(issues ports.IssueStore) *Service {
 	s.issues = issues
+	return s
+}
+
+// WithSOPRules wires the FEED SOP cards (maintainer decision 2026-09-16): what the crew captures
+// and answers at distribution, wastage, packing and transport, read from the published feed.*
+// SOP versions through the seam. Unwired, every stage runs the seeded card -- the pre-SOP
+// behaviour -- so every existing fake and every process without the adapter behaves as before.
+func (s *Service) WithSOPRules(rules ports.SOPRulesSource) *Service {
+	s.sopRules = rules
 	return s
 }
 
