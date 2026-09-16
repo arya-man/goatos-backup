@@ -35,8 +35,8 @@ func (r *sopShiftingRepo) ShiftingSOPPin(context.Context, string, string) (ports
 	return r.pin, r.pinErr
 }
 
-func (r *sopShiftingRepo) ShiftingEventByIdempotencyKey(context.Context, string, string, string) (string, bool, error) {
-	return "", false, nil
+func (r *sopShiftingRepo) ShiftingEventByIdempotencyKey(context.Context, string, string, string) (string, json.RawMessage, bool, error) {
+	return "", nil, false, nil
 }
 
 func (r *sopShiftingRepo) CompleteShiftingEvent(_ context.Context, in domain.ShiftingCompletionCommand) (domain.ShiftingExecutionResult, bool, error) {
@@ -479,14 +479,110 @@ func TestExplicitSeededKeyNotOnPinnedCardIsRefusedNotRetargeted(t *testing.T) {
 		t.Fatal("a refused completion wrote")
 	}
 	// An OLDER app's legacy packing field on the same card still lands on the authored feed slot.
+	// (The older app always sends BOTH feed clips on a high movement; the second has no free slot
+	// on this card and is kept under the reserved older-app key.)
+	svc, _ = sopService(t, repo, sopRules(), &sopProofMedia{kinds: map[string]string{"v1": "video", "p1": "video", "f1": "video"}})
 	legacy := baseInput()
 	legacy.LegacyShape = true
-	legacy.ProofRef, legacy.FeedPackingProofRef = "v1", "p1"
+	legacy.ProofRef, legacy.FeedPackingProofRef, legacy.FeedGivenProofRef = "v1", "p1", "f1"
 	if _, _, err := svc.Complete(context.Background(), legacy); err != nil {
 		t.Fatalf("older app refused: %v", err)
 	}
 	if repo.last.SOPProofs["feed_clip"] != "p1" {
 		t.Fatalf("legacy packing ref not re-targeted onto the authored slot: %v", repo.last.SOPProofs)
+	}
+}
+
+// DEPLOY-DAY PARITY (E2E 2026-09-17): before the SOP card an older app's high-priority completion
+// that omitted either feed clip was refused `feed_proofs_required` -- the old phone always had
+// both to send, so the refusal forced no update. The lenient older-app mapping must not turn that
+// into an accepted high-priority move with no feed evidence (live repro: proof_ref + fingerprint
+// alone applied the move and queued "Not captured (older app)" rows). Nothing is written or queued.
+func TestLegacyHighPriorityCompletionWithoutFeedClipsIsRefusedAsBefore(t *testing.T) {
+	for name, set := range map[string]func(*CompleteShiftingInput){
+		"no feed clips":   func(in *CompleteShiftingInput) {},
+		"no feeding clip": func(in *CompleteShiftingInput) { in.FeedPackingProofRef = "p1" },
+		"no packing clip": func(in *CompleteShiftingInput) { in.FeedGivenProofRef = "f1" },
+	} {
+		t.Run(name, func(t *testing.T) {
+			for _, version := range []*int{nil, intp(1)} {
+				repo := &sopShiftingRepo{pin: approvedPin(version, "high"), result: lowResult()}
+				media := &sopProofMedia{kinds: map[string]string{"v1": "video", "p1": "video", "f1": "video"}}
+				svc, enq := sopService(t, repo, &ports.StaticShiftingSOPRules{ByVersion: map[int]domain.ShiftingRules{1: pinnedRules()}}, media)
+				in := baseInput()
+				in.LegacyShape = true
+				in.ProofRef, in.FeedConfigFingerprint = "v1", "fp"
+				set(&in)
+				_, _, err := svc.Complete(context.Background(), in)
+				if !errors.Is(err, ports.ErrShiftingFeedProofsRequired) {
+					t.Fatalf("version %v: err = %v, want ErrShiftingFeedProofsRequired", version, err)
+				}
+				if repo.calls != 0 || enq.request.ShiftingEventID != "" {
+					t.Fatalf("version %v: wrote %d completions / queued %+v on a refused completion", version, repo.calls, enq.request)
+				}
+			}
+		})
+	}
+	// A LOW movement from the same older app never needed feed clips.
+	repo := &sopShiftingRepo{pin: approvedPin(nil, "low"), result: lowResult()}
+	svc, _ := sopService(t, repo, &ports.StaticShiftingSOPRules{}, &sopProofMedia{kinds: map[string]string{"v1": "video"}})
+	in := baseInput()
+	in.LegacyShape = true
+	in.ProofRef = "v1"
+	if _, _, err := svc.Complete(context.Background(), in); err != nil {
+		t.Fatalf("low legacy completion refused: %v", err)
+	}
+}
+
+// E2E 2026-09-17: a NEW app's completion with an EMPTY `proofs` map answered the legacy
+// `proof_required` ("a video proof (proof_ref) is required") -- a field the new app never sends --
+// instead of naming the compulsory slot it must fill. The legacy answer belongs to the legacy shape.
+func TestNewShapeCompletionWithNoCapturesIsRefusedByTheCompulsorySlot(t *testing.T) {
+	repo := &sopShiftingRepo{pin: approvedPin(nil, "high"), result: lowResult()}
+	svc, _ := sopService(t, repo, &ports.StaticShiftingSOPRules{}, &sopProofMedia{})
+	in := baseInput()
+	in.SOPProofs = authored.ProofRefs{}
+	in.FeedConfigFingerprint = "fp"
+	_, _, err := svc.Complete(context.Background(), in)
+	if key, _, ok := SOPProofSlotError(err); !ok || key != domain.SlotShiftingVideo {
+		t.Fatalf("err=%v key=%q, want the compulsory Shifting video slot named", err, key)
+	}
+	if repo.calls != 0 {
+		t.Fatal("a refused completion wrote")
+	}
+	legacy := baseInput()
+	legacy.LegacyShape = true
+	if _, _, err := svc.Complete(context.Background(), legacy); !errors.Is(err, ports.ErrShiftingProofRequired) {
+		t.Fatalf("legacy err=%v, want the pre-SOP proof_required", err)
+	}
+}
+
+// The same capture resubmitted after a rework must queue a FRESH item: the enqueue key carries the
+// row's verification round (read under the completion's row lock), never the refs alone.
+func TestSameCaptureResubmitAfterReworkKeysTheNewRound(t *testing.T) {
+	pin := approvedPin(nil, "low")
+	pin.EventStatus, pin.VerificationState = domain.ShiftingEventStatusApplied, "rejected"
+	result := lowResult()
+	result.VerificationRound = 1
+	repo := &sopShiftingRepo{pin: pin, result: result}
+	svc, enq := sopService(t, repo, &ports.StaticShiftingSOPRules{}, &sopProofMedia{kinds: map[string]string{"old": "video"}})
+	in := baseInput()
+	in.LegacyShape = true
+	in.ProofRef = "old"
+	if _, _, err := svc.Complete(context.Background(), in); err != nil {
+		t.Fatal(err)
+	}
+	if want := "counts-shifting-verification:ev1:old:r1"; enq.request.IdempotencyKey != want {
+		t.Fatalf("resubmit key = %q, want the round-1 item %q", enq.request.IdempotencyKey, want)
+	}
+	// Round 0 (a first submission) keeps the pre-SOP key exactly.
+	repo.result.VerificationRound = 0
+	repo.pin.VerificationState = "unverified"
+	if _, _, err := svc.Complete(context.Background(), in); err != nil {
+		t.Fatal(err)
+	}
+	if want := "counts-shifting-verification:ev1:old"; enq.request.IdempotencyKey != want {
+		t.Fatalf("first-round key = %q, want %q", enq.request.IdempotencyKey, want)
 	}
 }
 

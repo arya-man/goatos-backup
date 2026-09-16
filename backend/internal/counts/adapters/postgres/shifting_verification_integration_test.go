@@ -500,3 +500,207 @@ SELECT count(*) FROM goat_identity_events WHERE tenant_id = $1::uuid AND event_t
 		t.Fatalf("event_status=%q after evidence re-submit, want applied", got)
 	}
 }
+
+// E2E 2026-09-17: a verifier REJECT of an applied movement's evidence is operator work -- the
+// re-shoot -- yet the Actions queue hid it from every tab (rework, all) and from the rework count.
+// The stale-source filter (animals must still stand in the approved SOURCE pen) was applied to every
+// outstanding row, and an applied move's animals are, by definition, in the DESTINATION. The filter
+// belongs to a movement not yet walked; a rework of one already applied must stay reachable.
+func TestRejectedAppliedMovementStaysInTheReworkQueue(t *testing.T) {
+	ctx := context.Background()
+	pool := setupCountsDB(t, ctx)
+	repo := newRealIdentityApprovalRepo(t, pool)
+
+	goatA := "00000000-0000-4000-8000-00000000d041"
+	goatIDs := []string{goatA}
+	seedApprovalGoat(t, ctx, pool, goatA, countsShedA)
+	seedShedProfile(t, ctx, pool, countsShedB, "adult")
+
+	shiftingEventID, approvalRequestID := submitShiftingApproval(t, ctx, repo, "rework-queue", goatIDs)
+	if _, _, err := approveShifting(repo, ctx, "rework-queue", approvalRequestID, shiftingEventID, goatIDs); err != nil {
+		t.Fatalf("approve shifting: %v", err)
+	}
+	if _, _, err := submitShiftingForVerification(repo, ctx, "rework-queue", shiftingEventID, ""); err != nil {
+		t.Fatalf("submit for verification: %v", err)
+	}
+	if err := repo.BounceShiftingEventForRework(ctx, domain.ShiftingReworkCommand{
+		TenantID: countsTenant, ShiftingEventID: shiftingEventID, VerifiedBy: countsApprover,
+		Reason: "video does not show the animals entering the destination pen",
+	}); err != nil {
+		t.Fatalf("bounce for rework: %v", err)
+	}
+	if got := goatShed(t, ctx, pool, goatA); got != countsShedB {
+		t.Fatalf("goat shed=%s, want the destination (the move is applied)", got)
+	}
+
+	now := time.Now()
+	// The shared fixture raises the movement two business days ago (past the Actions lead time).
+	day := biztime.BusinessDayStart(now).AddDate(0, 0, -2)
+	next := day.AddDate(0, 0, 1)
+	for _, status := range []string{"rework", "all"} {
+		page, err := repo.ListShiftingEventsPendingExecution(ctx, domain.ShiftingExecutionQuery{
+			TenantID: countsTenant, Status: status, PageSize: 20, RaisedFrom: &day, RaisedBefore: &next, Now: now,
+		})
+		if err != nil {
+			t.Fatalf("list %s: %v", status, err)
+		}
+		found := false
+		for _, it := range page.Items {
+			if it.ShiftingEventID == shiftingEventID {
+				found = true
+				if it.PrimaryActionKey != "execute" {
+					t.Fatalf("%s: primary_action_key=%q, want execute (a re-shoot is owed)", status, it.PrimaryActionKey)
+				}
+			}
+		}
+		if !found {
+			t.Fatalf("%s tab does not list the rejected applied movement (items=%+v)", status, page.Items)
+		}
+		if page.StatusCounts.Rework != 1 {
+			t.Fatalf("%s: rework count=%d, want 1", status, page.StatusCounts.Rework)
+		}
+	}
+}
+
+// E2E 2026-09-17: the relay is at-least-once. A rework verdict for the OLD item, redelivered after
+// the operator already re-shot (fresh captures, a fresh pending item), bounced the movement back to
+// 'rejected': the operator was sent to re-shoot again while the verifier still held the new clip.
+// A rework verdict now names the evidence it judged; a verdict whose evidence is no longer the
+// movement's current captures is a stale delivery and changes nothing.
+func TestStaleReworkVerdictDoesNotBounceAFreshResubmission(t *testing.T) {
+	ctx := context.Background()
+	pool := setupCountsDB(t, ctx)
+	repo := newRealIdentityApprovalRepo(t, pool)
+
+	goatA := "00000000-0000-4000-8000-00000000d051"
+	goatIDs := []string{goatA}
+	seedApprovalGoat(t, ctx, pool, goatA, countsShedA)
+	seedShedProfile(t, ctx, pool, countsShedB, "adult")
+	shiftingEventID, approvalRequestID := submitShiftingApproval(t, ctx, repo, "stale-rework", goatIDs)
+	if _, _, err := approveShifting(repo, ctx, "stale-rework", approvalRequestID, shiftingEventID, goatIDs); err != nil {
+		t.Fatalf("approve shifting: %v", err)
+	}
+	if _, _, err := submitShiftingForVerification(repo, ctx, "stale-rework-1", shiftingEventID, ""); err != nil {
+		t.Fatalf("first completion: %v", err)
+	}
+	firstRefs := []string{"proof-artifact-stale-rework-1"}
+	bounce := func(refs []string) {
+		t.Helper()
+		if err := repo.BounceShiftingEventForRework(ctx, domain.ShiftingReworkCommand{
+			TenantID: countsTenant, ShiftingEventID: shiftingEventID, VerifiedBy: countsApprover,
+			Reason: "blurry", EvidenceRefs: refs,
+		}); err != nil {
+			t.Fatalf("bounce: %v", err)
+		}
+	}
+	state := func() string {
+		t.Helper()
+		var s string
+		if err := pool.QueryRow(ctx, `SELECT verification_state FROM shifting_events WHERE tenant_id=$1::uuid AND shifting_event_id=$2::uuid`,
+			countsTenant, shiftingEventID).Scan(&s); err != nil {
+			t.Fatal(err)
+		}
+		return s
+	}
+	bounce(firstRefs)
+	if got := state(); got != "rejected" {
+		t.Fatalf("state after the current verdict = %q, want rejected", got)
+	}
+	if _, _, err := submitShiftingForVerification(repo, ctx, "stale-rework-2", shiftingEventID, ""); err != nil {
+		t.Fatalf("re-shoot: %v", err)
+	}
+	if got := state(); got != "unverified" {
+		t.Fatalf("state after the re-shoot = %q, want unverified", got)
+	}
+	// The OLD item's rework verdict, delivered again.
+	bounce(firstRefs)
+	if got := state(); got != "unverified" {
+		t.Fatalf("a stale rework verdict bounced the fresh re-shoot: state = %q", got)
+	}
+	// The verdict on the CURRENT evidence still applies, and a verdict that names no evidence (an
+	// item recorded before this guard) keeps today's behaviour.
+	bounce([]string{"proof-artifact-stale-rework-2"})
+	if got := state(); got != "rejected" {
+		t.Fatalf("the current rework verdict did not apply: state = %q", got)
+	}
+}
+
+// COORDINATOR FOLLOW-UP (E2E 2026-09-17): after a rework verdict, resubmitting the SAME capture
+// is accepted (deploy-day parity) but used to collapse onto the REJECTED item -- the key was the
+// refs alone -- leaving the movement unverified with nothing for the verifier to judge. The round
+// now folds into the key after a rework: exactly one fresh item per round, a retry within the round
+// is the same item, and the old item's redelivered verdict (same refs, older round) bounces nothing.
+func TestSameCaptureResubmitAfterReworkQueuesAFreshRound(t *testing.T) {
+	ctx := context.Background()
+	pool := setupCountsDB(t, ctx)
+	repo := newRealIdentityApprovalRepo(t, pool)
+	goatA := "00000000-0000-4000-8000-00000000d061"
+	seedApprovalGoat(t, ctx, pool, goatA, countsShedA)
+	seedShedProfile(t, ctx, pool, countsShedB, "adult")
+	eventID, approvalID := submitShiftingApproval(t, ctx, repo, "same-capture-round", []string{goatA})
+	if _, _, err := approveShifting(repo, ctx, "same-capture-round", approvalID, eventID, []string{goatA}); err != nil {
+		t.Fatalf("approve: %v", err)
+	}
+	capture := &capturingShiftingVerificationEnqueuer{}
+	svc := sopExecutionService(pool, repo, capture)
+	complete := func(key string) string {
+		t.Helper()
+		if _, _, err := svc.Complete(ctx, countsapp.CompleteShiftingInput{
+			TenantID: countsTenant, ShiftingEventID: eventID, CompletedByUserID: countsOperator,
+			ProofRef: "clip", LegacyShape: true, IdempotencyKey: key, RequestFingerprint: "fp-" + key,
+		}); err != nil {
+			t.Fatalf("complete %s: %v", key, err)
+		}
+		return capture.request.IdempotencyKey
+	}
+	state := func() string {
+		t.Helper()
+		var s string
+		if err := pool.QueryRow(ctx, `SELECT verification_state FROM shifting_events WHERE tenant_id=$1::uuid AND shifting_event_id=$2::uuid`, countsTenant, eventID).Scan(&s); err != nil {
+			t.Fatal(err)
+		}
+		return s
+	}
+	bounce := func(itemKey string) {
+		t.Helper()
+		refs, round := domain.ParseShiftingVerificationKey(itemKey, eventID)
+		if err := repo.BounceShiftingEventForRework(ctx, domain.ShiftingReworkCommand{
+			TenantID: countsTenant, ShiftingEventID: eventID, VerifiedBy: countsApprover, Reason: "blurry",
+			EvidenceRefs: refs, EvidenceRound: &round,
+		}); err != nil {
+			t.Fatalf("bounce: %v", err)
+		}
+	}
+
+	first := complete("c1")
+	if first != "counts-shifting-verification:"+eventID+":clip" {
+		t.Fatalf("first submission key = %q, want the pre-SOP shape", first)
+	}
+	bounce(first)
+	if got := state(); got != "rejected" {
+		t.Fatalf("state = %q, want rejected", got)
+	}
+	second := complete("c2") // the SAME capture, after the reject
+	if second == first {
+		t.Fatalf("same-capture resubmit collapsed onto the rejected item %q", first)
+	}
+	if retry := complete("c2"); retry != second {
+		t.Fatalf("an exact retry of the resubmit keyed %q, want the same new item %q", retry, second)
+	}
+	if got := state(); got != "unverified" {
+		t.Fatalf("state after resubmit = %q, want unverified (awaiting the new item)", got)
+	}
+	bounce(first) // the OLD item's verdict, redelivered: same refs, older round
+	if got := state(); got != "unverified" {
+		t.Fatalf("stale verdict of round 0 bounced round 1: state = %q", got)
+	}
+	bounce(second) // the new item's verdict applies
+	if got := state(); got != "rejected" {
+		t.Fatalf("current-round verdict did not apply: state = %q", got)
+	}
+	bounce(second) // and its own redelivery is a no-op for round 2
+	third := complete("c3")
+	if third == second || third == first {
+		t.Fatalf("third round key %q repeats an earlier item", third)
+	}
+}

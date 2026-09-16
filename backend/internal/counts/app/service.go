@@ -86,10 +86,14 @@ func (s *Service) RecordBaseCountAnchor(ctx context.Context, in domain.BaseCount
 // 2026-09-16): an exact replay must return the movement it already recorded even if a version
 // published since added a required question. A repository without the pin store reports nothing
 // found, so every raise is judged.
-func (s *Service) ShiftingRaiseReplay(ctx context.Context, tenantID, idempotencyKey, requestFingerprint string) (string, bool, error) {
+//
+// raiseCapture is the approver's snapshot the movement stored at its first attempt: a retry that
+// converges an orphaned movement (row written, approval submit failed) must hand the approval the
+// SAME capture rather than none.
+func (s *Service) ShiftingRaiseReplay(ctx context.Context, tenantID, idempotencyKey, requestFingerprint string) (string, json.RawMessage, bool, error) {
 	store, ok := s.repo.(ports.ShiftingSOPStore)
 	if !ok {
-		return "", false, nil
+		return "", nil, false, nil
 	}
 	return store.ShiftingEventByIdempotencyKey(ctx, tenantID, idempotencyKey, requestFingerprint)
 }

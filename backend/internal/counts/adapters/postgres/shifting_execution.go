@@ -404,18 +404,57 @@ func (r *Repository) BounceShiftingEventForRework(
 	tag, err := r.pool.Exec(ctx, `
 UPDATE shifting_events
 SET verification_state = 'rejected',
+    verification_round = verification_round + 1,
     completion_idempotency_key = NULL,
     completion_request_fingerprint = NULL,
     updated_at = now(),
     row_version = row_version + 1
 WHERE tenant_id = $1::uuid AND shifting_event_id = $2::uuid
-  AND event_status IN ('pending', 'pending_verification', 'applied')`,
-		in.TenantID, in.ShiftingEventID)
+  AND event_status IN ('pending', 'pending_verification', 'applied')
+  -- STALE-VERDICT GUARD (E2E 2026-09-17): the verdict judged these captures; if the movement no
+  -- longer holds exactly them the operator already re-shot, and this is a redelivery of the old
+  -- item's verdict. NULL (an item whose key names no evidence) keeps the unguarded behaviour.
+  AND ($3::text[] IS NULL OR (
+        SELECT coalesce(array_agg(DISTINCT ref ORDER BY ref), '{}'::text[])
+        FROM (
+            SELECT kv.value AS ref FROM jsonb_each_text(coalesce(sop_proofs, '{}'::jsonb)) AS kv
+            UNION ALL SELECT proof_ref
+            UNION ALL SELECT feed_packing_proof_ref
+            UNION ALL SELECT feed_given_proof_ref
+        ) AS current_refs
+        WHERE nullif(btrim(ref), '') IS NOT NULL
+      ) = (SELECT array_agg(DISTINCT ref ORDER BY ref) FROM unnest($3::text[]) AS judged(ref)))
+  -- ...and the verdict belongs to the CURRENT review round: a resubmit of the same capture after a
+  -- rework has the same refs, so only the round tells its item from the rejected one.
+  AND ($4::int IS NULL OR verification_round = $4::int)`,
+		in.TenantID, in.ShiftingEventID, evidenceRefsParam(in.EvidenceRefs), evidenceRoundParam(in.EvidenceRefs, in.EvidenceRound))
 	if err != nil {
 		return fmt.Errorf("counts: bounce shifting event for rework: %w", err)
 	}
 	_ = tag // zero rows affected is an accepted stale/duplicate verdict; no error.
 	return nil
+}
+
+// evidenceRoundParam binds the judged round, or SQL NULL when the verdict names no evidence.
+func evidenceRoundParam(refs []string, round *int) any {
+	if evidenceRefsParam(refs) == nil || round == nil {
+		return nil
+	}
+	return *round
+}
+
+// evidenceRefsParam binds the judged evidence set, or SQL NULL when the verdict names none.
+func evidenceRefsParam(refs []string) any {
+	out := make([]string, 0, len(refs))
+	for _, r := range refs {
+		if r = strings.TrimSpace(r); r != "" {
+			out = append(out, r)
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 // ---------------------------------------------------------------------------
@@ -577,6 +616,7 @@ type lockedShiftingEvent struct {
 	CompletionRequestFingerprint *string
 	CancelIdempotencyKey         *string
 	CancelRequestFingerprint     *string
+	VerificationRound            int
 
 	// SHIFTING SOP (2026-09-16): the pin and the stored captures / answers of both cards, read
 	// under the same lock so the verifier item is built from what the row holds.
@@ -591,6 +631,7 @@ type lockedShiftingEvent struct {
 // fillSOP copies the row's stored SOP fields onto a completion result.
 func (l lockedShiftingEvent) fillSOP(out *domain.ShiftingExecutionResult) {
 	out.Priority = l.Priority
+	out.VerificationRound = l.VerificationRound
 	out.SOPVersion = l.SOPVersion
 	out.SOPProofs = decodeSOPProofRefs(l.SOPProofs)
 	out.SOPAnswers = decodeSOPAnswers(l.SOPAnswers)
@@ -615,7 +656,8 @@ SELECT event_status, authorization_state, verification_state, priority, category
        canceled_at, canceled_by::text, cancel_reason,
        completion_idempotency_key, completion_request_fingerprint,
        cancel_idempotency_key, cancel_request_fingerprint,
-       sop_version, sop_proofs, sop_answers, raise_sop_proofs, raise_sop_answers, raise_capture_evidence
+       sop_version, sop_proofs, sop_answers, raise_sop_proofs, raise_sop_answers, raise_capture_evidence,
+       verification_round
 FROM shifting_events
 WHERE tenant_id = $1::uuid AND shifting_event_id = $2::uuid
 FOR UPDATE`, tenantID, shiftingEventID).Scan(
@@ -628,7 +670,8 @@ FOR UPDATE`, tenantID, shiftingEventID).Scan(
 		&out.CanceledAt, &out.CanceledBy, &out.CancelReason,
 		&out.CompletionIdempotencyKey, &out.CompletionRequestFingerprint,
 		&out.CancelIdempotencyKey, &out.CancelRequestFingerprint,
-		&out.SOPVersion, &out.SOPProofs, &out.SOPAnswers, &out.RaiseSOPProofs, &out.RaiseSOPAnswers, &out.RaiseCaptureEvidence)
+		&out.SOPVersion, &out.SOPProofs, &out.SOPAnswers, &out.RaiseSOPProofs, &out.RaiseSOPAnswers, &out.RaiseCaptureEvidence,
+		&out.VerificationRound)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return lockedShiftingEvent{}, ports.ErrShiftingEventNotFound
@@ -648,7 +691,7 @@ WHERE tenant_id = $1::uuid AND shifting_event_id = $2::uuid`
 // shiftingRaiseReplaySQL reads one movement through shifting_events_idempotency_unique
 // (tenant_id, idempotency_key) -- the same indexed lookup the raise insert's replay check uses.
 const shiftingRaiseReplaySQL = `
-SELECT shifting_event_id::text, request_fingerprint
+SELECT shifting_event_id::text, request_fingerprint, raise_capture_evidence
 FROM shifting_events
 WHERE tenant_id = $1::uuid AND idempotency_key = $2`
 
@@ -677,21 +720,25 @@ func (r *Repository) ShiftingSOPPin(ctx context.Context, tenantID, shiftingEvent
 }
 
 // ShiftingEventByIdempotencyKey answers a raise retry before the raise card is judged.
-func (r *Repository) ShiftingEventByIdempotencyKey(ctx context.Context, tenantID, idempotencyKey, requestFingerprint string) (string, bool, error) {
+func (r *Repository) ShiftingEventByIdempotencyKey(ctx context.Context, tenantID, idempotencyKey, requestFingerprint string) (string, json.RawMessage, bool, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 	var id, fp string
-	err := r.pool.QueryRow(ctx, shiftingRaiseReplaySQL, tenantID, idempotencyKey).Scan(&id, &fp)
+	var capture []byte
+	err := r.pool.QueryRow(ctx, shiftingRaiseReplaySQL, tenantID, idempotencyKey).Scan(&id, &fp, &capture)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return "", false, nil
+		return "", nil, false, nil
 	}
 	if err != nil {
-		return "", false, fmt.Errorf("counts: read shifting raise replay: %w", err)
+		return "", nil, false, fmt.Errorf("counts: read shifting raise replay: %w", err)
 	}
 	if fp != requestFingerprint {
-		return "", false, ports.ErrIdempotencyConflict
+		return "", nil, false, ports.ErrIdempotencyConflict
 	}
-	return id, true, nil
+	if len(capture) == 0 {
+		return id, nil, true, nil
+	}
+	return id, json.RawMessage(capture), true, nil
 }
 
 // encodeShiftingSOP renders the judged map and answers as the jsonb the row stores (never NULL on a
@@ -1056,8 +1103,14 @@ func shiftingOutstandingActionSQL() string {
 // queue. Completion already fails closed when a named animal is no longer at the approved source;
 // the list must use the same source truth so refresh/back does not keep advertising an impossible
 // card as active.
+//
+// An APPLIED movement is exempt: its animals already walked, so they stand in the DESTINATION by
+// definition, and the only outstanding work on it is an evidence re-shoot after a verifier reject.
+// Applying the source check there hid every rework from the operator's queue and its count
+// (E2E 2026-09-17, TestRejectedAppliedMovementStaysInTheReworkQueue).
 func shiftingExecutableSourceCurrentSQL(tenantParam string) string {
 	return `(NOT ` + shiftingOutstandingActionSQL() + `
+	         OR se.event_status = 'applied'
 	         OR EXISTS (
 	             SELECT 1
 	             FROM counts_approval_requests ar

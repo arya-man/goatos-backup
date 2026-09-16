@@ -198,18 +198,18 @@ func TestVerificationKeyKeepsLegacyShapeForSeededSubmission(t *testing.T) {
 	t.Parallel()
 	refs := []string{"v1", "p1", "f1"}
 	legacy := "counts-shifting-verification:ev1:v1:p1:f1"
-	if got := ShiftingVerificationKey("ev1", refs, nil, nil); got != legacy {
+	if got := ShiftingVerificationKey("ev1", refs, nil, nil, 0); got != legacy {
 		t.Fatalf("seeded key = %q, want %q", got, legacy)
 	}
-	if got := ShiftingVerificationKey("ev1", refs, authored.Answers{}, []string{}); got != legacy {
+	if got := ShiftingVerificationKey("ev1", refs, authored.Answers{}, []string{}, 0); got != legacy {
 		t.Fatalf("empty answers/raise key = %q, want legacy %q", got, legacy)
 	}
-	withAnswers := ShiftingVerificationKey("ev1", refs, authored.Answers{"q": json.RawMessage(`"a"`)}, nil)
-	withRaise := ShiftingVerificationKey("ev1", refs, nil, []string{"r1"})
+	withAnswers := ShiftingVerificationKey("ev1", refs, authored.Answers{"q": json.RawMessage(`"a"`)}, nil, 0)
+	withRaise := ShiftingVerificationKey("ev1", refs, nil, []string{"r1"}, 0)
 	if withAnswers == legacy || withRaise == legacy || withAnswers == withRaise {
 		t.Fatalf("answers/raise must change the key: %q %q", withAnswers, withRaise)
 	}
-	if again := ShiftingVerificationKey("ev1", refs, authored.Answers{"q": json.RawMessage(`"a"`)}, nil); again != withAnswers {
+	if again := ShiftingVerificationKey("ev1", refs, authored.Answers{"q": json.RawMessage(`"a"`)}, nil, 0); again != withAnswers {
 		t.Fatal("the key is not deterministic")
 	}
 }
@@ -227,5 +227,65 @@ func TestRaiseCardMayBeQuestionsOnly(t *testing.T) {
 	}
 	if err := card.ValidateAnswers(nil); !errors.Is(err, authored.ErrAnswerInvalid) {
 		t.Fatalf("required question unanswered not refused: %v", err)
+	}
+}
+
+// The verdict consumer needs to know WHICH evidence a rework verdict judged, so a stale verdict
+// (a relay replay of the old item's rework after the operator already re-shot) cannot bounce the
+// fresh submission. The item's recording key is the producer's own ShiftingVerificationKey; its
+// completion refs are recoverable from it, with or without the answers digest.
+func TestShiftingVerificationKeyRefsRoundTripsTheKey(t *testing.T) {
+	a, b := "11111111-1111-4111-8111-111111111111", "22222222-2222-4222-8222-222222222222"
+	seeded := ShiftingVerificationKey("ev1", []string{a}, nil, nil, 0)
+	withDigest := ShiftingVerificationKey("ev1", []string{a, b}, authored.Answers{"calm": json.RawMessage(`"yes"`)}, nil, 0)
+	withRaise := ShiftingVerificationKey("ev1", []string{b}, nil, []string{a}, 0)
+	round2 := ShiftingVerificationKey("ev1", []string{a}, nil, nil, 2)
+	digestRound1 := ShiftingVerificationKey("ev1", []string{a, b}, authored.Answers{"calm": json.RawMessage(`"yes"`)}, nil, 1)
+	cases := []struct {
+		key   string
+		want  []string
+		round int
+	}{
+		{seeded, []string{a}, 0},
+		{withDigest, []string{a, b}, 0},
+		{withRaise, []string{b}, 0},
+		{round2, []string{a}, 2},
+		{digestRound1, []string{a, b}, 1},
+		{"counts-shifting-verification:ev1:legacy-ref", []string{"legacy-ref"}, 0},
+		{"counts-shifting-verification:other-event:" + a, nil, 0},
+		{"feed-packing:ev1:" + a, nil, 0},
+		{"", nil, 0},
+	}
+	for _, c := range cases {
+		got, round := ParseShiftingVerificationKey(c.key, "ev1")
+		if strings.Join(got, ",") != strings.Join(c.want, ",") || round != c.round {
+			t.Fatalf("parse(%q) = %v r%d, want %v r%d", c.key, got, round, c.want, c.round)
+		}
+	}
+}
+
+// E2E 2026-09-17 (coordinator follow-up): after a rework verdict, a resubmit naming the SAME
+// capture collapsed onto the REJECTED item (the key was refs-only), leaving the movement unverified
+// with nothing for the verifier to judge. The verification round folds into the key ONLY after a
+// rework: round 0 keeps today's exact key (an older phone's retry still collapses), each later
+// round is a fresh item, and a retry within a round is the same item.
+func TestVerificationKeyFoldsTheReworkRoundOnlyAfterARework(t *testing.T) {
+	t.Parallel()
+	refs := []string{"v1"}
+	legacy := "counts-shifting-verification:ev1:v1"
+	if got := ShiftingVerificationKey("ev1", refs, nil, nil, 0); got != legacy {
+		t.Fatalf("round 0 key = %q, want the pre-SOP %q", got, legacy)
+	}
+	r1 := ShiftingVerificationKey("ev1", refs, nil, nil, 1)
+	r2 := ShiftingVerificationKey("ev1", refs, nil, nil, 2)
+	if r1 != legacy+":r1" || r2 == r1 || r2 == legacy {
+		t.Fatalf("rework rounds = %q %q, want distinct keys suffixed :r<round>", r1, r2)
+	}
+	if again := ShiftingVerificationKey("ev1", refs, nil, nil, 1); again != r1 {
+		t.Fatal("a retry within the same round must key the same item")
+	}
+	answered := ShiftingVerificationKey("ev1", refs, authored.Answers{"q": json.RawMessage(`"a"`)}, nil, 1)
+	if !strings.HasSuffix(answered, ":r1") || answered == r1 {
+		t.Fatalf("answered round-1 key = %q", answered)
 	}
 }

@@ -194,6 +194,20 @@ func (s *ShiftingExecutionService) Complete(
 				"%w: shifting event %s has not been approved by a park head", ports.ErrShiftingNotAuthorized, in.ShiftingEventID)
 		}
 	}
+	// OLDER APP, HIGH PRIORITY: the pre-SOP phone always sent both feed clips and was refused
+	// without them, so keep refusing exactly that shape (deploy-day parity, E2E 2026-09-17).
+	// Leniency for an older app covers only what it CANNOT send -- slots the farm authored after it
+	// was installed -- never a high-priority move applied with no feed evidence at all. A replay of
+	// a completion already recorded is still the repository's to answer.
+	if in.LegacyShape && strings.TrimSpace(in.ProofRef) == "" {
+		// The pre-SOP answer to an older app's completion with no video at all.
+		return domain.ShiftingExecutionResult{}, false, ports.ErrShiftingProofRequired
+	}
+	if in.LegacyShape && pin.CompletionIdempotencyKey != in.IdempotencyKey &&
+		strings.EqualFold(strings.TrimSpace(pin.Priority), domain.ShiftingPriorityHigh) &&
+		(strings.TrimSpace(in.FeedPackingProofRef) == "" || strings.TrimSpace(in.FeedGivenProofRef) == "") {
+		return domain.ShiftingExecutionResult{}, false, ports.ErrShiftingFeedProofsRequired
+	}
 	rules, err := s.pinnedRules(ctx, in.TenantID, pin.Version)
 	if err != nil {
 		return domain.ShiftingExecutionResult{}, false, err
@@ -203,11 +217,9 @@ func (s *ShiftingExecutionService) Complete(
 	refs := legacyCompletionRefs(rules, pin.Priority, map[string]string{
 		"proof_ref": in.ProofRef, "feed_packing_proof_ref": in.FeedPackingProofRef, "feed_given_proof_ref": in.FeedGivenProofRef,
 	}, in.SOPProofs)
-	if len(refs) == 0 {
-		// A completion with no capture at all has nothing for a verifier to review -- the legacy
-		// proof_required answer, kept for every shape.
-		return domain.ShiftingExecutionResult{}, false, ports.ErrShiftingProofRequired
-	}
+	// A NEW app's completion with no capture at all falls through to the judge, which names the
+	// compulsory slot it must fill (every completion card has one); the legacy proof_required answer
+	// above belongs to the legacy shape only.
 	// REWORK: the verifier rejected the stored captures. The stored answers are kept when the
 	// resubmit carries none. A resubmit naming the rejected capture again is NOT refused here:
 	// shifting has always accepted it (its same-refs key collapses onto the existing item), and
@@ -336,7 +348,7 @@ func (s *ShiftingExecutionService) enqueueCompletion(
 		CapturedAt:      s.now().UTC(),
 		// Keyed to the EVENT + complete proof set (a seeded submission keeps the pre-SOP key shape),
 		// so a retry collapses onto one queue item.
-		IdempotencyKey: domain.ShiftingVerificationKey(in.ShiftingEventID, mediaRefs, answers, raiseRefs),
+		IdempotencyKey: domain.ShiftingVerificationKey(in.ShiftingEventID, mediaRefs, answers, raiseRefs, result.VerificationRound),
 	})
 }
 

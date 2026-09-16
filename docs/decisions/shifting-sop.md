@@ -53,7 +53,9 @@ verifier items are never relabelled. The pending-execution read serves each row'
   `shifting_proof_slot_invalid` naming the item). The approver's snapshot
   (`raise_capture_evidence`, the shared `CountsApprovalCapture` shape) rides the approval payload
   and `CountsApprovalListItem.capture`: version label, answers in farm words under "At raise",
-  captures under their slot titles, and a note naming what an older app did not send.
+  captures under their slot titles, and a note naming what an older app did not send. A raise card that
+  recorded nothing (the seeded card asks nothing) puts NO capture on the approval -- an empty
+  "recorded on the form" card on every approval would be a change no SOP edit asked for.
 - **Completion**: `POST .../complete` carries `proofs` {slot key: ref} and `answers`. Judged
   against the pinned completion (+ high-priority) card: missing compulsory, unknown key, one ref
   in two slots, wrong kind -> 422 `shifting_proof_slot_invalid` (`slot`); required question ->
@@ -69,8 +71,12 @@ verifier items are never relabelled. The pending-execution read serves each row'
   seeded submission (`ShiftingVerificationKey`), so an older phone's retry collapses onto the item
   it already created.
 - **Rework**: a resubmit keeps the stored answers when it carries none; the applied move stays
-  applied. Resubmitting the rejected capture is accepted exactly as before this change (its
-  same-refs key collapses onto the existing item) -- deploy-day parity, maintainer 2026-09-16.
+  applied. Resubmitting the rejected capture is accepted exactly as before this change (deploy-day
+  parity), but it is a NEW review round: `shifting_events.verification_round` (000335) counts rework
+  verdicts and folds into the verifier key as `:r<round>` after the first rework, so the resubmit gets a
+  fresh pending item instead of collapsing onto the rejected one (round 0 keeps the pre-SOP key; a retry
+  within a round is the same item). The rework bounce is fenced on the judged refs AND the round, so a
+  redelivered verdict for an older item changes nothing.
 
 ## Older app (program decision 7)
 
@@ -79,7 +85,10 @@ fixed fields are mapped onto the seeded slots (a seeded key the farm authored aw
 onto the first free video slot of the same section), what it sent is judged for kind and placement,
 and every compulsory slot / required question it could not send becomes a row
 `"<title>: Not captured (older app)"` for the approver and the verifier. A request carrying the
-new fields is judged strictly. Both shapes hash identically for a seeded submission (the canonical
+new fields is judged strictly. One exception keeps its pre-SOP answer: an older app's HIGH-priority
+completion that omits either feed clip is refused `422 feed_proofs_required` -- that phone always
+had both clips to send, so the refusal forces no update, and leniency must never apply a
+high-priority move with no feed evidence (found by the 2026-09-17 E2E). Both shapes hash identically for a seeded submission (the canonical
 completion fingerprint folds a seeded-only `proofs` map back onto the legacy triple), and the raise
 fingerprint is byte-identical to the pre-SOP handler's (goldens pinned in
 `shifting_sop_handler_test.go`), so an installed phone's retry is never a same-key conflict.

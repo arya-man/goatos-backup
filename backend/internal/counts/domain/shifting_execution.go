@@ -136,6 +136,12 @@ type ShiftingReworkCommand struct {
 	ShiftingEventID string
 	VerifiedBy      string
 	Reason          string
+	// EvidenceRefs are the completion captures the rejected item judged (recovered from its
+	// recording key). A verdict whose evidence is no longer the movement's current captures is a
+	// stale redelivery -- the operator already re-shot -- and bounces nothing. nil (an item whose
+	// key cannot be read) keeps the unguarded behaviour.
+	EvidenceRefs  []string
+	EvidenceRound *int
 }
 
 // ShiftingCancellationCommand retires an authorized movement that will never be executed.
@@ -159,6 +165,10 @@ type ShiftingCancellationCommand struct {
 type ShiftingExecutionResult struct {
 	ShiftingEventID string
 	EventStatus     string
+	// VerificationRound is how many rework verdicts the movement's evidence has had (0 until the
+	// first). It folds into the verifier item's key after a rework, so a resubmit of the same
+	// capture is a fresh item rather than the rejected one.
+	VerificationRound int
 
 	DestinationParkID string
 	DestinationShedID string
