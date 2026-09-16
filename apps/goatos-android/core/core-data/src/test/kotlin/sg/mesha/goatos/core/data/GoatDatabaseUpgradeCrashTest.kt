@@ -433,6 +433,21 @@ class GoatDatabaseUpgradeCrashTest {
             //     test — only reopening a real old file and round-tripping each table catches it
             //     before an upgraded phone crashes on open.
             assertPenRoutineTablesRoundTrip(upgraded, base = 320L)
+
+            // 23. The v66 authored weighing capture columns (MIGRATION_65_66). Existing rows opened
+            //     from old phones must read the seeded empty maps and accept authored slot maps.
+            assertWeighingAuthoredCaptureColumnsRoundTrip(upgraded)
+
+            // 24. The two v67 SOP capture tables (MIGRATION_66_67): the Add birth / Add death capture
+            //     card cache and the death workflow's draft answers. Same MOB-007 proof.
+            upgraded.countsCaptureCardCacheDao().upsert(
+                sg.mesha.goatos.core.data.cache.CountsCaptureCardCacheEntity(scopeKey = "birth", dtoJson = "{}", updatedAt = 320L),
+            )
+            assertEquals("{}", upgraded.countsCaptureCardCacheDao().observe("birth").first()?.dtoJson)
+            upgraded.workflowStepDraftAnswerDao().upsert(
+                sg.mesha.goatos.core.data.cache.WorkflowStepDraftAnswerEntity(workflowId = "wf-1", actionId = "a-1", answerValue = "bloat", updatedAt = 321L),
+            )
+            assertEquals(listOf("bloat"), upgraded.workflowStepDraftAnswerDao().list("wf-1").map { it.answerValue })
         } finally {
             upgraded.close()
         }
@@ -476,6 +491,35 @@ class GoatDatabaseUpgradeCrashTest {
             base + 2,
             upgraded.penRoutineDetailCacheDao().observe("pen-routine-1").first()?.updatedAt,
         )
+    }
+
+    private suspend fun assertWeighingAuthoredCaptureColumnsRoundTrip(upgraded: GoatDatabase) {
+        val db = upgraded.openHelper.writableDatabase
+        db.execSQL(
+            "INSERT INTO `weighing_observation` (`observationId`, `scopeKey`, `tenantId`, `campaignId`, `workGroupId`, " +
+                "`campaignShedId`, `expectedLocationId`, `expectedLocationLabel`, `actualLocationId`, `actualLocationLabel`, " +
+                "`scannedIdentifier`, `weightKg`, `proofCaptureId`, `serverProofId`, `slotProofsJson`, `answersJson`, " +
+                "`syncStatus`, `idempotencyKey`, `capturedAtMs`, `lastError`, `verificationStatus`, `reworkReason`) " +
+                "VALUES ('upgrade-weigh-1', 'upgrade-scope', 't', 'c', 'w', 's', 'loc', 'Pen 1', NULL, NULL, 'RFID-1', 21.5, " +
+                "'cap-1', 'srv-1', '{\"scale_photo\":\"srv-9\"}', '{\"quality\":\"ok\"}', 'READY_TO_SUBMIT', 'k-1', 10, NULL, NULL, NULL)",
+        )
+        db.query("SELECT `slotProofsJson`, `answersJson` FROM `weighing_observation` WHERE observationId = 'upgrade-weigh-1'").use { cursor ->
+            assertEquals(true, cursor.moveToFirst())
+            assertEquals("{\"scale_photo\":\"srv-9\"}", cursor.getString(0))
+            assertEquals("{\"quality\":\"ok\"}", cursor.getString(1))
+        }
+        db.execSQL(
+            "INSERT INTO `weighing_shed_observation` (`shedObservationId`, `scopeKey`, `tenantId`, `campaignId`, `workGroupId`, " +
+                "`campaignShedId`, `expectedLocationId`, `expectedLocationLabel`, `resultJson`, `proofCaptureId`, `serverProofId`, " +
+                "`slotProofsJson`, `answersJson`, `syncStatus`, `idempotencyKey`, `capturedAtMs`, `lastError`) " +
+                "VALUES ('upgrade-shed-1', 'upgrade-scope', 't', 'c', 'w', 's', 'loc', 'Pen 1', '{}', 'cap-2', 'srv-2', " +
+                "'{\"pen_video\":\"srv-10\"}', '{\"note\":\"steady\"}', 'READY_TO_SUBMIT', 'k-2', 11, NULL)",
+        )
+        db.query("SELECT `slotProofsJson`, `answersJson` FROM `weighing_shed_observation` WHERE shedObservationId = 'upgrade-shed-1'").use { cursor ->
+            assertEquals(true, cursor.moveToFirst())
+            assertEquals("{\"pen_video\":\"srv-10\"}", cursor.getString(0))
+            assertEquals("{\"note\":\"steady\"}", cursor.getString(1))
+        }
     }
 
     /** Round-trips the five animal-purchase tables so a missing/mismatched CREATE in MIGRATION_63_64
@@ -1511,6 +1555,7 @@ class GoatDatabaseUpgradeCrashTest {
             MIGRATION_51_52, MIGRATION_52_53, MIGRATION_53_54, MIGRATION_54_55, MIGRATION_55_56,
             MIGRATION_56_57, MIGRATION_57_58, MIGRATION_58_59, MIGRATION_59_60, MIGRATION_60_61,
             MIGRATION_61_62, MIGRATION_62_63, MIGRATION_63_64, MIGRATION_64_65,
+            MIGRATION_65_66, MIGRATION_66_67,
         )
 
         /** The chain that produces a v25 file: everything up to and including MIGRATION_24_25 —

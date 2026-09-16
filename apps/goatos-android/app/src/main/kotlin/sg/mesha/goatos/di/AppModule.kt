@@ -455,6 +455,14 @@ object AppModule {
 
     @Provides
     @Singleton
+    fun provideCountsCaptureCardRepository(
+        api: AppApi,
+        database: GoatDatabase,
+    ): sg.mesha.goatos.core.data.CountsCaptureCardRepository =
+        sg.mesha.goatos.core.data.DefaultCountsCaptureCardRepository(api, database)
+
+    @Provides
+    @Singleton
     fun provideCountsApprovalRepository(
         api: AppApi,
         database: GoatDatabase,
