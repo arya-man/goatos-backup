@@ -44,7 +44,7 @@ func TestAppEventsRollupMultipleDimensionsPostgres(t *testing.T) {
 	events := appEventFlows()[0].Events
 	addProof(testTenantID, actor, "d1", "j", "p1", time.Hour, events)
 	addProof(testTenantID, actor, "d2", "j", "p1", 2*time.Hour, events[:1])
-	addProof(testTenantID, actor, "d1", "j", "p2", 3*time.Hour, []string{events[3], events[0], events[2]})
+	addProof(testTenantID, actor, "d1", "j", "p2", 3*time.Hour, []string{events[2], events[0], events[1]})
 	addProof(testTenantID, actor, "d3", "", "p3", 4*time.Hour, events)
 	addProof("00000000-0000-4000-8000-000000000003", actor, "d1", "j", "p1", time.Hour, events)
 	addProof(testTenantID, actor, "d1", "j", "midnight", 24*time.Hour-2*time.Second, events)
@@ -66,7 +66,7 @@ func TestAppEventsRollupMultipleDimensionsPostgres(t *testing.T) {
 		return n
 	}
 	for q, want := range map[string]int64{
-		`SELECT conversions FROM analytics.funnel_daily WHERE funnel_key='proof_delivery' AND step_index=3`: 2,
+		`SELECT conversions FROM analytics.funnel_daily WHERE funnel_key='proof_delivery' AND step_index=2`: 2,
 		`SELECT sessions FROM analytics.funnel_daily WHERE funnel_key='proof_delivery' AND step_index=0`:    2,
 		`SELECT conversions FROM analytics.funnel_daily WHERE funnel_key='feed_packing' AND step_index=3`:   0,
 		`SELECT conversions FROM analytics.funnel_daily WHERE funnel_key='feed_transport' AND step_index=3`: 1,
@@ -144,11 +144,11 @@ func TestAppEventsRollupWholePopulationBeyondPageBoundaryPostgres(t *testing.T) 
 		t.Fatal(err)
 	}
 	var n int64
-	if err = pool.QueryRow(ctx, `SELECT conversions FROM analytics.funnel_daily WHERE funnel_key='proof_delivery' AND step_index=3`).Scan(&n); err != nil {
+	if err = pool.QueryRow(ctx, `SELECT conversions FROM analytics.funnel_daily WHERE funnel_key='proof_delivery' AND step_index=2`).Scan(&n); err != nil {
 		t.Fatal(err)
 	}
 	var sessions int64
-	if err = pool.QueryRow(ctx, `SELECT sessions FROM analytics.funnel_daily WHERE funnel_key='proof_delivery' AND step_index=3`).Scan(&sessions); err != nil {
+	if err = pool.QueryRow(ctx, `SELECT sessions FROM analytics.funnel_daily WHERE funnel_key='proof_delivery' AND step_index=2`).Scan(&sessions); err != nil {
 		t.Fatal(err)
 	}
 	if sessions != 1 {
@@ -274,5 +274,42 @@ func TestFirebaseFailureDoesNotStrandFirstPartyDatesPostgres(t *testing.T) {
 	}
 	if status != "failed" {
 		t.Fatalf("status=%s; want failed", status)
+	}
+}
+
+func TestProofDeliveryRecoveryAndOriginalFallbackPostgres(t *testing.T) {
+	pool := pgtest.StartPostgres(t, context.Background())
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	day, _ := time.ParseInLocation("2006-01-02", "2020-09-15", biztime.DefaultLocation())
+	// Both production paths can complete without proof_processing_completed:
+	// interrupted processing recovery and a second processing failure uploading the original.
+	for _, proof := range []string{"recovered", "original-fallback", "pending", "out-of-order"} {
+		events := []string{"proof_capture_completed", "proof_upload_started", "proof_upload_completed"}
+		if proof == "pending" {
+			events = events[:2]
+		}
+		if proof == "out-of-order" {
+			events = []string{"proof_upload_completed", "proof_capture_completed", "proof_upload_started"}
+		}
+		for i, event := range events {
+			props, _ := json.Marshal(map[string]string{"journey_id": "j", "proof_id": proof})
+			_, err := pool.Exec(ctx, `INSERT INTO analytics.app_events(tenant_id,actor_id,device_id,event_name,properties,client_event_time) VALUES($1,'00000000-0000-4000-8000-000000000002','device',$2,$3,$4)`, testTenantID, event, string(props), day.Add(time.Hour+time.Duration(i)*time.Second))
+			if err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	for replay := 0; replay < 2; replay++ {
+		if _, err := runAppEventsRollup(ctx, pool, config{TenantID: testTenantID, SourceDate: day}); err != nil {
+			t.Fatal(err)
+		}
+		var completed, dropped, p50 int64
+		if err := pool.QueryRow(ctx, `SELECT completions,drop_offs,p50_ms FROM analytics.journey_daily WHERE journey_key='proof_delivery'`).Scan(&completed, &dropped, &p50); err != nil {
+			t.Fatal(err)
+		}
+		if completed != 2 || dropped != 2 || p50 != 2000 {
+			t.Fatalf("completed=%d dropped=%d p50=%d; want 2,2,2000", completed, dropped, p50)
+		}
 	}
 }

@@ -38,6 +38,7 @@ steps:
         '
         docker push "$${image}"
         digest="$$(docker inspect --format='{{index .RepoDigests 0}}' "$${image}")"
+        docker run --rm --platform linux/amd64 --entrypoint python3 -v /workspace:/source "$${digest}" /source/tools/deploy/stg-runner-receipt.py --root /source --verify-image --image "$${digest}" --output /source/runner-receipt.json
         printf 'runner_image=%s\n' "$${digest}" > /workspace/runner-image.env
 
 artifacts:
@@ -45,3 +46,4 @@ artifacts:
     location: gs://goatos-stg_cloudbuild/runner-builds/$BUILD_ID/
     paths:
       - /workspace/runner-image.env
+      - /workspace/runner-receipt.json

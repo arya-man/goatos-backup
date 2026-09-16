@@ -6,6 +6,7 @@
 // staging deploy path still runs the live Grafana dashboard smoke.
 
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -610,8 +611,10 @@ const q = { filter: 'metric.type = "cloudsql.googleapis.com/database/postgresql/
 
 if (process.argv.includes("--self-test")) {
   selfTest();
+  execFileSync("python3", [path.join(repo, "tools/deploy/stg-runner-receipt_test.py")], { stdio: "inherit" });
   console.log("check-grafana-durability: self-test passed");
 } else {
+  execFileSync("python3", [path.join(repo, "tools/deploy/stg-runner-receipt.py")], { stdio: "inherit" });
   const problems = validate();
   if (problems.length) {
     console.error("check-grafana-durability: FAILED");

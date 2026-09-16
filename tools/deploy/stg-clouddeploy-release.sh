@@ -91,6 +91,9 @@ else
 fi
 cd "$repo_root"
 
+# Fail before touching Cloud Deploy when source fixes are absent from its image.
+python3 tools/deploy/stg-runner-receipt.py
+
 GOATOS_ALLOY_IMAGE="${GOATOS_ALLOY_IMAGE:-$(cat infra/observability/alloy-image.txt)}"
 [[ "$GOATOS_ALLOY_IMAGE" =~ ^asia-south1-docker.pkg.dev/goatos-stg/goatos/grafana-alloy@sha256:[0-9a-f]{64}$ ]] || die "GOATOS_ALLOY_IMAGE must be an immutable staging Alloy digest"
 
