@@ -19,7 +19,6 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.collect
-import sg.mesha.goatos.capture.PhotoCaptureContext
 import sg.mesha.goatos.capture.PhotoCaptureSource
 import sg.mesha.goatos.capture.ProofCaptureContext
 import sg.mesha.goatos.capture.ProofCapturePrompt
@@ -124,7 +123,7 @@ class ShiftingViewModel @Inject constructor(
             proofPolicy = ::feedShedProofPolicy,
             caption = { title -> proofOverlayContextLine(feature = "Shifting", parkLabel = "", locationLabel = _state.value.destinationShedId, extraLabel = title) },
             videoContext = { title -> ProofCaptureContext(title = title, primaryTag = _state.value.destinationShedId, workLabel = title, prompt = ProofCapturePrompt.SHIFTING) },
-            photoContext = { slot -> PhotoCaptureContext(title = slot.title, instruction = slot.hint.ifBlank { slot.title }) },
+            photoContext = { slot -> sg.mesha.goatos.capture.sopSlotPhotoContext(title = slot.title, hint = slot.hint) },
             events = FeedSopSlotController.Events(
                 captureTapped = AnalyticsEvents.COUNTS_SHIFTING_CAPTURE_TAPPED,
                 captured = AnalyticsEvents.COUNTS_SHIFTING_RAISE_CAPTURED,

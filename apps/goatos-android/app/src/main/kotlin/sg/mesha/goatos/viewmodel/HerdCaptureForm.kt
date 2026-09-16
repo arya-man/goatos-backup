@@ -4,10 +4,10 @@ import androidx.lifecycle.SavedStateHandle
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
-import sg.mesha.goatos.capture.PhotoCaptureContext
 import sg.mesha.goatos.capture.PhotoCaptureSource
 import sg.mesha.goatos.capture.ProofCaptureContext
 import sg.mesha.goatos.capture.ProofCapturePrompt
+import sg.mesha.goatos.capture.sopSlotPhotoContext
 import sg.mesha.goatos.capture.ProofCaptureSource
 import sg.mesha.goatos.core.analytics.AnalyticsEvents
 import sg.mesha.goatos.core.analytics.AnalyticsPort
@@ -199,7 +199,7 @@ internal class HerdCaptureForm(
             },
             caption = { title -> title },
             videoContext = { title -> ProofCaptureContext(title = title, primaryTag = title, prompt = prompt) },
-            photoContext = { slot -> PhotoCaptureContext(title = slot.title, instruction = slot.hint.ifBlank { slot.title }, prompt = prompt) },
+            photoContext = { slot -> sopSlotPhotoContext(title = slot.title, hint = slot.hint, prompt = prompt) },
             events = SopSlotController.Events(
                 captureTapped = AnalyticsEvents.COUNTS_CAPTURE_TAPPED,
                 captured = AnalyticsEvents.COUNTS_CAPTURE_SLOT_CAPTURED,

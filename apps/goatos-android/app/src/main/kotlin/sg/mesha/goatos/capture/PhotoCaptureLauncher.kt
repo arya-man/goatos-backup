@@ -279,12 +279,17 @@ private fun InAppPhotoCaptureOverlay(
                 color = MeshaColors.Ink,
                 style = MeshaType.avatarInitials,
             )
-            Spacer(Modifier.height(4.dp))
-            Text(
-                text = cameraError ?: photoContext.instruction.ifBlank { stringResource(R.string.proof_photo_instruction) },
-                color = if (cameraError != null) MeshaColors.Danger else MeshaColors.Ink,
-                style = MeshaType.rowLabel,
-            )
+            val defaultInstruction = stringResource(R.string.proof_photo_instruction)
+            val subtitle = cameraError
+                ?: photoContext.instruction.ifBlank { if (photoContext.defaultInstruction) defaultInstruction else "" }
+            if (subtitle.isNotBlank()) {
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    text = subtitle,
+                    color = if (cameraError != null) MeshaColors.Danger else MeshaColors.Ink,
+                    style = MeshaType.rowLabel,
+                )
+            }
         }
         Row(
             Modifier

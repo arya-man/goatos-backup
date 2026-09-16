@@ -17,7 +17,6 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import sg.mesha.goatos.R
-import sg.mesha.goatos.capture.PhotoCaptureContext
 import sg.mesha.goatos.capture.PhotoCaptureSource
 import sg.mesha.goatos.capture.ProofCaptureContext
 import sg.mesha.goatos.capture.ProofCapturePrompt
@@ -130,7 +129,7 @@ class FeedWastageCompleteViewModel @Inject constructor(
                 prompt = ProofCapturePrompt.FEED_WASTAGE,
             )
         },
-        photoContext = { slot -> PhotoCaptureContext(title = slot.title, instruction = slot.hint.ifBlank { slot.title }) },
+        photoContext = { slot -> sg.mesha.goatos.capture.sopSlotPhotoContext(title = slot.title, hint = slot.hint) },
         events = SopSlotController.Events(
             captureTapped = AnalyticsEvents.FEED_WASTAGE_CAPTURE_TAPPED,
             captured = AnalyticsEvents.FEED_WASTAGE_VIDEO_CAPTURED,

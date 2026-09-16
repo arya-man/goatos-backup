@@ -387,7 +387,7 @@ class FeedTransportCaptureViewModel @Inject constructor(
                 prompt = ProofCapturePrompt.FEED_TRANSPORT,
             )
         },
-        photoContext = { slot -> sg.mesha.goatos.capture.PhotoCaptureContext(title = slot.title, instruction = slot.hint.ifBlank { slot.title }) },
+        photoContext = { slot -> sg.mesha.goatos.capture.sopSlotPhotoContext(title = slot.title, hint = slot.hint) },
         events = SopSlotController.Events(
             captureTapped = AnalyticsEvents.FEED_TRANSPORT_CAPTURE_TAPPED,
             captured = AnalyticsEvents.FEED_TRANSPORT_VIDEO_CAPTURED,
