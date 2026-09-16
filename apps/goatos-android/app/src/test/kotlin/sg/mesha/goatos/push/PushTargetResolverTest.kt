@@ -278,6 +278,34 @@ class PushTargetResolverTest {
     }
 
     @Test
+    fun `a routine due push lands on the routines list and a task href opens that task`() {
+        // The module's due push: context {screen:"pen_routines", href:"/pen-routines"}.
+        assertEquals(
+            Routes.PEN_ROUTINES,
+            resolvePushRoute(
+                mapOf(
+                    PushExtras.TYPE to "pen_routine_due",
+                    PushExtras.SCREEN to "pen_routines",
+                    PushExtras.TARGET to "/pen-routines",
+                ),
+            ),
+        )
+        // A push carrying only the screen still lands on the list.
+        assertEquals(Routes.PEN_ROUTINES, resolvePushRoute(mapOf(PushExtras.SCREEN to "pen_routines")))
+        // A push naming ONE task opens that task, not the module landing.
+        assertEquals(
+            Routes.penRoutineRoute("task-77"),
+            resolvePushRoute(
+                mapOf(
+                    PushExtras.TYPE to "rework",
+                    PushExtras.SCREEN to "pen_routines",
+                    PushExtras.TARGET to "/pen-routines/task-77",
+                ),
+            ),
+        )
+    }
+
+    @Test
     fun `shedless record payload names no destination instead of a stranger's shed`() {
         assertNull(resolvePushRoute(mapOf(PushExtras.TYPE to "rework")))
     }

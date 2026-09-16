@@ -211,6 +211,28 @@ class TopLevelChromeTest {
         assertFalse(isRootDestination(Routes.penVisitRoute("visit-1")))
     }
 
+    // A park head's Routines module (maintainer instruction 2026-09-16): ONE backend-composed
+    // destination, so no bar is drawn, and the list is an exact L0 root while the task detail is
+    // a hosted drill.
+    private val penRoutines = NavModule(
+        key = "pen_routines",
+        label = "Routines",
+        href = Routes.PEN_ROUTINES,
+        status = NavModuleStatus.AVAILABLE,
+        navItems = listOf(NavItem(key = "pen_routines", label = "Routines", href = Routes.PEN_ROUTINES)),
+    )
+
+    @Test
+    fun `the routines list is a top-level root and its task detail is a drill`() {
+        val state = NavState(chrome = NavChrome.EXPANDED, items = emptyList(), modules = listOf(penRoutines, vaccination))
+
+        val drawerRoutes = state.availableModules().flatMap { listOf(it.href) + it.navItems.map { item -> item.href } }
+        assertTrue(isTopLevelRoute(Routes.PEN_ROUTINES, drawerRoutes))
+        assertTrue(isRootDestination(Routes.PEN_ROUTINES))
+        assertFalse(isRootDestination(Routes.penRoutineRoute("task-1")))
+        assertFalse(isTopLevelRoute(Routes.penRoutineRoute("task-1"), drawerRoutes))
+    }
+
     private val counts = NavModule(
         key = "counts",
         label = "Counts",

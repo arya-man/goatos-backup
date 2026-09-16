@@ -373,6 +373,19 @@ object MeshaIcons {
         "M12 12.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5z",
     )
 
+    /**
+     * Pen routines (maintainer instruction 2026-09-16): a repeat arrow around a check — the
+     * SAME check, every day / week / month, per pen. Deliberately not [ClipboardCheck] (the Work
+     * Board), [Tasks] (raised tasks) or [PenVisit] (the walk): the job here is the recurring
+     * rule, and its module sits in the same drawer as all three.
+     */
+    val Routine: ImageVector = strokeIcon(
+        "routine",
+        "M20 12a8 8 0 1 1 -2.3 -5.7",
+        "M20 4v4.5h-4.5",
+        "M8.5 12.5l2.5 2.5L16 10",
+    )
+
     /** Pencil — edit what is on this screen. */
     val Edit: ImageVector = strokeIcon(
         "edit",
@@ -520,6 +533,9 @@ object MeshaIcons {
         // Pen visits (maintainer decision 2026-09-07): the Tasks module's second tab, on the SAME
         // bar as leadership_tasks, so it needs its own glyph — the map pin.
         "pen_visits" -> PenVisit
+        // Pen routines (maintainer instruction 2026-09-16): its own drawer module, so its own
+        // glyph — the repeat-check.
+        "pen_routines" -> Routine
         // Work Board / My Work (maintainer decision 2026-09-10): every module's work on one list,
         // so it wears the recorded-check clipboard rather than any one module's own mark.
         "work_board" -> ClipboardCheck

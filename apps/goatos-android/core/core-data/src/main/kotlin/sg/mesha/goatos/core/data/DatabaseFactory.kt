@@ -71,5 +71,6 @@ fun buildGoatDatabase(context: Context): GoatDatabase =
             MIGRATION_61_62,
             MIGRATION_62_63,
             MIGRATION_63_64,
+            MIGRATION_64_65,
         )
         .build()

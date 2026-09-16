@@ -69,6 +69,9 @@ fun resolvePushRoute(payload: Map<String, String>): String? {
         // Pen visits (maintainer decision 2026-09-07): the due-visit push names the "For me" list
         // (`screen: pen_visits`, `href: /pen-visits`) — the park head lands on their own visits.
         screen == "pen_visit" || screen == "pen_visits" || type == "pen_visit_due" -> Routes.PEN_VISITS
+        // Pen routines (maintainer instruction 2026-09-16): the due push names the Routines list
+        // (`screen: pen_routines`, `href: /pen-routines`) — the park head lands on their own tasks.
+        screen == "pen_routine" || screen == "pen_routines" || type == "pen_routine_due" -> Routes.PEN_ROUTINES
         // Leave (maintainer decisions 2026-09-10): the href normally names the approver queue or
         // the Clock screen (handled by pushTargetRoute above); a push carrying only the screen
         // lands the approver on the queue and the requester on their Clock screen.

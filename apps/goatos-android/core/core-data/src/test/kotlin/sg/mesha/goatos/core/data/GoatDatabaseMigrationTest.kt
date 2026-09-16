@@ -453,6 +453,39 @@ class GoatDatabaseMigrationTest {
     }
 
     @Test
+    fun `migration 64 to 65 creates the pen routine tables while preserving existing rows`() {
+        helper.createDatabase(DB_NAME, 64).apply {
+            execSQL(
+                "INSERT INTO `animal_purchase_blob_cache` (`cacheKey`, `dtoJson`, `updatedAt`) " +
+                    "VALUES ('options-keep', '{}', 13)",
+            )
+            close()
+        }
+        val db = helper.runMigrationsAndValidate(DB_NAME, 65, true, MIGRATION_64_65)
+        try {
+            listOf("pen_routine_items", "pen_routine_remote_keys", "pen_routine_detail_cache").forEach { table ->
+                db.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name = '$table'").use { cursor ->
+                    assertEquals("table $table must exist after v65", true, cursor.moveToFirst())
+                }
+            }
+            db.execSQL(
+                "INSERT INTO `pen_routine_items` (`queryKey`, `grainKey`, `sortIndex`, `dtoJson`, `updatedAt`) " +
+                    "VALUES ('todo', 'task-1', 0, '{}', 1)",
+            )
+            db.query("SELECT `sortIndex` FROM `pen_routine_items` WHERE queryKey = 'todo' AND grainKey = 'task-1'").use { cursor ->
+                assertEquals(true, cursor.moveToFirst())
+                assertEquals(0, cursor.getInt(0))
+            }
+            db.query("SELECT COUNT(*) FROM `animal_purchase_blob_cache` WHERE cacheKey = 'options-keep'").use { cursor ->
+                cursor.moveToFirst()
+                assertEquals("existing rows survive the additive migration", 1, cursor.getInt(0))
+            }
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test
     fun `migration 62 to 63 creates the work board tables while preserving existing rows`() {
         helper.createDatabase(DB_NAME, 62).apply {
             execSQL(
@@ -621,6 +654,7 @@ class GoatDatabaseMigrationTest {
         MIGRATION_61_62.migrate(db)
         MIGRATION_62_63.migrate(db)
         MIGRATION_63_64.migrate(db)
+        MIGRATION_64_65.migrate(db)
         return db
     }
 
@@ -639,7 +673,7 @@ class GoatDatabaseMigrationTest {
 
     private companion object {
         const val DB_NAME = "goat-migration-test.db"
-        const val CURRENT_VERSION = 63
+        const val CURRENT_VERSION = 65
     }
 }
 

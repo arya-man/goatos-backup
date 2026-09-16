@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  telemetry:exempt static string resources, not a user-facing surface — a resource file has no
+  user action and no error path. The module's telemetry is wired in the @HiltViewModels in :app
+  (PenRoutineDetailViewModel / PenRoutineListViewModel).
+
+  Pen routine CHROME strings only: button labels, section labels, progress lines and the
+  required mark the client owns. Every business sentence (title, pen label, reason and evidence
+  lines, state chip, instruction, presence line, every question / option, done line, the
+  verifier's words, filter labels and empty copy, page title) is backend-owned and rendered
+  verbatim.
+-->
+<resources>
+    <string name="pen_routines_action_refresh">Refresh</string>
+    <string name="pen_routines_action_check_in">Check in to pen</string>
+    <string name="pen_routines_action_take_photo">Take photo</string>
+    <string name="pen_routines_action_record_video">Record video</string>
+    <string name="pen_routines_action_photo_again">Take photo again</string>
+    <string name="pen_routines_action_video_again">Record again</string>
+    <string name="pen_routines_action_submit">Submit</string>
+    <string name="pen_routines_section_presence">Presence</string>
+    <string name="pen_routines_section_questions">Questions</string>
+    <string name="pen_routines_section_photos">Photos</string>
+    <string name="pen_routines_section_videos">Videos</string>
+    <string name="pen_routines_section_answers">Answers</string>
+    <string name="pen_routines_required_mark">*</string>
+    <string name="pen_routines_field_number">Number</string>
+    <string name="pen_routines_field_text">Your answer</string>
+    <string name="pen_routines_range_between">Between %1$s and %2$s</string>
+    <string name="pen_routines_range_min">At least %1$s</string>
+    <string name="pen_routines_range_max">At most %1$s</string>
+    <string name="pen_routines_slot_photo">Photo %1$d</string>
+    <string name="pen_routines_slot_video">Video %1$d</string>
+    <string name="pen_routines_state_sending">Sending…</string>
+    <string name="pen_routines_state_checking_in">Checking in…</string>
+    <string name="pen_routines_state_in_review">With the verifier</string>
+    <string name="pen_routines_state_done">Done</string>
+    <string name="pen_routines_state_locked">Not yours to record</string>
+    <string name="pen_routines_state_sent_back">Sent back by the verifier</string>
+    <string name="pen_routines_proofs_count">%1$d captures on record</string>
+</resources>

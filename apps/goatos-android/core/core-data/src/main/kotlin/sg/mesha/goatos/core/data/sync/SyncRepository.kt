@@ -625,6 +625,37 @@ interface SyncRepository {
     ): AppResult<String> = AppResult.Err("pen visit submit sync is not configured")
 
     /**
+     * Enqueues a pen-routine presence punch (`POST /app/pen-routines/{task_id}/presence`,
+     * maintainer instruction 2026-09-16). Rides the task group ([penRoutineTaskGroupKey]) so it
+     * lands before any submit queued behind it. The idempotency key is
+     * [penRoutinePresenceIdempotencyKey] — STABLE per (task, event, row version), never a timestamp.
+     */
+    suspend fun enqueuePenRoutinePresence(
+        taskId: String,
+        rowVersion: Int,
+        eventType: String,
+        capturedAt: String,
+        location: sg.mesha.goatos.core.network.dto.PenRoutineLocationDto,
+        integrity: sg.mesha.goatos.core.network.dto.PenRoutineIntegrityDto,
+    ): AppResult<String> = AppResult.Err("pen routine presence sync is not configured")
+
+    /**
+     * Enqueues a pen-routine submit (`POST /app/pen-routines/{task_id}/submit`). Every capture is
+     * passed by REFERENCE to its PROOF_UPLOAD outbox row ([proofs]); all writes MUST share the
+     * task group ([penRoutineTaskGroupKey]) so the uploads drain first. The idempotency key is
+     * [penRoutineSubmitIdempotencyKey] — STABLE per (task, row version), never a timestamp.
+     */
+    suspend fun enqueuePenRoutineSubmit(
+        taskId: String,
+        rowVersion: Int,
+        answers: kotlinx.serialization.json.JsonObject,
+        proofs: List<PenRoutineSubmitProof>,
+        capturedAt: String? = null,
+        location: sg.mesha.goatos.core.network.dto.PenRoutineLocationDto? = null,
+        integrity: sg.mesha.goatos.core.network.dto.PenRoutineIntegrityDto? = null,
+    ): AppResult<String> = AppResult.Err("pen routine submit sync is not configured")
+
+    /**
      * Enqueues one Toxin step completion
      * (`POST /app/toxin/tasks/{task_id}/steps/{step_no}/complete`, module toxin). The mandatory
      * proof (video, or step 7's strip photo) is passed by REFERENCE to its PROOF_UPLOAD outbox
@@ -1793,6 +1824,54 @@ class DefaultSyncRepository(
                 taskId = taskId.trim(),
                 rowVersion = rowVersion,
                 proofOutboxItemId = proofOutboxItemId,
+            ),
+        ),
+    )
+
+    override suspend fun enqueuePenRoutinePresence(
+        taskId: String,
+        rowVersion: Int,
+        eventType: String,
+        capturedAt: String,
+        location: sg.mesha.goatos.core.network.dto.PenRoutineLocationDto,
+        integrity: sg.mesha.goatos.core.network.dto.PenRoutineIntegrityDto,
+    ): AppResult<String> = enqueue(
+        opType = OutboxOpType.PEN_ROUTINE_PRESENCE,
+        groupKey = penRoutineTaskGroupKey(taskId.trim()),
+        idempotencyKey = penRoutinePresenceIdempotencyKey(taskId.trim(), eventType, rowVersion),
+        payloadJson = syncJson.encodeToString(
+            PenRoutinePresencePayload(
+                taskId = taskId.trim(),
+                rowVersion = rowVersion,
+                eventType = eventType,
+                capturedAt = capturedAt,
+                location = location,
+                integrity = integrity,
+            ),
+        ),
+    )
+
+    override suspend fun enqueuePenRoutineSubmit(
+        taskId: String,
+        rowVersion: Int,
+        answers: kotlinx.serialization.json.JsonObject,
+        proofs: List<PenRoutineSubmitProof>,
+        capturedAt: String?,
+        location: sg.mesha.goatos.core.network.dto.PenRoutineLocationDto?,
+        integrity: sg.mesha.goatos.core.network.dto.PenRoutineIntegrityDto?,
+    ): AppResult<String> = enqueue(
+        opType = OutboxOpType.PEN_ROUTINE_SUBMIT,
+        groupKey = penRoutineTaskGroupKey(taskId.trim()),
+        idempotencyKey = penRoutineSubmitIdempotencyKey(taskId.trim(), rowVersion),
+        payloadJson = syncJson.encodeToString(
+            PenRoutineSubmitPayload(
+                taskId = taskId.trim(),
+                rowVersion = rowVersion,
+                answers = answers,
+                proofs = proofs,
+                capturedAt = capturedAt,
+                location = location,
+                integrity = integrity,
             ),
         ),
     )

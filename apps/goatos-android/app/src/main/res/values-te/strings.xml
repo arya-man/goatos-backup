@@ -102,4 +102,7 @@
     <string name="feed_seed_transport_instruction">ప్యాక్ చేసిన దాణాను లోడ్ చేసి పెన్‌ల బయట ఉంచడాన్ని వీడియో తీయండి.</string>
     <string name="feed_seed_slot_transport_video">రవాణా వీడియో</string>
     <string name="feed_seed_slot_transport_video_hint">ఈ స్థలానికి లోడ్ చేసిన దాణా, వడ్డించే ముందు ఉంచినది.</string>
+    <string name="proof_video_pen_routine_header">పెన్ దినచర్య</string>
+    <string name="pen_routines_msg_capture_not_saved">అది సేవ్ కాలేదు. మళ్లీ తీయండి.</string>
+    <string name="pen_routines_msg_not_sent">సేవ్ అయింది, కానీ పంపలేకపోయాం. రిఫ్రెష్ చేసి మళ్లీ ప్రయత్నించండి.</string>
 </resources>

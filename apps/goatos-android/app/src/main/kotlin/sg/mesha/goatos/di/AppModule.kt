@@ -587,6 +587,19 @@ object AppModule {
     ): sg.mesha.goatos.core.data.PenVisitsRepository =
         sg.mesha.goatos.core.data.DefaultPenVisitsRepository(api = api, database = database)
 
+    /**
+     * Pen routines (maintainer instruction 2026-09-16). Room-backed offline-first READS; the
+     * WRITES (presence punch, submit) ride the outbox, so like pen visits this repository takes no
+     * SyncRepository and creates no Dagger cycle.
+     */
+    @Provides
+    @Singleton
+    fun providePenRoutinesRepository(
+        api: AppApi,
+        database: GoatDatabase,
+    ): sg.mesha.goatos.core.data.PenRoutinesRepository =
+        sg.mesha.goatos.core.data.DefaultPenRoutinesRepository(api = api, database = database)
+
     // Work Board / My Work (maintainer decision 2026-09-10): the three read-model DAOs and the
     // Room-backed, offline-first repository. READ-only — no outbox, no SyncRepository, no cycle.
     @Provides
@@ -998,6 +1011,9 @@ object AppModule {
         // Pen visits (2026-09-07): same defect class -- without it a submitted visit keeps
         // rendering "Sending" until the next manual refresh.
         penVisitsRepository: sg.mesha.goatos.core.data.PenVisitsRepository,
+        // Pen routines (2026-09-16): same defect class -- without it a queued check-in keeps
+        // reading "Checking in" and a submitted task "Sending" until the next manual refresh.
+        penRoutinesRepository: sg.mesha.goatos.core.data.PenRoutinesRepository,
         // Vendors (2026-09-03): same defect class -- without it a recorded vendor/purchase never
         // reconciles into Room after its write lands.
         vendorsRepository: sg.mesha.goatos.core.data.VendorsRepository,
@@ -1035,6 +1051,7 @@ object AppModule {
         pcCareRepository = pcCareRepository,
         toxinRepository = toxinRepository,
         penVisitsRepository = penVisitsRepository,
+        penRoutinesRepository = penRoutinesRepository,
         vendorsRepository = vendorsRepository,
         salesRepository = salesRepository,
         animalPurchaseRepository = animalPurchaseRepository,
@@ -1090,6 +1107,10 @@ object AppModule {
             // Pen visits: a definitively refused submit (invalid proof, a cancelled task) re-reads
             // the task so the card shows the server's own chip and can_submit beside the reason.
             OutboxOpType.PEN_VISIT_SUBMIT to sg.mesha.goatos.core.data.sync.penVisitSubmitFailureHook(penVisitsRepository),
+            // Pen routines: a definitively refused check-in or submit re-reads the task so the
+            // form re-opens beside the server's own chip and reason.
+            OutboxOpType.PEN_ROUTINE_PRESENCE to sg.mesha.goatos.core.data.sync.penRoutinePresenceFailureHook(penRoutinesRepository),
+            OutboxOpType.PEN_ROUTINE_SUBMIT to sg.mesha.goatos.core.data.sync.penRoutineSubmitFailureHook(penRoutinesRepository),
             OutboxOpType.MARKET_SURVEY_RECORD to marketSurveyRecordFailureHook(marketRepository),
             OutboxOpType.WORKFLOW_ACTION_ANSWER to workflowActionAnswerFailureHook(workflowsRepository),
             OutboxOpType.WORKFLOW_ACTION_COMPLETE to workflowActionCompleteFailureHook(workflowsRepository),

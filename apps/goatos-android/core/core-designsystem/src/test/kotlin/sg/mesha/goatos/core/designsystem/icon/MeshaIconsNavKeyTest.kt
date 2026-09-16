@@ -65,6 +65,9 @@ class MeshaIconsNavKeyTest {
         // Pen visits (maintainer decision 2026-09-07): the SECOND tab on the Tasks bar, so it must
         // carry its own glyph beside leadership_tasks — the same-bar collision class as bug 2.
         "pen_visits",
+        // Pen routines (maintainer instruction 2026-09-16): a drawer module beside the three
+        // above, so it must carry its own glyph and never the generic fallback.
+        "pen_routines",
     )
 
     /** The verifier drawer's own key namespace (bootstrap_copy.go: `verifyModuleKey = "verify_" + normalized`). */

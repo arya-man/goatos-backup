@@ -87,6 +87,13 @@ private fun decodeGrainKey(type: OutboxOpTypeName, payloadJson: String, json: Js
             // Task grain: one video per visit, and the visit task id is already unique.
             penVisitGrainKey(p.taskId)
         }
+        OutboxOpTypeName.PEN_ROUTINE_SUBMIT -> {
+            val p = json.decodeFromString<PenRoutineSubmitPayload>(payloadJson)
+            // Task + row-version grain: the submit is one act against the row the screen rendered,
+            // so the badge names exactly that act and retracts by itself once the server's fresh
+            // row (a bumped row_version) lands in Room.
+            penRoutineGrainKey(p.taskId, p.rowVersion)
+        }
     }
 }
 
@@ -102,11 +109,17 @@ internal enum class OutboxOpTypeName {
     MILK_PREPARATION_SUBMIT,
     PC_CARE_TASK_SUBMIT,
     PEN_VISIT_SUBMIT,
+    PEN_ROUTINE_SUBMIT,
 }
 
 /** The pen-visit list badge grain: the ONE place both the outbox projection and the list
  *  ViewModel derive "which card is still sending" from. */
 fun penVisitGrainKey(taskId: String): String = taskGrainKey("pen-visit", taskId)
+
+/** The pen-routine list badge grain (maintainer instruction 2026-09-16): keyed by task AND the
+ *  row version the submit was queued against, the ONE place both the outbox projection and the
+ *  list/detail ViewModels derive "which card is still sending" from. */
+fun penRoutineGrainKey(taskId: String, rowVersion: Int): String = taskGrainKey("pen-routine", "$taskId|$rowVersion")
 
 /** 0 means "queued by the pen-day build" and is dispatched as session 1 — normalise it ONCE. */
 private fun normalizeSession(sessionNo: Int): Int = if (sessionNo < 1) 1 else sessionNo

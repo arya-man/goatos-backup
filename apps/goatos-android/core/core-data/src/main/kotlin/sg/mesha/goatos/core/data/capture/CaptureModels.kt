@@ -194,6 +194,16 @@ enum class ProofFlow(val wireValue: String) {
     PEN_VISIT("pen_visit"),
 
     /**
+     * Pen routine captures (maintainer instruction 2026-09-16, docs/decisions/pen-routines.md):
+     * the routine's photo and video slots. Like [PEN_VISIT] it rides the GENERIC
+     * storage/idempotency branches — `proof:$taskId:pen_routine:$subjectKey` — with the caller
+     * passing `taskId = the routine task id` and `subjectKey = the slot's field key`
+     * (`routine-photo-1`, `routine-video-1`, ...), so one slot is one capture identity and a
+     * re-take replaces it rather than accumulating.
+     */
+    PEN_ROUTINE("pen_routine"),
+
+    /**
      * Animal purchase video (maintainer decision 2026-09-13, docs/decisions/animal-purchases.md):
      * the ONE mandatory in-app-camera clip behind every animal on offer in a purchase load. Like
      * [TOXIN] it deliberately rides the GENERIC storage/idempotency branches —
