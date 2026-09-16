@@ -22,9 +22,9 @@ func TestBirthProofKindsReachVerifierPlayer(t *testing.T) {
 		labels      []string
 	}{
 		{"photo", []tasksdomain.ProofItem{{Ref: photo, Kind: tasksdomain.ProofKindPhoto}}, []string{photo}, []string{"image/jpeg"}, []string{"Authored step"}},
-		// Two proofs of ONE step share the step title, so the verifier reads them apart as
-		// "k of N" (domain.ComposeMediaLabels) rather than two identical headers.
-		{"mixed capture order", []tasksdomain.ProofItem{{Ref: photo, Kind: tasksdomain.ProofKindPhoto}, {Ref: video, Kind: tasksdomain.ProofKindVideo}}, []string{video, photo}, []string{"video/mp4", "image/jpeg"}, []string{"Authored step 1 of 2", "Authored step 2 of 2"}},
+		// A video and a photo of ONE step share the step title, so the verifier reads them apart
+		// by kind (domain.ComposeMediaLabels) rather than as "1 of 2 / 2 of 2" of one series.
+		{"mixed capture order", []tasksdomain.ProofItem{{Ref: photo, Kind: tasksdomain.ProofKindPhoto}, {Ref: video, Kind: tasksdomain.ProofKindVideo}}, []string{video, photo}, []string{"video/mp4", "image/jpeg"}, []string{"Authored step · video", "Authored step · photo"}},
 		{"legacy video", nil, []string{video}, []string{"video/mp4"}, []string{"Authored step"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

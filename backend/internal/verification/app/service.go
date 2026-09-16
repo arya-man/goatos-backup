@@ -585,6 +585,7 @@ func (s *Service) resolveMedia(ctx context.Context, tenantID string, items []dom
 		authored := len(rows[i].Item.MediaMeta) > 0
 		media := rows[i].Media
 		labels := make([]string, len(media))
+		kinds := make([]string, len(media))
 		for j := range media {
 			if media[j].MimeType == "" {
 				media[j].MimeType = strings.TrimSpace(registerMimes[media[j].ProofID])
@@ -593,8 +594,9 @@ func (s *Service) resolveMedia(ctx context.Context, tenantID string, items []dom
 				media[j].MimeType = declaredMimeType(def, j)
 			}
 			labels[j] = media[j].Label
+			kinds[j] = media[j].MimeType
 		}
-		for j, label := range domain.ComposeMediaLabels(labels) {
+		for j, label := range domain.ComposeMediaLabels(labels, kinds) {
 			media[j].Label = label
 		}
 		labelMedia(media, def)
