@@ -1,7 +1,12 @@
 // Package domain holds Counts/Shifting projection domain types.
 package domain
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+
+	"github.com/vgoats/goatos/backend/internal/sop/authored"
+)
 
 const (
 	EventBaseCountAnchorRecorded    = "counts.base_count_anchor.recorded"
@@ -74,11 +79,19 @@ type ShiftingEvent struct {
 	// (spacing/delivery/flushing into an empty pen -- see ShiftTypeDecision.AdoptPenTag). Empty:
 	// the movement configures no pen. Snapshotted at raise, like TargetManagementStage, so the
 	// park head approves the exact pen configuration the apply writes.
-	AdoptPenTag        string
-	PayloadHash        string
-	IdempotencyKey     string
-	RequestFingerprint string
-	Impacts            []ShiftingEventImpact
+	AdoptPenTag string
+	// SOPVersion pins the movement to the shifting SOP version in force when it was raised (nil =
+	// the seeded rules). RaiseSOPProofs / RaiseSOPAnswers are the raise card's captures and answers;
+	// RaiseCaptureEvidence is the CountsApprovalCapture snapshot the park head approves, encoded
+	// once at raise and never recomposed (SHIFTING SOP, 2026-09-16).
+	SOPVersion           *int
+	RaiseSOPProofs       authored.ProofRefs
+	RaiseSOPAnswers      authored.Answers
+	RaiseCaptureEvidence json.RawMessage
+	PayloadHash          string
+	IdempotencyKey       string
+	RequestFingerprint   string
+	Impacts              []ShiftingEventImpact
 }
 
 // ShiftingEventImpact is the structured cohort/stage effect of one movement.
