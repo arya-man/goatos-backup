@@ -1,5 +1,5 @@
 -- +goose Up
--- USER-DEFINED EVENT ALERTS (maintainer decision 2026-09-16, same day as 000318).
+-- USER-DEFINED EVENT ALERTS (maintainer decision 2026-09-16, same day as 000320).
 --
 -- "If a birth happens I want to add it as an alert, and anything like that in future" -- so an
 -- alert is no longer only a code-defined rule. The code keeps a CATALOG of durable business
