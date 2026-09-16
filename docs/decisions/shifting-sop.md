@@ -53,7 +53,9 @@ verifier items are never relabelled. The pending-execution read serves each row'
   `shifting_proof_slot_invalid` naming the item). The approver's snapshot
   (`raise_capture_evidence`, the shared `CountsApprovalCapture` shape) rides the approval payload
   and `CountsApprovalListItem.capture`: version label, answers in farm words under "At raise",
-  captures under their slot titles, and a note naming what an older app did not send.
+  captures under their slot titles, and a note naming what an older app did not send. A raise card that
+  recorded nothing (the seeded card asks nothing) puts NO capture on the approval -- an empty
+  "recorded on the form" card on every approval would be a change no SOP edit asked for.
 - **Completion**: `POST .../complete` carries `proofs` {slot key: ref} and `answers`. Judged
   against the pinned completion (+ high-priority) card: missing compulsory, unknown key, one ref
   in two slots, wrong kind -> 422 `shifting_proof_slot_invalid` (`slot`); required question ->

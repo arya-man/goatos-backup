@@ -73,9 +73,10 @@ func TestRecordShiftingEventPinsPublishedVersion(t *testing.T) {
 	if err := json.Unmarshal(approvals.lastSubmission.Payload, &payload); err != nil {
 		t.Fatal(err)
 	}
-	capture, ok := payload["capture"].(map[string]any)
-	if !ok || capture["version_label"] != "SOP v3" {
-		t.Fatalf("approval payload capture = %v", payload["capture"])
+	// v3's raise card asks nothing, so the approval carries no capture card (the pin is on the
+	// event); TestSeededEmptyRaiseCardAddsNoCaptureToTheApproval covers the card that does ask.
+	if c, present := payload["capture"]; present {
+		t.Fatalf("approval payload capture = %v, want none for a raise card that recorded nothing", c)
 	}
 }
 
@@ -352,4 +353,62 @@ type listingApprovalWorkflow struct {
 
 func (l *listingApprovalWorkflow) ListPending(context.Context, string, string, []string, []string, int, string) (domain.ApprovalRequestPage, error) {
 	return domain.ApprovalRequestPage{Items: l.items}, nil
+}
+
+// DEPLOY-DAY PARITY (E2E 2026-09-17): with the seeded raise card -- nothing asked, nothing captured
+// -- every shifting approval grew an empty "Recorded on the form · Form version: SOP v2" card on the
+// web drawer and the phone, a visible change no SOP edit asked for. A raise card that recorded
+// nothing puts no capture on the approval; one that asked something still does.
+func TestSeededEmptyRaiseCardAddsNoCaptureToTheApproval(t *testing.T) {
+	repo := newFakeShiftingRepo()
+	approvals := newFakeApprovalWorkflow()
+	mux, _ := sopTestServer(t, repo, approvals, &ports.StaticShiftingSOPRules{Published: raiseRules(2, false)})
+	if rec := post(t, mux, appShiftingEventRoute, "shift-sop-empty-1", shiftingBody(4)); rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if repo.lastEvent.SOPVersion == nil || *repo.lastEvent.SOPVersion != 2 {
+		t.Fatalf("pin = %v, want 2 (the pin is still recorded)", repo.lastEvent.SOPVersion)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(approvals.lastSubmission.Payload, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if c, present := payload["capture"]; present {
+		t.Fatalf("seeded empty raise card put a capture on the approval: %v", c)
+	}
+
+	// A raise card that asked something still carries its capture.
+	repo2 := newFakeShiftingRepo()
+	approvals2 := newFakeApprovalWorkflow()
+	mux2, _ := sopTestServer(t, repo2, approvals2, &ports.StaticShiftingSOPRules{Published: raiseRules(3, true)})
+	body := shiftingBody(4)
+	body["answers"] = map[string]any{"why": "Overcrowded"}
+	if rec := post(t, mux2, appShiftingEventRoute, "shift-sop-empty-2", body); rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	payload = map[string]any{}
+	if err := json.Unmarshal(approvals2.lastSubmission.Payload, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if c, ok := payload["capture"].(map[string]any); !ok || c["version_label"] != "SOP v3" {
+		t.Fatalf("answered raise capture = %v", payload["capture"])
+	}
+
+	// A stored empty snapshot (raised before this fix) is not rendered as a card either.
+	empty, _ := json.Marshal(map[string]any{"shifting_event_id": "ev1", "destination_park_id": testParkID, "destination_shed_id": testShedID,
+		"goat_ids": []string{testGoatID}, "capture": domain.CountsApprovalCapture{VersionLabel: "SOP v2"}})
+	lister := &listingApprovalWorkflow{fakeApprovalWorkflow: newFakeApprovalWorkflow(), items: []domain.ApprovalRequestSummary{{
+		ApprovalRequestID: "ar1", RequestType: domain.ApprovalRequestTypeShifting, Status: domain.ApprovalStatusPending,
+		RaisedByUserID: testActorID, RaisedAt: time.Now(), Summary: empty,
+	}}}
+	rec := get(t, newTestServer(t, countsapp.NewService(newFakeShiftingRepo()), lister, newFakeGoatValidator()), appApprovalsRoute)
+	var got struct {
+		Items []struct {
+			Capture *domain.CountsApprovalCapture `json:"capture"`
+		} `json:"items"`
+	}
+	decodeBody(t, rec, &got)
+	if len(got.Items) != 1 || got.Items[0].Capture != nil {
+		t.Fatalf("empty stored capture listed as %+v", got.Items)
+	}
 }
