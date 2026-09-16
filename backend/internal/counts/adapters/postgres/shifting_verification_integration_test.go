@@ -561,3 +561,66 @@ func TestRejectedAppliedMovementStaysInTheReworkQueue(t *testing.T) {
 		}
 	}
 }
+
+// E2E 2026-09-17: the relay is at-least-once. A rework verdict for the OLD item, redelivered after
+// the operator already re-shot (fresh captures, a fresh pending item), bounced the movement back to
+// 'rejected': the operator was sent to re-shoot again while the verifier still held the new clip.
+// A rework verdict now names the evidence it judged; a verdict whose evidence is no longer the
+// movement's current captures is a stale delivery and changes nothing.
+func TestStaleReworkVerdictDoesNotBounceAFreshResubmission(t *testing.T) {
+	ctx := context.Background()
+	pool := setupCountsDB(t, ctx)
+	repo := newRealIdentityApprovalRepo(t, pool)
+
+	goatA := "00000000-0000-4000-8000-00000000d051"
+	goatIDs := []string{goatA}
+	seedApprovalGoat(t, ctx, pool, goatA, countsShedA)
+	seedShedProfile(t, ctx, pool, countsShedB, "adult")
+	shiftingEventID, approvalRequestID := submitShiftingApproval(t, ctx, repo, "stale-rework", goatIDs)
+	if _, _, err := approveShifting(repo, ctx, "stale-rework", approvalRequestID, shiftingEventID, goatIDs); err != nil {
+		t.Fatalf("approve shifting: %v", err)
+	}
+	if _, _, err := submitShiftingForVerification(repo, ctx, "stale-rework-1", shiftingEventID, ""); err != nil {
+		t.Fatalf("first completion: %v", err)
+	}
+	firstRefs := []string{"proof-artifact-stale-rework-1"}
+	bounce := func(refs []string) {
+		t.Helper()
+		if err := repo.BounceShiftingEventForRework(ctx, domain.ShiftingReworkCommand{
+			TenantID: countsTenant, ShiftingEventID: shiftingEventID, VerifiedBy: countsApprover,
+			Reason: "blurry", EvidenceRefs: refs,
+		}); err != nil {
+			t.Fatalf("bounce: %v", err)
+		}
+	}
+	state := func() string {
+		t.Helper()
+		var s string
+		if err := pool.QueryRow(ctx, `SELECT verification_state FROM shifting_events WHERE tenant_id=$1::uuid AND shifting_event_id=$2::uuid`,
+			countsTenant, shiftingEventID).Scan(&s); err != nil {
+			t.Fatal(err)
+		}
+		return s
+	}
+	bounce(firstRefs)
+	if got := state(); got != "rejected" {
+		t.Fatalf("state after the current verdict = %q, want rejected", got)
+	}
+	if _, _, err := submitShiftingForVerification(repo, ctx, "stale-rework-2", shiftingEventID, ""); err != nil {
+		t.Fatalf("re-shoot: %v", err)
+	}
+	if got := state(); got != "unverified" {
+		t.Fatalf("state after the re-shoot = %q, want unverified", got)
+	}
+	// The OLD item's rework verdict, delivered again.
+	bounce(firstRefs)
+	if got := state(); got != "unverified" {
+		t.Fatalf("a stale rework verdict bounced the fresh re-shoot: state = %q", got)
+	}
+	// The verdict on the CURRENT evidence still applies, and a verdict that names no evidence (an
+	// item recorded before this guard) keeps today's behaviour.
+	bounce([]string{"proof-artifact-stale-rework-2"})
+	if got := state(); got != "rejected" {
+		t.Fatalf("the current rework verdict did not apply: state = %q", got)
+	}
+}

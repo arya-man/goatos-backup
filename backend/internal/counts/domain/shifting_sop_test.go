@@ -229,3 +229,32 @@ func TestRaiseCardMayBeQuestionsOnly(t *testing.T) {
 		t.Fatalf("required question unanswered not refused: %v", err)
 	}
 }
+
+// The verdict consumer needs to know WHICH evidence a rework verdict judged, so a stale verdict
+// (a relay replay of the old item's rework after the operator already re-shot) cannot bounce the
+// fresh submission. The item's recording key is the producer's own ShiftingVerificationKey; its
+// completion refs are recoverable from it, with or without the answers digest.
+func TestShiftingVerificationKeyRefsRoundTripsTheKey(t *testing.T) {
+	a, b := "11111111-1111-4111-8111-111111111111", "22222222-2222-4222-8222-222222222222"
+	seeded := ShiftingVerificationKey("ev1", []string{a}, nil, nil)
+	withDigest := ShiftingVerificationKey("ev1", []string{a, b}, authored.Answers{"calm": json.RawMessage(`"yes"`)}, nil)
+	withRaise := ShiftingVerificationKey("ev1", []string{b}, nil, []string{a})
+	cases := []struct {
+		key  string
+		want []string
+	}{
+		{seeded, []string{a}},
+		{withDigest, []string{a, b}},
+		{withRaise, []string{b}},
+		{"counts-shifting-verification:ev1:legacy-ref", []string{"legacy-ref"}},
+		{"counts-shifting-verification:other-event:" + a, nil},
+		{"feed-packing:ev1:" + a, nil},
+		{"", nil},
+	}
+	for _, c := range cases {
+		got := ShiftingVerificationKeyRefs(c.key, "ev1")
+		if strings.Join(got, ",") != strings.Join(c.want, ",") {
+			t.Fatalf("refs(%q) = %v, want %v", c.key, got, c.want)
+		}
+	}
+}
