@@ -22055,6 +22055,12 @@ components:
           type: integer
         has_more:
           type: boolean
+        sop:
+          type: object
+          description: >-
+            The distribution card per served workflow, from each sheet's pinned feed.direction version.
+          additionalProperties:
+            $ref: "#/components/schemas/FeedSOPCard"
     FeedPackingRow:
       type: object
       additionalProperties: false
@@ -22262,8 +22268,10 @@ components:
     FeedDistributionCapturesResponse:
       type: object
       additionalProperties: false
-      required: [items]
+      required: [items, sop]
       properties:
+        sop:
+          $ref: "#/components/schemas/FeedSOPCard"
         items:
           type: array
           description: >-
@@ -22307,9 +22315,6 @@ components:
         - session_no
         - target_date
         - workflow
-        - feed_weight_proof_ref
-        - distribution_proof_ref
-        - water_proof_ref
       properties:
         park_id:
           type: string
@@ -22378,6 +22383,10 @@ components:
             VIDEO-ONLY since 2026-08-11 (it previously accepted a photo OR a video): a photo of a
             full trough proves a trough is full, not that this operator filled it today. A photo
             here is rejected `422 proof_required`.
+        proofs:
+          $ref: "#/components/schemas/FeedSOPProofRefs"
+        answers:
+          $ref: "#/components/schemas/FeedSOPAnswers"
     FeedDistributionCompleteResponse:
       type: object
       additionalProperties: false
@@ -22414,7 +22423,6 @@ components:
         - session_no
         - target_date
         - workflow
-        - packing_proof_ref
       properties:
         park_id:
           type: string
@@ -22460,6 +22468,10 @@ components:
           description: >-
             MANDATORY. The server-minted `proof_id` of the packing VIDEO. A blank value is rejected
             `422 proof_required`. The bytes live in GCS; only the reference is recorded.
+        proofs:
+          $ref: "#/components/schemas/FeedSOPProofRefs"
+        answers:
+          $ref: "#/components/schemas/FeedSOPAnswers"
     FeedPackingCompleteResponse:
       type: object
       additionalProperties: false
@@ -22507,6 +22519,8 @@ components:
         operator_id: { type: string, format: uuid }
         rework_reason: { type: string }
         scheduled_at: { type: string, format: date-time }
+        sop:
+          $ref: "#/components/schemas/FeedSOPCard"
     FeedTransportTaskPage:
       type: object
       additionalProperties: false
@@ -22539,9 +22553,12 @@ components:
     FeedTransportSubmitRequest:
       type: object
       additionalProperties: false
-      required: [proof_ref]
       properties:
         proof_ref: { type: string, minLength: 1, description: Server-minted proof id for one fresh in-app camera video. }
+        proofs:
+          $ref: "#/components/schemas/FeedSOPProofRefs"
+        answers:
+          $ref: "#/components/schemas/FeedSOPAnswers"
     FeedTransportSubmitResponse:
       type: object
       additionalProperties: false
@@ -22637,6 +22654,12 @@ components:
           type: integer
         has_more:
           type: boolean
+        sop:
+          type: object
+          description: >-
+            The packing card per served workflow (normal / experiment), from each sheet's pinned feed.packing version.
+          additionalProperties:
+            $ref: "#/components/schemas/FeedSOPCard"
     FeedWastageRow:
       type: object
       additionalProperties: false
@@ -23241,6 +23264,8 @@ components:
           type: integer
         has_more:
           type: boolean
+        sop:
+          $ref: "#/components/schemas/FeedSOPCard"
     FeedWastageCompleteRequest:
       type: object
       # additionalProperties: false is load-bearing on a write that consumes an operator's video —
@@ -23250,7 +23275,6 @@ components:
       required:
         - shed_id
         - target_date
-        - wastage_proof_ref
       properties:
         park_id:
           type: string
@@ -23277,6 +23301,10 @@ components:
           description: >-
             MANDATORY. The server-minted `proof_id` of the wastage VIDEO. A blank value is rejected
             `422 proof_required`. The bytes live in GCS; only the reference is recorded.
+        proofs:
+          $ref: "#/components/schemas/FeedSOPProofRefs"
+        answers:
+          $ref: "#/components/schemas/FeedSOPAnswers"
     FeedWastageCompleteResponse:
       type: object
       additionalProperties: false
@@ -32491,6 +32519,54 @@ components:
             earliest_date:
               type: string
               format: date
+    FeedSOPCard:
+      type: object
+      description: >-
+        FEED SOP (maintainer decision 2026-09-16): the CARD a feed stage runs under -- what the crew
+        captures and answers at distribution, wastage, packing or transport -- read from the feed.*
+        SOP version the sheet was ISSUED under (transport: the version the task was materialized
+        under). The phone renders the slots and questions verbatim and never holds a slot list of its
+        own; every phone on a shared distribution session renders the same card. Version 0 is the
+        seeded card (the pre-SOP behaviour: feed weight photo + feed video + water video; one packing
+        video; one transport video; one wastage video).
+      additionalProperties: false
+      required: [version, stage, proofs, questions]
+      properties:
+        version:
+          type: integer
+        stage:
+          type: string
+          enum: [distribution, wastage, packing, transport]
+        instruction:
+          type: string
+        proofs:
+          type: array
+          description: >-
+            The capture slots in card order. A slot's key is the proof register field_key the phone
+            stamps on the upload (which is how teammates' captures are discovered) and the key of
+            the completion's `proofs` map.
+          items:
+            $ref: "#/components/schemas/WeighingRemovalProofSlot"
+        questions:
+          type: array
+          items:
+            $ref: "#/components/schemas/WeighingSOPQuestion"
+    FeedSOPProofRefs:
+      type: object
+      description: >-
+        {slot key: proof ref} -- one server-minted proof id per capture slot of the pinned card.
+        Judged slot by slot: a compulsory slot missing, a key outside the card, one capture proving
+        two slots, or a capture of the wrong kind is 422 feed_proof_slot_invalid naming the slot.
+      additionalProperties:
+        type: string
+    FeedSOPAnswers:
+      type: object
+      description: >-
+        {question id: answer} for the card's questions (choice = option value, "other" free text
+        under "<id>_other"; multi = array of values; number = JSON number; text = string). A required
+        question unanswered or an answer the card did not offer is 422 feed_answer_invalid naming
+        the question.
+      additionalProperties: true
     WeighingRemovalProofSlot:
       type: object
       description: >-
