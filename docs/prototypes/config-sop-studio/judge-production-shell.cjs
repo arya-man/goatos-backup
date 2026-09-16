@@ -22,3 +22,9 @@ console.log('PASS CEO routes: exactly two additive destinations, legacy aliases 
 assert(!fs.readFileSync(__dirname+'/foundation-workspace.js','utf8').includes('renderOrchestration('));assert.equal(context.productionRoutes.find(r=>r.label==='Alerts').path,'/alerts');console.log('PASS: no standalone event engine, legacy aliases lead to SOP authoring, existing Alerts reference retained');
 
 context.state??={};context.state.sops??={};context.state.sops.Procurement={title:'Preserved master'};context.location.hash='#Procurement/Editor';listeners.hashchange[0]();assert.equal(context.current,'Procurement');assert.equal(context.tab,'Editor');listeners.DOMContentLoaded.forEach(fn=>fn());assert.equal(context.tab,'Editor');console.log('PASS legacy editor deep link retains selected department and saved draft');
+const appSource=fs.readFileSync(__dirname+'/app.js','utf8');
+assert.equal(context.productionRoutes.some(r=>r.module==='Sales'&&/SOP/i.test(r.label)),false);
+assert(appSource.includes('Rules used here'));
+assert(appSource.includes('Change history'));
+assert(appSource.includes('Rules Weighing reads'));
+console.log('PASS module tabs explain rules, SOPs and history; Sales has no existing SOP sidebar route');
