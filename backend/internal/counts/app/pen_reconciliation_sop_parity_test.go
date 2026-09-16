@@ -80,3 +80,29 @@ func TestPenReconciliationRecoveryReEnqueuesEveryProofWithMeta(t *testing.T) {
 		t.Fatalf("key = %q (must stay the completion's key)", got.IdempotencyKey)
 	}
 }
+
+// TestSeededReconcileQuestionnaireBehavesAsToday pins the deploy-day rule: the seeded reconcile
+// document (one "return to pen" video) enqueues the same item key and the same single proof as
+// before; the only differences are the confirmed workflow-completion fix and the step title on the
+// proof label.
+func TestSeededReconcileQuestionnaireBehavesAsToday(t *testing.T) {
+	repo := &fakePenReconciliationRepo{cardIDByWorkflow: "card-1", completeResult: domain.PenReconciliationCompletionResult{
+		CardID: "card-1", Status: domain.PenReconciliationStatusPendingVerification, ScannedIdentifier: "1420 0001",
+		RegisteredShedID: "shed-1", RegisteredShedName: "Mandela 11", NeedsVerificationEnqueue: true,
+	}}
+	enq := &fakePenReconciliationEnqueuer{}
+	svc := NewPenReconciliationService(repo, nil).WithVerificationEnqueuer(enq)
+	op, video := "op-1", "v-return"
+	step := tasksdomain.WorkflowAction{ActionKey: "return_to_pen", Seq: 1, ActionType: tasksdomain.ActionTypeAction, Title: "Return the animal to its registered pen",
+		Status: tasksdomain.ActionStatusCompleted, CompletedBy: &op, ProofRef: &video, ProofRefs: []tasksdomain.ProofItem{{Ref: video, Kind: "video"}}}
+	if err := svc.OnWorkflowCompleted(context.Background(), tasksdomain.WorkflowInstance{TenantID: "t", WorkflowID: "wf-1"}, []tasksdomain.WorkflowAction{step}); err != nil {
+		t.Fatal(err)
+	}
+	got := enq.calls[0]
+	if got.IdempotencyKey != "counts-pen-reconciliation-verification:card-1:v-return" || !reflect.DeepEqual(got.MediaRefs, []string{"v-return"}) {
+		t.Fatalf("seeded reconcile item = %+v", got)
+	}
+	if len(got.ContextRows) != 0 {
+		t.Fatalf("the seeded step asks nothing: %+v", got.ContextRows)
+	}
+}

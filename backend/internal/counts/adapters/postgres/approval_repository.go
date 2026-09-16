@@ -288,8 +288,14 @@ WHERE tenant_id = $1::uuid AND idempotency_key = $2`, in.TenantID, in.Idempotenc
 	// counts.birth.reported rides the SAME transaction as the request and its children, so the
 	// report's own proof reaches the verifier exactly when the litter exists -- never for a
 	// litter that rolled back, never missed for one that committed.
-	if err := insertBirthReportedOutbox(ctx, tx, created, items); err != nil {
-		return domain.BirthSubmissionResult{}, err
+	//
+	// Written ONLY when the report captured proof: with no authored capture card (or a card that
+	// asked nothing / answers only) the submit writes exactly the outbox it wrote before the
+	// feature -- the deploy-day rule (2026-09-16), pinned by TestNoCaptureCardSubmitsBehaveAsTodayPg.
+	if len(created.Capture.Media) > 0 {
+		if err := insertBirthReportedOutbox(ctx, tx, created, items); err != nil {
+			return domain.BirthSubmissionResult{}, err
+		}
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return domain.BirthSubmissionResult{}, err
@@ -568,15 +574,8 @@ func insertDeathApprovalOutbox(
 		"subject_id":       *req.SubjectGoatID,
 		"visibility_scope": map[string]any{"tenant_id": req.TenantID},
 		"evidence_refs":    []map[string]string{{"evidence_type": "decision", "evidence_id": req.ApprovalRequestID}},
-		"payload": map[string]any{
-			"approval_request_id": req.ApprovalRequestID,
-			"goat_id":             *req.SubjectGoatID,
-			"reason":              reason,
-			// The Add death form's snapshot: stamped on the death workflow at open so the
-			// verifier bundle leads with the report's own proof and answers.
-			"capture_evidence": req.Capture,
-		},
-		"trace_id": idempotencyKey,
+		"payload":          deathEventPayload(req, reason),
+		"trace_id":         idempotencyKey,
 	})
 	if err != nil {
 		return fmt.Errorf("counts: marshal %s envelope: %w", eventType, err)
@@ -1104,4 +1103,20 @@ func (r *Repository) ReplaceCaptureProof(ctx context.Context, tenantID, approval
 		return domain.ApprovalRequest{}, err
 	}
 	return updated, tx.Commit(ctx)
+}
+
+// deathEventPayload is the counts.death.* payload. The Add death form's capture snapshot is added
+// ONLY when the report captured something, so with no authored capture card the event is exactly
+// the payload it was before the feature (deploy-day rule, 2026-09-16).
+func deathEventPayload(req domain.ApprovalRequest, reason string) map[string]any {
+	out := map[string]any{
+		"approval_request_id": req.ApprovalRequestID,
+		"goat_id":             *req.SubjectGoatID,
+		"reason":              reason,
+	}
+	if !req.Capture.IsEmpty() {
+		// Stamped on the death workflow at open so the verifier bundle leads with it.
+		out["capture_evidence"] = req.Capture
+	}
+	return out
 }
