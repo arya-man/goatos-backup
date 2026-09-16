@@ -793,6 +793,10 @@ const RESPONSE_PARTITION_EXEMPT = new Set([
   // not a response location row. The server composes and returns operational_location_display on
   // round cards / task rows; accepting display text here would let clients name pens.
   "PCCareRoundPen",
+  // PenRoutinePenWrite (2026-09-16) is the create/edit REQUEST body of a routine's ticked pen: the
+  // client sends (shed_id, partition_label) it picked from PenRoutineCatalogPen, which DOES carry
+  // operational_location_display; nothing renders this write shape as a label.
+  "PenRoutinePenWrite",
 ]);
 
 const SHED_GRAIN_ONLY_TABLES = [
