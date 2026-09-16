@@ -356,19 +356,29 @@ type Definition struct {
 	Evidence       Evidence
 	Pens           []PenRef
 	AssigneeIDs    []string
-	CreatedBy      string
-	UpdatedBy      string
-	CreatedAt      time.Time
-	UpdatedAt      time.Time
-	RowVersion     int
+	// Assignees carries the display names the read resolved for AssigneeIDs (same order);
+	// ignored on write, where AssigneeIDs is the input.
+	Assignees  []Assignee
+	CreatedBy  string
+	UpdatedBy  string
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
+	RowVersion int
+}
+
+// Assignee is one person a routine is assigned to, as a read resolves them.
+type Assignee struct {
+	UserID      string `json:"user_id"`
+	DisplayName string `json:"display_name"`
 }
 
 // PenRef names a pen: the shed id and its partition label ("" for an undivided shed).
 type PenRef struct {
 	ShedID    string
 	Partition string
-	// Label is the oploc display, resolved by the read; ignored on write.
-	Label string
+	// ShedName and Label (the oploc display) are resolved by the read; ignored on write.
+	ShedName string
+	Label    string
 }
 
 // Sentinel errors. The transport maps each to a stable code and a farm-worded message.
