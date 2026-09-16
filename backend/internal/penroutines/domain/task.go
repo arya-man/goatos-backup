@@ -100,23 +100,26 @@ type Task struct {
 	DueDate      string // YYYY-MM-DD, rolls forward only
 	WorkState    string
 	Status       string
-	// AssigneeIDs are the routine's people; any one of them may work the task.
-	AssigneeIDs  []string
-	Answers      map[string]any
-	Proofs       []ProofItem
-	EnteredAt    *time.Time
-	EnteredBy    string
-	LeftAt       *time.Time
-	SubmittedBy  string
-	SubmittedAt  *time.Time
-	VerifiedBy   string
-	VerifiedAt   *time.Time
-	ReworkReason string
-	RolledFwd    int
-	DelayedSince *string
-	RowVersion   int
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
+	// AssigneeIDs are the routine's people; any one of them may work the task. AssigneeNames
+	// are their display names in the same order, resolved by the read (a name the register
+	// cannot resolve is "").
+	AssigneeIDs   []string
+	AssigneeNames []string
+	Answers       map[string]any
+	Proofs        []ProofItem
+	EnteredAt     *time.Time
+	EnteredBy     string
+	LeftAt        *time.Time
+	SubmittedBy   string
+	SubmittedAt   *time.Time
+	VerifiedBy    string
+	VerifiedAt    *time.Time
+	ReworkReason  string
+	RolledFwd     int
+	DelayedSince  *string
+	RowVersion    int
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
 }
 
 // Actor is who is looking at, or acting on, a task.
