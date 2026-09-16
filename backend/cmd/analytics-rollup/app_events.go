@@ -24,7 +24,9 @@ type appFlow struct {
 
 func appEventFlows() []appFlow {
 	flows := []appFlow{
-		{"proof_delivery", "proof_id", []string{"proof_capture_completed", "proof_processing_completed", "proof_upload_started", "proof_upload_completed"}, []string{"capture", "processed", "upload_started", "synced"}},
+		// Processing is optional for delivery: recovery and original-file fallback
+		// can upload successfully without a processing-completed event.
+		{"proof_delivery", "proof_id", []string{"proof_capture_completed", "proof_upload_started", "proof_upload_completed"}, []string{"capture", "upload_started", "synced"}},
 		// Legacy request_token counters collide across launchers; never fall back to them.
 		{"camera_capture", "capture_request_id", []string{"proof_camera_requested", "proof_camera_finalized"}, []string{"requested", "finalized"}},
 		{"login_to_bootstrap", "", []string{"login_success", "bootstrap_loaded"}, []string{"login", "bootstrap"}},

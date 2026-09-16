@@ -47,3 +47,14 @@ Source changes to packaged scripts/dashboards/receipt require a fresh runner bui
 and both digest pins before any future rollout. Artifact-only builds may run when explicitly authorized for source certification.
 The active hold still prohibits service rollouts and main landing; a successful
 artifact build does not lift that hold.
+
+## Deployment runner source receipt
+
+Cloud Deploy executes scripts embedded in its pinned runner image. After editing
+any runner `COPY` input, rebuild with `cloudbuild.stg-runner.yaml`. The build
+compares every installed script/dashboard/config byte against its source and
+exports `runner-receipt.json` alongside `runner-image.env`. Copy that receipt to
+`deploy/clouddeploy/stg/runner-receipt.json` and update both runner image pins.
+`make grafana-durability-guard` rejects changed, added or removed packaged files,
+Dockerfile changes, and pins that disagree with this receipt. A source-only test
+pass never certifies a previously built image.

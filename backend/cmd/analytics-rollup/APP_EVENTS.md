@@ -41,7 +41,7 @@ Crash data is not synthesized from application analytics.
 
 | Funnel/journey key | Ordered funnel | Journey duration |
 |---|---|---|
-| `proof_delivery` | capture completed → processing completed → upload started → upload completed | capture → upload completed |
+| `proof_delivery` | capture completed → upload started → upload completed | capture → upload completed |
 | `camera_capture` | camera requested → successfully finalized | requested → finalized (not app startup) |
 | `login_to_bootstrap` | login success → bootstrap loaded | login success → bootstrap loaded |
 | `feed_distribution` | observed session → opened → enqueued → acknowledged | opened → acknowledged |
@@ -54,6 +54,10 @@ to `sync_write_succeeded` in the same actor/device/journey, after submission.
 The explicit terminal `action=sync_success` observer is also accepted. A plain
 `*_submitted` means local enqueue, not server/business completion. These are
 telemetry-confirmed sync outcomes, not independently audited domain records.
+Proof delivery does not require `proof_processing_completed`: interrupted-processing
+recovery and original-file fallback can successfully upload without that event.
+Processing diagnostics remain in the raw events; they do not gate delivery success.
+
 `proof_upload_registered` deliberately does not mark upload completion: source
 code registers a proof before byte transfer finishes.
 

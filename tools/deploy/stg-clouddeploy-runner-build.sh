@@ -44,4 +44,9 @@ docker push "$image" >&2
 digest="$(gcloud artifacts docker images describe "$image" --project="$PROJECT_ID" --format='value(image_summary.digest)')"
 [[ -n "$digest" ]] || die "could not resolve digest for $image"
 
+docker run --rm --platform linux/amd64 --entrypoint python3 -v "$repo_root:/source" \
+  "${image%:*}@${digest}" /source/tools/deploy/stg-runner-receipt.py \
+  --root /source --verify-image --image "${image%:*}@${digest}" \
+  --output /source/deploy/clouddeploy/stg/runner-receipt.json >&2
+
 echo "${REGION}-docker.pkg.dev/${PROJECT_ID}/${ARTIFACT_REPOSITORY}/clouddeploy-stg-runner@${digest}"
