@@ -4,6 +4,10 @@ import test from "node:test";
 
 const source = readFileSync(new URL("./weights.tsx", import.meta.url), "utf8");
 const analyticsSource = readFileSync(new URL("./weights-analytics.tsx", import.meta.url), "utf8");
+const analyticsRouteSource = readFileSync(
+  new URL("../../app/(admin)/weighing/analytics/page.tsx", import.meta.url),
+  "utf8",
+);
 const analyticsTabLoadingSource = readFileSync(
   new URL("./weights-analytics-tab-loading.tsx", import.meta.url),
   "utf8",
@@ -129,6 +133,17 @@ test("weights analytics tab links preserve the resolved weighing window", () => 
   assert.match(analyticsSource, /\[WINDOW_FROM_PARAM\]: window\.from/);
   assert.match(analyticsSource, /\[WINDOW_TO_PARAM\]: window\.to/);
   assert.match(analyticsSource, /\[TAB_PARAM\]: name === "general" \? null : name/);
+});
+
+test("weights analytics landing redirects to a dated window before rendering the heavy page", () => {
+  assert.match(analyticsRouteSource, /async function redirectToCanonicalWindow\(params: RouteSearchParams\)/);
+  assert.match(analyticsRouteSource, /if \(one\(params, WINDOW_FROM_PARAM\) \|\| one\(params, WINDOW_TO_PARAM\)\) return;/);
+  assert.match(analyticsRouteSource, /const window = await landingWindow\(/);
+  assert.match(analyticsRouteSource, /redirect\(hrefWithWindow\(params, window\.from, window\.to\)\);/);
+  assert.match(analyticsRouteSource, /const params = await searchParams;\s*\n\s*await redirectToCanonicalWindow\(params\);\s*\n\s*\/\/ serial-await: allow [^\n]+\n\s*const pageContract = await requireAdminWebPageContract/);
+  assert.doesNotMatch(analyticsRouteSource, /Promise\.all\(\[searchParams, requireAdminWebPageContract/);
+  assert.match(analyticsRouteSource, /next\.set\(WINDOW_FROM_PARAM, from\);/);
+  assert.match(analyticsRouteSource, /next\.set\(WINDOW_TO_PARAM, to\);/);
 });
 
 test("weights analytics fails selected tabs instead of rendering API failures as empty data", () => {

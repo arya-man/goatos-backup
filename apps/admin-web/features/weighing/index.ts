@@ -8,3 +8,5 @@ export { WeighingWeightsPage } from "./weights";
 // on Weights, because "what does the estate weigh today" and "what is growing faster than what"
 // are different questions and the second one wants the whole screen.
 export { WeighingWeightsAnalyticsPage } from "./weights-analytics";
+export { landingWindow } from "./landing-window";
+export { WINDOW_FROM_PARAM, WINDOW_TO_PARAM } from "./landing-window-constants";
