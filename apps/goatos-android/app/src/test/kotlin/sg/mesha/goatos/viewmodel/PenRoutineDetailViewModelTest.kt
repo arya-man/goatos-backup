@@ -264,7 +264,7 @@ class PenRoutineDetailViewModelTest {
     @Test
     fun `the server's refusal is shown verbatim and a sent-back task re-opens the form`() = runTest(dispatcher) {
         val repository = FakePenRoutinesRepository(penRoutineTask(presenceRequired = false, canCheckIn = false))
-        val photos = FakePhotoCaptureSource(mutableListOf<CapturedPhoto?>(photo(), photo(uri = "file:///retake.jpg", at = 50_000L)))
+        val photos = FakePhotoCaptureSource(mutableListOf<CapturedPhoto?>(photo(), photo(uri = "file:///retake.jpg", at = RETAKE_AT_MS)))
         val sync = RecordingPenRoutineSyncRepository()
         val vm = viewModel(repository, photoSource = photos, sync = sync)
         advanceUntilIdle()
@@ -406,6 +406,12 @@ class PenRoutineDetailViewModelTest {
     ).also { vm -> backgroundScope.launch { vm.state.collect { } } }
 
     private fun photo(uri: String = "file:///pen-routine.jpg", at: Long = 10_000L) = CapturedPhoto(localUri = uri, capturedAtMs = at)
+
+    private companion object {
+        /** A wall-clock instant AFTER the fixture's `submitted_at` (2026-09-16T02:00:00Z), so the
+         *  re-take counts for the re-opened form while the pre-rework capture stays history. */
+        const val RETAKE_AT_MS = 1_800_000_000_000L
+    }
 
     @Suppress("unused")
     private fun video() = CapturedVideo(localUri = "file:///pen-routine.mp4", startedAtMs = 1_000L, endedAtMs = 9_000L)
