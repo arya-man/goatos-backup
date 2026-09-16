@@ -675,7 +675,7 @@ WHERE tenant_id = $1::uuid AND shifting_event_id = $2::uuid`
 // shiftingRaiseReplaySQL reads one movement through shifting_events_idempotency_unique
 // (tenant_id, idempotency_key) -- the same indexed lookup the raise insert's replay check uses.
 const shiftingRaiseReplaySQL = `
-SELECT shifting_event_id::text, request_fingerprint
+SELECT shifting_event_id::text, request_fingerprint, raise_capture_evidence
 FROM shifting_events
 WHERE tenant_id = $1::uuid AND idempotency_key = $2`
 
@@ -704,21 +704,25 @@ func (r *Repository) ShiftingSOPPin(ctx context.Context, tenantID, shiftingEvent
 }
 
 // ShiftingEventByIdempotencyKey answers a raise retry before the raise card is judged.
-func (r *Repository) ShiftingEventByIdempotencyKey(ctx context.Context, tenantID, idempotencyKey, requestFingerprint string) (string, bool, error) {
+func (r *Repository) ShiftingEventByIdempotencyKey(ctx context.Context, tenantID, idempotencyKey, requestFingerprint string) (string, json.RawMessage, bool, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 	var id, fp string
-	err := r.pool.QueryRow(ctx, shiftingRaiseReplaySQL, tenantID, idempotencyKey).Scan(&id, &fp)
+	var capture []byte
+	err := r.pool.QueryRow(ctx, shiftingRaiseReplaySQL, tenantID, idempotencyKey).Scan(&id, &fp, &capture)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return "", false, nil
+		return "", nil, false, nil
 	}
 	if err != nil {
-		return "", false, fmt.Errorf("counts: read shifting raise replay: %w", err)
+		return "", nil, false, fmt.Errorf("counts: read shifting raise replay: %w", err)
 	}
 	if fp != requestFingerprint {
-		return "", false, ports.ErrIdempotencyConflict
+		return "", nil, false, ports.ErrIdempotencyConflict
 	}
-	return id, true, nil
+	if len(capture) == 0 {
+		return id, nil, true, nil
+	}
+	return id, json.RawMessage(capture), true, nil
 }
 
 // encodeShiftingSOP renders the judged map and answers as the jsonb the row stores (never NULL on a

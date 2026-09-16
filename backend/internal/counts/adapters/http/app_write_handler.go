@@ -132,7 +132,7 @@ type ShiftingEventRecorder interface {
 // does, over the Postgres repository): an exact raise retry is answered before the SOP raise card
 // is judged. A recorder without it (a fake) judges every raise.
 type shiftingRaiseReplayer interface {
-	ShiftingRaiseReplay(ctx context.Context, tenantID, idempotencyKey, requestFingerprint string) (shiftingEventID string, found bool, err error)
+	ShiftingRaiseReplay(ctx context.Context, tenantID, idempotencyKey, requestFingerprint string) (shiftingEventID string, raiseCapture json.RawMessage, found bool, err error)
 }
 
 // NOTE: the handler prepares each birth child through identity validation, but the approval service
@@ -600,13 +600,14 @@ func (h *AppWriteHandler) RecordShiftingEvent(w http.ResponseWriter, r *http.Req
 	// assembly) means the seeded card: nothing to ask, nothing to pin.
 	raiseJudgement := countsapp.RaiseJudgement{}
 	raiseReplay := false
+	var replayedCapture json.RawMessage
 	if replayer, ok := h.shifting.(shiftingRaiseReplayer); ok {
-		_, found, err := replayer.ShiftingRaiseReplay(r.Context(), tenantID, "app-counts-shifting:"+clientKey, requestFingerprint)
+		_, stored, found, err := replayer.ShiftingRaiseReplay(r.Context(), tenantID, "app-counts-shifting:"+clientKey, requestFingerprint)
 		if err != nil {
 			h.writeCountsError(w, r, err)
 			return
 		}
-		raiseReplay = found
+		raiseReplay, replayedCapture = found, stored
 	}
 	if !raiseReplay && h.execution != nil {
 		judged, err := h.execution.JudgeRaise(r.Context(), countsapp.RaiseJudgeInput{
@@ -818,7 +819,10 @@ func (h *AppWriteHandler) RecordShiftingEvent(w http.ResponseWriter, r *http.Req
 	}
 	// THE PIN and the raise card's evidence, snapshotted once here. A replay carries none: the
 	// repository answers from the stored row.
-	var captureSnapshot json.RawMessage
+	// A replay hands the approval the capture the movement stored at its first attempt, so a retry
+	// converging an orphaned movement (row written, approval submit failed) still shows the park
+	// head what was recorded at raise.
+	captureSnapshot := replayedCapture
 	if !raiseReplay && h.execution != nil {
 		version := raiseJudgement.Version
 		event.SOPVersion = &version

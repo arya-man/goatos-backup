@@ -35,8 +35,8 @@ func (r *sopShiftingRepo) ShiftingSOPPin(context.Context, string, string) (ports
 	return r.pin, r.pinErr
 }
 
-func (r *sopShiftingRepo) ShiftingEventByIdempotencyKey(context.Context, string, string, string) (string, bool, error) {
-	return "", false, nil
+func (r *sopShiftingRepo) ShiftingEventByIdempotencyKey(context.Context, string, string, string) (string, json.RawMessage, bool, error) {
+	return "", nil, false, nil
 }
 
 func (r *sopShiftingRepo) CompleteShiftingEvent(_ context.Context, in domain.ShiftingCompletionCommand) (domain.ShiftingExecutionResult, bool, error) {
