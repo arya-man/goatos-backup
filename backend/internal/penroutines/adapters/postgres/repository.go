@@ -900,10 +900,15 @@ WHERE tenant_id = $1 AND task_id = $2::uuid
   AND status = 'pending_verification'
   AND row_version = $5`
 	// Reject: back to the assignee with the verifier's words; the kernel clock keeps running.
+	// The check-in stamps are cleared so a redo starts with a fresh pen check-in when the
+	// routine asks for one (the presence rows stay as history); a rework re-collects everything.
 	sqlRepository10 = `
 UPDATE pen_routine_tasks
 SET status = 'rework',
     rework_reason = NULLIF($3::text, ''),
+    entered_at = NULL,
+    entered_by = NULL,
+    left_at = NULL,
     updated_at = $4::timestamptz,
     row_version = row_version + 1
 WHERE tenant_id = $1 AND task_id = $2::uuid

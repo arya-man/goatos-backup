@@ -1,0 +1,284 @@
+package http
+
+import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+
+	"github.com/vgoats/goatos/backend/internal/penroutines/app"
+	"github.com/vgoats/goatos/backend/internal/penroutines/domain"
+	"github.com/vgoats/goatos/backend/internal/penroutines/ports"
+	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
+)
+
+type fakeService struct {
+	task      domain.Task
+	presence  ports.PresenceParams
+	submitted ports.SubmitParams
+	submitErr error
+}
+
+func (f *fakeService) ListMine(_ context.Context, _, _, _ string, _ int, _ string) (ports.Page, error) {
+	return ports.Page{Rows: []domain.Task{f.task}, StateCounts: map[string]int{domain.WorkStateScheduled: 1, domain.WorkStateCompleted: 2}}, nil
+}
+func (f *fakeService) GetTask(_ context.Context, _ string, actor domain.Actor, taskID string) (domain.Task, error) {
+	if !f.task.IsAssignee(actor) || taskID != f.task.TaskID {
+		return domain.Task{}, ports.ErrTaskNotFound
+	}
+	return f.task, nil
+}
+func (f *fakeService) RecordPresence(_ context.Context, p ports.PresenceParams) (domain.Task, error) {
+	f.presence = p
+	t := f.task
+	at := p.CapturedAt
+	t.EnteredAt, t.EnteredBy = &at, p.Actor.UserID
+	t.RowVersion++
+	return t, nil
+}
+func (f *fakeService) Submit(_ context.Context, p ports.SubmitParams) (domain.Task, error) {
+	f.submitted = p
+	if f.submitErr != nil {
+		return domain.Task{}, f.submitErr
+	}
+	done := f.task
+	done.Status = domain.StatusPendingVerification
+	done.Proofs = p.Proofs
+	done.RowVersion++
+	return done, nil
+}
+func (f *fakeService) Today() string { return "2026-09-16" }
+
+func withActor(r *http.Request, userID string) *http.Request {
+	ctx := httpmiddleware.WithTenantID(r.Context(), "tenant-1")
+	ctx = httpmiddleware.WithActorID(ctx, userID)
+	return r.WithContext(ctx)
+}
+
+func fixtureTask() domain.Task {
+	return domain.Task{
+		TaskID: "11111111-1111-4111-8111-111111111111", TenantID: "tenant-1", RoutineID: "22222222-2222-4222-8222-222222222222", RoutineVersion: 1,
+		RoutineName: "Pen cleaning", Instruction: "Sweep and check the water.", ReviewKind: domain.ReviewVerifier, CadenceLine: "Every day",
+		Evidence: domain.NormalizeEvidence(domain.Evidence{
+			Questions: []domain.Question{{ID: "cleaned", Kind: domain.QuestionYesNo, Title: "Was the pen cleaned?", Required: true}},
+			Photo:     domain.ProofRule{Min: 1, Max: 1}, Presence: domain.PresenceRequired,
+		}),
+		ParkID: "p1", ParkName: "Coimbatore", ShedID: "s1", ShedName: "Castro", Partition: "2", PenLabel: "Castro 2",
+		SourceDate: "2026-09-16", PlannedDate: "2026-09-16", DueDate: "2026-09-16",
+		WorkState: domain.WorkStateScheduled, Status: domain.StatusOpen, AssigneeIDs: []string{"u-head"}, AssigneeNames: []string{"Park Head"}, RowVersion: 1,
+	}
+}
+
+// TestListServesBackendOwnedCopy pins the wire shape the phone renders verbatim: title, filter
+// chips with whole-list counts, the pen label, reason line, chip and tone, the pinned form, and
+// can_check_in / can_submit from the caller's side.
+func TestListServesBackendOwnedCopy(t *testing.T) {
+	svc := &fakeService{task: fixtureTask()}
+	h := NewHandler(svc, nil)
+	rec := httptest.NewRecorder()
+	h.ListMine(rec, withActor(httptest.NewRequest(http.MethodGet, "/app/pen-routines?filter=todo", nil), "u-head"))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
+	}
+	var page pagePayload
+	if err := json.Unmarshal(rec.Body.Bytes(), &page); err != nil {
+		t.Fatal(err)
+	}
+	if page.Title != "Routines" || len(page.Rows) != 1 || page.OpenCount != 1 || len(page.Filters) != 2 || page.Filters[1].Count != 2 {
+		t.Fatalf("page = %+v", page)
+	}
+	row := page.Rows[0]
+	if row.Title != "Pen cleaning · Castro 2 · Coimbatore" || row.PenLabel != "Castro 2" || row.ReasonLine != "Every day" || row.StateChip != "Due today" || row.StateTone != "info" || !row.CanSubmit || !row.CanCheckIn || row.InPen {
+		t.Fatalf("row = %+v", row)
+	}
+	if len(row.Form.Questions) != 1 || row.Form.Presence != domain.PresenceRequired || row.EvidenceLine != "1 question · 1 photo · check in to pen" || row.PresenceLine != "Check in to the pen to start" {
+		t.Fatalf("form = %+v evidence=%q presence=%q", row.Form, row.EvidenceLine, row.PresenceLine)
+	}
+	if !strings.Contains(row.Instruction, "Check in when you reach the pen") {
+		t.Fatalf("instruction = %q", row.Instruction)
+	}
+	// A stranger's list still renders the row (the service scoped it), but their side says no.
+	rec = httptest.NewRecorder()
+	h.GetTask(rec, withActor(httptest.NewRequest(http.MethodGet, "/app/pen-routines/"+svc.task.TaskID, nil), "u-stranger"))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("stranger get status %d", rec.Code)
+	}
+}
+
+// TestPresenceAndSubmitDecodeStrictlyAndRequireTheIdempotencyKey pins the write transport:
+// the Idempotency-Key header is required, unknown fields are refused, the presence body's
+// instant/location/integrity ride to the service, the submit body's raw answers and typed
+// proof refs ride to the service, and a domain refusal maps to its stable code and farm copy.
+func TestPresenceAndSubmitDecodeStrictlyAndRequireTheIdempotencyKey(t *testing.T) {
+	svc := &fakeService{task: fixtureTask()}
+	h := NewHandler(svc, nil)
+	path := "/app/pen-routines/" + svc.task.TaskID
+
+	// No key -> 400 missing_idempotency_key.
+	rec := httptest.NewRecorder()
+	r := withActor(httptest.NewRequest(http.MethodPost, path+"/presence", strings.NewReader(`{"event_type":"enter","captured_at":"2026-09-16T01:35:00Z","row_version":1}`)), "u-head")
+	r.SetPathValue("task_id", svc.task.TaskID)
+	h.RecordPresence(rec, r)
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "missing_idempotency_key") {
+		t.Fatalf("no key: %d %s", rec.Code, rec.Body.String())
+	}
+	// Unknown field -> 400 invalid_body.
+	rec = httptest.NewRecorder()
+	r = withActor(httptest.NewRequest(http.MethodPost, path+"/presence", strings.NewReader(`{"event_type":"enter","captured_at":"2026-09-16T01:35:00Z","geofence":true}`)), "u-head")
+	r.Header.Set("Idempotency-Key", "k-1")
+	r.SetPathValue("task_id", svc.task.TaskID)
+	h.RecordPresence(rec, r)
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "invalid_body") {
+		t.Fatalf("unknown field: %d %s", rec.Code, rec.Body.String())
+	}
+	// A good presence punch.
+	rec = httptest.NewRecorder()
+	r = withActor(httptest.NewRequest(http.MethodPost, path+"/presence", strings.NewReader(`{"event_type":"enter","captured_at":"2026-09-16T01:35:00Z","row_version":1,"location":{"latitude":11.01,"longitude":76.95,"accuracy_m":8.5,"status":"captured"},"integrity":{"mock_location":false,"device_id":"dev-1","app_version":"1.0.20"}}`)), "u-head")
+	r.Header.Set("Idempotency-Key", "k-2")
+	r.SetPathValue("task_id", svc.task.TaskID)
+	h.RecordPresence(rec, r)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("presence: %d %s", rec.Code, rec.Body.String())
+	}
+	if svc.presence.EventType != domain.PresenceEnter || svc.presence.IdempotencyKey != "k-2" || svc.presence.RowVersion != 1 || svc.presence.Location.Latitude == nil || *svc.presence.Location.Latitude != 11.01 || svc.presence.Integrity.DeviceID != "dev-1" || svc.presence.CapturedAt.UTC().Hour() != 1 {
+		t.Fatalf("presence params = %+v", svc.presence)
+	}
+	var detail detailPayload
+	if err := json.Unmarshal(rec.Body.Bytes(), &detail); err != nil {
+		t.Fatal(err)
+	}
+	if !detail.Task.InPen || detail.Task.CanCheckIn || !strings.HasPrefix(detail.Task.PresenceLine, "In pen since") {
+		t.Fatalf("after enter = %+v", detail.Task)
+	}
+
+	// Submit: raw answers, typed proof refs, row version.
+	rec = httptest.NewRecorder()
+	r = withActor(httptest.NewRequest(http.MethodPost, path+"/submit", strings.NewReader(`{"answers":{"cleaned":"yes"},"proof_refs":[{"ref":"33333333-3333-4333-8333-333333333333","kind":"photo"}],"row_version":2,"captured_at":"2026-09-16T01:50:00Z"}`)), "u-head")
+	r.Header.Set("Idempotency-Key", "k-3")
+	r.SetPathValue("task_id", svc.task.TaskID)
+	h.Submit(rec, r)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("submit: %d %s", rec.Code, rec.Body.String())
+	}
+	if string(svc.submitted.Answers["cleaned"]) != `"yes"` || len(svc.submitted.Proofs) != 1 || svc.submitted.Proofs[0].Kind != domain.ProofKindPhoto || svc.submitted.RowVersion != 2 || svc.submitted.IdempotencyKey != "k-3" {
+		t.Fatalf("submit params = %+v", svc.submitted)
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &detail); err != nil {
+		t.Fatal(err)
+	}
+	if detail.Task.Status != domain.StatusPendingVerification || detail.Task.StateChip != "In review" || detail.Task.CanSubmit {
+		t.Fatalf("after submit = %+v", detail.Task)
+	}
+
+	// A domain refusal maps to its stable code and farm copy.
+	svc.submitErr = domain.ErrPresenceMissing
+	rec = httptest.NewRecorder()
+	r = withActor(httptest.NewRequest(http.MethodPost, path+"/submit", strings.NewReader(`{"answers":{},"proof_refs":[]}`)), "u-head")
+	r.Header.Set("Idempotency-Key", "k-4")
+	r.SetPathValue("task_id", svc.task.TaskID)
+	h.Submit(rec, r)
+	if rec.Code != http.StatusUnprocessableEntity || !strings.Contains(rec.Body.String(), `"presence_missing"`) || !strings.Contains(rec.Body.String(), "Check in to the pen before submitting.") {
+		t.Fatalf("presence missing: %d %s", rec.Code, rec.Body.String())
+	}
+	// An answer refusal carries WHICH question in farm words.
+	if e := app.HTTPError(domainAnswerErr()); e.Code != "answer_invalid" || !strings.Contains(e.Message, "Was the pen cleaned?") {
+		t.Fatalf("answer error = %+v", e)
+	}
+}
+
+func domainAnswerErr() error {
+	ev := domain.NormalizeEvidence(domain.Evidence{Questions: []domain.Question{{ID: "cleaned", Kind: domain.QuestionYesNo, Title: "Was the pen cleaned?", Required: true}}})
+	_, err := domain.CheckAnswers(ev, map[string]json.RawMessage{})
+	return err
+}
+
+type fakeAuthoring struct {
+	created domain.Definition
+	write   ports.WriteParams
+}
+
+func (f *fakeAuthoring) List(context.Context, string, string) ([]ports.RoutineListRow, []ports.Park, error) {
+	return []ports.RoutineListRow{{Definition: f.created, OpenToday: 2, Delayed: 1}}, []ports.Park{{ParkID: "p1", Name: "Coimbatore"}}, nil
+}
+func (f *fakeAuthoring) Get(context.Context, string, string) (domain.Definition, error) {
+	return f.created, nil
+}
+func (f *fakeAuthoring) Catalog(context.Context, string, string) (app.Catalog, error) {
+	return app.Catalog{Pens: []ports.CatalogPen{{ShedID: "s1", ShedName: "Castro", Partition: "2", Label: "Castro 2", Occupied: true}}, People: []ports.Person{{UserID: "u-head", DisplayName: "Park Head", Designation: "Park Head"}}}, nil
+}
+func (f *fakeAuthoring) Create(_ context.Context, w ports.WriteParams, d domain.Definition) (domain.Definition, error) {
+	f.write = w
+	d.RoutineID = "22222222-2222-4222-8222-222222222222"
+	d.CurrentVersion, d.RowVersion, d.Status = 1, 1, domain.StatusActive
+	d.ParkName = "Coimbatore"
+	f.created = d
+	return d, nil
+}
+func (f *fakeAuthoring) Update(_ context.Context, _ ports.WriteParams, d domain.Definition) (domain.Definition, error) {
+	return d, nil
+}
+func (f *fakeAuthoring) SetStatus(_ context.Context, _ ports.WriteParams, _, status string, _ int) (domain.Definition, error) {
+	d := f.created
+	d.Status = status
+	return d, nil
+}
+func (f *fakeAuthoring) ListTasks(context.Context, ports.ParkListParams) (ports.ParkPage, error) {
+	return ports.ParkPage{Rows: []domain.Task{fixtureTask()}, Summary: ports.ParkSummary{Due: 1}}, nil
+}
+func (f *fakeAuthoring) Today() string { return "2026-09-16" }
+
+// TestAdminRoutesDecodeTheWriteBodyAndRenderBackendLines pins the authoring transport: the
+// create body's defaults (occupied_only true, after_work due offset 1, notify time 07:00 left
+// to the service), the row's backend-composed lines (cadence, evidence, status label), the
+// catalog's vocabularies, and the Today table's assignee names.
+func TestAdminRoutesDecodeTheWriteBodyAndRenderBackendLines(t *testing.T) {
+	svc := &fakeAuthoring{}
+	h := NewAdminHandler(svc, nil)
+
+	rec := httptest.NewRecorder()
+	r := withActor(httptest.NewRequest(http.MethodPost, "/admin/pen-routines", strings.NewReader(`{"park_id":"p1","name":"After deworming","scope_kind":"all_pens","cadence_kind":"after_work","after_work_kinds":["deworming","ticks_removal"],"review_kind":"none","evidence":{"questions":[],"photo":{"min":0,"max":1},"video":{"min":0,"max":0},"presence":"off"},"assignee_user_ids":["u-head"]}`)), "u-ceo")
+	r.Header.Set("Idempotency-Key", "author-1")
+	h.Create(rec, r)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create: %d %s", rec.Code, rec.Body.String())
+	}
+	if svc.write.ActorID != "u-ceo" || svc.write.IdempotencyKey != "author-1" || !svc.created.OccupiedOnly || svc.created.DueOffsetDays != 1 {
+		t.Fatalf("create params = %+v / %+v", svc.write, svc.created)
+	}
+	var detail routineDetailPayload
+	if err := json.Unmarshal(rec.Body.Bytes(), &detail); err != nil {
+		t.Fatal(err)
+	}
+	if detail.Routine.CadenceLine != "The day after deworming or ticks removal" || detail.Routine.EvidenceLine != "up to 1 photo" || detail.Routine.StatusLabel != "Active" || detail.Routine.Pens == nil || detail.Routine.Weekdays == nil {
+		t.Fatalf("routine row = %+v", detail.Routine)
+	}
+	// Missing key on a write.
+	rec = httptest.NewRecorder()
+	r = withActor(httptest.NewRequest(http.MethodPost, "/admin/pen-routines/22222222-2222-4222-8222-222222222222/status", strings.NewReader(`{"status":"paused","row_version":1}`)), "u-ceo")
+	h.SetStatus(rec, r)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status without key: %d", rec.Code)
+	}
+	// Catalog vocabularies carry backend labels.
+	rec = httptest.NewRecorder()
+	h.Catalog(rec, withActor(httptest.NewRequest(http.MethodGet, "/admin/pen-routines/catalog?park_id=p1", nil), "u-ceo"))
+	var cat catalogPayload
+	if err := json.Unmarshal(rec.Body.Bytes(), &cat); err != nil {
+		t.Fatal(err)
+	}
+	if len(cat.WorkKinds) != len(domain.WorkKinds) || cat.WorkKinds[8].Label != "Pen move" || len(cat.QuestionKinds) != 5 || cat.Defaults.NotifyTime != "07:00" || len(cat.Pens) != 1 || cat.Pens[0].Display != "Castro 2" || len(cat.People) != 1 {
+		t.Fatalf("catalog = %+v", cat)
+	}
+	// The Today table carries the step plus assignee names, never ids.
+	rec = httptest.NewRecorder()
+	h.ListTasks(rec, withActor(httptest.NewRequest(http.MethodGet, "/admin/pen-routines/tasks?park_id=p1", nil), "u-ceo"))
+	var tasks taskListPayload
+	if err := json.Unmarshal(rec.Body.Bytes(), &tasks); err != nil {
+		t.Fatal(err)
+	}
+	if len(tasks.Rows) != 1 || tasks.Rows[0].Title != "Pen cleaning · Castro 2 · Coimbatore" || len(tasks.Rows[0].AssigneeNames) != 1 || tasks.Rows[0].AssigneeNames[0] != "Park Head" || tasks.Summary.Due != 1 {
+		t.Fatalf("tasks = %+v", tasks)
+	}
+}
