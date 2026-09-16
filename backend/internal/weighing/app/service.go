@@ -646,7 +646,11 @@ func (s *Service) PlannerCatalog(ctx context.Context, actor domain.Actor, period
 	if catalog.SOP, err = s.publishedRules(ctx, actor.TenantID); err != nil {
 		return domain.PlannerCatalog{}, err
 	}
-	catalog.SOP = s.withEffectiveCutoff(ctx, actor.TenantID, catalog.SOP)
+	// ServedRules: both capture sections filled explicitly and the older phones' video window
+	// derived from the whole-pen slots -- the SAME window the submit judges them on
+	// (Rules.LegacyVideoWindow). Serving the document's raw video_min/video_max let a version
+	// whose slots narrowed the window tell an older phone 1..5 and then refuse its fifth video.
+	catalog.SOP = s.withEffectiveCutoff(ctx, actor.TenantID, catalog.SOP).ServedRules()
 	// The repository has no park filter (it returns the whole tenant's parks), and the role
 	// check above only says the actor may plan SOMEWHERE. Without this a park-scoped planner
 	// got every park in the tenant as a pickable option -- and each option carries that park's
