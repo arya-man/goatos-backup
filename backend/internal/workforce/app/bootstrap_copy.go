@@ -507,6 +507,31 @@ var moduleNavRegistry = map[string]moduleDefinition{ //nav-composition:ignore: t
 			{key: "pen_visits", labelKey: "nav.pen_visits", href: "/pen-visits", shared_key: "", priority: 2, requiredPermission: permissions.PenVisitsExecute}, //nav-composition:ignore: registry entry
 		},
 	},
+	// Pen routines (module_key pen_routines, maintainer instruction 2026-09-16,
+	// docs/decisions/pen-routines.md): the configurable recurring pen checks a park head owes.
+	// Offered on the PERMISSION (permissionOfferedModuleKeys): pen_routines.execute, held by
+	// park_head and the director roles on the job and by anyone ticked Do on Routines from
+	// /people, so a park head and a director both get it and the CXO desk (read + configure,
+	// never execute) does not. ONE bottom-bar item gated on the SAME permission the routes
+	// (/app/pen-routines*) require; "you" so a park head holding this module alone keeps
+	// their profile reachable. Verification registers category pen_routine under this
+	// navigation module, so the standalone verifier's drawer offers a Routines lens.
+	"pen_routines": {
+		key:               "pen_routines",
+		labelKey:          "module.pen_routines",
+		landingHref:       "/pen-routines",        //nav-composition:ignore: registry entry
+		reviewLandingHref: "/verify/pen_routines", //nav-composition:ignore: registry entry
+		status:            moduleStatusAvailable,
+		priority:          8,
+		contributions: []moduleNavContribution{
+			{key: "pen_routines", labelKey: "nav.pen_routines", href: "/pen-routines", shared_key: "", priority: 1, requiredPermission: permissions.PenRoutinesExecute}, //nav-composition:ignore: registry entry
+			{key: "you", labelKey: "nav.you", href: "/you", shared_key: "you", priority: 100},                                                                           //nav-composition:ignore: registry entry
+		},
+		reviewContributions: []moduleNavContribution{
+			{key: "videos", labelKey: "nav.videos", href: "/verify/pen_routines", priority: 1, requiredPermission: permissions.VerificationReview}, //nav-composition:ignore: registry entry
+			{key: "you", labelKey: "nav.you", href: "/you", shared_key: "you", priority: 100},                                                      //nav-composition:ignore: registry entry
+		},
+	},
 	// PC Care (module_key pc_care, maintainer decision 2026-08-21; anti protozoan added
 	// 2026-09-05): planner-assigned deworming / anti protozoan / ticks removal / hoof trimming /
 	// hair trimming, one bottom-bar tab per category — the Feed multi-tab shape. Each category tab is gated on PCCareExecute, the SAME permission its
@@ -1072,6 +1097,13 @@ func permissionOfferedModuleKeys(grants []domain.GrantSummary) []string {
 	if grantsHavePermission(grants, permissions.LeaveApprove) {
 		keys = append(keys, "approvals")
 	}
+	// Pen routines (maintainer instruction 2026-09-16): offered on pen_routines.execute, the
+	// same permission the module's routes require -- a park head or a director on the job, a
+	// person ticked Do on Routines from /people. The CXO desk holds read + configure and is
+	// offered nothing on the phone: it writes the rule on /routines and does not walk pens.
+	if grantsHavePermission(grants, permissions.PenRoutinesExecute) {
+		keys = append(keys, "pen_routines")
+	}
 	return keys
 }
 
@@ -1311,7 +1343,7 @@ func normalizeModuleFeatureKey(key string) string {
 // mode verifier_feed_pages_test.go warns about, one layer up. When a new module ships a
 // verification category, add it HERE in drawer priority order;
 // TestVerifierNoDutyFallbackCoversEveryBuiltVerifiableModule pins the set.
-var builtVerifiableFeatures = []string{"vaccination", "weighing", "counts", "feed_direction", "aas_health", "milk", "pc_care"}
+var builtVerifiableFeatures = []string{"vaccination", "weighing", "counts", "feed_direction", "aas_health", "milk", "pc_care", "pen_routines"}
 
 // verifierFeatureKeys resolves a verifier's grantedModules (from ListGrantedModuleKeys)
 // into the feature keys their per-module [Verify, Alerts] bar is built for.
@@ -1785,6 +1817,8 @@ var bootstrapLabels = map[string]map[string]string{
 		"queue.shifting":          "Shifting",
 		"queue.proof_review":      "Proof review",
 		"module.leadership_tasks": "Tasks",
+		"module.pen_routines":     "Routines",
+		"nav.pen_routines":        "Routines",
 		"module.work_board":       "Work",
 		"nav.leadership_tasks":    "Raised by me",
 		"nav.pen_visits":          "For me",
@@ -1850,6 +1884,8 @@ var bootstrapLabels = map[string]map[string]string{
 		"queue.shifting":          "शिफ्टिंग",
 		"queue.proof_review":      "प्रूफ समीक्षा",
 		"module.leadership_tasks": "कार्य",
+		"module.pen_routines":     "रूटीन",
+		"nav.pen_routines":        "रूटीन",
 		"module.work_board":       "काम",
 		"nav.leadership_tasks":    "मेरे द्वारा उठाए",
 		"nav.pen_visits":          "मेरे लिए",
@@ -1915,6 +1951,8 @@ var bootstrapLabels = map[string]map[string]string{
 		"queue.shifting":          "ಸ್ಥಳಾಂತರ",
 		"queue.proof_review":      "ಪುರಾವೆ ಪರಿಶೀಲನೆ",
 		"module.leadership_tasks": "ಕಾರ್ಯಗಳು",
+		"module.pen_routines":     "ರೂಟೀನ್‌ಗಳು",
+		"nav.pen_routines":        "ರೂಟೀನ್‌ಗಳು",
 		"module.work_board":       "ಕೆಲಸ",
 		"nav.leadership_tasks":    "ನಾನು ಎತ್ತಿದವು",
 		"nav.pen_visits":          "ನನಗಾಗಿ",
@@ -1980,6 +2018,8 @@ var bootstrapLabels = map[string]map[string]string{
 		"queue.shifting":          "షిఫ్టింగ్",
 		"queue.proof_review":      "ప్రూఫ్ సమీక్ష",
 		"module.leadership_tasks": "పనులు",
+		"module.pen_routines":     "రొటీన్లు",
+		"nav.pen_routines":        "రొటీన్లు",
 		"module.work_board":       "పని",
 		"nav.leadership_tasks":    "నేను లేవనెత్తినవి",
 		"nav.pen_visits":          "నా కోసం",
@@ -2126,6 +2166,10 @@ func verificationCategoryForFeature(normalizedFeatureKey string) string {
 		// switch already records for counts, one module over. The queue's own page filter offers
 		// Milk Feeding beside this landing page.
 		return "milk_preparation"
+	case "pen_routines":
+		// NOT "pen_routines_proof" -- no such category. Routines registers the ONE category
+		// pen_routine (verificationcatalog.PenRoutine); the verifier's Routines tab lands on it.
+		return "pen_routine"
 	default:
 		return normalizedFeatureKey + "_proof"
 	}

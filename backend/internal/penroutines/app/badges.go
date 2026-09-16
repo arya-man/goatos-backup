@@ -10,20 +10,43 @@ const (
 	ListHref  = "/pen-routines"
 )
 
-// ModuleBadges answers the Routines module badge and its list-item badge for one person.
+// BadgeSource is the shape workforce/app.ModuleBadgeSource asks for; the badge chain below
+// wraps whichever source was registered before this module (the pen-visit / Tasks one).
+type BadgeSource interface {
+	ModuleBadgeCounts(ctx context.Context, tenantID, userID string, moduleKeys []string) (map[string]int, error)
+}
+
+// NavItemBadgeSource is the per-tab half (workforce/app.NavItemBadgeSource).
+type NavItemBadgeSource interface {
+	NavItemBadgeCounts(ctx context.Context, tenantID, userID string, hrefs []string) (map[string]int, error)
+}
+
+// ModuleBadges answers the Routines module badge and its list-item badge for one person,
+// delegating every other key to the inner source so ONE badge source serves the workforce
+// service.
 type ModuleBadges struct {
+	inner    BadgeSource
 	routines *Service
 }
 
-// NewModuleBadges composes the badge over the service.
-func NewModuleBadges(routines *Service) *ModuleBadges {
-	return &ModuleBadges{routines: routines}
+// NewModuleBadges composes the badge over the inner source and this service.
+func NewModuleBadges(inner BadgeSource, routines *Service) *ModuleBadges {
+	return &ModuleBadges{inner: inner, routines: routines}
 }
 
 // ModuleBadgeCounts implements workforce/app.ModuleBadgeSource.
 func (b *ModuleBadges) ModuleBadgeCounts(ctx context.Context, tenantID, userID string, moduleKeys []string) (map[string]int, error) {
 	out := map[string]int{}
-	if b == nil || b.routines == nil || !contains(moduleKeys, ModuleKey) {
+	if b.inner != nil {
+		counts, err := b.inner.ModuleBadgeCounts(ctx, tenantID, userID, moduleKeys)
+		if err != nil {
+			return nil, err
+		}
+		for k, v := range counts {
+			out[k] = v
+		}
+	}
+	if b.routines == nil || !contains(moduleKeys, ModuleKey) {
 		return out, nil
 	}
 	n, err := b.routines.OpenCount(ctx, tenantID, userID)
@@ -39,7 +62,16 @@ func (b *ModuleBadges) ModuleBadgeCounts(ctx context.Context, tenantID, userID s
 // NavItemBadgeCounts implements workforce/app.NavItemBadgeSource.
 func (b *ModuleBadges) NavItemBadgeCounts(ctx context.Context, tenantID, userID string, hrefs []string) (map[string]int, error) {
 	out := map[string]int{}
-	if b == nil || b.routines == nil || !contains(hrefs, ListHref) {
+	if inner, ok := b.inner.(NavItemBadgeSource); ok && inner != nil {
+		counts, err := inner.NavItemBadgeCounts(ctx, tenantID, userID, hrefs)
+		if err != nil {
+			return nil, err
+		}
+		for k, v := range counts {
+			out[k] = v
+		}
+	}
+	if b.routines == nil || !contains(hrefs, ListHref) {
 		return out, nil
 	}
 	n, err := b.routines.OpenCount(ctx, tenantID, userID)
