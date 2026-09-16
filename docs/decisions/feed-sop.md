@@ -3,7 +3,7 @@
 Status: accepted and implemented · Owner: feeddirection + feedsop + sop + adminui + admin-web + Android
 Machine enforcement: `make feed-proof-collaboration-guard` (mode 1, the slot-list model) plus the
 golden tests `backend/internal/feeddirection/domain/sop_test.go` (the seeded cards ARE the pre-SOP
-behaviour) and `sop_migration_test.go` (migration 000318 embeds the seeds verbatim).
+behaviour) and `sop_migration_test.go` (migration 000320 embeds the seeds verbatim).
 
 ## Decision
 
@@ -56,7 +56,7 @@ whatever we update here they should see, it should not be again a new deployment
   byte: distribution = feed weight PHOTO + feed VIDEO + water VIDEO (slot keys are the proof
   register field_keys the phone has always stamped: `feed_distribution_feed_weight_photo`,
   `feed_distribution_video`, `feed_distribution_water_video`); packing = `feed_packing_video`;
-  transport = `feed_transport_video`; wastage = `feed_wastage_video`. Migration `000318` adds the
+  transport = `feed_transport_video`; wastage = `feed_wastage_video`. Migration `000320` adds the
   section IN PLACE to each tenant's currently published version (the 000308 / 000315 shape) and
   embeds the seeds verbatim.
 - **Versioning and the pin.** A sheet is stamped at ISSUE with the published distribution card
@@ -69,7 +69,7 @@ whatever we update here they should see, it should not be again a new deployment
   farm never published is refused by name on the write paths (`409 feed_sop_version_unknown`) and
   rendered with the seeded card on the read paths so today's work is still doable.
 - **Evidence.** Every completion row stores `sop_proofs {slot key: proof ref}` + `sop_answers`
-  (migration 000318, backfilled from the legacy columns). The legacy single-proof columns mirror
+  (migration 000320, backfilled from the legacy columns). The legacy single-proof columns mirror
   the seeded slots (blank when the card dropped that slot; the CHECKs now require a non-empty
   `sop_proofs`, not the legacy columns). The submit is judged slot by slot against the pinned
   card: a compulsory slot missing, an unknown slot, one proof naming two slots, or the wrong
