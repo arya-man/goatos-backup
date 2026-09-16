@@ -1189,6 +1189,9 @@ scoped AS (
     SELECT k.feed_day,
            k.park_id,
            COALESCE(lp.name, e.park_label, '')                    AS park_label,
+           -- Park ORDER is the park CODE (CBE, then CPT), never the full name: "Channapatna"
+           -- sorts ahead of "Coimbatore" and put CPT first on every All-parks read.
+           COALESCE(NULLIF(lp.location_code, ''), lp.name, e.park_label, '') AS park_sort,
            k.shed_id,
            COALESCE(ls.name, e.shed_label, '')                    AS shed_label,
            COALESCE(e.partition_label, d.partition_label, '')     AS partition_label,
@@ -1245,7 +1248,7 @@ SELECT feed_day::text, park_id::text, park_label, shed_id::text, shed_label, par
        submitted_at, verified_at, submitted_by_name, verified_by_name
 FROM bucketed
 WHERE ($6 = '' OR status = $6)
-ORDER BY park_label, shed_label, partition_label, session_no, workflow
+ORDER BY park_sort, park_label, shed_label, partition_label, session_no, workflow
 LIMIT $7 OFFSET $8`
 
 // distributionCompletionTotalsSQL counts the whole day at the selected PLACE scope, deliberately
@@ -1258,9 +1261,10 @@ SELECT status, count(*) FROM bucketed GROUP BY status`
 // its own current value cannot be widened back, so the reader would be stuck on the farm they
 // picked.
 const distributionCompletionOptionsSQL = distributionCompletionScopeSQL + `
-SELECT DISTINCT park_id::text, park_label, shed_id::text, shed_label
+SELECT park_id::text, park_label, shed_id::text, shed_label
 FROM bucketed
-ORDER BY park_label, shed_label`
+GROUP BY park_id, park_label, park_sort, shed_id, shed_label
+ORDER BY park_sort, park_label, shed_label`
 
 // ---------------------------------------------------------------------------
 // Experiment analytics
@@ -1298,7 +1302,7 @@ ORDER BY i.feed_day, r.feed_item_key`
 // 1:1 to completions, canonical-indexed-SQL default.
 const experimentWastagePensSQL = `
 WITH iss AS (
-    SELECT feed_direction_issue_id
+    SELECT feed_direction_issue_id, park_id
     FROM feed_direction_issues
     WHERE tenant_id = $1
       AND (coalesce(cardinality($2::uuid[]), 0) = 0 OR park_id = ANY ($2::uuid[]))
@@ -1308,6 +1312,7 @@ WITH iss AS (
 ),
 pen AS (
     SELECT r.shed_id, r.partition_key,
+           MAX(i.park_id::text)                           AS park_id,
            MAX(r.park_label)                              AS park_label,
            MAX(r.shed_label)                              AS shed_label,
            MAX(COALESCE(r.partition_label, ''))           AS partition_label
@@ -1331,7 +1336,9 @@ LEFT JOIN feed_wastage_completions c
  AND c.target_date = $3
  AND c.workflow = 'experiment'
  AND (coalesce(cardinality($2::uuid[]), 0) = 0 OR c.park_id = ANY ($2::uuid[]))
-ORDER BY p.park_label, p.shed_label, p.partition_key`
+LEFT JOIN locations lp ON lp.tenant_id = $1 AND lp.location_id = p.park_id::uuid
+-- Parks in CODE order (CBE, then CPT); the full name would put Channapatna first.
+ORDER BY COALESCE(NULLIF(lp.location_code, ''), p.park_label), p.park_label, p.shed_label, p.partition_key`
 
 // ExperimentAnalytics serves the trial arms' authored kg series.
 func (r *Repository) ExperimentAnalytics(ctx context.Context, tenantID string, q domain.DirectedAnalyticsQuery) (domain.ExperimentAnalytics, error) {
@@ -2683,7 +2690,9 @@ SELECT p.park_id::text, p.park_label, p.shed_id::text, p.shed_label, p.partition
 FROM pens p
 LEFT JOIN pen_days pd
   ON pd.park_id = p.park_id AND pd.shed_id = p.shed_id AND pd.partition_key = p.partition_key
-ORDER BY p.park_label, p.shed_label, p.partition_key`
+LEFT JOIN locations lp ON lp.tenant_id = $1 AND lp.location_id = p.park_id
+-- Parks in CODE order (CBE, then CPT); the full name would put Channapatna first.
+ORDER BY COALESCE(NULLIF(lp.location_code, ''), p.park_label), p.park_label, p.shed_label, p.partition_key`
 
 // shedFeedItemWire matches the jsonb_build_object keys above; built by this
 // file's own SQL, so unknown keys cannot occur.

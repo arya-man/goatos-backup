@@ -21,6 +21,7 @@ import {
   type ShedWeightsRow,
 } from "@/lib/api/server";
 import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
+import { byParkThen, parkRank } from "@/lib/park-order";
 import { one, type RouteSearchParams } from "@/lib/search-params";
 // The landing window is SHARED with /weighing/analytics so the two screens can never disagree
 // about which weighing period they are describing. See landing-window.ts for why it is one module.
@@ -193,9 +194,14 @@ function shedLabelWithComposition(
  * — the contract requires `park_name` on both series specifically so they name a
  * park identically. Parks are unique by name within a tenant (unlike sheds, 39 of
  * which exist in both parks), so name-grouping cannot merge two parks here.
+ *
+ * Columns run in `parkOrder` — the page's backend-served park vocabulary, CBE then
+ * CPT — never alphabetically: the labels here are park codes, which happen to sort
+ * that way, but the order is a decision, not a spelling.
  */
 function shedChartColumns(
   rows: readonly ShedChartBar[],
+  parkOrder: readonly string[],
 ): { heading: string; rows: ShedChartBar[] }[] {
   const byPark = new Map<string, ShedChartBar[]>();
   for (const row of rows) {
@@ -203,9 +209,10 @@ function shedChartColumns(
     if (list) list.push(row);
     else byPark.set(row.park_name, [row]);
   }
-  // Sorted so the column order is stable across reloads and metric toggles — Map
+  // Ranked so the column order is stable across reloads and metric toggles — Map
   // order would follow whichever park happens to hold the fastest pen today.
-  const parkNames = [...byPark.keys()].sort();
+  const rank = parkRank(parkOrder);
+  const parkNames = [...byPark.keys()].sort((a, b) => rank(a) - rank(b));
   if (parkNames.length >= 2) {
     return parkNames.map((name) => ({ heading: name, rows: byPark.get(name) as ShedChartBar[] }));
   }
@@ -319,6 +326,11 @@ export async function WeighingWeightsPage({
     period_start: periodStart,
     period_end: periodEnd,
   } = weights.data;
+
+  // The park order every park-grouped chart and table on this page uses: the backend serves
+  // the vocabulary CBE-first, then CPT (maintainer decision 2026-09-16), labelled with the same
+  // code the rows carry in `park_name`. Two clusters, never interleaved.
+  const parkOrder = parks.map((park) => park.name);
 
   // The backend owns the mode filter for every aggregate. This defensive row narrowing keeps the
   // bounded table aligned if an older backend ever returns a broader row set.
@@ -483,10 +495,15 @@ export async function WeighingWeightsPage({
         ...modeBarTag(row, pageContract),
       };
     })
-    // Sorted on the PEN NAME, not the composed label: the two agree today because the
-    // composition trails the name, but a label-keyed sort makes the table's A→Z order depend on
-    // a string the table no longer shows. `numeric` keeps "Castro 2" ahead of "Castro 10".
-    .sort((a, b) => a.shedName.localeCompare(b.shedName, undefined, { numeric: true }));
+    // Clustered by park first (CBE, then CPT), then sorted on the PEN NAME, not the composed
+    // label: the two agree today because the composition trails the name, but a label-keyed
+    // sort makes the table's A→Z order depend on a string the table no longer shows. `numeric`
+    // keeps "Castro 2" ahead of "Castro 10".
+    .sort(
+      byParkThen(parkOrder, (row) => row.park_name, (a, b) =>
+        a.shedName.localeCompare(b.shedName, undefined, { numeric: true }),
+      ),
+    );
   // The headline is the backend's park-level same-animal median. Do not average
   // shed medians here: the median of medians is not the herd median and produced
   // a visible 38 g card while the API/SQL truth was 120.8 g.
@@ -569,11 +586,13 @@ export async function WeighingWeightsPage({
   // two different measures on one axis, which is how "Castro 1 · 34.4 kg" came to sit in a
   // daily-gain chart. They are not plotted here at all now. Nothing is lost — the Weight view
   // shows every one of them, which is where a weight in kg belongs.
-  // Alphabetical by shed/pen, not ranked by gain (maintainer decision 2026-08-22): every park
-  // column keeps the same stable A→Z order so an operator can find a specific pen by name.
-  // `numeric` keeps "Castro 2" ahead of "Castro 10".
+  // Clustered by park (CBE, then CPT), then alphabetical by shed/pen, not ranked by gain
+  // (maintainer decision 2026-08-22): every park column keeps the same stable A→Z order so an
+  // operator can find a specific pen by name. `numeric` keeps "Castro 2" ahead of "Castro 10".
   const gainChartData = [...perAnimalGainRows, ...shedAverageGainRows].sort(
-    (a, b) => a.shedName.localeCompare(b.shedName, undefined, { numeric: true }),
+    byParkThen(parkOrder, (row) => row.park_name, (a, b) =>
+      a.shedName.localeCompare(b.shedName, undefined, { numeric: true }),
+    ),
   );
 
   const hasAnyData = summary.animals_weighed > 0;
@@ -584,7 +603,7 @@ export async function WeighingWeightsPage({
   const shedSeries = {
     adg: {
       data: gainChartData,
-      columns: shedChartColumns(gainChartData),
+      columns: shedChartColumns(gainChartData, parkOrder),
       domain: {
         lo: Math.min(0, ...gainChartData.map((bar) => bar.value)),
         hi: Math.max(0, ...gainChartData.map((bar) => bar.value)),
@@ -597,7 +616,7 @@ export async function WeighingWeightsPage({
     },
     weight: {
       data: chartData,
-      columns: shedChartColumns(chartData),
+      columns: shedChartColumns(chartData, parkOrder),
       domain: {
         lo: Math.min(0, ...chartData.map((bar) => bar.value)),
         hi: Math.max(0, ...chartData.map((bar) => bar.value)),
@@ -637,9 +656,24 @@ export async function WeighingWeightsPage({
   // discounted on sight.
   const byLoad = weights.ok ? weights.data.by_load : [];
   const loadUnattributed = weights.ok ? weights.data.load_unattributed_sheds : 0;
+  // A load's park cluster, for the same CBE-then-CPT clustering the shed chart uses. A load
+  // is placed into pens, and the pens name the park; a load split across both parks (a real
+  // shape) files under the FIRST park it sits in, and a load with no placement at all goes
+  // last — it cannot say where it is, so it must not sit inside either cluster.
+  const loadPark = (load: (typeof byLoad)[number]): string => {
+    const rank = parkRank(parkOrder);
+    let best = "";
+    for (const placement of load.placements ?? []) {
+      if (placement.park_name && (best === "" || rank(placement.park_name) < rank(best))) {
+        best = placement.park_name;
+      }
+    }
+    return best;
+  };
+  const loadOrder = [...parkOrder, ""];
   const loadWeightBars = byLoad
     .slice()
-    .sort((a, b) => b.average_weight_kg - a.average_weight_kg)
+    .sort(byParkThen(loadOrder, loadPark, (a, b) => b.average_weight_kg - a.average_weight_kg))
     .map((load) => ({
       key: load.load_ref,
       label: load.owner_name ? `${load.load_ref} · ${load.owner_name}` : load.load_ref,
@@ -647,15 +681,17 @@ export async function WeighingWeightsPage({
     }));
   const loadGainBars = byLoad
     .filter((load) => load.gain_g_per_day != null)
+    .sort(byParkThen(loadOrder, loadPark))
     .map((load) => ({
       key: load.load_ref,
       label: `${load.owner_name ? `${load.load_ref} · ${load.owner_name}` : load.load_ref} (${load.gain_span_days ?? 0}d)`,
       value: Math.round(load.gain_g_per_day as number),
     }));
 
-  // WHERE each load sits. Ordered by head count so the biggest placement reads first —
-  // the load chart's own order changes with the metric toggle, and a table that
-  // reshuffled underneath it would be harder to read, not easier.
+  // WHERE each load sits. Clustered by park like the chart above (CBE, then CPT), then
+  // ordered by head count so the biggest placement reads first — the load chart's own order
+  // changes with the metric toggle, and a table that reshuffled underneath it would be
+  // harder to read, not easier.
   //
   // The park chips are the DISTINCT parks across the load's sheds: a load bought once
   // and split across two parks is a real shape, and naming only the first would be a
@@ -675,9 +711,10 @@ export async function WeighingWeightsPage({
           label: `${p.operational_location_display} · ${p.animals.toLocaleString("en-IN")}`,
         })),
         animals: load.animals,
+        park: loadPark(load),
       };
     })
-    .sort((a, b) => b.animals - a.animals);
+    .sort(byParkThen(loadOrder, (row) => row.park, (a, b) => b.animals - a.animals));
 
   // Row 2b — how many kids of each breed fall into each daily gain band.
   //

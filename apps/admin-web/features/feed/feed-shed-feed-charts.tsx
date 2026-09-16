@@ -1,3 +1,4 @@
+import { byParkThen, parksInArrivalOrder } from "@/lib/park-order";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { FeedAnalyticsShedFeedResponse } from "@/lib/api/server";
 import { FeedFilters, type FeedFilterField } from "./feed-filters";
@@ -70,13 +71,18 @@ export function FeedShedFeedCharts({
   const fc = (key: string) => copy(pageContract, key);
   const rows = data.rows ?? [];
 
-  const parkOptions = dedupe(rows.map((row) => ({ value: row.park_id, label: row.park_label })));
+  // Farms in the order the backend served the rows — park CODE order, CBE then CPT
+  // (maintainer decision 2026-09-16) — never sorted by label, which put Channapatna first.
+  const parkOrder = parksInArrivalOrder(rows, (row) => row.park_label);
+  const parkOptions = dedupe(rows.map((row) => ({ value: row.park_id, label: row.park_label })), parkOrder);
   // Pen-name options follow the farm selection, keyed by shed_id never by name
   // (Castro, Gandhi, Yashoda exist in BOTH farms); a label shared across farms
-  // carries its farm so the dropdown never prints the same word twice.
+  // carries its farm so the dropdown never prints the same word twice. Under All farms
+  // the list is two clusters, CBE's pens then CPT's, each A→Z.
   const inFarm = rows.filter((row) => filters.park === "" || row.park_id === filters.park);
   const shedOptions = disambiguateByPark(
     inFarm.map((row) => ({ value: row.shed_id, label: row.shed_label, park: row.park_label })),
+    parkOrder,
   );
   // A pen name is always chosen: the section draws ONE name's pens. With none
   // picked (or a pick the farm change invalidated) it opens on the first name.
@@ -186,9 +192,11 @@ export function FeedShedFeedCharts({
  *
  * Dedupe is by shed_id (two farms really do own a shed called Castro); the label pass is what
  * stops the dropdown from showing the same word twice with no way to choose between them.
+ * Clustered by farm in `parkOrder`, A→Z inside each farm.
  */
 function disambiguateByPark(
   options: { value: string; label: string; park: string }[],
+  parkOrder: readonly string[],
 ): { value: string; label: string }[] {
   const byId = new Map<string, { label: string; park: string }>();
   for (const option of options) {
@@ -203,18 +211,23 @@ function disambiguateByPark(
   return [...byId.entries()]
     .map(([value, { label, park }]) => ({
       value,
+      park,
       label: (labelCounts.get(label) ?? 0) > 1 ? `${label} · ${park}` : label,
     }))
-    .sort((a, b) => a.label.localeCompare(b.label));
+    .sort(byParkThen(parkOrder, (option) => option.park, (a, b) => a.label.localeCompare(b.label)))
+    .map(({ value, label }) => ({ value, label }));
 }
 
-/** First label wins per value, sorted for a stable dropdown. */
-function dedupe(options: { value: string; label: string }[]): { value: string; label: string }[] {
+/** First label wins per value, in `parkOrder` (the served farm order) for a stable dropdown. */
+function dedupe(
+  options: { value: string; label: string }[],
+  parkOrder: readonly string[],
+): { value: string; label: string }[] {
   const seen = new Map<string, string>();
   for (const option of options) {
     if (option.value !== "" && !seen.has(option.value)) seen.set(option.value, option.label);
   }
   return [...seen.entries()]
     .map(([value, label]) => ({ value, label }))
-    .sort((a, b) => a.label.localeCompare(b.label));
+    .sort(byParkThen(parkOrder, (option) => option.label));
 }

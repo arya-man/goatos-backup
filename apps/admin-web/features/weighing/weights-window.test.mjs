@@ -311,10 +311,17 @@ test("both shed-chart metrics use ONE order, so the toggle only changes the bars
   // so keying the order off the label would tie A→Z to a string the table no longer prints.
   // Counted, not matched once: the two call sites are formatted differently (one wraps),
   // so this asserts BOTH series carry the same comparator rather than that one exists.
+  //
+  // Since 2026-09-16 the A→Z runs INSIDE a park cluster: rows are grouped CBE first, then
+  // CPT, in the order the backend served the page's park vocabulary (`parkOrder`), and the
+  // pen-name comparator is the within-cluster tie-break on both series.
   const alphabetical = /a\.shedName\.localeCompare\(b\.shedName, undefined, \{ numeric: true \}\)/g;
   assert.equal((source.match(alphabetical) ?? []).length, 2, "both chart series must sort A→Z by shed name");
+  const clustered = /byParkThen\(parkOrder, \(row\) => row\.park_name, \(a, b\) =>\s*a\.shedName\.localeCompare/g;
+  assert.equal((source.match(clustered) ?? []).length, 2, "both chart series must cluster by the served park order first");
+  assert.match(source, /const parkOrder = parks\.map\(\(park\) => park\.name\)/);
   assert.match(source, /const gainChartData = \[[\s\S]{0,120}\.sort\(/);
-  assert.match(source, /const chartData = visibleRows[\s\S]{0,1800}\.sort\(\(a, b\) => a\.shedName\.localeCompare/);
+  assert.match(source, /const chartData = visibleRows[\s\S]{0,1800}\.sort\(\s*byParkThen\(parkOrder/);
   // The weight ranking must not come back: it is the specific behaviour being replaced.
   assert.doesNotMatch(source, /sort\(\(a, b\) => b\.average_weight_kg - a\.average_weight_kg\)[\s\S]{0,400}chartData/);
 });

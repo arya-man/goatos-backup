@@ -1,3 +1,4 @@
+import { byParkThen, parksInArrivalOrder } from "@/lib/park-order";
 import { LocalOverlayLink } from "@/components/local-overlay-link";
 import { LocalOverlayDrawer, type LocalOverlayDrawerItem } from "@/components/local-overlay-drawer";
 import { Tag, type Tone } from "@/components/ui-primitives";
@@ -119,7 +120,10 @@ export function FeedCompletionTable({
   const dayHasRows =
     totals.not_started + totals.pending_verification + totals.rework + totals.completed > 0;
 
-  const parkOptions = dedupe(options.map((o) => ({ value: o.park_id, label: o.park_label })));
+  // Farms in the order the backend served them — park CODE order, CBE then CPT (maintainer
+  // decision 2026-09-16) — never sorted by label, which put Channapatna first.
+  const parkOrder = parksInArrivalOrder(options, (o) => o.park_label);
+  const parkOptions = dedupe(options.map((o) => ({ value: o.park_id, label: o.park_label })), parkOrder);
   // Shed options follow the park selection, because a shed list spanning both farms offers sheds the
   // current filter can never show. Keyed by shed_id, never by name: Castro, Gandhi, Godel 1, Mandela
   // 1/2 and Yashoda each exist in BOTH farms, so name-keying would merge two real sheds into one
@@ -128,6 +132,7 @@ export function FeedCompletionTable({
   // so a label shared by more than one shed carries its farm and a unique one stays clean.
   const shedOptions = disambiguateByPark(
     options.filter((o) => filters.park === "" || o.park_id === filters.park),
+    parkOrder,
   );
 
   const fields: FeedFilterField[] = [
@@ -406,20 +411,27 @@ function hrefWith(
   return query ? `${basePath}?${query}` : basePath;
 }
 
-/** First label wins per value, sorted for a stable dropdown. */
-function dedupe(options: { value: string; label: string }[]): { value: string; label: string }[] {
+/** First label wins per value, in `parkOrder` (the served farm order) for a stable dropdown. */
+function dedupe(
+  options: { value: string; label: string }[],
+  parkOrder: readonly string[],
+): { value: string; label: string }[] {
   const seen = new Map<string, string>();
   for (const option of options) {
     if (option.value !== "" && !seen.has(option.value)) seen.set(option.value, option.label);
   }
   return [...seen.entries()]
     .map(([value, label]) => ({ value, label }))
-    .sort((a, b) => a.label.localeCompare(b.label));
+    .sort(byParkThen(parkOrder, (option) => option.label));
 }
 
-/** Shed options, with the farm appended ONLY to labels that would otherwise appear twice. */
+/**
+ * Shed options, with the farm appended ONLY to labels that would otherwise appear twice.
+ * Clustered by farm in `parkOrder` (CBE, then CPT), A→Z inside each farm.
+ */
 function disambiguateByPark(
   options: { park_id: string; park_label: string; shed_id: string; shed_label: string }[],
+  parkOrder: readonly string[],
 ): { value: string; label: string }[] {
   const byId = new Map<string, { label: string; park: string }>();
   for (const option of options) {
@@ -434,7 +446,9 @@ function disambiguateByPark(
   return [...byId.entries()]
     .map(([value, { label, park }]) => ({
       value,
+      park,
       label: (labelCounts.get(label) ?? 0) > 1 ? `${label} · ${park}` : label,
     }))
-    .sort((a, b) => a.label.localeCompare(b.label));
+    .sort(byParkThen(parkOrder, (option) => option.park, (a, b) => a.label.localeCompare(b.label)))
+    .map(({ value, label }) => ({ value, label }));
 }

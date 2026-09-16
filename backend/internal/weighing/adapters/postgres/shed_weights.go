@@ -589,11 +589,15 @@ LIMIT $7`
 		// here rather than from ListParks because that helper is shared with the mobile
 		// planner and returns the full name; the two would then disagree on screen, with
 		// the dropdown saying "Coimbatore" and every row saying "CBE".
+		//
+		// Ordered by the CODE the rows are labelled with, so this list is the page's park order
+		// (CBE, then CPT) and the charts group their park columns by it. Ordering on the full
+		// name put "Channapatna" (CPT) ahead of "Coimbatore" (CBE).
 		parkRows, err := r.pool.Query(ctx, `
 SELECT location_id::text, COALESCE(NULLIF(location_code, ''), name, '')
 FROM locations
 WHERE tenant_id = $1::uuid AND location_id = ANY($2::uuid[])
-ORDER BY display_order, name, location_id`, tenantID, scopeParkIDs)
+ORDER BY display_order, COALESCE(NULLIF(location_code, ''), name, ''), name, location_id`, tenantID, scopeParkIDs)
 		if err != nil {
 			setFollowErr(err)
 			return

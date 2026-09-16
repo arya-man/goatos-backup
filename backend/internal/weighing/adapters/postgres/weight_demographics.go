@@ -192,7 +192,9 @@ func weightDemographicsPruneInactiveSectionSelects(query string, sections map[st
 	replaceInactive(sections["shed_type"],
 		`CASE WHEN $22::bool THEN (SELECT COALESCE(jsonb_agg(jsonb_build_array(m.label, m.shed_type, m.location_id, m.partition_label, loc.name,
                                                COALESCE(park.location_id::text, ''), COALESCE(park.name, ''))
-                             ORDER BY m.label, m.shed_type, COALESCE(park.name, ''), loc.name, m.partition_label), '[]'::jsonb)
+                             -- Parks in CODE order (CBE, then CPT): the heading shows the full name, but
+                             -- ordering on it put "Channapatna" ahead of "Coimbatore" on every hint.
+                             ORDER BY m.label, m.shed_type, COALESCE(NULLIF(park.location_code, ''), park.name, ''), loc.name, m.partition_label), '[]'::jsonb)
      FROM (
        SELECT DISTINCT rg.breed AS label, st.shed_type, st.location_id, st.partition_label
        FROM resolved_gain rg
@@ -1103,7 +1105,9 @@ SELECT
   -- Pinned by TestShedTypeMembersPerBreedOneToManyAliasRowsPageBoundaryParkScopeAndContributionOnly.
   CASE WHEN $22::bool THEN (SELECT COALESCE(jsonb_agg(jsonb_build_array(m.label, m.shed_type, m.location_id, m.partition_label, loc.name,
                                                COALESCE(park.location_id::text, ''), COALESCE(park.name, ''))
-                             ORDER BY m.label, m.shed_type, COALESCE(park.name, ''), loc.name, m.partition_label), '[]'::jsonb)
+                             -- Parks in CODE order (CBE, then CPT): the heading shows the full name, but
+                             -- ordering on it put "Channapatna" ahead of "Coimbatore" on every hint.
+                             ORDER BY m.label, m.shed_type, COALESCE(NULLIF(park.location_code, ''), park.name, ''), loc.name, m.partition_label), '[]'::jsonb)
      FROM (
        SELECT DISTINCT rg.breed AS label, st.shed_type, st.location_id, st.partition_label
        FROM resolved_gain rg
@@ -2003,6 +2007,10 @@ func decodeShedTypeMembers(raw []byte) ([]domain.ShedTypeMember, error) {
 		return nil, err
 	}
 	seen := map[string]bool{}
+	// PARK ORDER IS THE SQL'S, which sorts parks by CODE (CBE, then CPT). The re-sort below must
+	// not undo that by comparing the full name -- "Channapatna" (CPT) sorts ahead of "Coimbatore"
+	// (CBE) -- so each park is ranked by where it FIRST appears in the served rows.
+	parkRank := map[string]int{}
 	for _, row := range rows {
 		if len(row) != 7 {
 			continue
@@ -2028,6 +2036,9 @@ func decodeShedTypeMembers(raw []byte) ([]domain.ShedTypeMember, error) {
 		// lists it without a park heading rather than filing it under someone else's park.
 		_ = json.Unmarshal(row[5], &parkID)
 		_ = json.Unmarshal(row[6], &parkName)
+		if _, ok := parkRank[parkName]; !ok {
+			parkRank[parkName] = len(parkRank)
+		}
 		display := shedName
 		if partitionLabel != "" && !strings.HasSuffix(shedName, partitionLabel) {
 			display = (oploc.OperationalLocation{
@@ -2076,7 +2087,7 @@ func decodeShedTypeMembers(raw []byte) ([]domain.ShedTypeMember, error) {
 			return out[i].ShedType < out[j].ShedType
 		}
 		if out[i].ParkName != out[j].ParkName {
-			return out[i].ParkName < out[j].ParkName
+			return parkRank[out[i].ParkName] < parkRank[out[j].ParkName]
 		}
 		return naturalLess(out[i].OperationalLocationDisplay, out[j].OperationalLocationDisplay)
 	})
