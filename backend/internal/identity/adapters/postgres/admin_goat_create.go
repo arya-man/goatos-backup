@@ -87,6 +87,19 @@ func (r *Repository) ValidateAdminGoatCreate(ctx context.Context, cmd ports.Vali
 	if _, replay, err := r.completedAdminGoatCreateReplayTarget(ctx, cmd.StoredIdempotencyKey, cmd.RequestHash); err != nil {
 		return out, err
 	} else if replay {
+		// A completed create short-circuits every check -- EXCEPT the birth mother. The birth
+		// handler canonicalises dam_id from the prepared mother to rebuild the byte-identical
+		// request fingerprint, so a replay that resolved no mother answered 400 mother_not_found
+		// to the phone's retry of a birth that was recorded (E2E 2026-09-17). Read-only.
+		if cmd.BirthDamRef != nil {
+			damGoatID, err := r.resolveBirthMother(ctx, cmd.TenantID, *cmd.BirthDamRef, cmd.Species)
+			if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+				return out, err
+			}
+			if err == nil {
+				out.DamGoatID = &damGoatID
+			}
+		}
 		return out, nil
 	}
 

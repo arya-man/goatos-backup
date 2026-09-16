@@ -286,13 +286,16 @@ func (r *Repository) GoatWorkflowFacts(ctx context.Context, tenantID, goatID str
 		shedID      *string
 	)
 	err := r.pool.QueryRow(ctx, `
-SELECT goat_id::text, display_id, species, sex, COALESCE(breed, ''),
-       dob, to_char(time_of_birth, 'HH24:MI'), lifecycle_status,
-       park_id::text, shed_id::text
-FROM goats
-WHERE tenant_id = $1::uuid AND goat_id = $2::uuid`, tenantID, goatID).Scan(
+SELECT g.goat_id::text, g.display_id, g.species, g.sex, COALESCE(g.breed, ''),
+       g.dob, to_char(g.time_of_birth, 'HH24:MI'), g.lifecycle_status,
+       g.park_id::text, g.shed_id::text,
+       COALESCE(CASE WHEN gsp.shed_id = g.shed_id AND lower(btrim(gsp.partition_label)) <> 'whole'
+                     THEN btrim(gsp.partition_label) END, '')
+FROM goats g
+LEFT JOIN goat_shed_partitions gsp ON gsp.tenant_id = g.tenant_id AND gsp.goat_id = g.goat_id
+WHERE g.tenant_id = $1::uuid AND g.goat_id = $2::uuid`, tenantID, goatID).Scan(
 		&out.GoatID, &out.DisplayID, &out.Species, &out.Sex, &out.Breed,
-		&dob, &timeOfBirth, &out.LifecycleStatus, &parkID, &shedID,
+		&dob, &timeOfBirth, &out.LifecycleStatus, &parkID, &shedID, &out.PartitionLabel,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ports.GoatWorkflowFacts{}, domain.ErrNotFound
@@ -1224,17 +1227,24 @@ func (r *Repository) CancelDeathWorkflowForGoat(ctx context.Context, tenantID, g
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	var workflowID string
+	var workflowID, lifecycle string
 	err = tx.QueryRow(ctx, `
-SELECT workflow_id::text
-FROM workflow_instances
-WHERE tenant_id = $1::uuid AND subject_goat_id = $2::uuid AND template_key = $3
-FOR UPDATE`, tenantID, goatID, domain.TemplateKeyDeath).Scan(&workflowID)
+SELECT wi.workflow_id::text, g.lifecycle_status
+FROM workflow_instances wi
+JOIN goats g ON g.tenant_id = wi.tenant_id AND g.goat_id = wi.subject_goat_id
+WHERE wi.tenant_id = $1::uuid AND wi.subject_goat_id = $2::uuid AND wi.template_key = $3
+FOR UPDATE OF wi`, tenantID, goatID, domain.TemplateKeyDeath).Scan(&workflowID, &lifecycle)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return tx.Commit(ctx)
 	}
 	if err != nil {
 		return err
+	}
+	// A rejection cancels the STAGED workflow of a living animal. Once a death is applied the
+	// workflow is that death's evidence under review; a later-rejected report (a duplicate left
+	// pending beside the approved one) must never cancel it (E2E 2026-09-17).
+	if lifecycle != "alive" {
+		return tx.Commit(ctx)
 	}
 	if _, err := tx.Exec(ctx, `
 UPDATE workflow_actions

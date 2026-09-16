@@ -941,3 +941,25 @@ func TestListKeysetPaginationPg(t *testing.T) {
 		t.Fatalf("keyset walk visited %d cards, want 2", len(seen))
 	}
 }
+
+// TestRejectedDeathReportNeverCancelsAnAppliedDeathPg: a death report rejected AFTER the animal's
+// death was applied (a duplicate report left pending beside the approved one) canceled the applied
+// death's workflow -- steps canceled, verification gate closed -- under a verifier item still
+// pending (E2E 2026-09-17). Rejection cancels the staged workflow only while the goat is alive.
+func TestRejectedDeathReportNeverCancelsAnAppliedDeathPg(t *testing.T) {
+	repo, pool, ctx := newWorkflowRepo(t)
+	workflowID := openWorkflow(t, repo, ctx, domain.TemplateKeyDeath, wfDead)
+	if _, err := pool.Exec(ctx, `UPDATE goats SET lifecycle_status='dead', exited_at=now(), exit_reason='died' WHERE goat_id=$1::uuid`, wfDead); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.CancelDeathWorkflowForGoat(ctx, wfTenant, wfDead, wfEventAt); err != nil {
+		t.Fatalf("cancel: %v", err)
+	}
+	var state string
+	if err := pool.QueryRow(ctx, `SELECT state FROM workflow_instances WHERE workflow_id=$1::uuid`, workflowID).Scan(&state); err != nil {
+		t.Fatal(err)
+	}
+	if state == "canceled" {
+		t.Fatal("a rejected report canceled the workflow of an animal whose death was already applied")
+	}
+}

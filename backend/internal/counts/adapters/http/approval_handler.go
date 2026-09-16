@@ -475,9 +475,12 @@ func (h *AppWriteHandler) writeApprovalError(w http.ResponseWriter, r *http.Requ
 			"approval request has already been decided", err)
 	case errors.Is(err, ports.ErrApprovalEffectIncomplete):
 		h.writeError(w, r, http.StatusConflict, "approval_effect_incomplete", err.Error(), err)
+	case errors.Is(err, ports.ErrDeathAlreadyReported):
+		h.writeError(w, r, http.StatusConflict, "death_already_reported",
+			"this animal's death is already reported and waiting for approval", err)
 	case errors.Is(err, ports.ErrDeathEvidenceIncomplete):
 		h.writeError(w, r, http.StatusConflict, "death_evidence_incomplete",
-			"both death videos must be uploaded before approval", err)
+			"every step of the death report (its videos, photos and answers) must be recorded before approval", err)
 	// A birth names its destination PEN, and the identity create validates it against
 	// shed_partitions inside the create transaction -- so this identity sentinel surfaces on the
 	// APPROVAL submit path, not on identity's own error path. Mapped here because that is where the

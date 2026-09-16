@@ -82,3 +82,38 @@ func TestReplaceCaptureMediaSwapsOnlyTheReshotProof(t *testing.T) {
 		t.Fatal("out-of-range index changes nothing")
 	}
 }
+
+// TestCaptureReshootIsNeverHeldBehindTheTrack: a re-shoot is appended after every existing step,
+// so the ordinary lane rule held it behind the whole mother track -- including ORS water due the
+// next day -- and the operator could not re-record a rejected report photo until then (409
+// action_out_of_sequence, found live by the herd-ops E2E). A re-shoot answers a verdict on the
+// REPORT, not a step of the track: it is open the moment it exists, on birth and death alike.
+func TestCaptureReshootIsNeverHeldBehindTheTrack(t *testing.T) {
+	capture := authored.Evidence{Media: []authored.EvidenceMedia{{Key: "mother_photo", Ref: "r1", Kind: "photo", Label: "Mother's udder"}}}
+	for _, template := range []string{TemplateKeyBirthMother, TemplateKeyBirthKid, TemplateKeyDeath} {
+		existing := []WorkflowAction{
+			{ActionID: "a1", ActionKey: "babies_still_inside", Seq: 1, Section: SectionMain, ActionType: ActionTypeQuestion, Status: ActionStatusPending},
+			{ActionID: "a2", ActionKey: "ors_water_2", Seq: 2, Section: SectionMain, ActionType: ActionTypeAction, Status: ActionStatusPending},
+		}
+		steps := CaptureReshootSteps(capture, existing, "verdict-1", "Udder not visible", 0)
+		if len(steps) != 1 {
+			t.Fatalf("%s: steps = %d", template, len(steps))
+		}
+		reshoot := steps[0]
+		reshoot.ActionID = "r"
+		all := append(existing, reshoot)
+		if OperatorActionBlocked(template, reshoot, all) {
+			t.Fatalf("%s: a capture re-shoot must not wait for the pending track steps", template)
+		}
+		// A second rejection's re-shoot is not held behind the first one either.
+		second := CaptureReshootSteps(capture, all, "verdict-2", "Still blurred", 0)[0]
+		second.ActionID = "r2"
+		if OperatorActionBlocked(template, second, append(all, second)) {
+			t.Fatalf("%s: a later re-shoot must not wait for an earlier one", template)
+		}
+		// The track itself is untouched: step 2 still waits for step 1.
+		if !OperatorActionBlocked(template, existing[1], all) {
+			t.Fatalf("%s: the lane rule for ordinary steps must stand", template)
+		}
+	}
+}

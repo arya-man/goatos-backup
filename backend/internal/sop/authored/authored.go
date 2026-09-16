@@ -387,7 +387,7 @@ func ValidateAnswers(questions []Question, a Answers) error {
 				return answerInvalid(q.ID, "Enter a number for: "+q.Title)
 			}
 			if (q.Min != nil && n < *q.Min) || (q.Max != nil && n > *q.Max) {
-				return answerInvalid(q.ID, fmt.Sprintf("Enter a value between %g and %g for: %s", deref(q.Min), deref(q.Max), q.Title))
+				return answerInvalid(q.ID, rangeMessage(q))
 			}
 		case QuestionText:
 			t := a.text(q.ID)
@@ -494,6 +494,18 @@ func (a Answers) number(id string) (float64, bool, error) {
 	}
 	n, err := strconv.ParseFloat(s, 64)
 	return n, true, err
+}
+
+// rangeMessage names only the bounds the author set: an absent maximum is no bound, never 0.
+func rangeMessage(q Question) string {
+	switch {
+	case q.Min != nil && q.Max != nil:
+		return fmt.Sprintf("Enter a value between %g and %g for: %s", *q.Min, *q.Max, q.Title)
+	case q.Min != nil:
+		return fmt.Sprintf("Enter a value of at least %g for: %s", *q.Min, q.Title)
+	default:
+		return fmt.Sprintf("Enter a value of at most %g for: %s", deref(q.Max), q.Title)
+	}
 }
 
 func deref(p *float64) float64 {

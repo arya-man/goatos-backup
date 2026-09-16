@@ -117,6 +117,19 @@ func scanApprovalRequest(row pgx.Row) (domain.ApprovalRequest, error) {
 // Submit
 // ---------------------------------------------------------------------------
 
+// lockDeathSubjectSQL serializes death reports for one animal on its goats row.
+const lockDeathSubjectSQL = `SELECT 1 FROM goats WHERE tenant_id = $1::uuid AND goat_id = $2::uuid FOR UPDATE`
+
+// otherPendingDeathReportSQL: is another death report for this animal still pending?
+// Reads counts_approval_requests_pending_queue_idx (tenant, pending, death): the pending death
+// queue is small and the subject filter runs over it only.
+const otherPendingDeathReportSQL = `
+SELECT EXISTS (
+  SELECT 1 FROM counts_approval_requests
+  WHERE tenant_id = $1::uuid AND subject_goat_id = $2::uuid AND request_type = 'death'
+    AND status = 'pending' AND idempotency_key <> $3
+)`
+
 // CreateApprovalRequest persists a PENDING request and applies nothing.
 //
 // Idempotency contract: the (tenant, idempotency_key) unique index makes a duplicate submit
@@ -141,6 +154,26 @@ func (r *Repository) CreateApprovalRequest(ctx context.Context, in domain.Approv
 		// Matches the app-tier handler's raised_at: a business timestamp in the business location,
 		// so a submission that omits it buckets into the same business day as one that sends it.
 		raisedAt = time.Now().In(biztime.DefaultLocation())
+	}
+
+	// ONE PENDING DEATH REPORT PER ANIMAL. Two operators reporting the same death opened two
+	// approvals: approving one killed the goat, the other could then neither be approved (identity
+	// row version) nor rejected safely (the reject canceled the applied death's workflow). The
+	// animal's row lock serializes concurrent reports; an exact replay of the pending report still
+	// falls through to the idempotency path below (E2E 2026-09-17).
+	if in.RequestType == domain.ApprovalRequestTypeDeath && in.SubjectGoatID != nil && strings.TrimSpace(*in.SubjectGoatID) != "" {
+		var locked int
+		if err := tx.QueryRow(ctx, lockDeathSubjectSQL,
+			in.TenantID, strings.TrimSpace(*in.SubjectGoatID)).Scan(&locked); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return domain.ApprovalRequest{}, false, fmt.Errorf("counts: lock death subject: %w", err)
+		}
+		var otherPending bool
+		if err := tx.QueryRow(ctx, otherPendingDeathReportSQL, in.TenantID, strings.TrimSpace(*in.SubjectGoatID), in.IdempotencyKey).Scan(&otherPending); err != nil {
+			return domain.ApprovalRequest{}, false, fmt.Errorf("counts: read pending death reports: %w", err)
+		}
+		if otherPending {
+			return domain.ApprovalRequest{}, false, ports.ErrDeathAlreadyReported
+		}
 	}
 
 	capture := captureColumns(in.Capture)
@@ -351,8 +384,9 @@ func captureColumns(c *domain.ApprovalCapture) captureColumnValues {
 // snapshot. Deterministic id + key per request, so a replay writes nothing twice.
 func insertBirthReportedOutbox(ctx context.Context, tx pgx.Tx, req domain.ApprovalRequest, children []domain.BirthChildResult) error {
 	var form struct {
-		ParkID string `json:"park_id"`
-		ShedID string `json:"shed_id"`
+		ParkID         string `json:"park_id"`
+		ShedID         string `json:"shed_id"`
+		PartitionLabel string `json:"partition_label"`
 	}
 	if len(req.Payload) > 0 {
 		_ = json.Unmarshal(req.Payload, &form)
@@ -385,6 +419,7 @@ func insertBirthReportedOutbox(ctx context.Context, tx pgx.Tx, req domain.Approv
 			"birth_event_id":      req.ApprovalRequestID,
 			"park_id":             form.ParkID,
 			"shed_id":             form.ShedID,
+			"partition_label":     form.PartitionLabel,
 			"goat_ids":            goatIDs,
 			"raised_by_user_id":   req.RaisedByUserID,
 			"capture_evidence":    req.Capture,

@@ -8,6 +8,7 @@ import (
 	countsapp "github.com/vgoats/goatos/backend/internal/counts/app"
 	countsdomain "github.com/vgoats/goatos/backend/internal/counts/domain"
 	countsports "github.com/vgoats/goatos/backend/internal/counts/ports"
+	uuidutil "github.com/vgoats/goatos/backend/internal/platform/uuidutil"
 	proofports "github.com/vgoats/goatos/backend/internal/proof/ports"
 )
 
@@ -46,7 +47,18 @@ func (v *Validator) ProofKinds(ctx context.Context, tenantID string, refs []stri
 	if len(refs) == 0 {
 		return out, nil
 	}
-	found, err := v.repo.GetProofsByIDs(ctx, tenantID, refs)
+	// A ref that is not a proof id at all is a capture the register does not hold: absent, so
+	// the caller refuses it by slot (422) instead of the register's UUID parse failing the read.
+	ids := make([]string, 0, len(refs))
+	for _, ref := range refs {
+		if uuidutil.IsUUIDString(ref) {
+			ids = append(ids, ref)
+		}
+	}
+	if len(ids) == 0 {
+		return out, nil
+	}
+	found, err := v.repo.GetProofsByIDs(ctx, tenantID, ids)
 	if err != nil {
 		return nil, err
 	}
