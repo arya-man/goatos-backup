@@ -141,7 +141,7 @@ func (h *AppWriteHandler) ListShiftingDestinations(w http.ResponseWriter, r *htt
 			sheds = append(sheds, appShiftingDestinationShed{
 				ShedID:                     shed.ShedID,
 				Name:                       shed.Name,
-				ManagementStages:           shed.ManagementStages,
+				ManagementStages:           nonNilStrings(shed.ManagementStages),
 				PartitionLabel:             shed.PartitionLabel,
 				OperationalLocationDisplay: shed.Display,
 				DestinationStage:           stage.Stage,
@@ -172,7 +172,18 @@ func (h *AppWriteHandler) ListShiftingDestinations(w http.ResponseWriter, r *htt
 		})
 	}
 
-	httpresponse.WriteJSON(w, http.StatusOK, appShiftingDestinationsResponse{Parks: parks, ManagementStages: catalog.ManagementStages})
+	httpresponse.WriteJSON(w, http.StatusOK, appShiftingDestinationsResponse{Parks: parks, ManagementStages: nonNilStrings(catalog.ManagementStages)})
+}
+
+// nonNilStrings keeps a list field a LIST on the wire. A nil slice marshals as `null`, and the
+// phone's DTO declares `management_stages` non-nullable, so a tenant with an empty stage
+// vocabulary (a fresh fixture) made the whole destinations payload undecodable and the Add-birth
+// form park-less. An empty catalog is `[]`.
+func nonNilStrings(in []string) []string {
+	if in == nil {
+		return []string{}
+	}
+	return in
 }
 
 // Breed vocabulary for the operator's birth form.
