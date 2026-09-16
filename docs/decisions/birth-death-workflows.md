@@ -1,4 +1,4 @@
-# Birth & Death Follow-up Workflows (revised maintainer decision 2026-07-28)
+# Birth & Death Follow-up Workflows (revised maintainer decision 2026-07-28; birth per-step review 2026-09-16)
 
 > **Superseded in part (maintainer decision 2026-09-13):** the follow-up steps are no longer code-defined. They compile from the published `counts.birth` / `counts.death` SOP's `follow_up` section and are pinned per workflow -- see `docs/decisions/sop-driven-herd-operations.md`. `tasks/domain/templates.go` remains only as the golden oracle for the seeded documents.
 
@@ -77,9 +77,10 @@ Maintainer decisions captured 2026-07-27 (Q&A):
 | Birth submitted | 1–3 canonical goats are created immediately with distinct `CBE-#####`/`CPT-#####` provisional IDs; all are excluded from herd counts | One kid workflow per child plus the shared mother track opens from `goat.created` | Nothing enqueued |
 | Web approval accepts | Existing children become herd-count eligible atomically at the litter grain; no goat is created here | Work continues unchanged | Nothing enqueued |
 | Web approval rejects | Existing children remain canonical but count-ineligible for audit/reconciliation | Work remains available; rejection is not media review | Nothing enqueued |
-| Operator completes every task for one subject workflow (the mother or one child), including that child's colostrum sessions and manual RFID tagging | Each child keeps the same goat UUID; its permanent RFID becomes active and the provisional identifier is retired | Only that completed mother/child workflow enters `awaiting_verification`; siblings continue independently | ONE `birth_evidence` item carries that mother or child's proof bundle |
-| Verifier accepts one item | No count or identity change | Only that mother/child review gate closes | That subject's item is accepted; siblings are unchanged |
-| Verifier rejects one item | No count or identity change; permanent RFIDs are never undone | Only that subject's video tasks return to `rework`; Tag the kid keeps the assigned RFID value but requires a new proof | One fresh subject-level item after that workflow's rework proofs are complete |
+| Operator records ONE step with proof (any kid step, any colostrum feed, Tag the kid, any mother step) | Tag the kid: the child keeps the same goat UUID; its permanent RFID becomes active and the provisional identifier is retired. Every other step: nothing | That step moves to `in_review` (locked until its verdict) and counts as the operator's work done; the NEXT step opens at once — a clip under review never holds the one after it | ONE `birth_evidence` item for exactly that recording (`ref_type=workflow_birth_action`, `ref_id=action_id`, that step's proofs only), enqueued the moment the step is written |
+| Operator records the last step of a track | as above | Nothing left to record: the card reads `awaiting_verification` while verdicts are outstanding; state stays `open` | Its own item, as above |
+| Verifier accepts one item | No count or identity change | Only that step becomes `completed`; the track completes when its LAST clip is approved | That item is accepted; every other clip is unchanged |
+| Verifier rejects one item | No count or identity change; permanent RFIDs are never undone | Only that step returns to `rework` with the verifier's words (`rework_reason`), proofs cleared; Tag the kid keeps the assigned RFID value but needs a new video; later steps are NOT held by the re-shoot | One fresh item for the re-shot step (new `row_version`, so even a byte-identical proof opens a new item) |
 
 Count approval and birth evidence verification are independent. Approval never
 creates a child, and verifier verdicts never add or remove a child from counts.
@@ -261,12 +262,31 @@ idempotency key
 `counts-death-evidence:<workflow_id>:r<review round>:<proof refs, in order>`.
 An authorized verifier reviews it under the dedicated **Death** tab in the
 generic Verify queue. Birth uses the adjacent **Birth** tab and category
-`birth_evidence`. Each mother or child workflow enqueues independently as soon
-as all of its own operator actions are complete. Every item carries only that
-subject's task proofs with `ref_type=workflow_birth_signoff` and
-`ref_id=workflow_id`. The key includes the workflow, review round, and ordered
-proof bundle, so retries deduplicate while a verifier-requested re-shoot creates
-one fresh item for only that subject.
+`birth_evidence`.
+
+**Birth is reviewed ONE RECORDED STEP AT A TIME (maintainer decision 2026-09-16,
+SUPERSEDING the one-bundle-per-track rule).** Every step the operator records
+with proof — each of the kid's immediate steps, each scheduled colostrum feed,
+Tag the kid, and each mother step — is its own verifier item the moment it is
+written: `ref_type=workflow_birth_action`, `ref_id=action_id`, media = that
+step's proofs only, subject label `"<step title> · Kid CPT-00123 · <date> ·
+<pen>"` (or `Mother …`). The key is
+`counts-birth-step:<action_id>:r<action row_version>:<proofs>`, so a retried
+request de-duplicates while a re-shoot after a rejection always opens a fresh
+item. The verifier no longer waits three days for a kid track to finish, and a
+rejection no longer throws away ~14 good clips: approve completes THAT step,
+reject sends back THAT step with the verifier's words on
+`workflow_actions.rework_reason`, and the steps after it are never held by the
+re-shoot (`domain.StepRecorded`: on a per-step-reviewed template, `in_review`
+and `rework` both satisfy a sequencing prerequisite). The recorded step is
+locked (`in_review`, 409 `action_in_review`) until its verdict. The card reads
+`awaiting_verification` only when nothing is left to record and at least one
+verdict is outstanding; it completes when the last clip is approved.
+
+The retired whole-track shape (`ref_type=workflow_birth_signoff`,
+`ref_id=workflow_id`) is still consumed so the item(s) enqueued before the
+cutover land their verdict; nothing enqueues it any more. Death is unchanged.
+Sampling applies to birth exactly as to every other category.
 
 All workflow consumers are registered at the API bus, outbox relay, durable
 domain consumer, and kernel-stage wiring sites. Event and verdict handlers are

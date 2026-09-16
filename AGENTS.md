@@ -1984,6 +1984,31 @@ error CODE on the outbox row (`lastErrorCode`, `OUTBOX_MIGRATION_4_5`) so the sc
 code, never on the sentence. Canonical prose: the same decision doc -> "THE VERIFIER IS WARNED, NOT
 TOLD".
 
+Confirmed BIRTH EVIDENCE IS REVIEWED PER RECORDED STEP (maintainer decision 2026-09-16,
+SUPERSEDING the one-bundle-per-track half of the 2026-07-28 birth rule): every video the operator
+records on a kid or mother track -- each immediate step, each scheduled colostrum feed, Tag the kid,
+each mother step -- is its own `birth_evidence` verifier item THE MOMENT IT IS RECORDED
+(`ref_type=workflow_birth_action`, `ref_id=action_id`, that step's proofs only). The verifier no
+longer waits three days for a kid track to finish, and a rejection no longer throws away ~14 good
+clips: approve completes THAT step, reject sends back THAT step with the verifier's words on
+`workflow_actions.rework_reason`, and the steps after it are NEVER held by the re-shoot (on a
+per-step-reviewed template `in_review` and `rework` both satisfy a sequencing prerequisite --
+`tasks/domain.StepRecorded` -- and the phone's optimistic pass agrees). The recorded step is locked
+(`in_review`, 409 `action_in_review`) until its verdict. The card counts a recorded clip as the
+operator's work done, reads "Awaiting verification" only when nothing is left to record, and
+completes when the last clip is approved. The key is
+`counts-birth-step:<action_id>:r<row_version>:<proofs>` so retries de-duplicate and a re-shoot
+always opens a fresh item. Both mother and kid tracks; sampling applies as to any category; DEATH
+IS UNCHANGED (two clips, admin approval first, one item, bounced pair re-shoots in order). The
+retired `workflow_birth_signoff` bundle consumer stays only so a pre-cutover item lands its
+verdict; nothing enqueues it. Canonical prose: `docs/decisions/birth-death-workflows.md` ->
+"Birth is reviewed ONE RECORDED STEP AT A TIME". Pinned by
+`domain.TestBirthStepUnderReviewOrSentBackNeverHoldsTheNextStep`,
+`app.TestBirthStepReachesTheVerifierTheMomentItIsRecorded`,
+`app.TestBirthStepRejectionSendsBackOnlyThatStep`,
+`postgres.TestBirthEvidenceIsReviewedPerRecordedStepPg` and the Android
+`WorkflowOptimisticSequenceTest` birth-rework case (each mutation-tested when written).
+
 Confirmed Approvals-on-mobile rule (maintainer decision 2026-08-05, SUPERSEDING the
 2026-07-21 decision that removed approvals from mobile and moved them to admin-web
 only): the birth/death/shifting approval queue is BACK on the phone, as its OWN

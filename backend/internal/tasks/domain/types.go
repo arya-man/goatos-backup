@@ -264,6 +264,27 @@ type ActionWriteResult struct {
 	// case where the operator re-submits byte-identical proof refs. A replay does not mutate the
 	// sign-off, so the round is stable and genuine retries still de-duplicate.
 	DeathReviewRound int
+	// NeedsStepReviewEnqueue is true when the written step now sits in_review on a per-step-reviewed
+	// workflow (birth): the caller enqueues ONE verification item for exactly this recording
+	// (Action carries the proofs; BirthStepReviewKey(Action) is the idempotency key). Derived from
+	// STATE, so an exact replay after a failed enqueue re-reports it and the retry heals.
+	NeedsStepReviewEnqueue bool
+}
+
+// WriteResult derives the enqueue flags every adapter reports after an action write, from state
+// alone: the postgres adapter and the fakes both call it so a fake can never report an enqueue the
+// real path would not.
+func WriteResult(w WorkflowInstance, actions []WorkflowAction, target WorkflowAction, replay bool) ActionWriteResult {
+	result := ActionWriteResult{Workflow: w, Action: target, Replayed: replay}
+	if w.TemplateKey == TemplateKeyDeath && w.AwaitingVerification && DeathVideosComplete(actions) {
+		result.NeedsVerificationEnqueue = true
+		result.DeathProofRefs = DeathProofRefs(actions)
+		result.DeathReviewRound = w.RowVersion
+	}
+	if ReviewedPerStep(w.TemplateKey) && target.Status == ActionStatusInReview {
+		result.NeedsStepReviewEnqueue = true
+	}
+	return result
 }
 
 // evaluateIdempotentWrite applies the mandatory request-level idempotency contract to one action
@@ -536,19 +557,28 @@ func SignoffBlocked(a WorkflowAction, siblings []WorkflowAction) bool {
 //
 // Terminal rows return false so exact idempotency replays continue to reach ApplyAnswer/
 // ApplyComplete and return their original result.
-func OperatorActionBlocked(a WorkflowAction, siblings []WorkflowAction) bool {
+//
+// templateKey decides what "the previous step is done" means. A per-step-reviewed workflow (birth)
+// counts a step as done for sequencing the moment it is RECORDED -- in_review and rework included --
+// because the verifier's verdict on clip 3 must never hold clip 4, and a rejected clip 3 is re-shot
+// on its own while the operator carries on. A bundle-reviewed workflow (death) keeps the strict
+// rule: a bounced pair re-shoots in order.
+func OperatorActionBlocked(templateKey string, a WorkflowAction, siblings []WorkflowAction) bool {
 	if a.ActionType == ActionTypeApproval ||
 		a.Status == ActionStatusCompleted ||
 		a.Status == ActionStatusInReview ||
 		a.Status == ActionStatusCanceled {
 		return false
 	}
+	done := func(prerequisite WorkflowAction) bool {
+		return StepRecorded(templateKey, prerequisite)
+	}
 	if a.WaitForAll || (a.TaskType == "" && a.ActionKey == ActionKeyTagTheKid) {
 		for _, prerequisite := range siblings {
 			if prerequisite.ActionID == a.ActionID || prerequisite.ActionType == ActionTypeApproval {
 				continue
 			}
-			if prerequisite.Status != ActionStatusCompleted {
+			if !done(prerequisite) {
 				return true
 			}
 		}
@@ -562,7 +592,7 @@ func OperatorActionBlocked(a WorkflowAction, siblings []WorkflowAction) bool {
 		satisfied := false
 		for _, prerequisite := range siblings {
 			if prerequisite.ActionKey == req {
-				satisfied = prerequisite.Status == ActionStatusCompleted
+				satisfied = done(prerequisite)
 				break
 			}
 		}
@@ -574,11 +604,89 @@ func OperatorActionBlocked(a WorkflowAction, siblings []WorkflowAction) bool {
 		if previous.ActionType == ActionTypeApproval || previous.Section != a.Section || previous.Seq >= a.Seq {
 			continue
 		}
-		if previous.Status != ActionStatusCompleted {
+		if !done(previous) {
 			return true
 		}
 	}
 	return false
+}
+
+// ReviewedPerStep reports whether a template's evidence is verified one recorded step at a time
+// (maintainer decision 2026-09-16: birth). Everything else keeps its bundle: death's two clips
+// are one verifier item released by the admin's approval, and the SOP subject workflows report
+// once to their owning module.
+func ReviewedPerStep(templateKey string) bool {
+	return templateKey == TemplateKeyBirthKid || templateKey == TemplateKeyBirthMother
+}
+
+// StepRecorded is "the operator has done this step at least once" for sequencing purposes. On a
+// per-step-reviewed workflow that includes a step awaiting its verdict and a step sent back for a
+// re-shoot; a bundle-reviewed workflow only accepts completed.
+func StepRecorded(templateKey string, a WorkflowAction) bool {
+	switch a.Status {
+	case ActionStatusCompleted:
+		return true
+	case ActionStatusInReview, ActionStatusRework:
+		return ReviewedPerStep(templateKey)
+	}
+	return false
+}
+
+// HoldStepForReview is the per-step review gate, applied right after ApplyAnswer/ApplyComplete in
+// the SAME transaction: on a per-step-reviewed workflow a step that just completed WITH proof moves
+// to in_review, where it stays locked until the verifier's verdict lands (approve -> completed,
+// reject -> rework). A step with nothing to watch (Record pen) completes outright, and a
+// bundle-reviewed workflow is returned untouched. Pure, so the fakes and the adapter agree.
+func HoldStepForReview(templateKey string, a WorkflowAction) WorkflowAction {
+	if !ReviewedPerStep(templateKey) || a.Status != ActionStatusCompleted || len(a.AllProofRefs()) == 0 {
+		return a
+	}
+	a.Status = ActionStatusInReview
+	return a
+}
+
+// BirthStepReviewKey is the verification idempotency key for ONE recording of ONE birth step:
+// the action, its row_version (a monotonic counter bumped by every rework and re-submission, so a
+// re-shoot after a rejection always opens a fresh item even with byte-identical proofs), and the
+// proofs under review (so the key describes exactly what the verifier is watching). A retried
+// request mutates nothing, so the key is stable and de-duplicates. Same shape as the death key.
+func BirthStepReviewKey(a WorkflowAction) string {
+	key := "counts-birth-step:" + a.ActionID + ":r" + strconv.Itoa(a.RowVersion)
+	for _, ref := range a.AllProofRefs() {
+		key += ":" + strings.TrimSpace(ref)
+	}
+	return key
+}
+
+// ApplyStepVerdict applies one verifier verdict to one step of a per-step-reviewed workflow.
+// approved: in_review -> completed. rejected: in_review -> rework, proofs cleared so the re-shoot is
+// mandatory, the verifier's reason kept for the operator, Tag the kid keeps its assigned RFID. A
+// verdict for a step that is not awaiting one is a benign redelivery and changes nothing (the
+// caller reports changed=false). Pure: the postgres adapter and the fakes share it.
+func ApplyStepVerdict(a WorkflowAction, approved bool, reason string) (WorkflowAction, bool) {
+	if a.Status != ActionStatusInReview {
+		return a, false
+	}
+	if approved {
+		a.Status = ActionStatusCompleted
+		a.ReworkReason = nil
+		a.RowVersion++
+		return a, true
+	}
+	a.Status = ActionStatusRework
+	if !a.HasHook(EngineHookTagKid) {
+		a.AnswerValue = nil
+	}
+	a.ProofRef = nil
+	a.ProofRefs = nil
+	a.CompletedBy = nil
+	a.CompletedAt = nil
+	a.VerificationItemID = nil
+	a.IdempotencyKey = nil
+	a.RequestFingerprint = nil
+	a.ReworkReason = optionalPtr(strings.TrimSpace(reason))
+	a.RowVersion++
+	return a, true
 }
 
 // ActionTimeBlocked enforces hard not-before gates from canonical due_at for ORS round 2 and every
@@ -612,17 +720,27 @@ func ActionTimeBlocked(a WorkflowAction, now time.Time) bool {
 // rows by derived bucket at (tenant_id, module,
 // event_date) grain — numerator and denominator both range over the same workflow_instances key set;
 // no join fan-out.
+//
+// Per-step-reviewed workflows (birth) read the review gate from their own steps: a step awaiting
+// its verdict is the operator's work DONE (it counts, and it is never the next step), and the card
+// reads awaiting_verification only once nothing is left to record and at least one verdict is
+// outstanding. Bundle-reviewed workflows keep the explicit gate the verdict consumers open/close.
 func RecomputeCard(w WorkflowInstance, actions []WorkflowAction) WorkflowInstance {
 	operatorTotal, operatorDone := 0, 0
 	allMainTotal, allMainDone := 0, 0
+	perStep := ReviewedPerStep(w.TemplateKey)
 	// awaiting_verification is workflow state. Preserve an explicitly opened review gate while also
 	// deriving it from any legacy/internal in_review row during rolling migration.
-	awaiting := w.AwaitingVerification
+	awaiting := w.AwaitingVerification && !perStep
+	anyInReview := false
 	var next *WorkflowAction
 	for i := range actions {
 		a := actions[i]
 		if a.Status == ActionStatusInReview {
-			awaiting = true
+			anyInReview = true
+			if !perStep {
+				awaiting = true
+			}
 		}
 		if a.Section == SectionMain {
 			allMainTotal++
@@ -637,6 +755,9 @@ func RecomputeCard(w WorkflowInstance, actions []WorkflowAction) WorkflowInstanc
 		switch a.Status {
 		case ActionStatusCompleted:
 			operatorDone++
+		case ActionStatusInReview:
+			// The operator recorded it; only the verifier's verdict is outstanding.
+			operatorDone++
 		case ActionStatusCanceled:
 			// canceled steps neither count as done nor become the next action
 		default:
@@ -644,6 +765,9 @@ func RecomputeCard(w WorkflowInstance, actions []WorkflowAction) WorkflowInstanc
 				next = &actions[i]
 			}
 		}
+	}
+	if perStep {
+		awaiting = anyInReview && next == nil
 	}
 	w.ActionsTotal = operatorTotal
 	w.ActionsDone = operatorDone

@@ -849,12 +849,16 @@ func (r *Repository) AnswerAction(ctx context.Context, cmd domain.AnswerActionCo
 			if idx < 0 {
 				return nil, false, domain.ErrNotFound
 			}
-			if domain.OperatorActionBlocked(actions[idx], actions) {
+			if domain.OperatorActionBlocked(w.TemplateKey, actions[idx], actions) {
 				return nil, false, domain.ErrActionOutOfSequence
 			}
 			updated, isReplay, err := domain.ApplyAnswer(actions[idx], cmd)
 			if err != nil {
 				return nil, false, err
+			}
+			if !isReplay {
+				// Birth is reviewed per step: a recorded clip waits for its own verdict.
+				updated = domain.HoldStepForReview(w.TemplateKey, updated)
 			}
 			actions[idx] = updated
 			target = updated
@@ -878,7 +882,7 @@ func (r *Repository) AnswerAction(ctx context.Context, cmd domain.AnswerActionCo
 	if err != nil {
 		return domain.ActionWriteResult{}, err
 	}
-	return buildWriteResult(w, actions, target, replay), nil
+	return domain.WriteResult(w, actions, target, replay), nil
 }
 
 // CompleteAction completes an "action" step. A requires_video completion without a proof_ref fails
@@ -898,7 +902,7 @@ func (r *Repository) CompleteAction(ctx context.Context, cmd domain.CompleteActi
 			if idx < 0 {
 				return nil, false, domain.ErrNotFound
 			}
-			if domain.OperatorActionBlocked(actions[idx], actions) {
+			if domain.OperatorActionBlocked(w.TemplateKey, actions[idx], actions) {
 				return nil, false, domain.ErrActionOutOfSequence
 			}
 			if domain.ActionTimeBlocked(actions[idx], cmd.CompletedAt) {
@@ -916,6 +920,10 @@ func (r *Repository) CompleteAction(ctx context.Context, cmd domain.CompleteActi
 			updated, isReplay, err := domain.ApplyComplete(actions[idx], cmd)
 			if err != nil {
 				return nil, false, err
+			}
+			if !isReplay {
+				// Birth is reviewed per step: a recorded clip waits for its own verdict.
+				updated = domain.HoldStepForReview(w.TemplateKey, updated)
 			}
 			actions[idx] = updated
 			target = updated
@@ -952,7 +960,7 @@ func (r *Repository) CompleteAction(ctx context.Context, cmd domain.CompleteActi
 	if err != nil {
 		return domain.ActionWriteResult{}, err
 	}
-	return buildWriteResult(w, actions, target, replay), nil
+	return domain.WriteResult(w, actions, target, replay), nil
 }
 
 func (r *Repository) hasPermanentIdentifier(ctx context.Context, tenantID, goatID string) (bool, error) {
@@ -1142,39 +1150,6 @@ WHERE wi.tenant_id = $1::uuid AND wi.subject_goat_id = $2::uuid AND wi.template_
 	return out, nil
 }
 
-// BirthWorkflowEvidenceForVerification opens one review gate at workflow grain. The producer and
-// consumer both key on workflow_instances.workflow_id; workflow_actions is unique on
-// (workflow_id, action_key), so the proof bundle contains exactly this mother OR this child and
-// can neither wait for nor fan out through sibling workflows.
-func (r *Repository) BirthWorkflowEvidenceForVerification(ctx context.Context, tenantID, workflowID string) (ports.BirthEvidenceReview, error) {
-	w, actions, _, err := r.workflowMutation(ctx, tenantID, workflowID,
-		func(tx pgx.Tx, w *domain.WorkflowInstance, actions []domain.WorkflowAction) ([]domain.WorkflowAction, bool, error) {
-			if w.TemplateKey != domain.TemplateKeyBirthKid && w.TemplateKey != domain.TemplateKeyBirthMother {
-				return nil, false, domain.ErrNotFound
-			}
-			if !domain.BirthWorkflowComplete(actions) {
-				return nil, false, domain.ErrNotFound
-			}
-			if w.AwaitingVerification {
-				return nil, true, nil
-			}
-			w.AwaitingVerification = true
-			return nil, false, nil
-		})
-	if err != nil {
-		return ports.BirthEvidenceReview{}, err
-	}
-	proofRefs := domain.BirthProofRefs(actions)
-	if len(proofRefs) == 0 {
-		return ports.BirthEvidenceReview{}, domain.ErrNotFound
-	}
-	return ports.BirthEvidenceReview{
-		WorkflowID: workflowID, SubjectRole: w.TemplateKey, OperatorID: domain.BirthProofOperator(actions),
-		ParkID: deref(w.ParkID), ShedID: deref(w.ShedID), EventDate: w.EventDate,
-		ProofRefs: proofRefs, Round: w.RowVersion,
-	}, nil
-}
-
 // CancelDeathWorkflowForGoat closes staged work after an admin rejection. The set is bounded to
 // one workflow and its three template actions, and repeated rejection-event delivery is a no-op.
 func (r *Repository) CancelDeathWorkflowForGoat(ctx context.Context, tenantID, goatID string, _ time.Time) error {
@@ -1270,6 +1245,45 @@ func (r *Repository) BounceDeathVideosForRework(ctx context.Context, cmd ports.D
 	return err
 }
 
+// ApplyBirthStepVerdict lands one verdict on one recorded birth step. The item's ref_id is the
+// action id, so the owning workflow is resolved with ONE indexed lookup on the action's primary
+// key and then mutated under the workflow row lock like every other write, so the card fields are
+// recomputed in the same transaction (a rejected step re-opens the card; the last approval
+// completes it).
+func (r *Repository) ApplyBirthStepVerdict(ctx context.Context, cmd ports.BirthStepVerdictCommand) error {
+	lookupCtx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	var workflowID string
+	err := r.pool.QueryRow(lookupCtx, `
+SELECT workflow_id::text FROM workflow_actions
+WHERE tenant_id = $1::uuid AND action_id = $2::uuid`, cmd.TenantID, cmd.ActionID).Scan(&workflowID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.ErrNotFound
+	}
+	if err != nil {
+		return err
+	}
+	_, _, _, err = r.workflowMutation(ctx, cmd.TenantID, workflowID,
+		func(_ pgx.Tx, w *domain.WorkflowInstance, actions []domain.WorkflowAction) ([]domain.WorkflowAction, bool, error) {
+			if !domain.ReviewedPerStep(w.TemplateKey) {
+				return nil, false, domain.ErrNotFound
+			}
+			idx := findAction(actions, cmd.ActionID)
+			if idx < 0 {
+				return nil, false, domain.ErrNotFound
+			}
+			updated, changed := domain.ApplyStepVerdict(actions[idx], cmd.Approved, cmd.Reason)
+			if !changed {
+				return nil, true, nil
+			}
+			actions[idx] = updated
+			return []domain.WorkflowAction{updated}, false, nil
+		})
+	return err
+}
+
+// ApplyBirthSignoffApproved serves the RETIRED whole-workflow bundle (see
+// domain.VerificationRefTypeBirthSignoff): it closes the explicit gate a pre-cutover item opened.
 func (r *Repository) ApplyBirthSignoffApproved(ctx context.Context, cmd ports.DeathVerdictCommand) error {
 	_, _, _, err := r.workflowMutation(ctx, cmd.TenantID, cmd.WorkflowID,
 		func(_ pgx.Tx, w *domain.WorkflowInstance, _ []domain.WorkflowAction) ([]domain.WorkflowAction, bool, error) {
@@ -1285,6 +1299,8 @@ func (r *Repository) ApplyBirthSignoffApproved(ctx context.Context, cmd ports.De
 	return err
 }
 
+// BounceBirthVideoForRework serves the RETIRED whole-workflow bundle: every recorded clip of the
+// track goes back for a re-shoot, and each re-shoot then enters review on its own.
 func (r *Repository) BounceBirthVideoForRework(ctx context.Context, cmd ports.DeathVerdictCommand) error {
 	_, _, _, err := r.workflowMutation(ctx, cmd.TenantID, cmd.WorkflowID,
 		func(tx pgx.Tx, w *domain.WorkflowInstance, actions []domain.WorkflowAction) ([]domain.WorkflowAction, bool, error) {
@@ -1303,6 +1319,7 @@ func (r *Repository) BounceBirthVideoForRework(ctx context.Context, cmd ports.De
 					actions[i].AnswerValue = nil
 				}
 				actions[i].ProofRef = nil
+				actions[i].ProofRefs = nil
 				actions[i].CompletedBy = nil
 				actions[i].CompletedAt = nil
 				actions[i].VerificationItemID = nil
@@ -1322,17 +1339,6 @@ func (r *Repository) BounceBirthVideoForRework(ctx context.Context, cmd ports.De
 // ---------------------------------------------------------------------------
 // helpers
 // ---------------------------------------------------------------------------
-
-func buildWriteResult(w domain.WorkflowInstance, actions []domain.WorkflowAction, target domain.WorkflowAction, replay bool) domain.ActionWriteResult {
-	result := domain.ActionWriteResult{Workflow: w, Action: target, Replayed: replay}
-	if w.TemplateKey == domain.TemplateKeyDeath && w.AwaitingVerification && domain.DeathVideosComplete(actions) {
-		// Computed from state, so a replay after a failed enqueue re-reports it and the retry heals.
-		result.NeedsVerificationEnqueue = true
-		result.DeathProofRefs = domain.DeathProofRefs(actions)
-		result.DeathReviewRound = w.RowVersion
-	}
-	return result
-}
 
 func findAction(actions []domain.WorkflowAction, actionID string) int {
 	for i := range actions {

@@ -57,10 +57,12 @@ func (e *DeathEvidenceEnqueuer) EnqueueDeathEvidenceVerification(ctx context.Con
 	return err
 }
 
-func (e *DeathEvidenceEnqueuer) EnqueueBirthEvidenceVerification(ctx context.Context, in tasksapp.BirthVerificationEnqueueRequest) error {
-	// The subject label is already composed in the service with location info.
-	// Format: "Child birth evidence · 2026-08-07 · Godel 1 - Part 3"
-	// or     "Mother birth evidence · 2026-08-07 · Godel 1"
+// EnqueueBirthStepVerification maps ONE recorded birth step to ONE verification item (category
+// birth_evidence, ref module=counts / ref_type=workflow_birth_action / ref_id=action_id) carrying
+// only that step's proofs. The key is per recording (domain.BirthStepReviewKey), so a retry heals
+// and a re-shoot after a rejection opens a fresh item. The subject label is composed by the
+// service, e.g. "Iodine dipping · Kid CPT-00123 · 2026-09-16 · Godel 1 - Part 3".
+func (e *DeathEvidenceEnqueuer) EnqueueBirthStepVerification(ctx context.Context, in tasksapp.BirthStepVerificationEnqueueRequest) error {
 	_, err := e.verification.CreateItem(ctx, verificationdomain.CreateItem{
 		TenantID:     in.TenantID,
 		Vertical:     tasksdomain.VerificationVerticalCounts,
@@ -69,8 +71,8 @@ func (e *DeathEvidenceEnqueuer) EnqueueBirthEvidenceVerification(ctx context.Con
 		SubjectLabel: ptrIfSet(in.SubjectLabel),
 		Source: verificationdomain.SourceRef{
 			Module:  tasksdomain.VerificationModuleCounts,
-			RefType: tasksdomain.VerificationRefTypeBirthSignoff,
-			RefID:   in.WorkflowID,
+			RefType: tasksdomain.VerificationRefTypeBirthAction,
+			RefID:   in.ActionID,
 		},
 		MediaRefs:      in.ProofRefs,
 		OperatorID:     ptrIfSet(in.OperatorID),

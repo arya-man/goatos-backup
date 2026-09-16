@@ -803,7 +803,7 @@
         {
           "module": "tasks",
           "file": "backend/internal/tasks/app/event_handlers.go",
-          "notes": "DeathVerificationHandler filters source.module=counts + ref_type=workflow_death_signoff and closes the death review gate. BirthVerificationHandler filters ref_type=workflow_birth_signoff, whose ref_id is one mother or child workflow_id, and closes only that subject's gate. Death carries two proofs; each Birth item carries only its workflow's task-proof bundle. Keys include workflow, review round, and proof refs so retries deduplicate and re-shoots create a fresh item."
+          "notes": "DeathVerificationHandler filters source.module=counts + ref_type=workflow_death_signoff and closes the death review gate. BirthVerificationHandler filters ref_type=workflow_birth_action, whose ref_id is ONE recorded birth step (action_id), and completes only that step (tasks.ApplyBirthStepVerdict); birth evidence is reviewed per recorded step (maintainer decision 2026-09-16), one item per clip the moment it is recorded, keyed counts-birth-step:<action>:r<row_version>:<proofs> so retries deduplicate and re-shoots create a fresh item. The retired ref_type=workflow_birth_signoff (one bundle per finished mother/child track) is still consumed for pre-cutover items only. Death carries two proofs in one item keyed on workflow, review round and proof refs."
         },
         {
           "module": "weighing",
@@ -899,7 +899,7 @@
         {
           "module": "tasks",
           "file": "backend/internal/tasks/app/event_handlers.go",
-          "notes": "DeathVerificationHandler filters source.module=counts + ref_type=workflow_death_signoff and resets both death videos. BirthVerificationHandler filters ref_type=workflow_birth_signoff and calls BounceBirthVideoForRework at workflow_id grain, reopening only that mother or child's video tasks while preserving permanent RFID and count decisions."
+          "notes": "DeathVerificationHandler filters source.module=counts + ref_type=workflow_death_signoff and resets both death videos. BirthVerificationHandler filters ref_type=workflow_birth_action and calls tasks.ApplyBirthStepVerdict at action_id grain, sending back exactly that one recorded step (rework, proofs cleared, verifier reason kept on workflow_actions.rework_reason) while every sibling step, the permanent RFID and the count decision stay untouched; later steps are never held by the re-shoot. The retired ref_type=workflow_birth_signoff still reopens a whole pre-cutover track via BounceBirthVideoForRework."
         },
         {
           "module": "weighing",

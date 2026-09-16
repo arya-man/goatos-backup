@@ -45,13 +45,16 @@ const colostrumDayCTE = `
 WITH day AS (
   SELECT wa.workflow_id,
          count(*)::int                                        AS total,
-         count(*) FILTER (WHERE wa.status = 'completed')::int  AS done,
+         -- A feed under review (in_review) is the operator's work DONE: birth clips are reviewed one
+         -- recorded step at a time, so the verifier's pending verdict never makes a feed the next
+         -- feed again (mirrors domain.ColostrumDayCard).
+         count(*) FILTER (WHERE wa.status IN ('completed','in_review'))::int  AS done,
          (array_agg(wa.action_key ORDER BY wa.seq, wa.action_id)
-            FILTER (WHERE wa.status <> 'completed'))[1]        AS next_key,
+            FILTER (WHERE wa.status NOT IN ('completed','in_review')))[1]    AS next_key,
          (array_agg(wa.title ORDER BY wa.seq, wa.action_id)
-            FILTER (WHERE wa.status <> 'completed'))[1]        AS next_title,
+            FILTER (WHERE wa.status NOT IN ('completed','in_review')))[1]    AS next_title,
          (array_agg(wa.due_at ORDER BY wa.seq, wa.action_id)
-            FILTER (WHERE wa.status <> 'completed'))[1]        AS next_due_at
+            FILTER (WHERE wa.status NOT IN ('completed','in_review')))[1]    AS next_due_at
   FROM workflow_actions wa
   JOIN workflow_instances w
     ON w.tenant_id = wa.tenant_id AND w.workflow_id = wa.workflow_id

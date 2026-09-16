@@ -368,7 +368,8 @@ LIMIT $8`,
 //
 //	vaccination_goat        one goat's dose clip (ref_id IS the goat_id)
 //	animal                  weighing's individual observation
-//	workflow_birth_signoff  one dam/kid birth workflow
+//	workflow_birth_action   one recorded step of one dam/kid birth workflow (per-step review, 2026-09-16)
+//	workflow_birth_signoff  one dam/kid birth workflow (the retired whole-track bundle)
 //	workflow_death_signoff  one goat's death workflow
 //	shifting                a shed move; the animals are named in the label as a count
 //
@@ -378,7 +379,7 @@ LIMIT $8`,
 // about an animal it cannot name.
 func videoLogGrainFor(sourceRefType string) domain.VideoLogGrain {
 	switch sourceRefType {
-	case "vaccination_goat", "animal", "workflow_birth_signoff", "workflow_death_signoff", "shifting":
+	case "vaccination_goat", "animal", "workflow_birth_action", "workflow_birth_signoff", "workflow_death_signoff", "shifting":
 		return domain.VideoLogGrainAnimal
 	default:
 		return domain.VideoLogGrainShed

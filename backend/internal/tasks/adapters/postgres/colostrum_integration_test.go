@@ -481,17 +481,19 @@ ORDER BY seq`, workflowID)
 	if card.ActionsTotal != 4 {
 		t.Fatalf("total = %d, want 4 (canceled excluded)", card.ActionsTotal)
 	}
-	// Only `completed` is done. in_review, rework and pending are all still the operator's work.
-	if card.ActionsDone != 1 {
-		t.Fatalf("done = %d, want 1 — only 'completed' counts", card.ActionsDone)
+	// `completed` AND `in_review` are the operator's work done: a birth clip is reviewed on its
+	// own the moment it is recorded (2026-09-16), so a feed awaiting its verdict is not a feed
+	// still owed. rework and pending remain the operator's work.
+	if card.ActionsDone != 2 {
+		t.Fatalf("done = %d, want 2 — 'completed' and 'in_review' both count", card.ActionsDone)
 	}
-	// The next feed is the earliest incomplete one, which is the in_review row, not the pending one.
+	// The next feed is the earliest row still owed, which is the rework row, not the in_review one.
 	if card.NextAction == nil {
 		t.Fatal("a day with outstanding feeds must carry a next action")
 	}
-	if card.NextAction.Key != actionKeys[1] {
-		t.Fatalf("next feed = %q, want %q — the earliest incomplete row, which is the in_review one",
-			card.NextAction.Key, actionKeys[1])
+	if card.NextAction.Key != actionKeys[2] {
+		t.Fatalf("next feed = %q, want %q — the earliest row still owed, which is the rework one",
+			card.NextAction.Key, actionKeys[2])
 	}
 	// Chips still partition the day with this mixture present.
 	if page.Chips.All != page.Chips.Overdue+page.Chips.Due+page.Chips.Completed {
