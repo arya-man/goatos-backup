@@ -176,6 +176,8 @@ func buildDomainBusOn(bus eventbus.Bus, pool *pgxpool.Pool, queryTimeout time.Du
 	// every bus so approved births/deaths always open their follow-up work.
 	eventwiring.RegisterWorkflowConsumers(bus,
 		eventwiring.NewWorkflowConsumerService(pool, queryTimeout, logger), logger)
+	captureEnqueuer, captureReviews := eventwiring.NewCountsCaptureStores(pool, queryTimeout)
+	eventwiring.RegisterCountsCaptureConsumers(bus, captureEnqueuer, captureReviews)
 	healthapp.NewDeathLifecycleHandler(healthRepo).Register(bus)
 
 	if logger != nil {

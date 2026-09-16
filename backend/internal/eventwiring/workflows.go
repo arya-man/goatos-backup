@@ -1,11 +1,15 @@
 package eventwiring
 
 import (
+	"context"
 	"log/slog"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	countspg "github.com/vgoats/goatos/backend/internal/counts/adapters/postgres"
+	countsapp "github.com/vgoats/goatos/backend/internal/counts/app"
+	"github.com/vgoats/goatos/backend/internal/countsbridge"
 	identitypg "github.com/vgoats/goatos/backend/internal/identity/adapters/postgres"
 	"github.com/vgoats/goatos/backend/internal/platform/eventbus"
 	proofpg "github.com/vgoats/goatos/backend/internal/proof/adapters/postgres"
@@ -59,4 +63,29 @@ func RegisterWorkflowConsumers(bus eventbus.Bus, svc *tasksapp.Service, log *slo
 	// SOP questionnaires on a non-goat subject (reconcile card today, shifting event next): a
 	// verifier rework reopens the workflow's proof steps (docs/decisions/sop-driven-herd-operations.md).
 	tasksapp.NewSubjectWorkflowVerdictHandler(svc).Register(bus)
+}
+
+// CaptureReviewStore is the counts repository slice the birth_capture verdict consumer drives.
+type CaptureReviewStore interface {
+	SetCaptureReviewStatus(ctx context.Context, tenantID, approvalRequestID, status, reason string) error
+}
+
+// RegisterCountsCaptureConsumers subscribes the SOP capture card's birth-report consumers
+// (docs/decisions/sop-driven-herd-operations.md → "Phase 2: capture forms"). The ONE place they
+// are registered; bootstrap/api.go, cmd/outbox-relay, cmd/domain-event-consumer,
+// internal/kernelstages and internal/domainconsumer/wiring all call it.
+//
+//	counts.birth.reported                  -> one birth_evidence item per litter (ref_type birth_capture)
+//	verification.verdict.approved/.rework  -> capture_review_status on the approval row
+func RegisterCountsCaptureConsumers(bus eventbus.Bus, enqueuer countsapp.BirthCaptureVerificationEnqueuer, store CaptureReviewStore) {
+	countsapp.NewBirthReportedVerificationHandler(enqueuer, nil).Register(bus)
+	countsapp.NewBirthCaptureVerdictHandler(store, nil).Register(bus)
+}
+
+// NewCountsCaptureStores builds the durable-bus seams for RegisterCountsCaptureConsumers from a
+// pool (the verification repository is the trusted internal producer, as for the workflow
+// consumers above).
+func NewCountsCaptureStores(pool *pgxpool.Pool, timeout time.Duration) (countsapp.BirthCaptureVerificationEnqueuer, CaptureReviewStore) {
+	return countsbridge.NewBirthCaptureVerificationEnqueuer(verificationpg.NewRepository(pool, timeout)),
+		countspg.NewRepository(pool, timeout)
 }

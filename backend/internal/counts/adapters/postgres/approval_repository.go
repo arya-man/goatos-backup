@@ -357,7 +357,7 @@ func insertBirthReportedOutbox(ctx context.Context, tx pgx.Tx, req domain.Approv
 		"recorded_at":      time.Now().UTC().Format(time.RFC3339Nano),
 		"producer":         map[string]any{"service": "goatos-api", "module": "counts", "version": nil},
 		"idempotency_key":  idempotencyKey,
-		"actor":            map[string]any{"actor_type": "user", "actor_id": req.RaisedByUserID, "actor_ref": nil},
+		"actor":            map[string]any{"actor_type": "human", "actor_id": req.RaisedByUserID, "actor_ref": nil},
 		"subject_type":     "counts_approval_request",
 		"subject_id":       req.ApprovalRequestID,
 		"visibility_scope": map[string]any{"tenant_id": req.TenantID},

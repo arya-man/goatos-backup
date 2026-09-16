@@ -1025,6 +1025,7 @@ var protectedRoutes = []Route{
 	{OperationID: "recordAppCountsShiftingEvent", Method: "POST", Pattern: "/app/counts/shifting-events", Permissions: []string{CountsWrite}},
 	{OperationID: "recordAppCountsBirthEvent", Method: "POST", Pattern: "/app/counts/birth-events", Permissions: []string{CountsWrite}},
 	{OperationID: "recordAppCountsDeathEvent", Method: "POST", Pattern: "/app/counts/death-events", Permissions: []string{CountsWrite}},
+	{OperationID: "getAppCountsCaptureCard", Method: "GET", Pattern: "/app/counts/capture-cards/{kind}", Permissions: []string{CountsWrite}},
 	{OperationID: "submitAppCountsMilkPreparation", Method: "POST", Pattern: "/app/counts/milk-preparation/submit", Permissions: []string{CountsWrite}},
 	{OperationID: "listAppCountsMilkFeedingTasks", Method: "GET", Pattern: "/app/counts/milk-feeding/tasks", Permissions: []string{CountsWrite}},
 	{OperationID: "submitAppCountsMilkFeedingTask", Method: "POST", Pattern: "/app/counts/milk-feeding/tasks/{task_id}/submit", Permissions: []string{CountsWrite}},
