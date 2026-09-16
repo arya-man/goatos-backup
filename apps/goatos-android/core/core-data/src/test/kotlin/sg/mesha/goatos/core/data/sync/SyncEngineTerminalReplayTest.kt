@@ -99,6 +99,91 @@ class SyncEngineTerminalReplayTest {
         assertEquals(1, second.persisted)
     }
 
+    private class CountingPenRoutines : sg.mesha.goatos.core.data.PenRoutinesRepository {
+        var persisted = 0
+        val rowVersions = mutableListOf<Int>()
+        override fun tasks(filter: String): Flow<PagingData<sg.mesha.goatos.core.network.dto.PenRoutineTaskDto>> = flowOf(PagingData.empty())
+        override val pageMeta: StateFlow<sg.mesha.goatos.core.data.PenRoutinePageMeta> = MutableStateFlow(sg.mesha.goatos.core.data.PenRoutinePageMeta())
+        override suspend fun invalidateTasks(filter: String) = Unit
+        override fun observeTask(taskId: String): Flow<sg.mesha.goatos.core.network.dto.PenRoutineTaskDto?> = flowOf(null)
+        override suspend fun refreshTask(taskId: String) = Unit
+        override suspend fun persistServerDetail(detail: sg.mesha.goatos.core.network.dto.PenRoutineDetailDto) {
+            persisted += 1
+            rowVersions += detail.task.rowVersion
+        }
+    }
+
+    private fun succeededRoutineWrite(id: String, opType: OutboxOpType, payloadJson: String, resultRowVersion: Int) = OutboxEntity(
+        id = id,
+        opType = opType.name,
+        groupKey = penRoutineTaskGroupKey("task-r"),
+        idempotencyKey = "$id:key",
+        payloadJson = payloadJson,
+        status = OutboxStatus.SUCCEEDED.name,
+        attemptCount = 1,
+        maxAttempts = DEFAULT_MAX_ATTEMPTS,
+        conflict = false,
+        createdAt = 0L,
+        updatedAt = 0L,
+        nextAttemptAt = 0L,
+        lastError = null,
+        resultJson = syncJson.encodeToString(
+            sg.mesha.goatos.core.network.dto.PenRoutineDetailDto(
+                task = sg.mesha.goatos.core.network.dto.PenRoutineTaskDto(taskId = "task-r", rowVersion = resultRowVersion),
+            ),
+        ),
+    )
+
+    /** The routine module's two writes ride the same once-per-process replay seam (maintainer
+     *  instruction 2026-09-16): the presence punch's and the submit's stored Steps each reach Room
+     *  exactly once after a (re)start, never on every pass. */
+    @Test
+    fun `routine presence and submit terminals are replayed into Room once per process`() = runBlocking {
+        val store = FakeOutboxStore()
+        store.insert(
+            succeededRoutineWrite(
+                id = "presence-1",
+                opType = OutboxOpType.PEN_ROUTINE_PRESENCE,
+                payloadJson = syncJson.encodeToString(
+                    PenRoutinePresencePayload(
+                        taskId = "task-r",
+                        rowVersion = 3,
+                        eventType = "enter",
+                        capturedAt = "2026-09-16T01:30:00Z",
+                        location = sg.mesha.goatos.core.network.dto.PenRoutineLocationDto(status = "captured"),
+                        integrity = sg.mesha.goatos.core.network.dto.PenRoutineIntegrityDto(),
+                    ),
+                ),
+                resultRowVersion = 4,
+            ),
+        )
+        store.insert(
+            succeededRoutineWrite(
+                id = "submit-1",
+                opType = OutboxOpType.PEN_ROUTINE_SUBMIT,
+                payloadJson = syncJson.encodeToString(
+                    PenRoutineSubmitPayload(
+                        taskId = "task-r",
+                        rowVersion = 4,
+                        answers = kotlinx.serialization.json.JsonObject(emptyMap()),
+                        proofs = emptyList(),
+                    ),
+                ),
+                resultRowVersion = 5,
+            ),
+        )
+        val routines = CountingPenRoutines()
+        val engine = SyncEngine(store, ScriptedAppApi(), connectivityGate = { true }, clock = { 0L }, penRoutinesRepository = routines)
+
+        engine.drainOnce()
+        assertEquals(2, routines.persisted)
+        assertEquals(listOf(4, 5), routines.rowVersions)
+
+        engine.drainOnce()
+        engine.drainOnce()
+        assertEquals("later passes in the same process must not re-apply the stale copies", 2, routines.persisted)
+    }
+
     @Test
     fun `bounded key set evicts its oldest key at capacity`() {
         val set = BoundedKeySet(capacity = 2)

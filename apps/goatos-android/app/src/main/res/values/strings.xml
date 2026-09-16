@@ -111,4 +111,7 @@
     <string name="feed_seed_transport_instruction">Film the packed feed loaded and staged outside the pens.</string>
     <string name="feed_seed_slot_transport_video">Transport video</string>
     <string name="feed_seed_slot_transport_video_hint">The loaded feed for this location, staged before serving.</string>
+    <string name="proof_video_pen_routine_header">Pen routine</string>
+    <string name="pen_routines_msg_capture_not_saved">That didn\'t save. Take it again.</string>
+    <string name="pen_routines_msg_not_sent">Saved, but couldn\'t be sent. Tap refresh and try again.</string>
 </resources>

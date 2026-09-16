@@ -77,6 +77,10 @@ import sg.mesha.goatos.core.network.dto.LeadershipTaskPageDto
 import sg.mesha.goatos.core.network.dto.LeadershipTaskRaiseRequestDto
 import sg.mesha.goatos.core.network.dto.LeadershipTaskStatusRequestDto
 import sg.mesha.goatos.core.network.dto.LeadershipTaskCommentRequestDto
+import sg.mesha.goatos.core.network.dto.PenRoutineDetailDto
+import sg.mesha.goatos.core.network.dto.PenRoutinePageDto
+import sg.mesha.goatos.core.network.dto.PenRoutinePresenceRequestDto
+import sg.mesha.goatos.core.network.dto.PenRoutineSubmitRequestDto
 import sg.mesha.goatos.core.network.dto.PenVisitDetailDto
 import sg.mesha.goatos.core.network.dto.PenVisitPageDto
 import sg.mesha.goatos.core.network.dto.WorkBoardRowsPageDto
@@ -1875,6 +1879,41 @@ interface AppApi {
     /** GET /app/pen-visits/{task_id}. */
     suspend fun getPenVisit(taskId: String): PenVisitDetailDto
 
+    /**
+     * GET /app/pen-routines — the caller's own routine tasks, keyset-paged (maintainer instruction
+     * 2026-09-16, docs/decisions/pen-routines.md). [filter] is a backend filter KEY
+     * (`todo` | `done`); blank means the backend default.
+     */
+    suspend fun getPenRoutines(
+        filter: String? = null,
+        limit: Int? = null,
+        cursor: String? = null,
+    ): PenRoutinePageDto
+
+    /** GET /app/pen-routines/{task_id}. */
+    suspend fun getPenRoutine(taskId: String): PenRoutineDetailDto
+
+    /**
+     * POST /app/pen-routines/{task_id}/presence — the `enter` punch for a presence-required
+     * routine, fenced on row_version. Idempotent on [idempotencyKey].
+     */
+    suspend fun recordPenRoutinePresence(
+        idempotencyKey: String,
+        taskId: String,
+        request: PenRoutinePresenceRequestDto,
+    ): PenRoutineDetailDto
+
+    /**
+     * POST /app/pen-routines/{task_id}/submit — the answers and every capture, fenced on
+     * row_version. Idempotent on [idempotencyKey]; 409 `already_done` / `in_review` mean the
+     * task moved on without this write.
+     */
+    suspend fun submitPenRoutine(
+        idempotencyKey: String,
+        taskId: String,
+        request: PenRoutineSubmitRequestDto,
+    ): PenRoutineDetailDto
+
     // ------------------------------------------------------------------
     // Work Board (maintainer decision 2026-09-10) — the phone's My Work
     // ------------------------------------------------------------------
@@ -3503,6 +3542,42 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
 
     override suspend fun getPenVisit(taskId: String): PenVisitDetailDto =
         PenVisitDetailDto(task = sg.mesha.goatos.core.network.dto.PenVisitDto(taskId = taskId))
+
+    override suspend fun getPenRoutines(
+        filter: String?,
+        limit: Int?,
+        cursor: String?,
+    ): PenRoutinePageDto = PenRoutinePageDto(title = "Routines")
+
+    override suspend fun getPenRoutine(taskId: String): PenRoutineDetailDto =
+        PenRoutineDetailDto(task = sg.mesha.goatos.core.network.dto.PenRoutineTaskDto(taskId = taskId))
+
+    override suspend fun recordPenRoutinePresence(
+        idempotencyKey: String,
+        taskId: String,
+        request: PenRoutinePresenceRequestDto,
+    ): PenRoutineDetailDto = PenRoutineDetailDto(
+        task = sg.mesha.goatos.core.network.dto.PenRoutineTaskDto(
+            taskId = taskId,
+            inPen = request.eventType == "enter",
+            enteredAt = request.capturedAt,
+            rowVersion = request.rowVersion + 1,
+        ),
+    )
+
+    override suspend fun submitPenRoutine(
+        idempotencyKey: String,
+        taskId: String,
+        request: PenRoutineSubmitRequestDto,
+    ): PenRoutineDetailDto = PenRoutineDetailDto(
+        task = sg.mesha.goatos.core.network.dto.PenRoutineTaskDto(
+            taskId = taskId,
+            workState = "completed",
+            status = "completed",
+            proofs = request.proofRefs,
+            rowVersion = request.rowVersion + 1,
+        ),
+    )
 
     override suspend fun getWorkBoardRows(
         park: String?,

@@ -109,6 +109,10 @@ import sg.mesha.goatos.feature.penvisits.PenVisitDetailEvent
 import sg.mesha.goatos.feature.penvisits.PenVisitDetailScreen
 import sg.mesha.goatos.feature.penvisits.PenVisitListEvent
 import sg.mesha.goatos.feature.penvisits.PenVisitListScreen
+import sg.mesha.goatos.feature.penroutines.PenRoutineDetailEvent
+import sg.mesha.goatos.feature.penroutines.PenRoutineDetailScreen
+import sg.mesha.goatos.feature.penroutines.PenRoutineListEvent
+import sg.mesha.goatos.feature.penroutines.PenRoutineListScreen
 import sg.mesha.goatos.feature.workboard.WorkBoardDetailEvent
 import sg.mesha.goatos.feature.workboard.WorkBoardDetailScreen
 import sg.mesha.goatos.feature.workboard.WorkBoardEvent
@@ -279,6 +283,8 @@ import sg.mesha.goatos.viewmodel.LeadershipTaskDetailViewModel
 import sg.mesha.goatos.viewmodel.LeadershipTaskListViewModel
 import sg.mesha.goatos.viewmodel.PenVisitDetailViewModel
 import sg.mesha.goatos.viewmodel.PenVisitListViewModel
+import sg.mesha.goatos.viewmodel.PenRoutineDetailViewModel
+import sg.mesha.goatos.viewmodel.PenRoutineListViewModel
 import sg.mesha.goatos.viewmodel.WorkBoardDetailViewModel
 import sg.mesha.goatos.viewmodel.WorkBoardViewModel
 import sg.mesha.goatos.viewmodel.FeedPurchaseCreateViewModel
@@ -795,6 +801,25 @@ object Routes {
     fun penVisitIdFromHref(href: String): String? {
         val base = href.substringBefore('?').trimEnd('/')
         val id = base.removePrefix("$PEN_VISITS/")
+        if (id == base || id.isBlank() || id.contains('/')) return null
+        return Uri.decode(id)
+    }
+
+    // Pen routines (maintainer instruction 2026-09-16, docs/decisions/pen-routines.md): the
+    // `pen_routines` module's ONE backend-composed nav item. The list is an L0 root whose href
+    // matches the backend nav item VERBATIM ({key:"pen_routines", href:"/pen-routines"}); the
+    // task detail is a distinct hosted drill with Up/Back and NO root chrome, never a prefix
+    // reuse of the L0 route.
+    const val PEN_ROUTINES = "/pen-routines"
+    const val PEN_ROUTINE_ID_ARG = "task_id"
+    const val PEN_ROUTINE = "/pen-routines/{$PEN_ROUTINE_ID_ARG}"
+
+    fun penRoutineRoute(taskId: String): String = "/pen-routines/${Uri.encode(taskId)}"
+
+    /** The task id a `/pen-routines/<id>` push href names, or null for anything else. */
+    fun penRoutineIdFromHref(href: String): String? {
+        val base = href.substringBefore('?').trimEnd('/')
+        val id = base.removePrefix("$PEN_ROUTINES/")
         if (id == base || id.isBlank() || id.contains('/')) return null
         return Uri.decode(id)
     }
@@ -4239,6 +4264,68 @@ fun AppNavHost(
             }
         }
 
+        // --- Pen routines (maintainer instruction 2026-09-16) --------------------------------
+        // The Routines module: ONE L0 list of the park head's own routine tasks plus the hosted
+        // task drill. Module visibility is backend-composed (`pen_routines.execute` on the nav
+        // item); nothing here gates on a role string.
+        composable(Routes.PEN_ROUTINES) {
+            val vm: PenRoutineListViewModel = hiltViewModel()
+            LaunchedEffect(vm) { vm.bind(PEN_ROUTINES_TAB_TITLE) }
+            val state by vm.state.collectAsStateWithLifecycle()
+            val rows = vm.rows.collectAsLazyPagingItems()
+            val refreshError = (rows.loadState.refresh as? LoadState.Error)?.error
+            val appendError = (rows.loadState.append as? LoadState.Error)?.error
+            LaunchedEffect(refreshError, appendError) {
+                (refreshError ?: appendError)?.let(vm::onRowsLoadFailed)
+            }
+            PenRoutineListScreen(
+                state = state,
+                rows = rows,
+                onEvent = { event ->
+                    when (event) {
+                        PenRoutineListEvent.Refresh -> {
+                            vm.onEvent(event)
+                            rows.refresh()
+                        }
+                        is PenRoutineListEvent.SelectFilter -> {
+                            vm.onEvent(event)
+                            rows.refresh()
+                        }
+                        is PenRoutineListEvent.OpenTask -> {
+                            vm.onEvent(event)
+                            navController.navigate(Routes.penRoutineRoute(event.taskId)) {
+                                launchSingleTop = true
+                            }
+                        }
+                    }
+                },
+            )
+        }
+
+        // The task (L1 drill). CaptureAccessGate + BOTH capture bindings: a routine's photo slots
+        // use the live photo capture and its video slots the shared recorder; without the
+        // bindings neither source has a camera to open and the slot buttons would do nothing.
+        composable(
+            route = Routes.PEN_ROUTINE,
+            arguments = listOf(navArgument(Routes.PEN_ROUTINE_ID_ARG) { type = NavType.StringType }),
+        ) {
+            val vm: PenRoutineDetailViewModel = hiltViewModel()
+            val state by vm.state.collectAsStateWithLifecycle()
+            CaptureAccessGate {
+                BindVideoCaptureSource(rememberDelegatingProofCaptureSource())
+                BindPhotoCaptureSource(rememberDelegatingPhotoCaptureSource())
+                PenRoutineDetailScreen(
+                    state = state,
+                    onEvent = { event ->
+                        when (event) {
+                            PenRoutineDetailEvent.Back -> navController.popBackStack()
+                            else -> vm.onEvent(event)
+                        }
+                    },
+                )
+            }
+        }
+
         // --- Work Board / My Work (maintainer decision 2026-09-10) -------------------------
         // ONE L0 list of every module's work for the caller's park and day, already scoped by the
         // backend (an operator sees only their own rows), plus the hosted row drill. Module
@@ -4957,6 +5044,9 @@ private val supportedRootDestinations = setOf(
 	// Pen visits (maintainer decision 2026-09-07): the Tasks module's "For me" leaf — a real
 	// backend-composed bar item, so it is a root exactly like the tab beside it.
 	Routes.PEN_VISITS,
+	// Pen routines (maintainer instruction 2026-09-16): the `pen_routines` module's one
+	// backend-composed nav item, so it is a root exactly like every other module leaf.
+	Routes.PEN_ROUTINES,
 	// Work Board / My Work (maintainer decision 2026-09-10): the `work_board` module's one
 	// backend-composed bar item, so it is a root exactly like every other module leaf.
 	Routes.WORK,
@@ -5060,6 +5150,8 @@ internal fun pushTargetRoute(target: String?): String? {
     Routes.leadershipTaskIdFromHref(target)?.let { return Routes.leadershipTaskRoute(it) }
     // A push naming ONE pen visit (`/pen-visits/{task_id}`) opens that visit.
     Routes.penVisitIdFromHref(target)?.let { return Routes.penVisitRoute(it) }
+    // A push naming ONE routine task (`/pen-routines/{task_id}`) opens that task.
+    Routes.penRoutineIdFromHref(target)?.let { return Routes.penRoutineRoute(it) }
     // An `animal_purchase_decided` push names ONE load: open that load, where the decision chip is.
     Routes.animalPurchaseLoadIdFromHref(target)?.let { return Routes.animalPurchaseLoadRoute(it) }
     return workTargetRoute(target)
@@ -5263,6 +5355,10 @@ private const val LEADERSHIP_TASKS_TAB_TITLE = "Tasks"
 /** The backend's `nav.pen_visits` label, mirrored so the L0 header matches the nav item until
  *  the page's own backend title lands. */
 private const val PEN_VISITS_TAB_TITLE = "For me"
+
+/** The backend's `nav.pen_routines` label, mirrored so the L0 header matches the nav item until
+ *  the page's own backend title lands. */
+private const val PEN_ROUTINES_TAB_TITLE = "Routines"
 
 private fun NavGraphBuilder.pcCareCategoryComposable(
     route: String,

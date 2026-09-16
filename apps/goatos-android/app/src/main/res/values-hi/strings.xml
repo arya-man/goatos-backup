@@ -102,4 +102,7 @@
     <string name="feed_seed_transport_instruction">पैक किया गया फ़ीड लादकर बाड़ों के बाहर रखते हुए फ़िल्म करें।</string>
     <string name="feed_seed_slot_transport_video">परिवहन वीडियो</string>
     <string name="feed_seed_slot_transport_video_hint">इस स्थान के लिए लादा गया फ़ीड, परोसने से पहले रखा हुआ।</string>
+    <string name="proof_video_pen_routine_header">बाड़े की दिनचर्या</string>
+    <string name="pen_routines_msg_capture_not_saved">यह सेव नहीं हुआ। फिर से लें।</string>
+    <string name="pen_routines_msg_not_sent">सेव हुआ, पर भेजा नहीं जा सका। रिफ्रेश करके फिर कोशिश करें।</string>
 </resources>

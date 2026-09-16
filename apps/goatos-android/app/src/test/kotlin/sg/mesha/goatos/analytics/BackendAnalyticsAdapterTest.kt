@@ -16,6 +16,7 @@ import org.robolectric.RobolectricTestRunner
 import sg.mesha.goatos.core.analytics.AnalyticsContext
 import sg.mesha.goatos.core.analytics.AnalyticsEvents
 import sg.mesha.goatos.core.analytics.AnalyticsEventsLeadershipTasks
+import sg.mesha.goatos.core.analytics.AnalyticsEventsPenRoutines
 import sg.mesha.goatos.core.analytics.AnalyticsEventsPenVisits
 import sg.mesha.goatos.core.analytics.AnalyticsEventsToxin
 import sg.mesha.goatos.core.analytics.AnalyticsEventsWeighing
@@ -245,6 +246,13 @@ class BackendAnalyticsAdapterTest {
         assertTrue(allowlist.contains(AnalyticsEventsPenVisits.SUBMIT_RECOVERED))
         assertTrue(allowlist.contains(AnalyticsEventsPenVisits.PROOF_PREVIEW_ACTION))
         assertTrue(allowlist.contains(AnalyticsEventsPenVisits.FAILURE))
+        assertTrue(allowlist.contains(AnalyticsEventsPenRoutines.LIST_OPENED))
+        assertTrue(allowlist.contains(AnalyticsEventsPenRoutines.DETAIL_OPENED))
+        assertTrue(allowlist.contains(AnalyticsEventsPenRoutines.CHECK_IN))
+        assertTrue(allowlist.contains(AnalyticsEventsPenRoutines.CAPTURE_RESULT))
+        assertTrue(allowlist.contains(AnalyticsEventsPenRoutines.SUBMIT))
+        assertTrue(allowlist.contains(AnalyticsEventsPenRoutines.SUBMIT_FAILED))
+        assertTrue(allowlist.contains(AnalyticsEventsPenRoutines.FAILURE))
         assertTrue(allowlist.contains(AnalyticsEvents.VACCINATION_PROOF_CAPTURE_CANCELLED))
         assertTrue(allowlist.contains(AnalyticsEvents.VACCINATION_PROOF_CAPTURE_FAILURE))
         assertTrue(allowlist.contains(AnalyticsEvents.VACCINATION_PROOF_ACTION_TAPPED))

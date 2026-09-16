@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="pen_routines_action_refresh">రిఫ్రెష్ చేయండి</string>
+    <string name="pen_routines_action_check_in">పెన్‌లో చెక్-ఇన్ చేయండి</string>
+    <string name="pen_routines_action_take_photo">ఫోటో తీయండి</string>
+    <string name="pen_routines_action_record_video">వీడియో రికార్డ్ చేయండి</string>
+    <string name="pen_routines_action_photo_again">మళ్లీ ఫోటో తీయండి</string>
+    <string name="pen_routines_action_video_again">మళ్లీ రికార్డ్ చేయండి</string>
+    <string name="pen_routines_action_submit">సమర్పించండి</string>
+    <string name="pen_routines_section_presence">హాజరు</string>
+    <string name="pen_routines_section_questions">ప్రశ్నలు</string>
+    <string name="pen_routines_section_photos">ఫోటోలు</string>
+    <string name="pen_routines_section_videos">వీడియోలు</string>
+    <string name="pen_routines_section_answers">సమాధానాలు</string>
+    <string name="pen_routines_required_mark">*</string>
+    <string name="pen_routines_field_number">సంఖ్య</string>
+    <string name="pen_routines_field_text">మీ సమాధానం</string>
+    <string name="pen_routines_range_between">%1$s మరియు %2$s మధ్య</string>
+    <string name="pen_routines_range_min">కనీసం %1$s</string>
+    <string name="pen_routines_range_max">గరిష్టంగా %1$s</string>
+    <string name="pen_routines_slot_photo">ఫోటో %1$d</string>
+    <string name="pen_routines_slot_video">వీడియో %1$d</string>
+    <string name="pen_routines_state_sending">పంపుతోంది…</string>
+    <string name="pen_routines_state_checking_in">చెక్-ఇన్ అవుతోంది…</string>
+    <string name="pen_routines_state_in_review">వెరిఫయర్ వద్ద ఉంది</string>
+    <string name="pen_routines_state_done">పూర్తయింది</string>
+    <string name="pen_routines_state_locked">ఇది మీది కాదు</string>
+    <string name="pen_routines_state_sent_back">వెరిఫయర్ వెనక్కి పంపారు</string>
+    <string name="pen_routines_proofs_count">%1$d క్యాప్చర్లు నమోదయ్యాయి</string>
+</resources>

@@ -427,9 +427,55 @@ class GoatDatabaseUpgradeCrashTest {
             //     test — only reopening a real old file and round-tripping each table catches it
             //     before an upgraded phone crashes on open.
             assertAnimalPurchaseTablesRoundTrip(upgraded, base = 300L)
+
+            // 22. The three v65 PEN ROUTINE tables (MIGRATION_64_65). Same MOB-007 proof: purely
+            //     additive, so an omitted or mis-shaped CREATE still passes every fresh-install
+            //     test — only reopening a real old file and round-tripping each table catches it
+            //     before an upgraded phone crashes on open.
+            assertPenRoutineTablesRoundTrip(upgraded, base = 320L)
         } finally {
             upgraded.close()
         }
+    }
+
+    /** Round-trips the three pen-routine tables so a missing/mismatched CREATE in MIGRATION_64_65
+     *  fails here — the MOB-007 upgrade-crash class — rather than on a phone. */
+    private suspend fun assertPenRoutineTablesRoundTrip(upgraded: GoatDatabase, base: Long) {
+        upgraded.penRoutineItemDao().upsertAll(
+            listOf(
+                sg.mesha.goatos.core.data.cache.PenRoutineItemEntity(
+                    queryKey = "pen-routines",
+                    grainKey = "pen-routine-1",
+                    sortIndex = 0,
+                    dtoJson = "{}",
+                    updatedAt = base,
+                ),
+            ),
+        )
+        assertEquals(1, upgraded.penRoutineItemDao().countForQuery("pen-routines"))
+        assertEquals(1, upgraded.penRoutineItemDao().rowsForTask("pen-routine-1").size)
+
+        upgraded.penRoutineRemoteKeyDao().upsert(
+            sg.mesha.goatos.core.data.cache.PenRoutineRemoteKeyEntity(
+                queryKey = "pen-routines",
+                nextCursor = "cursor-20",
+                endReached = false,
+                updatedAt = base + 1,
+            ),
+        )
+        assertEquals("cursor-20", upgraded.penRoutineRemoteKeyDao().get("pen-routines")?.nextCursor)
+
+        upgraded.penRoutineDetailCacheDao().upsert(
+            sg.mesha.goatos.core.data.cache.PenRoutineDetailCacheEntity(
+                cacheKey = "pen-routine-1",
+                dtoJson = "{}",
+                updatedAt = base + 2,
+            ),
+        )
+        assertEquals(
+            base + 2,
+            upgraded.penRoutineDetailCacheDao().observe("pen-routine-1").first()?.updatedAt,
+        )
     }
 
     /** Round-trips the five animal-purchase tables so a missing/mismatched CREATE in MIGRATION_63_64
@@ -1464,7 +1510,7 @@ class GoatDatabaseUpgradeCrashTest {
             MIGRATION_46_47, MIGRATION_47_48, MIGRATION_48_49, MIGRATION_49_50, MIGRATION_50_51,
             MIGRATION_51_52, MIGRATION_52_53, MIGRATION_53_54, MIGRATION_54_55, MIGRATION_55_56,
             MIGRATION_56_57, MIGRATION_57_58, MIGRATION_58_59, MIGRATION_59_60, MIGRATION_60_61,
-            MIGRATION_61_62, MIGRATION_62_63, MIGRATION_63_64,
+            MIGRATION_61_62, MIGRATION_62_63, MIGRATION_63_64, MIGRATION_64_65,
         )
 
         /** The chain that produces a v25 file: everything up to and including MIGRATION_24_25 —

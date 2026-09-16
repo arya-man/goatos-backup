@@ -164,6 +164,11 @@ class SyncEngine(
     // the card and detail flip to done the moment the write drains. Same defect class as
     // toxinRepository above: null here silently no-ops the reconcile in production.
     private val penVisitsRepository: sg.mesha.goatos.core.data.PenVisitsRepository? = null,
+    // Pen routines (maintainer instruction 2026-09-16): a successful presence punch or submit
+    // RETURNS the task's fresh Step (its chip, in_pen, can_submit, row_version); this repository
+    // writes it through Room so the detail re-renders the server's state the moment the write
+    // drains. Same defect class: null here silently no-ops the reconcile in production.
+    private val penRoutinesRepository: sg.mesha.goatos.core.data.PenRoutinesRepository? = null,
     // Vendors module (maintainer decision 2026-09-03): without this the VENDOR_CREATE /
     // FEED_PURCHASE_CREATE reconciliation silently no-ops and the phone keeps showing the
     // register without the vendor it just recorded until the next refresh. Same defect class as
@@ -601,6 +606,8 @@ class SyncEngine(
         OutboxOpType.TOXIN_STEP_COMPLETE -> dispatchToxinStepComplete(item)
         OutboxOpType.TOXIN_SUBMIT -> dispatchToxinSubmit(item)
         OutboxOpType.PEN_VISIT_SUBMIT -> dispatchPenVisitSubmit(item)
+        OutboxOpType.PEN_ROUTINE_PRESENCE -> dispatchPenRoutinePresence(item)
+        OutboxOpType.PEN_ROUTINE_SUBMIT -> dispatchPenRoutineSubmit(item)
         OutboxOpType.CLOCK_IN -> dispatchClockPunch(item, clockIn = true)
         OutboxOpType.CLOCK_OUT -> dispatchClockPunch(item, clockIn = false)
         OutboxOpType.LEAVE_REQUEST_CREATE -> dispatchLeaveRequestCreate(item)
@@ -872,6 +879,17 @@ class SyncEngine(
                     runCatching {
                         val detail = syncJson.decodeFromString<sg.mesha.goatos.core.network.dto.PenVisitDetailDto>(resultJson)
                         penVisitsRepository?.persistServerDetail(detail)
+                    }.onFailure { reportCacheReconcileFailure(item, it) }
+                }
+            }
+            OutboxOpType.PEN_ROUTINE_PRESENCE, OutboxOpType.PEN_ROUTINE_SUBMIT -> {
+                item.resultJson?.let { resultJson ->
+                    // POST-dispatch result: the server returns the task's FRESH Step from the very
+                    // transaction this write landed in (or, after a 409 already_done / in_review,
+                    // the re-fetched one). Same rationale as PEN_VISIT_SUBMIT above.
+                    runCatching {
+                        val detail = syncJson.decodeFromString<sg.mesha.goatos.core.network.dto.PenRoutineDetailDto>(resultJson)
+                        penRoutinesRepository?.persistServerDetail(detail)
                     }.onFailure { reportCacheReconcileFailure(item, it) }
                 }
             }
@@ -1881,6 +1899,108 @@ class SyncEngine(
         return syncJson.encodeToString(response)
     }
 
+    /**
+     * The pen-routine presence punch (maintainer instruction 2026-09-16): the `enter` check-in
+     * with the location/integrity block captured at tap time. The row's STORED key is passed
+     * verbatim on a retry. Three server answers are handled here rather than left to
+     * [recordFailure], the pen-visit shape:
+     *  - `409 already_done` / `409 in_review` — the task moved on without this punch (another
+     *    assignee finished it, or an earlier attempt landed and the phone never heard back). That
+     *    is SUCCESS: the fresh task is re-fetched and returned so the reconcile shows its state.
+     *  - `409 version_conflict` — the task moved under the row version the screen rendered. The
+     *    task is re-read; one that no longer offers a check-in is success as above, otherwise the
+     *    punch is retried ONCE under the FRESH row version and its own key from
+     *    PenRoutinePayloads.kt — a genuinely new act, never the stored key with a different body.
+     *    A second refusal propagates and is terminal.
+     *  - every other 4xx (`403 not_assignee`, a 422) — terminal by [recordFailure]'s
+     *    `isTerminalAppApiError` check, carrying the server's own sentence; the terminal hook
+     *    re-reads the task.
+     */
+    private suspend fun dispatchPenRoutinePresence(item: OutboxEntity): String {
+        val payload = syncJson.decodeFromString<PenRoutinePresencePayload>(item.payloadJson)
+        fun request(rowVersion: Int) = sg.mesha.goatos.core.network.dto.PenRoutinePresenceRequestDto(
+            eventType = payload.eventType,
+            capturedAt = payload.capturedAt,
+            rowVersion = rowVersion,
+            location = payload.location,
+            integrity = payload.integrity,
+        )
+        val response = try {
+            api.recordPenRoutinePresence(item.idempotencyKey, payload.taskId, request(payload.rowVersion))
+        } catch (error: Exception) {
+            if (error is CancellationException) throw error
+            val code = error.serverErrorText()?.code
+            when {
+                error.appApiStatusCode() == 409 && code in PEN_ROUTINE_MOVED_ON_CODES ->
+                    api.getPenRoutine(payload.taskId)
+                error.appApiStatusCode() == 409 && code == PEN_ROUTINE_VERSION_CONFLICT -> {
+                    val fresh = api.getPenRoutine(payload.taskId)
+                    if (!fresh.task.canCheckIn || fresh.task.inPen) {
+                        fresh
+                    } else {
+                        api.recordPenRoutinePresence(
+                            penRoutinePresenceIdempotencyKey(payload.taskId, payload.eventType, fresh.task.rowVersion),
+                            payload.taskId,
+                            request(fresh.task.rowVersion),
+                        )
+                    }
+                }
+                else -> throw error
+            }
+        }
+        return syncJson.encodeToString(response)
+    }
+
+    /**
+     * The pen-routine submit (maintainer instruction 2026-09-16): the answers plus every capture,
+     * each resolved through its coupled PROOF_UPLOAD row on the same task group exactly like
+     * [dispatchPenVisitSubmit]'s clip. Same 409 handling as [dispatchPenRoutinePresence]; a
+     * `422 presence_missing` / `proof_count` / `answer_invalid` / `invalid_proof` is terminal by
+     * [recordFailure], carries the server's sentence, and the terminal hook re-reads the task so
+     * the form re-opens beside it.
+     */
+    private suspend fun dispatchPenRoutineSubmit(item: OutboxEntity): String {
+        val payload = syncJson.decodeFromString<PenRoutineSubmitPayload>(item.payloadJson)
+        val proofRefs = payload.proofs.map { proof ->
+            sg.mesha.goatos.core.network.dto.PenRoutineProofDto(
+                ref = resolveUploadedProofRef(proof.proofOutboxItemId),
+                kind = proof.kind,
+            )
+        }
+        fun request(rowVersion: Int) = sg.mesha.goatos.core.network.dto.PenRoutineSubmitRequestDto(
+            answers = payload.answers,
+            proofRefs = proofRefs,
+            rowVersion = rowVersion,
+            capturedAt = payload.capturedAt,
+            location = payload.location,
+            integrity = payload.integrity,
+        )
+        val response = try {
+            api.submitPenRoutine(item.idempotencyKey, payload.taskId, request(payload.rowVersion))
+        } catch (error: Exception) {
+            if (error is CancellationException) throw error
+            val code = error.serverErrorText()?.code
+            when {
+                error.appApiStatusCode() == 409 && code in PEN_ROUTINE_MOVED_ON_CODES ->
+                    api.getPenRoutine(payload.taskId)
+                error.appApiStatusCode() == 409 && code == PEN_ROUTINE_VERSION_CONFLICT -> {
+                    val fresh = api.getPenRoutine(payload.taskId)
+                    if (fresh.task.workState == PEN_VISIT_STATE_COMPLETED || !fresh.task.canSubmit) {
+                        fresh
+                    } else {
+                        api.submitPenRoutine(
+                            penRoutineSubmitIdempotencyKey(payload.taskId, fresh.task.rowVersion),
+                            payload.taskId,
+                            request(fresh.task.rowVersion),
+                        )
+                    }
+                }
+                else -> throw error
+            }
+        }
+        return syncJson.encodeToString(response)
+    }
+
     private suspend fun dispatchMilkPreparationSubmit(item: OutboxEntity): String {
         val payload = syncJson.decodeFromString<MilkPreparationSubmitPayload>(item.payloadJson)
         suspend fun proof(step: String): String? = payload.proofOutboxItemIds[step]?.let { resolveUploadedProofRef(it) }
@@ -2235,6 +2355,9 @@ class SyncEngine(
         private const val PEN_VISIT_ALREADY_SUBMITTED = "already_submitted"
         private const val PEN_VISIT_STALE_TASK = "stale_task"
         private const val PEN_VISIT_STATE_COMPLETED = "completed"
+        /** Pen-routine wire codes this engine reads (backend/internal/penroutines, the Step contract). */
+        private const val PEN_ROUTINE_VERSION_CONFLICT = "version_conflict"
+        private val PEN_ROUTINE_MOVED_ON_CODES = setOf("already_done", "in_review")
         // The phone keeps the recent assessments a manager might re-open, not a history. The
         // server owns the record; without a cap this table only ever grows.
         // A RETENTION cap for deleteOldestBeyond, not a page fetch: nothing reads 50 rows;

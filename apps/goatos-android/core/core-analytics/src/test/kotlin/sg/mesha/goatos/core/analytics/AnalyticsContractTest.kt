@@ -55,6 +55,13 @@ class AnalyticsContractTest {
         assertEquals("pen_visit_submit_recovered", AnalyticsEventsPenVisits.SUBMIT_RECOVERED)
         assertEquals("pen_visit_proof_preview_action", AnalyticsEventsPenVisits.PROOF_PREVIEW_ACTION)
         assertEquals("pen_visit_failure", AnalyticsEventsPenVisits.FAILURE)
+        assertEquals("pen_routine_list_opened", AnalyticsEventsPenRoutines.LIST_OPENED)
+        assertEquals("pen_routine_detail_opened", AnalyticsEventsPenRoutines.DETAIL_OPENED)
+        assertEquals("pen_routine_check_in", AnalyticsEventsPenRoutines.CHECK_IN)
+        assertEquals("pen_routine_capture_result", AnalyticsEventsPenRoutines.CAPTURE_RESULT)
+        assertEquals("pen_routine_submit", AnalyticsEventsPenRoutines.SUBMIT)
+        assertEquals("pen_routine_submit_failed", AnalyticsEventsPenRoutines.SUBMIT_FAILED)
+        assertEquals("pen_routine_failure", AnalyticsEventsPenRoutines.FAILURE)
     }
 
     @Test

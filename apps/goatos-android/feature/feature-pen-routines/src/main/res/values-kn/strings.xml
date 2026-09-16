@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="pen_routines_action_refresh">ರಿಫ್ರೆಶ್ ಮಾಡಿ</string>
+    <string name="pen_routines_action_check_in">ಪೆನ್‌ಗೆ ಚೆಕ್-ಇನ್ ಮಾಡಿ</string>
+    <string name="pen_routines_action_take_photo">ಫೋಟೋ ತೆಗೆಯಿರಿ</string>
+    <string name="pen_routines_action_record_video">ವೀಡಿಯೊ ರೆಕಾರ್ಡ್ ಮಾಡಿ</string>
+    <string name="pen_routines_action_photo_again">ಮತ್ತೆ ಫೋಟೋ ತೆಗೆಯಿರಿ</string>
+    <string name="pen_routines_action_video_again">ಮತ್ತೆ ರೆಕಾರ್ಡ್ ಮಾಡಿ</string>
+    <string name="pen_routines_action_submit">ಸಲ್ಲಿಸಿ</string>
+    <string name="pen_routines_section_presence">ಹಾಜರಾತಿ</string>
+    <string name="pen_routines_section_questions">ಪ್ರಶ್ನೆಗಳು</string>
+    <string name="pen_routines_section_photos">ಫೋಟೋಗಳು</string>
+    <string name="pen_routines_section_videos">ವೀಡಿಯೊಗಳು</string>
+    <string name="pen_routines_section_answers">ಉತ್ತರಗಳು</string>
+    <string name="pen_routines_required_mark">*</string>
+    <string name="pen_routines_field_number">ಸಂಖ್ಯೆ</string>
+    <string name="pen_routines_field_text">ನಿಮ್ಮ ಉತ್ತರ</string>
+    <string name="pen_routines_range_between">%1$s ಮತ್ತು %2$s ನಡುವೆ</string>
+    <string name="pen_routines_range_min">ಕನಿಷ್ಠ %1$s</string>
+    <string name="pen_routines_range_max">ಗರಿಷ್ಠ %1$s</string>
+    <string name="pen_routines_slot_photo">ಫೋಟೋ %1$d</string>
+    <string name="pen_routines_slot_video">ವೀಡಿಯೊ %1$d</string>
+    <string name="pen_routines_state_sending">ಕಳುಹಿಸಲಾಗುತ್ತಿದೆ…</string>
+    <string name="pen_routines_state_checking_in">ಚೆಕ್-ಇನ್ ಆಗುತ್ತಿದೆ…</string>
+    <string name="pen_routines_state_in_review">ಪರಿಶೀಲಕರ ಬಳಿ</string>
+    <string name="pen_routines_state_done">ಮುಗಿದಿದೆ</string>
+    <string name="pen_routines_state_locked">ಇದು ನಿಮ್ಮದಲ್ಲ</string>
+    <string name="pen_routines_state_sent_back">ಪರಿಶೀಲಕರು ಹಿಂತಿರುಗಿಸಿದ್ದಾರೆ</string>
+    <string name="pen_routines_proofs_count">%1$d ಕ್ಯಾಪ್ಚರ್‌ಗಳು ದಾಖಲಾಗಿವೆ</string>
+</resources>

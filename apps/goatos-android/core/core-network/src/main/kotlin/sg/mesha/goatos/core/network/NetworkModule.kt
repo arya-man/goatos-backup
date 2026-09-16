@@ -94,6 +94,10 @@ import sg.mesha.goatos.core.network.dto.LeadershipTaskPageDto
 import sg.mesha.goatos.core.network.dto.LeadershipTaskRaiseRequestDto
 import sg.mesha.goatos.core.network.dto.LeadershipTaskStatusRequestDto
 import sg.mesha.goatos.core.network.dto.LeadershipTaskCommentRequestDto
+import sg.mesha.goatos.core.network.dto.PenRoutineDetailDto
+import sg.mesha.goatos.core.network.dto.PenRoutinePageDto
+import sg.mesha.goatos.core.network.dto.PenRoutinePresenceRequestDto
+import sg.mesha.goatos.core.network.dto.PenRoutineSubmitRequestDto
 import sg.mesha.goatos.core.network.dto.PenVisitDetailDto
 import sg.mesha.goatos.core.network.dto.PenVisitPageDto
 import sg.mesha.goatos.core.network.dto.WorkBoardRowsPageDto
@@ -1364,6 +1368,33 @@ interface AppApiService {
         @Path("task_id") taskId: String,
     ): PenVisitDetailDto
 
+    // Pen routines (maintainer instruction 2026-09-16)
+    @GET("app/pen-routines")
+    suspend fun getPenRoutines(
+        @Query("filter") filter: String?,
+        @Query("limit") limit: Int?,
+        @Query("cursor") cursor: String?,
+    ): PenRoutinePageDto
+
+    @GET("app/pen-routines/{task_id}")
+    suspend fun getPenRoutine(
+        @Path("task_id") taskId: String,
+    ): PenRoutineDetailDto
+
+    @POST("app/pen-routines/{task_id}/presence")
+    suspend fun recordPenRoutinePresence(
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Path("task_id") taskId: String,
+        @Body request: PenRoutinePresenceRequestDto,
+    ): PenRoutineDetailDto
+
+    @POST("app/pen-routines/{task_id}/submit")
+    suspend fun submitPenRoutine(
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Path("task_id") taskId: String,
+        @Body request: PenRoutineSubmitRequestDto,
+    ): PenRoutineDetailDto
+
     // Work Board (maintainer decision 2026-09-10) — no `app/` prefix, like feed-packing/worklist.
     @GET("work-board/rows")
     suspend fun getWorkBoardRows(
@@ -2569,6 +2600,26 @@ class RetrofitAppApi(
     ): PenVisitPageDto = service.getPenVisits(filter, limit, cursor)
 
     override suspend fun getPenVisit(taskId: String): PenVisitDetailDto = service.getPenVisit(taskId)
+
+    override suspend fun getPenRoutines(
+        filter: String?,
+        limit: Int?,
+        cursor: String?,
+    ): PenRoutinePageDto = service.getPenRoutines(filter, limit, cursor)
+
+    override suspend fun getPenRoutine(taskId: String): PenRoutineDetailDto = service.getPenRoutine(taskId)
+
+    override suspend fun recordPenRoutinePresence(
+        idempotencyKey: String,
+        taskId: String,
+        request: PenRoutinePresenceRequestDto,
+    ): PenRoutineDetailDto = service.recordPenRoutinePresence(idempotencyKey, taskId, request)
+
+    override suspend fun submitPenRoutine(
+        idempotencyKey: String,
+        taskId: String,
+        request: PenRoutineSubmitRequestDto,
+    ): PenRoutineDetailDto = service.submitPenRoutine(idempotencyKey, taskId, request)
 
     override suspend fun getWorkBoardRows(
         park: String?,

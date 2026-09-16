@@ -7,6 +7,7 @@ import sg.mesha.goatos.BuildConfig
 import sg.mesha.goatos.core.analytics.AnalyticsContext
 import sg.mesha.goatos.core.analytics.AnalyticsEvents
 import sg.mesha.goatos.core.analytics.AnalyticsEventsLeadershipTasks
+import sg.mesha.goatos.core.analytics.AnalyticsEventsPenRoutines
 import sg.mesha.goatos.core.analytics.AnalyticsEventsPenVisits
 import sg.mesha.goatos.core.analytics.AnalyticsEventsSession
 import sg.mesha.goatos.core.analytics.AnalyticsEventsAnimalPurchase
@@ -224,6 +225,13 @@ class BackendAnalyticsAdapter(
             AnalyticsEventsPenVisits.SUBMIT_RECOVERED,
             AnalyticsEventsPenVisits.PROOF_PREVIEW_ACTION,
             AnalyticsEventsPenVisits.FAILURE,
+            AnalyticsEventsPenRoutines.LIST_OPENED,
+            AnalyticsEventsPenRoutines.DETAIL_OPENED,
+            AnalyticsEventsPenRoutines.CHECK_IN,
+            AnalyticsEventsPenRoutines.CAPTURE_RESULT,
+            AnalyticsEventsPenRoutines.SUBMIT,
+            AnalyticsEventsPenRoutines.SUBMIT_FAILED,
+            AnalyticsEventsPenRoutines.FAILURE,
             AnalyticsEventsToxin.TOXIN_STEP_VIDEO_CAPTURED,
             AnalyticsEventsToxin.TOXIN_STRIP_PHOTO_CAPTURED,
             AnalyticsEventsToxin.TOXIN_STEP_SUBMITTED,

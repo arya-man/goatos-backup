@@ -151,6 +151,12 @@ val OutboxOpType.lifecyclePolicy: OutboxLifecyclePolicy
         // RETURNED task (its `Done` chip, done line, row_version) straight into the Room detail
         // and list caches — the toxin shape.
         OutboxOpType.PEN_VISIT_SUBMIT -> overlayDirectReconcileLifecycle()
+        // Pen routines (maintainer instruction 2026-09-16): the check-in and the submit both show
+        // an outbox-derived "Checking in" / "Sending" at once, and the sync pass writes the
+        // server's RETURNED Step (in_pen, chip, row_version) straight into the Room detail and
+        // list caches — the pen-visit shape. The durable proof rows survive process death in Room.
+        OutboxOpType.PEN_ROUTINE_PRESENCE -> overlayDirectReconcileLifecycle()
+        OutboxOpType.PEN_ROUTINE_SUBMIT -> overlayDirectReconcileLifecycle()
         // Vendors module (maintainer decision 2026-09-03): the add form shows a "queued" banner at
         // once (the record is durable in the outbox), and the sync pass writes the server's
         // RETURNED row straight into the Room detail/list caches -- the toxin/packing shape.

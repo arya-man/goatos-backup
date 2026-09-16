@@ -323,6 +323,30 @@ enum class OutboxOpType {
     PEN_VISIT_SUBMIT,
 
     /**
+     * Pen routine presence punch (`POST /app/pen-routines/{task_id}/presence`, maintainer
+     * instruction 2026-09-16, docs/decisions/pen-routines.md): the `enter` check-in a
+     * presence-required routine demands before its submit. Carries the workforce clock's
+     * honest-capture location/integrity block. Rides the routine task's group
+     * (`pen-routine:task:<taskId>`) ahead of the proof uploads and the submit, so the server sees
+     * the check-in before the submit that depends on it. STABLE per (task, event, row_version)
+     * idempotency key. `409 version_conflict` re-reads the task and retries ONCE under the fresh
+     * row version; `409 already_done` / `in_review` are read as success (the detail is re-fetched);
+     * every other 4xx is terminal and carries the server's own farm sentence.
+     */
+    PEN_ROUTINE_PRESENCE,
+
+    /**
+     * Pen routine submit (`POST /app/pen-routines/{task_id}/submit`): the answers keyed by
+     * question id plus every capture, each by REFERENCE to its coupled PROOF_UPLOAD row on the
+     * SAME task group (`pen-routine:task:<taskId>`), which drains first (mirroring
+     * [PEN_VISIT_SUBMIT]); the dispatcher resolves every uploaded server proof id into
+     * `proof_refs`. STABLE per (task, row_version) idempotency key. Same 409 handling as the
+     * presence punch; `422 presence_missing` / `proof_count` / `answer_invalid` /
+     * `invalid_proof` are terminal and surface the server's sentence beside a re-enabled form.
+     */
+    PEN_ROUTINE_SUBMIT,
+
+    /**
      * Clock In / Clock Out punches (`POST /app/clock/in` / `/app/clock/out`, module clock,
      * maintainer decision 2026-08-27 — docs/features/clock-in-out/plan.md). Adding an op type
      * needs NO Room migration: [OutboxEntity.opType] is a plain TEXT column holding this enum's

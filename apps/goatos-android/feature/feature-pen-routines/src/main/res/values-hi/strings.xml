@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="pen_routines_action_refresh">ताज़ा करें</string>
+    <string name="pen_routines_action_check_in">बाड़े में चेक-इन करें</string>
+    <string name="pen_routines_action_take_photo">फ़ोटो लें</string>
+    <string name="pen_routines_action_record_video">वीडियो रिकॉर्ड करें</string>
+    <string name="pen_routines_action_photo_again">फिर से फ़ोटो लें</string>
+    <string name="pen_routines_action_video_again">फिर से रिकॉर्ड करें</string>
+    <string name="pen_routines_action_submit">जमा करें</string>
+    <string name="pen_routines_section_presence">उपस्थिति</string>
+    <string name="pen_routines_section_questions">सवाल</string>
+    <string name="pen_routines_section_photos">फ़ोटो</string>
+    <string name="pen_routines_section_videos">वीडियो</string>
+    <string name="pen_routines_section_answers">जवाब</string>
+    <string name="pen_routines_required_mark">*</string>
+    <string name="pen_routines_field_number">संख्या</string>
+    <string name="pen_routines_field_text">आपका जवाब</string>
+    <string name="pen_routines_range_between">%1$s और %2$s के बीच</string>
+    <string name="pen_routines_range_min">कम से कम %1$s</string>
+    <string name="pen_routines_range_max">अधिकतम %1$s</string>
+    <string name="pen_routines_slot_photo">फ़ोटो %1$d</string>
+    <string name="pen_routines_slot_video">वीडियो %1$d</string>
+    <string name="pen_routines_state_sending">भेजा जा रहा है…</string>
+    <string name="pen_routines_state_checking_in">चेक-इन हो रहा है…</string>
+    <string name="pen_routines_state_in_review">सत्यापनकर्ता के पास</string>
+    <string name="pen_routines_state_done">पूरा हुआ</string>
+    <string name="pen_routines_state_locked">यह आपके लिए नहीं है</string>
+    <string name="pen_routines_state_sent_back">सत्यापनकर्ता ने वापस भेजा</string>
+    <string name="pen_routines_proofs_count">%1$d कैप्चर दर्ज हैं</string>
+</resources>

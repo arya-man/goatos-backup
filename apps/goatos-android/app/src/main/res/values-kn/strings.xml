@@ -102,4 +102,7 @@
     <string name="feed_seed_transport_instruction">ಪ್ಯಾಕ್ ಮಾಡಿದ ಮೇವನ್ನು ಲೋಡ್ ಮಾಡಿ ಪೆನ್‌ಗಳ ಹೊರಗೆ ಇರಿಸುವುದನ್ನು ವೀಡಿಯೊ ಮಾಡಿ.</string>
     <string name="feed_seed_slot_transport_video">ಸಾಗಣೆ ವೀಡಿಯೊ</string>
     <string name="feed_seed_slot_transport_video_hint">ಈ ಸ್ಥಳಕ್ಕೆ ಲೋಡ್ ಮಾಡಿದ ಮೇವು, ಹಾಕುವ ಮೊದಲು ಇರಿಸಿದ್ದು.</string>
+    <string name="proof_video_pen_routine_header">ಪೆನ್ ದಿನಚರಿ</string>
+    <string name="pen_routines_msg_capture_not_saved">ಅದು ಉಳಿಯಲಿಲ್ಲ. ಮತ್ತೆ ತೆಗೆಯಿರಿ.</string>
+    <string name="pen_routines_msg_not_sent">ಉಳಿಸಲಾಗಿದೆ, ಆದರೆ ಕಳುಹಿಸಲಾಗಲಿಲ್ಲ. ರಿಫ್ರೆಶ್ ಮಾಡಿ ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ.</string>
 </resources>
