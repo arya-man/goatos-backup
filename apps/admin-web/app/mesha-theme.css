@@ -5279,3 +5279,9 @@ input[type=date],input[type=datetime-local],input[type=time],input[type=month],i
 .alerts-cfg-h{font-size:12px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin:14px 0 8px}
 .alerts-rule input[type=text],.alerts-rule select{min-width:0;padding:7px 10px;border:1px solid var(--line);border-radius:9px;font:inherit;font-size:13px;background:var(--bg);outline:0;color:var(--ink)}
 .alerts-rule input[type=text]:focus,.alerts-rule select:focus{border-color:var(--brand);box-shadow:var(--ring)}
+/* The day arrows are tap targets: at least 40px wide on every viewport (smoke rule). */
+.alerts-page .subtabs a[aria-label="Previous day"],.alerts-page .subtabs a[aria-label="Next day"]{min-width:40px;justify-content:center}
+/* Text columns keep a readable floor and the tablewrap scrolls sideways instead of squeezing
+   the detail to a word per line at phone width. */
+.alerts-page .tbl td:nth-child(2){min-width:220px}
+.alerts-page .tbl td:nth-child(5){min-width:260px}
