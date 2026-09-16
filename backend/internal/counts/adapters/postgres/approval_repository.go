@@ -1010,6 +1010,19 @@ WHERE tenant_id = $1::uuid AND birth_event_id = $2::uuid AND count_status = 'pen
 			return "", "", fmt.Errorf("counts: approve death request %s: death evidence gate is not wired",
 				req.ApprovalRequestID)
 		}
+		// A DUPLICATE REPORT OF A DEATH ALREADY APPLIED. Data written before one pending report per
+		// animal can hold two; once the first is approved the animal has left the herd, and applying
+		// the second failed inside identity's exit on the stale row version as a 500. Refuse it
+		// cleanly under the animal's row lock (the duplicate stays pending, to be rejected).
+		var lifecycle string
+		if err := tx.QueryRow(ctx, `SELECT lifecycle_status FROM goats WHERE tenant_id = $1::uuid AND goat_id = $2::uuid FOR UPDATE`,
+			req.TenantID, cmd.GoatID).Scan(&lifecycle); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return "", "", fmt.Errorf("counts: lock death subject: %w", err)
+		}
+		switch lifecycle {
+		case "dead", "sold", "culled", "transferred", "lost", "merged", "inactive":
+			return "", "", ports.ErrDeathAlreadyApplied
+		}
 		ready, err := r.deathEvidenceTx.PrepareDeathEvidenceForApprovalInTx(ctx, tx, req.TenantID, cmd.GoatID)
 		if err != nil {
 			return "", "", err

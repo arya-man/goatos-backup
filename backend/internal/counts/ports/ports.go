@@ -35,6 +35,10 @@ var (
 	// ErrDeathAlreadyReported refuses a second death report for an animal whose earlier report is
 	// still pending approval (HTTP 409 death_already_reported): one animal dies once.
 	ErrDeathAlreadyReported = errors.New("counts: this animal's death is already reported and awaiting approval")
+	// ErrDeathAlreadyApplied refuses approving a death report for an animal that has already left
+	// the herd -- a duplicate report written before one-pending-report-per-animal, whose twin was
+	// approved first (HTTP 409 death_already_applied). The duplicate stays pending to be rejected.
+	ErrDeathAlreadyApplied = errors.New("counts: this animal has already left the herd; the death report is a duplicate")
 	// ErrApprovalEffectIncomplete is returned when an approval's side effect did not cover every
 	// animal/row it was supposed to. The decision transaction is rolled back, so the request stays
 	// pending rather than half-applying.
