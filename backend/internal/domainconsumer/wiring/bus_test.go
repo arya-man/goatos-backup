@@ -159,7 +159,7 @@ func (f *fakeWeighingStore) ApplyFastingVerdict(_ context.Context, v weighingdom
 	return nil
 }
 
-func (f *fakeWeighingStore) FastingCardSOPVersions(context.Context, string, string) ([]int, error) {
+func (f *fakeWeighingStore) FastingCardSOPVersions(context.Context, string, string, time.Time) ([]int, error) {
 	return nil, nil
 }
 

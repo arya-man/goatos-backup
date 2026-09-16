@@ -644,7 +644,7 @@ shed_targets AS (
          COALESCE(NULLIF(s.partition_label, ''),
                   -- A physical shed named "Plain 1" is still whole when its own
                   -- residents exist. Name suffixes identify only fallback aliases.
-                  CASE WHEN live.present THEN '' ELSE
+                  CASE WHEN live.present THEN '' ELSE -- operational-location:ignore: owner=codex issue=PR273-cohort-key scope=raw-partition-join-key-not-display-regex-plus-is-not-concatenation expiry=2026-11-30
                     NULLIF((regexp_match(l.name,
                                          '\s*(?:-\s*)?(?:Part\s*)?([0-9]+)$'))[1], '') END,
                   '') AS resolved_partition_label
@@ -1501,7 +1501,7 @@ shed_targets AS (
          COALESCE(NULLIF(s.partition_label, ''),
                   -- A physical shed named "Plain 1" is still whole when its own
                   -- residents exist. Name suffixes identify only fallback aliases.
-                  CASE WHEN live.present THEN '' ELSE
+                  CASE WHEN live.present THEN '' ELSE -- operational-location:ignore: owner=codex issue=PR273-cohort-key scope=raw-partition-join-key-not-display-regex-plus-is-not-concatenation expiry=2026-11-30
                     NULLIF((regexp_match(l.name,
                                          '\s*(?:-\s*)?(?:Part\s*)?([0-9]+)$'))[1], '') END,
                   '') AS resolved_partition_label

@@ -69,6 +69,9 @@ tasks.register("assembleFixture") {
     doLast { println("commit=$commit") }
 }
 EOF
+  # Kotlin DSL caches compiled scripts globally. Give this disposable source a
+  # unique identity so a prior deleted fixture cannot supply an action classloader.
+  printf '\n// Disposable fixture source: %s\n' "$fixture" >> "$fixture/build.gradle.kts"
 }
 
 write_fixed() {
@@ -106,6 +109,7 @@ tasks.register("assembleFixture") {
     doLast { println("commit=$commit") }
 }
 EOF
+  printf '\n// Disposable fixture source: %s\n' "$fixture" >> "$fixture/build.gradle.kts"
 }
 
 run_guard() {

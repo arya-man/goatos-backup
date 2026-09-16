@@ -1165,3 +1165,17 @@ only on this new disposable copy. No production migration checksum was changed.
 Pending: rerun rules-source DB test, exact committed CI/screenshots, production
 browser and physical phone evidence, matched performance results. Main still
 967c3683b; deployment remains not started.
+
+### Full-CI first pass corrections
+First complete CI pass exposed a stale FastingCardSOPVersions test-double signature
+(fixed), two internal SQL partition-key expressions misidentified as display
+formatting (narrow reviewed annotations, no SQL behavior change), missing local
+Playwright browser installation (installed), stale Repowise (rebuilding), and a
+Gradle self-test classloader from a deleted temporary fixture. Unique disposable
+script source identity fixes that cache collision; two consecutive adversarial
+red/green runs passed without changing configuration-cache checks. Focused wiring
+and weighing package tests and operational-location guard pass. Diagnostic real
+SOP editor E2E passed desktop/mobile; all four screenshots visually checked.
+The final-SHA CI/browser/API/phone receipts still require reruns. Continued live
+status is recorded outside the source tree in tmp/pr273-274-release-progress.md.
+No merge/deploy has occurred.
