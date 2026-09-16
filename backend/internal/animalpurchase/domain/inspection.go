@@ -445,7 +445,7 @@ func (c Catalog) ValidateLoadAnswers(a Answers) error {
 				return invalid(q.ID, "Pick one of the offered answers for: "+q.Title)
 			}
 			if v == "other" && q.AllowOther && strings.TrimSpace(a.text(q.ID+"_other")) == "" {
-				return invalid(q.ID, "Say which, for: "+q.Title)
+				return invalid(q.ID, "Write the other answer for: "+q.Title)
 			}
 		case KindMulti:
 			vals, ok := a.multi(q.ID)
@@ -480,7 +480,7 @@ func (c Catalog) ValidateLoadAnswers(a Answers) error {
 				return invalid(q.ID, "Enter: "+q.Title)
 			}
 			if len(t) > maxTextLength {
-				return invalid(q.ID, "Too long: "+q.Title)
+				return invalid(q.ID, "Write a shorter answer for: "+q.Title)
 			}
 		}
 	}
