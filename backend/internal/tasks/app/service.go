@@ -299,16 +299,19 @@ func (s *Service) enqueueBirthStepIfRecorded(ctx context.Context, tenantID strin
 		subject += " " + strings.TrimSpace(facts.DisplayID)
 	}
 	shedID := derefOr(w.ShedID)
-	shedName, partitionLabel, _ := s.repo.FetchShedDetails(ctx, tenantID, shedID)
 	capturedAt := s.now().UTC()
 	if step.CompletedAt != nil {
 		capturedAt = step.CompletedAt.UTC()
 	}
+	// The label names the STEP and the ANIMAL only. The pen is carried on the item's own
+	// shed_id/partition and both verifier surfaces render it themselves (the web in its Pen
+	// column, the phone appended to the title), so a pen inside the label rendered twice
+	// ("... · Yashoda 1 · Yashoda 1") on the 2026-09-16 phone run.
 	return s.enqueuer.EnqueueBirthStepVerification(ctx, BirthStepVerificationEnqueueRequest{
 		TenantID: tenantID, WorkflowID: w.WorkflowID, ActionID: step.ActionID,
 		OperatorID: derefOr(step.CompletedBy), ParkID: derefOr(w.ParkID), ShedID: shedID,
 		ProofRefs:      step.AllProofRefs(),
-		SubjectLabel:   appendLocation(step.Title+" · "+subject+" · "+w.EventDate, shedName, partitionLabel),
+		SubjectLabel:   step.Title + " · " + subject + " · " + w.EventDate,
 		CapturedAt:     capturedAt,
 		IdempotencyKey: domain.BirthStepReviewKey(step),
 	})
