@@ -168,6 +168,7 @@ import sg.mesha.goatos.core.network.dto.CountsBirthEventRequestDto
 import sg.mesha.goatos.core.network.dto.CountsBreakdownResponseDto
 import sg.mesha.goatos.core.network.dto.CountsBreedsResponseDto
 import sg.mesha.goatos.core.network.dto.CountsDeathEventRequestDto
+import sg.mesha.goatos.core.network.dto.CountsCaptureCardResponseDto
 import sg.mesha.goatos.core.network.dto.DeathCauseCatalogDto
 import sg.mesha.goatos.core.network.dto.CountsApprovalSubmitResponseDto
 import sg.mesha.goatos.core.network.dto.CountsPenReconciliationCompleteResponseDto
@@ -1988,6 +1989,12 @@ interface AppApi {
         idempotencyKey: String,
         request: CountsDeathEventRequestDto,
     ): CountsApprovalSubmitResponseDto
+
+    /** GET /app/counts/capture-cards/{kind} — the Add birth / Add death form's published SOP
+     *  capture card (kind = birth | death). The default is the EMPTY card (the plain form), so a
+     *  fake that does not model the card renders the form unchanged. */
+    suspend fun getCountsCaptureCard(kind: String): CountsCaptureCardResponseDto =
+        CountsCaptureCardResponseDto(kind = kind)
 
     /**
      * GET /goats/search — scope-filtered animal lookup. Backs the shifting screen's animal

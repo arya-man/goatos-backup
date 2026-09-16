@@ -649,6 +649,8 @@ class AddBirthDeathViewModelValidationTest {
 internal class RecordingAddSyncRepository : SyncRepository {
     var lastBirth: CountsBirthEventRequestDto? = null
     var lastDeath: CountsDeathEventRequestDto? = null
+    var lastBirthCapture: sg.mesha.goatos.core.data.sync.CountsCapturePayload? = null
+    var lastDeathCapture: sg.mesha.goatos.core.data.sync.CountsCapturePayload? = null
 
     private val status = MutableStateFlow(SyncStatus.empty(online = true))
     override fun observeStatus(): StateFlow<SyncStatus> = status
@@ -662,11 +664,13 @@ internal class RecordingAddSyncRepository : SyncRepository {
     override fun observeItem(itemId: String): Flow<SyncQueueItem?> = flowOf(null)
     override suspend fun deleteOutboxItem(itemId: String): AppResult<Unit> = AppResult.Ok(Unit)
     override suspend fun triggerDrain() = Unit
-    override suspend fun enqueueCountsBirth(groupKey: String, idempotencyKey: String, request: CountsBirthEventRequestDto): AppResult<String> {
+    override suspend fun enqueueCountsBirth(groupKey: String, idempotencyKey: String, request: CountsBirthEventRequestDto, capture: sg.mesha.goatos.core.data.sync.CountsCapturePayload?): AppResult<String> {
+        lastBirthCapture = capture
         lastBirth = request
         return AppResult.Ok("outbox-birth-1")
     }
-    override suspend fun enqueueCountsDeath(groupKey: String, idempotencyKey: String, request: CountsDeathEventRequestDto): AppResult<String> {
+    override suspend fun enqueueCountsDeath(groupKey: String, idempotencyKey: String, request: CountsDeathEventRequestDto, capture: sg.mesha.goatos.core.data.sync.CountsCapturePayload?): AppResult<String> {
+        lastDeathCapture = capture
         lastDeath = request
         return AppResult.Ok("outbox-death-1")
     }
