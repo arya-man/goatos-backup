@@ -12,6 +12,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
@@ -138,6 +140,27 @@ abstract class WorkflowListViewModel(
             )
             WorkflowListEvent.AddNew, WorkflowListEvent.Back -> Unit // navigation — nav host.
         }
+    }
+
+    /**
+     * A report just synced, but the server's event consumer opens its workflows a few seconds
+     * later, so the list the operator returned to can still be missing them. Looks again on a
+     * short, BOUNDED schedule ([WORKFLOW_FOLLOW_UP_DELAYS_MS], ~14 s in all) and stops the moment
+     * the day's count grows. Run it in a scope tied to the screen (a LaunchedEffect): leaving the
+     * list cancels it.
+     */
+    suspend fun followUpAfterSubmission(refresh: () -> Unit) {
+        val baseline = currentAllCount()
+        for (delayMs in WORKFLOW_FOLLOW_UP_DELAYS_MS) {
+            delay(delayMs)
+            if (currentAllCount() > baseline) return
+            refresh()
+        }
+    }
+
+    private suspend fun currentAllCount(): Int {
+        val selection = _selection.value
+        return repo.observeChips(moduleKey, selection.dateIso).first()?.all ?: 0
     }
 
     fun onRowsLoadFailed(error: Throwable) {
@@ -358,6 +381,15 @@ class BirthWorkflowListViewModel @Inject constructor(
     analytics: AnalyticsPort,
     crashReporter: CrashReporter,
 ) : WorkflowListViewModel(WorkflowModuleUi.BIRTH, repo, analytics, crashReporter)
+
+/**
+ * When a returned-to Birth/Death list looks again for workflows the server opens just after a
+ * report syncs: four looks over ~14 s. Bounded on purpose -- the list never polls open-ended.
+ */
+internal val WORKFLOW_FOLLOW_UP_DELAYS_MS: List<Long> = listOf(2_000L, 3_000L, 4_000L, 5_000L)
+
+/** A sync older than this needs no follow-up: the list's ordinary refresh on open already sees its workflows. */
+internal const val WORKFLOW_FOLLOW_UP_WINDOW_MS: Long = 20_000L
 
 /** `/counts/death` — the Death module's L0 work list. */
 @HiltViewModel
