@@ -327,3 +327,39 @@ func TestShiftingDestinationsReportsRecordLaterWhenNoKidPenExists(t *testing.T) 
 		t.Fatal("record_later must still carry a farm-worded notice; the operator is owed the reason")
 	}
 }
+
+// A tenant with an EMPTY stage vocabulary (and a shed with no resident stages) must still serve
+// `management_stages` as `[]`, never `null`: the phone's DTO declares a non-nullable list and
+// refuses the whole payload on `null`, which left the Add-birth form with no parks at all on a
+// fresh tenant (found 2026-09-16 on the phone-QA fixture). A missing catalog is an empty list, not
+// an absent field.
+func TestShiftingDestinationsNeverEmitsNullManagementStages(t *testing.T) {
+	repo := newFakeShiftingRepo()
+	catalog := oneK0PenCatalog()
+	catalog.ManagementStages = nil
+	catalog.Parks[0].Sheds[0].ManagementStages = nil
+	repo.destinations = catalog
+	mux := newTestServer(t, countsapp.NewService(repo), newFakeApprovalWorkflow(), newFakeGoatValidator())
+
+	rec := get(t, mux, appShiftingDestinationsRoute)
+	var payload map[string]json.RawMessage
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("response is not JSON: %v", err)
+	}
+	if string(payload["management_stages"]) != "[]" {
+		t.Fatalf("management_stages = %s, want [] (never null)", payload["management_stages"])
+	}
+	var parks struct {
+		Parks []struct {
+			Sheds []struct {
+				ManagementStages json.RawMessage `json:"management_stages"`
+			} `json:"sheds"`
+		} `json:"parks"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &parks); err != nil {
+		t.Fatal(err)
+	}
+	if got := string(parks.Parks[0].Sheds[0].ManagementStages); got != "[]" {
+		t.Fatalf("shed management_stages = %s, want [] (never null)", got)
+	}
+}
