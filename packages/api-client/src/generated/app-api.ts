@@ -3436,6 +3436,66 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/alerts/rows": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The day's alerts for one park.
+         * @description The Alerts page below the Work Board (maintainer decision 2026-09-16): what is OFF today for one park and one Asia/Kolkata business day, derived per request from rows other modules already froze -- a pen whose feed sheet moved against yesterday with no shifting recorded to explain it, a feed that runs out inside the configured days. Grain: one row per (rule, subject, day); rows from different rules are disjoint, so `total` and `critical` are whole-scope counts over them. One park per request; "all parks" is one request per park the caller may see. Gated on alerts.read; park scope through grants.
+         */
+        get: operations["listAlerts"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/alerts/config": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Every alert rule at its effective setting.
+         * @description The Configure drawer's read: the backend rule catalog with each rule's stored switch and threshold, or its catalog default when nobody has changed it. Gated on alerts.configure, the same capability that enables the page's `configure_alerts` control.
+         */
+        get: operations["getAlertRuleConfig"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/alerts/config/{rule_key}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Switch one alert rule on or off and set its threshold.
+         * @description Writes one rule's setting. Both fields are required -- a blank is not a zero and not "keep the old value". A threshold outside the rule's declared range is REFUSED (422), never clamped. Idempotent on the `Idempotency-Key` header: an exact replay is one write, a different payload under a known key is refused (409). Gated on alerts.configure.
+         */
+        put: operations["setAlertRuleConfig"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/toxin/review": {
         parameters: {
             query?: never;
@@ -8034,6 +8094,78 @@ export interface components {
             business_date: string;
             park_id: string;
             own_rows_only: boolean;
+        };
+        /**
+         * @description Backend-owned tone of an alert row; every surface colours the same alert the same way.
+         * @enum {string}
+         */
+        AlertSeverity: "critical" | "warning";
+        AlertRow: {
+            /** @description Stable for (rule */
+            key: string;
+            /** @description Config vocabulary */
+            rule_key: string;
+            rule_label: string;
+            severity: components["schemas"]["AlertSeverity"];
+            /** @description Farm sentence naming the subject and the change */
+            title: string;
+            /** @description What to check */
+            detail: string;
+            park_id: string;
+            park_label: string;
+            /** @description Blank for a farm-grain alert (feed stock). */
+            shed_id?: string;
+            shed_name?: string;
+            partition_label?: string;
+            /** @description Backend-composed pen label (oploc.Display); blank for a farm-grain alert. */
+            operational_location_display?: string;
+            /** Format: date */
+            business_date: string;
+            /** @description The module page that owns the underlying fact. */
+            href?: string;
+        };
+        AlertsPage: {
+            rows: components["schemas"]["AlertRow"][];
+            /** @description Whole-scope count of rows for this park-day. */
+            total: number;
+            /** @description Whole-scope count of critical rows; a subset of total. */
+            critical: number;
+            /** Format: date */
+            business_date: string;
+            park_id: string;
+            /** @description The enabled rules that were checked, by rule_key. */
+            rules_run: string[];
+            /** @description Rules whose read failed on this request; the rest still serve. */
+            degraded?: string[];
+        };
+        AlertRuleConfig: {
+            /** @description Config vocabulary; submitted in the write path */
+            key: string;
+            label: string;
+            description: string;
+            /** @description What the number means */
+            threshold_label: string;
+            threshold_unit: string;
+            default_threshold: number;
+            min_threshold: number;
+            max_threshold: number;
+            default_enabled: boolean;
+            enabled: boolean;
+            threshold: number;
+            /** @description Name of the person who last set the rule (never an id); blank while the default is in force. */
+            updated_by?: string;
+            /** @description Farm-readable Asia/Kolkata label of the last change; blank while the default is in force. */
+            updated_at?: string;
+            /** @description True when someone has set this rule; false means the catalog default is in force. */
+            stored: boolean;
+        };
+        AlertRuleConfigList: {
+            rules: components["schemas"]["AlertRuleConfig"][];
+        };
+        SetAlertRuleConfigRequest: {
+            enabled: boolean;
+            /** @description Must lie within the rule's min/max; out of range is refused */
+            threshold: number;
         };
         AnimalPurchaseOption: {
             value: string;
@@ -24373,6 +24505,93 @@ export interface operations {
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    listAlerts: {
+        parameters: {
+            query?: {
+                /** @description The park to read. A park-scoped caller may omit it; a tenant-wide caller must name one. */
+                park?: string;
+                /** @description Asia/Kolkata business day; defaults to today. */
+                business_date?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The park-day's alerts. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AlertsPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    getAlertRuleConfig: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The rule catalog with effective settings. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AlertRuleConfigList"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    setAlertRuleConfig: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                rule_key: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetAlertRuleConfigRequest"];
+            };
+        };
+        responses: {
+            /** @description The rule's effective setting after the write. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AlertRuleConfig"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
+            422: components["responses"]["UnprocessableEntity"];
             500: components["responses"]["ServerError"];
         };
     };

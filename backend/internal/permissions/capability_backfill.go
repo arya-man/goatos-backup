@@ -114,6 +114,8 @@ var flatRoleAssignments = map[string][]ModuleAssignment{
 	RolePCDirector: rows(
 		// Work Board (2026-09-10): the director's portfolio, both parks, own modules.
 		bothSurfaces("work_board", LevelView, LevelOversee),
+		// Alerts (2026-09-16): the page below the Work Board; configuring is ticked per person.
+		one(assign("alerts", SurfaceWeb, LevelView)),
 		one(assign("leadership_tasks", SurfaceMobile, LevelView, LevelDo)),
 		bothSurfaces("vaccination", LevelView, LevelDo, LevelOversee, LevelConfigure),
 		bothSurfaces("aas_health", LevelOversee),
@@ -131,6 +133,8 @@ var flatRoleAssignments = map[string][]ModuleAssignment{
 	RoleGrowthDirector: rows(
 		// Work Board (2026-09-10): the director's portfolio, both parks, own modules.
 		bothSurfaces("work_board", LevelView, LevelOversee),
+		// Alerts (2026-09-16): the page below the Work Board; configuring is ticked per person.
+		one(assign("alerts", SurfaceWeb, LevelView)),
 		one(assign("leadership_tasks", SurfaceMobile, LevelView, LevelDo)),
 		bothSurfaces("weighing", LevelView, LevelDo, LevelOversee),
 		bothSurfaces("people", LevelView, LevelDo, LevelOversee),
@@ -146,6 +150,8 @@ var flatRoleAssignments = map[string][]ModuleAssignment{
 	RoleFeedDirector: rows(
 		// Work Board (2026-09-10): the director's portfolio, both parks, own modules.
 		bothSurfaces("work_board", LevelView, LevelOversee),
+		// Alerts (2026-09-16): the page below the Work Board; configuring is ticked per person.
+		one(assign("alerts", SurfaceWeb, LevelView)),
 		one(assign("leadership_tasks", SurfaceMobile, LevelView, LevelDo)),
 		bothSurfaces("feed_direction", LevelView, LevelOversee, LevelConfigure),
 		one(assign("feed_purchases", SurfaceWeb, LevelView)),
@@ -162,6 +168,8 @@ var flatRoleAssignments = map[string][]ModuleAssignment{
 	RoleHealthDirector: rows(
 		// Work Board (2026-09-10): the director's portfolio, both parks, own modules.
 		bothSurfaces("work_board", LevelView, LevelOversee),
+		// Alerts (2026-09-16): the page below the Work Board; configuring is ticked per person.
+		one(assign("alerts", SurfaceWeb, LevelView)),
 		one(assign("leadership_tasks", SurfaceMobile, LevelView, LevelDo)),
 		bothSurfaces("aas_health", LevelConfigure),
 		bothSurfaces("people", LevelView, LevelDo, LevelOversee),
@@ -195,6 +203,8 @@ var flatRoleAssignments = map[string][]ModuleAssignment{
 	RoleProcurementDirector: rows(
 		// Work Board (2026-09-10): the director's portfolio, both parks, own modules.
 		bothSurfaces("work_board", LevelView, LevelOversee),
+		// Alerts (2026-09-16): the page below the Work Board; configuring is ticked per person.
+		one(assign("alerts", SurfaceWeb, LevelView)),
 		one(assign("leadership_tasks", SurfaceMobile, LevelView, LevelDo)),
 		// Sales is on BOTH surfaces from 2026-09-05: it became its own phone module (the ledger
 		// moved out of the Procurement module and took the selling half of the vendor register
@@ -215,6 +225,8 @@ var flatRoleAssignments = map[string][]ModuleAssignment{
 	RoleBreedingDirector: rows(
 		// Work Board (2026-09-10): the director's portfolio, both parks, own modules.
 		bothSurfaces("work_board", LevelView, LevelOversee),
+		// Alerts (2026-09-16): the page below the Work Board; configuring is ticked per person.
+		one(assign("alerts", SurfaceWeb, LevelView)),
 		one(assign("leadership_tasks", SurfaceMobile, LevelView, LevelDo)),
 		bothSurfaces("pc_care", LevelView),
 		bothSurfaces("pc_trimming", LevelView, LevelConfigure),
@@ -255,6 +267,8 @@ var flatRoleAssignments = map[string][]ModuleAssignment{
 	RoleCEOInternal: rows(
 		// Work Board (2026-09-10): both surfaces, both parks, every module.
 		bothSurfaces("work_board", LevelView, LevelOversee),
+		// Alerts (2026-09-16): the CEO floor reads and configures.
+		one(assign("alerts", SurfaceWeb, LevelView, LevelConfigure)),
 		// Leadership Tasks: the CEO/CXO desk can assign work downward and answer asks sent to it.
 		one(assign("leadership_tasks", SurfaceMobile, LevelView, LevelOversee, LevelConfigure)),
 		bothSurfaces("leave_approvals", LevelView, LevelOversee, LevelConfigure),

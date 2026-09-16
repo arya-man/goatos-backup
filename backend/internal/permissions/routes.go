@@ -393,6 +393,13 @@ var protectedRoutes = []Route{
 	// A FLAG raises a Leadership Task to the park head from a board row, so it rides the
 	// raise permission the directors and the CEO already hold, plus oversight of the park.
 	{OperationID: "raiseWorkBoardFlag", Method: "POST", Pattern: "/work-board/flags", Permissions: []string{WorkBoardOversee, LeadershipTasksRaise}},
+	// Alerts (maintainer decision 2026-09-16). alerts.read opens the rows for the parks in the
+	// caller's scope; alerts.configure gates BOTH the config read and the config write, the same
+	// capability that enables the page's Configure control, so a person without it never sees a
+	// drawer the server would refuse.
+	{OperationID: "listAlerts", Method: "GET", Pattern: "/alerts/rows", Permissions: []string{AlertsRead}},
+	{OperationID: "getAlertRuleConfig", Method: "GET", Pattern: "/alerts/config", Permissions: []string{AlertsConfigure}},
+	{OperationID: "setAlertRuleConfig", Method: "PUT", Pattern: "/alerts/config/{rule_key}", Permissions: []string{AlertsConfigure}},
 
 	// LEADERSHIP TASKS (maintainer decisions 2026-09-04 and 2026-09-08): manual asks between
 	// leadership and active app-backed workers.
