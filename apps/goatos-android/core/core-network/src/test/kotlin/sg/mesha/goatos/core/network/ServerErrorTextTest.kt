@@ -50,6 +50,20 @@ class ServerErrorTextTest {
         assertFalse("must not fall back once the server explained itself", shown.contains("Could not publish"))
     }
 
+    /**
+     * A single-field refusal repeats its sentence in `field_errors` (the counts capture-card
+     * handler does). The operator saw "Say which, for: Suspected cause" twice on Add death.
+     */
+    @Test
+    fun `a field error that repeats the message is shown once`() {
+        val error = refusal(
+            422,
+            """{"code":"capture_answer_invalid","message":"Write the other answer for: Suspected cause","field_errors":[{"field":"cause","code":"capture_answer_invalid","message":"Write the other answer for: Suspected cause"},{"field":"cause","code":"capture_answer_invalid","message":"Write the other answer for: Suspected cause"}]}""",
+        )
+
+        assertEquals("Write the other answer for: Suspected cause", error.userFacingMessage("fallback"))
+    }
+
     @Test
     fun `an envelope with no field errors still shows the server's own sentence`() {
         val error = refusal(
