@@ -204,31 +204,39 @@ class WorkflowDetailViewModel @Inject constructor(
         viewModelScope.launch {
             combine(
                 repo.observeDetail(workflowId, lens, lensDate),
-                combine(repo.observeVideoDrafts(workflowId), repo.observeStepDraftAnswers(workflowId)) { d, a -> d to a },
+                combine(
+                    repo.observeVideoDrafts(workflowId),
+                    repo.observeStepDraftAnswers(workflowId),
+                    savedStateHandle.getStateFlow(KEY_DEATH_SUBMITTED_WRITES, emptyList<String>()),
+                ) { d, a, w -> Triple(d, a, w) },
                 syncRepository.observeStatus(),
                 pendingProofs,
                 penCatalog,
             ) { detail, draftsAndAnswers, sync, _, _ -> Triple(detail, draftsAndAnswers, sync) }
                 .collect { (detail, draftsAndAnswers, sync) ->
                 if (detail != null) {
-                    val (drafts, draftAnswers) = draftsAndAnswers
-                    val submitting = drafts.any { it.syncStatus == DRAFT_STATUS_SUBMITTING }
+                    val (drafts, draftAnswers, submittedWrites) = draftsAndAnswers
+                    // A death is being submitted when its video drafts are marked SUBMITTING -- or,
+                    // for a death whose authored steps are ALL answers (no drafts to mark), when the
+                    // Submit recorded the step writes it queued. The step writes are then matched
+                    // by their exact outbox ids, not by a draft-derived clock.
+                    val submitting = drafts.any { it.syncStatus == DRAFT_STATUS_SUBMITTING } || submittedWrites.isNotEmpty()
                     val earliestDraft = drafts.minOfOrNull { it.startedAtMs } ?: Long.MAX_VALUE
                     val submissionItems = sync.items.filter { item ->
                         item.groupKey == workflowId &&
-                            item.createdAt >= earliestDraft - SUBMISSION_ITEM_CLOCK_TOLERANCE_MS &&
+                            (item.id in submittedWrites || item.createdAt >= earliestDraft - SUBMISSION_ITEM_CLOCK_TOLERANCE_MS) &&
                             (item.opType == OP_PROOF_UPLOAD || item.opType == OP_WORKFLOW_ACTION_COMPLETE || item.opType == OP_WORKFLOW_ACTION_ANSWER)
                     }
                     val uploadFailed = submitting && submissionItems.any { it.status == SyncItemStatus.FAILED }
-                    val stepWritesSucceeded = submissionItems.count {
-                        (it.opType == OP_WORKFLOW_ACTION_COMPLETE || it.opType == OP_WORKFLOW_ACTION_ANSWER) &&
-                            it.status == SyncItemStatus.SUCCEEDED
-                    }
-                    _state.update { detail.toUiState(it, drafts, draftAnswers, uploadFailed) }
+                    val stepWrites = submissionItems.filter { it.opType == OP_WORKFLOW_ACTION_COMPLETE || it.opType == OP_WORKFLOW_ACTION_ANSWER }
+                    val stepWritesSucceeded = (if (submittedWrites.isNotEmpty()) stepWrites.filter { it.id in submittedWrites } else stepWrites)
+                        .count { it.status == SyncItemStatus.SUCCEEDED }
+                    _state.update { detail.toUiState(it, drafts, draftAnswers, uploadFailed, submittedWrites.isNotEmpty()) }
                     // Every step the Submit sent must be server-confirmed before the death reads as
                     // submitted -- the count Submit recorded, or every operator step when a
                     // process death lost it (never fewer, so it cannot finish early).
-                    val expectedStepWrites = savedStateHandle.get<Int>(KEY_DEATH_SUBMITTED_STEPS)
+                    val expectedStepWrites = submittedWrites.size.takeIf { it > 0 }
+                        ?: savedStateHandle.get<Int>(KEY_DEATH_SUBMITTED_STEPS)
                         ?: operatorVisibleWorkflowActions(detail.actions).size
                     if (submitting && expectedStepWrites > 0 && stepWritesSucceeded >= expectedStepWrites && !finalizedDeathSubmission) {
                         finalizedDeathSubmission = true
@@ -238,6 +246,7 @@ class WorkflowDetailViewModel @Inject constructor(
                         repo.clearVideoDrafts(workflowId)
                         repo.clearStepDraftAnswers(workflowId)
                         savedStateHandle.remove<Int>(KEY_DEATH_SUBMITTED_STEPS)
+                        savedStateHandle[KEY_DEATH_SUBMITTED_WRITES] = emptyList<String>()
                         repo.refreshDetail(workflowId, lens, lensDate)
                         _state.update {
                             it.copy(
@@ -837,6 +846,7 @@ class WorkflowDetailViewModel @Inject constructor(
                 _state.update { it.copy(isSubmittingDeath = false, message = DEATH_INCOMPLETE_MESSAGE, isErrorMessage = true) }
                 return@launch
             }
+            val stepWriteIds = mutableListOf<String>() // mobile-guard:ignore: bounded by the death's authored steps
             for (step in steps) {
                 val ui = _state.value.actions.firstOrNull { it.actionId == step.actionId }
                 val stepDrafts = drafts.filter { it.actionId == step.actionId }
@@ -914,13 +924,17 @@ class WorkflowDetailViewModel @Inject constructor(
                         proofOutboxItems = refs,
                     )
                 }
-                if (write is AppResult.Err) {
-                    _state.update { it.copy(isSubmittingDeath = false) }
-                    onWriteFailed("workflow_complete_submit", write)
-                    return@launch
+                when (write) {
+                    is AppResult.Err -> {
+                        _state.update { it.copy(isSubmittingDeath = false) }
+                        onWriteFailed("workflow_complete_submit", write)
+                        return@launch
+                    }
+                    is AppResult.Ok -> stepWriteIds += write.value
                 }
             }
             savedStateHandle[KEY_DEATH_SUBMITTED_STEPS] = steps.size
+            savedStateHandle[KEY_DEATH_SUBMITTED_WRITES] = ArrayList(stepWriteIds)
             repo.markVideoDraftsSubmitting(workflowId)
             analytics.track(AnalyticsEvents.WORKFLOW_ACTION_COMPLETED)
             _state.update { it.copy(isSubmittingDeath = false, message = DEATH_UPLOADING_MESSAGE, isErrorMessage = false) }
@@ -962,6 +976,7 @@ class WorkflowDetailViewModel @Inject constructor(
         drafts: List<WorkflowVideoDraft>,
         draftAnswers: Map<String, String>,
         deathUploadFailed: Boolean,
+        deathStepWritesQueued: Boolean = false,
     ): WorkflowDetailUiState {
         val now = Instant.now()
         val mainActions = operatorVisibleWorkflowActions(actions)
@@ -976,7 +991,8 @@ class WorkflowDetailViewModel @Inject constructor(
         } else {
             emptySet()
         }
-        val draftsSubmitting = drafts.any { it.syncStatus == DRAFT_STATUS_SUBMITTING }
+        // An answer-only death has no drafts to mark: its queued step writes are the in-flight signal.
+        val draftsSubmitting = drafts.any { it.syncStatus == DRAFT_STATUS_SUBMITTING } || deathStepWritesQueued
         return current.copy(
             loading = false,
             notFound = false,
@@ -1037,7 +1053,7 @@ class WorkflowDetailViewModel @Inject constructor(
             subjectLocationDisplay = listOf(parkLabel, shedLabel).filter { it.isNotBlank() }.joinToString(" / "),
             deathStepsReady = isDeathModule && mainActions.any { !operatorFinishedWorkflowStatus(it.status) } &&
                 mainActions.all { operatorFinishedWorkflowStatus(it.status) || it.actionId in draftedActionIds },
-            deathDraftsSubmitting = drafts.any { it.syncStatus == DRAFT_STATUS_SUBMITTING },
+            deathDraftsSubmitting = draftsSubmitting,
             deathUploadFailed = deathUploadFailed,
         )
     }
@@ -1221,6 +1237,8 @@ class WorkflowDetailViewModel @Inject constructor(
         private const val OP_WORKFLOW_ACTION_COMPLETE = "WORKFLOW_ACTION_COMPLETE"
         private const val OP_WORKFLOW_ACTION_ANSWER = "WORKFLOW_ACTION_ANSWER"
         private const val KEY_DEATH_SUBMITTED_STEPS = "workflowDetail.deathSubmittedSteps"
+        /** The outbox ids of the step writes the death's Submit queued (answer-only deaths hold no drafts). */
+        private const val KEY_DEATH_SUBMITTED_WRITES = "workflowDetail.deathSubmittedWrites"
         private const val DEATH_DRAFT_SAVED_MESSAGE = "Saved as a draft. You can retake it before Submit."
         private const val DEATH_INCOMPLETE_MESSAGE = "Record every step before submitting."
         private const val DEATH_UPLOADING_MESSAGE = "Uploading the recorded proofs…"
