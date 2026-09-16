@@ -62,6 +62,12 @@ interface CountsApprovalRepository {
      * available for correction instead of silently losing it from the pending queue.
      */
     suspend fun forgetDecided(approvalRequestId: String)
+
+    /**
+     * A short-lived signed URL for one proof the report captured, resolved only when the approver
+     * taps it. Null when the proof cannot be opened. Never cached: the URL expires.
+     */
+    suspend fun proofDownloadUrl(proofId: String): String? = null
 }
 
 class DefaultCountsApprovalRepository(
@@ -70,6 +76,10 @@ class DefaultCountsApprovalRepository(
     private val json: Json = Json { ignoreUnknownKeys = true },
     private val clock: () -> Long = { System.currentTimeMillis() },
 ) : CountsApprovalRepository {
+
+    // offline-first-guard:ignore: a signed proof URL is single-use and time-limited; caching it in Room would serve an expired link
+    override suspend fun proofDownloadUrl(proofId: String): String? =
+        api.getProofDownloadUrl(proofId).takeIf { it.isNotBlank() }
 
     @OptIn(ExperimentalPagingApi::class)
     override fun approvals(status: String): Flow<PagingData<CountsApprovalListItemDto>> {

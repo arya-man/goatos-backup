@@ -26,6 +26,8 @@ import sg.mesha.goatos.core.data.CountsApprovalRepository
 import sg.mesha.goatos.core.data.sync.SyncRepository
 import sg.mesha.goatos.core.data.sync.SyncItemStatus
 import sg.mesha.goatos.core.network.dto.CountsApprovalListItemDto
+import sg.mesha.goatos.feature.counts.ApprovalCaptureMediaUi
+import sg.mesha.goatos.feature.counts.ApprovalCaptureRowUi
 import sg.mesha.goatos.feature.counts.ApprovalEvent
 import sg.mesha.goatos.feature.counts.ApprovalRowUi
 import sg.mesha.goatos.feature.counts.ApprovalUiState
@@ -113,6 +115,33 @@ class ApprovalViewModel @Inject constructor(
                 decide(requestId, approve = false, reason = current.rejectReason)
             }
             ApprovalEvent.Refresh -> _state.update { it.copy(message = null, isError = false) }
+            is ApprovalEvent.OpenCaptureMedia -> openCaptureMedia(event.proofId)
+        }
+    }
+
+    /**
+     * Loads ONE report proof when the approver taps it: a signed URL is short-lived, so nothing is
+     * fetched until asked and nothing is cached beyond this screen. An opened proof is not
+     * re-fetched; a failure is shown on that proof and a second tap retries.
+     */
+    private fun openCaptureMedia(proofId: String) {
+        val current = _state.value
+        if (proofId.isBlank() || current.openedMediaUrls.containsKey(proofId) || current.loadingMediaId != null) return
+        _state.update { it.copy(loadingMediaId = proofId, failedMediaIds = it.failedMediaIds - proofId) }
+        analytics.track(AnalyticsEvents.COUNTS_APPROVAL_CAPTURE_MEDIA_OPENED, mapOf(AnalyticsEvents.Params.PROOF_ID to proofId))
+        viewModelScope.launch {
+            val url = try {
+                approvalRepository.proofDownloadUrl(proofId)
+            } catch (error: Exception) {
+                crashReporter.recordException(error, "counts approval capture proof url failed")
+                null
+            }
+            if (url.isNullOrBlank()) {
+                analytics.track(AnalyticsEvents.COUNTS_CAPTURE_FAILURE, mapOf(AnalyticsEvents.Params.KIND to "approval_media", AnalyticsEvents.Params.PROOF_ID to proofId))
+                _state.update { it.copy(loadingMediaId = null, failedMediaIds = it.failedMediaIds + proofId) }
+            } else {
+                _state.update { it.copy(loadingMediaId = null, openedMediaUrls = it.openedMediaUrls + (proofId to url)) }
+            }
         }
     }
 
@@ -256,7 +285,7 @@ private val RAISED_AT_FORMAT: DateTimeFormatter =
  * different answers for the same row. Both lines are now composed by the backend
  * (`summary_line`, `raised_by_name`) and rendered verbatim, per the golden frontend rule.
  */
-private fun CountsApprovalListItemDto.toRowUi(): ApprovalRowUi = ApprovalRowUi(
+internal fun CountsApprovalListItemDto.toRowUi(): ApprovalRowUi = ApprovalRowUi(
     requestId = approvalRequestId,
     typeLabel = requestTypeLabel(requestType),
     requestType = requestType,
@@ -264,6 +293,14 @@ private fun CountsApprovalListItemDto.toRowUi(): ApprovalRowUi = ApprovalRowUi(
     raisedBy = raisedByName.orEmpty(),
     raisedAt = formatRaisedAt(raisedAt),
     summaryLine = summaryLine.orEmpty(),
+    // The capture snapshot is carried VERBATIM: rows, titles and the note are backend copy.
+    captureRows = capture?.rows.orEmpty().filter { it.label.isNotBlank() && it.value.isNotBlank() }
+        .map { ApprovalCaptureRowUi(label = it.label, value = it.value, group = it.group.orEmpty()) },
+    captureMedia = capture?.media.orEmpty().filter { it.proofId.isNotBlank() }
+        .map { ApprovalCaptureMediaUi(proofId = it.proofId, label = it.label, isPhoto = it.kind == "photo") },
+    captureMissingNote = capture?.missingNote.orEmpty(),
+    captureReviewStatus = captureReviewStatus.orEmpty(),
+    captureReviewReason = captureReviewReason.orEmpty(),
 )
 
 /**

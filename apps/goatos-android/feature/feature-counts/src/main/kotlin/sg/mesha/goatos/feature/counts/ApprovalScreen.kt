@@ -33,6 +33,8 @@ import sg.mesha.goatos.core.designsystem.component.MeshaScreenHeader
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 import sg.mesha.goatos.core.designsystem.theme.MeshaType
+import sg.mesha.goatos.core.ui.ProofMediaPreview
+import sg.mesha.goatos.core.ui.ProofMediaPreviewKind
 import sg.mesha.goatos.core.ui.RefreshOnResume
 
 /**
@@ -89,7 +91,24 @@ data class ApprovalRowUi(
      * approver: the phone has no name source for a shed id. See [raisedBy].
      */
     val summaryLine: String,
+    /**
+     * The report's SOP capture card snapshot (maintainer decision 4, 2026-09-16), BACKEND-OWNED
+     * COPY rendered verbatim: answers grouped by section, the proofs under their titles, the
+     * older-app note, and the verifier's verdict on the report proof.
+     */
+    val captureRows: List<ApprovalCaptureRowUi> = emptyList(),
+    val captureMedia: List<ApprovalCaptureMediaUi> = emptyList(),
+    val captureMissingNote: String = "",
+    /** pending / approved / rework, or blank when the report carried no proof to review. */
+    val captureReviewStatus: String = "",
+    val captureReviewReason: String = "",
 )
+
+@Immutable
+data class ApprovalCaptureRowUi(val label: String, val value: String, val group: String = "")
+
+@Immutable
+data class ApprovalCaptureMediaUi(val proofId: String, val label: String, val isPhoto: Boolean)
 
 @Immutable
 data class ApprovalUiState(
@@ -100,9 +119,14 @@ data class ApprovalUiState(
     val decidingRequestId: String? = null,
     val message: String? = null,
     val isError: Boolean = false,
+    /** Signed URLs of capture proofs the approver opened (proof id -> URL), for this screen only. */
+    val openedMediaUrls: Map<String, String> = emptyMap(),
+    val loadingMediaId: String? = null,
+    val failedMediaIds: Set<String> = emptySet(),
 )
 
 sealed interface ApprovalEvent {
+    data class OpenCaptureMedia(val proofId: String) : ApprovalEvent
     data class Approve(val requestId: String) : ApprovalEvent
     data class OpenReject(val requestId: String) : ApprovalEvent
     data class EditRejectReason(val value: String) : ApprovalEvent
@@ -175,6 +199,7 @@ fun ApprovalScreen(
                     busy = state.decidingRequestId == row.requestId,
                     rejecting = state.rejectingRequestId == row.requestId,
                     rejectReason = state.rejectReason,
+                    state = state,
                     onEvent = onEvent,
                 )
             }
@@ -208,6 +233,7 @@ private fun ApprovalCard(
     busy: Boolean,
     rejecting: Boolean,
     rejectReason: String,
+    state: ApprovalUiState,
     onEvent: (ApprovalEvent) -> Unit,
 ) {
     Column(
@@ -242,6 +268,7 @@ private fun ApprovalCard(
         if (row.summaryLine.isNotBlank()) {
             Text(text = row.summaryLine, color = MeshaColors.Ink, style = MeshaType.cardSubtitle)
         }
+        ApprovalCaptureSection(row = row, state = state, onEvent = onEvent)
 
         if (rejecting) {
             // A rejection is not actionable without a reason, so the reason is composed inline
@@ -371,5 +398,71 @@ private fun ApprovalEmptyState(isError: Boolean, onRetry: () -> Unit) {
             enabled = true,
             onClick = onRetry,
         )
+    }
+}
+
+/**
+ * What the Add birth / Add death form captured beside its fixed fields, rendered verbatim: the
+ * verifier's verdict on the report proof, the answers grouped by section, the older-app note, and
+ * each proof under its title -- loaded only when the approver taps it.
+ */
+@Composable
+private fun ApprovalCaptureSection(row: ApprovalRowUi, state: ApprovalUiState, onEvent: (ApprovalEvent) -> Unit) {
+    if (row.captureRows.isEmpty() && row.captureMedia.isEmpty() && row.captureMissingNote.isBlank() && row.captureReviewStatus.isBlank()) return
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(stringResource(R.string.counts_approval_capture_title), color = MeshaColors.Muted, style = MeshaType.sectionLabel)
+        val review = when (row.captureReviewStatus) {
+            "pending" -> stringResource(R.string.counts_approval_capture_review_pending)
+            "approved" -> stringResource(R.string.counts_approval_capture_review_approved)
+            "rework" -> stringResource(R.string.counts_approval_capture_review_rework)
+            else -> ""
+        }
+        if (review.isNotBlank()) {
+            Text(
+                text = listOf(review, row.captureReviewReason).filter { it.isNotBlank() }.joinToString(" · "),
+                color = if (row.captureReviewStatus == "rework") MeshaColors.Danger else MeshaColors.Muted,
+                style = MeshaType.cardSubtitle,
+            )
+        }
+        var lastGroup = ""
+        row.captureRows.forEach { captureRow ->
+            if (captureRow.group.isNotBlank() && captureRow.group != lastGroup) {
+                Text(captureRow.group, color = MeshaColors.Faint, style = MeshaType.sectionLabel)
+                lastGroup = captureRow.group
+            }
+            Text("${captureRow.label}: ${captureRow.value}", color = MeshaColors.Ink, style = MeshaType.cardSubtitle)
+        }
+        if (row.captureMissingNote.isNotBlank()) {
+            Text(
+                text = stringResource(R.string.counts_approval_capture_missing, row.captureMissingNote),
+                color = MeshaColors.Muted,
+                style = MeshaType.cardSubtitle,
+            )
+        }
+        row.captureMedia.forEach { media ->
+            val url = state.openedMediaUrls[media.proofId]
+            if (url != null) {
+                Text(media.label, color = MeshaColors.Ink, style = MeshaType.cardSubtitle)
+                ProofMediaPreview(
+                    path = url,
+                    kind = if (media.isPhoto) ProofMediaPreviewKind.Photo else ProofMediaPreviewKind.Video,
+                    mediaIdentity = media.proofId,
+                    inlineRemotePhoto = media.isPhoto,
+                )
+            } else {
+                val loading = state.loadingMediaId == media.proofId
+                val failed = media.proofId in state.failedMediaIds
+                ApprovalAction(
+                    label = when {
+                        loading -> stringResource(R.string.counts_approval_capture_media_loading)
+                        failed -> stringResource(R.string.counts_approval_capture_media_failed, media.label)
+                        else -> stringResource(R.string.counts_approval_capture_open_media, media.label)
+                    },
+                    tone = MeshaColors.Brand,
+                    enabled = !loading,
+                    onClick = { onEvent(ApprovalEvent.OpenCaptureMedia(media.proofId)) },
+                )
+            }
+        }
     }
 }
