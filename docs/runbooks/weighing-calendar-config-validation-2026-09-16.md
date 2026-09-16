@@ -23,10 +23,23 @@ Branch `feat/weighing-calendar-db-config` was created from `origin/main` at `d43
 
 OCI test endpoints are frontend port 13306 and backend port 18086, using the existing OCI PostgreSQL tunnel on 15432. These are isolated from the shared default stack. OCI's latest weighing day is September 8, so its default end differs from the user's live screenshot; the date-end algorithm is unchanged.
 
+## Browser configuration round trip
+
+All scenarios passed in isolated real Chrome at both 1440px and 390px, against populated OCI data:
+
+| Scenario | Result |
+| --- | --- |
+| Fixed default | August 3; July 4 disabled; July 5 selectable |
+| Manual July 5 selection | Analytics 25 table rows; Weights 45 table rows |
+| Export picker | July 4 disabled; July 5 enabled |
+| Published six weeks (v3) | August 5 through latest weighing September 8 |
+| SOP editor: six → two weeks, Publish SOP (v4) | Actual UI publication succeeded; fresh landing September 2 |
+| Restore fixed via normal publish (v5) | August 3 default restored; July 5 selectable |
+
+Neither frontend nor backend restarted during these configuration changes. The first immediate reload after publication can show the cached contract; subsequent reload after the bounded cache expiry showed the new setting. All requested failure strings were absent. Desktop and mobile calendar, report, export, and editor screenshots were visually inspected. Local raw evidence is under `artifacts/weighing-calendar-config/` (not committed); `focused-browser-summary.json` records the scenario assertions.
+
 ## Pending
 
-- Rolling six-week and custom-week browser round trips without process restart; restore fixed configuration afterward.
-- Weights/export calendar and SOP editor visual/click proof.
 - PR creation and three independent review results; resolve findings and rerun affected proof.
 
 ## Metrics and failure record
@@ -37,4 +50,4 @@ Initial local readiness correctly rejected pending migration 318 until the offic
 
 ## Judge and deployment status
 
-Judges pending after PR creation. No push to main, merge, or staging deployment. The feature requires one deployment before production can use the new mode; subsequent SOP publications need no deployment. Current implementation is uncommitted at this checkpoint; exact PR head will be recorded in the final receipt.
+Judges pending after PR creation. No push to main, merge, or staging deployment. The feature requires one deployment before production can use the new mode; subsequent SOP publications need no deployment. Implementation tested at `0c818fc57`; subsequent documentation-only receipts record PR and review results.
