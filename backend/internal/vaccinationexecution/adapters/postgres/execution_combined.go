@@ -201,7 +201,11 @@ func (r *Repository) ListVaccinationExecutionFirstPageWithSummaries(ctx context.
 	if q.PartitionLabel != nil {
 		partition = strings.TrimSpace(*q.PartitionLabel)
 	}
-	rows, err := r.pool.Query(ctx, executionFirstPageWithSummariesSQL, pgx.QueryExecModeExec, q.TenantID, park, shed, q.DueBefore, q.Limit, work, q.AsOf, q.AsOf.Add(-defaultClosedHistoryAge), severity, q.OpenOnly, false, 0, int64(0), "", q.OperatorScopeActorID, partition)
+	// Unlike the separate badge query, this statement uses every bind position.
+	// Reuse its prepared plan instead of repeatedly parsing the canonical CTE;
+	// this caches SQL planning only, never rows or the caller's fresh as-of value.
+	// Keep Exec's text result decoding, including timestamp location/offsets.
+	rows, err := r.pool.Query(ctx, executionFirstPageWithSummariesSQL, pgx.QueryExecModeCacheStatement, pgx.QueryResultFormats{pgx.TextFormatCode}, q.TenantID, park, shed, q.DueBefore, q.Limit, work, q.AsOf, q.AsOf.Add(-defaultClosedHistoryAge), severity, q.OpenOnly, false, 0, int64(0), "", q.OperatorScopeActorID, partition)
 	if err != nil {
 		return domain.ExecutionProjectionPage{}, nil, fmt.Errorf("vaccination execution combined query: %w", err)
 	}

@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/vgoats/goatos/backend/internal/platform/pgtest"
 	"github.com/vgoats/goatos/backend/internal/vaccinationexecution/domain"
 )
@@ -22,7 +24,16 @@ func TestCombinedExecutionWholeFilterPaginationDateShiftStatusMatrix(t *testing.
 	insertProjectionBatch(t, ctx, pool, otherBatch, "planned")
 	insertProjectionGoat(t, ctx, pool, otherGoat, testShed, testPark)
 	insertProjectionObligation(t, ctx, pool, otherObligation, otherBatch, otherGoat, "scheduled", "2026-06-24T00:00:00Z", "combined-other-batch")
-	repo := NewRepository(pool, 5*time.Second)
+	// Keep the repository and prepared-plan inspection on the same session.
+	// Different filters must reuse SQL planning while returning their own rows.
+	readConfig := pool.Config()
+	readConfig.MaxConns = 1
+	readPool, err := pgxpool.NewWithConfig(ctx, readConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer readPool.Close()
+	repo := NewRepository(readPool, 5*time.Second)
 	base := domain.ExecutionQuery{TenantID: testTenant, AsOf: time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC), DueBefore: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC), Limit: 1}
 	for _, mode := range []string{"page_boundary", "whole", "empty", "completed", "park", "shifted_date"} {
 		t.Run(mode, func(t *testing.T) {
@@ -64,6 +75,13 @@ func TestCombinedExecutionWholeFilterPaginationDateShiftStatusMatrix(t *testing.
 				t.Fatal("empty scope invented rows")
 			}
 		})
+	}
+	var executions int64
+	if err := readPool.QueryRow(ctx, `SELECT COALESCE(sum(generic_plans + custom_plans), 0)::bigint FROM pg_prepared_statements WHERE statement=$1`, executionFirstPageWithSummariesSQL).Scan(&executions); err != nil {
+		t.Fatal(err)
+	}
+	if executions < 6 {
+		t.Fatalf("combined first-page reads did not reuse a prepared statement: %d executions", executions)
 	}
 	ctx, cancel := context.WithCancel(ctx)
 	cancel()
