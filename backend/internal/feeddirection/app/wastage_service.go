@@ -172,10 +172,10 @@ func (s *Service) CompleteWastage(ctx context.Context, in CompleteWastageInput) 
 		return ports.CompleteWastageResult{}, err
 	}
 
-	// Enqueue the verifier item ONLY on a fresh pending transition (a new submit or a rework
-	// re-submit). Idempotent on (completion_id + row_version), so a retry after a prior enqueue
-	// failure heals rather than duplicates.
-	if result.NewlyPending {
+	// Enqueue whenever the resulting row is AWAITING VERIFICATION, replays included: idempotent on
+	// (completion_id + row_version), so a replay collapses onto the existing item, and a retry after
+	// a committed row whose enqueue failed is what creates it (see CompletePacking; 2026-09-17).
+	if result.Status == domain.WastageStatusPendingVerification {
 		heads := ""
 		if pen.HeadCount > 0 {
 			heads = fmt.Sprintf("%d", pen.HeadCount)
@@ -191,7 +191,7 @@ func (s *Service) CompleteWastage(ctx context.Context, in CompleteWastageInput) 
 			WastageProofRef:  in.WastageProofRef,
 			MediaRefs:        canonicalOrderedRefs(rules, result.SOPProofs, judged),
 			MediaMeta:        canonicalProofMeta(rules, result.SOPProofs, judged),
-			AnswerRows:       authored.AnswerRows(rules.Questions, storedAnswers),
+			AnswerRows:       cardContextRows(rules, proofsForEnqueue(result.SOPProofs, storedProofs), answersForEnqueue(result.SOPAnswers, storedAnswers)),
 			OperatorID:       strings.TrimSpace(in.CompletedBy),
 			ExperimentArm:    pen.ExperimentArm,
 			HeadCountSummary: heads,

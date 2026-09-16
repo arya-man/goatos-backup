@@ -174,6 +174,10 @@ type ApplyDistributionParams struct {
 	CompletionID string
 	VerifiedBy   string
 	TraceID      string
+	// EvidenceID is the capture the verdict judged (the verification event's source.evidence_id, the
+	// item's first media ref). When set, the verdict applies only while the row still holds that
+	// capture: a re-delivered or late verdict for a submission the crew has since re-shot is stale.
+	EvidenceID string
 }
 
 // BounceDistributionParams flips a distribution completion whose video a verifier REJECTED
@@ -183,6 +187,10 @@ type BounceDistributionParams struct {
 	CompletionID string
 	Reason       string
 	TraceID      string
+	// EvidenceID is the capture the verdict judged (the verification event's source.evidence_id, the
+	// item's first media ref). When set, the verdict applies only while the row still holds that
+	// capture: a re-delivered or late verdict for a submission the crew has since re-shot is stale.
+	EvidenceID string
 }
 
 // DistributionCompletionStore owns the feed_distribution_completions table.
@@ -217,4 +225,11 @@ type DistributionCompletionStore interface {
 	// BounceDistributionForRework flips 'pending_verification' -> 'rework', stores the reason. Idempotent
 	// and stale-guarded: a re-delivered verdict on a non-pending row is a no-op.
 	BounceDistributionForRework(ctx context.Context, p BounceDistributionParams) (bool, error)
+}
+
+// DistributionSentBackProofReader is the optional read of the captures a pen-session in 'rework'
+// was sent back with, so the captures read does not offer them to the crew again. Empty when the
+// session is not in rework.
+type DistributionSentBackProofReader interface {
+	SentBackDistributionProofs(ctx context.Context, q PenSessionCaptureQuery) (authored.ProofRefs, error)
 }

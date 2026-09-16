@@ -120,6 +120,31 @@ func (s *Service) ListPenSessionCaptures(
 			}
 		}
 	}
+	// SENT BACK: a session a verifier rejected still finds its rejected uploads in the register under
+	// the same pen-session key, and every phone would re-adopt them as ready. Those captures are left
+	// out -- the crew re-shoots, and the write refuses them anyway (feed_proof_reuse.go).
+	if status == domain.DistributionStatusRework {
+		if reader, ok := s.distributions.(ports.DistributionSentBackProofReader); ok {
+			sentBack, serr := reader.SentBackDistributionProofs(ctx, ports.PenSessionCaptureQuery{
+				TenantID: in.TenantID, ParkID: in.ParkID, ShedID: in.ShedID, PartitionLabel: strings.TrimSpace(in.PartitionLabel),
+				SessionNo: in.SessionNo, TargetDate: in.TargetDate, Workflow: in.Workflow,
+			})
+			if serr != nil {
+				return PenSessionCapturesResult{}, serr
+			}
+			spent := map[string]bool{}
+			for _, ref := range sentBack {
+				spent[strings.TrimSpace(ref)] = true
+			}
+			kept := slots[:0]
+			for _, slot := range slots {
+				if !spent[slot.ProofID] {
+					kept = append(kept, slot)
+				}
+			}
+			slots = kept
+		}
+	}
 	rules, err := s.sheetRules(ctx, in.TenantID, in.ParkID, biztime.BusinessDate(in.TargetDate), in.Workflow, domain.StageDistribution)
 	if err != nil {
 		return PenSessionCapturesResult{}, err

@@ -211,11 +211,14 @@ func (s *Service) CompletePacking(ctx context.Context, in CompletePackingInput) 
 		return ports.CompletePackingResult{}, err
 	}
 
-	// Enqueue the verifier item ONLY on a fresh pending transition (a new submit or a rework re-submit).
-	// An idempotent replay or an already-pending/already-completed no-op enqueues nothing. The enqueue is
-	// idempotent on (completion_id + row_version), so a retry after a prior enqueue failure heals rather
-	// than duplicates: the completion is not "done" for the operator until the item is queued.
-	if result.NewlyPending {
+	// Enqueue whenever the resulting row is AWAITING VERIFICATION -- a fresh submit, a rework
+	// re-submit, and also an idempotent replay or a teammate's same-proof re-send of a row already
+	// pending. The enqueue is idempotent on (completion_id + row_version), so the replay collapses
+	// onto the existing item -- and when the first attempt committed the row but failed to queue the
+	// item, the retry is what creates it. Enqueuing only on a NEWLY pending transition (the old rule)
+	// left such a row pending_verification with no verifier item, forever (2026-09-17 E2E audit).
+	// A completed row is left alone.
+	if result.Status == domain.PackingStatusPendingVerification {
 		var fields []PackingMeasurementField
 		if sheetRowFound {
 			fields = packingEntryFields(sheetRow.Items)
@@ -233,7 +236,7 @@ func (s *Service) CompletePacking(ctx context.Context, in CompletePackingInput) 
 			PackingProofRef:   in.PackingProofRef,
 			MediaRefs:         canonicalOrderedRefs(rules, result.SOPProofs, judged),
 			MediaMeta:         canonicalProofMeta(rules, result.SOPProofs, judged),
-			ContextRows:       authored.AnswerRows(rules.Questions, storedAnswers),
+			ContextRows:       cardContextRows(rules, proofsForEnqueue(result.SOPProofs, storedProofs), answersForEnqueue(result.SOPAnswers, storedAnswers)),
 			OperatorID:        strings.TrimSpace(in.CompletedBy),
 			MeasurementFields: fields,
 			CapturedAt:        s.now().UTC(),

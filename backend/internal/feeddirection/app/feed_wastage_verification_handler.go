@@ -29,6 +29,9 @@ type feedWastageVerdictPayload struct {
 		Module  string `json:"module"`
 		RefType string `json:"ref_type"`
 		RefID   string `json:"ref_id"`
+		// EvidenceID is the capture the verdict judged (the item's first media ref); the store applies
+		// the verdict only while the row still holds it.
+		EvidenceID string `json:"evidence_id"`
 	} `json:"source"`
 }
 
@@ -77,6 +80,7 @@ func (h *FeedWastageVerificationHandler) HandleEvent(ctx context.Context, e even
 		_, err := h.store.ApplyVerifiedWastage(ctx, ports.ApplyWastageParams{
 			TenantID:     e.TenantID,
 			CompletionID: completionID,
+			EvidenceID:   strings.TrimSpace(p.Source.EvidenceID),
 			VerifiedBy:   strings.TrimSpace(p.VerifiedBy),
 			// Thread the verification event id as the completion's trace id so the
 			// feed.wastage.completed outbox envelope carries a non-empty trace_id.
@@ -87,6 +91,7 @@ func (h *FeedWastageVerificationHandler) HandleEvent(ctx context.Context, e even
 		_, err := h.store.BounceWastageForRework(ctx, ports.BounceWastageParams{
 			TenantID:     e.TenantID,
 			CompletionID: completionID,
+			EvidenceID:   strings.TrimSpace(p.Source.EvidenceID),
 			Reason:       strings.TrimSpace(p.Reason),
 			TraceID:      e.ID,
 		})

@@ -81,6 +81,9 @@ type CompleteWastageResult struct {
 	NewlyPending bool
 	// SOPProofs is the canonical {slot key: ref} map stored on the row.
 	SOPProofs authored.ProofRefs
+	// SOPAnswers is the crew's answers stored on the row; an enqueue that heals a replay names
+	// these, never the answers the retry request happens to carry.
+	SOPAnswers authored.Answers
 	// ShedName and PartitionLabel are carried for verification enqueue label composition.
 	ShedName, PartitionLabel string
 }
@@ -105,6 +108,10 @@ type ApplyWastageParams struct {
 	CompletionID string
 	VerifiedBy   string
 	TraceID      string
+	// EvidenceID is the capture the verdict judged (the verification event's source.evidence_id, the
+	// item's first media ref). When set, the verdict applies only while the row still holds that
+	// capture: a re-delivered or late verdict for a submission the crew has since re-shot is stale.
+	EvidenceID string
 }
 
 // BounceWastageParams flips a wastage completion whose video a verifier REJECTED
@@ -114,6 +121,10 @@ type BounceWastageParams struct {
 	CompletionID string
 	Reason       string
 	TraceID      string
+	// EvidenceID is the capture the verdict judged (the verification event's source.evidence_id, the
+	// item's first media ref). When set, the verdict applies only while the row still holds that
+	// capture: a re-delivered or late verdict for a submission the crew has since re-shot is stale.
+	EvidenceID string
 }
 
 // RecordWastageMeasurementParams is the VERIFIER'S measurement: the leftover weight she read off

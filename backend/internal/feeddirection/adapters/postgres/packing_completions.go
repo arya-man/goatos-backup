@@ -87,6 +87,7 @@ func (r *Repository) CompletePacking(ctx context.Context, p ports.CompletePackin
 		}
 	}
 	canonicalSOPProofs := sopProofs
+	canonicalSOPAnswers := p.SOPAnswers
 	targetDate := p.TargetDate.Format("2006-01-02")
 
 	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
@@ -144,7 +145,7 @@ func (r *Repository) CompletePacking(ctx context.Context, p ports.CompletePackin
 		// Exact replay of the same request: return the original result, run NO side effects. Read the row
 		// so the caller still sees its current status/row_version, but NewlyPending stays false so no
 		// verification item is re-enqueued.
-		status, rowVersion, readErr := r.readPackingByID(ctx, tx, p.TenantID, reservation.resultID)
+		status, rowVersion, storedProofs, storedAnswers, readErr := r.readPackingByID(ctx, tx, p.TenantID, reservation.resultID)
 		if readErr != nil {
 			return ports.CompletePackingResult{}, readErr
 		}
@@ -157,6 +158,7 @@ func (r *Repository) CompletePacking(ctx context.Context, p ports.CompletePackin
 		// blank on another.
 		return ports.CompletePackingResult{
 			CompletionID: reservation.resultID, Status: status, RowVersion: rowVersion, NewlyPending: false,
+			SOPProofs: storedProofs, SOPAnswers: storedAnswers,
 			ShedName: shedName, PartitionLabel: p.PartitionLabel,
 		}, nil
 	}
@@ -200,14 +202,15 @@ RETURNING completion_id::text, row_version`,
 		// conflict, not a replay. See ports.ErrPackingAlreadyRecorded.
 		var existingStatus, existingProof string
 		var existingSOP authored.ProofRefs
+		var existingAnswers authored.Answers
 		if err := tx.QueryRow(ctx, `
-SELECT completion_id::text, status, row_version, coalesce(packing_proof_ref, ''), sop_proofs
+SELECT completion_id::text, status, row_version, coalesce(packing_proof_ref, ''), sop_proofs, sop_answers
 FROM feed_packing_completions
 WHERE tenant_id = $1::uuid AND park_id = $2::uuid AND shed_id = $3::uuid
   AND partition_key = $6 AND session_no = $7 AND target_date = $4::date AND workflow = $5`,
 			p.TenantID, p.ParkID, p.ShedID, targetDate, p.Workflow,
 			partitionColumnKey(p.PartitionLabel), p.SessionNo).
-			Scan(&completionID, &existingStatus, &rowVersion, &existingProof, &existingSOP); err != nil {
+			Scan(&completionID, &existingStatus, &rowVersion, &existingProof, &existingSOP, &existingAnswers); err != nil {
 			return ports.CompletePackingResult{}, fmt.Errorf("feeddirection: read existing packing completion: %w", err)
 		}
 		_ = existingProof
@@ -221,6 +224,15 @@ WHERE tenant_id = $1::uuid AND park_id = $2::uuid AND shed_id = $3::uuid
 			// stands NOW (a reopen re-submit repacks the corrected quantities), so the old snapshot no
 			// longer describes this bag. A nil snapshot on the re-submit clears it rather than keeping a
 			// stale one that would misdescribe the new video.
+			//
+			// NEW captures only: existingSOP is what was sent back (a rejection or the afternoon
+			// reopen), and a clip that proved another bag is not this one's (feed_proof_reuse.go).
+			if err := refuseSentBackProofs(sopProofs, existingSOP); err != nil {
+				return ports.CompletePackingResult{}, err
+			}
+			if err := refuseProofsUsedElsewhere(ctx, tx, p.TenantID, p.ParkID, targetDate, completionID, sopProofs); err != nil {
+				return ports.CompletePackingResult{}, err
+			}
 			if err := tx.QueryRow(ctx, `
 UPDATE feed_packing_completions
 SET status = 'pending_verification',
@@ -258,6 +270,8 @@ RETURNING row_version`,
 				return ports.CompletePackingResult{}, ports.ErrPackingAlreadyRecorded
 			}
 			canonicalSOPProofs = existingSOP
+			// The ROW's answers, so a heal enqueue names what the crew stored (see CompletePacking).
+			canonicalSOPAnswers = existingAnswers
 			status = existingStatus
 		default:
 			return ports.CompletePackingResult{}, fmt.Errorf("feeddirection: unexpected packing status %q", existingStatus)
@@ -265,7 +279,11 @@ RETURNING row_version`,
 	case err != nil:
 		return ports.CompletePackingResult{}, fmt.Errorf("feeddirection: insert packing completion: %w", err)
 	default:
-		// Fresh insert: a brand-new pending_verification row.
+		// Fresh insert: a brand-new pending_verification row -- unless a capture already proves
+		// another piece of feed work (the insert rolls back with the refusal).
+		if err := refuseProofsUsedElsewhere(ctx, tx, p.TenantID, p.ParkID, targetDate, completionID, sopProofs); err != nil {
+			return ports.CompletePackingResult{}, err
+		}
 		newlyPending = true
 		if err := writePackingAudit(ctx, tx, p, completionID, feedPackingPendingAction); err != nil {
 			return ports.CompletePackingResult{}, err
@@ -281,7 +299,7 @@ RETURNING row_version`,
 	}
 	committed = true
 	return ports.CompletePackingResult{
-		CompletionID: completionID, Status: status, RowVersion: rowVersion, NewlyPending: newlyPending, SOPProofs: canonicalSOPProofs,
+		CompletionID: completionID, Status: status, RowVersion: rowVersion, NewlyPending: newlyPending, SOPProofs: canonicalSOPProofs, SOPAnswers: canonicalSOPAnswers,
 		// Carried on EVERY path, including the idempotent replay above: the enqueue reads these to
 		// compose the verifier's subject label, and a path that leaves them blank ships an item
 		// naming no location.
@@ -323,23 +341,25 @@ func packedAgainstColumns(s *ports.PackedAgainstSnapshot) (headCount *int64, tot
 
 // readPackingByID reads a row's status and row_version within the transaction, for the idempotent
 // replay echo.
-func (r *Repository) readPackingByID(ctx context.Context, tx pgx.Tx, tenantID, completionID string) (string, int32, error) {
+func (r *Repository) readPackingByID(ctx context.Context, tx pgx.Tx, tenantID, completionID string) (string, int32, authored.ProofRefs, authored.Answers, error) {
 	if strings.TrimSpace(completionID) == "" {
-		return "", 0, nil
+		return "", 0, nil, nil, nil
 	}
 	var status string
 	var rowVersion int32
+	var proofs authored.ProofRefs
+	var answers authored.Answers
 	err := tx.QueryRow(ctx, `
-SELECT status, row_version
+SELECT status, row_version, sop_proofs, sop_answers
 FROM feed_packing_completions
-WHERE tenant_id = $1::uuid AND completion_id = $2::uuid`, tenantID, completionID).Scan(&status, &rowVersion)
+WHERE tenant_id = $1::uuid AND completion_id = $2::uuid`, tenantID, completionID).Scan(&status, &rowVersion, &proofs, &answers)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return "", 0, nil
+		return "", 0, nil, nil, nil
 	}
 	if err != nil {
-		return "", 0, fmt.Errorf("feeddirection: read packing completion by id: %w", err)
+		return "", 0, nil, nil, fmt.Errorf("feeddirection: read packing completion by id: %w", err)
 	}
-	return status, rowVersion, nil
+	return status, rowVersion, proofs, answers, nil
 }
 
 // ListVerifiedPacking returns every VERIFIED (status='completed') (shed, partition, session,
@@ -425,6 +445,7 @@ func (r *Repository) ApplyVerifiedPacking(ctx context.Context, p ports.ApplyPack
 		}
 	}()
 
+	var holdsEvidence bool
 	var (
 		status     string
 		parkID     string
@@ -434,10 +455,10 @@ func (r *Repository) ApplyVerifiedPacking(ctx context.Context, p ports.ApplyPack
 		targetDate time.Time
 	)
 	err = tx.QueryRow(ctx, `
-SELECT status, park_id::text, shed_id::text, workflow, session_no, target_date
+SELECT status, park_id::text, shed_id::text, workflow, session_no, target_date, ($3::text = '' OR EXISTS (SELECT 1 FROM jsonb_each_text(sop_proofs) e WHERE e.value = $3::text))
 FROM feed_packing_completions
 WHERE tenant_id = $1::uuid AND completion_id = $2::uuid
-FOR UPDATE`, p.TenantID, p.CompletionID).Scan(&status, &parkID, &shedID, &workflow, &sessionNo, &targetDate)
+FOR UPDATE`, p.TenantID, p.CompletionID, strings.TrimSpace(p.EvidenceID)).Scan(&status, &parkID, &shedID, &workflow, &sessionNo, &targetDate, &holdsEvidence)
 	if errors.Is(err, pgx.ErrNoRows) {
 		// No such row for this tenant: a stale/foreign verdict. Ignore.
 		if commitErr := r.commitAndInvalidateReadCache(ctx, tx); commitErr != nil {
@@ -450,7 +471,9 @@ FOR UPDATE`, p.TenantID, p.CompletionID).Scan(&status, &parkID, &shedID, &workfl
 		return false, fmt.Errorf("feeddirection: lock packing completion: %w", err)
 	}
 	// Already completed (re-delivered verdict) or no longer pending (stale delivery): no side effects.
-	if status != domain.PackingStatusPendingVerification {
+	// A verdict for a capture the row no longer holds judged an EARLIER submission (a
+	// re-delivered or late event after the crew re-shot): stale, exactly like a moved-on status.
+	if status != domain.PackingStatusPendingVerification || !holdsEvidence {
 		if commitErr := r.commitAndInvalidateReadCache(ctx, tx); commitErr != nil {
 			return false, commitErr
 		}
@@ -516,8 +539,9 @@ SET status = 'rework',
     rework_reason = nullif($3, ''),
     updated_at = now(),
     row_version = row_version + 1
-WHERE tenant_id = $1::uuid AND completion_id = $2::uuid AND status = 'pending_verification'`,
-		p.TenantID, p.CompletionID, strings.TrimSpace(p.Reason))
+WHERE tenant_id = $1::uuid AND completion_id = $2::uuid AND status = 'pending_verification'
+  AND ($4::text = '' OR EXISTS (SELECT 1 FROM jsonb_each_text(sop_proofs) e WHERE e.value = $4::text))`,
+		p.TenantID, p.CompletionID, strings.TrimSpace(p.Reason), strings.TrimSpace(p.EvidenceID))
 	if err != nil {
 		return false, fmt.Errorf("feeddirection: bounce packing for rework: %w", err)
 	}

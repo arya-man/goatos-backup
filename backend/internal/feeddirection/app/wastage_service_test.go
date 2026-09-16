@@ -192,15 +192,17 @@ func TestCompleteWastageEnqueuesWithTrialContextOnFreshPending(t *testing.T) {
 		t.Fatalf("enqueue idempotency key = %q, want completion+row_version keyed", call.IdempotencyKey)
 	}
 
-	// A replay (NewlyPending false) enqueues nothing more.
+	// A replay of a row still pending re-runs the SAME idempotent enqueue (completion + row_version):
+	// it collapses onto the existing item, and it is what creates the item when the first attempt
+	// committed the row but failed to queue it (2026-09-17). No new key, so never a second item.
 	store.result.NewlyPending = false
 	replay := wastageInput(shedA)
 	replay.IdempotencyKey = "wastage-key-00000002"
 	if _, err := svc.CompleteWastage(context.Background(), replay); err != nil {
 		t.Fatalf("replay: %v", err)
 	}
-	if len(enq.calls) != 1 {
-		t.Fatalf("enqueue calls after replay = %d, want still 1", len(enq.calls))
+	if len(enq.calls) != 2 || enq.calls[1].IdempotencyKey != enq.calls[0].IdempotencyKey {
+		t.Fatalf("replay enqueue calls = %+v, want one more call on the SAME item key", enq.calls)
 	}
 }
 

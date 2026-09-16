@@ -423,3 +423,137 @@ func NewCardContract(r Rules) CardContract {
 	}
 	return CardContract{Version: r.Version, Stage: r.Stage, Instruction: strings.TrimSpace(r.Instruction), Proofs: proofs, Questions: questions}
 }
+
+// --- Older app (program decision 7, 2026-09-16) -----------------------------------------------
+
+// legacyFieldOrder is each stage's fixed wire fields in capture order, with the kind an older phone
+// always captured for it. Order matters: a field whose seeded slot the farm authored away is
+// re-filed onto the first free slot of that kind, and the earlier field gets first pick.
+func legacyFieldOrder(stage string) []struct{ Field, Slot, Kind string } {
+	type f = struct{ Field, Slot, Kind string }
+	switch stage {
+	case StageDistribution:
+		return []f{{"feed_weight_proof_ref", SlotFeedWeightPhoto, authored.KindPhoto}, {"distribution_proof_ref", SlotFeedVideo, authored.KindVideo}, {"water_proof_ref", SlotWaterVideo, authored.KindVideo}}
+	case StagePacking:
+		return []f{{"packing_proof_ref", SlotPackingVideo, authored.KindVideo}}
+	case StageTransport:
+		return []f{{"proof_ref", SlotTransportVideo, authored.KindVideo}}
+	case StageWastage:
+		return []f{{"wastage_proof_ref", SlotWastageVideo, authored.KindVideo}}
+	}
+	return nil
+}
+
+// LegacyCardRefs lays an OLDER phone's fixed proof fields onto the card it is judged by. A field
+// lands on its seeded slot when the card still has that slot and the slot still takes what the
+// phone captured (a photo for the weight, a video otherwise); otherwise it is re-filed onto the
+// first free slot of the card that takes it; otherwise it has nowhere to land and is left out --
+// the card no longer asks for that capture, and refusing the pen for it would force an update the
+// farm has ruled out. Nothing an older phone sends is ever re-filed onto a slot of another KIND.
+func LegacyCardRefs(r Rules, legacy map[string]string) authored.ProofRefs {
+	out := authored.ProofRefs{}
+	taken := map[string]bool{}
+	var pending []struct{ ref, kind string }
+	slotByKey := map[string]authored.ProofSlot{}
+	for _, p := range r.Proofs {
+		slotByKey[p.Key] = p
+	}
+	for _, f := range legacyFieldOrder(r.Stage) {
+		ref := strings.TrimSpace(legacy[f.Field])
+		if ref == "" {
+			continue
+		}
+		if slot, ok := slotByKey[f.Slot]; ok && slot.Accepts(f.Kind) {
+			out[f.Slot], taken[f.Slot] = ref, true
+			continue
+		}
+		pending = append(pending, struct{ ref, kind string }{ref, f.Kind})
+	}
+	for _, p := range pending {
+		for _, slot := range r.Proofs {
+			if taken[slot.Key] || !slot.Accepts(p.kind) {
+				continue
+			}
+			// A seeded slot still on the card is reserved for its own field, even when this phone
+			// left that field blank, so a re-filed capture never impersonates the seeded one.
+			if isSeededSlot(r.Stage, slot.Key) {
+				continue
+			}
+			out[slot.Key], taken[slot.Key] = p.ref, true
+			break
+		}
+	}
+	return out
+}
+
+func isSeededSlot(stage, key string) bool {
+	for _, f := range legacyFieldOrder(stage) {
+		if f.Slot == key {
+			return true
+		}
+	}
+	return false
+}
+
+// NotCapturedByOlderApp names, in card order, every compulsory capture the stored proofs lack and
+// every required question that applies and was not answered. A strictly judged submit can leave
+// nothing here, so a non-empty list is exactly what an older phone could not send; the verifier
+// reads each as "<title> · Not captured (older app)".
+func (r Rules) NotCapturedByOlderApp(stored authored.ProofRefs, answers authored.Answers) []string {
+	var out []string
+	for _, p := range r.Proofs {
+		if p.Required && strings.TrimSpace(stored[p.Key]) == "" {
+			out = append(out, p.Title)
+		}
+	}
+	applies := map[string]bool{}
+	for _, q := range r.Questions {
+		cond := q.OnlyIf
+		applies[q.ID] = cond == nil || (applies[cond.QuestionID] && answerChoice(answers, cond.QuestionID) == cond.Value)
+		if !q.Required || !applies[q.ID] {
+			continue
+		}
+		if raw, ok := answers[q.ID]; !ok || len(strings.TrimSpace(string(raw))) == 0 || string(raw) == "null" {
+			out = append(out, q.Title)
+		}
+	}
+	return out
+}
+
+func answerChoice(a authored.Answers, id string) string {
+	raw, ok := a[id]
+	if !ok {
+		return ""
+	}
+	var v string
+	if err := json.Unmarshal(raw, &v); err != nil {
+		return ""
+	}
+	return strings.TrimSpace(v)
+}
+
+// OlderAppCopy is the card an older phone's request is judged by: what it DID send is judged
+// (placement, kind, offered answers), what it could not send is not required. Every authored
+// capture and question it has never heard of becomes optional. A SEEDED capture stays compulsory
+// when its fixed field came in BLANK -- an older phone always sent every seeded field, so a blank
+// one is a broken request, not an older app (the legacy "proof_required" rule, unchanged).
+func (r Rules) OlderAppCopy(legacy map[string]string) Rules {
+	blankSeeded := map[string]bool{}
+	for _, f := range legacyFieldOrder(r.Stage) {
+		if strings.TrimSpace(legacy[f.Field]) == "" {
+			blankSeeded[f.Slot] = true
+		}
+	}
+	out := r
+	out.Proofs = make([]authored.ProofSlot, len(r.Proofs))
+	for i, p := range r.Proofs {
+		p.Required = p.Required && blankSeeded[p.Key]
+		out.Proofs[i] = p
+	}
+	out.Questions = make([]authored.Question, len(r.Questions))
+	for i, q := range r.Questions {
+		q.Required = false
+		out.Questions[i] = q
+	}
+	return out
+}

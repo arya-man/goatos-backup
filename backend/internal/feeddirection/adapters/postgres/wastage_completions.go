@@ -80,6 +80,7 @@ func (r *Repository) CompleteWastage(ctx context.Context, p ports.CompleteWastag
 		}
 	}
 	canonicalSOPProofs := sopProofs
+	canonicalSOPAnswers := p.SOPAnswers
 	targetDate := p.TargetDate.Format("2006-01-02")
 
 	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
@@ -123,7 +124,7 @@ func (r *Repository) CompleteWastage(ctx context.Context, p ports.CompleteWastag
 	if !reservation.proceed {
 		// Exact replay: return the original result, run NO side effects. NewlyPending stays false so
 		// no verification item is re-enqueued.
-		status, rowVersion, readErr := r.readWastageByID(ctx, tx, p.TenantID, reservation.resultID)
+		status, rowVersion, storedProofs, storedAnswers, readErr := r.readWastageByID(ctx, tx, p.TenantID, reservation.resultID)
 		if readErr != nil {
 			return ports.CompleteWastageResult{}, readErr
 		}
@@ -133,6 +134,7 @@ func (r *Repository) CompleteWastage(ctx context.Context, p ports.CompleteWastag
 		committed = true
 		return ports.CompleteWastageResult{
 			CompletionID: reservation.resultID, Status: status, RowVersion: rowVersion, NewlyPending: false,
+			SOPProofs: storedProofs, SOPAnswers: storedAnswers,
 			ShedName: shedName, PartitionLabel: p.PartitionLabel,
 		}, nil
 	}
@@ -162,14 +164,15 @@ RETURNING completion_id::text, row_version`,
 		// ports.ErrWastageAlreadyRecorded.
 		var existingStatus, existingProof string
 		var existingSOP authored.ProofRefs
+		var existingAnswers authored.Answers
 		if err := tx.QueryRow(ctx, `
-SELECT completion_id::text, status, row_version, coalesce(wastage_proof_ref, ''), sop_proofs
+SELECT completion_id::text, status, row_version, coalesce(wastage_proof_ref, ''), sop_proofs, sop_answers
 FROM feed_wastage_completions
 WHERE tenant_id = $1::uuid AND park_id = $2::uuid AND shed_id = $3::uuid
   AND partition_key = $5 AND target_date = $4::date AND workflow = 'experiment'`,
 			p.TenantID, p.ParkID, p.ShedID, targetDate,
 			partitionColumnKey(p.PartitionLabel)).
-			Scan(&completionID, &existingStatus, &rowVersion, &existingProof, &existingSOP); err != nil {
+			Scan(&completionID, &existingStatus, &rowVersion, &existingProof, &existingSOP, &existingAnswers); err != nil {
 			return ports.CompleteWastageResult{}, fmt.Errorf("feeddirection: read existing wastage completion: %w", err)
 		}
 		_ = existingProof
@@ -178,6 +181,14 @@ WHERE tenant_id = $1::uuid AND park_id = $2::uuid AND shed_id = $3::uuid
 			// A verifier rejected the prior video; the operator re-recorded. Move the row back to
 			// pending_verification with the NEW video, bump row_version, clear the rework reason.
 			// This is a fresh pending transition, so it enqueues a fresh verification item.
+			//
+			// NEW captures only (feed_proof_reuse.go).
+			if err := refuseSentBackProofs(sopProofs, existingSOP); err != nil {
+				return ports.CompleteWastageResult{}, err
+			}
+			if err := refuseProofsUsedElsewhere(ctx, tx, p.TenantID, p.ParkID, targetDate, completionID, sopProofs); err != nil {
+				return ports.CompleteWastageResult{}, err
+			}
 			if err := tx.QueryRow(ctx, `
 UPDATE feed_wastage_completions
 SET status = 'pending_verification',
@@ -205,6 +216,7 @@ RETURNING row_version`,
 				return ports.CompleteWastageResult{}, ports.ErrWastageAlreadyRecorded
 			}
 			canonicalSOPProofs = existingSOP
+			canonicalSOPAnswers = existingAnswers
 			status = existingStatus
 		default:
 			return ports.CompleteWastageResult{}, fmt.Errorf("feeddirection: unexpected wastage status %q", existingStatus)
@@ -212,7 +224,11 @@ RETURNING row_version`,
 	case err != nil:
 		return ports.CompleteWastageResult{}, fmt.Errorf("feeddirection: insert wastage completion: %w", err)
 	default:
-		// Fresh insert: a brand-new pending_verification row.
+		// Fresh insert: a brand-new pending_verification row -- unless a capture already proves
+		// another piece of feed work (the insert rolls back with the refusal).
+		if err := refuseProofsUsedElsewhere(ctx, tx, p.TenantID, p.ParkID, targetDate, completionID, sopProofs); err != nil {
+			return ports.CompleteWastageResult{}, err
+		}
 		newlyPending = true
 		if err := writeWastageAudit(ctx, tx, p, completionID, feedWastagePendingAction); err != nil {
 			return ports.CompleteWastageResult{}, err
@@ -228,7 +244,7 @@ RETURNING row_version`,
 	}
 	committed = true
 	return ports.CompleteWastageResult{
-		CompletionID: completionID, Status: status, RowVersion: rowVersion, NewlyPending: newlyPending, SOPProofs: canonicalSOPProofs,
+		CompletionID: completionID, Status: status, RowVersion: rowVersion, NewlyPending: newlyPending, SOPProofs: canonicalSOPProofs, SOPAnswers: canonicalSOPAnswers,
 		// Carried on EVERY path, including the idempotent replay above: the enqueue reads these to
 		// compose the verifier's subject label.
 		ShedName: shedName, PartitionLabel: p.PartitionLabel,
@@ -237,23 +253,25 @@ RETURNING row_version`,
 
 // readWastageByID reads a row's status and row_version within the transaction, for the idempotent
 // replay echo.
-func (r *Repository) readWastageByID(ctx context.Context, tx pgx.Tx, tenantID, completionID string) (string, int32, error) {
+func (r *Repository) readWastageByID(ctx context.Context, tx pgx.Tx, tenantID, completionID string) (string, int32, authored.ProofRefs, authored.Answers, error) {
 	if strings.TrimSpace(completionID) == "" {
-		return "", 0, nil
+		return "", 0, nil, nil, nil
 	}
 	var status string
 	var rowVersion int32
+	var proofs authored.ProofRefs
+	var answers authored.Answers
 	err := tx.QueryRow(ctx, `
-SELECT status, row_version
+SELECT status, row_version, sop_proofs, sop_answers
 FROM feed_wastage_completions
-WHERE tenant_id = $1::uuid AND completion_id = $2::uuid`, tenantID, completionID).Scan(&status, &rowVersion)
+WHERE tenant_id = $1::uuid AND completion_id = $2::uuid`, tenantID, completionID).Scan(&status, &rowVersion, &proofs, &answers)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return "", 0, nil
+		return "", 0, nil, nil, nil
 	}
 	if err != nil {
-		return "", 0, fmt.Errorf("feeddirection: read wastage completion by id: %w", err)
+		return "", 0, nil, nil, fmt.Errorf("feeddirection: read wastage completion by id: %w", err)
 	}
-	return status, rowVersion, nil
+	return status, rowVersion, proofs, answers, nil
 }
 
 // ListWastageCompletionStatuses returns EVERY pen with a feed_wastage_completions row for one
@@ -304,6 +322,7 @@ func (r *Repository) ApplyVerifiedWastage(ctx context.Context, p ports.ApplyWast
 		}
 	}()
 
+	var holdsEvidence bool
 	var (
 		status     string
 		parkID     string
@@ -312,10 +331,10 @@ func (r *Repository) ApplyVerifiedWastage(ctx context.Context, p ports.ApplyWast
 		wastageKg  *float64
 	)
 	err = tx.QueryRow(ctx, `
-SELECT status, park_id::text, shed_id::text, target_date, wastage_kg::float8
+SELECT status, park_id::text, shed_id::text, target_date, wastage_kg::float8, ($3::text = '' OR EXISTS (SELECT 1 FROM jsonb_each_text(sop_proofs) e WHERE e.value = $3::text))
 FROM feed_wastage_completions
 WHERE tenant_id = $1::uuid AND completion_id = $2::uuid
-FOR UPDATE`, p.TenantID, p.CompletionID).Scan(&status, &parkID, &shedID, &targetDate, &wastageKg)
+FOR UPDATE`, p.TenantID, p.CompletionID, strings.TrimSpace(p.EvidenceID)).Scan(&status, &parkID, &shedID, &targetDate, &wastageKg, &holdsEvidence)
 	if errors.Is(err, pgx.ErrNoRows) {
 		if commitErr := r.commitAndInvalidateReadCache(ctx, tx); commitErr != nil {
 			return false, commitErr
@@ -326,7 +345,9 @@ FOR UPDATE`, p.TenantID, p.CompletionID).Scan(&status, &parkID, &shedID, &target
 	if err != nil {
 		return false, fmt.Errorf("feeddirection: lock wastage completion: %w", err)
 	}
-	if status != domain.WastageStatusPendingVerification {
+	// A verdict for a capture the row no longer holds judged an EARLIER submission (a
+	// re-delivered or late event after the crew re-shot): stale, exactly like a moved-on status.
+	if status != domain.WastageStatusPendingVerification || !holdsEvidence {
 		if commitErr := r.commitAndInvalidateReadCache(ctx, tx); commitErr != nil {
 			return false, commitErr
 		}
@@ -392,8 +413,9 @@ SET status = 'rework',
     rework_reason = nullif($3, ''),
     updated_at = now(),
     row_version = row_version + 1
-WHERE tenant_id = $1::uuid AND completion_id = $2::uuid AND status = 'pending_verification'`,
-		p.TenantID, p.CompletionID, strings.TrimSpace(p.Reason))
+WHERE tenant_id = $1::uuid AND completion_id = $2::uuid AND status = 'pending_verification'
+  AND ($4::text = '' OR EXISTS (SELECT 1 FROM jsonb_each_text(sop_proofs) e WHERE e.value = $4::text))`,
+		p.TenantID, p.CompletionID, strings.TrimSpace(p.Reason), strings.TrimSpace(p.EvidenceID))
 	if err != nil {
 		return false, fmt.Errorf("feeddirection: bounce wastage for rework: %w", err)
 	}
