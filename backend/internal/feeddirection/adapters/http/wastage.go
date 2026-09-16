@@ -48,17 +48,17 @@ func (h *Handler) GetWastageWorklist(w http.ResponseWriter, r *http.Request) {
 
 	targetDate, err := requiredBusinessDate(query, "target_date")
 	if err != nil {
-		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, err.Error(), nil)
+		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, farmMessage(err), nil)
 		return
 	}
 	limit, err := boundedIntParam(query, "limit", app.DefaultShedPageLimit, 1, app.MaxShedPageLimit)
 	if err != nil {
-		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, err.Error(), nil)
+		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, farmMessage(err), nil)
 		return
 	}
 	offset, err := boundedIntParam(query, "offset", 0, 0, app.MaxShedPageOffset)
 	if err != nil {
-		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, err.Error(), nil)
+		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, farmMessage(err), nil)
 		return
 	}
 	// Same status contract as the packing worklist: one bucket or empty for all; unknown rejected.
@@ -148,7 +148,7 @@ func (h *Handler) PostCompleteWastage(w http.ResponseWriter, r *http.Request) {
 	}
 	targetDate, err := businessDateFromString(body.TargetDate)
 	if err != nil {
-		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, err.Error(), nil)
+		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, farmMessage(err), nil)
 		return
 	}
 
@@ -275,7 +275,7 @@ func (h *Handler) PostWastageMeasurement(w http.ResponseWriter, r *http.Request)
 		case errors.Is(err, ports.ErrWastageValueOutOfRange):
 			h.wastageMeasurementRefusal(w, r, "wastage_out_of_range")
 		case errors.Is(err, ports.ErrIdempotencyConflict):
-			httpresponse.WriteError(w, r, h.log, http.StatusConflict, err.Error(), nil)
+			httpresponse.WriteError(w, r, h.log, http.StatusConflict, farmMessage(err), nil)
 		default:
 			httpresponse.WriteError(w, r, h.log, http.StatusInternalServerError, "feed wastage measurement", err)
 		}

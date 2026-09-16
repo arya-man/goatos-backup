@@ -139,7 +139,7 @@ func (h *Handler) GetTransportTasks(w http.ResponseWriter, r *http.Request) {
 	}
 	limit, err := boundedIntParam(r.URL.Query(), "limit", 20, 1, 100)
 	if err != nil {
-		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, err.Error(), nil)
+		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, farmMessage(err), nil)
 		return
 	}
 	scope := httpmiddleware.ResolveAuthorizedParkScopeForCapabilities(r.Context(), tenant, strings.TrimSpace(r.URL.Query().Get("park_id")), permissions.FeedTransportRead)
@@ -295,7 +295,7 @@ func (h *Handler) PostComplete(w http.ResponseWriter, r *http.Request) {
 	}
 	targetDate, err := businessDateFromString(body.TargetDate)
 	if err != nil {
-		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, err.Error(), nil)
+		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, farmMessage(err), nil)
 		return
 	}
 
@@ -419,7 +419,7 @@ func (h *Handler) PostCompleteDistribution(w http.ResponseWriter, r *http.Reques
 	}
 	targetDate, err := businessDateFromString(body.TargetDate)
 	if err != nil {
-		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, err.Error(), nil)
+		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, farmMessage(err), nil)
 		return
 	}
 
@@ -534,7 +534,7 @@ func (h *Handler) PostCompletePacking(w http.ResponseWriter, r *http.Request) {
 	}
 	targetDate, err := businessDateFromString(body.TargetDate)
 	if err != nil {
-		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, err.Error(), nil)
+		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, farmMessage(err), nil)
 		return
 	}
 
@@ -600,24 +600,24 @@ func (h *Handler) GetPreview(w http.ResponseWriter, r *http.Request) {
 
 	targetDate, err := requiredBusinessDate(query, "target_date")
 	if err != nil {
-		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, err.Error(), nil)
+		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, farmMessage(err), nil)
 		return
 	}
 	limit, err := boundedIntParam(query, "limit", app.DefaultShedPageLimit, 1, app.MaxShedPageLimit)
 	if err != nil {
-		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, err.Error(), nil)
+		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, farmMessage(err), nil)
 		return
 	}
 	offset, err := boundedIntParam(query, "offset", 0, 0, app.MaxShedPageOffset)
 	if err != nil {
-		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, err.Error(), nil)
+		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, farmMessage(err), nil)
 		return
 	}
 	// Session 0 means "every session". A present-but-invalid session is rejected rather than
 	// widened to all sessions, which would silently hand back three times the requested sheet.
 	sessionNo, err := boundedIntParam(query, "session", 0, 0, 99)
 	if err != nil {
-		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, err.Error(), nil)
+		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, farmMessage(err), nil)
 		return
 	}
 	// status narrows to one verification-lifecycle bucket (pending | pending_verification | completed);
@@ -670,24 +670,24 @@ func (h *Handler) GetPackingWorklist(w http.ResponseWriter, r *http.Request) {
 
 	targetDate, err := requiredBusinessDate(query, "target_date")
 	if err != nil {
-		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, err.Error(), nil)
+		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, farmMessage(err), nil)
 		return
 	}
 	limit, err := boundedIntParam(query, "limit", app.DefaultShedPageLimit, 1, app.MaxShedPageLimit)
 	if err != nil {
-		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, err.Error(), nil)
+		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, farmMessage(err), nil)
 		return
 	}
 	offset, err := boundedIntParam(query, "offset", 0, 0, app.MaxShedPageOffset)
 	if err != nil {
-		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, err.Error(), nil)
+		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, farmMessage(err), nil)
 		return
 	}
 	// Session 0 means "every session"; a present-but-invalid session is rejected, not widened --
 	// same contract as the preview.
 	sessionNo, err := boundedIntParam(query, "session", 0, 0, 99)
 	if err != nil {
-		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, err.Error(), nil)
+		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, farmMessage(err), nil)
 		return
 	}
 	// Same status contract as the preview: one bucket or empty for all; unknown values are rejected.
@@ -734,7 +734,7 @@ func (h *Handler) writeServiceError(w http.ResponseWriter, r *http.Request, op s
 	switch {
 	case errors.Is(err, ports.ErrParkNotFound),
 		errors.Is(err, ports.ErrShedNotInPark):
-		httpresponse.WriteError(w, r, h.log, http.StatusNotFound, err.Error(), nil)
+		httpresponse.WriteError(w, r, h.log, http.StatusNotFound, farmMessage(err), nil)
 	case errors.Is(err, ports.ErrParkRequired),
 		errors.Is(err, ports.ErrInvalidTargetDate),
 		errors.Is(err, ports.ErrInvalidWorkflow),
@@ -745,12 +745,12 @@ func (h *Handler) writeServiceError(w http.ResponseWriter, r *http.Request, op s
 		errors.Is(err, ports.ErrIdempotencyRequired),
 		errors.Is(err, ports.ErrInvalidPartition),
 		errors.Is(err, ports.ErrInvalidProof):
-		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, err.Error(), nil)
+		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, farmMessage(err), nil)
 	case errors.Is(err, ports.ErrIdempotencyConflict),
 		errors.Is(err, ports.ErrDistributionAlreadyRecorded),
 		errors.Is(err, ports.ErrPackingAlreadyRecorded),
 		errors.Is(err, ports.ErrWastageAlreadyRecorded):
-		httpresponse.WriteError(w, r, h.log, http.StatusConflict, err.Error(), nil)
+		httpresponse.WriteError(w, r, h.log, http.StatusConflict, farmMessage(err), nil)
 	// Every mandatory distribution capture answers the same way, listed together so a fourth proof
 	// cannot be added to the service and silently fall through to the 500 default -- which is what
 	// happened to the feed-weight photo, telling an operator who had not taken it yet that the
@@ -780,22 +780,22 @@ func (h *Handler) writeServiceError(w http.ResponseWriter, r *http.Request, op s
 		errors.Is(err, ports.ErrDistributionProofRequired),
 		errors.Is(err, ports.ErrWaterProofRequired):
 		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity,
-			codedError{Code: "proof_required", Message: err.Error()}, nil)
+			codedError{Code: "proof_required", Message: farmMessage(err)}, nil)
 	case errors.Is(err, ports.ErrPackingProofRequired):
 		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity,
-			codedError{Code: "proof_required", Message: err.Error()}, nil)
+			codedError{Code: "proof_required", Message: farmMessage(err)}, nil)
 	case errors.Is(err, ports.ErrWastageProofRequired):
 		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity,
-			codedError{Code: "proof_required", Message: err.Error()}, nil)
+			codedError{Code: "proof_required", Message: farmMessage(err)}, nil)
 	case errors.Is(err, ports.ErrWastageNotExperimentPen):
 		// A caller error, not an outage: the pen is not on that day's experiment sheet, so no
 		// wastage task exists for it. The code lets a client render the business sentence.
 		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity,
-			codedError{Code: "not_experiment_pen", Message: err.Error()}, nil)
+			codedError{Code: "not_experiment_pen", Message: farmMessage(err)}, nil)
 	case errors.Is(err, ports.ErrTransportProofRequired):
-		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity, codedError{Code: "proof_required", Message: err.Error()}, nil)
+		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity, codedError{Code: "proof_required", Message: farmMessage(err)}, nil)
 	case errors.Is(err, ports.ErrTransportAssignedToAnotherOperator), errors.Is(err, ports.ErrTransportTaskNotActionable):
-		httpresponse.WriteError(w, r, h.log, http.StatusConflict, err.Error(), nil)
+		httpresponse.WriteError(w, r, h.log, http.StatusConflict, farmMessage(err), nil)
 	case errors.Is(err, ports.ErrDistributionStoreUnavailable),
 		errors.Is(err, app.ErrDistributionEnqueuerNotWired),
 		errors.Is(err, ports.ErrPackingStoreUnavailable),
@@ -851,4 +851,14 @@ func boundedIntParam(query url.Values, name string, fallback, minValue, maxValue
 		return 0, fmt.Errorf("%s must be between %d and %d", name, minValue, maxValue)
 	}
 	return int32(parsed), nil
+}
+
+// farmMessage is the wire form of a module error: the sentence without the Go package prefix.
+// The 2026-09-16 sweep rendered "feeddirection: this pen is not on the experiment sheet for that
+// day" beside an operator's screen; the prefix is for logs, which keep err.Error().
+func farmMessage(err error) string {
+	if err == nil {
+		return ""
+	}
+	return strings.TrimPrefix(err.Error(), "feeddirection: ")
 }
