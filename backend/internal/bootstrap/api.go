@@ -6,6 +6,8 @@ import (
 	"fmt"
 	feedsoppg "github.com/vgoats/goatos/backend/internal/feedsop/adapters/postgres"
 	feedsopapp "github.com/vgoats/goatos/backend/internal/feedsop/app"
+	shiftingsoppg "github.com/vgoats/goatos/backend/internal/shiftingsop/adapters/postgres"
+	shiftingsopapp "github.com/vgoats/goatos/backend/internal/shiftingsop/app"
 	"log/slog"
 	"net/http"
 	"os"
@@ -577,7 +579,8 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 		// FEED SOP (maintainer decision 2026-09-16): the feed.direction / feed.packing /
 		// feed.transport versions' `feed` section -- the cards the crew runs -- is validated here
 		// so a card the phone could not render is never saved.
-		WithFormDSLContract(feedsopapp.FeedSOPContract)
+		WithFormDSLContract(feedsopapp.FeedSOPContract).
+		WithFormDSLContract(shiftingsopapp.ShiftingSOPContract)
 
 	protocolRepo := protocolpg.NewRepository(pool, cfg.Postgres.QueryTimeout)
 	obligationRepo := obligationpg.NewRepository(pool, cfg.Postgres.QueryTimeout)
@@ -692,7 +695,13 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// Shifting execution shares countsApprovalRepo because that repository already carries the
 	// identity transaction seam the relocation runs through -- and the relocation now happens HERE,
 	// at completion, rather than at approval.
-	countsShiftingExecutionService := countsapp.NewShiftingExecutionService(countsApprovalRepo, nil)
+	countsShiftingExecutionService := countsapp.NewShiftingExecutionService(countsApprovalRepo, nil).
+		// SHIFTING SOP (maintainer decision 2026-09-16): the raise extras, completion card and
+		// high-priority card come from the PUBLISHED shifting SOP version, pinned per movement at
+		// raise; shiftingsop is the only reader of sop_versions on counts' behalf, and the proof
+		// register check answers each slot's kind by name.
+		WithSOPRules(shiftingsoppg.NewRulesSource(pool, cfg.Postgres.QueryTimeout), countsApprovalRepo).
+		WithProofMedia(countsProofValidator)
 	// Pen reconciliation (maintainer decision 2026-09-02): the Reconcile queue and the
 	// operator's return-video submission. The bare countsRepo suffices — no identity seam,
 	// because a reconciliation never rewrites the register.
