@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/vgoats/goatos/backend/internal/sop/authored"
@@ -223,4 +224,66 @@ func ParseBirthCaptureKey(key string) (birthEventID, slotKey, ref string, ok boo
 		return "", "", "", false
 	}
 	return parts[0], parts[1], parts[2], true
+}
+
+// Keys a capture_card document may carry, per level. Anything else is refused at save by path:
+// encoding/json drops an unknown key silently, so a misspelt "requird" would publish a card whose
+// compulsory slot reads as optional.
+var (
+	captureCardKeys     = map[string]bool{"schema_version": true, "instruction": true, "proofs": true, "questions": true}
+	captureSlotKeys     = map[string]bool{"key": true, "title": true, "hint": true, "kind": true, "required": true}
+	captureQuestionKeys = map[string]bool{"id": true, "kind": true, "title": true, "hint": true, "required": true, "options": true, "allow_other": true, "min": true, "max": true, "unit": true, "only_if": true}
+	captureOptionKeys   = map[string]bool{"value": true, "label": true}
+	captureOnlyIfKeys   = map[string]bool{"question_id": true, "value": true}
+)
+
+// UnknownCaptureCardKeys names, by path, every key of form_dsl.capture_card the card does not
+// define. An absent or non-object section returns nothing (ParseCaptureCard reports those).
+func UnknownCaptureCardKeys(formDSL map[string]any) []string {
+	card, ok := formDSL["capture_card"].(map[string]any)
+	if !ok {
+		return nil
+	}
+	var out []string
+	check := func(path string, v any, allowed map[string]bool) map[string]any {
+		obj, isObj := v.(map[string]any)
+		if !isObj {
+			return nil
+		}
+		keys := make([]string, 0, len(obj))
+		for k := range obj {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		for _, k := range keys {
+			if !allowed[k] {
+				out = append(out, path+"."+k)
+			}
+		}
+		return obj
+	}
+	check("capture_card", card, captureCardKeys)
+	if proofs, ok := card["proofs"].([]any); ok {
+		for i, p := range proofs {
+			check(fmt.Sprintf("capture_card.proofs.%d", i), p, captureSlotKeys)
+		}
+	}
+	if questions, ok := card["questions"].([]any); ok {
+		for i, q := range questions {
+			qp := fmt.Sprintf("capture_card.questions.%d", i)
+			obj := check(qp, q, captureQuestionKeys)
+			if obj == nil {
+				continue
+			}
+			if options, ok := obj["options"].([]any); ok {
+				for oi, o := range options {
+					check(fmt.Sprintf("%s.options.%d", qp, oi), o, captureOptionKeys)
+				}
+			}
+			if onlyIf, ok := obj["only_if"]; ok && onlyIf != nil {
+				check(qp+".only_if", onlyIf, captureOnlyIfKeys)
+			}
+		}
+	}
+	return out
 }

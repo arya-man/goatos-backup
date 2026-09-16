@@ -25,6 +25,10 @@ func CaptureCardContract(sopCode string, formDSL map[string]any, report *sopdoma
 	if !CaptureCardCodes[sopCode] {
 		return
 	}
+	for _, path := range countsdomain.UnknownCaptureCardKeys(formDSL) {
+		report.Valid = false
+		report.Errors = append(report.Errors, sopdomain.ValidationIssue{Field: "form_dsl." + path, Code: "unknown_key", Message: path + ": not a capture card field"})
+	}
 	card, err := countsdomain.ParseCaptureCard(formDSL)
 	if err != nil {
 		report.Valid = false
