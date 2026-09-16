@@ -21,25 +21,28 @@ import (
 	"github.com/vgoats/goatos/backend/internal/platform/observability"
 	"google.golang.org/api/idtoken"
 	"google.golang.org/api/iterator"
+	"google.golang.org/api/storage/v1"
 )
 
 const maxBodyBytes = 1 << 20
 
 type server struct {
-	log          *slog.Logger
-	http         *http.Client
-	bq           billingQuerier
-	webhook      string
-	slackBot     string
-	channelID    string
-	token        string
-	console      string
-	queryHint    string
-	billingTable string
-	projects     []string
-	oidcAudience string
-	oidcEmails   []string
-	now          func() time.Time
+	budgetStore     budgetStateStore
+	oidcAudience    string
+	oidcEmails      []string
+	validateIDToken func(context.Context, string, string) (*idtoken.Payload, error)
+	log             *slog.Logger
+	http            *http.Client
+	bq              billingQuerier
+	webhook         string
+	slackBot        string
+	channelID       string
+	token           string
+	console         string
+	queryHint       string
+	billingTable    string
+	projects        []string
+	now             func() time.Time
 }
 
 type billingQuerier interface {
@@ -76,6 +79,9 @@ type pubsubPush struct {
 }
 
 type budgetNotification struct {
+	PublishedAt             time.Time     `json:"-"`
+	BudgetID                string        `json:"-"`
+	BillingAccountID        string        `json:"-"`
 	BudgetDisplayName       string        `json:"budgetDisplayName"`
 	AlertThresholdExceeded  flexibleFloat `json:"alertThresholdExceeded"`
 	ForecastThresholdAmount flexibleFloat `json:"forecastThresholdAmount"`
@@ -140,6 +146,15 @@ func run() error {
 		oidcEmails:   splitCSV(os.Getenv("GOATOS_COST_ALERT_OIDC_EMAILS")),
 		now:          time.Now,
 	}
+	stateBucket := strings.TrimSpace(os.Getenv("GOATOS_COST_ALERT_STATE_BUCKET"))
+	if stateBucket == "" {
+		return errors.New("GOATOS_COST_ALERT_STATE_BUCKET is required for persistent budget deduplication")
+	}
+	storageAPI, err := storage.NewService(context.Background())
+	if err != nil {
+		return fmt.Errorf("create budget state client: %w", err)
+	}
+	s.budgetStore = &gcsBudgetStateStore{api: storageAPI, bucket: stateBucket}
 	if s.billingTable != "" {
 		client, err := bigquery.NewClient(context.Background(), envDefault("GOATOS_BILLING_QUERY_PROJECT_ID", "goatos-stg"))
 		if err != nil {
@@ -228,11 +243,13 @@ func (s *server) budgetPubsub(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
-	if err := s.postSlack(r.Context(), s.formatBudget(budget)); err != nil {
-		s.log.Error("cost_alert_slack_post_failed", slog.String("error", err.Error()))
-		http.Error(w, "slack post failed", http.StatusBadGateway)
+	sent, err := s.deliverBudget(r.Context(), budget)
+	if err != nil {
+		s.log.Error("cost_alert_budget_delivery_failed", slog.String("error", err.Error()))
+		http.Error(w, "budget delivery failed; retry", http.StatusServiceUnavailable)
 		return
 	}
+	s.log.Info("cost_alert_budget_processed", slog.Bool("sent", sent))
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -318,7 +335,10 @@ func (s *server) authorized(r *http.Request) bool {
 	if s.token != "" && r.URL.Query().Get("token") == s.token {
 		return true
 	}
-	bearer := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+	scheme, bearer, ok := strings.Cut(r.Header.Get("Authorization"), " ")
+	if !ok || !strings.EqualFold(scheme, "Bearer") || bearer == "" {
+		return false
+	}
 	if s.token != "" && bearer == s.token {
 		return true
 	}
@@ -335,9 +355,20 @@ func (s *server) authorizedGoogleOIDC(r *http.Request, bearer string) bool {
 	if r.URL.Path != "/budget-pubsub" && r.URL.Path != "/billing-anomaly-check" {
 		return false
 	}
-	payload, err := idtoken.Validate(r.Context(), bearer, s.oidcAudience)
+	validate := s.validateIDToken
+	if validate == nil {
+		validate = idtoken.Validate
+	}
+	payload, err := validate(r.Context(), bearer, s.oidcAudience)
 	if err != nil {
 		s.log.Warn("cost_alert_oidc_rejected", slog.String("error", err.Error()))
+		return false
+	}
+	if payload == nil || (payload.Issuer != "https://accounts.google.com" && payload.Issuer != "accounts.google.com") {
+		return false
+	}
+	verified, _ := payload.Claims["email_verified"].(bool)
+	if !verified {
 		return false
 	}
 	email, _ := payload.Claims["email"].(string)
@@ -376,24 +407,19 @@ func (s *server) formatMonitoring(payload monitoringIncident) string {
 }
 
 func (s *server) formatBudget(payload budgetNotification) string {
-	threshold := float64(payload.ForecastThreshold)
-	if threshold == 0 {
-		threshold = float64(payload.AlertThresholdExceeded)
+	forecast, actual := payload.thresholds()
+	var crossed []string
+	if forecast > 0 {
+		crossed = append(crossed, fmt.Sprintf("forecast crossed %.1f%%", forecast*100))
 	}
-	if threshold == 0 && payload.ForecastThresholdAmount > 0 && payload.BudgetAmount > 0 {
-		threshold = float64(payload.ForecastThresholdAmount / payload.BudgetAmount)
+	if actual > 0 {
+		crossed = append(crossed, fmt.Sprintf("actual spend crossed %.1f%%", actual*100))
 	}
-	spend := formatMoney(payload.CurrencyCode, float64(payload.CostAmount))
-	forecast := formatMoney(payload.CurrencyCode, float64(payload.ForecastThresholdAmount))
-	return fmt.Sprintf("*GoatOS GCP billing forecast alert: %s*\nProject: `billing account scoped: goatos-stg (display name GoatOS), goatos-sheets, goatos-dev if billing is re-enabled`\nService: `all GCP services`\nSpend/usage: `%s current interval cost`\nDelta/threshold: `forecast crossed %.1f%% (%s of %s budget)`\nTop SKU/metric: `Billing export: group by Service, SKU, Project for today and previous 7 days`\nConsole: %s\nFirst query: `%s`",
-		firstNonEmpty(payload.BudgetDisplayName, "GoatOS monthly forecast cost alerts"),
-		spend,
-		threshold*100,
-		firstNonEmpty(forecast, "configured forecast threshold"),
-		formatMoney(payload.CurrencyCode, float64(payload.BudgetAmount)),
-		s.console,
-		s.queryHint,
-	)
+	return fmt.Sprintf("*GoatOS GCP billing budget alert: %s*\nProject: `billing account scoped: goatos-stg (display name GoatOS), goatos-sheets, goatos-dev if billing is re-enabled`\nService: `all GCP services`\nSpend/usage: `%s current interval cost`\nDelta/threshold: `%s (budget %s)`\nTop SKU/metric: `Billing export: group by Service, SKU, Project for today and previous 7 days`\nConsole: %s\nFirst query: `%s`",
+		firstNonEmpty(payload.BudgetDisplayName, "GoatOS monthly cost alerts"),
+		formatMoney(payload.CurrencyCode, float64(payload.CostAmount)),
+		strings.Join(crossed, "; "),
+		formatMoney(payload.CurrencyCode, float64(payload.BudgetAmount)), s.console, s.queryHint)
 }
 
 func (s *server) formatBillingAnomalies(rows []anomalyRow) string {
@@ -567,6 +593,14 @@ func decodeBudgetNotification(body []byte) (budgetNotification, error) {
 	if !budget.hasBudgetSignal() {
 		return budgetNotification{}, errors.New("budget notification missing budget fields")
 	}
+	if push.Message.PublishAt != "" {
+		budget.PublishedAt, err = time.Parse(time.RFC3339Nano, push.Message.PublishAt)
+		if err != nil {
+			return budgetNotification{}, fmt.Errorf("invalid pubsub publish time: %w", err)
+		}
+	}
+	budget.BudgetID = push.Message.Attributes["budgetId"]
+	budget.BillingAccountID = push.Message.Attributes["billingAccountId"]
 	return budget, nil
 }
 

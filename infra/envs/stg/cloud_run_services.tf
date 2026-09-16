@@ -756,6 +756,11 @@ resource "google_cloud_run_v2_service" "cost_alert_bridge" {
       }
 
       env {
+        name  = "GOATOS_COST_ALERT_STATE_BUCKET"
+        value = google_storage_bucket.cost_alert_state.name
+      }
+
+      env {
         name  = "GOATOS_BILLING_QUERY_PROJECT_ID"
         value = var.project_id
       }
@@ -786,6 +791,7 @@ resource "google_cloud_run_v2_service" "cost_alert_bridge" {
   depends_on = [
     google_project_service.enabled,
     google_bigquery_dataset.billing_export,
+    google_storage_bucket_iam_member.cost_alert_state_writer,
   ]
 }
 

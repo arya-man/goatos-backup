@@ -71,3 +71,25 @@ resource "google_billing_budget" "goatos_monthly_forecast_slack_alerts" {
     schema_version = "1.0"
   }
 }
+
+# Dedicated notification state; no access to proof/media objects is granted.
+resource "google_storage_bucket" "cost_alert_state" {
+  name                        = "${var.project_id}-cost-alert-state"
+  location                    = var.region
+  uniform_bucket_level_access = true
+  public_access_prevention    = "enforced"
+  force_destroy               = false
+  labels                      = local.labels
+
+  lifecycle_rule {
+    condition { age = 400 }
+    action { type = "Delete" }
+  }
+  depends_on = [google_project_service.enabled]
+}
+
+resource "google_storage_bucket_iam_member" "cost_alert_state_writer" {
+  bucket = google_storage_bucket.cost_alert_state.name
+  role   = "roles/storage.objectUser"
+  member = "serviceAccount:${google_service_account.runtime["cost_alert_bridge"].email}"
+}
