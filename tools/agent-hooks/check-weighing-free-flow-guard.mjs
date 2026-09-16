@@ -459,7 +459,13 @@ export function writePathTableFindings(rel, fn, body) {
     // keyword OF, not a table. Without this the guard reports a phantom table named `of` on any
     // write path that takes an explicit row lock -- i.e. it fired on the fix that closed the
     // late-capture-after-close race, punishing the correct locking it exists to encourage.
-    if (["set", "select", "only", "unnest", "lateral", "values", "of"].includes(table)) continue;
+    // Set-returning JSON functions over a weighing-owned column (the authored capture slot map,
+    // 2026-09-16: jsonb_each_text(rejected.sop_proofs)) are not tables either -- the same four the
+    // read-path mode below already exempts. The TABLE allowlist is unchanged.
+    if ([
+      "set", "select", "only", "unnest", "lateral", "values", "of",
+      "jsonb_each_text", "jsonb_each", "jsonb_array_elements", "jsonb_array_elements_text",
+    ].includes(table)) continue;
     findings.push({
       rule: "write-path-table-not-allowlisted",
       message: `${rel}: ${fn}() reads/writes \`${table}\` — the weighing write path is restricted to weighing-owned tables plus proof/idempotency/audit/outbox. goats, weighing_expected_animals and vaccination tables are banned outright (maintainer decision 2026-07-31, strict form). If this table is genuinely weighing-owned, add it to WRITE_PATH_ALLOWED_TABLES with a reason.`,

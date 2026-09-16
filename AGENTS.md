@@ -1133,6 +1133,19 @@ submit
 **The ONLY business rule: an animal cannot be scanned twice in the same bucket before
 submit.**
 
+WEIGHING SOP, THE WEIGH CAPTURES ARE AUTHORED (maintainer decision 2026-09-16,
+`docs/decisions/weighing-sop.md` -> "The weigh captures are authored"): WHAT the operator
+captures beside the scan and the weight is the published weighing SOP's call, in TWO SEPARATE
+sections authored independently and never merged -- PER ANIMAL (named video / photo / either
+slots, at least one compulsory, plus per-animal questions) and WHOLE PEN (counted slots min..max,
+at most 10 captures per pen, plus per-pen questions). The seeded document is today's behaviour
+(one compulsory "Weighing video" per animal; 1..5 per pen) and the 000315-embedded seed file
+never changes; an older app's single video / flat list is accepted on the seeded slot and the
+rest reads "Not captured (older app)" to the verifier. The verifier item says which kind it is
+("Weighed as: Per animal / Whole pen", answers grouped per section). The ONE business rule
+above still compares RAW scanned strings and is untouched; the grain stays one item per animal
+/ per pen (ledger B-5). Guard: `make weighing-sop-guard` rules 6-8.
+
 There is **NO** shed↔RFID validation (a scanned tag is stored verbatim and is never
 checked against a shed), **NO** roster / expected animal count / denominator /
 progress percentage, **NO** herd, goat, clinical or lifecycle lookup, **NO** vaccine,
