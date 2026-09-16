@@ -458,7 +458,7 @@ fd5a9a3c6 2026-09-04T21:30:49+05:30 feat(feed): add a feed spend-share pie to th
 4c870e45e 2026-09-04T19:47:09+05:30 feat: feed & water removal (fasting) precondition — rebased onto main @30f27979b successor (91826a50c)
 9679aac3f 2026-09-04T18:49:16+05:30 Clarify combo vaccination proof copy
 4e2afd291 2026-09-04T17:34:10+05:30 fix(leadership-tasks): scope attachment downloads
-8993f85da 2026-09-04T17:34:09+05:30 feat(leadership-tasks): seed Ravi, Manju and Aryaman as assignable by email
+8993f85da 2026-09-04T17:34:09+05:30 feat(leadership-tasks): seed leadership users as assignable by email
 34cb5a2dc 2026-09-04T17:34:09+05:30 feat(leadership-tasks): assignability is a per-person tick, not the CXO role
 fc6b48593 2026-09-04T17:34:09+05:30 chore(leadership-tasks): rebase onto main -- Room v57, migration 000252, breeding and procurement directors
 8763cbc75 2026-09-04T17:34:09+05:30 feat(leadership-tasks): status dropdown, CXO comment, assignee picker dropdown, coloured chips, title cap
