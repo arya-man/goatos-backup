@@ -18,6 +18,8 @@
   - Added leadership assistant coverage-matrix exclusions for the new feed SOP parsing, validation, card contract, and service plumbing surfaces.
   - Kept the admin-web internal schema token runtime value while avoiding a visible-branding guard false positive.
   - Added minimum touch-target sizing to the new Android SOP question toggle.
+- Attempted `make land-main` again after rebasing onto `origin/main e06d27bf600b`; it failed before push at candidate `7e5614a6d325e452c6e9489b10244894b999b7ad`.
+- Fixed the second receipt's mobile blockers by passing the full feed transport overlay context into `ProofCaptureContext` and updating the feed proof submit guard for SOP-card proof-set digests/readiness.
 - Focused backend proof passed:
   - `go test ./internal/feeddirection/domain ./internal/feeddirection/app ./internal/feedsop/adapters/postgres ./internal/sop/authored`
 - Focused admin-web feed model proof passed:
@@ -27,6 +29,9 @@
   - `make vaccination-hrms-seed-fixture-guard`
   - `bash tools/agent-hooks/check-boundaries.sh`
   - `node tools/agent-hooks/check-android-ui-foundations.mjs`
+  - `node tools/agent-hooks/check-android-vaccine-weighing-proof-context.mjs`
+  - `node tools/agent-hooks/check-android-feed-proof-submit.mjs --self-test && node tools/agent-hooks/check-android-feed-proof-submit.mjs`
+  - `make mobile-guard`
 
 ## Known Failures / Notes
 
@@ -34,11 +39,12 @@
   - `Could not create task ':app:transformStgDebugUnitTestClassesWithAsm'`
   - `NoClassDefFoundError: Build_gradle$16$1` at `build.gradle.kts:598`
 - Earlier broad admin-web `npm test -- --runTestsByPath ...` was not a focused signal because the script ignored the Jest-style flag and ran the whole Node test suite; failures were unrelated missing local `typescript` imports in existing scripts.
-- First `make land-main` failed before push. The remaining receipt blockers at that point were `leadership-assistant-coverage-guard`, `agent: ai-doctor`, `agent: boundaries`, `migration-duplicate-versions-guard`, `seed-migration-guard`, `seed-fixture-guard`, and `mobile-guard`. The worktree fixes above address all except the required ai-doctor index rebuild/rerun.
+- First `make land-main` failed before push. The remaining receipt blockers at that point were `leadership-assistant-coverage-guard`, `agent: ai-doctor`, `agent: boundaries`, `migration-duplicate-versions-guard`, `seed-migration-guard`, `seed-fixture-guard`, and `mobile-guard`; those were fixed and ai-doctor was rebuilt.
+- Second `make land-main` failed before push because the post-rebase Repowise index was stale and mobile-guard required feed transport capture to use the full overlay context. The overlay-context code is fixed; ai-doctor needs a post-commit/post-rebase refresh before the next receipt.
 
 ## Pending
 
-- Commit the guard fixes, rebuild the missing `.repowise` index, rerun the remaining focused guards, then rerun `make land-main` from the clean isolated worktree.
+- Commit the transport overlay fix, rebuild/refresh `.repowise`, rerun the remaining focused guards, then rerun `make land-main` from the clean isolated worktree.
 - Record final SHA, receipt state, and local/remote `origin/main` match.
 
 ## Current State

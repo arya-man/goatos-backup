@@ -37,7 +37,8 @@ function distributionFindings(text, rel = files.distributionVm) {
       String.raw`\s*videoItem${slotRef.slice(2)}\s*,\s*waterVideoItem${slotRef.slice(2)}\s*\)` +
       String.raw`[\s\S]*(UUID\.nameUUIDFromBytes|MessageDigest)`,
   ).test(text);
-  if (!longLiteralKey && !shortProofSetKey) {
+  const sopCardProofSetKey = /feedDistributionCompleteKey\s*\(\s*groupKey:\s*String,\s*slotRefs:\s*Map<String,\s*FeedSlotProofSourcePayload>,\s*answers:\s*JsonObject\s*\)[\s\S]*slotRefs\.forEach\s*\{[\s\S]*ref\.outboxItemId\s*\?:\s*ref\.proofRef\.orEmpty\(\)[\s\S]*answers\.isNotEmpty\(\)[\s\S]*UUID\.nameUUIDFromBytes/.test(text);
+  if (!longLiteralKey && !shortProofSetKey && !sopCardProofSetKey) {
     findings.push(finding(rel, text, "feed-distribution-complete", "distribution submit idempotency key must be proof-set-specific and include all three proof item ids before shortening"));
   }
   if (/observeStatus\(\)[\s\S]{0,220}items\.firstOrNull\s*\{\s*it\.id\s*==\s*itemId\s*\}/.test(text)) {
@@ -51,13 +52,19 @@ function distributionFindings(text, rel = files.distributionVm) {
 
 function packingFindings(text, rel = files.packingVm) {
   const findings = [];
-  if (!/feed-packing-complete:\$groupKey:\$videoItem/.test(text)) {
+  const legacyPackingKey = /feed-packing-complete:\$groupKey:\$videoItem/.test(text);
+  const sopPackingKey = /feed-packing-complete:\$groupKey:\s*"\s*\+\s*slots\.submitDigest\s*\(\s*slotRefs,\s*answers\s*\)/.test(text);
+  if (!legacyPackingKey && !sopPackingKey) {
     findings.push(finding(rel, text, "feed-packing-complete", "packing submit idempotency key must include the selected packing proof item id"));
   }
   if (!/observeSyncStatus\s*\(\s*\)/.test(text) || !/inFlightCount\s*>\s*0/.test(text)) {
     findings.push(finding(rel, text, "observeSyncStatus", "packing refresh state must observe outbox in-flight status"));
   }
-  if (!/packingProofReadyForSubmit\s*\([^)]*\)[\s\S]{0,180}videoCaptured\s*&&\s*[^;\n]*videoStatus\.isQueuedForSubmit\s*\(\s*\)/.test(text)) {
+  const legacyReady = /packingProofReadyForSubmit\s*\([^)]*\)[\s\S]{0,180}videoCaptured\s*&&\s*[^;\n]*videoStatus\.isQueuedForSubmit\s*\(\s*\)/.test(text);
+  const sopCardReady =
+    /canComplete\s*=\s*!writeResult\.isCommitted\s*&&\s*it\.card\.readyToSubmit/.test(text) &&
+    /canComplete\s*=\s*it\.card\.readyToSubmit\s*&&\s*!committed/.test(text);
+  if (!legacyReady && !sopCardReady) {
     findings.push(finding(rel, text, "packingProofReadyForSubmit", "packing canComplete must require a captured proof whose upload status is queued, uploading, or synced"));
   }
   if (/canComplete\s*=\s*!writeResult\.isCommitted\s*&&\s*it\.videoCaptured/.test(text)) {
@@ -71,7 +78,9 @@ function packingFindings(text, rel = files.packingVm) {
 
 function transportFindings(text, rel = files.transportVm) {
   const findings = [];
-  if (!/feed-transport-submit:\$taskId:\$proof/.test(text)) {
+  const legacyTransportKey = /feed-transport-submit:\$taskId:\$proof/.test(text);
+  const sopTransportKey = /feed-transport-submit:\$taskId:\s*"\s*\+\s*slots\.submitDigest\s*\(\s*slotRefs,\s*answers\s*\)/.test(text);
+  if (!legacyTransportKey && !sopTransportKey) {
     findings.push(finding(rel, text, "feed-transport-submit", "transport submit idempotency key must include the selected proof item id"));
   }
   if (/observeStatus\(\)[\s\S]{0,220}items\.firstOrNull\s*\{\s*it\.id\s*==\s*itemId\s*\}/.test(text)) {
@@ -105,16 +114,19 @@ function selfTest() {
   // The split pen-session form (2026-08-14): each slot contributes a LOCAL outbox id or a
   // teammate's SERVER proof id. Accepted, because all three slots are still in the key.
   const goodSplitDistribution = distributionFindings("private fun feedDistributionCompleteKey(groupKey: String, feedWeightPhotoItem: String?, videoItem: String?, waterVideoItem: String?): String { val canonical = listOf(groupKey, feedWeightPhotoItem.orEmpty(), videoItem.orEmpty(), waterVideoItem.orEmpty()).joinToString(\"|\"); return \"feed-distribution-complete:\" + UUID.nameUUIDFromBytes(canonical.toByteArray()).toString() }\nfeedDistributionCompleteKey(groupKey, feedWeightPhotoItem ?: feedWeightRemote, videoItem ?: videoRemote, waterVideoItem ?: waterVideoRemote)\nsyncRepository.observeItem(itemId)").length === 0;
+  const goodSopDistribution = distributionFindings("private fun feedDistributionCompleteKey(groupKey: String, slotRefs: Map<String, FeedSlotProofSourcePayload>, answers: JsonObject): String { val canonical = buildList { add(groupKey); slotRefs.forEach { (key, ref) -> add(\"$key=${ref.outboxItemId ?: ref.proofRef.orEmpty()}\") }; if (answers.isNotEmpty()) add(\"answers=\" + answers.toString()) }.joinToString(\"|\"); return \"feed-distribution-complete:\" + UUID.nameUUIDFromBytes(canonical.toByteArray()).toString() }\nsyncRepository.observeItem(itemId)").length === 0;
   // ADVERSARIAL: the same split form with ONE slot dropped must still FAIL. Widening the pattern for
   // the elvis/orEmpty shapes must not make a two-slot key acceptable.
   const badSplitDistribution = distributionFindings("private fun feedDistributionCompleteKey(groupKey: String, feedWeightPhotoItem: String?, videoItem: String?): String { val canonical = listOf(groupKey, feedWeightPhotoItem.orEmpty(), videoItem.orEmpty()).joinToString(\"|\"); return \"feed-distribution-complete:\" + UUID.nameUUIDFromBytes(canonical.toByteArray()).toString() }\nsyncRepository.observeItem(itemId)").length >= 1;
   const badPacking = packingFindings("val completeIdempotencyKey = \"feed-packing-complete:$groupKey\"\nfun syncNow() {}\nfun recompute(){ copy(canComplete = it.videoCaptured && !committed) }").length >= 3;
   const goodPacking = packingFindings("val completeIdempotencyKey = \"feed-packing-complete:$groupKey:$videoItem\"\nfun observeSyncStatus(){ syncRepository.observeStatus().map { it.inFlightCount > 0 } }\nprivate fun packingProofReadyForSubmit(state: FeedPackingCompleteUiState): Boolean = state.videoCaptured && state.videoStatus.isQueuedForSubmit()\nfun recompute(){ copy(canComplete = packingProofReadyForSubmit(it) && !committed) }").length === 0;
+  const goodSopPacking = packingFindings("val completeIdempotencyKey = \"feed-packing-complete:$groupKey:\" + slots.submitDigest(slotRefs, answers)\nfun observeSyncStatus(){ syncRepository.observeStatus().map { status -> status.inFlightCount > 0 } }\nfun observeOutboxItem(){ copy(canComplete = !writeResult.isCommitted && it.card.readyToSubmit) }\nfun recompute(){ copy(canComplete = it.card.readyToSubmit && !committed) }").length === 0;
   const badTransport = transportFindings("val submitIdempotencyKey=\"feed-transport-submit:$taskId\"\nsync.observeStatus().map{status->status.items.firstOrNull{it.id==itemId}}").length >= 3;
   const goodTransport = transportFindings("val submitIdempotencyKey=\"feed-transport-submit:$taskId:$proof\"\nfun observeOutboxItem(itemId:String){sync.observeItem(itemId)}\nfun observeSyncStatus(){sync.observeStatus().map{it.inFlightCount>0}}").length === 0;
+  const goodSopTransport = transportFindings("val submitIdempotencyKey = \"feed-transport-submit:$taskId:\" + slots.submitDigest(slotRefs, answers)\nfun observeOutboxItem(itemId:String){sync.observeItem(itemId)}\nfun observeSyncStatus(){sync.observeStatus().map{it.inFlightCount>0}}").length === 0;
   const badHandler = handlerFindings("type completePackingRequest struct { ShedID string `json:\"shed_id\"` }\nCompletePackingInput{ShedID: body.ShedID}").length >= 2;
   const goodHandler = handlerFindings("type completePackingRequest struct { PartitionLabel string `json:\"partition_label\"` }\nCompletePackingInput{PartitionLabel: strings.TrimSpace(body.PartitionLabel)}").length === 0;
-  const ok = badDistribution && goodDistribution && goodShortDistribution && badShortDistribution && goodSplitDistribution && badSplitDistribution && badPacking && goodPacking && badTransport && goodTransport && badHandler && goodHandler;
+  const ok = badDistribution && goodDistribution && goodShortDistribution && badShortDistribution && goodSplitDistribution && goodSopDistribution && badSplitDistribution && badPacking && goodPacking && goodSopPacking && badTransport && goodTransport && goodSopTransport && badHandler && goodHandler;
   console.log(ok ? "android-feed-proof-submit self-test: ok" : "android-feed-proof-submit self-test: FAIL");
   process.exit(ok ? 0 : 1);
 }
