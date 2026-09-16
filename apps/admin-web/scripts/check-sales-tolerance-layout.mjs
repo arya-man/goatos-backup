@@ -2,10 +2,29 @@ import assert from 'node:assert/strict';
 import { chromium } from '@playwright/test';
 
 // Exercise the actual route at the laptop interval where KPIs remain three columns.
-const base = process.env.GOATOS_ADMIN_WEB_BASE_URL ?? 'http://127.0.0.1:3300';
+const base = (process.env.GOATOS_ADMIN_WEB_BASE_URL ?? 'http://127.0.0.1:3300').replace(/\/$/, '');
+const bearerToken = process.env.GOATOS_BEARER_TOKEN;
+if (!bearerToken) {
+  console.error('Missing required live-smoke env: GOATOS_BEARER_TOKEN');
+  process.exit(2);
+}
+
 const browser = await chromium.launch({ channel: 'chrome', headless: true });
 try {
-  const page = await browser.newPage();
+  const context = await browser.newContext();
+  const cookieUrl = new URL(base);
+  await context.addCookies([
+    {
+      name: 'goatos_firebase_id_token',
+      value: bearerToken,
+      domain: cookieUrl.hostname,
+      path: '/',
+      httpOnly: true,
+      sameSite: 'Lax',
+      expires: Math.floor(Date.now() / 1000) + 3600,
+    },
+  ]);
+  const page = await context.newPage();
   for (const width of [390, 1081, 1280, 1366, 1440, 1920]) {
     await page.setViewportSize({ width, height: 900 });
     await page.goto(`${base}/sales/farm-value`, { waitUntil: 'networkidle' });
