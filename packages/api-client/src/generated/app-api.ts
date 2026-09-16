@@ -5405,7 +5405,7 @@ export interface paths {
         put?: never;
         /**
          * Confirm a shifting happened and submit its mandatory live-camera evidence.
-         * @description Records that an operator physically moved the animals AND uploaded the mandatory video proof. APPROVE FIRST (maintainer decision 2026-08-09, superseding the 2026-07-28 order-free gates): Park Head approval must already exist. This request atomically relocates the animals and moves the count. Verification reviews the video afterward. Approval marks evidence verified; rejection creates evidence rework and never rolls back goat location or census truth. Low priority requires proof_ref only. High priority embeds feed packing and feeding inside Shifting and requires proof_ref, feed_packing_proof_ref, and feed_given_proof_ref. All three are reviewed together in one Shifting verification item. The packing proof does not complete the separate Feed Packing workflow. High priority must also echo the feed_config_fingerprint returned by the pending-execution read; missing config blocks with 422 and changed config blocks with 409 so the server never guesses feed. Valid from event_status='authorized', and for evidence rework on an already-approved movement. An UNAPPROVED (event_status='pending'), rejected, or canceled movement is refused with 400 shifting_not_authorized and nothing is written. ANY operator holding counts.write may complete a movement, not only the operator who raised it: the person who witnesses the animals move is not reliably the person who typed the request. Requires the Idempotency-Key header. Re-submitting an already-submitted movement returns the ORIGINAL result with idempotent_replay=true and queues nothing new; a same-key request with a different video/tag is a 409 idempotency_conflict.
+         * @description Records that an operator physically moved the animals AND uploaded the mandatory video proof. APPROVE FIRST (maintainer decision 2026-08-09, superseding the 2026-07-28 order-free gates): Park Head approval must already exist. This request atomically relocates the animals and moves the count. Verification reviews the video afterward. Approval marks evidence verified; rejection creates evidence rework and never rolls back goat location or census truth. SHIFTING SOP (maintainer decision 2026-09-16): the captures and answers are the COMPLETION card the movement is pinned to (the pending-execution item's `sop`), plus the HIGH-PRIORITY card (`high_priority_sop`) for a high movement -- seeded: one shifting video, plus the feed packing and feed given clips. Send `proofs` {slot key: proof ref} and `answers` {question id: answer}; every capture and answer is reviewed together in one Shifting verification item, each proof under its slot title, with the raise card's captures appended as "At raise · <title>". A missing compulsory slot, a wrong kind, an unknown key or a reused capture is 422 shifting_proof_slot_invalid naming the slot; an unanswered required question is 422 shifting_answer_invalid naming the question; a pin the farm never published is 409 shifting_sop_version_unknown; a capture the verifier already rejected is 422 shifting_rejected_proof_reuse. The packing proof does not complete the separate Feed Packing workflow. High priority must still echo the feed_config_fingerprint returned by the pending-execution read; missing config blocks with 422 and changed config blocks with 409 so the server never guesses feed. A phone predating the SOP fields sends the legacy triple and is judged leniently: what it could not send is recorded as "Not captured (older app)". Valid from event_status='authorized', and for evidence rework on an already-approved movement. An UNAPPROVED (event_status='pending'), rejected, or canceled movement is refused with 400 shifting_not_authorized and nothing is written. ANY operator holding counts.write may complete a movement, not only the operator who raised it: the person who witnesses the animals move is not reliably the person who typed the request. Requires the Idempotency-Key header. Re-submitting an already-submitted movement returns the ORIGINAL result with idempotent_replay=true and queues nothing new; a same-key request with a different video/tag is a 409 idempotency_conflict.
          */
         post: operations["completeAppCountsShiftingEvent"];
         delete?: never;
@@ -13892,6 +13892,38 @@ export interface components {
         FeedSOPAnswers: {
             [key: string]: unknown;
         };
+        /** @description SHIFTING SOP (maintainer decision 2026-09-16): one CARD of the shifting SOP the phone renders verbatim -- the raise extras (stage `raise`, served on the destinations read), the completion card (stage `completion`) and the high-priority card (stage `high_priority`, added to a high movement's completion). Slots and questions are the same building blocks every authored card uses; the slot key is the proof register field_key the phone stamps on the upload and the key of the submit's `proofs` map. `version` is the shifting SOP version the movement is pinned to (0 = the seeded document: one shifting video, plus feed packing and feed given clips on a high-priority movement, nothing at raise). A movement keeps its pinned cards to the end; publishing changes the next raise. */
+        ShiftingSOPCard: {
+            version: number;
+            /** @enum {string} */
+            stage: "raise" | "completion" | "high_priority";
+            instruction?: string;
+            proofs: components["schemas"]["WeighingRemovalProofSlot"][];
+            questions: components["schemas"]["WeighingSOPQuestion"][];
+        };
+        /** @description {slot key: proof ref} -- one server-minted proof id per capture slot of the pinned card. Judged slot by slot: a compulsory slot missing, a key outside the card, one capture proving two slots, or a capture of the wrong kind is 422 shifting_proof_slot_invalid naming the slot (`slot`). A request that carries NEITHER `proofs` NOR `answers` is an OLDER APP: its fixed fields are mapped onto the seeded slots and every authored item it could not send is recorded as "Not captured (older app)" for the approver and verifier instead of refused. */
+        ShiftingSOPProofRefs: {
+            [key: string]: string;
+        };
+        /** @description {question id: answer} for the card's questions (choice = option value, "other" free text under "<id>_other"; multi = array of values; number = JSON number; text = string). A required question unanswered or an answer the card did not offer is 422 shifting_answer_invalid naming the question (`question`). */
+        ShiftingSOPAnswers: {
+            [key: string]: unknown;
+        };
+        /** @description What the approver sees of a raise's SOP capture form before deciding (program decision 2026-09-16, one shape for birth, death and shifting): the pinned version label, every answer in farm words (grouped), every capture under its slot title with its kind, and a note naming what an older app did not send. Backend-composed at raise and never recomposed; clients render it verbatim. */
+        CountsApprovalCapture: {
+            version_label: string;
+            rows: {
+                label: string;
+                value: string;
+                group?: string;
+            }[];
+            media: {
+                proof_id: string;
+                label: string;
+                kind: string;
+            }[];
+            missing_note?: string;
+        };
         /** @description One capture the removal card asks for. The slot LIST is authored on the weighing SOP (second 2026-09-15 decision): a slot may be added, removed, re-worded, be a live-camera video, a photo or either, and be compulsory or optional. The seed's two slots are feed_video and water_video. */
         WeighingRemovalProofSlot: {
             key: string;
@@ -16573,6 +16605,8 @@ export interface components {
             parks: components["schemas"]["ShiftingDestinationPark"][];
             /** @description Active backend-owned management-stage vocabulary. */
             management_stages?: string[];
+            /** @description SHIFTING SOP (2026-09-16): the PUBLISHED raise card -- the questions and optional captures the raise form renders -- with the version a raise from it pins (echo it as `sop_version`). Absent only when no execution workflow is wired. */
+            sop?: components["schemas"]["ShiftingSOPCard"];
         };
         ShiftingDestinationPark: {
             /**
@@ -16686,6 +16720,10 @@ export interface components {
             impacts?: components["schemas"]["RecordShiftingEventImpact"][];
             /** @description The individual animals this movement covers. REQUIRED, and load-bearing: approving the request relocates EXACTLY these animals to the destination shed and re-scopes their shed-scoped vaccination obligations. impacts remain an AGGREGATE model - they record head counts by breed grain, never which specific animals - so this list is the only per-animal linkage the movement has. It is required because an authorized movement that names nobody relocates nobody, leaving the herd register and the shed-scoped obligations disagreeing with the count just reported. The server will still never infer which animals a head count referred to, because guessing would relocate real animals that nobody selected - so the list is demanded at submit, while the reporting operator can still supply it. Duplicates are removed. */
             goat_ids: string[];
+            /** @description SHIFTING SOP (2026-09-16): the shifting SOP version the phone rendered its raise form from (the `sop.version` of the destinations read). Absent: the raise pins whatever is published now. A version the farm never published is 409 shifting_sop_version_unknown, writing nothing. Omitted by phones predating the SOP fields, so their requests hash exactly as before. */
+            sop_version?: number;
+            proofs?: components["schemas"]["ShiftingSOPProofRefs"];
+            answers?: components["schemas"]["ShiftingSOPAnswers"];
         };
         RecordShiftingEventImpact: {
             /** Format: uuid */
@@ -17490,6 +17528,7 @@ export interface components {
             /** Format: date-time */
             decided_at?: string;
             decision_reason?: string;
+            capture?: components["schemas"]["CountsApprovalCapture"];
         };
         CountsApprovalListResponse: {
             items: components["schemas"]["CountsApprovalListItem"][];
@@ -17756,6 +17795,13 @@ export interface components {
             animals: components["schemas"]["CountsShiftingPendingExecutionAnimal"][];
             /** @description Backend-owned destination ration for high-priority shifting; absent for low priority. */
             feed_requirement?: components["schemas"]["CountsShiftingFeedRequirement"];
+            /** @description SHIFTING SOP (2026-09-16): the version this movement is pinned to (absent = the seeded document). The completion is judged on it whatever is published later. */
+            sop_version?: number;
+            sop?: components["schemas"]["ShiftingSOPCard"];
+            /** @description The high-priority card, present only on a high movement: its slots are ADDED to the completion card's. The Feed Config fingerprint rule (feed_requirement) still gates the completion; the card only decides which captures and questions the operator records. */
+            high_priority_sop?: components["schemas"]["ShiftingSOPCard"];
+            /** @description The answers a completion already recorded (a rework keeps them; the phone pre-fills them). Absent before the first completion. */
+            sop_answers?: components["schemas"]["ShiftingSOPAnswers"];
         };
         CountsShiftingFeedRequirement: {
             /** @enum {string} */
@@ -27830,12 +27876,14 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": {
-                    /** @description MANDATORY. The proof_artifact id of the video the operator recorded to prove the animals physically moved. Verification reviews it independently of movement apply. */
-                    proof_ref: string;
-                    /** @description MANDATORY for high priority. Live-camera proof of Shifting's embedded feed-packing step. */
+                    /** @description LEGACY FIELD (phones predating the SOP fields): the proof_artifact id of the shifting video. Mapped onto the seeded `shifting_shifting_video` slot. A request that carries neither `proofs` nor `answers` MUST carry it (422 proof_required). */
+                    proof_ref?: string;
+                    /** @description LEGACY FIELD, high priority only. Mapped onto the seeded `shifting_packing_video` slot. */
                     feed_packing_proof_ref?: string;
-                    /** @description MANDATORY for high priority. Live-camera proof of configured feed being given to the moved animals. */
+                    /** @description LEGACY FIELD, high priority only. Mapped onto the seeded `shifting_feeding_video` slot. */
                     feed_given_proof_ref?: string;
+                    proofs?: components["schemas"]["ShiftingSOPProofRefs"];
+                    answers?: components["schemas"]["ShiftingSOPAnswers"];
                     /** @description MANDATORY for high priority. Echo of the ready feed requirement fingerprint. */
                     feed_config_fingerprint?: string;
                     /** @description OPTIONAL destination management_stage the moved animals adopt. Needed only when the destination shed is empty; for an occupied shed the server derives it and a supplied value must agree with the shed's configured profile. */
