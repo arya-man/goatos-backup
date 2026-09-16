@@ -397,13 +397,14 @@ func (r *Repository) listSOPTaskTypes(ctx context.Context, tenantID string) ([]a
 
 // loadWeighingWeightsPages reads tenant DB configuration. SOP publication is not a
 // calendar write path. The revision trigger invalidates bootstrap after SQL updates.
-func (r *Repository) loadWeighingWeightsPages(ctx context.Context, tenantID string) (*app.WeighingCalendarConfig, string, error) {
-	var rules app.WeighingCalendarConfig
-	err := r.pool.QueryRow(ctx, `
+const sqlWeighingCalendarConfig = `
 SELECT default_from_mode, COALESCE(default_from_date::text, ''),
        COALESCE(default_from_days, 0), COALESCE(default_from_weeks, 0), earliest_date::text
-FROM public.weighing_calendar_config WHERE tenant_id = $1::uuid
-`, tenantID).Scan(&rules.DefaultFromMode, &rules.DefaultFromDate, &rules.DefaultFromDays, &rules.DefaultFromWeeks, &rules.EarliestDate)
+FROM public.weighing_calendar_config WHERE tenant_id = $1::uuid`
+
+func (r *Repository) loadWeighingWeightsPages(ctx context.Context, tenantID string) (*app.WeighingCalendarConfig, string, error) {
+	var rules app.WeighingCalendarConfig
+	err := r.pool.QueryRow(ctx, sqlWeighingCalendarConfig, tenantID).Scan(&rules.DefaultFromMode, &rules.DefaultFromDate, &rules.DefaultFromDays, &rules.DefaultFromWeeks, &rules.EarliestDate)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, "", nil
 	}
