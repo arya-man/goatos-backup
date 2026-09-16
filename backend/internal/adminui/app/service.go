@@ -7282,6 +7282,13 @@ func pageSpecificCopy(id string) map[string]string {
 			m["empty.title"] = "No milk SOPs yet"
 			m["empty.body"] = "Publish a preparation or feeding SOP for the kid-milk round."
 		case "weighing-sops":
+			// WEIGHING SOP rules editor + drawer summary copy (2026-09-15). Merged FIRST so the
+			// module's own builder names below still win. Dropped once by a merge (e41a95e93),
+			// which crashed "Change SOP" with a missing wsop.title; pinned by
+			// TestWeighingSOPsPageCarriesTheWeighingEditorCopy.
+			for k, v := range weighingSOPEditorCopy() {
+				m[k] = v
+			}
 			m["crumb"] = "Weighing"
 			m["filter.domain.current"] = "This page shows Weighing SOPs (scan-and-submit sessions)"
 			m["modal.builder.domain_aria"] = "Domain — locked to Weighing"
