@@ -77,6 +77,45 @@ func (s *Service) validateFollowUpContract(ctx context.Context, report *domain.V
 			addError(report, "form_dsl.follow_up.tracks", "missing_track", fmt.Sprintf("%s must keep a %q track: the engine opens that workflow from it", sopCode, track))
 		}
 	}
+	for _, req := range requiredEngineHookSteps[sopCode] {
+		track, ok := followUp.Track(req.track)
+		if !ok {
+			continue // reported above
+		}
+		kept := false
+		for _, step := range track.Steps {
+			if registry[step.TaskType].EngineHook == req.hook {
+				kept = true
+				break
+			}
+		}
+		if !kept {
+			addError(report, "form_dsl.follow_up.tracks", "engine_step_removed",
+				fmt.Sprintf("the %q step (%s) cannot be removed from the %q track: %s", req.title, req.stepKey, req.track, req.why))
+		}
+	}
+}
+
+// requiredEngineHookStep is an authored step the server acts on, so deleting it changes what the
+// engine does rather than what the operator is asked.
+type requiredEngineHookStep struct {
+	track, hook, stepKey, title, why string
+}
+
+// requiredEngineHookSteps names, per SOP code, the hooked steps whose removal breaks engine
+// behaviour. Only two qualify: the kid's tag step is the gate that keeps a birth open until the kid
+// carries a permanent RFID, and the pen step is the only place a kid whose pen was not resolved at
+// birth is placed. The other hooks only shape a read or a label -- weight (weigh_kg), colostrum
+// feeds (the Colostrum lens), death clips (death_evidence; death follows the SOP, decision 1) and
+// the reconcile return (the completion hook runs on the last step, whatever it is) -- so the SOP
+// may drop them.
+var requiredEngineHookSteps = map[string][]requiredEngineHookStep{
+	tasksdomain.SOPCodeBirth: {
+		{track: tasksdomain.TemplateKeyBirthKid, hook: tasksdomain.EngineHookTagKid, stepKey: tasksdomain.ActionKeyTagTheKid, title: "Tag the kid",
+			why: "it keeps the birth open until the kid carries a permanent RFID"},
+		{track: tasksdomain.TemplateKeyBirthKid, hook: tasksdomain.EngineHookRecordPen, stepKey: tasksdomain.ActionKeyRecordShed, title: "Record pen",
+			why: "it is the only place a kid whose pen was not known at birth is placed"},
+	},
 }
 
 func (s *Service) taskTypeRegistry(ctx context.Context, tenantID string) (tasksdomain.TaskTypeRegistry, error) {
