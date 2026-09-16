@@ -290,7 +290,7 @@ class ShiftingExecuteViewModel @Inject constructor(
             _state.update { it.copy(videoMessage = VIDEO_REQUIRED) }
             return
         }
-        val slotProofs = LinkedHashMap<String, FeedSlotProofSourcePayload>().apply { putAll(completionRefs); putAll(highRefs) }
+        val slotProofs = LinkedHashMap<String, FeedSlotProofSourcePayload>().apply { putAll(completionRefs); putAll(highRefs) } // mobile-guard:ignore: local to one submit, bounded by the pinned cards (at most 8 completion + 8 high-priority slots)
         val answers = JsonObject(completion.answersJson() + if (current.highPriority) highPriority.answersJson() else JsonObject(emptyMap()))
         val legacyMirror = slotProofs[ShiftingSopSeed.SLOT_SHIFTING_VIDEO]?.outboxItemId ?: slotProofs.values.first().outboxItemId.orEmpty()
         viewModelScope.launch {
