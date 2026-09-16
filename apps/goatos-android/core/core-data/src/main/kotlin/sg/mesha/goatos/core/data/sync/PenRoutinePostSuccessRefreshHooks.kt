@@ -6,7 +6,7 @@ import sg.mesha.goatos.core.data.PenRoutinesRepository
  * Pen-routine terminal-failure reconcile (registered per-[sg.mesha.goatos.core.database.outbox.OutboxOpType]
  * at the DI layer like the pen-visit hook — never in a ViewModel): a presence punch or a submit
  * the server definitively refused (`422 presence_missing` / `proof_count` / `answer_invalid` /
- * `invalid_proof`, a second `409 version_conflict`, `403 not_assignee`) leaves the refusal's farm
+ * `invalid_proof`, a second `409 stale_task`, `404 task_not_found`) leaves the refusal's farm
  * copy on the outbox row's lastError, and re-reading the task puts the server's own chip,
  * `in_pen` and `can_submit` back on screen so the form re-opens beside the reason.
  * [PenRoutinesRepository.refreshTask] absorbs its own network failures, so this hook cannot fail
