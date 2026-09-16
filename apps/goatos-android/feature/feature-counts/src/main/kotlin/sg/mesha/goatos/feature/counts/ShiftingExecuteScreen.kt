@@ -6,7 +6,6 @@ package sg.mesha.goatos.feature.counts
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -17,7 +16,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -56,6 +54,10 @@ data class ShiftingExecuteAnimalUi(
     val tag: String?,
 )
 
+/** The card sections a capture / answer event names. */
+const val SECTION_COMPLETION = "completion"
+const val SECTION_HIGH_PRIORITY = "high_priority"
+
 @Immutable
 data class ShiftingFeedItemUi(val label: String, val quantityGrams: String)
 
@@ -77,13 +79,14 @@ data class ShiftingExecuteUiState(
     val feedConfigFingerprint: String? = null,
     val feedTargetStage: String? = null,
     val feedItems: List<ShiftingFeedItemUi> = emptyList(),
-    /** Mandatory video: false until captured/queued. Gates [canComplete]. */
-    val videoCaptured: Boolean = false,
-    val isCapturingVideo: Boolean = false,
+    /**
+     * SHIFTING SOP (2026-09-16): the PINNED completion card, and the high-priority card for a high
+     * movement (its captures are ADDED to the completion's). Titles, kinds and questions are the
+     * card's; the phone holds no slot list of its own.
+     */
+    val completionCard: ShiftingSopCardUi = ShiftingSopCardUi(),
+    val highPriorityCard: ShiftingSopCardUi = ShiftingSopCardUi(),
     val videoMessage: String? = null,
-    val feedPackingVideoCaptured: Boolean = false,
-    val feedGivenVideoCaptured: Boolean = false,
-    val capturingStep: String? = null,
     /** The "Mark done" write result. */
     val result: CountsWriteResultUi = CountsWriteResultUi(),
     val canComplete: Boolean = false,
@@ -97,18 +100,10 @@ data class ShiftingExecuteUiState(
 )
 
 sealed interface ShiftingExecuteEvent {
-    /** Record the mandatory move video with the LIVE in-app camera. */
-    data object RecordVideo : ShiftingExecuteEvent
-    data object RecordFeedPackingVideo : ShiftingExecuteEvent
-    data object RecordFeedGivenVideo : ShiftingExecuteEvent
-
-    /**
-     * Replace an already-recorded clip. Distinct from Record so the ViewModel can DROP the queued
-     * upload of the take being discarded — a re-record must not leave the verifier two videos.
-     */
-    data object ReRecordVideo : ShiftingExecuteEvent
-    data object ReRecordFeedPackingVideo : ShiftingExecuteEvent
-    data object ReRecordFeedGivenVideo : ShiftingExecuteEvent
+    /** Capture one slot of a card with the LIVE in-app camera ([kind] "photo" on an `either` slot). */
+    data class CaptureSlot(val section: String, val slotKey: String, val kind: String? = null) : ShiftingExecuteEvent
+    /** Answer one question of a card. */
+    data class Answer(val section: String, val questionId: String, val value: String) : ShiftingExecuteEvent
     data object MarkDone : ShiftingExecuteEvent
     data object Back : ShiftingExecuteEvent
 
@@ -142,24 +137,19 @@ fun ShiftingExecuteScreen(
                     val committed = state.result.status == CountsWriteStatus.QUEUED || state.result.status == CountsWriteStatus.SYNCED
                     MovementCard(state)
                     if (state.highPriority) FeedRequirementCard(state)
-                    EvidenceVideoCard(
-                        title = "Shifting video (required)", captured = state.videoCaptured,
-                        capturing = state.capturingStep == "shifting", committed = committed,
-                        onClick = { onEvent(ShiftingExecuteEvent.RecordVideo) },
-                        onReRecord = { onEvent(ShiftingExecuteEvent.ReRecordVideo) },
+                    ShiftingSopCardSection(
+                        card = state.completionCard,
+                        locked = committed,
+                        onCapture = { key, kind -> onEvent(ShiftingExecuteEvent.CaptureSlot(SECTION_COMPLETION, key, kind)) },
+                        onAnswer = { id, v -> onEvent(ShiftingExecuteEvent.Answer(SECTION_COMPLETION, id, v)) },
                     )
                     if (state.highPriority) {
-                        EvidenceVideoCard(
-                            title = "Feed packing video (required)", captured = state.feedPackingVideoCaptured,
-                            capturing = state.capturingStep == "packing", committed = committed,
-                            onClick = { onEvent(ShiftingExecuteEvent.RecordFeedPackingVideo) },
-                            onReRecord = { onEvent(ShiftingExecuteEvent.ReRecordFeedPackingVideo) },
-                        )
-                        EvidenceVideoCard(
-                            title = "Feed given to animal video (required)", captured = state.feedGivenVideoCaptured,
-                            capturing = state.capturingStep == "feeding", committed = committed,
-                            onClick = { onEvent(ShiftingExecuteEvent.RecordFeedGivenVideo) },
-                            onReRecord = { onEvent(ShiftingExecuteEvent.ReRecordFeedGivenVideo) },
+                        ShiftingSopCardSection(
+                            card = state.highPriorityCard,
+                            locked = committed,
+                            heading = "High priority",
+                            onCapture = { key, kind -> onEvent(ShiftingExecuteEvent.CaptureSlot(SECTION_HIGH_PRIORITY, key, kind)) },
+                            onAnswer = { id, v -> onEvent(ShiftingExecuteEvent.Answer(SECTION_HIGH_PRIORITY, id, v)) },
                         )
                     }
                     state.videoMessage?.let { Text(it, color = MeshaColors.Faint, fontSize = 11.sp) }
@@ -233,86 +223,6 @@ private fun FeedRequirementCard(state: ShiftingExecuteUiState) {
                 fontSize = 12.sp,
             )
         }
-        Text("This packing proof belongs only to this Shifting task.", color = MeshaColors.Faint, fontSize = 11.sp)
-    }
-}
-
-@Composable
-private fun EvidenceVideoCard(
-    title: String,
-    captured: Boolean,
-    capturing: Boolean,
-    committed: Boolean,
-    onClick: () -> Unit,
-    onReRecord: () -> Unit = onClick,
-) {
-    Column(modifier = cardModifier(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text(title, color = MeshaColors.Muted, fontSize = 12.sp, fontWeight = FontWeight.W700, modifier = Modifier.weight(1f))
-            if (captured) {
-                Icon(MeshaIcons.CheckCircle, contentDescription = "captured", tint = MeshaColors.Ok, modifier = Modifier.size(18.dp))
-            }
-        }
-        when {
-            capturing -> VideoActionButton(
-                icon = null,
-                label = "Recording…",
-                enabled = false,
-                loading = true,
-                onClick = {},
-            )
-            else -> Row {
-                VideoActionButton(
-                    icon = MeshaIcons.Video,
-                    label = if (captured) "Re-record" else "Record live video",
-                    enabled = !committed,
-                    modifier = Modifier.weight(1f),
-                    onClick = if (captured) onReRecord else onClick,
-                )
-            }
-        }
-        if (!captured && !capturing) {
-            Text(
-                "Live camera only. This evidence is reviewed after the task; it does not control the herd move.",
-                color = MeshaColors.Faint,
-                fontSize = 11.sp,
-            )
-        }
-    }
-}
-
-@Composable
-private fun VideoActionButton(
-    icon: androidx.compose.ui.graphics.vector.ImageVector?,
-    label: String,
-    enabled: Boolean,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-    loading: Boolean = false,
-) {
-    Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .border(1.dp, MeshaColors.Hair, RoundedCornerShape(12.dp))
-            .then(if (enabled) Modifier.clickable(onClick = onClick) else Modifier)
-            .padding(14.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        if (loading) {
-            CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = MeshaColors.Muted)
-        } else if (icon != null) {
-            // Color-only state change; the 18dp icon frame stays fixed regardless of enabled.
-            val iconTint = if (enabled) MeshaColors.BrandD else MeshaColors.Faint
-            Icon(icon, contentDescription = null, tint = iconTint, modifier = Modifier.size(18.dp))
-        }
-        Text(
-            text = label,
-            color = if (enabled || loading) MeshaColors.Ink else MeshaColors.Faint,
-            fontSize = 13.sp,
-            fontWeight = FontWeight.W600,
-        )
     }
 }
 

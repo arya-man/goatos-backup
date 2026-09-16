@@ -3073,6 +3073,7 @@ class WeighingViewModelTest {
             groupKey: String,
             idempotencyKey: String,
             request: sg.mesha.goatos.core.network.dto.CountsShiftingEventRequestDto,
+            slotProofs: Map<String, sg.mesha.goatos.core.data.sync.FeedSlotProofSourcePayload>,
         ): AppResult<String> = error("unused")
         override suspend fun retry(itemId: String): AppResult<Unit> = error("unused")
         override suspend fun deleteOutboxItem(itemId: String): AppResult<Unit> = AppResult.Ok(Unit)

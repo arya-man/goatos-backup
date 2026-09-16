@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
@@ -70,6 +71,27 @@ class ApprovalViewModelTerminalFailureTest {
         assertTrue(viewModel.state.value.isError)
     }
 
+    // ---- ApprovalCapturedRowsTest (SHIFTING SOP, 2026-09-16) ---------------------------------
+
+    @Test
+    fun `a tapped raise capture resolves its signed url and opens it`() = runTest(dispatcher) {
+        val repository = RecordingApprovalRepository()
+        val viewModel = ApprovalViewModel(
+            approvalRepository = repository,
+            syncRepository = ApprovalSyncRepository(),
+            analytics = NoopApprovalAnalytics(),
+            crashReporter = NoopApprovalCrashReporter(),
+            savedStateHandle = SavedStateHandle(),
+        )
+        val opened = mutableListOf<ApprovalOpenMedia>()
+        val job = launch { viewModel.openMedia.collect { opened += it } }
+        viewModel.onEvent(ApprovalEvent.OpenCaptureMedia("proof-r1", "photo"))
+        advanceUntilIdle()
+        assertEquals(listOf("proof-r1"), repository.resolved)
+        assertEquals(listOf(ApprovalOpenMedia("https://signed/proof-r1", "photo")), opened)
+        job.cancel()
+    }
+
     private companion object {
         const val REQUEST_ID = "approval-1"
     }
@@ -83,6 +105,12 @@ private class RecordingApprovalRepository : CountsApprovalRepository {
 
     override suspend fun forgetDecided(approvalRequestId: String) {
         forgottenRequestId = approvalRequestId
+    }
+
+    val resolved = mutableListOf<String>()
+    override suspend fun captureMediaUrl(proofId: String): AppResult<String> {
+        resolved += proofId
+        return AppResult.Ok("https://signed/$proofId")
     }
 }
 

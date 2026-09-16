@@ -119,6 +119,29 @@ object AnalyticsEvents {
     /** The operator pressed "Mark done": the completion (relocation) write was queued. */
     const val COUNTS_SHIFTING_EXECUTE_COMPLETED = "counts_shifting_execute_completed"
 
+    // SHIFTING SOP (2026-09-16): the execute and raise screens follow the pinned SOP cards; each
+    // capture slot is an independent offline-first proof write with its own lifecycle events.
+    /** The operator tapped a capture slot of a shifting card (execute or raise). */
+    const val COUNTS_SHIFTING_CAPTURE_TAPPED = "counts_shifting_capture_tapped"
+
+    /** A shifting card capture's upload reached a terminal outcome (outcome=success|failure). */
+    const val COUNTS_SHIFTING_PROOF_SYNCED = "counts_shifting_proof_synced"
+
+    /** A shifting card capture failed (camera, enqueue or upload). */
+    const val COUNTS_SHIFTING_CAPTURE_FAILURE = "counts_shifting_capture_failure"
+
+    /** The operator re-recorded an already-captured shifting card slot. */
+    const val COUNTS_SHIFTING_REUPLOAD_TAPPED = "counts_shifting_reupload_tapped"
+
+    /** A shifting card (version, slot and question counts) was applied to the screen. */
+    const val COUNTS_SHIFTING_CARD_APPLIED = "counts_shifting_card_applied"
+
+    /** A shifting raise card capture was recorded (the raise form's optional/compulsory extras). */
+    const val COUNTS_SHIFTING_RAISE_CAPTURED = "counts_shifting_raise_captured"
+
+    /** An approver opened one capture a raise carried (the shared approval capture). */
+    const val COUNTS_APPROVAL_CAPTURE_OPENED = "counts_approval_capture_opened"
+
     /** The operator opened the Herd Operations "Reconcile" tab (wrong-pen cards from weighing). */
     const val COUNTS_PEN_RECONCILIATION_VIEWED = "counts_pen_reconciliation_viewed"
     /** A reconcile card's SOP questionnaire workflow was opened from the list (2026-09-13). */

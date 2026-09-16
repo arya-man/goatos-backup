@@ -20,6 +20,10 @@
 //                                        slot title as a string literal ("Shifting video",
 //                                        "Feed packing video", "Feed given to animal video"): the
 //                                        phone renders the pinned card's titles.
+//   5. phone-seed-drifted             -- the phone's seeded fallback cards (ShiftingSopSeed.kt, used
+//                                        only for a movement cached before the SOP) carry exactly
+//                                        the backend seed's slots: key, title, hint, kind, required,
+//                                        in order, per section.
 // BLIND SPOTS: names and strings, not behaviour. A slot list re-derived in a helper under another
 // name, or a title split across two literals, slips through -- the judge tests
 // (counts/app/shifting_sop_test.go) and the phone tests (ShiftingExecuteSopCardTest) are the
@@ -42,6 +46,27 @@ const SOP_TABLE = /\b(sop_versions|sop_definitions)\b/;
 const SLOT_REFUSAL = /(?:fmt\.Errorf\([^)]*\bports\.ErrShiftingProofSlotInvalid\b|return\s+ports\.ErrShiftingProofSlotInvalid\b|OnAbsent:\s*[^,}]*\bports\.ErrShiftingProofSlotInvalid\b)/;
 const PHONE_TITLE = /"(Shifting video|Feed packing video|Feed given to animal video)[^"]*"/;
 const PHONE_FILE = /^Shifting(Execute|Raise)[A-Za-z]*\.kt$/;
+const PHONE_SEED = "apps/goatos-android/app/src/main/kotlin/sg/mesha/goatos/viewmodel/ShiftingSopSeed.kt";
+
+// The slot tuples of one Kotlin seed function body, in order.
+function kotlinSlots(text, fnName) {
+  const start = text.indexOf(`fun ${fnName}()`);
+  if (start < 0) return null;
+  const next = text.indexOf("\n    fun ", start + 1);
+  const body = text.slice(start, next < 0 ? text.length : next);
+  const consts = Object.fromEntries([...text.matchAll(/const val (\w+) = "([^"]*)"/g)].map((m) => [m[1], m[2]]));
+  const out = [];
+  for (const m of body.matchAll(/WeighingRemovalProofSlotDto\(([\s\S]*?)\n\s*\)/g)) {
+    const field = (name) => {
+      const lit = new RegExp(`${name} = "([^"]*)"`).exec(m[1]);
+      if (lit) return lit[1];
+      const ref = new RegExp(`${name} = (\\w+)`).exec(m[1]);
+      return ref ? (consts[ref[1]] ?? ref[1]) : "";
+    };
+    out.push([field("key"), field("title"), field("hint"), field("kind"), /required = true/.test(m[1])].join("|"));
+  }
+  return out;
+}
 
 function walk(dir, acc = []) {
   let entries = [];
@@ -84,6 +109,21 @@ export function check(root) {
       findings.push({ rule: "slot-refusal-outside-judge", file: rel, detail: "mints ErrShiftingProofSlotInvalid outside the judge (counts/app/shifting_sop.go); which capture a movement needs is the pinned card's call" });
     }
   }
+  if (seed) {
+    let phone = "";
+    try { phone = readFileSync(join(root, PHONE_SEED), "utf8"); } catch { phone = ""; }
+    if (phone) {
+      let doc = null;
+      try { doc = JSON.parse(seed); } catch { doc = null; }
+      for (const [section, fn] of [["completion", "completion"], ["high_priority", "highPriority"]]) {
+        const want = ((doc?.[section]?.proofs) ?? []).map((p) => [p.key, p.title, p.hint ?? "", p.kind, p.required !== false].join("|"));
+        const got = kotlinSlots(phone, fn);
+        if (got === null || JSON.stringify(got) !== JSON.stringify(want)) {
+          findings.push({ rule: "phone-seed-drifted", file: PHONE_SEED, detail: `${fn}() slots ${JSON.stringify(got)} differ from the seed's ${section} ${JSON.stringify(want)}` });
+        }
+      }
+    }
+  }
   for (const dir of ANDROID_DIRS) {
     for (const f of walk(join(root, dir))) {
       if (!PHONE_FILE.test(basename(f))) continue;
@@ -112,14 +152,19 @@ function selfTest() {
     writeFileSync(join(tmp, "backend/internal/counts/adapters/postgres/rules.go"), "package postgres\nconst q = `SELECT form_dsl FROM sop_versions`\n");
     writeFileSync(join(tmp, "backend/internal/counts/app/other.go"), "package app\nfunc f() error { return ports.ErrShiftingProofSlotInvalid }\n");
     writeFileSync(join(tmp, "apps/goatos-android/feature/feature-counts/src/main/kotlin/ShiftingExecuteScreen.kt"), 'val t = "Shifting video (required)"\n');
+    mkdirSync(join(tmp, "apps/goatos-android/app/src/main/kotlin/sg/mesha/goatos/viewmodel"), { recursive: true });
+    writeFileSync(join(tmp, SEED), '{"completion":{"proofs":[{"key":"k","title":"T","hint":"","kind":"video","required":true}]},"high_priority":{"proofs":[]}}');
+    writeFileSync(join(tmp, MIGRATION), '$seed${"completion":{"proofs":[{"key":"k","title":"T","hint":"","kind":"video","required":true}]},"high_priority":{"proofs":[]}}$seed$ and again $seed${"completion":{"proofs":[{"key":"k","title":"T","hint":"","kind":"video","required":true}]},"high_priority":{"proofs":[]}}$seed$');
+    writeFileSync(join(tmp, PHONE_SEED), 'object S {\n    fun completion() = X(\n        proofs = listOf(\n            WeighingRemovalProofSlotDto(\n                key = "k",\n                title = "Renamed",\n                kind = "video",\n                required = true,\n            ),\n        ),\n    )\n\n    fun highPriority() = X()\n}\n');
     const bad = check(tmp);
     const rules = new Set(bad.map((b) => b.rule));
-    for (const r of ["seed-drifted-from-migration", "sop-table-inside-counts", "slot-refusal-outside-judge", "phone-hardcoded-slot-title"]) {
+    for (const r of ["seed-drifted-from-migration", "sop-table-inside-counts", "slot-refusal-outside-judge", "phone-hardcoded-slot-title", "phone-seed-drifted"]) {
       if (!rules.has(r)) { console.error(`self-test: expected ${r}`, bad); process.exit(1); }
     }
     // Clean: seed embedded once; the judge may mint the error; the out-of-package adapter may name
     // the table; a comment explaining a rule is not a finding; a title read from the card is not.
-    writeFileSync(join(tmp, MIGRATION), "$seed${\"a\":1}$seed$ once");
+    writeFileSync(join(tmp, MIGRATION), '$seed${"completion":{"proofs":[{"key":"k","title":"T","hint":"","kind":"video","required":true}]},"high_priority":{"proofs":[]}}$seed$ once');
+    writeFileSync(join(tmp, PHONE_SEED), 'object S {\n    const val SLOT = "k"\n    fun completion() = X(\n        proofs = listOf(\n            WeighingRemovalProofSlotDto(\n                key = SLOT,\n                title = "T",\n                kind = "video",\n                required = true,\n            ),\n        ),\n    )\n\n    fun highPriority() = X()\n}\n');
     writeFileSync(join(tmp, "backend/internal/counts/adapters/postgres/rules.go"), "package postgres\n// reads no sop_versions row\n");
     writeFileSync(join(tmp, "backend/internal/counts/app/other.go"), "package app\n// the judge returns ports.ErrShiftingProofSlotInvalid\nfunc f(err error) bool { return errors.Is(err, ports.ErrShiftingProofSlotInvalid) }\n");
     writeFileSync(join(tmp, JUDGE_FILE), "package app\nfunc g() error { return ports.ErrShiftingProofSlotInvalid }\n");

@@ -14,6 +14,11 @@ import sg.mesha.goatos.core.data.cache.CaptureEvidenceDraftEntity.Companion.SUBM
 /** The capture flows that keep durable drafts. One key per work-item family. */
 object CaptureFlow {
     const val SHIFTING = "shifting"
+    /**
+     * SHIFTING SOP (2026-09-16): one-shot reset markers of a movement (rework cutoff, Feed Config
+     * fingerprint). Kept in their own flow so they never count as captured proofs on the Actions list.
+     */
+    const val SHIFTING_MARKERS = "shifting_markers"
     const val PEN_RECONCILIATION = "pen_reconciliation"
     const val FEED_DISTRIBUTION = "feed_distribution"
     const val FEED_PACKING = "feed_packing"
