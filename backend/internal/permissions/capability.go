@@ -620,6 +620,23 @@ var moduleCapabilities = []ModuleCapability{
 		},
 	},
 	{
+		// Pen routines (maintainer instruction 2026-09-16, docs/decisions/pen-routines.md): the
+		// configurable recurring pen checks -- "each pen cleaned?" -- per park, daily / weekly /
+		// monthly or after work, with the people, questions, captures and pen check-in authored
+		// as data. Do is the park head walking the pens (the phone module and its routes); View
+		// is the web /routines page; Configure is writing the rule, the CXO desk. Configure is
+		// deliberately NOT a superset of Do: the person who writes the rule does not walk pens.
+		Key:      "pen_routines",
+		Label:    "Routines",
+		Blurb:    "Recurring pen checks: what to ask, what to capture, who does it, and when.",
+		Surfaces: []string{SurfaceWeb, SurfaceMobile},
+		Levels: map[string][]string{
+			LevelView:      {PenRoutinesRead},
+			LevelDo:        {PenRoutinesRead, PenRoutinesExecute},
+			LevelConfigure: {PenRoutinesRead, PenRoutinesConfigure},
+		},
+	},
+	{
 		// Clock In / Out attendance (maintainer decisions 2026-08-27/28,
 		// docs/features/clock-in-out/plan.md). PUNCHING is not here: everyone
 		// clocks in by decision D2, so the punch routes ride AppBootstrap and

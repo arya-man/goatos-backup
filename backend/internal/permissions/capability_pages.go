@@ -163,6 +163,9 @@ var modulePages = []ModulePage{
 	{Key: "work-board", Module: "work_board", Label: "Work Board", Href: "/work-board", Permissions: []string{WorkBoardRead}},
 	// Alerts (2026-09-16): one page, its own module, directly below the Work Board.
 	{Key: "alerts", Module: "alerts", Label: "Alerts", Href: "/alerts", Permissions: []string{AlertsRead}},
+
+	// Pen routines (2026-09-16): the routines table and the Today table, one page.
+	{Key: "pen-routines", Module: "pen_routines", Label: "Routines", Href: "/routines", Permissions: []string{PenRoutinesRead}},
 }
 
 // moduleRoutePrefixes says which module owns a ROUTE NAMESPACE, for the page contracts
@@ -208,6 +211,7 @@ var moduleRoutePrefixes = map[string]string{
 	"/leave":                        "leave_approvals",
 	"/work-board":                   "work_board",
 	"/alerts":                       "alerts",
+	"/routines":                     "pen_routines",
 }
 
 var modulePageIndex = func() map[string]ModulePage {
