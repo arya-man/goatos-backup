@@ -587,3 +587,26 @@ func TestOlderAppVideoOnAPhotoOnlyShiftingCardIsKept(t *testing.T) {
 		}
 	}
 }
+
+// E2E 2026-09-17: a NEW app's completion with an EMPTY `proofs` map answered the legacy
+// `proof_required` ("a video proof (proof_ref) is required") -- a field the new app never sends --
+// instead of naming the compulsory slot it must fill. The legacy answer belongs to the legacy shape.
+func TestNewShapeCompletionWithNoCapturesIsRefusedByTheCompulsorySlot(t *testing.T) {
+	repo := &sopShiftingRepo{pin: approvedPin(nil, "high"), result: lowResult()}
+	svc, _ := sopService(t, repo, &ports.StaticShiftingSOPRules{}, &sopProofMedia{})
+	in := baseInput()
+	in.SOPProofs = authored.ProofRefs{}
+	in.FeedConfigFingerprint = "fp"
+	_, _, err := svc.Complete(context.Background(), in)
+	if key, _, ok := SOPProofSlotError(err); !ok || key != domain.SlotShiftingVideo {
+		t.Fatalf("err=%v key=%q, want the compulsory Shifting video slot named", err, key)
+	}
+	if repo.calls != 0 {
+		t.Fatal("a refused completion wrote")
+	}
+	legacy := baseInput()
+	legacy.LegacyShape = true
+	if _, _, err := svc.Complete(context.Background(), legacy); !errors.Is(err, ports.ErrShiftingProofRequired) {
+		t.Fatalf("legacy err=%v, want the pre-SOP proof_required", err)
+	}
+}
