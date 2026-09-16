@@ -1,5 +1,3 @@
-//go:build liveoci
-
 package postgres
 
 import (

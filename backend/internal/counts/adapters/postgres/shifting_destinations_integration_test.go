@@ -643,3 +643,91 @@ VALUES ($1::uuid, '00000000-0000-4000-8000-0000000052a1'::uuid, $2::uuid, 'Part 
 		t.Fatalf("head counts = %+v, want Part 1=2, Part 2=1", countByDisplay)
 	}
 }
+
+// TestShiftingDestinationCatalogOneToManyPaginationParkScopeStatusMatrix gives the aggregate
+// projection guard an explicit adversarial proof for the optimized catalog query. The route is
+// deliberately unpaginated, so the "pagination" invariant is completeness: every active pen row
+// for the scoped park must be present in the single response without fan-out, while inactive
+// catalog/status rows stay out.
+func TestShiftingDestinationCatalogOneToManyPaginationParkScopeStatusMatrix(t *testing.T) {
+	ctx := context.Background()
+	pool := setupCountsDB(t, ctx)
+	seedDestinationTopology(t, ctx, pool)
+	repo := NewRepository(pool, 10*time.Second)
+
+	const (
+		parentShed        = "00000000-0000-4000-8000-000000004108"
+		activeResidentOne = "00000000-0000-4000-8000-0000000053a1"
+		activeResidentTwo = "00000000-0000-4000-8000-0000000053a2"
+	)
+	if _, err := pool.Exec(ctx, `
+INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, parent_location_id, status)
+VALUES ($3::uuid, $1::uuid, 'shed', 'CPT-HILBERT1', 'Hilbert 1', $2::uuid, 'active')
+ON CONFLICT (location_id) DO NOTHING`,
+		countsTenant, countsPark, parentShed); err != nil {
+		t.Fatalf("seed parent shed: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+INSERT INTO shed_partitions (tenant_id, shed_id, partition_label, normalized_label, status, source)
+VALUES ($1::uuid, $2::uuid, 'Part 1', '1', 'active', 'manual'),
+       ($1::uuid, $2::uuid, 'Part 2', '2', 'active', 'manual'),
+       ($1::uuid, $2::uuid, 'Part 99', '99', 'inactive', 'manual')
+ON CONFLICT (tenant_id, shed_id, normalized_label) DO UPDATE
+SET partition_label = EXCLUDED.partition_label, status = EXCLUDED.status`,
+		countsTenant, parentShed); err != nil {
+		t.Fatalf("seed active and inactive partitions: %v", err)
+	}
+	seedCustodianParty(t, ctx, pool)
+	if _, err := pool.Exec(ctx, `
+INSERT INTO goats (goat_id, tenant_id, species, sex, breed, age_band, management_stage,
+                   lifecycle_status, custodian_party_id, park_id, shed_id, current_location_id,
+                   origin_type, dob, entry_date)
+VALUES
+  ($4::uuid, $1::uuid, 'goat', 'female', 'Sirohi', 'adult', 'Mother',
+   'alive', $6::uuid, $2::uuid, $3::uuid, $3::uuid, 'procured', DATE '2024-01-01', DATE '2024-01-01'),
+  ($5::uuid, $1::uuid, 'goat', 'female', 'Sirohi', 'adult', 'K2',
+   'alive', $6::uuid, $2::uuid, $3::uuid, $3::uuid, 'procured', DATE '2024-01-01', DATE '2024-01-01')
+ON CONFLICT (goat_id) DO NOTHING`,
+		countsTenant, countsPark, parentShed, activeResidentOne, activeResidentTwo, countsCustodian); err != nil {
+		t.Fatalf("seed residents: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+INSERT INTO goat_shed_partitions (tenant_id, goat_id, shed_id, partition_label, source_shed_name)
+VALUES ($1::uuid, $3::uuid, $2::uuid, 'Part 1', 'Hilbert 1 - Part 1'),
+       ($1::uuid, $4::uuid, $2::uuid, 'Part 2', 'Hilbert 1 - Part 2')`,
+		countsTenant, parentShed, activeResidentOne, activeResidentTwo); err != nil {
+		t.Fatalf("seed resident partitions: %v", err)
+	}
+
+	catalog, err := repo.ShiftingDestinationCatalog(ctx, countsTenant)
+	if err != nil {
+		t.Fatalf("catalog: %v", err)
+	}
+	var cptRows, crossParkRows []string
+	headCountByDisplay := map[string]int{}
+	for _, park := range catalog.Parks {
+		for _, shed := range park.Sheds {
+			if shed.ShedID != parentShed {
+				continue
+			}
+			if park.ParkID == countsPark {
+				cptRows = append(cptRows, shed.Display)
+				headCountByDisplay[shed.Display] = shed.HeadCount
+			} else {
+				crossParkRows = append(crossParkRows, park.ParkID+":"+shed.Display)
+			}
+		}
+	}
+	if len(crossParkRows) != 0 {
+		t.Fatalf("parent shed leaked across park scope: %v", crossParkRows)
+	}
+	if len(cptRows) != 2 {
+		t.Fatalf("unpaginated catalog returned %d Hilbert rows, want exactly the two active pens: %v", len(cptRows), cptRows)
+	}
+	if headCountByDisplay["Hilbert 1 - Part 1"] != 1 || headCountByDisplay["Hilbert 1 - Part 2"] != 1 {
+		t.Fatalf("head counts by display = %+v, want one resident per active pen without one-to-many fan-out", headCountByDisplay)
+	}
+	if _, inactive := headCountByDisplay["Hilbert 1 - Part 99"]; inactive {
+		t.Fatalf("inactive partition surfaced in destination catalog: %+v", headCountByDisplay)
+	}
+}
