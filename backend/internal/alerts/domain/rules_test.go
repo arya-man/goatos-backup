@@ -72,7 +72,7 @@ func TestSetEventRuleValidateAndDetectEventsCap(t *testing.T) {
 	for i := 0; i < 30; i++ {
 		events = append(events, Event{Key: fmt.Sprintf("g%d", i), ParkID: "p1", ShedName: "Yashoda 2", Subject: fmt.Sprintf("tag %d", i), Detail: "Litter of 1."})
 	}
-	out := DetectEvents("2026-09-16", "Coimbatore", rule, events)
+	out := DetectEvents("2026-09-16", "Coimbatore", rule, EventPage{Rows: events, Total: len(events)})
 	if len(out) != MaxEventRowsPerRule+1 {
 		t.Fatalf("a bulk day caps at %d rows plus one 'more' row, got %d", MaxEventRowsPerRule, len(out))
 	}
@@ -93,8 +93,8 @@ func TestEventKeysRemainUniqueAcrossParksIncludingOverflow(t *testing.T) {
 		for i := range events {
 			events[i] = Event{Key: fmt.Sprintf("shared-movement-%d", i), ParkID: park}
 		}
-		rows := DetectEvents("2026-09-16", park, rule, events)
-		replay := DetectEvents("2026-09-16", park, rule, events)
+		rows := DetectEvents("2026-09-16", park, rule, EventPage{Rows: events, Total: len(events)})
+		replay := DetectEvents("2026-09-16", park, rule, EventPage{Rows: events, Total: len(events)})
 		if len(rows) != MaxEventRowsPerRule+1 {
 			t.Fatalf("unexpected cap: %d", len(rows))
 		}
@@ -107,5 +107,16 @@ func TestEventKeysRemainUniqueAcrossParksIncludingOverflow(t *testing.T) {
 			}
 			seen[row.Key] = true
 		}
+	}
+}
+
+func TestBoundedPreviewUsesFullTotal(t *testing.T) {
+	events := make([]Event, MaxEventRowsPerRule)
+	for i := range events {
+		events[i] = Event{Key: fmt.Sprint(i), ParkID: "p"}
+	}
+	out := DetectEvents("2026-09-16", "Park", EventRule{ID: "r", Label: "Added"}, EventPage{Rows: events, Total: 50000})
+	if len(out) != 26 || !strings.Contains(out[25].Title, "49975 more today") {
+		t.Fatalf("lost full count: %+v", out)
 	}
 }

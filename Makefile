@@ -1476,7 +1476,7 @@ verify-google-dev-seed-fixtures:
 	python3 tools/dev/verify-google-dev-seed-fixtures.py
 
 api-latency-policy-test:
-	node --test tools/perf/api-latency-policy.test.mjs tools/perf/api-latency-evidence.test.mjs tools/perf/api-latency-compare.test.mjs tools/perf/request-path-evidence.test.mjs tools/perf/workboard-latency.test.mjs
+	node --test tools/perf/api-latency-assertion.test.mjs tools/perf/api-latency-policy.test.mjs tools/perf/api-latency-evidence.test.mjs tools/perf/api-latency-compare.test.mjs tools/perf/request-path-evidence.test.mjs tools/perf/workboard-latency.test.mjs
 
 api-latency-gate:
 	for manifest in tools/perf/hot-paths.*.json; do node tools/perf/api-latency-gate.mjs --manifest "$$manifest"; done

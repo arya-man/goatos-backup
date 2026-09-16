@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"slices"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -118,5 +119,47 @@ func TestPenFeedCheckOnlyCountsCompletedComparisons(t *testing.T) {
 				t.Fatalf("unexpected alerts: %+v", page.Rows)
 			}
 		})
+	}
+}
+
+type sharedEventFixture struct {
+	calls atomic.Int32
+	fail  bool
+}
+
+func (f *sharedEventFixture) ListEventRules(context.Context, string) ([]domain.EventRule, error) {
+	return []domain.EventRule{{ID: "a", Kind: domain.EventAnimalAdded, Enabled: true}, {ID: "b", Kind: domain.EventAnimalAdded, Enabled: true}}, nil
+}
+func (f *sharedEventFixture) UpsertEventRule(context.Context, domain.SetEventRule) (domain.EventRule, error) {
+	panic("unused")
+}
+func (f *sharedEventFixture) DeleteEventRule(context.Context, string, string) error { panic("unused") }
+func (f *sharedEventFixture) Events(context.Context, string, string, domain.EventKind, string) (domain.EventPage, error) {
+	f.calls.Add(1)
+	if f.fail {
+		return domain.EventPage{}, errors.New("unavailable")
+	}
+	return domain.EventPage{Rows: []domain.Event{{Key: "goat", ParkID: "p1"}}, Total: 1}, nil
+}
+func TestSameKindRulesShareReadAndFailure(t *testing.T) {
+	for _, fail := range []bool{false, true} {
+		f := &sharedEventFixture{fail: fail}
+		s := NewService(fakeConfig{}, fakeSheets{}, fakeMoves{}, nil, nil, nil).WithEvents(f, f)
+		p, err := s.List(context.Background(), "t", "p1", "2026-09-10")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if f.calls.Load() != 1 {
+			t.Fatalf("same kind read %d times", f.calls.Load())
+		}
+		if fail {
+			if len(p.Degraded) != 2 {
+				t.Fatalf("failure must reach both rules: %+v", p)
+			}
+		} else {
+			if len(p.Rows) != 2 || p.Rows[0].Key == p.Rows[1].Key {
+				t.Fatalf("rules must keep distinct alerts: %+v", p)
+			}
+		}
 	}
 }
