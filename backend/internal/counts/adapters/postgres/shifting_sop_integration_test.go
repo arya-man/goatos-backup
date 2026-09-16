@@ -309,7 +309,22 @@ func TestReworkResubmitCreatesFreshItemAndKeepsApplied(t *testing.T) {
 		t.Fatal(err)
 	}
 	firstKey := capture.request.IdempotencyKey
-	if err := repo.BounceShiftingEventForRework(ctx, domain.ShiftingReworkCommand{TenantID: countsTenant, ShiftingEventID: eventID, VerifiedBy: countsApprover, Reason: "dark"}); err != nil {
+	if err := repo.BounceShiftingEventForRework(ctx, domain.ShiftingReworkCommand{TenantID: countsTenant, ShiftingEventID: eventID, VerifiedBy: countsApprover, Reason: "dark", EvidenceRefs: []string{"first"}}); err != nil {
+		t.Fatal(err)
+	}
+	// A re-shoot with a FRESH capture queues a fresh item and keeps the move applied.
+	result, _, err := svc.Complete(ctx, countsapp.CompleteShiftingInput{
+		TenantID: countsTenant, ShiftingEventID: eventID, CompletedByUserID: countsOperator,
+		SOPProofs: authored.ProofRefs{domain.SlotShiftingVideo: "second"}, IdempotencyKey: "complete-sop-rework-2", RequestFingerprint: "fp2",
+	})
+	if err != nil || result.EventStatus != domain.ShiftingEventStatusApplied {
+		t.Fatalf("rework result=%+v err=%v", result, err)
+	}
+	if capture.request.IdempotencyKey == firstKey || capture.request.MediaRefs[0] != "second" {
+		t.Fatalf("rework did not queue a fresh item: %+v", capture.request)
+	}
+	secondKey := capture.request.IdempotencyKey
+	if err := repo.BounceShiftingEventForRework(ctx, domain.ShiftingReworkCommand{TenantID: countsTenant, ShiftingEventID: eventID, VerifiedBy: countsApprover, Reason: "dark again", EvidenceRefs: []string{"second"}}); err != nil {
 		t.Fatal(err)
 	}
 	// Resubmitting the rejected clip is accepted exactly as before the SOP card existed
@@ -317,23 +332,13 @@ func TestReworkResubmitCreatesFreshItemAndKeepsApplied(t *testing.T) {
 	// already created.
 	reused, _, err := svc.Complete(ctx, countsapp.CompleteShiftingInput{
 		TenantID: countsTenant, ShiftingEventID: eventID, CompletedByUserID: countsOperator,
-		SOPProofs: authored.ProofRefs{domain.SlotShiftingVideo: "first"}, IdempotencyKey: "complete-sop-rework-2", RequestFingerprint: "fp2",
+		SOPProofs: authored.ProofRefs{domain.SlotShiftingVideo: "second"}, IdempotencyKey: "complete-sop-rework-3", RequestFingerprint: "fp3",
 	})
 	if err != nil || reused.EventStatus != domain.ShiftingEventStatusApplied {
 		t.Fatalf("reuse result=%+v err=%v", reused, err)
 	}
-	if capture.request.IdempotencyKey != firstKey {
-		t.Fatalf("reused clip key = %q, want the original %q", capture.request.IdempotencyKey, firstKey)
-	}
-	result, _, err := svc.Complete(ctx, countsapp.CompleteShiftingInput{
-		TenantID: countsTenant, ShiftingEventID: eventID, CompletedByUserID: countsOperator,
-		SOPProofs: authored.ProofRefs{domain.SlotShiftingVideo: "second"}, IdempotencyKey: "complete-sop-rework-3", RequestFingerprint: "fp3",
-	})
-	if err != nil || result.EventStatus != domain.ShiftingEventStatusApplied {
-		t.Fatalf("rework result=%+v err=%v", result, err)
-	}
-	if capture.request.IdempotencyKey == firstKey || capture.request.MediaRefs[0] != "second" {
-		t.Fatalf("rework did not queue a fresh item: %+v", capture.request)
+	if capture.request.IdempotencyKey != secondKey {
+		t.Fatalf("reused clip key = %q, want the original %q", capture.request.IdempotencyKey, secondKey)
 	}
 	if got := goatShed(t, ctx, pool, goatID); got != countsShedB {
 		t.Fatalf("rework rolled the move back: %s", got)

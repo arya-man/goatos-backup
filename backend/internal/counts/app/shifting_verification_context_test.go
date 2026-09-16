@@ -2,12 +2,15 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/vgoats/goatos/backend/internal/counts/domain"
 	"github.com/vgoats/goatos/backend/internal/counts/ports"
+	"github.com/vgoats/goatos/backend/internal/platform/eventbus"
+	"github.com/vgoats/goatos/backend/internal/sop/authored"
 )
 
 // A verifier judges a shifting clip of animals WALKING BETWEEN TWO PENS. Until this test, the
@@ -125,5 +128,31 @@ func TestShiftingVerificationWithNoRecordedSourceStatesTheDestinationAlone(t *te
 	want := []VerificationContextRow{{Label: "Moved to", Value: "Yashoda 2"}}
 	if len(got.ContextRows) != 1 || got.ContextRows[0] != want[0] {
 		t.Errorf("context rows = %#v, want %#v", got.ContextRows, want)
+	}
+}
+
+type reworkCapturingRepo struct{ last domain.ShiftingReworkCommand }
+
+func (r *reworkCapturingRepo) ApplyVerifiedShiftingEvent(context.Context, domain.ShiftingVerifiedApplyCommand) (domain.ShiftingExecutionResult, bool, error) {
+	return domain.ShiftingExecutionResult{}, false, nil
+}
+func (r *reworkCapturingRepo) BounceShiftingEventForRework(_ context.Context, in domain.ShiftingReworkCommand) error {
+	r.last = in
+	return nil
+}
+
+// The rework consumer hands the repository the evidence the verdict judged, recovered from the
+// item's recording key, so a stale redelivery can be told apart from the current verdict.
+func TestReworkVerdictCarriesTheJudgedEvidenceRefs(t *testing.T) {
+	repo := &reworkCapturingRepo{}
+	h := NewShiftingVerificationHandler(repo, nil)
+	key := domain.ShiftingVerificationKey("ev1", []string{"p1", "p2"}, authored.Answers{"calm": json.RawMessage(`"yes"`)}, nil)
+	payload, _ := json.Marshal(map[string]any{"status": "rejected", "decision": "rejected", "reason": "blurry",
+		"source": map[string]any{"module": "counts", "ref_type": "shifting_event", "ref_id": "ev1", "recording_key": key}})
+	if err := h.HandleEvent(context.Background(), eventbus.Event{Type: EventVerificationVerdictRework, TenantID: "t", Payload: payload}); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(repo.last.EvidenceRefs, ","); got != "p1,p2" {
+		t.Fatalf("evidence refs = %q, want p1,p2", got)
 	}
 }

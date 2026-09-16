@@ -34,6 +34,9 @@ type shiftingVerdictPayload struct {
 		Module  string `json:"module"`
 		RefType string `json:"ref_type"`
 		RefID   string `json:"ref_id"`
+		// RecordingKey is the rejected item's idempotency key -- the producer's own
+		// ShiftingVerificationKey -- which names the evidence the verdict judged.
+		RecordingKey string `json:"recording_key"`
 	} `json:"source"`
 }
 
@@ -108,6 +111,9 @@ func (h *ShiftingVerificationHandler) HandleEvent(ctx context.Context, e eventbu
 			ShiftingEventID: shiftingEventID,
 			VerifiedBy:      strings.TrimSpace(p.VerifiedBy),
 			Reason:          strings.TrimSpace(p.Reason),
+			// The evidence this verdict judged. A redelivered verdict for an item the operator has
+			// since re-shot names captures the movement no longer holds, and bounces nothing.
+			EvidenceRefs: domain.ShiftingVerificationKeyRefs(p.Source.RecordingKey, shiftingEventID),
 		})
 	}
 	return nil

@@ -409,13 +409,40 @@ SET verification_state = 'rejected',
     updated_at = now(),
     row_version = row_version + 1
 WHERE tenant_id = $1::uuid AND shifting_event_id = $2::uuid
-  AND event_status IN ('pending', 'pending_verification', 'applied')`,
-		in.TenantID, in.ShiftingEventID)
+  AND event_status IN ('pending', 'pending_verification', 'applied')
+  -- STALE-VERDICT GUARD (E2E 2026-09-17): the verdict judged these captures; if the movement no
+  -- longer holds exactly them the operator already re-shot, and this is a redelivery of the old
+  -- item's verdict. NULL (an item whose key names no evidence) keeps the unguarded behaviour.
+  AND ($3::text[] IS NULL OR (
+        SELECT coalesce(array_agg(DISTINCT ref ORDER BY ref), '{}'::text[])
+        FROM (
+            SELECT kv.value AS ref FROM jsonb_each_text(coalesce(sop_proofs, '{}'::jsonb)) AS kv
+            UNION ALL SELECT proof_ref
+            UNION ALL SELECT feed_packing_proof_ref
+            UNION ALL SELECT feed_given_proof_ref
+        ) AS current_refs
+        WHERE nullif(btrim(ref), '') IS NOT NULL
+      ) = (SELECT array_agg(DISTINCT ref ORDER BY ref) FROM unnest($3::text[]) AS judged(ref)))`,
+		in.TenantID, in.ShiftingEventID, evidenceRefsParam(in.EvidenceRefs))
 	if err != nil {
 		return fmt.Errorf("counts: bounce shifting event for rework: %w", err)
 	}
 	_ = tag // zero rows affected is an accepted stale/duplicate verdict; no error.
 	return nil
+}
+
+// evidenceRefsParam binds the judged evidence set, or SQL NULL when the verdict names none.
+func evidenceRefsParam(refs []string) any {
+	out := make([]string, 0, len(refs))
+	for _, r := range refs {
+		if r = strings.TrimSpace(r); r != "" {
+			out = append(out, r)
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 // ---------------------------------------------------------------------------

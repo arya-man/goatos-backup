@@ -370,6 +370,44 @@ func LegacyColumnsFromRefs(refs authored.ProofRefs, orderedRefs []string) (proof
 	return proofRef, get(SlotShiftingPackingVideo), get(SlotShiftingFeedingVideo)
 }
 
+// ShiftingVerificationKeyRefs recovers the completion refs from a ShiftingVerificationKey for the
+// event, in key order: the segments after "counts-shifting-verification:<event>:", minus the
+// trailing 16-hex answers/raise digest when present. nil when the key is not this event's shifting
+// key (another producer, another movement, or empty).
+func ShiftingVerificationKeyRefs(key, eventID string) []string {
+	prefix := "counts-shifting-verification:" + strings.TrimSpace(eventID) + ":"
+	key = strings.TrimSpace(key)
+	if strings.TrimSpace(eventID) == "" || !strings.HasPrefix(key, prefix) {
+		return nil
+	}
+	parts := strings.Split(strings.TrimPrefix(key, prefix), ":")
+	if n := len(parts); n > 1 && isKeyDigest(parts[n-1]) {
+		parts = parts[:n-1]
+	}
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func isKeyDigest(s string) bool {
+	if len(s) != 16 {
+		return false
+	}
+	for _, c := range s {
+		if !(c >= '0' && c <= '9' || c >= 'a' && c <= 'f') {
+			return false
+		}
+	}
+	return true
+}
+
 // ShiftingVerificationKey is the verification item's idempotency key for one completion: the event
 // plus its complete proof set. A seeded submission (no answers, no raise proofs) keeps the exact
 // pre-SOP shape, so a retry from an older phone collapses onto the item it already created; answers
