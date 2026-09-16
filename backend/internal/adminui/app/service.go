@@ -2065,6 +2065,24 @@ func pageSpecificCopy(id string) map[string]string {
 			"empty.routines":                  "No routines yet. Create one to start raising pen checks.",
 			"empty.tasks":                     "No checks on this day.",
 			"configure.disabled_no_access":    "Writing routines is limited to the CEO and CXO.",
+			// The drawer's question editor and the confirmations (added for the /routines page).
+			"action.add_question":     "Add question",
+			"action.remove_question":  "Remove question",
+			"action.add_option":       "Add option",
+			"action.remove_option":    "Remove option",
+			"action.retire.confirm":   "Retire this routine? It will raise no more checks. Open checks stay as they are.",
+			"action.routine_saved":    "Routine saved. The next occurrence uses this version.",
+			"action.routine_failed":   "The routine could not be saved. Check the fields and try again.",
+			"field.question_title":    "Question",
+			"field.question_id":       "Key",
+			"field.question_kind":     "Answer type",
+			"field.question_hint":     "Hint",
+			"field.question_required": "Required",
+			"field.question_unit":     "Unit",
+			"field.question_options":  "Choices",
+			"field.option_value":      "Value",
+			"field.option_label":      "Label",
+			"filter.park.all":         "All parks",
 		}
 	case "work-board":
 		return map[string]string{
