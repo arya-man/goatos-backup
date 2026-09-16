@@ -71,8 +71,12 @@ verifier items are never relabelled. The pending-execution read serves each row'
   seeded submission (`ShiftingVerificationKey`), so an older phone's retry collapses onto the item
   it already created.
 - **Rework**: a resubmit keeps the stored answers when it carries none; the applied move stays
-  applied. Resubmitting the rejected capture is accepted exactly as before this change (its
-  same-refs key collapses onto the existing item) -- deploy-day parity, maintainer 2026-09-16.
+  applied. Resubmitting the rejected capture is accepted exactly as before this change (deploy-day
+  parity), but it is a NEW review round: `shifting_events.verification_round` (000336) counts rework
+  verdicts and folds into the verifier key as `:r<round>` after the first rework, so the resubmit gets a
+  fresh pending item instead of collapsing onto the rejected one (round 0 keeps the pre-SOP key; a retry
+  within a round is the same item). The rework bounce is fenced on the judged refs AND the round, so a
+  redelivered verdict for an older item changes nothing.
 
 ## Older app (program decision 7)
 
