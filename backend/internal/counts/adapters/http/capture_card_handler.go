@@ -158,15 +158,15 @@ func (h *AppWriteHandler) GetCaptureCard(w http.ResponseWriter, r *http.Request)
 
 // --- approver's row ---------------------------------------------------------------------------
 
-// appApprovalCapture is CountsApprovalCapture on the wire: the report's snapshot for the
-// approver (and, on the verifier's item, the same rows). Shared with shifting's raise form.
+// appApprovalCapture is CountsApprovalCapture on the wire, EXACTLY the shared contract
+// (docs: SOP parity program decisions): {version_label, rows, media, missing_note}. Shifting's raise
+// form populates the same shape. The verifier's verdict on the report proof rides on the list
+// item itself (capture_review_status / capture_review_reason), not inside this shared schema.
 type appApprovalCapture struct {
 	VersionLabel string                    `json:"version_label,omitempty"`
 	Rows         []appApprovalCaptureRow   `json:"rows"`
 	Media        []appApprovalCaptureMedia `json:"media"`
 	MissingNote  string                    `json:"missing_note,omitempty"`
-	ReviewStatus string                    `json:"review_status,omitempty"`
-	ReviewReason string                    `json:"review_reason,omitempty"`
 }
 
 type appApprovalCaptureRow struct {
@@ -185,7 +185,7 @@ type appApprovalCaptureMedia struct {
 // omitted rather than rendered empty.
 func approvalCaptureDTO(item domain.ApprovalRequestSummary) *appApprovalCapture {
 	e := item.Capture
-	if e.IsEmpty() && item.CaptureReviewStatus == nil {
+	if e.IsEmpty() {
 		return nil
 	}
 	out := &appApprovalCapture{
@@ -199,12 +199,6 @@ func approvalCaptureDTO(item domain.ApprovalRequestSummary) *appApprovalCapture 
 	}
 	for _, m := range e.Media {
 		out.Media = append(out.Media, appApprovalCaptureMedia{ProofID: m.Ref, Label: m.Label, Kind: m.Kind})
-	}
-	if item.CaptureReviewStatus != nil {
-		out.ReviewStatus = *item.CaptureReviewStatus
-	}
-	if item.CaptureReviewReason != nil {
-		out.ReviewReason = *item.CaptureReviewReason
 	}
 	return out
 }

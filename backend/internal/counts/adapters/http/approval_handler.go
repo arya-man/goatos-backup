@@ -127,15 +127,19 @@ type appApprovalListItem struct {
 	// death row, exposed separately so a structured renderer (the admin-web drawer) can show it as
 	// its own field instead of parsing it back out of the composed line. See
 	// domain.ApprovalNameLookup.AnimalLocations for how it is resolved.
-	SubjectAnimalLocation *string         `json:"subject_animal_location,omitempty"`
+	SubjectAnimalLocation *string `json:"subject_animal_location,omitempty"`
 	// Capture is the SOP capture card's snapshot (CountsApprovalCapture): the report's own
 	// proofs under their titles, its answers in farm words, the older-app note and the
 	// verifier's verdict on it. Absent when the form asked nothing.
 	Capture *appApprovalCapture `json:"capture,omitempty"`
-	Summary json.RawMessage     `json:"summary"`
-	DecidedByUserID       *string         `json:"decided_by_user_id,omitempty"`
-	DecidedAt             *time.Time      `json:"decided_at,omitempty"`
-	DecisionReason        *string         `json:"decision_reason,omitempty"`
+	// CaptureReviewStatus / CaptureReviewReason are the verifier's verdict on the report's own
+	// proof (pending / approved / rework + the verifier's words). Absent when nothing to review.
+	CaptureReviewStatus *string         `json:"capture_review_status,omitempty"`
+	CaptureReviewReason *string         `json:"capture_review_reason,omitempty"`
+	Summary             json.RawMessage `json:"summary"`
+	DecidedByUserID     *string         `json:"decided_by_user_id,omitempty"`
+	DecidedAt           *time.Time      `json:"decided_at,omitempty"`
+	DecisionReason      *string         `json:"decision_reason,omitempty"`
 }
 
 // ListApprovals returns one keyset page of requests the caller may decide.
@@ -207,6 +211,8 @@ func (h *AppWriteHandler) ListApprovals(w http.ResponseWriter, r *http.Request) 
 			row.SubjectAnimalLocation = &loc
 		}
 		row.Capture = approvalCaptureDTO(item)
+		row.CaptureReviewStatus = item.CaptureReviewStatus
+		row.CaptureReviewReason = item.CaptureReviewReason
 		items = append(items, row)
 	}
 	httpresponse.WriteJSON(w, http.StatusOK, appApprovalListResponse{Items: items, NextCursor: page.NextCursor})
