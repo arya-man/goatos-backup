@@ -282,6 +282,9 @@ export type SopCardView = {
   // FEED SOP (maintainer decision 2026-09-16): the form_dsl when it carries a `feed` cards
   // section (the captures and questions the crew runs per stage); null otherwise.
   feedFormDsl: unknown;
+  // SHIFTING SOP (maintainer decision 2026-09-16): the form_dsl when it carries a `shifting`
+  // cards section (raise extras, completion card, high-priority card); null otherwise.
+  shiftingFormDsl: unknown;
 };
 
 // toSopView maps the real API rows to the card facets. Everything is derived — no invented inventory.
@@ -308,6 +311,7 @@ export function toSopView(def: SopDefLike, version: SopVersionLike | null): SopC
     inspectionFormDsl: version && hasInspection(version.form_dsl) ? version.form_dsl : null,
     weighingFormDsl: version && hasWeighingRules(version.form_dsl) ? version.form_dsl : null,
     feedFormDsl: version && hasFeedCards(version.form_dsl) ? version.form_dsl : null,
+    shiftingFormDsl: version && hasShiftingCards(version.form_dsl) ? version.form_dsl : null,
     inspectionQuestionCount: version ? deriveInspectionQuestionCount(version.form_dsl) : 0,
     fields: version
       ? deriveFields(version.form_dsl).map((f) => ({ label: f.label, type: f.type, required: f.required, options: f.options, helpText: f.helpText }))
@@ -328,6 +332,11 @@ export function deriveFollowUpStepCount(formDsl: unknown): number {
     const t = asObject(raw);
     return n + (t && Array.isArray(t["steps"]) ? (t["steps"] as unknown[]).length : 0);
   }, 0);
+}
+
+function hasShiftingCards(formDsl: unknown): boolean {
+  const dsl = asObject(formDsl);
+  return Boolean(dsl && asObject(dsl["shifting"]));
 }
 
 function hasFeedCards(formDsl: unknown): boolean {

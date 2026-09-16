@@ -342,3 +342,45 @@ export async function publishFeedVersion(sopId: string, feed: Record<string, unk
   for (const path of SOP_PAGE_PATHS) revalidatePath(path);
   return { ...saved, ok: true, message: `Published v${saved.versionNumber ?? ""}. Sheets issued from now on run on this card.` };
 }
+
+// SHIFTING SOP (maintainer decision 2026-09-16): the shifting cards editor saves a new version = the
+// published version's form_dsl (capture form, dormant follow_up track, proof policy: unchanged) +
+// the emitted `shifting` document. The backend validates the document (a card the phone could not
+// render is refused with the field named); publishing makes it the cards for movements raised from
+// then on -- a movement already raised keeps the cards it was raised with.
+export type ShiftingSaveResult = InspectionSaveResult;
+
+export async function saveShiftingVersion(sopId: string, shifting: Record<string, unknown>, label?: string): Promise<ShiftingSaveResult> {
+  if (!sopId) return { ok: false, message: "SOP id is required" };
+  const detail = await getSop(sopId);
+  if (!detail.ok) return { ok: false, message: detail.error.message ?? "SOP could not be read", code: detail.error.code };
+  const base = detail.data.published_version ?? detail.data.latest_version;
+  if (!base) return { ok: false, message: "This SOP has no version to build on." };
+  const formDsl = { ...(base.form_dsl as Record<string, unknown>), shifting };
+  const version = await createSopVersion(sopId, {
+    version_label: (label ?? "").trim() || `${detail.data.sop.name} · cards`,
+    form_dsl: formDsl,
+    proof_policy: base.proof_policy as CreateSOPVersionRequest["proof_policy"],
+  });
+  if (!version.ok) return { ok: false, message: version.error.message ?? "create SOP version failed", code: version.error.code };
+  for (const path of SOP_PAGE_PATHS) revalidatePath(path);
+  const report = version.data.version.validation_report;
+  return {
+    ok: true,
+    message: report?.valid ? "Shifting cards saved as a draft version." : "Saved — backend flagged validation issues (see report).",
+    versionId: version.data.version.sop_version_id,
+    rowVersion: version.data.version.row_version,
+    versionNumber: version.data.version.version,
+    report,
+  };
+}
+
+export async function publishShiftingVersion(sopId: string, shifting: Record<string, unknown>, label?: string): Promise<ShiftingSaveResult> {
+  const saved = await saveShiftingVersion(sopId, shifting, label);
+  if (!saved.ok || !saved.versionId || saved.rowVersion === undefined) return saved;
+  if (saved.report && !saved.report.valid) return { ...saved, ok: false, message: saved.report.errors?.[0]?.message ?? "The shifting cards have validation issues; fix them and publish again." };
+  const res = await publishSopVersion(sopId, saved.versionId, saved.rowVersion);
+  if (!res.ok) return { ok: false, message: res.error.message ?? "publish failed", code: res.error.code };
+  for (const path of SOP_PAGE_PATHS) revalidatePath(path);
+  return { ...saved, ok: true, message: `Published v${saved.versionNumber ?? ""}. Movements raised from now on run on these cards.` };
+}

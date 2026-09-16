@@ -12,6 +12,8 @@ import { WeighingEditor } from "./weighing-editor";
 import { parseWeighing } from "./weighing-model";
 import { FeedEditor } from "./feed-editor";
 import { parseFeed } from "./feed-model";
+import { ShiftingEditor } from "./shifting-editor";
+import { parseShifting } from "./shifting-model";
 
 // Shared server renderer for the per-module SOP pages (SOP split, maintainer decision 2026-08-18):
 // /vaccination/sops, /counts/sops, and /feed/sops each mount this with their own page-contract key,
@@ -43,6 +45,25 @@ export async function renderSopModulePage(
         // operator steps (form_dsl.follow_up) is edited through the operator-steps editor. The
         // capture form it also carries is passed through verbatim on save (P1), so the old
         // "cannot round-trip these field types" block does not apply here.
+        // SHIFTING SOP (maintainer decision 2026-09-16): the shifting SOP carries a `shifting`
+        // cards section AND a dormant seeded follow_up track. The cards editor wins, checked
+        // BEFORE the operator-steps editor; the follow_up track and the capture form are passed
+        // through verbatim on save.
+        const shifting = parseShifting(version.form_dsl);
+        if (shifting) {
+          const pageContract = await pageContractPromise;
+          return (
+            <ShiftingEditor
+              pageContract={pageContract}
+              basePath={basePath}
+              sopId={editId}
+              sopName={detail.data.sop.name}
+              sopCode={detail.data.sop.code}
+              versionLabel={`${version.version_label} · ${version.status}`}
+              initial={shifting}
+            />
+          );
+        }
         const followUp = parseFollowUp(version.form_dsl);
         if (followUp) {
           const pageContract = await pageContractPromise;

@@ -30,6 +30,7 @@ import { FollowUpStepsSummary } from "./followup-summary";
 import { InspectionSummary } from "./inspection-summary";
 import { WeighingSummary } from "./weighing-summary";
 import { FeedSummary } from "./feed-summary";
+import { ShiftingSummary } from "./shifting-summary";
 import { copy, tablePageSizes, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 
 // The New SOP builder is a dedicated full-page surface at <module SOP page>?compose=1 — the same
@@ -413,6 +414,7 @@ function SopDetailModal({ view, pageContract, onClose, onEdit, editPending = fal
           {view.inspectionFormDsl ? <InspectionSummary pageContract={pageContract} formDsl={view.inspectionFormDsl} /> : null}
           {view.weighingFormDsl ? <WeighingSummary pageContract={pageContract} formDsl={view.weighingFormDsl} /> : null}
           {view.feedFormDsl ? <FeedSummary pageContract={pageContract} sopCode={view.code} formDsl={view.feedFormDsl} /> : null}
+          {view.shiftingFormDsl ? <ShiftingSummary pageContract={pageContract} formDsl={view.shiftingFormDsl} /> : null}
         </div>
 
         <div className="cfgmf">
