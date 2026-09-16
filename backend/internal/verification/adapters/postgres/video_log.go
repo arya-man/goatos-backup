@@ -216,7 +216,7 @@ func (r *Repository) VideoLogShedRows(ctx context.Context, params ports.VideoLog
 WITH `+videoLogDayWindow+`,
 items AS (
   SELECT vi.item_id, vi.module, vi.category, vi.source_ref_type, vi.subject_label, vi.status,
-         vi.operator_id, vi.captured_at, vi.media_refs,
+         vi.operator_id, vi.captured_at, vi.media_refs, vi.media_meta,
          vi.shed_id, vi.partition_label, vi.park_id
   FROM verification_items vi, day_window w
   WHERE vi.tenant_id = $1::uuid
@@ -260,6 +260,10 @@ proofs AS (
          ref.ord,
          pa.proof_id::text AS proof_id,
          COALESCE(NULLIF(btrim(pa.metadata->>'verification_label'), ''), '') AS proof_label,
+         -- media_meta is POSITIONAL against media_refs; ord is 1-based, jsonb arrays 0-based. An
+         -- item written before media_meta (or naming fewer proofs) yields ''.
+         COALESCE(NULLIF(btrim(CASE WHEN jsonb_typeof(i.media_meta) = 'array'
+                                    THEN i.media_meta -> (ref.ord::int - 1) ->> 'label' END), ''), '') AS meta_label,
          pa.proof_type,
          pa.uploaded_at,
          pa.created_at
@@ -286,6 +290,7 @@ SELECT i.item_id::text,
            jsonb_build_object(
              'proof_id', p.proof_id,
              'label', p.proof_label,
+             'meta_label', p.meta_label,
              'media_kind', p.proof_type,
              'uploaded_at', p.uploaded_at,
              'registered_at', p.created_at,
@@ -390,6 +395,7 @@ func videoLogGrainFor(sourceRefType string) domain.VideoLogGrain {
 type videoLogProofRow struct {
 	ProofID      string     `json:"proof_id"`
 	Label        string     `json:"label"`
+	MetaLabel    string     `json:"meta_label"`
 	MediaKind    string     `json:"media_kind"`
 	UploadedAt   *time.Time `json:"uploaded_at"`
 	RegisteredAt time.Time  `json:"registered_at"`
@@ -418,6 +424,7 @@ func decodeVideoLogProofs(raw []byte) ([]domain.VideoLogProof, error) {
 			ProofID:      p.ProofID,
 			Ordinal:      p.Ord,
 			Label:        p.Label,
+			MetaLabel:    p.MetaLabel,
 			MediaKind:    p.MediaKind,
 			UploadedAt:   p.UploadedAt,
 			RegisteredAt: p.RegisteredAt,

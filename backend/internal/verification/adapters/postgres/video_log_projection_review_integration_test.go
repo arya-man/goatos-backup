@@ -486,3 +486,50 @@ func seedVideoLogProof(t *testing.T, ctx context.Context, pool *pgxpool.Pool, it
 	}
 	return proofID
 }
+
+// TestVideoLogCarriesTheItemsMediaMetaLabelPerOrdinal pins the SQL half of the log's label order:
+// each proof carries the item's media_meta title AT ITS DECLARED ORDINAL (jsonb 0-based vs ord
+// 1-based), a proof beyond the meta array carries none, and an item with an EMPTY meta array (every
+// item written before media_meta) reads blank rather than failing.
+func TestVideoLogCarriesTheItemsMediaMetaLabelPerOrdinal(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	seedVideoLogTenant(t, ctx, pool)
+	item := seedVideoLogItem(t, ctx, pool, "feed", "feed_distribution", "pending", videoLogTestParkA, videoLogTestShedA, "2")
+	seedVideoLogProof(t, ctx, pool, item, 1, "photo", "09:30")
+	seedVideoLogProof(t, ctx, pool, item, 2, "video", "09:31")
+	seedVideoLogProof(t, ctx, pool, item, 3, "video", "09:32")
+	if _, err := pool.Exec(ctx, `
+		UPDATE verification_items
+		SET media_meta = '[{"label":"Bag on the scale","kind":"photo"},{"label":"Feeding","kind":"video"}]'::jsonb
+		WHERE tenant_id = $1::uuid AND item_id = $2::uuid`, videoLogTestTenantID, item); err != nil {
+		t.Fatalf("set media_meta: %v", err)
+	}
+	legacy := seedVideoLogItem(t, ctx, pool, "feed", "feed_distribution", "pending", videoLogTestParkA, videoLogTestShedA, "2")
+	seedVideoLogProof(t, ctx, pool, legacy, 1, "video", "09:40")
+
+	rows, _, err := NewRepository(pool, 10*time.Second).VideoLogShedRows(ctx, ports.VideoLogParams{
+		TenantID: videoLogTestTenantID, BusinessDate: videoLogDay, ShedID: videoLogTestShedA + "#2", Limit: 50,
+	})
+	if err != nil {
+		t.Fatalf("VideoLogShedRows: %v", err)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("rows = %d, want 2", len(rows))
+	}
+	byItem := map[string][]string{}
+	for _, row := range rows {
+		for _, p := range row.Proofs {
+			byItem[row.ItemID] = append(byItem[row.ItemID], p.MetaLabel)
+		}
+	}
+	if got := byItem[item]; len(got) != 3 || got[0] != "Bag on the scale" || got[1] != "Feeding" || got[2] != "" {
+		t.Fatalf("meta labels = %q, want [Bag on the scale, Feeding, \"\"]", got)
+	}
+	if got := byItem[legacy]; len(got) != 1 || got[0] != "" {
+		t.Fatalf("pre-meta item labels = %q, want one blank", got)
+	}
+}
