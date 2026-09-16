@@ -167,13 +167,16 @@ data class VerifyContextRow(
 
 /**
  * The section header row [index] STARTS, or null: a header is shown only where the backend group
- * CHANGES between consecutive rows, and is rendered verbatim.
+ * CHANGES between consecutive rows and differs from the row's own label (a one-question step titled
+ * by its question would otherwise say it twice), and is rendered verbatim.
  */
 fun contextGroupHeaderAt(rows: List<VerifyContextRow>, index: Int): String? {
-    val group = rows.getOrNull(index)?.group?.trim().orEmpty()
+    val row = rows.getOrNull(index) ?: return null
+    val group = row.group?.trim().orEmpty()
     if (group.isEmpty()) return null
     val previous = rows.getOrNull(index - 1)?.group?.trim().orEmpty()
-    return group.takeIf { it != previous }
+    if (group == previous) return null
+    return group.takeUnless { it.equals(row.backendLabel?.trim().orEmpty(), ignoreCase = true) }
 }
 
 /**

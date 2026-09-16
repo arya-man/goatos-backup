@@ -40,4 +40,16 @@ class VerifyDetailContextGroupTest {
         )
         assertEquals(listOf(null, "Crew answers", null, "Measured"), rows.indices.map { contextGroupHeaderAt(rows, it) })
     }
+
+    @Test
+    fun `a group header equal to the row's own label is not repeated`() {
+        // A one-question step is grouped under its title, which is often the question itself: the
+        // card read "WAS THE GATE LATCHED?" as a header and again as the row label.
+        val rows = listOf(
+            VerifyContextRow(VerifyContextKind.SHED, "Castro 2"),
+            VerifyContextRow(VerifyContextKind.RAISED_NOTE, "Yes", backendLabel = "Was the gate latched?", group = " was the gate latched? "),
+            VerifyContextRow(VerifyContextKind.RAISED_NOTE, "Yes", backendLabel = "Trough clean?", group = "Crew answers"),
+        )
+        assertEquals(listOf(null, null, "Crew answers"), rows.indices.map { contextGroupHeaderAt(rows, it) })
+    }
 }

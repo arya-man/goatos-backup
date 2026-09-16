@@ -35,11 +35,14 @@ const PATHNAME = "/verify";
 /**
  * The backend-composed section header a context row STARTS, or "" when it starts none: a producer
  * may group its rows ("Crew answers"), and a header is shown only where the group changes between
- * consecutive rows. Rendered verbatim, never composed here.
+ * consecutive rows and differs from the row's own label. Rendered verbatim, never composed here.
  */
-export function contextRowGroupStart(rows: ReadonlyArray<{ group?: string | null }>, index: number): string {
+export function contextRowGroupStart(rows: ReadonlyArray<{ group?: string | null; label?: string | null }>, index: number): string {
   const group = rows[index]?.group?.trim() ?? "";
-  return group !== "" && group !== (rows[index - 1]?.group?.trim() ?? "") ? group : "";
+  if (group === "" || group === (rows[index - 1]?.group?.trim() ?? "")) return "";
+  // A header that only repeats the row's own label (a one-question step titled by its question)
+  // says nothing twice.
+  return group.toLowerCase() === (rows[index]?.label?.trim() ?? "").toLowerCase() ? "" : group;
 }
 
 function renderLabelOrFallback(label: string | null | undefined): string {
