@@ -489,3 +489,57 @@ func TestExplicitSeededKeyNotOnPinnedCardIsRefusedNotRetargeted(t *testing.T) {
 		t.Fatalf("legacy packing ref not re-targeted onto the authored slot: %v", repo.last.SOPProofs)
 	}
 }
+
+// OLDER APP on a card with NO slot that takes its video (program decision 7): the clip is kept under
+// the reserved older-app key -- never dropped -- reaches the verifier labelled "Recorded on an older
+// app" with its real kind, and every compulsory slot it could not send reads not captured.
+func TestOlderAppVideoOnAPhotoOnlyShiftingCardIsKept(t *testing.T) {
+	rules := pinnedRules()
+	rules.Completion.Proofs = []authored.ProofSlot{{Key: "arrival_photo", Title: "Arrival photo", Kind: authored.KindPhoto, Required: true}}
+	rules.HighPriority.Proofs = []authored.ProofSlot{{Key: "feed_photo", Title: "Feed photo", Kind: authored.KindPhoto, Required: true}}
+	src := &ports.StaticShiftingSOPRules{ByVersion: map[int]domain.ShiftingRules{1: rules}}
+	media := &sopProofMedia{kinds: map[string]string{"v1": "video", "p1": "video", "f1": "video"}}
+
+	repo := &sopShiftingRepo{pin: approvedPin(intp(1), "low"), result: lowResult()}
+	svc, enq := sopService(t, repo, src, media)
+	in := baseInput()
+	in.LegacyShape = true
+	in.ProofRef = "v1"
+	if _, _, err := svc.Complete(context.Background(), in); err != nil {
+		t.Fatalf("older app on a photo-only card refused: %v", err)
+	}
+	key := authored.OlderAppKey(authored.KindVideo, 1)
+	if repo.last.SOPProofs[key] != "v1" || len(repo.last.SOPProofs) != 1 || repo.last.ProofRef != "v1" {
+		t.Fatalf("stored = %v proof_ref = %q, want the video under %s", repo.last.SOPProofs, repo.last.ProofRef, key)
+	}
+	if got := enq.request.MediaMeta; len(got) != 1 || got[0] != (ports.ProofMeta{Label: authored.OlderAppLabel, Kind: authored.KindVideo}) {
+		t.Fatalf("verifier meta = %+v", got)
+	}
+	found := false
+	for _, r := range enq.request.ContextRows {
+		if r.Label == "Arrival photo" && r.Value == NotCapturedOlderApp {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("rows = %+v, want Arrival photo not captured", enq.request.ContextRows)
+	}
+
+	// High priority: the legacy triple's feed clips have no video slot either; both are kept.
+	repo = &sopShiftingRepo{pin: approvedPin(intp(1), "high"), result: lowResult()}
+	svc, enq = sopService(t, repo, src, media)
+	in = baseInput()
+	in.LegacyShape = true
+	in.ProofRef, in.FeedPackingProofRef, in.FeedGivenProofRef = "v1", "p1", "f1"
+	if _, _, err := svc.Complete(context.Background(), in); err != nil {
+		t.Fatalf("older app high priority on photo-only cards refused: %v", err)
+	}
+	if len(repo.last.SOPProofs) != 3 || len(enq.request.MediaRefs) != 3 {
+		t.Fatalf("stored = %v media = %v, want all three clips kept", repo.last.SOPProofs, enq.request.MediaRefs)
+	}
+	for _, m := range enq.request.MediaMeta {
+		if m.Label != authored.OlderAppLabel || m.Kind != authored.KindVideo {
+			t.Fatalf("verifier meta = %+v", enq.request.MediaMeta)
+		}
+	}
+}
