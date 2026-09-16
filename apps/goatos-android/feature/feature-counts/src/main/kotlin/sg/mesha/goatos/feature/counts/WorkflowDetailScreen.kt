@@ -522,15 +522,18 @@ private fun WorkflowActionRow(
             action.options.chunked(2).forEach { pair ->
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     pair.forEach { option ->
+                        // The answer already given (or kept while the step's proofs are owed)
+                        // reads as chosen, so the operator can see which one they tapped.
+                        val chosen = action.answerValue?.let { it == option.value || it == option.label } == true
                         Text(
                             text = option.label,
-                            color = MeshaColors.BrandD,
+                            color = if (chosen) MeshaColors.OnBrand else MeshaColors.BrandD,
                             style = MeshaType.pillStrong,
                             textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                             modifier = Modifier
                                 .weight(1f)
                                 .clip(RoundedCornerShape(10.dp))
-                                .background(MeshaColors.BrandTint)
+                                .background(if (chosen) MeshaColors.Brand else MeshaColors.BrandTint)
                                 .clickable { onEvent(WorkflowDetailEvent.Answer(action.actionId, option.value)) }
                                 .minimumInteractiveComponentSize()
                                 .padding(vertical = 9.dp),
