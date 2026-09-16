@@ -56,6 +56,9 @@ func (s *Service) validateFollowUpContract(ctx context.Context, report *domain.V
 		}
 		return
 	}
+	for _, path := range tasksdomain.UnknownFollowUpKeys(formDSL) {
+		addError(report, "form_dsl."+path, "unknown_key", path+": not a follow-up field")
+	}
 	followUp, err := tasksdomain.ParseFollowUp(formDSL)
 	if err != nil {
 		addError(report, "form_dsl.follow_up", "invalid", err.Error())
