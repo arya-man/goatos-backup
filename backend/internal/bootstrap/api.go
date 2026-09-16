@@ -103,6 +103,11 @@ import (
 	pccareproof "github.com/vgoats/goatos/backend/internal/pccare/adapters/proof"
 	pccareverificationbridge "github.com/vgoats/goatos/backend/internal/pccare/adapters/verificationbridge"
 	pccareapp "github.com/vgoats/goatos/backend/internal/pccare/app"
+	penroutinesboard "github.com/vgoats/goatos/backend/internal/penroutines/adapters/boardsource"
+	penroutineshttp "github.com/vgoats/goatos/backend/internal/penroutines/adapters/http"
+	penroutinespg "github.com/vgoats/goatos/backend/internal/penroutines/adapters/postgres"
+	penroutinesproof "github.com/vgoats/goatos/backend/internal/penroutines/adapters/proof"
+	penroutinesapp "github.com/vgoats/goatos/backend/internal/penroutines/app"
 	penvisitsboard "github.com/vgoats/goatos/backend/internal/penvisits/adapters/boardsource"
 	penvisitshttp "github.com/vgoats/goatos/backend/internal/penvisits/adapters/http"
 	penvisitspg "github.com/vgoats/goatos/backend/internal/penvisits/adapters/postgres"
@@ -840,6 +845,9 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 		// under TASKS -- a task of its own, as on the phone's "For me" tab -- whatever work
 		// raised it.
 		penvisitsboard.New(pool, cfg.Postgres.QueryTimeout),
+		// Pen routines (maintainer instruction 2026-09-16) row under TASKS on the day a check
+		// is due, beside the pen visits.
+		penroutinesboard.New(pool, cfg.Postgres.QueryTimeout),
 		// Vaccination reuses the process-integrity read behind the port; the member
 		// resolver is what lets the operator lens narrow it by user id.
 		piboard.New(processIntegrityRepo).
@@ -869,7 +877,16 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	penVisitsService := penvisitsapp.NewService(penVisitsRepo).
 		WithProofValidator(penvisitsproof.NewValidator(proofRepo))
 	penVisitsHandler := penvisitshttp.NewHandler(penVisitsService, log)
-	workforceService.WithModuleBadges(penvisitsapp.NewModuleBadges(leadershipTasksService, penVisitsService))
+	// Pen routines (maintainer instruction 2026-09-16, docs/decisions/pen-routines.md): the
+	// configurable recurring pen checks. The kernel raises them; this serves the assignee's
+	// list, check-in and submit, and the CXO's authoring routes behind /routines. The module
+	// badge chains over the Tasks one so the workforce service keeps ONE badge source.
+	penRoutinesRepo := penroutinespg.NewRepository(pool, cfg.Postgres.QueryTimeout)
+	penRoutinesService := penroutinesapp.NewService(penRoutinesRepo).
+		WithProofValidator(penroutinesproof.NewValidator(proofRepo))
+	penRoutinesHandler := penroutineshttp.NewHandler(penRoutinesService, log)
+	penRoutinesAdminHandler := penroutineshttp.NewAdminHandler(penroutinesapp.NewAuthoringService(penRoutinesRepo), log)
+	workforceService.WithModuleBadges(penroutinesapp.NewModuleBadges(penvisitsapp.NewModuleBadges(leadershipTasksService, penVisitsService), penRoutinesService))
 	// The sales module: its own bounded ledger (sales_*) with a thin service -- a commercial
 	// record with no state machine to orchestrate.
 	salesHandler := saleshttp.NewSalesHandler(
@@ -1069,6 +1086,12 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 		pool.Close()
 		return nil, err
 	}
+	// Routine checks (maintainer instruction 2026-09-16): ONE category under its own Routines
+	// navigation module, filed against the task row.
+	if err := verificationService.RegisterCategory(verificationcatalog.PenRoutine); err != nil {
+		pool.Close()
+		return nil, err
+	}
 	// Death evidence verification (maintainer decision 2026-07-28, docs/decisions/
 	// birth-death-workflows.md): after admin approval, the death workflow's two mandatory videos
 	// travel to Verify as
@@ -1201,7 +1224,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// publishes verdicts only to the outbox, so these appliers actually fire in the durable-bus
 	// consumers above. Registering here keeps parity through the same helper. Each handler filters
 	// strictly on source.module + source.ref_type, so no cross-fire.
-	eventwiring.RegisterVerificationAppliers(bus, feedDirectionRepo, countsApprovalRepo, countsRepo, countsRepo, weighingRepo, weighingVerificationBridge, pcCareRepo, healthRepo, penVisitsRepo, pcCareRepo, log)
+	eventwiring.RegisterVerificationAppliers(bus, feedDirectionRepo, countsApprovalRepo, countsRepo, countsRepo, weighingRepo, weighingVerificationBridge, pcCareRepo, healthRepo, penVisitsRepo, pcCareRepo, penRoutinesRepo, log)
 	countsapp.NewPenReconciliationRaiser(countsRepo, log, nil).Register(bus)
 	countsapp.NewPenReconciliationVerificationHandler(countsRepo, nil).Register(bus)
 	// Birth/death workflow consumers: same single-registration pattern (internal/eventwiring), also
@@ -1353,6 +1376,8 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	workboardhttp.Register(protectedMux, workBoardHandler)
 	alertshttp.Register(protectedMux, alertsHandler)
 	penvisitshttp.Register(protectedMux, penVisitsHandler)
+	penroutineshttp.Register(protectedMux, penRoutinesHandler)
+	penroutineshttp.RegisterAdmin(protectedMux, penRoutinesAdminHandler)
 	saleshttp.Register(protectedMux, salesHandler)
 	vaccinationhttp.Register(protectedMux, vaccinationHandler)
 	vaccexechttp.Register(protectedMux, vaccExecHandler)

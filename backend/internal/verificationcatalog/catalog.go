@@ -21,6 +21,7 @@ import (
 	countsdomain "github.com/vgoats/goatos/backend/internal/counts/domain"
 	feeddirectiondomain "github.com/vgoats/goatos/backend/internal/feeddirection/domain"
 	pccaredomain "github.com/vgoats/goatos/backend/internal/pccare/domain"
+	penroutinesapp "github.com/vgoats/goatos/backend/internal/penroutines/app"
 	penvisitsapp "github.com/vgoats/goatos/backend/internal/penvisits/app"
 	"github.com/vgoats/goatos/backend/internal/sopbridge"
 	tasksdomain "github.com/vgoats/goatos/backend/internal/tasks/domain"
@@ -221,6 +222,18 @@ var PenVisit = domain.CategoryDefinition{
 	PageKey: penvisitsapp.VerificationCategory, PageLabel: "Pen visit", PageOrder: 9,
 }
 
+// PenRoutine is a submitted routine check (maintainer instruction 2026-09-16,
+// docs/decisions/pen-routines.md): every capture of the submit plus the answers as context
+// rows, ONE item per submit, under its OWN navigation module (Routines). The media set is
+// DYNAMIC (the routine's photo/video min-max), so no positional ExpectedMedia contract: each
+// item carries its own MediaMeta.
+var PenRoutine = domain.CategoryDefinition{
+	Vertical: penroutinesapp.VerificationVertical, Module: penroutinesapp.VerificationModule,
+	Category: penroutinesapp.VerificationCategory,
+	SLAHours: 24, NavigationModule: "pen_routines", NavigationModuleLabel: "Routines",
+	PageKey: penroutinesapp.VerificationCategory, PageLabel: "Routine check", PageOrder: 1,
+}
+
 // PCCare returns the four PC Care categories -- one per work category, all sharing the pc_care
 // navigation module so the verifier gets ONE Verify tab and the categories split as page filters.
 func PCCare() []domain.CategoryDefinition {
@@ -260,6 +273,6 @@ func All() []domain.CategoryDefinition {
 		DeathEvidence,
 		BirthEvidence,
 	}
-	out = append(out, PenVisit)
+	out = append(out, PenVisit, PenRoutine)
 	return append(out, PCCare()...)
 }

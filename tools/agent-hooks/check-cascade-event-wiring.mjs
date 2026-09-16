@@ -246,10 +246,12 @@ export const VERIFICATION_APPLIER_CONSTRUCTORS = [
   // bus without the second one verifies visits that never close their task.
   "PenVisitVerificationHandler",
   "PenVisitVerifiedHandler",
+  // Pen routines joined on 2026-09-16: the routine check's verdict applier.
+  "PenRoutineVerificationHandler",
 ];
 
 export const REQUIRED_VERIFICATION_APPLIER_CALL_TOKENS = {
-  "backend/internal/bootstrap/api.go": ["feedDirectionRepo", "countsApprovalRepo", "countsRepo", "weighingRepo", "weighingVerificationBridge", "pcCareRepo", "healthRepo", "penVisitsRepo"],
+  "backend/internal/bootstrap/api.go": ["feedDirectionRepo", "countsApprovalRepo", "countsRepo", "weighingRepo", "weighingVerificationBridge", "pcCareRepo", "healthRepo", "penVisitsRepo", "penRoutinesRepo"],
   // The pc-care store is passed TWICE since 2026-09-12 -- as the PC Care verdict store and as
   // the pen-visit parent closer -- so the builders name it once (pcCareRepo) and pass the name.
   "backend/internal/kernelstages/bus.go": [
@@ -261,8 +263,9 @@ export const REQUIRED_VERIFICATION_APPLIER_CALL_TOKENS = {
     "pcCareRepo",
     "healthRepo",
     "penVisitsRepo",
+    "penRoutinesRepo",
   ],
-  "backend/internal/domainconsumer/wiring/bus.go": ["stores.feed", "stores.shifting", "stores.milkPreparation", "stores.weighing", "stores.weighingAck", "stores.pcCare", "stores.health", "stores.penVisits", "stores.penVisitCloser"],
+  "backend/internal/domainconsumer/wiring/bus.go": ["stores.feed", "stores.shifting", "stores.milkPreparation", "stores.weighing", "stores.weighingAck", "stores.pcCare", "stores.health", "stores.penVisits", "stores.penVisitCloser", "stores.penRoutines"],
   "backend/cmd/domain-event-consumer/main.go": [
     "feedDirectionRepo",
     "countsApprovalRepo",
@@ -272,6 +275,7 @@ export const REQUIRED_VERIFICATION_APPLIER_CALL_TOKENS = {
     "pcCareRepo",
     "healthRepo",
     "penVisitsRepo",
+    "penRoutinesRepo",
   ],
   "backend/cmd/outbox-relay/main.go": [
     "feedDirectionRepo",
@@ -282,6 +286,7 @@ export const REQUIRED_VERIFICATION_APPLIER_CALL_TOKENS = {
     "pcCareRepo",
     "healthRepo",
     "penVisitsRepo",
+    "penRoutinesRepo",
   ],
 };
 

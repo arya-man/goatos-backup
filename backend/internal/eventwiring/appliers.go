@@ -21,6 +21,7 @@ import (
 	healthapp "github.com/vgoats/goatos/backend/internal/health/app"
 	pccareapp "github.com/vgoats/goatos/backend/internal/pccare/app"
 	pccareports "github.com/vgoats/goatos/backend/internal/pccare/ports"
+	penroutinesapp "github.com/vgoats/goatos/backend/internal/penroutines/app"
 	penvisitsapp "github.com/vgoats/goatos/backend/internal/penvisits/app"
 	penvisitsdomain "github.com/vgoats/goatos/backend/internal/penvisits/domain"
 	"github.com/vgoats/goatos/backend/internal/platform/eventbus"
@@ -104,6 +105,10 @@ type PenVisitVerdictStore = penvisitsapp.VerdictStore
 // open forever after its visit was approved.
 type PenVisitParentCloser = penvisitsapp.ParentCloser
 
+// PenRoutineVerdictStore is satisfied by *penroutinespg.Repository -- the routine task's
+// verdict half (ApplyVerified / BounceForRework), maintainer instruction 2026-09-16.
+type PenRoutineVerdictStore = penroutinesapp.VerdictStore
+
 // HealthVerdictStore is satisfied by *healthpg.Repository — the treatment-session verdict half
 // (approve stamps verified_by/verified_at, reject flips the session to rework).
 type HealthVerdictStore = healthapp.TreatmentVerdictStore
@@ -125,6 +130,7 @@ func RegisterVerificationAppliers(
 	health HealthVerdictStore,
 	penVisits PenVisitVerdictStore,
 	penVisitCloser PenVisitParentCloser,
+	penRoutines PenRoutineVerdictStore,
 	log *slog.Logger,
 ) {
 	countsapp.NewShiftingVerificationHandler(shifting, nil).Register(bus)
@@ -166,6 +172,10 @@ func RegisterVerificationAppliers(
 	// cannot drift apart.
 	penvisitsapp.NewPenVisitVerificationHandler(penVisits, log).Register(bus)
 	penvisitsapp.NewPenVisitVerifiedHandler(log).WithParentCloser(penvisitsdomain.SourceKindPCCareTask, penVisitCloser).Register(bus)
+	// Pen routines (maintainer instruction 2026-09-16): the routine check's applier, filtered
+	// to pen_routines/pen_routine_task. Registered HERE, in the one shared list, so the API
+	// bus, the outbox relay, and the Pub/Sub consumer cannot drift apart.
+	penroutinesapp.NewPenRoutineVerificationHandler(penRoutines, log).Register(bus)
 	// weighingAck is the receipt weighing sends verification once a verdict has landed on the
 	// observation, so a decided item stops reading as still-being-applied. It may be nil (a bus
 	// built without a verification repo still applies verdicts exactly as before -- the ack is

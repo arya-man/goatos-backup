@@ -21,10 +21,10 @@ func (b *spyBus) Publish(_ context.Context, _ eventbus.Event) error {
 // pending_verification. Because all three binaries call this one function, asserting the function
 // subscribes all six appliers (to BOTH the approved and rework verdicts) is enough to catch a
 // dropped applier. nil stores are fine here: nothing is published, so no handler method runs.
-func TestRegisterVerificationAppliersRegistersAllEleven(t *testing.T) {
+func TestRegisterVerificationAppliersRegistersAllTwelve(t *testing.T) {
 	bus := &spyBus{subs: map[string]int{}}
 
-	RegisterVerificationAppliers(bus, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	RegisterVerificationAppliers(bus, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 
 	// shifting + milk-preparation + feed-distribution + feed-packing + feed-transport + feed-wastage
 	// + weighing + pc-care + health + milk-feeding + pen-visits = 11 appliers, each subscribing to
@@ -33,13 +33,15 @@ func TestRegisterVerificationAppliersRegistersAllEleven(t *testing.T) {
 	// silent drop. Milk FEEDING joined on 2026-09-11: it was registered in two side processes and
 	// never on the API bus or the relay, so a milk-feeding reject applied nowhere that mattered.
 	// Pen visits joined on 2026-09-12: the visit video is the last clip of a pen's care chain.
-	const wantAppliers = 11
+	// Pen routines joined on 2026-09-16: the routine check's captures and answers go to the
+	// same verifier, and its applier belongs in this one list like every other.
+	const wantAppliers = 12
 	for _, eventType := range []string{
 		"verification.verdict.approved",
 		"verification.verdict.rework",
 	} {
 		if got := bus.subs[eventType]; got != wantAppliers {
-			t.Fatalf("%s subscribers = %d, want %d (shifting + milk-preparation + milk-feeding + feed-distribution + feed-packing + feed-transport + feed-wastage + weighing + pc-care + health + pen-visits)", eventType, got, wantAppliers)
+			t.Fatalf("%s subscribers = %d, want %d (shifting + milk-preparation + milk-feeding + feed-distribution + feed-packing + feed-transport + feed-wastage + weighing + pc-care + health + pen-visits + pen-routines)", eventType, got, wantAppliers)
 		}
 	}
 	// The pen visit's parent closure rides its own durable event (maintainer decision
