@@ -237,3 +237,28 @@ func TestCaptureReviewRollup(t *testing.T) {
 		t.Fatalf("no media = %q, want no review", got)
 	}
 }
+
+// TestBirthCaptureItemsCarryTheReportedPen: a birth placed in Castro 1 reached the verifier as
+// "Castro" -- the event carried the shed and dropped the pen the form named (E2E 2026-09-17).
+func TestBirthCaptureItemsCarryTheReportedPen(t *testing.T) {
+	enq := &fakeBirthCaptureEnqueuer{}
+	payload, err := json.Marshal(map[string]any{
+		"approval_request_id": "req-1", "birth_event_id": "req-1", "park_id": "park-1", "shed_id": "shed-1", "partition_label": "1",
+		"goat_ids": []string{"kid-1"}, "raised_by_user_id": "op-1", "capture_evidence": twoSlotCapture(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ev := eventbus.Event{Type: domain.EventBirthReported, TenantID: "t", Key: "req-1", Payload: payload, OccurredAt: time.Date(2026, 9, 16, 9, 0, 0, 0, time.UTC)}
+	if err := NewBirthReportedVerificationHandler(enq, nil).HandleEvent(context.Background(), ev); err != nil {
+		t.Fatal(err)
+	}
+	if len(enq.calls) != 2 {
+		t.Fatalf("calls = %d", len(enq.calls))
+	}
+	for _, c := range enq.calls {
+		if c.ShedID != "shed-1" || c.PartitionLabel != "1" {
+			t.Fatalf("item pen = %q/%q, want shed-1/1", c.ShedID, c.PartitionLabel)
+		}
+	}
+}

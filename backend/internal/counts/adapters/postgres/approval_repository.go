@@ -376,8 +376,9 @@ func captureColumns(c *domain.ApprovalCapture) captureColumnValues {
 // snapshot. Deterministic id + key per request, so a replay writes nothing twice.
 func insertBirthReportedOutbox(ctx context.Context, tx pgx.Tx, req domain.ApprovalRequest, children []domain.BirthChildResult) error {
 	var form struct {
-		ParkID string `json:"park_id"`
-		ShedID string `json:"shed_id"`
+		ParkID         string `json:"park_id"`
+		ShedID         string `json:"shed_id"`
+		PartitionLabel string `json:"partition_label"`
 	}
 	if len(req.Payload) > 0 {
 		_ = json.Unmarshal(req.Payload, &form)
@@ -410,6 +411,7 @@ func insertBirthReportedOutbox(ctx context.Context, tx pgx.Tx, req domain.Approv
 			"birth_event_id":      req.ApprovalRequestID,
 			"park_id":             form.ParkID,
 			"shed_id":             form.ShedID,
+			"partition_label":     form.PartitionLabel,
 			"goat_ids":            goatIDs,
 			"raised_by_user_id":   req.RaisedByUserID,
 			"capture_evidence":    req.Capture,

@@ -286,13 +286,16 @@ func (r *Repository) GoatWorkflowFacts(ctx context.Context, tenantID, goatID str
 		shedID      *string
 	)
 	err := r.pool.QueryRow(ctx, `
-SELECT goat_id::text, display_id, species, sex, COALESCE(breed, ''),
-       dob, to_char(time_of_birth, 'HH24:MI'), lifecycle_status,
-       park_id::text, shed_id::text
-FROM goats
-WHERE tenant_id = $1::uuid AND goat_id = $2::uuid`, tenantID, goatID).Scan(
+SELECT g.goat_id::text, g.display_id, g.species, g.sex, COALESCE(g.breed, ''),
+       g.dob, to_char(g.time_of_birth, 'HH24:MI'), g.lifecycle_status,
+       g.park_id::text, g.shed_id::text,
+       COALESCE(CASE WHEN gsp.shed_id = g.shed_id AND lower(btrim(gsp.partition_label)) <> 'whole'
+                     THEN btrim(gsp.partition_label) END, '')
+FROM goats g
+LEFT JOIN goat_shed_partitions gsp ON gsp.tenant_id = g.tenant_id AND gsp.goat_id = g.goat_id
+WHERE g.tenant_id = $1::uuid AND g.goat_id = $2::uuid`, tenantID, goatID).Scan(
 		&out.GoatID, &out.DisplayID, &out.Species, &out.Sex, &out.Breed,
-		&dob, &timeOfBirth, &out.LifecycleStatus, &parkID, &shedID,
+		&dob, &timeOfBirth, &out.LifecycleStatus, &parkID, &shedID, &out.PartitionLabel,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ports.GoatWorkflowFacts{}, domain.ErrNotFound

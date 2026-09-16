@@ -42,6 +42,9 @@ type GoatWorkflowFacts struct {
 	LifecycleStatus string
 	ParkID          *string
 	ShedID          *string
+	// PartitionLabel is the animal's pen inside ShedID ("Part 3", "1"): the human label from
+	// goat_shed_partitions, blank for an undivided shed ('whole' never leaves the adapter).
+	PartitionLabel string
 }
 
 // DeathVerdictCommand applies a verifier's approve/rework verdict to a death workflow's sign-off.

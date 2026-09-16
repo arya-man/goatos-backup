@@ -54,6 +54,7 @@ func (e *BirthCaptureVerificationEnqueuer) EnqueueBirthCaptureVerification(ctx c
 		MediaMeta:      meta,
 		OperatorID:     ptrIfSet(in.OperatorID),
 		ShedID:         ptrIfSet(in.ShedID),
+		PartitionLabel: ptrIfSet(in.PartitionLabel),
 		ParkID:         ptrIfSet(in.ParkID),
 		CapturedAt:     in.CapturedAt,
 		IdempotencyKey: in.IdempotencyKey,
