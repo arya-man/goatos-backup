@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/vgoats/goatos/backend/internal/sop/domain"
@@ -74,5 +75,54 @@ func TestFollowUpUnknownKeysAreRefusedByPath(t *testing.T) {
 		if !got[want] {
 			t.Errorf("unknown key %s not refused by path; errors=%+v", want, report.Errors)
 		}
+	}
+}
+
+// The birth kid track's tag and pen steps drive server behaviour (the RFID gate and the kid's
+// placement when its pen is unresolved). The editor keeps their key and type fixed; deleting the
+// step must be refused at save, naming it.
+func TestBirthEngineHookStepsCannotBeRemoved(t *testing.T) {
+	for _, tc := range []struct{ key, title string }{{"tag_the_kid", "Tag"}, {"record_shed", "shed"}} {
+		dsl := seededFollowUpDSL(t, tasksdomain.SOPCodeBirth)
+		track := dsl["follow_up"].(map[string]any)["tracks"].([]any)[0].(map[string]any)
+		var kept []any
+		for _, s := range track["steps"].([]any) {
+			if s.(map[string]any)["key"] != tc.key {
+				kept = append(kept, s)
+			}
+		}
+		track["steps"] = kept
+		report := followUpReport(t, tasksdomain.SOPCodeBirth, dsl)
+		if report.Valid {
+			t.Fatalf("removing %s was accepted", tc.key)
+		}
+		found := false
+		for _, e := range report.Errors {
+			if strings.Contains(e.Message, tc.key) {
+				found = true
+			}
+		}
+		if !found {
+			t.Fatalf("removing %s: no error names the step: %+v", tc.key, report.Errors)
+		}
+	}
+}
+
+// Steps whose hook only labels or reports (weight, colostrum feeds, death clips, the reconcile
+// return) may be removed: the SOP decides what the operator records.
+func TestReportingHookStepsMayBeRemoved(t *testing.T) {
+	dsl := seededFollowUpDSL(t, tasksdomain.SOPCodeBirth)
+	track := dsl["follow_up"].(map[string]any)["tracks"].([]any)[0].(map[string]any)
+	var kept []any
+	for _, s := range track["steps"].([]any) {
+		switch s.(map[string]any)["key"] {
+		case "take_weight", "first_colostrum", "colostrum_series":
+			continue
+		}
+		kept = append(kept, s)
+	}
+	track["steps"] = kept
+	if r := followUpReport(t, tasksdomain.SOPCodeBirth, dsl); !r.Valid {
+		t.Fatalf("removing reporting steps refused: %+v", r.Errors)
 	}
 }
