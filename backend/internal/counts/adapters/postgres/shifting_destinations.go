@@ -54,60 +54,109 @@ import (
 //     order stable across calls when two sheds in the same park share a name (which happens), and
 //     partition_label last keeps a partitioned shed's rows adjacent and stably ordered.
 //
-// Index: locations_tenant_type_status_order_idx covers the park side
-// (tenant_id, location_type, status, ...); shed_partitions_tenant_shed_idx covers the catalog
-// (tenant_id, shed_id, status). No new index is required.
+// The query materializes the bounded location/partition catalog once, and aggregates live residents
+// once per (shed, normalized partition key). The older shape used two correlated goat scans and
+// repeated the legacy partition-alias anti-join for every destination row; on the OCI staging clone
+// that made the destination picker spend hundreds of milliseconds before any HTTP overhead.
 //
 // mobile-guard:ignore: bounded location catalog cached on-device, not a paginated feed
 // scale-guard:ignore: bounded location catalog cached on-device, not a paginated feed
 var shiftingDestinationCatalogQuery = `
+WITH active_parks AS MATERIALIZED (
+    SELECT location_id, tenant_id, name
+    FROM locations
+    WHERE tenant_id = $1::uuid
+      AND location_type = 'park'
+      AND status = 'active'
+      AND retired_at IS NULL
+),
+active_sheds AS MATERIALIZED (
+    SELECT location_id, tenant_id, parent_location_id, name
+    FROM locations
+    WHERE tenant_id = $1::uuid
+      AND location_type = 'shed'
+      AND status = 'active'
+      AND retired_at IS NULL
+),
+active_partitions AS MATERIALIZED (
+    SELECT tenant_id, shed_id, partition_label, normalized_label, animal_stage_id
+    FROM shed_partitions
+    WHERE tenant_id = $1::uuid
+      AND status = 'active'
+),
+partition_alias_keys AS MATERIALIZED (
+    SELECT
+      parent_shed.parent_location_id,
+      parent_shed.location_id,
+      parent_shed.name,
+      parent_partition.normalized_label
+    FROM active_sheds parent_shed
+    JOIN active_partitions parent_partition
+      ON parent_partition.tenant_id = parent_shed.tenant_id
+     AND parent_partition.shed_id = parent_shed.location_id
+),
+canonical_sheds AS MATERIALIZED (
+    SELECT shed.*
+    FROM active_sheds shed
+    WHERE NOT EXISTS (
+      SELECT 1
+      FROM partition_alias_keys alias_key
+      WHERE alias_key.parent_location_id = shed.parent_location_id
+        AND alias_key.location_id <> shed.location_id
+        AND starts_with(BTRIM(shed.name), BTRIM(alias_key.name))
+        AND NULLIF(
+          regexp_replace(
+            BTRIM(replace(BTRIM(shed.name), BTRIM(alias_key.name), '')),
+            '^\s*-\s*part\s*|\s+',
+            '',
+            'gi'
+          ),
+          ''
+        ) = alias_key.normalized_label
+    )
+),
+resident_agg AS MATERIALIZED (
+    SELECT
+      g.tenant_id,
+      g.shed_id,
+      regexp_replace(lower(btrim(COALESCE(gsp.partition_label, 'whole'))), '^part[[:space:]]+', '') AS partition_key,
+      COUNT(DISTINCT g.goat_id) AS animal_count,
+      array_agg(DISTINCT btrim(g.management_stage) ORDER BY btrim(g.management_stage))
+        FILTER (WHERE btrim(COALESCE(g.management_stage, '')) <> '') AS stages
+    FROM goats g
+    LEFT JOIN goat_shed_partitions gsp
+           ON gsp.tenant_id = g.tenant_id
+          AND gsp.goat_id = g.goat_id
+    WHERE g.tenant_id = $1::uuid
+      AND g.lifecycle_status = 'alive'
+      AND g.exited_at IS NULL
+    GROUP BY g.tenant_id, g.shed_id, regexp_replace(lower(btrim(COALESCE(gsp.partition_label, 'whole'))), '^part[[:space:]]+', '')
+)
 SELECT
     park.location_id::text,
     park.name,
     shed.location_id::text,
     shed.name,
     partitions.partition_label,
-    COALESCE(animal_count.count, 0),
-    COALESCE(stage_agg.stages, ARRAY[]::text[]),
+    COALESCE(residents.animal_count, 0),
+    COALESCE(residents.stages, ARRAY[]::text[]),
     -- The cohort AUTHORED for this exact operational location: the pen's own tag when this row is
     -- a pen, the shed's profile when the shed has none. This is what a movement adopts; the
     -- resident-derived stages above remain only as the fallback for a location nobody has
     -- configured yet.
-    COALESCE(
-      CASE WHEN partitions.shed_id IS NOT NULL THEN pen_stage.stage_code ELSE shed_stage.stage_code END,
-      ''
-    )
-FROM locations park
-LEFT JOIN locations shed
+    COALESCE(CASE WHEN partitions.shed_id IS NOT NULL THEN pen_stage.stage_code ELSE shed_stage.stage_code END, '')
+FROM active_parks park
+LEFT JOIN canonical_sheds shed
        ON shed.tenant_id = park.tenant_id
       AND shed.parent_location_id = park.location_id
-      AND shed.location_type = 'shed'
-      AND shed.status = 'active'
-      AND shed.retired_at IS NULL
-      AND ` + oploc.PartitionAliasExclusionSQL("shed") + `
 -- projection-review: membership=active parent sheds for the tenant LEFT JOINed to the shed_partitions CATALOG, which is the authoritative list of pens that physically exist (goat-derived membership would hide an EMPTY pen and make it unreachable as a destination); group_key=(shed_id, normalized partition label) -- the catalog's own primary key, so a pen appears at most once and a shed with no catalog rows still yields exactly one bare-shed row; join_cardinality=1:N by design (one shed -> its pens) with the animal count computed in a correlated subquery per pen rather than by joining goats, so no goat row can fan the catalog out; pagination=none, this catalog is bounded (two parks, ~154 sheds) and is returned whole; scope=tenant_id plus active/non-retired locations, which is what keeps inactive partition-alias rows out of the picker
-LEFT JOIN shed_partitions partitions
+LEFT JOIN active_partitions partitions
        ON partitions.tenant_id = park.tenant_id
       AND partitions.shed_id = shed.location_id
-      AND partitions.status = 'active'
-LEFT JOIN LATERAL (
-    SELECT COUNT(DISTINCT g.goat_id) AS count
-    FROM goats g
-    LEFT JOIN goat_shed_partitions gsp ON gsp.tenant_id = g.tenant_id AND gsp.goat_id = g.goat_id
-    WHERE g.tenant_id = park.tenant_id
-      AND g.shed_id = shed.location_id
-      AND g.lifecycle_status = 'alive'
-      AND g.exited_at IS NULL
-      AND (
-        -- For this partition, count goats whose partition_label matches (after normalization)
-        CASE WHEN partitions.normalized_label IS NOT NULL THEN
-          regexp_replace(lower(btrim(COALESCE(gsp.partition_label, 'whole'))), '^part[[:space:]]+', '') = partitions.normalized_label
-        ELSE
-          -- For non-partitioned shed, count all goats with whole/null partition
-          regexp_replace(lower(btrim(COALESCE(gsp.partition_label, 'whole'))), '^part[[:space:]]+', '') = 'whole'
-        END
-      )
-) animal_count ON shed.location_id IS NOT NULL
+LEFT JOIN resident_agg residents
+       ON residents.tenant_id = park.tenant_id
+      AND residents.shed_id = shed.location_id
+      AND residents.partition_key = COALESCE(partitions.normalized_label, 'whole')
 LEFT JOIN shed_profiles destination_profile
        ON destination_profile.tenant_id = park.tenant_id
       AND destination_profile.location_id = shed.location_id
@@ -120,31 +169,12 @@ LEFT JOIN animal_stage_lookup pen_stage
       AND pen_stage.animal_stage_id = partitions.animal_stage_id
       AND pen_stage.status = 'active'
 -- projection-review: membership=live non-exited goats standing in THIS operational location -- the
--- same per-pen partition normalization the animal_count lateral above uses, so the stages a pen
+-- same per-pen partition normalization the resident_agg CTE above uses, so the stages a pen
 -- offers and the heads a pen counts come from the SAME animal set; group_key=(shed_id, normalized
--- partition label) via the correlated partitions row; join_cardinality=goats 1:0..1
+-- partition label) via the joined partitions row; join_cardinality=goats 1:0..1
 -- goat_shed_partitions (PK tenant_id, goat_id), so no fan-out; a partitioned shed's animal with NO
 -- partition row matches no pen and contributes to neither stages nor count -- excluded on the same
 -- grain rather than smeared across every pen.
-LEFT JOIN LATERAL (
-    SELECT array_agg(DISTINCT btrim(g.management_stage) ORDER BY btrim(g.management_stage)) AS stages
-    FROM goats g
-    LEFT JOIN goat_shed_partitions gsp ON gsp.tenant_id = g.tenant_id AND gsp.goat_id = g.goat_id
-    WHERE g.tenant_id = park.tenant_id AND g.shed_id = shed.location_id
-      AND g.lifecycle_status = 'alive' AND g.exited_at IS NULL
-      AND btrim(COALESCE(g.management_stage, '')) <> ''
-      AND (
-        CASE WHEN partitions.normalized_label IS NOT NULL THEN
-          regexp_replace(lower(btrim(COALESCE(gsp.partition_label, 'whole'))), '^part[[:space:]]+', '') = partitions.normalized_label
-        ELSE
-          regexp_replace(lower(btrim(COALESCE(gsp.partition_label, 'whole'))), '^part[[:space:]]+', '') = 'whole'
-        END
-      )
-) stage_agg ON shed.location_id IS NOT NULL
-WHERE park.tenant_id = $1::uuid
-  AND park.location_type = 'park'
-  AND park.status = 'active'
-  AND park.retired_at IS NULL
 ORDER BY park.name, park.location_id, shed.name, shed.location_id, partitions.normalized_label NULLS FIRST`
 
 // ShiftingDestinationCatalog implements ports.Repository.ShiftingDestinationCatalog.
