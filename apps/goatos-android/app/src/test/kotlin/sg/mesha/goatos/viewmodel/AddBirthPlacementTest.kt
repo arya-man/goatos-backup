@@ -60,6 +60,10 @@ class AddBirthPlacementTest {
         NoopAddAnalyticsPort(),
         NoopAddCrashReporter(),
         SavedStateHandle(),
+        FakeCountsCaptureCardRepository(),
+        sg.mesha.goatos.capture.FakeProofCaptureSource(),
+        sg.mesha.goatos.capture.FakePhotoCaptureSource(),
+        FakeProofCaptureRepository(),
     )
 
     /** A park whose sheds include a non-kid pen, plus whichever kid pens the placement declares. */

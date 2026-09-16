@@ -264,4 +264,7 @@
     <string name="counts_approval_capture_open_media">%1$s खोलें</string>
     <string name="counts_approval_capture_media_loading">खुल रहा है…</string>
     <string name="counts_approval_capture_media_failed">%1$s नहीं खुल सका। फिर से कोशिश करने के लिए टैप करें।</string>
+    <string name="counts_group_report">रिपोर्ट</string>
+    <string name="counts_capture_choose_pen_first">रिपोर्ट की फ़ोटो और वीडियो रिकॉर्ड करने के लिए पहले बाड़ा चुनें।</string>
+    <string name="counts_capture_choose_animal_first">रिपोर्ट की फ़ोटो और वीडियो रिकॉर्ड करने के लिए पहले पशु चुनें।</string>
 </resources>

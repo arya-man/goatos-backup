@@ -106,6 +106,10 @@ class AddBirthDeathViewModelValidationTest {
         analytics,
         crashReporter,
         savedStateHandle,
+        FakeCountsCaptureCardRepository(),
+        sg.mesha.goatos.capture.FakeProofCaptureSource(),
+        sg.mesha.goatos.capture.FakePhotoCaptureSource(),
+        FakeProofCaptureRepository(),
     )
 
     private fun newDeathViewModel() = AddDeathViewModel(
@@ -115,6 +119,10 @@ class AddBirthDeathViewModelValidationTest {
         analytics,
         crashReporter,
         savedStateHandle,
+        FakeCountsCaptureCardRepository(),
+        sg.mesha.goatos.capture.FakeProofCaptureSource(),
+        sg.mesha.goatos.capture.FakePhotoCaptureSource(),
+        FakeProofCaptureRepository(),
     )
 
     // --- Birth ---------------------------------------------------------------------------------

@@ -21,7 +21,10 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 import sg.mesha.goatos.core.designsystem.theme.MeshaType
+import sg.mesha.goatos.core.ui.RefreshOnResume
 import sg.mesha.goatos.core.ui.operationalLocationLabel
+import sg.mesha.goatos.core.ui.sop.SopCardUi
+import sg.mesha.goatos.core.ui.sop.sopCardItems
 
 /**
  * Add-death form (`/counts/death/add` — docs/decisions/birth-death-workflows.md, mock's "Add"
@@ -59,6 +62,8 @@ data class AddDeathUiState(
     val validationMessage: String? = null,
     val result: CountsWriteResultUi = CountsWriteResultUi(),
     val lastRecordedMessage: String? = null,
+    /** The published SOP capture card; empty (the default) renders today's plain form. */
+    val captureCard: SopCardUi = SopCardUi(),
 ) {
     /**
      * The diseases matching what the operator has typed, matched on the LABEL only.
@@ -96,6 +101,10 @@ sealed interface AddDeathEvent {
     data class SelectDeathCauseKind(val kind: DeathCauseKind) : AddDeathEvent
     data class EditDeathCauseQuery(val value: String) : AddDeathEvent
     data class SelectDeathCause(val key: String) : AddDeathEvent
+    /** Re-reads the published capture card (every time the form is shown). */
+    data object Refresh : AddDeathEvent
+    data class CaptureSlot(val slotKey: String, val kind: String?) : AddDeathEvent
+    data class Answer(val questionId: String, val value: String) : AddDeathEvent
     data object Submit : AddDeathEvent
     data object RecordAnother : AddDeathEvent
     data object Back : AddDeathEvent
@@ -107,6 +116,7 @@ fun AddDeathScreen(
     onEvent: (AddDeathEvent) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
+    RefreshOnResume { onEvent(AddDeathEvent.Refresh) }
     Column(modifier = modifier.fillMaxSize().background(MeshaColors.PageBg)) {
         CountsFormHeader(
             title = stringResource(R.string.counts_workflow_add_death),
@@ -248,6 +258,28 @@ fun AddDeathScreen(
                         },
                     )
                 }
+            }
+            // The authored capture card (SOP-driven Herd Operations, 2026-09-16). Absent until a
+            // card is published for this report, so the form reads exactly as before.
+            if (!state.captureCard.isEmpty) {
+                item(key = "capture-card") {
+                    AddFormGroupCard(title = stringResource(R.string.counts_group_report)) {
+                        if (state.captureCard.instruction.isNotBlank()) {
+                            Text(text = state.captureCard.instruction, color = MeshaColors.Muted, style = MeshaType.cardSubtitle)
+                        }
+                        if (state.selectedAnimal == null) {
+                            Text(text = stringResource(R.string.counts_capture_choose_animal_first), color = MeshaColors.Warn, style = MeshaType.cardSubtitle)
+                        }
+                    }
+                }
+                sopCardItems(
+                    card = state.captureCard,
+                    locked = state.result.status == CountsWriteStatus.QUEUED || state.result.status == CountsWriteStatus.SYNCED || state.selectedAnimal == null,
+                    onCapture = { key, kind -> onEvent(AddDeathEvent.CaptureSlot(key, kind)) },
+                    onPlaybackFailed = {},
+                    onPreviewAction = { _, _ -> },
+                    onAnswer = { id, value -> onEvent(AddDeathEvent.Answer(id, value)) },
+                )
             }
             item(key = "guardrail") {
                 Row(modifier = Modifier.fillMaxWidth()) {
