@@ -122,7 +122,7 @@ func (s *Service) judgeCard(
 			}
 			return nil, nil, nil, fmt.Errorf("%w: %w", ports.ErrSOPProofSlotInvalid, &authored.ProofError{Message: "Record a capture for this card."})
 		}
-		judgedBy = rules.OlderAppCopy(legacy)
+		judgedBy = rules.OlderAppCopy(legacy).OlderAppSlotsFor(refs)
 	} else {
 		refs = domain.LegacyProofRefs(rules.Stage, legacy, explicit)
 	}
@@ -279,7 +279,7 @@ func canonicalOrderedRefs(rules domain.Rules, stored authored.ProofRefs, judged 
 		return orderedRefs(judged)
 	}
 	out := make([]string, 0, len(stored))
-	for _, p := range rules.Proofs {
+	for _, p := range rules.OlderAppSlotsFor(stored).Proofs {
 		if ref := strings.TrimSpace(stored[p.Key]); ref != "" {
 			out = append(out, ref)
 		}
@@ -300,7 +300,7 @@ func canonicalProofMeta(rules domain.Rules, stored authored.ProofRefs, judged []
 		kindOf[j.Ref] = j.Kind
 	}
 	out := make([]ports.ProofMeta, 0, len(stored))
-	for _, p := range rules.Proofs {
+	for _, p := range rules.OlderAppSlotsFor(stored).Proofs {
 		ref := strings.TrimSpace(stored[p.Key])
 		if ref == "" {
 			continue

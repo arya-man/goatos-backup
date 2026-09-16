@@ -138,6 +138,9 @@ func ValidateProofSlots(path string, slots []ProofSlot, requireOne bool, add Add
 		if !IDPattern.MatchString(p.Key) {
 			add("%s.key: %q must be a-z, 0-9 and _ (start with a letter)", pp, p.Key)
 		}
+		if IsOlderAppKey(p.Key) {
+			add("%s.key: %q is reserved for a capture recorded on an older app", pp, p.Key)
+		}
 		if seen[p.Key] {
 			add("%s.key: %q is listed twice", pp, p.Key)
 		}
