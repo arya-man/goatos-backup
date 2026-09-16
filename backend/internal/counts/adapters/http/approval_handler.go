@@ -128,15 +128,14 @@ type appApprovalListItem struct {
 	// its own field instead of parsing it back out of the composed line. See
 	// domain.ApprovalNameLookup.AnimalLocations for how it is resolved.
 	SubjectAnimalLocation *string `json:"subject_animal_location,omitempty"`
-	// Capture is the raise's SOP capture form as the approver sees it (shared
-	// CountsApprovalCapture shape, program decision 2026-09-16): version label, answers in farm
-	// words, captures under their slot titles, and what an older app did not send. Absent for a
-	// request raised without one.
-	Capture         *domain.CountsApprovalCapture `json:"capture,omitempty"`
-	Summary         json.RawMessage               `json:"summary"`
-	DecidedByUserID *string                       `json:"decided_by_user_id,omitempty"`
-	DecidedAt       *time.Time                    `json:"decided_at,omitempty"`
-	DecisionReason  *string                       `json:"decision_reason,omitempty"`
+	// Capture is the SOP capture card's snapshot (CountsApprovalCapture): the report's own
+	// proofs under their titles, its answers in farm words, the older-app note, and the verifier's
+	// verdict on it. Shifting rows may carry the same shape inside their raise summary.
+	Capture         *appApprovalCapture `json:"capture,omitempty"`
+	Summary         json.RawMessage     `json:"summary"`
+	DecidedByUserID *string             `json:"decided_by_user_id,omitempty"`
+	DecidedAt       *time.Time          `json:"decided_at,omitempty"`
+	DecisionReason  *string             `json:"decision_reason,omitempty"`
 }
 
 // ListApprovals returns one keyset page of requests the caller may decide.
@@ -207,7 +206,10 @@ func (h *AppWriteHandler) ListApprovals(w http.ResponseWriter, r *http.Request) 
 		if loc := names.AnimalLocation(subjectGoatID); loc != "" {
 			row.SubjectAnimalLocation = &loc
 		}
-		row.Capture = shiftingCaptureFromSummary(item.RequestType, item.Summary)
+		row.Capture = approvalCaptureDTO(item)
+		if row.Capture == nil {
+			row.Capture = shiftingCaptureFromSummary(item.RequestType, item.Summary)
+		}
 		items = append(items, row)
 	}
 	httpresponse.WriteJSON(w, http.StatusOK, appApprovalListResponse{Items: items, NextCursor: page.NextCursor})
@@ -216,7 +218,7 @@ func (h *AppWriteHandler) ListApprovals(w http.ResponseWriter, r *http.Request) 
 // shiftingCaptureFromSummary lifts the raise snapshot a shifting request carries in its stored
 // payload (`capture`, written once at raise) onto the list item. Nothing is recomposed: the park
 // head sees exactly what the raise judged. Other request types are left to their own producers.
-func shiftingCaptureFromSummary(requestType string, summary json.RawMessage) *domain.CountsApprovalCapture {
+func shiftingCaptureFromSummary(requestType string, summary json.RawMessage) *appApprovalCapture {
 	if requestType != domain.ApprovalRequestTypeShifting || len(summary) == 0 {
 		return nil
 	}
@@ -226,13 +228,19 @@ func shiftingCaptureFromSummary(requestType string, summary json.RawMessage) *do
 	if err := json.Unmarshal(summary, &payload); err != nil || payload.Capture == nil {
 		return nil
 	}
-	if payload.Capture.Rows == nil {
-		payload.Capture.Rows = []domain.CountsApprovalCaptureRow{}
+	out := &appApprovalCapture{
+		VersionLabel: payload.Capture.VersionLabel,
+		Rows:         make([]appApprovalCaptureRow, 0, len(payload.Capture.Rows)),
+		Media:        make([]appApprovalCaptureMedia, 0, len(payload.Capture.Media)),
+		MissingNote:  payload.Capture.MissingNote,
 	}
-	if payload.Capture.Media == nil {
-		payload.Capture.Media = []domain.CountsApprovalCaptureMedia{}
+	for _, row := range payload.Capture.Rows {
+		out.Rows = append(out.Rows, appApprovalCaptureRow{Label: row.Label, Value: row.Value, Group: row.Group})
 	}
-	return payload.Capture
+	for _, media := range payload.Capture.Media {
+		out.Media = append(out.Media, appApprovalCaptureMedia{ProofID: media.Ref, Label: media.Label, Kind: media.Kind})
+	}
+	return out
 }
 
 // approvalNames resolves every id one page of the queue needs, in a bounded number of batched
