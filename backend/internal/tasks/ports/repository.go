@@ -155,7 +155,7 @@ type Repository interface {
 	// AppendCaptureReshootSteps appends one "Re-shoot report proof" step per capture proof to the
 	// workflow (domain.CaptureReshootSteps), idempotent on the workflow_actions natural key, and
 	// recomputes the card in the same transaction.
-	AppendCaptureReshootSteps(ctx context.Context, tenantID, workflowID string, capture authored.Evidence, recordingKey, reason string) error
+	AppendCaptureReshootSteps(ctx context.Context, tenantID, workflowID string, capture authored.Evidence, indexes []int, recordingKey, reason string) error
 
 	// BirthWorkflowIDForEvent resolves the track a litter's report re-shoot is appended to: the
 	// mother track of the birth event, else its first kid track. domain.ErrNotFound when none.

@@ -25,7 +25,8 @@ ALTER TABLE public.counts_approval_requests
   ADD COLUMN IF NOT EXISTS capture_answers jsonb NOT NULL DEFAULT '{}'::jsonb,
   ADD COLUMN IF NOT EXISTS capture_evidence jsonb NOT NULL DEFAULT '{}'::jsonb,
   ADD COLUMN IF NOT EXISTS capture_review_status text,
-  ADD COLUMN IF NOT EXISTS capture_review_reason text;
+  ADD COLUMN IF NOT EXISTS capture_review_reason text,
+  ADD COLUMN IF NOT EXISTS capture_slot_reviews jsonb NOT NULL DEFAULT '{}'::jsonb;
 
 ALTER TABLE public.counts_approval_requests
   DROP CONSTRAINT IF EXISTS counts_approval_requests_capture_review_status_check;
@@ -42,11 +43,14 @@ COMMENT ON COLUMN public.counts_approval_requests.capture_answers IS
 COMMENT ON COLUMN public.counts_approval_requests.capture_evidence IS
   'Snapshot {version_label, media:[{ref,kind,label}], rows:[{label,value,group}], missing_note} the approver''s row and the verifier''s item render verbatim. {} = the form asked nothing.';
 COMMENT ON COLUMN public.counts_approval_requests.capture_review_status IS
-  'Verifier verdict on the report''s own proof: pending (item queued), approved, rework (re-shoot requested). NULL = no proof to review.';
+  'ROLLUP of capture_slot_reviews: rework when any slot is in rework, approved only when every captured slot is approved, pending otherwise. NULL = no proof to review.';
+COMMENT ON COLUMN public.counts_approval_requests.capture_slot_reviews IS
+  '{slot key: {ref, status, reason}} -- birth is verified PER FORM PROOF SLOT (maintainer correction 2026-09-16); a verdict applies only while the slot still holds ref.';
 
 -- +goose Down
 ALTER TABLE public.counts_approval_requests
   DROP CONSTRAINT IF EXISTS counts_approval_requests_capture_review_status_check,
+  DROP COLUMN IF EXISTS capture_slot_reviews,
   DROP COLUMN IF EXISTS capture_review_reason,
   DROP COLUMN IF EXISTS capture_review_status,
   DROP COLUMN IF EXISTS capture_evidence,

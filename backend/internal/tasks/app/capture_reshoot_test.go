@@ -44,7 +44,7 @@ func TestBirthCaptureRejectOpensAReshootStepOnTheMotherTrack(t *testing.T) {
 	repo.workflows[workflowID] = w
 	capture := authored.Evidence{Media: []authored.EvidenceMedia{{Ref: "old-photo", Kind: "photo", Label: "Newborns with the mother"}}}
 	for i := 0; i < 2; i++ { // redelivered verdict: one step
-		if err := svc.OpenBirthCaptureReshoot(context.Background(), testTenant, event, capture, "rec-1", "Mother's face not visible"); err != nil {
+		if err := svc.OpenBirthCaptureReshoot(context.Background(), testTenant, event, capture, []int{0}, "rec-1", "Mother's face not visible"); err != nil {
 			t.Fatalf("open #%d: %v", i, err)
 		}
 	}

@@ -1121,13 +1121,13 @@ func (f *fakeRepo) FetchShedDetails(ctx context.Context, tenantID, shedID string
 }
 
 // appendReshoot mirrors insertCaptureReshootSteps: natural-key idempotent appends.
-func (f *fakeRepo) appendReshoot(workflowID string, capture authored.Evidence, actions []domain.WorkflowAction, key, reason string) int {
+func (f *fakeRepo) appendReshoot(workflowID string, capture authored.Evidence, actions []domain.WorkflowAction, key, reason string, indexes ...int) int {
 	existing := map[string]bool{}
 	for _, a := range actions {
 		existing[a.ActionKey] = true
 	}
 	added := 0
-	for _, step := range domain.CaptureReshootSteps(capture, actions, key, reason) {
+	for _, step := range domain.CaptureReshootSteps(capture, actions, key, reason, indexes...) {
 		if existing[step.ActionKey] {
 			continue
 		}
@@ -1138,9 +1138,9 @@ func (f *fakeRepo) appendReshoot(workflowID string, capture authored.Evidence, a
 	return added
 }
 
-func (f *fakeRepo) AppendCaptureReshootSteps(_ context.Context, tenantID, workflowID string, capture authored.Evidence, recordingKey, reason string) error {
+func (f *fakeRepo) AppendCaptureReshootSteps(_ context.Context, tenantID, workflowID string, capture authored.Evidence, indexes []int, recordingKey, reason string) error {
 	_, _, _, err := f.mutate(tenantID, workflowID, func(w *domain.WorkflowInstance, actions []domain.WorkflowAction) (bool, error) {
-		return f.appendReshoot(workflowID, capture, actions, recordingKey, reason) == 0, nil
+		return f.appendReshoot(workflowID, capture, actions, recordingKey, reason, indexes...) == 0, nil
 	})
 	return err
 }

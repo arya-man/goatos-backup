@@ -20,11 +20,13 @@ const EngineHookReshootReport = "reshoot_report"
 
 const reshootKeyPrefix = "reshoot_report_"
 
-// CaptureReshootSteps builds the appended steps for one rejection: one per capture proof, in
-// capture order, after every existing step, status rework carrying the reason. Keys are
-// deterministic per (verdict recording key, proof index), so a redelivered verdict lands on the
-// workflow_actions natural key and inserts nothing, while a later rejection mints fresh steps.
-func CaptureReshootSteps(capture authored.Evidence, existing []WorkflowAction, recordingKey, reason string) []WorkflowAction {
+// CaptureReshootSteps builds the appended steps for one rejection: one per capture proof named in
+// indexes (none named = every proof: death's bundle), in capture order, after every existing
+// step, status rework carrying the reason. Birth is verified per slot, so a birth rejection names
+// exactly one index. Keys are deterministic per (verdict recording key, proof index), so a
+// redelivered verdict lands on the workflow_actions natural key and inserts nothing, while a later
+// rejection mints fresh steps.
+func CaptureReshootSteps(capture authored.Evidence, existing []WorkflowAction, recordingKey, reason string, indexes ...int) []WorkflowAction {
 	if len(capture.Media) == 0 {
 		return nil
 	}
@@ -37,7 +39,14 @@ func CaptureReshootSteps(capture authored.Evidence, existing []WorkflowAction, r
 		}
 	}
 	out := make([]WorkflowAction, 0, len(capture.Media))
+	wanted := map[int]bool{}
+	for _, i := range indexes {
+		wanted[i] = true
+	}
 	for i, m := range capture.Media {
+		if len(wanted) > 0 && !wanted[i] {
+			continue
+		}
 		seq++
 		a := WorkflowAction{
 			ActionKey:    reshootKeyPrefix + strconv.Itoa(i) + "_" + round,

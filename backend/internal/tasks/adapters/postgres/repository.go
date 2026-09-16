@@ -1520,8 +1520,8 @@ func (r *Repository) ReopenProofStepsForRework(ctx context.Context, tenantID, wo
 // transaction (one multi-row INSERT, ON CONFLICT on the natural key so a redelivered verdict
 // inserts nothing). It returns the rows actually inserted; the caller's recompute counts them
 // through the actions slice, which this appends to.
-func insertCaptureReshootSteps(ctx context.Context, tx pgx.Tx, tenantID, workflowID string, capture authored.Evidence, actions []domain.WorkflowAction, recordingKey, reason string) ([]domain.WorkflowAction, error) {
-	steps := domain.CaptureReshootSteps(capture, actions, recordingKey, reason)
+func insertCaptureReshootSteps(ctx context.Context, tx pgx.Tx, tenantID, workflowID string, capture authored.Evidence, actions []domain.WorkflowAction, recordingKey, reason string, indexes ...int) ([]domain.WorkflowAction, error) {
+	steps := domain.CaptureReshootSteps(capture, actions, recordingKey, reason, indexes...)
 	if len(steps) == 0 {
 		return nil, nil
 	}
@@ -1561,10 +1561,10 @@ RETURNING action_id::text`,
 
 // AppendCaptureReshootSteps appends a rejected birth report's re-shoot steps and recomputes the
 // card in the same transaction (the track reopens so the operator sees the work).
-func (r *Repository) AppendCaptureReshootSteps(ctx context.Context, tenantID, workflowID string, capture authored.Evidence, recordingKey, reason string) error {
+func (r *Repository) AppendCaptureReshootSteps(ctx context.Context, tenantID, workflowID string, capture authored.Evidence, indexes []int, recordingKey, reason string) error {
 	_, _, _, err := r.workflowMutation(ctx, tenantID, workflowID,
 		func(tx pgx.Tx, w *domain.WorkflowInstance, actions []domain.WorkflowAction) ([]domain.WorkflowAction, bool, error) {
-			added, err := insertCaptureReshootSteps(ctx, tx, tenantID, workflowID, capture, actions, recordingKey, reason)
+			added, err := insertCaptureReshootSteps(ctx, tx, tenantID, workflowID, capture, actions, recordingKey, reason, indexes...)
 			if err != nil {
 				return nil, false, err
 			}

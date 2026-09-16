@@ -51,6 +51,9 @@ func TestCaptureReshootStepsAreOnePerCaptureProofAndIdempotent(t *testing.T) {
 	if other := CaptureReshootSteps(capture, existing, "recording-key-2", "x"); other[0].ActionKey == a.ActionKey {
 		t.Fatal("a later rejection mints new steps")
 	}
+	if only := CaptureReshootSteps(capture, existing, "recording-key-1", "x", 1); len(only) != 1 || only[0].ActionKey != steps[1].ActionKey {
+		t.Fatalf("a per-slot rejection re-shoots only that proof: %+v", only)
+	}
 	if len(CaptureReshootSteps(authored.Evidence{}, existing, "k", "r")) != 0 {
 		t.Fatal("no capture media, no re-shoot")
 	}

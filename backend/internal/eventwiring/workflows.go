@@ -9,6 +9,7 @@ import (
 
 	countspg "github.com/vgoats/goatos/backend/internal/counts/adapters/postgres"
 	countsapp "github.com/vgoats/goatos/backend/internal/counts/app"
+	countsdomain "github.com/vgoats/goatos/backend/internal/counts/domain"
 	"github.com/vgoats/goatos/backend/internal/countsbridge"
 	identitypg "github.com/vgoats/goatos/backend/internal/identity/adapters/postgres"
 	"github.com/vgoats/goatos/backend/internal/platform/eventbus"
@@ -70,7 +71,7 @@ func RegisterWorkflowConsumers(bus eventbus.Bus, svc *tasksapp.Service, log *slo
 
 // CaptureReviewStore is the counts repository slice the birth_capture verdict consumer drives.
 type CaptureReviewStore interface {
-	SetCaptureReviewStatus(ctx context.Context, tenantID, approvalRequestID, status, reason string) error
+	SetCaptureSlotReview(ctx context.Context, tenantID, approvalRequestID, slotKey, ref, status, reason string) (countsdomain.ApprovalRequest, bool, error)
 }
 
 // RegisterCountsCaptureConsumers subscribes the SOP capture card's birth-report consumers
@@ -78,8 +79,8 @@ type CaptureReviewStore interface {
 // are registered; bootstrap/api.go, cmd/outbox-relay, cmd/domain-event-consumer,
 // internal/kernelstages and internal/domainconsumer/wiring all call it.
 //
-//	counts.birth.reported                  -> one birth_evidence item per litter (ref_type birth_capture)
-//	verification.verdict.approved/.rework  -> capture_review_status on the approval row
+//	counts.birth.reported                  -> one birth_evidence item per form proof slot (ref_type birth_capture)
+//	verification.verdict.approved/.rework  -> that slot's review (+ rollup) on the approval row
 //
 // engine (the tasks service) appends the re-shoot steps a rejection asks for (decision 5).
 func RegisterCountsCaptureConsumers(bus eventbus.Bus, enqueuer countsapp.BirthCaptureVerificationEnqueuer, store CaptureReviewStore, engine countsapp.CaptureReshootEngine) {

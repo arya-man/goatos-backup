@@ -21,6 +21,9 @@ type Evidence struct {
 // EvidenceMedia is one captured proof: its register ref, its kind (video / photo; blank when the
 // register could not say) and the authored slot title the reviewer reads it under.
 type EvidenceMedia struct {
+	// Key is the authored slot key the proof was captured under (verification per slot keys on
+	// it; blank on a snapshot with no slots, e.g. shifting's legacy raise).
+	Key   string `json:"key,omitempty"`
 	Ref   string `json:"ref"`
 	Kind  string `json:"kind"`
 	Label string `json:"label"`
