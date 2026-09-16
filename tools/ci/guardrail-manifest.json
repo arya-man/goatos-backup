@@ -946,6 +946,17 @@
       "notes": "Maintainer decision 2026-09-15: the weighing rules (capture modes, default cap, feed & water removal mode / card copy / questions, lump-sum video window) come from the PUBLISHED weighing.session SOP version, pinned per task. The seed is embedded verbatim in migration 000315, weighing/app carries no cap literal and demands the removal operator only from sop_rules.go, backend/internal/weighing names no sop_* table, and the phone's lump-sum policy reads the pinned window rather than MAX_SHED_GROUP_VIDEOS."
     },
     {
+      "id": "shifting-sop",
+      "script": "tools/agent-hooks/check-shifting-sop-guard.mjs",
+      "makeTarget": "shifting-sop-guard",
+      "realCheck": "node tools/agent-hooks/check-shifting-sop-guard.mjs",
+      "selfTest": "node tools/agent-hooks/check-shifting-sop-guard.mjs --self-test",
+      "owningDoc": "docs/decisions/shifting-sop.md",
+      "requiredInCI": true,
+      "ciStep": "shifting-sop-guard",
+      "notes": "Maintainer decision 2026-09-16: the raise extras, completion card and high-priority card of a shifting movement come from the PUBLISHED shifting SOP version, pinned per movement at raise. The seed is embedded verbatim in migration 000324, backend/internal/counts names no sop_* table (shiftingsop is the only reader), ErrShiftingProofSlotInvalid is minted only by the judge, and the phone's ShiftingExecute/Raise screens hold no seeded slot title as a literal."
+    },
+    {
       "id": "offline-first-reads",
       "script": "tools/agent-hooks/check-offline-first-reads.mjs",
       "makeTarget": "offline-first-guard",
