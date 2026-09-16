@@ -200,12 +200,23 @@ class AddDeathViewModel @Inject constructor(
         }
     }
 
-    /** Single selection: REPLACES any previous choice. A tap on the selected row is a no-op. */
+    /**
+     * Single selection: REPLACES any previous choice. A tap on the selected row is a no-op.
+     *
+     * Switching to a DIFFERENT animal rebinds the capture card: the report's photos and videos are
+     * filed under the animal they were recorded for, so a clip taken before the switch is dropped
+     * from the draft rather than sent as the new animal's proof.
+     */
     private fun onSelectAnimal(goatId: String) {
         if (!beginEdit()) return
+        val previous = _state.value.selectedAnimal?.goatId
         _state.update { current ->
             val match = current.animalMatches.firstOrNull { it.goatId == goatId } ?: return@update current
             current.copy(selectedAnimal = match)
+        }
+        val selected = _state.value.selectedAnimal?.goatId
+        if (previous != null && selected != null && selected != previous) {
+            capture.rebindSubject()
         }
         recomputeSubmitGate()
     }

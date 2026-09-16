@@ -776,12 +776,15 @@ internal class FakeAddCountsRepository : CountsRepository {
 
     override suspend fun refreshShiftingDestinations(): Result<Unit> = Result.success(Unit)
 
+    /** Settable so a test can offer more than one animal (switching the selection). */
+    var lookupResults: List<GoatSearchItemDto>? = null
+
     override suspend fun lookupAnimals(
         query: String,
         parkId: String?,
         shedId: String?,
     ): Result<List<GoatSearchItemDto>> = Result.success(
-        listOf(
+        lookupResults ?: listOf(
             GoatSearchItemDto(
                 goatId = "44444444-4444-4444-4444-444444444444",
                 displayId = "G-77",

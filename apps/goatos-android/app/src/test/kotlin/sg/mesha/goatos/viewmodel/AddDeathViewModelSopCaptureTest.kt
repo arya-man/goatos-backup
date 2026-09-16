@@ -25,6 +25,7 @@ import sg.mesha.goatos.core.data.capture.ProofSubject
 import sg.mesha.goatos.core.network.dto.CountsCaptureCardDto
 import sg.mesha.goatos.core.network.dto.CountsCaptureCardResponseDto
 import sg.mesha.goatos.core.network.dto.DeathCauseCatalogDto
+import sg.mesha.goatos.core.network.dto.GoatSearchItemDto
 import sg.mesha.goatos.core.network.dto.WeighingRemovalProofSlotDto
 import sg.mesha.goatos.feature.counts.AddDeathEvent
 
@@ -52,9 +53,11 @@ class AddDeathViewModelSopCaptureTest {
     @After
     fun tearDown() = Dispatchers.resetMain()
 
+    private val counts = FakeAddCountsRepository()
+
     private fun newViewModel() = AddDeathViewModel(
         sync,
-        FakeAddCountsRepository(),
+        counts,
         EmptyDeathCauses(),
         NoopAddAnalyticsPort(),
         NoopAddCrashReporter(),
@@ -114,6 +117,46 @@ class AddDeathViewModelSopCaptureTest {
         assertEquals(GOAT_ID, call.subjectId)
     }
 
+    @Test
+    fun `switching the animal drops the proofs recorded for the first one and never sends them`() = runTest(dispatcher) {
+        cards.publish(deathCard())
+        counts.lookupResults = listOf(
+            GoatSearchItemDto(goatId = GOAT_ID, displayId = "G-77", animalIdentifier1 = "TAG-77", lifecycleStatus = "alive", rowVersion = 7),
+            GoatSearchItemDto(goatId = OTHER_GOAT_ID, displayId = "G-78", animalIdentifier1 = "TAG-78", lifecycleStatus = "alive", rowVersion = 3),
+        )
+        val vm = newViewModel()
+        advanceUntilIdle()
+        selectAnimalWithAccount(vm)
+        advanceUntilIdle()
+
+        videos.queue(CapturedVideo(localUri = "file:///first.mp4", startedAtMs = 1_000L, endedAtMs = 5_000L))
+        vm.onEvent(AddDeathEvent.CaptureSlot("carcass_video", null))
+        advanceUntilIdle()
+        assertTrue("the first animal's video is captured", vm.state.value.canSubmit)
+
+        // The operator picked the wrong animal and switches to the right one.
+        vm.onEvent(AddDeathEvent.SelectAnimal(OTHER_GOAT_ID))
+        advanceUntilIdle()
+        assertEquals(OTHER_GOAT_ID, vm.state.value.selectedAnimal?.goatId)
+        assertFalse("a video filed under the first animal must not satisfy the second animal's report", vm.state.value.canSubmit)
+        assertTrue(vm.state.value.captureCard.slots.none { it.captured })
+
+        videos.queue(CapturedVideo(localUri = "file:///second.mp4", startedAtMs = 6_000L, endedAtMs = 9_000L))
+        vm.onEvent(AddDeathEvent.CaptureSlot("carcass_video", null))
+        advanceUntilIdle()
+        assertTrue(vm.state.value.canSubmit)
+        vm.onEvent(AddDeathEvent.Submit)
+        advanceUntilIdle()
+
+        assertEquals(OTHER_GOAT_ID, sync.lastDeath?.goatId)
+        assertEquals(listOf(GOAT_ID, OTHER_GOAT_ID), proofs.captureCalls.map { it.subjectId })
+        val firstOutbox = proofs.allRows().single { it.subjectId == GOAT_ID }.outboxItemId
+        val secondOutbox = proofs.allRows().single { it.subjectId == OTHER_GOAT_ID }.outboxItemId
+        val sent = sync.lastDeathCapture?.slotProofs?.get("carcass_video")?.outboxItemId
+        assertEquals("the report sends the second animal's video", secondOutbox, sent)
+        assertTrue("the first animal's video is never sent", sent != firstOutbox)
+    }
+
     private fun deathCard() = CountsCaptureCardResponseDto(
         kind = "death",
         sopCode = "counts.death",
@@ -130,6 +173,7 @@ class AddDeathViewModelSopCaptureTest {
 
     private companion object {
         const val GOAT_ID = "44444444-4444-4444-4444-444444444444"
+        const val OTHER_GOAT_ID = "55555555-5555-5555-5555-555555555555"
         const val SOP_VERSION_ID = "66666666-6666-6666-6666-666666666666"
     }
 }
