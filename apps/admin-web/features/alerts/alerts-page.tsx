@@ -8,6 +8,7 @@ import { control, controlEnabled, copy, optionGroup, table, tableLabels, type Ad
 import { getAlertRuleConfig, listAlerts, type AlertRow, type AlertRuleConfigList, type AlertsPage as AlertsPageData } from "@/lib/api/alerts-server";
 import { firstAuthRequiredError, type ApiResult } from "@/lib/api/server";
 import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
+import { runBounded } from "@/lib/bounded-runner";
 import { istDayPlus, todayIso } from "@/lib/format";
 import { hrefWithParams, one, type RouteSearchParams } from "@/lib/search-params";
 import { AlertsConfigure } from "./alerts-configure";
@@ -20,24 +21,6 @@ const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 function severityTone(severity: string): Tone {
   return severity === "critical" ? "dng" : "warn";
-}
-
-async function runBounded<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
-  const out = new Array<R>(items.length);
-  let next = 0;
-  const workers = Math.max(1, Math.min(limit, items.length));
-  await Promise.all(
-    Array.from({ length: workers }, async () => {
-      for (;;) {
-        const index = next;
-        next += 1;
-        if (index >= items.length) return;
-        // serial-await: bounded worker pool; parallelism is the caller's limit.
-        out[index] = await fn(items[index]!);
-      }
-    }),
-  );
-  return out;
 }
 
 /**
@@ -176,13 +159,13 @@ export async function AlertsPage({ searchParams, pageContract }: { searchParams?
             ))}
           </div>
           <div className="subtabs" aria-label={t("filter.date")}>
-            <Link href={href({ [PARAM_DATE]: istDayPlus(businessDate, -1) })} replace scroll={false} aria-label="Previous day">
+            <Link href={href({ [PARAM_DATE]: istDayPlus(businessDate, -1) })} replace scroll={false} aria-label={t("filter.date.previous")}>
               ‹
             </Link>
             <Link href={href({ [PARAM_DATE]: null })} replace scroll={false} className={isToday ? "on" : ""}>
               {isToday ? t("filter.date.today") : businessDate}
             </Link>
-            <Link href={href({ [PARAM_DATE]: istDayPlus(businessDate, 1) })} replace scroll={false} aria-label="Next day">
+            <Link href={href({ [PARAM_DATE]: istDayPlus(businessDate, 1) })} replace scroll={false} aria-label={t("filter.date.next")}>
               ›
             </Link>
           </div>

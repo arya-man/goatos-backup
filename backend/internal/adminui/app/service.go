@@ -1952,6 +1952,8 @@ func pageSpecificCopy(id string) map[string]string {
 			"filter.park.all":                      "All parks",
 			"filter.date":                          "Date",
 			"filter.date.today":                    "Today",
+			"filter.date.previous":                 "Previous day",
+			"filter.date.next":                     "Next day",
 			"filter.severity":                      "Severity",
 			"filter.severity.all":                  "All",
 			"severity.critical":                    "Critical",
