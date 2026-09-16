@@ -39,9 +39,13 @@ data class ServerErrorText(
      */
     val field: String = "",
 ) {
-    /** The message followed by one line per named field problem (e.g. each blocked shed). */
+    /**
+     * The message followed by one line per named field problem (e.g. each blocked shed). A line
+     * is shown once: a single-field refusal repeats its sentence in `field_errors`, and printing
+     * it twice reads as two problems.
+     */
     val display: String
-        get() = (listOfNotNull(message.takeIf { it.isNotBlank() }) + fieldMessages).joinToString("\n")
+        get() = (listOfNotNull(message.takeIf { it.isNotBlank() }) + fieldMessages).distinct().joinToString("\n")
 }
 
 /**
