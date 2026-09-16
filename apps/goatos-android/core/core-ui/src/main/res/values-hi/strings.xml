@@ -21,4 +21,16 @@
     <string name="filters_clear_pen">बाड़ा हटाएँ</string>
     <string name="filters_open_date">तारीख सीमा बदलें</string>
     <string name="filters_open_pen">बाड़ा बदलें</string>
+    <string name="sop_slot_take_photo">फ़ोटो लें</string>
+    <string name="sop_slot_record_video">वीडियो रिकॉर्ड करें</string>
+    <string name="sop_slot_required">ज़रूरी</string>
+    <string name="sop_slot_optional">वैकल्पिक</string>
+    <string name="sop_video_uploading">अपलोड हो रहा है…</string>
+    <string name="sop_slot_retry">फिर से · %1$s</string>
+    <string name="sop_proof_recapture">प्रमाण दोबारा लें</string>
+    <string name="sop_proof_rerecord">वीडियो दोबारा रिकॉर्ड करें</string>
+    <string name="sop_proof_synced">प्रमाण तैयार</string>
+    <string name="sop_proof_uploading">प्रमाण अपलोड हो रहा है</string>
+    <string name="sop_proof_waiting">अपलोड की प्रतीक्षा</string>
+    <string name="sop_proof_failed">अपलोड विफल। फिर कोशिश करें</string>
 </resources>

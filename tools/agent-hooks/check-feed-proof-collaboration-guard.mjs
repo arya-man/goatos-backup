@@ -112,13 +112,18 @@ const read = (rel) => {
 // --- Mode 1: sequential-slot-gating -----------------------------------------------------
 const uiStatePath =
   'apps/goatos-android/feature/feature-feed/src/main/kotlin/sg/mesha/goatos/feature/feed/FeedDistributionCompleteScreen.kt';
+// The slot model moved to core-ui (SOP card, 2026-09-16); FeedDistributionSlotUi is a typealias of
+// SopSlotUi, so the per-slot enablement contract is checked where the class now lives.
+const slotModelPath =
+  'apps/goatos-android/core/core-ui/src/main/kotlin/sg/mesha/goatos/core/ui/sop/SopCard.kt';
 const uiState = read(uiStatePath);
-if (uiState == null) {
-  failures.push(`missing-file: ${uiStatePath}`);
+const slotModel = read(slotModelPath);
+if (uiState == null || slotModel == null) {
+  failures.push(`missing-file: ${uiState == null ? uiStatePath : slotModelPath}`);
 } else {
-  const slotUi = uiState.match(/data class FeedDistributionSlotUi\([\s\S]*?\n\}/);
+  const slotUi = slotModel.match(/data class SopSlotUi\([\s\S]*?\n\}/);
   if (!slotUi) {
-    failures.push('sequential-slot-gating: FeedDistributionSlotUi not found');
+    failures.push('sequential-slot-gating: SopSlotUi (FeedDistributionSlotUi) not found');
   } else {
     for (const tok of slotGetterForeignTokens(slotUi[0])) {
       failures.push(

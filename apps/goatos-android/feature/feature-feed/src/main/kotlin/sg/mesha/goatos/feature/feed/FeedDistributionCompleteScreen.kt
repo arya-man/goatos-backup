@@ -45,6 +45,15 @@ import sg.mesha.goatos.core.designsystem.theme.MeshaType
 import sg.mesha.goatos.core.ui.ProofMediaPreview
 import sg.mesha.goatos.core.ui.ProofMediaPreviewKind
 import sg.mesha.goatos.core.ui.SyncIconButton
+import sg.mesha.goatos.core.ui.sop.SopProofAction
+import sg.mesha.goatos.core.ui.sop.SopProofStatus
+import sg.mesha.goatos.core.ui.sop.SopQuestionCard
+import sg.mesha.goatos.core.ui.sop.SopQuestionUi
+import sg.mesha.goatos.core.ui.sop.SopRetryButton
+import sg.mesha.goatos.core.ui.sop.SopSlotCaptureKind
+import sg.mesha.goatos.core.ui.sop.SopSlotUi
+import sg.mesha.goatos.core.ui.sop.isQueuedForSubmit as sopQueuedForSubmit
+import sg.mesha.goatos.core.ui.sop.sopProofLabel
 
 /**
  * Feed-DISTRIBUTION completion detail (L2), reached by tapping a shed-session row on Feed DIRECTION.
@@ -60,71 +69,21 @@ import sg.mesha.goatos.core.ui.SyncIconButton
  */
 
 enum class FeedDistributionStatus { QUEUED, SYNCED, FAILED }
-enum class FeedDistributionProofStatus { EMPTY, QUEUED, UPLOADING, SYNCED, FAILED }
+/**
+ * The SOP card models moved to core-ui (sg.mesha.goatos.core.ui.sop, SOP → operator parity,
+ * 2026-09-16) so the herd operations capture forms render the same card; the feed names stay as
+ * typealiases so every feed screen, ViewModel, test and guard keeps reading as before.
+ */
+typealias FeedDistributionProofStatus = SopProofStatus
 
-fun FeedDistributionProofStatus.isQueuedForSubmit(): Boolean =
-    this == FeedDistributionProofStatus.QUEUED ||
-        this == FeedDistributionProofStatus.UPLOADING ||
-        this == FeedDistributionProofStatus.SYNCED
+fun FeedDistributionProofStatus.isQueuedForSubmit(): Boolean = sopQueuedForSubmit()
 
 /** What a slot accepts, from the card: video | photo | either. */
-object FeedSlotCaptureKind {
-    const val VIDEO = "video"
-    const val PHOTO = "photo"
-    const val EITHER = "either"
-}
+typealias FeedSlotCaptureKind = SopSlotCaptureKind
 
-/**
- * One capture slot of the card, with this phone's view of it. Backend-owned words (title, hint,
- * kind, required) come from the card; the rest is capture/upload state.
- */
-@androidx.compose.runtime.Immutable
-data class FeedDistributionSlotUi(
-    /** The card's slot key = the proof register field_key stamped on the upload. */
-    val slotKey: String,
-    val title: String,
-    val hint: String = "",
-    /** video | photo | either -- what the slot accepts, from the card. */
-    val captureKind: String = FeedSlotCaptureKind.VIDEO,
-    /** False for an optional capture the crew may leave empty. */
-    val required: Boolean = true,
-    /** What was actually captured here (an `either` slot records the pick). */
-    val capturedKind: String = FeedSlotCaptureKind.VIDEO,
-    val isCapturing: Boolean = false,
-    val captured: Boolean = false,
-    val status: FeedDistributionProofStatus = FeedDistributionProofStatus.EMPTY,
-    val message: String? = null,
-    val previewPath: String? = null,
-    val previewIdentity: String = "feed-distribution:$slotKey",
-    val remoteUrl: String? = null,
-) {
-    /**
-     * A slot is enabled by ITS OWN state alone -- never by a sibling's. That independence is the
-     * collaboration contract (docs/product/feed-proof-collaboration.md) and is machine-checked.
-     */
-    val captureEnabled: Boolean
-        get() = !isCapturing
+typealias FeedDistributionSlotUi = SopSlotUi
 
-    /** Ready to be named on the submit: captured and durable, or still uploading (the outbox waits). */
-    val readyForSubmit: Boolean
-        get() = captured && status.isQueuedForSubmit()
-}
-
-/** One authored question of the card, rendered verbatim; the answer is the operator's. */
-@androidx.compose.runtime.Immutable
-data class FeedDistributionQuestionUi(
-    val id: String,
-    val kind: String,
-    val title: String,
-    val hint: String = "",
-    val required: Boolean = false,
-    val options: List<Pair<String, String>> = emptyList(),
-    val allowOther: Boolean = false,
-    val unit: String = "",
-    /** Hidden unless an earlier pick-one holds this value. */
-    val onlyIfQuestion: String = "",
-    val onlyIfValue: String = "",
-)
+typealias FeedDistributionQuestionUi = SopQuestionUi
 
 @androidx.compose.runtime.Immutable
 data class FeedDistributionResultUi(val status: FeedDistributionStatus, val message: String)
@@ -310,13 +269,7 @@ private fun FeedDistStatusCard(
 }
 
 @Composable
-internal fun proofLabel(status: FeedDistributionProofStatus, recordedLabel: String): String = when (status) {
-    FeedDistributionProofStatus.SYNCED -> stringResource(R.string.feed_dist_proof_synced)
-    FeedDistributionProofStatus.UPLOADING -> stringResource(R.string.feed_dist_proof_uploading)
-    FeedDistributionProofStatus.QUEUED -> stringResource(R.string.feed_dist_proof_waiting)
-    FeedDistributionProofStatus.FAILED -> stringResource(R.string.feed_dist_proof_failed)
-    FeedDistributionProofStatus.EMPTY -> recordedLabel
-}
+internal fun proofLabel(status: FeedDistributionProofStatus, recordedLabel: String): String = sopProofLabel(status, recordedLabel)
 
 typealias FeedDistPreviewKind = ProofMediaPreviewKind
 
@@ -342,139 +295,22 @@ internal fun FeedDistProofAction(
     playbackEnabled: Boolean = true,
     onPlaybackFailure: () -> Unit = {},
     showAction: Boolean = true,
-    /** A second verb for an `either` slot ("Take photo" beside "Record video"). */
     secondaryLabel: String? = null,
     onSecondaryClick: () -> Unit = {},
     onPreviewAction: (String) -> Unit = {},
-) {
-    val failed = status == FeedDistributionProofStatus.FAILED
-    val synced = status == FeedDistributionProofStatus.SYNCED
-    val uploading = loading || status == FeedDistributionProofStatus.UPLOADING
-    val border = when {
-        failed -> MeshaColors.Danger
-        synced -> MeshaColors.Ok
-        captured -> MeshaColors.Brand.copy(alpha = 0.5f)
-        else -> MeshaColors.Hair
-    }
-    val iconBg = when {
-        failed -> MeshaColors.Danger.copy(alpha = 0.14f)
-        synced -> MeshaColors.Ok.copy(alpha = 0.14f)
-        captured -> MeshaColors.Brand.copy(alpha = 0.14f)
-        else -> MeshaColors.Surf2
-    }
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .heightIn(min = 82.dp)
-            .clip(RoundedCornerShape(18.dp))
-            .background(MeshaColors.Surf)
-            .border(1.dp, border, RoundedCornerShape(18.dp))
-            .clickable(enabled = enabled && !captured && !uploading, onClick = onClick)
-            .padding(14.dp),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Box(
-            modifier = Modifier.size(42.dp).clip(RoundedCornerShape(14.dp)).background(iconBg),
-            contentAlignment = Alignment.Center,
-        ) {
-            when {
-                uploading -> CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = MeshaColors.Brand)
-                failed -> Icon(MeshaIcons.Warn, contentDescription = null, tint = MeshaColors.Danger, modifier = Modifier.size(22.dp))
-                synced -> Icon(MeshaIcons.Check, contentDescription = null, tint = MeshaColors.Ok, modifier = Modifier.size(22.dp))
-                captured -> Icon(icon, contentDescription = null, tint = MeshaColors.BrandD, modifier = Modifier.size(22.dp))
-                else -> Icon(icon, contentDescription = null, tint = MeshaColors.Muted, modifier = Modifier.size(22.dp))
-            }
-        }
-        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-            Text(
-                text = when {
-                    uploading -> loadingLabel
-                    failed -> retryLabel
-                    captured -> capturedLabel
-                    else -> title
-                },
-                color = if (failed) MeshaColors.Danger else if (enabled || captured || uploading) MeshaColors.Ink else MeshaColors.Faint,
-                style = MeshaType.cardTitle,
-            )
-            Text(text = subtitle, color = MeshaColors.Muted, style = MeshaType.cardSubtitle)
-            var localPreviewFailed by remember(previewPath) { mutableStateOf(false) }
-            val previewToShow = if (!previewPath.isNullOrBlank() && !localPreviewFailed) {
-                previewPath
-            } else {
-                remotePreviewUrl ?: previewPath
-            }
-            if (!previewToShow.isNullOrBlank()) {
-                FeedDistPreview(
-                    path = previewToShow,
-                    kind = previewKind,
-                    mediaIdentity = previewIdentity,
-                    playbackEnabled = playbackEnabled,
-                    onPlaybackFailure = {
-                        if (previewToShow == previewPath) {
-                            localPreviewFailed = true
-                        }
-                        onPlaybackFailure()
-                    },
-                    onPreviewAction = onPreviewAction,
-                )
-                if (showAction) {
-                    FeedDistRetryButton(label = if (failed) retryLabel else replaceLabel, enabled = enabled, onClick = onClick)
-                }
-            } else if (!uploading && showAction) {
-                FeedDistRetryButton(label = if (captured || failed) replaceLabel else title, enabled = enabled, onClick = onClick)
-            }
-            if (secondaryLabel != null && !uploading && showAction) {
-                FeedDistRetryButton(label = secondaryLabel, enabled = enabled, onClick = onSecondaryClick)
-            }
-            if (!message.isNullOrBlank()) {
-                Text(text = message, color = MeshaColors.Faint, style = MeshaType.caption)
-            }
-        }
-    }
-}
+) = SopProofAction(
+    title = title, subtitle = subtitle, icon = icon, captured = captured, status = status,
+    previewPath = previewPath, previewIdentity = previewIdentity, previewKind = previewKind,
+    capturedLabel = capturedLabel, loading = loading, loadingLabel = loadingLabel, retryLabel = retryLabel,
+    replaceLabel = replaceLabel, enabled = enabled, message = message, onClick = onClick,
+    remotePreviewUrl = remotePreviewUrl, playbackEnabled = playbackEnabled, onPlaybackFailure = onPlaybackFailure,
+    showAction = showAction, secondaryLabel = secondaryLabel, onSecondaryClick = onSecondaryClick, onPreviewAction = onPreviewAction,
+)
 
 @Composable
-private fun FeedDistPreview(
-    path: String,
-    kind: FeedDistPreviewKind,
-    mediaIdentity: String,
-    playbackEnabled: Boolean = true,
-    onPlaybackFailure: () -> Unit = {},
-    onPreviewAction: (String) -> Unit = {},
-) {
-    ProofMediaPreview(
-        path = path,
-        kind = kind,
-        mediaIdentity = mediaIdentity,
-        onPlaybackFailure = onPlaybackFailure,
-        expandable = true,
-        onPreviewAction = onPreviewAction,
-        playbackEnabled = playbackEnabled,
-        inlineRemotePhoto = kind == FeedDistPreviewKind.Photo,
-    )
-}
+internal fun FeedDistRetryButton(label: String, enabled: Boolean = true, onClick: () -> Unit) =
+    SopRetryButton(label = label, enabled = enabled, onClick = onClick)
 
-@Composable
-internal fun FeedDistRetryButton(label: String, enabled: Boolean = true, onClick: () -> Unit) {
-    Text(
-        text = label,
-        color = if (enabled) MeshaColors.OnBrand else MeshaColors.Muted,
-        style = MeshaType.cta,
-        modifier = Modifier
-            .minimumInteractiveComponentSize()
-            .clip(RoundedCornerShape(14.dp))
-            .background(if (enabled) MeshaColors.Brand else MeshaColors.Surf2)
-            .clickable(enabled = enabled, onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 13.dp),
-    )
-}
-
-
-/**
- * One authored question of the card. Pick-one renders its choices as tappable chips; pick-many
- * toggles; number and text are a single field. Words are the card's, verbatim.
- */
 @Composable
 internal fun FeedSopQuestionCard(
     question: FeedDistributionQuestionUi,
@@ -483,75 +319,4 @@ internal fun FeedSopQuestionCard(
     enabled: Boolean,
     onAnswer: (String) -> Unit,
     onOther: (String) -> Unit,
-) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(18.dp))
-            .background(MeshaColors.Surf)
-            .border(1.dp, MeshaColors.Hair, RoundedCornerShape(18.dp))
-            .padding(14.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        Text(
-            text = question.title + if (question.required) " *" else "",
-            color = MeshaColors.Ink,
-            style = MeshaType.cardTitle,
-        )
-        if (question.hint.isNotBlank()) {
-            Text(text = question.hint, color = MeshaColors.Muted, style = MeshaType.cardSubtitle)
-        }
-        when (question.kind) {
-            "choice", "multi" -> {
-                val picked = if (question.kind == "multi") answer.split(",").filter { it.isNotBlank() }.toSet() else setOf(answer)
-                androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    question.options.forEach { (value, label) ->
-                        val on = value in picked
-                        Text(
-                            text = label,
-                            color = if (on) MeshaColors.OnBrand else MeshaColors.Ink,
-                            style = MeshaType.cta,
-                            modifier = Modifier
-                                .minimumInteractiveComponentSize()
-                                .clip(RoundedCornerShape(14.dp))
-                                .background(if (on) MeshaColors.Brand else MeshaColors.Surf2)
-                                .clickable(enabled = enabled) {
-                                    if (question.kind == "multi") {
-                                        val next = if (on) picked - value else picked + value
-                                        onAnswer(question.options.map { it.first }.filter { it in next }.joinToString(","))
-                                    } else {
-                                        onAnswer(if (on) "" else value)
-                                    }
-                                }
-                                .padding(horizontal = 12.dp, vertical = 10.dp),
-                        )
-                    }
-                }
-                if (question.kind == "choice" && question.allowOther && answer == "other") {
-                    androidx.compose.material3.OutlinedTextField(
-                        value = otherText,
-                        onValueChange = onOther,
-                        enabled = enabled,
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                }
-            }
-            "number" -> androidx.compose.material3.OutlinedTextField(
-                value = answer,
-                onValueChange = { v -> if (v.isEmpty() || v.matches(Regex("^-?\\d*(\\.\\d*)?$"))) onAnswer(v) },
-                enabled = enabled,
-                singleLine = true,
-                suffix = if (question.unit.isNotBlank()) ({ Text(question.unit) }) else null,
-                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Decimal),
-                modifier = Modifier.fillMaxWidth(),
-            )
-            else -> androidx.compose.material3.OutlinedTextField(
-                value = answer,
-                onValueChange = onAnswer,
-                enabled = enabled,
-                modifier = Modifier.fillMaxWidth(),
-            )
-        }
-    }
-}
+) = SopQuestionCard(question = question, answer = answer, otherText = otherText, enabled = enabled, onAnswer = onAnswer, onOther = onOther)

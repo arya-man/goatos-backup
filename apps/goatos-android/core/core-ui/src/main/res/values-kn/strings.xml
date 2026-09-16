@@ -21,4 +21,16 @@
     <string name="filters_clear_pen">ಪೆನ್ ತೆಗೆಯಿರಿ</string>
     <string name="filters_open_date">ದಿನಾಂಕ ವ್ಯಾಪ್ತಿ ಬದಲಿಸಿ</string>
     <string name="filters_open_pen">ಪೆನ್ ಬದಲಿಸಿ</string>
+    <string name="sop_slot_take_photo">ಫೋಟೋ ತೆಗೆಯಿರಿ</string>
+    <string name="sop_slot_record_video">ವೀಡಿಯೊ ರೆಕಾರ್ಡ್ ಮಾಡಿ</string>
+    <string name="sop_slot_required">ಅಗತ್ಯ</string>
+    <string name="sop_slot_optional">ಐಚ್ಛಿಕ</string>
+    <string name="sop_video_uploading">ಅಪ್‌ಲೋಡ್ ಆಗುತ್ತಿದೆ…</string>
+    <string name="sop_slot_retry">ಮತ್ತೆ · %1$s</string>
+    <string name="sop_proof_recapture">ಪುರಾವೆಯನ್ನು ಮತ್ತೆ ಸೆರೆಹಿಡಿಯಿರಿ</string>
+    <string name="sop_proof_rerecord">ವೀಡಿಯೊ ಮತ್ತೆ ರೆಕಾರ್ಡ್ ಮಾಡಿ</string>
+    <string name="sop_proof_synced">ಪುರಾವೆ ಸಿದ್ಧ</string>
+    <string name="sop_proof_uploading">ಪುರಾವೆ ಅಪ್‌ಲೋಡ್ ಆಗುತ್ತಿದೆ</string>
+    <string name="sop_proof_waiting">ಅಪ್‌ಲೋಡ್ ಕಾಯುತ್ತಿದೆ</string>
+    <string name="sop_proof_failed">ಅಪ್‌ಲೋಡ್ ವಿಫಲ. ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ</string>
 </resources>

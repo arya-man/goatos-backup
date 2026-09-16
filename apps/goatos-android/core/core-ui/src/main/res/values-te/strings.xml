@@ -21,4 +21,16 @@
     <string name="filters_clear_pen">పెన్ తీసివేయి</string>
     <string name="filters_open_date">తేదీ పరిధి మార్చండి</string>
     <string name="filters_open_pen">పెన్ మార్చండి</string>
+    <string name="sop_slot_take_photo">ఫోటో తీయండి</string>
+    <string name="sop_slot_record_video">వీడియో రికార్డ్ చేయండి</string>
+    <string name="sop_slot_required">తప్పనిసరి</string>
+    <string name="sop_slot_optional">ఐచ్ఛికం</string>
+    <string name="sop_video_uploading">అప్‌లోడ్ అవుతోంది…</string>
+    <string name="sop_slot_retry">మళ్లీ · %1$s</string>
+    <string name="sop_proof_recapture">రుజువును మళ్లీ తీయండి</string>
+    <string name="sop_proof_rerecord">వీడియో మళ్లీ రికార్డ్ చేయండి</string>
+    <string name="sop_proof_synced">రుజువు సిద్ధం</string>
+    <string name="sop_proof_uploading">రుజువు అప్‌లోడ్ అవుతోంది</string>
+    <string name="sop_proof_waiting">అప్‌లోడ్ కోసం వేచి ఉంది</string>
+    <string name="sop_proof_failed">అప్‌లోడ్ విఫలమైంది. మళ్లీ ప్రయత్నించండి</string>
 </resources>
