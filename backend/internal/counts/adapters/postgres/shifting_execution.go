@@ -13,6 +13,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/counts/domain"
 	"github.com/vgoats/goatos/backend/internal/counts/ports"
 	identityports "github.com/vgoats/goatos/backend/internal/identity/ports"
+	"github.com/vgoats/goatos/backend/internal/sop/authored"
 )
 
 // Shifting EXECUTION -- completion, cancellation, and the operator's pending-execution queue.
@@ -77,10 +78,14 @@ func (r *Repository) CompleteShiftingEvent(
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 
-	// The video is mandatory. Reject before opening a transaction so a proofless completion changes
-	// nothing.
-	if strings.TrimSpace(in.ProofRef) == "" {
+	// At least one capture is mandatory (the pinned card guarantees a compulsory slot; the service
+	// judged which). Reject before opening a transaction so a proofless completion changes nothing.
+	if strings.TrimSpace(in.ProofRef) == "" && len(authored.NormalizeProofRefs(in.SOPProofs)) == 0 {
 		return domain.ShiftingExecutionResult{}, false, ports.ErrShiftingProofRequired
+	}
+	storedProofs, storedAnswers, err := encodeShiftingSOP(in.SOPProofs, in.SOPAnswers)
+	if err != nil {
+		return domain.ShiftingExecutionResult{}, false, err
 	}
 
 	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
@@ -124,7 +129,7 @@ func (r *Repository) CompleteShiftingEvent(
 		if shedName, err := r.fetchShedName(ctx, in.TenantID, destShedID); err == nil {
 			destShedName = shedName
 		}
-		return domain.ShiftingExecutionResult{
+		result := domain.ShiftingExecutionResult{
 			ShiftingEventID:           in.ShiftingEventID,
 			EventStatus:               current.EventStatus,
 			DestinationParkID:         destParkID,
@@ -138,7 +143,9 @@ func (r *Repository) CompleteShiftingEvent(
 			RaiseComment:              current.RaiseComment,
 			AppliedAt:                 current.AppliedAt,
 			AppliedBy:                 current.AppliedBy,
-		}, true, nil
+		}
+		current.fillSOP(&result)
+		return result, true, nil
 	}
 
 	// ORDER MATTERS from here down: each check below is more expensive and more specific than the
@@ -182,11 +189,11 @@ func (r *Repository) CompleteShiftingEvent(
 			ports.ErrShiftingExecutionIncomplete, in.ShiftingEventID)
 	}
 
+	// The feed CAPTURES of a high-priority movement are the pinned card's high_priority slots,
+	// judged by the service (SHIFTING SOP, 2026-09-16); this transaction still owns the Feed Config
+	// fingerprint rule below, revalidated under the row lock.
 	var feedSnapshot []byte
 	if current.Priority == "high" {
-		if strings.TrimSpace(in.FeedPackingProofRef) == "" || strings.TrimSpace(in.FeedGivenProofRef) == "" {
-			return domain.ShiftingExecutionResult{}, false, ports.ErrShiftingFeedProofsRequired
-		}
 		requirements, err := loadShiftingFeedRequirements(ctx, tx, in.TenantID,
 			[]string{in.ShiftingEventID}, in.CompletedAt)
 		if err != nil {
@@ -218,6 +225,8 @@ SET event_status = event_status,
     feed_given_proof_ref = CASE WHEN priority = 'high' THEN nullif($10, '') ELSE NULL END,
     feed_config_fingerprint = CASE WHEN priority = 'high' THEN nullif($11, '') ELSE NULL END,
     feed_requirement_snapshot = CASE WHEN priority = 'high' THEN $12::jsonb ELSE NULL END,
+    sop_proofs = $13::jsonb,
+    sop_answers = $14::jsonb,
     completion_destination_tag = nullif($6, ''),
     completion_idempotency_key = nullif($4, ''),
     completion_request_fingerprint = nullif($5, ''),
@@ -232,7 +241,7 @@ WHERE tenant_id = $1::uuid AND shifting_event_id = $2::uuid
 		in.IdempotencyKey, in.RequestFingerprint, strings.TrimSpace(in.DestinationTag),
 		in.CompletedAt.UTC(), in.CompletedByUserID,
 		strings.TrimSpace(in.FeedPackingProofRef), strings.TrimSpace(in.FeedGivenProofRef),
-		strings.TrimSpace(in.FeedConfigFingerprint), feedSnapshot)
+		strings.TrimSpace(in.FeedConfigFingerprint), feedSnapshot, storedProofs, storedAnswers)
 	if err != nil {
 		return domain.ShiftingExecutionResult{}, false, fmt.Errorf("counts: submit shifting for verification: %w", err)
 	}
@@ -255,6 +264,7 @@ WHERE tenant_id = $1::uuid AND shifting_event_id = $2::uuid
 			return domain.ShiftingExecutionResult{}, false, err
 		}
 		committed = true
+		updated.fillSOP(&result)
 		return result, false, nil
 	}
 
@@ -268,7 +278,7 @@ WHERE tenant_id = $1::uuid AND shifting_event_id = $2::uuid
 		destShedName = shedName
 	}
 
-	return domain.ShiftingExecutionResult{
+	result := domain.ShiftingExecutionResult{
 		ShiftingEventID:           in.ShiftingEventID,
 		EventStatus:               updated.EventStatus,
 		DestinationParkID:         destParkID,
@@ -280,7 +290,9 @@ WHERE tenant_id = $1::uuid AND shifting_event_id = $2::uuid
 		SourcePartitionLabel:      derefOrEmpty(updated.SourcePartitionLabel),
 		MovedGoatIDs:              goatIDs,
 		RaiseComment:              current.RaiseComment,
-	}, false, nil
+	}
+	updated.fillSOP(&result)
+	return result, false, nil
 }
 
 // ApplyVerifiedShiftingEvent records an approved evidence verdict. For new rows it changes only
@@ -565,6 +577,28 @@ type lockedShiftingEvent struct {
 	CompletionRequestFingerprint *string
 	CancelIdempotencyKey         *string
 	CancelRequestFingerprint     *string
+
+	// SHIFTING SOP (2026-09-16): the pin and the stored captures / answers of both cards, read
+	// under the same lock so the verifier item is built from what the row holds.
+	SOPVersion           *int
+	SOPProofs            []byte
+	SOPAnswers           []byte
+	RaiseSOPProofs       []byte
+	RaiseSOPAnswers      []byte
+	RaiseCaptureEvidence []byte
+}
+
+// fillSOP copies the row's stored SOP fields onto a completion result.
+func (l lockedShiftingEvent) fillSOP(out *domain.ShiftingExecutionResult) {
+	out.Priority = l.Priority
+	out.SOPVersion = l.SOPVersion
+	out.SOPProofs = decodeSOPProofRefs(l.SOPProofs)
+	out.SOPAnswers = decodeSOPAnswers(l.SOPAnswers)
+	out.RaiseSOPProofs = decodeSOPProofRefs(l.RaiseSOPProofs)
+	out.RaiseSOPAnswers = decodeSOPAnswers(l.RaiseSOPAnswers)
+	if len(l.RaiseCaptureEvidence) > 0 {
+		out.RaiseCaptureEvidence = json.RawMessage(l.RaiseCaptureEvidence)
+	}
 }
 
 // lockShiftingEvent takes a row lock so two operators driving the same movement serialize here
@@ -580,7 +614,8 @@ SELECT event_status, authorization_state, verification_state, priority, category
        raise_comment,
        canceled_at, canceled_by::text, cancel_reason,
        completion_idempotency_key, completion_request_fingerprint,
-       cancel_idempotency_key, cancel_request_fingerprint
+       cancel_idempotency_key, cancel_request_fingerprint,
+       sop_version, sop_proofs, sop_answers, raise_sop_proofs, raise_sop_answers, raise_capture_evidence
 FROM shifting_events
 WHERE tenant_id = $1::uuid AND shifting_event_id = $2::uuid
 FOR UPDATE`, tenantID, shiftingEventID).Scan(
@@ -592,7 +627,8 @@ FOR UPDATE`, tenantID, shiftingEventID).Scan(
 		&out.RaiseComment,
 		&out.CanceledAt, &out.CanceledBy, &out.CancelReason,
 		&out.CompletionIdempotencyKey, &out.CompletionRequestFingerprint,
-		&out.CancelIdempotencyKey, &out.CancelRequestFingerprint)
+		&out.CancelIdempotencyKey, &out.CancelRequestFingerprint,
+		&out.SOPVersion, &out.SOPProofs, &out.SOPAnswers, &out.RaiseSOPProofs, &out.RaiseSOPAnswers, &out.RaiseCaptureEvidence)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return lockedShiftingEvent{}, ports.ErrShiftingEventNotFound
@@ -600,6 +636,97 @@ FOR UPDATE`, tenantID, shiftingEventID).Scan(
 		return lockedShiftingEvent{}, fmt.Errorf("counts: lock shifting event: %w", err)
 	}
 	return out, nil
+}
+
+// ShiftingSOPPin is the pre-lock read the completion judge needs (ports.ShiftingSOPStore): the
+// pinned version, priority, gate state, and what a rework already stored. The transaction
+// re-checks the gate under the row lock; this read only decides what to judge against.
+func (r *Repository) ShiftingSOPPin(ctx context.Context, tenantID, shiftingEventID string) (ports.ShiftingSOPPin, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	var out ports.ShiftingSOPPin
+	var key *string
+	var proofs, answers []byte
+	err := r.pool.QueryRow(ctx, `
+SELECT sop_version, priority, authorization_state, event_status, verification_state,
+       completion_idempotency_key, sop_proofs, sop_answers
+FROM shifting_events
+WHERE tenant_id = $1::uuid AND shifting_event_id = $2::uuid`, tenantID, shiftingEventID).Scan(
+		&out.Version, &out.Priority, &out.AuthorizationState, &out.EventStatus, &out.VerificationState,
+		&key, &proofs, &answers)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ports.ShiftingSOPPin{}, ports.ErrShiftingEventNotFound
+	}
+	if err != nil {
+		return ports.ShiftingSOPPin{}, fmt.Errorf("counts: read shifting sop pin: %w", err)
+	}
+	out.CompletionIdempotencyKey = derefOrEmpty(key)
+	out.StoredProofs = decodeSOPProofRefs(proofs)
+	out.StoredAnswers = decodeSOPAnswers(answers)
+	return out, nil
+}
+
+// ShiftingEventByIdempotencyKey answers a raise retry before the raise card is judged.
+func (r *Repository) ShiftingEventByIdempotencyKey(ctx context.Context, tenantID, idempotencyKey, requestFingerprint string) (string, bool, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	var id, fp string
+	err := r.pool.QueryRow(ctx, `
+SELECT shifting_event_id::text, request_fingerprint
+FROM shifting_events
+WHERE tenant_id = $1::uuid AND idempotency_key = $2`, tenantID, idempotencyKey).Scan(&id, &fp)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, fmt.Errorf("counts: read shifting raise replay: %w", err)
+	}
+	if fp != requestFingerprint {
+		return "", false, ports.ErrIdempotencyConflict
+	}
+	return id, true, nil
+}
+
+// encodeShiftingSOP renders the judged map and answers as the jsonb the row stores (never NULL on a
+// completion written by this code: an empty object is "the card asked nothing").
+func encodeShiftingSOP(proofs authored.ProofRefs, answers authored.Answers) ([]byte, []byte, error) {
+	if proofs == nil {
+		proofs = authored.ProofRefs{}
+	}
+	if answers == nil {
+		answers = authored.Answers{}
+	}
+	p, err := json.Marshal(proofs)
+	if err != nil {
+		return nil, nil, fmt.Errorf("counts: encode shifting sop proofs: %w", err)
+	}
+	a, err := json.Marshal(answers)
+	if err != nil {
+		return nil, nil, fmt.Errorf("counts: encode shifting sop answers: %w", err)
+	}
+	return p, a, nil
+}
+
+func decodeSOPProofRefs(raw []byte) authored.ProofRefs {
+	if len(raw) == 0 {
+		return nil
+	}
+	var out authored.ProofRefs
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return nil
+	}
+	return out
+}
+
+func decodeSOPAnswers(raw []byte) authored.Answers {
+	if len(raw) == 0 {
+		return nil
+	}
+	var out authored.Answers
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return nil
+	}
+	return out
 }
 
 // applyAuthorizedCompletedShiftingInTx is the single relocation writer. Its caller already holds
@@ -1032,7 +1159,8 @@ WITH page AS (
 	           se.priority, se.category,
            se.source_park_id, se.source_shed_id, se.source_partition_label,
            se.destination_park_id, se.destination_shed_id, se.destination_partition_label,
-           se.authorized_by, se.authorized_at, se.raised_at, se.effective_at
+           se.authorized_by, se.authorized_at, se.raised_at, se.effective_at,
+           se.sop_version, se.sop_answers
     FROM shifting_events se
     WHERE se.tenant_id = $1::uuid
 	      AND se.event_status <> 'canceled'
@@ -1075,7 +1203,8 @@ WITH page AS (
        p.authorized_by::text, p.authorized_at,
        r.raised_by_user_id::text, p.raised_at, p.effective_at,
        coalesce(array_length(r.goat_ids, 1), 0) AS animal_count,
-       coalesce(preview.animals, '[]'::jsonb) AS animals
+       coalesce(preview.animals, '[]'::jsonb) AS animals,
+       p.sop_version, p.sop_answers
 FROM page p
 LEFT JOIN req r ON r.shifting_event_id = p.shifting_event_id
 -- projection-review: membership=the pending shifting events this operator may execute, one row per event (the aggregate below counts each event's animals, never the events themselves); group_key=shifting_event_id, so the four locations joins added here are label lookups on an already-unique row and change no grain; join_cardinality=each locations join is 1:{0,1} on (tenant_id, location_id) -- the added status='active' predicate only NARROWS a label lookup, and it is load-bearing: without it a source or destination could resolve to an inactive partition-alias location row and a movement would name a place no animal can live; pagination=keyset over the event list, and the per-event animal counts are computed per row rather than summed across the page; scope=tenant plus the operator's park scope
@@ -1114,6 +1243,7 @@ ORDER BY p.raised_at DESC, p.shifting_event_id DESC`,
 			item       domain.ShiftingExecutionRow
 			raisedBy   *string
 			animalsRaw []byte
+			answersRaw []byte
 		)
 		if err := rows.Scan(
 			&item.ShiftingEventID, &item.EventStatus, &item.VerificationState, &item.PrimaryActionKey,
@@ -1126,9 +1256,11 @@ ORDER BY p.raised_at DESC, p.shifting_event_id DESC`,
 			&item.AuthorizedByUserID, &item.AuthorizedAt,
 			&raisedBy, &item.RaisedAt, &item.EffectiveAt,
 			&item.AnimalCount, &animalsRaw,
+			&item.SOPVersion, &answersRaw,
 		); err != nil {
 			return domain.ShiftingExecutionPage{}, fmt.Errorf("counts: scan pending-execution row: %w", err)
 		}
+		item.SOPAnswers = decodeSOPAnswers(answersRaw)
 		if raisedBy != nil {
 			item.RaisedByUserID = *raisedBy
 		}
