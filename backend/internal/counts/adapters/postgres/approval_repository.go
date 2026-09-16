@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -67,7 +68,8 @@ const approvalRequestColumns = `
     raised_by_user_id::text, raised_at,
     decided_by_user_id::text, decided_at, decision_reason,
     applied_result_type, applied_result_id::text,
-    idempotency_key, request_fingerprint, row_version`
+    idempotency_key, request_fingerprint, row_version,
+    COALESCE(capture_evidence, '{}'::jsonb), capture_review_status, capture_review_reason`
 
 func scanApprovalRequest(row pgx.Row) (domain.ApprovalRequest, error) {
 	var (
@@ -80,6 +82,7 @@ func scanApprovalRequest(row pgx.Row) (domain.ApprovalRequest, error) {
 		decisionReason  *string
 		resultType      *string
 		resultID        *string
+		capture         []byte
 	)
 	if err := row.Scan(
 		&out.ApprovalRequestID, &out.TenantID, &out.RequestType, &payload,
@@ -88,8 +91,14 @@ func scanApprovalRequest(row pgx.Row) (domain.ApprovalRequest, error) {
 		&decidedBy, &decidedAt, &decisionReason,
 		&resultType, &resultID,
 		&out.IdempotencyKey, &out.RequestFingerprint, &out.RowVersion,
+		&capture, &out.CaptureReviewStatus, &out.CaptureReviewReason,
 	); err != nil {
 		return domain.ApprovalRequest{}, err
+	}
+	if len(capture) > 0 {
+		if err := json.Unmarshal(capture, &out.Capture); err != nil {
+			return domain.ApprovalRequest{}, fmt.Errorf("counts: decode capture evidence: %w", err)
+		}
 	}
 	out.Payload = json.RawMessage(payload)
 	out.ShiftingEventID = shiftingEventID
@@ -132,19 +141,23 @@ func (r *Repository) CreateApprovalRequest(ctx context.Context, in domain.Approv
 		raisedAt = time.Now().In(biztime.DefaultLocation())
 	}
 
+	capture := captureColumns(in.Capture)
 	row := tx.QueryRow(ctx, `
 INSERT INTO counts_approval_requests (
   tenant_id, request_type, payload, shifting_event_id, subject_goat_id,
-  status, raised_by_user_id, raised_at, idempotency_key, request_fingerprint
+  status, raised_by_user_id, raised_at, idempotency_key, request_fingerprint,
+  capture_sop_version_id, capture_proofs, capture_answers, capture_evidence, capture_review_status
 ) VALUES (
   $1::uuid, $2, $3::jsonb, nullif($4, '')::uuid, nullif($5, '')::uuid,
-  'pending', $6::uuid, $7::timestamptz, $8, $9
+  'pending', $6::uuid, $7::timestamptz, $8, $9,
+  nullif($10, '')::uuid, $11::jsonb, $12::jsonb, $13::jsonb, nullif($14, '')
 )
 ON CONFLICT (tenant_id, idempotency_key) DO NOTHING
 RETURNING `+approvalRequestColumns,
 		in.TenantID, in.RequestType, string(payload),
 		stringOrEmpty(in.ShiftingEventID), stringOrEmpty(in.SubjectGoatID),
-		in.RaisedByUserID, raisedAt.UTC(), in.IdempotencyKey, in.RequestFingerprint)
+		in.RaisedByUserID, raisedAt.UTC(), in.IdempotencyKey, in.RequestFingerprint,
+		capture.versionID, capture.proofs, capture.answers, capture.evidence, capture.reviewStatus)
 
 	created, err := scanApprovalRequest(row)
 	if err == nil {
@@ -209,15 +222,19 @@ func (r *Repository) CreateBirthApprovalRequest(
 	if raisedAt.IsZero() {
 		raisedAt = time.Now().In(biztime.DefaultLocation())
 	}
+	capture := captureColumns(in.Capture)
 	created, err := scanApprovalRequest(tx.QueryRow(ctx, `
 INSERT INTO counts_approval_requests (
   tenant_id, request_type, payload, status, raised_by_user_id, raised_at,
-  idempotency_key, request_fingerprint
-) VALUES ($1::uuid, 'birth', $2::jsonb, 'pending', $3::uuid, $4::timestamptz, $5, $6)
+  idempotency_key, request_fingerprint,
+  capture_sop_version_id, capture_proofs, capture_answers, capture_evidence, capture_review_status
+) VALUES ($1::uuid, 'birth', $2::jsonb, 'pending', $3::uuid, $4::timestamptz, $5, $6,
+  nullif($7, '')::uuid, $8::jsonb, $9::jsonb, $10::jsonb, nullif($11, ''))
 ON CONFLICT (tenant_id, idempotency_key) DO NOTHING
 RETURNING `+approvalRequestColumns,
 		in.TenantID, string(payload), in.RaisedByUserID, raisedAt.UTC(),
-		in.IdempotencyKey, in.RequestFingerprint))
+		in.IdempotencyKey, in.RequestFingerprint,
+		capture.versionID, capture.proofs, capture.answers, capture.evidence, capture.reviewStatus))
 	if errors.Is(err, pgx.ErrNoRows) {
 		existing, readErr := scanApprovalRequest(tx.QueryRow(ctx, `
 SELECT `+approvalRequestColumns+`
@@ -266,10 +283,131 @@ WHERE tenant_id = $1::uuid AND idempotency_key = $2`, in.TenantID, in.Idempotenc
 			GoatID: result.Goat.GoatID, TemporaryIdentifier: temp, ChildOrdinal: i + 1,
 		})
 	}
+	// counts.birth.reported rides the SAME transaction as the request and its children, so the
+	// report's own proof reaches the verifier exactly when the litter exists -- never for a
+	// litter that rolled back, never missed for one that committed.
+	if err := insertBirthReportedOutbox(ctx, tx, created, items); err != nil {
+		return domain.BirthSubmissionResult{}, err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return domain.BirthSubmissionResult{}, err
 	}
 	return domain.BirthSubmissionResult{Approval: created, Children: items}, nil
+}
+
+// captureColumnValues is the capture card's storage for one submission.
+type captureColumnValues struct {
+	versionID    string
+	proofs       string
+	answers      string
+	evidence     string
+	reviewStatus string
+}
+
+// captureColumns encodes the judged capture (nil = the form asked nothing: '{}' everywhere). A
+// capture WITH media opens a verifier review (status pending); one with answers only has
+// nothing for the verifier to watch and carries no review state.
+func captureColumns(c *domain.ApprovalCapture) captureColumnValues {
+	out := captureColumnValues{proofs: "{}", answers: "{}", evidence: "{}"}
+	if c == nil {
+		return out
+	}
+	out.versionID = c.SOPVersionID
+	if raw, err := json.Marshal(c.Proofs); err == nil && len(c.Proofs) > 0 {
+		out.proofs = string(raw)
+	}
+	if raw, err := json.Marshal(c.Answers); err == nil && len(c.Answers) > 0 {
+		out.answers = string(raw)
+	}
+	if raw, err := json.Marshal(c.Evidence); err == nil {
+		out.evidence = string(raw)
+	}
+	if len(c.Evidence.Media) > 0 {
+		out.reviewStatus = domain.CaptureReviewPending
+	}
+	return out
+}
+
+// insertBirthReportedOutbox writes counts.birth.reported for one litter: the approval request
+// (= birth_event_id), the park/shed the form named, every child's goat id, and the capture
+// snapshot. Deterministic id + key per request, so a replay writes nothing twice.
+func insertBirthReportedOutbox(ctx context.Context, tx pgx.Tx, req domain.ApprovalRequest, children []domain.BirthChildResult) error {
+	var form struct {
+		ParkID string `json:"park_id"`
+		ShedID string `json:"shed_id"`
+	}
+	if len(req.Payload) > 0 {
+		_ = json.Unmarshal(req.Payload, &form)
+	}
+	goatIDs := make([]string, 0, len(children))
+	for _, c := range children {
+		goatIDs = append(goatIDs, c.GoatID)
+	}
+	idempotencyKey := domain.EventBirthReported + ":" + req.ApprovalRequestID
+	eventID := platformoutbox.DeterministicUUID(idempotencyKey)
+	occurredAt := req.RaisedAt.UTC()
+	payload, err := json.Marshal(map[string]any{
+		"event_id":         eventID,
+		"event_type":       domain.EventBirthReported,
+		"schema_version":   countsEventSchemaVersion,
+		"schema_ref":       countsEventSchemaRef,
+		"aggregate_type":   "counts_approval_request",
+		"aggregate_id":     req.ApprovalRequestID,
+		"occurred_at":      occurredAt.Format(time.RFC3339Nano),
+		"recorded_at":      time.Now().UTC().Format(time.RFC3339Nano),
+		"producer":         map[string]any{"service": "goatos-api", "module": "counts", "version": nil},
+		"idempotency_key":  idempotencyKey,
+		"actor":            map[string]any{"actor_type": "user", "actor_id": req.RaisedByUserID, "actor_ref": nil},
+		"subject_type":     "counts_approval_request",
+		"subject_id":       req.ApprovalRequestID,
+		"visibility_scope": map[string]any{"tenant_id": req.TenantID},
+		"evidence_refs":    []map[string]string{{"evidence_type": "decision", "evidence_id": req.ApprovalRequestID}},
+		"payload": map[string]any{
+			"approval_request_id": req.ApprovalRequestID,
+			"birth_event_id":      req.ApprovalRequestID,
+			"park_id":             form.ParkID,
+			"shed_id":             form.ShedID,
+			"goat_ids":            goatIDs,
+			"raised_by_user_id":   req.RaisedByUserID,
+			"capture_evidence":    req.Capture,
+		},
+		"trace_id": idempotencyKey,
+	})
+	if err != nil {
+		return fmt.Errorf("counts: marshal %s envelope: %w", domain.EventBirthReported, err)
+	}
+	headers, err := json.Marshal(map[string]any{
+		"producer": "counts.ApprovalService", "schema_version": countsEventSchemaVersion,
+		"idempotency_key": idempotencyKey, "event_type": domain.EventBirthReported,
+	})
+	if err != nil {
+		return fmt.Errorf("counts: marshal %s headers: %w", domain.EventBirthReported, err)
+	}
+	if _, err := tx.Exec(ctx, `
+INSERT INTO outbox_messages (
+  tenant_id, event_id, event_type, schema_version, aggregate_type, aggregate_id,
+  topic, payload, headers, idempotency_key, trace_id, status, next_attempt_at
+) VALUES (
+  $1::uuid, $2::uuid, $3, $4, 'counts_approval_request', $5::uuid,
+  $6, $7::jsonb, $8::jsonb, $9, $9, 'pending', now()
+)
+ON CONFLICT DO NOTHING`, req.TenantID, eventID, domain.EventBirthReported, countsEventSchemaVersion,
+		req.ApprovalRequestID, countsEventTopic, payload, headers, idempotencyKey); err != nil {
+		return fmt.Errorf("counts: insert %s outbox: %w", domain.EventBirthReported, err)
+	}
+	return nil
+}
+
+// SetCaptureReviewStatus stamps the verifier's verdict on the report's own proof (the
+// birth_capture item). Idempotent: a redelivered verdict rewrites the same value.
+func (r *Repository) SetCaptureReviewStatus(ctx context.Context, tenantID, approvalRequestID, status, reason string) error {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	_, err := r.pool.Exec(ctx, `
+UPDATE counts_approval_requests
+SET capture_review_status = $3, capture_review_reason = nullif($4, ''), updated_at = now()
+WHERE tenant_id = $1::uuid AND approval_request_id = $2::uuid`, tenantID, approvalRequestID, status, strings.TrimSpace(reason))
+	return err
 }
 
 func birthChildren(ctx context.Context, tx pgx.Tx, tenantID, birthEventID string) ([]domain.BirthChildResult, error) {
@@ -333,6 +471,9 @@ func insertDeathApprovalOutbox(
 			"approval_request_id": req.ApprovalRequestID,
 			"goat_id":             *req.SubjectGoatID,
 			"reason":              reason,
+			// The Add death form's snapshot: stamped on the death workflow at open so the
+			// verifier bundle leads with the report's own proof and answers.
+			"capture_evidence": req.Capture,
 		},
 		"trace_id": idempotencyKey,
 	})
@@ -436,7 +577,8 @@ func (r *Repository) ListApprovalRequests(ctx context.Context, q domain.Approval
 SELECT approval_request_id::text, request_type, status,
        raised_by_user_id::text, raised_at,
        shifting_event_id::text, subject_goat_id::text, payload,
-       decided_by_user_id::text, decided_at, decision_reason
+       decided_by_user_id::text, decided_at, decision_reason,
+       COALESCE(capture_evidence, '{}'::jsonb), capture_review_status, capture_review_reason
 FROM counts_approval_requests
 WHERE tenant_id = $1::uuid
   AND status = $2
@@ -464,14 +606,21 @@ LIMIT $6`, q.TenantID, q.Status, q.RequestTypes, cursorRaisedAt, cursorID, pageS
 		var (
 			item    domain.ApprovalRequestSummary
 			payload []byte
+			capture []byte
 		)
 		if err := rows.Scan(
 			&item.ApprovalRequestID, &item.RequestType, &item.Status,
 			&item.RaisedByUserID, &item.RaisedAt,
 			&item.ShiftingEventID, &item.SubjectGoatID, &payload,
 			&item.DecidedByUserID, &item.DecidedAt, &item.DecisionReason,
+			&capture, &item.CaptureReviewStatus, &item.CaptureReviewReason,
 		); err != nil {
 			return domain.ApprovalRequestPage{}, fmt.Errorf("counts: scan approval request: %w", err)
+		}
+		if len(capture) > 0 {
+			if err := json.Unmarshal(capture, &item.Capture); err != nil {
+				return domain.ApprovalRequestPage{}, fmt.Errorf("counts: decode capture evidence: %w", err)
+			}
 		}
 		item.Summary = json.RawMessage(payload)
 		items = append(items, item)
