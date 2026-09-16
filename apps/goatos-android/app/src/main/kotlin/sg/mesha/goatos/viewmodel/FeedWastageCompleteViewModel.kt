@@ -131,7 +131,7 @@ class FeedWastageCompleteViewModel @Inject constructor(
             )
         },
         photoContext = { slot -> PhotoCaptureContext(title = slot.title, instruction = slot.hint.ifBlank { slot.title }) },
-        events = FeedSopSlotController.Events(
+        events = SopSlotController.Events(
             captureTapped = AnalyticsEvents.FEED_WASTAGE_CAPTURE_TAPPED,
             captured = AnalyticsEvents.FEED_WASTAGE_VIDEO_CAPTURED,
             uploadSynced = AnalyticsEvents.FEED_WASTAGE_PROOF_UPLOAD_SYNCED,
@@ -153,7 +153,7 @@ class FeedWastageCompleteViewModel @Inject constructor(
 
     init {
         analytics.track(AnalyticsEvents.FEED_WASTAGE_COMPLETE_OPENED, wastageEventProps(ACTION_DETAIL_OPENED))
-        slots.applyCard(seededCard(), FeedSopSlotController.CARD_RANK_SEEDED, source = "seeded")
+        slots.applyCard(seededCard(), SopSlotController.CARD_RANK_SEEDED, source = "seeded")
         viewModelScope.launch { slots.state.collect { card -> _state.update { it.copy(card = card) }; recomputeCanComplete() } }
         slots.start()
         observeCachedCard()
@@ -186,7 +186,7 @@ class FeedWastageCompleteViewModel @Inject constructor(
         viewModelScope.launch {
             feedRepository.observeWastageCard(parkId, targetDate)
                 .filterNotNull()
-                .collect { card -> slots.applyCard(card, FeedSopSlotController.CARD_RANK_CACHED, source = "room") }
+                .collect { card -> slots.applyCard(card, SopSlotController.CARD_RANK_CACHED, source = "room") }
         }
     }
 
