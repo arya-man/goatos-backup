@@ -82,8 +82,8 @@
     <string name="feed_dist_submit">सत्यापन के लिए सबमिट करें</string>
     <string name="feed_dist_need_all">सबमिट करने के लिए तीनों प्रमाण रिकॉर्ड करें।</string>
     <string name="feed_dist_need_both">फ़ीड वज़न फ़ोटो, फ़ीड वीडियो और पानी वीडियो रिकॉर्ड करें।</string>
-    <string name="feed_dist_waiting_sync">प्रमाण अपलोड हो रहे हैं। तीनों तैयार होने पर सबमिट दिखेगा।</string>
-    <string name="feed_dist_ready_to_submit">तीनों प्रमाण तैयार हैं। सत्यापन के लिए सबमिट करें।</string>
+    <string name="feed_dist_waiting_sync">प्रमाण अपलोड हो रहे हैं। हर ज़रूरी कैप्चर तैयार होने पर सबमिट दिखेगा।</string>
+    <string name="feed_dist_ready_to_submit">हर ज़रूरी कैप्चर तैयार है। सत्यापन के लिए सबमिट करें।</string>
     <string name="feed_dist_submitted">सत्यापन के लिए भेजा गया।</string>
     <string name="feed_dist_retry_submit">सत्यापन के लिए फिर से भेजें</string>
     <string name="feed_dist_reupload_hint">फिर से अपलोड करने के लिए इस प्रमाण पर टैप करें।</string>

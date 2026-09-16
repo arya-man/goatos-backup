@@ -152,9 +152,10 @@ func (h *Handler) PostCompleteWastage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// The wastage video is mandatory. Reject a blank one with 422 proof_required BEFORE calling the
-	// service, mirroring the packing route, so a proofless request never reaches the write path.
-	if strings.TrimSpace(body.WastageProofRef) == "" {
+	// A LEGACY request (no card-shaped `proofs`) must carry the wastage video; reject a blank one
+	// with 422 proof_required BEFORE calling the service. A card-shaped request is judged against
+	// the sheet's pinned wastage card by the service (FEED SOP, 2026-09-16).
+	if len(body.Proofs) == 0 && strings.TrimSpace(body.WastageProofRef) == "" {
 		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity,
 			codedError{Code: "proof_required", Message: "a wastage video proof (wastage_proof_ref) is required"}, nil)
 		return

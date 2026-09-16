@@ -572,13 +572,14 @@ class DefaultFeedRepository(
     }.getOrNull()?.takeIf { it.isNotBlank() }
 
     override fun observeDirectionCard(parkId: String, targetDate: String, workflow: String): Flow<FeedSopCardDto?> {
-        // Every direction scope key starts `shape|park|date|`; the range covers all of them.
-        val prefix = cacheKey(DIRECTION_CACHE_SHAPE, parkId, targetDate) + "|"
-        return directionMetaDao.observeLatestInRange(prefix, prefix + "\uFFFF")
-            .map { entity ->
-                // The same TTL/quarantine read the list uses, so an undecodable cached page is
-                // quarantined once rather than failing every open.
-                entity?.let {
+        // Key layout is `shape|park|date|...`; the list's park segment is blank on the default
+        // farm selection, so match the date and prefer this park's row, then a blank-park row.
+        val pattern = DIRECTION_CACHE_SHAPE + "|%|" + targetDate + "|%"
+        return directionMetaDao.observeForDate(pattern)
+            .map { rows ->
+                val pick = rows.firstOrNull { it.cacheKey.split("|").getOrNull(1) == parkId }
+                    ?: rows.firstOrNull { it.cacheKey.split("|").getOrNull(1).isNullOrBlank() }
+                pick?.let {
                     readCachedJson<FeedDirectionPreviewPageDto>(
                         json = json,
                         cacheKey = it.cacheKey,
@@ -594,12 +595,14 @@ class DefaultFeedRepository(
     }
 
     override fun observePackingCard(parkId: String, targetDate: String, workflow: String): Flow<FeedSopCardDto?> {
-        val prefix = cacheKey(PACKING_CACHE_SHAPE, parkId, targetDate) + "|"
-        return packingMetaDao.observeLatestInRange(prefix, prefix + "\uFFFF")
-            .map { entity ->
-                // The same TTL/quarantine read the list uses, so an undecodable cached page is
-                // quarantined once rather than failing every open.
-                entity?.let {
+        // Key layout is `shape|park|date|...`; the list's park segment is blank on the default
+        // farm selection, so match the date and prefer this park's row, then a blank-park row.
+        val pattern = PACKING_CACHE_SHAPE + "|%|" + targetDate + "|%"
+        return packingMetaDao.observeForDate(pattern)
+            .map { rows ->
+                val pick = rows.firstOrNull { it.cacheKey.split("|").getOrNull(1) == parkId }
+                    ?: rows.firstOrNull { it.cacheKey.split("|").getOrNull(1).isNullOrBlank() }
+                pick?.let {
                     readCachedJson<FeedPackingWorklistPageDto>(
                         json = json,
                         cacheKey = it.cacheKey,
@@ -615,12 +618,14 @@ class DefaultFeedRepository(
     }
 
     override fun observeWastageCard(parkId: String, targetDate: String): Flow<FeedSopCardDto?> {
-        val prefix = cacheKey(WASTAGE_CACHE_SHAPE, parkId, targetDate) + "|"
-        return wastageMetaDao.observeLatestInRange(prefix, prefix + "\uFFFF")
-            .map { entity ->
-                // The same TTL/quarantine read the list uses, so an undecodable cached page is
-                // quarantined once rather than failing every open.
-                entity?.let {
+        // Key layout is `shape|park|date|...`; the list's park segment is blank on the default
+        // farm selection, so match the date and prefer this park's row, then a blank-park row.
+        val pattern = WASTAGE_CACHE_SHAPE + "|%|" + targetDate + "|%"
+        return wastageMetaDao.observeForDate(pattern)
+            .map { rows ->
+                val pick = rows.firstOrNull { it.cacheKey.split("|").getOrNull(1) == parkId }
+                    ?: rows.firstOrNull { it.cacheKey.split("|").getOrNull(1).isNullOrBlank() }
+                pick?.let {
                     readCachedJson<FeedWastageWorklistPageDto>(
                         json = json,
                         cacheKey = it.cacheKey,

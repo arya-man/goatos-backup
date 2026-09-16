@@ -82,8 +82,8 @@
     <string name="feed_dist_submit">Submit for verification</string>
     <string name="feed_dist_need_all">Record all three proofs to submit.</string>
     <string name="feed_dist_need_both">Record the feed weight photo, feed video, and water video.</string>
-    <string name="feed_dist_waiting_sync">Proof uploads are in progress. Submit appears when all three are ready.</string>
-    <string name="feed_dist_ready_to_submit">All three proofs are ready. Submit for verification.</string>
+    <string name="feed_dist_waiting_sync">Proof uploads are in progress. Submit appears when every required capture is ready.</string>
+    <string name="feed_dist_ready_to_submit">Every required capture is ready. Submit for verification.</string>
     <string name="feed_dist_submitted">Sent for verification.</string>
     <string name="feed_dist_retry_submit">Retry sending for verification</string>
     <string name="feed_dist_reupload_hint">Tap this proof to reupload.</string>

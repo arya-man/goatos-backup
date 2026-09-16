@@ -219,7 +219,9 @@ func (h *Handler) PostTransportSubmit(w http.ResponseWriter, r *http.Request) {
 		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, "request body must be valid JSON", nil)
 		return
 	}
-	if strings.TrimSpace(body.ProofRef) == "" {
+	// FEED SOP: a card-shaped request (proofs present) is judged against the task's pinned card by
+	// the service -- the legacy single-field check applies only to an older client's request.
+	if len(body.Proofs) == 0 && strings.TrimSpace(body.ProofRef) == "" {
 		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity, codedError{Code: "proof_required", Message: "a live feed-transport video proof (proof_ref) is required"}, nil)
 		return
 	}
@@ -421,19 +423,22 @@ func (h *Handler) PostCompleteDistribution(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	// All proofs are mandatory. Reject a blank one with 422 proof_required BEFORE calling the service,
-	// mirroring the shifting complete route, so a proofless request never reaches the write path.
-	if strings.TrimSpace(body.FeedWeightProofRef) == "" {
+	// A LEGACY request (no card-shaped `proofs`) must carry every seeded proof; reject a blank one
+	// with 422 proof_required BEFORE calling the service, mirroring the shifting complete route.
+	// A card-shaped request is judged against the sheet's pinned card by the service (FEED SOP,
+	// 2026-09-16) -- the card decides which slots exist and which are compulsory.
+	legacyShaped := len(body.Proofs) == 0
+	if legacyShaped && strings.TrimSpace(body.FeedWeightProofRef) == "" {
 		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity,
 			codedError{Code: "proof_required", Message: "a feed weight photo proof (feed_weight_proof_ref) is required"}, nil)
 		return
 	}
-	if strings.TrimSpace(body.DistributionProofRef) == "" {
+	if legacyShaped && strings.TrimSpace(body.DistributionProofRef) == "" {
 		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity,
 			codedError{Code: "proof_required", Message: "a feed-distribution video proof (distribution_proof_ref) is required"}, nil)
 		return
 	}
-	if strings.TrimSpace(body.WaterProofRef) == "" {
+	if legacyShaped && strings.TrimSpace(body.WaterProofRef) == "" {
 		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity,
 			codedError{Code: "proof_required", Message: "a water-distribution video proof (water_proof_ref) is required"}, nil)
 		return
@@ -533,9 +538,10 @@ func (h *Handler) PostCompletePacking(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// The packing video is mandatory. Reject a blank one with 422 proof_required BEFORE calling the
-	// service, mirroring the distribution route, so a proofless request never reaches the write path.
-	if strings.TrimSpace(body.PackingProofRef) == "" {
+	// A LEGACY request (no card-shaped `proofs`) must carry the packing video; reject a blank one
+	// with 422 proof_required BEFORE calling the service. A card-shaped request is judged against
+	// the sheet's pinned packing card by the service (FEED SOP, 2026-09-16).
+	if len(body.Proofs) == 0 && strings.TrimSpace(body.PackingProofRef) == "" {
 		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity,
 			codedError{Code: "proof_required", Message: "a packing video proof (packing_proof_ref) is required"}, nil)
 		return
