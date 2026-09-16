@@ -390,6 +390,36 @@ class WorkflowDetailViewModelTest {
         assertEquals("the photo banner replaces the old video sentence", null, viewModel.state.value.message)
     }
 
+    /** Realme E2E 2026-09-17: after "Answer kept" the proof step did not show which answer was kept. */
+    @Test
+    fun `a proof step shows the kept answer as chosen while its photo is still owed`() = runTest(dispatcher) {
+        val action = WorkflowActionDto(
+            actionId = "action-1",
+            actionKey = "kid_suckled",
+            seq = 1,
+            actionType = "question",
+            title = "Kid suckled?",
+            status = "pending",
+            options = listOf("Yes", "No"),
+            proofMinPhotos = 1,
+        )
+        val workflowsRepository = FakeWorkflowDetailRepository(requiresVideoDetail().copy(actions = listOf(action)))
+        val viewModel = buildViewModel(
+            workflowsRepository,
+            FakeWorkflowDetailSyncRepository(),
+            FakeProofCaptureRepository(),
+            FakeProofCaptureSource(mutableListOf()),
+        )
+        backgroundScope.launch { viewModel.state.collect {} }
+        advanceUntilIdle()
+        val yes = viewModel.state.value.actions.single().options.first().value
+
+        viewModel.onEvent(WorkflowDetailEvent.Answer("action-1", yes))
+        advanceUntilIdle()
+
+        assertEquals(yes, viewModel.state.value.actions.single().answerValue)
+    }
+
     @Test
     fun `terminal complete failure rolls optimistic action back to pending`() = runTest(dispatcher) {
         val workflowsRepository = FakeWorkflowDetailRepository(

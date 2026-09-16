@@ -400,7 +400,15 @@ class WorkflowDetailViewModel @Inject constructor(
             if (proofsSatisfied(action, pendingProofs.value[actionId].orEmpty())) {
                 submitMultiProof(actionId, value)
             } else {
-                _state.update { it.copy(message = MULTI_PROOF_ANSWER_KEPT_MESSAGE, isErrorMessage = false) }
+                // The kept answer shows as chosen on the step while its proofs are still owed.
+                _state.update { current ->
+                    current.copy(
+                        actions = current.actions.map { if (it.actionId == actionId) it.copy(answerValue = value) else it },
+                        message = MULTI_PROOF_ANSWER_KEPT_MESSAGE,
+                        proofSaved = null,
+                        isErrorMessage = false,
+                    )
+                }
             }
             return
         }
@@ -1037,7 +1045,10 @@ class WorkflowDetailViewModel @Inject constructor(
                     hasVideoDraft = hasDraft,
                     canRecordVideo = if (multiProof) ui.canRecordVideo && !draftsSubmitting else canRecordWorkflowVideo(action, blocked, draftsSubmitting),
                 )
-                if (isDeathModule) {
+                if (!isDeathModule && multiProof && action.actionId in pendingAnswers) {
+                    // A multi-proof step's answer is kept on the phone until its proofs are in.
+                    base.copy(answerValue = pendingAnswers[action.actionId])
+                } else if (isDeathModule) {
                     base.copy(
                         proofVideosCaptured = stepDrafts.count { !it.isPhoto },
                         proofPhotosCaptured = stepDrafts.count { it.isPhoto },
