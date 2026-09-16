@@ -5,8 +5,8 @@ import {
   LOCAL_OVERLAY_URL_CHANGE_EVENT,
   replaceLocalOverlayUrl,
 } from "@/components/local-overlay-link";
-import { ImageIcon, Maximize, Minimize, PlayCircle } from "lucide-react";
-import { useCallback, useEffect, useRef, useState, useMemo, useTransition } from "react";
+import { FileIcon, ImageIcon, Maximize, Minimize, PlayCircle } from "lucide-react";
+import { Fragment, useCallback, useEffect, useRef, useState, useMemo, useTransition } from "react";
 
 import { controlEnabled, copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { VerificationQueueItem } from "@/lib/api/server";
@@ -31,6 +31,16 @@ import { submitVerificationReviewEvents } from "./review-events-server";
 const OPEN_FALLBACK_MS = 50;
 
 const PATHNAME = "/verify";
+
+/**
+ * The backend-composed section header a context row STARTS, or "" when it starts none: a producer
+ * may group its rows ("Crew answers"), and a header is shown only where the group changes between
+ * consecutive rows. Rendered verbatim, never composed here.
+ */
+export function contextRowGroupStart(rows: ReadonlyArray<{ group?: string | null }>, index: number): string {
+  const group = rows[index]?.group?.trim() ?? "";
+  return group !== "" && group !== (rows[index - 1]?.group?.trim() ?? "") ? group : "";
+}
 
 function renderLabelOrFallback(label: string | null | undefined): string {
   return label && label.trim() ? label : "—";
@@ -648,6 +658,23 @@ function VerificationReviewDrawerPanel({
 	                ) : (
 	                  <div className="vr-player-empty">{text("drawer.media.loading_photo")}</div>
 	                )
+              ) : activeMedia ? (
+                /* A proof of UNKNOWN kind: an `either` SOP slot the proof register could not type,
+                   or an attachment. The backend leaves its mime blank rather than guessing a player,
+                   and the proof is still uploaded and openable -- so offer it, never the
+                   missing-media state. Resolved on click, one proof, like the video tile. */
+                resolvedMediaUrls[activeMedia.proof_id] ? (
+                  // admin-proof-media-egress:ignore reviewer clicked open for this one proof; the link was resolved by server action after the click.
+                  <a key={activeMedia.proof_id} className="vr-media-open" href={resolvedMediaUrls[activeMedia.proof_id]} target="_blank" rel="noreferrer">
+                    <span className="vr-media-open-mark"><FileIcon className="ic" aria-hidden="true" /></span>
+                    {text("drawer.media.open")}
+                  </a>
+                ) : (
+                  <button type="button" className="vr-media-open" onClick={resolveActiveMedia} disabled={mediaPending}>
+                    <span className="vr-media-open-mark"><FileIcon className="ic" aria-hidden="true" /></span>
+                    {text("drawer.media.open")}
+                  </button>
+                )
               ) : (
                 <div className="vr-player-empty">{text("drawer.media.empty")}</div>
               )}
@@ -680,8 +707,10 @@ function VerificationReviewDrawerPanel({
                       proof promises a clip that does not exist. */}
                   {media.mime_type?.startsWith("image/") ? (
                     <ImageIcon className="ic" />
-                  ) : (
+                  ) : media.mime_type?.startsWith("video/") ? (
                     <PlayCircle className="ic" />
+                  ) : (
+                    <FileIcon className="ic" />
                   )}
                   {media.label || shortId(media.proof_id)}
                 </button>
@@ -718,12 +747,17 @@ function VerificationReviewDrawerPanel({
                 preparation submission, or a feed packing item's frozen ration. Backend-composed
                 label/value pairs rendered VERBATIM in the producer's order; a row missing either
                 half states nothing and is dropped, matching the Android verify detail. */}
-            {(item.context_rows ?? []).map((row, index) =>
+            {/* A producer may section its rows ("Crew answers"): a header starts whenever the
+                backend-composed group CHANGES between consecutive rows, rendered verbatim. */}
+            {(item.context_rows ?? []).map((row, index, rows) =>
               row.label?.trim() && row.value?.trim() ? (
-                <div key={`ctx:${index}:${row.label}`} className="vr-fact">
-                  <b>{row.label}</b>
-                  {row.value}
-                </div>
+                <Fragment key={`ctx:${index}:${row.label}`}>
+                  {contextRowGroupStart(rows, index) ? <div className="vr-fact-group">{contextRowGroupStart(rows, index)}</div> : null}
+                  <div className="vr-fact">
+                    <b>{row.label}</b>
+                    {row.value}
+                  </div>
+                </Fragment>
               ) : null
             )}
             {/* Each proof's recorded answer */}

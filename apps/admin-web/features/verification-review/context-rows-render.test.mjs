@@ -32,3 +32,16 @@ test("a context row missing either half states nothing", () => {
     "a label with no value (or the reverse) must be dropped, matching the Android verify detail",
   );
 });
+
+test("a context row group starts a titled section when it changes", () => {
+  assert.match(
+    drawerSource,
+    /function contextRowGroupStart[\s\S]{0,300}rows\[index - 1\]\?\.group/,
+    "the drawer must compare each row's group with the previous row's",
+  );
+  assert.match(
+    drawerSource,
+    /context_rows[\s\S]{0,300}contextRowGroupStart\(rows, index\)[\s\S]{0,40}className="vr-fact-group">\{contextRowGroupStart\(rows, index\)\}/,
+    "a changed group renders the backend's own header verbatim in a vr-fact-group block before the row",
+  );
+});
