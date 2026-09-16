@@ -174,6 +174,15 @@ WHERE tenant_id = $1::uuid AND park_id = $2::uuid AND shed_id = $3::uuid
 			// A verifier rejected the prior video; the operator re-recorded. Move the row back to
 			// pending_verification with the NEW proofs, bump row_version, clear the rework reason. This is
 			// a fresh pending transition, so it enqueues a fresh verification item.
+			//
+			// NEW captures only: the set scanned above is what was sent back, and a clip that proved
+			// another pen-session is not this one's (feed_proof_reuse.go).
+			if err := refuseSentBackProofs(sopProofs, canonicalSOPProofs); err != nil {
+				return ports.CompleteDistributionResult{}, err
+			}
+			if err := refuseProofsUsedElsewhere(ctx, tx, p.TenantID, p.ParkID, targetDate, completionID, sopProofs); err != nil {
+				return ports.CompleteDistributionResult{}, err
+			}
 			if err := tx.QueryRow(ctx, `
 UPDATE feed_distribution_completions
 SET status = 'pending_verification',
@@ -214,7 +223,11 @@ RETURNING row_version, coalesce(feed_weight_proof_ref, ''), coalesce(distributio
 	case err != nil:
 		return ports.CompleteDistributionResult{}, fmt.Errorf("feeddirection: insert distribution completion: %w", err)
 	default:
-		// Fresh insert: a brand-new pending_verification row.
+		// Fresh insert: a brand-new pending_verification row -- unless a capture already proves
+		// another piece of feed work (the insert rolls back with the refusal).
+		if err := refuseProofsUsedElsewhere(ctx, tx, p.TenantID, p.ParkID, targetDate, completionID, sopProofs); err != nil {
+			return ports.CompleteDistributionResult{}, err
+		}
 		newlyPending = true
 		if err := writeDistributionAudit(ctx, tx, p, completionID, feedDistributionPendingAction); err != nil {
 			return ports.CompleteDistributionResult{}, err
@@ -341,6 +354,7 @@ func (r *Repository) ApplyVerifiedDistribution(ctx context.Context, p ports.Appl
 		}
 	}()
 
+	var holdsEvidence bool
 	var (
 		status     string
 		parkID     string
@@ -350,10 +364,10 @@ func (r *Repository) ApplyVerifiedDistribution(ctx context.Context, p ports.Appl
 		targetDate time.Time
 	)
 	err = tx.QueryRow(ctx, `
-SELECT status, park_id::text, shed_id::text, workflow, session_no, target_date
+SELECT status, park_id::text, shed_id::text, workflow, session_no, target_date, ($3::text = '' OR EXISTS (SELECT 1 FROM jsonb_each_text(sop_proofs) e WHERE e.value = $3::text))
 FROM feed_distribution_completions
 WHERE tenant_id = $1::uuid AND completion_id = $2::uuid
-FOR UPDATE`, p.TenantID, p.CompletionID).Scan(&status, &parkID, &shedID, &workflow, &sessionNo, &targetDate)
+FOR UPDATE`, p.TenantID, p.CompletionID, strings.TrimSpace(p.EvidenceID)).Scan(&status, &parkID, &shedID, &workflow, &sessionNo, &targetDate, &holdsEvidence)
 	if errors.Is(err, pgx.ErrNoRows) {
 		// No such row for this tenant: a stale/foreign verdict. Ignore.
 		if commitErr := r.commitAndInvalidateReadCache(ctx, tx); commitErr != nil {
@@ -366,7 +380,9 @@ FOR UPDATE`, p.TenantID, p.CompletionID).Scan(&status, &parkID, &shedID, &workfl
 		return false, fmt.Errorf("feeddirection: lock distribution completion: %w", err)
 	}
 	// Already completed (re-delivered verdict) or no longer pending (stale delivery): no side effects.
-	if status != domain.DistributionStatusPendingVerification {
+	// A verdict for a capture the row no longer holds judged an EARLIER submission (a
+	// re-delivered or late event after the crew re-shot): stale, exactly like a moved-on status.
+	if status != domain.DistributionStatusPendingVerification || !holdsEvidence {
 		if commitErr := r.commitAndInvalidateReadCache(ctx, tx); commitErr != nil {
 			return false, commitErr
 		}
@@ -432,8 +448,9 @@ SET status = 'rework',
     rework_reason = nullif($3, ''),
     updated_at = now(),
     row_version = row_version + 1
-WHERE tenant_id = $1::uuid AND completion_id = $2::uuid AND status = 'pending_verification'`,
-		p.TenantID, p.CompletionID, strings.TrimSpace(p.Reason))
+WHERE tenant_id = $1::uuid AND completion_id = $2::uuid AND status = 'pending_verification'
+  AND ($4::text = '' OR EXISTS (SELECT 1 FROM jsonb_each_text(sop_proofs) e WHERE e.value = $4::text))`,
+		p.TenantID, p.CompletionID, strings.TrimSpace(p.Reason), strings.TrimSpace(p.EvidenceID))
 	if err != nil {
 		return false, fmt.Errorf("feeddirection: bounce distribution for rework: %w", err)
 	}
