@@ -269,6 +269,12 @@ data class ShiftingUiState(
      */
     val comment: String = "",
 
+    /**
+     * SHIFTING SOP (2026-09-16): the PUBLISHED raise card -- the questions and captures the farm
+     * authored for the raise form, shown to the park head before approval. Empty for the seed.
+     */
+    val raiseCard: ShiftingSopCardUi = ShiftingSopCardUi(),
+
     val canSubmit: Boolean = false,
     val validationMessage: String? = null,
     val result: CountsWriteResultUi = CountsWriteResultUi(),
@@ -391,6 +397,10 @@ sealed interface ShiftingEvent {
     data class SelectCategory(val category: String) : ShiftingEvent
 
     data class EditComment(val value: String) : ShiftingEvent
+    /** Capture one slot of the raise card ([kind] "photo" on an `either` slot). */
+    data class CaptureRaiseSlot(val slotKey: String, val kind: String? = null) : ShiftingEvent
+    /** Answer one question of the raise card. */
+    data class AnswerRaise(val questionId: String, val value: String) : ShiftingEvent
 
     data object Submit : ShiftingEvent
     data object NavigationHandled : ShiftingEvent
@@ -646,6 +656,18 @@ fun ShiftingScreen(
                         label = stringResource(R.string.counts_field_comment),
                         supporting = stringResource(R.string.counts_hint_comment),
                         singleLine = false,
+                    )
+                }
+            }
+
+            // --- 7. SOP raise card (SHIFTING SOP) ---------------------------------------------
+            if (!state.raiseCard.isEmpty) {
+                item(key = "raise-sop") {
+                    ShiftingSopCardSection(
+                        card = state.raiseCard,
+                        locked = state.result.status == CountsWriteStatus.QUEUED || state.result.status == CountsWriteStatus.SYNCED,
+                        onCapture = { key, kind -> onEvent(ShiftingEvent.CaptureRaiseSlot(key, kind)) },
+                        onAnswer = { id, v -> onEvent(ShiftingEvent.AnswerRaise(id, v)) },
                     )
                 }
             }

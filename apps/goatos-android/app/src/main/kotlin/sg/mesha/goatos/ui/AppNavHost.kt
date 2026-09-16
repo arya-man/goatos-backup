@@ -2931,6 +2931,10 @@ fun AppNavHost(
                     navController.popBackStack()
                 }
             }
+            // SHIFTING SOP: a farm may author captures on the raise card. The sources are bound without
+            // the permission gate so a raise whose card asks for no capture never meets a camera prompt.
+            BindVideoCaptureSource(rememberDelegatingProofCaptureSource())
+            BindPhotoCaptureSource(rememberDelegatingPhotoCaptureSource())
             ShiftingScreen(
                 state = state,
                 onEvent = { event ->
@@ -2972,6 +2976,8 @@ fun AppNavHost(
             // so the optional "Record a video" works and the camera releases on leave.
             CaptureAccessGate {
                 BindVideoCaptureSource(rememberDelegatingProofCaptureSource())
+                // SHIFTING SOP: an authored slot may ask for a live photo (or either).
+                BindPhotoCaptureSource(rememberDelegatingPhotoCaptureSource())
                 ShiftingExecuteScreen(state = state, onEvent = onEvent)
             }
         }
@@ -4617,6 +4623,20 @@ fun AppNavHost(
         composable(Routes.COUNTS_APPROVALS) {
             val vm: ApprovalViewModel = hiltViewModel()
             val state by vm.state.collectAsStateWithLifecycle()
+            val approvalContext = LocalContext.current
+            // SHIFTING SOP: a tapped raise capture opens in the phone's own viewer via its signed URL.
+            LaunchedEffect(vm) {
+                vm.openMedia.collect { media ->
+                    val intent = Intent(Intent.ACTION_VIEW)
+                        .setDataAndType(android.net.Uri.parse(media.url), if (media.kind == "photo") "image/*" else "video/*")
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    try {
+                        approvalContext.startActivity(intent)
+                    } catch (err: ActivityNotFoundException) {
+                        Log.w("GoatOSNav", "No viewer found for approval capture", err)
+                    }
+                }
+            }
             // Room-backed Paging window: one bounded page at a time, next page prefetched on
             // scroll. No manual load-more, and no whole-backlog pull.
             val rows = vm.rows.collectAsLazyPagingItems()

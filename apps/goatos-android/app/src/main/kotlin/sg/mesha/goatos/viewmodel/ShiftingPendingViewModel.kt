@@ -69,7 +69,13 @@ class ShiftingPendingViewModel @Inject constructor(
             .cachedIn(viewModelScope),
         drafts.observeProgress(CaptureFlow.SHIFTING),
     ) { page, progress ->
-        page.map { row -> row.withEvidenceProgress(progress[row.shiftingEventId] ?: 0) }
+        page.map { row ->
+            // The completion card's captures sit under the movement, the high-priority card's under
+            // `<movement>:high` (SHIFTING SOP): one bounded observation, summed per row.
+            val captured = (progress[row.shiftingEventId] ?: 0) +
+                (progress[ShiftingExecuteViewModel.highEntity(row.shiftingEventId)] ?: 0)
+            row.withEvidenceProgress(captured)
+        }
     }
 
     @OptIn(ExperimentalCoroutinesApi::class)
@@ -152,10 +158,8 @@ class ShiftingPendingViewModel @Inject constructor(
      * needs three live videos where a low-priority move needs one
      * (docs/decisions/shifting-verification.md).
      */
-    private fun ShiftingPendingRowUi.withEvidenceProgress(capturedCount: Int): ShiftingPendingRowUi {
-        val required = if (priority.equals("high", ignoreCase = true)) HIGH_PRIORITY_VIDEOS else 1
-        return copy(videosRequired = required, videosCaptured = minOf(capturedCount, required))
-    }
+    private fun ShiftingPendingRowUi.withEvidenceProgress(capturedCount: Int): ShiftingPendingRowUi =
+        copy(videosCaptured = minOf(capturedCount, videosRequired))
 
     private fun selectDate(date: LocalDate) {
         _selection.value = _selection.value.copy(dateIso = minOf(date, today).toString())
@@ -174,6 +178,7 @@ class ShiftingPendingViewModel @Inject constructor(
         priority = priority.titleCase(),
         category = category.titleCase(),
         animalCount = animalCount,
+        videosRequired = shiftingRequiredCaptures(this),
         approvedAtLabel = GoatOsDates.fromWireDate(approvedAtIst?.take(10)),
         primaryActionKey = primaryActionKey,
         actionStateLabel = when {
@@ -222,7 +227,6 @@ class ShiftingPendingViewModel @Inject constructor(
 
     private companion object {
         /** Shifting + feed packing + feed given (docs/decisions/shifting-verification.md). */
-        const val HIGH_PRIORITY_VIDEOS = 3
         const val QUEUED_MESSAGE = "Saved on this phone. It will sync automatically."
         const val SYNCED_MESSAGE = "Shifting raised successfully."
         val IST: ZoneId = ZoneId.of("Asia/Kolkata")
@@ -236,4 +240,16 @@ class ShiftingPendingViewModel @Inject constructor(
         const val OFFLINE_EMPTY = "Couldn't refresh Shifting Actions. Cached actions will appear when available."
         const val UNKNOWN_LOCATION = "—"
     }
+}
+
+/**
+ * SHIFTING SOP (2026-09-16): how many captures a movement requires is its PINNED cards' compulsory
+ * slots -- the completion card, plus the high-priority card for a high movement. A row cached before
+ * the SOP carries no cards and reads as the seed (one video; three for high priority).
+ */
+internal fun shiftingRequiredCaptures(item: CountsShiftingPendingExecutionItemDto): Int {
+    val high = item.priority.equals("high", ignoreCase = true)
+    val completion = item.sop?.proofs?.count { it.required } ?: 1
+    val highPriority = if (!high) 0 else item.highPrioritySop?.proofs?.count { it.required } ?: 2
+    return completion + highPriority
 }

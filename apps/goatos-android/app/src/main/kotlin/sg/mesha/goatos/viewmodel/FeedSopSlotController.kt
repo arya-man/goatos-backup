@@ -90,7 +90,22 @@ internal class FeedSopSlotController(
     private val durableDrafts: sg.mesha.goatos.core.data.CaptureDraftRepository? = null,
     private val durableFlowKey: String = "",
     private val legacySteps: Map<String, String> = emptyMap(),
+    /**
+     * SHIFTING SOP (2026-09-16): the durable-draft entity when it differs from [groupKey] -- two
+     * controllers sharing one proof group (a movement's completion card and its high-priority card)
+     * keep their answers apart, since a draft holds ONE answers row per entity.
+     */
+    private val durableEntityId: String? = null,
+    /** The capture subject resolved at capture time (a raise form's destination is chosen late). */
+    private val shedIdProvider: (() -> String)? = null,
+    /** A card may carry only questions (the shifting raise card); feed cards always carry a slot. */
+    private val allowEmptyProofs: Boolean = false,
 ) {
+    private val draftEntity: String get() = durableEntityId ?: groupKey
+    private val subjectShedId: String get() = shedIdProvider?.invoke() ?: shedId
+
+    /** Captures this phone recorded BEFORE this instant are history (rejected / already submitted). */
+    private var ignoreRowsBeforeMs: Long = Long.MIN_VALUE
     internal class Events(
         val captureTapped: String,
         val captured: String,
@@ -121,7 +136,7 @@ internal class FeedSopSlotController(
     /** Starts the Room observers (durable draft, then this group's proof rows); call once from init. */
     fun start() {
         scope.launch {
-            durableDrafts?.find(durableFlowKey, groupKey)?.let { saved ->
+            durableDrafts?.find(durableFlowKey, draftEntity)?.let { saved ->
                 saved.proofs.forEach { (step, outboxId) ->
                     val key = legacySteps[step] ?: step
                     val d = draft(key)
@@ -154,7 +169,7 @@ internal class FeedSopSlotController(
      * (seeded < Room-cached sheet card < live read) never overwrite a stronger one.
      */
     fun applyCard(card: FeedSopCardDto, rank: Int, source: String) {
-        if (rank < cardRank || card.proofs.isEmpty()) return
+        if (rank < cardRank || (card.proofs.isEmpty() && !allowEmptyProofs)) return
         val changed = rank != cardRank || card.version != cardVersion || card.proofs.map { it.key } != _state.value.slots.map { it.slotKey }
         cardRank = rank
         cardVersion = card.version
@@ -207,7 +222,7 @@ internal class FeedSopSlotController(
     fun answer(questionId: String, value: String) {
         if (locked()) return
         _state.update { it.copy(answers = it.answers + (questionId to value)) }
-        durableDrafts?.let { store -> scope.launch { store.putAnswers(durableFlowKey, groupKey, _state.value.answers) } }
+        durableDrafts?.let { store -> scope.launch { store.putAnswers(durableFlowKey, draftEntity, _state.value.answers) } }
         onChanged()
     }
 
@@ -224,6 +239,7 @@ internal class FeedSopSlotController(
      */
     fun captureSlot(slotKey: String, requestedKind: String?) {
         val slot = _state.value.slot(slotKey) ?: return
+        val shedId = subjectShedId
         if (!slot.captureEnabled || locked() || shedId.isBlank()) return
         val medium = mediumFor(slot, requestedKind)
         val replacing = slot.captured
@@ -294,7 +310,7 @@ internal class FeedSopSlotController(
                     }
                     d.proofItemId.value = proofOutboxId
                     d.proofRowId.value = result.value.id
-                    durableDrafts?.putProof(durableFlowKey, groupKey, slotKey, proofOutboxId)
+                    durableDrafts?.putProof(durableFlowKey, draftEntity, slotKey, proofOutboxId)
                     observeProofItem(slotKey, proofOutboxId)
                     analytics.track(
                         events.captured,
@@ -340,6 +356,69 @@ internal class FeedSopSlotController(
             }
         }
         return out.takeIf { it.isNotEmpty() }
+    }
+
+    /**
+     * [submitRefs] for a card that may legitimately submit NOTHING (a questions-only or all-optional
+     * card): an empty map when no compulsory slot is missing, null only when one is.
+     */
+    fun submitRefsAllowingEmpty(): Map<String, FeedSlotProofSourcePayload>? {
+        val out = linkedMapOf<String, FeedSlotProofSourcePayload>() // mobile-guard:ignore: bounded by the card's slot count
+        for (slot in _state.value.slots) {
+            val own = draft(slot.slotKey).proofItemId.value
+            when {
+                !own.isNullOrBlank() -> out[slot.slotKey] = FeedSlotProofSourcePayload(outboxItemId = own)
+                slot.required -> return null
+            }
+        }
+        return out
+    }
+
+    /**
+     * Empties every slot (SHIFTING SOP rework, a changed Feed Config, or a raise that was just
+     * submitted): drops this phone's draft handles and durable proof rows for the card's slots and
+     * treats every capture recorded before [cutoffMs] as history, so Room never re-fills a slot with
+     * a clip the verifier rejected or a raise already carried. The uploads themselves are untouched
+     * (they may already be evidence elsewhere). Answers are kept unless [clearAnswers].
+     */
+    fun resetSlots(cutoffMs: Long, clearAnswers: Boolean = false) {
+        ignoreRowsBeforeMs = maxOf(ignoreRowsBeforeMs, cutoffMs)
+        val keys = _state.value.slots.map { it.slotKey }
+        keys.forEach { key ->
+            drafts[key]?.let { d ->
+                d.statusJob?.cancel()
+                d.statusJob = null
+                d.proofItemId.value = null
+                d.proofRowId.value = null
+            }
+        }
+        durableDrafts?.let { store ->
+            scope.launch {
+                keys.forEach { store.clearProof(durableFlowKey, draftEntity, it) }
+                if (clearAnswers) store.putAnswers(durableFlowKey, draftEntity, emptyMap())
+            }
+        }
+        _state.update { st ->
+            st.copy(
+                slots = st.slots.map {
+                    it.copy(captured = false, isCapturing = false, status = FeedDistributionProofStatus.EMPTY, message = null, previewPath = null, previewIdentity = "$stageKey:${it.slotKey}")
+                },
+                answers = if (clearAnswers) emptyMap() else st.answers,
+            )
+        }
+        onChanged()
+    }
+
+    /** Treats every capture recorded before [cutoffMs] as history, without touching current drafts. */
+    fun ignoreCapturesBefore(cutoffMs: Long) {
+        ignoreRowsBeforeMs = maxOf(ignoreRowsBeforeMs, cutoffMs)
+    }
+
+    /** Seeds answers a completion already recorded (a rework keeps them), without overwriting typed ones. */
+    fun seedAnswers(answers: Map<String, String>) {
+        if (answers.isEmpty()) return
+        _state.update { it.copy(answers = answers + it.answers) }
+        onChanged()
     }
 
     /** Re-tries every slot's proof upload (the manual Sync tap), before the caller drains the outbox. */
@@ -393,12 +472,13 @@ internal class FeedSopSlotController(
     private fun hydrateSlotsFromRows(rows: List<ProofCaptureRow>) {
         if (rows.isEmpty()) return
         _state.value.slots.forEach { slot ->
-            val row = rows.filter { it.fieldKey == slot.slotKey && it.syncStatus != CaptureSyncStatus.FAILED }.maxByOrNull { it.capturedAtMs } ?: return@forEach
+            val row = rows.filter { it.fieldKey == slot.slotKey && it.syncStatus != CaptureSyncStatus.FAILED && it.capturedAtMs >= ignoreRowsBeforeMs }
+                .maxByOrNull { it.capturedAtMs } ?: return@forEach
             val d = draft(slot.slotKey)
             row.outboxItemId?.takeIf { it.isNotBlank() }?.let { outboxId ->
                 if (d.proofItemId.value != outboxId || d.statusJob == null) {
                     if (d.proofItemId.value != outboxId) {
-                        durableDrafts?.let { store -> scope.launch { store.putProof(durableFlowKey, groupKey, slot.slotKey, outboxId) } }
+                        durableDrafts?.let { store -> scope.launch { store.putProof(durableFlowKey, draftEntity, slot.slotKey, outboxId) } }
                     }
                     d.proofItemId.value = outboxId
                     observeProofItem(slot.slotKey, outboxId)

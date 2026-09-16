@@ -62,6 +62,13 @@ interface CountsApprovalRepository {
      * available for correction instead of silently losing it from the pending queue.
      */
     suspend fun forgetDecided(approvalRequestId: String)
+
+    /**
+     * SHIFTING SOP (2026-09-16): a signed URL for one capture the raise carried, resolved only when
+     * the approver taps it (the queue carries proof ids, never URLs). Defaulted so fakes compile.
+     */
+    suspend fun captureMediaUrl(proofId: String): sg.mesha.goatos.core.common.AppResult<String> =
+        sg.mesha.goatos.core.common.AppResult.Err("capture media is not available")
 }
 
 class DefaultCountsApprovalRepository(
@@ -70,6 +77,15 @@ class DefaultCountsApprovalRepository(
     private val json: Json = Json { ignoreUnknownKeys = true },
     private val clock: () -> Long = { System.currentTimeMillis() },
 ) : CountsApprovalRepository {
+
+    override suspend fun captureMediaUrl(proofId: String): sg.mesha.goatos.core.common.AppResult<String> =
+        try {
+            sg.mesha.goatos.core.common.AppResult.Ok(api.getProofDownloadUrl(proofId))
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            sg.mesha.goatos.core.common.AppResult.Err("Couldn't open that capture. Check your connection and try again.", e)
+        }
 
     @OptIn(ExperimentalPagingApi::class)
     override fun approvals(status: String): Flow<PagingData<CountsApprovalListItemDto>> {

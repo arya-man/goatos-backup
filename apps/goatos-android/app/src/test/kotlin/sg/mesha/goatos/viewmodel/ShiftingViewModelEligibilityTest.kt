@@ -146,6 +146,62 @@ class ShiftingViewModelEligibilityTest {
         assertFalse(vm.state.value.returnToActions)
     }
 
+    // ---- ShiftingRaiseSopQuestionsTest (SHIFTING SOP, 2026-09-16) -----------------------------
+
+    @Test
+    fun `a published raise card's required question blocks the submit by name and rides the request`() = runTest(dispatcher) {
+        val card = sg.mesha.goatos.core.network.dto.ShiftingSopCardDto(
+            version = 5,
+            stage = "raise",
+            questions = listOf(
+                sg.mesha.goatos.core.network.dto.WeighingSopQuestionDto(
+                    id = "why", kind = "choice", title = "Why move", required = true,
+                    options = listOf(sg.mesha.goatos.core.network.dto.WeighingSopOptionDto("crowded", "Overcrowded")),
+                ),
+            ),
+        )
+        val sync = NoopShiftingSyncRepository()
+        val vm = newViewModel(listOf(animal(lifecycle = "alive")), sync, raiseSop = card)
+        advanceUntilIdle()
+        assertEquals(listOf("Why move"), vm.state.value.raiseCard.questions.map { it.title })
+
+        vm.onEvent(ShiftingEvent.EditAnimalQuery("CBE-ASSUMED-RFID-00002"))
+        vm.onEvent(ShiftingEvent.LookupAnimals)
+        advanceUntilIdle()
+        vm.onEvent(ShiftingEvent.SelectAnimal(GOAT_ID))
+        vm.onEvent(ShiftingEvent.SelectDestinationShed(CBE_SHED_ID))
+        advanceUntilIdle()
+        assertFalse("the required raise question is unanswered", vm.state.value.canSubmit)
+        assertEquals("Answer the required questions for this movement.", vm.state.value.validationMessage)
+
+        vm.onEvent(ShiftingEvent.AnswerRaise("why", "crowded"))
+        advanceUntilIdle()
+        assertTrue(vm.state.value.canSubmit)
+        vm.onEvent(ShiftingEvent.Submit)
+        advanceUntilIdle()
+        val sent = sync.lastShiftingRequest!!
+        assertEquals(5, sent.sopVersion)
+        assertEquals(kotlinx.serialization.json.JsonPrimitive("crowded"), sent.answers?.get("why"))
+    }
+
+    @Test
+    fun `a server without a raise card sends the pre-SOP body`() = runTest(dispatcher) {
+        val sync = NoopShiftingSyncRepository()
+        val vm = newViewModel(listOf(animal(lifecycle = "alive")), sync)
+        advanceUntilIdle()
+        vm.onEvent(ShiftingEvent.EditAnimalQuery("CBE-ASSUMED-RFID-00002"))
+        vm.onEvent(ShiftingEvent.LookupAnimals)
+        advanceUntilIdle()
+        vm.onEvent(ShiftingEvent.SelectAnimal(GOAT_ID))
+        vm.onEvent(ShiftingEvent.SelectDestinationShed(CBE_SHED_ID))
+        vm.onEvent(ShiftingEvent.Submit)
+        advanceUntilIdle()
+        val sent = sync.lastShiftingRequest!!
+        assertNull(sent.sopVersion)
+        assertNull(sent.answers)
+        assertNull(sent.proofs)
+    }
+
     @Test
     fun `invalid shifting submit attempt is tracked before enqueue`() = runTest(dispatcher) {
         val sync = NoopShiftingSyncRepository()
@@ -471,12 +527,16 @@ class ShiftingViewModelEligibilityTest {
         destinations: List<CountsDestinationParkDto>? = null,
         scanSource: ScanSource = FakeScanSource(),
         analytics: NoopShiftingAnalytics = NoopShiftingAnalytics(),
+        raiseSop: sg.mesha.goatos.core.network.dto.ShiftingSopCardDto? = null,
     ) = ShiftingViewModel(
         syncRepository = syncRepository,
-        countsRepository = FakeShiftingCountsRepository(matches, destinations),
+        countsRepository = FakeShiftingCountsRepository(matches, destinations, raiseSop),
         analytics = analytics,
         crashReporter = NoopShiftingCrashReporter(),
         scanSource = scanSource,
+        proofCaptureSource = NoopRaiseProofSource(),
+        photoCaptureSource = NoopPhotoCaptureSource(),
+        proofCaptureRepository = FakeProofCaptureRepository(),
         savedStateHandle = SavedStateHandle(),
     )
 
@@ -617,6 +677,7 @@ class ShiftingViewModelEligibilityTest {
 private class FakeShiftingCountsRepository(
     private val matches: List<GoatSearchItemDto>,
     private val destinations: List<CountsDestinationParkDto>? = null,
+    private val raiseSop: sg.mesha.goatos.core.network.dto.ShiftingSopCardDto? = null,
 ) : CountsRepository {
     override fun observeHerdSummary(lifecycleStatus: String?, parkId: String?, breed: String?, sex: String?): Flow<Resource<HerdRegisterSummaryResponseDto>> =
         flowOf(Resource(data = HerdRegisterSummaryResponseDto()))
@@ -631,6 +692,7 @@ private class FakeShiftingCountsRepository(
         MutableStateFlow(
             Resource(
                 data = CountsShiftingDestinationsResponseDto(
+                    sop = raiseSop,
                     managementStages = listOf("K0", "K1", "Mother"),
                     parks = destinations ?: listOf(
                         CountsDestinationParkDto(
@@ -691,7 +753,7 @@ internal class NoopShiftingSyncRepository : SyncRepository {
     override suspend fun retry(itemId: String): AppResult<Unit> = error("unused")
     override suspend fun deleteOutboxItem(itemId: String): AppResult<Unit> = AppResult.Ok(Unit)
     override suspend fun triggerDrain() = Unit
-    override suspend fun enqueueCountsShifting(groupKey: String, idempotencyKey: String, request: CountsShiftingEventRequestDto): AppResult<String> {
+    override suspend fun enqueueCountsShifting(groupKey: String, idempotencyKey: String, request: CountsShiftingEventRequestDto, slotProofs: Map<String, sg.mesha.goatos.core.data.sync.FeedSlotProofSourcePayload>): AppResult<String> {
         lastShiftingRequest = request
         return AppResult.Ok("shift-outbox")
     }
@@ -714,4 +776,9 @@ private class NoopShiftingCrashReporter : CrashReporter {
     override fun recordException(throwable: Throwable, message: String?) {}
     override fun log(message: String) {}
     override fun setCustomKey(key: String, value: String) {}
+}
+
+private class NoopRaiseProofSource : sg.mesha.goatos.capture.ProofCaptureSource {
+    override suspend fun captureVideo(captureContext: sg.mesha.goatos.capture.ProofCaptureContext?): sg.mesha.goatos.capture.CapturedVideo? = null
+    override suspend fun pickVideo(): sg.mesha.goatos.capture.CapturedVideo? = null
 }
