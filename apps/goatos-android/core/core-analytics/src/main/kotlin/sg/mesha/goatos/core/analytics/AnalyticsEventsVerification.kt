@@ -24,6 +24,15 @@ object AnalyticsEventsVerification {
     const val VERIFY_DECISION_UNAVAILABLE = "verify_decision_unavailable"
 
     /**
+     * The verifier opened a proof whose KIND nobody could tell (an `either` SOP slot the proof
+     * register could not type): `outcome` is `attempt` on the tap and `video_fallback` when the
+     * photo loader could not read the bytes and the video player took over. Worth its own event
+     * because a steady stream of these means a producer is submitting captures the register cannot
+     * describe.
+     */
+    const val VERIFY_UNKNOWN_PROOF_OPENED = "verify_unknown_proof_opened"
+
+    /**
      * The VERIFIER submitted a corrected weight on a weighing proof (maintainer decision
      * 2026-08-17) — she replaced the number the operator typed.
      *
