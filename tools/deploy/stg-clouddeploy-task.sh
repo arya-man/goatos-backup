@@ -21,6 +21,10 @@ STG_DASHBOARD_URL="${STG_DASHBOARD_URL:-https://dashboard.mesha.sg}"
 GOATOS_CANONICAL_DASHBOARD_HOST="${GOATOS_CANONICAL_DASHBOARD_HOST:-dashboard.mesha.sg}"
 GOATOS_API_BASE_URL="${GOATOS_API_BASE_URL:-https://api.goatos.mesha.sg/}"
 GOATOS_STG_ZERO_DOWNTIME_DEPLOY="${CLOUD_DEPLOY_customTarget_zeroDowntimeDeploy:-${GOATOS_STG_ZERO_DOWNTIME_DEPLOY:-true}}"
+GOATOS_ANALYTICS_SOURCE_APP_ID="${GOATOS_ANALYTICS_SOURCE_APP_ID:-sg.mesha.goatos}"
+GOATOS_CRASHLYTICS_BQ_TABLE="${GOATOS_CRASHLYTICS_BQ_TABLE:-${PROJECT_ID}.firebase_crashlytics.sg_mesha_goatos_ANDROID}"
+GOATOS_CRASHLYTICS_SESSIONS_TABLE="${GOATOS_CRASHLYTICS_SESSIONS_TABLE:-${PROJECT_ID}.firebase_sessions.sg_mesha_goatos_ANDROID}"
+GOATOS_PERFORMANCE_BQ_TABLE="${GOATOS_PERFORMANCE_BQ_TABLE:-${PROJECT_ID}.firebase_performance.sg_mesha_goatos_ANDROID}"
 
 OBSERVABILITY_ONLY="${CLOUD_DEPLOY_customTarget_observabilityOnly:-false}"
 ALLOY_IMAGE="${CLOUD_DEPLOY_customTarget_alloyImage:-}"
@@ -404,9 +408,38 @@ actual={b["role"] for b in policy.get("bindings",[]) if member in b.get("members
 assert required <= actual, "Kernel worker requires job-scoped execution and reconciliation IAM before deployment"' "$account"
 }
 
+analytics_rollup_env_vars() {
+  printf '%s' "GOATOS_ANALYTICS_SOURCE_APP_ID=${GOATOS_ANALYTICS_SOURCE_APP_ID},GOATOS_CRASHLYTICS_BQ_TABLE=${GOATOS_CRASHLYTICS_BQ_TABLE},GOATOS_CRASHLYTICS_SESSIONS_TABLE=${GOATOS_CRASHLYTICS_SESSIONS_TABLE},GOATOS_PERFORMANCE_BQ_TABLE=${GOATOS_PERFORMANCE_BQ_TABLE}"
+}
+
+assert_analytics_rollup_env() {
+  local job_json
+  job_json="$(gcloud run jobs describe goatos-stg-analytics-rollup --project="$PROJECT_ID" --region="$REGION" --format=json)"
+  printf '%s' "$job_json" | python3 -c '
+import json
+import sys
+
+doc = json.load(sys.stdin)
+expected = {
+    "GOATOS_ANALYTICS_SOURCE_APP_ID": sys.argv[1],
+    "GOATOS_CRASHLYTICS_BQ_TABLE": sys.argv[2],
+    "GOATOS_CRASHLYTICS_SESSIONS_TABLE": sys.argv[3],
+    "GOATOS_PERFORMANCE_BQ_TABLE": sys.argv[4],
+}
+containers = doc.get("spec", {}).get("template", {}).get("spec", {}).get("template", {}).get("spec", {}).get("containers", [])
+if not containers:
+    raise SystemExit("analytics-rollup job has no container template")
+env = {item.get("name"): item.get("value") for item in containers[0].get("env", [])}
+missing = [f"{key}={value}" for key, value in expected.items() if env.get(key) != value]
+if missing:
+    raise SystemExit("analytics-rollup Firebase export env mismatch: " + ", ".join(missing))
+' "$GOATOS_ANALYTICS_SOURCE_APP_ID" "$GOATOS_CRASHLYTICS_BQ_TABLE" "$GOATOS_CRASHLYTICS_SESSIONS_TABLE" "$GOATOS_PERFORMANCE_BQ_TABLE"
+}
+
 normal_observability_deploy() {
   [[ -n "$ALLOY_IMAGE" ]] || return 0
   [[ "$(job_image goatos-stg-analytics-rollup)" == "$BACKEND_IMAGE" ]] || die "analytics-rollup must use the verified backend image"
+  assert_analytics_rollup_env
   run gcloud run jobs execute goatos-stg-analytics-rollup --project="$PROJECT_ID" --region="$REGION" \
     --args="-timeout=25m,-source=app_events,-lookback-days=7" --wait --quiet
   observability_apply_and_smoke
@@ -816,7 +849,9 @@ deploy() {
         --quiet
       if [[ "$job" == "goatos-stg-analytics-rollup" ]]; then
         run gcloud run jobs update "$job" --project="$PROJECT_ID" --region="$REGION" \
-          --args="-timeout=25m,-source=app_events,-lookback-days=3" --quiet
+          --args="-timeout=25m,-source=app_events,-lookback-days=3" \
+          --update-env-vars="$(analytics_rollup_env_vars)" \
+          --quiet
       fi
       updated_jobs+=("$job")
     else
