@@ -89,4 +89,15 @@ class WeighingCaptureSopMappingTest {
         val other = null.withOther("why", "broken trough")
         assertEquals("broken trough", (other["why_other"] as JsonPrimitive).content)
     }
+
+    @Test
+    fun `whole pen capture caps are per slot with the pen total across slots`() {
+        val caps = rules.penCaptureCaps(slotMax = 2)
+        assertEquals(2, caps.perSlot)
+        assertEquals(5, caps.perPen) // pen video 1..3 + gate photo 1..2
+        val videoCaps = rules.penCaptureCaps(slotMax = 3)
+        assertEquals(3, videoCaps.perSlot)
+        assertEquals(5, videoCaps.perPen)
+        assertEquals(5, WeighingSopRules.Seeded.penCaptureCaps(slotMax = 5).perPen)
+    }
 }

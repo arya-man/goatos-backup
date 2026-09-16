@@ -2607,6 +2607,7 @@ class WeighingViewModel @Inject constructor(
         val replacingIndex = replacingProofId?.let { id -> shedProofs.indexOfFirst { it.id == id } } ?: -1
         if (!captureRulesReady()) return
         val videoMax = lumpSumVideoMax()
+        val penCaps = captureSop.value?.penCaptureCaps(videoMax) ?: PenCaptureCaps(perSlot = videoMax, perPen = videoMax)
         if (replacingProofId == null && existing >= videoMax) {
             message.value = "Maximum $videoMax group videos reached."
             return
@@ -2702,8 +2703,9 @@ class WeighingViewModel @Inject constructor(
                     subjectScope = "shed",
                     expectedSubjects = listOf("shed"),
                     minimumCount = lumpSumVideoMin(),
-                    maximumCount = videoMax,
-                    maximumCountPerSubject = videoMax,
+                    maximumCount = penCaps.perPen,
+                    maximumCountPerSubject = penCaps.perPen,
+                    maximumCountPerField = penCaps.perSlot,
                 )
                 val proof = if (replacingProofId != null) {
                     proofCaptureRepository.captureReplacingProof(
@@ -4169,7 +4171,10 @@ class WeighingViewModel @Inject constructor(
                         capturedStartMs = media.startMs,
                         capturedEndMs = media.endMs,
                         capturedByPrincipalId = principalId,
-                        proofPolicy = authoredSlotProofPolicy(PER_SHED_PARTITION_CATEGORY, "shed", takePhoto, media.captureSource).copy(maximumCount = slot.max, maximumCountPerSubject = slot.max),
+                        proofPolicy = rules.penCaptureCaps(slot.max).let { caps ->
+                            authoredSlotProofPolicy(PER_SHED_PARTITION_CATEGORY, "shed", takePhoto, media.captureSource)
+                                .copy(maximumCount = caps.perPen, maximumCountPerSubject = caps.perPen, maximumCountPerField = caps.perSlot)
+                        },
                     )
                 ) {
                     is AppResult.Ok -> {
