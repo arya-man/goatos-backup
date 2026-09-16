@@ -140,11 +140,13 @@ func main() {
 		// Always repair the deterministic queue item while the completion remains pending. This makes
 		// an interrupted import resumable if the completion committed before verification enqueueing.
 		if result.Status == "pending_verification" {
+			mediaRefs, mediaMeta := legacyDistributionMedia(weight, dist, water)
 			// scale-guard:ignore: one-time operator-run backfill over the fixed 2026-08-12 Slack manifest (50 rows), not a request path; each verification item must be repaired through the production idempotent enqueue bridge so partial imports are replay-safe.
 			if err := enqueuer.EnqueueFeedDistributionVerification(ctx, feeddirectionapp.FeedDistributionVerificationEnqueueRequest{
 				TenantID: tenantID, CompletionID: result.CompletionID, ParkID: parkID, ShedID: sheds[rec.BaseShed],
 				PartitionLabel: rec.PartitionLabel, SessionNo: rec.SessionNo, Workflow: m.Source.Workflow, TargetDate: date,
 				FeedWeightProofRef: weight.ID, DistributionProofRef: dist.ID, WaterProofRef: water.ID,
+				MediaRefs: mediaRefs, MediaMeta: mediaMeta,
 				OperatorID: completedBy, CapturedAt: parseSlackTime(rec.Water.UploadedAt),
 				IdempotencyKey: fmt.Sprintf("feed-distribution-verification:%s:%d", result.CompletionID, result.RowVersion),
 			}); err != nil {
@@ -412,6 +414,45 @@ func proofFor(m map[string]preparedProof, id string) preparedProof {
 	}
 	return p
 }
+
+// legacyDistributionMedia names the three imported proofs for the verifier: the SEEDED distribution
+// card's slot titles (weight photo, distribution video, water video, in that capture order) and each
+// proof's kind from the Slack file's OWN mime -- an image is a photo, a video is a video, and anything
+// else is left unknown for the proof register to answer at read time rather than guessed.
+func legacyDistributionMedia(weight, dist, water preparedProof) ([]string, []feedports.ProofMeta) {
+	titles := map[string]string{}
+	for _, slot := range feeddirectiondomain.SeededRules(feeddirectiondomain.StageDistribution).Proofs {
+		titles[slot.Key] = slot.Title
+	}
+	pairs := []struct {
+		slot  string
+		proof preparedProof
+	}{
+		{feeddirectiondomain.SlotFeedWeightPhoto, weight},
+		{feeddirectiondomain.SlotFeedVideo, dist},
+		{feeddirectiondomain.SlotWaterVideo, water},
+	}
+	refs := make([]string, 0, len(pairs))
+	meta := make([]feedports.ProofMeta, 0, len(pairs))
+	for _, pair := range pairs {
+		refs = append(refs, pair.proof.ID)
+		meta = append(meta, feedports.ProofMeta{Label: titles[pair.slot], Kind: slackFileKind(pair.proof.File.MimeType)})
+	}
+	return refs, meta
+}
+
+func slackFileKind(mime string) string {
+	mime = strings.ToLower(strings.TrimSpace(mime))
+	switch {
+	case strings.HasPrefix(mime, "image/"):
+		return verificationdomain.MediaKindPhoto
+	case strings.HasPrefix(mime, "video/"):
+		return verificationdomain.MediaKindVideo
+	default:
+		return ""
+	}
+}
+
 func proofType(mime string) string {
 	if mime == "image/jpeg" {
 		return "photo"

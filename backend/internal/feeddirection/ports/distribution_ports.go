@@ -92,6 +92,10 @@ type CompleteDistributionResult struct {
 	// SOPProofs is the canonical {slot key: ref} map stored on the row; the enqueue orders it by
 	// the pinned card.
 	SOPProofs authored.ProofRefs
+	// SOPAnswers is the crew's answers stored on the row; every enqueue (including an
+	// already-pending repair retry) renders the verifier's answer rows from these, never from the
+	// retry request.
+	SOPAnswers authored.Answers
 	// NewlyPending is true ONLY when the row entered pending_verification on THIS call (a fresh submit or
 	// a rework re-submit). It is false on an idempotent replay, an already-pending no-op, or an
 	// already-completed no-op -- so the enqueue fires exactly once per real pending transition.
