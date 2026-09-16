@@ -37,6 +37,9 @@ import (
 	pccarepg "github.com/vgoats/goatos/backend/internal/pccare/adapters/postgres"
 	pccareverificationbridge "github.com/vgoats/goatos/backend/internal/pccare/adapters/verificationbridge"
 	pccareapp "github.com/vgoats/goatos/backend/internal/pccare/app"
+	penroutinespg "github.com/vgoats/goatos/backend/internal/penroutines/adapters/postgres"
+	penroutinesverificationbridge "github.com/vgoats/goatos/backend/internal/penroutines/adapters/verificationbridge"
+	penroutinesapp "github.com/vgoats/goatos/backend/internal/penroutines/app"
 	penvisitspg "github.com/vgoats/goatos/backend/internal/penvisits/adapters/postgres"
 	penvisitsverificationbridge "github.com/vgoats/goatos/backend/internal/penvisits/adapters/verificationbridge"
 	penvisitsapp "github.com/vgoats/goatos/backend/internal/penvisits/app"
@@ -193,9 +196,13 @@ func buildPublisher(ctx context.Context, kind string, pool *pgxpool.Pool, pgCfg 
 		if err := verificationService.RegisterCategory(verificationcatalog.PenVisit); err != nil {
 			return nil, nil, fmt.Errorf("register pen visit verification category: %w", err)
 		}
+		if err := verificationService.RegisterCategory(verificationcatalog.PenRoutine); err != nil {
+			return nil, nil, fmt.Errorf("register pen routine verification category: %w", err)
+		}
 		pcCareVerificationBridge := pccareverificationbridge.New(verificationService)
 		pcCareRepo := pccarepg.NewRepository(pool, pgCfg.QueryTimeout)
 		penVisitsRepo := penvisitspg.NewRepository(pool, pgCfg.QueryTimeout)
+		penRoutinesRepo := penroutinespg.NewRepository(pool, pgCfg.QueryTimeout)
 		obligationapp.NewGoatShiftedHandler(obligationRepo).Register(bus)
 		obligationapp.NewGoatExitedHandler(obligationRepo).Register(bus)
 		obligationapp.NewOperatorConfigReplanHandler(obligationRepo).Register(bus)
@@ -232,12 +239,14 @@ func buildPublisher(ctx context.Context, kind string, pool *pgxpool.Pool, pgCfg 
 		// Shifting + feed verification appliers: the ONE shared registration (see bootstrap/api.go and
 		// cmd/domain-event-consumer). In local eventbus mode this in-process bus IS the delivery, so
 		// without these a verifier approval never applies locally either.
-		eventwiring.RegisterVerificationAppliers(bus, feedDirectionRepo, countsApprovalRepo, countsMilkPreparationRepo, countsMilkPreparationRepo, weighingRepo, weighingVerificationBridge, pcCareRepo, healthRepo, penVisitsRepo, pcCareRepo, logger)
+		eventwiring.RegisterVerificationAppliers(bus, feedDirectionRepo, countsApprovalRepo, countsMilkPreparationRepo, countsMilkPreparationRepo, weighingRepo, weighingVerificationBridge, pcCareRepo, healthRepo, penVisitsRepo, pcCareRepo, penRoutinesRepo, logger)
 		countsapp.NewPenReconciliationRaiser(countsMilkPreparationRepo, logger, nil).Register(bus)
 		countsapp.NewPenReconciliationVerificationHandler(countsMilkPreparationRepo, nil).Register(bus)
 		pccareapp.NewPCCarePendingVerificationHandler(pcCareVerificationBridge, logger).Register(bus)
 		// Pen visit submit -> verifier item (maintainer decision 2026-09-12), the PC Care shape.
 		penvisitsapp.NewPendingVerificationHandler(penvisitsverificationbridge.New(verificationService), logger).Register(bus)
+		// Pen routine submit -> verifier item (maintainer instruction 2026-09-16), the same shape.
+		penroutinesapp.NewPendingVerificationHandler(penroutinesverificationbridge.New(verificationService), logger).WithTaskReader(penRoutinesRepo).Register(bus)
 		// Birth/death workflow consumers: in local eventbus mode this in-process bus IS the delivery,
 		// so without these an approved birth/death opens no follow-up work locally.
 		eventwiring.RegisterWorkflowConsumers(bus,

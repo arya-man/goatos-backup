@@ -89,6 +89,11 @@ const (
 	// chain, so its verify duty and its leadership seat are PC Care's -- the PC Director owns
 	// the pen's care chain end to end.
 	modulePenVisits = "pen_visits"
+	// modulePenRoutines mirrors penroutines/app.VerificationModule: a submitted routine check
+	// (maintainer instruction 2026-09-16). The rule is written by the CXO desk per park and
+	// belongs to no departmental director, so its leadership seat is the CEO/CXO, and its
+	// verify duty is its own module code.
+	modulePenRoutines = "pen_routines"
 
 	// moduleHealth mirrors health/domain.VerificationModuleHealth, the string health's
 	// verificationbridge enqueuer writes into the item's Module. Health belongs to the Health
@@ -236,6 +241,23 @@ var pendingModuleProfiles = map[string]pendingModuleProfile{
 		reworkTarget:        "/pc/deworming",
 		closedScreen:        "record",
 		closedTarget:        "/pc/deworming",
+	},
+	// Routine checks (maintainer instruction 2026-09-16): the answers and captures of a pen
+	// routine, reviewed by the verifier; leadership copy reaches the CXO desk that wrote the
+	// rule. Tap routes land on the module's own surfaces.
+	modulePenRoutines: {
+		messageKeyPrefix:    "pen_routine",
+		dutyModule:          modulePenRoutines,
+		leadershipPosition:  positionCEOInternal,
+		leadershipRoleLabel: "ceo_internal",
+		leadershipScreen:    "pen_routines",
+		leadershipTarget:    "/routines",
+		approvedScreen:      "pen_routines",
+		approvedTarget:      "/pen-routines",
+		reworkScreen:        "pen_routines",
+		reworkTarget:        "/pen-routines",
+		closedScreen:        "pen_routines",
+		closedTarget:        "/pen-routines",
 	},
 	// Health treatment proofs (one video per completed treatment session) route to the Health
 	// Director, who owns the Health module outright (Health_Director.pdf Responsibilities 1-4:

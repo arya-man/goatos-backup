@@ -88,6 +88,8 @@ var Modules = []Module{
 	{Key: "procurement", Label: "Procurement"},
 	{Key: "leadership", Label: "Leadership Tasks"},
 	{Key: "leave", Label: "Leave"},
+	// Routines (maintainer instruction 2026-09-16): the configurable pen checks.
+	{Key: "pen_routines", Label: "Routines"},
 }
 
 // Alert is one configurable notification and its default audience.
@@ -178,6 +180,9 @@ var proofModuleDirectors = []struct {
 	// The next-day pen visit (maintainer decision 2026-09-12): the last video of a pen's
 	// vaccination / care chain, reviewed by the same verifier, owned by the PC Director.
 	{module: "pen_visits", label: "Pen visit", director: DesignationPCDirector, group: "pc_care"},
+	// Routine checks (maintainer instruction 2026-09-16): the rule is the CXO desk's, per park;
+	// no departmental director owns it, so the leadership copy defaults to the CEO/CXO.
+	{module: "pen_routines", label: "Routines", director: DesignationCEO},
 	{module: "health", label: "Health", director: DesignationHealthDirector},
 	{module: "counts", label: "Herd Operations", director: DesignationHealthDirector},
 }

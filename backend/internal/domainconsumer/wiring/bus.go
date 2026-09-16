@@ -22,6 +22,7 @@ import (
 	obligationpg "github.com/vgoats/goatos/backend/internal/obligation/adapters/postgres"
 	obligationapp "github.com/vgoats/goatos/backend/internal/obligation/app"
 	pccarepg "github.com/vgoats/goatos/backend/internal/pccare/adapters/postgres"
+	penroutinespg "github.com/vgoats/goatos/backend/internal/penroutines/adapters/postgres"
 	penvisitspg "github.com/vgoats/goatos/backend/internal/penvisits/adapters/postgres"
 	"github.com/vgoats/goatos/backend/internal/platform/eventbus"
 	protocolpg "github.com/vgoats/goatos/backend/internal/protocol/adapters/postgres"
@@ -69,6 +70,8 @@ type verificationStores struct {
 	// the PC Care tasks an approved visit was the last step of (maintainer decision 2026-09-12).
 	penVisits      eventwiring.PenVisitVerdictStore
 	penVisitCloser eventwiring.PenVisitParentCloser
+	// penRoutines applies routine-check verdicts (pen_routines/pen_routine_task).
+	penRoutines eventwiring.PenRoutineVerdictStore
 }
 
 // buildDomainBusOn is BuildDomainBus with the bus (and the verdict-applier stores) injected.
@@ -159,7 +162,10 @@ func buildDomainBusOn(bus eventbus.Bus, pool *pgxpool.Pool, queryTimeout time.Du
 	if stores.penVisits == nil {
 		stores.penVisits = penvisitspg.NewRepository(pool, queryTimeout)
 	}
-	eventwiring.RegisterVerificationAppliers(bus, stores.feed, stores.shifting, stores.penReconciliation, stores.milkPreparation, stores.weighing, stores.weighingAck, stores.pcCare, stores.health, stores.penVisits, stores.penVisitCloser, logger)
+	if stores.penRoutines == nil {
+		stores.penRoutines = penroutinespg.NewRepository(pool, queryTimeout)
+	}
+	eventwiring.RegisterVerificationAppliers(bus, stores.feed, stores.shifting, stores.penReconciliation, stores.milkPreparation, stores.weighing, stores.weighingAck, stores.pcCare, stores.health, stores.penVisits, stores.penVisitCloser, stores.penRoutines, logger)
 	if stores.penReconciliation != nil {
 		countsapp.NewPenReconciliationRaiser(stores.penReconciliation, logger, nil).Register(bus)
 		countsapp.NewPenReconciliationVerificationHandler(stores.penReconciliation, nil).Register(bus)
