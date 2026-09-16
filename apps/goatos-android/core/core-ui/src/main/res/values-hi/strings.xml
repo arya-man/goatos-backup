@@ -33,4 +33,5 @@
     <string name="sop_proof_uploading">प्रमाण अपलोड हो रहा है</string>
     <string name="sop_proof_waiting">अपलोड की प्रतीक्षा</string>
     <string name="sop_proof_failed">अपलोड विफल। फिर कोशिश करें</string>
+    <string name="sop_question_other_label">अन्य — लिखें</string>
 </resources>
