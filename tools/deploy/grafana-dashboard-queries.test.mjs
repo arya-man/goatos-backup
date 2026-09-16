@@ -5,6 +5,28 @@ import { execFileSync } from 'node:child_process';
 import { panelQueries, assertQueryResults } from './smoke-stg-grafana-dashboards.mjs';
 const dashboard = (name) => JSON.parse(readFileSync(new URL(`../../infra/grafana/dashboards/${name}.json`, import.meta.url)));
 
+test('kernel retry and failure panels use the consolidated worker counters', async () => {
+  const {conditionalDataReason} = await import('./smoke-stg-grafana-dashboards.mjs');
+  const doc = dashboard('03-kernel-pipeline');
+  for (const [id, names, source] of [
+    [6, ['kernel_outbox_reclaimed_total', 'kernel_outbox_retry_scheduled_total', 'kernel_outbox_dead_letters_total'], 'backend/internal/platform/kmetrics/outbox.go'],
+    [14, ['kernel_notify_failures_total', 'kernel_notify_exhausted_total'], 'backend/internal/platform/kmetrics/notify.go'],
+  ]) {
+    const targets = doc.panels.find(p => p.id === id).targets;
+    assert.equal(targets.length, names.length);
+    for (const [i, target] of targets.entries()) {
+      assert.equal(target.queryType, 'promQL');
+      assert.equal(target.promQLQuery.expr, `sum(rate(${names[i]}[5m]))`);
+      assert.equal(target.goatosDataCondition.source, source);
+      assert.match(conditionalDataReason(target), /emitter:/);
+      assert.doesNotMatch(JSON.stringify(target), /cloud_run_job|logging.googleapis.com/);
+      const wrongSource = structuredClone(target);
+      wrongSource.goatosDataCondition.source = 'backend/cmd/retired-worker/main.go';
+      assert.throws(() => conditionalDataReason(wrongSource), /Invalid conditional/);
+    }
+  }
+});
+
 test('mixed success cannot conceal a failed target or missing result', () => {
   const queries = [{refId:'A'}, {refId:'B'}];
   const good = {status:200, frames:[{data:{values:[[1],[42]]}}]};

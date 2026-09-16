@@ -440,45 +440,51 @@
           "refId": "A",
           "datasource": "Google Cloud Monitoring",
           "aliasBy": "reclaimed",
-          "queryType": "timeSeriesList",
-          "timeSeriesList": {
+          "queryType": "promQL",
+          "timeSeriesList": {},
+          "promQLQuery": {
             "projectName": "goatos-stg",
-            "view": "FULL",
-            "perSeriesAligner": "ALIGN_DELTA",
-            "crossSeriesReducer": "REDUCE_SUM",
-            "alignmentPeriod": "300s",
-            "filters": ["metric.type", "=", "logging.googleapis.com/user/goatos_kernel_outbox_reclaimed", "AND", "resource.type", "=", "cloud_run_job"],
-            "groupBys": []
+            "expr": "sum(rate(kernel_outbox_reclaimed_total[5m]))",
+            "step": "300s"
+          },
+          "goatosDataCondition": {
+            "kind": "event-conditional",
+            "event": "Stale outbox leases reclaimed",
+            "source": "backend/internal/platform/kmetrics/outbox.go"
           }
         },
         {
           "refId": "B",
           "datasource": "Google Cloud Monitoring",
           "aliasBy": "retry-scheduled",
-          "queryType": "timeSeriesList",
-          "timeSeriesList": {
+          "queryType": "promQL",
+          "timeSeriesList": {},
+          "promQLQuery": {
             "projectName": "goatos-stg",
-            "view": "FULL",
-            "perSeriesAligner": "ALIGN_DELTA",
-            "crossSeriesReducer": "REDUCE_SUM",
-            "alignmentPeriod": "300s",
-            "filters": ["metric.type", "=", "logging.googleapis.com/user/goatos_kernel_outbox_retry_scheduled", "AND", "resource.type", "=", "cloud_run_job"],
-            "groupBys": []
+            "expr": "sum(rate(kernel_outbox_retry_scheduled_total[5m]))",
+            "step": "300s"
+          },
+          "goatosDataCondition": {
+            "kind": "event-conditional",
+            "event": "Outbox publish retries scheduled",
+            "source": "backend/internal/platform/kmetrics/outbox.go"
           }
         },
         {
           "refId": "C",
           "datasource": "Google Cloud Monitoring",
           "aliasBy": "dead-lettered",
-          "queryType": "timeSeriesList",
-          "timeSeriesList": {
+          "queryType": "promQL",
+          "timeSeriesList": {},
+          "promQLQuery": {
             "projectName": "goatos-stg",
-            "view": "FULL",
-            "perSeriesAligner": "ALIGN_DELTA",
-            "crossSeriesReducer": "REDUCE_SUM",
-            "alignmentPeriod": "300s",
-            "filters": ["metric.type", "=", "logging.googleapis.com/user/goatos_kernel_outbox_dead_letter", "AND", "resource.type", "=", "cloud_run_job"],
-            "groupBys": []
+            "expr": "sum(rate(kernel_outbox_dead_letters_total[5m]))",
+            "step": "300s"
+          },
+          "goatosDataCondition": {
+            "kind": "event-conditional",
+            "event": "Outbox publish attempts exhausted",
+            "source": "backend/internal/platform/kmetrics/outbox.go"
           }
         }
       ]
@@ -1055,7 +1061,7 @@
     {
       "id": 14,
       "title": "Notification failures + exhausted retries",
-      "description": "Log-based counters emitted by notification Cloud Run Jobs. Current descriptor has no channel label; counts are totals, not a fabricated channel breakdown.",
+      "description": "Failure and exhausted-attempt counters emitted by the consolidated kernel worker. Summed across channels; absent observations do not imply zero failures.",
       "type": "timeseries",
       "gridPos": {
         "h": 7,
@@ -1119,29 +1125,33 @@
         {
           "refId": "A",
           "datasource": "Google Cloud Monitoring",
-          "queryType": "timeSeriesList",
-          "timeSeriesList": {
+          "queryType": "promQL",
+          "timeSeriesList": {},
+          "promQLQuery": {
             "projectName": "goatos-stg",
-            "view": "FULL",
-            "groupBys": [],
-            "perSeriesAligner": "ALIGN_DELTA",
-            "crossSeriesReducer": "REDUCE_SUM",
-            "alignmentPeriod": "300s",
-            "filters": ["metric.type", "=", "logging.googleapis.com/user/goatos_kernel_notify_failed", "AND", "resource.type", "=", "cloud_run_job"]
+            "expr": "sum(rate(kernel_notify_failures_total[5m]))",
+            "step": "300s"
+          },
+          "goatosDataCondition": {
+            "kind": "event-conditional",
+            "event": "Notification sends failed",
+            "source": "backend/internal/platform/kmetrics/notify.go"
           }
         },
         {
           "refId": "B",
           "datasource": "Google Cloud Monitoring",
-          "queryType": "timeSeriesList",
-          "timeSeriesList": {
+          "queryType": "promQL",
+          "timeSeriesList": {},
+          "promQLQuery": {
             "projectName": "goatos-stg",
-            "view": "FULL",
-            "groupBys": [],
-            "perSeriesAligner": "ALIGN_DELTA",
-            "crossSeriesReducer": "REDUCE_SUM",
-            "alignmentPeriod": "300s",
-            "filters": ["metric.type", "=", "logging.googleapis.com/user/goatos_kernel_notify_exhausted", "AND", "resource.type", "=", "cloud_run_job"]
+            "expr": "sum(rate(kernel_notify_exhausted_total[5m]))",
+            "step": "300s"
+          },
+          "goatosDataCondition": {
+            "kind": "event-conditional",
+            "event": "Notification delivery attempts exhausted",
+            "source": "backend/internal/platform/kmetrics/notify.go"
           }
         }
       ]

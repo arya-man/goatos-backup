@@ -269,6 +269,11 @@ export function panelQueries(panel, project, { fromMs = Date.now() - 86400000, n
 }
 
 const conditionalEmitters = {
+  kernel_outbox_reclaimed_total: "backend/internal/platform/kmetrics/outbox.go",
+  kernel_outbox_retry_scheduled_total: "backend/internal/platform/kmetrics/outbox.go",
+  kernel_outbox_dead_letters_total: "backend/internal/platform/kmetrics/outbox.go",
+  kernel_notify_failures_total: "backend/internal/platform/kmetrics/notify.go",
+  kernel_notify_exhausted_total: "backend/internal/platform/kmetrics/notify.go",
   kernel_consumer_validation_errors_total: "backend/internal/domainconsumer/app/service.go",
   kernel_cloudtasks_idempotent_collisions_total: "backend/internal/platform/taskqueue/cloudtasks.go",
   kernel_sweeper_obligations_swept_total: "backend/internal/platform/kmetrics/sweeper.go",
