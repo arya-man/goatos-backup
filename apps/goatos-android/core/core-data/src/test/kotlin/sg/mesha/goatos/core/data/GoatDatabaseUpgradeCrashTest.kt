@@ -427,6 +427,17 @@ class GoatDatabaseUpgradeCrashTest {
             //     test — only reopening a real old file and round-tripping each table catches it
             //     before an upgraded phone crashes on open.
             assertAnimalPurchaseTablesRoundTrip(upgraded, base = 300L)
+
+            // 22. The two v65 SOP capture tables (MIGRATION_64_65): the Add birth / Add death capture
+            //     card cache and the death workflow's draft answers. Same MOB-007 proof.
+            upgraded.countsCaptureCardCacheDao().upsert(
+                sg.mesha.goatos.core.data.cache.CountsCaptureCardCacheEntity(scopeKey = "birth", dtoJson = "{}", updatedAt = 320L),
+            )
+            assertEquals("{}", upgraded.countsCaptureCardCacheDao().observe("birth").first()?.dtoJson)
+            upgraded.workflowStepDraftAnswerDao().upsert(
+                sg.mesha.goatos.core.data.cache.WorkflowStepDraftAnswerEntity(workflowId = "wf-1", actionId = "a-1", answerValue = "bloat", updatedAt = 321L),
+            )
+            assertEquals(listOf("bloat"), upgraded.workflowStepDraftAnswerDao().list("wf-1").map { it.answerValue })
         } finally {
             upgraded.close()
         }
@@ -1464,7 +1475,7 @@ class GoatDatabaseUpgradeCrashTest {
             MIGRATION_46_47, MIGRATION_47_48, MIGRATION_48_49, MIGRATION_49_50, MIGRATION_50_51,
             MIGRATION_51_52, MIGRATION_52_53, MIGRATION_53_54, MIGRATION_54_55, MIGRATION_55_56,
             MIGRATION_56_57, MIGRATION_57_58, MIGRATION_58_59, MIGRATION_59_60, MIGRATION_60_61,
-            MIGRATION_61_62, MIGRATION_62_63, MIGRATION_63_64,
+            MIGRATION_61_62, MIGRATION_62_63, MIGRATION_63_64, MIGRATION_64_65,
         )
 
         /** The chain that produces a v25 file: everything up to and including MIGRATION_24_25 —

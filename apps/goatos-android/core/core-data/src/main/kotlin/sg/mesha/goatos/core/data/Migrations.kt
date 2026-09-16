@@ -1817,3 +1817,26 @@ val MIGRATION_63_64: Migration = object : Migration(63, 64) {
         )
     }
 }
+
+/**
+ * v64 -> v65: the SOP capture tables (maintainer decisions 4, 1 and 7, 2026-09-16).
+ *
+ * `counts_capture_card_cache` holds the Add birth / Add death form's published capture card (one
+ * JSON row per form kind), and `workflow_step_draft_answer` a death workflow's draft answers held
+ * until the one Submit. CREATE, not ALTER, and purely additive: an @Entity with no migration works
+ * on a fresh install and crashes every upgrade on open (MOB-007).
+ */
+val MIGRATION_64_65: Migration = object : Migration(64, 65) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `counts_capture_card_cache` (" +
+                "`scopeKey` TEXT NOT NULL, `dtoJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, " +
+                "PRIMARY KEY(`scopeKey`))",
+        )
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `workflow_step_draft_answer` (" +
+                "`workflowId` TEXT NOT NULL, `actionId` TEXT NOT NULL, `answerValue` TEXT NOT NULL, " +
+                "`updatedAt` INTEGER NOT NULL, PRIMARY KEY(`workflowId`, `actionId`))",
+        )
+    }
+}

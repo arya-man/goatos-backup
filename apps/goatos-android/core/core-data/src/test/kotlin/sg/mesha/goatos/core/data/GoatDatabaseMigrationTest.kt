@@ -413,6 +413,37 @@ class GoatDatabaseMigrationTest {
     }
 
     @Test
+    fun `migration 64 to 65 creates the capture card cache and death answer draft tables while preserving existing rows`() {
+        helper.createDatabase(DB_NAME, 64).apply {
+            execSQL(
+                "INSERT INTO `death_cause_catalog` (`scopeKey`, `dtoJson`, `updatedAt`) VALUES ('death-causes', '{}', 7)",
+            )
+            close()
+        }
+        val db = helper.runMigrationsAndValidate(DB_NAME, 65, true, MIGRATION_64_65)
+        try {
+            listOf("counts_capture_card_cache", "workflow_step_draft_answer").forEach { table ->
+                db.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name = '$table'").use { cursor ->
+                    assertEquals("table $table must exist after v65", true, cursor.moveToFirst())
+                }
+            }
+            db.execSQL("INSERT INTO `workflow_step_draft_answer` (`workflowId`, `actionId`, `answerValue`, `updatedAt`) VALUES ('wf-1', 'a-1', 'bloat', 1)")
+            db.execSQL("INSERT OR REPLACE INTO `workflow_step_draft_answer` (`workflowId`, `actionId`, `answerValue`, `updatedAt`) VALUES ('wf-1', 'a-1', 'fever', 2)")
+            db.query("SELECT COUNT(*), MAX(answerValue) FROM `workflow_step_draft_answer` WHERE workflowId = 'wf-1'").use { cursor ->
+                cursor.moveToFirst()
+                assertEquals("one draft answer per (workflow, step)", 1, cursor.getInt(0))
+                assertEquals("fever", cursor.getString(1))
+            }
+            db.query("SELECT COUNT(*) FROM `death_cause_catalog` WHERE scopeKey = 'death-causes'").use { cursor ->
+                cursor.moveToFirst()
+                assertEquals("existing rows survive the additive migration", 1, cursor.getInt(0))
+            }
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test
     fun `migration 63 to 64 creates the animal purchase tables while preserving existing rows`() {
         helper.createDatabase(DB_NAME, 63).apply {
             execSQL(
@@ -621,6 +652,7 @@ class GoatDatabaseMigrationTest {
         MIGRATION_61_62.migrate(db)
         MIGRATION_62_63.migrate(db)
         MIGRATION_63_64.migrate(db)
+        MIGRATION_64_65.migrate(db)
         return db
     }
 
