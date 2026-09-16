@@ -58,7 +58,14 @@ func NewShiftingExecutionService(repo ports.Repository, now func() time.Time) *S
 	if now == nil {
 		now = time.Now
 	}
-	return &ShiftingExecutionService{repo: repo, now: now}
+	svc := &ShiftingExecutionService{repo: repo, now: now}
+	// A repository that can read the pin (the Postgres one) is the pin store by default, so a
+	// completion judged without an explicit WithSOPRules still knows the movement's priority and
+	// gate. Test fakes that do not implement it run the seeded card with no pre-check.
+	if store, ok := repo.(ports.ShiftingSOPStore); ok {
+		svc.sopStore = store
+	}
+	return svc
 }
 
 // ShiftingVerificationEnqueuer enqueues the mandatory-video verification item for a submitted

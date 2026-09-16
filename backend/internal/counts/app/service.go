@@ -82,6 +82,18 @@ func (s *Service) RecordBaseCountAnchor(ctx context.Context, in domain.BaseCount
 	return s.repo.RecordBaseCountAnchor(ctx, in)
 }
 
+// ShiftingRaiseReplay answers a raise retry BEFORE the SOP raise card is judged (SHIFTING SOP,
+// 2026-09-16): an exact replay must return the movement it already recorded even if a version
+// published since added a required question. A repository without the pin store reports nothing
+// found, so every raise is judged.
+func (s *Service) ShiftingRaiseReplay(ctx context.Context, tenantID, idempotencyKey, requestFingerprint string) (string, bool, error) {
+	store, ok := s.repo.(ports.ShiftingSOPStore)
+	if !ok {
+		return "", false, nil
+	}
+	return store.ShiftingEventByIdempotencyKey(ctx, tenantID, idempotencyKey, requestFingerprint)
+}
+
 func (s *Service) RecordShiftingEvent(ctx context.Context, in domain.ShiftingEvent) (string, bool, error) {
 	// Governing-doc taxonomy defaults (migration 000016): Priority Low is the standard lane,
 	// Category Growth is the general movement default.

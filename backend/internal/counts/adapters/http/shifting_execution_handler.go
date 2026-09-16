@@ -2,6 +2,7 @@ package http
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"strconv"
@@ -17,6 +18,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
 	"github.com/vgoats/goatos/backend/internal/platform/httpresponse"
 	"github.com/vgoats/goatos/backend/internal/platform/oploc"
+	"github.com/vgoats/goatos/backend/internal/sop/authored"
 )
 
 // Shifting EXECUTION endpoints -- the operator's half of a movement.
@@ -45,6 +47,10 @@ type ShiftingExecutionWorkflow interface {
 	Complete(ctx context.Context, in countsapp.CompleteShiftingInput) (domain.ShiftingExecutionResult, bool, error)
 	Cancel(ctx context.Context, in countsapp.CancelShiftingInput) (domain.ShiftingExecutionResult, bool, error)
 	ListPendingExecution(ctx context.Context, tenantID, businessDate, status string, pageSize int, cursor string) (domain.ShiftingExecutionPage, error)
+	// SHIFTING SOP (2026-09-16): the raise card judged at raise, and the published raise card the
+	// destinations read serves the phone.
+	JudgeRaise(ctx context.Context, in countsapp.RaiseJudgeInput) (countsapp.RaiseJudgement, error)
+	PublishedRaiseCard(ctx context.Context, tenantID string) (domain.ShiftingCardRules, error)
 }
 
 // WithShiftingExecutionWorkflow injects the execution service. A handler without it answers 501
@@ -124,16 +130,20 @@ func (h *AppWriteHandler) CompleteShiftingEvent(w http.ResponseWriter, r *http.R
 		feedPackingProofRef   string
 		feedGivenProofRef     string
 		feedConfigFingerprint string
+		proofs                map[string]string
+		answers               map[string]json.RawMessage
 	)
 	if raw, bodyOK := h.readBody(w, r); !bodyOK {
 		return
 	} else if len(strings.TrimSpace(string(raw))) > 0 {
 		var body struct {
-			ProofRef              string `json:"proof_ref"`
-			FeedPackingProofRef   string `json:"feed_packing_proof_ref"`
-			FeedGivenProofRef     string `json:"feed_given_proof_ref"`
-			FeedConfigFingerprint string `json:"feed_config_fingerprint"`
-			DestinationTag        string `json:"destination_tag"`
+			ProofRef              string                     `json:"proof_ref"`
+			FeedPackingProofRef   string                     `json:"feed_packing_proof_ref"`
+			FeedGivenProofRef     string                     `json:"feed_given_proof_ref"`
+			FeedConfigFingerprint string                     `json:"feed_config_fingerprint"`
+			DestinationTag        string                     `json:"destination_tag"`
+			Proofs                map[string]string          `json:"proofs"`
+			Answers               map[string]json.RawMessage `json:"answers"`
 		}
 		if err := decodeStrictJSON(raw, &body, "ShiftingCompleteRequest"); err != nil {
 			h.writeAppError(w, r, err)
@@ -144,26 +154,48 @@ func (h *AppWriteHandler) CompleteShiftingEvent(w http.ResponseWriter, r *http.R
 		feedGivenProofRef = strings.TrimSpace(body.FeedGivenProofRef)
 		feedConfigFingerprint = strings.TrimSpace(body.FeedConfigFingerprint)
 		destinationTag = strings.TrimSpace(body.DestinationTag)
+		if body.Proofs != nil {
+			proofs = map[string]string{}
+			for k, v := range body.Proofs {
+				if strings.TrimSpace(v) != "" {
+					proofs[strings.TrimSpace(k)] = strings.TrimSpace(v)
+				}
+			}
+		}
+		answers = body.Answers
 	}
-	if proofRef == "" {
+	// OLDER APP: neither `proofs` nor `answers` on the wire. Its fixed fields are mapped onto the
+	// seeded slots by the service and judged leniently; the pre-SOP "no video at all" answer stays
+	// here for that shape. A NEW app's empty map reaches the service, which refuses by slot name.
+	legacyShape := proofs == nil && answers == nil
+	if legacyShape && proofRef == "" {
 		h.writeError(w, r, http.StatusUnprocessableEntity, "proof_required",
 			"a video proof (proof_ref) is required to complete a shifting movement", nil)
 		return
 	}
 
-	// The fingerprint covers the completion's MEANING, which now includes the video and the
-	// destination cohort tag, so a same-key replay carrying a different video/tag is a conflict rather
-	// than a silent override.
+	// The fingerprint covers the completion's MEANING -- the captures, the answers and the
+	// destination cohort tag -- so a same-key replay carrying a different video/tag is a conflict
+	// rather than a silent override. A NEW app sending exactly the SEEDED slots (and no answers)
+	// is folded back onto the legacy fields, so it hashes as the legacy triple and the two shapes
+	// of one submission collapse onto one idempotent completion.
+	hashProofRef, hashPacking, hashFeeding, hashProofs := proofRef, feedPackingProofRef, feedGivenProofRef, proofs
+	if folded, ok := foldSeededShiftingProofs(proofs, answers); ok {
+		hashProofRef, hashPacking, hashFeeding = folded[0], folded[1], folded[2]
+		hashProofs = nil
+	}
 	canonical, err := canonicalRequestBytes(tenantID, appShiftingCompleteCommand, appShiftingCompleteRoute, struct {
-		ShiftingEventID       string `json:"shifting_event_id"`
-		ProofRef              string `json:"proof_ref"`
-		FeedPackingProofRef   string `json:"feed_packing_proof_ref,omitempty"`
-		FeedGivenProofRef     string `json:"feed_given_proof_ref,omitempty"`
-		FeedConfigFingerprint string `json:"feed_config_fingerprint,omitempty"`
-		DestinationTag        string `json:"destination_tag,omitempty"`
-	}{ShiftingEventID: eventID, ProofRef: proofRef, FeedPackingProofRef: feedPackingProofRef,
-		FeedGivenProofRef: feedGivenProofRef, FeedConfigFingerprint: feedConfigFingerprint,
-		DestinationTag: destinationTag})
+		ShiftingEventID       string                     `json:"shifting_event_id"`
+		ProofRef              string                     `json:"proof_ref"`
+		FeedPackingProofRef   string                     `json:"feed_packing_proof_ref,omitempty"`
+		FeedGivenProofRef     string                     `json:"feed_given_proof_ref,omitempty"`
+		FeedConfigFingerprint string                     `json:"feed_config_fingerprint,omitempty"`
+		DestinationTag        string                     `json:"destination_tag,omitempty"`
+		Proofs                map[string]string          `json:"proofs,omitempty"`
+		Answers               map[string]json.RawMessage `json:"answers,omitempty"`
+	}{ShiftingEventID: eventID, ProofRef: hashProofRef, FeedPackingProofRef: hashPacking,
+		FeedGivenProofRef: hashFeeding, FeedConfigFingerprint: feedConfigFingerprint,
+		DestinationTag: destinationTag, Proofs: hashProofs, Answers: answers})
 	if err != nil {
 		h.writeError(w, r, http.StatusBadRequest, "invalid_json", "request body must be valid JSON", err)
 		return
@@ -178,6 +210,9 @@ func (h *AppWriteHandler) CompleteShiftingEvent(w http.ResponseWriter, r *http.R
 		FeedPackingProofRef:   feedPackingProofRef,
 		FeedGivenProofRef:     feedGivenProofRef,
 		FeedConfigFingerprint: feedConfigFingerprint,
+		SOPProofs:             authored.ProofRefs(proofs),
+		SOPAnswers:            authored.Answers(answers),
+		LegacyShape:           legacyShape,
 		DestinationTag:        destinationTag,
 		IdempotencyKey:        "counts-shifting-completion:" + clientKey,
 		RequestFingerprint:    stableHash("counts-app-shifting-completion", canonical),
@@ -187,6 +222,28 @@ func (h *AppWriteHandler) CompleteShiftingEvent(w http.ResponseWriter, r *http.R
 		return
 	}
 	httpresponse.WriteJSON(w, http.StatusOK, executionResponse(result, replay))
+}
+
+// foldSeededShiftingProofs reports whether a proofs map names ONLY seeded slots (with no answers),
+// returning the legacy triple [shifting, packing, feeding] it folds onto for the canonical hash.
+func foldSeededShiftingProofs(proofs map[string]string, answers map[string]json.RawMessage) ([3]string, bool) {
+	var out [3]string
+	if proofs == nil || len(proofs) == 0 || len(answers) > 0 {
+		return out, false
+	}
+	for key, ref := range proofs {
+		switch key {
+		case domain.SlotShiftingVideo:
+			out[0] = ref
+		case domain.SlotShiftingPackingVideo:
+			out[1] = ref
+		case domain.SlotShiftingFeedingVideo:
+			out[2] = ref
+		default:
+			return [3]string{}, false
+		}
+	}
+	return out, true
 }
 
 // CancelShiftingEvent retires an authorized movement that will never be executed. NOTHING moves.
@@ -372,6 +429,14 @@ type appShiftingPendingExecutionItem struct {
 	AnimalsTruncated bool                                `json:"animals_truncated"`
 	Animals          []appShiftingPendingExecutionAnimal `json:"animals"`
 	FeedRequirement  *domain.ShiftingFeedRequirement     `json:"feed_requirement,omitempty"`
+
+	// SHIFTING SOP (2026-09-16): the pinned version, the completion card the phone renders, the
+	// high-priority card (high movements only) and the answers a completion already recorded (a
+	// rework keeps them). The phone holds no slot list of its own.
+	SOPVersion      *int                      `json:"sop_version,omitempty"`
+	SOP             *domain.ShiftingCardRules `json:"sop,omitempty"`
+	HighPrioritySOP *domain.ShiftingCardRules `json:"high_priority_sop,omitempty"`
+	SOPAnswers      authored.Answers          `json:"sop_answers,omitempty"`
 }
 
 type appShiftingPendingExecutionAnimal struct {
@@ -458,6 +523,10 @@ func (h *AppWriteHandler) ListShiftingPendingExecution(w http.ResponseWriter, r 
 			AnimalsTruncated: row.AnimalCount > len(animals),
 			Animals:          animals,
 			FeedRequirement:  row.FeedRequirement,
+			SOPVersion:       row.SOPVersion,
+			SOP:              row.SOP,
+			HighPrioritySOP:  row.HighPrioritySOP,
+			SOPAnswers:       row.SOPAnswers,
 		})
 	}
 	httpresponse.WriteJSON(w, http.StatusOK,
@@ -484,9 +553,22 @@ func (h *AppWriteHandler) writeShiftingExecutionError(w http.ResponseWriter, r *
 		// (maintainer decision, 2026-07-26). Actionable input error.
 		h.writeError(w, r, http.StatusUnprocessableEntity, "proof_required",
 			"a video proof (proof_ref) is required to complete a shifting movement", err)
-	case errors.Is(err, ports.ErrShiftingFeedProofsRequired):
-		h.writeError(w, r, http.StatusUnprocessableEntity, "feed_proofs_required",
-			"high-priority shifting requires live feed-packing and feeding videos", err)
+	// SHIFTING SOP (2026-09-16): the judge names the slot / question the phone must point at; the
+	// message is the card's own farm sentence.
+	case errors.Is(err, ports.ErrShiftingProofSlotInvalid):
+		key, message, _ := countsapp.SOPProofSlotError(err)
+		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity,
+			shiftingSlotError{Code: "shifting_proof_slot_invalid", Message: message, Slot: key, TraceID: appTraceID(r)}, err)
+	case errors.Is(err, ports.ErrShiftingAnswerInvalid):
+		id, message, _ := countsapp.SOPAnswerError(err)
+		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity,
+			shiftingSlotError{Code: "shifting_answer_invalid", Message: message, Question: id, TraceID: appTraceID(r)}, err)
+	case errors.Is(err, ports.ErrShiftingSOPVersionUnknown):
+		h.writeError(w, r, http.StatusConflict, "shifting_sop_version_unknown",
+			"this movement was raised under a shifting SOP version the farm never published; refresh and raise it again", err)
+	case errors.Is(err, ports.ErrShiftingRejectedProofReuse):
+		h.writeError(w, r, http.StatusUnprocessableEntity, "shifting_rejected_proof_reuse",
+			"the verifier rejected that capture; record a fresh one", err)
 	case errors.Is(err, ports.ErrShiftingFeedConfigBlocked):
 		h.writeError(w, r, http.StatusUnprocessableEntity, "feed_config_blocked",
 			"destination feed configuration cannot resolve the required ration", err)
@@ -529,6 +611,15 @@ func (h *AppWriteHandler) writeShiftingExecutionError(w http.ResponseWriter, r *
 		}
 		h.writeError(w, r, http.StatusInternalServerError, "internal_error", "internal server error", err)
 	}
+}
+
+// shiftingSlotError is the error envelope that names the slot / question a judged submit failed on.
+type shiftingSlotError struct {
+	Code     string `json:"code"`
+	Message  string `json:"message"`
+	Slot     string `json:"slot,omitempty"`
+	Question string `json:"question,omitempty"`
+	TraceID  string `json:"trace_id"`
 }
 
 // stringOrEmpty dereferences an optional label, treating nil as "no partition".

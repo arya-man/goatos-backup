@@ -7,6 +7,7 @@ import (
 
 	countsapp "github.com/vgoats/goatos/backend/internal/counts/app"
 	countsdomain "github.com/vgoats/goatos/backend/internal/counts/domain"
+	countsports "github.com/vgoats/goatos/backend/internal/counts/ports"
 	verificationdomain "github.com/vgoats/goatos/backend/internal/verification/domain"
 )
 
@@ -47,6 +48,7 @@ func (e *ShiftingVerificationEnqueuer) EnqueueShiftingMoveVerification(ctx conte
 		},
 		ContextRows:    shiftingContextRows(in.ContextRows),
 		MediaRefs:      in.MediaRefs,
+		MediaMeta:      shiftingMediaMeta(in.MediaMeta),
 		OperatorID:     ptrIfSet(in.OperatorID),
 		ShedID:         ptrIfSet(in.ShedID),
 		PartitionLabel: ptrIfSet(in.PartitionLabel),
@@ -66,9 +68,23 @@ func shiftingContextRows(rows []countsapp.VerificationContextRow) []verification
 	}
 	out := make([]verificationdomain.ContextRow, 0, len(rows))
 	for _, row := range rows {
-		out = append(out, verificationdomain.ContextRow{Label: row.Label, Value: row.Value})
+		out = append(out, verificationdomain.ContextRow{Label: row.Label, Value: row.Value, Group: row.Group})
 	}
 	return out
+}
+
+// shiftingMediaMeta maps counts' per-proof {label, kind} onto verification's MediaMeta through the
+// ONE shared builder (positional against MediaRefs, titles trimmed, kinds normalized). None means
+// the item names none of its proofs and the queue falls back to the registry's positional copy.
+func shiftingMediaMeta(meta []countsports.ProofMeta) []verificationdomain.MediaMeta {
+	if len(meta) == 0 {
+		return nil
+	}
+	captures := make([]verificationdomain.ProofCapture, 0, len(meta))
+	for _, m := range meta {
+		captures = append(captures, verificationdomain.ProofCapture{Title: m.Label, Kind: m.Kind})
+	}
+	return verificationdomain.BuildMediaMeta(captures)
 }
 
 func ptrIfSet(s string) *string {
