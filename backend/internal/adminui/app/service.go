@@ -7324,6 +7324,7 @@ func pageSpecificCopy(id string) map[string]string {
 			for k, v := range shiftingSOPEditorCopy() {
 				m[k] = v
 			}
+			addHerdOpsCaptureCardCopy(m)
 		case "feed-sops":
 			m["crumb"] = "Feed"
 			m["filter.domain.current"] = "This page shows Feed SOPs (distribution, packing, transport)"
@@ -8181,7 +8182,8 @@ func pageOptionGroups(id string) []domain.OptionGroup {
 		return withGenericOptionGroups(sopOptionGroupsFor(id))
 	case "counts-sops":
 		// SHIFTING SOP (2026-09-16): the shifting cards editor reuses the weighing card's question
-		// and capture-kind vocabularies -- one meaning of "photo / video / either" on every card.
+		// shifting cards and herd-operations capture cards reuse the same question and
+		// capture-kind vocabularies -- one meaning of "photo / video / either" on every card.
 		return withGenericOptionGroups(append(sopOptionGroupsFor(id), shiftingSOPOptionGroups()...))
 	case "feed-sops":
 		// FEED SOP (2026-09-16): the feed cards editor reuses the weighing card's question and
@@ -10345,5 +10347,43 @@ func inspectionOptionGroups() []domain.OptionGroup {
 				option("video", "Video only", "", ""),
 			},
 		},
+	}
+}
+
+// addHerdOpsCaptureCardCopy merges the herd operations CAPTURE CARD editor and drawer copy into
+// the counts-sops page contract (maintainer decision 4, 2026-09-16): the Add birth / Add death
+// form's SOP extras. It reuses the feed/weighing editors' slot and question-card copy so every
+// card editor reads the same way. Kept as its own helper so the counts-sops case stays a one-line
+// merge.
+func addHerdOpsCaptureCardCopy(m map[string]string) {
+	for k, v := range feedSOPEditorCopy() {
+		if _, taken := m[k]; !taken {
+			m[k] = v
+		}
+	}
+	for k, v := range map[string]string{
+		"capture.title":              "Capture form extras",
+		"capture.subtitle":           "what the operator records and answers beside the form's fixed fields",
+		"capture.form.birth":         "Add birth",
+		"capture.form.death":         "Add death",
+		"capture.notice.pinned":      "A report is judged by the version in force when it was raised.",
+		"capture.instruction":        "Instruction shown above the extras",
+		"capture.proofs":             "Captures",
+		"capture.proofs.subtitle":    "In the order the phone shows them. Compulsory captures must be recorded before the report is sent.",
+		"capture.proofs.empty":       "No captures: the form asks for no photo or video.",
+		"capture.proof.add":          "Add a capture",
+		"capture.questions":          "Questions",
+		"capture.questions.subtitle": "Answered once on the form. The answers reach the approver and the verifier.",
+		"capture.questions.empty":    "No questions on this form.",
+		"capture.question":           "Question",
+		"capture.note.older_app":     "A report from a phone that has not refreshed this form yet is still accepted; anything compulsory it did not send is shown to the approver and the verifier as not captured.",
+		"capture.footer.ready":       "Ready to publish. Reports raised from now on use this form.",
+		"capture.drawer.title":       "Capture form extras",
+		"capture.drawer.subtitle":    "asked on the form, beside its fixed fields",
+		"capture.drawer.empty":       "The form asks nothing beyond its fixed fields.",
+		"capture.summary.optional":   "optional",
+		"action.edit_capture_form":   "Edit capture form",
+	} {
+		m[k] = v
 	}
 }

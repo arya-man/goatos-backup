@@ -263,7 +263,7 @@ function ApprovalsDrawerPanel({
           </div>
         </section>
 
-        {item.capture ? <CaptureSection capture={item.capture} /> : null}
+        <CaptureSection item={item} />
 
         {/* One decision block: the prominent green Approve action on top, then the reject reason and
             a red (destructive) Reject action, separated by an "or" rule. Both are full-width so the
@@ -337,80 +337,6 @@ function Meta({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
-// CaptureSection renders the raise's SOP capture form (item.capture, BACKEND-OWNED): every answer
-// in farm words under its group, every capture as a click-to-open tile resolved to a signed URL
-// only when the park head opens it, and the note naming what an older app did not send. Nothing
-// here is recomposed from the summary payload.
-function CaptureSection({ capture }: { capture: NonNullable<AdminWebApprovalItem["capture"]> }) {
-  const [urls, setUrls] = useState<Record<string, string>>({});
-  const [opening, setOpening] = useState<string | null>(null);
-  const groups: Array<{ group: string; rows: typeof capture.rows }> = [];
-  for (const row of capture.rows) {
-    const group = row.group ?? "";
-    const last = groups[groups.length - 1];
-    if (last && last.group === group) last.rows.push(row);
-    else groups.push({ group, rows: [row] });
-  }
-  async function open(proofId: string) {
-    if (urls[proofId]) {
-      window.open(urls[proofId], "_blank", "noopener");
-      return;
-    }
-    setOpening(proofId);
-    try {
-      const url = await resolveApprovalProofMediaUrl(proofId);
-      if (url) {
-        setUrls((u) => ({ ...u, [proofId]: url }));
-        window.open(url, "_blank", "noopener");
-      }
-    } finally {
-      setOpening(null);
-    }
-  }
-  return (
-    <section className="card" style={{ marginTop: 14 }} data-testid="approval-capture">
-      <div className="hd">
-        <h3>{COPY.capture.title}</h3>
-        <span className="muted small">{capture.version_label}</span>
-      </div>
-      <div className="bd" style={{ display: "grid", gap: 10 }}>
-        {capture.rows.length === 0 && capture.media.length === 0 && !capture.missing_note ? <div className="muted small">{COPY.capture.empty}</div> : null}
-        {groups.map((g, gi) => (
-          <div key={`${g.group}-${gi}`}>
-            {g.group ? <div className="muted small" style={{ marginBottom: 4 }}>{g.group}</div> : null}
-            <div className="metagrid">
-              {g.rows.map((row, ri) => (
-                <Meta key={`${row.label}-${ri}`} label={row.label}>
-                  {row.value}
-                </Meta>
-              ))}
-            </div>
-          </div>
-        ))}
-        {capture.media.length > 0 ? (
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-            {capture.media.map((m) => (
-              <button
-                key={m.proof_id}
-                type="button"
-                className="btn sm"
-                data-proof-id={m.proof_id}
-                data-kind={m.kind}
-                disabled={opening === m.proof_id}
-                onClick={() => void open(m.proof_id)}
-              >
-                {m.label}
-                {m.kind ? <span className="muted small">&nbsp;· {m.kind}</span> : null}
-              </button>
-            ))}
-          </div>
-        ) : null}
-        {capture.missing_note ? <div className="note">{capture.missing_note}</div> : null}
-      </div>
-    </section>
-  );
-}
-
 function hrefWithout(params: RouteSearchParams, exclude: string[]): string {
   const next = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) {
@@ -437,4 +363,92 @@ function hrefWithRow(params: RouteSearchParams, requestId: string): string {
   }
   next.set("ap_row", requestId);
   return `${PATHNAME}?${next.toString()}`;
+}
+
+// CaptureSection renders the report's SOP capture card snapshot verbatim: answers grouped by their
+// section, every proof under its authored title with click-to-open, the older-app note and the
+// verifier's verdict on the report proof. Nothing is composed here.
+function CaptureSection({ item }: { item: AdminWebApprovalItem }) {
+  const capture = item.capture;
+  if (!capture) return null;
+  const groups = new Map<string, { label: string; value: string }[]>();
+  for (const row of capture.rows ?? []) {
+    const key = row.group ?? "";
+    groups.set(key, [...(groups.get(key) ?? []), { label: row.label, value: row.value }]);
+  }
+  return (
+    <section className="card" style={{ marginTop: 14 }}>
+      <div className="hd">
+        <h3>{COPY.capture.title}</h3>
+        {capture.version_label ? <span className="muted small">{COPY.capture.version}: {capture.version_label}</span> : null}
+      </div>
+      <div className="bd">
+        {item.capture_review_status ? (
+          <div className="note" role="status">
+            {COPY.capture.review[item.capture_review_status] ?? item.capture_review_status}
+            {item.capture_review_reason ? ` — ${item.capture_review_reason}` : ""}
+          </div>
+        ) : null}
+        {[...groups.entries()].map(([group, rows]) => (
+          <div key={group || "rows"} style={{ marginTop: 8 }}>
+            {group ? <div className="muted small b700">{group}</div> : null}
+            <div className="metagrid">
+              {rows.map((row, i) => (
+                <Meta key={`${row.label}-${i}`} label={row.label}>
+                  {row.value}
+                </Meta>
+              ))}
+            </div>
+          </div>
+        ))}
+        {capture.missing_note ? (
+          <div className="metagrid" style={{ marginTop: 8 }}>
+            <Meta label={COPY.capture.missing}>{capture.missing_note}</Meta>
+          </div>
+        ) : null}
+        {capture.media?.length ? (
+          <div style={{ marginTop: 10 }}>
+            <div className="muted small b700">{COPY.capture.media}</div>
+            <div className="htl">
+              {capture.media.map((m) => (
+                <CaptureMediaRow key={m.proof_id} proofId={m.proof_id} label={m.label} kind={m.kind} />
+              ))}
+            </div>
+          </div>
+        ) : null}
+      </div>
+    </section>
+  );
+}
+
+function CaptureMediaRow({ proofId, label, kind }: { proofId: string; label: string; kind: string }) {
+  const [state, setState] = useState<"idle" | "opening" | "failed">("idle");
+  const open = async () => {
+    setState("opening");
+    // A tab is opened synchronously in the click so the browser does not treat it as a popup.
+    const tab = window.open("about:blank", "_blank");
+    const url = await resolveApprovalProofMediaUrl(proofId).catch(() => null);
+    if (!url) {
+      tab?.close();
+      setState("failed");
+      return;
+    }
+    if (tab) tab.location.href = url;
+    else window.location.assign(url);
+    setState("idle");
+  };
+  return (
+    <div className="hrow">
+      <div className="htx">
+        <b>{label}</b>
+        <div className="hmeta muted small">
+          {COPY.capture.kind[kind] ?? ""}
+          {state === "failed" ? ` · ${COPY.capture.unavailable}` : ""}
+        </div>
+      </div>
+      <button type="button" className="btn sm" onClick={open} disabled={state === "opening"}>
+        {state === "opening" ? COPY.capture.opening : COPY.capture.open}
+      </button>
+    </div>
+  );
 }

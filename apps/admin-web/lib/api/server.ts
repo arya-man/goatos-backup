@@ -5734,6 +5734,8 @@ export type AdminWebApprovalItem = {
   // under their slot titles with a kind, and a note naming what an older app did not send.
   // BACKEND-OWNED; rendered verbatim. Absent for a request raised without one.
   capture?: AdminWebApprovalCapture;
+  capture_review_status?: "pending" | "approved" | "rework";
+  capture_review_reason?: string;
   summary: unknown;
   decided_by_user_id?: string;
   decided_at?: string;
