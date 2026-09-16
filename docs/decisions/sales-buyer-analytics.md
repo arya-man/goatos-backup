@@ -38,9 +38,13 @@ So a deal is claimed by a buyer in this order, resolved ONCE in
    applies). A name held by two vendors is claimed by NEITHER — agree-or-go-bare, the rule the
    sex and origin filters use — because picking one would put a stranger's phone number on the
    row. The contact person's name is never matched, for the same reason;
-3. otherwise the typed name itself, reported as `in_register: false` with a "Not in register"
-   chip, so the sales desk can add them on Vendors. A name-only buyer shows the newest deal's
-   spelling and place.
+3. otherwise the typed name itself, reported as `in_register: false` on the wire. The page
+   does NOT flag it (maintainer instruction 2026-09-16 retired the "Not in register" chip and the
+   headline count): the sales desk reads buyers, not register hygiene. A name-only buyer shows
+   the newest deal's spelling and place.
+
+Rows are ordered by LAST SALE, newest first (same maintainer instruction), with revenue as the
+tie-break: the page answers "who bought lately", not "who paid most".
 
 ## The figures
 

@@ -1010,9 +1010,15 @@ func loadwiseTable() domain.TableContract {
 // buyerAnalyticsTable builds the buyer analytics table contract. Labels come from the page's own
 // copy map, the loadwiseTable shape, because the farm says "Purchases so far" and "Comes back",
 // not "Purchases" and "Repeat"; the header and any detail cell read ONE source.
+//
+// The columns are the RENDERED columns: category and place ride under the buyer's name and the
+// revenue share under the revenue, so they are cell detail rather than columns of their own. Every
+// column except the phone is sortable (maintainer request 2026-09-16, the pens-table shape): the
+// sort reorders the served page only, the backend's own order (newest last sale first) is the
+// default, and a whole-result reorder would need a backend sort parameter that does not exist.
 func buyerAnalyticsTable() domain.TableContract {
 	t := tableP("sales-buyer-analytics", "Buyers", "/procurement/buyer-analytics",
-		[]string{"buyer_name", "phone_number", "category", "place", "purchases", "animals", "revenue", "share_pct", "repeat", "first_sale_date", "last_sale_date", "outstanding"},
+		[]string{"buyer_name", "phone_number", "purchases", "animals", "revenue", "repeat", "first_sale_date", "last_sale_date", "outstanding"},
 		"", []int{25, 50, 100})
 	copy := pageCopy("sales-buyer-analytics")
 	for i := range t.Columns {
@@ -1020,7 +1026,7 @@ func buyerAnalyticsTable() domain.TableContract {
 			t.Columns[i].Label = label
 		}
 	}
-	return t
+	return sortable(t, "buyer_name", "purchases", "animals", "revenue", "repeat", "first_sale_date", "last_sale_date", "outstanding")
 }
 
 // feedPurchaseTable builds the feed purchase ledger's table contract.
@@ -3843,7 +3849,7 @@ func pageSpecificCopy(id string) map[string]string {
 			// Headline tiles -- whole-filter figures, never the page's.
 			"section.headline.aria":     "Buyer headline figures",
 			"kpi.buyers":                "Buyers",
-			"kpi.buyers.detail":         "not in the vendor register",
+			"kpi.buyers.detail":         "with at least one closed sale",
 			"kpi.repeat_buyers":         "Come back",
 			"kpi.repeat_buyers.detail":  "bought more than once",
 			"kpi.repeat_revenue":        "Revenue from repeat buyers",
@@ -3872,14 +3878,12 @@ func pageSpecificCopy(id string) map[string]string {
 			// Chips and cell copy.
 			"chip.repeat":            "Repeat",
 			"chip.one_time":          "One-time",
-			"chip.not_in_register":   "Not in register",
 			"value.every_days":       "about every {days} days",
 			"value.days_ago":         "{days} days ago",
 			"value.today":            "today",
 			"value.repeat_purchases": "{count} more after the first",
 			"value.settled":          "Nothing owed",
 			"value.none":             "Not recorded",
-			"hint.not_in_register":   "Known only by the name typed on the sale. Add them on Vendors to keep their number here.",
 			"hint.phone_hidden":      "Phone numbers are on the vendor register, which your current role cannot open.",
 
 			"summary.buyers":   "buyers",

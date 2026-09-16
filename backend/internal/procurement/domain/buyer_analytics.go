@@ -292,7 +292,12 @@ func BuildBuyerAnalytics(facts []BuyerDealFact, asOf time.Time, limit, offset in
 		summary.RepeatRevenuePct = summary.RepeatRevenue / summary.Revenue * 100
 	}
 
+	// Most recent buyer first (maintainer instruction 2026-09-16): the page answers "who bought
+	// lately", so the row whose LAST sale is newest leads; revenue only breaks a same-day tie.
 	sort.Slice(rows, func(i, j int) bool {
+		if rows[i].LastSaleDate != rows[j].LastSaleDate {
+			return rows[i].LastSaleDate > rows[j].LastSaleDate
+		}
 		if rows[i].Revenue != rows[j].Revenue {
 			return rows[i].Revenue > rows[j].Revenue
 		}
