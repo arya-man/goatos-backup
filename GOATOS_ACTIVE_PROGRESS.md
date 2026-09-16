@@ -1148,3 +1148,20 @@ restriction independently passed. No remaining confirmed scoped code defect.
 Full exact-head CI, fresh before/after HTTP and production browser/phone proof
 remain pending. An isolated database copy is being prepared without mutating the
 shared source database. No new performance claim, merge, or deployment.
+
+### Last review-loop edge cases and test-host recovery
+Fixed optional pick-one Other without explanation (12 Android tests green, mobile
+guard green, independent judge passed) and optional numeric null rendering as zero
+(normalizer/verification renderer share numeric absence semantics; regression
+failed before, domain tests pass). Final independent backend judge is reviewing.
+Fresh full-source database copy exceeded test-host disk capacity and interrupted
+the rules-source DB test. Removed only this task's failed clone and failed test
+template; PostgreSQL recovered and shared source read-back returned 1681 goats.
+Created a separate 567 MB copy of the existing disposable PR274 capture snapshot
+instead; it contains 1681 goats/66 weighing campaigns. This is staging-like
+snapshot proof, not current STG data. A historical migration302 checksum differs
+in that existing test snapshot; migration runner's local-only allowance is used
+only on this new disposable copy. No production migration checksum was changed.
+Pending: rerun rules-source DB test, exact committed CI/screenshots, production
+browser and physical phone evidence, matched performance results. Main still
+967c3683b; deployment remains not started.

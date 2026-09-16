@@ -255,6 +255,39 @@ class WeighingFastingDetailViewModelTest {
     }
 
     @Test
+    fun `optional Other choice needs an explanation before queueing`() = runTest(dispatcher) {
+        val sync = RecordingFastingSyncRepository()
+        val source = FakeProofCaptureSource(mutableListOf(video("/proof/feed.mp4"), video("/proof/water.mp4")))
+        val repository = FakeWeighingFastingRepository()
+        val vm = viewModel(proofCaptureSource = source, syncRepository = sync, fastingRepository = repository)
+        repository.cardFlow.value = WeighingFastingCard(card().dto.copy(questions = listOf(
+            sg.mesha.goatos.core.network.dto.WeighingSopQuestionDto(
+                id = "reason", kind = "choice", title = "Reason", required = false, allowOther = true,
+                options = listOf(sg.mesha.goatos.core.network.dto.WeighingSopOptionDto("other", "Other")),
+            ),
+        )))
+        advanceUntilIdle()
+        vm.onEvent(WeighingFastingDetailEvent.RecordSlot(WeighingFastingSlotKind.FEED))
+        advanceUntilIdle()
+        vm.onEvent(WeighingFastingDetailEvent.RecordSlot(WeighingFastingSlotKind.WATER))
+        advanceUntilIdle()
+        assertTrue("the optional question can be omitted", vm.state.value.submitEnabled)
+        vm.onEvent(WeighingFastingDetailEvent.SetAnswer("reason", "other"))
+        vm.onEvent(WeighingFastingDetailEvent.SetOtherText("reason", "  "))
+        assertEquals(false, vm.state.value.submitEnabled)
+        assertTrue(vm.state.value.questions.single().validationError.isNotBlank())
+        vm.onEvent(WeighingFastingDetailEvent.Submit)
+        advanceUntilIdle()
+        assertEquals(0, sync.fastingSubmits.size)
+        vm.onEvent(WeighingFastingDetailEvent.SetOtherText("reason", "Broken trough"))
+        assertEquals("", vm.state.value.questions.single().validationError)
+        vm.onEvent(WeighingFastingDetailEvent.Submit)
+        advanceUntilIdle()
+        assertEquals(1, sync.fastingSubmits.size)
+        assertEquals("\"Broken trough\"", sync.lastFastingAnswers["reason_other"].toString())
+    }
+
+    @Test
     fun `hidden ancestor hides descendants and excludes their answers from submit`() = runTest(dispatcher) {
         val sync = RecordingFastingSyncRepository()
         val source = FakeProofCaptureSource(mutableListOf(video("/proof/chain-feed.mp4"), video("/proof/chain-water.mp4")))

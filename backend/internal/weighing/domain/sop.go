@@ -757,6 +757,11 @@ func (r Rules) NormalizeRemovalAnswers(a SOPAnswers) SOPAnswers {
 		if !applicable[q.ID] {
 			continue
 		}
+		if q.Kind == SOPQuestionNumber {
+			if _, present, _ := a.number(q.ID); !present {
+				continue
+			}
+		}
 		if raw, ok := a[q.ID]; ok {
 			out[q.ID] = raw
 		}
@@ -944,8 +949,11 @@ func renderAnswer(q SOPQuestion, raw json.RawMessage, answers SOPAnswers) string
 		}
 		return strings.Join(parts, ", ")
 	case SOPQuestionNumber:
-		var n float64
-		if json.Unmarshal(raw, &n) != nil {
+		n, present, err := answers.number(q.ID)
+		if !present {
+			return ""
+		}
+		if err != nil {
 			return plainAnswer(raw)
 		}
 		v := strconv.FormatFloat(n, 'f', -1, 64)

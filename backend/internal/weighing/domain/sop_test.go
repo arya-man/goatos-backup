@@ -7,6 +7,29 @@ import (
 	"testing"
 )
 
+func TestOptionalRemovalNumberDoesNotInventZero(t *testing.T) {
+	rules := SeededRules()
+	rules.FeedWaterRemoval.Questions = []SOPQuestion{{ID: "buckets", Kind: SOPQuestionNumber, Title: "Buckets removed", Unit: "buckets"}}
+	for _, raw := range []string{"null", " null ", `""`} {
+		answers := SOPAnswers{"buckets": json.RawMessage(raw)}
+		if err := rules.ValidateRemovalAnswers(answers); err != nil {
+			t.Fatal(err)
+		}
+		if got := rules.NormalizeRemovalAnswers(answers); len(got) != 0 {
+			t.Errorf("absent answer %s retained: %v", raw, got)
+		}
+		if got := rules.RemovalAnswerRows(answers); len(got) != 0 {
+			t.Errorf("absent answer %s rendered: %v", raw, got)
+		}
+	}
+	for _, raw := range []string{"0", `"0"`} {
+		got := rules.RemovalAnswerRows(SOPAnswers{"buckets": json.RawMessage(raw)})
+		if len(got) != 1 || got[0].Value != "0 buckets" {
+			t.Errorf("real zero %s rendered: %v", raw, got)
+		}
+	}
+}
+
 func TestRequiredRemovalNumberRejectsNullButAcceptsZero(t *testing.T) {
 	rules := SeededRules()
 	rules.FeedWaterRemoval.Questions = []SOPQuestion{{ID: "buckets", Kind: SOPQuestionNumber, Title: "Buckets removed", Required: true}}

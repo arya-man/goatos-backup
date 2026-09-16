@@ -691,6 +691,8 @@ private fun FastingQuestionCard(
                         enabled = !locked,
                         singleLine = true,
                         placeholder = { Text(stringResource(R.string.weighing_removal_question_other_hint)) },
+                        isError = question.validationError.isNotBlank(),
+                        supportingText = if (question.validationError.isNotBlank()) ({ Text(question.validationError) }) else null,
                         modifier = Modifier.fillMaxWidth(),
                     )
                 }

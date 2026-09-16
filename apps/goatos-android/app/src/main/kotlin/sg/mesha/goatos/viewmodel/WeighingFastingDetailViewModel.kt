@@ -354,9 +354,12 @@ class WeighingFastingDetailViewModel @Inject constructor(
                 rangeLabel = listOfNotNull(q.min, q.max).takeIf { it.size == 2 }?.let { (min, max) -> "${trimNumber(min)}–${trimNumber(max)}" }
                     ?: q.min?.let { "≥ ${trimNumber(it)}" } ?: q.max?.let { "≤ ${trimNumber(it)}" } ?: "",
                 applies = q.id in applicable,
-                validationError = if (q.id in applicable && numericAnswerInvalid(q)) {
-                    appContext.getString(WeighingR.string.weighing_removal_number_invalid)
-                } else "",
+                validationError = when {
+                    q.id !in applicable -> ""
+                    numericAnswerInvalid(q) -> appContext.getString(WeighingR.string.weighing_removal_number_invalid)
+                    missingOtherExplanation(q) -> appContext.getString(WeighingR.string.weighing_removal_question_other_hint)
+                    else -> ""
+                },
             )
         }
     }
@@ -378,6 +381,7 @@ class WeighingFastingDetailViewModel @Inject constructor(
                 if (raw.isBlank()) return@firstOrNull q.required
                 return@firstOrNull numericAnswerInvalid(q)
             }
+            if (missingOtherExplanation(q)) return@firstOrNull true
             if (!q.required) return@firstOrNull false
             when (q.kind) {
                 "multi" -> a == null || a.values.isEmpty()
@@ -386,6 +390,10 @@ class WeighingFastingDetailViewModel @Inject constructor(
             }
         }?.title
     }
+
+    private fun missingOtherExplanation(question: WeighingSopQuestionDto): Boolean =
+        question.kind == "choice" && question.allowOther &&
+            answers[question.id]?.value == "other" && answers[question.id]?.otherText.isNullOrBlank()
 
     private fun numericAnswerInvalid(question: WeighingSopQuestionDto): Boolean {
         if (question.kind != "number") return false
