@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/vgoats/goatos/backend/internal/feeddirection/domain"
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 )
@@ -40,6 +42,68 @@ WHERE i.tenant_id = $1::uuid AND i.park_id = $2::uuid AND r.tenant_id = i.tenant
 		t.Fatalf("completion rows must open on CBE (Coimbatore): got first row %+v", firstOrNil(got.DistributionCompletions))
 	}
 	assertClustered(t, "completion rows", parkLabels(got.DistributionCompletions, func(r domain.DistributionCompletionRow) string { return r.ParkLabel }))
+	t.Run("OneToMany", func(t *testing.T) {
+		// Six feed cells include two items for one pen-session. The new park
+		// join/grouping must still yield five sessions and two shed options.
+		if len(got.DistributionCompletions) != 5 || len(completionKeys(got.DistributionCompletions)) != 5 || len(got.CompletionFilterOptions) != 2 {
+			t.Fatalf("park ordering changed cardinality: rows=%d options=%d", len(got.DistributionCompletions), len(got.CompletionFilterOptions))
+		}
+	})
+	t.Run("PageBoundary", func(t *testing.T) {
+		var combined []domain.DistributionCompletionRow
+		for _, offset := range []int{0, 2, 4} {
+			page := completionRead(t, ctx, repo, target, func(q *domain.DirectedAnalyticsQuery) {
+				q.CompletionLimit, q.CompletionOffset = 2, offset
+			})
+			if page.CompletionTotals != got.CompletionTotals || page.DistributionCompletionsHasMore != (offset < 4) {
+				t.Fatalf("page %d changed totals or continuation: %+v", offset, page)
+			}
+			combined = append(combined, page.DistributionCompletions...)
+		}
+		if len(combined) != 5 || len(completionKeys(combined)) != 5 {
+			t.Fatalf("pages lost or repeated pen sessions: %+v", combined)
+		}
+		for i, row := range combined {
+			want := got.DistributionCompletions[i]
+			if row.ParkID != want.ParkID || row.ShedID != want.ShedID || row.PartitionLabel != want.PartitionLabel || row.SessionNo != want.SessionNo {
+				t.Fatalf("page order differs at row %d: got %+v want %+v", i, row, want)
+			}
+		}
+	})
+	t.Run("ParkScope", func(t *testing.T) {
+		page := completionRead(t, ctx, repo, target, func(q *domain.DirectedAnalyticsQuery) {
+			q.ParkIDs = []uuid.UUID{uuid.MustParse(fdcParkB)}
+		})
+		if len(page.DistributionCompletions) != 2 || len(page.CompletionFilterOptions) != 1 {
+			t.Fatalf("CPT scope cardinality changed: %+v", page)
+		}
+		for _, row := range page.DistributionCompletions {
+			if row.ParkID != fdcParkB {
+				t.Fatalf("CBE-first ordering leaked another park: %+v", row)
+			}
+		}
+		if page.CompletionFilterOptions[0].ParkID != fdcParkB || page.CompletionTotals != (domain.CompletionStatusTotals{NotStarted: 1, Completed: 1}) {
+			t.Fatalf("park scope leaked options or totals: %+v", page)
+		}
+	})
+	t.Run("StatusMatrix", func(t *testing.T) {
+		for status, count := range map[string]int{
+			domain.DistributionCompletionNotStarted:           2,
+			domain.DistributionCompletionAwaitingVerification: 1,
+			domain.DistributionCompletionRework:               1,
+			domain.DistributionCompletionCompleted:            1,
+		} {
+			page := completionRead(t, ctx, repo, target, func(q *domain.DirectedAnalyticsQuery) { q.CompletionStatus = status })
+			if len(page.DistributionCompletions) != count || page.CompletionTotals != got.CompletionTotals || len(page.CompletionFilterOptions) != 2 {
+				t.Fatalf("%s changed rows, totals, or options: %+v", status, page)
+			}
+			for _, row := range page.DistributionCompletions {
+				if row.Status != status {
+					t.Fatalf("%s filter returned %+v", status, row)
+				}
+			}
+		}
+	})
 
 	shedFeed, err := repo.ShedFeedAnalytics(ctx, fdiTenant, domain.DirectedAnalyticsQuery{
 		DateFrom: time.Date(2026, 7, 30, 0, 0, 0, 0, biztime.DefaultLocation()),
