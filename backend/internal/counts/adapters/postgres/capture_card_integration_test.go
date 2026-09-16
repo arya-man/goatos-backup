@@ -27,8 +27,8 @@ func sampleCapture() *domain.ApprovalCapture {
 		Proofs:       authored.ProofRefs{"newborns_with_mother": "ref-mother"},
 		Answers:      authored.Answers{"delivery_type": json.RawMessage(`"assisted"`)},
 		Evidence: authored.Evidence{VersionLabel: "v2",
-			Media: []authored.EvidenceMedia{{Ref: "ref-mother", Kind: "photo", Label: "Newborns with the mother"}},
-			Rows:  []authored.EvidenceRow{{Label: "How was the delivery?", Value: "Assisted", Group: "At report"}},
+			Media:       []authored.EvidenceMedia{{Ref: "ref-mother", Kind: "photo", Label: "Newborns with the mother"}},
+			Rows:        []authored.EvidenceRow{{Label: "How was the delivery?", Value: "Assisted", Group: "At report"}},
 			MissingNote: "Pen video"},
 	}
 }
@@ -56,7 +56,7 @@ func TestBirthSubmissionStoresCaptureAndEmitsBirthReportedPg(t *testing.T) {
 		TenantID: countsTenant, ActorID: countsOperator, ClientIdempotencyKey: "cap-child-1",
 		StoredIdempotencyKey: countsTenant + ":identity.admin.goat_create:cap-child-1",
 		IdempotencyScope:     "identity.admin.goat_create", RequestHash: "hash-cap-child-1",
-		Identifiers: []identityports.AdminGoatCreateIdentifier{{IdentifierType: "temporary_tag", IdentifierValue: "CPT-32100", NormalizedValue: "CPT-32100", ScopeKey: "global", IsPrimary: true}},
+		Identifiers:      []identityports.AdminGoatCreateIdentifier{{IdentifierType: "temporary_tag", IdentifierValue: "CPT-32100", NormalizedValue: "CPT-32100", ScopeKey: "global", IsPrimary: true}},
 		CustodianPartyID: countsCustodian, ParkID: countsPark, ShedID: countsShedA,
 		Species: "goat", Breed: strPtr("beetal"), Sex: "female", DOB: &dob, OriginType: "birth", EntryDate: dob,
 		ManagementStage: &stage, DamID: &motherID, LitterSize: &litter,

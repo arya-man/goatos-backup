@@ -55,8 +55,8 @@ func TestBirthCaptureVerificationEnqueuesOneItemPerLitter(t *testing.T) {
 	enq := &fakeBirthCaptureEnqueuer{}
 	h := NewBirthReportedVerificationHandler(enq, nil)
 	capture := authored.Evidence{VersionLabel: "v2",
-		Media: []authored.EvidenceMedia{{Ref: "ref-mother", Kind: "photo", Label: "Newborns with the mother"}, {Ref: "ref-pen", Kind: "video", Label: "Pen video"}},
-		Rows:  []authored.EvidenceRow{{Label: "How was the delivery?", Value: "Assisted", Group: "At report"}},
+		Media:       []authored.EvidenceMedia{{Ref: "ref-mother", Kind: "photo", Label: "Newborns with the mother"}, {Ref: "ref-pen", Kind: "video", Label: "Pen video"}},
+		Rows:        []authored.EvidenceRow{{Label: "How was the delivery?", Value: "Assisted", Group: "At report"}},
 		MissingNote: "Kid weight"}
 	ev := birthReportedEvent(t, capture)
 	for i := 0; i < 2; i++ { // redelivered event: ONE item
