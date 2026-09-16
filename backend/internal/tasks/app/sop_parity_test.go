@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"reflect"
+	"strconv"
 	"testing"
 	"time"
 
@@ -330,4 +331,54 @@ type failingProofKinds struct{}
 
 func (failingProofKinds) ResolveProofKinds(context.Context, string, []string) (map[string]string, error) {
 	return nil, errors.New("register down")
+}
+
+// TestSeededDeathDocumentBehavesAsToday pins the deploy-day rule (2026-09-16): with the seeded
+// Death SOP (two death_evidence videos) and no capture card, the approval gate, the verifier
+// bundle's media ORDER, its idempotency key format and the rework shape are what they were before
+// the SOP parity work -- nothing new is added without an authored SOP edit (the step titles on
+// the media labels are the one listed display difference).
+func TestSeededDeathDocumentBehavesAsToday(t *testing.T) {
+	svc, repo, enq, workflowID := newServiceWithDeathWorkflow(t)
+	actions := repo.actions[workflowID]
+	operatorSteps := 0
+	for _, a := range actions {
+		if a.ActionType != domain.ActionTypeApproval {
+			operatorSteps++
+		}
+	}
+	if operatorSteps != 2 {
+		t.Fatalf("seeded death has %d operator steps, want the two videos", operatorSteps)
+	}
+	completeDeathStep(t, svc, repo, workflowID, domain.ActionKeyDeathVideo, "k1", domain.ProofItem{Ref: "proof-death_video", Kind: domain.ProofKindVideo})
+	if domain.DeathStepsComplete(repo.actions[workflowID]) {
+		t.Fatal("one video must not satisfy the gate")
+	}
+	completeDeathStep(t, svc, repo, workflowID, domain.ActionKeyPostMortemVideo, "k2", domain.ProofItem{Ref: "proof-post_mortem_video", Kind: domain.ProofKindVideo})
+	if domain.DeathStepsComplete(repo.actions[workflowID]) != domain.DeathVideosComplete(repo.actions[workflowID]) {
+		t.Fatal("on the seeded document the SOP gate equals the legacy two-video gate")
+	}
+	releaseApprovedDeath(t, svc, repo, workflowID)
+	item := enq.calls[0]
+	if !reflect.DeepEqual(item.ProofRefs, []string{"proof-death_video", "proof-post_mortem_video"}) {
+		t.Fatalf("media order = %v, want death video then post-mortem", item.ProofRefs)
+	}
+	round := repo.workflows[workflowID].RowVersion
+	if item.IdempotencyKey != "counts-death-evidence:"+workflowID+":r"+strconv.Itoa(round)+":proof-death_video:proof-post_mortem_video" {
+		t.Fatalf("key = %q", item.IdempotencyKey)
+	}
+	if len(item.ContextRows) != 0 {
+		t.Fatalf("seeded death has no answers to show: %+v", item.ContextRows)
+	}
+	if err := svc.BounceDeathVideosForRework(context.Background(), ports.DeathVerdictCommand{TenantID: testTenant, WorkflowID: workflowID, Reason: "redo", RecordingKey: item.IdempotencyKey, VerdictAt: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	for _, a := range repo.actions[workflowID] {
+		if a.HasHook(domain.EngineHookReshootReport) {
+			t.Fatal("no capture card, no re-shoot step")
+		}
+	}
+	if len(repo.actions[workflowID]) != len(actions) {
+		t.Fatal("rework must not add steps on the seeded document")
+	}
 }

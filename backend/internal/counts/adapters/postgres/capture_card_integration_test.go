@@ -292,3 +292,57 @@ func TestReplaceCaptureProofSwapsTheRejectedProofPg(t *testing.T) {
 		t.Fatalf("stale verdict applied=%v err=%v status=%v", applied, err, got.CaptureReviewStatus)
 	}
 }
+
+// TestNoCaptureCardSubmitsBehaveAsTodayPg pins the deploy-day rule: with no authored capture
+// card, a birth writes NO counts.birth.reported row and a death event carries NO capture_evidence
+// key -- the outbox is byte-for-byte what it was before the feature.
+func TestNoCaptureCardSubmitsBehaveAsTodayPg(t *testing.T) {
+	ctx := context.Background()
+	pool := setupCountsDB(t, ctx)
+	repo := newApprovalRepo(t, pool, identitypg.NewRepository(pool, 10*time.Second))
+	motherID := "00000000-0000-4000-8000-00000000b322"
+	seedApprovalGoat(t, ctx, pool, motherID, countsShedA)
+	dob := time.Date(2026, 9, 16, 0, 0, 0, 0, time.UTC)
+	stage, litter := "kid", 1
+	children := []identityports.CreateAdminGoatCommand{{
+		TenantID: countsTenant, ActorID: countsOperator, ClientIdempotencyKey: "plain-child-1",
+		StoredIdempotencyKey: countsTenant + ":identity.admin.goat_create:plain-child-1",
+		IdempotencyScope:     "identity.admin.goat_create", RequestHash: "hash-plain-child-1",
+		Identifiers:      []identityports.AdminGoatCreateIdentifier{{IdentifierType: "temporary_tag", IdentifierValue: "CPT-32200", NormalizedValue: "CPT-32200", ScopeKey: "global", IsPrimary: true}},
+		CustodianPartyID: countsCustodian, ParkID: countsPark, ShedID: countsShedA,
+		Species: "goat", Breed: strPtr("beetal"), Sex: "female", DOB: &dob, OriginType: "birth", EntryDate: dob,
+		ManagementStage: &stage, DamID: &motherID, LitterSize: &litter,
+	}}
+	if _, err := repo.CreateBirthApprovalRequest(ctx, birthSubmission("plain-birth"), children); err != nil {
+		t.Fatal(err)
+	}
+	var births int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM outbox_messages WHERE tenant_id=$1::uuid AND event_type=$2`, countsTenant, domain.EventBirthReported).Scan(&births); err != nil {
+		t.Fatal(err)
+	}
+	if births != 0 {
+		t.Fatalf("counts.birth.reported rows = %d, want 0 without a capture", births)
+	}
+	goatID := "00000000-0000-4000-8000-00000000c322"
+	seedApprovalGoat(t, ctx, pool, goatID, countsShedA)
+	req, _, err := repo.CreateApprovalRequest(ctx, domain.ApprovalRequestSubmission{
+		TenantID: countsTenant, RequestType: domain.ApprovalRequestTypeDeath,
+		Payload:       json.RawMessage(`{"goat_id":"` + goatID + `","lifecycle_status":"dead","exit_reason":"died"}`),
+		SubjectGoatID: &goatID, RaisedByUserID: countsOperator, RaisedAt: time.Now(),
+		IdempotencyKey: "plain-death", RequestFingerprint: "plain-death-fp",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var hasKey bool
+	if err := pool.QueryRow(ctx, `SELECT payload->'payload' ? 'capture_evidence' FROM outbox_messages WHERE tenant_id=$1::uuid AND event_type=$2 AND aggregate_id=$3::uuid`,
+		countsTenant, domain.EventDeathReported, req.ApprovalRequestID).Scan(&hasKey); err != nil {
+		t.Fatal(err)
+	}
+	if hasKey {
+		t.Fatal("a death with no capture must not carry capture_evidence in its event payload")
+	}
+	if req.CaptureReviewStatus != nil || !req.Capture.IsEmpty() {
+		t.Fatalf("no capture stored: %+v %v", req.Capture, req.CaptureReviewStatus)
+	}
+}
