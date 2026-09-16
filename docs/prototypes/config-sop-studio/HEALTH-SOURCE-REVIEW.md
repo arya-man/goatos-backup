@@ -24,7 +24,7 @@ This is a course/session protocol, not only a question form or instantaneous bra
 
 ## Source versus repo snapshot
 
-`/Users/raviteja/mesha/goatos/context/source-findings/health-sop-v1.json` cites the same spreadsheet and exact tab names, captured 2026-07-30; it contains 54 age-band protocols and at most 28 steps per protocol.
+the checked-in health source findings JSON cites the same spreadsheet and exact tab names, captured 2026-07-30; it contains 54 age-band protocols and at most 28 steps per protocol.
 
 It is not a complete representation of current sheet courses: Dog Bite snapshot says 4 days/28 steps whereas live source has 30 days/134 populated step rows; Fracture snapshot says 13 days/28 steps whereas live source has 40 days/57 rows. Do not seed complete courses from this capped snapshot.
 

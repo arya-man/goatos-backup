@@ -6,21 +6,11 @@ AssertionError [ERR_ASSERTION]: The input did not match the regular expression /
 
 `<div class="modalbg"><section class="modal "><div class="modalhead"><h2>Review department access</h2><button onclick="closeModal()" aria-label="Close dialog">✕</button></div><p>Remove Health from Judge category?</p><p>1 work instruction steps use items in this group. Other department links still apply. Check drafts after removing a link; published instructions stay unchanged.</p><div class="actions"><button onclick="categoryModal()">Cancel</button><button class="primary" onclick="genericSetHierarchyLink('judge-cat','Health',false,true);categoryModal()">Apply</button></div></section></div>`
 
-    at eval (eval at <anonymous> (/Users/raviteja/mesha/tmp/manju-mock-refinement/docs/prototypes/config-sop-studio/judge-branch-tester.cjs:20:1), <anonymous>:15:145)
-    at Object.<anonymous> (/Users/raviteja/mesha/tmp/manju-mock-refinement/docs/prototypes/config-sop-studio/judge-branch-tester.cjs:20:113)
-    at Module._compile (node:internal/modules/cjs/loader:1572:14)
-    at Object..js (node:internal/modules/cjs/loader:1709:10)
-    at Module.load (node:internal/modules/cjs/loader:1315:32)
-    at Function._load (node:internal/modules/cjs/loader:1125:12)
-    at TracingChannel.traceSync (node:diagnostics_channel:322:14)
-    at wrapModuleLoad (node:internal/modules/cjs/loader:216:24)
-    at Function.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:170:5)
-    at node:internal/main/run_main_module:36:49 {
+[local stack trace omitted from committed evidence]
   generatedMessage: true,
   code: 'ERR_ASSERTION',
   actual: `<div class="modalbg"><section class="modal "><div class="modalhead"><h2>Review department access</h2><button onclick="closeModal()" aria-label="Close dialog">✕</button></div><p>Remove Health from Judge category?</p><p>1 work instruction steps use items in this group. Other department links still apply. Check drafts after removing a link; published instructions stay unchanged.</p><div class="actions"><button onclick="categoryModal()">Cancel</button><button class="primary" onclick="genericSetHierarchyLink('judge-cat','Health',false,true);categoryModal()">Apply</button></div></section></div>`,
   expected: /Review module access/,
   operator: 'match'
-}
 
 Node.js v23.1.0

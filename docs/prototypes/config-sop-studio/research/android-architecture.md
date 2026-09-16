@@ -2,7 +2,7 @@
 
 ## Evidence boundary
 
-Read-only inspection on 2026-09-16 of Git object `origin/main` = **397114d1d06baddb50dffc7d2c2f9df1d0497b7b** in `/Users/raviteja/mesha/goatos`. The working checkout is dirty and was not changed. All code citations below refer to that commit, not potentially modified checkout files. No staging data, installed APK, or runtime configuration values were read; presence in source does not establish deployment. Reviewed relevant Android commit history since 2026-08-16 and applicable repository instructions. No nested Android AGENTS file was found.
+Read-only inspection on 2026-09-16 of Git object `origin/main` = **397114d1d06baddb50dffc7d2c2f9df1d0497b7b** in the source repository. The working checkout is dirty and was not changed. All code citations below refer to that commit, not potentially modified checkout files. No staging data, installed APK, or runtime configuration values were read; presence in source does not establish deployment. Reviewed relevant Android commit history since 2026-08-16 and applicable repository instructions. No nested Android AGENTS file was found.
 
 Path abbreviations for precise citations:
 

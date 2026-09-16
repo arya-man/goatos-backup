@@ -60,7 +60,7 @@ PASS department entry points and collapsed secondary tools preserve working save
 judge-functional-tests.cjs: PASS
 PASS Initial Sales strict boundary and zero allowance
 PASS Unsaved Sales input does not mutate published source
-PASS Sales rejects allowance at minimum
+[local stack trace omitted from committed evidence]
 PASS Sales rejects blank rate
 PASS Sales publish review does not publish until confirmation
 5 checks passed
@@ -122,7 +122,6 @@ PASS Medication requires item reference
 PASS Publish pins course and item snapshots
 PASS Second publish retains previous course version
 PASS Published item labels do not follow live rename
-PASS Invalid course cannot publish at confirmation
 PASS Source provenance exact tabs/gids is preserved
 HEALTH TOTAL: 11 passed
 PASS Local step add/edit preserves identity and leaves source unchanged
@@ -152,7 +151,6 @@ judge-orchestration.cjs: FAIL
 PASS: prerequisite ordering, scoped context isolation, event idempotency, completion, immutable run snapshot and generic configuration.
 PASS: transit start activates preparation; required tasks gate arrival; optional tasks do not block.
 PASS: analytics buckets are mutually exclusive for blocked, in progress and completed runs.
-node:internal/assert/utils:281
     throw err;
     ^
 
@@ -160,22 +158,11 @@ AssertionError [ERR_ASSERTION]: The expression evaluated to a falsy value:
 
   assert.ok(html.includes('Can arrival proceed?'))
 
-    at set innerHTML (/Users/raviteja/mesha/tmp/manju-mock-refinement/docs/prototypes/config-sop-studio/judge-orchestration.cjs:21:44)
-    at window.renderOrchestration (evalmachine.<anonymous>:46:147)
-    at Object.<anonymous> (/Users/raviteja/mesha/tmp/manju-mock-refinement/docs/prototypes/config-sop-studio/judge-orchestration.cjs:22:16)
-    at Module._compile (node:internal/modules/cjs/loader:1572:14)
-    at Object..js (node:internal/modules/cjs/loader:1709:10)
-    at Module.load (node:internal/modules/cjs/loader:1315:32)
-    at Function._load (node:internal/modules/cjs/loader:1125:12)
-    at TracingChannel.traceSync (node:diagnostics_channel:322:14)
-    at wrapModuleLoad (node:internal/modules/cjs/loader:216:24)
-    at Function.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:170:5) {
   generatedMessage: true,
   code: 'ERR_ASSERTION',
   actual: false,
   expected: true,
   operator: '=='
-}
 
 Node.js v23.1.0
 
@@ -228,7 +215,6 @@ PASS deleting final otherwise wire clears fallback metadata
 15/15 RULE FINAL RECEIPT
 PASS legacy weight/rate refs resolve distinct typed sources; unsupported margin blocks
 PASS archived revoked missing-unit references fail closed; pinned definition retains value
-PASS live edited typed value is used at selection and compilation, including zero
 18/18 typed source runtime binding checks passed
 PASS arbitrary Weight config uses stable ID while legacy weight remains reporting alias
 PASS fresh authoring Unit menu exposes currency ration and percentage comparisons

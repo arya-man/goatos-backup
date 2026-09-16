@@ -4,7 +4,7 @@
 Generic catalogue-first item authoring; global category/subcategory; explicit consuming-module links and real SOP selectors; reusable entity registers; and master SOP composition that stitches smaller SOPs with prerequisites, approvals, waits and proof checks. Current review covers twelve anonymous voice-note transcripts, supplied screenshots, written clarifications, current code inspection and read-only staging evidence. Static browser-local prototype only.
 
 ## SHA / branch
-Current pushed PR branch: design/manju-mock-refinement-20260916 for PR #287. No change to primary dirty checkout.
+Current pushed PR branch for PR #287. No change to the primary dirty checkout.
 
 ## Done
 - New items belong to Shared catalogue, with arbitrary global taxonomy and no forced Health owner. Selected modules govern direct and source-backed selectors. Existing legacy records remain compatible.

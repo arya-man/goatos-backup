@@ -1,6 +1,6 @@
 # Current source refresh for configuration clarity
 
-2026-09-16. Successfully fetched `origin main` read-only in `/Users/raviteja/mesha/goatos`; inspected Git objects rather than its dirty working tree. **Current origin/main: aa057776567c44cb8941974d723aa6ee1efd62b9**, commit time19:05:42+05:30. Earlier architecture reports are pinned to397114d1d06baddb50dffc7d2c2f9df1d0497b7b. This supplement identifies material changes, preserving those reports as historical evidence. Fetch changes remote references only; no checkout, source edit, merge or deployment. Parent owns new real-staging queries; source migration presence is not live application proof.
+2026-09-16. Successfully fetched `origin main` read-only in the source repository; inspected Git objects rather than its dirty working tree. **Current origin/main: aa057776567c44cb8941974d723aa6ee1efd62b9**, commit time19:05:42+05:30. Earlier architecture reports are pinned to397114d1d06baddb50dffc7d2c2f9df1d0497b7b. This supplement identifies material changes, preserving those reports as historical evidence. Fetch changes remote references only; no checkout, source edit, merge or deployment. Parent owns new real-staging queries; source migration presence is not live application proof.
 
 ## Material new configuration family: Alerts
 

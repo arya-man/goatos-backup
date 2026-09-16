@@ -2,7 +2,7 @@
 
 ## Committed baseline (not current published export)
 
-`procurement-source-seed.json` copied read-only with `git show 606578151:backend/internal/animalpurchase/domain/inspectionseed/animal_purchase.json` from `/Users/raviteja/mesha/goatos`. Schema `goatos.sop-inspection.v1`. 38 animal questions in five pages (identity13, face6, body8, udder8, decision3), five load questions. Source owner Animal Purchase module.
+`procurement-source-seed.json` copied read-only with `git show 606578151:backend/internal/animalpurchase/domain/inspectionseed/animal_purchase.json` from the source repository. Schema `goatos.sop-inspection.v1`. 38 animal questions in five pages (identity13, face6, body8, udder8, decision3), five load questions. Source owner Animal Purchase module.
 
 Root independently reports live dashboard published v5 with38 animal questions and7 load questions. Consequently this seed MUST NOT be labeled exact current production. Root will supply live UI export/text for reconciliation. Runtime stable ids/options of new load questions cannot be inferred from titles; mark unknown unless read from authored controls or API DSL.
 
