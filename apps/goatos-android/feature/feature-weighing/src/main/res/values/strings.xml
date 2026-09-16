@@ -277,6 +277,7 @@
     <string name="weighing_wizard_title_configure">Configure shed buckets</string>
     <string name="weighing_wizard_title_review">Review &amp; publish</string>
     <string name="weighing_wizard_sub_date">Feed and water are removed the evening before, so the earliest day is tomorrow.</string>
+    <string name="weighing_wizard_sub_date_optional">Pick the day of the weighing.</string>
     <string name="weighing_wizard_loading_parks_fmt">Loading parks for %1$s…</string>
     <string name="weighing_wizard_sub_buckets_fmt">%1$d in %2$s · %3$s</string>
     <string name="weighing_wizard_sub_configure_fmt">%1$d selected</string>
@@ -321,8 +322,8 @@
     <string name="weighing_removal_section_title">Removal of feed and water</string>
     <string name="weighing_removal_card_type">Remove feed &amp; water</string>
     <string name="weighing_removal_screen_title">Remove feed &amp; water</string>
-    <string name="weighing_removal_status_open">Record videos</string>
-    <string name="weighing_removal_status_in_review">Submitted — video in review</string>
+    <string name="weighing_removal_status_open">Record the captures</string>
+    <string name="weighing_removal_status_in_review">Submitted — captures in review</string>
     <string name="weighing_removal_status_sent_back">Sent back — record again</string>
     <string name="weighing_removal_status_done">Approved</string>
     <string name="weighing_removal_date_tonight">Tonight</string>
@@ -333,14 +334,24 @@
     <string name="weighing_removal_recording">Recording…</string>
     <string name="weighing_removal_submit">Submit</string>
     <string name="weighing_removal_submitted">Sent</string>
-    <string name="weighing_removal_submitted_line">Sent. The videos will be checked later.</string>
-    <string name="weighing_removal_ready">Both videos recorded — ready to submit.</string>
+    <string name="weighing_removal_submitted_line">Sent. The captures will be checked later.</string>
+    <string name="weighing_removal_ready">Every capture recorded — ready to submit.</string>
     <string name="weighing_removal_caption">Take out this pen\'s feed and water for tomorrow, and record each step.</string>
     <string name="weighing_removal_feed_hint">Show the feed being taken out of this pen</string>
     <string name="weighing_removal_water_hint">Show the water being taken out of this pen</string>
     <string name="weighing_wizard_fasting_title">Feed &amp; water removal</string>
     <string name="weighing_wizard_fasting_subtitle">Who removes feed &amp; water from these sheds the evening before?</string>
     <string name="weighing_wizard_fasting_prompt">Pick a person…</string>
+    <string name="weighing_removal_capture_required_fmt">Record: %1$s</string>
+    <string name="weighing_removal_photo">Take photo</string>
+    <string name="weighing_removal_photo_again">Retake photo</string>
+    <string name="weighing_removal_answer_required_fmt">Answer: %1$s</string>
+    <string name="weighing_removal_question_optional">optional</string>
+    <string name="weighing_removal_question_other_hint">Say which</string>
+    <string name="weighing_wizard_date_no_removal">Too late to remove feed &amp; water the evening before — weighed without it</string>
+    <string name="weighing_wizard_fasting_not_possible">Too late to remove feed &amp; water the evening before this day, so this weighing runs without it.</string>
+    <string name="weighing_wizard_fasting_skipped">No feed &amp; water removal for this weighing.</string>
+    <string name="weighing_wizard_fasting_none">Not planned</string>
     <string name="weighing_wizard_lopsided_fmt">All %1$d shed buckets go to %2$s.</string>
     <string name="weighing_wizard_per_bucket">Per shed bucket</string>
     <string name="weighing_wizard_field_empty">—</string>
@@ -516,4 +527,5 @@
     <string name="weighing_history_point_accepted">%1$s, %2$s kg, accepted</string>
     <string name="weighing_growth_losing_title">Losing weight</string>
     <string name="weighing_growth_losing_meta_fmt">%1$s · %2$.1f → %3$.1f kg</string>
+    <string name="weighing_removal_number_invalid">Enter a valid number within the allowed range.</string>
 </resources>

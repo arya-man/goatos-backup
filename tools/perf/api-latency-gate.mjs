@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { WEIGHING_DATES_NAME, validateWeighingManifest, weighingWindow, weighingWindowFromResult, expandWeighingPath } from "./weighing-workload.mjs";
+import { readWeighingPolicy, WEIGHING_DATES_NAME, validateWeighingManifest, weighingWindow, weighingWindowFromResult, expandWeighingPath } from "./weighing-workload.mjs";
 import { existsSync, lstatSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { execFileSync } from "node:child_process";
@@ -71,11 +71,12 @@ if (observedBuildSha !== (expectedSha || gitSha)) {
 }
 const actorOptions = { baseUrl, tenantId, bearerToken, cookie, timeoutMs };
 const actor = await readApiActor(actorOptions);
+const weighingPolicy = manifestDocument.scope?.evidence_profile === "pr264_performance" ? await readWeighingPolicy(actorOptions) : null;
 const results = [];
 for (const endpoint of endpoints) {
   const result = await runEndpoint(endpoint);
   results.push(result);
-  if (endpoint.name === WEIGHING_DATES_NAME) landingWindow = weighingWindowFromResult(startedAt, result);
+  if (endpoint.name === WEIGHING_DATES_NAME) landingWindow = weighingWindowFromResult(startedAt, result, weighingPolicy?.copy);
 }
 
 const finalBuildSha = await readApiBuildSha();
@@ -84,7 +85,10 @@ if (finalBuildSha !== observedBuildSha) fail("API build changed during latency m
 const finalActor = await readApiActor(actorOptions);
 if (finalActor.user_id !== actor.user_id || finalActor.tenant_id !== actor.tenant_id) fail("Authenticated actor changed during latency measurement");
 
+const finalWeighingPolicy = weighingPolicy ? await readWeighingPolicy(actorOptions) : null;
+if (JSON.stringify(weighingPolicy) !== JSON.stringify(finalWeighingPolicy)) fail("Weights page policy changed during measurement");
 const report = {
+  ...(weighingPolicy ? {weighing_policy: weighingPolicy, weighing_policy_end: finalWeighingPolicy} : {}),
   actor,
   actor_identity_source: "/app/me",
   schema_version: "1.0.0",

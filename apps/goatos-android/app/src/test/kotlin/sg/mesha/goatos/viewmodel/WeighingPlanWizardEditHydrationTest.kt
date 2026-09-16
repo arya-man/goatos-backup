@@ -371,6 +371,10 @@ class WeighingPlanWizardEditHydrationTest {
         override fun observePlannerCatalog(periodStartDate: String): Flow<WeighingPlannerCatalogCache> =
             catalogFlow
 
+        var plannerSop: sg.mesha.goatos.core.data.weighing.WeighingSopRules? = null
+        override fun observePlannerSop(): Flow<sg.mesha.goatos.core.data.weighing.WeighingSopRules?> = MutableStateFlow(plannerSop)
+        override suspend fun refreshPlannerSop(periodStartDate: String): AppResult<Unit> = AppResult.Ok(Unit)
+
         override suspend fun refreshPlannerCatalog(periodStartDate: String): AppResult<Int> {
             catalogRefreshStarted = true
             catalogRefreshCount += 1
@@ -515,8 +519,12 @@ class WeighingPlanWizardEditHydrationTest {
             return AppResult.Ok("campaign-new")
         }
 
-        override suspend fun updatePlan(campaignId: String, draft: WeighingPlanDraft): AppResult<WeighingAssignment?> =
-            AppResult.Ok(null)
+        var lastUpdateDraft: WeighingPlanDraft? = null
+
+        override suspend fun updatePlan(campaignId: String, draft: WeighingPlanDraft): AppResult<WeighingAssignment?> {
+            lastUpdateDraft = draft
+            return AppResult.Ok(null)
+        }
 
         override suspend fun publishCampaign(campaignId: String): AppResult<Unit> = AppResult.Ok(Unit)
 

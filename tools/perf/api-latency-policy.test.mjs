@@ -2,7 +2,7 @@ import { createServer } from "node:http";
 import { execFile, execFileSync } from "node:child_process";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
-import { WEIGHING_WORKLOADS, WEIGHING_DATES_NAME, WEIGHING_WINDOW_FROM, WEIGHING_LOOKBACK_DAYS, validateWeighingManifest, weighingWindow, weighingWindowFromResult, expandWeighingPath, weighingEvidenceFailures } from "./weighing-workload.mjs";
+import { readWeighingPolicy, WEIGHING_WORKLOADS, WEIGHING_DATES_NAME, WEIGHING_WINDOW_FROM, WEIGHING_LOOKBACK_DAYS, validateWeighingManifest, weighingWindow, weighingWindowFromResult, expandWeighingPath, weighingEvidenceFailures } from "./weighing-workload.mjs";
 import assert from "node:assert/strict";
 import { readdirSync, readFileSync } from "node:fs";
 import test from "node:test";
@@ -374,9 +374,10 @@ test("Weights evidence rejects altered sample URLs even when declared paths are 
       ...(name === WEIGHING_DATES_NAME ? { latest_weighing_date: "2026-09-15" } : {}),
     }] };
   });
-  assert.deepEqual(weighingEvidenceFailures({ started_at, results }), []);
+  const policy = {source: "/admin-web/bootstrap", copy: {}};
+  assert.deepEqual(weighingEvidenceFailures({ started_at, results, weighing_policy: policy, weighing_policy_end: policy }), []);
   results[1].response_observations[0].request_path += "&weighing_category=per_shed_partition";
-  assert.match(weighingEvidenceFailures({ started_at, results }).join(), /sample request differs/);
+  assert.match(weighingEvidenceFailures({ started_at, results, weighing_policy: policy, weighing_policy_end: policy }).join(), /sample request differs/);
 });
 
 
@@ -388,7 +389,7 @@ test("executable latency gate measures the landing date lookup before default pa
   const server = createServer((request, response) => {
     requests.push(request.url);
     response.setHeader("Content-Type", "application/json");
-    response.end(JSON.stringify(request.url === "/version" ? { build_sha: sha } : request.url === "/app/me" ? { actor_id: "internal-user" } : {
+    response.end(JSON.stringify(request.url === "/version" ? { build_sha: sha } : request.url === "/app/me" ? { actor_id: "internal-user" } : request.url === "/admin-web/bootstrap" ? { pages: ["weighing-weights", "weighing-analytics"].map(route_id => ({route_id, copy: {"weights.window.default_from_mode":"rolling_days", "weights.window.default_from_days":"365", "weights.window.earliest_date":"2026-08-01"}})) } : {
       latest_weighing_date: latest, lump_weighing_dates: [latest], rows: [{ id: "one" }],
       by_breed: [{}], gain_by_breed_origin: [{}], gain_by_breed_shed_type: [{}],
       by_weight_band: [{}], gain_by_breed_week: [{}], by_park: [{}], weekly_gain: [{}],
@@ -409,7 +410,7 @@ test("executable latency gate measures the landing date lookup before default pa
     assert.equal(report.actor.user_id, "internal-user");
     assert.equal(report.actor_identity_source, "/app/me");
     assert.equal(requests.filter((path) => path === "/app/me").length, 2);
-    assert.match(requests[2], /^\/weighing\/weighing-dates\?/);
+    assert.match(requests[3], /^\/weighing\/weighing-dates\?/);
     for (const result of report.results.filter(({name}) => WEIGHING_WORKLOADS[name] && name !== WEIGHING_DATES_NAME)) {
       assert.equal(new URL(result.path, "http://local.invalid").searchParams.get("to"), latest);
       assert.ok(requests.includes(result.path));
@@ -417,4 +418,48 @@ test("executable latency gate measures the landing date lookup before default pa
   } finally {
     await new Promise((resolve) => server.close(resolve));
   }
+});
+
+ test("authored rolling windows and old latest dates match product landing behavior", () => {
+  const copy = {"weights.window.default_from_mode":"rolling_days", "weights.window.default_from_days":"10", "weights.window.earliest_date":"2026-08-01"};
+  assert.equal(weighingWindow("2026-09-16T00:00:00Z", "2026-09-15", copy).weighing_from, "2026-09-07");
+  assert.equal(weighingWindow("2026-09-16T00:00:00Z", "2026-07-01").weighing_to, "2026-09-16");
+});
+
+test("policy lookup binds both backend pages and exact credentials, fails closed", async () => {
+  const copy = {"weights.window.default_from_mode":"fixed_date", "weights.window.default_from_date":"2026-09-01"};
+  let observed;
+  const options = {baseUrl:"http://local.invalid",tenantId:"tenant",bearerToken:"token",cookie:"cookie",fetchImpl:async (url,init) => {
+    observed = {url,init};
+    return Response.json({pages:["weighing-weights","weighing-analytics"].map(route_id => ({route_id,copy}))});
+  }};
+  const policy = await readWeighingPolicy(options);
+  assert.equal(policy.copy["weights.window.default_from_date"],"2026-09-01");
+  assert.equal(observed.url,"http://local.invalid/admin-web/bootstrap");
+  assert.equal(observed.init.headers.Authorization,"Bearer token");
+  assert.equal(observed.init.headers.Cookie,"cookie");
+  assert.equal(observed.init.headers["X-GoatOS-Tenant-ID"],"tenant");
+  await assert.rejects(readWeighingPolicy({...options,fetchImpl:async()=>Response.json({pages:[]})}),/missing/);
+  await assert.rejects(readWeighingPolicy({...options,fetchImpl:async()=>Response.json({pages:[{route_id:"weighing-weights",copy},{route_id:"weighing-analytics",copy:{}}]})}),/different/);
+});
+
+test("Weights evidence refuses missing or changing policy", () => {
+  assert.match(weighingEvidenceFailures({}).join(), /policy missing/);
+  assert.match(weighingEvidenceFailures({weighing_policy:{source:"/admin-web/bootstrap",copy:{}},weighing_policy_end:{source:"/admin-web/bootstrap",copy:{changed:"yes"}}}).join(), /policy missing or changed/);
+});
+
+test("benchmark dates equal actual product resolver for authored policy variants", () => {
+  const cases = [
+    {copy:{}, latest:"2026-07-01"},
+    {copy:{"weights.window.default_from_mode":"rolling_days","weights.window.default_from_days":"10","weights.window.earliest_date":"2026-08-01"},latest:"2026-09-15"},
+    {copy:{"weights.window.default_from_mode":"fixed_date","weights.window.default_from_date":"2026-09-10","weights.window.earliest_date":"2026-09-12"},latest:"2026-09-11"},
+    {copy:{"weights.window.default_from_mode":"fixed_date","weights.window.default_from_date":"2027-01-01"},latest:""},
+  ];
+  const script = `import {weightsWindowSettings,windowThroughLatest} from "./apps/admin-web/features/weighing/landing-window-constants.ts";
+    console.log(JSON.stringify(${JSON.stringify(cases)}.map(({copy,latest})=>windowThroughLatest("2026-09-16",latest,weightsWindowSettings(copy,"2026-09-16")))));`;
+  const product = JSON.parse(execFileSync(process.execPath,["--experimental-strip-types","--input-type=module","-e",script],{cwd:fileURLToPath(new URL("../../",import.meta.url)),encoding:"utf8",stdio:["ignore","pipe","pipe"]}));
+  cases.forEach(({copy,latest},i)=>{
+    const actual = weighingWindow("2026-09-16T00:00:00Z",latest,copy);
+    assert.deepEqual({from:actual.weighing_from,to:actual.weighing_to},product[i]);
+  });
 });

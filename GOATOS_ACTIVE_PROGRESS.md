@@ -1108,3 +1108,43 @@ claimed. Final real-DB latency and production browser certification remain pendi
 Judge: independent actor-fix review approved; no blocking findings. Reviewer
 independently reran the 64 tests and diff check.
 Deployment: none; no main push, merge, or deployment authorized before green proof.
+
+
+## Combined PR273 + PR274 landing — 2026-09-16
+
+Scope: combine PR273 actor fix `1a2bfbe12` (pushed and remote-verified) with
+PR274 `bd8bc9e94`, rebase onto current main, repeat independent review/fixes,
+then exact-head local CI and real product proof before main/staging/mobile.
+Main baseline: `967c3683b`; active integration HEAD before merge: `1a2bfbe12`.
+Done: fetched exact PR274; main rebase reports up to date; resolved SQL section
+selection vs old weekly-grid switch, retained person-resolved weighing grants,
+and kept both assistant coverage records. Regenerated OpenAPI clients.
+Known failures discovered: legacy bool test call after merge (fixed); authored
+window benchmark mismatch (agent fixing); required numeric null answer (fixed,
+failing-before regression); Android non-finite numeric submission (agent fixing).
+Tests: initial Go run failed legacy bool compile; corrected signature and focused
+weighing/weighingsop/verification/adminui suite passed. Admin-web typecheck passed.
+OCI dedicated integration tests for SOP/fasting/demographics/media are running;
+no shared OCI data reset or staging mutation. No new performance numbers yet.
+Judges: backend pass completed with numeric-null fix; frontend/perf and Android
+reviews/fixes active. All final combined reviews, live browser/phone checks,
+latency comparisons, screenshot CI receipt and landing remain pending.
+Deployment: unchanged; neither PR merged, no staging/mobile build started.
+
+### Combined review fixes and focused proof
+Actor-binding fix was pushed to PR273 as `1a2bfbe12`. Integration includes
+PR274 `bd8bc9e94` on main `967c3683b`. Fixed authored Weights benchmark policy
+and stale latest-date parity; required JSON null numeric answers; Android invalid,
+nonfinite and out-of-range supplied numbers (including optional `1,5`, `.`, `1.`),
+with inline question feedback; and unsupported pick-many Other explanation authoring.
+Frontend and backend reject unsupported Other configuration; pick-one is preserved.
+Focused proof: performance 70 tests; frontend 63 plus 10 SOP model tests; Android
+85 VM and 4 dispatch tests, then 10 final numeric/inline regressions; mobile guards;
+Go weighing/weighingsop/verification/adminui suites; weighing and verification
+Postgres integration (215.9s/171.2s). Dedicated full rules-source DB suite pending
+(the earlier filtered command selected no tests in that package).
+Judges: numeric/backend and policy integration independently passed; pick-many
+restriction independently passed. No remaining confirmed scoped code defect.
+Full exact-head CI, fresh before/after HTTP and production browser/phone proof
+remain pending. An isolated database copy is being prepared without mutating the
+shared source database. No new performance claim, merge, or deployment.

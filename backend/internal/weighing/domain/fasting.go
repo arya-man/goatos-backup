@@ -73,6 +73,17 @@ type FastingShedProof struct {
 	// ReworkReason is the verifier's rejection for THIS shed, verbatim.
 	ReworkReason string `json:"rework_reason,omitempty"`
 	RowVersion   int    `json:"row_version,omitempty"`
+	// Answers are the removal operator's answers to the SOP's authored questions, as
+	// submitted with this shed's captures (WEIGHING SOP, domain/sop.go).
+	Answers SOPAnswers `json:"answers,omitempty"`
+	// Proofs is {slot key: proof ref}: every capture recorded on this shed, keyed by the SOP's
+	// slot. FeedProofRef / WaterProofRef above mirror the seeded feed_video / water_video slots
+	// for older readers and are blank when the document has no such slot.
+	Proofs RemovalProofRefs `json:"proofs,omitempty"`
+	// ProofKinds is {proof ref: video | photo} as the proof register judged each capture --
+	// an `either` slot's answer. Read from the register on EVERY path (submit, replay, card
+	// list), so a retried verification enqueue names the same kind the first one did.
+	ProofKinds map[string]string `json:"-"`
 	// ShedLocationID routes the verifier item's shed filter; internal, not wire.
 	ShedLocationID string `json:"-"`
 }
@@ -149,6 +160,25 @@ type FastingShedCard struct {
 	RemovalBusinessDate string     `json:"removal_business_date"`
 	SubmittedAt         *time.Time `json:"submitted_at,omitempty"`
 	RowVersion          int        `json:"row_version"`
+	// SOPVersion is the parent task's pinned weighing.session version; the service resolves
+	// it into the card copy below. Internal, not wire.
+	SOPVersion int `json:"-"`
+	// Instruction, Proofs and Questions are the SOP's authored card copy (WEIGHING SOP,
+	// domain/sop.go): the operator sentence, the capture slots (title, hint, video / photo /
+	// either, compulsory), and the questions answered with them. Rendered verbatim; the phone
+	// composes none of it.
+	Instruction string             `json:"instruction,omitempty"`
+	Proofs      []RemovalProofSlot `json:"proofs"`
+	Questions   []SOPQuestion      `json:"questions"`
+	// Answers are the answers already recorded on this shed (a submitted or rework card).
+	Answers SOPAnswers `json:"answers,omitempty"`
+	// ProofKinds is {slot key: video | photo} for every recorded capture -- the kind the
+	// register judged it to be, which an `either` slot cannot say on its own. The phone picks
+	// the player from it when it reopens the card without its own local state.
+	ProofKinds map[string]string `json:"proof_kinds,omitempty"`
+	// ProofRefs is {slot key: proof ref} already recorded on this shed, so a read-only card
+	// renders every capture, not only the two seeded ones.
+	ProofRefs RemovalProofRefs `json:"proof_refs,omitempty"`
 }
 
 // FastingShedCardPage is one keyset page of per-shed cards.
@@ -191,8 +221,22 @@ type SubmitFastingShed struct {
 	TenantID       string
 	FastingTaskID  string
 	CampaignShedID string
-	FeedProofRef   string
-	WaterProofRef  string
+	// FeedProofRef / WaterProofRef are the LEGACY wire pair (an older phone): the service maps
+	// them onto the feed_video / water_video slots when Proofs is empty.
+	FeedProofRef  string
+	WaterProofRef string
+	// Proofs is {slot key: proof ref}, validated against the task's pinned rules by the service
+	// (every compulsory slot present, no unknown slot, no ref twice) and by the store (each ref a
+	// completed in-app capture of the slot's kind, unused by a sibling shed, not a rejected clip).
+	Proofs RemovalProofRefs `json:",omitempty"`
+	// SlotKinds is {slot key: video | photo | either}, resolved by the service from the pinned
+	// rules for the store's type check. OrderedRefs is the same captures in slot order, what the
+	// verifier item is built from.
+	SlotKinds   map[string]string `json:"-"`
+	OrderedRefs []string          `json:"-"`
+	// Answers to the SOP's authored removal questions, validated against the task's pinned
+	// rules by the service and stored on the shed's evidence row.
+	Answers        SOPAnswers `json:",omitempty"`
 	IdempotencyKey string
 	SubmittedBy    string
 }
@@ -266,4 +310,22 @@ func FastingSubjectLabel(parkName string, shedCount int) string {
 		label += fmt.Sprintf(" · %d sheds", shedCount)
 	}
 	return label
+}
+
+// SlotKinds re-keys the register's {ref: kind} onto the card's {slot key: kind}; a ref the
+// register does not know is left out rather than guessed.
+func SlotKinds(refs RemovalProofRefs, kindsByRef map[string]string) map[string]string {
+	if len(refs) == 0 || len(kindsByRef) == 0 {
+		return nil
+	}
+	out := map[string]string{}
+	for key, ref := range refs {
+		if kind := kindsByRef[ref]; kind != "" {
+			out[key] = kind
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }

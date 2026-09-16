@@ -31,6 +31,8 @@ export function compareApiLatencyEvidence(before, after, options = {}) {
   }
   if (after.passed !== true) failures.push("after report did not pass its own latency gate");
 
+  if (after.scope?.evidence_profile === "pr264_performance" && (!before.weighing_policy || !after.weighing_policy
+    || JSON.stringify(before.weighing_policy) !== JSON.stringify(after.weighing_policy))) failures.push("Weights page policy differs or is missing between reports");
   const beforeByName = byName(before.results);
   const afterByName = byName(after.results);
   for (const name of beforeByName.keys()) {

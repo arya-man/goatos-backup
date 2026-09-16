@@ -39,6 +39,7 @@ import sg.mesha.goatos.core.network.dto.WeighingCampaignShedDto
 import sg.mesha.goatos.core.network.dto.WeighingObservationDto
 import sg.mesha.goatos.core.network.dto.WeighingOperatorSummaryDto
 import sg.mesha.goatos.core.network.dto.WeighingPlannerOperatorDto
+import sg.mesha.goatos.core.network.dto.WeighingSopRulesDto
 import sg.mesha.goatos.core.network.dto.WeighingPlannerShedDto
 import sg.mesha.goatos.core.network.dto.WeighingCampaignSummaryDto
 import sg.mesha.goatos.core.network.dto.WeighingCreateCampaignRequestDto
@@ -129,6 +130,13 @@ data class WeighingAssignment(
     val latestReworkReason: String = "",
     val plannedBusinessDate: String = "",
     val dueBusinessDate: String = "",
+    /**
+     * WEIGHING SOP (2026-09-15): how many pen videos a lump-sum submit of THIS task's buckets
+     * carries, from the task's PINNED SOP version. Rendered, never derived: the seeded window
+     * (1..5) stands when the server sends no rules.
+     */
+    val lumpSumVideoMin: Int = 1,
+    val lumpSumVideoMax: Int = 5,
 )
 
 /**
@@ -160,6 +168,11 @@ data class WeighingTask(
     val fastingOperatorUserId: String = "",
     /** The removal task's state as the backend reports it; blank when the task has none. */
     val fastingStatus: String = "",
+    /**
+     * WEIGHING SOP (2026-09-15): the rule set this task was PLANNED on (its pinned version). An
+     * EDIT runs on it, never on the latest publish. Null on an older server.
+     */
+    val sop: WeighingSopRules? = null,
     val sheds: List<WeighingTaskShed>,
 )
 
@@ -328,6 +341,12 @@ data class WeighingLeadershipShed(
 data class WeighingPlannerCatalog(
     val parks: List<WeighingPlannerPark>,
     val operators: List<WeighingPlannerOperator>,
+    /**
+     * The PUBLISHED weighing SOP rules a task planned now is stamped with (WEIGHING SOP,
+     * 2026-09-15). Null until a catalog refresh has landed on this device (or on an older
+     * server); the wizard then falls back to [WeighingSopRules.Seeded].
+     */
+    val sop: WeighingSopRules? = null,
 )
 
 data class WeighingPlannerPark(
@@ -407,6 +426,11 @@ data class WeighingPlanDraft(
      */
     val fastingOperatorUserId: String,
     val sheds: List<WeighingPlannerShed>,
+    /**
+     * WEIGHING SOP (2026-09-15): the planner's per-task choice under the SOP's `optional` removal
+     * mode. Null = not said (the operator's presence decides); false = no removal for this task.
+     */
+    val feedWaterRemovalRequested: Boolean? = null,
 )
 
 data class IndividualWeighingCapture(
@@ -728,6 +752,17 @@ interface WeighingRepository {
      */
     fun observePlannerCatalog(periodStartDate: String): Flow<WeighingPlannerCatalogCache>
 
+    /**
+     * The PUBLISHED weighing SOP rules on their own (WEIGHING SOP, 2026-09-15), from the same
+     * Room-backed blob every catalog refresh rewrites. The wizard's DATE step needs them before a
+     * date -- and so a catalog -- is chosen: they decide whether today is offerable. Null until a
+     * refresh has landed on this device.
+     */
+    fun observePlannerSop(): Flow<WeighingSopRules?>
+
+    /** Refreshes the published rules through the catalog read for [periodStartDate]. */
+    suspend fun refreshPlannerSop(periodStartDate: String): AppResult<Unit>
+
     /** Fetches the whole park-grain catalog into Room. One call; there is no park cursor. */
     suspend fun refreshPlannerCatalog(periodStartDate: String): AppResult<Int>
 
@@ -797,6 +832,10 @@ interface WeighingRepository {
      * "author the whole task again"; nothing here writes a status directly.
      */
     suspend fun publishCampaign(campaignId: String): AppResult<Unit>
+    /** Pinned capture rules for one task, observed from the bounded Room cache. */
+    fun observeCaptureSop(campaignId: String): Flow<WeighingSopRules?> = kotlinx.coroutines.flow.flowOf(null)
+    suspend fun refreshCaptureSop(campaignId: String): AppResult<Unit> = AppResult.Ok(Unit)
+
     suspend fun refreshScope(campaignId: String, workGroupId: String, campaignShedId: String, maxRows: Int = WEIGHING_PAGE_SIZE): AppResult<Int>
     suspend fun replaceRoster(scopeKey: String, rows: List<WeighingRosterRowEntity>)
     suspend fun matchTag(scopeKey: String, scannedTag: String): WeighingScanMatch
@@ -971,6 +1010,7 @@ class DefaultWeighingRepository(
         val requestCursor = cursor?.takeIf { it.isNotBlank() }
         runCatching {
             val response = client.listWeighingCampaigns(scope = scope, cursor = requestCursor, limit = WEIGHING_PAGE_SIZE, parkId = parkId)
+            response.items.forEach { cacheCaptureSop(it) }
             val assignments = response.items.flatMap { it.toAssignments(scope) }
             AppResult.Ok(
                 WeighingPage(
@@ -1046,6 +1086,7 @@ class DefaultWeighingRepository(
                     shedId = filter.shedId?.takeIf { it.isNotBlank() },
                     partitionLabel = filter.partitionLabel?.takeIf { filter.shedId?.isNotBlank() == true },
                 )
+                response.items.forEach { cacheCaptureSop(it) }
                 val nextCursor = response.nextCursor.nextWeighingCursorAfter(cursor)
                 val now = clock()
                 // Rows and their cursor commit TOGETHER: a crash between them would leave the cursor
@@ -1454,12 +1495,16 @@ class DefaultWeighingRepository(
 
     override fun observePlannerCatalog(periodStartDate: String): Flow<WeighingPlannerCatalogCache> {
         val catalog = plannerDao ?: return kotlinx.coroutines.flow.flowOf(WeighingPlannerCatalogCache())
+        // The published SOP rules ride the same blob cache the task pens use (Room-backed, no new
+        // table): one row for the tenant, refreshed with every catalog refresh.
+        val sopFlow = pensCacheDao?.observe(WEIGHING_PLANNER_SOP_CACHE_KEY) ?: kotlinx.coroutines.flow.flowOf(null)
         return combine(
             // Bounded by the PARK cap, not by a page size: the step must offer every park, and
             // parks are few. There is no park cursor to advance.
             catalog.observeParks(periodStartDate, WEIGHING_MAX_PLANNER_PARKS),
             catalog.observeOperators(periodStartDate, WEIGHING_LEADERSHIP_MAX_WINDOW),
-        ) { parkRows, operatorRows ->
+            sopFlow,
+        ) { parkRows, operatorRows, sopRow ->
             WeighingPlannerCatalogCache(
                 catalog = WeighingPlannerCatalog(
                     parks = parkRows.map { it.toPlannerPark(cacheJson) },
@@ -1467,12 +1512,42 @@ class DefaultWeighingRepository(
                         val dto = cacheJson.decodeFromString<WeighingPlannerOperatorDto>(it.dtoJson)
                         WeighingPlannerOperator(dto.userId, dto.displayName, dto.displayCode, dto.parkIds)
                     },
+                    sop = sopRow?.dtoJson?.let { raw ->
+                        // exception:exempt a cached SOP blob that no longer decodes (schema drift
+                        // across an app version) is a cache miss: the wizard falls back to the
+                        // seeded rules and the next catalog refresh rewrites the row.
+                        runCatching { cacheJson.decodeFromString<WeighingSopRulesDto>(raw).toRules() }.getOrNull()
+                    },
                 ),
                 hasCache = parkRows.isNotEmpty(),
                 cachedAt = parkRows.maxOfOrNull { it.updatedAt } ?: 0L,
             )
         }.flowOn(Dispatchers.Default)
     }
+
+    override fun observePlannerSop(): Flow<WeighingSopRules?> {
+        val dao = pensCacheDao ?: return kotlinx.coroutines.flow.flowOf(null)
+        return dao.observe(WEIGHING_PLANNER_SOP_CACHE_KEY).map { row ->
+            row?.dtoJson?.let { raw ->
+                // exception:exempt a cached SOP blob that no longer decodes is a cache miss; the
+                // wizard falls back to the seeded rules and the next refresh rewrites the row.
+                runCatching { cacheJson.decodeFromString<WeighingSopRulesDto>(raw).toRules() }.getOrNull()
+            }
+        }.flowOn(Dispatchers.Default)
+    }
+
+    override suspend fun refreshPlannerSop(periodStartDate: String): AppResult<Unit> =
+        withContext(Dispatchers.IO) {
+            val client = api ?: return@withContext AppResult.Err("Weighing planner is not configured.")
+            val dao = pensCacheDao ?: return@withContext AppResult.Err("Weighing planner is not configured.")
+            runCatching {
+                val sop = client.getWeighingPlannerCatalog(periodStartDate = periodStartDate).sop
+                if (sop != null) {
+                    dao.upsert(WeighingAlertsCacheEntity(cacheKey = WEIGHING_PLANNER_SOP_CACHE_KEY, dtoJson = cacheJson.encodeToString(sop), updatedAt = clock()))
+                }
+                AppResult.Ok(Unit)
+            }.getOrElse { AppResult.Err(it.userFacingMessage("Could not load weighing planner.")) }
+        }
 
     override suspend fun refreshPlannerCatalog(periodStartDate: String): AppResult<Int> =
         withContext(Dispatchers.IO) {
@@ -1516,6 +1591,17 @@ class DefaultWeighingRepository(
                     )
                     catalog.pruneParksOutsideNewestQueries(WEIGHING_CACHED_CATALOG_DATES)
                     catalog.pruneOperatorsOutsideNewestQueries(WEIGHING_CACHED_CATALOG_DATES)
+                    // The published SOP rules, when the server sends them. An older server sends
+                    // none and the cached row (if any) stands until a newer server replaces it.
+                    response.sop?.let { sop ->
+                        pensCacheDao?.upsert(
+                            WeighingAlertsCacheEntity(
+                                cacheKey = WEIGHING_PLANNER_SOP_CACHE_KEY,
+                                dtoJson = cacheJson.encodeToString(sop),
+                                updatedAt = now,
+                            ),
+                        )
+                    }
                 }
                 AppResult.Ok(response.parks.size)
             }.getOrElse { AppResult.Err(it.userFacingMessage("Could not load weighing planner.")) }
@@ -1876,6 +1962,39 @@ class DefaultWeighingRepository(
             client.publishWeighingCampaign(campaignId, "weighing:publish:$campaignId")
             AppResult.Ok(Unit)
         }.getOrElse { AppResult.Err(it.userFacingMessage("Could not publish this weighing task."), it) }
+    }
+
+    override fun observeCaptureSop(campaignId: String): Flow<WeighingSopRules?> =
+        (pensCacheDao?.observe("weighing.capture.sop:$campaignId") ?: kotlinx.coroutines.flow.flowOf(null))
+            .map { row -> row?.let {
+                // exception:exempt schema drift makes this a cache miss; capture stays blocked
+                // until a successful refresh restores the task's pinned rules.
+                runCatching { cacheJson.decodeFromString<WeighingSopRulesDto>(it.dtoJson).toRules() }.getOrNull()
+            } }
+            .flowOn(Dispatchers.Default)
+
+    private suspend fun cacheCaptureSop(campaign: WeighingCampaignDto) {
+        val dao = pensCacheDao ?: return
+        // Only a successful server answer without SOP metadata licenses the legacy rules.
+        // A missing nonzero pin must never silently become the seeded video window.
+        val sop = campaign.sop ?: if (campaign.sopVersion == 0) WeighingSopRulesDto() else return
+        dao.upsert(WeighingAlertsCacheEntity(
+            cacheKey = "weighing.capture.sop:${campaign.campaignId}",
+            dtoJson = cacheJson.encodeToString(sop), updatedAt = clock(),
+        ))
+        dao.enforceCacheBounds()
+    }
+
+    override suspend fun refreshCaptureSop(campaignId: String): AppResult<Unit> = withContext(Dispatchers.IO) {
+        val client = api ?: return@withContext AppResult.Err("This task is not configured.")
+        runCatching {
+            val campaign = client.getWeighingCampaign(campaignId).campaign
+            if (campaign.sop == null && campaign.sopVersion != 0) {
+                return@withContext AppResult.Err("This task's weighing rules are unavailable.")
+            }
+            cacheCaptureSop(campaign)
+            AppResult.Ok(Unit)
+        }.getOrElse { AppResult.Err(it.userFacingMessage("Could not load this task's weighing rules.")) }
     }
 
     override suspend fun refreshScope(
@@ -2700,6 +2819,9 @@ private const val WEIGHING_CACHED_SHEDS = 40
 /** How many weigh DATES keep a cached planner PARK list. */
 private const val WEIGHING_CACHED_CATALOG_DATES = 2
 
+/** Blob-cache key of the PUBLISHED weighing SOP rules (one row per tenant install). */
+private const val WEIGHING_PLANNER_SOP_CACHE_KEY = "weighing.planner.sop"
+
 /** How many (date, park) bucket streams keep their cached shed rows and cursor. */
 private const val WEIGHING_CACHED_BUCKET_PARKS = 4
 
@@ -2806,6 +2928,7 @@ private fun WeighingPlanDraft.toCreateRequest(): WeighingCreateCampaignRequestDt
         plannedCapPerDay = plannedCapPerDay,
         operatorUserId = operatorUserId,
         fastingOperatorUserId = fastingOperatorUserId,
+        feedWaterRemovalRequested = feedWaterRemovalRequested,
         sheds = sheds.map {
             WeighingCreateCampaignShedDto(
                 locationId = it.locationId,
@@ -2834,6 +2957,7 @@ private fun WeighingCampaignDto.toTask(): WeighingTask =
         closeReason = closeReason,
         fastingOperatorUserId = fastingOperatorUserId,
         fastingStatus = fastingStatus,
+        sop = sop?.toRules(),
         sheds = sheds
             .filter { it.status.lowercase() !in setOf("canceled", "cancelled") }
             .map { shed ->
@@ -2910,6 +3034,8 @@ private fun WeighingCampaignDto.toAssignments(scope: String): List<WeighingAssig
                 latestReworkReason = shed.latestReworkReason,
                 plannedBusinessDate = shed.plannedBusinessDate,
                 dueBusinessDate = shed.dueBusinessDate,
+                lumpSumVideoMin = sop?.capture?.lumpSum?.videoMin?.coerceAtLeast(1) ?: 1,
+                lumpSumVideoMax = sop?.capture?.lumpSum?.videoMax?.coerceIn(1, 5) ?: 5,
             )
         }
 

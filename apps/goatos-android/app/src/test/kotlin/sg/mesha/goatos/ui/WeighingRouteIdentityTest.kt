@@ -280,4 +280,17 @@ class WeighingRouteIdentityTest {
         ladderStep = 0,
         canReopen = false,
     )
+
+    @Test
+    fun `removal card route binds BOTH the video and the photo capture delegates`() {
+        // WEIGHING SOP: the card's captures are the pinned document's slots, each video, photo
+        // or either. An unbound photo delegate answers null and every "Take photo" tap reads as
+        // cancelled (found on the Realme, 2026-09-15), so the route must bind both.
+        val navHost = Path.of("src/main/kotlin/sg/mesha/goatos/ui/AppNavHost.kt").readText()
+        val removalRoute = navHost.substringAfter("route = \"${'$'}{Routes.WEIGHING_REMOVAL}?")
+            .substringBefore("WeighingFastingDetailScreen(")
+
+        assertTrue(removalRoute.contains("BindVideoCaptureSource(rememberDelegatingProofCaptureSource())"))
+        assertTrue(removalRoute.contains("BindPhotoCaptureSource(rememberDelegatingPhotoCaptureSource())"))
+    }
 }

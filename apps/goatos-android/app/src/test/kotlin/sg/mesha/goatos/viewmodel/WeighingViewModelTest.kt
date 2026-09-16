@@ -905,6 +905,46 @@ class WeighingViewModelTest {
     }
 
     @Test
+    fun `scoped capture obeys pinned limits without loading the assignment list`() = runTest(dispatcher) {
+        val rules = sg.mesha.goatos.core.data.weighing.WeighingSopRules.Seeded.copy(lumpSumVideoMin = 3, lumpSumVideoMax = 3)
+        val repository = FakeWeighingRepository(captureRules = rules, scopeState = WeighingScopeState(emptyList(), emptyList(), listOf(ShedWeighingDraft("draft", "{}", false, false, "draft")), 0))
+        val proofs = FakeProofCaptureRepository(maxProofs = 10)
+        fun clip(n: Int) = proofRow(
+            id = "clip-$n", fieldKey = "weighing_shed_partition_video",
+            proofSubject = ProofSubject.SHED, subjectId = "shed-1",
+            caption = "Weighing lump-sum · Shed 1 · video $n",
+            syncStatus = CaptureSyncStatus.SYNCED, serverProofId = "server-$n", capturedAtMs = n.toLong(),
+        )
+        proofs.seedProofs(clip(1))
+        val vm = weighingViewModel(repository, scoped = true, proofCaptureRepository = proofs, weighingCategory = "per_shed_partition")
+        backgroundScope.launch(dispatcher) { vm.state.collect {} }
+        advanceUntilIdle()
+        vm.onWeightInputChange("123")
+        vm.recordShedPartition()
+        advanceUntilIdle()
+        assertTrue(repository.recordShedPartitionCalls.isEmpty())
+        assertTrue(vm.state.value.message.orEmpty().contains("at least 3"))
+        proofs.seedProofs(clip(1), clip(2), clip(3))
+        advanceUntilIdle()
+        vm.captureShedVideo()
+        advanceUntilIdle()
+        assertEquals("Maximum 3 group videos reached.", vm.state.value.message)
+        vm.recordShedPartition()
+        advanceUntilIdle()
+        assertEquals(3, repository.recordShedPartitionCalls.single().proofArtifactIds.size)
+    }
+
+    @Test
+    fun `cold scoped capture does not guess the video policy while rules are unavailable`() = runTest(dispatcher) {
+        val vm = weighingViewModel(FakeWeighingRepository(captureRules = null), scoped = true, weighingCategory = "per_shed_partition")
+        backgroundScope.launch(dispatcher) { vm.state.collect {} }
+        advanceUntilIdle()
+        vm.captureShedVideo()
+        advanceUntilIdle()
+        assertEquals("Connect to load this task's weighing rules, then try again.", vm.state.value.message)
+    }
+
+    @Test
     fun `latest synced shed proof can submit after reopen before shed draft exists`() = runTest(dispatcher) {
         val repository = FakeWeighingRepository(
             scopeState = WeighingScopeState(emptyList(), emptyList(), emptyList(), 0),
@@ -3040,6 +3080,7 @@ class WeighingViewModelTest {
     }
 
     private class FakeWeighingRepository(
+        private val captureRules: sg.mesha.goatos.core.data.weighing.WeighingSopRules? = sg.mesha.goatos.core.data.weighing.WeighingSopRules.Seeded,
         private val plannerCatalogResult: AppResult<WeighingPlannerCatalog>? = null,
         scopeState: WeighingScopeState = WeighingScopeState(emptyList(), emptyList(), emptyList(), 0),
         private val recordIndividualGate: CompletableDeferred<AppResult<IndividualWeighingDraft>>? = null,
@@ -3093,6 +3134,8 @@ class WeighingViewModelTest {
         private val refreshScopeResult: AppResult<Int> = AppResult.Ok(0),
         private val postRefreshScopeState: WeighingScopeState? = null,
     ) : WeighingRepository {
+        override fun observeCaptureSop(campaignId: String) = flowOf(captureRules)
+
 
         /** How many of [pagedTasks] the cursor has appended into the fake's "Room" so far. */
         private var pagedTasksLoaded = pagedTasks?.let { minOf(it.size, pagedTasksPageSize) } ?: 0
@@ -3270,6 +3313,11 @@ class WeighingViewModelTest {
         ): Flow<WeighingPlannerCatalogCache> = MutableStateFlow(
             WeighingPlannerCatalogCache(catalog = cachedPlannerCatalog, hasCache = true),
         )
+
+        /** WEIGHING SOP: the published rules the wizard's DATE step reads; null = seeded behaviour. */
+        var plannerSop: sg.mesha.goatos.core.data.weighing.WeighingSopRules? = null
+        override fun observePlannerSop(): Flow<sg.mesha.goatos.core.data.weighing.WeighingSopRules?> = MutableStateFlow(plannerSop)
+        override suspend fun refreshPlannerSop(periodStartDate: String): AppResult<Unit> = AppResult.Ok(Unit)
 
         /**
          * A catalog refresh reports the seeded outcome, and the cache above holds whatever it

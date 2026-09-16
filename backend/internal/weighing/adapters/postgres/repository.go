@@ -121,6 +121,44 @@ WHERE NOT EXISTS (
 	return rows.Err()
 }
 
+// CampaignByIdempotencyKey implements ports.Repository: an exact-fingerprint replay lookup, read
+// before the service applies the current publish's rules to a retry.
+func (r *Repository) CampaignByIdempotencyKey(ctx context.Context, cmd domain.CreateCampaign) (domain.Campaign, bool, error) {
+	tenantID, idempotencyKey := cmd.TenantID, cmd.IdempotencyKey
+	requestFingerprint := domain.RequestFingerprint(cmd)
+	if strings.TrimSpace(idempotencyKey) == "" {
+		return domain.Campaign{}, false, nil
+	}
+	ctx, cancel := r.timeout(ctx)
+	defer cancel()
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{AccessMode: pgx.ReadOnly})
+	if err != nil {
+		return domain.Campaign{}, false, err
+	}
+	defer tx.Rollback(ctx)
+	id, resourceType, _, ok, matched, err := r.idempotencyResourceLookup(ctx, tx, tenantID, "weighing.campaign_created", idempotencyKey, requestFingerprint)
+	if err != nil || !ok || resourceType != "weighing_campaign" {
+		return domain.Campaign{}, false, err
+	}
+	if !matched {
+		// Pre-SOP creates stored the partition-hydrated command. Resolve that
+		// legacy shape before today's rules can reject an already accepted plan.
+		cmd.Sheds, err = r.hydrateCreateCampaignShedPartitions(ctx, tx, tenantID, cmd.Sheds)
+		if err != nil {
+			return domain.Campaign{}, false, err
+		}
+		_, _, _, _, matched, err = r.idempotencyResourceLookup(ctx, tx, tenantID, "weighing.campaign_created", idempotencyKey, domain.RequestFingerprint(cmd))
+		if err != nil || !matched {
+			return domain.Campaign{}, false, err
+		}
+	}
+	c, err := r.getCampaignTx(ctx, tx, tenantID, id)
+	if err != nil {
+		return domain.Campaign{}, false, err
+	}
+	return c, true, nil
+}
+
 func (r *Repository) CreateCampaign(ctx context.Context, cmd domain.CreateCampaign) (domain.Campaign, error) {
 	ctx, cancel := r.timeout(ctx)
 	defer cancel()
@@ -129,6 +167,9 @@ func (r *Repository) CreateCampaign(ctx context.Context, cmd domain.CreateCampai
 		return domain.Campaign{}, err
 	}
 	defer tx.Rollback(ctx)
+	// The replay identity is the client's request as the service fingerprinted it BEFORE the
+	// SOP rules stamped the command (domain.CreateCampaign.RequestFingerprint, honoured inside
+	// idempotencyFingerprint); an older caller passing none is fingerprinted as handed over.
 	requestFingerprint := idempotencyFingerprint(cmd)
 	if existing, ok, err := r.campaignByIdempotencyMatchOnly(ctx, tx, cmd.TenantID, "weighing.campaign_created", cmd.IdempotencyKey, requestFingerprint); err != nil || ok {
 		return existing, err
@@ -145,11 +186,11 @@ func (r *Repository) CreateCampaign(ctx context.Context, cmd domain.CreateCampai
 	}
 	var c domain.Campaign
 	err = tx.QueryRow(ctx, `
-INSERT INTO weighing_campaigns (tenant_id, park_id, period_start_date, period_end_date, start_business_date, planned_cap_per_day, operator_user_id, created_by)
-VALUES ($1::uuid,$2::uuid,$3::date,$4::date,$5::date,$6,$7::uuid,$8::uuid)
-RETURNING campaign_id::text, tenant_id::text, park_id::text, period_start_date::text, period_end_date::text, start_business_date::text, status, planned_cap_per_day, operator_user_id::text, created_by::text, created_at, updated_at, row_version`,
-		cmd.TenantID, cmd.ParkID, cmd.PeriodStartDate, cmd.PeriodEndDate, cmd.StartBusinessDate, cmd.PlannedCapPerDay, cmd.OperatorUserID, cmd.CreatedBy).
-		Scan(&c.CampaignID, &c.TenantID, &c.ParkID, &c.PeriodStartDate, &c.PeriodEndDate, &c.StartBusinessDate, &c.Status, &c.PlannedCapPerDay, &c.OperatorUserID, &c.CreatedBy, &c.CreatedAt, &c.UpdatedAt, &c.RowVersion)
+INSERT INTO weighing_campaigns (tenant_id, park_id, period_start_date, period_end_date, start_business_date, planned_cap_per_day, operator_user_id, created_by, sop_version)
+VALUES ($1::uuid,$2::uuid,$3::date,$4::date,$5::date,$6,$7::uuid,$8::uuid,$9)
+RETURNING campaign_id::text, tenant_id::text, park_id::text, period_start_date::text, period_end_date::text, start_business_date::text, status, planned_cap_per_day, operator_user_id::text, created_by::text, created_at, updated_at, row_version, COALESCE(sop_version, 0)`,
+		cmd.TenantID, cmd.ParkID, cmd.PeriodStartDate, cmd.PeriodEndDate, cmd.StartBusinessDate, cmd.PlannedCapPerDay, cmd.OperatorUserID, cmd.CreatedBy, cmd.SOPVersion).
+		Scan(&c.CampaignID, &c.TenantID, &c.ParkID, &c.PeriodStartDate, &c.PeriodEndDate, &c.StartBusinessDate, &c.Status, &c.PlannedCapPerDay, &c.OperatorUserID, &c.CreatedBy, &c.CreatedAt, &c.UpdatedAt, &c.RowVersion, &c.SOPVersion)
 	if err != nil {
 		// NO park-week uniqueness mapping here on purpose. A park-week may hold
 		// SEVERAL tasks: the capture category is a per-BUCKET property, so
@@ -476,8 +517,14 @@ RETURNING campaign_shed_id::text`, campaignID, cmd.TenantID, shed.LocationID, sh
 	}
 
 	// Keep the fasting row aligned with the edit (new date / park / removal
-	// operator), in the SAME transaction as the campaign change.
-	if err := r.syncFastingTaskOnUpdateTx(ctx, tx, cmd, campaignID); err != nil {
+	// operator), in the SAME transaction as the campaign change. An edit that
+	// switches the precondition off (WEIGHING SOP, optional mode) deletes the
+	// round instead -- only while no pen of it was submitted.
+	if cmd.RemoveFasting {
+		if err := r.deleteUnsubmittedFastingTaskTx(ctx, tx, cmd.TenantID, campaignID); err != nil {
+			return domain.Campaign{}, err
+		}
+	} else if err := r.syncFastingTaskOnUpdateTx(ctx, tx, cmd, campaignID); err != nil {
 		return domain.Campaign{}, err
 	}
 	c, err := r.getCampaignTx(ctx, tx, cmd.TenantID, campaignID)
@@ -698,7 +745,8 @@ SELECT weighing_campaigns.campaign_id::text, weighing_campaigns.tenant_id::text,
   COALESCE(weighing_campaigns.close_reason, ''),
   COALESCE(weighing_campaigns.closure_kind, ''),
   COALESCE(ft.operator_user_id::text, ''),
-  COALESCE(ft.status, '')
+  COALESCE(ft.status, ''),
+  COALESCE(weighing_campaigns.sop_version, 0)
 FROM weighing_campaigns
 LEFT JOIN locations park
        ON park.tenant_id=weighing_campaigns.tenant_id
@@ -807,7 +855,7 @@ LIMIT $5`, orderDirection), tenantID, nullableString(cur.PeriodStartDate), nulla
 	ids := make([]string, 0, limit+1)
 	for rows.Next() {
 		var c domain.Campaign
-		if err := rows.Scan(&c.CampaignID, &c.TenantID, &c.ParkID, &c.ParkName, &c.PeriodStartDate, &c.PeriodEndDate, &c.StartBusinessDate, &c.Status, &c.PlannedCapPerDay, &c.OperatorUserID, &c.CreatedBy, &c.CreatedAt, &c.UpdatedAt, &c.RowVersion, &c.CloseReason, &c.ClosureKind, &c.FastingOperatorUserID, &c.FastingStatus); err != nil {
+		if err := rows.Scan(&c.CampaignID, &c.TenantID, &c.ParkID, &c.ParkName, &c.PeriodStartDate, &c.PeriodEndDate, &c.StartBusinessDate, &c.Status, &c.PlannedCapPerDay, &c.OperatorUserID, &c.CreatedBy, &c.CreatedAt, &c.UpdatedAt, &c.RowVersion, &c.CloseReason, &c.ClosureKind, &c.FastingOperatorUserID, &c.FastingStatus, &c.SOPVersion); err != nil {
 			return domain.CampaignPage{}, err
 		}
 		out = append(out, c)
@@ -3785,8 +3833,8 @@ func (r *Repository) getCampaignTx(ctx context.Context, tx pgx.Tx, tenantID, cam
 	// The fasting echo (LEFT JOIN, at most one row per campaign via the
 	// UNIQUE (tenant_id, campaign_id) on weighing_fasting_tasks) lets the edit
 	// wizard prefill the removal operator; blank on pre-feature campaigns.
-	err := tx.QueryRow(ctx, `SELECT c.campaign_id::text, c.tenant_id::text, c.park_id::text, c.period_start_date::text, c.period_end_date::text, c.start_business_date::text, c.status, c.planned_cap_per_day, c.operator_user_id::text, c.created_by::text, c.created_at, c.updated_at, c.row_version, COALESCE(c.close_reason, ''), COALESCE(c.closure_kind, ''), COALESCE(ft.operator_user_id::text, ''), COALESCE(ft.status, '') FROM weighing_campaigns c LEFT JOIN weighing_fasting_tasks ft ON ft.tenant_id=c.tenant_id AND ft.campaign_id=c.campaign_id WHERE c.tenant_id=$1::uuid AND c.campaign_id=$2::uuid`, tenantID, campaignID).
-		Scan(&c.CampaignID, &c.TenantID, &c.ParkID, &c.PeriodStartDate, &c.PeriodEndDate, &c.StartBusinessDate, &c.Status, &c.PlannedCapPerDay, &c.OperatorUserID, &c.CreatedBy, &c.CreatedAt, &c.UpdatedAt, &c.RowVersion, &c.CloseReason, &c.ClosureKind, &c.FastingOperatorUserID, &c.FastingStatus)
+	err := tx.QueryRow(ctx, `SELECT c.campaign_id::text, c.tenant_id::text, c.park_id::text, c.period_start_date::text, c.period_end_date::text, c.start_business_date::text, c.status, c.planned_cap_per_day, c.operator_user_id::text, c.created_by::text, c.created_at, c.updated_at, c.row_version, COALESCE(c.close_reason, ''), COALESCE(c.closure_kind, ''), COALESCE(ft.operator_user_id::text, ''), COALESCE(ft.status, ''), COALESCE(c.sop_version, 0) FROM weighing_campaigns c LEFT JOIN weighing_fasting_tasks ft ON ft.tenant_id=c.tenant_id AND ft.campaign_id=c.campaign_id WHERE c.tenant_id=$1::uuid AND c.campaign_id=$2::uuid`, tenantID, campaignID).
+		Scan(&c.CampaignID, &c.TenantID, &c.ParkID, &c.PeriodStartDate, &c.PeriodEndDate, &c.StartBusinessDate, &c.Status, &c.PlannedCapPerDay, &c.OperatorUserID, &c.CreatedBy, &c.CreatedAt, &c.UpdatedAt, &c.RowVersion, &c.CloseReason, &c.ClosureKind, &c.FastingOperatorUserID, &c.FastingStatus, &c.SOPVersion)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.Campaign{}, ports.ErrNotFound
 	}
@@ -4393,6 +4441,23 @@ ON CONFLICT (tenant_id, event_type, idempotency_key) DO NOTHING`,
 }
 
 func idempotencyFingerprint(payload any) string {
+	// A create command that carries the CLIENT's own fingerprint (fixed by the service before
+	// the SOP rules stamped it) is keyed on that, so a retry after a later publish replays the
+	// task it created rather than conflicting on server-side stamps (PR #274 review, finding 2).
+	if cmd, ok := payload.(domain.CreateCampaign); ok && cmd.RequestFingerprint != "" {
+		return cmd.RequestFingerprint
+	}
+	// The service maps the old feed/water pair onto SOP slots. That derived
+	// map is not a new request: preserve the original hash only for exactly
+	// those two refs. Extra slots and answers must still conflict on replay.
+	if cmd, ok := payload.(domain.SubmitFastingShed); ok {
+		if len(cmd.Proofs) == 2 && cmd.FeedProofRef != "" && cmd.WaterProofRef != "" &&
+			cmd.Proofs[domain.RemovalProofFeed] == cmd.FeedProofRef &&
+			cmd.Proofs[domain.RemovalProofWater] == cmd.WaterProofRef {
+			cmd.Proofs = nil
+		}
+		payload = cmd
+	}
 	raw, _ := json.Marshal(payload)
 	sum := sha256.Sum256(raw)
 	return hex.EncodeToString(sum[:])

@@ -5,6 +5,7 @@ package domain
 
 import (
 	"errors"
+	"strings"
 	"time"
 )
 
@@ -119,6 +120,28 @@ type MeasurementField struct {
 	Label string `json:"label"`
 }
 
+// MediaMeta names ONE proof of an item: the backend-owned header the verifier reads it under and
+// the media kind (video / photo) that picks the player. POSITIONAL against MediaRefs, composed by
+// the PRODUCING module at enqueue (for a weighing removal pen: the pinned SOP's slot title and
+// kind), stored with the item so re-authoring cannot relabel evidence already submitted. An item
+// carrying none renders the category registry's positional copy, as every item did before.
+type MediaMeta struct {
+	Label string `json:"label"`
+	Kind  string `json:"kind"`
+}
+
+// MimeType is the declared mime for the meta's kind, blank when the kind is unknown.
+func (m MediaMeta) MimeType() string {
+	switch strings.ToLower(strings.TrimSpace(m.Kind)) {
+	case "video":
+		return "video/mp4"
+	case "photo", "image":
+		return "image/jpeg"
+	default:
+		return ""
+	}
+}
+
 // Item is one unit of media awaiting (or having received) independent verification.
 type Item struct {
 	ItemID       string
@@ -140,13 +163,15 @@ type Item struct {
 	MeasurementFields []MeasurementField
 	Source            SourceRef
 	MediaRefs         []string // proof_artifact IDs; clients open them through proof download routes.
-	Status            string
-	VerdictReason     *string
-	OperatorID        *string
-	OperatorName      *string // backend-owned display label for OperatorID
-	ShedID            *string
-	ShedLabel         *string // backend-owned display label for ShedID
-	PartitionLabel    *string // raw partition label ('1', 'Part 3'); NULL for non-partitioned sheds
+	// MediaMeta is positional against MediaRefs; see MediaMeta. Empty on items written before it.
+	MediaMeta      []MediaMeta
+	Status         string
+	VerdictReason  *string
+	OperatorID     *string
+	OperatorName   *string // backend-owned display label for OperatorID
+	ShedID         *string
+	ShedLabel      *string // backend-owned display label for ShedID
+	PartitionLabel *string // raw partition label ('1', 'Part 3'); NULL for non-partitioned sheds
 	// NOTE: there is deliberately NO OperationalLocationDisplay field here. The composed
 	// display is built at the WIRE boundary (adapters/http/handler.go) from ShedLabel +
 	// PartitionLabel via oploc.Display(), so there is one composition site rather than a
@@ -213,12 +238,14 @@ type CreateItem struct {
 	MeasurementFields []MeasurementField
 	Source            SourceRef
 	MediaRefs         []string
-	OperatorID        *string
-	ShedID            *string
-	PartitionLabel    *string // operational location partition (e.g. "Part 3"); NULL for undivided sheds
-	ParkID            *string
-	CapturedAt        time.Time
-	IdempotencyKey    string
+	// MediaMeta names each proof (label + kind), positional against MediaRefs; nil is valid.
+	MediaMeta      []MediaMeta
+	OperatorID     *string
+	ShedID         *string
+	PartitionLabel *string // operational location partition (e.g. "Part 3"); NULL for undivided sheds
+	ParkID         *string
+	CapturedAt     time.Time
+	IdempotencyKey string
 	// ApplierAckExpected: set true only if this producer actually runs an applier
 	// that calls MarkVerdictApplied. Setting it true without wiring the ack would
 	// park every decided item of yours in VerdictStateApplying permanently.

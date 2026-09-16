@@ -7,6 +7,7 @@ import (
 	"math"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	fwrdomain "github.com/vgoats/goatos/backend/internal/feedwaterremoval/domain"
@@ -30,6 +31,15 @@ type Service struct {
 	// cutoff, edit cutoff, card visibility — resolves it through this seam and
 	// refuses with ErrCutoffNotConfigured when it is unwired or unset.
 	cutoffs fwrports.CutoffReader
+	// sopRules / sopPins resolve the weighing.session SOP rules a task is planned on and
+	// runs under (WEIGHING SOP, maintainer decision 2026-09-15, app/sop_rules.go). Unwired
+	// means the seeded rules -- the pre-SOP behaviour -- never a refusal.
+	sopRules ports.SOPRulesSource
+	sopPins  ports.SOPPinReader
+	// versionRules caches immutable PINNED versions' rules per (tenant, version); see
+	// rulesForVersion.
+	versionRulesMu sync.Mutex
+	versionRules   map[string]domain.Rules
 	// now is the service clock behind the fasting create cutoff and the
 	// fasting card's visibility window. Injectable so tests pin it; defaults
 	// to time.Now.
@@ -60,8 +70,17 @@ func (s *Service) WithFeedWaterRemovalCutoff(reader fwrports.CutoffReader) *Serv
 	return s
 }
 
-// removalCutoff resolves the tenant's configured cutoff or fails closed.
-func (s *Service) removalCutoff(ctx context.Context, tenantID string) (fwrdomain.Cutoff, error) {
+// removalCutoff resolves the removal evening a task runs against: the weighing SOP's own
+// cutoff when its document sets one (WEIGHING SOP, 2026-09-15 -- configurable per SOP
+// version, pinned with the task), else the tenant's farm-wide config; fails closed on neither.
+func (s *Service) removalCutoff(ctx context.Context, tenantID string, rules domain.Rules) (fwrdomain.Cutoff, error) {
+	if ct := strings.TrimSpace(rules.FeedWaterRemoval.CutoffTime); ct != "" {
+		cutoff, err := fwrdomain.ParseCutoff(ct)
+		if err != nil {
+			return fwrdomain.Cutoff{}, fmt.Errorf("weighing: sop cutoff %q: %w", ct, err)
+		}
+		return cutoff, nil
+	}
 	if s.cutoffs == nil {
 		return fwrdomain.Cutoff{}, fwrports.ErrCutoffNotConfigured
 	}
@@ -94,6 +113,18 @@ type VerificationEnqueuer interface {
 	EnqueueWeighingVerification(ctx context.Context, in VerificationEnqueueRequest) error
 }
 
+// VerificationContextRow is one label/value line of verifier context, handed to the bridge.
+type VerificationContextRow struct {
+	Label string
+	Value string
+}
+
+// VerificationMediaMeta is one proof's header and kind, handed to the verification bridge.
+type VerificationMediaMeta struct {
+	Label string
+	Kind  string
+}
+
 type VerificationEnqueueRequest struct {
 	TenantID       string
 	Category       string
@@ -101,8 +132,15 @@ type VerificationEnqueueRequest struct {
 	CampaignID     string
 	CampaignShedID string
 	MediaRefs      []string
-	OperatorID     string
-	ShedID         string
+	// MediaMeta names each ref (label + kind), positional against MediaRefs -- for a removal pen
+	// the pinned SOP's slot titles and kinds, so the verifier reads "Empty water trough" over a
+	// photo player rather than the registry's fixed "Water removal video". Nil for weigh proofs.
+	MediaMeta []VerificationMediaMeta
+	// ContextRows is what the verifier judges the proofs AGAINST, in farm words -- for a
+	// removal pen the operator's recorded answers under the pinned questions' titles.
+	ContextRows []VerificationContextRow
+	OperatorID  string
+	ShedID      string
 	// ParkID is the campaign's park. It is MANDATORY routing data, not decoration:
 	// the verification notification consumer resolves the park's verify-duty holders
 	// from it, and an item enqueued without a park notifies nobody.
@@ -235,7 +273,7 @@ func (s *Service) checkParkScopeForCapability(ctx context.Context, tenantID, par
 // pagination on this read: the summary is a whole-filter aggregate computed in the
 // database, so it is page-size independent by construction.
 func (s *Service) WeighingProcessState(ctx context.Context, actor domain.Actor, campaignID, fromBusinessDate, toBusinessDate string) (domain.ProcessState, error) {
-	if !permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingMonitor}, false) {
+	if !actor.Holds(permissions.WeighingMonitor) {
 		return domain.ProcessState{}, ports.ErrForbidden
 	}
 	if s.processState == nil {
@@ -274,7 +312,7 @@ func isBusinessDate(value string) bool {
 }
 
 func (s *Service) CreateCampaign(ctx context.Context, actor domain.Actor, cmd domain.CreateCampaign) (domain.Campaign, error) {
-	if !permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingPlan}, false) {
+	if !actor.Holds(permissions.WeighingPlan) {
 		return domain.Campaign{}, ports.ErrForbidden
 	}
 	cmd.TenantID = actor.TenantID
@@ -282,32 +320,64 @@ func (s *Service) CreateCampaign(ctx context.Context, actor domain.Actor, cmd do
 	if err := validateCreate(cmd); err != nil {
 		return domain.Campaign{}, err
 	}
-	// FASTING CREATE CUTOFF (maintainer decision 2026-09-03): the weigh date
-	// must still have a fastable evening ahead of it. Strictly before the
-	// tenant's configured cutoff the earliest weigh date is tomorrow; at or
-	// after it, the day after. Checked here, on the service clock and the
-	// configured cutoff, so the repository and its tests never read time.Now
-	// or a literal hour themselves.
-	cutoff, err := s.removalCutoff(ctx, actor.TenantID)
+	// The replay identity is the CLIENT's request, fixed here before any rule stamps it: a
+	// retry of an identical request after a later publish must find the task it created --
+	// and find it BEFORE the current publish's rules judge the retry, because a mode withdrawn
+	// since would otherwise refuse the exact request that already succeeded (review finding).
+	cmd.RequestFingerprint = domain.RequestFingerprint(cmd)
+	if existing, ok, err := s.repo.CampaignByIdempotencyKey(ctx, cmd); err != nil {
+		return domain.Campaign{}, err
+	} else if ok {
+		// Replay uses the current row, so authorize its current park, not the
+		// original request park. Grants can change after the first create.
+		if err := s.checkParkScopeForCapability(ctx, actor.TenantID, existing.ParkID, permissions.WeighingPlan); err != nil {
+			return domain.Campaign{}, err
+		}
+		return existing, nil
+	}
+	// WEIGHING SOP (maintainer decision 2026-09-15): the task is planned on the PUBLISHED
+	// rules and stamped with their version. They decide the capture modes offered, the
+	// default cap and whether this task carries the feed & water removal precondition.
+	rules, err := s.publishedRules(ctx, actor.TenantID)
 	if err != nil {
 		return domain.Campaign{}, err
 	}
-	if !domain.WeighDateAllowsFastingCreate(cmd.StartBusinessDate, s.clock(), cutoff) {
-		return domain.Campaign{}, ports.ErrFastingWindowClosed
+	removal, err := applyPlanningRules(rules, &cmd, false)
+	if err != nil {
+		return domain.Campaign{}, err
+	}
+	if removal {
+		if err := validateRemovalAssignment(cmd); err != nil {
+			return domain.Campaign{}, err
+		}
+		// FASTING CREATE CUTOFF (maintainer decision 2026-09-03): the weigh date
+		// must still have a fastable evening ahead of it. Strictly before the
+		// tenant's configured cutoff the earliest weigh date is tomorrow; at or
+		// after it, the day after. Checked here, on the service clock and the
+		// configured cutoff, so the repository and its tests never read time.Now
+		// or a literal hour themselves.
+		cutoff, err := s.removalCutoff(ctx, actor.TenantID, rules)
+		if err != nil {
+			return domain.Campaign{}, err
+		}
+		if !domain.WeighDateAllowsFastingCreate(cmd.StartBusinessDate, s.clock(), cutoff) {
+			return domain.Campaign{}, ports.ErrFastingWindowClosed
+		}
+	} else if !domain.WeighDateAllowsPlainCreate(cmd.StartBusinessDate, s.clock()) {
+		// No evening's work is being scheduled, so no cutoff applies -- but a weigh date
+		// in the past is still not a plan.
+		return domain.Campaign{}, ports.ErrWeighDateInPast
 	}
 	// The WeighingPlan role check is park-blind. The campaign names its own park, so a planner
 	// scoped to one park could otherwise CREATE weighing work in another park's sheds.
 	if err := s.checkParkScopeForCapability(ctx, actor.TenantID, cmd.ParkID, permissions.WeighingPlan); err != nil {
 		return domain.Campaign{}, err
 	}
-	if cmd.PlannedCapPerDay <= 0 {
-		cmd.PlannedCapPerDay = 100
-	}
 	return s.repo.CreateCampaign(ctx, cmd)
 }
 
 func (s *Service) UpdateCampaign(ctx context.Context, actor domain.Actor, campaignID string, cmd domain.UpdateCampaign) (domain.Campaign, error) {
-	if !permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingPlan}, false) {
+	if !actor.Holds(permissions.WeighingPlan) {
 		return domain.Campaign{}, ports.ErrForbidden
 	}
 	if !uuidutil.IsUUIDString(campaignID) {
@@ -333,21 +403,43 @@ func (s *Service) UpdateCampaign(ctx context.Context, actor domain.Actor, campai
 	if err := s.checkParkScopeForCapability(ctx, actor.TenantID, parkID, permissions.WeighingPlan); err != nil {
 		return domain.Campaign{}, err
 	}
-	// FASTING RULES ON EDIT: an edit that keeps the current weigh date is
-	// always allowed (the date was valid when planned), but a MOVED date must
-	// itself still be fastable (create cutoff), and a date can no longer move
-	// at all once the fasting task was submitted — the fast was performed for
-	// the planned night and cannot be transplanted onto another one.
+	// WEIGHING SOP: an edit runs under the rules the task was PLANNED on (pinned version),
+	// never the latest publish -- a publish changes the next task, not this one.
+	rules, err := s.rulesForCampaign(ctx, actor.TenantID, campaignID)
+	if err != nil {
+		return domain.Campaign{}, err
+	}
+	var currentDate string
+	var fastingSubmitted, hasFasting bool
 	if s.fasting != nil {
-		currentDate, fastingSubmitted, hasFasting, err := s.fasting.CampaignStartDate(ctx, actor.TenantID, campaignID)
+		currentDate, fastingSubmitted, hasFasting, err = s.fasting.CampaignStartDate(ctx, actor.TenantID, campaignID)
 		if err != nil {
 			return domain.Campaign{}, err
 		}
-		if hasFasting && cmd.StartBusinessDate != currentDate {
+	}
+	removal, err := applyPlanningRules(rules, &cmd, hasFasting)
+	if err != nil {
+		return domain.Campaign{}, err
+	}
+	// The pin is the task's own, never re-stamped by an edit.
+	cmd.SOPVersion = 0
+	switch {
+	case removal:
+		if err := validateRemovalAssignment(cmd); err != nil {
+			return domain.Campaign{}, err
+		}
+		// FASTING RULES ON EDIT: an edit that keeps the current weigh date is
+		// always allowed (the date was valid when planned), but a MOVED date must
+		// itself still be fastable (create cutoff), and a date can no longer move
+		// at all once the fasting task was submitted — the fast was performed for
+		// the planned night and cannot be transplanted onto another one. A task
+		// that had NO round and now gains one is planned afresh: its date must
+		// be fastable.
+		if !hasFasting || cmd.StartBusinessDate != currentDate {
 			if fastingSubmitted {
 				return domain.Campaign{}, ports.ErrFastingSubmittedDateLocked
 			}
-			cutoff, err := s.removalCutoff(ctx, actor.TenantID)
+			cutoff, err := s.removalCutoff(ctx, actor.TenantID, rules)
 			if err != nil {
 				return domain.Campaign{}, err
 			}
@@ -355,15 +447,27 @@ func (s *Service) UpdateCampaign(ctx context.Context, actor domain.Actor, campai
 				return domain.Campaign{}, ports.ErrFastingWindowClosed
 			}
 		}
-	}
-	if cmd.PlannedCapPerDay <= 0 {
-		cmd.PlannedCapPerDay = 100
+	case hasFasting:
+		// The edit switches the precondition OFF for a task that carries a round: allowed
+		// only while nothing of that round was performed. The repository deletes the round
+		// under the same guard (a pen already submitted refuses the whole edit).
+		if fastingSubmitted {
+			return domain.Campaign{}, ports.ErrRemovalChangeLocked
+		}
+		cmd.RemoveFasting = true
+		if cmd.StartBusinessDate != currentDate && !domain.WeighDateAllowsPlainCreate(cmd.StartBusinessDate, s.clock()) {
+			return domain.Campaign{}, ports.ErrWeighDateInPast
+		}
+	default:
+		if cmd.StartBusinessDate != currentDate && !domain.WeighDateAllowsPlainCreate(cmd.StartBusinessDate, s.clock()) {
+			return domain.Campaign{}, ports.ErrWeighDateInPast
+		}
 	}
 	return s.repo.UpdateCampaign(ctx, campaignID, cmd)
 }
 
 func (s *Service) PublishCampaign(ctx context.Context, actor domain.Actor, campaignID, idempotencyKey string) (domain.Campaign, error) {
-	if !permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingPlan}, false) {
+	if !actor.Holds(permissions.WeighingPlan) {
 		return domain.Campaign{}, ports.ErrForbidden
 	}
 	if !uuidutil.IsUUIDString(campaignID) || strings.TrimSpace(idempotencyKey) == "" {
@@ -434,12 +538,12 @@ func (s *Service) ListCampaigns(ctx context.Context, actor domain.Actor, scope d
 	var allowed bool
 	switch scope {
 	case domain.CampaignListScopeMine:
-		allowed = permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingExecute}, false)
+		allowed = actor.Holds(permissions.WeighingExecute)
 	case domain.CampaignListScopeAll:
-		allowed = permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingPlan}, false) ||
-			permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingMonitor}, false)
+		allowed = actor.Holds(permissions.WeighingPlan) ||
+			actor.Holds(permissions.WeighingMonitor)
 	case domain.CampaignListScopeOperators:
-		allowed = permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingOverseeOperators}, false)
+		allowed = actor.Holds(permissions.WeighingOverseeOperators)
 	default:
 		return domain.CampaignPage{}, ports.ErrInvalidArgument
 	}
@@ -464,7 +568,11 @@ func (s *Service) ListCampaigns(ctx context.Context, actor domain.Actor, scope d
 	if scope == domain.CampaignListScopeMine {
 		// ScopeMine is already narrowed to the actor's OWN assignments, so it needs no park
 		// authority: an operator can only ever be assigned work in a park they work in.
-		return s.repo.ListCampaignsForOperator(ctx, actor.TenantID, actor.UserID, parkID, filter, strings.TrimSpace(cursor), limit)
+		page, err := s.repo.ListCampaignsForOperator(ctx, actor.TenantID, actor.UserID, parkID, filter, strings.TrimSpace(cursor), limit)
+		if err != nil {
+			return domain.CampaignPage{}, err
+		}
+		return page, s.decorateCampaignRules(ctx, actor.TenantID, page.Items)
 	}
 	// ScopeAll and ScopeOperators page across EVERY campaign in the tenant -- the repository
 	// has no notion of the actor's scope, only the optional parkID row filter. So the park
@@ -505,7 +613,11 @@ func (s *Service) ListCampaigns(ctx context.Context, actor domain.Actor, scope d
 			}
 		}
 	}
-	return s.repo.ListCampaigns(ctx, actor.TenantID, parkID, filter, strings.TrimSpace(cursor), limit)
+	page, err := s.repo.ListCampaigns(ctx, actor.TenantID, parkID, filter, strings.TrimSpace(cursor), limit)
+	if err != nil {
+		return domain.CampaignPage{}, err
+	}
+	return page, s.decorateCampaignRules(ctx, actor.TenantID, page.Items)
 }
 
 // PlannerCatalog returns the PARK-grain planner vocabulary for ONE weigh date: every park
@@ -525,6 +637,12 @@ func (s *Service) PlannerCatalog(ctx context.Context, actor domain.Actor, period
 	if err != nil {
 		return domain.PlannerCatalog{}, err
 	}
+	// The wizard renders the PUBLISHED weighing SOP's planning rules (capture modes, default
+	// cap, removal mode) -- the same rule set a create is stamped with.
+	if catalog.SOP, err = s.publishedRules(ctx, actor.TenantID); err != nil {
+		return domain.PlannerCatalog{}, err
+	}
+	catalog.SOP = s.withEffectiveCutoff(ctx, actor.TenantID, catalog.SOP)
 	// The repository has no park filter (it returns the whole tenant's parks), and the role
 	// check above only says the actor may plan SOMEWHERE. Without this a park-scoped planner
 	// got every park in the tenant as a pickable option -- and each option carries that park's
@@ -619,10 +737,10 @@ func (s *Service) PlannerParkBuckets(ctx context.Context, actor domain.Actor, pa
 // canPlanOrMonitor is the planner's read gate: the planner writes belong to WeighingPlan,
 // but read-only oversight (WeighingMonitor) may look at the same vocabulary.
 func (s *Service) canPlanOrMonitor(actor domain.Actor) bool {
-	if permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingPlan}, false) {
+	if actor.Holds(permissions.WeighingPlan) {
 		return true
 	}
-	return permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingMonitor}, false)
+	return actor.Holds(permissions.WeighingMonitor)
 }
 
 // planOrMonitorParkCapabilities is the alternative set behind every planner/oversight surface:
@@ -668,7 +786,7 @@ func authorizedParkSet(ctx context.Context, tenantID string, capabilities ...str
 }
 
 func (s *Service) ListScopeRoster(ctx context.Context, actor domain.Actor, campaignID, campaignShedID string, observationsCursor string, limit int) (domain.RosterPage, error) {
-	if !permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingExecute}, false) {
+	if !actor.Holds(permissions.WeighingExecute) {
 		return domain.RosterPage{}, ports.ErrForbidden
 	}
 	if !uuidutil.IsUUIDString(campaignID) || !uuidutil.IsUUIDString(campaignShedID) {
@@ -702,9 +820,9 @@ func (s *Service) ListScopeRoster(ctx context.Context, actor domain.Actor, campa
 // admits a bucket and the park on the bucket's task are one value, not two reads of a moving
 // one. See the assembly below.
 func (s *Service) ListCampaignSheds(ctx context.Context, actor domain.Actor, campaignID, cursor string, limit int) (domain.CampaignShedPage, error) {
-	canMonitor := permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingMonitor}, false)
-	canPlan := permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingPlan}, false)
-	canExecute := permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingExecute}, false)
+	canMonitor := actor.Holds(permissions.WeighingMonitor)
+	canPlan := actor.Holds(permissions.WeighingPlan)
+	canExecute := actor.Holds(permissions.WeighingExecute)
 	if !canMonitor && !canPlan && !canExecute {
 		return domain.CampaignShedPage{}, ports.ErrForbidden
 	}
@@ -779,9 +897,9 @@ func (s *Service) ListCampaignSheds(ctx context.Context, actor domain.Actor, cam
 // and its operator names. The authority travels INTO the read rather than being checked before
 // it, so the park that admits the row and the park on the row are one value, not two reads.
 func (s *Service) GetCampaign(ctx context.Context, actor domain.Actor, campaignID string) (domain.Campaign, error) {
-	canMonitor := permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingMonitor}, false)
-	canPlan := permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingPlan}, false)
-	canExecute := permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingExecute}, false)
+	canMonitor := actor.Holds(permissions.WeighingMonitor)
+	canPlan := actor.Holds(permissions.WeighingPlan)
+	canExecute := actor.Holds(permissions.WeighingExecute)
 	if !canMonitor && !canPlan && !canExecute {
 		return domain.Campaign{}, ports.ErrForbidden
 	}
@@ -827,7 +945,17 @@ func (s *Service) GetCampaign(ctx context.Context, actor domain.Actor, campaignI
 	}
 	// An actor admitted by neither arm gets ErrNotFound from the repository -- existence is not
 	// leaked, and the cross-park refusal is unchanged.
-	return s.repo.CampaignByID(ctx, actor.TenantID, campaignID, access)
+	campaign, err := s.repo.CampaignByID(ctx, actor.TenantID, campaignID, access)
+	if err != nil {
+		return domain.Campaign{}, err
+	}
+	// WEIGHING SOP: the task read carries the task's PINNED rule set so the phone renders
+	// the lump-sum video cap and the removal copy the task actually runs under.
+	items := []domain.Campaign{campaign}
+	if err := s.decorateCampaignRules(ctx, actor.TenantID, items); err != nil {
+		return domain.Campaign{}, err
+	}
+	return items[0], nil
 }
 
 // CampaignCapabilities answers which task-level writes this caller may attempt on THIS task.
@@ -849,7 +977,7 @@ func (s *Service) CampaignCapabilities(ctx context.Context, actor domain.Actor, 
 		return domain.CampaignCapabilities{}
 	}
 	can := func(capability string) bool {
-		if !permissions.RolesAuthorize(actor.Roles, []string{capability}, false) {
+		if !actor.Holds(capability) {
 			return false
 		}
 		return s.checkParkScopeForCapability(ctx, actor.TenantID, campaign.ParkID, capability) == nil
@@ -875,7 +1003,7 @@ func (s *Service) CampaignCapabilities(ctx context.Context, actor domain.Actor, 
 // and a chip they cannot use would 403 the list read behind it anyway.
 func (s *Service) ListParks(ctx context.Context, actor domain.Actor) ([]domain.WeighingPark, error) {
 	if !s.canPlanOrMonitor(actor) &&
-		!permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingOverseeOperators}, false) {
+		!actor.Holds(permissions.WeighingOverseeOperators) {
 		return nil, ports.ErrForbidden
 	}
 	// The park set spans every capability that admits a surface WITH park chips, because the
@@ -901,7 +1029,7 @@ func (s *Service) ListParks(ctx context.Context, actor domain.Actor) ([]domain.W
 }
 
 func (s *Service) GetLeadershipShedVideos(ctx context.Context, actor domain.Actor, campaignID, campaignShedID, cursor string, limit int) (domain.LeadershipShedVideos, error) {
-	if !permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingMonitor}, false) {
+	if !actor.Holds(permissions.WeighingMonitor) {
 		return domain.LeadershipShedVideos{}, ports.ErrForbidden
 	}
 	if !uuidutil.IsUUIDString(campaignID) || !uuidutil.IsUUIDString(campaignShedID) {
@@ -953,7 +1081,7 @@ func (s *Service) GetLeadershipShedVideos(ctx context.Context, actor domain.Acto
 // Paginating over already-authorized rows is the only shape in which a page boundary and an
 // authorization boundary cannot collide.
 func (s *Service) ListLeadershipSheds(ctx context.Context, actor domain.Actor, cursor string, limit int) (domain.LeadershipShedPage, error) {
-	if !permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingMonitor}, false) {
+	if !actor.Holds(permissions.WeighingMonitor) {
 		return domain.LeadershipShedPage{}, ports.ErrForbidden
 	}
 	if limit <= 0 {
@@ -992,7 +1120,7 @@ func hasTenantWideCapability(grants []permissions.ActiveGrant, tenantID, capabil
 }
 
 func (s *Service) RecordAnimalObservation(ctx context.Context, actor domain.Actor, cmd domain.RecordAnimalObservation) (domain.Observation, error) {
-	if !permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingExecute}, false) {
+	if !actor.Holds(permissions.WeighingExecute) {
 		return domain.Observation{}, ports.ErrForbidden
 	}
 	cmd.TenantID = actor.TenantID
@@ -1052,7 +1180,7 @@ func (s *Service) RecordAnimalObservation(ctx context.Context, actor domain.Acto
 }
 
 func (s *Service) RecordShedObservation(ctx context.Context, actor domain.Actor, cmd domain.RecordShedObservation) (domain.Observation, error) {
-	if !permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingExecute}, false) {
+	if !actor.Holds(permissions.WeighingExecute) {
 		return domain.Observation{}, ports.ErrForbidden
 	}
 	cmd.TenantID = actor.TenantID
@@ -1075,6 +1203,9 @@ func (s *Service) RecordShedObservation(ctx context.Context, actor domain.Actor,
 	if !uuidutil.IsUUIDString(cmd.CampaignID) || !uuidutil.IsUUIDString(cmd.CampaignShedID) || strings.TrimSpace(cmd.IdempotencyKey) == "" {
 		return domain.Observation{}, ports.ErrInvalidArgument
 	}
+	// The hard ceiling is the proof policy (MaxShedProofArtifacts); how many videos THIS task's
+	// lump-sum pen owes inside it is the WEIGHING SOP's call, read from the task's pinned
+	// version. A count outside the SOP's window is the named proof error, not a bare 400.
 	if len(cmd.ProofArtifactIDs) < 1 || len(cmd.ProofArtifactIDs) > domain.MaxShedProofArtifacts {
 		return domain.Observation{}, ports.ErrInvalidArgument
 	}
@@ -1082,6 +1213,13 @@ func (s *Service) RecordShedObservation(ctx context.Context, actor domain.Actor,
 		if !uuidutil.IsUUIDString(proofID) {
 			return domain.Observation{}, ports.ErrInvalidArgument
 		}
+	}
+	rules, err := s.rulesForCampaign(ctx, cmd.TenantID, cmd.CampaignID)
+	if err != nil {
+		return domain.Observation{}, err
+	}
+	if n := len(cmd.ProofArtifactIDs); n < rules.Capture.LumpSum.VideoMin || n > rules.Capture.LumpSum.VideoMax {
+		return domain.Observation{}, ports.ErrLumpSumVideoCount
 	}
 	// Resolve the notification routing park BEFORE persisting. The park is the routing key of
 	// the verification item, and an observation row only knows its shed -- so it is read from
@@ -1225,7 +1363,7 @@ func isPositiveFinite(value float64) bool {
 }
 
 func (s *Service) SubmitIndividualScope(ctx context.Context, actor domain.Actor, campaignID, campaignShedID, idempotencyKey string, scannedIdentifiers []string) error {
-	if !permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingExecute}, false) {
+	if !actor.Holds(permissions.WeighingExecute) {
 		return ports.ErrForbidden
 	}
 	if !uuidutil.IsUUIDString(campaignID) || !uuidutil.IsUUIDString(campaignShedID) || strings.TrimSpace(idempotencyKey) == "" || len(scannedIdentifiers) == 0 {
@@ -1247,7 +1385,7 @@ func (s *Service) SubmitIndividualScope(ctx context.Context, actor domain.Actor,
 }
 
 func (s *Service) ReopenScope(ctx context.Context, actor domain.Actor, campaignID, campaignShedID, idempotencyKey, reason string) error {
-	if !permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingMonitor}, false) {
+	if !actor.Holds(permissions.WeighingMonitor) {
 		return ports.ErrForbidden
 	}
 	if !uuidutil.IsUUIDString(campaignID) || !uuidutil.IsUUIDString(campaignShedID) || strings.TrimSpace(idempotencyKey) == "" {
@@ -1287,7 +1425,7 @@ func (s *Service) ReopenScope(ctx context.Context, actor domain.Actor, campaignI
 // allowed to strand work that was never accepted, and the reason is the only
 // record of why.
 func (s *Service) CloseScope(ctx context.Context, actor domain.Actor, campaignID, campaignShedID, idempotencyKey, reason string) (domain.CloseResult, error) {
-	if !permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingMonitor}, false) {
+	if !actor.Holds(permissions.WeighingMonitor) {
 		return domain.CloseResult{}, ports.ErrForbidden
 	}
 	reason = strings.TrimSpace(reason)
@@ -1312,7 +1450,7 @@ func (s *Service) CloseScope(ctx context.Context, actor domain.Actor, campaignID
 // CloseCampaign ends a whole weighing campaign and every bucket still open under
 // it. Buckets whose work was never accepted stay not accepted.
 func (s *Service) CloseCampaign(ctx context.Context, actor domain.Actor, campaignID, idempotencyKey, reason string) (domain.CloseResult, error) {
-	if !permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingMonitor}, false) {
+	if !actor.Holds(permissions.WeighingMonitor) {
 		return domain.CloseResult{}, ports.ErrForbidden
 	}
 	reason = strings.TrimSpace(reason)
@@ -1361,16 +1499,10 @@ func validateCreate(cmd domain.CreateCampaign) error {
 	if !uuidutil.IsUUIDString(cmd.TenantID) || !uuidutil.IsUUIDString(cmd.ParkID) || !uuidutil.IsUUIDString(cmd.OperatorUserID) || strings.TrimSpace(cmd.IdempotencyKey) == "" {
 		return ports.ErrInvalidArgument
 	}
-	// The feed & water removal operator is MANDATORY on every new weighing
-	// task (maintainer decision 2026-09-03): a weighing whose animals were not
-	// fasted overnight produces wrong weights, so a task with nobody assigned
-	// to tonight's removal is not a plannable task. A present-but-malformed id
-	// is the ordinary invalid-argument; an absent one gets its own named error
-	// so the planner is told which assignment is missing.
-	if strings.TrimSpace(cmd.FastingOperatorUserID) == "" {
-		return ports.ErrFastingOperatorRequired
-	}
-	if !uuidutil.IsUUIDString(cmd.FastingOperatorUserID) {
+	// Whether the feed & water removal operator is required is the WEIGHING SOP's call
+	// (validateRemovalAssignment, once applyPlanningRules has decided the task carries the
+	// precondition). Here only a present-but-malformed id is refused.
+	if strings.TrimSpace(cmd.FastingOperatorUserID) != "" && !uuidutil.IsUUIDString(cmd.FastingOperatorUserID) {
 		return ports.ErrInvalidArgument
 	}
 	if len(cmd.Sheds) == 0 {
@@ -1438,7 +1570,7 @@ func validateCreate(cmd domain.CreateCampaign) error {
 // - Truncation flag if the result hit a cap (too many tags, too many days, or too many points)
 func (s *Service) GetWeightHistory(ctx context.Context, actor domain.Actor, parkID, campaignShedID string) (domain.WeightHistory, error) {
 	// Require WeighingMonitor: this is CEO/leadership oversight only.
-	if !permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingMonitor}, false) {
+	if !actor.Holds(permissions.WeighingMonitor) {
 		return domain.WeightHistory{}, ports.ErrForbidden
 	}
 	// Both filters come off the query string. They are bound as parameters in the repository, so
@@ -1508,7 +1640,7 @@ const growthDefaultPeriodDays = domain.ShedWeightsDefaultPeriodDays
 // only request a park inside their own grant, and a tenant-wide monitor may request any park in
 // the tenant.
 func (s *Service) GetLeadershipGrowthADG(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate, sex, origin, weighingCategory, sections string) (domain.GrowthADG, error) {
-	if !permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingMonitor}, false) {
+	if !actor.Holds(permissions.WeighingMonitor) {
 		return domain.GrowthADG{}, ports.ErrForbidden
 	}
 	if err := validateWeighingCategoryFilter(weighingCategory); err != nil {
@@ -1709,7 +1841,7 @@ func (s *Service) resolveMonitorParkScope(ctx context.Context, actor domain.Acto
 // GetWeightDemographics serves the breed / sex / stage breakdown on the Weights
 // screen. Same capability and scope rules as the other leadership reads.
 func (s *Service) GetWeightDemographics(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate, sex, origin, weighingCategory, sections string) (domain.WeightDemographics, error) {
-	if !permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingMonitor}, false) {
+	if !actor.Holds(permissions.WeighingMonitor) {
 		return domain.WeightDemographics{}, ports.ErrForbidden
 	}
 	if err := validateWeightDemographicsSections(sections); err != nil {
@@ -1732,7 +1864,7 @@ func (s *Service) GetWeightDemographics(ctx context.Context, actor domain.Actor,
 // Same capability and scope rules as GetLeadershipGrowthADG — this is a leadership
 // read of the same estate, so it must not be reachable on a weaker check.
 func (s *Service) GetShedWeights(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate, sex, origin, weighingCategory, saleThresholdToleranceGrams string) (domain.ShedWeights, error) {
-	if !permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingMonitor}, false) {
+	if !actor.Holds(permissions.WeighingMonitor) {
 		return domain.ShedWeights{}, ports.ErrForbidden
 	}
 	saleReadyWindow := strings.TrimSpace(saleThresholdToleranceGrams) != ""
@@ -1801,7 +1933,7 @@ func clampSaleReadyPeriodStart(periodStart time.Time) time.Time {
 // full read over a 400-day lookback ran four queries and discarded all but these two fields, which
 // against a cloud database is the dominant cost of every page load and tab switch.
 func (s *Service) GetWeighingDates(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate, sex, origin, weighingCategory string) (domain.WeighingDates, error) {
-	if !permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingMonitor}, false) {
+	if !actor.Holds(permissions.WeighingMonitor) {
 		return domain.WeighingDates{}, ports.ErrForbidden
 	}
 	parkID = strings.TrimSpace(parkID)
@@ -1923,12 +2055,12 @@ func (s *Service) ListAlerts(ctx context.Context, actor domain.Actor, cursor str
 	// consumer addresses "weighing.proof.pending.verifier" alerts to the VERIFIER, who holds no
 	// weighing capability. Without it this guard rejected the very person the system had chosen as
 	// the recipient, and their Alerts tab stayed empty with messages waiting.
-	if !permissions.RolesAuthorizeAny(actor.Roles, []string{
+	if !actor.HoldsAny(
 		permissions.WeighingExecute,
 		permissions.WeighingMonitor,
 		permissions.WeighingPlan,
 		permissions.VerificationReview,
-	}) {
+	) {
 		return domain.AlertPage{}, ports.ErrForbidden
 	}
 	if limit <= 0 {
@@ -1974,7 +2106,7 @@ func (s *Service) ListAlerts(ctx context.Context, actor domain.Actor, cursor str
 // It requires WeighingMonitor permission and enforces park scoping.
 func (s *Service) ExportCampaignCSV(ctx context.Context, actor domain.Actor, campaignID string, writer io.Writer) error {
 	// Check authorization
-	if !permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingMonitor}, false) {
+	if !actor.Holds(permissions.WeighingMonitor) {
 		return ports.ErrForbidden
 	}
 
@@ -1993,12 +2125,12 @@ func (s *Service) ExportCampaignCSV(ctx context.Context, actor domain.Actor, cam
 
 // ExportCSV exports the selected leadership weighing window as CSV.
 // The default is 36 inclusive business dates: today plus the previous 35 days.
-// The Weights page's download drawer sends an explicit range; anything up to a
-// year is served, because the export exists to reconcile past periods. parkID
+// The download drawer sends the report's explicit range, including SOP-authored
+// multi-year windows. The repository streams rows under its query timeout. parkID
 // optionally narrows to one authorized park; shedLocationIDs optionally narrow
 // to selected shed locations within that scope.
 func (s *Service) ExportCSV(ctx context.Context, actor domain.Actor, fromBusinessDate, toBusinessDate, parkID string, shedLocationIDs []string, sex, origin, weighingCategory string, writer io.Writer) error {
-	if !permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingMonitor}, false) {
+	if !actor.Holds(permissions.WeighingMonitor) {
 		return ports.ErrForbidden
 	}
 
@@ -2011,7 +2143,7 @@ func (s *Service) ExportCSV(ctx context.Context, actor domain.Actor, fromBusines
 	if err != nil {
 		return ports.ErrInvalidArgument
 	}
-	if from.After(to) || to.Sub(from) > 366*24*time.Hour {
+	if from.After(to) {
 		return ports.ErrInvalidArgument
 	}
 

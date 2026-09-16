@@ -1419,3 +1419,33 @@ func (p *partialMediaResolver) ResolveMedia(_ context.Context, _ string, proofID
 	}
 	return out, nil
 }
+
+// Each proof names itself when the producer attached media_meta: the item's own label and kind
+// win over the registry's positional copy, and the registry still answers for a position (or an
+// item) that carries none -- which is every item written before authored capture slots.
+func TestResolveMediaPrefersTheItemsOwnProofMeta(t *testing.T) {
+	svc, _ := newTestService()
+	_ = svc.RegisterCategory(domain.CategoryDefinition{
+		Vertical: "weighing", Module: "weighing", Category: "weighing_fasting",
+		ExpectedMedia: []string{"video", "video"}, MediaLabels: []string{"Feed removal video", "Water removal video"},
+	})
+	rows := svc.resolveMedia(context.Background(), testTenant, []domain.Item{{
+		Category:  "weighing_fasting",
+		MediaRefs: []string{"p1", "p2", "p3"},
+		MediaMeta: []domain.MediaMeta{{Label: "Feed removed", Kind: "video"}, {Label: "Empty water trough", Kind: "photo"}, {Label: "Gate closed", Kind: "photo"}},
+	}, {
+		Category:  "weighing_fasting",
+		MediaRefs: []string{"p1", "p2"},
+	}})
+	authored := rows[0].Media
+	if authored[1].Label != "Empty water trough" || authored[1].MimeType != "image/jpeg" {
+		t.Fatalf("photo slot = %+v, want the SOP title over an image player", authored[1])
+	}
+	if authored[2].Label != "Gate closed" || authored[2].MimeType != "image/jpeg" {
+		t.Fatalf("third slot = %+v, want its own title, not a numbered Proof", authored[2])
+	}
+	legacy := rows[1].Media
+	if legacy[1].Label != "Water removal video" || legacy[1].MimeType != "video/mp4" {
+		t.Fatalf("pre-meta item = %+v, want the registry's positional copy", legacy[1])
+	}
+}

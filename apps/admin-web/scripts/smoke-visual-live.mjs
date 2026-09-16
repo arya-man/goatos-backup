@@ -1,3 +1,4 @@
+import { readWeighingPolicy } from "../../../tools/perf/weighing-workload.mjs";
 import { assertSmokeRouteIdentity, assertAnimalPurchaseHeading } from "./lib/smoke-route-identity.mjs";
 import { validateLocalStackReceipt, validateSmokeActor } from "./lib/local-stack-receipt.mjs";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -287,7 +288,11 @@ const launchReceipt = launchReceiptPath ? validateLocalStackReceipt(JSON.parse(r
   git_sha: observedApiVersion.build_sha, api_base_url: apiBaseUrl, admin_web_base_url: appBaseUrl,
 }) : null;
 const browserActor = launchReceipt ? validateSmokeActor(launchReceipt, bearerToken, tenantId) : null;
+const weighingPolicyOptions = {baseUrl: apiBaseUrl, tenantId, bearerToken};
+const weighsRoutes = selectedRoutes.some(({path}) => path.startsWith("/weighing/weights") || path.startsWith("/weighing/analytics"));
+const weighingPolicy = weighsRoutes ? await readWeighingPolicy(weighingPolicyOptions) : null;
 const browserEvidence = {
+  ...(weighingPolicy ? {weighing_policy: weighingPolicy} : {}),
   schema_version: "1.0.0",
   same_api_build: Boolean(launchReceipt),
   local_stack_launch_receipt: launchReceipt,
@@ -410,6 +415,10 @@ writeFileSync(
 const finalApiVersion = await fetchSmokeJson(`${apiBaseUrl}/version`, bearerToken, tenantId, "Final API build identity");
 if (finalApiVersion.build_sha !== observedApiVersion.build_sha) throw new Error("API build changed during browser E2E");
 browserEvidence.api_build_sha_end = finalApiVersion.build_sha;
+if (weighingPolicy) {
+  browserEvidence.weighing_policy_end = await readWeighingPolicy(weighingPolicyOptions);
+  if (JSON.stringify(weighingPolicy) !== JSON.stringify(browserEvidence.weighing_policy_end)) throw new Error("Weights page policy changed during browser proof");
+}
 if (launchReceipt) validateLocalStackReceipt(launchReceipt, {
   git_sha: observedApiVersion.build_sha, api_base_url: apiBaseUrl, admin_web_base_url: appBaseUrl,
 });

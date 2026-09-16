@@ -258,3 +258,45 @@ export async function publishInspectionVersion(sopId: string, inspection: Record
   for (const path of SOP_PAGE_PATHS) revalidatePath(path);
   return { ...saved, ok: true, message: `Published v${saved.versionNumber ?? ""}. Animals recorded from now on use this inspection.` };
 }
+
+// WEIGHING SOP (maintainer decision 2026-09-15): the weighing rules editor saves a new version = the
+// published version's form_dsl (capture form, rules, proof policy: unchanged) + the emitted
+// `weighing` document. The backend validates the document (a version the planner could not run
+// is refused with the field named); publishing makes it the rule set for tasks planned from
+// then on -- a task already planned keeps the version it was planned on.
+export type WeighingSaveResult = InspectionSaveResult;
+
+export async function saveWeighingVersion(sopId: string, weighing: Record<string, unknown>, label?: string): Promise<WeighingSaveResult> {
+  if (!sopId) return { ok: false, message: "SOP id is required" };
+  const detail = await getSop(sopId);
+  if (!detail.ok) return { ok: false, message: detail.error.message ?? "SOP could not be read", code: detail.error.code };
+  const base = detail.data.published_version ?? detail.data.latest_version;
+  if (!base) return { ok: false, message: "This SOP has no version to build on." };
+  const formDsl = { ...(base.form_dsl as Record<string, unknown>), weighing };
+  const version = await createSopVersion(sopId, {
+    version_label: (label ?? "").trim() || `${detail.data.sop.name} · rules`,
+    form_dsl: formDsl,
+    proof_policy: base.proof_policy as CreateSOPVersionRequest["proof_policy"],
+  });
+  if (!version.ok) return { ok: false, message: version.error.message ?? "create SOP version failed", code: version.error.code };
+  for (const path of SOP_PAGE_PATHS) revalidatePath(path);
+  const report = version.data.version.validation_report;
+  return {
+    ok: true,
+    message: report?.valid ? "Weighing rules saved as a draft version." : "Saved — backend flagged validation issues (see report).",
+    versionId: version.data.version.sop_version_id,
+    rowVersion: version.data.version.row_version,
+    versionNumber: version.data.version.version,
+    report,
+  };
+}
+
+export async function publishWeighingVersion(sopId: string, weighing: Record<string, unknown>, label?: string): Promise<WeighingSaveResult> {
+  const saved = await saveWeighingVersion(sopId, weighing, label);
+  if (!saved.ok || !saved.versionId || saved.rowVersion === undefined) return saved;
+  if (saved.report && !saved.report.valid) return { ...saved, ok: false, message: saved.report.errors?.[0]?.message ?? "The weighing rules have validation issues; fix them and publish again." };
+  const res = await publishSopVersion(sopId, saved.versionId, saved.rowVersion);
+  if (!res.ok) return { ok: false, message: res.error.message ?? "publish failed", code: res.error.code };
+  for (const path of SOP_PAGE_PATHS) revalidatePath(path);
+  return { ...saved, ok: true, message: `Published v${saved.versionNumber ?? ""}. Weighing tasks planned from now on run on these rules.` };
+}

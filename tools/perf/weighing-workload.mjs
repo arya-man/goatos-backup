@@ -19,15 +19,25 @@ export const WEIGHING_WORKLOADS = Object.freeze({
   pr264_growth_director_weights_sections: `/growth-director/weights?${windowQuery}&sections=road_to_sale,fair_fight`,
 });
 
-export function weighingWindow(startedAt, latest = "") {
+export function weighingWindow(startedAt, latest = "", copy = {}) {
   const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(startedAt));
   const lookback = new Date(`${today}T00:00:00Z`);
   lookback.setUTCDate(lookback.getUTCDate() - WEIGHING_LOOKBACK_DAYS + 1);
-  const end = /^\d{4}-\d{2}-\d{2}$/.test(latest) ? latest : today;
+  const day = /^\d{4}-\d{2}-\d{2}$/;
+  const get = (key) => copy[`weights.window.${key}`]?.trim() ?? "";
+  const earliest = day.test(get("earliest_date")) ? get("earliest_date") : "2026-08-01";
+  let from = WEIGHING_WINDOW_FROM;
+  if (get("default_from_mode") === "rolling_days") {
+    const days = Number.parseInt(get("default_from_days"), 10);
+    if (Number.isFinite(days) && days >= 1) from = new Date(Date.parse(`${today}T00:00:00Z`) - (days - 1) * 86400000).toISOString().slice(0, 10);
+  } else if (get("default_from_mode") === "fixed_date" && day.test(get("default_from_date"))) from = get("default_from_date");
+  if (from < earliest) from = earliest;
+  if (from > today) from = today;
+  const end = day.test(latest) && latest >= from && latest <= today ? latest : today;
   return {
     weighing_today: today,
     weighing_lookback_from: lookback.toISOString().slice(0, 10),
-    weighing_from: WEIGHING_WINDOW_FROM > today ? today : WEIGHING_WINDOW_FROM,
+    weighing_from: from,
     weighing_to: end > today ? today : end,
   };
 }
@@ -51,21 +61,23 @@ export function validateWeighingManifest(endpoints) {
 
 // Consume the measured date read, never an unmeasured warmup or a manually
 // declared short window. A moving dataset needs a new run, not mixed scopes.
-export function weighingWindowFromResult(startedAt, result) {
+export function weighingWindowFromResult(startedAt, result, copy = {}) {
   const samples = [...(result?.warmup_response_observations ?? []), ...(result?.response_observations ?? [])];
   if (!samples.length || samples.some((sample) => typeof sample.latest_weighing_date !== "string")) {
     throw new Error("Weights date observations must include latest_weighing_date");
   }
   const latest = samples[0].latest_weighing_date;
   if (samples.some((sample) => sample.latest_weighing_date !== latest)) throw new Error("Latest weighing date changed during measurement; rerun against one dataset");
-  return weighingWindow(startedAt, latest);
+  return weighingWindow(startedAt, latest, copy);
 }
 
 export function weighingEvidenceFailures(report) {
   const failures = [];
   let window;
   try {
-    window = weighingWindowFromResult(report.started_at, report.results?.find(({name}) => name === WEIGHING_DATES_NAME));
+    if (report.weighing_policy?.source !== "/admin-web/bootstrap" || !report.weighing_policy?.copy
+      || JSON.stringify(report.weighing_policy) !== JSON.stringify(report.weighing_policy_end)) throw new Error("Weights page policy missing or changed during measurement");
+    window = weighingWindowFromResult(report.started_at, report.results?.find(({name}) => name === WEIGHING_DATES_NAME), report.weighing_policy.copy);
   } catch (error) { return [error.message]; }
   for (const [name, template] of Object.entries(WEIGHING_WORKLOADS)) {
     const result = report.results?.find((item) => item.name === name);
@@ -79,4 +91,25 @@ export function weighingEvidenceFailures(report) {
     }
   }
   return failures;
+}
+
+// Only persist the window settings, not the authenticated bootstrap's other data.
+export async function readWeighingPolicy({baseUrl, tenantId, bearerToken, cookie, timeoutMs = 30000, fetchImpl = fetch}) {
+  const response = await fetchImpl(`${baseUrl}/admin-web/bootstrap`, {headers: {
+    Accept: "application/json", "X-GoatOS-Tenant-ID": tenantId,
+    ...(bearerToken ? {Authorization: `Bearer ${bearerToken}`} : {}), ...(cookie ? {Cookie: cookie} : {}),
+  }, cache: "no-store", redirect: "error", signal: AbortSignal.timeout(timeoutMs)});
+  if (!response.ok) throw new Error(`Weights page policy HTTP ${response.status}`);
+  const body = await response.json();
+  const copies = ["weighing-weights", "weighing-analytics"].map((id) => {
+    const page = body.pages?.find((page) => page.route_id === id);
+    if (!page?.copy) throw new Error(`Weights page policy missing ${id}`);
+    return Object.fromEntries(["default_from_mode", "default_from_date", "default_from_days", "earliest_date"].map((key) => {
+      const value = page.copy[`weights.window.${key}`] ?? "";
+      if (typeof value !== "string") throw new Error("Invalid Weights page policy");
+      return [`weights.window.${key}`, value];
+    }));
+  });
+  if (JSON.stringify(copies[0]) !== JSON.stringify(copies[1])) throw new Error("Weights pages have different window policies");
+  return {source: "/admin-web/bootstrap", copy: copies[0]};
 }

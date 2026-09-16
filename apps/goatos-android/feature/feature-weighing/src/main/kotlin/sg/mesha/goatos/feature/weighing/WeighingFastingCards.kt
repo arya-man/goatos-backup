@@ -17,6 +17,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -210,13 +214,39 @@ private fun FastingPill(label: String, fg: Color, bg: Color) {
 
 enum class WeighingFastingSlotStatus { EMPTY, QUEUED, UPLOADING, SYNCED, FAILED }
 
-/** Which of the shed's two clips a slot holds. */
-enum class WeighingFastingSlotKind { FEED, WATER }
+/**
+ * The SEEDED two slots, kept as a name for the legacy pair (feed_video / water_video). Since
+ * the weighing SOP authors the slot list (2026-09-15), a slot is identified by its
+ * [WeighingFastingSlotUi.slotKey]; this enum only maps the two seeded keys for older callers.
+ */
+enum class WeighingFastingSlotKind(val slotKey: String) {
+    FEED("feed_video"),
+    WATER("water_video");
+
+    companion object {
+        fun forKey(slotKey: String): WeighingFastingSlotKind? = entries.firstOrNull { it.slotKey == slotKey }
+    }
+}
+
+/** What a slot captures, as the SOP authored it. */
+object WeighingFastingCaptureKind {
+    const val VIDEO = "video"
+    const val PHOTO = "photo"
+    const val EITHER = "either"
+}
 
 @Immutable
 data class WeighingFastingSlotUi(
     val fieldKey: String,
     val kind: WeighingFastingSlotKind = WeighingFastingSlotKind.FEED,
+    /** The SOP's slot key (feed_video, water_video, or any authored key). */
+    val slotKey: String = kind.slotKey,
+    /** video | photo | either -- what the slot accepts, from the SOP. */
+    val captureKind: String = WeighingFastingCaptureKind.VIDEO,
+    /** False for an optional capture the operator may leave empty. */
+    val required: Boolean = true,
+    /** What was actually captured here: video or photo (an `either` slot records the pick). */
+    val capturedKind: String = WeighingFastingCaptureKind.VIDEO,
     val title: String,
     /** What the clip must show, in farm words — the row's second line. */
     val hint: String = "",
@@ -235,10 +265,45 @@ data class WeighingFastingSlotUi(
     val serverProofId: String? = null,
 )
 
+/**
+ * WEIGHING SOP (maintainer decision 2026-09-15): one authored question on the removal card,
+ * rendered verbatim from the task's pinned SOP version. Kinds: choice / multi / text / number.
+ */
+@Immutable
+data class WeighingFastingQuestionUi(
+    val id: String,
+    val kind: String,
+    val title: String,
+    val hint: String = "",
+    val required: Boolean = false,
+    val options: List<Pair<String, String>> = emptyList(),
+    val allowOther: Boolean = false,
+    val unit: String = "",
+    /** Farm-worded range line ("0–50") for a number question; blank when unbounded. */
+    val rangeLabel: String = "",
+    /** Local validation feedback shown beside the authored input before it can be queued. */
+    val validationError: String = "",
+    /** False when an "ask only when" condition on an earlier answer is not met; hidden then. */
+    val applies: Boolean = true,
+)
+
+/** The operator's answer to one question, as typed/picked. Multi answers are the ticked values. */
+@Immutable
+data class WeighingFastingAnswerUi(
+    val value: String = "",
+    val values: List<String> = emptyList(),
+    val otherText: String = "",
+)
+
 @Immutable
 data class WeighingFastingDetailUiState(
     /** Backend-owned subject label, verbatim — the screen title body. */
     val title: String = "",
+    /** The SOP's operator instruction for this task, verbatim; blank when the SOP has none. */
+    val instruction: String = "",
+    /** The SOP's authored questions, in order, with their current answers. */
+    val questions: List<WeighingFastingQuestionUi> = emptyList(),
+    val answers: Map<String, WeighingFastingAnswerUi> = emptyMap(),
     val dateLabel: String = "",
     val status: String = "",
     /** True once this shed card can no longer be recorded (submitted / approved). */
@@ -247,13 +312,12 @@ data class WeighingFastingDetailUiState(
     val lockNotice: String = "",
     /** The verifier's rejection sentence for THIS shed, verbatim; blank unless sent back. */
     val reworkReason: String = "",
-    /** THIS shed's two live-camera slots. */
-    val feedSlot: WeighingFastingSlotUi = WeighingFastingSlotUi(fieldKey = "", title = ""),
-    val waterSlot: WeighingFastingSlotUi = WeighingFastingSlotUi(
-        fieldKey = "",
-        kind = WeighingFastingSlotKind.WATER,
-        title = "",
-    ),
+    /**
+     * THIS shed's capture slots, in the SOP's order (WEIGHING SOP: any number, each a video, a
+     * photo or either, compulsory or optional). The seeded document has the feed and water clips.
+     */
+    val slots: List<WeighingFastingSlotUi> = emptyList(),
+
     val submitEnabled: Boolean = false,
     /** Why submit is blocked, in farm language; blank when submittable or already sent. */
     val submitBlockedReason: String = "",
@@ -261,11 +325,31 @@ data class WeighingFastingDetailUiState(
     val submitQueued: Boolean = false,
     val message: String? = null,
     val isSyncing: Boolean = false,
-)
+) {
+    /** The seeded two slots by name, for callers that predate authored slots. */
+    val feedSlot: WeighingFastingSlotUi get() = slotOrEmpty(WeighingFastingSlotKind.FEED)
+    val waterSlot: WeighingFastingSlotUi get() = slotOrEmpty(WeighingFastingSlotKind.WATER)
+
+    private fun slotOrEmpty(kind: WeighingFastingSlotKind): WeighingFastingSlotUi =
+        slots.firstOrNull { it.slotKey == kind.slotKey } ?: WeighingFastingSlotUi(fieldKey = "", kind = kind, title = "")
+}
 
 sealed interface WeighingFastingDetailEvent {
-    data class RecordSlot(val kind: WeighingFastingSlotKind) : WeighingFastingDetailEvent
-    data class PreviewAction(val kind: WeighingFastingSlotKind, val action: String) : WeighingFastingDetailEvent
+    /** Record a slot; [photo] picks the camera's photo mode for an `either` slot. */
+    data class RecordSlot(val slotKey: String, val photo: Boolean = false) : WeighingFastingDetailEvent {
+        companion object {
+            operator fun invoke(kind: WeighingFastingSlotKind): RecordSlot = RecordSlot(kind.slotKey)
+        }
+    }
+    data class PreviewAction(val slotKey: String, val action: String) : WeighingFastingDetailEvent {
+        companion object {
+            operator fun invoke(kind: WeighingFastingSlotKind, action: String): PreviewAction = PreviewAction(kind.slotKey, action)
+        }
+    }
+    /** WEIGHING SOP: an answer to one authored question -- a pick, a tick, typed text or a number. */
+    data class SetAnswer(val questionId: String, val value: String) : WeighingFastingDetailEvent
+    data class ToggleAnswer(val questionId: String, val value: String) : WeighingFastingDetailEvent
+    data class SetOtherText(val questionId: String, val text: String) : WeighingFastingDetailEvent
     data object Submit : WeighingFastingDetailEvent
     data object Refresh : WeighingFastingDetailEvent
     data object DismissMessage : WeighingFastingDetailEvent
@@ -323,23 +407,23 @@ fun WeighingFastingDetailScreen(
             item(key = "removal-status") {
                 FastingStatusCard(state = state, onSubmit = { onEvent(WeighingFastingDetailEvent.Submit) })
             }
-            item(key = "removal-slot-feed") {
-                FastingProofAction(
-                    slot = state.feedSlot,
+            // WEIGHING SOP: the authored questions sit between the status and the two clips, one
+            // card each, and only the ones whose "ask only when" holds are shown.
+            items(state.questions.filter { it.applies }, key = { "removal-question-${it.id}" }) { question ->
+                FastingQuestionCard(
+                    question = question,
+                    answer = state.answers[question.id] ?: WeighingFastingAnswerUi(),
                     locked = state.isReadOnly || state.submitQueued,
-                    onRecord = { onEvent(WeighingFastingDetailEvent.RecordSlot(WeighingFastingSlotKind.FEED)) },
-                    onPreviewAction = { action ->
-                        onEvent(WeighingFastingDetailEvent.PreviewAction(WeighingFastingSlotKind.FEED, action))
-                    },
+                    onEvent = onEvent,
                 )
             }
-            item(key = "removal-slot-water") {
+            items(state.slots, key = { "removal-slot-${it.slotKey}" }) { slot ->
                 FastingProofAction(
-                    slot = state.waterSlot,
+                    slot = slot,
                     locked = state.isReadOnly || state.submitQueued,
-                    onRecord = { onEvent(WeighingFastingDetailEvent.RecordSlot(WeighingFastingSlotKind.WATER)) },
+                    onRecord = { photo -> onEvent(WeighingFastingDetailEvent.RecordSlot(slot.slotKey, photo)) },
                     onPreviewAction = { action ->
-                        onEvent(WeighingFastingDetailEvent.PreviewAction(WeighingFastingSlotKind.WATER, action))
+                        onEvent(WeighingFastingDetailEvent.PreviewAction(slot.slotKey, action))
                     },
                 )
             }
@@ -393,7 +477,12 @@ private fun FastingStatusCard(state: WeighingFastingDetailUiState, onSubmit: () 
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        Text(text = stringResource(R.string.weighing_removal_caption), color = MeshaColors.Muted, style = MeshaType.body)
+        // The SOP's own instruction when the task carries one; the app's caption otherwise.
+        Text(
+            text = state.instruction.ifBlank { stringResource(R.string.weighing_removal_caption) },
+            color = MeshaColors.Muted,
+            style = MeshaType.body,
+        )
         Text(text = statusText, color = tone, style = MeshaType.caption)
         if (state.submitEnabled) {
             FastingCtaButton(label = stringResource(R.string.weighing_removal_submit), onClick = onSubmit)
@@ -410,9 +499,12 @@ private fun FastingStatusCard(state: WeighingFastingDetailUiState, onSubmit: () 
 private fun FastingProofAction(
     slot: WeighingFastingSlotUi,
     locked: Boolean,
-    onRecord: () -> Unit,
+    onRecord: (photo: Boolean) -> Unit,
     onPreviewAction: (String) -> Unit = {},
 ) {
+    val photoOnly = slot.captureKind == WeighingFastingCaptureKind.PHOTO
+    val either = slot.captureKind == WeighingFastingCaptureKind.EITHER
+    val previewKind = if (slot.capturedKind == WeighingFastingCaptureKind.PHOTO) ProofMediaPreviewKind.Photo else ProofMediaPreviewKind.Video
     val failed = slot.status == WeighingFastingSlotStatus.FAILED
     val synced = slot.status == WeighingFastingSlotStatus.SYNCED
     val uploading = slot.busy || slot.status == WeighingFastingSlotStatus.UPLOADING
@@ -436,7 +528,7 @@ private fun FastingProofAction(
             .clip(RoundedCornerShape(18.dp))
             .background(MeshaColors.Surf)
             .border(1.dp, border, RoundedCornerShape(18.dp))
-            .clickable(enabled = actionEnabled && !slot.captured, onClick = onRecord)
+            .clickable(enabled = actionEnabled && !slot.captured, onClick = { onRecord(photoOnly) })
             .padding(14.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -449,16 +541,16 @@ private fun FastingProofAction(
                 uploading -> CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = MeshaColors.Brand)
                 failed -> Icon(MeshaIcons.Warn, contentDescription = null, tint = MeshaColors.Danger, modifier = Modifier.size(22.dp))
                 synced -> Icon(MeshaIcons.Check, contentDescription = null, tint = MeshaColors.Ok, modifier = Modifier.size(22.dp))
-                slot.captured -> Icon(MeshaIcons.Video, contentDescription = null, tint = MeshaColors.BrandD, modifier = Modifier.size(22.dp))
-                else -> Icon(MeshaIcons.Video, contentDescription = null, tint = MeshaColors.Muted, modifier = Modifier.size(22.dp))
+                slot.captured -> Icon(if (previewKind == ProofMediaPreviewKind.Photo) MeshaIcons.Camera else MeshaIcons.Video, contentDescription = null, tint = MeshaColors.BrandD, modifier = Modifier.size(22.dp))
+                else -> Icon(if (photoOnly) MeshaIcons.Camera else MeshaIcons.Video, contentDescription = null, tint = MeshaColors.Muted, modifier = Modifier.size(22.dp))
             }
         }
         Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
             Text(
                 text = when {
                     slot.busy -> stringResource(R.string.weighing_removal_recording)
-                    slot.captured || failed -> slot.title
-                    else -> slot.title
+                    slot.required -> slot.title
+                    else -> "${slot.title} · ${stringResource(R.string.weighing_removal_question_optional)}"
                 },
                 color = if (failed) MeshaColors.Danger else if (actionEnabled || slot.captured || uploading) MeshaColors.Ink else MeshaColors.Faint,
                 style = MeshaType.cardTitle,
@@ -475,7 +567,7 @@ private fun FastingProofAction(
             if (!previewToShow.isNullOrBlank()) {
                 ProofMediaPreview(
                     path = previewToShow,
-                    kind = ProofMediaPreviewKind.Video,
+                    kind = previewKind,
                     mediaIdentity = slot.serverProofId?.takeIf { it.isNotBlank() }
                         ?: slot.localProofRowId?.takeIf { it.isNotBlank() }
                         ?: slot.fieldKey,
@@ -497,14 +589,21 @@ private fun FastingProofAction(
                 )
             }
             if (!locked && !uploading) {
-                FastingCtaButton(
-                    label = if (slot.captured || failed) {
-                        stringResource(R.string.weighing_removal_record_again)
-                    } else {
-                        stringResource(R.string.weighing_removal_record)
-                    },
-                    onClick = onRecord,
-                )
+                val again = slot.captured || failed
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (!photoOnly) {
+                        FastingCtaButton(
+                            label = if (again) stringResource(R.string.weighing_removal_record_again) else stringResource(R.string.weighing_removal_record),
+                            onClick = { onRecord(false) },
+                        )
+                    }
+                    if (photoOnly || either) {
+                        FastingCtaButton(
+                            label = if (again) stringResource(R.string.weighing_removal_photo_again) else stringResource(R.string.weighing_removal_photo),
+                            onClick = { onRecord(true) },
+                        )
+                    }
+                }
             }
         }
     }
@@ -523,4 +622,102 @@ private fun FastingCtaButton(label: String, enabled: Boolean = true, onClick: ()
             .clickable(enabled = enabled, onClick = onClick)
             .padding(horizontal = 12.dp, vertical = 13.dp),
     )
+}
+
+
+/**
+ * One authored removal question (WEIGHING SOP): pick-one as radio rows, pick-many as tick rows,
+ * text and number as a field. Locked once the card is submitted; the answers then render as
+ * recorded.
+ */
+@Composable
+private fun FastingQuestionCard(
+    question: WeighingFastingQuestionUi,
+    answer: WeighingFastingAnswerUi,
+    locked: Boolean,
+    onEvent: (WeighingFastingDetailEvent) -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(18.dp))
+            .background(MeshaColors.Surf)
+            .border(1.dp, MeshaColors.Hair, RoundedCornerShape(18.dp))
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text(
+            text = if (question.required) question.title else "${question.title} · ${stringResource(R.string.weighing_removal_question_optional)}",
+            color = MeshaColors.Ink,
+            style = MeshaType.listTitle,
+        )
+        if (question.hint.isNotBlank()) {
+            Text(text = question.hint, color = MeshaColors.Muted, style = MeshaType.caption)
+        }
+        when (question.kind) {
+            "choice", "multi" -> {
+                question.options.forEach { (value, label) ->
+                    val picked = if (question.kind == "choice") answer.value == value else value in answer.values
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(if (picked) MeshaColors.BrandTint else MeshaColors.Surf2)
+                            .clickable(enabled = !locked) {
+                                onEvent(
+                                    if (question.kind == "choice") {
+                                        WeighingFastingDetailEvent.SetAnswer(question.id, value)
+                                    } else {
+                                        WeighingFastingDetailEvent.ToggleAnswer(question.id, value)
+                                    },
+                                )
+                            }
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Text(
+                            text = label,
+                            color = if (picked) MeshaColors.BrandD else MeshaColors.Ink,
+                            style = MeshaType.body,
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                }
+                if (question.kind == "choice" && question.allowOther && answer.value == "other") {
+                    OutlinedTextField(
+                        value = answer.otherText,
+                        onValueChange = { onEvent(WeighingFastingDetailEvent.SetOtherText(question.id, it)) },
+                        enabled = !locked,
+                        singleLine = true,
+                        placeholder = { Text(stringResource(R.string.weighing_removal_question_other_hint)) },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            }
+            "number" -> {
+                OutlinedTextField(
+                    value = answer.value,
+                    onValueChange = { onEvent(WeighingFastingDetailEvent.SetAnswer(question.id, it)) },
+                    enabled = !locked,
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    suffix = if (question.unit.isNotBlank()) ({ Text(question.unit) }) else null,
+                    isError = question.validationError.isNotBlank(),
+                    supportingText = if (question.validationError.isNotBlank() || question.rangeLabel.isNotBlank()) ({
+                        Text(listOf(question.validationError, question.rangeLabel).filter { it.isNotBlank() }.joinToString(" · "))
+                    }) else null,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+            else -> {
+                OutlinedTextField(
+                    value = answer.value,
+                    onValueChange = { onEvent(WeighingFastingDetailEvent.SetAnswer(question.id, it)) },
+                    enabled = !locked,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        }
+    }
 }

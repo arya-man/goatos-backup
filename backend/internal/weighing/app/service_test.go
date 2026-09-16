@@ -807,6 +807,8 @@ func validCreate() domain.CreateCampaign {
 }
 
 type fakeRepo struct {
+	// replays answers CampaignByIdempotencyKey, keyed "idempotency key|request fingerprint".
+	replays             map[string]domain.Campaign
 	animalProofRejected bool
 	animalWrites        int
 	shedWrites          int
@@ -1012,6 +1014,14 @@ func (r *shedObservationRepo) RecordShedObservation(_ context.Context, cmd domai
 	}, nil
 }
 
+func (f fakeRepo) CampaignByIdempotencyKey(_ context.Context, cmd domain.CreateCampaign) (domain.Campaign, bool, error) {
+	if f.replays == nil {
+		return domain.Campaign{}, false, nil
+	}
+	c, ok := f.replays[cmd.IdempotencyKey+"|"+domain.RequestFingerprint(cmd)]
+	return c, ok, nil
+}
+
 func (f fakeRepo) CreateCampaign(context.Context, domain.CreateCampaign) (domain.Campaign, error) {
 	return domain.Campaign{CampaignID: "00000000-0000-4000-8000-000000000501"}, nil
 }
@@ -1159,6 +1169,10 @@ func newScenarioRepo() *scenarioRepo {
 		animalByIdem: map[string]domain.Observation{},
 		shedByIdem:   map[string]domain.Observation{},
 	}
+}
+
+func (r *scenarioRepo) CampaignByIdempotencyKey(context.Context, domain.CreateCampaign) (domain.Campaign, bool, error) {
+	return domain.Campaign{}, false, nil
 }
 
 func (r *scenarioRepo) CreateCampaign(_ context.Context, cmd domain.CreateCampaign) (domain.Campaign, error) {

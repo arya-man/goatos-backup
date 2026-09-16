@@ -20,6 +20,8 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
@@ -87,6 +89,8 @@ fun WeighingPlanWizardScreen(
     onContinue: () -> Unit,
     onCommit: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
+    /** WEIGHING SOP: the planner's removal toggle under the SOP's `optional` mode. */
+    onFeedWaterRemovalRequested: (Boolean) -> Unit = {},
 ) {
     Column(
         modifier = modifier
@@ -162,6 +166,7 @@ fun WeighingPlanWizardScreen(
                 WeighingWizardStep.CONFIGURE -> configureStep(
                     state = state,
                     onFastingOperator = onFastingOperator,
+                    onFeedWaterRemovalRequested = onFeedWaterRemovalRequested,
                     onConfigQuery = onConfigQuery,
                     onToggleConfigSearch = onToggleConfigSearch,
                     onLoadMoreConfigRows = onLoadMoreConfigRows,
@@ -252,7 +257,12 @@ private fun StepTitle(state: WeighingWizardUiState) {
         WeighingWizardStep.REVIEW -> stringResource(R.string.weighing_wizard_title_review)
     }
     val subtitle = when (state.step) {
-        WeighingWizardStep.DATE -> stringResource(R.string.weighing_wizard_sub_date)
+        // WEIGHING SOP: the evening-before rule only narrows the dates when the SOP requires it.
+        WeighingWizardStep.DATE -> if (state.removalMode == "required") {
+            stringResource(R.string.weighing_wizard_sub_date)
+        } else {
+            stringResource(R.string.weighing_wizard_sub_date_optional)
+        }
         WeighingWizardStep.PARK -> if (state.loading) {
             stringResource(R.string.weighing_wizard_loading_parks_fmt, state.dateLabel)
         } else {
@@ -289,7 +299,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.dateStep(
     items(state.dateOptions, key = { it.isoDate }) { option ->
         WizardOptionRow(
             title = option.label,
-            subtitle = option.note,
+            subtitle = if (option.noRemovalPossible) stringResource(R.string.weighing_wizard_date_no_removal) else "",
             selected = option.selected,
             radio = true,
             onClick = { onSelectDate(option.isoDate) },
@@ -462,6 +472,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.bucketStep(
 private fun androidx.compose.foundation.lazy.LazyListScope.configureStep(
     state: WeighingWizardUiState,
     onFastingOperator: (String) -> Unit,
+    onFeedWaterRemovalRequested: (Boolean) -> Unit,
     onConfigQuery: (String) -> Unit,
     onToggleConfigSearch: () -> Unit,
     onLoadMoreConfigRows: () -> Unit,
@@ -475,34 +486,61 @@ private fun androidx.compose.foundation.lazy.LazyListScope.configureStep(
 ) {
     // The evening-before precondition (maintainer decision 2026-09-03): ONE person for the whole
     // task, above the per-bucket rows so the ask is answered before bucket-by-bucket detail.
-    item(key = "configure-fasting-operator") {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(18.dp))
-                .background(MeshaColors.Surf)
-                .border(1.dp, MeshaColors.Hair, RoundedCornerShape(18.dp))
-                .padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Text(
-                text = stringResource(R.string.weighing_wizard_fasting_title),
-                color = MeshaColors.Ink,
-                style = MeshaType.listTitle,
-            )
-            Text(
-                text = stringResource(R.string.weighing_wizard_fasting_subtitle),
-                color = MeshaColors.Muted,
-                style = MeshaType.caption,
-            )
-            WizardSelect(
-                label = state.fastingOperatorLabel.ifBlank {
-                    stringResource(R.string.weighing_wizard_fasting_prompt)
-                },
-                options = state.operators.map { it.userId to it.displayName },
-                onSelect = onFastingOperator,
-                modifier = Modifier.fillMaxWidth(),
-            )
+    // WEIGHING SOP (2026-09-15): whether it applies is the SOP's call -- always, the planner's
+    // toggle, or never (the section is then absent).
+    if (state.removalMode != "off") {
+        item(key = "configure-fasting-operator") {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(18.dp))
+                    .background(MeshaColors.Surf)
+                    .border(1.dp, MeshaColors.Hair, RoundedCornerShape(18.dp))
+                    .padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        text = stringResource(R.string.weighing_wizard_fasting_title),
+                        color = MeshaColors.Ink,
+                        style = MeshaType.listTitle,
+                        modifier = Modifier.weight(1f),
+                    )
+                    if (state.removalMode == "optional") {
+                        Switch(
+                            checked = state.removalApplies,
+                            enabled = state.removalPossible,
+                            onCheckedChange = onFeedWaterRemovalRequested,
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = MeshaColors.OnBrand,
+                                checkedTrackColor = MeshaColors.Brand,
+                                uncheckedThumbColor = MeshaColors.Muted,
+                                uncheckedTrackColor = MeshaColors.Surf2,
+                                uncheckedBorderColor = MeshaColors.Hair,
+                            ),
+                        )
+                    }
+                }
+                Text(
+                    text = when {
+                        state.removalMode == "optional" && !state.removalPossible -> stringResource(R.string.weighing_wizard_fasting_not_possible)
+                        state.removalMode == "optional" && !state.removalApplies -> stringResource(R.string.weighing_wizard_fasting_skipped)
+                        else -> stringResource(R.string.weighing_wizard_fasting_subtitle)
+                    },
+                    color = MeshaColors.Muted,
+                    style = MeshaType.caption,
+                )
+                if (state.removalApplies) {
+                    WizardSelect(
+                        label = state.fastingOperatorLabel.ifBlank {
+                            stringResource(R.string.weighing_wizard_fasting_prompt)
+                        },
+                        options = state.operators.map { it.userId to it.displayName },
+                        onSelect = onFastingOperator,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            }
         }
     }
     item(key = "configure-bulk") {
@@ -544,6 +582,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.configureStep(
         ConfigureRow(
             row = row,
             operators = state.operators,
+            allowedCategories = state.allowedCategories,
             onTick = { onToggleConfigPick(row.locationId) },
             onCategory = { onBucketCategory(row.locationId, it) },
             onOperator = { onBucketOperator(row.locationId, it) },
@@ -576,7 +615,7 @@ private fun ConfigureBulkBar(
             WizardSelect(
                 label = bulkCategory?.let { categoryLabel(it) }
                     ?: stringResource(R.string.weighing_wizard_mode_prompt),
-                options = categoryOptions(),
+                options = categoryOptions(state.allowedCategories),
                 onSelect = { bulkCategory = it },
                 modifier = Modifier.weight(1f),
             )
@@ -657,6 +696,7 @@ private fun ConfigureBulkBar(
 private fun ConfigureRow(
     row: WeighingWizardConfigRow,
     operators: List<WeighingWizardOperatorOption>,
+    allowedCategories: List<String>,
     onTick: () -> Unit,
     onCategory: (String) -> Unit,
     onOperator: (String) -> Unit,
@@ -698,7 +738,7 @@ private fun ConfigureRow(
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             WizardSelect(
                 label = categoryLabel(row.category),
-                options = categoryOptions(),
+                options = categoryOptions(allowedCategories),
                 onSelect = onCategory,
                 modifier = Modifier.weight(1f),
             )
@@ -735,10 +775,12 @@ private fun androidx.compose.foundation.lazy.LazyListScope.reviewStep(state: Wei
                 key = stringResource(R.string.weighing_wizard_field_operators),
                 value = state.reviewOperatorLabel,
             )
-            WizardField(
-                key = stringResource(R.string.weighing_wizard_field_fasting),
-                value = state.fastingOperatorLabel,
-            )
+            if (state.removalMode != "off") {
+                WizardField(
+                    key = stringResource(R.string.weighing_wizard_field_fasting),
+                    value = if (state.removalApplies) state.fastingOperatorLabel else stringResource(R.string.weighing_wizard_fasting_none),
+                )
+            }
         }
     }
     state.lopsidedOperatorLabel?.let { operator ->
@@ -1013,12 +1055,12 @@ private fun categoryLabel(category: String): String = when (category) {
     else -> stringResource(R.string.weighing_wizard_mode_fallback)
 }
 
-/** The two weighing modes, as the planner picks them. */
+/** The weighing modes the SOP offers, as the planner picks them (WEIGHING SOP: never all two by default). */
 @Composable
-private fun categoryOptions(): List<Pair<String, String>> = listOf(
+private fun categoryOptions(allowed: List<String>): List<Pair<String, String>> = listOf(
     INDIVIDUAL_CATEGORY to stringResource(R.string.weighing_category_individual_title),
     LUMP_SUM_CATEGORY to stringResource(R.string.weighing_category_lump_sum_title),
-)
+).filter { it.first in allowed }
 
 /** "1 shed" / "N sheds" in the reader's language — the unit for an operator's bucket load. */
 @Composable

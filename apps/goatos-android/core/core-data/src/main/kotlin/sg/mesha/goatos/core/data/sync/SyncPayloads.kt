@@ -215,6 +215,13 @@ data class WeighingFastingSubmitPayload(
     @SerialName("feed_proof_outbox_item_id") val feedProofOutboxItemId: String? = null,
     /** Outbox id of THIS shed's freshly recorded water-removal VIDEO's PROOF_UPLOAD item. */
     @SerialName("water_proof_outbox_item_id") val waterProofOutboxItemId: String? = null,
+    /** WEIGHING SOP: answers to the card's authored questions, keyed by question id. */
+    @SerialName("answers") val answers: kotlinx.serialization.json.JsonObject = kotlinx.serialization.json.JsonObject(emptyMap()),
+    /**
+     * WEIGHING SOP: {slot key: PROOF_UPLOAD outbox item id} for every capture the card asked for.
+     * Empty on a row queued before slots existed, whose legacy pair above still applies.
+     */
+    @SerialName("proof_outbox_items") val proofOutboxItems: Map<String, String> = emptyMap(),
 )
 
 /** Outbox payload for [sg.mesha.goatos.core.database.outbox.OutboxOpType.WEIGHING_SCOPE_SUBMIT]. */

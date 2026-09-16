@@ -27,8 +27,9 @@ import { one, type RouteSearchParams } from "@/lib/search-params";
 import {
   defaultWindow,
   landingWindow,
+  weightsWindowSettings,
 } from "./landing-window";
-import { WINDOW_FROM_PARAM, WINDOW_MIN_DATE, WINDOW_TO_PARAM } from "./landing-window-constants";
+import { WINDOW_FROM_PARAM, WINDOW_TO_PARAM } from "./landing-window-constants";
 
 const PAGE_PATH = "/weighing/weights";
 const PAGE_SIZE_OPTIONS = [10, 25, 50] as const;
@@ -267,6 +268,9 @@ export async function WeighingWeightsPage({
   // The window is business DAYS, not a clock offset: a weigh belongs to the Asia/Kolkata day it
   // happened on.
   const today = todayIso();
+  // The window the page opens on and the earliest calendar day: the Weighing SOP's weights_pages
+  // block, served on this page's contract copy (backend-owned; the constants are the fallback).
+  const windowSettings = weightsWindowSettings(pageContract.copy, today);
   const window = await landingWindow(
     params,
     today,
@@ -274,6 +278,7 @@ export async function WeighingWeightsPage({
     sexFilter,
     originFilter,
     weighingCategoryFilter,
+    windowSettings,
   );
 
   // EVERY read carries the same page scope. A page where the shed table counts one population
@@ -356,13 +361,13 @@ export async function WeighingWeightsPage({
       from: window.from,
       to: window.to,
       today,
-      minDate: WINDOW_MIN_DATE,
+      minDate: windowSettings.earliestDate,
       // Landing on this window clears both parameters, so a shared link keeps meaning "the last 15
       // days" rather than freezing on the fortnight it was copied in. Named fields, never a spread of
       // defaultWindow(): `{...{from,to}}` would silently overwrite the SELECTED window above with
       // the default and pin the page to 30 days whatever the reader picked.
-      defaultFrom: defaultWindow(today).from,
-      defaultTo: defaultWindow(today).to,
+      defaultFrom: defaultWindow(today, windowSettings).from,
+      defaultTo: defaultWindow(today, windowSettings).to,
       labels: {
         field: copy(pageContract, "filter.period.label"),
         today: copy(pageContract, "filter.period.today"),

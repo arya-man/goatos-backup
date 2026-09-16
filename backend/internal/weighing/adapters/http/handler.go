@@ -301,8 +301,13 @@ type createCampaignRequest struct {
 	OperatorUserID    string `json:"operator_user_id"`
 	// FastingOperatorUserID is the feed & water removal operator, mandatory on
 	// create (maintainer decision 2026-09-03, domain/fasting.go).
-	FastingOperatorUserID string                      `json:"fasting_operator_user_id"`
-	Sheds                 []domain.CreateCampaignShed `json:"sheds"`
+	FastingOperatorUserID string `json:"fasting_operator_user_id"`
+	// FeedWaterRemovalRequested is the planner's per-task choice when the weighing SOP
+	// has the removal `optional` (WEIGHING SOP, maintainer decision 2026-09-15). Absent
+	// means "not said" (an older APK that always sends the operator keeps its behaviour);
+	// false switches the precondition off for this task. Ignored under `required` / `off`.
+	FeedWaterRemovalRequested *bool                       `json:"feed_water_removal_requested,omitempty"`
+	Sheds                     []domain.CreateCampaignShed `json:"sheds"`
 }
 
 // animalObservationRequest is the free-flow scan write request. It carries the
@@ -408,9 +413,9 @@ func (h *Handler) listCampaigns(w http.ResponseWriter, r *http.Request, fallback
 // (Service.CampaignCapabilities) and is what a task screen gates its buttons on.
 func campaignCapabilities(caller domain.Actor) map[string]bool {
 	return map[string]bool{
-		"can_publish": permissions.RolesAuthorize(caller.Roles, []string{permissions.WeighingPlan}, false),
-		"can_end":     permissions.RolesAuthorize(caller.Roles, []string{permissions.WeighingMonitor}, false),
-		"can_reopen":  permissions.RolesAuthorize(caller.Roles, []string{permissions.WeighingMonitor}, false),
+		"can_publish": caller.Holds(permissions.WeighingPlan),
+		"can_end":     caller.Holds(permissions.WeighingMonitor),
+		"can_reopen":  caller.Holds(permissions.WeighingMonitor),
 	}
 }
 
@@ -422,7 +427,8 @@ func (h *Handler) CreateCampaign(w http.ResponseWriter, r *http.Request) {
 	c, err := h.service.CreateCampaign(r.Context(), actor(r), domain.CreateCampaign{
 		ParkID: req.ParkID, PeriodStartDate: req.PeriodStartDate, PeriodEndDate: req.PeriodEndDate, StartBusinessDate: req.StartBusinessDate,
 		PlannedCapPerDay: req.PlannedCapPerDay, OperatorUserID: req.OperatorUserID, FastingOperatorUserID: req.FastingOperatorUserID,
-		IdempotencyKey: r.Header.Get("Idempotency-Key"), Sheds: req.Sheds,
+		FeedWaterRemovalRequested: req.FeedWaterRemovalRequested,
+		IdempotencyKey:            r.Header.Get("Idempotency-Key"), Sheds: req.Sheds,
 	})
 	h.respond(w, r, map[string]any{"campaign": c, "trace_id": traceID(r)}, err)
 }
@@ -435,7 +441,8 @@ func (h *Handler) UpdateCampaign(w http.ResponseWriter, r *http.Request) {
 	c, err := h.service.UpdateCampaign(r.Context(), actor(r), r.PathValue("campaign_id"), domain.UpdateCampaign{
 		ParkID: req.ParkID, PeriodStartDate: req.PeriodStartDate, PeriodEndDate: req.PeriodEndDate, StartBusinessDate: req.StartBusinessDate,
 		PlannedCapPerDay: req.PlannedCapPerDay, OperatorUserID: req.OperatorUserID, FastingOperatorUserID: req.FastingOperatorUserID,
-		IdempotencyKey: r.Header.Get("Idempotency-Key"), Sheds: req.Sheds,
+		FeedWaterRemovalRequested: req.FeedWaterRemovalRequested,
+		IdempotencyKey:            r.Header.Get("Idempotency-Key"), Sheds: req.Sheds,
 	})
 	h.respond(w, r, map[string]any{"campaign": c, "trace_id": traceID(r)}, err)
 }
@@ -445,7 +452,9 @@ func (h *Handler) UpdateCampaign(w http.ResponseWriter, r *http.Request) {
 // split removes. The many-side page is PlannerParkBuckets.
 func (h *Handler) PlannerCatalog(w http.ResponseWriter, r *http.Request) {
 	catalog, err := h.service.PlannerCatalog(r.Context(), actor(r), r.URL.Query().Get("period_start_date"))
-	h.respond(w, r, map[string]any{"parks": catalog.Parks, "operators": catalog.Operators, "trace_id": traceID(r)}, err)
+	// "sop" is the PUBLISHED weighing SOP rule set a task planned now is stamped with (WEIGHING
+	// SOP, 2026-09-15); the wizard renders its modes, cap and removal mode from it.
+	h.respond(w, r, map[string]any{"parks": catalog.Parks, "operators": catalog.Operators, "sop": catalog.SOP, "trace_id": traceID(r)}, err)
 }
 
 func (h *Handler) PlannerParkBuckets(w http.ResponseWriter, r *http.Request) {
@@ -838,14 +847,43 @@ func (h *Handler) respond(w http.ResponseWriter, r *http.Request, body any, err 
 		// 422: the farm has no removal cutoff configured, so no fasting-gated
 		// date can be judged. The remedy is a config fix, never a retry.
 		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity, errorEnvelope{Code: "feed_water_removal_cutoff_missing", Message: "The feed and water removal cutoff time is not set up for this farm yet. Ask an admin to set it, then try again.", TraceID: traceID(r)}, nil)
+	// WEIGHING SOP refusals (maintainer decision 2026-09-15): each names what the SOP
+	// decided so the planner or operator knows the remedy is a different plan or a SOP
+	// publish, never a retry.
+	case errors.Is(err, ports.ErrModeNotAllowed):
+		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity, errorEnvelope{Code: "weighing_mode_not_offered", Message: "The weighing SOP does not offer that way of weighing. Pick one of the offered modes, or change the SOP first.", TraceID: traceID(r)}, nil)
+	case errors.Is(err, ports.ErrRemovalNotOffered):
+		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity, errorEnvelope{Code: "feed_water_removal_not_offered", Message: "The weighing SOP has feed and water removal switched off, so this task cannot ask for it.", TraceID: traceID(r)}, nil)
+	case errors.Is(err, ports.ErrWeighDateInPast):
+		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity, errorEnvelope{Code: "weigh_date_in_past", Message: "That date has already passed. Pick today or a later day.", TraceID: traceID(r)}, nil)
+	case errors.Is(err, ports.ErrRemovalChangeLocked):
+		httpresponse.WriteError(w, r, h.log, http.StatusConflict, errorEnvelope{Code: "feed_water_removal_locked", Message: "A pen's feed and water removal was already submitted for this weighing, so the removal cannot be switched off. Plan the change as its own task.", TraceID: traceID(r)}, nil)
+	case errors.Is(err, ports.ErrLumpSumVideoCount):
+		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity, errorEnvelope{Code: "weighing_video_count", Message: "This pen needs a different number of videos than were sent. Check the pen's video count, then submit again.", TraceID: traceID(r)}, nil)
+	case errors.Is(err, ports.ErrSOPVersionUnknown):
+		httpresponse.WriteError(w, r, h.log, http.StatusConflict, errorEnvelope{Code: "weighing_sop_version_unknown", Message: "This task was planned on a weighing SOP version that no longer exists. Ask an admin to check the SOP.", TraceID: traceID(r)}, nil)
+	case errors.Is(err, domain.ErrSOPProofInvalid):
+		var proofErr *domain.ProofError
+		message := "One of the captures is missing or not part of this card. Check the card, then submit again."
+		if errors.As(err, &proofErr) {
+			message = proofErr.Message
+		}
+		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity, errorEnvelope{Code: "fasting_proof_slot_invalid", Message: message, TraceID: traceID(r)}, nil)
+	case errors.Is(err, domain.ErrSOPAnswerInvalid):
+		var answerErr *domain.AnswerError
+		message := "One of the answers is missing or not allowed. Check the answers, then submit again."
+		if errors.As(err, &answerErr) {
+			message = answerErr.Message
+		}
+		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity, errorEnvelope{Code: "fasting_answer_invalid", Message: message, TraceID: traceID(r)}, nil)
 	case errors.Is(err, ports.ErrFastingOperatorRequired):
 		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity, errorEnvelope{Code: "fasting_operator_required", Message: "Choose who will remove feed and water the evening before this weighing.", TraceID: traceID(r)}, nil)
 	case errors.Is(err, ports.ErrFastingNotAssigned):
 		httpresponse.WriteError(w, r, h.log, http.StatusForbidden, errorEnvelope{Code: "fasting_not_assigned", Message: "This feed and water removal is assigned to someone else.", TraceID: traceID(r)}, nil)
 	case errors.Is(err, ports.ErrFastingProofRequired):
-		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity, errorEnvelope{Code: "fasting_proof_required", Message: "Two videos are needed: one of the feed being removed and one of the water being removed.", TraceID: traceID(r)}, nil)
+		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity, errorEnvelope{Code: "fasting_proof_required", Message: "This pen's removal needs its captures before it can be submitted.", TraceID: traceID(r)}, nil)
 	case errors.Is(err, ports.ErrFastingProofInvalid):
-		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity, errorEnvelope{Code: "fasting_proof_invalid", Message: "One of the videos is not ready or was not recorded with the app camera. Record both videos in the app, wait for them to finish uploading, then submit again.", TraceID: traceID(r)}, nil)
+		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity, errorEnvelope{Code: "fasting_proof_invalid", Message: "One of the captures is not ready, is the wrong kind for its slot, or was not taken with the app camera. Record it in the app, wait for it to finish uploading, then submit again.", TraceID: traceID(r)}, nil)
 	case errors.Is(err, ports.ErrFastingAlreadySubmitted):
 		httpresponse.WriteError(w, r, h.log, http.StatusConflict, errorEnvelope{Code: "fasting_already_submitted", Message: "This feed and water removal was already submitted.", TraceID: traceID(r)}, nil)
 	case errors.Is(err, ports.ErrFastingSubmittedDateLocked):
@@ -969,7 +1007,10 @@ func actor(r *http.Request) domain.Actor {
 	for _, grant := range grants {
 		roles = append(roles, grant.Role)
 	}
-	return domain.Actor{TenantID: tenantID(r), UserID: httpmiddleware.ActorIDFromContext(r.Context()), Roles: roles}
+	// When the person's own access rows decided the route, carry that SAME permission set into
+	// the service; otherwise the role map decides there too. See domain.Actor.
+	perms, resolved := httpmiddleware.PersonPermissionsFromContext(r.Context())
+	return domain.Actor{TenantID: tenantID(r), UserID: httpmiddleware.ActorIDFromContext(r.Context()), Roles: roles, Permissions: perms, PermissionsResolved: resolved}
 }
 
 func tenantID(r *http.Request) string { return httpmiddleware.TenantIDFromContext(r.Context()) }
@@ -982,7 +1023,7 @@ func (h *Handler) ExportCampaignCSV(w http.ResponseWriter, r *http.Request) {
 	a := actor(r)
 
 	// Check authorization: WeighingMonitor only
-	if !permissions.RolesAuthorize(a.Roles, []string{permissions.WeighingMonitor}, false) {
+	if !a.Holds(permissions.WeighingMonitor) {
 		httpresponse.WriteError(w, r, h.log, http.StatusForbidden, errorEnvelope{
 			Code:    "permission_denied",
 			Message: "requires weighing monitor permission",
@@ -1044,7 +1085,7 @@ func (h *Handler) ExportCSV(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	a := actor(r)
 
-	if !permissions.RolesAuthorize(a.Roles, []string{permissions.WeighingMonitor}, false) {
+	if !a.Holds(permissions.WeighingMonitor) {
 		httpresponse.WriteError(w, r, h.log, http.StatusForbidden, errorEnvelope{
 			Code:    "permission_denied",
 			Message: "requires weighing monitor permission",

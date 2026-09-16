@@ -179,6 +179,8 @@ import (
 	weighingverificationbridge "github.com/vgoats/goatos/backend/internal/weighing/adapters/verificationbridge"
 	weighingapp "github.com/vgoats/goatos/backend/internal/weighing/app"
 	weighingdomain "github.com/vgoats/goatos/backend/internal/weighing/domain"
+	weighingsoppg "github.com/vgoats/goatos/backend/internal/weighingsop/adapters/postgres"
+	weighingsopapp "github.com/vgoats/goatos/backend/internal/weighingsop/app"
 	workforcehttp "github.com/vgoats/goatos/backend/internal/workforce/adapters/http"
 	workforcepg "github.com/vgoats/goatos/backend/internal/workforce/adapters/postgres"
 	workforceapp "github.com/vgoats/goatos/backend/internal/workforce/app"
@@ -565,7 +567,11 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	sopService := sopapp.NewService(sopRepo).WithProofValidator(proofService).
 		WithTaskTypeSource(sopRepo).
 		// The animal-purchase inspection document is validated by the module that compiles it.
-		WithFormDSLContract(animalpurchaseapp.InspectionSOPContract)
+		WithFormDSLContract(animalpurchaseapp.InspectionSOPContract).
+		// WEIGHING SOP (maintainer decision 2026-09-15): the weighing.session version's
+		// `weighing` section is validated here so a document the planner could not run
+		// is never saved.
+		WithFormDSLContract(weighingsopapp.WeighingSOPContract)
 
 	protocolRepo := protocolpg.NewRepository(pool, cfg.Postgres.QueryTimeout)
 	obligationRepo := obligationpg.NewRepository(pool, cfg.Postgres.QueryTimeout)
@@ -592,7 +598,10 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 		// The fasting (feed & water removal) precondition store rides the same
 		// repository (maintainer decision 2026-09-03, weighing/domain/fasting.go).
 		WithFastingStore(weighingRepo).
-		WithFeedWaterRemovalCutoff(feedWaterRemovalCutoffs)
+		WithFeedWaterRemovalCutoff(feedWaterRemovalCutoffs).
+		// WEIGHING SOP: the rules a task is planned on and runs under, read through the
+		// out-of-package adapter (weighing itself never names sop_versions).
+		WithSOPRules(weighingsoppg.NewRulesSource(pool, cfg.Postgres.QueryTimeout), weighingRepo)
 	weighingHandler := weighinghttp.NewHandler(weighingService, log).WithMediaResolver(proofService)
 	// Growth Director: read-only reporting over weighing + herd + feed tables.
 	// Deliberately its OWN module, outside backend/internal/weighing, because

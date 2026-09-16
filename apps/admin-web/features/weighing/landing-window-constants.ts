@@ -19,3 +19,49 @@ export const WINDOW_MIN_DATE = "2026-08-01";
 
 export const LATEST_LUMP_LOOKBACK_DAYS = 400;
 export const BUSINESS_DAY = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * The Weights pages' window settings, authored on the Weighing SOP (`weights_pages`, maintainer
+ * request 2026-09-16) and served on both pages' contract copy by the backend. The constants are
+ * the fallback for a contract that carries none (an older backend), which is the seeded document.
+ */
+export type WeightsWindowSettings = {
+  /** The day the pages open from. */
+  defaultFrom: string;
+  /** The earliest day the calendars offer; earlier days are disabled. */
+  earliestDate: string;
+};
+
+export function weightsWindowSettings(copyMap: Record<string, string> | undefined, today: string): WeightsWindowSettings {
+  const get = (key: string) => copyMap?.[key]?.trim() ?? "";
+  const earliestRaw = get("weights.window.earliest_date");
+  const earliestDate = BUSINESS_DAY.test(earliestRaw) ? earliestRaw : WINDOW_MIN_DATE;
+  let defaultFrom = DEFAULT_WINDOW_FROM;
+  const mode = get("weights.window.default_from_mode");
+  if (mode === "rolling_days") {
+    const days = Number.parseInt(get("weights.window.default_from_days"), 10);
+    if (Number.isFinite(days) && days >= 1) defaultFrom = shiftIsoDay(today, -(days - 1));
+  } else if (mode === "fixed_date") {
+    const fixed = get("weights.window.default_from_date");
+    if (BUSINESS_DAY.test(fixed)) defaultFrom = fixed;
+  }
+  // The window never starts before the earliest offerable day, whatever the document says.
+  if (defaultFrom < earliestDate) defaultFrom = earliestDate;
+  return { defaultFrom, earliestDate };
+}
+
+/** Adds `days` (negative allowed) to a "YYYY-MM-DD" business date, calendar arithmetic only. */
+function shiftIsoDay(iso: string, days: number): string {
+  const [y, m, d] = iso.split("-").map(Number);
+  const t = Date.UTC(y, (m ?? 1) - 1, d ?? 1) + days * 86_400_000;
+  return new Date(t).toISOString().slice(0, 10);
+}
+
+/** Keep the authored start when the latest weighing predates it: render an empty
+ * current period instead of sending an inverted range to the reporting APIs. */
+export function windowThroughLatest(today: string, latest: string, settings?: WeightsWindowSettings): { from: string; to: string } {
+  const requestedFrom = settings?.defaultFrom ?? DEFAULT_WINDOW_FROM;
+  const from = requestedFrom > today ? today : requestedFrom;
+  const end = BUSINESS_DAY.test(latest) && latest <= today && latest >= from ? latest : today;
+  return { from, to: end };
+}

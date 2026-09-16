@@ -521,10 +521,22 @@ func (s *Service) resolveMedia(ctx context.Context, tenantID string, items []dom
 		def := s.categoryFor(it.Category)
 		media := make([]domain.MediaItem, 0, len(refs))
 		for j, id := range refs {
+			// The producer's own per-proof label and kind (item.MediaMeta, positional) win: an
+			// authored removal slot is a "photo" titled by its SOP, whatever the registry's
+			// positional copy says. The registry is the fallback for items that carry none.
+			mime := declaredMimeType(def, j)
+			label := ""
+			if j < len(it.MediaMeta) {
+				if m := it.MediaMeta[j].MimeType(); m != "" {
+					mime = m
+				}
+				label = strings.TrimSpace(it.MediaMeta[j].Label)
+			}
 			media = append(media, domain.MediaItem{
 				ProofID:     id,
+				Label:       label,
 				DownloadURL: "/app/proofs/" + id + "/download",
-				MimeType:    declaredMimeType(def, j),
+				MimeType:    mime,
 			})
 		}
 		labelMedia(media, def)

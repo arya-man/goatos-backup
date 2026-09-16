@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -21,19 +22,29 @@ import (
 // applied inside the store's SQL with the service clock bound as a parameter;
 // this method only decides WHO is asking.
 func (s *Service) ListMyFastingShedCards(ctx context.Context, actor domain.Actor, cursor string, limit int) (domain.FastingShedCardPage, error) {
-	if !permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingExecute}, false) {
+	if !actor.Holds(permissions.WeighingExecute) {
 		return domain.FastingShedCardPage{}, ports.ErrForbidden
 	}
 	if s.fasting == nil {
 		return domain.FastingShedCardPage{}, ports.ErrNotFound
 	}
-	// The visibility window opens at the tenant's CONFIGURED cutoff; resolved
-	// here and bound into the store's SQL so the read names no config table.
-	cutoff, err := s.removalCutoff(ctx, actor.TenantID)
+	// The visibility window opens at the removal cutoff of each card's PINNED weighing SOP
+	// version -- its own evening when it sets one, else the farm's config -- resolved here per
+	// version and bound into the store's SQL so the read names no config or SOP table. The
+	// evening a card prints is the evening it opens at, whatever a later publish chose.
+	cutoffs, err := s.removalCardCutoffs(ctx, actor.TenantID, actor.UserID)
 	if err != nil {
 		return domain.FastingShedCardPage{}, err
 	}
-	return s.fasting.ListFastingShedCardsForOperator(ctx, actor.TenantID, actor.UserID, s.clock(), cutoff, cursor, limit)
+	page, err := s.fasting.ListFastingShedCardsForOperator(ctx, actor.TenantID, actor.UserID, s.clock(), cutoffs, cursor, limit)
+	if err != nil {
+		return domain.FastingShedCardPage{}, err
+	}
+	// WEIGHING SOP: every card carries its task's pinned instruction, slot copy and questions.
+	if err := s.removalCardCopy(ctx, actor.TenantID, page.Items); err != nil {
+		return domain.FastingShedCardPage{}, err
+	}
+	return page, nil
 }
 
 // SubmitFastingShed records ONE shed's removal videos. The round's midnight
@@ -42,7 +53,7 @@ func (s *Service) ListMyFastingShedCards(ctx context.Context, actor domain.Actor
 // shed's submit. Verification is post-hoc and follows the EVIDENCE: one item
 // per shed, carrying that shed's feed and water clips and naming the shed.
 func (s *Service) SubmitFastingShed(ctx context.Context, actor domain.Actor, cmd domain.SubmitFastingShed) (domain.FastingShedCard, error) {
-	if !permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingExecute}, false) {
+	if !actor.Holds(permissions.WeighingExecute) {
 		return domain.FastingShedCard{}, ports.ErrForbidden
 	}
 	if s.fasting == nil {
@@ -54,24 +65,71 @@ func (s *Service) SubmitFastingShed(ctx context.Context, actor domain.Actor, cmd
 		strings.TrimSpace(cmd.IdempotencyKey) == "" {
 		return domain.FastingShedCard{}, ports.ErrInvalidArgument
 	}
-	// BOTH videos, always. A missing ref is the named proof error so the
-	// operator is told which work is owed, never a generic 400.
-	if strings.TrimSpace(cmd.FeedProofRef) == "" || strings.TrimSpace(cmd.WaterProofRef) == "" {
-		return domain.FastingShedCard{}, ports.ErrFastingProofRequired
+	// WEIGHING SOP: the captures and the authored questions are judged by the rules the task
+	// was PLANNED on -- the same document the card rendered -- never by a later publish. The
+	// task is read as the caller (assignment predicate inside the query), so an unassigned
+	// caller learns nothing here that the submit would not tell them.
+	task, err := s.fasting.FastingTaskByID(ctx, actor.TenantID, cmd.FastingTaskID, actor.UserID)
+	if err != nil {
+		return domain.FastingShedCard{}, err
 	}
-	if !uuidutil.IsUUIDString(cmd.FeedProofRef) || !uuidutil.IsUUIDString(cmd.WaterProofRef) {
-		return domain.FastingShedCard{}, ports.ErrInvalidArgument
+	rules, err := s.rulesForCampaign(ctx, actor.TenantID, task.CampaignID)
+	if err != nil {
+		return domain.FastingShedCard{}, err
 	}
+	// An older phone sends the legacy pair; it maps onto the seeded slots. A document that
+	// renamed or dropped those slots refuses it by name below -- that phone must update.
+	cmd.Proofs = domain.NormalizeRemovalProofRefs(cmd.Proofs)
+	if len(cmd.Proofs) == 0 {
+		if strings.TrimSpace(cmd.FeedProofRef) == "" || strings.TrimSpace(cmd.WaterProofRef) == "" {
+			return domain.FastingShedCard{}, ports.ErrFastingProofRequired
+		}
+		cmd.Proofs = domain.RemovalProofRefs{domain.RemovalProofFeed: strings.TrimSpace(cmd.FeedProofRef), domain.RemovalProofWater: strings.TrimSpace(cmd.WaterProofRef)}
+	}
+	for _, ref := range cmd.Proofs {
+		if !uuidutil.IsUUIDString(ref) {
+			return domain.FastingShedCard{}, ports.ErrInvalidArgument
+		}
+	}
+	ordered, err := rules.ValidateRemovalProofRefs(cmd.Proofs)
+	if err != nil {
+		return domain.FastingShedCard{}, err
+	}
+	cmd.OrderedRefs = ordered
+	cmd.SlotKinds = map[string]string{}
+	for _, slot := range rules.RemovalProofs() {
+		cmd.SlotKinds[slot.Key] = slot.Kind
+	}
+	// The legacy columns mirror the seeded slots for older readers.
+	cmd.FeedProofRef = cmd.Proofs[domain.RemovalProofFeed]
+	cmd.WaterProofRef = cmd.Proofs[domain.RemovalProofWater]
+	if cmd.Answers == nil {
+		cmd.Answers = domain.SOPAnswers{}
+	}
+	if err := rules.ValidateRemovalAnswers(cmd.Answers); err != nil {
+		return domain.FastingShedCard{}, err
+	}
+	cmd.Answers = rules.NormalizeRemovalAnswers(cmd.Answers)
 	result, err := s.fasting.SubmitFastingShed(ctx, cmd)
 	if err != nil {
 		return domain.FastingShedCard{}, err
+	}
+	if !result.Replayed || result.Card.Proofs == nil {
+		result.Card.SOPVersion = rules.Version
+		result.Card.Instruction = rules.FeedWaterRemoval.Instruction
+		result.Card.Proofs = rules.RemovalProofs()
+		result.Card.Questions = rules.FeedWaterRemoval.Questions
+		if result.Card.Questions == nil {
+			result.Card.Questions = []domain.SOPQuestion{}
+		}
 	}
 	// A replay may be the operator retrying after the submit committed but the
 	// post-commit verification enqueue failed. Re-run the enqueue from the
 	// replayed evidence; CreateItem is idempotent on this key, so an already
 	// raised item no-ops while a missing item is repaired.
 	if result.Evidence.FastingShedID != "" && result.Task.FastingTaskID != "" {
-		if err := s.enqueueFastingShedVerification(ctx, result.Task, result.Evidence); err != nil {
+		mediaRefs := orderedRefs(rules, result.Evidence)
+		if err := s.enqueueFastingShedVerification(ctx, result.Task, result.Evidence, mediaRefs, mediaMetaFor(rules, result.Evidence, mediaRefs), answerRowsFor(rules, result.Evidence)); err != nil {
 			return domain.FastingShedCard{}, err
 		}
 	}
@@ -82,7 +140,88 @@ func (s *Service) SubmitFastingShed(ctx context.Context, actor domain.Actor, cmd
 // evidence — feed then water, in capture order — keyed on the shed row and its
 // submitted row_version so an exact replay no-ops while a rework re-submit
 // (which bumps the row) mints a fresh round for that shed alone.
-func (s *Service) enqueueFastingShedVerification(ctx context.Context, task domain.FastingTask, shed domain.FastingShedProof) error {
+// orderedRefs lists a shed's recorded captures in the pinned document's slot order (a replay
+// re-reads them from the evidence row), falling back to the legacy pair for a row written
+// before slots existed.
+func orderedRefs(rules domain.Rules, shed domain.FastingShedProof) []string {
+	if len(shed.Proofs) == 0 {
+		refs := []string{}
+		for _, ref := range []string{shed.FeedProofRef, shed.WaterProofRef} {
+			if ref != "" {
+				refs = append(refs, ref)
+			}
+		}
+		return refs
+	}
+	out := make([]string, 0, len(shed.Proofs))
+	seen := map[string]bool{}
+	for _, slot := range rules.RemovalProofs() {
+		if ref := shed.Proofs[slot.Key]; ref != "" && !seen[ref] {
+			out = append(out, ref)
+			seen[ref] = true
+		}
+	}
+	// A capture on a slot the pinned document no longer names (never under the pin, belt and
+	// braces) still reaches the verifier rather than vanishing.
+	keys := make([]string, 0, len(shed.Proofs))
+	for k := range shed.Proofs {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		if ref := shed.Proofs[k]; ref != "" && !seen[ref] {
+			out = append(out, ref)
+			seen[ref] = true
+		}
+	}
+	return out
+}
+
+// mediaMetaFor names each ordered ref for the verifier: the pinned slot's title and the kind the
+// register judged the capture to be (an `either` slot's answer), else the slot's own kind. A ref
+// on no known slot (legacy pair, or a slot the pin no longer names) carries no meta and renders
+// the registry's positional copy, exactly as before authored slots.
+func mediaMetaFor(rules domain.Rules, shed domain.FastingShedProof, refs []string) []VerificationMediaMeta {
+	if len(shed.Proofs) == 0 {
+		return nil
+	}
+	slotByRef := map[string]domain.RemovalProofSlot{}
+	for _, slot := range rules.RemovalProofs() {
+		if ref := shed.Proofs[slot.Key]; ref != "" {
+			slotByRef[ref] = slot
+		}
+	}
+	out := make([]VerificationMediaMeta, len(refs))
+	for i, ref := range refs {
+		slot, ok := slotByRef[ref]
+		if !ok {
+			continue
+		}
+		kind := shed.ProofKinds[ref]
+		if kind == "" && slot.Kind != domain.RemovalProofKindEither {
+			kind = slot.Kind
+		}
+		out[i] = VerificationMediaMeta{Label: slot.Title, Kind: kind}
+	}
+	return out
+}
+
+// answerRowsFor renders the pen's recorded answers under the pinned questions for the verifier
+// (PR #274 review round 3, finding 2). Read from the EVIDENCE row so an exact replay that must
+// re-raise the item carries the same rows the first enqueue did.
+func answerRowsFor(rules domain.Rules, shed domain.FastingShedProof) []VerificationContextRow {
+	rows := rules.RemovalAnswerRows(shed.Answers)
+	if len(rows) == 0 {
+		return nil
+	}
+	out := make([]VerificationContextRow, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, VerificationContextRow{Label: r.Label, Value: r.Value})
+	}
+	return out
+}
+
+func (s *Service) enqueueFastingShedVerification(ctx context.Context, task domain.FastingTask, shed domain.FastingShedProof, mediaRefs []string, meta []VerificationMediaMeta, context []VerificationContextRow) error {
 	if s.enqueuer == nil {
 		return nil
 	}
@@ -91,7 +230,9 @@ func (s *Service) enqueueFastingShedVerification(ctx context.Context, task domai
 		Category:       domain.VerificationRefTypeFasting,
 		ObservationID:  shed.FastingShedID,
 		CampaignID:     task.CampaignID,
-		MediaRefs:      []string{shed.FeedProofRef, shed.WaterProofRef},
+		MediaRefs:      mediaRefs,
+		MediaMeta:      meta,
+		ContextRows:    context,
 		OperatorID:     task.OperatorUserID,
 		ShedID:         shed.ShedLocationID,
 		ParkID:         task.ParkID,

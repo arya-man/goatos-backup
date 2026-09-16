@@ -194,7 +194,7 @@ test("the Sex filter is a PAGE filter: every read carries it, and the page never
   // kid is the explicit `sex=all`, which the reads still see as "" -- the value the backend
   // resolver reads as "no filter", so the unfiltered page runs the query it always ran.
   assert.match(source, /rawSex === "female" \? "female" : rawSex === "all" \? "" : "male"/);
-  assert.match(source, /landingWindow\(\s*\n\s*params,\s*\n\s*today,\s*\n\s*parkFilter,\s*\n\s*sexFilter,\s*\n\s*originFilter,\s*\n\s*weighingCategoryFilter,\s*\n\s*\)/);
+  assert.match(source, /landingWindow\(\s*\n\s*params,\s*\n\s*today,\s*\n\s*parkFilter,\s*\n\s*sexFilter,\s*\n\s*originFilter,\s*\n\s*weighingCategoryFilter,\s*\n\s*windowSettings,\s*\n\s*\)/);
   assert.match(source, /getShedWeights\(\{ \.\.\.scope, \.\.\.window \}\)/);
   for (const read of ["getShedWeights"]) {
     assert.match(

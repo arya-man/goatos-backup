@@ -2841,6 +2841,37 @@ Purpose:
   inspection may be a Go constant or a phone string again; the legacy Go catalog is the golden
   oracle for the seeded v1 only (`make procurement-sop-guard`). Canonical prose:
   `docs/decisions/procurement-sop.md`.
+  **WEIGHING SOP (maintainer decision 2026-09-15): `/weighing/sops` stops being a library
+  document and DRIVES weighing.** The rules a weighing task is planned on and runs under -- the
+  ways of weighing the planner may pick and the default cap; whether the evening-before FEED &
+  WATER REMOVAL is `required` (every task, the 2026-09-03 rule) / **`optional` (the planner
+  decides per task, on by default)** / `off` (never), the removal EVENING (`cutoff_time`;
+  blank = the farm-wide `feed_water_removal_config` evening shared with deworming), the removal
+  card's instruction, its CAPTURES (up to eight authored slots, each video / photo / either,
+  compulsory or optional -- the evidence row stores them slot-keyed, `sop_proofs`, and the
+  verifier item names each proof by its slot title and kind through
+  `verification_items.media_meta`) and extra QUESTIONS the removal operator answers per pen; and
+  the lump-sum video window; and the admin-web Weights / ADG Analytics pages' WINDOW (the
+  period they open on, fixed date or rolling days, and the earliest calendar day; page
+  settings read from the published version, never pinned) -- are `form_dsl.weighing` of the
+  PUBLISHED `weighing.session` version.
+  The backend validates it at save (`weighingsop/app.WeighingSOPContract`), the create is
+  STAMPED with the version (`weighing_campaigns.sop_version`) and the task runs on that version
+  to the end (edit, lump-sum submit, removal card and its answers all read the PIN, never the
+  latest publish). The seeded document is the pre-SOP behaviour byte for byte and migration
+  000315 adds it IN PLACE to the published version, so deploy changes nothing. WEIGHING STAYS
+  ISOLATED: `backend/internal/weighing` never names `sop_versions`; it holds
+  `ports.SOPRulesSource` and the only file naming the SOP tables on its behalf is
+  `backend/internal/weighingsop/adapters/postgres/rules_source.go` (the `feedwaterremoval`
+  shape). NOT authorable and never will be from that document: free-flow capture, the
+  no-duplicate-scan rule, evidence-grain verification, the approve-carries-the-weight
+  correction, the unconditional close gate, and the per-animal video (shown locked on; `false`
+  is refused). WHO MAY PLAN is not in the document either: it is the per-person Weighing "Set
+  up" tick on `/people` (`weighing.plan`), and the weighing service judges from the
+  person-resolved permission set (`domain.Actor.Holds`), never the role map alone. A task's card
+  OPENS at its pinned version's evening, whatever a later publish chose. No weighing rule the
+  document names may be a Go literal, a phone constant or a web string again
+  (`make weighing-sop-guard`). Canonical prose: `docs/decisions/weighing-sop.md`.
   **SOP split EXTENSION (maintainer decision 2026-08-22): `/milk/sops` (Milk
   SOP: preparation / feeding) and `/weighing/sops` (Weighing SOP: the
   scan-and-submit session) join the same shape** — the same `sop-library`

@@ -8,6 +8,7 @@ function report(overrides = {}) {
     git_sha: "before-sha",
     actor: { user_id: "actor-a", tenant_id: "11111111-1111-4111-8111-111111111111" },
     actor_identity_source: "/app/me",
+    weighing_policy: {source: "/admin-web/bootstrap", copy: {}},
     tenant_id: "11111111-1111-4111-8111-111111111111",
     manifest_sha256: "manifest-hash",
     iterations: 15,
@@ -119,4 +120,9 @@ test("rejects missing or different authenticated actors with otherwise equal wor
     assert.ok(compareApiLatencyEvidence(before, report({ git_sha: "after-sha", actor })).some((f) => /actor/.test(f)));
   }
   assert.ok(compareApiLatencyEvidence(report({ actor: undefined }), report({ git_sha: "after-sha", actor: undefined })).some((f) => /actor/.test(f)));
+});
+
+test("rejects changed authored Weights policy with otherwise equal workloads", () => {
+  const after = report({git_sha:"after-sha", weighing_policy:{source:"/admin-web/bootstrap",copy:{"weights.window.default_from_mode":"rolling_days"}}});
+  assert.ok(compareApiLatencyEvidence(report(), after).some(f => /Weights page policy/.test(f)));
 });

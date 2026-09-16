@@ -2,6 +2,7 @@ package sg.mesha.goatos.core.network.dto
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonObject
 
 @Serializable
 data class WeighingProgressDto(
@@ -112,6 +113,13 @@ data class WeighingCampaignDto(
     @SerialName("fasting_operator_user_id") val fastingOperatorUserId: String = "",
     /** The removal task's current state (open / pending_verification / completed / rework). Blank when absent. */
     @SerialName("fasting_status") val fastingStatus: String = "",
+    /**
+     * WEIGHING SOP (maintainer decision 2026-09-15): the weighing.session SOP version this task was
+     * PLANNED on and runs under to the end (0 = the seeded rules), and its compiled rule set on the
+     * single-task read. The phone renders the lump-sum video cap and the removal copy from it.
+     */
+    @SerialName("sop_version") val sopVersion: Int = 0,
+    @SerialName("sop") val sop: WeighingSopRulesDto? = null,
     @SerialName("sheds") val sheds: List<WeighingCampaignShedDto> = emptyList(),
     @SerialName("progress") val progress: WeighingProgressDto = WeighingProgressDto(),
 )
@@ -251,7 +259,106 @@ data class WeighingCampaignListResponseDto(
 data class WeighingPlannerCatalogResponseDto(
     @SerialName("parks") val parks: List<WeighingPlannerParkDto> = emptyList(),
     @SerialName("operators") val operators: List<WeighingPlannerOperatorDto> = emptyList(),
+    /**
+     * The PUBLISHED weighing SOP's rule set a task planned now is stamped with (WEIGHING SOP,
+     * 2026-09-15): the wizard renders its capture modes, default cap and feed & water removal mode
+     * from it. Null only on an older server, where the wizard falls back to the seeded behaviour
+     * (removal required on every task).
+     */
+    @SerialName("sop") val sop: WeighingSopRulesDto? = null,
     @SerialName("trace_id") val traceId: String? = null,
+)
+
+/**
+ * The compiled weighing.session SOP rule set (`form_dsl.weighing`, schema goatos.sop-weighing.v1)
+ * at one version. Rendered verbatim; the phone holds no rule of its own.
+ */
+@Serializable
+data class WeighingSopRulesDto(
+    @SerialName("version") val version: Int = 0,
+    @SerialName("schema_version") val schemaVersion: String = "",
+    @SerialName("planning") val planning: WeighingSopPlanningDto = WeighingSopPlanningDto(),
+    @SerialName("feed_water_removal") val feedWaterRemoval: WeighingSopRemovalDto = WeighingSopRemovalDto(),
+    @SerialName("capture") val capture: WeighingSopCaptureDto = WeighingSopCaptureDto(),
+)
+
+@Serializable
+data class WeighingSopPlanningDto(
+    /** Capture modes the planner may assign: individual_animal / per_shed_partition. */
+    @SerialName("modes") val modes: List<String> = listOf("individual_animal", "per_shed_partition"),
+    @SerialName("default_cap_per_day") val defaultCapPerDay: Int = 100,
+)
+
+@Serializable
+data class WeighingSopRemovalDto(
+    /** required = every task; optional = the planner decides per task (default on); off = never. */
+    @SerialName("mode") val mode: String = "required",
+    /** The EFFECTIVE removal evening, "HH:MM" IST (the SOP's own or the farm's); blank under off. */
+    @SerialName("cutoff_time") val cutoffTime: String = "",
+    /** Operator-facing sentence on every removal card; rendered verbatim. */
+    @SerialName("instruction") val instruction: String = "",
+    @SerialName("proofs") val proofs: List<WeighingRemovalProofSlotDto> = emptyList(),
+    @SerialName("questions") val questions: List<WeighingSopQuestionDto> = emptyList(),
+)
+
+@Serializable
+data class WeighingRemovalProofSlotDto(
+    /** The SOP's slot key (the seed's are feed_video / water_video). */
+    @SerialName("key") val key: String = "",
+    @SerialName("title") val title: String = "",
+    @SerialName("hint") val hint: String = "",
+    /** video | photo | either. */
+    @SerialName("kind") val kind: String = "video",
+    @SerialName("required") val required: Boolean = true,
+)
+
+/**
+ * One authored removal-card question (choice / multi / text / number). Answer shapes: choice = the
+ * option value (an "other" free text rides under `<id>_other`); multi = array of option values;
+ * number = a JSON number; text = a string.
+ */
+@Serializable
+data class WeighingSopQuestionDto(
+    @SerialName("id") val id: String,
+    @SerialName("kind") val kind: String = "",
+    @SerialName("title") val title: String = "",
+    @SerialName("hint") val hint: String = "",
+    @SerialName("required") val required: Boolean = false,
+    @SerialName("options") val options: List<WeighingSopOptionDto> = emptyList(),
+    @SerialName("allow_other") val allowOther: Boolean = false,
+    @SerialName("min") val min: Double? = null,
+    @SerialName("max") val max: Double? = null,
+    @SerialName("unit") val unit: String = "",
+    @SerialName("only_if") val onlyIf: WeighingSopConditionDto? = null,
+)
+
+@Serializable
+data class WeighingSopOptionDto(
+    @SerialName("value") val value: String = "",
+    @SerialName("label") val label: String = "",
+)
+
+@Serializable
+data class WeighingSopConditionDto(
+    @SerialName("question_id") val questionId: String = "",
+    @SerialName("value") val value: String = "",
+)
+
+@Serializable
+data class WeighingSopCaptureDto(
+    @SerialName("individual") val individual: WeighingSopIndividualCaptureDto = WeighingSopIndividualCaptureDto(),
+    @SerialName("lump_sum") val lumpSum: WeighingSopLumpSumCaptureDto = WeighingSopLumpSumCaptureDto(),
+)
+
+@Serializable
+data class WeighingSopIndividualCaptureDto(
+    @SerialName("video_required") val videoRequired: Boolean = true,
+)
+
+@Serializable
+data class WeighingSopLumpSumCaptureDto(
+    @SerialName("video_min") val videoMin: Int = 1,
+    @SerialName("video_max") val videoMax: Int = 5,
 )
 
 @Serializable
@@ -333,6 +440,12 @@ data class WeighingCreateCampaignRequestDto(
      * decide it, never inherit an accidental blank.
      */
     @SerialName("fasting_operator_user_id") val fastingOperatorUserId: String,
+    /**
+     * WEIGHING SOP (2026-09-15): the planner's per-task choice when the published SOP has the removal
+     * `optional`. Null = not said (an older server ignores it; under `optional` the operator's
+     * presence decides); false = no removal for THIS task. Ignored under `required` / `off`.
+     */
+    @SerialName("feed_water_removal_requested") val feedWaterRemovalRequested: Boolean? = null,
     @SerialName("sheds") val sheds: List<WeighingCreateCampaignShedDto>,
 )
 
@@ -385,6 +498,23 @@ data class WeighingFastingShedCardDto(
     /** The ROUND's stamp — set only when EVERY shed of the round is submitted. */
     @SerialName("submitted_at") val submittedAt: String? = null,
     @SerialName("row_version") val rowVersion: Int = 0,
+    /**
+     * WEIGHING SOP (2026-09-15): the task's pinned SOP copy for this card — the operator sentence,
+     * the two proof slots' titles and hints (feed then water), the authored questions answered with
+     * the clips, and any answers already recorded on this shed. Rendered verbatim.
+     */
+    @SerialName("instruction") val instruction: String = "",
+    @SerialName("proofs") val proofs: List<WeighingRemovalProofSlotDto> = emptyList(),
+    @SerialName("questions") val questions: List<WeighingSopQuestionDto> = emptyList(),
+    @SerialName("answers") val answers: JsonObject = JsonObject(emptyMap()),
+    /** {slot key: proof ref} already recorded on this shed. */
+    @SerialName("proof_refs") val proofRefs: Map<String, String> = emptyMap(),
+    /**
+     * {slot key: video | photo} -- the kind the register judged each recorded capture to be,
+     * which an `either` slot cannot say on its own; picks the player when the card is reopened
+     * with no local state.
+     */
+    @SerialName("proof_kinds") val proofKinds: Map<String, String> = emptyMap(),
 )
 
 /** ONE keyset page of the caller's per-shed removal cards, newest window first. */
@@ -403,8 +533,13 @@ data class WeighingFastingShedCardListResponseDto(
  */
 @Serializable
 data class SubmitWeighingFastingShedRequestDto(
-    @SerialName("feed_proof_ref") val feedProofRef: String,
-    @SerialName("water_proof_ref") val waterProofRef: String,
+    /** LEGACY mirrors of the seeded feed_video / water_video slots; null when the SOP has no such slot. */
+    @SerialName("feed_proof_ref") val feedProofRef: String? = null,
+    @SerialName("water_proof_ref") val waterProofRef: String? = null,
+    /** Answers to the card's authored questions, keyed by question id (WEIGHING SOP). */
+    @SerialName("answers") val answers: JsonObject = JsonObject(emptyMap()),
+    /** {slot key: proof ref} for every capture the card asked for (WEIGHING SOP). */
+    @SerialName("proofs") val proofs: Map<String, String> = emptyMap(),
 )
 
 @Serializable

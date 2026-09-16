@@ -447,7 +447,7 @@ export interface paths {
         };
         /**
          * Export recent leadership-visible Weighing rows as CSV.
-         * @description Streams a CSV attachment across the caller's WeighingMonitor park scope, optionally narrowed to one park and selected shed locations. The default window is today plus the previous 35 business dates (36 inclusive dates); an explicit range up to 366 days is served. Columns follow the operations Weight-check sheet, minus its video-link column: date, rfid, rfid_2, old_id, old_id_suffix, breed, gender, park, shed, type, count, operator, approval, verified_weight_kg. Pending video verification is included and reported in `approval` (approved / rejected / pending); it is not filtered out.
+         * @description Streams a CSV attachment across the caller's WeighingMonitor park scope, optionally narrowed to one park and selected shed locations. The default window is today plus the previous 35 business dates (36 inclusive dates); an explicit report range (including SOP-authored multi-year windows) is served. Columns follow the operations Weight-check sheet, minus its video-link column: date, rfid, rfid_2, old_id, old_id_suffix, breed, gender, park, shed, type, count, operator, approval, verified_weight_kg. Pending video verification is included and reported in `approval` (approved / rejected / pending); it is not filtered out.
          */
         get: operations["exportWeighingCsv"];
         put?: never;
@@ -13806,8 +13806,84 @@ export interface components {
              * @enum {string}
              */
             fasting_status?: "open" | "pending_verification" | "completed" | "rework";
+            /** @description The weighing.session SOP version this task was PLANNED on and runs under to the end (WEIGHING SOP, maintainer decision 2026-09-15). 0 = the seeded rules (a task planned before the rule existed, or a tenant that never published one). */
+            sop_version?: number;
+            sop?: components["schemas"]["WeighingSOPRules"];
             sheds?: components["schemas"]["WeighingCampaignShed"][];
             progress: components["schemas"]["WeighingProgress"];
+        };
+        /** @description The compiled weighing.session SOP rule set (form_dsl.weighing, schema goatos.sop-weighing.v1) at one version. Served on the planner catalog (the PUBLISHED version a new task is stamped with) and on the single-task read (the task's PINNED version). Clients render it; they hold no rule of their own. */
+        WeighingSOPRules: {
+            version: number;
+            schema_version: string;
+            planning: {
+                /** @description The capture modes the planner may assign; at least one. */
+                modes: ("individual_animal" | "per_shed_partition")[];
+                default_cap_per_day: number;
+            };
+            feed_water_removal: {
+                /**
+                 * @description required = every task carries the evening-before removal (the 2026-09-03 rule); optional = the planner chooses per task, default on; off = no task carries it and the wizard offers no removal step.
+                 * @enum {string}
+                 */
+                mode: "required" | "optional" | "off";
+                /** @description Operator-facing sentence on every removal card; rendered verbatim. */
+                instruction?: string;
+                /** @description The removal evening this task runs against, HH:MM Asia/Kolkata wall clock — the weighing SOP's own when its document sets one, else the farm-wide feed_water_removal_config evening. Always the EFFECTIVE value on a served rule set; the phone renders it and never resolves it. Absent only under `off`, or when the farm has no evening at all (the create then refuses). */
+                cutoff_time?: string;
+                proofs: components["schemas"]["WeighingRemovalProofSlot"][];
+                questions: components["schemas"]["WeighingSOPQuestion"][];
+            };
+            capture: {
+                individual: {
+                    /** @description Always true; the per-animal video is the evidence the verifier reviews. */
+                    video_required: boolean;
+                };
+                lump_sum: {
+                    video_min: number;
+                    video_max: number;
+                };
+            };
+            /** @description The admin-web Weights / ADG Analytics pages' window (maintainer request 2026-09-16): the period the pages open on (a fixed date, or N days back from today) and the earliest day their calendars offer. Page settings from the PUBLISHED version; not pinned per task. Absent on a document published before the block existed, which the server reads as the seeded values. */
+            weights_pages?: {
+                /** @enum {string} */
+                default_from_mode: "fixed_date" | "rolling_days";
+                /** Format: date */
+                default_from_date?: string;
+                default_from_days?: number;
+                /** Format: date */
+                earliest_date: string;
+            };
+        };
+        /** @description One capture the removal card asks for. The slot LIST is authored on the weighing SOP (second 2026-09-15 decision): a slot may be added, removed, re-worded, be a live-camera video, a photo or either, and be compulsory or optional. The seed's two slots are feed_video and water_video. */
+        WeighingRemovalProofSlot: {
+            key: string;
+            title: string;
+            hint?: string;
+            /** @enum {string} */
+            kind: "video" | "photo" | "either";
+            required: boolean;
+        };
+        /** @description One authored removal-card question. Answer shapes: choice = the option value (an "other" free text rides under "<id>_other"); multi = array of option values; number = a JSON number; text = a string. */
+        WeighingSOPQuestion: {
+            id: string;
+            /** @enum {string} */
+            kind: "choice" | "multi" | "text" | "number";
+            title: string;
+            hint?: string;
+            required: boolean;
+            options?: {
+                value: string;
+                label: string;
+            }[];
+            allow_other?: boolean;
+            min?: number;
+            max?: number;
+            unit?: string;
+            only_if?: {
+                question_id: string;
+                value: string;
+            };
         };
         WeighingCampaignListResponse: {
             items: components["schemas"]["WeighingCampaign"][];
@@ -14122,6 +14198,7 @@ export interface components {
         WeighingPlannerCatalogResponse: {
             parks: components["schemas"]["WeighingPlannerPark"][];
             operators: components["schemas"]["WeighingPlannerOperator"][];
+            sop: components["schemas"]["WeighingSOPRules"];
             trace_id?: string;
         };
         WeighingRosterRow: {
@@ -14232,6 +14309,24 @@ export interface components {
              */
             submitted_at?: string;
             row_version: number;
+            /** @description The weighing SOP's operator sentence for this task's pinned version (WEIGHING SOP, 2026-09-15); rendered verbatim. */
+            instruction?: string;
+            /** @description The two proof slots' authored titles and hints, feed then water. */
+            proofs?: components["schemas"]["WeighingRemovalProofSlot"][];
+            /** @description The authored questions answered with the clips; empty when the SOP asks none. */
+            questions?: components["schemas"]["WeighingSOPQuestion"][];
+            /** @description Answers already recorded on this shed (a submitted or rework card), keyed by question id. */
+            answers?: {
+                [key: string]: unknown;
+            };
+            /** @description {slot key: proof ref} already recorded on this shed, so a read-only card renders every capture; feed_proof_ref / water_proof_ref mirror the seeded feed_video / water_video slots. */
+            proof_refs?: {
+                [key: string]: string;
+            };
+            /** @description {slot key: video | photo} -- the kind the proof register judged each recorded capture to be, which an `either` slot cannot say on its own. The phone picks the player from it when the card is reopened with no local state. */
+            proof_kinds?: {
+                [key: string]: "video" | "photo";
+            };
         };
         WeighingFastingShedCardListResponse: {
             fasting_shed_cards: components["schemas"]["WeighingFastingShedCard"][];
@@ -14239,16 +14334,24 @@ export interface components {
             trace_id?: string;
         };
         SubmitWeighingFastingShedRequest: {
+            /** @description {slot key: proof ref} for the card's captures (WeighingFastingShedCard.proofs). Judged by the task's PINNED SOP version: a compulsory slot left empty, a slot the version does not ask for, or one capture in two slots -> 422 fasting_proof_slot_invalid naming the slot; a capture of the wrong kind for its slot (a photo in a video slot), not completed, not from the app camera, reused by a sibling shed, or a rejected clip re-sent -> 422 fasting_proof_invalid / 409 weighing_rejected_proof_reuse. Either this or the legacy pair below. */
+            proofs?: {
+                [key: string]: string;
+            };
             /**
              * Format: uuid
-             * @description Completed live-camera VIDEO of THIS shed's feed being removed.
+             * @description LEGACY (older phones): maps onto the feed_video slot when `proofs` is absent.
              */
-            feed_proof_ref: string;
+            feed_proof_ref?: string;
             /**
              * Format: uuid
-             * @description Completed live-camera VIDEO of THIS shed's water being removed. The two clips must be distinct and unused by any sibling shed of the round.
+             * @description LEGACY (older phones): maps onto the water_video slot when `proofs` is absent.
              */
-            water_proof_ref: string;
+            water_proof_ref?: string;
+            /** @description Answers to the card's authored questions (WeighingFastingShedCard.questions), keyed by question id, judged by the task's PINNED SOP version: a required question unanswered, an off-list choice, a number out of range or an answer to a question the version does not ask -> 422 fasting_answer_invalid with the question named in the message. */
+            answers?: {
+                [key: string]: unknown;
+            };
         };
         WeighingFastingShedCardResponse: {
             fasting_shed_card: components["schemas"]["WeighingFastingShedCard"];
@@ -14268,9 +14371,11 @@ export interface components {
             operator_user_id: string;
             /**
              * Format: uuid
-             * @description The feed & water removal operator (maintainer decision 2026-09-03): the person who removes feed and water from the selected sheds the evening before the weigh date and submits two live-camera videos before midnight IST. Same park as the task; mandatory. Missing -> 422 fasting_operator_required; a weigh date whose removal evening has already begun (creating at/after the tenant's configured removal cutoff -- BootstrapResponse.feed_water_removal_cutoff_time -- for tomorrow) -> 422 fasting_window_closed; no configured cutoff -> 422 feed_water_removal_cutoff_missing.
+             * @description The feed & water removal operator (maintainer decision 2026-09-03): the person who removes feed and water from the selected sheds the evening before the weigh date and submits two live-camera videos before midnight IST. Same park as the task; mandatory. Missing -> 422 fasting_operator_required; a weigh date whose removal evening has already begun (creating at/after the tenant's configured removal cutoff -- BootstrapResponse.feed_water_removal_cutoff_time -- for tomorrow) -> 422 fasting_window_closed; no configured cutoff -> 422 feed_water_removal_cutoff_missing. WEIGHING SOP (2026-09-15): mandatory only when the task carries the removal -- always under the SOP's `required` mode, per the planner's choice under `optional`, never under `off` (a sent operator is then dropped, not refused).
              */
-            fasting_operator_user_id: string;
+            fasting_operator_user_id?: string;
+            /** @description The planner's per-task choice under the weighing SOP's `optional` removal mode (WeighingSOPRules.feed_water_removal.mode). Absent = not said (reads as on when an operator is sent, so an older app keeps its behaviour); false = no removal for this task (no operator needed, no evening cutoff, today is plannable; a past date -> 422 weigh_date_in_past). Ignored under `required`; true under `off` -> 422 feed_water_removal_not_offered. A shed whose weighing_category the SOP does not offer -> 422 weighing_mode_not_offered. */
+            feed_water_removal_requested?: boolean;
             sheds: components["schemas"]["CreateWeighingCampaignShed"][];
         };
         RecordWeighingAnimalObservationRequest: {

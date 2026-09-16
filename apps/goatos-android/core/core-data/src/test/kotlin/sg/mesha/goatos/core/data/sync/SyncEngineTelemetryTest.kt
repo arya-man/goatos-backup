@@ -284,6 +284,8 @@ class SyncEngineTelemetryTest {
             campaignShedId = "campaign-shed-1",
             feedProofOutboxItemId = "feed-proof-outbox-1",
             waterProofOutboxItemId = "water-proof-outbox-1",
+            answers = kotlinx.serialization.json.JsonObject(emptyMap()),
+            proofOutboxItems = mapOf("feed_video" to "feed-proof-outbox-1", "water_video" to "water-proof-outbox-1"),
         )
 
         val enqueued = telemetry.first(OutboxWritePhase.ENQUEUED)

@@ -7170,6 +7170,9 @@ func pageSpecificCopy(id string) map[string]string {
 			m["modal.builder.domain_aria"] = "Domain — locked to Weighing"
 			m["modal.builder.domain_title"] = "Domain is locked to Weighing on this page"
 			m["modal.builder.domain_label"] = "Weighing"
+			for k, v := range weighingSOPEditorCopy() {
+				m[k] = v
+			}
 		}
 		return m
 	case "goat-passport":
@@ -7952,8 +7955,10 @@ func pageOptionGroups(id string) []domain.OptionGroup {
 		return withGenericOptionGroups(configOptionGroups())
 	// Vaccination is deliberately absent: its SOP page is gone, and its content lives on
 	// the vaccination plan console. milk and weighing arrived on main meanwhile and stay.
-	case "counts-sops", "feed-sops", "milk-sops", "weighing-sops":
+	case "counts-sops", "feed-sops", "milk-sops":
 		return withGenericOptionGroups(sopOptionGroups())
+	case "weighing-sops":
+		return withGenericOptionGroups(append(sopOptionGroups(), weighingSOPOptionGroups()...))
 	case "procurement-sops":
 		return withGenericOptionGroups(append(sopOptionGroups(), inspectionOptionGroups()...))
 	case "action-center":
@@ -9795,6 +9800,112 @@ func inspectionEditorCopy() map[string]string {
 		"inspection.summary.optional":       "optional",
 		"inspection.summary.only_if":        "only when {question} is {value}",
 		"inspection.summary.files":          "up to {n}",
+	}
+}
+
+// weighingSOPEditorCopy is the Weighing SOP page's editor copy (WEIGHING SOP, maintainer
+// decision 2026-09-15): the rules a weighing task is planned on and runs under. The question
+// card reuses the inspection editor's question keys (kind / choices / range / ask-only-when),
+// which is why that map is merged first.
+func weighingSOPEditorCopy() map[string]string {
+	m := map[string]string{}
+	for k, v := range inspectionEditorCopy() {
+		m[k] = v
+	}
+	for k, v := range map[string]string{
+		"action.edit_weighing":                  "Change SOP",
+		"wsop.title":                            "Weighing session rules",
+		"wsop.subtitle":                         "What the planner may choose, whether feed and water are removed the evening before, what the removal card says and asks, and how many videos a whole pen carries. Publishing applies to tasks planned from then on; a task already on the calendar keeps the rules it was planned with.",
+		"wsop.notice.pinned":                    "Each task is stamped with the version it was planned on.",
+		"wsop.drawer.title":                     "The rules a weighing task runs under",
+		"wsop.drawer.subtitle":                  "from the published SOP",
+		"wsop.section.planning":                 "Planning",
+		"wsop.section.planning.subtitle":        "what the CEO's plan wizard offers",
+		"wsop.planning.modes":                   "Ways of weighing the planner may choose",
+		"wsop.planning.mode.individual_animal":  "Animal by animal — scan the tag, enter the weight, one video per animal",
+		"wsop.planning.mode.per_shed_partition": "Whole pen — one total weight and the pen's videos",
+		"wsop.planning.default_cap":             "Default animals per day",
+		"wsop.section.removal":                  "Feed & water removal the evening before",
+		"wsop.section.removal.subtitle":         "the fasting precondition and its card",
+		"wsop.removal.mode":                     "When it applies",
+		"wsop.removal.mode.required":            "Every weighing — the plan needs a removal operator and the date must leave an evening free",
+		"wsop.removal.mode.optional":            "The planner decides per task (on unless switched off)",
+		"wsop.removal.mode.off":                 "Never — no removal step, weighing can be planned for today",
+		"wsop.removal.instruction":              "Instruction on the removal card",
+		"wsop.removal.cutoff":                   "Removal evening starts at (IST)",
+		"wsop.removal.cutoff.hint":              "Before this time tomorrow is plannable; at or after it the earliest weigh day is the day after. Leave blank to use the farm-wide evening.",
+		"wsop.removal.cutoff.farm":              "the farm-wide evening",
+		"wsop.removal.proofs":                   "Captures each pen owes",
+		"wsop.removal.proofs.subtitle":          "a live-camera video, a photo or either per capture; at least one compulsory",
+		"wsop.removal.proof.title":              "What the operator captures",
+		"wsop.removal.proof.hint":               "Instruction",
+		"wsop.removal.proof.add":                "Add capture",
+		"wsop.removal.proof.remove":             "Remove capture",
+		"wsop.proof.kind.video":                 "Video",
+		"wsop.proof.kind.photo":                 "Photo",
+		"wsop.proof.kind.either":                "Photo or video",
+		"wsop.removal.questions":                "Questions the removal operator answers per pen",
+		"wsop.removal.questions.subtitle":       "answered alongside the captures; stored with the pen's evidence",
+		"wsop.removal.questions.empty":          "No questions yet — the card asks only for the captures above.",
+		"wsop.removal.off_note":                 "With the removal switched off, no task carries the evening-before precondition and the plan wizard offers no removal step.",
+		"wsop.question.title":                   "Question the operator sees",
+		"wsop.question.remove_choice":           "Remove choice",
+		"wsop.section.capture":                  "Weighing capture",
+		"wsop.section.capture.subtitle":         "the evidence each weigh carries",
+		"wsop.capture.individual.video":         "One live-camera video per animal",
+		"wsop.capture.individual.locked":        "The per-animal video is what the verifier reviews; it cannot be switched off.",
+		"wsop.capture.individual.locked_short":  "fixed",
+		"wsop.capture.lump_sum.video_min":       "Whole pen — videos at least",
+		"wsop.capture.lump_sum.video_max":       "Whole pen — videos at most",
+		"wsop.section.weights":                  "Weights pages",
+		"wsop.section.weights.subtitle":         "the period the Weights and ADG Analytics pages open on",
+		"wsop.weights.from_mode":                "Open the pages from",
+		"wsop.weights.from_mode.fixed_date":     "a fixed date",
+		"wsop.weights.from_mode.rolling_days":   "the last N days",
+		"wsop.weights.from_date":                "Opening day",
+		"wsop.weights.from_days":                "Days back from today",
+		"wsop.weights.earliest_date":            "Earliest day the calendar offers",
+		"wsop.weights.note":                     "Both pages open on this period until the reader picks another; days before the earliest day are greyed out in every Weights calendar. Page settings from the published SOP — a task carries no pin of them.",
+		"wsop.summary.weights_fixed":            "Opens from {date}",
+		"wsop.summary.weights_rolling":          "Opens on the last {days} days",
+		"wsop.summary.weights_earliest":         "calendar from {date}",
+		"wsop.capture.locked_rules":             "Not authored here, by decision: scanning is free-flow (a tag is stored as scanned and never checked against a pen or roster), an animal cannot be scanned twice in the same pen before submit, the verifier reviews every video and may correct a weight on Approve, and a pen closes only once nothing is pending review.",
+		"wsop.summary.lump_sum_videos":          "whole pen: {min}–{max} videos",
+		"wsop.footer.ready":                     "Ready to save or publish.",
+	} {
+		m[k] = v
+	}
+	return m
+}
+
+// weighingSOPOptionGroups are the weighing rules editor's closed vocabularies.
+func weighingSOPOptionGroups() []domain.OptionGroup {
+	return []domain.OptionGroup{
+		{
+			ID: "wsop_question_kinds",
+			Options: []domain.Option{
+				option("choice", "Pick one", "The operator picks one of the choices.", ""),
+				option("multi", "Pick many", "The operator ticks every choice that applies.", ""),
+				option("text", "Free text", "A short typed answer.", ""),
+				option("number", "Number", "A number, optionally within a range and with a unit.", ""),
+			},
+		},
+		{
+			ID: "wsop_proof_kinds",
+			Options: []domain.Option{
+				option("video", "Video", "A live-camera video, recorded in the app.", ""),
+				option("photo", "Photo", "A photo taken with the app camera.", ""),
+				option("either", "Photo or video", "The operator chooses.", ""),
+			},
+		},
+		{
+			ID: "wsop_removal_modes",
+			Options: []domain.Option{
+				option("required", "Every weighing", "The plan needs a removal operator and the date must leave an evening free.", ""),
+				option("optional", "Planner decides per task", "On unless the planner switches it off for a task.", ""),
+				option("off", "Never", "No removal step; weighing can be planned for today.", ""),
+			},
+		},
 	}
 }
 

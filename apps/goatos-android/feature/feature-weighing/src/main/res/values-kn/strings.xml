@@ -225,6 +225,7 @@
     <string name="weighing_wizard_title_configure">ಶೆಡ್ ಗುಂಪುಗಳನ್ನು ಹೊಂದಿಸಿ</string>
     <string name="weighing_wizard_title_review">ಪರಿಶೀಲನೆ ಮತ್ತು ಪ್ರಕಟಣೆ</string>
     <string name="weighing_wizard_sub_date">ಹಿಂದಿನ ಸಂಜೆ ಮೇವು ಮತ್ತು ನೀರು ತೆಗೆಯಲಾಗುತ್ತದೆ, ಆದ್ದರಿಂದ ಮೊದಲ ದಿನ ನಾಳೆ.</string>
+    <string name="weighing_wizard_sub_date_optional">ತೂಕದ ದಿನವನ್ನು ಆರಿಸಿ.</string>
     <string name="weighing_wizard_loading_parks_fmt">%1$s ಗಾಗಿ ಪಾರ್ಕ್‌ಗಳು ಲೋಡ್ ಆಗುತ್ತಿವೆ…</string>
     <string name="weighing_wizard_sub_buckets_fmt">%2$s ನಲ್ಲಿ %1$d · %3$s</string>
     <string name="weighing_wizard_sub_configure_fmt">%1$d ಆಯ್ಕೆಯಾಗಿವೆ</string>
@@ -269,11 +270,21 @@
     <string name="weighing_wizard_fasting_title">ಮೇವು ಮತ್ತು ನೀರು ತೆಗೆಯುವಿಕೆ</string>
     <string name="weighing_wizard_fasting_subtitle">ಹಿಂದಿನ ಸಂಜೆ ಈ ಶೆಡ್‌ಗಳಿಂದ ಮೇವು ಮತ್ತು ನೀರು ಯಾರು ತೆಗೆಯುತ್ತಾರೆ?</string>
     <string name="weighing_wizard_fasting_prompt">ಒಬ್ಬ ವ್ಯಕ್ತಿಯನ್ನು ಆರಿಸಿ…</string>
+    <string name="weighing_removal_capture_required_fmt">ರೆಕಾರ್ಡ್ ಮಾಡಿ: %1$s</string>
+    <string name="weighing_removal_photo">ಫೋಟೋ ತೆಗೆಯಿರಿ</string>
+    <string name="weighing_removal_photo_again">ಮತ್ತೆ ಫೋಟೋ ತೆಗೆಯಿರಿ</string>
+    <string name="weighing_removal_answer_required_fmt">ಉತ್ತರಿಸಿ: %1$s</string>
+    <string name="weighing_removal_question_optional">ಐಚ್ಛಿಕ</string>
+    <string name="weighing_removal_question_other_hint">ಯಾವುದು ಎಂದು ತಿಳಿಸಿ</string>
+    <string name="weighing_wizard_date_no_removal">ಹಿಂದಿನ ಸಂಜೆ ಮೇವು ಮತ್ತು ನೀರು ತೆಗೆಯಲು ತಡವಾಗಿದೆ — ಅದಿಲ್ಲದೆ ತೂಕ</string>
+    <string name="weighing_wizard_fasting_not_possible">ಈ ದಿನದ ಹಿಂದಿನ ಸಂಜೆ ಮೇವು ಮತ್ತು ನೀರು ತೆಗೆಯಲು ತಡವಾಗಿದೆ, ಆದ್ದರಿಂದ ಈ ತೂಕ ಅದಿಲ್ಲದೆ ನಡೆಯುತ್ತದೆ.</string>
+    <string name="weighing_wizard_fasting_skipped">ಈ ತೂಕಕ್ಕೆ ಮೇವು ಮತ್ತು ನೀರು ತೆಗೆಯುವಿಕೆ ಇಲ್ಲ.</string>
+    <string name="weighing_wizard_fasting_none">ಯೋಜಿಸಿಲ್ಲ</string>
     <string name="weighing_removal_section_title">ಮೇವು ಮತ್ತು ನೀರು ತೆಗೆಯುವಿಕೆ</string>
     <string name="weighing_removal_card_type">ಮೇವು ಮತ್ತು ನೀರು ತೆಗೆದುಹಾಕಿ</string>
     <string name="weighing_removal_screen_title">ಮೇವು ಮತ್ತು ನೀರು ತೆಗೆಯಿರಿ</string>
-    <string name="weighing_removal_status_open">ಇಂದು ರಾತ್ರಿಯ ತೆಗೆಯುವಿಕೆಯನ್ನು ರೆಕಾರ್ಡ್ ಮಾಡಿ</string>
-    <string name="weighing_removal_status_in_review">ಸಲ್ಲಿಸಲಾಗಿದೆ — ವೀಡಿಯೊ ಪರಿಶೀಲನೆಯಲ್ಲಿದೆ</string>
+    <string name="weighing_removal_status_open">ಇಂದು ರಾತ್ರಿಯ ಕ್ಯಾಪ್ಚರ್‌ಗಳನ್ನು ರೆಕಾರ್ಡ್ ಮಾಡಿ</string>
+    <string name="weighing_removal_status_in_review">ಸಲ್ಲಿಸಲಾಗಿದೆ — ಕ್ಯಾಪ್ಚರ್‌ಗಳು ಪರಿಶೀಲನೆಯಲ್ಲಿವೆ</string>
     <string name="weighing_removal_status_sent_back">ಹಿಂದಕ್ಕೆ ಕಳುಹಿಸಲಾಗಿದೆ — ಮತ್ತೆ ರೆಕಾರ್ಡ್ ಮಾಡಿ</string>
     <string name="weighing_removal_status_done">ಅನುಮೋದಿಸಲಾಗಿದೆ</string>
     <string name="weighing_removal_date_tonight">ಇಂದು ರಾತ್ರಿ</string>
@@ -284,8 +295,8 @@
     <string name="weighing_removal_recording">ರೆಕಾರ್ಡ್ ಆಗುತ್ತಿದೆ…</string>
     <string name="weighing_removal_submit">ಸಲ್ಲಿಸಿ</string>
     <string name="weighing_removal_submitted">ಕಳುಹಿಸಲಾಗಿದೆ</string>
-    <string name="weighing_removal_submitted_line">ಕಳುಹಿಸಲಾಗಿದೆ. ವೀಡಿಯೊಗಳನ್ನು ನಂತರ ಪರಿಶೀಲಿಸಲಾಗುತ್ತದೆ.</string>
-    <string name="weighing_removal_ready">ಎರಡೂ ವೀಡಿಯೊಗಳು ರೆಕಾರ್ಡ್ ಆಗಿವೆ — ಸಲ್ಲಿಸಲು ಸಿದ್ಧ.</string>
+    <string name="weighing_removal_submitted_line">ಕಳುಹಿಸಲಾಗಿದೆ. ಕ್ಯಾಪ್ಚರ್‌ಗಳನ್ನು ನಂತರ ಪರಿಶೀಲಿಸಲಾಗುತ್ತದೆ.</string>
+    <string name="weighing_removal_ready">ಎಲ್ಲಾ ಕ್ಯಾಪ್ಚರ್‌ಗಳು ರೆಕಾರ್ಡ್ ಆಗಿವೆ — ಸಲ್ಲಿಸಲು ಸಿದ್ಧ.</string>
     <string name="weighing_removal_caption">ನಾಳೆಗಾಗಿ ಈ ಪೆನ್ನಿನ ಮೇವು ಮತ್ತು ನೀರನ್ನು ತೆಗೆದು, ಪ್ರತಿಯೊಂದು ಹಂತವನ್ನೂ ರೆಕಾರ್ಡ್ ಮಾಡಿ.</string>
     <string name="weighing_removal_feed_hint">ಈ ಪೆನ್ನಿನಿಂದ ಮೇವು ತೆಗೆದುಹಾಕುತ್ತಿರುವುದನ್ನು ತೋರಿಸಿ</string>
     <string name="weighing_removal_water_hint">ಈ ಪೆನ್ನಿನಿಂದ ನೀರು ತೆಗೆದುಹಾಕುತ್ತಿರುವುದನ್ನು ತೋರಿಸಿ</string>
@@ -489,4 +500,5 @@
     <string name="weighing_history_point_accepted">%1$s, %2$s ಕೆಜಿ, ಸ್ವೀಕರಿಸಲಾಗಿದೆ</string>
     <string name="weighing_growth_losing_title">ತೂಕ ಕಳೆದುಕೊಳ್ಳುತ್ತಿವೆ</string>
     <string name="weighing_growth_losing_meta_fmt">%1$s · %2$.1f → %3$.1f ಕೆಜಿ</string>
+    <string name="weighing_removal_number_invalid">ಅನುಮತಿಸಿದ ವ್ಯಾಪ್ತಿಯೊಳಗೆ ಮಾನ್ಯ ಸಂಖ್ಯೆಯನ್ನು ನಮೂದಿಸಿ.</string>
 </resources>

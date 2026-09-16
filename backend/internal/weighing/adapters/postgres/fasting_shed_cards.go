@@ -4,12 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 
-	fwrdomain "github.com/vgoats/goatos/backend/internal/feedwaterremoval/domain"
-	fwrports "github.com/vgoats/goatos/backend/internal/feedwaterremoval/ports"
 	"github.com/vgoats/goatos/backend/internal/platform/audit"
 	"github.com/vgoats/goatos/backend/internal/platform/oploc"
 	"github.com/vgoats/goatos/backend/internal/weighing/domain"
@@ -48,10 +47,23 @@ SELECT ft.fasting_task_id::text,
        ft.planned_weigh_date::text,
        ft.weigh_business_date::text,
        ft.submitted_at,
-       COALESCE(sp.row_version, 0)
+       COALESCE(sp.row_version, 0),
+       COALESCE(c.sop_version, 0),
+       COALESCE(sp.sop_answers, '{}'::jsonb),
+       COALESCE(sp.sop_proofs, '{}'::jsonb),
+       -- The kind the register judged each capture to be (video / photo), keyed by ref: an
+       -- either-slot's answer, which the phone needs to pick the player and the verifier
+       -- item names. Proof plumbing is on weighing's allowlist.
+       COALESCE((SELECT jsonb_object_agg(e.value, pa.proof_type)
+                 FROM jsonb_each_text(COALESCE(sp.sop_proofs, '{}'::jsonb)) e
+                 JOIN proof_artifacts pa ON pa.tenant_id = sp.tenant_id AND pa.proof_id = e.value::uuid), '{}'::jsonb)
 FROM weighing_fasting_tasks ft
 JOIN weighing_campaign_sheds cs
   ON cs.tenant_id = ft.tenant_id AND cs.campaign_id = ft.campaign_id AND cs.status <> 'canceled'
+-- The task's pinned SOP version (WEIGHING SOP): weighing_campaigns is keyed on
+-- (tenant_id, campaign_id), so this join is exactly 1:1 and never multiplies rows.
+JOIN weighing_campaigns c
+  ON c.tenant_id = ft.tenant_id AND c.campaign_id = ft.campaign_id
 LEFT JOIN weighing_fasting_shed_proofs sp
   ON sp.tenant_id = ft.tenant_id AND sp.fasting_task_id = ft.fasting_task_id
        AND sp.campaign_shed_id = cs.campaign_shed_id
@@ -59,7 +71,14 @@ LEFT JOIN locations p
   ON p.tenant_id = ft.tenant_id AND p.location_id = ft.park_id
 WHERE ft.tenant_id = $1::uuid
   AND ft.operator_user_id = $2::uuid
-  AND ($3::timestamptz AT TIME ZONE 'Asia/Kolkata') >= ((ft.weigh_business_date - 1) + $7::time)
+  -- The window opens at the evening of the task's PINNED SOP version ($8, jsonb keyed by
+  -- version, bound by the service), else the farm default ($7). Bind, never a join: the
+  -- rules and the config live outside weighing.
+  AND (
+    ft.weigh_business_date <= ($3::timestamptz AT TIME ZONE 'Asia/Kolkata')::date
+    OR (ft.weigh_business_date = ($3::timestamptz AT TIME ZONE 'Asia/Kolkata')::date + 1
+      AND ($3::timestamptz AT TIME ZONE 'Asia/Kolkata')::time >= COALESCE(($8::jsonb ->> COALESCE(c.sop_version, 0)::text)::time, $7::time))
+  )
   AND (ft.submitted_at IS NOT NULL OR EXISTS (
         SELECT 1 FROM weighing_campaigns c
         WHERE c.tenant_id = ft.tenant_id AND c.campaign_id = ft.campaign_id
@@ -70,15 +89,56 @@ WHERE ft.tenant_id = $1::uuid
 ORDER BY ft.weigh_business_date DESC, cs.campaign_shed_id DESC
 LIMIT $6`
 
-// The visibility window's opening time is the tenant's CONFIGURED cutoff
-// (maintainer decision 2026-09-07), bound as $7 by the service from
-// feedwaterremoval/ports.CutoffReader. Weighing is isolated from every
-// non-weighing table, so the config is a bind, never a join here; an unset
-// cutoff is refused rather than defaulted, because a literal here would be a
-// second copy of the rule.
-func (r *Repository) ListFastingShedCardsForOperator(ctx context.Context, tenantID, operatorUserID string, now time.Time, cutoff fwrdomain.Cutoff, cursor string, limit int) (domain.FastingShedCardPage, error) {
-	if !cutoff.Valid() {
-		return domain.FastingShedCardPage{}, fwrports.ErrCutoffNotConfigured
+// Only tomorrow's weigh date can change visibility at an evening cutoff today.
+// Earlier dates are already open under every valid HH:MM; later dates are still closed.
+// Resolve ALL pins in that date slice, never truncate by version number.
+const fastingCardSOPVersionsSQL = `
+SELECT DISTINCT COALESCE(c.sop_version, 0) AS sop_version
+FROM weighing_fasting_tasks ft
+JOIN weighing_campaigns c
+  ON c.tenant_id = ft.tenant_id AND c.campaign_id = ft.campaign_id
+WHERE ft.tenant_id = $1::uuid
+  AND ft.operator_user_id = $2::uuid
+  AND ft.weigh_business_date = ($3::timestamptz AT TIME ZONE 'Asia/Kolkata')::date + 1
+  AND (ft.submitted_at IS NOT NULL OR c.status NOT IN ('completed','closed','canceled'))
+ORDER BY sop_version DESC`
+
+// FastingCardSOPVersions implements ports.FastingStore.
+func (r *Repository) FastingCardSOPVersions(ctx context.Context, tenantID, operatorUserID string, now time.Time) ([]int, error) {
+	ctx, cancel := r.timeout(ctx)
+	defer cancel()
+	rows, err := r.pool.Query(ctx, fastingCardSOPVersionsSQL, tenantID, operatorUserID, now)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	versions := []int{}
+	for rows.Next() {
+		var v int
+		if err := rows.Scan(&v); err != nil {
+			return nil, err
+		}
+		versions = append(versions, v)
+	}
+	return versions, rows.Err()
+}
+
+// The visibility window's opening time is the removal cutoff of each card's PINNED SOP
+// version, else the tenant's CONFIGURED cutoff (maintainer decision 2026-09-07), bound as
+// $8 / $7 by the service. Only tonight needs these binds: earlier evenings are
+// already open and future evenings remain closed. The default may be absent when
+// every candidate tonight has its own SOP cutoff.
+func (r *Repository) ListFastingShedCardsForOperator(ctx context.Context, tenantID, operatorUserID string, now time.Time, cutoffs ports.RemovalCutoffs, cursor string, limit int) (domain.FastingShedCardPage, error) {
+	// Only tonight needs a cutoff: older removal evenings have already opened,
+	// and later ones have not. An unresolved tonight pin remains hidden (NULL),
+	// including a pin introduced concurrently after the service resolved versions.
+	var defaultTime any
+	if cutoffs.Default.Valid() {
+		defaultTime = cutoffs.Default.SQLTime()
+	}
+	byVersion, err := json.Marshal(cutoffs.SQLByVersion())
+	if err != nil {
+		return domain.FastingShedCardPage{}, err
 	}
 	ctx, cancel := r.timeout(ctx)
 	defer cancel()
@@ -95,7 +155,7 @@ func (r *Repository) ListFastingShedCardsForOperator(ctx context.Context, tenant
 	rows, err := r.pool.Query(ctx, fastingShedCardsSQL,
 		tenantID, operatorUserID, now.UTC(),
 		nullableString(cur.Date), nullableUUIDString(cur.ID), limit+1,
-		cutoff.SQLTime())
+		defaultTime, string(byVersion))
 	if err != nil {
 		return domain.FastingShedCardPage{}, err
 	}
@@ -108,8 +168,16 @@ func (r *Repository) ListFastingShedCardsForOperator(ctx context.Context, tenant
 		if err := rows.Scan(&card.FastingTaskID, &card.CampaignShedID, &card.FastingShedID,
 			&displayName, &partitionLabel, &card.ParkName,
 			&card.Status, &card.ReworkReason, &card.FeedProofRef, &card.WaterProofRef,
-			&card.PlannedWeighDate, &card.WeighBusinessDate, &submittedAt, &card.RowVersion); err != nil {
+			&card.PlannedWeighDate, &card.WeighBusinessDate, &submittedAt, &card.RowVersion,
+			&card.SOPVersion, &card.Answers, &card.ProofRefs, &card.ProofKinds); err != nil {
 			return domain.FastingShedCardPage{}, err
+		}
+		card.ProofKinds = domain.SlotKinds(card.ProofRefs, card.ProofKinds)
+		if len(card.Answers) == 0 {
+			card.Answers = nil
+		}
+		if len(card.ProofRefs) == 0 {
+			card.ProofRefs = nil
 		}
 		card.ShedLabel = oploc.OperationalLocation{ShedName: displayName, PartitionLabel: partitionLabel}.Display()
 		card.SubjectLabel = domain.FastingShedSubjectLabel(card.ShedLabel)
@@ -137,7 +205,8 @@ FOR UPDATE`
 const fastingShedTargetSQL = `
 SELECT cs.display_name, COALESCE(cs.partition_label, ''), cs.location_id::text,
        COALESCE(sp.status, 'open'),
-       COALESCE(sp.feed_proof_ref::text, ''), COALESCE(sp.water_proof_ref::text, '')
+       COALESCE(sp.feed_proof_ref::text, ''), COALESCE(sp.water_proof_ref::text, ''),
+       COALESCE(sp.sop_proofs, '{}'::jsonb)
 FROM weighing_campaign_sheds cs
 LEFT JOIN weighing_fasting_shed_proofs sp
   ON sp.tenant_id = cs.tenant_id AND sp.campaign_shed_id = cs.campaign_shed_id
@@ -150,7 +219,10 @@ SELECT EXISTS (
   SELECT 1 FROM weighing_fasting_shed_proofs
   WHERE tenant_id = $1::uuid AND fasting_task_id = $2::uuid
     AND campaign_shed_id <> $3::uuid
-    AND (feed_proof_ref = ANY($4::uuid[]) OR water_proof_ref = ANY($4::uuid[]))
+    AND (
+      feed_proof_ref = ANY($4::uuid[]) OR water_proof_ref = ANY($4::uuid[])
+      OR EXISTS (SELECT 1 FROM jsonb_each_text(COALESCE(sop_proofs, '{}'::jsonb)) e WHERE e.value = ANY($4::text[]))
+    )
 )`
 
 // fastingRoundFullyCoveredSQL: does every live bucket now hold a SUBMITTED
@@ -175,8 +247,6 @@ SELECT NOT EXISTS (
     AND (
       sp.fasting_shed_id IS NULL
       OR sp.status NOT IN ('pending_verification', 'completed')
-      OR sp.feed_proof_ref IS NULL
-      OR sp.water_proof_ref IS NULL
     )
 	)`
 
@@ -191,7 +261,12 @@ WHERE ft.tenant_id = $1::uuid AND ft.fasting_task_id = $2::uuid`
 const fastingSubmitReplayEvidenceSQL = `
 SELECT sp.fasting_shed_id::text, sp.campaign_shed_id::text, sp.shed_label,
        cs.location_id::text, COALESCE(sp.feed_proof_ref::text, ''),
-       COALESCE(sp.water_proof_ref::text, ''), sp.status, sp.row_version
+       COALESCE(sp.water_proof_ref::text, ''), sp.status, sp.row_version,
+       COALESCE(sp.sop_proofs, '{}'::jsonb),
+       COALESCE(sp.sop_answers, '{}'::jsonb),
+       COALESCE((SELECT jsonb_object_agg(e.value, pa.proof_type)
+                 FROM jsonb_each_text(COALESCE(sp.sop_proofs, '{}'::jsonb)) e
+                 JOIN proof_artifacts pa ON pa.tenant_id = sp.tenant_id AND pa.proof_id = e.value::uuid), '{}'::jsonb)
 FROM weighing_fasting_shed_proofs sp
 JOIN weighing_campaign_sheds cs
   ON cs.tenant_id = sp.tenant_id AND cs.campaign_shed_id = sp.campaign_shed_id
@@ -229,7 +304,7 @@ func (r *Repository) SubmitFastingShed(ctx context.Context, cmd domain.SubmitFas
 		err := tx.QueryRow(ctx, fastingSubmitReplayEvidenceSQL,
 			cmd.TenantID, cmd.FastingTaskID, cmd.CampaignShedID).Scan(
 			&shed.FastingShedID, &shed.CampaignShedID, &shed.ShedLabel, &shed.ShedLocationID,
-			&shed.FeedProofRef, &shed.WaterProofRef, &shed.Status, &shed.RowVersion,
+			&shed.FeedProofRef, &shed.WaterProofRef, &shed.Status, &shed.RowVersion, &shed.Proofs, &shed.Answers, &shed.ProofKinds,
 		)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return domain.FastingShedSubmitResult{Card: replay, Replayed: true}, nil
@@ -266,8 +341,9 @@ func (r *Repository) SubmitFastingShed(ctx context.Context, cmd domain.SubmitFas
 	}
 
 	var displayName, partitionLabel, shedLocationID, shedStatus, priorFeed, priorWater string
+	var priorProofs domain.RemovalProofRefs
 	err = tx.QueryRow(ctx, fastingShedTargetSQL, cmd.TenantID, campaignID, cmd.FastingTaskID, cmd.CampaignShedID).
-		Scan(&displayName, &partitionLabel, &shedLocationID, &shedStatus, &priorFeed, &priorWater)
+		Scan(&displayName, &partitionLabel, &shedLocationID, &shedStatus, &priorFeed, &priorWater, &priorProofs)
 	if errors.Is(err, pgx.ErrNoRows) {
 		// The shed is not part of this round (or was deselected).
 		return domain.FastingShedSubmitResult{}, ports.ErrNotFound
@@ -278,40 +354,83 @@ func (r *Repository) SubmitFastingShed(ctx context.Context, cmd domain.SubmitFas
 	if shedStatus == domain.FastingStatusPendingVerification || shedStatus == domain.FastingStatusCompleted {
 		return domain.FastingShedSubmitResult{}, ports.ErrFastingAlreadySubmitted
 	}
-	// A REWORK re-submit means NEW videos for THIS shed: a rejected clip
-	// re-sent — in EITHER slot, swapped included — refuses the submit by name.
-	if shedStatus == domain.FastingStatusRework {
+	// The captures, in slot order (WEIGHING SOP: the service resolved the slots from the
+	// task's pinned rules). A store called directly with only the legacy pair still works.
+	refs := cmd.OrderedRefs
+	if len(refs) == 0 {
 		for _, ref := range []string{cmd.FeedProofRef, cmd.WaterProofRef} {
-			if ref == priorFeed || ref == priorWater {
+			if ref != "" {
+				refs = append(refs, ref)
+			}
+		}
+	}
+	if len(refs) == 0 {
+		return domain.FastingShedSubmitResult{}, ports.ErrFastingProofRequired
+	}
+	// A REWORK re-submit means NEW captures for THIS shed: a rejected clip
+	// re-sent — in ANY slot, swapped included — refuses the submit by name.
+	if shedStatus == domain.FastingStatusRework {
+		prior := map[string]bool{priorFeed: true, priorWater: true}
+		for _, ref := range priorProofs {
+			prior[ref] = true
+		}
+		for _, ref := range refs {
+			if ref != "" && prior[ref] {
 				return domain.FastingShedSubmitResult{}, ports.ErrRejectedProofReuse
 			}
 		}
 	}
-	if cmd.FeedProofRef == cmd.WaterProofRef {
-		return domain.FastingShedSubmitResult{}, ports.ErrFastingProofInvalid
+	seenRef := map[string]bool{}
+	for _, ref := range refs {
+		if seenRef[ref] {
+			// One capture cannot prove two slots.
+			return domain.FastingShedSubmitResult{}, ports.ErrFastingProofInvalid
+		}
+		seenRef[ref] = true
 	}
-	// One clip cannot prove two removals — not two slots of one shed, and not
-	// two SHEDS of the round either. A ref already recorded on a SIBLING shed
-	// of this round refuses this submit.
+	// One capture cannot prove two SHEDS of the round either. A ref already
+	// recorded on a SIBLING shed of this round refuses this submit.
 	var reused bool
 	if err := tx.QueryRow(ctx, fastingSiblingRefReuseSQL,
-		cmd.TenantID, cmd.FastingTaskID, cmd.CampaignShedID,
-		[]string{cmd.FeedProofRef, cmd.WaterProofRef}).Scan(&reused); err != nil {
+		cmd.TenantID, cmd.FastingTaskID, cmd.CampaignShedID, refs).Scan(&reused); err != nil {
 		return domain.FastingShedSubmitResult{}, err
 	}
 	if reused {
 		return domain.FastingShedSubmitResult{}, ports.ErrFastingProofInvalid
 	}
-	if err := r.validateFastingProofsTx(ctx, tx, cmd.TenantID, []string{cmd.FeedProofRef, cmd.WaterProofRef}); err != nil {
+	capturedKinds, err := r.validateFastingProofsTx(ctx, tx, cmd.TenantID, expectedProofKinds(cmd))
+	if err != nil {
 		return domain.FastingShedSubmitResult{}, err
 	}
 
 	shedLabel := oploc.OperationalLocation{ShedName: displayName, PartitionLabel: partitionLabel}.Display()
 	var fastingShedID string
 	var rowVersion int
+	answers := cmd.Answers
+	if answers == nil {
+		answers = domain.SOPAnswers{}
+	}
+	answersJSON, err := json.Marshal(answers)
+	if err != nil {
+		return domain.FastingShedSubmitResult{}, err
+	}
+	proofs := domain.NormalizeRemovalProofRefs(cmd.Proofs)
+	if len(proofs) == 0 {
+		// Legacy pair only: stored under the seeded slot keys so every reader sees one shape.
+		if cmd.FeedProofRef != "" {
+			proofs[domain.RemovalProofFeed] = cmd.FeedProofRef
+		}
+		if cmd.WaterProofRef != "" {
+			proofs[domain.RemovalProofWater] = cmd.WaterProofRef
+		}
+	}
+	proofsJSON, err := json.Marshal(proofs)
+	if err != nil {
+		return domain.FastingShedSubmitResult{}, err
+	}
 	if err := tx.QueryRow(ctx, fastingShedUpsertSQL,
 		cmd.TenantID, cmd.FastingTaskID, cmd.CampaignShedID, shedLabel,
-		cmd.FeedProofRef, cmd.WaterProofRef).Scan(&fastingShedID, &rowVersion); err != nil {
+		nullableUUIDString(cmd.FeedProofRef), nullableUUIDString(cmd.WaterProofRef), answersJSON, proofsJSON).Scan(&fastingShedID, &rowVersion); err != nil {
 		return domain.FastingShedSubmitResult{}, err
 	}
 
@@ -345,6 +464,9 @@ func (r *Repository) SubmitFastingShed(ctx context.Context, cmd domain.SubmitFas
 		RemovalBusinessDate: task.RemovalBusinessDate,
 		SubmittedAt:         task.SubmittedAt,
 		RowVersion:          rowVersion,
+		Answers:             cmd.Answers,
+		ProofRefs:           proofs,
+		ProofKinds:          domain.SlotKinds(proofs, capturedKinds),
 	}
 	proofRow := domain.FastingShedProof{
 		FastingShedID:  fastingShedID,
@@ -355,6 +477,9 @@ func (r *Repository) SubmitFastingShed(ctx context.Context, cmd domain.SubmitFas
 		WaterProofRef:  cmd.WaterProofRef,
 		Status:         domain.FastingStatusPendingVerification,
 		RowVersion:     rowVersion,
+		Answers:        cmd.Answers,
+		Proofs:         proofs,
+		ProofKinds:     capturedKinds,
 	}
 
 	if err := audit.NewTxRecorder(tx).Record(ctx, audit.Event{
@@ -373,6 +498,8 @@ func (r *Repository) SubmitFastingShed(ctx context.Context, cmd domain.SubmitFas
 			"shed_label":             shedLabel,
 			"feed_proof_ref":         cmd.FeedProofRef,
 			"water_proof_ref":        cmd.WaterProofRef,
+			"sop_answers":            answers,
+			"sop_proofs":             proofs,
 			"round_complete":         roundComplete,
 			"client_idempotency_key": cmd.IdempotencyKey,
 		},
@@ -386,4 +513,29 @@ func (r *Repository) SubmitFastingShed(ctx context.Context, cmd domain.SubmitFas
 		return domain.FastingShedSubmitResult{}, err
 	}
 	return domain.FastingShedSubmitResult{Card: card, Evidence: proofRow, Task: task}, nil
+}
+
+// expectedProofKinds pairs every capture with the kind its slot accepts (video / photo /
+// either), for the register check. A legacy pair, or a slot the service did not name, expects a
+// video -- the pre-SOP rule.
+func expectedProofKinds(cmd domain.SubmitFastingShed) map[string]string {
+	out := map[string]string{}
+	for key, ref := range cmd.Proofs {
+		if strings.TrimSpace(ref) == "" {
+			continue
+		}
+		kind := cmd.SlotKinds[key]
+		if kind == "" {
+			kind = domain.RemovalProofKindVideo
+		}
+		out[strings.TrimSpace(ref)] = kind
+	}
+	for _, ref := range []string{cmd.FeedProofRef, cmd.WaterProofRef} {
+		if ref != "" {
+			if _, ok := out[ref]; !ok {
+				out[ref] = domain.RemovalProofKindVideo
+			}
+		}
+	}
+	return out
 }

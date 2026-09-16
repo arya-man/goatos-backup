@@ -126,9 +126,11 @@ func (e *Enqueuer) EnqueueWeighingVerification(ctx context.Context, in weighinga
 			RefType: in.Category,
 			RefID:   in.ObservationID,
 		},
-		MediaRefs:  in.MediaRefs,
-		OperatorID: ptrIfSet(in.OperatorID),
-		ShedID:     ptrIfSet(in.ShedID),
+		MediaRefs:   in.MediaRefs,
+		MediaMeta:   mediaMeta(in.MediaMeta),
+		ContextRows: contextRows(in.ContextRows),
+		OperatorID:  ptrIfSet(in.OperatorID),
+		ShedID:      ptrIfSet(in.ShedID),
 		// ParkID is the notification routing key: the verification pending consumer resolves the
 		// park's verify-duty holders from it and no-ops on a blank park (see the sibling feed and
 		// shifting bridges, which pass it for the same reason).
@@ -150,4 +152,28 @@ func ptrIfSet(s string) *string {
 		return nil
 	}
 	return &s
+}
+
+// mediaMeta carries the producer's per-proof headers and kinds across the module boundary.
+func mediaMeta(in []weighingapp.VerificationMediaMeta) []verificationdomain.MediaMeta {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]verificationdomain.MediaMeta, 0, len(in))
+	for _, m := range in {
+		out = append(out, verificationdomain.MediaMeta{Label: m.Label, Kind: m.Kind})
+	}
+	return out
+}
+
+// contextRows carries the producer's verifier context across the module boundary.
+func contextRows(in []weighingapp.VerificationContextRow) []verificationdomain.ContextRow {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]verificationdomain.ContextRow, 0, len(in))
+	for _, row := range in {
+		out = append(out, verificationdomain.ContextRow{Label: row.Label, Value: row.Value})
+	}
+	return out
 }

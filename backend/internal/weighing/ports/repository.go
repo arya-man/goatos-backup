@@ -295,6 +295,13 @@ func (c *CaptureIncomplete) Unwrap() error { return ErrCaptureIncomplete }
 
 type Repository interface {
 	CreateCampaign(ctx context.Context, cmd domain.CreateCampaign) (domain.Campaign, error)
+	// CampaignByIdempotencyKey returns the task an EARLIER create with this key and this exact
+	// client request fingerprint produced, or ok=false. The service asks it BEFORE applying the
+	// current publish's rules to a retry: a rule that changed since (a capture mode withdrawn)
+	// must not turn an exact retry of an already-created task into a refusal (PR #274 review
+	// round 2, finding 2). A same-key DIFFERENT request is not this method's call; the create
+	// itself still answers it with ErrIdempotencyConflict.
+	CampaignByIdempotencyKey(ctx context.Context, cmd domain.CreateCampaign) (domain.Campaign, bool, error)
 	UpdateCampaign(ctx context.Context, campaignID string, cmd domain.UpdateCampaign) (domain.Campaign, error)
 	PublishCampaign(ctx context.Context, tenantID, campaignID, actorID, idempotencyKey string) (domain.Campaign, error)
 	// ListCampaigns / ListCampaignsForOperator page the task list. parkID is an

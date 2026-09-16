@@ -25,6 +25,8 @@ function passingReport() {
     expected_sha: sha,
     manifest_sha256: "manifest-hash",
     started_at: "2026-09-16T00:00:00Z",
+    weighing_policy: {source: "/admin-web/bootstrap", copy: {}},
+    weighing_policy_end: {source: "/admin-web/bootstrap", copy: {}},
     finished_at: "2026-09-16T00:01:00Z",
     dataset: {
       label: "ci_canonical_5k_50k",
@@ -554,6 +556,8 @@ function browserProvenance() {
   return {
     api_build_identity_source: "/version", api_base_url: api, admin_web_base_url: web,
     actor: { user_id: user, tenant_id: tenant },
+    weighing_policy: {source: "/admin-web/bootstrap", copy: {}},
+    weighing_policy_end: {source: "/admin-web/bootstrap", copy: {}},
     local_stack_launch_receipt: {
       git_sha: sha, mode: "start", api_base_url: api, admin_web_base_url: web,
       local_user_id: user, tenant_id: tenant,
@@ -571,4 +575,11 @@ test("rejects missing API actor and browser/API user mismatch", () => {
   report.browser_evidence = pr264BrowserEvidence();
   report.actor.user_id = "different-user";
   assert.ok(validateApiLatencyEvidence(report, sha).some((f) => /actor/.test(f)));
+});
+
+test("browser policy must match measured authored window", () => {
+  const report = passingReport();
+  report.scope.evidence_profile = "pr264_performance";
+  report.browser_evidence = {weighing_policy:{source:"/admin-web/bootstrap",copy:{changed:"yes"}}};
+  assert.ok(validateApiLatencyEvidence(report, report.git_sha).some(f => /browser Weights policy/.test(f)));
 });

@@ -279,6 +279,8 @@ function validatePr264BrowserEvidence(report, failures) {
   if (browser.same_api_build !== true) {
     failures.push("PR264 browser evidence must use the same API build as the latency report");
   }
+  if (!browser.weighing_policy || JSON.stringify(browser.weighing_policy) !== JSON.stringify(report.weighing_policy)
+    || JSON.stringify(browser.weighing_policy_end) !== JSON.stringify(report.weighing_policy)) failures.push("PR264 browser Weights policy must match API benchmark at start and end");
   const receipt = browser.local_stack_launch_receipt;
   const build = receipt?.build_provenance;
   if (browser.api_build_identity_source !== "/version"

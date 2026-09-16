@@ -1,6 +1,10 @@
 package domain
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"github.com/vgoats/goatos/backend/internal/permissions"
 	"strings"
 	"time"
 )
@@ -63,6 +67,55 @@ type Actor struct {
 	TenantID string
 	UserID   string
 	Roles    []string
+	// Permissions is the per-person resolved permission set when the person's OWN access rows
+	// (the /people ticks -- Weighing "Set up" grants weighing.plan) decided the request;
+	// PermissionsResolved says whether they did. When true, every capability check in this
+	// module judges from Permissions and never from Roles: the route gate did the same, and a
+	// re-check from the role map would refuse a tick that is not also a job (route-green /
+	// service-403, which is how a person-granted planner was refused on 2026-09-15). When
+	// false the role map decides, exactly as before the per-person cutover.
+	Permissions         []string
+	PermissionsResolved bool
+}
+
+// Holds reports whether the actor holds EVERY listed permission, from whichever source
+// decided the request (the per-person set when resolved, else the role map).
+func (a Actor) Holds(required ...string) bool {
+	if len(required) == 0 {
+		return false
+	}
+	if a.PermissionsResolved {
+		for _, want := range required {
+			if !a.holdsResolved(want) {
+				return false
+			}
+		}
+		return true
+	}
+	return permissions.RolesAuthorize(a.Roles, required, false)
+}
+
+// HoldsAny reports whether the actor holds AT LEAST ONE of the listed permissions, from the
+// same source Holds reads.
+func (a Actor) HoldsAny(anyOf ...string) bool {
+	if a.PermissionsResolved {
+		for _, want := range anyOf {
+			if a.holdsResolved(want) {
+				return true
+			}
+		}
+		return false
+	}
+	return permissions.RolesAuthorizeAny(a.Roles, anyOf)
+}
+
+func (a Actor) holdsResolved(want string) bool {
+	for _, have := range a.Permissions {
+		if have == want {
+			return true
+		}
+	}
+	return false
 }
 
 type Campaign struct {
@@ -92,10 +145,18 @@ type Campaign struct {
 	// removal task (maintainer decision 2026-09-03, domain/fasting.go) so the
 	// EDIT wizard can prefill the removal assignment and monitor surfaces can
 	// show whether tonight's removal happened. Blank on pre-feature campaigns.
-	FastingOperatorUserID string         `json:"fasting_operator_user_id,omitempty"`
-	FastingStatus         string         `json:"fasting_status,omitempty"`
-	Sheds                 []CampaignShed `json:"sheds,omitempty"`
-	Progress              Progress       `json:"progress"`
+	FastingOperatorUserID string `json:"fasting_operator_user_id,omitempty"`
+	FastingStatus         string `json:"fasting_status,omitempty"`
+	// SOPVersion is the weighing.session SOP version this task was PLANNED on and runs
+	// under to the end (WEIGHING SOP, maintainer decision 2026-09-15, domain/sop.go). 0 on a
+	// task planned before the rule existed or on a tenant that never published one: both run
+	// the seeded rules, which are the pre-SOP behaviour.
+	SOPVersion int `json:"sop_version"`
+	// SOP is the compiled rule set of SOPVersion, populated on the single-task read so the
+	// phone renders the lump-sum video cap and the removal card copy from it; nil on list rows.
+	SOP      *Rules         `json:"sop,omitempty"`
+	Sheds    []CampaignShed `json:"sheds,omitempty"`
+	Progress Progress       `json:"progress"`
 }
 
 type CampaignPage struct {
@@ -334,6 +395,10 @@ func ParseCampaignListScope(raw string, fallback CampaignListScope) (CampaignLis
 type PlannerCatalog struct {
 	Parks     []PlannerPark     `json:"parks"`
 	Operators []PlannerOperator `json:"operators"`
+	// SOP is the PUBLISHED weighing.session rule set a task planned now is stamped with:
+	// the wizard renders its capture modes, its default cap and the feed & water removal
+	// mode (required / optional / off) from it, never from a client constant.
+	SOP Rules `json:"sop"`
 }
 
 type PlannerPark struct {
@@ -857,9 +922,27 @@ type CreateCampaign struct {
 	// the weighing shift are different people, which is why this is its own
 	// assignment and never defaults to the weighing operator.
 	FastingOperatorUserID string
-	IdempotencyKey        string
-	Sheds                 []CreateCampaignShed
-	CreatedBy             string
+	// FeedWaterRemovalRequested is the planner's per-task choice under the SOP's
+	// `optional` removal mode: nil means "not said" (reads as ON, so an older APK that
+	// always sends the operator keeps its behaviour), false switches the precondition off
+	// for THIS task. Under `required` and `off` it is ignored -- the SOP decides.
+	FeedWaterRemovalRequested *bool `json:",omitempty"`
+	// RequestFingerprint is the idempotency fingerprint of the CLIENT's request, taken by the
+	// service BEFORE the SOP rules normalize the command (stamp the version, default the cap,
+	// drop a removal operator the rules do not ask for). The store keys replay on it: a retry
+	// of the same request after a later publish must return the task it already created, not
+	// conflict because the server-side stamps moved (PR #274 review, finding 2). Blank means the
+	// store fingerprints the command it receives, as it always did.
+	RequestFingerprint string `json:"-"`
+	// SOPVersion is stamped by the service from the published rules at create; the
+	// repository stores it verbatim and never resolves it.
+	SOPVersion int `json:"-"`
+	// RemoveFasting is set by the service on an EDIT that switches the precondition off for
+	// a task that carries an unsubmitted removal round: the repository deletes the round.
+	RemoveFasting  bool `json:"-"`
+	IdempotencyKey string
+	Sheds          []CreateCampaignShed
+	CreatedBy      string
 }
 
 type UpdateCampaign = CreateCampaign
@@ -991,4 +1074,14 @@ type WeighingParkShed struct {
 	ParkID         string `json:"park_id"`
 	// LocationID is the underlying location.
 	LocationID string `json:"location_id"`
+}
+
+// RequestFingerprint hashes a create command as the client sent it. Server-stamped fields are
+// excluded by their json:"-" tags. Optional additions are omitted when absent so a
+// legacy request keeps its pre-SOP fingerprint across a deployment.
+func RequestFingerprint(cmd CreateCampaign) string {
+	cmd.RequestFingerprint = ""
+	raw, _ := json.Marshal(cmd)
+	sum := sha256.Sum256(raw)
+	return hex.EncodeToString(sum[:])
 }

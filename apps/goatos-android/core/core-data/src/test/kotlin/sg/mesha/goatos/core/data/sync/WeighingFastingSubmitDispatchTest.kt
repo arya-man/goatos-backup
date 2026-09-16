@@ -172,3 +172,28 @@ class WeighingFastingSubmitDispatchTest {
         assertTrue(row.lastError.orEmpty().isNotBlank())
     }
 }
+
+
+class WeighingFastingSubmitSlotDispatchTest {
+    /**
+     * WEIGHING SOP: a row queued with slot-keyed captures resolves each through its own upload row
+     * and sends {slot: ref}; the seeded keys also ride the legacy fields. Pinned so a photo slot
+     * (`trough_photo`) reaches the backend under its own key and never as `water_proof_ref`.
+     */
+    @org.junit.Test
+    fun `slot-keyed captures are sent as proofs, seeded keys mirrored on the legacy fields`() {
+        val payload = WeighingFastingSubmitPayload(
+            fastingTaskId = "task-1",
+            campaignShedId = "shed-b",
+            proofOutboxItems = mapOf("feed_video" to "feed-b", "trough_photo" to "trough-b"),
+        )
+        val json = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
+        val decoded = json.decodeFromString<WeighingFastingSubmitPayload>(json.encodeToString(WeighingFastingSubmitPayload.serializer(), payload))
+        assertEquals(mapOf("feed_video" to "feed-b", "trough_photo" to "trough-b"), decoded.proofOutboxItems)
+        assertEquals("a slot-keyed row carries no legacy pair", null, decoded.feedProofOutboxItemId)
+        // A pre-slot row still decodes: the legacy pair stands and proofOutboxItems is empty.
+        val legacy = json.decodeFromString<WeighingFastingSubmitPayload>("""{"fasting_task_id":"task-1","campaign_shed_id":"shed-b","feed_proof_outbox_item_id":"feed-b","water_proof_outbox_item_id":"water-b"}""")
+        assertEquals("feed-b", legacy.feedProofOutboxItemId)
+        assertTrue(legacy.proofOutboxItems.isEmpty())
+    }
+}

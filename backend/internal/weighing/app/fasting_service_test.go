@@ -28,20 +28,28 @@ type fakeFastingStore struct {
 	listCalls     int
 	listNow       time.Time
 	listCutoff    fwrdomain.Cutoff
+	listCutoffs   ports.RemovalCutoffs
+	cardVersions  []int
 	startDate     string
 	fastingSubbed bool
 	hasFasting    bool
 }
 
-func (f *fakeFastingStore) ListFastingShedCardsForOperator(_ context.Context, _, _ string, now time.Time, cutoff fwrdomain.Cutoff, _ string, _ int) (domain.FastingShedCardPage, error) {
+func (f *fakeFastingStore) ListFastingShedCardsForOperator(_ context.Context, _, _ string, now time.Time, cutoffs ports.RemovalCutoffs, _ string, _ int) (domain.FastingShedCardPage, error) {
 	f.listCalls++
 	f.listNow = now
-	f.listCutoff = cutoff
+	f.listCutoffs = cutoffs
+	f.listCutoff = cutoffs.Default
 	return domain.FastingShedCardPage{Items: []domain.FastingShedCard{}}, nil
 }
 
-func (f *fakeFastingStore) FastingTaskByID(_ context.Context, _, _, _ string) (domain.FastingTask, error) {
-	return domain.FastingTask{}, ports.ErrNotFound
+func (f *fakeFastingStore) FastingCardSOPVersions(context.Context, string, string, time.Time) ([]int, error) {
+	return f.cardVersions, nil
+}
+
+func (f *fakeFastingStore) FastingTaskByID(_ context.Context, _, fastingTaskID, _ string) (domain.FastingTask, error) {
+	// The submit path reads the round to find its campaign (the SOP pin lives there).
+	return domain.FastingTask{FastingTaskID: fastingTaskID, CampaignID: "00000000-0000-4000-8000-000000000501", OperatorUserID: testOp}, nil
 }
 
 func (f *fakeFastingStore) SubmitFastingShed(_ context.Context, cmd domain.SubmitFastingShed) (domain.FastingShedSubmitResult, error) {
@@ -110,7 +118,7 @@ func TestCreateCampaignRefusesWhenTheRemovalCutoffIsNotConfigured(t *testing.T) 
 	if _, err := unset.CreateCampaign(context.Background(), ceo, cmd); !errors.Is(err, fwrports.ErrCutoffNotConfigured) {
 		t.Fatalf("unset reader create err = %v, want ErrCutoffNotConfigured", err)
 	}
-	store := &fakeFastingStore{}
+	store := &fakeFastingStore{cardVersions: []int{0}}
 	operator := domain.Actor{TenantID: testTenant, UserID: testOp, Roles: []string{permissions.RoleOperator}}
 	list := NewService(&fakeRepo{}).WithFastingStore(store).WithClock(beforeCutoffClock("2026-07-29"))
 	if _, err := list.ListMyFastingShedCards(context.Background(), operator, "", 20); !errors.Is(err, fwrports.ErrCutoffNotConfigured) {
@@ -267,7 +275,7 @@ func TestSubmitFastingShedAuthorization(t *testing.T) {
 // predicate binds it — never a second wall-clock read.
 func TestListMyFastingShedCardsThreadsThePinnedClock(t *testing.T) {
 	operator := domain.Actor{TenantID: testTenant, UserID: testOp, Roles: []string{permissions.RoleOperator}}
-	store := &fakeFastingStore{}
+	store := &fakeFastingStore{cardVersions: []int{0}}
 	pinned := time.Date(2026, 9, 3, 20, 30, 0, 0, time.UTC)
 	service := NewService(&fakeRepo{}).WithFeedWaterRemovalCutoff(eightPM).WithFastingStore(store).WithClock(func() time.Time { return pinned })
 	if _, err := service.ListMyFastingShedCards(context.Background(), operator, "", 20); err != nil {

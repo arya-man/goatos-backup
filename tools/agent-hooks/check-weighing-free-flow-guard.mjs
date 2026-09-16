@@ -580,6 +580,8 @@ export function anyPathTableFindings(rel, source) {
     // real phantom-table report on correct code before being listed.
     if ([
       "set", "select", "only", "unnest", "lateral", "values", "of",
+      // Set-returning JSON functions over a weighing-owned column are not tables either.
+      "jsonb_each_text", "jsonb_each", "jsonb_array_elements", "jsonb_array_elements_text",
       "with", "update", "skip", "nothing", "conflict", "returning", "where",
     ].includes(table)) continue;
     const exemption = HERD_JOIN_EXEMPT_FILES.get(rel);
