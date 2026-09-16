@@ -151,6 +151,12 @@ func (s *Service) WithSOPRules(rules ports.SOPRulesSource) *Service {
 }
 
 // WithScheduleReader wires the feed_schedule_config dispatch clock read.
+// PinsPublishedFeedSOP reports whether the published feed SOP cards are wired. A service that
+// issues sheets or materializes transport tasks WITHOUT them silently stamps the seed (version 0)
+// on every sheet/task, so an authored card never reaches the crew (found 2026-09-17: the
+// scheduled feed-direction-issue job did exactly that). Composition roots assert it in a test.
+func (s *Service) PinsPublishedFeedSOP() bool { return s.sopRules != nil }
+
 func (s *Service) WithScheduleReader(schedule ports.ScheduleReader) *Service {
 	s.schedule = schedule
 	return s
