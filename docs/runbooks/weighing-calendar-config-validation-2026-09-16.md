@@ -6,7 +6,7 @@ PR [#281](https://github.com/vgoats/goatos/pull/281), branch `feat/weighing-cale
 
 The database owns the earliest selectable day and landing start mode/value. Backend bootstrap reads the tenant row from `public.weighing_calendar_config`; the existing frontend calendar consumes that contract. Initial values are July 5, 2026 minimum and fixed August 3, 2026 default. Optional rolling weeks count back from the current IST day: September 16 minus six weeks is August 5.
 
-There are no UI layout, styling, editor, OpenAPI, or generated-client changes relative to the base branch. Earlier SOP configuration work was superseded by the explicit DB-only requirement. The final configuration authority is independent of SOP publication. Exact tenant-scoped SQL and verification commands are in [the settings runbook](weighing-calendar-settings.md).
+The review follow-up removes obsolete calendar controls from the SOP editor and calendar claims from its summary and contract copy. There are no styling, OpenAPI, or generated-client changes. Earlier SOP configuration work was superseded by the explicit DB-only requirement. The final configuration authority is independent of SOP publication. Exact tenant-scoped SQL and verification commands are in [the settings runbook](weighing-calendar-settings.md).
 
 ## Completed verification
 
@@ -48,3 +48,16 @@ Local raw proof lives under `artifacts/weighing-calendar-config/` and is exclude
 ## Promotion status
 
 No merge, main push, or deployment. One initial migration/code deployment is needed to introduce the DB configuration; later configuration updates use SQL without code deployment. No latency improvement is claimed.
+
+
+## PR review follow-up: obsolete SOP controls
+
+Scope: remove the ineffective reporting-calendar controls from `/weighing/sops` and the corresponding published summary. Preserve legacy SOP calendar metadata for document compatibility; database configuration remains authoritative.
+
+Done: removed editor controls, summary values, and obsolete backend copy. Added a regression guard for both UI surfaces and copy, plus preservation of legacy metadata when editing an operational rule.
+
+Validation: 51 focused frontend tests passed (weighing model, landing behavior, weights contracts); all backend adminui/app tests passed; weighing-SOP guard and five visual route-coverage tests passed; whitespace check passed. TypeScript passed using a temporary path mapping to this checkout's API client (the shared dependency link initially resolved an older client). No performance change is claimed.
+
+Browser limitation: live smoke could not start because the isolated checkout lacks GOATOS_API_BASE_URL, GOATOS_BEARER_TOKEN and GOATOS_TENANT_ID. Earlier browser proof does not certify this editor removal. Laptop/mobile editor and summary E2E remain pending before promotion. No full local CI or landing receipt has been run.
+
+Base reviewed SHA: 001f7c46ef74fb3f1d2bfb3a5d1249c2bc5a9245. Follow-up commit SHA is available in this file's git history. Review status: reported P2 addressed with regression coverage; live UI certification pending. Deployment state: no main push, merge or deployment; PR branch push authorized.

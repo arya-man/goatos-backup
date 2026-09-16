@@ -140,7 +140,7 @@ test("a capture slot without the required flag (a pre-flag document) is compulso
   assert.deepEqual(weighingProblems(rows), []);
 });
 
-test("the Weights pages' window: fixed date or rolling days, never before the earliest day, seeded when absent", () => {
+test("legacy SOP calendar metadata remains round-trip compatible", () => {
   const seed = JSON.parse(readFileSync(seedPath, "utf8"));
   const rows = parseWeighing({ weighing: seed });
   assert.equal(rows.weightsFromMode, "fixed_date");
@@ -172,4 +172,18 @@ test("Other explanation is only publishable for pick-one questions", () => {
     q.kind = kind;
     assert.ok(weighingProblems(rows).some(p=>p.includes("only supported for pick-one")),kind);
   }
+});
+
+
+test("SOP editor and summary cannot advertise obsolete calendar settings", () => {
+  for (const name of ["weighing-editor.tsx", "weighing-summary.tsx"]) {
+    const source = readFileSync(new URL(name, import.meta.url), "utf8");
+    assert.doesNotMatch(source, /weightsFrom|weightsEarliest|wsop\.(?:weights\.|section\.weights|summary\.weights_)/, name);
+  }
+  const contract = readFileSync(new URL("../../../../backend/internal/adminui/app/service.go", import.meta.url), "utf8");
+  assert.doesNotMatch(contract, /wsop\.(?:weights\.|section\.weights|summary\.weights_)/);
+  const original = JSON.parse(readFileSync(seedPath, "utf8"));
+  const rows = parseWeighing({ weighing: original });
+  rows.defaultCapPerDay = "125";
+  assert.deepEqual(emitWeighing(rows).weights_pages, original.weights_pages);
 });

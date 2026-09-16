@@ -58,10 +58,7 @@ export type WeighingRows = {
   individualVideoRequired: boolean;
   lumpSumVideoMin: string;
   lumpSumVideoMax: string;
-  /**
-   * The Weights / ADG Analytics pages' window (maintainer request 2026-09-16): the period the pages
-   * open on -- a fixed date or the last N days -- and the earliest day their calendars offer.
-   */
+  /** Legacy SOP metadata retained for document compatibility; never exposed as calendar controls. */
   weightsFromMode: WeightsFromMode;
   weightsFromDate: string;
   weightsFromDays: string;

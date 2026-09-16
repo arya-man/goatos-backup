@@ -61,18 +61,6 @@ export function WeighingSummary({ pageContract: pc, formDsl }: { pageContract: A
             </div>
           </div>
         </div>
-        <div className="hrow">
-          <div className="htx">
-            <b>{copy(pc, "wsop.section.weights")}</b>
-            <div className="hmeta muted small">
-              {rows.weightsFromMode === "rolling_days"
-                ? fill(copy(pc, "wsop.summary.weights_rolling"), { days: rows.weightsFromDays })
-                : fill(copy(pc, "wsop.summary.weights_fixed"), { date: rows.weightsFromDate })}
-              {" · "}
-              {fill(copy(pc, "wsop.summary.weights_earliest"), { date: rows.weightsEarliestDate })}
-            </div>
-          </div>
-        </div>
       </div>
       {rows.removalMode !== "off" && rows.removalQuestions.length > 0 ? (
         <div>
