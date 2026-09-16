@@ -11,7 +11,7 @@ Branch `feat/weighing-calendar-db-config` was created from `origin/main` at `d43
 
 ## Completed proof
 
-- 51 focused Node tests passed: weighing date behavior, page/export wiring, SOP editor parsing/emission/validation.
+- 55 focused Node tests passed after the final code edit: weighing date behavior, page/export wiring, SOP editor parsing/emission/validation, and Chromium responsive geometry.
 - Focused Go tests passed: weighing domain, weighing SOP adapter/application, admin UI compiler and repository packages.
 - OCI disposable PostgreSQL migration test passed in 113 seconds. Six fixture scenarios (old seed, custom fixed settings, rolling days, draft, retired version, missing page block) applied migration twice and checked calendar result, unchanged task rules and unchanged version.
 - Admin-web typecheck passed. Initial dependency reuse incorrectly resolved an older checkout's API client; isolated dependency links fixed resolution and the rerun passed.
@@ -25,7 +25,7 @@ OCI test endpoints are frontend port 13306 and backend port 18086, using the exi
 
 ## Browser configuration round trip
 
-All scenarios passed in isolated real Chrome at both 1440px and 390px, against populated OCI data:
+Report and calendar scenarios passed in isolated real Chrome at both 1440px and 390px, against populated OCI data. The SOP publication click-through used a 1280px desktop viewport:
 
 | Scenario | Result |
 | --- | --- |
@@ -36,11 +36,27 @@ All scenarios passed in isolated real Chrome at both 1440px and 390px, against p
 | SOP editor: six → two weeks, Publish SOP (v4) | Actual UI publication succeeded; fresh landing September 2 |
 | Restore fixed via normal publish (v5) | August 3 default restored; July 5 selectable |
 
-Neither frontend nor backend restarted during these configuration changes. The first immediate reload after publication can show the cached contract; subsequent reload after the bounded cache expiry showed the new setting. All requested failure strings were absent. Desktop and mobile calendar, report, export, and editor screenshots were visually inspected. Local raw evidence is under `artifacts/weighing-calendar-config/` (not committed); `focused-browser-summary.json` records the scenario assertions.
+Neither frontend nor backend restarted during these configuration changes. The first immediate reload after publication can show the cached contract; subsequent reload after the bounded cache expiry showed the new setting. All requested failure strings were absent. Desktop and mobile calendar, report, and export screenshots, plus the desktop SOP editor screenshot, were visually inspected. Local raw evidence is under `artifacts/weighing-calendar-config/` (not committed); `focused-browser-summary.json` records the scenario assertions.
 
-## Pending
+## Review results and fixes
 
-- PR creation and three independent review results; resolve findings and rerun affected proof.
+PR [#281](https://github.com/vgoats/goatos/pull/281) received three independent post-PR reviews, including the relevant month of history and current SOP/bootstrap architecture:
+
+| Reviewer scope | Result |
+| --- | --- |
+| Frontend/date resolver/editor | Approved; no implementation defect; independent 51-test rerun passed |
+| Backend/domain/migration/contracts | Approved; no implementation defect; independent targeted Go rerun passed |
+| End-to-end product/evidence | Requested missing mobile editor/nested-tab evidence; additional mobile proof found clipped date/year; approved after fix and verification |
+
+The discovered mobile issue is fixed with a feature-scoped media rule: below 600px, the three Weights page configuration fields stack at full width. Other SOP sections and desktop columns are unchanged. A real Chromium geometry regression test checks readable widths and vertical stacking at 390px, and retained columns at 1440px. The complete focused suite now passes 55/55.
+
+The named `responsive:guard` passed **20/20 cases**: General, Breed, Breed wide window, Birth, Pen, Weight, Time, Comparison, SOP list, and Weights, each at laptop and mobile sizes. It used a genuine wrapper launch receipt and matching API/actor identity at `ac3148f37`. The test services were restarted once to add this provenance **after** completing the no-restart configuration round trip; the earlier round trip remains independent evidence. Raw manifest and browser receipt: `.codex-goatos-render/admin-web-screenshots/2026-09-16T09-43-55-787Z/`.
+
+After the final CSS edit, the actual SOP editor was retested at **390px and 1440px**: select rolling weeks, change six to two, then cancel. Screenshots were visually inspected: complete date/year visible on mobile; desktop remains a row. The **publication** test described above was desktop only; mobile proof is edit/cancel and reporting behavior. Published v5 remains fixed August 3 / earliest July 5.
+
+Additional checks: scoped ESLint, `check:mock-fidelity`, and `make ai-doctor` passed. The isolated checkout's missing Repowise index was built using safe static fast mode, then the doctor passed with no bypass. A production build from a clean archive of the tested commit passed, including TypeScript and the token-leak guard with a real test token, without touching the live frontend build directory. The archive omits `.git`, so this is a compile/build receipt, not a main-landing provenance receipt.
+
+No review findings remain open. These are feature-scope approvals, not permission or certification to merge/deploy.
 
 ## Metrics and failure record
 
@@ -50,4 +66,4 @@ Initial local readiness correctly rejected pending migration 318 until the offic
 
 ## Judge and deployment status
 
-Judges pending after PR creation. No push to main, merge, or staging deployment. The feature requires one deployment before production can use the new mode; subsequent SOP publications need no deployment. Implementation tested at `0c818fc57`; subsequent documentation-only receipts record PR and review results.
+All three review scopes approved after the mobile layout and evidence fixes. No push to main, merge, or staging deployment. The feature requires one deployment before production can use the new mode; subsequent SOP publications need no deployment. Initial implementation was tested at `0c818fc57`; the PR follow-up adds the mobile layout fix and geometry guard described above. Exact pushed head is recorded on PR #281 and in the final local progress receipt.

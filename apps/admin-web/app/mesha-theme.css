@@ -2477,6 +2477,7 @@
   .sop-weighing .inspection-page>.bd>.qcfg label.chkline{display:flex;align-items:flex-start;gap:8px;width:auto}
   .sop-weighing .inspection-page>.bd>.qcfg label.chkline input{width:auto;flex:0 0 auto;margin-top:2px}
   .sop-weighing .inspection-page>.bd>.qcfg label.chkline .muted{font-weight:500}
+  @media(max-width:600px){.sop-weighing .sop-weighing-weights>.bd>.qcfg .rowf{flex-direction:column}.sop-weighing .sop-weighing-weights>.bd>.qcfg .rowf>.numfield{flex:none;width:100%}}
   .sop-inspection .qcard .rowf{display:flex;gap:8px;flex-wrap:wrap}
   .sop-inspection .qcard .rowf>*{flex:1;min-width:0}
   .sop-inspection .qcard .optrow code{flex:none;max-width:120px;overflow:hidden;text-overflow:ellipsis}
