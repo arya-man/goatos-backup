@@ -1,42 +1,45 @@
 /* Item-first presentation. Existing stable IDs, access rules and save impact checks remain authoritative. */
 function genericItemAccess(item, sources=state.dataSources||[]) {
   const grants=new Map(),add=(module,reason)=>{if(!module||module==='Common')return;grants.set(module,[...(grants.get(module)||[]),reason]);};
-  if(item.module!=='Common')add(item.module,'Maintaining department');
+  if(item.module!=='Common')add(item.module,'Owning business area');
   const category=(state.itemCategories||[]).find(c=>c.id===item.categoryId),sub=(state.itemCategories||[]).find(c=>c.id===item.subcategoryId);
   (category?.shares||[]).forEach(m=>add(m,'Category: '+category.name));
   (sub?.shares||[]).forEach(m=>add(m,'Subcategory: '+sub.name));
-  sources.filter(s=>s.kind==='items'&&s.owner===item.module&&s.categoryId===item.categoryId).forEach(s=>(s.shares||[]).forEach(m=>add(m,'Shared list: '+s.name)));
-  (item.shares||[]).forEach(m=>add(m,'Item link'));
+  sources.filter(s=>s.kind==='items'&&s.owner===item.module&&s.categoryId===item.categoryId).forEach(s=>(s.shares||[]).forEach(m=>add(m,'Reusable list: '+s.name)));
+  (item.shares||[]).forEach(m=>add(m,'Selected here'));
   return [...grants].map(([module,reasons])=>({module,selectable:!!item.active,reason:[...new Set(reasons)].join(' · ')}));
 }
 const genericBaseItems=renderItems;
-renderItems=function(){genericBaseItems();const heading=$('.items-heading p');if(heading)heading.textContent='Add an item or setting once. Choose which departments can use it in their work instructions.';const stats=$('.item-stats');if(stats)stats.insertAdjacentHTML('afterend','<div class="notice generic-local-note">Mock catalogue · saved in this browser only. Production database and mobile integration are not connected.</div>');};
+renderItems=function(){genericBaseItems();const heading=$('.items-heading p');if(heading)heading.textContent='Add an item or setting once. Choose which departments can use it in their work instructions.';};
 const genericBaseItemModal=itemModal;
 itemModal=function(id){
   genericBaseItemModal(id);const form=$('#itemform');if(!form)return;
   const existing=id?itemById(id):null,isGeneric=!existing||existing.module==='Common';
   if(isGeneric){
-    const moduleSelect=$('#imodule');moduleSelect.insertAdjacentHTML('afterbegin','<option value="Common">Shared catalogue</option>');moduleSelect.value='Common';moduleSelect.disabled=true;
+    const moduleSelect=$('#imodule');moduleSelect.insertAdjacentHTML('afterbegin','<option value="Common">Reusable item library</option>');moduleSelect.value='Common';moduleSelect.disabled=true;
     genericRestoreConsumerChecks(existing);
     refreshItemCategories(existing?.categoryId||'',existing?.subcategoryId||'');
   }
-  $('.item-drawer-intro').innerHTML='Name the item or setting → choose departments → use it in work instructions.'+(id?'<br><span class="muted">Stable reference: '+esc(id)+' · Revision '+itemById(id).revision+'</span>':'');
+  $('.item-drawer-intro').innerHTML=(id?'<span class="muted">Saved item · Revision '+itemById(id).revision+'</span>':'Create one reusable item or setting');
   const name=$('#iname').closest('label'),owner=$('#imodule').closest('label'),unit=$('#iunit').closest('label'),ownerRow=owner.parentElement;
   const shares=$('#itemshares');
   // Replace static sharing copy with the live effective-access preview.
-  [...form.children].filter(el=>(el.tagName==='SPAN'&&el.textContent==='Share with other departments')||(el.tagName==='P'&&el.textContent.startsWith('The maintaining department'))||(el.classList.contains('notice')&&el.textContent.startsWith('Additional access through shared sources:'))).forEach(el=>el.remove());
-  const access=document.createElement('section');access.className='generic-access';access.innerHTML='<h3>Where can this item be used?</h3><p class="muted">'+(isGeneric?'Choose the departments that need this item or setting. Each selected team can use it in their work instructions.':'Choose the departments that need this item. Its maintaining department and category links also apply.')+'</p>';access.appendChild(shares);name.after(access);
+  [...form.children].filter(el=>(el.tagName==='SPAN'&&el.textContent==='Share with other departments')||(el.tagName==='P'&&el.textContent.startsWith('The owning business area'))||(el.classList.contains('notice')&&el.textContent.startsWith('Additional access through shared sources:'))).forEach(el=>el.remove());
+  const access=document.createElement('section');access.className='generic-access';access.innerHTML='<h3>Where can this item be used?</h3><p class="muted">'+(isGeneric?'Choose the departments that need this item or setting. Each selected team can use it in their work instructions.':'Tick the departments whose SOPs should be able to choose this item.')+'</p>';access.appendChild(shares);name.after(access);
   const basics=document.createElement('div');basics.className='inputrow';basics.appendChild(name);basics.appendChild(unit);form.prepend(basics);
-  owner.querySelector('span').textContent=isGeneric?'Catalogue':'Maintained by';ownerRow.classList.add('generic-maintenance');ownerRow.insertAdjacentHTML('afterbegin','<p class="muted">'+(isGeneric?'Group similar items by category and subcategory: Electrical appliances → Fans, Clothes → Sarees, or Supplies → Needles.':'This item keeps its maintaining department and category. That department can always use it.')+'</p>');
-  const categoryRow=$('#icategory').closest('.inputrow');categoryRow.insertAdjacentHTML('afterend',`<details class="generic-category-create"><summary>Add a category without leaving this item</summary><p class="muted">Your item draft stays here. New groups are saved locally immediately.</p><div class="inputrow"><label class="field"><span>New category</span><input id="generic-category-name" maxlength="100" placeholder="e.g. Consumables" ${canEdit()?'':'disabled'}></label><button type="button" onclick="genericCreateCategory(false)" ${canEdit()?'':'disabled'}>Add category</button></div><div class="inputrow"><label class="field"><span>New subcategory in selected category</span><input id="generic-subcategory-name" maxlength="100" placeholder="e.g. Needles and syringes" ${canEdit()?'':'disabled'}></label><button type="button" onclick="genericCreateCategory(true)" ${canEdit()?'':'disabled'}>Add subcategory</button></div><p id="generic-category-feedback" role="status"></p></details>`);
+  owner.querySelector('span').textContent=isGeneric?'Catalogue':'Owned by';ownerRow.classList.add('generic-maintenance');
+  
   access.insertAdjacentHTML('beforeend','<div id="generic-access-preview" aria-live="polite"></div>');
   form.addEventListener('input',genericRefreshPreview);form.addEventListener('change',genericRefreshPreview);
-  $('.item-drawer-footer').insertAdjacentHTML('beforebegin','<p class="muted generic-save-note">Save keeps this item in this browser across reloads. This mock does not write to the production database.</p>');genericRefreshPreview();
+  genericRefreshPreview();
 };
 function genericRefreshPreview(){
- const preview=$('#generic-access-preview');if(!preview)return;
- const draft={name:$('#iname').value.trim()||'Your item',module:$('#imodule').value,categoryId:$('#icategory').value,subcategoryId:$('#isubcategory').value,active:$('#iactive').value==='true',shares:[...document.querySelectorAll('[data-item-share]:checked')].map(el=>el.dataset.itemShare)};
- const access=genericItemAccess(draft);preview.innerHTML='<h4>Departments that can use this</h4><p class="muted">'+(draft.active?'After saving, these departments can choose this item or setting.':'Archived items cannot be chosen for new work. Previously published instructions keep their saved version.')+'</p><p class="muted">'+(draft.module==='Common'?'Choose at least one department, here or on its category.':'The maintaining department can always use this.')+(draft.module==='Common'?' Departments chosen on a category, subcategory or shared list also apply. To stop sharing, remove each applicable link.':' To change shared-list links, open Work instructions → Saved questions, actions and lists → Shared lists. Category links also apply.')+'</p><div class="generic-module-previews">'+(access.length?'':'<p class="muted">Choose a department on this item, its category or subcategory.</p>')+access.map(a=>'<div><strong>'+esc(a.module)+'</strong><span class="muted">'+esc(a.reason)+'</span><select aria-label="'+esc(a.module)+' item preview" disabled><option>'+esc(a.selectable?draft.name:'Not selectable · archived')+'</option></select></div>').join('')+'</div>';
+ const form=$('#itemform');if(!form)return;const id=(form.getAttribute('onsubmit')||'').match(/saveItem\('([^']*)'/)?.[1]||'';
+ const old=id?itemById(id):null;
+ const draft={id:id||'new',name:$('#iname').value.trim()||'This item',module:$('#imodule').value,categoryId:$('#icategory').value,subcategoryId:$('#isubcategory').value,active:$('#iactive').value==='true',shares:[...document.querySelectorAll('[data-item-share]:checked')].map(el=>el.dataset.itemShare)};
+ const box=$('#generic-access-preview');if(!box)return;
+ const access=genericItemAccess(draft);
+ box.innerHTML='<h4>Where this can be used</h4><p class="muted">Select the business areas that can use it.</p><div class="item-access-pills">'+access.map(a=>'<span class="badge '+(a.reason==='Owning business area'?'':'blue')+'">'+esc(a.module)+(a.reason==='Owning business area'?' · owner':'')+'</span>').join('')+'</div>'+(draft.active?'':'<p class="muted">Archived items stay in old published SOPs but cannot be chosen for new work.</p>');
 }
 function genericCreateCategory(isSub){
  if(!canEdit())return;const input=$(isSub?'#generic-subcategory-name':'#generic-category-name'),feedback=$('#generic-category-feedback'),name=input.value.trim(),module=$('#imodule').value,parentId=isSub?$('#icategory').value:null;
@@ -66,7 +69,7 @@ function genericRestoreConsumerChecks(item){document.querySelectorAll('[data-ite
 const genericHierarchyRender=renderHierarchyEditor;
 renderHierarchyEditor=function(){
  genericHierarchyRender();const host=$('#hierarchyeditor');if(!host)return;
- host.insertAdjacentHTML('afterbegin','<p class="muted">Departments selected on a category also apply to its items. Subcategory and item links add more departments. Removing one link keeps any other links; published instructions keep their saved version.</p>');
+ host.insertAdjacentHTML('afterbegin','<p class="muted">Category access also applies to its items. Item links can add more areas.</p>');
  state.itemCategories.filter(c=>c.module===$('#hmodule').value).forEach(c=>{
   const row=$('#rename-'+c.id)?.closest('.inputrow');if(!row)return;
   row.insertAdjacentHTML('afterend',`<details class="hierarchy-module-links" data-hierarchy-id="${c.id}"><summary>${esc(c.name)} · departments (${(c.shares||[]).length})</summary><div class="item-share-grid">${modules.map(m=>`<label class="checkrow"><input type="checkbox" ${c.shares?.includes(m)?'checked':''} ${canEdit()?'':'disabled'} onchange="genericSetHierarchyLink('${c.id}','${m}',this.checked)">${m}</label>`).join('')}</div></details>`);
@@ -76,7 +79,7 @@ function genericSetHierarchyLink(id,module,on,acknowledged=false){
  if(!canEdit())return;const group=itemCategory(id);if(!group)return;
  const affected=state.items.filter(i=>i.categoryId===id||i.subcategoryId===id);
  const references=!on?affected.flatMap(i=>itemUsages(i.id).map(u=>({...u,item:i.name}))):[];
- if(references.length&&!acknowledged){modal('Review department access',`<p>Remove ${esc(module)} from ${esc(group.name)}?</p><p>${references.length} work instruction steps use items in this group. Other department links still apply. Check drafts after removing a link; published instructions stay unchanged.</p><div class="actions"><button onclick="categoryModal()">Cancel</button><button class="primary" onclick="genericSetHierarchyLink('${id}','${module}',false,true);categoryModal()">Apply</button></div>`);return;}
+ if(references.length&&!acknowledged){modal('Review department access',`<p>Remove ${esc(module)} from ${esc(group.name)}?</p><p>${references.length} work instruction steps use items in this group.</p><div class="actions"><button onclick="categoryModal()">Cancel</button><button class="primary" onclick="genericSetHierarchyLink('${id}','${module}',false,true);categoryModal()">Apply</button></div>`);return;}
  group.shares=(group.shares||[]).filter(m=>m!==module);if(on)group.shares.push(module);record('Updated category module links: '+group.name);genericUpdateHierarchyCaption(group);
 }
 function genericMovedSourceReferences(old,item){
@@ -97,7 +100,7 @@ commitItem=function(item){
  const lost=old?genericItemAccess(old).map(a=>a.module).filter(m=>!genericItemAccess(item).some(a=>a.module===m)):[];
  const affected=old&&lost.length?itemUsages(old.id).filter(u=>lost.includes(u.module)):[];
  const moved=genericMovedSourceReferences(old,item);
- if(affected.length||moved.length){window.pendingHierarchyItem=item;modal(affected.length?'Review inherited access':'Review collection membership',`<p>${affected.length?'This change removes effective access for '+lost.map(esc).join(', ')+' and affects '+affected.length+' work instruction steps. ':''}${moved.length?'Moving this item removes it from '+moved.length+' source-backed draft selections. ':''}Drafts may need review. Previously published instructions keep their saved items.</p>${moved.map(u=>`<div class="linkline"><span>${esc(u.title)} · ${esc(u.nodeLabel)}</span><span>${esc(u.module)} · ${esc(u.source)}</span></div>`).join('')}<div class="actions"><button onclick="itemModal('${old.id}')">Cancel</button><button class="primary" onclick="genericCommitInheritedItem()">Apply</button></div>`);return;}
+ if(affected.length||moved.length){window.pendingHierarchyItem=item;modal(affected.length?'Review inherited access':'Review collection membership',`<p>${affected.length?'This removes access for '+lost.map(esc).join(', ')+' and affects '+affected.length+' work instruction steps. ':''}${moved.length?'Moving this item affects '+moved.length+' draft selections. ':''}</p>${moved.map(u=>`<div class="linkline"><span>${esc(u.title)} · ${esc(u.nodeLabel)}</span><span>${esc(u.module)} · ${esc(u.source)}</span></div>`).join('')}<div class="actions"><button onclick="itemModal('${old.id}')">Cancel</button><button class="primary" onclick="genericCommitInheritedItem()">Apply</button></div>`);return;}
  genericBaseCommitItem(item);
 };
 function genericCommitInheritedItem(){if(!canEdit()||!window.pendingHierarchyItem)return;const item=window.pendingHierarchyItem;window.pendingHierarchyItem=null;genericBaseCommitItem(item);}

@@ -6,7 +6,7 @@ assert.deepEqual(result(needle).map(x=>x.module),['Health','Preventive Care']);
 assert(result(needle).every(x=>x.selectable));
 const inherited=[{kind:'items',owner:'Health',categoryId:'consumables',shares:['Feed','Preventive Care']},{kind:'items',owner:'Procurement',categoryId:'other',shares:['Sales']}];
 assert.deepEqual(result(needle,inherited).map(x=>x.module),['Health','Feed','Preventive Care']);
-assert.equal(result(needle,inherited).find(x=>x.module==='Feed').reason,'Shared list: undefined');
+assert.equal(result(needle,inherited).find(x=>x.module==='Feed').reason,'Reusable list: undefined');
 assert(result({...needle,active:false},inherited).every(x=>!x.selectable));
 assert.deepEqual(result({...needle,shares:[]},inherited).map(x=>x.module),['Health','Feed','Preventive Care']);
 console.log('PASS generic item preview: direct access, inherited source access, deduplication, isolation, archival');
