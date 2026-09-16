@@ -32,6 +32,9 @@ var (
 	// a DIFFERENT terminal state (e.g. approving a rejected request). Repeating the SAME decision
 	// is not an error -- it returns the original row with no new side effects.
 	ErrApprovalAlreadyDecided = errors.New("counts: approval request already decided")
+	// ErrDeathAlreadyReported refuses a second death report for an animal whose earlier report is
+	// still pending approval (HTTP 409 death_already_reported): one animal dies once.
+	ErrDeathAlreadyReported = errors.New("counts: this animal's death is already reported and awaiting approval")
 	// ErrApprovalEffectIncomplete is returned when an approval's side effect did not cover every
 	// animal/row it was supposed to. The decision transaction is rolled back, so the request stays
 	// pending rather than half-applying.

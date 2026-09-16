@@ -475,6 +475,9 @@ func (h *AppWriteHandler) writeApprovalError(w http.ResponseWriter, r *http.Requ
 			"approval request has already been decided", err)
 	case errors.Is(err, ports.ErrApprovalEffectIncomplete):
 		h.writeError(w, r, http.StatusConflict, "approval_effect_incomplete", err.Error(), err)
+	case errors.Is(err, ports.ErrDeathAlreadyReported):
+		h.writeError(w, r, http.StatusConflict, "death_already_reported",
+			"this animal's death is already reported and waiting for approval", err)
 	case errors.Is(err, ports.ErrDeathEvidenceIncomplete):
 		h.writeError(w, r, http.StatusConflict, "death_evidence_incomplete",
 			"every step of the death report (its videos, photos and answers) must be recorded before approval", err)

@@ -1224,17 +1224,24 @@ func (r *Repository) CancelDeathWorkflowForGoat(ctx context.Context, tenantID, g
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	var workflowID string
+	var workflowID, lifecycle string
 	err = tx.QueryRow(ctx, `
-SELECT workflow_id::text
-FROM workflow_instances
-WHERE tenant_id = $1::uuid AND subject_goat_id = $2::uuid AND template_key = $3
-FOR UPDATE`, tenantID, goatID, domain.TemplateKeyDeath).Scan(&workflowID)
+SELECT wi.workflow_id::text, g.lifecycle_status
+FROM workflow_instances wi
+JOIN goats g ON g.tenant_id = wi.tenant_id AND g.goat_id = wi.subject_goat_id
+WHERE wi.tenant_id = $1::uuid AND wi.subject_goat_id = $2::uuid AND wi.template_key = $3
+FOR UPDATE OF wi`, tenantID, goatID, domain.TemplateKeyDeath).Scan(&workflowID, &lifecycle)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return tx.Commit(ctx)
 	}
 	if err != nil {
 		return err
+	}
+	// A rejection cancels the STAGED workflow of a living animal. Once a death is applied the
+	// workflow is that death's evidence under review; a later-rejected report (a duplicate left
+	// pending beside the approved one) must never cancel it (E2E 2026-09-17).
+	if lifecycle != "alive" {
+		return tx.Commit(ctx)
 	}
 	if _, err := tx.Exec(ctx, `
 UPDATE workflow_actions

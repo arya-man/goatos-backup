@@ -143,6 +143,31 @@ func (r *Repository) CreateApprovalRequest(ctx context.Context, in domain.Approv
 		raisedAt = time.Now().In(biztime.DefaultLocation())
 	}
 
+	// ONE PENDING DEATH REPORT PER ANIMAL. Two operators reporting the same death opened two
+	// approvals: approving one killed the goat, the other could then neither be approved (identity
+	// row version) nor rejected safely (the reject canceled the applied death's workflow). The
+	// animal's row lock serializes concurrent reports; an exact replay of the pending report still
+	// falls through to the idempotency path below (E2E 2026-09-17).
+	if in.RequestType == domain.ApprovalRequestTypeDeath && in.SubjectGoatID != nil && strings.TrimSpace(*in.SubjectGoatID) != "" {
+		var locked int
+		if err := tx.QueryRow(ctx, `SELECT 1 FROM goats WHERE tenant_id = $1::uuid AND goat_id = $2::uuid FOR UPDATE`,
+			in.TenantID, strings.TrimSpace(*in.SubjectGoatID)).Scan(&locked); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return domain.ApprovalRequest{}, false, fmt.Errorf("counts: lock death subject: %w", err)
+		}
+		var otherPending bool
+		if err := tx.QueryRow(ctx, `
+SELECT EXISTS (
+  SELECT 1 FROM counts_approval_requests
+  WHERE tenant_id = $1::uuid AND subject_goat_id = $2::uuid AND request_type = 'death'
+    AND status = 'pending' AND idempotency_key <> $3
+)`, in.TenantID, strings.TrimSpace(*in.SubjectGoatID), in.IdempotencyKey).Scan(&otherPending); err != nil {
+			return domain.ApprovalRequest{}, false, fmt.Errorf("counts: read pending death reports: %w", err)
+		}
+		if otherPending {
+			return domain.ApprovalRequest{}, false, ports.ErrDeathAlreadyReported
+		}
+	}
+
 	capture := captureColumns(in.Capture)
 	row := tx.QueryRow(ctx, `
 INSERT INTO counts_approval_requests (
