@@ -58,6 +58,33 @@ const (
 // older app is never forced to update (program decision 7).
 const NotCapturedOlderApp = "Not captured (older app)"
 
+// OLDER APP VIDEO (program decision 7): an older app sends videos only. When the pinned version has
+// no slot that can take one, the video is still ACCEPTED and kept under this RESERVED key (and
+// "_2", "_3" for further clips), never an authored slot -- ValidateWeighingSOP refuses the key --
+// and the verifier reads it as OlderAppVideoLabel.
+const (
+	OlderAppVideoKey   = "older_app_video"
+	OlderAppVideoLabel = "Recorded on an older app"
+)
+
+// IsOlderAppVideoKey reports whether a slot key is the reserved older-app key or a numbered form.
+func IsOlderAppVideoKey(key string) bool {
+	return key == OlderAppVideoKey || strings.HasPrefix(key, OlderAppVideoKey+"_")
+}
+
+// OlderAppVideoKeyN is the reserved key of the n-th older-app video (1-based).
+func OlderAppVideoKeyN(n int) string {
+	if n <= 1 {
+		return OlderAppVideoKey
+	}
+	return OlderAppVideoKey + "_" + strconv.Itoa(n)
+}
+
+// OlderAppVideoSlot is the pseudo slot a reserved key reads as: never authored, always a video.
+func OlderAppVideoSlot(key string) RemovalProofSlot {
+	return RemovalProofSlot{Key: key, Title: OlderAppVideoLabel, Kind: RemovalProofKindVideo}
+}
+
 // CountedProofSlot is one whole-pen capture slot carrying Min..Max captures (Min 0 = optional).
 type CountedProofSlot struct {
 	Key   string `json:"key"`
@@ -150,7 +177,7 @@ func (r Rules) LumpSumQuestions() []SOPQuestion {
 
 // IndividualSlotKinds / LumpSumSlotKinds are {slot key: kind} for the store's kind check.
 func (r Rules) IndividualSlotKinds() map[string]string {
-	out := map[string]string{}
+	out := map[string]string{OlderAppVideoKey: RemovalProofKindVideo}
 	for _, s := range r.IndividualProofs() {
 		out[s.Key] = s.Kind
 	}
@@ -158,7 +185,7 @@ func (r Rules) IndividualSlotKinds() map[string]string {
 }
 
 func (r Rules) LumpSumSlotKinds() map[string]string {
-	out := map[string]string{}
+	out := map[string]string{OlderAppVideoKey: RemovalProofKindVideo}
 	for _, s := range r.LumpSumProofs() {
 		out[s.Key] = s.Kind
 	}
@@ -307,6 +334,9 @@ func validateCaptureSections(dsl WeighingSOP, add func(string, ...any)) {
 func validateSlotIdentity(pp, key, title, kind string, seen map[string]bool, add func(string, ...any)) {
 	if !sopIDPattern.MatchString(key) {
 		add("%s.key: %q must be a-z, 0-9 and _ (start with a letter)", pp, key)
+	}
+	if IsOlderAppVideoKey(key) {
+		add("%s.key: %q is reserved for a video recorded on an older app", pp, key)
 	}
 	if seen[key] {
 		add("%s.key: %q is listed twice", pp, key)
@@ -478,7 +508,8 @@ func LegacyIndividualRefs(r Rules, primary string) IndividualProofRefs {
 	if key := legacyIndividualTarget(slots); key != "" {
 		return IndividualProofRefs{key: primary}
 	}
-	return IndividualProofRefs{}
+	// No slot can take a video: still accepted, under the reserved key (never force an update).
+	return IndividualProofRefs{OlderAppVideoKey: primary}
 }
 
 func legacyIndividualTarget(slots []RemovalProofSlot) string {
@@ -515,7 +546,8 @@ func LegacyLumpSumRefs(r Rules, ids []string) LumpSumProofRefs {
 	if key := legacyLumpSumTarget(slots); key != "" {
 		return LumpSumProofRefs{key: list}
 	}
-	return LumpSumProofRefs{}
+	// No slot can take a video: still accepted, under the reserved key (never force an update).
+	return LumpSumProofRefs{OlderAppVideoKey: list}
 }
 
 func legacyLumpSumTarget(slots []CountedProofSlot) string {

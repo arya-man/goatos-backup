@@ -323,10 +323,30 @@ func TestLegacyRefsMapOntoSeededSlots(t *testing.T) {
 	if rows := l.LumpSumNotCapturedRows(lrefs, nil); len(rows) != 1 || rows[0].Label != "Scale photo" {
 		t.Fatalf("lump not-captured rows = %+v", rows)
 	}
-	// A version with NO video-accepting compulsory slot cannot take a legacy video at all.
+	// A version with NO slot that takes a video still takes the older app's video, under the
+	// reserved key (program decision 7: never force an update).
 	p := SeededRules()
 	p.Capture.Individual.Proofs = []RemovalProofSlot{{Key: "scale_photo", Title: "Scale display", Kind: "photo", Required: true}}
-	if refs := LegacyIndividualRefs(p, "v1"); len(refs) != 0 {
-		t.Fatalf("photo-only version must not take a legacy video: %v", refs)
+	if refs := LegacyIndividualRefs(p, "v1"); len(refs) != 1 || refs[OlderAppVideoKey] != "v1" {
+		t.Fatalf("photo-only version legacy refs = %v, want {%s: v1}", refs, OlderAppVideoKey)
+	}
+	p.Capture.LumpSum.Proofs = []CountedProofSlot{{Key: "scale_photo", Title: "Scale photo", Kind: "photo", Min: 1, Max: 1}}
+	if refs := LegacyLumpSumRefs(p, []string{"a", "b"}); len(refs) != 1 || strings.Join(refs[OlderAppVideoKey], ",") != "a,b" {
+		t.Fatalf("photo-only lump legacy refs = %v", refs)
+	}
+}
+
+// The older-app key is never authorable: a slot named with it (or its numbered form) is refused in
+// every section, so a stored older-app video can never be read as an authored capture.
+func TestOlderAppVideoKeyIsReserved(t *testing.T) {
+	dsl := SeededRules().WeighingSOP
+	dsl.FeedWaterRemoval.Proofs = append(dsl.FeedWaterRemoval.Proofs, RemovalProofSlot{Key: OlderAppVideoKey, Title: "x", Kind: "video"})
+	dsl.Capture.Individual.Proofs = []RemovalProofSlot{{Key: OlderAppVideoKey + "_2", Title: "x", Kind: "video", Required: true}}
+	dsl.Capture.LumpSum.Proofs = []CountedProofSlot{{Key: OlderAppVideoKey, Title: "x", Kind: "video", Min: 1, Max: 1}}
+	problems := strings.Join(ValidateWeighingSOP(dsl), "\n")
+	for _, path := range []string{"feed_water_removal.proofs.2.key", "capture.individual.proofs.0.key", "capture.lump_sum.proofs.0.key"} {
+		if !strings.Contains(problems, path+`: "`+OlderAppVideoKey) || !strings.Contains(problems, "reserved") {
+			t.Errorf("reserved key not refused at %s:\n%s", path, problems)
+		}
 	}
 }

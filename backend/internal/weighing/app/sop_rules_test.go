@@ -290,7 +290,8 @@ func TestSubmitFastingShedValidatesAnswersAgainstThePinnedVersion(t *testing.T) 
 		Task:     domain.FastingTask{TenantID: testTenant, FastingTaskID: fastingTaskID, CampaignID: "00000000-0000-4000-8000-000000000501", OperatorUserID: testOp, SubmittedAt: &submittedAt},
 	}}
 	service := NewService(&fakeRepo{}).WithFastingStore(store).WithVerificationEnqueuer(&captureVerificationEnqueuer{}).WithSOPRules(rules, pinnedVersion(6))
-	cmd := domain.SubmitFastingShed{FastingTaskID: fastingTaskID, CampaignShedID: shedB, FeedProofRef: proofThree, WaterProofRef: proofFour, IdempotencyKey: "fast-1"}
+	// A NEW phone (slot map) is judged strictly on its answers.
+	cmd := domain.SubmitFastingShed{FastingTaskID: fastingTaskID, CampaignShedID: shedB, Proofs: domain.RemovalProofRefs{domain.RemovalProofFeed: proofThree, domain.RemovalProofWater: proofFour}, IdempotencyKey: "fast-1"}
 
 	if _, err := service.SubmitFastingShed(context.Background(), operator, cmd); !errors.Is(err, domain.ErrSOPAnswerInvalid) {
 		t.Fatalf("no answers on a required question err = %v, want ErrSOPAnswerInvalid", err)
@@ -314,6 +315,19 @@ func TestSubmitFastingShedValidatesAnswersAgainstThePinnedVersion(t *testing.T) 
 	service = NewService(&fakeRepo{}).WithFastingStore(store).WithVerificationEnqueuer(&captureVerificationEnqueuer{}).WithSOPRules(rules, pinnedVersion(0))
 	if _, err := service.SubmitFastingShed(context.Background(), operator, cmd); !errors.Is(err, domain.ErrSOPAnswerInvalid) {
 		t.Fatalf("answers under the seed err = %v, want ErrSOPAnswerInvalid (unknown question)", err)
+	}
+
+	// An OLDER phone (the legacy pair, no answers) is never forced to update: accepted, and the
+	// required question it could not answer reaches the verifier as not captured (program decision 7).
+	enqueuer := &captureVerificationEnqueuer{}
+	store.submitResult.Evidence.Proofs = domain.RemovalProofRefs{domain.RemovalProofFeed: proofThree, domain.RemovalProofWater: proofFour}
+	service = NewService(&fakeRepo{}).WithFastingStore(store).WithVerificationEnqueuer(enqueuer).WithSOPRules(rules, pinnedVersion(6))
+	legacy := domain.SubmitFastingShed{FastingTaskID: fastingTaskID, CampaignShedID: shedB, FeedProofRef: proofThree, WaterProofRef: proofFour, IdempotencyKey: "fast-legacy"}
+	if _, err := service.SubmitFastingShed(context.Background(), operator, legacy); err != nil {
+		t.Fatalf("older phone without answers err = %v, want accepted", err)
+	}
+	if rows := enqueuer.received.ContextRows; len(rows) != 1 || rows[0].Label != "Every pen emptied?" || rows[0].Value != domain.NotCapturedOlderApp {
+		t.Fatalf("older phone rows = %+v, want the required question not captured", rows)
 	}
 }
 
@@ -449,10 +463,43 @@ func TestSubmitFastingShedJudgesCapturesByThePinnedSlots(t *testing.T) {
 	if store.submitted.Proofs["feed_video"] != proofThree || store.submitted.Proofs["water_video"] != proofFour {
 		t.Fatalf("legacy pair mapped to %v, want the seeded slots", store.submitted.Proofs)
 	}
-	// ...but under the document above (no water_video slot) that same phone is refused by name.
-	service = NewService(&fakeRepo{}).WithFastingStore(newStore()).WithSOPRules(rules, pinnedVersion(7))
-	if _, err := service.SubmitFastingShed(ctxBg(), operator, legacy); !errors.Is(err, domain.ErrSOPProofInvalid) {
-		t.Fatalf("legacy pair under a re-authored document err = %v, want ErrSOPProofInvalid", err)
+	// ...and under the document above (no water_video slot) that same phone is ACCEPTED (program
+	// decision 7: never force an update): its feed clip lands on feed_video, the water clip it has no
+	// slot for is kept under the reserved older-app key, and the photo it could not send reads not
+	// captured.
+	store = newStore()
+	store.submitResult.Evidence.Proofs = domain.RemovalProofRefs{"feed_video": proofThree, domain.OlderAppVideoKey: proofFour}
+	store.submitResult.Evidence.ProofKinds = nil
+	store.submitResult.Evidence.Answers = nil
+	enqueuer = &captureVerificationEnqueuer{}
+	service = NewService(&fakeRepo{}).WithFastingStore(store).WithVerificationEnqueuer(enqueuer).WithSOPRules(rules, pinnedVersion(7))
+	if _, err := service.SubmitFastingShed(ctxBg(), operator, legacy); err != nil {
+		t.Fatalf("legacy pair under a re-authored document err = %v, want accepted", err)
+	}
+	if store.submitted.Proofs["feed_video"] != proofThree || store.submitted.Proofs[domain.OlderAppVideoKey] != proofFour || store.submitted.SlotKinds[domain.OlderAppVideoKey] != domain.RemovalProofKindVideo {
+		t.Fatalf("legacy pair stored as %v kinds %v", store.submitted.Proofs, store.submitted.SlotKinds)
+	}
+	if store.submitted.FeedProofRef != proofThree || store.submitted.WaterProofRef != proofFour {
+		t.Fatalf("legacy mirrors = %q / %q, want the pair as sent", store.submitted.FeedProofRef, store.submitted.WaterProofRef)
+	}
+	meta = enqueuer.received.MediaMeta
+	if len(meta) != 2 || meta[0] != (VerificationMediaMeta{Label: "Feed removed", Kind: "video"}) || meta[1] != (VerificationMediaMeta{Label: domain.OlderAppVideoLabel, Kind: "video"}) {
+		t.Fatalf("legacy meta = %+v", meta)
+	}
+	ctxRows = enqueuer.received.ContextRows
+	if len(ctxRows) != 1 || ctxRows[0].Label != "Empty trough" || ctxRows[0].Value != domain.NotCapturedOlderApp {
+		t.Fatalf("legacy rows = %+v, want the compulsory photo not captured", ctxRows)
+	}
+	// A card with only photo slots keeps BOTH videos under the reserved keys.
+	photoOnly := rulesWithMode(8, domain.RemovalModeRequired)
+	photoOnly.Rules.FeedWaterRemoval.Proofs = []domain.RemovalProofSlot{{Key: "trough_photo", Title: "Empty trough", Kind: domain.RemovalProofKindPhoto, Required: true}}
+	store = newStore()
+	service = NewService(&fakeRepo{}).WithFastingStore(store).WithVerificationEnqueuer(&captureVerificationEnqueuer{}).WithSOPRules(photoOnly, pinnedVersion(8))
+	if _, err := service.SubmitFastingShed(ctxBg(), operator, legacy); err != nil {
+		t.Fatalf("legacy pair on a photo-only card err = %v", err)
+	}
+	if store.submitted.Proofs[domain.OlderAppVideoKey] != proofThree || store.submitted.Proofs[domain.OlderAppVideoKey+"_2"] != proofFour {
+		t.Fatalf("photo-only card stored %v", store.submitted.Proofs)
 	}
 }
 

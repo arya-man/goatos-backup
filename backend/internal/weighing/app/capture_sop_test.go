@@ -177,13 +177,29 @@ func TestRecordAnimalObservationOlderAppIsAcceptedWithNotCapturedRows(t *testing
 	if strings.Join(got, "|") != strings.Join(want, "|") {
 		t.Fatalf("rows = %v, want %v", got, want)
 	}
-	// A version whose slots cannot take a video at all refuses the older app by name.
+	// A version whose slots cannot take a video at all STILL accepts the older app (program decision
+	// 7: never force an update): its video is stored under the reserved older-app key, reaches the
+	// verifier as "Recorded on an older app", and the photo it could not send reads not captured.
 	photoOnly := rulesWithMode(4, domain.RemovalModeRequired)
 	photoOnly.Rules.Capture.Individual.Proofs = []domain.RemovalProofSlot{{Key: "scale_photo", Title: "Scale display", Kind: "photo", Required: true}}
-	service = NewService(&slotAnimalRepo{}).WithVerificationEnqueuer(enq).WithSOPRules(photoOnly, pinnedVersion(4))
-	var pe *domain.ProofError
-	if _, err := service.RecordAnimalObservation(context.Background(), operatorActor, cmd); !errors.Is(err, domain.ErrCaptureProofInvalid) || !errors.As(err, &pe) || pe.SlotKey != "scale_photo" {
-		t.Fatalf("photo-only version err = %v, want ErrCaptureProofInvalid naming scale_photo", err)
+	photoRepo := &slotAnimalRepo{}
+	enq = &captureVerificationEnqueuer{}
+	service = NewService(photoRepo).WithVerificationEnqueuer(enq).WithSOPRules(photoOnly, pinnedVersion(4))
+	if _, err := service.RecordAnimalObservation(context.Background(), operatorActor, cmd); err != nil {
+		t.Fatalf("photo-only version must accept the older app, err = %v", err)
+	}
+	if photoRepo.recorded.NormalizedProofs[domain.OlderAppVideoKey] != proofOne || photoRepo.recorded.PrimaryProofRef != proofOne || photoRepo.recorded.SlotKinds[domain.OlderAppVideoKey] != domain.RemovalProofKindVideo {
+		t.Fatalf("recorded = %+v, want the video under %s judged as a video", photoRepo.recorded, domain.OlderAppVideoKey)
+	}
+	if m := enq.received.MediaMeta; len(m) != 1 || m[0].Label != domain.OlderAppVideoLabel || m[0].Kind != "video" || strings.Join(enq.received.MediaRefs, ",") != proofOne {
+		t.Fatalf("meta = %+v refs = %v", m, enq.received.MediaRefs)
+	}
+	got = got[:0]
+	for _, r := range enq.received.ContextRows {
+		got = append(got, r.Label+"="+r.Value)
+	}
+	if strings.Join(got, "|") != "Weighed as=Per animal|Scale display="+domain.NotCapturedOlderApp {
+		t.Fatalf("photo-only rows = %v", got)
 	}
 }
 
@@ -434,5 +450,32 @@ func TestLeadershipEvidenceUsesThePinnedWholePenCeilingAndTitles(t *testing.T) {
 	}
 	if im := got.Individual[0].Media; len(im) != 2 || im[0].Label != "Weighing video" || im[1].Label != "Scale display" || im[1].MimeType != "image/jpeg" {
 		t.Fatalf("individual media = %+v", im)
+	}
+}
+
+// A whole-pen document with only photo slots still accepts an older app's video (program decision 7).
+func TestRecordShedObservationOlderAppVideoOnAPhotoOnlyVersion(t *testing.T) {
+	rules := rulesWithMode(6, domain.RemovalModeRequired)
+	rules.Rules.Capture.LumpSum.Proofs = []domain.CountedProofSlot{{Key: "scale_photo", Title: "Scale display photo", Kind: "photo", Min: 1, Max: 1}}
+	repo := &slotShedRepo{}
+	enq := &captureVerificationEnqueuer{}
+	service := NewService(repo).WithVerificationEnqueuer(enq).WithSOPRules(rules, pinnedVersion(6))
+	legacy := shedCmd()
+	legacy.ProofArtifactIDs = []string{proofOne}
+	if _, err := service.RecordShedObservation(context.Background(), operatorActor, legacy); err != nil {
+		t.Fatalf("older app on a photo-only version err = %v", err)
+	}
+	if strings.Join(repo.recorded.NormalizedProofs[domain.OlderAppVideoKey], ",") != proofOne || repo.recorded.SlotKinds[domain.OlderAppVideoKey] != domain.RemovalProofKindVideo {
+		t.Fatalf("recorded = %+v", repo.recorded)
+	}
+	if m := enq.received.MediaMeta; len(m) != 1 || m[0].Label != domain.OlderAppVideoLabel || m[0].Kind != "video" {
+		t.Fatalf("meta = %+v", m)
+	}
+	got := []string{}
+	for _, r := range enq.received.ContextRows {
+		got = append(got, r.Label+"="+r.Value)
+	}
+	if strings.Join(got, "|") != "Weighed as=Whole pen|Scale display photo="+domain.NotCapturedOlderApp {
+		t.Fatalf("rows = %v", got)
 	}
 }

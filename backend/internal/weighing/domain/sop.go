@@ -444,6 +444,9 @@ func ValidateWeighingSOP(dsl WeighingSOP) []string {
 		if !sopIDPattern.MatchString(p.Key) {
 			add("%s.key: %q must be a-z, 0-9 and _ (start with a letter)", pp, p.Key)
 		}
+		if IsOlderAppVideoKey(p.Key) {
+			add("%s.key: %q is reserved for a video recorded on an older app", pp, p.Key)
+		}
 		if seenSlot[p.Key] {
 			add("%s.key: %q is listed twice", pp, p.Key)
 		}
@@ -661,6 +664,71 @@ func (r Rules) ValidateRemovalProofRefs(refs RemovalProofRefs) ([]string, error)
 		ordered = append(ordered, ref)
 	}
 	return ordered, nil
+}
+
+// LegacyRemovalRefs maps an OLDER app's feed + water pair onto the pinned card (program decision 7:
+// never force an update). Each clip lands on its seeded slot when the card still has it and that
+// slot takes a video; a clip with no such slot is kept under the reserved older-app key, so nothing
+// it recorded is dropped and nothing is filed under a slot it was not recorded for.
+func LegacyRemovalRefs(r Rules, feedRef, waterRef string) RemovalProofRefs {
+	out := RemovalProofRefs{}
+	reserved := 0
+	for _, pair := range [][2]string{{RemovalProofFeed, strings.TrimSpace(feedRef)}, {RemovalProofWater, strings.TrimSpace(waterRef)}} {
+		if pair[1] == "" {
+			continue
+		}
+		if slot, ok := r.RemovalProof(pair[0]); ok && slot.Accepts(RemovalProofKindVideo) {
+			out[pair[0]] = pair[1]
+			continue
+		}
+		reserved++
+		out[OlderAppVideoKeyN(reserved)] = pair[1]
+	}
+	return out
+}
+
+// LegacyRemovalOrdered lays an older app's mapped pair out in slot order, then the reserved clips,
+// WITHOUT the compulsory-slot judgement (what the app could not send is reported, not refused).
+// One capture still cannot prove two things.
+func (r Rules) LegacyRemovalOrdered(refs RemovalProofRefs) ([]string, error) {
+	ordered := []string{}
+	seen := map[string]bool{}
+	add := func(key, ref string) error {
+		if ref = strings.TrimSpace(ref); ref == "" {
+			return nil
+		}
+		if seen[ref] {
+			return proofInvalid(key, "The same capture cannot prove two things.")
+		}
+		seen[ref] = true
+		ordered = append(ordered, ref)
+		return nil
+	}
+	for _, p := range r.RemovalProofs() {
+		if err := add(p.Key, refs[p.Key]); err != nil {
+			return nil, err
+		}
+	}
+	for n := 1; n <= 2; n++ {
+		key := OlderAppVideoKeyN(n)
+		if err := add(key, refs[key]); err != nil {
+			return nil, err
+		}
+	}
+	return ordered, nil
+}
+
+// RemovalNotCapturedRows names every compulsory removal capture and required question a stored pen
+// lacks, as "Not captured (older app)". A strict (new app) submit can never lack one, so this is
+// empty for it.
+func (r Rules) RemovalNotCapturedRows(refs RemovalProofRefs, answers SOPAnswers) []AnswerRow {
+	var out []AnswerRow
+	for _, s := range r.RemovalProofs() {
+		if s.Required && strings.TrimSpace(refs[s.Key]) == "" {
+			out = append(out, AnswerRow{Label: s.Title, Value: NotCapturedOlderApp})
+		}
+	}
+	return append(out, notAnsweredRows(r.FeedWaterRemoval.Questions, answers)...)
 }
 
 // NormalizeRemovalProofRefs drops blank entries so the stored map holds only real captures.

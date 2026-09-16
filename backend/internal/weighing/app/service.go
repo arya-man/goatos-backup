@@ -1241,12 +1241,8 @@ func (s *Service) applyIndividualCaptureRules(rules domain.Rules, cmd *domain.Re
 		if !uuidutil.IsUUIDString(cmd.ProofArtifactID) {
 			return ports.ErrInvalidArgument
 		}
+		// A version with no slot that takes a video keeps it under the reserved older-app key.
 		refs = domain.LegacyIndividualRefs(rules, cmd.ProofArtifactID)
-		if len(refs) == 0 {
-			// No slot of the pinned version takes a video: this app cannot satisfy it.
-			first := rules.IndividualProofs()[0]
-			return fmt.Errorf("%w: %w", domain.ErrCaptureProofInvalid, &domain.ProofError{SlotKey: first.Key, Message: "Record: " + first.Title})
-		}
 	}
 	for _, ref := range refs {
 		if !uuidutil.IsUUIDString(ref) {
@@ -1260,6 +1256,9 @@ func (s *Service) applyIndividualCaptureRules(rules domain.Rules, cmd *domain.Re
 			if ref := refs[slot.Key]; ref != "" {
 				ordered = append(ordered, ref)
 			}
+		}
+		if ref := refs[domain.OlderAppVideoKey]; ref != "" {
+			ordered = append(ordered, ref)
 		}
 	} else {
 		var err error
@@ -1380,11 +1379,8 @@ func (s *Service) applyLumpSumCaptureRules(rules domain.Rules, cmd *domain.Recor
 		if n := len(ids); n < lo || n > hi {
 			return ports.ErrLumpSumVideoCount
 		}
+		// A version with no slot that takes a video keeps them under the reserved older-app key.
 		refs = domain.LegacyLumpSumRefs(rules, ids)
-		if len(refs) == 0 {
-			first := rules.LumpSumProofs()[0]
-			return fmt.Errorf("%w: %w", domain.ErrCaptureProofInvalid, &domain.ProofError{SlotKey: first.Key, Message: "Record: " + first.Title})
-		}
 		ordered = domain.LegacyLumpSumOrdered(refs)
 	} else {
 		for _, list := range refs {

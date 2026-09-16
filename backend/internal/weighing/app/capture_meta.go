@@ -31,7 +31,7 @@ const (
 // REGISTER judged the capture to be (an `either` slot's answer), else the slot's own kind.
 func captureMetaIndividual(rules domain.Rules, refs domain.IndividualProofRefs, ordered []string, registerKinds map[string]string) []VerificationMediaMeta {
 	slotByRef := map[string]domain.RemovalProofSlot{}
-	for _, slot := range rules.IndividualProofs() {
+	for _, slot := range append(rules.IndividualProofs(), domain.OlderAppVideoSlot(domain.OlderAppVideoKey)) {
 		if ref := refs[slot.Key]; ref != "" {
 			slotByRef[ref] = slot
 		}
@@ -53,7 +53,7 @@ func captureMetaIndividual(rules domain.Rules, refs domain.IndividualProofRefs, 
 
 // captureMetaLumpSum names each whole-pen capture "Title k of N" within its slot.
 func captureMetaLumpSum(rules domain.Rules, ordered []domain.OrderedCapture, registerKinds map[string]string) []VerificationMediaMeta {
-	titles := map[string]domain.CountedProofSlot{}
+	titles := map[string]domain.CountedProofSlot{domain.OlderAppVideoKey: {Key: domain.OlderAppVideoKey, Title: domain.OlderAppVideoLabel, Kind: domain.RemovalProofKindVideo}}
 	for _, slot := range rules.LumpSumProofs() {
 		titles[slot.Key] = slot
 	}
@@ -141,7 +141,7 @@ func mimeForKind(kind string) string {
 func individualMedia(rules domain.Rules, obs domain.Observation) []domain.ProofMedia {
 	slots := rules.IndividualProofs()
 	titleByRef := map[string]string{}
-	for _, slot := range slots {
+	for _, slot := range append(append([]domain.RemovalProofSlot(nil), slots...), domain.OlderAppVideoSlot(domain.OlderAppVideoKey)) {
 		if ref := obs.Proofs[slot.Key]; ref != "" {
 			titleByRef[ref] = slot.Title
 		}
@@ -167,7 +167,7 @@ func individualMedia(rules domain.Rules, obs domain.Observation) []domain.ProofM
 // each slot. A row written before slots existed is the seeded pen_video slot, numbered.
 func lumpSumMedia(rules domain.Rules, obs domain.Observation) []domain.ProofMedia {
 	slots := rules.LumpSumProofs()
-	titles := map[string]string{}
+	titles := map[string]string{domain.OlderAppVideoKey: domain.OlderAppVideoLabel}
 	for _, slot := range slots {
 		titles[slot.Key] = slot.Title
 	}
