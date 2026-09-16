@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"time"
+
+	"github.com/vgoats/goatos/backend/internal/sop/authored"
 )
 
 // Shifting EXECUTION (maintainer decision 2026-08-09, SUPERSEDING the 2026-07-28 order-free gates):
@@ -99,6 +101,13 @@ type ShiftingCompletionCommand struct {
 	FeedGivenProofRef     string
 	FeedConfigFingerprint string
 
+	// SOPProofs / SOPAnswers are the judged {slot key: ref} map and the normalized answers of the
+	// completion (+ high_priority) card the movement is pinned to (SHIFTING SOP, 2026-09-16). The
+	// three legacy refs above are MIRRORS of the seeded slots, filled by the service from this map
+	// so every pre-existing reader still finds a ref.
+	SOPProofs  authored.ProofRefs
+	SOPAnswers authored.Answers
+
 	// DestinationTag is the OPTIONAL destination management_stage (operational cohort) the moved
 	// animals adopt. It is only needed when the destination shed is EMPTY (no existing animals to
 	// derive the cohort from); for an occupied shed the tag is derived server-side and a supplied
@@ -178,6 +187,16 @@ type ShiftingExecutionResult struct {
 	// are moving. Carried on the completion result so the evidence-review enqueue can hand it to
 	// the verifier, who otherwise sees only the video and a system-composed label.
 	RaiseComment *string
+
+	// Priority and the STORED SOP fields of the row (SHIFTING SOP, 2026-09-16): the verifier item is
+	// built from what the row holds, so a replay queues exactly the stored captures and answers.
+	Priority             string
+	SOPVersion           *int
+	SOPProofs            authored.ProofRefs
+	SOPAnswers           authored.Answers
+	RaiseSOPProofs       authored.ProofRefs
+	RaiseSOPAnswers      authored.Answers
+	RaiseCaptureEvidence json.RawMessage
 
 	AppliedAt *time.Time
 	AppliedBy *string
@@ -285,6 +304,15 @@ type ShiftingExecutionRow struct {
 	AnimalCount     int
 	Animals         []ShiftingExecutionAnimal
 	FeedRequirement *ShiftingFeedRequirement
+
+	// SOPVersion is the pinned shifting SOP version (nil = seeded). SOPAnswers are the answers a
+	// completion already recorded (a rework keeps them). SOP / HighPrioritySOP are the pinned
+	// cards the phone renders: the completion card always, the high-priority card only for a high
+	// movement. Resolved by the service, one rules read per version per page.
+	SOPVersion      *int
+	SOPAnswers      authored.Answers
+	SOP             *ShiftingCardRules
+	HighPrioritySOP *ShiftingCardRules
 }
 
 // ShiftingFeedRequirement is the exact destination ration shown for a high-priority movement.
