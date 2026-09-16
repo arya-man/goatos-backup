@@ -1,0 +1,219 @@
+/* Spreadsheet grid: entry, bulk edit and import review share this component */
+(function(){
+  let seq=0;
+  const rid=()=>'r'+(++seq);
+  const Sheet={cur:null};
+
+  Sheet.make=function(regKey,rowVals,opts){
+    opts=opts||{};
+    return {regKey,rows:rowVals.map(v=>({id:rid(),v:Object.assign({},v.v||v),recId:v.recId||null})),sel:new Set(),view:'all',
+      createParents:opts.createParents!==false,active:{r:0,c:0},pending:opts.pending||null,summary:null,title:opts.title,mode:opts.mode||'entry'};
+  };
+
+  /* open an entry grid page for a register */
+  Sheet.openEntry=function(regKey,ids,vals){
+    const reg=REG.R[regKey];
+    let rows=[];
+    if(ids&&ids.length)rows=ids.map(id=>{const r=S.get(reg.coll,id);return r?{v:REG.toRow(regKey,r),recId:id}:null;}).filter(Boolean);
+    else rows=(vals&&vals.length?vals:[{}]);
+    Sheet.cur=Sheet.make(regKey,rows,{title:ids&&ids.length?'Edit '+reg.label.toLowerCase():'Add '+reg.label.toLowerCase()});
+    Sheet.cur.back=location.hash;
+    location.hash='#/configuration/items/sheet/'+regKey;
+    App.render();
+  };
+
+  Sheet.results=function(G){
+    const pend=G.pending?G.pending():{};
+    return REG.validate(G.regKey,G.rows,{createParents:G.createParents,pending:pend});
+  };
+
+  const STAT={create:['New','ok'],update:['Update','info'],unchanged:['Unchanged','mut'],error:['Error','dng'],empty:['','mut']};
+
+  Sheet.html=function(G,opts){
+    opts=opts||{};
+    const reg=REG.R[G.regKey]; const res=Sheet.results(G); G._res=res;
+    const cnt={all:0,error:0,warn:0,create:0,update:0,unchanged:0};
+    res.forEach(r=>{if(r.status==='empty')return;cnt.all++;cnt[r.status]++;if(Object.values(r.issues).some(i=>i[0]==='warn'))cnt.warn++;});
+    const saveN=cnt.create+cnt.update;
+    const chips=[['all','All'],['error','Errors'],['warn','Warnings'],['create','New'],['update','Updates'],['unchanged','Unchanged']];
+    return `<div class="card screen" data-sheet>
+      ${G.summary?Sheet.summaryHtml(G.summary):''}
+      <div class="sheetbar">
+        ${G.regKey==='animals'?`<label class="scanin">${ic('scan')}<input data-scan placeholder="Scan or type RFID" autocomplete="off"></label>`:''}
+        <button class="btn sm" data-a="sh-addrow">${ic('plus')}Row</button>
+        <button class="btn sm" data-a="sh-fill">${ic('arrow-down')}Fill down</button>
+        <button class="btn sm" data-a="sh-delrows" ${G.sel.size?'':'disabled'}>${ic('trash')}Delete rows</button>
+        <span class="sp"></span>
+        <div class="chips">${chips.map(([k,l])=>`<button class="chip ${G.view===k?'on':''}" data-a="sh-view" data-v="${k}">${l} ${cnt[k]}</button>`).join('')}</div>
+      </div>
+      <div class="sheetbar">
+        <label class="row small" style="font-weight:650"><input type="checkbox" data-a="sh-parents" ${G.createParents?'checked':''}>Create new values</label>
+        <span class="sp"></span>
+        ${cnt.error?`<button class="btn sm" data-a="sh-errors">${ic('download')}Rows with errors</button>`:''}
+        ${opts.noFoot?'':`<button class="btn sm" data-a="sh-cancel">Close</button>
+        <button class="btn sm p" data-a="sh-save" ${saveN?'':'disabled'}>${ic('check')}Save ${saveN} row${saveN===1?'':'s'}</button>`}
+      </div>
+      <div class="sheet" data-grid>
+        <table><thead><tr><th class="rn"><input type="checkbox" data-a="sh-selall" aria-label="Select all"></th><th>Status</th>
+          ${reg.cols.map(c=>`<th class="${c.req?'req':''}">${esc(c.label)}</th>`).join('')}<th>Issues</th></tr></thead>
+        <tbody>${G.rows.map((row,ri)=>Sheet.rowHtml(G,row,ri,res[ri])).join('')}</tbody></table>
+      </div></div>`;
+  };
+
+  Sheet.rowHtml=function(G,row,ri,r){
+    const reg=REG.R[G.regKey]; const st=STAT[r.status]||STAT.empty;
+    const hid=Sheet.hidden(G,r);
+    const msgs=Object.entries(r.issues).map(([k,i])=>{const c=reg.cols.find(x=>x.k===k);return (c?c.label+': ':'')+i[1];});
+    return `<tr data-r="${ri}" class="${G.sel.has(row.id)?'selr':''} ${hid?'hid':''}">
+      <td class="rn"><label><input type="checkbox" data-a="sh-sel" data-id="${row.id}" ${G.sel.has(row.id)?'checked':''}>${ri+1}</label></td>
+      <td class="st">${st[0]?UI.tag(st[0],st[1]):''}</td>
+      ${reg.cols.map((c,ci)=>{const iss=r.issues[c.k];return `<td class="w-${c.w||''} ${iss?(iss[0]==='err'?'err':'warn'):''}" title="${iss?esc(iss[1]):''}"><input class="cell" data-r="${ri}" data-c="${ci}" value="${esc(row.v[c.k]==null?'':row.v[c.k])}" autocomplete="off" aria-label="${esc(c.label)} row ${ri+1}"></td>`;}).join('')}
+      <td class="msg" title="${esc(msgs.join(' · '))}">${esc(msgs.join(' · '))}</td></tr>`;
+  };
+
+  Sheet.hidden=function(G,r){
+    if(G.view==='all')return false;
+    if(r.status==='empty')return true;
+    if(G.view==='warn')return !Object.values(r.issues).some(i=>i[0]==='warn');
+    return r.status!==G.view;
+  };
+
+  Sheet.summaryHtml=function(s){
+    return `<div class="sheetbar" style="background:var(--brand-soft)">
+      <b>${ic('check','',15)} Saved</b><span class="tag t-ok">${s.created} created</span><span class="tag t-info">${s.updated} updated</span>
+      <span class="tag t-mut">${s.unchanged} unchanged</span>${s.skipped?`<span class="tag t-dng">${s.skipped} skipped</span>`:''}${s.parents?`<span class="tag t-pur">${s.parents} parents created</span>`:''}
+      <span class="sp"></span><button class="btn sm" data-a="sh-undo">${ic('undo')}Undo</button></div>`;
+  };
+
+  /* repaint validation without rebuilding inputs (keeps focus) */
+  Sheet.repaint=function(G,root){
+    const res=Sheet.results(G); G._res=res; const reg=REG.R[G.regKey];
+    root.querySelectorAll('tbody tr[data-r]').forEach(tr=>{
+      const ri=+tr.dataset.r, r=res[ri]; if(!r)return; const st=STAT[r.status]||STAT.empty;
+      tr.children[1].innerHTML=st[0]?UI.tag(st[0],st[1]):'';
+      reg.cols.forEach((c,ci)=>{const td=tr.children[ci+2],iss=r.issues[c.k];td.classList.toggle('err',!!iss&&iss[0]==='err');td.classList.toggle('warn',!!iss&&iss[0]==='warn');td.title=iss?iss[1]:'';});
+      const msgs=Object.entries(r.issues).map(([k,i])=>{const c=reg.cols.find(x=>x.k===k);return (c?c.label+': ':'')+i[1];}).join(' · ');
+      const m=tr.lastElementChild; m.textContent=msgs; m.title=msgs;
+    });
+    const cnt={all:0,error:0,warn:0,create:0,update:0,unchanged:0};
+    res.forEach(r=>{if(r.status==='empty')return;cnt.all++;cnt[r.status]++;if(Object.values(r.issues).some(i=>i[0]==='warn'))cnt.warn++;});
+    root.querySelectorAll('[data-a="sh-view"]').forEach(b=>{b.textContent=b.textContent.replace(/\d+$/,cnt[b.dataset.v]);});
+    const sv=root.querySelector('[data-a="sh-save"]'); const n=cnt.create+cnt.update;
+    if(sv){sv.disabled=!n;sv.innerHTML=ic('check')+'Save '+n+' row'+(n===1?'':'s');}
+    if(G.onChange)G.onChange(cnt);
+  };
+
+  /* binding: a sheet lives in a root element; G resolved through getter */
+  Sheet.bind=function(root,getG,rerender){
+    const G=()=>getG();
+    let t;
+    root.addEventListener('input',e=>{
+      const inp=e.target.closest('input.cell'); if(!inp)return;
+      const g=G(),reg=REG.R[g.regKey],c=reg.cols[+inp.dataset.c];
+      g.rows[+inp.dataset.r].v[c.k]=inp.value;
+      if(isPick(c))openPop(inp);
+      clearTimeout(t); t=setTimeout(()=>Sheet.repaint(g,root),120);
+    });
+    root.addEventListener('focusin',e=>{
+      const inp=e.target.closest('input.cell'); if(!inp)return;
+      const g=G(); g.active={r:+inp.dataset.r,c:+inp.dataset.c};
+      const c=REG.R[g.regKey].cols[g.active.c]; if(isPick(c))openPop(inp); else UI.closePop();
+    });
+    root.addEventListener('focusout',e=>{const inp=e.target.closest('input.cell');if(inp)setTimeout(()=>{if(UI._popCfg&&UI._popCfg.input===inp&&document.activeElement!==inp)UI.closePop();},150);});
+    root.addEventListener('keydown',e=>{
+      const inp=e.target.closest('input.cell');
+      if(inp){
+        if(UI.popKey(e)){return;}
+        if(e.key==='Enter'||e.key==='ArrowDown'&&e.altKey){e.preventDefault();move(inp,1,0);}
+        if(e.key==='ArrowUp'&&e.altKey){e.preventDefault();move(inp,-1,0);}
+      }
+      const sc=e.target.closest('[data-scan]');
+      if(sc&&e.key==='Enter'){e.preventDefault();const val=sc.value.trim();if(!val)return;Sheet.scanAppend(G(),val);sc.value='';rerender();setTimeout(()=>{const s=root.querySelector('[data-scan]');if(s)s.focus();},0);}
+    });
+    root.addEventListener('paste',e=>{
+      const inp=e.target.closest('input.cell'); if(!inp)return;
+      const text=(e.clipboardData||window.clipboardData).getData('text');
+      if(!/[\t\n]/.test(text.replace(/\n$/,'')))return;
+      e.preventDefault();
+      Sheet.pasteAt(G(),+inp.dataset.r,+inp.dataset.c,text); rerender();
+    });
+    function move(inp,dr,dc){
+      const g=G(); let r=+inp.dataset.r+dr; if(r>=g.rows.length){g.rows.push({id:rid(),v:{}});rerender();}
+      setTimeout(()=>{const n=root.querySelector(`input.cell[data-r="${r}"][data-c="${+inp.dataset.c+dc}"]`);if(n){n.focus();n.select();}},0);
+    }
+    function isPick(c){return ['ref','path','enum','multi','multienum'].includes(c.type);}
+    function openPop(inp){
+      const g=G(),regKey=g.regKey,reg=REG.R[regKey],c=reg.cols[+inp.dataset.c],row=g.rows[+inp.dataset.r];
+      UI.pop(inp,UI.pickerCfg(regKey,c,row.v,inp,()=>{row.v[c.k]=inp.value;Sheet.repaint(g,root);},null));
+    }
+  };
+
+  Sheet.pasteAt=function(G,r0,c0,text){
+    const reg=REG.R[G.regKey];
+    let lines=text.replace(/\r/g,'').replace(/\n$/,'').split('\n').map(l=>l.split('\t'));
+    // header row detection: first line matches column labels
+    const map=IO.matchHeaders(lines[0],G.regKey);
+    const hits=map.filter(Boolean).length;
+    if(hits>=2&&hits>=lines[0].length/2){
+      lines.slice(1).forEach((cells,i)=>{
+        const ri=r0+i; while(G.rows.length<=ri)G.rows.push({id:rid(),v:{}});
+        cells.forEach((val,j)=>{if(map[j])G.rows[ri].v[map[j]]=val.trim();});
+      });
+      return;
+    }
+    lines.forEach((cells,i)=>{
+      const ri=r0+i; while(G.rows.length<=ri)G.rows.push({id:rid(),v:{}});
+      cells.forEach((val,j)=>{const c=reg.cols[c0+j];if(c)G.rows[ri].v[c.k]=val.trim();});
+    });
+  };
+
+  Sheet.scanAppend=function(G,rfid){
+    const last=[...G.rows].reverse().find(r=>!REG.isBlankRow(REG.R[G.regKey],r.v));
+    const blank=G.rows.find(r=>REG.isBlankRow(REG.R[G.regKey],r.v));
+    const v={rfid};
+    if(last)['species','breed','sex','stage','park','pen','partition','tags'].forEach(k=>{if(last.v[k])v[k]=last.v[k];});
+    if(blank)blank.v=v; else G.rows.push({id:rid(),v});
+  };
+
+  Sheet.fillDown=function(G){
+    const reg=REG.R[G.regKey],c=reg.cols[G.active.c],src=G.rows[G.active.r]; if(!c||!src)return 0;
+    const val=src.v[c.k]||''; let n=0;
+    const targets=G.sel.size?G.rows.filter(r=>G.sel.has(r.id)&&r!==src):G.rows.slice(G.active.r+1);
+    targets.forEach(r=>{r.v[c.k]=val;n++;});
+    return n;
+  };
+
+  Sheet.save=function(G){
+    const reg=REG.R[G.regKey];
+    const res=Sheet.results(G);
+    G.lastRows=JSON.parse(JSON.stringify(G.rows));
+    G.snapN=S.snap('Saved '+reg.label.toLowerCase());
+    const sum=REG.commit(G.regKey,G.rows,{createParents:G.createParents,pending:G.pending?G.pending():{}});
+    S.save();
+    // keep only rows that failed
+    G.rows=G.rows.filter((r,i)=>res[i].status==='error');
+    if(!G.rows.length)G.rows=[{id:rid(),v:{}}];
+    G.sel.clear(); G.summary=sum; G.view='all';
+    return sum;
+  };
+
+  /* page-level actions for the current entry sheet */
+  const cur=()=>Sheet.cur;
+  Object.assign(A,{
+    'sh-addrow'(){const g=Sheet.active();g.rows.push({id:rid(),v:{}});Sheet.rerender();},
+    'sh-view'(el){const g=Sheet.active();g.view=el.dataset.v;Sheet.rerender();},
+    'sh-parents'(el){const g=Sheet.active();g.createParents=el.checked;Sheet.rerender();},
+    'sh-sel'(el){const g=Sheet.active();el.checked?g.sel.add(el.dataset.id):g.sel.delete(el.dataset.id);Sheet.rerender();},
+    'sh-selall'(el){const g=Sheet.active();g.rows.forEach(r=>el.checked?g.sel.add(r.id):g.sel.delete(r.id));Sheet.rerender();},
+    'sh-delrows'(){const g=Sheet.active();g.rows=g.rows.filter(r=>!g.sel.has(r.id));if(!g.rows.length)g.rows=[{id:rid(),v:{}}];g.sel.clear();Sheet.rerender();},
+    'sh-fill'(){const g=Sheet.active();const n=Sheet.fillDown(g);Sheet.rerender();UI.toast(n?'Filled '+n+' rows':'Focus a cell first');},
+    'sh-errors'(){const g=Sheet.active();IO.downloadErrors(g);},
+    'sh-cancel'(){const g=cur();App.leave(g&&g.back&&!g.back.includes('/sheet/')?g.back:'#/configuration/items/'+(g?g.regKey:''));},
+    'sh-save'(){const g=Sheet.active();if(Sheet.saveHook)return Sheet.saveHook(g);Sheet.save(g);Sheet.rerender();},
+    'sh-undo'(){const g=Sheet.active();S.undoTo(g.snapN);g.summary=null;if(g.lastRows)g.rows=g.lastRows;App.render();UI.toast('Undone');}
+  });
+  Sheet.active=()=>Sheet.activeGetter?Sheet.activeGetter():Sheet.cur;
+  Sheet.rerender=()=>App.render();
+
+  window.Sheet=Sheet;
+})();
