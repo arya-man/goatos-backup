@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"sort"
 	"strings"
 	"time"
 
@@ -79,9 +80,13 @@ func (s *PenReconciliationService) OnWorkflowCompleted(ctx context.Context, work
 		return err
 	}
 	var proofs []string
+	var meta []domain.PenReconciliationProofMeta
+	var rows []domain.PenReconciliationContextRow
 	kinds := map[string]string{}
 	operator := ""
-	for _, a := range actions {
+	sorted := append([]tasksdomain.WorkflowAction(nil), actions...)
+	sort.SliceStable(sorted, func(i, j int) bool { return sorted[i].Seq < sorted[j].Seq })
+	for _, a := range sorted {
 		if a.ActionType == tasksdomain.ActionTypeApproval || a.Status != tasksdomain.ActionStatusCompleted {
 			continue
 		}
@@ -89,6 +94,12 @@ func (s *PenReconciliationService) OnWorkflowCompleted(ctx context.Context, work
 			kinds[item.Ref] = item.Kind
 		}
 		proofs = append(proofs, a.AllProofRefs()...)
+		for _, m := range tasksdomain.StepMediaMeta(a) {
+			meta = append(meta, domain.PenReconciliationProofMeta{Label: m.Label, Kind: m.Kind})
+		}
+		if row, ok := tasksdomain.StepAnswerRow(a, ""); ok {
+			rows = append(rows, domain.PenReconciliationContextRow{Label: row.Label, Value: row.Value, Group: row.Group})
+		}
 		if a.CompletedBy != nil && *a.CompletedBy != "" {
 			operator = *a.CompletedBy
 		}
@@ -105,6 +116,9 @@ func (s *PenReconciliationService) OnWorkflowCompleted(ctx context.Context, work
 		ProofRef:          proofs[0],
 		ProofRefs:         proofs,
 		ProofKinds:        kinds,
+		MediaMeta:         meta,
+		ContextRows:       rows,
+		WorkflowID:        workflow.WorkflowID,
 		// Keyed on the workflow + the exact proof set: an exact replay of the completing step
 		// collapses; a re-shoot after rework mints a new completion.
 		IdempotencyKey:     "counts-pen-reconciliation-workflow:" + workflow.WorkflowID + ":" + fingerprint[:16],

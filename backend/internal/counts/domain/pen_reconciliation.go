@@ -48,7 +48,7 @@ const (
 	// Birth report proofs (SOP capture card, 2026-09-16): reviewed under the tasks module's
 	// birth_evidence category as ONE item per litter, ref_type birth_capture / ref_id the
 	// birth_event_id (= the approval request id).
-	VerificationModuleCounts       = "counts"
+	VerificationModuleCounts        = "counts"
 	VerificationRefTypeBirthCapture = "birth_capture"
 )
 
@@ -101,9 +101,31 @@ type PenReconciliationCompletionCommand struct {
 	ProofRefs []string
 	// ProofKinds maps a proof ref to "video" | "photo"; a ref absent here is a video.
 	ProofKinds map[string]string
+	// MediaMeta names each proof (step title + register kind), positional against
+	// [ProofRef, ProofRefs...] de-duplicated; ContextRows carries the questionnaire answers in
+	// farm words. Both ride the verifier item and are stored so recovery re-enqueues them.
+	MediaMeta   []PenReconciliationProofMeta
+	ContextRows []PenReconciliationContextRow
+	// WorkflowID names the questionnaire workflow whose completion this is. A workflow-backed
+	// card accepts ONLY its own workflow's completion; the legacy one-video route sends none and
+	// is refused on such a card.
+	WorkflowID string
 
 	IdempotencyKey     string
 	RequestFingerprint string
+}
+
+// PenReconciliationProofMeta names one proof on the verifier item.
+type PenReconciliationProofMeta struct {
+	Label string `json:"label"`
+	Kind  string `json:"kind"`
+}
+
+// PenReconciliationContextRow is one questionnaire answer in farm words.
+type PenReconciliationContextRow struct {
+	Label string `json:"label"`
+	Value string `json:"value"`
+	Group string `json:"group,omitempty"`
 }
 
 // PenReconciliationVerdictCommand applies a verifier decision to a submitted card.
@@ -176,6 +198,8 @@ type PenReconciliationCompletionResult struct {
 
 	ProofRef    string
 	ProofRefs   []string
+	MediaMeta   []PenReconciliationProofMeta
+	ContextRows []PenReconciliationContextRow
 	CompletedAt *time.Time
 
 	// NeedsVerificationEnqueue is durable recovery state: true means the card has reached
@@ -199,6 +223,9 @@ type PenReconciliationVerificationEnqueueDebt struct {
 	ParkID                   *string
 
 	ProofRef    string
+	ProofRefs   []string
+	MediaMeta   []PenReconciliationProofMeta
+	ContextRows []PenReconciliationContextRow
 	CompletedBy string
 	CompletedAt time.Time
 }

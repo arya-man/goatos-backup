@@ -47,6 +47,8 @@ type PenReconciliationVerificationEnqueueRequest struct {
 	// folded into the label) so the verifier queue can filter by pen.
 	PartitionLabel string
 	MediaRefs      []string
+	MediaMeta      []domain.PenReconciliationProofMeta
+	ContextRows    []domain.PenReconciliationContextRow
 	SubjectLabel   string
 	CapturedAt     time.Time
 	IdempotencyKey string
@@ -90,6 +92,10 @@ type CompletePenReconciliationInput struct {
 	ProofRefs []string
 	// ProofKinds maps a ref to video|photo (absent = video).
 	ProofKinds map[string]string
+	// MediaMeta / ContextRows / WorkflowID: see domain.PenReconciliationCompletionCommand.
+	MediaMeta   []domain.PenReconciliationProofMeta
+	ContextRows []domain.PenReconciliationContextRow
+	WorkflowID  string
 
 	IdempotencyKey     string
 	RequestFingerprint string
@@ -123,6 +129,9 @@ func (s *PenReconciliationService) Complete(
 		ProofRef:           strings.TrimSpace(in.ProofRef),
 		ProofRefs:          in.ProofRefs,
 		ProofKinds:         in.ProofKinds,
+		MediaMeta:          in.MediaMeta,
+		ContextRows:        in.ContextRows,
+		WorkflowID:         strings.TrimSpace(in.WorkflowID),
 		IdempotencyKey:     in.IdempotencyKey,
 		RequestFingerprint: in.RequestFingerprint,
 	})
@@ -150,6 +159,8 @@ func (s *PenReconciliationService) Complete(
 			ShedID:         result.RegisteredShedID,
 			PartitionLabel: result.RegisteredPartitionLabel,
 			MediaRefs:      mediaRefs,
+			MediaMeta:      positionalMeta(mediaRefs, result.MediaMeta),
+			ContextRows:    result.ContextRows,
 			SubjectLabel:   penReconciliationSubject(result.ScannedIdentifier, result.RegisteredShedName, result.RegisteredPartitionLabel),
 			CapturedAt:     s.now().UTC(),
 			// Keyed to the CARD + proof so a retry collapses onto one queue item while a
@@ -189,7 +200,9 @@ func (s *PenReconciliationService) RecoverVerificationEnqueues(ctx context.Conte
 			ParkID:         derefString(debt.ParkID),
 			ShedID:         debt.RegisteredShedID,
 			PartitionLabel: debt.RegisteredPartitionLabel,
-			MediaRefs:      []string{debt.ProofRef},
+			MediaRefs:      debtRefs(debt),
+			MediaMeta:      positionalMeta(debtRefs(debt), debt.MediaMeta),
+			ContextRows:    debt.ContextRows,
 			SubjectLabel:   penReconciliationSubject(debt.ScannedIdentifier, debt.RegisteredShedName, debt.RegisteredPartitionLabel),
 			CapturedAt:     debt.CompletedAt.UTC(),
 			IdempotencyKey: "counts-pen-reconciliation-verification:" + debt.CardID + ":" + debt.ProofRef,
@@ -234,6 +247,23 @@ func (s *PenReconciliationService) enqueueVerification(ctx context.Context, tena
 		return err
 	}
 	return s.repo.MarkPenReconciliationVerificationEnqueued(ctx, tenantID, in.CardID)
+}
+
+// debtRefs is the full stored proof set (the legacy single ref when none was stored).
+func debtRefs(debt domain.PenReconciliationVerificationEnqueueDebt) []string {
+	if len(debt.ProofRefs) > 0 {
+		return debt.ProofRefs
+	}
+	return []string{debt.ProofRef}
+}
+
+// positionalMeta keeps meta only when it names every ref positionally; otherwise the item
+// carries none and the category's positional copy fills in.
+func positionalMeta(refs []string, meta []domain.PenReconciliationProofMeta) []domain.PenReconciliationProofMeta {
+	if len(meta) == 0 || len(meta) != len(refs) {
+		return nil
+	}
+	return meta
 }
 
 func penReconciliationSubject(scannedIdentifier, shedName, partitionLabel string) string {
