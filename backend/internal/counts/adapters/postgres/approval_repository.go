@@ -449,13 +449,29 @@ func (r *Repository) SetCaptureSlotReview(ctx context.Context, tenantID, approva
 	return updated, true, tx.Commit(ctx)
 }
 
-// lockCaptureRow reads the request and its per-slot reviews FOR UPDATE.
-func lockCaptureRow(ctx context.Context, tx pgx.Tx, tenantID, approvalRequestID string) (domain.ApprovalRequest, map[string]domain.CaptureSlotReview, error) {
-	current, err := scanApprovalRequest(tx.QueryRow(ctx, `
-SELECT `+approvalRequestColumns+`
+// lockCaptureRowSQL / applyCaptureReviewSQL are named so a query-plan test and scale-guard reach them.
+const lockCaptureRowSQL = `
+SELECT ` + approvalRequestColumns + `
 FROM counts_approval_requests
 WHERE tenant_id = $1::uuid AND approval_request_id = $2::uuid
-FOR UPDATE`, tenantID, approvalRequestID))
+FOR UPDATE`
+
+const applyCaptureReviewSQL = `
+UPDATE counts_approval_requests
+SET capture_evidence = $3::jsonb,
+    capture_slot_reviews = $4::jsonb,
+    capture_review_status = nullif($5, ''),
+    capture_review_reason = nullif($6, ''),
+    capture_proofs = CASE WHEN $7 = '' THEN capture_proofs ELSE COALESCE((
+      SELECT jsonb_object_agg(key, CASE WHEN value #>> '{}' = $7 THEN to_jsonb($8::text) ELSE value END)
+      FROM jsonb_each(capture_proofs)), '{}'::jsonb) END,
+    updated_at = now()
+WHERE tenant_id = $1::uuid AND approval_request_id = $2::uuid
+RETURNING ` + approvalRequestColumns
+
+// lockCaptureRow reads the request and its per-slot reviews FOR UPDATE.
+func lockCaptureRow(ctx context.Context, tx pgx.Tx, tenantID, approvalRequestID string) (domain.ApprovalRequest, map[string]domain.CaptureSlotReview, error) {
+	current, err := scanApprovalRequest(tx.QueryRow(ctx, lockCaptureRowSQL, tenantID, approvalRequestID))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.ApprovalRequest{}, nil, ports.ErrApprovalRequestNotFound
 	}
@@ -503,18 +519,7 @@ func writeCaptureReviews(ctx context.Context, tx pgx.Tx, tenantID, approvalReque
 	if replace != nil {
 		oldRef, newRef = replace.oldRef, replace.newRef
 	}
-	return scanApprovalRequest(tx.QueryRow(ctx, `
-UPDATE counts_approval_requests
-SET capture_evidence = $3::jsonb,
-    capture_slot_reviews = $4::jsonb,
-    capture_review_status = nullif($5, ''),
-    capture_review_reason = nullif($6, ''),
-    capture_proofs = CASE WHEN $7 = '' THEN capture_proofs ELSE COALESCE((
-      SELECT jsonb_object_agg(key, CASE WHEN value #>> '{}' = $7 THEN to_jsonb($8::text) ELSE value END)
-      FROM jsonb_each(capture_proofs)), '{}'::jsonb) END,
-    updated_at = now()
-WHERE tenant_id = $1::uuid AND approval_request_id = $2::uuid
-RETURNING `+approvalRequestColumns, tenantID, approvalRequestID, string(rawEvidence), string(rawReviews), rollup, rollupReason, oldRef, newRef))
+	return scanApprovalRequest(tx.QueryRow(ctx, applyCaptureReviewSQL, tenantID, approvalRequestID, string(rawEvidence), string(rawReviews), rollup, rollupReason, oldRef, newRef))
 }
 
 func birthChildren(ctx context.Context, tx pgx.Tx, tenantID, birthEventID string) ([]domain.BirthChildResult, error) {
