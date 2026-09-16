@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/verification/domain"
 	"github.com/vgoats/goatos/backend/internal/verification/ports"
 )
@@ -163,12 +164,14 @@ func TestResolveMediaKindFallbackNeverSignsOrChangesEvidenceFlag(t *testing.T) {
 func TestListQueueKindFallbackReadsOnlyTheSampledPage(t *testing.T) {
 	register := &kindRegister{}
 	svc := kindService(t, register)
-	base := time.Now().Add(-time.Hour)
+	// Anchored to TODAY's IST business day, never "now minus an hour": between 00:00 and 01:00 IST
+	// an hour-anchored fixture lands on yesterday and the queue's business-day read drops it.
+	base := biztime.BusinessDayStart(time.Now())
 	for i := 0; i < 3; i++ {
 		if _, err := svc.CreateItem(context.Background(), domain.CreateItem{
 			TenantID: testTenant, Vertical: "feed", Module: "feed", Category: "feed_distribution",
 			Source:    domain.SourceRef{Module: "feed", RefType: "feed_distribution_completion", RefID: fmt.Sprintf("c%d", i)},
-			MediaRefs: []string{fmt.Sprintf("ref-%d", i)}, IdempotencyKey: fmt.Sprintf("k%d", i), CapturedAt: base.Add(time.Duration(i) * time.Minute),
+			MediaRefs: []string{fmt.Sprintf("ref-%d", i)}, IdempotencyKey: fmt.Sprintf("k%d", i), CapturedAt: base.Add(time.Duration(i) * time.Second),
 		}); err != nil {
 			t.Fatal(err)
 		}
