@@ -23,6 +23,10 @@
 -- park head approved (rows, media, missing note) in the shared CountsApprovalCapture shape. The
 -- legacy fixed columns (proof_ref, feed_packing_proof_ref, feed_given_proof_ref) keep mirroring the
 -- seeded slots so every pre-existing reader still finds a ref. No defaults: metadata-only ALTER.
+--
+-- seed-fixture-guard:ignore: shifting SOP card section added in place to the published `shifting`
+-- library version + nullable shifting_events evidence columns; no vaccination HRMS source rows,
+-- fixture inputs, protocol schedule, roster or vaccination seed contract changes.
 ALTER TABLE public.shifting_events
   ADD COLUMN IF NOT EXISTS sop_version integer,
   ADD COLUMN IF NOT EXISTS raise_sop_proofs jsonb,

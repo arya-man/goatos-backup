@@ -18,6 +18,10 @@
 --   capture_review_reason   the verifier's words on a rework
 --
 -- Additive; every existing row reads as "the form asked nothing".
+--
+-- seed-fixture-guard:ignore: defaulted/nullable capture columns on counts_approval_requests only;
+-- sop_versions is named in a column COMMENT, not DDL on a seed table. No vaccination HRMS source
+-- rows, fixture inputs, protocol schedule, roster or vaccination seed contract changes.
 
 ALTER TABLE public.counts_approval_requests
   ADD COLUMN IF NOT EXISTS capture_sop_version_id uuid,
