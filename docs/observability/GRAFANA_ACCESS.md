@@ -15,13 +15,15 @@ when deployed.
 GRAFANA_STG_URL = https://goatos-stg-grafana-awtrpmn4za-el.a.run.app
 ```
 
-**How it was deployed (NOT terraform):** the committed `infra/envs/stg`
-Terraform state is empty — stg was built imperatively — so applying the
-observability Terraform would collide with live resources (see the memory note
-`goatos-stg-tf-state-empty`). Grafana was therefore stood up **imperatively via
-`gcloud run deploy`** to match how the rest of stg was built. The Terraform in
-`observability.tf` remains the source-of-truth definition for when stg is
-brought under IaC (import-then-apply).
+**Terraform ownership:** Grafana was originally deployed imperatively. The remote
+staging state inspected on 2026-09-16 is serial 56 with 21 resources, but it does
+not own Grafana resources. The live runtime identity is
+`goatos-grafana-stg@goatos-stg.iam.gserviceaccount.com`; `observability.tf` now
+matches that name. Import the existing Grafana service account before applying
+its resource. Do not apply the whole staging stack to repair this one grant.
+Cloud Deploy needs `roles/iam.serviceAccountUser` on this runtime service account
+only; `grafana_clouddeploy_act_as` records that binding for the existing staging
+deployer. Runtime updates remain Cloud Deploy-owned.
 
 **Access model:** when live-smoked, the Cloud Run service is expected to be
 invokable by `allUsers` at the network layer, but **gated by Grafana's own

@@ -53,10 +53,20 @@
 # Service accounts (least-privileged, one per component)
 # ---------------------------------------------------------------------------
 
+# Live Grafana predates Terraform ownership. Import this existing service account
+# before applying this resource; do not create a second runtime identity.
 resource "google_service_account" "grafana" {
-  account_id   = "goatos-stg-grafana"
+  account_id   = "goatos-grafana-stg"
   display_name = "Goat OS staging Grafana runtime"
   description  = "Read-only: single pane of glass over GMP, Cloud Trace, Cloud Logging, Cloud SQL analytics.*, and BigQuery (GA4 export). Never granted write access to any backend."
+}
+
+# Cloud Deploy can update Grafana only by acting as its existing runtime SA.
+# Scope actAs to this one identity, not the project or other runtime accounts.
+resource "google_service_account_iam_member" "grafana_clouddeploy_act_as" {
+  service_account_id = google_service_account.grafana.name
+  role               = "roles/iam.serviceAccountUser"
+  member             = "serviceAccount:${google_service_account.github_deployer.email}"
 }
 
 resource "google_service_account" "grafana_alloy" {

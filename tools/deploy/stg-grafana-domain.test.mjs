@@ -93,3 +93,13 @@ if name=='gcloud' and args[:4]==['artifacts','docker','images','describe']:print
     } finally { rmSync(dir, { recursive: true, force: true }); }
   });
 }
+
+test("Cloud Deploy actAs is restricted to the actual Grafana runtime identity", () => {
+  const terraform = readFileSync(new URL("../../infra/envs/stg/observability.tf", import.meta.url), "utf8");
+  const runtime = terraform.match(/resource "google_service_account" "grafana" \{([\s\S]*?)\n\}/)?.[1];
+  assert.match(runtime ?? "", /account_id\s*=\s*"goatos-grafana-stg"/);
+  const binding = terraform.match(/resource "google_service_account_iam_member" "grafana_clouddeploy_act_as" \{([\s\S]*?)\n\}/)?.[1];
+  assert.match(binding ?? "", /service_account_id\s*=\s*google_service_account.grafana.name/);
+  assert.match(binding ?? "", /role\s*=\s*"roles\/iam.serviceAccountUser"/);
+  assert.match(binding ?? "", /member\s*=\s*"serviceAccount:\$\{google_service_account.github_deployer.email\}"/);
+});
