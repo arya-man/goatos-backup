@@ -131,6 +131,11 @@ func navigation() domain.NavigationContract {
 			// to explain it, a feed running out), with the rules behind it configurable top-right
 			// by the people HRMS ticks. Gated on alerts.read.
 			navItemDomain("alerts", "Alerts", "/alerts", "bell-ring", "", "alerts"),
+			// Routines (maintainer instruction 2026-09-16): the configurable recurring pen
+			// checks -- the rule the CXO writes per park and the Today table of what it
+			// raised. Beside Tasks and Work Board because it is the same shape of thing: work
+			// the system owes a person. Gated on pen_routines.read.
+			navItemDomain("pen-routines", "Routines", "/routines", "list-checks", "", "pen_routines"),
 		},
 		Groups: []domain.NavigationGroup{
 			{
@@ -265,6 +270,7 @@ func routeLabels() []domain.RouteLabelRule {
 		{Pattern: "/tasks", Label: "Tasks", Match: "exact"},
 		{Pattern: "/work-board", Label: "Work Board", Match: "exact"},
 		{Pattern: "/alerts", Label: "Alerts", Match: "exact"},
+		{Pattern: "/routines", Label: "Routines", Match: "exact"},
 		{Pattern: "/verify", Label: "Verify", Match: "exact"},
 		{Pattern: "/vaccination/execution/sheds/{shed_id}", Label: "Vaccination execution", Match: "pattern"},
 		// Most-specific-first: the live tracker's exact rule must precede /vaccination's, or the
@@ -442,6 +448,16 @@ func pages() []domain.PageContract {
 			}),
 		page("leadership-tasks", "/tasks", "/tasks", "Tasks", "Tasks raised across CXOs, directors and park heads, with notes and attachments.", "monitoring-screen",
 			[]domain.TableContract{table("leadership-task-progress", "Team progress", "/app/leadership-tasks", []string{"task", "assignee", "raised_by", "status", "evidence", "priority"}, "task_id")}),
+		// Routines (maintainer instruction 2026-09-16, docs/decisions/pen-routines.md). Two
+		// tables: the routines of a park (the rule, its cadence and evidence lines, its people,
+		// what it raised today) and the Today table of the tasks the kernel raised. Authoring
+		// (create / edit / pause / retire) is capability-gated on pen_routines.configure on
+		// BOTH halves: the three controls below and the route table.
+		page("pen-routines", "/routines", "/routines", "Routines", "Recurring pen checks per park: what to ask, what to capture, who does it, and when. Today's checks below.", "module-surface",
+			[]domain.TableContract{
+				tableP("pen-routines", "Routines", "/admin/pen-routines", []string{"name", "park", "cadence", "evidence", "people", "status", "open_today"}, "routine_id", []int{25, 50, 100}),
+				tableP("pen-routine-tasks", "Today", "/admin/pen-routines/tasks", []string{"routine", "pen", "assignee", "state_chip", "due"}, "task_id", []int{25, 50, 100}),
+			}),
 		page("verification-review", "/verify", "/verify", "Verify", "Open a video, check it against the facts, and accept or reject it.", "authority-screen",
 			// "vertical_module" was DROPPED (maintainer decision 2026-08-07). It rendered the
 			// item's raw vertical/module tokens verbatim -- "preventive_care / vaccination" --
@@ -2001,6 +2017,54 @@ func pageSpecificCopy(id string) map[string]string {
 			"action.config_invalid":                "Enter a whole number for the threshold.",
 			"action.config_conflict":               "That change was already sent with different values. Reload and try again.",
 			"pager.noun":                           "alerts",
+		}
+	case "pen-routines":
+		return map[string]string{
+			"crumb":                           "Routines",
+			"table.routines.title":            "Routines",
+			"table.tasks.title":               "Today",
+			"filter.park":                     "Park",
+			"filter.business_date":            "Day",
+			"filter.routine":                  "Routine",
+			"action.create_routine.label":     "New routine",
+			"action.edit_routine.label":       "Edit",
+			"action.set_routine_status.label": "Pause / resume / retire",
+			"action.pause":                    "Pause",
+			"action.resume":                   "Resume",
+			"action.retire":                   "Retire",
+			"action.save":                     "Save",
+			"drawer.routine.title":            "Routine",
+			"drawer.routine.create_title":     "New routine",
+			"drawer.routine.edit_title":       "Edit routine",
+			"field.name":                      "Name",
+			"field.instruction":               "Instruction",
+			"field.park":                      "Park",
+			"field.scope":                     "Pens",
+			"field.occupied_only":             "Skip empty pens",
+			"field.cadence":                   "When",
+			"field.weekdays":                  "Weekdays",
+			"field.month_days":                "Days of the month",
+			"field.after_work_kinds":          "After which work",
+			"field.due_offset_days":           "Days after",
+			"field.notify_time":               "Push at",
+			"field.review":                    "Review",
+			"field.assignees":                 "People",
+			"field.questions":                 "Questions",
+			"field.photo":                     "Photos",
+			"field.video":                     "Videos",
+			"field.presence":                  "Pen check-in",
+			"field.min":                       "At least",
+			"field.max":                       "At most",
+			"hint.assignees":                  "Anyone ticked may do the check; one person doing it is enough. Only people who hold Routines for this park are offered.",
+			"hint.versions":                   "Every save is a new version. A check already raised keeps the form it was raised with.",
+			"summary.due":                     "Due",
+			"summary.delayed":                 "Delayed",
+			"summary.in_review":               "In review",
+			"summary.sent_back":               "Sent back",
+			"summary.done":                    "Done",
+			"empty.routines":                  "No routines yet. Create one to start raising pen checks.",
+			"empty.tasks":                     "No checks on this day.",
+			"configure.disabled_no_access":    "Writing routines is limited to the CEO and CXO.",
 		}
 	case "work-board":
 		return map[string]string{
