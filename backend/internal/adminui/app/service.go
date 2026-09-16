@@ -10143,7 +10143,7 @@ func weighingSOPEditorCopy() map[string]string {
 		"wsop.question.remove_choice":           "Remove choice",
 		"wsop.section.capture":                  "Weighing capture",
 		"wsop.section.capture.subtitle":         "the evidence each weigh carries",
-		"wsop.capture.individual.video":         "One live-camera video per animal",
+		"wsop.capture.individual.video":         "At least one compulsory capture per animal",
 		"wsop.capture.individual.locked":        "At least one capture per animal is compulsory: it is what the verifier reviews and cannot be switched off.",
 		"wsop.capture.individual.locked_short":  "fixed",
 		"wsop.capture.lump_sum.video_min":       "Whole pen — videos at least",

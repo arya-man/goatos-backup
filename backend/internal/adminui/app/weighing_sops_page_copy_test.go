@@ -18,3 +18,13 @@ func TestWeighingSOPsPageCarriesTheWeighingEditorCopy(t *testing.T) {
 		t.Fatalf("builder name = %q, want the module's own (the e41a95e93 fix must stay)", page["modal.builder.default_name"])
 	}
 }
+
+// The locked tick above the per-animal slots said "One live-camera video per animal · fixed"
+// while the slot list beneath it lets the author make that capture a photo -- the lock is "at
+// least one compulsory capture", which is what the validator enforces (Phase A E2E screenshot).
+func TestWeighingPerAnimalLockCopyDoesNotPromiseAVideo(t *testing.T) {
+	got := weighingSOPEditorCopy()["wsop.capture.individual.video"]
+	if got != "At least one compulsory capture per animal" {
+		t.Fatalf("wsop.capture.individual.video = %q", got)
+	}
+}
