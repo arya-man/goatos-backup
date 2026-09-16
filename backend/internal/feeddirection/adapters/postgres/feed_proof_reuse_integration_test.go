@@ -2,7 +2,6 @@ package postgres
 
 import (
 	"context"
-	"errors"
 	"testing"
 	"time"
 
@@ -12,83 +11,59 @@ import (
 	"github.com/vgoats/goatos/backend/internal/sop/authored"
 )
 
-// E2E 2026-09-17 on the QA clone. "ONE CLIP CANNOT PROVE TWO BAGS" (AGENTS.md feed packing lock) and
-// "every rework requires a new video" (docs/decisions/feed-transport-verification.md) had no
-// executable check on the write path:
-//   - a verifier REJECTED a packing video / a transport video, and the resubmit carrying the SAME
-//     rejected capture was accepted and queued to the verifier again;
-//   - pen A's three distribution captures submitted for pen B were accepted -- two verifier items
-//     "proving" two pens with one set of clips.
-// The store now refuses both, naming the slot, inside the write transaction.
+// DEPLOY-DAY PARITY (maintainer rule, 2026-09-17): nothing in daily operations changes unless
+// someone edits an SOP. The two stricter capture rules the Phase A feed E2E recommended are
+// written up in docs/decisions/feed-sop.md under "Recommended, awaiting maintainer approval (not
+// enabled)". These tests pin TODAY's behaviour so that enabling either is a deliberate change that
+// turns them red, never an accident.
 
-func wantSlotRefusal(t *testing.T, err error, slot string) {
-	t.Helper()
-	var pe *authored.ProofError
-	if !errors.Is(err, ports.ErrSOPProofSlotInvalid) || !errors.As(err, &pe) || pe.SlotKey != slot {
-		t.Fatalf("err = %v, want feed_proof_slot_invalid naming %s", err, slot)
-	}
-}
-
-func TestPackingReworkRefusesTheRejectedVideoAndAcceptsANewOne(t *testing.T) {
+// Today a rework resubmit may name the very capture the verifier rejected (and a bag reopened by
+// the afternoon correction may be resubmitted with its old video): the row goes back to
+// pending_verification and a fresh verifier item is queued.
+func TestReworkResubmitMayNameTheRejectedCaptureAsToday(t *testing.T) {
 	ctx := context.Background()
 	repo, _ := setupFeedDirectionDB(t, ctx)
-	first, err := repo.CompletePacking(ctx, packingParams())
+
+	pack, err := repo.CompletePacking(ctx, packingParams())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if ok, err := repo.BouncePackingForRework(ctx, ports.BouncePackingParams{TenantID: fdTenant, CompletionID: first.CompletionID, Reason: "bag not visible"}); err != nil || !ok {
-		t.Fatalf("bounce: %v %v", ok, err)
+	if ok, err := repo.BouncePackingForRework(ctx, ports.BouncePackingParams{TenantID: fdTenant, CompletionID: pack.CompletionID, Reason: "bag not visible"}); err != nil || !ok {
+		t.Fatalf("bounce packing: %v %v", ok, err)
 	}
-	again := packingParams()
-	again.IdempotencyKey = "feed-packing-key-rework-same"
-	_, err = repo.CompletePacking(ctx, again)
-	wantSlotRefusal(t, err, domain.SlotPackingVideo)
-
-	fresh := packingParams()
-	fresh.IdempotencyKey = "feed-packing-key-rework-new"
-	fresh.PackingProofRef = "proof-packing-0002"
-	res, err := repo.CompletePacking(ctx, fresh)
-	if err != nil || !res.NewlyPending || res.CompletionID != first.CompletionID {
-		t.Fatalf("fresh rework resubmit = %+v, %v", res, err)
+	packAgain := packingParams()
+	packAgain.IdempotencyKey = "feed-packing-key-rework-same"
+	if res, err := repo.CompletePacking(ctx, packAgain); err != nil || !res.NewlyPending {
+		t.Fatalf("packing resubmit with the rejected video = %+v, %v; want accepted as today", res, err)
 	}
-}
 
-func TestDistributionReworkRefusesAnyRejectedCapture(t *testing.T) {
-	ctx := context.Background()
-	repo, _ := setupFeedDirectionDB(t, ctx)
-	first, err := repo.CompleteDistribution(ctx, distributionParams())
+	dist, err := repo.CompleteDistribution(ctx, distributionParams())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if ok, err := repo.BounceDistributionForRework(ctx, ports.BounceDistributionParams{TenantID: fdTenant, CompletionID: first.CompletionID, Reason: "water not visible"}); err != nil || !ok {
-		t.Fatalf("bounce: %v %v", ok, err)
+	if ok, err := repo.BounceDistributionForRework(ctx, ports.BounceDistributionParams{TenantID: fdTenant, CompletionID: dist.CompletionID, Reason: "water not visible"}); err != nil || !ok {
+		t.Fatalf("bounce distribution: %v %v", ok, err)
 	}
-	again := distributionParams()
-	again.IdempotencyKey = "feed-distribution-key-rework-partial"
-	again.WaterProofRef = "proof-water-0002" // only the water re-shot; weight photo + feed video are the rejected ones
-	_, err = repo.CompleteDistribution(ctx, again)
-	wantSlotRefusal(t, err, domain.SlotFeedWeightPhoto)
-}
+	distAgain := distributionParams()
+	distAgain.IdempotencyKey = "feed-distribution-key-rework-partial"
+	distAgain.WaterProofRef = "proof-water-0002"
+	if res, err := repo.CompleteDistribution(ctx, distAgain); err != nil || !res.NewlyPending {
+		t.Fatalf("distribution resubmit keeping two rejected captures = %+v, %v; want accepted as today", res, err)
+	}
 
-func TestWastageReworkRefusesTheRejectedVideo(t *testing.T) {
-	ctx := context.Background()
-	repo, _ := setupFeedDirectionDB(t, ctx)
-	first, err := repo.CompleteWastage(ctx, wastageParams())
+	w, err := repo.CompleteWastage(ctx, wastageParams())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if ok, err := repo.BounceWastageForRework(ctx, ports.BounceWastageParams{TenantID: fdTenant, CompletionID: first.CompletionID, Reason: "trough not visible"}); err != nil || !ok {
-		t.Fatalf("bounce: %v %v", ok, err)
+	if ok, err := repo.BounceWastageForRework(ctx, ports.BounceWastageParams{TenantID: fdTenant, CompletionID: w.CompletionID, Reason: "trough not visible"}); err != nil || !ok {
+		t.Fatalf("bounce wastage: %v %v", ok, err)
 	}
-	again := wastageParams()
-	again.IdempotencyKey = "feed-wastage-key-rework-same"
-	_, err = repo.CompleteWastage(ctx, again)
-	wantSlotRefusal(t, err, domain.SlotWastageVideo)
-}
+	wAgain := wastageParams()
+	wAgain.IdempotencyKey = "feed-wastage-key-rework-same"
+	if res, err := repo.CompleteWastage(ctx, wAgain); err != nil || !res.NewlyPending {
+		t.Fatalf("wastage resubmit with the rejected video = %+v, %v; want accepted as today", res, err)
+	}
 
-func TestTransportReworkRefusesTheRejectedVideo(t *testing.T) {
-	ctx := context.Background()
-	repo, _ := setupFeedDirectionDB(t, ctx)
 	day := time.Date(2026, 7, 29, 0, 0, 0, 0, biztime.DefaultLocation())
 	if _, err := repo.MaterializeTransportTasks(ctx, ports.MaterializeTransportParams{TenantID: fdTenant, AsOf: day.Add(16 * time.Hour)}); err != nil {
 		t.Fatal(err)
@@ -103,42 +78,36 @@ func TestTransportReworkRefusesTheRejectedVideo(t *testing.T) {
 		t.Fatal(err)
 	}
 	if ok, err := repo.BounceTransportForRework(ctx, ports.BounceTransportParams{TenantID: fdTenant, AttemptID: first.AttemptID, Reason: "load not visible"}); err != nil || !ok {
-		t.Fatalf("bounce: %v %v", ok, err)
+		t.Fatalf("bounce transport: %v %v", ok, err)
 	}
 	submit.IdempotencyKey = "transport-reuse-2"
-	_, err = repo.SubmitTransportAttempt(ctx, submit)
-	wantSlotRefusal(t, err, domain.SlotTransportVideo)
-	submit.IdempotencyKey, submit.ProofRef = "transport-reuse-3", "proof-transport-new"
 	if res, err := repo.SubmitTransportAttempt(ctx, submit); err != nil || res.AttemptNo != 2 {
-		t.Fatalf("fresh rework = %+v, %v", res, err)
+		t.Fatalf("transport rework with the rejected video = %+v, %v; want attempt 2 accepted as today", res, err)
 	}
 }
 
-// One clip, two pens: pen B's submit naming pen A's captures is refused; a same-pen teammate
-// re-send of the same captures is still the one write it always was.
-func TestACaptureAlreadyProvingOnePenCannotProveAnother(t *testing.T) {
+// Today a capture already proving one pen (or one bag) is accepted for another pen or another
+// stage: each write queues its own verifier item.
+func TestACaptureProvingOnePenIsAcceptedForAnotherAsToday(t *testing.T) {
 	ctx := context.Background()
 	repo, _ := setupFeedDirectionDB(t, ctx)
-	if _, err := repo.CompleteDistribution(ctx, distributionParams()); err != nil {
+	a, err := repo.CompleteDistribution(ctx, distributionParams())
+	if err != nil {
 		t.Fatal(err)
-	}
-	teammate := distributionParams()
-	teammate.IdempotencyKey = "feed-distribution-key-teammate"
-	if res, err := repo.CompleteDistribution(ctx, teammate); err != nil || res.NewlyPending {
-		t.Fatalf("teammate re-send = %+v, %v; want the same pending write", res, err)
 	}
 	other := distributionParams()
 	other.ShedID = fdShedB
 	other.IdempotencyKey = "feed-distribution-key-other-pen"
-	_, err := repo.CompleteDistribution(ctx, other)
-	wantSlotRefusal(t, err, domain.SlotFeedWeightPhoto)
-
-	// Across stages too: the packing video of a bag cannot be the distribution video of a pen.
+	b, err := repo.CompleteDistribution(ctx, other)
+	if err != nil || !b.NewlyPending || b.CompletionID == a.CompletionID {
+		t.Fatalf("pen B with pen A's captures = %+v, %v; want a second pending completion as today", b, err)
+	}
 	pack := packingParams()
 	pack.PackingProofRef = "proof-distribution-0001"
 	pack.IdempotencyKey = "feed-packing-key-cross-stage"
-	_, err = repo.CompletePacking(ctx, pack)
-	wantSlotRefusal(t, err, domain.SlotPackingVideo)
+	if res, err := repo.CompletePacking(ctx, pack); err != nil || !res.NewlyPending {
+		t.Fatalf("packing naming a distribution video = %+v, %v; want accepted as today", res, err)
+	}
 }
 
 // HEAL support: a packing / wastage replay hands back the ROW's captures and answers.

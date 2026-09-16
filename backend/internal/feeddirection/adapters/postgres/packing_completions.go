@@ -224,15 +224,6 @@ WHERE tenant_id = $1::uuid AND park_id = $2::uuid AND shed_id = $3::uuid
 			// stands NOW (a reopen re-submit repacks the corrected quantities), so the old snapshot no
 			// longer describes this bag. A nil snapshot on the re-submit clears it rather than keeping a
 			// stale one that would misdescribe the new video.
-			//
-			// NEW captures only: existingSOP is what was sent back (a rejection or the afternoon
-			// reopen), and a clip that proved another bag is not this one's (feed_proof_reuse.go).
-			if err := refuseSentBackProofs(sopProofs, existingSOP); err != nil {
-				return ports.CompletePackingResult{}, err
-			}
-			if err := refuseProofsUsedElsewhere(ctx, tx, p.TenantID, p.ParkID, targetDate, completionID, sopProofs); err != nil {
-				return ports.CompletePackingResult{}, err
-			}
 			if err := tx.QueryRow(ctx, `
 UPDATE feed_packing_completions
 SET status = 'pending_verification',
@@ -279,11 +270,7 @@ RETURNING row_version`,
 	case err != nil:
 		return ports.CompletePackingResult{}, fmt.Errorf("feeddirection: insert packing completion: %w", err)
 	default:
-		// Fresh insert: a brand-new pending_verification row -- unless a capture already proves
-		// another piece of feed work (the insert rolls back with the refusal).
-		if err := refuseProofsUsedElsewhere(ctx, tx, p.TenantID, p.ParkID, targetDate, completionID, sopProofs); err != nil {
-			return ports.CompletePackingResult{}, err
-		}
+		// Fresh insert: a brand-new pending_verification row.
 		newlyPending = true
 		if err := writePackingAudit(ctx, tx, p, completionID, feedPackingPendingAction); err != nil {
 			return ports.CompletePackingResult{}, err
@@ -445,7 +432,7 @@ func (r *Repository) ApplyVerifiedPacking(ctx context.Context, p ports.ApplyPack
 		}
 	}()
 
-	var holdsEvidence bool
+	var holdsEvidence, itemCurrent bool
 	var (
 		status     string
 		parkID     string
@@ -455,10 +442,10 @@ func (r *Repository) ApplyVerifiedPacking(ctx context.Context, p ports.ApplyPack
 		targetDate time.Time
 	)
 	err = tx.QueryRow(ctx, `
-SELECT status, park_id::text, shed_id::text, workflow, session_no, target_date, ($3::text = '' OR EXISTS (SELECT 1 FROM jsonb_each_text(sop_proofs) e WHERE e.value = $3::text))
+SELECT status, park_id::text, shed_id::text, workflow, session_no, target_date, `+verdictEvidenceHeldSQL(3)+`, `+verdictItemCurrentSQL(4, "feed_packing_completions", "feed_packing_completion")+`
 FROM feed_packing_completions
 WHERE tenant_id = $1::uuid AND completion_id = $2::uuid
-FOR UPDATE`, p.TenantID, p.CompletionID, strings.TrimSpace(p.EvidenceID)).Scan(&status, &parkID, &shedID, &workflow, &sessionNo, &targetDate, &holdsEvidence)
+FOR UPDATE`, p.TenantID, p.CompletionID, strings.TrimSpace(p.EvidenceID), strings.TrimSpace(p.ItemID)).Scan(&status, &parkID, &shedID, &workflow, &sessionNo, &targetDate, &holdsEvidence, &itemCurrent)
 	if errors.Is(err, pgx.ErrNoRows) {
 		// No such row for this tenant: a stale/foreign verdict. Ignore.
 		if commitErr := r.commitAndInvalidateReadCache(ctx, tx); commitErr != nil {
@@ -473,7 +460,7 @@ FOR UPDATE`, p.TenantID, p.CompletionID, strings.TrimSpace(p.EvidenceID)).Scan(&
 	// Already completed (re-delivered verdict) or no longer pending (stale delivery): no side effects.
 	// A verdict for a capture the row no longer holds judged an EARLIER submission (a
 	// re-delivered or late event after the crew re-shot): stale, exactly like a moved-on status.
-	if status != domain.PackingStatusPendingVerification || !holdsEvidence {
+	if status != domain.PackingStatusPendingVerification || !holdsEvidence || !itemCurrent {
 		if commitErr := r.commitAndInvalidateReadCache(ctx, tx); commitErr != nil {
 			return false, commitErr
 		}
@@ -540,8 +527,9 @@ SET status = 'rework',
     updated_at = now(),
     row_version = row_version + 1
 WHERE tenant_id = $1::uuid AND completion_id = $2::uuid AND status = 'pending_verification'
-  AND ($4::text = '' OR EXISTS (SELECT 1 FROM jsonb_each_text(sop_proofs) e WHERE e.value = $4::text))`,
-		p.TenantID, p.CompletionID, strings.TrimSpace(p.Reason), strings.TrimSpace(p.EvidenceID))
+  AND `+verdictEvidenceHeldSQL(4)+`
+  AND `+verdictItemCurrentSQL(5, "feed_packing_completions", "feed_packing_completion"),
+		p.TenantID, p.CompletionID, strings.TrimSpace(p.Reason), strings.TrimSpace(p.EvidenceID), strings.TrimSpace(p.ItemID))
 	if err != nil {
 		return false, fmt.Errorf("feeddirection: bounce packing for rework: %w", err)
 	}

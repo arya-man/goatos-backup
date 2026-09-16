@@ -187,3 +187,47 @@ is, and the crew's answers as the item's context rows:
   references were re-recorded with the seeded cards.
 - The QA clone `goatos_fcqa` on OCI, the API on :8092 and the web on :3392 are throwaway and are
   to be dropped after landing.
+
+## Phase A E2E (2026-09-17): deploy-day parity and what shipped
+
+Maintainer rule: "how it is on stage, keep like that; nothing in daily operations should change
+unless someone edits an SOP." Fixes that only restore intended behaviour shipped; rules that would
+tighten today's behaviour without an SOP edit did not (below).
+
+Shipped: the scheduled `feed-direction-issue` / `feed-transport-issue` commands pin the published
+card; both scheduled lifecycle roots wire the packing store so the 14:00 correction reopens packed
+bags; `feed.wastage.completed` passes the envelope schema; an older app is accepted against an
+authored card with "Not captured (older app)" rows; packing and wastage re-create a missing verifier
+item from the ROW on a retry; the verdict fence (below); the editor's unsaved keys follow the title.
+
+**The verdict fence.** A feed verdict applies only to the submission round its item judged: the row
+must still hold `source.evidence_id`, AND no newer verification item may exist for the completion
+(payload `item_id`). The second check is what holds when a resubmit names the SAME captures again
+(still allowed, see below): each round queues its own item because the enqueue key carries the
+completion's `row_version` (distribution / packing / wastage; a bounce, the afternoon reopen and the
+resubmit each bump it) or the transport attempt, and verification items are idempotent on that key
+alone -- so a same-capture resubmit gets a fresh pending item, and a re-delivered or late verdict of
+the earlier item is ignored. Pinned by `TestAStaleVerdictIsIgnoredEvenWhenTheResubmitReusesTheJudgedCapture`
+and `TestEveryStageQueuesAFreshItemForAResubmitNamingTheSameCaptures`.
+
+## Recommended, awaiting maintainer approval (not enabled)
+
+Both are implemented in history (commit 5b302507d) and reverted for deploy-day parity. Today's
+behaviour is pinned by tests that go red when either is enabled, so enabling one is deliberate.
+
+1. **A rework resubmit must carry NEW captures** (packing, distribution, wastage, transport, and a
+   bag the afternoon correction reopened). Today a resubmit may name the very capture the verifier
+   rejected, or the video that proves the pre-correction quantity; it goes straight back to the
+   verifier as a new item, and the distribution captures read keeps offering the rejected captures
+   to every phone as "Proof ready", so a crew can re-send them without re-shooting. Defect it would
+   prevent: rejected or superseded evidence re-queued as if it were a re-shoot (seen on the QA clone:
+   packing, transport attempt 2 and a reopened bag all accepted their rejected clip). The documented
+   transport rule ("every rework requires a new video", feed-transport-verification.md) has no
+   executable check today. Pin: `TestReworkResubmitMayNameTheRejectedCaptureAsToday`,
+   `TestCapturesReadStillOffersSentBackCapturesAsToday`.
+2. **One capture proves one piece of feed work** (one pen-session, one bag, one pen-day, one trip).
+   Today a capture already submitted for pen A is accepted for pen B, and a packing video is accepted
+   as a distribution video: two verifier items "prove" two pieces of work with one clip. Defect it
+   would prevent: the AGENTS.md packing lock "one clip cannot prove two bags" has no executable
+   check (seen on the QA clone: pen A's three captures accepted for pen B). Pin:
+   `TestACaptureProvingOnePenIsAcceptedForAnotherAsToday`.

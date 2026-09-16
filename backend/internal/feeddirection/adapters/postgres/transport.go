@@ -288,7 +288,7 @@ WHERE a.tenant_id=$1::uuid AND a.attempt_id=$2::uuid`, p.TenantID, reservation.r
 		committed = true
 		return res, nil
 	}
-	var status, businessDate string
+	var status string
 	var res ports.SubmitTransportResult
 	// Row lock on feed_transport_tasks ONLY. The shed name and partition come from SCALAR
 	// SUBQUERIES rather than joins: FOR UPDATE cannot be applied to the nullable side of an
@@ -298,9 +298,9 @@ WHERE a.tenant_id=$1::uuid AND a.attempt_id=$2::uuid`, p.TenantID, reservation.r
 	// rejected by Postgres (42803).
 	err = tx.QueryRow(ctx, `SELECT t.status,t.park_id::text,t.shed_id::text,
        coalesce((SELECT l.name FROM locations l WHERE l.tenant_id=t.tenant_id AND l.location_id=t.shed_id), ''),
-       coalesce(t.partition_label, ''), t.business_date::text
+       coalesce(t.partition_label, '')
 FROM feed_transport_tasks t
-WHERE t.tenant_id=$1::uuid AND t.task_id=$2::uuid FOR UPDATE`, p.TenantID, p.TaskID).Scan(&status, &res.ParkID, &res.ShedID, &res.ShedName, &res.PartitionLabel, &businessDate)
+WHERE t.tenant_id=$1::uuid AND t.task_id=$2::uuid FOR UPDATE`, p.TenantID, p.TaskID).Scan(&status, &res.ParkID, &res.ShedID, &res.ShedName, &res.PartitionLabel)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ports.SubmitTransportResult{}, ports.ErrTransportTaskNotActionable
 	}
@@ -309,41 +309,6 @@ WHERE t.tenant_id=$1::uuid AND t.task_id=$2::uuid FOR UPDATE`, p.TenantID, p.Tas
 	}
 	if status != domain.TransportStatusDue && status != domain.TransportStatusRework {
 		return ports.SubmitTransportResult{}, ports.ErrTransportTaskNotActionable
-	}
-	// EVERY REWORK REQUIRES A NEW VIDEO (feed-transport-verification.md): a capture any earlier
-	// attempt of this trip carried was sent back, and a clip that proved another shed's trip or any
-	// other feed work is not this trip's (feed_proof_reuse.go). The task row lock above serializes
-	// submits of one trip, so the earlier attempts read here are complete.
-	attemptRefs := authored.ProofRefs{}
-	if err := json.Unmarshal(transportSOPProofsJSON(p), &attemptRefs); err != nil {
-		return ports.SubmitTransportResult{}, fmt.Errorf("feeddirection: decode transport proofs: %w", err)
-	}
-	earlier := authored.ProofRefs{}
-	// scale-guard:ignore: one trip's attempts by (tenant_id, task_id) on feed_transport_attempts_task_history_idx; a trip has a handful of attempts, never a herd-sized set.
-	earlierRows, err := tx.Query(ctx, `
-SELECT a.attempt_no::text || ':' || e.key, e.value
-FROM feed_transport_attempts a CROSS JOIN LATERAL jsonb_each_text(a.sop_proofs) e
-WHERE a.tenant_id=$1::uuid AND a.task_id=$2::uuid`, p.TenantID, p.TaskID)
-	if err != nil {
-		return ports.SubmitTransportResult{}, fmt.Errorf("feeddirection: read earlier transport attempts: %w", err)
-	}
-	for earlierRows.Next() {
-		var k, v string
-		if err := earlierRows.Scan(&k, &v); err != nil {
-			earlierRows.Close()
-			return ports.SubmitTransportResult{}, fmt.Errorf("feeddirection: scan earlier transport attempt: %w", err)
-		}
-		earlier[k] = v
-	}
-	earlierRows.Close()
-	if err := earlierRows.Err(); err != nil {
-		return ports.SubmitTransportResult{}, fmt.Errorf("feeddirection: read earlier transport attempts: %w", err)
-	}
-	if err := refuseSentBackProofs(attemptRefs, earlier); err != nil {
-		return ports.SubmitTransportResult{}, err
-	}
-	if err := refuseProofsUsedElsewhere(ctx, tx, p.TenantID, res.ParkID, businessDate, p.TaskID, attemptRefs); err != nil {
-		return ports.SubmitTransportResult{}, err
 	}
 	err = tx.QueryRow(ctx, `
 INSERT INTO feed_transport_attempts(tenant_id,task_id,attempt_no,proof_ref,operator_id,idempotency_key,sop_proofs,sop_answers)
