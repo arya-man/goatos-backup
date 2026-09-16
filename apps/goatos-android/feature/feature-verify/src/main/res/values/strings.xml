@@ -52,6 +52,7 @@
     <string name="verify_detail_raised_note_label">Operator note</string>
     <string name="verify_detail_captured_label">Captured</string>
     <string name="verify_detail_photo_description">Photo evidence for this work</string>
+    <string name="verify_detail_open_proof">Open proof</string>
     <string name="verify_detail_recorded_answer">Recorded: %1$s</string>
     <string name="verify_detail_no_media">No video attached to this item</string>
     <!-- THE VERIFIER'S WEIGHT CORRECTION. Only the optional-note label lives here: the heading,

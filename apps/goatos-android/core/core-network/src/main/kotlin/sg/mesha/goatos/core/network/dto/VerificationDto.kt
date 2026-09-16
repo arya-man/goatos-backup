@@ -375,6 +375,9 @@ object VerificationStatus {
 data class VerificationContextRowDto(
     @SerialName("label") val label: String = "",
     @SerialName("value") val value: String = "",
+    /** Optional backend-composed section header ("Crew answers"); null for an ungrouped row. The
+     *  queue is cached as a JSON blob, so an older cached row simply decodes with no group. */
+    @SerialName("group") val group: String? = null,
 )
 
 

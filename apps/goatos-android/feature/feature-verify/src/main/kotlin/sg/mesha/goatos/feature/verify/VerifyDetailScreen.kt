@@ -116,8 +116,24 @@ data class VerifyMediaItem(
      * empty mime would render a still frame for a clip the verifier then cannot play.
      */
     val isPhoto: Boolean
-        get() = mimeType.startsWith("image/", ignoreCase = true)
+        get() = kind == VerifyMediaKind.PHOTO
+
+    /**
+     * Which player these bytes need, from the backend mime ALONE. A blank or non-media mime is a
+     * proof whose kind nobody could tell -- an `either` SOP slot the proof register could not type --
+     * and is [VerifyMediaKind.UNKNOWN]: a tap-armed tile that tries the photo loader once and falls
+     * back to the video player, never a guessed player on open.
+     */
+    val kind: VerifyMediaKind
+        get() = when {
+            mimeType.startsWith("image/", ignoreCase = true) -> VerifyMediaKind.PHOTO
+            mimeType.startsWith("video/", ignoreCase = true) -> VerifyMediaKind.VIDEO
+            else -> VerifyMediaKind.UNKNOWN
+        }
 }
+
+/** The player a proof opens in; see [VerifyMediaItem.kind]. */
+enum class VerifyMediaKind { PHOTO, VIDEO, UNKNOWN }
 
 /** The context dimensions a reviewer needs: the four fixed ones the spec calls out
  *  (shed/park/operator/timestamp), plus the raiser's own note when the producer supplied one. The
@@ -145,7 +161,20 @@ data class VerifyContextRow(
     val kind: VerifyContextKind,
     val value: String,
     val backendLabel: String? = null,
+    /** Backend-composed section header this row belongs to ("Crew answers"), null when none. */
+    val group: String? = null,
 )
+
+/**
+ * The section header row [index] STARTS, or null: a header is shown only where the backend group
+ * CHANGES between consecutive rows, and is rendered verbatim.
+ */
+fun contextGroupHeaderAt(rows: List<VerifyContextRow>, index: Int): String? {
+    val group = rows.getOrNull(index)?.group?.trim().orEmpty()
+    if (group.isEmpty()) return null
+    val previous = rows.getOrNull(index - 1)?.group?.trim().orEmpty()
+    return group.takeIf { it != previous }
+}
 
 /**
  * ONE animal's proof clip and ITS OWN verdict, inside a shed-level detail screen.
@@ -712,13 +741,7 @@ private fun VerifyEntryCard(
                 // PHOTO proofs (the feed-weight photo) render as an image; everything else is a clip.
                 // The branch keys on the BACKEND-supplied mime, never on a label or a proof name --
                 // the label is farm copy that can change, the mime is what the bytes are.
-                if (media.isPhoto) {
-                    VerifyProofPhoto(
-                        media = media,
-                        onPreview = { onPlayback(it) },
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                } else {
+                val videoPlayer: @Composable () -> Unit = {
                     VerifyVideoPlayer(
                         media = media,
                         onPlayback = onPlayback,
@@ -726,6 +749,20 @@ private fun VerifyEntryCard(
                         viewportBounds = viewportBounds,
                         activeProofSubject = activeProofSubject,
                         onActiveProofSubjectChange = onActiveProofSubjectChange,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+                when (media.kind) {
+                    VerifyMediaKind.PHOTO -> VerifyProofPhoto(
+                        media = media,
+                        onPreview = { onPlayback(it) },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    VerifyMediaKind.VIDEO -> videoPlayer()
+                    VerifyMediaKind.UNKNOWN -> VerifyUnknownProof(
+                        media = media,
+                        onPreview = { onPlayback(it) },
+                        videoPlayer = videoPlayer,
                         modifier = Modifier.fillMaxWidth(),
                     )
                 }
@@ -993,11 +1030,82 @@ private fun DetailHeader(state: VerifyDetailUiState, onClose: () -> Unit) {
  * camera/recorder/BT capture + observers on lifecycle stop"), so navigating away or the queue
  * recycling this row never leaks a player instance.
  */
+/** Where an UNKNOWN-kind proof tile is: waiting for a tap, probing as a photo, or playing as video. */
+private enum class UnknownProofStage { TILE, PHOTO, VIDEO }
+
+/**
+ * A proof of UNKNOWN kind (see [VerifyMediaItem.kind]). Nothing is fetched until the verifier taps
+ * the tile; the tap tries the photo loader ONCE, and a load failure falls back to the video player
+ * rather than being reported as unplayable evidence -- the bytes may simply be a clip.
+ */
+@Composable
+private fun VerifyUnknownProof(
+    media: VerifyMediaItem,
+    onPreview: (VerifyDetailEvent.PhotoPreview) -> Unit,
+    videoPlayer: @Composable () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var stage by rememberSaveable(media.proofSubject) { mutableStateOf(UnknownProofStage.TILE) }
+    when (stage) {
+        UnknownProofStage.TILE -> Box(
+            modifier = modifier
+                .clip(RoundedCornerShape(14.dp))
+                .background(MeshaColors.Surf2)
+                .aspectRatio(16f / 9f)
+                .clickable {
+                    onPreview(
+                        VerifyDetailEvent.PhotoPreview(
+                            proofSubject = media.proofSubject,
+                            mimeType = media.mimeType,
+                            action = VERIFY_UNKNOWN_PROOF_OPEN_ACTION,
+                            outcome = "attempt",
+                        ),
+                    )
+                    stage = UnknownProofStage.PHOTO
+                },
+            contentAlignment = Alignment.Center,
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Icon(imageVector = MeshaIcons.Document, contentDescription = null, tint = MeshaColors.Muted)
+                Text(
+                    text = stringResource(R.string.verify_detail_open_proof),
+                    color = MeshaColors.Ink,
+                    style = MeshaType.cardTitle,
+                    modifier = Modifier.padding(top = 6.dp),
+                )
+            }
+        }
+        UnknownProofStage.PHOTO -> VerifyProofPhoto(
+            media = media,
+            onPreview = onPreview,
+            modifier = modifier,
+            onLoadFailed = {
+                onPreview(
+                    VerifyDetailEvent.PhotoPreview(
+                        proofSubject = media.proofSubject,
+                        mimeType = media.mimeType,
+                        action = VERIFY_UNKNOWN_PROOF_OPEN_ACTION,
+                        outcome = "video_fallback",
+                    ),
+                )
+                stage = UnknownProofStage.VIDEO
+            },
+        )
+        UnknownProofStage.VIDEO -> videoPlayer()
+    }
+}
+
+/** The PhotoPreview action an UNKNOWN-kind proof tile reports its open/fallback under. */
+const val VERIFY_UNKNOWN_PROOF_OPEN_ACTION = "unknown_kind_open"
+
 @Composable
 private fun VerifyProofPhoto(
     media: VerifyMediaItem,
     onPreview: (VerifyDetailEvent.PhotoPreview) -> Unit,
     modifier: Modifier = Modifier,
+    // Set only by an UNKNOWN-kind proof probing whether its bytes are a still: a failed load then
+    // hands over to the video player instead of being reported as unplayable evidence.
+    onLoadFailed: (() -> Unit)? = null,
 ) {
     val context = LocalContext.current
     // The photo is ON SCREEN as soon as the card lands (maintainer decision 2026-09-14,
@@ -1049,6 +1157,10 @@ private fun VerifyProofPhoto(
                 )
             },
             onError = { result ->
+                if (onLoadFailed != null) {
+                    onLoadFailed()
+                    return@AsyncImage
+                }
                 onPreview(
                     VerifyDetailEvent.PhotoPreview(
                         proofSubject = media.proofSubject,
@@ -2012,6 +2124,15 @@ private fun ContextCard(rows: List<VerifyContextRow>) {
             modifier = Modifier.padding(top = 12.dp, bottom = 4.dp),
         )
         rows.forEachIndexed { index, row ->
+            // A producer's section header, verbatim, where its group starts.
+            contextGroupHeaderAt(rows, index)?.let { header ->
+                Text(
+                    text = header,
+                    color = MeshaColors.Faint,
+                    style = MeshaType.overline,
+                    modifier = Modifier.padding(top = 12.dp, bottom = 2.dp),
+                )
+            }
             val label = contextRowLabel(row)
             val displayValue = remember(row.value, row.kind) {
                 if (row.kind == VerifyContextKind.CAPTURED_AT) {

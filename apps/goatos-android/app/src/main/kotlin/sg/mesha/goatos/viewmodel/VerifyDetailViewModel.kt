@@ -29,6 +29,7 @@ import sg.mesha.goatos.core.data.VerificationRepository
 import sg.mesha.goatos.core.data.sync.SyncItemStatus
 import sg.mesha.goatos.core.data.sync.SyncRepository
 import sg.mesha.goatos.core.network.dto.VerificationDecision
+import sg.mesha.goatos.core.network.dto.VerificationContextRowDto
 import sg.mesha.goatos.core.network.dto.VerificationQueueItem
 import sg.mesha.goatos.core.network.dto.VerificationQueueResponseDto
 import sg.mesha.goatos.core.network.dto.VerificationReviewEventBatchRequestDto
@@ -39,6 +40,7 @@ import sg.mesha.goatos.core.network.dto.VerificationVerdictMeasurementDto
 import sg.mesha.goatos.core.network.dto.VerificationVerdictMeasurementEntryDto
 import sg.mesha.goatos.BuildConfig
 import sg.mesha.goatos.feature.verify.VerifyContextKind
+import sg.mesha.goatos.feature.verify.VERIFY_UNKNOWN_PROOF_OPEN_ACTION
 import sg.mesha.goatos.feature.verify.VerifyContextRow
 import sg.mesha.goatos.feature.verify.VerifyDecisionUnavailableReason
 import sg.mesha.goatos.feature.verify.VerifyMeasurementField
@@ -636,6 +638,16 @@ class VerifyDetailViewModel @Inject constructor(
 
     private fun trackPhotoPreview(event: VerifyDetailEvent.PhotoPreview) {
         val targetItemId = itemIdForProof(event.proofSubject)
+        if (event.action == VERIFY_UNKNOWN_PROOF_OPEN_ACTION) {
+            analytics.track(
+                AnalyticsEventsVerification.VERIFY_UNKNOWN_PROOF_OPENED,
+                mapOf(
+                    AnalyticsFunnels.Params.ITEM_ID to itemId,
+                    AnalyticsFunnels.Params.PROOF_ID to event.proofSubject,
+                    "outcome" to (event.outcome ?: "unknown"),
+                ),
+            )
+        }
         if (event.outcome == "failure") {
             _flags.update { it.copy(unplayableProofIds = it.unplayableProofIds + event.proofSubject) }
         }
@@ -902,13 +914,25 @@ class VerifyDetailViewModel @Inject constructor(
      * row missing either half is dropped -- a label with no value states nothing and reads as a bug.
      */
     private fun backendContextRows(item: VerificationQueueItem): List<VerifyContextRow> =
-        item.contextRows.mapNotNull { row ->
-            val label = row.label.trim()
-            val value = row.value.trim()
-            if (label.isEmpty() || value.isEmpty()) return@mapNotNull null
-            VerifyContextRow(kind = VerifyContextKind.RAISED_NOTE, value = value, backendLabel = label)
-        }
+        backendVerifyContextRows(item.contextRows)
 }
+
+/**
+ * The producer's context rows as the screen renders them: verbatim, in order, with the backend's
+ * section [VerifyContextRow.group] passed through; a row missing either half is dropped.
+ */
+internal fun backendVerifyContextRows(rows: List<VerificationContextRowDto>): List<VerifyContextRow> =
+    rows.mapNotNull { row ->
+        val label = row.label.trim()
+        val value = row.value.trim()
+        if (label.isEmpty() || value.isEmpty()) return@mapNotNull null
+        VerifyContextRow(
+            kind = VerifyContextKind.RAISED_NOTE,
+            value = value,
+            backendLabel = label,
+            group = row.group?.trim()?.takeIf { it.isNotEmpty() },
+        )
+    }
 
 private fun String.isExpectedVerificationPlaybackState(): Boolean {
     val normalized = lowercase()
