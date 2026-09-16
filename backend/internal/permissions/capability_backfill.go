@@ -93,6 +93,8 @@ var flatRoleAssignments = map[string][]ModuleAssignment{
 	RoleParkHead: rows(
 		// Work Board (2026-09-10): the whole park's day on the phone.
 		one(assign("work_board", SurfaceMobile, LevelView, LevelOversee)),
+		// Pen routines (2026-09-16): the park head works the routine checks of their park.
+		one(assign("pen_routines", SurfaceMobile, LevelView, LevelDo)),
 		one(assign("leadership_tasks", SurfaceMobile, LevelView, LevelOversee)),
 		// Leave approvals (maintainer decision 2026-09-10): the park head signs their park's
 		// leave from the PHONE Approvals module; park heads hold no admin-web bootstrap.
@@ -117,6 +119,7 @@ var flatRoleAssignments = map[string][]ModuleAssignment{
 		// Alerts (2026-09-16): the page below the Work Board; configuring is ticked per person.
 		one(assign("alerts", SurfaceWeb, LevelView)),
 		one(assign("leadership_tasks", SurfaceMobile, LevelView, LevelDo)),
+		bothSurfaces("pen_routines", LevelView, LevelDo),
 		bothSurfaces("vaccination", LevelView, LevelDo, LevelOversee, LevelConfigure),
 		bothSurfaces("aas_health", LevelOversee),
 		bothSurfaces("pc_care", LevelView, LevelDo, LevelOversee),
@@ -136,6 +139,7 @@ var flatRoleAssignments = map[string][]ModuleAssignment{
 		// Alerts (2026-09-16): the page below the Work Board; configuring is ticked per person.
 		one(assign("alerts", SurfaceWeb, LevelView)),
 		one(assign("leadership_tasks", SurfaceMobile, LevelView, LevelDo)),
+		bothSurfaces("pen_routines", LevelView, LevelDo),
 		bothSurfaces("weighing", LevelView, LevelDo, LevelOversee),
 		bothSurfaces("people", LevelView, LevelDo, LevelOversee),
 		bothSurfaces("herd_register", LevelView, LevelDo),
@@ -153,6 +157,7 @@ var flatRoleAssignments = map[string][]ModuleAssignment{
 		// Alerts (2026-09-16): the page below the Work Board; configuring is ticked per person.
 		one(assign("alerts", SurfaceWeb, LevelView)),
 		one(assign("leadership_tasks", SurfaceMobile, LevelView, LevelDo)),
+		bothSurfaces("pen_routines", LevelView, LevelDo),
 		bothSurfaces("feed_direction", LevelView, LevelOversee, LevelConfigure),
 		one(assign("feed_purchases", SurfaceWeb, LevelView)),
 		bothSurfaces("people", LevelView, LevelDo, LevelOversee),
@@ -171,6 +176,7 @@ var flatRoleAssignments = map[string][]ModuleAssignment{
 		// Alerts (2026-09-16): the page below the Work Board; configuring is ticked per person.
 		one(assign("alerts", SurfaceWeb, LevelView)),
 		one(assign("leadership_tasks", SurfaceMobile, LevelView, LevelDo)),
+		bothSurfaces("pen_routines", LevelView, LevelDo),
 		bothSurfaces("aas_health", LevelConfigure),
 		bothSurfaces("people", LevelView, LevelDo, LevelOversee),
 		bothSurfaces("herd_register", LevelView, LevelDo, LevelOversee),
@@ -206,6 +212,7 @@ var flatRoleAssignments = map[string][]ModuleAssignment{
 		// Alerts (2026-09-16): the page below the Work Board; configuring is ticked per person.
 		one(assign("alerts", SurfaceWeb, LevelView)),
 		one(assign("leadership_tasks", SurfaceMobile, LevelView, LevelDo)),
+		bothSurfaces("pen_routines", LevelView, LevelDo),
 		// Sales is on BOTH surfaces from 2026-09-05: it became its own phone module (the ledger
 		// moved out of the Procurement module and took the selling half of the vendor register
 		// with it). Migration 000257 copies the same mobile row onto everyone already backfilled.
@@ -228,6 +235,7 @@ var flatRoleAssignments = map[string][]ModuleAssignment{
 		// Alerts (2026-09-16): the page below the Work Board; configuring is ticked per person.
 		one(assign("alerts", SurfaceWeb, LevelView)),
 		one(assign("leadership_tasks", SurfaceMobile, LevelView, LevelDo)),
+		bothSurfaces("pen_routines", LevelView, LevelDo),
 		bothSurfaces("pc_care", LevelView),
 		bothSurfaces("pc_trimming", LevelView, LevelConfigure),
 		bothSurfaces("people", LevelView),
@@ -271,6 +279,9 @@ var flatRoleAssignments = map[string][]ModuleAssignment{
 		one(assign("alerts", SurfaceWeb, LevelView, LevelConfigure)),
 		// Leadership Tasks: the CEO/CXO desk can assign work downward and answer asks sent to it.
 		one(assign("leadership_tasks", SurfaceMobile, LevelView, LevelOversee, LevelConfigure)),
+		// Pen routines (2026-09-16): the CXO writes the rule and reads what it raised; View +
+		// Configure and NOT Do, the toxin shape -- the desk never walks pens.
+		bothSurfaces("pen_routines", LevelView, LevelConfigure),
 		bothSurfaces("leave_approvals", LevelView, LevelOversee, LevelConfigure),
 		bothSurfaces("vaccination", LevelView, LevelOversee, LevelConfigure),
 		bothSurfaces("weighing", LevelView, LevelConfigure),

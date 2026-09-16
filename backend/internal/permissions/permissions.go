@@ -513,6 +513,16 @@ const (
 	// against today), never by ceo_internal: the CXO desk answers asks, it does not walk pens.
 	// ORed into the /app/proofs upload routes so the visit video can finish uploading.
 	PenVisitsExecute = "pen_visits.execute"
+	// Pen routines (maintainer instruction 2026-09-16, docs/decisions/pen-routines.md): the
+	// configurable recurring pen checks a park head owes. PenRoutinesExecute opens the phone
+	// module and /app/pen-routines*; held by park_head, the six director roles and anyone
+	// ticked Do on Routines, never by ceo_internal (the CXO desk writes the rule, it does not
+	// walk pens -- the toxin rule). WHO may work a given task is decided per row against
+	// pen_routine_assignees. PenRoutinesRead opens /routines and the admin reads;
+	// PenRoutinesConfigure is the routine writes, ceo_internal only on the role.
+	PenRoutinesExecute   = "pen_routines.execute"
+	PenRoutinesRead      = "pen_routines.read"
+	PenRoutinesConfigure = "pen_routines.configure"
 	// ClockPresenceRead gates the CROSS-PERSON attendance reads of the Clock
 	// In / Out module (docs/features/clock-in-out/plan.md): the phone Team
 	// presence board (GET /app/clock/presence*) and the admin-web People/HRMS
@@ -938,6 +948,8 @@ var rolePermissions = map[string]map[string]struct{}{
 	RoleParkHead: {
 		GoatRead:      {},
 		LocationsRead: {},
+		// Pen routines (2026-09-16): the park head works the routine checks of their park.
+		PenRoutinesExecute: {}, PenRoutinesRead: {},
 		OperatorsRead: {}, OperatorsManageRoster: {}, OperatorsManageDevice: {}, AppBootstrap: {},
 		LeadershipTasksRead: {}, LeadershipTasksAct: {},
 		SOPRead: {}, TaskRead: {}, TaskAssign: {}, TaskVerify: {},
@@ -970,7 +982,7 @@ var rolePermissions = map[string]map[string]struct{}{
 	},
 	RolePCDirector: {
 		// Leadership Tasks (2026-09-04): every director raises for the CXO desk.
-		LeadershipTasksRead: {}, LeadershipTasksRaise: {}, PenVisitsExecute: {},
+		LeadershipTasksRead: {}, LeadershipTasksRaise: {}, PenVisitsExecute: {}, PenRoutinesExecute: {}, PenRoutinesRead: {},
 		// Work Board (2026-09-10): a director's portfolio -- both parks, and only the
 		// modules their other permissions already open.
 		WorkBoardRead: {}, WorkBoardOversee: {},
@@ -1049,7 +1061,7 @@ var rolePermissions = map[string]map[string]struct{}{
 	// oversight) are merged in below so nothing that worked before is narrowed.
 	RoleGrowthDirector: {
 		// Leadership Tasks (2026-09-04): every director raises for the CXO desk.
-		LeadershipTasksRead: {}, LeadershipTasksRaise: {}, PenVisitsExecute: {},
+		LeadershipTasksRead: {}, LeadershipTasksRaise: {}, PenVisitsExecute: {}, PenRoutinesExecute: {}, PenRoutinesRead: {},
 		// Work Board (2026-09-10): a director's portfolio -- both parks, and only the
 		// modules their other permissions already open.
 		WorkBoardRead: {}, WorkBoardOversee: {},
@@ -1100,7 +1112,7 @@ var rolePermissions = map[string]map[string]struct{}{
 	//     what TestDirectorModuleSegregation pins in both directions.
 	RoleFeedDirector: {
 		// Leadership Tasks (2026-09-04): every director raises for the CXO desk.
-		LeadershipTasksRead: {}, LeadershipTasksRaise: {}, PenVisitsExecute: {},
+		LeadershipTasksRead: {}, LeadershipTasksRaise: {}, PenVisitsExecute: {}, PenRoutinesExecute: {}, PenRoutinesRead: {},
 		// Work Board (2026-09-10): a director's portfolio -- both parks, and only the
 		// modules their other permissions already open.
 		WorkBoardRead: {}, WorkBoardOversee: {},
@@ -1154,7 +1166,7 @@ var rolePermissions = map[string]map[string]struct{}{
 	//     permission, precisely because health_director is NOT pc_director.
 	RoleHealthDirector: {
 		// Leadership Tasks (2026-09-04): every director raises for the CXO desk.
-		LeadershipTasksRead: {}, LeadershipTasksRaise: {}, PenVisitsExecute: {},
+		LeadershipTasksRead: {}, LeadershipTasksRaise: {}, PenVisitsExecute: {}, PenRoutinesExecute: {}, PenRoutinesRead: {},
 		// Work Board (2026-09-10): a director's portfolio -- both parks, and only the
 		// modules their other permissions already open.
 		WorkBoardRead: {}, WorkBoardOversee: {},
@@ -1267,7 +1279,7 @@ var rolePermissions = map[string]map[string]struct{}{
 	// (maintainer decision 2026-09-03): the Procurement phone module is offered on VendorRead.
 	RoleProcurementDirector: {
 		// Leadership Tasks (2026-09-04): every director raises for the CXO desk.
-		LeadershipTasksRead: {}, LeadershipTasksRaise: {}, PenVisitsExecute: {},
+		LeadershipTasksRead: {}, LeadershipTasksRaise: {}, PenVisitsExecute: {}, PenRoutinesExecute: {}, PenRoutinesRead: {},
 		// Work Board (2026-09-10): a director's portfolio -- both parks, and only the
 		// modules their other permissions already open.
 		WorkBoardRead: {}, WorkBoardOversee: {},
@@ -1291,7 +1303,7 @@ var rolePermissions = map[string]map[string]struct{}{
 	// terms); LocationsRead labels the pens it plans against.
 	RoleBreedingDirector: {
 		// Leadership Tasks (2026-09-04): every director raises for the CXO desk.
-		LeadershipTasksRead: {}, LeadershipTasksRaise: {}, PenVisitsExecute: {},
+		LeadershipTasksRead: {}, LeadershipTasksRaise: {}, PenVisitsExecute: {}, PenRoutinesExecute: {}, PenRoutinesRead: {},
 		// Work Board (2026-09-10): a director's portfolio -- both parks, and only the
 		// modules their other permissions already open.
 		WorkBoardRead: {}, WorkBoardOversee: {},
@@ -1363,6 +1375,9 @@ var rolePermissions = map[string]map[string]struct{}{
 		// Leadership Tasks: CEO/CXO can assign work downward and can still act on tasks
 		// addressed to the leadership desk.
 		LeadershipTasksRead: {}, LeadershipTasksRaise: {}, LeadershipTasksAct: {},
+		// Pen routines (2026-09-16): the CXO desk writes the rule and reads what it raised; it
+		// never walks pens, so NO PenRoutinesExecute here.
+		PenRoutinesRead: {}, PenRoutinesConfigure: {},
 		// Work Board (2026-09-10): both parks, every module (the CEO floor).
 		WorkBoardRead: {}, WorkBoardOversee: {},
 		// Alerts (2026-09-16): reads the page and configures the rules (the CEO floor).

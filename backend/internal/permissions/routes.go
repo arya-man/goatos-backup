@@ -240,11 +240,11 @@ var protectedRoutes = []Route{
 	// state weighing hit above. Adding health.execute here keeps each role scoped to the one
 	// module it owns; handing it task.execute instead would carry vaccination SOP submission with
 	// it, which is the privilege escalation this route shape exists to avoid.
-	{OperationID: "createProofUpload", Method: "POST", Pattern: "/app/proofs/uploads", AnyPermissions: []string{TaskExecute, WeighingExecute, HealthExecute, FeedDirectionComplete, PCCareExecute, ToxinExecute, VendorWrite, LeadershipTasksRaise, PenVisitsExecute, AnimalPurchaseWrite}},
-	{OperationID: "listUploadedProofs", Method: "GET", Pattern: "/app/proofs/uploads", AnyPermissions: []string{TaskExecute, WeighingExecute, HealthExecute, FeedDirectionComplete, PCCareExecute, ToxinExecute, VendorWrite, LeadershipTasksRaise, PenVisitsExecute, AnimalPurchaseWrite}},
-	{OperationID: "uploadProofLocal", Method: "PUT", Pattern: "/app/proofs/{proof_id}/upload", AnyPermissions: []string{TaskExecute, WeighingExecute, HealthExecute, FeedDirectionComplete, PCCareExecute, ToxinExecute, VendorWrite, LeadershipTasksRaise, PenVisitsExecute, AnimalPurchaseWrite}},
-	{OperationID: "completeProofUpload", Method: "POST", Pattern: "/app/proofs/{proof_id}/complete", AnyPermissions: []string{TaskExecute, WeighingExecute, HealthExecute, FeedDirectionComplete, PCCareExecute, ToxinExecute, VendorWrite, LeadershipTasksRaise, PenVisitsExecute, AnimalPurchaseWrite}},
-	{OperationID: "deleteUnattachedProofUpload", Method: "DELETE", Pattern: "/app/proofs/{proof_id}", AnyPermissions: []string{TaskExecute, WeighingExecute, HealthExecute, FeedDirectionComplete, PCCareExecute, ToxinExecute, VendorWrite, LeadershipTasksRaise, PenVisitsExecute, AnimalPurchaseWrite}},
+	{OperationID: "createProofUpload", Method: "POST", Pattern: "/app/proofs/uploads", AnyPermissions: []string{TaskExecute, WeighingExecute, HealthExecute, FeedDirectionComplete, PCCareExecute, ToxinExecute, VendorWrite, LeadershipTasksRaise, PenVisitsExecute, PenRoutinesExecute, AnimalPurchaseWrite}},
+	{OperationID: "listUploadedProofs", Method: "GET", Pattern: "/app/proofs/uploads", AnyPermissions: []string{TaskExecute, WeighingExecute, HealthExecute, FeedDirectionComplete, PCCareExecute, ToxinExecute, VendorWrite, LeadershipTasksRaise, PenVisitsExecute, PenRoutinesExecute, AnimalPurchaseWrite}},
+	{OperationID: "uploadProofLocal", Method: "PUT", Pattern: "/app/proofs/{proof_id}/upload", AnyPermissions: []string{TaskExecute, WeighingExecute, HealthExecute, FeedDirectionComplete, PCCareExecute, ToxinExecute, VendorWrite, LeadershipTasksRaise, PenVisitsExecute, PenRoutinesExecute, AnimalPurchaseWrite}},
+	{OperationID: "completeProofUpload", Method: "POST", Pattern: "/app/proofs/{proof_id}/complete", AnyPermissions: []string{TaskExecute, WeighingExecute, HealthExecute, FeedDirectionComplete, PCCareExecute, ToxinExecute, VendorWrite, LeadershipTasksRaise, PenVisitsExecute, PenRoutinesExecute, AnimalPurchaseWrite}},
+	{OperationID: "deleteUnattachedProofUpload", Method: "DELETE", Pattern: "/app/proofs/{proof_id}", AnyPermissions: []string{TaskExecute, WeighingExecute, HealthExecute, FeedDirectionComplete, PCCareExecute, ToxinExecute, VendorWrite, LeadershipTasksRaise, PenVisitsExecute, PenRoutinesExecute, AnimalPurchaseWrite}},
 	// downloadProof stays on task.read ALONE, and that is correct for every module whose
 	// evidence it serves -- including toxin, where it reads like a gap and is not. A reviewer
 	// checking the toxin block in RoleCEOInternal sees ToxinRead/ToxinVerdict and concludes the
@@ -432,6 +432,25 @@ var protectedRoutes = []Route{
 	{OperationID: "listPenVisits", Method: "GET", Pattern: "/app/pen-visits", Permissions: []string{PenVisitsExecute}},
 	{OperationID: "getPenVisit", Method: "GET", Pattern: "/app/pen-visits/{task_id}", Permissions: []string{PenVisitsExecute}},
 	{OperationID: "submitPenVisit", Method: "POST", Pattern: "/app/pen-visits/{task_id}/submit", Permissions: []string{PenVisitsExecute}},
+
+	// PEN ROUTINES (maintainer instruction 2026-09-16, docs/decisions/pen-routines.md): the
+	// configurable recurring pen checks. The phone routes ride PenRoutinesExecute alone -- the
+	// same permission the Routines module requires -- so nobody holds a route they have no
+	// screen for; WHO may work a task is decided per row against pen_routine_assignees. The
+	// admin reads ride PenRoutinesRead and the routine writes PenRoutinesConfigure (both halves
+	// of the capability-gated lock: the page contract's controls AND this table). Patterns must
+	// stay byte-identical to penroutines/adapters/http.Register and RegisterAdmin.
+	{OperationID: "listPenRoutineTasks", Method: "GET", Pattern: "/app/pen-routines", Permissions: []string{PenRoutinesExecute}},
+	{OperationID: "getPenRoutineTask", Method: "GET", Pattern: "/app/pen-routines/{task_id}", Permissions: []string{PenRoutinesExecute}},
+	{OperationID: "recordPenRoutinePresence", Method: "POST", Pattern: "/app/pen-routines/{task_id}/presence", Permissions: []string{PenRoutinesExecute}},
+	{OperationID: "submitPenRoutineTask", Method: "POST", Pattern: "/app/pen-routines/{task_id}/submit", Permissions: []string{PenRoutinesExecute}},
+	{OperationID: "listPenRoutines", Method: "GET", Pattern: "/admin/pen-routines", Permissions: []string{PenRoutinesRead}},
+	{OperationID: "getPenRoutineCatalog", Method: "GET", Pattern: "/admin/pen-routines/catalog", Permissions: []string{PenRoutinesRead}},
+	{OperationID: "listPenRoutineParkTasks", Method: "GET", Pattern: "/admin/pen-routines/tasks", Permissions: []string{PenRoutinesRead}},
+	{OperationID: "createPenRoutine", Method: "POST", Pattern: "/admin/pen-routines", Permissions: []string{PenRoutinesConfigure}},
+	{OperationID: "getPenRoutine", Method: "GET", Pattern: "/admin/pen-routines/{routine_id}", Permissions: []string{PenRoutinesRead}},
+	{OperationID: "updatePenRoutine", Method: "PUT", Pattern: "/admin/pen-routines/{routine_id}", Permissions: []string{PenRoutinesConfigure}},
+	{OperationID: "setPenRoutineStatus", Method: "POST", Pattern: "/admin/pen-routines/{routine_id}/status", Permissions: []string{PenRoutinesConfigure}},
 
 	// SALES (/sales on admin-web). Gated on the dedicated SalesRead/SalesWrite rather
 	// than ProcurementRead: sales is the SELLING side -- revenue, buyer names, realized prices --
