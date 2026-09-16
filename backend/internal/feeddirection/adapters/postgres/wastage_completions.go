@@ -168,7 +168,7 @@ FROM feed_wastage_completions
 WHERE tenant_id = $1::uuid AND park_id = $2::uuid AND shed_id = $3::uuid
   AND partition_key = $5 AND target_date = $4::date AND workflow = 'experiment'`,
 			p.TenantID, p.ParkID, p.ShedID, targetDate,
-			domain.PartitionMatchKey(p.PartitionLabel)).
+			partitionColumnKey(p.PartitionLabel)).
 			Scan(&completionID, &existingStatus, &rowVersion, &existingProof, &existingSOP); err != nil {
 			return ports.CompleteWastageResult{}, fmt.Errorf("feeddirection: read existing wastage completion: %w", err)
 		}
