@@ -2187,11 +2187,12 @@ WITH campaign AS (
       )
       AND rejected.observation_id IS DISTINCT FROM open_rework_obs.observation_id
   )
-), proof_bundle AS (
+), proof_ok AS (
   -- THE WEIGH CAPTURES ARE AUTHORED (2026-09-16): every capture of the slot map must be a
   -- completed proof of this bucket's shed whose register KIND matches its slot (video /
-  -- photo, or either). One aggregate row when all match; none otherwise.
-  SELECT count(*) AS matched
+  -- photo, or either). One aggregate row when all match; none otherwise. The row carries the
+  -- PRIMARY ($5 = the first slot's ref), which is what proof_artifact_id stores.
+  SELECT $5::uuid AS proof_id
   FROM assigned_shed s
   JOIN rejected_proof_guard ON true
   CROSS JOIN unnest($14::uuid[], $15::text[]) WITH ORDINALITY AS requested(proof_id, kind, proof_position)
@@ -2203,11 +2204,6 @@ WITH campaign AS (
    AND proof.scope_type='shed'
    AND proof.scope_id=s.location_id
   HAVING count(*)=cardinality($14::uuid[])
-), proof_ok AS (
-  -- The PRIMARY ($5 = the first slot's ref) is what proof_artifact_id stores; the bundle above
-  -- has already proven it and every other capture.
-  SELECT $5::uuid AS proof_id
-  FROM proof_bundle
 	), submitted_duplicate AS (
 	  -- A tag already captured AND SUBMITTED (submitted_at IS NOT NULL) in an
 	  -- earlier round, for this SAME bucket and SAME business day, blocks a
