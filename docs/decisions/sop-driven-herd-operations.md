@@ -115,9 +115,12 @@ every bus process behaves alike). The legacy one-video complete route stays serv
   `RegisterWorkflowConsumers` instead of a hand list, so the reconcile rework reopener is live on
   every bus process; the cascade guard reads that helper's constructor list.
 
-## Phase 2 (not done)
+## Phase 2 (partly done)
 
-Shifting completion on the engine (feed-config fingerprint snapshot at open); capture forms taking
-SOP-authored extra questions; the `/config` editor for the Category and Task Type registries;
+Shifting completion is SOP-driven since 2026-09-16 -- as a CARD-WITH-SLOTS on the existing
+completion transaction, NOT on the tasks engine (`shifting-sop.md`: raise extras, completion card,
+high-priority card, pinned per movement at raise; the feed-config fingerprint stays on the row lock).
+Still open: capture forms taking
+SOP-authored extra questions for birth / death; the `/config` editor for the Category and Task Type registries;
 cross-category `triggers` (Problem → Action → Commodity); migrating vaccination / feed / weighing
 onto the same engine.

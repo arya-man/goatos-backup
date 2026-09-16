@@ -194,8 +194,11 @@ Any failure rolls back the second gate and every relocation/event/count effect t
 completion or approval replay cannot relocate twice.
 
 `CompleteShiftingEvent` also enqueues one generic `shifting_move` verification item through
-`internal/countsbridge`, keyed by shifting event + proof set. Low priority carries one video; high
-priority carries all three videos together. The verdict consumer remains
+`internal/countsbridge`, keyed by shifting event + proof set. WHICH captures a completion carries is
+the pinned shifting SOP's completion card, plus the high-priority card for a high movement
+(`shifting-sop.md`, 2026-09-16); the seed is one video for low priority and the two feed clips added
+for high priority, all reviewed together, each named by its slot title in `media_meta`, with the
+raise card's captures appended as "At raise · <title>" and every answer as grouped context rows. The verdict consumer remains
 `counts/app.ShiftingVerificationHandler`, but its counts-side effect is evidence state only. A
 pre-000049 legacy row already holding approval + completion may be lazily applied by the approved
 verdict handler once during rollout compatibility; new rows always apply at the second business gate.
@@ -251,6 +254,9 @@ feed projection.
   roll back.
 - `shifting_verification_integration_test.go`: low/high proof gates, exact feed resolution,
   stale-config rejection, evidence snapshot, and approve/rework idempotency.
+- `shifting_sop_integration_test.go`: the SOP-driven completion (stored slot map, legacy mirrors,
+  authored high-priority card under the 000325 CHECK, pin kept after a later publish, rework
+  reuse refused) -- see `shifting-sop.md`.
 - `countsbridge/shifting_verification_enqueue_test.go`: three high-priority videos stay together in
   one Shifting verification item.
 - `approval_relocate_integration_test.go`: real identity transaction, location/stage events,

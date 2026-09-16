@@ -1496,8 +1496,9 @@ Two halves, and both are enforced:
    on `event_status`, because a legacy `pending_verification` row can be unapproved.
 
 Why this replaced the order-free rule: an operator could burn the mandatory video
-— all THREE videos on a high-priority move — on a movement the park head then
-rejected, and a verifier could be handed evidence for a move nobody authorized.
+— every compulsory capture of the pinned SOP card on a high-priority move — on a
+movement the park head then rejected, and a verifier could be handed evidence for
+a move nobody authorized.
 
 **ACTIONS LEAD TIME (same maintainer decision, 2026-08-09).** An approved movement
 awaiting operator work appears in Actions when it is DUE:
@@ -1558,8 +1559,12 @@ Confirmed high-priority shifting feed-evidence rule (maintainer decision 2026-07
 shifting remains the existing one-live-camera-video flow. High-priority shifting embeds feed packing
 and feeding inside Shifting, resolves exact feed type/quantity from active destination Feed Config
 matched to the movement's EFFECTIVE management stage and moved animals' ration groups, and requires
-THREE live-camera videos: shifting, feed packing, and configured feed being given to the animal(s).
-All three proofs are reviewed together in ONE `shifting_move` verification item. Embedded packing
+the captures of the movement's PINNED shifting SOP card: the completion card plus the high-priority
+card (SHIFTING SOP, maintainer decision 2026-09-16, `docs/decisions/shifting-sop.md`; the seed is
+the three live-camera videos -- shifting, feed packing, and configured feed being given to the
+animal(s) -- and an authored card may rename, replace or add captures and questions, each section
+keeping at least one compulsory capture). Every capture is reviewed together in ONE `shifting_move`
+verification item, named by its slot title. Embedded packing
 proof is shifting-scoped only and never creates or completes the separate Feed Packing/Feed
 Distribution workflows. Park Head approval + operator completion still apply location/stage/counts
 on the second gate; verification remains post-task review and rejection creates operator rework
