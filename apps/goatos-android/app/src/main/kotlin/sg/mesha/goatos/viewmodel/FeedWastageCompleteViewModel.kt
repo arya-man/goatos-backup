@@ -270,6 +270,8 @@ class FeedWastageCompleteViewModel @Inject constructor(
             // retry of the same take must replay; a replacement must not collide with the old
             // payload — the backend answers the DIFFERENT-video case with a terminal 409.
             val completeIdempotencyKey = "feed-wastage-complete:$groupKey:" + slots.submitDigest(slotRefs, answers)
+            // A corrected resubmit must not queue behind its own rejected predecessor (see retireRejectedSubmit).
+            syncRepository.retireRejectedSubmit(draft.submitOutboxItemId, completeIdempotencyKey)
             if (draft.submitIdempotencyKey != completeIdempotencyKey) {
                 drafts.putSubmit(CaptureFlow.FEED_WASTAGE, groupKey, completeIdempotencyKey, null)
                 draft = drafts.find(CaptureFlow.FEED_WASTAGE, groupKey)

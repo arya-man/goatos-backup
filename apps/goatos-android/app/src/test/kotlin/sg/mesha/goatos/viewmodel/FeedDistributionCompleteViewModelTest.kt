@@ -1185,7 +1185,20 @@ private class RecordingFeedDistributionSyncRepository : SyncRepository {
     ): AppResult<String> = error("unused")
 
     override suspend fun retry(itemId: String): AppResult<Unit> = error("unused")
-    override suspend fun deleteOutboxItem(itemId: String): AppResult<Unit> = error("unused")
+    val deletedItemIds = mutableListOf<String>()
+    override suspend fun deleteOutboxItem(itemId: String): AppResult<Unit> {
+        deletedItemIds += itemId
+        items[itemId]?.value = null
+        return AppResult.Ok(Unit)
+    }
+    /** Puts the completion item into the terminal state a 422 leaves it in (conflict dead letter). */
+    fun rejectCompletion(itemId: String) {
+        items.getOrPut(itemId) { MutableStateFlow(null) }.value = SyncQueueItem(
+            id = itemId, opType = "FEED_DISTRIBUTION_COMPLETE", idempotencyKey = "completion-key-$itemId",
+            groupKey = "feed-dist:shed-1:1:normal", status = SyncItemStatus.FAILED, attemptCount = 1, maxAttempts = 3,
+            conflict = true, createdAt = 1L, updatedAt = 2L, lastError = "Enter a value between 1 and 200",
+        )
+    }
     override suspend fun triggerDrain() = Unit
 }
 
@@ -1412,5 +1425,41 @@ class FeedDistributionCardDrivenTest {
         runCurrent()
         // Every slot is enabled at once; nothing has to come first, including the new one.
         assertTrue(vm.state.value.slots.all { it.captureEnabled && it.status == FeedDistributionProofStatus.EMPTY })
+    }
+
+    @Test
+    fun `a corrected resubmit retires its rejected predecessor instead of queueing behind it`() = runTest(dispatcher) {
+        val repo = FakeSplitFeedRepository(
+            slots = listOf(
+                FeedDistributionCapturedSlotDto(fieldKey = weight, proofRef = "srv-w", capturedAt = "2026-09-16T03:00:00Z"),
+                FeedDistributionCapturedSlotDto(fieldKey = feed, proofRef = "srv-f", capturedAt = "2026-09-16T03:01:00Z"),
+                FeedDistributionCapturedSlotDto(fieldKey = water, proofRef = "srv-wa", capturedAt = "2026-09-16T03:02:00Z"),
+            ),
+            card = FeedSopCardDto(
+                version = 9, stage = "distribution", proofs = seededSlots(),
+                questions = listOf(WeighingSopQuestionDto(id = "bags", kind = "number", title = "How many bags?", required = true, min = 1.0, max = 200.0)),
+            ),
+        )
+        val sync = RecordingFeedDistributionSyncRepository()
+        val vm = viewModel(repo, sync)
+        runCurrent()
+        vm.onEvent(FeedDistributionEvent.Answer("bags", "500"))
+        vm.onEvent(FeedDistributionEvent.MarkDone)
+        runCurrent()
+        assertEquals(1, sync.completionEnqueueCount)
+        // The server refuses it (422 -> terminal conflict); the screen offers Submit again.
+        sync.rejectCompletion("completion-item-1")
+        runCurrent()
+        assertTrue(vm.state.value.canComplete)
+        // The operator corrects the answer -> a different proof-set+answers key.
+        vm.onEvent(FeedDistributionEvent.Answer("bags", "12"))
+        vm.onEvent(FeedDistributionEvent.MarkDone)
+        runCurrent()
+        assertEquals(2, sync.completionEnqueueCount)
+        assertEquals(
+            "the rejected submit must be retired so the corrected one is not stuck behind a dead letter in the same lane",
+            listOf("completion-item-1"), sync.deletedItemIds,
+        )
+        assertEquals(JsonPrimitive(12.0), sync.lastAnswers["bags"])
     }
 }

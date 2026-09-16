@@ -588,6 +588,9 @@ class FeedDistributionCompleteViewModel @Inject constructor(
         val answers = answersJson(current)
         completeEnqueueInFlight = true
         viewModelScope.launch {
+            val completeIdempotencyKey = feedDistributionCompleteKey(groupKey, slotRefs, answers)
+            // A corrected resubmit must not queue behind its own rejected predecessor (see retireRejectedSubmit).
+            syncRepository.retireRejectedSubmit(outboxItemId.value, completeIdempotencyKey)
             when (
                 val result = syncRepository.enqueueFeedDistributionComplete(
                     groupKey = groupKey,
@@ -597,7 +600,7 @@ class FeedDistributionCompleteViewModel @Inject constructor(
                     // DIFFERENT proof set is what raises ErrDistributionAlreadyRecorded). Deliberately
                     // NOT re-keyed on pen identity alone: that would collide with the earlier successful
                     // submit and swallow a legitimate rework re-submit.
-                    idempotencyKey = feedDistributionCompleteKey(groupKey, slotRefs, answers),
+                    idempotencyKey = completeIdempotencyKey,
                     parkId = parkId,
                     shedId = shedId,
                     partitionLabel = partitionLabel,
