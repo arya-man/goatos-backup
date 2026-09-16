@@ -201,3 +201,47 @@ func TestRollupFailureAuditSurvivesWorkCancellationPostgres(t *testing.T) {
 		t.Fatalf("auditstatus=%s err=%v", status, err)
 	}
 }
+
+// Android's photo/video counters and recreated launchers can all emit token 1
+// under the same persisted journey. Only the per-launcher capture identity is safe.
+func TestCameraCohortsDoNotMergeReusedLocalTokensPostgres(t *testing.T) {
+	pool := pgtest.StartPostgres(t, context.Background())
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	day, _ := time.ParseInLocation("2006-01-02", "2020-09-15", biztime.DefaultLocation())
+	add := func(id, event string, offset time.Duration) {
+		t.Helper()
+		props, _ := json.Marshal(map[string]string{"journey_id": "persisted", "request_token": "1", "capture_request_id": id})
+		_, err := pool.Exec(ctx, `INSERT INTO analytics.app_events(tenant_id,actor_id,device_id,event_name,properties,client_event_time)
+   VALUES($1,'00000000-0000-4000-8000-000000000002','device',$2,$3,$4)`, testTenantID, event, string(props), day.Add(offset))
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	// A canceled request, a photo, and video after launcher/process recreation.
+	add("video-before:1", "proof_camera_requested", time.Hour)
+	add("video-before:1", "proof_camera_cancelled", time.Hour+time.Second)
+	add("photo:1", "proof_camera_requested", 2*time.Hour)
+	add("photo:1", "proof_camera_finalized", 2*time.Hour+2*time.Second)
+	add("video-after:1", "proof_camera_requested", 3*time.Hour)
+	add("video-after:1", "proof_camera_finalized", 3*time.Hour+4*time.Second)
+	// Old APKs have no globally unique capture identity. Never guess a completion
+	// from ambiguous legacy counters or mix it into a new capture.
+	add("", "proof_camera_requested", 4*time.Hour)
+	add("", "proof_camera_finalized", 4*time.Hour+time.Second)
+	for i := 0; i < 2; i++ {
+		if _, err := runAppEventsRollup(ctx, pool, config{TenantID: testTenantID, SourceDate: day}); err != nil {
+			t.Fatal(err)
+		}
+		var starts, completed, dropped, p50 int64
+		if err := pool.QueryRow(ctx, `SELECT conversions FROM analytics.funnel_daily WHERE funnel_key='camera_capture' AND step_index=0`).Scan(&starts); err != nil {
+			t.Fatal(err)
+		}
+		if err := pool.QueryRow(ctx, `SELECT completions,drop_offs,p50_ms FROM analytics.journey_daily WHERE journey_key='camera_capture'`).Scan(&completed, &dropped, &p50); err != nil {
+			t.Fatal(err)
+		}
+		if starts != 3 || completed != 2 || dropped != 1 || p50 != 3000 {
+			t.Fatalf("starts=%d completed=%d dropped=%d p50=%d; want 3,2,1,3000", starts, completed, dropped, p50)
+		}
+	}
+}

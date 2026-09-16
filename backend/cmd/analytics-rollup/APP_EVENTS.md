@@ -24,7 +24,13 @@ Crash data is not synthesized from application analytics.
   and `sessions` are distinct actors/work sessions reaching that prefix;
   `conversions` counts cohorts reaching it. These measures have different units.
   For conversion percentage divide a step's conversions by step zero conversions.
-- Proof/camera cohorts additionally require `proof_id` / `request_token`.
+- Proof/camera cohorts additionally require `proof_id` / `capture_request_id`.
+  The camera identity includes a random launcher namespace and its local request
+  token, so photos, videos, and launcher/process recreation cannot collide.
+  Legacy camera events with only `request_token` are excluded: their counter
+  cannot safely identify a capture. Other legacy flows remain eligible. Deploy
+  the Android producer before expecting new camera measurements; rerun old days
+  to remove previously ambiguous camera summaries, not to reconstruct lost IDs.
   Business cohorts additionally require `group_key`. A cohort is counted once
   per starting business day; repeated events/retries are not new conversions.
 - Completions can occur into the next day, at most 24 hours after cohort start (feature-open for business flows, independent of earlier session events).

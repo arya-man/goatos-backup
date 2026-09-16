@@ -77,6 +77,7 @@ fun BindPhotoCaptureSource(source: DelegatingPhotoCaptureSource) {
     var captureContext by remember { mutableStateOf(PhotoCaptureContext()) }
     var requestToken by remember { mutableStateOf(0L) }
     var nextRequestToken by remember { mutableStateOf(0L) }
+    val cameraEventIdentity = remember { ProofCameraEventIdentity() }
     val resultChannel = remember { Channel<CapturedPhoto?>(capacity = 1) }
 
     DisposableEffect(source) {
@@ -86,7 +87,7 @@ fun BindPhotoCaptureSource(source: DelegatingPhotoCaptureSource) {
                 requestToken = nextRequestToken
                 captureContext = context
                 captureRequested = true
-                trackPhotoCameraEvent(analytics, AnalyticsEvents.PROOF_CAMERA_REQUESTED, requestToken, context)
+                trackPhotoCameraEvent(analytics, AnalyticsEvents.PROOF_CAMERA_REQUESTED, requestToken, context, cameraEventIdentity.requestId(requestToken))
                 resultChannel.receive()
             },
         )
@@ -106,7 +107,7 @@ fun BindPhotoCaptureSource(source: DelegatingPhotoCaptureSource) {
             ),
         ) {
             LaunchedEffect(requestToken) {
-                trackPhotoCameraEvent(analytics, AnalyticsEvents.PROOF_CAMERA_VISIBLE, requestToken, captureContext)
+                trackPhotoCameraEvent(analytics, AnalyticsEvents.PROOF_CAMERA_VISIBLE, requestToken, captureContext, cameraEventIdentity.requestId(requestToken))
             }
             InAppPhotoCaptureOverlay(
                 photoContext = captureContext,
@@ -122,7 +123,7 @@ fun BindPhotoCaptureSource(source: DelegatingPhotoCaptureSource) {
                         "torch_failed" -> AnalyticsEvents.PROOF_CAMERA_TORCH_FAILED
                         else -> AnalyticsEvents.PROOF_CAMERA_FAILED
                     }
-                    trackPhotoCameraEvent(analytics, event, requestToken, captureContext, reason = stage)
+                    trackPhotoCameraEvent(analytics, event, requestToken, captureContext, cameraEventIdentity.requestId(requestToken), reason = stage)
                 },
                 onResult = { result ->
                     if (captureRequested) {
@@ -419,11 +420,12 @@ private fun newPhotoCaptureFile(context: Context): File {
     return File(dir, "proof-${System.currentTimeMillis()}.jpg")
 }
 
-private fun trackPhotoCameraEvent(
+internal fun trackPhotoCameraEvent(
     analytics: AnalyticsPort,
     event: String,
     token: Long,
     captureContext: PhotoCaptureContext,
+    captureRequestId: String,
     reason: String? = null,
 ) {
     trackProofCameraEvent(
@@ -438,6 +440,7 @@ private fun trackPhotoCameraEvent(
             headerTitle = captureContext.title,
         ),
         source = "in_app_photo_camera",
+        captureRequestId = captureRequestId,
         reason = reason,
     )
 }

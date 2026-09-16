@@ -15,12 +15,18 @@ Repeated events cannot multiply either numerator or denominator.
 
 The summary is **app-wide across all tenants**. It never writes legacy
 `analytics.crash_daily` or uses GA4/app-events activity as a denominator.
-Ratios describe sessions started in the business day and fatal events observed
-within that same day. A fatal event after midnight for a previous-day session is
-outside this day-window metric; these are not complete lifetime cohort rates or
-an exact reproduction of the Firebase console. Both scans have timestamp bounds
-and the shared BigQuery MaxBytesBilled cap. Recent-day replacement repairs late
-export arrival. Zero denominators are unavailable, never synthetic 100%.
+Ratios describe sessions started in the business day and their matching fatal
+events observed through a fixed query-time snapshot, including after midnight
+and more than 24 hours after start. A fatal event belongs to the session's
+start-date cohort, not a second denominator on the crash date. The session scan
+covers the start day; the crash scan covers that day through the observation
+instant, with the shared BigQuery MaxBytesBilled cap. These are observed-to-date
+cohort rates, not final lifetime rates or an exact Firebase-console replica.
+Recent-day replacement repairs late export arrival and continuing sessions.
+Sessions that crash or export after the scheduled three-day lookback require
+an explicit backfill of their start date. Old backfills may reach the byte cap;
+a query failure retains the previous summary rather than publishing partial data.
+Zero denominators are unavailable, never synthetic 100%.
 
 Both exports absent: explicit `crash_export_unavailable` log and no summary rows.
 Only one table configured: fail clearly. Query/schema failures abort the crash
