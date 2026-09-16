@@ -13,7 +13,7 @@ import Link from "@/components/no-prefetch-link";
 import { useRouter } from "next/navigation";
 import { AlertTriangle, Check, ChevronLeft, Plus } from "lucide-react";
 import { copy, optionGroup, type AdminUiPageContract } from "@/lib/admin-ui-contract";
-import { blankProofSlot, blankQuestion, type WeighingQuestionRow } from "./weighing-model";
+import { blankProofSlot, blankQuestion, followQuestionKey, type WeighingQuestionRow } from "./weighing-model";
 import { QuestionCard } from "./weighing-editor";
 import { SlotCard } from "./feed-editor";
 import { captureProblems, emitCaptureCard, type CaptureRows } from "./capture-model";
@@ -33,6 +33,8 @@ type Props = {
 export function CaptureCardEditor({ pageContract: pc, basePath, sopId, sopName, sopCode, versionLabel, initial }: Props) {
   const router = useRouter();
   const [rows, setRows] = useState<CaptureRows>(initial);
+  // Keys the loaded version already carries never move; a new capture / question follows its title.
+  const [savedKeys] = useState<Set<string>>(() => new Set([...initial.proofs, ...initial.questions].map((x) => x.key).filter(Boolean)));
   const [result, setResult] = useState<FeedSaveResult | null>(null);
   const [pending, startTransition] = useTransition();
   const kinds = optionGroup(pc, "wsop_question_kinds");
@@ -116,6 +118,7 @@ export function CaptureCardEditor({ pageContract: pc, basePath, sopId, sopName, 
                   slot={p}
                   proofKinds={proofKinds}
                   takenKeys={new Set(rows.proofs.map((x) => x.key))}
+                  savedKeys={savedKeys}
                   onChange={(patch) => setRows((r) => ({ ...r, proofs: r.proofs.map((x) => (x.id === p.id ? { ...x, ...patch } : x)) }))}
                   onMove={(dir) => setRows((r) => ({ ...r, proofs: move(r.proofs, p.id, dir) }))}
                   onRemove={() => setRows((r) => ({ ...r, proofs: r.proofs.filter((x) => x.id !== p.id) }))}
@@ -144,7 +147,8 @@ export function CaptureCardEditor({ pageContract: pc, basePath, sopId, sopName, 
                   kinds={kinds}
                   earlier={rows.questions.slice(0, qi)}
                   takenKeys={takenKeys}
-                  onChange={(patch: Partial<WeighingQuestionRow>) => setRows((r) => ({ ...r, questions: r.questions.map((x) => (x.id === q.id ? { ...x, ...patch } : x)) }))}
+                  savedKeys={savedKeys}
+                  onChange={(patch: Partial<WeighingQuestionRow>) => setRows((r) => ({ ...r, questions: followQuestionKey(r.questions, q.id, patch) }))}
                   onOptionRenamed={(from: string, to: string) =>
                     setRows((r) => ({ ...r, questions: r.questions.map((x) => (x.onlyIfQuestion === q.key && x.onlyIfValue === from ? { ...x, onlyIfValue: to } : x)) }))
                   }

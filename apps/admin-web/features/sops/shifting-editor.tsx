@@ -14,7 +14,7 @@ import Link from "@/components/no-prefetch-link";
 import { useRouter } from "next/navigation";
 import { AlertTriangle, Check, ChevronDown, ChevronLeft, ChevronUp, Lock, Plus, X } from "lucide-react";
 import { copy, optionGroup, type AdminUiPageContract } from "@/lib/admin-ui-contract";
-import { blankProofSlot, blankQuestion, slugKey, type RemovalProofKind, type RemovalProofRow, type WeighingQuestionRow } from "./weighing-model";
+import { blankProofSlot, blankQuestion, followQuestionKey, keyForTitle, type RemovalProofKind, type RemovalProofRow, type WeighingQuestionRow } from "./weighing-model";
 import { QuestionCard } from "./weighing-editor";
 import { SHIFTING_SECTIONS, emitShifting, shiftingProblems, type ShiftingRows, type ShiftingSection, type ShiftingSectionRows } from "./shifting-model";
 import { publishedHref } from "./published-href";
@@ -33,6 +33,10 @@ type Props = {
 export function ShiftingEditor({ pageContract: pc, basePath, sopId, sopName, sopCode, versionLabel, initial }: Props) {
   const router = useRouter();
   const [rows, setRows] = useState<ShiftingRows>(initial);
+  // Keys the loaded version already carries never move; a new capture / question follows its title.
+  const [savedKeys] = useState<Set<string>>(
+    () => new Set(SHIFTING_SECTIONS.flatMap((s) => [...initial[s].proofs, ...initial[s].questions].map((x) => x.key)).filter(Boolean)),
+  );
   const [result, setResult] = useState<ShiftingSaveResult | null>(null);
   const [pending, startTransition] = useTransition();
   const kinds = optionGroup(pc, "wsop_question_kinds");
@@ -118,6 +122,7 @@ export function ShiftingEditor({ pageContract: pc, basePath, sopId, sopName, sop
                       slot={p}
                       proofKinds={proofKinds}
                       takenKeys={allCaptureKeys}
+                      savedKeys={savedKeys}
                       onChange={(patch) => patchSection(section, (s) => ({ ...s, proofs: s.proofs.map((x) => (x.id === p.id ? { ...x, ...patch } : x)) }))}
                       onMove={(dir) =>
                         patchSection(section, (s) => {
@@ -155,7 +160,8 @@ export function ShiftingEditor({ pageContract: pc, basePath, sopId, sopName, sop
                       kinds={kinds}
                       earlier={block.questions.slice(0, qi)}
                       takenKeys={allQuestionKeys}
-                      onChange={(patch: Partial<WeighingQuestionRow>) => patchSection(section, (s) => ({ ...s, questions: s.questions.map((x) => (x.id === q.id ? { ...x, ...patch } : x)) }))}
+                      savedKeys={savedKeys}
+                      onChange={(patch: Partial<WeighingQuestionRow>) => patchSection(section, (s) => ({ ...s, questions: followQuestionKey(s.questions, q.id, patch) }))}
                       onOptionRenamed={(from: string, to: string) =>
                         patchSection(section, (s) => ({
                           ...s,
@@ -221,7 +227,7 @@ export function ShiftingEditor({ pageContract: pc, basePath, sopId, sopName, sop
 }
 
 function SlotCard({
-  pc, index, count, slot, proofKinds, takenKeys, onChange, onMove, onRemove,
+  pc, index, count, slot, proofKinds, takenKeys, savedKeys, onChange, onMove, onRemove,
 }: {
   pc: AdminUiPageContract;
   index: number;
@@ -229,6 +235,8 @@ function SlotCard({
   slot: RemovalProofRow;
   proofKinds: { key: string; label: string; title?: string }[];
   takenKeys: Set<string>;
+  /** Keys the loaded version carries; any other key follows its title (keyForTitle). */
+  savedKeys: Set<string>;
   onChange: (patch: Partial<RemovalProofRow>) => void;
   onMove: (dir: -1 | 1) => void;
   onRemove: () => void;
@@ -268,7 +276,7 @@ function SlotCard({
               const title = e.target.value;
               // A NEW slot's key follows its title until saved; an existing key is never rewritten
               // (it is what the phones stamp on uploads).
-              onChange({ title, key: slot.key || slugKey(title, takenKeys, "capture") });
+              onChange({ title, key: keyForTitle(title, slot.key, savedKeys, takenKeys, "capture") });
             }}
           />
         </label>

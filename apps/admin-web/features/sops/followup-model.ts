@@ -116,6 +116,21 @@ export function blankStep(taskType = "record_yes_no"): FollowUpStepRow {
 }
 
 // slugKey derives a stable step key from a title for NEW steps (an existing key is never rewritten).
+/**
+ * followStepKey applies a patch to one step row. When the patch MOVES that step's key (an unsaved key
+ * following its title), every step that named the old key in `requires` or as its after-step follows.
+ */
+export function followStepKey<T extends { id: string; key: string; requires: string[]; afterStep: string }>(steps: T[], id: string, patch: Partial<T>): T[] {
+  const current = steps.find((s) => s.id === id);
+  const moved = current && patch.key !== undefined && patch.key !== current.key && current.key ? current.key : "";
+  const to = patch.key as string;
+  return steps.map((s) => {
+    if (s.id === id) return { ...s, ...patch };
+    if (!moved || (s.afterStep !== moved && !s.requires.includes(moved))) return s;
+    return { ...s, afterStep: s.afterStep === moved ? to : s.afterStep, requires: s.requires.map((r) => (r === moved ? to : r)) };
+  });
+}
+
 export function slugKey(title: string, taken: Set<string>): string {
   const base = title
     .toLowerCase()
@@ -129,6 +144,14 @@ export function slugKey(title: string, taken: Set<string>): string {
     n += 1;
   }
   return key;
+}
+
+/** keyForTitle: a saved step key never moves; an unsaved one follows the whole title (see weighing-model). */
+export function keyForTitle(title: string, currentKey: string, savedKeys: Set<string>, siblings: Set<string>): string {
+  if (currentKey && savedKeys.has(currentKey)) return currentKey;
+  const taken = new Set(siblings);
+  taken.delete(currentKey);
+  return slugKey(title, taken);
 }
 
 export function parseFollowUp(formDsl: unknown): FollowUpRows | null {

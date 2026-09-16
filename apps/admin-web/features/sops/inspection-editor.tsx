@@ -30,6 +30,7 @@ import {
 } from "./inspection-model";
 import { publishInspectionVersion, saveInspectionVersion, type InspectionSaveResult } from "./sop-actions";
 import { publishedHref } from "./published-href";
+import { followQuestionKey, keyForTitle } from "./weighing-model";
 
 type Props = {
   pageContract: AdminUiPageContract;
@@ -45,6 +46,11 @@ export function InspectionEditor({ pageContract: pc, basePath, sopId, sopName, s
   const router = useRouter();
   const [rows, setRows] = useState<InspectionRows>(initial);
   const [openPage, setOpenPage] = useState<string>(initial.pages[0]?.id ?? "");
+  // Keys the loaded version already carries never move (locked register questions, stored answers);
+  // a new page / question key follows its whole title (keyForTitle).
+  const [savedKeys] = useState<Set<string>>(
+    () => new Set([...initial.loadForm.map((q) => q.key), ...initial.pages.map((p) => p.key), ...initial.pages.flatMap((p) => p.questions.map((q) => q.key))].filter(Boolean)),
+  );
   const [result, setResult] = useState<InspectionSaveResult | null>(null);
   const [pending, startTransition] = useTransition();
   const kinds = optionGroup(pc, "inspection_question_kinds");
@@ -55,7 +61,7 @@ export function InspectionEditor({ pageContract: pc, basePath, sopId, sopName, s
   const takenKeys = useMemo(() => new Set(rows.pages.flatMap((p) => p.questions.map((q) => q.key))), [rows]);
 
   function updateLoadQuestion(qid: string, patch: Partial<InspectionQuestionRow>) {
-    setRows((r) => ({ ...r, loadForm: r.loadForm.map((q) => (q.id === qid ? { ...q, ...patch } : q)) }));
+    setRows((r) => ({ ...r, loadForm: followQuestionKey(r.loadForm, qid, patch) }));
   }
   function moveLoadQuestion(qid: string, dir: -1 | 1) {
     setRows((r) => {
@@ -84,7 +90,12 @@ export function InspectionEditor({ pageContract: pc, basePath, sopId, sopName, s
   function updateQuestion(pageId: string, qid: string, patch: Partial<InspectionQuestionRow>) {
     setRows((r) => ({
       ...r,
-      pages: r.pages.map((p) => (p.id !== pageId ? p : { ...p, questions: p.questions.map((q) => (q.id === qid ? { ...q, ...patch } : q)) })),
+      // A condition may point at a question on an earlier page, so a moved key is followed across pages.
+      pages: (() => {
+        const all = followQuestionKey(r.pages.flatMap((p) => p.questions), qid, patch);
+        const byId = new Map(all.map((q) => [q.id, q]));
+        return r.pages.map((p) => (p.id !== pageId && !p.questions.some((q) => byId.get(q.id) !== q) ? p : { ...p, questions: p.questions.map((q) => byId.get(q.id) ?? q) }));
+      })(),
     }));
   }
   function moveQuestion(pageId: string, qid: string, dir: -1 | 1) {
@@ -209,6 +220,7 @@ export function InspectionEditor({ pageContract: pc, basePath, sopId, sopName, s
                 captures={captures}
                 earlier={rows.loadForm.slice(0, qi)}
                 takenKeys={new Set(rows.loadForm.map((x) => x.key))}
+                savedKeys={savedKeys}
                 lockedKeys={LOCKED_LOAD_KEYS}
                 requiredKeys={REQUIRED_LOAD_KEYS}
                 onChange={(patch) => updateLoadQuestion(q.id, patch)}
@@ -265,7 +277,7 @@ export function InspectionEditor({ pageContract: pc, basePath, sopId, sopName, s
                           placeholder={pi === 0 ? copy(pc, "inspection.page.first_untitled") : ""}
                           onChange={(e) => {
                             const title = e.target.value;
-                            updatePage(page.id, { title, key: page.key || slugKey(title, new Set(rows.pages.map((p) => p.key)), `page_${pi + 1}`) });
+                            updatePage(page.id, { title, key: keyForTitle(title, page.key, savedKeys, new Set(rows.pages.map((p) => p.key)), `page_${pi + 1}`) });
                           }}
                         />
                       </label>
@@ -296,6 +308,7 @@ export function InspectionEditor({ pageContract: pc, basePath, sopId, sopName, s
                         captures={captures}
                         earlier={rows.pages.flatMap((p) => p.questions).slice(0, rows.pages.flatMap((p) => p.questions).findIndex((x) => x.id === q.id))}
                         takenKeys={takenKeys}
+                        savedKeys={savedKeys}
                         lockedKeys={LOCKED_QUESTION_KEYS}
                         requiredKeys={new Set()}
                         onChange={(patch) => updateQuestion(page.id, q.id, patch)}
@@ -343,7 +356,7 @@ export function InspectionEditor({ pageContract: pc, basePath, sopId, sopName, s
 }
 
 function QuestionCard({
-  pc, page, pages, index, count, q, kinds, captures, earlier, takenKeys, lockedKeys, requiredKeys, onChange, onOptionRenamed, onMove, onMovePage, onRemove,
+  pc, page, pages, index, count, q, kinds, captures, earlier, takenKeys, savedKeys, lockedKeys, requiredKeys, onChange, onOptionRenamed, onMove, onMovePage, onRemove,
 }: {
   pc: AdminUiPageContract;
   page: InspectionPageRow | null;
@@ -355,6 +368,8 @@ function QuestionCard({
   captures: { key: string; label: string }[];
   earlier: InspectionQuestionRow[];
   takenKeys: Set<string>;
+  /** Keys the loaded version carries; any other key follows its title (keyForTitle). */
+  savedKeys: Set<string>;
   lockedKeys: Set<string>;
   requiredKeys: Set<string>;
   onChange: (patch: Partial<InspectionQuestionRow>) => void;
@@ -421,7 +436,7 @@ function QuestionCard({
             value={q.title}
             onChange={(e) => {
               const title = e.target.value;
-              onChange({ title, key: q.key || slugKey(title, takenKeys) });
+              onChange({ title, key: keyForTitle(title, q.key, savedKeys, takenKeys) });
             }}
           />
         </label>
