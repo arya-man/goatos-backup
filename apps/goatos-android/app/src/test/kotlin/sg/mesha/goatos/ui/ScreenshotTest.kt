@@ -886,7 +886,11 @@ class ScreenshotTest {
                     ShiftingExecuteAnimalUi("g2", "CBE-0419", "RFID 004839"),
                     ShiftingExecuteAnimalUi("g3", "CBE-0421", null),
                 ),
-                videoCaptured = true,
+                completionCard = sg.mesha.goatos.feature.counts.ShiftingSopCardUi(
+                    slots = listOf(
+                        sg.mesha.goatos.feature.counts.ShiftingSopSlotUi(key = "shifting_shifting_video", title = "Shifting video", captured = true),
+                    ),
+                ),
                 videoMessage = "Video saved on this phone. It will upload automatically.",
                 canComplete = true,
             ),

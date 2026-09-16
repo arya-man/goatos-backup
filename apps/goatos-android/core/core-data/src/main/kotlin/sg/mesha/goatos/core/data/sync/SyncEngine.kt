@@ -1354,7 +1354,12 @@ class SyncEngine(
 
     private suspend fun dispatchCountsShifting(item: OutboxEntity): String {
         val payload = syncJson.decodeFromString<CountsShiftingPayload>(item.payloadJson)
-        val response = api.recordCountsShiftingEvent(item.idempotencyKey, payload.request)
+        // SHIFTING SOP (2026-09-16): the raise card's captures resolve to server proof ids here (a
+        // not-yet-uploaded capture suspends the raise on the shared proof lane). A raise with none
+        // sends the request exactly as it was queued.
+        val request = if (payload.slotProofs.isEmpty()) payload.request
+        else payload.request.copy(proofs = resolveFeedSlotProofs(payload.slotProofs))
+        val response = api.recordCountsShiftingEvent(item.idempotencyKey, request)
         return syncJson.encodeToString(response)
     }
 
@@ -1406,6 +1411,25 @@ class SyncEngine(
      */
     private suspend fun dispatchShiftingComplete(item: OutboxEntity): String {
         val payload = syncJson.decodeFromString<ShiftingCompletePayload>(item.payloadJson)
+        if (payload.slotProofs.isNotEmpty()) {
+            // SHIFTING SOP (2026-09-16): every capture of the pinned card resolves to its server proof
+            // id; `proofs` + `answers` are the submission, and the legacy columns ride along as the
+            // seeded slots' mirrors (proof_ref falls back to the first capture, as the server does).
+            val proofs = resolveFeedSlotProofs(payload.slotProofs)
+            val response = api.completeCountsShiftingEvent(
+                payload.shiftingEventId,
+                item.idempotencyKey,
+                payload.destinationTag,
+                proofs[SEEDED_SHIFTING_VIDEO_SLOT] ?: proofs.values.firstOrNull()
+                    ?: throw NonRetryableSyncException("Shifting completion is missing its captures."),
+                proofs[SEEDED_SHIFTING_PACKING_SLOT],
+                proofs[SEEDED_SHIFTING_FEEDING_SLOT],
+                payload.feedConfigFingerprint,
+                proofs,
+                payload.answers?.takeIf { it.isNotEmpty() },
+            )
+            return syncJson.encodeToString(response)
+        }
         val response = api.completeCountsShiftingEvent(
             payload.shiftingEventId,
             item.idempotencyKey,
@@ -2286,3 +2310,9 @@ internal const val FEED_SLOT_WATER_VIDEO = "feed_distribution_water_video"
 internal const val FEED_SLOT_PACKING_VIDEO = "feed_packing_video"
 internal const val FEED_SLOT_WASTAGE_VIDEO = "feed_wastage_video"
 internal const val FEED_SLOT_TRANSPORT_VIDEO = "feed_transport_video"
+
+// SHIFTING SOP (2026-09-16): the seeded slot keys of the shifting cards -- the proof register field
+// keys the phones have always stamped -- which the legacy completion columns mirror.
+private const val SEEDED_SHIFTING_VIDEO_SLOT = "shifting_shifting_video"
+private const val SEEDED_SHIFTING_PACKING_SLOT = "shifting_packing_video"
+private const val SEEDED_SHIFTING_FEEDING_SLOT = "shifting_feeding_video"

@@ -36,6 +36,7 @@ import sg.mesha.goatos.core.network.dto.ProofUploadRequestDto
 import sg.mesha.goatos.core.network.dto.RescheduleObligationRequestDto
 import sg.mesha.goatos.core.network.dto.SubmitTaskRequestDto
 import sg.mesha.goatos.core.network.dto.VerificationVerdictMeasurementDto
+import sg.mesha.goatos.feature.counts.SECTION_COMPLETION
 import sg.mesha.goatos.feature.counts.ShiftingExecuteEvent
 
 /**
@@ -68,6 +69,7 @@ class ShiftingExecuteRecaptureOrderingTest {
         drafts = drafts,
         syncRepository = sync,
         proofCaptureSource = proofSource,
+        photoCaptureSource = NoopPhotoCaptureSource(),
         proofCaptureRepository = proofCaptureRepository,
         analytics = OrderingNoopAnalytics(),
         crashReporter = OrderingNoopCrashReporter(),
@@ -87,12 +89,12 @@ class ShiftingExecuteRecaptureOrderingTest {
         val viewModel = newViewModel(proofSource, proofCaptureRepository, drafts, sync)
         advanceUntilIdle()
 
-        viewModel.onEvent(ShiftingExecuteEvent.RecordVideo)
+        viewModel.onEvent(ShiftingExecuteEvent.CaptureSlot(SECTION_COMPLETION, "shifting_shifting_video"))
         advanceUntilIdle()
-        assertTrue("first capture must succeed", viewModel.state.value.videoCaptured)
+        assertTrue("first capture must succeed", viewModel.state.value.completionCard.slots.single().captured)
         assertEquals(1, proofCaptureRepository.captureCalls.size)
 
-        viewModel.onEvent(ShiftingExecuteEvent.ReRecordVideo)
+        viewModel.onEvent(ShiftingExecuteEvent.CaptureSlot(SECTION_COMPLETION, "shifting_shifting_video"))
         advanceUntilIdle()
 
         assertEquals(
@@ -107,7 +109,7 @@ class ShiftingExecuteRecaptureOrderingTest {
             survivingRows.size,
         )
         assertEquals("file:///old-clip.mp4", survivingRows.first().localUri)
-        assertTrue("the old proof must remain reported as captured", viewModel.state.value.videoCaptured)
+        assertTrue("the old proof must remain reported as captured", viewModel.state.value.completionCard.slots.single().captured)
         assertEquals(
             "the draft must still point at the old proof's outbox item",
             1,
@@ -129,15 +131,15 @@ class ShiftingExecuteRecaptureOrderingTest {
         val viewModel = newViewModel(proofSource, proofCaptureRepository, drafts, sync)
         advanceUntilIdle()
 
-        viewModel.onEvent(ShiftingExecuteEvent.RecordVideo)
+        viewModel.onEvent(ShiftingExecuteEvent.CaptureSlot(SECTION_COMPLETION, "shifting_shifting_video"))
         advanceUntilIdle()
-        assertTrue(viewModel.state.value.videoCaptured)
+        assertTrue(viewModel.state.value.completionCard.slots.single().captured)
         assertEquals(1, proofCaptureRepository.captureCalls.size)
 
         // The re-record's camera call succeeds, but the repository capture/enqueue call fails --
         // the old row must not have been discarded first.
         proofCaptureRepository.failNextCapture = true
-        viewModel.onEvent(ShiftingExecuteEvent.ReRecordVideo)
+        viewModel.onEvent(ShiftingExecuteEvent.CaptureSlot(SECTION_COMPLETION, "shifting_shifting_video"))
         advanceUntilIdle()
 
         assertEquals(
@@ -154,7 +156,7 @@ class ShiftingExecuteRecaptureOrderingTest {
         assertEquals("file:///old-clip.mp4", survivingRows.first().localUri)
         assertTrue(
             "the old proof must still read as captured after a failed re-record",
-            viewModel.state.value.videoCaptured,
+            viewModel.state.value.completionCard.slots.single().captured,
         )
         assertEquals(
             "the draft must still point at the old proof's outbox item, not be cleared on a failed retake",
@@ -177,11 +179,11 @@ class ShiftingExecuteRecaptureOrderingTest {
         val viewModel = newViewModel(proofSource, proofCaptureRepository, drafts, sync)
         advanceUntilIdle()
 
-        viewModel.onEvent(ShiftingExecuteEvent.RecordVideo)
+        viewModel.onEvent(ShiftingExecuteEvent.CaptureSlot(SECTION_COMPLETION, "shifting_shifting_video"))
         advanceUntilIdle()
         assertEquals(1, proofCaptureRepository.captureCalls.size)
 
-        viewModel.onEvent(ShiftingExecuteEvent.ReRecordVideo)
+        viewModel.onEvent(ShiftingExecuteEvent.CaptureSlot(SECTION_COMPLETION, "shifting_shifting_video"))
         advanceUntilIdle()
 
         assertEquals(
@@ -198,7 +200,7 @@ class ShiftingExecuteRecaptureOrderingTest {
             survivingRows.size,
         )
         assertEquals("file:///new-clip.mp4", survivingRows.first().localUri)
-        assertTrue(viewModel.state.value.videoCaptured)
+        assertTrue(viewModel.state.value.completionCard.slots.single().captured)
         assertEquals(
             "the draft must point at exactly one outbox item after a successful re-record",
             1,
@@ -321,6 +323,8 @@ private class OrderingFakeShiftingSyncRepository : SyncRepository {
         feedPackingProofOutboxItemId: String?,
         feedGivenProofOutboxItemId: String?,
         feedConfigFingerprint: String?,
+        slotProofs: Map<String, sg.mesha.goatos.core.data.sync.FeedSlotProofSourcePayload>,
+        answers: kotlinx.serialization.json.JsonObject?,
     ): AppResult<String> = AppResult.Ok("complete-1")
 
     override suspend fun enqueueShedSubmit(taskId: String, groupKey: String, idempotencyKey: String, request: SubmitTaskRequestDto): AppResult<String> = error("unused")

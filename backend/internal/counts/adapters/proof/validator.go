@@ -84,3 +84,75 @@ func (v *Validator) ValidateMilkFeedingProofs(ctx context.Context, tenantID, tas
 	}
 	return nil
 }
+
+// --- Shifting SOP captures (maintainer decision 2026-09-16) ---------------------------------
+
+var _ countsports.ShiftingProofMedia = (*Validator)(nil)
+
+// ValidateShiftingProofMedia asserts each capture a shifting card names is a real, completed,
+// tenant-owned upload OF THE SLOT'S KIND (a photo in a video slot is refused by name), and a
+// live-camera capture where the slot demands it. One round trip for the whole set.
+func (v *Validator) ValidateShiftingProofMedia(ctx context.Context, tenantID string, expected []countsports.ExpectedShiftingProofMedia) error {
+	if len(expected) == 0 {
+		return nil
+	}
+	ids := make([]string, 0, len(expected))
+	for _, exp := range expected {
+		ids = append(ids, exp.ProofID)
+	}
+	found, err := v.repo.GetProofsByIDs(ctx, tenantID, ids)
+	if err != nil {
+		return err
+	}
+	for _, exp := range expected {
+		art, ok := found[exp.ProofID]
+		if !ok || art.TenantID != tenantID || art.UploadState != "completed" ||
+			!shiftingKindMatches(art.ProofType, art.MimeType, exp.Kind) ||
+			(exp.RequireLiveCamera && art.Metadata["capture_source"] != "in_app_camera") {
+			if exp.OnAbsent != nil {
+				return exp.OnAbsent
+			}
+			return countsports.ErrShiftingProofSlotInvalid
+		}
+	}
+	return nil
+}
+
+// DescribeShiftingProofMedia reports each proof's stored kind (photo / video) for the ids that
+// resolve, so an `either` slot records what it actually received.
+func (v *Validator) DescribeShiftingProofMedia(ctx context.Context, tenantID string, proofIDs []string) (map[string]string, error) {
+	out := map[string]string{}
+	if len(proofIDs) == 0 {
+		return out, nil
+	}
+	found, err := v.repo.GetProofsByIDs(ctx, tenantID, proofIDs)
+	if err != nil {
+		return nil, err
+	}
+	for id, art := range found {
+		switch strings.ToLower(strings.TrimSpace(art.ProofType)) {
+		case "photo", "video":
+			out[id] = strings.ToLower(strings.TrimSpace(art.ProofType))
+		}
+	}
+	return out, nil
+}
+
+// shiftingKindMatches: the declared proof_type and the stored mime prefix must BOTH agree with the
+// slot's kind; an unknown kind is refused rather than waved through.
+func shiftingKindMatches(proofType, mimeType, kind string) bool {
+	declared := strings.ToLower(strings.TrimSpace(proofType))
+	mime := strings.ToLower(strings.TrimSpace(mimeType))
+	photo := declared == "photo" && strings.HasPrefix(mime, "image/")
+	video := declared == "video" && strings.HasPrefix(mime, "video/")
+	switch kind {
+	case "photo":
+		return photo
+	case "video":
+		return video
+	case "either":
+		return photo || video
+	default:
+		return false
+	}
+}

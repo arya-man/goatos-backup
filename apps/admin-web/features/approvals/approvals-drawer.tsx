@@ -14,7 +14,7 @@ import type { AdminWebApprovalItem } from "@/lib/api/server";
 import { fmtDateTime } from "@/lib/format";
 import type { RouteSearchParams } from "@/lib/search-params";
 import { APPROVALS_COPY as COPY } from "./copy";
-import { approveApprovalAction, rejectApprovalAction } from "./actions";
+import { approveApprovalAction, rejectApprovalAction, resolveApprovalProofMediaUrl } from "./actions";
 import { ApprovalsActionTelemetry } from "./approvals-telemetry";
 
 const PATHNAME = "/approvals";
@@ -263,6 +263,8 @@ function ApprovalsDrawerPanel({
           </div>
         </section>
 
+        {item.capture ? <CaptureSection capture={item.capture} /> : null}
+
         {/* One decision block: the prominent green Approve action on top, then the reject reason and
             a red (destructive) Reject action, separated by an "or" rule. Both are full-width so the
             two choices read as equal-weight, mutually-exclusive decisions rather than two stray
@@ -332,6 +334,80 @@ function Meta({ label, children }: { label: string; children: ReactNode }) {
       <span className="muted small">{label}</span>
       <b style={{ display: "block", marginTop: 3, overflowWrap: "anywhere" }}>{children}</b>
     </div>
+  );
+}
+
+// CaptureSection renders the raise's SOP capture form (item.capture, BACKEND-OWNED): every answer
+// in farm words under its group, every capture as a click-to-open tile resolved to a signed URL
+// only when the park head opens it, and the note naming what an older app did not send. Nothing
+// here is recomposed from the summary payload.
+function CaptureSection({ capture }: { capture: NonNullable<AdminWebApprovalItem["capture"]> }) {
+  const [urls, setUrls] = useState<Record<string, string>>({});
+  const [opening, setOpening] = useState<string | null>(null);
+  const groups: Array<{ group: string; rows: typeof capture.rows }> = [];
+  for (const row of capture.rows) {
+    const group = row.group ?? "";
+    const last = groups[groups.length - 1];
+    if (last && last.group === group) last.rows.push(row);
+    else groups.push({ group, rows: [row] });
+  }
+  async function open(proofId: string) {
+    if (urls[proofId]) {
+      window.open(urls[proofId], "_blank", "noopener");
+      return;
+    }
+    setOpening(proofId);
+    try {
+      const url = await resolveApprovalProofMediaUrl(proofId);
+      if (url) {
+        setUrls((u) => ({ ...u, [proofId]: url }));
+        window.open(url, "_blank", "noopener");
+      }
+    } finally {
+      setOpening(null);
+    }
+  }
+  return (
+    <section className="card" style={{ marginTop: 14 }} data-testid="approval-capture">
+      <div className="hd">
+        <h3>{COPY.capture.title}</h3>
+        <span className="muted small">{capture.version_label}</span>
+      </div>
+      <div className="bd" style={{ display: "grid", gap: 10 }}>
+        {capture.rows.length === 0 && capture.media.length === 0 && !capture.missing_note ? <div className="muted small">{COPY.capture.empty}</div> : null}
+        {groups.map((g, gi) => (
+          <div key={`${g.group}-${gi}`}>
+            {g.group ? <div className="muted small" style={{ marginBottom: 4 }}>{g.group}</div> : null}
+            <div className="metagrid">
+              {g.rows.map((row, ri) => (
+                <Meta key={`${row.label}-${ri}`} label={row.label}>
+                  {row.value}
+                </Meta>
+              ))}
+            </div>
+          </div>
+        ))}
+        {capture.media.length > 0 ? (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+            {capture.media.map((m) => (
+              <button
+                key={m.proof_id}
+                type="button"
+                className="btn sm"
+                data-proof-id={m.proof_id}
+                data-kind={m.kind}
+                disabled={opening === m.proof_id}
+                onClick={() => void open(m.proof_id)}
+              >
+                {m.label}
+                {m.kind ? <span className="muted small">&nbsp;· {m.kind}</span> : null}
+              </button>
+            ))}
+          </div>
+        ) : null}
+        {capture.missing_note ? <div className="note">{capture.missing_note}</div> : null}
+      </div>
+    </section>
   );
 }
 

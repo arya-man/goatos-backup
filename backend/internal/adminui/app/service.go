@@ -7232,6 +7232,11 @@ func pageSpecificCopy(id string) map[string]string {
 			m["empty.title"] = "No herd operations SOPs yet"
 			m["empty.body"] = "Publish a birth, death, shifting or reconcile SOP to drive the operator's steps on the phone."
 			m["builder.subtitle"] = "Build it like a form — add questions, choose a type, set choices and conditional logic. Herd Operations SOPs also carry the operator steps the phone runs after the event."
+			// SHIFTING SOP (maintainer decision 2026-09-16): the shifting cards editor's copy, kept in
+			// its own helper so the herd-operations capture-card copy merges beside it.
+			for k, v := range shiftingSOPEditorCopy() {
+				m[k] = v
+			}
 		case "feed-sops":
 			m["crumb"] = "Feed"
 			m["filter.domain.current"] = "This page shows Feed SOPs (distribution, packing, transport)"
@@ -8078,8 +8083,12 @@ func pageOptionGroups(id string) []domain.OptionGroup {
 		return withGenericOptionGroups(configOptionGroups())
 	// Vaccination is deliberately absent: its SOP page is gone, and its content lives on
 	// the vaccination plan console. milk and weighing arrived on main meanwhile and stay.
-	case "counts-sops", "milk-sops":
+	case "milk-sops":
 		return withGenericOptionGroups(sopOptionGroupsFor(id))
+	case "counts-sops":
+		// SHIFTING SOP (2026-09-16): the shifting cards editor reuses the weighing card's question
+		// and capture-kind vocabularies -- one meaning of "photo / video / either" on every card.
+		return withGenericOptionGroups(append(sopOptionGroupsFor(id), shiftingSOPOptionGroups()...))
 	case "feed-sops":
 		// FEED SOP (2026-09-16): the feed cards editor reuses the weighing card's question and
 		// capture-kind vocabularies -- one meaning of "photo / video / either" on every card.
@@ -10027,6 +10036,57 @@ func feedSOPEditorCopy() map[string]string {
 		m[k] = v
 	}
 	return m
+}
+
+// shiftingSOPEditorCopy is the copy of the shifting cards editor and its drawer summary (SHIFTING
+// SOP, maintainer decision 2026-09-16): the raise extras, the completion card and the
+// high-priority card. It reuses the weighing editor's question-card and capture-kind copy so the
+// editors read the same way.
+func shiftingSOPEditorCopy() map[string]string {
+	m := map[string]string{}
+	for k, v := range weighingSOPEditorCopy() {
+		m[k] = v
+	}
+	for k, v := range map[string]string{
+		"action.edit_shifting":           "Change SOP",
+		"ssop.title":                     "Shifting SOP — what the operator captures",
+		"ssop.subtitle":                  "Three cards: what the raise form asks beyond the movement itself, what a completion must capture and answer, and what a high-priority movement adds. Add a photo beside a video, replace a video with a photo, drop a capture or add a question: the phone renders whatever is published here.",
+		"ssop.notice.pinned":             "A movement raised today keeps the cards it was raised with; publishing changes the next raise, and every phone renders the new cards on refresh.",
+		"ssop.drawer.title":              "What the operator captures",
+		"ssop.drawer.subtitle":           "Published cards",
+		"ssop.section.raise":             "At raise",
+		"ssop.section.raise.sub":         "Extras on the raise form, before approval. The park head sees the answers and captures beside the movement; the verifier sees them again with the completion. May be questions only, or empty.",
+		"ssop.section.completion":        "Completion",
+		"ssop.section.completion.sub":    "Every completion. At least one compulsory capture: the move must be proven by something the verifier can see.",
+		"ssop.section.high_priority":     "High priority",
+		"ssop.section.high_priority.sub": "Added to the completion of a high-priority movement. The ration and its fingerprint still come from Feed Config; this card only decides which captures and questions prove the feeding. At least one compulsory capture.",
+		"ssop.instruction":               "Instruction shown on the card",
+		"ssop.proofs":                    "Captures",
+		"ssop.proofs.subtitle":           "In the order the phone shows them. Compulsory captures gate the submit; optional ones may be skipped.",
+		"ssop.proof.title":               "Capture name",
+		"ssop.proof.hint":                "Hint for the operator",
+		"ssop.proof.add":                 "Add a capture",
+		"ssop.proof.remove":              "Remove this capture",
+		"ssop.questions":                 "Questions",
+		"ssop.questions.subtitle":        "Answered once per card, beside the captures. The answers reach the park head and the verifier.",
+		"ssop.questions.empty":           "No questions on this card.",
+		"ssop.footer.ready":              "Ready to publish. The next movement raised runs on these cards.",
+		"ssop.summary.optional":          "optional",
+		"ssop.summary.questions_one":     "1 question",
+		"ssop.summary.questions_many":    "{n} questions",
+		"ssop.summary.empty":             "Nothing asked.",
+		"ssop.summary.legacy_key_note":   "Capture keys are what the phones stamp on uploads; changing a key makes it a new capture.",
+		"ssop.locked":                    "Not authorable here: park head approval before any completion, the Feed Config fingerprint on a high-priority movement, the atomic herd move on completion, verifier review afterwards.",
+	} {
+		m[k] = v
+	}
+	return m
+}
+
+// shiftingSOPOptionGroups is the vocabulary the shifting cards editor picks from: the weighing
+// card's question kinds and capture kinds.
+func shiftingSOPOptionGroups() []domain.OptionGroup {
+	return weighingSOPOptionGroups()
 }
 
 func weighingSOPEditorCopy() map[string]string {

@@ -15,6 +15,19 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.collect
+import sg.mesha.goatos.capture.PhotoCaptureContext
+import sg.mesha.goatos.capture.PhotoCaptureSource
+import sg.mesha.goatos.capture.ProofCaptureContext
+import sg.mesha.goatos.capture.ProofCapturePrompt
+import sg.mesha.goatos.capture.ProofCaptureSource
+import sg.mesha.goatos.core.data.capture.ProofCaptureRepository
+import sg.mesha.goatos.core.data.capture.ProofFlow
+import sg.mesha.goatos.core.data.capture.ProofIdentity
+import sg.mesha.goatos.core.network.dto.ShiftingSopCardDto
 import sg.mesha.goatos.core.analytics.AnalyticsEvents
 import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.analytics.CrashReporter
@@ -43,6 +56,7 @@ import sg.mesha.goatos.feature.counts.ShiftingEvent
 import sg.mesha.goatos.feature.counts.ShiftingParkUi
 import sg.mesha.goatos.feature.counts.ShiftingShedUi
 import sg.mesha.goatos.feature.counts.ShiftingUiState
+import sg.mesha.goatos.feature.feed.isQueuedForSubmit
 import sg.mesha.goatos.rfid.ScanSource
 import javax.inject.Inject
 
@@ -71,8 +85,78 @@ class ShiftingViewModel @Inject constructor(
     private val analytics: AnalyticsPort,
     private val crashReporter: CrashReporter,
     private val scanSource: ScanSource,
-    savedStateHandle: SavedStateHandle,
+    private val proofCaptureSource: ProofCaptureSource,
+    private val photoCaptureSource: PhotoCaptureSource,
+    private val proofCaptureRepository: ProofCaptureRepository,
+    private val savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
+
+    // SHIFTING SOP (2026-09-16): the raise card. Its captures are proof writes under a per-form
+    // group; a submitted form rotates the group (a fresh controller) so the next raise never
+    // inherits the last one's captures.
+    private var raiseCardDto: ShiftingSopCardDto? = null
+    private var raiseScope: CoroutineScope? = null
+    // Created in init, AFTER _state exists: the controller calls back into the form state.
+    private var raiseSlotsRef: FeedSopSlotController? = null
+    private val raiseSlots: FeedSopSlotController get() = raiseSlotsRef ?: newRaiseController().also { raiseSlotsRef = it }
+
+    private fun raiseGroup(): String =
+        savedStateHandle.get<String>(KEY_RAISE_GROUP) ?: "counts-shifting-raise:${java.util.UUID.randomUUID()}".also { savedStateHandle[KEY_RAISE_GROUP] = it }
+
+    private fun newRaiseController(): FeedSopSlotController {
+        raiseScope?.cancel()
+        val scope = CoroutineScope(viewModelScope.coroutineContext + SupervisorJob(viewModelScope.coroutineContext[Job]))
+        raiseScope = scope
+        val group = raiseGroup()
+        val controller = FeedSopSlotController(
+            scope = scope,
+            savedStateHandle = savedStateHandle,
+            syncRepository = syncRepository,
+            proofCaptureSource = proofCaptureSource,
+            photoCaptureSource = photoCaptureSource,
+            proofCaptureRepository = proofCaptureRepository,
+            analytics = analytics,
+            crashReporter = crashReporter,
+            stageKey = "shiftingRaise.$group",
+            groupKey = group,
+            shedId = "",
+            evidenceIdentity = ProofIdentity(flow = ProofFlow.SHIFTING, taskId = group, subjectKey = group),
+            proofPolicy = ::feedShedProofPolicy,
+            caption = { title -> proofOverlayContextLine(feature = "Shifting", parkLabel = "", locationLabel = _state.value.destinationShedId, extraLabel = title) },
+            videoContext = { title -> ProofCaptureContext(title = title, primaryTag = _state.value.destinationShedId, workLabel = title, prompt = ProofCapturePrompt.SHIFTING) },
+            photoContext = { slot -> PhotoCaptureContext(title = slot.title, instruction = slot.hint.ifBlank { slot.title }) },
+            events = FeedSopSlotController.Events(
+                captureTapped = AnalyticsEvents.COUNTS_SHIFTING_CAPTURE_TAPPED,
+                captured = AnalyticsEvents.COUNTS_SHIFTING_RAISE_CAPTURED,
+                uploadSynced = AnalyticsEvents.COUNTS_SHIFTING_PROOF_SYNCED,
+                failure = AnalyticsEvents.COUNTS_SHIFTING_CAPTURE_FAILURE,
+                reuploadTapped = AnalyticsEvents.COUNTS_SHIFTING_REUPLOAD_TAPPED,
+                cardApplied = AnalyticsEvents.COUNTS_SHIFTING_CARD_APPLIED,
+            ),
+            baseProps = { slotKey, action ->
+                buildMap {
+                    put(AnalyticsEvents.Params.KIND, "shifting")
+                    put(AnalyticsEvents.Params.ACTION, action)
+                    put("section", "raise")
+                    slotKey?.let { put(AnalyticsEvents.Params.FIELD, it) }
+                }
+            },
+            locked = { _state.value.result.isCommitted },
+            onChanged = { syncRaiseCard() },
+            shedIdProvider = { _state.value.destinationShedId },
+            allowEmptyProofs = true,
+        )
+        scope.launch { controller.state.collect { syncRaiseCard() } }
+        controller.start()
+        raiseCardDto?.let { controller.applyCard(it, FeedSopSlotController.CARD_RANK_LIVE, source = "published") }
+        return controller
+    }
+
+    private fun syncRaiseCard() {
+        val card = raiseSlotsRef?.state?.value ?: return
+        _state.update { it.copy(raiseCard = card.toShiftingSopCardUi()) }
+        recomputeSubmitGate()
+    }
 
     private val idempotencyKey = DraftIdempotencyKey(
         savedStateHandle = savedStateHandle,
@@ -88,6 +172,7 @@ class ShiftingViewModel @Inject constructor(
     private var scanJob: Job? = null
 
     init {
+        raiseSlotsRef = newRaiseController()
         outboxItemId.value?.let(::observeOutboxItem)
         observeDestinations()
         refreshDestinations()
@@ -110,6 +195,8 @@ class ShiftingViewModel @Inject constructor(
             is ShiftingEvent.SelectPriority -> onSelectPriority(event.priority)
             is ShiftingEvent.SelectCategory -> onSelectCategory(event.category)
             is ShiftingEvent.EditComment -> onEditComment(event.value)
+            is ShiftingEvent.CaptureRaiseSlot -> raiseSlots.captureSlot(event.slotKey, event.kind)
+            is ShiftingEvent.AnswerRaise -> raiseSlots.answer(event.questionId, event.value)
             ShiftingEvent.Submit -> submit()
             ShiftingEvent.NavigationHandled -> _state.update {
                 it.copy(returnToActions = false, submissionNotice = null)
@@ -130,6 +217,12 @@ class ShiftingViewModel @Inject constructor(
         viewModelScope.launch {
             countsRepository.observeShiftingDestinations().collect { resource ->
                 val parks = resource.data?.parks?.map(CountsDestinationParkDto::toShiftingParkUi).orEmpty()
+                // SHIFTING SOP: the published raise card rides the same cached catalog, so a publish
+                // reaches the form on the next refresh.
+                resource.data?.sop?.let { card ->
+                    raiseCardDto = card
+                    raiseSlots.applyCard(card, FeedSopSlotController.CARD_RANK_LIVE, source = "published")
+                }
                 _state.update { current ->
                     // A refresh that drops the currently-chosen park or shed must not leave a
                     // stale id selected: the submit would name a destination the catalog no longer
@@ -494,12 +587,14 @@ class ShiftingViewModel @Inject constructor(
         val key = idempotencyKey.current()
         analytics.track(AnalyticsEvents.COUNTS_SHIFTING_SUBMIT_ATTEMPTED, current.submitAnalyticsProps())
         viewModelScope.launch {
+            val raiseRefs = raiseSlots.submitRefsAllowingEmpty().orEmpty()
             val result = syncRepository.enqueueCountsShifting(
                 // Destination shed partitions ordering: two movements INTO the same shed drain
                 // strictly oldest-first so their effects never land out of order.
                 groupKey = current.destinationShedId,
                 idempotencyKey = key,
                 request = current.toRequest(),
+                slotProofs = raiseRefs,
             )
             when (result) {
                 is AppResult.Ok -> {
@@ -590,6 +685,11 @@ class ShiftingViewModel @Inject constructor(
         // Every animal in the basket, in the order they were gathered. The wire contract was always
         // a list; bulk shifting is what finally fills it with more than one.
         goatIds = selectedAnimals.map { it.goatId },
+        // SHIFTING SOP (2026-09-16): only when the server served a raise card. The echoed version is
+        // what the form rendered; answers are sent even when empty so the server judges this as a
+        // current app (strictly) rather than an older one.
+        sopVersion = raiseCardDto?.version,
+        answers = raiseCardDto?.let { raiseSlots.answersJson() },
     )
 
     private fun observeOutboxItem(itemId: String) {
@@ -628,6 +728,9 @@ class ShiftingViewModel @Inject constructor(
         statusJob = null
         idempotencyKey.invalidate()
         outboxItemId.value = null
+        // A new form: a fresh raise group, so the submitted raise's captures stay with it.
+        savedStateHandle.remove<String>(KEY_RAISE_GROUP)
+        raiseSlotsRef = newRaiseController()
         _state.update { current ->
             ShiftingUiState(
                 destinationParks = current.destinationParks,
@@ -670,12 +773,21 @@ class ShiftingViewModel @Inject constructor(
             return FARM_MISMATCH_MESSAGE
         }
         if (state.destinationShedId.isBlank()) return "Choose the shed the animals moved to."
+        // SHIFTING SOP: the raise card's compulsory captures and required questions.
+        val card = raiseSlotsRef?.state?.value ?: return null
+        val slotsReady = card.slots.filter { it.required }.all { it.readyForSubmit } &&
+            card.slots.filter { it.captured }.all { it.status.isQueuedForSubmit() }
+        if (!slotsReady) return RAISE_CAPTURES_MESSAGE
+        if (!card.requiredAnswersGiven) return RAISE_QUESTIONS_MESSAGE
         return null
     }
 
     private companion object {
         const val KEY_IDEMPOTENCY = "countsShifting.idempotencyKey"
         const val KEY_OUTBOX_ITEM_ID = "countsShifting.outboxItemId"
+        const val KEY_RAISE_GROUP = "countsShifting.raiseGroup"
+        const val RAISE_CAPTURES_MESSAGE = "Record the required captures for this movement."
+        const val RAISE_QUESTIONS_MESSAGE = "Answer the required questions for this movement."
         // Farm-worded, because the operator reads it: goats never move between farms, so an animal
         // from another park cannot join this movement.
         const val FARM_MISMATCH_MESSAGE =
@@ -798,3 +910,24 @@ internal fun CountsDestinationParkDto.toShiftingParkUi(): ShiftingParkUi = Shift
         },
     ),
 )
+
+/** The controller's card state as the counts renderer's model (conditionals already resolved). */
+private fun sg.mesha.goatos.feature.feed.FeedSopCardUi.toShiftingSopCardUi(): sg.mesha.goatos.feature.counts.ShiftingSopCardUi =
+    sg.mesha.goatos.feature.counts.ShiftingSopCardUi(
+        instruction = instruction,
+        slots = slots.map {
+            sg.mesha.goatos.feature.counts.ShiftingSopSlotUi(
+                key = it.slotKey, title = it.title, hint = it.hint, kind = it.captureKind, required = it.required,
+                captured = it.captured, capturedPhoto = it.capturedKind == sg.mesha.goatos.feature.feed.FeedSlotCaptureKind.PHOTO,
+                isCapturing = it.isCapturing, failed = it.status == sg.mesha.goatos.feature.feed.FeedDistributionProofStatus.FAILED,
+                message = it.message,
+            )
+        },
+        questions = questions.filter { appliesTo(it) }.map { q ->
+            sg.mesha.goatos.feature.counts.ShiftingSopQuestionUi(
+                id = q.id, kind = q.kind, title = q.title, hint = q.hint, required = q.required,
+                options = q.options, allowOther = q.allowOther, unit = q.unit,
+            )
+        },
+        answers = answers,
+    )

@@ -20,6 +20,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.ui.Alignment
@@ -89,7 +90,27 @@ data class ApprovalRowUi(
      * approver: the phone has no name source for a shed id. See [raisedBy].
      */
     val summaryLine: String,
+    /**
+     * SHIFTING SOP (2026-09-16): what the raise captured -- the backend's shared
+     * CountsApprovalCapture, rendered verbatim so the approver sees the answers and captures before
+     * deciding. Null when the request carries none.
+     */
+    val capture: ApprovalCaptureUi? = null,
 )
+
+@Immutable
+data class ApprovalCaptureUi(
+    val versionLabel: String,
+    val rows: List<ApprovalCaptureRowUi>,
+    val media: List<ApprovalCaptureMediaUi>,
+    val missingNote: String? = null,
+)
+
+@Immutable
+data class ApprovalCaptureRowUi(val label: String, val value: String, val group: String = "")
+
+@Immutable
+data class ApprovalCaptureMediaUi(val proofId: String, val label: String, val kind: String)
 
 @Immutable
 data class ApprovalUiState(
@@ -109,6 +130,8 @@ sealed interface ApprovalEvent {
     data object CancelReject : ApprovalEvent
     data object ConfirmReject : ApprovalEvent
     data object Refresh : ApprovalEvent
+    /** Open one capture of a raise (resolved to a signed URL on tap). */
+    data class OpenCaptureMedia(val proofId: String, val kind: String) : ApprovalEvent
 }
 
 @Composable
@@ -241,6 +264,28 @@ private fun ApprovalCard(
         Text(text = row.raisedAt, color = MeshaColors.Faint, style = MeshaType.sectionLabel)
         if (row.summaryLine.isNotBlank()) {
             Text(text = row.summaryLine, color = MeshaColors.Ink, style = MeshaType.cardSubtitle)
+        }
+        row.capture?.let { capture ->
+            // What the raise captured, as the backend composed it: answers grouped, captures to tap.
+            var lastGroup = ""
+            capture.rows.forEach { captured ->
+                if (captured.group.isNotBlank() && captured.group != lastGroup) {
+                    lastGroup = captured.group
+                    Text(text = captured.group, color = MeshaColors.Faint, style = MeshaType.sectionLabel)
+                }
+                Text(text = captured.label + ": " + captured.value, color = MeshaColors.Ink, style = MeshaType.cardSubtitle)
+            }
+            capture.media.forEach { media ->
+                Text(
+                    text = media.label + if (media.kind.isNotBlank()) " · " + media.kind else "",
+                    color = MeshaColors.BrandD,
+                    style = MeshaType.cardSubtitle,
+                    modifier = Modifier.minimumInteractiveComponentSize().clickable { onEvent(ApprovalEvent.OpenCaptureMedia(media.proofId, media.kind)) },
+                )
+            }
+            capture.missingNote?.takeIf { it.isNotBlank() }?.let {
+                Text(text = it, color = MeshaColors.Warn, style = MeshaType.sectionLabel)
+            }
         }
 
         if (rejecting) {

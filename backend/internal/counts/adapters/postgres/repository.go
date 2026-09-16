@@ -1727,6 +1727,10 @@ func insertShiftingEvent(ctx context.Context, tx pgx.Tx, in domain.ShiftingEvent
 	if id, found, err := maybeExistingShiftingByLogicalKey(ctx, tx, in); err != nil || found {
 		return id, found, err
 	}
+	raiseProofs, raiseAnswers, raiseCapture, encodeErr := encodeRaiseSOP(in)
+	if encodeErr != nil {
+		return "", false, encodeErr
+	}
 	var id string
 	err := tx.QueryRow(ctx, `
 INSERT INTO shifting_events (
@@ -1739,7 +1743,9 @@ INSERT INTO shifting_events (
   -- handler already parses+validates destination_partition_label, but this INSERT never named
   -- them -- so every raise silently discarded the pen and a Castro 1 -> Castro 2 move was stored
   -- as Castro -> Castro. Found by an end-to-end run on 2026-08-06.
-  source_partition_label, destination_partition_label, adopt_pen_tag
+  source_partition_label, destination_partition_label, adopt_pen_tag,
+  -- SHIFTING SOP (2026-09-16): the pin and the raise card's captures / answers / approver snapshot.
+  sop_version, raise_sop_proofs, raise_sop_answers, raise_capture_evidence
 ) VALUES (
   $1::uuid, $2, $3, $4, nullif($5::text, '')::uuid, nullif($6::text, '')::uuid,
   $7::uuid, $8::uuid, $9, $10, $11, nullif($12::text, '')::uuid,
@@ -1759,7 +1765,8 @@ INSERT INTO shifting_events (
   -- comment to absent, so an empty string reaching here would be a real (if odd) operator value
   -- rather than "unset", and collapsing it would hide that.
   $24,
-  nullif($25, ''), nullif($26, ''), nullif($27, '')
+  nullif($25, ''), nullif($26, ''), nullif($27, ''),
+  $28, $29::jsonb, $30::jsonb, $31::jsonb
 )
 RETURNING shifting_event_id::text`,
 		in.TenantID, in.LogicalShiftingEventKey, in.Priority, in.Category, ptrValue(in.SourceParkID), ptrValue(in.SourceShedID),
@@ -1767,7 +1774,8 @@ RETURNING shifting_event_id::text`,
 		in.AuthorizationState, in.VerificationState, in.EventStatus, in.SourceSystem, in.SourceRef, ptrValue(in.ProofRef),
 		in.PayloadHash, in.IdempotencyKey, in.RequestFingerprint,
 		in.ManagementStageMode, in.TargetManagementStage, in.RaiseComment,
-		ptrValue(in.SourcePartitionLabel), ptrValue(in.DestinationPartitionLabel), in.AdoptPenTag).Scan(&id)
+		ptrValue(in.SourcePartitionLabel), ptrValue(in.DestinationPartitionLabel), in.AdoptPenTag,
+		in.SOPVersion, raiseProofs, raiseAnswers, raiseCapture).Scan(&id)
 	if err == nil {
 		return id, false, nil
 	}
@@ -1779,6 +1787,30 @@ RETURNING shifting_event_id::text`,
 		return "", false, ports.ErrIdempotencyConflict
 	}
 	return "", false, fmt.Errorf("counts: insert shifting event: %w", err)
+}
+
+// encodeRaiseSOP renders the raise card's captures / answers / approver snapshot for the insert. An
+// absent value (a row raised by a phone that sent none, or before the section existed) is NULL rather
+// than '{}'; a value that cannot be encoded fails the insert rather than silently storing NULL.
+func encodeRaiseSOP(in domain.ShiftingEvent) (proofs, answers, capture any, err error) {
+	if in.RaiseSOPProofs != nil {
+		b, merr := json.Marshal(in.RaiseSOPProofs)
+		if merr != nil {
+			return nil, nil, nil, fmt.Errorf("counts: encode raise sop proofs: %w", merr)
+		}
+		proofs = b
+	}
+	if in.RaiseSOPAnswers != nil {
+		b, merr := json.Marshal(in.RaiseSOPAnswers)
+		if merr != nil {
+			return nil, nil, nil, fmt.Errorf("counts: encode raise sop answers: %w", merr)
+		}
+		answers = b
+	}
+	if len(in.RaiseCaptureEvidence) > 0 {
+		capture = []byte(in.RaiseCaptureEvidence)
+	}
+	return proofs, answers, capture, nil
 }
 
 func maybeExistingShiftingByIdempotency(ctx context.Context, tx pgx.Tx, in domain.ShiftingEvent) (string, bool, error) {

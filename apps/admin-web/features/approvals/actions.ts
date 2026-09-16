@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { decideAdminWebApproval } from "@/lib/api/server";
+import { decideAdminWebApproval, getProofDownloadUrl } from "@/lib/api/server";
 
 const PATHNAME = "/approvals";
 
@@ -74,4 +74,12 @@ export async function rejectApprovalAction(formData: FormData): Promise<void> {
     redirect(withFeedback(url, "error", result.error.code ?? result.error.kind));
   }
   redirect(withFeedback(url, "success", "rejected"));
+}
+
+// Explicit media open bridge for the approver: the drawer carries only proof ids (the raise's SOP
+// captures); one browser-usable signed URL is resolved only after the park head clicks the capture.
+export async function resolveApprovalProofMediaUrl(proofRef: string): Promise<string | null> {
+  const trimmed = proofRef.trim();
+  if (!trimmed) return null;
+  return getProofDownloadUrl(trimmed);
 }

@@ -58,6 +58,8 @@ class ShiftingExecuteOutboxWriteTest {
             feedPackingProofRef: String?,
             feedGivenProofRef: String?,
             feedConfigFingerprint: String?,
+            proofs: Map<String, String>?,
+            answers: kotlinx.serialization.json.JsonObject?,
         ): CountsShiftingExecutionResponseDto {
             completeKeys += idempotencyKey
             completeIds += shiftingEventId

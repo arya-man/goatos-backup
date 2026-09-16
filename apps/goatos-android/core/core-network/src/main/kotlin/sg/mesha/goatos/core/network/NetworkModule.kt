@@ -2178,6 +2178,8 @@ class RetrofitAppApi(
         feedPackingProofRef: String?,
         feedGivenProofRef: String?,
         feedConfigFingerprint: String?,
+        proofs: Map<String, String>?,
+        answers: kotlinx.serialization.json.JsonObject?,
     ): CountsShiftingExecutionResponseDto =
         service.completeCountsShiftingEvent(
             shiftingEventId,
@@ -2188,6 +2190,8 @@ class RetrofitAppApi(
                 feedGivenProofRef = feedGivenProofRef,
                 feedConfigFingerprint = feedConfigFingerprint,
                 destinationTag = destinationTag,
+                proofs = proofs,
+                answers = answers,
             ),
         )
 

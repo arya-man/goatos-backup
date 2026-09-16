@@ -17,6 +17,7 @@ import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.launch
 import sg.mesha.goatos.core.analytics.AnalyticsEvents
 import sg.mesha.goatos.core.analytics.AnalyticsPort
@@ -27,6 +28,9 @@ import sg.mesha.goatos.core.data.sync.SyncRepository
 import sg.mesha.goatos.core.data.sync.SyncItemStatus
 import sg.mesha.goatos.core.network.dto.CountsApprovalListItemDto
 import sg.mesha.goatos.feature.counts.ApprovalEvent
+import sg.mesha.goatos.feature.counts.ApprovalCaptureMediaUi
+import sg.mesha.goatos.feature.counts.ApprovalCaptureRowUi
+import sg.mesha.goatos.feature.counts.ApprovalCaptureUi
 import sg.mesha.goatos.feature.counts.ApprovalRowUi
 import sg.mesha.goatos.feature.counts.ApprovalUiState
 import java.time.Instant
@@ -67,6 +71,10 @@ class ApprovalViewModel @Inject constructor(
 
     private val decisionOutboxItemId = DraftOutboxItemId(savedStateHandle, KEY_OUTBOX_ITEM_ID)
     private var decisionStatusJob: Job? = null
+
+    /** A capture the approver tapped, resolved to a signed URL for the nav host to open. */
+    private val _openMedia = kotlinx.coroutines.channels.Channel<ApprovalOpenMedia>(kotlinx.coroutines.channels.Channel.BUFFERED)
+    val openMedia: kotlinx.coroutines.flow.Flow<ApprovalOpenMedia> = _openMedia.receiveAsFlow()
 
     private val _state = MutableStateFlow(ApprovalUiState())
     val state: StateFlow<ApprovalUiState> = _state.asStateFlow()
@@ -113,6 +121,20 @@ class ApprovalViewModel @Inject constructor(
                 decide(requestId, approve = false, reason = current.rejectReason)
             }
             ApprovalEvent.Refresh -> _state.update { it.copy(message = null, isError = false) }
+            is ApprovalEvent.OpenCaptureMedia -> openCaptureMedia(event.proofId, event.kind)
+        }
+    }
+
+    private fun openCaptureMedia(proofId: String, kind: String) {
+        analytics.track(AnalyticsEvents.COUNTS_APPROVAL_CAPTURE_OPENED, mapOf(AnalyticsEvents.Params.KIND to kind.ifBlank { "unknown" }))
+        viewModelScope.launch {
+            when (val result = approvalRepository.captureMediaUrl(proofId)) {
+                is sg.mesha.goatos.core.common.AppResult.Ok -> _openMedia.send(ApprovalOpenMedia(result.value, kind))
+                is sg.mesha.goatos.core.common.AppResult.Err -> {
+                    result.cause?.let { crashReporter.recordException(it, "approval capture media resolve failed") }
+                    _state.update { it.copy(message = result.message, isError = true) }
+                }
+            }
         }
     }
 
@@ -264,7 +286,18 @@ private fun CountsApprovalListItemDto.toRowUi(): ApprovalRowUi = ApprovalRowUi(
     raisedBy = raisedByName.orEmpty(),
     raisedAt = formatRaisedAt(raisedAt),
     summaryLine = summaryLine.orEmpty(),
+    capture = capture?.let { c ->
+        ApprovalCaptureUi(
+            versionLabel = c.versionLabel,
+            rows = c.rows.map { ApprovalCaptureRowUi(it.label, it.value, it.group.orEmpty()) },
+            media = c.media.map { ApprovalCaptureMediaUi(it.proofId, it.label, it.kind) },
+            missingNote = c.missingNote,
+        )
+    },
 )
+
+/** One capture to open outside the app: a signed URL and the kind that picks the viewer. */
+data class ApprovalOpenMedia(val url: String, val kind: String)
 
 /**
  * Request-type display label.

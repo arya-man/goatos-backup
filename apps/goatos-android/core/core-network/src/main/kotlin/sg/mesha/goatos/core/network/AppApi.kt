@@ -1088,6 +1088,9 @@ interface AppApi {
         feedPackingProofRef: String? = null,
         feedGivenProofRef: String? = null,
         feedConfigFingerprint: String? = null,
+        /** SHIFTING SOP (2026-09-16): the pinned card's captures {slot key: proof id}; null = pre-SOP row. */
+        proofs: Map<String, String>? = null,
+        answers: kotlinx.serialization.json.JsonObject? = null,
     ): CountsShiftingExecutionResponseDto
 
     /**
@@ -2689,6 +2692,8 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
         feedPackingProofRef: String?,
         feedGivenProofRef: String?,
         feedConfigFingerprint: String?,
+        proofs: Map<String, String>?,
+        answers: kotlinx.serialization.json.JsonObject?,
     ): CountsShiftingExecutionResponseDto = CountsShiftingExecutionResponseDto(
         shiftingEventId = shiftingEventId,
         eventStatus = "pending_verification",
