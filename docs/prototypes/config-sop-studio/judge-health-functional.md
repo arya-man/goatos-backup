@@ -13,7 +13,7 @@ Verified:
 - Local add/edit preserves stable step ID; remove does not mutate published snapshot; read-only roles cannot save/remove.
 - No live network calls or dosage calculation in course code.
 
-Source was read through the Google Drive/Sheets connector as ravi@mesha.sg on 2026-09-15. Exact source fixture: health-fever-source.json, Adults SOP gid582297317 and Kids SOP gid541230517, C2:J18.
+Source was read through the Google Drive/Sheets connector as [source account omitted] on 2026-09-15. Exact source fixture: health-fever-source.json, Adults SOP gid582297317 and Kids SOP gid541230517, C2:J18.
 
 SHA-256:
 - health-course.js: `8c7cc3996ce83663398fb5af4b0c629c262280b6fad326cd67d7528893655d29`

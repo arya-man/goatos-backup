@@ -1,0 +1,725 @@
+{
+  "revision": "e06d27bf600b4d5d7c46d178d9341a5f6c942a6a",
+  "rows": [
+    {
+      "id": "B001",
+      "owner": "Sales Config",
+      "name": "Fattening valuation",
+      "value": "450 INR/kg",
+      "classification": "hardcoded",
+      "source": "backend/internal/sales/adapters/postgres/overview_repository.go",
+      "line": 619,
+      "note": "Proposed owner Sales Config; shared valuation consumers, distinct from actual sale price."
+    },
+    {
+      "id": "B002",
+      "owner": "Sales Config",
+      "name": "Adult female valuation",
+      "value": "40 kg \u00d7600 INR/kg",
+      "classification": "hardcoded",
+      "source": "backend/internal/sales/adapters/postgres/overview_repository.go",
+      "line": 620,
+      "note": "Both assumed weight and rate need separate Sales-owned values."
+    },
+    {
+      "id": "B003",
+      "owner": "Sales Config",
+      "name": "Adult male valuation",
+      "value": "60 kg \u00d7500 INR/kg",
+      "classification": "hardcoded",
+      "source": "backend/internal/sales/adapters/postgres/overview_repository.go",
+      "line": 621,
+      "note": "Not observed individual weight."
+    },
+    {
+      "id": "B004",
+      "owner": "Sales Config",
+      "name": "Kid valuation",
+      "value": "K0/K1=3kg;K2=8kg;K3=15kg;500 INR/kg",
+      "classification": "hardcoded",
+      "source": "backend/internal/sales/adapters/postgres/overview_repository.go",
+      "line": 622,
+      "note": "Age/stage valuation matrix, not physical measurement."
+    },
+    {
+      "id": "B005",
+      "owner": "Sales Config",
+      "name": "Load-wise assumed rates",
+      "value": "Sheep430;Goat450 INR/kg",
+      "classification": "hardcoded",
+      "source": "backend/internal/adminui/app/service.go",
+      "line": 4794,
+      "note": "Backend UI-contract literals; verify each frontend consumer. Not same matrix as farm valuation."
+    },
+    {
+      "id": "B006",
+      "owner": "Sales Config",
+      "name": "Shared sale-readiness report thresholds",
+      "value": "30kg and35kg",
+      "classification": "hardcoded",
+      "source": "backend/internal/weighing/domain/shed_weights.go",
+      "line": 260,
+      "note": "User requires Sales Config ownership; share with Weighing/Growth reporting; do not turn reporting into sale prohibition."
+    },
+    {
+      "id": "B007",
+      "owner": "Sales Config",
+      "name": "Readiness tolerance bounds",
+      "value": "default0g;maximum1000g",
+      "classification": "hardcoded",
+      "source": "backend/internal/weighing/domain/shed_weights.go",
+      "line": 262,
+      "note": "User example200g not current default. Keep report margin distinct from physical error estimate."
+    },
+    {
+      "id": "B008",
+      "owner": "Sales Config",
+      "name": "Sold-animal weight bands",
+      "value": "<20,20\u2013<35,35\u2013<40,>=40kg",
+      "classification": "hardcoded",
+      "source": "backend/internal/sales/domain/sales.go",
+      "line": 550,
+      "note": "Reporting band boundaries; separate from eligibility."
+    },
+    {
+      "id": "B009",
+      "owner": "Sales Config",
+      "name": "Sale date future window",
+      "value": "60days",
+      "classification": "hardcoded",
+      "source": "backend/internal/sales/domain/sales.go",
+      "line": 50,
+      "note": "Business input window, not technical timeout."
+    },
+    {
+      "id": "B010",
+      "owner": "Procurement",
+      "name": "Load ageing alert",
+      "value": "90days",
+      "classification": "hardcoded",
+      "source": "backend/internal/procurement/domain/loadwise.go",
+      "line": 217,
+      "note": "Procurement/load-wise ageing policy, not sale price."
+    },
+    {
+      "id": "B011",
+      "owner": "Milk",
+      "name": "Daily session times",
+      "value": "08:00,12:00,16:00,21:00",
+      "classification": "hardcoded",
+      "source": "backend/internal/counts/domain/milk_feeding.go",
+      "line": 30,
+      "note": "Published SOP mentions four sessions but code determines exact times."
+    },
+    {
+      "id": "B012",
+      "owner": "Milk",
+      "name": "Preparation sessions/citric rate",
+      "value": "4sessions;5.5g/L",
+      "classification": "hardcoded",
+      "source": "backend/internal/counts/domain/milk_preparation.go",
+      "line": 18,
+      "note": "Also SQL duplicate at counts/adapters/postgres/milk_preparation.go232\u2013233."
+    },
+    {
+      "id": "B013",
+      "owner": "Milk",
+      "name": "Stage milk quantities",
+      "value": "K1 200ml\u00d74;K2 300ml\u00d74;K3 200ml\u00d7sessions1+4",
+      "classification": "hardcoded",
+      "source": "backend/internal/counts/domain/milk_preparation.go",
+      "line": 155,
+      "note": "Typed stage/session matrix; not a single amount."
+    },
+    {
+      "id": "B014",
+      "owner": "Milk",
+      "name": "K3 milk window",
+      "value": "7days",
+      "classification": "hardcoded",
+      "source": "backend/internal/counts/domain/milk_preparation.go",
+      "line": 153,
+      "note": "Cohort entry window; not same as stage lookup min_age_days."
+    },
+    {
+      "id": "B015",
+      "owner": "Milk",
+      "name": "Watchlist graduation",
+      "value": "2consecutive accepted Yes",
+      "classification": "hardcoded",
+      "source": "backend/internal/counts/domain/milk_feeding.go",
+      "line": 164,
+      "note": "Requires accepted evidence semantics, not click-count."
+    },
+    {
+      "id": "B016",
+      "owner": "Counts / newborn",
+      "name": "Legacy colostrum slots",
+      "value": "07:00,11:00,15:00,18:30,22:00;15min advance",
+      "classification": "hardcoded",
+      "source": "backend/internal/tasks/domain/templates.go",
+      "line": 187,
+      "note": "Legacy fallback; published follow_up may supersede. Do not claim effective without template resolution."
+    },
+    {
+      "id": "B017",
+      "owner": "Feed",
+      "name": "Packing variance tolerance",
+      "value": "0.2kg",
+      "classification": "hardcoded",
+      "source": "backend/internal/feeddirection/domain/analytics.go",
+      "line": 354,
+      "note": "Analytics threshold distinct from confirmation tolerance."
+    },
+    {
+      "id": "B018",
+      "owner": "Feed",
+      "name": "Packing confirmation tolerance",
+      "value": "0.5kg",
+      "classification": "hardcoded",
+      "source": "backend/internal/feeddirection/domain/packing_entry_confirm.go",
+      "line": 22,
+      "note": "Different decision point from0.2kg report."
+    },
+    {
+      "id": "B019",
+      "owner": "Feed",
+      "name": "Low-stock report threshold",
+      "value": "5days",
+      "classification": "hardcoded",
+      "source": "backend/internal/feeddirection/domain/analytics.go",
+      "line": 712,
+      "note": "New Alerts separately configurable source; STG Alerts tables absent."
+    },
+    {
+      "id": "B020",
+      "owner": "Feed",
+      "name": "Stock notification/forecast",
+      "value": "7days notify;7days forecast",
+      "classification": "hardcoded",
+      "source": "backend/internal/feeddirection/domain/analytics.go",
+      "line": 717,
+      "note": "Different from5day redcard."
+    },
+    {
+      "id": "B021",
+      "owner": "Health",
+      "name": "Course default/max days",
+      "value": "3default;90max",
+      "classification": "hardcoded",
+      "source": "backend/internal/health/domain/types.go",
+      "line": 13,
+      "note": "Draft default versus validation cap versus actual published duration."
+    },
+    {
+      "id": "B022",
+      "owner": "Health",
+      "name": "Periparturient window",
+      "value": "14days after kidding",
+      "classification": "hardcoded",
+      "source": "backend/internal/health/domain/animal_resolution.go",
+      "line": 29,
+      "note": "Clinical derived finding, not editable treatment row."
+    },
+    {
+      "id": "B023",
+      "owner": "Health",
+      "name": "Temperature finding boundaries",
+      "value": "Adult fever>103.5F;kid>=103.5F;high>106F;low<100F",
+      "classification": "hardcoded",
+      "source": "backend/internal/health/diagnosis/form.go",
+      "line": 545,
+      "note": "Clinical rules; preserve exact comparator and class distinction."
+    },
+    {
+      "id": "B024",
+      "owner": "Health",
+      "name": "Kid warm test",
+      "value": ">100F",
+      "classification": "hardcoded",
+      "source": "backend/internal/health/diagnosis/kids.go",
+      "line": 84,
+      "note": "Clinical logic, not a universal safety recommendation."
+    },
+    {
+      "id": "B025",
+      "owner": "Health",
+      "name": "Housing visit cadence",
+      "value": "ICU morning+evening;ward/quarantine morning;field no daily cycle",
+      "classification": "hardcoded",
+      "source": "backend/internal/health/domain/course_schedule.go",
+      "line": 65,
+      "note": "Housing owns cadence, protocol owns visit content."
+    },
+    {
+      "id": "B026",
+      "owner": "Health",
+      "name": "Shift windows",
+      "value": "06:00\u201315:00 and15:00\u201324:00;none00:00\u201306:00",
+      "classification": "hardcoded",
+      "source": "backend/internal/health/diagnosis/engine.go",
+      "line": 701,
+      "note": "Source hardcoded clinical operations; not all treatment timestamps read from DB grid."
+    },
+    {
+      "id": "B027",
+      "owner": "Health",
+      "name": "Diagnosis registers",
+      "value": "adult-1,kid-milk-7,kid-weaning-1,kid-fattening-1 YAML",
+      "classification": "hardcoded",
+      "source": "backend/internal/health/diagnosis/embed.go",
+      "line": 9,
+      "note": "Committed and embedded; DB Health Config treatment protocols do NOT make diagnostic rules editable."
+    },
+    {
+      "id": "B028",
+      "owner": "Health",
+      "name": "Emergency precedence",
+      "value": "finding-triggered before scope;Director notified after immediate emergency",
+      "classification": "hardcoded",
+      "source": "backend/internal/health/diagnosis/emergency.go",
+      "line": 3,
+      "note": "Clinical execution ordering, not blanket preapproval."
+    },
+    {
+      "id": "B029",
+      "owner": "PC",
+      "name": "Category proof slots",
+      "value": "Deworm/antiprotozoan/ticks1video;trimming3videos;during10s hint",
+      "classification": "hardcoded",
+      "source": "backend/internal/pccare/domain/domain.go",
+      "line": 183,
+      "note": "10seconds is a hint, not asserted enforcement. Separate category inventory proof."
+    },
+    {
+      "id": "B030",
+      "owner": "Toxin",
+      "name": "Canonical test sequence",
+      "value": "7steps;5g sample;3min shake;60min settle;3min well;8min strip;readwithin1min",
+      "classification": "hardcoded",
+      "source": "backend/internal/toxin/domain/task.go",
+      "line": 122,
+      "note": "Code-owned procedure.60/3/8minute server gates; prose values and enforced timers differ."
+    },
+    {
+      "id": "B031",
+      "owner": "Vaccination reminders",
+      "name": "Reminder ladder",
+      "value": "D-7 08:00;D-6..0 08:00,13:00,20:30",
+      "classification": "hardcoded",
+      "source": "backend/internal/calendar/domain/reminder_cadence.go",
+      "line": 55,
+      "note": "Notification policy, not vaccination due-date rule."
+    },
+    {
+      "id": "B032",
+      "owner": "Vaccination reminders",
+      "name": "Quiet hours",
+      "value": "21:00\u201307:00 IST",
+      "classification": "hardcoded",
+      "source": "backend/internal/calendar/domain/reminder_cadence.go",
+      "line": 64,
+      "note": "Default code schedule; override/effective path requires config resolver."
+    },
+    {
+      "id": "B033",
+      "owner": "Vaccination",
+      "name": "Publish/preview buffer fallback",
+      "value": "7days",
+      "classification": "hardcoded",
+      "source": "backend/internal/protocol/app/publish.go",
+      "line": 118,
+      "note": "DB capacity also7 currently; fallback is not duplicate independent setting."
+    },
+    {
+      "id": "B034",
+      "owner": "Verification",
+      "name": "Default sampling",
+      "value": "100percent",
+      "classification": "hardcoded",
+      "source": "backend/internal/verification/domain/sampling.go",
+      "line": 23,
+      "note": "Person-specific sampling can exist; default is not every person effective rate."
+    },
+    {
+      "id": "B035",
+      "owner": "Verification",
+      "name": "Review SLA catalogue",
+      "value": "24hours for milk/counts/PC categories",
+      "classification": "hardcoded",
+      "source": "backend/internal/verificationcatalog/catalog.go",
+      "line": 126,
+      "note": "Code-owned category metadata; inspect catalogue for per-category differences."
+    },
+    {
+      "id": "B036",
+      "owner": "Workforce",
+      "name": "Max leave duration",
+      "value": "90days",
+      "classification": "hardcoded",
+      "source": "backend/internal/workforce/domain/leave_types.go",
+      "line": 27,
+      "note": "Business guard; DB leave-approval config currently0rows."
+    },
+    {
+      "id": "B037",
+      "owner": "Market",
+      "name": "Backfill allowance",
+      "value": "7days",
+      "classification": "hardcoded",
+      "source": "backend/internal/market/app/service.go",
+      "line": 24,
+      "note": "Business write date window."
+    },
+    {
+      "id": "B038",
+      "owner": "Leadership tasks",
+      "name": "Near-deadline band",
+      "value": "2days",
+      "classification": "hardcoded",
+      "source": "backend/internal/leadershiptasks/domain/deadline.go",
+      "line": 46,
+      "note": "Business prioritization band."
+    },
+    {
+      "id": "B039",
+      "owner": "Alerts",
+      "name": "Headcount-change rule",
+      "value": "default1,min1,max1000animals",
+      "classification": "hardcoded",
+      "source": "backend/internal/alerts/domain/rules.go",
+      "line": 68,
+      "note": "Source320+ configurable override; not deployed STG317."
+    },
+    {
+      "id": "B040",
+      "owner": "Alerts",
+      "name": "Low-stock rule",
+      "value": "default5,min1,max90days",
+      "classification": "hardcoded",
+      "source": "backend/internal/alerts/domain/rules.go",
+      "line": 79,
+      "note": "Source UI editable and SQL persisted after migration; absent live tables."
+    },
+    {
+      "id": "B041",
+      "owner": "Alerts",
+      "name": "Feed moved detection epsilon",
+      "value": "0.05kg",
+      "classification": "hardcoded",
+      "source": "backend/internal/alerts/domain/pen_feed.go",
+      "line": 124,
+      "note": "Distinct from configured headcount threshold."
+    },
+    {
+      "id": "B042",
+      "owner": "Alerts",
+      "name": "Critical lowstock severity",
+      "value": "<2days",
+      "classification": "hardcoded",
+      "source": "backend/internal/alerts/domain/feed_stock.go",
+      "line": 30,
+      "note": "Severity logic separate from alert on/off threshold."
+    },
+    {
+      "id": "B043",
+      "owner": "Herd Signals",
+      "name": "RSSI thresholds",
+      "value": "-65/-75/-80",
+      "classification": "hardcoded",
+      "source": "backend/internal/herdsignals/domain/types.go",
+      "line": 85,
+      "note": "Provisional source defaults, not approved medical signal."
+    },
+    {
+      "id": "B044",
+      "owner": "Herd Signals",
+      "name": "Battery thresholds",
+      "value": "3000/2800/2600mV;fall80mV;trend30days/min24hours",
+      "classification": "hardcoded",
+      "source": "backend/internal/herdsignals/domain/types.go",
+      "line": 88,
+      "note": "Operational provisional thresholds."
+    },
+    {
+      "id": "B045",
+      "owner": "Herd Signals",
+      "name": "Motion thresholds",
+      "value": "active100,low10,quiet1;window60seconds;spike2.5\u00d7",
+      "classification": "hardcoded",
+      "source": "backend/internal/herdsignals/domain/types.go",
+      "line": 94,
+      "note": "Analytics threshold, not hardware sample calibration."
+    },
+    {
+      "id": "B046",
+      "owner": "Herd Signals",
+      "name": "Status durations",
+      "value": "stale/gap/missing30min;quiet90min;inactive180min",
+      "classification": "hardcoded",
+      "source": "backend/internal/herdsignals/domain/types.go",
+      "line": 97,
+      "note": "Business monitoring status policy."
+    },
+    {
+      "id": "B047",
+      "owner": "Weighing",
+      "name": "Proof authoring limits",
+      "value": "max5shed proofs;max8removal slots",
+      "classification": "domain invariant",
+      "source": "backend/internal/weighing/domain/types.go",
+      "line": 638,
+      "note": "Structural bound; actual requested slots are published SOP data."
+    },
+    {
+      "id": "B048",
+      "owner": "Weighing",
+      "name": "Weight validity",
+      "value": "0.001..100000kg",
+      "classification": "domain invariant",
+      "source": "backend/internal/weighing/domain/weight_correction.go",
+      "line": 116,
+      "note": "Domain guard, not a sensible animal target/eligibility weight."
+    },
+    {
+      "id": "B049",
+      "owner": "Feed",
+      "name": "Captured packed/waste mass cap",
+      "value": "10000kg",
+      "classification": "domain invariant",
+      "source": "backend/internal/feeddirection/adapters/postgres/packing_completions.go",
+      "line": 745,
+      "note": "Validation bound; not packing target."
+    },
+    {
+      "id": "B050",
+      "owner": "SOP",
+      "name": "Follow-up series bound",
+      "value": "100rounds",
+      "classification": "domain invariant",
+      "source": "backend/internal/tasks/domain/sop_followup.go",
+      "line": 155,
+      "note": "Structural bound separate from authored schedule count."
+    },
+    {
+      "id": "B051",
+      "owner": "Procurement",
+      "name": "Inspection authoring cap",
+      "value": "200questions;max_files0..10",
+      "classification": "domain invariant",
+      "source": "backend/internal/animalpurchase/domain/inspection.go",
+      "line": 166,
+      "note": "Schema guard; current47served questions not200default."
+    },
+    {
+      "id": "B052",
+      "owner": "Identity",
+      "name": "Global unique identifiers/no autolink",
+      "value": "identifier1/2,temp,BLE;reject bad/missing scope",
+      "classification": "domain invariant",
+      "source": "backend/internal/identity/domain/types.go",
+      "line": 1,
+      "note": "Exact active DB policy in feature-config-value-readback; source entry only. Not freely editable generic config."
+    },
+    {
+      "id": "B053",
+      "owner": "Feed",
+      "name": "Catalogue / ration groups / dated rates",
+      "value": "17items/4active;16breed mappings;g/head\u00d7park/group/stage/date",
+      "classification": "DB-seed/editable",
+      "source": "research/feature-config-value-audit.md",
+      "line": 1,
+      "note": "Existing Feed Config; null nutrition factors, zero quantities and retired historical IDs retained."
+    },
+    {
+      "id": "B054",
+      "owner": "Feed",
+      "name": "Normal/experiment schedules",
+      "value": "07:00 or14:00 direction;14:00 correction;15:30 transport",
+      "classification": "DB-seed/editable",
+      "source": "research/feature-config-value-audit.md",
+      "line": 1,
+      "note": "Actual open-ended rows from2026-08-07; perpark/workflow."
+    },
+    {
+      "id": "B055",
+      "owner": "Feed",
+      "name": "Experiment ration values",
+      "value": "grams_per_head by exact feed/pen/group;warmup20:80 appears in labels",
+      "classification": "DB-seed/editable",
+      "source": "research/feature-config-value-audit.md",
+      "line": 1,
+      "note": "Label is not authoritative global blend ratio."
+    },
+    {
+      "id": "B056",
+      "owner": "Vaccination",
+      "name": "Capacity",
+      "value": "200/day tenant;buffer7;table maxshots3",
+      "classification": "DB-seed/editable",
+      "source": "research/feature-config-value-audit.md",
+      "line": 1,
+      "note": "Publishedv9drivepolicy says2;effective precedence unresolved."
+    },
+    {
+      "id": "B057",
+      "owner": "Vaccination",
+      "name": "Protocol plan",
+      "value": "published9/draft10;clinical matrices,age16weeks,wave28days,warmup7",
+      "classification": "DB-seed/editable",
+      "source": "research/feature-config-value-audit.md",
+      "line": 1,
+      "note": "Specialized editor, not generic scalar store. Full actual DSL in feature-config-documents.json."
+    },
+    {
+      "id": "B058",
+      "owner": "Vaccination",
+      "name": "Clinical gaps",
+      "value": "live/live28;killed combinations14;booster21;pregnancymonth4\u20135;catchup14",
+      "classification": "DB-seed/editable",
+      "source": "research/feature-config-value-audit.md",
+      "line": 1,
+      "note": "Observed product rules, not independent advice. Preserve complete conditions/overrides."
+    },
+    {
+      "id": "B059",
+      "owner": "Vaccination",
+      "name": "Plan versus SOP proof",
+      "value": "plan shed_level_video;drive SOP per_goat_video",
+      "classification": "unverified effective precedence",
+      "source": "research/feature-config-value-audit.md",
+      "line": 1,
+      "note": "Both persisted; trace resolver rather than silently choosing."
+    },
+    {
+      "id": "B060",
+      "owner": "Health",
+      "name": "Treatment protocols",
+      "value": "54published versions/27diseasekeys/1012steps",
+      "classification": "DB-seed/editable",
+      "source": "research/feature-config-value-audit.md",
+      "line": 1,
+      "note": "Dose/route/duration/critical-action authored; NOT embedded diagnosis rules."
+    },
+    {
+      "id": "B061",
+      "owner": "Sales",
+      "name": "Market benchmarks",
+      "value": "10rows;370/kg market;exfarm/transport text;some NULL",
+      "classification": "DB-stored/UI-unverified",
+      "source": "research/feature-config-value-audit.md",
+      "line": 1,
+      "note": "DB data observed; exact editing workflow not established in this audit; not valuation default."
+    },
+    {
+      "id": "B062",
+      "owner": "Procurement / Sales",
+      "name": "Vendor dropdown vocabulary",
+      "value": "breed/feed/capacity/status/frequency/record types",
+      "classification": "DB-stored/UI-unverified",
+      "source": "research/feature-config-value-audit.md",
+      "line": 1,
+      "note": "Separate catalogue identity; observed rows, precise authoring control unverified."
+    },
+    {
+      "id": "B063",
+      "owner": "Inventory",
+      "name": "Vaccine item catalogue",
+      "value": "7active,doseunit",
+      "classification": "DB-stored/UI-unverified",
+      "source": "research/feature-config-value-audit.md",
+      "line": 1,
+      "note": "Master records do not create dosing rules or stock quantities."
+    },
+    {
+      "id": "B064",
+      "owner": "Identity / Counts",
+      "name": "Stage age bands",
+      "value": "K0 0\u20131,K1 2\u20137,K2 8\u201342,K3 43+;19rows",
+      "classification": "DB-stored/UI-unverified",
+      "source": "research/feature-config-value-audit.md",
+      "line": 1,
+      "note": "Actual lookup differs from milk-specificwindow; not automatically contradictory."
+    },
+    {
+      "id": "B065",
+      "owner": "Identity",
+      "name": "Identifier policy",
+      "value": "phase1-identifier-v1;global uniqueness;autolinkfalse",
+      "classification": "DB-stored/UI-unverified",
+      "source": "research/feature-config-value-audit.md",
+      "line": 1,
+      "note": "Primaryallowed first/temp only; no editUI confirmed."
+    },
+    {
+      "id": "B066",
+      "owner": "Workforce",
+      "name": "Leave approval configuration",
+      "value": "0observed rows",
+      "classification": "DB-stored/UI-unverified",
+      "source": "research/feature-config-value-audit.md",
+      "line": 1,
+      "note": "Do not invent effective default; service fallback unresolved."
+    },
+    {
+      "id": "B067",
+      "owner": "Workforce / Vaccination",
+      "name": "Assignment/shift configuration",
+      "value": "1and3operators;08:30\u201318,07\u201315,15\u201323:59,08\u201318",
+      "classification": "DB-seed/editable",
+      "source": "research/feature-config-value-audit.md",
+      "line": 1,
+      "note": "Source authoring exists; individual employees omitted."
+    },
+    {
+      "id": "B068",
+      "owner": "Locations",
+      "name": "Operational-use/holding flags",
+      "value": "176rows;1holding;allobservedusable",
+      "classification": "DB-stored/UI-unverified",
+      "source": "research/feature-config-value-audit.md",
+      "line": 1,
+      "note": "Not same as animalstage labels or permissions."
+    },
+    {
+      "id": "B069",
+      "owner": "Counts / Milk / Feed / Weighing",
+      "name": "Published SOP form/proof/compatibility",
+      "value": "12published SOP identities;perfeatureproofcounts/approval/rework",
+      "classification": "DB-seed/editable",
+      "source": "research/feature-config-value-audit.md",
+      "line": 1,
+      "note": "Fulldocuments captured; code hooks and legacy defaults still matter."
+    },
+    {
+      "id": "B070",
+      "owner": "Weighing / Feed",
+      "name": "Feed-water cutoff",
+      "value": "21:00",
+      "classification": "DB-seed/editable",
+      "source": "research/feature-config-value-audit.md",
+      "line": 1,
+      "note": "ActualDBvalue; do not retain earlier hardcoded cutoff claim."
+    },
+    {
+      "id": "B071",
+      "owner": "Market",
+      "name": "Call time",
+      "value": "08:00",
+      "classification": "DB-seed/editable",
+      "source": "research/feature-config-value-audit.md",
+      "line": 1,
+      "note": "ActualDBvalue and existingUI."
+    },
+    {
+      "id": "B072",
+      "owner": "UI contract",
+      "name": "Presentation entries",
+      "value": "0rows",
+      "classification": "DB-stored/UI-unverified",
+      "source": "research/feature-config-value-audit.md",
+      "line": 1,
+      "note": "Not business rule repository."
+    }
+  ]
+}

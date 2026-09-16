@@ -1,0 +1,40 @@
+PASS final integrated hierarchy: actual compiler/action and question choices; direct+category+subcategory union; removal acknowledgement; revoke blocks new compilation; snapshots pinned; serialized reload keeps grants
+PASS actual registry module matcher uses effective inherited access and preserves shared-catalogue origin
+PASS final actual typed-rule/compiler integration: shared source39 changes new branch only, revision pinned35 stays, module revocation and unit mismatch block, zero preserved
+PASS round3 actual stack: stable custom weight identity versus legacy alias, draft/published impact usage, immutable values, revoked grant, discoverable units/percent equivalence, blank quantity unit and proof min/max consistency
+PASS actual-stack branch tester: a/aa membership, NOT, blank, exact choice/catalogue IDs, stale values rejected
+PASS Connected insertion preserves next destination
+PASS Connected insertion preserves yes destination
+PASS Connected insertion preserves no destination
+PASS Decision insertion preserves both outgoing destinations and predecessor question
+PASS Reconnect refuses self, cycle, nonexistent target and invalid source port
+PASS Inspector destination setter uses same cycle refusal
+PASS Linear deletion repairs incoming edge
+PASS Deleting referenced question clears sources, blocks validation, and supports undo
+PASS Decision deletion requests explicit branch selection
+PASS Undo and redo restore full graph and insertion positions
+PASS Fresh edit clears redo history
+PASS Histories scoped to SOP object within same module
+PASS Readonly guards insertion reconnection removal undo
+PASS Published compiled graph stays pinned after draft insertion
+PASS Canvas render exposes insert wire controls and labeled input/output ports
+CANVAS RECEIPT: 15 passed
+PASS Actual node pointer handler moves and selects step with undo history
+PASS Actual output click and input click rewire through canvas function
+CANVAS EVENT RECEIPT: 17 passed
+PASS Actual readonly node pointer cannot start a drag
+CANVAS FINAL: 18 passed
+PASS Live wire endpoints and insert control follow moved source and destination
+CANVAS LIVE WIRES: 19 passed
+PASS 120 pointer moves coalesce to one paint updating only adjacent wires mid-drag
+PASS Release flushes latest coordinates cancels pending frame and adds one history entry
+PASS pointercancel flushes latest pending point and detaches handlers
+PASS lostpointercapture flushes latest pending point and detaches handlers
+CANVAS DRAG RECEIPT: 23 passed
+PASS Pan pointerup flushes latest point and clears gesture
+PASS Pan pointercancel flushes latest point and clears gesture
+PASS Pan lostpointercapture flushes latest point and clears gesture
+PASS Secondary mouse button cannot start pan or node movement
+CANVAS PAN RECEIPT: 27 passed
+PASS consumer previews: threshold changes only counts; valuation changes only valuation; zero retained; Sales Config preserves transaction semantics
+PASS revoked module relation blocks bound preview; restoring relation restores consumption

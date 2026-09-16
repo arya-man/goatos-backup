@@ -1,0 +1,16 @@
+const fs=require('fs'),vm=require('vm'),assert=require('assert');
+const values={reporting_weight_30:30,reporting_weight_35:35,valuation_fattening_rate:450};
+const content={innerHTML:'',querySelectorAll:()=>[]};
+const c={console,configView(){},commonView(){},configNumber:(k,f)=>values[k]??f,configValueByKey:k=>({id:k,value:values[k]}),document:{querySelector:()=>content},esc:String,canEdit:()=>true,availableItems:()=>[]};vm.createContext(c);vm.runInContext(fs.readFileSync(__dirname+'/consumer-surfaces.js','utf8'),c);
+assert.equal(c.consumerWeightSummary(undefined,35).above,60);assert.equal(c.consumerWeightSummary(undefined,30).above,193);
+const weight=c.consumerWeightSummary().weight,originalValue=c.consumerValuation(weight,450);
+c.renderConsumerSurface('Weighing','ADG Analytics');assert(content.innerHTML.includes('Over 35 kg'));assert(content.innerHTML.includes('do not prohibit a sale'));
+values.reporting_weight_35=39;c.renderConsumerSurface('Weighing','ADG Analytics');assert(content.innerHTML.includes('Over 39 kg'));assert.equal(c.consumerWeightSummary(undefined,39).above,0);assert.equal(c.consumerValuation(weight,values.valuation_fattening_rate),originalValue);
+values.valuation_fattening_rate=500;c.renderConsumerSurface('Sales','Farm value');assert(content.innerHTML.includes('₹500'));assert.equal(c.consumerValuation(weight,500)-originalValue,weight*50);assert.equal(values.reporting_weight_35,39);
+values.valuation_fattening_rate=0;c.renderConsumerSurface('Sales','Farm value');assert(content.innerHTML.includes('₹0'));
+c.renderConsumerSurface('Sales','Sales Config');assert(content.innerHTML.includes('Record sale'));assert(!content.innerHTML.includes('Minimum sale weight'));assert(content.innerHTML.includes('recorded market prices'));
+assert.equal(c.renderConsumerSurface('Other','Unknown'),false);
+console.log('PASS consumer previews: threshold changes only counts; valuation changes only valuation; zero retained; Sales Config preserves transaction semantics');
+c.configValuesForModule=()=>[];
+c.renderConsumerSurface('Sales','Farm value');assert(content.innerHTML.includes('Configuration needs attention'));assert(!content.innerHTML.includes('₹500'));assert.equal(c.consumerNumber('valuation_fattening_rate',450),null);
+c.configValuesForModule=()=>[{configKey:'valuation_fattening_rate'}];c.renderConsumerSurface('Sales','Farm value');assert(content.innerHTML.includes('Valuation breakdown'));console.log('PASS revoked module relation blocks bound preview; restoring relation restores consumption');

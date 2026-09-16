@@ -1,0 +1,676 @@
+ current_database | current_setting |              now              
+------------------+-----------------+-------------------------------
+ goatos           | on              | 2026-09-16 14:44:51.600104+00
+(1 row)
+
+               table_name                |                      constraint_name                      |                                                                                                                                                  definition                                                                                                                                                  
+-----------------------------------------+-----------------------------------------------------------+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ admin_ui_config_entries                 | admin_ui_config_entries_key_check                         | CHECK ((btrim(config_key) <> ''::text))
+ admin_ui_config_entries                 | admin_ui_config_entries_kind_check                        | CHECK ((value_kind = ANY (ARRAY['text'::text, 'label'::text, 'title'::text, 'copy'::text, 'tone'::text, 'disabled_reason'::text])))
+ admin_ui_config_entries                 | admin_ui_config_entries_locale_check                      | CHECK ((btrim(locale) <> ''::text))
+ admin_ui_config_entries                 | admin_ui_config_entries_metadata_object_check             | CHECK ((jsonb_typeof(metadata) = 'object'::text))
+ admin_ui_config_entries                 | admin_ui_config_entries_row_version_check                 | CHECK ((row_version >= 1))
+ admin_ui_config_entries                 | admin_ui_config_entries_status_check                      | CHECK ((status = ANY (ARRAY['active'::text, 'retired'::text])))
+ admin_ui_config_family_change_queue     | admin_ui_config_family_change_queue_count_check           | CHECK ((change_count >= 1))
+ admin_ui_config_family_change_queue     | admin_ui_config_family_change_queue_family_check          | CHECK ((btrim(family_key) <> ''::text))
+ admin_ui_config_family_change_queue     | admin_ui_config_family_change_queue_metadata_object_check | CHECK ((jsonb_typeof(metadata) = 'object'::text))
+ admin_ui_config_family_change_queue     | admin_ui_config_family_change_queue_source_check          | CHECK ((btrim(source) <> ''::text))
+ admin_ui_config_family_revisions        | admin_ui_config_family_key_check                          | CHECK ((btrim(family_key) <> ''::text))
+ admin_ui_config_family_revisions        | admin_ui_config_family_metadata_object_check              | CHECK ((jsonb_typeof(metadata) = 'object'::text))
+ admin_ui_config_family_revisions        | admin_ui_config_family_revision_check                     | CHECK ((revision >= 1))
+ animal_stage_lookup                     | animal_stage_lookup_age_band_check                        | CHECK (((age_band IS NULL) OR (age_band = ANY (ARRAY['kid'::text, 'adult'::text]))))
+ animal_stage_lookup                     | animal_stage_lookup_age_check                             | CHECK (((min_age_days IS NULL) OR (max_age_days IS NULL) OR (max_age_days >= min_age_days)))
+ animal_stage_lookup                     | animal_stage_lookup_status_check                          | CHECK ((status = ANY (ARRAY['active'::text, 'inactive'::text, 'retired'::text])))
+ bulk_status_job                         | bulk_status_job_axis_check                                | CHECK ((axis = ANY (ARRAY['reproductive'::text, 'health'::text, 'exit'::text])))
+ bulk_status_job                         | bulk_status_job_state_check                               | CHECK ((state = ANY (ARRAY['pending'::text, 'running'::text, 'completed'::text, 'failed'::text, 'canceled'::text])))
+ bulk_status_job_row                     | bulk_status_job_row_axis_check                            | CHECK ((axis = ANY (ARRAY['reproductive'::text, 'health'::text, 'exit'::text])))
+ bulk_status_job_row                     | bulk_status_job_row_state_check                           | CHECK ((row_state = ANY (ARRAY['pending'::text, 'claimed'::text, 'applied'::text, 'skipped'::text, 'error'::text, 'retry'::text])))
+ feed_config_write_log                   | feed_config_write_log_actor_check                         | CHECK ((btrim(actor_ref) <> ''::text))
+ feed_config_write_log                   | feed_config_write_log_idem_check                          | CHECK (((btrim(idempotency_key) <> ''::text) AND (btrim(request_fingerprint) <> ''::text)))
+ feed_config_write_log                   | feed_config_write_log_insert_shape_check                  | CHECK (((outcome <> ALL (ARRAY['inserted'::text, 'corrected'::text])) OR (result_row_id IS NOT NULL)))
+ feed_config_write_log                   | feed_config_write_log_kind_check                          | CHECK ((write_kind = ANY (ARRAY['ration_rate'::text, 'shed_factor'::text, 'schedule_config'::text, 'experiment_config'::text, 'feed_item'::text, 'session_template_item'::text])))
+ feed_config_write_log                   | feed_config_write_log_outcome_check                       | CHECK ((outcome = ANY (ARRAY['inserted'::text, 'superseded'::text, 'corrected'::text, 'unchanged'::text])))
+ feed_config_write_log                   | feed_config_write_log_supersede_shape_check               | CHECK (((outcome <> 'superseded'::text) OR ((result_row_id IS NOT NULL) AND (superseded_row_id IS NOT NULL))))
+ feed_conversions                        | feed_conversions_from_label_not_blank                     | CHECK ((btrim(from_item_label) <> ''::text))
+ feed_conversions                        | feed_conversions_not_self                                 | CHECK ((feed_config_norm(from_item_label) <> feed_config_norm(to_item_label)))
+ feed_conversions                        | feed_conversions_ratio_check                              | CHECK ((ratio > (0)::numeric))
+ feed_conversions                        | feed_conversions_status_check                             | CHECK ((status = ANY (ARRAY['active'::text, 'retired'::text])))
+ feed_conversions                        | feed_conversions_to_label_not_blank                       | CHECK ((btrim(to_item_label) <> ''::text))
+ feed_direction_completions              | feed_direction_completions_head_count_check               | CHECK (((head_count IS NULL) OR (head_count >= 0)))
+ feed_direction_completions              | feed_direction_completions_quantity_check                 | CHECK (((quantity_fed IS NULL) OR (quantity_fed > (0)::numeric)))
+ feed_direction_completions              | feed_direction_completions_row_version_check              | CHECK ((row_version >= 1))
+ feed_direction_completions              | feed_direction_completions_status_check                   | CHECK ((status = ANY (ARRAY['recorded'::text, 'accepted'::text, 'rejected'::text, 'reversed'::text])))
+ feed_direction_issue_rows               | feed_direction_issue_rows_amended_shape_check             | CHECK (((amended = false) OR (amended_at IS NOT NULL)))
+ feed_direction_issue_rows               | feed_direction_issue_rows_blocked_shape_check             | CHECK ((((quantity_kg IS NULL) AND (blocked_reason_code IS NOT NULL)) OR ((quantity_kg IS NOT NULL) AND (blocked_reason_code IS NULL))))
+ feed_direction_issue_rows               | feed_direction_issue_rows_seq_check                       | CHECK (((row_seq >= 0) AND (item_seq >= 0)))
+ feed_direction_issue_rows               | feed_direction_issue_rows_workflow_check                  | CHECK ((workflow = ANY (ARRAY['normal'::text, 'experiment'::text])))
+ feed_direction_issues                   | feed_direction_issues_amended_shape_check                 | CHECK (((state <> 'amended'::text) OR (amended_at IS NOT NULL)))
+ feed_direction_issues                   | feed_direction_issues_amendment_count_check               | CHECK ((amendment_count >= 0))
+ feed_direction_issues                   | feed_direction_issues_fingerprint_check                   | CHECK ((btrim(generation_input_fingerprint) <> ''::text))
+ feed_direction_issues                   | feed_direction_issues_generated_by_check                  | CHECK ((btrim(generated_by) <> ''::text))
+ feed_direction_issues                   | feed_direction_issues_idem_check                          | CHECK (((btrim(idempotency_key) <> ''::text) AND (btrim(request_fingerprint) <> ''::text)))
+ feed_direction_issues                   | feed_direction_issues_locked_shape_check                  | CHECK (((state <> 'locked'::text) OR (locked_at IS NOT NULL)))
+ feed_direction_issues                   | feed_direction_issues_source_check                        | CHECK (((btrim(source_contract) <> ''::text) AND (btrim(source_contract_version) <> ''::text)))
+ feed_direction_issues                   | feed_direction_issues_state_check                         | CHECK ((state = ANY (ARRAY['issued'::text, 'amended'::text, 'locked'::text])))
+ feed_direction_issues                   | feed_direction_issues_workflow_check                      | CHECK ((workflow = ANY (ARRAY['normal'::text, 'experiment'::text])))
+ feed_direction_session_completions      | feed_direction_session_completions_proof_array_check      | CHECK ((jsonb_typeof(proof_refs) = 'array'::text))
+ feed_direction_session_completions      | feed_direction_session_completions_session_no_check       | CHECK ((session_no >= 1))
+ feed_direction_session_completions      | feed_direction_session_completions_status_check           | CHECK ((status = 'completed'::text))
+ feed_direction_session_completions      | feed_direction_session_completions_workflow_check         | CHECK ((workflow = ANY (ARRAY['normal'::text, 'experiment'::text])))
+ feed_distribution_completions           | feed_distribution_completions_proof_check                 | CHECK (((status <> ALL (ARRAY['pending_verification'::text, 'completed'::text])) OR ((distribution_proof_ref IS NOT NULL) AND (btrim(distribution_proof_ref) <> ''::text) AND (water_proof_ref IS NOT NULL) AND (btrim(water_proof_ref) <> ''::text))))
+ feed_distribution_completions           | feed_distribution_completions_session_no_check            | CHECK ((session_no >= 1))
+ feed_distribution_completions           | feed_distribution_completions_status_check                | CHECK ((status = ANY (ARRAY['pending_verification'::text, 'completed'::text, 'rework'::text])))
+ feed_distribution_completions           | feed_distribution_completions_weight_proof_check          | CHECK (((status <> 'pending_verification'::text) OR ((feed_weight_proof_ref IS NOT NULL) AND (btrim(feed_weight_proof_ref) <> ''::text)))) NOT VALID
+ feed_distribution_completions           | feed_distribution_completions_workflow_check              | CHECK ((workflow = ANY (ARRAY['normal'::text, 'experiment'::text])))
+ feed_experiment_basis_conversions       | feed_experiment_basis_conversions_head_count_check        | CHECK ((head_count > 0))
+ feed_experiment_config                  | feed_experiment_config_absolute_kg_check                  | CHECK ((absolute_kg >= (0)::numeric))
+ feed_experiment_config                  | feed_experiment_config_basis_pairing_check                | CHECK ((((quantity_basis = 'absolute_kg'::text) AND (absolute_kg IS NOT NULL) AND (grams_per_head IS NULL)) OR ((quantity_basis = 'grams_per_head'::text) AND (grams_per_head IS NOT NULL) AND (absolute_kg IS NULL))))
+ feed_experiment_config                  | feed_experiment_config_category_not_blank                 | CHECK ((btrim(experiment_category) <> ''::text))
+ feed_experiment_config                  | feed_experiment_config_grams_per_head_check               | CHECK (((grams_per_head IS NULL) OR (grams_per_head >= (0)::numeric)))
+ feed_experiment_config                  | feed_experiment_config_head_count_check                   | CHECK (((head_count IS NULL) OR (head_count >= 0)))
+ feed_experiment_config                  | feed_experiment_config_item_label_not_blank               | CHECK ((btrim(feed_item_label) <> ''::text))
+ feed_experiment_config                  | feed_experiment_config_quantity_basis_check               | CHECK ((quantity_basis = ANY (ARRAY['absolute_kg'::text, 'grams_per_head'::text])))
+ feed_experiment_config                  | feed_experiment_config_source_check                       | CHECK ((source = ANY (ARRAY['workbook'::text, 'app'::text])))
+ feed_experiment_config                  | feed_experiment_config_status_check                       | CHECK ((status = ANY (ARRAY['active'::text, 'retired'::text])))
+ feed_external_consumption               | feed_external_consumption_farm_check                      | CHECK ((btrim(farm_label) <> ''::text))
+ feed_external_consumption               | feed_external_consumption_quantity_check                  | CHECK ((quantity_kg >= (0)::numeric))
+ feed_item_catalog                       | feed_item_catalog_dry_matter_check                        | CHECK (((dry_matter_factor IS NULL) OR ((dry_matter_factor > (0)::numeric) AND (dry_matter_factor <= (1)::numeric))))
+ feed_item_catalog                       | feed_item_catalog_energy_check                            | CHECK (((energy_kcal_per_kg IS NULL) OR (energy_kcal_per_kg >= (0)::numeric)))
+ feed_item_catalog                       | feed_item_catalog_label_not_blank                         | CHECK ((btrim(feed_item_label) <> ''::text))
+ feed_item_catalog                       | feed_item_catalog_status_check                            | CHECK ((status = ANY (ARRAY['active'::text, 'retired'::text])))
+ feed_item_catalog                       | feed_item_catalog_wastage_check                           | CHECK (((wastage_factor IS NULL) OR ((wastage_factor >= (0)::numeric) AND (wastage_factor < (1)::numeric))))
+ feed_packing_completions                | feed_packing_completions_packed_head_count_ck             | CHECK (((packed_head_count IS NULL) OR (packed_head_count >= 0)))
+ feed_packing_completions                | feed_packing_completions_packed_total_kg_ck               | CHECK (((packed_total_kg IS NULL) OR (packed_total_kg >= (0)::numeric)))
+ feed_packing_completions                | feed_packing_completions_proof_check                      | CHECK (((status <> ALL (ARRAY['pending_verification'::text, 'completed'::text])) OR ((packing_proof_ref IS NOT NULL) AND (btrim(packing_proof_ref) <> ''::text))))
+ feed_packing_completions                | feed_packing_completions_session_no_check                 | CHECK ((session_no >= 1)) NOT VALID
+ feed_packing_completions                | feed_packing_completions_status_check                     | CHECK ((status = ANY (ARRAY['pending_verification'::text, 'completed'::text, 'rework'::text])))
+ feed_packing_completions                | feed_packing_completions_workflow_check                   | CHECK ((workflow = ANY (ARRAY['normal'::text, 'experiment'::text])))
+ feed_packing_verified_quantities        | feed_packing_verified_quantities_key_nonblank             | CHECK ((btrim(feed_item_key) <> ''::text))
+ feed_packing_verified_quantities        | feed_packing_verified_quantities_kg_range                 | CHECK (((entered_kg >= (0)::numeric) AND (entered_kg <= (10000)::numeric)))
+ feed_purchase_payments                  | feed_purchase_payments_amount_check                       | CHECK ((amount_rupees > (0)::numeric))
+ feed_purchases                          | feed_purchases_consumed_check                             | CHECK ((consumed_at_import_kg >= (0)::numeric))
+ feed_purchases                          | feed_purchases_delivery_status_check                      | CHECK ((delivery_status = ANY (ARRAY['purchased'::text, 'reached'::text])))
+ feed_purchases                          | feed_purchases_entry_source_check                         | CHECK ((entry_source = ANY (ARRAY['sheet_import'::text, 'app'::text])))
+ feed_purchases                          | feed_purchases_farm_check                                 | CHECK ((btrim(farm_label) <> ''::text))
+ feed_purchases                          | feed_purchases_quantity_check                             | CHECK ((quantity_kg > (0)::numeric))
+ feed_purchases                          | feed_purchases_reached_on_check                           | CHECK (((delivery_status <> 'purchased'::text) OR (reached_on IS NULL)))
+ feed_purchases                          | feed_purchases_reached_weight_check                       | CHECK (((reached_weight_kg IS NULL) OR ((reached_weight_kg > (0)::numeric) AND (delivery_status = 'reached'::text))))
+ feed_ration_groups                      | feed_ration_groups_breed_label_not_blank                  | CHECK ((btrim(breed_label) <> ''::text))
+ feed_ration_groups                      | feed_ration_groups_group_label_not_blank                  | CHECK ((btrim(ration_group_label) <> ''::text))
+ feed_ration_rates                       | feed_ration_rates_grams_check                             | CHECK ((grams_per_head >= (0)::numeric))
+ feed_ration_rates                       | feed_ration_rates_group_label_not_blank                   | CHECK ((btrim(ration_group_label) <> ''::text))
+ feed_ration_rates                       | feed_ration_rates_item_label_not_blank                    | CHECK ((btrim(feed_item_label) <> ''::text))
+ feed_ration_rates                       | feed_ration_rates_tag_label_not_blank                     | CHECK ((btrim(shed_tag_label) <> ''::text))
+ feed_ration_rates                       | feed_ration_rates_window_check                            | CHECK (((valid_to IS NULL) OR (valid_to > valid_from)))
+ feed_schedule_config                    | feed_schedule_config_correction_order_check               | CHECK ((correction_time >= direction_time))
+ feed_schedule_config                    | feed_schedule_config_transport_order_check                | CHECK (((transport_time IS NULL) OR (transport_time >= correction_time)))
+ feed_schedule_config                    | feed_schedule_config_window_check                         | CHECK (((valid_to IS NULL) OR (valid_to > valid_from)))
+ feed_schedule_config                    | feed_schedule_config_workflow_check                       | CHECK ((workflow = ANY (ARRAY['normal'::text, 'experiment'::text])))
+ feed_session_template_items             | feed_session_template_items_item_label_not_blank          | CHECK ((btrim(feed_item_label) <> ''::text))
+ feed_session_template_items             | feed_session_template_items_session_no_check              | CHECK ((session_no >= 1))
+ feed_session_template_items             | feed_session_template_items_slot_no_check                 | CHECK ((slot_no >= 1))
+ feed_session_template_items             | feed_session_template_items_status_check                  | CHECK ((status = ANY (ARRAY['active'::text, 'retired'::text])))
+ feed_session_template_items             | feed_session_template_items_window_check                  | CHECK (((valid_to IS NULL) OR (valid_to > valid_from)))
+ feed_session_templates                  | feed_session_templates_label_not_blank                    | CHECK ((btrim(session_label) <> ''::text))
+ feed_session_templates                  | feed_session_templates_session_no_check                   | CHECK ((session_no >= 1))
+ feed_session_templates                  | feed_session_templates_split_check                        | CHECK (((split_fraction > (0)::numeric) AND (split_fraction <= (1)::numeric)))
+ feed_session_templates                  | feed_session_templates_status_check                       | CHECK ((status = ANY (ARRAY['active'::text, 'retired'::text])))
+ feed_shed_factors                       | feed_shed_factors_item_label_not_blank                    | CHECK ((btrim(feed_item_label) <> ''::text))
+ feed_shed_factors                       | feed_shed_factors_multiplier_check                        | CHECK ((multiplier >= (0)::numeric))
+ feed_shed_factors                       | feed_shed_factors_window_check                            | CHECK (((valid_to IS NULL) OR (valid_to > valid_from)))
+ feed_shed_tags                          | feed_shed_tags_applies_to_check                           | CHECK ((applies_to = ANY (ARRAY['adult'::text, 'kid'::text])))
+ feed_shed_tags                          | feed_shed_tags_label_not_blank                            | CHECK ((btrim(shed_tag_label) <> ''::text))
+ feed_shed_tags                          | feed_shed_tags_status_check                               | CHECK ((status = ANY (ARRAY['active'::text, 'retired'::text])))
+ feed_transport_attempts                 | feed_transport_attempts_number_check                      | CHECK ((attempt_no >= 1))
+ feed_transport_attempts                 | feed_transport_attempts_proof_check                       | CHECK ((btrim(proof_ref) <> ''::text))
+ feed_transport_attempts                 | feed_transport_attempts_status_check                      | CHECK ((status = ANY (ARRAY['verification_due'::text, 'approved'::text, 'rejected'::text])))
+ feed_transport_tasks                    | feed_transport_tasks_status_check                         | CHECK ((status = ANY (ARRAY['due'::text, 'verification_due'::text, 'rework'::text, 'completed'::text, 'retired'::text])))
+ feed_wastage_completions                | feed_wastage_completions_kg_range_check                   | CHECK (((wastage_kg IS NULL) OR (wastage_kg >= (0)::numeric)))
+ feed_wastage_completions                | feed_wastage_completions_measurement_check                | CHECK ((((wastage_kg IS NULL) AND (wastage_recorded_by IS NULL) AND (wastage_recorded_at IS NULL)) OR ((wastage_kg IS NOT NULL) AND (wastage_recorded_by IS NOT NULL) AND (wastage_recorded_at IS NOT NULL))))
+ feed_wastage_completions                | feed_wastage_completions_proof_check                      | CHECK (((status <> ALL (ARRAY['pending_verification'::text, 'completed'::text])) OR ((wastage_proof_ref IS NOT NULL) AND (btrim(wastage_proof_ref) <> ''::text))))
+ feed_wastage_completions                | feed_wastage_completions_status_check                     | CHECK ((status = ANY (ARRAY['pending_verification'::text, 'completed'::text, 'rework'::text])))
+ feed_wastage_completions                | feed_wastage_completions_workflow_check                   | CHECK ((workflow = 'experiment'::text))
+ goat_identifiers                        | goat_identifiers_confidence_check                         | CHECK (((confidence IS NULL) OR ((confidence >= (0)::numeric) AND (confidence <= (1)::numeric))))
+ goat_identifiers                        | goat_identifiers_scope_key_check                          | CHECK ((length(scope_key) > 0))
+ goat_identifiers                        | goat_identifiers_status_check                             | CHECK ((status = ANY (ARRAY['active'::text, 'retired'::text, 'disputed'::text, 'duplicate'::text, 'invalid'::text])))
+ goat_identifiers                        | goat_identifiers_type_check                               | CHECK ((identifier_type = ANY (ARRAY['animal_identifier_1'::text, 'animal_identifier_2'::text, 'temporary_tag'::text, 'smart_ble_tag'::text])))
+ goat_identifiers                        | goat_identifiers_valid_window_check                       | CHECK (((valid_to IS NULL) OR (valid_to > valid_from)))
+ health_cases                            | health_cases_age_band_check                               | CHECK ((age_band = ANY (ARRAY['adult'::text, 'kid'::text])))
+ health_cases                            | health_cases_death_cause_is_closed_dead_check             | CHECK (((NOT is_death_cause) OR (status = 'closed_dead'::text)))
+ health_cases                            | health_cases_duration_days_check                          | CHECK (((duration_days >= 1) AND (duration_days <= 90)))
+ health_cases                            | health_cases_duration_matches_exit_type                   | CHECK (((exit_type = 'F'::text) = (duration_days IS NOT NULL)))
+ health_cases                            | health_cases_exit_type_check                              | CHECK ((exit_type = ANY (ARRAY['F'::text, 'T'::text, 'V'::text, 'Supportive'::text])))
+ health_cases                            | health_cases_row_version_check                            | CHECK ((row_version >= 1))
+ health_cases                            | health_cases_status_check                                 | CHECK ((status = ANY (ARRAY['active'::text, 'recovered'::text, 'continued'::text, 'referred'::text, 'held_death_review'::text, 'closed_dead'::text, 'canceled'::text])))
+ health_config_write_log                 | health_config_write_log_actor_check                       | CHECK ((btrim(actor_ref) <> ''::text))
+ health_config_write_log                 | health_config_write_log_age_band_check                    | CHECK (((age_band IS NULL) OR (age_band = ANY (ARRAY['adult'::text, 'kid'::text]))))
+ health_config_write_log                 | health_config_write_log_disease_check                     | CHECK ((btrim(disease_key) <> ''::text))
+ health_config_write_log                 | health_config_write_log_idem_check                        | CHECK (((btrim(idempotency_key) <> ''::text) AND (btrim(request_fingerprint) <> ''::text)))
+ health_config_write_log                 | health_config_write_log_kind_check                        | CHECK ((write_kind = ANY (ARRAY['disease_create'::text, 'draft_save'::text, 'draft_publish'::text, 'draft_discard'::text])))
+ health_config_write_log                 | health_config_write_log_outcome_check                     | CHECK ((outcome = ANY (ARRAY['created'::text, 'saved'::text, 'unchanged'::text, 'published'::text, 'discarded'::text])))
+ health_config_write_log                 | health_config_write_log_publish_shape_check               | CHECK (((outcome <> 'published'::text) OR (result_version_id IS NOT NULL)))
+ health_config_write_log                 | health_config_write_log_retire_shape_check                | CHECK (((retired_version_id IS NULL) OR (outcome = 'published'::text)))
+ health_config_write_log                 | health_config_write_log_saved_shape_check                 | CHECK (((outcome <> ALL (ARRAY['saved'::text, 'unchanged'::text])) OR (result_version_id IS NOT NULL)))
+ health_death_causes                     | health_death_causes_cause_key_check                       | CHECK ((btrim(cause_key) <> ''::text))
+ health_death_causes                     | health_death_causes_cause_kind_check                      | CHECK ((cause_kind = ANY (ARRAY['register_rule'::text, 'disease_key'::text])))
+ health_diagnosis_runs                   | health_diagnosis_runs_confirmation_complete               | CHECK (((status = ANY (ARRAY['confirmed'::text, 'declined'::text])) = ((confirmed_by IS NOT NULL) AND (confirmed_at IS NOT NULL) AND (confirmation_idempotency_key IS NOT NULL) AND (confirmation_fingerprint IS NOT NULL))))
+ health_diagnosis_runs                   | health_diagnosis_runs_confirmation_empty_until_confirmed  | CHECK (((status = ANY (ARRAY['confirmed'::text, 'declined'::text])) OR ((confirmed_by IS NULL) AND (confirmed_at IS NULL) AND (confirmation_idempotency_key IS NULL) AND (confirmation_fingerprint IS NULL))))
+ health_diagnosis_runs                   | health_diagnosis_runs_invalid_is_terminal                 | CHECK ((valid OR (status <> ALL (ARRAY['confirmed'::text, 'declined'::text]))))
+ health_diagnosis_runs                   | health_diagnosis_runs_reject_reason_matches_valid         | CHECK ((valid = (reject_reason IS NULL)))
+ health_diagnosis_runs                   | health_diagnosis_runs_row_version_check                   | CHECK ((row_version >= 1))
+ health_diagnosis_runs                   | health_diagnosis_runs_status_check                        | CHECK ((status = ANY (ARRAY['proposed'::text, 'confirmed'::text, 'declined'::text, 'superseded'::text])))
+ health_protocol_steps                   | health_protocol_steps_content_check                       | CHECK ((((record_type = 'medication'::text) AND (length(btrim(COALESCE(medicine_name, ''::text))) > 0)) OR ((record_type <> 'medication'::text) AND (length(btrim(COALESCE(instruction, ''::text))) > 0))))
+ health_protocol_steps                   | health_protocol_steps_critical_action_type_check          | CHECK (((critical_action_type IS NULL) OR (critical_action_type = ANY (ARRAY['lifecycle_exit'::text, 'quarantine_or_movement'::text]))))
+ health_protocol_steps                   | health_protocol_steps_critical_check                      | CHECK (((record_type = 'critical_action'::text) = (critical_action_type IS NOT NULL)))
+ health_protocol_steps                   | health_protocol_steps_day_no_check                        | CHECK (((day_no >= 1) AND (day_no <= 90)))
+ health_protocol_steps                   | health_protocol_steps_record_type_check                   | CHECK ((record_type = ANY (ARRAY['action'::text, 'medication'::text, 'critical_action'::text])))
+ health_protocol_steps                   | health_protocol_steps_seq_check                           | CHECK ((seq >= 1))
+ health_protocol_steps                   | health_protocol_steps_session_check                       | CHECK ((session = ANY (ARRAY['morning'::text, 'afternoon'::text, 'evening'::text, 'unscheduled'::text])))
+ health_protocol_versions                | health_protocol_versions_age_band_check                   | CHECK ((age_band = ANY (ARRAY['adult'::text, 'kid'::text])))
+ health_protocol_versions                | health_protocol_versions_disease_key_check                | CHECK ((disease_key ~ '^[a-z][a-z0-9_]*$'::text))
+ health_protocol_versions                | health_protocol_versions_display_name_check               | CHECK ((length(btrim(display_name)) > 0))
+ health_protocol_versions                | health_protocol_versions_duration_days_check              | CHECK (((duration_days >= 1) AND (duration_days <= 90)))
+ health_protocol_versions                | health_protocol_versions_status_check                     | CHECK ((status = ANY (ARRAY['draft'::text, 'published'::text, 'retired'::text])))
+ health_protocol_versions                | health_protocol_versions_version_check                    | CHECK ((version >= 1))
+ health_session_steps                    | health_session_steps_record_type_check                    | CHECK ((record_type = ANY (ARRAY['action'::text, 'medication'::text, 'critical_action'::text])))
+ health_session_steps                    | health_session_steps_seq_check                            | CHECK ((seq >= 1))
+ health_session_steps                    | health_session_steps_status_check                         | CHECK ((status = ANY (ARRAY['pending'::text, 'completed'::text, 'guarded'::text])))
+ health_treatment_sessions               | health_treatment_sessions_day_no_check                    | CHECK (((day_no >= 1) AND (day_no <= 90)))
+ health_treatment_sessions               | health_treatment_sessions_row_version_check               | CHECK ((row_version >= 1))
+ health_treatment_sessions               | health_treatment_sessions_session_check                   | CHECK ((session = ANY (ARRAY['morning'::text, 'afternoon'::text, 'evening'::text, 'unscheduled'::text])))
+ health_treatment_sessions               | health_treatment_sessions_status_check                    | CHECK ((status = ANY (ARRAY['scheduled'::text, 'due'::text, 'in_progress'::text, 'completed'::text, 'rework'::text, 'held_death_review'::text, 'canceled_death'::text, 'canceled'::text])))
+ identifier_policies                     | identifier_policies_active_uniqueness_check               | CHECK ((active_uniqueness = ANY (ARRAY['global'::text, 'scoped'::text, 'non_unique'::text])))
+ identifier_policies                     | identifier_policies_identifier_type_check                 | CHECK ((identifier_type = ANY (ARRAY['animal_identifier_1'::text, 'animal_identifier_2'::text, 'temporary_tag'::text, 'smart_ble_tag'::text])))
+ identifier_policies                     | identifier_policies_invalid_value_action_check            | CHECK ((invalid_value_action = ANY (ARRAY['review'::text, 'reject'::text])))
+ identifier_policies                     | identifier_policies_missing_scope_action_check            | CHECK ((missing_or_conflicting_scope_action = ANY (ARRAY['review'::text, 'reject'::text])))
+ identifier_policies                     | identifier_policies_unknown_scope_action_check            | CHECK ((unknown_scope_action = ANY (ARRAY['review'::text, 'reject'::text])))
+ identifier_policy_versions              | identifier_policy_versions_status_check                   | CHECK ((status = ANY (ARRAY['draft'::text, 'approved'::text, 'retired'::text])))
+ identity_decision_identifiers           | identity_decision_identifiers_action_check                | CHECK ((action = ANY (ARRAY['attach'::text, 'retire'::text, 'dispute'::text, 'transfer'::text, 'preserve'::text, 'reject'::text])))
+ inventory_items                         | inventory_items_category_check                            | CHECK ((category = ANY (ARRAY['vaccine'::text, 'dewormer'::text, 'medicine'::text, 'feed'::text, 'supplement'::text, 'consumable'::text, 'other'::text])))
+ inventory_items                         | inventory_items_row_version_check                         | CHECK ((row_version >= 1))
+ inventory_items                         | inventory_items_status_check                              | CHECK ((status = ANY (ARRAY['active'::text, 'inactive'::text, 'retired'::text])))
+ inventory_stock                         | inventory_stock_qty_check                                 | CHECK ((quantity_in_stock >= (0)::numeric))
+ inventory_stock                         | inventory_stock_reserved_check                            | CHECK ((quantity_reserved >= (0)::numeric))
+ inventory_stock                         | inventory_stock_reserved_le_check                         | CHECK ((quantity_reserved <= quantity_in_stock))
+ inventory_stock                         | inventory_stock_row_version_check                         | CHECK ((row_version >= 1))
+ inventory_stock                         | inventory_stock_status_check                              | CHECK ((status = ANY (ARRAY['active'::text, 'expired'::text, 'quarantined'::text, 'depleted'::text])))
+ inventory_stock_movements               | inventory_stock_movements_quantity_check                  | CHECK ((quantity > (0)::numeric))
+ inventory_stock_movements               | inventory_stock_movements_type_check                      | CHECK ((movement_type = ANY (ARRAY['receive'::text, 'reserve'::text, 'consume'::text, 'release'::text, 'adjust'::text, 'expire'::text, 'transfer_out'::text, 'transfer_in'::text])))
+ milk_feeding_attempts                   | milk_feeding_attempts_attempt_no_check                    | CHECK ((attempt_no > 0))
+ milk_feeding_farm_watchlist             | milk_feeding_farm_watchlist_added_session_check           | CHECK (((added_session >= 1) AND (added_session <= 4)))
+ milk_feeding_farm_watchlist             | milk_feeding_farm_watchlist_consecutive_yes_check         | CHECK (((consecutive_yes >= 0) AND (consecutive_yes <= 1)))
+ milk_feeding_tasks                      | milk_feeding_tasks_active_farm_grain_check                | CHECK (((status = 'retired'::text) OR (shed_id IS NULL)))
+ milk_feeding_tasks                      | milk_feeding_tasks_current_attempt_no_check               | CHECK ((current_attempt_no >= 0))
+ milk_feeding_tasks                      | milk_feeding_tasks_head_count_check                       | CHECK ((head_count >= 0))
+ milk_feeding_tasks                      | milk_feeding_tasks_session_no_check                       | CHECK (((session_no >= 1) AND (session_no <= 4)))
+ milk_feeding_tasks                      | milk_feeding_tasks_status_check                           | CHECK ((status = ANY (ARRAY['not_submitted'::text, 'pending_verification'::text, 'completed'::text, 'rework'::text, 'retired'::text])))
+ milk_feeding_watchlist                  | milk_feeding_watchlist_added_session_check                | CHECK (((added_session >= 1) AND (added_session <= 4)))
+ milk_feeding_watchlist                  | milk_feeding_watchlist_consecutive_yes_check              | CHECK (((consecutive_yes >= 0) AND (consecutive_yes <= 1)))
+ milk_preparation_completions            | milk_preparation_completions_active_farm_grain_check      | CHECK (((status = 'retired'::text) OR (shed_id IS NULL)))
+ milk_preparation_completions            | milk_preparation_completions_attempt_check                | CHECK ((current_attempt_no >= 1))
+ milk_preparation_completions            | milk_preparation_completions_date_check                   | CHECK ((feeding_date = (preparation_date + 1)))
+ milk_preparation_completions            | milk_preparation_completions_status_check                 | CHECK ((status = ANY (ARRAY['pending_verification'::text, 'completed'::text, 'rework'::text, 'retired'::text])))
+ milk_preparation_proof_attempts         | milk_preparation_proof_attempts_attempt_check             | CHECK ((attempt_no >= 1))
+ milk_preparation_proof_attempts         | milk_preparation_proof_attempts_proofs_check              | CHECK (((jsonb_typeof(proof_refs) = 'object'::text) AND (jsonb_array_length(jsonb_path_query_array(proof_refs, '$.keyvalue()'::jsonpath)) = ANY (ARRAY[2, 5]))))
+ obligation_status_events                | obligation_status_events_type_check                       | CHECK ((event_type = ANY (ARRAY['scheduled'::text, 'became_due'::text, 'dispatched'::text, 'in_progress'::text, 'completed'::text, 'missed'::text, 'waived'::text, 'escalated'::text, 'escalation_acknowledged'::text, 'escalation_resolved'::text, 'canceled'::text, 'deferred'::text, 'rescoped'::text])))
+ pc_care_removal_pen_proofs              | pc_care_removal_pen_proofs_label_check                    | CHECK ((btrim(pen_label) <> ''::text))
+ pc_care_removal_pen_proofs              | pc_care_removal_pen_proofs_pair                           | CHECK ((((feed_proof_ref IS NULL) AND (water_proof_ref IS NULL)) OR ((btrim(feed_proof_ref) <> ''::text) AND (btrim(water_proof_ref) <> ''::text))))
+ pc_care_removal_pen_proofs              | pc_care_removal_pen_proofs_status_check                   | CHECK ((status = ANY (ARRAY['open'::text, 'pending_verification'::text, 'completed'::text, 'rework'::text])))
+ pc_care_task_inventory_requirements     | pc_care_task_inventory_requirements_doses_check           | CHECK ((required_doses >= 0))
+ pc_care_task_inventory_requirements     | pc_care_task_inventory_requirements_label_check           | CHECK ((btrim(vaccine_label) <> ''::text))
+ pc_care_task_proofs                     | pc_care_task_proofs_proof_ref_check                       | CHECK ((btrim(proof_ref) <> ''::text))
+ pc_care_task_proofs                     | pc_care_task_proofs_slot_check                            | CHECK ((slot_key = ANY (ARRAY['stock_fridge_photo'::text, 'stock_fridge_video'::text, 'feed_video'::text, 'water_video'::text])))
+ procurement_hf_vaccination_evidence     | procurement_hf_vaccination_evidence_dose_code_check       | CHECK ((btrim(dose_code) <> ''::text))
+ procurement_hf_vaccination_evidence     | procurement_hf_vaccination_evidence_metadata_object_check | CHECK ((jsonb_typeof(metadata) = 'object'::text))
+ procurement_hf_vaccination_evidence     | procurement_hf_vaccination_evidence_review_status_check   | CHECK ((review_status = ANY (ARRAY['imported'::text, 'trusted'::text, 'rejected'::text, 'conflicting'::text, 'duplicate'::text])))
+ procurement_hf_vaccination_evidence     | procurement_hf_vaccination_evidence_row_version_check     | CHECK ((row_version >= 1))
+ procurement_source_health_checks        | procurement_source_health_checks_state_check              | CHECK ((health_state = ANY (ARRAY['passed'::text, 'failed'::text, 'deferred'::text])))
+ proof_artifacts                         | proof_artifacts_duration_check                            | CHECK (((duration_ms IS NULL) OR (duration_ms >= 0)))
+ proof_artifacts                         | proof_artifacts_metadata_object_check                     | CHECK ((jsonb_typeof(metadata) = 'object'::text))
+ proof_artifacts                         | proof_artifacts_object_key_check                          | CHECK ((btrim(object_key) <> ''::text))
+ proof_artifacts                         | proof_artifacts_proof_type_check                          | CHECK ((proof_type = ANY (ARRAY['photo'::text, 'video'::text, 'attachment'::text, 'audio'::text])))
+ proof_artifacts                         | proof_artifacts_provider_check                            | CHECK ((storage_provider = ANY (ARRAY['local'::text, 'gcs'::text])))
+ proof_artifacts                         | proof_artifacts_retention_policy_check                    | CHECK ((retention_policy = ANY (ARRAY[''::text, 'operational_90d'::text, 'standard_1y'::text, 'critical_7y'::text, 'legal_hold'::text])))
+ proof_artifacts                         | proof_artifacts_row_version_check                         | CHECK ((row_version >= 1))
+ proof_artifacts                         | proof_artifacts_scope_check                               | CHECK ((scope_type = ANY (ARRAY['tenant'::text, 'farm'::text, 'park'::text, 'shed'::text, 'cohort'::text, 'batch'::text, 'task'::text, 'goat'::text])))
+ proof_artifacts                         | proof_artifacts_size_check                                | CHECK ((size_bytes >= 0))
+ proof_artifacts                         | proof_artifacts_subject_check                             | CHECK ((subject_type = ANY (ARRAY['batch'::text, 'goat'::text, 'shed'::text, 'task'::text, 'vial_lot'::text, 'administration'::text, 'other'::text])))
+ proof_artifacts                         | proof_artifacts_upload_state_check                        | CHECK ((upload_state = ANY (ARRAY['pending'::text, 'uploading'::text, 'completed'::text, 'failed'::text])))
+ protocol_definitions                    | protocol_definitions_category_check                       | CHECK ((category = ANY (ARRAY['vaccination'::text, 'deworming'::text, 'biosecurity'::text, 'feed_water_testing'::text, 'panel_cleaning'::text, 'sanitization'::text, 'fire_safety'::text, 'sop_video'::text, 'stock_check'::text, 'director_reporting'::text, 'feed_direction'::text])))
+ protocol_definitions                    | protocol_definitions_code_format_check                    | CHECK ((code ~ '^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*$'::text))
+ protocol_definitions                    | protocol_definitions_row_version_check                    | CHECK ((row_version >= 1))
+ protocol_definitions                    | protocol_definitions_status_check                         | CHECK ((status = ANY (ARRAY['draft'::text, 'active'::text, 'retired'::text])))
+ protocol_rule_dimensions                | protocol_rule_dimensions_animal_stage_check               | CHECK ((animal_stage <> ''::text))
+ protocol_rule_dimensions                | protocol_rule_dimensions_breed_check                      | CHECK ((breed <> ''::text))
+ protocol_rule_dimensions                | protocol_rule_dimensions_procurement_purpose_check        | CHECK ((procurement_purpose <> ''::text))
+ protocol_rule_dimensions                | protocol_rule_dimensions_sex_check                        | CHECK ((sex = ANY (ARRAY['female'::text, 'male'::text, 'all'::text])))
+ protocol_rule_dimensions                | protocol_rule_dimensions_species_check                    | CHECK ((species <> ''::text))
+ protocol_rules                          | protocol_rules_catch_up_check                             | CHECK ((catch_up = ANY (ARRAY['immediate'::text, 'next_cycle'::text, 'pc_approval'::text, 'defer'::text])))
+ protocol_rules                          | protocol_rules_gap_check                                  | CHECK ((min_gap_days >= 0))
+ protocol_rules                          | protocol_rules_offset_check                               | CHECK ((offset_days >= 0))
+ protocol_rules                          | protocol_rules_repeat_check                               | CHECK ((repeat = ANY (ARRAY['none'::text, 'every_n_days'::text, 'yearly'::text])))
+ protocol_rules                          | protocol_rules_trigger_type_check                         | CHECK ((trigger_type = ANY (ARRAY['birth_age'::text, 'post_arrival'::text, 'calendar'::text, 'after_previous_completion'::text, 'manual_campaign'::text])))
+ protocol_rules                          | protocol_rules_window_check                               | CHECK ((due_window_days >= 0))
+ protocol_triggers                       | protocol_triggers_type_check                              | CHECK ((trigger_type = ANY (ARRAY['schedule'::text, 'goat_lifecycle'::text, 'location_event'::text, 'manual'::text, 'upstream_completion'::text])))
+ protocol_versions                       | protocol_versions_effective_range_check                   | CHECK (((effective_to IS NULL) OR (effective_to > effective_from)))
+ protocol_versions                       | protocol_versions_row_version_check                       | CHECK ((row_version >= 1))
+ protocol_versions                       | protocol_versions_scope_shape_check                       | CHECK ((((scope_type = 'tenant'::text) AND (scope_id IS NULL)) OR ((scope_type = 'park'::text) AND (scope_id IS NOT NULL))))
+ protocol_versions                       | protocol_versions_scope_type_check                        | CHECK ((scope_type = ANY (ARRAY['tenant'::text, 'park'::text])))
+ protocol_versions                       | protocol_versions_status_check                            | CHECK ((status = ANY (ARRAY['draft'::text, 'published'::text, 'retired'::text])))
+ protocol_versions                       | protocol_versions_version_check                           | CHECK ((version > 0))
+ sales_buyer_leads                       | sales_buyer_leads_buyer_name_not_blank                    | CHECK ((btrim(buyer_name) <> ''::text))
+ sales_deal_lines                        | sales_deal_lines_animal_count_nonneg                      | CHECK (((animal_count IS NULL) OR (animal_count >= (0)::numeric)))
+ sales_deal_lines                        | sales_deal_lines_breed_not_blank                          | CHECK ((btrim(breed) <> ''::text))
+ sales_deal_lines                        | sales_deal_lines_line_no_positive                         | CHECK ((line_no >= 1))
+ sales_deal_lines                        | sales_deal_lines_product_type_check                       | CHECK ((product_type = ANY (ARRAY['Sheep'::text, 'Goat'::text, 'Manure'::text])))
+ sales_deal_lines                        | sales_deal_lines_sales_value_nonneg                       | CHECK ((sales_value >= (0)::numeric))
+ sales_deal_lines                        | sales_deal_lines_weight_nonneg                            | CHECK (((total_weight_kg IS NULL) OR (total_weight_kg >= (0)::numeric)))
+ sales_deal_payments                     | sales_deal_payments_amount_check                          | CHECK ((amount_rupees > (0)::numeric))
+ sales_deals                             | sales_deals_breed_not_blank                               | CHECK ((btrim(breed) <> ''::text))
+ sales_deals                             | sales_deals_buyer_name_not_blank                          | CHECK ((btrim(buyer_name) <> ''::text))
+ sales_deals                             | sales_deals_farm_check                                    | CHECK ((farm = ANY (ARRAY['CBE'::text, 'CPT'::text])))
+ sales_deals                             | sales_deals_product_type_check                            | CHECK ((product_type = ANY (ARRAY['Sheep'::text, 'Goat'::text, 'Manure'::text, 'Mixed'::text])))
+ sales_deals                             | sales_deals_sales_value_nonneg                            | CHECK ((sales_value >= (0)::numeric))
+ sales_deals                             | sales_deals_status_check                                  | CHECK ((status = ANY (ARRAY['Deal Closed'::text, 'Deal Failed'::text, 'In Discussion'::text, 'Advance Paid'::text])))
+ sales_fpo_leads                         | sales_fpo_leads_fpo_name_not_blank                        | CHECK ((btrim(fpo_name) <> ''::text))
+ sales_market_benchmarks                 | sales_market_benchmarks_breed_not_blank                   | CHECK ((btrim(breed) <> ''::text))
+ sales_sold_animal_tags                  | sales_sold_animal_tags_label_not_blank                    | CHECK ((btrim(animal_label) <> ''::text))
+ shed_lifecycle_status_lookup            | shed_lifecycle_status_lookup_status_check                 | CHECK ((status = ANY (ARRAY['active'::text, 'inactive'::text, 'retired'::text])))
+ status_definitions                      | status_definitions_axis_check                             | CHECK ((axis = ANY (ARRAY['lifecycle'::text, 'reproductive'::text, 'growth_cohort'::text, 'management'::text, 'health'::text])))
+ status_definitions                      | status_definitions_expected_duration_check                | CHECK (((expected_duration_days IS NULL) OR (expected_duration_days > 0)))
+ vaccination_anchor_events               | vaccination_anchor_events_cancel_state_chk                | CHECK ((((canceled_at IS NULL) AND (canceled_by IS NULL) AND (cancel_reason IS NULL)) OR ((canceled_at IS NOT NULL) AND (cancel_reason IS NOT NULL) AND (btrim(cancel_reason) <> ''::text))))
+ vaccination_anchor_events               | vaccination_anchor_events_idempotency_key_chk             | CHECK ((btrim(idempotency_key) <> ''::text))
+ vaccination_anchor_events               | vaccination_anchor_events_reason_chk                      | CHECK ((btrim(reason) <> ''::text))
+ vaccination_anchor_events               | vaccination_anchor_events_request_hash_chk                | CHECK (((request_hash = ''::text) OR (length(request_hash) = 64)))
+ vaccination_anchor_events               | vaccination_anchor_events_scope_payload_object_chk        | CHECK ((jsonb_typeof(scope_payload) = 'object'::text))
+ vaccination_anchor_events               | vaccination_anchor_events_scope_type_chk                  | CHECK ((scope_type = ANY (ARRAY['animal_set'::text, 'park'::text, 'shed'::text, 'partition'::text, 'tenant'::text])))
+ vaccination_anchor_events               | vaccination_anchor_events_source_system_chk               | CHECK ((btrim(source_system) <> ''::text))
+ vaccination_anchor_events               | vaccination_anchor_events_vaccine_code_chk                | CHECK ((btrim(vaccine_code) <> ''::text))
+ vaccination_capacity_config             | vaccination_capacity_config_buffer_check                  | CHECK ((max_buffer_days >= 0))
+ vaccination_capacity_config             | vaccination_capacity_config_max_per_day_check             | CHECK (((max_per_day >= 1) AND (max_per_day <= 200)))
+ vaccination_capacity_config             | vaccination_capacity_config_max_shots_check               | CHECK (((max_shots_per_animal_per_drive IS NULL) OR (max_shots_per_animal_per_drive >= 1)))
+ vaccination_capacity_config             | vaccination_capacity_config_overflow_check                | CHECK ((overflow_policy = 'split_within_safe_window_last_safe_may_exceed_cap'::text))
+ vaccination_capacity_config             | vaccination_capacity_config_scope_check                   | CHECK ((capacity_scope = ANY (ARRAY['tenant'::text, 'center'::text, 'shed'::text])))
+ vaccination_completions                 | vaccination_completions_dose_ml_check                     | CHECK (((dose_ml_given IS NULL) OR (dose_ml_given > (0)::numeric)))
+ vaccination_completions                 | vaccination_completions_doses_check                       | CHECK (((doses IS NULL) OR (doses > 0)))
+ vaccination_completions                 | vaccination_completions_row_version_check                 | CHECK ((row_version >= 1))
+ vaccination_completions                 | vaccination_completions_status_check                      | CHECK ((status = ANY (ARRAY['recorded'::text, 'accepted'::text, 'rejected'::text, 'reversed'::text])))
+ vaccination_drive_assignments           | vaccination_drive_assignments_animals_check               | CHECK ((animal_count >= 0))
+ vaccination_drive_assignments           | vaccination_drive_assignments_capacity_check              | CHECK ((capacity_status = ANY (ARRAY['within_cap'::text, 'over_cap_required'::text, 'capacity_action'::text])))
+ vaccination_drive_assignments           | vaccination_drive_assignments_total_doses_check           | CHECK ((total_doses >= 0))
+ vaccination_drive_assignments           | vaccination_drive_assignments_warnings_array_check        | CHECK ((jsonb_typeof(warnings) = 'array'::text))
+ vaccination_drive_date_overrides        | vaccination_drive_date_overrides_metadata_object_check    | CHECK ((jsonb_typeof(clinical_shift_metadata) = 'object'::text))
+ vaccination_drive_date_overrides        | vaccination_drive_date_overrides_postpone_check           | CHECK ((override_date > original_drive_date))
+ vaccination_drive_date_overrides        | vaccination_drive_date_overrides_reason_not_blank         | CHECK ((btrim(reason) <> ''::text))
+ vaccination_drive_date_overrides        | vaccination_drive_date_overrides_vaccine_code_not_blank   | CHECK ((btrim(vaccine_code) <> ''::text))
+ vaccination_eligibility_rollups         | vaccination_eligibility_rollups_count_check               | CHECK ((animal_count >= 0))
+ vaccination_generation_runs             | vaccination_generation_runs_counts_check                  | CHECK (((generated_count >= 0) AND (deferred_count >= 0) AND (reopened_count >= 0) AND (skipped_no_due_date_count >= 0) AND (suppressed_trusted_history_count >= 0)))
+ vaccination_generation_runs             | vaccination_generation_runs_row_version_check             | CHECK ((row_version >= 1))
+ vaccination_generation_runs             | vaccination_generation_runs_status_check                  | CHECK ((status = ANY (ARRAY['queued'::text, 'running'::text, 'completed'::text, 'failed'::text])))
+ vaccination_generation_runs             | vaccination_generation_runs_trigger_check                 | CHECK ((trigger_type = ANY (ARRAY['publish'::text, 'cli'::text, 'goat_created'::text, 'stage_changed'::text, 'manual_campaign'::text, 'retry'::text])))
+ vaccination_operator_assignment_config  | vaccination_operator_assignment_config_n_check            | CHECK (((active_operators_per_day >= 1) AND (active_operators_per_day <= 3)))
+ vaccination_operator_assignment_config  | vaccination_operator_assignment_config_row_version_check  | CHECK ((row_version >= 1))
+ vaccination_operator_capacity_overrides | vaccination_operator_capacity_overrides_max_check         | CHECK ((max_animals >= 1))
+ vaccination_operator_capacity_overrides | vaccination_operator_capacity_overrides_reason_not_blank  | CHECK ((btrim(reason) <> ''::text))
+ vaccination_operator_shift_config       | vaccination_operator_shift_config_end_minute_check        | CHECK (((shift_end_minute >= 0) AND (shift_end_minute <= 1439)))
+ vaccination_operator_shift_config       | vaccination_operator_shift_config_label_check             | CHECK ((shift_label = ANY (ARRAY['am'::text, 'pm'::text, 'rover'::text])))
+ vaccination_operator_shift_config       | vaccination_operator_shift_config_start_minute_check      | CHECK (((shift_start_minute >= 0) AND (shift_start_minute <= 1439)))
+ vaccination_operator_shift_config       | vaccination_operator_shift_config_week_off_check          | CHECK (((week_off_weekday IS NULL) OR (week_off_weekday = ANY (ARRAY['monday'::text, 'tuesday'::text, 'wednesday'::text, 'thursday'::text, 'friday'::text, 'saturday'::text, 'sunday'::text]))))
+ vaccination_prearrival_history_entries  | vaccination_prearrival_history_accepted_rule_check        | CHECK (((review_status <> 'accepted'::text) OR ((protocol_version_id IS NOT NULL) AND (rule_id IS NOT NULL) AND (NULLIF(btrim(vaccine_code), ''::text) IS NOT NULL) AND (NULLIF(btrim(dose_code), ''::text) IS NOT NULL))))
+ vaccination_prearrival_history_entries  | vaccination_prearrival_history_claim_object_check         | CHECK ((jsonb_typeof(claim) = 'object'::text))
+ vaccination_prearrival_history_entries  | vaccination_prearrival_history_path_check                 | CHECK ((schedule_path = ANY (ARRAY['kid'::text, 'adult_procurement'::text])))
+ vaccination_prearrival_history_entries  | vaccination_prearrival_history_rejected_reason_check      | CHECK (((review_status <> 'rejected'::text) OR (NULLIF(btrim(rejection_reason), ''::text) IS NOT NULL)))
+ vaccination_prearrival_history_entries  | vaccination_prearrival_history_status_check               | CHECK ((review_status = ANY (ARRAY['accepted'::text, 'rejected'::text])))
+ vaccination_reminder_cadence_fires      | vaccination_reminder_cadence_fires_type_check             | CHECK ((notification_type = ANY (ARRAY['advance_notice'::text, 'reminder'::text, 'due_today'::text])))
+ vaccination_source_facts                | vaccination_source_facts_disposition_check                | CHECK ((disposition = ANY (ARRAY['imported_completion'::text, 'scheduled_obligation'::text, 'later_administration_merge'::text, 'excluded_goat_not_placed'::text, 'excluded_vaccine_unrecognized'::text, 'excluded_lifecycle'::text, 'unresolved'::text])))
+ weighing_fasting_shed_proofs            | weighing_fasting_shed_proofs_status_check                 | CHECK ((status = ANY (ARRAY['open'::text, 'pending_verification'::text, 'completed'::text, 'rework'::text])))
+ weighing_shed_observation_proofs        | weighing_shed_observation_proofs_proof_position_check     | CHECK (((proof_position >= 1) AND (proof_position <= 5)))
+ workforce_absences                      | workforce_absences_row_version_check                      | CHECK ((row_version >= 1))
+ workforce_absences                      | workforce_absences_scope_check                            | CHECK ((scope_type = ANY (ARRAY['tenant'::text, 'custodian_party'::text, 'farm'::text, 'park'::text, 'shed'::text, 'cohort'::text, 'center'::text])))
+ workforce_absences                      | workforce_absences_status_check                           | CHECK ((status = ANY (ARRAY['reported'::text, 'approved'::text, 'escalation_required'::text, 'rejected'::text, 'canceled'::text])))
+ workforce_absences                      | workforce_absences_window_check                           | CHECK ((ends_at > starts_at))
+ workforce_capabilities                  | workforce_capabilities_code_check                         | CHECK ((capability_code ~ '^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$'::text))
+ workforce_capabilities                  | workforce_capabilities_status_check                       | CHECK ((status = ANY (ARRAY['active'::text, 'inactive'::text, 'retired'::text])))
+ workforce_clock_entries                 | workforce_clock_entries_row_version_check                 | CHECK ((row_version >= 1))
+ workforce_clock_entries                 | workforce_clock_entries_status_check                      | CHECK ((status = ANY (ARRAY['open'::text, 'closed'::text, 'auto_closed'::text])))
+ workforce_clock_entries                 | workforce_clock_entries_worked_minutes_check              | CHECK (((worked_minutes IS NULL) OR (worked_minutes >= 0)))
+ workforce_clock_events                  | workforce_clock_events_battery_pct_check                  | CHECK (((battery_pct IS NULL) OR ((battery_pct >= 0) AND (battery_pct <= 100))))
+ workforce_clock_events                  | workforce_clock_events_event_type_check                   | CHECK ((event_type = ANY (ARRAY['clock_in'::text, 'clock_out'::text])))
+ workforce_clock_events                  | workforce_clock_events_location_status_check              | CHECK ((location_status = ANY (ARRAY['captured'::text, 'permission_missing'::text, 'unavailable'::text])))
+ workforce_clock_events                  | workforce_clock_events_network_type_check                 | CHECK ((network_type = ANY (ARRAY['online'::text, 'offline_queued'::text])))
+ workforce_external_identities           | workforce_external_identities_confidence_check            | CHECK (((confidence >= (0)::numeric) AND (confidence <= (1)::numeric)))
+ workforce_external_identities           | workforce_external_identities_observation_check           | CHECK ((observation_count > 0))
+ workforce_external_identities           | workforce_external_identities_ref_type_check              | CHECK ((external_ref_type = ANY (ARRAY['slack_user_id'::text, 'email'::text, 'phone'::text, 'staff_label'::text, 'firebase_uid'::text])))
+ workforce_external_identities           | workforce_external_identities_row_version_check           | CHECK ((row_version >= 1))
+ workforce_external_identities           | workforce_external_identities_seen_window_check           | CHECK ((last_seen_at >= first_seen_at))
+ workforce_external_identities           | workforce_external_identities_source_system_check         | CHECK ((source_system = ANY (ARRAY['slack'::text, 'firebase'::text, 'manual'::text])))
+ workforce_external_identities           | workforce_external_identities_status_check                | CHECK ((status = ANY (ARRAY['candidate'::text, 'mapped'::text, 'rejected'::text, 'conflict'::text, 'retired'::text])))
+ workforce_leave_approval_config         | workforce_leave_approval_config_routing_check             | CHECK ((park_head_required OR hr_required))
+ workforce_leave_approval_config         | workforce_leave_approval_config_row_version_check         | CHECK ((row_version >= 1))
+ workforce_leave_requests                | workforce_leave_requests_approved_absence_check           | CHECK (((status <> 'approved'::text) OR (absence_id IS NOT NULL)))
+ workforce_leave_requests                | workforce_leave_requests_final_decided_check              | CHECK (((status = 'pending'::text) = (decided_at IS NULL)))
+ workforce_leave_requests                | workforce_leave_requests_hr_decision_check                | CHECK ((hr_decision = ANY (ARRAY['approved'::text, 'rejected'::text])))
+ workforce_leave_requests                | workforce_leave_requests_park_head_decision_check         | CHECK ((park_head_decision = ANY (ARRAY['approved'::text, 'rejected'::text])))
+ workforce_leave_requests                | workforce_leave_requests_reason_check                     | CHECK (((length(btrim(reason)) >= 1) AND (length(btrim(reason)) <= 2000)))
+ workforce_leave_requests                | workforce_leave_requests_routing_check                    | CHECK ((park_head_required OR hr_required))
+ workforce_leave_requests                | workforce_leave_requests_row_version_check                | CHECK ((row_version >= 1))
+ workforce_leave_requests                | workforce_leave_requests_status_check                     | CHECK ((status = ANY (ARRAY['pending'::text, 'approved'::text, 'rejected'::text, 'withdrawn'::text])))
+ workforce_leave_requests                | workforce_leave_requests_window_check                     | CHECK ((ends_on >= starts_on))
+ workforce_member_app_sessions           | workforce_member_app_sessions_seen_check                  | CHECK ((last_seen_at >= started_at))
+ workforce_member_app_sessions           | workforce_member_app_sessions_status_check                | CHECK ((status = ANY (ARRAY['active'::text, 'ended'::text, 'denied'::text])))
+ workforce_member_capabilities           | workforce_member_capabilities_scope_check                 | CHECK ((scope_type = ANY (ARRAY['tenant'::text, 'custodian_party'::text, 'farm'::text, 'park'::text, 'shed'::text, 'cohort'::text, 'center'::text])))
+ workforce_member_capabilities           | workforce_member_capabilities_status_check                | CHECK ((status = ANY (ARRAY['active'::text, 'inactive'::text, 'revoked'::text])))
+ workforce_member_capabilities           | workforce_member_capabilities_valid_window_check          | CHECK (((valid_to IS NULL) OR (valid_to > valid_from)))
+ workforce_member_devices                | workforce_member_devices_app_install_check                | CHECK ((btrim(app_install_id) <> ''::text))
+ workforce_member_devices                | workforce_member_devices_app_version_check                | CHECK ((btrim(app_version) <> ''::text))
+ workforce_member_devices                | workforce_member_devices_platform_check                   | CHECK ((platform = 'android'::text))
+ workforce_member_devices                | workforce_member_devices_row_version_check                | CHECK ((row_version >= 1))
+ workforce_member_devices                | workforce_member_devices_status_check                     | CHECK ((status = ANY (ARRAY['active'::text, 'revoked'::text, 'lost'::text, 'retired'::text])))
+ workforce_member_titles                 | workforce_member_titles_title_check                       | CHECK (((btrim(title) <> ''::text) AND (length(title) <= 80)))
+ workforce_members                       | workforce_members_display_code_check                      | CHECK ((btrim(display_code) <> ''::text))
+ workforce_members                       | workforce_members_display_name_check                      | CHECK ((btrim(display_name) <> ''::text))
+ workforce_members                       | workforce_members_hr_designation_grade_check              | CHECK (((hr_designation_grade IS NULL) OR (hr_designation_grade = ANY (ARRAY['cxo'::text, 'director'::text, 'manager'::text, 'assistant_manager'::text]))))
+ workforce_members                       | workforce_members_role_hint_check                         | CHECK ((primary_role_hint = ANY (ARRAY['operator'::text, 'park_head'::text, 'pc_director'::text, 'growth_director'::text, 'feed_director'::text, 'health_director'::text, 'breeding_director'::text, 'verifier'::text, 'supervisor'::text, 'cxo'::text, 'other'::text])))
+ workforce_members                       | workforce_members_row_version_check                       | CHECK ((row_version >= 1))
+ workforce_members                       | workforce_members_status_check                            | CHECK ((status = ANY (ARRAY['candidate'::text, 'active'::text, 'inactive'::text, 'suspended'::text, 'left'::text])))
+ workforce_positions                     | workforce_positions_backup_group_check                    | CHECK (((backup_group_code IS NULL) OR (backup_group_code ~ '^[a-z][a-z0-9_]*$'::text)))
+ workforce_positions                     | workforce_positions_position_code_check                   | CHECK ((position_code ~ '^[a-z][a-z0-9_]*$'::text))
+ workforce_positions                     | workforce_positions_row_version_check                     | CHECK ((row_version >= 1))
+ workforce_positions                     | workforce_positions_scope_check                           | CHECK ((scope_type = ANY (ARRAY['tenant'::text, 'center'::text, 'shed'::text])))
+ workforce_positions                     | workforce_positions_status_check                          | CHECK ((status = ANY (ARRAY['active'::text, 'inactive'::text, 'ended'::text])))
+ workforce_positions                     | workforce_positions_tier_check                            | CHECK ((position_tier = ANY (ARRAY['assistant'::text, 'manager'::text, 'head'::text, 'director'::text, 'cxo'::text])))
+ workforce_positions                     | workforce_positions_vaccination_daily_animal_cap_check    | CHECK (((vaccination_daily_animal_cap IS NULL) OR ((vaccination_daily_animal_cap >= 1) AND (vaccination_daily_animal_cap <= 200))))
+ workforce_positions                     | workforce_positions_week_off_check                        | CHECK (((week_off_weekday IS NULL) OR (week_off_weekday = ANY (ARRAY['monday'::text, 'tuesday'::text, 'wednesday'::text, 'thursday'::text, 'friday'::text, 'saturday'::text, 'sunday'::text]))))
+ workforce_positions                     | workforce_positions_window_check                          | CHECK (((valid_to IS NULL) OR (valid_to > valid_from)))
+ workforce_roster_assignments            | workforce_roster_assignments_row_version_check            | CHECK ((row_version >= 1))
+ workforce_roster_assignments            | workforce_roster_assignments_scope_check                  | CHECK ((scope_type = ANY (ARRAY['tenant'::text, 'custodian_party'::text, 'farm'::text, 'park'::text, 'shed'::text, 'cohort'::text])))
+ workforce_roster_assignments            | workforce_roster_assignments_shift_window_check           | CHECK ((shift_end_at > shift_start_at))
+ workforce_roster_assignments            | workforce_roster_assignments_status_check                 | CHECK ((status = ANY (ARRAY['scheduled'::text, 'active'::text, 'completed'::text, 'missed'::text, 'canceled'::text])))
+(381 rows)
+
+                  table_name                  |           column_name            |           column_default           
+----------------------------------------------+----------------------------------+------------------------------------
+ admin_ui_config_entries                      | locale                           | 'default'::text
+ admin_ui_config_entries                      | value_kind                       | 'text'::text
+ admin_ui_config_entries                      | status                           | 'active'::text
+ admin_ui_config_entries                      | metadata                         | '{}'::jsonb
+ admin_ui_config_family_change_queue          | source                           | 'system'::text
+ admin_ui_config_family_change_queue          | metadata                         | '{}'::jsonb
+ admin_ui_config_family_change_queue          | change_count                     | 1
+ admin_ui_config_family_change_queue          | queued_at                        | now()
+ admin_ui_config_family_revisions             | revision                         | 1
+ admin_ui_config_family_revisions             | content_hash                     | ''::text
+ admin_ui_config_family_revisions             | changed_at                       | now()
+ admin_ui_config_family_revisions             | source                           | 'system'::text
+ admin_ui_config_family_revisions             | metadata                         | '{}'::jsonb
+ animal_stage_lookup                          | sort_order                       | 0
+ animal_stage_lookup                          | status                           | 'active'::text
+ bulk_status_job                              | params                           | '{}'::jsonb
+ bulk_status_job                              | total_rows                       | 0
+ bulk_status_job                              | applied_rows                     | 0
+ bulk_status_job                              | skipped_rows                     | 0
+ bulk_status_job                              | failed_rows                      | 0
+ bulk_status_job                              | state                            | 'pending'::text
+ bulk_status_job_row                          | row_state                        | 'pending'::text
+ bulk_status_job_row                          | retry_count                      | 0
+ feed_conversions                             | status                           | 'active'::text
+ feed_direction_completions                   | status                           | 'recorded'::text
+ feed_direction_issue_rows                    | shed_tag                         | ''::text
+ feed_direction_issue_rows                    | breed                            | ''::text
+ feed_direction_issue_rows                    | ration_group                     | ''::text
+ feed_direction_issue_rows                    | experiment_arm                   | ''::text
+ feed_direction_issue_rows                    | session_label                    | ''::text
+ feed_direction_issue_rows                    | amended                          | false
+ feed_direction_issues                        | state                            | 'issued'::text
+ feed_direction_issues                        | amendment_count                  | 0
+ feed_direction_session_completions           | status                           | 'completed'::text
+ feed_direction_session_completions           | proof_refs                       | '[]'::jsonb
+ feed_direction_session_completions           | completed_at                     | now()
+ feed_distribution_completions                | status                           | 'pending_verification'::text
+ feed_experiment_basis_conversions            | converted_at                     | now()
+ feed_experiment_config                       | status                           | 'active'::text
+ feed_experiment_config                       | quantity_basis                   | 'absolute_kg'::text
+ feed_experiment_config                       | source                           | 'workbook'::text
+ feed_external_consumption                    | source_ref                       | ''::text
+ feed_external_consumption                    | imported_at                      | now()
+ feed_item_catalog                            | display_order                    | 0
+ feed_item_catalog                            | status                           | 'active'::text
+ feed_packing_completions                     | status                           | 'pending_verification'::text
+ feed_packing_verified_quantities             | recorded_at                      | now()
+ feed_packing_verified_quantities             | variance_acknowledged            | false
+ feed_purchase_payments                       | note                             | ''::text
+ feed_purchases                               | consumed_at_import_kg            | 0
+ feed_purchases                               | vendor                           | ''::text
+ feed_purchases                               | payment_status                   | ''::text
+ feed_purchases                               | source_ref                       | ''::text
+ feed_purchases                               | imported_at                      | now()
+ feed_purchases                               | entry_source                     | 'sheet_import'::text
+ feed_purchases                               | delivery_status                  | 'reached'::text
+ feed_ration_rates                            | valid_from                       | CURRENT_DATE
+ feed_ration_rates                            | source_system                    | 'manual'::text
+ feed_schedule_config                         | valid_from                       | CURRENT_DATE
+ feed_session_template_items                  | status                           | 'active'::text
+ feed_session_template_items                  | valid_from                       | CURRENT_DATE
+ feed_session_templates                       | display_order                    | 0
+ feed_session_templates                       | status                           | 'active'::text
+ feed_shed_factors                            | multiplier                       | 1.0
+ feed_shed_factors                            | valid_from                       | CURRENT_DATE
+ feed_shed_tags                               | display_order                    | 0
+ feed_shed_tags                               | status                           | 'active'::text
+ feed_transport_attempts                      | status                           | 'verification_due'::text
+ feed_transport_attempts                      | submitted_at                     | now()
+ feed_transport_tasks                         | status                           | 'due'::text
+ feed_transport_tasks                         | partition_label                  | ''::text
+ feed_wastage_completions                     | workflow                         | 'experiment'::text
+ feed_wastage_completions                     | status                           | 'pending_verification'::text
+ goat_identifiers                             | is_primary_for_goat              | false
+ goatos_schema_migrations                     | applied_at                       | now()
+ health_cases                                 | status                           | 'active'::text
+ health_cases                                 | diagnosed_at                     | now()
+ health_cases                                 | exit_type                        | 'F'::text
+ health_cases                                 | is_death_cause                   | false
+ health_death_causes                          | recorded_at                      | now()
+ health_diagnosis_runs                        | observed_at                      | now()
+ health_diagnosis_runs                        | context                          | '{}'::jsonb
+ health_diagnosis_runs                        | housing_low_competition          | false
+ health_diagnosis_runs                        | status                           | 'proposed'::text
+ health_protocol_versions                     | duration_days                    | 3
+ health_protocol_versions                     | status                           | 'draft'::text
+ health_session_steps                         | status                           | 'pending'::text
+ health_treatment_sessions                    | status                           | 'scheduled'::text
+ inventory_items                              | status                           | 'active'::text
+ inventory_items                              | context                          | '{}'::jsonb
+ inventory_stock                              | quantity_in_stock                | 0
+ inventory_stock                              | quantity_reserved                | 0
+ inventory_stock                              | status                           | 'active'::text
+ inventory_stock_movements                    | occurred_at                      | now()
+ inventory_stock_movements                    | recorded_at                      | now()
+ inventory_stock_movements                    | context                          | '{}'::jsonb
+ location_operational_attributes              | usable_for_counts                | true
+ location_operational_attributes              | usable_for_feed                  | true
+ location_operational_attributes              | usable_for_vaccination           | true
+ location_operational_attributes              | usable_for_sop                   | true
+ location_operational_attributes              | is_holding                       | false
+ location_operational_attributes              | is_quarantine                    | false
+ location_operational_attributes              | is_icu                           | false
+ location_operational_attributes              | display_order                    | 0
+ market_survey_config                         | call_time                        | '08:00:00'::time without time zone
+ milk_feeding_farm_watchlist                  | consecutive_yes                  | 0
+ milk_feeding_tasks                           | status                           | 'not_submitted'::text
+ milk_feeding_tasks                           | current_attempt_no               | 0
+ milk_feeding_watchlist                       | consecutive_yes                  | 0
+ milk_preparation_completions                 | status                           | 'pending_verification'::text
+ milk_preparation_completions                 | current_attempt_no               | 1
+ milk_preparation_completions                 | goat_milk_used                   | false
+ milk_preparation_completions                 | submitted_at                     | now()
+ milk_preparation_proof_attempts              | submitted_at                     | now()
+ milk_preparation_proof_attempts              | answers                          | '{}'::jsonb
+ obligation_operator_config_replan_watermarks | processed_at                     | now()
+ obligation_operator_config_replan_watermarks | status                           | 'pending'::text
+ obligation_status_events                     | recorded_at                      | now()
+ obligation_status_events                     | payload                          | '{}'::jsonb
+ pc_care_removal_pen_proofs                   | status                           | 'open'::text
+ pc_care_task_inventory_requirements          | source_batch_ids                 | '{}'::uuid[]
+ pc_care_task_proofs                          | captured_at                      | now()
+ procurement_hf_vaccination_evidence          | vaccine_name                     | ''::text
+ procurement_hf_vaccination_evidence          | lot_number                       | ''::text
+ procurement_hf_vaccination_evidence          | source_ref                       | ''::text
+ procurement_hf_vaccination_evidence          | review_status                    | 'imported'::text
+ procurement_hf_vaccination_evidence          | review_reason                    | ''::text
+ procurement_hf_vaccination_evidence          | imported_at                      | now()
+ procurement_hf_vaccination_evidence          | metadata                         | '{}'::jsonb
+ procurement_source_health_checks             | reason                           | ''::text
+ proof_artifacts                              | content_hash                     | ''::text
+ proof_artifacts                              | mime_type                        | ''::text
+ proof_artifacts                              | size_bytes                       | 0
+ proof_artifacts                              | upload_state                     | 'pending'::text
+ proof_artifacts                              | metadata                         | '{}'::jsonb
+ proof_artifacts                              | request_fingerprint              | ''::text
+ proof_artifacts                              | retention_policy                 | ''::text
+ protocol_definitions                         | status                           | 'draft'::text
+ protocol_rule_dimensions                     | ruleset_family                   | ''::text
+ protocol_rule_dimensions                     | dose_code                        | ''::text
+ protocol_rule_dimensions                     | source_dose_code                 | ''::text
+ protocol_rule_dimensions                     | vaccine_code                     | ''::text
+ protocol_rule_dimensions                     | vaccine_type                     | ''::text
+ protocol_rule_dimensions                     | pathogen_class                   | ''::text
+ protocol_rule_dimensions                     | compatibility_group              | ''::text
+ protocol_rule_dimensions                     | species                          | 'all'::text
+ protocol_rule_dimensions                     | animal_stage                     | 'all'::text
+ protocol_rule_dimensions                     | sex                              | 'all'::text
+ protocol_rule_dimensions                     | breed                            | 'all'::text
+ protocol_rule_dimensions                     | lifecycle                        | 'alive'::text
+ protocol_rule_dimensions                     | health                           | 'any'::text
+ protocol_rule_dimensions                     | reproductive                     | 'any'::text
+ protocol_rule_dimensions                     | trigger_type                     | ''::text
+ protocol_rule_dimensions                     | sequence                         | 0
+ protocol_rule_dimensions                     | offset_days                      | 0
+ protocol_rule_dimensions                     | due_window_days                  | 0
+ protocol_rule_dimensions                     | min_gap_days                     | 0
+ protocol_rule_dimensions                     | repeat                           | 'none'::text
+ protocol_rule_dimensions                     | catch_up                         | 'immediate'::text
+ protocol_rule_dimensions                     | max_delay_days                   | 0
+ protocol_rule_dimensions                     | revaccination_interval_days      | 0
+ protocol_rule_dimensions                     | eligibility_json                 | '{}'::jsonb
+ protocol_rule_dimensions                     | vaccine_json                     | '{}'::jsonb
+ protocol_rule_dimensions                     | schedule_json                    | '{}'::jsonb
+ protocol_rule_dimensions                     | procurement_purpose              | 'all'::text
+ protocol_rules                               | sequence                         | 1
+ protocol_rules                               | offset_days                      | 0
+ protocol_rules                               | due_window_days                  | 0
+ protocol_rules                               | min_gap_days                     | 0
+ protocol_rules                               | repeat                           | 'none'::text
+ protocol_rules                               | catch_up                         | 'pc_approval'::text
+ protocol_rules                               | eligibility_json                 | '{}'::jsonb
+ protocol_rules                               | proof_policy                     | '{}'::jsonb
+ protocol_rules                               | sort_order                       | 0
+ protocol_triggers                            | trigger_config                   | '{}'::jsonb
+ protocol_triggers                            | is_active                        | true
+ protocol_versions                            | scope_type                       | 'tenant'::text
+ protocol_versions                            | version_label                    | ''::text
+ protocol_versions                            | status                           | 'draft'::text
+ protocol_versions                            | rule_dsl                         | '{}'::jsonb
+ protocol_versions                            | proof_policy                     | '{}'::jsonb
+ sales_buyer_leads                            | id                               | gen_random_uuid()
+ sales_deal_lines                             | sales_value                      | 0
+ sales_deal_payments                          | note                             | ''::text
+ sales_deals                                  | id                               | gen_random_uuid()
+ sales_deals                                  | sales_value                      | 0
+ sales_deals                                  | status                           | 'Deal Closed'::text
+ sales_fpo_leads                              | id                               | gen_random_uuid()
+ sales_market_benchmarks                      | id                               | gen_random_uuid()
+ sales_sold_animal_tags                       | id                               | gen_random_uuid()
+ sales_weight_audit                           | id                               | gen_random_uuid()
+ sales_weight_audit                           | farm_born                        | false
+ shed_lifecycle_status_lookup                 | sort_order                       | 0
+ shed_lifecycle_status_lookup                 | status                           | 'active'::text
+ status_definitions                           | sort_order                       | 0
+ status_definitions                           | active                           | true
+ vaccination_anchor_events                    | suppress_before_anchor           | true
+ vaccination_anchor_events                    | chain_future_from_anchor         | true
+ vaccination_anchor_events                    | enforce_age_eligibility          | true
+ vaccination_anchor_events                    | request_hash                     | ''::text
+ vaccination_completion_rejections            | adverse_reaction                 | false
+ vaccination_completion_rejections            | cold_chain_verified              | false
+ vaccination_completion_rejections            | rejected_at                      | now()
+ vaccination_completions                      | adverse_reaction                 | false
+ vaccination_completions                      | cold_chain_verified              | false
+ vaccination_completions                      | administered_at                  | now()
+ vaccination_completions                      | status                           | 'recorded'::text
+ vaccination_drive_assignments                | partition_label                  | 'whole'::text
+ vaccination_drive_assignments                | capacity_status                  | 'within_cap'::text
+ vaccination_drive_assignments                | warnings                         | '[]'::jsonb
+ vaccination_drive_assignments                | vaccine_rule_ids                 | '{}'::uuid[]
+ vaccination_drive_assignments                | total_doses                      | 0
+ vaccination_drive_date_overrides             | shift_reason                     | ''::text
+ vaccination_drive_date_overrides             | clinical_shift_metadata          | '{}'::jsonb
+ vaccination_eligibility_rollups              | species                          | ''::text
+ vaccination_eligibility_rollups              | management_stage                 | ''::text
+ vaccination_eligibility_rollups              | sex                              | ''::text
+ vaccination_eligibility_rollups              | breed                            | ''::text
+ vaccination_eligibility_rollups              | health_status                    | ''::text
+ vaccination_eligibility_rollups              | source_revision                  | 0
+ vaccination_eligibility_rollups              | recomputed_at                    | now()
+ vaccination_generation_runs                  | status                           | 'running'::text
+ vaccination_generation_runs                  | started_at                       | now()
+ vaccination_generation_runs                  | generated_count                  | 0
+ vaccination_generation_runs                  | deferred_count                   | 0
+ vaccination_generation_runs                  | skipped_no_due_date_count        | 0
+ vaccination_generation_runs                  | suppressed_trusted_history_count | 0
+ vaccination_generation_runs                  | context                          | '{}'::jsonb
+ vaccination_generation_runs                  | reopened_count                   | 0
+ vaccination_generation_runs                  | failed_goat_count                | 0
+ vaccination_operator_assignment_config       | active_operators_per_day         | 1
+ vaccination_operator_assignment_config       | selected_operator_ids            | '{}'::uuid[]
+ vaccination_prearrival_history_entries       | source_system                    | 'procurement_pc_handoff'::text
+ vaccination_prearrival_history_entries       | sequence                         | 0
+ vaccination_reminder_cadence_fires           | reminder_number                  | 0
+ vaccination_reminder_cadence_fires           | obligation_count                 | 0
+ vaccination_reminder_cadence_fires           | queued_at                        | now()
+ weighing_fasting_shed_proofs                 | status                           | 'open'::text
+ weighing_fasting_shed_proofs                 | sop_answers                      | '{}'::jsonb
+ weighing_fasting_shed_proofs                 | sop_proofs                       | '{}'::jsonb
+ workforce_absences                           | status                           | 'reported'::text
+ workforce_capabilities                       | description                      | ''::text
+ workforce_capabilities                       | status                           | 'active'::text
+ workforce_clock_entries                      | offline_punch                    | false
+ workforce_clock_entries                      | location_missing                 | false
+ workforce_clock_events                       | recorded_at                      | now()
+ workforce_clock_events                       | mock_location                    | false
+ workforce_clock_events                       | network_type                     | 'online'::text
+ workforce_clock_events                       | metadata                         | '{}'::jsonb
+ workforce_external_identities                | status                           | 'candidate'::text
+ workforce_external_identities                | confidence                       | 0
+ workforce_external_identities                | first_seen_at                    | now()
+ workforce_external_identities                | last_seen_at                     | now()
+ workforce_external_identities                | observation_count                | 1
+ workforce_external_identities                | metadata                         | '{}'::jsonb
+ workforce_leave_approval_config              | park_head_required               | true
+ workforce_leave_approval_config              | hr_required                      | true
+ workforce_leave_requests                     | status                           | 'pending'::text
+ workforce_leave_requests                     | park_head_required               | true
+ workforce_leave_requests                     | hr_required                      | true
+ workforce_leave_requests                     | raised_at                        | now()
+ workforce_member_app_sessions                | started_at                       | now()
+ workforce_member_app_sessions                | last_seen_at                     | now()
+ workforce_member_app_sessions                | status                           | 'active'::text
+ workforce_member_app_sessions                | app_version                      | ''::text
+ workforce_member_app_sessions                | metadata                         | '{}'::jsonb
+ workforce_member_capabilities                | status                           | 'active'::text
+ workforce_member_capabilities                | valid_from                       | now()
+ workforce_member_devices                     | platform                         | 'android'::text
+ workforce_member_devices                     | os_version                       | ''::text
+ workforce_member_devices                     | status                           | 'active'::text
+ workforce_member_devices                     | last_seen_at                     | now()
+ workforce_member_devices                     | registered_at                    | now()
+ workforce_member_devices                     | metadata                         | '{}'::jsonb
+ workforce_members                            | status                           | 'candidate'::text
+ workforce_members                            | primary_role_hint                | 'operator'::text
+ workforce_members                            | metadata                         | '{}'::jsonb
+ workforce_positions                          | is_backup_slot                   | false
+ workforce_positions                          | status                           | 'active'::text
+ workforce_positions                          | valid_from                       | now()
+ workforce_roster_assignments                 | status                           | 'scheduled'::text
+(281 rows)
+
+

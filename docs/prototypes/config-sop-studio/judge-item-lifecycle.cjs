@@ -1,0 +1,18 @@
+const fs=require('fs');
+const checks=String.raw`
+context.render=()=>{};context.renderItems=()=>{};
+run("current='Health';state.sops.Health=initialSop('Health');sop().nodes[3].action='Use configured item';sop().nodes[3].itemId='judge-item';window.lifePinned=compileWorkflow(sop());sop().published={title:sop().title,nodes:structuredClone(sop().nodes),version:1,definition:window.lifePinned};itemById('judge-item').shares=[];itemCategory('judge-cat').shares=[];itemCategory('judge-sub').shares=[];");
+for(const [id,value] of Object.entries({imodule:'Common',icategory:'judge-cat',isubcategory:'judge-sub',iactive:'false',iname:'Judge item',ipurpose:'Test item',idescription:'Test',iunit:'piece'}))element('#'+id).value=value;
+run("typedBaseSave('judge-item')");assert.equal(run("itemById('judge-item').active"),true);assert.equal(run("window.pendingItemSave.id"),'judge-item');assert.match(element('#overlay').innerHTML,/Review impact/);
+run("commitItem(window.pendingItemSave)");assert.equal(run("itemById('judge-item').active"),false);assert.equal(run("window.lifePinned.items['judge-item'].active"),true);
+element('#iactive').value='true';element('#itemerror').textContent='';run("typedBaseSave('judge-item')");assert.match(element('#itemerror').textContent,/Link at least/);assert.equal(run("itemById('judge-item').active"),false);
+element('#iactive').value='false';element('#itemerror').textContent='';run("typedBaseSave()");assert.match(element('#itemerror').textContent,/Link at least/);
+run("window.pendingItemSave=null;itemById('judge-item').active=true;itemById('judge-item').shares=['Procurement'];itemCategory('judge-cat').shares=['Health'];itemCategory('judge-sub').shares=['Preventive Care'];sop().nodes[1].answer='Catalogue';sop().nodes[1].catalogueSourceId='source-judge-cat';sop().nodes[2].op='=';sop().nodes[2].value='judge-item';window.movePinned=compileWorkflow(sop());state.itemCategories.push({id:'move-cat',name:'Moved',module:'Common',parentId:null,shares:['Health']},{id:'move-sub',name:'Moved sub',module:'Common',parentId:'move-cat',shares:['Preventive Care']});state.items.push({...itemById('judge-item'),id:'left-item',name:'Remaining'});window.moveNext={...itemById('judge-item'),categoryId:'move-cat',subcategoryId:'move-sub'};commitItem(window.moveNext)");
+assert.equal(run("itemById('judge-item').categoryId"),'judge-cat');assert.equal(run("window.pendingHierarchyItem.id"),'judge-item');assert.match(element('#overlay').innerHTML,/Review collection membership/);assert.match(element('#overlay').innerHTML,/Judge category/);
+run('genericCommitInheritedItem()');assert.equal(run("itemById('judge-item').categoryId"),'move-cat');assert.throws(()=>run('compileWorkflow(sop())'),/available catalogue|unavailable answer/);assert.equal(run("window.movePinned.catalogues.q1.some(i=>i.id==='judge-item')"),true);
+// A direct action with the same effective grants does not depend on its category source.
+run("state.sops.Health=initialSop('Health');sop().nodes[3].action='Use configured item';sop().nodes[3].itemId='judge-item';window.backNext={...itemById('judge-item'),categoryId:'judge-cat',subcategoryId:'judge-sub'};window.pendingHierarchyItem=null;commitItem(window.backNext)");
+assert.equal(run("window.pendingHierarchyItem"),null);assert.equal(run("itemById('judge-item').categoryId"),'judge-cat');assert.doesNotThrow(()=>run('compileWorkflow(sop())'));
+console.log('PASS actual-stack lifecycle: orphan archive impact and pinned snapshot, active/new link guard, source move impact, direct-only move no false warning');
+`;
+new Function('require','__dirname',fs.readFileSync(__dirname+'/judge-final-integration.cjs','utf8')+'\n'+checks)(require,__dirname);

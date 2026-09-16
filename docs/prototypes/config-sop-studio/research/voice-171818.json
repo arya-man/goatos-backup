@@ -1,0 +1,105 @@
+{
+  "text": " So, at the end of the day any item is specific to one module or two modules, three modules or multiple modules. So, one interface we need that is all ok. Thank you.",
+  "segments": [
+    {
+      "id": 0,
+      "seek": 0,
+      "start": 0.0,
+      "end": 8.96,
+      "text": " So, at the end of the day any item is specific to one module or two modules, three modules",
+      "tokens": [
+        50364,
+        407,
+        11,
+        412,
+        264,
+        917,
+        295,
+        264,
+        786,
+        604,
+        3174,
+        307,
+        2685,
+        281,
+        472,
+        10088,
+        420,
+        732,
+        16679,
+        11,
+        1045,
+        16679,
+        50812
+      ],
+      "temperature": 0.0,
+      "avg_logprob": -0.20742537577946982,
+      "compression_ratio": 1.4017094017094016,
+      "no_speech_prob": 0.13930490612983704
+    },
+    {
+      "id": 1,
+      "seek": 0,
+      "start": 8.96,
+      "end": 9.96,
+      "text": " or multiple modules.",
+      "tokens": [
+        50812,
+        420,
+        3866,
+        16679,
+        13,
+        50862
+      ],
+      "temperature": 0.0,
+      "avg_logprob": -0.20742537577946982,
+      "compression_ratio": 1.4017094017094016,
+      "no_speech_prob": 0.13930490612983704
+    },
+    {
+      "id": 2,
+      "seek": 0,
+      "start": 9.96,
+      "end": 11.96,
+      "text": " So, one interface we need that is all ok.",
+      "tokens": [
+        50862,
+        407,
+        11,
+        472,
+        9226,
+        321,
+        643,
+        300,
+        307,
+        439,
+        3133,
+        13,
+        50962
+      ],
+      "temperature": 0.0,
+      "avg_logprob": -0.20742537577946982,
+      "compression_ratio": 1.4017094017094016,
+      "no_speech_prob": 0.13930490612983704
+    },
+    {
+      "id": 3,
+      "seek": 0,
+      "start": 11.96,
+      "end": 12.48,
+      "text": " Thank you.",
+      "tokens": [
+        50962,
+        1044,
+        291,
+        13,
+        50988
+      ],
+      "temperature": 0.0,
+      "avg_logprob": -0.20742537577946982,
+      "compression_ratio": 1.4017094017094016,
+      "no_speech_prob": 0.13930490612983704
+    }
+  ],
+  "language": "en"
+}

@@ -1,0 +1,40 @@
+const fs=require('fs'),vm=require('vm'),assert=require('assert/strict');const root=process.cwd();const elements=new Map();function element(s){if(!elements.has(s))elements.set(s,{options:[],value:s==='#role'?'CEO / CXO':'',innerHTML:'',textContent:'',style:{},dataset:{},classList:{contains(){return false},toggle(){},add(){},remove(){}},addEventListener(){},setAttribute(){},insertAdjacentHTML(){},querySelector(){return null},querySelectorAll(){return[]},remove(){},prepend(){},append(){},appendChild(){},getBoundingClientRect(){return{width:1200,height:800,left:0,top:0}}});return elements.get(s)}const c={MutationObserver:class{observe(){}},console,structuredClone,setTimeout:()=>0,clearTimeout(){},crypto:require('crypto').webcrypto,localStorage:{getItem(){return null},setItem(){}},document:{createElement:()=>element('created'),querySelector:element,querySelectorAll(){return[]},getElementById:s=>element('#'+s),body:element('body'),documentElement:element('html'),addEventListener(){}},window:{addEventListener(){},scrollTo(){}},location:{hash:''},requestAnimationFrame(){}};Object.assign(c,c.window);c.window=c;vm.createContext(c);const scripts=[...fs.readFileSync('index.html','utf8').matchAll(/<script src="([^"?]+)(?:\?[^\"]*)?"/g)].map(m=>m[1]);for(const f of scripts){try{if(f==='production-shell.js')vm.runInContext('render=()=>{}',c);vm.runInContext(fs.readFileSync(f,'utf8'),c,{filename:f})}catch(e){console.error('LOAD',f,e);process.exit(1)}}function run(code){return vm.runInContext(code,c)}if(!scripts.includes('sop-composition.js'))vm.runInContext(fs.readFileSync('sop-composition.js','utf8'),c);run('ensureTypedConfig();ensureSources();render=()=>{};renderItems=()=>{};closeModal=()=>{};');
+
+
+
+run("window.cohort=ProcurementPracticeModel.create()");
+assert.equal(run("ProcurementPracticeModel.counts(window.cohort).offered"),100);
+assert.throws(()=>run("ProcurementPracticeModel.decide(window.cohort,'EXAMPLE-001','boarding','boarded','CEO / CXO')"),/Only selected/);
+assert.throws(()=>run("ProcurementPracticeModel.decide(window.cohort,'EXAMPLE-001','decision','approved','Operator')"),/CEO/);
+run("ProcurementPracticeModel.decide(window.cohort,'EXAMPLE-001','decision','approved','CEO / CXO')");
+assert.throws(()=>run("ProcurementPracticeModel.decide(window.cohort,'EXAMPLE-001','boarding','boarded','CEO / CXO')"),/tag/);
+run("window.cohort.rows[0].tag='DEMO-TAG';ProcurementPracticeModel.decide(window.cohort,'EXAMPLE-001','boarding','boarded','CEO / CXO')");
+assert.throws(()=>run("ProcurementPracticeModel.decide(window.cohort,'EXAMPLE-002','arrival','received','CEO / CXO')"),/Only boarded/);
+assert.throws(()=>run("ProcurementPracticeModel.decide(window.cohort,'EXAMPLE-001','arrival','missing','CEO / CXO')"),/reason/);
+run("ProcurementPracticeModel.decide(window.cohort,'EXAMPLE-001','arrival','received','CEO / CXO')");
+assert.equal(run("window.cohort.rows[0].history.length"),3);
+assert.throws(()=>run("ProcurementPracticeModel.decide(window.cohort,'EXAMPLE-001','decision','rejected','CEO / CXO','changed')"),/history/);
+assert.throws(()=>run("ProcurementPracticeModel.feed(window.cohort)"),/ration/);
+run("window.cohort.feed={ration:2,travelDays:3,warmupDays:10,packed:26}");
+assert.equal(run("ProcurementPracticeModel.feed(window.cohort).required"),26);
+console.log('PASS procurement cohort identity/subset, role, tag, exception history and feed quantity guards');
+run("window.policy={minWeight:35,tolerance:0.2,rows:[{species:'Goat',sex:'Male',breed:'Any breed',enabled:true,minWeight:null,price:450},{species:'Goat',sex:'Male',breed:'Specific',enabled:false,minWeight:null,price:null}]}");
+assert.equal(run("salesPolicyResult(window.policy,{species:'Goat',sex:'Male',breed:'Other',weight:34.8}).eligible"),true);
+assert.equal(run("salesPolicyResult(window.policy,{species:'Goat',sex:'Male',breed:'Other',weight:34.7}).eligible"),false);
+assert.equal(run("salesPolicyResult(window.policy,{species:'Goat',sex:'Male',breed:'Specific',weight:40}).eligible"),false);
+assert.equal(run("salesPolicyResult(window.policy,{species:'Sheep',sex:'Male',breed:'Other',weight:40}).eligible"),false);
+console.log('PASS proposed sales policy: tolerance boundary, exact breed disable, missing group fails closed');
+run(`window.progress={definition:{stagePlan:{stages:[{id:'stage-0',dependencies:[]},{id:'stage-1',dependencies:[{stageId:'stage-0',state:'approved'}]},{id:'stage-2',dependencies:[{stageId:'stage-1',state:'completed'}]},{id:'stage-3',dependencies:[{stageId:'stage-2',state:'approved'}]},{id:'stage-4',dependencies:[{stageId:'stage-3',state:'started'}]},{id:'stage-5',dependencies:[{stageId:'stage-3',state:'completed'},{stageId:'stage-4',state:'completed'}]}]}},stages:{}};for(let i=0;i<6;i++)window.progress.stages['stage-'+i]={status:'completed',approved:true,childDone:true,checks:[]};ProcurementPracticeModel.invalidate(window.progress,['stage-3'])`);
+assert.equal(run("window.progress.stages['stage-0'].status"),'completed');assert.equal(run("window.progress.stages['stage-1'].status"),'completed');assert.equal(run("window.progress.stages['stage-2'].approved"),true);assert.equal(run("window.progress.stages['stage-3'].status"),'started');for(const n of [4,5])assert.equal(run("window.progress.stages['stage-"+n+"'].status"),'waiting');
+run(`window.cohort.feed={travelDays:3,warmupDays:10,rations:[{feed:'Hay',animalIds:['EXAMPLE-001'],ration:2,packed:26},{feed:'Pellets',animalIds:['EXAMPLE-001'],ration:0.5,packed:6.5}]}`);assert.equal(run('ProcurementPracticeModel.feed(window.cohort).required'),32.5);assert.equal(run('ProcurementPracticeModel.feed(window.cohort).sufficient'),true);run("window.cohort.feed.rations[0].packed=100;window.cohort.feed.rations[1].packed=1");assert.equal(run('ProcurementPracticeModel.feed(window.cohort).sufficient'),false);run("window.cohort.feed.rations[1].feed='Hay'");assert.throws(()=>run('ProcurementPracticeModel.feed(window.cohort)'),/assigned twice/);run("window.cohort.feed.rations[1].feed='Pellets';window.cohort.feed.rations[1].animalIds=['EXAMPLE-002']");assert.throws(()=>run('ProcurementPracticeModel.feed(window.cohort)'),/only boarded/);
+console.log('PASS affected-stage invalidation preserves upstream completion; multi-feed quantities, no surplus crossfeed substitution, exact boarded cohort groups');
+
+run("window.progress.stages['stage-3'].startedAt=12;window.progress.stages['stage-3'].checks=[{at:15,name:'proof'}];ProcurementPracticeModel.invalidate(window.progress,['stage-3'])");assert.equal(run("window.progress.stages['stage-3'].startedAt"),12);assert.equal(run("window.progress.stages['stage-3'].checks.length"),1);console.log('PASS arrival evidence edits retain transit start and periodic checks while reopening completion/approval');
+assert.equal(run("salesPolicyResult(window.policy,{species:'Goat',sex:'Male',breed:' specific ',weight:40}).eligible"),false);console.log('PASS breed-specific exclusion preserves identity despite input case/outer spaces');
+
+run(`window.salesRate=configValueByKey('valuation_adult_female_rate');window.salesRate.shares=['Weighing'];$('#content').insertAdjacentHTML=(position,html)=>{window.salesSettingsHtml=html};renderConsumerSurface('Sales','Sales Config');`);
+assert(!run("window.salesSettingsHtml.includes('600')"));assert(run("window.salesSettingsHtml.includes('Unavailable')"));assert(run("window.salesSettingsHtml.includes('Not linked to this module')"));
+run("renderConsumerSurface('Sales','Farm value')");assert(run("$('#content').innerHTML.includes('Configuration unavailable')"));assert(!run("$('#content').innerHTML.includes('₹null')"));
+run("window.salesRate.shares=['Sales','Weighing'];renderConsumerSurface('Sales','Sales Config')");assert(run("window.salesSettingsHtml.includes('600')"));
+assert(run("itemUsages(window.salesRate.id).some(u=>JSON.stringify(u).includes('Farm value'))"));assert(run("itemUsages(window.salesRate.id).some(u=>JSON.stringify(u).includes('Sales Config'))"));
+console.log('PASS Sales-owned values respect revoked applicability, show readable unavailable values and register actual page consumers');

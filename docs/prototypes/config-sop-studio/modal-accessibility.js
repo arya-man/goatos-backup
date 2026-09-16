@@ -1,0 +1,13 @@
+/* Shared dialog keyboard behavior; dismissal delegates to each existing close wrapper. */
+(function(){
+let opener=null,returnKey=null;
+const baseModal=modal,baseClose=closeModal;
+const background=()=>['header','#nav','#main'].map(s=>document.querySelector(s)).filter(Boolean);
+const focusables=dialog=>Array.from(dialog.querySelectorAll('button,input,select,textarea,a[href],summary,[tabindex]')).filter(e=>!e.disabled&&e.tabIndex>=0&&e.getClientRects().length&&!e.closest('[hidden]'));
+function remember(){if(!opener){opener=document.activeElement;returnKey=opener?{id:opener.id,label:opener.getAttribute('aria-label'),text:opener.textContent}:null;}}
+function enter(){const dialog=document.querySelector('#overlay .modal');if(!dialog)return;remember();dialog.setAttribute('role','dialog');dialog.setAttribute('aria-modal','true');dialog.tabIndex=-1;const title=dialog.querySelector('.modalhead h2');if(title){title.id='shared-dialog-title';dialog.setAttribute('aria-labelledby',title.id);}background().forEach(e=>e.inert=true);if(!dialog.contains(document.activeElement))(focusables(dialog)[0]||dialog).focus({preventScroll:true});}
+modal=function(...args){if(!document.querySelector('#overlay .modal')){opener=document.activeElement;returnKey=opener?{id:opener.id,label:opener.getAttribute('aria-label'),text:opener.textContent}:null;}baseModal(...args);enter();};
+closeModal=function(...args){baseClose(...args);if(document.querySelector('#overlay .modal'))return; background().forEach(e=>e.inert=false);let target=opener?.isConnected?opener:null;if(!target&&returnKey){target=Array.from(document.querySelectorAll('button,a,input,select')).find(e=>(returnKey.id&&e.id===returnKey.id)||(returnKey.label&&e.getAttribute('aria-label')===returnKey.label)||(!returnKey.id&&!returnKey.label&&e.textContent===returnKey.text));}if(target)target.focus({preventScroll:true});opener=null;returnKey=null;};
+document.addEventListener('keydown',e=>{const dialog=document.querySelector('#overlay .modal');if(!dialog)return;if(e.key==='Escape'){e.preventDefault();e.stopImmediatePropagation();closeModal();return;}if(e.key!=='Tab')return;const items=focusables(dialog),first=items[0],last=items[items.length-1];if(!first){e.preventDefault();dialog.focus();return;}if(!dialog.contains(document.activeElement)||(e.shiftKey&&document.activeElement===first)||(!e.shiftKey&&document.activeElement===last)){e.preventDefault();(e.shiftKey?last:first).focus();}},true);
+new MutationObserver(()=>{if(document.querySelector('#overlay .modal'))enter();else background().forEach(e=>e.inert=false);}).observe(document.querySelector('#overlay'),{childList:true,subtree:true});
+})();

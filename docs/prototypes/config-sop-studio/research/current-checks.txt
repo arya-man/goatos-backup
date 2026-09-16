@@ -1,0 +1,333 @@
+PASS final integrated hierarchy: actual compiler/action and question choices; direct+category+subcategory union; removal acknowledgement; revoke blocks new compilation; snapshots pinned; serialized reload keeps grants
+PASS actual registry module matcher uses effective inherited access and preserves shared-catalogue origin
+PASS final actual typed-rule/compiler integration: shared source39 changes new branch only, revision pinned35 stays, module revocation and unit mismatch block, zero preserved
+PASS round3 actual stack: stable custom weight identity versus legacy alias, draft/published impact usage, immutable values, revoked grant, discoverable units/percent equivalence, blank quantity unit and proof min/max consistency
+PASS actual-stack branch tester: a/aa membership, NOT, blank, exact choice/catalogue IDs, stale values rejected
+PASS Connected insertion preserves next destination
+PASS Connected insertion preserves yes destination
+PASS Connected insertion preserves no destination
+PASS Decision insertion preserves both outgoing destinations and predecessor question
+PASS Reconnect refuses self, cycle, nonexistent target and invalid source port
+PASS Inspector destination setter uses same cycle refusal
+PASS Linear deletion repairs incoming edge
+PASS Deleting referenced question clears sources, blocks validation, and supports undo
+PASS Decision deletion requests explicit branch selection
+PASS Undo and redo restore full graph and insertion positions
+PASS Fresh edit clears redo history
+PASS Histories scoped to SOP object within same module
+PASS Readonly guards insertion reconnection removal undo
+PASS Published compiled graph stays pinned after draft insertion
+PASS Canvas render exposes insert wire controls and labeled input/output ports
+CANVAS RECEIPT: 15 passed
+PASS Actual node pointer handler moves and selects step with undo history
+PASS Actual output click and input click rewire through canvas function
+CANVAS EVENT RECEIPT: 17 passed
+PASS Actual readonly node pointer cannot start a drag
+CANVAS FINAL: 18 passed
+PASS Live wire endpoints and insert control follow moved source and destination
+CANVAS LIVE WIRES: 19 passed
+PASS 120 pointer moves coalesce to one paint updating only adjacent wires mid-drag
+PASS Release flushes latest coordinates cancels pending frame and adds one history entry
+PASS pointercancel flushes latest pending point and detaches handlers
+PASS lostpointercapture flushes latest pending point and detaches handlers
+CANVAS DRAG RECEIPT: 23 passed
+PASS Pan pointerup flushes latest point and clears gesture
+PASS Pan pointercancel flushes latest point and clears gesture
+PASS Pan lostpointercapture flushes latest point and clears gesture
+PASS Secondary mouse button cannot start pan or node movement
+CANVAS PAN RECEIPT: 27 passed
+PASS consumer previews: threshold changes only counts; valuation changes only valuation; zero retained; Sales Config preserves transaction semantics
+PASS revoked module relation blocks bound preview; restoring relation restores consumption
+PASS actual 32-script deferred commit: Operator/Director cannot mutate, CEO confirmation remains functional
+PASS final integrated hierarchy: actual compiler/action and question choices; direct+category+subcategory union; removal acknowledgement; revoke blocks new compilation; snapshots pinned; serialized reload keeps grants
+PASS actual registry module matcher uses effective inherited access and preserves shared-catalogue origin
+PASS final actual typed-rule/compiler integration: shared source39 changes new branch only, revision pinned35 stays, module revocation and unit mismatch block, zero preserved
+PASS round3 actual stack: stable custom weight identity versus legacy alias, draft/published impact usage, immutable values, revoked grant, discoverable units/percent equivalence, blank quantity unit and proof min/max consistency
+PASS shared hierarchy uses central categories by default, preserves legacy scope and exposes central SOP source filter
+PASS department entry points and collapsed secondary tools preserve working saved editor markup
+PASS Initial Sales strict boundary and zero allowance
+PASS Unsaved Sales input does not mutate published source
+PASS Sales rejects allowance at minimum
+PASS Sales rejects blank rate
+PASS Sales publish review does not publish until confirmation
+5 checks passed
+PASS Default Health graph valid
+PASS Dangling destination rejected
+PASS Missing fallback rejected
+PASS Cycle rejected
+PASS Disconnected step rejected
+PASS Reversed numeric range rejected
+PASS Strict comparison boundary
+PASS Inclusive comparison boundary
+PASS Numeric equality ignores decimal formatting
+PASS Revoked medicine action rejected
+PASS Revoked Catalogue question rejected
+PASS Joined decision requires source on every incoming path
+PASS Published snapshot survives draft edit
+PASS Simulation rejects empty numeric answer
+PASS Simulation rejects outside number limits
+PASS Simulation accepts minimum boundary and fallback
+PASS Cold-chain minimum cannot exceed maximum
+PASS New SOP preserves existing published workflow
+PASS Revoked photo availability omitted and existing question rejected
+PASS Revoked approval action rejected
+PASS Shared numeric definition resolves to Number
+PASS No network writes in prototype JS
+PASS Invalid numeric equality threshold rejected
+PASS Second publication preserves first immutable version
+PASS Revoked custom question blocked
+PASS Revoked custom action blocked
+PASS Local answer type detaches old shared question dependency
+TOTAL: 32 passed
+PASS Built-in temperature definition resolves unit and bounds
+PASS Revoked built-in temperature dependency blocked
+PASS Milk percentage above 100 rejected
+PASS Milk negative minutes rejected
+PASS Milk valid config isolated from HRMS
+PASS Read-only role cannot save Others policy
+FINAL TOTAL: 38 passed
+PASS Pointer release selects clicked node and refreshes inspector
+FINAL RECEIPT: 39 passed
+PASS generic item preview: direct access, inherited source access, deduplication, isolation, archival
+PASS actual item hierarchy integration: draft preserved, stable parent IDs, duplicate reuse, readonly and missing-parent guards
+PASS shared catalogue item reaches actual module/SOP selectors through direct and inherited source links; archive blocks new choices
+PASS arbitrary shared catalogue taxonomy has no consuming module owner
+PASS reopening shared catalogue item removes base-form phantom owner checkbox and preserves exact saved links
+PASS category-only/subcategory-only actual SOP choices, granting-level provenance and inherited revoke
+PASS hierarchy checkbox preserves open panel and existing controls while updating count
+PASS business-module registry filter follows inherited effective grants; Shared catalogue retains origin semantics
+PASS Both cohorts preserve 16 live Fever source rows
+PASS Schedule groups preserve ordered 6/5/5 daily steps
+PASS Missing dose numerator unit stays explicitly unspecified
+PASS Blank session not inferred as Morning
+PASS Invalid day rejected
+PASS Medication requires item reference
+PASS Publish pins course and item snapshots
+PASS Second publish retains previous course version
+PASS Published item labels do not follow live rename
+PASS Invalid course cannot publish at confirmation
+PASS Source provenance exact tabs/gids is preserved
+HEALTH TOTAL: 11 passed
+PASS Local step add/edit preserves identity and leaves source unchanged
+PASS Removing local step does not remove published step
+PASS Read-only role cannot save or remove course steps
+PASS Unavailable configured item blocks draft course validation
+PASS Course code has no network calls or dosage calculation
+HEALTH FINAL: 16 passed
+PASS Item usage includes exact course draft and published step references
+PASS Published course usage retains original item label after master rename
+PASS Archiving referenced course item requires impact acknowledgement
+PASS Archive commit keeps course references and invalidates draft
+PASS Item editor retains unspecified source unit option
+HEALTH RECEIPT: 21 passed
+PASS final integrated hierarchy: actual compiler/action and question choices; direct+category+subcategory union; removal acknowledgement; revoke blocks new compilation; snapshots pinned; serialized reload keeps grants
+PASS actual registry module matcher uses effective inherited access and preserves shared-catalogue origin
+PASS final actual typed-rule/compiler integration: shared source39 changes new branch only, revision pinned35 stays, module revocation and unit mismatch block, zero preserved
+PASS round3 actual stack: stable custom weight identity versus legacy alias, draft/published impact usage, immutable values, revoked grant, discoverable units/percent equivalence, blank quantity unit and proof min/max consistency
+PASS actual-stack lifecycle: orphan archive impact and pinned snapshot, active/new link guard, source move impact, direct-only move no false warning
+PASS modal: direct preview opener, replacement, forward/reverse trap, Escape/close restore, inert cleanup
+PASS source page order and load scope
+PASS fixed-point clears transitive scalar other and files
+PASS visible values and multi choice retained
+PASS Previous retains applicable answers without validation
+PASS Next validates only current visible page
+PASS Next required error stays current page
+PASS Submit jumps first missing visible page
+PASS Submit ignores hidden mandatory fields
+PASS decimal boundaries and optional blank
+PASS Other and frozen choices validated
+PASS proof count type preserved metadata checked
+PASS hidden current page falls back nearest preceding page
+PASS scope switches preserve both load and animal answers
+PASS full graph preserves frozen definition and returns page answers
+14/14 page preview checks passed
+PASS repeated render, previous answer refill, downstream reset, changed path, first-step boundary
+PASS procurement cohort identity/subset, role, tag, exception history and feed quantity guards
+PASS proposed sales policy: tolerance boundary, exact breed disable, missing group fails closed
+PASS affected-stage invalidation preserves upstream completion; multi-feed quantities, no surplus crossfeed substitution, exact boarded cohort groups
+PASS arrival evidence edits retain transit start and periodic checks while reopening completion/approval
+PASS breed-specific exclusion preserves identity despite input case/outer spaces
+PASS Sales-owned values respect revoked applicability, show readable unavailable values and register actual page consumers
+PASS: 35 baseline + Alerts + 2 additive routes, exact Sales labels, no legacy Sales configuration, consumer hook, SOP/editor routing, honest reference preview, reusable tools and mobile drawer.
+PASS: DOM-ready legacy bootstrap cannot replace modern workflow deep-link content.
+PASS CEO routes: exactly two additive destinations, legacy aliases and department/secondary tools retained
+PASS: no standalone event engine, legacy aliases lead to SOP authoring, existing Alerts reference retained
+PASS legacy editor deep link retains selected department and saved draft
+PASS ordered branches compile connected no chain
+PASS all comparisons boundary and NOT absent semantics
+PASS AND OR and inclusive range
+PASS cycle destinations rejected
+PASS source change clears config reference and stale comparison
+PASS fallback changes leave explicit destination intact
+PASS page traversal uses same NOT outcome
+PASS compiled config reference pinned
+PASS invalid shared ref validates as error
+PASS custom action connects branch and rejoins fallback
+10/10 independent rule checks passed
+PASS managed chain forbids canvas interposition but permits outcome wiring
+PASS removing all branches then readding uses current question destination
+12/12 independent final rule checks passed
+PASS deleting fallback target updates owner metadata and subsequent branches
+13/13 independent deletion regression checks passed
+PASS adopted branches follow graph order rather than storage order
+14/14 RULE FINAL RECEIPT
+PASS deleting final otherwise wire clears fallback metadata
+15/15 RULE FINAL RECEIPT
+PASS legacy weight/rate refs resolve distinct typed sources; unsupported margin blocks
+PASS archived revoked missing-unit references fail closed; pinned definition retains value
+PASS live edited typed value is used at selection and compilation, including zero
+18/18 typed source runtime binding checks passed
+PASS arbitrary Weight config uses stable ID while legacy weight remains reporting alias
+PASS fresh authoring Unit menu exposes currency ration and percentage comparisons
+PASS unit change invokes original edit and refreshes existing Compare with choices
+PASS Number equality normalizes numeric input while Text preserves literal formatting
+PASS direct condition literal/source/operator edits detach hidden configuration bindings
+PASS direct AND OR clause literal edit detaches hidden configuration binding
+PASS numeric test dialog rejects invalid input instead of taking Otherwise
+PASS direct linked value typing detaches without rerendering focused editor
+PASS Typed question inserted connected and redo preserves type/defaults
+PASS Boolean branches cover Yes and No with explicit fallback
+PASS Regenerate choices preserves existing matching destination
+PASS Removed answer requires review before removing generated branch
+PASS Duplicate choices rejected before branch generation
+PASS Topological question order independent of canvas positions
+PASS Readonly cannot insert or generate answer branches
+PASS Optional skipped answers do not match zero or blank conditions
+QUESTIONNAIRE RECEIPT: 8 passed
+PASS Source importer retains all45 questions and distinct duplicate notes IDs
+PASS Every source question retained byte-faithfully in metadata
+PASS Source only_if yields correct recursive sex and lactating gates
+PASS Reconciled source draft validates locally with explicit key warnings
+PASS Source absent numeric bounds stay absent and proof accepts preserved
+PASS Source snapshot unaffected by draft edits
+PROCUREMENT SOURCE RECEIPT: 14 passed
+SOURCE ERRORS []
+PASS Male path skips all female questions including nested mastitis
+PASS Female nonlactating path skips mastitis and male measurement
+PASS Female lactating path includes mastitis
+PROCUREMENT PATH RECEIPT: 17 passed
+PASS Proof rejects over-limit and wrong MIME, accepts either permitted media
+PASS Required Other free text cannot be omitted
+PROCUREMENT MEDIA RECEIPT: 19 passed
+PASS Compound rule numeric range boundaries and blank answer semantics
+PASS Compound ALL versus ANY produces distinct connected outcomes
+PASS Compound invalid range and missing answer references cannot validate
+QUESTIONNAIRE COMPOUND RECEIPT: 22 passed
+PASS Editing imported visibility source removes exemption
+QUESTIONNAIRE FINAL: 23 passed
+PASS Proof capture edits MIME choices without changing source metadata
+PASS Proof optional toggle restores configured required minimum
+PASS Invalid proof limits rejected without changing settings
+PASS Readonly proof changes cannot mutate node
+PASS Optional proof allows zero but enforces remembered minimum if answered
+QUESTIONNAIRE PROOF FINAL: 28 passed
+PASS actual 32-script stack: saved catalogue kind locked; optional invalid number blocked, real blank skipped, page validity propagated and corrected zero valid
+PASS decimal inclusive range
+PASS malformed and empty ranges reject
+PASS answered distinguishes zero empty multiselect
+PASS not contains set membership
+PASS valid compound with decimal range passes legacy adapter
+PASS secondary question cannot follow decision
+PASS stale secondary choice rejected
+PASS invalid matching and clauses reject
+PASS OR execution considers secondary check
+9/9 checks passed
+PASS actual composition compiler and stage model: child pins, missing/cycle guards, started parallelism, required completion, exact role approval, practice wait and periodic proof checks
+PASS published child revision pinned; actual nested runner pauses parent, isolates answers and resumes only child End; read-only selection guarded
+PASS typed stage period binding: live change updates new compile only, stable ID/revision pin, department revoke/archive/wrong units fail closed
+PASS stage timing settings join item archive/unlink usage review
+PASS nested child master cannot bypass required stage or wait; changed child completion invalidates prior approval
+PASS reopened upstream result invalidates started/completed transitive dependencies and preserves independent parallel stages
+PASS typed configuration: idempotent seed; source classes; real typed values; zero/null; invalid units/ranges/time/enum/boolean; metadata/revision roundtrip; read-only invariant; archived API
+PASS bound consumers reject type/unit/currency changes; autogenerated stable key
+PASS actual weight form metadata ignores irrelevant hidden currency
+PASS bound configuration cannot become a catalogue item and silently detach consumers
+PASS typed health reference excluded from medicine/action inventory choices and exposed through dedicated typed configuration API
+PASS typed branch refs are discovered for archive/unlink impact acknowledgement, including pinned publications
+PASS quantity unit required; known weighing minimum/maximum cross-validated without global proof cap
+PASS empty rate denominator and missing paired proof configuration rejected
+PASS insert exposes custom title, searchable types, shared sources and branch operators
+PASS custom number has own title and no invented limits
+PASS inline custom creation connects question before condition and uses its answer
+PASS question source picker exposes search and creation
+4/4 usability picker checks passed
+PASS custom source before owner question invokes original onchange and preserves owner path
+PASS native source select hidden and replaced by clear searchable button
+6/6 usability picker checks passed
+PASS refused insertion cannot clobber selected existing question
+7/7 usability picker checks passed
+PASS Seed items have stable unique ids and valid hierarchy
+PASS Sharing gives Procurement feed choices, not Sales
+PASS Inactive master omitted from new choices
+PASS Hierarchy rename preserves IDs and item relationship
+PASS Create and duplicate category validation
+PASS Create item generates new stable identity
+PASS Rename keeps item identity and increments revision
+PASS Cross-owner category rejected
+PASS Duplicate item name rejected case-insensitively
+PASS Read-only cannot create item or category
+ITEM TESTS: 10 passed
+PASS Compiler emits explicit preview schema and stable item reference
+PASS Compiler rejects missing item identity
+PASS Compiler rejects deactivated referenced item
+PASS Compiler rejects revoked sharing
+PASS Compiled item and config snapshots isolated from current state
+PASS Publish stores executable definition independently of draft
+PASS Draft simulator sees latest item details
+PASS Active run retains copied details after registry edits
+PASS Published simulator runs pinned item after deactivation and unsharing
+PASS Catalogue compilation is scoped and stores stable option ids
+PASS Catalogue answer stores id and takes matching branch
+PASS Catalogue rejects nonexistent option
+PASS No item draft with empty catalogue can compile
+PASS Pinned catalogue usage appears in impact references
+PASS V2 files have no live network APIs
+V2 FINAL: 25 passed
+PASS Common sharing removal confirms catalogue-only dependency
+V2 RECEIPT: 26 passed
+PASS Read-only cannot mutate item sharing directly
+PASS Owner cannot be removed from own item access
+PASS Catalogue condition refuses missing option id
+V2 COMPLETE: 29 passed
+PASS Source inventory categories unique and ownership correct
+PASS Record sources available only to owner/shared consumers
+PASS Whole source shares include newly active records
+PASS Inactive records excluded
+PASS Whole collection share grants items while individual revoke does not remove inherited access
+PASS Shared record action compiles stable reference and source revision
+PASS Revoked source blocks record action compilation
+PASS Published source snapshot isolated from record rename
+PASS Source catalogue stores record ids and scopes by owner access
+PASS Catalogue decision with deactivated record cannot publish
+PASS Read-only cannot mutate source access
+V3 SHARED: 11 passed
+PASS Four pinned diagnosis packs and catalog counts
+PASS Multiple concurrent hits exist and remain separate from confidence
+PASS Switch class cannot retain another class story id
+PASS Director override requires decision and reason
+PASS Read-only role cannot confirm proposal
+PASS Local Director confirmation records pinned source SHA
+PASS Recorded scenario rendering explains replay boundary
+PASS Clinical draft publication remains unavailable without acceptance
+V3 CURRENT: 19 passed
+PASS All source register rules pass structural authoring validator
+PASS Unknown evidence token and empty clause rejected
+PASS Visual OR/AND edit synchronizes exact clause structure
+PASS Read-only cannot change visual evidence clause
+PASS Invalid observation cannot receive local Director confirmation
+V3 FINAL: 24 passed
+PASS Category rename refreshes source title without replacing stable id
+PASS Source selector filters owner and type while retaining selected reference
+PASS Directory owner/type filters exclude other source cards
+PASS Archiving source records stages review before mutation
+PASS Reviewed archive commits same record ids and invalidates draft only
+PASS Rule save/review/discard isolates source and recorded output
+V3 FINAL COMPLETE: 30 passed
+PASS Ownership intro renders each module with external source count
+PASS Director ownership intro uses read-only published wording
+PASS Weighing ownership references effective Sales values and owner version
+V3 OWNERSHIP FINAL: 33 passed
+PASS Item consumers union direct and collection grants without duplicates or owner
+PASS Item row tags and shared stats include inherited collection access
+PASS Removing collection share removes inherited tag while retaining direct share
+V3 ITEM VISIBILITY FINAL: 36 passed

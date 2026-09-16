@@ -1,6 +1,6 @@
 # Health SOP source review
 
-Read-only Google Drive/Sheets connector verification on 2026-09-15 as ravi@mesha.sg.
+Read-only Google Drive/Sheets connector verification on 2026-09-15 as [source account omitted].
 
 Source: [Health DB](https://docs.google.com/spreadsheets/d/1uvDO_vipNsLcB4S0O7Bj-L8VCSMCd0eX5U9cJS8F-QE/edit).
 - Adults SOP: sheetId 582297317.

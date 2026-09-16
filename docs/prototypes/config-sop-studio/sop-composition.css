@@ -1,0 +1,4 @@
+.composition-picker{margin-top:20px;padding-top:16px;border-top:1px solid var(--line,#364439)}
+.composition-running{padding:12px 22px;background:var(--surface2,#263528);color:var(--text,#edf3ed);border-bottom:1px solid var(--line,#364439)}
+.composition-picker select{width:100%;max-width:100%}
+.composition-plan>.card{margin:16px 0}.composition-plan .field select,.composition-plan .field input{width:100%}.composition-stage-run{border-top:1px solid var(--line,#364439);padding:16px 0}.composition-stage-run button{margin:4px}.composition-plan details{padding:12px 0}.composition-plan .inputrow{flex-wrap:wrap}@media(max-width:650px){.composition-plan .inputrow{display:block}.composition-stage-run button{width:100%;margin:4px 0}}
