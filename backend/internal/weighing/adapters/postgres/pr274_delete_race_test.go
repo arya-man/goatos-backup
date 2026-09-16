@@ -12,10 +12,11 @@ import (
 
 func TestRemovalDisablePreservesConcurrentPartialSubmit(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
+	// Schema migration time is setup, not part of the bounded submit/delete race.
+	pool := pgtest.StartPostgres(t, context.Background())
+	defer pool.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	pool := pgtest.StartPostgres(t, ctx)
-	defer pool.Close()
 	task := seedFastingFixture(t, ctx, pool, "2026-09-18")
 	submit, err := pool.Begin(ctx)
 	if err != nil {
