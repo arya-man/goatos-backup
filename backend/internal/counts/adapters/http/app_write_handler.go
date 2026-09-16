@@ -824,9 +824,13 @@ func (h *AppWriteHandler) RecordShiftingEvent(w http.ResponseWriter, r *http.Req
 		event.SOPVersion = &version
 		event.RaiseSOPProofs = raiseJudgement.Proofs
 		event.RaiseSOPAnswers = raiseJudgement.Answers
-		if encoded, err := json.Marshal(raiseJudgement.Capture); err == nil {
-			captureSnapshot = encoded
-			event.RaiseCaptureEvidence = encoded
+		// A raise card that recorded nothing (the seeded card asks nothing) snapshots no capture:
+		// an empty "recorded on the form" card on every approval is a change no SOP edit asked for.
+		if !shiftingCaptureEmpty(&raiseJudgement.Capture) {
+			if encoded, err := json.Marshal(raiseJudgement.Capture); err == nil {
+				captureSnapshot = encoded
+				event.RaiseCaptureEvidence = encoded
+			}
 		}
 	}
 

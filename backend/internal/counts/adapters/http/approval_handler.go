@@ -224,6 +224,13 @@ func (h *AppWriteHandler) ListApprovals(w http.ResponseWriter, r *http.Request) 
 // shiftingCaptureFromSummary lifts the raise snapshot a shifting request carries in its stored
 // payload (`capture`, written once at raise) onto the list item. Nothing is recomposed: the park
 // head sees exactly what the raise judged. Other request types are left to their own producers.
+// shiftingCaptureEmpty reports a raise capture that recorded nothing: no answers, no captures, no
+// older-app note. Such a snapshot is never shown (a version label alone is not something the
+// approver can act on), and one stored before this rule is dropped on read.
+func shiftingCaptureEmpty(c *domain.CountsApprovalCapture) bool {
+	return c == nil || (len(c.Rows) == 0 && len(c.Media) == 0 && strings.TrimSpace(c.MissingNote) == "")
+}
+
 func shiftingCaptureFromSummary(requestType string, summary json.RawMessage) *domain.CountsApprovalCapture {
 	if requestType != domain.ApprovalRequestTypeShifting || len(summary) == 0 {
 		return nil
@@ -231,7 +238,7 @@ func shiftingCaptureFromSummary(requestType string, summary json.RawMessage) *do
 	var payload struct {
 		Capture *domain.CountsApprovalCapture `json:"capture"`
 	}
-	if err := json.Unmarshal(summary, &payload); err != nil || payload.Capture == nil {
+	if err := json.Unmarshal(summary, &payload); err != nil || shiftingCaptureEmpty(payload.Capture) {
 		return nil
 	}
 	if payload.Capture.Rows == nil {
