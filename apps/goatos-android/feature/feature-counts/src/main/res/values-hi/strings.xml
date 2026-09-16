@@ -256,4 +256,12 @@
     <string name="counts_hint_death_cause_search">कुछ अक्षर लिखें, फिर बीमारी पर टैप करें।</string>
     <string name="counts_death_cause_no_match">इससे कोई बीमारी मेल नहीं खाती। नहीं मिले तो सामान्य मौत दर्ज करें और जो देखा वह लिखें।</string>
     <string name="counts_hint_reason_disease">वैकल्पिक। 500 अक्षर तक।</string>
+    <string name="counts_approval_capture_title">फ़ॉर्म पर दर्ज किया गया</string>
+    <string name="counts_approval_capture_review_pending">रिपोर्ट का प्रमाण जाँचकर्ता की प्रतीक्षा में</string>
+    <string name="counts_approval_capture_review_approved">रिपोर्ट का प्रमाण जाँचकर्ता ने स्वीकार किया</string>
+    <string name="counts_approval_capture_review_rework">रिपोर्ट का प्रमाण दोबारा रिकॉर्ड करने के लिए लौटाया गया</string>
+    <string name="counts_approval_capture_missing">दर्ज नहीं (पुराना ऐप): %1$s</string>
+    <string name="counts_approval_capture_open_media">%1$s खोलें</string>
+    <string name="counts_approval_capture_media_loading">खुल रहा है…</string>
+    <string name="counts_approval_capture_media_failed">%1$s नहीं खुल सका। फिर से कोशिश करने के लिए टैप करें।</string>
 </resources>
