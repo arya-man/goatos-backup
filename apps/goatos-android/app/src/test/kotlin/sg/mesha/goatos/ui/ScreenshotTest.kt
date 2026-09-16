@@ -291,6 +291,16 @@ class ScreenshotTest {
                 shedLabel = "Gandhi 1",
                 sessionLabel = "Morning session",
                 workflowLabel = "Normal",
+                // The seeded distribution card (FEED SOP): the slots the screen renders are the card's.
+                instruction = "Photograph the weighed feed, then film the feed and the water being given out.",
+                slots = listOf(
+                    sg.mesha.goatos.feature.feed.FeedDistributionSlotUi(
+                        slotKey = "feed_distribution_feed_weight_photo", title = "Feed weight photo",
+                        hint = "The weighed feed on the scale, before it is given out.", captureKind = sg.mesha.goatos.feature.feed.FeedSlotCaptureKind.PHOTO,
+                    ),
+                    sg.mesha.goatos.feature.feed.FeedDistributionSlotUi(slotKey = "feed_distribution_video", title = "Feed distribution video", hint = "The feed being put in the trough."),
+                    sg.mesha.goatos.feature.feed.FeedDistributionSlotUi(slotKey = "feed_distribution_water_video", title = "Water distribution video", hint = "Water being given in the pen."),
+                ),
             ),
         )
     }
@@ -299,7 +309,15 @@ class ScreenshotTest {
     fun feed_transport_capture_matches_distribution_anatomy() =
         shot("feed_transport_capture_matches_distribution_anatomy") {
             FeedTransportCaptureScreen(
-                state = FeedTransportCaptureUiState(shedLabel = "Gandhi 1"),
+                state = FeedTransportCaptureUiState(
+                    shedLabel = "Gandhi 1",
+                    card = sg.mesha.goatos.feature.feed.FeedSopCardUi(
+                        instruction = "Film the packed feed loaded and staged outside the pens.",
+                        slots = listOf(
+                            sg.mesha.goatos.feature.feed.FeedDistributionSlotUi(slotKey = "feed_transport_video", title = "Transport video", hint = "The loaded feed for this location, staged before serving."),
+                        ),
+                    ),
+                ),
                 onEvent = {},
             )
         }

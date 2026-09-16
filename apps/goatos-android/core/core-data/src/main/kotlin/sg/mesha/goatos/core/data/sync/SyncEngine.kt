@@ -1585,7 +1585,7 @@ class SyncEngine(
      */
     private suspend fun resolveFeedSlotProofs(sources: Map<String, FeedSlotProofSourcePayload>): Map<String, String> {
         if (sources.isEmpty()) return emptyMap()
-        val out = LinkedHashMap<String, String>(sources.size)
+        val out = LinkedHashMap<String, String>(sources.size) // mobile-guard:ignore: bounded by the card's slot count (<= 12 per SOP); local to one dispatch
         for ((slotKey, source) in sources) {
             val ref = source.proofRef?.takeIf { it.isNotBlank() }
                 ?: source.outboxItemId?.takeIf { it.isNotBlank() }?.let { resolveUploadedProofRef(it) }
@@ -1622,11 +1622,22 @@ class SyncEngine(
                 sessionNo = if (payload.sessionNo < 1) 1 else payload.sessionNo,
                 targetDate = payload.targetDate,
                 workflow = payload.workflow,
-                packingProofRef = resolveUploadedProofRef(payload.packingProofOutboxItemId),
+                packingProofRef = legacyFeedSlotRef(payload.slotProofs, FEED_SLOT_PACKING_VIDEO, payload.packingProofOutboxItemId),
+                proofs = resolveFeedSlotProofs(payload.slotProofs),
+                answers = payload.answers,
             ),
         )
         return syncJson.encodeToString(response)
     }
+
+    /**
+     * FEED SOP: the legacy single-proof field of a packing/wastage/transport request. A row queued
+     * against the CARD mirrors its seeded slot there (blank when the card dropped that slot); a row
+     * queued by an older build resolves its one coupled upload exactly as before.
+     */
+    private suspend fun legacyFeedSlotRef(slotProofs: Map<String, FeedSlotProofSourcePayload>, seededKey: String, legacyOutboxItemId: String): String =
+        if (slotProofs.isNotEmpty()) resolveFeedSlotProofs(slotProofs)[seededKey].orEmpty()
+        else resolveUploadedProofRef(legacyOutboxItemId)
 
     /**
      * The verifier-GATED feed-WASTAGE completion (maintainer decision 2026-08-18). Shaped exactly
@@ -1646,7 +1657,9 @@ class SyncEngine(
                 shedId = payload.shedId,
                 partitionLabel = payload.partitionLabel,
                 targetDate = payload.targetDate,
-                wastageProofRef = resolveUploadedProofRef(payload.wastageProofOutboxItemId),
+                wastageProofRef = legacyFeedSlotRef(payload.slotProofs, FEED_SLOT_WASTAGE_VIDEO, payload.wastageProofOutboxItemId),
+                proofs = resolveFeedSlotProofs(payload.slotProofs),
+                answers = payload.answers,
             ),
         )
         return syncJson.encodeToString(response)
@@ -1917,7 +1930,19 @@ class SyncEngine(
         return syncJson.encodeToString(response)
     }
 
-    private suspend fun dispatchFeedTransportSubmit(item:OutboxEntity):String{val payload=syncJson.decodeFromString<FeedTransportSubmitPayload>(item.payloadJson);return syncJson.encodeToString(api.submitFeedTransport(payload.taskId,item.idempotencyKey,FeedTransportSubmitRequestDto(resolveUploadedProofRef(payload.proofOutboxItemId))))}
+    private suspend fun dispatchFeedTransportSubmit(item: OutboxEntity): String {
+        val payload = syncJson.decodeFromString<FeedTransportSubmitPayload>(item.payloadJson)
+        val response = api.submitFeedTransport(
+            payload.taskId,
+            item.idempotencyKey,
+            FeedTransportSubmitRequestDto(
+                proofRef = legacyFeedSlotRef(payload.slotProofs, FEED_SLOT_TRANSPORT_VIDEO, payload.proofOutboxItemId),
+                proofs = resolveFeedSlotProofs(payload.slotProofs),
+                answers = payload.answers,
+            ),
+        )
+        return syncJson.encodeToString(response)
+    }
 
     /**
      * Resolves an uploaded proof_id from a referenced PROOF_UPLOAD outbox row. A not-yet-drained row
@@ -2258,3 +2283,6 @@ internal class BoundedKeySet(private val capacity: Int) {
 internal const val FEED_SLOT_WEIGHT_PHOTO = "feed_distribution_feed_weight_photo"
 internal const val FEED_SLOT_FEED_VIDEO = "feed_distribution_video"
 internal const val FEED_SLOT_WATER_VIDEO = "feed_distribution_water_video"
+internal const val FEED_SLOT_PACKING_VIDEO = "feed_packing_video"
+internal const val FEED_SLOT_WASTAGE_VIDEO = "feed_wastage_video"
+internal const val FEED_SLOT_TRANSPORT_VIDEO = "feed_transport_video"

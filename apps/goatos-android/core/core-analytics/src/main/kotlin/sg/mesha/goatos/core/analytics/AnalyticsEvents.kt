@@ -542,6 +542,9 @@ object AnalyticsEvents {
     const val FEED_DISTRIBUTION_TEAMMATE_PROOF_ADOPTED = "feed_distribution_teammate_proof_adopted"
     /** FEED SOP: the capture card the distribution screen renders changed source or version. */
     const val FEED_DISTRIBUTION_CARD_APPLIED = "feed_distribution_card_applied"
+    const val FEED_PACKING_CARD_APPLIED = "feed_packing_card_applied"
+    const val FEED_WASTAGE_CARD_APPLIED = "feed_wastage_card_applied"
+    const val FEED_TRANSPORT_CARD_APPLIED = "feed_transport_card_applied"
 
     /** Fired alongside [FEED_DISTRIBUTION_SUBMITTED]/[FEED_DISTRIBUTION_SUBMIT_BLOCKED] with the
      *  per-slot source breakdown ([Params.FEED_WEIGHT_SOURCE]/[Params.FEED_VIDEO_SOURCE]/
@@ -579,6 +582,10 @@ object AnalyticsEvents {
 
     /** The MANDATORY leftover-feed video was captured on the wastage capture detail. */
     const val FEED_WASTAGE_VIDEO_CAPTURED = "feed_wastage_video_captured"
+    const val FEED_WASTAGE_CAPTURE_TAPPED = "feed_wastage_capture_tapped"
+    const val FEED_WASTAGE_REUPLOAD_TAPPED = "feed_wastage_reupload_tapped"
+    const val FEED_WASTAGE_SYNC_TAPPED = "feed_wastage_sync_tapped"
+    const val FEED_WASTAGE_SUBMIT_BLOCKED = "feed_wastage_submit_blocked"
     const val FEED_WASTAGE_PROOF_UPLOAD_SYNCED = "feed_wastage_proof_upload_synced"
 
     /** A feed-wastage completion was submitted for verification (proof queued, completion enqueued

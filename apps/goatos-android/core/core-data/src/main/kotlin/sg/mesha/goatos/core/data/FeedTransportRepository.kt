@@ -53,6 +53,10 @@ interface FeedTransportStatusSource {
      * callers MUST treat `null` as "unknown, keep current state", never as "not yet submitted".
      */
     suspend fun fetchTaskStatus(businessDate: String, shedId: String, taskId: String): String?
+
+    /** FEED SOP (2026-09-16): the transport CARD pinned on this task, from the cached task row;
+     *  `null` while Room has no row (the capture screen then shows the seeded card). */
+    fun observeTaskCard(taskId: String): Flow<sg.mesha.goatos.core.network.dto.FeedSopCardDto?> = kotlinx.coroutines.flow.flowOf(null)
 }
 
 class FeedTransportRepository(
@@ -90,6 +94,12 @@ class FeedTransportRepository(
     override fun observeTaskStatus(taskId: String): Flow<String?> =
         db.feedTransportScopedItemDao().observeByTaskId(taskId)
             .map { entity -> entity?.let { json.decodeFromString<FeedTransportTaskDto>(it.dtoJson).status } }
+            .distinctUntilChanged()
+            .flowOn(Dispatchers.Default)
+
+    override fun observeTaskCard(taskId: String): Flow<sg.mesha.goatos.core.network.dto.FeedSopCardDto?> =
+        db.feedTransportScopedItemDao().observeByTaskId(taskId)
+            .map { entity -> entity?.let { json.decodeFromString<FeedTransportTaskDto>(it.dtoJson).sop } }
             .distinctUntilChanged()
             .flowOn(Dispatchers.Default)
 

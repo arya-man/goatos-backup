@@ -70,36 +70,28 @@ class FeedTransportSequenceTest {
     @After
     fun tearDown() = Dispatchers.resetMain()
 
+    private fun cardWith(captured: Boolean, status: FeedDistributionProofStatus = FeedDistributionProofStatus.EMPTY, isCapturing: Boolean = false) =
+        sg.mesha.goatos.feature.feed.FeedSopCardUi(
+            slots = listOf(
+                sg.mesha.goatos.feature.feed.FeedDistributionSlotUi(
+                    slotKey = "feed_transport_video", title = "Transport video",
+                    captured = captured, status = status, isCapturing = isCapturing,
+                ),
+            ),
+        )
+
     @Test
     fun `submit follows offline-first proof gating`() {
+        // No card yet -> nothing to submit; a slot mid-capture or empty -> not yet.
         assertFalse(FeedTransportCaptureUiState().submitEnabled)
-        assertFalse(FeedTransportCaptureUiState(isCapturing = true, videoCaptured = true).submitEnabled)
-        assertFalse(FeedTransportCaptureUiState(videoCaptured = true).submitEnabled)
-        assertTrue(
-            FeedTransportCaptureUiState(
-                videoCaptured = true,
-                videoStatus = FeedDistributionProofStatus.QUEUED,
-                canSubmit = true,
-            ).submitEnabled,
-        )
-        assertTrue(
-            FeedTransportCaptureUiState(
-                videoCaptured = true,
-                videoStatus = FeedDistributionProofStatus.UPLOADING,
-                canSubmit = true,
-            ).submitEnabled,
-        )
+        assertFalse(FeedTransportCaptureUiState(card = cardWith(captured = true, status = FeedDistributionProofStatus.QUEUED, isCapturing = true), canSubmit = true).submitEnabled)
+        assertFalse(FeedTransportCaptureUiState(card = cardWith(captured = false)).submitEnabled)
+        assertTrue(FeedTransportCaptureUiState(card = cardWith(true, FeedDistributionProofStatus.QUEUED), canSubmit = true).submitEnabled)
+        assertTrue(FeedTransportCaptureUiState(card = cardWith(true, FeedDistributionProofStatus.UPLOADING), canSubmit = true).submitEnabled)
+        assertFalse(FeedTransportCaptureUiState(card = cardWith(true, FeedDistributionProofStatus.FAILED), canSubmit = true).submitEnabled)
         assertFalse(
             FeedTransportCaptureUiState(
-                videoCaptured = true,
-                videoStatus = FeedDistributionProofStatus.FAILED,
-                canSubmit = true,
-            ).submitEnabled,
-        )
-        assertFalse(
-            FeedTransportCaptureUiState(
-                videoCaptured = true,
-                videoStatus = FeedDistributionProofStatus.SYNCED,
+                card = cardWith(true, FeedDistributionProofStatus.SYNCED),
                 canSubmit = true,
                 result = FeedTransportResultUi(FeedTransportSubmitStatus.QUEUED, "Submitted"),
             ).submitEnabled,
@@ -183,6 +175,8 @@ class FeedTransportSequenceTest {
             sync = sync,
             capture = proofCaptureSource,
             proofCaptureRepository = proofCaptureRepository,
+            photoCaptureSource = sg.mesha.goatos.capture.FakePhotoCaptureSource(),
+            appContext = androidx.test.core.app.ApplicationProvider.getApplicationContext(),
             drafts = drafts,
             analytics = RecordingAnalytics(),
             crashReporter = NoopCrashReporter(),
@@ -199,17 +193,17 @@ class FeedTransportSequenceTest {
         advanceUntilIdle()
 
         proofCaptureSource.queue(CapturedVideo(localUri = "file://transport-old.mp4", startedAtMs = 1L, endedAtMs = 2L))
-        viewModel.onEvent(FeedTransportCaptureEvent.RecordVideo)
+        viewModel.onEvent(FeedTransportCaptureEvent.CaptureSlot("feed_transport_video"))
         advanceUntilIdle()
         val originalProof = proofCaptureRepository.observeProofs("feed-transport:transport-task-1", null).first().single()
 
         proofCaptureSource.queue(null)
-        viewModel.onEvent(FeedTransportCaptureEvent.ReRecordVideo)
+        viewModel.onEvent(FeedTransportCaptureEvent.CaptureSlot("feed_transport_video"))
         advanceUntilIdle()
 
         assertEquals(2, proofCaptureSource.captureCount)
         assertEquals(listOf(originalProof.id), proofCaptureRepository.observeProofs("feed-transport:transport-task-1", null).first().map { it.id })
-        assertTrue(viewModel.state.value.videoCaptured)
+        assertTrue(viewModel.state.value.card.anyCaptured)
     }
 
     @Test
@@ -219,6 +213,8 @@ class FeedTransportSequenceTest {
             sync = TransportSyncRepository(),
             capture = FakeProofCaptureSource(),
             proofCaptureRepository = FakeProofCaptureRepository(),
+            photoCaptureSource = sg.mesha.goatos.capture.FakePhotoCaptureSource(),
+            appContext = androidx.test.core.app.ApplicationProvider.getApplicationContext(),
             drafts = TransportDraftRepository(),
             analytics = analytics,
             crashReporter = NoopCrashReporter(),
@@ -234,7 +230,7 @@ class FeedTransportSequenceTest {
         )
         advanceUntilIdle()
 
-        viewModel.onEvent(FeedTransportCaptureEvent.PreviewAction("share:failure:fileprovider_rejected"))
+        viewModel.onEvent(FeedTransportCaptureEvent.PreviewAction("feed_transport_video", "share:failure:fileprovider_rejected"))
         advanceUntilIdle()
 
         val event = analytics.events.last { it.name == AnalyticsEvents.FEED_DISTRIBUTION_PROOF_PREVIEW_ACTION }
@@ -256,6 +252,8 @@ class FeedTransportSequenceTest {
             sync = sync,
             capture = proofCaptureSource,
             proofCaptureRepository = proofCaptureRepository,
+            photoCaptureSource = sg.mesha.goatos.capture.FakePhotoCaptureSource(),
+            appContext = androidx.test.core.app.ApplicationProvider.getApplicationContext(),
             drafts = TransportDraftRepository(),
             analytics = analytics,
             crashReporter = NoopCrashReporter(),
@@ -272,7 +270,7 @@ class FeedTransportSequenceTest {
         advanceUntilIdle()
 
         proofCaptureSource.queue(CapturedVideo(localUri = "file://transport.mp4", startedAtMs = 1L, endedAtMs = 2L))
-        viewModel.onEvent(FeedTransportCaptureEvent.RecordVideo)
+        viewModel.onEvent(FeedTransportCaptureEvent.CaptureSlot("feed_transport_video"))
         advanceUntilIdle()
         val proof = proofCaptureRepository.observeProofs("feed-transport:transport-task-1", null).first().single()
         val proofOutboxId = proof.outboxItemId.orEmpty()

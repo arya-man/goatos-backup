@@ -526,6 +526,10 @@ interface SyncRepository {
         targetDate: String,
         workflow: String,
         packingProofOutboxItemId: String,
+        // FEED SOP (2026-09-16): the card's captures {slot key: source} and its answers. When
+        // present the fixed field above is only the seeded slot's mirror (blank if it was dropped).
+        slotProofs: Map<String, FeedSlotProofSourcePayload> = emptyMap(),
+        answers: JsonObject = JsonObject(emptyMap()),
     ): AppResult<String> = AppResult.Err("feed packing completion sync is not configured")
 
     /**
@@ -545,6 +549,9 @@ interface SyncRepository {
         partitionLabel: String?,
         targetDate: String,
         wastageProofOutboxItemId: String,
+        // FEED SOP (2026-09-16): see enqueueFeedPackingComplete.
+        slotProofs: Map<String, FeedSlotProofSourcePayload> = emptyMap(),
+        answers: JsonObject = JsonObject(emptyMap()),
     ): AppResult<String> = AppResult.Err("feed wastage completion sync is not configured")
 
     /**
@@ -769,7 +776,15 @@ interface SyncRepository {
         mixingAndFillingProofOutboxItemId: String,
     ): AppResult<String> = AppResult.Err("milk feeding sync is not configured")
 
-    suspend fun enqueueFeedTransportSubmit(groupKey:String,idempotencyKey:String,taskId:String,proofOutboxItemId:String):AppResult<String> = AppResult.Err("feed transport sync is not configured")
+    suspend fun enqueueFeedTransportSubmit(
+        groupKey: String,
+        idempotencyKey: String,
+        taskId: String,
+        proofOutboxItemId: String,
+        // FEED SOP (2026-09-16): see enqueueFeedPackingComplete.
+        slotProofs: Map<String, FeedSlotProofSourcePayload> = emptyMap(),
+        answers: JsonObject = JsonObject(emptyMap()),
+    ): AppResult<String> = AppResult.Err("feed transport sync is not configured")
 
     /**
      * Enqueues a Counts identifier PROMOTE (`POST /app/counts/goats/{goat_id}/promote-identifier`).
@@ -1616,6 +1631,8 @@ class DefaultSyncRepository(
         targetDate: String,
         workflow: String,
         packingProofOutboxItemId: String,
+        slotProofs: Map<String, FeedSlotProofSourcePayload>,
+        answers: JsonObject,
     ): AppResult<String> = enqueue(
         opType = OutboxOpType.FEED_PACKING_COMPLETE,
         groupKey = groupKey,
@@ -1629,6 +1646,8 @@ class DefaultSyncRepository(
                 targetDate = targetDate.trim(),
                 workflow = workflow.trim(),
                 packingProofOutboxItemId = packingProofOutboxItemId,
+                slotProofs = slotProofs,
+                answers = answers,
             ),
         ),
     )
@@ -1641,6 +1660,8 @@ class DefaultSyncRepository(
         partitionLabel: String?,
         targetDate: String,
         wastageProofOutboxItemId: String,
+        slotProofs: Map<String, FeedSlotProofSourcePayload>,
+        answers: JsonObject,
     ): AppResult<String> = enqueue(
         opType = OutboxOpType.FEED_WASTAGE_COMPLETE,
         groupKey = groupKey,
@@ -1652,6 +1673,8 @@ class DefaultSyncRepository(
                 partitionLabel = partitionLabel?.trim()?.ifBlank { null },
                 targetDate = targetDate.trim(),
                 wastageProofOutboxItemId = wastageProofOutboxItemId,
+                slotProofs = slotProofs,
+                answers = answers,
             ),
         ),
     )
@@ -1990,7 +2013,21 @@ class DefaultSyncRepository(
         payloadJson = syncJson.encodeToString(MilkFeedingSubmitPayload(taskId, parkId, feedingDate, sessionNo, answers, cleanBottlesProofOutboxItemId, mixingAndFillingProofOutboxItemId)),
     )
 
-    override suspend fun enqueueFeedTransportSubmit(groupKey:String,idempotencyKey:String,taskId:String,proofOutboxItemId:String):AppResult<String> = enqueue(opType=OutboxOpType.FEED_TRANSPORT_SUBMIT,groupKey=groupKey,idempotencyKey=idempotencyKey,payloadJson=syncJson.encodeToString(FeedTransportSubmitPayload(taskId,proofOutboxItemId)))
+    override suspend fun enqueueFeedTransportSubmit(
+        groupKey: String,
+        idempotencyKey: String,
+        taskId: String,
+        proofOutboxItemId: String,
+        slotProofs: Map<String, FeedSlotProofSourcePayload>,
+        answers: JsonObject,
+    ): AppResult<String> = enqueue(
+        opType = OutboxOpType.FEED_TRANSPORT_SUBMIT,
+        groupKey = groupKey,
+        idempotencyKey = idempotencyKey,
+        payloadJson = syncJson.encodeToString(
+            FeedTransportSubmitPayload(taskId = taskId, proofOutboxItemId = proofOutboxItemId, slotProofs = slotProofs, answers = answers),
+        ),
+    )
 
     override suspend fun enqueuePromoteIdentifier(
         groupKey: String,

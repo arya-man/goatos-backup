@@ -205,7 +205,6 @@ fun FeedDistributionCompleteScreen(
 ) {
     val committed = state.result?.status == FeedDistributionStatus.SYNCED ||
         state.result?.status == FeedDistributionStatus.QUEUED
-    val captureInProgress = state.anyCapturing
     val subtitle = listOf(state.sessionLabel, state.workflowLabel)
         .filter { it.isNotBlank() }
         .joinToString(" · ")
@@ -253,62 +252,17 @@ fun FeedDistributionCompleteScreen(
                     )
                 }
             }
-            // THE CARD'S SLOTS, in card order, one row each. Words are the card's; the verbs are
-            // the app's. An `either` slot offers both verbs.
-            items(state.slots, key = { it.slotKey }) { slot ->
-                val isPhoto = slot.captureKind == FeedSlotCaptureKind.PHOTO ||
-                    (slot.captureKind == FeedSlotCaptureKind.EITHER && slot.capturedKind == FeedSlotCaptureKind.PHOTO && slot.captured)
-                val captureVerb = when (slot.captureKind) {
-                    FeedSlotCaptureKind.PHOTO -> stringResource(R.string.feed_slot_take_photo)
-                    FeedSlotCaptureKind.EITHER -> stringResource(R.string.feed_slot_record_video)
-                    else -> stringResource(R.string.feed_slot_record_video)
-                }
-                val slotEnabled = slot.captureEnabled && !state.isFinalSubmitted
-                FeedDistProofAction(
-                    title = captureVerb + " · " + slot.title,
-                    subtitle = listOf(
-                        slot.hint,
-                        if (slot.required) stringResource(R.string.feed_slot_required) else stringResource(R.string.feed_slot_optional),
-                    ).filter { it.isNotBlank() }.joinToString(" · "),
-                    icon = if (isPhoto) MeshaIcons.Plus else MeshaIcons.Video,
-                    captured = slot.captured,
-                    status = slot.status,
-                    previewPath = slot.previewPath,
-                    previewIdentity = slot.previewIdentity,
-                    previewKind = if (isPhoto) FeedDistPreviewKind.Photo else FeedDistPreviewKind.Video,
-                    capturedLabel = proofLabel(slot.status, slot.title),
-                    loading = slot.isCapturing,
-                    loadingLabel = stringResource(R.string.feed_dist_video_uploading),
-                    retryLabel = stringResource(R.string.feed_slot_retry, slot.title),
-                    replaceLabel = if (isPhoto) stringResource(R.string.feed_proof_recapture) else stringResource(R.string.feed_proof_rerecord),
-                    enabled = slotEnabled,
-                    message = slot.message,
-                    onClick = { onEvent(FeedDistributionEvent.CaptureSlot(slot.slotKey)) },
-                    remotePreviewUrl = slot.remoteUrl,
-                    playbackEnabled = !captureInProgress,
-                    onPlaybackFailure = { onEvent(FeedDistributionEvent.SlotPlaybackFailed(slot.slotKey)) },
-                    showAction = !state.alreadySubmitted,
-                    secondaryLabel = if (slot.captureKind == FeedSlotCaptureKind.EITHER && !state.alreadySubmitted) stringResource(R.string.feed_slot_take_photo) else null,
-                    onSecondaryClick = { onEvent(FeedDistributionEvent.CaptureSlot(slot.slotKey, FeedSlotCaptureKind.PHOTO)) },
-                    onPreviewAction = { action ->
-                        onEvent(FeedDistributionEvent.ProofPreviewAction(slot.slotKey, action))
-                    },
-                )
-            }
-            // THE CARD'S QUESTIONS, answered once per pen-session.
-            val visibleQuestions = state.questions.filter { state.appliesTo(it) }
-            if (visibleQuestions.isNotEmpty()) {
-                items(visibleQuestions, key = { "q:" + it.id }) { q ->
-                    FeedSopQuestionCard(
-                        question = q,
-                        answer = state.answers[q.id].orEmpty(),
-                        otherText = state.answers[q.id + "_other"].orEmpty(),
-                        enabled = !state.isFinalSubmitted,
-                        onAnswer = { v -> onEvent(FeedDistributionEvent.Answer(q.id, v)) },
-                        onOther = { v -> onEvent(FeedDistributionEvent.Answer(q.id + "_other", v)) },
-                    )
-                }
-            }
+            // THE CARD'S SLOTS and QUESTIONS, in card order (shared with packing/wastage/transport).
+            // The captured proofs stay VISIBLE when locked — operators still need to see WHAT was
+            // submitted and by whom; only the actions disappear.
+            feedSopCardItems(
+                card = FeedSopCardUi(state.instruction, state.slots, state.questions, state.answers),
+                locked = state.isFinalSubmitted,
+                onCapture = { key, kind -> onEvent(FeedDistributionEvent.CaptureSlot(key, kind)) },
+                onPlaybackFailed = { key -> onEvent(FeedDistributionEvent.SlotPlaybackFailed(key)) },
+                onPreviewAction = { key, action -> onEvent(FeedDistributionEvent.ProofPreviewAction(key, action)) },
+                onAnswer = { id, v -> onEvent(FeedDistributionEvent.Answer(id, v)) },
+            )
         }
     }
 }

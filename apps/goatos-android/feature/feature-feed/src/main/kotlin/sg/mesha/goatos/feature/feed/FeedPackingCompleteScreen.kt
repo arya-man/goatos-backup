@@ -49,11 +49,13 @@ data class FeedPackingCompleteUiState(
     val shedLabel: String = "",
     val sessionLabel: String = "",
     val workflowLabel: String = "",
-    val isCapturingVideo: Boolean = false,
-    val videoCaptured: Boolean = false,
-    val videoMessage: String? = null,
-    val videoPreviewPath: String? = null,
-    val videoStatus: FeedDistributionProofStatus = FeedDistributionProofStatus.EMPTY,
+    /**
+     * FEED SOP (2026-09-16): the packing CARD the bag is proven against -- its slots (the seeded
+     * card is one packing video) and questions, with this phone's capture state. Authored on
+     * /feed/sops and pinned on the sheet, so a slot added or dropped there reaches this screen
+     * without a new build.
+     */
+    val card: FeedSopCardUi = FeedSopCardUi(),
     val canComplete: Boolean = false,
     val isSyncing: Boolean = false,
     val result: FeedPackingCompleteResultUi? = null,
@@ -68,27 +70,28 @@ data class FeedPackingCompleteUiState(
      */
     val alreadySubmitted: Boolean = false,
 ) {
-    /** The mandatory video is queued locally and the write is not already committed. */
+    val isFinalSubmitted: Boolean
+        get() = alreadySubmitted || result?.status == FeedPackingCompleteStatus.SYNCED || result?.status == FeedPackingCompleteStatus.QUEUED
+
+    /** Every compulsory capture is queued locally, the questions are answered and the write is not committed. */
     val submitEnabled: Boolean
-        get() = !alreadySubmitted && canComplete && videoCaptured && !isCapturingVideo &&
-            videoStatus.isQueuedForSubmit() &&
-            result?.status != FeedPackingCompleteStatus.SYNCED && result?.status != FeedPackingCompleteStatus.QUEUED
+        get() = canComplete && card.readyToSubmit && !card.anyCapturing && !isFinalSubmitted
 
     /** Recording is offered only while the session is still the operator's to act on. */
     val captureEnabled: Boolean get() = !alreadySubmitted
 }
 
 sealed interface FeedPackingCompleteEvent {
-    /** Record the packing video with the LIVE in-app camera. */
-    data object RecordPackingVideo : FeedPackingCompleteEvent
-
-    /** Replace the recorded clip; the ViewModel drops the discarded take's queued upload. */
-    data object ReRecordPackingVideo : FeedPackingCompleteEvent
+    /** Capture one slot of the card with the LIVE in-app camera; [kind] picks the medium of an
+     *  `either` slot (null = the slot's own kind). A filled slot is re-recorded through the same
+     *  event; the ViewModel drops the discarded take only once the new media exists. */
+    data class CaptureSlot(val slotKey: String, val kind: String? = null) : FeedPackingCompleteEvent
+    data class Answer(val questionId: String, val value: String) : FeedPackingCompleteEvent
 
     data object MarkDone : FeedPackingCompleteEvent
     data object SyncNow : FeedPackingCompleteEvent
     data object Back : FeedPackingCompleteEvent
-    data class PreviewAction(val action: String) : FeedPackingCompleteEvent
+    data class PreviewAction(val slotKey: String, val action: String) : FeedPackingCompleteEvent
 }
 
 @Composable
@@ -138,34 +141,14 @@ fun FeedPackingCompleteScreen(
                     onRetrySubmit = { onEvent(FeedPackingCompleteEvent.MarkDone) },
                 )
             }
-            item {
-                FeedDistProofAction(
-                    title = stringResource(R.string.feed_pack_complete_record_video),
-                    subtitle = stringResource(R.string.feed_pack_complete_video_title),
-                    icon = MeshaIcons.Video,
-                    captured = state.videoCaptured,
-                    status = state.videoStatus,
-                    previewPath = state.videoPreviewPath,
-                    previewIdentity = "feed-packing:video",
-                    previewKind = FeedDistPreviewKind.Video,
-                    capturedLabel = proofLabel(state.videoStatus, stringResource(R.string.feed_pack_complete_video_recorded)),
-                    loading = state.isCapturingVideo,
-                    loadingLabel = stringResource(R.string.feed_pack_complete_video_uploading),
-                    retryLabel = stringResource(R.string.feed_pack_complete_retry_video),
-                    replaceLabel = stringResource(R.string.feed_proof_rerecord),
-                    enabled = state.captureEnabled && !committed && !state.isCapturingVideo,
-                    message = state.videoMessage,
-                    onClick = {
-                        if (state.videoCaptured) {
-                            onEvent(FeedPackingCompleteEvent.ReRecordPackingVideo)
-                        } else {
-                            onEvent(FeedPackingCompleteEvent.RecordPackingVideo)
-                        }
-                    },
-                    showAction = !state.alreadySubmitted,
-                    onPreviewAction = { onEvent(FeedPackingCompleteEvent.PreviewAction(it)) },
-                )
-            }
+            feedSopCardItems(
+                card = state.card,
+                locked = state.isFinalSubmitted,
+                onCapture = { key, kind -> onEvent(FeedPackingCompleteEvent.CaptureSlot(key, kind)) },
+                onPlaybackFailed = { },
+                onPreviewAction = { key, action -> onEvent(FeedPackingCompleteEvent.PreviewAction(key, action)) },
+                onAnswer = { id, v -> onEvent(FeedPackingCompleteEvent.Answer(id, v)) },
+            )
         }
     }
 }
@@ -181,13 +164,14 @@ private fun FeedPackingStatusCard(
         committed -> stringResource(R.string.feed_pack_complete_submitted)
         completionFailed -> state.result.message
         state.submitEnabled -> stringResource(R.string.feed_pack_complete_ready_to_submit)
-        state.videoCaptured -> stringResource(R.string.feed_pack_complete_waiting_sync)
-        else -> stringResource(R.string.feed_pack_complete_need_video)
+        state.card.compulsorySlotsFilled && !state.card.requiredAnswersGiven -> stringResource(R.string.feed_slot_answer_questions)
+        state.card.anyCaptured -> stringResource(R.string.feed_pack_complete_waiting_sync)
+        else -> stringResource(R.string.feed_slot_need_all)
     }
     val tone = when {
         committed -> MeshaColors.Ok
         completionFailed -> MeshaColors.Danger
-        state.videoCaptured -> MeshaColors.BrandD
+        state.card.anyCaptured -> MeshaColors.BrandD
         else -> MeshaColors.Muted
     }
     androidx.compose.foundation.layout.Column(
@@ -199,7 +183,11 @@ private fun FeedPackingStatusCard(
             .padding(16.dp),
         verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(10.dp),
     ) {
-        Text(text = stringResource(R.string.feed_pack_complete_caption), color = MeshaColors.Muted, style = MeshaType.body)
+        Text(
+            text = state.card.instruction.ifBlank { stringResource(R.string.feed_pack_complete_caption) },
+            color = MeshaColors.Muted,
+            style = MeshaType.body,
+        )
         Text(text = statusText, color = tone, style = MeshaType.caption)
         if (state.submitEnabled) {
             FeedDistRetryButton(label = stringResource(R.string.feed_pack_complete_submit), onClick = onRetrySubmit)

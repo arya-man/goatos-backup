@@ -93,4 +93,13 @@
     <string name="feed_seed_slot_feed_video_hint">తొట్టిలో దాణా వేస్తున్నది.</string>
     <string name="feed_seed_slot_water_video">నీటి పంపిణీ వీడియో</string>
     <string name="feed_seed_slot_water_video_hint">పెన్‌లో నీరు ఇస్తున్నది.</string>
+    <string name="feed_seed_packing_instruction">ఈ పెన్ మరియు సెషన్ కోసం సంచిని తూకం వేసి ప్యాక్ చేస్తున్న వీడియో తీయండి.</string>
+    <string name="feed_seed_slot_packing_video">ప్యాకింగ్ వీడియో</string>
+    <string name="feed_seed_slot_packing_video_hint">త్రాసు రీడింగ్ మరియు సంచి మూసివేయడం.</string>
+    <string name="feed_seed_wastage_instruction">తొలగించే ముందు పెన్‌లో మిగిలిన దాణాను వీడియో తీయండి.</string>
+    <string name="feed_seed_slot_wastage_video">మిగిలిన దాణా వీడియో</string>
+    <string name="feed_seed_slot_wastage_video_hint">తొలగించే ముందు తొట్టిలో మిగిలిన దాణా; వెరిఫయర్ క్లిప్ నుండి బరువు చదువుతారు.</string>
+    <string name="feed_seed_transport_instruction">ప్యాక్ చేసిన దాణాను లోడ్ చేసి పెన్‌ల బయట ఉంచడాన్ని వీడియో తీయండి.</string>
+    <string name="feed_seed_slot_transport_video">రవాణా వీడియో</string>
+    <string name="feed_seed_slot_transport_video_hint">ఈ స్థలానికి లోడ్ చేసిన దాణా, వడ్డించే ముందు ఉంచినది.</string>
 </resources>
