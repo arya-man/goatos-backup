@@ -129,16 +129,19 @@ WHERE e.value = ANY($5::text[])`, tenantID, parkID, day, workID, values, reuseWi
 
 var _ ports.DistributionSentBackProofReader = (*Repository)(nil)
 
+// sentBackDistributionProofsSQL is one natural-key read on feed_distribution_completions_natural_uq.
+const sentBackDistributionProofsSQL = `
+SELECT sop_proofs FROM feed_distribution_completions
+WHERE tenant_id = $1::uuid AND park_id = $2::uuid AND shed_id = $3::uuid AND partition_key = $4
+  AND session_no = $5 AND target_date = $6::date AND workflow = $7 AND status = 'rework'`
+
 // SentBackDistributionProofs returns the stored captures of ONE pen-session while it is in 'rework'
 // -- the set a verifier rejected (or nothing, for any other status). One indexed natural-key read.
 func (r *Repository) SentBackDistributionProofs(ctx context.Context, q ports.PenSessionCaptureQuery) (authored.ProofRefs, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 	var refs authored.ProofRefs
-	err := r.pool.QueryRow(ctx, `
-SELECT sop_proofs FROM feed_distribution_completions
-WHERE tenant_id = $1::uuid AND park_id = $2::uuid AND shed_id = $3::uuid AND partition_key = $4
-  AND session_no = $5 AND target_date = $6::date AND workflow = $7 AND status = 'rework'`,
+	err := r.pool.QueryRow(ctx, sentBackDistributionProofsSQL,
 		q.TenantID, q.ParkID, q.ShedID, partitionColumnKey(q.PartitionLabel), q.SessionNo, q.TargetDate.Format("2006-01-02"), q.Workflow).Scan(&refs)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
