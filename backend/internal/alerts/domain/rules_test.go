@@ -84,3 +84,28 @@ func TestSetEventRuleValidateAndDetectEventsCap(t *testing.T) {
 		t.Fatalf("summary row must count the overflow: %+v", last)
 	}
 }
+
+func TestEventKeysRemainUniqueAcrossParksIncludingOverflow(t *testing.T) {
+	rule := EventRule{ID: "r", Label: "Movement", Kind: EventShiftingRaised, Severity: SeverityWarning}
+	seen := map[string]bool{}
+	for _, park := range []string{"cbe", "cpt"} {
+		events := make([]Event, MaxEventRowsPerRule+2)
+		for i := range events {
+			events[i] = Event{Key: fmt.Sprintf("shared-movement-%d", i), ParkID: park}
+		}
+		rows := DetectEvents("2026-09-16", park, rule, events)
+		replay := DetectEvents("2026-09-16", park, rule, events)
+		if len(rows) != MaxEventRowsPerRule+1 {
+			t.Fatalf("unexpected cap: %d", len(rows))
+		}
+		for i, row := range rows {
+			if seen[row.Key] {
+				t.Fatalf("all-parks key collision: %s", row.Key)
+			}
+			if row.Key != replay[i].Key {
+				t.Fatalf("key changed on reread: %s", row.Key)
+			}
+			seen[row.Key] = true
+		}
+	}
+}
