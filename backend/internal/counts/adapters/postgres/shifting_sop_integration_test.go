@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -23,9 +24,10 @@ import (
 // an in-flight movement on its pinned version after a later publish, and a rework resubmit queues a
 // fresh item while the applied move stays applied.
 
-// publishShiftingSOP inserts a published `shifting` version for the counts test tenant and returns
-// its number. Earlier published versions are retired, as the library does.
-func publishShiftingSOP(t *testing.T, ctx context.Context, pool *pgxpool.Pool, version int, rules domain.ShiftingSOP) {
+// publishShiftingSOP inserts a published `shifting` version for the counts test tenant at the next
+// free version number (the migrated template may already carry the seeded one) and returns it.
+// Earlier published versions are retired, as the library does.
+func publishShiftingSOP(t *testing.T, ctx context.Context, pool *pgxpool.Pool, rules domain.ShiftingSOP) int {
 	t.Helper()
 	var sopID string
 	err := pool.QueryRow(ctx, `SELECT sop_id::text FROM sop_definitions WHERE tenant_id = $1::uuid AND code = 'shifting'`, countsTenant).Scan(&sopID)
@@ -38,12 +40,17 @@ VALUES ($1::uuid, 'shifting', 'Shifting', 'test', 'active') RETURNING sop_id::te
 	if _, err := pool.Exec(ctx, `UPDATE sop_versions SET status = 'retired' WHERE tenant_id = $1::uuid AND sop_id = $2::uuid AND status = 'published'`, countsTenant, sopID); err != nil {
 		t.Fatalf("retire: %v", err)
 	}
+	var version int
+	if err := pool.QueryRow(ctx, `SELECT COALESCE(MAX(version), 0) + 1 FROM sop_versions WHERE tenant_id = $1::uuid AND sop_id = $2::uuid`, countsTenant, sopID).Scan(&version); err != nil {
+		t.Fatalf("next version: %v", err)
+	}
 	form := map[string]any{"schema_version": "goatos.sop-form.v1", "sop_code": "shifting", "title": "Shifting", "fields": []any{}, "rules": []any{}, "shifting": rules}
 	raw, _ := json.Marshal(form)
 	if _, err := pool.Exec(ctx, `INSERT INTO sop_versions (tenant_id, sop_id, version, version_label, status, form_dsl, proof_policy, compatibility, validation_report, published_at)
-VALUES ($1::uuid, $2::uuid, $3, $4, 'published', $5::jsonb, '{}'::jsonb, '{}'::jsonb, '{"valid": true}'::jsonb, now())`, countsTenant, sopID, version, "v"+string(rune('0'+version)), raw); err != nil {
+VALUES ($1::uuid, $2::uuid, $3, $4, 'published', $5::jsonb, '{}'::jsonb, '{}'::jsonb, '{"valid": true}'::jsonb, now())`, countsTenant, sopID, version, fmt.Sprintf("v%d", version), raw); err != nil {
 		t.Fatalf("publish v%d: %v", version, err)
 	}
+	return version
 }
 
 func seededShiftingDoc(t *testing.T) domain.ShiftingSOP {
@@ -131,14 +138,14 @@ func TestHighPrioritySectionWithoutSeededFeedSlotsSatisfiesAuthoredCheck(t *test
 	repo := newRealIdentityApprovalRepo(t, pool)
 	doc := seededShiftingDoc(t)
 	doc.HighPriority.Proofs = []authored.ProofSlot{{Key: "feed_clip", Title: "Feed clip", Kind: authored.KindEither, Required: true}}
-	publishShiftingSOP(t, ctx, pool, 1, doc)
+	pinned := publishShiftingSOP(t, ctx, pool, doc)
 
 	goatID := "00000000-0000-4000-8000-00000000e002"
 	seedApprovalGoat(t, ctx, pool, goatID, countsShedA)
 	seedShedProfile(t, ctx, pool, countsShedB, "adult")
 	eventID, approvalID := submitShiftingApproval(t, ctx, repo, "sop-high", []string{goatID})
 	seedHighPriorityShiftingFeedConfig(t, ctx, pool, goatID, eventID)
-	if _, err := pool.Exec(ctx, `UPDATE shifting_events SET sop_version = 1 WHERE tenant_id=$1::uuid AND shifting_event_id=$2::uuid`, countsTenant, eventID); err != nil {
+	if _, err := pool.Exec(ctx, `UPDATE shifting_events SET sop_version = $3 WHERE tenant_id=$1::uuid AND shifting_event_id=$2::uuid`, countsTenant, eventID, pinned); err != nil {
 		t.Fatal(err)
 	}
 	if _, _, err := approveShifting(repo, ctx, "sop-high", approvalID, eventID, []string{goatID}); err != nil {
@@ -191,13 +198,13 @@ func TestFeedConfigChangedStillRefusedUnderAuthoredHighSection(t *testing.T) {
 	repo := newRealIdentityApprovalRepo(t, pool)
 	doc := seededShiftingDoc(t)
 	doc.HighPriority.Proofs = []authored.ProofSlot{{Key: "feed_clip", Title: "Feed clip", Kind: authored.KindVideo, Required: true}}
-	publishShiftingSOP(t, ctx, pool, 1, doc)
+	pinned := publishShiftingSOP(t, ctx, pool, doc)
 	goatID := "00000000-0000-4000-8000-00000000e003"
 	seedApprovalGoat(t, ctx, pool, goatID, countsShedA)
 	seedShedProfile(t, ctx, pool, countsShedB, "adult")
 	eventID, approvalID := submitShiftingApproval(t, ctx, repo, "sop-high-changed", []string{goatID})
 	seedHighPriorityShiftingFeedConfig(t, ctx, pool, goatID, eventID)
-	if _, err := pool.Exec(ctx, `UPDATE shifting_events SET sop_version = 1 WHERE tenant_id=$1::uuid AND shifting_event_id=$2::uuid`, countsTenant, eventID); err != nil {
+	if _, err := pool.Exec(ctx, `UPDATE shifting_events SET sop_version = $3 WHERE tenant_id=$1::uuid AND shifting_event_id=$2::uuid`, countsTenant, eventID, pinned); err != nil {
 		t.Fatal(err)
 	}
 	if _, _, err := approveShifting(repo, ctx, "sop-high-changed", approvalID, eventID, []string{goatID}); err != nil {
@@ -226,12 +233,12 @@ func TestPublishAfterRaiseLeavesInFlightMoveOnItsPin(t *testing.T) {
 	v1 := seededShiftingDoc(t)
 	v1.Completion.Questions = []authored.Question{{ID: "calm", Kind: authored.QuestionChoice, Title: "Animals calm?", Required: true,
 		Options: []authored.Option{{Value: "yes", Label: "Yes"}, {Value: "no", Label: "No"}}}}
-	publishShiftingSOP(t, ctx, pool, 1, v1)
+	v1Version := publishShiftingSOP(t, ctx, pool, v1)
 	goatID := "00000000-0000-4000-8000-00000000e004"
 	seedApprovalGoat(t, ctx, pool, goatID, countsShedA)
 	seedShedProfile(t, ctx, pool, countsShedB, "adult")
 	event := shiftingEventForApproval("sop-pin")
-	event.SOPVersion = intPtr(1)
+	event.SOPVersion = intPtr(v1Version)
 	eventID, _, err := repo.RecordShiftingEvent(ctx, event)
 	if err != nil {
 		t.Fatal(err)
@@ -248,7 +255,7 @@ func TestPublishAfterRaiseLeavesInFlightMoveOnItsPin(t *testing.T) {
 		t.Fatalf("approve: %v", err)
 	}
 	// v2 published AFTER the raise: no question at all.
-	publishShiftingSOP(t, ctx, pool, 2, seededShiftingDoc(t))
+	publishShiftingSOP(t, ctx, pool, seededShiftingDoc(t))
 	capture := &capturingShiftingVerificationEnqueuer{}
 	svc := sopExecutionService(pool, repo, capture)
 	_, _, err = svc.Complete(ctx, countsapp.CompleteShiftingInput{
@@ -268,7 +275,7 @@ func TestPublishAfterRaiseLeavesInFlightMoveOnItsPin(t *testing.T) {
 		t.Fatalf("result=%+v err=%v", result, err)
 	}
 	_, _, _, _, answers, version := readStoredShiftingSOP(t, ctx, pool, eventID)
-	if version == nil || *version != 1 || string(answers["calm"]) != `"yes"` {
+	if version == nil || *version != v1Version || string(answers["calm"]) != `"yes"` {
 		t.Fatalf("pin=%v answers=%v", version, answers)
 	}
 	found := false
