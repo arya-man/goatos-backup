@@ -1516,6 +1516,24 @@ func (r *Repository) ReopenProofStepsForRework(ctx context.Context, tenantID, wo
 	return err
 }
 
+// insertCaptureReshootStepsSQL writes every re-shoot step of one verdict in ONE statement; the
+// natural key (workflow_id, action_key) makes a redelivered verdict insert nothing.
+const insertCaptureReshootStepsSQL = `
+INSERT INTO workflow_actions (
+  tenant_id, workflow_id, action_key, seq, section, action_type, title, detail, requires_video, options, due_at,
+  status, task_type, answer_type, engine_hook, proof_min_videos, proof_min_photos, hard_time_gate, wait_for_all,
+  requires_keys, after_action_key, after_offset_seconds, rework_reason
+)
+SELECT $1::uuid, $2::uuid, s.action_key, s.seq, s.section, s.action_type, s.title, s.detail, s.requires_video, NULL, now(),
+  s.status, s.task_type, s.answer_type, s.engine_hook, s.proof_min_videos, s.proof_min_photos, false, false,
+  '[]'::jsonb, '', 0, s.rework_reason
+FROM unnest($3::text[], $4::int[], $5::text[], $6::text[], $7::text[], $8::text[], $9::bool[], $10::text[], $11::text[],
+  $12::text[], $13::text[], $14::int[], $15::int[], $16::text[])
+  AS s(action_key, seq, section, action_type, title, detail, requires_video, status, task_type, answer_type, engine_hook,
+       proof_min_videos, proof_min_photos, rework_reason)
+ON CONFLICT (workflow_id, action_key) DO NOTHING
+RETURNING action_id::text, action_key`
+
 // insertCaptureReshootSteps appends the re-shoot steps for a rejected capture inside the caller's
 // transaction (one multi-row INSERT, ON CONFLICT on the natural key so a redelivered verdict
 // inserts nothing). It returns the rows actually inserted; the caller's recompute counts them
@@ -1529,29 +1547,61 @@ func insertCaptureReshootSteps(ctx context.Context, tx pgx.Tx, tenantID, workflo
 	for _, a := range actions {
 		existing[a.ActionKey] = true
 	}
-	var added []domain.WorkflowAction
+	var (
+		pending                                          []domain.WorkflowAction
+		keys, sections, types, titles, details, statuses []string
+		taskTypes, answerTypes, hooks                    []string
+		reasons                                          []*string
+		seqs, minVideos, minPhotos                       []int32
+		requiresVideo                                    []bool
+	)
 	for _, step := range steps {
-		// scale-guard:ignore: bounded -- one row per capture proof, authored max 8 per card
 		if existing[step.ActionKey] {
 			continue
 		}
-		var actionID string
-		err := tx.QueryRow(ctx, `
-INSERT INTO workflow_actions (
-  tenant_id, workflow_id, action_key, seq, section, action_type, title, detail, requires_video, options, due_at,
-  status, task_type, answer_type, engine_hook, proof_min_videos, proof_min_photos, hard_time_gate, wait_for_all,
-  requires_keys, after_action_key, after_offset_seconds, rework_reason
-) VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7, $8, $9, NULL, now(),
-  $10, $11, $12, $13, $14, $15, false, false, '[]'::jsonb, '', 0, $16)
-ON CONFLICT (workflow_id, action_key) DO NOTHING
-RETURNING action_id::text`,
-			tenantID, workflowID, step.ActionKey, step.Seq, step.Section, step.ActionType, step.Title, step.Detail, step.RequiresVideo,
-			step.Status, step.TaskType, step.AnswerType, step.EngineHook, step.ProofMinVideos, step.ProofMinPhotos, step.ReworkReason).Scan(&actionID)
-		if errors.Is(err, pgx.ErrNoRows) {
-			continue
-		}
-		if err != nil {
+		pending = append(pending, step)
+		keys = append(keys, step.ActionKey)
+		seqs = append(seqs, int32(step.Seq))
+		sections = append(sections, step.Section)
+		types = append(types, step.ActionType)
+		titles = append(titles, step.Title)
+		details = append(details, step.Detail)
+		requiresVideo = append(requiresVideo, step.RequiresVideo)
+		statuses = append(statuses, step.Status)
+		taskTypes = append(taskTypes, step.TaskType)
+		answerTypes = append(answerTypes, step.AnswerType)
+		hooks = append(hooks, step.EngineHook)
+		minVideos = append(minVideos, int32(step.ProofMinVideos))
+		minPhotos = append(minPhotos, int32(step.ProofMinPhotos))
+		reasons = append(reasons, step.ReworkReason)
+	}
+	if len(pending) == 0 {
+		return nil, nil
+	}
+	rows, err := tx.Query(ctx, insertCaptureReshootStepsSQL, tenantID, workflowID,
+		keys, seqs, sections, types, titles, details, requiresVideo, statuses, taskTypes, answerTypes, hooks,
+		minVideos, minPhotos, reasons)
+	if err != nil {
+		return nil, err
+	}
+	inserted := map[string]string{}
+	for rows.Next() {
+		var actionID, actionKey string
+		if err := rows.Scan(&actionID, &actionKey); err != nil {
+			rows.Close()
 			return nil, err
+		}
+		inserted[actionKey] = actionID
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	var added []domain.WorkflowAction
+	for _, step := range pending {
+		actionID, ok := inserted[step.ActionKey]
+		if !ok {
+			continue // a redelivered verdict: the natural key already existed
 		}
 		step.ActionID, step.TenantID, step.WorkflowID = actionID, tenantID, workflowID
 		added = append(added, step)
