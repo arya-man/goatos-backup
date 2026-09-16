@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -298,16 +299,21 @@ func (s *BirthCaptureReshootService) OnBirthCaptureReshot(ctx context.Context, t
 		ParkID string `json:"park_id"`
 		ShedID string `json:"shed_id"`
 	}
-	_ = json.Unmarshal(report.Payload, &form)
+	if len(report.Payload) > 0 {
+		if err := json.Unmarshal(report.Payload, &form); err != nil {
+			return fmt.Errorf("counts: birth capture re-shoot: decode report payload: %w", err)
+		}
+	}
 	if index < 0 || index >= len(report.Capture.Media) {
 		return nil
 	}
+	// A re-shoot replaces exactly ONE form proof, so it enqueues at most one item: the request
+	// built from that single slot (nothing when its ref or key is blank).
 	one := report.Capture
 	one.Media = []authored.EvidenceMedia{report.Capture.Media[index]}
-	for _, req := range BirthCaptureEnqueueRequests(tenantID, birthEventID, report.RaisedByUserID, form.ParkID, form.ShedID, one, time.Time{}, time.Now()) {
-		if err := s.enqueuer.EnqueueBirthCaptureVerification(ctx, req); err != nil {
-			return err
-		}
+	reqs := BirthCaptureEnqueueRequests(tenantID, birthEventID, report.RaisedByUserID, form.ParkID, form.ShedID, one, time.Time{}, time.Now())
+	if len(reqs) == 0 {
+		return nil
 	}
-	return nil
+	return s.enqueuer.EnqueueBirthCaptureVerification(ctx, reqs[0])
 }
