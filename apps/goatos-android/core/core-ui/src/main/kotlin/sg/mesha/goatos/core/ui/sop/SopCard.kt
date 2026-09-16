@@ -297,9 +297,11 @@ fun LazyListScope.sopCardItems(
             previewPath = slot.previewPath,
             previewIdentity = slot.previewIdentity,
             previewKind = if (isPhoto) ProofMediaPreviewKind.Photo else ProofMediaPreviewKind.Video,
-            capturedLabel = sopProofLabel(slot.status, slot.title),
+            // The slot keeps its NAME once captured: "Carcass photo · Proof ready", never a bare
+            // "Proof ready" that leaves the operator guessing which capture it is.
+            capturedLabel = sopSlotStatusLine(slot.title, sopProofLabel(slot.status, slot.title)),
             loading = slot.isCapturing,
-            loadingLabel = stringResource(R.string.sop_video_uploading),
+            loadingLabel = sopSlotStatusLine(slot.title, stringResource(R.string.sop_video_uploading)),
             retryLabel = stringResource(R.string.sop_slot_retry, slot.title),
             replaceLabel = if (isPhoto) stringResource(R.string.sop_proof_recapture) else stringResource(R.string.sop_proof_rerecord),
             enabled = slot.captureEnabled && !locked,
@@ -325,6 +327,13 @@ fun LazyListScope.sopCardItems(
             onOther = { v -> onAnswer(q.id + "_other", v) },
         )
     }
+}
+
+/** "<slot title> · <status>", or just the status when it already is the title (an empty slot). */
+fun sopSlotStatusLine(title: String, status: String): String = when {
+    title.isBlank() || status == title -> status
+    status.isBlank() -> title
+    else -> "$title · $status"
 }
 
 @Composable
@@ -548,6 +557,7 @@ fun SopQuestionCard(
                         onValueChange = onOther,
                         enabled = enabled,
                         singleLine = true,
+                        label = { Text(stringResource(R.string.sop_question_other_label)) },
                         modifier = Modifier.fillMaxWidth(),
                     )
                 }

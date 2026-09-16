@@ -39,4 +39,5 @@
     <string name="sop_proof_uploading">Uploading proof</string>
     <string name="sop_proof_waiting">Waiting to upload</string>
     <string name="sop_proof_failed">Upload failed. Try again</string>
+    <string name="sop_question_other_label">Other — write it</string>
 </resources>

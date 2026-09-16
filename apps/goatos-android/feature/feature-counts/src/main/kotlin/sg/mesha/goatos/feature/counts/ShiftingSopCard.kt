@@ -25,6 +25,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
@@ -199,7 +200,7 @@ private fun QuestionRow(
                     }
                 }
                 if (question.kind == "choice" && question.allowOther && answer == "other") {
-                    CountsTextField(value = otherText, onValueChange = { onAnswer(question.id + "_other", it) }, label = "Say which", readOnly = !enabled)
+                    CountsTextField(value = otherText, onValueChange = { onAnswer(question.id + "_other", it) }, label = stringResource(sg.mesha.goatos.core.ui.R.string.sop_question_other_label), readOnly = !enabled)
                 }
             }
             "number" -> CountsTextField(

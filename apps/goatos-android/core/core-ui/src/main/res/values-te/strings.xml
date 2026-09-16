@@ -33,4 +33,5 @@
     <string name="sop_proof_uploading">రుజువు అప్‌లోడ్ అవుతోంది</string>
     <string name="sop_proof_waiting">అప్‌లోడ్ కోసం వేచి ఉంది</string>
     <string name="sop_proof_failed">అప్‌లోడ్ విఫలమైంది. మళ్లీ ప్రయత్నించండి</string>
+    <string name="sop_question_other_label">ఇతర — రాయండి</string>
 </resources>
