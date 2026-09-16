@@ -252,6 +252,7 @@ import sg.mesha.goatos.viewmodel.DiagnosisQueueViewModel
 import sg.mesha.goatos.viewmodel.ObservationFormViewModel
 import sg.mesha.goatos.viewmodel.WorkflowDetailViewModel
 import sg.mesha.goatos.viewmodel.WorkflowListViewModel
+import sg.mesha.goatos.viewmodel.WORKFLOW_FOLLOW_UP_WINDOW_MS
 import sg.mesha.goatos.viewmodel.CalendarViewModel
 import sg.mesha.goatos.viewmodel.MilkPreparationViewModel
 import sg.mesha.goatos.viewmodel.MilkPreparationListViewModel
@@ -545,6 +546,9 @@ object Routes {
     const val COUNTS_SHIFTING_SUBMISSION_OUTBOX_ID = "counts_shifting_submission_outbox_id"
     const val COUNTS_BIRTH_SUBMISSION_NOTICE = "counts.birth.submissionNotice"
     const val COUNTS_DEATH_SUBMISSION_NOTICE = "counts.death.submissionNotice"
+    /** When (epoch ms) an Add birth / Add death report synced: the list looks again for its workflows. */
+    const val COUNTS_BIRTH_FOLLOW_UP_AT = "counts.birth.followUpAt"
+    const val COUNTS_DEATH_FOLLOW_UP_AT = "counts.death.followUpAt"
 
     // The L1 execute destination for one approved movement from Shifting Actions. A
     // distinct hosted destination with Up/Back and no root chrome (Android navigation-stack
@@ -2716,9 +2720,13 @@ fun AppNavHost(
             val returnedSubmissionNotice by backStackEntry.savedStateHandle
                 .getStateFlow<String?>(Routes.COUNTS_BIRTH_SUBMISSION_NOTICE, null)
                 .collectAsStateWithLifecycle()
+            val followUpAt = remember(backStackEntry) {
+                backStackEntry.savedStateHandle.remove<Long>(Routes.COUNTS_BIRTH_FOLLOW_UP_AT)
+            }
             WorkflowListDestination(
                 vm = vm,
                 submissionNotice = returnedSubmissionNotice,
+                followUpAt = followUpAt,
                 onOpenCard = { workflowId ->
                     navController.navigate(Routes.birthWorkflowRoute(workflowId)) { launchSingleTop = true }
                 },
@@ -2734,9 +2742,13 @@ fun AppNavHost(
             val returnedSubmissionNotice = remember(backStackEntry) {
                 backStackEntry.savedStateHandle.remove<String>(Routes.COUNTS_DEATH_SUBMISSION_NOTICE)
             }
+            val followUpAt = remember(backStackEntry) {
+                backStackEntry.savedStateHandle.remove<Long>(Routes.COUNTS_DEATH_FOLLOW_UP_AT)
+            }
             WorkflowListDestination(
                 vm = vm,
                 submissionNotice = returnedSubmissionNotice,
+                followUpAt = followUpAt,
                 onOpenCard = { workflowId ->
                     navController.navigate(Routes.deathWorkflowRoute(workflowId)) { launchSingleTop = true }
                 },
@@ -2840,6 +2852,10 @@ fun AppNavHost(
                         Routes.COUNTS_BIRTH_SUBMISSION_NOTICE,
                         state.submissionNotice,
                     )
+                    navController.previousBackStackEntry?.savedStateHandle?.set(
+                        Routes.COUNTS_BIRTH_FOLLOW_UP_AT,
+                        System.currentTimeMillis(),
+                    )
                     vm.onEvent(AddBirthEvent.NavigationHandled)
                     navController.popBackStack()
                 }
@@ -2874,6 +2890,16 @@ fun AppNavHost(
         ) {
             val vm: AddDeathViewModel = hiltViewModel()
             val state by vm.state.collectAsStateWithLifecycle()
+            // A synced death report opens its workflow a few seconds later on the server: tell the
+            // Death list underneath to look again when the operator goes back to it.
+            LaunchedEffect(state.lastRecordedMessage) {
+                if (state.lastRecordedMessage != null) {
+                    navController.previousBackStackEntry?.savedStateHandle?.set(
+                        Routes.COUNTS_DEATH_FOLLOW_UP_AT,
+                        System.currentTimeMillis(),
+                    )
+                }
+            }
             // SOP CAPTURE CARD: the published card may ask for photos and videos. Bound without the
             // permission gate (as on the shifting raise) so a card-less form never meets a camera prompt.
             BindVideoCaptureSource(rememberDelegatingProofCaptureSource())
@@ -4959,12 +4985,22 @@ fun AppNavHost(
 private fun WorkflowListDestination(
     vm: WorkflowListViewModel,
     submissionNotice: String? = null,
+    /** Epoch ms a report synced from this list's add form; null when none just did. */
+    followUpAt: Long? = null,
     onOpenCard: (String) -> Unit,
     onAddNew: () -> Unit,
     onBack: () -> Unit,
 ) {
     val state by vm.state.collectAsStateWithLifecycle()
     val rows = vm.rows.collectAsLazyPagingItems()
+    // Bounded follow-up looks for workflows the server opens just after the report synced. Tied to
+    // this composition, so leaving the list cancels it; a stale marker (the operator came back much
+    // later) is ignored because the ordinary refresh on open already sees them.
+    LaunchedEffect(followUpAt) {
+        if (followUpAt != null && System.currentTimeMillis() - followUpAt < WORKFLOW_FOLLOW_UP_WINDOW_MS) {
+            vm.followUpAfterSubmission { rows.refresh() }
+        }
+    }
     val refreshState = rows.loadState.refresh
     LaunchedEffect(refreshState) {
         when (refreshState) {
