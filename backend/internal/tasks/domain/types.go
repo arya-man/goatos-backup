@@ -588,6 +588,12 @@ func OperatorActionBlocked(templateKey string, a WorkflowAction, siblings []Work
 		a.Status == ActionStatusCanceled {
 		return false
 	}
+	// A capture re-shoot answers a verdict on the REPORT, not a step of the track: it is appended
+	// after every step, and the lane rule held it behind the whole track (next-day ORS water on a
+	// mother) so a rejected report proof could not be re-recorded (E2E 2026-09-17).
+	if a.HasHook(EngineHookReshootReport) {
+		return false
+	}
 	done := func(prerequisite WorkflowAction) bool {
 		return StepRecorded(templateKey, prerequisite)
 	}
