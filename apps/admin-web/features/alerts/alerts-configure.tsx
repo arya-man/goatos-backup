@@ -11,7 +11,7 @@ import { PARAM_CONFIGURE } from "./alerts-model";
 
 /**
  * The Configure drawer: one row per catalog rule -- on/off, the threshold with its backend-named
- * unit, Save. Rendered ONLY when the page's `configure_alerts` control is enabled (the caller
+ * unit, Save. Mounted ONLY when the page's `configure_alerts` control is enabled (the caller
  * gates it); the rules come from GET /alerts/config, which the same capability gates, so the
  * drawer never renders a bare error for someone the server would refuse. Open/close is local UI
  * state mirrored in the URL (?configure=1); Save goes through a Server Action and the row
