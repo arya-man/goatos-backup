@@ -434,7 +434,11 @@ func TestPendingExecutionReadsEachPinnedVersionOnce(t *testing.T) {
 	}
 }
 
-func TestReworkRefusesRejectedRefReuseAndKeepsAnswers(t *testing.T) {
+// DEPLOY-DAY PARITY (maintainer 2026-09-16): shifting has always accepted a rework resubmit that
+// names the capture the verifier rejected (its same-refs key collapses onto the existing item), so
+// the SOP card must not add a refusal of its own. Stored answers are still kept when the resubmit
+// carries none.
+func TestReworkAcceptsTheSameCaptureLikeTodayAndKeepsAnswers(t *testing.T) {
 	pin := approvedPin(intp(1), "low")
 	pin.EventStatus, pin.VerificationState = domain.ShiftingEventStatusApplied, "rejected"
 	pin.StoredProofs = authored.ProofRefs{domain.SlotShiftingVideo: "old"}
@@ -443,15 +447,15 @@ func TestReworkRefusesRejectedRefReuseAndKeepsAnswers(t *testing.T) {
 	svc, enq := sopService(t, repo, sopRules(), &sopProofMedia{kinds: map[string]string{"old": "video", "new": "video"}})
 	in := baseInput()
 	in.SOPProofs = authored.ProofRefs{domain.SlotShiftingVideo: "old"}
-	if _, _, err := svc.Complete(context.Background(), in); !errors.Is(err, ports.ErrShiftingRejectedProofReuse) {
-		t.Fatalf("err = %v", err)
+	if _, _, err := svc.Complete(context.Background(), in); err != nil {
+		t.Fatalf("resubmitting the rejected capture was refused; today it is accepted: %v", err)
+	}
+	if string(repo.last.SOPAnswers["calm"]) != `"yes"` {
+		t.Fatalf("answers not kept: %v", repo.last.SOPAnswers)
 	}
 	in.SOPProofs = authored.ProofRefs{domain.SlotShiftingVideo: "new"}
 	if _, _, err := svc.Complete(context.Background(), in); err != nil {
 		t.Fatalf("fresh capture refused: %v", err)
-	}
-	if string(repo.last.SOPAnswers["calm"]) != `"yes"` {
-		t.Fatalf("answers not kept: %v", repo.last.SOPAnswers)
 	}
 	if enq.request.MediaRefs[0] != "new" {
 		t.Fatalf("queued %v", enq.request.MediaRefs)

@@ -566,9 +566,6 @@ func (h *AppWriteHandler) writeShiftingExecutionError(w http.ResponseWriter, r *
 	case errors.Is(err, ports.ErrShiftingSOPVersionUnknown):
 		h.writeError(w, r, http.StatusConflict, "shifting_sop_version_unknown",
 			"this movement was raised under a shifting SOP version the farm never published; refresh and raise it again", err)
-	case errors.Is(err, ports.ErrShiftingRejectedProofReuse):
-		h.writeError(w, r, http.StatusUnprocessableEntity, "shifting_rejected_proof_reuse",
-			"the verifier rejected that capture; record a fresh one", err)
 	case errors.Is(err, ports.ErrShiftingFeedConfigBlocked):
 		h.writeError(w, r, http.StatusUnprocessableEntity, "feed_config_blocked",
 			"destination feed configuration cannot resolve the required ration", err)

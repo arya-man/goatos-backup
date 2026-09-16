@@ -14333,8 +14333,7 @@ paths:
         as "At raise · <title>". A missing compulsory slot, a wrong kind, an unknown key or a
         reused capture is 422 shifting_proof_slot_invalid naming the slot; an unanswered required
         question is 422 shifting_answer_invalid naming the question; a pin the farm never published
-        is 409 shifting_sop_version_unknown; a capture the verifier already rejected is 422
-        shifting_rejected_proof_reuse. The packing proof does not complete the separate Feed Packing
+        is 409 shifting_sop_version_unknown. The packing proof does not complete the separate Feed Packing
         workflow. High priority must still echo the feed_config_fingerprint returned by the
         pending-execution read; missing config blocks with 422 and changed config blocks with 409
         so the server never guesses feed. A phone predating the SOP fields sends the legacy triple

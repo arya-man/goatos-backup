@@ -25,9 +25,6 @@ var (
 	// ErrShiftingAnswerInvalid wraps an authored.AnswerError: a required question unanswered or an
 	// answer the card did not offer. 422.
 	ErrShiftingAnswerInvalid = errors.New("counts: shifting sop answer invalid")
-	// ErrShiftingRejectedProofReuse: a rework resubmit names a capture the verifier already
-	// rejected. The operator re-shoots; the old clip is never re-queued. 422.
-	ErrShiftingRejectedProofReuse = errors.New("counts: a rejected shifting capture cannot be submitted again")
 )
 
 // ProofMeta is the per-proof {label, kind} a verifier item carries beside its media refs
