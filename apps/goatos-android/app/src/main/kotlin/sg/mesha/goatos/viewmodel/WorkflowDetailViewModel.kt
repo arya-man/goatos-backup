@@ -59,6 +59,7 @@ import java.time.format.DateTimeFormatter
 import java.io.File
 import java.net.URI
 import java.util.UUID
+import sg.mesha.goatos.core.data.workflowDeathDraftFieldKey
 import javax.inject.Inject
 
 /**
@@ -203,37 +204,46 @@ class WorkflowDetailViewModel @Inject constructor(
         viewModelScope.launch {
             combine(
                 repo.observeDetail(workflowId, lens, lensDate),
-                repo.observeVideoDrafts(workflowId),
+                combine(repo.observeVideoDrafts(workflowId), repo.observeStepDraftAnswers(workflowId)) { d, a -> d to a },
                 syncRepository.observeStatus(),
                 pendingProofs,
                 penCatalog,
-            ) { detail, drafts, sync, _, _ -> Triple(detail, drafts, sync) }
-                .collect { (detail, drafts, sync) ->
+            ) { detail, draftsAndAnswers, sync, _, _ -> Triple(detail, draftsAndAnswers, sync) }
+                .collect { (detail, draftsAndAnswers, sync) ->
                 if (detail != null) {
+                    val (drafts, draftAnswers) = draftsAndAnswers
                     val submitting = drafts.any { it.syncStatus == DRAFT_STATUS_SUBMITTING }
                     val earliestDraft = drafts.minOfOrNull { it.startedAtMs } ?: Long.MAX_VALUE
                     val submissionItems = sync.items.filter { item ->
                         item.groupKey == workflowId &&
                             item.createdAt >= earliestDraft - SUBMISSION_ITEM_CLOCK_TOLERANCE_MS &&
-                            (item.opType == OP_PROOF_UPLOAD || item.opType == OP_WORKFLOW_ACTION_COMPLETE)
+                            (item.opType == OP_PROOF_UPLOAD || item.opType == OP_WORKFLOW_ACTION_COMPLETE || item.opType == OP_WORKFLOW_ACTION_ANSWER)
                     }
                     val uploadFailed = submitting && submissionItems.any { it.status == SyncItemStatus.FAILED }
-                    val completionsSucceeded = submissionItems.count {
-                        it.opType == OP_WORKFLOW_ACTION_COMPLETE && it.status == SyncItemStatus.SUCCEEDED
+                    val stepWritesSucceeded = submissionItems.count {
+                        (it.opType == OP_WORKFLOW_ACTION_COMPLETE || it.opType == OP_WORKFLOW_ACTION_ANSWER) &&
+                            it.status == SyncItemStatus.SUCCEEDED
                     }
-                    _state.update { detail.toUiState(it, drafts, uploadFailed) }
-                    if (submitting && completionsSucceeded >= 2 && !finalizedDeathSubmission) {
+                    _state.update { detail.toUiState(it, drafts, draftAnswers, uploadFailed) }
+                    // Every step the Submit sent must be server-confirmed before the death reads as
+                    // submitted -- the count Submit recorded, or every operator step when a
+                    // process death lost it (never fewer, so it cannot finish early).
+                    val expectedStepWrites = savedStateHandle.get<Int>(KEY_DEATH_SUBMITTED_STEPS)
+                        ?: operatorVisibleWorkflowActions(detail.actions).size
+                    if (submitting && expectedStepWrites > 0 && stepWritesSucceeded >= expectedStepWrites && !finalizedDeathSubmission) {
                         finalizedDeathSubmission = true
-                        detail.actions
-                            .filter { it.actionKey == ACTION_KEY_DEATH_VIDEO || it.actionKey == ACTION_KEY_POST_MORTEM_VIDEO }
+                        operatorVisibleWorkflowActions(detail.actions)
+                            .filterNot { operatorFinishedWorkflowStatus(it.status) }
                             .forEach { repo.markActionCompleted(workflowId, it.actionId, inReview = false) }
                         repo.clearVideoDrafts(workflowId)
+                        repo.clearStepDraftAnswers(workflowId)
+                        savedStateHandle.remove<Int>(KEY_DEATH_SUBMITTED_STEPS)
                         repo.refreshDetail(workflowId, lens, lensDate)
                         _state.update {
                             it.copy(
                                 message = SUBMITTED_MESSAGE,
                                 isErrorMessage = false,
-                                // Both videos are server-confirmed and the death now waits on an
+                                // Every step is server-confirmed and the death now waits on an
                                 // approver, so return the operator to the Death list and carry the
                                 // acknowledgement there. A still-uploading or failed submit keeps
                                 // its banner on this screen.
@@ -254,6 +264,9 @@ class WorkflowDetailViewModel @Inject constructor(
                 proofCaptureRepository.observeProofs(workflowId),
             ) { detail, proofs -> detail to proofs }
                 .collect { (detail, proofs) ->
+                    // Death sends every step from its one Submit; recovering its uploads here as
+                    // auto-submits would send a multi-proof step a second time.
+                    if (detail?.module == MODULE_DEATH) return@collect
                     val actions = detail?.actions.orEmpty()
                     val recovered = recoverMultiProofRefs(actions, proofs)
                     if (recovered.isNotEmpty()) {
@@ -358,6 +371,19 @@ class WorkflowDetailViewModel @Inject constructor(
 
     private fun answer(actionId: String, value: String) {
         val action = _state.value.actions.firstOrNull { it.actionId == actionId }
+        if (_state.value.isDeath && action != null) {
+            // Death holds every step on the phone until its one Submit: the answer is a draft.
+            viewModelScope.launch {
+                repo.putStepDraftAnswer(workflowId, actionId, value)
+                analytics.track(
+                    AnalyticsEvents.WORKFLOW_DEATH_DRAFT_ANSWERED,
+                    mapOf(AnalyticsEvents.Params.ITEM_ID to workflowId, AnalyticsEvents.Params.ACTION to actionId),
+                )
+            }
+            // A one-video question still records its video through the answer, as a draft too.
+            if (action.requiresVideo && !action.isMultiProof) captureAndComplete(actionId, answerValue = value)
+            return
+        }
         if (action != null && action.isMultiProof) {
             // The answer waits with the captures; the step submits once every proof is in.
             rememberPendingAnswer(actionId, value)
@@ -459,6 +485,10 @@ class WorkflowDetailViewModel @Inject constructor(
         val current = _state.value
         if (current.isCapturingVideo) return
         val action = current.actions.firstOrNull { it.actionId == actionId } ?: return
+        if (current.isDeath) {
+            captureDeathDraft(action, kind)
+            return
+        }
         val goatId = current.subjectGoatId
         _state.update { it.copy(isCapturingVideo = true, message = null) }
         viewModelScope.launch {
@@ -595,11 +625,7 @@ class WorkflowDetailViewModel @Inject constructor(
         if (current.isCapturingVideo) return
         val action = current.actions.firstOrNull { it.actionId == actionId }
         val goatId = current.subjectGoatId
-        val prompt = when (action?.actionKey) {
-            ACTION_KEY_DEATH_VIDEO -> ProofCapturePrompt.DEATH
-            ACTION_KEY_POST_MORTEM_VIDEO -> ProofCapturePrompt.POST_MORTEM
-            else -> ProofCapturePrompt.BIRTH
-        }
+        val prompt = workflowCapturePrompt(current.isDeath, action)
         _state.update { it.copy(isCapturingVideo = true, message = null) }
         viewModelScope.launch {
             val captured = try {
@@ -729,70 +755,175 @@ class WorkflowDetailViewModel @Inject constructor(
         }
     }
 
+    /**
+     * A death step's photo or video from the live camera, held as a local DRAFT until Submit. The
+     * step's first video keeps the bare action-id slot; each further proof of the step gets its own
+     * slot, and a capture once the step's authored count is reached replaces the last one.
+     */
+    private fun captureDeathDraft(action: WorkflowActionUi, kind: String) {
+        val current = _state.value
+        val goatId = current.subjectGoatId
+        _state.update { it.copy(isCapturingVideo = true, message = null) }
+        viewModelScope.launch {
+            val captured: WorkflowVideoDraft? = try {
+                if (kind == PROOF_KIND_PHOTO) {
+                    photoCaptureSource.capturePhoto(
+                        PhotoCaptureContext(title = action.title, instruction = action.detail, prompt = ProofCapturePrompt.DEATH),
+                    )?.let { photo ->
+                        WorkflowVideoDraft(
+                            id = UUID.randomUUID().toString(), workflowId = workflowId, actionId = action.actionId,
+                            subjectGoatId = goatId, localUri = photo.localUri, mimeType = photo.mimeType,
+                            startedAtMs = photo.capturedAtMs, endedAtMs = photo.capturedAtMs, captureSource = photo.captureSource,
+                        )
+                    }
+                } else {
+                    proofCaptureSource.captureVideo(
+                        ProofCaptureContext(
+                            title = workflowProofCaption(current, action),
+                            primaryTag = current.subjectLocationDisplay.ifBlank { current.displayId },
+                            secondaryTag = current.displayId.takeIf { it.isNotBlank() },
+                            workLabel = action.title,
+                            prompt = workflowCapturePrompt(true, action),
+                            headerTitle = action.title,
+                        ),
+                    )?.let { video ->
+                        WorkflowVideoDraft(
+                            id = UUID.randomUUID().toString(), workflowId = workflowId, actionId = action.actionId,
+                            subjectGoatId = goatId, localUri = video.localUri, mimeType = video.mimeType,
+                            startedAtMs = video.startedAtMs, endedAtMs = video.endedAtMs, captureSource = video.captureSource,
+                        )
+                    }
+                }
+            } catch (error: Exception) {
+                crashReporter.recordException(error, "workflow death $kind capture failed")
+                null
+            }
+            if (captured == null) {
+                _state.update { it.copy(isCapturingVideo = false) }
+                return@launch
+            }
+            val sameKind = repo.listVideoDrafts(workflowId).count { it.actionId == action.actionId && it.isPhoto == (kind == PROOF_KIND_PHOTO) }
+            val needed = if (kind == PROOF_KIND_PHOTO) action.proofMinPhotos else action.proofMinVideos
+            val n = if (sameKind < needed) sameKind + 1 else maxOf(needed, 1)
+            val previous = repo.replaceVideoDraft(captured.copy(fieldKey = workflowDeathDraftFieldKey(action.actionId, kind, n)))
+            previous?.localUri?.let(::deletePrivateDraftFile)
+            analytics.track(
+                AnalyticsEvents.WORKFLOW_VIDEO_CAPTURED,
+                mapOf(AnalyticsEvents.Params.ITEM_ID to workflowId, AnalyticsEvents.Params.ACTION to "death_draft"),
+            )
+            _state.update {
+                it.copy(isCapturingVideo = false, message = DEATH_DRAFT_SAVED_MESSAGE, isErrorMessage = false)
+            }
+        }
+    }
+
+    /**
+     * The death's ONE Submit: for every step the operator still owes, queue each drafted proof's
+     * upload, then the step's answer or completion carrying those proofs by reference. A step with a
+     * single video keeps the exact write it always had (one proof item id on a completion).
+     */
     private fun submitDeath() {
         val current = _state.value
         if (!current.deathSubmissionEnabled) return
         _state.update { it.copy(isSubmittingDeath = true, message = null) }
         viewModelScope.launch {
-            val drafts = repo.listVideoDrafts(workflowId).associateBy { it.actionId }
-            val actions = _state.value.actions.sortedBy { it.actionKey != ACTION_KEY_DEATH_VIDEO }
-            if (actions.size != 2 || actions.any { drafts[it.actionId] == null }) {
-                _state.update { it.copy(isSubmittingDeath = false, message = "Record both videos before submitting.", isErrorMessage = true) }
+            val drafts = repo.listVideoDrafts(workflowId)
+            val answers = repo.observeStepDraftAnswers(workflowId).first()
+            val detail = repo.observeDetail(workflowId, lens, lensDate).first()
+            val steps = operatorVisibleWorkflowActions(detail?.actions.orEmpty())
+                .filterNot { operatorFinishedWorkflowStatus(it.status) }
+                .sortedBy { it.seq }
+            if (steps.isEmpty() || steps.any { !deathStepSatisfied(it, drafts, answers) }) {
+                _state.update { it.copy(isSubmittingDeath = false, message = DEATH_INCOMPLETE_MESSAGE, isErrorMessage = true) }
                 return@launch
             }
-            for (action in actions) {
-                val draft = drafts.getValue(action.actionId)
-                val slot = workflowEvidenceSlot(action.actionId, draft.subjectGoatId)
-                val proof = proofCaptureRepository.captureReplacingLatest(
-                    slot = slot,
-                    subject = ProofSubject.GOAT,
-                    subjectId = draft.subjectGoatId,
-                    localUri = draft.localUri,
-                    mimeType = draft.mimeType,
-                    caption = workflowProofCaption(current, action),
-                    scopeType = "goat",
-                    scopeId = draft.subjectGoatId,
-                    capturedStartMs = draft.startedAtMs,
-                    capturedEndMs = draft.endedAtMs,
-                    capturedByPrincipalId = null,
-                    proofPolicy = workflowGoatProofPolicy(draft.captureSource),
-                    awaitUploadEnqueue = true,
-                    uploadGroupKey = workflowId,
-                )
-                val proofId = when (proof) {
-                    is AppResult.Ok -> proof.value.outboxItemId
-                    is AppResult.Err -> {
-                        _state.update { it.copy(isSubmittingDeath = false) }
-                        onWriteFailed("workflow_video_submit", proof)
-                        return@launch
-                    }
-                }
-                if (proofId.isNullOrBlank()) {
-                    _state.update {
-                        it.copy(
-                            isSubmittingDeath = false,
-                            message = "Video upload could not be queued.",
-                            isErrorMessage = true,
+            for (step in steps) {
+                val ui = _state.value.actions.firstOrNull { it.actionId == step.actionId }
+                val stepDrafts = drafts.filter { it.actionId == step.actionId }
+                    .sortedWith(compareBy<WorkflowVideoDraft> { it.isPhoto }.thenBy { it.fieldKey })
+                val refs = mutableListOf<WorkflowProofOutboxRef>() // mobile-guard:ignore: bounded by one step's authored proofs
+                for (draft in stepDrafts) {
+                    val kind = if (draft.isPhoto) PROOF_KIND_PHOTO else PROOF_KIND_VIDEO
+                    val slot = if (draft.fieldKey == step.actionId) {
+                        workflowEvidenceSlot(step.actionId, draft.subjectGoatId)
+                    } else {
+                        EvidenceSlot(
+                            identity = workflowEvidenceSlot(step.actionId, draft.subjectGoatId).identity,
+                            fieldKey = workflowProofFieldKey(step.actionId) + "_" + kind + "_" + draft.fieldKey.substringAfterLast('|'),
                         )
                     }
-                    return@launch
+                    val proof = proofCaptureRepository.captureReplacingLatest(
+                        slot = slot,
+                        subject = ProofSubject.GOAT,
+                        subjectId = draft.subjectGoatId,
+                        localUri = draft.localUri,
+                        mimeType = draft.mimeType,
+                        caption = workflowProofCaption(current, ui),
+                        scopeType = "goat",
+                        scopeId = draft.subjectGoatId,
+                        capturedStartMs = draft.startedAtMs,
+                        capturedEndMs = draft.endedAtMs,
+                        capturedByPrincipalId = null,
+                        proofPolicy = workflowGoatProofPolicy(draft.captureSource),
+                        awaitUploadEnqueue = true,
+                        uploadGroupKey = workflowId,
+                    )
+                    val proofId = when (proof) {
+                        is AppResult.Ok -> proof.value.outboxItemId
+                        is AppResult.Err -> {
+                            _state.update { it.copy(isSubmittingDeath = false) }
+                            onWriteFailed("workflow_video_submit", proof)
+                            return@launch
+                        }
+                    }
+                    if (proofId.isNullOrBlank()) {
+                        _state.update { it.copy(isSubmittingDeath = false, message = "Upload could not be queued.", isErrorMessage = true) }
+                        return@launch
+                    }
+                    refs += WorkflowProofOutboxRef(outboxItemId = proofId, kind = kind)
                 }
-                val complete = syncRepository.enqueueWorkflowActionComplete(
-                    groupKey = workflowId,
-                    idempotencyKey = workflowVideoCompletionKey(action.actionId, proofId),
-                    workflowId = workflowId,
-                    actionId = action.actionId,
-                    proofOutboxItemId = proofId,
-                )
-                if (complete is AppResult.Err) {
+                val fingerprint = refs.joinToString(",") { it.outboxItemId }.hashCode().toUInt().toString(16)
+                val answer = answers[step.actionId]?.takeIf { deathStepNeedsAnswer(step) }
+                val write = when {
+                    answer != null -> syncRepository.enqueueWorkflowActionAnswer(
+                        groupKey = workflowId,
+                        idempotencyKey = if (refs.isEmpty()) "wf-answer:${step.actionId}" else "wf-answer:${step.actionId}:$fingerprint",
+                        workflowId = workflowId,
+                        actionId = step.actionId,
+                        answerValue = answer,
+                        proofOutboxItems = refs,
+                    )
+                    refs.size == 1 && refs.single().kind == PROOF_KIND_VIDEO -> syncRepository.enqueueWorkflowActionComplete(
+                        groupKey = workflowId,
+                        idempotencyKey = workflowVideoCompletionKey(step.actionId, refs.single().outboxItemId),
+                        workflowId = workflowId,
+                        actionId = step.actionId,
+                        proofOutboxItemId = refs.single().outboxItemId,
+                    )
+                    refs.isEmpty() -> syncRepository.enqueueWorkflowActionComplete(
+                        groupKey = workflowId,
+                        idempotencyKey = "wf-complete:${step.actionId}",
+                        workflowId = workflowId,
+                        actionId = step.actionId,
+                    )
+                    else -> syncRepository.enqueueWorkflowActionComplete(
+                        groupKey = workflowId,
+                        idempotencyKey = "wf-complete:${step.actionId}:$fingerprint",
+                        workflowId = workflowId,
+                        actionId = step.actionId,
+                        proofOutboxItems = refs,
+                    )
+                }
+                if (write is AppResult.Err) {
                     _state.update { it.copy(isSubmittingDeath = false) }
-                    onWriteFailed("workflow_complete_submit", complete)
+                    onWriteFailed("workflow_complete_submit", write)
                     return@launch
                 }
             }
+            savedStateHandle[KEY_DEATH_SUBMITTED_STEPS] = steps.size
             repo.markVideoDraftsSubmitting(workflowId)
             analytics.track(AnalyticsEvents.WORKFLOW_ACTION_COMPLETED)
-            _state.update { it.copy(isSubmittingDeath = false, message = "Uploading both videos to the backend…", isErrorMessage = false) }
+            _state.update { it.copy(isSubmittingDeath = false, message = DEATH_UPLOADING_MESSAGE, isErrorMessage = false) }
         }
     }
 
@@ -829,6 +960,7 @@ class WorkflowDetailViewModel @Inject constructor(
     private fun WorkflowDetailResponseDto.toUiState(
         current: WorkflowDetailUiState,
         drafts: List<WorkflowVideoDraft>,
+        draftAnswers: Map<String, String>,
         deathUploadFailed: Boolean,
     ): WorkflowDetailUiState {
         val now = Instant.now()
@@ -838,7 +970,12 @@ class WorkflowDetailViewModel @Inject constructor(
         // predecessor. Rendering that verbatim strands the operator after the first recording —
         // pre-submit, a durable draft IS their finished work for that row.
         val isDeathModule = module == MODULE_DEATH
-        val draftedActionIds = if (isDeathModule) drafts.map { it.actionId }.toSet() else emptySet()
+        // A death step is recorded once its drafts (and draft answer) cover what the SOP asks of it.
+        val draftedActionIds = if (isDeathModule) {
+            mainActions.filter { deathStepSatisfied(it, drafts, draftAnswers) }.map { it.actionId }.toSet()
+        } else {
+            emptySet()
+        }
         val draftsSubmitting = drafts.any { it.syncStatus == DRAFT_STATUS_SUBMITTING }
         return current.copy(
             loading = false,
@@ -867,7 +1004,8 @@ class WorkflowDetailViewModel @Inject constructor(
             deathBackendActionsDone = mainActions.count { operatorFinishedWorkflowStatus(it.status) },
             actionsTotal = mainActions.size,
             actions = mainActions.sortedBy(::workflowDisplayOrder).map { action ->
-                val hasDraft = drafts.any { it.actionId == action.actionId }
+                val stepDrafts = if (isDeathModule) drafts.filter { it.actionId == action.actionId } else emptyList()
+                val hasDraft = stepDrafts.isNotEmpty()
                 val locallyRecorded = action.actionId in draftedActionIds
                 val predecessorsReady = workflowPredecessorsReady(action, mainActions) { previous ->
                     operatorFinishedWorkflowStatus(previous.status) || previous.actionId in draftedActionIds
@@ -877,16 +1015,28 @@ class WorkflowDetailViewModel @Inject constructor(
                 // A one-video step keeps its legacy control (a question records its video through
                 // Yes/No); a SOP step with photos or several videos captures each proof explicitly.
                 val multiProof = ui.proofMinPhotos > 0 || ui.proofMinVideos > 1
-                ui.copy(
+                val base = ui.copy(
                     hasVideoDraft = hasDraft,
                     canRecordVideo = if (multiProof) ui.canRecordVideo && !draftsSubmitting else canRecordWorkflowVideo(action, blocked, draftsSubmitting),
                 )
+                if (isDeathModule) {
+                    base.copy(
+                        proofVideosCaptured = stepDrafts.count { !it.isPhoto },
+                        proofPhotosCaptured = stepDrafts.count { it.isPhoto },
+                        canTakePhoto = base.canTakePhoto && !draftsSubmitting,
+                        canAnswer = base.canAnswer && !draftsSubmitting,
+                        answerValue = draftAnswers[action.actionId] ?: base.answerValue,
+                    )
+                } else {
+                    base
+                }
             }.sortedBy { it.sectionOrder() },
             subjectGoatId = subject.goatId,
             subjectGoatRowVersion = subject.rowVersion,
             subjectTemporaryIdentifier = subject.tag,
             subjectLocationDisplay = listOf(parkLabel, shedLabel).filter { it.isNotBlank() }.joinToString(" / "),
-            deathDraftCount = drafts.count { draft -> mainActions.any { it.actionId == draft.actionId } },
+            deathStepsReady = isDeathModule && mainActions.any { !operatorFinishedWorkflowStatus(it.status) } &&
+                mainActions.all { operatorFinishedWorkflowStatus(it.status) || it.actionId in draftedActionIds },
             deathDraftsSubmitting = drafts.any { it.syncStatus == DRAFT_STATUS_SUBMITTING },
             deathUploadFailed = deathUploadFailed,
         )
@@ -1069,10 +1219,13 @@ class WorkflowDetailViewModel @Inject constructor(
         private const val MULTI_PROOF_ANSWER_KEPT_MESSAGE = "Answer kept. Record the proof to finish this step."
         private const val OP_PROOF_UPLOAD = "PROOF_UPLOAD"
         private const val OP_WORKFLOW_ACTION_COMPLETE = "WORKFLOW_ACTION_COMPLETE"
+        private const val OP_WORKFLOW_ACTION_ANSWER = "WORKFLOW_ACTION_ANSWER"
+        private const val KEY_DEATH_SUBMITTED_STEPS = "workflowDetail.deathSubmittedSteps"
+        private const val DEATH_DRAFT_SAVED_MESSAGE = "Saved as a draft. You can retake it before Submit."
+        private const val DEATH_INCOMPLETE_MESSAGE = "Record every step before submitting."
+        private const val DEATH_UPLOADING_MESSAGE = "Uploading the recorded proofs…"
         private const val SUBMISSION_ITEM_CLOCK_TOLERANCE_MS = 5_000L
         private const val ACTION_KEY_TAG_THE_KID = "tag_the_kid"
-        private const val ACTION_KEY_DEATH_VIDEO = "death_video"
-        private const val ACTION_KEY_POST_MORTEM_VIDEO = "post_mortem_video"
 
         private const val TEMPLATE_BIRTH = "Birth"
         private const val TEMPLATE_DEATH = "Death"
@@ -1096,13 +1249,50 @@ class WorkflowDetailViewModel @Inject constructor(
         private const val ANSWER_NO_VALUE = "no"
         private const val ANSWER_NO_LABEL = "No"
 
-        private const val SUBMITTED_MESSAGE = "Submitted. Both videos are saved to the backend."
+        private const val SUBMITTED_MESSAGE = "Submitted. The recorded proofs are saved."
         private const val QUEUED_MESSAGE = "Saved on this phone. It will sync automatically."
         private const val ACTION_FAILED_MESSAGE = "This action did not go through. Review it and try again."
         private const val VIDEO_QUEUED_MESSAGE =
             "Video saved on this phone. It will upload and submit automatically."
     }
 }
+
+/** The videos a step asks for: a `requires_video` step with no authored count asks for one. */
+internal fun workflowStepMinVideos(action: WorkflowActionDto): Int =
+    if (action.proofMinVideos == 0 && action.requiresVideo) 1 else action.proofMinVideos
+
+/** Whether a step asks the operator for an answer (a question, or an authored answer type). */
+internal fun deathStepNeedsAnswer(action: WorkflowActionDto): Boolean =
+    (action.answerType.isNotBlank() && action.answerType != "none") ||
+        action.actionType == "question" || action.actionType == "question_select"
+
+/**
+ * A death step the operator has finished ON THE PHONE: its drafts cover the SOP's videos and
+ * photos, and its draft answer is given when it asks one. Nothing here is backend truth -- the
+ * step is only sent at Submit.
+ */
+internal fun deathStepSatisfied(
+    action: WorkflowActionDto,
+    drafts: List<WorkflowVideoDraft>,
+    answers: Map<String, String>,
+): Boolean {
+    val own = drafts.filter { it.actionId == action.actionId }
+    return own.count { !it.isPhoto } >= workflowStepMinVideos(action) &&
+        own.count { it.isPhoto } >= action.proofMinPhotos &&
+        (!deathStepNeedsAnswer(action) || !answers[action.actionId].isNullOrBlank())
+}
+
+/**
+ * The recorder's briefing for a step: a death step films the animal, except the seeded
+ * post-mortem step whose copy asks for the post-mortem work to be visible.
+ */
+internal fun workflowCapturePrompt(isDeath: Boolean, action: WorkflowActionUi?): ProofCapturePrompt = when {
+    !isDeath -> ProofCapturePrompt.BIRTH
+    action?.actionKey == WORKFLOW_ACTION_KEY_POST_MORTEM -> ProofCapturePrompt.POST_MORTEM
+    else -> ProofCapturePrompt.DEATH
+}
+
+private const val WORKFLOW_ACTION_KEY_POST_MORTEM = "post_mortem_video"
 
 /**
  * Whether a row is blocked FOR THE OPERATOR, which is not always the backend's `blocked` flag.
