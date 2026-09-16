@@ -1068,7 +1068,16 @@ func (s *Service) GetLeadershipShedVideos(ctx context.Context, actor domain.Acto
 	// An actor with no monitored park here is admitted by no arm and gets ErrNotFound from the
 	// repository -- the same answer checkParkScopeForCapability gave, so existence is still not
 	// leaked and the cross-park refusal is unchanged.
-	return s.repo.GetLeadershipShedVideos(ctx, actor.TenantID, campaignID, campaignShedID, strings.TrimSpace(cursor), limit, access)
+	result, err := s.repo.GetLeadershipShedVideos(ctx, actor.TenantID, campaignID, campaignShedID, strings.TrimSpace(cursor), limit, access)
+	if err != nil {
+		return domain.LeadershipShedVideos{}, err
+	}
+	// THE WEIGH CAPTURES ARE AUTHORED (2026-09-16): the "N of M" denominator and the capture
+	// titles come from the task's PINNED rules.
+	if err := s.decorateLeadershipEvidence(ctx, actor.TenantID, []*domain.LeadershipShedVideos{&result}); err != nil {
+		return domain.LeadershipShedVideos{}, err
+	}
+	return result, nil
 }
 
 // ListLeadershipSheds pages the leadership gallery at BUCKET grain. Same
@@ -1109,7 +1118,18 @@ func (s *Service) ListLeadershipSheds(ctx context.Context, actor domain.Actor, c
 			return domain.LeadershipShedPage{Items: []domain.LeadershipShedVideos{}}, nil
 		}
 	}
-	return s.repo.ListLeadershipSheds(ctx, actor.TenantID, parkIDs, strings.TrimSpace(cursor), limit, domain.LeadershipShedVideosPageSize)
+	page, err := s.repo.ListLeadershipSheds(ctx, actor.TenantID, parkIDs, strings.TrimSpace(cursor), limit, domain.LeadershipShedVideosPageSize)
+	if err != nil {
+		return domain.LeadershipShedPage{}, err
+	}
+	items := make([]*domain.LeadershipShedVideos, 0, len(page.Items))
+	for i := range page.Items {
+		items = append(items, &page.Items[i])
+	}
+	if err := s.decorateLeadershipEvidence(ctx, actor.TenantID, items); err != nil {
+		return domain.LeadershipShedPage{}, err
+	}
+	return page, nil
 }
 
 // hasTenantWideCapability reports whether any grant is scoped to the whole tenant AND carries
@@ -1352,8 +1372,8 @@ func (s *Service) applyLumpSumCaptureRules(rules domain.Rules, cmd *domain.Recor
 				return ports.ErrInvalidArgument
 			}
 		}
-		served := rules.ServedRules()
-		if n := len(ids); n < served.Capture.LumpSum.VideoMin || n > served.Capture.LumpSum.VideoMax {
+		lo, hi := rules.LegacyVideoWindow()
+		if n := len(ids); n < lo || n > hi {
 			return ports.ErrLumpSumVideoCount
 		}
 		refs = domain.LegacyLumpSumRefs(rules, ids)

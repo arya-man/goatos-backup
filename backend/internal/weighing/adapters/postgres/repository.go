@@ -1566,7 +1566,16 @@ SELECT weighing_observations.observation_id::text,
        -- one, but this roster never selected them: every card rendered identically, so the
        -- operator saw a green tick on the animal a verifier had rejected.
        COALESCE(weighing_observations.verification_status, ''),
-       COALESCE(weighing_observations.rework_reason, '')
+       COALESCE(weighing_observations.rework_reason, ''),
+       weighing_observations.sop_proofs::text,
+       weighing_observations.sop_answers::text,
+       -- {ref: kind} for the row's captures (at most four), read from the register so an
+       -- either-kind slot reopens as what it is. Bounded: one scalar subquery per row.
+       COALESCE((SELECT jsonb_object_agg(pa.proof_id::text, pa.proof_type)
+                 FROM proof_artifacts pa
+                 WHERE pa.tenant_id=weighing_observations.tenant_id
+                   AND (pa.proof_id=weighing_observations.proof_artifact_id
+                        OR pa.proof_id::text IN (SELECT e.value FROM jsonb_each_text(weighing_observations.sop_proofs) e))), '{}'::jsonb)::text
 FROM weighing_observations
 JOIN weighing_campaign_sheds cs
   ON cs.tenant_id=weighing_observations.tenant_id
@@ -1590,6 +1599,7 @@ LIMIT $7`, tenantID, campaignID, campaignShedID, nullableString(operatorFilter),
 	defer observationRows.Close()
 	for observationRows.Next() {
 		var observation domain.Observation
+		var rosterProofsText, rosterAnswersText, rosterKindsText string
 		var acceptedAt time.Time
 		if err := observationRows.Scan(
 			&observation.ObservationID,
@@ -1602,9 +1612,12 @@ LIMIT $7`, tenantID, campaignID, campaignShedID, nullableString(operatorFilter),
 			&observation.AcceptedAt,
 			&observation.VerificationStatus,
 			&observation.ReworkReason,
+			&rosterProofsText, &rosterAnswersText, &rosterKindsText,
 		); err != nil {
 			return domain.RosterPage{}, err
 		}
+		decodeObservationSOP(&observation, rosterProofsText, rosterAnswersText)
+		observation.ProofKinds = decodeKinds(rosterKindsText)
 		acceptedAt = observation.AcceptedAt
 		observations = append(observations, observation)
 		observationAcceptedAt = append(observationAcceptedAt, acceptedAt)
@@ -1678,7 +1691,8 @@ SELECT cs.campaign_id::text, cs.campaign_shed_id::text, cs.display_name, COALESC
        COALESCE(park.name, ''),
        COALESCE(cs.start_business_date::text, wc.start_business_date::text, ''),
        COALESCE(op.display_name, ''),
-       wc.period_start_date::text, COALESCE(wc.period_end_date::text, '')
+       wc.period_start_date::text, COALESCE(wc.period_end_date::text, ''),
+       COALESCE(wc.sop_version, 0)
 FROM weighing_campaign_sheds cs
 JOIN weighing_campaigns wc
   ON wc.tenant_id=cs.tenant_id AND wc.campaign_id=cs.campaign_id
@@ -1699,7 +1713,7 @@ WHERE cs.tenant_id=$1::uuid AND cs.campaign_id=$2::uuid AND cs.campaign_shed_id=
 	).Scan(&result.CampaignID, &result.CampaignShedID, &result.ShedName, &result.PartitionLabel, &result.OperatorUserID,
 		&result.WeighingCategory, &result.Status, &result.EstimatedAnimalCount,
 		&result.ParkName, &result.WeighDate, &result.OperatorDisplayName,
-		&periodStart, &periodEnd)
+		&periodStart, &periodEnd, &result.SOPVersion)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.LeadershipShedVideos{}, ports.ErrNotFound
 	}
@@ -1716,6 +1730,7 @@ WHERE cs.tenant_id=$1::uuid AND cs.campaign_id=$2::uuid AND cs.campaign_shed_id=
 
 	if result.WeighingCategory == "per_shed_partition" {
 		var lump domain.Observation
+		var lumpAnswersText, lumpSlotsText, lumpKindsText string
 		err = r.pool.QueryRow(ctx, `
 SELECT
   wso.shed_observation_id::text,
@@ -1731,7 +1746,10 @@ SELECT
       WHERE p.tenant_id=wso.tenant_id AND p.shed_observation_id=wso.shed_observation_id),
     ARRAY[wso.proof_artifact_id::text]
   ),
-  wso.accepted_at
+  wso.accepted_at,
+  wso.sop_answers::text,
+  `+shedProofSlotsSQL+`,
+  `+shedProofKindsSQL+`
 FROM weighing_shed_observations wso
 WHERE wso.tenant_id=$1::uuid AND wso.campaign_id=$2::uuid AND wso.campaign_shed_id=$3::uuid
   -- Superseded by a reopen: history, not the bucket's current submission.
@@ -1746,6 +1764,7 @@ WHERE wso.tenant_id=$1::uuid AND wso.campaign_id=$2::uuid AND wso.campaign_shed_
 			&lump.ProofArtifactID,
 			&lump.ProofArtifactIDs,
 			&lump.AcceptedAt,
+			&lumpAnswersText, &lumpSlotsText, &lumpKindsText,
 		)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return result, nil
@@ -1753,6 +1772,9 @@ WHERE wso.tenant_id=$1::uuid AND wso.campaign_id=$2::uuid AND wso.campaign_shed_
 		if err != nil {
 			return domain.LeadershipShedVideos{}, err
 		}
+		decodeObservationSOP(&lump, "", lumpAnswersText)
+		lump.ProofSlots = decodeSlots(lumpSlotsText)
+		lump.ProofKinds = decodeKinds(lumpKindsText)
 		result.LumpSum = &lump
 		return result, nil
 	}
@@ -1771,20 +1793,23 @@ WHERE wso.tenant_id=$1::uuid AND wso.campaign_id=$2::uuid AND wso.campaign_shed_
 	// shifting or duplicating rows already returned.
 	rows, err := r.pool.Query(ctx, `
 SELECT
-  observation_id::text,
-  campaign_id::text,
-  campaign_shed_id::text,
-  scanned_identifier,
-  weight_kg::float8,
-  proof_artifact_id::text,
-  accepted_at
-FROM weighing_observations
-WHERE tenant_id=$1::uuid AND campaign_id=$2::uuid AND campaign_shed_id=$3::uuid
+  o.observation_id::text,
+  o.campaign_id::text,
+  o.campaign_shed_id::text,
+  o.scanned_identifier,
+  o.weight_kg::float8,
+  o.proof_artifact_id::text,
+  o.accepted_at,
+  o.sop_proofs::text,
+  o.sop_answers::text,
+  `+animalProofKindsSQL+`
+FROM weighing_observations o
+WHERE o.tenant_id=$1::uuid AND o.campaign_id=$2::uuid AND o.campaign_shed_id=$3::uuid
   AND (
     $4::timestamptz IS NULL
-    OR (accepted_at, observation_id) > ($4::timestamptz, $5::uuid)
+    OR (o.accepted_at, o.observation_id) > ($4::timestamptz, $5::uuid)
   )
-ORDER BY accepted_at, observation_id
+ORDER BY o.accepted_at, o.observation_id
 LIMIT $6`, tenantID, campaignID, campaignShedID,
 		nullableTime(cur.AcceptedAt), nullableString(cur.ObservationID), limit+1)
 	if err != nil {
@@ -1793,6 +1818,7 @@ LIMIT $6`, tenantID, campaignID, campaignShedID,
 	defer rows.Close()
 	for rows.Next() {
 		var observation domain.Observation
+		var proofsText, answersText, kindsText string
 		if err := rows.Scan(
 			&observation.ObservationID,
 			&observation.CampaignID,
@@ -1801,10 +1827,13 @@ LIMIT $6`, tenantID, campaignID, campaignShedID,
 			&observation.WeightKg,
 			&observation.ProofArtifactID,
 			&observation.AcceptedAt,
+			&proofsText, &answersText, &kindsText,
 		); err != nil {
 			return domain.LeadershipShedVideos{}, err
 		}
-		observation.ProofArtifactIDs = []string{observation.ProofArtifactID}
+		decodeObservationSOP(&observation, proofsText, answersText)
+		observation.ProofKinds = decodeKinds(kindsText)
+		observation.ProofArtifactIDs = animalProofList(observation)
 		result.Individual = append(result.Individual, observation)
 	}
 	if err := rows.Err(); err != nil {
@@ -2080,6 +2109,8 @@ func (r *Repository) recordUnknownAnimalObservationTx(ctx context.Context, tx pg
 	// whether that update opened a NEW evidence round. Both false = brand-new capture;
 	// rowExisted && !Superseded = a content-identical re-post that changed nothing.
 	var rowExisted bool
+	bundle := animalProofBundle(cmd)
+	var sopProofsText, sopAnswersText string
 	err = tx.QueryRow(ctx, `
 WITH campaign AS (
   SELECT campaign_id
@@ -2149,20 +2180,34 @@ WITH campaign AS (
       AND rejected.campaign_shed_id=s.campaign_shed_id
       AND lower(btrim(rejected.scanned_identifier))=lower(btrim($3))
       AND rejected.verification_status='rework'
-      AND rejected.proof_artifact_id=$5::uuid
+      -- EVERY slot's capture counts (2026-09-16): the primary column and the slot map.
+      AND (
+        rejected.proof_artifact_id=ANY($14::uuid[])
+        OR EXISTS (SELECT 1 FROM jsonb_each_text(rejected.sop_proofs) slot WHERE slot.value=ANY($16::text[]))
+      )
       AND rejected.observation_id IS DISTINCT FROM open_rework_obs.observation_id
   )
-), proof_ok AS (
-  SELECT proof.proof_id
+), proof_bundle AS (
+  -- THE WEIGH CAPTURES ARE AUTHORED (2026-09-16): every capture of the slot map must be a
+  -- completed proof of this bucket's shed whose register KIND matches its slot (video /
+  -- photo, or either). One aggregate row when all match; none otherwise.
+  SELECT count(*) AS matched
   FROM assigned_shed s
   JOIN rejected_proof_guard ON true
-  JOIN proof_artifacts proof ON true
-  WHERE proof.tenant_id=$1::uuid
-    AND proof.proof_id=$5::uuid
-    AND proof.upload_state='completed'
-    AND proof.proof_type='video'
-    AND proof.scope_type='shed'
-    AND proof.scope_id=s.location_id
+  CROSS JOIN unnest($14::uuid[], $15::text[]) WITH ORDINALITY AS requested(proof_id, kind, proof_position)
+  JOIN proof_artifacts proof
+    ON proof.tenant_id=$1::uuid
+   AND proof.proof_id=requested.proof_id
+   AND proof.upload_state='completed'
+   AND (proof.proof_type=requested.kind OR (requested.kind='either' AND proof.proof_type IN ('video','photo')))
+   AND proof.scope_type='shed'
+   AND proof.scope_id=s.location_id
+  HAVING count(*)=cardinality($14::uuid[])
+), proof_ok AS (
+  -- The PRIMARY ($5 = the first slot's ref) is what proof_artifact_id stores; the bundle above
+  -- has already proven it and every other capture.
+  SELECT $5::uuid AS proof_id
+  FROM proof_bundle
 	), submitted_duplicate AS (
 	  -- A tag already captured AND SUBMITTED (submitted_at IS NOT NULL) in an
 	  -- earlier round, for this SAME bucket and SAME business day, blocks a
@@ -2194,7 +2239,18 @@ WITH campaign AS (
 	  -- assigned_shed forces that ordering: campaign -> bucket -> observation, always.
 	  -- Locking here (rather than trusting the pre-query unknownAnimalObservationBefore
 	  -- read) is what makes the comparison race-free against a concurrent editor.
-	  SELECT observation.observation_id, observation.weight_kg, observation.proof_artifact_id
+	  --
+	  -- changed is the ONE changed-test (weight, primary proof, the whole slot map, the
+	  -- answers). A row written before slots existed holds sop_proofs '{}', which READS as the
+	  -- seeded slot carrying its proof_artifact_id -- no backfill, so an older phone re-posting
+	  -- the same video under a new key is still not a new round.
+	  SELECT observation.observation_id, observation.weight_kg, observation.proof_artifact_id,
+	    (observation.weight_kg IS DISTINCT FROM $4::numeric
+	       OR observation.proof_artifact_id IS DISTINCT FROM $5::uuid
+	       OR (CASE WHEN observation.sop_proofs='{}'::jsonb
+	                THEN jsonb_build_object($17::text, observation.proof_artifact_id::text)
+	                ELSE observation.sop_proofs END) IS DISTINCT FROM $12::jsonb
+	       OR observation.sop_answers IS DISTINCT FROM $13::jsonb) AS changed
 	  FROM assigned_shed s
 	  JOIN weighing_observations observation
 	    ON observation.tenant_id=$1::uuid
@@ -2222,24 +2278,20 @@ WITH campaign AS (
 	  UPDATE weighing_observations observation
 	  SET weight_kg=$4,
 	      proof_artifact_id=p.proof_id,
+	      sop_proofs=$12::jsonb,
+	      sop_answers=$13::jsonb,
 	      recorded_by=$7::uuid,
-	      accepted_at=CASE WHEN prior.weight_kg IS DISTINCT FROM $4::numeric
-	                         OR prior.proof_artifact_id IS DISTINCT FROM p.proof_id
+	      accepted_at=CASE WHEN prior.changed
 	                       THEN now() ELSE observation.accepted_at END,
-	      submitted_at=CASE WHEN prior.weight_kg IS DISTINCT FROM $4::numeric
-	                          OR prior.proof_artifact_id IS DISTINCT FROM p.proof_id
+	      submitted_at=CASE WHEN prior.changed
 	                        THEN NULL ELSE observation.submitted_at END,
-	      verification_status=CASE WHEN prior.weight_kg IS DISTINCT FROM $4::numeric
-	                                 OR prior.proof_artifact_id IS DISTINCT FROM p.proof_id
+	      verification_status=CASE WHEN prior.changed
 	                               THEN 'pending' ELSE observation.verification_status END,
-	      verified_by=CASE WHEN prior.weight_kg IS DISTINCT FROM $4::numeric
-	                         OR prior.proof_artifact_id IS DISTINCT FROM p.proof_id
+	      verified_by=CASE WHEN prior.changed
 	                       THEN NULL ELSE observation.verified_by END,
-	      verified_at=CASE WHEN prior.weight_kg IS DISTINCT FROM $4::numeric
-	                         OR prior.proof_artifact_id IS DISTINCT FROM p.proof_id
+	      verified_at=CASE WHEN prior.changed
 	                       THEN NULL ELSE observation.verified_at END,
-	      rework_reason=CASE WHEN prior.weight_kg IS DISTINCT FROM $4::numeric
-	                           OR prior.proof_artifact_id IS DISTINCT FROM p.proof_id
+	      rework_reason=CASE WHEN prior.changed
 	                         THEN NULL ELSE observation.rework_reason END
 	  FROM campaign c
 	  JOIN assigned_shed s ON true
@@ -2274,15 +2326,15 @@ WITH campaign AS (
     -- is_update means "this write opened a NEW evidence round", not merely "a row already
     -- existed". A content-identical re-post reports FALSE so the service does not withdraw
     -- and re-raise a verification item for evidence that never changed.
-    (prior.weight_kg IS DISTINCT FROM $4::numeric
-       OR prior.proof_artifact_id IS DISTINCT FROM p.proof_id) AS is_update,
-    TRUE AS row_existed
+    (prior.changed) AS is_update,
+    TRUE AS row_existed,
+    observation.sop_proofs::text AS sop_proofs_text, observation.sop_answers::text AS sop_answers_text
 ), inserted AS (
   INSERT INTO weighing_observations (
     tenant_id, campaign_id, campaign_shed_id, scanned_identifier,
     weight_kg, proof_artifact_id, expected_location_id, expected_location_label,
     actual_location_id, actual_location_label,
-    recorded_by, idempotency_key
+    recorded_by, idempotency_key, sop_proofs, sop_answers
   )
   SELECT $1::uuid, $2::uuid, s.campaign_shed_id, $3,
     $4, p.proof_id, s.location_id, s.display_name,
@@ -2295,20 +2347,22 @@ WITH campaign AS (
     -- has no expected set, so a scan cannot be "expected", "wrong shed" or "extra".
     -- Stamping 'extra_scan' on every row turned an operator's correct, in-shed work
     -- into an exception queue for whoever read the table.
-    $7::uuid, $6
+    $7::uuid, $6, $12::jsonb, $13::jsonb
   FROM campaign c
   JOIN assigned_shed s ON true
   JOIN proof_ok p ON true
   WHERE NOT EXISTS (SELECT 1 FROM updated)
     AND NOT EXISTS (SELECT 1 FROM submitted_duplicate)
   ON CONFLICT (tenant_id, idempotency_key) DO NOTHING
-  RETURNING observation_id::text, campaign_id::text, COALESCE(campaign_shed_id::text,'') AS campaign_shed_id_text, scanned_identifier AS scanned_identifier_text, weight_kg::float8, proof_artifact_id::text, COALESCE(expected_location_id::text,'') AS expected_location_id_text, COALESCE(actual_location_id::text,'') AS actual_location_id_text, COALESCE(actual_location_label,'') AS actual_location_label_text, accepted_at, FALSE AS is_update, FALSE AS row_existed
+  RETURNING observation_id::text, campaign_id::text, COALESCE(campaign_shed_id::text,'') AS campaign_shed_id_text, scanned_identifier AS scanned_identifier_text, weight_kg::float8, proof_artifact_id::text, COALESCE(expected_location_id::text,'') AS expected_location_id_text, COALESCE(actual_location_id::text,'') AS actual_location_id_text, COALESCE(actual_location_label,'') AS actual_location_label_text, accepted_at, FALSE AS is_update, FALSE AS row_existed,
+    sop_proofs::text AS sop_proofs_text, sop_answers::text AS sop_answers_text
 )
-SELECT observation_id, campaign_id, campaign_shed_id_text, scanned_identifier_text, weight_kg, proof_artifact_id, expected_location_id_text, actual_location_id_text, actual_location_label_text, accepted_at, is_update, row_existed FROM updated
+SELECT observation_id, campaign_id, campaign_shed_id_text, scanned_identifier_text, weight_kg, proof_artifact_id, expected_location_id_text, actual_location_id_text, actual_location_label_text, accepted_at, is_update, row_existed, sop_proofs_text, sop_answers_text FROM updated
 UNION ALL
-SELECT observation_id, campaign_id, campaign_shed_id_text, scanned_identifier_text, weight_kg, proof_artifact_id::text, expected_location_id_text, actual_location_id_text, actual_location_label_text, accepted_at, is_update, row_existed FROM inserted`,
-		cmd.TenantID, cmd.CampaignID, tag, cmd.WeightKg, cmd.ProofArtifactID, cmd.IdempotencyKey, cmd.RecordedBy, cmd.CampaignShedID, cmd.ActualLocationID, businessDayStart, businessDayEnd).
-		Scan(&obs.ObservationID, &obs.CampaignID, &obs.CampaignShedID, &obs.ScannedIdentifier, &obs.WeightKg, &obs.ProofArtifactID, &obs.ExpectedLocationID, &obs.ActualLocationID, &obs.ActualLocationLabel, &obs.AcceptedAt, &obs.Superseded, &rowExisted)
+SELECT observation_id, campaign_id, campaign_shed_id_text, scanned_identifier_text, weight_kg, proof_artifact_id::text, expected_location_id_text, actual_location_id_text, actual_location_label_text, accepted_at, is_update, row_existed, sop_proofs_text, sop_answers_text FROM inserted`,
+		cmd.TenantID, cmd.CampaignID, tag, cmd.WeightKg, cmd.ProofArtifactID, cmd.IdempotencyKey, cmd.RecordedBy, cmd.CampaignShedID, cmd.ActualLocationID, businessDayStart, businessDayEnd,
+		bundle.proofsJSON, bundle.answersJSON, bundle.ids, bundle.kinds, bundle.ids, domain.IndividualProofAnimalVideo).
+		Scan(&obs.ObservationID, &obs.CampaignID, &obs.CampaignShedID, &obs.ScannedIdentifier, &obs.WeightKg, &obs.ProofArtifactID, &obs.ExpectedLocationID, &obs.ActualLocationID, &obs.ActualLocationLabel, &obs.AcceptedAt, &obs.Superseded, &rowExisted, &sopProofsText, &sopAnswersText)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.Observation{}, r.classifyFreeFlowObservationRejection(ctx, tx, cmd, tag, businessDayStart, businessDayEnd)
 	}
@@ -2322,6 +2376,10 @@ SELECT observation_id, campaign_id, campaign_shed_id_text, scanned_identifier_te
 		// duplicate already returns, so the loser reads as a clean domain
 		// conflict, never a raw 500.
 		return domain.Observation{}, mapObservationUniqueViolation(err)
+	}
+	decodeObservationSOP(&obs, sopProofsText, sopAnswersText)
+	if obs.ProofKinds, err = r.proofKindsTx(ctx, tx, cmd.TenantID, bundle.ids); err != nil {
+		return domain.Observation{}, err
 	}
 	// A bucket that has taken a scan is being WORKED ON, and must stop reading as
 	// untouched. Same transaction as the capture: the write above and this status
@@ -2417,19 +2475,21 @@ WHERE tenant_id=$1::uuid AND campaign_id=$2::uuid AND campaign_shed_id=$3::uuid`
 	}
 
 	var proofOK bool
+	bundle := animalProofBundle(cmd)
 	if err := tx.QueryRow(ctx, `
-SELECT EXISTS (
-  SELECT 1
+SELECT (
+  SELECT count(*)=cardinality($4::uuid[])
   FROM weighing_campaign_sheds cs
+  CROSS JOIN unnest($4::uuid[], $5::text[]) AS requested(proof_id, kind)
   JOIN proof_artifacts proof
     ON proof.tenant_id=cs.tenant_id
-   AND proof.proof_id=$4::uuid
+   AND proof.proof_id=requested.proof_id
    AND proof.upload_state='completed'
-   AND proof.proof_type='video'
+   AND (proof.proof_type=requested.kind OR (requested.kind='either' AND proof.proof_type IN ('video','photo')))
    AND proof.scope_type='shed'
    AND proof.scope_id=cs.location_id
   WHERE cs.tenant_id=$1::uuid AND cs.campaign_id=$2::uuid AND cs.campaign_shed_id=$3::uuid
-)`, cmd.TenantID, cmd.CampaignID, cmd.CampaignShedID, cmd.ProofArtifactID).Scan(&proofOK); err != nil {
+)`, cmd.TenantID, cmd.CampaignID, cmd.CampaignShedID, bundle.ids, bundle.kinds).Scan(&proofOK); err != nil {
 		return err
 	}
 	if !proofOK {
@@ -2522,6 +2582,8 @@ WHERE tenant_id=$1::uuid AND campaign_shed_id=$2::uuid`,
 		return domain.Observation{}, err
 	}
 	var obs domain.Observation
+	shedBundle := shedProofBundle(cmd)
+	var shedAnswersText string
 	err = tx.QueryRow(ctx, `
 	WITH campaign AS (
 	  SELECT campaign_id
@@ -2562,35 +2624,38 @@ WHERE tenant_id=$1::uuid AND campaign_shed_id=$2::uuid`,
 	      AND rejected_proofs.proof_artifact_id=ANY($5::uuid[])
 	  )
 	), proof_bundle AS (
+	  -- THE WEIGH CAPTURES ARE AUTHORED (2026-09-16): each capture's register KIND must match
+	  -- its slot (video / photo / either); up to ten captures per pen (migration 000328).
 	  SELECT array_agg(proof.proof_id ORDER BY requested.proof_position) AS proof_ids
 	  FROM scope
-	  CROSS JOIN unnest($5::uuid[]) WITH ORDINALITY AS requested(proof_id, proof_position)
+	  CROSS JOIN unnest($5::uuid[], $10::text[]) WITH ORDINALITY AS requested(proof_id, kind, proof_position)
 	  JOIN rejected_proof_guard ON true
 	  JOIN proof_artifacts proof
 	    ON proof.tenant_id=$1::uuid
 	   AND proof.proof_id=requested.proof_id
 	   AND proof.upload_state='completed'
-	   AND proof.proof_type='video'
+	   AND (proof.proof_type=requested.kind OR (requested.kind='either' AND proof.proof_type IN ('video','photo')))
 	   AND proof.scope_type='shed'
 	   AND proof.scope_id=scope.location_id
 	   AND proof.subject_type='shed'
 	   AND proof.subject_id=scope.location_id
 	  HAVING count(*)=cardinality($5::uuid[])
-	     AND count(*) BETWEEN 1 AND 5
+	     AND count(*) BETWEEN 1 AND 10
 	)
 	INSERT INTO weighing_shed_observations (
 	  tenant_id, campaign_id, campaign_shed_id, weight_kg, average_weight_kg, animal_count,
-	  proof_artifact_id, recorded_by, idempotency_key
+	  proof_artifact_id, recorded_by, idempotency_key, sop_answers
 	)
 	SELECT $1::uuid, $2::uuid, scope.campaign_shed_id, $4, $8,
-	  $9, proof_bundle.proof_ids[1], $7::uuid, $6
+	  $9, proof_bundle.proof_ids[1], $7::uuid, $6, $11::jsonb
 	FROM scope
 	JOIN proof_bundle ON true
 	ON CONFLICT (tenant_id, idempotency_key) DO NOTHING
 	RETURNING shed_observation_id::text, campaign_id::text, campaign_shed_id::text,
-	  weight_kg::float8, average_weight_kg::float8, animal_count, proof_artifact_id::text, accepted_at`,
-		cmd.TenantID, cmd.CampaignID, cmd.CampaignShedID, cmd.WeightKg, cmd.ProofArtifactIDs, cmd.IdempotencyKey, cmd.RecordedBy, censusAverage, censusCount).
-		Scan(&obs.ObservationID, &obs.CampaignID, &obs.CampaignShedID, &obs.WeightKg, &obs.AverageWeightKg, &obs.AnimalCount, &obs.ProofArtifactID, &obs.AcceptedAt)
+	  weight_kg::float8, average_weight_kg::float8, animal_count, proof_artifact_id::text, accepted_at, sop_answers::text`,
+		cmd.TenantID, cmd.CampaignID, cmd.CampaignShedID, cmd.WeightKg, cmd.ProofArtifactIDs, cmd.IdempotencyKey, cmd.RecordedBy, censusAverage, censusCount,
+		shedBundle.kinds, shedBundle.answersJSON).
+		Scan(&obs.ObservationID, &obs.CampaignID, &obs.CampaignShedID, &obs.WeightKg, &obs.AverageWeightKg, &obs.AnimalCount, &obs.ProofArtifactID, &obs.AcceptedAt, &shedAnswersText)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.Observation{}, r.classifyShedObservationRejection(ctx, tx, cmd)
 	}
@@ -2601,14 +2666,19 @@ WHERE tenant_id=$1::uuid AND campaign_shed_id=$2::uuid`,
 		return domain.Observation{}, mapShedUniqueViolation(err, "", "")
 	}
 	obs.ProofArtifactIDs = append([]string(nil), cmd.ProofArtifactIDs...)
+	decodeObservationSOP(&obs, "", shedAnswersText)
+	obs.ProofSlots = shedBundle.slots
 	if _, err := tx.Exec(ctx, `
 INSERT INTO weighing_shed_observation_proofs (
-  shed_observation_id, tenant_id, proof_artifact_id, proof_position
+  shed_observation_id, tenant_id, proof_artifact_id, proof_position, slot_key
 )
-SELECT $1::uuid, $2::uuid, requested.proof_id, requested.proof_position
-FROM unnest($3::uuid[]) WITH ORDINALITY AS requested(proof_id, proof_position)
+SELECT $1::uuid, $2::uuid, requested.proof_id, requested.proof_position, NULLIF(requested.slot_key, '')
+FROM unnest($3::uuid[], $4::text[]) WITH ORDINALITY AS requested(proof_id, slot_key, proof_position)
 ON CONFLICT (shed_observation_id, proof_position) DO NOTHING`,
-		obs.ObservationID, cmd.TenantID, cmd.ProofArtifactIDs); err != nil {
+		obs.ObservationID, cmd.TenantID, cmd.ProofArtifactIDs, shedBundle.slotKeys); err != nil {
+		return domain.Observation{}, err
+	}
+	if obs.ProofKinds, err = r.proofKindsTx(ctx, tx, cmd.TenantID, cmd.ProofArtifactIDs); err != nil {
 		return domain.Observation{}, err
 	}
 	// NO markScopeInProgressOnCapture here, deliberately. On the lump-sum path the
@@ -2810,7 +2880,7 @@ SELECT EXISTS (
     ON proof.tenant_id=observation.tenant_id
    AND proof.proof_id=observation.proof_artifact_id
    AND proof.upload_state='completed'
-   AND proof.proof_type='video'
+   AND proof.proof_type IN ('video','photo')
   WHERE observation.tenant_id=$1::uuid
     AND observation.campaign_id=$2::uuid
     AND observation.campaign_shed_id=$3::uuid
@@ -2850,7 +2920,7 @@ SELECT requested.scanned_identifier,
            ON proof.tenant_id=observation.tenant_id
           AND proof.proof_id=observation.proof_artifact_id
           AND proof.upload_state='completed'
-          AND proof.proof_type='video'
+          AND proof.proof_type IN ('video','photo')
          WHERE observation.tenant_id=$1::uuid
            AND observation.campaign_id=$2::uuid
            AND observation.campaign_shed_id=$3::uuid
@@ -2948,7 +3018,7 @@ WHERE cs.tenant_id=$1::uuid
         ON proof.tenant_id=observation.tenant_id
        AND proof.proof_id=observation.proof_artifact_id
        AND proof.upload_state='completed'
-       AND proof.proof_type='video'
+       AND proof.proof_type IN ('video','photo')
     WHERE observation.tenant_id=cs.tenant_id
       AND observation.campaign_id=cs.campaign_id
       AND observation.campaign_shed_id=cs.campaign_shed_id
@@ -2962,7 +3032,7 @@ WHERE cs.tenant_id=$1::uuid
       ON proof.tenant_id=observation.tenant_id
      AND proof.proof_id=observation.proof_artifact_id
      AND proof.upload_state='completed'
-     AND proof.proof_type='video'
+     AND proof.proof_type IN ('video','photo')
     WHERE observation.tenant_id=cs.tenant_id
       AND observation.campaign_id=cs.campaign_id
       AND observation.campaign_shed_id=cs.campaign_shed_id
@@ -4123,8 +4193,13 @@ func (r *Repository) observationByIdemTx(ctx context.Context, tx pgx.Tx, tenantI
 	var queryErr error
 	switch resourceType {
 	case "weighing_observation":
-		queryErr = tx.QueryRow(ctx, `SELECT observation_id::text, campaign_id::text, COALESCE(campaign_shed_id::text,''), scanned_identifier, weight_kg::float8, proof_artifact_id::text, COALESCE(expected_location_id::text,''), COALESCE(actual_location_id::text,''), COALESCE(actual_location_label,''), accepted_at FROM weighing_observations WHERE tenant_id=$1::uuid AND observation_id=$2::uuid`, tenantID, id).
-			Scan(&obs.ObservationID, &obs.CampaignID, &obs.CampaignShedID, &obs.ScannedIdentifier, &obs.WeightKg, &obs.ProofArtifactID, &obs.ExpectedLocationID, &obs.ActualLocationID, &obs.ActualLocationLabel, &obs.AcceptedAt)
+		var proofsText, answersText string
+		queryErr = tx.QueryRow(ctx, `SELECT observation_id::text, campaign_id::text, COALESCE(campaign_shed_id::text,''), scanned_identifier, weight_kg::float8, proof_artifact_id::text, COALESCE(expected_location_id::text,''), COALESCE(actual_location_id::text,''), COALESCE(actual_location_label,''), accepted_at, sop_proofs::text, sop_answers::text FROM weighing_observations WHERE tenant_id=$1::uuid AND observation_id=$2::uuid`, tenantID, id).
+			Scan(&obs.ObservationID, &obs.CampaignID, &obs.CampaignShedID, &obs.ScannedIdentifier, &obs.WeightKg, &obs.ProofArtifactID, &obs.ExpectedLocationID, &obs.ActualLocationID, &obs.ActualLocationLabel, &obs.AcceptedAt, &proofsText, &answersText)
+		if queryErr == nil {
+			decodeObservationSOP(&obs, proofsText, answersText)
+			obs.ProofKinds, queryErr = r.proofKindsTx(ctx, tx, tenantID, animalProofList(obs))
+		}
 	case "weighing_shed_observation":
 		queryErr = tx.QueryRow(ctx, `
 SELECT
@@ -4293,17 +4368,18 @@ WHERE campaign.tenant_id=$1::uuid
 	// the two would tell an operator who attached a PHOTO to wait for an upload
 	// that is already finished.
 	var proofsAreThisShedsVideos bool
+	shedBundle := shedProofBundle(cmd)
 	err = tx.QueryRow(ctx, `
 	SELECT cs.weighing_category,
 	  (
 	    SELECT count(*)=cardinality($4::uuid[])
-	      AND count(*) BETWEEN 1 AND 5
-	    FROM unnest($4::uuid[]) AS requested(proof_id)
+	      AND count(*) BETWEEN 1 AND 10
+	    FROM unnest($4::uuid[], $5::text[]) AS requested(proof_id, kind)
 	    JOIN proof_artifacts proof
 	      ON proof.tenant_id=$1::uuid
 	     AND proof.proof_id=requested.proof_id
 	     AND proof.upload_state='completed'
-	     AND proof.proof_type='video'
+	     AND (proof.proof_type=requested.kind OR (requested.kind='either' AND proof.proof_type IN ('video','photo')))
 	     AND proof.scope_type='shed'
 	     AND proof.scope_id=cs.location_id
 	     AND proof.subject_type='shed'
@@ -4311,12 +4387,12 @@ WHERE campaign.tenant_id=$1::uuid
 	  ) AS proof_ok,
 	  (
 	    SELECT count(*)=cardinality($4::uuid[])
-	      AND count(*) BETWEEN 1 AND 5
-	    FROM unnest($4::uuid[]) AS requested(proof_id)
+	      AND count(*) BETWEEN 1 AND 10
+	    FROM unnest($4::uuid[], $5::text[]) AS requested(proof_id, kind)
 	    JOIN proof_artifacts proof
 	      ON proof.tenant_id=$1::uuid
 	     AND proof.proof_id=requested.proof_id
-	     AND proof.proof_type='video'
+	     AND (proof.proof_type=requested.kind OR (requested.kind='either' AND proof.proof_type IN ('video','photo')))
 	     AND proof.scope_type='shed'
 	     AND proof.scope_id=cs.location_id
 	     AND proof.subject_type='shed'
@@ -4325,7 +4401,7 @@ WHERE campaign.tenant_id=$1::uuid
 	FROM weighing_campaign_sheds cs
 	WHERE cs.tenant_id=$1::uuid
 	  AND cs.campaign_id=$2::uuid
-	  AND cs.campaign_shed_id=$3::uuid`, cmd.TenantID, cmd.CampaignID, cmd.CampaignShedID, cmd.ProofArtifactIDs).
+	  AND cs.campaign_shed_id=$3::uuid`, cmd.TenantID, cmd.CampaignID, cmd.CampaignShedID, cmd.ProofArtifactIDs, shedBundle.kinds).
 		Scan(&category, &proofOK, &proofsAreThisShedsVideos)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ports.ErrNotFound

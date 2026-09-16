@@ -10229,18 +10229,69 @@ func weighingSOPEditorCopy() map[string]string {
 		"wsop.section.capture":                  "Weighing capture",
 		"wsop.section.capture.subtitle":         "the evidence each weigh carries",
 		"wsop.capture.individual.video":         "One live-camera video per animal",
-		"wsop.capture.individual.locked":        "The per-animal video is what the verifier reviews; it cannot be switched off.",
+		"wsop.capture.individual.locked":        "At least one capture per animal is compulsory: it is what the verifier reviews and cannot be switched off.",
 		"wsop.capture.individual.locked_short":  "fixed",
 		"wsop.capture.lump_sum.video_min":       "Whole pen — videos at least",
 		"wsop.capture.lump_sum.video_max":       "Whole pen — videos at most",
-		"wsop.capture.locked_rules":             "Not authored here, by decision: scanning is free-flow (a tag is stored as scanned and never checked against a pen or roster), an animal cannot be scanned twice in the same pen before submit, the verifier reviews every video and may correct a weight on Approve, and a pen closes only once nothing is pending review.",
+		"wsop.capture.locked_rules":             "Not authored here, by decision: the RFID scan and the weight entry, scanning is free-flow (a tag is stored as scanned and never checked against a pen or roster), an animal cannot be scanned twice in the same pen before submit, the verifier reviews every capture and may correct a weight on Approve, and a pen closes only once nothing is pending review.",
 		"wsop.summary.lump_sum_videos":          "whole pen: {min}–{max} videos",
-		"wsop.footer.ready":                     "Ready to save or publish.",
+		// THE WEIGH CAPTURES ARE AUTHORED (maintainer decision 2026-09-16): two SEPARATE
+		// sections, each with its own captures and questions, shown as two titled blocks.
+		"wsop.capture.individual.title":              "Per animal",
+		"wsop.capture.individual.subtitle":           "what the operator captures and answers for EACH animal, beside the RFID scan and the weight",
+		"wsop.capture.individual.proofs":             "Captures per animal",
+		"wsop.capture.individual.proofs.subtitle":    "a live-camera video, a photo or either per capture; at least one compulsory; the first capture is the one the verifier's verdict is keyed on",
+		"wsop.capture.individual.add_capture":        "Add capture",
+		"wsop.capture.individual.at_least_one":       "At least one capture per animal must be compulsory",
+		"wsop.capture.individual.questions":          "Questions answered per animal",
+		"wsop.capture.individual.questions.subtitle": "answered on each animal's row; the answers reach the verifier under \"Per-animal answers\"",
+		"wsop.capture.individual.questions.empty":    "No per-animal questions — the animal row asks only for the captures above.",
+		"wsop.capture.lump_sum.title":                "Whole pen",
+		"wsop.capture.lump_sum.subtitle":             "what the operator captures and answers ONCE for the whole pen, beside the total weight",
+		"wsop.capture.lump_sum.proofs":               "Captures per pen",
+		"wsop.capture.lump_sum.proofs.subtitle":      "each capture carries a count — how many the operator must record at least and may record at most; at least one capture with a minimum of 1; at most 10 captures per pen in total",
+		"wsop.capture.lump_sum.slot_min":             "At least",
+		"wsop.capture.lump_sum.slot_max":             "At most",
+		"wsop.capture.lump_sum.add_capture":          "Add capture",
+		"wsop.capture.lump_sum.total_ceiling":        "At most 10 captures per pen in total",
+		"wsop.capture.lump_sum.questions":            "Questions answered per pen",
+		"wsop.capture.lump_sum.questions.subtitle":   "answered once on the pen's submit; the answers reach the verifier under \"Whole-pen answers\"",
+		"wsop.capture.lump_sum.questions.empty":      "No whole-pen questions — the pen submit asks only for the captures above.",
+		"wsop.capture.proof.title":                   "What the operator captures",
+		"wsop.capture.proof.hint":                    "Instruction",
+		"wsop.capture.proof.remove":                  "Remove capture",
+		"wsop.summary.individual_captures":           "per animal: {n} captures ({required} compulsory)",
+		"wsop.summary.lump_sum_captures":             "whole pen: {n} captures, up to {max} in total",
+		"wsop.summary.questions_one":                 "1 question",
+		"wsop.summary.questions_many":                "{n} questions",
+		// The seeded slot copy (weighing/domain/sopseed/weighing_capture_slots.json), served so
+		// the web model renders a document that predates slots exactly as the backend reads it.
+		// Pinned equal to the embedded file by TestWeighingSOPCaptureDefaultsMatchTheEmbeddedSeed.
+		"wsop.capture.defaults": weighingCaptureSlotDefaultsJSON,
+		"wsop.footer.ready":     "Ready to save or publish.",
 	} {
 		m[k] = v
 	}
 	return m
 }
+
+// weighingCaptureSlotDefaultsJSON is the seeded per-animal / whole-pen capture slot document,
+// byte-identical to backend/internal/weighing/domain/sopseed/weighing_capture_slots.json
+// (adminui does not import the weighing domain; the test pins the two equal).
+const weighingCaptureSlotDefaultsJSON = `{
+  "individual": {
+    "proofs": [
+      {"key": "animal_video", "title": "Weighing video", "hint": "Live-camera video of this animal on the scale; it opens on the scale reading 0 kg.", "kind": "video", "required": true}
+    ],
+    "questions": []
+  },
+  "lump_sum": {
+    "proofs": [
+      {"key": "pen_video", "title": "Weighing video", "hint": "Live-camera video of the pen on the scale; it opens on the scale reading 0 kg.", "kind": "video", "min": 1, "max": 5}
+    ],
+    "questions": []
+  }
+}`
 
 // weighingSOPOptionGroups are the weighing rules editor's closed vocabularies.
 func weighingSOPOptionGroups() []domain.OptionGroup {
