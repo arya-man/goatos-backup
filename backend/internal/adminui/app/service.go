@@ -3876,8 +3876,16 @@ func pageSpecificCopy(id string) map[string]string {
 			"column.outstanding":      "Still owed",
 
 			// Chips and cell copy.
-			"chip.repeat":            "Repeat",
-			"chip.one_time":          "One-time",
+			"chip.repeat":   "Repeat",
+			"chip.one_time": "One-time",
+			// COMPATIBILITY, not display. The 2026-09-16 frontend stopped rendering the register
+			// flag, but the deploy switches backend traffic before admin-web, and the previous
+			// frontend calls copy() on both keys for every name-only buyer -- and copy() throws on
+			// a missing fixed key, taking the whole page down for that window. They stay served
+			// until every deployed frontend is past that build; pinned by
+			// TestSalesBuyerAnalyticsCopyKeepsTheRetiredRegisterKeysForOlderFrontends.
+			"chip.not_in_register":   "Not in register",
+			"hint.not_in_register":   "Known only by the name typed on the sale. Add them on Vendors to keep their number here.",
 			"value.every_days":       "about every {days} days",
 			"value.days_ago":         "{days} days ago",
 			"value.today":            "today",

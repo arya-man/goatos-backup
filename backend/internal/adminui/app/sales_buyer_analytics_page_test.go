@@ -188,3 +188,22 @@ func TestSalesBuyerAnalyticsNavLeafRidesSalesRead(t *testing.T) {
 		t.Fatalf("permissionsForNav(sales-buyer-analytics) = %v, want exactly SalesRead", required)
 	}
 }
+
+// TestSalesBuyerAnalyticsCopyKeepsTheRetiredRegisterKeysForOlderFrontends pins the old-frontend /
+// new-contract window (PR #277 review): the frontend that still renders the "Not in register"
+// chip calls copy() on these two keys for every name-only buyer, and copy() throws on a missing
+// fixed key. The backend is switched before admin-web, so dropping the keys crashes
+// /sales/buyer-analytics for that window. Delete this test only together with the keys, once no
+// deployed frontend reads them.
+func TestSalesBuyerAnalyticsCopyKeepsTheRetiredRegisterKeysForOlderFrontends(t *testing.T) {
+	resp := NewService(fakeFamilies{}).Bootstrap(context.Background(), BootstrapInput{
+		TenantID: "00000000-0000-4000-8000-000000000001",
+		ActorID:  "00000000-0000-4000-8000-000000000099",
+	})
+	page := pageByRouteID(t, resp.Pages, "sales-buyer-analytics")
+	for _, key := range []string{"chip.not_in_register", "hint.not_in_register"} {
+		if page.Copy[key] == "" {
+			t.Fatalf("copy %q must stay served for the previous frontend build (it throws without it)", key)
+		}
+	}
+}
