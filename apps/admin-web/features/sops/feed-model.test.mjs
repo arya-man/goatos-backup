@@ -56,3 +56,20 @@ test("a direction document published without a wastage card shows the seeded one
   const rows = parseFeed("feed.direction", { feed: { schema_version: "goatos.sop-feed.v1", distribution: seeds["feed.direction"].distribution } });
   assert.equal(rows.stages.wastage.proofs[0].key, "feed_wastage_video");
 });
+
+// E2E 2026-09-17 (Playwright on /feed/sops): typing a NEW capture's title "Trough photo" one key at a
+// time froze its key at "t" -- the first keystroke set the key and `key || slugKey(title)` never
+// looked at the title again. A key the author has not saved yet follows the whole title; a key the
+// loaded version already carries (what the phones stamp) never moves.
+import { keyForTitle } from "./weighing-model.ts";
+test("a new capture's key follows its title as it is typed; a saved key never moves", () => {
+  const saved = new Set(["feed_packing_video"]);
+  let key = "";
+  for (const title of ["T", "Tr", "Trough", "Trough photo"]) {
+    key = keyForTitle(title, key, saved, new Set(["feed_packing_video", key]), "capture");
+  }
+  assert.equal(key, "trough_photo");
+  assert.equal(keyForTitle("Renamed packing clip", "feed_packing_video", saved, new Set(["feed_packing_video"]), "capture"), "feed_packing_video");
+  // a sibling already owning the slug keeps the new key distinct
+  assert.equal(keyForTitle("Trough photo", "t", saved, new Set(["trough_photo", "t"]), "capture"), "trough_photo_2");
+});

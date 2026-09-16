@@ -15,7 +15,7 @@ import Link from "@/components/no-prefetch-link";
 import { useRouter } from "next/navigation";
 import { AlertTriangle, Check, ChevronDown, ChevronLeft, ChevronUp, Lock, Plus, X } from "lucide-react";
 import { copy, optionGroup, type AdminUiPageContract } from "@/lib/admin-ui-contract";
-import { blankProofSlot, blankQuestion, slugKey, type RemovalProofKind, type RemovalProofRow, type WeighingQuestionRow } from "./weighing-model";
+import { blankProofSlot, blankQuestion, keyForTitle, slugKey, type RemovalProofKind, type RemovalProofRow, type WeighingQuestionRow } from "./weighing-model";
 import { QuestionCard } from "./weighing-editor";
 import { FEED_STAGES_BY_CODE, emitFeed, feedProblems, type FeedRows, type FeedStage, type FeedStageRows } from "./feed-model";
 import { publishedHref } from "./published-href";
@@ -34,6 +34,10 @@ type Props = {
 export function FeedEditor({ pageContract: pc, basePath, sopId, sopName, sopCode, versionLabel, initial }: Props) {
   const router = useRouter();
   const [rows, setRows] = useState<FeedRows>(initial);
+  // Keys the loaded version already carries never move; a new capture / question follows its title.
+  const [savedKeys] = useState<Set<string>>(
+    () => new Set(Object.values(initial.stages).flatMap((s) => (s ? [...s.proofs.map((p) => p.key), ...s.questions.map((q) => q.key)] : [])).filter(Boolean)),
+  );
   const [result, setResult] = useState<FeedSaveResult | null>(null);
   const [pending, startTransition] = useTransition();
   const kinds = optionGroup(pc, "wsop_question_kinds");
@@ -123,6 +127,7 @@ export function FeedEditor({ pageContract: pc, basePath, sopId, sopName, sopCode
                       slot={p}
                       proofKinds={proofKinds}
                       takenKeys={new Set(block.proofs.map((x) => x.key))}
+                      savedKeys={savedKeys}
                       onChange={(patch) => patchStage(stage, (s) => ({ ...s, proofs: s.proofs.map((x) => (x.id === p.id ? { ...x, ...patch } : x)) }))}
                       onMove={(dir) =>
                         patchStage(stage, (s) => {
@@ -160,7 +165,20 @@ export function FeedEditor({ pageContract: pc, basePath, sopId, sopName, sopCode
                       kinds={kinds}
                       earlier={block.questions.slice(0, qi)}
                       takenKeys={takenKeys}
-                      onChange={(patch: Partial<WeighingQuestionRow>) => patchStage(stage, (s) => ({ ...s, questions: s.questions.map((x) => (x.id === q.id ? { ...x, ...patch } : x)) }))}
+                      savedKeys={savedKeys}
+                      onChange={(patch: Partial<WeighingQuestionRow>) =>
+                        patchStage(stage, (s) => ({
+                          ...s,
+                          // A following key that moves takes its dependents' only_if with it.
+                          questions: s.questions.map((x) =>
+                            x.id === q.id
+                              ? { ...x, ...patch }
+                              : patch.key !== undefined && patch.key !== q.key && q.key && x.onlyIfQuestion === q.key
+                                ? { ...x, onlyIfQuestion: patch.key }
+                                : x,
+                          ),
+                        }))
+                      }
                       onOptionRenamed={(from: string, to: string) =>
                         patchStage(stage, (s) => ({
                           ...s,
@@ -226,7 +244,7 @@ export function FeedEditor({ pageContract: pc, basePath, sopId, sopName, sopCode
 }
 
 export function SlotCard({
-  pc, index, count, slot, proofKinds, takenKeys, onChange, onMove, onRemove,
+  pc, index, count, slot, proofKinds, takenKeys, savedKeys, onChange, onMove, onRemove,
 }: {
   pc: AdminUiPageContract;
   index: number;
@@ -234,6 +252,8 @@ export function SlotCard({
   slot: RemovalProofRow;
   proofKinds: { key: string; label: string; title?: string }[];
   takenKeys: Set<string>;
+  /** When given, a key the loaded version does not carry follows its title (keyForTitle). */
+  savedKeys?: Set<string>;
   onChange: (patch: Partial<RemovalProofRow>) => void;
   onMove: (dir: -1 | 1) => void;
   onRemove: () => void;
@@ -273,7 +293,7 @@ export function SlotCard({
               const title = e.target.value;
               // A NEW slot's key follows its title until saved; an existing key is never rewritten
               // (it is what the phones stamp on uploads).
-              onChange({ title, key: slot.key || slugKey(title, takenKeys, "capture") });
+              onChange({ title, key: savedKeys ? keyForTitle(title, slot.key, savedKeys, takenKeys, "capture") : slot.key || slugKey(title, takenKeys, "capture") });
             }}
           />
         </label>
