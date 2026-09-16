@@ -38,14 +38,8 @@ func NewRepository(pool *pgxpool.Pool, timeout time.Duration) *Repository {
 
 const idempotencyScope = "alerts.rule_config"
 
-// ListRuleConfig reads the stored rows; the catalog defaults are applied by the domain.
-func (r *Repository) ListRuleConfig(ctx context.Context, tenantID string) ([]domain.StoredRuleConfig, error) {
-	ctx, cancel := context.WithTimeout(ctx, r.timeout)
-	defer cancel()
-	// updated_by is resolved to a NAME here: an id is never rendered to a reader, and a person
-	// whose name cannot be resolved is shown as nobody rather than as a uuid. updated_at is a
-	// farm-readable Asia/Kolkata label -- business meaning is the Indian calendar, never UTC.
-	rows, err := r.pool.Query(ctx, `
+// Package-level SQL so the scale guard and a query-plan test can name each statement.
+const listRuleConfigSQL = `
 SELECT c.rule_key, c.enabled, c.threshold,
        COALESCE(setter.display_name, ''),
        to_char(c.updated_at AT TIME ZONE 'Asia/Kolkata', 'DD Mon YYYY, HH24:MI') || ' IST'
@@ -59,7 +53,96 @@ LEFT JOIN LATERAL (
   LIMIT 1
 ) setter ON true
 WHERE c.tenant_id = $1::uuid
-ORDER BY c.rule_key`, tenantID)
+ORDER BY c.rule_key`
+
+const upsertRuleConfigSQL = `
+INSERT INTO alert_rule_config (tenant_id, rule_key, enabled, threshold, updated_by, updated_at)
+VALUES ($1::uuid, $2, $3, $4, $5::uuid, now())
+ON CONFLICT (tenant_id, rule_key)
+DO UPDATE SET enabled = EXCLUDED.enabled, threshold = EXCLUDED.threshold, updated_by = EXCLUDED.updated_by, updated_at = now()`
+
+const penFeedDaySQL = `
+WITH issue AS (
+  SELECT feed_direction_issue_id, park_id, issued_at
+  FROM feed_direction_issues
+  WHERE tenant_id = $1::uuid AND park_id = $2::uuid AND feed_day = $3::date
+    AND state IN ('issued', 'amended', 'locked')
+),
+grains AS (
+  SELECT r.shed_id, r.partition_key, min(r.partition_label) AS partition_label,
+         min(r.shed_label) AS shed_label, min(r.park_label) AS park_label,
+         r.session_no, r.shed_tag_key, r.breed_key, r.workflow,
+         max(r.head_count) AS head_count,
+         sum(COALESCE(r.quantity_kg, 0)) AS kg,
+         count(*) FILTER (WHERE r.quantity_kg IS NULL) AS blocked
+  FROM feed_direction_issue_rows r
+  JOIN issue i ON i.feed_direction_issue_id = r.feed_direction_issue_id
+  WHERE r.tenant_id = $1::uuid
+  GROUP BY r.shed_id, r.partition_key, r.session_no, r.shed_tag_key, r.breed_key, r.workflow
+),
+sessions AS (
+  SELECT shed_id, partition_key, min(partition_label) AS partition_label, min(shed_label) AS shed_label, min(park_label) AS park_label,
+         session_no, sum(head_count) AS head_count, sum(kg) AS kg, sum(blocked) AS blocked
+  FROM grains
+  GROUP BY shed_id, partition_key, session_no
+)
+SELECT shed_id::text, COALESCE(min(partition_label), ''), min(shed_label), min(park_label),
+       max(head_count)::bigint, sum(kg)::float8, sum(blocked)::bigint,
+       (SELECT to_char(min(issued_at) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') FROM issue)
+FROM sessions
+GROUP BY shed_id, partition_key
+ORDER BY min(shed_label), partition_key`
+
+const penMovementsSQL = `
+SELECT COALESCE(se.source_shed_id::text, ''), COALESCE(se.source_partition_label, ''),
+       se.destination_shed_id::text, COALESCE(se.destination_partition_label, ''),
+       COALESCE(hc.head_count, 0)::bigint, se.event_status
+FROM shifting_events se
+LEFT JOIN (
+  SELECT shifting_event_id, sum(head_count) AS head_count
+  FROM shifting_event_impacts
+  WHERE tenant_id = $1::uuid
+  GROUP BY shifting_event_id
+) hc ON hc.shifting_event_id = se.shifting_event_id
+WHERE se.tenant_id = $1::uuid
+  AND (se.destination_park_id = $2::uuid OR se.source_park_id = $2::uuid)
+  AND se.event_status NOT IN ('rejected', 'canceled')
+  AND (
+       (se.raised_at     >= $3::timestamptz AND se.raised_at     < $4::timestamptz)
+    OR (se.authorized_at >= $3::timestamptz AND se.authorized_at < $4::timestamptz)
+    OR (se.applied_at    >= $3::timestamptz AND se.applied_at    < $4::timestamptz)
+  )
+ORDER BY se.raised_at, se.shifting_event_id`
+
+const parkNamesSQL = `
+SELECT location_id::text, name
+FROM locations
+WHERE tenant_id = $1::uuid AND location_id = ANY($2::uuid[])`
+
+const reserveIdempotencySQL = `
+INSERT INTO idempotency_keys (idempotency_key, tenant_id, scope, request_hash, status)
+VALUES ($1, $2::uuid, $3, $4, 'started')
+ON CONFLICT (idempotency_key) DO NOTHING
+RETURNING idempotency_key`
+
+const selectIdempotencySQL = `
+SELECT request_hash, COALESCE(result_id::text, '')
+FROM idempotency_keys
+WHERE idempotency_key = $1`
+
+const completeIdempotencySQL = `
+UPDATE idempotency_keys
+SET status = 'completed', result_type = $2, result_id = $3::uuid, completed_at = now()
+WHERE idempotency_key = $1`
+
+// ListRuleConfig reads the stored rows; the catalog defaults are applied by the domain.
+func (r *Repository) ListRuleConfig(ctx context.Context, tenantID string) ([]domain.StoredRuleConfig, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	// updated_by is resolved to a NAME here: an id is never rendered to a reader, and a person
+	// whose name cannot be resolved is shown as nobody rather than as a uuid. updated_at is a
+	// farm-readable Asia/Kolkata label -- business meaning is the Indian calendar, never UTC.
+	rows, err := r.pool.Query(ctx, listRuleConfigSQL, tenantID)
 	if err != nil {
 		return nil, err
 	}
@@ -101,11 +184,7 @@ func (r *Repository) UpsertRuleConfig(ctx context.Context, in domain.SetRuleConf
 	if strings.TrimSpace(in.ActorID) != "" {
 		actor = in.ActorID
 	}
-	if _, err := tx.Exec(ctx, `
-INSERT INTO alert_rule_config (tenant_id, rule_key, enabled, threshold, updated_by, updated_at)
-VALUES ($1::uuid, $2, $3, $4, $5::uuid, now())
-ON CONFLICT (tenant_id, rule_key)
-DO UPDATE SET enabled = EXCLUDED.enabled, threshold = EXCLUDED.threshold, updated_by = EXCLUDED.updated_by, updated_at = now()`,
+	if _, err := tx.Exec(ctx, upsertRuleConfigSQL,
 		in.TenantID, string(in.Key), in.Enabled, in.Threshold, actor); err != nil {
 		return err
 	}
@@ -130,37 +209,7 @@ DO UPDATE SET enabled = EXCLUDED.enabled, threshold = EXCLUDED.threshold, update
 func (r *Repository) PenFeedDay(ctx context.Context, tenantID, parkID, feedDay string) ([]domain.PenFeedDay, string, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
-	rows, err := r.pool.Query(ctx, `
-WITH issue AS (
-  SELECT feed_direction_issue_id, park_id, issued_at
-  FROM feed_direction_issues
-  WHERE tenant_id = $1::uuid AND park_id = $2::uuid AND feed_day = $3::date
-    AND state IN ('issued', 'amended', 'locked')
-),
-grains AS (
-  SELECT r.shed_id, r.partition_key, min(r.partition_label) AS partition_label,
-         min(r.shed_label) AS shed_label, min(r.park_label) AS park_label,
-         r.session_no, r.shed_tag_key, r.breed_key, r.workflow,
-         max(r.head_count) AS head_count,
-         sum(COALESCE(r.quantity_kg, 0)) AS kg,
-         count(*) FILTER (WHERE r.quantity_kg IS NULL) AS blocked
-  FROM feed_direction_issue_rows r
-  JOIN issue i ON i.feed_direction_issue_id = r.feed_direction_issue_id
-  WHERE r.tenant_id = $1::uuid
-  GROUP BY r.shed_id, r.partition_key, r.session_no, r.shed_tag_key, r.breed_key, r.workflow
-),
-sessions AS (
-  SELECT shed_id, partition_key, min(partition_label) AS partition_label, min(shed_label) AS shed_label, min(park_label) AS park_label,
-         session_no, sum(head_count) AS head_count, sum(kg) AS kg, sum(blocked) AS blocked
-  FROM grains
-  GROUP BY shed_id, partition_key, session_no
-)
-SELECT shed_id::text, COALESCE(min(partition_label), ''), min(shed_label), min(park_label),
-       max(head_count)::bigint, sum(kg)::float8, sum(blocked)::bigint,
-       (SELECT to_char(min(issued_at) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') FROM issue)
-FROM sessions
-GROUP BY shed_id, partition_key
-ORDER BY min(shed_label), partition_key`, tenantID, parkID, feedDay)
+	rows, err := r.pool.Query(ctx, penFeedDaySQL, tenantID, parkID, feedDay)
 	if err != nil {
 		return nil, "", fmt.Errorf("alerts: pen feed day: %w", err)
 	}
@@ -204,26 +253,7 @@ func (r *Repository) PenMovements(ctx context.Context, tenantID, parkID, fromIns
 	if strings.TrimSpace(fromInstant) == "" || strings.TrimSpace(toInstant) == "" {
 		return nil, nil
 	}
-	rows, err := r.pool.Query(ctx, `
-SELECT COALESCE(se.source_shed_id::text, ''), COALESCE(se.source_partition_label, ''),
-       se.destination_shed_id::text, COALESCE(se.destination_partition_label, ''),
-       COALESCE(hc.head_count, 0)::bigint, se.event_status
-FROM shifting_events se
-LEFT JOIN (
-  SELECT shifting_event_id, sum(head_count) AS head_count
-  FROM shifting_event_impacts
-  WHERE tenant_id = $1::uuid
-  GROUP BY shifting_event_id
-) hc ON hc.shifting_event_id = se.shifting_event_id
-WHERE se.tenant_id = $1::uuid
-  AND (se.destination_park_id = $2::uuid OR se.source_park_id = $2::uuid)
-  AND se.event_status NOT IN ('rejected', 'canceled')
-  AND (
-       (se.raised_at     >= $3::timestamptz AND se.raised_at     < $4::timestamptz)
-    OR (se.authorized_at >= $3::timestamptz AND se.authorized_at < $4::timestamptz)
-    OR (se.applied_at    >= $3::timestamptz AND se.applied_at    < $4::timestamptz)
-  )
-ORDER BY se.raised_at, se.shifting_event_id`, tenantID, parkID, fromInstant, toInstant)
+	rows, err := r.pool.Query(ctx, penMovementsSQL, tenantID, parkID, fromInstant, toInstant)
 	if err != nil {
 		return nil, fmt.Errorf("alerts: pen movements: %w", err)
 	}
@@ -247,10 +277,7 @@ func (r *Repository) ParkNames(ctx context.Context, tenantID string, parkIDs []s
 	if len(parkIDs) == 0 {
 		return out, nil
 	}
-	rows, err := r.pool.Query(ctx, `
-SELECT location_id::text, name
-FROM locations
-WHERE tenant_id = $1::uuid AND location_id = ANY($2::uuid[])`, tenantID, parkIDs)
+	rows, err := r.pool.Query(ctx, parkNamesSQL, tenantID, parkIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -287,11 +314,7 @@ func reserveIdempotency(ctx context.Context, tx pgx.Tx, tenantID, scope, key, fi
 	}
 	scoped := scopedIdempotencyKey(tenantID, scope, key)
 	var claimed string
-	err := tx.QueryRow(ctx, `
-INSERT INTO idempotency_keys (idempotency_key, tenant_id, scope, request_hash, status)
-VALUES ($1, $2::uuid, $3, $4, 'started')
-ON CONFLICT (idempotency_key) DO NOTHING
-RETURNING idempotency_key`, scoped, tenantID, scope, fingerprint).Scan(&claimed)
+	err := tx.QueryRow(ctx, reserveIdempotencySQL, scoped, tenantID, scope, fingerprint).Scan(&claimed)
 	if err == nil {
 		return idemReservation{proceed: true}, nil
 	}
@@ -299,10 +322,7 @@ RETURNING idempotency_key`, scoped, tenantID, scope, fingerprint).Scan(&claimed)
 		return idemReservation{}, err
 	}
 	var existingHash, resultID string
-	if err := tx.QueryRow(ctx, `
-SELECT request_hash, COALESCE(result_id::text, '')
-FROM idempotency_keys
-WHERE idempotency_key = $1`, scoped).Scan(&existingHash, &resultID); err != nil {
+	if err := tx.QueryRow(ctx, selectIdempotencySQL, scoped).Scan(&existingHash, &resultID); err != nil {
 		return idemReservation{}, err
 	}
 	if existingHash != fingerprint {
@@ -315,9 +335,6 @@ func completeIdempotency(ctx context.Context, tx pgx.Tx, tenantID, scope, key, r
 	if strings.TrimSpace(key) == "" {
 		return nil
 	}
-	_, err := tx.Exec(ctx, `
-UPDATE idempotency_keys
-SET status = 'completed', result_type = $2, result_id = $3::uuid, completed_at = now()
-WHERE idempotency_key = $1`, scopedIdempotencyKey(tenantID, scope, key), resultType, resultID)
+	_, err := tx.Exec(ctx, completeIdempotencySQL, scopedIdempotencyKey(tenantID, scope, key), resultType, resultID)
 	return err
 }
