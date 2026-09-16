@@ -38,6 +38,7 @@ import sg.mesha.goatos.core.data.cache.readCachedJson
 import sg.mesha.goatos.core.network.AppApi
 import sg.mesha.goatos.core.network.dto.FeedDirectionPreviewPageDto
 import sg.mesha.goatos.core.network.dto.FeedDistributionCapturedSlotDto
+import sg.mesha.goatos.core.network.dto.FeedSopCardDto
 import sg.mesha.goatos.core.network.dto.FeedDirectionRowDto
 import sg.mesha.goatos.core.network.dto.FeedPackingRowDto
 import sg.mesha.goatos.core.network.dto.FeedPackingWorklistPageDto
@@ -176,6 +177,8 @@ private const val DIRECTION_CACHE_SHAPE = "direction-v2"
 data class FeedPenSessionCaptures(
     val slots: List<FeedDistributionCapturedSlotDto>,
     val sessionStatus: String?,
+    /** FEED SOP (2026-09-16): the card this pen-session is proven against; null from an older backend. */
+    val card: FeedSopCardDto? = null,
 )
 
 interface FeedRepository {
@@ -266,6 +269,17 @@ interface FeedRepository {
      * rather than conclude the slots are free.
      */
     suspend fun penSessionCaptures(query: FeedPenSessionCaptureQuery): FeedPenSessionCaptures?
+
+    /**
+     * FEED SOP (2026-09-16): the distribution CARD of the served sheet for one park/day/workflow, from
+     * whatever Feed Direction page Room last cached for that park+day. Null until the list has been
+     * opened online once (the capture screen then falls back to the seeded card) or when the cached
+     * page predates cards. The live captures read ([penSessionCaptures]) supersedes this online.
+     */
+    fun observeDirectionCard(parkId: String, targetDate: String, workflow: String): Flow<FeedSopCardDto?>
+
+    /** The packing CARD, same contract as [observeDirectionCard] over the packing worklist cache. */
+    fun observePackingCard(parkId: String, targetDate: String, workflow: String): Flow<FeedSopCardDto?>
 
     /**
      * Fetches the download URL for a proof so its media can be previewed.
@@ -554,6 +568,31 @@ class DefaultFeedRepository(
         null
     }.getOrNull()?.takeIf { it.isNotBlank() }
 
+    override fun observeDirectionCard(parkId: String, targetDate: String, workflow: String): Flow<FeedSopCardDto?> {
+        // Every direction scope key starts `shape|park|date|`; the range covers all of them.
+        val prefix = cacheKey(DIRECTION_CACHE_SHAPE, parkId, targetDate) + "|"
+        return directionMetaDao.observeLatestInRange(prefix, prefix + "\uFFFF")
+            .map { entity ->
+                entity?.let {
+                    runCatching { json.decodeFromString<FeedDirectionPreviewPageDto>(it.dtoJson) }.getOrNull() // exception:exempt a stale/undecodable cached page just means "no card cached"; the seeded fallback and the live read cover it
+                }?.sop?.get(workflow)
+            }
+            .distinctUntilChanged()
+            .flowOn(Dispatchers.Default)
+    }
+
+    override fun observePackingCard(parkId: String, targetDate: String, workflow: String): Flow<FeedSopCardDto?> {
+        val prefix = cacheKey(PACKING_CACHE_SHAPE, parkId, targetDate) + "|"
+        return packingMetaDao.observeLatestInRange(prefix, prefix + "\uFFFF")
+            .map { entity ->
+                entity?.let {
+                    runCatching { json.decodeFromString<FeedPackingWorklistPageDto>(it.dtoJson) }.getOrNull() // exception:exempt same as observeDirectionCard
+                }?.sop?.get(workflow)
+            }
+            .distinctUntilChanged()
+            .flowOn(Dispatchers.Default)
+    }
+
     override suspend fun penSessionCaptures( // offline-first-guard:ignore: liveness beats staleness here - a cached "someone already did this slot" would either hide work just done or claim work since withdrawn, and this only ADDS to a screen whose own capture state is already Room-backed.
         query: FeedPenSessionCaptureQuery,
     ): FeedPenSessionCaptures? =
@@ -566,7 +605,7 @@ class DefaultFeedRepository(
                 targetDate = query.targetDate,
                 workflow = query.workflow,
             )
-            FeedPenSessionCaptures(slots = dto.items, sessionStatus = dto.sessionStatus.takeIf { it.isNotBlank() })
+            FeedPenSessionCaptures(slots = dto.items, sessionStatus = dto.sessionStatus.takeIf { it.isNotBlank() }, card = dto.sop)
         }.getOrElse {
             // Fail soft but NOT silent to the caller: null tells the ViewModel the read failed so
             // it can retry, instead of treating a network blip as "no teammate has recorded

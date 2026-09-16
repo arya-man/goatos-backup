@@ -6,6 +6,7 @@ import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonTransformingSerializer
 
 /**
@@ -207,6 +208,9 @@ data class FeedPreviewSummaryDto(
 data class FeedDirectionPreviewPageDto(
     @SerialName("items") val items: List<FeedDirectionRowDto> = emptyList(),
     @SerialName("summary") val summary: FeedPreviewSummaryDto = FeedPreviewSummaryDto(),
+    /** FEED SOP (2026-09-16): the distribution CARD per served workflow -- the captures and
+     *  questions every pen-session of this sheet is proven against, from the sheet's pinned version. */
+    @SerialName("sop") val sop: Map<String, FeedSopCardDto> = emptyMap(),
     @SerialName("lifecycle") val lifecycle: FeedLifecycleDto = FeedLifecycleDto(),
     @SerialName("draft") val draft: Boolean = false,
     @SerialName("filters") val filters: FeedFilterOptionsDto = FeedFilterOptionsDto(),
@@ -302,6 +306,8 @@ data class FeedPackingSummaryDto(
 data class FeedPackingWorklistPageDto(
     @SerialName("items") val items: List<FeedPackingRowDto> = emptyList(),
     @SerialName("summary") val summary: FeedPackingSummaryDto = FeedPackingSummaryDto(),
+    /** FEED SOP (2026-09-16): the packing CARD per served workflow. */
+    @SerialName("sop") val sop: Map<String, FeedSopCardDto> = emptyMap(),
     @SerialName("lifecycle") val lifecycle: FeedLifecycleDto = FeedLifecycleDto(),
     @SerialName("draft") val draft: Boolean = false,
     @SerialName("filters") val filters: FeedFilterOptionsDto = FeedFilterOptionsDto(),
@@ -370,6 +376,8 @@ data class FeedTransportTaskDto(
     @SerialName("operator_id") val operatorId: String? = null,
     @SerialName("rework_reason") val reworkReason: String? = null,
     @SerialName("scheduled_at") val scheduledAt: String,
+    /** FEED SOP (2026-09-16): the transport CARD this task was pinned to; null from an older backend. */
+    @SerialName("sop") val sop: FeedSopCardDto? = null,
 )
 
 @Serializable
@@ -391,7 +399,13 @@ data class FeedTransportTaskPageDto(
     @SerialName("next_cursor") val nextCursor: String? = null,
     @SerialName("filters") val filters: FeedTransportFilterOptionsDto = FeedTransportFilterOptionsDto(),
 )
-@Serializable data class FeedTransportSubmitRequestDto(@SerialName("proof_ref") val proofRef: String)
+@Serializable data class FeedTransportSubmitRequestDto(
+    @SerialName("proof_ref") val proofRef: String,
+    /** FEED SOP (2026-09-16): {slot key: proof ref} against the task's pinned card; proof_ref
+     *  mirrors the seeded slot for an older backend. */
+    @SerialName("proofs") val proofs: Map<String, String> = emptyMap(),
+    @SerialName("answers") val answers: JsonObject = JsonObject(emptyMap()),
+)
 @Serializable data class FeedTransportSubmitResponseDto(@SerialName("attempt_id") val attemptId: String, @SerialName("status") val status: String, @SerialName("attempt_no") val attemptNo: Int, @SerialName("newly_pending") val newlyPending: Boolean)
 
 // ---------------------------------------------------------------------------
@@ -426,6 +440,11 @@ data class FeedDistributionCompleteRequestDto(
     @SerialName("distribution_proof_ref") val distributionProofRef: String,
     /** The water-distribution VIDEO. Video-only since 2026-08-11 — a photo is rejected. */
     @SerialName("water_proof_ref") val waterProofRef: String,
+    /** FEED SOP (2026-09-16): {slot key: proof ref} against the sheet's pinned distribution card
+     *  and the answers to its questions. The three fixed refs above mirror the seeded slots (blank
+     *  when the card no longer has that slot) so an older backend still reads them. */
+    @SerialName("proofs") val proofs: Map<String, String> = emptyMap(),
+    @SerialName("answers") val answers: JsonObject = JsonObject(emptyMap()),
 )
 
 /**
@@ -471,6 +490,9 @@ data class FeedPackingCompleteRequestDto(
     @SerialName("target_date") val targetDate: String,
     @SerialName("workflow") val workflow: String,
     @SerialName("packing_proof_ref") val packingProofRef: String,
+    /** FEED SOP (2026-09-16): {slot key: proof ref} against the sheet's pinned packing card. */
+    @SerialName("proofs") val proofs: Map<String, String> = emptyMap(),
+    @SerialName("answers") val answers: JsonObject = JsonObject(emptyMap()),
 )
 
 /**
@@ -552,6 +574,8 @@ data class FeedWastageWorklistSummaryDto(
 data class FeedWastageWorklistPageDto(
     @SerialName("items") val items: List<FeedWastageRowDto> = emptyList(),
     @SerialName("summary") val summary: FeedWastageWorklistSummaryDto = FeedWastageWorklistSummaryDto(),
+    /** FEED SOP (2026-09-16): the wastage CARD every pen on this page is proven against. */
+    @SerialName("sop") val sop: FeedSopCardDto? = null,
     @SerialName("lifecycle") val lifecycle: FeedLifecycleDto = FeedLifecycleDto(),
     @SerialName("filters") val filters: FeedFilterOptionsDto = FeedFilterOptionsDto(),
     @SerialName("target_date") val targetDate: String = "",
@@ -581,6 +605,9 @@ data class FeedWastageCompleteRequestDto(
     @SerialName("partition_label") val partitionLabel: String? = null,
     @SerialName("target_date") val targetDate: String,
     @SerialName("wastage_proof_ref") val wastageProofRef: String,
+    /** FEED SOP (2026-09-16): {slot key: proof ref} against the sheet's pinned wastage card. */
+    @SerialName("proofs") val proofs: Map<String, String> = emptyMap(),
+    @SerialName("answers") val answers: JsonObject = JsonObject(emptyMap()),
 )
 
 /**
@@ -631,4 +658,24 @@ data class FeedWastageMeasurementResultDto(
 @Serializable
 data class FeedWastageMeasurementResponseDto(
     @SerialName("wastage_measurement") val wastageMeasurement: FeedWastageMeasurementResultDto = FeedWastageMeasurementResultDto(),
+)
+
+
+/**
+ * FEED SOP (maintainer decision 2026-09-16): the CARD a feed stage runs under -- what the crew
+ * captures and answers at distribution, wastage, packing or transport -- from the feed.* SOP version
+ * the sheet was ISSUED under. The phone renders the slots and questions VERBATIM and holds no slot
+ * list of its own; every phone on a shared distribution session renders the same card. Version 0 is
+ * the seeded card (the pre-SOP behaviour). The slot and question shapes are the weighing removal
+ * card's, so one renderer serves every module.
+ */
+@Serializable
+data class FeedSopCardDto(
+    @SerialName("version") val version: Int = 0,
+    @SerialName("stage") val stage: String = "",
+    @SerialName("instruction") val instruction: String = "",
+    /** The capture slots in card order. A slot's key is the proof register field_key the phone
+     *  stamps on the upload and the key of the completion's `proofs` map. */
+    @SerialName("proofs") val proofs: List<WeighingRemovalProofSlotDto> = emptyList(),
+    @SerialName("questions") val questions: List<WeighingSopQuestionDto> = emptyList(),
 )

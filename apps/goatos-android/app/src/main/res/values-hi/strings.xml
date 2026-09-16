@@ -86,4 +86,11 @@
     <string name="proof_video_pen_visit_header">बाड़े का दौरा</string>
     <string name="pen_visits_msg_capture_not_saved">यह सेव नहीं हुआ। फिर से रिकॉर्ड करें।</string>
     <string name="pen_visits_msg_not_sent">सेव हुआ, पर भेजा नहीं जा सका। रिफ्रेश करके फिर कोशिश करें।</string>
+    <string name="feed_seed_distribution_instruction">तौले गए फ़ीड की फ़ोटो लें, फिर फ़ीड और पानी देते हुए वीडियो बनाएँ।</string>
+    <string name="feed_seed_slot_weight_photo">फ़ीड वज़न फ़ोटो</string>
+    <string name="feed_seed_slot_weight_photo_hint">देने से पहले तराज़ू पर तौला गया फ़ीड।</string>
+    <string name="feed_seed_slot_feed_video">फ़ीड वितरण वीडियो</string>
+    <string name="feed_seed_slot_feed_video_hint">नाँद में फ़ीड डालते हुए।</string>
+    <string name="feed_seed_slot_water_video">पानी वितरण वीडियो</string>
+    <string name="feed_seed_slot_water_video_hint">बाड़े में पानी देते हुए।</string>
 </resources>

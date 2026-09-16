@@ -91,6 +91,13 @@
     <string name="feed_dist_proof_uploading">प्रमाण अपलोड हो रहा है</string>
     <string name="feed_dist_proof_synced">प्रमाण तैयार</string>
     <string name="feed_dist_proof_failed">अपलोड विफल। फिर कोशिश करें</string>
+    <string name="feed_slot_record_video">वीडियो रिकॉर्ड करें</string>
+    <string name="feed_slot_take_photo">फ़ोटो लें</string>
+    <string name="feed_slot_required">ज़रूरी</string>
+    <string name="feed_slot_optional">वैकल्पिक</string>
+    <string name="feed_slot_retry">फिर से · %1$s</string>
+    <string name="feed_slot_need_all">जमा करने के लिए हर ज़रूरी कैप्चर रिकॉर्ड करें।</string>
+    <string name="feed_slot_answer_questions">जमा करने के लिए इस कार्ड के सवालों के जवाब दें।</string>
     <string name="feed_dist_play_preview">चलाएँ</string>
     <string name="feed_dist_pause_preview">रोकें</string>
     <string name="feed_transport_title">फ़ीड परिवहन</string>

@@ -1540,6 +1540,13 @@ class SyncEngine(
      */
     private suspend fun dispatchFeedDistributionComplete(item: OutboxEntity): String {
         val payload = syncJson.decodeFromString<FeedDistributionCompletePayload>(item.payloadJson)
+        // FEED SOP (2026-09-16): a row queued against the CARD carries {slot key: source}; every
+        // source resolves to a server proof id (a teammate's ref verbatim, this phone's upload once
+        // it has finished). The three fixed fields mirror the seeded slots for an older backend and
+        // are blank when the card no longer has that slot. A row queued by an older build carries
+        // no slot map and resolves the fixed trio exactly as before.
+        val proofs = resolveFeedSlotProofs(payload.slotProofs)
+        val cardShaped = payload.slotProofs.isNotEmpty()
         val response = api.completeFeedDistribution(
             item.idempotencyKey,
             FeedDistributionCompleteRequestDto(
@@ -1549,24 +1556,43 @@ class SyncEngine(
                 sessionNo = payload.sessionNo,
                 targetDate = payload.targetDate,
                 workflow = payload.workflow,
-                feedWeightProofRef = resolveFeedProofRef(
+                feedWeightProofRef = if (cardShaped) proofs[FEED_SLOT_WEIGHT_PHOTO].orEmpty() else resolveFeedProofRef(
                     payload.feedWeightProofRef,
                     payload.feedWeightProofOutboxItemId,
                     "This feeding needs a feed weight photo. Please record this shed's feeding again.",
                 ),
-                distributionProofRef = resolveFeedProofRef(
+                distributionProofRef = if (cardShaped) proofs[FEED_SLOT_FEED_VIDEO].orEmpty() else resolveFeedProofRef(
                     payload.distributionProofRef,
                     payload.distributionProofOutboxItemId,
                     "This feeding needs a feed video. Please record this shed's feeding again.",
                 ),
-                waterProofRef = resolveFeedProofRef(
+                waterProofRef = if (cardShaped) proofs[FEED_SLOT_WATER_VIDEO].orEmpty() else resolveFeedProofRef(
                     payload.waterProofRef,
                     payload.waterProofOutboxItemId,
                     "This feeding needs a water video. Please record this shed's feeding again.",
                 ),
+                proofs = proofs,
+                answers = payload.answers,
             ),
         )
         return syncJson.encodeToString(response)
+    }
+
+    /**
+     * Resolves a feed card's {slot key: source} to {slot key: server proof id}. A slot whose upload
+     * is still pending raises [ProofDependencyPendingException] (the completion waits, exactly as
+     * the fixed trio did); a slot whose upload failed permanently is terminal.
+     */
+    private suspend fun resolveFeedSlotProofs(sources: Map<String, FeedSlotProofSourcePayload>): Map<String, String> {
+        if (sources.isEmpty()) return emptyMap()
+        val out = LinkedHashMap<String, String>(sources.size)
+        for ((slotKey, source) in sources) {
+            val ref = source.proofRef?.takeIf { it.isNotBlank() }
+                ?: source.outboxItemId?.takeIf { it.isNotBlank() }?.let { resolveUploadedProofRef(it) }
+                ?: continue
+            out[slotKey] = ref
+        }
+        return out
     }
 
     /**
@@ -2227,3 +2253,8 @@ internal class BoundedKeySet(private val capacity: Int) {
     @Synchronized
     fun contains(key: String): Boolean = key in keys
 }
+
+/** The seeded distribution slot keys (the proof register field keys the phones have always stamped). */
+internal const val FEED_SLOT_WEIGHT_PHOTO = "feed_distribution_feed_weight_photo"
+internal const val FEED_SLOT_FEED_VIDEO = "feed_distribution_video"
+internal const val FEED_SLOT_WATER_VIDEO = "feed_distribution_water_video"

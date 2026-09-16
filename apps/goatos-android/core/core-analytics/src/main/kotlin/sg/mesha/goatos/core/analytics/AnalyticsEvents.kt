@@ -540,6 +540,8 @@ object AnalyticsEvents {
      *  [Params.KIND] names the slot; [Params.LOCAL_SLOT_STATE] is always `empty` here (a local
      *  capture always wins and is never overwritten -- see [adoptTeammateCapture]). */
     const val FEED_DISTRIBUTION_TEAMMATE_PROOF_ADOPTED = "feed_distribution_teammate_proof_adopted"
+    /** FEED SOP: the capture card the distribution screen renders changed source or version. */
+    const val FEED_DISTRIBUTION_CARD_APPLIED = "feed_distribution_card_applied"
 
     /** Fired alongside [FEED_DISTRIBUTION_SUBMITTED]/[FEED_DISTRIBUTION_SUBMIT_BLOCKED] with the
      *  per-slot source breakdown ([Params.FEED_WEIGHT_SOURCE]/[Params.FEED_VIDEO_SOURCE]/

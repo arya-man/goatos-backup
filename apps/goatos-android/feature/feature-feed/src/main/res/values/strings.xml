@@ -91,6 +91,14 @@
     <string name="feed_dist_proof_uploading">Uploading proof</string>
     <string name="feed_dist_proof_synced">Proof ready</string>
     <string name="feed_dist_proof_failed">Upload failed. Try again</string>
+    <!-- FEED SOP (2026-09-16): slot rows are the card's own words; these are the app's verbs. -->
+    <string name="feed_slot_record_video">Record video</string>
+    <string name="feed_slot_take_photo">Take photo</string>
+    <string name="feed_slot_required">Required</string>
+    <string name="feed_slot_optional">Optional</string>
+    <string name="feed_slot_retry">Retry · %1$s</string>
+    <string name="feed_slot_need_all">Record every required capture to submit.</string>
+    <string name="feed_slot_answer_questions">Answer the questions on this card to submit.</string>
     <string name="feed_dist_play_preview">Play</string>
     <string name="feed_dist_pause_preview">Pause</string>
     <string name="feed_transport_title">Feed transport</string>

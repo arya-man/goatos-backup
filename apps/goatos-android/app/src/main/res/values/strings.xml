@@ -94,4 +94,12 @@
     <string name="proof_video_pen_visit_header">Pen visit</string>
     <string name="pen_visits_msg_capture_not_saved">That didn\'t save. Record it again.</string>
     <string name="pen_visits_msg_not_sent">Saved, but couldn\'t be sent. Tap refresh and try again.</string>
+    <!-- FEED SOP: the seeded distribution card, shown until the sheet's own card is known. -->
+    <string name="feed_seed_distribution_instruction">Photograph the weighed feed, then film the feed and the water being given out.</string>
+    <string name="feed_seed_slot_weight_photo">Feed weight photo</string>
+    <string name="feed_seed_slot_weight_photo_hint">The weighed feed on the scale, before it is given out.</string>
+    <string name="feed_seed_slot_feed_video">Feed distribution video</string>
+    <string name="feed_seed_slot_feed_video_hint">The feed being put in the trough.</string>
+    <string name="feed_seed_slot_water_video">Water distribution video</string>
+    <string name="feed_seed_slot_water_video_hint">Water being given in the pen.</string>
 </resources>

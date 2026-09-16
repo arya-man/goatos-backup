@@ -62,6 +62,10 @@ class FeedCompletionReconcileErrorHandlingTest {
         override fun observePackingRowStatus(shedId: String, partitionLabel: String, workflow: String, sessionNo: Int) =
             kotlinx.coroutines.flow.flowOf<String?>(null)
 
+        override fun observeDirectionCard(parkId: String, targetDate: String, workflow: String): kotlinx.coroutines.flow.Flow<sg.mesha.goatos.core.network.dto.FeedSopCardDto?> = kotlinx.coroutines.flow.flowOf(null)
+
+        override fun observePackingCard(parkId: String, targetDate: String, workflow: String): kotlinx.coroutines.flow.Flow<sg.mesha.goatos.core.network.dto.FeedSopCardDto?> = kotlinx.coroutines.flow.flowOf(null)
+
         override suspend fun penSessionCaptures(query: sg.mesha.goatos.core.data.FeedPenSessionCaptureQuery) = null
 
         override suspend fun fetchDirectionSessionStatus(parkId: String, shedId: String, partitionLabel: String, workflow: String, sessionNo: Int, targetDate: String): String? = null

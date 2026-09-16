@@ -622,6 +622,8 @@ private class FakeMilkFeedingSyncRepository : SyncRepository {
         feedWeightProofRef: String?,
         distributionProofRef: String?,
         waterProofRef: String?,
+        slotProofs: Map<String, sg.mesha.goatos.core.data.sync.FeedSlotProofSourcePayload>,
+        answers: kotlinx.serialization.json.JsonObject,
     ): AppResult<String> = error("unused")
 
     override suspend fun enqueueShedSubmit(

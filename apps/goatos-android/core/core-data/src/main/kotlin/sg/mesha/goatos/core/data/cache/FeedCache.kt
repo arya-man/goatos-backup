@@ -61,6 +61,18 @@ interface FeedDirectionMetaCacheDao : JsonBlobCacheDao<FeedDirectionMetaCacheEnt
             "(SELECT cacheKey FROM feed_direction_meta_cache ORDER BY updatedAt ASC LIMIT :n)",
     )
     override suspend fun deleteOldest(n: Int)
+
+    /**
+     * The freshest cached envelope of any scope under one park+date key prefix (`[prefix, prefixEnd)`),
+     * whatever filters the list was last opened with. FEED SOP: the envelope carries the sheet's
+     * pinned card per workflow, so a capture screen can show the card offline without knowing
+     * which filter scope the list cached it under.
+     */
+    @Query(
+        "SELECT * FROM feed_direction_meta_cache WHERE cacheKey >= :prefix AND cacheKey < :prefixEnd " +
+            "ORDER BY updatedAt DESC LIMIT 1",
+    )
+    fun observeLatestInRange(prefix: String, prefixEnd: String): Flow<FeedDirectionMetaCacheEntity?>
 }
 
 // ---------------------------------------------------------------------------
@@ -211,6 +223,18 @@ interface FeedPackingMetaCacheDao : JsonBlobCacheDao<FeedPackingMetaCacheEntity>
             "(SELECT cacheKey FROM feed_packing_meta_cache ORDER BY updatedAt ASC LIMIT :n)",
     )
     override suspend fun deleteOldest(n: Int)
+
+    /**
+     * The freshest cached envelope of any scope under one park+date key prefix (`[prefix, prefixEnd)`),
+     * whatever filters the list was last opened with. FEED SOP: the envelope carries the sheet's
+     * pinned card per workflow, so a capture screen can show the card offline without knowing
+     * which filter scope the list cached it under.
+     */
+    @Query(
+        "SELECT * FROM feed_packing_meta_cache WHERE cacheKey >= :prefix AND cacheKey < :prefixEnd " +
+            "ORDER BY updatedAt DESC LIMIT 1",
+    )
+    fun observeLatestInRange(prefix: String, prefixEnd: String): Flow<FeedPackingMetaCacheEntity?>
 }
 
 // ---------------------------------------------------------------------------
