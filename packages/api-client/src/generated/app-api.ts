@@ -16291,6 +16291,8 @@ export interface components {
             label: string;
             /** @description The expectation itself, e.g. "Maize 12.5 kg · Soya 4 kg". */
             value: string;
+            /** @description Optional backend-composed section header, e.g. "Crew answers". Rows keep the producer's order; a client starts a new titled block whenever group changes between consecutive rows and renders it verbatim. Omitted for a row that belongs to no section. */
+            group?: string;
         };
         /** @enum {string} */
         VerificationItemStatus: "pending" | "approved" | "rejected" | "withdrawn";
@@ -16307,7 +16309,10 @@ export interface components {
             proof_id: string;
             /** @description Backend-authored task title displayed as the header for this evidence item. */
             label?: string;
-            /** @description Backend-rendered operator response recorded for this task, omitted for action-only tasks. */
+            /**
+             * @deprecated
+             * @description Deprecated. Backend-rendered operator response recorded for this task, omitted for action-only tasks. Answers now ride the item's grouped context_rows; clients must not add new renderers for this field.
+             */
             answer?: string;
             /** Format: uri */
             download_url: string;

@@ -221,6 +221,9 @@ type queueListResponse struct {
 type contextRowResponse struct {
 	Label string `json:"label"`
 	Value string `json:"value"`
+	// Group is the producer's optional section header; clients start a titled block when it
+	// changes between consecutive rows. Omitted for an ungrouped row.
+	Group string `json:"group,omitempty"`
 }
 
 // toContextRowResponses maps the domain rows to the wire, ALWAYS returning a non-nil slice so the
@@ -229,7 +232,7 @@ type contextRowResponse struct {
 func toContextRowResponses(rows []domain.ContextRow) []contextRowResponse {
 	out := make([]contextRowResponse, 0, len(rows))
 	for _, row := range rows {
-		out = append(out, contextRowResponse{Label: row.Label, Value: row.Value})
+		out = append(out, contextRowResponse{Label: row.Label, Value: row.Value, Group: row.Group})
 	}
 	return out
 }
