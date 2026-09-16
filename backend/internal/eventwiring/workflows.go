@@ -33,6 +33,9 @@ func NewWorkflowConsumerService(pool *pgxpool.Pool, timeout time.Duration, log *
 		WithIdentityTxWriter(identitypg.NewRepository(pool, timeout))
 	return tasksapp.NewService(workflowRepo, log).
 		WithVerificationEnqueuer(tasksverificationbridge.New(verificationRepo)).
+		// A recorded birth report re-shoot swaps the proof on the approval row and re-queues it.
+		WithCaptureReshootListener(countsapp.NewBirthCaptureReshootService(countspg.NewRepository(pool, timeout),
+			countsbridge.NewBirthCaptureVerificationEnqueuer(verificationRepo))).
 		WithProofKindResolver(tasksproofkinds.New(proofpg.NewRepository(pool, timeout)))
 }
 
@@ -77,9 +80,11 @@ type CaptureReviewStore interface {
 //
 //	counts.birth.reported                  -> one birth_evidence item per litter (ref_type birth_capture)
 //	verification.verdict.approved/.rework  -> capture_review_status on the approval row
-func RegisterCountsCaptureConsumers(bus eventbus.Bus, enqueuer countsapp.BirthCaptureVerificationEnqueuer, store CaptureReviewStore) {
+//
+// engine (the tasks service) appends the re-shoot steps a rejection asks for (decision 5).
+func RegisterCountsCaptureConsumers(bus eventbus.Bus, enqueuer countsapp.BirthCaptureVerificationEnqueuer, store CaptureReviewStore, engine countsapp.CaptureReshootEngine) {
 	countsapp.NewBirthReportedVerificationHandler(enqueuer, nil).Register(bus)
-	countsapp.NewBirthCaptureVerdictHandler(store, nil).Register(bus)
+	countsapp.NewBirthCaptureVerdictHandler(store, nil).WithReshootEngine(engine).Register(bus)
 }
 
 // NewCountsCaptureStores builds the durable-bus seams for RegisterCountsCaptureConsumers from a

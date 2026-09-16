@@ -15,6 +15,7 @@ import (
 	identityports "github.com/vgoats/goatos/backend/internal/identity/ports"
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	platformoutbox "github.com/vgoats/goatos/backend/internal/platform/outbox"
+	tasksdomain "github.com/vgoats/goatos/backend/internal/tasks/domain"
 )
 
 // IdentityTxWriter is the slice of the identity module's Postgres repository that the Counts
@@ -973,4 +974,50 @@ func stringOrEmpty(v *string) string {
 		return ""
 	}
 	return *v
+}
+
+// ReplaceCaptureProof swaps capture proof `index` of a report for its re-shoot (decision 5):
+// under the row lock, the snapshot's ref/kind at that index and the slot map entry are replaced,
+// and the review goes back to pending. Idempotent for the same proof.
+func (r *Repository) ReplaceCaptureProof(ctx context.Context, tenantID, approvalRequestID string, index int, proof tasksdomain.ProofItem) (domain.ApprovalRequest, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return domain.ApprovalRequest{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	current, err := scanApprovalRequest(tx.QueryRow(ctx, `
+SELECT `+approvalRequestColumns+`
+FROM counts_approval_requests
+WHERE tenant_id = $1::uuid AND approval_request_id = $2::uuid
+FOR UPDATE`, tenantID, approvalRequestID))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.ApprovalRequest{}, ports.ErrApprovalRequestNotFound
+	}
+	if err != nil {
+		return domain.ApprovalRequest{}, err
+	}
+	if index < 0 || index >= len(current.Capture.Media) {
+		return current, tx.Commit(ctx)
+	}
+	oldRef := current.Capture.Media[index].Ref
+	evidence := tasksdomain.ReplaceCaptureMedia(current.Capture, index, proof)
+	raw, err := json.Marshal(evidence)
+	if err != nil {
+		return domain.ApprovalRequest{}, err
+	}
+	updated, err := scanApprovalRequest(tx.QueryRow(ctx, `
+UPDATE counts_approval_requests
+SET capture_evidence = $3::jsonb,
+    capture_proofs = COALESCE((
+      SELECT jsonb_object_agg(key, CASE WHEN value #>> '{}' = $4 THEN to_jsonb($5::text) ELSE value END)
+      FROM jsonb_each(capture_proofs)), '{}'::jsonb),
+    capture_review_status = 'pending', capture_review_reason = NULL, updated_at = now()
+WHERE tenant_id = $1::uuid AND approval_request_id = $2::uuid
+RETURNING `+approvalRequestColumns, tenantID, approvalRequestID, string(raw), oldRef, strings.TrimSpace(proof.Ref)))
+	if err != nil {
+		return domain.ApprovalRequest{}, err
+	}
+	return updated, tx.Commit(ctx)
 }

@@ -38,7 +38,7 @@ func TestRegisterWorkflowConsumersRegistersAll(t *testing.T) {
 // counts.birth.reported and land the birth_capture verdict on the approval row.
 func TestRegisterCountsCaptureConsumersRegistersAll(t *testing.T) {
 	bus := &spyBus{subs: map[string]int{}}
-	RegisterCountsCaptureConsumers(bus, nil, nil)
+	RegisterCountsCaptureConsumers(bus, nil, nil, nil)
 	want := map[string]int{
 		"counts.birth.reported":         1,
 		"verification.verdict.approved": 1,

@@ -25,6 +25,8 @@ type fakeRepo struct {
 	actions   map[string][]domain.WorkflowAction // by workflow_id, seq order
 	goats     map[string]ports.GoatWorkflowFacts // by goat_id
 	dams      map[string]string                  // dam ref -> goat_id
+	// pendingAppends are steps a mutation appended; mutate folds them into the workflow.
+	pendingAppends []domain.WorkflowAction
 }
 
 func newFakeRepo() *fakeRepo {
@@ -54,14 +56,14 @@ func (f *fakeRepo) OpenWorkflow(_ context.Context, cmd ports.OpenWorkflowCommand
 	f.seq++
 	workflowID := cmd.TemplateKey + "-wf-" + strings.Repeat("0", 3) + string(rune('a'+f.seq%26))
 	w := domain.WorkflowInstance{
-		WorkflowID:    workflowID,
-		TenantID:      cmd.TenantID,
-		TemplateKey:   cmd.TemplateKey,
-		Module:        template.Module,
-		SubjectGoatID: cmd.SubjectGoatID,
-		DamGoatID:     cmd.DamGoatID,
-		EventAt:       cmd.EventAt,
-		EventDate:     biztime.BusinessDate(cmd.EventAt),
+		WorkflowID:      workflowID,
+		TenantID:        cmd.TenantID,
+		TemplateKey:     cmd.TemplateKey,
+		Module:          template.Module,
+		SubjectGoatID:   cmd.SubjectGoatID,
+		DamGoatID:       cmd.DamGoatID,
+		EventAt:         cmd.EventAt,
+		EventDate:       biztime.BusinessDate(cmd.EventAt),
 		ParkID:          cmd.ParkID,
 		ShedID:          cmd.ShedID,
 		State:           domain.WorkflowStateOpen,
@@ -136,8 +138,11 @@ func (f *fakeRepo) mutate(tenantID, workflowID string,
 	actions := f.actions[workflowID]
 	replay, err := fn(&w, actions)
 	if err != nil {
+		f.pendingAppends = nil
 		return domain.WorkflowInstance{}, nil, false, err
 	}
+	actions = append(actions, f.pendingAppends...)
+	f.pendingAppends = nil
 	if !replay {
 		w = domain.RecomputeCard(w, actions)
 		w.RowVersion++
@@ -196,6 +201,11 @@ func (f *fakeRepo) CompleteAction(_ context.Context, cmd domain.CompleteActionCo
 				target = updated
 				if isReplay {
 					return true, nil
+				}
+				if w.TemplateKey == domain.TemplateKeyDeath && updated.HasHook(domain.EngineHookReshootReport) {
+					if idx, ok := domain.ReshootMediaIndex(updated); ok && len(updated.ProofRefs) > 0 {
+						w.CaptureEvidence = domain.ReplaceCaptureMedia(w.CaptureEvidence, idx, updated.ProofRefs[0])
+					}
 				}
 				if f.goats[w.SubjectGoatID].LifecycleStatus == "dead" && w.TemplateKey == domain.TemplateKeyDeath && domain.DeathStepsComplete(actions) {
 					w.AwaitingVerification = true
@@ -288,7 +298,12 @@ func (f *fakeRepo) BounceDeathVideosForRework(_ context.Context, cmd ports.Death
 		func(w *domain.WorkflowInstance, actions []domain.WorkflowAction) (bool, error) {
 			w.AwaitingVerification = false
 			changed := domain.ReopenDeathProofSteps(actions, cmd.Reason)
-			return len(changed) == 0, nil
+			key := cmd.RecordingKey
+			if key == "" {
+				key = "death-round"
+			}
+			added := f.appendReshoot(w.WorkflowID, w.CaptureEvidence, actions, key, cmd.Reason)
+			return len(changed) == 0 && added == 0, nil
 		})
 	// Propagates ErrNotFound like the real repository (see the approve twin).
 	return err
@@ -1103,4 +1118,38 @@ func TestIdentifierAddedRecordsTagPrerequisiteWithoutCompletingVideoTask(t *test
 // pre-existing fake-based test asserting its original label.
 func (f *fakeRepo) FetchShedDetails(ctx context.Context, tenantID, shedID string) (string, string, error) {
 	return "", "", nil
+}
+
+// appendReshoot mirrors insertCaptureReshootSteps: natural-key idempotent appends.
+func (f *fakeRepo) appendReshoot(workflowID string, capture authored.Evidence, actions []domain.WorkflowAction, key, reason string) int {
+	existing := map[string]bool{}
+	for _, a := range actions {
+		existing[a.ActionKey] = true
+	}
+	added := 0
+	for _, step := range domain.CaptureReshootSteps(capture, actions, key, reason) {
+		if existing[step.ActionKey] {
+			continue
+		}
+		step.ActionID, step.TenantID, step.WorkflowID = workflowID+":"+step.ActionKey, testTenant, workflowID
+		f.pendingAppends = append(f.pendingAppends, step)
+		added++
+	}
+	return added
+}
+
+func (f *fakeRepo) AppendCaptureReshootSteps(_ context.Context, tenantID, workflowID string, capture authored.Evidence, recordingKey, reason string) error {
+	_, _, _, err := f.mutate(tenantID, workflowID, func(w *domain.WorkflowInstance, actions []domain.WorkflowAction) (bool, error) {
+		return f.appendReshoot(workflowID, capture, actions, recordingKey, reason) == 0, nil
+	})
+	return err
+}
+
+func (f *fakeRepo) BirthWorkflowIDForEvent(_ context.Context, tenantID, birthEventID string) (string, error) {
+	for id, w := range f.workflows {
+		if w.TenantID == tenantID && w.BirthEventID != nil && *w.BirthEventID == birthEventID {
+			return id, nil
+		}
+	}
+	return "", domain.ErrNotFound
 }

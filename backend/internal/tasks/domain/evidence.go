@@ -181,6 +181,11 @@ func DeathEvidenceBundle(capture authored.Evidence, actions []WorkflowAction) De
 		if a.ActionType == ActionTypeApproval || a.Status == ActionStatusCanceled {
 			continue
 		}
+		// A capture re-shoot's proof REPLACES the rejected one inside the capture snapshot
+		// (above); listing the step as well would show the same clip twice.
+		if a.HasHook(EngineHookReshootReport) {
+			continue
+		}
 		out.Refs = append(out.Refs, a.AllProofRefs()...)
 		out.Meta = append(out.Meta, StepMediaMeta(a)...)
 		if row, ok := StepAnswerRow(a, ""); ok {

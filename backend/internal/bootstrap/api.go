@@ -1130,6 +1130,8 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 		// SOP parity (2026-09-16): a step's proof kinds come from the proof register, so the
 		// verifier item names what the store judged, never what the client claimed.
 		WithProofKindResolver(tasksproofkinds.New(proofRepo)).
+		WithCaptureReshootListener(countsapp.NewBirthCaptureReshootService(countsApprovalRepo,
+			countsbridge.NewBirthCaptureVerificationEnqueuer(verificationService))).
 		// SOP-driven reconcile (2026-09-13): the tasks engine runs the card's questionnaire and
 		// reports the last step done to the counts service, which runs its ordinary completion.
 		WithCompletionHook(tasksdomain.TemplateKeyReconcile, countsPenReconciliationService)
@@ -1251,7 +1253,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// called by cmd/outbox-relay, cmd/domain-event-consumer, domainconsumer/wiring, and kernelstages.
 	eventwiring.RegisterWorkflowConsumers(bus, tasksWorkflowService, log)
 	// SOP capture card: the birth report's own proofs -> verifier, verdict -> approval row.
-	eventwiring.RegisterCountsCaptureConsumers(bus, countsbridge.NewBirthCaptureVerificationEnqueuer(verificationService), countsApprovalRepo)
+	eventwiring.RegisterCountsCaptureConsumers(bus, countsbridge.NewBirthCaptureVerificationEnqueuer(verificationService), countsApprovalRepo, tasksWorkflowService)
 	healthapp.NewDeathLifecycleHandler(healthRepo).Register(bus)
 	// Notification PUSH LAYER ONLY (docs/decisions/vaccination-notification-rules.md §4c): read-only
 	// consumers of vaccination.verification.awaiting_review and vaccination.verify.rejected/accepted

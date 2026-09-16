@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -801,16 +802,22 @@ WHERE tenant_id = $1::uuid AND action_id = $2::uuid`,
 		}
 	}
 
+	// A mutation may APPEND steps (a capture re-shoot); count them in the recompute.
+	for _, a := range changed {
+		if findAction(actions, a.ActionID) < 0 {
+			actions = append(actions, a)
+		}
+	}
 	recomputed := domain.RecomputeCard(w, actions)
 	if _, err := tx.Exec(ctx, `
 UPDATE workflow_instances
 SET state = $3, actions_total = $4, actions_done = $5,
     next_action_key = $6, next_action_title = $7, next_due_at = $8::timestamptz,
-    awaiting_verification = $9, row_version = row_version + 1, updated_at = now()
+    awaiting_verification = $9, capture_evidence = $10::jsonb, row_version = row_version + 1, updated_at = now()
 WHERE tenant_id = $1::uuid AND workflow_id = $2::uuid`,
 		tenantID, workflowID, recomputed.State, recomputed.ActionsTotal, recomputed.ActionsDone,
 		recomputed.NextActionKey, recomputed.NextActionTitle, recomputed.NextDueAt,
-		recomputed.AwaitingVerification,
+		recomputed.AwaitingVerification, mustCaptureJSON(recomputed.CaptureEvidence),
 	); err != nil {
 		return domain.WorkflowInstance{}, nil, false, err
 	}
@@ -827,7 +834,7 @@ const instanceSelectColumns = `
 SELECT workflow_id::text, tenant_id::text, template_key, module, subject_goat_id::text,
        dam_goat_id::text, event_at, event_date::text, park_id::text, shed_id::text, state,
        actions_total, actions_done, next_action_key, next_action_title, next_due_at,
-       awaiting_verification, row_version, COALESCE(capture_evidence, '{}'::jsonb)
+       awaiting_verification, row_version, COALESCE(capture_evidence, '{}'::jsonb), birth_event_id::text
 FROM workflow_instances
 WHERE tenant_id = $1::uuid AND workflow_id = $2::uuid`
 
@@ -838,7 +845,7 @@ func scanInstance(row pgx.Row) (domain.WorkflowInstance, error) {
 		&w.WorkflowID, &w.TenantID, &w.TemplateKey, &w.Module, &w.SubjectGoatID,
 		&w.DamGoatID, &w.EventAt, &w.EventDate, &w.ParkID, &w.ShedID, &w.State,
 		&w.ActionsTotal, &w.ActionsDone, &w.NextActionKey, &w.NextActionTitle, &w.NextDueAt,
-		&w.AwaitingVerification, &w.RowVersion, &capture,
+		&w.AwaitingVerification, &w.RowVersion, &capture, &w.BirthEventID,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.WorkflowInstance{}, domain.ErrNotFound
@@ -987,6 +994,13 @@ func (r *Repository) CompleteAction(ctx context.Context, cmd domain.CompleteActi
 					actions[i].DueAt = &due
 					actions[i].RowVersion++
 					changed = append(changed, actions[i])
+				}
+			}
+			// A death capture re-shoot replaces the rejected proof in the workflow's capture snapshot
+			// in THIS transaction, so the next bundle carries the new proof exactly once.
+			if w.TemplateKey == domain.TemplateKeyDeath && updated.HasHook(domain.EngineHookReshootReport) {
+				if idx, ok := domain.ReshootMediaIndex(updated); ok && len(updated.ProofRefs) > 0 {
+					w.CaptureEvidence = domain.ReplaceCaptureMedia(w.CaptureEvidence, idx, updated.ProofRefs[0])
 				}
 			}
 			// Only re-shoots after an already-applied death return directly to Verify. The initial
@@ -1273,10 +1287,20 @@ func (r *Repository) BounceDeathVideosForRework(ctx context.Context, cmd ports.D
 			}
 			w.AwaitingVerification = false
 			changed := domain.ReopenDeathProofSteps(actions, cmd.Reason)
-			if len(changed) == 0 {
+			// The report's own proofs were in the rejected bundle too: send each back as a
+			// re-shoot step (decision 5). Keyed on the verdict, so a redelivery adds nothing.
+			recordingKey := cmd.RecordingKey
+			if recordingKey == "" {
+				recordingKey = "death-round-" + strconv.Itoa(w.RowVersion)
+			}
+			added, err := insertCaptureReshootSteps(ctx, tx, cmd.TenantID, w.WorkflowID, w.CaptureEvidence, actions, recordingKey, cmd.Reason)
+			if err != nil {
+				return nil, false, err
+			}
+			if len(changed) == 0 && len(added) == 0 {
 				return nil, true, nil
 			}
-			return changed, false, nil
+			return append(changed, added...), false, nil
 		})
 	// ErrNotFound propagates for the same reason as the approve path: a redelivered rework is a no-op
 	// mutation, so this is only a mis-routed ref_id and must not vanish silently.
@@ -1490,4 +1514,80 @@ func (r *Repository) ReopenProofStepsForRework(ctx context.Context, tenantID, wo
 			return changed, false, nil
 		})
 	return err
+}
+
+// insertCaptureReshootSteps appends the re-shoot steps for a rejected capture inside the caller's
+// transaction (one multi-row INSERT, ON CONFLICT on the natural key so a redelivered verdict
+// inserts nothing). It returns the rows actually inserted; the caller's recompute counts them
+// through the actions slice, which this appends to.
+func insertCaptureReshootSteps(ctx context.Context, tx pgx.Tx, tenantID, workflowID string, capture authored.Evidence, actions []domain.WorkflowAction, recordingKey, reason string) ([]domain.WorkflowAction, error) {
+	steps := domain.CaptureReshootSteps(capture, actions, recordingKey, reason)
+	if len(steps) == 0 {
+		return nil, nil
+	}
+	existing := map[string]bool{}
+	for _, a := range actions {
+		existing[a.ActionKey] = true
+	}
+	var added []domain.WorkflowAction
+	for _, step := range steps {
+		// scale-guard:ignore: bounded -- one row per capture proof, authored max 8 per card
+		if existing[step.ActionKey] {
+			continue
+		}
+		var actionID string
+		err := tx.QueryRow(ctx, `
+INSERT INTO workflow_actions (
+  tenant_id, workflow_id, action_key, seq, section, action_type, title, detail, requires_video, options, due_at,
+  status, task_type, answer_type, engine_hook, proof_min_videos, proof_min_photos, hard_time_gate, wait_for_all,
+  requires_keys, after_action_key, after_offset_seconds, rework_reason
+) VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7, $8, $9, NULL, now(),
+  $10, $11, $12, $13, $14, $15, false, false, '[]'::jsonb, '', 0, $16)
+ON CONFLICT (workflow_id, action_key) DO NOTHING
+RETURNING action_id::text`,
+			tenantID, workflowID, step.ActionKey, step.Seq, step.Section, step.ActionType, step.Title, step.Detail, step.RequiresVideo,
+			step.Status, step.TaskType, step.AnswerType, step.EngineHook, step.ProofMinVideos, step.ProofMinPhotos, step.ReworkReason).Scan(&actionID)
+		if errors.Is(err, pgx.ErrNoRows) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		step.ActionID, step.TenantID, step.WorkflowID = actionID, tenantID, workflowID
+		added = append(added, step)
+	}
+	return added, nil
+}
+
+// AppendCaptureReshootSteps appends a rejected birth report's re-shoot steps and recomputes the
+// card in the same transaction (the track reopens so the operator sees the work).
+func (r *Repository) AppendCaptureReshootSteps(ctx context.Context, tenantID, workflowID string, capture authored.Evidence, recordingKey, reason string) error {
+	_, _, _, err := r.workflowMutation(ctx, tenantID, workflowID,
+		func(tx pgx.Tx, w *domain.WorkflowInstance, actions []domain.WorkflowAction) ([]domain.WorkflowAction, bool, error) {
+			added, err := insertCaptureReshootSteps(ctx, tx, tenantID, workflowID, capture, actions, recordingKey, reason)
+			if err != nil {
+				return nil, false, err
+			}
+			if len(added) == 0 {
+				return nil, true, nil
+			}
+			return added, false, nil
+		})
+	return err
+}
+
+// BirthWorkflowIDForEvent: the litter's mother track, else its first kid track (one indexed read).
+func (r *Repository) BirthWorkflowIDForEvent(ctx context.Context, tenantID, birthEventID string) (string, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	var id string
+	err := r.pool.QueryRow(ctx, `
+SELECT workflow_id::text FROM workflow_instances
+WHERE tenant_id = $1::uuid AND birth_event_id = $2::uuid AND template_key IN ($3, $4) AND state <> 'canceled'
+ORDER BY (template_key = $3) DESC, created_at ASC
+LIMIT 1`, tenantID, birthEventID, domain.TemplateKeyBirthMother, domain.TemplateKeyBirthKid).Scan(&id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", domain.ErrNotFound
+	}
+	return id, err
 }

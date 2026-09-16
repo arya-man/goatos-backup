@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/vgoats/goatos/backend/internal/platform/eventbus"
+	"github.com/vgoats/goatos/backend/internal/sop/authored"
 	"github.com/vgoats/goatos/backend/internal/tasks/domain"
 	"github.com/vgoats/goatos/backend/internal/tasks/ports"
 )
@@ -159,4 +160,54 @@ func (h *SubjectWorkflowVerdictHandler) HandleEvent(ctx context.Context, e event
 		return err
 	}
 	return h.svc.ReopenForRework(ctx, e.TenantID, workflowID, strings.TrimSpace(p.Reason))
+}
+
+// CaptureReshootListener is told a birth report's rejected proof was re-shot (counts replaces it
+// in the approval row's snapshot and sends the report back to Verify). Death needs no listener:
+// its snapshot lives on the workflow and is replaced in the recording's own transaction.
+type CaptureReshootListener interface {
+	OnBirthCaptureReshot(ctx context.Context, tenantID, birthEventID string, index int, proof domain.ProofItem) error
+}
+
+// WithCaptureReshootListener wires the counts side of a birth report re-shoot.
+func (s *Service) WithCaptureReshootListener(l CaptureReshootListener) *Service {
+	s.reshootListener = l
+	return s
+}
+
+// OpenBirthCaptureReshoot appends the re-shoot steps for a rejected birth report (decision 5).
+// Idempotent per verdict recording key.
+func (s *Service) OpenBirthCaptureReshoot(ctx context.Context, tenantID, birthEventID string, capture authored.Evidence, recordingKey, reason string) error {
+	if strings.TrimSpace(tenantID) == "" || strings.TrimSpace(birthEventID) == "" {
+		return domain.ErrMissingRequiredField
+	}
+	if len(capture.Media) == 0 {
+		return nil
+	}
+	workflowID, err := s.repo.BirthWorkflowIDForEvent(ctx, tenantID, birthEventID)
+	if errors.Is(err, domain.ErrNotFound) {
+		s.log.Warn("tasks_birth_capture_reshoot_unroutable", "tenant_id", tenantID, "birth_event_id", birthEventID)
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	return s.repo.AppendCaptureReshootSteps(ctx, tenantID, workflowID, capture, recordingKey, reason)
+}
+
+// notifyCaptureReshoot tells counts a birth report proof was re-shot. Derived from state, so an
+// exact replay re-notifies and the listener's idempotent write heals a failed first attempt.
+func (s *Service) notifyCaptureReshoot(ctx context.Context, tenantID string, result domain.ActionWriteResult) error {
+	a := result.Action
+	if !a.HasHook(domain.EngineHookReshootReport) || a.Status != domain.ActionStatusCompleted || !domain.ReviewedPerStep(result.Workflow.TemplateKey) {
+		return nil
+	}
+	if result.Workflow.BirthEventID == nil || s.reshootListener == nil {
+		return nil
+	}
+	idx, ok := domain.ReshootMediaIndex(a)
+	if !ok || len(a.ProofRefs) == 0 {
+		return nil
+	}
+	return s.reshootListener.OnBirthCaptureReshot(ctx, tenantID, *result.Workflow.BirthEventID, idx, a.ProofRefs[0])
 }

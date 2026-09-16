@@ -356,8 +356,9 @@ func (h *DeathVerificationHandler) HandleEvent(ctx context.Context, e eventbus.E
 		verdictAt = h.now().UTC()
 	}
 	cmd := ports.DeathVerdictCommand{
-		TenantID:   e.TenantID,
-		WorkflowID: workflowID,
+		RecordingKey: strings.TrimSpace(p.Source.RecordingKey),
+		TenantID:     e.TenantID,
+		WorkflowID:   workflowID,
 		VerifiedBy: strings.TrimSpace(p.VerifiedBy),
 		Reason:     strings.TrimSpace(p.Reason),
 		VerdictAt:  verdictAt,
