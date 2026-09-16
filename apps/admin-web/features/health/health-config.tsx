@@ -15,7 +15,7 @@ import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
 import type { RouteSearchParams } from "@/lib/search-params";
 import { WorklistFilters, type WorklistFilterField } from "@/components/worklist-filters";
 import { createDisease, discardDraft, openDraft, publishDraft, saveDraft } from "./health-config-actions";
-import { AddDiseaseForm, DraftEditor, ProtocolActionButton } from "./health-config-editor";
+import { AddDiseaseForm, BackToListButton, DraftEditor, ProtocolActionButton } from "./health-config-editor";
 
 // Health -> Health Config. The authored treatment rulebook a diagnosis loads from: per disease, per
 // age band, the day-by-day course of medicines, actions and critical handoffs.
@@ -102,23 +102,25 @@ export async function HealthConfigPage({
   const cursor = (sp.hc_cursor as string | undefined) || "";
   const selectedVersionId = (sp.hc_version as string | undefined) || "";
 
-  // The catalog page and the selected protocol are independent reads, fetched concurrently. Neither
-  // is drained: the catalog is one keyset page, and the detail is one version.
-  const [catalogResult, detailResult] = await Promise.all([
-    listHealthConfigProtocols({
-      age_band: ageBandFilter === "adult" || ageBandFilter === "kid" ? ageBandFilter : undefined,
-      search: searchFilter || undefined,
-      draft_only: draftOnly || undefined,
-      cursor: cursor || undefined,
-      limit: CATALOG_PAGE_SIZE,
-    }),
-    selectedVersionId ? getHealthConfigProtocol(selectedVersionId) : Promise.resolve(null),
-  ]);
+  // The catalog and editor are separate route states. List mode reads exactly one bounded keyset
+  // page. Editor mode reads exactly one selected version. Do not fetch the catalog behind the
+  // full-screen editor: that turns a simple edit open into unnecessary backend fanout and regresses
+  // the latency of the click Ravi is trying to make feel direct.
+  const catalogResult = selectedVersionId
+    ? null
+    : await listHealthConfigProtocols({
+        age_band: ageBandFilter === "adult" || ageBandFilter === "kid" ? ageBandFilter : undefined,
+        search: searchFilter || undefined,
+        draft_only: draftOnly || undefined,
+        cursor: cursor || undefined,
+        limit: CATALOG_PAGE_SIZE,
+      });
+  const detailResult = selectedVersionId ? await getHealthConfigProtocol(selectedVersionId) : null;
 
   const authError = firstAuthRequiredError(catalogResult, detailResult);
   if (authError) redirect(INTERNAL_LOGIN_PATH);
 
-  const catalog = catalogResult.ok ? catalogResult.data : null;
+  const catalog = catalogResult?.ok ? catalogResult.data : null;
   const detail: HealthConfigProtocolDetail | null =
     detailResult && detailResult.ok ? detailResult.data : null;
   // A selected version that no longer resolves. This is a REAL state, not an edge case: the author
@@ -166,6 +168,69 @@ export async function HealthConfigPage({
   const restartHref = nextParams.toString() ? `${PAGE_PATH}?${nextParams.toString()}` : PAGE_PATH;
   if (catalog?.next_cursor) nextParams.set("hc_cursor", catalog.next_cursor);
   const nextHref = catalog?.next_cursor ? `${PAGE_PATH}?${nextParams.toString()}` : null;
+  const listParams = paramsWithout(sp, ["hc_version"]);
+  const listHref = listParams.toString() ? `${PAGE_PATH}?${listParams.toString()}` : PAGE_PATH;
+
+  if (detail) {
+    return (
+      <div className="screen on">
+        <div className="phead" style={{ alignItems: "flex-start", gap: 12 }}>
+          <div>
+            <div className="crumb">
+              {copy(pageContract, "crumb")} / <b>{copy(pageContract, "section.catalog.title")}</b>
+            </div>
+            <h1>
+              {detail.display_name} ·{" "}
+              {copy(pageContract, detail.age_band === "kid" ? "label.age_band.kid" : "label.age_band.adult")}
+            </h1>
+          </div>
+          <div className="sp" style={{ flex: 1 }} />
+          <BackToListButton
+            href={listHref}
+            label={optionalCopy(pageContract, "action.back_to_list") ?? copy(pageContract, "action.back")}
+          />
+        </div>
+
+        <SelectedProtocolEditor
+          detail={detail}
+          pageContract={pageContract}
+          mayWrite={mayWrite}
+          writeDisabledReason={writeDisabledReason}
+          listHref={listHref}
+        />
+      </div>
+    );
+  }
+
+  if (selectedVersionIsGone) {
+    return (
+      <div className="screen on">
+        <div className="phead" style={{ alignItems: "flex-start", gap: 12 }}>
+          <div>
+            <div className="crumb">
+              {copy(pageContract, "crumb")} / <b>{copy(pageContract, "section.catalog.title")}</b>
+            </div>
+            <h1>{pageContract.title}</h1>
+          </div>
+          <div className="sp" style={{ flex: 1 }} />
+          <BackToListButton
+            href={listHref}
+            label={optionalCopy(pageContract, "action.back_to_list") ?? copy(pageContract, "action.back")}
+          />
+        </div>
+        <div className="alert" style={{ marginBottom: 16 }}>
+          <AlertTriangle className="ic" aria-hidden="true" />
+          <div>
+            {optionalCopy(pageContract, "error.stale_version") ??
+              copy(pageContract, "action.error_backend")}{" "}
+            <a href={listHref} style={{ textDecoration: "underline", whiteSpace: "nowrap" }}>
+              {optionalCopy(pageContract, "action.back_to_list") ?? copy(pageContract, "action.back")}
+            </a>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="screen on">
@@ -186,24 +251,6 @@ export async function HealthConfigPage({
       </div>
 
       <SectionError result={catalogResult} pageContract={pageContract} />
-
-      {selectedVersionIsGone ? (
-        <div className="alert" style={{ marginBottom: 16 }}>
-          <AlertTriangle className="ic" aria-hidden="true" />
-          {/* Same reason as FieldErrors: a notice about a failure must not be able to fail. */}
-          <div>
-            {optionalCopy(pageContract, "error.stale_version") ??
-              copy(pageContract, "action.error_backend")}{" "}
-            {/* The dead ?hc_version= is still in the URL, so this notice comes back on every
-                reload until the author leaves it. A plain link out is the honest fix: a server
-                component cannot rewrite the address bar, and the client-side navigation attempts
-                that would were silently swallowed by the router. */}
-            <a href={PAGE_PATH} style={{ textDecoration: "underline", whiteSpace: "nowrap" }}>
-              {optionalCopy(pageContract, "action.back_to_list") ?? copy(pageContract, "action.back")}
-            </a>
-          </div>
-        </div>
-      ) : null}
 
       {/* ------------------------------------------------------------------ the protocol catalog */}
       <section className="card" style={{ marginBottom: 16 }}>
@@ -263,7 +310,7 @@ export async function HealthConfigPage({
                 <tr>
                   <td colSpan={catalogCols.length + 1}>
                     <div className="muted small" style={{ padding: "18px 4px", textAlign: "center", lineHeight: 1.6 }}>
-                      {catalogResult.ok
+                      {catalogResult?.ok
                         ? hasFilter
                           ? copy(pageContract, "empty.search")
                           : copy(pageContract, "empty.catalog")
@@ -299,7 +346,7 @@ export async function HealthConfigPage({
                         fields={{ disease_key: row.disease_key, age_band: row.age_band }}
                         labelKey="action.edit_protocol"
                         navigateOnSuccess="selected-version"
-                        basePath={PAGE_PATH}
+                        basePath={listHref}
                         enabled={mayWrite}
                         disabledReason={writeDisabledReason}
                       />
@@ -329,167 +376,182 @@ export async function HealthConfigPage({
       </section>
 
       {/* ------------------------------------------------------------------- the selected course */}
-      {detail ? (
-        <section className="card" style={{ marginBottom: 16 }}>
-          <div className="hd">
-            <h3>
-              {detail.display_name} ·{" "}
-              {copy(pageContract, detail.age_band === "kid" ? "label.age_band.kid" : "label.age_band.adult")}
-            </h3>
-            <span className="small muted">{copy(pageContract, "section.steps.caption")}</span>
-          </div>
-
-          <div className="bd" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-            <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
-              <span className={detail.status === "published" ? "tag t-ok" : detail.status === "draft" ? "tag t-info" : "tag t-mut"}>
-                {copy(
-                  pageContract,
-                  detail.status === "published"
-                    ? "status.live"
-                    : detail.status === "draft"
-                      ? "status.draft"
-                      : "status.retired",
-                )}
-              </span>
-              <span className="muted small" style={{ fontVariantNumeric: "tabular-nums" }}>
-                v{detail.version}
-              </span>
-              <span className="small muted">
-                {copy(pageContract, "label.open_cases")}: {detail.open_case_count}
-              </span>
-            </div>
-
-            <p className="small muted" style={{ margin: 0, lineHeight: 1.6 }}>
-              {copy(pageContract, "note.publish_effect")}
-            </p>
-
-            {detail.status === "draft" ? (
-              <>
-                <DraftEditor
-                  pageContract={pageContract}
-                  draft={detail}
-                  action={saveDraft}
-                  enabled={mayWrite}
-                  disabledReason={writeDisabledReason}
-                />
-                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-start" }}>
-                  <ProtocolActionButton
-                    pageContract={pageContract}
-                    action={publishDraft}
-                    fields={{ protocol_version_id: detail.protocol_version_id }}
-                    labelKey="action.publish_protocol"
-                    confirmKey="note.publish_effect"
-                    primary
-                    enabled={mayWrite}
-                    disabledReason={writeDisabledReason}
-                  />
-                  <ProtocolActionButton
-                    pageContract={pageContract}
-                    action={discardDraft}
-                    fields={{ protocol_version_id: detail.protocol_version_id }}
-                    labelKey="action.discard_draft"
-                    confirmKey="section.history.note"
-                    navigateOnSuccess="base"
-                    basePath={PAGE_PATH}
-                    enabled={mayWrite}
-                    disabledReason={writeDisabledReason}
-                  />
-                </div>
-              </>
-            ) : (
-              // A published or retired version is read-only, and that is a business rule rather
-              // than a permission: goats are being treated from it. Editing goes through a draft.
-              <div className="bd" style={{ padding: 0, overflowX: "auto" }}>
-                <table className="feed-table" aria-label={copy(pageContract, "section.steps.aria")}>
-                  <thead>
-                    <tr>
-                      {tableLabels(pageContract, "protocol-steps").map((col) => (
-                        <th key={col}>{col}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {(detail.steps ?? []).length === 0 ? (
-                      <tr>
-                        <td colSpan={9}>
-                          <div className="muted small" style={{ padding: "18px 4px", textAlign: "center" }}>
-                            {copy(pageContract, "empty.steps")}
-                          </div>
-                        </td>
-                      </tr>
-                    ) : (
-                      (detail.steps ?? []).map((step) => (
-                        <tr key={step.step_id ?? `${step.day_no}-${step.seq}`}>
-                          <td style={{ fontVariantNumeric: "tabular-nums" }}>{step.day_no}</td>
-                          <td className="muted">
-                            {copy(pageContract, `label.session.${step.session === "unscheduled" ? "unscheduled" : step.session}`)}
-                          </td>
-                          <td>
-                            {copy(
-                              pageContract,
-                              step.record_type === "medication"
-                                ? "label.record_type.medicine"
-                                : step.record_type === "critical_action"
-                                  ? "label.record_type.critical"
-                                  : "label.record_type.action",
-                            )}
-                          </td>
-                          <td>{step.medicine_name ?? ""}</td>
-                          <td style={{ fontVariantNumeric: "tabular-nums" }}>{step.dosage_text ?? ""}</td>
-                          <td className="muted">{step.dosage_denominator ?? ""}</td>
-                          <td>{step.medicine_route ?? ""}</td>
-                          <td style={{ whiteSpace: "pre-wrap", minWidth: 260 }}>{step.instruction ?? ""}</td>
-                          <td>
-                            {step.critical_action_type
-                              ? copy(
-                                  pageContract,
-                                  step.critical_action_type === "lifecycle_exit"
-                                    ? "label.critical.exit"
-                                    : "label.critical.quarantine",
-                                )
-                              : ""}
-                          </td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            )}
-
-            {(detail.history ?? []).length > 0 ? (
-              <div>
-                <h4 style={{ margin: "6px 0" }}>{copy(pageContract, "section.history.title")}</h4>
-                <p className="small muted" style={{ margin: "0 0 8px", lineHeight: 1.6 }}>
-                  {copy(pageContract, "section.history.note")}
-                </p>
-                <ul className="small" style={{ margin: 0, paddingLeft: 18, lineHeight: 1.8 }}>
-                  {/* Every number here is labelled. A bare "v1 · Draft · 0 · 2" tells a reader
-                      nothing about which figure is steps and which is days — and on a screen whose
-                      subject is dosages, an unlabelled number is worse than no number. */}
-                  {(detail.history ?? []).map((version) => (
-                    <li key={version.protocol_version_id}>
-                      v{version.version} ·{" "}
-                      {copy(
-                        pageContract,
-                        version.status === "published"
-                          ? "status.live"
-                          : version.status === "draft"
-                            ? "status.draft"
-                            : "status.retired",
-                      )}{" "}
-                      · {copy(pageContract, "label.step_count")}: {version.step_count} ·{" "}
-                      {copy(pageContract, "label.duration_days")}: {version.duration_days}
-                      {version.published_at ? ` · ${version.published_at.slice(0, 10)}` : ""}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ) : null}
-          </div>
-        </section>
-      ) : null}
     </div>
+  );
+}
+
+function SelectedProtocolEditor({
+  detail,
+  pageContract,
+  mayWrite,
+  writeDisabledReason,
+  listHref,
+}: {
+  detail: HealthConfigProtocolDetail;
+  pageContract: AdminUiPageContract;
+  mayWrite: boolean;
+  writeDisabledReason: string;
+  listHref: string;
+}) {
+  return (
+    <section className="card" style={{ marginBottom: 16 }}>
+      <div className="hd" style={{ flexWrap: "wrap", alignItems: "flex-start", gap: 8 }}>
+        <h3>
+          {detail.display_name} ·{" "}
+          {copy(pageContract, detail.age_band === "kid" ? "label.age_band.kid" : "label.age_band.adult")}
+        </h3>
+        <span className="small muted">{copy(pageContract, "section.steps.caption")}</span>
+      </div>
+
+      <div className="bd" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+          <span className={detail.status === "published" ? "tag t-ok" : detail.status === "draft" ? "tag t-info" : "tag t-mut"}>
+            {copy(
+              pageContract,
+              detail.status === "published"
+                ? "status.live"
+                : detail.status === "draft"
+                  ? "status.draft"
+                  : "status.retired",
+            )}
+          </span>
+          <span className="muted small" style={{ fontVariantNumeric: "tabular-nums" }}>
+            v{detail.version}
+          </span>
+          <span className="small muted">
+            {copy(pageContract, "label.open_cases")}: {detail.open_case_count}
+          </span>
+        </div>
+
+        <p className="small muted" style={{ margin: 0, lineHeight: 1.6 }}>
+          {copy(pageContract, "note.publish_effect")}
+        </p>
+
+        {detail.status === "draft" ? (
+          <>
+            <DraftEditor
+              pageContract={pageContract}
+              draft={detail}
+              action={saveDraft}
+              enabled={mayWrite}
+              disabledReason={writeDisabledReason}
+            />
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-start" }}>
+              <ProtocolActionButton
+                pageContract={pageContract}
+                action={publishDraft}
+                fields={{ protocol_version_id: detail.protocol_version_id }}
+                labelKey="action.publish_protocol"
+                confirmKey="note.publish_effect"
+                primary
+                enabled={mayWrite}
+                disabledReason={writeDisabledReason}
+              />
+              <ProtocolActionButton
+                pageContract={pageContract}
+                action={discardDraft}
+                fields={{ protocol_version_id: detail.protocol_version_id }}
+                labelKey="action.discard_draft"
+                confirmKey="section.history.note"
+                navigateOnSuccess="base"
+                basePath={listHref}
+                enabled={mayWrite}
+                disabledReason={writeDisabledReason}
+              />
+            </div>
+          </>
+        ) : (
+          // A published or retired version is read-only, and that is a business rule rather
+          // than a permission: goats are being treated from it. Editing goes through a draft.
+          <div className="bd" style={{ padding: 0, overflowX: "auto" }}>
+            <table className="feed-table" aria-label={copy(pageContract, "section.steps.aria")}>
+              <thead>
+                <tr>
+                  {tableLabels(pageContract, "protocol-steps").map((col) => (
+                    <th key={col}>{col}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {(detail.steps ?? []).length === 0 ? (
+                  <tr>
+                    <td colSpan={9}>
+                      <div className="muted small" style={{ padding: "18px 4px", textAlign: "center" }}>
+                        {copy(pageContract, "empty.steps")}
+                      </div>
+                    </td>
+                  </tr>
+                ) : (
+                  (detail.steps ?? []).map((step) => (
+                    <tr key={step.step_id ?? `${step.day_no}-${step.seq}`}>
+                      <td style={{ fontVariantNumeric: "tabular-nums" }}>{step.day_no}</td>
+                      <td className="muted">
+                        {copy(pageContract, `label.session.${step.session === "unscheduled" ? "unscheduled" : step.session}`)}
+                      </td>
+                      <td>
+                        {copy(
+                          pageContract,
+                          step.record_type === "medication"
+                            ? "label.record_type.medicine"
+                            : step.record_type === "critical_action"
+                              ? "label.record_type.critical"
+                              : "label.record_type.action",
+                        )}
+                      </td>
+                      <td>{step.medicine_name ?? ""}</td>
+                      <td style={{ fontVariantNumeric: "tabular-nums" }}>{step.dosage_text ?? ""}</td>
+                      <td className="muted">{step.dosage_denominator ?? ""}</td>
+                      <td>{step.medicine_route ?? ""}</td>
+                      <td style={{ whiteSpace: "pre-wrap", minWidth: 260 }}>{step.instruction ?? ""}</td>
+                      <td>
+                        {step.critical_action_type
+                          ? copy(
+                              pageContract,
+                              step.critical_action_type === "lifecycle_exit"
+                                ? "label.critical.exit"
+                                : "label.critical.quarantine",
+                            )
+                          : ""}
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {(detail.history ?? []).length > 0 ? (
+          <div>
+            <h4 style={{ margin: "6px 0" }}>{copy(pageContract, "section.history.title")}</h4>
+            <p className="small muted" style={{ margin: "0 0 8px", lineHeight: 1.6 }}>
+              {copy(pageContract, "section.history.note")}
+            </p>
+            <ul className="small" style={{ margin: 0, paddingLeft: 18, lineHeight: 1.8 }}>
+              {/* Every number here is labelled. A bare "v1 · Draft · 0 · 2" tells a reader
+                  nothing about which figure is steps and which is days — and on a screen whose
+                  subject is dosages, an unlabelled number is worse than no number. */}
+              {(detail.history ?? []).map((version) => (
+                <li key={version.protocol_version_id}>
+                  v{version.version} ·{" "}
+                  {copy(
+                    pageContract,
+                    version.status === "published"
+                      ? "status.live"
+                      : version.status === "draft"
+                        ? "status.draft"
+                        : "status.retired",
+                  )}{" "}
+                  · {copy(pageContract, "label.step_count")}: {version.step_count} ·{" "}
+                  {copy(pageContract, "label.duration_days")}: {version.duration_days}
+                  {version.published_at ? ` · ${version.published_at.slice(0, 10)}` : ""}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+      </div>
+    </section>
   );
 }
 
@@ -509,4 +571,18 @@ function preservedHiddenInputs(params: RouteSearchParams, exclude: string[]) {
     }
     return value ? [<input key={key} type="hidden" name={key} value={value} />] : [];
   });
+}
+
+function paramsWithout(params: RouteSearchParams, exclude: string[]) {
+  const excluded = new Set(exclude);
+  const next = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (excluded.has(key)) continue;
+    if (Array.isArray(value)) {
+      for (const item of value) next.append(key, item);
+    } else if (value) {
+      next.set(key, value);
+    }
+  }
+  return next;
 }
