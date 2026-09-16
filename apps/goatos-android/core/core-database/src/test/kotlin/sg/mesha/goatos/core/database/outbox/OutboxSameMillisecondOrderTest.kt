@@ -199,6 +199,67 @@ class OutboxSameMillisecondOrderTest {
         database.close()
     }
 
+    /**
+     * A refused death or birth report is replaced, not retried: the operator corrects the form
+     * and submits again under a fresh key, in the SAME lane (the animal for a death). Before this
+     * exemption the dead-lettered first attempt held that lane forever, so the corrected report
+     * sat "saved on this phone" and never reached the server (Realme E2E, 2026-09-17).
+     */
+    @Test
+    fun `a dead lettered death report does not block the corrected death report for the same animal`() = runBlocking {
+        val database = db()
+        val dao = database.outboxDao()
+        dao.insert(
+            row(
+                "refused-death", "COUNTS_DEATH", "goat-1", createdAt = 5L,
+                status = "FAILED", nextAttemptAt = Long.MAX_VALUE, attempts = 1, conflict = true,
+            ),
+        )
+        dao.insert(row("corrected-death", "COUNTS_DEATH", "goat-1", createdAt = 6L))
+
+        val eligible = dao.eligibleForDrain(now = 1_000L, limit = 50).map { it.id }
+
+        assertEquals(listOf("corrected-death"), eligible)
+        database.close()
+    }
+
+    @Test
+    fun `an attempt exhausted birth report does not block the corrected birth report in its lane`() = runBlocking {
+        val database = db()
+        val dao = database.outboxDao()
+        dao.insert(
+            row(
+                "refused-birth", "COUNTS_BIRTH", "tag-9", createdAt = 5L,
+                status = "FAILED", nextAttemptAt = 10L, attempts = 8,
+            ),
+        )
+        dao.insert(row("corrected-birth", "COUNTS_BIRTH", "tag-9", createdAt = 6L))
+
+        val eligible = dao.eligibleForDrain(now = 1_000L, limit = 50).map { it.id }
+
+        assertEquals(listOf("corrected-birth"), eligible)
+        database.close()
+    }
+
+    /** The exemption is same-op-type only: a dead death report still holds a different write in its lane. */
+    @Test
+    fun `a dead lettered death report still holds a non report write in the same lane`() = runBlocking {
+        val database = db()
+        val dao = database.outboxDao()
+        dao.insert(
+            row(
+                "refused-death", "COUNTS_DEATH", "goat-1", createdAt = 5L,
+                status = "FAILED", nextAttemptAt = Long.MAX_VALUE, attempts = 1, conflict = true,
+            ),
+        )
+        dao.insert(row("shift", "COUNTS_SHIFTING", "goat-1", createdAt = 6L))
+
+        val eligible = dao.eligibleForDrain(now = 1_000L, limit = 50).map { it.id }
+
+        assertEquals(emptyList<String>(), eligible)
+        database.close()
+    }
+
     @Test
     fun `a terminal failed proof upload does not block a replacement proof upload`() = runBlocking {
         val database = db()

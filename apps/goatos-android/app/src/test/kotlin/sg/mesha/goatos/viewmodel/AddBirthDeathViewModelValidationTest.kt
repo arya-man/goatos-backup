@@ -677,10 +677,25 @@ internal class RecordingAddSyncRepository : SyncRepository {
         lastBirth = request
         return AppResult.Ok("outbox-birth-1")
     }
+    val deathKeys = mutableListOf<String>()
     override suspend fun enqueueCountsDeath(groupKey: String, idempotencyKey: String, request: CountsDeathEventRequestDto, capture: sg.mesha.goatos.core.data.sync.CountsCapturePayload?): AppResult<String> {
         lastDeathCapture = capture
         lastDeath = request
-        return AppResult.Ok("outbox-death-1")
+        deathKeys += idempotencyKey
+        return AppResult.Ok("outbox-death-${deathKeys.size}")
+    }
+
+    /** Publishes one outbox row as the sync status, e.g. a server refusal of a report. */
+    fun emitItem(item: SyncQueueItem) {
+        status.value = SyncStatus(
+            online = true,
+            pendingCount = 0,
+            inFlightCount = 0,
+            failedCount = 0,
+            deadLetterCount = if (item.conflict) 1 else 0,
+            lastSyncAt = 1L,
+            items = listOf(item),
+        )
     }
 
     fun emitBirthSucceeded() {
