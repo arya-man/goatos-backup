@@ -194,6 +194,16 @@ func (s *ShiftingExecutionService) Complete(
 				"%w: shifting event %s has not been approved by a park head", ports.ErrShiftingNotAuthorized, in.ShiftingEventID)
 		}
 	}
+	// OLDER APP, HIGH PRIORITY: the pre-SOP phone always sent both feed clips and was refused
+	// without them, so keep refusing exactly that shape (deploy-day parity, E2E 2026-09-17).
+	// Leniency for an older app covers only what it CANNOT send -- slots the farm authored after it
+	// was installed -- never a high-priority move applied with no feed evidence at all. A replay of
+	// a completion already recorded is still the repository's to answer.
+	if in.LegacyShape && pin.CompletionIdempotencyKey != in.IdempotencyKey &&
+		strings.EqualFold(strings.TrimSpace(pin.Priority), domain.ShiftingPriorityHigh) &&
+		(strings.TrimSpace(in.FeedPackingProofRef) == "" || strings.TrimSpace(in.FeedGivenProofRef) == "") {
+		return domain.ShiftingExecutionResult{}, false, ports.ErrShiftingFeedProofsRequired
+	}
 	rules, err := s.pinnedRules(ctx, in.TenantID, pin.Version)
 	if err != nil {
 		return domain.ShiftingExecutionResult{}, false, err

@@ -79,7 +79,10 @@ fixed fields are mapped onto the seeded slots (a seeded key the farm authored aw
 onto the first free video slot of the same section), what it sent is judged for kind and placement,
 and every compulsory slot / required question it could not send becomes a row
 `"<title>: Not captured (older app)"` for the approver and the verifier. A request carrying the
-new fields is judged strictly. Both shapes hash identically for a seeded submission (the canonical
+new fields is judged strictly. One exception keeps its pre-SOP answer: an older app's HIGH-priority
+completion that omits either feed clip is refused `422 feed_proofs_required` -- that phone always
+had both clips to send, so the refusal forces no update, and leniency must never apply a
+high-priority move with no feed evidence (found by the 2026-09-17 E2E). Both shapes hash identically for a seeded submission (the canonical
 completion fingerprint folds a seeded-only `proofs` map back onto the legacy triple), and the raise
 fingerprint is byte-identical to the pre-SOP handler's (goldens pinned in
 `shifting_sop_handler_test.go`), so an installed phone's retry is never a same-key conflict.
