@@ -529,8 +529,16 @@ feature genuinely cannot yet run on the engine, say so in its decision doc and r
 item; do not hardcode quietly. Proof of a change to any of these flows is BOTH a web publish and a
 phone run that shows the next workflow on the new version and an open one unchanged.
 
-Phase 2 (recorded, not done): shifting completion on the engine, capture forms taking SOP-authored
-extra questions, the `/config` editor for the two registries, cross-category `triggers`.
+Capture-form parity (2026-09-16, done): Add birth / Add death take a SOP-authored capture card
+(photos, videos, questions) and send it as `sop_capture`; with no card published they behave exactly
+as before. Birth report proofs are verified ONE ITEM PER SLOT (`counts-birth-capture:<birth>:<slot>:<ref>`,
+a reject re-shoots only that slot); death stays one bundle, now carrying the report media first and
+EVERY authored step's proofs -- "death is exactly two videos" is retired, and a fixed pair on the
+backend or phone is blocked by `sop-driven-herd-operations-guard`. Details and the deploy-day
+differences: `docs/decisions/sop-driven-herd-operations.md` → "Capture-form parity".
+
+Phase 2 (recorded, not done): shifting completion on the engine, a capture card on Raise shifting,
+the `/config` editor for the two registries, cross-category `triggers`.
 
 ## Weighing Is ISOLATED — No Herd, No Vaccination, No Exceptions (Claude AND Codex)
 

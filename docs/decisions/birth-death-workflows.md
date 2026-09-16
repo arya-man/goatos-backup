@@ -64,10 +64,13 @@ Maintainer decisions captured 2026-07-27 (Q&A):
    live in-app camera only: there is no gallery/import option. For Death, each
    capture remains a durable local editable draft; re-recording replaces that
    action's draft, and no upload/action completion is queued until the operator
-   taps **Submit** after both drafts exist. **Vaccination is explicitly exempt
+   taps **Submit** after every step is recorded. **Vaccination is explicitly exempt
    and keeps its existing gallery picker.**
-7. **Death is exactly two operator steps.** The operator sees only Record death
-   video → Record post-mortem video. Admin approval and media verification remain
+7. **Death is the steps its published SOP authors** (SUPERSEDES "exactly two
+   operator steps", 2026-09-16, docs/decisions/sop-driven-herd-operations.md →
+   "Capture-form parity"). The seeded SOP still authors Record death video →
+   Record post-mortem video, and behaves exactly as below; an edited SOP may author
+   more steps, photos and questions, and approval waits for every one of them. Admin approval and media verification remain
    backend/admin/verifier state and are never rendered as a third operator step.
 
 ## Locked birth state machine
@@ -86,6 +89,11 @@ Count approval and birth evidence verification are independent. Approval never
 creates a child, and verifier verdicts never add or remove a child from counts.
 
 ## Locked death state machine
+
+The table below is the SEEDED two-video Death SOP. For an edited SOP read "both videos" as "every
+authored step's proofs and answers": approval waits for every step (`DeathStepsComplete`), the
+released item carries every step's proofs after the report's capture media, and a reject reopens
+every proof step.
 
 | Stage | Goat lifecycle / herd count | Workflow actions | Verify queue |
 | --- | --- | --- | --- |
