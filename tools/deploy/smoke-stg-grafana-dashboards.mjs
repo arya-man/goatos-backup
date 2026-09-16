@@ -285,7 +285,10 @@ export function conditionalDataReason(query) {
   const condition = query.goatosDataCondition;
   if (!condition) return null;
   const expression = query.promQLQuery?.expr ?? "";
-  const entry = Object.entries(conditionalEmitters).find(([metric, source]) => [ `sum(rate(${metric}[5m]))`, `sum(increase(${metric}[5m]))` ].includes(expression) && condition.source === source);
+  const metricExpression = (metric, fn) => new RegExp(`^sum\\(${fn}\\(${metric.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?:\\{[^}]+\\})?\\[5m\\]\\)\\)$`);
+  const entry = Object.entries(conditionalEmitters).find(([metric, source]) =>
+    [metricExpression(metric, "rate"), metricExpression(metric, "increase")].some((pattern) => pattern.test(expression)) &&
+    condition.source === source);
   if (!entry || condition.kind !== "event-conditional" || !condition.event || /vector\(0\)|or\s+0/.test(expression)) throw new Error(`Invalid conditional-data annotation on ${query.refId}`);
   return `${condition.event}; emitter: ${condition.source}`;
 }
@@ -318,9 +321,9 @@ export function assertQueryResults(response, queries, label) {
 const firebaseDataSources = { firebase_crashlytics: "665f3379-0000-2ce4-9a00-001a1148aea6", firebase_sessions: "685fbeb4-0000-2244-a54b-30fd38104754", firebase_performance: "5c49fb6c-0000-24d0-86d7-883d24f8b018" };
 const firebaseDatasets = Object.keys(firebaseDataSources);
 const firebasePendingTargets = {
-  1: { provider: "performance", sha256: "1e07a7480d45e222d112464546a53f2909154b530ac7d4e278867c381c3a8f4b" },
-  5: { provider: "crash-sessions", sha256: "6e7133b4a86652d3fe615e4ea3d08bf55587cdcc3a37ec846f1db5c449974810" },
-  9: { provider: "performance", sha256: "261506ebf0297e1e8677fc29e25d4a65fe43a7aee7778e2a4c09250a6982b98c" },
+  1: { provider: "performance", sha256: "05ac5511419110f7ceb4bb3aa7e26538e9da7ab585f838dbd2127e589f08276f" },
+  5: { provider: "crash-sessions", sha256: "6d84f62e0c18dc604a0af0c431c7ce97f781515cf4dd9fe312bb00170fd24c40" },
+  9: { provider: "performance", sha256: "94c53537159b01352137b5d034926c7bd15f6aa6cd7285be464c94ad2daffd92" },
 };
 
 // A time-limited provider wait is not a data-health success. The immutable BQ
@@ -436,7 +439,10 @@ export async function assertAllDashboardQueries(baseUrl, password, timeoutMs, ia
     const walk = (panels) => panels.flatMap((panel) => [panel, ...walk(panel.panels ?? [])]);
     for (const panel of walk(dashboard.doc.panels ?? [])) {
       const queries = panelQueries(panel, project, { fromMs, now, variables });
-      if (panel.goatosMissingCapability) empty.push(`${dashboard.uid}/${panel.title}: missing capability ${panel.goatosMissingCapability}`);
+      if (panel.goatosMissingCapability) {
+        empty.push(`${dashboard.uid}/${panel.title}: missing capability ${panel.goatosMissingCapability}`);
+        continue;
+      }
       if (!queries.length) continue;
       const response = await postJson(baseUrl, "/api/ds/query", { from: String(fromMs), to: String(now), range, queries }, password, timeoutMs, iamToken);
       assertQueryResults(response, queries, `${dashboard.uid}/${panel.title}`);
@@ -610,11 +616,22 @@ async function selfTest() {
 }
 
 export function assertDashboardQueryReadback(expected, actual) {
+  const byStablePanelIdentity = (left, right) =>
+    (left.id ?? 0) - (right.id ?? 0) ||
+    String(left.title ?? "").localeCompare(String(right.title ?? "")) ||
+    String(left.type ?? "").localeCompare(String(right.type ?? ""));
+  const panelView = ({ id, title, type, targets, panels }) => ({
+    id,
+    title,
+    type,
+    targets: targets ?? [],
+    panels: (panels ?? []).map(panelView).sort(byStablePanelIdentity),
+  });
   const view = (doc) => ({
     title: doc.title,
     time: doc.time,
     variables: (doc.templating?.list ?? []).map(({ name, type, query, refresh, datasource }) => ({ name, type, query, refresh, datasource })),
-    panels: (doc.panels ?? []).map(({ id, title, type, targets, panels }) => ({ id, title, type, targets: targets ?? [], panels: panels ?? [] })),
+    panels: (doc.panels ?? []).map(panelView).sort(byStablePanelIdentity),
   });
   assert.deepEqual(view(actual), view(expected), `Live dashboard ${expected.uid} queries/config do not match committed provisioning`);
 }

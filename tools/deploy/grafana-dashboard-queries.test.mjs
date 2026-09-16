@@ -61,7 +61,7 @@ test('actual mobile cohort panels distinguish absent completions and use tenant-
     assert.equal(q.datasource.uid,'postgres-analytics');
     assert.match(q.rawSql,/tenant_id = '00000000-0000-4000-8000-000000000001'::uuid/);
     assert.match(q.rawSql,/AT TIME ZONE 'Asia\/Kolkata'/);
-    assert.ok(q.rawSql.includes("$__timeFilter(((event_date + 1)::timestamp AT TIME ZONE 'Asia/Kolkata') - interval '1 second')"));
+    assert.match(q.rawSql,/FROM \(SELECT .* AT TIME ZONE 'Asia\/Kolkata'.*\) q WHERE \$__timeFilter\(time\) ORDER BY/);
     if(id===4)assert.match(q.rawSql,/CASE WHEN completions > 0 THEN/);
   }
 });

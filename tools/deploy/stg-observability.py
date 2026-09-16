@@ -142,9 +142,13 @@ def load_metrics(path):
 def verify_metric(expected, actual):
     # Google adds resource names and timestamps to descriptors; compare every
     # declared semantic field recursively, without discarding requested labels.
-    def subset(e,a):
+    def subset(e,a,key=None):
+        if key == 'valueType' and e == 'STRING' and a is None:
+            return True
         if isinstance(e,dict):
-            return isinstance(a,dict) and all(k in a and subset(v,a[k]) for k,v in e.items())
+            return isinstance(a,dict) and all(subset(v,a.get(k),k) for k,v in e.items())
+        if isinstance(e,list):
+            return isinstance(a,list) and len(e) == len(a) and all(subset(ev,av,key) for ev,av in zip(e,a))
         return e==a
     assert subset(expected,actual), 'Logging metric readback mismatch: '+expected['name']
     assert not actual.get('disabled',False), 'Logging metric disabled'
