@@ -52,6 +52,10 @@ type PersistIssueCommand struct {
 	// IdempotencyKey is the stable operation identity; an exact re-issue replays against it.
 	IdempotencyKey string
 	GeneratedBy    string
+	// SOPVersion / PackingSOPVersion pin the sheet to the feed.direction / feed.packing SOP
+	// versions in force at issue (0 = seeded).
+	SOPVersion        int
+	PackingSOPVersion int
 	// Cells is the WHOLE generated scope for this workflow, in generation order.
 	Cells []domain.StoredCell
 }

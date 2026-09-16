@@ -3,6 +3,7 @@ package http
 import (
 	"context"
 	"errors"
+	"github.com/vgoats/goatos/backend/internal/sop/authored"
 	"net/http"
 	"strings"
 
@@ -104,6 +105,10 @@ type completeWastageRequest struct {
 	PartitionLabel  string `json:"partition_label"`
 	TargetDate      string `json:"target_date"`
 	WastageProofRef string `json:"wastage_proof_ref"`
+	// Proofs / Answers: the wastage card's captures and answers (FEED SOP, 2026-09-16);
+	// wastage_proof_ref is the older phone's single video and maps onto the seeded slot.
+	Proofs  authored.ProofRefs `json:"proofs"`
+	Answers authored.Answers   `json:"answers"`
 }
 
 type completeWastageResponse struct {
@@ -176,6 +181,8 @@ func (h *Handler) PostCompleteWastage(w http.ResponseWriter, r *http.Request) {
 		PartitionLabel:  strings.TrimSpace(body.PartitionLabel),
 		TargetDate:      targetDate,
 		WastageProofRef: strings.TrimSpace(body.WastageProofRef),
+		Proofs:          body.Proofs,
+		Answers:         body.Answers,
 		CompletedBy:     actorID,
 		IdempotencyKey:  key,
 		ActorID:         actorID,

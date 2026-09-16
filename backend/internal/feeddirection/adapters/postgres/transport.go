@@ -2,8 +2,10 @@ package postgres
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/vgoats/goatos/backend/internal/sop/authored"
 	"strings"
 	"time"
 
@@ -59,15 +61,15 @@ func (r *Repository) MaterializeTransportTasks(ctx context.Context, p ports.Mate
 	}
 	if oldShedArbiterPresent {
 		tag, err := r.execAndInvalidateReadCache(ctx, `
-INSERT INTO feed_transport_tasks (tenant_id, park_id, shed_id, partition_label, business_date, scheduled_at)
+INSERT INTO feed_transport_tasks (tenant_id, park_id, shed_id, partition_label, business_date, scheduled_at, sop_version)
 SELECT s.tenant_id, s.parent_location_id, s.location_id, '', $2::date,
-       (($2::date + time '15:30') AT TIME ZONE 'Asia/Kolkata')
+       (($2::date + time '15:30') AT TIME ZONE 'Asia/Kolkata'), nullif($3::int, 0)
 FROM locations s
 JOIN locations p ON p.tenant_id = s.tenant_id AND p.location_id = s.parent_location_id
 WHERE s.tenant_id = $1::uuid AND s.location_type = 'shed' AND s.status = 'active'
   AND p.location_type = 'park' AND p.status = 'active'
   AND `+oploc.PartitionAliasExclusionSQL("s")+`
-ON CONFLICT (tenant_id, business_date, shed_id) DO NOTHING`, p.TenantID, day.Format("2006-01-02"))
+ON CONFLICT (tenant_id, business_date, shed_id) DO NOTHING`, p.TenantID, day.Format("2006-01-02"), p.SOPVersion)
 		if err != nil {
 			return ports.MaterializeTransportResult{}, fmt.Errorf("feeddirection: materialize transport tasks: %w", err)
 		}
@@ -80,15 +82,15 @@ ON CONFLICT (tenant_id, business_date, shed_id) DO NOTHING`, p.TenantID, day.For
 	// colliding. 000152 does NOT rebuild the index for this reason -- a CONCURRENTLY rebuild on a
 	// live table buys nothing here.
 	tag, err := r.execAndInvalidateReadCache(ctx, `
-INSERT INTO feed_transport_tasks (tenant_id, park_id, shed_id, partition_label, business_date, scheduled_at)
+INSERT INTO feed_transport_tasks (tenant_id, park_id, shed_id, partition_label, business_date, scheduled_at, sop_version)
 SELECT s.tenant_id, s.parent_location_id, s.location_id, '', $2::date,
-       (($2::date + time '15:30') AT TIME ZONE 'Asia/Kolkata')
+       (($2::date + time '15:30') AT TIME ZONE 'Asia/Kolkata'), nullif($3::int, 0)
 FROM locations s
 JOIN locations p ON p.tenant_id = s.tenant_id AND p.location_id = s.parent_location_id
 WHERE s.tenant_id = $1::uuid AND s.location_type = 'shed' AND s.status = 'active'
   AND p.location_type = 'park' AND p.status = 'active'
   AND `+oploc.PartitionAliasExclusionSQL("s")+`
-ON CONFLICT (tenant_id, business_date, shed_id, COALESCE(NULLIF(btrim(partition_label), ''), 'whole')) DO NOTHING`, p.TenantID, day.Format("2006-01-02"))
+ON CONFLICT (tenant_id, business_date, shed_id, COALESCE(NULLIF(btrim(partition_label), ''), 'whole')) DO NOTHING`, p.TenantID, day.Format("2006-01-02"), p.SOPVersion)
 	if err != nil {
 		return ports.MaterializeTransportResult{}, fmt.Errorf("feeddirection: materialize transport tasks: %w", err)
 	}
@@ -115,7 +117,7 @@ func (r *Repository) ListTransportTasks(ctx context.Context, q ports.ListTranspo
 SELECT t.task_id::text, t.park_id::text, p.name, t.shed_id::text, s.name,
        t.business_date::text, t.status, coalesce(t.operator_id::text,''),
        coalesce(t.current_attempt_id::text,''), coalesce(a.rejection_reason,''), t.scheduled_at,
-       coalesce(t.partition_label, '')
+       coalesce(t.partition_label, ''), coalesce(t.sop_version, 0)
 FROM feed_transport_tasks t
 JOIN locations p ON p.tenant_id=t.tenant_id AND p.location_id=t.park_id
 JOIN locations s ON s.tenant_id=t.tenant_id AND s.location_id=t.shed_id
@@ -137,7 +139,7 @@ ORDER BY t.task_id LIMIT $7`, q.TenantID, q.Day.Format("2006-01-02"), q.ParkID, 
 	out := make([]ports.FeedTransportTask, 0, q.Limit+1)
 	for rows.Next() {
 		var x ports.FeedTransportTask
-		if err := rows.Scan(&x.TaskID, &x.ParkID, &x.ParkLabel, &x.ShedID, &x.ShedLabel, &x.BusinessDate, &x.Status, &x.OperatorID, &x.CurrentAttemptID, &x.ReworkReason, &x.ScheduledAt, &x.PartitionLabel); err != nil {
+		if err := rows.Scan(&x.TaskID, &x.ParkID, &x.ParkLabel, &x.ShedID, &x.ShedLabel, &x.BusinessDate, &x.Status, &x.OperatorID, &x.CurrentAttemptID, &x.ReworkReason, &x.ScheduledAt, &x.PartitionLabel, &x.SOPVersion); err != nil {
 			return ports.FeedTransportTaskPage{}, err
 		}
 		x.OperationalLocationDisplay = oploc.OperationalLocation{ShedName: x.ShedLabel, PartitionLabel: x.PartitionLabel}.Display()
@@ -227,7 +229,7 @@ SELECT t.task_id::text,t.park_id::text,p.name,t.shed_id::text,s.name,t.business_
        -- itself. AGREE-OR-GO-BARE: exactly one active real partition resolves, several or none
        -- go bare. min() is required -- a bare HAVING over a non-aggregated column is rejected
        -- by Postgres (42803).
-       coalesce(t.partition_label, '')
+       coalesce(t.partition_label, ''), coalesce(t.sop_version, 0)
 FROM feed_transport_tasks t
 JOIN locations p ON p.tenant_id=t.tenant_id AND p.location_id=t.park_id
 JOIN locations s ON s.tenant_id=t.tenant_id AND s.location_id=t.shed_id
@@ -235,7 +237,7 @@ LEFT JOIN feed_transport_attempts a ON a.tenant_id=t.tenant_id AND a.attempt_id=
 WHERE t.tenant_id=$1::uuid AND t.task_id=$2::uuid`, tenantID, taskID).Scan(
 		&x.TaskID, &x.ParkID, &x.ParkLabel, &x.ShedID, &x.ShedLabel, &x.BusinessDate,
 		&x.Status, &x.OperatorID, &x.CurrentAttemptID, &x.ReworkReason, &x.ScheduledAt,
-		&x.PartitionLabel,
+		&x.PartitionLabel, &x.SOPVersion,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ports.FeedTransportTask{}, ports.ErrTransportTaskNotActionable
@@ -309,10 +311,10 @@ WHERE t.tenant_id=$1::uuid AND t.task_id=$2::uuid FOR UPDATE`, p.TenantID, p.Tas
 		return ports.SubmitTransportResult{}, ports.ErrTransportTaskNotActionable
 	}
 	err = tx.QueryRow(ctx, `
-INSERT INTO feed_transport_attempts(tenant_id,task_id,attempt_no,proof_ref,operator_id,idempotency_key)
-SELECT $1::uuid,$2::uuid,coalesce(max(attempt_no),0)+1,$3,$4::uuid,$5
+INSERT INTO feed_transport_attempts(tenant_id,task_id,attempt_no,proof_ref,operator_id,idempotency_key,sop_proofs,sop_answers)
+SELECT $1::uuid,$2::uuid,coalesce(max(attempt_no),0)+1,$3,$4::uuid,$5,$6::jsonb,$7::jsonb
 FROM feed_transport_attempts WHERE tenant_id=$1::uuid AND task_id=$2::uuid
-RETURNING attempt_id::text,status,attempt_no`, p.TenantID, p.TaskID, strings.TrimSpace(p.ProofRef), p.OperatorID, p.IdempotencyKey).Scan(&res.AttemptID, &res.Status, &res.AttemptNo)
+RETURNING attempt_id::text,status,attempt_no`, p.TenantID, p.TaskID, strings.TrimSpace(p.ProofRef), p.OperatorID, p.IdempotencyKey, transportSOPProofsJSON(p), transportSOPAnswersJSON(p)).Scan(&res.AttemptID, &res.Status, &res.AttemptNo)
 	if err != nil {
 		return res, fmt.Errorf("feeddirection: insert transport attempt: %w", err)
 	}
@@ -394,4 +396,29 @@ func (r *Repository) applyTransportVerdict(ctx context.Context, tenantID, attemp
 	}
 	committed = true
 	return true, nil
+}
+
+// transportSOPProofsJSON is the attempt's {slot: ref} map; a caller that predates the card sends
+// only proof_ref, folded onto the seeded slot key.
+func transportSOPProofsJSON(p ports.SubmitTransportParams) []byte {
+	refs := authored.NormalizeProofRefs(p.SOPProofs)
+	if len(refs) == 0 {
+		refs = domain.LegacyProofRefs(domain.StageTransport, map[string]string{"proof_ref": p.ProofRef}, nil)
+	}
+	b, err := json.Marshal(refs)
+	if err != nil {
+		return []byte("{}")
+	}
+	return b
+}
+
+func transportSOPAnswersJSON(p ports.SubmitTransportParams) []byte {
+	if len(p.SOPAnswers) == 0 {
+		return []byte("{}")
+	}
+	b, err := json.Marshal(p.SOPAnswers)
+	if err != nil {
+		return []byte("{}")
+	}
+	return b
 }

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/vgoats/goatos/backend/internal/sop/authored"
 	"math"
 	"strconv"
 	"strings"
@@ -64,6 +65,21 @@ func (r *Repository) CompleteWastage(ctx context.Context, p ports.CompleteWastag
 	defer cancel()
 
 	wastageProof := strings.TrimSpace(p.WastageProofRef)
+	sopProofs := authored.NormalizeProofRefs(p.SOPProofs)
+	if len(sopProofs) == 0 {
+		sopProofs = domain.LegacyProofRefs(domain.StageWastage, map[string]string{"wastage_proof_ref": wastageProof}, nil)
+	}
+	sopProofsJSON, err := json.Marshal(sopProofs)
+	if err != nil {
+		return ports.CompleteWastageResult{}, fmt.Errorf("feeddirection: encode sop proofs: %w", err)
+	}
+	sopAnswersJSON := []byte("{}")
+	if len(p.SOPAnswers) > 0 {
+		if sopAnswersJSON, err = json.Marshal(p.SOPAnswers); err != nil {
+			return ports.CompleteWastageResult{}, fmt.Errorf("feeddirection: encode sop answers: %w", err)
+		}
+	}
+	canonicalSOPProofs := sopProofs
 	targetDate := p.TargetDate.Format("2006-01-02")
 
 	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
@@ -130,31 +146,33 @@ func (r *Repository) CompleteWastage(ctx context.Context, p ports.CompleteWastag
 	err = tx.QueryRow(ctx, `
 INSERT INTO feed_wastage_completions (
   tenant_id, park_id, shed_id, partition_label, target_date, workflow, status,
-  wastage_proof_ref, completed_by, idempotency_key
+  wastage_proof_ref, completed_by, idempotency_key, sop_proofs, sop_answers
 ) VALUES (
   $1::uuid, $2::uuid, $3::uuid, nullif($4::text, ''), $5::date, 'experiment', 'pending_verification',
-  $6, nullif($7::text, '')::uuid, $8
+  nullif($6, ''), nullif($7::text, '')::uuid, $8, $9::jsonb, $10::jsonb
 )
 ON CONFLICT (tenant_id, park_id, shed_id, partition_key, target_date, workflow) DO NOTHING
 RETURNING completion_id::text, row_version`,
 		p.TenantID, p.ParkID, p.ShedID, p.PartitionLabel, targetDate,
-		wastageProof, p.CompletedBy, p.IdempotencyKey).Scan(&completionID, &rowVersion)
+		wastageProof, p.CompletedBy, p.IdempotencyKey, sopProofsJSON, sopAnswersJSON).Scan(&completionID, &rowVersion)
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
 		// Natural-key conflict: a row for this PEN-DAY already exists. Its state AND its stored
 		// video decide the outcome — a second DIFFERENT video is a conflict, not a replay. See
 		// ports.ErrWastageAlreadyRecorded.
 		var existingStatus, existingProof string
+		var existingSOP authored.ProofRefs
 		if err := tx.QueryRow(ctx, `
-SELECT completion_id::text, status, row_version, coalesce(wastage_proof_ref, '')
+SELECT completion_id::text, status, row_version, coalesce(wastage_proof_ref, ''), sop_proofs
 FROM feed_wastage_completions
 WHERE tenant_id = $1::uuid AND park_id = $2::uuid AND shed_id = $3::uuid
   AND partition_key = $5 AND target_date = $4::date AND workflow = 'experiment'`,
 			p.TenantID, p.ParkID, p.ShedID, targetDate,
 			domain.PartitionMatchKey(p.PartitionLabel)).
-			Scan(&completionID, &existingStatus, &rowVersion, &existingProof); err != nil {
+			Scan(&completionID, &existingStatus, &rowVersion, &existingProof, &existingSOP); err != nil {
 			return ports.CompleteWastageResult{}, fmt.Errorf("feeddirection: read existing wastage completion: %w", err)
 		}
+		_ = existingProof
 		switch existingStatus {
 		case domain.WastageStatusRework:
 			// A verifier rejected the prior video; the operator re-recorded. Move the row back to
@@ -163,13 +181,15 @@ WHERE tenant_id = $1::uuid AND park_id = $2::uuid AND shed_id = $3::uuid
 			if err := tx.QueryRow(ctx, `
 UPDATE feed_wastage_completions
 SET status = 'pending_verification',
-    wastage_proof_ref = $3,
+    wastage_proof_ref = nullif($3, ''),
+    sop_proofs = $4::jsonb,
+    sop_answers = $5::jsonb,
     rework_reason = NULL,
     updated_at = now(),
     row_version = row_version + 1
 WHERE tenant_id = $1::uuid AND completion_id = $2::uuid AND status = 'rework'
 RETURNING row_version`,
-				p.TenantID, completionID, wastageProof).Scan(&rowVersion); err != nil {
+				p.TenantID, completionID, wastageProof, sopProofsJSON, sopAnswersJSON).Scan(&rowVersion); err != nil {
 				return ports.CompleteWastageResult{}, fmt.Errorf("feeddirection: resubmit wastage for verification: %w", err)
 			}
 			status = domain.WastageStatusPendingVerification
@@ -181,9 +201,10 @@ RETURNING row_version`,
 			// SAME proof -> a genuine re-send under a different idempotency key: idempotent no-op.
 			// DIFFERENT proof -> a second, distinct recording for a unit that accepts exactly one:
 			// refuse loudly rather than acknowledge a video nothing stored.
-			if wastageProof != existingProof {
+			if !sameProofSet(sopProofs, existingSOP) {
 				return ports.CompleteWastageResult{}, ports.ErrWastageAlreadyRecorded
 			}
+			canonicalSOPProofs = existingSOP
 			status = existingStatus
 		default:
 			return ports.CompleteWastageResult{}, fmt.Errorf("feeddirection: unexpected wastage status %q", existingStatus)
@@ -207,7 +228,7 @@ RETURNING row_version`,
 	}
 	committed = true
 	return ports.CompleteWastageResult{
-		CompletionID: completionID, Status: status, RowVersion: rowVersion, NewlyPending: newlyPending,
+		CompletionID: completionID, Status: status, RowVersion: rowVersion, NewlyPending: newlyPending, SOPProofs: canonicalSOPProofs,
 		// Carried on EVERY path, including the idempotent replay above: the enqueue reads these to
 		// compose the verifier's subject label.
 		ShedName: shedName, PartitionLabel: p.PartitionLabel,

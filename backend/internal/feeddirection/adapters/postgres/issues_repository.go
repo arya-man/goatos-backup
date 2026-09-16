@@ -122,16 +122,16 @@ func insertIssueHeader(ctx context.Context, tx pgx.Tx, cmd ports.PersistIssueCom
 INSERT INTO feed_direction_issues (
   tenant_id, park_id, feed_day, workflow, state, issued_at,
   generation_input_fingerprint, idempotency_key, request_fingerprint,
-  source_contract, source_contract_version, amendment_count, generated_by
+  source_contract, source_contract_version, amendment_count, generated_by, sop_version, packing_sop_version
 ) VALUES (
   $1::uuid, $2::uuid, $3::date, $4, 'issued', $5,
   $6, $7, $6,
-  $8, $9, 0, $10
+  $8, $9, 0, $10, nullif($11, 0), nullif($12, 0)
 )
 RETURNING feed_direction_issue_id::text`,
 		cmd.TenantID, cmd.ParkID, cmd.FeedDay, cmd.Workflow, cmd.IssuedAt.UTC(),
 		cmd.Fingerprint, cmd.IdempotencyKey,
-		domain.SourceContract, domain.SourceContractVersion, cmd.GeneratedBy).Scan(&id)
+		domain.SourceContract, domain.SourceContractVersion, cmd.GeneratedBy, cmd.SOPVersion, cmd.PackingSOPVersion).Scan(&id)
 	if err != nil {
 		return domain.IssueHeader{}, err
 	}
@@ -277,13 +277,14 @@ WHERE tenant_id = $1::uuid AND feed_direction_issue_id = $2::uuid`,
 // ---------------------------------------------------------------------------
 
 const issueHeaderColumns = `feed_direction_issue_id::text, tenant_id::text, park_id::text, feed_day::text,
-       workflow, state, issued_at, amended_at, locked_at, generation_input_fingerprint, amendment_count`
+       workflow, state, issued_at, amended_at, locked_at, generation_input_fingerprint, amendment_count,
+       coalesce(sop_version, 0), coalesce(packing_sop_version, 0)`
 
 func scanIssueHeader(row pgx.Row) (domain.IssueHeader, error) {
 	var h domain.IssueHeader
 	var amendedAt, lockedAt *time.Time
 	if err := row.Scan(&h.IssueID, &h.TenantID, &h.ParkID, &h.FeedDay, &h.Workflow, &h.State,
-		&h.IssuedAt, &amendedAt, &lockedAt, &h.GenerationInputFingerprint, &h.AmendmentCount); err != nil {
+		&h.IssuedAt, &amendedAt, &lockedAt, &h.GenerationInputFingerprint, &h.AmendmentCount, &h.SOPVersion, &h.PackingSOPVersion); err != nil {
 		return domain.IssueHeader{}, err
 	}
 	h.AmendedAt = amendedAt

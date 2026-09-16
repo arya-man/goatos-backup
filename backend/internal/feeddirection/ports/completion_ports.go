@@ -129,6 +129,13 @@ type ProofValidator interface {
 	ListPenSessionCaptures(ctx context.Context, q PenSessionCaptureQuery) ([]CapturedProofSlot, error)
 }
 
+// ProofMediaDescriber is the optional half of ProofValidator that reports the kind the register
+// holds for each proof (photo / video), so an `either` slot's capture is stored and shown as what
+// it actually is. Optional: a validator without it leaves the slot's own kind in place.
+type ProofMediaDescriber interface {
+	DescribeFeedProofMedia(ctx context.Context, tenantID string, proofIDs []string) (map[string]MediaKind, error)
+}
+
 // ProofUploadDescriber resolves proof ids a COMPLETION already names back to who uploaded them and
 // when. It is a SEPARATE, optional port from ProofValidator on purpose: every write path in this
 // module needs the validator, and none of them needs this, so folding it in would make each
@@ -166,6 +173,8 @@ const (
 	MediaKindPhoto MediaKind = "photo"
 	// MediaKindVideo is a clip (proof_type 'video', mime video/*).
 	MediaKindVideo MediaKind = "video"
+	// MediaKindEither accepts a photo or a video: an authored slot of kind `either`.
+	MediaKindEither MediaKind = "either"
 )
 
 // ExpectedProofMedia pairs one proof reference with the kind its step requires, plus the error to

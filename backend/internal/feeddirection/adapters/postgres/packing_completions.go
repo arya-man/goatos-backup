@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/vgoats/goatos/backend/internal/sop/authored"
 	"math"
 	"strconv"
 	"strings"
@@ -69,6 +70,23 @@ func (r *Repository) CompletePacking(ctx context.Context, p ports.CompletePackin
 	defer cancel()
 
 	packingProof := strings.TrimSpace(p.PackingProofRef)
+	// The card's captures and answers as judged by the service; a caller that predates the card
+	// sends only the legacy ref, folded onto the seeded slot key.
+	sopProofs := authored.NormalizeProofRefs(p.SOPProofs)
+	if len(sopProofs) == 0 {
+		sopProofs = domain.LegacyProofRefs(domain.StagePacking, map[string]string{"packing_proof_ref": packingProof}, nil)
+	}
+	sopProofsJSON, err := json.Marshal(sopProofs)
+	if err != nil {
+		return ports.CompletePackingResult{}, fmt.Errorf("feeddirection: encode sop proofs: %w", err)
+	}
+	sopAnswersJSON := []byte("{}")
+	if len(p.SOPAnswers) > 0 {
+		if sopAnswersJSON, err = json.Marshal(p.SOPAnswers); err != nil {
+			return ports.CompletePackingResult{}, fmt.Errorf("feeddirection: encode sop answers: %w", err)
+		}
+	}
+	canonicalSOPProofs := sopProofs
 	targetDate := p.TargetDate.Format("2006-01-02")
 
 	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
@@ -164,33 +182,35 @@ func (r *Repository) CompletePacking(ctx context.Context, p ports.CompletePackin
 INSERT INTO feed_packing_completions (
   tenant_id, park_id, shed_id, partition_label, session_no, target_date, workflow, status,
   packing_proof_ref, completed_by, idempotency_key,
-  packed_head_count, packed_total_kg, packed_items
+  packed_head_count, packed_total_kg, packed_items, sop_proofs, sop_answers
 ) VALUES (
   $1::uuid, $2::uuid, $3::uuid, nullif($4::text, ''), $5, $6::date, $7, 'pending_verification',
-  $8, nullif($9::text, '')::uuid, $10,
-  $11, nullif($12::text, '')::numeric, $13::jsonb
+  nullif($8, ''), nullif($9::text, '')::uuid, $10,
+  $11, nullif($12::text, '')::numeric, $13::jsonb, $14::jsonb, $15::jsonb
 )
 ON CONFLICT (tenant_id, park_id, shed_id, partition_key, session_no, target_date, workflow) DO NOTHING
 RETURNING completion_id::text, row_version`,
 		p.TenantID, p.ParkID, p.ShedID, p.PartitionLabel, p.SessionNo, targetDate, p.Workflow,
 		packingProof, p.CompletedBy, p.IdempotencyKey,
-		packedHead, packedTotal, packedItems).Scan(&completionID, &rowVersion)
+		packedHead, packedTotal, packedItems, sopProofsJSON, sopAnswersJSON).Scan(&completionID, &rowVersion)
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
 		// Natural-key conflict: a row for this SHED-SESSION already exists. Its state AND its stored
 		// video decide the outcome -- the proof_ref is read because a second, DIFFERENT video is a
 		// conflict, not a replay. See ports.ErrPackingAlreadyRecorded.
 		var existingStatus, existingProof string
+		var existingSOP authored.ProofRefs
 		if err := tx.QueryRow(ctx, `
-SELECT completion_id::text, status, row_version, coalesce(packing_proof_ref, '')
+SELECT completion_id::text, status, row_version, coalesce(packing_proof_ref, ''), sop_proofs
 FROM feed_packing_completions
 WHERE tenant_id = $1::uuid AND park_id = $2::uuid AND shed_id = $3::uuid
   AND partition_key = $6 AND session_no = $7 AND target_date = $4::date AND workflow = $5`,
 			p.TenantID, p.ParkID, p.ShedID, targetDate, p.Workflow,
 			domain.PartitionMatchKey(p.PartitionLabel), p.SessionNo).
-			Scan(&completionID, &existingStatus, &rowVersion, &existingProof); err != nil {
+			Scan(&completionID, &existingStatus, &rowVersion, &existingProof, &existingSOP); err != nil {
 			return ports.CompletePackingResult{}, fmt.Errorf("feeddirection: read existing packing completion: %w", err)
 		}
+		_ = existingProof
 		switch existingStatus {
 		case domain.PackingStatusRework:
 			// A verifier rejected the prior video; the operator re-recorded. Move the row back to
@@ -204,16 +224,18 @@ WHERE tenant_id = $1::uuid AND park_id = $2::uuid AND shed_id = $3::uuid
 			if err := tx.QueryRow(ctx, `
 UPDATE feed_packing_completions
 SET status = 'pending_verification',
-    packing_proof_ref = $3,
+    packing_proof_ref = nullif($3, ''),
     rework_reason = NULL,
     packed_head_count = $4,
     packed_total_kg = nullif($5::text, '')::numeric,
     packed_items = $6::jsonb,
+    sop_proofs = $7::jsonb,
+    sop_answers = $8::jsonb,
     updated_at = now(),
     row_version = row_version + 1
 WHERE tenant_id = $1::uuid AND completion_id = $2::uuid AND status = 'rework'
 RETURNING row_version`,
-				p.TenantID, completionID, packingProof, packedHead, packedTotal, packedItems).Scan(&rowVersion); err != nil {
+				p.TenantID, completionID, packingProof, packedHead, packedTotal, packedItems, sopProofsJSON, sopAnswersJSON).Scan(&rowVersion); err != nil {
 				return ports.CompletePackingResult{}, fmt.Errorf("feeddirection: resubmit packing for verification: %w", err)
 			}
 			status = domain.PackingStatusPendingVerification
@@ -232,9 +254,10 @@ RETURNING row_version`,
 			// cannot be stored, so it must not be acknowledged. Returning success here told the
 			// operator their video was accepted while nothing recorded it and no verifier ever saw
 			// it -- silent loss of work they had physically done.
-			if packingProof != existingProof {
+			if !sameProofSet(sopProofs, existingSOP) {
 				return ports.CompletePackingResult{}, ports.ErrPackingAlreadyRecorded
 			}
+			canonicalSOPProofs = existingSOP
 			status = existingStatus
 		default:
 			return ports.CompletePackingResult{}, fmt.Errorf("feeddirection: unexpected packing status %q", existingStatus)
@@ -258,7 +281,7 @@ RETURNING row_version`,
 	}
 	committed = true
 	return ports.CompletePackingResult{
-		CompletionID: completionID, Status: status, RowVersion: rowVersion, NewlyPending: newlyPending,
+		CompletionID: completionID, Status: status, RowVersion: rowVersion, NewlyPending: newlyPending, SOPProofs: canonicalSOPProofs,
 		// Carried on EVERY path, including the idempotent replay above: the enqueue reads these to
 		// compose the verifier's subject label, and a path that leaves them blank ships an item
 		// naming no location.

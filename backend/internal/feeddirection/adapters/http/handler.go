@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/vgoats/goatos/backend/internal/sop/authored"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -109,6 +110,9 @@ type transportTaskDTO struct {
 	OperatorID   string    `json:"operator_id,omitempty"`
 	ReworkReason string    `json:"rework_reason,omitempty"`
 	ScheduledAt  time.Time `json:"scheduled_at"`
+	// SOP is the transport card this task was pinned to (FEED SOP, 2026-09-16): the captures and
+	// questions the phone renders verbatim.
+	SOP *domain.CardContract `json:"sop,omitempty"`
 }
 type transportListResponse struct {
 	Items      []transportTaskDTO  `json:"items"`
@@ -164,7 +168,7 @@ func (h *Handler) GetTransportTasks(w http.ResponseWriter, r *http.Request) {
 	}
 	out := make([]transportTaskDTO, 0, len(page.Items))
 	for _, x := range page.Items {
-		out = append(out, transportTaskDTO{TaskID: x.TaskID, ParkID: x.ParkID, ParkLabel: x.ParkLabel, ShedID: x.ShedID, ShedLabel: x.ShedLabel, BusinessDate: x.BusinessDate, Status: x.Status, OperatorID: x.OperatorID, ReworkReason: x.ReworkReason, ScheduledAt: x.ScheduledAt})
+		out = append(out, transportTaskDTO{TaskID: x.TaskID, ParkID: x.ParkID, ParkLabel: x.ParkLabel, ShedID: x.ShedID, ShedLabel: x.ShedLabel, BusinessDate: x.BusinessDate, Status: x.Status, OperatorID: x.OperatorID, ReworkReason: x.ReworkReason, ScheduledAt: x.ScheduledAt, SOP: x.SOP})
 	}
 	httpresponse.WriteJSON(w, http.StatusOK, transportListResponse{Items: out, NextCursor: page.NextCursor, Filters: transportFiltersFromPort(page.Filters)})
 }
@@ -185,6 +189,10 @@ func transportFiltersFromPort(in ports.FeedTransportFilterOptions) transportFilt
 
 type transportSubmitRequest struct {
 	ProofRef string `json:"proof_ref"`
+	// Proofs / Answers: the transport card's captures and answers (FEED SOP, 2026-09-16); proof_ref
+	// is the older phone's single video and maps onto the seeded slot.
+	Proofs  authored.ProofRefs `json:"proofs"`
+	Answers authored.Answers   `json:"answers"`
 }
 
 type transportSubmitResponse struct {
@@ -220,7 +228,7 @@ func (h *Handler) PostTransportSubmit(w http.ResponseWriter, r *http.Request) {
 		httpresponse.WriteError(w, r, h.log, scope.Status, codedError{Code: scope.Code, Message: scope.Message}, nil)
 		return
 	}
-	res, err := h.service.SubmitTransport(r.Context(), app.SubmitTransportInput{TenantID: tenant, TaskID: r.PathValue("task_id"), ProofRef: body.ProofRef, OperatorID: actor, IdempotencyKey: key, ActorID: actor, ActorType: "operator", TraceID: httpmiddleware.TraceIDFromContext(r.Context()), AuthorizedParkIDs: scope.ParkIDs})
+	res, err := h.service.SubmitTransport(r.Context(), app.SubmitTransportInput{TenantID: tenant, TaskID: r.PathValue("task_id"), ProofRef: body.ProofRef, Proofs: body.Proofs, Answers: body.Answers, OperatorID: actor, IdempotencyKey: key, ActorID: actor, ActorType: "operator", TraceID: httpmiddleware.TraceIDFromContext(r.Context()), AuthorizedParkIDs: scope.ParkIDs})
 	if err != nil {
 		h.writeServiceError(w, r, "submit feed transport", err)
 		return
@@ -345,6 +353,11 @@ type completeDistributionRequest struct {
 	FeedWeightProofRef   string `json:"feed_weight_proof_ref"`
 	DistributionProofRef string `json:"distribution_proof_ref"`
 	WaterProofRef        string `json:"water_proof_ref"`
+	// Proofs is {slot key: proof ref} against the sheet's pinned distribution card and Answers the
+	// crew's answers to its questions (FEED SOP, 2026-09-16). The three fixed refs above are what
+	// an older phone sends; they map onto the seeded slots and are judged by the same card.
+	Proofs  authored.ProofRefs `json:"proofs"`
+	Answers authored.Answers   `json:"answers"`
 }
 
 type completeDistributionResponse struct {
@@ -362,6 +375,14 @@ type completeDistributionResponse struct {
 type codedError struct {
 	Code    string `json:"code"`
 	Message string `json:"message"`
+}
+
+// slotError is codedError plus the card slot / question the refusal names.
+type slotError struct {
+	Code     string `json:"code"`
+	Message  string `json:"message"`
+	Slot     string `json:"slot,omitempty"`
+	Question string `json:"question,omitempty"`
 }
 
 // PostCompleteDistribution records a shed-session's three mandatory proofs and flips it to
@@ -429,6 +450,8 @@ func (h *Handler) PostCompleteDistribution(w http.ResponseWriter, r *http.Reques
 		FeedWeightProofRef:   strings.TrimSpace(body.FeedWeightProofRef),
 		DistributionProofRef: strings.TrimSpace(body.DistributionProofRef),
 		WaterProofRef:        strings.TrimSpace(body.WaterProofRef),
+		Proofs:               body.Proofs,
+		Answers:              body.Answers,
 		CompletedBy:          actorID,
 		IdempotencyKey:       key,
 		ActorID:              actorID,
@@ -457,6 +480,10 @@ type completePackingRequest struct {
 	TargetDate      string `json:"target_date"`
 	Workflow        string `json:"workflow"`
 	PackingProofRef string `json:"packing_proof_ref"`
+	// Proofs / Answers: the packing card's captures and answers (FEED SOP, 2026-09-16);
+	// packing_proof_ref is the older phone's single video and maps onto the seeded slot.
+	Proofs  authored.ProofRefs `json:"proofs"`
+	Answers authored.Answers   `json:"answers"`
 }
 
 type completePackingResponse struct {
@@ -523,6 +550,8 @@ func (h *Handler) PostCompletePacking(w http.ResponseWriter, r *http.Request) {
 		TargetDate:      targetDate,
 		Workflow:        strings.TrimSpace(body.Workflow),
 		PackingProofRef: strings.TrimSpace(body.PackingProofRef),
+		Proofs:          body.Proofs,
+		Answers:         body.Answers,
 		CompletedBy:     actorID,
 		IdempotencyKey:  key,
 		ActorID:         actorID,
@@ -721,6 +750,20 @@ func (h *Handler) writeServiceError(w http.ResponseWriter, r *http.Request, op s
 	// happened to the feed-weight photo, telling an operator who had not taken it yet that the
 	// server was broken. The message names which capture is missing; the code stays one value so a
 	// client can branch on "you still owe a capture" without parsing prose.
+	// FEED SOP (2026-09-16): a capture the pinned card asked for is missing, outside the card,
+	// proving two slots, or of the wrong kind -- the code names the SLOT so the phone can point at
+	// it; the message is the card's own farm sentence. Answers likewise name the question.
+	case errors.Is(err, ports.ErrSOPProofSlotInvalid):
+		key, message, _ := app.SOPProofSlotError(err)
+		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity,
+			slotError{Code: "feed_proof_slot_invalid", Message: message, Slot: key}, nil)
+	case errors.Is(err, ports.ErrSOPAnswerInvalid):
+		id, message, _ := app.SOPAnswerError(err)
+		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity,
+			slotError{Code: "feed_answer_invalid", Message: message, Question: id}, nil)
+	case errors.Is(err, ports.ErrSOPVersionUnknown):
+		httpresponse.WriteError(w, r, h.log, http.StatusConflict,
+			codedError{Code: "feed_sop_version_unknown", Message: "this sheet was issued under a feed SOP version the farm never published; republish the SOP or reissue the sheet"}, nil)
 	case errors.Is(err, ports.ErrFeedWeightProofRequired),
 		errors.Is(err, ports.ErrDistributionProofRequired),
 		errors.Is(err, ports.ErrWaterProofRequired):

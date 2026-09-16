@@ -3,6 +3,7 @@ package ports
 import (
 	"context"
 	"errors"
+	"github.com/vgoats/goatos/backend/internal/sop/authored"
 	"time"
 )
 
@@ -58,6 +59,12 @@ type CompleteDistributionParams struct {
 	FeedWeightProofRef   string
 	DistributionProofRef string
 	WaterProofRef        string
+	// SOPProofs is {slot key: proof ref} for every capture the pinned distribution card asked
+	// for, already judged (FEED SOP, 2026-09-16); the three legacy refs above mirror the seeded
+	// slots (or the first capture when the card no longer has one) for every pre-existing reader.
+	// SOPAnswers is the crew's normalized answers to the card's questions.
+	SOPProofs  authored.ProofRefs
+	SOPAnswers authored.Answers
 	// CompletedBy is the operator principal uuid when the caller carries one, else "".
 	CompletedBy string
 	// IdempotencyKey is the client-supplied request key, reserved in the same transaction as the write.
@@ -82,6 +89,9 @@ type CompleteDistributionResult struct {
 	FeedWeightProofRef   string
 	DistributionProofRef string
 	WaterProofRef        string
+	// SOPProofs is the canonical {slot key: ref} map stored on the row; the enqueue orders it by
+	// the pinned card.
+	SOPProofs authored.ProofRefs
 	// NewlyPending is true ONLY when the row entered pending_verification on THIS call (a fresh submit or
 	// a rework re-submit). It is false on an idempotent replay, an already-pending no-op, or an
 	// already-completed no-op -- so the enqueue fires exactly once per real pending transition.

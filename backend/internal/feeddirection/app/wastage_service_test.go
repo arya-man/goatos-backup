@@ -120,8 +120,11 @@ func TestCompleteWastageFailsClosedOnMissingWiringAndProof(t *testing.T) {
 
 	missingProof := wastageInput(shedA)
 	missingProof.WastageProofRef = ""
-	if _, err := svc.CompleteWastage(context.Background(), missingProof); !errors.Is(err, ports.ErrWastageProofRequired) {
-		t.Fatalf("missing proof err = %v, want ErrWastageProofRequired", err)
+	// FEED SOP (2026-09-16): the missing capture is refused by the pinned card, naming the slot.
+	if _, err := svc.CompleteWastage(context.Background(), missingProof); !errors.Is(err, ports.ErrSOPProofSlotInvalid) {
+		t.Fatalf("missing proof err = %v, want ErrSOPProofSlotInvalid", err)
+	} else if key, _, ok := SOPProofSlotError(err); !ok || key != domain.SlotWastageVideo {
+		t.Fatalf("missing proof must name the seeded wastage slot, got %v", err)
 	}
 
 	missingKey := wastageInput(shedA)

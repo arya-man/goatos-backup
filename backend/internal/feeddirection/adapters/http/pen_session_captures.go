@@ -1,6 +1,7 @@
 package http
 
 import (
+	"github.com/vgoats/goatos/backend/internal/feeddirection/domain"
 	"net/http"
 	"strconv"
 	"strings"
@@ -27,7 +28,10 @@ type capturedSlotDTO struct {
 }
 
 type distributionCapturesResponse struct {
-	Items []capturedSlotDTO `json:"items"`
+	// SOP is the card this pen-session is proven against (FEED SOP, 2026-09-16): its capture slots
+	// and questions, rendered verbatim by every phone on the session.
+	SOP   domain.CardContract `json:"sop"`
+	Items []capturedSlotDTO   `json:"items"`
 	// SessionStatus is the pen-session's completion status ("pending_verification", "completed",
 	// "rework"), empty when nothing was submitted yet. Travels WITH the slots so the mobile
 	// proof screen paints its read-only gate and the slot list from one consistent answer
@@ -97,5 +101,5 @@ func (h *Handler) GetDistributionCaptures(w http.ResponseWriter, r *http.Request
 			CapturedByName: slot.CapturedByName,
 		})
 	}
-	httpresponse.WriteJSON(w, http.StatusOK, distributionCapturesResponse{Items: items, SessionStatus: result.SessionStatus})
+	httpresponse.WriteJSON(w, http.StatusOK, distributionCapturesResponse{SOP: result.Card, Items: items, SessionStatus: result.SessionStatus})
 }
