@@ -9016,6 +9016,116 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "500":
           $ref: "#/components/responses/ServerError"
+  /alerts/rows:
+    get:
+      tags:
+        - Alerts
+      operationId: listAlerts
+      summary: The day's alerts for one park.
+      description: >-
+        The Alerts page below the Work Board (maintainer decision 2026-09-16): what is OFF today
+        for one park and one Asia/Kolkata business day, derived per request from rows other
+        modules already froze -- a pen whose feed sheet moved against yesterday with no shifting
+        recorded to explain it, a feed that runs out inside the configured days. Grain: one row
+        per (rule, subject, day); rows from different rules are disjoint, so `total` and
+        `critical` are whole-scope counts over them. One park per request; "all parks" is one
+        request per park the caller may see. Gated on alerts.read; park scope through grants.
+      parameters:
+        - name: park
+          in: query
+          required: false
+          schema: { type: string, format: uuid }
+          description: The park to read. A park-scoped caller may omit it; a tenant-wide caller must name one.
+        - name: business_date
+          in: query
+          required: false
+          schema: { type: string, format: date }
+          description: Asia/Kolkata business day; defaults to today.
+      responses:
+        "200":
+          description: The park-day's alerts.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AlertsPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /alerts/config:
+    get:
+      tags:
+        - Alerts
+      operationId: getAlertRuleConfig
+      summary: Every alert rule at its effective setting.
+      description: >-
+        The Configure drawer's read: the backend rule catalog with each rule's stored switch and
+        threshold, or its catalog default when nobody has changed it. Gated on alerts.configure,
+        the same capability that enables the page's `configure_alerts` control.
+      responses:
+        "200":
+          description: The rule catalog with effective settings.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AlertRuleConfigList"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /alerts/config/{rule_key}:
+    put:
+      tags:
+        - Alerts
+      operationId: setAlertRuleConfig
+      summary: Switch one alert rule on or off and set its threshold.
+      description: >-
+        Writes one rule's setting. Both fields are required -- a blank is not a zero and not
+        "keep the old value". A threshold outside the rule's declared range is REFUSED (422),
+        never clamped. Idempotent on the `Idempotency-Key` header: an exact replay is one write,
+        a different payload under a known key is refused (409). Gated on alerts.configure.
+      parameters:
+        - name: rule_key
+          in: path
+          required: true
+          schema: { type: string }
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SetAlertRuleConfigRequest"
+      responses:
+        "200":
+          description: The rule's effective setting after the write.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AlertRuleConfig"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "500":
+          $ref: "#/components/responses/ServerError"
   /toxin/review:
     get:
       tags:
@@ -19093,6 +19203,78 @@ components:
         business_date: { type: string, format: date }
         park_id: { type: string }
         own_rows_only: { type: boolean }
+    AlertSeverity:
+      type: string
+      enum: [critical, warning]
+      description: Backend-owned tone of an alert row; every surface colours the same alert the same way.
+    AlertRow:
+      type: object
+      required: [key, rule_key, rule_label, severity, title, detail, park_id, park_label, business_date]
+      properties:
+        key: { type: string, description: Stable for (rule, subject, day); row key and deep-link anchor. }
+        rule_key: { type: string, description: Config vocabulary, never rendered; use rule_label. }
+        rule_label: { type: string }
+        severity: { $ref: "#/components/schemas/AlertSeverity" }
+        title: { type: string, description: Farm sentence naming the subject and the change, rendered verbatim. }
+        detail: { type: string, description: What to check, rendered verbatim. }
+        park_id: { type: string }
+        park_label: { type: string }
+        shed_id: { type: string, description: Blank for a farm-grain alert (feed stock). }
+        shed_name: { type: string }
+        partition_label: { type: string }
+        operational_location_display: { type: string, description: Backend-composed pen label (oploc.Display); blank for a farm-grain alert. }
+        business_date: { type: string, format: date }
+        href: { type: string, description: The module page that owns the underlying fact. }
+    AlertsPage:
+      type: object
+      required: [rows, total, critical, business_date, park_id, rules_run]
+      properties:
+        rows:
+          type: array
+          items: { $ref: "#/components/schemas/AlertRow" }
+        total: { type: integer, description: Whole-scope count of rows for this park-day. }
+        critical: { type: integer, description: Whole-scope count of critical rows; a subset of total. }
+        business_date: { type: string, format: date }
+        park_id: { type: string }
+        rules_run:
+          type: array
+          items: { type: string }
+          description: The enabled rules that were checked, by rule_key.
+        degraded:
+          type: array
+          items: { type: string }
+          description: Rules whose read failed on this request; the rest still serve.
+    AlertRuleConfig:
+      type: object
+      required: [key, label, description, threshold_label, threshold_unit, default_threshold, min_threshold, max_threshold, default_enabled, enabled, threshold, stored]
+      properties:
+        key: { type: string, description: Config vocabulary; submitted in the write path, never rendered. }
+        label: { type: string }
+        description: { type: string }
+        threshold_label: { type: string, description: What the number means, rendered beside the input. }
+        threshold_unit: { type: string }
+        default_threshold: { type: integer }
+        min_threshold: { type: integer }
+        max_threshold: { type: integer }
+        default_enabled: { type: boolean }
+        enabled: { type: boolean }
+        threshold: { type: integer }
+        updated_by: { type: string, description: Name of the person who last set the rule (never an id); blank while the default is in force. }
+        updated_at: { type: string, description: Farm-readable Asia/Kolkata label of the last change; blank while the default is in force. }
+        stored: { type: boolean, description: True when someone has set this rule; false means the catalog default is in force. }
+    AlertRuleConfigList:
+      type: object
+      required: [rules]
+      properties:
+        rules:
+          type: array
+          items: { $ref: "#/components/schemas/AlertRuleConfig" }
+    SetAlertRuleConfigRequest:
+      type: object
+      required: [enabled, threshold]
+      properties:
+        enabled: { type: boolean }
+        threshold: { type: integer, description: Must lie within the rule's min/max; out of range is refused, never clamped. }
     AnimalPurchaseOption:
       type: object
       required: [value, label]

@@ -17,6 +17,9 @@ import (
 	adminuihttp "github.com/vgoats/goatos/backend/internal/adminui/adapters/http"
 	adminuipg "github.com/vgoats/goatos/backend/internal/adminui/adapters/postgres"
 	adminuiapp "github.com/vgoats/goatos/backend/internal/adminui/app"
+	alertshttp "github.com/vgoats/goatos/backend/internal/alerts/adapters/http"
+	alertspg "github.com/vgoats/goatos/backend/internal/alerts/adapters/postgres"
+	alertsapp "github.com/vgoats/goatos/backend/internal/alerts/app"
 	appanalyticshttp "github.com/vgoats/goatos/backend/internal/appanalytics/adapters/http"
 	appconfighttp "github.com/vgoats/goatos/backend/internal/appconfig/adapters/http"
 	appconfigapp "github.com/vgoats/goatos/backend/internal/appconfig/app"
@@ -835,6 +838,13 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 			WithPool(pool, cfg.Postgres.QueryTimeout),
 	)
 	workBoardHandler := workboardhttp.NewHandler(workBoardService, log).WithFlags(workboardapp.NewFlagService(workBoardService, leadershipTasksService, workboardpg.NewParkHeadResolver(pool, cfg.Postgres.QueryTimeout)))
+	// Alerts (maintainer decision 2026-09-16): the page below the Work Board. It stores only
+	// its rule config; every alert is derived per request from rows other modules froze --
+	// the feed sheet, the shifting register -- and the stock rule reuses the feed module's
+	// own low-stock read so the page, the Stock tab and the daily push agree.
+	alertsRepo := alertspg.NewRepository(pool, cfg.Postgres.QueryTimeout)
+	alertsService := alertsapp.NewService(alertsRepo, alertsRepo, alertsRepo, alertspg.NewLowStockReader(feedDirectionRepo), alertsRepo, log)
+	alertsHandler := alertshttp.NewHandler(alertsService, log)
 	// Pen visits (maintainer decisions 2026-09-07 and 2026-09-14): the Tasks module's "For me"
 	// tab -- the work the system owes this person; pen visits are its first card type. The
 	// kernel raises them; this serves the visitor's list and the submit that carries the live
@@ -1327,6 +1337,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	markethttp.Register(protectedMux, marketHandler)
 	leadershiptaskshttp.Register(protectedMux, leadershipTasksHandler)
 	workboardhttp.Register(protectedMux, workBoardHandler)
+	alertshttp.Register(protectedMux, alertsHandler)
 	penvisitshttp.Register(protectedMux, penVisitsHandler)
 	saleshttp.Register(protectedMux, salesHandler)
 	vaccinationhttp.Register(protectedMux, vaccinationHandler)

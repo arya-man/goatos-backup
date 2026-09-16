@@ -5262,3 +5262,11 @@ input[type=date],input[type=datetime-local],input[type=time],input[type=month],i
    Publish the editor closes and the change has to be visibly reflected on the library). */
 .sop-just-published{box-shadow:0 0 0 2px var(--ok), 0 8px 24px color-mix(in srgb,var(--ok) 22%,transparent);border-color:var(--ok)}
 .sop-published-banner{align-items:flex-start}
+
+/* Alerts page (maintainer decision 2026-09-16) -- the page below the Work Board. Scoped under
+   .alerts-page; reuses the mock's phead / kpi / card / tbl / subtabs shapes and only pins the
+   filter strips inside the card header and the all-clear empty state. */
+.alerts-page .card .hd .subtabs{margin-bottom:0}
+.alerts-page .empty{display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;color:var(--muted);gap:6px}
+.alerts-page .phead .btn .ic{width:14px;height:14px}
+.alerts-page .tbl td{vertical-align:top}

@@ -919,6 +919,9 @@ func compilePages(pages []domain.PageContract, families ReferenceFamilies, input
 		case "work-board":
 			out[i].OptionGroups = replaceOptionGroup(out[i].OptionGroups, "work_board_parks", optionsFromReferences(families.Parks, "info"))
 			out[i].Controls = compileWorkBoardControls(out[i].Controls, input, out[i].Copy)
+		case "alerts":
+			out[i].OptionGroups = replaceOptionGroup(out[i].OptionGroups, "alerts_parks", optionsFromReferences(families.Parks, "info"))
+			out[i].Controls = compileAlertsControls(out[i].Controls, input, out[i].Copy)
 		case "weighing-weights", "weighing-analytics":
 			// Live park vocabulary, same injection path Feed uses. The contract declares
 			// the group empty; the parks themselves are tenant rows and must never be
@@ -1085,6 +1088,26 @@ func compileWorkBoardControls(controls []domain.Control, input BootstrapInput, c
 		Enabled:        allowed,
 		DisabledReason: reason,
 		Action:         "/work-board/flags",
+	})
+}
+
+// compileAlertsControls declares the page's top-right Configure button (maintainer decision
+// 2026-09-16): it follows alerts.configure, the "configure" level of the alerts module that
+// HRMS ticks per person -- never a job title, and never alerts.read, which every director
+// holds. Both halves of the capability lock: this control, and GET/PUT /alerts/config.
+func compileAlertsControls(controls []domain.Control, input BootstrapInput, copy map[string]string) []domain.Control {
+	allowed := len(input.Grants) == 0 || grantsAuthorize(input.Grants, input.TenantID, []string{permissions.AlertsConfigure})
+	reason := ""
+	if !allowed {
+		reason = controlCopy(copy, "configure.disabled_no_access", "Changing alert rules is limited to the people HRMS names for it.")
+	}
+	return upsertControl(controls, domain.Control{
+		ID:             "configure_alerts",
+		Label:          controlCopy(copy, "configure.title", "Configure alerts"),
+		Kind:           "action",
+		Enabled:        allowed,
+		DisabledReason: reason,
+		Action:         "GET /alerts/config",
 	})
 }
 
@@ -2185,6 +2208,8 @@ func permissionsForNav(id string) []string {
 		return []string{permissions.VerificationReview}
 	case "work-board":
 		return []string{permissions.WorkBoardRead}
+	case "alerts":
+		return []string{permissions.AlertsRead}
 	case "leadership-tasks":
 		return []string{permissions.LeadershipTasksRead}
 	case "health-config":
