@@ -242,6 +242,8 @@ func buildPublisher(ctx context.Context, kind string, pool *pgxpool.Pool, pgCfg 
 		// so without these an approved birth/death opens no follow-up work locally.
 		eventwiring.RegisterWorkflowConsumers(bus,
 			eventwiring.NewWorkflowConsumerService(pool, pgCfg.QueryTimeout, logger), logger)
+		captureEnqueuer, captureReviews := eventwiring.NewCountsCaptureStores(pool, pgCfg.QueryTimeout)
+		eventwiring.RegisterCountsCaptureConsumers(bus, captureEnqueuer, captureReviews)
 		healthapp.NewDeathLifecycleHandler(healthRepo).Register(bus)
 		// Toxin task creation (maintainer decision 2026-08-25): in local eventbus mode this
 		// in-process bus IS the delivery, so without this a recorded feed purchase never gets its

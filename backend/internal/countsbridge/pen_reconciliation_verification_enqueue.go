@@ -42,6 +42,8 @@ func (e *PenReconciliationVerificationEnqueuer) EnqueuePenReconciliationVerifica
 			RefID:   in.CardID,
 		},
 		MediaRefs:      in.MediaRefs,
+		MediaMeta:      penReconciliationMeta(in.MediaMeta),
+		ContextRows:    penReconciliationRows(in.ContextRows),
 		OperatorID:     ptrIfSet(in.OperatorID),
 		ShedID:         ptrIfSet(in.ShedID),
 		PartitionLabel: ptrIfSet(in.PartitionLabel),
@@ -50,4 +52,26 @@ func (e *PenReconciliationVerificationEnqueuer) EnqueuePenReconciliationVerifica
 		IdempotencyKey: in.IdempotencyKey,
 	})
 	return err
+}
+
+func penReconciliationMeta(meta []countsdomain.PenReconciliationProofMeta) []verificationdomain.MediaMeta {
+	if len(meta) == 0 {
+		return nil
+	}
+	captures := make([]verificationdomain.ProofCapture, len(meta))
+	for i, m := range meta {
+		captures[i] = verificationdomain.ProofCapture{Title: m.Label, Kind: m.Kind}
+	}
+	return verificationdomain.BuildMediaMeta(captures)
+}
+
+func penReconciliationRows(rows []countsdomain.PenReconciliationContextRow) []verificationdomain.ContextRow {
+	if len(rows) == 0 {
+		return nil
+	}
+	out := make([]verificationdomain.ContextRow, len(rows))
+	for i, r := range rows {
+		out[i] = verificationdomain.ContextRow{Label: r.Label, Value: r.Value, Group: r.Group}
+	}
+	return out
 }

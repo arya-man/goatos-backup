@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	countssoppg "github.com/vgoats/goatos/backend/internal/countssop/adapters/postgres"
+	countssopapp "github.com/vgoats/goatos/backend/internal/countssop/app"
 	feedsoppg "github.com/vgoats/goatos/backend/internal/feedsop/adapters/postgres"
 	feedsopapp "github.com/vgoats/goatos/backend/internal/feedsop/app"
 	"log/slog"
@@ -578,7 +580,9 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 		// FEED SOP (maintainer decision 2026-09-16): the feed.direction / feed.packing /
 		// feed.transport versions' `feed` section -- the cards the crew runs -- is validated here
 		// so a card the phone could not render is never saved.
-		WithFormDSLContract(feedsopapp.FeedSOPContract)
+		WithFormDSLContract(feedsopapp.FeedSOPContract).
+		// HERD OPERATIONS CAPTURE CARD (2026-09-16): counts.birth / counts.death `capture_card`.
+		WithFormDSLContract(countssopapp.CaptureCardContract)
 
 	protocolRepo := protocolpg.NewRepository(pool, cfg.Postgres.QueryTimeout)
 	obligationRepo := obligationpg.NewRepository(pool, cfg.Postgres.QueryTimeout)
@@ -708,7 +712,10 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 		// renders a UUID at an approver (golden frontend rule: the label is backend-owned).
 		WithApprovalNames(countsApprovalRepo).
 		WithShiftingExecutionWorkflow(countsShiftingExecutionService).
-		WithPenReconciliationWorkflow(countsPenReconciliationService)
+		WithPenReconciliationWorkflow(countsPenReconciliationService).
+		// SOP capture card (2026-09-16): the Add birth / Add death extras, read from the SOP
+		// library through countssop and judged against the proof register.
+		WithCaptureCards(countsapp.NewCaptureCardService(countssoppg.NewCaptureCardSource(pool, cfg.Postgres.QueryTimeout), countsProofValidator))
 	feedService := feedapp.NewService(feedpg.NewRepository(pool, cfg.Postgres.QueryTimeout)).
 		WithCountsProjectionProvider(countsService).
 		WithCountsProjectionExceptionResolver(countsService).
@@ -1197,6 +1204,8 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// Birth/death workflow consumers: same single-registration pattern (internal/eventwiring), also
 	// called by cmd/outbox-relay, cmd/domain-event-consumer, domainconsumer/wiring, and kernelstages.
 	eventwiring.RegisterWorkflowConsumers(bus, tasksWorkflowService, log)
+	// SOP capture card: the birth report's own proofs -> verifier, verdict -> approval row.
+	eventwiring.RegisterCountsCaptureConsumers(bus, countsbridge.NewBirthCaptureVerificationEnqueuer(verificationService), countsApprovalRepo)
 	healthapp.NewDeathLifecycleHandler(healthRepo).Register(bus)
 	// Notification PUSH LAYER ONLY (docs/decisions/vaccination-notification-rules.md §4c): read-only
 	// consumers of vaccination.verification.awaiting_review and vaccination.verify.rejected/accepted
