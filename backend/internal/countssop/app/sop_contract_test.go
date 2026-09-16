@@ -51,3 +51,28 @@ func TestCaptureCardContractIgnoresOtherCodes(t *testing.T) {
 		}
 	}
 }
+
+// TestCaptureCardContractRefusesUnknownKeysByPath: a misspelt key ("requird", "only_iff") would
+// otherwise be dropped silently and publish a card that means something the author did not write
+// -- a compulsory slot read as optional, a conditional question shown unconditionally.
+func TestCaptureCardContractRefusesUnknownKeysByPath(t *testing.T) {
+	raw := `{"capture_card":{"schema_version":"goatos.sop-capture.v1","colour":"red",
+	  "proofs":[{"key":"a","title":"A","kind":"video","requird":false}],
+	  "questions":[{"id":"q","kind":"choice","title":"Q","required":true,"options":[{"value":"x","label":"X","tone":1}]},
+	               {"id":"r","kind":"text","title":"R","required":true,"only_if":{"question_id":"q","value":"x","op":"eq"}}]}}`
+	report := sopdomain.ValidationReport{Valid: true}
+	CaptureCardContract("counts.birth", doc(t, raw), &report)
+	want := []string{"form_dsl.capture_card.colour", "form_dsl.capture_card.proofs.0.requird", "form_dsl.capture_card.questions.0.options.0.tone", "form_dsl.capture_card.questions.1.only_if.op"}
+	got := map[string]bool{}
+	for _, e := range report.Errors {
+		got[e.Field] = true
+	}
+	for _, w := range want {
+		if !got[w] {
+			t.Fatalf("unknown key %s not refused by path; errors=%+v", w, report.Errors)
+		}
+	}
+	if report.Valid {
+		t.Fatal("a card with unknown keys must not be valid")
+	}
+}
