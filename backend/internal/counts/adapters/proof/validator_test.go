@@ -7,6 +7,7 @@ import (
 
 	countsdomain "github.com/vgoats/goatos/backend/internal/counts/domain"
 	countsports "github.com/vgoats/goatos/backend/internal/counts/ports"
+	"github.com/vgoats/goatos/backend/internal/platform/uuidutil"
 	proofdomain "github.com/vgoats/goatos/backend/internal/proof/domain"
 	proofports "github.com/vgoats/goatos/backend/internal/proof/ports"
 )
@@ -156,5 +157,52 @@ func TestMilkProofStepFromCanonicalFieldKey(t *testing.T) {
 	v = NewValidator(&proofRepoStub{artifacts: map[string]proofdomain.Artifact{"proof-f": wrong}})
 	if err := v.ValidateMilkFeedingProofs(context.Background(), "tenant-1", taskID, []countsdomain.MilkPreparationStepProof{{StepCode: countsdomain.MilkFeedingStepCleanBottles, ProofRef: "proof-f"}}); err == nil {
 		t.Fatalf("prep-flow field_key must not satisfy a feeding step")
+	}
+}
+
+// strictIDRepoStub mirrors the Postgres register: GetProofsByIDs casts every id to uuid and FAILS
+// the whole read on one that is not (pgconv.UUIDs -> "cannot parse UUID").
+type strictIDRepoStub struct {
+	proofports.Repository
+	artifacts map[string]proofdomain.Artifact
+	asked     []string
+}
+
+func (r *strictIDRepoStub) GetProofsByIDs(_ context.Context, _ string, ids []string) (map[string]proofdomain.Artifact, error) {
+	r.asked = append(r.asked, ids...)
+	for _, id := range ids {
+		if !uuidutil.IsUUIDString(id) {
+			return nil, errors.New("proof: proof ids: cannot parse UUID " + id)
+		}
+	}
+	return r.artifacts, nil
+}
+
+// E2E 2026-09-17: an older phone's completion carrying a proof_ref that is not a register id
+// ("not-a-uuid") answered 500 internal_error, because the one batched register read failed on the
+// uuid cast. A ref the register cannot hold is simply not a capture of the slot: the judge refuses
+// it BY SLOT (422), and the kind lookup reports it absent.
+func TestShiftingProofMediaRefusesANonRegisterRefBySlotNotAsAServerError(t *testing.T) {
+	good := "11111111-1111-4111-8111-111111111111"
+	repo := &strictIDRepoStub{artifacts: map[string]proofdomain.Artifact{good: {
+		ProofID: good, TenantID: "tenant-1", UploadState: "completed", ProofType: "video", MimeType: "video/mp4",
+	}}}
+	v := NewValidator(repo)
+	onAbsent := errors.New("slot shifting_shifting_video refused")
+	err := v.ValidateShiftingProofMedia(context.Background(), "tenant-1", []countsports.ExpectedShiftingProofMedia{
+		{ProofID: good, Kind: "video"},
+		{ProofID: "not-a-uuid", Kind: "video", OnAbsent: onAbsent},
+	})
+	if !errors.Is(err, onAbsent) {
+		t.Fatalf("err = %v, want the slot's own refusal", err)
+	}
+	kinds, err := v.DescribeShiftingProofMedia(context.Background(), "tenant-1", []string{good, "not-a-uuid"})
+	if err != nil || kinds[good] != "video" || len(kinds) != 1 {
+		t.Fatalf("describe = %v, %v", kinds, err)
+	}
+	for _, id := range repo.asked {
+		if !uuidutil.IsUUIDString(id) {
+			t.Fatalf("the register was asked for %q", id)
+		}
 	}
 }
