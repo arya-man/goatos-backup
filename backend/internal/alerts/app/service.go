@@ -4,6 +4,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -117,7 +118,7 @@ type Page struct {
 	// the client shows those as "couldn't load" rather than an empty page that reads as
 	// "all clear".
 	Degraded []domain.RuleKey
-	// RulesRun is every enabled rule, so the page can say what it checked. A composed event
+	// RulesRun contains only completed checks; degraded and skipped rules are separate. A composed event
 	// rule runs as "event:<id>".
 	RulesRun []domain.RuleKey
 	// Skipped names enabled rules that did not run for this date and why, worded for the page.
@@ -240,12 +241,17 @@ func (s *Service) List(ctx context.Context, tenantID, parkID, businessDate strin
 	}
 	wg.Wait()
 	for i, j := range jobs {
-		page.RulesRun = append(page.RulesRun, j.key)
+		if errors.Is(results[i].err, errFeedSheetsMissing) {
+			rule, _ := domain.RuleByKey(j.key)
+			page.Skipped = append(page.Skipped, SkippedRule{Key: j.key, Label: rule.Label, Reason: "Not checked: both this date’s and the previous day’s issued feed sheets are required."})
+			continue
+		}
 		if results[i].err != nil {
 			s.log.WarnContext(ctx, "alerts_rule_read_failed", "rule", j.key, "park_id", parkID, "business_date", businessDate, "error", results[i].err)
 			page.Degraded = append(page.Degraded, j.key)
 			continue
 		}
+		page.RulesRun = append(page.RulesRun, j.key)
 		rows := results[i].rows
 		for k := range rows {
 			if parkName != "" {
@@ -257,6 +263,8 @@ func (s *Service) List(ctx context.Context, tenantID, parkID, businessDate strin
 	domain.SortAlerts(page.Rows)
 	return page, nil
 }
+
+var errFeedSheetsMissing = errors.New("feed comparison needs both issued sheets")
 
 // listConcurrency bounds the rule reads in flight for one page read: enough to collapse the
 // round trips, small enough that a burst of page loads cannot swamp the shared pool.
@@ -308,8 +316,8 @@ func (s *Service) penFeedChanges(ctx context.Context, tenantID, parkID, business
 		return nil, yesterdayErr
 	}
 	if yesterday == nil || today == nil {
-		// One of the two sheets was never issued: nothing to compare.
-		return nil, nil
+		// Missing evidence is a skipped comparison, never a successful check.
+		return nil, errFeedSheetsMissing
 	}
 	moves, err := s.movements.PenMovements(ctx, tenantID, parkID, yesterdayIssued, todayIssued)
 	if err != nil {

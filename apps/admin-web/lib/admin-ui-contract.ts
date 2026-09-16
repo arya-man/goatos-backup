@@ -6,6 +6,11 @@ export type AdminUiOption = AdminWebPageContract["option_groups"][number]["optio
 export type AdminUiControl = AdminWebPageContract["controls"][number];
 
 const COPY_FALLBACKS: Record<string, Record<string, string>> = {
+  // Alerts can deploy before the backend publishes the more precise empty-state copy.
+  "alerts": {
+    "state.empty.incomplete": "No alerts to show from the available checks. Some checks were not completed; this is not an all-clear.",
+    "state.empty.filtered": "No alerts match this severity. Other alerts exist; choose All to see them.",
+  },
   // ANIMAL PURCHASES. The questionnaire card's fixed keys ship with the SOP review (2026-09-13);
   // keep the page alive if admin-web deploys one release before the backend copy contract.
   "animal-purchases": {

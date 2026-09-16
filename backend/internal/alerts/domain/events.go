@@ -134,7 +134,7 @@ func DetectEvents(businessDate string, parkLabel string, rule EventRule, events 
 	for i, e := range events {
 		if i >= MaxEventRowsPerRule {
 			out = append(out, Alert{
-				Key:          fmt.Sprintf("event:%s:%s:more", rule.ID, businessDate),
+				Key:          fmt.Sprintf("event:%s:%s:%s:more", rule.ID, businessDate, e.ParkID),
 				RuleKey:      RuleKey("event:" + rule.ID),
 				RuleLabel:    rule.Label,
 				Severity:     rule.Severity,
@@ -152,7 +152,7 @@ func DetectEvents(businessDate string, parkLabel string, rule EventRule, events 
 			loc = penDisplay(e.ShedName, e.PartitionLabel)
 		}
 		out = append(out, Alert{
-			Key:                        fmt.Sprintf("event:%s:%s:%s", rule.ID, businessDate, e.Key),
+			Key:                        fmt.Sprintf("event:%s:%s:%s:%s", rule.ID, businessDate, e.ParkID, e.Key),
 			RuleKey:                    RuleKey("event:" + rule.ID),
 			RuleLabel:                  rule.Label,
 			Severity:                   rule.Severity,

@@ -2,6 +2,8 @@ package app
 
 import (
 	"context"
+	"errors"
+	"slices"
 	"testing"
 	"time"
 
@@ -62,5 +64,59 @@ func TestLowStockRuleRunsForTodayOnly(t *testing.T) {
 	}
 	if stock.calls != 1 || len(today.Rows) != 1 || today.Rows[0].RuleKey != domain.RuleFeedLowStock {
 		t.Fatalf("today must read live stock once and report it: calls=%d rows=%+v", stock.calls, today.Rows)
+	}
+}
+
+// Each missing input must be distinguished from a completed, clean comparison.
+type reviewSheets struct {
+	missing string
+	fail    bool
+}
+
+func (f reviewSheets) PenFeedDay(_ context.Context, _, _, day string) ([]domain.PenFeedDay, string, error) {
+	if f.fail {
+		return nil, "", errors.New("reader unavailable")
+	}
+	if f.missing == "both" || f.missing == day {
+		return nil, "", nil
+	}
+	return []domain.PenFeedDay{{ShedID: "s", HeadCount: 10, QuantityKg: 5}}, day + "T08:00:00Z", nil
+}
+func TestPenFeedCheckOnlyCountsCompletedComparisons(t *testing.T) {
+	for _, tc := range []struct {
+		name, missing              string
+		fail                       bool
+		checked, skipped, degraded bool
+	}{
+		{name: "today missing", missing: "2026-09-10", skipped: true},
+		{name: "yesterday missing", missing: "2026-09-09", skipped: true},
+		{name: "both missing", missing: "both", skipped: true},
+		{name: "reader failure", fail: true, degraded: true},
+		{name: "both issued and unchanged", checked: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			now := time.Date(2026, 9, 16, 10, 0, 0, 0, biztime.DefaultLocation())
+			svc := NewService(fakeConfig{}, reviewSheets{missing: tc.missing, fail: tc.fail}, fakeMoves{}, nil, nil, nil).WithClock(func() time.Time { return now })
+			page, err := svc.List(context.Background(), "t", "p1", "2026-09-10")
+			if err != nil {
+				t.Fatal(err)
+			}
+			key := domain.RulePenFeedQuantityChange
+			skipped := false
+			for _, r := range page.Skipped {
+				if r.Key == key {
+					skipped = true
+					if r.Label == "" || r.Reason == "" {
+						t.Fatal("skip must explain what could not be checked")
+					}
+				}
+			}
+			if slices.Contains(page.RulesRun, key) != tc.checked || skipped != tc.skipped || slices.Contains(page.Degraded, key) != tc.degraded {
+				t.Fatalf("unexpected check status: %+v", page)
+			}
+			if len(page.Rows) != 0 {
+				t.Fatalf("unexpected alerts: %+v", page.Rows)
+			}
+		})
 	}
 }

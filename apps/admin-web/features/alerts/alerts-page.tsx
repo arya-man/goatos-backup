@@ -11,7 +11,7 @@ import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
 import { istDayPlus, todayIso } from "@/lib/format";
 import { hrefWithParams, one, type RouteSearchParams } from "@/lib/search-params";
 import { AlertsConfigure } from "./alerts-configure";
-import { ALERTS_PATH, PARAM_CONFIGURE } from "./alerts-model";
+import { alertsEmptyState, ALERTS_PATH, PARAM_CONFIGURE } from "./alerts-model";
 
 const PARAM_PARK = "park";
 const PARAM_DATE = "date";
@@ -95,6 +95,13 @@ export async function AlertsPage({ searchParams, pageContract }: { searchParams?
   const alertsTable = table(pageContract, "alerts");
   const labels = tableLabels(pageContract, "alerts");
   const isToday = businessDate === todayIso();
+  const emptyState = alertsEmptyState({
+    visibleRows: rows.length,
+    totalRows: allRows.length,
+    allFailed,
+    incomplete: partial || skipped.length > 0 || reads.length === 0,
+    rulesRun: rulesRun.size,
+  });
 
   const href = (overrides: Record<string, string | null | undefined>) => hrefWithParams(ALERTS_PATH, sp, overrides);
   const configureHref = href({ [PARAM_CONFIGURE]: "1" });
@@ -199,11 +206,11 @@ export async function AlertsPage({ searchParams, pageContract }: { searchParams?
           </div>
         ) : null}
 
-        {!allFailed && rows.length === 0 ? (
+        {emptyState ? (
           <div className="empty" style={{ padding: 28 }}>
             <ShieldCheck size={22} aria-hidden="true" />
             <div className="small muted" style={{ marginTop: 8 }} data-testid="alerts-empty">
-              {rulesRun.size === 0 ? t("state.empty.no_rules") : t("state.empty")}
+              {t(emptyState)}
             </div>
           </div>
         ) : null}
