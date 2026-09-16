@@ -200,3 +200,23 @@ func TestCrashSessionsConfigKeepsExplicitAppScope(t *testing.T) {
 		t.Fatalf("CLI override cfg=%+v", cfg)
 	}
 }
+
+func TestInitialExportExecutionOverridesConfiguredTables(t *testing.T) {
+	t.Setenv("GOATOS_CRASHLYTICS_BQ_TABLE", "project.crashes.app")
+	t.Setenv("GOATOS_CRASHLYTICS_SESSIONS_TABLE", "project.sessions.app")
+	t.Setenv("GOATOS_PERFORMANCE_BQ_TABLE", "project.performance.app")
+	cfg, err := parseConfig([]string{"-tenant-id=" + testTenantID, "-crashlytics-bq-table=", "-crashlytics-sessions-table="})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.CrashlyticsTable != "" || cfg.CrashlyticsSessionsTable != "" || cfg.PerformanceTable != "project.performance.app" {
+		t.Fatal("execution must omit only selected providers")
+	}
+	cfg, err = parseConfig([]string{"-tenant-id=" + testTenantID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.CrashlyticsTable != "project.crashes.app" || cfg.CrashlyticsSessionsTable != "project.sessions.app" {
+		t.Fatal("next execution must retain configured providers")
+	}
+}

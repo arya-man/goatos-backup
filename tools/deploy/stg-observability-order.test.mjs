@@ -4,7 +4,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 const source=readFileSync(new URL('./stg-clouddeploy-task.sh',import.meta.url),'utf8');
 const fn=source.match(/analytics_rollup_env_vars\(\) \{[\s\S]*?normal_observability_deploy\(\) \{[\s\S]*?\n\}/)[0];
-function execute(image='backend',fail=false){return spawnSync('bash',['-c',`set -euo pipefail
+function execute(image='backend',fail=false,pending='',preflightFail=false){return spawnSync('bash',['-c',`set -euo pipefail
 ALLOY_IMAGE=immutable
 BACKEND_IMAGE=backend
 PROJECT_ID=goatos-stg
@@ -13,6 +13,7 @@ GOATOS_ANALYTICS_SOURCE_APP_ID=sg.mesha.goatos
 GOATOS_CRASHLYTICS_BQ_TABLE=goatos-stg.firebase_crashlytics.sg_mesha_goatos_ANDROID
 GOATOS_CRASHLYTICS_SESSIONS_TABLE=goatos-stg.firebase_sessions.sg_mesha_goatos_ANDROID
 GOATOS_PERFORMANCE_BQ_TABLE=goatos-stg.firebase_performance.sg_mesha_goatos_ANDROID
+node(){ ${preflightFail?'return 7':`printf '%s' '${pending}'`}; }
 job_image(){ echo '${image}'; }
 die(){ exit 9; }
 run(){ echo "$*"; ${fail?'return 8':'return 0'}; }
@@ -65,4 +66,15 @@ test('packaged receipt and explicit deployment versus data certification modes',
  const wrapper=readFileSync(new URL('./stg-cloudbuild-release.sh',import.meta.url),'utf8');
  assert.match(wrapper,/--query-validity-only/);
  assert.match(wrapper,/full-data readiness is pending separate certification/);
+});
+
+test('verified initial exports are omitted only for this execution',()=>{
+ const r=execute('backend',false,'-crashlytics-bq-table=,-crashlytics-sessions-table=');
+ assert.equal(r.status,0,r.stderr);
+ assert.match(r.stdout,/lookback-days=7,-crashlytics-bq-table=,-crashlytics-sessions-table= --wait/);
+ assert.doesNotMatch(r.stdout,/jobs update/);
+});
+test('initial export verification failure prevents job and provisioning',()=>{
+ const r=execute('backend',false,'',true);
+ assert.equal(r.status,7); assert.doesNotMatch(r.stdout,/jobs execute|apply-and-strict-smoke|success/);
 });

@@ -28,11 +28,20 @@ The output must retain provider-pending status; it does not certify those source
 All other required data, including Faro, must be present. Expired receipts or
 new export tables remove this exception; do not renew the clock.
 
-When exports arrive, first verify live app/table schemas and project/location,
-then configure the existing rollup job's explicit crash/session/performance table
-IDs and app ID. Execute the bounded seven-day backfill and rerun data certification.
-Table arrival alone cannot enable currently unconfigured adapters. Keep the
-readiness gap open until the real query and denominator evidence exists.
+Normal deployment verifies this same receipt before executing the seven-day
+rollup. Only providers proven to be in the bounded initial-export wait are
+omitted through per-execution empty table flags; the persistent job environment
+remains configured. The receipt must cover the exact configured table IDs.
+Expired receipts and nonempty datasets provide no omission, and metadata,
+permission, source-identity, and query errors remain failures. The deployment
+still reports full-data certification pending.
+
+Every scheduled or manual rollup refreshes all first-party dates before querying
+Firebase, so an external provider failure cannot strand newer activity summaries.
+Such a failure still writes a failed audit and is retried by the existing worker.
+When exports arrive, verify live app/table schemas and project/location, execute
+the bounded seven-day backfill, and rerun data certification. Keep the readiness
+gap open until the real query and denominator evidence exists.
 
 Source changes to packaged scripts/dashboards/receipt require a fresh runner build
 and both digest pins before any future rollout. Artifact-only builds may run when explicitly authorized for source certification.

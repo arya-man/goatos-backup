@@ -221,14 +221,20 @@ func runAppEventsAndFinish(ctx context.Context, pool *pgxpool.Pool, cfg config, 
 	if days == 0 {
 		days = 1
 	}
+	// Complete every first-party date before touching external providers. An
+	// unavailable export must not strand yesterday behind the oldest date.
 	for offset := days - 1; offset >= 0; offset-- {
 		one := cfg
 		one.SourceDate = cfg.SourceDate.AddDate(0, 0, -offset)
 		written, err := runAppEventsRollup(ctx, pool, one)
+		rows += written
 		if err != nil {
 			return failRun(ctx, pool, runID, started, rows, bytes, err)
 		}
-		rows += written
+	}
+	for offset := days - 1; offset >= 0; offset-- {
+		one := cfg
+		one.SourceDate = cfg.SourceDate.AddDate(0, 0, -offset)
 		crashRows, crashBytes, err := runOptionalCrashSessions(ctx, pool, one)
 		rows += crashRows
 		bytes += crashBytes
