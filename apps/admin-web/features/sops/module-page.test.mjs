@@ -17,3 +17,12 @@ test("module SOP pages author into their own slice", () => {
   assert.match(deriveSource, /const prefix = input\.domain;/);
   assert.match(actionsSource, /SOP_SLICE_LABEL\[input\.domain\]/);
 });
+
+// SHIFTING SOP (2026-09-16): the shifting SOP carries both a `shifting` cards section and the
+// dormant seeded follow_up track; the cards editor must be chosen BEFORE the operator-steps editor.
+test("the shifting cards editor is chosen before the follow_up editor", () => {
+  const shiftingBranch = modulePageSource.indexOf("parseShifting(version.form_dsl)");
+  const followUpBranch = modulePageSource.indexOf("parseFollowUp(version.form_dsl)");
+  assert.ok(shiftingBranch > 0, "module page must parse the shifting section");
+  assert.ok(followUpBranch > shiftingBranch, "parseShifting must run before parseFollowUp");
+});
