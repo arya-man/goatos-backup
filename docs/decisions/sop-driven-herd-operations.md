@@ -1,6 +1,6 @@
 # SOP-driven Herd Operations (maintainer decision 2026-09-13)
 
-Status: accepted and implemented (phase 1) · Owner: counts + tasks + sop + admin-web + Android
+Status: accepted and implemented (phase 1; capture-form parity 2026-09-16, see below) · Owner: counts + tasks + sop + admin-web + Android
 Framework source: `goatOS_Config_Framework.pdf` v2 (Categories, Task Types, Items, SOP = ordered
 tasks + schedule, cross-category chaining).
 Machine enforcement: `make sop-driven-herd-operations-guard`
@@ -115,9 +115,66 @@ every bus process behaves alike). The legacy one-video complete route stays serv
   `RegisterWorkflowConsumers` instead of a hand list, so the reconcile rework reopener is live on
   every bus process; the cascade guard reads that helper's constructor list.
 
+## Capture-form parity (2026-09-16)
+
+The Add birth / Add death forms now take a SOP-authored **capture card** -- photo/video slots
+(`video | photo | either`, required or optional) and questions -- authored on `/counts/sops`
+(`?part=capture`) and published with the SOP version. It sits beside the `follow_up` track, not
+inside it: the card is what the operator records AT REPORT time, the track is the work after.
+
+- **Absent card = today.** `ParseCaptureCard` reads a missing card as empty; the form renders, gates
+  and enqueues exactly as before, and the request carries no `sop_capture`.
+- **Wire shape.** Phone -> server: `sop_capture {sop_version_id, proofs{slot_key: proof_id}, answers}`
+  on `POST /app/counts/birth-events` and `/death-events`. Server -> reviewers:
+  `CountsApprovalCapture {version_label, rows:[{label,value,group?}], media:[{proof_id,label,kind}],
+  missing_note?}` on the approval list, rendered verbatim by the admin-web approvals drawer and the
+  phone Approval screen. `GET /app/counts/capture-cards/{kind}` serves the published card (Room-cached
+  on the phone, refreshed on every open).
+- **Older app vs new app.** A request with no `sop_capture` is ACCEPTED and its capture is recorded
+  as "Not captured (older app)". A request that sends one is judged strictly: an unknown version is
+  `409 capture_sop_version_unknown`; a missing/extra/wrong-kind slot is
+  `422 capture_proof_slot_invalid`; a bad answer is `422 capture_answer_invalid`; both name the field
+  in `field_errors[0].field`. The proof's kind is read from the proof register, never the client.
+- **Birth capture is verified PER FORM PROOF SLOT** (maintainer correction, 2026-09-16). A birth with
+  capture media emits `counts.birth.reported`; its consumer enqueues ONE verification item per slot,
+  key `counts-birth-capture:<birth_event_id>:<slot_key>:<ref>`, subject "Birth report · <slot title>",
+  carrying only that slot's proof plus the form answers as context rows (group "At report"). A
+  questions-only card enqueues nothing. Verdicts are fenced by slot AND ref (a verdict on a superseded
+  proof is ignored); the per-slot map rolls up into `capture_review_status`; a reject re-shoots ONLY
+  that slot, as a `reshoot_report` step appended to the birth workflow.
+- **Death is unchanged in shape**: one bundle item. Its bundle now opens with the report's capture
+  media labelled "At report · <slot>" (and the answers as "At report" rows), then every step's proofs
+  in step order. A rejected report proof is re-shot through the same `reshoot_report` step, and the
+  recording replaces that proof in the stored capture.
+- **Death follows its SOP steps.** The approval gate waits for EVERY authored step
+  (`tasks/domain.DeathStepsComplete`), the bundle carries every step's proofs, and the phone records
+  every step as drafts (videos, photos, answers in `workflow_step_draft_answer`, Room 65) and sends
+  them from one Submit. The fixed two-video gate is gone on both sides and is blocked by
+  `sop-driven-herd-operations-guard` rules `death-pair-hardcoded` / `death-pair-on-phone`.
+- **Verifier items carry labelled media** (`verificationdomain.BuildMediaMeta`) and answer context
+  rows for birth steps, death and reconcile.
+- **Reconcile**: a workflow-backed card now completes through its own workflow (the completion SQL
+  matched `workflow_id IS NULL` only), and the debt list carries the full proof set with media labels.
+- Schema: migrations `000321` (workflow capture evidence, reconcile media meta), `000322` (counts
+  approval capture columns), `000323` (birth-reported outbox index). These numbers collide with
+  `origin/main` and are renumbered at merge.
+
+**Unavoidable deploy-day differences with no SOP edited:** verifier items carry media labels (the step
+titles) and birth step items carry their answers as context rows; a death rework now records the
+verifier's reason and clears the step's proofs; a workflow-backed reconcile card completes instead of
+failing; proof kinds are read from the register; the death Submit messages no longer say "both
+videos ... backend".
+
+Pinned by `TestSeededDeathDocumentBehavesAsToday`, `TestSeededReconcileQuestionnaireBehavesAsToday`,
+`TestNoCaptureCardSubmitsBehaveAsTodayPg`, the Android seeded-behaviour cases in
+`AddBirthViewModelSopCaptureTest` / `AddDeathViewModelSopCaptureTest` /
+`WorkflowDetailViewModelDeathFollowsSopTest`, and the per-slot birth tests
+`TestBirthCaptureEnqueuesOneItemPerFormProofSlot`, `TestBirthCaptureRejectReshootsOnlyThatSlot`,
+`TestBirthCaptureStaleVerdictOnSupersededRefIsIgnored`, `TestBirthCaptureQuestionsOnlyFormEnqueuesNothing`.
+
 ## Phase 2 (not done)
 
-Shifting completion on the engine (feed-config fingerprint snapshot at open); capture forms taking
-SOP-authored extra questions; the `/config` editor for the Category and Task Type registries;
-cross-category `triggers` (Problem → Action → Commodity); migrating vaccination / feed / weighing
-onto the same engine.
+Shifting completion on the engine (feed-config fingerprint snapshot at open); a capture card on the
+Raise shifting form; the `/config` editor for the Category and Task Type registries; cross-category
+`triggers` (Problem → Action → Commodity); migrating vaccination / feed / weighing onto the same
+engine.
