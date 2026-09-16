@@ -121,16 +121,24 @@ export function handlerTypesIn(source) {
 // the helper's own body so a handler added there is covered on every bus that calls it, and a
 // handler that is NOT in the helper is still a finding on every bus that only calls the helper.
 export const WORKFLOW_CONSUMERS_HELPER = "backend/internal/eventwiring/workflows.go";
-export function workflowConsumerConstructorsIn(helperSource) {
+// The shared registration helpers in that file. RegisterCountsCaptureConsumers (the SOP capture
+// card's birth-report consumers, 2026-09-16) follows the same one-helper-on-every-bus shape; each
+// helper covers ONLY the handlers constructed in its own body, so a bus that calls one helper is
+// still a finding for the other helper's handlers.
+export const SHARED_CONSUMER_HELPERS = ["RegisterWorkflowConsumers", "RegisterCountsCaptureConsumers"];
+export function workflowConsumerConstructorsIn(helperSource, fnName = "RegisterWorkflowConsumers") {
   const code = stripComments(helperSource);
-  const body = /func\s+RegisterWorkflowConsumers\s*\([^)]*\)\s*\{([\s\S]*?)\n\}/.exec(code)?.[1] ?? "";
+  const body = new RegExp(`func\\s+${fnName}\\s*\\([^)]*\\)\\s*\\{([\\s\\S]*?)\\n\\}`).exec(code)?.[1] ?? "";
   return [...body.matchAll(/\bNew([A-Za-z0-9_]+)\s*\(/g)].map((m) => m[1]);
+}
+export function sharedHelperConstructorsIn(helperSource) {
+  return Object.fromEntries(SHARED_CONSUMER_HELPERS.map((fn) => [fn, workflowConsumerConstructorsIn(helperSource, fn)]));
 }
 let workflowConsumerConstructors = null;
 function workflowConsumerConstructors_() {
   if (workflowConsumerConstructors === null) {
     const path = join(repo, WORKFLOW_CONSUMERS_HELPER);
-    workflowConsumerConstructors = existsSync(path) ? workflowConsumerConstructorsIn(readFileSync(path, "utf8")) : [];
+    workflowConsumerConstructors = existsSync(path) ? sharedHelperConstructorsIn(readFileSync(path, "utf8")) : {};
   }
   return workflowConsumerConstructors;
 }
@@ -146,7 +154,11 @@ export function registersHandler(busSource, typeName, workflowConsumers = workfl
   ) {
     return true;
   }
-  if (/RegisterWorkflowConsumers\s*\(/.test(code) && workflowConsumers.includes(typeName)) return true;
+  // A bare array is the RegisterWorkflowConsumers list (older self-test fixtures).
+  const helpers = Array.isArray(workflowConsumers) ? { RegisterWorkflowConsumers: workflowConsumers } : workflowConsumers;
+  for (const [fn, types] of Object.entries(helpers)) {
+    if (new RegExp(`\\b${fn}\\s*\\(`).test(code) && types.includes(typeName)) return true;
+  }
   const chained = new RegExp(`New${typeName}\\s*\\([^;\\n]*\\)(?:\\s*\\.\\w+\\([^;\\n]*\\))*\\s*\\.Register\\s*\\(`);
   if (chained.test(code)) return true;
   const assigned = new RegExp(`(\\w+)\\s*:?=\\s*[\\w.]*New${typeName}\\s*\\(`).exec(code);
@@ -445,6 +457,12 @@ func (h *OperatorConfigReplanHandler) Register(bus eventbus.Bus) { bus.Subscribe
   if (!registersHandler(sharedBus, "SubjectWorkflowVerdictHandler", helperTypes)) throw new Error("self-test: shared workflow helper must cover its listed handlers");
   if (registersHandler(sharedBus, "OutsideHelperHandler", helperTypes)) throw new Error("self-test: a handler outside the helper must not be covered by the shared call");
   if (registersHandler("// eventwiring.RegisterWorkflowConsumers(bus, workflowService, logger)\n", "SubjectWorkflowVerdictHandler", helperTypes)) throw new Error("self-test: a commented-out shared call must not count");
+  // Two helpers in one file: each covers only its own body.
+  const twoHelpers = sharedHelperConstructorsIn(helperSrc + "func RegisterCountsCaptureConsumers(bus eventbus.Bus, enq countsapp.BirthCaptureVerificationEnqueuer) {\n\tcountsapp.NewBirthReportedVerificationHandler(enq, nil).Register(bus)\n}\n");
+  if (twoHelpers.RegisterCountsCaptureConsumers.join(",") !== "BirthReportedVerificationHandler") throw new Error(`self-test: capture helper parse wrong: ${twoHelpers.RegisterCountsCaptureConsumers.join(",")}`);
+  if (!registersHandler("\teventwiring.RegisterCountsCaptureConsumers(bus, e, s, w)\n", "BirthReportedVerificationHandler", twoHelpers)) throw new Error("self-test: the capture helper must cover its listed handlers");
+  if (registersHandler(sharedBus, "BirthReportedVerificationHandler", twoHelpers)) throw new Error("self-test: a bus calling only RegisterWorkflowConsumers must not cover the capture helper's handlers");
+  if (registersHandler("\teventwiring.RegisterCountsCaptureConsumers(bus, e, s, w)\n", "SubjectWorkflowVerdictHandler", twoHelpers)) throw new Error("self-test: the capture helper must not cover the workflow helper's handlers");
 
   const durableWithout = {
     "backend/internal/kernelstages/bus.go": "obligationapp.NewGoatShiftedHandler(r).Register(bus)",
