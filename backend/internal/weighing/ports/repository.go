@@ -400,7 +400,9 @@ type Repository interface {
 	// AnimalProofWasRejected reports whether a proof is already attached to a rework
 	// observation for a different tag in this bucket, so a re-capture for one
 	// animal cannot reuse the very video the verifier sent back on another animal.
-	AnimalProofWasRejected(ctx context.Context, tenantID, campaignShedID, proofArtifactID, scannedIdentifier string) (bool, error)
+	// proofRefs covers EVERY slot of the capture (2026-09-16): re-sending any rejected
+	// capture, not only the primary, is the operator not redoing the work.
+	AnimalProofWasRejected(ctx context.Context, tenantID, campaignShedID string, proofRefs []string, scannedIdentifier string) (bool, error)
 	RecordShedObservation(ctx context.Context, cmd domain.RecordShedObservation) (domain.Observation, error)
 	SubmitIndividualScope(ctx context.Context, tenantID, campaignID, campaignShedID, actorID, idempotencyKey string, scannedIdentifiers []string) error
 	// ReopenScope returns the shed-observation ids whose lump-sum submissions the
