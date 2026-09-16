@@ -23,6 +23,7 @@ GOATOS_API_BASE_URL="${GOATOS_API_BASE_URL:-https://api.goatos.mesha.sg/}"
 GOATOS_STG_ZERO_DOWNTIME_DEPLOY="${CLOUD_DEPLOY_customTarget_zeroDowntimeDeploy:-${GOATOS_STG_ZERO_DOWNTIME_DEPLOY:-true}}"
 
 GRAFANA_DOMAIN_ONLY="${CLOUD_DEPLOY_customTarget_grafanaDomainOnly:-false}"
+GRAFANA_SSO_ONLY="${CLOUD_DEPLOY_customTarget_grafanaSsoOnly:-false}"
 COMMIT_SHA="${CLOUD_DEPLOY_customTarget_commitSha:-}"
 BACKEND_IMAGE="${CLOUD_DEPLOY_customTarget_backendImage:-}"
 MIGRATION_IMAGE="${CLOUD_DEPLOY_customTarget_migrationImage:-}"
@@ -42,7 +43,9 @@ require_param() {
 require_release_inputs() {
   require_param "customTarget/commitSha" "$COMMIT_SHA"
   [[ "$GRAFANA_DOMAIN_ONLY" == "true" || "$GRAFANA_DOMAIN_ONLY" == "false" ]] || die "customTarget/grafanaDomainOnly must be true or false"
-  if [[ "$GRAFANA_DOMAIN_ONLY" == "true" ]]; then
+  [[ "$GRAFANA_SSO_ONLY" == "true" || "$GRAFANA_SSO_ONLY" == "false" ]] || die "customTarget/grafanaSsoOnly must be true or false"
+  [[ "$GRAFANA_DOMAIN_ONLY" != "true" || "$GRAFANA_SSO_ONLY" != "true" ]] || die "Grafana-only modes are mutually exclusive"
+  if [[ "$GRAFANA_DOMAIN_ONLY" == "true" || "$GRAFANA_SSO_ONLY" == "true" ]]; then
     [[ "$COMMIT_SHA" =~ ^[0-9a-f]{12,40}$ ]] || die "Grafana cutover requires a commit SHA"
     return 0
   fi
@@ -339,6 +342,44 @@ PY
     die "public /app/analytics/events smoke did not land on $ANALYTICS_EVENTS_SERVICE (status=$code traceparent=$traceparent)"
 }
 
+grafana_sso_helper() {
+  local helper="$(dirname "${BASH_SOURCE[0]}")/stg-grafana-sso.py"
+  [[ -f "$helper" ]] || helper=/usr/local/bin/goatos-stg-grafana-sso.py
+  python3 "$helper" "$@"
+}
+
+grafana_sso_render() {
+  local output_path="${CLOUD_DEPLOY_OUTPUT_GCS_PATH:-}"
+  [[ -n "$output_path" ]] || die "CLOUD_DEPLOY_OUTPUT_GCS_PATH is required for render"
+  printf 'commit_sha=%s\nmode=grafana-sso-only\nservice=goatos-stg-grafana\ncallback=https://grafana.mesha.sg/login/generic_oauth\n' "$COMMIT_SHA" > goatos-stg-grafana-sso.txt
+  run gcloud storage cp goatos-stg-grafana-sso.txt "$output_path/goatos-stg-grafana-sso.txt"
+  write_results "SUCCEEDED" "$output_path/goatos-stg-grafana-sso.txt"
+}
+
+grafana_sso_deploy() {
+  local raw_url revision code
+  gcloud run services describe goatos-stg-grafana --project="$PROJECT_ID" --region="$REGION" --format=json > grafana-sso-before.json
+  grafana_sso_helper preflight grafana-sso-before.json
+  raw_url="$(service_uri goatos-stg-grafana)"
+  grafana_domain_auth_boundary
+  grafana_sso_helper update grafana-sso-before.json
+  revision="$(gcloud run services describe goatos-stg-grafana --project="$PROJECT_ID" --region="$REGION" --format='value(status.latestCreatedRevisionName)')"
+  [[ -n "$revision" ]] || die "Grafana SSO update did not create a revision"
+  wait_revision_ready "$revision" "Grafana SSO pre-traffic"
+  gcloud run services describe goatos-stg-grafana --project="$PROJECT_ID" --region="$REGION" --format=json > grafana-sso-after.json
+  grafana_sso_helper verify grafana-sso-before.json grafana-sso-after.json
+  run gcloud run services update-traffic goatos-stg-grafana --project="$PROJECT_ID" --region="$REGION" "--to-revisions=${revision}=100" --quiet
+  grafana_domain_auth_boundary
+  code="$(curl -sS --max-time 60 -o /dev/null -w '%{http_code}' "$raw_url/login")"
+  [[ "$code" == "403" || "$code" == "404" ]] || die "Grafana raw URL still reachable: HTTP $code"
+  code="$(curl -sS --max-time 60 -D grafana-oauth-headers.txt -o /dev/null -w '%{http_code}' https://grafana.mesha.sg/login/generic_oauth)"
+  [[ "$code" == "302" ]] || die "Grafana OAuth start returned $code"
+  grafana_sso_helper redirect grafana-oauth-headers.txt
+  rm -f grafana-oauth-headers.txt
+  printf 'cloud-deploy-grafana-sso-ok commit=%s revision=%s\n' "$COMMIT_SHA" "$revision"
+  write_results "SUCCEEDED"
+}
+
 grafana_domain_render() {
   local output_path="${CLOUD_DEPLOY_OUTPUT_GCS_PATH:-}"
   [[ -n "$output_path" ]] || die "CLOUD_DEPLOY_OUTPUT_GCS_PATH is required for render"
@@ -408,6 +449,10 @@ PY
 render() {
   assert_target
   require_release_inputs
+  if [[ "$GRAFANA_SSO_ONLY" == "true" ]]; then
+    grafana_sso_render
+    return
+  fi
   if [[ "$GRAFANA_DOMAIN_ONLY" == "true" ]]; then
     grafana_domain_render
     return
@@ -444,6 +489,10 @@ EOF
 deploy() {
   assert_target
   require_release_inputs
+  if [[ "$GRAFANA_SSO_ONLY" == "true" ]]; then
+    grafana_sso_deploy
+    return
+  fi
   if [[ "$GRAFANA_DOMAIN_ONLY" == "true" ]]; then
     grafana_domain_deploy
     return

@@ -299,15 +299,15 @@ Proposed observability hostname target:
 grafana.mesha.sg -> goatos-stg-grafana through the existing goatos-stg HTTPS LB
 ```
 
-Expose `grafana.mesha.sg` with IAP on the Grafana backend service, granting the
-same CEO/CXO Google SSO cohort used for admin-web verification:
+Expose `grafana.mesha.sg` through the existing HTTPS load balancer with
+load-balancer-only Cloud Run ingress. Grafana Google SSO must admit exactly
 `ravi@mesha.sg`, `manohark@mesha.sg`, `manju@mesha.sg`, and
-`aryaman@mesha.sg`. Keep Grafana login as a second layer. Temporary fallback:
-public LB plus Grafana login only after anonymous access and sign-up are
-verified disabled, raw `*.run.app` access is closed with
-`internal-and-cloud-load-balancing` ingress, and the admin password/token
-handling is reviewed. The exact NEG/backend/cert/url-map/DNS steps live in
-`docs/observability/GRAFANA_ACCESS.md`.
+`aryaman@mesha.sg`, using verified-email strict role mapping. Public sign-up
+and anonymous access stay disabled. Keep the Secret Manager-backed local admin
+account for recovery and API smoke. The OAuth callback, dedicated secret names,
+Cloud Deploy SSO-only rollout, and verification requirements are documented in
+`docs/observability/GRAFANA_ACCESS.md`. IAP alone followed by a separate Grafana
+password does not satisfy the operator SSO requirement.
 
 Legacy/internal dashboard hostnames:
 

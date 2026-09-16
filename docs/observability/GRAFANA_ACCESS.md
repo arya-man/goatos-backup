@@ -1,9 +1,47 @@
 # Grafana Access — goatos-stg
 
-> Companion to `INFRA.md` §6 ("Grafana access: Cloud Run IAM, not IAP") and
-> §8 (`observability_operator_members` has no default — nobody can invoke
-> Grafana until it is supplied). Read that section first for the *why*; this
-> doc is the *how*, for both humans and agents (Claude/Codex).
+## Current browser access: four-account Google SSO
+
+Open **https://grafana.mesha.sg/login** and choose **Sign in with Google**.
+The supported identities are exactly:
+
+- `ravi@mesha.sg`
+- `manohark@mesha.sg`
+- `manju@mesha.sg`
+- `aryaman@mesha.sg`
+
+The Generic OAuth provider uses Google OpenID Connect. A strict role expression
+requires `email_verified=true` and an exact email match before granting `Viewer`.
+Other identities receive no role and are denied, including other `mesha.sg`
+accounts. Provider account creation is enabled for those four identities only;
+public Grafana sign-up and anonymous access remain disabled. Google sign-in
+enters Grafana directly, without a second shared Grafana password.
+
+The Google web client must register the exact redirect URI
+`https://grafana.mesha.sg/login/generic_oauth`. Keep its existing Firebase and
+admin-web redirect URIs. Dedicated Secret Manager references are
+`goatos-stg-grafana-oauth-client-id` and
+`goatos-stg-grafana-oauth-client-secret`; only the Grafana runtime needs access.
+Never place their payloads in source, command arguments, or deployment logs.
+
+Runtime changes use the Cloud Deploy `customTarget/grafanaSsoOnly=true` mode
+from a certified main SHA. Build and pin the runner after changing its scripts,
+run `make land-main`, apply the pinned Cloud Deploy config, and create a bounded
+release with that mode and `customTarget/commitSha`. This preserves the deployed
+container images and load-balancer-only ingress. Before promotion, run the
+SSO helper tests and domain tests; after rollout, read back exact auth settings,
+verify the Google authorization redirect and registered callback in a browser,
+verify anonymous API denial and raw Cloud Run denial, and run the authenticated
+dashboard/data smoke. A login button alone does not certify successful SSO.
+
+The local `admin` account remains a Secret Manager-backed recovery/API-smoke
+credential, not the normal operator login. Existing GCS-provisioned dashboards
+and datasources are shared with the four Viewer accounts. Grafana's local
+SQLite user/session state remains ephemeral across instance replacement;
+Google users can sign in again and regain their mapped Viewer role.
+
+The older IAP-plus-local-login procedure below is historical context. It does
+not implement single sign-on into Grafana and is superseded by this OAuth model.
 
 ## 1. Where Grafana lives — staging target
 
