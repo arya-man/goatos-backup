@@ -38,9 +38,13 @@ So a deal is claimed by a buyer in this order, resolved ONCE in
    applies). A name held by two vendors is claimed by NEITHER — agree-or-go-bare, the rule the
    sex and origin filters use — because picking one would put a stranger's phone number on the
    row. The contact person's name is never matched, for the same reason;
-3. otherwise the typed name itself, reported as `in_register: false` with a "Not in register"
-   chip, so the sales desk can add them on Vendors. A name-only buyer shows the newest deal's
-   spelling and place.
+3. otherwise the typed name itself, reported as `in_register: false` on the wire. The page
+   does NOT flag it (maintainer instruction 2026-09-16 retired the "Not in register" chip and the
+   headline count): the sales desk reads buyers, not register hygiene. A name-only buyer shows
+   the newest deal's spelling and place.
+
+Rows are ordered by LAST SALE, newest first (same maintainer instruction), with revenue as the
+tie-break: the page answers "who bought lately", not "who paid most".
 
 ## The figures
 
@@ -85,3 +89,13 @@ unreachable; it exists for the per-person path.
 Migration `000314` appends the page key to every explicit web Sales row and designation
 template (the 000309 shape) so nobody with named ticks misses a page shipped after their rows
 were written; the CEO floor needs no row.
+
+## Mixed-version rollout compatibility
+
+The buyer table accepts the previous contract's `category`, `place`, and `share_pct`
+columns as cell detail, while continuing to reject unknown columns. Phone visibility
+still follows the payload and permission control. `kpi.buyers.detail` retains its
+legacy count-suffixed meaning for older frontends; the standalone closed-sale detail
+uses `kpi.buyers.closed_sale_detail` and is omitted when an older backend lacks it.
+Regression coverage lives in `buyer-table.test.mjs` and
+`TestSalesBuyerAnalyticsBuyerDetailCopyIsAdditive`.

@@ -76,6 +76,15 @@ func TestBuildBuyerAnalyticsFoldsDealsIntoOneBuyerAndReadsRepeatCadence(t *testi
 		t.Fatalf("same-day repeat buyer must report no cadence rather than 0: %+v", k)
 	}
 
+	// Newest last sale leads (maintainer instruction 2026-09-16); revenue is only a tie-break.
+	for i := 1; i < len(out.Buyers); i++ {
+		prev, cur := out.Buyers[i-1], out.Buyers[i]
+		if prev.LastSaleDate < cur.LastSaleDate || (prev.LastSaleDate == cur.LastSaleDate && prev.Revenue < cur.Revenue) {
+			t.Fatalf("rows must be ordered by last sale desc, then revenue: %s (%s) before %s (%s)",
+				prev.BuyerName, prev.LastSaleDate, cur.BuyerName, cur.LastSaleDate)
+		}
+	}
+
 	// Shares sum to 100 over the same rows the summary counts.
 	shares := 0.0
 	for _, r := range out.Buyers {
@@ -109,7 +118,7 @@ func TestBuildBuyerAnalyticsPaginationSlicesRowsButNotTheSummary(t *testing.T) {
 	if out.TotalBuyers != 3 || out.Summary.Buyers != 3 || out.Summary.Revenue != 600 {
 		t.Fatalf("whole-filter figures moved with the page: %+v", out)
 	}
-	if len(out.Buyers) != 1 || out.Buyers[0].BuyerName != "C" || out.Limit != 2 || out.Offset != 2 {
+	if len(out.Buyers) != 1 || out.Buyers[0].BuyerName != "A" || out.Limit != 2 || out.Offset != 2 {
 		t.Fatalf("page = %+v", out)
 	}
 	beyond := BuildBuyerAnalytics(facts, buyerAsOf(), 2, 10)

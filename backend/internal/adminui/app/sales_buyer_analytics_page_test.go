@@ -37,6 +37,21 @@ func TestSalesBuyerAnalyticsPageContract(t *testing.T) {
 	for _, c := range table.Columns {
 		labels[c.Key] = c.Label
 	}
+	// Every column but the phone sorts (maintainer request 2026-09-16); the phone is contact
+	// detail, not a figure, and sorting it would order by digits nobody compares.
+	sortableKeys := map[string]bool{}
+	for _, c := range table.Columns {
+		sortableKeys[c.Key] = c.Sortable
+	}
+	for key, want := range map[string]bool{
+		"buyer_name": true, "phone_number": false, "purchases": true, "animals": true, "revenue": true,
+		"repeat": true, "first_sale_date": true, "last_sale_date": true, "outstanding": true,
+	} {
+		got, ok := sortableKeys[key]
+		if !ok || got != want {
+			t.Fatalf("column %q sortable = %v (declared %v), want %v", key, got, ok, want)
+		}
+	}
 	for key, want := range map[string]string{
 		"buyer_name":   "Buyer",
 		"phone_number": "Phone",
@@ -53,8 +68,8 @@ func TestSalesBuyerAnalyticsPageContract(t *testing.T) {
 		"crumb", "filter.farm", "section.headline.aria",
 		"kpi.buyers", "kpi.repeat_buyers", "kpi.repeat_revenue", "kpi.outstanding",
 		"section.buyers.title", "section.buyers.subtitle",
-		"chip.repeat", "chip.one_time", "chip.not_in_register",
-		"value.every_days", "value.days_ago", "value.none", "value.settled", "hint.not_in_register", "hint.phone_hidden",
+		"chip.repeat", "chip.one_time",
+		"value.every_days", "value.days_ago", "value.none", "value.settled", "hint.phone_hidden",
 		"summary.buyers", "pager.page", "pager.of", "action.prev_page", "action.next_page",
 		"empty.buyers", "error.load",
 	} {
@@ -171,5 +186,34 @@ func TestSalesBuyerAnalyticsNavLeafRidesSalesRead(t *testing.T) {
 	required := permissionsForNav("sales-buyer-analytics")
 	if len(required) != 1 || required[0] != permissions.SalesRead {
 		t.Fatalf("permissionsForNav(sales-buyer-analytics) = %v, want exactly SalesRead", required)
+	}
+}
+
+// TestSalesBuyerAnalyticsCopyKeepsTheRetiredRegisterKeysForOlderFrontends pins the old-frontend /
+// new-contract window (PR #277 review): the frontend that still renders the "Not in register"
+// chip calls copy() on these two keys for every name-only buyer, and copy() throws on a missing
+// fixed key. The backend is switched before admin-web, so dropping the keys crashes
+// /sales/buyer-analytics for that window. Delete this test only together with the keys, once no
+// deployed frontend reads them.
+func TestSalesBuyerAnalyticsCopyKeepsTheRetiredRegisterKeysForOlderFrontends(t *testing.T) {
+	resp := NewService(fakeFamilies{}).Bootstrap(context.Background(), BootstrapInput{
+		TenantID: "00000000-0000-4000-8000-000000000001",
+		ActorID:  "00000000-0000-4000-8000-000000000099",
+	})
+	page := pageByRouteID(t, resp.Pages, "sales-buyer-analytics")
+	for _, key := range []string{"chip.not_in_register", "hint.not_in_register"} {
+		if page.Copy[key] == "" {
+			t.Fatalf("copy %q must stay served for the previous frontend build (it throws without it)", key)
+		}
+	}
+}
+
+func TestSalesBuyerAnalyticsBuyerDetailCopyIsAdditive(t *testing.T) {
+	copy := pageCopy("sales-buyer-analytics")
+	if got := copy["kpi.buyers.detail"]; got != "not in the vendor register" {
+		t.Fatalf("old frontend prefixes the unregistered count: legacy detail = %q", got)
+	}
+	if got := copy["kpi.buyers.closed_sale_detail"]; got != "with at least one closed sale" {
+		t.Fatalf("new standalone buyer detail = %q", got)
 	}
 }
