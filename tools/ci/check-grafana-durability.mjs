@@ -53,6 +53,19 @@ function includesAll(text, snippets, label, problems) {
   }
 }
 
+// Grafana Cloud Monitoring's getFilter consumes key/operator/value/AND tokens.
+// Regex operands use =~; passing a raw Cloud Monitoring filter is ignored.
+function grafanaFilterString(filters) {
+  if (!Array.isArray(filters) || filters.length % 4 !== 3 || filters.some((x) => typeof x !== "string")) return null;
+  const clauses = [];
+  for (let i = 0; i < filters.length; i += 4) {
+    const [key, op, value, join] = filters.slice(i, i + 4);
+    if (!/^(metric|resource)\.(type|label\.[\w]+)$/.test(key) || !["=", "!=", "=~", "!=~"].includes(op) || (join !== undefined && join !== "AND")) return null;
+    clauses.push(`${key}${op.replace("~", "")}${op.endsWith("~") ? `monitoring.regex.full_match(${JSON.stringify(value)})` : JSON.stringify(value)}`);
+  }
+  return clauses.join(" AND ");
+}
+
 function collectFilterStrings(value, out = []) {
   if (!value || typeof value !== "object") return out;
   if (Array.isArray(value)) {
@@ -61,6 +74,7 @@ function collectFilterStrings(value, out = []) {
   }
   for (const [key, child] of Object.entries(value)) {
     if (key === "filter" && typeof child === "string") out.push(child);
+    if (key === "filters" && grafanaFilterString(child)) out.push(grafanaFilterString(child));
     collectFilterStrings(child, out);
   }
   return out;
@@ -91,7 +105,7 @@ function findPanelByTitle(doc, title) {
 
 function panelHasGmpFilter(panel, { metric, routeRegex }) {
   return panelTargets(panel).some((target) => {
-    const filter = target?.timeSeriesList?.filter;
+    const filter = grafanaFilterString(target?.timeSeriesList?.filters);
     return typeof filter === "string"
       && filter.includes(`metric.type="${metric}"`)
       && filter.includes('resource.type="prometheus_target"')
@@ -169,8 +183,20 @@ export function validate(root = repo) {
       problems.push(`${relative}: dashboard must contain at least one panel`);
     }
     const serialized = JSON.stringify(doc);
-    if (serialized.includes('"filters":')) {
-      problems.push(`${relative}: use timeSeriesList.filter strings, not legacy timeSeriesList.filters arrays`);
+    for (const panel of doc.panels ?? []) {
+      for (const target of panelTargets(panel)) {
+        if (!target.timeSeriesList) continue;
+        const query = target.timeSeriesList;
+        const cumulativeHistogram = query.filters?.some((value) => typeof value === "string" && value.startsWith("prometheus.googleapis.com/") && value.endsWith("/histogram"));
+        if (cumulativeHistogram && (query.perSeriesAligner?.startsWith("ALIGN_PERCENTILE_")
+          || (query.crossSeriesReducer?.startsWith("REDUCE_PERCENTILE_") && query.perSeriesAligner !== "ALIGN_DELTA"))) {
+          problems.push(`${relative}: cumulative GMP histograms require ALIGN_DELTA before REDUCE_PERCENTILE`);
+        }
+        if ("filter" in target.timeSeriesList || !grafanaFilterString(target.timeSeriesList.filters)
+          || !target.timeSeriesList.filters.some((token, index, tokens) => index % 4 === 0 && token === "metric.type" && tokens[index + 1] === "=" && tokens[index + 2])) {
+          problems.push(`${relative}: timeSeriesList.filters must use Grafana key/operator/value/AND tokens; singular filter is ignored`);
+        }
+      }
     }
     if (serialized.includes("resource.labels.")) {
       problems.push(`${relative}: Cloud Monitoring filters must use resource.label.*, not resource.labels.*`);
@@ -395,6 +421,26 @@ function selfTest() {
   try {
     writeFixture(root);
     assert.deepEqual(validate(root), []);
+    assert.equal(grafanaFilterString(["metric.type", "=", "run.googleapis.com/request_count"]), 'metric.type="run.googleapis.com/request_count"');
+    assert.equal(grafanaFilterString(["metric.label.route", "=~", ".*weighing.*"]), 'metric.label.route=monitoring.regex.full_match(".*weighing.*")');
+    assert.equal(grafanaFilterString(["metric.type", "run.googleapis.com/request_count"]), null);
+    assert.equal(grafanaFilterString([]), null);
+    assert.equal(grafanaFilterString(["metric.type", "=", "a", "OR", "resource.type", "=", "b"]), null);
+
+    writeFixture(root);
+    writeFileSync(path.join(root, defaults.dashboardDir, "02-missing-metric.json"), JSON.stringify({
+      uid: "missing-metric", title: "Missing metric", panels: [{ targets: [{ timeSeriesList: {
+        filters: ["resource.type", "=", "cloud_run_revision"],
+      } }] }],
+    }));
+    assert(validate(root).some((problem) => problem.includes("timeSeriesList.filters must use")));
+    writeFileSync(path.join(root, defaults.dashboardDir, "02-missing-metric.json"), JSON.stringify({
+      uid: "bad-histogram", title: "Bad histogram", panels: [{ targets: [{ timeSeriesList: {
+        filters: ["metric.type", "=", "prometheus.googleapis.com/http_server_request_duration_seconds/histogram", "AND", "resource.type", "=", "prometheus_target"],
+        perSeriesAligner: "ALIGN_PERCENTILE_95", crossSeriesReducer: "REDUCE_NONE",
+      } }] }],
+    }));
+    assert(validate(root).some((problem) => problem.includes("cumulative GMP histograms require")));
 
     writeFixture(root, { terraform: "resource \"google_storage_bucket\" \"grafana_provisioning\" {}" });
     assert(validate(root).some((problem) => problem.includes("grafana_dashboard_jsons")));
@@ -449,6 +495,7 @@ if [[ "\${REQUIRE_GRAFANA_SMOKE:-0}" == "1" ]]; then return 1; fi
       }],
     }));
     assert(validate(root).some((problem) => problem.includes('resource.type = "cloud_run_revision"')));
+    assert(validate(root).some((problem) => problem.includes('singular filter is ignored')));
 
     writeFixture(root);
     writeFileSync(path.join(root, defaults.dashboardDir, "01-api-red.json"), JSON.stringify({
@@ -518,13 +565,13 @@ const q = { filter: 'metric.type = "cloudsql.googleapis.com/database/postgresql/
             id: 1000 + index,
             title: `${feature}: request rate by route`,
             type: "timeseries",
-            targets: [{ timeSeriesList: { filter: `metric.type="prometheus.googleapis.com/http_server_requests_total/counter" AND resource.type="prometheus_target" AND metric.label.route=monitoring.regex.full_match("${routeRegex}")` } }],
+            targets: [{ timeSeriesList: { filters: ["metric.type", "=", "prometheus.googleapis.com/http_server_requests_total/counter", "AND", "resource.type", "=", "prometheus_target", "AND", "metric.label.route", "=~", routeRegex] } }],
           },
           {
             id: 1100 + index,
             title: `${feature}: p95 latency by route`,
             type: "timeseries",
-            targets: [{ timeSeriesList: { filter: `metric.type="prometheus.googleapis.com/http_server_request_duration_seconds/histogram" AND resource.type="prometheus_target" AND metric.label.route=monitoring.regex.full_match("${routeRegex}")` } }],
+            targets: [{ timeSeriesList: { filters: ["metric.type", "=", "prometheus.googleapis.com/http_server_request_duration_seconds/histogram", "AND", "resource.type", "=", "prometheus_target", "AND", "metric.label.route", "=~", routeRegex] } }],
           },
         ]),
       ],

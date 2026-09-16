@@ -141,7 +141,7 @@
           "queryType": "timeSeriesList",
           "timeSeriesList": {
             "projectName": "goatos-stg",
-            "filter": "metric.type=\"prometheus.googleapis.com/http_server_requests_total/counter\" AND resource.type=\"prometheus_target\" AND metric.label.route=monitoring.regex.full_match(\"${route:regex}\") AND metric.label.tenant=monitoring.regex.full_match(\"${tenant:regex}\")",
+            "filters": ["metric.type", "=", "prometheus.googleapis.com/http_server_requests_total/counter", "AND", "resource.type", "=", "prometheus_target", "AND", "metric.label.route", "=~", "${route:regex}", "AND", "metric.label.tenant", "=~", "${tenant:regex}"],
             "view": "FULL",
             "perSeriesAligner": "ALIGN_RATE",
             "crossSeriesReducer": "REDUCE_SUM",
@@ -257,7 +257,7 @@
             "perSeriesAligner": "ALIGN_MEAN",
             "crossSeriesReducer": "REDUCE_SUM",
             "alignmentPeriod": "60s",
-            "filter": "metric.type = \"prometheus.googleapis.com/http_server_active_requests/gauge\" AND resource.type = \"prometheus_target\""
+            "filters": ["metric.type", "=", "prometheus.googleapis.com/http_server_active_requests/gauge", "AND", "resource.type", "=", "prometheus_target"]
           }
         }
       ]
@@ -315,10 +315,10 @@
           "timeSeriesList": {
             "projectName": "goatos-stg",
             "view": "FULL",
-            "perSeriesAligner": "ALIGN_PERCENTILE_99",
-            "crossSeriesReducer": "REDUCE_MAX",
+            "perSeriesAligner": "ALIGN_DELTA",
+            "crossSeriesReducer": "REDUCE_PERCENTILE_99",
             "alignmentPeriod": "300s",
-            "filter": "metric.type = \"prometheus.googleapis.com/http_server_request_duration_seconds/histogram\" AND resource.type = \"prometheus_target\""
+            "filters": ["metric.type", "=", "prometheus.googleapis.com/http_server_request_duration_seconds/histogram", "AND", "resource.type", "=", "prometheus_target"]
           }
         }
       ]
@@ -370,7 +370,7 @@
           "queryType": "timeSeriesList",
           "timeSeriesList": {
             "projectName": "goatos-stg",
-            "filter": "metric.type=\"prometheus.googleapis.com/http_server_requests_total/counter\" AND resource.type=\"prometheus_target\" AND metric.label.route=monitoring.regex.full_match(\"${route:regex}\") AND metric.label.tenant=monitoring.regex.full_match(\"${tenant:regex}\")",
+            "filters": ["metric.type", "=", "prometheus.googleapis.com/http_server_requests_total/counter", "AND", "resource.type", "=", "prometheus_target", "AND", "metric.label.route", "=~", "${route:regex}", "AND", "metric.label.tenant", "=~", "${tenant:regex}"],
             "view": "FULL",
             "groupBys": [
               "metric.label.route",
@@ -501,13 +501,13 @@
           "queryType": "timeSeriesList",
           "timeSeriesList": {
             "projectName": "goatos-stg",
-            "filter": "metric.type=\"prometheus.googleapis.com/http_server_request_duration_seconds/histogram\" AND resource.type=\"prometheus_target\" AND metric.label.route=monitoring.regex.full_match(\"${route:regex}\") AND metric.label.tenant=monitoring.regex.full_match(\"${tenant:regex}\")",
+            "filters": ["metric.type", "=", "prometheus.googleapis.com/http_server_request_duration_seconds/histogram", "AND", "resource.type", "=", "prometheus_target", "AND", "metric.label.route", "=~", "${route:regex}", "AND", "metric.label.tenant", "=~", "${tenant:regex}"],
             "view": "FULL",
             "groupBys": [
               "metric.label.route"
             ],
-            "perSeriesAligner": "ALIGN_PERCENTILE_50",
-            "crossSeriesReducer": "REDUCE_NONE",
+            "perSeriesAligner": "ALIGN_DELTA",
+            "crossSeriesReducer": "REDUCE_PERCENTILE_50",
             "alignmentPeriod": "300s"
           }
         },
@@ -518,13 +518,13 @@
           "queryType": "timeSeriesList",
           "timeSeriesList": {
             "projectName": "goatos-stg",
-            "filter": "metric.type=\"prometheus.googleapis.com/http_server_request_duration_seconds/histogram\" AND resource.type=\"prometheus_target\" AND metric.label.route=monitoring.regex.full_match(\"${route:regex}\") AND metric.label.tenant=monitoring.regex.full_match(\"${tenant:regex}\")",
+            "filters": ["metric.type", "=", "prometheus.googleapis.com/http_server_request_duration_seconds/histogram", "AND", "resource.type", "=", "prometheus_target", "AND", "metric.label.route", "=~", "${route:regex}", "AND", "metric.label.tenant", "=~", "${tenant:regex}"],
             "view": "FULL",
             "groupBys": [
               "metric.label.route"
             ],
-            "perSeriesAligner": "ALIGN_PERCENTILE_95",
-            "crossSeriesReducer": "REDUCE_NONE",
+            "perSeriesAligner": "ALIGN_DELTA",
+            "crossSeriesReducer": "REDUCE_PERCENTILE_95",
             "alignmentPeriod": "300s"
           }
         },
@@ -535,13 +535,13 @@
           "queryType": "timeSeriesList",
           "timeSeriesList": {
             "projectName": "goatos-stg",
-            "filter": "metric.type=\"prometheus.googleapis.com/http_server_request_duration_seconds/histogram\" AND resource.type=\"prometheus_target\" AND metric.label.route=monitoring.regex.full_match(\"${route:regex}\") AND metric.label.tenant=monitoring.regex.full_match(\"${tenant:regex}\")",
+            "filters": ["metric.type", "=", "prometheus.googleapis.com/http_server_request_duration_seconds/histogram", "AND", "resource.type", "=", "prometheus_target", "AND", "metric.label.route", "=~", "${route:regex}", "AND", "metric.label.tenant", "=~", "${tenant:regex}"],
             "view": "FULL",
             "groupBys": [
               "metric.label.route"
             ],
-            "perSeriesAligner": "ALIGN_PERCENTILE_99",
-            "crossSeriesReducer": "REDUCE_NONE",
+            "perSeriesAligner": "ALIGN_DELTA",
+            "crossSeriesReducer": "REDUCE_PERCENTILE_99",
             "alignmentPeriod": "300s"
           }
         }
@@ -618,13 +618,13 @@
           "queryType": "timeSeriesList",
           "timeSeriesList": {
             "projectName": "goatos-stg",
-            "filter": "metric.type=\"prometheus.googleapis.com/http_server_request_duration_seconds/histogram\" AND resource.type=\"prometheus_target\" AND metric.label.tenant=monitoring.regex.full_match(\"${tenant:regex}\")",
+            "filters": ["metric.type", "=", "prometheus.googleapis.com/http_server_request_duration_seconds/histogram", "AND", "resource.type", "=", "prometheus_target", "AND", "metric.label.tenant", "=~", "${tenant:regex}"],
             "view": "FULL",
             "groupBys": [
               "metric.label.route"
             ],
-            "perSeriesAligner": "ALIGN_PERCENTILE_99",
-            "crossSeriesReducer": "REDUCE_NONE",
+            "perSeriesAligner": "ALIGN_DELTA",
+            "crossSeriesReducer": "REDUCE_PERCENTILE_99",
             "alignmentPeriod": "300s"
           }
         }
@@ -719,7 +719,7 @@
           "queryType": "timeSeriesList",
           "timeSeriesList": {
             "projectName": "goatos-stg",
-            "filter": "metric.type=\"prometheus.googleapis.com/http_server_requests_total/counter\" AND resource.type=\"prometheus_target\" AND metric.label.route=monitoring.regex.full_match(\"${route:regex}\") AND metric.label.tenant=monitoring.regex.full_match(\"${tenant:regex}\")",
+            "filters": ["metric.type", "=", "prometheus.googleapis.com/http_server_requests_total/counter", "AND", "resource.type", "=", "prometheus_target", "AND", "metric.label.route", "=~", "${route:regex}", "AND", "metric.label.tenant", "=~", "${tenant:regex}"],
             "view": "FULL",
             "groupBys": [
               "metric.label.status_class"

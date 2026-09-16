@@ -6,6 +6,7 @@
 // developer laptops. In Cloud Build, use --direct-iam so Grafana keeps its Basic
 // auth header while Cloud Run IAM gets X-Serverless-Authorization.
 
+import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
 import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -153,7 +154,7 @@ function requiredLiveDataQueries(project) {
         perSeriesAligner: "ALIGN_RATE",
         crossSeriesReducer: "REDUCE_SUM",
         alignmentPeriod: "300s",
-        filter: `resource.type = "cloud_run_revision" AND metric.type = "run.googleapis.com/request_count" AND resource.label.service_name = "${serviceName}"`,
+        filters: ["resource.type", "=", "cloud_run_revision", "AND", "metric.type", "=", "run.googleapis.com/request_count", "AND", "resource.label.service_name", "=", serviceName],
       },
     },
   });
@@ -175,7 +176,7 @@ function requiredLiveDataQueries(project) {
           perSeriesAligner: "ALIGN_MEAN",
           crossSeriesReducer: "REDUCE_NONE",
           alignmentPeriod: "60s",
-          filter: 'resource.type = "cloudsql_database" AND metric.type = "cloudsql.googleapis.com/database/postgresql/num_backends" AND resource.label.database_id = "goatos-stg:goatos-stg-core-db"',
+          filters: ["resource.type", "=", "cloudsql_database", "AND", "metric.type", "=", "cloudsql.googleapis.com/database/postgresql/num_backends", "AND", "resource.label.database_id", "=", "goatos-stg:goatos-stg-core-db"],
         },
       },
     },
@@ -215,7 +216,8 @@ async function runDatasourceQuery(baseUrl, password, timeoutMs, iamToken, query,
 async function assertLiveDataQueries(baseUrl, password, timeoutMs, iamToken, project) {
   const missing = [];
   for (const { name, query } of requiredLiveDataQueries(project)) {
-    const response = await runDatasourceQuery(baseUrl, password, timeoutMs, iamToken, query);
+    const response = await runDatasourceQuery(baseUrl, password, timeoutMs, iamToken, query)
+      .catch((error) => { throw new Error(`${name}: ${error.message}`, { cause: error }); });
     if (!grafanaQueryHasData(response)) {
       missing.push(name);
     }
@@ -239,7 +241,7 @@ function featureInventoryQuery(project, routeRegex) {
       perSeriesAligner: "ALIGN_RATE",
       crossSeriesReducer: "REDUCE_SUM",
       alignmentPeriod: "300s",
-      filter: `metric.type="prometheus.googleapis.com/http_server_requests_total/counter" AND resource.type="prometheus_target" AND metric.label.route=monitoring.regex.full_match("${routeRegex}")`,
+      filters: ["metric.type", "=", "prometheus.googleapis.com/http_server_requests_total/counter", "AND", "resource.type", "=", "prometheus_target", "AND", "metric.label.route", "=~", routeRegex],
     },
   };
 }
@@ -250,7 +252,7 @@ function panelByTitle(dashboard, title) {
 
 function panelQueries(panel, project) {
   return (Array.isArray(panel?.targets) ? panel.targets : [])
-    .filter((target) => target?.queryType === "timeSeriesList" && target?.timeSeriesList?.filter)
+    .filter((target) => target?.queryType === "timeSeriesList" && Array.isArray(target?.timeSeriesList?.filters))
     .map((target, index) => ({
       refId: target.refId ?? String.fromCharCode("A".charCodeAt(0) + index),
       datasource: { uid: "cloud-monitoring", type: "stackdriver" },
@@ -309,7 +311,7 @@ async function assertFeatureWisePanels(baseUrl, password, timeoutMs, iamToken, p
         password,
         timeoutMs,
         iamToken,
-      );
+      ).catch((error) => { throw new Error(`${panelTitle}: ${error.message}`, { cause: error }); });
       if (!grafanaQueryHasData(response)) {
         panelProblems.push(`${feature}: current route telemetry exists, but ${panelTitle} returned no data`);
       }
@@ -352,26 +354,97 @@ function grafanaQueryHasData(response) {
 }
 
 async function selfTest() {
+  const live = requiredLiveDataQueries("test-project");
+  assert.equal(live.length, 3);
+  for (const [index, { query }] of live.entries()) {
+    const filters = query.timeSeriesList.filters;
+    assert.equal(query.timeSeriesList.filter, undefined);
+    assert.equal(query.timeSeriesList.projectName, "test-project");
+    assert.deepEqual(filters.slice(0, 7), ["resource.type", "=", index < 2 ? "cloud_run_revision" : "cloudsql_database", "AND", "metric.type", "=", index < 2 ? "run.googleapis.com/request_count" : "cloudsql.googleapis.com/database/postgresql/num_backends"]);
+    assert.equal(filters.length, 11);
+  }
+  const inventory = featureInventoryQuery("test-project", ".*weighing.*").timeSeriesList;
+  assert.deepEqual(inventory.filters, ["metric.type", "=", "prometheus.googleapis.com/http_server_requests_total/counter", "AND", "resource.type", "=", "prometheus_target", "AND", "metric.label.route", "=~", ".*weighing.*"]);
+  assert.deepEqual(inventory.groupBys, ["metric.label.route", "metric.label.status_class"]);
   const empty = { results: { A: { frames: [{ schema: { fields: [{ name: "Time", type: "time" }, { name: "value", type: "number" }] }, data: { values: [[1, 2], [null, null]] } }] } } };
   const present = { results: { A: { frames: [{ schema: { fields: [{ name: "Time", type: "time" }, { name: "value", type: "number" }] }, data: { values: [[1, 2], [null, 3]] } }] } } };
   if (grafanaQueryHasData(empty)) throw new Error("self-test expected null-valued frames to count as empty");
   if (!grafanaQueryHasData(present)) throw new Error("self-test expected numeric value frames to count as data");
+  const dashboards = Array.from({ length: 7 }, (_, i) => ({ uid: `dashboard-${i}`, file: `${i}.json` }));
+  const datasourceRows = requiredDatasourceUids.map((uid) => ({ uid }));
+  const fixture = (respond) => {
+    let clock = 0;
+    const requests = [];
+    return {
+      requests,
+      now: () => clock,
+      sleep: async (ms) => { clock += ms; },
+      request: async (_url, apiPath, _password, budget) => {
+        requests.push({ apiPath, budget, clock });
+        assert.ok(budget > 0 && budget <= 2500 - clock, "request must fit remaining readiness budget");
+        return respond(apiPath, clock);
+      },
+    };
+  };
+  // Health succeeds immediately, while datasource and dashboard provisioning finish later.
+  const startup = fixture((apiPath, clock) => {
+    if (apiPath === "/api/health") return { database: "ok" };
+    if (apiPath === "/api/datasources") return clock === 0 ? [] : datasourceRows;
+    return clock < 2000 ? dashboards.slice(0, 5) : dashboards;
+  });
+  await waitForGrafana("http://fixture", "unused", 2500, "", dashboards, startup);
+  assert.equal(startup.now(), 2000);
+  assert.equal(startup.requests.filter((r) => r.apiPath === "/api/health").length, 3);
+  // Unrelated UIDs cannot satisfy the gate even when the dashboard count is seven.
+  const missing = fixture((apiPath) => apiPath === "/api/datasources" ? datasourceRows :
+    apiPath === "/api/health" ? {} : [...dashboards.slice(0, 6), { uid: "unrelated" }]);
+  await assert.rejects(waitForGrafana("http://fixture", "unused", 2500, "", dashboards, missing), /dashboard-6/);
+  assert.equal(missing.now(), 2500, "readiness must not extend its original deadline");
+  const absentDatasource = fixture((apiPath) => apiPath === "/api/datasources" ? datasourceRows.slice(1) : dashboards);
+  await assert.rejects(waitForGrafana("http://fixture", "unused", 2500, "", dashboards, absentDatasource), /cloud-monitoring/);
+  const unauthorized = fixture(() => { throw new Error("HTTP 401"); });
+  await assert.rejects(waitForGrafana("http://fixture", "unused", 2500, "", dashboards, unauthorized), /HTTP 401/);
+  assert.equal(unauthorized.now(), 2500);
+  await assert.rejects(waitForGrafana("http://fixture", "unused", NaN), /timeout must be positive/);
   console.log("grafana-smoke: self-test passed");
 }
 
-async function waitForGrafana(baseUrl, password, timeoutMs, iamToken = "") {
-  const started = Date.now();
+async function waitForGrafana(baseUrl, password, timeoutMs, iamToken = "", dashboards = [], {
+  request = fetchJson,
+  now = Date.now,
+  sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+} = {}) {
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) throw new Error("Grafana readiness timeout must be positive");
+  const deadline = now() + timeoutMs;
   let lastError = null;
-  while (Date.now() - started < timeoutMs) {
+  const read = async (apiPath) => {
+    const remaining = deadline - now();
+    if (remaining <= 0) throw new Error("Grafana provisioning deadline exhausted");
+    return request(baseUrl, apiPath, password, Math.min(5000, remaining), iamToken);
+  };
+  while (now() < deadline) {
     try {
-      await fetchJson(baseUrl, "/api/health", password, 5000, iamToken);
+      await read("/api/health");
+      const datasources = await read("/api/datasources");
+      const datasourceUids = new Set((Array.isArray(datasources) ? datasources : []).map((item) => item.uid));
+      const missingDatasources = requiredDatasourceUids.filter((uid) => !datasourceUids.has(uid));
+      if (missingDatasources.length) {
+        throw new Error(`Live Grafana is missing provisioned datasources: ${missingDatasources.join(", ")}`);
+      }
+      const search = await read("/api/search?type=dash-db");
+      const liveUids = new Set((Array.isArray(search) ? search : []).map((item) => item.uid));
+      const missing = dashboards.filter((dashboard) => !liveUids.has(dashboard.uid));
+      if (missing.length) {
+        throw new Error(`Live Grafana is missing committed dashboards: ${missing.map((dashboard) => `${dashboard.uid} (${dashboard.file})`).join(", ")}`);
+      }
       return;
     } catch (error) {
       lastError = error;
-      await new Promise((resolve) => setTimeout(resolve, 1000));
+      const remaining = deadline - now();
+      if (remaining > 0) await sleep(Math.min(1000, remaining));
     }
   }
-  throw new Error(`Grafana API did not become ready at ${baseUrl}: ${lastError?.message ?? "timeout"}`);
+  throw new Error(`Grafana API/provisioning did not become ready at ${baseUrl}: ${lastError?.message ?? "timeout"}`);
 }
 
 function startProxy({ project, region, service, port }) {
@@ -452,31 +525,15 @@ async function main() {
   }
 
   try {
-    await waitForGrafana(baseUrl, password, timeoutMs, iamToken);
-    const datasources = await fetchJson(baseUrl, "/api/datasources", password, 15000, iamToken);
-    const datasourceUids = new Set((Array.isArray(datasources) ? datasources : []).map((item) => item.uid).filter(Boolean));
-    const missingDatasources = requiredDatasourceUids.filter((uid) => !datasourceUids.has(uid));
-    if (missingDatasources.length) {
-      throw new Error(`Live Grafana is missing provisioned datasources: ${missingDatasources.join(", ")}`);
-    }
-
-    const search = await fetchJson(baseUrl, "/api/search?type=dash-db", password, 15000, iamToken);
-    const liveUids = new Set((Array.isArray(search) ? search : []).map((item) => item.uid).filter(Boolean));
-    if (liveUids.size < dashboards.length) {
-      throw new Error(`Grafana search returned ${liveUids.size} dashboards, but ${dashboards.length} dashboard JSONs are committed`);
-    }
-
-    const missing = [];
+    // Health may become ready before file provisioning finishes on a cold start.
+    // Share the existing readiness deadline across health, datasources and UIDs.
+    await waitForGrafana(baseUrl, password, timeoutMs, iamToken, dashboards);
     for (const dashboard of dashboards) {
-      if (!liveUids.has(dashboard.uid)) missing.push(`${dashboard.uid} (${dashboard.file})`);
       const live = await fetchJson(baseUrl, `/api/dashboards/uid/${encodeURIComponent(dashboard.uid)}`, password, 15000, iamToken);
       const livePanels = live?.dashboard?.panels;
       if (!Array.isArray(livePanels) || livePanels.length === 0) {
         throw new Error(`Live Grafana dashboard ${dashboard.uid} has no panels`);
       }
-    }
-    if (missing.length) {
-      throw new Error(`Live Grafana is missing committed dashboards: ${missing.join(", ")}`);
     }
     await assertLiveDataQueries(baseUrl, password, 30000, iamToken, project);
     await assertFeatureWisePanels(baseUrl, password, 30000, iamToken, project, dashboards);

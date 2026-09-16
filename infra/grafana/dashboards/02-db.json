@@ -124,7 +124,7 @@
             "perSeriesAligner": "ALIGN_MEAN",
             "crossSeriesReducer": "REDUCE_SUM",
             "alignmentPeriod": "60s",
-            "filter": "metric.type = \"prometheus.googleapis.com/db_client_connections_usage/gauge\" AND resource.type = \"prometheus_target\""
+            "filters": ["metric.type", "=", "prometheus.googleapis.com/db_client_connections_usage/gauge", "AND", "resource.type", "=", "prometheus_target"]
           }
         },
         {
@@ -138,7 +138,7 @@
             "perSeriesAligner": "ALIGN_MEAN",
             "crossSeriesReducer": "REDUCE_SUM",
             "alignmentPeriod": "60s",
-            "filter": "metric.type = \"prometheus.googleapis.com/db_client_connections_idle/gauge\" AND resource.type = \"prometheus_target\""
+            "filters": ["metric.type", "=", "prometheus.googleapis.com/db_client_connections_idle/gauge", "AND", "resource.type", "=", "prometheus_target"]
           }
         },
         {
@@ -152,7 +152,7 @@
             "perSeriesAligner": "ALIGN_MEAN",
             "crossSeriesReducer": "REDUCE_SUM",
             "alignmentPeriod": "60s",
-            "filter": "metric.type = \"prometheus.googleapis.com/db_client_connections_max/gauge\" AND resource.type = \"prometheus_target\""
+            "filters": ["metric.type", "=", "prometheus.googleapis.com/db_client_connections_max/gauge", "AND", "resource.type", "=", "prometheus_target"]
           }
         },
         {
@@ -166,7 +166,7 @@
             "perSeriesAligner": "ALIGN_MEAN",
             "crossSeriesReducer": "REDUCE_SUM",
             "alignmentPeriod": "60s",
-            "filter": "metric.type = \"prometheus.googleapis.com/db_client_connections_pending/gauge\" AND resource.type = \"prometheus_target\""
+            "filters": ["metric.type", "=", "prometheus.googleapis.com/db_client_connections_pending/gauge", "AND", "resource.type", "=", "prometheus_target"]
           }
         }
       ]
@@ -290,10 +290,10 @@
             "groupBys": [
               "metric.label.pgx_operation_type"
             ],
-            "perSeriesAligner": "ALIGN_PERCENTILE_50",
-            "crossSeriesReducer": "REDUCE_NONE",
+            "perSeriesAligner": "ALIGN_DELTA",
+            "crossSeriesReducer": "REDUCE_PERCENTILE_50",
             "alignmentPeriod": "300s",
-            "filter": "metric.type = \"prometheus.googleapis.com/db_client_operation_duration_seconds/histogram\" AND resource.type = \"prometheus_target\""
+            "filters": ["metric.type", "=", "prometheus.googleapis.com/db_client_operation_duration_seconds/histogram", "AND", "resource.type", "=", "prometheus_target"]
           }
         },
         {
@@ -307,10 +307,10 @@
             "groupBys": [
               "metric.label.pgx_operation_type"
             ],
-            "perSeriesAligner": "ALIGN_PERCENTILE_95",
-            "crossSeriesReducer": "REDUCE_NONE",
+            "perSeriesAligner": "ALIGN_DELTA",
+            "crossSeriesReducer": "REDUCE_PERCENTILE_95",
             "alignmentPeriod": "300s",
-            "filter": "metric.type = \"prometheus.googleapis.com/db_client_operation_duration_seconds/histogram\" AND resource.type = \"prometheus_target\""
+            "filters": ["metric.type", "=", "prometheus.googleapis.com/db_client_operation_duration_seconds/histogram", "AND", "resource.type", "=", "prometheus_target"]
           }
         },
         {
@@ -324,10 +324,10 @@
             "groupBys": [
               "metric.label.pgx_operation_type"
             ],
-            "perSeriesAligner": "ALIGN_PERCENTILE_99",
-            "crossSeriesReducer": "REDUCE_NONE",
+            "perSeriesAligner": "ALIGN_DELTA",
+            "crossSeriesReducer": "REDUCE_PERCENTILE_99",
             "alignmentPeriod": "300s",
-            "filter": "metric.type = \"prometheus.googleapis.com/db_client_operation_duration_seconds/histogram\" AND resource.type = \"prometheus_target\""
+            "filters": ["metric.type", "=", "prometheus.googleapis.com/db_client_operation_duration_seconds/histogram", "AND", "resource.type", "=", "prometheus_target"]
           }
         }
       ]
@@ -382,7 +382,7 @@
             "perSeriesAligner": "ALIGN_RATE",
             "crossSeriesReducer": "REDUCE_NONE",
             "alignmentPeriod": "300s",
-            "filter": "metric.type = \"prometheus.googleapis.com/db_client_operation_duration_seconds/histogram\" AND resource.type = \"prometheus_target\""
+            "filters": ["metric.type", "=", "prometheus.googleapis.com/db_client_operation_duration_seconds/histogram", "AND", "resource.type", "=", "prometheus_target"]
           }
         }
       ]
@@ -446,10 +446,10 @@
             "groupBys": [
               "metric.label.pgx_operation_type"
             ],
-            "perSeriesAligner": "ALIGN_PERCENTILE_99",
-            "crossSeriesReducer": "REDUCE_NONE",
+            "perSeriesAligner": "ALIGN_DELTA",
+            "crossSeriesReducer": "REDUCE_PERCENTILE_99",
             "alignmentPeriod": "300s",
-            "filter": "metric.type = \"prometheus.googleapis.com/db_client_operation_duration_seconds/histogram\" AND resource.type = \"prometheus_target\""
+            "filters": ["metric.type", "=", "prometheus.googleapis.com/db_client_operation_duration_seconds/histogram", "AND", "resource.type", "=", "prometheus_target"]
           }
         }
       ]
@@ -528,7 +528,7 @@
             "perSeriesAligner": "ALIGN_MEAN",
             "crossSeriesReducer": "REDUCE_NONE",
             "alignmentPeriod": "60s",
-            "filter": "resource.type = \"cloudsql_database\" AND metric.type = \"cloudsql.googleapis.com/database/cpu/utilization\" AND resource.label.database_id = \"goatos-stg:goatos-stg-core-db\""
+            "filters": ["resource.type", "=", "cloudsql_database", "AND", "metric.type", "=", "cloudsql.googleapis.com/database/cpu/utilization", "AND", "resource.label.database_id", "=", "goatos-stg:goatos-stg-core-db"]
           }
         }
       ]
@@ -578,7 +578,7 @@
             "perSeriesAligner": "ALIGN_MEAN",
             "crossSeriesReducer": "REDUCE_NONE",
             "alignmentPeriod": "60s",
-            "filter": "resource.type = \"cloudsql_database\" AND metric.type = \"cloudsql.googleapis.com/database/memory/utilization\" AND resource.label.database_id = \"goatos-stg:goatos-stg-core-db\""
+            "filters": ["resource.type", "=", "cloudsql_database", "AND", "metric.type", "=", "cloudsql.googleapis.com/database/memory/utilization", "AND", "resource.label.database_id", "=", "goatos-stg:goatos-stg-core-db"]
           }
         }
       ]
@@ -645,7 +645,7 @@
             "perSeriesAligner": "ALIGN_MEAN",
             "crossSeriesReducer": "REDUCE_NONE",
             "alignmentPeriod": "60s",
-            "filter": "resource.type = \"cloudsql_database\" AND metric.type = \"cloudsql.googleapis.com/database/disk/utilization\" AND resource.label.database_id = \"goatos-stg:goatos-stg-core-db\""
+            "filters": ["resource.type", "=", "cloudsql_database", "AND", "metric.type", "=", "cloudsql.googleapis.com/database/disk/utilization", "AND", "resource.label.database_id", "=", "goatos-stg:goatos-stg-core-db"]
           }
         }
       ]
@@ -693,7 +693,7 @@
             "perSeriesAligner": "ALIGN_MEAN",
             "crossSeriesReducer": "REDUCE_NONE",
             "alignmentPeriod": "60s",
-            "filter": "resource.type = \"cloudsql_database\" AND metric.type = \"cloudsql.googleapis.com/database/postgresql/num_backends\" AND resource.label.database_id = \"goatos-stg:goatos-stg-core-db\""
+            "filters": ["resource.type", "=", "cloudsql_database", "AND", "metric.type", "=", "cloudsql.googleapis.com/database/postgresql/num_backends", "AND", "resource.label.database_id", "=", "goatos-stg:goatos-stg-core-db"]
           }
         }
       ]
@@ -742,7 +742,7 @@
             "perSeriesAligner": "ALIGN_RATE",
             "crossSeriesReducer": "REDUCE_NONE",
             "alignmentPeriod": "60s",
-            "filter": "resource.type = \"cloudsql_database\" AND metric.type = \"cloudsql.googleapis.com/database/disk/read_ops_count\" AND resource.label.database_id = \"goatos-stg:goatos-stg-core-db\""
+            "filters": ["resource.type", "=", "cloudsql_database", "AND", "metric.type", "=", "cloudsql.googleapis.com/database/disk/read_ops_count", "AND", "resource.label.database_id", "=", "goatos-stg:goatos-stg-core-db"]
           }
         },
         {
@@ -756,7 +756,7 @@
             "perSeriesAligner": "ALIGN_RATE",
             "crossSeriesReducer": "REDUCE_NONE",
             "alignmentPeriod": "60s",
-            "filter": "resource.type = \"cloudsql_database\" AND metric.type = \"cloudsql.googleapis.com/database/disk/write_ops_count\" AND resource.label.database_id = \"goatos-stg:goatos-stg-core-db\""
+            "filters": ["resource.type", "=", "cloudsql_database", "AND", "metric.type", "=", "cloudsql.googleapis.com/database/disk/write_ops_count", "AND", "resource.label.database_id", "=", "goatos-stg:goatos-stg-core-db"]
           }
         }
       ]

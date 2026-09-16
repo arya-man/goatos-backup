@@ -82,7 +82,7 @@
             "perSeriesAligner": "ALIGN_RATE",
             "crossSeriesReducer": "REDUCE_SUM",
             "alignmentPeriod": "300s",
-            "filter": "resource.type = \"cloud_run_revision\" AND metric.type = \"run.googleapis.com/request_count\" AND resource.label.service_name = \"goatos-stg-grafana-alloy\""
+            "filters": ["resource.type", "=", "cloud_run_revision", "AND", "metric.type", "=", "run.googleapis.com/request_count", "AND", "resource.label.service_name", "=", "goatos-stg-grafana-alloy"]
           }
         }
       ]
@@ -131,7 +131,7 @@
             "perSeriesAligner": "ALIGN_PERCENTILE_50",
             "crossSeriesReducer": "REDUCE_NONE",
             "alignmentPeriod": "300s",
-            "filter": "resource.type = \"cloud_run_revision\" AND metric.type = \"run.googleapis.com/request_latencies\" AND resource.label.service_name = \"goatos-stg-grafana-alloy\""
+            "filters": ["resource.type", "=", "cloud_run_revision", "AND", "metric.type", "=", "run.googleapis.com/request_latencies", "AND", "resource.label.service_name", "=", "goatos-stg-grafana-alloy"]
           }
         },
         {
@@ -145,7 +145,7 @@
             "perSeriesAligner": "ALIGN_PERCENTILE_99",
             "crossSeriesReducer": "REDUCE_NONE",
             "alignmentPeriod": "300s",
-            "filter": "resource.type = \"cloud_run_revision\" AND metric.type = \"run.googleapis.com/request_latencies\" AND resource.label.service_name = \"goatos-stg-grafana-alloy\""
+            "filters": ["resource.type", "=", "cloud_run_revision", "AND", "metric.type", "=", "run.googleapis.com/request_latencies", "AND", "resource.label.service_name", "=", "goatos-stg-grafana-alloy"]
           }
         }
       ]

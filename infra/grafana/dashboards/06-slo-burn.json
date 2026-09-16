@@ -290,10 +290,10 @@
           "timeSeriesList": {
             "projectName": "goatos-stg",
             "view": "FULL",
-            "perSeriesAligner": "ALIGN_PERCENTILE_99",
-            "crossSeriesReducer": "REDUCE_MAX",
+            "perSeriesAligner": "ALIGN_DELTA",
+            "crossSeriesReducer": "REDUCE_PERCENTILE_99",
             "alignmentPeriod": "300s",
-            "filter": "metric.type = \"prometheus.googleapis.com/http_server_request_duration_seconds/histogram\" AND resource.type = \"prometheus_target\" AND metric.label.method = \"GET\""
+            "filters": ["metric.type", "=", "prometheus.googleapis.com/http_server_request_duration_seconds/histogram", "AND", "resource.type", "=", "prometheus_target", "AND", "metric.label.method", "=", "GET"]
           }
         }
       ]
@@ -355,10 +355,10 @@
           "timeSeriesList": {
             "projectName": "goatos-stg",
             "view": "FULL",
-            "perSeriesAligner": "ALIGN_PERCENTILE_99",
-            "crossSeriesReducer": "REDUCE_MAX",
+            "perSeriesAligner": "ALIGN_DELTA",
+            "crossSeriesReducer": "REDUCE_PERCENTILE_99",
             "alignmentPeriod": "300s",
-            "filter": "metric.type = \"prometheus.googleapis.com/http_server_request_duration_seconds/histogram\" AND resource.type = \"prometheus_target\" AND metric.label.method = \"POST\""
+            "filters": ["metric.type", "=", "prometheus.googleapis.com/http_server_request_duration_seconds/histogram", "AND", "resource.type", "=", "prometheus_target", "AND", "metric.label.method", "=", "POST"]
           }
         }
       ]
@@ -433,10 +433,10 @@
           "timeSeriesList": {
             "projectName": "goatos-stg",
             "view": "FULL",
-            "perSeriesAligner": "ALIGN_PERCENTILE_99",
-            "crossSeriesReducer": "REDUCE_MAX",
+            "perSeriesAligner": "ALIGN_DELTA",
+            "crossSeriesReducer": "REDUCE_PERCENTILE_99",
             "alignmentPeriod": "300s",
-            "filter": "metric.type = \"prometheus.googleapis.com/kernel_outbox_publish_duration_seconds/histogram\" AND resource.type = \"prometheus_target\""
+            "filters": ["metric.type", "=", "prometheus.googleapis.com/kernel_outbox_publish_duration_seconds/histogram", "AND", "resource.type", "=", "prometheus_target"]
           }
         },
         {
@@ -450,7 +450,7 @@
             "perSeriesAligner": "ALIGN_MAX",
             "crossSeriesReducer": "REDUCE_MAX",
             "alignmentPeriod": "300s",
-            "filter": "metric.type = \"prometheus.googleapis.com/kernel_consumer_lag_seconds/gauge\" AND resource.type = \"prometheus_target\""
+            "filters": ["metric.type", "=", "prometheus.googleapis.com/kernel_consumer_lag_seconds/gauge", "AND", "resource.type", "=", "prometheus_target"]
           }
         }
       ]

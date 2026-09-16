@@ -88,7 +88,7 @@
             "perSeriesAligner": "ALIGN_MAX",
             "crossSeriesReducer": "REDUCE_SUM",
             "alignmentPeriod": "60s",
-            "filter": "metric.type = \"prometheus.googleapis.com/kernel_outbox_queue_depth/gauge\" AND resource.type = \"prometheus_target\""
+            "filters": ["metric.type", "=", "prometheus.googleapis.com/kernel_outbox_queue_depth/gauge", "AND", "resource.type", "=", "prometheus_target"]
           }
         }
       ]
@@ -144,7 +144,7 @@
             "perSeriesAligner": "ALIGN_MAX",
             "crossSeriesReducer": "REDUCE_SUM",
             "alignmentPeriod": "60s",
-            "filter": "resource.type = \"pubsub_subscription\" AND metric.type = \"pubsub.googleapis.com/subscription/num_undelivered_messages\" AND resource.label.subscription_id = \"goatos-stg-outbox-events-dlq-inspect\""
+            "filters": ["resource.type", "=", "pubsub_subscription", "AND", "metric.type", "=", "pubsub.googleapis.com/subscription/num_undelivered_messages", "AND", "resource.label.subscription_id", "=", "goatos-stg-outbox-events-dlq-inspect"]
           }
         }
       ]
@@ -204,7 +204,7 @@
             "perSeriesAligner": "ALIGN_MAX",
             "crossSeriesReducer": "REDUCE_MAX",
             "alignmentPeriod": "60s",
-            "filter": "metric.type = \"prometheus.googleapis.com/kernel_consumer_lag_seconds/gauge\" AND resource.type = \"prometheus_target\""
+            "filters": ["metric.type", "=", "prometheus.googleapis.com/kernel_consumer_lag_seconds/gauge", "AND", "resource.type", "=", "prometheus_target"]
           }
         }
       ]
@@ -328,10 +328,10 @@
             "groupBys": [
               "metric.label.outcome"
             ],
-            "perSeriesAligner": "ALIGN_PERCENTILE_50",
-            "crossSeriesReducer": "REDUCE_NONE",
+            "perSeriesAligner": "ALIGN_DELTA",
+            "crossSeriesReducer": "REDUCE_PERCENTILE_50",
             "alignmentPeriod": "300s",
-            "filter": "metric.type = \"prometheus.googleapis.com/kernel_outbox_publish_duration_seconds/histogram\" AND resource.type = \"prometheus_target\""
+            "filters": ["metric.type", "=", "prometheus.googleapis.com/kernel_outbox_publish_duration_seconds/histogram", "AND", "resource.type", "=", "prometheus_target"]
           }
         },
         {
@@ -345,10 +345,10 @@
             "groupBys": [
               "metric.label.outcome"
             ],
-            "perSeriesAligner": "ALIGN_PERCENTILE_99",
-            "crossSeriesReducer": "REDUCE_NONE",
+            "perSeriesAligner": "ALIGN_DELTA",
+            "crossSeriesReducer": "REDUCE_PERCENTILE_99",
             "alignmentPeriod": "300s",
-            "filter": "metric.type = \"prometheus.googleapis.com/kernel_outbox_publish_duration_seconds/histogram\" AND resource.type = \"prometheus_target\""
+            "filters": ["metric.type", "=", "prometheus.googleapis.com/kernel_outbox_publish_duration_seconds/histogram", "AND", "resource.type", "=", "prometheus_target"]
           }
         }
       ]
@@ -446,7 +446,7 @@
             "perSeriesAligner": "ALIGN_DELTA",
             "crossSeriesReducer": "REDUCE_SUM",
             "alignmentPeriod": "300s",
-            "filter": "metric.type = \"logging.googleapis.com/user/goatos_kernel_outbox_reclaimed\" AND resource.type = \"cloud_run_revision\""
+            "filters": ["metric.type", "=", "logging.googleapis.com/user/goatos_kernel_outbox_reclaimed", "AND", "resource.type", "=", "cloud_run_revision"]
           }
         },
         {
@@ -460,7 +460,7 @@
             "perSeriesAligner": "ALIGN_DELTA",
             "crossSeriesReducer": "REDUCE_SUM",
             "alignmentPeriod": "300s",
-            "filter": "metric.type = \"logging.googleapis.com/user/goatos_kernel_outbox_retry_scheduled\" AND resource.type = \"cloud_run_revision\""
+            "filters": ["metric.type", "=", "logging.googleapis.com/user/goatos_kernel_outbox_retry_scheduled", "AND", "resource.type", "=", "cloud_run_revision"]
           }
         },
         {
@@ -474,7 +474,7 @@
             "perSeriesAligner": "ALIGN_DELTA",
             "crossSeriesReducer": "REDUCE_SUM",
             "alignmentPeriod": "300s",
-            "filter": "metric.type = \"logging.googleapis.com/user/goatos_kernel_outbox_dead_letter\" AND resource.type = \"cloud_run_revision\""
+            "filters": ["metric.type", "=", "logging.googleapis.com/user/goatos_kernel_outbox_dead_letter", "AND", "resource.type", "=", "cloud_run_revision"]
           }
         }
       ]
@@ -536,7 +536,7 @@
             "perSeriesAligner": "ALIGN_MAX",
             "crossSeriesReducer": "REDUCE_NONE",
             "alignmentPeriod": "60s",
-            "filter": "resource.type = \"pubsub_subscription\" AND metric.type = \"pubsub.googleapis.com/subscription/num_undelivered_messages\" AND resource.label.subscription_id = \"goatos-stg-domain-events\""
+            "filters": ["resource.type", "=", "pubsub_subscription", "AND", "metric.type", "=", "pubsub.googleapis.com/subscription/num_undelivered_messages", "AND", "resource.label.subscription_id", "=", "goatos-stg-domain-events"]
           }
         }
       ]
@@ -601,7 +601,7 @@
             "perSeriesAligner": "ALIGN_MAX",
             "crossSeriesReducer": "REDUCE_NONE",
             "alignmentPeriod": "60s",
-            "filter": "resource.type = \"pubsub_subscription\" AND metric.type = \"pubsub.googleapis.com/subscription/num_undelivered_messages\" AND resource.label.subscription_id = \"goatos-stg-outbox-events-dlq-inspect\""
+            "filters": ["resource.type", "=", "pubsub_subscription", "AND", "metric.type", "=", "pubsub.googleapis.com/subscription/num_undelivered_messages", "AND", "resource.label.subscription_id", "=", "goatos-stg-outbox-events-dlq-inspect"]
           }
         }
       ]
@@ -687,10 +687,10 @@
             "groupBys": [
               "metric.label.outcome"
             ],
-            "perSeriesAligner": "ALIGN_PERCENTILE_50",
-            "crossSeriesReducer": "REDUCE_NONE",
+            "perSeriesAligner": "ALIGN_DELTA",
+            "crossSeriesReducer": "REDUCE_PERCENTILE_50",
             "alignmentPeriod": "300s",
-            "filter": "metric.type = \"prometheus.googleapis.com/kernel_consumer_handle_duration_seconds/histogram\" AND resource.type = \"prometheus_target\""
+            "filters": ["metric.type", "=", "prometheus.googleapis.com/kernel_consumer_handle_duration_seconds/histogram", "AND", "resource.type", "=", "prometheus_target"]
           }
         },
         {
@@ -704,10 +704,10 @@
             "groupBys": [
               "metric.label.outcome"
             ],
-            "perSeriesAligner": "ALIGN_PERCENTILE_99",
-            "crossSeriesReducer": "REDUCE_NONE",
+            "perSeriesAligner": "ALIGN_DELTA",
+            "crossSeriesReducer": "REDUCE_PERCENTILE_99",
             "alignmentPeriod": "300s",
-            "filter": "metric.type = \"prometheus.googleapis.com/kernel_consumer_handle_duration_seconds/histogram\" AND resource.type = \"prometheus_target\""
+            "filters": ["metric.type", "=", "prometheus.googleapis.com/kernel_consumer_handle_duration_seconds/histogram", "AND", "resource.type", "=", "prometheus_target"]
           }
         },
         {
@@ -721,7 +721,7 @@
             "perSeriesAligner": "ALIGN_MAX",
             "crossSeriesReducer": "REDUCE_MAX",
             "alignmentPeriod": "60s",
-            "filter": "metric.type = \"prometheus.googleapis.com/kernel_consumer_lag_seconds/gauge\" AND resource.type = \"prometheus_target\""
+            "filters": ["metric.type", "=", "prometheus.googleapis.com/kernel_consumer_lag_seconds/gauge", "AND", "resource.type", "=", "prometheus_target"]
           }
         }
       ]
@@ -789,7 +789,7 @@
             "perSeriesAligner": "ALIGN_RATE",
             "crossSeriesReducer": "REDUCE_SUM",
             "alignmentPeriod": "300s",
-            "filter": "metric.type = \"prometheus.googleapis.com/kernel_consumer_validation_errors_total/counter\" AND resource.type = \"prometheus_target\""
+            "filters": ["metric.type", "=", "prometheus.googleapis.com/kernel_consumer_validation_errors_total/counter", "AND", "resource.type", "=", "prometheus_target"]
           }
         },
         {
@@ -806,7 +806,7 @@
             "perSeriesAligner": "ALIGN_RATE",
             "crossSeriesReducer": "REDUCE_NONE",
             "alignmentPeriod": "300s",
-            "filter": "metric.type = \"prometheus.googleapis.com/kernel_consumer_handle_duration_seconds/histogram\" AND resource.type = \"prometheus_target\""
+            "filters": ["metric.type", "=", "prometheus.googleapis.com/kernel_consumer_handle_duration_seconds/histogram", "AND", "resource.type", "=", "prometheus_target"]
           }
         }
       ]
@@ -872,10 +872,10 @@
             "groupBys": [
               "metric.label.stage"
             ],
-            "perSeriesAligner": "ALIGN_PERCENTILE_50",
-            "crossSeriesReducer": "REDUCE_NONE",
+            "perSeriesAligner": "ALIGN_DELTA",
+            "crossSeriesReducer": "REDUCE_PERCENTILE_50",
             "alignmentPeriod": "300s",
-            "filter": "metric.type = \"prometheus.googleapis.com/kernel_sweeper_batch_duration_seconds/histogram\" AND resource.type = \"prometheus_target\""
+            "filters": ["metric.type", "=", "prometheus.googleapis.com/kernel_sweeper_batch_duration_seconds/histogram", "AND", "resource.type", "=", "prometheus_target"]
           }
         },
         {
@@ -889,10 +889,10 @@
             "groupBys": [
               "metric.label.stage"
             ],
-            "perSeriesAligner": "ALIGN_PERCENTILE_99",
-            "crossSeriesReducer": "REDUCE_NONE",
+            "perSeriesAligner": "ALIGN_DELTA",
+            "crossSeriesReducer": "REDUCE_PERCENTILE_99",
             "alignmentPeriod": "300s",
-            "filter": "metric.type = \"prometheus.googleapis.com/kernel_sweeper_batch_duration_seconds/histogram\" AND resource.type = \"prometheus_target\""
+            "filters": ["metric.type", "=", "prometheus.googleapis.com/kernel_sweeper_batch_duration_seconds/histogram", "AND", "resource.type", "=", "prometheus_target"]
           }
         }
       ]
@@ -944,7 +944,7 @@
             "perSeriesAligner": "ALIGN_RATE",
             "crossSeriesReducer": "REDUCE_NONE",
             "alignmentPeriod": "300s",
-            "filter": "metric.type = \"prometheus.googleapis.com/kernel_sweeper_obligations_swept_total/counter\" AND resource.type = \"prometheus_target\""
+            "filters": ["metric.type", "=", "prometheus.googleapis.com/kernel_sweeper_obligations_swept_total/counter", "AND", "resource.type", "=", "prometheus_target"]
           }
         },
         {
@@ -961,7 +961,7 @@
             "perSeriesAligner": "ALIGN_RATE",
             "crossSeriesReducer": "REDUCE_NONE",
             "alignmentPeriod": "300s",
-            "filter": "metric.type = \"prometheus.googleapis.com/kernel_sweeper_tasks_created_total/counter\" AND resource.type = \"prometheus_target\""
+            "filters": ["metric.type", "=", "prometheus.googleapis.com/kernel_sweeper_tasks_created_total/counter", "AND", "resource.type", "=", "prometheus_target"]
           }
         }
       ]
@@ -1027,10 +1027,10 @@
             "groupBys": [
               "metric.label.channel"
             ],
-            "perSeriesAligner": "ALIGN_PERCENTILE_50",
-            "crossSeriesReducer": "REDUCE_NONE",
+            "perSeriesAligner": "ALIGN_DELTA",
+            "crossSeriesReducer": "REDUCE_PERCENTILE_50",
             "alignmentPeriod": "300s",
-            "filter": "metric.type = \"prometheus.googleapis.com/kernel_notify_send_duration_seconds/histogram\" AND resource.type = \"prometheus_target\""
+            "filters": ["metric.type", "=", "prometheus.googleapis.com/kernel_notify_send_duration_seconds/histogram", "AND", "resource.type", "=", "prometheus_target"]
           }
         },
         {
@@ -1044,10 +1044,10 @@
             "groupBys": [
               "metric.label.channel"
             ],
-            "perSeriesAligner": "ALIGN_PERCENTILE_99",
-            "crossSeriesReducer": "REDUCE_NONE",
+            "perSeriesAligner": "ALIGN_DELTA",
+            "crossSeriesReducer": "REDUCE_PERCENTILE_99",
             "alignmentPeriod": "300s",
-            "filter": "metric.type = \"prometheus.googleapis.com/kernel_notify_send_duration_seconds/histogram\" AND resource.type = \"prometheus_target\""
+            "filters": ["metric.type", "=", "prometheus.googleapis.com/kernel_notify_send_duration_seconds/histogram", "AND", "resource.type", "=", "prometheus_target"]
           }
         }
       ]
@@ -1130,7 +1130,7 @@
             "perSeriesAligner": "ALIGN_DELTA",
             "crossSeriesReducer": "REDUCE_SUM",
             "alignmentPeriod": "300s",
-            "filter": "metric.type = \"logging.googleapis.com/user/goatos_kernel_notify_failed\" AND resource.type = \"cloud_run_revision\""
+            "filters": ["metric.type", "=", "logging.googleapis.com/user/goatos_kernel_notify_failed", "AND", "resource.type", "=", "cloud_run_revision"]
           }
         },
         {
@@ -1147,7 +1147,7 @@
             "perSeriesAligner": "ALIGN_DELTA",
             "crossSeriesReducer": "REDUCE_SUM",
             "alignmentPeriod": "300s",
-            "filter": "metric.type = \"logging.googleapis.com/user/goatos_kernel_notify_exhausted\" AND resource.type = \"cloud_run_revision\""
+            "filters": ["metric.type", "=", "logging.googleapis.com/user/goatos_kernel_notify_exhausted", "AND", "resource.type", "=", "cloud_run_revision"]
           }
         }
       ]
@@ -1206,10 +1206,10 @@
           "timeSeriesList": {
             "projectName": "goatos-stg",
             "view": "FULL",
-            "perSeriesAligner": "ALIGN_PERCENTILE_50",
-            "crossSeriesReducer": "REDUCE_MAX",
+            "perSeriesAligner": "ALIGN_DELTA",
+            "crossSeriesReducer": "REDUCE_PERCENTILE_50",
             "alignmentPeriod": "300s",
-            "filter": "metric.type = \"prometheus.googleapis.com/kernel_cloudtasks_enqueue_duration_seconds/histogram\" AND resource.type = \"prometheus_target\""
+            "filters": ["metric.type", "=", "prometheus.googleapis.com/kernel_cloudtasks_enqueue_duration_seconds/histogram", "AND", "resource.type", "=", "prometheus_target"]
           }
         },
         {
@@ -1220,10 +1220,10 @@
           "timeSeriesList": {
             "projectName": "goatos-stg",
             "view": "FULL",
-            "perSeriesAligner": "ALIGN_PERCENTILE_99",
-            "crossSeriesReducer": "REDUCE_MAX",
+            "perSeriesAligner": "ALIGN_DELTA",
+            "crossSeriesReducer": "REDUCE_PERCENTILE_99",
             "alignmentPeriod": "300s",
-            "filter": "metric.type = \"prometheus.googleapis.com/kernel_cloudtasks_enqueue_duration_seconds/histogram\" AND resource.type = \"prometheus_target\""
+            "filters": ["metric.type", "=", "prometheus.googleapis.com/kernel_cloudtasks_enqueue_duration_seconds/histogram", "AND", "resource.type", "=", "prometheus_target"]
           }
         }
       ]
@@ -1272,7 +1272,7 @@
             "perSeriesAligner": "ALIGN_RATE",
             "crossSeriesReducer": "REDUCE_SUM",
             "alignmentPeriod": "300s",
-            "filter": "metric.type = \"prometheus.googleapis.com/kernel_cloudtasks_idempotent_collisions_total/counter\" AND resource.type = \"prometheus_target\""
+            "filters": ["metric.type", "=", "prometheus.googleapis.com/kernel_cloudtasks_idempotent_collisions_total/counter", "AND", "resource.type", "=", "prometheus_target"]
           }
         }
       ]
