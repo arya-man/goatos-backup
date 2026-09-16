@@ -206,7 +206,7 @@ FROM feed_packing_completions
 WHERE tenant_id = $1::uuid AND park_id = $2::uuid AND shed_id = $3::uuid
   AND partition_key = $6 AND session_no = $7 AND target_date = $4::date AND workflow = $5`,
 			p.TenantID, p.ParkID, p.ShedID, targetDate, p.Workflow,
-			domain.PartitionMatchKey(p.PartitionLabel), p.SessionNo).
+			partitionColumnKey(p.PartitionLabel), p.SessionNo).
 			Scan(&completionID, &existingStatus, &rowVersion, &existingProof, &existingSOP); err != nil {
 			return ports.CompletePackingResult{}, fmt.Errorf("feeddirection: read existing packing completion: %w", err)
 		}
@@ -601,7 +601,7 @@ SET status = 'rework',
     rework_reason = coalesce(
       (SELECT nullif(ctx.reason, '')
        FROM unnest($8::uuid[], $9::text[], $10::int[], $11::text[]) AS ctx(shed_id, partition_key, session_no, reason)
-       WHERE ctx.shed_id = c.shed_id AND ctx.partition_key = c.partition_key AND ctx.session_no = c.session_no),
+       WHERE ctx.shed_id = c.shed_id AND ctx.partition_key = `+partitionKeyAsConfigKeySQL("c.partition_key")+` AND ctx.session_no = c.session_no),
       nullif($6, '')),
     verified_by = NULL,
     verified_at = NULL,
@@ -613,7 +613,9 @@ WHERE c.tenant_id = $1::uuid
   AND c.target_date = $3::date
   AND c.workflow = $7
   AND c.shed_id = pen.shed_id
-  AND c.partition_key = pen.partition_key
+  -- pen.partition_key is the in-memory CONFIG-KEY form ("part_3"); the column holds "part 3".
+  -- See partition_key.go: comparing them raw matched nothing on every partitioned shed.
+  AND `+partitionKeyAsConfigKeySQL("c.partition_key")+` = pen.partition_key
   -- 'rework' is excluded: that row is already back with the operator, and touching it would bump
   -- row_version and overwrite a verifier's real rejection reason with this one.
   AND c.status IN ('pending_verification', 'completed')
@@ -726,7 +728,8 @@ WHERE tenant_id = $1::uuid
 	// was taken back. Emitting outside the transaction would notify about a reopen that rolled back
 	// (or silently skip one that committed).
 	for _, m := range moved {
-		sc := ctxByKey[reopenContextKey(m.shedID, m.partitionKey, m.sessionNo)]
+		// m.partitionKey is the COLUMN form scanned back; the map is keyed on the config form.
+		sc := ctxByKey[reopenContextKey(m.shedID, domain.PartitionMatchKey(m.partitionKey), m.sessionNo)]
 		// scale-guard:ignore: one bounded outbox INSERT per pen-session the amend diff reopened (the park's pen catalog x sessions, never herd size), inside the already-open transaction.
 		if err := insertFeedPackingReopenedOutbox(ctx, tx, feedPackingReopenedOutbox{
 			TenantID:        p.TenantID,

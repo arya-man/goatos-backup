@@ -164,7 +164,7 @@ FROM feed_distribution_completions
 WHERE tenant_id = $1::uuid AND park_id = $2::uuid AND shed_id = $3::uuid
   AND partition_key = $7 AND session_no = $4 AND target_date = $5::date AND workflow = $6`,
 			p.TenantID, p.ParkID, p.ShedID, p.SessionNo, targetDate, p.Workflow,
-			domain.PartitionMatchKey(p.PartitionLabel)).
+			partitionColumnKey(p.PartitionLabel)).
 			Scan(&completionID, &existingStatus, &rowVersion, &canonicalFeedWeightProof, &canonicalDistProof, &canonicalWaterProof, &canonicalSOPProofs); err != nil {
 			return ports.CompleteDistributionResult{}, fmt.Errorf("feeddirection: read existing distribution completion: %w", err)
 		}
