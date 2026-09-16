@@ -208,22 +208,13 @@ func (s *ShiftingExecutionService) Complete(
 		// proof_required answer, kept for every shape.
 		return domain.ShiftingExecutionResult{}, false, ports.ErrShiftingProofRequired
 	}
-	// REWORK: the verifier rejected the stored captures. A resubmit reusing any of them is refused
-	// (the operator re-shoots); the stored answers are kept when the resubmit carries none.
+	// REWORK: the verifier rejected the stored captures. The stored answers are kept when the
+	// resubmit carries none. A resubmit naming the rejected capture again is NOT refused here:
+	// shifting has always accepted it (its same-refs key collapses onto the existing item), and
+	// the SOP card must not change daily operations on its own (deploy-day parity, 2026-09-16).
 	answers := in.SOPAnswers
-	if pin.VerificationState == "rejected" {
-		rejected := map[string]bool{}
-		for _, ref := range pin.StoredProofs {
-			rejected[strings.TrimSpace(ref)] = true
-		}
-		for _, ref := range refs {
-			if rejected[strings.TrimSpace(ref)] {
-				return domain.ShiftingExecutionResult{}, false, ports.ErrShiftingRejectedProofReuse
-			}
-		}
-		if len(answers) == 0 && len(pin.StoredAnswers) > 0 {
-			answers = pin.StoredAnswers
-		}
+	if pin.VerificationState == "rejected" && len(answers) == 0 && len(pin.StoredAnswers) > 0 {
+		answers = pin.StoredAnswers
 	}
 	judged, err := s.judgeShiftingCard(ctx, in.TenantID, card, refs, answers, in.LegacyShape)
 	if err != nil {

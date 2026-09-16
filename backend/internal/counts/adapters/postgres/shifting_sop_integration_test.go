@@ -312,13 +312,18 @@ func TestReworkResubmitCreatesFreshItemAndKeepsApplied(t *testing.T) {
 	if err := repo.BounceShiftingEventForRework(ctx, domain.ShiftingReworkCommand{TenantID: countsTenant, ShiftingEventID: eventID, VerifiedBy: countsApprover, Reason: "dark"}); err != nil {
 		t.Fatal(err)
 	}
-	// Reusing the rejected clip is refused; nothing changes.
-	_, _, err := svc.Complete(ctx, countsapp.CompleteShiftingInput{
+	// Resubmitting the rejected clip is accepted exactly as before the SOP card existed
+	// (deploy-day parity): the move stays applied and its same-refs key collapses onto the item it
+	// already created.
+	reused, _, err := svc.Complete(ctx, countsapp.CompleteShiftingInput{
 		TenantID: countsTenant, ShiftingEventID: eventID, CompletedByUserID: countsOperator,
 		SOPProofs: authored.ProofRefs{domain.SlotShiftingVideo: "first"}, IdempotencyKey: "complete-sop-rework-2", RequestFingerprint: "fp2",
 	})
-	if !errors.Is(err, ports.ErrShiftingRejectedProofReuse) {
-		t.Fatalf("err=%v", err)
+	if err != nil || reused.EventStatus != domain.ShiftingEventStatusApplied {
+		t.Fatalf("reuse result=%+v err=%v", reused, err)
+	}
+	if capture.request.IdempotencyKey != firstKey {
+		t.Fatalf("reused clip key = %q, want the original %q", capture.request.IdempotencyKey, firstKey)
 	}
 	result, _, err := svc.Complete(ctx, countsapp.CompleteShiftingInput{
 		TenantID: countsTenant, ShiftingEventID: eventID, CompletedByUserID: countsOperator,

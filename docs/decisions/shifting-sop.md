@@ -68,8 +68,9 @@ verifier items are never relabelled. The pending-execution read serves each row'
   "At raise" / "Completion" / "High priority". The idempotency key keeps the pre-SOP shape for a
   seeded submission (`ShiftingVerificationKey`), so an older phone's retry collapses onto the item
   it already created.
-- **Rework**: a resubmit keeps the stored answers when it carries none and REFUSES reuse of a
-  rejected capture (422 `shifting_rejected_proof_reuse`); the applied move stays applied.
+- **Rework**: a resubmit keeps the stored answers when it carries none; the applied move stays
+  applied. Resubmitting the rejected capture is accepted exactly as before this change (its
+  same-refs key collapses onto the existing item) -- deploy-day parity, maintainer 2026-09-16.
 
 ## Older app (program decision 7)
 

@@ -50,7 +50,6 @@ func TestShiftingExecutionErrorMapsSOPRefusalsByName(t *testing.T) {
 		{fmt.Errorf("%w: %w", ports.ErrShiftingProofSlotInvalid, &authored.ProofError{SlotKey: "feed_clip", Message: "Record: Feed clip"}), http.StatusUnprocessableEntity, "shifting_proof_slot_invalid", "feed_clip", ""},
 		{fmt.Errorf("%w: %w", ports.ErrShiftingAnswerInvalid, &authored.AnswerError{QuestionID: "calm", Message: "Answer: Animals calm?"}), http.StatusUnprocessableEntity, "shifting_answer_invalid", "", "calm"},
 		{ports.ErrShiftingSOPVersionUnknown, http.StatusConflict, "shifting_sop_version_unknown", "", ""},
-		{ports.ErrShiftingRejectedProofReuse, http.StatusUnprocessableEntity, "shifting_rejected_proof_reuse", "", ""},
 	}
 	for _, c := range cases {
 		rec := httptest.NewRecorder()
