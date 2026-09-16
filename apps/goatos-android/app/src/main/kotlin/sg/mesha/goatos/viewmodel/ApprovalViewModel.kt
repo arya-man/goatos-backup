@@ -116,6 +116,10 @@ class ApprovalViewModel @Inject constructor(
             }
             ApprovalEvent.Refresh -> _state.update { it.copy(message = null, isError = false) }
             is ApprovalEvent.OpenCaptureMedia -> openCaptureMedia(event.proofId)
+            is ApprovalEvent.CapturePreviewAction -> analytics.track(
+                AnalyticsEvents.COUNTS_APPROVAL_CAPTURE_PREVIEW_ACTION,
+                mapOf(AnalyticsEvents.Params.PROOF_ID to event.proofId, AnalyticsEvents.Params.ACTION to event.action),
+            )
         }
     }
 

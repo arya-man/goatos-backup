@@ -128,6 +128,8 @@ data class ApprovalUiState(
 
 sealed interface ApprovalEvent {
     data class OpenCaptureMedia(val proofId: String) : ApprovalEvent
+    /** A preview control action (play, pause, fullscreen, share, failure) on an opened capture proof. */
+    data class CapturePreviewAction(val proofId: String, val action: String) : ApprovalEvent
     data class Approve(val requestId: String) : ApprovalEvent
     data class OpenReject(val requestId: String) : ApprovalEvent
     data class EditRejectReason(val value: String) : ApprovalEvent
@@ -449,6 +451,7 @@ private fun ApprovalCaptureSection(row: ApprovalRowUi, state: ApprovalUiState, o
                     kind = if (media.isPhoto) ProofMediaPreviewKind.Photo else ProofMediaPreviewKind.Video,
                     mediaIdentity = media.proofId,
                     inlineRemotePhoto = media.isPhoto,
+                    onPreviewAction = { action -> onEvent(ApprovalEvent.CapturePreviewAction(media.proofId, action)) },
                 )
             } else {
                 val loading = state.loadingMediaId == media.proofId
