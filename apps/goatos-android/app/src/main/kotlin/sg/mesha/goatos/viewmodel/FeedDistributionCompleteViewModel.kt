@@ -445,7 +445,7 @@ class FeedDistributionCompleteViewModel @Inject constructor(
             AnalyticsEvents.FEED_DISTRIBUTION_CAPTURE_TAPPED,
             distributionEventProps(slotKey, ACTION_RECORD_PROOF, mapOf(PARAM_MEDIUM to medium)),
         )
-        updateSlot(slotKey) { it.copy(isCapturing = true, message = null, status = FeedDistributionProofStatus.QUEUED) }
+        updateSlot(slotKey) { it.copy(isCapturing = true, message = if (replacing) it.message else null, status = if (replacing) it.status else FeedDistributionProofStatus.QUEUED) }
         viewModelScope.launch {
             var captureThrew = false
             val captured: CapturedMedia? = try {
@@ -469,7 +469,11 @@ class FeedDistributionCompleteViewModel @Inject constructor(
                     it.copy(
                         isCapturing = false,
                         status = if (replacing) it.status else FeedDistributionProofStatus.FAILED,
-                        message = if (replacing) it.message else PROOF_FAILED,
+                        message = when {
+                            captureThrew -> PROOF_FAILED
+                            replacing -> it.message
+                            else -> PROOF_FAILED
+                        },
                     )
                 }
                 return@launch

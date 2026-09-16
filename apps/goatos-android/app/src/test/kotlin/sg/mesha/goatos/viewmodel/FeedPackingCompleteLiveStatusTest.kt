@@ -82,6 +82,8 @@ class FeedPackingCompleteLiveStatusTest {
             syncRepository = NoopFeedPackingSyncRepository(),
             proofCaptureSource = FakeProofCaptureSource(),
             proofCaptureRepository = FakeProofCaptureRepository(),
+            photoCaptureSource = sg.mesha.goatos.capture.FakePhotoCaptureSource(),
+            appContext = androidx.test.core.app.ApplicationProvider.getApplicationContext(),
             analytics = RecordingAnalytics(),
             crashReporter = NoopCrashReporter(),
             drafts = InMemoryCaptureDraftRepository(),
@@ -115,6 +117,8 @@ class FeedPackingCompleteLiveStatusTest {
             syncRepository = NoopFeedPackingSyncRepository(),
             proofCaptureSource = FakeProofCaptureSource(),
             proofCaptureRepository = FakeProofCaptureRepository(),
+            photoCaptureSource = sg.mesha.goatos.capture.FakePhotoCaptureSource(),
+            appContext = androidx.test.core.app.ApplicationProvider.getApplicationContext(),
             analytics = RecordingAnalytics(),
             crashReporter = NoopCrashReporter(),
             drafts = InMemoryCaptureDraftRepository(),
@@ -149,6 +153,8 @@ class FeedPackingCompleteLiveStatusTest {
             syncRepository = NoopFeedPackingSyncRepository(),
             proofCaptureSource = FakeProofCaptureSource(),
             proofCaptureRepository = FakeProofCaptureRepository(),
+            photoCaptureSource = sg.mesha.goatos.capture.FakePhotoCaptureSource(),
+            appContext = androidx.test.core.app.ApplicationProvider.getApplicationContext(),
             analytics = RecordingAnalytics(),
             crashReporter = NoopCrashReporter(),
             drafts = InMemoryCaptureDraftRepository(),
@@ -181,6 +187,8 @@ class FeedPackingCompleteLiveStatusTest {
             syncRepository = NoopFeedPackingSyncRepository(),
             proofCaptureSource = FakeProofCaptureSource(),
             proofCaptureRepository = FakeProofCaptureRepository(),
+            photoCaptureSource = sg.mesha.goatos.capture.FakePhotoCaptureSource(),
+            appContext = androidx.test.core.app.ApplicationProvider.getApplicationContext(),
             analytics = RecordingAnalytics(),
             crashReporter = NoopCrashReporter(),
             drafts = InMemoryCaptureDraftRepository(),
@@ -219,6 +227,8 @@ class FeedPackingCompleteLiveStatusTest {
             syncRepository = NoopFeedPackingSyncRepository(),
             proofCaptureSource = FakeProofCaptureSource(),
             proofCaptureRepository = FakeProofCaptureRepository(),
+            photoCaptureSource = sg.mesha.goatos.capture.FakePhotoCaptureSource(),
+            appContext = androidx.test.core.app.ApplicationProvider.getApplicationContext(),
             analytics = RecordingAnalytics(),
             crashReporter = NoopCrashReporter(),
             drafts = InMemoryCaptureDraftRepository(),
@@ -258,6 +268,8 @@ class FeedPackingCompleteLiveStatusTest {
             syncRepository = NoopFeedPackingSyncRepository(),
             proofCaptureSource = FakeProofCaptureSource(),
             proofCaptureRepository = FakeProofCaptureRepository(),
+            photoCaptureSource = sg.mesha.goatos.capture.FakePhotoCaptureSource(),
+            appContext = androidx.test.core.app.ApplicationProvider.getApplicationContext(),
             analytics = RecordingAnalytics(),
             crashReporter = NoopCrashReporter(),
             drafts = InMemoryCaptureDraftRepository(),
@@ -293,6 +305,8 @@ private class NoopFeedPackingSyncRepository : SyncRepository {
         targetDate: String,
         workflow: String,
         packingProofOutboxItemId: String,
+        slotProofs: Map<String, sg.mesha.goatos.core.data.sync.FeedSlotProofSourcePayload>,
+        answers: kotlinx.serialization.json.JsonObject
     ): AppResult<String> = error("unused")
     override suspend fun enqueueProofUpload(
         groupKey: String,
@@ -301,7 +315,7 @@ private class NoopFeedPackingSyncRepository : SyncRepository {
         localFilePath: String,
         durationMs: Long?,
     ): AppResult<String> = error("unused")
-    override suspend fun enqueueFeedTransportSubmit(groupKey: String, idempotencyKey: String, taskId: String, proofOutboxItemId: String): AppResult<String> = error("unused")
+    override suspend fun enqueueFeedTransportSubmit(groupKey: String, idempotencyKey: String, taskId: String, proofOutboxItemId: String, slotProofs: Map<String, sg.mesha.goatos.core.data.sync.FeedSlotProofSourcePayload>, answers: kotlinx.serialization.json.JsonObject): AppResult<String> = error("unused")
     override suspend fun enqueueFeedDistributionComplete(groupKey: String, idempotencyKey: String, parkId: String?, shedId: String, partitionLabel: String?, sessionNo: Int, targetDate: String, workflow: String, distributionProofOutboxItemId: String?, feedWeightProofOutboxItemId: String?, waterProofOutboxItemId: String?, feedWeightProofRef: String?, distributionProofRef: String?, waterProofRef: String?, slotProofs: Map<String, sg.mesha.goatos.core.data.sync.FeedSlotProofSourcePayload>, answers: kotlinx.serialization.json.JsonObject): AppResult<String> = error("unused")
     override suspend fun enqueueFeedDirectionComplete(groupKey: String, idempotencyKey: String, parkId: String?, shedId: String, sessionNo: Int, targetDate: String, workflow: String): AppResult<String> = error("unused")
     override suspend fun enqueueShedSubmit(taskId: String, groupKey: String, idempotencyKey: String, request: sg.mesha.goatos.core.network.dto.SubmitTaskRequestDto): AppResult<String> = error("unused")

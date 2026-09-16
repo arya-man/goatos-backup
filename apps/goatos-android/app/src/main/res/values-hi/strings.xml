@@ -93,4 +93,13 @@
     <string name="feed_seed_slot_feed_video_hint">नाँद में फ़ीड डालते हुए।</string>
     <string name="feed_seed_slot_water_video">पानी वितरण वीडियो</string>
     <string name="feed_seed_slot_water_video_hint">बाड़े में पानी देते हुए।</string>
+    <string name="feed_seed_packing_instruction">इस बाड़े और सत्र के लिए बोरी तौलते और पैक करते हुए वीडियो बनाएँ।</string>
+    <string name="feed_seed_slot_packing_video">पैकिंग वीडियो</string>
+    <string name="feed_seed_slot_packing_video_hint">तराज़ू की रीडिंग और बोरी बंद होते हुए।</string>
+    <string name="feed_seed_wastage_instruction">साफ़ करने से पहले बाड़े में बचा हुआ फ़ीड फ़िल्म करें।</string>
+    <string name="feed_seed_slot_wastage_video">बचे हुए फ़ीड का वीडियो</string>
+    <string name="feed_seed_slot_wastage_video_hint">साफ़ करने से पहले नाँद में बचा फ़ीड; सत्यापक क्लिप से वज़न पढ़ता है।</string>
+    <string name="feed_seed_transport_instruction">पैक किया गया फ़ीड लादकर बाड़ों के बाहर रखते हुए फ़िल्म करें।</string>
+    <string name="feed_seed_slot_transport_video">परिवहन वीडियो</string>
+    <string name="feed_seed_slot_transport_video_hint">इस स्थान के लिए लादा गया फ़ीड, परोसने से पहले रखा हुआ।</string>
 </resources>

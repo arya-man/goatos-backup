@@ -281,6 +281,9 @@ interface FeedRepository {
     /** The packing CARD, same contract as [observeDirectionCard] over the packing worklist cache. */
     fun observePackingCard(parkId: String, targetDate: String, workflow: String): Flow<FeedSopCardDto?>
 
+    /** The wastage CARD, same contract as [observeDirectionCard] over the wastage worklist cache. */
+    fun observeWastageCard(parkId: String, targetDate: String): Flow<FeedSopCardDto?>
+
     /**
      * Fetches the download URL for a proof so its media can be previewed.
      * Returns null on any error (offline, timeout, proof not found, etc.).
@@ -573,8 +576,17 @@ class DefaultFeedRepository(
         val prefix = cacheKey(DIRECTION_CACHE_SHAPE, parkId, targetDate) + "|"
         return directionMetaDao.observeLatestInRange(prefix, prefix + "\uFFFF")
             .map { entity ->
+                // The same TTL/quarantine read the list uses, so an undecodable cached page is
+                // quarantined once rather than failing every open.
                 entity?.let {
-                    runCatching { json.decodeFromString<FeedDirectionPreviewPageDto>(it.dtoJson) }.getOrNull() // exception:exempt a stale/undecodable cached page just means "no card cached"; the seeded fallback and the live read cover it
+                    readCachedJson<FeedDirectionPreviewPageDto>(
+                        json = json,
+                        cacheKey = it.cacheKey,
+                        dtoJson = it.dtoJson,
+                        updatedAt = it.updatedAt,
+                        now = clock(),
+                        quarantine = { key -> directionMetaDao.delete(key) },
+                    ).data
                 }?.sop?.get(workflow)
             }
             .distinctUntilChanged()
@@ -585,9 +597,39 @@ class DefaultFeedRepository(
         val prefix = cacheKey(PACKING_CACHE_SHAPE, parkId, targetDate) + "|"
         return packingMetaDao.observeLatestInRange(prefix, prefix + "\uFFFF")
             .map { entity ->
+                // The same TTL/quarantine read the list uses, so an undecodable cached page is
+                // quarantined once rather than failing every open.
                 entity?.let {
-                    runCatching { json.decodeFromString<FeedPackingWorklistPageDto>(it.dtoJson) }.getOrNull() // exception:exempt same as observeDirectionCard
+                    readCachedJson<FeedPackingWorklistPageDto>(
+                        json = json,
+                        cacheKey = it.cacheKey,
+                        dtoJson = it.dtoJson,
+                        updatedAt = it.updatedAt,
+                        now = clock(),
+                        quarantine = { key -> packingMetaDao.delete(key) },
+                    ).data
                 }?.sop?.get(workflow)
+            }
+            .distinctUntilChanged()
+            .flowOn(Dispatchers.Default)
+    }
+
+    override fun observeWastageCard(parkId: String, targetDate: String): Flow<FeedSopCardDto?> {
+        val prefix = cacheKey(WASTAGE_CACHE_SHAPE, parkId, targetDate) + "|"
+        return wastageMetaDao.observeLatestInRange(prefix, prefix + "\uFFFF")
+            .map { entity ->
+                // The same TTL/quarantine read the list uses, so an undecodable cached page is
+                // quarantined once rather than failing every open.
+                entity?.let {
+                    readCachedJson<FeedWastageWorklistPageDto>(
+                        json = json,
+                        cacheKey = it.cacheKey,
+                        dtoJson = it.dtoJson,
+                        updatedAt = it.updatedAt,
+                        now = clock(),
+                        quarantine = { key -> wastageMetaDao.delete(key) },
+                    ).data
+                }?.sop
             }
             .distinctUntilChanged()
             .flowOn(Dispatchers.Default)

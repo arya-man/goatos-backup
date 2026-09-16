@@ -43,6 +43,7 @@ class FakeSplitFeedRepository(
     override suspend fun persistPackingRowStatus(shedId: String, partitionLabel: String, workflow: String, sessionNo: Int, lifecycleStatus: String) = Unit
     override fun observeDirectionCard(parkId: String, targetDate: String, workflow: String): kotlinx.coroutines.flow.Flow<sg.mesha.goatos.core.network.dto.FeedSopCardDto?> = cachedCard
     override fun observePackingCard(parkId: String, targetDate: String, workflow: String): kotlinx.coroutines.flow.Flow<sg.mesha.goatos.core.network.dto.FeedSopCardDto?> = kotlinx.coroutines.flow.flowOf(null)
+    override fun observeWastageCard(parkId: String, targetDate: String): kotlinx.coroutines.flow.Flow<sg.mesha.goatos.core.network.dto.FeedSopCardDto?> = kotlinx.coroutines.flow.flowOf(null)
     override suspend fun penSessionCaptures(
         query: FeedPenSessionCaptureQuery,
     ): FeedPenSessionCaptures? {

@@ -93,4 +93,13 @@
     <string name="feed_seed_slot_feed_video_hint">ತೊಟ್ಟಿಗೆ ಮೇವು ಹಾಕುವುದು.</string>
     <string name="feed_seed_slot_water_video">ನೀರು ಹಂಚಿಕೆ ವೀಡಿಯೊ</string>
     <string name="feed_seed_slot_water_video_hint">ಪೆನ್‌ನಲ್ಲಿ ನೀರು ಕೊಡುವುದು.</string>
+    <string name="feed_seed_packing_instruction">ಈ ಪೆನ್ ಮತ್ತು ಅವಧಿಗೆ ಚೀಲ ತೂಕ ಮಾಡಿ ಪ್ಯಾಕ್ ಮಾಡುವುದನ್ನು ವೀಡಿಯೊ ಮಾಡಿ.</string>
+    <string name="feed_seed_slot_packing_video">ಪ್ಯಾಕಿಂಗ್ ವೀಡಿಯೊ</string>
+    <string name="feed_seed_slot_packing_video_hint">ತಕ್ಕಡಿಯ ಓದು ಮತ್ತು ಚೀಲ ಮುಚ್ಚುವುದು.</string>
+    <string name="feed_seed_wastage_instruction">ತೆರವು ಮಾಡುವ ಮೊದಲು ಪೆನ್‌ನಲ್ಲಿ ಉಳಿದ ಮೇವನ್ನು ವೀಡಿಯೊ ಮಾಡಿ.</string>
+    <string name="feed_seed_slot_wastage_video">ಉಳಿದ ಮೇವಿನ ವೀಡಿಯೊ</string>
+    <string name="feed_seed_slot_wastage_video_hint">ತೆರವು ಮಾಡುವ ಮೊದಲು ತೊಟ್ಟಿಯಲ್ಲಿ ಉಳಿದ ಮೇವು; ಪರಿಶೀಲಕರು ಕ್ಲಿಪ್‌ನಿಂದ ತೂಕ ಓದುತ್ತಾರೆ.</string>
+    <string name="feed_seed_transport_instruction">ಪ್ಯಾಕ್ ಮಾಡಿದ ಮೇವನ್ನು ಲೋಡ್ ಮಾಡಿ ಪೆನ್‌ಗಳ ಹೊರಗೆ ಇರಿಸುವುದನ್ನು ವೀಡಿಯೊ ಮಾಡಿ.</string>
+    <string name="feed_seed_slot_transport_video">ಸಾಗಣೆ ವೀಡಿಯೊ</string>
+    <string name="feed_seed_slot_transport_video_hint">ಈ ಸ್ಥಳಕ್ಕೆ ಲೋಡ್ ಮಾಡಿದ ಮೇವು, ಹಾಕುವ ಮೊದಲು ಇರಿಸಿದ್ದು.</string>
 </resources>

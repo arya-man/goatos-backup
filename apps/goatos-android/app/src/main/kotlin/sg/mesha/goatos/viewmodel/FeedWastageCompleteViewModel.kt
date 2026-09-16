@@ -1,9 +1,11 @@
 package sg.mesha.goatos.viewmodel
 
+import android.content.Context
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -14,6 +16,9 @@ import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import sg.mesha.goatos.R
+import sg.mesha.goatos.capture.PhotoCaptureContext
+import sg.mesha.goatos.capture.PhotoCaptureSource
 import sg.mesha.goatos.capture.ProofCaptureContext
 import sg.mesha.goatos.capture.ProofCapturePrompt
 import sg.mesha.goatos.capture.ProofCaptureSource
@@ -26,15 +31,12 @@ import sg.mesha.goatos.core.data.CaptureDraft
 import sg.mesha.goatos.core.data.CaptureDraftRepository
 import sg.mesha.goatos.core.data.CaptureFlow
 import sg.mesha.goatos.core.data.FeedRepository
-import sg.mesha.goatos.core.data.capture.CaptureSyncStatus
-import sg.mesha.goatos.core.data.capture.EvidenceSlot
 import sg.mesha.goatos.core.data.capture.ProofCaptureRepository
-import sg.mesha.goatos.core.data.capture.ProofCaptureRow
-import sg.mesha.goatos.core.data.capture.ProofSubject
 import sg.mesha.goatos.core.data.sync.SyncItemStatus
-import sg.mesha.goatos.core.data.sync.SyncQueueItem
 import sg.mesha.goatos.core.data.sync.SyncRepository
-import sg.mesha.goatos.feature.feed.FeedDistributionProofStatus
+import sg.mesha.goatos.core.network.dto.FeedSopCardDto
+import sg.mesha.goatos.core.network.dto.WeighingRemovalProofSlotDto
+import sg.mesha.goatos.feature.feed.FeedSlotCaptureKind
 import sg.mesha.goatos.feature.feed.FeedWastageCompleteEvent
 import sg.mesha.goatos.feature.feed.FeedWastageCompleteResultUi
 import sg.mesha.goatos.feature.feed.FeedWastageCompleteStatus
@@ -44,29 +46,28 @@ import javax.inject.Inject
 
 /**
  * The feed-WASTAGE completion detail (`/feed/wastage/complete/...`) — the verifier-GATED wastage
- * flow (maintainer decision 2026-08-18). Opened by tapping a pen row on Feed Wastage.
+ * flow (maintainer decision 2026-08-18). Opened by tapping a pen row on Feed Wastage. The
+ * completion is a PEN-DAY (no session, no workflow — the server stamps `experiment`); the
+ * verifier reads the leftover weight off the clip and her approve carries the number.
  *
- * Same single-proof shape as [FeedPackingCompleteViewModel], one grain simpler: the completion is
- * a PEN-DAY (no session, no workflow — the server stamps `experiment`). Two offline-first writes:
- *  - a MANDATORY leftover-feed VIDEO ([ProofCaptureRepository.captureReplacingLatest] ->
- *    PROOF_UPLOAD, scope=shed);
- *  - **Submit** ([SyncRepository.enqueueFeedWastageComplete]) — carries the proof outbox item id
- *    so the dispatcher resolves the uploaded proof_id and sends it; the pen-day flips to
- *    `pending_verification` and NOTHING is completed until a verifier approves.
- *
- * Both enqueue on the SAME outbox group (the pen-day), so the video drains strictly before the
- * completion. A pen-day accepts exactly ONE video: a second, DIFFERENT one is a 409 the drain
- * surfaces as terminal — the operator sees the server's own sentence, never a silent retry loop.
+ * FEED SOP (maintainer decision 2026-09-16, docs/decisions/feed-sop.md): the captures are the
+ * direction SOP's WASTAGE CARD, authored on /feed/sops and pinned on the sheet. Today's card is one
+ * leftover-feed video; a photo, an optional slot or a question added there reaches this screen
+ * without a new build. Card sources: the SEEDED fallback compiled in, then the sheet's card the
+ * Feed Wastage worklist cached in Room. The slot machinery is [FeedSopSlotController]; the submit
+ * ([SyncRepository.enqueueFeedWastageComplete]) names every captured slot by its outbox row.
  */
 @HiltViewModel
 class FeedWastageCompleteViewModel @Inject constructor(
     private val syncRepository: SyncRepository,
-    private val proofCaptureSource: ProofCaptureSource,
-    private val proofCaptureRepository: ProofCaptureRepository,
+    proofCaptureSource: ProofCaptureSource,
+    photoCaptureSource: PhotoCaptureSource,
+    proofCaptureRepository: ProofCaptureRepository,
     private val analytics: AnalyticsPort,
     private val crashReporter: CrashReporter,
     private val drafts: CaptureDraftRepository,
     private val feedRepository: FeedRepository,
+    @ApplicationContext private val appContext: Context,
     savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
 
@@ -88,14 +89,11 @@ class FeedWastageCompleteViewModel @Inject constructor(
     private val alreadySubmitted: Boolean =
         !captureAllowed || !feedSessionCanCapture(lifecycleStatusHint, isToday = true)
 
-    // The day-shed-PEN identity for BOTH the proof AND the completion, so the proof drains
-    // strictly before the gated completion that references it. Session 0 is a real value here —
-    // the wastage grain HAS no session — and the constant workflow keeps the key stable.
+    // The day-shed-PEN identity for the proofs AND the completion, so every proof drains strictly
+    // before the gated completion that references it. Session 0 is a real value here — the
+    // wastage grain HAS no session — and the constant workflow keeps the key stable.
     private val groupKey =
         feedCaptureGroupKey("feed-wastage", shedId, partitionLabel, 0, WASTAGE_WORKFLOW, targetDate)
-
-    private var videoProofRowId: String? = null
-    private val proofTerminalEventsTracked = mutableSetOf<String>() // mobile-guard:ignore ViewModel-lifetime set bounded to one feed-wastage proof outbox id
 
     /** Durable per pen-day; see the shared store's kdoc for why SavedStateHandle lost the clip. */
     private var draft = CaptureDraft()
@@ -109,23 +107,87 @@ class FeedWastageCompleteViewModel @Inject constructor(
     )
     val state: StateFlow<FeedWastageCompleteUiState> = _state.asStateFlow()
 
+    private val slots = FeedSopSlotController(
+        scope = viewModelScope,
+        savedStateHandle = savedStateHandle,
+        syncRepository = syncRepository,
+        proofCaptureSource = proofCaptureSource,
+        photoCaptureSource = photoCaptureSource,
+        proofCaptureRepository = proofCaptureRepository,
+        analytics = analytics,
+        crashReporter = crashReporter,
+        stageKey = "feedWastage",
+        groupKey = groupKey,
+        shedId = shedId,
+        evidenceIdentity = buildFeedEvidenceSlotIdentity("feed-wastage", shedId, partitionLabel, 0, WASTAGE_WORKFLOW, targetDate),
+        proofPolicy = ::feedShedProofPolicy,
+        caption = { feedWastageProofCaption() },
+        videoContext = { title ->
+            ProofCaptureContext(
+                title = title,
+                primaryTag = shedLabel.ifBlank { shedId },
+                workLabel = experimentArm,
+                prompt = ProofCapturePrompt.FEED_WASTAGE,
+            )
+        },
+        photoContext = { slot -> PhotoCaptureContext(title = slot.title, instruction = slot.hint.ifBlank { slot.title }) },
+        events = FeedSopSlotController.Events(
+            captureTapped = AnalyticsEvents.FEED_WASTAGE_CAPTURE_TAPPED,
+            captured = AnalyticsEvents.FEED_WASTAGE_VIDEO_CAPTURED,
+            uploadSynced = AnalyticsEvents.FEED_WASTAGE_PROOF_UPLOAD_SYNCED,
+            failure = AnalyticsEvents.FEED_WASTAGE_COMPLETE_FAILURE,
+            reuploadTapped = AnalyticsEvents.FEED_WASTAGE_REUPLOAD_TAPPED,
+            cardApplied = AnalyticsEvents.FEED_WASTAGE_CARD_APPLIED,
+        ),
+        baseProps = { slotKey, action -> wastageEventProps(action, slotKey) },
+        locked = { _state.value.isFinalSubmitted },
+        onChanged = ::recomputeCanComplete,
+        durableDrafts = drafts,
+        durableFlowKey = CaptureFlow.FEED_WASTAGE,
+        legacySteps = mapOf(STEP_VIDEO to FIELD_FEED_WASTAGE_VIDEO),
+    )
+
     private var statusJob: Job? = null
-    private var videoStatusJob: Job? = null
     private var syncStatusJob: Job? = null
     private var submitInFlight = false
 
     init {
         analytics.track(AnalyticsEvents.FEED_WASTAGE_COMPLETE_OPENED, wastageEventProps(ACTION_DETAIL_OPENED))
+        slots.applyCard(seededCard(), FeedSopSlotController.CARD_RANK_SEEDED, source = "seeded")
+        viewModelScope.launch { slots.state.collect { card -> _state.update { it.copy(card = card) }; recomputeCanComplete() } }
+        slots.start()
+        observeCachedCard()
         viewModelScope.launch {
             draft = drafts.find(CaptureFlow.FEED_WASTAGE, groupKey)
-            _state.update { it.copy(videoCaptured = draft.hasProof(STEP_VIDEO)) }
-            draft.proofs[STEP_VIDEO]?.let(::observeProofItem)
-            recomputeCanComplete()
             draft.submitOutboxItemId?.let(::observeOutboxItem)
         }
         observeSyncStatus()
-        observeDurableProof()
         observeLiveLifecycleStatus()
+    }
+
+    /** The seeded wastage card (feeddirection/domain/sopseed/feed_direction.json → wastage). */
+    private fun seededCard(): FeedSopCardDto = FeedSopCardDto(
+        version = 0,
+        stage = "wastage",
+        instruction = appContext.getString(R.string.feed_seed_wastage_instruction),
+        proofs = listOf(
+            WeighingRemovalProofSlotDto(
+                key = FIELD_FEED_WASTAGE_VIDEO,
+                title = appContext.getString(R.string.feed_seed_slot_wastage_video),
+                hint = appContext.getString(R.string.feed_seed_slot_wastage_video_hint),
+                kind = FeedSlotCaptureKind.VIDEO,
+                required = true,
+            ),
+        ),
+    )
+
+    private fun observeCachedCard() {
+        if (targetDate.isBlank()) return
+        viewModelScope.launch {
+            feedRepository.observeWastageCard(parkId, targetDate)
+                .filterNotNull()
+                .collect { card -> slots.applyCard(card, FeedSopSlotController.CARD_RANK_CACHED, source = "room") }
+        }
     }
 
     /** Supersede the nav-arg hint with the LIVE Room-backed status — the same table the worklist
@@ -150,8 +212,6 @@ class FeedWastageCompleteViewModel @Inject constructor(
         }
     }
 
-    /** Bounded periodic server read — see [FeedPackingCompleteViewModel.startServerStatusPolling]
-     *  for why this is bounded rather than a bare `while (isActive)`. */
     private fun startServerStatusPolling() {
         viewModelScope.launch {
             repeat(MAX_SERVER_STATUS_POLLS) {
@@ -171,207 +231,50 @@ class FeedWastageCompleteViewModel @Inject constructor(
 
     fun onEvent(event: FeedWastageCompleteEvent) {
         when (event) {
-            FeedWastageCompleteEvent.RecordWastageVideo -> captureWastageVideo()
-            // Re-record runs the camera FIRST and drops the old take's queued upload only once new
-            // media exists (captureReplacingLatest) — discarding up front deleted a good clip
-            // whenever the operator cancelled or the camera failed.
-            FeedWastageCompleteEvent.ReRecordWastageVideo -> captureWastageVideo(replacing = true)
+            is FeedWastageCompleteEvent.CaptureSlot -> slots.captureSlot(event.slotKey, event.kind)
+            is FeedWastageCompleteEvent.Answer -> slots.answer(event.questionId, event.value)
             FeedWastageCompleteEvent.MarkDone -> markDone()
             FeedWastageCompleteEvent.SyncNow -> syncNow()
             FeedWastageCompleteEvent.Back -> Unit // navigation — handled by the nav host.
-            is FeedWastageCompleteEvent.PreviewAction -> trackPreviewAction(event.action)
+            is FeedWastageCompleteEvent.PreviewAction -> trackPreviewAction(event.slotKey, event.action)
         }
     }
 
-    private fun trackPreviewAction(action: String) {
+    private fun trackPreviewAction(slotKey: String, action: String) {
         val previewAction = ProofPreviewActionTrace.from(action)
         analytics.track(
             AnalyticsEvents.FEED_DISTRIBUTION_PROOF_PREVIEW_ACTION,
-            wastageEventProps(previewAction.action) + buildMap {
+            wastageEventProps(previewAction.action, slotKey) + buildMap {
                 put(AnalyticsEvents.Params.OUTCOME, previewAction.outcome)
                 previewAction.reason?.let { put(AnalyticsEvents.Params.REASON, it) }
-                videoProofRowId?.takeIf { it.isNotBlank() }?.let { put("local_proof_row_id", it) }
-                draft.proofs[STEP_VIDEO]?.takeIf { it.isNotBlank() }?.let {
-                    put(AnalyticsEvents.Params.PROOF_OUTBOX_ITEM_ID, it)
-                }
+                slots.proofRowIdFor(slotKey)?.takeIf { it.isNotBlank() }?.let { put("local_proof_row_id", it) }
+                slots.outboxItemIdFor(slotKey)?.takeIf { it.isNotBlank() }?.let { put(AnalyticsEvents.Params.PROOF_OUTBOX_ITEM_ID, it) }
             },
         )
     }
 
-    /** MANDATORY leftover-feed video — a LIVE in-app camera clip, enqueued as a PROOF_UPLOAD on
-     *  the pen-day group so it drains before the completion. Camera-only; no gallery. */
-    private fun captureWastageVideo(replacing: Boolean = false) {
-        if (_state.value.isCapturingVideo || _state.value.alreadySubmitted || shedId.isBlank()) return
-        if (!replacing && _state.value.videoCaptured) return
-        analytics.track(
-            AnalyticsEvents.FEED_WASTAGE_COMPLETE_OPENED,
-            wastageEventProps(if (replacing) ACTION_RE_RECORD_VIDEO else ACTION_RECORD_VIDEO),
-        )
-        _state.update { it.copy(isCapturingVideo = true, videoMessage = null) }
-        viewModelScope.launch {
-            val captured = try {
-                proofCaptureSource.captureVideo(
-                    ProofCaptureContext(
-                        title = feedWastageProofCaption(),
-                        primaryTag = shedLabel.ifBlank { shedId },
-                        workLabel = experimentArm,
-                        prompt = ProofCapturePrompt.FEED_WASTAGE,
-                    ),
-                )
-            } catch (error: Exception) {
-                crashReporter.recordException(error, "feed wastage video capture failed")
-                null
-            }
-            if (captured == null) {
-                _state.update { it.copy(isCapturingVideo = false) }
-                return@launch
-            }
-            val slot = EvidenceSlot(
-                identity = buildFeedEvidenceSlotIdentity("feed-wastage", shedId, partitionLabel, 0, WASTAGE_WORKFLOW, targetDate),
-                fieldKey = FIELD_FEED_WASTAGE_VIDEO,
-            )
-            when (
-                val result = proofCaptureRepository.captureReplacingLatest(
-                    slot = slot,
-                    subject = ProofSubject.SHED,
-                    subjectId = shedId,
-                    localUri = captured.localUri,
-                    mimeType = captured.mimeType,
-                    caption = feedWastageProofCaption(),
-                    scopeType = "shed",
-                    scopeId = shedId,
-                    capturedStartMs = captured.startedAtMs,
-                    capturedEndMs = captured.endedAtMs,
-                    capturedByPrincipalId = null,
-                    proofPolicy = feedShedProofPolicy(captured.captureSource),
-                    awaitUploadEnqueue = true,
-                    uploadGroupKey = groupKey,
-                )
-            ) {
-                is AppResult.Ok -> {
-                    videoProofRowId = result.value.id
-                    val proofOutboxId = result.value.outboxItemId
-                    if (proofOutboxId.isNullOrBlank()) {
-                        _state.update { it.copy(isCapturingVideo = false, videoCaptured = it.videoCaptured, videoMessage = PROOF_FAILED) }
-                        return@launch
-                    }
-                    drafts.putProof(CaptureFlow.FEED_WASTAGE, groupKey, STEP_VIDEO, proofOutboxId)
-                    draft = drafts.find(CaptureFlow.FEED_WASTAGE, groupKey)
-                    observeProofItem(proofOutboxId)
-                    analytics.track(
-                        AnalyticsEvents.FEED_WASTAGE_VIDEO_CAPTURED,
-                        wastageEventProps(ACTION_CAPTURED) +
-                            (AnalyticsEvents.Params.PROOF_ID to result.value.id) +
-                            (PARAM_OUTBOX_ITEM_ID to proofOutboxId),
-                    )
-                    _state.update { it.copy(isCapturingVideo = false, videoCaptured = true, videoMessage = VIDEO_QUEUED) }
-                    recomputeCanComplete()
-                }
-                is AppResult.Err -> {
-                    result.cause?.let { crashReporter.recordException(it, "feed wastage video enqueue failed") }
-                    analytics.track(
-                        AnalyticsEvents.FEED_WASTAGE_COMPLETE_FAILURE,
-                        wastageEventProps(ACTION_CAPTURE_FAILED) +
-                            (AnalyticsEvents.Params.REASON to result.message),
-                    )
-                    _state.update { it.copy(isCapturingVideo = false, videoCaptured = it.videoCaptured, videoMessage = PROOF_FAILED) }
-                }
-            }
-        }
-    }
-
-    private fun observeProofItem(itemId: String) {
-        videoStatusJob?.cancel()
-        videoStatusJob = viewModelScope.launch {
-            syncRepository.observeItem(itemId)
-                .filterNotNull()
-                .distinctUntilChanged()
-                .collect(::updateProofStatus)
-        }
-    }
-
-    private fun observeDurableProof() {
-        viewModelScope.launch {
-            // No partitionLabel: [groupKey] ALREADY carries the pen (feedCaptureGroupKey embeds
-            // partitionMatchToken), so this read is pen-scoped by the task id alone — keep read
-            // and write symmetric (see FeedPackingCompleteViewModel.observeDurableProof's kdoc).
-            proofCaptureRepository.observeProofs(groupKey)
-                .collect { rows ->
-                    val row = rows
-                        .filter { it.fieldKey == FIELD_FEED_WASTAGE_VIDEO && it.syncStatus != CaptureSyncStatus.FAILED }
-                        .maxByOrNull { it.capturedAtMs }
-                        ?: return@collect
-                    hydrateFromProof(row)
-                    recomputeCanComplete()
-                }
-        }
-    }
-
-    private suspend fun hydrateFromProof(row: ProofCaptureRow) {
-        videoProofRowId = row.id
-        row.outboxItemId?.takeIf { it.isNotBlank() }?.let { outboxId ->
-            if (draft.proofs[STEP_VIDEO] != outboxId) {
-                drafts.putProof(CaptureFlow.FEED_WASTAGE, groupKey, STEP_VIDEO, outboxId)
-                draft = drafts.find(CaptureFlow.FEED_WASTAGE, groupKey)
-            }
-            observeProofItem(outboxId)
-        }
-        val status = row.toProofStatus()
-        _state.update {
-            it.copy(
-                videoCaptured = true,
-                videoPreviewPath = row.previewUri() ?: it.videoPreviewPath,
-                videoStatus = status,
-                videoMessage = row.toProofMessage(status, VIDEO_QUEUED, PROOF_UPLOADING, PROOF_SYNCED, PROOF_FAILED),
-            )
-        }
-    }
-
-    private fun updateProofStatus(item: SyncQueueItem) {
-        val proofStatus = when (item.status) {
-            SyncItemStatus.QUEUED -> FeedDistributionProofStatus.QUEUED
-            SyncItemStatus.IN_FLIGHT -> FeedDistributionProofStatus.UPLOADING
-            SyncItemStatus.SUCCEEDED -> FeedDistributionProofStatus.SYNCED
-            SyncItemStatus.FAILED -> FeedDistributionProofStatus.FAILED
-        }
-        trackProofUploadTerminal(item)
-        val message = when (proofStatus) {
-            FeedDistributionProofStatus.QUEUED -> VIDEO_QUEUED
-            FeedDistributionProofStatus.UPLOADING -> PROOF_UPLOADING
-            FeedDistributionProofStatus.SYNCED -> PROOF_SYNCED
-            FeedDistributionProofStatus.FAILED -> item.lastError ?: PROOF_FAILED
-            FeedDistributionProofStatus.EMPTY -> null
-        }
-        _state.update {
-            it.copy(
-                videoCaptured = it.videoCaptured || item.localFilePath != null,
-                videoPreviewPath = item.localFilePath ?: it.videoPreviewPath,
-                videoStatus = proofStatus,
-                videoMessage = message,
-            )
-        }
-        recomputeCanComplete()
-    }
-
     private fun markDone() {
         val current = _state.value
-        val videoItem = draft.proofs[STEP_VIDEO]
+        val slotRefs = slots.submitRefs()
         // Defense in depth alongside the UI gate, plus the submitInFlight latch so a second tap in
         // the async gap cannot enqueue a second write (same idiom as FeedPackingCompleteViewModel).
-        if (submitInFlight || !current.submitEnabled || videoItem.isNullOrBlank()) {
-            _state.update { it.copy(canComplete = false, videoMessage = NEED_VIDEO_MESSAGE) }
+        if (submitInFlight || !current.submitEnabled || slotRefs == null) {
+            analytics.track(AnalyticsEvents.FEED_WASTAGE_SUBMIT_BLOCKED, wastageEventProps(ACTION_SUBMIT_BLOCKED))
+            _state.update { it.copy(canComplete = false) }
             return
         }
+        val answers = slots.answersJson()
         submitInFlight = true
         viewModelScope.launch {
-            // Stable for the selected proof, fresh when the operator re-records: a retry of the
-            // same video must replay; a replacement video must not collide with the old payload —
-            // the backend answers the DIFFERENT-video case with a terminal 409 it words itself.
-            val completeIdempotencyKey = "feed-wastage-complete:$groupKey:$videoItem"
+            // Stable for the selected proof SET (+ answers), fresh when the operator re-records: a
+            // retry of the same take must replay; a replacement must not collide with the old
+            // payload — the backend answers the DIFFERENT-video case with a terminal 409.
+            val completeIdempotencyKey = "feed-wastage-complete:$groupKey:" + slots.submitDigest(slotRefs, answers)
             if (draft.submitIdempotencyKey != completeIdempotencyKey) {
                 drafts.putSubmit(CaptureFlow.FEED_WASTAGE, groupKey, completeIdempotencyKey, null)
                 draft = drafts.find(CaptureFlow.FEED_WASTAGE, groupKey)
             }
+            val legacyVideo = slotRefs[FIELD_FEED_WASTAGE_VIDEO]?.outboxItemId.orEmpty()
             when (
                 val result = syncRepository.enqueueFeedWastageComplete(
                     groupKey = groupKey,
@@ -380,7 +283,9 @@ class FeedWastageCompleteViewModel @Inject constructor(
                     shedId = shedId,
                     partitionLabel = partitionLabel,
                     targetDate = targetDate,
-                    wastageProofOutboxItemId = videoItem,
+                    wastageProofOutboxItemId = legacyVideo,
+                    slotProofs = slotRefs,
+                    answers = answers,
                 )
             ) {
                 is AppResult.Ok -> {
@@ -390,8 +295,9 @@ class FeedWastageCompleteViewModel @Inject constructor(
                     analytics.track(
                         AnalyticsEvents.FEED_WASTAGE_SUBMITTED,
                         wastageEventProps(ACTION_SUBMIT) +
-                            (PARAM_PROOF_OUTBOX_ITEM_ID to videoItem) +
-                            (PARAM_OUTBOX_ITEM_ID to result.value),
+                            (PARAM_PROOF_OUTBOX_ITEM_ID to legacyVideo) +
+                            (PARAM_OUTBOX_ITEM_ID to result.value) +
+                            ("slot_keys" to slotRefs.keys.joinToString(",")),
                     )
                     _state.update { it.copy(canComplete = false) }
                 }
@@ -400,8 +306,7 @@ class FeedWastageCompleteViewModel @Inject constructor(
                     result.cause?.let { crashReporter.recordException(it, "feed wastage complete enqueue failed") }
                     analytics.track(
                         AnalyticsEvents.FEED_WASTAGE_COMPLETE_FAILURE,
-                        wastageEventProps(ACTION_SUBMIT_FAILED) +
-                            (AnalyticsEvents.Params.REASON to result.message),
+                        wastageEventProps(ACTION_SUBMIT_FAILED) + (AnalyticsEvents.Params.REASON to result.message),
                     )
                     _state.update {
                         it.copy(result = FeedWastageCompleteResultUi(FeedWastageCompleteStatus.FAILED, result.message), canComplete = true)
@@ -418,57 +323,31 @@ class FeedWastageCompleteViewModel @Inject constructor(
                 .filterNotNull()
                 .distinctUntilChanged()
                 .collect { item ->
-                    // Reset the latch on terminal FAILED so the operator can retry — including the
-                    // 409 different-video conflict, whose server sentence renders verbatim below.
-                    if (item.status == SyncItemStatus.FAILED) {
-                        submitInFlight = false
-                    }
+                    if (item.status == SyncItemStatus.FAILED) submitInFlight = false
                     _state.update {
                         val writeResult = item.toWriteResult(QUEUED_MESSAGE, SYNCED_MESSAGE)
                         it.copy(
                             result = FeedWastageCompleteResultUi(writeResult.status.toWastageStatus(), writeResult.message.orEmpty()),
-                            canComplete = !writeResult.isCommitted && wastageProofReadyForSubmit(it),
+                            canComplete = !writeResult.isCommitted && it.card.readyToSubmit,
                         )
                     }
                 }
         }
     }
 
-    private fun trackProofUploadTerminal(item: SyncQueueItem) {
-        val outcome = when (item.status) {
-            SyncItemStatus.SUCCEEDED -> "success"
-            SyncItemStatus.FAILED -> "failure"
-            else -> return
-        }
-        if (!proofTerminalEventsTracked.add(item.id)) return
-        analytics.track(
-            AnalyticsEvents.FEED_WASTAGE_PROOF_UPLOAD_SYNCED,
-            wastageEventProps(ACTION_PROOF_UPLOAD_SYNC) + buildMap {
-                put(AnalyticsEvents.Params.OUTCOME, outcome)
-                put(PARAM_PROOF_OUTBOX_ITEM_ID, item.id)
-                videoProofRowId?.takeIf { it.isNotBlank() }?.let { put("local_proof_row_id", it) }
-                if (item.status == SyncItemStatus.FAILED) {
-                    put(AnalyticsEvents.Params.REASON, item.lastError?.takeIf { it.isNotBlank() }
-                        ?: if (item.conflict) "conflict" else "attempts_exhausted")
-                }
-            },
-        )
-    }
-
     private fun recomputeCanComplete() {
         _state.update {
             val committed = it.result?.let { r -> r.status == FeedWastageCompleteStatus.SYNCED || r.status == FeedWastageCompleteStatus.QUEUED } ?: false
-            it.copy(canComplete = wastageProofReadyForSubmit(it) && !committed)
+            it.copy(canComplete = it.card.readyToSubmit && !committed)
         }
     }
 
-    private fun wastageProofReadyForSubmit(state: FeedWastageCompleteUiState): Boolean =
-        state.videoCaptured && state.videoStatus.isQueuedForSubmit()
-
     private fun syncNow() {
+        analytics.track(AnalyticsEvents.FEED_WASTAGE_SYNC_TAPPED, wastageEventProps(ACTION_REFRESH))
         viewModelScope.launch {
+            slots.retryUploads()
+            draft.submitOutboxItemId?.takeIf { it.isNotBlank() }?.let { submitItem -> syncRepository.retry(submitItem) }
             syncRepository.triggerDrain()
-            // Same "did a teammate already submit this" answer the periodic poll provides.
             pollServerStatusOnce()
         }
     }
@@ -479,9 +358,7 @@ class FeedWastageCompleteViewModel @Inject constructor(
             syncRepository.observeStatus()
                 .map { status -> status.inFlightCount > 0 }
                 .distinctUntilChanged()
-                .collect { syncing ->
-                    _state.update { it.copy(isSyncing = syncing) }
-                }
+                .collect { syncing -> _state.update { it.copy(isSyncing = syncing) } }
         }
     }
 
@@ -499,14 +376,14 @@ class FeedWastageCompleteViewModel @Inject constructor(
             extraLabel = listOf(experimentArm, partitionLabel).filter { it.isNotBlank() }.joinToString(" . "),
         )
 
-    private fun wastageEventProps(action: String): Map<String, String> =
+    private fun wastageEventProps(action: String, slotKey: String? = null): Map<String, String> =
         mapOf(
             AnalyticsEvents.Params.SOURCE to SCREEN_FEED_WASTAGE_DETAIL,
             AnalyticsEvents.Params.KIND to KIND_WASTAGE,
             AnalyticsEvents.Params.ACTION to action,
             AnalyticsEvents.Params.SHED_ID to shedId,
             AnalyticsEvents.Params.PARTITION_LABEL to partitionLabel,
-            AnalyticsEvents.Params.FIELD to FIELD_FEED_WASTAGE_VIDEO,
+            AnalyticsEvents.Params.FIELD to (slotKey ?: FIELD_FEED_WASTAGE_VIDEO),
             PARAM_GROUP_KEY to groupKey,
         )
 
@@ -533,26 +410,18 @@ class FeedWastageCompleteViewModel @Inject constructor(
         private const val KIND_WASTAGE = "wastage"
         private const val SCREEN_FEED_WASTAGE_DETAIL = "feed_wastage_complete"
         private const val ACTION_DETAIL_OPENED = "detail_opened"
-        private const val ACTION_RECORD_VIDEO = "record_video"
-        private const val ACTION_RE_RECORD_VIDEO = "re_record_video"
-        private const val ACTION_CAPTURED = "captured"
-        private const val ACTION_CAPTURE_FAILED = "capture_failed"
-        private const val ACTION_PROOF_UPLOAD_SYNC = "proof_upload_sync"
+        private const val ACTION_REFRESH = "refresh"
         private const val ACTION_SUBMIT = "submit"
+        private const val ACTION_SUBMIT_BLOCKED = "submit_blocked"
         private const val ACTION_SUBMIT_FAILED = "submit_failed"
         private const val PARAM_GROUP_KEY = "group_key"
         private const val PARAM_OUTBOX_ITEM_ID = "outbox_item_id"
         private const val PARAM_PROOF_OUTBOX_ITEM_ID = "proof_outbox_item_id"
 
-        /** Draft step name in the shared capture-draft store. */
+        /** Draft step name an older build wrote for the one wastage clip; maps to the seeded slot. */
         private const val STEP_VIDEO = "video"
-        private const val FIELD_FEED_WASTAGE_VIDEO = "feed_wastage_video"
-        private const val QUEUED_MESSAGE = "Submitted for verification. A verifier will review the leftover feed video."
+        internal const val FIELD_FEED_WASTAGE_VIDEO = "feed_wastage_video"
+        private const val QUEUED_MESSAGE = "Submitted for verification. A verifier will review the leftover feed proofs."
         private const val SYNCED_MESSAGE = "Submitted. Waiting for verifier approval before this is counted."
-        private const val VIDEO_QUEUED = "Leftover feed video saved on this phone. It will upload automatically."
-        private const val PROOF_UPLOADING = "Leftover feed video upload is in progress."
-        private const val PROOF_SYNCED = "Leftover feed video is ready."
-        private const val PROOF_FAILED = "Couldn't save that proof. Please capture it again."
-        private const val NEED_VIDEO_MESSAGE = "Record the leftover feed video before submitting."
     }
 }

@@ -376,6 +376,14 @@ interface FeedWastageMetaCacheDao : JsonBlobCacheDao<FeedWastageMetaCacheEntity>
             "(SELECT cacheKey FROM feed_wastage_meta_cache ORDER BY updatedAt ASC LIMIT :n)",
     )
     override suspend fun deleteOldest(n: Int)
+
+    /** See FeedDirectionMetaCacheDao.observeLatestInRange. */
+    @Query(
+        "SELECT * FROM feed_wastage_meta_cache WHERE cacheKey >= :prefix AND cacheKey < :prefixEnd " +
+            "ORDER BY updatedAt DESC LIMIT 1",
+    )
+    fun observeLatestInRange(prefix: String, prefixEnd: String): Flow<FeedWastageMetaCacheEntity?>
+
 }
 
 // ---------------------------------------------------------------------------

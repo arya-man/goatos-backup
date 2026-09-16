@@ -70,6 +70,8 @@ class FeedTransportCaptureLiveStatusTest {
             sync = NoopFeedTransportSyncRepository(),
             capture = FakeProofCaptureSource(),
             proofCaptureRepository = FakeProofCaptureRepository(),
+            photoCaptureSource = sg.mesha.goatos.capture.FakePhotoCaptureSource(),
+            appContext = androidx.test.core.app.ApplicationProvider.getApplicationContext(),
             drafts = InMemoryCaptureDraftRepository(),
             analytics = RecordingAnalytics(),
             crashReporter = NoopCrashReporter(),
@@ -108,6 +110,8 @@ class FeedTransportCaptureLiveStatusTest {
             sync = sync,
             capture = proofSource,
             proofCaptureRepository = FakeProofCaptureRepository(),
+            photoCaptureSource = sg.mesha.goatos.capture.FakePhotoCaptureSource(),
+            appContext = androidx.test.core.app.ApplicationProvider.getApplicationContext(),
             drafts = InMemoryCaptureDraftRepository(),
             analytics = RecordingAnalytics(),
             crashReporter = NoopCrashReporter(),
@@ -117,7 +121,7 @@ class FeedTransportCaptureLiveStatusTest {
         advanceUntilIdle()
         assertTrue(viewModel.state.value.alreadySubmitted)
 
-        viewModel.onEvent(sg.mesha.goatos.feature.feed.FeedTransportCaptureEvent.RecordVideo)
+        viewModel.onEvent(sg.mesha.goatos.feature.feed.FeedTransportCaptureEvent.CaptureSlot("feed_transport_video"))
         viewModel.onEvent(sg.mesha.goatos.feature.feed.FeedTransportCaptureEvent.Submit)
         advanceUntilIdle()
 
@@ -250,7 +254,7 @@ private class NoopFeedTransportSyncRepository : SyncRepository {
     private val status = MutableStateFlow(SyncStatus.empty(online = true))
     override fun observeStatus(): kotlinx.coroutines.flow.StateFlow<SyncStatus> = status
     override fun observeItem(itemId: String): Flow<SyncQueueItem?> = flowOf(null)
-    override suspend fun enqueueFeedTransportSubmit(groupKey: String, idempotencyKey: String, taskId: String, proofOutboxItemId: String): AppResult<String> = error("unused")
+    override suspend fun enqueueFeedTransportSubmit(groupKey: String, idempotencyKey: String, taskId: String, proofOutboxItemId: String, slotProofs: Map<String, sg.mesha.goatos.core.data.sync.FeedSlotProofSourcePayload>, answers: kotlinx.serialization.json.JsonObject): AppResult<String> = error("unused")
     override suspend fun enqueueProofUpload(
         groupKey: String,
         idempotencyKey: String,
@@ -258,7 +262,7 @@ private class NoopFeedTransportSyncRepository : SyncRepository {
         localFilePath: String,
         durationMs: Long?,
     ): AppResult<String> = AppResult.Ok("proof-outbox-1")
-    override suspend fun enqueueFeedPackingComplete(groupKey: String, idempotencyKey: String, parkId: String?, shedId: String, partitionLabel: String?, sessionNo: Int, targetDate: String, workflow: String, packingProofOutboxItemId: String): AppResult<String> = error("unused")
+    override suspend fun enqueueFeedPackingComplete(groupKey: String, idempotencyKey: String, parkId: String?, shedId: String, partitionLabel: String?, sessionNo: Int, targetDate: String, workflow: String, packingProofOutboxItemId: String, slotProofs: Map<String, sg.mesha.goatos.core.data.sync.FeedSlotProofSourcePayload>, answers: kotlinx.serialization.json.JsonObject): AppResult<String> = error("unused")
     override suspend fun enqueueFeedDistributionComplete(groupKey: String, idempotencyKey: String, parkId: String?, shedId: String, partitionLabel: String?, sessionNo: Int, targetDate: String, workflow: String, distributionProofOutboxItemId: String?, feedWeightProofOutboxItemId: String?, waterProofOutboxItemId: String?, feedWeightProofRef: String?, distributionProofRef: String?, waterProofRef: String?, slotProofs: Map<String, sg.mesha.goatos.core.data.sync.FeedSlotProofSourcePayload>, answers: kotlinx.serialization.json.JsonObject): AppResult<String> = error("unused")
     override suspend fun enqueueFeedDirectionComplete(groupKey: String, idempotencyKey: String, parkId: String?, shedId: String, sessionNo: Int, targetDate: String, workflow: String): AppResult<String> = error("unused")
     override suspend fun enqueueShedSubmit(taskId: String, groupKey: String, idempotencyKey: String, request: sg.mesha.goatos.core.network.dto.SubmitTaskRequestDto): AppResult<String> = error("unused")
@@ -279,7 +283,7 @@ private class CountingFeedTransportSyncRepositoryForBlocking : SyncRepository {
     private val status = MutableStateFlow(SyncStatus.empty(online = true))
     override fun observeStatus(): kotlinx.coroutines.flow.StateFlow<SyncStatus> = status
     override fun observeItem(itemId: String): Flow<SyncQueueItem?> = flowOf(null)
-    override suspend fun enqueueFeedTransportSubmit(groupKey: String, idempotencyKey: String, taskId: String, proofOutboxItemId: String): AppResult<String> {
+    override suspend fun enqueueFeedTransportSubmit(groupKey: String, idempotencyKey: String, taskId: String, proofOutboxItemId: String, slotProofs: Map<String, sg.mesha.goatos.core.data.sync.FeedSlotProofSourcePayload>, answers: kotlinx.serialization.json.JsonObject): AppResult<String> {
         submitEnqueueCalls += 1
         return AppResult.Ok("submit-outbox-$submitEnqueueCalls")
     }
@@ -290,7 +294,7 @@ private class CountingFeedTransportSyncRepositoryForBlocking : SyncRepository {
         localFilePath: String,
         durationMs: Long?,
     ): AppResult<String> = AppResult.Ok("proof-outbox-1")
-    override suspend fun enqueueFeedPackingComplete(groupKey: String, idempotencyKey: String, parkId: String?, shedId: String, partitionLabel: String?, sessionNo: Int, targetDate: String, workflow: String, packingProofOutboxItemId: String): AppResult<String> = error("unused")
+    override suspend fun enqueueFeedPackingComplete(groupKey: String, idempotencyKey: String, parkId: String?, shedId: String, partitionLabel: String?, sessionNo: Int, targetDate: String, workflow: String, packingProofOutboxItemId: String, slotProofs: Map<String, sg.mesha.goatos.core.data.sync.FeedSlotProofSourcePayload>, answers: kotlinx.serialization.json.JsonObject): AppResult<String> = error("unused")
     override suspend fun enqueueFeedDistributionComplete(groupKey: String, idempotencyKey: String, parkId: String?, shedId: String, partitionLabel: String?, sessionNo: Int, targetDate: String, workflow: String, distributionProofOutboxItemId: String?, feedWeightProofOutboxItemId: String?, waterProofOutboxItemId: String?, feedWeightProofRef: String?, distributionProofRef: String?, waterProofRef: String?, slotProofs: Map<String, sg.mesha.goatos.core.data.sync.FeedSlotProofSourcePayload>, answers: kotlinx.serialization.json.JsonObject): AppResult<String> = error("unused")
     override suspend fun enqueueFeedDirectionComplete(groupKey: String, idempotencyKey: String, parkId: String?, shedId: String, sessionNo: Int, targetDate: String, workflow: String): AppResult<String> = error("unused")
     override suspend fun enqueueShedSubmit(taskId: String, groupKey: String, idempotencyKey: String, request: sg.mesha.goatos.core.network.dto.SubmitTaskRequestDto): AppResult<String> = error("unused")
