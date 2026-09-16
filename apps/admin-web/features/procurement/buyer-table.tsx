@@ -47,7 +47,11 @@ export function BuyerTable({
 }) {
   const visibleContract: AdminUiTableContract = {
     ...contract,
-    columns: contract.columns.map((column) =>
+    // Older contracts declared these as columns; this screen already renders them as
+    // buyer/revenue cell detail. Keep rollback compatibility without hiding unknown keys.
+    columns: contract.columns.filter((column) =>
+      !["category", "place", "share_pct"].includes(column.key),
+    ).map((column) =>
       column.key === "phone_number"
         ? { ...column, visible: column.visible && showPhones }
         : column,

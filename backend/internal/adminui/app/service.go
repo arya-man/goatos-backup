@@ -3847,17 +3847,19 @@ func pageSpecificCopy(id string) map[string]string {
 			"filter.all":  "All farms",
 
 			// Headline tiles -- whole-filter figures, never the page's.
-			"section.headline.aria":     "Buyer headline figures",
-			"kpi.buyers":                "Buyers",
-			"kpi.buyers.detail":         "with at least one closed sale",
-			"kpi.repeat_buyers":         "Come back",
-			"kpi.repeat_buyers.detail":  "bought more than once",
-			"kpi.repeat_revenue":        "Revenue from repeat buyers",
-			"kpi.repeat_revenue.detail": "of all revenue",
-			"kpi.outstanding":           "Still owed",
-			"kpi.outstanding.detail":    "across every closed sale",
-			"kpi.purchases.detail":      "sales",
-			"kpi.animals.detail":        "animals",
+			"section.headline.aria": "Buyer headline figures",
+			"kpi.buyers":            "Buyers",
+			// Keep the count-suffixed legacy copy intact for the previous frontend.
+			"kpi.buyers.detail":             "not in the vendor register",
+			"kpi.buyers.closed_sale_detail": "with at least one closed sale",
+			"kpi.repeat_buyers":             "Come back",
+			"kpi.repeat_buyers.detail":      "bought more than once",
+			"kpi.repeat_revenue":            "Revenue from repeat buyers",
+			"kpi.repeat_revenue.detail":     "of all revenue",
+			"kpi.outstanding":               "Still owed",
+			"kpi.outstanding.detail":        "across every closed sale",
+			"kpi.purchases.detail":          "sales",
+			"kpi.animals.detail":            "animals",
 
 			// The buyer table.
 			"section.buyers.title":    "Buyers",

@@ -207,3 +207,13 @@ func TestSalesBuyerAnalyticsCopyKeepsTheRetiredRegisterKeysForOlderFrontends(t *
 		}
 	}
 }
+
+func TestSalesBuyerAnalyticsBuyerDetailCopyIsAdditive(t *testing.T) {
+	copy := pageCopy("sales-buyer-analytics")
+	if got := copy["kpi.buyers.detail"]; got != "not in the vendor register" {
+		t.Fatalf("old frontend prefixes the unregistered count: legacy detail = %q", got)
+	}
+	if got := copy["kpi.buyers.closed_sale_detail"]; got != "with at least one closed sale" {
+		t.Fatalf("new standalone buyer detail = %q", got)
+	}
+}

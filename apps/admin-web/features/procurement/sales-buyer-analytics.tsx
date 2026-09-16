@@ -5,6 +5,7 @@ import {
   controlEnabled,
   copy,
   optionGroup,
+  optionalCopy,
   table,
   tablePageSizes,
   type AdminUiPageContract,
@@ -109,7 +110,11 @@ function BuyerSections({
         <div className="kpi">
           <div className="lab">{copy(pageContract, "kpi.buyers")}</div>
           <div className="val">{num(summary.buyers)}</div>
-          <div className="dl">{copy(pageContract, "kpi.buyers.detail")}</div>
+          {/* Older contracts lack this optional standalone detail; never reuse the
+              legacy key, whose sentence follows an unregistered-buyer count. */}
+          {optionalCopy(pageContract, "kpi.buyers.closed_sale_detail") ? (
+            <div className="dl">{copy(pageContract, "kpi.buyers.closed_sale_detail")}</div>
+          ) : null}
         </div>
         <div className="kpi">
           <div className="lab">{copy(pageContract, "kpi.repeat_buyers")}</div>

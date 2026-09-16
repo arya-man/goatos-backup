@@ -89,3 +89,13 @@ unreachable; it exists for the per-person path.
 Migration `000314` appends the page key to every explicit web Sales row and designation
 template (the 000309 shape) so nobody with named ticks misses a page shipped after their rows
 were written; the CEO floor needs no row.
+
+## Mixed-version rollout compatibility
+
+The buyer table accepts the previous contract's `category`, `place`, and `share_pct`
+columns as cell detail, while continuing to reject unknown columns. Phone visibility
+still follows the payload and permission control. `kpi.buyers.detail` retains its
+legacy count-suffixed meaning for older frontends; the standalone closed-sale detail
+uses `kpi.buyers.closed_sale_detail` and is omitted when an older backend lacks it.
+Regression coverage lives in `buyer-table.test.mjs` and
+`TestSalesBuyerAnalyticsBuyerDetailCopyIsAdditive`.
