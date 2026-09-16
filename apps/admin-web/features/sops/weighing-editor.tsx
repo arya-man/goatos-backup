@@ -25,6 +25,7 @@ import {
   emitWeighing,
   legacyVideoWindow,
   parseCaptureDefaults,
+  keyForTitle,
   slugKey,
   weighingProblems,
   withCaptureDefaults,
@@ -528,7 +529,7 @@ function fillCopy(template: string, vars: Record<string, string | number>): stri
 }
 
 export function QuestionCard({
-  pc, index, count, q, kinds, earlier, takenKeys, onChange, onOptionRenamed, onMove, onRemove,
+  pc, index, count, q, kinds, earlier, takenKeys, savedKeys, onChange, onOptionRenamed, onMove, onRemove,
 }: {
   pc: AdminUiPageContract;
   index: number;
@@ -537,6 +538,8 @@ export function QuestionCard({
   kinds: { key: string; label: string; title?: string }[];
   earlier: WeighingQuestionRow[];
   takenKeys: Set<string>;
+  /** When given, a question id the loaded version does not carry follows its title (keyForTitle). */
+  savedKeys?: Set<string>;
   onChange: (patch: Partial<WeighingQuestionRow>) => void;
   onOptionRenamed: (oldValue: string, newValue: string) => void;
   onMove: (dir: -1 | 1) => void;
@@ -587,7 +590,7 @@ export function QuestionCard({
             value={q.title}
             onChange={(e) => {
               const title = e.target.value;
-              onChange({ title, key: q.key || slugKey(title, takenKeys) });
+              onChange({ title, key: savedKeys ? keyForTitle(title, q.key, savedKeys, takenKeys) : q.key || slugKey(title, takenKeys) });
             }}
           />
         </label>

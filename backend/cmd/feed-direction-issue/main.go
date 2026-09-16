@@ -22,12 +22,11 @@ import (
 	"strings"
 	"time"
 
-	countspg "github.com/vgoats/goatos/backend/internal/counts/adapters/postgres"
-	countsapp "github.com/vgoats/goatos/backend/internal/counts/app"
-	feeddirectioncounts "github.com/vgoats/goatos/backend/internal/feeddirection/adapters/counts"
+	"github.com/jackc/pgx/v5/pgxpool"
 	feeddirectionpg "github.com/vgoats/goatos/backend/internal/feeddirection/adapters/postgres"
 	feeddirectionapp "github.com/vgoats/goatos/backend/internal/feeddirection/app"
 	feeddirectionports "github.com/vgoats/goatos/backend/internal/feeddirection/ports"
+	"github.com/vgoats/goatos/backend/internal/kernelstages"
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	platformpg "github.com/vgoats/goatos/backend/internal/platform/postgres"
 )
@@ -75,12 +74,7 @@ func run(args []string, now func() time.Time) error {
 	defer pool.Close()
 
 	repo := feeddirectionpg.NewRepository(pool, pgCfg.QueryTimeout)
-	countsService := countsapp.NewService(countspg.NewRepository(pool, pgCfg.QueryTimeout))
-	service := feeddirectionapp.NewService(repo, feeddirectioncounts.NewReader(countsService)).
-		WithIssueStore(repo).
-		WithScheduleReader(repo).
-		WithGeneratedBy(cfg.GeneratedBy).
-		WithClock(func() time.Time { return cfg.AsOf })
+	service := newService(pool, pgCfg.QueryTimeout, cfg)
 
 	parks := []string{cfg.ParkID}
 	if cfg.ParkID == "" {
@@ -106,6 +100,14 @@ func run(args []string, now func() time.Time) error {
 		}
 	}
 	return nil
+}
+
+// newService is the scheduled lifecycle composition shared with the kernel-worker stage
+// (kernelstages.NewFeedDirectionLifecycleService) plus this run's as-of clock -- see
+// TestIssueServicePinsThePublishedFeedSOP.
+func newService(pool *pgxpool.Pool, timeout time.Duration, cfg config) *feeddirectionapp.Service {
+	return kernelstages.NewFeedDirectionLifecycleService(kernelstages.Deps{Pool: pool, PgCfg: platformpg.Config{QueryTimeout: timeout}}, cfg.GeneratedBy).
+		WithClock(func() time.Time { return cfg.AsOf })
 }
 
 // resolveWorkflows narrows the requested workflow set to the ones the park actually runs, read from

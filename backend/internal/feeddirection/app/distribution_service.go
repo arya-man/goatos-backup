@@ -209,7 +209,7 @@ func (s *Service) CompleteDistribution(ctx context.Context, in CompleteDistribut
 			MediaRefs: canonicalOrderedRefs(rules, result.SOPProofs, judged),
 			MediaMeta: canonicalProofMeta(rules, result.SOPProofs, judged),
 			// The answers the ROW stores, for the same reason as the refs above.
-			ContextRows: authored.AnswerRows(rules.Questions, answersForEnqueue(result.SOPAnswers, storedAnswers)),
+			ContextRows: cardContextRows(rules, proofsForEnqueue(result.SOPProofs, storedProofs), answersForEnqueue(result.SOPAnswers, storedAnswers)),
 			OperatorID:  strings.TrimSpace(in.CompletedBy),
 			CapturedAt:  s.now().UTC(),
 			// Keyed to the completion + its row_version so a rework re-submit (row_version bumped) enqueues a

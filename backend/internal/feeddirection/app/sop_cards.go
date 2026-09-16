@@ -105,12 +105,32 @@ func (s *Service) judgeCard(
 	ctx context.Context, tenantID string, rules domain.Rules,
 	legacy map[string]string, explicit authored.ProofRefs, answers authored.Answers,
 ) ([]judgedProof, authored.ProofRefs, authored.Answers, error) {
-	refs := domain.LegacyProofRefs(rules.Stage, legacy, explicit)
-	ordered, err := rules.ValidateProofRefs(refs)
+	// OLDER APP (program decision 7): a request with no card-shaped `proofs` predates the card. It is
+	// never forced to update -- its fixed fields are laid onto the card (domain.LegacyCardRefs) and
+	// judged for what it DID send; what it could not send is shown to the verifier as
+	// "Not captured (older app)" (cardContextRows). A request carrying `proofs` is the new app and
+	// is judged strictly.
+	judgedBy := rules
+	var refs authored.ProofRefs
+	if len(authored.NormalizeProofRefs(explicit)) == 0 {
+		refs = domain.LegacyCardRefs(rules, legacy)
+		if len(refs) == 0 && len(rules.Proofs) > 0 {
+			// Nothing the older phone sent fits the card: a submit with no capture cannot become a
+			// verifier item (decision 6). Refused by the strict judge, which names the slot.
+			if _, err := rules.ValidateProofRefs(refs); err != nil {
+				return nil, nil, nil, fmt.Errorf("%w: %w", ports.ErrSOPProofSlotInvalid, err)
+			}
+			return nil, nil, nil, fmt.Errorf("%w: %w", ports.ErrSOPProofSlotInvalid, &authored.ProofError{Message: "Record a capture for this card."})
+		}
+		judgedBy = rules.OlderAppCopy(legacy)
+	} else {
+		refs = domain.LegacyProofRefs(rules.Stage, legacy, explicit)
+	}
+	ordered, err := judgedBy.ValidateProofRefs(refs)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("%w: %w", ports.ErrSOPProofSlotInvalid, err)
 	}
-	if err := rules.ValidateAnswers(answers); err != nil {
+	if err := judgedBy.ValidateAnswers(answers); err != nil {
 		return nil, nil, nil, fmt.Errorf("%w: %w", ports.ErrSOPAnswerInvalid, err)
 	}
 	judged := make([]judgedProof, 0, len(ordered))
@@ -198,6 +218,28 @@ func concreteKind(kind string) string {
 	default:
 		return ""
 	}
+}
+
+// cardContextRows is the verifier item's context rows for a card: the crew's answers in question
+// order, then one "<title> · Not captured (older app)" row per compulsory capture or required
+// question the STORED work lacks. Only an older phone's request can store such a gap (a new app's
+// is refused), so the rows appear exactly where decision 7 says they must, and a repair retry
+// recomputes the same rows from the row it re-enqueues.
+func cardContextRows(rules domain.Rules, stored authored.ProofRefs, answers authored.Answers) []authored.AnswerRow {
+	rows := authored.AnswerRows(rules.Questions, answers)
+	for _, title := range rules.NotCapturedByOlderApp(stored, answers) {
+		rows = append(rows, authored.AnswerRow{Title: title, Value: authored.MissingNoteOlderApp})
+	}
+	return rows
+}
+
+// proofsForEnqueue is answersForEnqueue for the captures: the row's stored map when the store
+// returned one.
+func proofsForEnqueue(fromRow, judged authored.ProofRefs) authored.ProofRefs {
+	if len(fromRow) > 0 {
+		return fromRow
+	}
+	return judged
 }
 
 // answersForEnqueue prefers the answers the STORE returned for the row over the ones this request

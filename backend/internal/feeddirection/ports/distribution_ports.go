@@ -174,6 +174,14 @@ type ApplyDistributionParams struct {
 	CompletionID string
 	VerifiedBy   string
 	TraceID      string
+	// EvidenceID is the capture the verdict judged (the verification event's source.evidence_id, the
+	// item's first media ref). When set, the verdict applies only while the row still holds that
+	// capture: a re-delivered or late verdict for a submission the crew has since re-shot is stale.
+	EvidenceID string
+	// ItemID is the verification item the verdict was cast on. When set, the verdict applies only
+	// while no NEWER item exists for the completion -- the round fence that still holds when a
+	// resubmit names the same captures again.
+	ItemID string
 }
 
 // BounceDistributionParams flips a distribution completion whose video a verifier REJECTED
@@ -183,6 +191,14 @@ type BounceDistributionParams struct {
 	CompletionID string
 	Reason       string
 	TraceID      string
+	// EvidenceID is the capture the verdict judged (the verification event's source.evidence_id, the
+	// item's first media ref). When set, the verdict applies only while the row still holds that
+	// capture: a re-delivered or late verdict for a submission the crew has since re-shot is stale.
+	EvidenceID string
+	// ItemID is the verification item the verdict was cast on. When set, the verdict applies only
+	// while no NEWER item exists for the completion -- the round fence that still holds when a
+	// resubmit names the same captures again.
+	ItemID string
 }
 
 // DistributionCompletionStore owns the feed_distribution_completions table.

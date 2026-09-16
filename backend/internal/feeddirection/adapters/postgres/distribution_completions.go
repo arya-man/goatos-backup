@@ -341,6 +341,7 @@ func (r *Repository) ApplyVerifiedDistribution(ctx context.Context, p ports.Appl
 		}
 	}()
 
+	var holdsEvidence, itemCurrent bool
 	var (
 		status     string
 		parkID     string
@@ -350,10 +351,10 @@ func (r *Repository) ApplyVerifiedDistribution(ctx context.Context, p ports.Appl
 		targetDate time.Time
 	)
 	err = tx.QueryRow(ctx, `
-SELECT status, park_id::text, shed_id::text, workflow, session_no, target_date
+SELECT status, park_id::text, shed_id::text, workflow, session_no, target_date, `+verdictEvidenceHeldSQL(3)+`, `+verdictItemCurrentSQL(4, "feed_distribution_completions", "feed_distribution_completion")+`
 FROM feed_distribution_completions
 WHERE tenant_id = $1::uuid AND completion_id = $2::uuid
-FOR UPDATE`, p.TenantID, p.CompletionID).Scan(&status, &parkID, &shedID, &workflow, &sessionNo, &targetDate)
+FOR UPDATE`, p.TenantID, p.CompletionID, strings.TrimSpace(p.EvidenceID), strings.TrimSpace(p.ItemID)).Scan(&status, &parkID, &shedID, &workflow, &sessionNo, &targetDate, &holdsEvidence, &itemCurrent)
 	if errors.Is(err, pgx.ErrNoRows) {
 		// No such row for this tenant: a stale/foreign verdict. Ignore.
 		if commitErr := r.commitAndInvalidateReadCache(ctx, tx); commitErr != nil {
@@ -366,7 +367,9 @@ FOR UPDATE`, p.TenantID, p.CompletionID).Scan(&status, &parkID, &shedID, &workfl
 		return false, fmt.Errorf("feeddirection: lock distribution completion: %w", err)
 	}
 	// Already completed (re-delivered verdict) or no longer pending (stale delivery): no side effects.
-	if status != domain.DistributionStatusPendingVerification {
+	// A verdict for a capture the row no longer holds judged an EARLIER submission (a
+	// re-delivered or late event after the crew re-shot): stale, exactly like a moved-on status.
+	if status != domain.DistributionStatusPendingVerification || !holdsEvidence || !itemCurrent {
 		if commitErr := r.commitAndInvalidateReadCache(ctx, tx); commitErr != nil {
 			return false, commitErr
 		}
@@ -432,8 +435,10 @@ SET status = 'rework',
     rework_reason = nullif($3, ''),
     updated_at = now(),
     row_version = row_version + 1
-WHERE tenant_id = $1::uuid AND completion_id = $2::uuid AND status = 'pending_verification'`,
-		p.TenantID, p.CompletionID, strings.TrimSpace(p.Reason))
+WHERE tenant_id = $1::uuid AND completion_id = $2::uuid AND status = 'pending_verification'
+  AND `+verdictEvidenceHeldSQL(4)+`
+  AND `+verdictItemCurrentSQL(5, "feed_distribution_completions", "feed_distribution_completion"),
+		p.TenantID, p.CompletionID, strings.TrimSpace(p.Reason), strings.TrimSpace(p.EvidenceID), strings.TrimSpace(p.ItemID))
 	if err != nil {
 		return false, fmt.Errorf("feeddirection: bounce distribution for rework: %w", err)
 	}

@@ -161,6 +161,21 @@ export function slugKey(title: string, taken: Set<string>, fallback = "question"
   return key;
 }
 
+/**
+ * keyForTitle is the key an authored capture / question carries after its title changes. A key the
+ * LOADED version already has is never rewritten: it is what the phones stamp on uploads and what
+ * answers are stored under. A key the author has not saved yet FOLLOWS the whole title -- the old
+ * `key || slugKey(title)` froze it at the first keystroke, so a capture typed as "Trough photo"
+ * shipped with the key "t" (E2E 2026-09-17). `siblings` may include the current key; it is ignored
+ * when choosing the new one so a key never collides with itself.
+ */
+export function keyForTitle(title: string, currentKey: string, savedKeys: Set<string>, siblings: Set<string>, fallback = "question"): string {
+  if (currentKey && savedKeys.has(currentKey)) return currentKey;
+  const taken = new Set(siblings);
+  taken.delete(currentKey);
+  return slugKey(title, taken, fallback);
+}
+
 export function parseQuestion(rq: unknown): WeighingQuestionRow[] {
   const q = obj(rq);
   if (!q) return [];

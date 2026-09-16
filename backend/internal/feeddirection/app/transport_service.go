@@ -162,7 +162,7 @@ func (s *Service) SubmitTransport(ctx context.Context, in SubmitTransportInput) 
 	// Media and answers come from the ATTEMPT ROW (res), never the replay request: the submit
 	// fingerprint does not cover the card's captures.
 	if res.Status == "verification_due" {
-		err = s.transportEnqueuer.EnqueueFeedTransportVerification(ctx, FeedTransportVerificationEnqueueRequest{TenantID: in.TenantID, AttemptID: res.AttemptID, ParkID: res.ParkID, ShedID: res.ShedID, ShedName: res.ShedName, PartitionLabel: res.PartitionLabel, ProofRef: in.ProofRef, MediaRefs: canonicalOrderedRefs(rules, res.SOPProofs, judged), MediaMeta: canonicalProofMeta(rules, res.SOPProofs, judged), AnswerRows: authored.AnswerRows(rules.Questions, answersForEnqueue(res.SOPAnswers, storedAnswers)), OperatorID: in.OperatorID, CapturedAt: s.now().UTC(), IdempotencyKey: "feed-transport-verification:" + res.AttemptID + ":" + strconv.Itoa(int(res.AttemptNo))})
+		err = s.transportEnqueuer.EnqueueFeedTransportVerification(ctx, FeedTransportVerificationEnqueueRequest{TenantID: in.TenantID, AttemptID: res.AttemptID, ParkID: res.ParkID, ShedID: res.ShedID, ShedName: res.ShedName, PartitionLabel: res.PartitionLabel, ProofRef: in.ProofRef, MediaRefs: canonicalOrderedRefs(rules, res.SOPProofs, judged), MediaMeta: canonicalProofMeta(rules, res.SOPProofs, judged), AnswerRows: cardContextRows(rules, proofsForEnqueue(res.SOPProofs, storedProofs), answersForEnqueue(res.SOPAnswers, storedAnswers)), OperatorID: in.OperatorID, CapturedAt: s.now().UTC(), IdempotencyKey: "feed-transport-verification:" + res.AttemptID + ":" + strconv.Itoa(int(res.AttemptNo))})
 	}
 	return res, err
 }
