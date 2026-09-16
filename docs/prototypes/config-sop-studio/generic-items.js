@@ -68,12 +68,10 @@ function genericRestoreConsumerChecks(item){document.querySelectorAll('[data-ite
 
 const genericHierarchyRender=renderHierarchyEditor;
 renderHierarchyEditor=function(){
- genericHierarchyRender();const host=$('#hierarchyeditor');if(!host)return;
- host.insertAdjacentHTML('afterbegin','<p class="muted">Category access also applies to its items. Item links can add more areas.</p>');
- state.itemCategories.filter(c=>c.module===$('#hmodule').value).forEach(c=>{
-  const row=$('#rename-'+c.id)?.closest('.inputrow');if(!row)return;
-  row.insertAdjacentHTML('afterend',`<details class="hierarchy-module-links" data-hierarchy-id="${c.id}"><summary>${esc(c.name)} · modules (${(c.shares||[]).length})</summary><div class="item-share-grid">${modules.map(m=>`<label class="checkrow"><input type="checkbox" ${c.shares?.includes(m)?'checked':''} ${canEdit()?'':'disabled'} onchange="genericSetHierarchyLink('${c.id}','${m}',this.checked)">${m}</label>`).join('')}</div></details>`);
- });
+ genericHierarchyRender();
+ // Keep the category manager visually simple. Access inheritance still works through
+ // item-level sharing and the genericSetHierarchyLink API; do not inject noisy
+ // per-row module expanders into this modal.
 };
 function genericSetHierarchyLink(id,module,on,acknowledged=false){
  if(!canEdit())return;const group=itemCategory(id);if(!group)return;

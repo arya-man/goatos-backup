@@ -70,7 +70,7 @@ if (typeof listModal === 'function') {
     const s=id?listById(id):null;
     if(s?.kind==='items'&&s.owner==='Common') {
       const desc=document.querySelector('.modal p');
-      if(desc) desc.textContent='Reusable item choices for SOP dropdowns. Entity records stay in Entity registers.';
+      if(desc) desc.textContent='Reusable item choices for SOP dropdowns.';
     }
   };
 }
@@ -81,7 +81,7 @@ if (typeof sourceModal === 'function') {
     const s=id?sourceById(id):null;
     if(s?.kind==='items'&&s.owner==='Common') {
       const desc=document.querySelector('.modal p');
-      if(desc) desc.textContent='Reusable item choices for SOP dropdowns. Entity records stay in Entity registers.';
+      if(desc) desc.textContent='Reusable item choices for SOP dropdowns.';
     }
   };
 }
@@ -89,7 +89,7 @@ const foundationCategoryModal = categoryModal;
 categoryModal = function () {
   foundationCategoryModal();
   const desc=document.querySelector('.modal p');
-  if(desc) desc.textContent='Use this only to group reusable item/setting choices. Parks, pens, species, breeds, lifecycle stages, tags and animals stay in Entity registers. Renaming a group keeps existing workflow references connected.';
+  if(desc) desc.textContent='Reusable item categories.';
 };
 const foundationNavigate = go;
 go = function (module, page) {
