@@ -9,6 +9,7 @@ const repo = resolve(import.meta.dirname, "../..");
 const HOT_READ_FILES = [
   "backend/internal/verification/app/service.go",
   "backend/internal/verification/adapters/proofmedia/resolver.go",
+  "backend/internal/verification/adapters/proofmedia/kinds.go",
   "backend/internal/processintegrity/app/service.go",
   "backend/internal/vaccinationexecution/app/service.go",
   "backend/internal/weighing/adapters/http/handler.go",
@@ -29,9 +30,19 @@ const forbiddenMethodNames = [
   "ResolveProofDownloadURL",
 ];
 
+// Method names forbidden only inside the QUEUE PATH's own hot functions. ResolveMediaMetadata is
+// the resolver's per-proof metadata read: legitimate where a client opened ONE item, and an N+1 (and
+// the pre-2026 signing shape) if the page read ever calls it again. The queue resolves kinds through
+// the batched ProofMediaKindReader instead.
+const queuePathForbiddenMethodNames = ["ResolveMediaMetadata"];
+const queuePathFiles = new Set(["backend/internal/verification/app/service.go"]);
+
 const hotFunctionsByFile = {
   "backend/internal/verification/app/service.go": ["ListQueue", "resolveMedia"],
   "backend/internal/verification/adapters/proofmedia/resolver.go": ["ResolveMedia"],
+  // The queue's media-KIND read (verification/ports.ProofMediaKindReader): one batched metadata
+  // read per page, and never a signed URL or an object stat -- it runs on the verifier's list.
+  "backend/internal/verification/adapters/proofmedia/kinds.go": ["ProofMediaKinds"],
   "backend/internal/processintegrity/app/service.go": ["ActionCenter", "ProtocolAdherence", "withEvidenceMedia"],
   "backend/internal/vaccinationexecution/app/service.go": ["ScanRoster"],
   "backend/internal/weighing/adapters/http/handler.go": ["GetLeadershipShedVideos", "ListLeadershipSheds", "resolveLeadershipMedia"],
@@ -132,6 +143,7 @@ function scanFile(rel) {
   if (!existsSync(resolve(repo, rel))) return [`missing hot read file: ${rel}`];
   const source = text(rel);
   const findings = [];
+  const names = queuePathFiles.has(rel) ? [...forbiddenMethodNames, ...queuePathForbiddenMethodNames] : forbiddenMethodNames;
   for (const fn of hotFunctionsByFile[rel] ?? []) {
     const fnStart = source.search(new RegExp(`func \\([^)]*\\) ${fn}\\b|func ${fn}\\b`));
     if (fnStart === -1) {
@@ -141,7 +153,7 @@ function scanFile(rel) {
     const nextFn = source.slice(fnStart + 1).search(/\nfunc (?:\([^)]*\) )?[A-Za-z0-9_]+\b/);
     const bodyEnd = nextFn === -1 ? source.length : fnStart + 1 + nextFn;
     const body = source.slice(fnStart, bodyEnd);
-    for (const name of forbiddenMethodNames) {
+    for (const name of names) {
       for (const match of body.matchAll(forbiddenCallRegex(name))) {
         const index = fnStart + (match.index ?? 0);
         const line = source.split("\n")[lineNo(source, index) - 1] ?? "";
@@ -150,7 +162,7 @@ function scanFile(rel) {
         findings.push(`${rel}:${lineNo(source, index)}: hot read function ${fn} must not call ${name}; return /app/proofs/{id}/download and sign only on explicit open`);
       }
     }
-    for (const name of forbiddenMethodNames) {
+    for (const name of names) {
       const re = new RegExp(`\\b(?:var\\s+)?[A-Za-z_][A-Za-z0-9_]*\\s*(?::=|=)\\s*[^\\n;]*\\.${name}\\b(?!\\s*\\()`, "g");
       for (const match of body.matchAll(re)) {
         const index = fnStart + (match.index ?? 0);
@@ -285,6 +297,22 @@ function selfTest() {
     }
     return findings;
   };
+  // The queue path's own extra ban (ResolveMediaMetadata), scanned exactly as scanFile does.
+  const scanQueuePath = (source) => {
+    const findings = [];
+    const names = [...forbiddenMethodNames, ...queuePathForbiddenMethodNames];
+    for (const fn of ["ListQueue", "resolveMedia"]) {
+      const fnStart = source.search(new RegExp(`func \\([^)]*\\) ${fn}\\b|func ${fn}\\b`));
+      if (fnStart === -1) continue;
+      const nextFn = source.slice(fnStart + 1).search(/\nfunc (?:\([^)]*\) )?[A-Za-z0-9_]+\b/);
+      const bodyEnd = nextFn === -1 ? source.length : fnStart + 1 + nextFn;
+      const body = source.slice(fnStart, bodyEnd);
+      for (const name of names) {
+        if (forbiddenCallRegex(name).test(body)) findings.push(`${fakeRel}: ${fn}: ${name}`);
+      }
+    }
+    return findings;
+  };
   const allowedRel = "backend/internal/proof/adapters/http/handler.go";
   const cases = [
     ["pinned-hot-read", scan(bad).length, 1],
@@ -299,6 +327,10 @@ function selfTest() {
     ["cross-file-helper", crossFileHelperBad.length, 1],
     ["cross-file-method-value-helper", crossFileMethodValueHelperBad.length, 1],
     ["explicit-download-allowed", scanBroadText(allowedDownload, allowedRel).length, 0],
+    // The queue page must resolve unknown kinds through the batched reader, never by asking the
+    // resolver for one proof's metadata per row.
+    ["queue-path-metadata", scanQueuePath("func (s *Service) resolveMedia(){ _ = s.media.ResolveMediaMetadata(ctx, tenant, ids) }\n").length, 1],
+    ["queue-path-batched-kinds", scanQueuePath("func (s *Service) resolveMedia(){ _ = reader.ProofMediaKinds(ctx, tenant, ids) }\n").length, 0],
   ];
   if (!cases.every(([, got, want]) => got === want)) {
     for (const [name, got, want] of cases) {

@@ -135,6 +135,22 @@ Canonical code: `backend/internal/adminui/app/verifier_lens.go`,
   (Park Head/Director/CEO/CxO) atomically closes the submission through
   `POST /verification/submissions/{submission_id}/close`; the verdict + reason feed
   the daily "SOP Video Double Verification" metrics (violations flagged, penalties).
+- **Every proof names itself and opens in the right player (2026-09-16).** Each item carries
+  `media_meta`, POSITIONAL against `media_refs`: the producer's own title for that capture (the SOP
+  slot title) and its kind. Resolution order per proof is: (1) the item's own `media_meta` kind,
+  (2) the PROOF REGISTER's recorded mime, read ONCE per page for the refs still lacking a kind
+  (`verification/ports.ProofMediaKindReader`; never signs a URL, never stats bytes), (3) the category
+  registry's positional `expected_media` -- and (3) ONLY for an item carrying no `media_meta` at all,
+  because an item that names its own proofs owns its positions. A kind nobody can answer stays
+  BLANK: admin-web and Android render an "Open proof" tile rather than guessing a player, and a
+  register failure never blanks media or flips `evidence_available`.
+- **Repeated producer titles read "Title k of N".** One SOP step filmed twice gives two proofs with
+  the same title; the backend numbers them (`domain.ComposeMediaLabels`) in the item's order. The
+  registry's own fallback keeps its "Video 2" numbering. The video log resolves the same way, item
+  `media_meta` title first, then the artifact's `verification_label`, then the registry.
+- **Context rows may carry a `group`.** It is an optional backend-composed section header; a client
+  starts a titled block wherever the group CHANGES between consecutive rows and renders it verbatim.
+  Rows without one behave exactly as before.
 - Plug-and-play: a vertical/module registers its category plus backend navigation
   metadata (`navigation_module`, page key/label/order) in the verification type
   registry → its videos appear under the correct drawer module and top tab.
