@@ -23,13 +23,10 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	countspg "github.com/vgoats/goatos/backend/internal/counts/adapters/postgres"
-	countsapp "github.com/vgoats/goatos/backend/internal/counts/app"
-	feeddirectioncounts "github.com/vgoats/goatos/backend/internal/feeddirection/adapters/counts"
 	feeddirectionpg "github.com/vgoats/goatos/backend/internal/feeddirection/adapters/postgres"
 	feeddirectionapp "github.com/vgoats/goatos/backend/internal/feeddirection/app"
 	feeddirectionports "github.com/vgoats/goatos/backend/internal/feeddirection/ports"
-	feedsoppg "github.com/vgoats/goatos/backend/internal/feedsop/adapters/postgres"
+	"github.com/vgoats/goatos/backend/internal/kernelstages"
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	platformpg "github.com/vgoats/goatos/backend/internal/platform/postgres"
 )
@@ -105,19 +102,11 @@ func run(args []string, now func() time.Time) error {
 	return nil
 }
 
-// newService composes the lifecycle service the scheduled job runs; it is split out so a test can
-// pin that the published feed SOP cards are wired -- see
+// newService is the scheduled lifecycle composition shared with the kernel-worker stage
+// (kernelstages.NewFeedDirectionLifecycleService) plus this run's as-of clock -- see
 // TestIssueServicePinsThePublishedFeedSOP.
 func newService(pool *pgxpool.Pool, timeout time.Duration, cfg config) *feeddirectionapp.Service {
-	repo := feeddirectionpg.NewRepository(pool, timeout)
-	countsService := countsapp.NewService(countspg.NewRepository(pool, timeout))
-	return feeddirectionapp.NewService(repo, feeddirectioncounts.NewReader(countsService)).
-		WithIssueStore(repo).
-		WithScheduleReader(repo).
-		// THE PIN: the sheet is stamped with the feed cards published NOW, the same source the
-		// API's freeze-on-read and the kernel-worker lifecycle stage use.
-		WithSOPRules(feedsoppg.NewRulesSource(pool, timeout)).
-		WithGeneratedBy(cfg.GeneratedBy).
+	return kernelstages.NewFeedDirectionLifecycleService(kernelstages.Deps{Pool: pool, PgCfg: platformpg.Config{QueryTimeout: timeout}}, cfg.GeneratedBy).
 		WithClock(func() time.Time { return cfg.AsOf })
 }
 
