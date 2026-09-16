@@ -7,11 +7,11 @@ import (
 	"testing"
 )
 
-// TestMigrationEmbedsTheSeededFeedSOP pins migration 000318 to the embedded seeds: the section
+// TestMigrationEmbedsTheSeededFeedSOP pins migration 000327 to the embedded seeds: the section
 // it adds in place to each tenant's published feed.* version is the same bytes the code compiles
 // for a tenant with no authored version, so day one on STG is the current behaviour exactly.
 func TestMigrationEmbedsTheSeededFeedSOP(t *testing.T) {
-	path := filepath.Join("..", "..", "..", "migrations", "postgres", "000318_feed_sop_cards.sql")
+	path := filepath.Join("..", "..", "..", "migrations", "postgres", "000327_feed_sop_cards.sql")
 	sql, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)

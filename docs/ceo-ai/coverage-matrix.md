@@ -1612,6 +1612,22 @@ weighing answers still come from `GET /weighing/campaigns` and `GET /weighing/pr
 | weighing_campaigns.sop_version, weighing_fasting_shed_proofs.sop_answers | EXCLUDED | The pin and the removal operator's answers to the SOP's authored questions on a pen's evidence row (migration 000315). Operational provenance of the excluded removal precondition, not a KPI. |
 | /weighing/sops (rules editor) | EXCLUDED | Admin authoring page (SOP library scoped to `weighing.` codes) for the CEO; a config surface, not a reporting read. |
 
+## Feed SOP: feed stage cards are authored on the web (2026-09-16)
+
+The feed distribution, packing, transport, and wastage cards (`docs/decisions/feed-sop.md`)
+now come from the `feed` section of the published feed SOP version and are pinned when a sheet
+or transport task is issued. The surfaces below are document parsing, validation, seed
+compilation, version resolution, proof/answer judging, and phone/admin contract plumbing behind
+the already-covered Feed reads and verifier queue. They add no leadership aggregate, KPI,
+`ceo_ai.*` view, Cube metric, MCP Toolbox tool, or SQL fallback. Leadership feed answers still
+come from the existing Feed direction/packing/transport/analytics reads and their covered
+reporting paths.
+
+| Surface | Decision | Reason |
+| --- | --- | --- |
+| func:SOPCodeForStage, func:Stage, func:SeededFeedSOPJSON, func:SeededRules, func:ParseFeedSOP, func:Rules, func:IsFeedSOPCode, func:ValidateFeedSOP, func:UnknownFeedSOPKeys, func:Proof, func:SlotKeys, func:ValidateProofRefs, func:ValidateAnswers, func:NormalizeAnswers, func:LegacyProofRefs, func:LegacyFieldsFromRefs, func:NewCardContract, func:UnmarshalJSON, func:Accepts, func:ValidateProofSlots, func:ValidateQuestions, func:Error, func:NormalizeProofRefs, func:AnswerRows | EXCLUDED | Pure authored-card parsing, validation, seed compilation, proof/answer validation, legacy mirror mapping, and row projection helpers. They shape and judge operator write payloads and served card contracts; they do not read business facts or define a leadership reporting source. |
+| func:PublishedRules, func:RulesVersion, func:NewRulesSource, func:WithSOPRules, func:FeedSOPContract, func:SOPProofSlotError, func:SOPAnswerError, func:DescribeFeedProofMedia | EXCLUDED | Adapter and service plumbing for resolving the published or pinned card version, exposing the card to admin/app contracts, unwrapping validation errors for HTTP, and describing proof media kind/labels for verifier items. Operational validation and queue metadata only; the verifier/read facts remain covered by the existing feed and verification surfaces. |
+
 ## Weighing reporting calendar configuration (2026-09-16)
 
 | Surface | Decision | Reason |

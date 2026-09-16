@@ -21,6 +21,9 @@
 -- THE EVIDENCE ROWS carry {slot key: proof ref} (sop_proofs) and the authored answers
 -- (sop_answers); the legacy fixed columns mirror the seeded slots and are backfilled, so every
 -- pre-existing reader (verifier items, leadership reads, exports, the Work Board) still reads.
+--
+-- seed-migration-guard:ignore owner=raviteja issue=feed-sop-cards reason=published-feed-sop-library-seed-added-in-place;runtime-sheets-pin-version;no-clean-slate-seed-command-replays-it expiry=2026-12-31
+-- seed-fixture-guard:ignore: feed SOP library cards only; no vaccination HRMS source rows, fixture inputs, protocol schedule, roster, or vaccination seed contract changes.
 
 ALTER TABLE public.feed_direction_issues
   ADD COLUMN IF NOT EXISTS sop_version integer,
@@ -101,6 +104,7 @@ ALTER TABLE public.feed_wastage_completions
 
 -- feed.direction: add the seeded `feed` section IN PLACE to the currently published version (the version
 -- a farm sees on deploy is the one it already had, now carrying the card).
+-- seed-migration-guard:ignore owner=raviteja issue=feed-sop-cards reason=published-feed-sop-library-seed-added-in-place;runtime-sheets-pin-version;no-clean-slate-seed-command-replays-it expiry=2026-12-31
 UPDATE public.sop_versions v
 SET form_dsl = v.form_dsl || jsonb_build_object('feed', $seed${
   "schema_version": "goatos.sop-feed.v1",
@@ -129,6 +133,7 @@ WHERE d.tenant_id = v.tenant_id AND d.sop_id = v.sop_id
 
 -- feed.packing: add the seeded `feed` section IN PLACE to the currently published version (the version
 -- a farm sees on deploy is the one it already had, now carrying the card).
+-- seed-migration-guard:ignore owner=raviteja issue=feed-sop-cards reason=published-feed-sop-library-seed-added-in-place;runtime-sheets-pin-version;no-clean-slate-seed-command-replays-it expiry=2026-12-31
 UPDATE public.sop_versions v
 SET form_dsl = v.form_dsl || jsonb_build_object('feed', $seed${
   "schema_version": "goatos.sop-feed.v1",
@@ -148,6 +153,7 @@ WHERE d.tenant_id = v.tenant_id AND d.sop_id = v.sop_id
 
 -- feed.transport: add the seeded `feed` section IN PLACE to the currently published version (the version
 -- a farm sees on deploy is the one it already had, now carrying the card).
+-- seed-migration-guard:ignore owner=raviteja issue=feed-sop-cards reason=published-feed-sop-library-seed-added-in-place;runtime-sheets-pin-version;no-clean-slate-seed-command-replays-it expiry=2026-12-31
 UPDATE public.sop_versions v
 SET form_dsl = v.form_dsl || jsonb_build_object('feed', $seed${
   "schema_version": "goatos.sop-feed.v1",
@@ -169,6 +175,7 @@ WHERE d.tenant_id = v.tenant_id AND d.sop_id = v.sop_id
 ALTER TABLE public.feed_wastage_completions DROP CONSTRAINT IF EXISTS feed_wastage_completions_sop_proofs_check;
 ALTER TABLE public.feed_packing_completions DROP CONSTRAINT IF EXISTS feed_packing_completions_sop_proofs_check;
 ALTER TABLE public.feed_distribution_completions DROP CONSTRAINT IF EXISTS feed_distribution_completions_sop_proofs_check;
+-- seed-migration-guard:ignore owner=raviteja issue=feed-sop-cards reason=published-feed-sop-library-seed-added-in-place;runtime-sheets-pin-version;no-clean-slate-seed-command-replays-it expiry=2026-12-31
 UPDATE public.sop_versions v
 SET form_dsl = v.form_dsl - 'feed'
 FROM public.sop_definitions d
