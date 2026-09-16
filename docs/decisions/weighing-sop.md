@@ -16,7 +16,7 @@ Weighing SOP** (`/weighing/sops`):
 | --- | --- | --- |
 | **Planning** | which ways of weighing the planner may pick (animal by animal / whole pen) and the default animals per day | the plan wizard (offered modes, prefilled cap); the create (a mode the SOP does not offer is refused, `422 weighing_mode_not_offered`) |
 | **Feed & water removal** | `required` (every task, the 2026-09-03 rule) / **`optional` (the planner decides per task, on by default)** / `off` (never); **the evening cutoff** (`cutoff_time`, blank = the farm-wide `feed_water_removal_config` evening shared with deworming); the instruction on the removal card; **the captures the card asks for** -- up to eight slots, each with a key, title, hint, kind (`video` / `photo` / `either`) and a required flag, at least one compulsory; extra **questions** the removal operator answers per pen | the plan wizard (removal step shown / toggle / hidden; today offerable when the removal does not apply; the toggle forced off with the reason once the pinned evening is gone); the create and edit (operator mandatory only when the removal applies; the effective evening only then, `422 fasting_window_closed` past it; a past date `422 weigh_date_in_past`); the removal card (copy, slots, questions, the effective evening); the pen submit (`422 fasting_proof_slot_invalid` naming the slot, `422 fasting_answer_invalid` naming the question); the card list (opens at each card's PINNED evening) |
-| **Capture** | the lump-sum video window (min..max, inside the proof policy's ceiling of 5); the per-animal video, shown **locked on** | the phone's lump-sum capture (cap and submit gate); the backend submit (`422 weighing_video_count`) |
+| **Capture** (rewritten 2026-09-16, see "The weigh captures are authored" below) | TWO SEPARATE sections, authored independently: **Per animal** -- named proof slots (video / photo / either, compulsory or not, 1..4, at least one compulsory; the per-animal video stays **locked on** through `video_required`) and questions answered per animal; **Whole pen** -- COUNTED proof slots (each min..max, 1..4 slots, at most 5 per slot and 10 per pen, at least one slot with min >= 1) and questions answered once per pen. The old lump-sum video window (min..max) is kept as a DERIVED MIRROR for phones that predate slots | the phone's animal row and pen section (slots + questions from the pinned rules); the backend submits (`422 weighing_proof_slot_invalid` / `weighing_answer_invalid` naming the slot or question; the legacy flat list still `422 weighing_video_count`); the verifier item (every capture titled by its slot, "Weighed as: Per animal / Whole pen", answers grouped per section) |
 | **Weights pages** (maintainer request 2026-09-16) | the period the admin-web Weights and ADG Analytics pages OPEN on -- a fixed date or the last N days -- and the earliest day their calendars offer (earlier days greyed) | the two page contracts (`weights.window.*` copy, compiled by adminui from the PUBLISHED version; page settings, not pinned per task); the seed carries the values the pages used to hardcode (`2026-08-03`, `2026-08-01`) so deploy changes nothing |
 
 This is what the maintainer asked for on 2026-09-15 -- "everything should be SOP; keeping
@@ -35,8 +35,9 @@ weighing module only, two earlier words:
 The scan-and-submit locks stay locks and the document says so on screen: free-flow capture (a
 tag is stored as scanned, never checked against a pen or roster), the one business rule (no
 duplicate scan in a pen before submit), evidence-grain verification, the approve-carries-the-
-weight correction, the unconditional close gate. The per-animal video is a field in the
-document only so that it states the rule; `video_required: false` is refused at save.
+weight correction, the unconditional close gate. The RFID scan and the weight entry are fixed
+too. `video_required` is a field in the document only so that it states the rule that at least
+one compulsory capture per animal exists; `video_required: false` is refused at save.
 
 ## The removal card's captures are authored (maintainer ask 2026-09-15, same day)
 
@@ -79,8 +80,10 @@ author typed, not a built-in.
 
 - `form_dsl.weighing` (`schema_version: goatos.sop-weighing.v1`) = `planning {modes[],
   default_cap_per_day}`, `feed_water_removal {mode, cutoff_time, instruction,
-  proofs[{key,title,hint,kind,required}], questions[]}`, `capture {individual {video_required},
-  lump_sum {video_min, video_max}}`, `weights_pages {default_from_mode fixed_date|rolling_days,
+  proofs[{key,title,hint,kind,required}], questions[]}`, `capture {individual {video_required,
+  proofs[{key,title,hint,kind,required}], questions[]}, lump_sum {video_min, video_max,
+  proofs[{key,title,hint,kind,min,max}], questions[]}}` (the two capture slot lists absent on
+  a document published before 2026-09-16 = the seeded slots), `weights_pages {default_from_mode fixed_date|rolling_days,
   default_from_date, default_from_days, earliest_date}` (absent on an older document = the
   seed). A
   question carries the same fields the procurement inspection's questions do (`id`, `kind`
@@ -130,6 +133,81 @@ author typed, not a built-in.
   the answers ride the outbox submit and survive process death in the SavedStateHandle. Lump-sum
   capture reads the pinned video window from its assignment rows.
 
+## The weigh captures are authored (maintainer decision 2026-09-16)
+
+"Weighing per-animal: SOP-authored proof slots + questions; AT LEAST ONE compulsory proof per
+animal; RFID scan + weight stay fixed. Whole-pen: slots WITH A COUNT (min..max) + questions."
+And, the same day, the clarification that binds every surface: the weighing SOP has **two
+separate capture sections -- per animal and whole pen -- each with its own proof slots and own
+questions, authored independently**; nothing may merge them.
+
+- **Document.** `capture.individual.proofs[]` is the removal card's slot shape (key, title,
+  hint, kind `video` / `photo` / `either`, `required`), 1..4 slots, at least one compulsory;
+  `capture.individual.questions[]` (0..20). `capture.lump_sum.proofs[]` is a COUNTED slot
+  (`min` 0.., `max` 1..5), 1..4 slots, at least one with `min >= 1`, Σmax <= 10;
+  `capture.lump_sum.questions[]` (0..20). Validated by path (`weighing/domain.validateCaptureSections`),
+  unknown keys inside a slot refused at save (`UnknownWeighingSOPKeys`).
+- **The seed does not change.** `sopseed/weighing_session.json` is embedded verbatim by
+  migration 000315 and carries no slot list; the defaults live in the sibling embedded file
+  `sopseed/weighing_capture_slots.json` (one compulsory "Weighing video" per animal; one
+  "Weighing video" slot 1..5 per pen) and are filled in by the accessors
+  (`Rules.IndividualProofs`, `LumpSumProofs`, `IndividualQuestions`, `LumpSumQuestions`). A
+  document published with only `video_min`/`video_max` reads as the pen_video slot carrying
+  its own window. `Rules.ServedRules()` fills both sections explicitly on every served rule set
+  and keeps `video_min`/`video_max` as a DERIVED MIRROR (Σ over the video / either slots,
+  clamped 1..5) for phones that predate slots; production Go under `weighing/app` never reads
+  the mirror directly (`Rules.LegacyVideoWindow()`, guard rule `lump-sum-window-literal`).
+  The adminui page copy serves the same default document as `wsop.capture.defaults` so the web
+  model never imports backend JSON (guard rule `capture-slot-fragment-embedded`).
+- **Submits, judged slot by slot against the PINNED version.** A per-animal submit carries
+  `proofs {slot: ref}` + `answers`; the first slot's capture is the PRIMARY -- stored on
+  `proof_artifact_id`, handed to verification as `MediaRefs[0]`, and the ref the verdict
+  applier compares (`verification_verdict.go`), an invariant both sites now state. A whole-pen
+  submit carries `proofs {slot: refs}` + `answers`; the flat `proof_artifact_ids` is derived in
+  slot order and `weighing_shed_observation_proofs.slot_key` records each capture's slot
+  (positions up to 10, migration 000328). The store checks every capture's REGISTER kind
+  against its slot inside the write transaction (a photo in a video slot is refused there), and
+  the changed-test that opens a new evidence round now compares the whole slot map and the
+  answers, not only the primary. The rejected-proof reuse guard covers every slot.
+  Refusals: `422 weighing_proof_slot_invalid` / `422 weighing_answer_invalid`, each naming the
+  slot or question; distinct from the removal card's `fasting_*` codes.
+- **Older apps are never forced to update** (program decision 7). A request without a slot map
+  -- the single `proof_artifact_id`, the flat `proof_artifact_ids` -- is mapped onto the seeded
+  slot (or, when a version renamed it, the first compulsory slot that takes a video), judged
+  leniently (the flat list still against the derived window, `422 weighing_video_count`), and
+  every compulsory item that app could not have sent reaches the verifier as a context row
+  "Not captured (older app)". A request WITH a slot map is judged strictly. The legacy
+  request's idempotency fingerprint is byte-identical to before (the new fields are `omitempty`,
+  every derived field `json:"-"`; `TestLegacyAnimalReplayFingerprintUnchanged`).
+- **The verifier is told which kind of weigh it is** (maintainer clarification 2026-09-16). Every
+  weigh item carries `MediaMeta` (each capture's slot title and register kind; a counted slot's
+  captures numbered "Weighing video 2 of 3"), a LEADING context row `Weighed as: Per animal` /
+  `Whole pen` in group `Weighing`, and the answers grouped under `Per-animal answers` /
+  `Whole-pen answers` -- so admin-web /verify and the Android verify detail render the two kinds
+  differently. The category is passed to the enqueue explicitly; the old `len(mediaRefs) > 1`
+  inference that filed an animal with two captures as a pen item is gone (`weighing/app.
+  enqueueVerification`). The grain is unchanged: one item per animal, one per pen (ledger B-5).
+  Leadership's "N of M" denominator is the pinned whole-pen Σmax and its media carry each
+  capture's title (`decorateLeadershipEvidence`).
+- **Storage.** Migration 000327 adds `weighing_observations.sop_proofs` / `sop_answers`,
+  `weighing_shed_observations.sop_answers`, `weighing_shed_observation_proofs.slot_key`; no row is
+  rewritten (`'{}'` / NULL = the seeded slot). Migration 000328 widens the child CHECK to 1..10
+  (NOT VALID -> VALIDATE -> drop the old constraint by catalog name).
+- **Web.** `/weighing/sops` shows the two sections as distinct titled blocks -- "Per animal"
+  and "Whole pen" -- in the editor and the drawer summary, never one shared list; the model
+  emits explicit slot lists only when the document had them or the author changed them, so the
+  untouched seed still round-trips byte for byte.
+- **Phone.** `WeighingSopRules` carries `individualProofs` / `individualQuestions` /
+  `lumpSumProofs` / `lumpSumQuestions` from the served rules (guard rule
+  `phone-references-individual-proofs`); the animal row renders its slots and questions, the
+  pen section its own, from the task's PINNED rules; a publish shows on refresh.
+
+Pinned by `weighing/domain/capture_sop_test.go`, `weighing/app/capture_sop_test.go` (incl.
+`TestAnimalAndPenVerifierItemsAreToldApart`), `adapters/postgres/capture_slots_integration_test.go`,
+`adapters/http/capture_contract_test.go`, `verificationbridge.TestEnqueueCarriesAnimalMediaMetaAndContext`,
+`weighingsop/app.TestWeighingSOPContractRefusesAnimalWithoutCompulsoryCapture`,
+`adminui/app.TestWeighingSOPCaptureDefaultsMatchTheEmbeddedSeed`.
+
 ## Backend contract additions
 
 `WeighingSOPRules` on `WeighingPlannerCatalogResponse.sop` and `WeighingCampaign.sop`
@@ -141,7 +219,13 @@ when the removal applies); `instruction`, `proofs`, `questions`, `answers`, `pro
 accepted. New refusals: `weighing_mode_not_offered`, `feed_water_removal_not_offered`,
 `weigh_date_in_past`, `feed_water_removal_locked` (switching the removal off after a pen was
 submitted), `weighing_video_count`, `weighing_sop_version_unknown`, `fasting_answer_invalid`,
-`fasting_proof_slot_invalid`.
+`fasting_proof_slot_invalid`. Added 2026-09-16: `capture.individual.proofs` / `questions` and
+`capture.lump_sum.proofs` (`WeighingCountedProofSlot`) / `questions` on `WeighingSOPRules`;
+`proofs` (`WeighingCaptureProofRefs`) + `answers` on `RecordWeighingAnimalObservationRequest`
+(`proof_artifact_id` no longer required); `proofs` (`WeighingCountedProofRefs`) + `answers` on
+`RecordWeighingShedObservationRequest`; `proofs` / `proof_slots` / `answers` / `proof_kinds` on
+`WeighingObservation`; `label` on `WeighingProofMedia`; refusals `weighing_proof_slot_invalid`,
+`weighing_answer_invalid`.
 
 ## Proof
 
@@ -290,10 +374,10 @@ submitted), `weighing_video_count`, `weighing_sop_version_unknown`, `fasting_ans
 
 ## Not here (phase 2)
 
-Authored questions on the lump-sum pen submit and per animal; the `/config` registry editor for
-question kinds; authored captures on the WEIGH itself (the per-animal video stays locked on and
-the lump-sum window is a count, not a slot list); a media kind for questions (the slots ARE the
-card's media).
+The `/config` registry editor for question kinds; a media kind for questions (the slots ARE the
+card's media); the verifier REJECT of a per-animal secondary capture sending a slot-scoped
+"re-shoot" (today a reject reworks the whole animal and every slot is recaptured, the fasting
+shape). Authored captures and questions on the weigh itself shipped on 2026-09-16 (above).
 
 ## PR 274 review follow-up: request reads and conditional ancestry
 
