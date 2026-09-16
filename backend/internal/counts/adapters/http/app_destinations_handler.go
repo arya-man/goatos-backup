@@ -19,6 +19,10 @@ import (
 type appShiftingDestinationsResponse struct {
 	Parks            []appShiftingDestinationPark `json:"parks"`
 	ManagementStages []string                     `json:"management_stages"`
+	// SOP is the PUBLISHED raise card (SHIFTING SOP, 2026-09-16): the questions and optional
+	// captures the raise form renders, with the version a raise from it pins. Absent only when no
+	// execution workflow is wired.
+	SOP *domain.ShiftingCardRules `json:"sop,omitempty"`
 }
 
 type appShiftingDestinationPark struct {
@@ -172,7 +176,16 @@ func (h *AppWriteHandler) ListShiftingDestinations(w http.ResponseWriter, r *htt
 		})
 	}
 
-	httpresponse.WriteJSON(w, http.StatusOK, appShiftingDestinationsResponse{Parks: parks, ManagementStages: nonNilStrings(catalog.ManagementStages)})
+	response := appShiftingDestinationsResponse{Parks: parks, ManagementStages: nonNilStrings(catalog.ManagementStages)}
+	if h.execution != nil {
+		card, err := h.execution.PublishedRaiseCard(r.Context(), tenantID)
+		if err != nil {
+			h.writeShiftingExecutionError(w, r, err)
+			return
+		}
+		response.SOP = &card
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, response)
 }
 
 // nonNilStrings keeps a list field a LIST on the wire. A nil slice marshals as `null`, and the

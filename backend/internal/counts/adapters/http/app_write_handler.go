@@ -26,6 +26,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
 	"github.com/vgoats/goatos/backend/internal/platform/httpresponse"
 	"github.com/vgoats/goatos/backend/internal/platform/oploc"
+	"github.com/vgoats/goatos/backend/internal/sop/authored"
 )
 
 // App-tier Counts write surface (mobile-facing).
@@ -125,6 +126,13 @@ type ShiftingEventRecorder interface {
 	// ShiftingGoatFacts reads the named animals' narrow canonical facts (stage, sex, placement)
 	// for the typed-raise rulebook (domain.ResolveShiftTypeDecision).
 	ShiftingGoatFacts(ctx context.Context, tenantID string, goatIDs []string) ([]domain.GoatShiftingFact, error)
+}
+
+// shiftingRaiseReplayer is the OPTIONAL replay pre-check a recorder may offer (counts/app.Service
+// does, over the Postgres repository): an exact raise retry is answered before the SOP raise card
+// is judged. A recorder without it (a fake) judges every raise.
+type shiftingRaiseReplayer interface {
+	ShiftingRaiseReplay(ctx context.Context, tenantID, idempotencyKey, requestFingerprint string) (shiftingEventID string, found bool, err error)
 }
 
 // NOTE: the handler prepares each birth child through identity validation, but the approval service
@@ -329,6 +337,17 @@ type appShiftingEventRequest struct {
 	// cannot disagree with what the park head approved. All the toggle adds is WHICH of the two
 	// backend-owned answers to record.
 	StageMode string `json:"stage_mode,omitempty"`
+
+	// SHIFTING SOP (maintainer decision 2026-09-16). SOPVersion is the version the phone rendered
+	// its raise form from (nil = pin whatever is published now); Proofs / Answers are the raise
+	// card's captures and answers. All three are omitempty, so a request from a phone predating
+	// them hashes EXACTLY as it did before -- an installed app's retry must never become a
+	// same-key/different-payload conflict. Proofs and Answers BOTH absent is the OLDER-APP shape:
+	// accepted, mapped onto the seeded card, and what it could not send is recorded for the
+	// approver as "Not captured (older app)". Either present means a NEW app, judged strictly.
+	SOPVersion *int                       `json:"sop_version,omitempty"`
+	Proofs     map[string]string          `json:"proofs,omitempty"`
+	Answers    map[string]json.RawMessage `json:"answers,omitempty"`
 
 	// GoatIDs names the individual animals this movement covers. REQUIRED, and load-bearing:
 	// approving the request relocates EXACTLY these animals to the destination shed.
@@ -569,6 +588,39 @@ func (h *AppWriteHandler) RecordShiftingEvent(w http.ResponseWriter, r *http.Req
 		h.writeError(w, r, http.StatusBadRequest, "invalid_json", "request body must be valid JSON", err)
 		return
 	}
+	requestFingerprint := stableHash("counts-app-shifting-request", canonical)
+
+	// SHIFTING SOP (2026-09-16): the raise card. An EXACT REPLAY is answered before the card is
+	// judged -- a version published between a phone's two attempts may have added a required
+	// question, and refusing the retry would strand a movement the farm already recorded. A raise
+	// that is not a replay is judged against the echoed known version (else the published one);
+	// a refusal names the slot / question and writes NOTHING. h.execution unwired (a DB-less
+	// assembly) means the seeded card: nothing to ask, nothing to pin.
+	raiseJudgement := countsapp.RaiseJudgement{}
+	raiseReplay := false
+	if replayer, ok := h.shifting.(shiftingRaiseReplayer); ok {
+		_, found, err := replayer.ShiftingRaiseReplay(r.Context(), tenantID, "app-counts-shifting:"+clientKey, requestFingerprint)
+		if err != nil {
+			h.writeCountsError(w, r, err)
+			return
+		}
+		raiseReplay = found
+	}
+	if !raiseReplay && h.execution != nil {
+		judged, err := h.execution.JudgeRaise(r.Context(), countsapp.RaiseJudgeInput{
+			TenantID:      tenantID,
+			EchoedVersion: normalized.SOPVersion,
+			LegacyShape:   normalized.Proofs == nil && normalized.Answers == nil,
+			Proofs:        authored.ProofRefs(normalized.Proofs),
+			Answers:       authored.Answers(normalized.Answers),
+		})
+		if err != nil {
+			h.writeShiftingExecutionError(w, r, err)
+			return
+		}
+		raiseJudgement = judged
+	}
+
 	// Same instant, tagged Asia/Kolkata: raised_at/effective_at are business timestamps that get
 	// stored, displayed, and bucketed into business days, so the location must be the business one.
 	// This is safe for idempotency: the canonical hash above covers only the client request.
@@ -759,8 +811,21 @@ func (h *AppWriteHandler) RecordShiftingEvent(w http.ResponseWriter, r *http.Req
 		RaiseComment:              normalized.Comment,
 		PayloadHash:               stableHash("counts-app-shifting-payload", canonical),
 		IdempotencyKey:            "app-counts-shifting:" + clientKey,
-		RequestFingerprint:        stableHash("counts-app-shifting-request", canonical),
+		RequestFingerprint:        requestFingerprint,
 		Impacts:                   impacts,
+	}
+	// THE PIN and the raise card's evidence, snapshotted once here. A replay carries none: the
+	// repository answers from the stored row.
+	var captureSnapshot json.RawMessage
+	if !raiseReplay && h.execution != nil {
+		version := raiseJudgement.Version
+		event.SOPVersion = &version
+		event.RaiseSOPProofs = raiseJudgement.Proofs
+		event.RaiseSOPAnswers = raiseJudgement.Answers
+		if encoded, err := json.Marshal(raiseJudgement.Capture); err == nil {
+			captureSnapshot = encoded
+			event.RaiseCaptureEvidence = encoded
+		}
 	}
 
 	id, replay, err := h.shifting.RecordShiftingEvent(r.Context(), event)
@@ -801,6 +866,9 @@ func (h *AppWriteHandler) RecordShiftingEvent(w http.ResponseWriter, r *http.Req
 		// Never omitempty: normalizeShiftingEventRequest guarantees a non-empty set, so a stored
 		// payload without goat_ids is a corruption signal the approval path must be able to see.
 		GoatIDs []string `json:"goat_ids"`
+		// Capture is the raise card's evidence in the shared CountsApprovalCapture shape -- what
+		// the park head reads before deciding (SHIFTING SOP, 2026-09-16). Snapshotted at raise.
+		Capture json.RawMessage `json:"capture,omitempty"`
 	}{
 		ShiftingEventID:           id,
 		DestinationParkID:         normalized.DestinationParkID,
@@ -818,6 +886,7 @@ func (h *AppWriteHandler) RecordShiftingEvent(w http.ResponseWriter, r *http.Req
 		AdoptPenTag:           adoptPenTag,
 		Comment:               normalized.Comment,
 		GoatIDs:               normalized.GoatIDs,
+		Capture:               captureSnapshot,
 	})
 	if err != nil {
 		h.writeError(w, r, http.StatusInternalServerError, "internal_error", "internal server error", err)
@@ -832,7 +901,7 @@ func (h *AppWriteHandler) RecordShiftingEvent(w http.ResponseWriter, r *http.Req
 		RaisedByUserID:     httpmiddleware.ActorIDFromContext(r.Context()),
 		RaisedAt:           raisedAt,
 		IdempotencyKey:     "app-counts-shifting:" + clientKey,
-		RequestFingerprint: stableHash("counts-app-shifting-request", canonical),
+		RequestFingerprint: requestFingerprint,
 	})
 	if err != nil {
 		h.writeApprovalError(w, r, err)
@@ -908,6 +977,17 @@ func normalizeShiftingEventRequest(req appShiftingEventRequest) (appShiftingEven
 	req.StageMode = strings.ToLower(strings.TrimSpace(req.StageMode))
 	if req.StageMode == "" {
 		req.StageMode = shiftingStageModeDestination
+	}
+	// A present-but-empty proofs map stays present (it marks a NEW-shaped request); blank refs
+	// inside it are dropped so they never reach the judge or the hash as captures.
+	if req.Proofs != nil {
+		trimmed := map[string]string{}
+		for k, v := range req.Proofs {
+			if strings.TrimSpace(v) != "" {
+				trimmed[strings.TrimSpace(k)] = strings.TrimSpace(v)
+			}
+		}
+		req.Proofs = trimmed
 	}
 	if req.EffectiveAt != nil {
 		// Normalize to UTC so two representations of the same instant are the same request.

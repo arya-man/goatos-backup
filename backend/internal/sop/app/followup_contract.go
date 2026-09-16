@@ -31,10 +31,14 @@ func (s *Service) WithTaskTypeSource(src TaskTypeSource) *Service {
 }
 
 // requiredFollowUpTracks names, per herd-operations SOP code, the tracks the engine opens.
+//
+// SHIFTING is deliberately absent (maintainer decision 2026-09-16, docs/decisions/shifting-sop.md):
+// its operator work is the card-with-slots `shifting` section, not a follow_up track. The seeded
+// follow_up track stays on existing versions as dormant history and is still validated when
+// present; it is simply no longer demanded.
 var requiredFollowUpTracks = map[string][]string{
 	tasksdomain.SOPCodeBirth:     {tasksdomain.TemplateKeyBirthKid, tasksdomain.TemplateKeyBirthMother},
 	tasksdomain.SOPCodeDeath:     {tasksdomain.TemplateKeyDeath},
-	tasksdomain.SOPCodeShifting:  {tasksdomain.TemplateKeyShifting},
 	tasksdomain.SOPCodeReconcile: {tasksdomain.TemplateKeyReconcile},
 }
 
