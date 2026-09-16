@@ -618,8 +618,9 @@ func TestDeathEvidenceFlowPg(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load approval-released evidence: %v", err)
 	}
-	if len(review.ProofRefs) != 2 || review.ProofRefs[0] != "proof-death" || review.ProofRefs[1] != "proof-postmortem" {
-		t.Fatalf("released proofs = %v, want both videos", review.ProofRefs)
+	released := domain.DeathEvidenceBundle(review.Workflow.CaptureEvidence, review.Actions)
+	if len(released.Refs) != 2 || released.Refs[0] != "proof-death" || released.Refs[1] != "proof-postmortem" {
+		t.Fatalf("released proofs = %v, want both videos", released.Refs)
 	}
 
 	// REWORK: both videos reset (proofs cleared), sign-off back to pending; idempotent.

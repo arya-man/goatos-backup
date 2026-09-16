@@ -312,7 +312,7 @@ func (h *Handler) GetWorkflow(w http.ResponseWriter, r *http.Request) {
 		actions = append(actions, actionDTO(detail.Card.TemplateKey, a, detail.Actions, now))
 	}
 	httpresponse.WriteJSON(w, http.StatusOK, workflowDetailResponse{
-		workflowCardDTO: cardDTO(detail.Card),
+		workflowCardDTO: cardDTOWithActions(detail.Card, detail.Actions),
 		Facts:           detail.Facts,
 		Actions:         actions,
 	})
@@ -439,18 +439,12 @@ func cardDTO(card domain.WorkflowCard) workflowCardDTO {
 	actionsDone := card.ActionsDone
 	actionsTotal := card.ActionsTotal
 	nextAction := card.NextAction
-	// Normalize rows written before internal death approval was removed from the operator count.
-	// The next mutation rewrites the projection with the new domain calculation.
-	if card.TemplateKey == domain.TemplateKeyDeath {
-		if actionsTotal > 2 {
-			actionsTotal = 2
-		}
-		if actionsDone > 2 {
-			actionsDone = 2
-		}
-		if nextAction != nil && nextAction.Key == domain.ActionKeyParkHeadSignoff {
-			nextAction = nil
-		}
+	// The internal sign-off row is never the operator's next step. (The old cap of two death
+	// steps is gone: death follows the SOP, which may author more than the seeded pair --
+	// maintainer decision 1, 2026-09-16. A legacy card that counted its internal approval is
+	// normalized from the served steps in cardDTOWithActions.)
+	if card.TemplateKey == domain.TemplateKeyDeath && nextAction != nil && nextAction.Key == domain.ActionKeyParkHeadSignoff {
+		nextAction = nil
 	}
 	return workflowCardDTO{
 		WorkflowID:           card.WorkflowID,
@@ -468,6 +462,29 @@ func cardDTO(card domain.WorkflowCard) workflowCardDTO {
 		AwaitingVerification: card.AwaitingVerification,
 		State:                card.State,
 	}
+}
+
+// cardDTOWithActions serves the detail header with the operator counters derived from the
+// served steps (approval rows excluded, canceled excluded, recorded = completed or awaiting a
+// verdict), so a card written before the internal approval left the operator count reads the
+// same as one written after, whatever number of steps the SOP authored.
+func cardDTOWithActions(card domain.WorkflowCard, actions []domain.WorkflowAction) workflowCardDTO {
+	out := cardDTO(card)
+	if len(actions) == 0 {
+		return out
+	}
+	total, done := 0, 0
+	for _, a := range actions {
+		if a.ActionType == domain.ActionTypeApproval || a.Status == domain.ActionStatusCanceled {
+			continue
+		}
+		total++
+		if a.Status == domain.ActionStatusCompleted || a.Status == domain.ActionStatusInReview {
+			done++
+		}
+	}
+	out.ActionsTotal, out.ActionsDone = total, done
+	return out
 }
 
 func actionDTO(templateKey string, a domain.WorkflowAction, siblings []domain.WorkflowAction, now time.Time) workflowActionDTO {

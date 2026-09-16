@@ -48,6 +48,8 @@ func (e *DeathEvidenceEnqueuer) EnqueueDeathEvidenceVerification(ctx context.Con
 			RefID:   in.WorkflowID,
 		},
 		MediaRefs:      in.ProofRefs,
+		MediaMeta:      mediaMeta(in.ProofRefs, in.MediaMeta),
+		ContextRows:    contextRows(in.ContextRows),
 		OperatorID:     ptrIfSet(in.OperatorID),
 		ShedID:         ptrIfSet(in.ShedID),
 		ParkID:         ptrIfSet(in.ParkID),
@@ -57,24 +59,54 @@ func (e *DeathEvidenceEnqueuer) EnqueueDeathEvidenceVerification(ctx context.Con
 	return err
 }
 
+// mediaMeta maps the tasks meta (positional against refs) onto verification's shared builder.
+// A request with no meta attaches none, so the registry's positional copy still fills in.
+func mediaMeta(refs []string, meta []tasksdomain.MediaMetaItem) []verificationdomain.MediaMeta {
+	if len(meta) == 0 || len(meta) != len(refs) {
+		return nil
+	}
+	captures := make([]verificationdomain.ProofCapture, len(meta))
+	for i, m := range meta {
+		captures[i] = verificationdomain.ProofCapture{Title: m.Label, Kind: m.Kind}
+	}
+	return verificationdomain.BuildMediaMeta(captures)
+}
+
+func contextRows(rows []tasksdomain.EvidenceRow) []verificationdomain.ContextRow {
+	if len(rows) == 0 {
+		return nil
+	}
+	out := make([]verificationdomain.ContextRow, len(rows))
+	for i, r := range rows {
+		out[i] = verificationdomain.ContextRow{Label: r.Label, Value: r.Value, Group: r.Group}
+	}
+	return out
+}
+
 // EnqueueBirthStepVerification maps ONE recorded birth step to ONE verification item (category
 // birth_evidence, ref module=counts / ref_type=workflow_birth_action / ref_id=action_id) carrying
 // only that step's proofs. The key is per recording (domain.BirthStepReviewKey), so a retry heals
 // and a re-shoot after a rejection opens a fresh item. The subject label is composed by the
 // service, e.g. "Iodine dipping · Kid CPT-00123 · 2026-09-16 · Godel 1 - Part 3".
 func (e *DeathEvidenceEnqueuer) EnqueueBirthStepVerification(ctx context.Context, in tasksapp.BirthStepVerificationEnqueueRequest) error {
-	// Match metadata to the already ordered refs (videos first), never capture order.
-	kinds := make(map[string]string, len(in.Proofs))
-	for _, proof := range in.Proofs {
-		kinds[proof.Ref] = proof.Kind
-	}
-	meta := make([]verificationdomain.MediaMeta, 0, len(in.ProofRefs))
-	for _, ref := range in.ProofRefs {
-		kind := kinds[ref]
-		if kind == "" {
-			kind = tasksdomain.ProofKindVideo
-		} // legacy singular video proof
-		meta = append(meta, verificationdomain.MediaMeta{Label: in.ProofLabel, Kind: kind})
+	// The service composes MediaMeta positionally against the ordered refs (videos first) from
+	// the step title and the register-resolved kinds; an older caller that set only
+	// Proofs/ProofLabel still gets each ref named.
+	meta := mediaMeta(in.ProofRefs, in.MediaMeta)
+	if meta == nil {
+		kinds := make(map[string]string, len(in.Proofs))
+		for _, proof := range in.Proofs {
+			kinds[proof.Ref] = proof.Kind
+		}
+		captures := make([]verificationdomain.ProofCapture, 0, len(in.ProofRefs))
+		for _, ref := range in.ProofRefs {
+			kind := kinds[ref]
+			if kind == "" {
+				kind = tasksdomain.ProofKindVideo
+			} // legacy singular video proof
+			captures = append(captures, verificationdomain.ProofCapture{Title: in.ProofLabel, Kind: kind})
+		}
+		meta = verificationdomain.BuildMediaMeta(captures)
 	}
 
 	_, err := e.verification.CreateItem(ctx, verificationdomain.CreateItem{
@@ -90,6 +122,7 @@ func (e *DeathEvidenceEnqueuer) EnqueueBirthStepVerification(ctx context.Context
 		},
 		MediaRefs:      in.ProofRefs,
 		MediaMeta:      meta,
+		ContextRows:    contextRows(in.ContextRows),
 		OperatorID:     ptrIfSet(in.OperatorID),
 		ShedID:         ptrIfSet(in.ShedID),
 		ParkID:         ptrIfSet(in.ParkID),

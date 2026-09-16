@@ -8,7 +8,9 @@ import (
 
 	identitypg "github.com/vgoats/goatos/backend/internal/identity/adapters/postgres"
 	"github.com/vgoats/goatos/backend/internal/platform/eventbus"
+	proofpg "github.com/vgoats/goatos/backend/internal/proof/adapters/postgres"
 	taskspg "github.com/vgoats/goatos/backend/internal/tasks/adapters/postgres"
+	tasksproofkinds "github.com/vgoats/goatos/backend/internal/tasks/adapters/proofkinds"
 	tasksverificationbridge "github.com/vgoats/goatos/backend/internal/tasks/adapters/verificationbridge"
 	tasksapp "github.com/vgoats/goatos/backend/internal/tasks/app"
 	verificationpg "github.com/vgoats/goatos/backend/internal/verification/adapters/postgres"
@@ -26,7 +28,8 @@ func NewWorkflowConsumerService(pool *pgxpool.Pool, timeout time.Duration, log *
 	workflowRepo := taskspg.NewRepository(pool, timeout).
 		WithIdentityTxWriter(identitypg.NewRepository(pool, timeout))
 	return tasksapp.NewService(workflowRepo, log).
-		WithVerificationEnqueuer(tasksverificationbridge.New(verificationRepo))
+		WithVerificationEnqueuer(tasksverificationbridge.New(verificationRepo)).
+		WithProofKindResolver(tasksproofkinds.New(proofpg.NewRepository(pool, timeout)))
 }
 
 // RegisterWorkflowConsumers subscribes the birth/death workflow-engine consumers

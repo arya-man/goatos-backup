@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/vgoats/goatos/backend/internal/sop/authored"
 )
 
 // Sentinel errors shared by the app service, the postgres adapter, and the in-memory fakes so the
@@ -65,6 +67,10 @@ type WorkflowInstance struct {
 	NextDueAt            *time.Time
 	AwaitingVerification bool
 	RowVersion           int
+	// CaptureEvidence is the capture form's snapshot (Add death today), taken when the report was
+	// submitted and stamped at open; it leads the verifier bundle. Empty for every workflow
+	// opened without one (birth tracks, reconcile, pre-feature rows).
+	CaptureEvidence authored.Evidence
 }
 
 // WorkflowAction mirrors one workflow_actions row.
@@ -255,9 +261,12 @@ type ActionWriteResult struct {
 	// after this write (both death videos in). It is computed from STATE, not from "did this call
 	// flip it", so an exact replay after a failed enqueue re-reports it and the retry heals.
 	NeedsVerificationEnqueue bool
-	// DeathProofRefs carries both death-video proofs, ordered (death video, post mortem video), when
-	// NeedsVerificationEnqueue is set.
+	// DeathProofRefs carries every proof of the death bundle in bundle order (capture form first,
+	// then steps in seq order -- for the seeded document: death video, post mortem video) when
+	// NeedsVerificationEnqueue is set. DeathEvidence carries the same refs with their titles,
+	// kinds and the answer rows.
 	DeathProofRefs []string
+	DeathEvidence  DeathEvidence
 	// DeathReviewRound is the workflow row_version — a monotonic counter of review rounds. It goes
 	// into the verification idempotency
 	// key so that a re-shoot after a rejection ALWAYS opens a new review item, even in the pathological
@@ -276,9 +285,10 @@ type ActionWriteResult struct {
 // real path would not.
 func WriteResult(w WorkflowInstance, actions []WorkflowAction, target WorkflowAction, replay bool) ActionWriteResult {
 	result := ActionWriteResult{Workflow: w, Action: target, Replayed: replay}
-	if w.TemplateKey == TemplateKeyDeath && w.AwaitingVerification && DeathVideosComplete(actions) {
+	if w.TemplateKey == TemplateKeyDeath && w.AwaitingVerification && DeathStepsComplete(actions) {
 		result.NeedsVerificationEnqueue = true
-		result.DeathProofRefs = DeathProofRefs(actions)
+		result.DeathEvidence = DeathEvidenceBundle(w.CaptureEvidence, actions)
+		result.DeathProofRefs = result.DeathEvidence.Refs
 		result.DeathReviewRound = w.RowVersion
 	}
 	if ReviewedPerStep(w.TemplateKey) && target.Status == ActionStatusInReview {
@@ -455,7 +465,9 @@ func TemplateLabel(templateKey string) string {
 	return ""
 }
 
-// DeathVideosComplete reports whether both mandatory death videos are completed.
+// DeathVideosComplete reports whether every death_evidence-hooked step is completed. It is the
+// PRE-SOP gate, kept for the golden/legacy tests; the approval and release gates use
+// DeathStepsComplete (evidence.go), which requires EVERY authored operator step.
 func DeathVideosComplete(actions []WorkflowAction) bool {
 	total, done := 0, 0
 	for _, a := range actions {
@@ -544,9 +556,9 @@ func BirthProofOperator(actions []WorkflowAction) string {
 }
 
 // SignoffBlocked reports whether the approval step reads as "blocked": it is pending while the
-// videos it signs off are not both in.
+// operator steps it signs off are not all in.
 func SignoffBlocked(a WorkflowAction, siblings []WorkflowAction) bool {
-	return a.ActionType == ActionTypeApproval && a.Status == ActionStatusPending && !DeathVideosComplete(siblings)
+	return a.ActionType == ActionTypeApproval && a.Status == ActionStatusPending && !DeathStepsComplete(siblings)
 }
 
 // OperatorActionBlocked enforces operator-visible dependencies. Normal actions follow their own

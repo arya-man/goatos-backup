@@ -157,6 +157,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/sopbridge"
 	taskshttp "github.com/vgoats/goatos/backend/internal/tasks/adapters/http"
 	taskspg "github.com/vgoats/goatos/backend/internal/tasks/adapters/postgres"
+	tasksproofkinds "github.com/vgoats/goatos/backend/internal/tasks/adapters/proofkinds"
 	tasksverificationbridge "github.com/vgoats/goatos/backend/internal/tasks/adapters/verificationbridge"
 	tasksapp "github.com/vgoats/goatos/backend/internal/tasks/app"
 	tasksdomain "github.com/vgoats/goatos/backend/internal/tasks/domain"
@@ -1073,6 +1074,9 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// goat.created/goat.exited, listed by the mobile /counts/birth and /counts/death modules.
 	tasksWorkflowService := tasksapp.NewService(tasksWorkflowRepo, log).
 		WithVerificationEnqueuer(tasksverificationbridge.New(verificationService)).
+		// SOP parity (2026-09-16): a step's proof kinds come from the proof register, so the
+		// verifier item names what the store judged, never what the client claimed.
+		WithProofKindResolver(tasksproofkinds.New(proofRepo)).
 		// SOP-driven reconcile (2026-09-13): the tasks engine runs the card's questionnaire and
 		// reports the last step done to the counts service, which runs its ordinary completion.
 		WithCompletionHook(tasksdomain.TemplateKeyReconcile, countsPenReconciliationService)

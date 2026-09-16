@@ -7,12 +7,12 @@ import (
 	"context"
 	"errors"
 	"log/slog"
-	"strconv"
 	"strings"
 	"time"
 
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/platform/oploc"
+	"github.com/vgoats/goatos/backend/internal/sop/authored"
 	"github.com/vgoats/goatos/backend/internal/tasks/domain"
 	"github.com/vgoats/goatos/backend/internal/tasks/ports"
 )
@@ -20,12 +20,19 @@ import (
 // DeathVerificationEnqueueRequest is one death evidence pair handed to the verification queue: ONE
 // item (category death_evidence) carrying BOTH proofs, so ONE verifier verdict covers the pair.
 type DeathVerificationEnqueueRequest struct {
-	TenantID     string
-	WorkflowID   string
-	OperatorID   string
-	ParkID       string
-	ShedID       string
-	ProofRefs    []string // ordered: death video, post mortem video
+	TenantID   string
+	WorkflowID string
+	OperatorID string
+	ParkID     string
+	ShedID     string
+	// ProofRefs is the whole bundle in order (capture form first, then steps in seq order; for
+	// the seeded document: death video, post mortem video). MediaMeta is positional against it
+	// (step title + register kind) and ContextRows carries every answer in farm words grouped by
+	// step -- both composed by domain.DeathEvidenceBundle so the release path and the re-shoot
+	// path hand the verifier the SAME item.
+	ProofRefs    []string
+	MediaMeta    []domain.MediaMetaItem
+	ContextRows  []domain.EvidenceRow
 	SubjectLabel string
 	CapturedAt   time.Time
 	// IdempotencyKey is "counts-death-evidence:<workflow_id>:r<review round>:<proof refs, in order>",
@@ -50,7 +57,12 @@ type BirthStepVerificationEnqueueRequest struct {
 	ProofLabel                                                               string
 	TenantID, WorkflowID, ActionID, OperatorID, ParkID, ShedID, SubjectLabel string
 	ProofRefs                                                                []string
-	CapturedAt                                                               time.Time
+	// MediaMeta names each ProofRefs entry (step title, numbered only when the step itself holds
+	// several of a kind; register-resolved kind) and ContextRows carries the step's answer in
+	// farm words. Proofs/ProofLabel are kept for older readers; the bridge renders MediaMeta.
+	MediaMeta   []domain.MediaMetaItem
+	ContextRows []domain.EvidenceRow
+	CapturedAt  time.Time
 	// IdempotencyKey is domain.BirthStepReviewKey: action + row_version + proofs, so a retry
 	// de-duplicates while a re-shoot after a rejection always opens a fresh item.
 	IdempotencyKey string
@@ -63,10 +75,20 @@ type DeathVerificationEnqueuer interface {
 	EnqueueBirthStepVerification(ctx context.Context, in BirthStepVerificationEnqueueRequest) error
 }
 
+// ProofKindResolver answers "what kind is this proof" from the PROOF REGISTER (video / photo),
+// so a verifier item names the kind the store judged, never the kind a client claimed
+// (tasks/adapters/proofkinds adapts proof's repository). A ref the register does not know is
+// absent from the map; an error is logged and the client's kind kept -- the register is a
+// labelling source, never a gate on a capture.
+type ProofKindResolver interface {
+	ResolveProofKinds(ctx context.Context, tenantID string, refs []string) (map[string]string, error)
+}
+
 // Service is the tasks app service.
 type Service struct {
 	repo            ports.Repository
 	enqueuer        DeathVerificationEnqueuer
+	proofKinds      ProofKindResolver
 	now             func() time.Time
 	log             *slog.Logger
 	completionHooks map[string]WorkflowCompletionHook
@@ -84,6 +106,53 @@ func NewService(repo ports.Repository, log *slog.Logger) *Service {
 func (s *Service) WithVerificationEnqueuer(enqueuer DeathVerificationEnqueuer) *Service {
 	s.enqueuer = enqueuer
 	return s
+}
+
+// WithProofKindResolver wires the proof register's kind lookup.
+func (s *Service) WithProofKindResolver(r ProofKindResolver) *Service {
+	s.proofKinds = r
+	return s
+}
+
+// resolveProofKinds replaces every proof's kind with the register's verdict where the register
+// knows the ref. A bare legacy proof_ref the register calls a photo moves into the typed list
+// so the step's photo minimum can recognise it. Unknown refs and a register error keep what the
+// client sent: the register labels, it never blocks.
+func (s *Service) resolveProofKinds(ctx context.Context, tenantID, proofRef string, proofs []domain.ProofItem) (string, []domain.ProofItem) {
+	if s.proofKinds == nil {
+		return proofRef, proofs
+	}
+	refs := make([]string, 0, len(proofs)+1)
+	if r := strings.TrimSpace(proofRef); r != "" {
+		refs = append(refs, r)
+	}
+	for _, p := range proofs {
+		if r := strings.TrimSpace(p.Ref); r != "" {
+			refs = append(refs, r)
+		}
+	}
+	if len(refs) == 0 {
+		return proofRef, proofs
+	}
+	kinds, err := s.proofKinds.ResolveProofKinds(ctx, tenantID, refs)
+	if err != nil {
+		s.log.Warn("tasks_proof_kind_resolve_failed", "tenant_id", tenantID, "error", err)
+		return proofRef, proofs
+	}
+	out := make([]domain.ProofItem, 0, len(proofs)+1)
+	for _, p := range proofs {
+		if k, ok := kinds[strings.TrimSpace(p.Ref)]; ok && k != "" {
+			p.Kind = k
+		}
+		out = append(out, p)
+	}
+	if r := strings.TrimSpace(proofRef); r != "" {
+		if k, ok := kinds[r]; ok && k == domain.ProofKindPhoto {
+			out = append(out, domain.ProofItem{Ref: r, Kind: domain.ProofKindPhoto})
+			proofRef = ""
+		}
+	}
+	return proofRef, out
 }
 
 // WithNow overrides the clock (tests).
@@ -162,20 +231,23 @@ type AnswerActionInput struct {
 	RequestFingerprint string
 }
 
-// AnswerAction runs the answer write under the mandatory idempotency contract.
+// AnswerAction runs the answer write under the mandatory idempotency contract. An answer that
+// finishes the LAST open step of an approved death (a re-answered photo question after a
+// rework) re-enters Verify exactly as a completed video does.
 func (s *Service) AnswerAction(ctx context.Context, in AnswerActionInput) (domain.ActionWriteResult, error) {
 	if strings.TrimSpace(in.TenantID) == "" || strings.TrimSpace(in.WorkflowID) == "" ||
 		strings.TrimSpace(in.ActionID) == "" || strings.TrimSpace(in.IdempotencyKey) == "" ||
 		strings.TrimSpace(in.RequestFingerprint) == "" {
 		return domain.ActionWriteResult{}, domain.ErrMissingRequiredField
 	}
+	proofRef, proofs := s.resolveProofKinds(ctx, in.TenantID, in.ProofRef, in.Proofs)
 	result, err := s.repo.AnswerAction(ctx, domain.AnswerActionCommand{
 		TenantID:           in.TenantID,
 		WorkflowID:         in.WorkflowID,
 		ActionID:           in.ActionID,
 		AnswerValue:        strings.TrimSpace(in.AnswerValue),
-		ProofRef:           strings.TrimSpace(in.ProofRef),
-		Proofs:             in.Proofs,
+		ProofRef:           strings.TrimSpace(proofRef),
+		Proofs:             proofs,
 		AnsweredBy:         strings.TrimSpace(in.AnsweredBy),
 		AnsweredAt:         s.now().UTC(),
 		IdempotencyKey:     in.IdempotencyKey,
@@ -188,6 +260,9 @@ func (s *Service) AnswerAction(ctx context.Context, in AnswerActionInput) (domai
 		return domain.ActionWriteResult{}, err
 	}
 	if err := s.notifyCompletion(ctx, in.TenantID, result); err != nil {
+		return domain.ActionWriteResult{}, err
+	}
+	if err := s.enqueueDeathIfReady(ctx, in.TenantID, strings.TrimSpace(in.AnsweredBy), result); err != nil {
 		return domain.ActionWriteResult{}, err
 	}
 	return result, nil
@@ -205,15 +280,54 @@ type CompleteActionInput struct {
 	RequestFingerprint string
 }
 
-// deathEvidenceIdempotencyKey binds one verification item to the workflow AND the exact evidence
-// pair being reviewed. Re-shot proofs after a rejection therefore open a NEW review item, while a
-// retry of the same completion de-duplicates. See DeathVerificationEnqueueRequest.IdempotencyKey.
-func deathEvidenceIdempotencyKey(workflowID string, round int, proofRefs []string) string {
-	key := "counts-death-evidence:" + workflowID + ":r" + strconv.Itoa(round)
-	for _, ref := range proofRefs {
-		key += ":" + strings.TrimSpace(ref)
+// deathEvidenceRequest is the ONE builder of a death verifier item, used by the completion path
+// (CompleteAction / AnswerAction after an applied death) and by the approval release path
+// (ReleaseApprovedDeathEvidence). Before 2026-09-16 the two paths composed different refs from
+// different columns, so a redelivered goat.exited could open a second item for the same round.
+// The bundle order, meta, rows and the round-keyed idempotency key are shared, so they cannot.
+func (s *Service) deathEvidenceRequest(ctx context.Context, tenantID string, w domain.WorkflowInstance, actions []domain.WorkflowAction, operatorID string, capturedAt time.Time) DeathVerificationEnqueueRequest {
+	bundle := domain.DeathEvidenceBundle(w.CaptureEvidence, actions)
+	shedID := derefOr(w.ShedID)
+	shedName, partitionLabel, _ := s.repo.FetchShedDetails(ctx, tenantID, shedID)
+	if capturedAt.IsZero() {
+		capturedAt = s.now().UTC()
 	}
-	return key
+	return DeathVerificationEnqueueRequest{
+		TenantID:       tenantID,
+		WorkflowID:     w.WorkflowID,
+		OperatorID:     strings.TrimSpace(operatorID),
+		ParkID:         derefOr(w.ParkID),
+		ShedID:         shedID,
+		ProofRefs:      bundle.Refs,
+		MediaMeta:      bundle.Meta,
+		ContextRows:    bundle.Rows,
+		SubjectLabel:   appendLocation("Death evidence · "+w.EventDate, shedName, partitionLabel),
+		CapturedAt:     capturedAt,
+		IdempotencyKey: domain.DeathEvidenceKey(w.WorkflowID, w.RowVersion, bundle.Refs),
+	}
+}
+
+// enqueueDeathIfReady hands the bundle to the verifier when a write left an already-applied
+// death awaiting its verdict (NeedsVerificationEnqueue is derived from STATE, so an exact
+// replay after a failed enqueue re-reports it and CreateItem's round+refs key makes the retry
+// heal rather than duplicate).
+func (s *Service) enqueueDeathIfReady(ctx context.Context, tenantID, operatorID string, result domain.ActionWriteResult) error {
+	if !result.NeedsVerificationEnqueue {
+		return nil
+	}
+	if s.enqueuer == nil {
+		// Composition bug, surfaced loudly. The completion is durable; wiring the enqueuer and
+		// replaying the same request heals (state-derived NeedsVerificationEnqueue + idempotent
+		// CreateItem).
+		return domain.ErrVerificationEnqueuerNotWired
+	}
+	detail, err := s.repo.GetWorkflow(ctx, tenantID, result.Workflow.WorkflowID, s.now())
+	if err != nil {
+		return err
+	}
+	w := result.Workflow
+	w.RowVersion = result.DeathReviewRound
+	return s.enqueuer.EnqueueDeathEvidenceVerification(ctx, s.deathEvidenceRequest(ctx, tenantID, w, detail.Actions, operatorID, s.now().UTC()))
 }
 
 // CompleteAction runs the complete write. The transactional ordering mirrors counts shifting: the
@@ -228,12 +342,13 @@ func (s *Service) CompleteAction(ctx context.Context, in CompleteActionInput) (d
 		strings.TrimSpace(in.RequestFingerprint) == "" {
 		return domain.ActionWriteResult{}, domain.ErrMissingRequiredField
 	}
+	proofRef, proofs := s.resolveProofKinds(ctx, in.TenantID, in.ProofRef, in.Proofs)
 	result, err := s.repo.CompleteAction(ctx, domain.CompleteActionCommand{
 		TenantID:           in.TenantID,
 		WorkflowID:         in.WorkflowID,
 		ActionID:           in.ActionID,
-		ProofRef:           strings.TrimSpace(in.ProofRef),
-		Proofs:             in.Proofs,
+		ProofRef:           strings.TrimSpace(proofRef),
+		Proofs:             proofs,
 		CompletedBy:        strings.TrimSpace(in.CompletedBy),
 		CompletedAt:        s.now().UTC(),
 		IdempotencyKey:     in.IdempotencyKey,
@@ -249,30 +364,8 @@ func (s *Service) CompleteAction(ctx context.Context, in CompleteActionInput) (d
 		return domain.ActionWriteResult{}, err
 	}
 
-	if result.NeedsVerificationEnqueue {
-		if s.enqueuer == nil {
-			// Composition bug, surfaced loudly. The completion is durable; wiring the enqueuer and
-			// replaying the same request heals (state-derived NeedsVerificationEnqueue + idempotent
-			// CreateItem).
-			return domain.ActionWriteResult{}, domain.ErrVerificationEnqueuerNotWired
-		}
-		// Fetch shed details for operational location composition
-		shedID := derefOr(result.Workflow.ShedID)
-		shedName, partitionLabel, _ := s.repo.FetchShedDetails(ctx, in.TenantID, shedID)
-
-		if err := s.enqueuer.EnqueueDeathEvidenceVerification(ctx, DeathVerificationEnqueueRequest{
-			TenantID:       in.TenantID,
-			WorkflowID:     in.WorkflowID,
-			OperatorID:     strings.TrimSpace(in.CompletedBy),
-			ParkID:         derefOr(result.Workflow.ParkID),
-			ShedID:         shedID,
-			ProofRefs:      result.DeathProofRefs,
-			SubjectLabel:   appendLocation("Death evidence · "+result.Workflow.EventDate, shedName, partitionLabel),
-			CapturedAt:     s.now().UTC(),
-			IdempotencyKey: deathEvidenceIdempotencyKey(in.WorkflowID, result.DeathReviewRound, result.DeathProofRefs),
-		}); err != nil {
-			return domain.ActionWriteResult{}, err
-		}
+	if err := s.enqueueDeathIfReady(ctx, in.TenantID, strings.TrimSpace(in.CompletedBy), result); err != nil {
+		return domain.ActionWriteResult{}, err
 	}
 	return result, nil
 }
@@ -305,6 +398,20 @@ func (s *Service) enqueueBirthStepIfRecorded(ctx context.Context, tenantID strin
 	if step.CompletedAt != nil {
 		capturedAt = step.CompletedAt.UTC()
 	}
+	// The answer in farm words: a Record pen step names a location, resolved through the
+	// canonical fetch so the verifier reads "Godel 1 - Part 3", never "<uuid>|Part 3".
+	penDisplay := ""
+	if step.HasHook(domain.EngineHookRecordPen) && step.AnswerValue != nil {
+		if penShed, label, err := domain.ParseRecordedPenAnswer(*step.AnswerValue); err == nil {
+			if name, _, err := s.repo.FetchShedDetails(ctx, tenantID, penShed); err == nil {
+				penDisplay = composeOperationalLocation(name, label)
+			}
+		}
+	}
+	var rows []domain.EvidenceRow
+	if row, ok := domain.StepAnswerRow(step, penDisplay); ok {
+		rows = []domain.EvidenceRow{row}
+	}
 	// The label names the STEP and the ANIMAL only. The pen is carried on the item's own
 	// shed_id/partition and both verifier surfaces render it themselves (the web in its Pen
 	// column, the phone appended to the title), so a pen inside the label rendered twice
@@ -314,6 +421,7 @@ func (s *Service) enqueueBirthStepIfRecorded(ctx context.Context, tenantID strin
 		OperatorID: derefOr(step.CompletedBy), ParkID: derefOr(w.ParkID), ShedID: shedID,
 		ProofRefs: step.AllProofRefs(),
 		Proofs:    step.ProofRefs, ProofLabel: step.Title,
+		MediaMeta: domain.StepMediaMeta(step), ContextRows: rows,
 		SubjectLabel:   step.Title + " · " + subject + " · " + w.EventDate,
 		CapturedAt:     capturedAt,
 		IdempotencyKey: domain.BirthStepReviewKey(step),
@@ -405,6 +513,9 @@ type OpenDeathWorkflowInput struct {
 	ShedID   string
 	// OccurredAt is the exit moment (the death event's business anchor).
 	OccurredAt time.Time
+	// CaptureEvidence is the Add death form's snapshot from counts.death.reported; it is stamped
+	// on the instance at open and leads the verifier bundle.
+	CaptureEvidence authored.Evidence
 }
 
 // OpenDeathWorkflow opens the death workflow. Idempotent on the natural key.
@@ -414,19 +525,21 @@ func (s *Service) OpenDeathWorkflow(ctx context.Context, in OpenDeathWorkflowInp
 		occurred = s.now()
 	}
 	_, err := s.repo.OpenWorkflow(ctx, ports.OpenWorkflowCommand{
-		TenantID:      in.TenantID,
-		TemplateKey:   domain.TemplateKeyDeath,
-		SubjectGoatID: in.GoatID,
-		EventAt:       occurred,
-		ParkID:        optionalUUID(in.ParkID),
-		ShedID:        optionalUUID(in.ShedID),
+		TenantID:        in.TenantID,
+		TemplateKey:     domain.TemplateKeyDeath,
+		SubjectGoatID:   in.GoatID,
+		EventAt:         occurred,
+		ParkID:          optionalUUID(in.ParkID),
+		ShedID:          optionalUUID(in.ShedID),
+		CaptureEvidence: in.CaptureEvidence,
 	})
 	return err
 }
 
-// OpenReportedDeathWorkflow reads the still-live goat's canonical placement and opens the two
-// upload actions as soon as the death report is submitted, before any admin decision.
-func (s *Service) OpenReportedDeathWorkflow(ctx context.Context, tenantID, goatID string, reportedAt time.Time) error {
+// OpenReportedDeathWorkflow reads the still-live goat's canonical placement and opens the
+// SOP's death steps as soon as the death report is submitted, before any admin decision. The
+// report's capture snapshot is stamped on the instance so the verifier bundle leads with it.
+func (s *Service) OpenReportedDeathWorkflow(ctx context.Context, tenantID, goatID string, reportedAt time.Time, capture authored.Evidence) error {
 	facts, err := s.repo.GoatWorkflowFacts(ctx, tenantID, goatID)
 	if err != nil {
 		return err
@@ -434,13 +547,14 @@ func (s *Service) OpenReportedDeathWorkflow(ctx context.Context, tenantID, goatI
 	return s.OpenDeathWorkflow(ctx, OpenDeathWorkflowInput{
 		TenantID: tenantID, GoatID: goatID,
 		ParkID: derefOr(facts.ParkID), ShedID: derefOr(facts.ShedID), OccurredAt: reportedAt,
+		CaptureEvidence: capture,
 	})
 }
 
 // ReleaseApprovedDeathEvidence is called by the approved death's goat.exited event. The approval
-// transaction has already proven both videos and moved the internal review action to in_review;
-// this method performs the idempotent cross-module enqueue. Event redelivery heals a transient
-// enqueue failure without duplicating the verifier item.
+// transaction has already proven every authored step and opened the verification gate; this
+// method performs the idempotent cross-module enqueue through the SAME builder the completion
+// path uses. Event redelivery heals a transient enqueue failure without duplicating the item.
 func (s *Service) ReleaseApprovedDeathEvidence(ctx context.Context, tenantID, goatID string, capturedAt time.Time) error {
 	review, err := s.repo.DeathEvidenceForVerification(ctx, tenantID, goatID)
 	if err != nil {
@@ -449,18 +563,8 @@ func (s *Service) ReleaseApprovedDeathEvidence(ctx context.Context, tenantID, go
 	if s.enqueuer == nil {
 		return domain.ErrVerificationEnqueuerNotWired
 	}
-	if capturedAt.IsZero() {
-		capturedAt = s.now().UTC()
-	}
-	// Fetch shed details for operational location composition
-	shedName, partitionLabel, _ := s.repo.FetchShedDetails(ctx, tenantID, review.ShedID)
-
-	return s.enqueuer.EnqueueDeathEvidenceVerification(ctx, DeathVerificationEnqueueRequest{
-		TenantID: tenantID, WorkflowID: review.WorkflowID, OperatorID: review.OperatorID,
-		ParkID: review.ParkID, ShedID: review.ShedID, ProofRefs: review.ProofRefs,
-		SubjectLabel: appendLocation("Death evidence · "+review.EventDate, shedName, partitionLabel), CapturedAt: capturedAt,
-		IdempotencyKey: deathEvidenceIdempotencyKey(review.WorkflowID, review.Round, review.ProofRefs),
-	})
+	return s.enqueuer.EnqueueDeathEvidenceVerification(ctx,
+		s.deathEvidenceRequest(ctx, tenantID, review.Workflow, review.Actions, review.OperatorID, capturedAt))
 }
 
 // CancelRejectedDeathWorkflow removes rejected reports from operator work without changing the
