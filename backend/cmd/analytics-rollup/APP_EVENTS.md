@@ -76,7 +76,7 @@ then atomically replaces all three daily summary partitions. It never mutates
 raw events or crash summaries. A failed insert rolls back earlier replacements.
 Definitions omitted by a newer version cannot leave stale rows for that date.
 Raw reads cover two days for journeys and seven days for exact WAU. Migration
-000318 builds a narrow tenant/event-time index concurrently. Intermediate stages
+000320 builds a narrow tenant/event-time index concurrently. Intermediate stages
 use an indexed temporary table; only aggregated summaries leave PostgreSQL.
 
 ## Proof
