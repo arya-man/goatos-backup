@@ -3696,9 +3696,13 @@ select:disabled { opacity: .45; }
 .sales-farm-value-row .kpi{padding:18px 18px 16px}
 .sales-farm-value-row .kpi .val{margin-top:12px}
 .sales-farm-value-row .kpi .dl{margin-top:8px}
-.sales-farm-value-row .kpi:has(.sales-ready-tolerance){padding:14px 16px 12px}
+.sales-farm-value-row .kpi:has(.sales-ready-tolerance){padding:14px 16px 12px;container-type:inline-size;container-name:sales-ready-card}
 .sales-farm-value-row .kpi:has(.sales-ready-tolerance) .val{margin-top:4px}
 .sales-farm-value-row .kpi:has(.sales-ready-tolerance) .dl{margin-top:2px}
+@container sales-ready-card (max-width:340px){
+  .sales-ready-tolerance{grid-template-columns:1fr}
+  .sales-ready-tolerance-head{justify-content:space-between}
+}
   /* Sales splits into two named blocks -- Farm value, then Sold (maintainer decision 2026-09-10).
      The heading is a rule-and-label, not another card: the tiles under it already carry the card
      edges, and wrapping a headed group in a second box would nest a card inside a card. */
