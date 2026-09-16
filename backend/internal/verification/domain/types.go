@@ -5,7 +5,6 @@ package domain
 
 import (
 	"errors"
-	"strings"
 	"time"
 )
 
@@ -102,9 +101,14 @@ type SourceRef struct {
 // Both fields are DISPLAY STRINGS the producer composes in farm language and the client renders
 // verbatim -- never a config token, never parsed back into business logic. Order is the producer's
 // and is preserved.
+//
+// Group is an OPTIONAL backend-composed section header ("Crew answers"): a renderer starts a new
+// titled block whenever it changes between consecutive rows. Blank rows join no section, exactly as
+// every row did before groups existed.
 type ContextRow struct {
 	Label string `json:"label"`
 	Value string `json:"value"`
+	Group string `json:"group,omitempty"`
 }
 
 // MeasurementField is one per-item entry box the verifier must fill while reviewing the proof --
@@ -128,18 +132,6 @@ type MeasurementField struct {
 type MediaMeta struct {
 	Label string `json:"label"`
 	Kind  string `json:"kind"`
-}
-
-// MimeType is the declared mime for the meta's kind, blank when the kind is unknown.
-func (m MediaMeta) MimeType() string {
-	switch strings.ToLower(strings.TrimSpace(m.Kind)) {
-	case "video":
-		return "video/mp4"
-	case "photo", "image":
-		return "image/jpeg"
-	default:
-		return ""
-	}
 }
 
 // Item is one unit of media awaiting (or having received) independent verification.
