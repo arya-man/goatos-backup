@@ -134,6 +134,20 @@ internal class HerdCaptureForm(
         onChanged()
     }
 
+    /**
+     * The capture's SUBJECT changed (a death report's selected animal was switched): every proof
+     * recorded so far is filed under the previous subject, so this draft drops them and starts a
+     * fresh proof group -- they can never be sent for the new subject. Answers describe the report,
+     * not the animal's proof, and are kept.
+     */
+    fun rebindSubject() {
+        val answers = controller.state.value.answers
+        val answered = answeredOnce.toSet()
+        reset()
+        answeredOnce += answered
+        controller.seedAnswers(answers)
+    }
+
     fun close() {
         observeJob?.cancel()
         controller.close()
