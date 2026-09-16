@@ -84,7 +84,9 @@ const colostrumCardColumns = `
   c.next_key, c.next_title, c.next_due_at, false,
   g.display_id, g.row_version, g.sex, COALESCE(g.breed, ''),
   COALESCE(tag.identifier_value, ''),
-  COALESCE(park.name, ''), COALESCE(shed.name, '')`
+  COALESCE(park.name, ''), COALESCE(shed.name, ''),
+  COALESCE(CASE WHEN gsp.shed_id = wi.shed_id AND lower(btrim(gsp.partition_label)) <> 'whole'
+                THEN btrim(gsp.partition_label) END, '')`
 
 // colostrumOverdueLookbackDays bounds the previous-day attention bell.
 //

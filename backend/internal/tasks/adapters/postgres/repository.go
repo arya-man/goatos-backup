@@ -353,7 +353,9 @@ const cardSelectColumns = `
   wi.next_action_key, wi.next_action_title, wi.next_due_at, wi.awaiting_verification,
   g.display_id, g.row_version, g.sex, COALESCE(g.breed, ''),
   COALESCE(tag.identifier_value, ''),
-  COALESCE(park.name, ''), COALESCE(shed.name, '')`
+  COALESCE(park.name, ''), COALESCE(shed.name, ''),
+  COALESCE(CASE WHEN gsp.shed_id = wi.shed_id AND lower(btrim(gsp.partition_label)) <> 'whole'
+                THEN btrim(gsp.partition_label) END, '')`
 
 const cardJoins = `
 FROM workflow_instances wi
@@ -371,7 +373,9 @@ LEFT JOIN LATERAL (
 LEFT JOIN locations park
   ON park.tenant_id = wi.tenant_id AND park.location_id = wi.park_id
 LEFT JOIN locations shed
-  ON shed.tenant_id = wi.tenant_id AND shed.location_id = wi.shed_id`
+  ON shed.tenant_id = wi.tenant_id AND shed.location_id = wi.shed_id
+LEFT JOIN goat_shed_partitions gsp
+  ON gsp.tenant_id = wi.tenant_id AND gsp.goat_id = wi.subject_goat_id`
 
 // ListWorkflows serves one keyset page of cards plus the requested day's chip counts.
 //
@@ -525,16 +529,23 @@ LIMIT $`+fmt.Sprint(len(args)), args...)
 	return page, nil
 }
 
+// cardPenLabel is the card's pen in the farm's words: the shed plus the animal's own partition in
+// that shed ("Castro 1", "Godel 1 - Part 3"), composed ONLY by oploc so every surface agrees.
+func cardPenLabel(shedName, partitionLabel string) string {
+	return oploc.OperationalLocation{ShedName: shedName, PartitionLabel: partitionLabel}.Display()
+}
+
 type cardScanner interface {
 	Scan(dest ...any) error
 }
 
 func scanCard(row cardScanner, now time.Time) (domain.WorkflowCard, error) {
 	var (
-		card      domain.WorkflowCard
-		nextKey   *string
-		nextTitle *string
-		nextDue   *time.Time
+		partitionLabel string
+		card           domain.WorkflowCard
+		nextKey        *string
+		nextTitle      *string
+		nextDue        *time.Time
 	)
 	if err := row.Scan(
 		&card.WorkflowID, &card.Module, &card.TemplateKey, &card.Subject.GoatID,
@@ -543,10 +554,11 @@ func scanCard(row cardScanner, now time.Time) (domain.WorkflowCard, error) {
 		&nextKey, &nextTitle, &nextDue, &card.AwaitingVerification,
 		&card.Subject.DisplayID, &card.Subject.RowVersion, &card.Subject.Sex, &card.Subject.Breed,
 		&card.Subject.Tag,
-		&card.ParkLabel, &card.ShedLabel,
+		&card.ParkLabel, &card.ShedLabel, &partitionLabel,
 	); err != nil {
 		return domain.WorkflowCard{}, err
 	}
+	card.ShedLabel = cardPenLabel(card.ShedLabel, partitionLabel)
 	card.Subject.RoleLabel = domain.RoleLabelForTemplate(card.TemplateKey)
 	card.NextDueAt = nextDue
 	if nextKey != nil {
@@ -596,10 +608,11 @@ LEFT JOIN goat_births gb
  AND wi.template_key = 'birth_kid'
 WHERE wi.tenant_id = $1::uuid AND wi.workflow_id = $2::uuid`, tenantID, workflowID)
 	var (
-		card      domain.WorkflowCard
-		nextKey   *string
-		nextTitle *string
-		nextDue   *time.Time
+		partitionLabel string
+		card           domain.WorkflowCard
+		nextKey        *string
+		nextTitle      *string
+		nextDue        *time.Time
 	)
 	err := row.Scan(
 		&card.WorkflowID, &card.Module, &card.TemplateKey, &card.Subject.GoatID,
@@ -608,7 +621,7 @@ WHERE wi.tenant_id = $1::uuid AND wi.workflow_id = $2::uuid`, tenantID, workflow
 		&nextKey, &nextTitle, &nextDue, &card.AwaitingVerification,
 		&card.Subject.DisplayID, &card.Subject.RowVersion, &card.Subject.Sex, &card.Subject.Breed,
 		&card.Subject.Tag,
-		&card.ParkLabel, &card.ShedLabel,
+		&card.ParkLabel, &card.ShedLabel, &partitionLabel,
 		&damDisplay,
 		&damRFID,
 		&litterSize,
@@ -619,6 +632,7 @@ WHERE wi.tenant_id = $1::uuid AND wi.workflow_id = $2::uuid`, tenantID, workflow
 	if err != nil {
 		return domain.WorkflowDetail{}, err
 	}
+	card.ShedLabel = cardPenLabel(card.ShedLabel, partitionLabel)
 	card.Subject.RoleLabel = domain.RoleLabelForTemplate(card.TemplateKey)
 	card.NextDueAt = nextDue
 	if nextKey != nil {
