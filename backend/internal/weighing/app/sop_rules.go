@@ -247,7 +247,10 @@ func (s *Service) decorateCampaignRules(ctx context.Context, tenantID string, it
 			case err != nil:
 				return err
 			default:
-				rules = &resolved
+				// The task read serves the pinned rules as CLIENTS read them (Rules.ServedRules):
+				// explicit capture sections and the derived legacy window the submit judges.
+				served := resolved.ServedRules()
+				rules = &served
 			}
 			byVersion[items[i].SOPVersion] = rules
 		}
