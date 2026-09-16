@@ -960,10 +960,16 @@ func TestBootstrapKeepsModeledNavAndAppliesRBACDisable(t *testing.T) {
 		},
 	})
 
-	// Tasks was restored on 2026-09-11, the Work Board joined on 2026-09-10 and Alerts below it
-	// on 2026-09-16: five primary items (Approvals, Verify, Tasks, Work Board, Alerts).
-	if len(resp.Navigation.Primary) != 5 {
-		t.Fatalf("primary items (Approvals, Verify, Tasks, Work Board, Alerts) must stay present, got %d", len(resp.Navigation.Primary))
+	// Tasks was restored on 2026-09-11, the Work Board joined on 2026-09-10, and Alerts and
+	// Routines on 2026-09-16: six primary items (Approvals, Verify, Tasks, Work Board, Alerts,
+	// Routines).
+	if len(resp.Navigation.Primary) != 6 {
+		t.Fatalf("primary items (Approvals, Verify, Tasks, Work Board, Alerts, Routines) must stay present, got %d", len(resp.Navigation.Primary))
+	}
+	// Routines is modeled for everyone and RBAC-disabled for an operator, who holds no
+	// pen_routines.read on the role path.
+	if routines := primaryNavByID(t, resp.Navigation.Primary, "pen-routines"); routines.Enabled {
+		t.Fatalf("routines nav must be RBAC-disabled for an operator: %#v", routines)
 	}
 	// Tasks is modeled for everyone and RBAC-disabled for an operator, who holds no
 	// leadership_tasks.read on the role path.

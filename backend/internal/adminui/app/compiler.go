@@ -969,6 +969,8 @@ func compilePages(pages []domain.PageContract, families ReferenceFamilies, input
 			out[i].Controls = compileFeedPurchaseControls(out[i].Controls, input, out[i].Copy)
 		case "animal-purchases":
 			out[i].Controls = compileAnimalPurchaseControls(out[i].Controls, input, out[i].Copy)
+		case "pen-routines":
+			out[i].Controls = compilePenRoutineControls(out[i].Controls, input, out[i].Copy)
 		case "people":
 			out[i].Controls = compilePeopleControls(out[i].Controls, input, out[i].Copy)
 		case "counts-breakdown":
@@ -1321,6 +1323,44 @@ func compileAnimalPurchaseControls(controls []domain.Control, input BootstrapInp
 		Enabled:        allowed,
 		DisabledReason: reason,
 		Action:         "POST /procurement/animal-purchases/animals/{candidate_id}/decision",
+	})
+}
+
+// compilePenRoutineControls gates the THREE writes on /routines (maintainer instruction
+// 2026-09-16): creating a routine, editing it (a new version), and pausing / resuming /
+// retiring it. All three ride PenRoutinesConfigure -- ceo_internal on the role, the Configure
+// tick per person -- and a reader (a director holding pen_routines.read) sees each control
+// disabled with the reason rather than finding the page missing. Both halves of the
+// capability lock: these controls, and the route table (POST/PUT /admin/pen-routines*).
+func compilePenRoutineControls(controls []domain.Control, input BootstrapInput, copy map[string]string) []domain.Control {
+	allowed := len(input.Grants) == 0 || grantsAuthorize(input.Grants, input.TenantID, []string{permissions.PenRoutinesConfigure})
+	reason := ""
+	if !allowed {
+		reason = controlCopy(copy, "configure.disabled_no_access", "Writing routines is limited to the CEO and CXO.")
+	}
+	controls = upsertControl(controls, domain.Control{
+		ID:             "create_routine",
+		Label:          controlCopy(copy, "action.create_routine.label", "New routine"),
+		Kind:           "primary_action",
+		Enabled:        allowed,
+		DisabledReason: reason,
+		Action:         "POST /admin/pen-routines",
+	})
+	controls = upsertControl(controls, domain.Control{
+		ID:             "edit_routine",
+		Label:          controlCopy(copy, "action.edit_routine.label", "Edit"),
+		Kind:           "action",
+		Enabled:        allowed,
+		DisabledReason: reason,
+		Action:         "PUT /admin/pen-routines/{routine_id}",
+	})
+	return upsertControl(controls, domain.Control{
+		ID:             "set_routine_status",
+		Label:          controlCopy(copy, "action.set_routine_status.label", "Pause / resume / retire"),
+		Kind:           "action",
+		Enabled:        allowed,
+		DisabledReason: reason,
+		Action:         "POST /admin/pen-routines/{routine_id}/status",
 	})
 }
 
@@ -2219,6 +2259,10 @@ func permissionsForNav(id string) []string {
 		return []string{permissions.AlertsRead}
 	case "leadership-tasks":
 		return []string{permissions.LeadershipTasksRead}
+	case "pen-routines":
+		// The READ permission: a director reaches the page and sees the routines read-only.
+		// Whether the authoring controls are offered is PenRoutinesConfigure on the contract.
+		return []string{permissions.PenRoutinesRead}
 	case "health-config":
 		// The READ permission, not the write one: a principal allowed to inspect the standing
 		// dosages should reach the screen and see it read-only. Whether the save/publish controls
