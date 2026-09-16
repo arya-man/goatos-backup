@@ -291,3 +291,12 @@ Escape hatch: `// exception:exempt <reason>` (distinct from this doc's own `// t
 <reason>` marker family in `docs/observability/TELEMETRY_GUARDRAILS.md` §4, so the two guards'
 findings don't get confused). Full write-up, the Go-side equivalent, and the deliberately-NOT-
 detected list: `docs/observability/TELEMETRY_GUARDRAILS.md` §8.
+
+### Camera request correlation
+
+`request_token` is local recorder routing state. It can restart at 1 in both
+photo and video launchers and after recreation while `journey_id` stays the same.
+Camera requested/visible/finalized/failure events also carry `capture_request_id`,
+composed from a random per-launcher namespace and that token. All events for a
+request retain this identity. Analytics cohorts use `capture_request_id`; never
+join captures by the local token or try to infer missing IDs in old events.

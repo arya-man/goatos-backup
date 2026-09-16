@@ -582,6 +582,22 @@ var moduleCapabilities = []ModuleCapability{
 		},
 	},
 	{
+		// Alerts (maintainer decision 2026-09-16): the page below the Work Board listing what
+		// is off today -- a pen's feed sheet moved against yesterday with no shifting recorded,
+		// a feed running out inside the configured days. View opens the page; Configure opens
+		// the top-right drawer that turns rules on/off and sets their thresholds. Configure is
+		// deliberately its own level so HRMS can name exactly who may change the rules: a
+		// director reads the alerts, the people ticked here decide what counts as one.
+		Key:      "alerts",
+		Label:    "Alerts",
+		Blurb:    "What is off today across the parks, and the rules that decide it.",
+		Surfaces: []string{SurfaceWeb},
+		Levels: map[string][]string{
+			LevelView:      {AlertsRead},
+			LevelConfigure: {AlertsRead, AlertsConfigure},
+		},
+	},
+	{
 		// Leadership Tasks: a general ask desk for leadership to assign follow-up work inside
 		// the phone app and admin-web monitor desk. Raises and assignees are capability-driven;
 		// a role name never decides the picker by itself.

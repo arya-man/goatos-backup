@@ -380,9 +380,8 @@ class FeedTransportCaptureViewModel @Inject constructor(
         evidenceIdentity = ProofIdentity(flow = ProofFlow.FEED_TRANSPORT, taskId = group, shedId = shedId, subjectKey = shedId),
         proofPolicy = ::feedShedProofPolicy,
         caption = { feedTransportProofCaption() },
-        videoContext = { title ->
-            ProofCaptureContext(
-                title = title,
+        videoContext = { _ ->
+            ProofCaptureContext(title=feedTransportProofCaption(),
                 primaryTag = shedLabel.ifBlank { shedId },
                 workLabel = "Transport",
                 prompt = ProofCapturePrompt.FEED_TRANSPORT,
@@ -520,7 +519,7 @@ class FeedTransportCaptureViewModel @Inject constructor(
         )
     }
 
-    private fun feedTransportProofCaption(): String = proofOverlayContextLine("Feed transport", parkLabel, shedLabel.ifBlank { shedId })
+    private fun feedTransportProofCaption(): String = proofOverlayContextLine("Feed transport",parkLabel,shedLabel.ifBlank{shedId})
 
     private var statusJob: Job? = null
     private var syncStatusJob: Job? = null

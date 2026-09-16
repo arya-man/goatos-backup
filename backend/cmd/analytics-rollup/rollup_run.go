@@ -26,6 +26,10 @@ func startRollupRun(ctx context.Context, pool *pgxpool.Pool, sourceDate time.Tim
 // rollup_run_status_check constraint). errMsg is stored verbatim (truncated
 // by the caller if needed) for failed runs; nil for succeeded/skipped.
 func finishRollupRun(ctx context.Context, pool *pgxpool.Pool, runID int64, status string, rowsWritten, bytesBilled int64, runErr error) error {
+	// Persist the audit outcome even when the work deadline caused the failure.
+	// Cleanup remains bounded and preserves request values without cancellation.
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
 	var errMsg *string
 	if runErr != nil {
 		msg := runErr.Error()

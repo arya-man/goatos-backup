@@ -2698,10 +2698,12 @@
 .market-config-add{margin-top:14px;padding-top:12px;border-top:1px dashed var(--line)}
 .market-config-footnote{margin:0;padding-top:4px}
 @media (max-width:900px){.market-config-columns{grid-template-columns:1fr}}
-.sales-ready-tolerance{display:grid;grid-template-columns:auto minmax(180px,320px) auto;align-items:center;gap:12px;margin:10px auto 0 0;padding:9px 12px;border:1px solid var(--line);border-radius:10px;background:var(--panel);width:fit-content;max-width:100%}
-.sales-ready-tolerance-head{display:flex;align-items:baseline;gap:8px;color:var(--muted);font-size:11px;font-weight:700;letter-spacing:.35px;text-transform:uppercase}
+/* Lives INSIDE the Over 35 kg card as its footer: full width, parted from the figure by a rule,
+   no panel box of its own, so it reads as that card's control rather than a page-wide one. */
+.sales-ready-tolerance{display:grid;grid-template-columns:auto minmax(120px,1fr) auto;align-items:center;gap:8px;margin-top:6px;padding-top:6px;border-top:1px solid var(--line);width:100%;max-width:100%;min-width:0}
+.sales-ready-tolerance-head{display:flex;align-items:baseline;gap:8px;color:var(--muted);font-size:11px;font-weight:700;letter-spacing:.35px;text-transform:uppercase;white-space:nowrap}
 .sales-ready-tolerance-head strong{color:var(--ink);font-size:12px;letter-spacing:0;text-transform:none;white-space:nowrap}
-.sales-ready-tolerance-row{display:grid;grid-template-columns:minmax(86px,1fr) auto;align-items:center;gap:8px}
+.sales-ready-tolerance-row{display:grid;grid-template-columns:minmax(60px,1fr) auto;align-items:center;gap:8px;min-width:0}
 .sales-ready-tolerance input[type="range"]{width:100%;min-width:0;accent-color:var(--brand)}
 .sales-ready-tolerance output{min-width:48px;color:var(--ink);font-size:12px;font-weight:700;text-align:right}
 .tag { border-radius: 999px; padding: 2px 9px; font-size: 11px; font-weight: 600; white-space: nowrap; display: inline-block; }
@@ -3690,6 +3692,18 @@ select:disabled { opacity: .45; }
 .sales-vendor-search input{flex:1 1 auto;min-width:0}
 .sales-vendor-search .btn{flex:0 0 auto;white-space:nowrap}
 .sales-kpi-row .kpi .dl{color:var(--muted)}
+/* The Farm value row: the Over 35 kg card carries its margin footer, so the other two cards get
+   a little more room and their content is spread down the card rather than sitting on the lid. */
+.sales-farm-value-row .kpi{padding:18px 18px 16px}
+.sales-farm-value-row .kpi .val{margin-top:12px}
+.sales-farm-value-row .kpi .dl{margin-top:8px}
+.sales-farm-value-row .kpi:has(.sales-ready-tolerance){padding:14px 16px 12px;container-type:inline-size;container-name:sales-ready-card}
+.sales-farm-value-row .kpi:has(.sales-ready-tolerance) .val{margin-top:4px}
+.sales-farm-value-row .kpi:has(.sales-ready-tolerance) .dl{margin-top:2px}
+@container sales-ready-card (max-width:340px){
+  .sales-ready-tolerance{grid-template-columns:1fr}
+  .sales-ready-tolerance-head{justify-content:space-between}
+}
   /* Sales splits into two named blocks -- Farm value, then Sold (maintainer decision 2026-09-10).
      The heading is a rule-and-label, not another card: the tiles under it already carry the card
      edges, and wrapping a headed group in a second box would nest a card inside a card. */
@@ -3701,7 +3715,7 @@ select:disabled { opacity: .45; }
      breathing room the page grid's own gap does not give a bare heading row. */
   .sales-block-hd-spaced{margin-top:8px}
 @media(max-width:760px){
-  .sales-ready-tolerance{width:100%;grid-template-columns:1fr}
+  .sales-ready-tolerance{grid-template-columns:1fr}
   .sales-ready-tolerance-head{justify-content:space-between}
   .sales-block .grid,.sales-block .g4,.sales-block .g3,.sales-kpi-row{display:grid;grid-template-columns:minmax(0,1fr)!important;width:100%}
   .sales-block .kpi,.sales-kpi-row .kpi{min-width:0;width:100%;max-width:100%;overflow:hidden}
@@ -5263,3 +5277,26 @@ input[type=date],input[type=datetime-local],input[type=time],input[type=month],i
    Publish the editor closes and the change has to be visibly reflected on the library). */
 .sop-just-published{box-shadow:0 0 0 2px var(--ok), 0 8px 24px color-mix(in srgb,var(--ok) 22%,transparent);border-color:var(--ok)}
 .sop-published-banner{align-items:flex-start}
+
+/* Alerts page (maintainer decision 2026-09-16) -- the page below the Work Board. Scoped under
+   .alerts-page; reuses the mock's phead / kpi / card / tbl / subtabs shapes and only pins the
+   filter strips inside the card header and the all-clear empty state. */
+.alerts-page .card .hd .subtabs{margin-bottom:0}
+.alerts-page .empty{display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;color:var(--muted);gap:6px}
+.alerts-page .phead .btn .ic{width:14px;height:14px}
+.alerts-page .tbl td{vertical-align:top}
+/* The Configure drawer's threshold field takes the mock's .fld input shape (mesha-theme .fld
+   input), narrowed to the number's width; without it a bare number input renders as plain text. */
+.alerts-rule input[type=number]{width:96px;min-width:0;padding:7px 10px;border:1px solid var(--line);border-radius:9px;font:inherit;font-size:13px;background:var(--bg);outline:0;color:var(--ink);color-scheme:dark}
+:root.light .alerts-rule input[type=number]{color-scheme:light}
+.alerts-rule input[type=number]:focus{border-color:var(--brand);box-shadow:var(--ring)}
+.alerts-rule input[type=number]:disabled{opacity:.6}
+.alerts-cfg-h{font-size:12px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin:14px 0 8px}
+.alerts-rule input[type=text],.alerts-rule select{min-width:0;padding:7px 10px;border:1px solid var(--line);border-radius:9px;font:inherit;font-size:13px;background:var(--bg);outline:0;color:var(--ink)}
+.alerts-rule input[type=text]:focus,.alerts-rule select:focus{border-color:var(--brand);box-shadow:var(--ring)}
+/* The day arrows are tap targets: at least 40px wide on every viewport (smoke rule). */
+.alerts-page .subtabs a[aria-label="Previous day"],.alerts-page .subtabs a[aria-label="Next day"]{min-width:40px;justify-content:center}
+/* Text columns keep a readable floor and the tablewrap scrolls sideways instead of squeezing
+   the detail to a word per line at phone width. */
+.alerts-page .tbl td:nth-child(2){min-width:220px}
+.alerts-page .tbl td:nth-child(5){min-width:260px}

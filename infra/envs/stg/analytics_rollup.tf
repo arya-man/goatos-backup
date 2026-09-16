@@ -1,19 +1,7 @@
-# GA4 -> BigQuery -> Cloud SQL analytics.* rollup infra
-# (docs/observability/OBSERVABILITY_DESIGN.md section 2.6).
-#
-# Firebase Analytics (GA4) exports raw events to BigQuery natively once
-# linked in the Firebase console (a manual, per-Firebase-project step — see
-# docs/observability/INFRA.md, this cannot be done from Terraform). This file
-# only declares the infra shape: a BigQuery dataset for the rollup's own
-# working tables/views, IAM access to the GA4-owned export dataset once its
-# id is known, and the manually invoked Cloud Run Job that runs the rollup.
-# The rollup job's CODE (the actual BQ aggregation -> Postgres upsert
-# logic) is owned by the backend lane, not this infra lane — this file
-# declares infra + vars only, per the task scope.
-#
-# BigQuery location is pinned to asia-south1 explicitly. BigQuery datasets
-# default to the "US" multi-region if `location` is left unset — that default
-# would put GA4/rollup data outside India and must never happen here.
+# First-party analytics.app_events -> Cloud SQL daily summaries. The scheduled
+# job reuses the backend release image. Optional legacy GA4 dataset/IAM remains
+# available for explicitly configured export runs; app_events needs no GA4 link.
+# BigQuery datasets remain in asia-south1 for the optional export path.
 
 resource "google_bigquery_dataset" "analytics_rollup" {
   dataset_id  = "goatos_stg_analytics_rollup"
@@ -65,11 +53,33 @@ resource "google_bigquery_dataset_iam_member" "analytics_rollup_ga4_export_viewe
   member     = "serviceAccount:${google_service_account.analytics_rollup.email}"
 }
 
+data "google_bigquery_dataset" "firebase_exports" {
+  for_each = toset(["firebase_crashlytics", "firebase_sessions", "firebase_performance"])
+
+  dataset_id = each.key
+}
+
+resource "google_bigquery_dataset_iam_member" "analytics_rollup_firebase_export_viewer" {
+  for_each = data.google_bigquery_dataset.firebase_exports
+
+  dataset_id = each.value.dataset_id
+  role       = "roles/bigquery.dataViewer"
+  member     = "serviceAccount:${google_service_account.analytics_rollup.email}"
+}
+
 locals {
   # The backend image already contains /app/bin/analytics-rollup. Reusing the
-  # release image makes Cloud Deploy keep this manual job on the same commit as
+  # release image makes Cloud Deploy keep this scheduled job on the same commit as
   # the API and kernel worker instead of depending on an independently stale tag.
   analytics_rollup_image = local.backend_image
+  # Firebase export tables are app-wide diagnostics. Firebase names Android
+  # app tables from the package id with periods converted to underscores and
+  # the platform suffix appended; keep these explicit so the rollup never
+  # silently falls back to "export unavailable" after the transfer exists.
+  analytics_rollup_source_app_id       = "sg.mesha.goatos"
+  analytics_rollup_crashlytics_table   = "${var.project_id}.firebase_crashlytics.sg_mesha_goatos_ANDROID"
+  analytics_rollup_sessions_table      = "${var.project_id}.firebase_sessions.sg_mesha_goatos_ANDROID"
+  analytics_rollup_performance_table   = "${var.project_id}.firebase_performance.sg_mesha_goatos_ANDROID"
 }
 
 resource "google_cloud_run_v2_job" "analytics_rollup" {
@@ -90,7 +100,7 @@ resource "google_cloud_run_v2_job" "analytics_rollup" {
       containers {
         image   = local.analytics_rollup_image
         command = ["/app/bin/analytics-rollup"]
-        args    = ["-timeout=25m"]
+        args    = ["-timeout=25m", "-source=app_events", "-lookback-days=3"]
 
         resources {
           limits = {
@@ -117,6 +127,26 @@ resource "google_cloud_run_v2_job" "analytics_rollup" {
         env {
           name  = "GOATOS_GA4_EXPORT_DATASET"
           value = var.ga4_export_dataset_id
+        }
+
+        env {
+          name  = "GOATOS_ANALYTICS_SOURCE_APP_ID"
+          value = local.analytics_rollup_source_app_id
+        }
+
+        env {
+          name  = "GOATOS_CRASHLYTICS_BQ_TABLE"
+          value = local.analytics_rollup_crashlytics_table
+        }
+
+        env {
+          name  = "GOATOS_CRASHLYTICS_SESSIONS_TABLE"
+          value = local.analytics_rollup_sessions_table
+        }
+
+        env {
+          name  = "GOATOS_PERFORMANCE_BQ_TABLE"
+          value = local.analytics_rollup_performance_table
         }
 
         env {
@@ -147,11 +177,22 @@ resource "google_cloud_run_v2_job" "analytics_rollup" {
   depends_on = [google_project_service.enabled]
 }
 
-# NOTE: Cloud SQL has no Terraform-managed "schema" resource. The
-# `analytics` Postgres schema (and its rollup tables — mobile_funnel_rollup,
-# mobile_app_start_rollup, mobile_screen_render_rollup,
-# mobile_crash_free_rollup, referenced by the Mobile dashboard) is created by
-# a backend-owned SQL migration, the same way every other Goat OS schema
-# ships. This file only grants the infra-level IAM/secret access the rollup
-# job needs to reach Cloud SQL; it does not create the schema itself. See
-# docs/observability/INFRA.md.
+# analytics.funnel_daily, journey_daily, engagement_daily and rollup_run are
+# backend-migration-owned Postgres tables, not Terraform-managed schema objects.
+
+# Shared kernel-worker operational cadence owns daily dispatch. No Cloud
+# Scheduler: disposable staging topology retains the job for manual repair.
+resource "google_cloud_run_v2_job_iam_member" "analytics_rollup_worker_invoker" {
+  project  = var.project_id
+  location = var.region
+  name     = google_cloud_run_v2_job.analytics_rollup.name
+  role     = "roles/run.jobsExecutorWithOverrides"
+  member   = "serviceAccount:${google_service_account.runtime["kernel_worker"].email}"
+}
+resource "google_cloud_run_v2_job_iam_member" "analytics_rollup_worker_viewer" {
+  project  = var.project_id
+  location = var.region
+  name     = google_cloud_run_v2_job.analytics_rollup.name
+  role     = "roles/run.viewer"
+  member   = "serviceAccount:${google_service_account.runtime["kernel_worker"].email}"
+}

@@ -126,6 +126,11 @@ func navigation() domain.NavigationContract {
 			// day, every module the person may see. Top-level because it is a lens over every
 			// vertical, not a page inside one. Gated on work_board.read.
 			navItemDomain("work-board", "Work Board", "/work-board", "square-kanban", "", "work_board"),
+			// Alerts (maintainer decision 2026-09-16): directly below the Work Board -- what is
+			// OFF today across the parks the person may see (a pen's feed moved with no shifting
+			// to explain it, a feed running out), with the rules behind it configurable top-right
+			// by the people HRMS ticks. Gated on alerts.read.
+			navItemDomain("alerts", "Alerts", "/alerts", "bell-ring", "", "alerts"),
 		},
 		Groups: []domain.NavigationGroup{
 			{
@@ -259,6 +264,7 @@ func routeLabels() []domain.RouteLabelRule {
 		{Pattern: "/leave", Label: "Leave", Match: "exact"},
 		{Pattern: "/tasks", Label: "Tasks", Match: "exact"},
 		{Pattern: "/work-board", Label: "Work Board", Match: "exact"},
+		{Pattern: "/alerts", Label: "Alerts", Match: "exact"},
 		{Pattern: "/verify", Label: "Verify", Match: "exact"},
 		{Pattern: "/vaccination/execution/sheds/{shed_id}", Label: "Vaccination execution", Match: "pattern"},
 		// Most-specific-first: the live tracker's exact rule must precede /vaccination's, or the
@@ -426,6 +432,13 @@ func pages() []domain.PageContract {
 			[]domain.TableContract{
 				withoutRowClick(tableP("work-board", "Board", "/work-board/rows", []string{"title", "module", "park", "pen", "owner", "clock", "work_state", "counts"}, "row_key", []int{25, 50, 100})),
 				tableP("work-board-subtasks", "Subtasks", "/work-board/rows", []string{"name", "steps", "owner", "status"}, "row_key", []int{10, 25}),
+			}),
+		// Alerts (maintainer decision 2026-09-16). One table: the day's alerts for the parks in
+		// scope, read per park from /alerts/rows and merged by the page. The Configure drawer
+		// reads /alerts/config and is gated on alerts.configure (compileAlertsControls).
+		page("alerts", "/alerts", "/alerts", "Alerts", "What is off today: a pen whose feed moved with no shifting recorded, a feed running out, and every rule you switch on.", "command-lens",
+			[]domain.TableContract{
+				withoutRowClick(tableP("alerts", "Alerts", "/alerts/rows", []string{"severity", "alert", "park", "pen", "detail", "rule"}, "key", []int{25, 50, 100})),
 			}),
 		page("leadership-tasks", "/tasks", "/tasks", "Tasks", "Tasks raised across CXOs, directors and park heads, with notes and attachments.", "monitoring-screen",
 			[]domain.TableContract{table("leadership-task-progress", "Team progress", "/app/leadership-tasks", []string{"task", "assignee", "raised_by", "status", "evidence", "priority"}, "task_id")}),
@@ -1929,6 +1942,65 @@ func pageSpecificCopy(id string) map[string]string {
 			"config.saved":              "Saved.",
 			"config.disabled_no_access": "Setting who approves leave is limited to the CEO.",
 			"list.disabled_no_access":   "Seeing every leave request is limited to the CEO and HR.",
+		}
+	case "alerts":
+		return map[string]string{
+			"crumb":                                "Alerts",
+			"title":                                "Alerts",
+			"subtitle":                             "What is off today, park by park. Each row names the pen or feed and what to check.",
+			"filter.park":                          "Park",
+			"filter.park.all":                      "All parks",
+			"filter.date":                          "Date",
+			"filter.date.today":                    "Today",
+			"filter.date.previous":                 "Previous day",
+			"filter.date.next":                     "Next day",
+			"filter.severity":                      "Severity",
+			"filter.severity.all":                  "All",
+			"severity.critical":                    "Critical",
+			"severity.warning":                     "Warning",
+			"kpi.total":                            "Alerts today",
+			"kpi.critical":                         "Critical",
+			"kpi.rules":                            "Rules checked",
+			"state.empty":                          "No alerts for these parks on the selected date. Every enabled rule ran clean.",
+			"state.empty.incomplete":               "No alerts to show from the available checks. Some checks were not completed; this is not an all-clear.",
+			"state.empty.filtered":                 "No alerts match this severity. Other alerts exist; choose All to see them.",
+			"state.empty.no_rules":                 "No alert rules are switched on. Configure them to start checking.",
+			"state.error":                          "Alerts could not be loaded. Try again.",
+			"state.partial":                        "Some rules could not be checked:",
+			"action.retry":                         "Retry",
+			"action.open":                          "Open",
+			"configure.title":                      "Configure alerts",
+			"configure.intro":                      "Switch each rule on or off and set the number it watches. Changes apply from the next page load.",
+			"configure.enabled":                    "On",
+			"configure.disabled":                   "Off",
+			"configure.default":                    "Default",
+			"configure.save":                       "Save",
+			"configure.close":                      "Close",
+			"configure.updated_by":                 "Last changed by",
+			"configure.unavailable":                "Alert rules could not be loaded right now.",
+			"configure.disabled_no_access":         "Changing alert rules is limited to the people HRMS names for it.",
+			"configure.builtin.title":              "Checks the system runs",
+			"configure.events.title":               "Your alerts",
+			"configure.events.intro":               "Tell the page what to show when something happens: name it, pick the event, pick how loud.",
+			"configure.events.empty":               "No alerts of your own yet.",
+			"configure.events.add":                 "Add an alert",
+			"configure.events.add_button":          "Add",
+			"configure.events.label":               "Alert name",
+			"configure.events.label.placeholder":   "e.g. Kid born",
+			"configure.events.when":                "when",
+			"configure.events.kind":                "Event",
+			"configure.events.remove":              "Remove",
+			"configure.more_rules":                 "Need to watch an event that is not in the list? Ask engineering to add it to the catalog; it appears here once it ships.",
+			"action.config_event_added":            "Alert added.",
+			"action.config_unknown_event":          "That is not something alerts can watch yet.",
+			"action.config_invalid_event":          "Give the alert a name of up to 80 characters.",
+			"action.config_event_missing":          "That alert no longer exists. Reload the page.",
+			"action.config_saved":                  "Rule saved.",
+			"action.config_failed":                 "The rule could not be saved. Try again.",
+			"action.config_threshold_out_of_range": "That number is outside the rule's range.",
+			"action.config_invalid":                "Enter a whole number for the threshold.",
+			"action.config_conflict":               "That change was already sent with different values. Reload and try again.",
+			"pager.noun":                           "alerts",
 		}
 	case "work-board":
 		return map[string]string{
@@ -7436,6 +7508,15 @@ func healthConfigOptionGroups() []domain.OptionGroup {
 
 func pageOptionGroups(id string) []domain.OptionGroup {
 	switch id {
+	case "alerts":
+		return withGenericOptionGroups([]domain.OptionGroup{
+			{ID: "alert_severities", Options: []domain.Option{
+				option("critical", "Critical", "Needs a look today", "dng"),
+				option("warning", "Warning", "Worth confirming", "warn"),
+			}},
+			// Parks are tenant rows; the compiler fills this from ReferenceFamilies.Parks.
+			{ID: "alerts_parks", Options: []domain.Option{}},
+		})
 	case "work-board":
 		return withGenericOptionGroups([]domain.OptionGroup{
 			// The four columns, in display order. Derived server-side from the work state

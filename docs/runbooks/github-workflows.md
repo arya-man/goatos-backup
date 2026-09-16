@@ -1247,3 +1247,13 @@ screenshots-only proof, an Actions artifact, a local scratchpad, or a chat paste
 as the final E2E report. Before declaring the report published, verify both the
 root card and the detail page with `curl`; when GitHub Pages cache is stale, use
 a `?v=<commit-sha>` cache-busting URL in the handoff evidence.
+
+### Alerts current-day latency assertions
+
+The existing `api-latency-policy-test` target also runs
+`tools/perf/api-latency-assertion.test.mjs`. Alerts benchmarks cover both parks
+without a historical date and require `feed_low_stock` in `rules_run` using
+`array_contains`. This accepts a healthy empty result, but rejects skipped or
+failed stock checks; historical feed-sheet proof alone cannot certify today's
+page. The assertion tests need no database. The live latency gate still needs
+an authenticated API running the expected commit.

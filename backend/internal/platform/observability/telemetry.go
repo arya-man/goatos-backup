@@ -136,6 +136,7 @@ func SetupTelemetry(ctx context.Context, cfg Config) (Shutdown, error) {
 	reader := metric.NewPeriodicReader(metricExporter)
 	mp := metric.NewMeterProvider(
 		metric.WithReader(reader),
+		metric.WithView(secondsHistogramView()),
 		metric.WithResource(res),
 	)
 
@@ -252,4 +253,13 @@ func otlpMetricHTTPOptions(target string, insecure bool) []otlpmetrichttp.Option
 		opts = append(opts, otlpmetrichttp.WithInsecure())
 	}
 	return opts
+}
+
+// secondsHistogramView gives all seconds-based latency instruments, including
+// third-party database instrumentation, useful subsecond percentile resolution.
+// Other units (notably pgx pool nanoseconds) retain their own aggregation.
+func secondsHistogramView() metric.View {
+	return metric.NewView(metric.Instrument{Kind: metric.InstrumentKindHistogram, Unit: "s"}, metric.Stream{
+		Aggregation: metric.AggregationExplicitBucketHistogram{Boundaries: []float64{.0001, .0005, .001, .0025, .005, .01, .025, .05, .075, .1, .15, .2, .25, .3, .4, .5, .75, 1, 1.5, 2.5, 5, 10, 30, 60, 120, 300, 600, 900, 1800, 3600}},
+	})
 }

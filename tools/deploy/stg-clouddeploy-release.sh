@@ -91,6 +91,12 @@ else
 fi
 cd "$repo_root"
 
+# Fail before touching Cloud Deploy when source fixes are absent from its image.
+python3 tools/deploy/stg-runner-receipt.py
+
+GOATOS_ALLOY_IMAGE="${GOATOS_ALLOY_IMAGE:-$(cat infra/observability/alloy-image.txt)}"
+[[ "$GOATOS_ALLOY_IMAGE" =~ ^asia-south1-docker.pkg.dev/goatos-stg/goatos/grafana-alloy@sha256:[0-9a-f]{64}$ ]] || die "GOATOS_ALLOY_IMAGE must be an immutable staging Alloy digest"
+
 if [[ "$has_git_checkout" == "1" && "${GOATOS_ALLOW_NON_MAIN_STG_RELEASE:-}" != "1" ]]; then
   origin_url="$(git remote get-url origin 2>/dev/null || true)"
   [[ "$origin_url" == "git@github.com:vgoats/goatos.git" || "$origin_url" == "ssh://git@github.com/vgoats/goatos.git" || "$origin_url" == "https://github.com/vgoats/goatos.git" || "$origin_url" == "https://github.com/vgoats/goatos" ]] \
@@ -173,6 +179,8 @@ else
   docker push "$admin_web_image"
 fi
 
+
+
 gcloud deploy releases create "$release_id" \
   --project="$PROJECT_ID" \
   --region="$REGION" \
@@ -181,7 +189,7 @@ gcloud deploy releases create "$release_id" \
   --skaffold-file=deploy/clouddeploy/stg/skaffold.yaml \
   --to-target="$TARGET_ID" \
   --labels="commit_sha=${commit_sha},deployed_by=cloud-deploy" \
-  --deploy-parameters="customTarget/commitSha=${commit_sha},customTarget/backendImage=${backend_image},customTarget/migrationImage=${migration_image},customTarget/adminWebImage=${admin_web_image},customTarget/zeroDowntimeDeploy=${GOATOS_STG_ZERO_DOWNTIME_DEPLOY}"
+  --deploy-parameters="customTarget/commitSha=${commit_sha},customTarget/backendImage=${backend_image},customTarget/migrationImage=${migration_image},customTarget/adminWebImage=${admin_web_image},customTarget/zeroDowntimeDeploy=${GOATOS_STG_ZERO_DOWNTIME_DEPLOY},customTarget/alloyImage=${GOATOS_ALLOY_IMAGE}"
 
 echo "Release submitted: $release_id"
 

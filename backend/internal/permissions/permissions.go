@@ -482,8 +482,23 @@ const (
 	//
 	// The verifier deliberately holds neither: her queue is /verify, and the board is a
 	// lens over work, not a second verdict surface.
-	WorkBoardRead        = "work_board.read"
-	WorkBoardOversee     = "work_board.oversee"
+	WorkBoardRead    = "work_board.read"
+	WorkBoardOversee = "work_board.oversee"
+	// Alerts (maintainer decision 2026-09-16): the page below the Work Board that lists what is
+	// OFF today -- a pen whose feed sheet moved against yesterday with no shifting recorded to
+	// explain it, a feed that runs out inside the configured days, and whatever rule is added
+	// next. Two permissions, and the split is the whole access model:
+	//
+	//   AlertsRead      -- may open the page and read the alerts for the parks in scope.
+	//   AlertsConfigure -- may open the Configure drawer top-right and change which rules run
+	//                      and at what threshold. Ticked PER PERSON on /people (the "configure"
+	//                      level of the alerts module); no job title carries it except the CEO
+	//                      floor, so the button appears only for the people HRMS names.
+	//
+	// The same permission gates the page-contract control AND GET/PUT /alerts/config, per the
+	// capability-gated lock: a pixel-only gate is the 2026-08-12 incident's inverse.
+	AlertsRead           = "alerts.read"
+	AlertsConfigure      = "alerts.configure"
 	LeadershipTasksRead  = "leadership_tasks.read"
 	LeadershipTasksRaise = "leadership_tasks.raise"
 	LeadershipTasksAct   = "leadership_tasks.act"
@@ -959,7 +974,9 @@ var rolePermissions = map[string]map[string]struct{}{
 		// Work Board (2026-09-10): a director's portfolio -- both parks, and only the
 		// modules their other permissions already open.
 		WorkBoardRead: {}, WorkBoardOversee: {},
-		GoatRead: {}, GoatWriteHealth: {},
+		// Alerts (2026-09-16): reads the page; configuring is ticked per person on /people.
+		AlertsRead: {},
+		GoatRead:   {}, GoatWriteHealth: {},
 		LocationsRead: {},
 		OperatorsRead: {}, OperatorsManageRoster: {}, OperatorsManageDevice: {}, OperatorsViewAudit: {}, AppBootstrap: {}, AdminWebBootstrap: {},
 		SOPRead: {}, TaskRead: {}, TaskAssign: {}, TaskExecute: {}, TaskVerify: {},
@@ -1036,6 +1053,8 @@ var rolePermissions = map[string]map[string]struct{}{
 		// Work Board (2026-09-10): a director's portfolio -- both parks, and only the
 		// modules their other permissions already open.
 		WorkBoardRead: {}, WorkBoardOversee: {},
+		// Alerts (2026-09-16): reads the page; configuring is ticked per person on /people.
+		AlertsRead:   {},
 		AppBootstrap: {}, AdminWebBootstrap: {},
 		LocationsRead: {}, OperatorsRead: {},
 		// NOT WeighingPlan: planning a weighing task is CEO-only (maintainer decision
@@ -1085,6 +1104,8 @@ var rolePermissions = map[string]map[string]struct{}{
 		// Work Board (2026-09-10): a director's portfolio -- both parks, and only the
 		// modules their other permissions already open.
 		WorkBoardRead: {}, WorkBoardOversee: {},
+		// Alerts (2026-09-16): reads the page; configuring is ticked per person on /people.
+		AlertsRead:   {},
 		AppBootstrap: {}, AdminWebBootstrap: {},
 		LocationsRead: {}, OperatorsRead: {},
 		OperatorsManageRoster: {}, OperatorsManageDevice: {}, OperatorsViewAudit: {},
@@ -1137,6 +1158,8 @@ var rolePermissions = map[string]map[string]struct{}{
 		// Work Board (2026-09-10): a director's portfolio -- both parks, and only the
 		// modules their other permissions already open.
 		WorkBoardRead: {}, WorkBoardOversee: {},
+		// Alerts (2026-09-16): reads the page; configuring is ticked per person on /people.
+		AlertsRead:   {},
 		AppBootstrap: {}, AdminWebBootstrap: {},
 		LocationsRead: {}, OperatorsRead: {},
 		OperatorsManageRoster: {}, OperatorsManageDevice: {}, OperatorsViewAudit: {},
@@ -1248,6 +1271,8 @@ var rolePermissions = map[string]map[string]struct{}{
 		// Work Board (2026-09-10): a director's portfolio -- both parks, and only the
 		// modules their other permissions already open.
 		WorkBoardRead: {}, WorkBoardOversee: {},
+		// Alerts (2026-09-16): reads the page; configuring is ticked per person on /people.
+		AlertsRead:        {},
 		AdminWebBootstrap: {}, AppBootstrap: {},
 		LocationsRead: {},
 		SalesRead:     {}, SalesWrite: {}, SalesAllocateAnimals: {},
@@ -1272,7 +1297,9 @@ var rolePermissions = map[string]map[string]struct{}{
 		WorkBoardRead: {}, WorkBoardOversee: {},
 		AppBootstrap: {}, AdminWebBootstrap: {},
 		LocationsRead: {}, OperatorsRead: {}, RosterRead: {},
-		PCCareMonitor:      {},
+		PCCareMonitor: {},
+		// Alerts (2026-09-16): every director reads the page; configuring is per person.
+		AlertsRead:         {},
 		PCCarePlanTrimming: {},
 	},
 	RoleHR: {
@@ -1338,6 +1365,8 @@ var rolePermissions = map[string]map[string]struct{}{
 		LeadershipTasksRead: {}, LeadershipTasksRaise: {}, LeadershipTasksAct: {},
 		// Work Board (2026-09-10): both parks, every module (the CEO floor).
 		WorkBoardRead: {}, WorkBoardOversee: {},
+		// Alerts (2026-09-16): reads the page and configures the rules (the CEO floor).
+		AlertsRead: {}, AlertsConfigure: {},
 		// Toxin (maintainer decisions 2026-08-25 and 2026-08-26): CEO/CXO WATCHES and JUDGES;
 		// they never run the test. Read shows the tasks (the phone card is not tappable and
 		// no step opens a camera), and verdict is the accept/reject that only this role can

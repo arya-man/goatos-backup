@@ -86,7 +86,7 @@ function FarmValueSections({
               <h3>{copy(pageContract, "section.farm_value.title")}</h3>
               <span className="muted small">{copy(pageContract, "section.farm_value.sub")}</span>
             </div>
-            <div className="grid g3 kpi-row sales-kpi-row">
+            <div className="grid g3 kpi-row sales-kpi-row sales-farm-value-row">
               <div className="kpi">
                 <div className="lab">{copy(pageContract, "kpi.farm_value")}</div>
                 <div className="val">{inr(overview.farm_valuation.total_value_rupees)}</div>
@@ -115,20 +115,22 @@ function FarmValueSections({
                       ? copy(pageContract, "kpi.over35.none")
                       : `${copy(pageContract, "kpi.over35.sub")} · ${num(over35.thresholdKg, 1)}+`}
                 </div>
+                {/* The error margin tunes THIS card's figure and nothing else on the page, so it
+                    sits inside the card (maintainer request 2026-09-14). As a strip under the
+                    whole row it read as a page-wide control over the valuation too. */}
+                {over35.enabled ? (
+                  <SalesReadyToleranceControl
+                    key={over35.toleranceG}
+                    valueG={over35.toleranceG}
+                    maxG={OVER35_MAX_TOLERANCE_G}
+                    preserveQuery={over35.preserveQuery}
+                    pagePath={PAGE_PATH}
+                    label={copy(pageContract, "kpi.over35.tolerance")}
+                    applyLabel={copy(pageContract, "kpi.over35.apply")}
+                  />
+                ) : null}
               </div>
             </div>
-            {/* The tolerance control tunes the tile above it, so it travels with it. */}
-            {over35.enabled ? (
-              <SalesReadyToleranceControl
-                key={over35.toleranceG}
-                valueG={over35.toleranceG}
-                maxG={OVER35_MAX_TOLERANCE_G}
-                preserveQuery={over35.preserveQuery}
-                pagePath={PAGE_PATH}
-                label={copy(pageContract, "kpi.over35.tolerance")}
-                applyLabel={copy(pageContract, "kpi.over35.apply")}
-              />
-            ) : null}
           </section>
 
           <section className="card sales-card" aria-label={copy(pageContract, "section.farm_value.breakdown")}>

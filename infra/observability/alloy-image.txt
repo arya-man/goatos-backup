@@ -1,0 +1,1 @@
+asia-south1-docker.pkg.dev/goatos-stg/goatos/grafana-alloy@sha256:4031df3a0fd4caa872418f331d9bb707cb660eee306a0e764ff979d111d7e3b3

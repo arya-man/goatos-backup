@@ -58,6 +58,7 @@ fun BindVideoCaptureSource(
     // still carries the token of the request it was shot for and can never be re-attributed.
     var activeRequest by remember { mutableStateOf<CaptureRequest?>(null) }
     val relay = remember { ProofCaptureRelay(onDiscardedResult = { discardOrphanCapture(context, it) }) }
+    val cameraEventIdentity = remember { ProofCameraEventIdentity() }
     // Carry only the raw picked Uri back on the main thread; the (potentially large) copy into
     // app-private storage runs off-main inside the suspend `pick` delegate below, so importing a
     // long clip from the gallery never blocks the UI thread (ANR).
@@ -71,7 +72,7 @@ fun BindVideoCaptureSource(
             launch = { captureContext ->
                 val token = relay.nextRequestToken()
                 activeRequest = CaptureRequest(token, captureContext)
-                trackProofCameraEvent(analytics, AnalyticsEvents.PROOF_CAMERA_REQUESTED, token, captureContext)
+                trackProofCameraEvent(analytics, AnalyticsEvents.PROOF_CAMERA_REQUESTED, token, captureContext, captureRequestId = cameraEventIdentity.requestId(token))
                 try {
                     val result = relay.awaitResult(token)
                     result
@@ -143,7 +144,7 @@ fun BindVideoCaptureSource(
             // that recorder eventually reports is stamped with the request it was shot for.
             key(request.token) {
                 LaunchedEffect(request.token) {
-                    trackProofCameraEvent(analytics, AnalyticsEvents.PROOF_CAMERA_VISIBLE, request.token, request.captureContext)
+                    trackProofCameraEvent(analytics, AnalyticsEvents.PROOF_CAMERA_VISIBLE, request.token, request.captureContext, captureRequestId = cameraEventIdentity.requestId(request.token))
                 }
                 InAppVideoRecorderOverlay(
                     captureContext = request.captureContext,
@@ -171,7 +172,7 @@ fun BindVideoCaptureSource(
                             "briefing_acknowledged" -> AnalyticsEvents.PROOF_CAMERA_BRIEFING_ACKNOWLEDGED
                             else -> AnalyticsEvents.PROOF_CAMERA_FAILED
                         }
-                        trackProofCameraEvent(analytics, event, request.token, request.captureContext, reason = stage)
+                        trackProofCameraEvent(analytics, event, request.token, request.captureContext, reason = stage, captureRequestId = cameraEventIdentity.requestId(request.token))
                     },
                     artifactValidator = artifactValidator,  // MEDIUM: pass injected validator
                     onValidationFailure = { validation ->
@@ -201,10 +202,12 @@ internal fun trackProofCameraEvent(
     captureContext: ProofCaptureContext?,
     source: String = "in_app_camera",
     reason: String? = null,
+    captureRequestId: String? = null,
 ) {
     val props = buildMap {
         put(AnalyticsEvents.Params.SOURCE, source)
         put("request_token", token.toString())
+        captureRequestId?.let { put("capture_request_id", it) }
         captureContext?.prompt?.name?.lowercase()?.let { put("prompt", it) }
         captureContext?.workLabel?.takeIf { it.isNotBlank() }?.let { put(AnalyticsEvents.Params.KIND, it.take(64)) }
         reason?.takeIf { it.isNotBlank() }?.let { put(AnalyticsEvents.Params.REASON, it) }

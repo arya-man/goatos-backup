@@ -320,7 +320,11 @@ func (s *ObligationSweeperStage) Run(ctx context.Context) error {
 		// every real-sweep read to the successful preflight's exact candidate membership.
 		if batchSweepErr == nil {
 			for _, plan := range plans {
+				sweepStart := time.Now()
 				result, err := s.sweeper.SweepVersionWithSessionNoFinalizeSnapshotAsOf(ctx, cfg.TenantID, plan.VersionID, plan.Config, now, dueBefore, session, createdAtHWM, snapshot)
+				// No-finalize has created no SOP tasks. Their exact committed count is
+				// emitted by the idempotent batch task repository during finalization.
+				kmetrics.RecordSweeperBatch(ctx, "version", time.Since(sweepStart).Seconds(), result.Obligations+result.ParkObligations, 0)
 				if err != nil {
 					batchSweepPhase = "version_sweep"
 					batchSweepErr = fmt.Errorf("sweep version %s: %w", plan.VersionID, err)

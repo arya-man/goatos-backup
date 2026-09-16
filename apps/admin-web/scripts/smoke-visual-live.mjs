@@ -111,6 +111,11 @@ function buildRoutes({ goatId, procurementLoadId, workflowRowId, calendarEventId
     { name: "protocol-adherence-overdue", path: "/protocol-adherence?scope_mode=company&state=overdue" },
     { name: "work-board", path: "/work-board?scope_mode=company" },
     { name: "work-board-populated", path: "/work-board?scope_mode=company&date=2026-08-10" },
+    // Alerts (2026-09-16): the page below the Work Board on both viewports, plus a populated day
+    // on the STG-derived data (Coimbatore 2026-09-10 carries pen-feed and stock rows) whose run
+    // also opens and closes the Configure drawer.
+    { name: "alerts", path: "/alerts?scope_mode=company" },
+    { name: "alerts-populated", path: "/alerts?scope_mode=company&date=2026-09-10&park=00000000-0000-4000-8000-000000003001" },
     { name: "workflows", path: "/workflows?scope_mode=company" },
     { name: "approvals", path: "/approvals?scope_mode=company" },
     { name: "approvals-approved", path: "/approvals?scope_mode=company&status=approved" },
@@ -588,6 +593,24 @@ async function assertRouteLoadedSignal(page, routeName, visibleText) {
       throw new Error("work-board-populated requires actual historical workload cards");
     }
     return { lane_counts: laneCounts, work_cards: hasWorkCards, degraded: false, healthy_empty_state: hasHealthyEmptyState };
+  }
+  if (routeName === "alerts" || routeName === "alerts-populated") {
+    const kpis = { total: extractCountAfter(normalized, "ALERTS TODAY"), critical: extractCountAfter(normalized, "CRITICAL"), rules: extractCountAfter(normalized, "RULES CHECKED") };
+    if (Object.values(kpis).some((value) => value === null)) {
+      throw new Error(`${routeName} did not render the three Alerts KPIs: ${JSON.stringify(kpis)}`);
+    }
+    if (/could not be loaded/i.test(normalized)) {
+      throw new Error(`${routeName} rendered the alerts error state`);
+    }
+    const rowCount = await page.locator('[data-testid="alerts-row"]').count().catch(() => 0);
+    const emptyState = await page.locator('[data-testid="alerts-empty"]').count().catch(() => 0);
+    if (rowCount === 0 && emptyState === 0) {
+      throw new Error(`${routeName} has no alert rows but did not render the all-clear empty state`);
+    }
+    if (routeName === "alerts-populated" && rowCount === 0) {
+      throw new Error("alerts-populated requires actual alert rows for the populated day");
+    }
+    return { alert_kpis: kpis, alert_rows: rowCount, empty_state: emptyState > 0 };
   }
   if (routeName === "weighing-weights") {
     if (!/Kids losing weight/i.test(normalized) || !/\bkg\b/i.test(normalized) || !/\bPage\b/i.test(normalized)) {
@@ -1169,6 +1192,23 @@ async function assertCoreInteractions(page, routeName, viewportLabel) {
       await openAndCloseDrawer(page, task, "ACTION", routeName);
     }
     await submitActionCenterVerification(page, routeName);
+  }
+
+  if (routeName === "alerts-populated") {
+    // The Configure drawer: open from the top-right button (an <a> only for alerts.configure
+    // holders -- the CEO runs this smoke), prove both sections rendered, close via its X.
+    const configure = page.locator('a[data-testid="alerts-configure-open"]');
+    if ((await configure.count()) !== 1) {
+      throw new Error(`${routeName} Configure button is not an enabled link for the smoke principal`);
+    }
+    await openAndCloseDrawer(page, configure, "Configure alerts", routeName, async (drawer) => {
+      const builtin = await drawer.locator('[data-testid="alerts-rule-row"]').count();
+      const events = await drawer.locator('[data-testid="alerts-event-rules"]').count();
+      const addForm = await drawer.locator('[data-testid="alerts-event-new-add"]').count();
+      if (builtin < 2 || events !== 1 || addForm !== 1) {
+        throw new Error(`${routeName} Configure drawer incomplete: builtin=${builtin} events=${events} addForm=${addForm}`);
+      }
+    });
   }
 
   if (routeName === "calendar") {
