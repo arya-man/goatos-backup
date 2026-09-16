@@ -447,9 +447,10 @@ func legacyFieldOrder(stage string) []struct{ Field, Slot, Kind string } {
 // LegacyCardRefs lays an OLDER phone's fixed proof fields onto the card it is judged by. A field
 // lands on its seeded slot when the card still has that slot and the slot still takes what the
 // phone captured (a photo for the weight, a video otherwise); otherwise it is re-filed onto the
-// first free slot of the card that takes it; otherwise it has nowhere to land and is left out --
-// the card no longer asks for that capture, and refusing the pen for it would force an update the
-// farm has ruled out. Nothing an older phone sends is ever re-filed onto a slot of another KIND.
+// first free slot of the card that takes it; otherwise it has nowhere to land and is kept under the
+// reserved older-app key of its kind (authored.OlderAppKey) -- never dropped, and never refusing the
+// pen, which would force an update the farm has ruled out. Nothing an older phone sends is ever
+// re-filed onto a slot of another KIND.
 func LegacyCardRefs(r Rules, legacy map[string]string) authored.ProofRefs {
 	out := authored.ProofRefs{}
 	taken := map[string]bool{}
@@ -469,7 +470,9 @@ func LegacyCardRefs(r Rules, legacy map[string]string) authored.ProofRefs {
 		}
 		pending = append(pending, struct{ ref, kind string }{ref, f.Kind})
 	}
+	reserved := map[string]int{}
 	for _, p := range pending {
+		placed := false
 		for _, slot := range r.Proofs {
 			if taken[slot.Key] || !slot.Accepts(p.kind) {
 				continue
@@ -480,10 +483,42 @@ func LegacyCardRefs(r Rules, legacy map[string]string) authored.ProofRefs {
 				continue
 			}
 			out[slot.Key], taken[slot.Key] = p.ref, true
+			placed = true
 			break
+		}
+		if !placed {
+			reserved[p.kind]++
+			out[authored.OlderAppKey(p.kind, reserved[p.kind])] = p.ref
 		}
 	}
 	return out
+}
+
+// OlderAppSlotsFor appends a pseudo slot for every reserved older-app key in refs (sorted), so the
+// card an older phone is judged by accepts, orders and labels those captures.
+func (r Rules) OlderAppSlotsFor(refs authored.ProofRefs) Rules {
+	keys := OlderAppKeys(refs)
+	if len(keys) == 0 {
+		return r
+	}
+	out := r
+	out.Proofs = append(make([]authored.ProofSlot, 0, len(r.Proofs)+len(keys)), r.Proofs...)
+	for _, k := range keys {
+		out.Proofs = append(out.Proofs, authored.OlderAppSlot(k))
+	}
+	return out
+}
+
+// OlderAppKeys is the sorted reserved older-app keys a proof map carries.
+func OlderAppKeys(refs authored.ProofRefs) []string {
+	var keys []string
+	for k, v := range refs {
+		if authored.IsOlderAppKey(k) && strings.TrimSpace(v) != "" {
+			keys = append(keys, k)
+		}
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 func isSeededSlot(stage, key string) bool {

@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -92,7 +93,8 @@ func TestNewAppPackingIsStillJudgedStrictly(t *testing.T) {
 }
 
 // A card that no longer has the seeded water slot: an older phone still sends all three fixed refs.
-// The water video has no slot to land on, so it is left out rather than refusing the pen forever.
+// The water video has no slot to land on, so it is kept under the reserved older-app key and reaches
+// the verifier as "Recorded on an older app" -- never dropped, never refusing the pen.
 func TestOlderAppDistributionOntoACardWithoutTheWaterSlot(t *testing.T) {
 	card := domain.Rules{StageRules: domain.StageRules{Proofs: []authored.ProofSlot{
 		{Key: domain.SlotFeedWeightPhoto, Title: "Feed weight photo", Kind: authored.KindPhoto, Required: true},
@@ -113,18 +115,24 @@ func TestOlderAppDistributionOntoACardWithoutTheWaterSlot(t *testing.T) {
 	if _, err := svc.CompleteDistribution(context.Background(), in); err != nil {
 		t.Fatalf("older app distribution refused against a card without the water slot: %v", err)
 	}
+	refs, meta := enq.last.MediaRefs, enq.last.MediaMeta
+	if len(refs) != 3 || refs[2] != "proof-water-video-1" || len(meta) != 3 || meta[2] != (ports.ProofMeta{Label: authored.OlderAppLabel, Kind: authored.KindVideo}) {
+		t.Fatalf("verifier media = %v / %+v, want the water video kept as %q", refs, meta, authored.OlderAppLabel)
+	}
 }
 
 // A card that turned the seeded wastage VIDEO slot into a PHOTO and added a required question: the
-// older phone's video fits no slot, and a submit with NO capture at all cannot create a verifier
-// item (decision 6), so that one case is refused naming the slot. The question alone never blocks.
-func TestOlderAppWastageVideoWithNoSlotLeftIsRefusedNamingTheSlot(t *testing.T) {
+// older phone's video fits no slot. It is still ACCEPTED (decision 7): the video is kept under the
+// reserved older-app key and reaches the verifier, and the photo and question it could not send read
+// "Not captured (older app)".
+func TestOlderAppWastageVideoWithNoSlotLeftIsKeptAsAnOlderAppVideo(t *testing.T) {
 	card := domain.Rules{StageRules: domain.StageRules{
 		Proofs:    []authored.ProofSlot{{Key: domain.SlotWastageVideo, Title: "Leftover feed photo", Kind: authored.KindPhoto, Required: true}},
 		Questions: []authored.Question{{ID: "left", Kind: authored.QuestionText, Title: "What was left", Required: true}},
 	}}
 	store := &fakeWastageStore{result: ports.CompleteWastageResult{CompletionID: "w-1", Status: domain.WastageStatusPendingVerification, RowVersion: 1, NewlyPending: true}}
-	svc, _ := newWastageService(store, &recordingWastageEnqueuer{})
+	enq := &recordingWastageEnqueuer{}
+	svc, _ := newWastageService(store, enq)
 	rules := olderAppRulesSource(domain.StageWastage, card)
 	// The wastage card is pinned through the sheet's DIRECTION version, so the direction document
 	// must be published at the same version for the authored wastage card to be the one in force.
@@ -132,9 +140,29 @@ func TestOlderAppWastageVideoWithNoSlotLeftIsRefusedNamingTheSlot(t *testing.T) 
 	direction.Version = metaCardVersion
 	rules.ByStage[domain.StageDistribution] = direction
 	svc = svc.WithSOPRules(rules).WithProofValidator(&fakeProofValidator{})
-	_, err := svc.CompleteWastage(context.Background(), wastageInput(shedA))
-	if key, _, ok := SOPProofSlotError(err); !ok || key != domain.SlotWastageVideo {
-		t.Fatalf("err = %v, want feed_proof_slot_invalid naming %s", err, domain.SlotWastageVideo)
+	if _, err := svc.CompleteWastage(context.Background(), wastageInput(shedA)); err != nil {
+		t.Fatalf("older app wastage on a photo-only card refused: %v", err)
+	}
+	key := authored.OlderAppKey(authored.KindVideo, 1)
+	if got := store.completeCalls[0].SOPProofs; len(got) != 1 || got[key] != "proof-wastage-1" {
+		t.Fatalf("stored proofs = %v, want the video under %s", got, key)
+	}
+	call := enq.calls[0]
+	if len(call.MediaMeta) != 1 || call.MediaMeta[0] != (ports.ProofMeta{Label: authored.OlderAppLabel, Kind: authored.KindVideo}) {
+		t.Fatalf("verifier meta = %+v", call.MediaMeta)
+	}
+	if !hasRow(call.AnswerRows, "Leftover feed photo", authored.MissingNoteOlderApp) || !hasRow(call.AnswerRows, "What was left", authored.MissingNoteOlderApp) {
+		t.Fatalf("verifier rows = %+v", call.AnswerRows)
+	}
+}
+
+// The reserved older-app keys are never authorable on any card.
+func TestOlderAppKeyIsReservedOnEveryCard(t *testing.T) {
+	var problems []string
+	add := func(format string, args ...any) { problems = append(problems, fmt.Sprintf(format, args...)) }
+	authored.ValidateProofSlots("feed.packing.proofs", []authored.ProofSlot{{Key: "older_app_video", Title: "x", Kind: authored.KindVideo, Required: true}, {Key: "older_app_photo_2", Title: "y", Kind: authored.KindPhoto}}, true, add)
+	if len(problems) != 2 {
+		t.Fatalf("problems = %v, want both reserved keys refused", problems)
 	}
 }
 

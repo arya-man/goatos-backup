@@ -1,6 +1,9 @@
 package authored
 
-import "strings"
+import (
+	"strconv"
+	"strings"
+)
 
 // Evidence is the SNAPSHOT of what a capture form recorded (Add birth, Add death, Raise
 // shifting): every proof under its authored title with the kind the register judged it as, every
@@ -46,3 +49,35 @@ func (e Evidence) IsEmpty() bool {
 // from an app older than the card did not send (maintainer decision 7, 2026-09-16). Farm copy,
 // rendered verbatim to the approver and the verifier.
 const MissingNoteOlderApp = "Not captured (older app)"
+
+// OLDER APP CAPTURES (program decision 7: never force an update). An older app sends its fixed
+// proof fields only. A capture with no authored slot to land on -- the card was re-authored to
+// photos, or dropped the seeded slot -- is still ACCEPTED and kept under a RESERVED key per kind
+// ("older_app_video", "older_app_video_2", "older_app_photo", ...), shown to the verifier as
+// OlderAppLabel. ValidateProofSlots refuses every reserved key, so none can ever be authored.
+const (
+	OlderAppLabel     = "Recorded on an older app"
+	olderAppKeyPrefix = "older_app_"
+)
+
+// OlderAppKey is the reserved key of the n-th (1-based) older-app capture of a kind.
+func OlderAppKey(kind string, n int) string {
+	key := olderAppKeyPrefix + kind
+	if n > 1 {
+		key += "_" + strconv.Itoa(n)
+	}
+	return key
+}
+
+// IsOlderAppKey reports whether a slot key is reserved for an older app's capture.
+func IsOlderAppKey(key string) bool { return strings.HasPrefix(key, olderAppKeyPrefix) }
+
+// OlderAppSlot is the pseudo slot a reserved key is judged and labelled by: never compulsory, of
+// the kind its key names.
+func OlderAppSlot(key string) ProofSlot {
+	kind := KindVideo
+	if strings.HasPrefix(key, olderAppKeyPrefix+KindPhoto) {
+		kind = KindPhoto
+	}
+	return ProofSlot{Key: key, Title: OlderAppLabel, Kind: kind}
+}
