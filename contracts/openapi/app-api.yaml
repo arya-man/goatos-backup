@@ -13779,8 +13779,9 @@ paths:
         actions_done/actions_total count only THAT DATE's feeds rather than every operator action,
         so a kid appears on each of its two dates with independent counters (maintainer decision
         2026-08-06 - tomorrow's progress is seen tomorrow). state describes the DAY, and
-        awaiting_verification is always false because verification is enqueued once per whole kid
-        workflow; awaiting_video is therefore rejected as a filter for this module. Completing a
+        awaiting_verification is always false because the day card is not the review grain (each
+        recorded feed is its own verifier item; a feed in_review counts as that day's work done);
+        awaiting_video is therefore rejected as a filter for this module. Completing a
         feed uses the SAME action write as Birth against the same row - there is no colostrum table
         and no second copy of the state.
       parameters:
@@ -39427,6 +39428,11 @@ components:
             - "null"
           format: date-time
         status:
+          description: >-
+            Birth steps are reviewed one recorded step at a time (maintainer decision
+            2026-09-16): recording a step with proof moves it to in_review, where it stays
+            locked until its own verdict (approve -> completed, reject -> rework with
+            rework_reason). A step in_review or rework never blocks the step after it.
           type: string
           enum:
             - pending
