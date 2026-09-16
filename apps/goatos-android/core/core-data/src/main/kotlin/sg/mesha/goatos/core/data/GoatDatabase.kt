@@ -428,7 +428,9 @@ import sg.mesha.goatos.core.data.weighing.WeighingShedObservationEntity
     // decision 2026-09-13, docs/decisions/animal-purchases.md): the paged load rows + their keyset
     // cursor, the paged per-load animal rows + their per-load cursor (the Toxin trio shape, twice),
     // and one JSON blob cache for the form options, each load's header and the caller's write flag.
-    version = 64,
+    // v65 (see [MIGRATION_64_65]) adds the authored capture slot map + answers columns to the two
+    // weighing evidence tables (THE WEIGH CAPTURES ARE AUTHORED, maintainer decision 2026-09-16).
+    version = 65,
     // exportSchema=true writes schemas/<db-fqcn>/<version>.json (see build.gradle.kts
     // room.schemaLocation). The committed schema JSON is the golden schema
     // MigrationTestHelper validates each migration against, and it makes every schema
