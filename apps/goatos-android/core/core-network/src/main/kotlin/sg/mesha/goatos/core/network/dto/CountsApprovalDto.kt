@@ -62,6 +62,15 @@ data class CountsApprovalListItemDto(
      * of parsing [summaryLine].
      */
     @SerialName("subject_animal_location") val subjectAnimalLocation: String? = null,
+    /**
+     * The report's SOP capture card snapshot (CountsApprovalCapture): its proofs under their
+     * authored titles and its answers in farm words. BACKEND-OWNED COPY, rendered verbatim;
+     * absent when the form asked nothing.
+     */
+    @SerialName("capture") val capture: CountsApprovalCaptureDto? = null,
+    /** The verifier's verdict on the report proof (rollup): pending / approved / rework. */
+    @SerialName("capture_review_status") val captureReviewStatus: String? = null,
+    @SerialName("capture_review_reason") val captureReviewReason: String? = null,
     @SerialName("summary") val summary: JsonElement? = null,
     @SerialName("decided_by_user_id") val decidedByUserId: String? = null,
     @SerialName("decided_at") val decidedAt: String? = null,
@@ -106,4 +115,27 @@ data class CountsApprovalDecisionResponseDto(
     @SerialName("decision_reason") val decisionReason: String? = null,
     @SerialName("applied_result_type") val appliedResultType: String? = null,
     @SerialName("idempotent_replay") val idempotentReplay: Boolean = false,
+)
+
+/** CountsApprovalCapture: the capture form snapshot for the approver. */
+@Serializable
+data class CountsApprovalCaptureDto(
+    @SerialName("version_label") val versionLabel: String? = null,
+    @SerialName("rows") val rows: List<CountsApprovalCaptureRowDto> = emptyList(),
+    @SerialName("media") val media: List<CountsApprovalCaptureMediaDto> = emptyList(),
+    @SerialName("missing_note") val missingNote: String? = null,
+)
+
+@Serializable
+data class CountsApprovalCaptureRowDto(
+    @SerialName("label") val label: String = "",
+    @SerialName("value") val value: String = "",
+    @SerialName("group") val group: String? = null,
+)
+
+@Serializable
+data class CountsApprovalCaptureMediaDto(
+    @SerialName("proof_id") val proofId: String = "",
+    @SerialName("label") val label: String = "",
+    @SerialName("kind") val kind: String = "",
 )

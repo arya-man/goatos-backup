@@ -315,6 +315,7 @@ interface SyncRepository {
         groupKey: String,
         idempotencyKey: String,
         request: CountsBirthEventRequestDto,
+        capture: CountsCapturePayload? = null,
     ): AppResult<String> = AppResult.Err("counts birth sync is not configured")
 
     /**
@@ -327,6 +328,7 @@ interface SyncRepository {
         groupKey: String,
         idempotencyKey: String,
         request: CountsDeathEventRequestDto,
+        capture: CountsCapturePayload? = null,
     ): AppResult<String> = AppResult.Err("counts death sync is not configured")
 
     /**
@@ -1401,22 +1403,24 @@ class DefaultSyncRepository(
         groupKey: String,
         idempotencyKey: String,
         request: CountsBirthEventRequestDto,
+        capture: CountsCapturePayload?,
     ): AppResult<String> = enqueue(
         opType = OutboxOpType.COUNTS_BIRTH,
         groupKey = groupKey,
         idempotencyKey = idempotencyKey,
-        payloadJson = syncJson.encodeToString(CountsBirthPayload(request = request)),
+        payloadJson = syncJson.encodeToString(CountsBirthPayload(request = request, capture = capture)),
     )
 
     override suspend fun enqueueCountsDeath(
         groupKey: String,
         idempotencyKey: String,
         request: CountsDeathEventRequestDto,
+        capture: CountsCapturePayload?,
     ): AppResult<String> = enqueue(
         opType = OutboxOpType.COUNTS_DEATH,
         groupKey = groupKey,
         idempotencyKey = idempotencyKey,
-        payloadJson = syncJson.encodeToString(CountsDeathPayload(request = request)),
+        payloadJson = syncJson.encodeToString(CountsDeathPayload(request = request, capture = capture)),
     )
 
     override suspend fun enqueueCountsApprovalDecision(

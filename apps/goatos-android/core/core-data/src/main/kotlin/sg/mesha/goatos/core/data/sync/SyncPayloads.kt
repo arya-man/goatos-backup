@@ -155,6 +155,8 @@ data class CountsShiftingPayload(
 @Serializable
 data class CountsBirthPayload(
     @SerialName("request") val request: CountsBirthEventRequestDto,
+    /** The SOP capture card extras; null on a row written before the card (older-app rule). */
+    @SerialName("capture") val capture: CountsCapturePayload? = null,
 )
 
 /** Outbox payload for [sg.mesha.goatos.core.database.outbox.OutboxOpType.COUNTS_DEATH].
@@ -163,6 +165,21 @@ data class CountsBirthPayload(
 @Serializable
 data class CountsDeathPayload(
     @SerialName("request") val request: CountsDeathEventRequestDto,
+    /** The SOP capture card extras; null on a row written before the card (older-app rule). */
+    @SerialName("capture") val capture: CountsCapturePayload? = null,
+)
+
+/**
+ * The Add birth / Add death form's SOP capture card as queued (maintainer decisions 4 and 7,
+ * 2026-09-16): the card version the form was rendered from, `{slot key: source}` -- this phone's
+ * PROOF_UPLOAD outbox row or a server proof id -- and the answers. Resolved to `sop_capture` at
+ * dispatch, once every upload is on the server.
+ */
+@Serializable
+data class CountsCapturePayload(
+    @SerialName("sop_version_id") val sopVersionId: String? = null,
+    @SerialName("slot_proofs") val slotProofs: Map<String, FeedSlotProofSourcePayload> = emptyMap(),
+    @SerialName("answers") val answers: JsonObject = JsonObject(emptyMap()),
 )
 
 /**

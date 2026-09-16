@@ -588,6 +588,8 @@ data class CountsBirthEventRequestDto(
     @SerialName("weight_kg") val weightKg: Double? = null,
     @SerialName("management_stage") val managementStage: String? = null,
     @SerialName("evidence_refs") val evidenceRefs: List<CountsEvidenceRefDto> = emptyList(),
+    /** The Add birth form's SOP capture card extras; null (dropped) from a build with no card. */
+    @SerialName("sop_capture") val sopCapture: CountsSopCaptureDto? = null,
 )
 
 // ---------------------------------------------------------------------------
@@ -629,6 +631,8 @@ data class CountsDeathEventRequestDto(
     @SerialName("occurred_at") val occurredAt: String? = null,
     @SerialName("evidence_refs") val evidenceRefs: List<CountsEvidenceRefDto> = emptyList(),
     @SerialName("row_version") val rowVersion: Int,
+    /** The Add death form's SOP capture card extras; null (dropped) from a build with no card. */
+    @SerialName("sop_capture") val sopCapture: CountsSopCaptureDto? = null,
 ) {
     companion object {
         /** The only lifecycle status the critical-death exit accepts. */
@@ -821,4 +825,40 @@ data class CountsPenReconciliationCompleteResponseDto(
     @SerialName("completed_at") val completedAt: String? = null,
     @SerialName("completed_at_ist") val completedAtIst: String? = null,
     @SerialName("idempotent_replay") val idempotentReplay: Boolean = false,
+)
+
+// ---------------------------------------------------------------------------
+// SOP CAPTURE CARD — GET /app/counts/capture-cards/{kind} + sop_capture on birth/death
+// (maintainer decisions 4 and 7, 2026-09-16)
+// ---------------------------------------------------------------------------
+
+/**
+ * The Add birth / Add death form's SOP extras as submitted: the card version the form was rendered
+ * from, `{slot key: proof artifact id}` and the answers. Sent only by a build that rendered a card;
+ * an app that sends none is judged as an OLDER app (accepted, missing items noted), while one that
+ * sends it is judged strictly (422 naming the slot / question, 409 for an unknown version).
+ */
+@Serializable
+data class CountsSopCaptureDto(
+    @SerialName("sop_version_id") val sopVersionId: String? = null,
+    @SerialName("proofs") val proofs: Map<String, String> = emptyMap(),
+    @SerialName("answers") val answers: kotlinx.serialization.json.JsonObject = kotlinx.serialization.json.JsonObject(emptyMap()),
+)
+
+/** The authored card: instruction, capture slots in order, questions. Empty = the plain form. */
+@Serializable
+data class CountsCaptureCardDto(
+    @SerialName("schema_version") val schemaVersion: String = "",
+    @SerialName("instruction") val instruction: String = "",
+    @SerialName("proofs") val proofs: List<WeighingRemovalProofSlotDto> = emptyList(),
+    @SerialName("questions") val questions: List<WeighingSopQuestionDto> = emptyList(),
+)
+
+@Serializable
+data class CountsCaptureCardResponseDto(
+    @SerialName("kind") val kind: String = "",
+    @SerialName("sop_code") val sopCode: String = "",
+    @SerialName("sop_version_id") val sopVersionId: String? = null,
+    @SerialName("version_label") val versionLabel: String? = null,
+    @SerialName("card") val card: CountsCaptureCardDto = CountsCaptureCardDto(),
 )

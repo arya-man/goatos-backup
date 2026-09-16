@@ -161,6 +161,7 @@ import sg.mesha.goatos.core.network.dto.CountsBreakdownResponseDto
 import sg.mesha.goatos.core.network.dto.CountsBreedsResponseDto
 import sg.mesha.goatos.core.network.dto.GoatSearchResponseDto
 import sg.mesha.goatos.core.network.dto.CountsDeathEventRequestDto
+import sg.mesha.goatos.core.network.dto.CountsCaptureCardResponseDto
 import sg.mesha.goatos.core.network.dto.DeathCauseCatalogDto
 import sg.mesha.goatos.core.network.dto.CountsApprovalSubmitResponseDto
 import sg.mesha.goatos.core.network.dto.CountsPenReconciliationCompleteRequestDto
@@ -1467,6 +1468,9 @@ interface AppApiService {
         @Body request: CountsDeathEventRequestDto,
     ): CountsApprovalSubmitResponseDto
 
+    @GET("app/counts/capture-cards/{kind}")
+    suspend fun getCountsCaptureCard(@Path("kind") kind: String): CountsCaptureCardResponseDto
+
     @GET("app/workflows")
     suspend fun listWorkflows(
         @Query("module") module: String,
@@ -2677,6 +2681,9 @@ class RetrofitAppApi(
         idempotencyKey: String,
         request: CountsDeathEventRequestDto,
     ): CountsApprovalSubmitResponseDto = service.recordCountsDeathEvent(idempotencyKey, request)
+
+    override suspend fun getCountsCaptureCard(kind: String): CountsCaptureCardResponseDto =
+        service.getCountsCaptureCard(kind)
 
     override suspend fun listDeathCauses(): DeathCauseCatalogDto = service.listDeathCauses()
 
