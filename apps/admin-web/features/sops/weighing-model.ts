@@ -114,7 +114,7 @@ export function slugKey(title: string, taken: Set<string>, fallback = "question"
   return key;
 }
 
-function parseQuestion(rq: unknown): WeighingQuestionRow[] {
+export function parseQuestion(rq: unknown): WeighingQuestionRow[] {
   const q = obj(rq);
   if (!q) return [];
   const onlyIf = obj(q["only_if"]);
@@ -185,7 +185,7 @@ export function parseWeighing(formDsl: unknown): WeighingRows | null {
   };
 }
 
-function emitQuestion(q: WeighingQuestionRow): Record<string, unknown> {
+export function emitQuestion(q: WeighingQuestionRow): Record<string, unknown> {
   const out: Record<string, unknown> = { id: q.key, kind: q.kind, title: q.title };
   if (q.hint.trim()) out.hint = q.hint;
   out.required = q.required;
@@ -251,29 +251,7 @@ export function weighingProblems(rows: WeighingRows): string[] {
     seenSlot.add(p.key);
     if (!p.title.trim()) problems.push(`${at}: needs a title`);
   });
-  const seen = new Map<string, WeighingQuestionRow>();
-  rows.removalQuestions.forEach((q, qi) => {
-    const at = `Removal question ${qi + 1}`;
-    if (!q.key.trim()) problems.push(`${at}: needs a key`);
-    if (q.key.endsWith("_other")) problems.push(`${at}: a key cannot end in _other`);
-    if (seen.has(q.key)) problems.push(`${at}: key "${q.key}" is used twice`);
-    if (!q.title.trim()) problems.push(`${at}: needs the question text`);
-    if ((q.kind === "choice" || q.kind === "multi") && q.options.filter((o) => o.value.trim() && o.label.trim()).length === 0) problems.push(`${at}: a pick-one / pick-many question needs at least one choice`);
-    if (q.allowOther && q.kind !== "choice") problems.push(`${at}: free-text "other" is only supported for pick-one questions`);
-    if (q.allowOther && !q.options.some((o) => o.value.trim() === "other")) problems.push(`${at}: the free-text "other" needs a choice whose value is "other"`);
-    if (q.kind === "number") {
-      if (q.min.trim() && !Number.isFinite(Number(q.min))) problems.push(`${at}: min must be a finite number`);
-      if (q.max.trim() && !Number.isFinite(Number(q.max))) problems.push(`${at}: max must be a finite number`);
-      if (q.min.trim() && q.max.trim() && Number(q.min) > Number(q.max)) problems.push(`${at}: min must not exceed max`);
-    }
-    if (q.onlyIfQuestion) {
-      const dep = seen.get(q.onlyIfQuestion);
-      if (!dep) problems.push(`${at}: "ask only when" must name an earlier question`);
-      else if (dep.kind !== "choice") problems.push(`${at}: "ask only when" must name a pick-one question`);
-      else if (!dep.options.some((o) => o.value === q.onlyIfValue)) problems.push(`${at}: "ask only when" needs one of that question's choices`);
-    }
-    seen.set(q.key, q);
-  });
+  problems.push(...questionProblems(rows.removalQuestions, "Removal question"));
   if (!rows.individualVideoRequired) problems.push("The per-animal video cannot be switched off: it is what the verifier reviews");
   const min = Number(rows.lumpSumVideoMin);
   const max = Number(rows.lumpSumVideoMax);
@@ -295,4 +273,52 @@ export function weighingProblems(rows: WeighingRows): string[] {
 
 export function blankProofSlot(): RemovalProofRow {
   return { id: newRowId("ws"), key: "", title: "", hint: "", kind: "video", required: true };
+}
+
+// questionProblems pre-checks a question list the way the backend validator does; shared by the
+// weighing removal card and the feed cards (FEED SOP, 2026-09-16).
+export function questionProblems(questions: WeighingQuestionRow[], label: string): string[] {
+  const problems: string[] = [];
+  const seen = new Map<string, WeighingQuestionRow>();
+  questions.forEach((q, qi) => {
+    const at = `${label} ${qi + 1}`;
+    if (!q.key.trim()) problems.push(`${at}: needs a key`);
+    if (q.key.endsWith("_other")) problems.push(`${at}: a key cannot end in _other`);
+    if (seen.has(q.key)) problems.push(`${at}: key "${q.key}" is used twice`);
+    if (!q.title.trim()) problems.push(`${at}: needs the question text`);
+    if ((q.kind === "choice" || q.kind === "multi") && q.options.filter((o) => o.value.trim() && o.label.trim()).length === 0) problems.push(`${at}: a pick-one / pick-many question needs at least one choice`);
+    if (q.allowOther && q.kind !== "choice") problems.push(`${at}: free-text "other" is only supported for pick-one questions`);
+    if (q.allowOther && !q.options.some((o) => o.value.trim() === "other")) problems.push(`${at}: the free-text "other" needs a choice whose value is "other"`);
+    if (q.kind === "number") {
+      if (q.min.trim() && !Number.isFinite(Number(q.min))) problems.push(`${at}: min must be a finite number`);
+      if (q.max.trim() && !Number.isFinite(Number(q.max))) problems.push(`${at}: max must be a finite number`);
+      if (q.min.trim() && q.max.trim() && Number(q.min) > Number(q.max)) problems.push(`${at}: min must not exceed max`);
+    }
+    if (q.onlyIfQuestion) {
+      const dep = seen.get(q.onlyIfQuestion);
+      if (!dep) problems.push(`${at}: "ask only when" must name an earlier question`);
+      else if (dep.kind !== "choice") problems.push(`${at}: "ask only when" must name a pick-one question`);
+      else if (!dep.options.some((o) => o.value === q.onlyIfValue)) problems.push(`${at}: "ask only when" needs one of that question's choices`);
+    }
+    seen.set(q.key, q);
+  });
+  return problems;
+}
+
+// proofSlotProblems pre-checks a capture slot list: keys present and unique, titles present, at
+// least one compulsory slot when requireOne, at most MAX_REMOVAL_PROOF_SLOTS.
+export function proofSlotProblems(slots: RemovalProofRow[], label: string, requireOne: boolean): string[] {
+  const problems: string[] = [];
+  if (requireOne && slots.length === 0) problems.push(`${label}: needs at least one capture`);
+  if (slots.length > MAX_REMOVAL_PROOF_SLOTS) problems.push(`${label}: at most ${MAX_REMOVAL_PROOF_SLOTS} captures`);
+  if (requireOne && slots.length > 0 && !slots.some((p) => p.required)) problems.push(`${label}: at least one capture must be compulsory — the work is proven by something the verifier can see`);
+  const seenSlot = new Set<string>();
+  slots.forEach((p, pi) => {
+    const at = `${label}, capture ${pi + 1}`;
+    if (!p.key.trim()) problems.push(`${at}: needs a key`);
+    if (seenSlot.has(p.key)) problems.push(`${at}: key "${p.key}" is used twice`);
+    seenSlot.add(p.key);
+    if (!p.title.trim()) problems.push(`${at}: needs a title`);
+  });
+  return problems;
 }
