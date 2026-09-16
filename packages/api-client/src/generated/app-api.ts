@@ -9958,6 +9958,10 @@ export interface components {
             limit: number;
             offset: number;
             has_more: boolean;
+            /** @description The distribution card per served workflow, from each sheet's pinned feed.direction version. */
+            sop?: {
+                [key: string]: components["schemas"]["FeedSOPCard"];
+            };
         };
         FeedPackingRow: {
             /** Format: uuid */
@@ -10053,6 +10057,7 @@ export interface components {
             applied: boolean;
         };
         FeedDistributionCapturesResponse: {
+            sop: components["schemas"]["FeedSOPCard"];
             /** @description At most one entry per proof slot -- the slot's CURRENT proof. A slot re-recorded several times reports only its latest upload, never one entry per take. */
             items: components["schemas"]["FeedDistributionCapturedSlot"][];
         };
@@ -10107,15 +10112,17 @@ export interface components {
              *
              *     Why it exists: the distribution video proves the feed reached the animals but cannot prove HOW MUCH did. This is the only capture a verifier can check against the expected ration shown on the item.
              */
-            feed_weight_proof_ref: string;
+            feed_weight_proof_ref?: string;
             /** @description MANDATORY. The server-minted `proof_id` of the feed-distribution VIDEO. A blank value is rejected `422 proof_required`. The bytes live in GCS; only the reference is recorded. Must be a VIDEO -- `proof_type` and mime are both checked. */
-            distribution_proof_ref: string;
+            distribution_proof_ref?: string;
             /**
              * @description MANDATORY. The server-minted `proof_id` of the water-distribution VIDEO. A blank value is rejected `422 proof_required`.
              *
              *     VIDEO-ONLY since 2026-08-11 (it previously accepted a photo OR a video): a photo of a full trough proves a trough is full, not that this operator filled it today. A photo here is rejected `422 proof_required`.
              */
-            water_proof_ref: string;
+            water_proof_ref?: string;
+            proofs?: components["schemas"]["FeedSOPProofRefs"];
+            answers?: components["schemas"]["FeedSOPAnswers"];
         };
         FeedDistributionCompleteResponse: {
             /** Format: uuid */
@@ -10154,7 +10161,9 @@ export interface components {
              */
             workflow: "normal" | "experiment";
             /** @description MANDATORY. The server-minted `proof_id` of the packing VIDEO. A blank value is rejected `422 proof_required`. The bytes live in GCS; only the reference is recorded. */
-            packing_proof_ref: string;
+            packing_proof_ref?: string;
+            proofs?: components["schemas"]["FeedSOPProofRefs"];
+            answers?: components["schemas"]["FeedSOPAnswers"];
         };
         FeedPackingCompleteResponse: {
             /** Format: uuid */
@@ -10188,6 +10197,7 @@ export interface components {
             rework_reason?: string;
             /** Format: date-time */
             scheduled_at: string;
+            sop?: components["schemas"]["FeedSOPCard"];
         };
         FeedTransportTaskPage: {
             items: components["schemas"]["FeedTransportTask"][];
@@ -10207,7 +10217,9 @@ export interface components {
         };
         FeedTransportSubmitRequest: {
             /** @description Server-minted proof id for one fresh in-app camera video. */
-            proof_ref: string;
+            proof_ref?: string;
+            proofs?: components["schemas"]["FeedSOPProofRefs"];
+            answers?: components["schemas"]["FeedSOPAnswers"];
         };
         FeedTransportSubmitResponse: {
             /** Format: uuid */
@@ -10252,6 +10264,10 @@ export interface components {
             limit: number;
             offset: number;
             has_more: boolean;
+            /** @description The packing card per served workflow (normal / experiment), from each sheet's pinned feed.packing version. */
+            sop?: {
+                [key: string]: components["schemas"]["FeedSOPCard"];
+            };
         };
         FeedWastageRow: {
             /** Format: uuid */
@@ -10616,6 +10632,7 @@ export interface components {
             limit: number;
             offset: number;
             has_more: boolean;
+            sop?: components["schemas"]["FeedSOPCard"];
         };
         FeedWastageCompleteRequest: {
             /**
@@ -10633,7 +10650,9 @@ export interface components {
              */
             target_date: string;
             /** @description MANDATORY. The server-minted `proof_id` of the wastage VIDEO. A blank value is rejected `422 proof_required`. The bytes live in GCS; only the reference is recorded. */
-            wastage_proof_ref: string;
+            wastage_proof_ref?: string;
+            proofs?: components["schemas"]["FeedSOPProofRefs"];
+            answers?: components["schemas"]["FeedSOPAnswers"];
         };
         FeedWastageCompleteResponse: {
             /** Format: uuid */
@@ -14068,6 +14087,24 @@ export interface components {
                 /** Format: date */
                 earliest_date: string;
             };
+        };
+        /** @description FEED SOP (maintainer decision 2026-09-16): the CARD a feed stage runs under -- what the crew captures and answers at distribution, wastage, packing or transport -- read from the feed.* SOP version the sheet was ISSUED under (transport: the version the task was materialized under). The phone renders the slots and questions verbatim and never holds a slot list of its own; every phone on a shared distribution session renders the same card. Version 0 is the seeded card (the pre-SOP behaviour: feed weight photo + feed video + water video; one packing video; one transport video; one wastage video). */
+        FeedSOPCard: {
+            version: number;
+            /** @enum {string} */
+            stage: "distribution" | "wastage" | "packing" | "transport";
+            instruction?: string;
+            /** @description The capture slots in card order. A slot's key is the proof register field_key the phone stamps on the upload (which is how teammates' captures are discovered) and the key of the completion's `proofs` map. */
+            proofs: components["schemas"]["WeighingRemovalProofSlot"][];
+            questions: components["schemas"]["WeighingSOPQuestion"][];
+        };
+        /** @description {slot key: proof ref} -- one server-minted proof id per capture slot of the pinned card. Judged slot by slot: a compulsory slot missing, a key outside the card, one capture proving two slots, or a capture of the wrong kind is 422 feed_proof_slot_invalid naming the slot. */
+        FeedSOPProofRefs: {
+            [key: string]: string;
+        };
+        /** @description {question id: answer} for the card's questions (choice = option value, "other" free text under "<id>_other"; multi = array of values; number = JSON number; text = string). A required question unanswered or an answer the card did not offer is 422 feed_answer_invalid naming the question. */
+        FeedSOPAnswers: {
+            [key: string]: unknown;
         };
         /** @description One capture the removal card asks for. The slot LIST is authored on the weighing SOP (second 2026-09-15 decision): a slot may be added, removed, re-worded, be a live-camera video, a photo or either, and be compulsory or optional. The seed's two slots are feed_video and water_video. */
         WeighingRemovalProofSlot: {

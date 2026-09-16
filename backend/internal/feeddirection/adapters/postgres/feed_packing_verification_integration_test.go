@@ -83,8 +83,9 @@ func TestCompletePackingRequiresVideoAtAppLayer(t *testing.T) {
 		ActorID:        fdActor,
 		ActorType:      "operator",
 	}
-	if _, err := svc.CompletePacking(ctx, missingVideo); !errors.Is(err, ports.ErrPackingProofRequired) {
-		t.Fatalf("missing packing video err = %v, want ErrPackingProofRequired", err)
+	// FEED SOP (2026-09-16): the missing video is refused by the pinned packing card, naming the slot.
+	if _, err := svc.CompletePacking(ctx, missingVideo); !errors.Is(err, ports.ErrSOPProofSlotInvalid) {
+		t.Fatalf("missing packing video err = %v, want ErrSOPProofSlotInvalid", err)
 	}
 
 	// A completion that does not say WHICH bag it proves is rejected on the same terms. 0 is not "the

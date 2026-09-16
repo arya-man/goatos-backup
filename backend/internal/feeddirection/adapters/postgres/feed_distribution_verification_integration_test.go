@@ -84,24 +84,27 @@ func TestCompleteDistributionRequiresBothProofsAtAppLayer(t *testing.T) {
 	missingWeightPhoto.FeedWeightProofRef = ""
 	missingWeightPhoto.DistributionProofRef = "proof-distribution-0001"
 	missingWeightPhoto.WaterProofRef = "proof-water-0001"
-	if _, err := svc.CompleteDistribution(ctx, missingWeightPhoto); !errors.Is(err, ports.ErrDistributionProofRequired) {
-		t.Fatalf("missing feed weight photo err = %v, want ErrDistributionProofRequired", err)
+	// FEED SOP (2026-09-16): a missing capture is refused by the pinned card, naming the slot.
+	if _, err := svc.CompleteDistribution(ctx, missingWeightPhoto); !errors.Is(err, ports.ErrSOPProofSlotInvalid) {
+		t.Fatalf("missing feed weight photo err = %v, want ErrSOPProofSlotInvalid", err)
+	} else if key, _, _ := feeddirectionapp.SOPProofSlotError(err); key != domain.SlotFeedWeightPhoto {
+		t.Fatalf("missing feed weight photo must name %s, got %v", domain.SlotFeedWeightPhoto, err)
 	}
 
 	missingWater := base
 	missingWater.FeedWeightProofRef = "proof-feed-weight-photo-0001"
 	missingWater.DistributionProofRef = "proof-distribution-0001"
 	missingWater.WaterProofRef = ""
-	if _, err := svc.CompleteDistribution(ctx, missingWater); !errors.Is(err, ports.ErrWaterProofRequired) {
-		t.Fatalf("missing water video err = %v, want ErrWaterProofRequired", err)
+	if _, err := svc.CompleteDistribution(ctx, missingWater); !errors.Is(err, ports.ErrSOPProofSlotInvalid) {
+		t.Fatalf("missing water video err = %v, want ErrSOPProofSlotInvalid", err)
 	}
 
 	missingVideo := base
 	missingVideo.FeedWeightProofRef = "proof-feed-weight-photo-0001"
 	missingVideo.DistributionProofRef = ""
 	missingVideo.WaterProofRef = "proof-water-0001"
-	if _, err := svc.CompleteDistribution(ctx, missingVideo); !errors.Is(err, ports.ErrDistributionProofRequired) {
-		t.Fatalf("missing distribution video err = %v, want ErrDistributionProofRequired", err)
+	if _, err := svc.CompleteDistribution(ctx, missingVideo); !errors.Is(err, ports.ErrSOPProofSlotInvalid) {
+		t.Fatalf("missing distribution video err = %v, want ErrSOPProofSlotInvalid", err)
 	}
 
 	// Neither rejected request enqueued anything, and neither wrote a row.
