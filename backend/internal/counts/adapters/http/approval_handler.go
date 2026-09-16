@@ -128,7 +128,11 @@ type appApprovalListItem struct {
 	// its own field instead of parsing it back out of the composed line. See
 	// domain.ApprovalNameLookup.AnimalLocations for how it is resolved.
 	SubjectAnimalLocation *string         `json:"subject_animal_location,omitempty"`
-	Summary               json.RawMessage `json:"summary"`
+	// Capture is the SOP capture card's snapshot (CountsApprovalCapture): the report's own
+	// proofs under their titles, its answers in farm words, the older-app note and the
+	// verifier's verdict on it. Absent when the form asked nothing.
+	Capture *appApprovalCapture `json:"capture,omitempty"`
+	Summary json.RawMessage     `json:"summary"`
 	DecidedByUserID       *string         `json:"decided_by_user_id,omitempty"`
 	DecidedAt             *time.Time      `json:"decided_at,omitempty"`
 	DecisionReason        *string         `json:"decision_reason,omitempty"`
@@ -202,6 +206,7 @@ func (h *AppWriteHandler) ListApprovals(w http.ResponseWriter, r *http.Request) 
 		if loc := names.AnimalLocation(subjectGoatID); loc != "" {
 			row.SubjectAnimalLocation = &loc
 		}
+		row.Capture = approvalCaptureDTO(item)
 		items = append(items, row)
 	}
 	httpresponse.WriteJSON(w, http.StatusOK, appApprovalListResponse{Items: items, NextCursor: page.NextCursor})

@@ -137,6 +137,7 @@ type fakeApprovalWorkflow struct {
 	lastSubmission    domain.ApprovalRequestSubmission
 	birthResultsByKey map[string]domain.BirthSubmissionResult
 	decideErr         error
+	listItems         []domain.ApprovalRequestSummary
 }
 
 func newFakeApprovalWorkflow() *fakeApprovalWorkflow {
@@ -213,7 +214,11 @@ func (f *fakeApprovalWorkflow) SubmitBirthRequest(_ context.Context, in domain.A
 func (f *fakeApprovalWorkflow) ListPending(
 	_ context.Context, _, _ string, _ []string, _ []string, _ int, _ string,
 ) (domain.ApprovalRequestPage, error) {
-	return domain.ApprovalRequestPage{Items: []domain.ApprovalRequestSummary{}}, nil
+	items := f.listItems
+	if items == nil {
+		items = []domain.ApprovalRequestSummary{}
+	}
+	return domain.ApprovalRequestPage{Items: items}, nil
 }
 
 func (f *fakeApprovalWorkflow) Decide(_ context.Context, _ countsapp.DecisionInput) (domain.ApprovalRequest, bool, error) {
@@ -377,8 +382,13 @@ func newTestServer(
 	handler := NewAppWriteHandler(shifting, nil).WithApprovalWorkflow(approvals, validator)
 	RegisterAppWrites(mux, handler)
 	RegisterApprovals(mux, handler)
+	handlersByMux[mux] = handler
 	return mux
 }
+
+// handlersByMux lets a test reach the handler behind a mux to wire an optional seam after
+// construction (the capture card service).
+var handlersByMux = map[*http.ServeMux]*AppWriteHandler{}
 
 func post(t *testing.T, mux *http.ServeMux, path, idempotencyKey string, body any) *httptest.ResponseRecorder {
 	t.Helper()
