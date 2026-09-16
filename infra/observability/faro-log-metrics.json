@@ -1,0 +1,154 @@
+[
+  {
+    "name": "goatos_rum_lcp_ms",
+    "description": "Observed browser LCP samples from Faro; no samples are not zero.",
+    "filter": "logName=\"projects/goatos-stg/logs/goatos-stg-faro\" AND jsonPayload.app_name=\"mesha-admin-web\" AND jsonPayload.app_environment=\"stg\" AND jsonPayload.kind=\"measurement\" AND jsonPayload.type=\"web-vitals\" AND jsonPayload.value_lcp:*",
+    "metricDescriptor": {
+      "metricKind": "DELTA",
+      "valueType": "DISTRIBUTION",
+      "unit": "ms"
+    },
+    "valueExtractor": "EXTRACT(jsonPayload.value_lcp)",
+    "bucketOptions": {
+      "explicitBuckets": {
+        "bounds": [
+          0,
+          100,
+          250,
+          500,
+          800,
+          1000,
+          1500,
+          2500,
+          4000,
+          8000,
+          15000,
+          30000
+        ]
+      }
+    }
+  },
+  {
+    "name": "goatos_rum_inp_ms",
+    "description": "Observed browser INP samples from Faro; no samples are not zero.",
+    "filter": "logName=\"projects/goatos-stg/logs/goatos-stg-faro\" AND jsonPayload.app_name=\"mesha-admin-web\" AND jsonPayload.app_environment=\"stg\" AND jsonPayload.kind=\"measurement\" AND jsonPayload.type=\"web-vitals\" AND jsonPayload.value_inp:*",
+    "metricDescriptor": {
+      "metricKind": "DELTA",
+      "valueType": "DISTRIBUTION",
+      "unit": "ms"
+    },
+    "valueExtractor": "EXTRACT(jsonPayload.value_inp)",
+    "bucketOptions": {
+      "explicitBuckets": {
+        "bounds": [
+          0,
+          25,
+          50,
+          100,
+          150,
+          200,
+          300,
+          500,
+          1000,
+          2000,
+          5000
+        ]
+      }
+    }
+  },
+  {
+    "name": "goatos_rum_ttfb_ms",
+    "description": "Observed browser TTFB samples from Faro; no samples are not zero.",
+    "filter": "logName=\"projects/goatos-stg/logs/goatos-stg-faro\" AND jsonPayload.app_name=\"mesha-admin-web\" AND jsonPayload.app_environment=\"stg\" AND jsonPayload.kind=\"measurement\" AND jsonPayload.type=\"web-vitals\" AND jsonPayload.value_ttfb:*",
+    "metricDescriptor": {
+      "metricKind": "DELTA",
+      "valueType": "DISTRIBUTION",
+      "unit": "ms"
+    },
+    "valueExtractor": "EXTRACT(jsonPayload.value_ttfb)",
+    "bucketOptions": {
+      "explicitBuckets": {
+        "bounds": [
+          0,
+          25,
+          50,
+          100,
+          200,
+          400,
+          800,
+          1500,
+          3000,
+          6000,
+          15000
+        ]
+      }
+    }
+  },
+  {
+    "name": "goatos_rum_cls",
+    "description": "Observed browser CLS samples from Faro; no samples are not zero.",
+    "filter": "logName=\"projects/goatos-stg/logs/goatos-stg-faro\" AND jsonPayload.app_name=\"mesha-admin-web\" AND jsonPayload.app_environment=\"stg\" AND jsonPayload.kind=\"measurement\" AND jsonPayload.type=\"web-vitals\" AND jsonPayload.value_cls:*",
+    "metricDescriptor": {
+      "metricKind": "DELTA",
+      "valueType": "DISTRIBUTION",
+      "unit": "1"
+    },
+    "valueExtractor": "EXTRACT(jsonPayload.value_cls)",
+    "bucketOptions": {
+      "explicitBuckets": {
+        "bounds": [
+          0,
+          0.01,
+          0.025,
+          0.05,
+          0.1,
+          0.15,
+          0.25,
+          0.5,
+          1,
+          2
+        ]
+      }
+    }
+  },
+  {
+    "name": "goatos_rum_exceptions",
+    "description": "Observed Faro exceptions events.",
+    "filter": "logName=\"projects/goatos-stg/logs/goatos-stg-faro\" AND jsonPayload.app_name=\"mesha-admin-web\" AND jsonPayload.app_environment=\"stg\" AND jsonPayload.kind=\"exception\"",
+    "metricDescriptor": {
+      "metricKind": "DELTA",
+      "valueType": "INT64",
+      "unit": "1"
+    }
+  },
+  {
+    "name": "goatos_rum_route_views",
+    "description": "Observed Faro route views events.",
+    "filter": "logName=\"projects/goatos-stg/logs/goatos-stg-faro\" AND jsonPayload.app_name=\"mesha-admin-web\" AND jsonPayload.app_environment=\"stg\" AND jsonPayload.kind=\"event\" AND jsonPayload.event_name=\"admin_route_view\"",
+    "metricDescriptor": {
+      "metricKind": "DELTA",
+      "valueType": "INT64",
+      "unit": "1"
+    }
+  },
+  {
+    "name": "goatos_rum_session_starts",
+    "description": "Observed Faro session starts events.",
+    "filter": "logName=\"projects/goatos-stg/logs/goatos-stg-faro\" AND jsonPayload.app_name=\"mesha-admin-web\" AND jsonPayload.app_environment=\"stg\" AND jsonPayload.kind=\"event\" AND jsonPayload.event_name=\"session_start\"",
+    "metricDescriptor": {
+      "metricKind": "DELTA",
+      "valueType": "INT64",
+      "unit": "1",
+      "labels": [
+        {
+          "key": "browser",
+          "valueType": "STRING",
+          "description": "Browser family supplied by SDK (bounded to known families)"
+        }
+      ]
+    },
+    "labelExtractors": {
+      "browser": "REGEXP_EXTRACT(jsonPayload.browser_name, \"^(Chrome|Safari|Firefox|Edge|Opera|Samsung Internet)$\")"
+    }
+  }
+]

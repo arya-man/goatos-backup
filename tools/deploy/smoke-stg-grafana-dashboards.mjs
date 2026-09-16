@@ -7,6 +7,7 @@
 // auth header while Cloud Run IAM gets X-Serverless-Authorization.
 
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { execFileSync, spawn } from "node:child_process";
 import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -250,20 +251,194 @@ function panelByTitle(dashboard, title) {
   return (Array.isArray(dashboard?.doc?.panels) ? dashboard.doc.panels : []).find((panel) => panel?.title === title);
 }
 
-function panelQueries(panel, project) {
-  return (Array.isArray(panel?.targets) ? panel.targets : [])
-    .filter((target) => target?.queryType === "timeSeriesList" && Array.isArray(target?.timeSeriesList?.filters))
-    .map((target, index) => ({
-      refId: target.refId ?? String.fromCharCode("A".charCodeAt(0) + index),
-      datasource: { uid: "cloud-monitoring", type: "stackdriver" },
-      queryType: "timeSeriesList",
-      intervalMs: target.intervalMs ?? 300000,
-      maxDataPoints: target.maxDataPoints ?? 200,
-      timeSeriesList: {
-        ...target.timeSeriesList,
-        projectName: target.timeSeriesList.projectName ?? project,
-      },
-    }));
+export function panelQueries(panel, project, { fromMs = Date.now() - 86400000, now = Date.now(), variables = {} } = {}) {
+  return (panel?.targets ?? []).filter((target) => !target.hide).map((target, index) => {
+    const replacements = { "${window_seconds}": String(Math.max(1, Math.floor((now - fromMs) / 1000))), "${__from}": String(fromMs), "${__to}": String(now), ...variables };
+    let serialized = JSON.stringify(target);
+    for (const [key, value] of Object.entries(replacements)) serialized = serialized.split(key).join(String(value));
+    const query = JSON.parse(serialized);
+    query.refId ??= String.fromCharCode(65 + index);
+    if (typeof query.datasource === "string" || !query.datasource) query.datasource = { uid: "cloud-monitoring", type: "stackdriver" };
+    query.intervalMs ??= 300000;
+    query.maxDataPoints ??= 300;
+    for (const key of ["timeSeriesList", "timeSeriesQuery", "promQLQuery"]) {
+      if (query[key] && Object.keys(query[key]).length) query[key].projectName ??= project;
+    }
+    return query;
+  });
+}
+
+const conditionalEmitters = {
+  kernel_consumer_validation_errors_total: "backend/internal/domainconsumer/app/service.go",
+  kernel_cloudtasks_idempotent_collisions_total: "backend/internal/platform/taskqueue/cloudtasks.go",
+  kernel_sweeper_obligations_swept_total: "backend/internal/platform/kmetrics/sweeper.go",
+  kernel_sweeper_tasks_created_total: "backend/internal/platform/kmetrics/sweeper.go",
+  "logging_googleapis_com:user_goatos_rum_exceptions": "infra/observability/alloy-config.alloy",
+};
+
+export function conditionalDataReason(query) {
+  const condition = query.goatosDataCondition;
+  if (!condition) return null;
+  const expression = query.promQLQuery?.expr ?? "";
+  const entry = Object.entries(conditionalEmitters).find(([metric, source]) => [ `sum(rate(${metric}[5m]))`, `sum(increase(${metric}[5m]))` ].includes(expression) && condition.source === source);
+  if (!entry || condition.kind !== "event-conditional" || !condition.event || /vector\(0\)|or\s+0/.test(expression)) throw new Error(`Invalid conditional-data annotation on ${query.refId}`);
+  return `${condition.event}; emitter: ${condition.source}`;
+}
+
+export function assertQueryHealth(result, query, label) {
+  const values = (name) => (result?.frames ?? []).flatMap((frame) => {
+    const index = (frame.schema?.fields ?? []).findIndex((field) => field.name === name);
+    return index < 0 ? [] : (frame.data?.values?.[index] ?? []);
+  });
+  if (query.goatosFreshnessMaxHours !== undefined) {
+    const ages = values("age_hours");
+    if (ages.length !== 1 || typeof ages[0] !== "number" || !Number.isFinite(ages[0]) || ages[0] < 0 || ages[0] > query.goatosFreshnessMaxHours) {
+      throw new Error(`${label}: rollup never completed or last successful run is stale (> ${query.goatosFreshnessMaxHours}h)`);
+    }
+  }
+  if (query.goatosRequiredStatus !== undefined) {
+    const statuses = values("status");
+    if (statuses.length !== 1 || statuses[0] !== query.goatosRequiredStatus) throw new Error(`${label}: latest rollup status is ${statuses[0] ?? "missing"}, expected ${query.goatosRequiredStatus}`);
+  }
+}
+
+export function assertQueryResults(response, queries, label) {
+  for (const query of queries) {
+    const result = response?.results?.[query.refId];
+    if (!result) throw new Error(`${label}/${query.refId}: missing query result`);
+    if (result.error || (result.status && result.status >= 400)) throw new Error(`${label}/${query.refId}: ${result.error ?? `HTTP ${result.status}`}`);
+  }
+}
+
+const firebaseDataSources = { firebase_crashlytics: "665f3379-0000-2ce4-9a00-001a1148aea6", firebase_sessions: "685fbeb4-0000-2244-a54b-30fd38104754", firebase_performance: "5c49fb6c-0000-24d0-86d7-883d24f8b018" };
+const firebaseDatasets = Object.keys(firebaseDataSources);
+const firebasePendingTargets = {
+  1: { provider: "performance", sha256: "1e07a7480d45e222d112464546a53f2909154b530ac7d4e278867c381c3a8f4b" },
+  5: { provider: "crash-sessions", sha256: "6e7133b4a86652d3fe615e4ea3d08bf55587cdcc3a37ec846f1db5c449974810" },
+  9: { provider: "performance", sha256: "261506ebf0297e1e8677fc29e25d4a65fe43a7aee7778e2a4c09250a6982b98c" },
+};
+
+// A time-limited provider wait is not a data-health success. The immutable BQ
+// creationTime prevents a fresh receipt from restarting the first-export clock.
+export async function verifyFirebaseInitialExport(receipt, project, readBQ, now = Date.now()) {
+  if (project !== "goatos-stg" || receipt.project !== project || receipt.appId !== "sg.mesha.goatos" || receipt.schemaVersion !== 1 || receipt.firebaseAppId !== "1:514832198871:android:2b3a80736ff2e8d9f19492") throw new Error("Invalid Firebase readiness project/app/version");
+  if (!Array.isArray(receipt.datasets) || receipt.datasets.length !== 3 || new Set(receipt.datasets.map(d => d.id)).size !== 3) throw new Error("Firebase readiness requires exactly three datasets");
+  const empty = {};
+  const expires = {};
+  for (const id of firebaseDatasets) {
+    const declared = receipt.datasets.find(d => d.id === id);
+    const created = Number(declared?.creationTime);
+    if (!declared || !Number.isFinite(created) || created <= 0 || created > now) throw new Error(`Invalid Firebase creation time: ${id}`);
+    const metadata = await readBQ(id, "metadata");
+    if (metadata.datasetReference?.projectId !== project || metadata.datasetReference?.datasetId !== id || metadata.location !== "asia-south1" || Number(metadata.creationTime) !== created) throw new Error(`Firebase dataset metadata mismatch: ${id}`);
+    if (!/^projects\/514832198871\/locations\/asia-south1\/transferConfigs\/[a-zA-Z0-9_-]+$/.test(declared.transferConfig ?? "") || declared.dataSourceId !== firebaseDataSources[id]) throw new Error(`Invalid Firebase transfer identity: ${id}`);
+    const transfer = await readBQ(id, "transfer");
+    if (transfer.name !== declared.transferConfig || transfer.destinationDatasetId !== id || transfer.dataSourceId !== declared.dataSourceId || transfer.disabled === true || ["FAILED", "CANCELLED"].includes(transfer.state) || transfer.params?.platform !== "ANDROID" || transfer.params?.client_namespace !== receipt.appId || transfer.params?.gmp_app_id !== receipt.firebaseAppId) throw new Error(`Firebase transfer disabled or source/configuration mismatched: ${id}`);
+    const tables = await readBQ(id, "tables");
+    if (!/^(0|[1-9][0-9]*)$/.test(String(tables.totalItems)) || !Number.isSafeInteger(Number(tables.totalItems)) || Number(tables.totalItems) < 0 || (tables.tables !== undefined && !Array.isArray(tables.tables))) throw new Error(`Invalid Firebase table-list response: ${id}`);
+    empty[id] = Number(tables.totalItems) === 0 && !(tables.tables?.length) && !tables.nextPageToken;
+    expires[id] = created + 48 * 60 * 60 * 1000;
+  }
+  const pending = {};
+  for (const [provider, ids] of Object.entries({ performance: ["firebase_performance"], "crash-sessions": ["firebase_crashlytics", "firebase_sessions"] })) {
+    const deadline = Math.min(...ids.map(id => expires[id]));
+    if (ids.every(id => empty[id]) && now < deadline) pending[provider] = new Date(deadline).toISOString();
+  }
+  return pending;
+}
+
+export function firebasePendingReason(uid, panel, query, pending) {
+  const spec = firebasePendingTargets[panel.id];
+  if (uid !== "goatos-stg-mobile" || !spec || query.refId !== "A" || query.datasource?.uid !== "postgres-analytics" || !pending[spec.provider]) return null;
+  if (createHash("sha256").update(query.rawSql ?? "").digest("hex") !== spec.sha256) throw new Error(`Firebase pending target SQL changed: ${panel.id}`);
+  return `${spec.provider}: awaiting initial Firebase export until ${pending[spec.provider]} (live datasets still empty)`;
+}
+
+async function loadFirebaseInitialExport(project) {
+  const receiptPath = arg("--firebase-initial-export-receipt", process.env.GOATOS_FIREBASE_INITIAL_EXPORT_RECEIPT);
+  if (!receiptPath) return {};
+  const receipt = JSON.parse(readFileSync(receiptPath, "utf8"));
+  const token = shellOut("gcloud", ["auth", "print-access-token"], { timeout: 15000 });
+  return verifyFirebaseInitialExport(receipt, project, async (dataset, kind) => {
+    const suffix = kind === "tables" ? "/tables?maxResults=1" : "";
+    const url = kind === "transfer" ? `https://bigquerydatatransfer.googleapis.com/v1/${receipt.datasets.find(d => d.id === dataset).transferConfig}` : `https://bigquery.googleapis.com/bigquery/v2/projects/${project}/datasets/${dataset}${suffix}`;
+    const response = await fetch(url, { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(15000) });
+    if (!response.ok) throw new Error(`Firebase dataset ${kind} read failed: ${dataset} HTTP ${response.status}`);
+    return response.json();
+  });
+}
+
+export function assertSmokeDataMode({ queryValidityOnly, requireAll, empty, providerPending }) {
+  if (queryValidityOnly && requireAll) throw new Error("query-validity-only cannot be combined with require-all-panel-data");
+  if (queryValidityOnly) return "QUERY VALIDITY PASS; FINAL DATA CERTIFICATION PENDING";
+  if (empty.length) throw new Error(`All-panel data required: ${empty.length} targets are empty`);
+  return providerPending.length ? "AVAILABLE-DATA PASS; FIREBASE INITIAL EXPORT PENDING" : "FULL-DATA PASS";
+}
+
+export function assertExceptionMetricDefinition(actual, expected) {
+  if (actual.disabled === true || actual.name !== expected.name || actual.filter !== expected.filter || actual.metricDescriptor?.metricKind !== expected.metricDescriptor.metricKind || actual.metricDescriptor?.valueType !== expected.metricDescriptor.valueType) throw new Error("RUM exception metric missing or definition mismatched");
+}
+
+function verifyExceptionMetric(project) {
+  const metrics = JSON.parse(readFileSync(path.join(repo, "infra/observability/faro-log-metrics.json"), "utf8"));
+  const expected = metrics.find(metric => metric.name === "goatos_rum_exceptions");
+  if (!expected) throw new Error("RUM exception metric source definition missing");
+  const actual = JSON.parse(shellOut("gcloud", ["logging", "metrics", "describe", expected.name, `--project=${project}`, "--format=json"], { timeout: 15000 }));
+  assertExceptionMetricDefinition(actual, expected);
+}
+
+export async function assertAllDashboardQueries(baseUrl, password, timeoutMs, iamToken, project, dashboards, firebasePending = {}) {
+  const empty = [];
+  const providerPending = [];
+  const conditionalEmpty = [];
+  let checked = 0;
+  for (const dashboard of dashboards) {
+    const { now, fromMs, range } = grafanaRange(dashboard.doc.time?.from === "now-7d" ? 168 : 24);
+    const variables = {};
+    for (const variable of dashboard.doc.templating?.list ?? []) {
+      const value = variable.current?.value;
+      if (value === "$__all") variables[`\${${variable.name}:regex}`] = variable.allValue || ".*";
+      else if (typeof value === "string") variables[`\${${variable.name}:sqlstring}`] = `'${value.replaceAll("'", "''")}'`;
+      // Exercise range-variable datasource independently, rather than hiding a
+      // broken variable query behind the smoke's explicit duration substitution.
+      if (variable.name === "window_seconds") {
+        const query = panelQueries({ targets: [{ refId: "window", datasource: variable.datasource, rawSql: variable.query, format: "table", rawQuery: true }] }, project, { fromMs, now })[0];
+        const result = await postJson(baseUrl, "/api/ds/query", { from: String(fromMs), to: String(now), range, queries: [query] }, password, timeoutMs, iamToken);
+        assertQueryResults(result, [query], `${dashboard.uid}/window_seconds`);
+        if (!grafanaQueryHasData(result)) throw new Error(`${dashboard.uid}: selected-window variable has no value`);
+      }
+    }
+    const walk = (panels) => panels.flatMap((panel) => [panel, ...walk(panel.panels ?? [])]);
+    for (const panel of walk(dashboard.doc.panels ?? [])) {
+      const queries = panelQueries(panel, project, { fromMs, now, variables });
+      if (panel.goatosMissingCapability) empty.push(`${dashboard.uid}/${panel.title}: missing capability ${panel.goatosMissingCapability}`);
+      if (!queries.length) continue;
+      const response = await postJson(baseUrl, "/api/ds/query", { from: String(fromMs), to: String(now), range, queries }, password, timeoutMs, iamToken);
+      assertQueryResults(response, queries, `${dashboard.uid}/${panel.title}`);
+      for (const query of queries) {
+        checked++;
+        assertQueryHealth(response.results[query.refId], query, `${dashboard.uid}/${panel.title}`);
+        const condition = conditionalDataReason(query);
+        if (!grafanaQueryHasData({ results: { [query.refId]: response.results[query.refId] } })) {
+          const label = `${dashboard.uid}/${panel.title}/${query.refId}`;
+          if (condition) {
+            if (query.promQLQuery?.expr?.includes("logging_googleapis_com:user_goatos_rum_exceptions")) verifyExceptionMetric(project);
+            conditionalEmpty.push(`${label} [${condition}]`);
+          }
+          else {
+            const waiting = firebasePendingReason(dashboard.uid, panel, query, firebasePending);
+            if (waiting) providerPending.push(`${label} [${waiting}]`);
+            else empty.push(`${label} [collection/data missing]`);
+          }
+        }
+      }
+    }
+  }
+  console.log(`grafana-smoke: all ${checked} committed panel targets executed without query errors`);
+  if (conditionalEmpty.length) console.log(`grafana-smoke: event-conditional targets without observations (not zero): ${conditionalEmpty.join("; ")}`);
+  if (empty.length) console.log(`grafana-smoke: EMPTY panel targets (not evidence of success/zero): ${empty.join("; ")}`);
+  if (providerPending.length) console.log(`grafana-smoke: PROVIDER PENDING (not data-ready): ${providerPending.join("; ")}`);
+  return { empty, providerPending };
 }
 
 async function assertFeatureWisePanels(baseUrl, password, timeoutMs, iamToken, project, dashboards) {
@@ -409,6 +584,16 @@ async function selfTest() {
   console.log("grafana-smoke: self-test passed");
 }
 
+export function assertDashboardQueryReadback(expected, actual) {
+  const view = (doc) => ({
+    title: doc.title,
+    time: doc.time,
+    variables: (doc.templating?.list ?? []).map(({ name, type, query, refresh, datasource }) => ({ name, type, query, refresh, datasource })),
+    panels: (doc.panels ?? []).map(({ id, title, type, targets, panels }) => ({ id, title, type, targets: targets ?? [], panels: panels ?? [] })),
+  });
+  assert.deepEqual(view(actual), view(expected), `Live dashboard ${expected.uid} queries/config do not match committed provisioning`);
+}
+
 async function waitForGrafana(baseUrl, password, timeoutMs, iamToken = "", dashboards = [], {
   request = fetchJson,
   now = Date.now,
@@ -436,6 +621,12 @@ async function waitForGrafana(baseUrl, password, timeoutMs, iamToken = "", dashb
       const missing = dashboards.filter((dashboard) => !liveUids.has(dashboard.uid));
       if (missing.length) {
         throw new Error(`Live Grafana is missing committed dashboards: ${missing.map((dashboard) => `${dashboard.uid} (${dashboard.file})`).join(", ")}`);
+      }
+      for (const dashboard of dashboards) {
+        if (dashboard.doc) {
+          const loaded = await read(`/api/dashboards/uid/${encodeURIComponent(dashboard.uid)}`);
+          assertDashboardQueryReadback(dashboard.doc, loaded?.dashboard ?? {});
+        }
       }
       return;
     } catch (error) {
@@ -537,7 +728,12 @@ async function main() {
     }
     await assertLiveDataQueries(baseUrl, password, 30000, iamToken, project);
     await assertFeatureWisePanels(baseUrl, password, 30000, iamToken, project, dashboards);
-    console.log(`grafana-smoke: OK (${dashboards.length} committed dashboards, ${requiredDatasourceUids.length} datasources, representative live data queries, and feature-wise live data queries checked in live Grafana)`);
+    const queryValidityOnly = hasFlag("--query-validity-only");
+    if (queryValidityOnly && hasFlag("--require-all-panel-data")) throw new Error("query-validity-only cannot be combined with require-all-panel-data");
+    const firebasePending = queryValidityOnly ? {} : await loadFirebaseInitialExport(project);
+    const { empty: emptyPanels, providerPending } = await assertAllDashboardQueries(baseUrl, password, 30000, iamToken, project, dashboards, firebasePending);
+    const dataStatus = assertSmokeDataMode({ queryValidityOnly, requireAll: hasFlag("--require-all-panel-data"), empty: emptyPanels, providerPending });
+    console.log(`grafana-smoke: ${dataStatus} (${dashboards.length} committed dashboards, ${requiredDatasourceUids.length} datasources, representative live data queries, and feature-wise live data queries checked in live Grafana)`);
   } catch (error) {
     const proxyDiag = proxy?.diagnostics();
     if (proxyDiag) console.error(proxyDiag);
@@ -547,7 +743,7 @@ async function main() {
   }
 }
 
-main().catch((error) => {
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) main().catch((error) => {
   console.error(`grafana-smoke: FAILED: ${error.message}`);
   process.exit(1);
 });

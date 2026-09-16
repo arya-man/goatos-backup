@@ -1,18 +1,8 @@
-// Command analytics-rollup is the Goat OS GA4 -> BigQuery -> Postgres
-// analytics rollup job (docs/observability/OBSERVABILITY_DESIGN.md section
-// 2.6). It runs once per day (Cloud Scheduler -> Cloud Run Job, see
-// infra/envs/stg/analytics_rollup.tf), aggregates exactly one GA4 export day
-// partition (plus, optionally, one day of the Crashlytics export) inside
-// BigQuery, and upserts compact rollups into Cloud SQL Postgres
-// analytics.funnel_daily / journey_daily / engagement_daily / crash_daily.
-// Grafana's Postgres datasource then serves every dashboard load from these
-// tables - BigQuery is scanned once per day, never once per dashboard view.
-//
-// Every BigQuery query issued by this job aggregates in SQL (GROUP BY /
-// APPROX_QUANTILES) against a single date partition and carries a
-// MaxBytesBilled cap (bigquery.go), per the scale/cost rules in this job's
-// task brief: no raw event rows are pulled into Go, no N+1 queries, no
-// unbounded reads.
+// Command analytics-rollup aggregates bounded daily analytics.app_events
+// partitions into Postgres funnel/journey/engagement summaries. It needs no
+// GA4 export in the default app_events mode. Explicit --source=ga4 retains the
+// legacy export path, including its optional independent Crashlytics rollup.
+// Dashboard reads use compact summaries, never rescan raw events per panel.
 package main
 
 import (
@@ -65,6 +55,10 @@ func run(args []string) error {
 	runID, err := startRollupRun(ctx, pool, cfg.SourceDate)
 	if err != nil {
 		return fmt.Errorf("start rollup_run audit row: %w", err)
+	}
+
+	if cfg.Source == "app_events" {
+		return runAppEventsAndFinish(ctx, pool, cfg, runID, runStart)
 	}
 
 	// GA4 export not linked yet (docs/observability/INFRA.md section 9 is a

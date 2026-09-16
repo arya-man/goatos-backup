@@ -24,37 +24,30 @@ const defaultMaxBytesBilled = 2 * 1024 * 1024 * 1024 // 2 GiB
 // asia-south1, never BigQuery's own "US" multi-region default.
 const defaultBQLocation = "asia-south1"
 
-// config holds the resolved flag+env configuration for one analytics-rollup
-// run. Field names/env sources are documented per-field because this job
-// straddles two naming conventions: infra/envs/stg/analytics_rollup.tf
-// (already deployed, source of truth for what the Cloud Run Job actually
-// passes) and the task's originally-suggested env names - both are honored,
-// infra's name wins when both are set. See the "env reconciliation" note in
-// the handoff for the full list.
+// config resolves flags and environment for the default first-party app_events
+// rollup and optional app-wide Firebase exports. Legacy GA4 requires --source=ga4.
 type config struct {
-	TenantID string
+	PerformanceTable string
+	TenantID         string
+	Source           string // app_events (default) or explicit legacy ga4 source
+	LookbackDays     int    // bounded recent-day replacement ending on SourceDate
 
-	// SourceDate is the single GA4 event_date partition this run
+	// SourceDate is the single business-day partition this run
 	// aggregates, in Asia/Kolkata business-calendar terms. Defaults to
-	// "yesterday" because a GA4 daily export for date D is typically not
-	// stable/complete until sometime on D+1, and the Cloud Scheduler
-	// trigger (03:15 IST) runs well after that export lands.
+	// "yesterday"; an explicit date supports repeatable late-arrival backfills.
+	// The shared kernel worker pins this date when triggering the daily job;
+	// recent-day lookback handles late ingestion without changing the cohort day.
 	SourceDate time.Time
 
 	Timeout time.Duration
 
-	// GA4BQProject is the GCP project holding the GA4 BigQuery export
-	// dataset. Firebase always creates the export dataset in the same
-	// project as the Firebase project itself, so this defaults to
-	// GOOGLE_CLOUD_PROJECT (the project Cloud Run already sets) and only
-	// needs an override if GA4 export ever lives in a different project.
+	// GA4BQProject names the BigQuery project for optional Firebase exports and
+	// legacy GA4. The historical field name is retained for CLI compatibility.
+	// Defaults to GOOGLE_CLOUD_PROJECT; configured export tables must match it.
 	GA4BQProject string
 
-	// GA4Dataset is the GA4 BigQuery export dataset id, e.g.
-	// "analytics_123456789". Empty means "GA4 export not linked yet" -
-	// the job must log and exit 0, never crash a scheduled run before the
-	// manual Firebase-console linking step
-	// (docs/observability/INFRA.md section 9) has happened.
+	// GA4Dataset is used only by explicit legacy --source=ga4. An absent dataset
+	// skips that legacy run; the default app_events path has no GA4 dependency.
 	GA4Dataset string
 
 	// BQLocation is the BigQuery job location. Must match the dataset's
@@ -64,25 +57,16 @@ type config struct {
 	// MaxBytesBilled caps every BigQuery query this run issues.
 	MaxBytesBilled int64
 
-	// CrashlyticsTable, if set, is a fully-qualified
-	// `project.dataset.table` for the Crashlytics BigQuery export.
-	// Crashlytics is optional per the task - an empty value skips the
-	// crash rollup step entirely (analytics.crash_daily is simply not
-	// written this run) without failing the job.
-	CrashlyticsTable string
+	// CrashlyticsTable and CrashlyticsSessionsTable are optional fully-qualified
+	// Firebase tables. The default path writes app-wide analytics.app_crash_daily
+	// only when both are configured; neither configured leaves data unavailable.
+	// Legacy GA4 separately retains its analytics.crash_daily compatibility path.
+	CrashlyticsTable         string
+	CrashlyticsSessionsTable string
+	SourceAppID              string
 
-	// FunnelSteps is the ordered (step_key -> GA4 event_name) funnel
-	// definition. Configurable via env because
-	// apps/goatos-android/core/core-analytics/AnalyticsEvents.kt only has
-	// login_attempt/login_success/bootstrap_loaded wired today - the
-	// drive-open/scan/vaccination-capture/submit steps named in
-	// OBSERVABILITY_DESIGN.md section 2.5 are not yet emitted by the app.
-	// Missing event names simply produce zero rows for that step (GA4
-	// GROUP BY on a nonexistent event_name is a harmless no-op), so
-	// shipping the full intended funnel now is safe and needs no code
-	// change once Android wires the remaining events - only an env
-	// update if the eventual event names differ from the placeholders
-	// below.
+	// FunnelSteps is the legacy GA4 funnel definition. The default first-party
+	// ordered flows are defined separately in appEventFlows using emitted events.
 	FunnelSteps []FunnelStep
 }
 
@@ -116,18 +100,35 @@ func defaultFunnelSteps() []FunnelStep {
 
 func parseConfig(args []string) (config, error) {
 	fs := flag.NewFlagSet("analytics-rollup", flag.ContinueOnError)
+	lookback := fs.Int("lookback-days", 1, "refresh 1..7 business days ending on source-date (app_events only)")
+	source := fs.String("source", firstNonEmptyEnv("GOATOS_ANALYTICS_SOURCE"), "app_events (default) or ga4")
 	tenantID := fs.String("tenant-id", getenv("GOATOS_TENANT_ID"), "tenant id (required; matches infra GOATOS_TENANT_ID)")
-	sourceDateRaw := fs.String("source-date", getenv("GOATOS_ANALYTICS_SOURCE_DATE"), "YYYY-MM-DD GA4 event_date partition to roll up; default yesterday (Asia/Kolkata)")
+	sourceDateRaw := fs.String("source-date", getenv("GOATOS_ANALYTICS_SOURCE_DATE"), "YYYY-MM-DD business date to roll up; default yesterday (Asia/Kolkata)")
 	timeout := fs.Duration("timeout", durationEnv("GOATOS_ANALYTICS_ROLLUP_TIMEOUT", 20*time.Minute), "job timeout")
 	ga4Project := fs.String("ga4-bq-project", firstNonEmptyEnv("GOATOS_GA4_BQ_PROJECT", "GOOGLE_CLOUD_PROJECT"), "GCP project holding the GA4 BigQuery export dataset")
 	ga4Dataset := fs.String("ga4-bq-dataset", firstNonEmptyEnv("GOATOS_GA4_EXPORT_DATASET", "GOATOS_GA4_BQ_DATASET"), "GA4 BigQuery export dataset id; empty means GA4 export is not linked yet")
 	bqLocation := fs.String("bq-location", firstNonEmptyEnv("GOATOS_BQ_LOCATION"), "BigQuery job location")
 	maxBytesBilled := fs.Int64("max-bytes-billed", int64Env("GOATOS_ANALYTICS_BQ_MAX_BYTES", defaultMaxBytesBilled), "BigQuery MaxBytesBilled cap per query")
 	crashlyticsTable := fs.String("crashlytics-bq-table", getenv("GOATOS_CRASHLYTICS_BQ_TABLE"), "optional fully-qualified project.dataset.table for the Crashlytics BigQuery export; empty skips crash rollup")
+	performanceTable := fs.String("performance-bq-table", getenv("GOATOS_PERFORMANCE_BQ_TABLE"), "optional Firebase Performance export project.dataset.table")
+	crashSessions := fs.String("crashlytics-sessions-table", getenv("GOATOS_CRASHLYTICS_SESSIONS_TABLE"), "optional Firebase sessions export project.dataset.table")
+	sourceAppID := fs.String("source-app-id", getenv("GOATOS_ANALYTICS_SOURCE_APP_ID"), "explicit Firebase app identity for app-wide crash statistics")
 	if err := fs.Parse(args); err != nil {
 		return config{}, err
 	}
 
+	if *source == "" {
+		*source = "app_events"
+	}
+	if *source != "app_events" && *source != "ga4" {
+		return config{}, errors.New("source must be app_events or ga4")
+	}
+	if *lookback < 1 || *lookback > 7 {
+		return config{}, errors.New("lookback-days must be between 1 and 7")
+	}
+	if *source != "app_events" && *lookback != 1 {
+		return config{}, errors.New("lookback-days requires app_events source")
+	}
 	if strings.TrimSpace(*tenantID) == "" {
 		return config{}, errors.New("tenant-id is required")
 	}
@@ -154,15 +155,20 @@ func parseConfig(args []string) (config, error) {
 	}
 
 	return config{
-		TenantID:         strings.TrimSpace(*tenantID),
-		SourceDate:       sourceDate,
-		Timeout:          *timeout,
-		GA4BQProject:     strings.TrimSpace(*ga4Project),
-		GA4Dataset:       strings.TrimSpace(*ga4Dataset),
-		BQLocation:       loc,
-		MaxBytesBilled:   *maxBytesBilled,
-		CrashlyticsTable: strings.TrimSpace(*crashlyticsTable),
-		FunnelSteps:      defaultFunnelSteps(),
+		TenantID:                 strings.TrimSpace(*tenantID),
+		Source:                   *source,
+		LookbackDays:             *lookback,
+		SourceDate:               sourceDate,
+		Timeout:                  *timeout,
+		GA4BQProject:             strings.TrimSpace(*ga4Project),
+		GA4Dataset:               strings.TrimSpace(*ga4Dataset),
+		BQLocation:               loc,
+		MaxBytesBilled:           *maxBytesBilled,
+		CrashlyticsTable:         strings.TrimSpace(*crashlyticsTable),
+		CrashlyticsSessionsTable: strings.TrimSpace(*crashSessions),
+		SourceAppID:              strings.TrimSpace(*sourceAppID),
+		PerformanceTable:         strings.TrimSpace(*performanceTable),
+		FunnelSteps:              defaultFunnelSteps(),
 	}, nil
 }
 

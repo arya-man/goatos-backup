@@ -165,6 +165,7 @@ func run(ctx context.Context, args []string) error {
 		// due-today), reconcile inventory batches, retry SOP review fanout. All light,
 		// so the interval/4 default is ample.
 		supervisor.RegisterCadence("operational", 5*time.Minute,
+			kernelstages.NewAnalyticsRollupStage(deps),
 			kernelstages.NewReminderCadenceStage(deps, tenantID),
 			kernelstages.NewFeedDirectionLifecycleStage(deps, tenantID),
 			kernelstages.NewFeedTransportStage(deps, tenantID),

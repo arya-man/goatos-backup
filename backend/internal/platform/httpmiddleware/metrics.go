@@ -19,8 +19,13 @@ var (
 	httpActiveRequests  = mustInt64UpDownCounter(httpMeter, "http.server.active_requests", "{request}", "Number of HTTP requests currently being handled by the server.")
 )
 
+// HTTP durations are recorded in seconds. SDK defaults (0, 5, 10, ...)
+// collapse normal subsecond requests into a five-second bucket, making
+// interpolated p95 misleading. Keep explicit bounds at the 300/500ms gates.
 func mustFloat64Histogram(m metric.Meter, name, unit, desc string) metric.Float64Histogram {
-	inst, err := m.Float64Histogram(name, metric.WithUnit(unit), metric.WithDescription(desc))
+	inst, err := m.Float64Histogram(name, metric.WithUnit(unit), metric.WithDescription(desc), metric.WithExplicitBucketBoundaries(
+		0.005, 0.01, 0.025, 0.05, 0.075, 0.1, 0.15, 0.2, 0.25, 0.3, 0.4, 0.5, 0.75, 1, 1.5, 2.5, 5, 10, 30, 60,
+	))
 	if err != nil {
 		otel.Handle(err)
 		return nil

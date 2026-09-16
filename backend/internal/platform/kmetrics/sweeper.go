@@ -30,3 +30,11 @@ func RecordSweeperBatch(ctx context.Context, stage string, durationSeconds float
 func RecordSweeperFailure(ctx context.Context, phase string) {
 	addCounter(ctx, sweeperFailures, 1, attribute.String("phase", phase))
 }
+
+// RecordSweeperTasksCreated counts only newly committed SOP batch tasks, not
+// replayed existing mappings or planned batches that have not been finalized.
+func RecordSweeperTasksCreated(ctx context.Context, created int) {
+	if created > 0 {
+		addCounter(ctx, sweeperTasksCreated, int64(created), attribute.String("stage", "finalize"))
+	}
+}

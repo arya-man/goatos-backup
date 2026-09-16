@@ -1,6 +1,9 @@
 package main
 
 import (
+	"encoding/json"
+	"os"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -141,5 +144,59 @@ func TestCrashFreeRatioPct(t *testing.T) {
 				t.Fatalf("crashFreeRatioPct(%d, %d) = %v, want %v", tc.crashCount, tc.total, got, tc.want)
 			}
 		})
+	}
+}
+
+func TestAppEventsLookbackBoundedAndExplicit(t *testing.T) {
+	cfg, err := parseConfig([]string{"--tenant-id", testTenantID, "--source-date", "2026-09-15", "--lookback-days", "3"})
+	if err != nil || cfg.LookbackDays != 3 || cfg.Source != "app_events" {
+		t.Fatalf("cfg=%+v err=%v", cfg, err)
+	}
+	for _, args := range [][]string{{"--lookback-days", "0"}, {"--lookback-days", "8"}, {"--lookback-days", "3", "--source", "ga4"}, {"--source", "invalid"}} {
+		if _, err := parseConfig(append([]string{"--tenant-id", testTenantID}, args...)); err == nil {
+			t.Fatalf("accepted invalid args=%v", args)
+		}
+	}
+}
+
+func TestRollupJobArgumentsMatchBoundedCLI(t *testing.T) {
+	raw, err := os.ReadFile("../../../infra/envs/stg/analytics_rollup.tf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	match := regexp.MustCompile(`args\s*=\s*(\[[^\]]+\])`).FindSubmatch(raw)
+	if len(match) != 2 {
+		t.Fatal("rollup job args missing")
+	}
+	var args []string
+	if err = json.Unmarshal(match[1], &args); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := parseConfig(append(args, "--tenant-id", testTenantID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Source != "app_events" || cfg.LookbackDays != 3 || cfg.Timeout != 25*time.Minute {
+		t.Fatalf("rollup job args=%+v", cfg)
+	}
+
+}
+
+func TestCrashSessionsConfigKeepsExplicitAppScope(t *testing.T) {
+	t.Setenv("GOATOS_CRASHLYTICS_SESSIONS_TABLE", "project.sessions.android")
+	t.Setenv("GOATOS_ANALYTICS_SOURCE_APP_ID", "sg.mesha.goatos")
+	cfg, err := parseConfig([]string{"--tenant-id", testTenantID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.CrashlyticsSessionsTable != "project.sessions.android" || cfg.SourceAppID != "sg.mesha.goatos" {
+		t.Fatalf("cfg=%+v", cfg)
+	}
+	cfg, err = parseConfig([]string{"--tenant-id", testTenantID, "--crashlytics-sessions-table", "other.sessions.android", "--source-app-id", "another-app"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.CrashlyticsSessionsTable != "other.sessions.android" || cfg.SourceAppID != "another-app" {
+		t.Fatalf("CLI override cfg=%+v", cfg)
 	}
 }

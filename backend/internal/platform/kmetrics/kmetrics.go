@@ -42,7 +42,12 @@ func newCounter(name, unit, desc string) metric.Int64Counter {
 }
 
 func newHistogram(name, unit, desc string) metric.Float64Histogram {
-	inst, err := meter.Float64Histogram(name, metric.WithUnit(unit), metric.WithDescription(desc))
+	options := []metric.Float64HistogramOption{metric.WithUnit(unit), metric.WithDescription(desc)}
+	if unit == "s" {
+		// Seconds need subsecond resolution; SDK defaults are millisecond-shaped.
+		options = append(options, metric.WithExplicitBucketBoundaries(0.005, 0.01, 0.025, 0.05, 0.075, 0.1, 0.15, 0.2, 0.25, 0.3, 0.4, 0.5, 0.75, 1, 1.5, 2.5, 5, 10, 30, 60))
+	}
+	inst, err := meter.Float64Histogram(name, options...)
 	if err != nil {
 		otel.Handle(err)
 		return nil

@@ -70,6 +70,10 @@ resource "google_cloud_run_v2_service" "kernel_worker" {
       }
 
       env {
+        name  = "GOATOS_ANALYTICS_ROLLUP_JOB"
+        value = "projects/${var.project_id}/locations/${var.region}/jobs/${google_cloud_run_v2_job.analytics_rollup.name}"
+      }
+      env {
         name  = "GOATOS_WORKER_STAGES_ENABLED"
         value = "true"
       }

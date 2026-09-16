@@ -256,8 +256,11 @@ guardrail-registration-guard:
 # grafana-durability-guard: if dashboard JSONs exist, Terraform must keep
 # file-provider provisioning wired and staging deploy must smoke live Grafana.
 grafana-durability-guard:
+	python3 tools/deploy/stg-observability_test.py
+	python3 tools/deploy/bootstrap-grafana-readonly_test.py
+	node --test tools/deploy/stg-observability-order.test.mjs
 	bash -n tools/deploy/stg-clouddeploy-task.sh
-	node --test tools/deploy/stg-grafana-domain.test.mjs tools/deploy/stg-grafana-sso.test.mjs tools/deploy/stg-admin-web-traffic-order.test.mjs
+	node --test tools/deploy/stg-grafana-domain.test.mjs tools/deploy/stg-grafana-sso.test.mjs tools/deploy/stg-admin-web-traffic-order.test.mjs tools/deploy/grafana-dashboard-queries.test.mjs
 	node --check tools/deploy/smoke-stg-grafana-dashboards.mjs
 	node tools/deploy/smoke-stg-grafana-dashboards.mjs --self-test
 	node tools/ci/check-grafana-durability.mjs --self-test

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/vgoats/goatos/backend/internal/platform/kmetrics"
 	"strings"
 	"time"
 
@@ -557,6 +558,7 @@ ORDER BY context ->> 'obligation_batch_id'`, tenantID, batchIDs)
 	if err := tx.Commit(ctx); err != nil {
 		return nil, err
 	}
+	kmetrics.RecordSweeperTasksCreated(ctx, createdCount)
 	return result, nil
 }
 

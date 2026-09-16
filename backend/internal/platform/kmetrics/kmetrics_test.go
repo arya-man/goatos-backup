@@ -307,3 +307,26 @@ func TestLogInstrumentationErrorNilSafety(t *testing.T) {
 	// Must not panic on either nil logger or nil error.
 	LogInstrumentationError(nil, nil)
 }
+
+func TestSecondsHistogramExportsSubsecondResolution(t *testing.T) {
+	RecordConsumerHandle(context.Background(), ConsumerOutcomeProcessed, "histogram_precision_test", 0.12)
+	m, ok := findMetric(collect(t), "kernel.consumer.handle.duration")
+	if !ok {
+		t.Fatal("missing histogram")
+	}
+	if m.Unit != "s" {
+		t.Fatal(m.Unit)
+	}
+	for _, point := range m.Data.(metricdata.Histogram[float64]).DataPoints {
+		if value, ok := point.Attributes.Value("event_type"); !ok || value.AsString() != "histogram_precision_test" {
+			continue
+		}
+		for i, bound := range point.Bounds {
+			if bound == 0.15 && point.BucketCounts[i] == 1 {
+				return
+			}
+		}
+		t.Fatalf("subsecond duration lost: bounds=%v counts=%v", point.Bounds, point.BucketCounts)
+	}
+	t.Fatal("missing test point")
+}

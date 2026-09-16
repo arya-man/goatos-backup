@@ -206,14 +206,8 @@ func run(args []string) error {
 				for _, plan := range plans {
 					sweepStart := time.Now()
 					result, err := sweeper.SweepVersionWithSessionNoFinalizeSnapshotAsOf(ctx, cfg.TenantID, plan.VersionID, plan.Config, cfg.AsOf, cfg.DueBefore, session, createdAtHWM, snapshot)
-					// tasksCreated approximates 1 SOP batch task per obligation batch -
-					// obligationapp.SweepResult does not return a distinct tasks-created count, and batches
-					// are only task-bearing when a TaskCreator (creator, gated on --actor-id) is configured.
-					tasksCreated := 0
-					if creator != nil {
-						tasksCreated = result.Batches + result.ParkBatches
-					}
-					kmetrics.RecordSweeperBatch(ctx, "version", time.Since(sweepStart).Seconds(), result.Obligations+result.ParkObligations, tasksCreated)
+					// Actual task creation is measured after the batch repository commits.
+					kmetrics.RecordSweeperBatch(ctx, "version", time.Since(sweepStart).Seconds(), result.Obligations+result.ParkObligations, 0)
 					if err != nil {
 						batchSweepPhase = "version_sweep"
 						batchSweepErr = fmt.Errorf("sweep version %s: %w", plan.VersionID, err)

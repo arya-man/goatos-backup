@@ -185,6 +185,13 @@ export function validate(root = repo) {
     const serialized = JSON.stringify(doc);
     for (const panel of doc.panels ?? []) {
       for (const target of panelTargets(panel)) {
+        if (target.queryType === "promQL") {
+          if (!target.promQLQuery?.expr || !target.promQLQuery?.projectName || !target.promQLQuery?.step
+            || !target.timeSeriesList || Object.keys(target.timeSeriesList).length !== 0) {
+            problems.push(`${relative}: PromQL requires expression/project/step and empty timeSeriesList migration sentinel for Grafana 11.3`);
+          }
+          continue;
+        }
         if (!target.timeSeriesList) continue;
         const query = target.timeSeriesList;
         const cumulativeHistogram = query.filters?.some((value) => typeof value === "string" && value.startsWith("prometheus.googleapis.com/") && value.endsWith("/histogram"));
@@ -441,6 +448,15 @@ function selfTest() {
       } }] }],
     }));
     assert(validate(root).some((problem) => problem.includes("cumulative GMP histograms require")));
+
+    writeFixture(root);
+    const promFixture = path.join(root, defaults.dashboardDir, "02-promql.json");
+    const prom = { queryType: "promQL", promQLQuery: {expr:"sum(rate(requests_total[5m]))",projectName:"goatos-stg",step:"300s"}, timeSeriesList:{} };
+    writeFileSync(promFixture, JSON.stringify({uid:"promql",title:"PromQL",panels:[{targets:[prom]}]}));
+    assert(!validate(root).some(p => p.includes("PromQL requires") || p.includes("timeSeriesList.filters must use")));
+    delete prom.timeSeriesList;
+    writeFileSync(promFixture, JSON.stringify({uid:"promql",title:"PromQL",panels:[{targets:[prom]}]}));
+    assert(validate(root).some(p => p.includes("PromQL requires")));
 
     writeFixture(root, { terraform: "resource \"google_storage_bucket\" \"grafana_provisioning\" {}" });
     assert(validate(root).some((problem) => problem.includes("grafana_dashboard_jsons")));

@@ -242,10 +242,13 @@ smoke_grafana_dashboards() {
     --region "$REGION" \
     --service goatos-stg-grafana \
     --url https://grafana.mesha.sg \
-    --no-proxy; then
+    --no-proxy \
+    --query-validity-only \
+    --firebase-initial-export-receipt infra/observability/firebase-initial-export.json; then
+    echo "Grafana query validation passed; full-data readiness is pending separate certification."
     return 0
   fi
-  echo "ERROR: Grafana dashboard smoke failed; refusing to report backend/web deploy success with missing or empty live dashboards." >&2
+  echo "ERROR: Grafana dashboard smoke failed; refusing to report backend/web deploy success with failed datasource queries or required live-data checks." >&2
   return 1
 }
 

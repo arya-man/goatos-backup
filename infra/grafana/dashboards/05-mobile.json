@@ -1,14 +1,14 @@
 {
   "uid": "goatos-stg-mobile",
-  "title": "Goat OS — Mobile (goatos-android)",
-  "description": "Network latency, funnel conversion, and crash-free rate for goatos-android per OBSERVABILITY_DESIGN.md section 2.5/2.6. LIVE-INSTANCE CAVEAT (checked via /api/datasources on this exact Grafana): only 'Google Cloud Monitoring' (stackdriver) and 'BigQuery' datasources are provisioned — there is no Postgres datasource (analytics.* rollup tables), so funnel/journey/crash-free panels are placeholders naming the missing datasource rather than broken queries against it. App-start, screen render, crash reporting, and GA4 event capture live in Firebase Performance/Crashlytics/Analytics consoles directly (native SDKs, not OTel) and are out of Grafana's scope by design. Network round-trip (OTel-Android OkHttp interceptor) has NOT been added to apps/goatos-android yet (grepped, no OTel/OkHttp interceptor code exists) — its panel below is a correctly-shaped query for the documented http.client.request.duration OTel semantic-convention metric, which will 404 until that interceptor ships, same treatment as every other pending-telemetry panel in this dashboard set.",
+  "title": "Goat OS \u2014 Mobile (goatos-android)",
+  "description": "Android telemetry from actual app_events daily cohort rollups and Crashlytics. Missing data is a collection/rollup gap, never synthesized success. Network timing collection is independently identified in its panel.",
   "schemaVersion": 39,
   "version": 1,
   "editable": true,
   "graphTooltip": 1,
   "timezone": "Asia/Kolkata",
   "time": {
-    "from": "now-24h",
+    "from": "now-7d",
     "to": "now"
   },
   "refresh": "1m",
@@ -20,7 +20,7 @@
   "panels": [
     {
       "id": 100,
-      "title": "Network (OTel-Android, pending interceptor)",
+      "title": "Android network coverage",
       "type": "row",
       "gridPos": {
         "h": 1,
@@ -33,8 +33,8 @@
     },
     {
       "id": 1,
-      "title": "Network round-trip p50 / p95 / p99",
-      "description": "http.client.request.duration -> prometheus.googleapis.com/http_client_request_duration_seconds/histogram, filtered to service.name=\"goatos-android\". NOT YET emitted — apps/goatos-android has no OTel/OkHttp interceptor wired (OBSERVABILITY_DESIGN.md section 2.5 describes it as a planned addition). Query is correct-shape and will populate once the interceptor ships. p95 stands in for the requested p90 (Cloud Monitoring has no p90 aligner, verified live).",
+      "title": "Android exported network requests \u2014 daily p50 / p95 / p99",
+      "description": "App-wide daily approximate percentiles of completed NETWORK_REQUEST samples exported by Firebase Performance, split by app version, route, method and response class. These are exported samples, not every attempted network operation. No export/rollup rows means unavailable; daily percentiles are not combined into a window percentile. Daily buckets are placed at their Asia/Kolkata business-day end; the selected window chooses completed day ends, not a rolling-window aggregate. Initial Firebase delivery: these exports were requested in Firebase; enabled transfer configuration is verified separately. No source tables existed at request time. An empty panel means samples are unavailable, never zero requests or zero crashes; disabled or failed transfers are configuration failures, not initial delivery delays. Deployment may report a separately bounded initial-export pending state; after its deadline or once any source table arrives, missing data is a failure requiring schema configuration and backfill. Initial-export wait deadline: 2026-09-18T09:09:59.642000+00:00. A later empty panel is not an approved provider wait.",
       "type": "timeseries",
       "gridPos": {
         "h": 8,
@@ -42,71 +42,39 @@
         "x": 0,
         "y": 1
       },
-      "datasource": "Google Cloud Monitoring",
       "fieldConfig": {
         "defaults": {
-          "unit": "s",
-          "custom": {
-            "drawStyle": "line",
-            "fillOpacity": 10,
-            "lineWidth": 1
-          }
+          "unit": "ms",
+          "noValue": "No exported samples \u2014 see panel info"
         },
         "overrides": []
       },
       "options": {
+        "tooltip": {
+          "mode": "multi"
+        },
         "legend": {
           "displayMode": "list",
           "placement": "bottom"
-        },
-        "tooltip": {
-          "mode": "multi"
         }
       },
       "targets": [
         {
           "refId": "A",
-          "datasource": "Google Cloud Monitoring",
-          "aliasBy": "p50",
-          "queryType": "timeSeriesList",
-          "timeSeriesList": {
-            "projectName": "goatos-stg",
-            "view": "FULL",
-            "perSeriesAligner": "ALIGN_DELTA",
-            "crossSeriesReducer": "REDUCE_PERCENTILE_50",
-            "alignmentPeriod": "900s",
-            "filters": ["metric.type", "=", "prometheus.googleapis.com/http_client_request_duration_seconds/histogram", "AND", "resource.type", "=", "prometheus_target", "AND", "resource.label.service_name", "=", "goatos-android"]
-          }
-        },
-        {
-          "refId": "B",
-          "datasource": "Google Cloud Monitoring",
-          "aliasBy": "p95",
-          "queryType": "timeSeriesList",
-          "timeSeriesList": {
-            "projectName": "goatos-stg",
-            "view": "FULL",
-            "perSeriesAligner": "ALIGN_DELTA",
-            "crossSeriesReducer": "REDUCE_PERCENTILE_95",
-            "alignmentPeriod": "900s",
-            "filters": ["metric.type", "=", "prometheus.googleapis.com/http_client_request_duration_seconds/histogram", "AND", "resource.type", "=", "prometheus_target", "AND", "resource.label.service_name", "=", "goatos-android"]
-          }
-        },
-        {
-          "refId": "C",
-          "datasource": "Google Cloud Monitoring",
-          "aliasBy": "p99",
-          "queryType": "timeSeriesList",
-          "timeSeriesList": {
-            "projectName": "goatos-stg",
-            "view": "FULL",
-            "perSeriesAligner": "ALIGN_DELTA",
-            "crossSeriesReducer": "REDUCE_PERCENTILE_99",
-            "alignmentPeriod": "900s",
-            "filters": ["metric.type", "=", "prometheus.googleapis.com/http_client_request_duration_seconds/histogram", "AND", "resource.type", "=", "prometheus_target", "AND", "resource.label.service_name", "=", "goatos-android"]
-          }
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "postgres-analytics"
+          },
+          "rawSql": "SELECT ((event_date + 1)::timestamp AT TIME ZONE 'Asia/Kolkata') - interval '1 second' AS time, concat(app_version, ' \u00b7 ', http_method, ' ', route_pattern, ' \u00b7 ', response_class) AS metric, p50_ms AS p50, p95_ms AS p95, p99_ms AS p99 FROM analytics.app_network_daily WHERE source_app_id = 'sg.mesha.goatos' AND total_requests > 0 AND $__timeFilter(((event_date + 1)::timestamp AT TIME ZONE 'Asia/Kolkata') - interval '1 second') ORDER BY time",
+          "format": "time_series",
+          "editorMode": "code",
+          "rawQuery": true
         }
-      ]
+      ],
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "postgres-analytics"
+      }
     },
     {
       "id": 101,
@@ -168,15 +136,23 @@
             "perSeriesAligner": "ALIGN_DELTA",
             "crossSeriesReducer": "REDUCE_PERCENTILE_99",
             "alignmentPeriod": "3600s",
-            "filters": ["metric.type", "=", "prometheus.googleapis.com/kernel_analytics_rollup_run_duration_seconds/histogram", "AND", "resource.type", "=", "prometheus_target"]
+            "filters": [
+              "metric.type",
+              "=",
+              "prometheus.googleapis.com/kernel_analytics_rollup_run_duration_seconds/histogram",
+              "AND",
+              "resource.type",
+              "=",
+              "prometheus_target"
+            ]
           }
         }
       ]
     },
     {
       "id": 3,
-      "title": "Analytics rows written (24h)",
-      "description": "kernel.analytics_rollup.rows_written — rows upserted into analytics.* Postgres tables per run. A flat zero for an extended period, once the job is enabled, means the rollup is running but finding nothing new to write (check GA4 export linkage).",
+      "title": "Analytics summary rows replaced per run",
+      "description": "Rows atomically replaced in daily summary tables by a rollup run. This is write volume, not new event count: rerunning the same day replaces rows again. No metric means the job has not exported an observed run.",
       "type": "stat",
       "gridPos": {
         "h": 7,
@@ -220,14 +196,22 @@
             "perSeriesAligner": "ALIGN_DELTA",
             "crossSeriesReducer": "REDUCE_SUM",
             "alignmentPeriod": "86400s",
-            "filters": ["metric.type", "=", "prometheus.googleapis.com/kernel_analytics_rollup_rows_written_total/counter", "AND", "resource.type", "=", "prometheus_target"]
+            "filters": [
+              "metric.type",
+              "=",
+              "prometheus.googleapis.com/kernel_analytics_rollup_rows_written_total/counter",
+              "AND",
+              "resource.type",
+              "=",
+              "prometheus_target"
+            ]
           }
         }
       ]
     },
     {
       "id": 102,
-      "title": "Journey, funnel, crash-free (pending Postgres analytics datasource)",
+      "title": "Observed Android journeys and ordered funnels",
       "type": "row",
       "gridPos": {
         "h": 1,
@@ -240,8 +224,8 @@
     },
     {
       "id": 4,
-      "title": "Login -> submit journey duration p50/p90/p99 — needs Postgres analytics datasource",
-      "type": "text",
+      "title": "Completed proof / camera / bootstrap journeys \u2014 daily p50 / p90 / p99",
+      "type": "timeseries",
       "gridPos": {
         "h": 7,
         "w": 12,
@@ -249,14 +233,43 @@
         "y": 18
       },
       "options": {
-        "mode": "markdown",
-        "content": "**Needs a Postgres analytics datasource** (`analytics.journey_daily`, sourced from Firebase Performance app-start traces rolled up by the analytics-rollup Cloud Run Job). Not a GMP/OTel metric — app-start/journey timing lives in Firebase Performance, exported via GA4->BigQuery, then rolled into Cloud SQL `analytics.*` per OBSERVABILITY_DESIGN.md section 2.6. This Grafana instance has no Postgres datasource provisioned today (only Cloud Monitoring + BigQuery — verified via `/api/datasources`). Once added (`infra/grafana/provisioning/datasources/datasources.yaml` already declares the shape under uid `postgres-analytics`), query: `SELECT event_date AS time, p50_ms/1000.0, p90_ms/1000.0, p99_ms/1000.0 FROM analytics.journey_daily WHERE tenant_id = $tenant AND journey_key = 'login_to_submit' AND $__timeFilter(event_date)`."
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "postgres-analytics"
+      },
+      "description": "Daily completed-cohort percentiles from actual Android app_events. Proof: capture\u2192upload completed; camera: requested\u2192finalized; login: success\u2192bootstrap loaded. Missing stages do not count as completion. Daily percentiles are not aggregated into a window percentile. Daily buckets are placed at their Asia/Kolkata business-day end; the selected window chooses completed day ends, not a rolling-window aggregate.",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "postgres-analytics"
+          },
+          "rawSql": "SELECT ((event_date + 1)::timestamp AT TIME ZONE 'Asia/Kolkata') - interval '1 second' AS time, journey_key AS metric, CASE WHEN completions > 0 THEN p50_ms/1000.0 END AS p50, CASE WHEN completions > 0 THEN p90_ms/1000.0 END AS p90, CASE WHEN completions > 0 THEN p99_ms/1000.0 END AS p99 FROM analytics.journey_daily WHERE tenant_id = ${tenant:sqlstring}::uuid AND journey_key IN ('proof_delivery','camera_capture','login_to_bootstrap') AND $__timeFilter(((event_date + 1)::timestamp AT TIME ZONE 'Asia/Kolkata') - interval '1 second') ORDER BY time",
+          "format": "time_series",
+          "editorMode": "code",
+          "rawQuery": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
       }
     },
     {
       "id": 5,
-      "title": "Crash-free session rate (24h) — needs Postgres analytics datasource",
-      "type": "text",
+      "title": "App-wide observed crash-free sessions \u2014 daily by app version",
+      "type": "timeseries",
       "gridPos": {
         "h": 7,
         "w": 12,
@@ -264,24 +277,368 @@
         "y": 18
       },
       "options": {
-        "mode": "markdown",
-        "content": "**Needs a Postgres analytics datasource.** Sourced from `analytics.crash_daily`, a rollup of the Crashlytics BigQuery export. SLO target 99.5% (green), 98% (amber), else red. Query once live: `SELECT crash_free_sessions_pct FROM analytics.crash_daily WHERE tenant_id = $tenant AND event_date = (SELECT max(event_date) FROM analytics.crash_daily WHERE tenant_id = $tenant) ORDER BY app_version DESC LIMIT 1`."
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "postgres-analytics"
+      },
+      "description": "Firebase same-business-day observed SESSION_START cohort with collection enabled and matched fatal events; app-wide, not tenant scoped or lifetime session crash ratio. Requires both Crashlytics and Firebase Sessions exports; no rows means unavailable, never 100% crash-free. Daily buckets are placed at their Asia/Kolkata business-day end; the selected window chooses completed day ends, not a rolling-window aggregate. Initial Firebase delivery: these exports were requested in Firebase; enabled transfer configuration is verified separately. No source tables existed at request time. An empty panel means samples are unavailable, never zero requests or zero crashes; disabled or failed transfers are configuration failures, not initial delivery delays. Deployment may report a separately bounded initial-export pending state; after its deadline or once any source table arrives, missing data is a failure requiring schema configuration and backfill. Initial-export wait deadline: 2026-09-18T09:08:30.643000+00:00. A later empty panel is not an approved provider wait.",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "postgres-analytics"
+          },
+          "rawSql": "SELECT ((event_date + 1)::timestamp AT TIME ZONE 'Asia/Kolkata') - interval '1 second' AS time, app_version AS metric, crash_free_sessions_pct FROM analytics.app_crash_daily WHERE source_app_id = 'sg.mesha.goatos' AND total_sessions > 0 AND $__timeFilter(((event_date + 1)::timestamp AT TIME ZONE 'Asia/Kolkata') - interval '1 second') ORDER BY time",
+          "format": "time_series",
+          "editorMode": "code",
+          "rawQuery": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "noValue": "No exported samples \u2014 see panel info"
+        },
+        "overrides": []
       }
     },
     {
       "id": 6,
-      "title": "Funnel conversion: login -> bootstrap -> drive-open -> scan -> vaccination-capture -> submit — needs Postgres analytics datasource",
-      "type": "text",
+      "title": "Ordered proof / camera / feed funnel cohorts",
+      "type": "table",
       "gridPos": {
         "h": 8,
         "w": 24,
         "x": 0,
         "y": 25
       },
-      "options": {
-        "mode": "markdown",
-        "content": "**Needs a Postgres analytics datasource.** Rolled up from Firebase Analytics (GA4) daily BigQuery export into `analytics.funnel_daily`, keyed on the `AnalyticsEvents` funnel steps (docs/observability/TELEMETRY_GUARDRAILS.md + OBSERVABILITY_DESIGN.md section 2.5): login -> bootstrap -> drive-open -> scan -> vaccination-capture -> submit. Query once live: `SELECT step_key, step_index, users, ROUND(100.0 * conversions / NULLIF(users,0), 1) AS conversion_pct FROM analytics.funnel_daily WHERE tenant_id = $tenant AND funnel_key = 'goatos_mobile_core' AND event_date = CURRENT_DATE - INTERVAL '1 day' ORDER BY step_index`. An alternative BigQuery-datasource-only path exists (querying `goatos_stg_analytics_rollup`'s working tables directly, or the GA4 export dataset once `var.ga4_export_dataset_id` is linked in `infra/envs/stg/analytics_rollup.tf`) but is a per-load BigQuery scan and intentionally NOT the default per section 2.6's cost-aware design — Postgres stays the primary path even once available."
+      "options": {},
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "postgres-analytics"
+      },
+      "description": "Ordered per-day cohort reach. Feed synced requires observed server acknowledgment, not local enqueue. Work sessions are authenticated actor/device/journey tuples; they are not GA4 sessions. Do not sum distinct users across days. Daily buckets are placed at their Asia/Kolkata business-day end; the selected window chooses completed day ends, not a rolling-window aggregate.",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "postgres-analytics"
+          },
+          "rawSql": "SELECT event_date, funnel_key, step_index, step_key, conversions AS reached_cohorts, users AS distinct_users, sessions AS work_sessions FROM analytics.funnel_daily WHERE tenant_id = ${tenant:sqlstring}::uuid AND $__timeFilter(((event_date + 1)::timestamp AT TIME ZONE 'Asia/Kolkata') - interval '1 second') ORDER BY event_date, funnel_key, step_index",
+          "format": "table",
+          "editorMode": "code",
+          "rawQuery": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
       }
+    },
+    {
+      "id": 7,
+      "title": "Feed journeys \u2014 feature open to server acknowledgment",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 30,
+        "w": 12,
+        "h": 8
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "postgres-analytics"
+      },
+      "description": "Daily completed-cohort p50/p90/p99. Duration starts at observed feature open and ends at matching server acknowledgment. Local enqueue is an intermediate step, not success. Missing completions show no latency value. Daily buckets are placed at their Asia/Kolkata business-day end; the selected window chooses completed day ends, not a rolling-window aggregate.",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "postgres-analytics"
+          },
+          "rawSql": "SELECT ((event_date + 1)::timestamp AT TIME ZONE 'Asia/Kolkata') - interval '1 second' AS time, journey_key AS metric, CASE WHEN completions > 0 THEN p50_ms/1000.0 END AS p50, CASE WHEN completions > 0 THEN p90_ms/1000.0 END AS p90, CASE WHEN completions > 0 THEN p99_ms/1000.0 END AS p99 FROM analytics.journey_daily WHERE tenant_id = ${tenant:sqlstring}::uuid AND journey_key IN ('feed_distribution','feed_packing','feed_wastage','feed_transport') AND $__timeFilter(((event_date + 1)::timestamp AT TIME ZONE 'Asia/Kolkata') - interval '1 second') ORDER BY time",
+          "format": "time_series",
+          "editorMode": "code",
+          "rawQuery": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 8,
+      "title": "Observed Android users and work sessions \u2014 daily",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 12,
+        "y": 30,
+        "w": 12,
+        "h": 8
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "postgres-analytics"
+      },
+      "description": "Distinct authenticated actors and actor/device/journey work sessions observed in app_events. Weekly users are the rollup seven-day distinct-actor count, not a sum of daily users. Event coverage gaps can undercount activity. Daily buckets are placed at their Asia/Kolkata business-day end; the selected window chooses completed day ends, not a rolling-window aggregate.",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "postgres-analytics"
+          },
+          "rawSql": "SELECT ((event_date + 1)::timestamp AT TIME ZONE 'Asia/Kolkata') - interval '1 second' AS time, dau AS daily_users, wau_approx AS seven_day_users, sessions AS work_sessions FROM analytics.engagement_daily WHERE tenant_id = ${tenant:sqlstring}::uuid AND $__timeFilter(((event_date + 1)::timestamp AT TIME ZONE 'Asia/Kolkata') - interval '1 second') ORDER BY time",
+          "format": "time_series",
+          "editorMode": "code",
+          "rawQuery": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 9,
+      "title": "Exported network sample coverage \u2014 daily",
+      "description": "Observed exported request samples supporting the latency percentiles. Counts do not imply every device/network attempt was exported. No rows means missing export or no observed samples. Daily buckets are placed at their Asia/Kolkata business-day end; the selected window chooses completed day ends, not a rolling-window aggregate. Initial Firebase delivery: these exports were requested in Firebase; enabled transfer configuration is verified separately. No source tables existed at request time. An empty panel means samples are unavailable, never zero requests or zero crashes; disabled or failed transfers are configuration failures, not initial delivery delays. Deployment may report a separately bounded initial-export pending state; after its deadline or once any source table arrives, missing data is a failure requiring schema configuration and backfill. Initial-export wait deadline: 2026-09-18T09:09:59.642000+00:00. A later empty panel is not an approved provider wait.",
+      "type": "table",
+      "gridPos": {
+        "x": 0,
+        "y": 38,
+        "w": 24,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "No exported samples \u2014 see panel info"
+        },
+        "overrides": []
+      },
+      "options": {},
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "postgres-analytics"
+          },
+          "rawSql": "SELECT event_date, app_version, route_pattern, http_method, response_class, total_requests FROM analytics.app_network_daily WHERE source_app_id = 'sg.mesha.goatos' AND total_requests > 0 AND $__timeFilter(((event_date + 1)::timestamp AT TIME ZONE 'Asia/Kolkata') - interval '1 second') ORDER BY event_date, route_pattern, http_method, response_class",
+          "format": "table",
+          "editorMode": "code",
+          "rawQuery": true
+        }
+      ],
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "postgres-analytics"
+      }
+    },
+    {
+      "id": 10,
+      "title": "Rollup last successful completion \u2014 hours ago",
+      "type": "stat",
+      "gridPos": {
+        "x": 0,
+        "y": 46,
+        "w": 8,
+        "h": 5
+      },
+      "description": "Global rollup-job audit, independent of dashboard time filter. More than 30 hours since last successful completion is stale for the daily 03:15 IST schedule. No successful history is Never completed, not zero hours.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "postgres-analytics"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "postgres-analytics"
+          },
+          "rawSql": "SELECT (EXTRACT(EPOCH FROM now()-r.finished_at)/3600.0)::double precision AS age_hours FROM (SELECT 1) anchor LEFT JOIN LATERAL (SELECT finished_at FROM analytics.rollup_run WHERE status='succeeded' AND finished_at IS NOT NULL ORDER BY finished_at DESC LIMIT 1) r ON true",
+          "format": "table",
+          "editorMode": "code",
+          "rawQuery": true,
+          "goatosFreshnessMaxHours": 30
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "h",
+          "decimals": 1,
+          "noValue": "Never completed",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 30
+              }
+            ]
+          },
+          "mappings": [
+            {
+              "type": "special",
+              "options": {
+                "match": "null",
+                "result": {
+                  "text": "Never completed",
+                  "color": "red"
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background"
+      }
+    },
+    {
+      "id": 11,
+      "title": "Latest rollup run \u2014 status and source date",
+      "type": "table",
+      "gridPos": {
+        "x": 8,
+        "y": 46,
+        "w": 16,
+        "h": 5
+      },
+      "description": "Actual last job result, not Scheduler HTTP delivery status. A running, skipped, or failed run does not refresh the successful-completion age. Source date is the last business day covered by that invocation.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "postgres-analytics"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "postgres-analytics"
+          },
+          "rawSql": "SELECT COALESCE(r.status,'Never run') AS status, r.source_date, r.started_at, r.finished_at, r.rows_written, r.error FROM (SELECT 1) anchor LEFT JOIN LATERAL (SELECT status,source_date,started_at,finished_at,rows_written,error FROM analytics.rollup_run ORDER BY run_id DESC LIMIT 1) r ON true",
+          "format": "table",
+          "editorMode": "code",
+          "rawQuery": true,
+          "goatosRequiredStatus": "succeeded"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "status"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "succeeded": {
+                        "text": "succeeded",
+                        "color": "green"
+                      },
+                      "failed": {
+                        "text": "failed",
+                        "color": "red"
+                      },
+                      "running": {
+                        "text": "running",
+                        "color": "orange"
+                      },
+                      "skipped": {
+                        "text": "skipped",
+                        "color": "orange"
+                      },
+                      "Never run": {
+                        "text": "Never run",
+                        "color": "red"
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {}
     }
-  ]
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "tenant",
+        "label": "Tenant",
+        "type": "constant",
+        "query": "00000000-0000-4000-8000-000000000001",
+        "current": {
+          "text": "00000000-0000-4000-8000-000000000001",
+          "value": "00000000-0000-4000-8000-000000000001"
+        },
+        "hide": 0
+      }
+    ]
+  }
 }

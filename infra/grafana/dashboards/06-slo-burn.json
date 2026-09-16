@@ -1,7 +1,7 @@
 {
   "uid": "goatos-stg-slo-burn",
-  "title": "Goat OS — SLO / burn rate",
-  "description": "Availability + latency SLOs with multi-window burn-rate framing per OBSERVABILITY_DESIGN.md section 7. Every threshold below is read directly from infra/envs/stg/variables.tf so this dashboard cannot drift from the alert policies in infra/envs/stg/monitoring.tf: api_availability_slo=99.5%, api_error_rate_alert_threshold_ratio=1%, api_latency_p99_read_slo_seconds=0.8s, api_latency_p99_write_slo_seconds=1.5s, consumer_lag_slo_seconds=60s, notification_success_slo_ratio=99% (failure alert threshold 1%). Queried through the 'Google Cloud Monitoring' (stackdriver) datasource — this environment has no Prometheus datasource; ratio panels use Cloud Monitoring's native MQL join (verified live) instead of PromQL.",
+  "title": "Goat OS \u2014 SLO / burn rate",
+  "description": "Availability + latency SLOs with multi-window burn-rate framing per OBSERVABILITY_DESIGN.md section 7. Every threshold below is read directly from infra/envs/stg/variables.tf so this dashboard cannot drift from the alert policies in infra/envs/stg/monitoring.tf: api_availability_slo=99.5%, api_error_rate_alert_threshold_ratio=1%, api_latency_p99_read_slo_seconds=0.8s, api_latency_p99_write_slo_seconds=1.5s, consumer_lag_slo_seconds=60s, notification_success_slo_ratio=99% (failure alert threshold 1%). Queried through the 'Google Cloud Monitoring' (stackdriver) datasource \u2014 this environment has no Prometheus datasource; ratio panels use Cloud Monitoring's native MQL join (verified live) instead of PromQL.",
   "schemaVersion": 39,
   "version": 1,
   "editable": true,
@@ -33,8 +33,8 @@
     },
     {
       "id": 1,
-      "title": "API availability — 7d (SLO 99.5%)",
-      "description": "100 * (1 - 5xx/total) over the dashboard's selected window (default 7d; widen to 30d via the time picker for the official monthly figure). SLO 99.5% = api_availability_slo.",
+      "title": "API availability \u2014 selected window (SLO 99.5%)",
+      "description": "Ratio of counter increases across the entire selected time window, weighted by request count; evaluated at the selected end. Counter resets handled before sum. No requests yields no availability. Historical hourly percentages are not averaged or reduced to the latest hour.",
       "type": "stat",
       "gridPos": {
         "h": 6,
@@ -80,19 +80,24 @@
       "targets": [
         {
           "refId": "A",
-          "datasource": "Google Cloud Monitoring",
-          "queryType": "timeSeriesQuery",
-          "timeSeriesQuery": {
+          "datasource": {
+            "uid": "cloud-monitoring",
+            "type": "stackdriver"
+          },
+          "queryType": "promQL",
+          "timeSeriesList": {},
+          "promQLQuery": {
             "projectName": "goatos-stg",
-            "query": "{ err: fetch prometheus_target :: 'prometheus.googleapis.com/http_server_requests_total/counter' | filter metric.status_class == '5xx' | align rate(1h) | every 1h | group_by [], [value: sum(val())] ; total: fetch prometheus_target :: 'prometheus.googleapis.com/http_server_requests_total/counter' | align rate(1h) | every 1h | group_by [], [value: sum(val())] } | join | value 100 * (1 - val(0) / val(1))"
+            "expr": "100 * (1 - (sum(increase(http_server_requests_total{status_class=\"5xx\"}[${window_seconds}s] @ end())) or (0 * sum(increase(http_server_requests_total[${window_seconds}s] @ end())))) / sum(increase(http_server_requests_total[${window_seconds}s] @ end())))",
+            "step": "300s"
           }
         }
       ]
     },
     {
       "id": 2,
-      "title": "Error budget remaining (this window)",
-      "description": "100 - (100 * observed error rate / (1 - SLO)) as a percent-of-budget-remaining gauge. 0% means the entire 30-day error budget for 99.5% availability is exhausted at the current burn rate; negative means already over budget.",
+      "title": "Error budget remaining \u2014 selected window",
+      "description": "Ratio of counter increases across the entire selected time window, weighted by request count; evaluated at the selected end. Counter resets handled before sum. No requests yields no availability. Historical hourly percentages are not averaged or reduced to the latest hour.",
       "type": "gauge",
       "gridPos": {
         "h": 6,
@@ -136,11 +141,16 @@
       "targets": [
         {
           "refId": "A",
-          "datasource": "Google Cloud Monitoring",
-          "queryType": "timeSeriesQuery",
-          "timeSeriesQuery": {
+          "datasource": {
+            "uid": "cloud-monitoring",
+            "type": "stackdriver"
+          },
+          "queryType": "promQL",
+          "timeSeriesList": {},
+          "promQLQuery": {
             "projectName": "goatos-stg",
-            "query": "{ err: fetch prometheus_target :: 'prometheus.googleapis.com/http_server_requests_total/counter' | filter metric.status_class == '5xx' | align rate(1h) | every 1h | group_by [], [value: sum(val())] ; total: fetch prometheus_target :: 'prometheus.googleapis.com/http_server_requests_total/counter' | align rate(1h) | every 1h | group_by [], [value: sum(val())] } | join | value 100 * (1 - (val(0) / val(1)) / 0.005)"
+            "expr": "100 * (1 - ((sum(increase(http_server_requests_total{status_class=\"5xx\"}[${window_seconds}s] @ end())) or (0 * sum(increase(http_server_requests_total[${window_seconds}s] @ end())))) / sum(increase(http_server_requests_total[${window_seconds}s] @ end()))) / 0.005)",
+            "step": "300s"
           }
         }
       ]
@@ -148,7 +158,7 @@
     {
       "id": 3,
       "title": "Error budget burn rate (1h / 6h windows)",
-      "description": "Burn rate = observed error rate / (1 - SLO). A burn rate of 1.0 exhausts the full 30d error budget in exactly 30d. Threshold lines at 14.4x (fast/1h page, matches Google SRE multi-window guidance) and 6x (slow/6h page) — infra/envs/stg/monitoring.tf's api_error_rate_slo_burn policy currently pages on the simpler 'error rate over 5m exceeds 1%' condition rather than these exact multipliers; the lines below show where a genuine multi-window burn-rate alert would sit if adopted.",
+      "description": "Burn rate = observed error rate / (1 - SLO). A burn rate of 1.0 exhausts the full 30d error budget in exactly 30d. Threshold lines at 14.4x (fast/1h page, matches Google SRE multi-window guidance) and 6x (slow/6h page) \u2014 infra/envs/stg/monitoring.tf's api_error_rate_slo_burn policy currently pages on the simpler 'error rate over 5m exceeds 1%' condition rather than these exact multipliers; the lines below show where a genuine multi-window burn-rate alert would sit if adopted.",
       "type": "timeseries",
       "gridPos": {
         "h": 6,
@@ -236,7 +246,7 @@
     {
       "id": 4,
       "title": "Read-path p99 latency (SLO < 800ms)",
-      "description": "prometheus.googleapis.com/http_server_request_duration_seconds/histogram, filtered to GET/HEAD, p99. Matches api_latency_p99_burn's read-path condition in monitoring.tf.",
+      "description": "Backend request-duration p99 for GET and HEAD read methods. Histogram estimates require the new subsecond bucket configuration for precise results; historical coarse buckets cannot recover measured percentile detail.",
       "type": "timeseries",
       "gridPos": {
         "h": 7,
@@ -293,7 +303,19 @@
             "perSeriesAligner": "ALIGN_DELTA",
             "crossSeriesReducer": "REDUCE_PERCENTILE_99",
             "alignmentPeriod": "300s",
-            "filters": ["metric.type", "=", "prometheus.googleapis.com/http_server_request_duration_seconds/histogram", "AND", "resource.type", "=", "prometheus_target", "AND", "metric.label.method", "=", "GET"]
+            "filters": [
+              "metric.type",
+              "=",
+              "prometheus.googleapis.com/http_server_request_duration_seconds/histogram",
+              "AND",
+              "resource.type",
+              "=",
+              "prometheus_target",
+              "AND",
+              "metric.label.method",
+              "=~",
+              "GET|HEAD"
+            ]
           }
         }
       ]
@@ -301,7 +323,7 @@
     {
       "id": 5,
       "title": "Write-path p99 latency (SLO < 1500ms)",
-      "description": "Same histogram filtered to POST — matches api_latency_p99_write_burn's write-path condition (POST/PUT/PATCH/DELETE in monitoring.tf; Cloud Monitoring's classic filter DSL supports one_of(...) for the full method set, shown for POST here to keep the query single-metric and side-step the 'matches more than one metric' ambiguity seen with multi-value equality filters in testing).",
+      "description": "Backend request-duration p99 for POST, PUT, PATCH and DELETE write methods. Histogram estimates require the new subsecond bucket configuration for precise results; historical coarse buckets cannot recover measured percentile detail.",
       "type": "timeseries",
       "gridPos": {
         "h": 7,
@@ -358,7 +380,19 @@
             "perSeriesAligner": "ALIGN_DELTA",
             "crossSeriesReducer": "REDUCE_PERCENTILE_99",
             "alignmentPeriod": "300s",
-            "filters": ["metric.type", "=", "prometheus.googleapis.com/http_server_request_duration_seconds/histogram", "AND", "resource.type", "=", "prometheus_target", "AND", "metric.label.method", "=", "POST"]
+            "filters": [
+              "metric.type",
+              "=",
+              "prometheus.googleapis.com/http_server_request_duration_seconds/histogram",
+              "AND",
+              "resource.type",
+              "=",
+              "prometheus_target",
+              "AND",
+              "metric.label.method",
+              "=~",
+              "POST|PUT|PATCH|DELETE"
+            ]
           }
         }
       ]
@@ -378,7 +412,7 @@
     },
     {
       "id": 6,
-      "title": "Outbox publish lag p99 + consumer lag (SLO consumer lag < 60s)",
+      "title": "Outbox publish duration p99 + consumer lag (SLO consumer lag < 60s)",
       "description": "kernel.outbox.publish.duration p99 alongside kernel.consumer.lag. consumer_lag_slo_seconds = 60s (kernel_consumer_lag alert policy).",
       "type": "timeseries",
       "gridPos": {
@@ -436,7 +470,15 @@
             "perSeriesAligner": "ALIGN_DELTA",
             "crossSeriesReducer": "REDUCE_PERCENTILE_99",
             "alignmentPeriod": "300s",
-            "filters": ["metric.type", "=", "prometheus.googleapis.com/kernel_outbox_publish_duration_seconds/histogram", "AND", "resource.type", "=", "prometheus_target"]
+            "filters": [
+              "metric.type",
+              "=",
+              "prometheus.googleapis.com/kernel_outbox_publish_duration_seconds/histogram",
+              "AND",
+              "resource.type",
+              "=",
+              "prometheus_target"
+            ]
           }
         },
         {
@@ -450,7 +492,15 @@
             "perSeriesAligner": "ALIGN_MAX",
             "crossSeriesReducer": "REDUCE_MAX",
             "alignmentPeriod": "300s",
-            "filters": ["metric.type", "=", "prometheus.googleapis.com/kernel_consumer_lag_seconds/gauge", "AND", "resource.type", "=", "prometheus_target"]
+            "filters": [
+              "metric.type",
+              "=",
+              "prometheus.googleapis.com/kernel_consumer_lag_seconds/gauge",
+              "AND",
+              "resource.type",
+              "=",
+              "prometheus_target"
+            ]
           }
         }
       ]
@@ -517,7 +567,7 @@
           "queryType": "timeSeriesQuery",
           "timeSeriesQuery": {
             "projectName": "goatos-stg",
-            "query": "{ fail: fetch prometheus_target :: 'prometheus.googleapis.com/kernel_notify_failures_total/counter' | align rate(15m) | every 5m | group_by [], [value: sum(val())] ; sent: fetch prometheus_target :: 'prometheus.googleapis.com/kernel_notify_send_duration_seconds/histogram' | align rate(15m) | every 5m | group_by [], [value: sum(val())] } | join | value 100 * (1 - val(0) / val(1))"
+            "query": "{ fail: fetch prometheus_target :: 'prometheus.googleapis.com/kernel_notify_failures_total/counter' | align rate(15m) | every 5m | group_by [], [value: sum(val())] ; sent: fetch prometheus_target :: 'prometheus.googleapis.com/kernel_notify_send_duration_seconds/histogram' | value [value: count_from(val())] | align rate(15m) | every 5m | group_by [], [value: sum(val())] } | join | value 100 * (1 - val(0) / val(1))"
           }
         }
       ]
@@ -547,8 +597,28 @@
       },
       "options": {
         "mode": "markdown",
-        "content": "| Policy | Condition | Threshold |\n|---|---|---|\n| `cloud_run_errors` | Cloud Run service/job emits an ERROR-severity log | any |\n| `outbox_relay_dead_letter` | outbox relay job logs `dead_letter > 0` | any |\n| `pubsub_dlq_backlog` | `num_undelivered_messages` on `goatos-stg-outbox-events-dlq-inspect` | > 0 for 5m |\n| `cloud_sql_cpu` | Cloud SQL CPU utilization | > 80% for 5m |\n| `api_error_rate_slo_burn` | 5xx rate / total rate | > 1% for 5m (SLO 99.5%) |\n| `api_latency_p99_burn` | read-path p99 | > 800ms for 5m |\n| `api_latency_p99_write_burn` | write-path p99 (POST/PUT/PATCH/DELETE) | > 1500ms for 5m |\n| `kernel_consumer_lag` | `kernel.consumer.lag` | > 60s for 5m |\n| `kernel_notification_failure_rate` | notify failure rate | > 1% for 5m (SLO success > 99%) |\n\nThis table is a read-only mirror for context — the alert policies themselves are Terraform-managed in `infra/envs/stg/monitoring.tf` / `infra/envs/stg/variables.tf`, not edited from Grafana."
+        "content": "| Policy | Condition | Threshold |\n|---|---|---|\n| `cloud_run_errors` | Cloud Run service/job emits an ERROR-severity log | any |\n| `outbox_relay_dead_letter` | outbox relay job logs `dead_letter > 0` | any |\n| `pubsub_dlq_backlog` | `num_undelivered_messages` on `goatos-stg-outbox-events-dlq-inspect` | > 0 for 5m |\n| `cloud_sql_cpu` | Cloud SQL CPU utilization | > 80% for 5m |\n| `api_error_rate_slo_burn` | 5xx rate / total rate | > 1% for 5m (SLO 99.5%) |\n| `api_latency_p99_burn` | read-path p99 | > 800ms for 5m |\n| `api_latency_p99_write_burn` | write-path p99 (POST/PUT/PATCH/DELETE) | > 1500ms for 5m |\n| `kernel_consumer_lag` | `kernel.consumer.lag` | > 60s for 5m |\n| `kernel_notification_failure_rate` | notify failure rate | > 1% for 5m (SLO success > 99%) |\n\nThis table is a read-only mirror for context \u2014 the alert policies themselves are Terraform-managed in `infra/envs/stg/monitoring.tf` / `infra/envs/stg/variables.tf`, not edited from Grafana."
       }
     }
-  ]
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "window_seconds",
+        "type": "query",
+        "hide": 2,
+        "refresh": 2,
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "postgres-analytics"
+        },
+        "query": "SELECT GREATEST(1, (${__to}::bigint - ${__from}::bigint) / 1000)::text AS __value",
+        "definition": "Selected time-window duration in seconds",
+        "multi": false,
+        "includeAll": false,
+        "current": {},
+        "options": []
+      }
+    ]
+  }
 }
