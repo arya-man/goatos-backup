@@ -3,6 +3,7 @@ package ports
 import (
 	"context"
 	"errors"
+	"github.com/vgoats/goatos/backend/internal/sop/authored"
 	"time"
 )
 
@@ -56,6 +57,10 @@ type CompleteWastageParams struct {
 	// WastageProofRef is the ONE MANDATORY wastage VIDEO proof_id. It travels into the queued
 	// verification item.
 	WastageProofRef string
+	// SOPProofs / SOPAnswers: the pinned wastage card's judged captures and answers (FEED SOP,
+	// 2026-09-16); wastage_proof_ref mirrors the seeded slot for every pre-existing reader.
+	SOPProofs  authored.ProofRefs
+	SOPAnswers authored.Answers
 	// CompletedBy is the operator principal uuid when the caller carries one, else "".
 	CompletedBy string
 	// IdempotencyKey is the client-supplied request key, reserved in the same transaction as the write.
@@ -74,6 +79,8 @@ type CompleteWastageResult struct {
 	Status       string
 	RowVersion   int32
 	NewlyPending bool
+	// SOPProofs is the canonical {slot key: ref} map stored on the row.
+	SOPProofs authored.ProofRefs
 	// ShedName and PartitionLabel are carried for verification enqueue label composition.
 	ShedName, PartitionLabel string
 }

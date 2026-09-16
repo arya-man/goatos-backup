@@ -67,9 +67,10 @@ func (e *WastageEnqueuer) EnqueueFeedWastageVerification(ctx context.Context, in
 		// animals it holds. Composed by the producer and rendered verbatim; a row is emitted only
 		// when its value is known — never a placeholder, which would read as "no trial" rather
 		// than "not known".
-		ContextRows: wastageContextRows(in.ExperimentArm, in.HeadCountSummary),
+		ContextRows: append(wastageContextRows(in.ExperimentArm, in.HeadCountSummary), answerRows(in.AnswerRows)...),
 		// One media ref: the wastage video.
-		MediaRefs:  []string{in.WastageProofRef},
+		MediaRefs:  wastageMediaRefs(in),
+		MediaMeta:  mediaMeta(in.MediaMeta),
 		OperatorID: ptrIfSet(in.OperatorID),
 		ShedID:     ptrIfSet(in.ShedID),
 		// The PEN as its own field, not only folded into the label, so filtering/grouping by pen
@@ -111,4 +112,13 @@ func wastageContextRows(experimentArm, headCountSummary string) []verificationdo
 		rows = append(rows, verificationdomain.ContextRow{Label: "Animals in this pen", Value: headCountSummary})
 	}
 	return rows
+}
+
+// wastageMediaRefs prefers the card-ordered list (FEED SOP, 2026-09-16); a request without one keeps
+// the single video.
+func wastageMediaRefs(in feeddirectionapp.FeedWastageVerificationEnqueueRequest) []string {
+	if len(in.MediaRefs) > 0 {
+		return mediaRefs(in.MediaRefs...)
+	}
+	return mediaRefs(in.WastageProofRef)
 }

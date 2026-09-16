@@ -86,6 +86,8 @@ class FeedTransportRecaptureWedgeTest {
             sync = sync,
             capture = proofSource,
             proofCaptureRepository = proofCaptureRepository,
+            photoCaptureSource = sg.mesha.goatos.capture.FakePhotoCaptureSource(),
+            appContext = androidx.test.core.app.ApplicationProvider.getApplicationContext(),
             drafts = drafts,
             analytics = RecordingAnalytics(),
             crashReporter = NoopCrashReporter(),
@@ -94,16 +96,16 @@ class FeedTransportRecaptureWedgeTest {
         )
         advanceUntilIdle()
 
-        viewModel.onEvent(FeedTransportCaptureEvent.RecordVideo)
+        viewModel.onEvent(FeedTransportCaptureEvent.CaptureSlot("feed_transport_video"))
         advanceUntilIdle()
-        assertTrue("first capture must succeed and mark the video captured", viewModel.state.value.videoCaptured)
-        assertFalse(viewModel.state.value.isCapturing)
+        assertTrue("first capture must succeed and mark the video captured", viewModel.state.value.card.anyCaptured)
+        assertFalse(viewModel.state.value.card.anyCapturing)
         val proofRowsAfterFirstCapture = proofCaptureRepository.captureCalls.size
         assertEquals(1, proofRowsAfterFirstCapture)
         val oldProofLocalUri = proofCaptureRepository.captureCalls.single().localUri
 
         // Re-record: the camera call throws this time (e.g. CameraX/hardware failure).
-        viewModel.onEvent(FeedTransportCaptureEvent.ReRecordVideo)
+        viewModel.onEvent(FeedTransportCaptureEvent.CaptureSlot("feed_transport_video"))
         advanceUntilIdle()
 
         // 1. The OLD proof must remain intact -- captureVideo() throwing happens before any
@@ -119,25 +121,25 @@ class FeedTransportRecaptureWedgeTest {
         // 2. isCapturing must reset to a retryable state, not stay wedged true.
         assertFalse(
             "isCapturing must reset to false after a thrown captureVideo(), not stay wedged",
-            viewModel.state.value.isCapturing,
+            viewModel.state.value.card.anyCapturing,
         )
         // videoCaptured must still reflect the (untouched) OLD successful capture.
-        assertTrue(viewModel.state.value.videoCaptured)
+        assertTrue(viewModel.state.value.card.anyCaptured)
 
         // 3. A visible, retryable error must be surfaced.
         assertNotNull(
             "a thrown captureVideo() must surface a visible error message",
-            viewModel.state.value.videoMessage,
+            viewModel.state.value.card.slots.firstOrNull()?.message,
         )
 
         // Retry: a fresh RecordVideo/ReRecordVideo after the reset must be able to proceed (not
         // permanently wedged) -- capture is accepted again.
         proofSource.allowNextToSucceed(CapturedVideo(localUri = "file:///retry-video.mp4", startedAtMs = 2_000L, endedAtMs = 3_000L))
-        viewModel.onEvent(FeedTransportCaptureEvent.ReRecordVideo)
+        viewModel.onEvent(FeedTransportCaptureEvent.CaptureSlot("feed_transport_video"))
         advanceUntilIdle()
         assertTrue(
             "capture must be retryable after the reset -- isCapturing must not be stuck",
-            viewModel.state.value.videoCaptured,
+            viewModel.state.value.card.anyCaptured,
         )
     }
 }
@@ -182,7 +184,7 @@ private class RecordingFeedTransportSyncRepository : SyncRepository {
         groupKey: String,
         idempotencyKey: String,
         taskId: String,
-        proofOutboxItemId: String,
+        proofOutboxItemId: String, slotProofs: Map<String, sg.mesha.goatos.core.data.sync.FeedSlotProofSourcePayload>, answers: kotlinx.serialization.json.JsonObject
     ): AppResult<String> {
         submitEnqueueCalls += 1
         return AppResult.Ok("submit-outbox-$submitEnqueueCalls")

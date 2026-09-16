@@ -476,3 +476,70 @@ func (transportFilterService) ShedFeedAnalytics(
 ) (domain.ShedFeedAnalytics, error) {
 	return domain.ShedFeedAnalytics{}, nil
 }
+
+// TestPostCompleteDistributionCardShapedRequestSkipsTheLegacyPreCheck pins the FEED SOP rule
+// (2026-09-16): a request that carries the card's `proofs` map is judged against the sheet's
+// PINNED card by the service, so the handler's legacy "every seeded proof present" pre-check must
+// not fire. Found live: a card that DROPPED the water video was published, the phone submitted
+// the two remaining slots, and the handler answered `422 water_proof_ref is required` -- the
+// legacy check outranking the card the maintainer had just authored. A legacy-shaped request (no
+// `proofs`) still gets the pre-check, so an older APK's blank proof is refused before the write.
+func TestPostCompleteDistributionCardShapedRequestSkipsTheLegacyPreCheck(t *testing.T) {
+	const (
+		tenantID = "00000000-0000-4000-8000-000000000001"
+		actorID  = "40000000-0000-4000-8000-000000000001"
+	)
+	post := func(t *testing.T, service *transportScopeSpyService, body string) *httptest.ResponseRecorder {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodPost, "/feed-direction/distribution/complete", strings.NewReader(body))
+		req.Header.Set("Idempotency-Key", "feed-distribution-complete-test-0004")
+		ctx := httpmiddleware.WithActorID(httpmiddleware.WithTenantID(req.Context(), tenantID), actorID)
+		recorder := httptest.NewRecorder()
+		NewHandler(service, slog.Default()).PostCompleteDistribution(recorder, req.WithContext(ctx))
+		return recorder
+	}
+
+	t.Run("card-shaped without the water slot reaches the service", func(t *testing.T) {
+		service := &transportScopeSpyService{}
+		rec := post(t, service, `{
+			"park_id":"20000000-0000-4000-8000-000000000001",
+			"shed_id":"30000000-0000-4000-8000-000000000001",
+			"partition_label":"1",
+			"session_no":1,
+			"target_date":"2026-09-16",
+			"workflow":"experiment",
+			"feed_weight_proof_ref":"proof-feed-weight-photo-1",
+			"distribution_proof_ref":"proof-feed-distribution-video-1",
+			"proofs":{"feed_distribution_feed_weight_photo":"proof-feed-weight-photo-1","feed_distribution_video":"proof-feed-distribution-video-1"}
+		}`)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status=%d body=%s -- the card decides which slots exist, not the legacy pre-check", rec.Code, rec.Body.String())
+		}
+		if service.completeDistributionCalls != 1 {
+			t.Fatalf("complete distribution calls=%d, want 1", service.completeDistributionCalls)
+		}
+		if got := service.completeDistributionInput.Proofs; len(got) != 2 || got["feed_distribution_video"] != "proof-feed-distribution-video-1" {
+			t.Fatalf("proofs=%v, want the two card slots forwarded to the service", got)
+		}
+	})
+
+	t.Run("legacy-shaped without the water proof is still refused before the write", func(t *testing.T) {
+		service := &transportScopeSpyService{}
+		rec := post(t, service, `{
+			"park_id":"20000000-0000-4000-8000-000000000001",
+			"shed_id":"30000000-0000-4000-8000-000000000001",
+			"partition_label":"1",
+			"session_no":1,
+			"target_date":"2026-09-16",
+			"workflow":"experiment",
+			"feed_weight_proof_ref":"proof-feed-weight-photo-1",
+			"distribution_proof_ref":"proof-feed-distribution-video-1"
+		}`)
+		if rec.Code != http.StatusUnprocessableEntity || !strings.Contains(rec.Body.String(), `"proof_required"`) {
+			t.Fatalf("status=%d body=%s, want 422 proof_required for an older client", rec.Code, rec.Body.String())
+		}
+		if service.completeDistributionCalls != 0 {
+			t.Fatalf("complete distribution calls=%d, want 0 -- a legacy proofless request never reaches the write path", service.completeDistributionCalls)
+		}
+	})
+}

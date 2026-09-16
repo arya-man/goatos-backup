@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"github.com/vgoats/goatos/backend/internal/sop/authored"
 	"strconv"
 	"strings"
 	"time"
@@ -46,9 +47,14 @@ type FeedPackingVerificationEnqueueRequest struct {
 	Workflow        string
 	TargetDate      time.Time
 	PackingProofRef string
-	OperatorID      string
-	CapturedAt      time.Time
-	IdempotencyKey  string
+	// MediaRefs / MediaMeta are the card's captures in slot order with each slot's title and kind
+	// (FEED SOP, 2026-09-16); when set they replace the single ref. ContextRows are the answers.
+	MediaRefs      []string
+	MediaMeta      []ports.ProofMeta
+	ContextRows    []authored.AnswerRow
+	OperatorID     string
+	CapturedAt     time.Time
+	IdempotencyKey string
 	// MeasurementFields is the pen-session's feed item list -- KEY (normalized config key) plus
 	// display LABEL, NAMES ONLY, in the frozen sheet's order -- carried onto the verifier's item as
 	// one entry box per feed item (maintainer decision 2026-08-21, superseding the visible
@@ -87,11 +93,15 @@ type CompletePackingInput struct {
 	TargetDate      time.Time
 	Workflow        string
 	PackingProofRef string
-	CompletedBy     string
-	IdempotencyKey  string
-	ActorID         string
-	ActorType       string
-	TraceID         string
+	// Proofs / Answers against the sheet's pinned packing card (FEED SOP, 2026-09-16); the fixed
+	// ref is what an older phone sends and maps onto the seeded slot.
+	Proofs         authored.ProofRefs
+	Answers        authored.Answers
+	CompletedBy    string
+	IdempotencyKey string
+	ActorID        string
+	ActorType      string
+	TraceID        string
 }
 
 // CompletePacking records a packing shed-session's ONE mandatory video at 'pending_verification' and
@@ -149,19 +159,24 @@ func (s *Service) CompletePacking(ctx context.Context, in CompletePackingInput) 
 		return ports.CompletePackingResult{}, ports.ErrIdempotencyRequired
 	}
 
-	// The packing VIDEO is mandatory -- reject before any state changes (there is nothing for a verifier
-	// to approve without it).
-	if in.PackingProofRef == "" {
-		return ports.CompletePackingResult{}, ports.ErrPackingProofRequired
+	// THE CARD (FEED SOP, 2026-09-16): the sheet's pinned packing card decides which captures, of
+	// which kind, this bag owes, and which questions. Nothing is written until every compulsory
+	// slot has a completed, tenant-owned upload of the right kind.
+	rules, err := s.sheetRulesForWrite(ctx, in.TenantID, in.ParkID, biztime.BusinessDate(in.TargetDate), in.Workflow, domain.StagePacking)
+	if err != nil {
+		return ports.CompletePackingResult{}, err
 	}
-
-	// When a validator is wired, the proof id must resolve to a real, completed, tenant-owned upload
-	// before the completion is written.
-	if s.proofs != nil {
-		if err := s.proofs.ValidateFeedProofs(ctx, in.TenantID, []string{in.PackingProofRef}); err != nil {
-			return ports.CompletePackingResult{}, err
-		}
+	judged, storedProofs, storedAnswers, err := s.judgeCard(ctx, in.TenantID, rules, map[string]string{"packing_proof_ref": in.PackingProofRef}, in.Proofs, in.Answers)
+	if err != nil {
+		return ports.CompletePackingResult{}, err
 	}
+	_, _, _, legacyPacking, _, _ := domain.LegacyFieldsFromRefs(domain.StagePacking, storedProofs)
+	if legacyPacking == "" && len(judged) > 0 {
+		// The card no longer has the seeded slot: the legacy column mirrors the first capture so
+		// every pre-existing reader still finds a video to open.
+		legacyPacking = judged[0].Ref
+	}
+	in.PackingProofRef = legacyPacking
 
 	// ONE read of the frozen sheet serves both decorations: the verifier's measurement fields and
 	// the packed-against snapshot stored on the row (migration 000222) -- what the operator's card
@@ -183,6 +198,8 @@ func (s *Service) CompletePacking(ctx context.Context, in CompletePackingInput) 
 		TargetDate:      in.TargetDate,
 		Workflow:        in.Workflow,
 		PackingProofRef: in.PackingProofRef,
+		SOPProofs:       storedProofs,
+		SOPAnswers:      storedAnswers,
 		CompletedBy:     strings.TrimSpace(in.CompletedBy),
 		PackedAgainst:   packedAgainst,
 		IdempotencyKey:  in.IdempotencyKey,
@@ -214,6 +231,9 @@ func (s *Service) CompletePacking(ctx context.Context, in CompletePackingInput) 
 			Workflow:          in.Workflow,
 			TargetDate:        in.TargetDate,
 			PackingProofRef:   in.PackingProofRef,
+			MediaRefs:         canonicalOrderedRefs(rules, result.SOPProofs, judged),
+			MediaMeta:         canonicalProofMeta(rules, result.SOPProofs, judged),
+			ContextRows:       authored.AnswerRows(rules.Questions, storedAnswers),
 			OperatorID:        strings.TrimSpace(in.CompletedBy),
 			MeasurementFields: fields,
 			CapturedAt:        s.now().UTC(),

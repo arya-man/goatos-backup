@@ -3,6 +3,7 @@ package ports
 import (
 	"context"
 	"errors"
+	"github.com/vgoats/goatos/backend/internal/sop/authored"
 	"time"
 
 	"github.com/vgoats/goatos/backend/internal/feeddirection/domain"
@@ -72,6 +73,10 @@ type CompletePackingParams struct {
 	// PackingProofRef is the ONE MANDATORY packing VIDEO proof_id. It travels into the queued
 	// verification item.
 	PackingProofRef string
+	// SOPProofs / SOPAnswers: the pinned packing card's judged captures and answers (FEED SOP,
+	// 2026-09-16); packing_proof_ref mirrors the seeded slot for every pre-existing reader.
+	SOPProofs  authored.ProofRefs
+	SOPAnswers authored.Answers
 	// CompletedBy is the operator principal uuid when the caller carries one, else "".
 	CompletedBy string
 	// PackedAgainst is the frozen sheet's directed quantities for this pen-session AT SUBMIT TIME,
@@ -126,6 +131,8 @@ type CompletePackingResult struct {
 	// a rework re-submit). It is false on an idempotent replay, an already-pending no-op, or an
 	// already-completed no-op -- so the enqueue fires exactly once per real pending transition.
 	NewlyPending bool
+	// SOPProofs is the canonical {slot key: ref} map stored on the row.
+	SOPProofs authored.ProofRefs
 	// ShedName and PartitionLabel are carried for verification enqueue label composition.
 	ShedName, PartitionLabel string
 }

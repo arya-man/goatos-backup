@@ -326,11 +326,13 @@ data class FeedTransportResultUi(val status: FeedTransportSubmitStatus, val mess
 @Immutable
 data class FeedTransportCaptureUiState(
     val shedLabel: String = "",
-    val isCapturing: Boolean = false,
-    val videoCaptured: Boolean = false,
-    val videoMessage: String? = null,
-    val videoPreviewPath: String? = null,
-    val videoStatus: FeedDistributionProofStatus = FeedDistributionProofStatus.EMPTY,
+    /**
+     * FEED SOP (2026-09-16): the transport CARD the task is proven against -- its slots (the
+     * seeded card is one transport video) and questions, with this phone's capture state. Authored
+     * on /feed/sops and pinned on the task when it is materialized; the task row carries it, so
+     * this is exact per task and works offline from the cached task.
+     */
+    val card: FeedSopCardUi = FeedSopCardUi(),
     val canSubmit: Boolean = false,
     val isSyncing: Boolean = false,
     val result: FeedTransportResultUi? = null,
@@ -342,23 +344,24 @@ data class FeedTransportCaptureUiState(
      */
     val alreadySubmitted: Boolean = false,
 ) {
-    val captureEnabled: Boolean get() = !alreadySubmitted && !isCapturing
+    val isFinalSubmitted: Boolean
+        get() = alreadySubmitted || result?.status == FeedTransportSubmitStatus.SYNCED || result?.status == FeedTransportSubmitStatus.QUEUED
+
+    val captureEnabled: Boolean get() = !alreadySubmitted
 
     val submitEnabled: Boolean
-        get() = !alreadySubmitted && videoCaptured && canSubmit && videoStatus.isQueuedForSubmit() && !isCapturing &&
-            result?.status != FeedTransportSubmitStatus.SYNCED &&
-            result?.status != FeedTransportSubmitStatus.QUEUED
+        get() = canSubmit && card.readyToSubmit && !card.anyCapturing && !isFinalSubmitted
 }
 
 sealed interface FeedTransportCaptureEvent {
-    data object RecordVideo : FeedTransportCaptureEvent
-
-    /** Replace the recorded clip; the ViewModel drops the discarded take's queued upload. */
-    data object ReRecordVideo : FeedTransportCaptureEvent
+    /** Capture one slot of the card with the LIVE in-app camera; [kind] picks the medium of an
+     *  `either` slot. A filled slot is re-recorded through the same event. */
+    data class CaptureSlot(val slotKey: String, val kind: String? = null) : FeedTransportCaptureEvent
+    data class Answer(val questionId: String, val value: String) : FeedTransportCaptureEvent
     data object Submit : FeedTransportCaptureEvent
     data object SyncNow : FeedTransportCaptureEvent
     data object Back : FeedTransportCaptureEvent
-    data class PreviewAction(val action: String) : FeedTransportCaptureEvent
+    data class PreviewAction(val slotKey: String, val action: String) : FeedTransportCaptureEvent
 }
 
 @Composable
@@ -405,34 +408,14 @@ fun FeedTransportCaptureScreen(
                     onEvent(FeedTransportCaptureEvent.Submit)
                 }
             }
-            item {
-                FeedDistProofAction(
-                    title = stringResource(R.string.feed_transport_record_video),
-                    subtitle = stringResource(R.string.feed_transport_video_title),
-                    icon = MeshaIcons.Video,
-                    captured = state.videoCaptured,
-                    status = state.videoStatus,
-                    previewPath = state.videoPreviewPath,
-                    previewIdentity = "feed-transport:video",
-                    previewKind = FeedDistPreviewKind.Video,
-                    capturedLabel = proofLabel(state.videoStatus, stringResource(R.string.feed_transport_video_recorded)),
-                    loading = state.isCapturing,
-                    loadingLabel = stringResource(R.string.feed_transport_video_uploading),
-                    retryLabel = stringResource(R.string.feed_transport_retry_video),
-                    replaceLabel = stringResource(R.string.feed_proof_rerecord),
-                    enabled = !committed && state.captureEnabled,
-                    message = state.videoMessage,
-                    onClick = {
-                        if (state.videoCaptured) {
-                            onEvent(FeedTransportCaptureEvent.ReRecordVideo)
-                        } else {
-                            onEvent(FeedTransportCaptureEvent.RecordVideo)
-                        }
-                    },
-                    showAction = !state.alreadySubmitted,
-                    onPreviewAction = { onEvent(FeedTransportCaptureEvent.PreviewAction(it)) },
-                )
-            }
+            feedSopCardItems(
+                card = state.card,
+                locked = state.isFinalSubmitted,
+                onCapture = { key, kind -> onEvent(FeedTransportCaptureEvent.CaptureSlot(key, kind)) },
+                onPlaybackFailed = { },
+                onPreviewAction = { key, action -> onEvent(FeedTransportCaptureEvent.PreviewAction(key, action)) },
+                onAnswer = { id, v -> onEvent(FeedTransportCaptureEvent.Answer(id, v)) },
+            )
         }
     }
 }
@@ -448,13 +431,14 @@ private fun FeedTransportStatusCard(
         committed -> stringResource(R.string.feed_transport_submitted)
         completionFailed -> state.result.message
         state.submitEnabled -> stringResource(R.string.feed_transport_ready_to_submit)
-        state.videoCaptured -> stringResource(R.string.feed_transport_waiting_sync)
-        else -> stringResource(R.string.feed_transport_need_video)
+        state.card.compulsorySlotsFilled && !state.card.requiredAnswersGiven -> stringResource(R.string.feed_slot_answer_questions)
+        state.card.anyCaptured -> stringResource(R.string.feed_transport_waiting_sync)
+        else -> stringResource(R.string.feed_slot_need_all)
     }
     val tone = when {
         committed -> MeshaColors.Ok
         completionFailed -> MeshaColors.Danger
-        state.videoCaptured -> MeshaColors.BrandD
+        state.card.anyCaptured -> MeshaColors.BrandD
         else -> MeshaColors.Muted
     }
     Column(
@@ -466,7 +450,11 @@ private fun FeedTransportStatusCard(
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        Text(text = stringResource(R.string.feed_transport_caption), color = MeshaColors.Muted, style = MeshaType.body)
+        Text(
+            text = state.card.instruction.ifBlank { stringResource(R.string.feed_transport_caption) },
+            color = MeshaColors.Muted,
+            style = MeshaType.body,
+        )
         Text(text = statusText, color = tone, style = MeshaType.caption)
         if (state.submitEnabled) {
             FeedDistRetryButton(label = stringResource(R.string.feed_transport_submit), onClick = onRetrySubmit)

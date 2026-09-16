@@ -46,11 +46,12 @@ data class FeedWastageCompleteResultUi(val status: FeedWastageCompleteStatus, va
 data class FeedWastageCompleteUiState(
     val shedLabel: String = "",
     val experimentArm: String = "",
-    val isCapturingVideo: Boolean = false,
-    val videoCaptured: Boolean = false,
-    val videoMessage: String? = null,
-    val videoPreviewPath: String? = null,
-    val videoStatus: FeedDistributionProofStatus = FeedDistributionProofStatus.EMPTY,
+    /**
+     * FEED SOP (2026-09-16): the wastage CARD the pen-day is proven against -- its slots (the
+     * seeded card is one leftover-feed video) and questions, with this phone's capture state.
+     * Authored on /feed/sops (the direction SOP's wastage card) and pinned on the sheet.
+     */
+    val card: FeedSopCardUi = FeedSopCardUi(),
     val canComplete: Boolean = false,
     val isSyncing: Boolean = false,
     val result: FeedWastageCompleteResultUi? = null,
@@ -62,27 +63,27 @@ data class FeedWastageCompleteUiState(
      */
     val alreadySubmitted: Boolean = false,
 ) {
-    /** The mandatory video is queued locally and the write is not already committed. */
+    val isFinalSubmitted: Boolean
+        get() = alreadySubmitted || result?.status == FeedWastageCompleteStatus.SYNCED || result?.status == FeedWastageCompleteStatus.QUEUED
+
+    /** Every compulsory capture is queued locally, the questions are answered and the write is not committed. */
     val submitEnabled: Boolean
-        get() = !alreadySubmitted && canComplete && videoCaptured && !isCapturingVideo &&
-            videoStatus.isQueuedForSubmit() &&
-            result?.status != FeedWastageCompleteStatus.SYNCED && result?.status != FeedWastageCompleteStatus.QUEUED
+        get() = canComplete && card.readyToSubmit && !card.anyCapturing && !isFinalSubmitted
 
     /** Recording is offered only while the pen-day is still the operator's to act on. */
     val captureEnabled: Boolean get() = !alreadySubmitted
 }
 
 sealed interface FeedWastageCompleteEvent {
-    /** Record the leftover-feed video with the LIVE in-app camera. */
-    data object RecordWastageVideo : FeedWastageCompleteEvent
-
-    /** Replace the recorded clip; the ViewModel drops the discarded take's queued upload. */
-    data object ReRecordWastageVideo : FeedWastageCompleteEvent
+    /** Capture one slot of the card with the LIVE in-app camera; [kind] picks the medium of an
+     *  `either` slot. A filled slot is re-recorded through the same event. */
+    data class CaptureSlot(val slotKey: String, val kind: String? = null) : FeedWastageCompleteEvent
+    data class Answer(val questionId: String, val value: String) : FeedWastageCompleteEvent
 
     data object MarkDone : FeedWastageCompleteEvent
     data object SyncNow : FeedWastageCompleteEvent
     data object Back : FeedWastageCompleteEvent
-    data class PreviewAction(val action: String) : FeedWastageCompleteEvent
+    data class PreviewAction(val slotKey: String, val action: String) : FeedWastageCompleteEvent
 }
 
 @Composable
@@ -131,34 +132,14 @@ fun FeedWastageCompleteScreen(
                     onRetrySubmit = { onEvent(FeedWastageCompleteEvent.MarkDone) },
                 )
             }
-            item {
-                FeedDistProofAction(
-                    title = stringResource(R.string.feed_wastage_record_video),
-                    subtitle = stringResource(R.string.feed_wastage_video_title),
-                    icon = MeshaIcons.Video,
-                    captured = state.videoCaptured,
-                    status = state.videoStatus,
-                    previewPath = state.videoPreviewPath,
-                    previewIdentity = "feed-wastage:video",
-                    previewKind = FeedDistPreviewKind.Video,
-                    capturedLabel = proofLabel(state.videoStatus, stringResource(R.string.feed_wastage_video_recorded)),
-                    loading = state.isCapturingVideo,
-                    loadingLabel = stringResource(R.string.feed_wastage_video_uploading),
-                    retryLabel = stringResource(R.string.feed_wastage_retry_video),
-                    replaceLabel = stringResource(R.string.feed_proof_rerecord),
-                    enabled = state.captureEnabled && !committed && !state.isCapturingVideo,
-                    message = state.videoMessage,
-                    onClick = {
-                        if (state.videoCaptured) {
-                            onEvent(FeedWastageCompleteEvent.ReRecordWastageVideo)
-                        } else {
-                            onEvent(FeedWastageCompleteEvent.RecordWastageVideo)
-                        }
-                    },
-                    showAction = !state.alreadySubmitted,
-                    onPreviewAction = { onEvent(FeedWastageCompleteEvent.PreviewAction(it)) },
-                )
-            }
+            feedSopCardItems(
+                card = state.card,
+                locked = state.isFinalSubmitted,
+                onCapture = { key, kind -> onEvent(FeedWastageCompleteEvent.CaptureSlot(key, kind)) },
+                onPlaybackFailed = { },
+                onPreviewAction = { key, action -> onEvent(FeedWastageCompleteEvent.PreviewAction(key, action)) },
+                onAnswer = { id, v -> onEvent(FeedWastageCompleteEvent.Answer(id, v)) },
+            )
         }
     }
 }
@@ -174,13 +155,14 @@ private fun FeedWastageStatusCard(
         committed -> stringResource(R.string.feed_wastage_submitted)
         completionFailed -> state.result.message
         state.submitEnabled -> stringResource(R.string.feed_wastage_ready_to_submit)
-        state.videoCaptured -> stringResource(R.string.feed_wastage_waiting_sync)
-        else -> stringResource(R.string.feed_wastage_need_video)
+        state.card.compulsorySlotsFilled && !state.card.requiredAnswersGiven -> stringResource(R.string.feed_slot_answer_questions)
+        state.card.anyCaptured -> stringResource(R.string.feed_wastage_waiting_sync)
+        else -> stringResource(R.string.feed_slot_need_all)
     }
     val tone = when {
         committed -> MeshaColors.Ok
         completionFailed -> MeshaColors.Danger
-        state.videoCaptured -> MeshaColors.BrandD
+        state.card.anyCaptured -> MeshaColors.BrandD
         else -> MeshaColors.Muted
     }
     androidx.compose.foundation.layout.Column(
@@ -192,7 +174,11 @@ private fun FeedWastageStatusCard(
             .padding(16.dp),
         verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(10.dp),
     ) {
-        Text(text = stringResource(R.string.feed_wastage_complete_caption), color = MeshaColors.Muted, style = MeshaType.body)
+        Text(
+            text = state.card.instruction.ifBlank { stringResource(R.string.feed_wastage_complete_caption) },
+            color = MeshaColors.Muted,
+            style = MeshaType.body,
+        )
         Text(text = statusText, color = tone, style = MeshaType.caption)
         if (state.submitEnabled) {
             FeedDistRetryButton(label = stringResource(R.string.feed_wastage_submit), onClick = onRetrySubmit)

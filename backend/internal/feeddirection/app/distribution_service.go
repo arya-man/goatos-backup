@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"github.com/vgoats/goatos/backend/internal/sop/authored"
 	"strconv"
 	"strings"
 	"time"
@@ -47,9 +48,15 @@ type FeedDistributionVerificationEnqueueRequest struct {
 	FeedWeightProofRef   string
 	DistributionProofRef string
 	WaterProofRef        string
-	OperatorID           string
-	CapturedAt           time.Time
-	IdempotencyKey       string
+	// MediaRefs / MediaMeta are the card's captures in SLOT ORDER with each slot's title and the
+	// kind the register judged it to be (FEED SOP, 2026-09-16); when set they replace the three
+	// fixed refs on the verifier item. ContextRows carry the crew's answers in farm words.
+	MediaRefs      []string
+	MediaMeta      []ports.ProofMeta
+	ContextRows    []authored.AnswerRow
+	OperatorID     string
+	CapturedAt     time.Time
+	IdempotencyKey string
 }
 
 // CompleteDistributionInput is the app-level distribution completion request the HTTP handler builds
@@ -65,11 +72,16 @@ type CompleteDistributionInput struct {
 	FeedWeightProofRef   string
 	DistributionProofRef string
 	WaterProofRef        string
-	CompletedBy          string
-	IdempotencyKey       string
-	ActorID              string
-	ActorType            string
-	TraceID              string
+	// Proofs is {slot key: proof ref} against the pinned distribution card; Answers the crew's
+	// answers to its questions (FEED SOP, 2026-09-16). The three fixed refs above are what an
+	// older phone sends and map onto the seeded slots.
+	Proofs         authored.ProofRefs
+	Answers        authored.Answers
+	CompletedBy    string
+	IdempotencyKey string
+	ActorID        string
+	ActorType      string
+	TraceID        string
 }
 
 // CompleteDistribution records a shed-session's three mandatory proofs at 'pending_verification' and
@@ -126,30 +138,30 @@ func (s *Service) CompleteDistribution(ctx context.Context, in CompleteDistribut
 		return ports.CompleteDistributionResult{}, ports.ErrIdempotencyRequired
 	}
 
-	// ALL THREE proofs are mandatory -- reject before any state changes (there is nothing for a
-	// verifier to approve without them). Checked in CAPTURE ORDER so the error names the earliest
-	// missing step: an operator who shot nothing is told to weigh the feed, not to film the water.
-	if in.FeedWeightProofRef == "" {
-		return ports.CompleteDistributionResult{}, ports.ErrFeedWeightProofRequired
+	// THE CARD (FEED SOP, 2026-09-16). The sheet this pen-session belongs to was issued under one
+	// feed.direction version; its distribution card says which captures, of which kind, compulsory
+	// or not, and which questions. An older phone's three fixed refs map onto the seeded slots and
+	// are judged by the same card. Nothing is written until every compulsory slot has a completed,
+	// tenant-owned upload of the right kind and every required question is answered.
+	rules, err := s.sheetRulesForWrite(ctx, in.TenantID, in.ParkID, biztime.BusinessDate(in.TargetDate), in.Workflow, domain.StageDistribution)
+	if err != nil {
+		return ports.CompleteDistributionResult{}, err
 	}
-	if in.DistributionProofRef == "" {
-		return ports.CompleteDistributionResult{}, ports.ErrDistributionProofRequired
+	judged, storedProofs, storedAnswers, err := s.judgeCard(ctx, in.TenantID, rules, map[string]string{
+		"feed_weight_proof_ref": in.FeedWeightProofRef, "distribution_proof_ref": in.DistributionProofRef, "water_proof_ref": in.WaterProofRef,
+	}, in.Proofs, in.Answers)
+	if err != nil {
+		return ports.CompleteDistributionResult{}, err
 	}
-	if in.WaterProofRef == "" {
-		return ports.CompleteDistributionResult{}, ports.ErrWaterProofRequired
+	// The legacy columns mirror the seeded slots for every pre-existing reader; a card that no
+	// longer has a seeded slot leaves that column empty and the store keeps the map.
+	legacyWeight, legacyFeed, legacyWater, _, _, _ := domain.LegacyFieldsFromRefs(domain.StageDistribution, storedProofs)
+	if legacyFeed == "" && len(judged) > 0 {
+		// The card no longer has the seeded feed-video slot: the column every pre-existing reader
+		// opens first mirrors the first capture instead of going blank.
+		legacyFeed = judged[0].Ref
 	}
-
-	// When a validator is wired, each proof id must resolve to a real, completed, tenant-owned upload
-	// AND be the media kind its step requires: the weight is a PHOTO, the other two are VIDEOS.
-	if s.proofs != nil {
-		if err := s.proofs.ValidateFeedProofMedia(ctx, in.TenantID, []ports.ExpectedProofMedia{
-			{ProofID: in.FeedWeightProofRef, Kind: ports.MediaKindPhoto, RequireLiveCamera: true, OnAbsent: ports.ErrFeedWeightProofRequired},
-			{ProofID: in.DistributionProofRef, Kind: ports.MediaKindVideo, OnAbsent: ports.ErrDistributionProofRequired},
-			{ProofID: in.WaterProofRef, Kind: ports.MediaKindVideo, OnAbsent: ports.ErrWaterProofRequired},
-		}); err != nil {
-			return ports.CompleteDistributionResult{}, err
-		}
-	}
+	in.FeedWeightProofRef, in.DistributionProofRef, in.WaterProofRef = legacyWeight, legacyFeed, legacyWater
 
 	result, err := s.distributions.CompleteDistribution(ctx, ports.CompleteDistributionParams{
 		TenantID:             in.TenantID,
@@ -162,6 +174,8 @@ func (s *Service) CompleteDistribution(ctx context.Context, in CompleteDistribut
 		FeedWeightProofRef:   in.FeedWeightProofRef,
 		DistributionProofRef: in.DistributionProofRef,
 		WaterProofRef:        in.WaterProofRef,
+		SOPProofs:            storedProofs,
+		SOPAnswers:           storedAnswers,
 		CompletedBy:          strings.TrimSpace(in.CompletedBy),
 		IdempotencyKey:       in.IdempotencyKey,
 		ActorID:              in.ActorID,
@@ -190,8 +204,13 @@ func (s *Service) CompleteDistribution(ctx context.Context, in CompleteDistribut
 			FeedWeightProofRef:   result.FeedWeightProofRef,
 			DistributionProofRef: result.DistributionProofRef,
 			WaterProofRef:        result.WaterProofRef,
-			OperatorID:           strings.TrimSpace(in.CompletedBy),
-			CapturedAt:           s.now().UTC(),
+			// In SLOT ORDER from the CANONICAL map the store returned (not the request), so a
+			// repair retry queues exactly the row's media; each named by the card's own title.
+			MediaRefs:   canonicalOrderedRefs(rules, result.SOPProofs, judged),
+			MediaMeta:   canonicalProofMeta(rules, result.SOPProofs, judged),
+			ContextRows: authored.AnswerRows(rules.Questions, storedAnswers),
+			OperatorID:  strings.TrimSpace(in.CompletedBy),
+			CapturedAt:  s.now().UTC(),
 			// Keyed to the completion + its row_version so a rework re-submit (row_version bumped) enqueues a
 			// fresh item while a retry of the same submit collapses onto one queue item.
 			IdempotencyKey: "feed-distribution-verification:" + result.CompletionID + ":" + strconv.Itoa(int(result.RowVersion)),

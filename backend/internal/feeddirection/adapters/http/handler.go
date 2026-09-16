@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/vgoats/goatos/backend/internal/sop/authored"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -109,6 +110,9 @@ type transportTaskDTO struct {
 	OperatorID   string    `json:"operator_id,omitempty"`
 	ReworkReason string    `json:"rework_reason,omitempty"`
 	ScheduledAt  time.Time `json:"scheduled_at"`
+	// SOP is the transport card this task was pinned to (FEED SOP, 2026-09-16): the captures and
+	// questions the phone renders verbatim.
+	SOP *domain.CardContract `json:"sop,omitempty"`
 }
 type transportListResponse struct {
 	Items      []transportTaskDTO  `json:"items"`
@@ -135,7 +139,7 @@ func (h *Handler) GetTransportTasks(w http.ResponseWriter, r *http.Request) {
 	}
 	limit, err := boundedIntParam(r.URL.Query(), "limit", 20, 1, 100)
 	if err != nil {
-		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, err.Error(), nil)
+		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, farmMessage(err), nil)
 		return
 	}
 	scope := httpmiddleware.ResolveAuthorizedParkScopeForCapabilities(r.Context(), tenant, strings.TrimSpace(r.URL.Query().Get("park_id")), permissions.FeedTransportRead)
@@ -164,7 +168,7 @@ func (h *Handler) GetTransportTasks(w http.ResponseWriter, r *http.Request) {
 	}
 	out := make([]transportTaskDTO, 0, len(page.Items))
 	for _, x := range page.Items {
-		out = append(out, transportTaskDTO{TaskID: x.TaskID, ParkID: x.ParkID, ParkLabel: x.ParkLabel, ShedID: x.ShedID, ShedLabel: x.ShedLabel, BusinessDate: x.BusinessDate, Status: x.Status, OperatorID: x.OperatorID, ReworkReason: x.ReworkReason, ScheduledAt: x.ScheduledAt})
+		out = append(out, transportTaskDTO{TaskID: x.TaskID, ParkID: x.ParkID, ParkLabel: x.ParkLabel, ShedID: x.ShedID, ShedLabel: x.ShedLabel, BusinessDate: x.BusinessDate, Status: x.Status, OperatorID: x.OperatorID, ReworkReason: x.ReworkReason, ScheduledAt: x.ScheduledAt, SOP: x.SOP})
 	}
 	httpresponse.WriteJSON(w, http.StatusOK, transportListResponse{Items: out, NextCursor: page.NextCursor, Filters: transportFiltersFromPort(page.Filters)})
 }
@@ -185,6 +189,10 @@ func transportFiltersFromPort(in ports.FeedTransportFilterOptions) transportFilt
 
 type transportSubmitRequest struct {
 	ProofRef string `json:"proof_ref"`
+	// Proofs / Answers: the transport card's captures and answers (FEED SOP, 2026-09-16); proof_ref
+	// is the older phone's single video and maps onto the seeded slot.
+	Proofs  authored.ProofRefs `json:"proofs"`
+	Answers authored.Answers   `json:"answers"`
 }
 
 type transportSubmitResponse struct {
@@ -211,7 +219,9 @@ func (h *Handler) PostTransportSubmit(w http.ResponseWriter, r *http.Request) {
 		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, "request body must be valid JSON", nil)
 		return
 	}
-	if strings.TrimSpace(body.ProofRef) == "" {
+	// FEED SOP: a card-shaped request (proofs present) is judged against the task's pinned card by
+	// the service -- the legacy single-field check applies only to an older client's request.
+	if len(body.Proofs) == 0 && strings.TrimSpace(body.ProofRef) == "" {
 		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity, codedError{Code: "proof_required", Message: "a live feed-transport video proof (proof_ref) is required"}, nil)
 		return
 	}
@@ -220,7 +230,7 @@ func (h *Handler) PostTransportSubmit(w http.ResponseWriter, r *http.Request) {
 		httpresponse.WriteError(w, r, h.log, scope.Status, codedError{Code: scope.Code, Message: scope.Message}, nil)
 		return
 	}
-	res, err := h.service.SubmitTransport(r.Context(), app.SubmitTransportInput{TenantID: tenant, TaskID: r.PathValue("task_id"), ProofRef: body.ProofRef, OperatorID: actor, IdempotencyKey: key, ActorID: actor, ActorType: "operator", TraceID: httpmiddleware.TraceIDFromContext(r.Context()), AuthorizedParkIDs: scope.ParkIDs})
+	res, err := h.service.SubmitTransport(r.Context(), app.SubmitTransportInput{TenantID: tenant, TaskID: r.PathValue("task_id"), ProofRef: body.ProofRef, Proofs: body.Proofs, Answers: body.Answers, OperatorID: actor, IdempotencyKey: key, ActorID: actor, ActorType: "operator", TraceID: httpmiddleware.TraceIDFromContext(r.Context()), AuthorizedParkIDs: scope.ParkIDs})
 	if err != nil {
 		h.writeServiceError(w, r, "submit feed transport", err)
 		return
@@ -285,7 +295,7 @@ func (h *Handler) PostComplete(w http.ResponseWriter, r *http.Request) {
 	}
 	targetDate, err := businessDateFromString(body.TargetDate)
 	if err != nil {
-		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, err.Error(), nil)
+		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, farmMessage(err), nil)
 		return
 	}
 
@@ -345,6 +355,11 @@ type completeDistributionRequest struct {
 	FeedWeightProofRef   string `json:"feed_weight_proof_ref"`
 	DistributionProofRef string `json:"distribution_proof_ref"`
 	WaterProofRef        string `json:"water_proof_ref"`
+	// Proofs is {slot key: proof ref} against the sheet's pinned distribution card and Answers the
+	// crew's answers to its questions (FEED SOP, 2026-09-16). The three fixed refs above are what
+	// an older phone sends; they map onto the seeded slots and are judged by the same card.
+	Proofs  authored.ProofRefs `json:"proofs"`
+	Answers authored.Answers   `json:"answers"`
 }
 
 type completeDistributionResponse struct {
@@ -362,6 +377,14 @@ type completeDistributionResponse struct {
 type codedError struct {
 	Code    string `json:"code"`
 	Message string `json:"message"`
+}
+
+// slotError is codedError plus the card slot / question the refusal names.
+type slotError struct {
+	Code     string `json:"code"`
+	Message  string `json:"message"`
+	Slot     string `json:"slot,omitempty"`
+	Question string `json:"question,omitempty"`
 }
 
 // PostCompleteDistribution records a shed-session's three mandatory proofs and flips it to
@@ -396,23 +419,26 @@ func (h *Handler) PostCompleteDistribution(w http.ResponseWriter, r *http.Reques
 	}
 	targetDate, err := businessDateFromString(body.TargetDate)
 	if err != nil {
-		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, err.Error(), nil)
+		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, farmMessage(err), nil)
 		return
 	}
 
-	// All proofs are mandatory. Reject a blank one with 422 proof_required BEFORE calling the service,
-	// mirroring the shifting complete route, so a proofless request never reaches the write path.
-	if strings.TrimSpace(body.FeedWeightProofRef) == "" {
+	// A LEGACY request (no card-shaped `proofs`) must carry every seeded proof; reject a blank one
+	// with 422 proof_required BEFORE calling the service, mirroring the shifting complete route.
+	// A card-shaped request is judged against the sheet's pinned card by the service (FEED SOP,
+	// 2026-09-16) -- the card decides which slots exist and which are compulsory.
+	legacyShaped := len(body.Proofs) == 0
+	if legacyShaped && strings.TrimSpace(body.FeedWeightProofRef) == "" {
 		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity,
 			codedError{Code: "proof_required", Message: "a feed weight photo proof (feed_weight_proof_ref) is required"}, nil)
 		return
 	}
-	if strings.TrimSpace(body.DistributionProofRef) == "" {
+	if legacyShaped && strings.TrimSpace(body.DistributionProofRef) == "" {
 		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity,
 			codedError{Code: "proof_required", Message: "a feed-distribution video proof (distribution_proof_ref) is required"}, nil)
 		return
 	}
-	if strings.TrimSpace(body.WaterProofRef) == "" {
+	if legacyShaped && strings.TrimSpace(body.WaterProofRef) == "" {
 		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity,
 			codedError{Code: "proof_required", Message: "a water-distribution video proof (water_proof_ref) is required"}, nil)
 		return
@@ -429,6 +455,8 @@ func (h *Handler) PostCompleteDistribution(w http.ResponseWriter, r *http.Reques
 		FeedWeightProofRef:   strings.TrimSpace(body.FeedWeightProofRef),
 		DistributionProofRef: strings.TrimSpace(body.DistributionProofRef),
 		WaterProofRef:        strings.TrimSpace(body.WaterProofRef),
+		Proofs:               body.Proofs,
+		Answers:              body.Answers,
 		CompletedBy:          actorID,
 		IdempotencyKey:       key,
 		ActorID:              actorID,
@@ -457,6 +485,10 @@ type completePackingRequest struct {
 	TargetDate      string `json:"target_date"`
 	Workflow        string `json:"workflow"`
 	PackingProofRef string `json:"packing_proof_ref"`
+	// Proofs / Answers: the packing card's captures and answers (FEED SOP, 2026-09-16);
+	// packing_proof_ref is the older phone's single video and maps onto the seeded slot.
+	Proofs  authored.ProofRefs `json:"proofs"`
+	Answers authored.Answers   `json:"answers"`
 }
 
 type completePackingResponse struct {
@@ -502,13 +534,14 @@ func (h *Handler) PostCompletePacking(w http.ResponseWriter, r *http.Request) {
 	}
 	targetDate, err := businessDateFromString(body.TargetDate)
 	if err != nil {
-		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, err.Error(), nil)
+		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, farmMessage(err), nil)
 		return
 	}
 
-	// The packing video is mandatory. Reject a blank one with 422 proof_required BEFORE calling the
-	// service, mirroring the distribution route, so a proofless request never reaches the write path.
-	if strings.TrimSpace(body.PackingProofRef) == "" {
+	// A LEGACY request (no card-shaped `proofs`) must carry the packing video; reject a blank one
+	// with 422 proof_required BEFORE calling the service. A card-shaped request is judged against
+	// the sheet's pinned packing card by the service (FEED SOP, 2026-09-16).
+	if len(body.Proofs) == 0 && strings.TrimSpace(body.PackingProofRef) == "" {
 		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity,
 			codedError{Code: "proof_required", Message: "a packing video proof (packing_proof_ref) is required"}, nil)
 		return
@@ -523,6 +556,8 @@ func (h *Handler) PostCompletePacking(w http.ResponseWriter, r *http.Request) {
 		TargetDate:      targetDate,
 		Workflow:        strings.TrimSpace(body.Workflow),
 		PackingProofRef: strings.TrimSpace(body.PackingProofRef),
+		Proofs:          body.Proofs,
+		Answers:         body.Answers,
 		CompletedBy:     actorID,
 		IdempotencyKey:  key,
 		ActorID:         actorID,
@@ -565,24 +600,24 @@ func (h *Handler) GetPreview(w http.ResponseWriter, r *http.Request) {
 
 	targetDate, err := requiredBusinessDate(query, "target_date")
 	if err != nil {
-		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, err.Error(), nil)
+		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, farmMessage(err), nil)
 		return
 	}
 	limit, err := boundedIntParam(query, "limit", app.DefaultShedPageLimit, 1, app.MaxShedPageLimit)
 	if err != nil {
-		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, err.Error(), nil)
+		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, farmMessage(err), nil)
 		return
 	}
 	offset, err := boundedIntParam(query, "offset", 0, 0, app.MaxShedPageOffset)
 	if err != nil {
-		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, err.Error(), nil)
+		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, farmMessage(err), nil)
 		return
 	}
 	// Session 0 means "every session". A present-but-invalid session is rejected rather than
 	// widened to all sessions, which would silently hand back three times the requested sheet.
 	sessionNo, err := boundedIntParam(query, "session", 0, 0, 99)
 	if err != nil {
-		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, err.Error(), nil)
+		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, farmMessage(err), nil)
 		return
 	}
 	// status narrows to one verification-lifecycle bucket (pending | pending_verification | completed);
@@ -635,24 +670,24 @@ func (h *Handler) GetPackingWorklist(w http.ResponseWriter, r *http.Request) {
 
 	targetDate, err := requiredBusinessDate(query, "target_date")
 	if err != nil {
-		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, err.Error(), nil)
+		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, farmMessage(err), nil)
 		return
 	}
 	limit, err := boundedIntParam(query, "limit", app.DefaultShedPageLimit, 1, app.MaxShedPageLimit)
 	if err != nil {
-		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, err.Error(), nil)
+		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, farmMessage(err), nil)
 		return
 	}
 	offset, err := boundedIntParam(query, "offset", 0, 0, app.MaxShedPageOffset)
 	if err != nil {
-		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, err.Error(), nil)
+		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, farmMessage(err), nil)
 		return
 	}
 	// Session 0 means "every session"; a present-but-invalid session is rejected, not widened --
 	// same contract as the preview.
 	sessionNo, err := boundedIntParam(query, "session", 0, 0, 99)
 	if err != nil {
-		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, err.Error(), nil)
+		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, farmMessage(err), nil)
 		return
 	}
 	// Same status contract as the preview: one bucket or empty for all; unknown values are rejected.
@@ -699,7 +734,7 @@ func (h *Handler) writeServiceError(w http.ResponseWriter, r *http.Request, op s
 	switch {
 	case errors.Is(err, ports.ErrParkNotFound),
 		errors.Is(err, ports.ErrShedNotInPark):
-		httpresponse.WriteError(w, r, h.log, http.StatusNotFound, err.Error(), nil)
+		httpresponse.WriteError(w, r, h.log, http.StatusNotFound, farmMessage(err), nil)
 	case errors.Is(err, ports.ErrParkRequired),
 		errors.Is(err, ports.ErrInvalidTargetDate),
 		errors.Is(err, ports.ErrInvalidWorkflow),
@@ -710,37 +745,57 @@ func (h *Handler) writeServiceError(w http.ResponseWriter, r *http.Request, op s
 		errors.Is(err, ports.ErrIdempotencyRequired),
 		errors.Is(err, ports.ErrInvalidPartition),
 		errors.Is(err, ports.ErrInvalidProof):
-		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, err.Error(), nil)
+		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, farmMessage(err), nil)
 	case errors.Is(err, ports.ErrIdempotencyConflict),
 		errors.Is(err, ports.ErrDistributionAlreadyRecorded),
 		errors.Is(err, ports.ErrPackingAlreadyRecorded),
 		errors.Is(err, ports.ErrWastageAlreadyRecorded):
-		httpresponse.WriteError(w, r, h.log, http.StatusConflict, err.Error(), nil)
+		httpresponse.WriteError(w, r, h.log, http.StatusConflict, farmMessage(err), nil)
 	// Every mandatory distribution capture answers the same way, listed together so a fourth proof
 	// cannot be added to the service and silently fall through to the 500 default -- which is what
 	// happened to the feed-weight photo, telling an operator who had not taken it yet that the
 	// server was broken. The message names which capture is missing; the code stays one value so a
 	// client can branch on "you still owe a capture" without parsing prose.
+	// FEED SOP (2026-09-16): a capture the pinned card asked for is missing, outside the card,
+	// proving two slots, or of the wrong kind -- the code names the SLOT so the phone can point at
+	// it; the message is the card's own farm sentence. Answers likewise name the question.
+	case errors.Is(err, ports.ErrSOPProofSlotInvalid):
+		key, message, _ := app.SOPProofSlotError(err)
+		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity,
+			slotError{Code: "feed_proof_slot_invalid", Message: message, Slot: key}, nil)
+	case errors.Is(err, ports.ErrSOPAnswerInvalid):
+		id, message, _ := app.SOPAnswerError(err)
+		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity,
+			slotError{Code: "feed_answer_invalid", Message: message, Question: id}, nil)
+	case errors.Is(err, ports.ErrSOPVersionUnknown):
+		httpresponse.WriteError(w, r, h.log, http.StatusConflict,
+			codedError{Code: "feed_sop_version_unknown", Message: "this sheet was issued under a feed SOP version the farm never published; republish the SOP or reissue the sheet"}, nil)
+	case errors.Is(err, ports.ErrSheetNotIssued):
+		httpresponse.WriteError(w, r, h.log, http.StatusConflict,
+			codedError{Code: "feed_sheet_not_issued", Message: "No feed sheet has been issued for this day yet."}, nil)
+	case errors.Is(err, ports.ErrFeedDayNotReached):
+		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity,
+			codedError{Code: "feed_day_not_reached", Message: "This feeding day has not started yet. Record it on the day."}, nil)
 	case errors.Is(err, ports.ErrFeedWeightProofRequired),
 		errors.Is(err, ports.ErrDistributionProofRequired),
 		errors.Is(err, ports.ErrWaterProofRequired):
 		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity,
-			codedError{Code: "proof_required", Message: err.Error()}, nil)
+			codedError{Code: "proof_required", Message: farmMessage(err)}, nil)
 	case errors.Is(err, ports.ErrPackingProofRequired):
 		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity,
-			codedError{Code: "proof_required", Message: err.Error()}, nil)
+			codedError{Code: "proof_required", Message: farmMessage(err)}, nil)
 	case errors.Is(err, ports.ErrWastageProofRequired):
 		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity,
-			codedError{Code: "proof_required", Message: err.Error()}, nil)
+			codedError{Code: "proof_required", Message: farmMessage(err)}, nil)
 	case errors.Is(err, ports.ErrWastageNotExperimentPen):
 		// A caller error, not an outage: the pen is not on that day's experiment sheet, so no
 		// wastage task exists for it. The code lets a client render the business sentence.
 		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity,
-			codedError{Code: "not_experiment_pen", Message: err.Error()}, nil)
+			codedError{Code: "not_experiment_pen", Message: farmMessage(err)}, nil)
 	case errors.Is(err, ports.ErrTransportProofRequired):
-		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity, codedError{Code: "proof_required", Message: err.Error()}, nil)
+		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity, codedError{Code: "proof_required", Message: farmMessage(err)}, nil)
 	case errors.Is(err, ports.ErrTransportAssignedToAnotherOperator), errors.Is(err, ports.ErrTransportTaskNotActionable):
-		httpresponse.WriteError(w, r, h.log, http.StatusConflict, err.Error(), nil)
+		httpresponse.WriteError(w, r, h.log, http.StatusConflict, farmMessage(err), nil)
 	case errors.Is(err, ports.ErrDistributionStoreUnavailable),
 		errors.Is(err, app.ErrDistributionEnqueuerNotWired),
 		errors.Is(err, ports.ErrPackingStoreUnavailable),
@@ -796,4 +851,14 @@ func boundedIntParam(query url.Values, name string, fallback, minValue, maxValue
 		return 0, fmt.Errorf("%s must be between %d and %d", name, minValue, maxValue)
 	}
 	return int32(parsed), nil
+}
+
+// farmMessage is the wire form of a module error: the sentence without the Go package prefix.
+// The 2026-09-16 sweep rendered "feeddirection: this pen is not on the experiment sheet for that
+// day" beside an operator's screen; the prefix is for logs, which keep err.Error().
+func farmMessage(err error) string {
+	if err == nil {
+		return ""
+	}
+	return strings.TrimPrefix(err.Error(), "feeddirection: ")
 }

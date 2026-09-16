@@ -300,3 +300,45 @@ export async function publishWeighingVersion(sopId: string, weighing: Record<str
   for (const path of SOP_PAGE_PATHS) revalidatePath(path);
   return { ...saved, ok: true, message: `Published v${saved.versionNumber ?? ""}. Weighing tasks planned from now on run on these rules.` };
 }
+
+// FEED SOP (maintainer decision 2026-09-16): the feed cards editor saves a new version = the
+// published version's form_dsl (capture form, rules, proof policy: unchanged) + the emitted `feed`
+// document. The backend validates the document (a card the phone could not render is refused with
+// the field named); publishing makes it the card for sheets issued from then on -- a sheet already
+// issued keeps the card it was issued with.
+export type FeedSaveResult = InspectionSaveResult;
+
+export async function saveFeedVersion(sopId: string, feed: Record<string, unknown>, label?: string): Promise<FeedSaveResult> {
+  if (!sopId) return { ok: false, message: "SOP id is required" };
+  const detail = await getSop(sopId);
+  if (!detail.ok) return { ok: false, message: detail.error.message ?? "SOP could not be read", code: detail.error.code };
+  const base = detail.data.published_version ?? detail.data.latest_version;
+  if (!base) return { ok: false, message: "This SOP has no version to build on." };
+  const formDsl = { ...(base.form_dsl as Record<string, unknown>), feed };
+  const version = await createSopVersion(sopId, {
+    version_label: (label ?? "").trim() || `${detail.data.sop.name} · card`,
+    form_dsl: formDsl,
+    proof_policy: base.proof_policy as CreateSOPVersionRequest["proof_policy"],
+  });
+  if (!version.ok) return { ok: false, message: version.error.message ?? "create SOP version failed", code: version.error.code };
+  for (const path of SOP_PAGE_PATHS) revalidatePath(path);
+  const report = version.data.version.validation_report;
+  return {
+    ok: true,
+    message: report?.valid ? "Feed card saved as a draft version." : "Saved — backend flagged validation issues (see report).",
+    versionId: version.data.version.sop_version_id,
+    rowVersion: version.data.version.row_version,
+    versionNumber: version.data.version.version,
+    report,
+  };
+}
+
+export async function publishFeedVersion(sopId: string, feed: Record<string, unknown>, label?: string): Promise<FeedSaveResult> {
+  const saved = await saveFeedVersion(sopId, feed, label);
+  if (!saved.ok || !saved.versionId || saved.rowVersion === undefined) return saved;
+  if (saved.report && !saved.report.valid) return { ...saved, ok: false, message: saved.report.errors?.[0]?.message ?? "The feed card has validation issues; fix it and publish again." };
+  const res = await publishSopVersion(sopId, saved.versionId, saved.rowVersion);
+  if (!res.ok) return { ok: false, message: res.error.message ?? "publish failed", code: res.error.code };
+  for (const path of SOP_PAGE_PATHS) revalidatePath(path);
+  return { ...saved, ok: true, message: `Published v${saved.versionNumber ?? ""}. Sheets issued from now on run on this card.` };
+}

@@ -3308,6 +3308,8 @@ fun AppNavHost(
             }
             CaptureAccessGate {
                 BindVideoCaptureSource(rememberDelegatingProofCaptureSource())
+                // FEED SOP: the card may ask for a PHOTO (or either) on this stage too.
+                BindPhotoCaptureSource(rememberDelegatingPhotoCaptureSource())
                 FeedWastageCompleteScreen(state = state, onEvent = onEvent)
             }
         }
@@ -3344,6 +3346,8 @@ fun AppNavHost(
             }
             CaptureAccessGate {
                 BindVideoCaptureSource(rememberDelegatingProofCaptureSource())
+                // FEED SOP: the card may ask for a PHOTO (or either) on this stage too.
+                BindPhotoCaptureSource(rememberDelegatingPhotoCaptureSource())
                 FeedTransportCaptureScreen(state) { event ->
                     if (event == FeedTransportCaptureEvent.Back) {
                         navController.popBackStack()
@@ -3525,6 +3529,8 @@ fun AppNavHost(
             }
             CaptureAccessGate {
                 BindVideoCaptureSource(rememberDelegatingProofCaptureSource())
+                // FEED SOP: the card may ask for a PHOTO (or either) on this stage too.
+                BindPhotoCaptureSource(rememberDelegatingPhotoCaptureSource())
                 FeedPackingCompleteScreen(state = state, onEvent = onEvent)
             }
         }

@@ -23,6 +23,9 @@ class FeedDistributionCompleteReconcileTest {
     private val updatedSessions = mutableMapOf<String, String>()
 
     private fun createFakeFeedRepository() = object : sg.mesha.goatos.core.data.FeedRepository {
+        override fun observeDirectionCard(parkId: String, targetDate: String, workflow: String): kotlinx.coroutines.flow.Flow<sg.mesha.goatos.core.network.dto.FeedSopCardDto?> = kotlinx.coroutines.flow.flowOf(null)
+        override fun observePackingCard(parkId: String, targetDate: String, workflow: String): kotlinx.coroutines.flow.Flow<sg.mesha.goatos.core.network.dto.FeedSopCardDto?> = kotlinx.coroutines.flow.flowOf(null)
+        override fun observeWastageCard(parkId: String, targetDate: String): kotlinx.coroutines.flow.Flow<sg.mesha.goatos.core.network.dto.FeedSopCardDto?> = kotlinx.coroutines.flow.flowOf(null)
         override suspend fun persistDirectionSessionStatus(
             shedId: String,
             partitionLabel: String,

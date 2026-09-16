@@ -3,6 +3,7 @@ package kernelstages
 import (
 	"context"
 	"fmt"
+	feedsoppg "github.com/vgoats/goatos/backend/internal/feedsop/adapters/postgres"
 	"time"
 
 	countspg "github.com/vgoats/goatos/backend/internal/counts/adapters/postgres"
@@ -32,6 +33,9 @@ func NewFeedDirectionLifecycleStage(deps Deps, tenantID string) *FeedDirectionLi
 	service := feeddirectionapp.NewService(repo, feeddirectioncounts.NewReader(countsService)).
 		WithIssueStore(repo).
 		WithScheduleReader(repo).
+		// The worker's issue pins the sheet to the same published cards the API's freeze-on-read
+		// would (FEED SOP, 2026-09-16); without this seam the two would pin different versions.
+		WithSOPRules(feedsoppg.NewRulesSource(deps.Pool, deps.PgCfg.QueryTimeout)).
 		WithGeneratedBy("kernel-worker:feed-direction-lifecycle")
 	return &FeedDirectionLifecycleStage{service: service, tenantID: tenantID, now: time.Now}
 }

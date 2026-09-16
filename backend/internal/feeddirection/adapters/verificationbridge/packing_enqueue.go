@@ -76,10 +76,12 @@ func (e *PackingEnqueuer) EnqueueFeedPackingVerification(ctx context.Context, in
 		// analytics execution view. Empty when the frozen sheet was unreadable at submit, which the
 		// verification service treats as a judge-the-video approve rather than stranding the item.
 		MeasurementFields: packingMeasurementFields(in.MeasurementFields),
-		// One media ref: the packing video.
-		MediaRefs:  []string{in.PackingProofRef},
-		OperatorID: ptrIfSet(in.OperatorID),
-		ShedID:     ptrIfSet(in.ShedID),
+		// The card's captures in slot order (one packing video under the seed).
+		MediaRefs:   packingMediaRefs(in),
+		MediaMeta:   mediaMeta(in.MediaMeta),
+		ContextRows: answerRows(in.ContextRows),
+		OperatorID:  ptrIfSet(in.OperatorID),
+		ShedID:      ptrIfSet(in.ShedID),
 		// The PEN as its own field, not only folded into the label. Packing composed the location
 		// into SubjectLabel and left this column NULL, so anything filtering or grouping by pen --
 		// as opposed to reading the display string -- missed every packing item.
@@ -103,4 +105,13 @@ func packingMeasurementFields(fields []feeddirectionapp.PackingMeasurementField)
 		out = append(out, verificationdomain.MeasurementField{Key: field.Key, Label: field.Label})
 	}
 	return out
+}
+
+// packingMediaRefs prefers the card-ordered list (FEED SOP, 2026-09-16); a request without one keeps
+// the single video.
+func packingMediaRefs(in feeddirectionapp.FeedPackingVerificationEnqueueRequest) []string {
+	if len(in.MediaRefs) > 0 {
+		return mediaRefs(in.MediaRefs...)
+	}
+	return mediaRefs(in.PackingProofRef)
 }

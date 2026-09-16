@@ -61,6 +61,22 @@ interface FeedDirectionMetaCacheDao : JsonBlobCacheDao<FeedDirectionMetaCacheEnt
             "(SELECT cacheKey FROM feed_direction_meta_cache ORDER BY updatedAt ASC LIMIT :n)",
     )
     override suspend fun deleteOldest(n: Int)
+
+    /**
+     * The freshest cached envelope of any scope under one park+date key prefix (`[prefix, prefixEnd)`),
+     * whatever filters the list was last opened with. FEED SOP: the envelope carries the sheet's
+     * pinned card per workflow, so a capture screen can show the card offline without knowing
+     * which filter scope the list cached it under.
+     */
+    /**
+     * Every cached envelope for one shape+date, freshest first, whatever park and filters the list
+     * was opened with. The list's park segment is BLANK when the operator left the farm picker on
+     * its default (the server resolves the served park), so a capture screen cannot address the row
+     * by park; it filters the small result set itself. The table is bounded by enforceCacheBounds,
+     * so the pattern match stays cheap. FEED SOP: the envelope carries the sheet's pinned card.
+     */
+    @Query("SELECT * FROM feed_direction_meta_cache WHERE cacheKey LIKE :pattern ORDER BY updatedAt DESC LIMIT 8") // mobile-guard:ignore: bounded envelope table (enforceCacheBounds), at most 8 rows
+    fun observeForDate(pattern: String): Flow<List<FeedDirectionMetaCacheEntity>>
 }
 
 // ---------------------------------------------------------------------------
@@ -211,6 +227,22 @@ interface FeedPackingMetaCacheDao : JsonBlobCacheDao<FeedPackingMetaCacheEntity>
             "(SELECT cacheKey FROM feed_packing_meta_cache ORDER BY updatedAt ASC LIMIT :n)",
     )
     override suspend fun deleteOldest(n: Int)
+
+    /**
+     * The freshest cached envelope of any scope under one park+date key prefix (`[prefix, prefixEnd)`),
+     * whatever filters the list was last opened with. FEED SOP: the envelope carries the sheet's
+     * pinned card per workflow, so a capture screen can show the card offline without knowing
+     * which filter scope the list cached it under.
+     */
+    /**
+     * Every cached envelope for one shape+date, freshest first, whatever park and filters the list
+     * was opened with. The list's park segment is BLANK when the operator left the farm picker on
+     * its default (the server resolves the served park), so a capture screen cannot address the row
+     * by park; it filters the small result set itself. The table is bounded by enforceCacheBounds,
+     * so the pattern match stays cheap. FEED SOP: the envelope carries the sheet's pinned card.
+     */
+    @Query("SELECT * FROM feed_packing_meta_cache WHERE cacheKey LIKE :pattern ORDER BY updatedAt DESC LIMIT 8") // mobile-guard:ignore: bounded envelope table (enforceCacheBounds), at most 8 rows
+    fun observeForDate(pattern: String): Flow<List<FeedPackingMetaCacheEntity>>
 }
 
 // ---------------------------------------------------------------------------
@@ -352,6 +384,18 @@ interface FeedWastageMetaCacheDao : JsonBlobCacheDao<FeedWastageMetaCacheEntity>
             "(SELECT cacheKey FROM feed_wastage_meta_cache ORDER BY updatedAt ASC LIMIT :n)",
     )
     override suspend fun deleteOldest(n: Int)
+
+    /** See FeedDirectionMetaCacheDao.observeLatestInRange. */
+    /**
+     * Every cached envelope for one shape+date, freshest first, whatever park and filters the list
+     * was opened with. The list's park segment is BLANK when the operator left the farm picker on
+     * its default (the server resolves the served park), so a capture screen cannot address the row
+     * by park; it filters the small result set itself. The table is bounded by enforceCacheBounds,
+     * so the pattern match stays cheap. FEED SOP: the envelope carries the sheet's pinned card.
+     */
+    @Query("SELECT * FROM feed_wastage_meta_cache WHERE cacheKey LIKE :pattern ORDER BY updatedAt DESC LIMIT 8") // mobile-guard:ignore: bounded envelope table (enforceCacheBounds), at most 8 rows
+    fun observeForDate(pattern: String): Flow<List<FeedWastageMetaCacheEntity>>
+
 }
 
 // ---------------------------------------------------------------------------

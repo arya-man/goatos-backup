@@ -70,6 +70,8 @@ class FeedTransportCaptureSubmitGuardTest {
             sync = sync,
             capture = proofSource,
             proofCaptureRepository = FakeProofCaptureRepository(),
+            photoCaptureSource = sg.mesha.goatos.capture.FakePhotoCaptureSource(),
+            appContext = androidx.test.core.app.ApplicationProvider.getApplicationContext(),
             drafts = drafts,
             analytics = RecordingAnalytics(),
             crashReporter = NoopCrashReporter(),
@@ -79,7 +81,7 @@ class FeedTransportCaptureSubmitGuardTest {
         advanceUntilIdle()
         // Record the mandatory video for real (through the VM's own capture path) so the submit
         // gate opens exactly the way an operator's tap would open it.
-        viewModel.onEvent(FeedTransportCaptureEvent.RecordVideo)
+        viewModel.onEvent(FeedTransportCaptureEvent.CaptureSlot("feed_transport_video"))
         advanceUntilIdle()
 
         // The enqueue call suspends until released, modelling the real gap between a tap landing
@@ -119,6 +121,8 @@ class FeedTransportCaptureSubmitGuardTest {
             sync = sync,
             capture = proofSource,
             proofCaptureRepository = FakeProofCaptureRepository(),
+            photoCaptureSource = sg.mesha.goatos.capture.FakePhotoCaptureSource(),
+            appContext = androidx.test.core.app.ApplicationProvider.getApplicationContext(),
             drafts = drafts,
             analytics = RecordingAnalytics(),
             crashReporter = NoopCrashReporter(),
@@ -126,7 +130,7 @@ class FeedTransportCaptureSubmitGuardTest {
             saved = saved,
         )
         advanceUntilIdle()
-        viewModel.onEvent(FeedTransportCaptureEvent.RecordVideo)
+        viewModel.onEvent(FeedTransportCaptureEvent.CaptureSlot("feed_transport_video"))
         advanceUntilIdle()
 
         // First attempt fails
@@ -164,7 +168,7 @@ private class CountingFeedTransportSyncRepository : SyncRepository {
         groupKey: String,
         idempotencyKey: String,
         taskId: String,
-        proofOutboxItemId: String,
+        proofOutboxItemId: String, slotProofs: Map<String, sg.mesha.goatos.core.data.sync.FeedSlotProofSourcePayload>, answers: kotlinx.serialization.json.JsonObject
     ): AppResult<String> {
         pendingGate?.let { gate -> pendingGate = null; gate.await() }
         submitEnqueueCalls += 1

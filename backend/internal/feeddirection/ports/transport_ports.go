@@ -3,6 +3,8 @@ package ports
 import (
 	"context"
 	"errors"
+	"github.com/vgoats/goatos/backend/internal/feeddirection/domain"
+	"github.com/vgoats/goatos/backend/internal/sop/authored"
 	"time"
 )
 
@@ -26,6 +28,10 @@ type FeedTransportTask struct {
 	OperatorID, CurrentAttemptID, ReworkReason                         string
 	PartitionLabel, OperationalLocationDisplay                         string
 	ScheduledAt                                                        time.Time
+	// SOPVersion is the feed.transport SOP version the task was materialized under (FEED SOP,
+	// 2026-09-16); 0 = the seeded card. SOP is that card, compiled by the service for the phone.
+	SOPVersion int
+	SOP        *domain.CardContract
 }
 
 // FeedTransportFilterOption.ID is a park UUID or a shed UUID -- never a composite pen key.
@@ -55,6 +61,9 @@ type ListTransportTasksParams struct {
 type MaterializeTransportParams struct {
 	TenantID string
 	AsOf     time.Time
+	// SOPVersion pins every task materialized by this call to the feed.transport version in
+	// force now (0 = seeded).
+	SOPVersion int
 }
 type MaterializeTransportResult struct {
 	BusinessDate string
@@ -63,6 +72,10 @@ type MaterializeTransportResult struct {
 
 type SubmitTransportParams struct {
 	TenantID, TaskID, ProofRef, OperatorID, IdempotencyKey, ActorID, ActorType, TraceID string
+	// SOPProofs / SOPAnswers: the task's pinned transport card's judged captures and answers
+	// (FEED SOP, 2026-09-16); ProofRef mirrors the seeded slot (or the first capture).
+	SOPProofs  authored.ProofRefs
+	SOPAnswers authored.Answers
 }
 type SubmitTransportResult struct {
 	AttemptID, Status, ParkID, ShedID string

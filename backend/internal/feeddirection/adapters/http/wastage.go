@@ -3,6 +3,7 @@ package http
 import (
 	"context"
 	"errors"
+	"github.com/vgoats/goatos/backend/internal/sop/authored"
 	"net/http"
 	"strings"
 
@@ -47,17 +48,17 @@ func (h *Handler) GetWastageWorklist(w http.ResponseWriter, r *http.Request) {
 
 	targetDate, err := requiredBusinessDate(query, "target_date")
 	if err != nil {
-		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, err.Error(), nil)
+		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, farmMessage(err), nil)
 		return
 	}
 	limit, err := boundedIntParam(query, "limit", app.DefaultShedPageLimit, 1, app.MaxShedPageLimit)
 	if err != nil {
-		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, err.Error(), nil)
+		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, farmMessage(err), nil)
 		return
 	}
 	offset, err := boundedIntParam(query, "offset", 0, 0, app.MaxShedPageOffset)
 	if err != nil {
-		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, err.Error(), nil)
+		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, farmMessage(err), nil)
 		return
 	}
 	// Same status contract as the packing worklist: one bucket or empty for all; unknown rejected.
@@ -104,6 +105,10 @@ type completeWastageRequest struct {
 	PartitionLabel  string `json:"partition_label"`
 	TargetDate      string `json:"target_date"`
 	WastageProofRef string `json:"wastage_proof_ref"`
+	// Proofs / Answers: the wastage card's captures and answers (FEED SOP, 2026-09-16);
+	// wastage_proof_ref is the older phone's single video and maps onto the seeded slot.
+	Proofs  authored.ProofRefs `json:"proofs"`
+	Answers authored.Answers   `json:"answers"`
 }
 
 type completeWastageResponse struct {
@@ -143,13 +148,14 @@ func (h *Handler) PostCompleteWastage(w http.ResponseWriter, r *http.Request) {
 	}
 	targetDate, err := businessDateFromString(body.TargetDate)
 	if err != nil {
-		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, err.Error(), nil)
+		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, farmMessage(err), nil)
 		return
 	}
 
-	// The wastage video is mandatory. Reject a blank one with 422 proof_required BEFORE calling the
-	// service, mirroring the packing route, so a proofless request never reaches the write path.
-	if strings.TrimSpace(body.WastageProofRef) == "" {
+	// A LEGACY request (no card-shaped `proofs`) must carry the wastage video; reject a blank one
+	// with 422 proof_required BEFORE calling the service. A card-shaped request is judged against
+	// the sheet's pinned wastage card by the service (FEED SOP, 2026-09-16).
+	if len(body.Proofs) == 0 && strings.TrimSpace(body.WastageProofRef) == "" {
 		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity,
 			codedError{Code: "proof_required", Message: "a wastage video proof (wastage_proof_ref) is required"}, nil)
 		return
@@ -176,6 +182,8 @@ func (h *Handler) PostCompleteWastage(w http.ResponseWriter, r *http.Request) {
 		PartitionLabel:  strings.TrimSpace(body.PartitionLabel),
 		TargetDate:      targetDate,
 		WastageProofRef: strings.TrimSpace(body.WastageProofRef),
+		Proofs:          body.Proofs,
+		Answers:         body.Answers,
 		CompletedBy:     actorID,
 		IdempotencyKey:  key,
 		ActorID:         actorID,
@@ -267,7 +275,7 @@ func (h *Handler) PostWastageMeasurement(w http.ResponseWriter, r *http.Request)
 		case errors.Is(err, ports.ErrWastageValueOutOfRange):
 			h.wastageMeasurementRefusal(w, r, "wastage_out_of_range")
 		case errors.Is(err, ports.ErrIdempotencyConflict):
-			httpresponse.WriteError(w, r, h.log, http.StatusConflict, err.Error(), nil)
+			httpresponse.WriteError(w, r, h.log, http.StatusConflict, farmMessage(err), nil)
 		default:
 			httpresponse.WriteError(w, r, h.log, http.StatusInternalServerError, "feed wastage measurement", err)
 		}

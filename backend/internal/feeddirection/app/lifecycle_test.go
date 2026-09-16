@@ -55,7 +55,7 @@ func (f *fakeIssueStore) PersistIssue(_ context.Context, cmd ports.PersistIssueC
 	h := &domain.IssueHeader{
 		IssueID: id, TenantID: cmd.TenantID, ParkID: cmd.ParkID, FeedDay: cmd.FeedDay,
 		Workflow: cmd.Workflow, State: domain.IssueStateIssued, IssuedAt: cmd.IssuedAt,
-		GenerationInputFingerprint: cmd.Fingerprint,
+		GenerationInputFingerprint: cmd.Fingerprint, SOPVersion: cmd.SOPVersion, PackingSOPVersion: cmd.PackingSOPVersion,
 	}
 	f.headers[k] = h
 	f.cells[id] = cloneCells(cmd.Cells)

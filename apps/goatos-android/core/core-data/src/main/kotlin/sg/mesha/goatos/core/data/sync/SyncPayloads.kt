@@ -6,6 +6,7 @@ import kotlinx.serialization.SerialName
 import sg.mesha.goatos.core.network.dto.HealthObservationContextDto
 import sg.mesha.goatos.core.network.dto.HealthObservationFindingsDto
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.Json
 import sg.mesha.goatos.core.network.dto.ClockPunchRequestDto
 import sg.mesha.goatos.core.network.dto.LeaveDecisionRequestDto
@@ -374,6 +375,21 @@ data class FeedDistributionCompletePayload(
     @SerialName("feed_weight_proof_ref") val feedWeightProofRef: String? = null,
     @SerialName("distribution_proof_ref") val distributionProofRef: String? = null,
     @SerialName("water_proof_ref") val waterProofRef: String? = null,
+    /**
+     * FEED SOP (maintainer decision 2026-09-16): the card's captures, {slot key: source}. Each
+     * source is this phone's PROOF_UPLOAD outbox row OR a teammate's server proof id. A row queued
+     * by a build that predates the card carries none and resolves through the three fixed fields
+     * above, which are the seeded slots. Answers are the crew's answers to the card's questions.
+     */
+    @SerialName("slot_proofs") val slotProofs: Map<String, FeedSlotProofSourcePayload> = emptyMap(),
+    @SerialName("answers") val answers: JsonObject = JsonObject(emptyMap()),
+)
+
+/** One capture of a feed card: by this phone's outbox row, or by a teammate's server proof id. */
+@Serializable
+data class FeedSlotProofSourcePayload(
+    @SerialName("outbox_item_id") val outboxItemId: String? = null,
+    @SerialName("proof_ref") val proofRef: String? = null,
 )
 
 /**
@@ -496,8 +512,12 @@ data class FeedPackingCompletePayload(
     @SerialName("session_no") val sessionNo: Int = 0,
     @SerialName("target_date") val targetDate: String,
     @SerialName("workflow") val workflow: String,
-    /** Outbox id of the MANDATORY packing VIDEO's PROOF_UPLOAD item. */
-    @SerialName("packing_proof_outbox_item_id") val packingProofOutboxItemId: String,
+    /** Outbox id of the packing VIDEO's PROOF_UPLOAD item -- the seeded slot's mirror. Blank when
+     *  the card no longer carries that slot (FEED SOP, 2026-09-16); older rows always carry it. */
+    @SerialName("packing_proof_outbox_item_id") val packingProofOutboxItemId: String = "",
+    /** FEED SOP: the card's captures {slot key: source} and the answers to its questions. */
+    @SerialName("slot_proofs") val slotProofs: Map<String, FeedSlotProofSourcePayload> = emptyMap(),
+    @SerialName("answers") val answers: JsonObject = JsonObject(emptyMap()),
 )
 
 /**
@@ -516,8 +536,12 @@ data class FeedWastageCompletePayload(
      *  IDENTITY — a partitioned shed has one wastage task PER PEN. */
     @SerialName("partition_label") val partitionLabel: String? = null,
     @SerialName("target_date") val targetDate: String,
-    /** Outbox id of the MANDATORY wastage VIDEO's PROOF_UPLOAD item. */
-    @SerialName("wastage_proof_outbox_item_id") val wastageProofOutboxItemId: String,
+    /** Outbox id of the wastage VIDEO's PROOF_UPLOAD item -- the seeded slot's mirror. Blank when
+     *  the card no longer carries that slot (FEED SOP, 2026-09-16); older rows always carry it. */
+    @SerialName("wastage_proof_outbox_item_id") val wastageProofOutboxItemId: String = "",
+    /** FEED SOP: the card's captures {slot key: source} and the answers to its questions. */
+    @SerialName("slot_proofs") val slotProofs: Map<String, FeedSlotProofSourcePayload> = emptyMap(),
+    @SerialName("answers") val answers: JsonObject = JsonObject(emptyMap()),
 )
 
 /**
@@ -564,7 +588,15 @@ data class MilkFeedingSubmitPayload(
     val mixingAndFillingProofOutboxItemId: String,
 )
 
-@Serializable data class FeedTransportSubmitPayload(@SerialName("task_id") val taskId:String,@SerialName("proof_outbox_item_id") val proofOutboxItemId:String)
+@Serializable data class FeedTransportSubmitPayload(
+    @SerialName("task_id") val taskId: String,
+    /** The transport VIDEO's PROOF_UPLOAD item -- the seeded slot's mirror; blank when the card no
+     *  longer carries that slot (FEED SOP, 2026-09-16). Older rows always carry it. */
+    @SerialName("proof_outbox_item_id") val proofOutboxItemId: String = "",
+    /** FEED SOP: the card's captures {slot key: source} and the answers to its questions. */
+    @SerialName("slot_proofs") val slotProofs: Map<String, FeedSlotProofSourcePayload> = emptyMap(),
+    @SerialName("answers") val answers: JsonObject = JsonObject(emptyMap()),
+)
 
 /**
  * Outbox payload for [sg.mesha.goatos.core.database.outbox.OutboxOpType.CLOCK_IN] /

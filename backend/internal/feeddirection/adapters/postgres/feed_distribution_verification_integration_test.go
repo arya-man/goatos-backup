@@ -84,24 +84,27 @@ func TestCompleteDistributionRequiresBothProofsAtAppLayer(t *testing.T) {
 	missingWeightPhoto.FeedWeightProofRef = ""
 	missingWeightPhoto.DistributionProofRef = "proof-distribution-0001"
 	missingWeightPhoto.WaterProofRef = "proof-water-0001"
-	if _, err := svc.CompleteDistribution(ctx, missingWeightPhoto); !errors.Is(err, ports.ErrDistributionProofRequired) {
-		t.Fatalf("missing feed weight photo err = %v, want ErrDistributionProofRequired", err)
+	// FEED SOP (2026-09-16): a missing capture is refused by the pinned card, naming the slot.
+	if _, err := svc.CompleteDistribution(ctx, missingWeightPhoto); !errors.Is(err, ports.ErrSOPProofSlotInvalid) {
+		t.Fatalf("missing feed weight photo err = %v, want ErrSOPProofSlotInvalid", err)
+	} else if key, _, _ := feeddirectionapp.SOPProofSlotError(err); key != domain.SlotFeedWeightPhoto {
+		t.Fatalf("missing feed weight photo must name %s, got %v", domain.SlotFeedWeightPhoto, err)
 	}
 
 	missingWater := base
 	missingWater.FeedWeightProofRef = "proof-feed-weight-photo-0001"
 	missingWater.DistributionProofRef = "proof-distribution-0001"
 	missingWater.WaterProofRef = ""
-	if _, err := svc.CompleteDistribution(ctx, missingWater); !errors.Is(err, ports.ErrWaterProofRequired) {
-		t.Fatalf("missing water video err = %v, want ErrWaterProofRequired", err)
+	if _, err := svc.CompleteDistribution(ctx, missingWater); !errors.Is(err, ports.ErrSOPProofSlotInvalid) {
+		t.Fatalf("missing water video err = %v, want ErrSOPProofSlotInvalid", err)
 	}
 
 	missingVideo := base
 	missingVideo.FeedWeightProofRef = "proof-feed-weight-photo-0001"
 	missingVideo.DistributionProofRef = ""
 	missingVideo.WaterProofRef = "proof-water-0001"
-	if _, err := svc.CompleteDistribution(ctx, missingVideo); !errors.Is(err, ports.ErrDistributionProofRequired) {
-		t.Fatalf("missing distribution video err = %v, want ErrDistributionProofRequired", err)
+	if _, err := svc.CompleteDistribution(ctx, missingVideo); !errors.Is(err, ports.ErrSOPProofSlotInvalid) {
+		t.Fatalf("missing distribution video err = %v, want ErrSOPProofSlotInvalid", err)
 	}
 
 	// Neither rejected request enqueued anything, and neither wrote a row.
@@ -324,5 +327,41 @@ WHERE tenant_id = $1::uuid AND completion_id = $2::uuid`, fdTenant, pending.Comp
 	}
 	if res.RowVersion <= rowVersion {
 		t.Fatalf("re-submit row_version = %d, want > %d (bumped)", res.RowVersion, rowVersion)
+	}
+}
+
+// TestCompleteDistributionSecondOperatorOnAPartNPenReplays pins the partition-key defect found on
+// the QA clone 2026-09-16 (see partition_key.go): the natural-key conflict re-read bound
+// domain.PartitionMatchKey ("part_1") against the generated column ("part 1"), so a second
+// operator's submit for ANY pen whose label carries a separator -- every "Part N" pen -- answered
+// 500 "read existing distribution completion: no rows" instead of replaying the first write. The
+// phone treats a 500 as retryable and would retry it forever. Castro "1"/"2" never hit it, which
+// is why the existing conflict test (a blank partition) stayed green.
+func TestCompleteDistributionSecondOperatorOnAPartNPenReplays(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := setupFeedDirectionDB(t, ctx)
+	seedFeedDirectionPartition(t, ctx, pool, fdShedA, "Part 1")
+
+	first := distributionParams()
+	first.PartitionLabel = "Part 1"
+	first.SOPProofs = map[string]string{
+		"feed_distribution_feed_weight_photo": "proof-feed-weight-photo-0001",
+		"feed_distribution_video":             "proof-distribution-0001",
+		"feed_distribution_water_video":       "proof-water-0001",
+	}
+	one, err := repo.CompleteDistribution(ctx, first)
+	if err != nil {
+		t.Fatalf("first CompleteDistribution: %v", err)
+	}
+	second := first
+	second.IdempotencyKey = "feed-distribution-key-teammate"
+	second.CompletedBy = "40000000-0000-4000-8000-000000000002"
+	second.ActorID = second.CompletedBy
+	two, err := repo.CompleteDistribution(ctx, second)
+	if err != nil {
+		t.Fatalf("second operator's CompleteDistribution on a Part-N pen: %v (want the first write replayed)", err)
+	}
+	if two.NewlyPending || two.CompletionID != one.CompletionID {
+		t.Fatalf("second=(id %s, newlyPending %v), want the first row %s replayed", two.CompletionID, two.NewlyPending, one.CompletionID)
 	}
 }

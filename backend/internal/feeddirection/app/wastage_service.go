@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/vgoats/goatos/backend/internal/sop/authored"
 	"strings"
 	"time"
 
@@ -43,9 +44,14 @@ type FeedWastageVerificationEnqueueRequest struct {
 	PartitionLabel  string
 	TargetDate      time.Time
 	WastageProofRef string
-	OperatorID      string
-	CapturedAt      time.Time
-	IdempotencyKey  string
+	// MediaRefs / MediaMeta: the card's captures in slot order with title and kind (FEED SOP,
+	// 2026-09-16); AnswerRows the crew's answers, appended to the pen context rows.
+	MediaRefs      []string
+	MediaMeta      []ports.ProofMeta
+	AnswerRows     []authored.AnswerRow
+	OperatorID     string
+	CapturedAt     time.Time
+	IdempotencyKey string
 	// ExperimentArm is the pen's authored trial group, carried onto the verifier's item so she
 	// knows which trial the leftover she is measuring belongs to. Blank when the sheet could not
 	// name one — a completion must never fail because its decoration could not be composed.
@@ -65,11 +71,15 @@ type CompleteWastageInput struct {
 	PartitionLabel  string
 	TargetDate      time.Time
 	WastageProofRef string
-	CompletedBy     string
-	IdempotencyKey  string
-	ActorID         string
-	ActorType       string
-	TraceID         string
+	// Proofs / Answers against the sheet's pinned wastage card (FEED SOP, 2026-09-16); the fixed
+	// ref is what an older phone sends and maps onto the seeded slot.
+	Proofs         authored.ProofRefs
+	Answers        authored.Answers
+	CompletedBy    string
+	IdempotencyKey string
+	ActorID        string
+	ActorType      string
+	TraceID        string
 }
 
 // CompleteWastage records a pen-day's ONE mandatory wastage video at 'pending_verification' and
@@ -112,11 +122,6 @@ func (s *Service) CompleteWastage(ctx context.Context, in CompleteWastageInput) 
 	if in.IdempotencyKey == "" {
 		return ports.CompleteWastageResult{}, ports.ErrIdempotencyRequired
 	}
-	// The wastage VIDEO is mandatory — reject before any state changes (there is nothing for a
-	// verifier to measure without it).
-	if in.WastageProofRef == "" {
-		return ports.CompleteWastageResult{}, ports.ErrWastageProofRequired
-	}
 
 	// THE PEN MUST BE ON THE DAY'S EXPERIMENT SHEET. This is the "rows trigger for experiment pens
 	// only" rule enforced on the WRITE as well as the read: a completion for a normal pen — or for a
@@ -131,13 +136,22 @@ func (s *Service) CompleteWastage(ctx context.Context, in CompleteWastageInput) 
 		return ports.CompleteWastageResult{}, ports.ErrWastageNotExperimentPen
 	}
 
-	// When a validator is wired, the proof id must resolve to a real, completed, tenant-owned
-	// upload before the completion is written.
-	if s.proofs != nil {
-		if err := s.proofs.ValidateFeedProofs(ctx, in.TenantID, []string{in.WastageProofRef}); err != nil {
-			return ports.CompleteWastageResult{}, err
-		}
+	// THE CARD (FEED SOP, 2026-09-16): the experiment sheet's pinned wastage card decides which
+	// captures this pen-day owes and which questions. Nothing is written until every compulsory
+	// slot has a completed, tenant-owned upload of the right kind.
+	rules, err := s.sheetRulesForWrite(ctx, in.TenantID, in.ParkID, biztime.BusinessDate(in.TargetDate), domain.WorkflowExperiment, domain.StageWastage)
+	if err != nil {
+		return ports.CompleteWastageResult{}, err
 	}
+	judged, storedProofs, storedAnswers, err := s.judgeCard(ctx, in.TenantID, rules, map[string]string{"wastage_proof_ref": in.WastageProofRef}, in.Proofs, in.Answers)
+	if err != nil {
+		return ports.CompleteWastageResult{}, err
+	}
+	_, _, _, _, _, legacyWastage := domain.LegacyFieldsFromRefs(domain.StageWastage, storedProofs)
+	if legacyWastage == "" && len(judged) > 0 {
+		legacyWastage = judged[0].Ref
+	}
+	in.WastageProofRef = legacyWastage
 
 	result, err := s.wastage.CompleteWastage(ctx, ports.CompleteWastageParams{
 		TenantID:        in.TenantID,
@@ -146,6 +160,8 @@ func (s *Service) CompleteWastage(ctx context.Context, in CompleteWastageInput) 
 		PartitionLabel:  in.PartitionLabel,
 		TargetDate:      in.TargetDate,
 		WastageProofRef: in.WastageProofRef,
+		SOPProofs:       storedProofs,
+		SOPAnswers:      storedAnswers,
 		CompletedBy:     strings.TrimSpace(in.CompletedBy),
 		IdempotencyKey:  in.IdempotencyKey,
 		ActorID:         in.ActorID,
@@ -173,6 +189,9 @@ func (s *Service) CompleteWastage(ctx context.Context, in CompleteWastageInput) 
 			PartitionLabel:   result.PartitionLabel,
 			TargetDate:       in.TargetDate,
 			WastageProofRef:  in.WastageProofRef,
+			MediaRefs:        canonicalOrderedRefs(rules, result.SOPProofs, judged),
+			MediaMeta:        canonicalProofMeta(rules, result.SOPProofs, judged),
+			AnswerRows:       authored.AnswerRows(rules.Questions, storedAnswers),
 			OperatorID:       strings.TrimSpace(in.CompletedBy),
 			ExperimentArm:    pen.ExperimentArm,
 			HeadCountSummary: heads,
@@ -249,7 +268,7 @@ func (s *Service) WastageWorklist(ctx context.Context, q domain.WastageQuery) (d
 	}
 
 	feedDay := biztime.BusinessDate(normalized.TargetDate)
-	scopeRows, lifecycle, served, err := s.loadServedRows(ctx, normalized.TenantID, normalized.ParkID, feedDay, domain.WorkflowExperiment)
+	scopeRows, lifecycle, headers, served, err := s.loadServedSheet(ctx, normalized.TenantID, normalized.ParkID, feedDay, domain.WorkflowExperiment)
 	if err != nil {
 		return domain.WastagePage{}, err
 	}
@@ -275,7 +294,7 @@ func (s *Service) WastageWorklist(ctx context.Context, q domain.WastageQuery) (d
 			}
 			return page, nil
 		}
-		scopeRows, lifecycle, served, err = s.loadServedRows(ctx, normalized.TenantID, normalized.ParkID, feedDay, domain.WorkflowExperiment)
+		scopeRows, lifecycle, headers, served, err = s.loadServedSheet(ctx, normalized.TenantID, normalized.ParkID, feedDay, domain.WorkflowExperiment)
 		if err != nil {
 			return domain.WastagePage{}, err
 		}
@@ -300,9 +319,18 @@ func (s *Service) WastageWorklist(ctx context.Context, q domain.WastageQuery) (d
 	pageSheds, hasMore := sliceStringPage(shedOrder, normalized.Limit, normalized.Offset)
 	pagePens := wastageRowsForShedIDs(scopePens, pageSheds)
 
+	cards, err := s.sheetCards(ctx, normalized.TenantID, headers, domain.StageWastage)
+	if err != nil {
+		return domain.WastagePage{}, err
+	}
+	var sop *domain.CardContract
+	if card, ok := cards[domain.WorkflowExperiment]; ok {
+		sop = &card
+	}
 	page := domain.WastagePage{
 		Items:      pagePens,
 		Summary:    domain.SummarizeWastage(scopePens),
+		SOP:        sop,
 		Lifecycle:  lifecycle,
 		TargetDate: feedDay,
 		Limit:      normalized.Limit,

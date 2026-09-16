@@ -83,8 +83,9 @@ func TestCompletePackingRequiresVideoAtAppLayer(t *testing.T) {
 		ActorID:        fdActor,
 		ActorType:      "operator",
 	}
-	if _, err := svc.CompletePacking(ctx, missingVideo); !errors.Is(err, ports.ErrPackingProofRequired) {
-		t.Fatalf("missing packing video err = %v, want ErrPackingProofRequired", err)
+	// FEED SOP (2026-09-16): the missing video is refused by the pinned packing card, naming the slot.
+	if _, err := svc.CompletePacking(ctx, missingVideo); !errors.Is(err, ports.ErrSOPProofSlotInvalid) {
+		t.Fatalf("missing packing video err = %v, want ErrSOPProofSlotInvalid", err)
 	}
 
 	// A completion that does not say WHICH bag it proves is rejected on the same terms. 0 is not "the
@@ -1171,5 +1172,57 @@ WHERE tenant_id = $2::uuid AND park_id = $3::uuid AND feed_day = $4::date`,
 				t.Errorf("%s: %q must not be in this completion's plan: %v", tc.state, absent, planned)
 			}
 		}
+	}
+}
+
+// TestReopenPackingReachesAPartNPen pins the afternoon-correction half of the partition-key defect
+// (see partition_key.go): the reopen's pen list carries domain.PenKey ("part_3") and was compared
+// raw against the generated column ("part 3"), so a head-count change on ANY partitioned shed --
+// every Mandela / Godel "Part N" pen -- reopened nothing and the packers kept a video proving the
+// wrong quantity. The blank-partition tests above never exercised a separator.
+func TestReopenPackingReachesAPartNPen(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := setupFeedDirectionDB(t, ctx)
+	seedFeedDirectionPartition(t, ctx, pool, fdShedA, "Part 3")
+
+	p := packingParams()
+	p.PartitionLabel = "Part 3"
+	p.PackingProofRef = "proof-part3-morning"
+	p.IdempotencyKey = "feed-packing-part3-morning"
+	morning, err := repo.CompletePacking(ctx, p)
+	if err != nil {
+		t.Fatalf("CompletePacking(Part 3): %v", err)
+	}
+
+	sentence := "Animals moved in or out of this pen after you packed. This bag was 4 kg for 2 animals; it is now 24 kg for 12 animals."
+	res, err := repo.ReopenPackingForFeedChange(ctx, ports.ReopenPackingParams{
+		TenantID:   fdTenant,
+		ParkID:     fdPark,
+		TargetDate: businessDay(2026, 7, 22),
+		Workflow:   domain.WorkflowNormal,
+		// Exactly what CellDiff.HeadCountChangedPens produces for the label "Part 3".
+		Pens:   []domain.PenKey{{ShedID: fdShedA, PartitionKey: domain.PartitionMatchKey("Part 3")}},
+		Reason: "generic",
+		SessionContexts: []ports.ReopenSessionContext{{
+			ShedID: fdShedA, PartitionKey: domain.PartitionMatchKey("Part 3"), SessionNo: 1, Reason: sentence,
+			OperationalLocationDisplay: "Shed A - Part 3", SessionLabel: "Morning", NewHeadCount: 12, NewTotalKg: "24.000",
+		}},
+		ParkLabel: "Channapatna",
+		TraceID:   "trace-reopen-part3",
+	})
+	if err != nil {
+		t.Fatalf("ReopenPackingForFeedChange(Part 3): %v", err)
+	}
+	if len(res.ReopenedCompletionIDs) != 1 || res.ReopenedCompletionIDs[0] != morning.CompletionID {
+		t.Fatalf("reopened %v, want exactly the Part 3 morning bag %s", res.ReopenedCompletionIDs, morning.CompletionID)
+	}
+	var status, reason string
+	if err := pool.QueryRow(ctx, `
+SELECT status, coalesce(rework_reason, '') FROM feed_packing_completions
+WHERE tenant_id = $1::uuid AND completion_id = $2::uuid`, fdTenant, morning.CompletionID).Scan(&status, &reason); err != nil {
+		t.Fatalf("read reopened row: %v", err)
+	}
+	if status != domain.PackingStatusRework || reason != sentence {
+		t.Fatalf("row=(%s, %q), want rework with the pen-session's own sentence (the context lookup must also survive the key form)", status, reason)
 	}
 }

@@ -83,6 +83,8 @@ class FeedPackingCompleteSubmitGuardTest {
             syncRepository = sync,
             proofCaptureSource = FakeProofCaptureSource(),
             proofCaptureRepository = FakeProofCaptureRepository(),
+            photoCaptureSource = sg.mesha.goatos.capture.FakePhotoCaptureSource(),
+            appContext = androidx.test.core.app.ApplicationProvider.getApplicationContext(),
             analytics = RecordingAnalytics(),
             crashReporter = NoopCrashReporter(),
             drafts = drafts,
@@ -142,6 +144,8 @@ class FeedPackingCompleteSubmitGuardTest {
             syncRepository = sync,
             proofCaptureSource = FakeProofCaptureSource(),
             proofCaptureRepository = FakeProofCaptureRepository(),
+            photoCaptureSource = sg.mesha.goatos.capture.FakePhotoCaptureSource(),
+            appContext = androidx.test.core.app.ApplicationProvider.getApplicationContext(),
             analytics = RecordingAnalytics(),
             crashReporter = NoopCrashReporter(),
             drafts = drafts,
@@ -179,6 +183,8 @@ class FeedPackingCompleteSubmitGuardTest {
             syncRepository = CountingFeedPackingCompleteSyncRepository(),
             proofCaptureSource = source,
             proofCaptureRepository = FakeProofCaptureRepository(),
+            photoCaptureSource = sg.mesha.goatos.capture.FakePhotoCaptureSource(),
+            appContext = androidx.test.core.app.ApplicationProvider.getApplicationContext(),
             analytics = RecordingAnalytics(),
             crashReporter = NoopCrashReporter(),
             drafts = InMemoryCaptureDraftRepository(),
@@ -201,10 +207,10 @@ class FeedPackingCompleteSubmitGuardTest {
         )
         advanceUntilIdle()
 
-        viewModel.onEvent(FeedPackingCompleteEvent.RecordPackingVideo)
+        viewModel.onEvent(FeedPackingCompleteEvent.CaptureSlot("feed_packing_video"))
         advanceUntilIdle()
 
-        assertFalse("capture must not start on a submitted session", viewModel.state.value.isCapturingVideo)
+        assertFalse("capture must not start on a submitted session", viewModel.state.value.card.anyCapturing)
         assertEquals("camera source must never be invoked", 0, source.captureCount)
     }
 
@@ -245,6 +251,8 @@ class FeedPackingCompleteSubmitGuardTest {
             syncRepository = sync,
             proofCaptureSource = FakeProofCaptureSource(),
             proofCaptureRepository = proofs,
+            photoCaptureSource = sg.mesha.goatos.capture.FakePhotoCaptureSource(),
+            appContext = androidx.test.core.app.ApplicationProvider.getApplicationContext(),
             analytics = RecordingAnalytics(),
             crashReporter = NoopCrashReporter(),
             drafts = drafts,
@@ -310,6 +318,8 @@ class FeedPackingCompleteSubmitGuardTest {
             syncRepository = sync,
             proofCaptureSource = FakeProofCaptureSource(),
             proofCaptureRepository = proofs,
+            photoCaptureSource = sg.mesha.goatos.capture.FakePhotoCaptureSource(),
+            appContext = androidx.test.core.app.ApplicationProvider.getApplicationContext(),
             analytics = analytics,
             crashReporter = NoopCrashReporter(),
             drafts = drafts,
@@ -397,6 +407,8 @@ private class CountingFeedPackingCompleteSyncRepository : SyncRepository {
         targetDate: String,
         workflow: String,
         packingProofOutboxItemId: String,
+        slotProofs: Map<String, sg.mesha.goatos.core.data.sync.FeedSlotProofSourcePayload>,
+        answers: kotlinx.serialization.json.JsonObject
     ): AppResult<String> {
         pendingGate?.let { gate -> pendingGate = null; gate.await() }
         markDoneEnqueueCalls += 1
@@ -415,8 +427,8 @@ private class CountingFeedPackingCompleteSyncRepository : SyncRepository {
         durationMs: Long?,
     ): AppResult<String> = AppResult.Ok("proof-outbox-1")
 
-    override suspend fun enqueueFeedTransportSubmit(groupKey: String, idempotencyKey: String, taskId: String, proofOutboxItemId: String): AppResult<String> = error("unused")
-    override suspend fun enqueueFeedDistributionComplete(groupKey: String, idempotencyKey: String, parkId: String?, shedId: String, partitionLabel: String?, sessionNo: Int, targetDate: String, workflow: String, distributionProofOutboxItemId: String?, feedWeightProofOutboxItemId: String?, waterProofOutboxItemId: String?, feedWeightProofRef: String?, distributionProofRef: String?, waterProofRef: String?): AppResult<String> = error("unused")
+    override suspend fun enqueueFeedTransportSubmit(groupKey: String, idempotencyKey: String, taskId: String, proofOutboxItemId: String, slotProofs: Map<String, sg.mesha.goatos.core.data.sync.FeedSlotProofSourcePayload>, answers: kotlinx.serialization.json.JsonObject): AppResult<String> = error("unused")
+    override suspend fun enqueueFeedDistributionComplete(groupKey: String, idempotencyKey: String, parkId: String?, shedId: String, partitionLabel: String?, sessionNo: Int, targetDate: String, workflow: String, distributionProofOutboxItemId: String?, feedWeightProofOutboxItemId: String?, waterProofOutboxItemId: String?, feedWeightProofRef: String?, distributionProofRef: String?, waterProofRef: String?, slotProofs: Map<String, sg.mesha.goatos.core.data.sync.FeedSlotProofSourcePayload>, answers: kotlinx.serialization.json.JsonObject): AppResult<String> = error("unused")
     override suspend fun enqueueFeedDirectionComplete(groupKey: String, idempotencyKey: String, parkId: String?, shedId: String, sessionNo: Int, targetDate: String, workflow: String): AppResult<String> = error("unused")
     override suspend fun enqueueShedSubmit(taskId: String, groupKey: String, idempotencyKey: String, request: sg.mesha.goatos.core.network.dto.SubmitTaskRequestDto): AppResult<String> = error("unused")
     override suspend fun enqueueReschedule(obligationId: String, groupKey: String, idempotencyKey: String, request: sg.mesha.goatos.core.network.dto.RescheduleObligationRequestDto): AppResult<String> = error("unused")

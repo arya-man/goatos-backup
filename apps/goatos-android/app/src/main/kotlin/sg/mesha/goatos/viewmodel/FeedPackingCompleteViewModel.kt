@@ -1,9 +1,11 @@
 package sg.mesha.goatos.viewmodel
 
+import android.content.Context
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -11,13 +13,15 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filterNotNull
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import sg.mesha.goatos.capture.ProofCaptureSource
-import sg.mesha.goatos.capture.ProofCapturePrompt
+import sg.mesha.goatos.R
+import sg.mesha.goatos.capture.PhotoCaptureContext
+import sg.mesha.goatos.capture.PhotoCaptureSource
 import sg.mesha.goatos.capture.ProofCaptureContext
+import sg.mesha.goatos.capture.ProofCapturePrompt
+import sg.mesha.goatos.capture.ProofCaptureSource
 import sg.mesha.goatos.core.analytics.AnalyticsEvents
 import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.analytics.CrashReporter
@@ -28,50 +32,49 @@ import sg.mesha.goatos.core.data.CaptureDraftRepository
 import sg.mesha.goatos.core.data.CaptureFlow
 import sg.mesha.goatos.core.data.FeedCompletionLocalStore
 import sg.mesha.goatos.core.data.FeedRepository
-import sg.mesha.goatos.core.data.capture.CaptureSyncStatus
-import sg.mesha.goatos.core.data.capture.EvidenceSlot
-import sg.mesha.goatos.core.data.capture.ProofCaptureRow
 import sg.mesha.goatos.core.data.capture.ProofCaptureRepository
-import sg.mesha.goatos.core.data.capture.ProofSubject
 import sg.mesha.goatos.core.data.sync.SyncItemStatus
-import sg.mesha.goatos.core.data.sync.SyncQueueItem
 import sg.mesha.goatos.core.data.sync.SyncRepository
-import sg.mesha.goatos.feature.feed.feedSessionCanCapture
+import sg.mesha.goatos.core.network.dto.FeedSopCardDto
+import sg.mesha.goatos.core.network.dto.WeighingRemovalProofSlotDto
 import sg.mesha.goatos.feature.feed.FeedPackingCompleteEvent
 import sg.mesha.goatos.feature.feed.FeedPackingCompleteResultUi
 import sg.mesha.goatos.feature.feed.FeedPackingCompleteStatus
 import sg.mesha.goatos.feature.feed.FeedPackingCompleteUiState
-import sg.mesha.goatos.feature.feed.FeedDistributionProofStatus
+import sg.mesha.goatos.feature.feed.FeedSlotCaptureKind
+import sg.mesha.goatos.feature.feed.feedSessionCanCapture
 import java.util.Locale
 import javax.inject.Inject
 
 /**
- * The feed-PACKING completion detail (`/feed/packing/complete/...`) — the verifier-GATED Packing
- * flow. Opened by tapping a Feed PACKING row.
+ * The feed-PACKING completion detail (`/feed/packing/complete/...`) — the verifier-GATED packing
+ * flow (docs/decisions/feed-distribution-verification.md → "Feed packing is proved ONCE PER BAG").
+ * Grain is the shed-SESSION: a pen's morning and evening bags are two cards, two proofs.
  *
- * Simpler than [FeedDistributionCompleteViewModel]: only ONE mandatory proof, so only TWO
- * offline-first writes instead of three:
- *  - a MANDATORY packing VIDEO ([SyncRepository.enqueueProofUpload], scope=shed);
- *  - **Submit** ([SyncRepository.enqueueFeedPackingComplete]) — carries the proof outbox item id
- *    so the dispatcher resolves the uploaded proof_id and sends it; the shed-session flips to
- *    `pending_verification` and NOTHING is completed until a verifier approves.
+ * FEED SOP (maintainer decision 2026-09-16, docs/decisions/feed-sop.md): the captures this screen
+ * asks for are the packing CARD's, authored on /feed/sops and pinned on the sheet. Today's card is
+ * one packing video; the maintainer may add a photo of the scale, make a slot optional or ask a
+ * question, and this screen follows without a new build. The card reaches the phone two ways: the
+ * SEEDED fallback compiled in, and the sheet's card the Feed Packing worklist cached in Room
+ * (offline; refreshed every time the list is opened online).
  *
- * Both enqueue on the SAME outbox group (the shed-session), so the video drains strictly before
- * the completion. STABLE `SavedStateHandle`-persisted idempotency keys collapse a resend after
- * process death onto the original writes; a failed enqueue invalidates its key so a retry mints
- * fresh. Client-side, Submit is gated on the video being captured/uploaded; the backend also
- * rejects a blank proof `422 proof_required`.
+ * The slot machinery is [FeedSopSlotController]; this class owns the pen-session identity, the
+ * read-only gate and the submit ([SyncRepository.enqueueFeedPackingComplete]), which names every
+ * captured slot by its outbox row and is keyed on that proof set plus the answers -- a retry
+ * replays, a replacement take does not collide with the old submit.
  */
 @HiltViewModel
 class FeedPackingCompleteViewModel @Inject constructor(
     private val syncRepository: SyncRepository,
-    private val proofCaptureSource: ProofCaptureSource,
-    private val proofCaptureRepository: ProofCaptureRepository,
+    proofCaptureSource: ProofCaptureSource,
+    photoCaptureSource: PhotoCaptureSource,
+    proofCaptureRepository: ProofCaptureRepository,
     private val analytics: AnalyticsPort,
     private val crashReporter: CrashReporter,
     private val drafts: CaptureDraftRepository,
     private val feedRepository: FeedRepository,
-    private val feedCompletionStore: FeedCompletionLocalStore,
+    @Suppress("unused") private val feedCompletionStore: FeedCompletionLocalStore,
+    @ApplicationContext private val appContext: Context,
     savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
 
@@ -87,24 +90,14 @@ class FeedPackingCompleteViewModel @Inject constructor(
     private val parkLabel: String = savedStateHandle.get<String>(ARG_PARK_LABEL).orEmpty()
     private val partitionLabel: String = savedStateHandle.get<String>(ARG_PARTITION_LABEL).orEmpty()
 
-    // The row's backend-owned lifecycle bucket AT THE MOMENT the row was tapped. This is only the
-    // FIRST-PAINT hint: it is a nav-arg snapshot, so a status change while this screen stays open
-    // (verifier approves/rejects elsewhere, or a reinstall lost the local draft for work already
-    // submitted) would leave it stale. [observeLiveLifecycleStatus] below supersedes it with the
-    // Room-backed live value the moment Room has one (STG 2026-08-09).
+    // The row's backend-owned lifecycle bucket AT THE MOMENT the row was tapped — a FIRST-PAINT hint.
+    // [observeLiveLifecycleStatus] supersedes it with the Room-backed live value (STG 2026-08-09).
     private val lifecycleStatusHint: String = savedStateHandle.get<String>(ARG_LIFECYCLE_STATUS).orEmpty()
     private val alreadySubmitted: Boolean = !feedSessionCanCapture(lifecycleStatusHint, isToday = true)
 
-    // The day-shed-PEN-session partitions ordering for BOTH the proof AND the completion, so the
-    // proof drains strictly before the gated completion that references it. The PEN, the SESSION and
-    // the DAY are all part of this key: see feedCaptureGroupKey for what dropping any of them did to
-    // the field.
-    private val groupKey =
-        feedCaptureGroupKey("feed-pack", shedId, partitionLabel, sessionNo, workflow, targetDate)
-
-    private val videoKey = DraftIdempotencyKey(savedStateHandle, KEY_VIDEO_IDEMPOTENCY, "feed-packing-video")
-    private var videoProofRowId: String? = null
-    private val proofTerminalEventsTracked = mutableSetOf<String>() // mobile-guard:ignore ViewModel-lifetime set bounded to one feed-packing proof outbox id
+    // The day-shed-PEN-session partitions ordering for the proofs AND the completion, so every
+    // proof drains strictly before the gated completion that references it.
+    private val groupKey = feedCaptureGroupKey("feed-pack", shedId, partitionLabel, sessionNo, workflow, targetDate)
 
     /** Durable per shed-session; see the shared store's kdoc for why SavedStateHandle lost the clip. */
     private var draft = CaptureDraft()
@@ -119,33 +112,95 @@ class FeedPackingCompleteViewModel @Inject constructor(
     )
     val state: StateFlow<FeedPackingCompleteUiState> = _state.asStateFlow()
 
+    private val slots = FeedSopSlotController(
+        scope = viewModelScope,
+        savedStateHandle = savedStateHandle,
+        syncRepository = syncRepository,
+        proofCaptureSource = proofCaptureSource,
+        photoCaptureSource = photoCaptureSource,
+        proofCaptureRepository = proofCaptureRepository,
+        analytics = analytics,
+        crashReporter = crashReporter,
+        stageKey = "feedPacking",
+        groupKey = groupKey,
+        shedId = shedId,
+        evidenceIdentity = buildFeedEvidenceSlotIdentity("feed-pack", shedId, partitionLabel, sessionNo, workflow, targetDate),
+        proofPolicy = ::feedShedProofPolicy,
+        caption = { feedPackingProofCaption() },
+        videoContext = { title ->
+            ProofCaptureContext(
+                title = title,
+                primaryTag = shedLabel.ifBlank { shedId },
+                workLabel = sessionLabel.ifBlank { "Session $sessionNo" },
+                prompt = ProofCapturePrompt.FEED_PACKING,
+            )
+        },
+        photoContext = { slot -> PhotoCaptureContext(title = slot.title, instruction = slot.hint.ifBlank { slot.title }) },
+        events = FeedSopSlotController.Events(
+            captureTapped = AnalyticsEvents.FEED_PACKING_CAPTURE_TAPPED,
+            captured = AnalyticsEvents.FEED_PACKING_VIDEO_CAPTURED,
+            uploadSynced = AnalyticsEvents.FEED_PACKING_PROOF_UPLOAD_SYNCED,
+            failure = AnalyticsEvents.FEED_PACKING_COMPLETE_FAILURE,
+            reuploadTapped = AnalyticsEvents.FEED_PACKING_REUPLOAD_TAPPED,
+            cardApplied = AnalyticsEvents.FEED_PACKING_CARD_APPLIED,
+        ),
+        baseProps = { slotKey, action -> packingEventProps(action, slotKey) },
+        locked = { _state.value.isFinalSubmitted },
+        onChanged = ::recomputeCanComplete,
+        durableDrafts = drafts,
+        durableFlowKey = CaptureFlow.FEED_PACKING,
+        legacySteps = mapOf(STEP_VIDEO to FIELD_FEED_PACKING_VIDEO),
+    )
+
     private var statusJob: Job? = null
-    private var videoStatusJob: Job? = null
     private var syncStatusJob: Job? = null
     private var submitInFlight = false
 
     init {
         analytics.track(AnalyticsEvents.FEED_PACKING_COMPLETE_OPENED, packingEventProps(ACTION_DETAIL_OPENED))
+        slots.applyCard(seededCard(), FeedSopSlotController.CARD_RANK_SEEDED, source = "seeded")
+        viewModelScope.launch { slots.state.collect { card -> _state.update { it.copy(card = card) }; recomputeCanComplete() } }
+        slots.start()
+        observeCachedCard()
         viewModelScope.launch {
             draft = drafts.find(CaptureFlow.FEED_PACKING, groupKey)
-            _state.update { it.copy(videoCaptured = draft.hasProof(STEP_VIDEO)) }
-            draft.proofs[STEP_VIDEO]?.let(::observeProofItem)
-            recomputeCanComplete()
             draft.submitOutboxItemId?.let(::observeOutboxItem)
         }
         observeSyncStatus()
-        observeDurableProof()
         observeLiveLifecycleStatus()
+    }
+
+    /** The seeded packing card (feeddirection/domain/sopseed/feed_packing.json), compiled in as the
+     *  fallback; its slot key is the field_key this app has always stamped on the packing clip. */
+    private fun seededCard(): FeedSopCardDto = FeedSopCardDto(
+        version = 0,
+        stage = "packing",
+        instruction = appContext.getString(R.string.feed_seed_packing_instruction),
+        proofs = listOf(
+            WeighingRemovalProofSlotDto(
+                key = FIELD_FEED_PACKING_VIDEO,
+                title = appContext.getString(R.string.feed_seed_slot_packing_video),
+                hint = appContext.getString(R.string.feed_seed_slot_packing_video_hint),
+                kind = FeedSlotCaptureKind.VIDEO,
+                required = true,
+            ),
+        ),
+    )
+
+    /** The sheet's packing card as the Feed Packing worklist last cached it (Room). */
+    private fun observeCachedCard() {
+        if (targetDate.isBlank() || workflow.isBlank()) return
+        viewModelScope.launch {
+            feedRepository.observePackingCard(parkId, targetDate, workflow)
+                .filterNotNull()
+                .collect { card -> slots.applyCard(card, FeedSopSlotController.CARD_RANK_CACHED, source = "room") }
+        }
     }
 
     /**
      * Supersede the nav-arg [lifecycleStatusHint] with the LIVE Room-backed status the moment Room
-     * has one for this pen-session — the same table the worklist renders from, so a status change
-     * elsewhere (verifier approves/rejects, or another device submits) flips this screen to
-     * read-only WHILE IT IS OPEN, not only on next entry. A `null` emission means Room has no cached
-     * row for this session yet (e.g. offline-first cold start before any worklist page ever cached
-     * it) and is deliberately IGNORED so the screen keeps the nav-arg hint rather than forcing itself
-     * editable.
+     * has one for this pen-session — the same table the worklist renders from. A `null` emission
+     * (no cached row yet) is deliberately IGNORED so the screen keeps the hint.
      */
     private fun observeLiveLifecycleStatus() {
         viewModelScope.launch {
@@ -155,15 +210,10 @@ class FeedPackingCompleteViewModel @Inject constructor(
         startServerStatusPolling()
     }
 
-    /** Shared by the Room-backed observer above and the SERVER poll below. `null` (no answer yet /
-     *  poll failed) is ignored: this must never flip editable -> locked on a guess, and never flips
-     *  locked -> editable at all. */
+    /** `null` (no answer yet / poll failed) is ignored: never flips editable -> locked on a guess. */
     private fun applyLiveStatus(liveStatus: String?, fromRoom: Boolean) {
         if (liveStatus == null) return
         _state.update { it.copy(alreadySubmitted = !feedSessionCanCapture(liveStatus, isToday = true)) }
-        // Persist SERVER-sourced status into Room so the screen survives process death offline.
-        // Room-sourced emissions are already in Room — writing them back fires a spurious
-        // table-wide invalidation on every emission.
         if (!fromRoom) {
             viewModelScope.launch {
                 feedRepository.persistPackingRowStatus(shedId, partitionLabel, workflow, sessionNo, liveStatus)
@@ -171,15 +221,8 @@ class FeedPackingCompleteViewModel @Inject constructor(
         }
     }
 
-    /**
-     * Periodic SERVER read of this shed-session's lifecycle status while the screen stays open, so a
-     * TEAMMATE'S submit on another phone flips this screen read-only without back/reopen —
-     * [observePackingRowStatus] above only changes when THIS phone's own worklist sync writes a fresh
-     * Room row. Reuses the existing `GET /feed-packing/worklist` read via
-     * [FeedRepository.fetchPackingRowStatus] (no new backend endpoint). See
-     * [FeedDistributionCompleteViewModel.startServerStatusPolling]'s kdoc for why this is bounded at
-     * [MAX_SERVER_STATUS_POLLS] rather than a bare `while (isActive)`.
-     */
+    /** Periodic SERVER read of the lifecycle status while the screen stays open; bounded, see
+     *  [FeedDistributionCompleteViewModel.startServerStatusPolling]. */
     private fun startServerStatusPolling() {
         viewModelScope.launch {
             repeat(MAX_SERVER_STATUS_POLLS) {
@@ -189,11 +232,9 @@ class FeedPackingCompleteViewModel @Inject constructor(
         }
     }
 
-    /** A poll failure (offline/timeout/5xx) is swallowed and leaves state exactly as it was — see
-     *  [applyLiveStatus]'s null-is-unknown contract. */
     private suspend fun pollServerStatusOnce() {
         if (shedId.isBlank() || workflow.isBlank() || targetDate.isBlank() || sessionNo < 1) return
-        val status = runCatching { // exception:exempt expected poll failure (offline/timeout/5xx); see pollServerStatusOnce kdoc — null-is-unknown is the contract, not an error to record
+        val status = runCatching { // exception:exempt expected poll failure (offline/timeout/5xx); null-is-unknown is the contract, not an error to record
             feedRepository.fetchPackingRowStatus(parkId, shedId, partitionLabel, workflow, sessionNo, targetDate)
         }.getOrNull()
         applyLiveStatus(status, fromRoom = false)
@@ -201,221 +242,52 @@ class FeedPackingCompleteViewModel @Inject constructor(
 
     fun onEvent(event: FeedPackingCompleteEvent) {
         when (event) {
-            FeedPackingCompleteEvent.RecordPackingVideo -> capturePackingVideo()
-            // Re-record: drop the discarded take's queued upload, then capture afresh.
-            // Re-record runs the camera FIRST and drops the old take's queued upload only once new
-            // media exists (see capturePackingVideo). Discarding up front deleted a good clip
-            // whenever the operator cancelled or the camera failed, leaving the slot empty.
-            FeedPackingCompleteEvent.ReRecordPackingVideo -> capturePackingVideo(replacing = true)
+            is FeedPackingCompleteEvent.CaptureSlot -> slots.captureSlot(event.slotKey, event.kind)
+            is FeedPackingCompleteEvent.Answer -> slots.answer(event.questionId, event.value)
             FeedPackingCompleteEvent.MarkDone -> markDone()
             FeedPackingCompleteEvent.SyncNow -> syncNow()
             FeedPackingCompleteEvent.Back -> Unit // navigation — handled by the nav host.
-            is FeedPackingCompleteEvent.PreviewAction -> trackPreviewAction(event.action)
+            is FeedPackingCompleteEvent.PreviewAction -> trackPreviewAction(event.slotKey, event.action)
         }
     }
 
-    private fun trackPreviewAction(action: String) {
+    private fun trackPreviewAction(slotKey: String, action: String) {
         val previewAction = ProofPreviewActionTrace.from(action)
         analytics.track(
             AnalyticsEvents.FEED_DISTRIBUTION_PROOF_PREVIEW_ACTION,
-            packingEventProps(previewAction.action) + buildMap {
+            packingEventProps(previewAction.action, slotKey) + buildMap {
                 put(AnalyticsEvents.Params.OUTCOME, previewAction.outcome)
                 previewAction.reason?.let { put(AnalyticsEvents.Params.REASON, it) }
-                videoProofRowId?.takeIf { it.isNotBlank() }?.let { put("local_proof_row_id", it) }
-                draft.proofs[STEP_VIDEO]?.takeIf { it.isNotBlank() }?.let {
-                    put(AnalyticsEvents.Params.PROOF_OUTBOX_ITEM_ID, it)
-                }
+                slots.proofRowIdFor(slotKey)?.takeIf { it.isNotBlank() }?.let { put("local_proof_row_id", it) }
+                slots.outboxItemIdFor(slotKey)?.takeIf { it.isNotBlank() }?.let { put(AnalyticsEvents.Params.PROOF_OUTBOX_ITEM_ID, it) }
             },
         )
     }
 
-    /** MANDATORY packing video — a LIVE in-app camera clip. It enqueues a PROOF_UPLOAD on the shed-session group so it
-     *  drains before the completion. */
-    private fun capturePackingVideo(replacing: Boolean = false) {
-        if (_state.value.isCapturingVideo || _state.value.alreadySubmitted || shedId.isBlank()) return
-        // A re-record starts from a FILLED slot, so videoCaptured only blocks a fresh record.
-        if (!replacing && _state.value.videoCaptured) return
-        analytics.track(
-            AnalyticsEvents.FEED_PACKING_COMPLETE_OPENED,
-            packingEventProps(if (replacing) ACTION_RE_RECORD_VIDEO else ACTION_RECORD_VIDEO),
-        )
-        _state.update { it.copy(isCapturingVideo = true, videoMessage = null) }
-        viewModelScope.launch {
-            val captured = try {
-                proofCaptureSource.captureVideo(
-                    ProofCaptureContext(
-                        title = feedPackingProofCaption(),
-                        primaryTag = shedLabel.ifBlank { shedId },
-                        workLabel = sessionLabel.ifBlank { "Session $sessionNo" },
-                        prompt = ProofCapturePrompt.FEED_PACKING,
-                    ),
-                )
-            } catch (error: Exception) {
-                crashReporter.recordException(error, "feed packing video capture failed")
-                null
-            }
-            if (captured == null) {
-                _state.update { it.copy(isCapturingVideo = false) }
-                return@launch
-            }
-            // Build the evidence slot for re-capture. captureReplacingLatest ensures
-            // the old row is only removed after the new capture succeeds (Manohar ordering).
-            val slot = EvidenceSlot(
-                identity = buildFeedEvidenceSlotIdentity("feed-pack", shedId, partitionLabel, sessionNo, workflow, targetDate),
-                fieldKey = FIELD_FEED_PACKING_VIDEO,
-            )
-            when (
-                val result = proofCaptureRepository.captureReplacingLatest(
-                    slot = slot,
-                    subject = ProofSubject.SHED,
-                    subjectId = shedId,
-                    localUri = captured.localUri,
-                    mimeType = captured.mimeType,
-                    caption = feedPackingProofCaption(),
-                    scopeType = "shed",
-                    scopeId = shedId,
-                    capturedStartMs = captured.startedAtMs,
-                    capturedEndMs = captured.endedAtMs,
-                    capturedByPrincipalId = null,
-                    proofPolicy = feedShedProofPolicy(captured.captureSource),
-                    awaitUploadEnqueue = true,
-                    uploadGroupKey = groupKey,
-                )
-            ) {
-                is AppResult.Ok -> {
-                    videoProofRowId = result.value.id
-                    val proofOutboxId = result.value.outboxItemId
-                    if (proofOutboxId.isNullOrBlank()) {
-                        _state.update { it.copy(isCapturingVideo = false, videoCaptured = it.videoCaptured, videoMessage = PROOF_FAILED) }
-                        return@launch
-                    }
-                    drafts.putProof(CaptureFlow.FEED_PACKING, groupKey, STEP_VIDEO, proofOutboxId)
-                    draft = drafts.find(CaptureFlow.FEED_PACKING, groupKey)
-                    observeProofItem(proofOutboxId)
-                    analytics.track(
-                        AnalyticsEvents.FEED_PACKING_VIDEO_CAPTURED,
-                        packingEventProps(ACTION_CAPTURED) +
-                            (AnalyticsEvents.Params.PROOF_ID to result.value.id) +
-                            (PARAM_OUTBOX_ITEM_ID to proofOutboxId),
-                    )
-                    _state.update { it.copy(isCapturingVideo = false, videoCaptured = true, videoMessage = VIDEO_QUEUED) }
-                    recomputeCanComplete()
-                }
-                is AppResult.Err -> {
-                    // The row was never created; drop the key so a retry mints a fresh one.
-                    videoKey.invalidate()
-                    result.cause?.let { crashReporter.recordException(it, "feed packing video enqueue failed") }
-                    analytics.track(
-                        AnalyticsEvents.FEED_PACKING_COMPLETE_FAILURE,
-                        packingEventProps(ACTION_CAPTURE_FAILED) +
-                            (AnalyticsEvents.Params.REASON to result.message),
-                    )
-                    _state.update { it.copy(isCapturingVideo = false, videoCaptured = it.videoCaptured, videoMessage = PROOF_FAILED) }
-                }
-            }
-        }
-    }
-
-    private fun observeProofItem(itemId: String) {
-        videoStatusJob?.cancel()
-        videoStatusJob = viewModelScope.launch {
-            syncRepository.observeItem(itemId)
-                .filterNotNull()
-                .distinctUntilChanged()
-                .collect(::updateProofStatus)
-        }
-    }
-
-    private fun observeDurableProof() {
-        viewModelScope.launch {
-            // No partitionLabel: [groupKey] ALREADY carries the pen (feedCaptureGroupKey embeds
-            // partitionMatchToken), so this read is pen-scoped by the task id alone. Passing the
-            // label as well filtered on proof_capture.partitionKey, which capture() writes as
-            // "whole" because the feed capture calls do not pass a label — so on a partitioned
-            // shed the read asked for "3" while the row said "whole" and rehydration silently
-            // returned nothing. Re-entering the screen showed an empty form for a video that was
-            // sitting in Room and already uploading. Keep read and write symmetric (feed transport
-            // and weighing omit it on both sides too); do not "restore" the label on one side only.
-            proofCaptureRepository.observeProofs(groupKey)
-                .collect { rows ->
-                    val row = rows
-                        .filter { it.fieldKey == FIELD_FEED_PACKING_VIDEO && it.syncStatus != CaptureSyncStatus.FAILED }
-                        .maxByOrNull { it.capturedAtMs }
-                        ?: return@collect
-                    hydrateFromProof(row)
-                    recomputeCanComplete()
-                }
-        }
-    }
-
-    private suspend fun hydrateFromProof(row: ProofCaptureRow) {
-        videoProofRowId = row.id
-        row.outboxItemId?.takeIf { it.isNotBlank() }?.let { outboxId ->
-            if (draft.proofs[STEP_VIDEO] != outboxId) {
-                drafts.putProof(CaptureFlow.FEED_PACKING, groupKey, STEP_VIDEO, outboxId)
-                draft = drafts.find(CaptureFlow.FEED_PACKING, groupKey)
-            }
-            observeProofItem(outboxId)
-        }
-        val status = row.toProofStatus()
-        _state.update {
-            it.copy(
-                videoCaptured = true,
-                videoPreviewPath = row.previewUri() ?: it.videoPreviewPath,
-                videoStatus = status,
-                videoMessage = row.toProofMessage(status, VIDEO_QUEUED, PROOF_UPLOADING, PROOF_SYNCED, PROOF_FAILED),
-            )
-        }
-    }
-
-    private fun updateProofStatus(item: SyncQueueItem) {
-        val proofStatus = when (item.status) {
-            SyncItemStatus.QUEUED -> FeedDistributionProofStatus.QUEUED
-            SyncItemStatus.IN_FLIGHT -> FeedDistributionProofStatus.UPLOADING
-            SyncItemStatus.SUCCEEDED -> FeedDistributionProofStatus.SYNCED
-            SyncItemStatus.FAILED -> FeedDistributionProofStatus.FAILED
-        }
-        trackProofUploadTerminal(item)
-        val message = when (proofStatus) {
-            FeedDistributionProofStatus.QUEUED -> VIDEO_QUEUED
-            FeedDistributionProofStatus.UPLOADING -> PROOF_UPLOADING
-            FeedDistributionProofStatus.SYNCED -> PROOF_SYNCED
-            FeedDistributionProofStatus.FAILED -> item.lastError ?: PROOF_FAILED
-            FeedDistributionProofStatus.EMPTY -> null
-        }
-        _state.update {
-            it.copy(
-                videoCaptured = it.videoCaptured || item.localFilePath != null,
-                videoPreviewPath = item.localFilePath ?: it.videoPreviewPath,
-                videoStatus = proofStatus,
-                videoMessage = message,
-            )
-        }
-        recomputeCanComplete()
-    }
-
     private fun markDone() {
         val current = _state.value
-        val videoItem = draft.proofs[STEP_VIDEO]
-        // Defense in depth alongside the UI gate: the video must exist to submit. Also check the
-        // submitInFlight latch (SubmitViewModel idiom): a plain latch checked-and-set BEFORE the
-        // enqueue coroutine launches, so a second tap landing in the async gap between the tap and
-        // the state update reflecting it (`result`/`canComplete`) cannot slip past submitEnabled
-        // and enqueue a second write. Reset on any terminal outcome (success or error) so a real
-        // failure stays retryable.
-        if (submitInFlight || !current.submitEnabled || videoItem.isNullOrBlank()) {
-            _state.update { it.copy(canComplete = false, videoMessage = "Record the packing video before submitting.") }
+        val slotRefs = slots.submitRefs()
+        // Defense in depth alongside the UI gate, plus the submitInFlight latch (SubmitViewModel
+        // idiom): checked-and-set BEFORE the enqueue coroutine launches, so a second tap in the async
+        // gap cannot enqueue a second write. Reset on any terminal outcome so a failure stays retryable.
+        if (submitInFlight || !current.submitEnabled || slotRefs == null) {
+            analytics.track(AnalyticsEvents.FEED_PACKING_SUBMIT_BLOCKED, packingEventProps(ACTION_SUBMIT_BLOCKED))
+            _state.update { it.copy(canComplete = false) }
             return
         }
+        val answers = slots.answersJson()
         submitInFlight = true
         viewModelScope.launch {
-            // Stable for the selected proof, fresh when the operator re-records. A retry of the same
-            // video must replay; a replacement video must not collide with the old submit payload.
-            val completeIdempotencyKey = "feed-packing-complete:$groupKey:$videoItem"
+            // Stable for the selected proof SET (+ answers), fresh when the operator re-records. A
+            // retry of the same take must replay; a replacement must not collide with the old submit.
+            val completeIdempotencyKey = "feed-packing-complete:$groupKey:" + slots.submitDigest(slotRefs, answers)
+            // A corrected resubmit must not queue behind its own rejected predecessor (see retireRejectedSubmit).
+            syncRepository.retireRejectedSubmit(draft.submitOutboxItemId, completeIdempotencyKey)
             if (draft.submitIdempotencyKey != completeIdempotencyKey) {
                 drafts.putSubmit(CaptureFlow.FEED_PACKING, groupKey, completeIdempotencyKey, null)
                 draft = drafts.find(CaptureFlow.FEED_PACKING, groupKey)
             }
+            val legacyVideo = slotRefs[FIELD_FEED_PACKING_VIDEO]?.outboxItemId.orEmpty()
             when (
                 val result = syncRepository.enqueueFeedPackingComplete(
                     groupKey = groupKey,
@@ -426,19 +298,21 @@ class FeedPackingCompleteViewModel @Inject constructor(
                     sessionNo = sessionNo,
                     targetDate = targetDate,
                     workflow = workflow,
-                    packingProofOutboxItemId = videoItem,
+                    packingProofOutboxItemId = legacyVideo,
+                    slotProofs = slotRefs,
+                    answers = answers,
                 )
             ) {
                 is AppResult.Ok -> {
                     drafts.putSubmit(CaptureFlow.FEED_PACKING, groupKey, completeIdempotencyKey, result.value)
                     draft = drafts.find(CaptureFlow.FEED_PACKING, groupKey)
-                    // Mark this pen-session as submitted for review immediately so the ViewModel overlay
                     observeOutboxItem(result.value)
                     analytics.track(
                         AnalyticsEvents.FEED_PACKING_SUBMITTED,
                         packingEventProps(ACTION_SUBMIT) +
-                            (PARAM_PROOF_OUTBOX_ITEM_ID to videoItem) +
-                            (PARAM_OUTBOX_ITEM_ID to result.value),
+                            (PARAM_PROOF_OUTBOX_ITEM_ID to legacyVideo) +
+                            (PARAM_OUTBOX_ITEM_ID to result.value) +
+                            ("slot_keys" to slotRefs.keys.joinToString(",")),
                     )
                     _state.update { it.copy(canComplete = false) }
                 }
@@ -447,8 +321,7 @@ class FeedPackingCompleteViewModel @Inject constructor(
                     result.cause?.let { crashReporter.recordException(it, "feed packing complete enqueue failed") }
                     analytics.track(
                         AnalyticsEvents.FEED_PACKING_COMPLETE_FAILURE,
-                        packingEventProps(ACTION_SUBMIT_FAILED) +
-                            (AnalyticsEvents.Params.REASON to result.message),
+                        packingEventProps(ACTION_SUBMIT_FAILED) + (AnalyticsEvents.Params.REASON to result.message),
                     )
                     _state.update {
                         it.copy(result = FeedPackingCompleteResultUi(FeedPackingCompleteStatus.FAILED, result.message), canComplete = true)
@@ -465,68 +338,32 @@ class FeedPackingCompleteViewModel @Inject constructor(
                 .filterNotNull()
                 .distinctUntilChanged()
                 .collect { item ->
-                    // Reset submitInFlight latch on terminal FAILED so the user can retry.
-                    // The latch was set true when the enqueue launched, but only reset on
-                    // synchronous enqueue Err — not when the outbox row later reaches FAILED.
-                    // Without this reset, button stays dead forever after terminal failure.
-                    if (item.status == SyncItemStatus.FAILED) {
-                        submitInFlight = false
-                    }
+                    // Reset the latch on terminal FAILED so the operator can retry.
+                    if (item.status == SyncItemStatus.FAILED) submitInFlight = false
                     _state.update {
                         val writeResult = item.toWriteResult(QUEUED_MESSAGE, SYNCED_MESSAGE)
                         it.copy(
                             result = FeedPackingCompleteResultUi(writeResult.status.toPackingStatus(), writeResult.message.orEmpty()),
-                            canComplete = !writeResult.isCommitted && packingProofReadyForSubmit(it),
+                            canComplete = !writeResult.isCommitted && it.card.readyToSubmit,
                         )
                     }
                 }
         }
     }
 
-    private fun trackProofUploadTerminal(item: SyncQueueItem) {
-        val outcome = when (item.status) {
-            SyncItemStatus.SUCCEEDED -> "success"
-            SyncItemStatus.FAILED -> "failure"
-            else -> return
-        }
-        if (!proofTerminalEventsTracked.add(item.id)) return
-        analytics.track(
-            AnalyticsEvents.FEED_PACKING_PROOF_UPLOAD_SYNCED,
-            packingEventProps(ACTION_PROOF_UPLOAD_SYNC) + buildMap {
-                put(AnalyticsEvents.Params.OUTCOME, outcome)
-                put(PARAM_PROOF_OUTBOX_ITEM_ID, item.id)
-                videoProofRowId?.takeIf { it.isNotBlank() }?.let { put("local_proof_row_id", it) }
-                if (item.status == SyncItemStatus.FAILED) {
-                    put(AnalyticsEvents.Params.REASON, item.lastError?.takeIf { it.isNotBlank() }
-                        ?: if (item.conflict) "conflict" else "attempts_exhausted")
-                }
-            },
-        )
-    }
-
     private fun recomputeCanComplete() {
         _state.update {
             val committed = it.result?.let { r -> r.status == FeedPackingCompleteStatus.SYNCED || r.status == FeedPackingCompleteStatus.QUEUED } ?: false
-            it.copy(canComplete = packingProofReadyForSubmit(it) && !committed)
+            it.copy(canComplete = it.card.readyToSubmit && !committed)
         }
     }
 
-    private fun packingProofReadyForSubmit(state: FeedPackingCompleteUiState): Boolean =
-        state.videoCaptured && state.videoStatus.isQueuedForSubmit()
-
     private fun syncNow() {
+        analytics.track(AnalyticsEvents.FEED_PACKING_SYNC_TAPPED, packingEventProps(ACTION_REFRESH))
         viewModelScope.launch {
-            val videoProof = videoProofRowId
-            if (!videoProof.isNullOrBlank()) {
-                proofCaptureRepository.retryUpload(groupKey, videoProof)
-            }
-            draft.submitOutboxItemId?.takeIf { it.isNotBlank() }?.let { submitItem ->
-                syncRepository.retry(submitItem)
-            }
+            slots.retryUploads()
+            draft.submitOutboxItemId?.takeIf { it.isNotBlank() }?.let { submitItem -> syncRepository.retry(submitItem) }
             syncRepository.triggerDrain()
-            // Re-check the session's lifecycle status directly from the server, so a manual Sync
-            // tap gets the same "did a teammate already submit this" answer the periodic poll
-            // provides, without waiting for the next tick.
             pollServerStatusOnce()
         }
     }
@@ -537,9 +374,7 @@ class FeedPackingCompleteViewModel @Inject constructor(
             syncRepository.observeStatus()
                 .map { status -> status.inFlightCount > 0 }
                 .distinctUntilChanged()
-                .collect { syncing ->
-                    _state.update { it.copy(isSyncing = syncing) }
-                }
+                .collect { syncing -> _state.update { it.copy(isSyncing = syncing) } }
         }
     }
 
@@ -560,7 +395,7 @@ class FeedPackingCompleteViewModel @Inject constructor(
             ).filter { it.isNotBlank() }.joinToString(" . "),
         )
 
-    private fun packingEventProps(action: String): Map<String, String> =
+    private fun packingEventProps(action: String, slotKey: String? = null): Map<String, String> =
         mapOf(
             AnalyticsEvents.Params.SOURCE to SCREEN_FEED_PACKING_DETAIL,
             AnalyticsEvents.Params.KIND to KIND_PACKING,
@@ -568,7 +403,7 @@ class FeedPackingCompleteViewModel @Inject constructor(
             AnalyticsEvents.Params.SHED_ID to shedId,
             AnalyticsEvents.Params.PARTITION_LABEL to partitionLabel,
             AnalyticsEvents.Params.SESSION_NO to sessionNo.toString(),
-            AnalyticsEvents.Params.FIELD to FIELD_FEED_PACKING_VIDEO,
+            AnalyticsEvents.Params.FIELD to (slotKey ?: FIELD_FEED_PACKING_VIDEO),
             PARAM_GROUP_KEY to groupKey,
         )
 
@@ -587,35 +422,23 @@ class FeedPackingCompleteViewModel @Inject constructor(
         const val ARG_PARTITION_LABEL = "partition_label"
         const val ARG_LIFECYCLE_STATUS = "lifecycle_status"
 
-        /** How often [startServerStatusPolling] re-checks this session's lifecycle status directly
-         *  from the server while the screen stays open. */
         private const val SERVER_STATUS_POLL_INTERVAL_MS = 30_000L
-
-        /** Bound for [startServerStatusPolling] — see its kdoc for why this cannot be unbounded. */
         private const val MAX_SERVER_STATUS_POLLS = 2_880
         private const val KIND_PACKING = "packing"
         private const val SCREEN_FEED_PACKING_DETAIL = "feed_packing_complete"
         private const val ACTION_DETAIL_OPENED = "detail_opened"
-        private const val ACTION_RECORD_VIDEO = "record_video"
-        private const val ACTION_RE_RECORD_VIDEO = "re_record_video"
-        private const val ACTION_CAPTURED = "captured"
-        private const val ACTION_CAPTURE_FAILED = "capture_failed"
-        private const val ACTION_PROOF_UPLOAD_SYNC = "proof_upload_sync"
+        private const val ACTION_REFRESH = "refresh"
         private const val ACTION_SUBMIT = "submit"
+        private const val ACTION_SUBMIT_BLOCKED = "submit_blocked"
         private const val ACTION_SUBMIT_FAILED = "submit_failed"
         private const val PARAM_GROUP_KEY = "group_key"
         private const val PARAM_OUTBOX_ITEM_ID = "outbox_item_id"
         private const val PARAM_PROOF_OUTBOX_ITEM_ID = "proof_outbox_item_id"
 
-        /** Draft step name in the shared capture-draft store. */
+        /** Draft step name an older build wrote for the one packing clip; maps to the seeded slot. */
         private const val STEP_VIDEO = "video"
-        private const val KEY_VIDEO_IDEMPOTENCY = "feedPacking.videoKey"
-        private const val FIELD_FEED_PACKING_VIDEO = "feed_packing_video"
-        private const val QUEUED_MESSAGE = "Submitted for verification. A verifier will review the packing video."
+        internal const val FIELD_FEED_PACKING_VIDEO = "feed_packing_video"
+        private const val QUEUED_MESSAGE = "Submitted for verification. A verifier will review the packing proofs."
         private const val SYNCED_MESSAGE = "Submitted. Waiting for verifier approval before this packing is counted."
-        private const val VIDEO_QUEUED = "Packing video saved on this phone. It will upload automatically."
-        private const val PROOF_UPLOADING = "Packing video upload is in progress."
-        private const val PROOF_SYNCED = "Packing video is ready."
-        private const val PROOF_FAILED = "Couldn't save that proof. Please capture it again."
     }
 }

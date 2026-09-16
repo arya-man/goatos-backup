@@ -403,6 +403,9 @@ func IsValidSessionStatusFilter(raw string) bool {
 type PreviewPage struct {
 	Items   []DirectionRow `json:"items"`
 	Summary PreviewSummary `json:"summary"`
+	// SOP is the distribution CARD the served sheet's pen-sessions are proven against, keyed by
+	// workflow (FEED SOP, 2026-09-16). The captures read repeats the exact card per session.
+	SOP map[string]CardContract `json:"sop,omitempty"`
 	// Lifecycle reports whether the served sheet was issued/amended/locked, or is pending/not_issued
 	// (nothing frozen yet), or draft (live what-if). It is what tells a client this is a FROZEN
 	// artifact rather than a live computation. Always present.
@@ -655,6 +658,10 @@ const (
 type PackingPage struct {
 	Items   []PackingRow   `json:"items"`
 	Summary PackingSummary `json:"summary"`
+	// SOP is the packing CARD every bag on this page is packed against -- the feed.packing version
+	// the served sheet was issued under (FEED SOP, 2026-09-16), keyed by workflow because the normal
+	// and experiment sheets of one day are issued separately and may be pinned to different versions.
+	SOP map[string]CardContract `json:"sop,omitempty"`
 	// Lifecycle and Draft carry the same issue-state metadata as PreviewPage.
 	Lifecycle Lifecycle `json:"lifecycle"`
 	Draft     bool      `json:"draft"`

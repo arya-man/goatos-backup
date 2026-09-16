@@ -18,6 +18,12 @@ import sg.mesha.goatos.feature.feed.feedSessionCanCapture
  * a reinstall wipes. The operator re-shot a video the backend then discarded as an idempotent replay.
  */
 class FeedCaptureAvailabilityTest {
+    private fun packingCard(status: FeedDistributionProofStatus) = sg.mesha.goatos.feature.feed.FeedSopCardUi(
+        slots = listOf(
+            sg.mesha.goatos.feature.feed.FeedDistributionSlotUi(slotKey = "feed_packing_video", title = "Packing video", captured = true, status = status),
+        ),
+    )
+
 
     @Test
     fun `a session awaiting a verdict cannot be reopened`() {
@@ -75,7 +81,7 @@ class FeedCaptureAvailabilityTest {
     @Test
     fun `an already-submitted session offers no capture and no submit`() {
         val submitted = FeedPackingCompleteUiState(
-            videoCaptured = true,
+            card = packingCard(FeedDistributionProofStatus.QUEUED),
             canComplete = true,
             alreadySubmitted = true,
         )
@@ -88,8 +94,7 @@ class FeedCaptureAvailabilityTest {
     @Test
     fun `an open session still offers capture and submit`() {
         val open = FeedPackingCompleteUiState(
-            videoCaptured = true,
-            videoStatus = FeedDistributionProofStatus.QUEUED,
+            card = packingCard(FeedDistributionProofStatus.QUEUED),
             canComplete = true,
             alreadySubmitted = false,
         )
@@ -101,8 +106,7 @@ class FeedCaptureAvailabilityTest {
     @Test
     fun `a failed packing proof does not submit`() {
         val failed = FeedPackingCompleteUiState(
-            videoCaptured = true,
-            videoStatus = FeedDistributionProofStatus.FAILED,
+            card = packingCard(FeedDistributionProofStatus.FAILED),
             canComplete = false,
             alreadySubmitted = false,
         )

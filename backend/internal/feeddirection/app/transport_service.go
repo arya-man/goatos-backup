@@ -3,6 +3,8 @@ package app
 import (
 	"context"
 	"errors"
+	"github.com/vgoats/goatos/backend/internal/feeddirection/domain"
+	"github.com/vgoats/goatos/backend/internal/sop/authored"
 	"strconv"
 	"strings"
 	"time"
@@ -20,9 +22,18 @@ type FeedTransportVerificationEnqueueRequest struct {
 	TenantID, AttemptID, ParkID, ShedID, ProofRef, OperatorID, IdempotencyKey string
 	ShedName, PartitionLabel                                                  string // used internally by enqueuer; compose display via shared primitive
 	CapturedAt                                                                time.Time
+	// MediaRefs / MediaMeta: the card's captures in slot order with title and kind (FEED SOP,
+	// 2026-09-16); AnswerRows the crew's answers.
+	MediaRefs  []string
+	MediaMeta  []ports.ProofMeta
+	AnswerRows []authored.AnswerRow
 }
 type SubmitTransportInput struct {
 	TenantID, TaskID, ProofRef, OperatorID, IdempotencyKey, ActorID, ActorType, TraceID string
+	// Proofs / Answers against the task's pinned transport card (FEED SOP, 2026-09-16); ProofRef
+	// is what an older phone sends and maps onto the seeded slot.
+	Proofs  authored.ProofRefs
+	Answers authored.Answers
 	// AuthorizedParkIDs is the caller's own park scope, resolved at the HTTP boundary. EMPTY means
 	// unrestricted -- a tenant-wide principal, or an internal/service context with no grants at all
 	// (the same escape hatch ResolveAuthorizedParkScopeForCapabilities has always had).
@@ -44,7 +55,12 @@ func (s *Service) MaterializeTransportTasks(ctx context.Context, tenantID string
 	if s.transports == nil {
 		return ports.MaterializeTransportResult{}, ports.ErrTransportTaskNotActionable
 	}
-	return s.transports.MaterializeTransportTasks(ctx, ports.MaterializeTransportParams{TenantID: strings.TrimSpace(tenantID), AsOf: asOf})
+	// THE PIN: every task materialized now is stamped with the transport card in force now.
+	rules, err := s.publishedRules(ctx, strings.TrimSpace(tenantID), domain.StageTransport)
+	if err != nil {
+		return ports.MaterializeTransportResult{}, err
+	}
+	return s.transports.MaterializeTransportTasks(ctx, ports.MaterializeTransportParams{TenantID: strings.TrimSpace(tenantID), AsOf: asOf, SOPVersion: rules.Version})
 }
 
 func (s *Service) ListTransportTasks(ctx context.Context, in ListTransportTasksInput) (ports.FeedTransportTaskPage, error) {
@@ -59,7 +75,7 @@ func (s *Service) ListTransportTasks(ctx context.Context, in ListTransportTasksI
 	if status != "" && status != "due" && status != "verification_due" && status != "rework" && status != "completed" {
 		return ports.FeedTransportTaskPage{}, ports.ErrInvalidTransportStatus
 	}
-	return s.transports.ListTransportTasks(ctx, ports.ListTransportTasksParams{
+	page, err := s.transports.ListTransportTasks(ctx, ports.ListTransportTasksParams{
 		TenantID:          strings.TrimSpace(in.TenantID),
 		ActorID:           strings.TrimSpace(in.ActorID),
 		Day:               day,
@@ -70,6 +86,27 @@ func (s *Service) ListTransportTasks(ctx context.Context, in ListTransportTasksI
 		Limit:             in.Limit,
 		AuthorizedParkIDs: in.AuthorizedParkIDs,
 	})
+	if err != nil {
+		return ports.FeedTransportTaskPage{}, err
+	}
+	// Each task carries the transport CARD it was pinned to (FEED SOP, 2026-09-16); one rule read
+	// per distinct version on the page, which is one or two.
+	cards := map[int]*domain.CardContract{}
+	for i := range page.Items {
+		v := page.Items[i].SOPVersion
+		card, ok := cards[v]
+		if !ok {
+			rules, rerr := s.pinnedRules(ctx, strings.TrimSpace(in.TenantID), domain.StageTransport, v)
+			if rerr != nil {
+				return ports.FeedTransportTaskPage{}, rerr
+			}
+			c := cardContract(rules)
+			card = &c
+			cards[v] = card
+		}
+		page.Items[i].SOP = card
+	}
+	return page, nil
 }
 
 func (s *Service) SubmitTransport(ctx context.Context, in SubmitTransportInput) (ports.SubmitTransportResult, error) {
@@ -80,9 +117,6 @@ func (s *Service) SubmitTransport(ctx context.Context, in SubmitTransportInput) 
 		return ports.SubmitTransportResult{}, ErrTransportEnqueuerNotWired
 	}
 	in.ProofRef = strings.TrimSpace(in.ProofRef)
-	if in.ProofRef == "" {
-		return ports.SubmitTransportResult{}, ports.ErrTransportProofRequired
-	}
 	if strings.TrimSpace(in.IdempotencyKey) == "" {
 		return ports.SubmitTransportResult{}, ports.ErrIdempotencyRequired
 	}
@@ -94,19 +128,39 @@ func (s *Service) SubmitTransport(ctx context.Context, in SubmitTransportInput) 
 	if !transportParkAllowed(in.AuthorizedParkIDs, task.ParkID) {
 		return ports.SubmitTransportResult{}, ports.ErrTransportParkForbidden
 	}
+	// THE CARD (FEED SOP, 2026-09-16): the task's pinned transport card decides which captures, of
+	// which kind, this trip owes. Every video slot additionally demands the live camera, as the
+	// transport video always has.
+	rules, err := s.pinnedRules(ctx, in.TenantID, domain.StageTransport, task.SOPVersion)
+	if err != nil {
+		return ports.SubmitTransportResult{}, err
+	}
+	judged, storedProofs, storedAnswers, err := s.judgeCard(ctx, in.TenantID, rules, map[string]string{"proof_ref": in.ProofRef}, in.Proofs, in.Answers)
+	if err != nil {
+		return ports.SubmitTransportResult{}, err
+	}
 	if s.proofs != nil {
-		if err := s.proofs.ValidateLiveCameraVideo(ctx, in.TenantID, in.ProofRef, task.ShedID); err != nil {
-			return ports.SubmitTransportResult{}, err
+		for _, j := range judged {
+			if j.Kind == authored.KindVideo {
+				if err := s.proofs.ValidateLiveCameraVideo(ctx, in.TenantID, j.Ref, task.ShedID); err != nil {
+					return ports.SubmitTransportResult{}, err
+				}
+			}
 		}
 	}
-	res, err := s.transports.SubmitTransportAttempt(ctx, ports.SubmitTransportParams{TenantID: in.TenantID, TaskID: in.TaskID, ProofRef: in.ProofRef, OperatorID: in.OperatorID, IdempotencyKey: in.IdempotencyKey, ActorID: in.ActorID, ActorType: in.ActorType, TraceID: in.TraceID})
+	_, _, _, _, legacyTransport, _ := domain.LegacyFieldsFromRefs(domain.StageTransport, storedProofs)
+	if legacyTransport == "" && len(judged) > 0 {
+		legacyTransport = judged[0].Ref
+	}
+	in.ProofRef = legacyTransport
+	res, err := s.transports.SubmitTransportAttempt(ctx, ports.SubmitTransportParams{TenantID: in.TenantID, TaskID: in.TaskID, ProofRef: in.ProofRef, SOPProofs: storedProofs, SOPAnswers: storedAnswers, OperatorID: in.OperatorID, IdempotencyKey: in.IdempotencyKey, ActorID: in.ActorID, ActorType: in.ActorType, TraceID: in.TraceID})
 	if err != nil {
 		return res, err
 	}
 	// Queue creation is idempotent. Re-enqueue an exact submit replay while the attempt is still
 	// verification_due so a transient failure between the task commit and queue creation self-heals.
 	if res.Status == "verification_due" {
-		err = s.transportEnqueuer.EnqueueFeedTransportVerification(ctx, FeedTransportVerificationEnqueueRequest{TenantID: in.TenantID, AttemptID: res.AttemptID, ParkID: res.ParkID, ShedID: res.ShedID, ShedName: res.ShedName, PartitionLabel: res.PartitionLabel, ProofRef: in.ProofRef, OperatorID: in.OperatorID, CapturedAt: s.now().UTC(), IdempotencyKey: "feed-transport-verification:" + res.AttemptID + ":" + strconv.Itoa(int(res.AttemptNo))})
+		err = s.transportEnqueuer.EnqueueFeedTransportVerification(ctx, FeedTransportVerificationEnqueueRequest{TenantID: in.TenantID, AttemptID: res.AttemptID, ParkID: res.ParkID, ShedID: res.ShedID, ShedName: res.ShedName, PartitionLabel: res.PartitionLabel, ProofRef: in.ProofRef, MediaRefs: orderedRefs(judged), MediaMeta: proofMeta(judged), AnswerRows: authored.AnswerRows(rules.Questions, storedAnswers), OperatorID: in.OperatorID, CapturedAt: s.now().UTC(), IdempotencyKey: "feed-transport-verification:" + res.AttemptID + ":" + strconv.Itoa(int(res.AttemptNo))})
 	}
 	return res, err
 }

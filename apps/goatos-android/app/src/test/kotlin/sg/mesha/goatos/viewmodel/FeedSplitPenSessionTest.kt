@@ -26,7 +26,11 @@ import sg.mesha.goatos.core.data.FeedPackingQuery
 class FakeSplitFeedRepository(
     var slots: List<FeedDistributionCapturedSlotDto>,
     var sessionStatus: String? = null,
+    /** FEED SOP: the card the live read carries; null = an older backend with no card. */
+    var card: sg.mesha.goatos.core.network.dto.FeedSopCardDto? = null,
 ) : FeedRepository {
+    /** FEED SOP: what the Feed Direction list last cached for this park/day; null = never opened online. */
+    val cachedCard = kotlinx.coroutines.flow.MutableStateFlow<sg.mesha.goatos.core.network.dto.FeedSopCardDto?>(null)
     var queries: MutableList<FeedPenSessionCaptureQuery> = mutableListOf()
         private set
 
@@ -37,6 +41,9 @@ class FakeSplitFeedRepository(
 
     override suspend fun persistDirectionSessionStatus(shedId: String, partitionLabel: String, workflow: String, sessionNo: Int, lifecycleStatus: String) = Unit
     override suspend fun persistPackingRowStatus(shedId: String, partitionLabel: String, workflow: String, sessionNo: Int, lifecycleStatus: String) = Unit
+    override fun observeDirectionCard(parkId: String, targetDate: String, workflow: String): kotlinx.coroutines.flow.Flow<sg.mesha.goatos.core.network.dto.FeedSopCardDto?> = cachedCard
+    override fun observePackingCard(parkId: String, targetDate: String, workflow: String): kotlinx.coroutines.flow.Flow<sg.mesha.goatos.core.network.dto.FeedSopCardDto?> = kotlinx.coroutines.flow.flowOf(null)
+    override fun observeWastageCard(parkId: String, targetDate: String): kotlinx.coroutines.flow.Flow<sg.mesha.goatos.core.network.dto.FeedSopCardDto?> = kotlinx.coroutines.flow.flowOf(null)
     override suspend fun penSessionCaptures(
         query: FeedPenSessionCaptureQuery,
     ): FeedPenSessionCaptures? {
@@ -45,7 +52,7 @@ class FakeSplitFeedRepository(
             failuresBeforeSuccess--
             return null
         }
-        return FeedPenSessionCaptures(slots = slots, sessionStatus = sessionStatus)
+        return FeedPenSessionCaptures(slots = slots, sessionStatus = sessionStatus, card = card)
     }
 
     override suspend fun probeDirectionSummary(query: FeedDirectionQuery): Boolean = true

@@ -63,6 +63,8 @@ class FeedTransportRecaptureOrderingTest {
         sync = RecordingFeedTransportOrderingSyncRepository(),
         capture = proofSource,
         proofCaptureRepository = proofCaptureRepository,
+        photoCaptureSource = sg.mesha.goatos.capture.FakePhotoCaptureSource(),
+        appContext = androidx.test.core.app.ApplicationProvider.getApplicationContext(),
         drafts = drafts,
         analytics = RecordingAnalytics(),
         crashReporter = NoopCrashReporter(),
@@ -88,12 +90,12 @@ class FeedTransportRecaptureOrderingTest {
         val viewModel = buildViewModel(proofCaptureRepository, proofSource)
         advanceUntilIdle()
 
-        viewModel.onEvent(FeedTransportCaptureEvent.RecordVideo)
+        viewModel.onEvent(FeedTransportCaptureEvent.CaptureSlot("feed_transport_video"))
         advanceUntilIdle()
-        assertTrue("first capture must succeed", viewModel.state.value.videoCaptured)
+        assertTrue("first capture must succeed", viewModel.state.value.card.anyCaptured)
         assertEquals(1, proofCaptureRepository.captureCalls.size)
 
-        viewModel.onEvent(FeedTransportCaptureEvent.ReRecordVideo)
+        viewModel.onEvent(FeedTransportCaptureEvent.CaptureSlot("feed_transport_video"))
         advanceUntilIdle()
 
         assertEquals(
@@ -108,7 +110,7 @@ class FeedTransportRecaptureOrderingTest {
             survivingRows.size,
         )
         assertEquals("file:///old-video.mp4", survivingRows.first().localUri)
-        assertTrue("the old proof must remain reported as captured", viewModel.state.value.videoCaptured)
+        assertTrue("the old proof must remain reported as captured", viewModel.state.value.card.anyCaptured)
     }
 
     @Test
@@ -123,9 +125,9 @@ class FeedTransportRecaptureOrderingTest {
         val viewModel = buildViewModel(proofCaptureRepository, proofSource)
         advanceUntilIdle()
 
-        viewModel.onEvent(FeedTransportCaptureEvent.RecordVideo)
+        viewModel.onEvent(FeedTransportCaptureEvent.CaptureSlot("feed_transport_video"))
         advanceUntilIdle()
-        assertTrue(viewModel.state.value.videoCaptured)
+        assertTrue(viewModel.state.value.card.anyCaptured)
         assertEquals(1, proofCaptureRepository.captureCalls.size)
 
         // The re-record's camera call succeeds, but the repository capture/enqueue call itself
@@ -133,7 +135,7 @@ class FeedTransportRecaptureOrderingTest {
         // touched first. P1 FIX: this is guaranteed now because captureReplacingLatest only
         // registers a pending retirement on success; a failed call leaves no action registered.
         proofCaptureRepository.failNextCapture = true
-        viewModel.onEvent(FeedTransportCaptureEvent.ReRecordVideo)
+        viewModel.onEvent(FeedTransportCaptureEvent.CaptureSlot("feed_transport_video"))
         advanceUntilIdle()
 
         assertEquals(
@@ -171,11 +173,11 @@ class FeedTransportRecaptureOrderingTest {
         val viewModel = buildViewModel(proofCaptureRepository, proofSource)
         advanceUntilIdle()
 
-        viewModel.onEvent(FeedTransportCaptureEvent.RecordVideo)
+        viewModel.onEvent(FeedTransportCaptureEvent.CaptureSlot("feed_transport_video"))
         advanceUntilIdle()
         assertEquals(1, proofCaptureRepository.captureCalls.size)
 
-        viewModel.onEvent(FeedTransportCaptureEvent.ReRecordVideo)
+        viewModel.onEvent(FeedTransportCaptureEvent.CaptureSlot("feed_transport_video"))
         advanceUntilIdle()
 
         assertEquals(
@@ -194,7 +196,7 @@ class FeedTransportRecaptureOrderingTest {
             survivingRows.size,
         )
         assertEquals("file:///new-video.mp4", survivingRows.first().localUri)
-        assertTrue(viewModel.state.value.videoCaptured)
+        assertTrue(viewModel.state.value.card.anyCaptured)
     }
 
     @Test
@@ -209,12 +211,12 @@ class FeedTransportRecaptureOrderingTest {
         val viewModel = buildViewModel(proofCaptureRepository, proofSource)
         advanceUntilIdle()
 
-        viewModel.onEvent(FeedTransportCaptureEvent.RecordVideo)
+        viewModel.onEvent(FeedTransportCaptureEvent.CaptureSlot("feed_transport_video"))
         advanceUntilIdle()
         assertEquals(1, proofCaptureRepository.captureCalls.size)
         val oldProofId = proofCaptureRepository.allRows().first().id
 
-        viewModel.onEvent(FeedTransportCaptureEvent.ReRecordVideo)
+        viewModel.onEvent(FeedTransportCaptureEvent.CaptureSlot("feed_transport_video"))
         advanceUntilIdle()
 
         assertEquals(
@@ -270,7 +272,7 @@ private class RecordingFeedTransportOrderingSyncRepository : SyncRepository {
         groupKey: String,
         idempotencyKey: String,
         taskId: String,
-        proofOutboxItemId: String,
+        proofOutboxItemId: String, slotProofs: Map<String, sg.mesha.goatos.core.data.sync.FeedSlotProofSourcePayload>, answers: kotlinx.serialization.json.JsonObject
     ): AppResult<String> = AppResult.Ok("submit-outbox-1")
 
     override suspend fun enqueueProofUpload(

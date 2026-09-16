@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/vgoats/goatos/backend/internal/sop/authored"
 	"strings"
 	"time"
 
@@ -109,6 +110,25 @@ func (r *Repository) CompleteDistribution(ctx context.Context, p ports.CompleteD
 		return row, nil
 	}
 
+	// The card's captures and answers, as judged by the service. A caller that predates the card
+	// (a test fake, the legacy import) sends only the three legacy refs; they are folded onto the
+	// seeded slot keys so the stored map is never empty when the legacy columns are not.
+	sopProofs := authored.NormalizeProofRefs(p.SOPProofs)
+	if len(sopProofs) == 0 {
+		sopProofs = domain.LegacyProofRefs(domain.StageDistribution, map[string]string{
+			"feed_weight_proof_ref": weightProof, "distribution_proof_ref": distProof, "water_proof_ref": waterProof,
+		}, nil)
+	}
+	sopProofsJSON, err := json.Marshal(sopProofs)
+	if err != nil {
+		return ports.CompleteDistributionResult{}, fmt.Errorf("feeddirection: encode sop proofs: %w", err)
+	}
+	sopAnswersJSON := []byte("{}")
+	if len(p.SOPAnswers) > 0 {
+		if sopAnswersJSON, err = json.Marshal(p.SOPAnswers); err != nil {
+			return ports.CompleteDistributionResult{}, fmt.Errorf("feeddirection: encode sop answers: %w", err)
+		}
+	}
 	var (
 		completionID             string
 		rowVersion               int32
@@ -117,32 +137,35 @@ func (r *Repository) CompleteDistribution(ctx context.Context, p ports.CompleteD
 		canonicalFeedWeightProof = weightProof
 		canonicalDistProof       = distProof
 		canonicalWaterProof      = waterProof
+		canonicalSOPProofs       = authored.ProofRefs{}
 	)
 	err = tx.QueryRow(ctx, `
 INSERT INTO feed_distribution_completions (
   tenant_id, park_id, shed_id, partition_label, session_no, target_date, workflow, status,
-  feed_weight_proof_ref, distribution_proof_ref, water_proof_ref, completed_by, idempotency_key
+  feed_weight_proof_ref, distribution_proof_ref, water_proof_ref, completed_by, idempotency_key,
+  sop_proofs, sop_answers
 ) VALUES (
   $1::uuid, $2::uuid, $3::uuid, nullif($4::text, ''), $5, $6::date, $7, 'pending_verification',
-  $8, $9, $10, nullif($11::text, '')::uuid, $12
+  nullif($8, ''), nullif($9, ''), nullif($10, ''), nullif($11::text, '')::uuid, $12,
+  $13::jsonb, $14::jsonb
 )
 ON CONFLICT (tenant_id, park_id, shed_id, partition_key, session_no, target_date, workflow) DO NOTHING
-RETURNING completion_id::text, row_version, feed_weight_proof_ref, distribution_proof_ref, water_proof_ref`,
+RETURNING completion_id::text, row_version, coalesce(feed_weight_proof_ref, ''), coalesce(distribution_proof_ref, ''), coalesce(water_proof_ref, ''), sop_proofs`,
 		p.TenantID, p.ParkID, p.ShedID, p.PartitionLabel, p.SessionNo, targetDate, p.Workflow,
-		weightProof, distProof, waterProof, p.CompletedBy, p.IdempotencyKey).
-		Scan(&completionID, &rowVersion, &canonicalFeedWeightProof, &canonicalDistProof, &canonicalWaterProof)
+		weightProof, distProof, waterProof, p.CompletedBy, p.IdempotencyKey, sopProofsJSON, sopAnswersJSON).
+		Scan(&completionID, &rowVersion, &canonicalFeedWeightProof, &canonicalDistProof, &canonicalWaterProof, &canonicalSOPProofs)
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
 		// Natural-key conflict: a row for this shed-session already exists. Its state decides the outcome.
 		var existingStatus string
 		if err := tx.QueryRow(ctx, `
-SELECT completion_id::text, status, row_version, feed_weight_proof_ref, distribution_proof_ref, water_proof_ref
+SELECT completion_id::text, status, row_version, coalesce(feed_weight_proof_ref, ''), coalesce(distribution_proof_ref, ''), coalesce(water_proof_ref, ''), sop_proofs
 FROM feed_distribution_completions
 WHERE tenant_id = $1::uuid AND park_id = $2::uuid AND shed_id = $3::uuid
   AND partition_key = $7 AND session_no = $4 AND target_date = $5::date AND workflow = $6`,
 			p.TenantID, p.ParkID, p.ShedID, p.SessionNo, targetDate, p.Workflow,
-			domain.PartitionMatchKey(p.PartitionLabel)).
-			Scan(&completionID, &existingStatus, &rowVersion, &canonicalFeedWeightProof, &canonicalDistProof, &canonicalWaterProof); err != nil {
+			partitionColumnKey(p.PartitionLabel)).
+			Scan(&completionID, &existingStatus, &rowVersion, &canonicalFeedWeightProof, &canonicalDistProof, &canonicalWaterProof, &canonicalSOPProofs); err != nil {
 			return ports.CompleteDistributionResult{}, fmt.Errorf("feeddirection: read existing distribution completion: %w", err)
 		}
 		switch existingStatus {
@@ -153,16 +176,18 @@ WHERE tenant_id = $1::uuid AND park_id = $2::uuid AND shed_id = $3::uuid
 			if err := tx.QueryRow(ctx, `
 UPDATE feed_distribution_completions
 SET status = 'pending_verification',
-    feed_weight_proof_ref = $3,
-    distribution_proof_ref = $4,
-    water_proof_ref = $5,
+    feed_weight_proof_ref = nullif($3, ''),
+    distribution_proof_ref = nullif($4, ''),
+    water_proof_ref = nullif($5, ''),
+    sop_proofs = $6::jsonb,
+    sop_answers = $7::jsonb,
     rework_reason = NULL,
     updated_at = now(),
     row_version = row_version + 1
 WHERE tenant_id = $1::uuid AND completion_id = $2::uuid AND status = 'rework'
-RETURNING row_version, feed_weight_proof_ref, distribution_proof_ref, water_proof_ref`,
-				p.TenantID, completionID, weightProof, distProof, waterProof).
-				Scan(&rowVersion, &canonicalFeedWeightProof, &canonicalDistProof, &canonicalWaterProof); err != nil {
+RETURNING row_version, coalesce(feed_weight_proof_ref, ''), coalesce(distribution_proof_ref, ''), coalesce(water_proof_ref, ''), sop_proofs`,
+				p.TenantID, completionID, weightProof, distProof, waterProof, sopProofsJSON, sopAnswersJSON).
+				Scan(&rowVersion, &canonicalFeedWeightProof, &canonicalDistProof, &canonicalWaterProof, &canonicalSOPProofs); err != nil {
 				return ports.CompleteDistributionResult{}, fmt.Errorf("feeddirection: resubmit distribution for verification: %w", err)
 			}
 			status = domain.DistributionStatusPendingVerification
@@ -171,13 +196,13 @@ RETURNING row_version, feed_weight_proof_ref, distribution_proof_ref, water_proo
 				return ports.CompleteDistributionResult{}, err
 			}
 		case domain.DistributionStatusPendingVerification:
-			if weightProof != canonicalFeedWeightProof || distProof != canonicalDistProof || waterProof != canonicalWaterProof {
+			if !sameProofSet(sopProofs, canonicalSOPProofs) {
 				return ports.CompleteDistributionResult{}, ports.ErrDistributionAlreadyRecorded
 			}
 			// Already awaiting verification with the same proof set: idempotent no-op, no new verification item.
 			status = domain.DistributionStatusPendingVerification
 		case domain.DistributionStatusCompleted:
-			if weightProof != canonicalFeedWeightProof || distProof != canonicalDistProof || waterProof != canonicalWaterProof {
+			if !sameProofSet(sopProofs, canonicalSOPProofs) {
 				return ports.CompleteDistributionResult{}, ports.ErrDistributionAlreadyRecorded
 			}
 			// Already verified/completed with the same proof set: no-op.
@@ -210,6 +235,7 @@ RETURNING row_version, feed_weight_proof_ref, distribution_proof_ref, water_proo
 		FeedWeightProofRef:   canonicalFeedWeightProof,
 		DistributionProofRef: canonicalDistProof,
 		WaterProofRef:        canonicalWaterProof,
+		SOPProofs:            canonicalSOPProofs,
 		NewlyPending:         newlyPending,
 	}, nil
 }
@@ -222,10 +248,10 @@ func (r *Repository) readDistributionByID(ctx context.Context, tx pgx.Tx, tenant
 	}
 	var out ports.CompleteDistributionResult
 	err := tx.QueryRow(ctx, `
-SELECT completion_id::text, status, row_version, feed_weight_proof_ref, distribution_proof_ref, water_proof_ref
+SELECT completion_id::text, status, row_version, coalesce(feed_weight_proof_ref, ''), coalesce(distribution_proof_ref, ''), coalesce(water_proof_ref, ''), sop_proofs
 FROM feed_distribution_completions
 WHERE tenant_id = $1::uuid AND completion_id = $2::uuid`, tenantID, completionID).
-		Scan(&out.CompletionID, &out.Status, &out.RowVersion, &out.FeedWeightProofRef, &out.DistributionProofRef, &out.WaterProofRef)
+		Scan(&out.CompletionID, &out.Status, &out.RowVersion, &out.FeedWeightProofRef, &out.DistributionProofRef, &out.WaterProofRef, &out.SOPProofs)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ports.CompleteDistributionResult{}, nil
 	}
@@ -532,4 +558,17 @@ ON CONFLICT DO NOTHING`,
 		return fmt.Errorf("feeddirection: insert distribution outbox: %w", err)
 	}
 	return nil
+}
+
+// sameProofSet reports whether two {slot: ref} maps carry the same captures.
+func sameProofSet(a, b authored.ProofRefs) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for k, v := range a {
+		if b[k] != v {
+			return false
+		}
+	}
+	return true
 }
