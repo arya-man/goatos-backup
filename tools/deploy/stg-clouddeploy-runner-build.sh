@@ -21,6 +21,20 @@ image="${REGION}-docker.pkg.dev/${PROJECT_ID}/${ARTIFACT_REPOSITORY}/clouddeploy
 
 gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet >&2
 docker build --platform linux/amd64 -f deploy/clouddeploy/stg/runner.Dockerfile -t "$image" . >&2
+# Execute the packaged entrypoint before publishing its digest. Syntax checks
+# alone do not catch executable bits lost by an archived build context.
+docker run --rm --platform linux/amd64 --entrypoint /bin/bash "$image" -ceu '
+  test -x /usr/local/bin/goatos-stg-clouddeploy-task
+  test -x /usr/local/bin/goatos-stg-analytics-events-routing
+  bash -n /usr/local/bin/goatos-stg-clouddeploy-task
+  bash -n /usr/local/bin/goatos-stg-analytics-events-routing
+  set +e
+  /usr/local/bin/goatos-stg-clouddeploy-task executable-smoke > /tmp/entrypoint-smoke.log 2>&1
+  status=$?
+  set -e
+  test "$status" -eq 1
+  grep -q "usage: .* render|deploy" /tmp/entrypoint-smoke.log
+' >&2
 docker push "$image" >&2
 
 digest="$(gcloud artifacts docker images describe "$image" --project="$PROJECT_ID" --format='value(image_summary.digest)')"

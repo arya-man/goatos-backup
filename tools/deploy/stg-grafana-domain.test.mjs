@@ -60,3 +60,36 @@ test("domain cutover accepts the actual singleton unnamed Cloud Run container", 
   assert.equal(r.status, 0, r.stderr);
   assert.match(r.stdout, /cloud-deploy-grafana-domain-ok/);
 });
+
+test("runner Dockerfile restores executable mode for archived source files", () => {
+  const dockerfile = readFileSync(new URL("../../deploy/clouddeploy/stg/runner.Dockerfile", import.meta.url), "utf8");
+  const copy = dockerfile.lastIndexOf("COPY tools/deploy/");
+  const chmod = dockerfile.indexOf("RUN chmod 0755 /usr/local/bin/goatos-stg-clouddeploy-task");
+  assert.ok(chmod > copy);
+  assert.match(dockerfile.slice(chmod), /\/usr\/local\/bin\/goatos-stg-analytics-events-routing/);
+  assert.ok(chmod < dockerfile.indexOf("ENTRYPOINT"));
+});
+
+for (const fail of [false, true]) {
+  test(`runner image smoke ${fail ? "failure blocks publication" : "runs before publication"}`, () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "grafana-runner-"));
+    const bin = `#!/usr/bin/env python3
+import os,sys,pathlib
+name=pathlib.Path(sys.argv[0]).name;args=sys.argv[1:];root=pathlib.Path(os.environ['FIXTURE'])
+with open(root/'calls','a') as f:f.write(name+' '+' '.join(args)+'\\n')
+if name=='git':print(str(root) if '--show-toplevel' in args else 'abcdef123456')
+if name=='docker' and args[0]=='run' and os.environ.get('FAIL_SMOKE')=='true':sys.exit(1)
+if name=='gcloud' and args[:4]==['artifacts','docker','images','describe']:print('sha256:verified')
+`;
+    for (const name of ["git", "docker", "gcloud"]) writeFileSync(path.join(dir, name), bin, { mode: 0o755 });
+    try {
+      const result = spawnSync("bash", [fileURLToPath(new URL("./stg-clouddeploy-runner-build.sh", import.meta.url))], { cwd: dir, encoding: "utf8", env: { ...process.env, PATH: `${dir}:${process.env.PATH}`, FIXTURE: dir, FAIL_SMOKE: String(fail) } });
+      const calls = readFileSync(path.join(dir, "calls"), "utf8");
+      assert.match(calls, /docker run --rm --platform linux\/amd64/);
+      assert.match(calls, /test -x \/usr\/local\/bin\/goatos-stg-clouddeploy-task/);
+      assert.match(calls, /goatos-stg-clouddeploy-task executable-smoke/);
+      if (fail) { assert.notEqual(result.status, 0); assert.doesNotMatch(calls, /docker push|artifacts docker images describe/); }
+      else { assert.equal(result.status, 0, result.stderr); assert.ok(calls.indexOf("docker run") < calls.indexOf("docker push")); assert.match(result.stdout, /sha256:verified/); }
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
+}

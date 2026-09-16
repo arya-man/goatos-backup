@@ -7,4 +7,8 @@ RUN apt-get update \
 COPY tools/deploy/stg-clouddeploy-task.sh /usr/local/bin/goatos-stg-clouddeploy-task
 COPY tools/deploy/stg-analytics-events-routing.sh /usr/local/bin/goatos-stg-analytics-events-routing
 
+# Minimal source archives may not preserve executable mode bits.
+RUN chmod 0755 /usr/local/bin/goatos-stg-clouddeploy-task \
+  /usr/local/bin/goatos-stg-analytics-events-routing
+
 ENTRYPOINT ["/usr/local/bin/goatos-stg-clouddeploy-task"]
