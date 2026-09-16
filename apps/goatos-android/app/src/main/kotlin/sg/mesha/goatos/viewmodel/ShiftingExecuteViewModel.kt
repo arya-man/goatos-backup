@@ -19,7 +19,6 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
-import sg.mesha.goatos.capture.PhotoCaptureContext
 import sg.mesha.goatos.capture.PhotoCaptureSource
 import sg.mesha.goatos.capture.ProofCaptureContext
 import sg.mesha.goatos.capture.ProofCapturePrompt
@@ -130,7 +129,7 @@ class ShiftingExecuteViewModel @Inject constructor(
                 prompt = prompt,
             )
         },
-        photoContext = { slot -> PhotoCaptureContext(title = slot.title, instruction = slot.hint.ifBlank { slot.title }) },
+        photoContext = { slot -> sg.mesha.goatos.capture.sopSlotPhotoContext(title = slot.title, hint = slot.hint) },
         events = SopSlotController.Events(
             captureTapped = AnalyticsEvents.COUNTS_SHIFTING_CAPTURE_TAPPED,
             captured = AnalyticsEvents.COUNTS_SHIFTING_EXECUTE_VIDEO_CAPTURED,

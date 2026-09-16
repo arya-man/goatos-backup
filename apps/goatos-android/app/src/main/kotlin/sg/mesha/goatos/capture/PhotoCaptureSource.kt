@@ -30,7 +30,19 @@ data class PhotoCaptureContext(
     val title: String = "",
     val instruction: String = "",
     val prompt: ProofCapturePrompt? = null,
+    /**
+     * False for an authored SOP slot: a blank [instruction] then shows NO line under the title,
+     * instead of the generic default -- the slot said nothing more, so the camera says nothing more.
+     */
+    val defaultInstruction: Boolean = true,
 )
+
+/**
+ * The camera words for one authored SOP capture slot: its title, and its hint only when it has
+ * one. Repeating the title as the instruction read "Carcass photo / Carcass photo" on the camera.
+ */
+fun sopSlotPhotoContext(title: String, hint: String, prompt: ProofCapturePrompt? = null): PhotoCaptureContext =
+    PhotoCaptureContext(title = title, instruction = hint.trim(), prompt = prompt, defaultInstruction = false)
 
 interface PhotoCaptureSource {
     /** Suspends until a photo has been captured (production: launches the in-app camera and awaits
