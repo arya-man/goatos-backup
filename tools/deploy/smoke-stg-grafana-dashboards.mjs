@@ -368,6 +368,26 @@ async function loadFirebaseInitialExport(project) {
   });
 }
 
+// Only a live-verified, still-empty initial export may be omitted from this
+// execution. Job configuration remains intact for the next scheduled retry.
+export function firebaseRollupArgs(pending, tables) {
+  const args = [];
+  const expected = {
+    crash: "goatos-stg.firebase_crashlytics.sg_mesha_goatos_ANDROID",
+    sessions: "goatos-stg.firebase_sessions.sg_mesha_goatos_ANDROID",
+    performance: "goatos-stg.firebase_performance.sg_mesha_goatos_ANDROID",
+  };
+  if (pending["crash-sessions"]) {
+    if (tables.crash !== expected.crash || tables.sessions !== expected.sessions) throw new Error("Pending receipt does not cover configured crash/session tables");
+    args.push("-crashlytics-bq-table=", "-crashlytics-sessions-table=");
+  }
+  if (pending.performance) {
+    if (tables.performance !== expected.performance) throw new Error("Pending receipt does not cover configured performance table");
+    args.push("-performance-bq-table=");
+  }
+  return args.join(",");
+}
+
 export function assertSmokeDataMode({ queryValidityOnly, requireAll, empty, providerPending }) {
   if (queryValidityOnly && requireAll) throw new Error("query-validity-only cannot be combined with require-all-panel-data");
   if (queryValidityOnly) return "QUERY VALIDITY PASS; FINAL DATA CERTIFICATION PENDING";
@@ -669,6 +689,16 @@ function startProxy({ project, region, service, port }) {
 }
 
 async function main() {
+  if (hasFlag("--firebase-rollup-args")) {
+    if (!arg("--firebase-initial-export-receipt")) throw new Error("Initial-export receipt required");
+    const pending = await loadFirebaseInitialExport("goatos-stg");
+    const args = firebaseRollupArgs(pending, {
+      crash: arg("--crash-table"), sessions: arg("--sessions-table"), performance: arg("--performance-table"),
+    });
+    if (args) console.error("Firebase initial export pending; this execution omits only verified pending providers. Full-data certification remains pending.");
+    console.log(args);
+    return;
+  }
   if (hasFlag("--self-test")) {
     await selfTest();
     return;

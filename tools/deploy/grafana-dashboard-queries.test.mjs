@@ -193,3 +193,14 @@ test('actual all-panel HTTP sweep isolates provider empties and propagates query
   error=true;await assert.rejects(()=>assertAllDashboardQueries(...args),/real database failure/);
  }finally{await new Promise(resolve=>server.close(resolve));}
 });
+
+
+test('rollup omission is provider-specific and bound to exact receipt tables', async () => {
+ const {firebaseRollupArgs} = await import('./smoke-stg-grafana-dashboards.mjs');
+ const tables={crash:'goatos-stg.firebase_crashlytics.sg_mesha_goatos_ANDROID',sessions:'goatos-stg.firebase_sessions.sg_mesha_goatos_ANDROID',performance:'goatos-stg.firebase_performance.sg_mesha_goatos_ANDROID'};
+ assert.equal(firebaseRollupArgs({},tables),'');
+ assert.equal(firebaseRollupArgs({performance:'deadline'},tables),'-performance-bq-table=');
+ assert.equal(firebaseRollupArgs({'crash-sessions':'deadline'},tables),'-crashlytics-bq-table=,-crashlytics-sessions-table=');
+ assert.throws(()=>firebaseRollupArgs({performance:'deadline'},{...tables,performance:'other.dataset.table'}),/does not cover/);
+ assert.throws(()=>firebaseRollupArgs({'crash-sessions':'deadline'},{...tables,sessions:'other.dataset.table'}),/does not cover/);
+});

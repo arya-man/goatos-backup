@@ -245,3 +245,34 @@ func TestCameraCohortsDoNotMergeReusedLocalTokensPostgres(t *testing.T) {
 		}
 	}
 }
+
+// A provider failure must still leave the full first-party lookback fresh and
+// the audit failed; it must never certify missing Firebase data as success.
+func TestFirebaseFailureDoesNotStrandFirstPartyDatesPostgres(t *testing.T) {
+	pool := pgtest.StartPostgres(t, context.Background())
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	day, _ := time.ParseInLocation("2006-01-02", "2020-09-15", biztime.DefaultLocation())
+	cfg := config{TenantID: testTenantID, SourceDate: day, Source: "app_events", LookbackDays: 3, CrashlyticsTable: "invalid"}
+	runID, err := startRollupRun(ctx, pool, day)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := runAppEventsAndFinish(ctx, pool, cfg, runID, time.Now()); err == nil {
+		t.Fatal("provider configuration failure must remain visible")
+	}
+	var dates int
+	if err := pool.QueryRow(ctx, `SELECT count(DISTINCT event_date) FROM analytics.engagement_daily WHERE tenant_id=$1 AND event_date BETWEEN $2::date-2 AND $2::date`, testTenantID, day).Scan(&dates); err != nil {
+		t.Fatal(err)
+	}
+	if dates != 3 {
+		t.Fatalf("refreshed %d dates; want all 3 despite provider failure", dates)
+	}
+	var status string
+	if err := pool.QueryRow(ctx, `SELECT status FROM analytics.rollup_run WHERE run_id=$1`, runID).Scan(&status); err != nil {
+		t.Fatal(err)
+	}
+	if status != "failed" {
+		t.Fatalf("status=%s; want failed", status)
+	}
+}

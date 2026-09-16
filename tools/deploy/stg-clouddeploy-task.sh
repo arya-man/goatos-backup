@@ -440,8 +440,16 @@ normal_observability_deploy() {
   [[ -n "$ALLOY_IMAGE" ]] || return 0
   [[ "$(job_image goatos-stg-analytics-rollup)" == "$BACKEND_IMAGE" ]] || die "analytics-rollup must use the verified backend image"
   assert_analytics_rollup_env
+  local smoke="$(dirname "${BASH_SOURCE[0]}")/smoke-stg-grafana-dashboards.mjs"
+  [[ -f "$smoke" ]] || smoke=/opt/goatos/tools/deploy/smoke-stg-grafana-dashboards.mjs
+  local receipt="$(dirname "${BASH_SOURCE[0]}")/../../infra/observability/firebase-initial-export.json"
+  [[ -f "$receipt" ]] || receipt=/opt/goatos/infra/observability/firebase-initial-export.json
+  local pending_args
+  pending_args="$(node "$smoke" --firebase-rollup-args --firebase-initial-export-receipt "$receipt" \
+    --crash-table "$GOATOS_CRASHLYTICS_BQ_TABLE" --sessions-table "$GOATOS_CRASHLYTICS_SESSIONS_TABLE" \
+    --performance-table "$GOATOS_PERFORMANCE_BQ_TABLE")"
   run gcloud run jobs execute goatos-stg-analytics-rollup --project="$PROJECT_ID" --region="$REGION" \
-    --args="-timeout=25m,-source=app_events,-lookback-days=7" --wait --quiet
+    --args="-timeout=25m,-source=app_events,-lookback-days=7${pending_args:+,$pending_args}" --wait --quiet
   observability_apply_and_smoke
 }
 
