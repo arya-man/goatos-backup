@@ -1607,3 +1607,9 @@ weighing answers still come from `GET /weighing/campaigns` and `GET /weighing/pr
 | func:PublishedRules, func:RulesVersion, func:NewRulesSource, func:WithSOPRules, func:CampaignSOPVersion | EXCLUDED | Resolve the rule set by SOP version (the published one at plan time, the task's pinned one afterwards) through the out-of-package adapter `backend/internal/weighingsop`, and read a task's pin. Plumbing of the already-excluded weighing planner / removal surfaces; the rules are echoed on `WeighingPlannerCatalogResponse.sop` and `WeighingCampaign.sop` for the phone to render, never as a leadership fact. |
 | weighing_campaigns.sop_version, weighing_fasting_shed_proofs.sop_answers | EXCLUDED | The pin and the removal operator's answers to the SOP's authored questions on a pen's evidence row (migration 000315). Operational provenance of the excluded removal precondition, not a KPI. |
 | /weighing/sops (rules editor) | EXCLUDED | Admin authoring page (SOP library scoped to `weighing.` codes) for the CEO; a config surface, not a reporting read. |
+
+## Weighing reporting calendar configuration (2026-09-16)
+
+| Surface | Decision | Reason |
+| --- | --- | --- |
+| table:weighing_calendar_config | EXCLUDED | Tenant-scoped presentation configuration for the earliest selectable date and default reporting window. The admin UI bootstrap reader publishes it on the Weights and ADG Analytics page contracts; it adds no animal observation, aggregate, or leadership fact. SQL edits invalidate the existing configuration revision. Reporting answers continue to use the existing authorized weighing APIs and explicit date filters. See `docs/runbooks/weighing-calendar-settings.md`. |
