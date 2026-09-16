@@ -2356,8 +2356,10 @@ class SyncEngine(
         private const val PEN_VISIT_STALE_TASK = "stale_task"
         private const val PEN_VISIT_STATE_COMPLETED = "completed"
         /** Pen-routine wire codes this engine reads (backend/internal/penroutines, the Step contract). */
-        private const val PEN_ROUTINE_VERSION_CONFLICT = "version_conflict"
-        private val PEN_ROUTINE_MOVED_ON_CODES = setOf("already_done", "in_review")
+        // The backend's codes (penroutines/app/errors.go): a stale row version is stale_task; a
+        // check that moved on without us is already_submitted / task_in_review / task_cancelled.
+        private const val PEN_ROUTINE_VERSION_CONFLICT = "stale_task"
+        private val PEN_ROUTINE_MOVED_ON_CODES = setOf("already_submitted", "task_in_review", "task_cancelled")
         // The phone keeps the recent assessments a manager might re-open, not a history. The
         // server owns the record; without a cap this table only ever grows.
         // A RETENTION cap for deleteOldestBeyond, not a page fetch: nothing reads 50 rows;
