@@ -137,7 +137,7 @@ data class SopCardUi(
      * the old pick.
      */
     private val applicableIds: Set<String> by lazy {
-        val out = HashSet<String>(questions.size)
+        val out = HashSet<String>(questions.size) // mobile-guard:ignore: bounded by the card's question count, rebuilt per card
         questions.forEach { q ->
             if (q.onlyIfQuestion.isBlank() ||
                 (q.onlyIfQuestion in out && answers[q.onlyIfQuestion].orEmpty().trim() == q.onlyIfValue)
