@@ -22,12 +22,14 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	countspg "github.com/vgoats/goatos/backend/internal/counts/adapters/postgres"
 	countsapp "github.com/vgoats/goatos/backend/internal/counts/app"
 	feeddirectioncounts "github.com/vgoats/goatos/backend/internal/feeddirection/adapters/counts"
 	feeddirectionpg "github.com/vgoats/goatos/backend/internal/feeddirection/adapters/postgres"
 	feeddirectionapp "github.com/vgoats/goatos/backend/internal/feeddirection/app"
 	feeddirectionports "github.com/vgoats/goatos/backend/internal/feeddirection/ports"
+	feedsoppg "github.com/vgoats/goatos/backend/internal/feedsop/adapters/postgres"
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	platformpg "github.com/vgoats/goatos/backend/internal/platform/postgres"
 )
@@ -75,12 +77,7 @@ func run(args []string, now func() time.Time) error {
 	defer pool.Close()
 
 	repo := feeddirectionpg.NewRepository(pool, pgCfg.QueryTimeout)
-	countsService := countsapp.NewService(countspg.NewRepository(pool, pgCfg.QueryTimeout))
-	service := feeddirectionapp.NewService(repo, feeddirectioncounts.NewReader(countsService)).
-		WithIssueStore(repo).
-		WithScheduleReader(repo).
-		WithGeneratedBy(cfg.GeneratedBy).
-		WithClock(func() time.Time { return cfg.AsOf })
+	service := newService(pool, pgCfg.QueryTimeout, cfg)
 
 	parks := []string{cfg.ParkID}
 	if cfg.ParkID == "" {
@@ -106,6 +103,22 @@ func run(args []string, now func() time.Time) error {
 		}
 	}
 	return nil
+}
+
+// newService composes the lifecycle service the scheduled job runs; it is split out so a test can
+// pin that the published feed SOP cards are wired -- see
+// TestIssueServicePinsThePublishedFeedSOP.
+func newService(pool *pgxpool.Pool, timeout time.Duration, cfg config) *feeddirectionapp.Service {
+	repo := feeddirectionpg.NewRepository(pool, timeout)
+	countsService := countsapp.NewService(countspg.NewRepository(pool, timeout))
+	return feeddirectionapp.NewService(repo, feeddirectioncounts.NewReader(countsService)).
+		WithIssueStore(repo).
+		WithScheduleReader(repo).
+		// THE PIN: the sheet is stamped with the feed cards published NOW, the same source the
+		// API's freeze-on-read and the kernel-worker lifecycle stage use.
+		WithSOPRules(feedsoppg.NewRulesSource(pool, timeout)).
+		WithGeneratedBy(cfg.GeneratedBy).
+		WithClock(func() time.Time { return cfg.AsOf })
 }
 
 // resolveWorkflows narrows the requested workflow set to the ones the park actually runs, read from

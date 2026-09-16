@@ -8,8 +8,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	feeddirectionpg "github.com/vgoats/goatos/backend/internal/feeddirection/adapters/postgres"
-	feeddirectionports "github.com/vgoats/goatos/backend/internal/feeddirection/ports"
+	feeddirectionapp "github.com/vgoats/goatos/backend/internal/feeddirection/app"
+	feedsoppg "github.com/vgoats/goatos/backend/internal/feedsop/adapters/postgres"
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	platformpg "github.com/vgoats/goatos/backend/internal/platform/postgres"
 )
@@ -46,11 +48,19 @@ func run(args []string, now func() time.Time) error {
 		return err
 	}
 	defer pool.Close()
-	repo := feeddirectionpg.NewRepository(pool, cfg.QueryTimeout)
-	result, err := repo.MaterializeTransportTasks(ctx, feeddirectionports.MaterializeTransportParams{TenantID: strings.TrimSpace(*tenant), AsOf: asOf.In(biztime.DefaultLocation())})
+	result, err := newService(pool, cfg.QueryTimeout).MaterializeTransportTasks(ctx, strings.TrimSpace(*tenant), asOf.In(biztime.DefaultLocation()))
 	if err != nil {
 		return err
 	}
 	fmt.Printf("feed-transport-issue business_date=%s inserted=%d\n", result.BusinessDate, result.Inserted)
 	return nil
+}
+
+// newService routes the command through the app service, which stamps every task with the
+// transport card in force now (THE PIN) -- the repository alone knows no card version.
+func newService(pool *pgxpool.Pool, timeout time.Duration) *feeddirectionapp.Service {
+	repo := feeddirectionpg.NewRepository(pool, timeout)
+	return feeddirectionapp.NewService(repo, nil).
+		WithTransportStore(repo).
+		WithSOPRules(feedsoppg.NewRulesSource(pool, timeout))
 }
