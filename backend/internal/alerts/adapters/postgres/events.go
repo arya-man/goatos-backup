@@ -224,8 +224,10 @@ LEFT JOIN (
   SELECT shifting_event_id, sum(head_count) AS head_count FROM shifting_event_impacts
   WHERE tenant_id = $1::uuid GROUP BY shifting_event_id
 ) hc ON hc.shifting_event_id = se.shifting_event_id
+-- Name lookups by id for the two pens of an existing movement (not a selectable catalog).
 LEFT JOIN locations src ON src.tenant_id = se.tenant_id AND src.location_id = se.source_shed_id
-LEFT JOIN locations dst ON dst.tenant_id = se.tenant_id AND dst.location_id = se.destination_shed_id
+LEFT JOIN locations dst ON dst.tenant_id = se.tenant_id
+  AND dst.location_id = se.destination_shed_id
 WHERE se.tenant_id = $1::uuid
   AND (se.destination_park_id = $2::uuid OR se.source_park_id = $2::uuid)
   AND se.event_status NOT IN ('rejected', 'canceled')
