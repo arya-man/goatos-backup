@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
+	"github.com/vgoats/goatos/backend/internal/counts/ports"
 	identityports "github.com/vgoats/goatos/backend/internal/identity/ports"
 )
 
@@ -72,5 +74,26 @@ func TestApprovalErrorMapsWrappedUnknownPartitionToBadRequest(t *testing.T) {
 	}
 	if body.Code != "invalid_partition_label" {
 		t.Fatalf("code = %q, want %q", body.Code, "invalid_partition_label")
+	}
+}
+
+// TestDeathEvidenceIncompleteCopyNamesEveryStep: death follows its SOP (2026-09-16), so an
+// approval refused for missing evidence may be waiting on a photo, a question or a third clip.
+// "both death videos" told the approver the wrong thing on every authored SOP (E2E 2026-09-17).
+func TestDeathEvidenceIncompleteCopyNamesEveryStep(t *testing.T) {
+	handler := &AppWriteHandler{}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/app/counts/approvals/x/approve", nil)
+	handler.writeApprovalError(rec, req, fmt.Errorf("wrapped: %w", ports.ErrDeathEvidenceIncomplete))
+	var body struct {
+		Code    string `json:"code"`
+		Message string `json:"message"`
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &body)
+	if rec.Code != http.StatusConflict || body.Code != "death_evidence_incomplete" {
+		t.Fatalf("status=%d code=%q", rec.Code, body.Code)
+	}
+	if strings.Contains(body.Message, "both") || !strings.Contains(body.Message, "step") {
+		t.Fatalf("message %q still assumes the retired two-video pair", body.Message)
 	}
 }
