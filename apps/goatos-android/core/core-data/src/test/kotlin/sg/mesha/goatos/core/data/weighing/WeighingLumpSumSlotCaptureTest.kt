@@ -18,7 +18,7 @@ import sg.mesha.goatos.core.network.dto.WeighingSopRulesDto
  */
 class WeighingLumpSumSlotCaptureTest {
     private val authored = WeighingSopRules.Seeded.copy(
-        lumpSumProofs = listOf(
+        lumpSumSlots = listOf(
             WeighingCountedProofSlot("pen_video", "Weighing video", "", "video", 1, 3),
             WeighingCountedProofSlot("scale_photo", "Scale display photo", "", "photo", 1, 1),
             WeighingCountedProofSlot("gate", "Gate", "", "either", 0, 2),

@@ -104,6 +104,9 @@ object AnalyticsEventsWeighing {
          *  lowercase of the [WeighingWizardStep] enum name. */
         const val WIZARD_STEP = "wizard_step"
 
+        /** The weighing SOP's authored capture slot key a proof was recorded for (2026-09-16). */
+        const val SLOT_KEY = "slot_key"
+
         /** The scanned livestock RFID/tag associated with a per-animal weighing proof. */
         const val RFID = "rfid"
 

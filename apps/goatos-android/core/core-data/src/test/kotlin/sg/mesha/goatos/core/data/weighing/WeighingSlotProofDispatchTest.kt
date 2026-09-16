@@ -50,7 +50,7 @@ class WeighingSlotProofDispatchTest {
         individualQuestions = listOf(
             WeighingSopQuestionDto(id = "limp", kind = "choice", title = "Limping?", required = true, options = listOf(WeighingSopOptionDto("yes", "Yes"), WeighingSopOptionDto("no", "No"))),
         ),
-        lumpSumProofs = listOf(
+        lumpSumSlots = listOf(
             WeighingCountedProofSlot("pen_video", "Weighing video", "", "video", 1, 3),
             WeighingCountedProofSlot("scale_photo", "Scale display photo", "", "photo", 1, 1),
         ),
