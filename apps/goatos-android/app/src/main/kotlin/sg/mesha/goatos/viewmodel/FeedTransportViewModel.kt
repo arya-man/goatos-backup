@@ -560,6 +560,8 @@ class FeedTransportCaptureViewModel @Inject constructor(
         submitInFlight = true
         viewModelScope.launch {
             val submitIdempotencyKey = "feed-transport-submit:$taskId:" + slots.submitDigest(slotRefs, answers)
+            // A corrected resubmit must not queue behind its own rejected predecessor (see retireRejectedSubmit).
+            sync.retireRejectedSubmit(draft.submitOutboxItemId, submitIdempotencyKey)
             if (draft.submitIdempotencyKey != submitIdempotencyKey) {
                 drafts.putSubmit(CaptureFlow.FEED_TRANSPORT, taskId, submitIdempotencyKey, null)
                 draft = drafts.find(CaptureFlow.FEED_TRANSPORT, taskId)

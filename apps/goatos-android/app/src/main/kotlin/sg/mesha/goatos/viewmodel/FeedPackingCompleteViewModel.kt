@@ -281,6 +281,8 @@ class FeedPackingCompleteViewModel @Inject constructor(
             // Stable for the selected proof SET (+ answers), fresh when the operator re-records. A
             // retry of the same take must replay; a replacement must not collide with the old submit.
             val completeIdempotencyKey = "feed-packing-complete:$groupKey:" + slots.submitDigest(slotRefs, answers)
+            // A corrected resubmit must not queue behind its own rejected predecessor (see retireRejectedSubmit).
+            syncRepository.retireRejectedSubmit(draft.submitOutboxItemId, completeIdempotencyKey)
             if (draft.submitIdempotencyKey != completeIdempotencyKey) {
                 drafts.putSubmit(CaptureFlow.FEED_PACKING, groupKey, completeIdempotencyKey, null)
                 draft = drafts.find(CaptureFlow.FEED_PACKING, groupKey)
