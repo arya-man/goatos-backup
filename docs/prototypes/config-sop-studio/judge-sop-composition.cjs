@@ -35,3 +35,8 @@ assert.throws(()=>run("StagePlanModel.finish(window.reopened,'b')"),/child SOP/)
 run("StagePlanModel.childFinished(window.reopened,'a',{changed:true});StagePlanModel.approve(window.reopened,'a','Director');StagePlanModel.start(window.reopened,'b');StagePlanModel.childFinished(window.reopened,'a',{changedAgain:true})");
 assert.equal(run('window.reopened.stages.b.status'),'waiting');assert.equal(run('window.reopened.stages.parallel.status'),'completed');
 console.log('PASS reopened upstream result invalidates started/completed transitive dependencies and preserves independent parallel stages');
+const compositionSource=fs.readFileSync('sop-composition.js','utf8');
+assert(compositionSource.includes('No composed stages are set up for this SOP yet'));
+assert(compositionSource.includes("${hasStages?`<div class=\"composition-practice-controls\""));
+assert(!compositionSource.includes('Each stage follows another SOP. Prerequisites decide when stages can start'));
+console.log('PASS empty stage modal explains normal SOP and hides broken practice start');
