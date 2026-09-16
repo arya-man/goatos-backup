@@ -1,0 +1,23 @@
+{
+  "schema_version": "goatos.sop-shifting.v1",
+  "raise": {
+    "instruction": "",
+    "proofs": [],
+    "questions": []
+  },
+  "completion": {
+    "instruction": "",
+    "proofs": [
+      {"key": "shifting_shifting_video", "title": "Shifting video", "hint": "Live camera only. This evidence is reviewed after the task; it does not control the herd move.", "kind": "video", "required": true}
+    ],
+    "questions": []
+  },
+  "high_priority": {
+    "instruction": "This packing proof belongs only to this Shifting task.",
+    "proofs": [
+      {"key": "shifting_packing_video", "title": "Feed packing video", "hint": "Live camera only. The configured ration being weighed out and packed for the moved animals.", "kind": "video", "required": true},
+      {"key": "shifting_feeding_video", "title": "Feed given to animal video", "hint": "Live camera only. The configured feed being given to the moved animal(s) in the destination pen.", "kind": "video", "required": true}
+    ],
+    "questions": []
+  }
+}
