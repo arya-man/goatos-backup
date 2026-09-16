@@ -2,6 +2,7 @@ package sg.mesha.goatos.core.network.dto
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonObject
 
 /**
  * Counts vertical wire DTOs — the census READ models and the three count-moving WRITE bodies.
@@ -286,7 +287,20 @@ data class CountsBirthPlacementPenDto(
 data class CountsShiftingDestinationsResponseDto(
     @SerialName("parks") val parks: List<CountsDestinationParkDto> = emptyList(),
     @SerialName("management_stages") val managementStages: List<String> = emptyList(),
+    /**
+     * SHIFTING SOP (2026-09-16): the PUBLISHED raise card -- the questions and optional captures the
+     * raise form renders -- with the version a raise from it pins (echo it as `sop_version`). Null
+     * from a server that predates the SOP (the form then sends the pre-SOP body unchanged).
+     */
+    @SerialName("sop") val sop: ShiftingSopCardDto? = null,
 )
+
+/**
+ * SHIFTING SOP (maintainer decision 2026-09-16): one card of the shifting SOP the phone renders
+ * verbatim -- `raise`, `completion` or `high_priority`. Wire-identical to the feed card (same slot
+ * and question building blocks), so the same slot machinery and widgets render it.
+ */
+typealias ShiftingSopCardDto = FeedSopCardDto
 
 /**
  * An operator-REPORTED movement of ONE animal between sheds. The backend records it with
@@ -347,6 +361,14 @@ data class CountsShiftingEventRequestDto(
      */
     @SerialName("comment") val comment: String? = null,
     @SerialName("goat_ids") val goatIds: List<String> = emptyList(),
+    /**
+     * SHIFTING SOP (2026-09-16): the raise card's version the form rendered, its captures
+     * {slot key: server proof id} and its answers. All null by default and dropped from the wire
+     * (explicitNulls=false), so a raise from a form with no card hashes exactly as before.
+     */
+    @SerialName("sop_version") val sopVersion: Int? = null,
+    @SerialName("proofs") val proofs: Map<String, String>? = null,
+    @SerialName("answers") val answers: JsonObject? = null,
 )
 
 @Serializable
@@ -407,6 +429,15 @@ data class CountsShiftingPendingExecutionItemDto(
     @SerialName("animals_truncated") val animalsTruncated: Boolean = false,
     @SerialName("animals") val animals: List<CountsShiftingPendingExecutionAnimalDto> = emptyList(),
     @SerialName("feed_requirement") val feedRequirement: CountsShiftingFeedRequirementDto? = null,
+    /**
+     * SHIFTING SOP (2026-09-16): the version this movement is pinned to, the completion card the
+     * phone renders, the high-priority card (high movements only; its slots are ADDED to the
+     * completion's) and the answers a completion already recorded (a rework keeps them).
+     */
+    @SerialName("sop_version") val sopVersion: Int? = null,
+    @SerialName("sop") val sop: ShiftingSopCardDto? = null,
+    @SerialName("high_priority_sop") val highPrioritySop: ShiftingSopCardDto? = null,
+    @SerialName("sop_answers") val sopAnswers: JsonObject? = null,
 )
 
 @Serializable
@@ -512,6 +543,12 @@ data class CountsShiftingCompleteRequestDto(
     @SerialName("feed_given_proof_ref") val feedGivenProofRef: String? = null,
     @SerialName("feed_config_fingerprint") val feedConfigFingerprint: String? = null,
     @SerialName("destination_tag") val destinationTag: String? = null,
+    /**
+     * SHIFTING SOP (2026-09-16): the pinned card's captures {slot key: server proof id} and answers.
+     * Null (dropped) from a pre-SOP queued row, which the server then judges as an older app.
+     */
+    @SerialName("proofs") val proofs: Map<String, String>? = null,
+    @SerialName("answers") val answers: JsonObject? = null,
 )
 
 // ---------------------------------------------------------------------------

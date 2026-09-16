@@ -148,6 +148,12 @@ data class VerificationReviewEventsPayload(
 @Serializable
 data class CountsShiftingPayload(
     @SerialName("request") val request: CountsShiftingEventRequestDto,
+    /**
+     * SHIFTING SOP (2026-09-16): the raise card's captures {slot key: source}, resolved to server
+     * proof ids into `request.proofs` at dispatch. Empty for a raise with no captures (and every
+     * row queued before the SOP), which sends the request unchanged.
+     */
+    @SerialName("slot_proofs") val slotProofs: Map<String, FeedSlotProofSourcePayload> = emptyMap(),
 )
 
 /** Outbox payload for [sg.mesha.goatos.core.database.outbox.OutboxOpType.COUNTS_BIRTH].
@@ -263,6 +269,13 @@ data class ShiftingCompletePayload(
     @SerialName("feed_given_proof_outbox_item_id") val feedGivenProofOutboxItemId: String? = null,
     /** Semantic fingerprint of the exact active feed requirement rendered for a high task. */
     @SerialName("feed_config_fingerprint") val feedConfigFingerprint: String? = null,
+    /**
+     * SHIFTING SOP (2026-09-16): the pinned completion (+ high-priority) card's captures
+     * {slot key: source} and answers. Empty on a row queued before the SOP, which dispatches the
+     * legacy triple alone (the server judges it as an older app).
+     */
+    @SerialName("slot_proofs") val slotProofs: Map<String, FeedSlotProofSourcePayload> = emptyMap(),
+    @SerialName("answers") val answers: JsonObject? = null,
 )
 
 /**

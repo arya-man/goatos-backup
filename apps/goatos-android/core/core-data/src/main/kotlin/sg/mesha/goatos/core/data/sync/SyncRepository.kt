@@ -261,6 +261,11 @@ interface SyncRepository {
         groupKey: String,
         idempotencyKey: String,
         request: CountsShiftingEventRequestDto,
+        /**
+         * SHIFTING SOP (2026-09-16): the raise card's captures by source (this phone's PROOF_UPLOAD
+         * rows); resolved into `request.proofs` at dispatch. Empty when the card asks for none.
+         */
+        slotProofs: Map<String, FeedSlotProofSourcePayload> = emptyMap(),
     ): AppResult<String> = AppResult.Err("counts shifting sync is not configured")
 
     /**
@@ -429,6 +434,9 @@ interface SyncRepository {
         feedPackingProofOutboxItemId: String? = null,
         feedGivenProofOutboxItemId: String? = null,
         feedConfigFingerprint: String? = null,
+        /** SHIFTING SOP (2026-09-16): the pinned card's captures by source, and the answers. */
+        slotProofs: Map<String, FeedSlotProofSourcePayload> = emptyMap(),
+        answers: kotlinx.serialization.json.JsonObject? = null,
     ): AppResult<String> = AppResult.Err("shifting completion sync is not configured")
 
     /**
@@ -1363,11 +1371,12 @@ class DefaultSyncRepository(
         groupKey: String,
         idempotencyKey: String,
         request: CountsShiftingEventRequestDto,
+        slotProofs: Map<String, FeedSlotProofSourcePayload>,
     ): AppResult<String> = enqueue(
         opType = OutboxOpType.COUNTS_SHIFTING,
         groupKey = groupKey,
         idempotencyKey = idempotencyKey,
-        payloadJson = syncJson.encodeToString(CountsShiftingPayload(request = request)),
+        payloadJson = syncJson.encodeToString(CountsShiftingPayload(request = request, slotProofs = slotProofs)),
     )
 
     override suspend fun enqueueLeaveRequest(
@@ -1541,6 +1550,8 @@ class DefaultSyncRepository(
         feedPackingProofOutboxItemId: String?,
         feedGivenProofOutboxItemId: String?,
         feedConfigFingerprint: String?,
+        slotProofs: Map<String, FeedSlotProofSourcePayload>,
+        answers: kotlinx.serialization.json.JsonObject?,
     ): AppResult<String> = enqueue(
         opType = OutboxOpType.SHIFTING_COMPLETE,
         groupKey = groupKey,
@@ -1553,6 +1564,8 @@ class DefaultSyncRepository(
                 feedPackingProofOutboxItemId = feedPackingProofOutboxItemId,
                 feedGivenProofOutboxItemId = feedGivenProofOutboxItemId,
                 feedConfigFingerprint = feedConfigFingerprint,
+                slotProofs = slotProofs,
+                answers = answers?.takeIf { it.isNotEmpty() },
             ),
         ),
     )
