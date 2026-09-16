@@ -638,6 +638,20 @@ FOR UPDATE`, tenantID, shiftingEventID).Scan(
 	return out, nil
 }
 
+// shiftingSOPPinSQL reads one movement by its primary key (tenant_id, shifting_event_id).
+const shiftingSOPPinSQL = `
+SELECT sop_version, priority, authorization_state, event_status, verification_state,
+       completion_idempotency_key, sop_proofs, sop_answers
+FROM shifting_events
+WHERE tenant_id = $1::uuid AND shifting_event_id = $2::uuid`
+
+// shiftingRaiseReplaySQL reads one movement through shifting_events_idempotency_unique
+// (tenant_id, idempotency_key) -- the same indexed lookup the raise insert's replay check uses.
+const shiftingRaiseReplaySQL = `
+SELECT shifting_event_id::text, request_fingerprint
+FROM shifting_events
+WHERE tenant_id = $1::uuid AND idempotency_key = $2`
+
 // ShiftingSOPPin is the pre-lock read the completion judge needs (ports.ShiftingSOPStore): the
 // pinned version, priority, gate state, and what a rework already stored. The transaction
 // re-checks the gate under the row lock; this read only decides what to judge against.
@@ -647,11 +661,7 @@ func (r *Repository) ShiftingSOPPin(ctx context.Context, tenantID, shiftingEvent
 	var out ports.ShiftingSOPPin
 	var key *string
 	var proofs, answers []byte
-	err := r.pool.QueryRow(ctx, `
-SELECT sop_version, priority, authorization_state, event_status, verification_state,
-       completion_idempotency_key, sop_proofs, sop_answers
-FROM shifting_events
-WHERE tenant_id = $1::uuid AND shifting_event_id = $2::uuid`, tenantID, shiftingEventID).Scan(
+	err := r.pool.QueryRow(ctx, shiftingSOPPinSQL, tenantID, shiftingEventID).Scan(
 		&out.Version, &out.Priority, &out.AuthorizationState, &out.EventStatus, &out.VerificationState,
 		&key, &proofs, &answers)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -671,10 +681,7 @@ func (r *Repository) ShiftingEventByIdempotencyKey(ctx context.Context, tenantID
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 	var id, fp string
-	err := r.pool.QueryRow(ctx, `
-SELECT shifting_event_id::text, request_fingerprint
-FROM shifting_events
-WHERE tenant_id = $1::uuid AND idempotency_key = $2`, tenantID, idempotencyKey).Scan(&id, &fp)
+	err := r.pool.QueryRow(ctx, shiftingRaiseReplaySQL, tenantID, idempotencyKey).Scan(&id, &fp)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", false, nil
 	}

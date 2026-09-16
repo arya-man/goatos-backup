@@ -457,3 +457,31 @@ func TestReworkRefusesRejectedRefReuseAndKeepsAnswers(t *testing.T) {
 		t.Fatalf("queued %v", enq.request.MediaRefs)
 	}
 }
+
+// A NEW-shaped request naming a seeded key the pinned card authored away is refused BY NAME. The
+// seeded-key re-targeting exists only for an older app's legacy fields; applying it to an explicit
+// map would silently file a capture under a slot the operator never recorded it for.
+func TestExplicitSeededKeyNotOnPinnedCardIsRefusedNotRetargeted(t *testing.T) {
+	repo := &sopShiftingRepo{pin: approvedPin(intp(1), "high"), result: lowResult()}
+	svc, _ := sopService(t, repo, sopRules(), &sopProofMedia{kinds: map[string]string{"v1": "video", "p1": "video"}})
+	in := baseInput()
+	in.SOPProofs = authored.ProofRefs{domain.SlotShiftingVideo: "v1", domain.SlotShiftingPackingVideo: "p1"}
+	in.SOPAnswers = authored.Answers{"calm": ans("yes")}
+	_, _, err := svc.Complete(context.Background(), in)
+	if key, _, ok := SOPProofSlotError(err); !ok || key != domain.SlotShiftingPackingVideo {
+		t.Fatalf("err=%v key=%q, want the authored-away seeded key refused by name", err, key)
+	}
+	if repo.calls != 0 {
+		t.Fatal("a refused completion wrote")
+	}
+	// An OLDER app's legacy packing field on the same card still lands on the authored feed slot.
+	legacy := baseInput()
+	legacy.LegacyShape = true
+	legacy.ProofRef, legacy.FeedPackingProofRef = "v1", "p1"
+	if _, _, err := svc.Complete(context.Background(), legacy); err != nil {
+		t.Fatalf("older app refused: %v", err)
+	}
+	if repo.last.SOPProofs["feed_clip"] != "p1" {
+		t.Fatalf("legacy packing ref not re-targeted onto the authored slot: %v", repo.last.SOPProofs)
+	}
+}

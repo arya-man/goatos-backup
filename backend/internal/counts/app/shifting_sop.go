@@ -216,11 +216,20 @@ func slotKindMessage(slot authored.ProofSlot) string {
 
 // legacyCompletionRefs maps an older app's fixed fields onto the pinned card. The seeded keys are
 // tried first (domain.LegacyShiftingProofRefs); a seeded key the farm authored AWAY is re-targeted
-// onto the first free video-accepting slot of the same section, so an older phone's clip still
-// lands on the card rather than being refused as "not part of this card".
+// onto the first free video-accepting slot of the same section, so an older phone's clip still lands
+// on the card rather than being refused as "not part of this card".
+//
+// ONLY a ref that came from a LEGACY FIELD is re-targeted. An explicit {slot: ref} map is the new
+// app naming the slot it recorded for; re-filing it under another slot would store a capture as
+// evidence of something the operator never shot, so an explicit key off the card stays as sent and
+// the judge refuses it by name.
 func legacyCompletionRefs(rules domain.ShiftingRules, priority string, legacy map[string]string, explicit authored.ProofRefs) authored.ProofRefs {
-	refs := domain.LegacyShiftingProofRefs(priority, legacy, explicit)
+	explicitRefs := authored.NormalizeProofRefs(explicit)
+	refs := domain.LegacyShiftingProofRefs(priority, legacy, explicitRefs)
 	retarget := func(seededKey string, section []authored.ProofSlot) {
+		if _, fromExplicit := explicitRefs[seededKey]; fromExplicit {
+			return
+		}
 		ref, has := refs[seededKey]
 		if !has {
 			return
