@@ -1783,6 +1783,111 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/pen-routines": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The routines of a park (or every park), with what each raised today.
+         * @description Pen routines (maintainer instruction 2026-09-16, docs/decisions/pen-routines.md): the rule the CXO writes per park -- scope, cadence, evidence, review, people -- and the two counts the /routines table shows. Reading needs pen_routines.read.
+         */
+        get: operations["listPenRoutines"];
+        put?: never;
+        /**
+         * Create a routine (version 1).
+         * @description Validated and refused, never silently defaulted: name, park, scope (ticked pens when selected_pens), cadence parameters, due offset 0..30, notify time HH:MM, review kind, the evidence document (up to 20 questions, photo/video min <= max <= 5, presence), and at least one assignee who is ELIGIBLE for the park (holds Routines there through the /people tick or their role). Needs pen_routines.configure. Idempotent on the Idempotency-Key header.
+         */
+        post: operations["createPenRoutine"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/pen-routines/catalog": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * What the create / edit drawer needs for one park.
+         * @description The park's ACTIVE pens from the partition catalog (an empty pen is listed, flagged occupied=false), the people who may be assigned a routine there, and the closed vocabularies with backend labels. Needs pen_routines.read.
+         */
+        get: operations["getPenRoutineCatalog"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/pen-routines/tasks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The Today table -- one park, one due date.
+         * @description Every routine check due in the park on the business date (default today), keyset-paged on task_id, with the whole-filter summary by farm bucket. Needs pen_routines.read.
+         */
+        get: operations["listPenRoutineParkTasks"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/pen-routines/{routine_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One routine. */
+        get: operations["getPenRoutine"];
+        /**
+         * Edit a routine -- writes a NEW version.
+         * @description Every edit is a new version (the health-protocol rule): an open task keeps the form it was raised with, the next occurrence uses the latest. The park cannot change (retire and create one in the other park). Fenced on row_version; 409 stale_routine when it moved. Needs pen_routines.configure. Idempotent on the Idempotency-Key header.
+         */
+        put: operations["updatePenRoutine"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/pen-routines/{routine_id}/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Pause, resume or retire a routine.
+         * @description Paused raises nothing until resumed; retired never raises again and frees its name. Open tasks are untouched by either. Fenced on row_version. Needs pen_routines.configure. Idempotent on the Idempotency-Key header.
+         */
+        post: operations["setPenRoutineStatus"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -4554,6 +4659,363 @@ export interface components {
         ClockEntryDetailResponse: {
             entry: components["schemas"]["ClockEntry"];
             events: components["schemas"]["ClockEventDetail"][];
+            trace_id: string;
+        };
+        PenRoutineOption: {
+            value: string;
+            label: string;
+        };
+        /** @description One authored question, the same widget shape the weighing SOP and the procurement inspection render. */
+        PenRoutineQuestion: {
+            id: string;
+            /** @enum {string} */
+            kind: "yes_no" | "choice" | "multi_choice" | "number" | "text";
+            title: string;
+            hint?: string;
+            required: boolean;
+            options?: components["schemas"]["PenRoutineOption"][];
+            min?: number | null;
+            max?: number | null;
+            unit?: string;
+        };
+        PenRoutineProofRule: {
+            min: number;
+            max: number;
+        };
+        /** @description What the routine expects from the assignee -- the PINNED version's form on a task. */
+        PenRoutineEvidence: {
+            questions: components["schemas"]["PenRoutineQuestion"][];
+            photo: components["schemas"]["PenRoutineProofRule"];
+            video: components["schemas"]["PenRoutineProofRule"];
+            /**
+             * @description Whether the submitter must check in to the pen first.
+             * @enum {string}
+             */
+            presence: "required" | "off";
+        };
+        PenRoutineProofItem: {
+            /**
+             * Format: uuid
+             * @description A finished in-app-camera proof.
+             */
+            ref: string;
+            /** @enum {string} */
+            kind: "photo" | "video";
+        };
+        PenRoutineAnswerRow: {
+            question_id: string;
+            title: string;
+            /** @description The rendered answer (option labels */
+            value: string;
+        };
+        /** @description One routine check in one pen, as every surface renders it (maintainer instruction 2026-09-16, docs/decisions/pen-routines.md): the phone card and detail, the web Today table and the Work Board subtask. Every string is backend-composed; the client maps state_tone to a colour and renders the rest verbatim. status is the gate (open -> pending_verification -> completed | rework for a verifier-reviewed routine; open -> completed on submit for review none) and work_state the kernel clock (scheduled -> delayed -> completed | canceled). form is the PINNED version's evidence: the questions and capture rules this task was raised with. */
+        PenRoutineStep: {
+            /** Format: uuid */
+            task_id: string;
+            /** Format: uuid */
+            routine_id: string;
+            routine_version: number;
+            routine_name: string;
+            /** @description Backend-composed card title, e.g. "Pen cleaning · Castro 2 · Coimbatore". */
+            title: string;
+            /** Format: uuid */
+            park_id: string;
+            park_name: string;
+            /** Format: uuid */
+            shed_id: string;
+            shed_name: string;
+            /** @description The pen label; empty for an undivided shed. */
+            partition_label: string;
+            /** @description The canonical pen display ("Castro 2", "Godel 1 - Part 3"). */
+            operational_location_display: string;
+            /** @description For an after_work routine, which work raised this task; empty for a calendar cadence. */
+            trigger_kinds: ("vaccination" | "deworming" | "anti_protozoan" | "ticks_removal" | "hoof_trimming" | "hair_trimming" | "weighing" | "feed_distribution" | "shifting")[];
+            /** @description Backend-composed, e.g. "Every day" or "After deworming yesterday". */
+            reason_line: string;
+            /**
+             * Format: date
+             * @description The IST day that raised the task.
+             */
+            source_business_date: string;
+            /**
+             * Format: date
+             * @description Immutable; the day the check was first owed.
+             */
+            planned_business_date: string;
+            /**
+             * Format: date
+             * @description Rolls forward only
+             */
+            due_business_date: string;
+            /** @enum {string} */
+            work_state: "scheduled" | "delayed" | "completed" | "canceled";
+            /** @enum {string} */
+            status: "open" | "pending_verification" | "completed" | "rework";
+            /** @description Backend-composed, e.g. "Due today", "Delayed since 14/09/2026", "In review", "Sent back", "Done", "Verified". */
+            state_chip: string;
+            /** @enum {string} */
+            state_tone: "info" | "review" | "danger" | "success" | "muted";
+            /** @description The detail screen's sentence of what to do */
+            instruction: string;
+            /** @description e.g. "2 questions · 1 photo · check in to pen". */
+            evidence_line: string;
+            /** @enum {string} */
+            review_kind: "verifier" | "none";
+            form: components["schemas"]["PenRoutineEvidence"];
+            /** @description The stored answers keyed by question id (null when none). */
+            answers: {
+                [key: string]: unknown;
+            } | null;
+            answer_rows: components["schemas"]["PenRoutineAnswerRow"][];
+            proofs: components["schemas"]["PenRoutineProofItem"][];
+            presence_required: boolean;
+            /** @description e.g. "Check in to the pen to start", "In pen since 9:12 am"; empty when presence is off. */
+            presence_line: string;
+            /** @description THIS caller has checked in and not left. */
+            in_pen: boolean;
+            /** @description THIS caller may check in now. */
+            can_check_in: boolean;
+            /** Format: date-time */
+            entered_at: string | null;
+            /** Format: date-time */
+            left_at: string | null;
+            /** @description THIS caller is an assignee and work is still owed (open or sent back). */
+            can_submit: boolean;
+            /** @description The gate closed -- verifier approved */
+            verified: boolean;
+            /** @description Empty until submitted. */
+            done_line: string;
+            /** @description The verifier's words when the check was sent back; empty otherwise. */
+            rework_reason?: string;
+            /** Format: date-time */
+            submitted_at: string | null;
+            /** Format: date-time */
+            verified_at: string | null;
+            row_version: number;
+        };
+        PenRoutineDetail: {
+            task: components["schemas"]["PenRoutineStep"];
+            trace_id: string;
+        };
+        PenRoutineFilter: {
+            /** @enum {string} */
+            key: "todo" | "done";
+            label: string;
+            /** @description Whole-list count over the routines the caller is assigned to */
+            count: number;
+            selected: boolean;
+            empty_message: string;
+        };
+        PenRoutinePage: {
+            /** @description The L0 header title; mirrors the nav label ("Routines"). */
+            title: string;
+            rows: components["schemas"]["PenRoutineStep"][];
+            next_cursor?: string | null;
+            filters: components["schemas"]["PenRoutineFilter"][];
+            /** @description Checks still to do on the routines the caller is assigned to. */
+            open_count: number;
+            trace_id: string;
+        };
+        /** @description What the phone captured when the punch was made; every field optional and recorded as given (nothing is refused by distance). */
+        PenRoutinePresenceLocation: {
+            latitude?: number | null;
+            longitude?: number | null;
+            accuracy_m?: number | null;
+            /** @description captured | permission_missing | unavailable */
+            status?: string;
+            address?: string;
+        };
+        /** @description The honest-capture block the workforce clock also records. */
+        PenRoutinePresenceIntegrity: {
+            mock_location?: boolean | null;
+            device_id?: string;
+            app_version?: string;
+            device_model?: string;
+            offline?: boolean | null;
+        };
+        PenRoutinePresenceRequest: {
+            /** @enum {string} */
+            event_type: "enter" | "leave";
+            /** Format: date-time */
+            captured_at: string;
+            /** @description The version the screen loaded with; 0 skips the fence. */
+            row_version?: number;
+            location?: components["schemas"]["PenRoutinePresenceLocation"];
+            integrity?: components["schemas"]["PenRoutinePresenceIntegrity"];
+        };
+        PenRoutineSubmitRequest: {
+            /** @description Raw answers keyed by question id -- a string for yes_no/choice/text, a string array for multi_choice, a number for number. Validated against the task's PINNED form. */
+            answers: {
+                [key: string]: unknown;
+            };
+            proof_refs: components["schemas"]["PenRoutineProofItem"][];
+            /** @description The version the screen loaded with; 0 skips the fence. */
+            row_version?: number;
+            /**
+             * Format: date-time
+             * @description The submit instant on the phone; recorded as the leave when the submitter is still checked in.
+             */
+            captured_at?: string;
+            location?: components["schemas"]["PenRoutinePresenceLocation"];
+            integrity?: components["schemas"]["PenRoutinePresenceIntegrity"];
+        };
+        PenRoutinePen: {
+            /** Format: uuid */
+            shed_id: string;
+            shed_name: string;
+            /** @description Empty for an undivided shed. */
+            partition_label: string;
+            /** @description The canonical pen display ("Castro 2", "Godel 1 - Part 3"). */
+            operational_location_display: string;
+        };
+        PenRoutineAssignee: {
+            /** Format: uuid */
+            user_id: string;
+            display_name: string;
+        };
+        /** @description One routine as the /routines table and drawer render it; every line is backend copy. */
+        PenRoutineRow: {
+            /** Format: uuid */
+            routine_id: string;
+            /** Format: uuid */
+            park_id: string;
+            park_name: string;
+            name: string;
+            instruction: string;
+            /** @enum {string} */
+            scope_kind: "all_pens" | "selected_pens";
+            occupied_only: boolean;
+            pens: components["schemas"]["PenRoutinePen"][];
+            /** @enum {string} */
+            cadence_kind: "daily" | "weekly" | "monthly" | "after_work";
+            weekdays: number[];
+            month_days: number[];
+            after_work_kinds: ("vaccination" | "deworming" | "anti_protozoan" | "ticks_removal" | "hoof_trimming" | "hair_trimming" | "weighing" | "feed_distribution" | "shifting")[];
+            /** @description e.g. "Every day", "Every Mon, Wed, Fri", "1st and 15th of the month", "The day after deworming". */
+            cadence_line: string;
+            due_offset_days: number;
+            /** @description Local IST "HH:MM". */
+            notify_time: string;
+            /** @enum {string} */
+            review_kind: "verifier" | "none";
+            /** @enum {string} */
+            status: "active" | "paused" | "retired";
+            status_label: string;
+            current_version: number;
+            evidence: components["schemas"]["PenRoutineEvidence"];
+            evidence_line: string;
+            assignees: components["schemas"]["PenRoutineAssignee"][];
+            /** @description Checks of this routine still owed today. */
+            open_today: number;
+            /** @description Checks of this routine carried past their planned date. */
+            delayed: number;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+            row_version: number;
+        };
+        PenRoutinePark: {
+            /** Format: uuid */
+            park_id: string;
+            name: string;
+        };
+        PenRoutineListResponse: {
+            rows: components["schemas"]["PenRoutineRow"][];
+            parks: components["schemas"]["PenRoutinePark"][];
+            trace_id: string;
+        };
+        PenRoutineDetailResponse: {
+            routine: components["schemas"]["PenRoutineRow"];
+            trace_id: string;
+        };
+        PenRoutineCatalogPen: {
+            /** Format: uuid */
+            shed_id: string;
+            shed_name: string;
+            partition_label: string;
+            operational_location_display: string;
+            /** @description The pen holds at least one live animal today. */
+            occupied: boolean;
+        };
+        PenRoutinePerson: {
+            /** Format: uuid */
+            user_id: string;
+            display_name: string;
+            designation: string;
+        };
+        PenRoutineKeyLabel: {
+            key: string;
+            label: string;
+        };
+        PenRoutineCatalogDefaults: {
+            notify_time: string;
+            due_offset_days: number;
+        };
+        PenRoutineCatalogResponse: {
+            pens: components["schemas"]["PenRoutineCatalogPen"][];
+            people: components["schemas"]["PenRoutinePerson"][];
+            work_kinds: components["schemas"]["PenRoutineKeyLabel"][];
+            question_kinds: components["schemas"]["PenRoutineKeyLabel"][];
+            cadence_kinds: components["schemas"]["PenRoutineKeyLabel"][];
+            review_kinds: components["schemas"]["PenRoutineKeyLabel"][];
+            presence_kinds: components["schemas"]["PenRoutineKeyLabel"][];
+            scope_kinds: components["schemas"]["PenRoutineKeyLabel"][];
+            defaults: components["schemas"]["PenRoutineCatalogDefaults"];
+            trace_id: string;
+        };
+        PenRoutinePenWrite: {
+            /** Format: uuid */
+            shed_id: string;
+            /** @description Empty for an undivided shed. */
+            partition_label?: string;
+        };
+        /** @description The create / update body. Unknown keys are refused. */
+        PenRoutineWrite: {
+            /** Format: uuid */
+            park_id: string;
+            name: string;
+            instruction?: string;
+            /** @enum {string} */
+            scope_kind: "all_pens" | "selected_pens";
+            /** @default true */
+            occupied_only: boolean;
+            pens?: components["schemas"]["PenRoutinePenWrite"][];
+            /** @enum {string} */
+            cadence_kind: "daily" | "weekly" | "monthly" | "after_work";
+            weekdays?: number[];
+            month_days?: number[];
+            after_work_kinds?: ("vaccination" | "deworming" | "anti_protozoan" | "ticks_removal" | "hoof_trimming" | "hair_trimming" | "weighing" | "feed_distribution" | "shifting")[];
+            /** @description Absent means 0 (1 for after_work). */
+            due_offset_days?: number;
+            /** @description Local IST "HH:MM"; absent means 07:00. */
+            notify_time?: string;
+            /** @enum {string} */
+            review_kind: "verifier" | "none";
+            evidence: components["schemas"]["PenRoutineEvidence"];
+            assignee_user_ids: string[];
+            /** @description Update only -- the version the drawer loaded with; 0 skips the fence. */
+            row_version?: number;
+        };
+        PenRoutineStatusWrite: {
+            /** @enum {string} */
+            status: "active" | "paused" | "retired";
+            row_version?: number;
+        };
+        PenRoutineTaskRow: components["schemas"]["PenRoutineStep"] & {
+            assignee_names: string[];
+        };
+        PenRoutineTaskSummary: {
+            due: number;
+            delayed: number;
+            in_review: number;
+            sent_back: number;
+            done: number;
+        };
+        PenRoutineTaskListResponse: {
+            rows: components["schemas"]["PenRoutineTaskRow"][];
+            next_cursor?: string | null;
+            summary: components["schemas"]["PenRoutineTaskSummary"];
             trace_id: string;
         };
     };
@@ -8157,6 +8619,240 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    listPenRoutines: {
+        parameters: {
+            query?: {
+                park_id?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The routines and the park options. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PenRoutineListResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    createPenRoutine: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PenRoutineWrite"];
+            };
+        };
+        responses: {
+            /** @description The created routine. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PenRoutineDetailResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["WriteConflict"];
+            /** @description The routine, its evidence or an assignee is not valid (invalid_routine, invalid_evidence, assignee_not_eligible, park_immutable). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            500: components["responses"]["ServerError"];
+        };
+    };
+    getPenRoutineCatalog: {
+        parameters: {
+            query: {
+                park_id: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The catalog. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PenRoutineCatalogResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    listPenRoutineParkTasks: {
+        parameters: {
+            query: {
+                park_id: string;
+                business_date?: string;
+                routine_id?: string;
+                cursor?: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page plus the whole-filter summary. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PenRoutineTaskListResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    getPenRoutine: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                routine_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The routine. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PenRoutineDetailResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    updatePenRoutine: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                routine_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PenRoutineWrite"];
+            };
+        };
+        responses: {
+            /** @description The routine at its new version. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PenRoutineDetailResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["WriteConflict"];
+            /** @description The routine, its evidence or an assignee is not valid (invalid_routine, invalid_evidence, assignee_not_eligible, park_immutable). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            500: components["responses"]["ServerError"];
+        };
+    };
+    setPenRoutineStatus: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                routine_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PenRoutineStatusWrite"];
+            };
+        };
+        responses: {
+            /** @description The routine with its new status. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PenRoutineDetailResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["WriteConflict"];
+            /** @description Unknown status (invalid_routine). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
             500: components["responses"]["ServerError"];
         };
     };

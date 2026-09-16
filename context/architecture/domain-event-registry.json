@@ -1789,6 +1789,71 @@
       "surfaceNotes": "frontend: the PC Care / vaccination shed detail reads the visit as verified and the parent as closed. mobile: the parent card's chip reads 'Visit verified' and the task 'Done'."
     },
     {
+      "eventType": "pen_routine.created",
+      "producer": "penroutines Materialize (kernel stage pen-routine-kernel): one task per pen per occurrence of every ACTIVE routine that raises on the business date -- calendar cadences from Definition.RaisesOn, after_work routines from the verification items created in that IST day whose category maps to one of the routine's kinds -- inserted with its audit row and this outbox emit in ONE set-based transaction, idempotent on (tenant, routine, shed, pen, planned date). A routine with no assignee raises nothing and is named in the log. Maintainer instruction 2026-09-16.",
+      "producerFiles": [
+        "backend/internal/penroutines/adapters/postgres/outbox.go",
+        "backend/internal/penroutines/adapters/postgres/materialize.go"
+      ],
+      "consumers": [],
+      "consumerNote": "Produced for the audit/event spine; the day's push is NOT event-driven. It is one digest per ROUTINE per business date queued by the kernel stage once the routine's own IST notify time has passed (notificationbridge.PenRoutineDueNotifier, event key pen_routine.due:<date>:<routine>), pushed to every assignee's devices, because one push per pen would be ten pushes for one morning's round.",
+      "owningDoc": "docs/decisions/pen-routines.md",
+      "e2eProof": [
+        "backend/internal/penroutines/adapters/postgres/repository_integration_test.go"
+      ],
+      "surfaces": [
+        "backend",
+        "frontend",
+        "mobile"
+      ],
+      "surfaceNotes": "frontend: /routines lists the routines per park and the Today table of what they raised. mobile: the Routines module lists the caller's checks as cards and submits through the outbox."
+    },
+    {
+      "eventType": "pen_routine.submitted",
+      "producer": "penroutines Submit write transaction: every capture is validated against the proof store (finished, tenant-owned, in-app camera, declared type matching the claimed kind), the row is locked, the answers are validated against the PINNED version's evidence, the assignee/state/count/presence rule re-run, the gate flips per the routine's review kind (pending_verification, or completed on both dimensions for review none), the auto-leave is recorded when the submitter was still checked in, audit and this outbox emit ride the same transaction under the request's idempotency key; the event's idempotency key carries the row version so a redo after a rework announces a fresh item.",
+      "producerFiles": [
+        "backend/internal/penroutines/adapters/postgres/outbox.go",
+        "backend/internal/penroutines/adapters/postgres/repository.go"
+      ],
+      "consumers": [
+        {
+          "name": "penroutines/app.PendingVerificationHandler",
+          "file": "backend/internal/penroutines/app/verification_handler.go",
+          "notes": "PendingVerificationHandler consumes pen_routine.submitted and, when the payload's status is pending_verification (a review-none routine completed on submit and is skipped), calls the pen-routine verification bridge (penroutines/adapters/verificationbridge), which maps every capture as positional media (photo/video kind per proof) and the answers as context rows to verification.CreateItem idempotently (key pen-routine-verification:<task>:<row_version>) as category pen_routine under navigation module pen_routines. Registered in kernelstages/bus.go, cmd/outbox-relay and cmd/domain-event-consumer beside the pen-visit pending handler."
+        }
+      ],
+      "owningDoc": "docs/decisions/pen-routines.md",
+      "e2eProof": [
+        "backend/internal/penroutines/adapters/postgres/repository_integration_test.go"
+      ],
+      "surfaces": [
+        "backend",
+        "frontend",
+        "mobile"
+      ],
+      "surfaceNotes": "frontend: the verifier's admin-web /verify lists the pen_routine category under Routines; /routines Today table reads In review. mobile: the card reads In review after submit; the Verify app lists the item."
+    },
+    {
+      "eventType": "pen_routine.verified",
+      "producer": "penroutines ApplyVerified (the verification.verdict.approved consumer for pen_routines/pen_routine_task, registered in eventwiring.RegisterVerificationAppliers): flips the task to completed on BOTH the gate and the kernel clock, stamps verified_by/at, and writes this outbox event in the same transaction. A reject writes no event: it flips the row to rework with the verifier's reason and the assignee does the check again.",
+      "producerFiles": [
+        "backend/internal/penroutines/adapters/postgres/outbox.go",
+        "backend/internal/penroutines/adapters/postgres/repository.go"
+      ],
+      "consumers": [],
+      "consumerNote": "Produced for the audit/event spine and the replay/DLQ path; a routine closes no parent (docs/decisions/pen-routines.md, open question 1: V1 no), so nothing consumes it yet. The Work Board and the /routines Today table read the completed row directly.",
+      "owningDoc": "docs/decisions/pen-routines.md",
+      "e2eProof": [
+        "backend/internal/penroutines/adapters/postgres/repository_integration_test.go"
+      ],
+      "surfaces": [
+        "backend",
+        "frontend",
+        "mobile"
+      ],
+      "surfaceNotes": "frontend: the /routines Today table and the Work Board row read Done / Verified. mobile: the card moves to the Done chip and reads Verified."
+    },
+    {
       "eventType": "procurement.animal_purchase.decided",
       "producer": "animalpurchase Decide write transaction (CEO/CXO accept or reject on a candidate animal): the outbox emit rides the same transaction as the version-fenced decision update and its audit row, so a committed decision always announces itself and a rolled-back one never does.",
       "producerFiles": [

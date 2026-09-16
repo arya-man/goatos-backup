@@ -3746,6 +3746,273 @@ paths:
           $ref: "#/components/responses/NotFound"
         "500":
           $ref: "#/components/responses/ServerError"
+  /admin/pen-routines:
+    get:
+      tags:
+        - Pen Routines
+      operationId: listPenRoutines
+      summary: The routines of a park (or every park), with what each raised today.
+      description: >-
+        Pen routines (maintainer instruction 2026-09-16, docs/decisions/pen-routines.md): the rule
+        the CXO writes per park -- scope, cadence, evidence, review, people -- and the two counts
+        the /routines table shows. Reading needs pen_routines.read.
+      parameters:
+        - name: park_id
+          in: query
+          required: false
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: The routines and the park options.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PenRoutineListResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
+    post:
+      tags:
+        - Pen Routines
+      operationId: createPenRoutine
+      summary: Create a routine (version 1).
+      description: >-
+        Validated and refused, never silently defaulted: name, park, scope (ticked pens when
+        selected_pens), cadence parameters, due offset 0..30, notify time HH:MM, review kind, the
+        evidence document (up to 20 questions, photo/video min <= max <= 5, presence), and at least
+        one assignee who is ELIGIBLE for the park (holds Routines there through the /people tick or
+        their role). Needs pen_routines.configure. Idempotent on the Idempotency-Key header.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PenRoutineWrite"
+      responses:
+        "201":
+          description: The created routine.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PenRoutineDetailResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+        "422":
+          description: The routine, its evidence or an assignee is not valid (invalid_routine, invalid_evidence, assignee_not_eligible, park_immutable).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /admin/pen-routines/catalog:
+    get:
+      tags:
+        - Pen Routines
+      operationId: getPenRoutineCatalog
+      summary: What the create / edit drawer needs for one park.
+      description: >-
+        The park's ACTIVE pens from the partition catalog (an empty pen is listed, flagged
+        occupied=false), the people who may be assigned a routine there, and the closed
+        vocabularies with backend labels. Needs pen_routines.read.
+      parameters:
+        - name: park_id
+          in: query
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: The catalog.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PenRoutineCatalogResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /admin/pen-routines/tasks:
+    get:
+      tags:
+        - Pen Routines
+      operationId: listPenRoutineParkTasks
+      summary: The Today table -- one park, one due date.
+      description: >-
+        Every routine check due in the park on the business date (default today), keyset-paged on
+        task_id, with the whole-filter summary by farm bucket. Needs pen_routines.read.
+      parameters:
+        - name: park_id
+          in: query
+          required: true
+          schema: { type: string, format: uuid }
+        - name: business_date
+          in: query
+          required: false
+          schema: { type: string, format: date }
+        - name: routine_id
+          in: query
+          required: false
+          schema: { type: string, format: uuid }
+        - name: cursor
+          in: query
+          required: false
+          schema: { type: string }
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 100, default: 25 }
+      responses:
+        "200":
+          description: One page plus the whole-filter summary.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PenRoutineTaskListResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /admin/pen-routines/{routine_id}:
+    get:
+      tags:
+        - Pen Routines
+      operationId: getPenRoutine
+      summary: One routine.
+      parameters:
+        - name: routine_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: The routine.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PenRoutineDetailResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/ServerError"
+    put:
+      tags:
+        - Pen Routines
+      operationId: updatePenRoutine
+      summary: Edit a routine -- writes a NEW version.
+      description: >-
+        Every edit is a new version (the health-protocol rule): an open task keeps the form it was
+        raised with, the next occurrence uses the latest. The park cannot change (retire and create
+        one in the other park). Fenced on row_version; 409 stale_routine when it moved. Needs
+        pen_routines.configure. Idempotent on the Idempotency-Key header.
+      parameters:
+        - name: routine_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PenRoutineWrite"
+      responses:
+        "200":
+          description: The routine at its new version.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PenRoutineDetailResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+        "422":
+          description: The routine, its evidence or an assignee is not valid (invalid_routine, invalid_evidence, assignee_not_eligible, park_immutable).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /admin/pen-routines/{routine_id}/status:
+    post:
+      tags:
+        - Pen Routines
+      operationId: setPenRoutineStatus
+      summary: Pause, resume or retire a routine.
+      description: >-
+        Paused raises nothing until resumed; retired never raises again and frees its name. Open
+        tasks are untouched by either. Fenced on row_version. Needs pen_routines.configure.
+        Idempotent on the Idempotency-Key header.
+      parameters:
+        - name: routine_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PenRoutineStatusWrite"
+      responses:
+        "200":
+          description: The routine with its new status.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PenRoutineDetailResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+        "422":
+          description: Unknown status (invalid_routine).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          $ref: "#/components/responses/ServerError"
 components:
   securitySchemes:
     bearerAuth:
@@ -11954,3 +12221,431 @@ components:
             $ref: "#/components/schemas/ClockEventDetail"
         trace_id:
           type: string
+    PenRoutineOption:
+      type: object
+      required: [value, label]
+      properties:
+        value: { type: string }
+        label: { type: string }
+    PenRoutineQuestion:
+      type: object
+      description: One authored question, the same widget shape the weighing SOP and the procurement inspection render.
+      required: [id, kind, title, required]
+      properties:
+        id: { type: string }
+        kind: { type: string, enum: [yes_no, choice, multi_choice, number, text] }
+        title: { type: string }
+        hint: { type: string }
+        required: { type: boolean }
+        options:
+          type: array
+          items:
+            $ref: "#/components/schemas/PenRoutineOption"
+        min: { type: number, nullable: true }
+        max: { type: number, nullable: true }
+        unit: { type: string }
+    PenRoutineProofRule:
+      type: object
+      required: [min, max]
+      properties:
+        min: { type: integer }
+        max: { type: integer }
+    PenRoutineEvidence:
+      type: object
+      description: What the routine expects from the assignee -- the PINNED version's form on a task.
+      required: [questions, photo, video, presence]
+      properties:
+        questions:
+          type: array
+          items:
+            $ref: "#/components/schemas/PenRoutineQuestion"
+        photo:
+          $ref: "#/components/schemas/PenRoutineProofRule"
+        video:
+          $ref: "#/components/schemas/PenRoutineProofRule"
+        presence: { type: string, enum: [required, off], description: Whether the submitter must check in to the pen first. }
+    PenRoutineProofItem:
+      type: object
+      required: [ref, kind]
+      properties:
+        ref: { type: string, format: uuid, description: A finished in-app-camera proof. }
+        kind: { type: string, enum: [photo, video] }
+    PenRoutineAnswerRow:
+      type: object
+      required: [question_id, title, value]
+      properties:
+        question_id: { type: string }
+        title: { type: string }
+        value: { type: string, description: The rendered answer (option labels, numbers with unit, text verbatim). }
+    PenRoutineStep:
+      type: object
+      description: >-
+        One routine check in one pen, as every surface renders it (maintainer instruction 2026-09-16,
+        docs/decisions/pen-routines.md): the phone card and detail, the web Today table and the Work
+        Board subtask. Every string is backend-composed; the client maps state_tone to a colour and
+        renders the rest verbatim. status is the gate (open -> pending_verification -> completed | rework
+        for a verifier-reviewed routine; open -> completed on submit for review none) and work_state the
+        kernel clock (scheduled -> delayed -> completed | canceled). form is the PINNED version's evidence:
+        the questions and capture rules this task was raised with.
+      required: [task_id, routine_id, routine_version, routine_name, title, park_id, park_name, shed_id, shed_name, partition_label, operational_location_display, trigger_kinds, reason_line, source_business_date, planned_business_date, due_business_date, work_state, status, state_chip, state_tone, instruction, evidence_line, review_kind, form, answers, answer_rows, proofs, presence_required, presence_line, in_pen, can_check_in, entered_at, left_at, can_submit, verified, done_line, submitted_at, verified_at, row_version]
+      properties:
+        task_id: { type: string, format: uuid }
+        routine_id: { type: string, format: uuid }
+        routine_version: { type: integer }
+        routine_name: { type: string }
+        title:
+          type: string
+          description: 'Backend-composed card title, e.g. "Pen cleaning · Castro 2 · Coimbatore".'
+        park_id: { type: string, format: uuid }
+        park_name: { type: string }
+        shed_id: { type: string, format: uuid }
+        shed_name: { type: string }
+        partition_label: { type: string, description: The pen label; empty for an undivided shed. }
+        operational_location_display:
+          type: string
+          description: 'The canonical pen display ("Castro 2", "Godel 1 - Part 3").'
+        trigger_kinds:
+          type: array
+          description: For an after_work routine, which work raised this task; empty for a calendar cadence.
+          items: { type: string, enum: [vaccination, deworming, anti_protozoan, ticks_removal, hoof_trimming, hair_trimming, weighing, feed_distribution, shifting] }
+        reason_line:
+          type: string
+          description: 'Backend-composed, e.g. "Every day" or "After deworming yesterday".'
+        source_business_date: { type: string, format: date, description: The IST day that raised the task. }
+        planned_business_date: { type: string, format: date, description: Immutable; the day the check was first owed. }
+        due_business_date: { type: string, format: date, description: Rolls forward only, as the check is carried. }
+        work_state: { type: string, enum: [scheduled, delayed, completed, canceled] }
+        status: { type: string, enum: [open, pending_verification, completed, rework] }
+        state_chip:
+          type: string
+          description: 'Backend-composed, e.g. "Due today", "Delayed since 14/09/2026", "In review", "Sent back", "Done", "Verified".'
+        state_tone: { type: string, enum: [info, review, danger, success, muted] }
+        instruction: { type: string, description: The detail screen's sentence of what to do, from the routine's own words. }
+        evidence_line: { type: string, description: 'e.g. "2 questions · 1 photo · check in to pen".' }
+        review_kind: { type: string, enum: [verifier, none] }
+        form:
+          $ref: "#/components/schemas/PenRoutineEvidence"
+        answers:
+          type: object
+          nullable: true
+          additionalProperties: true
+          description: The stored answers keyed by question id (null when none).
+        answer_rows:
+          type: array
+          items:
+            $ref: "#/components/schemas/PenRoutineAnswerRow"
+        proofs:
+          type: array
+          items:
+            $ref: "#/components/schemas/PenRoutineProofItem"
+        presence_required: { type: boolean }
+        presence_line: { type: string, description: 'e.g. "Check in to the pen to start", "In pen since 9:12 am"; empty when presence is off.' }
+        in_pen: { type: boolean, description: THIS caller has checked in and not left. }
+        can_check_in: { type: boolean, description: THIS caller may check in now. }
+        entered_at: { type: string, format: date-time, nullable: true }
+        left_at: { type: string, format: date-time, nullable: true }
+        can_submit: { type: boolean, description: THIS caller is an assignee and work is still owed (open or sent back). }
+        verified: { type: boolean, description: The gate closed -- verifier approved, or review none submitted. }
+        done_line: { type: string, description: Empty until submitted. }
+        rework_reason: { type: string, description: The verifier's words when the check was sent back; empty otherwise. }
+        submitted_at: { type: string, format: date-time, nullable: true }
+        verified_at: { type: string, format: date-time, nullable: true }
+        row_version: { type: integer }
+    PenRoutineDetail:
+      type: object
+      required: [task, trace_id]
+      properties:
+        task:
+          $ref: "#/components/schemas/PenRoutineStep"
+        trace_id: { type: string }
+    PenRoutineFilter:
+      type: object
+      required: [key, label, count, selected, empty_message]
+      properties:
+        key: { type: string, enum: [todo, done] }
+        label: { type: string }
+        count: { type: integer, description: Whole-list count over the routines the caller is assigned to, never a page sum. }
+        selected: { type: boolean }
+        empty_message: { type: string }
+    PenRoutinePage:
+      type: object
+      required: [title, rows, filters, open_count, trace_id]
+      properties:
+        title: { type: string, description: The L0 header title; mirrors the nav label ("Routines"). }
+        rows:
+          type: array
+          items:
+            $ref: "#/components/schemas/PenRoutineStep"
+        next_cursor: { type: string, nullable: true }
+        filters:
+          type: array
+          items:
+            $ref: "#/components/schemas/PenRoutineFilter"
+        open_count: { type: integer, description: Checks still to do on the routines the caller is assigned to. }
+        trace_id: { type: string }
+    PenRoutinePresenceLocation:
+      type: object
+      description: What the phone captured when the punch was made; every field optional and recorded as given (nothing is refused by distance).
+      properties:
+        latitude: { type: number, nullable: true }
+        longitude: { type: number, nullable: true }
+        accuracy_m: { type: number, nullable: true }
+        status: { type: string, description: captured | permission_missing | unavailable }
+        address: { type: string }
+    PenRoutinePresenceIntegrity:
+      type: object
+      description: The honest-capture block the workforce clock also records.
+      properties:
+        mock_location: { type: boolean, nullable: true }
+        device_id: { type: string }
+        app_version: { type: string }
+        device_model: { type: string }
+        offline: { type: boolean, nullable: true }
+    PenRoutinePresenceRequest:
+      type: object
+      required: [event_type, captured_at]
+      properties:
+        event_type: { type: string, enum: [enter, leave] }
+        captured_at: { type: string, format: date-time }
+        row_version: { type: integer, description: The version the screen loaded with; 0 skips the fence. }
+        location:
+          $ref: "#/components/schemas/PenRoutinePresenceLocation"
+        integrity:
+          $ref: "#/components/schemas/PenRoutinePresenceIntegrity"
+    PenRoutineSubmitRequest:
+      type: object
+      required: [answers, proof_refs]
+      properties:
+        answers:
+          type: object
+          additionalProperties: true
+          description: Raw answers keyed by question id -- a string for yes_no/choice/text, a string array for multi_choice, a number for number. Validated against the task's PINNED form.
+        proof_refs:
+          type: array
+          items:
+            $ref: "#/components/schemas/PenRoutineProofItem"
+        row_version: { type: integer, description: The version the screen loaded with; 0 skips the fence. }
+        captured_at: { type: string, format: date-time, description: The submit instant on the phone; recorded as the leave when the submitter is still checked in. }
+        location:
+          $ref: "#/components/schemas/PenRoutinePresenceLocation"
+        integrity:
+          $ref: "#/components/schemas/PenRoutinePresenceIntegrity"
+    PenRoutinePen:
+      type: object
+      required: [shed_id, shed_name, partition_label, operational_location_display]
+      properties:
+        shed_id: { type: string, format: uuid }
+        shed_name: { type: string }
+        partition_label: { type: string, description: Empty for an undivided shed. }
+        operational_location_display: { type: string, description: 'The canonical pen display ("Castro 2", "Godel 1 - Part 3").' }
+    PenRoutineAssignee:
+      type: object
+      required: [user_id, display_name]
+      properties:
+        user_id: { type: string, format: uuid }
+        display_name: { type: string }
+    PenRoutineRow:
+      type: object
+      description: One routine as the /routines table and drawer render it; every line is backend copy.
+      required: [routine_id, park_id, park_name, name, instruction, scope_kind, occupied_only, pens, cadence_kind, weekdays, month_days, after_work_kinds, cadence_line, due_offset_days, notify_time, review_kind, status, status_label, current_version, evidence, evidence_line, assignees, open_today, delayed, created_at, updated_at, row_version]
+      properties:
+        routine_id: { type: string, format: uuid }
+        park_id: { type: string, format: uuid }
+        park_name: { type: string }
+        name: { type: string }
+        instruction: { type: string }
+        scope_kind: { type: string, enum: [all_pens, selected_pens] }
+        occupied_only: { type: boolean }
+        pens:
+          type: array
+          items:
+            $ref: "#/components/schemas/PenRoutinePen"
+        cadence_kind: { type: string, enum: [daily, weekly, monthly, after_work] }
+        weekdays: { type: array, items: { type: integer, minimum: 1, maximum: 7 } }
+        month_days: { type: array, items: { type: integer, minimum: 1, maximum: 31 } }
+        after_work_kinds:
+          type: array
+          items: { type: string, enum: [vaccination, deworming, anti_protozoan, ticks_removal, hoof_trimming, hair_trimming, weighing, feed_distribution, shifting] }
+        cadence_line: { type: string, description: 'e.g. "Every day", "Every Mon, Wed, Fri", "1st and 15th of the month", "The day after deworming".' }
+        due_offset_days: { type: integer }
+        notify_time: { type: string, description: Local IST "HH:MM". }
+        review_kind: { type: string, enum: [verifier, none] }
+        status: { type: string, enum: [active, paused, retired] }
+        status_label: { type: string }
+        current_version: { type: integer }
+        evidence:
+          $ref: "#/components/schemas/PenRoutineEvidence"
+        evidence_line: { type: string }
+        assignees:
+          type: array
+          items:
+            $ref: "#/components/schemas/PenRoutineAssignee"
+        open_today: { type: integer, description: Checks of this routine still owed today. }
+        delayed: { type: integer, description: Checks of this routine carried past their planned date. }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        row_version: { type: integer }
+    PenRoutinePark:
+      type: object
+      required: [park_id, name]
+      properties:
+        park_id: { type: string, format: uuid }
+        name: { type: string }
+    PenRoutineListResponse:
+      type: object
+      required: [rows, parks, trace_id]
+      properties:
+        rows:
+          type: array
+          items:
+            $ref: "#/components/schemas/PenRoutineRow"
+        parks:
+          type: array
+          items:
+            $ref: "#/components/schemas/PenRoutinePark"
+        trace_id: { type: string }
+    PenRoutineDetailResponse:
+      type: object
+      required: [routine, trace_id]
+      properties:
+        routine:
+          $ref: "#/components/schemas/PenRoutineRow"
+        trace_id: { type: string }
+    PenRoutineCatalogPen:
+      type: object
+      required: [shed_id, shed_name, partition_label, operational_location_display, occupied]
+      properties:
+        shed_id: { type: string, format: uuid }
+        shed_name: { type: string }
+        partition_label: { type: string }
+        operational_location_display: { type: string }
+        occupied: { type: boolean, description: The pen holds at least one live animal today. }
+    PenRoutinePerson:
+      type: object
+      required: [user_id, display_name, designation]
+      properties:
+        user_id: { type: string, format: uuid }
+        display_name: { type: string }
+        designation: { type: string }
+    PenRoutineKeyLabel:
+      type: object
+      required: [key, label]
+      properties:
+        key: { type: string }
+        label: { type: string }
+    PenRoutineCatalogDefaults:
+      type: object
+      required: [notify_time, due_offset_days]
+      properties:
+        notify_time: { type: string }
+        due_offset_days: { type: integer }
+    PenRoutineCatalogResponse:
+      type: object
+      required: [pens, people, work_kinds, question_kinds, cadence_kinds, review_kinds, presence_kinds, scope_kinds, defaults, trace_id]
+      properties:
+        pens:
+          type: array
+          items:
+            $ref: "#/components/schemas/PenRoutineCatalogPen"
+        people:
+          type: array
+          items:
+            $ref: "#/components/schemas/PenRoutinePerson"
+        work_kinds:
+          type: array
+          items:
+            $ref: "#/components/schemas/PenRoutineKeyLabel"
+        question_kinds:
+          type: array
+          items:
+            $ref: "#/components/schemas/PenRoutineKeyLabel"
+        cadence_kinds:
+          type: array
+          items:
+            $ref: "#/components/schemas/PenRoutineKeyLabel"
+        review_kinds:
+          type: array
+          items:
+            $ref: "#/components/schemas/PenRoutineKeyLabel"
+        presence_kinds:
+          type: array
+          items:
+            $ref: "#/components/schemas/PenRoutineKeyLabel"
+        scope_kinds:
+          type: array
+          items:
+            $ref: "#/components/schemas/PenRoutineKeyLabel"
+        defaults:
+          $ref: "#/components/schemas/PenRoutineCatalogDefaults"
+        trace_id: { type: string }
+    PenRoutinePenWrite:
+      type: object
+      required: [shed_id]
+      properties:
+        shed_id: { type: string, format: uuid }
+        partition_label: { type: string, description: Empty for an undivided shed. }
+    PenRoutineWrite:
+      type: object
+      description: The create / update body. Unknown keys are refused.
+      required: [park_id, name, scope_kind, cadence_kind, review_kind, evidence, assignee_user_ids]
+      properties:
+        park_id: { type: string, format: uuid }
+        name: { type: string, maxLength: 80 }
+        instruction: { type: string, maxLength: 600 }
+        scope_kind: { type: string, enum: [all_pens, selected_pens] }
+        occupied_only: { type: boolean, default: true }
+        pens:
+          type: array
+          items:
+            $ref: "#/components/schemas/PenRoutinePenWrite"
+        cadence_kind: { type: string, enum: [daily, weekly, monthly, after_work] }
+        weekdays: { type: array, items: { type: integer, minimum: 1, maximum: 7 } }
+        month_days: { type: array, items: { type: integer, minimum: 1, maximum: 31 } }
+        after_work_kinds:
+          type: array
+          items: { type: string, enum: [vaccination, deworming, anti_protozoan, ticks_removal, hoof_trimming, hair_trimming, weighing, feed_distribution, shifting] }
+        due_offset_days: { type: integer, minimum: 0, maximum: 30, description: Absent means 0 (1 for after_work). }
+        notify_time: { type: string, description: Local IST "HH:MM"; absent means 07:00. }
+        review_kind: { type: string, enum: [verifier, none] }
+        evidence:
+          $ref: "#/components/schemas/PenRoutineEvidence"
+        assignee_user_ids:
+          type: array
+          items: { type: string, format: uuid }
+        row_version: { type: integer, description: Update only -- the version the drawer loaded with; 0 skips the fence. }
+    PenRoutineStatusWrite:
+      type: object
+      required: [status]
+      properties:
+        status: { type: string, enum: [active, paused, retired] }
+        row_version: { type: integer }
+    PenRoutineTaskRow:
+      allOf:
+        - $ref: "#/components/schemas/PenRoutineStep"
+        - type: object
+          required: [assignee_names]
+          properties:
+            assignee_names:
+              type: array
+              items: { type: string }
+    PenRoutineTaskSummary:
+      type: object
+      required: [due, delayed, in_review, sent_back, done]
+      properties:
+        due: { type: integer }
+        delayed: { type: integer }
+        in_review: { type: integer }
+        sent_back: { type: integer }
+        done: { type: integer }
+    PenRoutineTaskListResponse:
+      type: object
+      required: [rows, summary, trace_id]
+      properties:
+        rows:
+          type: array
+          items:
+            $ref: "#/components/schemas/PenRoutineTaskRow"
+        next_cursor: { type: string, nullable: true }
+        summary:
+          $ref: "#/components/schemas/PenRoutineTaskSummary"
+        trace_id: { type: string }
