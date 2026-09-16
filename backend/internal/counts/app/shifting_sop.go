@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -105,7 +106,7 @@ func (s *ShiftingExecutionService) judgeShiftingCard(
 ) (shiftingJudgement, error) {
 	slots, questions := card.Proofs, card.Questions
 	if legacyShape {
-		slots, questions = optionalCopy(card.Proofs), optionalQuestions(card.Questions)
+		slots, questions = append(optionalCopy(card.Proofs), olderAppSlots(refs)...), optionalQuestions(card.Questions)
 	}
 	ordered, err := authored.ValidateProofRefs(slots, refs)
 	if err != nil {
@@ -155,6 +156,23 @@ func optionalCopy(slots []authored.ProofSlot) []authored.ProofSlot {
 	for i, p := range slots {
 		p.Required = false
 		out[i] = p
+	}
+	return out
+}
+
+// olderAppSlots is a pseudo slot for every reserved older-app key in refs (sorted), so an older
+// app's capture that fit no authored slot is accepted, ordered and labelled.
+func olderAppSlots(refs authored.ProofRefs) []authored.ProofSlot {
+	var keys []string
+	for k, v := range refs {
+		if authored.IsOlderAppKey(k) && strings.TrimSpace(v) != "" {
+			keys = append(keys, k)
+		}
+	}
+	sort.Strings(keys)
+	out := make([]authored.ProofSlot, 0, len(keys))
+	for _, k := range keys {
+		out = append(out, authored.OlderAppSlot(k))
 	}
 	return out
 }
@@ -217,7 +235,8 @@ func slotKindMessage(slot authored.ProofSlot) string {
 // legacyCompletionRefs maps an older app's fixed fields onto the pinned card. The seeded keys are
 // tried first (domain.LegacyShiftingProofRefs); a seeded key the farm authored AWAY is re-targeted
 // onto the first free video-accepting slot of the same section, so an older phone's clip still lands
-// on the card rather than being refused as "not part of this card".
+// on the card rather than being refused as "not part of this card". A clip with no such slot is kept
+// under the reserved older-app key (authored.OlderAppKey) -- never dropped (program decision 7).
 //
 // ONLY a ref that came from a LEGACY FIELD is re-targeted. An explicit {slot: ref} map is the new
 // app naming the slot it recorded for; re-filing it under another slot would store a capture as
@@ -246,6 +265,12 @@ func legacyCompletionRefs(rules domain.ShiftingRules, priority string, legacy ma
 			}
 			refs[p.Key] = ref
 			return
+		}
+		for n := 1; ; n++ {
+			if _, taken := refs[authored.OlderAppKey(authored.KindVideo, n)]; !taken {
+				refs[authored.OlderAppKey(authored.KindVideo, n)] = ref
+				return
+			}
 		}
 	}
 	retarget(domain.SlotShiftingVideo, rules.Completion.Proofs)
@@ -349,7 +374,7 @@ func completionMedia(card domain.ShiftingCardRules, stored authored.ProofRefs, j
 	}
 	refs := make([]string, 0, len(stored))
 	meta := make([]ports.ProofMeta, 0, len(stored))
-	for _, p := range card.Proofs {
+	for _, p := range append(append([]authored.ProofSlot(nil), card.Proofs...), olderAppSlots(stored)...) {
 		ref := strings.TrimSpace(stored[p.Key])
 		if ref == "" {
 			continue
