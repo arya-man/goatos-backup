@@ -324,6 +324,12 @@ func (r *Repository) syncFastingTaskOnUpdateTx(ctx context.Context, tx pgx.Tx, c
 	return r.createFastingTaskTx(ctx, tx, cmd, campaignID)
 }
 
+// Lock the parent before deleting so concurrent pen submissions remain visible.
+const fastingLockForRemovalChangeSQL = `SELECT fasting_task_id::text
+FROM weighing_fasting_tasks
+WHERE tenant_id = $1::uuid AND campaign_id = $2::uuid
+FOR UPDATE`
+
 // deleteUnsubmittedFastingTaskTx drops the campaign's round when the edit switched the
 // removal precondition off. A round that exists but cannot be deleted (a pen was submitted)
 // refuses the edit with ErrRemovalChangeLocked; a campaign with no round is a no-op.
@@ -333,10 +339,7 @@ func (r *Repository) deleteUnsubmittedFastingTaskTx(ctx context.Context, tx pgx.
 	// waiting inside DELETE would retain a snapshot that cannot see that child,
 	// and its ON DELETE CASCADE could erase the just-committed submission.
 	var taskID string
-	err := tx.QueryRow(ctx, `SELECT fasting_task_id::text
-FROM weighing_fasting_tasks
-WHERE tenant_id = $1::uuid AND campaign_id = $2::uuid
-FOR UPDATE`, tenantID, campaignID).Scan(&taskID)
+	err := tx.QueryRow(ctx, fastingLockForRemovalChangeSQL, tenantID, campaignID).Scan(&taskID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil
 	}
