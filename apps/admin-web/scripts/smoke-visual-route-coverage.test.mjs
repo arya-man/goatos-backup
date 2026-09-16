@@ -26,6 +26,8 @@ test("visual smoke visits every live sidebar navigation leaf", () => {
     ["protocol-adherence-overdue", "/protocol-adherence?scope_mode=company&state=overdue"],
     ["work-board", "/work-board?scope_mode=company"],
     ["work-board-populated", "/work-board?scope_mode=company&date=2026-08-10"],
+    ["alerts", "/alerts?scope_mode=company"],
+    ["alerts-populated", "/alerts?scope_mode=company&date=2026-09-10&park=00000000-0000-4000-8000-000000003001"],
     ["workflows", "/workflows?scope_mode=company"],
     ["procurement-source-entry", "/procurement/source-entry?scope_mode=company"],
     ["procurement-source-entry-health-pending", "/procurement/source-entry?scope_mode=company&status=health_pending"],

@@ -3,6 +3,7 @@
 // The Configure drawer's one write: switch a rule on or off and set its threshold. Runs as a
 // Server Action (authenticated through the server config, never a client fetch) and returns the
 // backend's answer to the drawer, which re-renders the row from what the server read back.
+import { createHash } from "node:crypto";
 import {
   createAlertEventRule,
   deleteAlertEventRule,
@@ -15,7 +16,17 @@ import {
 
 export type SaveAlertRuleResult = { ok: true; rule: AlertRuleConfig } | { ok: false; code: string };
 
-export async function saveAlertRuleAction(input: { ruleKey: string; enabled: boolean; threshold: string; editedFrom: string }): Promise<SaveAlertRuleResult> {
+// One key per SAVE ATTEMPT: the drawer mints a fresh nonce on every click and a retried Server
+// Action carries the same one, so a network retry is ONE write while two deliberate saves are
+// two -- even 8 -> 9 -> 8 inside one minute. Keying on the row's last-changed label was wrong
+// twice over: the label is minute-grained, so a second change in the same minute replayed the
+// first and said "Rule saved." over a value the server never took. The key is HASHED so the
+// header stays ASCII whatever the values hold (a Telugu alert name, an arrow, a comma).
+function idempotencyKey(...parts: string[]): string {
+  return createHash("sha256").update(parts.join("\u001f")).digest("hex");
+}
+
+export async function saveAlertRuleAction(input: { ruleKey: string; enabled: boolean; threshold: string; attempt: string }): Promise<SaveAlertRuleResult> {
   const ruleKey = input.ruleKey.trim();
   const raw = input.threshold.trim();
   // A blank field is not a zero. The backend owns the range refusal; this only refuses a value
@@ -23,13 +34,8 @@ export async function saveAlertRuleAction(input: { ruleKey: string; enabled: boo
   if (!ruleKey) return { ok: false, code: "config_invalid" };
   if (raw === "" || !/^\d+$/.test(raw)) return { ok: false, code: "config_invalid" };
   const threshold = Number(raw);
-  // Derived, never random -- a double-click or a retried action is ONE write -- but keyed on the
-  // ROW VERSION the drawer was edited from (its last-changed label, or "default" while no row
-  // exists), not on the value alone. Keyed on the value, setting 8 after an earlier 9 -> 8 -> 9
-  // would replay the old "8" write, save nothing, and still say "Rule saved" while the server
-  // handed back 9. Every successful save moves the version, so the next edit is a new key.
-  const idempotencyKey = `alert-rule:${ruleKey}:from:${input.editedFrom || "default"}:${input.enabled ? "on" : "off"}:${threshold}`;
-  const result = await setAlertRuleConfig(ruleKey, { enabled: input.enabled, threshold }, idempotencyKey);
+  if (!input.attempt.trim()) return { ok: false, code: "config_failed" };
+  const result = await setAlertRuleConfig(ruleKey, { enabled: input.enabled, threshold }, idempotencyKey("alert-rule", ruleKey, input.attempt, String(input.enabled), String(threshold)));
   if (!result.ok) {
     switch (result.error.code) {
       case "threshold_out_of_range":
@@ -67,15 +73,15 @@ function eventRuleErrorCode(code: string | undefined): string {
   }
 }
 
-// Compose or change one event alert. The key is derived from the row edited from (its
-// last-changed label, or the create nonce the drawer minted when the form opened) plus the
-// values, so a double-click is one write and a genuine second change is a new key.
-export async function saveAlertEventRuleAction(input: { id?: string; label: string; kind: string; severity: string; enabled: boolean; editedFrom: string }): Promise<SaveEventRuleResult> {
+// Compose or change one event alert. Same per-attempt nonce as above; the label rides inside the
+// hash, never in the header, so a non-ASCII name saves.
+export async function saveAlertEventRuleAction(input: { id?: string; label: string; kind: string; severity: string; enabled: boolean; attempt: string }): Promise<SaveEventRuleResult> {
   const label = input.label.trim();
   if (!label) return { ok: false, code: "config_invalid_event" };
+  if (!input.attempt.trim()) return { ok: false, code: "config_failed" };
   const body = { label, kind: input.kind.trim(), severity: input.severity as AlertEventRuleRequest["severity"], enabled: input.enabled };
-  const idempotencyKey = `alert-event:${input.id ?? "new"}:from:${input.editedFrom || "default"}:${body.kind}:${body.severity}:${body.enabled ? "on" : "off"}:${label}`;
-  const result = input.id ? await updateAlertEventRule(input.id, body, idempotencyKey) : await createAlertEventRule(body, idempotencyKey);
+  const key = idempotencyKey("alert-event", input.id ?? "new", input.attempt, body.kind, body.severity, String(body.enabled), label);
+  const result = input.id ? await updateAlertEventRule(input.id, body, key) : await createAlertEventRule(body, key);
   if (!result.ok) return { ok: false, code: eventRuleErrorCode(result.error.code) };
   return { ok: true, rule: result.data };
 }

@@ -22,7 +22,10 @@ const (
 	RulePenFeedQuantityChange RuleKey = "pen_feed_quantity_change"
 	// RuleFeedLowStock fires for every (farm, feed) whose stock lasts fewer than the
 	// configured days at its recent daily draw. Threshold: days. The default is the Stock
-	// tab's red card (feeddirection/domain.LowStockDays = 5).
+	// tab's red card (feeddirection/domain.LowStockDays = 5). It reads the LIVE balance and
+	// therefore runs for TODAY's business date only: a past day has no as-of read, and
+	// labelling today's balance with yesterday's date would let a later purchase rewrite
+	// what yesterday's page said (review finding 2026-09-16).
 	RuleFeedLowStock RuleKey = "feed_low_stock"
 )
 
@@ -48,6 +51,8 @@ type Rule struct {
 	MinThreshold     int    `json:"min_threshold"`
 	MaxThreshold     int    `json:"max_threshold"`
 	DefaultEnabled   bool   `json:"default_enabled"`
+	// TodayOnly marks a rule that reads a live figure and so cannot answer for a past day.
+	TodayOnly bool `json:"today_only"`
 }
 
 // Rules is the catalog, in the order the Configure drawer lists them. Adding a rule here
@@ -68,13 +73,14 @@ func Rules() []Rule {
 		{
 			Key:              RuleFeedLowStock,
 			Label:            "Feed stock running out",
-			Description:      "A feed's store lasts fewer than the set number of days at its recent daily draw.",
+			Description:      "A feed's store lasts fewer than the set number of days at its recent daily draw. Checked for today only; past days are not re-read.",
 			ThresholdLabel:   "Alert when fewer than",
 			ThresholdUnit:    "days left",
 			DefaultThreshold: 5,
 			MinThreshold:     1,
 			MaxThreshold:     90,
 			DefaultEnabled:   true,
+			TodayOnly:        true,
 		},
 	}
 }
