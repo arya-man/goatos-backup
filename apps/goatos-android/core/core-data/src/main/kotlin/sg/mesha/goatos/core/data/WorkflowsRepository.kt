@@ -484,10 +484,18 @@ internal fun WorkflowCardDto.withActiveCachedProgressPreserved(
 }
 
 /** Pure optimistic projection used while a durable action outbox group drains. Both `completed`
- * and `in_review` are finished from the operator's perspective; only a later `rework` reopens it. */
+ * and `in_review` are finished from the operator's perspective; only a later `rework` reopens it.
+ *
+ * Sequencing follows the backend's rule per template (tasks/domain.StepRecorded): on a birth
+ * track every clip is reviewed on its own, so a step sent back for a re-shoot never holds the
+ * step after it -- the operator redoes that one clip and carries on. A death pair re-shoots in
+ * order. */
 internal fun WorkflowDetailResponseDto.withOptimisticOperatorSequence(): WorkflowDetailResponseDto {
     fun operatorFinished(action: sg.mesha.goatos.core.network.dto.WorkflowActionDto): Boolean =
         action.status == "completed" || action.status == "in_review"
+    val reviewedPerStep = module == "birth" || templateKey.startsWith("birth_")
+    fun predecessorRecorded(action: sg.mesha.goatos.core.network.dto.WorkflowActionDto): Boolean =
+        operatorFinished(action) || (reviewedPerStep && action.status == "rework")
 
     val sequencedActions = actions.map { action ->
         if (action.actionType == "approval") {
@@ -497,7 +505,7 @@ internal fun WorkflowDetailResponseDto.withOptimisticOperatorSequence(): Workflo
                 previous.actionType != "approval" &&
                     previous.section == action.section &&
                     previous.seq < action.seq &&
-                    !operatorFinished(previous)
+                    !predecessorRecorded(previous)
             }
             val backendHardBlock = action.blocked &&
                 action.blockedReason.isNotBlank() &&

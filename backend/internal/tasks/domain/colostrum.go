@@ -91,12 +91,12 @@ func ColostrumDayCard(actions []WorkflowAction, start, end, now time.Time) Colos
 			continue
 		}
 		summary.Total++
-		if a.Status == ActionStatusCompleted {
+		if a.Status == ActionStatusCompleted || a.Status == ActionStatusInReview {
+			// A recorded feed awaiting its own verdict is the operator's work done (birth clips are
+			// reviewed per step); only pending/rework rows are the operator's next tap.
 			summary.Done++
 			continue
 		}
-		// in_review counts as outstanding operator work here for the same reason rework does: the
-		// operator's next tap is still on this row.
 		if next == nil || a.Seq < next.Seq {
 			next = &actions[i]
 		}

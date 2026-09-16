@@ -61,15 +61,16 @@ type DeathEvidenceReview struct {
 	Round      int
 }
 
-type BirthEvidenceReview struct {
-	WorkflowID  string
-	SubjectRole string
-	OperatorID  string
-	ParkID      string
-	ShedID      string
-	EventDate   string
-	ProofRefs   []string
-	Round       int
+// BirthStepVerdictCommand applies a verifier's verdict to ONE recorded step of a birth workflow
+// (maintainer decision 2026-09-16: birth evidence is reviewed per step). ActionID is the
+// verification item's ref_id; the workflow is resolved from it.
+type BirthStepVerdictCommand struct {
+	TenantID   string
+	ActionID   string
+	Approved   bool
+	VerifiedBy string
+	Reason     string
+	VerdictAt  time.Time
 }
 
 // Repository is the tasks module's storage port. All reads/writes are tenant-scoped; action writes
@@ -111,9 +112,6 @@ type Repository interface {
 	// DeathEvidenceForVerification loads an admin-approved death evidence pair by subject goat.
 	// Returns domain.ErrNotFound when no in-review death workflow exists.
 	DeathEvidenceForVerification(ctx context.Context, tenantID, goatID string) (DeathEvidenceReview, error)
-	// BirthWorkflowEvidenceForVerification opens one review gate for exactly one completed mother
-	// or child workflow. Sibling workflows never participate in its readiness or verdict.
-	BirthWorkflowEvidenceForVerification(ctx context.Context, tenantID, workflowID string) (BirthEvidenceReview, error)
 
 	// CancelDeathWorkflowForGoat closes the staged workflow after an admin rejects the death.
 	// Idempotent and a no-op when no workflow exists.
@@ -135,6 +133,14 @@ type Repository interface {
 	// workflow (reconcile, shifting) back to 'rework' with its proofs cleared, after a verifier
 	// rejects the evidence. Idempotent.
 	ReopenProofStepsForRework(ctx context.Context, tenantID, workflowID, reason string) error
+	// ApplyBirthStepVerdict applies one verdict to one in_review birth step (domain.ApplyStepVerdict)
+	// and recomputes the card in the same transaction. A verdict for a step that is not awaiting
+	// one is a benign redelivery and a no-op; a step that does not exist is domain.ErrNotFound.
+	ApplyBirthStepVerdict(ctx context.Context, cmd BirthStepVerdictCommand) error
+
+	// ApplyBirthSignoffApproved / BounceBirthVideoForRework serve the retired WHOLE-WORKFLOW birth
+	// bundle (ref_type workflow_birth_signoff) so an item enqueued before the per-step cutover still
+	// lands its verdict. Nothing enqueues that shape any more.
 	ApplyBirthSignoffApproved(ctx context.Context, cmd DeathVerdictCommand) error
 	BounceBirthVideoForRework(ctx context.Context, cmd DeathVerdictCommand) error
 

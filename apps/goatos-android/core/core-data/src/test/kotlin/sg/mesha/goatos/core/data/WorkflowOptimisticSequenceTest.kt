@@ -161,6 +161,36 @@ class WorkflowOptimisticSequenceTest {
         assertEquals(3, card.actionsTotal)
     }
 
+    @Test
+    fun `birth step sent back for rework never holds the step after it`() {
+        // Birth clips are reviewed one recorded step at a time (2026-09-16): a rejected clip is
+        // re-shot on its own while the operator carries on with the next step. The backend says
+        // so (blocked = false); the phone's optimistic pass must agree instead of re-blocking it.
+        val detail = WorkflowDetailResponseDto(
+            module = "birth",
+            templateKey = "birth_kid",
+            actionsDone = 1,
+            actionsTotal = 3,
+            actions = listOf(
+                WorkflowActionDto(actionId = "clean", actionKey = "kid_clean", seq = 1, actionType = "question", status = "rework", blocked = false),
+                WorkflowActionDto(actionId = "iodine", actionKey = "iodine_dipping", seq = 2, actionType = "action", status = "in_review", blocked = false),
+                WorkflowActionDto(actionId = "teeth", actionKey = "front_teeth_check", seq = 3, actionType = "question", status = "pending", blocked = false),
+            ),
+        )
+
+        val optimistic = detail.withOptimisticOperatorSequence()
+
+        assertFalse(optimistic.actions.single { it.actionId == "teeth" }.blocked)
+        assertEquals(1, optimistic.actionsDone)
+    }
+
+    @Test
+    fun `death video sent back for rework still holds the post mortem`() {
+        val optimistic = deathDetail(firstStatus = "rework", secondBlocked = true).withOptimisticOperatorSequence()
+
+        assertTrue(optimistic.actions.single { it.actionKey == "post_mortem_video" }.blocked)
+    }
+
     private fun deathDetail(firstStatus: String, secondBlocked: Boolean) =
         WorkflowDetailResponseDto(
             module = "death",

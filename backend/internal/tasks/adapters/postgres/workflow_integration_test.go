@@ -723,7 +723,12 @@ func TestCompleteTagActionForGoatPg(t *testing.T) {
 	}
 }
 
-func TestBirthReviewIsIndependentPerMotherAndChildWorkflow(t *testing.T) {
+// TestBirthEvidenceIsReviewedPerRecordedStepPg proves, on a real DB round trip, the per-step
+// birth review (maintainer decision 2026-09-16): a recorded clip is held in_review on its own the
+// moment it is written, the next step is not held by it, a rejection sends back exactly that step
+// with the verifier's words, a re-shoot re-enters review under a new row_version, and the track
+// completes only once every clip is approved -- while the kid track stays untouched throughout.
+func TestBirthEvidenceIsReviewedPerRecordedStepPg(t *testing.T) {
 	repo, pool, ctx := newWorkflowRepo(t)
 	if _, err := pool.Exec(ctx, `INSERT INTO goat_births
 	 (tenant_id,child_goat_id,mother_goat_id,birth_event_id,child_ordinal,litter_size,count_status)
@@ -737,74 +742,144 @@ func TestBirthReviewIsIndependentPerMotherAndChildWorkflow(t *testing.T) {
 		t.Fatalf("open mother: created=%v err=%v", created, err)
 	}
 	motherID := findWorkflowID(t, repo, ctx, domain.TemplateKeyBirthMother, wfDam)
-	completeAll := func(id string) {
+	record := func(id, key, idem string) domain.ActionWriteResult {
+		t.Helper()
 		detail, err := repo.GetWorkflow(ctx, wfTenant, id, wfEventAt)
 		if err != nil {
 			t.Fatal(err)
 		}
 		for _, action := range detail.Actions {
-			key := "all-video-" + action.ActionID
+			if action.ActionKey != key {
+				continue
+			}
 			completedAt := wfEventAt
 			if action.ActionKey == domain.ActionKeyORSWater2 {
 				completedAt = wfEventAt.Add(50 * time.Minute)
 			}
+			var result domain.ActionWriteResult
 			if action.ActionType == domain.ActionTypeQuestion || action.ActionType == domain.ActionTypeQuestionSelect {
 				answer := "yes"
 				if action.ActionType == domain.ActionTypeQuestionSelect {
 					answer = action.Options[0]
 				}
-				_, err = repo.AnswerAction(ctx, domain.AnswerActionCommand{TenantID: wfTenant, WorkflowID: id, ActionID: action.ActionID,
-					AnswerValue: answer, ProofRef: "proof-" + action.ActionID, AnsweredBy: wfCustodian, AnsweredAt: completedAt, IdempotencyKey: key, RequestFingerprint: key})
+				result, err = repo.AnswerAction(ctx, domain.AnswerActionCommand{TenantID: wfTenant, WorkflowID: id, ActionID: action.ActionID,
+					AnswerValue: answer, ProofRef: "proof-" + idem, AnsweredBy: wfCustodian, AnsweredAt: completedAt, IdempotencyKey: idem, RequestFingerprint: idem})
 			} else {
-				_, err = repo.CompleteAction(ctx, domain.CompleteActionCommand{TenantID: wfTenant, WorkflowID: id, ActionID: action.ActionID,
-					ProofRef: "proof-" + action.ActionID, CompletedBy: wfCustodian, CompletedAt: completedAt, IdempotencyKey: key, RequestFingerprint: key})
+				result, err = repo.CompleteAction(ctx, domain.CompleteActionCommand{TenantID: wfTenant, WorkflowID: id, ActionID: action.ActionID,
+					ProofRef: "proof-" + idem, CompletedBy: wfCustodian, CompletedAt: completedAt, IdempotencyKey: idem, RequestFingerprint: idem})
 			}
 			if err != nil {
-				t.Fatalf("complete %s: %v", action.ActionKey, err)
+				t.Fatalf("record %s: %v", key, err)
+			}
+			return result
+		}
+		t.Fatalf("action %s not found", key)
+		return domain.ActionWriteResult{}
+	}
+	stepByKey := func(id, key string) domain.WorkflowAction {
+		t.Helper()
+		detail, err := repo.GetWorkflow(ctx, wfTenant, id, wfEventAt)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, a := range detail.Actions {
+			if a.ActionKey == key {
+				return a
 			}
 		}
-	}
-	completeAll(motherID)
-	motherDetail, err := repo.GetWorkflow(ctx, wfTenant, motherID, wfEventAt)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, action := range motherDetail.Actions {
-		if action.ActionKey == domain.ActionKeyORSWater2 {
-			want := wfEventAt.Add(50 * time.Minute)
-			if action.DueAt == nil || !action.DueAt.Equal(want) {
-				t.Fatalf("ORS round 2 due=%v, want %v", action.DueAt, want)
-			}
-		}
-	}
-	review, err := repo.BirthWorkflowEvidenceForVerification(ctx, wfTenant, motherID)
-	if err != nil {
-		t.Fatalf("mother review must not wait for kids: %v", err)
-	}
-	if review.WorkflowID != motherID || review.SubjectRole != domain.TemplateKeyBirthMother || len(review.ProofRefs) != 6 {
-		t.Fatalf("mother review=%+v, want mother workflow and 6 proofs", review)
-	}
-	motherDetail, _ = repo.GetWorkflow(ctx, wfTenant, motherID, wfEventAt)
-	kidDetail, _ := repo.GetWorkflow(ctx, wfTenant, kidID, wfEventAt)
-	if !motherDetail.Card.AwaitingVerification || kidDetail.Card.AwaitingVerification {
-		t.Fatalf("review gates mother=%v kid=%v, want true/false", motherDetail.Card.AwaitingVerification, kidDetail.Card.AwaitingVerification)
+		t.Fatalf("action %s not found", key)
+		return domain.WorkflowAction{}
 	}
 
-	completeAll(kidID)
-	kidReview, err := repo.BirthWorkflowEvidenceForVerification(ctx, wfTenant, kidID)
-	if err != nil {
-		t.Fatalf("kid review: %v", err)
+	// 1. One recorded clip is held for its own review, immediately.
+	first := record(motherID, domain.ActionKeyBabiesStillInside, "m1")
+	if !first.NeedsStepReviewEnqueue || first.Action.Status != domain.ActionStatusInReview {
+		t.Fatalf("first clip: enqueue=%v status=%q, want true/in_review", first.NeedsStepReviewEnqueue, first.Action.Status)
 	}
-	if kidReview.WorkflowID != kidID || kidReview.SubjectRole != domain.TemplateKeyBirthKid || len(kidReview.ProofRefs) != 13 {
-		t.Fatalf("kid review=%+v, want kid workflow and 13 proofs", kidReview)
+	if got := stepByKey(motherID, domain.ActionKeyBabiesStillInside); got.Status != domain.ActionStatusInReview || got.ProofRef == nil {
+		t.Fatalf("stored first clip = %+v, want in_review with its proof", got)
 	}
-	if err := repo.ApplyBirthSignoffApproved(ctx, ports.DeathVerdictCommand{TenantID: wfTenant, WorkflowID: review.WorkflowID}); err != nil {
-		t.Fatal(err)
+	if first.Workflow.AwaitingVerification || first.Workflow.ActionsDone != 1 || first.Workflow.NextActionKey == nil ||
+		*first.Workflow.NextActionKey != domain.ActionKeyMotherLicking {
+		t.Fatalf("card after first clip = %+v, want open work: done 1, next licking, not awaiting", first.Workflow)
 	}
-	motherDetail, _ = repo.GetWorkflow(ctx, wfTenant, motherID, wfEventAt)
-	kidDetail, _ = repo.GetWorkflow(ctx, wfTenant, kidID, wfEventAt)
-	if motherDetail.Card.AwaitingVerification || !kidDetail.Card.AwaitingVerification {
-		t.Fatalf("approval gates mother=%v kid=%v, want false/true", motherDetail.Card.AwaitingVerification, kidDetail.Card.AwaitingVerification)
+	// Exact replay: no second mutation, the enqueue is re-reported from state.
+	replay := record(motherID, domain.ActionKeyBabiesStillInside, "m1")
+	if !replay.Replayed || !replay.NeedsStepReviewEnqueue {
+		t.Fatalf("replay = replayed %v enqueue %v, want true/true", replay.Replayed, replay.NeedsStepReviewEnqueue)
+	}
+
+	// 2. The next step is not held by a clip under review.
+	second := record(motherID, domain.ActionKeyMotherLicking, "m2")
+	if second.Action.Status != domain.ActionStatusInReview {
+		t.Fatalf("second clip status = %q", second.Action.Status)
+	}
+
+	// 3. Rejecting clip 1 sends back exactly clip 1, with the verifier's words.
+	if err := repo.ApplyBirthStepVerdict(ctx, ports.BirthStepVerdictCommand{TenantID: wfTenant, ActionID: first.Action.ActionID,
+		Approved: false, Reason: "Face not visible", VerdictAt: wfEventAt}); err != nil {
+		t.Fatalf("reject: %v", err)
+	}
+	bounced := stepByKey(motherID, domain.ActionKeyBabiesStillInside)
+	if bounced.Status != domain.ActionStatusRework || bounced.ProofRef != nil || len(bounced.ProofRefs) != 0 ||
+		bounced.ReworkReason == nil || *bounced.ReworkReason != "Face not visible" {
+		t.Fatalf("rejected clip = %+v, want rework, proofs cleared, reason kept", bounced)
+	}
+	if got := stepByKey(motherID, domain.ActionKeyMotherLicking); got.Status != domain.ActionStatusInReview {
+		t.Fatalf("sibling clip = %q, want untouched in_review", got.Status)
+	}
+	detail, _ := repo.GetWorkflow(ctx, wfTenant, motherID, wfEventAt)
+	if detail.Card.AwaitingVerification || detail.Card.State != domain.WorkflowStateOpen || detail.Card.ActionsDone != 1 ||
+		detail.Card.NextAction == nil || detail.Card.NextAction.Key != domain.ActionKeyBabiesStillInside {
+		t.Fatalf("card after rejection = %+v, want open, done 1, next = the rejected step", detail.Card)
+	}
+	// Redelivered verdict on a step no longer in review: no-op, no error.
+	if err := repo.ApplyBirthStepVerdict(ctx, ports.BirthStepVerdictCommand{TenantID: wfTenant, ActionID: first.Action.ActionID, Approved: false, Reason: "again"}); err != nil {
+		t.Fatalf("redelivered reject: %v", err)
+	}
+	if got := stepByKey(motherID, domain.ActionKeyBabiesStillInside); *got.ReworkReason != "Face not visible" {
+		t.Fatal("redelivery must not rewrite the step")
+	}
+	// Step 3 records while step 1 is still being re-shot (later steps are never held back).
+	if got := record(motherID, domain.ActionKeyMothersMedicine, "m3"); got.Action.Status != domain.ActionStatusInReview {
+		t.Fatalf("step 3 with step 1 in rework = %q, want in_review", got.Action.Status)
+	}
+
+	// 4. Re-shoot re-enters review under a fresh row_version (a fresh verification key).
+	reshoot := record(motherID, domain.ActionKeyBabiesStillInside, "m1-reshoot")
+	if reshoot.Action.Status != domain.ActionStatusInReview || reshoot.Action.RowVersion <= bounced.RowVersion || reshoot.Action.ReworkReason != nil {
+		t.Fatalf("re-shot clip = %+v, want in_review, row_version advanced, reason cleared", reshoot.Action)
+	}
+	if domain.BirthStepReviewKey(reshoot.Action) == domain.BirthStepReviewKey(first.Action) {
+		t.Fatal("re-shoot must open a fresh verification item")
+	}
+
+	// 5. Record the rest; the card now awaits verification (nothing left to record); kid untouched.
+	record(motherID, domain.ActionKeyORSWater1, "m4")
+	record(motherID, domain.ActionKeyMotherEating, "m5")
+	record(motherID, domain.ActionKeyORSWater2, "m6")
+	detail, _ = repo.GetWorkflow(ctx, wfTenant, motherID, wfEventAt)
+	if !detail.Card.AwaitingVerification || detail.Card.State != domain.WorkflowStateOpen || detail.Card.NextAction != nil {
+		t.Fatalf("all recorded = %+v, want awaiting, open, no next", detail.Card)
+	}
+	kidDetail, _ := repo.GetWorkflow(ctx, wfTenant, kidID, wfEventAt)
+	if kidDetail.Card.AwaitingVerification || kidDetail.Card.ActionsDone != 0 {
+		t.Fatalf("kid track = %+v, must be untouched by the mother's review", kidDetail.Card)
+	}
+
+	// 6. Every clip approved -> the track completes.
+	for _, a := range detail.Actions {
+		if err := repo.ApplyBirthStepVerdict(ctx, ports.BirthStepVerdictCommand{TenantID: wfTenant, ActionID: a.ActionID, Approved: true}); err != nil {
+			t.Fatalf("approve %s: %v", a.ActionKey, err)
+		}
+	}
+	detail, _ = repo.GetWorkflow(ctx, wfTenant, motherID, wfEventAt)
+	if detail.Card.AwaitingVerification || detail.Card.State != domain.WorkflowStateCompleted {
+		t.Fatalf("all approved = %+v, want completed and not awaiting", detail.Card)
+	}
+	// A verdict for a step that does not exist is ErrNotFound (the service acks it).
+	if err := repo.ApplyBirthStepVerdict(ctx, ports.BirthStepVerdictCommand{TenantID: wfTenant, ActionID: wfDam, Approved: true}); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("unknown action verdict err = %v, want ErrNotFound", err)
 	}
 }
 

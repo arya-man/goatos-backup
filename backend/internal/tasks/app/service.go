@@ -41,18 +41,24 @@ type DeathVerificationEnqueueRequest struct {
 	IdempotencyKey string
 }
 
-type BirthVerificationEnqueueRequest struct {
-	TenantID, WorkflowID, OperatorID, ParkID, ShedID, SubjectLabel string
-	ProofRefs                                                      []string
-	CapturedAt                                                     time.Time
-	IdempotencyKey                                                 string
+// BirthStepVerificationEnqueueRequest is ONE recorded birth step handed to the verification queue
+// (maintainer decision 2026-09-16: birth evidence is reviewed per step, the moment it is recorded,
+// and a rejection sends back exactly that step). ref (module=counts,
+// ref_type=workflow_birth_action, ref_id=action_id); ProofRefs are that step's own proofs only.
+type BirthStepVerificationEnqueueRequest struct {
+	TenantID, WorkflowID, ActionID, OperatorID, ParkID, ShedID, SubjectLabel string
+	ProofRefs                                                                []string
+	CapturedAt                                                               time.Time
+	// IdempotencyKey is domain.BirthStepReviewKey: action + row_version + proofs, so a retry
+	// de-duplicates while a re-shoot after a rejection always opens a fresh item.
+	IdempotencyKey string
 }
 
 // DeathVerificationEnqueuer is the composition-layer seam to the verification module (the bridge in
 // adapters/verificationbridge adapts verification's CreateItem; tasks never writes its tables).
 type DeathVerificationEnqueuer interface {
 	EnqueueDeathEvidenceVerification(ctx context.Context, in DeathVerificationEnqueueRequest) error
-	EnqueueBirthEvidenceVerification(ctx context.Context, in BirthVerificationEnqueueRequest) error
+	EnqueueBirthStepVerification(ctx context.Context, in BirthStepVerificationEnqueueRequest) error
 }
 
 // Service is the tasks app service.
@@ -176,7 +182,7 @@ func (s *Service) AnswerAction(ctx context.Context, in AnswerActionInput) (domai
 	if err != nil {
 		return domain.ActionWriteResult{}, err
 	}
-	if err := s.enqueueBirthWorkflowIfReady(ctx, in.TenantID, in.WorkflowID); err != nil {
+	if err := s.enqueueBirthStepIfRecorded(ctx, in.TenantID, result); err != nil {
 		return domain.ActionWriteResult{}, err
 	}
 	if err := s.notifyCompletion(ctx, in.TenantID, result); err != nil {
@@ -202,14 +208,6 @@ type CompleteActionInput struct {
 // retry of the same completion de-duplicates. See DeathVerificationEnqueueRequest.IdempotencyKey.
 func deathEvidenceIdempotencyKey(workflowID string, round int, proofRefs []string) string {
 	key := "counts-death-evidence:" + workflowID + ":r" + strconv.Itoa(round)
-	for _, ref := range proofRefs {
-		key += ":" + strings.TrimSpace(ref)
-	}
-	return key
-}
-
-func birthEvidenceIdempotencyKey(workflowID string, round int, proofRefs []string) string {
-	key := "counts-birth-evidence:" + workflowID + ":r" + strconv.Itoa(round)
 	for _, ref := range proofRefs {
 		key += ":" + strings.TrimSpace(ref)
 	}
@@ -242,7 +240,7 @@ func (s *Service) CompleteAction(ctx context.Context, in CompleteActionInput) (d
 	if err != nil {
 		return domain.ActionWriteResult{}, err
 	}
-	if err := s.enqueueBirthWorkflowIfReady(ctx, in.TenantID, in.WorkflowID); err != nil {
+	if err := s.enqueueBirthStepIfRecorded(ctx, in.TenantID, result); err != nil {
 		return domain.ActionWriteResult{}, err
 	}
 	if err := s.notifyCompletion(ctx, in.TenantID, result); err != nil {
@@ -277,31 +275,42 @@ func (s *Service) CompleteAction(ctx context.Context, in CompleteActionInput) (d
 	return result, nil
 }
 
-func (s *Service) enqueueBirthWorkflowIfReady(ctx context.Context, tenantID, workflowID string) error {
-	review, err := s.repo.BirthWorkflowEvidenceForVerification(ctx, tenantID, workflowID)
-	if errors.Is(err, domain.ErrNotFound) {
+// enqueueBirthStepIfRecorded hands ONE just-recorded birth step to the verifier. The step's
+// durable write committed first (it is now in_review); the enqueue is derived from that STATE, so
+// an exact replay after a failed enqueue re-reports it and CreateItem's idempotency on the
+// per-recording key makes the retry heal rather than duplicate. Nothing waits for the rest of the
+// track: the verifier sees the clip the moment the operator records it.
+func (s *Service) enqueueBirthStepIfRecorded(ctx context.Context, tenantID string, result domain.ActionWriteResult) error {
+	if !result.NeedsStepReviewEnqueue {
 		return nil
-	}
-	if err != nil {
-		return err
 	}
 	if s.enqueuer == nil {
 		return domain.ErrVerificationEnqueuerNotWired
 	}
-	subject := "Child"
-	if review.SubjectRole == domain.TemplateKeyBirthMother {
+	w, step := result.Workflow, result.Action
+	subject := "Kid"
+	if w.TemplateKey == domain.TemplateKeyBirthMother {
 		subject = "Mother"
 	}
-
-	// Fetch shed details for operational location composition
-	shedName, partitionLabel, _ := s.repo.FetchShedDetails(ctx, tenantID, review.ShedID)
-
-	return s.enqueuer.EnqueueBirthEvidenceVerification(ctx, BirthVerificationEnqueueRequest{
-		TenantID: tenantID, WorkflowID: review.WorkflowID, OperatorID: review.OperatorID,
-		ParkID: review.ParkID, ShedID: review.ShedID, ProofRefs: review.ProofRefs,
-		SubjectLabel:   appendLocation(subject+" birth evidence · "+review.EventDate, shedName, partitionLabel),
-		CapturedAt:     s.now().UTC(),
-		IdempotencyKey: birthEvidenceIdempotencyKey(review.WorkflowID, review.Round, review.ProofRefs),
+	// The animal's display id names WHICH kid when a litter has twins recording the same step on
+	// the same day in the same pen; a lookup failure degrades to the role alone rather than
+	// blocking the enqueue.
+	if facts, err := s.repo.GoatWorkflowFacts(ctx, tenantID, w.SubjectGoatID); err == nil && strings.TrimSpace(facts.DisplayID) != "" {
+		subject += " " + strings.TrimSpace(facts.DisplayID)
+	}
+	shedID := derefOr(w.ShedID)
+	shedName, partitionLabel, _ := s.repo.FetchShedDetails(ctx, tenantID, shedID)
+	capturedAt := s.now().UTC()
+	if step.CompletedAt != nil {
+		capturedAt = step.CompletedAt.UTC()
+	}
+	return s.enqueuer.EnqueueBirthStepVerification(ctx, BirthStepVerificationEnqueueRequest{
+		TenantID: tenantID, WorkflowID: w.WorkflowID, ActionID: step.ActionID,
+		OperatorID: derefOr(step.CompletedBy), ParkID: derefOr(w.ParkID), ShedID: shedID,
+		ProofRefs:      step.AllProofRefs(),
+		SubjectLabel:   appendLocation(step.Title+" · "+subject+" · "+w.EventDate, shedName, partitionLabel),
+		CapturedAt:     capturedAt,
+		IdempotencyKey: domain.BirthStepReviewKey(step),
 	})
 }
 
@@ -472,6 +481,19 @@ func (s *Service) BounceDeathVideosForRework(ctx context.Context, cmd ports.Deat
 	return s.ackUnroutableVerdict("rework", cmd, s.repo.BounceDeathVideosForRework(ctx, cmd))
 }
 
+// ApplyBirthStepVerdict lands one verifier verdict on one recorded birth step: approve completes
+// that step, reject sends exactly that step back with the verifier's words. A verdict whose
+// action no longer exists is acked (logged), never retried.
+func (s *Service) ApplyBirthStepVerdict(ctx context.Context, cmd ports.BirthStepVerdictCommand) error {
+	err := s.repo.ApplyBirthStepVerdict(ctx, cmd)
+	if errors.Is(err, domain.ErrNotFound) {
+		s.log.Warn("tasks_birth_step_verdict_unroutable", "approved", cmd.Approved, "tenant_id", cmd.TenantID, "action_id", cmd.ActionID)
+		return nil
+	}
+	return err
+}
+
+// ApplyBirthSignoffApproved / BounceBirthVideoForRework serve the retired whole-workflow bundle.
 func (s *Service) ApplyBirthSignoffApproved(ctx context.Context, cmd ports.DeathVerdictCommand) error {
 	return s.ackUnroutableBirthVerdict("approved", cmd, s.repo.ApplyBirthSignoffApproved(ctx, cmd))
 }

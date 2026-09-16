@@ -270,34 +270,34 @@ func TestOperatorActionBlockedEnforcesSequenceWithinItsSection(t *testing.T) {
 		{ActionID: "tag", ActionKey: ActionKeyTagTheKid, Seq: 15, Section: SectionMain, ActionType: ActionTypeAction, Status: ActionStatusPending},
 	}
 
-	if OperatorActionBlocked(actions[0], actions) {
+	if OperatorActionBlocked(TemplateKeyBirthKid, actions[0], actions) {
 		t.Fatal("first main action must be enabled")
 	}
-	if !OperatorActionBlocked(actions[1], actions) {
+	if !OperatorActionBlocked(TemplateKeyBirthKid, actions[1], actions) {
 		t.Fatal("second main action must be blocked until the first completes")
 	}
-	if !OperatorActionBlocked(actions[3], actions) {
+	if !OperatorActionBlocked(TemplateKeyBirthKid, actions[3], actions) {
 		t.Fatal("first scheduled colostrum must wait for immediate 1st Colostrum")
 	}
 
 	actions[0].Status = ActionStatusCompleted
-	if OperatorActionBlocked(actions[1], actions) {
+	if OperatorActionBlocked(TemplateKeyBirthKid, actions[1], actions) {
 		t.Fatal("second main action must enable after the first completes")
 	}
 	actions[2].Status = ActionStatusCompleted
-	if OperatorActionBlocked(actions[3], actions) {
+	if OperatorActionBlocked(TemplateKeyBirthKid, actions[3], actions) {
 		t.Fatal("first scheduled colostrum must enable after immediate 1st Colostrum")
 	}
-	if !OperatorActionBlocked(actions[4], actions) {
+	if !OperatorActionBlocked(TemplateKeyBirthKid, actions[4], actions) {
 		t.Fatal("tag must wait for unfinished scheduled colostrum")
 	}
 	actions[1].Status = ActionStatusCompleted
 	actions[3].Status = ActionStatusCompleted
-	if OperatorActionBlocked(actions[4], actions) {
+	if OperatorActionBlocked(TemplateKeyBirthKid, actions[4], actions) {
 		t.Fatal("tag must enable after every other kid task completes")
 	}
 	// Exact replays of a completed action must never be rejected as out of sequence.
-	if OperatorActionBlocked(actions[0], actions) {
+	if OperatorActionBlocked(TemplateKeyBirthKid, actions[0], actions) {
 		t.Fatal("a completed action must remain replayable")
 	}
 }

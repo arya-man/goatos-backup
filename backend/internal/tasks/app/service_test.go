@@ -157,11 +157,11 @@ func (f *fakeRepo) AnswerAction(_ context.Context, cmd domain.AnswerActionComman
 				if err != nil {
 					return false, err
 				}
+				if !isReplay {
+					updated = domain.HoldStepForReview(w.TemplateKey, updated)
+				}
 				actions[i] = updated
 				target = updated
-				if !isReplay && w.TemplateKey == domain.TemplateKeyBirthKid && domain.BirthWorkflowComplete(actions) {
-					w.AwaitingVerification = true
-				}
 				return isReplay, nil
 			}
 			return false, domain.ErrNotFound
@@ -169,7 +169,7 @@ func (f *fakeRepo) AnswerAction(_ context.Context, cmd domain.AnswerActionComman
 	if err != nil {
 		return domain.ActionWriteResult{}, err
 	}
-	return fakeWriteResult(w, actions, target, replay), nil
+	return domain.WriteResult(w, actions, target, replay), nil
 }
 
 func (f *fakeRepo) CompleteAction(_ context.Context, cmd domain.CompleteActionCommand) (domain.ActionWriteResult, error) {
@@ -184,15 +184,15 @@ func (f *fakeRepo) CompleteAction(_ context.Context, cmd domain.CompleteActionCo
 				if err != nil {
 					return false, err
 				}
+				if !isReplay {
+					updated = domain.HoldStepForReview(w.TemplateKey, updated)
+				}
 				actions[i] = updated
 				target = updated
 				if isReplay {
 					return true, nil
 				}
 				if f.goats[w.SubjectGoatID].LifecycleStatus == "dead" && w.TemplateKey == domain.TemplateKeyDeath && updated.RequiresVideo && domain.DeathVideosComplete(actions) {
-					w.AwaitingVerification = true
-				}
-				if w.TemplateKey == domain.TemplateKeyBirthKid && domain.BirthWorkflowComplete(actions) {
 					w.AwaitingVerification = true
 				}
 				return false, nil
@@ -202,17 +202,7 @@ func (f *fakeRepo) CompleteAction(_ context.Context, cmd domain.CompleteActionCo
 	if err != nil {
 		return domain.ActionWriteResult{}, err
 	}
-	return fakeWriteResult(w, actions, target, replay), nil
-}
-
-func fakeWriteResult(w domain.WorkflowInstance, actions []domain.WorkflowAction, target domain.WorkflowAction, replay bool) domain.ActionWriteResult {
-	result := domain.ActionWriteResult{Workflow: w, Action: target, Replayed: replay}
-	if w.TemplateKey == domain.TemplateKeyDeath && w.AwaitingVerification && domain.DeathVideosComplete(actions) {
-		result.NeedsVerificationEnqueue = true
-		result.DeathProofRefs = domain.DeathProofRefs(actions)
-		result.DeathReviewRound = w.RowVersion
-	}
-	return result
+	return domain.WriteResult(w, actions, target, replay), nil
 }
 
 func (f *fakeRepo) CompleteTagActionForGoat(_ context.Context, tenantID, goatID string, completedAt time.Time) error {
@@ -265,26 +255,6 @@ func (f *fakeRepo) DeathEvidenceForVerification(_ context.Context, tenantID, goa
 		return review, nil
 	}
 	return ports.DeathEvidenceReview{}, domain.ErrNotFound
-}
-
-func (f *fakeRepo) BirthWorkflowEvidenceForVerification(_ context.Context, tenantID, workflowID string) (ports.BirthEvidenceReview, error) {
-	w, ok := f.workflows[workflowID]
-	if !ok || w.TenantID != tenantID ||
-		(w.TemplateKey != domain.TemplateKeyBirthKid && w.TemplateKey != domain.TemplateKeyBirthMother) ||
-		!domain.BirthWorkflowComplete(f.actions[workflowID]) {
-		return ports.BirthEvidenceReview{}, domain.ErrNotFound
-	}
-	if !w.AwaitingVerification {
-		w.AwaitingVerification = true
-		w.RowVersion++
-		f.workflows[workflowID] = w
-	}
-	return ports.BirthEvidenceReview{
-		WorkflowID: workflowID, SubjectRole: w.TemplateKey, EventDate: w.EventDate, Round: w.RowVersion,
-		ParkID: derefOr(w.ParkID), ShedID: derefOr(w.ShedID),
-		ProofRefs:  domain.BirthProofRefs(f.actions[workflowID]),
-		OperatorID: domain.BirthProofOperator(f.actions[workflowID]),
-	}, nil
 }
 
 func (f *fakeRepo) CancelDeathWorkflowForGoat(_ context.Context, tenantID, goatID string, _ time.Time) error {
@@ -341,19 +311,42 @@ func (f *fakeRepo) ApplyBirthSignoffApproved(_ context.Context, cmd ports.DeathV
 	return f.ApplyDeathSignoffApproved(context.Background(), cmd)
 }
 
+func (f *fakeRepo) ApplyBirthStepVerdict(_ context.Context, cmd ports.BirthStepVerdictCommand) error {
+	for workflowID, actions := range f.actions {
+		for i := range actions {
+			if actions[i].ActionID != cmd.ActionID || actions[i].TenantID != cmd.TenantID {
+				continue
+			}
+			_, _, _, err := f.mutate(cmd.TenantID, workflowID,
+				func(w *domain.WorkflowInstance, actions []domain.WorkflowAction) (bool, error) {
+					if !domain.ReviewedPerStep(w.TemplateKey) {
+						return false, domain.ErrNotFound
+					}
+					updated, changed := domain.ApplyStepVerdict(actions[i], cmd.Approved, cmd.Reason)
+					actions[i] = updated
+					return !changed, nil
+				})
+			return err
+		}
+	}
+	return domain.ErrNotFound
+}
+
 func (f *fakeRepo) BounceBirthVideoForRework(_ context.Context, cmd ports.DeathVerdictCommand) error {
 	_, _, _, err := f.mutate(cmd.TenantID, cmd.WorkflowID,
 		func(w *domain.WorkflowInstance, actions []domain.WorkflowAction) (bool, error) {
 			w.AwaitingVerification = false
+			changed := false
 			for i := range actions {
-				if actions[i].ActionKey == domain.ActionKeyFirstColostrum && actions[i].Status == domain.ActionStatusCompleted {
+				if actions[i].RequiresVideo && (actions[i].Status == domain.ActionStatusCompleted || actions[i].Status == domain.ActionStatusInReview) {
 					actions[i].Status = domain.ActionStatusRework
 					actions[i].ProofRef = nil
+					actions[i].ProofRefs = nil
 					actions[i].CompletedAt = nil
-					return false, nil
+					changed = true
 				}
 			}
-			return true, nil
+			return !changed, nil
 		})
 	return err
 }
@@ -376,12 +369,12 @@ func (f *fakeRepo) ReopenProofStepsForRework(context.Context, string, string, st
 // actually get something to review".
 type fakeEnqueuer struct {
 	calls      []DeathVerificationEnqueueRequest
-	birthCalls []BirthVerificationEnqueueRequest
+	birthCalls []BirthStepVerificationEnqueueRequest
 	items      map[string]int // (tenant|idempotency_key) -> times an item was actually CREATED
 	err        error
 }
 
-func (f *fakeEnqueuer) EnqueueBirthEvidenceVerification(_ context.Context, in BirthVerificationEnqueueRequest) error {
+func (f *fakeEnqueuer) EnqueueBirthStepVerification(_ context.Context, in BirthStepVerificationEnqueueRequest) error {
 	if f.err != nil {
 		return f.err
 	}
@@ -449,7 +442,9 @@ func newServiceWithDeathWorkflow(t *testing.T) (*Service, *fakeRepo, *fakeEnqueu
 func newServiceWithKidWorkflow(t *testing.T) (*Service, *fakeRepo, string) {
 	t.Helper()
 	repo := newFakeRepo()
-	svc := NewService(repo, nil)
+	// Every recorded birth step goes to the verifier, so the seam must be wired even for tests
+	// that only exercise the write contract.
+	svc := NewService(repo, nil).WithVerificationEnqueuer(&fakeEnqueuer{})
 	created, err := repo.OpenWorkflow(context.Background(), ports.OpenWorkflowCommand{
 		TenantID:      testTenant,
 		TemplateKey:   domain.TemplateKeyBirthKid,
@@ -587,8 +582,8 @@ func TestAnswerActionIdempotency(t *testing.T) {
 	if err != nil {
 		t.Fatalf("first answer: %v", err)
 	}
-	if result.Replayed || result.Action.Status != domain.ActionStatusCompleted {
-		t.Fatalf("first answer result = %+v", result)
+	if result.Replayed || result.Action.Status != domain.ActionStatusInReview {
+		t.Fatalf("first answer result = %+v (a recorded birth step waits for its own verdict)", result)
 	}
 	if result.Workflow.ActionsDone != 1 {
 		t.Fatalf("actions_done = %d, want 1 (card maintained on write)", result.Workflow.ActionsDone)
@@ -614,12 +609,12 @@ func TestAnswerActionIdempotency(t *testing.T) {
 		t.Fatalf("conflicting replay err = %v, want ErrIdempotencyConflict", err)
 	}
 
-	// New key on the already-completed action -> already completed.
+	// New key on the recorded step -> it is locked while the verifier holds its clip.
 	fresh := in
 	fresh.IdempotencyKey = "answer-key-2"
 	fresh.RequestFingerprint = "fp-3"
-	if _, err := svc.AnswerAction(context.Background(), fresh); !errors.Is(err, domain.ErrActionAlreadyCompleted) {
-		t.Fatalf("new-key-on-completed err = %v, want ErrActionAlreadyCompleted", err)
+	if _, err := svc.AnswerAction(context.Background(), fresh); !errors.Is(err, domain.ErrActionInReview) {
+		t.Fatalf("new-key-on-recorded err = %v, want ErrActionInReview", err)
 	}
 }
 

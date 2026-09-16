@@ -279,17 +279,30 @@ func (h *BirthVerificationHandler) HandleEvent(ctx context.Context, e eventbus.E
 			return err
 		}
 	}
-	if p.Source.Module != domain.VerificationModuleCounts || p.Source.RefType != domain.VerificationRefTypeBirthSignoff {
+	if p.Source.Module != domain.VerificationModuleCounts {
 		return nil
 	}
-	workflowID := strings.TrimSpace(p.Source.RefID)
-	if workflowID == "" || strings.TrimSpace(e.TenantID) == "" {
+	if strings.TrimSpace(p.Source.RefID) == "" || strings.TrimSpace(e.TenantID) == "" {
 		return nil
 	}
 	verdictAt := e.OccurredAt
 	if verdictAt.IsZero() {
 		verdictAt = h.now().UTC()
 	}
+	switch p.Source.RefType {
+	case domain.VerificationRefTypeBirthAction:
+		// One recorded step (ref_id = action_id): approve completes it, reject sends it back alone.
+		return h.svc.ApplyBirthStepVerdict(ctx, ports.BirthStepVerdictCommand{
+			TenantID: e.TenantID, ActionID: strings.TrimSpace(p.Source.RefID),
+			Approved: e.Type == EventVerificationVerdictApproved, VerifiedBy: strings.TrimSpace(p.VerifiedBy),
+			Reason: strings.TrimSpace(p.Reason), VerdictAt: verdictAt,
+		})
+	case domain.VerificationRefTypeBirthSignoff:
+		// Retired whole-workflow bundle (ref_id = workflow_id), served for pre-cutover items only.
+	default:
+		return nil
+	}
+	workflowID := strings.TrimSpace(p.Source.RefID)
 	cmd := ports.DeathVerdictCommand{
 		TenantID: e.TenantID, WorkflowID: workflowID, VerifiedBy: strings.TrimSpace(p.VerifiedBy),
 		Reason: strings.TrimSpace(p.Reason), VerdictAt: verdictAt,

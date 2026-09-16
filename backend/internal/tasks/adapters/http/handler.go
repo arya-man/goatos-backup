@@ -289,7 +289,7 @@ func (h *Handler) GetWorkflow(w http.ResponseWriter, r *http.Request) {
 		// report a gated feed as ready and turn an honest "previous_action" into a bare 409 on tap.
 		actions := make([]workflowActionDTO, 0, len(colostrum.Visible))
 		for _, a := range colostrum.Visible {
-			actions = append(actions, actionDTO(a, colostrum.Detail.Actions, now))
+			actions = append(actions, actionDTO(colostrum.Detail.Card.TemplateKey, a, colostrum.Detail.Actions, now))
 		}
 		httpresponse.WriteJSON(w, http.StatusOK, workflowDetailResponse{
 			workflowCardDTO: cardDTO(colostrum.Detail.Card),
@@ -309,7 +309,7 @@ func (h *Handler) GetWorkflow(w http.ResponseWriter, r *http.Request) {
 		if a.ActionType == domain.ActionTypeApproval {
 			continue
 		}
-		actions = append(actions, actionDTO(a, detail.Actions, now))
+		actions = append(actions, actionDTO(detail.Card.TemplateKey, a, detail.Actions, now))
 	}
 	httpresponse.WriteJSON(w, http.StatusOK, workflowDetailResponse{
 		workflowCardDTO: cardDTO(detail.Card),
@@ -470,7 +470,7 @@ func cardDTO(card domain.WorkflowCard) workflowCardDTO {
 	}
 }
 
-func actionDTO(a domain.WorkflowAction, siblings []domain.WorkflowAction, now time.Time) workflowActionDTO {
+func actionDTO(templateKey string, a domain.WorkflowAction, siblings []domain.WorkflowAction, now time.Time) workflowActionDTO {
 	verificationStatus := ""
 	switch a.Status {
 	case domain.ActionStatusInReview:
@@ -486,7 +486,7 @@ func actionDTO(a domain.WorkflowAction, siblings []domain.WorkflowAction, now ti
 	switch {
 	case domain.ActionTimeBlocked(a, now):
 		blockedReason = "not_yet_due"
-	case domain.OperatorActionBlocked(a, siblings):
+	case domain.OperatorActionBlocked(templateKey, a, siblings):
 		blockedReason = "previous_action"
 	case domain.SignoffBlocked(a, siblings):
 		blockedReason = "signoff"

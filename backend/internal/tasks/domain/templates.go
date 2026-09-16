@@ -60,7 +60,14 @@ const (
 	VerificationCategoryDeathEvidence = "death_evidence"
 	VerificationRefTypeDeathSignoff   = "workflow_death_signoff"
 	VerificationCategoryBirthEvidence = "birth_evidence"
-	VerificationRefTypeBirthSignoff   = "workflow_birth_signoff"
+	// VerificationRefTypeBirthAction is ONE recorded birth step (ref_id = action_id): every video
+	// the operator records on a kid or mother track is its own verifier item the moment it is
+	// recorded, and a rejection sends back exactly that step (maintainer decision 2026-09-16).
+	VerificationRefTypeBirthAction = "workflow_birth_action"
+	// VerificationRefTypeBirthSignoff is the RETIRED whole-workflow bundle (ref_id = workflow_id):
+	// one item carrying every clip of a finished mother/kid track. Its verdict consumer stays so an
+	// item enqueued before the per-step cutover still lands; nothing enqueues it any more.
+	VerificationRefTypeBirthSignoff = "workflow_birth_signoff"
 )
 
 // Action keys (stable identifiers; titles/details are the operator-facing copy).
