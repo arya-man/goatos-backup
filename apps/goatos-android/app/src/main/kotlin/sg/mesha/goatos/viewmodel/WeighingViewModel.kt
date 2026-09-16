@@ -33,6 +33,7 @@ import sg.mesha.goatos.core.analytics.AnalyticsEventsWeighing
 import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.analytics.CrashReporter
 import sg.mesha.goatos.core.analytics.ProofPreviewActionTrace
+import sg.mesha.goatos.capture.CapturedVideo
 import sg.mesha.goatos.capture.PhotoCaptureContext
 import sg.mesha.goatos.capture.PhotoCaptureSource
 import sg.mesha.goatos.capture.ProofCaptureContext
@@ -2409,6 +2410,12 @@ class WeighingViewModel @Inject constructor(
 
     fun captureShedVideo() = captureShedVideo(replacingProofId = null)
 
+    /** The pen's `either` first slot: record the next group capture as a PHOTO (2026-09-16). */
+    fun captureShedPhoto() {
+        if (captureSop.value?.lumpSumProofs?.firstOrNull()?.kind != "either") return
+        captureShedVideo(replacingProofId = null, asPhoto = true)
+    }
+
     fun retryShedVideo(proofId: String) {
         val key = scopeKey ?: return
         if (category != PER_SHED_PARTITION_CATEGORY || actionInFlight.value) return
@@ -2513,7 +2520,7 @@ class WeighingViewModel @Inject constructor(
         }
     }
 
-    fun replaceShedVideo(proofId: String) = captureShedVideo(replacingProofId = proofId)
+    fun replaceShedVideo(proofId: String) = captureShedVideo(replacingProofId = proofId, asPhoto = proofById(proofId)?.mimeType?.startsWith("image/") == true)
 
     fun trackShedVideoPreviewAction(proofId: String, action: String) {
         if (category != PER_SHED_PARTITION_CATEGORY) return
@@ -2590,7 +2597,7 @@ class WeighingViewModel @Inject constructor(
         return false
     }
 
-    private fun captureShedVideo(replacingProofId: String?) {
+    private fun captureShedVideo(replacingProofId: String?, asPhoto: Boolean = false) {
         val key = scopeKey ?: return
         if (category != PER_SHED_PARTITION_CATEGORY || actionInFlight.value) return
         val shedProofs = activeWeighingProofs(observedProofs.value, scopeState.value)
@@ -2636,7 +2643,26 @@ class WeighingViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 val slotNumber = if (replacingIndex >= 0) replacingIndex + 1 else existing + 1
-                val captured = proofCaptureSource.captureVideo(
+                // The pen's group-capture strip IS the pinned first whole-pen slot (2026-09-16):
+                // a `photo` slot opens the photo camera, `either` video unless switched.
+                val firstPenSlot = captureSop.value?.lumpSumProofs?.firstOrNull()
+                val penTakesPhoto = when (firstPenSlot?.kind) {
+                    "photo" -> true
+                    "either" -> asPhoto
+                    else -> false
+                }
+                val captured = (if (penTakesPhoto) {
+                    val source = photoCaptureSource ?: run {
+                        message.value = "Photos cannot be taken on this screen."
+                        return@launch
+                    }
+                    source.capturePhoto(
+                        PhotoCaptureContext(
+                            title = firstPenSlot?.title?.ifBlank { null } ?: weighingLumpSumProofTitle(),
+                            instruction = firstPenSlot?.hint?.ifBlank { null } ?: expectedLocationLabel.ifBlank { routeTitle },
+                        ),
+                    )?.let { CapturedVideo(localUri = it.localUri, mimeType = it.mimeType, startedAtMs = it.capturedAtMs, endedAtMs = it.capturedAtMs, captureSource = it.captureSource) }
+                } else proofCaptureSource.captureVideo(
                     ProofCaptureContext(
                         title = weighingLumpSumProofTitle(),
                         primaryTag = expectedLocationLabel.ifBlank { routeTitle },
@@ -2646,7 +2672,7 @@ class WeighingViewModel @Inject constructor(
                         // preview until the operator confirms it (maintainer request 2026-09-04).
                         preRecordBriefing = ProofPreRecordBriefing.WEIGHING_SCALE_ZERO,
                     ),
-                ) ?: run {
+                )) ?: run {
                     analytics.track(
                         AnalyticsEvents.WEIGHING_PROOF_CAPTURE_CANCELLED,
                         shedVideoActionProps(
@@ -2669,7 +2695,8 @@ class WeighingViewModel @Inject constructor(
                         ?.also { currentPrincipalId = it }
                     ?: return@launch
                 val proofPolicy = ProofPolicy.Default.copy(
-                    proofMode = "shed_level_video",
+                    types = if (penTakesPhoto) listOf("video", "photo") else ProofPolicy.Default.types,
+                    proofMode = if (penTakesPhoto) "shed_level_photo" else "shed_level_video",
                     featureSurface = "weighing",
                     featureCategory = PER_SHED_PARTITION_CATEGORY,
                     subjectScope = "shed",
@@ -3306,6 +3333,20 @@ class WeighingViewModel @Inject constructor(
         }
     }
 
+    /**
+     * The row's switch for an `either` primary per-animal slot (2026-09-16): record the primary
+     * capture as a PHOTO instead of the default video. Replaces the row's primary capture exactly
+     * as Re-upload does; a slot that is not `either` ignores it (a photo slot already opens the
+     * photo camera, a video slot must stay a video).
+     */
+    fun capturePrimaryPhoto(animalId: String) {
+        if (captureSop.value?.primaryIndividualSlot?.kind != "either") return
+        val row = scannedRows.value.firstOrNull { it.animalId == animalId } ?: return
+        val key = scopeKey ?: return
+        message.value = null
+        captureVideoForRow(key, row, primaryAsPhoto = true)
+    }
+
     fun reuploadVideo(animalId: String) {
         val row = scannedRows.value.firstOrNull { it.animalId == animalId } ?: return
         proofReplacementAnimalId.value = animalId
@@ -3329,7 +3370,7 @@ class WeighingViewModel @Inject constructor(
      *  losing the current animal's video or having to remember to rescan. Only the LAST queued
      *  animal survives a later scan — an earlier queued-but-not-yet-opened one is overtaken and
      *  its camera will never open, which is a genuine drop and is surfaced, never silent. */
-    private fun captureVideoForRow(key: String, row: WeighingRosterRowEntity) {
+    private fun captureVideoForRow(key: String, row: WeighingRosterRowEntity, primaryAsPhoto: Boolean = false) {
         val strandedAnimalId = proofCaptureAnimalId
         if (strandedAnimalId != null) {
             if (strandedAnimalId == row.animalId) {
@@ -3377,7 +3418,7 @@ class WeighingViewModel @Inject constructor(
         // against the previous job and skip its own cleanup.
         val job = viewModelScope.launch(start = CoroutineStart.LAZY) {
             try {
-                when (val proof = captureProofForRow(key, row)) {
+                when (val proof = captureProofForRow(key, row, primaryAsPhoto)) {
                     is AppResult.Ok -> {
                         sessionProofIds.value = sessionProofIds.value + proof.value.id
                         autoProofs.value = autoProofs.value + (row.animalId to proof.value)
@@ -3437,7 +3478,23 @@ class WeighingViewModel @Inject constructor(
         job.start()
     }
 
-    private suspend fun captureProofForRow(key: String, row: WeighingRosterRowEntity): AppResult<ProofCaptureRow> {
+    /**
+     * THE WEIGH CAPTURES ARE AUTHORED (2026-09-16): the auto-opened PRIMARY per-animal capture
+     * follows the pinned first slot's kind -- `photo` opens the photo camera, `video` the video
+     * camera, `either` video unless the row switched it to photo. The field key stays
+     * [INDIVIDUAL_PROOF_FIELD_KEY] whatever the kind: it names the PRIMARY role (every reader of
+     * the row's proof and every in-flight capture from an older build keys on it), and the
+     * repository files its server id under the pinned slot's own key in the request.
+     */
+    private fun primaryIndividualTakesPhoto(forcePhoto: Boolean): Boolean =
+        when (captureSop.value?.primaryIndividualSlot?.kind) {
+            "photo" -> true
+            "either" -> forcePhoto
+            else -> false
+        }
+
+    private suspend fun captureProofForRow(key: String, row: WeighingRosterRowEntity, primaryAsPhoto: Boolean = false): AppResult<ProofCaptureRow> {
+        if (primaryIndividualTakesPhoto(primaryAsPhoto)) return capturePrimaryPhotoForRow(key, row)
         val captured = proofCaptureSource.captureVideo(
             ProofCaptureContext(
                 title = weighingIndividualProofTitle(row),
@@ -3486,6 +3543,38 @@ class WeighingViewModel @Inject constructor(
                 featureCategory = INDIVIDUAL_ANIMAL_CATEGORY,
                 subjectScope = "other",
                 expectedSubjects = listOf("other"),
+                maximumCount = MAX_PROOFS_PER_WEIGHING_SCOPE,
+                maximumCountPerSubject = MAX_PROOFS_PER_WEIGHING_SCOPE,
+            ),
+        )
+    }
+
+    private suspend fun capturePrimaryPhotoForRow(key: String, row: WeighingRosterRowEntity): AppResult<ProofCaptureRow> {
+        val slot = captureSop.value?.primaryIndividualSlot
+        val source = photoCaptureSource ?: return AppResult.Err("missing_video")
+        val photo = source.capturePhoto(
+            PhotoCaptureContext(
+                title = slot?.title?.ifBlank { null } ?: weighingIndividualProofTitle(row),
+                instruction = slot?.hint?.ifBlank { null } ?: row.primaryTag.ifBlank { row.displayAnimalId },
+            ),
+        ) ?: return AppResult.Err("missing_video")
+        proofCaptureVideoCaptured = true
+        val principalId = resolvePrincipalId() ?: return AppResult.Err("missing_operator")
+        return proofCaptureRepository.capture(
+            taskId = key,
+            fieldKey = INDIVIDUAL_PROOF_FIELD_KEY,
+            subject = ProofSubject.OTHER,
+            subjectId = null,
+            localUri = photo.localUri,
+            mimeType = photo.mimeType,
+            caption = weighingIndividualProofCaption(row),
+            rfidTag = row.primaryTag.takeIf { it.isNotBlank() },
+            scopeType = "shed",
+            scopeId = row.expectedLocationId,
+            capturedStartMs = photo.capturedAtMs,
+            capturedEndMs = photo.capturedAtMs,
+            capturedByPrincipalId = principalId,
+            proofPolicy = authoredSlotProofPolicy(INDIVIDUAL_ANIMAL_CATEGORY, "other", photo = true, captureSource = photo.captureSource).copy(
                 maximumCount = MAX_PROOFS_PER_WEIGHING_SCOPE,
                 maximumCountPerSubject = MAX_PROOFS_PER_WEIGHING_SCOPE,
             ),
@@ -3940,6 +4029,8 @@ class WeighingViewModel @Inject constructor(
             is WeighingCaptureSopEvent.ToggleAnimalAnswer -> updateAnimalAnswers(event.animalId) { it.withToggled(rules.individualQuestions.firstOrNull { q -> q.id == event.questionId }, event.value) }
             is WeighingCaptureSopEvent.AnimalOtherText -> updateAnimalAnswers(event.animalId) { it.withOther(event.questionId, event.text) }
             is WeighingCaptureSopEvent.CapturePenSlot -> captureShedSlot(event.slotKey, event.photo)
+            is WeighingCaptureSopEvent.CapturePrimaryPhoto -> capturePrimaryPhoto(event.animalId)
+            WeighingCaptureSopEvent.CapturePenPrimaryPhoto -> captureShedPhoto()
             is WeighingCaptureSopEvent.PenAnswer -> updatePenAnswers { it.withAnswer(rules.lumpSumQuestions.firstOrNull { q -> q.id == event.questionId }, event.value) }
             is WeighingCaptureSopEvent.TogglePenAnswer -> updatePenAnswers { it.withToggled(rules.lumpSumQuestions.firstOrNull { q -> q.id == event.questionId }, event.value) }
             is WeighingCaptureSopEvent.PenOtherText -> updatePenAnswers { it.withOther(event.questionId, event.text) }
@@ -4199,6 +4290,7 @@ class WeighingViewModel @Inject constructor(
             val answers = typedAnimalAnswers[row.animalId] ?: draft?.answers
             val syncedKeys = statuses.filterValues { it == sg.mesha.goatos.feature.scan.ProofUploadStatus.SYNCED }.keys
             row.copy(
+                primaryCaptureKind = rules.primaryIndividualSlot?.kind ?: "video",
                 extraSlotStatuses = statuses,
                 answers = answers.toAnswerUi(rules.individualQuestions),
                 capturesMissing = if (row.weightSaved) {

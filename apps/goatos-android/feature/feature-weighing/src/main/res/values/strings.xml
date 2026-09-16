@@ -540,4 +540,5 @@
     <string name="weighing_capture_record_video">Record video</string>
     <string name="weighing_capture_take_photo">Take photo</string>
     <string name="weighing_capture_question_optional">%1$s · optional</string>
+    <string name="weighing_capture_primary_use_photo">Use a photo instead</string>
 </resources>

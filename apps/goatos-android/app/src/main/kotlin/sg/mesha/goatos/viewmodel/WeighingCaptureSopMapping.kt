@@ -115,6 +115,7 @@ internal fun WeighingSopRules.toCaptureSopUi(
         animalQuestions = individualQuestions.map { it.toCaptureQuestionUi() },
         primaryPenSlotTitle = primaryPen?.title.orEmpty(),
         primaryPenSlotMax = primaryPen?.max ?: WeighingSopRules.Seeded.lumpSumVideoMax,
+        primaryPenSlotKind = primaryPen?.kind ?: "video",
         penExtraSlots = penExtras,
         penQuestions = lumpSumQuestions.map { it.toCaptureQuestionUi() },
         penAnswers = penAnswers.toAnswerUi(lumpSumQuestions),

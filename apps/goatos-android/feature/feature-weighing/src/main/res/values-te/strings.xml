@@ -513,4 +513,5 @@
     <string name="weighing_capture_record_video">వీడియో రికార్డ్ చేయండి</string>
     <string name="weighing_capture_take_photo">ఫోటో తీయండి</string>
     <string name="weighing_capture_question_optional">%1$s · ఐచ్ఛికం</string>
+    <string name="weighing_capture_primary_use_photo">బదులుగా ఫోటో తీయండి</string>
 </resources>

@@ -144,6 +144,21 @@ class WeighingSlotProofDispatchTest {
     }
 
     @Test
+    fun `a photo primary slot is named in the queued request's proofs map`() = runTest {
+        val store = FakeOutboxStore()
+        val photoFirst = WeighingSopRules.Seeded.copy(
+            version = 8,
+            individualProofs = listOf(WeighingRemovalProofSlot("scale_photo", "Scale display", "", "photo", true)),
+        )
+        val repo = repository(store, photoFirst)
+        repo.recordIndividual(capture("TAG-1"))
+        repo.attachIndividualProof(scopeKey, "TAG-1", "cap-photo", "srv-photo")
+        val payload = store.observeActiveWindow(100).first().single().payloadJson
+        assertTrue(payload, payload.contains("\"proof_artifact_id\":\"srv-photo\""))
+        assertTrue(payload, payload.contains("\"proofs\":{\"scale_photo\":\"srv-photo\"}"))
+    }
+
+    @Test
     fun `the seeded shape keeps the legacy request and key`() = runTest {
         val store = FakeOutboxStore()
         val repo = repository(store, WeighingSopRules.Seeded)

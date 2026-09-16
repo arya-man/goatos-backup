@@ -42,6 +42,10 @@ sealed interface WeighingCaptureSopEvent {
     data class ToggleAnimalAnswer(val animalId: String, val questionId: String, val value: String) : WeighingCaptureSopEvent
     data class AnimalOtherText(val animalId: String, val questionId: String, val text: String) : WeighingCaptureSopEvent
     data class CapturePenSlot(val slotKey: String, val photo: Boolean) : WeighingCaptureSopEvent
+    /** An `either` primary per-animal slot, switched to photo on the row. */
+    data class CapturePrimaryPhoto(val animalId: String) : WeighingCaptureSopEvent
+    /** An `either` first whole-pen slot, captured as a photo. */
+    data object CapturePenPrimaryPhoto : WeighingCaptureSopEvent
     data class PenAnswer(val questionId: String, val value: String) : WeighingCaptureSopEvent
     data class TogglePenAnswer(val questionId: String, val value: String) : WeighingCaptureSopEvent
     data class PenOtherText(val questionId: String, val text: String) : WeighingCaptureSopEvent
@@ -95,6 +99,8 @@ data class WeighingCaptureSopUi(
     /** The first whole-pen slot's title and ceiling (the existing group-video strip). */
     val primaryPenSlotTitle: String = "",
     val primaryPenSlotMax: Int = SHED_PROOF_VIDEO_LIMIT,
+    /** The first whole-pen slot's kind: video | photo | either. */
+    val primaryPenSlotKind: String = "video",
     val penExtraSlots: List<WeighingCaptureSlotUi> = emptyList(),
     val penQuestions: List<WeighingCaptureQuestionUi> = emptyList(),
     val penAnswers: Map<String, WeighingCaptureAnswerUi> = emptyMap(),

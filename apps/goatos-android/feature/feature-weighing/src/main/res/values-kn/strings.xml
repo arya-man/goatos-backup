@@ -513,4 +513,5 @@
     <string name="weighing_capture_record_video">ವೀಡಿಯೊ ರೆಕಾರ್ಡ್ ಮಾಡಿ</string>
     <string name="weighing_capture_take_photo">ಫೋಟೋ ತೆಗೆಯಿರಿ</string>
     <string name="weighing_capture_question_optional">%1$s · ಐಚ್ಛಿಕ</string>
+    <string name="weighing_capture_primary_use_photo">ಬದಲಿಗೆ ಫೋಟೋ ತೆಗೆಯಿರಿ</string>
 </resources>
