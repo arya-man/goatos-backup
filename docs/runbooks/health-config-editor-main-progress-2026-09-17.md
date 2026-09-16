@@ -21,8 +21,6 @@
 
 ## Pending
 
-- Rerun exact local landing gate from this clean worktree.
-- Push to `main` only after `make land-main` passes.
 - No staging or mobile deployment requested in this turn.
 
 ## Tests / Evidence
@@ -51,7 +49,7 @@
 
 - Before: selected editor URL fetched catalog plus detail, and the editor rendered below the catalog.
 - After: selected editor URL fetches detail only; catalog is not fetched behind editor mode.
-- Quantitative API latency gate pending local landing checks.
+- Quantitative API latency gate was not run for this scoped route-state fix.
 
 ## Judge Status
 
@@ -61,5 +59,6 @@
 ## Current SHA / Deployment
 
 - Clean worktree base before commit: `76ab6e2de747e44f0308988b1dc7e5c549b2c540` (`origin/main` at worktree creation).
-- Commit SHA: pending after final amend.
+- Landed commit SHA: `6411a5e848f9cc5545f00d3225b3bfef7ddc5351`.
+- Main verification: `make land-main` passed and `origin/main` resolved to `6411a5e848f9`.
 - Deployment: not started.
