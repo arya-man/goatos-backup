@@ -610,3 +610,32 @@ func TestNewShapeCompletionWithNoCapturesIsRefusedByTheCompulsorySlot(t *testing
 		t.Fatalf("legacy err=%v, want the pre-SOP proof_required", err)
 	}
 }
+
+// The same capture resubmitted after a rework must queue a FRESH item: the enqueue key carries the
+// row's verification round (read under the completion's row lock), never the refs alone.
+func TestSameCaptureResubmitAfterReworkKeysTheNewRound(t *testing.T) {
+	pin := approvedPin(nil, "low")
+	pin.EventStatus, pin.VerificationState = domain.ShiftingEventStatusApplied, "rejected"
+	result := lowResult()
+	result.VerificationRound = 1
+	repo := &sopShiftingRepo{pin: pin, result: result}
+	svc, enq := sopService(t, repo, &ports.StaticShiftingSOPRules{}, &sopProofMedia{kinds: map[string]string{"old": "video"}})
+	in := baseInput()
+	in.LegacyShape = true
+	in.ProofRef = "old"
+	if _, _, err := svc.Complete(context.Background(), in); err != nil {
+		t.Fatal(err)
+	}
+	if want := "counts-shifting-verification:ev1:old:r1"; enq.request.IdempotencyKey != want {
+		t.Fatalf("resubmit key = %q, want the round-1 item %q", enq.request.IdempotencyKey, want)
+	}
+	// Round 0 (a first submission) keeps the pre-SOP key exactly.
+	repo.result.VerificationRound = 0
+	repo.pin.VerificationState = "unverified"
+	if _, _, err := svc.Complete(context.Background(), in); err != nil {
+		t.Fatal(err)
+	}
+	if want := "counts-shifting-verification:ev1:old"; enq.request.IdempotencyKey != want {
+		t.Fatalf("first-round key = %q, want %q", enq.request.IdempotencyKey, want)
+	}
+}

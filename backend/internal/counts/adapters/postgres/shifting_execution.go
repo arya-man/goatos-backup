@@ -404,6 +404,7 @@ func (r *Repository) BounceShiftingEventForRework(
 	tag, err := r.pool.Exec(ctx, `
 UPDATE shifting_events
 SET verification_state = 'rejected',
+    verification_round = verification_round + 1,
     completion_idempotency_key = NULL,
     completion_request_fingerprint = NULL,
     updated_at = now(),
@@ -422,13 +423,24 @@ WHERE tenant_id = $1::uuid AND shifting_event_id = $2::uuid
             UNION ALL SELECT feed_given_proof_ref
         ) AS current_refs
         WHERE nullif(btrim(ref), '') IS NOT NULL
-      ) = (SELECT array_agg(DISTINCT ref ORDER BY ref) FROM unnest($3::text[]) AS judged(ref)))`,
-		in.TenantID, in.ShiftingEventID, evidenceRefsParam(in.EvidenceRefs))
+      ) = (SELECT array_agg(DISTINCT ref ORDER BY ref) FROM unnest($3::text[]) AS judged(ref)))
+  -- ...and the verdict belongs to the CURRENT review round: a resubmit of the same capture after a
+  -- rework has the same refs, so only the round tells its item from the rejected one.
+  AND ($4::int IS NULL OR verification_round = $4::int)`,
+		in.TenantID, in.ShiftingEventID, evidenceRefsParam(in.EvidenceRefs), evidenceRoundParam(in.EvidenceRefs, in.EvidenceRound))
 	if err != nil {
 		return fmt.Errorf("counts: bounce shifting event for rework: %w", err)
 	}
 	_ = tag // zero rows affected is an accepted stale/duplicate verdict; no error.
 	return nil
+}
+
+// evidenceRoundParam binds the judged round, or SQL NULL when the verdict names no evidence.
+func evidenceRoundParam(refs []string, round *int) any {
+	if evidenceRefsParam(refs) == nil || round == nil {
+		return nil
+	}
+	return *round
 }
 
 // evidenceRefsParam binds the judged evidence set, or SQL NULL when the verdict names none.
@@ -604,6 +616,7 @@ type lockedShiftingEvent struct {
 	CompletionRequestFingerprint *string
 	CancelIdempotencyKey         *string
 	CancelRequestFingerprint     *string
+	VerificationRound            int
 
 	// SHIFTING SOP (2026-09-16): the pin and the stored captures / answers of both cards, read
 	// under the same lock so the verifier item is built from what the row holds.
@@ -618,6 +631,7 @@ type lockedShiftingEvent struct {
 // fillSOP copies the row's stored SOP fields onto a completion result.
 func (l lockedShiftingEvent) fillSOP(out *domain.ShiftingExecutionResult) {
 	out.Priority = l.Priority
+	out.VerificationRound = l.VerificationRound
 	out.SOPVersion = l.SOPVersion
 	out.SOPProofs = decodeSOPProofRefs(l.SOPProofs)
 	out.SOPAnswers = decodeSOPAnswers(l.SOPAnswers)
@@ -642,7 +656,8 @@ SELECT event_status, authorization_state, verification_state, priority, category
        canceled_at, canceled_by::text, cancel_reason,
        completion_idempotency_key, completion_request_fingerprint,
        cancel_idempotency_key, cancel_request_fingerprint,
-       sop_version, sop_proofs, sop_answers, raise_sop_proofs, raise_sop_answers, raise_capture_evidence
+       sop_version, sop_proofs, sop_answers, raise_sop_proofs, raise_sop_answers, raise_capture_evidence,
+       verification_round
 FROM shifting_events
 WHERE tenant_id = $1::uuid AND shifting_event_id = $2::uuid
 FOR UPDATE`, tenantID, shiftingEventID).Scan(
@@ -655,7 +670,8 @@ FOR UPDATE`, tenantID, shiftingEventID).Scan(
 		&out.CanceledAt, &out.CanceledBy, &out.CancelReason,
 		&out.CompletionIdempotencyKey, &out.CompletionRequestFingerprint,
 		&out.CancelIdempotencyKey, &out.CancelRequestFingerprint,
-		&out.SOPVersion, &out.SOPProofs, &out.SOPAnswers, &out.RaiseSOPProofs, &out.RaiseSOPAnswers, &out.RaiseCaptureEvidence)
+		&out.SOPVersion, &out.SOPProofs, &out.SOPAnswers, &out.RaiseSOPProofs, &out.RaiseSOPAnswers, &out.RaiseCaptureEvidence,
+		&out.VerificationRound)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return lockedShiftingEvent{}, ports.ErrShiftingEventNotFound

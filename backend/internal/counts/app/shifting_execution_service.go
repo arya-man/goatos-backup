@@ -348,7 +348,7 @@ func (s *ShiftingExecutionService) enqueueCompletion(
 		CapturedAt:      s.now().UTC(),
 		// Keyed to the EVENT + complete proof set (a seeded submission keeps the pre-SOP key shape),
 		// so a retry collapses onto one queue item.
-		IdempotencyKey: domain.ShiftingVerificationKey(in.ShiftingEventID, mediaRefs, answers, raiseRefs),
+		IdempotencyKey: domain.ShiftingVerificationKey(in.ShiftingEventID, mediaRefs, answers, raiseRefs, result.VerificationRound),
 	})
 }
 

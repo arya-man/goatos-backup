@@ -106,6 +106,11 @@ func (h *ShiftingVerificationHandler) HandleEvent(ctx context.Context, e eventbu
 		})
 		return err
 	case EventVerificationVerdictRework:
+		refs, round := domain.ParseShiftingVerificationKey(p.Source.RecordingKey, shiftingEventID)
+		var evidenceRound *int
+		if refs != nil {
+			evidenceRound = &round
+		}
 		return h.repo.BounceShiftingEventForRework(ctx, domain.ShiftingReworkCommand{
 			TenantID:        e.TenantID,
 			ShiftingEventID: shiftingEventID,
@@ -113,7 +118,8 @@ func (h *ShiftingVerificationHandler) HandleEvent(ctx context.Context, e eventbu
 			Reason:          strings.TrimSpace(p.Reason),
 			// The evidence this verdict judged. A redelivered verdict for an item the operator has
 			// since re-shot names captures the movement no longer holds, and bounces nothing.
-			EvidenceRefs: domain.ShiftingVerificationKeyRefs(p.Source.RecordingKey, shiftingEventID),
+			EvidenceRefs:  refs,
+			EvidenceRound: evidenceRound,
 		})
 	}
 	return nil

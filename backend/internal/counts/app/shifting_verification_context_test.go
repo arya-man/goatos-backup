@@ -146,7 +146,7 @@ func (r *reworkCapturingRepo) BounceShiftingEventForRework(_ context.Context, in
 func TestReworkVerdictCarriesTheJudgedEvidenceRefs(t *testing.T) {
 	repo := &reworkCapturingRepo{}
 	h := NewShiftingVerificationHandler(repo, nil)
-	key := domain.ShiftingVerificationKey("ev1", []string{"p1", "p2"}, authored.Answers{"calm": json.RawMessage(`"yes"`)}, nil)
+	key := domain.ShiftingVerificationKey("ev1", []string{"p1", "p2"}, authored.Answers{"calm": json.RawMessage(`"yes"`)}, nil, 2)
 	payload, _ := json.Marshal(map[string]any{"status": "rejected", "decision": "rejected", "reason": "blurry",
 		"source": map[string]any{"module": "counts", "ref_type": "shifting_event", "ref_id": "ev1", "recording_key": key}})
 	if err := h.HandleEvent(context.Background(), eventbus.Event{Type: EventVerificationVerdictRework, TenantID: "t", Payload: payload}); err != nil {
@@ -154,5 +154,8 @@ func TestReworkVerdictCarriesTheJudgedEvidenceRefs(t *testing.T) {
 	}
 	if got := strings.Join(repo.last.EvidenceRefs, ","); got != "p1,p2" {
 		t.Fatalf("evidence refs = %q, want p1,p2", got)
+	}
+	if repo.last.EvidenceRound == nil || *repo.last.EvidenceRound != 2 {
+		t.Fatalf("evidence round = %v, want 2 (the round the rejected item belonged to)", repo.last.EvidenceRound)
 	}
 }

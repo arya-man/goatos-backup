@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/vgoats/goatos/backend/internal/sop/authored"
@@ -374,6 +375,23 @@ func LegacyColumnsFromRefs(refs authored.ProofRefs, orderedRefs []string) (proof
 // event, in key order: the segments after "counts-shifting-verification:<event>:", minus the
 // trailing 16-hex answers/raise digest when present. nil when the key is not this event's shifting
 // key (another producer, another movement, or empty).
+// ParseShiftingVerificationKey recovers a ShiftingVerificationKey's completion refs AND its review
+// round (0 when the key carries no ":r<N>" suffix). refs is nil when the key is not this event's.
+func ParseShiftingVerificationKey(key, eventID string) ([]string, int) {
+	key = strings.TrimSpace(key)
+	round := 0
+	if i := strings.LastIndex(key, ":r"); i > 0 {
+		if n, err := strconv.Atoi(key[i+2:]); err == nil && n > 0 && strconv.Itoa(n) == key[i+2:] {
+			round, key = n, key[:i]
+		}
+	}
+	refs := ShiftingVerificationKeyRefs(key, eventID)
+	if refs == nil {
+		return nil, 0
+	}
+	return refs, round
+}
+
 func ShiftingVerificationKeyRefs(key, eventID string) []string {
 	prefix := "counts-shifting-verification:" + strings.TrimSpace(eventID) + ":"
 	key = strings.TrimSpace(key)
@@ -412,7 +430,19 @@ func isKeyDigest(s string) bool {
 // plus its complete proof set. A seeded submission (no answers, no raise proofs) keeps the exact
 // pre-SOP shape, so a retry from an older phone collapses onto the item it already created; answers
 // or raise captures fold a digest in, so a rework carrying new answers is a new review.
-func ShiftingVerificationKey(eventID string, orderedRefs []string, answers authored.Answers, raiseRefs []string) string {
+//
+// ROUND. After a rework verdict the movement is in review round N>0 and ":r<N>" is appended, so a
+// resubmit naming the SAME capture is a fresh item rather than the rejected one; a retry within a
+// round keys the same item. Round 0 appends nothing: a first submission keeps the pre-SOP key.
+func ShiftingVerificationKey(eventID string, orderedRefs []string, answers authored.Answers, raiseRefs []string, round int) string {
+	key := shiftingVerificationKeyBody(eventID, orderedRefs, answers, raiseRefs)
+	if round > 0 {
+		key += ":r" + strconv.Itoa(round)
+	}
+	return key
+}
+
+func shiftingVerificationKeyBody(eventID string, orderedRefs []string, answers authored.Answers, raiseRefs []string) string {
 	key := "counts-shifting-verification:" + eventID + ":" + strings.Join(orderedRefs, ":")
 	if len(answers) == 0 && len(raiseRefs) == 0 {
 		return key

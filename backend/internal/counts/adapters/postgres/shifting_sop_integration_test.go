@@ -328,8 +328,8 @@ func TestReworkResubmitCreatesFreshItemAndKeepsApplied(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Resubmitting the rejected clip is accepted exactly as before the SOP card existed
-	// (deploy-day parity): the move stays applied and its same-refs key collapses onto the item it
-	// already created.
+	// (deploy-day parity) and the move stays applied -- but it is a NEW review round, so it queues a
+	// fresh item instead of collapsing onto the rejected one (coordinator follow-up 2026-09-17).
 	reused, _, err := svc.Complete(ctx, countsapp.CompleteShiftingInput{
 		TenantID: countsTenant, ShiftingEventID: eventID, CompletedByUserID: countsOperator,
 		SOPProofs: authored.ProofRefs{domain.SlotShiftingVideo: "second"}, IdempotencyKey: "complete-sop-rework-3", RequestFingerprint: "fp3",
@@ -337,8 +337,8 @@ func TestReworkResubmitCreatesFreshItemAndKeepsApplied(t *testing.T) {
 	if err != nil || reused.EventStatus != domain.ShiftingEventStatusApplied {
 		t.Fatalf("reuse result=%+v err=%v", reused, err)
 	}
-	if capture.request.IdempotencyKey != secondKey {
-		t.Fatalf("reused clip key = %q, want the original %q", capture.request.IdempotencyKey, secondKey)
+	if capture.request.IdempotencyKey == secondKey || capture.request.MediaRefs[0] != "second" {
+		t.Fatalf("reused clip key = %q collapsed onto the rejected item %q", capture.request.IdempotencyKey, secondKey)
 	}
 	if got := goatShed(t, ctx, pool, goatID); got != countsShedB {
 		t.Fatalf("rework rolled the move back: %s", got)
