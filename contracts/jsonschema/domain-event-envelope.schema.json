@@ -176,6 +176,7 @@
         "feed_packing_completion",
         "feed_distribution_completion",
         "feed_direction_session_completion",
+        "feed_wastage_completion",
         "feed_purchase",
         "leadership_task",
         "sales_deal",

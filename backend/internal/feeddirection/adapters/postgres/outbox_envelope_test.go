@@ -95,6 +95,15 @@ func TestFeedOutboxEnvelopesValidateAgainstTheProductionSchema(t *testing.T) {
 			aggregateType: feedPackingCompletedAggregateType,
 			actorID:       "",
 		},
+		{
+			// The wastage approve (2026-09-17 E2E on the QA clone): the schema's aggregate_type enum
+			// never listed feed_wastage_completion, so EVERY feed.wastage.completed was failed by the
+			// relay as invalid_event_envelope and no consumer ever saw a wastage approval.
+			name:          "feed.wastage.completed after a verifier approval",
+			eventType:     feedWastageCompletedEventType,
+			aggregateType: feedWastageCompletedAggregateType,
+			actorID:       verifier,
+		},
 	}
 
 	for _, tc := range cases {
