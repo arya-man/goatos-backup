@@ -474,7 +474,7 @@ class AddBirthViewModel @Inject constructor(
             if (current.result.isCommitted) {
                 return@update current.copy(captureCard = card, canSubmit = false, validationMessage = null)
             }
-            val missing = validation(current) ?: if (capture.ready) null else CAPTURE_INCOMPLETE_MESSAGE
+            val missing = validation(current) ?: if (capture.ready) null else card.answerProblem?.message ?: CAPTURE_INCOMPLETE_MESSAGE
             current.copy(captureCard = card, canSubmit = missing == null, validationMessage = missing)
         }
     }

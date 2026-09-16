@@ -48,6 +48,7 @@ import sg.mesha.goatos.core.ui.SyncIconButton
 import sg.mesha.goatos.core.ui.sop.SopProofAction
 import sg.mesha.goatos.core.ui.sop.SopProofStatus
 import sg.mesha.goatos.core.ui.sop.SopQuestionCard
+import sg.mesha.goatos.core.ui.sop.SopCardUi
 import sg.mesha.goatos.core.ui.sop.SopQuestionUi
 import sg.mesha.goatos.core.ui.sop.SopRetryButton
 import sg.mesha.goatos.core.ui.sop.SopSlotCaptureKind
@@ -126,12 +127,14 @@ data class FeedDistributionUiState(
     val compulsorySlotsFilled: Boolean
         get() = slots.isNotEmpty() && slots.filter { it.required }.all { it.captured }
 
-    /** Every applicable required question has an answer. */
-    val requiredAnswersGiven: Boolean
-        get() = questions.filter { it.required && appliesTo(it) }.all { !answers[it.id].isNullOrBlank() }
+    /** The answers judged exactly as the shared SOP card (and the server) judge them. */
+    private val answerCard: SopCardUi get() = SopCardUi(questions = questions, answers = answers)
 
-    fun appliesTo(q: FeedDistributionQuestionUi): Boolean =
-        q.onlyIfQuestion.isBlank() || answers[q.onlyIfQuestion] == q.onlyIfValue
+    /** Every question the card asks is answered the way the server will accept. */
+    val requiredAnswersGiven: Boolean
+        get() = answerCard.requiredAnswersGiven
+
+    fun appliesTo(q: FeedDistributionQuestionUi): Boolean = answerCard.appliesTo(q)
 
     /** Proof uploads may still be queued; the completion outbox resolves them before syncing. */
     val submitEnabled: Boolean

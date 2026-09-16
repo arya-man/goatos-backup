@@ -485,7 +485,7 @@ class AddDeathViewModel @Inject constructor(
                 current.deathCauseKind == DeathCauseKind.NORMAL && current.reason.trim().length < 3 ->
                     "Describe what happened (at least 3 characters)."
                 current.reason.trim().length > 500 -> "Keep the account under 500 characters."
-                !capture.ready -> CAPTURE_INCOMPLETE_MESSAGE
+                !capture.ready -> card.answerProblem?.message ?: CAPTURE_INCOMPLETE_MESSAGE
                 else -> null
             }
             current.copy(captureCard = card, canSubmit = missing == null, validationMessage = missing)
