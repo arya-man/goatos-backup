@@ -3,6 +3,7 @@ package sg.mesha.goatos.core.data.weighing
 import androidx.room.withTransaction
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOn
@@ -82,6 +83,12 @@ data class IndividualWeighingDraft(
     /** Verifier verdict for this capture: "rework" is the one the operator must act on. */
     val verificationStatus: String? = null,
     val reworkReason: String? = null,
+    /**
+     * THE WEIGH CAPTURES ARE AUTHORED (2026-09-16): the per-animal captures beyond the primary,
+     * {slot key: server proof id}, and the answers to the pinned per-animal questions.
+     */
+    val slotProofs: Map<String, String> = emptyMap(),
+    val answers: kotlinx.serialization.json.JsonObject = kotlinx.serialization.json.JsonObject(emptyMap()),
 )
 
 data class ShedWeighingDraft(
@@ -90,6 +97,9 @@ data class ShedWeighingDraft(
     val proofReady: Boolean,
     val readyToSubmit: Boolean,
     val idempotencyKey: String,
+    /** The whole-pen {slot key: server proof ids} and answers (2026-09-16). */
+    val slotProofs: Map<String, List<String>> = emptyMap(),
+    val answers: kotlinx.serialization.json.JsonObject = kotlinx.serialization.json.JsonObject(emptyMap()),
 )
 
 data class WeighingScopeState(
@@ -486,6 +496,12 @@ data class ShedPartitionWeighingCapture(
     val resultJson: String,
     val proofArtifactIds: List<String> = emptyList(),
     val capturedAtMs: Long? = null,
+    /**
+     * THE WEIGH CAPTURES ARE AUTHORED (2026-09-16): the pen's captures per whole-pen slot of the
+     * task's PINNED rules. When set, the flat [proofArtifactIds] is derived from it in slot order.
+     */
+    val proofSlots: Map<String, List<String>> = emptyMap(),
+    val answers: kotlinx.serialization.json.JsonObject? = null,
 )
 
 /**
@@ -846,6 +862,25 @@ interface WeighingRepository {
         proofCaptureId: String,
         serverProofId: String?,
     ): AppResult<IndividualProofAttachOutcome>
+    /**
+     * THE WEIGH CAPTURES ARE AUTHORED (2026-09-16): records one per-animal capture on a slot
+     * beyond the primary ({slot key: server proof id}; a blank id clears it) and re-gates the
+     * animal's queued write against the task's pinned rules.
+     */
+    suspend fun setIndividualSlotProof(
+        scopeKey: String,
+        scannedIdentifier: String,
+        slotKey: String,
+        serverProofId: String?,
+    ): AppResult<IndividualProofAttachOutcome?> = AppResult.Ok(null)
+
+    /** Records the animal's answers to the pinned per-animal questions and re-gates its write. */
+    suspend fun setIndividualAnswers(
+        scopeKey: String,
+        scannedIdentifier: String,
+        answers: kotlinx.serialization.json.JsonObject,
+    ): AppResult<IndividualProofAttachOutcome?> = AppResult.Ok(null)
+
     suspend fun recordShedPartition(capture: ShedPartitionWeighingCapture): AppResult<ShedWeighingDraft>
     suspend fun attachShedPartitionProof(
         scopeKey: String,
@@ -899,6 +934,13 @@ class DefaultWeighingRepository(
     private val proofAttachTelemetry: WeighingProofAttachTelemetryReporter = WeighingProofAttachTelemetryReporter.Noop,
     private val clock: () -> Long = System::currentTimeMillis,
     private val idGenerator: () -> String = { UUID.randomUUID().toString() },
+    /**
+     * The task's PINNED capture rules (2026-09-16). Default: the Room-cached rules the capture
+     * screen refreshed (observeCaptureSop). Null = not known yet, which reads as the SEEDED shape:
+     * a write is never blocked on rules the phone has not fetched, and the server judges it as an
+     * older app would be judged.
+     */
+    private val captureRules: (suspend (campaignId: String) -> WeighingSopRules?)? = null,
 ) : WeighingRepository {
     /**
      * Room's SSOT for the leadership reads. A repository built WITHOUT a database (narrow unit
@@ -1985,6 +2027,9 @@ class DefaultWeighingRepository(
         dao.enforceCacheBounds()
     }
 
+    private suspend fun pinnedCaptureRules(campaignId: String): WeighingSopRules =
+        (captureRules?.invoke(campaignId) ?: observeCaptureSop(campaignId).firstOrNull()) ?: WeighingSopRules.Seeded
+
     override suspend fun refreshCaptureSop(campaignId: String): AppResult<Unit> = withContext(Dispatchers.IO) {
         val client = api ?: return@withContext AppResult.Err("This task is not configured.")
         runCatching {
@@ -2063,6 +2108,10 @@ class DefaultWeighingRepository(
                                 serverProofId = observation.proofArtifactId,
                                 verificationStatus = observation.verificationStatus,
                                 reworkReason = observation.reworkReason,
+                                // The server's per-animal slot map minus the primary (which the
+                                // legacy columns above carry) and its answers (2026-09-16).
+                                slotProofsJson = encodeIndividualSlotProofs(observation.proofs.filterValues { it != observation.proofArtifactId }),
+                                answersJson = encodeCaptureAnswers(observation.answers),
                                 syncStatus = WeighingSyncStatus.ACCEPTED.name,
                                 idempotencyKey = "weighing:server:${observation.observationId}",
                                 capturedAtMs = observation.acceptedAt.toEpochMillisOrNow(),
@@ -2311,6 +2360,46 @@ class DefaultWeighingRepository(
         scannedIdentifier: String,
         proofCaptureId: String,
         serverProofId: String?,
+    ) = attachIndividualProofGated(scopeKey, scannedIdentifier, proofCaptureId, serverProofId, evidenceChanged = false)
+
+    override suspend fun setIndividualSlotProof(
+        scopeKey: String,
+        scannedIdentifier: String,
+        slotKey: String,
+        serverProofId: String?,
+    ): AppResult<IndividualProofAttachOutcome?> = withContext(Dispatchers.IO) {
+        val row = observationDao.findByScannedIdentifier(scopeKey, scannedIdentifier) ?: return@withContext AppResult.Ok(null)
+        val slots = decodeIndividualSlotProofs(row.slotProofsJson)
+        val next = if (serverProofId.isNullOrBlank()) slots - slotKey else slots + (slotKey to serverProofId)
+        if (next == slots) return@withContext AppResult.Ok(null)
+        observationDao.setCaptureSlots(row.observationId, encodeIndividualSlotProofs(next), row.answersJson)
+        val primary = row.serverProofId
+        val capture = row.proofCaptureId
+        if (primary.isNullOrBlank() || capture.isNullOrBlank()) return@withContext AppResult.Ok(null)
+        attachIndividualProofGated(scopeKey, scannedIdentifier, capture, primary, evidenceChanged = true)
+    }
+
+    override suspend fun setIndividualAnswers(
+        scopeKey: String,
+        scannedIdentifier: String,
+        answers: kotlinx.serialization.json.JsonObject,
+    ): AppResult<IndividualProofAttachOutcome?> = withContext(Dispatchers.IO) {
+        val row = observationDao.findByScannedIdentifier(scopeKey, scannedIdentifier) ?: return@withContext AppResult.Ok(null)
+        val encoded = encodeCaptureAnswers(answers)
+        if (decodeCaptureAnswers(row.answersJson) == answers) return@withContext AppResult.Ok(null)
+        observationDao.setCaptureSlots(row.observationId, row.slotProofsJson, encoded)
+        val primary = row.serverProofId
+        val capture = row.proofCaptureId
+        if (primary.isNullOrBlank() || capture.isNullOrBlank()) return@withContext AppResult.Ok(null)
+        attachIndividualProofGated(scopeKey, scannedIdentifier, capture, primary, evidenceChanged = true)
+    }
+
+    private suspend fun attachIndividualProofGated(
+        scopeKey: String,
+        scannedIdentifier: String,
+        proofCaptureId: String,
+        serverProofId: String?,
+        evidenceChanged: Boolean,
     ) = withContext(Dispatchers.IO) {
         val row = observationDao.findByScannedIdentifier(scopeKey, scannedIdentifier)
             ?: return@withContext AppResult.Ok(
@@ -2339,7 +2428,11 @@ class DefaultWeighingRepository(
         //
         // If the server already holds this exact proof for this capture, there is nothing to
         // attach, whatever the local file is called.
-        if (row.syncStatus == WeighingSyncStatus.ACCEPTED.name && !serverProofId.isNullOrBlank() &&
+        // THE WEIGH CAPTURES ARE AUTHORED (2026-09-16): the pinned rules decide the request shape.
+        val rules = pinnedCaptureRules(row.campaignId)
+        val slotProofs = decodeIndividualSlotProofs(row.slotProofsJson)
+        val answers = decodeCaptureAnswers(row.answersJson)
+        if (!evidenceChanged && row.syncStatus == WeighingSyncStatus.ACCEPTED.name && !serverProofId.isNullOrBlank() &&
             row.serverProofId == serverProofId
         ) {
             return@withContext AppResult.Ok(
@@ -2378,7 +2471,7 @@ class DefaultWeighingRepository(
         // permission failure burned the whole retry budget and left exactly such a corpse. The
         // `:proof:` re-mint is the RECOVERY path for it. A SUCCEEDED row, by contrast, did reach
         // the server, so re-posting it under a second key would be the very fan-out above.
-        val alreadyQueuedForThisProof = row.serverProofId == serverProofId &&
+        val alreadyQueuedForThisProof = !evidenceChanged && row.serverProofId == serverProofId &&
             !serverProofId.isNullOrBlank() &&
             (syncRepository?.findOutboxItemByIdempotencyKey(row.idempotencyKey) as? AppResult.Ok)
                 ?.value
@@ -2394,11 +2487,38 @@ class DefaultWeighingRepository(
             )
         }
         val isProofRevision = !row.serverProofId.isNullOrBlank()
-        val revisionIdempotencyKey = if (isProofRevision && !serverProofId.isNullOrBlank()) {
-            "${row.idempotencyKey.substringBefore(":proof:")}:proof:$serverProofId"
+        val baseKey = row.idempotencyKey.substringBefore(":slots:")
+        val proofKey = if (isProofRevision && !serverProofId.isNullOrBlank()) {
+            "${baseKey.substringBefore(":proof:")}:proof:$serverProofId"
         } else {
-            row.idempotencyKey
+            baseKey
         }
+        // A digest of the authored evidence (slot map + answers) rides the key, so a changed
+        // secondary capture or answer is a NEW request; the seeded shape appends nothing.
+        val revisionIdempotencyKey = proofKey + rules.individualSlotKeySuffix(slotProofs, answers)
+        // Every compulsory slot and required answer must be in before the weigh is queued. Until
+        // then the row keeps its captures locally, PENDING_LOCAL, and nothing reaches the server.
+        val stillOwed = !serverProofId.isNullOrBlank() && !rules.individualCaptureIsSeededShape() &&
+            (rules.missingIndividualCaptures(serverProofId, slotProofs).isNotEmpty() || rules.missingIndividualAnswers(answers).isNotEmpty())
+        if (stillOwed) {
+            observationDao.attachProof(
+                observationId = row.observationId,
+                proofCaptureId = proofCaptureId,
+                serverProofId = serverProofId,
+                idempotencyKey = revisionIdempotencyKey,
+                syncStatus = WeighingSyncStatus.PENDING_LOCAL.name,
+            )
+            return@withContext AppResult.Ok(
+                row.proofAttachOutcome(
+                    status = IndividualProofAttachStatus.ATTACHED,
+                    proofCaptureId = proofCaptureId,
+                    serverProofId = serverProofId,
+                    idempotencyKey = revisionIdempotencyKey,
+                    reason = "waiting_for_captures",
+                ),
+            )
+        }
+        if (evidenceChanged && row.idempotencyKey != revisionIdempotencyKey) cancelCancellableOutbox(row.idempotencyKey)
         observationDao.attachProof(
             observationId = row.observationId,
             proofCaptureId = proofCaptureId,
@@ -2427,6 +2547,8 @@ class DefaultWeighingRepository(
                     weightKg = row.weightKg,
                     proofArtifactId = serverProofId,
                     actualLocationId = row.actualLocationId ?: row.expectedLocationId,
+                    proofs = rules.individualRequestProofs(serverProofId, slotProofs),
+                    answers = if (rules.individualCaptureIsSeededShape()) null else rules.applicableIndividualAnswers(answers),
                 ),
             )) {
                 is AppResult.Ok -> AppResult.Ok(
@@ -2510,7 +2632,11 @@ class DefaultWeighingRepository(
             if (existing?.syncStatus == WeighingSyncStatus.ACCEPTED.name) {
                 return@withContext AppResult.Err("This shed / partition result has already synced.")
             }
-            if (existing != null && existing.resultJson == capture.resultJson && existing.proofCaptureId.isNullOrBlank()) {
+            val slotsJson = encodeLumpSumSlotProofs(capture.proofSlots)
+            val answersJson = encodeCaptureAnswers(capture.answers)
+            if (existing != null && existing.resultJson == capture.resultJson && existing.proofCaptureId.isNullOrBlank() &&
+                existing.slotProofsJson == slotsJson && existing.answersJson == answersJson
+            ) {
                 return@withContext AppResult.Ok(existing.toDraft())
             }
             if (existing != null) {
@@ -2539,9 +2665,18 @@ class DefaultWeighingRepository(
                 idempotencyKey = idempotencyKey,
                 capturedAtMs = capture.capturedAtMs?.takeIf { it > 0L } ?: clock(),
                 lastError = null,
+                slotProofsJson = slotsJson,
+                answersJson = answersJson,
             )
             shedObservationDao.insert(entity)
-            val proofBundle = normalizedProofArtifactIds(null, capture.proofArtifactIds)
+            // THE WEIGH CAPTURES ARE AUTHORED (2026-09-16): a slotted pen sends its captures in the
+            // pinned slot order (the flat list derived from the map); the seeded shape stays legacy.
+            val rules = if (capture.proofSlots.isNotEmpty()) pinnedCaptureRules(capture.campaignId) else null
+            val proofBundle = if (rules != null) {
+                rules.lumpSumFlatProofs(capture.proofSlots)
+            } else {
+                normalizedProofArtifactIds(null, capture.proofArtifactIds)
+            }
             if (proofBundle.isNotEmpty()) {
                 val result = weighingShedResultValues(capture.resultJson)
                 if (result != null) {
@@ -2556,6 +2691,8 @@ class DefaultWeighingRepository(
                             averageWeightKg = result.averageWeightKg,
                             proofArtifactId = proofBundle.first(),
                             proofArtifactIds = proofBundle,
+                            proofs = rules?.lumpSumRequestProofs(capture.proofSlots),
+                            answers = rules?.takeUnless { it.lumpSumCaptureIsSeededShape() }?.applicableLumpSumAnswers(capture.answers),
                         ),
                     )
                 }
@@ -2589,7 +2726,11 @@ class DefaultWeighingRepository(
             },
         )
         val result = weighingShedResultValues(existing.resultJson)
-        if (proofBundle.isNotEmpty() && result != null) {
+        // A slotted pen (2026-09-16) replays from its stored slot map, never the flat list.
+        val storedSlots = decodeLumpSumSlotProofs(existing.slotProofsJson)
+        val rules = if (storedSlots.isNotEmpty()) pinnedCaptureRules(existing.campaignId) else null
+        val bundle = rules?.lumpSumFlatProofs(storedSlots) ?: proofBundle
+        if (bundle.isNotEmpty() && result != null) {
             cancelCancellableOutbox(existing.idempotencyKey)
             syncRepository?.enqueueWeighingShedObservation(
                 campaignId = existing.campaignId,
@@ -2600,8 +2741,10 @@ class DefaultWeighingRepository(
                     weightKg = result.totalWeightKg,
                     animalCount = result.animalCount,
                     averageWeightKg = result.averageWeightKg,
-                    proofArtifactId = proofBundle.first(),
-                    proofArtifactIds = proofBundle,
+                    proofArtifactId = bundle.first(),
+                    proofArtifactIds = bundle,
+                    proofs = rules?.lumpSumRequestProofs(storedSlots),
+                    answers = rules?.takeUnless { it.lumpSumCaptureIsSeededShape() }?.applicableLumpSumAnswers(decodeCaptureAnswers(existing.answersJson)),
                 ),
             )
         }
@@ -2736,6 +2879,8 @@ private fun WeighingObservationEntity.toDraft(): IndividualWeighingDraft =
         serverProofId = serverProofId,
         verificationStatus = verificationStatus,
         reworkReason = reworkReason,
+        slotProofs = decodeIndividualSlotProofs(slotProofsJson),
+        answers = decodeCaptureAnswers(answersJson),
     )
 
 private fun WeighingShedObservationEntity.toDraft(): ShedWeighingDraft =
@@ -2746,6 +2891,8 @@ private fun WeighingShedObservationEntity.toDraft(): ShedWeighingDraft =
         readyToSubmit = syncStatus == WeighingSyncStatus.READY_TO_SUBMIT.name ||
             syncStatus == WeighingSyncStatus.ACCEPTED.name,
         idempotencyKey = idempotencyKey,
+        slotProofs = decodeLumpSumSlotProofs(slotProofsJson),
+        answers = decodeCaptureAnswers(answersJson),
     )
 
 /**
