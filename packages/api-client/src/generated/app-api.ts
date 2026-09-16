@@ -8178,6 +8178,12 @@ export interface components {
             rules_run: string[];
             /** @description Rules whose read failed on this request; the rest still serve. */
             degraded?: string[];
+            /** @description Enabled rules that did not run for this date (a live-figure rule on a past day), with the farm-worded reason. */
+            skipped?: {
+                key: string;
+                label: string;
+                reason: string;
+            }[];
         };
         AlertRuleConfig: {
             /** @description Config vocabulary; submitted in the write path */
@@ -8191,6 +8197,8 @@ export interface components {
             min_threshold: number;
             max_threshold: number;
             default_enabled: boolean;
+            /** @description The rule reads a live figure and runs for today's business date only; a past day skips it. */
+            today_only?: boolean;
             enabled: boolean;
             threshold: number;
             /** @description Name of the person who last set the rule (never an id); blank while the default is in force. */

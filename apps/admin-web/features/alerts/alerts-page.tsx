@@ -82,6 +82,9 @@ export async function AlertsPage({ searchParams, pageContract }: { searchParams?
   const critical = pages.reduce((sum, page) => sum + page.critical, 0);
   const rulesRun = new Set(pages.flatMap((page) => page.rules_run));
   const degraded = new Set(pages.flatMap((page) => page.degraded ?? []));
+  // Rules the backend left out for this date (a live-figure rule on a past day), de-duplicated
+  // across parks; the note repeats the backend's reason verbatim.
+  const skipped = Array.from(new Map(pages.flatMap((page) => page.skipped ?? []).map((row) => [row.key, row])).values());
   const allFailed = reads.length > 0 && okReads.length === 0;
   const partial = !allFailed && (failedParks.length > 0 || degraded.size > 0);
   // Rule names for the KPI and the degraded note: from the config read when the caller may make
@@ -187,6 +190,12 @@ export async function AlertsPage({ searchParams, pageContract }: { searchParams?
         {partial ? (
           <div className="alert" style={{ margin: 12 }} role="status">
             {t("state.partial")} {[...failedParks, ...Array.from(degraded).map((key) => ruleLabels[key] ?? "")].filter(Boolean).join(", ")}. <Link href={href({})}>{t("action.retry")}</Link>
+          </div>
+        ) : null}
+
+        {skipped.length > 0 ? (
+          <div className="note muted small" style={{ margin: "0 12px 8px" }} role="status" data-testid="alerts-skipped">
+            {skipped.map((row) => `${row.label}: ${row.reason}`).join(" ")}
           </div>
         ) : null}
 

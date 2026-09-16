@@ -67,6 +67,8 @@ type rowsPayload struct {
 	RulesRun     []domain.RuleKey `json:"rules_run"`
 	// Degraded names rules whose read failed; the rest still serve.
 	Degraded []domain.RuleKey `json:"degraded,omitempty"`
+	// Skipped names enabled rules that did not run for this date, with the reason.
+	Skipped []app.SkippedRule `json:"skipped,omitempty"`
 }
 
 type configPayload struct {
@@ -124,7 +126,7 @@ func (h *Handler) Rows(w http.ResponseWriter, r *http.Request) {
 	}
 	httpresponse.WriteJSON(w, http.StatusOK, rowsPayload{
 		Rows: page.Rows, Total: len(page.Rows), Critical: critical,
-		BusinessDate: businessDate, ParkID: scope.ParkID, RulesRun: rulesRun, Degraded: page.Degraded,
+		BusinessDate: businessDate, ParkID: scope.ParkID, RulesRun: rulesRun, Degraded: page.Degraded, Skipped: page.Skipped,
 	})
 }
 

@@ -80,7 +80,7 @@ function RuleRow({ rule: initial, pageContract }: { rule: AlertRuleConfig; pageC
   const onSave = () => {
     setMessage(null);
     startTransition(async () => {
-      const result = await saveAlertRuleAction({ ruleKey: rule.key, enabled, threshold, editedFrom: rule.updated_at ?? "" });
+      const result = await saveAlertRuleAction({ ruleKey: rule.key, enabled, threshold, attempt: newAttempt() });
       if (result.ok) {
         setRule(result.rule);
         setEnabled(result.rule.enabled);
@@ -172,6 +172,13 @@ function EventRules({ pageContract, initialRules, kinds }: { pageContract: Admin
   );
 }
 
+// newAttempt mints the nonce one save click rides on (see actions.ts idempotencyKey). The
+// button is disabled while a save is pending, so a click is one attempt; a network-level retry
+// of the same Server Action reuses it.
+function newAttempt(): string {
+  return typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`;
+}
+
 function severityOptions(pageContract: AdminUiPageContract): { key: string; label: string }[] {
   return [
     { key: "critical", label: copy(pageContract, "severity.critical") },
@@ -191,7 +198,7 @@ function EventRuleRow({ rule, kinds, pageContract, onSaved, onRemoved }: { rule:
   const save = () => {
     setMessage(null);
     startTransition(async () => {
-      const result = await saveAlertEventRuleAction({ id: rule.id, label, kind, severity, enabled, editedFrom: rule.updated_at ?? "" });
+      const result = await saveAlertEventRuleAction({ id: rule.id, label, kind, severity, enabled, attempt: newAttempt() });
       if (result.ok) {
         onSaved(result.rule);
         setMessage({ tone: "ok", text: t("action.config_saved") });
@@ -261,19 +268,15 @@ function NewEventRule({ pageContract, kinds, onCreated }: { pageContract: AdminU
   const [label, setLabel] = useState("");
   const [kind, setKind] = useState(kinds[0]?.key ?? "");
   const [severity, setSeverity] = useState("warning");
-  // A fresh nonce per form fill: the create's idempotency key rides on it so a double-click is
-  // one rule while the next composition (after a success clears the form) is a new one.
-  const [nonce, setNonce] = useState(() => String(Date.now()));
   const [message, setMessage] = useState<{ tone: "ok" | "dng"; text: string } | null>(null);
   const [pending, startTransition] = useTransition();
   const add = () => {
     setMessage(null);
     startTransition(async () => {
-      const result = await saveAlertEventRuleAction({ label, kind, severity, enabled: true, editedFrom: nonce });
+      const result = await saveAlertEventRuleAction({ label, kind, severity, enabled: true, attempt: newAttempt() });
       if (result.ok) {
         onCreated(result.rule);
         setLabel("");
-        setNonce(String(Date.now()));
         setMessage({ tone: "ok", text: t("action.config_event_added") });
       } else setMessage({ tone: "dng", text: t(`action.${result.code}`) });
     });

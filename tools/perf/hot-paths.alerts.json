@@ -1,0 +1,52 @@
+{
+  "scope": {
+    "included": [
+      "alerts_rows_cbe_populated",
+      "alerts_rows_cpt",
+      "alerts_config"
+    ],
+    "evidence_boundaries": {
+      "local_oci_ceo_reads": [
+        "alerts_rows_cbe_populated",
+        "alerts_rows_cpt",
+        "alerts_config"
+      ]
+    },
+    "excluded": {
+      "alerts_config_writes": "PUT /alerts/config/{rule_key} and POST/PUT/DELETE /alerts/config/events mutate the tenant's rule configuration. Benchmark them only against a disposable clone; do not run them from this manifest against OCI/STG production-like data.",
+      "alerts_rows_today": "GET /alerts/rows without business_date reads the LIVE feed stock; its row set changes daily, so the populated assertion is pinned to a historical day with frozen sheets (2026-09-10) where only the pen-feed and composed event rules run."
+    }
+  },
+  "endpoints": [
+    {
+      "name": "alerts_rows_cbe_populated",
+      "method": "GET",
+      "path": "/alerts/rows?park=00000000-0000-4000-8000-000000003001&business_date=2026-09-10",
+      "p90_ms": 300,
+      "p95_ms": 500,
+      "p99_ms": 500,
+      "max_response_bytes": 262144,
+      "assertion": { "type": "array_min", "path": "rows", "min": 1 }
+    },
+    {
+      "name": "alerts_rows_cpt",
+      "method": "GET",
+      "path": "/alerts/rows?park=00000000-0000-4000-8000-000000003002&business_date=2026-09-10",
+      "p90_ms": 300,
+      "p95_ms": 500,
+      "p99_ms": 500,
+      "max_response_bytes": 262144,
+      "assertion": { "type": "array_min", "path": "rules_run", "min": 1 }
+    },
+    {
+      "name": "alerts_config",
+      "method": "GET",
+      "path": "/alerts/config",
+      "p90_ms": 300,
+      "p95_ms": 500,
+      "p99_ms": 500,
+      "max_response_bytes": 65536,
+      "assertion": { "type": "array_min", "path": "rules", "min": 2 }
+    }
+  ]
+}

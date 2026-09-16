@@ -19348,6 +19348,16 @@ components:
           type: array
           items: { type: string }
           description: Rules whose read failed on this request; the rest still serve.
+        skipped:
+          type: array
+          description: Enabled rules that did not run for this date (a live-figure rule on a past day), with the farm-worded reason.
+          items:
+            type: object
+            required: [key, label, reason]
+            properties:
+              key: { type: string }
+              label: { type: string }
+              reason: { type: string }
     AlertRuleConfig:
       type: object
       required: [key, label, description, threshold_label, threshold_unit, default_threshold, min_threshold, max_threshold, default_enabled, enabled, threshold, stored]
@@ -19361,6 +19371,7 @@ components:
         min_threshold: { type: integer }
         max_threshold: { type: integer }
         default_enabled: { type: boolean }
+        today_only: { type: boolean, description: The rule reads a live figure and runs for today's business date only; a past day skips it. }
         enabled: { type: boolean }
         threshold: { type: integer }
         updated_by: { type: string, description: Name of the person who last set the rule (never an id); blank while the default is in force. }

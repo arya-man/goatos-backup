@@ -119,6 +119,15 @@ type Page struct {
 	// RulesRun is every enabled rule, so the page can say what it checked. A composed event
 	// rule runs as "event:<id>".
 	RulesRun []domain.RuleKey
+	// Skipped names enabled rules that did not run for this date and why, worded for the page.
+	Skipped []SkippedRule
+}
+
+// SkippedRule is one enabled rule the read left out, with the farm-worded reason.
+type SkippedRule struct {
+	Key    domain.RuleKey `json:"key"`
+	Label  string         `json:"label"`
+	Reason string         `json:"reason"`
 }
 
 // List runs every enabled detector for one park and day. The feed-stock rule is farm-grain
@@ -142,8 +151,16 @@ func (s *Service) List(ctx context.Context, tenantID, parkID, businessDate strin
 			parkName = names[parkID]
 		}
 	}
+	today := biztime.BusinessDate(s.now())
 	for _, cfg := range cfgs {
 		if !cfg.Enabled {
+			continue
+		}
+		if cfg.TodayOnly && businessDate != today {
+			// A live figure cannot be read as-of a past day; skipping it keeps yesterday's
+			// page from changing when a purchase lands today. Not listed in RulesRun: the page
+			// says "rules checked", and this one was not -- it is named under Skipped instead.
+			page.Skipped = append(page.Skipped, SkippedRule{Key: cfg.Key, Label: cfg.Label, Reason: "Checked for today only; this date is not re-read."})
 			continue
 		}
 		page.RulesRun = append(page.RulesRun, cfg.Key)
