@@ -12,3 +12,6 @@
 .source-page-group-head b{font-size:11px;color:#8fda57;background:rgba(114,211,69,.14);border:1px solid rgba(114,211,69,.2);border-radius:999px;padding:3px 8px;white-space:nowrap}
 .source-page-group-meta{margin-top:4px;font-size:11px;letter-spacing:.04em;text-transform:uppercase;color:var(--muted)}
 .flow-wires{z-index:1;position:absolute}.wire-plus{z-index:4}.flow-node{z-index:3}.flow-node.selected{z-index:5}
+
+/* Hide page grouping frames on the canvas; they looked like stray background boxes. */
+.source-page-group-box{display:none!important}

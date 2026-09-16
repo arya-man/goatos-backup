@@ -3,7 +3,7 @@ const c={crypto:require('crypto').webcrypto,renderItems(){},state:{},canEdit:()=
 vm.createContext(c);vm.runInContext(fs.readFileSync('farm-setup.js','utf8'),c);
 const run=s=>vm.runInContext(s,c);
 run('d=EntityRegistryModel.seed()');
-assert.equal(run('EntityRegistryModel.definitions.length'),9);
+assert.equal(run('EntityRegistryModel.definitions.length'),10);
 assert.equal(run("EntityRegistryModel.definitions.every(d=>d.module==='Counts')"),true);
 assert.equal(run("EntityRegistryModel.definitions.some(d=>['feed_catalogue','feed_stock','buyers','vendors','trucks','vaccines','vaccine_stock','symptoms','diseases','health_protocols','people','approvals'].includes(d.id))"),false);
 assert.equal(run("EntityRegistryModel.rows(d,'pens').length"),0);

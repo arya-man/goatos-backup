@@ -1,7 +1,7 @@
 const vm=require('node:vm'),fs=require('node:fs'),assert=require('node:assert/strict');
 const listeners={};let legacy=0,consumer=0;const nodes={};const node=key=>nodes[key]||(nodes[key]={innerHTML:'',value:'CEO / CXO',textContent:''});const classes=new Set();
 const context={location:{hash:''},history:{replaceState(a,b,path){context.location.hash=path}},current:'Items',tab:'Registry',esc:s=>String(s??''),$:node,document:{body:{classList:{add:k=>classes.add(k),remove:k=>classes.delete(k),toggle(k,v){if(v)classes.add(k);else classes.delete(k)}}},documentElement:{classList:{contains:()=>false,toggle(){}}},querySelector:node,querySelectorAll:()=>[]},render(){legacy++},go(module,page){context.current=module;context.tab=page;context.render()},addEventListener(name,fn){(listeners[name]??=[]).push(fn)},innerWidth:1728};context.window=context;vm.createContext(context);vm.runInContext(fs.readFileSync(__dirname+'/production-shell.js','utf8'),context);
-assert.equal(context.productionRoutes.length,37);assert.equal(context.productionRoutes.filter(r=>r.module!=='Configuration').length,35);assert.equal(new Set(context.productionRoutes.map(r=>r.path)).size,37);
+assert.equal(context.productionRoutes.length,38);assert.equal(context.productionRoutes.filter(r=>r.module!=='Configuration').length,36);assert.equal(new Set(context.productionRoutes.map(r=>r.path)).size,38);
 assert.equal(context.productionRoutes.filter(r=>r.module==='Sales').map(r=>r.label).join('|'),'Summary|Farm value|Load wise|Market analytics|Buyer analytics|Vendors|Sales Config');
 context.renderConsumerSurface=(m,l)=>{consumer++;return m==='Sales'&&l==='Sales Config'};
 let before=legacy;assert.equal(context.productionNavigate('Sales','Sales Config'),true);assert.equal(context.tab,'Production');assert.equal(legacy,before,'real Config must not enter legacy numeric policy screen');assert.equal(consumer,1);assert.equal(context.location.hash,'#/sales/config');
@@ -28,3 +28,6 @@ assert(appSource.includes('Rules used here'));
 assert(appSource.includes('Change history'));
 assert(appSource.includes('Rules Weighing reads'));
 console.log('PASS module tabs explain rules, SOPs and history; Sales has no existing SOP sidebar route');
+
+assert(context.productionRoutes.some(r=>r.module==='Health'&&r.label==='Health SOP'&&r.path==='/health/sops'));
+context.productionNavigate('Health','Health SOP');assert.equal(context.tab,'SOPs');assert.equal(context.location.hash,'#/health/sops');

@@ -7,7 +7,7 @@ const groups=[
  ['Feed','leaf',[['Feed Config','/feed/config'],['Feed Analytics','/feed/analytics'],['Feed SOP','/feed/sops']]],
  ['Preventive Care','heart',[['Vaccination','/vaccination'],['Live Drive Tracker','/vaccination/live-tracker'],['Vaccination plan','/vaccination/plan']]],
  ['Procurement','truck',[['Source Entry','/procurement/source-entry'],['Vendors','/procurement/vendors'],['Feed Purchases','/procurement/feed-purchases'],['Animal purchases','/procurement/animal-purchases'],['Procurement SOP','/procurement/sops']]],
- ['Health','health',[['Health Analytics','/health/analytics'],['Health Config','/health/config']]],
+ ['Health','health',[['Health Analytics','/health/analytics'],['Health Config','/health/config'],['Health SOP','/health/sops']]],
  ['Others','edit',[['Milk Preparation','/counts/milk-preparation'],['Milk SOP','/milk/sops'],['Live Monitor','/herd-signals'],['Audit Log','/operations/audit'],['People / HRMS','/people'],['Leave','/leave']]],
  ['Configuration','settings',[['Items and settings','/configuration/items'],['Work instructions','/configuration/work-instructions']]]];
 const top=[['Approvals','/approvals','check'],['Verify','/verify','check'],['Tasks','/tasks','list'],['Work Board','/work-board','board']];

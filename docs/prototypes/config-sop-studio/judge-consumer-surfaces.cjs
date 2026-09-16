@@ -14,3 +14,5 @@ console.log('PASS consumer previews: threshold changes only counts; valuation ch
 c.configValuesForModule=()=>[];
 c.renderConsumerSurface('Sales','Farm value');assert(content.innerHTML.includes('Configuration needs attention'));assert(!content.innerHTML.includes('₹500'));assert.equal(c.consumerNumber('valuation_fattening_rate',450),null);
 c.configValuesForModule=()=>[{configKey:'valuation_fattening_rate'}];c.renderConsumerSurface('Sales','Farm value');assert(content.innerHTML.includes('Valuation breakdown'));console.log('PASS revoked module relation blocks bound preview; restoring relation restores consumption');
+
+c.renderConsumerSurface('Preventive Care','Vaccination plan');assert(content.innerHTML.includes('Existing Vaccination Plan'));assert(!/Published plan v9|ET\+TT|Every 274|Every 26/.test(content.innerHTML));

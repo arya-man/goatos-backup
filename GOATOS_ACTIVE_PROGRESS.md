@@ -1,61 +1,31 @@
-# Active progress — PR 287 config/SOP prototype cleanup
+# Active progress — PR 287 Config and SOP Studio
 
-Updated: 2026-09-17 03:51 IST
-Branch: design/manju-mock-refinement-20260916
-PR: #287
-Workspace: /Users/raviteja/mesha/tmp/manju-mock-refinement
+## Scope and state — 2026-09-17
 
-## User intent
+User authorized fixing requirements and CEO usability, form and Excel animal entry, agent validation, consolidating changes into PR #287 and reviewing again. Target: `tmp/manju-mock-refinement`, branch `design/manju-mock-refinement-20260916`, port 4322. Port 4391 belongs to Claude and is excluded. No main merge or deployment.
 
-Build a CEO/admin prototype for common CRUD/config without reinventing existing feature screens.
+## Done
 
-Ravi's latest corrections:
-- Do not duplicate existing Weighing, Feed, Procurement, Sales, Health, Vaccination screens inside common config.
-- Common config should expose missing reusable business records: animal species/types, breed names, lifecycle stages, shed/stage tags, animal tags/groups, and animal identities.
-- CRUD must not be chicken-and-egg. User must be able to create multiple animal types like goat and sheep together and set breed, gender, tags and lifecycle setup together or individually.
-- Categories/subcategories/items mean business catalogues like Medicines -> Antibiotics -> item or Animal breeds -> Goat -> Beetal. Modules are not categories.
-- K0/K1/K2/K3/warm-up are goat/sheep example values only. Do not use F2; use Fattening.
-- Weighing flow already exists. Do not invent Weighing mode as an SOP question. Work item decides individual vs lump-sum. Android flow is scan/weight/video/submit, with duplicate scan guard only.
-- Preview must match actual Android/module screens, not a fake phone simulator.
-- Keep UI modern, uncluttered, no big lectures, no redundant open buttons if cards/list rows are clickable.
+- Category → subcategory → record workspace; source feed and medicine references retained. Module access remains separate from business categories.
+- CRUD, archive/restore and dependency guards for ten animal/farm registers and medicine/feed/equipment/partner catalogues.
+- Full-page animal setup and category manager replace rejected long modal forms. Pending edits survive navigation; stale setup commits cannot overwrite newer data.
+- Herd Register supports individual form entry and actual XLSX/CSV bulk import. Type-specific templates include configured options and text RFID cells. Preview errors block the entire batch. Inline park/pen creation retains unsaved form values.
+- Health navigation, source-based SOP charts, procurement deduplication, accurate weighing flows, and existing vaccination placeholder preserved.
 
-## Done in current cleanup
+## Proof
 
-Pushed earlier commits:
-- 18e410457 Remove duplicated existing feature registers
-- 7f309b42f Refine common config workspace UX
-- c44b39e27 Clarify catalogue hierarchy in config workspace
-- f333cf079 Remove attributed catalogue wording
-- e739e87e7 Polish config setup hierarchy UX
+- Repo-local `sh docs/prototypes/config-sop-studio/run-checks.sh` executes every judge; all 31 judges passed after final edits (exit 0); git diff --check passed. Receipt: /tmp/pr287-validation/final-checks.log.
+- Browser: Chrome laptop SOP variants (Feed packing/transport/distribution, Weighing individual/lump, Procurement imported questionnaire, Health Kids/Adults), vaccination route; all charts opened from cards.
+- IAB 390x844: create/edit/archive ten register families, medicines/feed/equipment/vendors/buyers; custom category and subcategory; reload persistence. Desktop full-page setup and category manager visually inspected. Mobile Herd Register, animal form, import and Health chart inspected; responsive chart fix verified after cache-versioned asset reload: bounded selector and 16 source steps.
+- Excel browser upload: duplicate two-row XLSX disabled Import, valid one-row XLSX imported, reload retained both RFID strings with leading zeros and Goat/Boer/Female/K1/CBE/Import pen. Chrome verified actual goat-animals.xlsx download (30.7KB).
+- Form browser save: RFID-only display fallback worked. Inline new pen creation preserved RFID and saved animal under the new pen.
+- Independent agents found and fixed pending-input loss, stale setup overwrite, medicine archive alias guard, duplicate category-manager root, fresh-form missing pen setup, and mobile section selector overflow.
+- Exact failures guarded: `backend_down`, `Admin-web contract unavailable`, `The board could not be loaded`, `Weights could not be loaded`; static prototype validation does not certify real backend/sync availability.
 
-Uncommitted but now tested green:
-- Removed fake preview links from SOP editor surfaces.
-- Changed old #Module/Preview route fallback to redirect to module SOP route.
-- Removed production shell SOP tabs that showed full analytics/config under Weighing SOP.
-- Updated branch/typed judge tests to stop depending on invented Weighing condition.
-- Weighing/Feed/Procurement SOP routes now show existing-module summaries instead of opening the generic SOP builder/fake Android preview.
-- Config workspace separated into Animal lists, Farm places, Animal identities, Feed setup, Catalogue.
-- Added Bulk animal setup dialog so multiple species/breeds/stages/tags can be created together from textarea rows.
-- Animal identity form uses identity first and filters breed/stage/shed tag choices by selected species.
-- Status badge CSS compacted.
-- Long explanatory copy trimmed.
+## Metrics / limitations
 
-## Test state
+No performance claim or backend modification. Prototype saves in browser local storage. All source-derived catalogues/graphs are prototype fixtures; production API persistence/sync is not implemented or certified by this PR.
 
-Green after latest edits:
-- node --check on changed JS files
-- sh docs/prototypes/config-sop-studio/run-checks.sh
-- git diff --check
+## Pending
 
-Browser checked fresh routes:
-- /#/configuration/items shows tabs: Animal lists, Farm places, Animal identities, Feed setup, Catalogue.
-- /#/weighing/sops shows Existing Weighing flow with per-animal, lump-sum and verification cards; no Rules Used Here tabs, no full analytics clone, no fake phone preview modal.
-
-## Current pending before final handoff
-
-- Capture/validate final screenshots if needed.
-- Commit and push to PR #287.
-
-## Deployment state
-
-No deploy. No main merge. PR branch only.
+Local proof green. Pending commit/push PR branch and fresh exact-commit review. Current base SHA `0b259fc871117a21cf931c70a78e3fe0b8a9b69b`; no new commit/push yet. Deployment: none.
