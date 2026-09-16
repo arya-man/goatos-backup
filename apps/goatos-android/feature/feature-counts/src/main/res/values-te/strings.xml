@@ -264,4 +264,7 @@
     <string name="counts_approval_capture_open_media">%1$s తెరవండి</string>
     <string name="counts_approval_capture_media_loading">తెరుస్తోంది…</string>
     <string name="counts_approval_capture_media_failed">%1$s తెరవలేకపోయాం. మళ్లీ ప్రయత్నించడానికి నొక్కండి.</string>
+    <string name="counts_group_report">నివేదిక</string>
+    <string name="counts_capture_choose_pen_first">నివేదిక ఫోటోలు, వీడియోలు రికార్డ్ చేయడానికి ముందుగా పెన్‌ను ఎంచుకోండి.</string>
+    <string name="counts_capture_choose_animal_first">నివేదిక ఫోటోలు, వీడియోలు రికార్డ్ చేయడానికి ముందుగా జంతువును ఎంచుకోండి.</string>
 </resources>

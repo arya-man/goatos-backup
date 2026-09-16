@@ -288,4 +288,7 @@
     <string name="counts_approval_capture_open_media">Open %1$s</string>
     <string name="counts_approval_capture_media_loading">Opening…</string>
     <string name="counts_approval_capture_media_failed">Could not open %1$s. Tap to try again.</string>
+    <string name="counts_group_report">Report</string>
+    <string name="counts_capture_choose_pen_first">Choose the pen first to record the report\'s photos and videos.</string>
+    <string name="counts_capture_choose_animal_first">Select the animal first to record the report\'s photos and videos.</string>
 </resources>

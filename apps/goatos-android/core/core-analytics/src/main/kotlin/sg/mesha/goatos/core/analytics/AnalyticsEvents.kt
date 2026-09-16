@@ -96,6 +96,14 @@ object AnalyticsEvents {
 
     /** SOP capture card on Add birth / Add death (2026-09-16): one capture slot recorded. */
     const val COUNTS_CAPTURE_SLOT_CAPTURED = "counts_capture_slot_captured"
+    /** SOP capture card: the operator tapped a slot's camera button. */
+    const val COUNTS_CAPTURE_TAPPED = "counts_capture_tapped"
+    /** SOP capture card: the operator re-took a slot that already held a capture. */
+    const val COUNTS_CAPTURE_RETAKE_TAPPED = "counts_capture_retake_tapped"
+    /** SOP capture card: a slot's proof upload reached a terminal outcome (success or failure). */
+    const val COUNTS_CAPTURE_UPLOAD_SYNCED = "counts_capture_upload_synced"
+    /** SOP capture card: the published card (or a changed version of it) was applied to the form. */
+    const val COUNTS_CAPTURE_CARD_APPLIED = "counts_capture_card_applied"
     /** SOP capture card: an authored question answered on the form. */
     const val COUNTS_CAPTURE_ANSWERED = "counts_capture_answered"
     /** SOP capture card: a capture, card load, or report-proof open failed. */

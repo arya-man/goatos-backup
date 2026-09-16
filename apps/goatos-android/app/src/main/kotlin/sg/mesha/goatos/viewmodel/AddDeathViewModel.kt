@@ -19,7 +19,13 @@ import sg.mesha.goatos.core.analytics.AnalyticsEvents
 import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.analytics.CrashReporter
 import sg.mesha.goatos.core.common.AppResult
+import sg.mesha.goatos.capture.PhotoCaptureSource
+import sg.mesha.goatos.capture.ProofCapturePrompt
+import sg.mesha.goatos.capture.ProofCaptureSource
+import sg.mesha.goatos.core.data.CountsCaptureCardRepository
 import sg.mesha.goatos.core.data.CountsRepository
+import sg.mesha.goatos.core.data.capture.ProofCaptureRepository
+import sg.mesha.goatos.core.data.capture.ProofSubject
 import sg.mesha.goatos.core.data.sync.SyncRepository
 import sg.mesha.goatos.core.data.DeathCauseVocabulary
 import sg.mesha.goatos.core.network.dto.CountsDeathEventRequestDto
@@ -52,6 +58,10 @@ class AddDeathViewModel @Inject constructor(
     private val analytics: AnalyticsPort,
     private val crashReporter: CrashReporter,
     private val savedStateHandle: SavedStateHandle,
+    captureCards: CountsCaptureCardRepository,
+    proofCaptureSource: ProofCaptureSource,
+    photoCaptureSource: PhotoCaptureSource,
+    proofCaptureRepository: ProofCaptureRepository,
 ) : ViewModel() {
 
     private val idempotencyKey = DraftIdempotencyKey(
@@ -65,6 +75,27 @@ class AddDeathViewModel @Inject constructor(
     val state: StateFlow<AddDeathUiState> = _state.asStateFlow()
 
     private var statusJob: Job? = null
+
+    /** The authored capture card (photos/videos/questions); empty = today's plain form. */
+    private val capture = HerdCaptureForm(
+        kind = CAPTURE_KIND,
+        scope = viewModelScope,
+        savedStateHandle = savedStateHandle,
+        syncRepository = syncRepository,
+        proofCaptureSource = proofCaptureSource,
+        photoCaptureSource = photoCaptureSource,
+        proofCaptureRepository = proofCaptureRepository,
+        captureCards = captureCards,
+        analytics = analytics,
+        crashReporter = crashReporter,
+        // A death report's proofs are filed under the animal that died.
+        proofSubject = ProofSubject.GOAT,
+        proofScopeType = "goat",
+        prompt = ProofCapturePrompt.DEATH,
+        subjectId = { _state.value.selectedAnimal?.goatId.orEmpty() },
+        locked = { _state.value.result.isCommitted },
+        onChanged = ::recomputeSubmitGate,
+    )
 
     /**
      * The animal and the disease this form was opened WITH, when it was reached from a treatment
@@ -85,6 +116,8 @@ class AddDeathViewModel @Inject constructor(
         observeDeathCauses()
         refreshDeathCauses()
         applyPrefill()
+        capture.start()
+        capture.refresh()
         recomputeSubmitGate()
     }
 
@@ -97,6 +130,9 @@ class AddDeathViewModel @Inject constructor(
             is AddDeathEvent.SelectDeathCauseKind -> onSelectDeathCauseKind(event.kind)
             is AddDeathEvent.EditDeathCauseQuery -> onEditDeathCauseQuery(event.value)
             is AddDeathEvent.SelectDeathCause -> onSelectDeathCause(event.key)
+            AddDeathEvent.Refresh -> capture.refresh()
+            is AddDeathEvent.CaptureSlot -> if (beginEdit()) capture.capture(event.slotKey, event.kind)
+            is AddDeathEvent.Answer -> if (beginEdit()) capture.answer(event.questionId, event.value)
             AddDeathEvent.Submit -> submit()
             AddDeathEvent.RecordAnother -> resetForNextEntry(confirmation = null)
             AddDeathEvent.Back -> Unit // navigation — handled by the nav host.
@@ -179,6 +215,9 @@ class AddDeathViewModel @Inject constructor(
         if (!current.canSubmit) return
         val animal = current.selectedAnimal ?: return
         val key = idempotencyKey.current()
+        // Null unless a capture card is published: the request is then byte-for-byte today's.
+        val capturePayload = capture.payload()
+        if (capture.active && capturePayload == null) return
         viewModelScope.launch {
             val result = syncRepository.enqueueCountsDeath(
                 groupKey = animal.goatId,
@@ -201,6 +240,7 @@ class AddDeathViewModel @Inject constructor(
                     // The animal's OWN optimistic-concurrency token from the search result.
                     rowVersion = animal.rowVersion,
                 ),
+                capture = capturePayload,
             )
             when (result) {
                 is AppResult.Ok -> {
@@ -399,6 +439,7 @@ class AddDeathViewModel @Inject constructor(
         statusJob = null
         idempotencyKey.invalidate()
         outboxItemId.value = null
+        capture.reset()
         _state.update { current ->
             // The VOCABULARY survives the reset, the SELECTION does not. Re-fetching between two
             // deaths would leave the second animal's form without a dropdown on a phone that has
@@ -416,8 +457,9 @@ class AddDeathViewModel @Inject constructor(
     /** Same validation rules the combined form's death mode enforced (backend re-enforces both). */
     private fun recomputeSubmitGate() {
         _state.update { current ->
+            val card = capture.card
             if (current.result.isCommitted) {
-                return@update current.copy(canSubmit = false, validationMessage = null)
+                return@update current.copy(captureCard = card, canSubmit = false, validationMessage = null)
             }
             val missing = when {
                 current.selectedAnimal == null -> "Find and select the animal that died."
@@ -432,13 +474,21 @@ class AddDeathViewModel @Inject constructor(
                 current.deathCauseKind == DeathCauseKind.NORMAL && current.reason.trim().length < 3 ->
                     "Describe what happened (at least 3 characters)."
                 current.reason.trim().length > 500 -> "Keep the account under 500 characters."
+                !capture.ready -> CAPTURE_INCOMPLETE_MESSAGE
                 else -> null
             }
-            current.copy(canSubmit = missing == null, validationMessage = missing)
+            current.copy(captureCard = card, canSubmit = missing == null, validationMessage = missing)
         }
     }
 
+    override fun onCleared() {
+        capture.close()
+        super.onCleared()
+    }
+
     private companion object {
+        const val CAPTURE_KIND = "death"
+        const val CAPTURE_INCOMPLETE_MESSAGE = "Record the report's photos and videos and answer its questions."
         const val DEATH_CAUSES_UNAVAILABLE_MESSAGE =
             "The disease list isn't on this phone yet. Connect once to load it, or record a normal " +
                 "death and describe what you saw."
