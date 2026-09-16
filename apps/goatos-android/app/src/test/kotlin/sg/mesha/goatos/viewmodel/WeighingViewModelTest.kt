@@ -2773,6 +2773,91 @@ class WeighingViewModelTest {
         )
     }
 
+    // THE WEIGH CAPTURES ARE AUTHORED (2026-09-16): "change video to photo" must work everywhere,
+    // including the capture that auto-opens after the scan and the pen's group-capture strip.
+    private class RecordingPhotoSource : sg.mesha.goatos.capture.PhotoCaptureSource {
+        var calls = 0
+        override suspend fun capturePhoto(context: sg.mesha.goatos.capture.PhotoCaptureContext): sg.mesha.goatos.capture.CapturedPhoto {
+            calls++
+            return sg.mesha.goatos.capture.CapturedPhoto(localUri = "file://primary-$calls.jpg", capturedAtMs = 5L)
+        }
+    }
+
+    private fun primarySlotRules(kind: String) = sg.mesha.goatos.core.data.weighing.WeighingSopRules.Seeded.copy(
+        version = 7,
+        individualProofs = listOf(sg.mesha.goatos.core.data.weighing.WeighingRemovalProofSlot("scale_photo", "Scale display", "", kind, true)),
+        lumpSumSlots = listOf(sg.mesha.goatos.core.data.weighing.WeighingCountedProofSlot("pen_photo", "Pen photo", "", kind, 1, 2)),
+    )
+
+    @Test
+    fun `a photo primary slot opens the photo camera after the scan and keeps the primary field key`() = runTest(dispatcher) {
+        val videos = FakeProofCaptureSource()
+        val photos = RecordingPhotoSource()
+        val proofs = FakeProofCaptureRepository()
+        val vm = weighingViewModel(
+            repository = FakeWeighingRepository(captureRules = primarySlotRules("photo")),
+            scoped = true, proofCaptureRepository = proofs, proofCaptureSource = videos,
+            photoCaptureSource = photos, bootstrapRepository = OperatorBootstrapRepository,
+        )
+        backgroundScope.launch(dispatcher) { vm.state.collect {} }
+        advanceUntilIdle()
+        vm.onScanInputChange(TEST_TAG)
+        vm.submitTypedScan()
+        advanceUntilIdle()
+        assertEquals("the pinned slot is a photo: the photo camera opens", 1, photos.calls)
+        assertEquals("no video camera for a photo slot", 0, videos.captureContexts.size)
+        val call = proofs.captureCalls.single()
+        assertEquals("image/jpeg", call.mimeType)
+        assertEquals("the primary keeps its field key so an in-flight capture replays", WeighingViewModel.INDIVIDUAL_PROOF_FIELD_KEY, call.fieldKey)
+    }
+
+    @Test
+    fun `an either primary slot opens video by default and the row can switch to photo`() = runTest(dispatcher) {
+        val videos = FakeProofCaptureSource()
+        videos.queue(CapturedVideo(localUri = "file://a.mp4", startedAtMs = 1, endedAtMs = 2))
+        val photos = RecordingPhotoSource()
+        val proofs = FakeProofCaptureRepository()
+        val vm = weighingViewModel(
+            repository = FakeWeighingRepository(captureRules = primarySlotRules("either")),
+            scoped = true, proofCaptureRepository = proofs, proofCaptureSource = videos,
+            photoCaptureSource = photos, bootstrapRepository = OperatorBootstrapRepository,
+        )
+        backgroundScope.launch(dispatcher) { vm.state.collect {} }
+        advanceUntilIdle()
+        vm.onScanInputChange(TEST_TAG)
+        vm.submitTypedScan()
+        advanceUntilIdle()
+        assertEquals(1, videos.captureContexts.size)
+        assertEquals(0, photos.calls)
+        assertTrue("an either slot offers the switch on the row", vm.state.value.visibleRows.single().primaryCanSwitchToPhoto)
+        vm.capturePrimaryPhoto(TEST_TAG)
+        advanceUntilIdle()
+        assertEquals(1, photos.calls)
+        assertEquals("image/jpeg", proofs.captureCalls.last().mimeType)
+        assertEquals(WeighingViewModel.INDIVIDUAL_PROOF_FIELD_KEY, proofs.captureCalls.last().fieldKey)
+    }
+
+    @Test
+    fun `a photo whole-pen primary slot opens the photo camera`() = runTest(dispatcher) {
+        val videos = FakeProofCaptureSource()
+        val photos = RecordingPhotoSource()
+        val proofs = FakeProofCaptureRepository()
+        val vm = weighingViewModel(
+            repository = FakeWeighingRepository(captureRules = primarySlotRules("photo"), scopeState = WeighingScopeState(emptyList(), emptyList(), emptyList(), 0)),
+            scoped = true, proofCaptureRepository = proofs, proofCaptureSource = videos,
+            photoCaptureSource = photos, bootstrapRepository = OperatorBootstrapRepository,
+            weighingCategory = "per_shed_partition",
+        )
+        backgroundScope.launch(dispatcher) { vm.state.collect {} }
+        advanceUntilIdle()
+        vm.captureShedVideo()
+        advanceUntilIdle()
+        assertEquals(1, photos.calls)
+        assertEquals(0, videos.captureContexts.size)
+        assertEquals("image/jpeg", proofs.captureCalls.single().mimeType)
+        assertEquals(WeighingViewModel.SHED_PARTITION_PROOF_FIELD_KEY, proofs.captureCalls.single().fieldKey)
+    }
+
     @Test
     fun `a lump-sum group video opens the camera with the scale-zero briefing`() = runTest(dispatcher) {
         val proofSource = FakeProofCaptureSource()
@@ -2809,6 +2894,7 @@ class WeighingViewModelTest {
         scanCaptureRepository: FakeScanCaptureRepository = FakeScanCaptureRepository(),
         proofCaptureRepository: FakeProofCaptureRepository = FakeProofCaptureRepository(),
         proofCaptureSource: ProofCaptureSource = FakeProofCaptureSource(),
+        photoCaptureSource: sg.mesha.goatos.capture.PhotoCaptureSource? = null,
         bootstrapRepository: BootstrapRepository = LeadershipBootstrapRepository,
         weighingCategory: String = "individual_animal",
         analytics: AnalyticsPort = NoopAnalytics(),
@@ -2835,6 +2921,7 @@ class WeighingViewModelTest {
             scanCaptureRepository = scanCaptureRepository,
             proofCaptureRepository = proofCaptureRepository,
             proofCaptureSource = proofCaptureSource,
+            photoCaptureSource = photoCaptureSource,
             analytics = analytics,
             crashReporter = NoopCrashReporter(),
             repeatSeedStore = repeatSeedStore,

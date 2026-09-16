@@ -308,7 +308,11 @@ data class WeighingRosterUiRow(
     val answers: Map<String, WeighingCaptureAnswerUi> = emptyMap(),
     /** Farm-worded titles of what this animal still owes (slots, required questions). */
     val capturesMissing: List<String> = emptyList(),
+    /** The pinned primary per-animal slot's kind: video | photo | either (2026-09-16). */
+    val primaryCaptureKind: String = "video",
 ) {
+    /** An `either` primary slot opens video by default; the row offers a switch to photo. */
+    val primaryCanSwitchToPhoto: Boolean get() = primaryCaptureKind == "either"
     val isResolved: Boolean
         get() = status.equals("weighed", ignoreCase = true) ||
             status.equals("completed", ignoreCase = true) ||
@@ -1932,6 +1936,16 @@ private fun WeighingFreeFlowFeedRow(
             )
             else -> Unit
         }
+        // An `either` primary slot opens video by default; the row offers the photo instead.
+        if (row.primaryCanSwitchToPhoto && !locked) {
+            ActionButton(
+                text = stringResource(R.string.weighing_capture_primary_use_photo),
+                enabled = !row.reuploadRequested,
+                onClick = { onCaptureSopEvent(WeighingCaptureSopEvent.CapturePrimaryPhoto(row.animalId)) },
+                modifier = Modifier.fillMaxWidth(),
+                primary = false,
+            )
+        }
         // PER-ANIMAL section of the pinned weighing SOP (2026-09-16): extra captures + questions.
         WeighingAnimalCaptureExtras(
             row = row,
@@ -2091,10 +2105,10 @@ private fun WeighingLumpSumCapture(
             }
         }
         ActionButton(
-            text = if (state.shedProofs.isEmpty()) {
-                stringResource(R.string.weighing_capture_group_video)
-            } else {
-                stringResource(R.string.weighing_add_another_video)
+            text = when {
+                state.captureSop.primaryPenSlotKind == "photo" -> stringResource(R.string.weighing_capture_take_photo)
+                state.shedProofs.isEmpty() -> stringResource(R.string.weighing_capture_group_video)
+                else -> stringResource(R.string.weighing_add_another_video)
             },
             enabled = !state.actionInFlight && state.shedProofs.size < state.captureSop.primaryPenSlotMax,
             onClick = {
@@ -2104,6 +2118,19 @@ private fun WeighingLumpSumCapture(
             modifier = Modifier.fillMaxWidth(),
             primary = false,
         )
+        // The pen's first slot may be `either`: offer the photo beside the default video.
+        if (state.captureSop.primaryPenSlotKind == "either") {
+            ActionButton(
+                text = stringResource(R.string.weighing_capture_take_photo),
+                enabled = !state.actionInFlight && state.shedProofs.size < state.captureSop.primaryPenSlotMax,
+                onClick = {
+                    dismissKeyboard()
+                    onCaptureSopEvent(WeighingCaptureSopEvent.CapturePenPrimaryPhoto)
+                },
+                modifier = Modifier.fillMaxWidth(),
+                primary = false,
+            )
+        }
         // WHOLE-PEN section of the pinned weighing SOP (2026-09-16): extra slots + questions.
         WeighingPenCaptureExtras(
             sop = state.captureSop,
