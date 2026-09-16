@@ -536,7 +536,15 @@ class PenRoutineDetailViewModel @Inject constructor(
         if (detail == null) {
             return PenRoutineDetailUiState(loading = true, isRefreshing = own.isRefreshing, message = own.message)
         }
-        val phase = penRoutinePhase(detail, q.submit, sendingAlive = penRoutineGrainKey(taskId, detail.rowVersion) in q.sending)
+        // A row THIS screen just queued whose outbox flow has not emitted yet is on its way too:
+        // the beat between enqueue and Room's first emission must not re-arm the button.
+        val submitJustQueued = own.submitOutboxItemId.isNotBlank() && q.submit == null
+        val presenceJustQueued = own.presenceOutboxItemId.isNotBlank() && q.presence == null
+        val phase = penRoutinePhase(
+            detail,
+            q.submit,
+            sendingAlive = submitJustQueued || penRoutineGrainKey(taskId, detail.rowVersion) in q.sending,
+        )
         val questions = detail.form.questions.map { it.toUi(answers[it.id].orEmpty()) }
         val rowsByKey = slotRows(detail, proofs)
         val photoSlots = (1..detail.form.photo.max).map { index ->
@@ -547,7 +555,7 @@ class PenRoutineDetailViewModel @Inject constructor(
             val key = penRoutineVideoFieldKey(index)
             slotUi(key, PenRoutineSlotKind.VIDEO, index, required = index <= detail.form.video.min, row = rowsByKey[key])
         }
-        val presenceQueued = q.presence?.isActive == true
+        val presenceQueued = presenceJustQueued || q.presence?.isActive == true
         val presenceRefused = q.presence?.isTerminalFailure == true
         val submitRefused = q.submit?.isTerminalFailure == true
         val formLive = phase == PenRoutinePhase.OPEN || phase == PenRoutinePhase.REWORK
@@ -745,7 +753,7 @@ private fun numberFits(text: String, min: Double?, max: Double?): Boolean {
  * the text. Unanswered questions are omitted, never sent blank.
  */
 internal fun answersJson(questions: List<PenRoutineQuestionDto>, answers: Map<String, List<String>>): JsonObject {
-    val out = LinkedHashMap<String, kotlinx.serialization.json.JsonElement>()
+    val out = LinkedHashMap<String, kotlinx.serialization.json.JsonElement>() // mobile-guard:ignore: per-call local, bounded by the authored question list, returned as one JsonObject
     questions.forEach { question ->
         val given = answers[question.id].orEmpty().filter { it.isNotBlank() }
         if (given.isEmpty()) return@forEach
