@@ -51,9 +51,9 @@ type DeathVerdictCommand struct {
 	RecordingKey string
 	TenantID     string
 	WorkflowID   string
-	VerifiedBy string
-	Reason     string
-	VerdictAt  time.Time
+	VerifiedBy   string
+	Reason       string
+	VerdictAt    time.Time
 }
 
 // DeathEvidenceReview is the approved death workflow ready for ONE generic verification item:
