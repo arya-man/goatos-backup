@@ -122,3 +122,15 @@ internal fun WeighingSopRules.toCaptureSopUi(
         penCapturesMissing = penMissing,
     )
 }
+
+/**
+ * The capture caps for one WHOLE-PEN slot. Every slot shares one subject (the pen), so a slot's own
+ * maximum must be enforced PER FIELD while the per-subject cap is the pen's total across its authored
+ * slots — otherwise the group videos already recorded count against a photo slot's max of 1 and the
+ * photo is refused (Realme, 2026-09-17).
+ */
+internal data class PenCaptureCaps(val perSlot: Int, val perPen: Int)
+
+internal fun WeighingSopRules.penCaptureCaps(slotMax: Int): PenCaptureCaps =
+    PenCaptureCaps(perSlot = slotMax, perPen = maxOf(lumpSumProofs.sumOf { it.max }, slotMax))
+

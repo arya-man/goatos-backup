@@ -113,6 +113,53 @@ class CaptureRepositoryTest {
         }
     }
 
+    // WEIGHING SOP whole pen (Realme, 2026-09-17): two group videos then the pen's authored scale
+    // photo slot. The photo slot's own max (1) passed as the PER-SUBJECT cap counted the pen's two
+    // videos and refused the photo ("Maximum 1 ..."). The slot cap is per FIELD; the pen cap is the
+    // SOP's total across its slots.
+    @Test
+    fun `a whole pen photo slot after two group videos is capped per slot not by the pen videos`() = runTest {
+        val db = newDb()
+        try {
+            val repo = DefaultProofCaptureRepository(
+                dao = db.proofCaptureDao(),
+                syncRepository = FakeSyncRepository(),
+                appScope = backgroundScope,
+                dispatchers = unconfinedDispatchers,
+                reconcileOnStartup = false,
+                mediaProcessor = IdentityProofMediaProcessor(),
+            )
+            val pen = "pen-1"
+            suspend fun shot(field: String, uri: String, mime: String, policy: ProofPolicy) = repo.capture(
+                taskId = "weigh-task", fieldKey = field, subject = ProofSubject.SHED, subjectId = pen,
+                localUri = uri, mimeType = mime, caption = null, scopeType = "shed", scopeId = pen,
+                capturedStartMs = 1_000L, capturedEndMs = 2_000L, capturedByPrincipalId = null,
+                proofPolicy = policy, partitionLabel = null, awaitUploadEnqueue = true,
+            )
+            val videoPolicy = ProofPolicy(proofMode = "shed_level_video", maximumCount = 4, maximumCountPerSubject = 4, maximumCountPerField = 3)
+            assertTrue(shot("weighing_shed_partition_video", "file:///v1.mp4", "video/mp4", videoPolicy) is AppResult.Ok)
+            assertTrue(shot("weighing_shed_partition_video", "file:///v2.mp4", "video/mp4", videoPolicy) is AppResult.Ok)
+
+            val oldSlotPolicy = ProofPolicy(proofMode = "free_flow_photo", maximumCount = 1, maximumCountPerSubject = 1)
+            assertTrue(
+                "the old per-subject slot cap reproduces the phone refusal",
+                shot("weighing_shed_slot_scale_photo", "file:///p0.jpg", "image/jpeg", oldSlotPolicy) is AppResult.Err,
+            )
+            val slotPolicy = ProofPolicy(proofMode = "free_flow_photo", maximumCount = 4, maximumCountPerSubject = 4, maximumCountPerField = 1)
+            assertTrue("the scale photo is accepted", shot("weighing_shed_slot_scale_photo", "file:///p1.jpg", "image/jpeg", slotPolicy) is AppResult.Ok)
+            assertTrue(
+                "a second scale photo is refused by the slot's own cap",
+                shot("weighing_shed_slot_scale_photo", "file:///p2.jpg", "image/jpeg", slotPolicy) is AppResult.Err,
+            )
+            assertTrue(
+                "the third group video still fits the pen total after the photo",
+                shot("weighing_shed_partition_video", "file:///v3.mp4", "video/mp4", videoPolicy) is AppResult.Ok,
+            )
+        } finally {
+            closeDb(db)
+        }
+    }
+
     @Test
     fun `repeat scan of the same tag is deduped at the DB layer`() = runTest {
         val db = newDb()
