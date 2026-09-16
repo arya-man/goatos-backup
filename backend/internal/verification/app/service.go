@@ -90,6 +90,19 @@ func (s *Service) CreateItem(ctx context.Context, in domain.CreateItem) (domain.
 	if in.IdempotencyKey == "" {
 		return domain.CreateItemResult{}, BadRequest("invalid_idempotency_key", "idempotency_key is required")
 	}
+	// MediaMeta is POSITIONAL against MediaRefs. Fewer entries is legal (the tail is unnamed and
+	// resolved like any unnamed proof); MORE names proofs the item does not carry, which can only be
+	// a producer bug that would silently shift every label once a ref is dropped -- refuse it.
+	if len(in.MediaMeta) > len(in.MediaRefs) {
+		return domain.CreateItemResult{}, BadRequest("invalid_media_meta", "media_meta cannot name more proofs than media_refs carries")
+	}
+	if len(in.MediaMeta) > 0 {
+		normalized := make([]domain.MediaMeta, len(in.MediaMeta))
+		for i, m := range in.MediaMeta {
+			normalized[i] = domain.MediaMeta{Label: strings.TrimSpace(m.Label), Kind: domain.NormalizeMediaKind(m.Kind)}
+		}
+		in.MediaMeta = normalized
+	}
 	if in.CapturedAt.IsZero() {
 		in.CapturedAt = s.now().UTC()
 	}
@@ -509,8 +522,25 @@ func (s *Service) ListReadyVaccinationBatchClosures(ctx context.Context, params 
 // stat/HEAD per proof per row. The honest contract is therefore MediaRefsPresent ("there are proof
 // refs to open"), and terminal unavailability is reported by the download route as 410
 // proof_object_missing / retryable=false for the client to render as "evidence unavailable".
+//
+// KIND (which player a proof opens in) is resolved per ref in this order:
+//
+//  1. the item's own MediaMeta kind (video / photo), written by the producer at enqueue;
+//  2. the proof REGISTER's recorded mime (ports.ProofMediaKindReader), asked ONCE for the whole
+//     page and only for refs still lacking a kind -- an `either` slot, a proof beyond what the
+//     category declares, or an item written before media_meta;
+//  3. the category registry's POSITIONAL expected media, but ONLY for an item carrying no
+//     MediaMeta at all: an item that names its own proofs owns its positions, and the registry's
+//     copy was written for a different card.
+//
+// A register failure is non-fatal: media keep their links, EvidenceLinkResolved is unchanged, and a
+// kind nobody can answer stays blank (the renderers offer an "Open proof" tile, never a guessed
+// player). Labels: producer titles repeated within one item are numbered "Title k of N"
+// (domain.ComposeMediaLabels), and blanks are then filled from the registry (labelMedia).
 func (s *Service) resolveMedia(ctx context.Context, tenantID string, items []domain.Item) []domain.QueueRow {
 	rows := make([]domain.QueueRow, len(items))
+	unknownIDs := make([]string, 0)
+	seenUnknown := map[string]struct{}{}
 	for i, it := range items {
 		refs := make([]string, 0, len(it.MediaRefs))
 		for _, id := range it.MediaRefs {
@@ -518,19 +548,20 @@ func (s *Service) resolveMedia(ctx context.Context, tenantID string, items []dom
 				refs = append(refs, id)
 			}
 		}
-		def := s.categoryFor(it.Category)
 		media := make([]domain.MediaItem, 0, len(refs))
 		for j, id := range refs {
-			// The producer's own per-proof label and kind (item.MediaMeta, positional) win: an
-			// authored removal slot is a "photo" titled by its SOP, whatever the registry's
-			// positional copy says. The registry is the fallback for items that carry none.
-			mime := declaredMimeType(def, j)
-			label := ""
+			// Positional against the item's media_meta (itself positional against MediaRefs; a blank
+			// ref is trimmed here exactly as it always was, so meta index j follows the trimmed list).
+			label, mime := "", ""
 			if j < len(it.MediaMeta) {
-				if m := it.MediaMeta[j].MimeType(); m != "" {
-					mime = m
-				}
 				label = strings.TrimSpace(it.MediaMeta[j].Label)
+				mime = it.MediaMeta[j].MimeType()
+			}
+			if mime == "" {
+				if _, dup := seenUnknown[id]; !dup {
+					seenUnknown[id] = struct{}{}
+					unknownIDs = append(unknownIDs, id)
+				}
 			}
 			media = append(media, domain.MediaItem{
 				ProofID:     id,
@@ -539,8 +570,34 @@ func (s *Service) resolveMedia(ctx context.Context, tenantID string, items []dom
 				MimeType:    mime,
 			})
 		}
-		labelMedia(media, def)
 		rows[i] = domain.QueueRow{Item: it, Media: media, EvidenceLinkResolved: len(media) > 0}
+	}
+
+	registerMimes := map[string]string{}
+	if reader, ok := s.media.(ports.ProofMediaKindReader); ok && len(unknownIDs) > 0 {
+		if mimes, err := reader.ProofMediaKinds(ctx, tenantID, unknownIDs); err == nil && mimes != nil {
+			registerMimes = mimes
+		}
+	}
+
+	for i := range rows {
+		def := s.categoryFor(rows[i].Item.Category)
+		authored := len(rows[i].Item.MediaMeta) > 0
+		media := rows[i].Media
+		labels := make([]string, len(media))
+		for j := range media {
+			if media[j].MimeType == "" {
+				media[j].MimeType = strings.TrimSpace(registerMimes[media[j].ProofID])
+			}
+			if media[j].MimeType == "" && !authored {
+				media[j].MimeType = declaredMimeType(def, j)
+			}
+			labels[j] = media[j].Label
+		}
+		for j, label := range domain.ComposeMediaLabels(labels) {
+			media[j].Label = label
+		}
+		labelMedia(media, def)
 	}
 	return rows
 }

@@ -19,10 +19,13 @@ func TestBirthProofKindsReachVerifierPlayer(t *testing.T) {
 		name        string
 		proofs      []tasksdomain.ProofItem
 		refs, mimes []string
+		labels      []string
 	}{
-		{"photo", []tasksdomain.ProofItem{{Ref: photo, Kind: tasksdomain.ProofKindPhoto}}, []string{photo}, []string{"image/jpeg"}},
-		{"mixed capture order", []tasksdomain.ProofItem{{Ref: photo, Kind: tasksdomain.ProofKindPhoto}, {Ref: video, Kind: tasksdomain.ProofKindVideo}}, []string{video, photo}, []string{"video/mp4", "image/jpeg"}},
-		{"legacy video", nil, []string{video}, []string{"video/mp4"}},
+		{"photo", []tasksdomain.ProofItem{{Ref: photo, Kind: tasksdomain.ProofKindPhoto}}, []string{photo}, []string{"image/jpeg"}, []string{"Authored step"}},
+		// Two proofs of ONE step share the step title, so the verifier reads them apart as
+		// "k of N" (domain.ComposeMediaLabels) rather than two identical headers.
+		{"mixed capture order", []tasksdomain.ProofItem{{Ref: photo, Kind: tasksdomain.ProofKindPhoto}, {Ref: video, Kind: tasksdomain.ProofKindVideo}}, []string{video, photo}, []string{"video/mp4", "image/jpeg"}, []string{"Authored step 1 of 2", "Authored step 2 of 2"}},
+		{"legacy video", nil, []string{video}, []string{"video/mp4"}, []string{"Authored step"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			repo := newFakeRepo()
@@ -46,7 +49,7 @@ func TestBirthProofKindsReachVerifierPlayer(t *testing.T) {
 					t.Fatalf("media=%+v", rows[0].Media)
 				}
 				for i, media := range rows[0].Media {
-					if media.MimeType != tc.mimes[i] || media.ProofID != tc.refs[i] || media.Label != "Authored step" {
+					if media.MimeType != tc.mimes[i] || media.ProofID != tc.refs[i] || media.Label != tc.labels[i] {
 						t.Fatalf("proof %d reached wrong player/label: %+v", i, media)
 					}
 				}
