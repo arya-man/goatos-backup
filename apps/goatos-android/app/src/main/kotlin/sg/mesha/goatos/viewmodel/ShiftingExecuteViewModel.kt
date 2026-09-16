@@ -107,7 +107,7 @@ class ShiftingExecuteViewModel @Inject constructor(
 
     private var statusJob: Job? = null
 
-    private fun controller(section: String, entity: String, prompt: ProofCapturePrompt, legacy: Map<String, String>) = FeedSopSlotController(
+    private fun controller(section: String, entity: String, prompt: ProofCapturePrompt, legacy: Map<String, String>) = SopSlotController(
         scope = viewModelScope,
         savedStateHandle = savedStateHandle,
         syncRepository = syncRepository,
@@ -131,7 +131,7 @@ class ShiftingExecuteViewModel @Inject constructor(
             )
         },
         photoContext = { slot -> PhotoCaptureContext(title = slot.title, instruction = slot.hint.ifBlank { slot.title }) },
-        events = FeedSopSlotController.Events(
+        events = SopSlotController.Events(
             captureTapped = AnalyticsEvents.COUNTS_SHIFTING_CAPTURE_TAPPED,
             captured = AnalyticsEvents.COUNTS_SHIFTING_EXECUTE_VIDEO_CAPTURED,
             uploadSynced = AnalyticsEvents.COUNTS_SHIFTING_PROOF_SYNCED,
@@ -146,7 +146,7 @@ class ShiftingExecuteViewModel @Inject constructor(
         durableFlowKey = CaptureFlow.SHIFTING,
         legacySteps = legacy,
         durableEntityId = entity,
-        shedIdProvider = { destinationShedId },
+        subjectIdProvider = { destinationShedId },
     )
 
     private val completion = controller(

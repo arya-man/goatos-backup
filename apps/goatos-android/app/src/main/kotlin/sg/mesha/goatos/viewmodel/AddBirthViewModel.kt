@@ -20,7 +20,13 @@ import sg.mesha.goatos.core.analytics.AnalyticsEvents
 import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.analytics.CrashReporter
 import sg.mesha.goatos.core.common.AppResult
+import sg.mesha.goatos.capture.PhotoCaptureSource
+import sg.mesha.goatos.capture.ProofCapturePrompt
+import sg.mesha.goatos.capture.ProofCaptureSource
+import sg.mesha.goatos.core.data.CountsCaptureCardRepository
 import sg.mesha.goatos.core.data.CountsRepository
+import sg.mesha.goatos.core.data.capture.ProofCaptureRepository
+import sg.mesha.goatos.core.data.capture.ProofSubject
 import sg.mesha.goatos.core.data.sync.SyncRepository
 import sg.mesha.goatos.core.network.dto.CountsApprovalSubmitResponseDto
 import sg.mesha.goatos.core.network.dto.CountsBirthEventRequestDto
@@ -59,7 +65,11 @@ class AddBirthViewModel @Inject constructor(
     private val scanSource: ScanSource,
     private val analytics: AnalyticsPort,
     private val crashReporter: CrashReporter,
-    savedStateHandle: SavedStateHandle,
+    private val savedStateHandle: SavedStateHandle,
+    captureCards: CountsCaptureCardRepository,
+    proofCaptureSource: ProofCaptureSource,
+    photoCaptureSource: PhotoCaptureSource,
+    proofCaptureRepository: ProofCaptureRepository,
 ) : ViewModel() {
 
     private val idempotencyKey = DraftIdempotencyKey(
@@ -77,6 +87,28 @@ class AddBirthViewModel @Inject constructor(
     private var statusJob: Job? = null
     private var scanJob: Job? = null
 
+    /** The authored capture card (photos/videos/questions); empty = today's plain form. */
+    private val capture = HerdCaptureForm(
+        kind = CAPTURE_KIND,
+        scope = viewModelScope,
+        savedStateHandle = savedStateHandle,
+        syncRepository = syncRepository,
+        proofCaptureSource = proofCaptureSource,
+        photoCaptureSource = photoCaptureSource,
+        proofCaptureRepository = proofCaptureRepository,
+        captureCards = captureCards,
+        analytics = analytics,
+        crashReporter = crashReporter,
+        // The newborn has no animal id until the server mints it, so the report's proofs are
+        // filed under the pen the kid is placed in.
+        proofSubject = ProofSubject.SHED,
+        proofScopeType = "shed",
+        prompt = ProofCapturePrompt.BIRTH,
+        subjectId = { _state.value.shedId },
+        locked = { _state.value.result.isCommitted },
+        onChanged = ::recomputeSubmitGate,
+    )
+
     init {
         // A ViewModel recreated after process death resumes following its already-queued write
         // instead of showing a blank form that invites a duplicate entry.
@@ -85,6 +117,8 @@ class AddBirthViewModel @Inject constructor(
         refreshDestinations()
         observeBreedOptions()
         refreshBreedOptions()
+        capture.start()
+        capture.refresh()
         recomputeSubmitGate()
     }
 
@@ -95,6 +129,9 @@ class AddBirthViewModel @Inject constructor(
             is AddBirthEvent.SelectShed -> onSelectShed(event.shedId)
             is AddBirthEvent.SelectLitterSize -> onSelectLitterSize(event.litterSize)
             AddBirthEvent.ToggleMotherRfidScan -> toggleMotherRfidScan()
+            AddBirthEvent.Refresh -> capture.refresh()
+            is AddBirthEvent.CaptureSlot -> if (beginEdit()) capture.capture(event.slotKey, event.kind)
+            is AddBirthEvent.Answer -> if (beginEdit()) capture.answer(event.questionId, event.value)
             AddBirthEvent.Submit -> submit()
             AddBirthEvent.RecordAnother -> resetForNextEntry(confirmation = null)
             AddBirthEvent.NavigationHandled -> _state.update { it.copy(returnToBirthList = false) }
@@ -294,6 +331,7 @@ class AddBirthViewModel @Inject constructor(
     }
 
     override fun onCleared() {
+        capture.close()
         stopMotherRfidScan()
         super.onCleared()
     }
@@ -303,6 +341,9 @@ class AddBirthViewModel @Inject constructor(
         val current = _state.value
         if (!current.canSubmit) return
         val key = idempotencyKey.current()
+        // Null unless a capture card is published: the request is then byte-for-byte today's.
+        val capturePayload = capture.payload()
+        if (capture.active && capturePayload == null) return
         viewModelScope.launch {
             val result = syncRepository.enqueueCountsBirth(
                 // No client identifier exists any more (the server mints the provisional tag), so
@@ -330,6 +371,7 @@ class AddBirthViewModel @Inject constructor(
                         CountsEvidenceRefDto(evidenceId = key, description = EVIDENCE_DESCRIPTION),
                     ),
                 ),
+                capture = capturePayload,
             )
             when (result) {
                 is AppResult.Ok -> {
@@ -387,6 +429,7 @@ class AddBirthViewModel @Inject constructor(
         val response = resultJson?.let { raw ->
             runCatching { RESPONSE_JSON.decodeFromString<CountsApprovalSubmitResponseDto>(raw) }.getOrNull()
         }
+        capture.reset()
         val createdCount = response?.children?.size?.takeIf { it > 0 } ?: _state.value.litterSize
         val notice = if (createdCount == 1) {
             "Birth recorded. 1 child workflow is ready; herd-count approval is separate."
@@ -412,6 +455,7 @@ class AddBirthViewModel @Inject constructor(
         statusJob = null
         idempotencyKey.invalidate()
         outboxItemId.value = null
+        capture.reset()
         _state.update { current ->
             AddBirthUiState(
                 dob = todayBusinessDate(),
@@ -426,11 +470,12 @@ class AddBirthViewModel @Inject constructor(
 
     private fun recomputeSubmitGate() {
         _state.update { current ->
+            val card = capture.card
             if (current.result.isCommitted) {
-                return@update current.copy(canSubmit = false, validationMessage = null)
+                return@update current.copy(captureCard = card, canSubmit = false, validationMessage = null)
             }
-            val missing = validation(current)
-            current.copy(canSubmit = missing == null, validationMessage = missing)
+            val missing = validation(current) ?: if (capture.ready) null else CAPTURE_INCOMPLETE_MESSAGE
+            current.copy(captureCard = card, canSubmit = missing == null, validationMessage = missing)
         }
     }
 
@@ -458,6 +503,8 @@ class AddBirthViewModel @Inject constructor(
         val IST: ZoneId = ZoneId.of("Asia/Kolkata")
         val HHMM: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm")
 
+        const val CAPTURE_KIND = "birth"
+        const val CAPTURE_INCOMPLETE_MESSAGE = "Record the report's photos and videos and answer its questions."
         const val KEY_IDEMPOTENCY = "countsAddBirth.idempotencyKey"
         const val KEY_OUTBOX_ITEM_ID = "countsAddBirth.outboxItemId"
         const val QUEUED_MESSAGE = "Saved on this phone. It will sync automatically."

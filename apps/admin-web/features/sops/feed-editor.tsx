@@ -225,7 +225,7 @@ export function FeedEditor({ pageContract: pc, basePath, sopId, sopName, sopCode
   );
 }
 
-function SlotCard({
+export function SlotCard({
   pc, index, count, slot, proofKinds, takenKeys, onChange, onMove, onRemove,
 }: {
   pc: AdminUiPageContract;

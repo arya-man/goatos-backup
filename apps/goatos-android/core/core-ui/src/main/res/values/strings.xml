@@ -27,4 +27,16 @@
     <string name="filters_clear_pen">Clear pen</string>
     <string name="filters_open_date">Change date range</string>
     <string name="filters_open_pen">Change pen</string>
+    <string name="sop_slot_take_photo">Take photo</string>
+    <string name="sop_slot_record_video">Record video</string>
+    <string name="sop_slot_required">Required</string>
+    <string name="sop_slot_optional">Optional</string>
+    <string name="sop_video_uploading">Uploading…</string>
+    <string name="sop_slot_retry">Retry · %1$s</string>
+    <string name="sop_proof_recapture">Re-capture proof</string>
+    <string name="sop_proof_rerecord">Re-record video</string>
+    <string name="sop_proof_synced">Proof ready</string>
+    <string name="sop_proof_uploading">Uploading proof</string>
+    <string name="sop_proof_waiting">Waiting to upload</string>
+    <string name="sop_proof_failed">Upload failed. Try again</string>
 </resources>

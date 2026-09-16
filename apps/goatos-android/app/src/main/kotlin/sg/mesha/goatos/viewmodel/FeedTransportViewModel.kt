@@ -388,7 +388,7 @@ class FeedTransportCaptureViewModel @Inject constructor(
             )
         },
         photoContext = { slot -> sg.mesha.goatos.capture.PhotoCaptureContext(title = slot.title, instruction = slot.hint.ifBlank { slot.title }) },
-        events = FeedSopSlotController.Events(
+        events = SopSlotController.Events(
             captureTapped = AnalyticsEvents.FEED_TRANSPORT_CAPTURE_TAPPED,
             captured = AnalyticsEvents.FEED_TRANSPORT_VIDEO_CAPTURED,
             uploadSynced = AnalyticsEvents.FEED_TRANSPORT_PROOF_UPLOAD_SYNCED,
@@ -406,14 +406,14 @@ class FeedTransportCaptureViewModel @Inject constructor(
 
     init {
         analytics.track(AnalyticsEvents.FEED_TRANSPORT_OPENED, transportEventProps(ACTION_DETAIL_OPENED))
-        slots.applyCard(seededCard(), FeedSopSlotController.CARD_RANK_SEEDED, source = "seeded")
+        slots.applyCard(seededCard(), SopSlotController.CARD_RANK_SEEDED, source = "seeded")
         viewModelScope.launch { slots.state.collect { card -> _state.update { it.copy(card = card) }; recomputeCanSubmit() } }
         slots.start()
         viewModelScope.launch {
             // The task row carries the card pinned on it; a task cached before cards existed
             // emits null and the seeded card stands.
             feedTransportRepository.observeTaskCard(taskId).filterNotNull()
-                .collect { card -> slots.applyCard(card, FeedSopSlotController.CARD_RANK_LIVE, source = "task") }
+                .collect { card -> slots.applyCard(card, SopSlotController.CARD_RANK_LIVE, source = "task") }
         }
         viewModelScope.launch {
             draft = drafts.find(CaptureFlow.FEED_TRANSPORT, taskId)

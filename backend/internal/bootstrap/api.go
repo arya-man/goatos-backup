@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	countssoppg "github.com/vgoats/goatos/backend/internal/countssop/adapters/postgres"
+	countssopapp "github.com/vgoats/goatos/backend/internal/countssop/app"
 	feedsoppg "github.com/vgoats/goatos/backend/internal/feedsop/adapters/postgres"
 	feedsopapp "github.com/vgoats/goatos/backend/internal/feedsop/app"
 	shiftingsoppg "github.com/vgoats/goatos/backend/internal/shiftingsop/adapters/postgres"
@@ -162,6 +164,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/sopbridge"
 	taskshttp "github.com/vgoats/goatos/backend/internal/tasks/adapters/http"
 	taskspg "github.com/vgoats/goatos/backend/internal/tasks/adapters/postgres"
+	tasksproofkinds "github.com/vgoats/goatos/backend/internal/tasks/adapters/proofkinds"
 	tasksverificationbridge "github.com/vgoats/goatos/backend/internal/tasks/adapters/verificationbridge"
 	tasksapp "github.com/vgoats/goatos/backend/internal/tasks/app"
 	tasksdomain "github.com/vgoats/goatos/backend/internal/tasks/domain"
@@ -583,7 +586,9 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 		// feed.transport versions' `feed` section -- the cards the crew runs -- is validated here
 		// so a card the phone could not render is never saved.
 		WithFormDSLContract(feedsopapp.FeedSOPContract).
-		WithFormDSLContract(shiftingsopapp.ShiftingSOPContract)
+		WithFormDSLContract(shiftingsopapp.ShiftingSOPContract).
+		// HERD OPERATIONS CAPTURE CARD (2026-09-16): counts.birth / counts.death `capture_card`.
+		WithFormDSLContract(countssopapp.CaptureCardContract)
 
 	protocolRepo := protocolpg.NewRepository(pool, cfg.Postgres.QueryTimeout)
 	obligationRepo := obligationpg.NewRepository(pool, cfg.Postgres.QueryTimeout)
@@ -719,7 +724,10 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 		// renders a UUID at an approver (golden frontend rule: the label is backend-owned).
 		WithApprovalNames(countsApprovalRepo).
 		WithShiftingExecutionWorkflow(countsShiftingExecutionService).
-		WithPenReconciliationWorkflow(countsPenReconciliationService)
+		WithPenReconciliationWorkflow(countsPenReconciliationService).
+		// SOP capture card (2026-09-16): the Add birth / Add death extras, read from the SOP
+		// library through countssop and judged against the proof register.
+		WithCaptureCards(countsapp.NewCaptureCardService(countssoppg.NewCaptureCardSource(pool, cfg.Postgres.QueryTimeout), countsProofValidator))
 	feedService := feedapp.NewService(feedpg.NewRepository(pool, cfg.Postgres.QueryTimeout)).
 		WithCountsProjectionProvider(countsService).
 		WithCountsProjectionExceptionResolver(countsService).
@@ -1096,6 +1104,11 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// goat.created/goat.exited, listed by the mobile /counts/birth and /counts/death modules.
 	tasksWorkflowService := tasksapp.NewService(tasksWorkflowRepo, log).
 		WithVerificationEnqueuer(tasksverificationbridge.New(verificationService)).
+		// SOP parity (2026-09-16): a step's proof kinds come from the proof register, so the
+		// verifier item names what the store judged, never what the client claimed.
+		WithProofKindResolver(tasksproofkinds.New(proofRepo)).
+		WithCaptureReshootListener(countsapp.NewBirthCaptureReshootService(countsApprovalRepo,
+			countsbridge.NewBirthCaptureVerificationEnqueuer(verificationService))).
 		// SOP-driven reconcile (2026-09-13): the tasks engine runs the card's questionnaire and
 		// reports the last step done to the counts service, which runs its ordinary completion.
 		WithCompletionHook(tasksdomain.TemplateKeyReconcile, countsPenReconciliationService)
@@ -1216,6 +1229,8 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// Birth/death workflow consumers: same single-registration pattern (internal/eventwiring), also
 	// called by cmd/outbox-relay, cmd/domain-event-consumer, domainconsumer/wiring, and kernelstages.
 	eventwiring.RegisterWorkflowConsumers(bus, tasksWorkflowService, log)
+	// SOP capture card: the birth report's own proofs -> verifier, verdict -> approval row.
+	eventwiring.RegisterCountsCaptureConsumers(bus, countsbridge.NewBirthCaptureVerificationEnqueuer(verificationService), countsApprovalRepo, tasksWorkflowService)
 	healthapp.NewDeathLifecycleHandler(healthRepo).Register(bus)
 	// Notification PUSH LAYER ONLY (docs/decisions/vaccination-notification-rules.md §4c): read-only
 	// consumers of vaccination.verification.awaiting_review and vaccination.verify.rejected/accepted

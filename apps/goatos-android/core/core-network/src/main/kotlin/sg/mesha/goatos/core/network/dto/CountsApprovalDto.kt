@@ -63,12 +63,16 @@ data class CountsApprovalListItemDto(
      */
     @SerialName("subject_animal_location") val subjectAnimalLocation: String? = null,
     /**
-     * The raise's SOP capture form as the approver sees it (shared CountsApprovalCapture shape,
-     * program decision 2026-09-16): version label, answers in farm words (grouped), captures under
-     * their slot titles with a kind, and a note naming what an older app did not send.
-     * BACKEND-OWNED; render verbatim. Absent for a request raised without one.
+     * The request's SOP capture form as the approver sees it (shared CountsApprovalCapture shape,
+     * program decision 2026-09-16): a birth/death report's capture card snapshot or a shifting
+     * raise's snapshot -- answers in farm words (grouped), captures under their slot titles with a
+     * kind, and a note naming what an older app did not send. BACKEND-OWNED; render verbatim.
+     * Absent when the form asked nothing.
      */
     @SerialName("capture") val capture: CountsApprovalCaptureDto? = null,
+    /** The verifier's verdict on the report proof (rollup): pending / approved / rework. */
+    @SerialName("capture_review_status") val captureReviewStatus: String? = null,
+    @SerialName("capture_review_reason") val captureReviewReason: String? = null,
     @SerialName("summary") val summary: JsonElement? = null,
     @SerialName("decided_by_user_id") val decidedByUserId: String? = null,
     @SerialName("decided_at") val decidedAt: String? = null,

@@ -586,7 +586,8 @@ interface ProofCaptureDao {
     @Query(
         "SELECT * FROM proof_capture WHERE taskId = :workflowId " +
             "AND proofSubject = 'workflow_death_draft' " +
-            "ORDER BY capturedAtMs ASC, id ASC LIMIT 2",
+            // Bounded by the death SOP's authored proof slots (every step's photos and videos).
+            "ORDER BY capturedAtMs ASC, id ASC LIMIT 64",
     )
     fun observeWorkflowDeathDrafts(workflowId: String): Flow<List<ProofCaptureEntity>>
 

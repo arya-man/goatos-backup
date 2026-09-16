@@ -32,3 +32,21 @@ func TestRegisterWorkflowConsumersRegistersAll(t *testing.T) {
 		}
 	}
 }
+
+// TestRegisterCountsCaptureConsumersRegistersAll pins the birth report -> verifier consumers
+// (SOP capture card, 2026-09-16): every bus process must enqueue the litter's report proofs on
+// counts.birth.reported and land the birth_capture verdict on the approval row.
+func TestRegisterCountsCaptureConsumersRegistersAll(t *testing.T) {
+	bus := &spyBus{subs: map[string]int{}}
+	RegisterCountsCaptureConsumers(bus, nil, nil, nil)
+	want := map[string]int{
+		"counts.birth.reported":         1,
+		"verification.verdict.approved": 1,
+		"verification.verdict.rework":   1,
+	}
+	for eventType, wantCount := range want {
+		if got := bus.subs[eventType]; got != wantCount {
+			t.Fatalf("%s subscribers = %d, want %d", eventType, got, wantCount)
+		}
+	}
+}

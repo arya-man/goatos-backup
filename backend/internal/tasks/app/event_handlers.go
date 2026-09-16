@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/vgoats/goatos/backend/internal/platform/eventbus"
+	"github.com/vgoats/goatos/backend/internal/sop/authored"
 	"github.com/vgoats/goatos/backend/internal/tasks/domain"
 	"github.com/vgoats/goatos/backend/internal/tasks/ports"
 )
@@ -27,6 +28,9 @@ const (
 type countsDeathPayload struct {
 	GoatID            string `json:"goat_id"`
 	ApprovalRequestID string `json:"approval_request_id"`
+	// CaptureEvidence is the Add death form's snapshot (SOP capture card, 2026-09-16); absent on
+	// events written before the field existed.
+	CaptureEvidence authored.Evidence `json:"capture_evidence"`
 }
 
 // CountsDeathReportedHandler opens the operator upload workflow immediately after submission;
@@ -47,30 +51,31 @@ func (h *CountsDeathRejectedHandler) Register(bus eventbus.Bus) {
 	bus.Subscribe(EventCountsDeathRejected, h)
 }
 
-func decodeCountsDeathEvent(e eventbus.Event) (string, error) {
+func decodeCountsDeathEvent(e eventbus.Event) (countsDeathPayload, error) {
 	var p countsDeathPayload
 	if len(e.Payload) > 0 {
 		if err := json.Unmarshal(e.Payload, &p); err != nil {
-			return "", eventbus.PermanentError(err)
+			return p, eventbus.PermanentError(err)
 		}
 	}
-	goatID := strings.TrimSpace(p.GoatID)
-	if goatID == "" {
-		goatID = strings.TrimSpace(e.Key)
+	p.GoatID = strings.TrimSpace(p.GoatID)
+	if p.GoatID == "" {
+		p.GoatID = strings.TrimSpace(e.Key)
 	}
-	return goatID, nil
+	return p, nil
 }
 
 func (h *CountsDeathReportedHandler) HandleEvent(ctx context.Context, e eventbus.Event) error {
-	goatID, err := decodeCountsDeathEvent(e)
-	if err != nil || goatID == "" || strings.TrimSpace(e.TenantID) == "" {
+	p, err := decodeCountsDeathEvent(e)
+	if err != nil || p.GoatID == "" || strings.TrimSpace(e.TenantID) == "" {
 		return err
 	}
-	return h.svc.OpenReportedDeathWorkflow(ctx, e.TenantID, goatID, e.OccurredAt)
+	return h.svc.OpenReportedDeathWorkflow(ctx, e.TenantID, p.GoatID, e.OccurredAt, p.CaptureEvidence)
 }
 
 func (h *CountsDeathRejectedHandler) HandleEvent(ctx context.Context, e eventbus.Event) error {
-	goatID, err := decodeCountsDeathEvent(e)
+	p, err := decodeCountsDeathEvent(e)
+	goatID := p.GoatID
 	if err != nil || goatID == "" || strings.TrimSpace(e.TenantID) == "" {
 		return err
 	}
@@ -351,11 +356,12 @@ func (h *DeathVerificationHandler) HandleEvent(ctx context.Context, e eventbus.E
 		verdictAt = h.now().UTC()
 	}
 	cmd := ports.DeathVerdictCommand{
-		TenantID:   e.TenantID,
-		WorkflowID: workflowID,
-		VerifiedBy: strings.TrimSpace(p.VerifiedBy),
-		Reason:     strings.TrimSpace(p.Reason),
-		VerdictAt:  verdictAt,
+		RecordingKey: strings.TrimSpace(p.Source.RecordingKey),
+		TenantID:     e.TenantID,
+		WorkflowID:   workflowID,
+		VerifiedBy:   strings.TrimSpace(p.VerifiedBy),
+		Reason:       strings.TrimSpace(p.Reason),
+		VerdictAt:    verdictAt,
 	}
 	switch e.Type {
 	case EventVerificationVerdictApproved:

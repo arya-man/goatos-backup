@@ -256,4 +256,15 @@
     <string name="counts_hint_death_cause_search">ಕೆಲವು ಅಕ್ಷರ ಟೈಪ್ ಮಾಡಿ, ನಂತರ ರೋಗವನ್ನು ಆಯ್ಕೆ ಮಾಡಿ.</string>
     <string name="counts_death_cause_no_match">ಅದಕ್ಕೆ ಯಾವ ರೋಗವೂ ಹೋಲುವುದಿಲ್ಲ. ಸಿಗದಿದ್ದರೆ ಸಾಮಾನ್ಯ ಮರಣ ದಾಖಲಿಸಿ ಮತ್ತು ನೀವು ನೋಡಿದನ್ನು ಬರೆಯಿರಿ.</string>
     <string name="counts_hint_reason_disease">ಐಚ್ಛಿಕ. 500 ಅಕ್ಷರಗಳವರೆಗೆ.</string>
+    <string name="counts_approval_capture_title">ಫಾರ್ಮ್‌ನಲ್ಲಿ ದಾಖಲಿಸಲಾಗಿದೆ</string>
+    <string name="counts_approval_capture_review_pending">ವರದಿಯ ಪುರಾವೆ ಪರಿಶೀಲಕರಿಗಾಗಿ ಕಾಯುತ್ತಿದೆ</string>
+    <string name="counts_approval_capture_review_approved">ವರದಿಯ ಪುರಾವೆಯನ್ನು ಪರಿಶೀಲಕರು ಅನುಮೋದಿಸಿದ್ದಾರೆ</string>
+    <string name="counts_approval_capture_review_rework">ವರದಿಯ ಪುರಾವೆಯನ್ನು ಮತ್ತೆ ದಾಖಲಿಸಲು ಹಿಂತಿರುಗಿಸಲಾಗಿದೆ</string>
+    <string name="counts_approval_capture_missing">ದಾಖಲಾಗಿಲ್ಲ (ಹಳೆಯ ಆ್ಯಪ್): %1$s</string>
+    <string name="counts_approval_capture_open_media">%1$s ತೆರೆಯಿರಿ</string>
+    <string name="counts_approval_capture_media_loading">ತೆರೆಯಲಾಗುತ್ತಿದೆ…</string>
+    <string name="counts_approval_capture_media_failed">%1$s ತೆರೆಯಲಾಗಲಿಲ್ಲ. ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಲು ಟ್ಯಾಪ್ ಮಾಡಿ.</string>
+    <string name="counts_group_report">ವರದಿ</string>
+    <string name="counts_capture_choose_pen_first">ವರದಿಯ ಫೋಟೋ ಮತ್ತು ವೀಡಿಯೊ ದಾಖಲಿಸಲು ಮೊದಲು ಕೊಟ್ಟಿಗೆಯನ್ನು ಆಯ್ಕೆಮಾಡಿ.</string>
+    <string name="counts_capture_choose_animal_first">ವರದಿಯ ಫೋಟೋ ಮತ್ತು ವೀಡಿಯೊ ದಾಖಲಿಸಲು ಮೊದಲು ಪ್ರಾಣಿಯನ್ನು ಆಯ್ಕೆಮಾಡಿ.</string>
 </resources>

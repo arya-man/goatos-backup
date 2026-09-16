@@ -14,6 +14,8 @@ import { FeedEditor } from "./feed-editor";
 import { parseFeed } from "./feed-model";
 import { ShiftingEditor } from "./shifting-editor";
 import { parseShifting } from "./shifting-model";
+import { CaptureCardEditor } from "./capture-editor";
+import { parseCaptureCard } from "./capture-model";
 
 // Shared server renderer for the per-module SOP pages (SOP split, maintainer decision 2026-08-18):
 // /vaccination/sops, /counts/sops, and /feed/sops each mount this with their own page-contract key,
@@ -41,6 +43,25 @@ export async function renderSopModulePage(
         // The editor opens the version IN FORCE (what the phone runs); an abandoned draft or a
         // retired version above it is never the base of the next publish.
         const version = detail.data.published_version ?? detail.data.latest_version;
+        // HERD OPERATIONS CAPTURE CARD (maintainer decision 4, 2026-09-16): `&part=capture` opens
+        // the Add birth / Add death form's SOP extras; the operator steps ride along verbatim.
+        if (sp.part === "capture") {
+          const capture = parseCaptureCard(detail.data.sop.code, version.form_dsl);
+          if (capture) {
+            const pageContract = await pageContractPromise;
+            return (
+              <CaptureCardEditor
+                pageContract={pageContract}
+                basePath={basePath}
+                sopId={editId}
+                sopName={detail.data.sop.name}
+                sopCode={detail.data.sop.code}
+                versionLabel={`${version.version_label} · ${version.status}`}
+                initial={capture}
+              />
+            );
+          }
+        }
         // SOP-DRIVEN HERD OPERATIONS (maintainer decision 2026-09-13): a SOP that carries
         // operator steps (form_dsl.follow_up) is edited through the operator-steps editor. The
         // capture form it also carries is passed through verbatim on save (P1), so the old

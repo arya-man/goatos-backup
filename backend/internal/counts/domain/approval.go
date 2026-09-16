@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"time"
+
+	"github.com/vgoats/goatos/backend/internal/sop/authored"
 )
 
 // Counts lifecycle approval workflow.
@@ -87,7 +89,31 @@ type ApprovalRequest struct {
 	RequestFingerprint string
 
 	RowVersion int
+
+	// Capture is the SOP capture card's snapshot taken at raise (proofs under their titles with
+	// the register's kind, answers in farm words, the older-app missing note). Empty when the
+	// card asked nothing or the row predates the feature. CaptureReviewStatus / Reason carry the
+	// verifier's verdict on the report's own proof (birth: the birth_capture item).
+	Capture             authored.Evidence
+	CaptureReviewStatus *string
+	CaptureReviewReason *string
 }
+
+// ApprovalCapture is what a judged capture-card submission stores beside the request: the
+// pinned version, the slot map and answers as accepted, and the composed snapshot.
+type ApprovalCapture struct {
+	SOPVersionID string
+	Proofs       authored.ProofRefs
+	Answers      authored.Answers
+	Evidence     authored.Evidence
+}
+
+// Capture review statuses (counts_approval_requests.capture_review_status).
+const (
+	CaptureReviewPending  = "pending"
+	CaptureReviewApproved = "approved"
+	CaptureReviewRework   = "rework"
+)
 
 // ApprovalRequestSubmission is the create input for a pending request.
 type ApprovalRequestSubmission struct {
@@ -103,6 +129,9 @@ type ApprovalRequestSubmission struct {
 
 	IdempotencyKey     string
 	RequestFingerprint string
+
+	// Capture is the judged capture-card submission; nil when the card asked nothing.
+	Capture *ApprovalCapture
 }
 
 // ApprovalDecision is the approve/reject input.
@@ -225,6 +254,11 @@ type ApprovalRequestSummary struct {
 	DecidedByUserID *string
 	DecidedAt       *time.Time
 	DecisionReason  *string
+
+	// Capture is the report's capture snapshot for the approver (see ApprovalRequest.Capture).
+	Capture             authored.Evidence
+	CaptureReviewStatus *string
+	CaptureReviewReason *string
 }
 
 const (

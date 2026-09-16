@@ -16,7 +16,11 @@ const (
 	EventProjectionExceptionClosed  = "counts.projection_exception.closed"
 	EventDeathReported              = "counts.death.reported"
 	EventDeathRejected              = "counts.death.rejected"
-	SourceContractVersionV1         = "counts-shifting-v1"
+	// EventBirthReported is written in the SAME transaction as the birth approval request and
+	// its canonical children; it carries the Add birth form's capture snapshot so the report's
+	// own proof reaches the verifier (birth_evidence, ref_type birth_capture).
+	EventBirthReported      = "counts.birth.reported"
+	SourceContractVersionV1 = "counts-shifting-v1"
 )
 
 type ReadinessStatus string

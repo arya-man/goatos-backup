@@ -1,14 +1,21 @@
 package eventwiring
 
 import (
+	"context"
 	"log/slog"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	countspg "github.com/vgoats/goatos/backend/internal/counts/adapters/postgres"
+	countsapp "github.com/vgoats/goatos/backend/internal/counts/app"
+	countsdomain "github.com/vgoats/goatos/backend/internal/counts/domain"
+	"github.com/vgoats/goatos/backend/internal/countsbridge"
 	identitypg "github.com/vgoats/goatos/backend/internal/identity/adapters/postgres"
 	"github.com/vgoats/goatos/backend/internal/platform/eventbus"
+	proofpg "github.com/vgoats/goatos/backend/internal/proof/adapters/postgres"
 	taskspg "github.com/vgoats/goatos/backend/internal/tasks/adapters/postgres"
+	tasksproofkinds "github.com/vgoats/goatos/backend/internal/tasks/adapters/proofkinds"
 	tasksverificationbridge "github.com/vgoats/goatos/backend/internal/tasks/adapters/verificationbridge"
 	tasksapp "github.com/vgoats/goatos/backend/internal/tasks/app"
 	verificationpg "github.com/vgoats/goatos/backend/internal/verification/adapters/postgres"
@@ -26,7 +33,11 @@ func NewWorkflowConsumerService(pool *pgxpool.Pool, timeout time.Duration, log *
 	workflowRepo := taskspg.NewRepository(pool, timeout).
 		WithIdentityTxWriter(identitypg.NewRepository(pool, timeout))
 	return tasksapp.NewService(workflowRepo, log).
-		WithVerificationEnqueuer(tasksverificationbridge.New(verificationRepo))
+		WithVerificationEnqueuer(tasksverificationbridge.New(verificationRepo)).
+		// A recorded birth report re-shoot swaps the proof on the approval row and re-queues it.
+		WithCaptureReshootListener(countsapp.NewBirthCaptureReshootService(countspg.NewRepository(pool, timeout),
+			countsbridge.NewBirthCaptureVerificationEnqueuer(verificationRepo))).
+		WithProofKindResolver(tasksproofkinds.New(proofpg.NewRepository(pool, timeout)))
 }
 
 // RegisterWorkflowConsumers subscribes the birth/death workflow-engine consumers
@@ -56,4 +67,31 @@ func RegisterWorkflowConsumers(bus eventbus.Bus, svc *tasksapp.Service, log *slo
 	// SOP questionnaires on a non-goat subject (reconcile card today, shifting event next): a
 	// verifier rework reopens the workflow's proof steps (docs/decisions/sop-driven-herd-operations.md).
 	tasksapp.NewSubjectWorkflowVerdictHandler(svc).Register(bus)
+}
+
+// CaptureReviewStore is the counts repository slice the birth_capture verdict consumer drives.
+type CaptureReviewStore interface {
+	SetCaptureSlotReview(ctx context.Context, tenantID, approvalRequestID, slotKey, ref, status, reason string) (countsdomain.ApprovalRequest, bool, error)
+}
+
+// RegisterCountsCaptureConsumers subscribes the SOP capture card's birth-report consumers
+// (docs/decisions/sop-driven-herd-operations.md → "Phase 2: capture forms"). The ONE place they
+// are registered; bootstrap/api.go, cmd/outbox-relay, cmd/domain-event-consumer,
+// internal/kernelstages and internal/domainconsumer/wiring all call it.
+//
+//	counts.birth.reported                  -> one birth_evidence item per form proof slot (ref_type birth_capture)
+//	verification.verdict.approved/.rework  -> that slot's review (+ rollup) on the approval row
+//
+// engine (the tasks service) appends the re-shoot steps a rejection asks for (decision 5).
+func RegisterCountsCaptureConsumers(bus eventbus.Bus, enqueuer countsapp.BirthCaptureVerificationEnqueuer, store CaptureReviewStore, engine countsapp.CaptureReshootEngine) {
+	countsapp.NewBirthReportedVerificationHandler(enqueuer, nil).Register(bus)
+	countsapp.NewBirthCaptureVerdictHandler(store, nil).WithReshootEngine(engine).Register(bus)
+}
+
+// NewCountsCaptureStores builds the durable-bus seams for RegisterCountsCaptureConsumers from a
+// pool (the verification repository is the trusted internal producer, as for the workflow
+// consumers above).
+func NewCountsCaptureStores(pool *pgxpool.Pool, timeout time.Duration) (countsapp.BirthCaptureVerificationEnqueuer, CaptureReviewStore) {
+	return countsbridge.NewBirthCaptureVerificationEnqueuer(verificationpg.NewRepository(pool, timeout)),
+		countspg.NewRepository(pool, timeout)
 }

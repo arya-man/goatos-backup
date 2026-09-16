@@ -256,4 +256,15 @@
     <string name="counts_hint_death_cause_search">కొన్ని అక్షరాలు టైప్ చేసి, తర్వాత వ్యాధిని నొక్కండి.</string>
     <string name="counts_death_cause_no_match">దీనికి ఏ వ్యాధి సరిపోలడం లేదు. దొరకకపోతే సాధారణ మరణం నమోదు చేసి, మీరు చూసినది రాయండి.</string>
     <string name="counts_hint_reason_disease">ఐచ్ఛికం. 500 అక్షరాల వరకు.</string>
+    <string name="counts_approval_capture_title">ఫారమ్‌లో నమోదు చేయబడింది</string>
+    <string name="counts_approval_capture_review_pending">నివేదిక ఆధారం పరిశీలకుడి కోసం వేచి ఉంది</string>
+    <string name="counts_approval_capture_review_approved">నివేదిక ఆధారాన్ని పరిశీలకుడు ఆమోదించారు</string>
+    <string name="counts_approval_capture_review_rework">నివేదిక ఆధారాన్ని మళ్లీ రికార్డ్ చేయడానికి తిరిగి పంపారు</string>
+    <string name="counts_approval_capture_missing">నమోదు కాలేదు (పాత యాప్): %1$s</string>
+    <string name="counts_approval_capture_open_media">%1$s తెరవండి</string>
+    <string name="counts_approval_capture_media_loading">తెరుస్తోంది…</string>
+    <string name="counts_approval_capture_media_failed">%1$s తెరవలేకపోయాం. మళ్లీ ప్రయత్నించడానికి నొక్కండి.</string>
+    <string name="counts_group_report">నివేదిక</string>
+    <string name="counts_capture_choose_pen_first">నివేదిక ఫోటోలు, వీడియోలు రికార్డ్ చేయడానికి ముందుగా పెన్‌ను ఎంచుకోండి.</string>
+    <string name="counts_capture_choose_animal_first">నివేదిక ఫోటోలు, వీడియోలు రికార్డ్ చేయడానికి ముందుగా జంతువును ఎంచుకోండి.</string>
 </resources>

@@ -30,6 +30,9 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
+import sg.mesha.goatos.core.ui.RefreshOnResume
+import sg.mesha.goatos.core.ui.sop.SopCardUi
+import sg.mesha.goatos.core.ui.sop.sopCardItems
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 import sg.mesha.goatos.core.designsystem.theme.MeshaType
 
@@ -77,6 +80,8 @@ data class AddBirthUiState(
     val returnToBirthList: Boolean = false,
     /** Backend-result-aware acknowledgement handed to the parent Birth list. */
     val submissionNotice: String? = null,
+    /** The published SOP capture card; empty (the default) renders today's plain form. */
+    val captureCard: SopCardUi = SopCardUi(),
 ) {
     val shedsForSelectedPark: List<ShiftingShedUi>
         get() = destinationParks.firstOrNull { it.parkId == parkId }?.sheds.orEmpty()
@@ -104,6 +109,10 @@ sealed interface AddBirthEvent {
     data class SelectShed(val shedId: String) : AddBirthEvent
     data class SelectLitterSize(val litterSize: Int) : AddBirthEvent
     data object ToggleMotherRfidScan : AddBirthEvent
+    /** Re-reads the published capture card (every time the form is shown). */
+    data object Refresh : AddBirthEvent
+    data class CaptureSlot(val slotKey: String, val kind: String?) : AddBirthEvent
+    data class Answer(val questionId: String, val value: String) : AddBirthEvent
     data object Submit : AddBirthEvent
     data object RecordAnother : AddBirthEvent
     data object NavigationHandled : AddBirthEvent
@@ -119,6 +128,7 @@ fun AddBirthScreen(
     onEvent: (AddBirthEvent) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
+    RefreshOnResume { onEvent(AddBirthEvent.Refresh) }
     Column(modifier = modifier.fillMaxSize().background(MeshaColors.PageBg)) {
         CountsFormHeader(
             title = stringResource(R.string.counts_workflow_add_birth),
@@ -282,6 +292,28 @@ fun AddBirthScreen(
                 }
             }
 
+            // The authored capture card (SOP-driven Herd Operations, 2026-09-16). Absent until a
+            // card is published for this report, so the form reads exactly as before.
+            if (!state.captureCard.isEmpty) {
+                item(key = "capture-card") {
+                    AddFormGroupCard(title = stringResource(R.string.counts_group_report)) {
+                        if (state.captureCard.instruction.isNotBlank()) {
+                            Text(text = state.captureCard.instruction, color = MeshaColors.Muted, style = MeshaType.cardSubtitle)
+                        }
+                        if (state.shedId.isBlank()) {
+                            Text(text = stringResource(R.string.counts_capture_choose_pen_first), color = MeshaColors.Warn, style = MeshaType.cardSubtitle)
+                        }
+                    }
+                }
+                sopCardItems(
+                    card = state.captureCard,
+                    locked = state.result.status == CountsWriteStatus.QUEUED || state.result.status == CountsWriteStatus.SYNCED || state.shedId.isBlank(),
+                    onCapture = { key, kind -> onEvent(AddBirthEvent.CaptureSlot(key, kind)) },
+                    onPlaybackFailed = {},
+                    onPreviewAction = { _, _ -> },
+                    onAnswer = { id, value -> onEvent(AddBirthEvent.Answer(id, value)) },
+                )
+            }
             item(key = "workflow-note") {
                 Text(
                     text = stringResource(R.string.counts_add_birth_workflow_note),

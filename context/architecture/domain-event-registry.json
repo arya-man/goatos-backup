@@ -618,7 +618,7 @@
         {
           "module": "tasks",
           "file": "backend/internal/tasks/app/event_handlers.go",
-          "notes": "CountsDeathReportedHandler opens the death workflow immediately from the still-live goat's canonical park/shed facts. The event and counts_approval_requests insert commit atomically; migration 000035 backfills pending pre-existing death requests."
+          "notes": "CountsDeathReportedHandler opens the death workflow immediately from the still-live goat's canonical park/shed facts. The event and counts_approval_requests insert commit atomically; migration 000035 backfills pending pre-existing death requests. SOP capture card (2026-09-16): the payload carries capture_evidence (the Add death form snapshot), stamped on workflow_instances.capture_evidence at open and leading the death verifier bundle."
         },
         {
           "module": "health",
@@ -633,6 +633,33 @@
         "backend/internal/eventwiring/workflows_test.go"
       ],
       "durableBusRegistration": "backend/internal/eventwiring/workflows.go (RegisterWorkflowConsumers) is called by bootstrap/api.go, cmd/outbox-relay, cmd/domain-event-consumer, internal/domainconsumer/wiring, and internal/kernelstages.",
+      "surfaces": [
+        "backend",
+        "frontend",
+        "mobile"
+      ]
+    },
+    {
+      "eventType": "counts.birth.reported",
+      "producer": "counts birth approval-request submission (litter + request + event in one transaction)",
+      "producerFiles": [
+        "backend/internal/counts/domain/types.go",
+        "backend/internal/counts/adapters/postgres/approval_repository.go"
+      ],
+      "consumers": [
+        {
+          "module": "counts",
+          "file": "backend/internal/counts/app/birth_capture_verification.go",
+          "notes": "BirthReportedVerificationHandler enqueues ONE birth_evidence verification item PER FORM PROOF SLOT (birth is verified per recording; ref_type birth_capture, ref_id birth_event_id, key counts-birth-capture:<event>:<slot>:<ref>) carrying only that slot's proof under its title plus the form's answers as context rows grouped At report; no item when the report has no media. BirthCaptureVerdictHandler lands the verdict on that slot's review, fenced on the slot's current ref (capture_review_status is the rollup), and a reject opens a re-shoot step for that slot only."
+        }
+      ],
+      "owningDoc": "docs/decisions/sop-driven-herd-operations.md",
+      "e2eProof": [
+        "backend/internal/counts/app/birth_capture_verification_test.go",
+        "backend/internal/counts/adapters/postgres/capture_card_integration_test.go",
+        "backend/internal/eventwiring/workflows_test.go"
+      ],
+      "durableBusRegistration": "backend/internal/eventwiring/workflows.go (RegisterCountsCaptureConsumers) is called by bootstrap/api.go, cmd/outbox-relay, cmd/domain-event-consumer, internal/domainconsumer/wiring, and internal/kernelstages.",
       "surfaces": [
         "backend",
         "frontend",

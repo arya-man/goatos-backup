@@ -127,7 +127,7 @@ enum class WorkflowStatusTone { OVERDUE, SCHEDULED, DONE, BLOCKED, IN_REVIEW }
 @Immutable
 data class WorkflowAnswerOptionUi(val value: String, val label: String)
 
-/** Copy state for the death evidence acknowledgment; uploading action 2 is the real submission. */
+/** Copy state for the death evidence acknowledgment; uploading every step is the real submission. */
 enum class WorkflowDeathSubmissionLabel { SUBMIT, UPLOADING, UPLOAD_FAILED, SUBMITTED }
 
 @Immutable
@@ -158,7 +158,8 @@ data class WorkflowDetailUiState(
     val isRefreshing: Boolean = false,
     val isCapturingVideo: Boolean = false,
     val isSubmittingDeath: Boolean = false,
-    val deathDraftCount: Int = 0,
+    /** Death: every step the operator still owes is recorded on the phone (drafts + answers). */
+    val deathStepsReady: Boolean = false,
     val deathDraftsSubmitting: Boolean = false,
     val deathUploadFailed: Boolean = false,
     /** Transient action-write feedback (queued offline / failure), rendered verbatim. */
@@ -188,7 +189,7 @@ data class WorkflowDetailUiState(
 
     val deathSubmissionEnabled: Boolean
         get() = deathSubmissionLabel == WorkflowDeathSubmissionLabel.SUBMIT &&
-            actionsTotal == 2 && deathDraftCount == 2 && !isCapturingVideo && !isSubmittingDeath
+            deathStepsReady && !isCapturingVideo && !isSubmittingDeath
 }
 
 sealed interface WorkflowDetailEvent {

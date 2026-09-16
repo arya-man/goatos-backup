@@ -136,7 +136,7 @@ class FeedPackingCompleteViewModel @Inject constructor(
             )
         },
         photoContext = { slot -> PhotoCaptureContext(title = slot.title, instruction = slot.hint.ifBlank { slot.title }) },
-        events = FeedSopSlotController.Events(
+        events = SopSlotController.Events(
             captureTapped = AnalyticsEvents.FEED_PACKING_CAPTURE_TAPPED,
             captured = AnalyticsEvents.FEED_PACKING_VIDEO_CAPTURED,
             uploadSynced = AnalyticsEvents.FEED_PACKING_PROOF_UPLOAD_SYNCED,
@@ -158,7 +158,7 @@ class FeedPackingCompleteViewModel @Inject constructor(
 
     init {
         analytics.track(AnalyticsEvents.FEED_PACKING_COMPLETE_OPENED, packingEventProps(ACTION_DETAIL_OPENED))
-        slots.applyCard(seededCard(), FeedSopSlotController.CARD_RANK_SEEDED, source = "seeded")
+        slots.applyCard(seededCard(), SopSlotController.CARD_RANK_SEEDED, source = "seeded")
         viewModelScope.launch { slots.state.collect { card -> _state.update { it.copy(card = card) }; recomputeCanComplete() } }
         slots.start()
         observeCachedCard()
@@ -193,7 +193,7 @@ class FeedPackingCompleteViewModel @Inject constructor(
         viewModelScope.launch {
             feedRepository.observePackingCard(parkId, targetDate, workflow)
                 .filterNotNull()
-                .collect { card -> slots.applyCard(card, FeedSopSlotController.CARD_RANK_CACHED, source = "room") }
+                .collect { card -> slots.applyCard(card, SopSlotController.CARD_RANK_CACHED, source = "room") }
         }
     }
 

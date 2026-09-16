@@ -21,6 +21,7 @@ import sg.mesha.goatos.core.database.outbox.OutboxOpType
 import sg.mesha.goatos.core.database.outbox.OutboxStatus
 import sg.mesha.goatos.core.network.AppApi
 import sg.mesha.goatos.core.network.appApiStatusCode
+import sg.mesha.goatos.core.network.dto.CountsSopCaptureDto
 import sg.mesha.goatos.core.network.dto.FeedDirectionCompleteRequestDto
 import sg.mesha.goatos.core.network.dto.FeedDistributionCompleteRequestDto
 import sg.mesha.goatos.core.network.dto.FeedTransportSubmitRequestDto
@@ -1358,22 +1359,33 @@ class SyncEngine(
         // not-yet-uploaded capture suspends the raise on the shared proof lane). A raise with none
         // sends the request exactly as it was queued.
         val request = if (payload.slotProofs.isEmpty()) payload.request
-        else payload.request.copy(proofs = resolveFeedSlotProofs(payload.slotProofs))
+        else payload.request.copy(proofs = resolveSlotProofs(payload.slotProofs))
         val response = api.recordCountsShiftingEvent(item.idempotencyKey, request)
         return syncJson.encodeToString(response)
     }
 
     private suspend fun dispatchCountsBirth(item: OutboxEntity): String {
         val payload = syncJson.decodeFromString<CountsBirthPayload>(item.payloadJson)
-        val response = api.recordCountsBirthEvent(item.idempotencyKey, payload.request)
+        val request = payload.capture?.let { payload.request.copy(sopCapture = resolveCountsCapture(it)) } ?: payload.request
+        val response = api.recordCountsBirthEvent(item.idempotencyKey, request)
         return syncJson.encodeToString(response)
     }
 
     private suspend fun dispatchCountsDeath(item: OutboxEntity): String {
         val payload = syncJson.decodeFromString<CountsDeathPayload>(item.payloadJson)
-        val response = api.recordCountsDeathEvent(item.idempotencyKey, payload.request)
+        val request = payload.capture?.let { payload.request.copy(sopCapture = resolveCountsCapture(it)) } ?: payload.request
+        val response = api.recordCountsDeathEvent(item.idempotencyKey, request)
         return syncJson.encodeToString(response)
     }
+
+    /** The capture card extras with every slot resolved to its server proof id (a pending upload
+     *  holds the report back, exactly as a feed card's completion waits). */
+    private suspend fun resolveCountsCapture(capture: CountsCapturePayload): CountsSopCaptureDto =
+        CountsSopCaptureDto(
+            sopVersionId = capture.sopVersionId?.takeIf { it.isNotBlank() },
+            proofs = resolveSlotProofs(capture.slotProofs),
+            answers = capture.answers,
+        )
 
     /**
      * The two Counts APPROVAL decisions. Same idempotent-replay contract as every other
@@ -1415,7 +1427,7 @@ class SyncEngine(
             // SHIFTING SOP (2026-09-16): every capture of the pinned card resolves to its server proof
             // id; `proofs` + `answers` are the submission, and the legacy columns ride along as the
             // seeded slots' mirrors (proof_ref falls back to the first capture, as the server does).
-            val proofs = resolveFeedSlotProofs(payload.slotProofs)
+            val proofs = resolveSlotProofs(payload.slotProofs)
             val response = api.completeCountsShiftingEvent(
                 payload.shiftingEventId,
                 item.idempotencyKey,
@@ -1569,7 +1581,7 @@ class SyncEngine(
         // it has finished). The three fixed fields mirror the seeded slots for an older backend and
         // are blank when the card no longer has that slot. A row queued by an older build carries
         // no slot map and resolves the fixed trio exactly as before.
-        val proofs = resolveFeedSlotProofs(payload.slotProofs)
+        val proofs = resolveSlotProofs(payload.slotProofs)
         val cardShaped = payload.slotProofs.isNotEmpty()
         val response = api.completeFeedDistribution(
             item.idempotencyKey,
@@ -1603,11 +1615,12 @@ class SyncEngine(
     }
 
     /**
-     * Resolves a feed card's {slot key: source} to {slot key: server proof id}. A slot whose upload
+     * Resolves a SOP card's {slot key: source} (feed cards, herd capture cards) to
+     * {slot key: server proof id}. A slot whose upload
      * is still pending raises [ProofDependencyPendingException] (the completion waits, exactly as
      * the fixed trio did); a slot whose upload failed permanently is terminal.
      */
-    private suspend fun resolveFeedSlotProofs(sources: Map<String, FeedSlotProofSourcePayload>): Map<String, String> {
+    private suspend fun resolveSlotProofs(sources: Map<String, FeedSlotProofSourcePayload>): Map<String, String> {
         if (sources.isEmpty()) return emptyMap()
         val out = LinkedHashMap<String, String>(sources.size) // mobile-guard:ignore: bounded by the card's slot count (<= 12 per SOP); local to one dispatch
         for ((slotKey, source) in sources) {
@@ -1647,7 +1660,7 @@ class SyncEngine(
                 targetDate = payload.targetDate,
                 workflow = payload.workflow,
                 packingProofRef = legacyFeedSlotRef(payload.slotProofs, FEED_SLOT_PACKING_VIDEO, payload.packingProofOutboxItemId),
-                proofs = resolveFeedSlotProofs(payload.slotProofs),
+                proofs = resolveSlotProofs(payload.slotProofs),
                 answers = payload.answers,
             ),
         )
@@ -1660,7 +1673,7 @@ class SyncEngine(
      * queued by an older build resolves its one coupled upload exactly as before.
      */
     private suspend fun legacyFeedSlotRef(slotProofs: Map<String, FeedSlotProofSourcePayload>, seededKey: String, legacyOutboxItemId: String): String =
-        if (slotProofs.isNotEmpty()) resolveFeedSlotProofs(slotProofs)[seededKey].orEmpty()
+        if (slotProofs.isNotEmpty()) resolveSlotProofs(slotProofs)[seededKey].orEmpty()
         else resolveUploadedProofRef(legacyOutboxItemId)
 
     /**
@@ -1682,7 +1695,7 @@ class SyncEngine(
                 partitionLabel = payload.partitionLabel,
                 targetDate = payload.targetDate,
                 wastageProofRef = legacyFeedSlotRef(payload.slotProofs, FEED_SLOT_WASTAGE_VIDEO, payload.wastageProofOutboxItemId),
-                proofs = resolveFeedSlotProofs(payload.slotProofs),
+                proofs = resolveSlotProofs(payload.slotProofs),
                 answers = payload.answers,
             ),
         )
@@ -1961,7 +1974,7 @@ class SyncEngine(
             item.idempotencyKey,
             FeedTransportSubmitRequestDto(
                 proofRef = legacyFeedSlotRef(payload.slotProofs, FEED_SLOT_TRANSPORT_VIDEO, payload.proofOutboxItemId),
-                proofs = resolveFeedSlotProofs(payload.slotProofs),
+                proofs = resolveSlotProofs(payload.slotProofs),
                 answers = payload.answers,
             ),
         )

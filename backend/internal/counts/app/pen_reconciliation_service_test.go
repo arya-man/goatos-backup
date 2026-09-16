@@ -20,6 +20,8 @@ type fakePenReconciliationRepo struct {
 	listCalls      []domain.PenReconciliationQuery
 	debts          []domain.PenReconciliationVerificationEnqueueDebt
 	debtErr        error
+	// cardIDByWorkflow resolves the workflow-completion path's card (blank = not found).
+	cardIDByWorkflow string
 }
 
 func (f *fakePenReconciliationRepo) RaisePenReconciliationCards(context.Context, domain.PenReconciliationRaiseCommand) (int, error) {
@@ -31,7 +33,12 @@ func (f *fakePenReconciliationRepo) ListPenReconciliationCards(_ context.Context
 }
 func (f *fakePenReconciliationRepo) CompletePenReconciliationCard(_ context.Context, in domain.PenReconciliationCompletionCommand) (domain.PenReconciliationCompletionResult, bool, error) {
 	f.completeCalls = append(f.completeCalls, in)
-	return f.completeResult, f.completeReplay, f.completeErr
+	result := f.completeResult
+	// Mirror the adapter: a first completion echoes the stored proof set, meta and rows.
+	if len(in.ProofRefs) > 0 && len(result.ProofRefs) == 0 {
+		result.ProofRefs, result.MediaMeta, result.ContextRows = in.ProofRefs, in.MediaMeta, in.ContextRows
+	}
+	return result, f.completeReplay, f.completeErr
 }
 func (f *fakePenReconciliationRepo) MarkPenReconciliationVerificationEnqueued(_ context.Context, tenantID, cardID string) error {
 	f.markCalls = append(f.markCalls, tenantID+":"+cardID)
@@ -288,5 +295,8 @@ func (r *fakePenReconciliationRepo) SetPenReconciliationWorkflow(context.Context
 }
 
 func (r *fakePenReconciliationRepo) PenReconciliationCardIDByWorkflow(context.Context, string, string) (string, error) {
+	if r.cardIDByWorkflow != "" {
+		return r.cardIDByWorkflow, nil
+	}
 	return "", ports.ErrPenReconciliationCardNotFound
 }

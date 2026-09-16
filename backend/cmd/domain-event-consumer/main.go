@@ -219,6 +219,8 @@ func buildDomainBus(pool *pgxpool.Pool, pgCfg platformpg.Config, logger *slog.Lo
 	penvisitsapp.NewPendingVerificationHandler(penvisitsverificationbridge.New(verificationService), logger).Register(bus)
 	// One shared list for every bus process (docs/decisions/sop-driven-herd-operations.md).
 	eventwiring.RegisterWorkflowConsumers(bus, workflowService, logger)
+	captureEnqueuer, captureReviews := eventwiring.NewCountsCaptureStores(pool, pgCfg.QueryTimeout)
+	eventwiring.RegisterCountsCaptureConsumers(bus, captureEnqueuer, captureReviews, workflowService)
 	healthapp.NewDeathLifecycleHandler(healthRepo).Register(bus)
 
 	if logger != nil {

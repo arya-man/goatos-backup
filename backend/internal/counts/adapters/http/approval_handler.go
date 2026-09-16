@@ -128,15 +128,18 @@ type appApprovalListItem struct {
 	// its own field instead of parsing it back out of the composed line. See
 	// domain.ApprovalNameLookup.AnimalLocations for how it is resolved.
 	SubjectAnimalLocation *string `json:"subject_animal_location,omitempty"`
-	// Capture is the raise's SOP capture form as the approver sees it (shared
-	// CountsApprovalCapture shape, program decision 2026-09-16): version label, answers in farm
-	// words, captures under their slot titles, and what an older app did not send. Absent for a
-	// request raised without one.
-	Capture         *domain.CountsApprovalCapture `json:"capture,omitempty"`
-	Summary         json.RawMessage               `json:"summary"`
-	DecidedByUserID *string                       `json:"decided_by_user_id,omitempty"`
-	DecidedAt       *time.Time                    `json:"decided_at,omitempty"`
-	DecisionReason  *string                       `json:"decision_reason,omitempty"`
+	// Capture is the report or raise's SOP capture form as the approver sees it (shared
+	// CountsApprovalCapture shape, program decision 2026-09-16): birth/death carry their capture
+	// card's snapshot, shifting its raise snapshot. Absent when the form asked nothing.
+	Capture *domain.CountsApprovalCapture `json:"capture,omitempty"`
+	// CaptureReviewStatus / CaptureReviewReason are the verifier's verdict on the report's own
+	// proof (pending / approved / rework + the verifier's words). Absent when nothing to review.
+	CaptureReviewStatus *string         `json:"capture_review_status,omitempty"`
+	CaptureReviewReason *string         `json:"capture_review_reason,omitempty"`
+	Summary             json.RawMessage `json:"summary"`
+	DecidedByUserID     *string         `json:"decided_by_user_id,omitempty"`
+	DecidedAt           *time.Time      `json:"decided_at,omitempty"`
+	DecisionReason      *string         `json:"decision_reason,omitempty"`
 }
 
 // ListApprovals returns one keyset page of requests the caller may decide.
@@ -207,7 +210,12 @@ func (h *AppWriteHandler) ListApprovals(w http.ResponseWriter, r *http.Request) 
 		if loc := names.AnimalLocation(subjectGoatID); loc != "" {
 			row.SubjectAnimalLocation = &loc
 		}
-		row.Capture = shiftingCaptureFromSummary(item.RequestType, item.Summary)
+		row.Capture = approvalCaptureDTO(item)
+		if row.Capture == nil {
+			row.Capture = shiftingCaptureFromSummary(item.RequestType, item.Summary)
+		}
+		row.CaptureReviewStatus = item.CaptureReviewStatus
+		row.CaptureReviewReason = item.CaptureReviewReason
 		items = append(items, row)
 	}
 	httpresponse.WriteJSON(w, http.StatusOK, appApprovalListResponse{Items: items, NextCursor: page.NextCursor})

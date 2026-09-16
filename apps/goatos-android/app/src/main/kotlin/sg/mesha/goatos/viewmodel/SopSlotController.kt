@@ -33,18 +33,25 @@ import sg.mesha.goatos.core.data.sync.SyncItemStatus
 import sg.mesha.goatos.core.data.sync.SyncQueueItem
 import sg.mesha.goatos.core.data.sync.SyncRepository
 import sg.mesha.goatos.core.network.dto.FeedSopCardDto
-import sg.mesha.goatos.feature.feed.FeedDistributionProofStatus
-import sg.mesha.goatos.feature.feed.FeedDistributionQuestionUi
-import sg.mesha.goatos.feature.feed.FeedDistributionSlotUi
-import sg.mesha.goatos.feature.feed.FeedSlotCaptureKind
-import sg.mesha.goatos.feature.feed.FeedSopCardUi
+import sg.mesha.goatos.core.network.dto.WeighingRemovalProofSlotDto
+import sg.mesha.goatos.core.network.dto.WeighingSopQuestionDto
+import sg.mesha.goatos.core.ui.sop.SopCardUi as FeedSopCardUi
+import sg.mesha.goatos.core.ui.sop.SopProofStatus as FeedDistributionProofStatus
+import sg.mesha.goatos.core.ui.sop.SopQuestionUi as FeedDistributionQuestionUi
+import sg.mesha.goatos.core.ui.sop.SopSlotCaptureKind as FeedSlotCaptureKind
+import sg.mesha.goatos.core.ui.sop.SopSlotUi as FeedDistributionSlotUi
+import kotlinx.coroutines.SupervisorJob
 import java.util.UUID
 
+/** The feed stages' name for [SopSlotController] (they were its first users). */
+internal typealias FeedSopSlotController = SopSlotController
+
 /**
- * FEED SOP (maintainer decision 2026-09-16): the capture-slot machinery ONE feed stage screen
- * needs to follow its authored card -- shared by the packing, wastage and transport ViewModels,
- * which each own a single operator's proof group. (The distribution ViewModel carries the same
- * shape inline because it also adopts teammates' proofs by server id.)
+ * SOP CARD SLOTS (feed SOP, 2026-09-16; generalized for the herd operations capture forms the same
+ * day): the capture-slot machinery ONE screen needs to follow its authored card -- shared by the
+ * feed packing, wastage and transport ViewModels and the Add birth / Add death forms, each owning a
+ * single operator's proof group. (The feed distribution ViewModel carries the same shape inline
+ * because it also adopts teammates' proofs by server id.)
  *
  * Owns: the card as rendered ([state]), one durable draft per slot key in the SavedStateHandle
  * (outbox row id + proof row id, so a card with N slots survives process death), the capture path
@@ -55,8 +62,8 @@ import java.util.UUID
  * completion, so the completion drains behind every upload. A slot is enabled by ITS OWN state
  * only -- the caller adds the stage lock (submitted / decided elsewhere).
  */
-internal class FeedSopSlotController(
-    private val scope: CoroutineScope,
+internal class SopSlotController(
+    scope: CoroutineScope,
     private val savedStateHandle: SavedStateHandle,
     private val syncRepository: SyncRepository,
     private val proofCaptureSource: ProofCaptureSource,
@@ -90,22 +97,34 @@ internal class FeedSopSlotController(
     private val durableDrafts: sg.mesha.goatos.core.data.CaptureDraftRepository? = null,
     private val durableFlowKey: String = "",
     private val legacySteps: Map<String, String> = emptyMap(),
+    /** What the proof register files a capture under: the pen (feed) or the animal (a death). */
+    private val proofSubject: ProofSubject = ProofSubject.SHED,
+    private val proofScopeType: String = "shed",
+    /** The subject id at capture time when it is chosen on the form (null = [shedId]). */
+    private val subjectIdProvider: (() -> String)? = null,
     /**
      * SHIFTING SOP (2026-09-16): the durable-draft entity when it differs from [groupKey] -- two
      * controllers sharing one proof group (a movement's completion card and its high-priority card)
      * keep their answers apart, since a draft holds ONE answers row per entity.
      */
     private val durableEntityId: String? = null,
-    /** The capture subject resolved at capture time (a raise form's destination is chosen late). */
-    private val shedIdProvider: (() -> String)? = null,
     /** A card may carry only questions (the shifting raise card); feed cards always carry a slot. */
     private val allowEmptyProofs: Boolean = false,
 ) {
     private val draftEntity: String get() = durableEntityId ?: groupKey
-    private val subjectShedId: String get() = shedIdProvider?.invoke() ?: shedId
 
     /** Captures this phone recorded BEFORE this instant are history (rejected / already submitted). */
     private var ignoreRowsBeforeMs: Long = Long.MIN_VALUE
+
+    private val job = SupervisorJob(scope.coroutineContext[Job])
+    private val controllerScope = CoroutineScope(scope.coroutineContext + job)
+
+    private fun subjectId(): String = subjectIdProvider?.invoke()?.trim().orEmpty().ifBlank { shedId }
+
+    /** Stops every observer this controller started (a form starting a fresh draft replaces it). */
+    fun close() {
+        job.cancel()
+    }
     internal class Events(
         val captureTapped: String,
         val captured: String,
@@ -135,7 +154,7 @@ internal class FeedSopSlotController(
 
     /** Starts the Room observers (durable draft, then this group's proof rows); call once from init. */
     fun start() {
-        scope.launch {
+        controllerScope.launch {
             durableDrafts?.find(durableFlowKey, draftEntity)?.let { saved ->
                 saved.proofs.forEach { (step, outboxId) ->
                     val key = legacySteps[step] ?: step
@@ -153,7 +172,7 @@ internal class FeedSopSlotController(
                 onChanged()
             }
         }
-        scope.launch {
+        controllerScope.launch {
             // No partitionLabel filter: the group key already carries the pen (see
             // FeedCaptureGroupKey.kt) and capture() writes partitionKey "whole".
             proofCaptureRepository.observeProofs(groupKey).collect { rows ->
@@ -168,22 +187,38 @@ internal class FeedSopSlotController(
      * Re-shapes the slot list to [card], keeping each slot's capture state by key. Weaker sources
      * (seeded < Room-cached sheet card < live read) never overwrite a stronger one.
      */
-    fun applyCard(card: FeedSopCardDto, rank: Int, source: String) {
-        if (rank < cardRank || (card.proofs.isEmpty() && !allowEmptyProofs)) return
-        val changed = rank != cardRank || card.version != cardVersion || card.proofs.map { it.key } != _state.value.slots.map { it.slotKey }
+    fun applyCard(card: FeedSopCardDto, rank: Int, source: String) =
+        applyCard(card.version, card.instruction, card.proofs, card.questions, rank, source)
+
+    /**
+     * The card in its parts. [allowNoProofs] admits a card with questions only (a herd capture
+     * form may ask questions and no media); a feed stage always proves itself with a capture.
+     */
+    fun applyCard(
+        version: Int,
+        instruction: String,
+        proofs: List<WeighingRemovalProofSlotDto>,
+        questions: List<WeighingSopQuestionDto>,
+        rank: Int,
+        source: String,
+        allowNoProofs: Boolean = false,
+    ) {
+        if (rank < cardRank || (proofs.isEmpty() && !allowNoProofs && !allowEmptyProofs)) return
+        val changed = rank != cardRank || version != cardVersion || proofs.map { it.key } != _state.value.slots.map { it.slotKey } ||
+            questions.map { it.id } != _state.value.questions.map { it.id }
         cardRank = rank
-        cardVersion = card.version
+        cardVersion = version
         _state.update { st ->
             val byKey = st.slots.associateBy { it.slotKey }
             st.copy(
-                instruction = card.instruction,
-                slots = card.proofs.map { p ->
+                instruction = instruction,
+                slots = proofs.map { p ->
                     val prev = byKey[p.key]
                     val kind = p.kind.ifBlank { FeedSlotCaptureKind.VIDEO }
                     (prev ?: FeedDistributionSlotUi(slotKey = p.key, title = p.title, capturedKind = if (kind == FeedSlotCaptureKind.PHOTO) kind else FeedSlotCaptureKind.VIDEO))
                         .copy(title = p.title.ifBlank { prev?.title ?: p.key }, hint = p.hint, captureKind = kind, required = p.required)
                 },
-                questions = card.questions.map { q ->
+                questions = questions.map { q ->
                     FeedDistributionQuestionUi(
                         id = q.id, kind = q.kind, title = q.title, hint = q.hint, required = q.required,
                         options = q.options.map { it.value to it.label }, allowOther = q.allowOther, unit = q.unit,
@@ -211,9 +246,9 @@ internal class FeedSopSlotController(
                 events.cardApplied,
                 baseProps(null, ACTION_CARD_APPLIED) + mapOf(
                     AnalyticsEvents.Params.SOURCE to source,
-                    "sop_version" to card.version.toString(),
-                    "slot_count" to card.proofs.size.toString(),
-                    "question_count" to card.questions.size.toString(),
+                    "sop_version" to version.toString(),
+                    "slot_count" to proofs.size.toString(),
+                    "question_count" to questions.size.toString(),
                 ),
             )
         }
@@ -222,7 +257,7 @@ internal class FeedSopSlotController(
     fun answer(questionId: String, value: String) {
         if (locked()) return
         _state.update { it.copy(answers = it.answers + (questionId to value)) }
-        durableDrafts?.let { store -> scope.launch { store.putAnswers(durableFlowKey, draftEntity, _state.value.answers) } }
+        durableDrafts?.let { store -> controllerScope.launch { store.putAnswers(durableFlowKey, draftEntity, _state.value.answers) } }
         onChanged()
     }
 
@@ -239,8 +274,7 @@ internal class FeedSopSlotController(
      */
     fun captureSlot(slotKey: String, requestedKind: String?) {
         val slot = _state.value.slot(slotKey) ?: return
-        val shedId = subjectShedId
-        if (!slot.captureEnabled || locked() || shedId.isBlank()) return
+        if (!slot.captureEnabled || locked() || subjectId().isBlank()) return
         val medium = mediumFor(slot, requestedKind)
         val replacing = slot.captured
         val d = draft(slotKey)
@@ -248,7 +282,7 @@ internal class FeedSopSlotController(
         analytics.track(events.captureTapped, baseProps(slotKey, ACTION_RECORD_PROOF) + ("medium" to medium))
         updateSlot(slotKey) { it.copy(isCapturing = true, message = if (replacing) it.message else null, status = if (replacing) it.status else FeedDistributionProofStatus.QUEUED) }
         onChanged()
-        scope.launch {
+        controllerScope.launch {
             var captureThrew = false
             val captured: Media? = try {
                 if (medium == FeedSlotCaptureKind.PHOTO) {
@@ -285,13 +319,13 @@ internal class FeedSopSlotController(
             when (
                 val result = proofCaptureRepository.captureReplacingLatest(
                     slot = EvidenceSlot(identity = evidenceIdentity, fieldKey = slotKey),
-                    subject = ProofSubject.SHED,
-                    subjectId = shedId,
+                    subject = proofSubject,
+                    subjectId = subjectId(),
                     localUri = captured.localUri,
                     mimeType = captured.mimeType,
                     caption = caption(slot.title),
-                    scopeType = "shed",
-                    scopeId = shedId,
+                    scopeType = proofScopeType,
+                    scopeId = subjectId(),
                     capturedStartMs = captured.startMs,
                     capturedEndMs = captured.endMs,
                     capturedByPrincipalId = null,
@@ -359,10 +393,10 @@ internal class FeedSopSlotController(
     }
 
     /**
-     * [submitRefs] for a card that may legitimately submit NOTHING (a questions-only or all-optional
-     * card): an empty map when no compulsory slot is missing, null only when one is.
+     * A FORM's `{slot key: source}` (herd capture cards): empty when the card asks for no capture,
+     * null only when a compulsory slot is empty.
      */
-    fun submitRefsAllowingEmpty(): Map<String, FeedSlotProofSourcePayload>? {
+    fun formSlotRefs(): Map<String, FeedSlotProofSourcePayload>? {
         val out = linkedMapOf<String, FeedSlotProofSourcePayload>() // mobile-guard:ignore: bounded by the card's slot count
         for (slot in _state.value.slots) {
             val own = draft(slot.slotKey).proofItemId.value
@@ -393,7 +427,7 @@ internal class FeedSopSlotController(
             }
         }
         durableDrafts?.let { store ->
-            scope.launch {
+            controllerScope.launch {
                 keys.forEach { store.clearProof(durableFlowKey, draftEntity, it) }
                 if (clearAnswers) store.putAnswers(durableFlowKey, draftEntity, emptyMap())
             }
@@ -464,7 +498,7 @@ internal class FeedSopSlotController(
     private fun observeProofItem(slotKey: String, itemId: String) {
         val d = draft(slotKey)
         d.statusJob?.cancel()
-        d.statusJob = scope.launch {
+        d.statusJob = controllerScope.launch {
             syncRepository.observeItem(itemId).filterNotNull().distinctUntilChanged().collect { item -> updateProofStatus(slotKey, item) }
         }
     }
@@ -478,7 +512,7 @@ internal class FeedSopSlotController(
             row.outboxItemId?.takeIf { it.isNotBlank() }?.let { outboxId ->
                 if (d.proofItemId.value != outboxId || d.statusJob == null) {
                     if (d.proofItemId.value != outboxId) {
-                        durableDrafts?.let { store -> scope.launch { store.putProof(durableFlowKey, draftEntity, slot.slotKey, outboxId) } }
+                        durableDrafts?.let { store -> controllerScope.launch { store.putProof(durableFlowKey, draftEntity, slot.slotKey, outboxId) } }
                     }
                     d.proofItemId.value = outboxId
                     observeProofItem(slot.slotKey, outboxId)

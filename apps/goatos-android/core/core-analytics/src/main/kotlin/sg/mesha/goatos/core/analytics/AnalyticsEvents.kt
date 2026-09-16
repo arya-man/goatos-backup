@@ -94,6 +94,25 @@ object AnalyticsEvents {
     /** An operator queued a death (through the guardrailed critical-death exit). */
     const val COUNTS_DEATH_SUBMITTED = "counts_death_submitted"
 
+    /** SOP capture card on Add birth / Add death (2026-09-16): one capture slot recorded. */
+    const val COUNTS_CAPTURE_SLOT_CAPTURED = "counts_capture_slot_captured"
+    /** SOP capture card: the operator tapped a slot's camera button. */
+    const val COUNTS_CAPTURE_TAPPED = "counts_capture_tapped"
+    /** SOP capture card: the operator re-took a slot that already held a capture. */
+    const val COUNTS_CAPTURE_RETAKE_TAPPED = "counts_capture_retake_tapped"
+    /** SOP capture card: a slot's proof upload reached a terminal outcome (success or failure). */
+    const val COUNTS_CAPTURE_UPLOAD_SYNCED = "counts_capture_upload_synced"
+    /** SOP capture card: the published card (or a changed version of it) was applied to the form. */
+    const val COUNTS_CAPTURE_CARD_APPLIED = "counts_capture_card_applied"
+    /** SOP capture card: an authored question answered on the form. */
+    const val COUNTS_CAPTURE_ANSWERED = "counts_capture_answered"
+    /** SOP capture card: a capture, card load, or report-proof open failed. */
+    const val COUNTS_CAPTURE_FAILURE = "counts_capture_failure"
+    /** Approvals: the approver opened one of a report's capture proofs. */
+    const val COUNTS_APPROVAL_CAPTURE_MEDIA_OPENED = "counts_approval_capture_media_opened"
+    /** Death follows the SOP: an authored answer step's draft answer was saved before Submit. */
+    const val WORKFLOW_DEATH_DRAFT_ANSWERED = "workflow_death_draft_answered"
+
     /** An operator queued a shifting/movement event. */
     const val COUNTS_SHIFTING_SUBMITTED = "counts_shifting_submitted"
 
@@ -138,9 +157,6 @@ object AnalyticsEvents {
 
     /** A shifting raise card capture was recorded (the raise form's optional/compulsory extras). */
     const val COUNTS_SHIFTING_RAISE_CAPTURED = "counts_shifting_raise_captured"
-
-    /** An approver opened one capture a raise carried (the shared approval capture). */
-    const val COUNTS_APPROVAL_CAPTURE_OPENED = "counts_approval_capture_opened"
 
     /** The operator opened the Herd Operations "Reconcile" tab (wrong-pen cards from weighing). */
     const val COUNTS_PEN_RECONCILIATION_VIEWED = "counts_pen_reconciliation_viewed"

@@ -21,6 +21,10 @@ import sg.mesha.goatos.core.data.cache.ClockBlobCacheDao
 import sg.mesha.goatos.core.data.cache.ClockBlobCacheEntity
 import sg.mesha.goatos.core.data.cache.ControlTowerCacheDao
 import sg.mesha.goatos.core.data.cache.ControlTowerCacheEntity
+import sg.mesha.goatos.core.data.cache.CountsCaptureCardCacheDao
+import sg.mesha.goatos.core.data.cache.CountsCaptureCardCacheEntity
+import sg.mesha.goatos.core.data.cache.WorkflowStepDraftAnswerDao
+import sg.mesha.goatos.core.data.cache.WorkflowStepDraftAnswerEntity
 import sg.mesha.goatos.core.data.cache.DeathCauseCatalogDao
 import sg.mesha.goatos.core.data.cache.DeathCauseCatalogEntity
 import sg.mesha.goatos.core.data.cache.WeighingAlertsCacheDao
@@ -374,6 +378,8 @@ import sg.mesha.goatos.core.data.weighing.WeighingShedObservationEntity
         LeadershipTaskRemoteKeyEntity::class,
         LeadershipTaskDetailCacheEntity::class,
         DeathCauseCatalogEntity::class,
+        CountsCaptureCardCacheEntity::class,
+        WorkflowStepDraftAnswerEntity::class,
         PenVisitItemEntity::class,
         PenVisitRemoteKeyEntity::class,
         PenVisitDetailCacheEntity::class,
@@ -430,7 +436,10 @@ import sg.mesha.goatos.core.data.weighing.WeighingShedObservationEntity
     // and one JSON blob cache for the form options, each load's header and the caller's write flag.
     // v65 (see [MIGRATION_64_65]) adds the authored capture slot map + answers columns to the two
     // weighing evidence tables (THE WEIGH CAPTURES ARE AUTHORED, maintainer decision 2026-09-16).
-    version = 65,
+    // v66 (see [MIGRATION_65_66]) adds the SOP capture tables (maintainer decisions 2026-09-16):
+    // `counts_capture_card_cache` (the Add birth / Add death capture card, one row per form kind)
+    // and `workflow_step_draft_answer` (a death workflow's draft answers held until the one Submit).
+    version = 66,
     // exportSchema=true writes schemas/<db-fqcn>/<version>.json (see build.gradle.kts
     // room.schemaLocation). The committed schema JSON is the golden schema
     // MigrationTestHelper validates each migration against, and it makes every schema
@@ -653,6 +662,8 @@ abstract class GoatDatabase : RoomDatabase() {
     abstract fun workBoardRemoteKeyDao(): WorkBoardRemoteKeyDao
 
     abstract fun deathCauseCatalogDao(): DeathCauseCatalogDao
+    abstract fun countsCaptureCardCacheDao(): CountsCaptureCardCacheDao
+    abstract fun workflowStepDraftAnswerDao(): WorkflowStepDraftAnswerDao
 
     abstract fun weighingFastingCardDao(): WeighingFastingCardDao
 }

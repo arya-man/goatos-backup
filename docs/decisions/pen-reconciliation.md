@@ -61,6 +61,13 @@ Locked properties:
   (`counts-pen-reconciliation-verification:<card>:<proof>`) so a rework re-shoot mints a
   replacement item while retries collapse. Verdicts apply through
   `eventwiring.RegisterVerificationAppliers`, the single shared registration.
+- **Workflow-backed cards** (2026-09-16): a card opened by the SOP engine completes through its own
+  workflow -- the completion statement matches `workflow_id IS NULL OR workflow_id = <the card's
+  workflow>` (it matched only NULL, so every workflow-backed completion failed). The verification
+  item and the debt list carry the card's full proof set with media labels
+  (`verification_media_meta`, `verification_context_rows`, migration `000332`). Pinned by
+  `TestPenReconciliationWorkflowBackedCardCompletesThroughItsWorkflowPg` and
+  `TestPenReconciliationDebtListCarriesTheFullProofSetPg`.
 - **Operator surface**: bottom-bar tab **Reconcile** (`/counts/reconcile`), composed by the
   backend nav registry; the queue is a keyset page of 20 with whole-filter status counts, and
   every pen label is backend-composed via `oploc`.

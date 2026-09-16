@@ -169,6 +169,7 @@ type AppWriteHandler struct {
 	// reconciliation owns the Reconcile tab: the wrong-pen cards weighing submits raise, and
 	// the operator's return-video submission. See pen_reconciliation_handler.go.
 	reconciliation PenReconciliationWorkflow
+	captureCards   CaptureCardWorkflow
 	// approvalNameResolver turns the ids on an approval row into names for display. OPTIONAL by
 	// design: nil means rows render without the name clauses rather than failing, so a
 	// construction path that does not wire it (tests, a DB-less assembly) still serves the queue.
@@ -227,6 +228,7 @@ func RegisterAppWrites(mux *http.ServeMux, h *AppWriteHandler) {
 	mux.HandleFunc("POST "+appShiftingEventRoute, h.RecordShiftingEvent)
 	mux.HandleFunc("POST "+appBirthEventRoute, h.RecordBirthEvent)
 	mux.HandleFunc("POST "+appDeathEventRoute, h.RecordDeathEvent)
+	mux.HandleFunc("GET "+appCaptureCardsRoute, h.GetCaptureCard)
 	mux.HandleFunc("POST "+appPromoteIdentifierRoute, h.PromoteTemporaryIdentifier)
 }
 
@@ -1139,6 +1141,13 @@ func (h *AppWriteHandler) RecordBirthEvent(w http.ResponseWriter, r *http.Reques
 		h.writeAppError(w, r, err)
 		return
 	}
+	// The SOP capture card's extras ride beside the form and are taken OUT before identity's
+	// strict decoder and the stored payload see the body.
+	sopCapture, err := takeSopCapture(fields)
+	if err != nil {
+		h.writeAppError(w, r, err)
+		return
+	}
 	// origin_type is pinned, not silently rewritten: an absent value becomes "birth", but a
 	// PRESENT value that disagrees is rejected rather than being quietly overwritten.
 	if raw, present := fields["origin_type"]; present {
@@ -1177,6 +1186,15 @@ func (h *AppWriteHandler) RecordBirthEvent(w http.ResponseWriter, r *http.Reques
 	if h.approvals == nil || h.validator == nil {
 		h.writeError(w, r, http.StatusNotImplemented, "approvals_unavailable",
 			"approval workflow is not configured", nil)
+		return
+	}
+	// Judged BEFORE anything is prepared: a capture the card refuses comes back to the operator
+	// now, naming the slot or question, and never reaches an approver.
+	capture, err := h.judgeCapture(r.Context(), tenantID, countsapp.CaptureKindBirth, sopCapture)
+	if err != nil {
+		if !h.writeCaptureError(w, r, err) {
+			h.writeAppError(w, r, err)
+		}
 		return
 	}
 
@@ -1294,7 +1312,7 @@ func (h *AppWriteHandler) RecordBirthEvent(w http.ResponseWriter, r *http.Reques
 		h.writeError(w, r, http.StatusBadRequest, "invalid_json", "request body must be valid JSON", err)
 		return
 	}
-	canonical, err := canonicalRequestBytes(tenantID, appBirthEventCommand, appBirthEventRoute, json.RawMessage(forwarded))
+	canonical, err := canonicalRequestBytes(tenantID, appBirthEventCommand, appBirthEventRoute, captureFingerprintBody(json.RawMessage(forwarded), sopCapture))
 	if err != nil {
 		h.writeError(w, r, http.StatusBadRequest, "invalid_json", "request body must be valid JSON", err)
 		return
@@ -1307,6 +1325,7 @@ func (h *AppWriteHandler) RecordBirthEvent(w http.ResponseWriter, r *http.Reques
 		RaisedAt:           time.Now().In(biztime.DefaultLocation()),
 		IdempotencyKey:     "app-counts-birth:" + clientKey,
 		RequestFingerprint: stableHash("counts-app-birth-request", canonical),
+		Capture:            capture,
 	}, commands)
 	if err != nil {
 		h.writeApprovalError(w, r, err)
@@ -1340,6 +1359,11 @@ func (h *AppWriteHandler) RecordDeathEvent(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	fields, err := decodeJSONObject(body, "RecordDeathEventRequest")
+	if err != nil {
+		h.writeAppError(w, r, err)
+		return
+	}
+	sopCapture, err := takeSopCapture(fields)
 	if err != nil {
 		h.writeAppError(w, r, err)
 		return
@@ -1379,6 +1403,14 @@ func (h *AppWriteHandler) RecordDeathEvent(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	subjectGoatID := strings.TrimSpace(goatID)
+
+	capture, err := h.judgeCapture(r.Context(), tenantID, countsapp.CaptureKindDeath, sopCapture)
+	if err != nil {
+		if !h.writeCaptureError(w, r, err) {
+			h.writeAppError(w, r, err)
+		}
+		return
+	}
 
 	// THE CODED CAUSE IS CHECKED HERE, BEFORE THE REQUEST IS PARKED FOR AN APPROVER.
 	//
@@ -1430,7 +1462,7 @@ func (h *AppWriteHandler) RecordDeathEvent(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	canonical, err := canonicalRequestBytes(tenantID, appDeathEventCommand, appDeathEventRoute, json.RawMessage(storedPayload))
+	canonical, err := canonicalRequestBytes(tenantID, appDeathEventCommand, appDeathEventRoute, captureFingerprintBody(json.RawMessage(storedPayload), sopCapture))
 	if err != nil {
 		h.writeError(w, r, http.StatusBadRequest, "invalid_json", "request body must be valid JSON", err)
 		return
@@ -1444,6 +1476,7 @@ func (h *AppWriteHandler) RecordDeathEvent(w http.ResponseWriter, r *http.Reques
 		RaisedAt:           time.Now().In(biztime.DefaultLocation()),
 		IdempotencyKey:     "app-counts-death:" + clientKey,
 		RequestFingerprint: stableHash("counts-app-death-request", canonical),
+		Capture:            capture,
 	})
 	if err != nil {
 		h.writeApprovalError(w, r, err)

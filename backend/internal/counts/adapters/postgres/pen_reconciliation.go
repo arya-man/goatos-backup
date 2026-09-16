@@ -310,10 +310,15 @@ SET status = 'pending_verification',
     completion_request_fingerprint = $7,
     verification_enqueue_pending = true,
     rework_reason = NULL,
+    verification_media_meta = $9::jsonb,
+    verification_context_rows = $10::jsonb,
     row_version = row_version + 1,
     updated_at = now()
 WHERE tenant_id = $1::uuid AND card_id = $2::uuid
-  AND workflow_id IS NULL
+  -- A workflow-backed card is completed ONLY through its own questionnaire workflow; a legacy
+  -- (workflow-less) card through the one-video route. The old "workflow_id IS NULL" refused the
+  -- questionnaire's own completion on every retry (bug 3, 2026-09-16).
+  AND (workflow_id IS NULL OR workflow_id = nullif($11, '')::uuid)
 `
 
 const markPenReconciliationVerificationEnqueuedSQL = `
@@ -332,7 +337,8 @@ const listPenReconciliationVerificationEnqueueDebtSQL = `
 -- scope=tenant_id.
 SELECT c.card_id, c.scanned_identifier,
        c.registered_shed_id, COALESCE(reg.name, ''), c.registered_partition_label,
-       c.park_id, c.proof_ref, c.completed_by, c.completed_at
+       c.park_id, c.proof_ref, c.completed_by, c.completed_at,
+       c.proof_refs, c.verification_media_meta, c.verification_context_rows
 FROM pen_reconciliation_cards c
 LEFT JOIN locations reg ON reg.tenant_id = c.tenant_id AND reg.location_id = c.registered_shed_id
 WHERE c.tenant_id = $1::uuid
@@ -376,7 +382,8 @@ SELECT c.status, c.goat_id, c.scanned_identifier, c.found_display_name,
        c.registered_shed_id, COALESCE(reg.name, ''), c.registered_partition_label,
        c.park_id, c.proof_ref, c.completed_at,
        c.completion_idempotency_key, c.completion_request_fingerprint,
-       c.verification_enqueue_pending, c.workflow_id::text
+       c.verification_enqueue_pending, c.workflow_id::text,
+       c.proof_refs, c.verification_media_meta, c.verification_context_rows
 FROM pen_reconciliation_cards c
 LEFT JOIN locations reg ON reg.tenant_id = c.tenant_id AND reg.location_id = c.registered_shed_id
 WHERE c.tenant_id = $1::uuid AND c.card_id = $2::uuid
@@ -417,12 +424,14 @@ func (r *Repository) CompletePenReconciliationCard(
 		completedAt                                                             *time.Time
 		workflowID                                                              *string
 		verificationEnqueuePending                                              bool
+		storedRefs, storedMeta, storedRows                                      []byte
 	)
 	err = tx.QueryRow(ctx, lockPenReconciliationSQL, in.TenantID, in.CardID).Scan(
 		&status, &goatID, &tag, &foundDisplay,
 		&regShedID, &regShedName, &regPartition,
 		&parkID, &storedProof, &completedAt,
 		&storedKey, &storedFingerprint, &verificationEnqueuePending, &workflowID,
+		&storedRefs, &storedMeta, &storedRows,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.PenReconciliationCompletionResult{}, false, ports.ErrPenReconciliationCardNotFound
@@ -442,7 +451,7 @@ func (r *Repository) CompletePenReconciliationCard(
 		ParkID:                   parkID,
 	}
 
-	if workflowID != nil && strings.TrimSpace(*workflowID) != "" {
+	if workflowID != nil && strings.TrimSpace(*workflowID) != "" && strings.TrimSpace(*workflowID) != strings.TrimSpace(in.WorkflowID) {
 		return domain.PenReconciliationCompletionResult{}, false, ports.ErrPenReconciliationNotActionable
 	}
 
@@ -458,6 +467,9 @@ func (r *Repository) CompletePenReconciliationCard(
 				result.ProofRef = *storedProof
 			}
 			result.CompletedAt = completedAt
+			result.ProofRefs = decodeProofRefs(storedRefs)
+			result.MediaMeta = decodeProofMeta(storedMeta)
+			result.ContextRows = decodeContextRows(storedRows)
 			committed = true
 			if err := tx.Commit(ctx); err != nil {
 				return domain.PenReconciliationCompletionResult{}, false, err
@@ -473,7 +485,8 @@ func (r *Repository) CompletePenReconciliationCard(
 	completedAtValue := in.CompletedAt.UTC()
 	if _, err := tx.Exec(ctx, completePenReconciliationSQL,
 		in.TenantID, in.CardID, strings.TrimSpace(in.ProofRef), in.CompletedByUserID,
-		completedAtValue, in.IdempotencyKey, in.RequestFingerprint, proofRefsJSON(in.ProofRef, in.ProofRefs, in.ProofKinds)); err != nil {
+		completedAtValue, in.IdempotencyKey, in.RequestFingerprint, proofRefsJSON(in.ProofRef, in.ProofRefs, in.ProofKinds),
+		jsonOrEmptyList(in.MediaMeta), jsonOrEmptyList(in.ContextRows), strings.TrimSpace(in.WorkflowID)); err != nil {
 		return domain.PenReconciliationCompletionResult{}, false, err
 	}
 
@@ -485,6 +498,8 @@ func (r *Repository) CompletePenReconciliationCard(
 	result.Status = domain.PenReconciliationStatusPendingVerification
 	result.ProofRef = strings.TrimSpace(in.ProofRef)
 	result.ProofRefs = allProofRefs(in.ProofRef, in.ProofRefs)
+	result.MediaMeta = in.MediaMeta
+	result.ContextRows = in.ContextRows
 	result.CompletedAt = &completedAtValue
 	result.NeedsVerificationEnqueue = true
 	return result, false, nil
@@ -520,13 +535,18 @@ func (r *Repository) ListPenReconciliationVerificationEnqueueDebt(
 	debts := make([]domain.PenReconciliationVerificationEnqueueDebt, 0, limit)
 	for rows.Next() {
 		var debt domain.PenReconciliationVerificationEnqueueDebt
+		var refs, meta, ctxRows []byte
 		if err := rows.Scan(
 			&debt.CardID, &debt.ScannedIdentifier,
 			&debt.RegisteredShedID, &debt.RegisteredShedName, &debt.RegisteredPartitionLabel,
 			&debt.ParkID, &debt.ProofRef, &debt.CompletedBy, &debt.CompletedAt,
+			&refs, &meta, &ctxRows,
 		); err != nil {
 			return nil, err
 		}
+		debt.ProofRefs = decodeProofRefs(refs)
+		debt.MediaMeta = decodeProofMeta(meta)
+		debt.ContextRows = decodeContextRows(ctxRows)
 		debts = append(debts, debt)
 	}
 	if err := rows.Err(); err != nil {
@@ -693,6 +713,30 @@ func decodeProofRefs(raw []byte) []string {
 		if it.Ref != "" {
 			out = append(out, it.Ref)
 		}
+	}
+	return out
+}
+
+func jsonOrEmptyList(v any) string {
+	raw, err := json.Marshal(v)
+	if err != nil || string(raw) == "null" {
+		return "[]"
+	}
+	return string(raw)
+}
+
+func decodeProofMeta(raw []byte) []domain.PenReconciliationProofMeta {
+	var out []domain.PenReconciliationProofMeta
+	if len(raw) == 0 || json.Unmarshal(raw, &out) != nil || len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func decodeContextRows(raw []byte) []domain.PenReconciliationContextRow {
+	var out []domain.PenReconciliationContextRow
+	if len(raw) == 0 || json.Unmarshal(raw, &out) != nil || len(out) == 0 {
+		return nil
 	}
 	return out
 }

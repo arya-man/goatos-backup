@@ -6,6 +6,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/vgoats/goatos/backend/internal/sop/authored"
 	"github.com/vgoats/goatos/backend/internal/tasks/domain"
 )
 
@@ -23,6 +24,10 @@ type OpenWorkflowCommand struct {
 	// SubjectRefID keys a workflow on a non-goat subject (a reconcile card, a shifting event).
 	// Uniqueness is (tenant, template_key, subject_ref_id) -- migration 000311.
 	SubjectRefID *string
+	// CaptureEvidence is the capture form's snapshot to stamp on the instance (death: the Add
+	// death form's proofs and answers). Ignored on a natural-key conflict: the first open wins and
+	// a redelivered event never relabels it.
+	CaptureEvidence authored.Evidence
 }
 
 // GoatWorkflowFacts is the canonical goat-row slice the consumers read (one indexed PK lookup).
@@ -41,24 +46,25 @@ type GoatWorkflowFacts struct {
 
 // DeathVerdictCommand applies a verifier's approve/rework verdict to a death workflow's sign-off.
 type DeathVerdictCommand struct {
-	TenantID   string
-	WorkflowID string
-	VerifiedBy string
-	Reason     string
-	VerdictAt  time.Time
+	// RecordingKey is the verdict's item key; a rework appends capture re-shoot steps keyed on it
+	// so a redelivered verdict inserts nothing.
+	RecordingKey string
+	TenantID     string
+	WorkflowID   string
+	VerifiedBy   string
+	Reason       string
+	VerdictAt    time.Time
 }
 
-// DeathEvidenceReview is the approved evidence bundle ready for ONE generic verification item.
-// It is read only after the approval transaction has moved the internal review action to
-// in_review; before that, operator uploads remain staged and invisible to Verify.
+// DeathEvidenceReview is the approved death workflow ready for ONE generic verification item:
+// the instance (with its capture snapshot and review round = row_version) and every step, so the
+// app service composes the bundle through the SAME builder the completion path uses. It is read
+// only after the approval transaction has opened the verification gate; before that, operator
+// uploads remain staged and invisible to Verify.
 type DeathEvidenceReview struct {
-	WorkflowID string
+	Workflow   domain.WorkflowInstance
+	Actions    []domain.WorkflowAction
 	OperatorID string
-	ParkID     string
-	ShedID     string
-	EventDate  string
-	ProofRefs  []string
-	Round      int
 }
 
 // BirthStepVerdictCommand applies a verifier's verdict to ONE recorded step of a birth workflow
@@ -110,8 +116,8 @@ type Repository interface {
 	// mandatory tagging-video task. No-op when there is no such open step.
 	CompleteTagActionForGoat(ctx context.Context, tenantID, goatID string, completedAt time.Time) error
 
-	// DeathEvidenceForVerification loads an admin-approved death evidence pair by subject goat.
-	// Returns domain.ErrNotFound when no in-review death workflow exists.
+	// DeathEvidenceForVerification loads an admin-approved death workflow (every step) by subject
+	// goat. Returns domain.ErrNotFound when no in-review death workflow exists.
 	DeathEvidenceForVerification(ctx context.Context, tenantID, goatID string) (DeathEvidenceReview, error)
 
 	// CancelDeathWorkflowForGoat closes the staged workflow after an admin rejects the death.
@@ -122,8 +128,9 @@ type Repository interface {
 	// approves the death evidence. Idempotent.
 	ApplyDeathSignoffApproved(ctx context.Context, cmd DeathVerdictCommand) error
 
-	// BounceDeathVideosForRework resets both video actions to 'rework' and the sign-off to pending
-	// after a verifier rejects the evidence. Idempotent.
+	// BounceDeathVideosForRework resets every proof-bearing step to 'rework' (answers kept) and
+	// closes the verification gate after a verifier rejects the evidence
+	// (domain.ReopenDeathProofSteps). Idempotent.
 	BounceDeathVideosForRework(ctx context.Context, cmd DeathVerdictCommand) error
 
 	// WorkflowIDBySubjectRef returns the workflow keyed on (template_key, subject_ref_id), or
@@ -144,6 +151,15 @@ type Repository interface {
 	// lands its verdict. Nothing enqueues that shape any more.
 	ApplyBirthSignoffApproved(ctx context.Context, cmd DeathVerdictCommand) error
 	BounceBirthVideoForRework(ctx context.Context, cmd DeathVerdictCommand) error
+
+	// AppendCaptureReshootSteps appends one "Re-shoot report proof" step per capture proof to the
+	// workflow (domain.CaptureReshootSteps), idempotent on the workflow_actions natural key, and
+	// recomputes the card in the same transaction.
+	AppendCaptureReshootSteps(ctx context.Context, tenantID, workflowID string, capture authored.Evidence, indexes []int, recordingKey, reason string) error
+
+	// BirthWorkflowIDForEvent resolves the track a litter's report re-shoot is appended to: the
+	// mother track of the birth event, else its first kid track. domain.ErrNotFound when none.
+	BirthWorkflowIDForEvent(ctx context.Context, tenantID, birthEventID string) (string, error)
 
 	// FetchShedDetails fetches the shed name and partition label for operational location composition.
 	// Returns empty strings if the shed is not found or has no partition.
