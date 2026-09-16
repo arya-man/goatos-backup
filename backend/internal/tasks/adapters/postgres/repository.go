@@ -1272,7 +1272,7 @@ WHERE tenant_id = $1::uuid AND action_id = $2::uuid`, cmd.TenantID, cmd.ActionID
 			if idx < 0 {
 				return nil, false, domain.ErrNotFound
 			}
-			updated, changed := domain.ApplyStepVerdict(actions[idx], cmd.Approved, cmd.Reason)
+			updated, changed := domain.ApplyStepVerdict(actions[idx], cmd.RecordingKey, cmd.Approved, cmd.Reason)
 			if !changed {
 				return nil, true, nil
 			}

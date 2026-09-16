@@ -322,7 +322,7 @@ func (f *fakeRepo) ApplyBirthStepVerdict(_ context.Context, cmd ports.BirthStepV
 					if !domain.ReviewedPerStep(w.TemplateKey) {
 						return false, domain.ErrNotFound
 					}
-					updated, changed := domain.ApplyStepVerdict(actions[i], cmd.Approved, cmd.Reason)
+					updated, changed := domain.ApplyStepVerdict(actions[i], cmd.RecordingKey, cmd.Approved, cmd.Reason)
 					actions[i] = updated
 					return !changed, nil
 				})

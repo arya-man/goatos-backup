@@ -234,9 +234,10 @@ type deathVerdictPayload struct {
 	VerifiedBy string `json:"verified_by"`
 	Reason     string `json:"reason"`
 	Source     struct {
-		Module  string `json:"module"`
-		RefType string `json:"ref_type"`
-		RefID   string `json:"ref_id"`
+		Module       string `json:"module"`
+		RefType      string `json:"ref_type"`
+		RefID        string `json:"ref_id"`
+		RecordingKey string `json:"recording_key"`
 	} `json:"source"`
 }
 
@@ -294,7 +295,8 @@ func (h *BirthVerificationHandler) HandleEvent(ctx context.Context, e eventbus.E
 		// One recorded step (ref_id = action_id): approve completes it, reject sends it back alone.
 		return h.svc.ApplyBirthStepVerdict(ctx, ports.BirthStepVerdictCommand{
 			TenantID: e.TenantID, ActionID: strings.TrimSpace(p.Source.RefID),
-			Approved: e.Type == EventVerificationVerdictApproved, VerifiedBy: strings.TrimSpace(p.VerifiedBy),
+			RecordingKey: p.Source.RecordingKey,
+			Approved:     e.Type == EventVerificationVerdictApproved, VerifiedBy: strings.TrimSpace(p.VerifiedBy),
 			Reason: strings.TrimSpace(p.Reason), VerdictAt: verdictAt,
 		})
 	case domain.VerificationRefTypeBirthSignoff:

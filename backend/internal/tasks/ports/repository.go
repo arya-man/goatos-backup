@@ -65,12 +65,13 @@ type DeathEvidenceReview struct {
 // (maintainer decision 2026-09-16: birth evidence is reviewed per step). ActionID is the
 // verification item's ref_id; the workflow is resolved from it.
 type BirthStepVerdictCommand struct {
-	TenantID   string
-	ActionID   string
-	Approved   bool
-	VerifiedBy string
-	Reason     string
-	VerdictAt  time.Time
+	RecordingKey string
+	TenantID     string
+	ActionID     string
+	Approved     bool
+	VerifiedBy   string
+	Reason       string
+	VerdictAt    time.Time
 }
 
 // Repository is the tasks module's storage port. All reads/writes are tenant-scoped; action writes

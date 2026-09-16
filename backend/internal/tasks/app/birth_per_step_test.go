@@ -67,11 +67,15 @@ func recordMotherStep(t *testing.T, svc *Service, repo *fakeRepo, workflowID, ke
 	return result
 }
 
-func birthVerdictEvent(t *testing.T, eventType, refType, refID, reason string) eventbus.Event {
+func birthVerdictEvent(t *testing.T, eventType, refType, refID, reason string, recordingKey ...string) eventbus.Event {
 	t.Helper()
+	key := ""
+	if len(recordingKey) > 0 {
+		key = recordingKey[0]
+	}
 	payload, err := json.Marshal(map[string]any{
 		"decision": "x", "verified_by": "44444444-4444-4444-8444-444444444444", "reason": reason,
-		"source": map[string]string{"module": domain.VerificationModuleCounts, "ref_type": refType, "ref_id": refID},
+		"source": map[string]string{"module": domain.VerificationModuleCounts, "ref_type": refType, "ref_id": refID, "recording_key": key},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -128,7 +132,7 @@ func TestBirthStepRejectionSendsBackOnlyThatStep(t *testing.T) {
 
 	// Reject clip 1 through the production verdict consumer.
 	if err := handler.HandleEvent(context.Background(), birthVerdictEvent(t, EventVerificationVerdictRework,
-		domain.VerificationRefTypeBirthAction, first.Action.ActionID, "Mother's face not visible")); err != nil {
+		domain.VerificationRefTypeBirthAction, first.Action.ActionID, "Mother's face not visible", domain.BirthStepReviewKey(first.Action))); err != nil {
 		t.Fatalf("rework verdict: %v", err)
 	}
 	bounced := actionByKeyT(t, repo, workflowID, domain.ActionKeyBabiesStillInside)
@@ -165,7 +169,7 @@ func TestBirthStepRejectionSendsBackOnlyThatStep(t *testing.T) {
 
 	// Approve clip 2: only clip 2 completes.
 	if err := handler.HandleEvent(context.Background(), birthVerdictEvent(t, EventVerificationVerdictApproved,
-		domain.VerificationRefTypeBirthAction, second.Action.ActionID, "")); err != nil {
+		domain.VerificationRefTypeBirthAction, second.Action.ActionID, "", domain.BirthStepReviewKey(second.Action))); err != nil {
 		t.Fatalf("approve verdict: %v", err)
 	}
 	if got := actionByKeyT(t, repo, workflowID, domain.ActionKeyMotherLicking); got.Status != domain.ActionStatusCompleted {
@@ -176,7 +180,7 @@ func TestBirthStepRejectionSendsBackOnlyThatStep(t *testing.T) {
 	}
 	// A redelivered approve is a no-op, never an error.
 	if err := handler.HandleEvent(context.Background(), birthVerdictEvent(t, EventVerificationVerdictApproved,
-		domain.VerificationRefTypeBirthAction, second.Action.ActionID, "")); err != nil {
+		domain.VerificationRefTypeBirthAction, second.Action.ActionID, "", domain.BirthStepReviewKey(second.Action))); err != nil {
 		t.Fatalf("redelivered approve: %v", err)
 	}
 	// A verdict for a step that does not exist is acked, not retried.
@@ -210,7 +214,7 @@ func TestBirthTrackCompletesOnlyWhenEveryClipIsApproved(t *testing.T) {
 	for _, key := range keys {
 		a := actionByKeyT(t, repo, workflowID, key)
 		if err := handler.HandleEvent(context.Background(), birthVerdictEvent(t, EventVerificationVerdictApproved,
-			domain.VerificationRefTypeBirthAction, a.ActionID, "")); err != nil {
+			domain.VerificationRefTypeBirthAction, a.ActionID, "", domain.BirthStepReviewKey(a))); err != nil {
 			t.Fatalf("approve %s: %v", key, err)
 		}
 	}

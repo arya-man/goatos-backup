@@ -47,3 +47,11 @@ func TestVerificationVerdictPayloadEvidenceIDEmptyWithoutMedia(t *testing.T) {
 		t.Fatalf("source.evidence_id = %v, want empty for a media-less item", got)
 	}
 }
+
+func TestVerificationVerdictPayloadNamesImmutableRecording(t *testing.T) {
+	const key = "counts-birth-step:action:r5:same-proof"
+	payload := verificationVerdictPayload(domain.Item{IdempotencyKey: key})
+	if got := payload["source"].(map[string]any)["recording_key"]; got != key {
+		t.Fatalf("recording_key=%v, want %s", got, key)
+	}
+}

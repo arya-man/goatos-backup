@@ -144,6 +144,9 @@ func (m MediaMeta) MimeType() string {
 
 // Item is one unit of media awaiting (or having received) independent verification.
 type Item struct {
+	// Producer recording identity, immutable after creation; echoed in verdict events.
+	IdempotencyKey string
+
 	ItemID       string
 	TenantID     string
 	Vertical     string

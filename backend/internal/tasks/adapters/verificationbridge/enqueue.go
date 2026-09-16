@@ -63,6 +63,20 @@ func (e *DeathEvidenceEnqueuer) EnqueueDeathEvidenceVerification(ctx context.Con
 // and a re-shoot after a rejection opens a fresh item. The subject label is composed by the
 // service, e.g. "Iodine dipping · Kid CPT-00123 · 2026-09-16 · Godel 1 - Part 3".
 func (e *DeathEvidenceEnqueuer) EnqueueBirthStepVerification(ctx context.Context, in tasksapp.BirthStepVerificationEnqueueRequest) error {
+	// Match metadata to the already ordered refs (videos first), never capture order.
+	kinds := make(map[string]string, len(in.Proofs))
+	for _, proof := range in.Proofs {
+		kinds[proof.Ref] = proof.Kind
+	}
+	meta := make([]verificationdomain.MediaMeta, 0, len(in.ProofRefs))
+	for _, ref := range in.ProofRefs {
+		kind := kinds[ref]
+		if kind == "" {
+			kind = tasksdomain.ProofKindVideo
+		} // legacy singular video proof
+		meta = append(meta, verificationdomain.MediaMeta{Label: in.ProofLabel, Kind: kind})
+	}
+
 	_, err := e.verification.CreateItem(ctx, verificationdomain.CreateItem{
 		TenantID:     in.TenantID,
 		Vertical:     tasksdomain.VerificationVerticalCounts,
@@ -75,6 +89,7 @@ func (e *DeathEvidenceEnqueuer) EnqueueBirthStepVerification(ctx context.Context
 			RefID:   in.ActionID,
 		},
 		MediaRefs:      in.ProofRefs,
+		MediaMeta:      meta,
 		OperatorID:     ptrIfSet(in.OperatorID),
 		ShedID:         ptrIfSet(in.ShedID),
 		ParkID:         ptrIfSet(in.ParkID),

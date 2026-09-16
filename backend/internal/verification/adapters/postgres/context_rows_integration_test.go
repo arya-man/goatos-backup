@@ -75,6 +75,12 @@ func TestContextRowsRoundTripThroughBothReadPaths_RealPostgres(t *testing.T) {
 		t.Fatalf("GetItem: %v", err)
 	}
 	assertContextRows(t, "GetItem", got.ContextRows, want)
+	if got.IdempotencyKey != "feed-packing-verification:ctx-1" {
+		t.Fatalf("recording identity lost on GetItem: %q", got.IdempotencyKey)
+	}
+	if got := verificationVerdictPayload(got)["source"].(map[string]any)["recording_key"]; got != "feed-packing-verification:ctx-1" {
+		t.Fatalf("recording identity lost in verdict: %v", got)
+	}
 
 	// Read path 2: the queue read, which uses a DIFFERENT column list and scan function
 	// (itemColumnsWithLabels / scanItemWithLabels). The two drifting apart is exactly the defect
@@ -87,6 +93,9 @@ func TestContextRowsRoundTripThroughBothReadPaths_RealPostgres(t *testing.T) {
 		t.Fatalf("ListQueue returned no rows for the item just created")
 	}
 	assertContextRows(t, "ListQueue", rows[0].ContextRows, want)
+	if rows[0].IdempotencyKey != "feed-packing-verification:ctx-1" {
+		t.Fatalf("queue lost recording identity: %q", rows[0].IdempotencyKey)
+	}
 }
 
 // A producer attaching nothing must read back as an EMPTY array, never null: the column's CHECK

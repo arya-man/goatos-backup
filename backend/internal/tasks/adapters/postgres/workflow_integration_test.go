@@ -816,7 +816,7 @@ func TestBirthEvidenceIsReviewedPerRecordedStepPg(t *testing.T) {
 	}
 
 	// 3. Rejecting clip 1 sends back exactly clip 1, with the verifier's words.
-	if err := repo.ApplyBirthStepVerdict(ctx, ports.BirthStepVerdictCommand{TenantID: wfTenant, ActionID: first.Action.ActionID,
+	if err := repo.ApplyBirthStepVerdict(ctx, ports.BirthStepVerdictCommand{TenantID: wfTenant, ActionID: first.Action.ActionID, RecordingKey: domain.BirthStepReviewKey(first.Action),
 		Approved: false, Reason: "Face not visible", VerdictAt: wfEventAt}); err != nil {
 		t.Fatalf("reject: %v", err)
 	}
@@ -834,7 +834,7 @@ func TestBirthEvidenceIsReviewedPerRecordedStepPg(t *testing.T) {
 		t.Fatalf("card after rejection = %+v, want open, done 1, next = the rejected step", detail.Card)
 	}
 	// Redelivered verdict on a step no longer in review: no-op, no error.
-	if err := repo.ApplyBirthStepVerdict(ctx, ports.BirthStepVerdictCommand{TenantID: wfTenant, ActionID: first.Action.ActionID, Approved: false, Reason: "again"}); err != nil {
+	if err := repo.ApplyBirthStepVerdict(ctx, ports.BirthStepVerdictCommand{TenantID: wfTenant, ActionID: first.Action.ActionID, RecordingKey: domain.BirthStepReviewKey(first.Action), Approved: false, Reason: "again"}); err != nil {
 		t.Fatalf("redelivered reject: %v", err)
 	}
 	if got := stepByKey(motherID, domain.ActionKeyBabiesStillInside); *got.ReworkReason != "Face not visible" {
@@ -854,6 +854,20 @@ func TestBirthEvidenceIsReviewedPerRecordedStepPg(t *testing.T) {
 		t.Fatal("re-shoot must open a fresh verification item")
 	}
 
+	// A delayed rejection for the old recording must not touch the re-shoot,
+	// The app-level regression separately covers byte-identical proof references.
+	for _, key := range []string{domain.BirthStepReviewKey(first.Action), ""} {
+		if err := repo.ApplyBirthStepVerdict(ctx, ports.BirthStepVerdictCommand{
+			TenantID: wfTenant, ActionID: first.Action.ActionID, RecordingKey: key, Reason: "stale",
+		}); err != nil {
+			t.Fatal(err)
+		}
+		got := stepByKey(motherID, domain.ActionKeyBabiesStillInside)
+		if got.Status != domain.ActionStatusInReview || domain.BirthStepReviewKey(got) != domain.BirthStepReviewKey(reshoot.Action) {
+			t.Fatalf("stale verdict changed reshoot: %+v", got)
+		}
+	}
+
 	// 5. Record the rest; the card now awaits verification (nothing left to record); kid untouched.
 	record(motherID, domain.ActionKeyORSWater1, "m4")
 	record(motherID, domain.ActionKeyMotherEating, "m5")
@@ -869,7 +883,7 @@ func TestBirthEvidenceIsReviewedPerRecordedStepPg(t *testing.T) {
 
 	// 6. Every clip approved -> the track completes.
 	for _, a := range detail.Actions {
-		if err := repo.ApplyBirthStepVerdict(ctx, ports.BirthStepVerdictCommand{TenantID: wfTenant, ActionID: a.ActionID, Approved: true}); err != nil {
+		if err := repo.ApplyBirthStepVerdict(ctx, ports.BirthStepVerdictCommand{TenantID: wfTenant, ActionID: a.ActionID, RecordingKey: domain.BirthStepReviewKey(a), Approved: true}); err != nil {
 			t.Fatalf("approve %s: %v", a.ActionKey, err)
 		}
 	}

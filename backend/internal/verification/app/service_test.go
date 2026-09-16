@@ -74,6 +74,7 @@ func (r *fakeRepo) CreateItem(_ context.Context, in domain.CreateItem) (domain.C
 		SubjectLabel: in.SubjectLabel,
 		Source:       in.Source,
 		MediaRefs:    in.MediaRefs,
+		MediaMeta:    in.MediaMeta, IdempotencyKey: in.IdempotencyKey,
 		// MeasurementFields must round-trip like the real repository's jsonb column: the verdict
 		// path's completeness check reads them off the ITEM, not the create input.
 		MeasurementFields: in.MeasurementFields,
