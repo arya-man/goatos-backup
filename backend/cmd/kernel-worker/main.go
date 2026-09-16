@@ -214,6 +214,12 @@ func run(ctx context.Context, args []string) error {
 			// (idempotent on the natural key), push one digest per park, roll unvisited pens
 			// forward as delayed. Same lane and the same once-per-day mechanism as PC Care above.
 			kernelstages.NewPenVisitKernelStage(deps, tenantID, logger),
+			// Pen routines (maintainer instruction 2026-09-16): the configurable recurring pen
+			// checks. Materialize today's (and yesterday's, for catch-up) tasks per active
+			// routine -- idempotent on the natural key -- push one digest per routine once its
+			// notify time has passed, roll unfinished checks forward as delayed. Same lane and
+			// the same once-per-day mechanism as the pen visits above.
+			kernelstages.NewPenRoutineKernelStage(deps, tenantID, logger),
 			kernelstages.NewPcCareInventoryVaccineStage(deps, tenantID),
 			kernelstages.NewInventoryBatchReconcilerStage(deps, tenantID),
 			kernelstages.NewSopSubmissionFanoutRetryStage(deps, tenantID),
