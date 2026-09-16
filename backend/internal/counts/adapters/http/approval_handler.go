@@ -484,6 +484,9 @@ func (h *AppWriteHandler) writeApprovalError(w http.ResponseWriter, r *http.Requ
 	case errors.Is(err, ports.ErrDeathAlreadyReported):
 		h.writeError(w, r, http.StatusConflict, "death_already_reported",
 			"this animal's death is already reported and waiting for approval", err)
+	case errors.Is(err, ports.ErrDeathAlreadyApplied):
+		h.writeError(w, r, http.StatusConflict, "death_already_applied",
+			"this animal's death was already approved on another report; reject this one as a duplicate", err)
 	case errors.Is(err, ports.ErrDeathEvidenceIncomplete):
 		h.writeError(w, r, http.StatusConflict, "death_evidence_incomplete",
 			"every step of the death report (its videos, photos and answers) must be recorded before approval", err)
