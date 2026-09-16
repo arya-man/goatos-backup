@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sync"
 	"time"
 
 	"github.com/vgoats/goatos/backend/internal/alerts/domain"
@@ -133,25 +134,53 @@ type SkippedRule struct {
 // List runs every enabled detector for one park and day. The feed-stock rule is farm-grain
 // and read once per tenant; it is filtered to the park so "all parks" composed by the client
 // from per-park reads never counts a feed twice.
+//
+// The rules are independent reads over different tables, so they run CONCURRENTLY under a
+// small bounded pool (listConcurrency): a page of six rules is one round trip deep, not six.
+// Results are gathered back into rule order so two reads of the same day list the same way.
 func (s *Service) List(ctx context.Context, tenantID, parkID, businessDate string) (Page, error) {
 	if businessDate == "" {
 		businessDate = biztime.BusinessDate(s.now())
 	}
-	cfgs, err := s.Config(ctx, tenantID)
-	if err != nil {
-		return Page{}, err
+	// The three inputs the rules need -- the switches, the composed rules, the park's name --
+	// are independent reads and run together; over a tunnel each is a round trip.
+	var (
+		cfgs       []domain.RuleConfig
+		eventRules []domain.EventRule
+		parkName   string
+		cfgErr     error
+		rulesErr   error
+		setup      sync.WaitGroup
+	)
+	setup.Add(3)
+	go func() { defer setup.Done(); cfgs, cfgErr = s.Config(ctx, tenantID) }()
+	go func() { defer setup.Done(); eventRules, rulesErr = s.EventRules(ctx, tenantID) }()
+	go func() {
+		defer setup.Done()
+		// One park name for every row on the page, whatever table the rule read it from: the
+		// feed sheet freezes the park's short code while the stock ledger carries the farm
+		// label, and a page whose rows disagree about what the park is called reads as two.
+		if s.parks != nil {
+			if names, err := s.parks.ParkNames(ctx, tenantID, []string{parkID}); err == nil {
+				parkName = names[parkID]
+			}
+		}
+	}()
+	setup.Wait()
+	if cfgErr != nil {
+		return Page{}, cfgErr
+	}
+	if rulesErr != nil {
+		return Page{}, rulesErr
 	}
 	page := Page{Rows: []domain.Alert{}}
-	// One park name for every row on the page, whatever table the rule read it from: the feed
-	// sheet freezes the park's short code while the stock ledger carries the farm label, and a
-	// page whose rows disagree about what the park is called reads as two parks.
-	parkName := ""
-	if s.parks != nil {
-		if names, err := s.parks.ParkNames(ctx, tenantID, []string{parkID}); err == nil {
-			parkName = names[parkID]
-		}
-	}
 	today := biztime.BusinessDate(s.now())
+
+	type job struct {
+		key domain.RuleKey
+		run func(context.Context) ([]domain.Alert, error)
+	}
+	jobs := []job{}
 	for _, cfg := range cfgs {
 		if !cfg.Enabled {
 			continue
@@ -163,46 +192,75 @@ func (s *Service) List(ctx context.Context, tenantID, parkID, businessDate strin
 			page.Skipped = append(page.Skipped, SkippedRule{Key: cfg.Key, Label: cfg.Label, Reason: "Checked for today only; this date is not re-read."})
 			continue
 		}
-		page.RulesRun = append(page.RulesRun, cfg.Key)
-		rows, err := s.run(ctx, cfg, tenantID, parkID, businessDate)
-		if err != nil {
-			s.log.WarnContext(ctx, "alerts_rule_read_failed", "rule", cfg.Key, "park_id", parkID, "business_date", businessDate, "error", err)
-			page.Degraded = append(page.Degraded, cfg.Key)
-			continue
-		}
-		for i := range rows {
-			if parkName != "" {
-				rows[i].ParkLabel = parkName
-			}
-		}
-		page.Rows = append(page.Rows, rows...)
-	}
-	// The composed event alerts, each its own rule.
-	eventRules, err := s.EventRules(ctx, tenantID)
-	if err != nil {
-		return Page{}, err
+		cfg := cfg
+		jobs = append(jobs, job{key: cfg.Key, run: func(ctx context.Context) ([]domain.Alert, error) {
+			return s.run(ctx, cfg, tenantID, parkID, businessDate)
+		}})
 	}
 	for _, rule := range eventRules {
 		if !rule.Enabled {
 			continue
 		}
+		rule := rule
 		key := domain.RuleKey("event:" + rule.ID)
-		page.RulesRun = append(page.RulesRun, key)
-		if s.events == nil {
-			page.Degraded = append(page.Degraded, key)
+		jobs = append(jobs, job{key: key, run: func(ctx context.Context) ([]domain.Alert, error) {
+			if s.events == nil {
+				return nil, fmt.Errorf("alerts: event reader not wired")
+			}
+			events, err := s.events.Events(ctx, tenantID, parkID, rule.Kind, businessDate)
+			if err != nil {
+				return nil, err
+			}
+			return domain.DetectEvents(businessDate, parkName, rule, events), nil
+		}})
+	}
+
+	type outcome struct {
+		rows []domain.Alert
+		err  error
+	}
+	results := make([]outcome, len(jobs))
+	sem := make(chan struct{}, listConcurrency)
+	var wg sync.WaitGroup
+	for i, j := range jobs {
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(i int, j job) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			defer func() {
+				if r := recover(); r != nil {
+					results[i] = outcome{err: fmt.Errorf("alerts: rule %s panicked: %v", j.key, r)}
+					s.log.ErrorContext(ctx, "alerts_rule_panic", "rule", j.key, "panic", fmt.Sprint(r))
+				}
+			}()
+			rows, err := j.run(ctx)
+			results[i] = outcome{rows: rows, err: err}
+		}(i, j)
+	}
+	wg.Wait()
+	for i, j := range jobs {
+		page.RulesRun = append(page.RulesRun, j.key)
+		if results[i].err != nil {
+			s.log.WarnContext(ctx, "alerts_rule_read_failed", "rule", j.key, "park_id", parkID, "business_date", businessDate, "error", results[i].err)
+			page.Degraded = append(page.Degraded, j.key)
 			continue
 		}
-		events, err := s.events.Events(ctx, tenantID, parkID, rule.Kind, businessDate)
-		if err != nil {
-			s.log.WarnContext(ctx, "alerts_event_rule_read_failed", "rule", rule.ID, "kind", rule.Kind, "park_id", parkID, "business_date", businessDate, "error", err)
-			page.Degraded = append(page.Degraded, key)
-			continue
+		rows := results[i].rows
+		for k := range rows {
+			if parkName != "" {
+				rows[k].ParkLabel = parkName
+			}
 		}
-		page.Rows = append(page.Rows, domain.DetectEvents(businessDate, parkName, rule, events)...)
+		page.Rows = append(page.Rows, rows...)
 	}
 	domain.SortAlerts(page.Rows)
 	return page, nil
 }
+
+// listConcurrency bounds the rule reads in flight for one page read: enough to collapse the
+// round trips, small enough that a burst of page loads cannot swamp the shared pool.
+const listConcurrency = 4
 
 func (s *Service) run(ctx context.Context, cfg domain.RuleConfig, tenantID, parkID, businessDate string) ([]domain.Alert, error) {
 	switch cfg.Key {
@@ -220,19 +278,34 @@ func (s *Service) penFeedChanges(ctx context.Context, tenantID, parkID, business
 	if s.sheets == nil || s.movements == nil {
 		return nil, fmt.Errorf("alerts: feed sheet reader not wired")
 	}
-	today, todayIssued, err := s.sheets.PenFeedDay(ctx, tenantID, parkID, businessDate)
-	if err != nil {
-		return nil, err
-	}
 	day, err := time.ParseInLocation("2006-01-02", businessDate, biztime.DefaultLocation())
 	if err != nil {
 		return nil, fmt.Errorf("alerts: invalid business date %q: %w", businessDate, err)
 	}
-	// Business DAYS, never hours: the comparison is yesterday's sheet against today's.
+	// Business DAYS, never hours: the comparison is yesterday's sheet against today's. The two
+	// sheet reads are independent and run together.
 	yesterdayDate := day.AddDate(0, 0, -1).Format("2006-01-02")
-	yesterday, yesterdayIssued, err := s.sheets.PenFeedDay(ctx, tenantID, parkID, yesterdayDate)
-	if err != nil {
-		return nil, err
+	var (
+		today, yesterday             []domain.PenFeedDay
+		todayIssued, yesterdayIssued string
+		todayErr, yesterdayErr       error
+		wg                           sync.WaitGroup
+	)
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		today, todayIssued, todayErr = s.sheets.PenFeedDay(ctx, tenantID, parkID, businessDate)
+	}()
+	go func() {
+		defer wg.Done()
+		yesterday, yesterdayIssued, yesterdayErr = s.sheets.PenFeedDay(ctx, tenantID, parkID, yesterdayDate)
+	}()
+	wg.Wait()
+	if todayErr != nil {
+		return nil, todayErr
+	}
+	if yesterdayErr != nil {
+		return nil, yesterdayErr
 	}
 	if yesterday == nil || today == nil {
 		// One of the two sheets was never issued: nothing to compare.
