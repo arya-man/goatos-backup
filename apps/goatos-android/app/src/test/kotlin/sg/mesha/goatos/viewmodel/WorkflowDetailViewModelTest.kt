@@ -82,6 +82,7 @@ class WorkflowDetailViewModelTest {
         syncRepository: FakeWorkflowDetailSyncRepository,
         proofCaptureRepository: FakeProofCaptureRepository,
         proofCaptureSource: FakeProofCaptureSource,
+        photoCaptureSource: sg.mesha.goatos.capture.PhotoCaptureSource = NoopPhotoCaptureSource(),
     ) = WorkflowDetailViewModel(
         repo = workflowsRepository,
         syncRepository = syncRepository,
@@ -90,7 +91,7 @@ class WorkflowDetailViewModelTest {
         analytics = FakeAnalyticsPort(),
         crashReporter = NoopCrashReporter(),
         savedStateHandle = SavedStateHandle(mapOf(WorkflowDetailViewModel.ARG_WORKFLOW_ID to "wf-1")),
-        photoCaptureSource = NoopPhotoCaptureSource(),
+        photoCaptureSource = photoCaptureSource,
         countsRepository = FakeAddCountsRepository(),
     )
 
@@ -351,6 +352,42 @@ class WorkflowDetailViewModelTest {
             listOf("fresh-outbox-1", "fresh-outbox-2"),
             syncRepository.completeCalls.single().proofOutboxItems.map { it.outboxItemId },
         )
+    }
+
+    /** Realme E2E 2026-09-17: a PHOTO step said "Video saved on this phone…". */
+    @Test
+    fun `a photo step reports a saved photo, never a saved video`() = runTest(dispatcher) {
+        val action = WorkflowActionDto(
+            actionId = "action-1",
+            actionKey = "kid_photo",
+            seq = 1,
+            actionType = "action",
+            title = "Kid photo",
+            status = "pending",
+            proofMinPhotos = 1,
+        )
+        val workflowsRepository = FakeWorkflowDetailRepository(requiresVideoDetail().copy(actions = listOf(action)))
+        val syncRepository = FakeWorkflowDetailSyncRepository()
+        val photos = object : sg.mesha.goatos.capture.PhotoCaptureSource {
+            override suspend fun capturePhoto(context: sg.mesha.goatos.capture.PhotoCaptureContext) =
+                sg.mesha.goatos.capture.CapturedPhoto(localUri = "file:///kid.jpg", capturedAtMs = 5L)
+        }
+        val viewModel = buildViewModel(
+            workflowsRepository,
+            syncRepository,
+            FakeProofCaptureRepository(),
+            FakeProofCaptureSource(mutableListOf()),
+            photos,
+        )
+        backgroundScope.launch { viewModel.state.collect {} }
+        advanceUntilIdle()
+
+        viewModel.onEvent(WorkflowDetailEvent.TakePhoto("action-1"))
+        advanceUntilIdle()
+
+        assertEquals(1, syncRepository.completeCalls.size)
+        assertEquals(sg.mesha.goatos.feature.counts.WorkflowProofSavedKind.PHOTO, viewModel.state.value.proofSaved)
+        assertEquals("the photo banner replaces the old video sentence", null, viewModel.state.value.message)
     }
 
     @Test
