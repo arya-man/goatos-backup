@@ -1,5 +1,6 @@
 package sg.mesha.goatos.core.data.weighing
 
+import androidx.room.ColumnInfo
 import androidx.room.Dao
 import androidx.room.Entity
 import androidx.room.Index
@@ -94,6 +95,12 @@ data class WeighingObservationEntity(
     // only discovers the rejection when Submit refuses the entire shed.
     val verificationStatus: String? = null,
     val reworkReason: String? = null,
+    // THE WEIGH CAPTURES ARE AUTHORED (2026-09-16): the per-animal {slot key: server proof id}
+    // map beyond the primary (proofCaptureId / serverProofId stay the FIRST slot's capture for
+    // every existing reader) and the per-animal answers, both JSON, mirrored to the server's
+    // sop_proofs / sop_answers. '{}' = the seeded single-video shape.
+    @ColumnInfo(defaultValue = "'{}'") val slotProofsJson: String = "{}",
+    @ColumnInfo(defaultValue = "'{}'") val answersJson: String = "{}",
 )
 
 @Entity(
@@ -120,6 +127,9 @@ data class WeighingShedObservationEntity(
     val idempotencyKey: String,
     val capturedAtMs: Long,
     val lastError: String?,
+    /** The whole-pen {slot key: [server proof ids]} map and the per-pen answers (2026-09-16). */
+    @ColumnInfo(defaultValue = "'{}'") val slotProofsJson: String = "{}",
+    @ColumnInfo(defaultValue = "'{}'") val answersJson: String = "{}",
 )
 
 data class WeighingIndividualReadyProofRow(
@@ -300,6 +310,10 @@ interface WeighingObservationDao {
     @Query("DELETE FROM weighing_observation WHERE observationId = :observationId AND syncStatus != 'ACCEPTED'")
     suspend fun deleteEditable(observationId: String)
 
+    /** Stores the authored slot map and answers (2026-09-16) without touching the primary columns. */
+    @Query("UPDATE weighing_observation SET slotProofsJson = :slotProofsJson, answersJson = :answersJson WHERE observationId = :observationId")
+    suspend fun setCaptureSlots(observationId: String, slotProofsJson: String, answersJson: String)
+
     @Query(
         "UPDATE weighing_observation SET syncStatus = 'ACCEPTED', lastError = NULL " +
             "WHERE idempotencyKey = :idempotencyKey",
@@ -352,6 +366,9 @@ interface WeighingShedObservationDao {
             "syncStatus = :syncStatus, lastError = NULL WHERE shedObservationId = :shedObservationId",
     )
     suspend fun attachProof(shedObservationId: String, proofCaptureId: String, serverProofId: String?, syncStatus: String)
+
+    @Query("UPDATE weighing_shed_observation SET slotProofsJson = :slotProofsJson, answersJson = :answersJson WHERE shedObservationId = :shedObservationId")
+    suspend fun setCaptureSlots(shedObservationId: String, slotProofsJson: String, answersJson: String)
 
     @Query("DELETE FROM weighing_shed_observation WHERE shedObservationId = :shedObservationId AND syncStatus != 'ACCEPTED'")
     suspend fun deleteEditable(shedObservationId: String)

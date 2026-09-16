@@ -501,4 +501,17 @@
     <string name="weighing_growth_losing_title">బరువు తగ్గుతున్నాయి</string>
     <string name="weighing_growth_losing_meta_fmt">%1$s · %2$.1f → %3$.1f కేజీ</string>
     <string name="weighing_removal_number_invalid">అనుమతించిన పరిధిలో సరైన సంఖ్యను నమోదు చేయండి.</string>
+    <!-- THE WEIGH CAPTURES ARE AUTHORED (2026-09-16): per-animal and whole-pen extras. -->
+    <string name="weighing_blocked_need_captures">సమర్పించే ముందు ఈ తూకానికి అడిగిన రికార్డింగ్‌లు మరియు జవాబులు పూర్తి చేయండి.</string>
+    <string name="weighing_capture_still_needed">ఇంకా కావాలి: %1$s</string>
+    <string name="weighing_capture_pen_slot_count">%2$d లో %1$d సేవ్ అయ్యాయి</string>
+    <string name="weighing_capture_slot_saved">సేవ్ అయింది</string>
+    <string name="weighing_capture_slot_uploading">అప్‌లోడ్ అవుతోంది</string>
+    <string name="weighing_capture_slot_failed">అప్‌లోడ్ విఫలమైంది. మళ్లీ రికార్డ్ చేయండి.</string>
+    <string name="weighing_capture_slot_needed">అవసరం</string>
+    <string name="weighing_capture_slot_optional">ఐచ్ఛికం</string>
+    <string name="weighing_capture_record_video">వీడియో రికార్డ్ చేయండి</string>
+    <string name="weighing_capture_take_photo">ఫోటో తీయండి</string>
+    <string name="weighing_capture_question_optional">%1$s · ఐచ్ఛికం</string>
+    <string name="weighing_capture_primary_use_photo">బదులుగా ఫోటో తీయండి</string>
 </resources>

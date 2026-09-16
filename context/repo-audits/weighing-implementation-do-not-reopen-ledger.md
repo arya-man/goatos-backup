@@ -535,6 +535,12 @@ Resolve the verification (get a director's approval/rejection), then close. The 
 
 ## B-5 — Verification queue grain is PER PIECE OF EVIDENCE. Do not "batch" it.
 
+> 2026-09-16 note: the weigh captures are now SOP-authored (an animal may carry up to four
+> captures, a pen up to ten). The GRAIN IS UNCHANGED -- one item per animal, one per pen; the
+> item simply carries several media refs (primary first) with their slot titles. The enqueue's
+> old `len(mediaRefs) > 1` category inference, which would have filed a two-capture animal as a
+> pen item, was replaced by an explicit category for exactly this reason.
+
 **Status: CLOSED, NOT A BUG. Maintainer ruling 2026-08-03. Do not reopen.**
 
 Raised during the 2026-08-03 device-E2E review as a scale/operating-model defect

@@ -676,9 +676,12 @@ type LeadershipShedVideos struct {
 	EstimatedAnimalCount int `json:"estimated_animal_count"`
 	// MaxShedVideos is the lump-sum group-video allowance, so "N of MaxShedVideos"
 	// reads off the same policy the write path enforces.
-	MaxShedVideos int           `json:"max_shed_videos"`
-	Individual    []Observation `json:"individual"`
-	LumpSum       *Observation  `json:"lump_sum,omitempty"`
+	MaxShedVideos int `json:"max_shed_videos"`
+	// SOPVersion is the task's pinned weighing SOP version (0 = seed); internal, the service
+	// resolves MaxShedVideos (the pinned whole-pen Σmax) and the capture labels from it.
+	SOPVersion int           `json:"-"`
+	Individual []Observation `json:"individual"`
+	LumpSum    *Observation  `json:"lump_sum,omitempty"`
 	// NextIndividualCursor pages Individual on a keyset of
 	// (accepted_at, observation_id) scoped to this bucket. Empty means the last
 	// page. LumpSum is a single latest-row read and is never paged: a per-shed
@@ -771,6 +774,9 @@ type ProofMedia struct {
 	ProofID     string `json:"proof_id"`
 	DownloadURL string `json:"download_url"`
 	MimeType    string `json:"mime_type,omitempty"`
+	// Label is the capture's SOP title ("Weighing video 2 of 3", "Scale display photo") from
+	// the observation's stored slot map; blank for a row written before slots existed.
+	Label string `json:"label,omitempty"`
 }
 
 type Observation struct {
@@ -800,6 +806,16 @@ type Observation struct {
 	// still have no way to know which animal to weigh again.
 	VerificationStatus string `json:"verification_status,omitempty"`
 	ReworkReason       string `json:"rework_reason,omitempty"`
+	// The AUTHORED captures (2026-09-16). Proofs is the per-animal {slot: ref} map; ProofSlots
+	// is the whole-pen {slot: refs} map; Answers the recorded answers; ProofKinds {ref: video |
+	// photo} as the proof register judged each capture (an `either` slot's answer), read on
+	// EVERY path so a retried verification enqueue names the same kind the first one did.
+	Proofs     IndividualProofRefs `json:"proofs,omitempty"`
+	ProofSlots LumpSumProofRefs    `json:"proof_slots,omitempty"`
+	Answers    SOPAnswers          `json:"answers,omitempty"`
+	ProofKinds map[string]string   `json:"proof_kinds,omitempty"`
+	// SOPVersion is the task's pinned version the row was judged under; internal.
+	SOPVersion int `json:"-"`
 	// Superseded is true when this capture UPDATED an existing, not-yet-submitted
 	// (or verifier-reworked) evidence row in place, rather than inserting a fresh
 	// one. It is the signal the service layer uses to advance the observation's
@@ -966,14 +982,35 @@ type RecordAnimalObservation struct {
 	CampaignShedID    string
 	ScannedIdentifier string
 	WeightKg          float64
-	ProofArtifactID   string
-	ActualLocationID  string
-	IdempotencyKey    string
-	RecordedBy        string
+	// ProofArtifactID is the LEGACY single proof (older apps). With Proofs set it is ignored
+	// on input; the service derives PrimaryProofRef either way.
+	ProofArtifactID  string
+	ActualLocationID string
+	IdempotencyKey   string
+	RecordedBy       string
 	// DeviceID is the client-supplied device identifier (X-Device-Id), optional
 	// since older clients omit it. It lets the same operator's multiple phones
 	// be told apart when reconstructing "I scanned and nothing happened" reports.
 	DeviceID string
+	// Proofs / Answers are the AUTHORED per-animal captures and answers (2026-09-16), keyed by
+	// the pinned SOP's slot / question ids. Both `omitempty` so a legacy request's idempotency
+	// FINGERPRINT (a hash of this struct) is byte-identical to what it was before the fields
+	// existed; the derived fields below are excluded from it (`json:"-"`).
+	Proofs  IndividualProofRefs `json:",omitempty"`
+	Answers SOPAnswers          `json:",omitempty"`
+	// Derived by the service from the pinned rules -- never client input, never fingerprinted.
+	// PrimaryProofRef is OrderedRefs[0]: the ref stored on proof_artifact_id and the one the
+	// verdict applier compares (verification_verdict.go) -- media refs are handed to
+	// verification primary-first for that reason.
+	SlotKinds         map[string]string   `json:"-"`
+	OrderedRefs       []string            `json:"-"`
+	PrimaryProofRef   string              `json:"-"`
+	NormalizedProofs  IndividualProofRefs `json:"-"`
+	NormalizedAnswers SOPAnswers          `json:"-"`
+	// LegacyShape is true when the request carried no slot map (an older app): the store
+	// then keeps the row's sop_proofs as the seeded mapping and the verifier reads the
+	// authored items it could not have sent as "Not captured (older app)".
+	LegacyShape bool `json:"-"`
 }
 
 type RecordShedObservation struct {
@@ -990,6 +1027,18 @@ type RecordShedObservation struct {
 	// DeviceID mirrors RecordAnimalObservation.DeviceID: optional client device
 	// identifier, empty when the caller did not send one.
 	DeviceID string
+	// Proofs / Answers are the AUTHORED whole-pen captures ({slot: refs}) and answers
+	// (2026-09-16); `omitempty` keeps a legacy request's fingerprint unchanged.
+	Proofs  LumpSumProofRefs `json:",omitempty"`
+	Answers SOPAnswers       `json:",omitempty"`
+	// Derived by the service; never fingerprinted. Ordered is every capture in slot order
+	// (Ordered[0].Ref is the primary stored on proof_artifact_id); ProofArtifactIDs is set to
+	// the same order so every existing reader of the flat list still reads.
+	SlotKinds         map[string]string `json:"-"`
+	Ordered           []OrderedCapture  `json:"-"`
+	NormalizedProofs  LumpSumProofRefs  `json:"-"`
+	NormalizedAnswers SOPAnswers        `json:"-"`
+	LegacyShape       bool              `json:"-"`
 }
 
 // WeighingPark is the park VOCABULARY a weighing oversight surface renders as chips.

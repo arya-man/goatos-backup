@@ -528,4 +528,17 @@
     <string name="weighing_growth_losing_title">Losing weight</string>
     <string name="weighing_growth_losing_meta_fmt">%1$s · %2$.1f → %3$.1f kg</string>
     <string name="weighing_removal_number_invalid">Enter a valid number within the allowed range.</string>
+    <!-- THE WEIGH CAPTURES ARE AUTHORED (2026-09-16): per-animal and whole-pen extras. -->
+    <string name="weighing_blocked_need_captures">Finish the captures and answers this weighing asks for before you submit.</string>
+    <string name="weighing_capture_still_needed">Still needed: %1$s</string>
+    <string name="weighing_capture_pen_slot_count">%1$d of %2$d saved</string>
+    <string name="weighing_capture_slot_saved">Saved</string>
+    <string name="weighing_capture_slot_uploading">Uploading</string>
+    <string name="weighing_capture_slot_failed">Upload failed. Record it again.</string>
+    <string name="weighing_capture_slot_needed">Needed</string>
+    <string name="weighing_capture_slot_optional">Optional</string>
+    <string name="weighing_capture_record_video">Record video</string>
+    <string name="weighing_capture_take_photo">Take photo</string>
+    <string name="weighing_capture_question_optional">%1$s · optional</string>
+    <string name="weighing_capture_primary_use_photo">Use a photo instead</string>
 </resources>

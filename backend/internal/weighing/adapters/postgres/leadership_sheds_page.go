@@ -101,7 +101,7 @@ SELECT wc.campaign_id::text, cs.campaign_shed_id::text, cs.display_name, COALESC
        COALESCE(cs.start_business_date::text, wc.start_business_date::text, ''),
        COALESCE(op.display_name, ''),
        wc.period_start_date::text, COALESCE(wc.period_end_date::text, ''),
-       wc.created_at
+       wc.created_at, COALESCE(wc.sop_version, 0)
 FROM weighing_campaigns wc
 JOIN weighing_campaign_sheds cs
   ON cs.tenant_id=wc.tenant_id AND cs.campaign_id=wc.campaign_id
@@ -139,7 +139,7 @@ LIMIT $6`,
 		if err := rows.Scan(&item.CampaignID, &item.CampaignShedID, &item.ShedName, &item.PartitionLabel,
 			&item.OperatorUserID, &item.WeighingCategory, &item.Status, &item.EstimatedAnimalCount,
 			&item.ParkName, &item.WeighDate, &item.OperatorDisplayName,
-			&periodStart, &periodEnd, &key.createdAt); err != nil {
+			&periodStart, &periodEnd, &key.createdAt, &item.SOPVersion); err != nil {
 			return domain.LeadershipShedPage{}, err
 		}
 		applyLeadershipShedPartitionDisplay(&item)
@@ -188,11 +188,13 @@ LIMIT $6`,
 		obsRows, err := r.pool.Query(ctx, `
 SELECT o.campaign_id::text, o.campaign_shed_id::text, o.observation_id::text,
        o.scanned_identifier,
-       o.weight_kg::float8, o.proof_artifact_id::text, o.accepted_at
+       o.weight_kg::float8, o.proof_artifact_id::text, o.accepted_at,
+       o.sop_proofs::text, o.sop_answers::text,
+       `+animalProofKindsSQL+`
 FROM unnest($2::uuid[], $3::uuid[]) AS k(campaign_id, campaign_shed_id)
 CROSS JOIN LATERAL (
-  SELECT w.campaign_id, w.campaign_shed_id, w.observation_id, w.scanned_identifier,
-         w.weight_kg, w.proof_artifact_id, w.accepted_at
+  SELECT w.tenant_id, w.campaign_id, w.campaign_shed_id, w.observation_id, w.scanned_identifier,
+         w.weight_kg, w.proof_artifact_id, w.accepted_at, w.sop_proofs, w.sop_answers
   FROM weighing_observations w
   WHERE w.tenant_id=$1::uuid AND w.campaign_id=k.campaign_id AND w.campaign_shed_id=k.campaign_shed_id
   ORDER BY w.accepted_at, w.observation_id
@@ -204,12 +206,15 @@ CROSS JOIN LATERAL (
 		defer obsRows.Close()
 		for obsRows.Next() {
 			var observation domain.Observation
+			var proofsText, answersText, kindsText string
 			if err := obsRows.Scan(&observation.CampaignID, &observation.CampaignShedID,
 				&observation.ObservationID, &observation.ScannedIdentifier, &observation.WeightKg,
-				&observation.ProofArtifactID, &observation.AcceptedAt); err != nil {
+				&observation.ProofArtifactID, &observation.AcceptedAt, &proofsText, &answersText, &kindsText); err != nil {
 				return domain.LeadershipShedPage{}, err
 			}
-			observation.ProofArtifactIDs = []string{observation.ProofArtifactID}
+			decodeObservationSOP(&observation, proofsText, answersText)
+			observation.ProofKinds = decodeKinds(kindsText)
+			observation.ProofArtifactIDs = animalProofList(observation)
 			if idx, ok := byShed[observation.CampaignID+"/"+observation.CampaignShedID]; ok {
 				page.Items[idx].Individual = append(page.Items[idx].Individual, observation)
 			}
@@ -234,17 +239,21 @@ CROSS JOIN LATERAL (
 		lumpRows, err := r.pool.Query(ctx, `
 SELECT l.campaign_id::text, l.campaign_shed_id::text, l.shed_observation_id::text,
        l.weight_kg::float8, l.average_weight_kg::float8, l.animal_count,
-       l.proof_artifact_id::text, l.proof_ids, l.accepted_at
+       l.proof_artifact_id::text, l.proof_ids, l.accepted_at,
+       l.sop_answers::text, l.proof_slots, l.proof_kinds
 FROM unnest($2::uuid[], $3::uuid[]) AS k(campaign_id, campaign_shed_id)
 CROSS JOIN LATERAL (
   SELECT wso.campaign_id, wso.campaign_shed_id, wso.shed_observation_id, wso.weight_kg,
          wso.average_weight_kg, wso.animal_count, wso.proof_artifact_id, wso.accepted_at,
+         wso.sop_answers,
          COALESCE(
            (SELECT array_agg(p.proof_artifact_id::text ORDER BY p.proof_position)
               FROM weighing_shed_observation_proofs p
              WHERE p.tenant_id=wso.tenant_id AND p.shed_observation_id=wso.shed_observation_id),
            ARRAY[wso.proof_artifact_id::text]
-         ) AS proof_ids
+         ) AS proof_ids,
+         `+shedProofSlotsSQL+` AS proof_slots,
+         `+shedProofKindsSQL+` AS proof_kinds
   FROM weighing_shed_observations wso
   WHERE wso.tenant_id=$1::uuid AND wso.campaign_id=k.campaign_id AND wso.campaign_shed_id=k.campaign_shed_id
     AND wso.withdrawn_at IS NULL
@@ -257,11 +266,15 @@ CROSS JOIN LATERAL (
 		defer lumpRows.Close()
 		for lumpRows.Next() {
 			var lump domain.Observation
+			var answersText, slotsText, kindsText string
 			if err := lumpRows.Scan(&lump.CampaignID, &lump.CampaignShedID, &lump.ObservationID,
 				&lump.WeightKg, &lump.AverageWeightKg, &lump.AnimalCount, &lump.ProofArtifactID,
-				&lump.ProofArtifactIDs, &lump.AcceptedAt); err != nil {
+				&lump.ProofArtifactIDs, &lump.AcceptedAt, &answersText, &slotsText, &kindsText); err != nil {
 				return domain.LeadershipShedPage{}, err
 			}
+			decodeObservationSOP(&lump, "", answersText)
+			lump.ProofSlots = decodeSlots(slotsText)
+			lump.ProofKinds = decodeKinds(kindsText)
 			if idx, ok := byShed[lump.CampaignID+"/"+lump.CampaignShedID]; ok {
 				row := lump
 				page.Items[idx].LumpSum = &row

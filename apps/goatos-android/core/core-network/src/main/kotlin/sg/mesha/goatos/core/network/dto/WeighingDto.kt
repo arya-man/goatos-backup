@@ -350,15 +350,42 @@ data class WeighingSopCaptureDto(
     @SerialName("lump_sum") val lumpSum: WeighingSopLumpSumCaptureDto = WeighingSopLumpSumCaptureDto(),
 )
 
+/**
+ * THE WEIGH CAPTURES ARE AUTHORED (maintainer decision 2026-09-16): TWO SEPARATE capture
+ * sections, per animal and whole pen, each with its OWN proof slots and OWN questions. A served
+ * rule set always carries both slot lists explicitly; an older server (pre-slots) sends none and
+ * the phone falls back to the seeded slots (WeighingSopRules).
+ */
 @Serializable
 data class WeighingSopIndividualCaptureDto(
     @SerialName("video_required") val videoRequired: Boolean = true,
+    /** PER-ANIMAL capture slots in the order the row shows them; the first is the PRIMARY. */
+    @SerialName("proofs") val proofs: List<WeighingRemovalProofSlotDto> = emptyList(),
+    /** Questions answered per animal, beside the captures. */
+    @SerialName("questions") val questions: List<WeighingSopQuestionDto> = emptyList(),
 )
 
 @Serializable
 data class WeighingSopLumpSumCaptureDto(
+    /** Derived mirror for pre-slot phones (Σ of the video/either slots, clamped 1..5). */
     @SerialName("video_min") val videoMin: Int = 1,
     @SerialName("video_max") val videoMax: Int = 5,
+    /** WHOLE-PEN counted capture slots (each min..max), in card order. */
+    @SerialName("proofs") val proofs: List<WeighingCountedProofSlotDto> = emptyList(),
+    /** Questions answered once per pen submit. Never the per-animal list. */
+    @SerialName("questions") val questions: List<WeighingSopQuestionDto> = emptyList(),
+)
+
+/** One WHOLE-PEN capture slot carrying between [min] and [max] captures (min 0 = optional). */
+@Serializable
+data class WeighingCountedProofSlotDto(
+    @SerialName("key") val key: String = "",
+    @SerialName("title") val title: String = "",
+    @SerialName("hint") val hint: String = "",
+    /** video | photo | either. */
+    @SerialName("kind") val kind: String = "video",
+    @SerialName("min") val min: Int = 1,
+    @SerialName("max") val max: Int = 5,
 )
 
 @Serializable
@@ -594,6 +621,10 @@ data class WeighingAcceptedObservationDto(
      */
     @SerialName("verification_status") val verificationStatus: String? = null,
     @SerialName("rework_reason") val reworkReason: String? = null,
+    /** The stored per-animal {slot key: proof ref} map and answers (2026-09-16); empty pre-slots. */
+    @SerialName("proofs") val proofs: Map<String, String> = emptyMap(),
+    @SerialName("answers") val answers: JsonObject? = null,
+    @SerialName("proof_kinds") val proofKinds: Map<String, String> = emptyMap(),
 )
 
 @Serializable
@@ -601,8 +632,14 @@ data class WeighingAnimalObservationRequestDto(
     @SerialName("campaign_shed_id") val campaignShedId: String,
     @SerialName("scanned_identifier") val scannedIdentifier: String,
     @SerialName("weight_kg") val weightKg: Double,
+    /** The PRIMARY capture (the first slot's); still sent so an older server reads it. */
     @SerialName("proof_artifact_id") val proofArtifactId: String,
     @SerialName("actual_location_id") val actualLocationId: String,
+    // THE WEIGH CAPTURES ARE AUTHORED (2026-09-16): {slot key: proof ref} for the task's pinned
+    // per-animal slots and {question id: answer}. Null on an OLD queued outbox row (which
+    // recorded neither) so it still decodes and replays as the legacy shape.
+    @SerialName("proofs") val proofs: Map<String, String>? = null,
+    @SerialName("answers") val answers: JsonObject? = null,
 )
 
 @Serializable
@@ -617,6 +654,9 @@ data class WeighingShedObservationRequestDto(
     @SerialName("average_weight_kg") val averageWeightKg: Double? = null,
     @SerialName("proof_artifact_id") val proofArtifactId: String,
     @SerialName("proof_artifact_ids") val proofArtifactIds: List<String> = emptyList(),
+    /** {slot key: proof refs} for the task's pinned whole-pen slots (2026-09-16); null = legacy. */
+    @SerialName("proofs") val proofs: Map<String, List<String>>? = null,
+    @SerialName("answers") val answers: JsonObject? = null,
 )
 
 @Serializable
@@ -646,6 +686,13 @@ data class WeighingObservationDto(
      */
     @SerialName("verification_status") val verificationStatus: String? = null,
     @SerialName("rework_reason") val reworkReason: String? = null,
+    // THE WEIGH CAPTURES ARE AUTHORED (2026-09-16): the stored per-animal {slot: ref} map, the
+    // whole-pen {slot: refs} map, the answers, and {ref: video|photo} as the register judged
+    // each capture (an either-kind slot reopens as what it is). Absent on a pre-slot row.
+    @SerialName("proofs") val proofs: Map<String, String> = emptyMap(),
+    @SerialName("proof_slots") val proofSlots: Map<String, List<String>> = emptyMap(),
+    @SerialName("answers") val answers: JsonObject? = null,
+    @SerialName("proof_kinds") val proofKinds: Map<String, String> = emptyMap(),
 )
 
 @Serializable
@@ -653,6 +700,8 @@ data class WeighingProofMediaDto(
     @SerialName("proof_id") val proofId: String = "",
     @SerialName("download_url") val downloadUrl: String = "",
     @SerialName("mime_type") val mimeType: String = "",
+    /** The capture's SOP title from the pinned rules ("Scale display photo"); blank on a pre-slot row. */
+    @SerialName("label") val label: String = "",
 )
 
 @Serializable

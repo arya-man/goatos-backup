@@ -501,4 +501,17 @@
     <string name="weighing_growth_losing_title">ತೂಕ ಕಳೆದುಕೊಳ್ಳುತ್ತಿವೆ</string>
     <string name="weighing_growth_losing_meta_fmt">%1$s · %2$.1f → %3$.1f ಕೆಜಿ</string>
     <string name="weighing_removal_number_invalid">ಅನುಮತಿಸಿದ ವ್ಯಾಪ್ತಿಯೊಳಗೆ ಮಾನ್ಯ ಸಂಖ್ಯೆಯನ್ನು ನಮೂದಿಸಿ.</string>
+    <!-- THE WEIGH CAPTURES ARE AUTHORED (2026-09-16): per-animal and whole-pen extras. -->
+    <string name="weighing_blocked_need_captures">ಸಲ್ಲಿಸುವ ಮೊದಲು ಈ ತೂಕಕ್ಕೆ ಕೇಳಿರುವ ರೆಕಾರ್ಡಿಂಗ್ ಮತ್ತು ಉತ್ತರಗಳನ್ನು ಪೂರ್ಣಗೊಳಿಸಿ.</string>
+    <string name="weighing_capture_still_needed">ಇನ್ನೂ ಬೇಕು: %1$s</string>
+    <string name="weighing_capture_pen_slot_count">%2$d ರಲ್ಲಿ %1$d ಉಳಿಸಲಾಗಿದೆ</string>
+    <string name="weighing_capture_slot_saved">ಉಳಿಸಲಾಗಿದೆ</string>
+    <string name="weighing_capture_slot_uploading">ಅಪ್‌ಲೋಡ್ ಆಗುತ್ತಿದೆ</string>
+    <string name="weighing_capture_slot_failed">ಅಪ್‌ಲೋಡ್ ವಿಫಲವಾಗಿದೆ. ಮತ್ತೆ ರೆಕಾರ್ಡ್ ಮಾಡಿ.</string>
+    <string name="weighing_capture_slot_needed">ಅಗತ್ಯ</string>
+    <string name="weighing_capture_slot_optional">ಐಚ್ಛಿಕ</string>
+    <string name="weighing_capture_record_video">ವೀಡಿಯೊ ರೆಕಾರ್ಡ್ ಮಾಡಿ</string>
+    <string name="weighing_capture_take_photo">ಫೋಟೋ ತೆಗೆಯಿರಿ</string>
+    <string name="weighing_capture_question_optional">%1$s · ಐಚ್ಛಿಕ</string>
+    <string name="weighing_capture_primary_use_photo">ಬದಲಿಗೆ ಫೋಟೋ ತೆಗೆಯಿರಿ</string>
 </resources>

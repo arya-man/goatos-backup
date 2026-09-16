@@ -117,6 +117,10 @@ type VerificationEnqueuer interface {
 type VerificationContextRow struct {
 	Label string
 	Value string
+	// Group sections the rows on the verifier's screen (verificationdomain.ContextRow.Group):
+	// "Weighing" for the capture-kind row, "Per-animal answers" / "Whole-pen answers" for the
+	// operator's answers -- so the two capture kinds are never shown as one list.
+	Group string
 }
 
 // VerificationMediaMeta is one proof's header and kind, handed to the verification bridge.
@@ -1064,7 +1068,16 @@ func (s *Service) GetLeadershipShedVideos(ctx context.Context, actor domain.Acto
 	// An actor with no monitored park here is admitted by no arm and gets ErrNotFound from the
 	// repository -- the same answer checkParkScopeForCapability gave, so existence is still not
 	// leaked and the cross-park refusal is unchanged.
-	return s.repo.GetLeadershipShedVideos(ctx, actor.TenantID, campaignID, campaignShedID, strings.TrimSpace(cursor), limit, access)
+	result, err := s.repo.GetLeadershipShedVideos(ctx, actor.TenantID, campaignID, campaignShedID, strings.TrimSpace(cursor), limit, access)
+	if err != nil {
+		return domain.LeadershipShedVideos{}, err
+	}
+	// THE WEIGH CAPTURES ARE AUTHORED (2026-09-16): the "N of M" denominator and the capture
+	// titles come from the task's PINNED rules.
+	if err := s.decorateLeadershipEvidence(ctx, actor.TenantID, []*domain.LeadershipShedVideos{&result}); err != nil {
+		return domain.LeadershipShedVideos{}, err
+	}
+	return result, nil
 }
 
 // ListLeadershipSheds pages the leadership gallery at BUCKET grain. Same
@@ -1105,7 +1118,18 @@ func (s *Service) ListLeadershipSheds(ctx context.Context, actor domain.Actor, c
 			return domain.LeadershipShedPage{Items: []domain.LeadershipShedVideos{}}, nil
 		}
 	}
-	return s.repo.ListLeadershipSheds(ctx, actor.TenantID, parkIDs, strings.TrimSpace(cursor), limit, domain.LeadershipShedVideosPageSize)
+	page, err := s.repo.ListLeadershipSheds(ctx, actor.TenantID, parkIDs, strings.TrimSpace(cursor), limit, domain.LeadershipShedVideosPageSize)
+	if err != nil {
+		return domain.LeadershipShedPage{}, err
+	}
+	items := make([]*domain.LeadershipShedVideos, 0, len(page.Items))
+	for i := range page.Items {
+		items = append(items, &page.Items[i])
+	}
+	if err := s.decorateLeadershipEvidence(ctx, actor.TenantID, items); err != nil {
+		return domain.LeadershipShedPage{}, err
+	}
+	return page, nil
 }
 
 // hasTenantWideCapability reports whether any grant is scoped to the whole tenant AND carries
@@ -1125,7 +1149,7 @@ func (s *Service) RecordAnimalObservation(ctx context.Context, actor domain.Acto
 	}
 	cmd.TenantID = actor.TenantID
 	cmd.RecordedBy = actor.UserID
-	if !uuidutil.IsUUIDString(cmd.CampaignID) || !uuidutil.IsUUIDString(cmd.CampaignShedID) || !uuidutil.IsUUIDString(cmd.ProofArtifactID) || !isPositiveFinite(cmd.WeightKg) || strings.TrimSpace(cmd.IdempotencyKey) == "" {
+	if !uuidutil.IsUUIDString(cmd.CampaignID) || !uuidutil.IsUUIDString(cmd.CampaignShedID) || !isPositiveFinite(cmd.WeightKg) || strings.TrimSpace(cmd.IdempotencyKey) == "" {
 		return domain.Observation{}, ports.ErrInvalidArgument
 	}
 	// FREE-FLOW: the scanned RFID is the required identity. There is no
@@ -1139,6 +1163,17 @@ func (s *Service) RecordAnimalObservation(ctx context.Context, actor domain.Acto
 	if strings.TrimSpace(cmd.ActualLocationID) != "" && !uuidutil.IsUUIDString(cmd.ActualLocationID) {
 		return domain.Observation{}, ports.ErrInvalidArgument
 	}
+	// THE WEIGH CAPTURES ARE AUTHORED (2026-09-16): the captures and answers are judged by the
+	// task's PINNED version, never a later publish. The client's own fields are left as sent
+	// (they are what the idempotency fingerprint hashes); everything derived lands on the
+	// `json:"-"` fields.
+	rules, err := s.rulesForCampaign(ctx, cmd.TenantID, cmd.CampaignID)
+	if err != nil {
+		return domain.Observation{}, err
+	}
+	if err := s.applyIndividualCaptureRules(rules, &cmd); err != nil {
+		return domain.Observation{}, err
+	}
 	// Resolve the notification routing park BEFORE persisting. The park is the routing key of
 	// the verification item, and an observation row only knows its shed -- so it is read from
 	// the campaign. Doing this after the write cannot honour its own contract: the weight is
@@ -1151,7 +1186,8 @@ func (s *Service) RecordAnimalObservation(ctx context.Context, actor domain.Acto
 	}
 	// Re-capturing after a rejection means a NEW video. Re-sending the one the verifier just
 	// rejected was accepted with a 200 that changed nothing -- success on screen, animal still
-	// in rework, shed still unsubmittable. Refuse it by name instead.
+	// in rework, shed still unsubmittable. Refuse it by name instead. EVERY slot's ref is
+	// checked, not only the primary.
 	// Resolved BEFORE the write, for the same reason parkID is: the shed name + partition is part
 	// of the verification item's identity, and a lookup that fails after the weight is committed
 	// would hand the operator an error over saved data.
@@ -1159,7 +1195,7 @@ func (s *Service) RecordAnimalObservation(ctx context.Context, actor domain.Acto
 	if err != nil {
 		return domain.Observation{}, err
 	}
-	rejectedProof, err := s.repo.AnimalProofWasRejected(ctx, cmd.TenantID, cmd.CampaignShedID, cmd.ProofArtifactID, cmd.ScannedIdentifier)
+	rejectedProof, err := s.repo.AnimalProofWasRejected(ctx, cmd.TenantID, cmd.CampaignShedID, cmd.OrderedRefs, cmd.ScannedIdentifier)
 	if err != nil {
 		return domain.Observation{}, err
 	}
@@ -1170,13 +1206,82 @@ func (s *Service) RecordAnimalObservation(ctx context.Context, actor domain.Acto
 	if err != nil {
 		return domain.Observation{}, err
 	}
+	obs.SOPVersion = rules.Version
 	if err := s.reviseVerificationRound(ctx, cmd.TenantID, obs); err != nil {
 		return domain.Observation{}, err
 	}
-	if err := s.enqueueVerification(ctx, cmd.TenantID, parkID, cmd.CampaignID, cmd.CampaignShedID, cmd.RecordedBy, obs, []string{obs.ProofArtifactID}, individualSubjectLabel(obs, shedDisplay), shedLocationID); err != nil {
+	// EXPLICIT category: an animal with two captures is still ONE animal item (ledger B-5, the
+	// grain follows the evidence -- one animal, one review), never a pen.
+	meta := captureMetaIndividual(rules, cmd.NormalizedProofs, cmd.OrderedRefs, obs.ProofKinds)
+	var notCaptured []domain.AnswerRow
+	if cmd.LegacyShape {
+		notCaptured = rules.IndividualNotCapturedRows(cmd.NormalizedProofs, cmd.NormalizedAnswers)
+	}
+	rows := captureContextRows(captureKindPerAnimal, rules.IndividualAnswerRows(cmd.NormalizedAnswers), notCaptured)
+	if err := s.enqueueVerification(ctx, cmd.TenantID, parkID, cmd.CampaignID, cmd.CampaignShedID, cmd.RecordedBy, obs, domain.VerificationRefTypeAnimal, cmd.OrderedRefs, meta, rows, individualSubjectLabel(obs, shedDisplay), shedLocationID); err != nil {
 		return domain.Observation{}, err
 	}
 	return obs, nil
+}
+
+// applyIndividualCaptureRules judges one animal's captures and answers against the pinned rules
+// and fills the derived fields. A NEW-shaped request (slot map present) is judged strictly. A
+// LEGACY-shaped one (single proof_artifact_id, an older app) is mapped onto the seeded slot --
+// or the first slot that takes a video -- and every compulsory item it could not have sent is
+// reported to the verifier as not captured rather than refused: an older app is never forced
+// to update (program decision 7).
+func (s *Service) applyIndividualCaptureRules(rules domain.Rules, cmd *domain.RecordAnimalObservation) error {
+	refs := domain.NormalizeIndividualProofRefs(cmd.Proofs)
+	cmd.LegacyShape = len(refs) == 0
+	if cmd.LegacyShape {
+		if !uuidutil.IsUUIDString(cmd.ProofArtifactID) {
+			return ports.ErrInvalidArgument
+		}
+		refs = domain.LegacyIndividualRefs(rules, cmd.ProofArtifactID)
+		if len(refs) == 0 {
+			// No slot of the pinned version takes a video: this app cannot satisfy it.
+			first := rules.IndividualProofs()[0]
+			return fmt.Errorf("%w: %w", domain.ErrCaptureProofInvalid, &domain.ProofError{SlotKey: first.Key, Message: "Record: " + first.Title})
+		}
+	}
+	for _, ref := range refs {
+		if !uuidutil.IsUUIDString(ref) {
+			return ports.ErrInvalidArgument
+		}
+	}
+	var ordered []string
+	if cmd.LegacyShape {
+		// Judged leniently: only the mapped slot is checked (it is the one capture the app has).
+		for _, slot := range rules.IndividualProofs() {
+			if ref := refs[slot.Key]; ref != "" {
+				ordered = append(ordered, ref)
+			}
+		}
+	} else {
+		var err error
+		ordered, err = rules.ValidateIndividualProofRefs(refs)
+		if err != nil {
+			return err
+		}
+	}
+	answers := cmd.Answers
+	if answers == nil {
+		answers = domain.SOPAnswers{}
+	}
+	if !cmd.LegacyShape {
+		if err := rules.ValidateIndividualAnswers(answers); err != nil {
+			return err
+		}
+	}
+	cmd.NormalizedAnswers = rules.NormalizeIndividualAnswers(answers)
+	cmd.NormalizedProofs = refs
+	cmd.OrderedRefs = ordered
+	cmd.PrimaryProofRef = ordered[0]
+	// The legacy column mirrors the primary for every existing reader (and the store's
+	// proof_artifact_id write); on a legacy request it is already that value.
+	cmd.ProofArtifactID = cmd.PrimaryProofRef
+	cmd.SlotKinds = rules.IndividualSlotKinds()
+	return nil
 }
 
 func (s *Service) RecordShedObservation(ctx context.Context, actor domain.Actor, cmd domain.RecordShedObservation) (domain.Observation, error) {
@@ -1188,6 +1293,9 @@ func (s *Service) RecordShedObservation(ctx context.Context, actor domain.Actor,
 	if !isPositiveFinite(cmd.WeightKg) {
 		return domain.Observation{}, ports.ErrInvalidArgument
 	}
+	if !uuidutil.IsUUIDString(cmd.CampaignID) || !uuidutil.IsUUIDString(cmd.CampaignShedID) || strings.TrimSpace(cmd.IdempotencyKey) == "" {
+		return domain.Observation{}, ports.ErrInvalidArgument
+	}
 	// THE OPERATOR NO LONGER SUPPLIES THE HEAD COUNT (maintainer decision
 	// 2026-08-24, superseding the operator-entered count half of the 2026-08-03
 	// lump-sum contract). The client-sent animal_count / average_weight_kg are
@@ -1196,30 +1304,16 @@ func (s *Service) RecordShedObservation(ctx context.Context, actor domain.Actor,
 	// resident head count from the herd register inside the submit transaction
 	// and derives the average from that snapshot. The snapshot is frozen on the
 	// row forever — no later census change and no verifier edit moves it.
-	cmd.ProofArtifactIDs = normalizeProofArtifactIDs(cmd.ProofArtifactID, cmd.ProofArtifactIDs)
-	if len(cmd.ProofArtifactIDs) > 0 {
-		cmd.ProofArtifactID = cmd.ProofArtifactIDs[0]
-	}
-	if !uuidutil.IsUUIDString(cmd.CampaignID) || !uuidutil.IsUUIDString(cmd.CampaignShedID) || strings.TrimSpace(cmd.IdempotencyKey) == "" {
-		return domain.Observation{}, ports.ErrInvalidArgument
-	}
-	// The hard ceiling is the proof policy (MaxShedProofArtifacts); how many videos THIS task's
-	// lump-sum pen owes inside it is the WEIGHING SOP's call, read from the task's pinned
-	// version. A count outside the SOP's window is the named proof error, not a bare 400.
-	if len(cmd.ProofArtifactIDs) < 1 || len(cmd.ProofArtifactIDs) > domain.MaxShedProofArtifacts {
-		return domain.Observation{}, ports.ErrInvalidArgument
-	}
-	for _, proofID := range cmd.ProofArtifactIDs {
-		if !uuidutil.IsUUIDString(proofID) {
-			return domain.Observation{}, ports.ErrInvalidArgument
-		}
-	}
+	//
+	// THE WEIGH CAPTURES ARE AUTHORED (2026-09-16): the pen's captures are judged slot by slot
+	// against the task's PINNED version. An older app's flat list keeps the pre-slot window
+	// check (ErrLumpSumVideoCount on the derived mirror) and lands on the pen_video slot.
 	rules, err := s.rulesForCampaign(ctx, cmd.TenantID, cmd.CampaignID)
 	if err != nil {
 		return domain.Observation{}, err
 	}
-	if n := len(cmd.ProofArtifactIDs); n < rules.Capture.LumpSum.VideoMin || n > rules.Capture.LumpSum.VideoMax {
-		return domain.Observation{}, ports.ErrLumpSumVideoCount
+	if err := s.applyLumpSumCaptureRules(rules, &cmd); err != nil {
+		return domain.Observation{}, err
 	}
 	// Resolve the notification routing park BEFORE persisting. The park is the routing key of
 	// the verification item, and an observation row only knows its shed -- so it is read from
@@ -1241,14 +1335,89 @@ func (s *Service) RecordShedObservation(ctx context.Context, actor domain.Actor,
 	if err != nil {
 		return domain.Observation{}, err
 	}
+	obs.SOPVersion = rules.Version
 	mediaRefs := obs.ProofArtifactIDs
 	if len(mediaRefs) == 0 && obs.ProofArtifactID != "" {
 		mediaRefs = []string{obs.ProofArtifactID}
 	}
-	if err := s.enqueueVerification(ctx, cmd.TenantID, parkID, cmd.CampaignID, cmd.CampaignShedID, cmd.RecordedBy, obs, mediaRefs, lumpSumSubjectLabel(obs, shedDisplay), shedLocationID); err != nil {
+	meta := captureMetaLumpSum(rules, cmd.Ordered, obs.ProofKinds)
+	var notCaptured []domain.AnswerRow
+	if cmd.LegacyShape {
+		notCaptured = rules.LumpSumNotCapturedRows(cmd.NormalizedProofs, cmd.NormalizedAnswers)
+	}
+	rows := captureContextRows(captureKindWholePen, rules.LumpSumAnswerRows(cmd.NormalizedAnswers), notCaptured)
+	if err := s.enqueueVerification(ctx, cmd.TenantID, parkID, cmd.CampaignID, cmd.CampaignShedID, cmd.RecordedBy, obs, domain.VerificationRefTypeShed, mediaRefs, meta, rows, lumpSumSubjectLabel(obs, shedDisplay), shedLocationID); err != nil {
 		return domain.Observation{}, err
 	}
 	return obs, nil
+}
+
+// applyLumpSumCaptureRules judges one pen's captures and answers against the pinned rules and
+// fills the derived fields (Ordered, the flat ProofArtifactIDs in slot order, the primary).
+func (s *Service) applyLumpSumCaptureRules(rules domain.Rules, cmd *domain.RecordShedObservation) error {
+	refs := domain.NormalizeLumpSumProofRefs(cmd.Proofs)
+	cmd.LegacyShape = len(refs) == 0
+	var ordered []domain.OrderedCapture
+	if cmd.LegacyShape {
+		ids := normalizeProofArtifactIDs(cmd.ProofArtifactID, cmd.ProofArtifactIDs)
+		// The hard ceiling is the proof policy (MaxShedProofArtifacts); how many videos THIS
+		// task's lump-sum pen owes inside it is the WEIGHING SOP's call, read from the task's
+		// pinned version (the derived mirror window an older phone renders). A count outside it
+		// is the named proof error, not a bare 400.
+		if len(ids) < 1 || len(ids) > domain.MaxShedProofArtifacts {
+			return ports.ErrInvalidArgument
+		}
+		for _, id := range ids {
+			if !uuidutil.IsUUIDString(id) {
+				return ports.ErrInvalidArgument
+			}
+		}
+		lo, hi := rules.LegacyVideoWindow()
+		if n := len(ids); n < lo || n > hi {
+			return ports.ErrLumpSumVideoCount
+		}
+		refs = domain.LegacyLumpSumRefs(rules, ids)
+		if len(refs) == 0 {
+			first := rules.LumpSumProofs()[0]
+			return fmt.Errorf("%w: %w", domain.ErrCaptureProofInvalid, &domain.ProofError{SlotKey: first.Key, Message: "Record: " + first.Title})
+		}
+		ordered = domain.LegacyLumpSumOrdered(refs)
+	} else {
+		for _, list := range refs {
+			for _, ref := range list {
+				if !uuidutil.IsUUIDString(ref) {
+					return ports.ErrInvalidArgument
+				}
+			}
+		}
+		var err error
+		ordered, err = rules.ValidateLumpSumProofRefs(refs)
+		if err != nil {
+			return err
+		}
+	}
+	answers := cmd.Answers
+	if answers == nil {
+		answers = domain.SOPAnswers{}
+	}
+	if !cmd.LegacyShape {
+		if err := rules.ValidateLumpSumAnswers(answers); err != nil {
+			return err
+		}
+	}
+	cmd.NormalizedAnswers = rules.NormalizeLumpSumAnswers(answers)
+	cmd.NormalizedProofs = refs
+	cmd.Ordered = ordered
+	cmd.SlotKinds = rules.LumpSumSlotKinds()
+	flat := make([]string, 0, len(ordered))
+	for _, c := range ordered {
+		flat = append(flat, c.Ref)
+	}
+	// On a legacy request the client list IS this list, so the fingerprinted fields do not
+	// move; on a new-shaped one the flat list is derived (the client sent the map).
+	cmd.ProofArtifactIDs = flat
+	cmd.ProofArtifactID = flat[0]
+	return nil
 }
 
 // reviseVerificationRound is the B06 root-cause fix.
@@ -1318,14 +1487,15 @@ func lumpSumSubjectLabel(obs domain.Observation, shedDisplay string) string {
 	return domain.CorrectedSubjectLabel(domain.VerificationRefTypeShed, shedDisplay, "", obs.WeightKg, obs.AnimalCount)
 }
 
-func (s *Service) enqueueVerification(ctx context.Context, tenantID, parkID, campaignID, campaignShedID, operatorID string, obs domain.Observation, mediaRefs []string, label, shedLocationID string) error {
+func (s *Service) enqueueVerification(ctx context.Context, tenantID, parkID, campaignID, campaignShedID, operatorID string, obs domain.Observation, category string, mediaRefs []string, meta []VerificationMediaMeta, rows []VerificationContextRow, label, shedLocationID string) error {
 	if s.enqueuer == nil {
 		return nil
 	}
-	category := domain.VerificationRefTypeAnimal
-	if obs.AnimalCount > 0 || len(mediaRefs) > 1 {
-		category = domain.VerificationRefTypeShed
-	}
+	// The CATEGORY is passed EXPLICITLY by the caller. It used to be inferred from
+	// `len(mediaRefs) > 1`, which filed an animal carrying two authored captures as a PEN item
+	// (2026-09-16). The grain follows the evidence: one animal, one item, however many
+	// captures the SOP asks of it.
+	//
 	// A lump-sum capture carries no per-animal expected location, so obs.ExpectedLocationID is
 	// empty on exactly the shed-grain item -- which is how every lump-sum verification row ended
 	// up with a NULL shed_id, invisible to the verifier's shed filter and to the drawer's Shed
@@ -1340,12 +1510,18 @@ func (s *Service) enqueueVerification(ctx context.Context, tenantID, parkID, cam
 		ObservationID:  obs.ObservationID,
 		CampaignID:     campaignID,
 		CampaignShedID: campaignShedID,
-		MediaRefs:      mediaRefs,
-		OperatorID:     operatorID,
-		ShedID:         shedID,
-		ParkID:         parkID,
-		SubjectLabel:   label,
-		CapturedAt:     obs.AcceptedAt,
+		// PRIMARY FIRST. verification publishes MediaRefs[0] as the verdict's evidence_id
+		// (verification/adapters/postgres/repository.go firstMediaRef) and weighing's applier
+		// compares it with the row's proof_artifact_id (verification_verdict.go
+		// checkVerdictEvidenceCurrent): the invariant is stored proof_artifact_id == MediaRefs[0].
+		MediaRefs:    mediaRefs,
+		MediaMeta:    meta,
+		ContextRows:  rows,
+		OperatorID:   operatorID,
+		ShedID:       shedID,
+		ParkID:       parkID,
+		SubjectLabel: label,
+		CapturedAt:   obs.AcceptedAt,
 		// Versioned on AcceptedAt (the evidence round), not just the observation
 		// identity -- see reviseVerificationRound above. AcceptedAt only advances on
 		// a genuine new/edited capture (an exact client retry replays the SAME

@@ -183,3 +183,32 @@ func TestWeighingBridgeDeclaresAndSendsTheApplyReceipt(t *testing.T) {
 		t.Fatalf("apply-receipt calls after an empty batch=%d, want 1", len(creator.appliedCalls))
 	}
 }
+
+// THE WEIGH CAPTURES ARE AUTHORED (2026-09-16): an animal item carries each capture's SOP title
+// and kind and the operator's answers GROUPED by section, across the module boundary unchanged.
+func TestEnqueueCarriesAnimalMediaMetaAndContext(t *testing.T) {
+	creator := &captureCreator{}
+	err := New(creator).EnqueueWeighingVerification(context.Background(), weighingapp.VerificationEnqueueRequest{
+		TenantID: "t", Category: weighingdomain.VerificationRefTypeAnimal, ObservationID: "obs-1", ParkID: "park-1",
+		MediaRefs: []string{"v1", "p1"},
+		MediaMeta: []weighingapp.VerificationMediaMeta{{Label: "Weighing video", Kind: "video"}, {Label: "Scale display", Kind: "photo"}},
+		ContextRows: []weighingapp.VerificationContextRow{
+			{Label: "Weighed as", Value: "Per animal", Group: "Weighing"},
+			{Label: "Limping?", Value: "No", Group: "Per-animal answers"},
+		},
+		CapturedAt: biztime.BusinessDayStart(time.Date(2026, 9, 16, 4, 0, 0, 0, time.UTC)),
+	})
+	if err != nil {
+		t.Fatalf("err = %v", err)
+	}
+	got := creator.received
+	if got.Category != weighingdomain.VerificationCategoryWeighing || got.Source.RefType != weighingdomain.VerificationRefTypeAnimal {
+		t.Fatalf("category/ref = %q/%q", got.Category, got.Source.RefType)
+	}
+	if len(got.MediaMeta) != 2 || got.MediaMeta[1].Label != "Scale display" || got.MediaMeta[1].Kind != "photo" {
+		t.Fatalf("media meta = %+v", got.MediaMeta)
+	}
+	if len(got.ContextRows) != 2 || got.ContextRows[0].Group != "Weighing" || got.ContextRows[1].Group != "Per-animal answers" || got.ContextRows[1].Value != "No" {
+		t.Fatalf("context rows = %+v, want the groups carried through", got.ContextRows)
+	}
+}

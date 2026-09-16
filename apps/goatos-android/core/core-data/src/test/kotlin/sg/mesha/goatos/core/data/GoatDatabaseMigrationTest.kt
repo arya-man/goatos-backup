@@ -413,6 +413,52 @@ class GoatDatabaseMigrationTest {
     }
 
     @Test
+    fun `migration 64 to 65 adds the weighing capture slot columns while preserving captures`() {
+        helper.createDatabase(DB_NAME, 64).apply {
+            execSQL(
+                "INSERT INTO `weighing_observation` (`observationId`, `scopeKey`, `tenantId`, `campaignId`, `workGroupId`, " +
+                    "`campaignShedId`, `expectedLocationId`, `expectedLocationLabel`, `actualLocationId`, `actualLocationLabel`, " +
+                    "`scannedIdentifier`, `weightKg`, `proofCaptureId`, `serverProofId`, `syncStatus`, `idempotencyKey`, " +
+                    "`capturedAtMs`, `lastError`, `verificationStatus`, `reworkReason`) " +
+                    "VALUES ('obs-1', 'scope-1', 't', 'c', 'w', 's', 'loc', 'Pen 1', NULL, NULL, 'RFID-1', 21.5, 'cap-1', " +
+                    "'srv-1', 'READY_TO_SUBMIT', 'k-1', 10, NULL, NULL, NULL)",
+            )
+            execSQL(
+                "INSERT INTO `weighing_shed_observation` (`shedObservationId`, `scopeKey`, `tenantId`, `campaignId`, `workGroupId`, " +
+                    "`campaignShedId`, `expectedLocationId`, `expectedLocationLabel`, `resultJson`, `proofCaptureId`, `serverProofId`, " +
+                    "`syncStatus`, `idempotencyKey`, `capturedAtMs`, `lastError`) " +
+                    "VALUES ('shed-1', 'scope-1', 't', 'c', 'w', 's', 'loc', 'Pen 1', '{}', 'cap-2', 'srv-2', 'READY_TO_SUBMIT', 'k-2', 11, NULL)",
+            )
+            close()
+        }
+        val db = helper.runMigrationsAndValidate(DB_NAME, 65, true, MIGRATION_64_65)
+        try {
+            // Existing captures survive and read as the seeded shape ('{}'): the primary proof
+            // columns are untouched, the new columns default rather than NULL.
+            db.query("SELECT `serverProofId`, `slotProofsJson`, `answersJson` FROM `weighing_observation` WHERE observationId = 'obs-1'").use { cursor ->
+                assertEquals(true, cursor.moveToFirst())
+                assertEquals("srv-1", cursor.getString(0))
+                assertEquals("{}", cursor.getString(1))
+                assertEquals("{}", cursor.getString(2))
+            }
+            db.query("SELECT `serverProofId`, `slotProofsJson`, `answersJson` FROM `weighing_shed_observation` WHERE shedObservationId = 'shed-1'").use { cursor ->
+                assertEquals(true, cursor.moveToFirst())
+                assertEquals("srv-2", cursor.getString(0))
+                assertEquals("{}", cursor.getString(1))
+                assertEquals("{}", cursor.getString(2))
+            }
+            // A post-migration row may carry an authored slot map.
+            db.execSQL("UPDATE `weighing_observation` SET slotProofsJson = '{\"scale_photo\":\"srv-9\"}' WHERE observationId = 'obs-1'")
+            db.query("SELECT `slotProofsJson` FROM `weighing_observation` WHERE observationId = 'obs-1'").use { cursor ->
+                assertEquals(true, cursor.moveToFirst())
+                assertEquals("{\"scale_photo\":\"srv-9\"}", cursor.getString(0))
+            }
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test
     fun `migration 63 to 64 creates the animal purchase tables while preserving existing rows`() {
         helper.createDatabase(DB_NAME, 63).apply {
             execSQL(
@@ -621,6 +667,7 @@ class GoatDatabaseMigrationTest {
         MIGRATION_61_62.migrate(db)
         MIGRATION_62_63.migrate(db)
         MIGRATION_63_64.migrate(db)
+        MIGRATION_64_65.migrate(db)
         return db
     }
 
@@ -639,7 +686,7 @@ class GoatDatabaseMigrationTest {
 
     private companion object {
         const val DB_NAME = "goat-migration-test.db"
-        const val CURRENT_VERSION = 63
+        const val CURRENT_VERSION = 65
     }
 }
 

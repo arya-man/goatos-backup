@@ -1,0 +1,14 @@
+{
+  "individual": {
+    "proofs": [
+      {"key": "animal_video", "title": "Weighing video", "hint": "Live-camera video of this animal on the scale; it opens on the scale reading 0 kg.", "kind": "video", "required": true}
+    ],
+    "questions": []
+  },
+  "lump_sum": {
+    "proofs": [
+      {"key": "pen_video", "title": "Weighing video", "hint": "Live-camera video of the pen on the scale; it opens on the scale reading 0 kg.", "kind": "video", "min": 1, "max": 5}
+    ],
+    "questions": []
+  }
+}

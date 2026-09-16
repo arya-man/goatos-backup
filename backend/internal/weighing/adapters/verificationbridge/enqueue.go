@@ -173,7 +173,7 @@ func contextRows(in []weighingapp.VerificationContextRow) []verificationdomain.C
 	}
 	out := make([]verificationdomain.ContextRow, 0, len(in))
 	for _, row := range in {
-		out = append(out, verificationdomain.ContextRow{Label: row.Label, Value: row.Value})
+		out = append(out, verificationdomain.ContextRow{Label: row.Label, Value: row.Value, Group: row.Group})
 	}
 	return out
 }
