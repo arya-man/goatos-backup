@@ -2844,6 +2844,10 @@ fun AppNavHost(
                     navController.popBackStack()
                 }
             }
+            // SOP CAPTURE CARD: the published card may ask for photos and videos. Bound without the
+            // permission gate (as on the shifting raise) so a card-less form never meets a camera prompt.
+            BindVideoCaptureSource(rememberDelegatingProofCaptureSource())
+            BindPhotoCaptureSource(rememberDelegatingPhotoCaptureSource())
             AddBirthScreen(
                 state = state,
                 onEvent = { event ->
@@ -2870,6 +2874,10 @@ fun AppNavHost(
         ) {
             val vm: AddDeathViewModel = hiltViewModel()
             val state by vm.state.collectAsStateWithLifecycle()
+            // SOP CAPTURE CARD: the published card may ask for photos and videos. Bound without the
+            // permission gate (as on the shifting raise) so a card-less form never meets a camera prompt.
+            BindVideoCaptureSource(rememberDelegatingProofCaptureSource())
+            BindPhotoCaptureSource(rememberDelegatingPhotoCaptureSource())
             AddDeathScreen(
                 state = state,
                 onEvent = { event ->
