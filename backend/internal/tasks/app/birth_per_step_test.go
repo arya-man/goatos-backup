@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"strings"
 	"testing"
 	"time"
 
@@ -98,8 +97,8 @@ func TestBirthStepReachesTheVerifierTheMomentItIsRecorded(t *testing.T) {
 	if len(item.ProofRefs) != 1 || item.ProofRefs[0] != "proof-babies" {
 		t.Fatalf("item proofs = %v, want exactly this step's clip", item.ProofRefs)
 	}
-	if !strings.Contains(item.SubjectLabel, first.Action.Title) || !strings.Contains(item.SubjectLabel, "Mother CPT-00045") {
-		t.Fatalf("subject label %q must name the step and the animal", item.SubjectLabel)
+	if item.SubjectLabel != first.Action.Title+" · Mother CPT-00045 · 2026-09-16" {
+		t.Fatalf("subject label %q must name the step, the animal and the date -- and NOT the pen, which both verifier surfaces render themselves", item.SubjectLabel)
 	}
 	if item.IdempotencyKey != domain.BirthStepReviewKey(first.Action) {
 		t.Fatalf("idempotency key = %q, want the per-recording key", item.IdempotencyKey)
