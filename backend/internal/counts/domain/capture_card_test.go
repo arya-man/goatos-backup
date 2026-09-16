@@ -111,8 +111,8 @@ func TestCaptureEvidenceComposesSlotOrderLabelsAndAnswerRows(t *testing.T) {
 	want := authored.Evidence{
 		VersionLabel: "v2",
 		Media: []authored.EvidenceMedia{
-			{Ref: "ref-mother", Kind: "photo", Label: "Newborns with the mother"},
-			{Ref: "ref-pen", Kind: "video", Label: "Pen video"},
+			{Key: "newborns_with_mother", Ref: "ref-mother", Kind: "photo", Label: "Newborns with the mother"},
+			{Key: "pen_video", Ref: "ref-pen", Kind: "video", Label: "Pen video"},
 		},
 		Rows: []authored.EvidenceRow{
 			{Label: "How was the delivery?", Value: "Assisted", Group: CaptureEvidenceGroup},

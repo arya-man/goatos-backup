@@ -650,7 +650,7 @@
         {
           "module": "counts",
           "file": "backend/internal/counts/app/birth_capture_verification.go",
-          "notes": "BirthReportedVerificationHandler enqueues ONE birth_evidence verification item per litter (ref_type birth_capture, ref_id birth_event_id, key counts-birth-capture:<event>:<refs>) carrying the Add birth form's SOP capture proofs under their slot titles and the answers as grouped context rows; no item when the report has no media. BirthCaptureVerdictHandler stamps capture_review_status/reason on the approval row."
+          "notes": "BirthReportedVerificationHandler enqueues ONE birth_evidence verification item PER FORM PROOF SLOT (birth is verified per recording; ref_type birth_capture, ref_id birth_event_id, key counts-birth-capture:<event>:<slot>:<ref>) carrying only that slot's proof under its title plus the form's answers as context rows grouped At report; no item when the report has no media. BirthCaptureVerdictHandler lands the verdict on that slot's review, fenced on the slot's current ref (capture_review_status is the rollup), and a reject opens a re-shoot step for that slot only."
         }
       ],
       "owningDoc": "docs/decisions/sop-driven-herd-operations.md",

@@ -177,7 +177,9 @@ func (s *Service) WithCaptureReshootListener(l CaptureReshootListener) *Service 
 
 // OpenBirthCaptureReshoot appends the re-shoot steps for a rejected birth report (decision 5).
 // Idempotent per verdict recording key.
-func (s *Service) OpenBirthCaptureReshoot(ctx context.Context, tenantID, birthEventID string, capture authored.Evidence, recordingKey, reason string) error {
+//
+// indexes names the rejected capture proofs (birth is verified per slot: one index).
+func (s *Service) OpenBirthCaptureReshoot(ctx context.Context, tenantID, birthEventID string, capture authored.Evidence, indexes []int, recordingKey, reason string) error {
 	if strings.TrimSpace(tenantID) == "" || strings.TrimSpace(birthEventID) == "" {
 		return domain.ErrMissingRequiredField
 	}
@@ -192,7 +194,7 @@ func (s *Service) OpenBirthCaptureReshoot(ctx context.Context, tenantID, birthEv
 	if err != nil {
 		return err
 	}
-	return s.repo.AppendCaptureReshootSteps(ctx, tenantID, workflowID, capture, recordingKey, reason)
+	return s.repo.AppendCaptureReshootSteps(ctx, tenantID, workflowID, capture, indexes, recordingKey, reason)
 }
 
 // notifyCaptureReshoot tells counts a birth report proof was re-shot. Derived from state, so an

@@ -27,7 +27,7 @@ func sampleCapture() *domain.ApprovalCapture {
 		Proofs:       authored.ProofRefs{"newborns_with_mother": "ref-mother"},
 		Answers:      authored.Answers{"delivery_type": json.RawMessage(`"assisted"`)},
 		Evidence: authored.Evidence{VersionLabel: "v2",
-			Media:       []authored.EvidenceMedia{{Ref: "ref-mother", Kind: "photo", Label: "Newborns with the mother"}},
+			Media:       []authored.EvidenceMedia{{Key: "newborns_with_mother", Ref: "ref-mother", Kind: "photo", Label: "Newborns with the mother"}},
 			Rows:        []authored.EvidenceRow{{Label: "How was the delivery?", Value: "Assisted", Group: "At report"}},
 			MissingNote: "Pen video"},
 	}
@@ -109,9 +109,12 @@ func TestBirthSubmissionStoresCaptureAndEmitsBirthReportedPg(t *testing.T) {
 	if !reflect.DeepEqual(p.CaptureEvidence, submission.Capture.Evidence) {
 		t.Fatalf("event capture = %+v", p.CaptureEvidence)
 	}
-	// The approver's list carries the snapshot; the verdict stamps the row.
-	if err := repo.SetCaptureReviewStatus(ctx, countsTenant, result.Approval.ApprovalRequestID, domain.CaptureReviewRework, "Mother's face not visible"); err != nil {
-		t.Fatal(err)
+	// The approver's list carries the snapshot; a stale ref is fenced; the slot verdict rolls up.
+	if _, applied, err := repo.SetCaptureSlotReview(ctx, countsTenant, result.Approval.ApprovalRequestID, "newborns_with_mother", "some-old-ref", domain.CaptureReviewApproved, ""); err != nil || applied {
+		t.Fatalf("stale ref applied=%v err=%v", applied, err)
+	}
+	if _, applied, err := repo.SetCaptureSlotReview(ctx, countsTenant, result.Approval.ApprovalRequestID, "newborns_with_mother", "ref-mother", domain.CaptureReviewRework, "Mother's face not visible"); err != nil || !applied {
+		t.Fatalf("slot verdict applied=%v err=%v", applied, err)
 	}
 	page, err := repo.ListApprovalRequests(ctx, domain.ApprovalRequestQuery{TenantID: countsTenant, Status: domain.ApprovalStatusPending, RequestTypes: []string{"birth"}, PageSize: 20})
 	if err != nil || len(page.Items) != 1 {
@@ -255,7 +258,7 @@ func TestReplaceCaptureProofSwapsTheRejectedProofPg(t *testing.T) {
 	goatID := "00000000-0000-4000-8000-00000000c323"
 	seedApprovalGoat(t, ctx, pool, goatID, countsShedA)
 	capture := &domain.ApprovalCapture{Proofs: authored.ProofRefs{"tag_photo": "old"},
-		Evidence: authored.Evidence{Media: []authored.EvidenceMedia{{Ref: "old", Kind: "photo", Label: "Tag"}}}}
+		Evidence: authored.Evidence{Media: []authored.EvidenceMedia{{Key: "tag_photo", Ref: "old", Kind: "photo", Label: "Tag"}}}}
 	req, _, err := repo.CreateApprovalRequest(ctx, domain.ApprovalRequestSubmission{
 		TenantID: countsTenant, RequestType: domain.ApprovalRequestTypeDeath,
 		Payload:       json.RawMessage(`{"goat_id":"` + goatID + `","lifecycle_status":"dead","exit_reason":"died"}`),
@@ -265,8 +268,8 @@ func TestReplaceCaptureProofSwapsTheRejectedProofPg(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := repo.SetCaptureReviewStatus(ctx, countsTenant, req.ApprovalRequestID, domain.CaptureReviewRework, "blurry"); err != nil {
-		t.Fatal(err)
+	if _, applied, err := repo.SetCaptureSlotReview(ctx, countsTenant, req.ApprovalRequestID, "tag_photo", "old", domain.CaptureReviewRework, "blurry"); err != nil || !applied {
+		t.Fatalf("applied=%v err=%v", applied, err)
 	}
 	for i := 0; i < 2; i++ {
 		got, err := repo.ReplaceCaptureProof(ctx, countsTenant, req.ApprovalRequestID, 0, tasksdomain.ProofItem{Ref: "new", Kind: "photo"})
@@ -283,5 +286,9 @@ func TestReplaceCaptureProofSwapsTheRejectedProofPg(t *testing.T) {
 	}
 	if proofs != `{"tag_photo": "new"}` {
 		t.Fatalf("capture_proofs = %s", proofs)
+	}
+	// A late verdict on the superseded proof is fenced out; the re-shoot's pending review stands.
+	if got, applied, err := repo.SetCaptureSlotReview(ctx, countsTenant, req.ApprovalRequestID, "tag_photo", "old", domain.CaptureReviewApproved, ""); err != nil || applied || *got.CaptureReviewStatus != "pending" {
+		t.Fatalf("stale verdict applied=%v err=%v status=%v", applied, err, got.CaptureReviewStatus)
 	}
 }

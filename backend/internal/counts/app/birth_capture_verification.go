@@ -4,28 +4,27 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"strconv"
 	"strings"
 	"time"
 
 	"github.com/vgoats/goatos/backend/internal/counts/domain"
-	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/platform/eventbus"
 	"github.com/vgoats/goatos/backend/internal/sop/authored"
 	tasksdomain "github.com/vgoats/goatos/backend/internal/tasks/domain"
 )
 
-// BIRTH REPORT → VERIFIER (maintainer decisions 4-6, 2026-09-16). The Add birth form's own
-// captures (the SOP capture card's proofs) are reviewed as ONE birth_evidence item per litter,
-// ref_type birth_capture / ref_id birth_event_id, born from counts.birth.reported -- the event
-// the submit transaction writes beside the request and its canonical children. A report with
-// answers and NO media never creates an empty verifier item: the answers reach the approver
-// through the row's capture snapshot instead. The verdict lands on the approval row
-// (capture_review_status / reason) so the approver sees the report's proof state.
+// BIRTH REPORT → VERIFIER (maintainer decisions 4-6, 2026-09-16; per-slot correction the same
+// day). Birth is verified PER RECORDING: the Add birth form's proofs are ONE birth_evidence item
+// PER FORM PROOF SLOT (ref_type birth_capture, ref_id birth_event_id for grouping, the slot and
+// its current proof in the item key), born from counts.birth.reported -- the event the submit
+// transaction writes beside the request and its canonical children. Each item carries only that
+// slot's proof plus the form's answers as context rows. A report with answers and NO media never
+// creates an empty verifier item. A verdict lands on that slot's review (fenced on the slot's
+// current ref) and the approval row's capture_review_status is the rollup.
 //
-// Decision 5: a REJECT also opens one "Re-shoot report proof" step per capture proof on the
+// Decision 5: a REJECT of one slot opens a "Re-shoot report proof" step for THAT slot on the
 // litter's birth track (CaptureReshootEngine, the tasks engine); recording it swaps that proof in
-// the snapshot and queues a fresh report item (BirthCaptureReshootService).
+// the snapshot and queues a fresh item for that slot only (BirthCaptureReshootService).
 
 // CaptureMediaMeta / CaptureContextRow are what the enqueue request carries per proof / answer
 // (the bridge maps them onto verification's shared MediaMeta / ContextRow).
@@ -44,6 +43,7 @@ type CaptureContextRow struct {
 type BirthCaptureVerificationEnqueueRequest struct {
 	TenantID     string
 	BirthEventID string
+	SlotKey      string
 	OperatorID   string
 	ParkID       string
 	ShedID       string
@@ -52,9 +52,9 @@ type BirthCaptureVerificationEnqueueRequest struct {
 	ContextRows  []CaptureContextRow
 	SubjectLabel string
 	CapturedAt   time.Time
-	// IdempotencyKey is "counts-birth-capture:<birth_event_id>:<refs…>": a replayed event
-	// collapses (CreateItem is ON CONFLICT DO NOTHING) while a re-shoot with new refs mints a
-	// fresh item.
+	// IdempotencyKey is domain.BirthCaptureKey: "counts-birth-capture:<event>:<slot>:<ref>". A
+	// replayed event collapses (CreateItem is ON CONFLICT DO NOTHING) while a re-shoot (new ref)
+	// mints a fresh item and the rejected one stays history.
 	IdempotencyKey string
 }
 
@@ -115,33 +115,30 @@ func (h *BirthReportedVerificationHandler) HandleEvent(ctx context.Context, e ev
 	if birthEventID == "" || strings.TrimSpace(e.TenantID) == "" {
 		return nil
 	}
-	req := BirthCaptureEnqueueRequest(e.TenantID, birthEventID, p.OperatorID(), p.ParkID, p.ShedID, len(p.GoatIDs), p.CaptureEvidence, e.OccurredAt, h.now())
-	if len(req.ProofRefs) == 0 {
+	reqs := BirthCaptureEnqueueRequests(e.TenantID, birthEventID, p.OperatorID(), p.ParkID, p.ShedID, p.CaptureEvidence, e.OccurredAt, h.now())
+	if len(reqs) == 0 {
 		return nil
 	}
 	if h.enqueuer == nil {
 		return ErrBirthCaptureEnqueuerNotWired
 	}
-	return h.enqueuer.EnqueueBirthCaptureVerification(ctx, req)
+	for _, req := range reqs {
+		// scale-guard:ignore: bounded -- one item per authored form proof slot (max 8 per card)
+		if err := h.enqueuer.EnqueueBirthCaptureVerification(ctx, req); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (p birthReportedPayload) OperatorID() string { return strings.TrimSpace(p.RaisedByUserID) }
 
-// BirthCaptureEnqueueRequest composes the verifier item from the capture snapshot: every proof
-// under its authored title with the register's kind, every answer as a row, the older-app note
-// as a row. Exported so the recovery/rebuild paths compose the identical item.
-func BirthCaptureEnqueueRequest(tenantID, birthEventID, operatorID, parkID, shedID string, kids int, capture authored.Evidence, occurredAt, now time.Time) BirthCaptureVerificationEnqueueRequest {
-	out := BirthCaptureVerificationEnqueueRequest{TenantID: tenantID, BirthEventID: birthEventID, OperatorID: operatorID, ParkID: strings.TrimSpace(parkID), ShedID: strings.TrimSpace(shedID)}
-	key := "counts-birth-capture:" + birthEventID
-	for _, m := range capture.Media {
-		ref := strings.TrimSpace(m.Ref)
-		if ref == "" {
-			continue
-		}
-		out.ProofRefs = append(out.ProofRefs, ref)
-		out.MediaMeta = append(out.MediaMeta, CaptureMediaMeta{Label: strings.TrimSpace(m.Label), Kind: strings.TrimSpace(m.Kind)})
-		key += ":" + ref
-	}
+// BirthCaptureEnqueueRequests composes ONE verifier item per captured form proof slot: that
+// slot's proof under its authored title with the register's kind, and the form's answers (plus
+// the older-app note) as context rows grouped "At report". Exported so the re-shoot path composes
+// the identical item for one slot.
+func BirthCaptureEnqueueRequests(tenantID, birthEventID, operatorID, parkID, shedID string, capture authored.Evidence, occurredAt, now time.Time) []BirthCaptureVerificationEnqueueRequest {
+	var rows []CaptureContextRow
 	for _, r := range capture.Rows {
 		if strings.TrimSpace(r.Value) == "" {
 			continue
@@ -150,31 +147,45 @@ func BirthCaptureEnqueueRequest(tenantID, birthEventID, operatorID, parkID, shed
 		if group == "" {
 			group = domain.CaptureEvidenceGroup
 		}
-		out.ContextRows = append(out.ContextRows, CaptureContextRow{Label: strings.TrimSpace(r.Label), Value: strings.TrimSpace(r.Value), Group: group})
+		rows = append(rows, CaptureContextRow{Label: strings.TrimSpace(r.Label), Value: strings.TrimSpace(r.Value), Group: group})
 	}
 	if note := strings.TrimSpace(capture.MissingNote); note != "" {
-		out.ContextRows = append(out.ContextRows, CaptureContextRow{Label: authored.MissingNoteOlderApp, Value: note, Group: domain.CaptureEvidenceGroup})
+		rows = append(rows, CaptureContextRow{Label: authored.MissingNoteOlderApp, Value: note, Group: domain.CaptureEvidenceGroup})
 	}
 	at := occurredAt
 	if at.IsZero() {
 		at = now
 	}
-	out.CapturedAt = at.UTC()
-	kidsLabel := "1 kid"
-	if kids != 1 {
-		kidsLabel = strconv.Itoa(kids) + " kids"
+	out := make([]BirthCaptureVerificationEnqueueRequest, 0, len(capture.Media))
+	for _, m := range capture.Media {
+		ref := strings.TrimSpace(m.Ref)
+		slot := strings.TrimSpace(m.Key)
+		if ref == "" || slot == "" {
+			continue
+		}
+		label := strings.TrimSpace(m.Label)
+		out = append(out, BirthCaptureVerificationEnqueueRequest{
+			TenantID: tenantID, BirthEventID: birthEventID, SlotKey: slot, OperatorID: operatorID,
+			ParkID: strings.TrimSpace(parkID), ShedID: strings.TrimSpace(shedID),
+			ProofRefs:      []string{ref},
+			MediaMeta:      []CaptureMediaMeta{{Label: label, Kind: strings.TrimSpace(m.Kind)}},
+			ContextRows:    rows,
+			SubjectLabel:   "Birth report · " + label,
+			CapturedAt:     at.UTC(),
+			IdempotencyKey: domain.BirthCaptureKey(birthEventID, slot, ref),
+		})
 	}
-	out.SubjectLabel = "Birth report · " + kidsLabel + " · " + biztime.BusinessDate(at)
-	out.IdempotencyKey = key
 	return out
 }
 
 // ErrBirthCaptureEnqueuerNotWired is a composition bug surfaced loudly (the event retries).
 var ErrBirthCaptureEnqueuerNotWired = errors.New("counts: birth capture verification enqueuer is not wired")
 
-// captureReviewStore is the slice of the counts repository the verdict consumer drives.
+// captureReviewStore is the slice of the counts repository the verdict consumer drives. It
+// applies a slot verdict only when the slot still holds ref (applied=false otherwise) and returns
+// the report so a rework can open the re-shoot.
 type captureReviewStore interface {
-	SetCaptureReviewStatus(ctx context.Context, tenantID, approvalRequestID, status, reason string) error
+	SetCaptureSlotReview(ctx context.Context, tenantID, approvalRequestID, slotKey, ref, status, reason string) (domain.ApprovalRequest, bool, error)
 }
 
 // BirthCaptureVerdictHandler lands the verifier's verdict on the report's approval row. It
@@ -186,14 +197,10 @@ type BirthCaptureVerdictHandler struct {
 	now    func() time.Time
 }
 
-// CaptureReshootEngine is the tasks-engine seam that appends the re-shoot steps.
+// CaptureReshootEngine is the tasks-engine seam that appends the re-shoot steps; indexes names
+// the capture proofs to re-shoot (nil = all).
 type CaptureReshootEngine interface {
-	OpenBirthCaptureReshoot(ctx context.Context, tenantID, birthEventID string, capture authored.Evidence, recordingKey, reason string) error
-}
-
-// captureReportReader reads the report whose proof was rejected.
-type captureReportReader interface {
-	GetApprovalRequest(ctx context.Context, tenantID, approvalRequestID string) (domain.ApprovalRequest, error)
+	OpenBirthCaptureReshoot(ctx context.Context, tenantID, birthEventID string, capture authored.Evidence, indexes []int, recordingKey, reason string) error
 }
 
 // WithReshootEngine wires decision 5. Without it a rejection is recorded but opens no step.
@@ -236,25 +243,29 @@ func (h *BirthCaptureVerdictHandler) HandleEvent(ctx context.Context, e eventbus
 	if refID == "" || strings.TrimSpace(e.TenantID) == "" {
 		return nil
 	}
+	eventID, slotKey, ref, ok := domain.ParseBirthCaptureKey(strings.TrimSpace(p.Source.RecordingKey))
+	if !ok || eventID != refID {
+		// Fenced: a verdict that does not name one slot's recording applies to nothing.
+		return nil
+	}
 	status, reason := domain.CaptureReviewApproved, ""
 	if e.Type == EventVerificationVerdictRework {
 		status, reason = domain.CaptureReviewRework, strings.TrimSpace(p.Reason)
 	}
-	if err := h.store.SetCaptureReviewStatus(ctx, e.TenantID, refID, status, reason); err != nil {
+	report, applied, err := h.store.SetCaptureSlotReview(ctx, e.TenantID, refID, slotKey, ref, status, reason)
+	if err != nil || !applied {
+		// !applied: the slot no longer holds this ref (superseded by a re-shoot) -- history.
 		return err
 	}
 	if e.Type != EventVerificationVerdictRework || h.engine == nil {
 		return nil
 	}
-	reader, ok := h.store.(captureReportReader)
-	if !ok {
-		return nil
+	for i, m := range report.Capture.Media {
+		if m.Key == slotKey {
+			return h.engine.OpenBirthCaptureReshoot(ctx, e.TenantID, refID, report.Capture, []int{i}, strings.TrimSpace(p.Source.RecordingKey), reason)
+		}
 	}
-	report, err := reader.GetApprovalRequest(ctx, e.TenantID, refID)
-	if err != nil {
-		return err
-	}
-	return h.engine.OpenBirthCaptureReshoot(ctx, e.TenantID, refID, report.Capture, strings.TrimSpace(p.Source.RecordingKey), reason)
+	return nil
 }
 
 // BirthCaptureReshootService is the counts side of a recorded report re-shoot: swap the proof in
@@ -284,18 +295,19 @@ func (s *BirthCaptureReshootService) OnBirthCaptureReshot(ctx context.Context, t
 		return ErrBirthCaptureEnqueuerNotWired
 	}
 	var form struct {
-		ParkID   string            `json:"park_id"`
-		ShedID   string            `json:"shed_id"`
-		Children []json.RawMessage `json:"children"`
+		ParkID string `json:"park_id"`
+		ShedID string `json:"shed_id"`
 	}
 	_ = json.Unmarshal(report.Payload, &form)
-	kids := len(form.Children)
-	if kids == 0 {
-		kids = 1
-	}
-	req := BirthCaptureEnqueueRequest(tenantID, birthEventID, report.RaisedByUserID, form.ParkID, form.ShedID, kids, report.Capture, time.Time{}, time.Now())
-	if len(req.ProofRefs) == 0 {
+	if index < 0 || index >= len(report.Capture.Media) {
 		return nil
 	}
-	return s.enqueuer.EnqueueBirthCaptureVerification(ctx, req)
+	one := report.Capture
+	one.Media = []authored.EvidenceMedia{report.Capture.Media[index]}
+	for _, req := range BirthCaptureEnqueueRequests(tenantID, birthEventID, report.RaisedByUserID, form.ParkID, form.ShedID, one, time.Time{}, time.Now()) {
+		if err := s.enqueuer.EnqueueBirthCaptureVerification(ctx, req); err != nil {
+			return err
+		}
+	}
+	return nil
 }

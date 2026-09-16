@@ -153,7 +153,7 @@ func ComposeCaptureEvidence(versionLabel string, card CaptureCard, proofs author
 		if kind == "" && slot.Kind != authored.KindEither {
 			kind = slot.Kind
 		}
-		out.Media = append(out.Media, authored.EvidenceMedia{Ref: ref, Kind: kind, Label: strings.TrimSpace(slot.Title)})
+		out.Media = append(out.Media, authored.EvidenceMedia{Key: slot.Key, Ref: ref, Kind: kind, Label: strings.TrimSpace(slot.Title)})
 	}
 	for _, row := range authored.AnswerRows(card.Questions, answers) {
 		out.Rows = append(out.Rows, authored.EvidenceRow{Label: row.Title, Value: row.Value, Group: CaptureEvidenceGroup})
@@ -166,4 +166,61 @@ func ComposeCaptureEvidence(versionLabel string, card CaptureCard, proofs author
 	}
 	out.MissingNote = strings.Join(notes, "; ")
 	return out
+}
+
+// PER-SLOT REVIEW (maintainer correction 2026-09-16): a birth report's proofs are verified ONE
+// SLOT AT A TIME, never as a whole submit (PR #283's per-recording principle). Each form proof
+// slot is its own verifier item, fenced on the slot's CURRENT proof ref; a verdict for a ref the
+// slot no longer holds (a re-shoot superseded it) changes nothing.
+
+// CaptureSlotReview is one slot's verifier state (counts_approval_requests.capture_slot_reviews).
+type CaptureSlotReview struct {
+	Ref    string `json:"ref"`
+	Status string `json:"status"`
+	Reason string `json:"reason,omitempty"`
+}
+
+// CaptureReviewRollup is the report-level review the approver reads
+// (counts_approval_requests.capture_review_status): REWORK when any slot is in rework, APPROVED
+// only when every captured slot is approved, PENDING otherwise; blank when the report carried no
+// proof to review. The per-slot map stays the truth; this is its honest summary.
+func CaptureReviewRollup(media []authored.EvidenceMedia, reviews map[string]CaptureSlotReview) string {
+	if len(media) == 0 {
+		return ""
+	}
+	approved := 0
+	for _, m := range media {
+		switch reviews[m.Key].Status {
+		case CaptureReviewRework:
+			return CaptureReviewRework
+		case CaptureReviewApproved:
+			approved++
+		}
+	}
+	if approved == len(media) {
+		return CaptureReviewApproved
+	}
+	return CaptureReviewPending
+}
+
+// BirthCaptureKeyPrefix starts every per-slot birth report verifier key.
+const BirthCaptureKeyPrefix = "counts-birth-capture:"
+
+// BirthCaptureKey is "counts-birth-capture:<birth_event_id>:<slot_key>:<ref>": a retry collapses
+// on it, and a re-shoot (new ref) opens a fresh item while the rejected one stays history.
+func BirthCaptureKey(birthEventID, slotKey, ref string) string {
+	return BirthCaptureKeyPrefix + birthEventID + ":" + slotKey + ":" + ref
+}
+
+// ParseBirthCaptureKey reads a verdict's recording key back into (event, slot, ref). Slot keys
+// and proof refs carry no colon, so exactly four parts is the only valid shape.
+func ParseBirthCaptureKey(key string) (birthEventID, slotKey, ref string, ok bool) {
+	if !strings.HasPrefix(key, BirthCaptureKeyPrefix) {
+		return "", "", "", false
+	}
+	parts := strings.Split(strings.TrimPrefix(key, BirthCaptureKeyPrefix), ":")
+	if len(parts) != 3 || parts[0] == "" || parts[1] == "" || parts[2] == "" {
+		return "", "", "", false
+	}
+	return parts[0], parts[1], parts[2], true
 }

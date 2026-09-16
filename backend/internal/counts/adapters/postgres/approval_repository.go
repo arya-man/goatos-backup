@@ -15,6 +15,7 @@ import (
 	identityports "github.com/vgoats/goatos/backend/internal/identity/ports"
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	platformoutbox "github.com/vgoats/goatos/backend/internal/platform/outbox"
+	"github.com/vgoats/goatos/backend/internal/sop/authored"
 	tasksdomain "github.com/vgoats/goatos/backend/internal/tasks/domain"
 )
 
@@ -147,18 +148,18 @@ func (r *Repository) CreateApprovalRequest(ctx context.Context, in domain.Approv
 INSERT INTO counts_approval_requests (
   tenant_id, request_type, payload, shifting_event_id, subject_goat_id,
   status, raised_by_user_id, raised_at, idempotency_key, request_fingerprint,
-  capture_sop_version_id, capture_proofs, capture_answers, capture_evidence, capture_review_status
+  capture_sop_version_id, capture_proofs, capture_answers, capture_evidence, capture_review_status, capture_slot_reviews
 ) VALUES (
   $1::uuid, $2, $3::jsonb, nullif($4, '')::uuid, nullif($5, '')::uuid,
   'pending', $6::uuid, $7::timestamptz, $8, $9,
-  nullif($10, '')::uuid, $11::jsonb, $12::jsonb, $13::jsonb, nullif($14, '')
+  nullif($10, '')::uuid, $11::jsonb, $12::jsonb, $13::jsonb, nullif($14, ''), $15::jsonb
 )
 ON CONFLICT (tenant_id, idempotency_key) DO NOTHING
 RETURNING `+approvalRequestColumns,
 		in.TenantID, in.RequestType, string(payload),
 		stringOrEmpty(in.ShiftingEventID), stringOrEmpty(in.SubjectGoatID),
 		in.RaisedByUserID, raisedAt.UTC(), in.IdempotencyKey, in.RequestFingerprint,
-		capture.versionID, capture.proofs, capture.answers, capture.evidence, capture.reviewStatus)
+		capture.versionID, capture.proofs, capture.answers, capture.evidence, capture.reviewStatus, capture.slotReviews)
 
 	created, err := scanApprovalRequest(row)
 	if err == nil {
@@ -228,14 +229,14 @@ func (r *Repository) CreateBirthApprovalRequest(
 INSERT INTO counts_approval_requests (
   tenant_id, request_type, payload, status, raised_by_user_id, raised_at,
   idempotency_key, request_fingerprint,
-  capture_sop_version_id, capture_proofs, capture_answers, capture_evidence, capture_review_status
+  capture_sop_version_id, capture_proofs, capture_answers, capture_evidence, capture_review_status, capture_slot_reviews
 ) VALUES ($1::uuid, 'birth', $2::jsonb, 'pending', $3::uuid, $4::timestamptz, $5, $6,
-  nullif($7, '')::uuid, $8::jsonb, $9::jsonb, $10::jsonb, nullif($11, ''))
+  nullif($7, '')::uuid, $8::jsonb, $9::jsonb, $10::jsonb, nullif($11, ''), $12::jsonb)
 ON CONFLICT (tenant_id, idempotency_key) DO NOTHING
 RETURNING `+approvalRequestColumns,
 		in.TenantID, string(payload), in.RaisedByUserID, raisedAt.UTC(),
 		in.IdempotencyKey, in.RequestFingerprint,
-		capture.versionID, capture.proofs, capture.answers, capture.evidence, capture.reviewStatus))
+		capture.versionID, capture.proofs, capture.answers, capture.evidence, capture.reviewStatus, capture.slotReviews))
 	if errors.Is(err, pgx.ErrNoRows) {
 		existing, readErr := scanApprovalRequest(tx.QueryRow(ctx, `
 SELECT `+approvalRequestColumns+`
@@ -303,13 +304,14 @@ type captureColumnValues struct {
 	answers      string
 	evidence     string
 	reviewStatus string
+	slotReviews  string
 }
 
 // captureColumns encodes the judged capture (nil = the form asked nothing: '{}' everywhere). A
 // capture WITH media opens a verifier review (status pending); one with answers only has
 // nothing for the verifier to watch and carries no review state.
 func captureColumns(c *domain.ApprovalCapture) captureColumnValues {
-	out := captureColumnValues{proofs: "{}", answers: "{}", evidence: "{}"}
+	out := captureColumnValues{proofs: "{}", answers: "{}", evidence: "{}", slotReviews: "{}"}
 	if c == nil {
 		return out
 	}
@@ -324,6 +326,15 @@ func captureColumns(c *domain.ApprovalCapture) captureColumnValues {
 		out.evidence = string(raw)
 	}
 	if len(c.Evidence.Media) > 0 {
+		reviews := map[string]domain.CaptureSlotReview{}
+		for _, m := range c.Evidence.Media {
+			if m.Key != "" {
+				reviews[m.Key] = domain.CaptureSlotReview{Ref: m.Ref, Status: domain.CaptureReviewPending}
+			}
+		}
+		if raw, err := json.Marshal(reviews); err == nil {
+			out.slotReviews = string(raw)
+		}
 		out.reviewStatus = domain.CaptureReviewPending
 	}
 	return out
@@ -399,16 +410,105 @@ ON CONFLICT DO NOTHING`, req.TenantID, eventID, domain.EventBirthReported, count
 	return nil
 }
 
-// SetCaptureReviewStatus stamps the verifier's verdict on the report's own proof (the
-// birth_capture item). Idempotent: a redelivered verdict rewrites the same value.
-func (r *Repository) SetCaptureReviewStatus(ctx context.Context, tenantID, approvalRequestID, status, reason string) error {
+// SetCaptureSlotReview lands one slot's verdict (birth is verified PER FORM PROOF SLOT) under the
+// row lock, FENCED on the slot's current proof: a verdict for a ref the slot no longer holds (a
+// re-shoot superseded it) changes nothing and reports applied=false. The row's
+// capture_review_status is recomputed as the rollup in the same write. Idempotent.
+func (r *Repository) SetCaptureSlotReview(ctx context.Context, tenantID, approvalRequestID, slotKey, ref, status, reason string) (domain.ApprovalRequest, bool, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
-	_, err := r.pool.Exec(ctx, `
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return domain.ApprovalRequest{}, false, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	current, reviews, err := lockCaptureRow(ctx, tx, tenantID, approvalRequestID)
+	if err != nil {
+		return domain.ApprovalRequest{}, false, err
+	}
+	held := ""
+	for _, m := range current.Capture.Media {
+		if m.Key == slotKey {
+			held = m.Ref
+		}
+	}
+	if held == "" || held != strings.TrimSpace(ref) {
+		return current, false, tx.Commit(ctx)
+	}
+	reviews[slotKey] = domain.CaptureSlotReview{Ref: held, Status: status, Reason: strings.TrimSpace(reason)}
+	updated, err := writeCaptureReviews(ctx, tx, tenantID, approvalRequestID, current.Capture, reviews, strings.TrimSpace(reason), nil)
+	if err != nil {
+		return domain.ApprovalRequest{}, false, err
+	}
+	return updated, true, tx.Commit(ctx)
+}
+
+// lockCaptureRow reads the request and its per-slot reviews FOR UPDATE.
+func lockCaptureRow(ctx context.Context, tx pgx.Tx, tenantID, approvalRequestID string) (domain.ApprovalRequest, map[string]domain.CaptureSlotReview, error) {
+	current, err := scanApprovalRequest(tx.QueryRow(ctx, `
+SELECT `+approvalRequestColumns+`
+FROM counts_approval_requests
+WHERE tenant_id = $1::uuid AND approval_request_id = $2::uuid
+FOR UPDATE`, tenantID, approvalRequestID))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.ApprovalRequest{}, nil, ports.ErrApprovalRequestNotFound
+	}
+	if err != nil {
+		return domain.ApprovalRequest{}, nil, err
+	}
+	var raw []byte
+	if err := tx.QueryRow(ctx, `SELECT capture_slot_reviews FROM counts_approval_requests WHERE tenant_id = $1::uuid AND approval_request_id = $2::uuid`,
+		tenantID, approvalRequestID).Scan(&raw); err != nil {
+		return domain.ApprovalRequest{}, nil, err
+	}
+	reviews := map[string]domain.CaptureSlotReview{}
+	if len(raw) > 0 {
+		if err := json.Unmarshal(raw, &reviews); err != nil {
+			return domain.ApprovalRequest{}, nil, err
+		}
+	}
+	return current, reviews, nil
+}
+
+// writeCaptureReviews persists the per-slot map, the rollup and (when evidence is given) a new
+// snapshot. The reason on the row is the latest rework's words while the rollup is rework.
+func writeCaptureReviews(ctx context.Context, tx pgx.Tx, tenantID, approvalRequestID string, evidence authored.Evidence, reviews map[string]domain.CaptureSlotReview, reason string, replace *struct{ oldRef, newRef string }) (domain.ApprovalRequest, error) {
+	rawReviews, err := json.Marshal(reviews)
+	if err != nil {
+		return domain.ApprovalRequest{}, err
+	}
+	rawEvidence, err := json.Marshal(evidence)
+	if err != nil {
+		return domain.ApprovalRequest{}, err
+	}
+	rollup := domain.CaptureReviewRollup(evidence.Media, reviews)
+	rollupReason := ""
+	if rollup == domain.CaptureReviewRework {
+		rollupReason = reason
+		if rollupReason == "" {
+			for _, m := range evidence.Media {
+				if rv := reviews[m.Key]; rv.Status == domain.CaptureReviewRework && rv.Reason != "" {
+					rollupReason = rv.Reason
+				}
+			}
+		}
+	}
+	oldRef, newRef := "", ""
+	if replace != nil {
+		oldRef, newRef = replace.oldRef, replace.newRef
+	}
+	return scanApprovalRequest(tx.QueryRow(ctx, `
 UPDATE counts_approval_requests
-SET capture_review_status = $3, capture_review_reason = nullif($4, ''), updated_at = now()
-WHERE tenant_id = $1::uuid AND approval_request_id = $2::uuid`, tenantID, approvalRequestID, status, strings.TrimSpace(reason))
-	return err
+SET capture_evidence = $3::jsonb,
+    capture_slot_reviews = $4::jsonb,
+    capture_review_status = nullif($5, ''),
+    capture_review_reason = nullif($6, ''),
+    capture_proofs = CASE WHEN $7 = '' THEN capture_proofs ELSE COALESCE((
+      SELECT jsonb_object_agg(key, CASE WHEN value #>> '{}' = $7 THEN to_jsonb($8::text) ELSE value END)
+      FROM jsonb_each(capture_proofs)), '{}'::jsonb) END,
+    updated_at = now()
+WHERE tenant_id = $1::uuid AND approval_request_id = $2::uuid
+RETURNING `+approvalRequestColumns, tenantID, approvalRequestID, string(rawEvidence), string(rawReviews), rollup, rollupReason, oldRef, newRef))
 }
 
 func birthChildren(ctx context.Context, tx pgx.Tx, tenantID, birthEventID string) ([]domain.BirthChildResult, error) {
@@ -978,7 +1078,8 @@ func stringOrEmpty(v *string) string {
 
 // ReplaceCaptureProof swaps capture proof `index` of a report for its re-shoot (decision 5):
 // under the row lock, the snapshot's ref/kind at that index and the slot map entry are replaced,
-// and the review goes back to pending. Idempotent for the same proof.
+// that slot's review goes back to pending on the NEW ref (so a stale verdict on the old ref is
+// fenced out) and the rollup is recomputed. Idempotent for the same proof.
 func (r *Repository) ReplaceCaptureProof(ctx context.Context, tenantID, approvalRequestID string, index int, proof tasksdomain.ProofItem) (domain.ApprovalRequest, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
@@ -987,35 +1088,18 @@ func (r *Repository) ReplaceCaptureProof(ctx context.Context, tenantID, approval
 		return domain.ApprovalRequest{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	current, err := scanApprovalRequest(tx.QueryRow(ctx, `
-SELECT `+approvalRequestColumns+`
-FROM counts_approval_requests
-WHERE tenant_id = $1::uuid AND approval_request_id = $2::uuid
-FOR UPDATE`, tenantID, approvalRequestID))
-	if errors.Is(err, pgx.ErrNoRows) {
-		return domain.ApprovalRequest{}, ports.ErrApprovalRequestNotFound
-	}
+	current, reviews, err := lockCaptureRow(ctx, tx, tenantID, approvalRequestID)
 	if err != nil {
 		return domain.ApprovalRequest{}, err
 	}
 	if index < 0 || index >= len(current.Capture.Media) {
 		return current, tx.Commit(ctx)
 	}
-	oldRef := current.Capture.Media[index].Ref
+	old := current.Capture.Media[index]
 	evidence := tasksdomain.ReplaceCaptureMedia(current.Capture, index, proof)
-	raw, err := json.Marshal(evidence)
-	if err != nil {
-		return domain.ApprovalRequest{}, err
-	}
-	updated, err := scanApprovalRequest(tx.QueryRow(ctx, `
-UPDATE counts_approval_requests
-SET capture_evidence = $3::jsonb,
-    capture_proofs = COALESCE((
-      SELECT jsonb_object_agg(key, CASE WHEN value #>> '{}' = $4 THEN to_jsonb($5::text) ELSE value END)
-      FROM jsonb_each(capture_proofs)), '{}'::jsonb),
-    capture_review_status = 'pending', capture_review_reason = NULL, updated_at = now()
-WHERE tenant_id = $1::uuid AND approval_request_id = $2::uuid
-RETURNING `+approvalRequestColumns, tenantID, approvalRequestID, string(raw), oldRef, strings.TrimSpace(proof.Ref)))
+	newRef := evidence.Media[index].Ref
+	reviews[old.Key] = domain.CaptureSlotReview{Ref: newRef, Status: domain.CaptureReviewPending}
+	updated, err := writeCaptureReviews(ctx, tx, tenantID, approvalRequestID, evidence, reviews, "", &struct{ oldRef, newRef string }{old.Ref, newRef})
 	if err != nil {
 		return domain.ApprovalRequest{}, err
 	}

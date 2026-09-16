@@ -106,7 +106,7 @@ func TestNewAppSubmitIsJudgedStrictlyAndPinned(t *testing.T) {
 		t.Fatalf("must pin the ECHOED version, not the newer publish: %+v", got)
 	}
 	wantEvidence := authored.Evidence{VersionLabel: "v2",
-		Media: []authored.EvidenceMedia{{Ref: "ref-photo", Kind: "photo", Label: "Newborns with the mother"}},
+		Media: []authored.EvidenceMedia{{Key: "newborns_with_mother", Ref: "ref-photo", Kind: "photo", Label: "Newborns with the mother"}},
 		Rows:  []authored.EvidenceRow{{Label: "How was the delivery?", Value: "Assisted", Group: domain.CaptureEvidenceGroup}}}
 	if !reflect.DeepEqual(got.Evidence, wantEvidence) {
 		t.Fatalf("evidence = %+v, want %+v", got.Evidence, wantEvidence)
