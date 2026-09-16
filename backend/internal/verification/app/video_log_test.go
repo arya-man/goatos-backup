@@ -217,3 +217,40 @@ func TestVideoLogClampsAnOversizedLimit(t *testing.T) {
 		t.Fatalf("limit = %d, want it clamped to %d", repo.videoLogRowParams.Limit, maxVideoLogRowLimit)
 	}
 }
+
+// TestVideoLogLabelsPreferItemMediaMeta pins the log to the SAME header the verifier's queue shows:
+// the item's own media_meta title (the SOP slot title) wins over the artifact's upload-time label
+// and the registry's positional copy, and a title the producer used twice reads "k of N".
+func TestVideoLogLabelsPreferItemMediaMeta(t *testing.T) {
+	repo := newFakeRepo()
+	repo.videoLogRows = []domain.VideoLogRow{{
+		ItemID: "item-1", Module: "feed", Category: "feed_distribution",
+		Proofs: []domain.VideoLogProof{
+			{ProofID: "p1", Ordinal: 1, MetaLabel: "Bag on the scale", Label: "Morning weigh-out", MediaKind: "photo"},
+			{ProofID: "p2", Ordinal: 2, MetaLabel: "Feeding", MediaKind: "video"},
+			{ProofID: "p3", Ordinal: 3, MetaLabel: "Feeding", MediaKind: "video"},
+			{ProofID: "p4", Ordinal: 4, Label: "Artifact owned", MediaKind: "video"},
+		},
+	}, {
+		ItemID: "item-2", Module: "feed", Category: "feed_distribution",
+		Proofs: []domain.VideoLogProof{{ProofID: "q2", Ordinal: 2, MediaKind: "video"}},
+	}}
+	svc := videoLogService(t, repo)
+	out, err := svc.VideoLog(context.Background(), ports.VideoLogParams{TenantID: videoLogTenant, ShedID: "shed-1"})
+	if err != nil {
+		t.Fatalf("VideoLog: %v", err)
+	}
+	var got []string
+	for _, p := range out.Rows[0].Proofs {
+		got = append(got, p.Label)
+	}
+	want := []string{"Bag on the scale", "Feeding 1 of 2", "Feeding 2 of 2", "Artifact owned"}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("labels = %q, want %q", got, want)
+		}
+	}
+	if l := out.Rows[1].Proofs[0].Label; l != "Feed distribution video" {
+		t.Fatalf("pre-meta item label = %q, want the registry's positional copy", l)
+	}
+}

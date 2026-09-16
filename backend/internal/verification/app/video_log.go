@@ -146,11 +146,16 @@ func (s *Service) VideoLog(ctx context.Context, params ports.VideoLogParams) (do
 // decorateVideoLogRow resolves every backend-owned label on one row: the module and category
 // display copy, the queue's nav-module key, and each proof's header.
 //
-// The proof header resolution order matters and mirrors what the verifier's own drawer does:
+// The proof header resolution order matters and mirrors what the verifier's own queue does:
 //
-//  1. the artifact's OWN verification_label metadata, written by the producer when it uploaded --
-//     the richest answer, because it can name workflow task truth the registry cannot;
-//  2. otherwise the category registry's MediaLabelFor, resolved from the proof's DECLARED ORDINAL.
+//  1. the ITEM's media_meta title for the proof's ordinal -- the producer's authored slot title,
+//     the header the verifier reads the same proof under;
+//  2. the artifact's OWN verification_label metadata, written by the producer when it uploaded --
+//     it can name workflow task truth the registry cannot;
+//  3. otherwise the category registry's MediaLabelFor, resolved from the proof's DECLARED ORDINAL.
+//
+// A title from 1 or 2 repeated within the item reads "Title k of N" (domain.ComposeMediaLabels),
+// exactly as in the queue; the registry fallback keeps its own "Video 2" numbering.
 //
 // Ordinal, not slice index. A ref whose artifact is missing is absent from Proofs, and using the
 // index would shift every later proof's label by one -- so a feed distribution item missing its
@@ -169,11 +174,16 @@ func (s *Service) decorateVideoLogRow(row *domain.VideoLogRow, nav map[string]mo
 	if known && len(def.ExpectedMedia) > mediaCount {
 		mediaCount = len(def.ExpectedMedia)
 	}
+	labels := make([]string, len(row.Proofs))
 	for i := range row.Proofs {
-		if strings.TrimSpace(row.Proofs[i].Label) != "" {
-			continue
+		labels[i] = strings.TrimSpace(row.Proofs[i].MetaLabel)
+		if labels[i] == "" {
+			labels[i] = strings.TrimSpace(row.Proofs[i].Label)
 		}
-		if !known {
+	}
+	for i, label := range domain.ComposeMediaLabels(labels) {
+		row.Proofs[i].Label = label
+		if label != "" || !known {
 			continue
 		}
 		row.Proofs[i].Label = def.MediaLabelFor(row.Proofs[i].Ordinal-1, mediaCount)

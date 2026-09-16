@@ -49,9 +49,14 @@ type VideoLogProof struct {
 	// filtered slice. A ref whose artifact is missing is dropped from Proofs, which would shift
 	// every later index by one and silently rename the remaining proofs.
 	Ordinal int
+	// MetaLabel is the producing ITEM's own title for this proof (verification_items.media_meta at
+	// Ordinal-1 -- the SOP slot title), blank for an item written before media_meta. It is an input
+	// to Label, never rendered on its own.
+	MetaLabel string
 	// Label is the backend-owned header for this proof ("Water distribution video"). Resolved from
-	// the artifact's own verification_label metadata first, then from the category registry's
-	// positional MediaLabels. Never a raw code, never composed by the client.
+	// the item's media_meta title first (the header the verifier's queue shows), then the artifact's
+	// own verification_label metadata, then the category registry's positional MediaLabels; a title
+	// repeated within one item reads "k of N". Never a raw code, never composed by the client.
 	Label string
 	// MediaKind is "video" or "photo", from proof_artifacts.proof_type. Feed distribution is the
 	// one category that mixes them (a weight PHOTO leads its two videos), so a screen that says
