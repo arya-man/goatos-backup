@@ -32975,6 +32975,12 @@ components:
                 $ref: "#/components/schemas/WeighingSOPQuestion"
         capture:
           type: object
+          description: >-
+            THE WEIGH CAPTURES ARE AUTHORED (maintainer decision 2026-09-16): TWO SEPARATE
+            sections, per animal and whole pen, each with its OWN proof slots and OWN questions,
+            authored independently and never merged. A served rule set always carries both slot
+            lists explicitly (a document published before slots existed reads as the seeded
+            "Weighing video" slot). RFID scan + weight stay fixed and are not authorable.
           additionalProperties: false
           required:
             - individual
@@ -32982,15 +32988,29 @@ components:
           properties:
             individual:
               type: object
+              description: PER ANIMAL. At least one slot is compulsory; questions are answered per animal.
               additionalProperties: false
               required:
                 - video_required
               properties:
                 video_required:
                   type: boolean
-                  description: Always true; the per-animal video is the evidence the verifier reviews.
+                  description: Always true; at least one compulsory capture per animal is the evidence the verifier reviews.
+                proofs:
+                  type: array
+                  description: >-
+                    The per-animal capture slots in the order the phone shows them (1..4). The
+                    first slot's capture is the PRIMARY (proof_artifact_id). Absent only on a
+                    stored document that predates slots; a served rule set always carries it.
+                  items:
+                    $ref: "#/components/schemas/WeighingRemovalProofSlot"
+                questions:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/WeighingSOPQuestion"
             lump_sum:
               type: object
+              description: WHOLE PEN. Counted slots (min..max each, at least one with min >= 1, at most 10 captures in total) and questions answered once per pen submit.
               additionalProperties: false
               required:
                 - video_min
@@ -32999,10 +33019,23 @@ components:
                 video_min:
                   type: integer
                   minimum: 1
+                  description: >-
+                    DERIVED MIRROR for phones that predate slots: the sum of the video / either
+                    slots' minimums, clamped to 1..5. Not authored when `proofs` is present.
                 video_max:
                   type: integer
                   minimum: 1
                   maximum: 5
+                  description: Derived mirror (sum of the video / either slots' maximums, clamped to 1..5).
+                proofs:
+                  type: array
+                  description: The whole-pen counted capture slots in card order (1..4).
+                  items:
+                    $ref: "#/components/schemas/WeighingCountedProofSlot"
+                questions:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/WeighingSOPQuestion"
         weights_pages:
           type: object
           description: >-
@@ -33192,6 +33225,36 @@ components:
           enum: [video, photo, either]
         required:
           type: boolean
+    WeighingCountedProofSlot:
+      type: object
+      description: >-
+        One WHOLE-PEN capture slot of the weighing SOP (2026-09-16): a live-camera video, a photo
+        or either, carrying between `min` and `max` captures (min 0 = optional; max 1..5). The
+        seed's one slot is pen_video 1..5.
+      additionalProperties: false
+      required:
+        - key
+        - title
+        - kind
+        - min
+        - max
+      properties:
+        key:
+          type: string
+        title:
+          type: string
+        hint:
+          type: string
+        kind:
+          type: string
+          enum: [video, photo, either]
+        min:
+          type: integer
+          minimum: 0
+        max:
+          type: integer
+          minimum: 1
+          maximum: 5
     WeighingSOPQuestion:
       type: object
       description: >-
@@ -34455,12 +34518,18 @@ components:
             $ref: "#/components/schemas/CreateWeighingCampaignShed"
     RecordWeighingAnimalObservationRequest:
       type: object
+      description: >-
+        One animal's weigh. THE WEIGH CAPTURES ARE AUTHORED (2026-09-16): a current app sends
+        `proofs` ({slot key: proof ref} for the task's PINNED per-animal slots) and `answers`;
+        an older app sends only `proof_artifact_id`, which maps onto the seeded slot and is
+        accepted with every other compulsory item reported to the verifier as not captured.
+        A request carrying `proofs` is judged strictly: 422 weighing_proof_slot_invalid /
+        weighing_answer_invalid naming the slot or question.
       additionalProperties: false
       required:
         - campaign_shed_id
         - scanned_identifier
         - weight_kg
-        - proof_artifact_id
         - actual_location_id
       properties:
         campaign_shed_id:
@@ -34480,11 +34549,48 @@ components:
         proof_artifact_id:
           type: string
           format: uuid
+          description: The legacy single proof (older apps). Ignored when `proofs` is present; the response's proof_artifact_id is always the first slot's capture.
         actual_location_id:
           type: string
           format: uuid
+        proofs:
+          $ref: "#/components/schemas/WeighingCaptureProofRefs"
+        answers:
+          $ref: "#/components/schemas/WeighingCaptureAnswers"
+    WeighingCaptureProofRefs:
+      type: object
+      description: >-
+        {slot key: proof ref} for the pinned per-animal slots. Judged slot by slot: a compulsory
+        slot missing, a key outside the document, one capture in two slots, or a capture whose
+        register kind does not match its slot is 422 weighing_proof_slot_invalid naming the slot.
+      additionalProperties:
+        type: string
+        format: uuid
+    WeighingCountedProofRefs:
+      type: object
+      description: >-
+        {slot key: proof refs} for the pinned whole-pen slots, each list within its slot's
+        min..max, at most 10 captures in total. Refused by name as 422 weighing_proof_slot_invalid.
+      additionalProperties:
+        type: array
+        items:
+          type: string
+          format: uuid
+    WeighingCaptureAnswers:
+      type: object
+      description: >-
+        {question id: answer} for the section's questions (choice = option value, "other" free
+        text under "<id>_other"; multi = array of values; number = JSON number; text = string).
+        A required question unanswered or an answer the section did not ask is 422
+        weighing_answer_invalid naming the question.
+      additionalProperties: true
     RecordWeighingShedObservationRequest:
       type: object
+      description: >-
+        One pen's whole-pen weigh. A current app sends `proofs` ({slot key: refs} for the task's
+        PINNED whole-pen slots) and `answers`; an older app sends the flat `proof_artifact_ids`,
+        judged on the derived video window (422 weighing_video_count) and mapped onto the
+        seeded pen_video slot.
       additionalProperties: false
       required:
         - campaign_shed_id
@@ -34523,6 +34629,10 @@ components:
           items:
             type: string
             format: uuid
+        proofs:
+          $ref: "#/components/schemas/WeighingCountedProofRefs"
+        answers:
+          $ref: "#/components/schemas/WeighingCaptureAnswers"
     WeighingObservation:
       type: object
       additionalProperties: false
@@ -34579,6 +34689,28 @@ components:
         accepted_at:
           type: string
           format: date-time
+        proofs:
+          description: >-
+            PER-ANIMAL captures (slot key -> proof ref) as stored (2026-09-16); absent on a row
+            written before slots existed (= the seeded animal_video slot carrying proof_artifact_id).
+          $ref: "#/components/schemas/WeighingCaptureProofRefs"
+        proof_slots:
+          description: >-
+            WHOLE-PEN captures (slot key -> proof refs) as stored; absent on a pre-slot row
+            (= the seeded pen_video slot carrying proof_artifact_ids).
+          $ref: "#/components/schemas/WeighingCountedProofRefs"
+        answers:
+          $ref: "#/components/schemas/WeighingCaptureAnswers"
+        proof_kinds:
+          type: object
+          description: "{proof ref: video | photo} as the proof register judged each capture (an either-kind slot's answer), so the phone reopens a slot as what it is."
+          additionalProperties:
+            type: string
+            enum: [video, photo]
+        verification_status:
+          type: string
+        rework_reason:
+          type: string
     WeighingProofMedia:
       type: object
       additionalProperties: false
@@ -34594,6 +34726,9 @@ components:
           format: uri
         mime_type:
           type: string
+        label:
+          type: string
+          description: The capture's SOP title from the task's pinned rules ("Weighing video 2 of 3", "Scale display photo"); absent on a pre-slot row.
     WeighingShedVideos:
       type: object
       additionalProperties: false

@@ -321,6 +321,11 @@ type animalObservationRequest struct {
 	WeightKg          float64 `json:"weight_kg"`
 	ProofArtifactID   string  `json:"proof_artifact_id"`
 	ActualLocationID  string  `json:"actual_location_id"`
+	// THE WEIGH CAPTURES ARE AUTHORED (2026-09-16): {slot key: proof ref} for the pinned SOP's
+	// per-animal slots and {question id: answer} for its per-animal questions. An older app
+	// sends neither and keeps working (proof_artifact_id maps onto the seeded slot).
+	Proofs  map[string]string          `json:"proofs"`
+	Answers map[string]json.RawMessage `json:"answers"`
 }
 
 type shedObservationRequest struct {
@@ -330,6 +335,9 @@ type shedObservationRequest struct {
 	AnimalCount      int      `json:"animal_count"`
 	ProofArtifactID  string   `json:"proof_artifact_id"`
 	ProofArtifactIDs []string `json:"proof_artifact_ids"`
+	// {slot key: proof refs} for the pinned SOP's whole-pen slots + the whole-pen answers.
+	Proofs  map[string][]string        `json:"proofs"`
+	Answers map[string]json.RawMessage `json:"answers"`
 }
 
 type submitIndividualScopeRequest struct {
@@ -591,13 +599,22 @@ func (h *Handler) resolveLeadershipMedia(ctx context.Context, tenantID string, r
 		if len(ids) == 0 && observation.ProofArtifactID != "" {
 			ids = []string{observation.ProofArtifactID}
 		}
+		// The service already stamped each capture's SOP title and kind (Label / MimeType);
+		// the handler only adds the download route, keeping what the service labelled.
+		labelled := map[string]domain.ProofMedia{}
+		for _, m := range observation.Media {
+			labelled[m.ProofID] = m
+		}
 		observation.Media = make([]domain.ProofMedia, 0, len(ids))
 		for _, proofID := range ids {
 			proofID = strings.TrimSpace(proofID)
 			if proofID == "" {
 				continue
 			}
-			observation.Media = append(observation.Media, domain.ProofMedia{ProofID: proofID, DownloadURL: "/app/proofs/" + proofID + "/download"})
+			media := labelled[proofID]
+			media.ProofID = proofID
+			media.DownloadURL = "/app/proofs/" + proofID + "/download"
+			observation.Media = append(observation.Media, media)
 		}
 		return nil
 	}
@@ -633,6 +650,7 @@ func (h *Handler) RecordAnimalObservation(w http.ResponseWriter, r *http.Request
 	obs, err := h.service.RecordAnimalObservation(r.Context(), actor(r), domain.RecordAnimalObservation{
 		CampaignID: r.PathValue("campaign_id"), CampaignShedID: req.CampaignShedID, ScannedIdentifier: req.ScannedIdentifier, WeightKg: req.WeightKg, ProofArtifactID: req.ProofArtifactID, ActualLocationID: req.ActualLocationID, IdempotencyKey: r.Header.Get("Idempotency-Key"),
 		DeviceID: httpmiddleware.DeviceIDFromContext(r.Context()),
+		Proofs:   domain.IndividualProofRefs(req.Proofs), Answers: domain.SOPAnswers(req.Answers),
 	})
 	h.logScanOutcome(r, "record_animal_observation", err)
 	h.respond(w, r, map[string]any{"observation": obs, "trace_id": traceID(r)}, err)
@@ -647,6 +665,7 @@ func (h *Handler) RecordShedObservation(w http.ResponseWriter, r *http.Request) 
 		CampaignID: r.PathValue("campaign_id"), CampaignShedID: req.CampaignShedID, WeightKg: req.WeightKg, AverageWeightKg: req.AverageWeightKg, AnimalCount: req.AnimalCount,
 		ProofArtifactID: req.ProofArtifactID, ProofArtifactIDs: req.ProofArtifactIDs, IdempotencyKey: r.Header.Get("Idempotency-Key"),
 		DeviceID: httpmiddleware.DeviceIDFromContext(r.Context()),
+		Proofs:   domain.LumpSumProofRefs(req.Proofs), Answers: domain.SOPAnswers(req.Answers),
 	})
 	h.logScanOutcome(r, "record_shed_observation", err)
 	h.respond(w, r, map[string]any{"observation": obs, "trace_id": traceID(r)}, err)
@@ -862,6 +881,22 @@ func (h *Handler) respond(w http.ResponseWriter, r *http.Request, body any, err 
 		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity, errorEnvelope{Code: "weighing_video_count", Message: "This pen needs a different number of videos than were sent. Check the pen's video count, then submit again.", TraceID: traceID(r)}, nil)
 	case errors.Is(err, ports.ErrSOPVersionUnknown):
 		httpresponse.WriteError(w, r, h.log, http.StatusConflict, errorEnvelope{Code: "weighing_sop_version_unknown", Message: "This task was planned on a weighing SOP version that no longer exists. Ask an admin to check the SOP.", TraceID: traceID(r)}, nil)
+	// THE WEIGH CAPTURES ARE AUTHORED (2026-09-16): a weigh capture judged against its slot
+	// or question is named to the phone, distinct from the removal card's codes.
+	case errors.Is(err, domain.ErrCaptureProofInvalid):
+		var proofErr *domain.ProofError
+		message := "One of the captures is missing or not part of this weighing. Check the captures, then submit again."
+		if errors.As(err, &proofErr) && proofErr.Message != "" {
+			message = proofErr.Message
+		}
+		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity, errorEnvelope{Code: "weighing_proof_slot_invalid", Message: message, TraceID: traceID(r)}, nil)
+	case errors.Is(err, domain.ErrCaptureAnswerInvalid):
+		var answerErr *domain.AnswerError
+		message := "One of the answers is missing or not allowed. Check the answers, then submit again."
+		if errors.As(err, &answerErr) {
+			message = answerErr.Message
+		}
+		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity, errorEnvelope{Code: "weighing_answer_invalid", Message: message, TraceID: traceID(r)}, nil)
 	case errors.Is(err, domain.ErrSOPProofInvalid):
 		var proofErr *domain.ProofError
 		message := "One of the captures is missing or not part of this card. Check the card, then submit again."
