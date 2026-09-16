@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { chromium } from 'playwright';
+import { chromium } from '@playwright/test';
 
 // Exercise the actual route at the laptop interval where KPIs remain three columns.
 const base = process.env.GOATOS_ADMIN_WEB_BASE_URL ?? 'http://127.0.0.1:3300';
