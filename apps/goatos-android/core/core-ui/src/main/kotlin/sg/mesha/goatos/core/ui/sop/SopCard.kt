@@ -108,6 +108,9 @@ data class SopQuestionUi(
     val options: List<Pair<String, String>> = emptyList(),
     val allowOther: Boolean = false,
     val unit: String = "",
+    /** A number question's authored bounds, inclusive; null = unbounded on that side. */
+    val min: Double? = null,
+    val max: Double? = null,
     /** Hidden unless an earlier pick-one holds this value. */
     val onlyIfQuestion: String = "",
     val onlyIfValue: String = "",
@@ -127,11 +130,78 @@ data class SopCardUi(
     val compulsorySlotsFilled: Boolean
         get() = slots.isNotEmpty() && slots.filter { it.required }.all { it.captured }
 
-    fun appliesTo(q: SopQuestionUi): Boolean =
-        q.onlyIfQuestion.isBlank() || answers[q.onlyIfQuestion] == q.onlyIfValue
+    /**
+     * The questions this card asks right now. A conditional question applies only when its parent
+     * APPLIES and holds the value -- the same chain the server walks, so a follow-up whose parent
+     * was hidden by an earlier change of mind is hidden too, even if its own parent still holds
+     * the old pick.
+     */
+    private val applicableIds: Set<String> by lazy {
+        val out = HashSet<String>(questions.size)
+        questions.forEach { q ->
+            if (q.onlyIfQuestion.isBlank() ||
+                (q.onlyIfQuestion in out && answers[q.onlyIfQuestion].orEmpty().trim() == q.onlyIfValue)
+            ) {
+                out += q.id
+            }
+        }
+        out
+    }
 
+    fun appliesTo(q: SopQuestionUi): Boolean = q.id in applicableIds
+
+    /**
+     * The first answer the server would refuse, judged exactly as `sop/authored` ValidateAnswers
+     * judges it; null when the answers would be accepted. Cards without questions never have one.
+     */
+    val answerProblem: SopAnswerProblem? by lazy { questions.firstNotNullOfOrNull { q -> checkAnswer(q) } }
+
+    /** Every question the card asks is answered the way the server will accept. */
     val requiredAnswersGiven: Boolean
-        get() = questions.filter { it.required && appliesTo(it) }.all { !answers[it.id].isNullOrBlank() }
+        get() = answerProblem == null
+
+    private fun checkAnswer(q: SopQuestionUi): SopAnswerProblem? {
+        if (!appliesTo(q)) return null
+        fun problem(kind: SopAnswerProblemKind) = SopAnswerProblem(q.id, q.title, kind, q.min, q.max)
+        val raw = answers[q.id].orEmpty()
+        val offered = q.options.map { it.first }.toSet()
+        return when (q.kind) {
+            "choice" -> {
+                val v = raw.trim()
+                when {
+                    v.isEmpty() -> if (q.required) problem(SopAnswerProblemKind.ANSWER) else null
+                    v !in offered -> problem(SopAnswerProblemKind.PICK_OFFERED)
+                    v == "other" && q.allowOther && answers[q.id + "_other"].orEmpty().isBlank() ->
+                        problem(SopAnswerProblemKind.WRITE_OTHER)
+                    else -> null
+                }
+            }
+            "multi" -> {
+                val picked = raw.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+                when {
+                    picked.isEmpty() -> if (q.required) problem(SopAnswerProblemKind.TICK_ONE) else null
+                    picked.any { it !in offered } -> problem(SopAnswerProblemKind.PICK_ONLY_OFFERED)
+                    else -> null
+                }
+            }
+            "number" -> {
+                val v = raw.trim()
+                val n = v.toDoubleOrNull()
+                when {
+                    v.isEmpty() -> if (q.required) problem(SopAnswerProblemKind.ENTER) else null
+                    n == null || n.isNaN() || n.isInfinite() -> problem(SopAnswerProblemKind.ENTER_NUMBER)
+                    (q.min != null && n < q.min) || (q.max != null && n > q.max) -> problem(SopAnswerProblemKind.OUT_OF_RANGE)
+                    else -> null
+                }
+            }
+            "text" -> when {
+                q.required && raw.isBlank() -> problem(SopAnswerProblemKind.ENTER)
+                raw.toByteArray(Charsets.UTF_8).size > SOP_ANSWER_MAX_TEXT_BYTES -> problem(SopAnswerProblemKind.TOO_LONG)
+                else -> null
+            }
+            else -> null
+        }
+    }
 
     /** Compulsory slots captured and durable-or-uploading, no captured slot failed, questions answered. */
     val readyToSubmit: Boolean
@@ -154,6 +224,45 @@ data class SopCardUi(
         get() = slots.filter { it.required }.all { it.readyForSubmit } &&
             slots.filter { it.captured }.all { it.status.isQueuedForSubmit() } &&
             requiredAnswersGiven
+}
+
+/** The server's limit on a written answer (`sop/authored` MaxTextLength, bytes). */
+const val SOP_ANSWER_MAX_TEXT_BYTES = 2000
+
+/** Why the server would refuse an answer -- one per rule of `sop/authored` ValidateAnswers. */
+enum class SopAnswerProblemKind { ANSWER, PICK_OFFERED, WRITE_OTHER, TICK_ONE, PICK_ONLY_OFFERED, ENTER, ENTER_NUMBER, OUT_OF_RANGE, TOO_LONG }
+
+/**
+ * One answer the server would refuse, naming the question. [message] carries the same words the
+ * server sends for the same refusal, so a phone check and a server refusal read alike.
+ */
+@Immutable
+data class SopAnswerProblem(
+    val questionId: String,
+    val title: String,
+    val kind: SopAnswerProblemKind,
+    val min: Double? = null,
+    val max: Double? = null,
+) {
+    val message: String
+        get() = when (kind) {
+            SopAnswerProblemKind.ANSWER -> "Answer: $title"
+            SopAnswerProblemKind.PICK_OFFERED -> "Pick one of the offered answers for: $title"
+            SopAnswerProblemKind.WRITE_OTHER -> "Write the other answer for: $title"
+            SopAnswerProblemKind.TICK_ONE -> "Tick at least one for: $title"
+            SopAnswerProblemKind.PICK_ONLY_OFFERED -> "Pick only the offered answers for: $title"
+            SopAnswerProblemKind.ENTER -> "Enter: $title"
+            SopAnswerProblemKind.ENTER_NUMBER -> "Enter a number for: $title"
+            SopAnswerProblemKind.TOO_LONG -> "Too long: $title"
+            SopAnswerProblemKind.OUT_OF_RANGE -> when {
+                min != null && max != null -> "Enter a value between ${plain(min)} and ${plain(max)} for: $title"
+                min != null -> "Enter a value of at least ${plain(min)} for: $title"
+                else -> "Enter a value of at most ${plain(max ?: 0.0)} for: $title"
+            }
+        }
+
+    private fun plain(n: Double): String =
+        if (n == Math.floor(n) && !n.isInfinite() && kotlin.math.abs(n) < 1e15) n.toLong().toString() else n.toString()
 }
 
 /**

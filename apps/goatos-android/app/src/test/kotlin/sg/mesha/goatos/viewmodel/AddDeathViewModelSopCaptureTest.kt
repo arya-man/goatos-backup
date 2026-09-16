@@ -199,6 +199,47 @@ class AddDeathViewModelSopCaptureTest {
         assertTrue("the corrected report is a new write, never the refused key", sync.deathKeys[0] != sync.deathKeys[1])
     }
 
+    @Test
+    fun `other without its written answer blocks the submit on the phone and names the question`() = runTest(dispatcher) {
+        cards.publish(
+            CountsCaptureCardResponseDto(
+                kind = "death",
+                sopCode = "counts.death",
+                sopVersionId = SOP_VERSION_ID,
+                card = CountsCaptureCardDto(
+                    questions = listOf(
+                        sg.mesha.goatos.core.network.dto.WeighingSopQuestionDto(
+                            id = "cause",
+                            kind = "choice",
+                            title = "Suspected cause",
+                            required = true,
+                            options = listOf(
+                                sg.mesha.goatos.core.network.dto.WeighingSopOptionDto("bloat", "Bloat"),
+                                sg.mesha.goatos.core.network.dto.WeighingSopOptionDto("other", "Other"),
+                            ),
+                            allowOther = true,
+                        ),
+                    ),
+                ),
+            ),
+        )
+        val vm = newViewModel()
+        advanceUntilIdle()
+        selectAnimalWithAccount(vm)
+        vm.onEvent(AddDeathEvent.Answer("cause", "other"))
+        advanceUntilIdle()
+
+        assertFalse("the server would refuse other without its text", vm.state.value.canSubmit)
+        assertEquals("Write the other answer for: Suspected cause", vm.state.value.validationMessage)
+        vm.onEvent(AddDeathEvent.Submit)
+        advanceUntilIdle()
+        assertNull("nothing is queued for a refusal the phone can already see", sync.lastDeath)
+
+        vm.onEvent(AddDeathEvent.Answer("cause_other", "Snake bite"))
+        advanceUntilIdle()
+        assertTrue(vm.state.value.canSubmit)
+    }
+
     private fun deathCard() = CountsCaptureCardResponseDto(
         kind = "death",
         sopCode = "counts.death",

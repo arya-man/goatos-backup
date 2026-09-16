@@ -221,7 +221,7 @@ internal class SopSlotController(
                 questions = questions.map { q ->
                     FeedDistributionQuestionUi(
                         id = q.id, kind = q.kind, title = q.title, hint = q.hint, required = q.required,
-                        options = q.options.map { it.value to it.label }, allowOther = q.allowOther, unit = q.unit,
+                        options = q.options.map { it.value to it.label }, allowOther = q.allowOther, unit = q.unit, min = q.min, max = q.max,
                         onlyIfQuestion = q.onlyIf?.questionId.orEmpty(), onlyIfValue = q.onlyIf?.value.orEmpty(),
                     )
                 },

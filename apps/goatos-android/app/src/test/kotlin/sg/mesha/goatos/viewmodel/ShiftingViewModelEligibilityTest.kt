@@ -172,7 +172,7 @@ class ShiftingViewModelEligibilityTest {
         vm.onEvent(ShiftingEvent.SelectDestinationShed(CBE_SHED_ID))
         advanceUntilIdle()
         assertFalse("the required raise question is unanswered", vm.state.value.canSubmit)
-        assertEquals("Answer the required questions for this movement.", vm.state.value.validationMessage)
+        assertEquals("Answer: Why move", vm.state.value.validationMessage)
 
         vm.onEvent(ShiftingEvent.AnswerRaise("why", "crowded"))
         advanceUntilIdle()

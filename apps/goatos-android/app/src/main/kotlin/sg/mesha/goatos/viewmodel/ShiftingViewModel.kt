@@ -778,7 +778,7 @@ class ShiftingViewModel @Inject constructor(
         val slotsReady = card.slots.filter { it.required }.all { it.readyForSubmit } &&
             card.slots.filter { it.captured }.all { it.status.isQueuedForSubmit() }
         if (!slotsReady) return RAISE_CAPTURES_MESSAGE
-        if (!card.requiredAnswersGiven) return RAISE_QUESTIONS_MESSAGE
+        if (!card.requiredAnswersGiven) return card.answerProblem?.message ?: RAISE_QUESTIONS_MESSAGE
         return null
     }
 
