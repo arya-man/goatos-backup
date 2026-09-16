@@ -26,7 +26,7 @@ import {
 
 /**
  * The routine drawer body: one form that creates a routine or saves a new VERSION of one, plus,
- * on edit, the status row (pause / resume / retire). Rendered inside the page's LocalOverlayDrawer,
+ * on edit, the status row (pause / resume / retire). It lives inside the page's LocalOverlayDrawer,
  * so opening and closing never navigate; only Save posts, and it lands in place through
  * `useActionState` -- the outcome sentence appears beside the form, a success closes the drawer
  * and the page's revalidation has already re-read the table.
