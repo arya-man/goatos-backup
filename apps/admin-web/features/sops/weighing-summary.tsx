@@ -3,7 +3,7 @@
 // WEIGHING SOP: the read-only summary of the rules a weighing task runs under, shown in the SOP
 // drawer so the whole rule set is visible without opening the editor.
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
-import { parseWeighing, type WeighingQuestionRow } from "./weighing-model";
+import { CAPTURE_DEFAULTS_COPY_KEY, parseCaptureDefaults, parseWeighing, type WeighingQuestionRow } from "./weighing-model";
 
 function fill(template: string, vars: Record<string, string | number>): string {
   return Object.entries(vars).reduce((s, [k, v]) => s.split(`{${k}}`).join(String(v)), template);
@@ -19,8 +19,11 @@ function questionMeta(pc: AdminUiPageContract, q: WeighingQuestionRow, titleByKe
 }
 
 export function WeighingSummary({ pageContract: pc, formDsl }: { pageContract: AdminUiPageContract; formDsl: unknown }) {
-  const rows = parseWeighing(formDsl);
+  // The sections a document leaves implicit read as the contract's seeded slot document.
+  const rows = parseWeighing(formDsl, parseCaptureDefaults(copy(pc, CAPTURE_DEFAULTS_COPY_KEY, "")));
   if (!rows) return null;
+  const questionsCount = (n: number) => (n === 1 ? copy(pc, "wsop.summary.questions_one") : fill(copy(pc, "wsop.summary.questions_many"), { n }));
+  const lumpTotal = rows.lumpSumProofs.reduce((sum, p) => sum + (Number(p.max) || 0), 0);
   const titleByKey = Object.fromEntries(rows.removalQuestions.map((q) => [q.key, q.title]));
   return (
     <div className="inspection-summary">
@@ -56,8 +59,18 @@ export function WeighingSummary({ pageContract: pc, formDsl }: { pageContract: A
         <div className="hrow">
           <div className="htx">
             <b>{copy(pc, "wsop.section.capture")}</b>
+            {/* Two sections, never one shared list (maintainer decision 2026-09-16). */}
             <div className="hmeta muted small">
-              {copy(pc, "wsop.capture.individual.video")} · {fill(copy(pc, "wsop.summary.lump_sum_videos"), { min: rows.lumpSumVideoMin, max: rows.lumpSumVideoMax })}
+              <b>{copy(pc, "wsop.capture.individual.title")}</b> ·{" "}
+              {fill(copy(pc, "wsop.summary.individual_captures"), { n: rows.individualProofs.length, required: rows.individualProofs.filter((p) => p.required).length })} ·{" "}
+              {rows.individualProofs.map((p) => `${p.title} (${copy(pc, `wsop.proof.kind.${p.kind}`)}${p.required ? "" : `, ${copy(pc, "inspection.summary.optional")}`})`).join(" + ")} ·{" "}
+              {questionsCount(rows.individualQuestions.length)}
+            </div>
+            <div className="hmeta muted small">
+              <b>{copy(pc, "wsop.capture.lump_sum.title")}</b> ·{" "}
+              {fill(copy(pc, "wsop.summary.lump_sum_captures"), { n: rows.lumpSumProofs.length, max: lumpTotal })} ·{" "}
+              {rows.lumpSumProofs.map((p) => `${p.title} (${copy(pc, `wsop.proof.kind.${p.kind}`)} ${p.min}–${p.max})`).join(" + ")} ·{" "}
+              {questionsCount(rows.lumpSumQuestions.length)}
             </div>
           </div>
         </div>
@@ -81,6 +94,31 @@ export function WeighingSummary({ pageContract: pc, formDsl }: { pageContract: A
           </div>
         </div>
       ) : null}
+      {rows.individualQuestions.length > 0 ? questionBlock(pc, "wsop.capture.individual.questions", rows.individualQuestions) : null}
+      {rows.lumpSumQuestions.length > 0 ? questionBlock(pc, "wsop.capture.lump_sum.questions", rows.lumpSumQuestions) : null}
+    </div>
+  );
+}
+
+function questionBlock(pc: AdminUiPageContract, titleKey: string, questions: WeighingQuestionRow[]) {
+  const titleByKey = Object.fromEntries(questions.map((q) => [q.key, q.title]));
+  return (
+    <div>
+      <div className="muted small b700" style={{ margin: "8px 0 4px" }}>
+        {copy(pc, titleKey)}
+      </div>
+      <div className="htl">
+        {questions.map((q, qi) => (
+          <div className="hrow" key={q.id}>
+            <div className="htx">
+              <b>
+                {qi + 1}. {q.title}
+              </b>
+              <div className="hmeta muted small">{questionMeta(pc, q, titleByKey)}</div>
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
