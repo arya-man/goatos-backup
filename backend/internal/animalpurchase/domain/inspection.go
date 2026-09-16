@@ -472,7 +472,7 @@ func (c Catalog) ValidateLoadAnswers(a Answers) error {
 				return invalid(q.ID, "Enter a number for: "+q.Title)
 			}
 			if (q.Min != nil && n < *q.Min) || (q.Max != nil && n > *q.Max) {
-				return invalid(q.ID, fmt.Sprintf("Enter a value between %g and %g for: %s", nz(q.Min), nz(q.Max), q.Title))
+				return invalid(q.ID, numberRangeMessage(q.Min, q.Max, q.Title))
 			}
 		case KindText:
 			t := a.text(q.ID)

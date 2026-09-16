@@ -765,7 +765,7 @@ func validateSOPAnswers(questions []SOPQuestion, a SOPAnswers, unknownMessage st
 				return answerInvalid(q.ID, "Enter a number for: "+q.Title)
 			}
 			if (q.Min != nil && n < *q.Min) || (q.Max != nil && n > *q.Max) {
-				return answerInvalid(q.ID, fmt.Sprintf("Enter a value between %g and %g for: %s", deref(q.Min), deref(q.Max), q.Title))
+				return answerInvalid(q.ID, numberRangeMessage(q.Min, q.Max, q.Title))
 			}
 		case SOPQuestionText:
 			t := a.text(q.ID)
@@ -887,6 +887,19 @@ func (a SOPAnswers) number(id string) (float64, bool, error) {
 	}
 	n, err := strconv.ParseFloat(s, 64)
 	return n, true, err
+}
+
+// numberRangeMessage names only the bounds the author set: an absent maximum is no bound, never 0.
+// Mirrors sop/authored.rangeMessage (the herd capture card), kept local so weighing imports nothing.
+func numberRangeMessage(min, max *float64, title string) string {
+	switch {
+	case min != nil && max != nil:
+		return fmt.Sprintf("Enter a value between %g and %g for: %s", *min, *max, title)
+	case min != nil:
+		return fmt.Sprintf("Enter a value of at least %g for: %s", *min, title)
+	default:
+		return fmt.Sprintf("Enter a value of at most %g for: %s", deref(max), title)
+	}
 }
 
 func deref(p *float64) float64 {
