@@ -165,6 +165,21 @@ Defects found and fixed by the sweep (each with a red-then-green test):
    day with no sheet -> `422 feed_day_not_reached` / `409 feed_sheet_not_issued`.
 5. Copy: `feedconfig:` / `feeddirection:` package prefixes reached the screen.
 
+## Verifier parity follow-up (2026-09-16, done)
+
+Every feed stage now hands the verifier each capture under its CARD TITLE with the kind it really
+is, and the crew's answers as the item's context rows:
+
+- an `either` slot the proof register never judged is left UNKNOWN on the item rather than guessed
+  as a video -- the verifier queue asks the register at read time (see
+  `context/architecture/verifier-app-and-flow.md`);
+- all four bridges map `media_meta` POSITIONALLY through `verificationdomain.BuildMediaMeta`, and a
+  blank ref is dropped together with its title (dropping the ref alone shifted every later title);
+- distribution and transport hand back the ROW's stored `sop_proofs`/`sop_answers`, so a repair
+  retry queues what the crew stored rather than what the retry request carried;
+- the legacy Slack import names its three proofs by the seeded distribution card and types each
+  from the Slack file's own mime.
+
 ## Not done here / follow-ups
 
 - The phone's optional-slot capture and the `either` photo path were unit-tested but not driven on
