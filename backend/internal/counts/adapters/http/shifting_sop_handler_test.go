@@ -348,7 +348,7 @@ func (c *capturingExecution) JudgeRaise(_ context.Context, in countsapp.RaiseJud
 	return countsapp.RaiseJudgement{}, nil
 }
 
-func (c *capturingExecution) PublishedRaiseCard(context.Context, string) (domain.ShiftingCardRules, error) {
+func (c *capturingExecution) CurrentRaiseCard(context.Context, string) (domain.ShiftingCardRules, error) {
 	return domain.SeededShiftingRules().RaiseCard(), nil
 }
 

@@ -50,7 +50,7 @@ type ShiftingExecutionWorkflow interface {
 	// SHIFTING SOP (2026-09-16): the raise card judged at raise, and the published raise card the
 	// destinations read serves the phone.
 	JudgeRaise(ctx context.Context, in countsapp.RaiseJudgeInput) (countsapp.RaiseJudgement, error)
-	PublishedRaiseCard(ctx context.Context, tenantID string) (domain.ShiftingCardRules, error)
+	CurrentRaiseCard(ctx context.Context, tenantID string) (domain.ShiftingCardRules, error)
 }
 
 // WithShiftingExecutionWorkflow injects the execution service. A handler without it answers 501
