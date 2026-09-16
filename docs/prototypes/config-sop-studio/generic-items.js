@@ -28,7 +28,7 @@ itemModal=function(id){
   const access=document.createElement('section');access.className='generic-access';access.innerHTML='<h3>Where can this item be used?</h3><p class="muted">'+(isGeneric?'Choose the departments that need this item or setting. Each selected team can use it in their work instructions.':'Tick the departments whose SOPs should be able to choose this item.')+'</p>';access.appendChild(shares);name.after(access);
   const basics=document.createElement('div');basics.className='inputrow';basics.appendChild(name);basics.appendChild(unit);form.prepend(basics);
   owner.querySelector('span').textContent=isGeneric?'Catalogue':'Owned by';ownerRow.classList.add('generic-maintenance');
-  
+
   access.insertAdjacentHTML('beforeend','<div id="generic-access-preview" aria-live="polite"></div>');
   form.addEventListener('input',genericRefreshPreview);form.addEventListener('change',genericRefreshPreview);
   genericRefreshPreview();

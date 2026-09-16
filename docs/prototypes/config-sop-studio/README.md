@@ -15,7 +15,7 @@ Open http://127.0.0.1:4320/#/configuration/work-instructions in Chrome. Run `sh 
 ## Design coverage
 
 - Arbitrary items, category/subcategory organisation, typed settings and sharing across departments, with actual SOP question/action consumers and change-impact checks.
-- Browser-local entity registers under **Configuration → Items and settings → Entity registers** for feature-owned CRUD: parks, pens, pen partitions, animals, vendors/sellers, buyers, trucks, feed catalogue and stock lots, vaccines and batches, symptoms, diseases, protocols, people/roles, approval policies and SOP templates.
+- Browser-local entity registers under **Configuration → Items and settings → Farm and animal registers** only for cross-feature farm and animal records that existing feature screens need to reference: parks, pens, pen partitions, animal species, breeds, lifecycle stages, shed/stage tags, animal groups and animals. Existing Feed, Sales, Procurement, Vaccination and Health CRUD stays in those modules and is linked from the prototype instead of duplicated.
 - Existing question/decision/action editor and operator preview; saved child SOPs and their immutable versions; stage prerequisites, approvals, waits and repeated evidence checks.
 - Optional Procurement example: seller inspection from the current published form (7 load / 40 animal questions), selection and boarding/arrival subsets, tagging, referenced vaccination plan, holding, travel, parallel shed preparation and warm-up. Animal review uses synthetic data and preserves decision history.
 - Proposed Sales group eligibility, minimum weight/tolerance and price settings with a shared Weighing preview. These remain distinct from hardcoded reporting/valuation assumptions and actual sale records.

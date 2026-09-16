@@ -3,7 +3,9 @@ const c={crypto:require('crypto').webcrypto,renderItems(){},state:{},canEdit:()=
 vm.createContext(c);vm.runInContext(fs.readFileSync('farm-setup.js','utf8'),c);
 const run=s=>vm.runInContext(s,c);
 run('d=EntityRegistryModel.seed()');
-assert(run('EntityRegistryModel.definitions.length')>=15);
+assert.equal(run('EntityRegistryModel.definitions.length'),9);
+assert.equal(run("EntityRegistryModel.definitions.every(d=>d.module==='Counts')"),true);
+assert.equal(run("EntityRegistryModel.definitions.some(d=>['feed_catalogue','feed_stock','buyers','vendors','trucks','vaccines','vaccine_stock','symptoms','diseases','health_protocols','people','approvals'].includes(d.id))"),false);
 assert.equal(run("EntityRegistryModel.rows(d,'pens').length"),0);
 run("pen=EntityRegistryModel.save(d,'pens',{parentId:'practice-cbe',name:'Pen 1',code:'P1',capacity:'',order:0})");
 assert.equal(run('pen.capacity'),null);
