@@ -82,8 +82,8 @@
     <string name="feed_dist_submit">ಪರಿಶೀಲನೆಗಾಗಿ ಸಲ್ಲಿಸಿ</string>
     <string name="feed_dist_need_all">ಸಲ್ಲಿಸಲು ಮೂರೂ ಪುರಾವೆಗಳನ್ನು ರೆಕಾರ್ಡ್ ಮಾಡಿ.</string>
     <string name="feed_dist_need_both">ಮೇವಿನ ತೂಕದ ಫೋಟೋ, ಆಹಾರ ವೀಡಿಯೊ ಮತ್ತು ನೀರಿನ ವೀಡಿಯೊ ರೆಕಾರ್ಡ್ ಮಾಡಿ.</string>
-    <string name="feed_dist_waiting_sync">ಪುರಾವೆಗಳು ಅಪ್‌ಲೋಡ್ ಆಗುತ್ತಿವೆ. ಮೂರೂ ಸಿದ್ಧವಾದಾಗ ಸಲ್ಲಿಕೆ ಕಾಣುತ್ತದೆ.</string>
-    <string name="feed_dist_ready_to_submit">ಮೂರೂ ಪುರಾವೆಗಳು ಸಿದ್ಧ. ಪರಿಶೀಲನೆಗಾಗಿ ಸಲ್ಲಿಸಿ.</string>
+    <string name="feed_dist_waiting_sync">ಪುರಾವೆಗಳು ಅಪ್‌ಲೋಡ್ ಆಗುತ್ತಿವೆ. ಪ್ರತಿ ಅಗತ್ಯ ಕ್ಯಾಪ್ಚರ್ ಸಿದ್ಧವಾದಾಗ ಸಲ್ಲಿಕೆ ಕಾಣುತ್ತದೆ.</string>
+    <string name="feed_dist_ready_to_submit">ಪ್ರತಿ ಅಗತ್ಯ ಕ್ಯಾಪ್ಚರ್ ಸಿದ್ಧ. ಪರಿಶೀಲನೆಗಾಗಿ ಸಲ್ಲಿಸಿ.</string>
     <string name="feed_dist_submitted">ಪರಿಶೀಲನೆಗಾಗಿ ಕಳುಹಿಸಲಾಗಿದೆ.</string>
     <string name="feed_dist_retry_submit">ಪರಿಶೀಲನೆಗಾಗಿ ಮತ್ತೆ ಕಳುಹಿಸಿ</string>
     <string name="feed_dist_reupload_hint">ಮತ್ತೆ ಅಪ್‌ಲೋಡ್ ಮಾಡಲು ಈ ಪುರಾವೆಯನ್ನು ಟ್ಯಾಪ್ ಮಾಡಿ.</string>

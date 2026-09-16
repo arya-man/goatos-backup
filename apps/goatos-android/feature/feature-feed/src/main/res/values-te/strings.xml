@@ -82,8 +82,8 @@
     <string name="feed_dist_submit">వెరిఫికేషన్ కోసం సమర్పించండి</string>
     <string name="feed_dist_need_all">సమర్పించడానికి మూడు రుజువులను రికార్డ్ చేయండి.</string>
     <string name="feed_dist_need_both">దాణా బరువు ఫోటో, దాణా వీడియో, నీటి వీడియో రికార్డ్ చేయండి.</string>
-    <string name="feed_dist_waiting_sync">రుజువులు అప్‌లోడ్ అవుతున్నాయి. మూడూ సిద్ధమైనప్పుడు సమర్పణ కనిపిస్తుంది.</string>
-    <string name="feed_dist_ready_to_submit">మూడు రుజువులు సిద్ధంగా ఉన్నాయి. వెరిఫికేషన్ కోసం సమర్పించండి.</string>
+    <string name="feed_dist_waiting_sync">రుజువులు అప్‌లోడ్ అవుతున్నాయి. ప్రతి అవసరమైన క్యాప్చర్ సిద్ధమైనప్పుడు సమర్పణ కనిపిస్తుంది.</string>
+    <string name="feed_dist_ready_to_submit">ప్రతి అవసరమైన క్యాప్చర్ సిద్ధంగా ఉంది. వెరిఫికేషన్ కోసం సమర్పించండి.</string>
     <string name="feed_dist_submitted">వెరిఫికేషన్ కోసం పంపబడింది.</string>
     <string name="feed_dist_retry_submit">వెరిఫికేషన్ కోసం మళ్లీ పంపండి</string>
     <string name="feed_dist_reupload_hint">మళ్లీ అప్‌లోడ్ చేయడానికి ఈ రుజువును ట్యాప్ చేయండి.</string>
