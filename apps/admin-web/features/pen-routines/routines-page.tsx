@@ -5,7 +5,7 @@ import { LocalOverlayDrawer, type LocalOverlayDrawerItem } from "@/components/lo
 import { LocalOverlayLink } from "@/components/local-overlay-link";
 import { SegmentedLinks, type SegmentedOption } from "@/components/segmented-links";
 import { Tag, type Tone } from "@/components/ui-primitives";
-import { ProcurementPager } from "@/features/procurement/pager";
+import { ProcurementPager } from "@/features/procurement";
 import { controlEnabled, copy, table, tablePageSizes, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type {
   PenRoutineCatalog,
