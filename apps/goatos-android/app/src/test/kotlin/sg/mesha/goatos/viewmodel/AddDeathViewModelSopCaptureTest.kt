@@ -157,6 +157,48 @@ class AddDeathViewModelSopCaptureTest {
         assertTrue("the first animal's video is never sent", sent != firstOutbox)
     }
 
+    @Test
+    fun `a refused report shows the server's words and the corrected report goes out under a fresh key`() = runTest(dispatcher) {
+        val vm = newViewModel()
+        advanceUntilIdle()
+        selectAnimalWithAccount(vm)
+        advanceUntilIdle()
+        vm.onEvent(AddDeathEvent.Submit)
+        advanceUntilIdle()
+        assertEquals(1, sync.deathKeys.size)
+
+        sync.emitItem(
+            sg.mesha.goatos.core.data.sync.SyncQueueItem(
+                id = "outbox-death-1",
+                idempotencyKey = sync.deathKeys.single(),
+                opType = "COUNTS_DEATH",
+                groupKey = GOAT_ID,
+                status = sg.mesha.goatos.core.data.sync.SyncItemStatus.FAILED,
+                attemptCount = 1,
+                maxAttempts = 8,
+                conflict = true,
+                createdAt = 1L,
+                updatedAt = 1L,
+                lastError = "Write the other answer for: Suspected cause",
+                resultJson = null,
+            ),
+        )
+        advanceUntilIdle()
+        assertEquals(sg.mesha.goatos.feature.counts.CountsWriteStatus.FAILED, vm.state.value.result.status)
+        assertEquals("Write the other answer for: Suspected cause", vm.state.value.result.message)
+
+        // The operator corrects the form: the refusal clears and the report can go again.
+        vm.onEvent(AddDeathEvent.EditReason("Found dead in the pen at dawn"))
+        advanceUntilIdle()
+        assertEquals(sg.mesha.goatos.feature.counts.CountsWriteStatus.IDLE, vm.state.value.result.status)
+        assertTrue(vm.state.value.canSubmit)
+        vm.onEvent(AddDeathEvent.Submit)
+        advanceUntilIdle()
+
+        assertEquals(2, sync.deathKeys.size)
+        assertTrue("the corrected report is a new write, never the refused key", sync.deathKeys[0] != sync.deathKeys[1])
+    }
+
     private fun deathCard() = CountsCaptureCardResponseDto(
         kind = "death",
         sopCode = "counts.death",
