@@ -2,7 +2,8 @@
 (function(){
   window.A=window.A||{};
   const L={st:{}};
-  const state=k=>L.st[k]||(L.st[k]={q:'',f:{},status:'active',sel:new Set()});
+  const state=k=>L.st[k]||(L.st[k]={q:'',f:{},status:'active',sel:new Set(),anchor:null});
+  /* phone width card layout is styled by app.css from td[data-label] */
 
   function rows(regKey,opts){
     const reg=REG.R[regKey], s=state(regKey);
@@ -28,17 +29,20 @@
       <div class="hd lhd"><div class="ttl">${opts.eyebrow?`<div class="eyebrow">${esc(opts.eyebrow)}</div>`:''}<h3>${esc(opts.title||reg.label)} <span class="cnt">${all.filter(r=>r.status!=='archived').length}</span></h3></div><span class="sp"></span>
         <button class="btn sm" data-a="io-menu" data-reg="${regKey}">${ic('sheet')}Import / export</button>
         ${opts.extraBtns||''}
-        ${opts.addAct?opts.addAct:`<button class="btn sm p" data-a="rec-new" data-reg="${regKey}">${ic('plus')}${esc(opts.addLabel||'Add '+reg.one.toLowerCase())}</button>`}
+        ${opts.addAct?opts.addAct:`<button class="btn sm p" data-a="rec-new" data-reg="${regKey}">${ic('plus')}${esc(String(opts.addLabel||'Add '+reg.one.toLowerCase()).replace(/^\+\s*/,''))}</button>`}
       </div>
       <div class="lbar">
         <label class="search">${ic('search')}<input data-lsearch="${regKey}" value="${esc(s.q)}" placeholder="Search ${esc(reg.label.toLowerCase())}"></label>
         ${fcols.map(c=>`<select class="fsel" data-lfilter="${regKey}" data-col="${c.k}" aria-label="${esc(c.label)}"><option value="">${esc(c.label)}: all</option>${
-          (c.type==='enum'||c.type==='multienum'?c.opts.filter(Boolean).map(o=>({id:o,label:o})):S.active(c.ref).filter(x=>!(c.scope&&s.f[c.scope.col])||x[c.scope.attr]===s.f[c.scope.col]).map(x=>({id:x.id,label:REG.fullLabel(c.ref,x)})))
+          (c.type==='enum'||c.type==='multienum'?c.opts.filter(Boolean).map(o=>({id:o,label:REG.enumLabel(o)})):S.active(c.ref).filter(x=>!(c.scope&&s.f[c.scope.col])||x[c.scope.attr]===s.f[c.scope.col]).map(x=>({id:x.id,label:REG.fullLabel(c.ref,x)})))
           .map(o=>`<option value="${esc(o.id)}" ${s.f[c.k]===o.id?'selected':''}>${esc(o.label)}</option>`).join('')}</select>`).join('')}
         <span class="sp"></span>
         <div class="seg">${['active','archived','all'].map(x=>`<button class="${s.status===x?'on':''}" data-a="lstatus" data-reg="${regKey}" data-v="${x}">${x[0].toUpperCase()+x.slice(1)}</button>`).join('')}</div>
       </div>
       ${selN?`<div class="bulkbar"><span>${selN} selected</span><span class="sp"></span>
+        ${regKey==='animals'?`<button class="btn sm" data-a="bulk-move" data-reg="${regKey}">${ic('map-pin')}Move to pen</button>
+        <button class="btn sm" data-a="bulk-stage" data-reg="${regKey}">${ic('layers')}Set stage</button>
+        <button class="btn sm" data-a="bulk-tag" data-reg="${regKey}">${ic('plus')}Add tag</button>`:''}
         <button class="btn sm" data-a="bulk-grid" data-reg="${regKey}">${ic('sheet')}Edit in grid</button>
         <button class="btn sm" data-a="bulk-dup" data-reg="${regKey}">${ic('copy')}Duplicate</button>
         <button class="btn sm" data-a="bulk-status" data-reg="${regKey}" data-v="archived">${ic('archive')}Archive</button>
@@ -56,13 +60,17 @@
     const cols=opts.columns||reg.cols.filter(c=>!c.hideInList).map(c=>({label:c.label,num:c.type==='num',w:c.type==='num'?110:null,html:r=>{const v=REG.cellValue(reg,c,r);return c.k===firstText?`<b>${esc(v)}</b>`:`<span class="${c.type==='ref'&&!v?'muted':''}">${esc(v||(c.blankLabel||''))}</span>`;}}));
     if(!list.length)return `<div class="empty">${S.all(reg.coll).length?'No matches':'No '+esc(reg.label.toLowerCase())+' yet'}</div>`;
     const shown=list.slice(0,500);
+    /* widths by content: tables scroll inside .twrap instead of truncating */
+    const MINW={rfid:170,'second tag':130,stage:190,'lifecycle stage':190,park:140,pen:140,partition:150,breed:150,species:110,name:180};
+    const widthOf=c=>c.w||MINW[String(c.label).toLowerCase()]||(c.num?110:130);
+    const plain=h=>String(h).replace(/<[^>]*>/g,'').replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"').replace(/&#39;/g,"'").trim();
     const allSel=shown.every(r=>s.sel.has(r.id));
-    return `<table class="ltbl"><colgroup><col style="width:44px">${cols.map(c=>`<col${c.w?` style="width:${c.w}px"`:''}>`).join('')}<col style="width:104px"><col style="width:52px"></colgroup>
+    return `<table class="ltbl" style="width:max-content;min-width:100%;table-layout:fixed"><colgroup><col style="width:44px">${cols.map(c=>`<col style="width:${widthOf(c)}px">`).join('')}<col style="width:104px"><col style="width:52px"></colgroup>
       <thead><tr><th class="ck"><input type="checkbox" data-a="sel-all" data-reg="${regKey}" ${allSel?'checked':''} aria-label="Select all"></th>${cols.map(c=>`<th class="${c.num?'num':''}">${esc(c.label)}</th>`).join('')}<th>Status</th><th></th></tr></thead>
       <tbody>${shown.map(r=>`<tr class="clk ${r.status==='archived'?'arch':''}" data-a="row-open" data-reg="${regKey}" data-id="${r.id}">
-        <td class="ck"><input type="checkbox" data-a="sel-one" data-reg="${regKey}" data-id="${r.id}" ${s.sel.has(r.id)?'checked':''} aria-label="Select"></td>
-        ${cols.map(c=>`<td class="${c.num?'num':''}">${c.html(r)}</td>`).join('')}<td>${UI.statusTag(r.status)}</td>
-        <td class="act"><button class="btn icon gh" data-a="row-menu" data-reg="${regKey}" data-id="${r.id}" aria-label="Row actions">${ic('more')}</button></td></tr>`).join('')}</tbody></table>
+        <td class="ck" data-label=""><input type="checkbox" data-a="sel-one" data-reg="${regKey}" data-id="${r.id}" ${s.sel.has(r.id)?'checked':''} aria-label="Select" title="Shift-click selects a range"></td>
+        ${cols.map(c=>{const h=c.html(r);return `<td class="${c.num?'num':''}" data-label="${esc(c.label)}" title="${esc(plain(h))}">${h}</td>`;}).join('')}<td data-label="Status">${UI.statusTag(r.status)}</td>
+        <td class="act" data-label=""><button class="btn icon gh" data-a="row-menu" data-reg="${regKey}" data-id="${r.id}" aria-label="Row actions">${ic('more')}</button></td></tr>`).join('')}</tbody></table>
       ${list.length>500?`<div class="empty">${shown.length} of ${list.length}</div>`:''}`;
   };
 
@@ -73,7 +81,12 @@
   Object.assign(A,{
     'lstatus'(el){state(el.dataset.reg).status=el.dataset.v;App.render();},
     'sel-all'(el,e){e.stopPropagation();const k=el.dataset.reg,s=state(k);const list=rows(k,L.opts[k]).slice(0,500);if(el.checked)list.forEach(r=>s.sel.add(r.id));else list.forEach(r=>s.sel.delete(r.id));App.render();},
-    'sel-one'(el,e){e.stopPropagation();const s=state(el.dataset.reg);el.checked?s.sel.add(el.dataset.id):s.sel.delete(el.dataset.id);App.render();},
+    'sel-one'(el,e){e.stopPropagation();const k=el.dataset.reg,s=state(k),id=el.dataset.id;
+      if(e.shiftKey&&s.anchor&&s.anchor!==id){
+        const ids=rows(k,L.opts[k]).slice(0,500).map(r=>r.id);const a=ids.indexOf(s.anchor),b=ids.indexOf(id);
+        if(a>=0&&b>=0){ids.slice(Math.min(a,b),Math.max(a,b)+1).forEach(x=>el.checked?s.sel.add(x):s.sel.delete(x));s.anchor=id;return App.render();}
+      }
+      el.checked?s.sel.add(id):s.sel.delete(id);s.anchor=id;App.render();},
     'bulk-clear'(el){state(el.dataset.reg).sel.clear();App.render();},
     'row-open'(el,e){if(e.target.closest('[data-a="row-menu"],input'))return;const k=el.dataset.reg;const o=L.opts[k]||{};if(o.onOpen)return o.onOpen(el.dataset.id);UI.recordForm(k,el.dataset.id);},
     'rec-new'(el){const k=el.dataset.reg;const o=L.opts[k]||{};if(o.onNew)return o.onNew();UI.recordForm(k,null,{defaults:o.defaults&&o.defaults()});},
@@ -85,13 +98,31 @@
         {label:'Edit in grid',icon:'sheet',run:()=>Sheet.openEntry(k,[id])},
         {label:'Duplicate',icon:'copy',run:()=>UI.recordForm(k,id,{duplicate:true})},
         rec.status==='archived'?{label:'Restore',icon:'rotate',run:()=>UI.undoable('Restored',()=>{rec.status='active';App.render();})}
-          :{label:'Archive',icon:'archive',run:()=>UI.undoable('Archived',()=>{rec.status='archived';App.render();})},
+          :{label:'Archive',icon:'archive',run:()=>{const b=REG.archiveBlock(reg.coll,id);if(b)return UI.toast('Cannot archive · '+b);UI.undoable('Archived',()=>{rec.status='archived';App.render();});}},
         '-',
-        {label:'Delete',icon:'trash',danger:true,run:()=>{const u=REG.usage(reg.coll,id);if(u.length){UI.toast('In use · '+u.map(x=>x.n+' '+x.label.toLowerCase()).join(', '),null,{label:'Archive',run:()=>UI.undoable('Archived',()=>{rec.status='archived';App.render();})});return;}
+        {label:'Delete',icon:'trash',danger:true,run:()=>{const u=REG.usage(reg.coll,id);if(u.length){UI.toast('In use · '+u.map(x=>x.n+' '+x.label.toLowerCase()).join(', '),null,{label:'Archive',run:()=>{const b=REG.archiveBlock(reg.coll,id);if(b)return UI.toast('Cannot archive · '+b);UI.undoable('Archived',()=>{rec.status='archived';App.render();});}});return;}
           UI.undoable('Deleted',()=>{S.remove(reg.coll,id);state(k).sel.delete(id);App.render();});}}
       ]);
     },
-    'bulk-status'(el){const k=el.dataset.reg,s=state(k),reg=REG.R[k];const ids=[...s.sel];UI.undoable((el.dataset.v==='archived'?'Archived ':'Restored ')+ids.length,()=>{ids.forEach(id=>{const r=S.get(reg.coll,id);if(r)r.status=el.dataset.v;});s.sel.clear();App.render();});},
+    'bulk-status'(el){const k=el.dataset.reg,s=state(k),reg=REG.R[k];let ids=[...s.sel];let kept=0;
+      if(el.dataset.v==='archived'){const free=ids.filter(id=>!REG.archiveBlock(reg.coll,id));kept=ids.length-free.length;ids=free;if(!ids.length)return UI.toast('All '+kept+' in use · move or reassign them first');}
+      UI.undoable((el.dataset.v==='archived'?'Archived ':'Restored ')+ids.length+(kept?' · '+kept+' in use kept':''),()=>{ids.forEach(id=>{const r=S.get(reg.coll,id);if(r)r.status=el.dataset.v;});s.sel.clear();App.render();});},
+    /* animals: move selection to a pen; partition is cleared unless one of THAT pen's partitions is chosen */
+    'bulk-move'(el){const k=el.dataset.reg,s=state(k);const ids=[...s.sel];const f={park:'',pen:'',part:''};
+      const body=()=>{const pens=S.active('pens').filter(p=>p.parkId===f.park),parts=S.active('partitions').filter(p=>p.penId===f.pen);
+        const cap=f.pen&&S.get('pens',f.pen).capacity;const load=f.pen?S.active('animals').filter(a=>a.penId===f.pen&&!ids.includes(a.id)).length+ids.length:0;
+        return `<div class="fgrid"><div class="fld full"><label>Park *</label><select data-mv="park"><option value="">Choose park</option>${S.active('parks').map(p=>`<option value="${p.id}" ${f.park===p.id?'selected':''}>${esc(p.name)}</option>`).join('')}</select></div>
+          <div class="fld full"><label>Pen *</label><select data-mv="pen" ${f.park?'':'disabled'}><option value="">Choose pen</option>${pens.map(p=>`<option value="${p.id}" ${f.pen===p.id?'selected':''}>${esc(p.name)}</option>`).join('')}</select></div>
+          <div class="fld full"><label>Partition</label><select data-mv="part" ${f.pen&&parts.length?'':'disabled'}><option value="">${parts.length?'No partition':'This pen has no partitions'}</option>${parts.map(p=>`<option value="${p.id}" ${f.part===p.id?'selected':''}>${esc(REG.fullLabel('partitions',p))}</option>`).join('')}</select>
+            <div class="muted small">Current partitions are cleared. Nothing new is created.</div></div>
+          ${cap&&load>cap?`<div class="fld full"><div class="ferr w">Over capacity ${load}/${cap}</div></div>`:''}</div>`;};
+      UI.drawer({title:'Move '+ids.length+' animal'+(ids.length===1?'':'s')+' to pen',body:body(),foot:`<button class="btn" data-a="drawer-close">Cancel</button><span class="sp"></span><button class="btn p" data-mv-go>Move</button>`,
+        mount(dr){dr.querySelectorAll('[data-mv]').forEach(x=>x.onchange=()=>{const key=x.dataset.mv;f[key]=x.value;if(key==='park'){f.pen='';f.part='';}if(key==='pen')f.part='';UI.redrawDrawer({body:body()});});
+          dr.querySelector('[data-mv-go]').onclick=()=>{if(!f.park||!f.pen)return UI.toast('Choose a park and pen');
+            const part=f.part&&S.get('partitions',f.part);if(part&&part.penId!==f.pen)return UI.toast('Partition is not in that pen');
+            UI.closeDrawer();UI.undoable('Moved '+ids.length+' to '+REG.labelById('pens',f.pen)+(part?' - '+part.name:''),()=>{ids.forEach(id=>{const a=S.get('animals',id);if(a){a.parkId=f.park;a.penId=f.pen;a.partitionId=part?part.id:'';}});s.sel.clear();App.render();});};}});},
+    'bulk-stage'(el){L.pickApply(el.dataset.reg,'stages','Set stage','Choose stage',(a,st)=>{if(a.speciesId!==st.speciesId)return false;a.stageId=st.id;return true;});},
+    'bulk-tag'(el){L.pickApply(el.dataset.reg,'tags','Add tag','Choose shed tag',(a,t)=>{if(t.speciesId&&t.speciesId!==a.speciesId)return false;a.tagIds=[...new Set((a.tagIds||[]).concat(t.id))];return true;});},
     'bulk-del'(el){const k=el.dataset.reg,s=state(k),reg=REG.R[k];const ids=[...s.sel];const used=ids.filter(id=>REG.usage(reg.coll,id).length);const free=ids.filter(id=>!used.includes(id));
       if(!free.length){UI.toast(used.length+' in use · archive instead');return;}
       UI.undoable('Deleted '+free.length+(used.length?' · '+used.length+' in use kept':''),()=>{S.remove(reg.coll,free);free.forEach(id=>s.sel.delete(id));App.render();});},
@@ -103,12 +134,29 @@
       {label:'Add in grid',icon:'sheet',run:()=>{const o=L.opts[k]||{};Sheet.openEntry(k,null,[o.defaults?o.defaults():{}]);}},
       {label:'Import file',icon:'upload',run:()=>IO.start(k)},
       '-',
-      {label:'Template (.xlsx)',icon:'download',run:()=>IO.template(k,'xlsx')},
+      ...(k==='animals'?S.active('species').map(sp=>({label:sp.name+' template (.xlsx)',icon:'download',run:()=>IO.template(k,'xlsx',sp.id)})):[{label:'Template (.xlsx)',icon:'download',run:()=>IO.template(k,'xlsx')}]),
       {label:'Template (.csv)',icon:'download',run:()=>IO.template(k,'csv')},
       '-',
       {label:'Export (.xlsx)',icon:'download',run:()=>IO.exportRegister(k,'xlsx')},
       {label:'Export (.csv)',icon:'download',run:()=>IO.exportRegister(k,'csv')}]);}
   });
+
+  /* bulk "pick one existing value and apply" (stage / tag), species-checked per animal */
+  L.pickApply=function(k,coll,title,ph,apply){
+    const s=state(k);const ids=[...s.sel];const sp=new Set(ids.map(id=>(S.get('animals',id)||{}).speciesId));
+    const opts=S.active(coll).filter(x=>coll==='tags'?x.kind!=='group'&&(!x.speciesId||sp.has(x.speciesId)):sp.has(x.speciesId));
+    let pick='';
+    UI.drawer({title:title+' · '+ids.length+' animal'+(ids.length===1?'':'s'),
+      body:`<div class="fgrid"><div class="fld full"><label>${esc(REG.R[coll].one)} *</label><select data-pa><option value="">${esc(ph)}</option>${opts.map(x=>`<option value="${x.id}">${esc(REG.fullLabel(coll,x)+(coll==='tags'&&!x.speciesId?' · All species':''))}</option>`).join('')}</select>
+        <div class="muted small">Only existing values. Animals of another species are skipped.</div></div></div>`,
+      foot:`<button class="btn" data-a="drawer-close">Cancel</button><span class="sp"></span><button class="btn p" data-pa-go>Apply</button>`,
+      mount(dr){dr.querySelector('[data-pa]').onchange=e=>pick=e.target.value;
+        dr.querySelector('[data-pa-go]').onclick=()=>{const rec=S.get(coll,pick);if(!rec)return UI.toast(ph);
+          const ok=ids.filter(id=>{const a=S.get('animals',id);return a&&(coll==='tags'?(!rec.speciesId||rec.speciesId===a.speciesId):rec.speciesId===a.speciesId);});
+          const skipped=ids.length-ok.length;UI.closeDrawer();
+          if(!ok.length)return UI.toast('No selected animal is '+REG.labelById('species',rec.speciesId));
+          UI.undoable(title.replace(/^Set /,'Set ').replace(/^Add /,'Added ')+' · '+ok.length+(skipped?' · '+skipped+' other species skipped':''),()=>{ok.forEach(id=>apply(S.get('animals',id),rec));s.sel.clear();App.render();});};}});
+  };
 
   document.addEventListener('input',e=>{
     const s=e.target.closest('[data-lsearch]'); if(s){state(s.dataset.lsearch).q=s.value;L.refreshTable(s.dataset.lsearch);}

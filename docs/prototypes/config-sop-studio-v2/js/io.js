@@ -1,8 +1,9 @@
 /* Import / export / templates (CSV + XLSX via SheetJS, loaded on demand) */
 (function(){
   const IO={};
-  const WORKBOOK_ORDER=['farms','parks','pens','partitions','species','breeds','sexes','stages','tags','healthStates','statusDefs','exitReasons','purposes','movementReasons','weightBands','rationGroups','animals','categories','items','roles','people','approvers','vendors','trucks','diseases','symptoms','deathCauses','marketCities','sopCategories','taskTypes','settings'];
+  const WORKBOOK_ORDER=['farms','parks','pens','partitions','species','breeds','sexes','stages','tags','healthStates','statusDefs','exitReasons','purposes','movementReasons','weightBands','animals','categories','items','roles','people','approvers','deathCauses','marketCities','sopCategories','taskTypes','settings'];
   IO.ORDER=WORKBOOK_ORDER;
+  IO.LIMITS={rows:10000,bytes:5*1024*1024,cols:60};
   const ALIASES={
     rfid:['rfid','rfid tag','tag','tag id','eid','animal identifier 1','animal id','rfid 1','primary tag'],
     tag2:['second tag','tag 2','rfid 2','animal identifier 2','old tag','vendor tag'],
@@ -57,19 +58,32 @@
     return IO._xl;
   };
 
-  function header(regKey){return REG.R[regKey].cols.map(c=>c.label);}
-  function sampleRows(regKey,ids){
+  /* per-species animal templates drop Breed/Stage when that species has none */
+  function colsFor(regKey,speciesId){
     const reg=REG.R[regKey];
-    let list=ids&&ids.length?ids.map(id=>S.get(reg.coll,id)).filter(Boolean):S.active(reg.coll);
-    return list.map(r=>{const v=REG.toRow(regKey,r);return reg.cols.map(c=>v[c.k]);});
+    if(regKey!=='animals'||!speciesId)return reg.cols;
+    return reg.cols.filter(c=>!(c.k==='breed'&&!S.active('breeds').some(x=>x.speciesId===speciesId))&&!(c.k==='stage'&&!S.active('stages').some(x=>x.speciesId===speciesId)));
   }
-  function listsSheet(keys){
+  function header(regKey,speciesId){return colsFor(regKey,speciesId).map(c=>c.label);}
+  function sampleRows(regKey,ids,speciesId){
+    const reg=REG.R[regKey],cols=colsFor(regKey,speciesId);
+    let list=ids&&ids.length?ids.map(id=>S.get(reg.coll,id)).filter(Boolean):S.active(reg.coll);
+    if(speciesId)list=list.filter(r=>r.speciesId===speciesId);
+    return list.map(r=>{const v=REG.toRow(regKey,r);return cols.map(c=>v[c.k]);});
+  }
+  /* "Allowed values" sheet: human names only, scoped to the species when given */
+  function listsSheet(keys,speciesId){
     const cols={};
-    keys.forEach(k=>REG.R[k].cols.forEach(c=>{
+    keys.forEach(k=>colsFor(k,speciesId).forEach(c=>{
       const title=c.label;
       if(cols[title])return;
-      if(c.type==='enum'||c.type==='multienum')cols[title]=c.opts.filter(Boolean);
-      else if(c.type==='ref'||c.type==='multi')cols[title]=[...new Set(S.active(c.ref).map(x=>REG.label(c.ref,x)))];
+      if(c.type==='enum'||c.type==='multienum')cols[title]=c.opts.filter(Boolean).map(REG.enumLabel);
+      else if(c.type==='ref'||c.type==='multi'){
+        let list=S.active(c.ref);
+        if(speciesId&&c.ref==='species')list=list.filter(x=>x.id===speciesId);
+        else if(speciesId&&c.scope&&c.scope.attr==='speciesId')list=list.filter(x=>x.speciesId===speciesId||(c.scope.allowBlank&&!x.speciesId));
+        cols[title]=[...new Set(list.map(x=>REG.label(c.ref,x)))];
+      }
       else if(c.type==='path')cols[title]=S.active('categories').map(x=>REG.catPath(x.id));
     }));
     const titles=Object.keys(cols); const max=Math.max(0,...titles.map(t=>cols[t].length));
@@ -77,12 +91,25 @@
     return aoa;
   }
   const stamp=()=>{const d=new Date(),p=n=>String(n).padStart(2,'0');return d.getFullYear()+p(d.getMonth()+1)+p(d.getDate());};
-  const fname=(k,kind,ext)=>'mesha-'+(k==='workbook'?'farm-setup':REG.R[k].label.toLowerCase().replace(/[^a-z0-9]+/g,'-'))+'-'+kind+'-'+stamp()+'.'+ext;
+  const slug=t=>String(t).toLowerCase().replace(/[^a-z0-9]+/g,'-');
+  const fname=(k,kind,ext,sp)=>'mesha-'+(k==='workbook'?'farm-setup':slug(REG.R[k].label))+(sp?'-'+slug(sp):'')+'-'+kind+'-'+stamp()+'.'+ext;
+  /* formula-looking text is written as a literal so Excel never evaluates it */
+  const safeCell=v=>typeof v==='string'&&/^[=+@]/.test(v)?"'"+v:v;
 
-  async function writeBook(sheets,name){
+  async function writeBook(sheets,name,textCols){
     try{
       const X=await IO.xlsx(); const wb=X.utils.book_new();
-      sheets.forEach(([title,aoa])=>{const ws=X.utils.aoa_to_sheet(aoa);ws['!cols']=(aoa[0]||[]).map(h=>({wch:Math.max(12,String(h).length+4)}));X.utils.book_append_sheet(wb,ws,title.slice(0,31));});
+      sheets.forEach(([title,aoa],si)=>{
+        const ws=X.utils.aoa_to_sheet(aoa.map(r=>r.map(safeCell)));
+        ws['!cols']=(aoa[0]||[]).map(h=>({wch:Math.max(12,String(h).length+4)}));
+        const tc=(textCols&&textCols[si])||[];
+        if(tc.length){ /* RFID columns as Text (@) so long tags never become 9.82E+14 */
+          const rows=Math.max(aoa.length,501);
+          tc.forEach(ci=>{for(let r=1;r<rows;r++){const ad=X.utils.encode_cell({r,c:ci});const cur=ws[ad];ws[ad]={t:'s',v:cur?String(cur.v):'',z:'@'};}});
+          ws['!ref']=X.utils.encode_range({s:{r:0,c:0},e:{r:rows-1,c:Math.max((aoa[0]||[]).length-1,0)}});
+        }
+        X.utils.book_append_sheet(wb,ws,title.slice(0,31));
+      });
       const out=X.write(wb,{bookType:'xlsx',type:'array'});
       UI.download(name,new Blob([out],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}));
     }catch(e){
@@ -90,23 +117,26 @@
       const [title,aoa]=sheets[0]; UI.download(name.replace(/\.xlsx$/,'.csv'),IO.toCSV(aoa));
     }
   }
+  const idCols=(regKey,speciesId)=>colsFor(regKey,speciesId).map((c,i)=>c.idTag?i:-1).filter(i=>i>=0);
 
-  IO.template=function(regKey,fmt){
+  IO.template=function(regKey,fmt,speciesId){
     if(regKey==='workbook')return IO.workbookTemplate(fmt);
-    const aoa=[header(regKey)].concat(sampleRows(regKey).slice(0,2));
-    if(fmt==='csv')return UI.download(fname(regKey,'template','csv'),IO.toCSV(aoa));
-    writeBook([[REG.R[regKey].label,aoa],['Lists',listsSheet([regKey])]],fname(regKey,'template','xlsx'));
+    const sp=speciesId&&S.get('species',speciesId);
+    const aoa=[header(regKey,speciesId)].concat(sampleRows(regKey,null,speciesId).slice(0,2));
+    if(sp&&aoa.length===1){const cols=colsFor(regKey,speciesId);aoa.push(cols.map(c=>c.k==='species'?sp.name:''));}
+    if(fmt==='csv')return UI.download(fname(regKey,'template','csv',sp&&sp.name),IO.toCSV(aoa));
+    writeBook([[sp?sp.name+' '+REG.R[regKey].label.toLowerCase():REG.R[regKey].label,aoa],['Allowed values',listsSheet([regKey],speciesId)]],fname(regKey,'template','xlsx',sp&&sp.name),[idCols(regKey,speciesId)]);
   };
   IO.exportRegister=function(regKey,fmt,ids){
     const aoa=[header(regKey).concat(['Status'])].concat(
-      (ids&&ids.length?ids.map(id=>S.get(REG.R[regKey].coll,id)).filter(Boolean):S.all(REG.R[regKey].coll)).map(r=>{const v=REG.toRow(regKey,r);return REG.R[regKey].cols.map(c=>v[c.k]).concat([r.status]);}));
-    if(fmt==='csv')return UI.download(fname(regKey,'export','csv'),IO.toCSV(aoa));
-    writeBook([[REG.R[regKey].label,aoa]],fname(regKey,'export','xlsx'));
+      (ids&&ids.length?ids.map(id=>S.get(REG.R[regKey].coll,id)).filter(Boolean):S.all(REG.R[regKey].coll)).map(r=>{const v=REG.toRow(regKey,r);return REG.R[regKey].cols.map(c=>v[c.k]).concat([REG.enumLabel(r.status||'active')]);}));
+    if(fmt==='csv')return UI.download(fname(regKey,'export','csv'),IO.toCSV(aoa.map(r=>r.map(safeCell))));
+    writeBook([[REG.R[regKey].label,aoa]],fname(regKey,'export','xlsx'),[idCols(regKey)]);
   };
   IO.workbookTemplate=function(fmt,withData){
     const sheets=WORKBOOK_ORDER.map(k=>[REG.R[k].label,[header(k)].concat(withData?sampleRows(k):sampleRows(k).slice(0,2))]);
-    sheets.push(['Lists',listsSheet(WORKBOOK_ORDER)]);
-    writeBook(sheets,fname('workbook',withData?'export':'template','xlsx'));
+    sheets.push(['Allowed values',listsSheet(WORKBOOK_ORDER)]);
+    writeBook(sheets,fname('workbook',withData?'export':'template','xlsx'),WORKBOOK_ORDER.map(k=>idCols(k)));
   };
   IO.downloadErrors=function(G){
     const reg=REG.R[G.regKey]; const res=Sheet.results(G);
@@ -119,6 +149,7 @@
   IO.state=null;
   IO.start=function(regKey){
     IO.state={step:1,target:regKey||'animals',file:null,sheets:[],tab:0,summary:null};
+    App._allow=true;
     location.hash='#/configuration/items/import';
     App.render();
   };
@@ -127,20 +158,32 @@
     const k=Object.keys(REG.R).find(k=>nk(REG.R[k].label)===n||nk(k)===n||nk(REG.R[k].one)===n||nk(REG.R[k].label).replace(/ & /,' ')===n);
     return k||(n==='lists'?null:fallback);
   };
+  IO.reject=function(msg){const st=IO.state;st.error=msg;st.step=1;App.render();UI.toast(msg);};
   IO.readFile=async function(file){
-    const st=IO.state; st.file=file.name;
+    const st=IO.state; st.file=file.name; st.error=null;
     const ext=file.name.split('.').pop().toLowerCase();
+    if(file.size>IO.LIMITS.bytes)return IO.reject('File is larger than 5 MB · split it into smaller files');
     let raw=[];
     if(ext==='csv'||ext==='tsv'||ext==='txt'){raw=[{name:file.name.replace(/\.[^.]+$/,''),aoa:IO.parseCSV(await file.text())}];}
     else{
-      try{const X=await IO.xlsx();const wb=X.read(await file.arrayBuffer(),{type:'array',cellDates:true});
-        raw=wb.SheetNames.map(n=>({name:n,aoa:X.utils.sheet_to_json(wb.Sheets[n],{header:1,raw:false,defval:''})}));}
+      let wb,X;
+      try{X=await IO.xlsx();wb=X.read(await file.arrayBuffer(),{type:'array',cellDates:true,cellFormula:true});}
       catch(e){UI.toast('Could not read Excel file offline · use CSV');return;}
+      for(const n of wb.SheetNames){const ws=wb.Sheets[n];
+        const f=Object.keys(ws).find(k=>k[0]!=='!'&&ws[k]&&ws[k].f);
+        if(f)return IO.reject('Formulas are not allowed · sheet “'+n+'” cell '+f+' · paste values only');}
+      raw=wb.SheetNames.filter(n=>n!=='Allowed values'&&n!=='Lists').map(n=>({name:n,aoa:X.utils.sheet_to_json(wb.Sheets[n],{header:1,raw:false,defval:''})}));
     }
     IO.load(raw);
   };
   IO.load=function(raw){
     const st=IO.state;
+    const big=raw.find(s=>(s.aoa||[]).length-1>IO.LIMITS.rows);
+    if(big)return IO.reject('“'+big.name+'” has more than '+IO.LIMITS.rows.toLocaleString()+' rows · split the file');
+    const wide=raw.find(s=>(s.aoa||[]).some(r=>r.length>IO.LIMITS.cols&&r.slice(IO.LIMITS.cols).some(c=>String(c).trim())));
+    if(wide)return IO.reject('“'+wide.name+'” has more than '+IO.LIMITS.cols+' columns');
+    const formula=raw.find(s=>(s.aoa||[]).some(r=>r.some(c=>/^=[A-Za-z(]/.test(String(c).trim()))));
+    if(formula)return IO.reject('Formulas are not allowed · “'+formula.name+'” · paste values only');
     st.sheets=raw.map(s=>{
       const aoa=(s.aoa||[]).filter(r=>r.some(c=>String(c).trim()!==''));
       const regKey=st.target==='workbook'?IO.sheetRegFor(s.name,null):(raw.length>1?IO.sheetRegFor(s.name,null)||st.target:st.target);
@@ -156,7 +199,7 @@
     const st=IO.state;
     st.sheets.forEach((s,i)=>{
       const rows=s.data.map(r=>{const v={};s.map.forEach((k,j)=>{if(k)v[k]=r[j]==null?'':String(r[j]).trim();});return v;});
-      s.G=Sheet.make(s.regKey,rows,{mode:'import'});
+      s.G=Sheet.make(s.regKey,rows,{mode:'import',createParents:false});
       s.G.pending=()=>IO.pendingBefore(i);
     });
     st.step=3; st.tab=0;
@@ -172,10 +215,31 @@
     return p;
   };
   IO.commitAll=function(){
-    const st=IO.state; st.snapN=S.snap('Import');
+    const st=IO.state;
+    const t=IO.totals();
+    if(t.err&&!st.skipErrors){UI.toast('Fix or skip '+t.err+' rows with errors first');return;}
+    st.snapN=S.snap('Import');
     st.lastRows=st.sheets.map(s=>JSON.parse(JSON.stringify(s.G.rows)));
     st.summary=st.sheets.map(s=>({label:REG.R[s.regKey].label,sum:REG.commit(s.regKey,s.G.rows,{createParents:s.G.createParents,pending:IO.pendingBefore(st.sheets.indexOf(s))})}));
     S.save(); st.step=4; App.render();
+  };
+  IO.totals=function(){
+    const st=IO.state;
+    const rows=st.sheets.map((x,i)=>{const r=REG.validate(x.regKey,x.G.rows,{createParents:x.G.createParents,pending:IO.pendingBefore(i)});const c=Sheet.counts(r);
+      return {label:REG.R[x.regKey].label,create:c.create,update:c.update,same:c.unchanged,err:c.error,newv:c.newv,unk:c.unresolved};});
+    const sum=k=>rows.reduce((a,b)=>a+b[k],0);
+    return {rows,create:sum('create'),update:sum('update'),err:sum('err'),newv:sum('newv'),unk:sum('unk')};
+  };
+  /* live refresh of the dry-run totals while cells are fixed (no rebuild, keeps focus) */
+  IO.refreshTotals=function(root){
+    const st=IO.state; if(!st||st.step!==3)return; const t=IO.totals();
+    const cell=(n,tone)=>n?UI.tag(n,tone):'0';
+    t.rows.forEach((x,i)=>{const tr=root.querySelector(`[data-tot="${i}"]`);if(!tr)return;
+      tr.querySelector('[data-k="create"]').innerHTML=cell(x.create,'ok');tr.querySelector('[data-k="update"]').innerHTML=cell(x.update,'info');
+      tr.querySelector('[data-k="same"]').textContent=x.same;tr.querySelector('[data-k="err"]').innerHTML=cell(x.err,'dng');tr.querySelector('[data-k="newv"]').innerHTML=cell(x.newv+x.unk,x.unk?'warn':'pur');});
+    const saveN=t.create+t.update, ok=saveN&&(!t.err||st.skipErrors);
+    const b=root.querySelector('[data-a="imp-commit"]'); if(b){b.disabled=!ok;b.innerHTML=ic('check')+(t.err&&!st.skipErrors?'Fix '+t.err+' row'+(t.err===1?'':'s')+' to import':'Import '+saveN+' row'+(saveN===1?'':'s'));}
+    const sk=root.querySelector('[data-impskip]'); if(sk){sk.hidden=!t.err;const n=sk.querySelector('[data-n]');if(n)n.textContent=t.err;}
   };
 
   /* ---------- page ---------- */
@@ -191,6 +255,9 @@
           <button class="btn sm" data-a="imp-tpl" data-f="xlsx">${ic('download')}Template .xlsx</button>
           ${st.target==='workbook'?`<button class="btn sm" data-a="imp-export-wb">${ic('download')}Export workbook</button>`:`<button class="btn sm" data-a="imp-tpl" data-f="csv">${ic('download')}Template .csv</button>`}
         </div><div class="bd stack">
+          ${st.error?`<div class="note dng" role="alert" style="color:var(--danger);font-weight:650">${ic('alert-triangle','',14)} ${esc(st.error)}</div>`:''}
+          ${st.target==='animals'?`<div class="row" style="flex-wrap:wrap;gap:6px"><span class="muted small">Template per animal type</span>${S.active('species').map(sp=>`<button class="btn sm" data-a="imp-tpl" data-f="xlsx" data-sp="${sp.id}">${ic('download')}${esc(sp.name)} .xlsx</button>`).join('')}</div>`:''}
+          <div class="muted small">Up to ${IO.LIMITS.rows.toLocaleString()} rows and 5 MB · values only, no formulas · use names, not ids</div>
           <label class="drop" data-drop>${ic('upload')}<div style="font-weight:700;margin-top:8px">Drop .xlsx or .csv</div>
             <input type="file" accept=".xlsx,.xls,.csv,.tsv,.txt" data-imp-file hidden></label>
           ${st.target!=='workbook'?`<div class="row"><button class="btn" data-a="imp-paste">${ic('sheet')}Paste from spreadsheet</button></div>`:''}
@@ -211,23 +278,22 @@
     }
     if(st.step===3){
       const s=st.sheets[st.tab];
-      const totals=st.sheets.map((x,i)=>{const r=REG.validate(x.regKey,x.G.rows,{createParents:x.G.createParents,pending:IO.pendingBefore(i)});
-        const newVals=new Set();r.forEach(y=>(y.creates||[]).forEach(c=>newVals.add(c.toLowerCase())));
-        return {label:REG.R[x.regKey].label,create:r.filter(y=>y.status==='create').length,update:r.filter(y=>y.status==='update').length,same:r.filter(y=>y.status==='unchanged').length,err:r.filter(y=>y.status==='error').length,newv:newVals.size};});
-      const sum=k=>totals.reduce((a,b)=>a+b[k],0);
-      const saveN=sum('create')+sum('update'), errN=sum('err');
+      const t=IO.totals(); const totals=t.rows;
+      const saveN=t.create+t.update, errN=t.err;
+      const cell=(n,tone)=>n?UI.tag(n,tone):0;
       body=`<section class="card mb"><div class="hd"><h3>Dry run</h3><span class="sp"></span><button class="btn sm" data-a="imp-report">${ic('download')}Report .csv</button></div>
         <div class="twrap screen"><table class="ltbl"><thead><tr><th>Sheet</th><th class="num">New</th><th class="num">Updates</th><th class="num">Unchanged</th><th class="num">Errors</th><th class="num">New values</th></tr></thead><tbody>
-        ${totals.map((t,i)=>`<tr class="clk" data-a="imp-tab" data-i="${i}"><td><b>${esc(t.label)}</b></td><td class="num">${t.create?UI.tag(t.create,'ok'):0}</td><td class="num">${t.update?UI.tag(t.update,'info'):0}</td><td class="num">${t.same}</td><td class="num">${t.err?UI.tag(t.err,'dng'):0}</td><td class="num">${t.newv?UI.tag(t.newv,'pur'):0}</td></tr>`).join('')}
+        ${totals.map((x,i)=>`<tr class="clk" data-a="imp-tab" data-i="${i}" data-tot="${i}"><td data-label="Sheet"><b>${esc(x.label)}</b></td><td class="num" data-label="New" data-k="create">${cell(x.create,'ok')}</td><td class="num" data-label="Updates" data-k="update">${cell(x.update,'info')}</td><td class="num" data-label="Unchanged" data-k="same">${x.same}</td><td class="num" data-label="Errors" data-k="err">${cell(x.err,'dng')}</td><td class="num" data-label="New values" data-k="newv">${cell(x.newv+x.unk,x.unk?'warn':'pur')}</td></tr>`).join('')}
         </tbody></table></div></section>
         ${st.sheets.length>1?`<div class="tabs">${st.sheets.map((x,i)=>`<a href="javascript:void 0" class="${i===st.tab?'on':''}" data-a="imp-tab" data-i="${i}">${esc(REG.R[x.regKey].label)} ${totals[i].err?UI.tag(totals[i].err,'dng'):''}</a>`).join('')}</div>`:''}
         <div data-impsheet>${Sheet.html(s.G,{noFoot:true})}</div>
-        <div class="row mt"><button class="btn" data-a="imp-back">Back</button><span class="sp"></span>${errN?UI.tag(errN+' skipped','dng'):''}
-          <button class="btn p" data-a="imp-commit" ${saveN?'':'disabled'}>${ic('check')}Import ${saveN} row${saveN===1?'':'s'}</button></div>`;
+        <div class="row mt"><button class="btn" data-a="imp-back">Back</button><span class="sp"></span>
+          <label class="row small" data-impskip ${errN?'':'hidden'} style="font-weight:650"><input type="checkbox" data-a="imp-skip" ${st.skipErrors?'checked':''}>Skip <span data-n>${errN}</span>&nbsp;rows with errors</label>
+          <button class="btn p" data-a="imp-commit" ${saveN&&(!errN||st.skipErrors)?'':'disabled'}>${ic('check')}${errN&&!st.skipErrors?'Fix '+errN+' row'+(errN===1?'':'s')+' to import':'Import '+saveN+' row'+(saveN===1?'':'s')}</button></div>`;
     }
     if(st.step===4){
       body=`<section class="card"><div class="hd"><h3>Imported</h3><span class="sp"></span><button class="btn sm" data-a="imp-undo">${ic('undo')}Undo import</button><button class="btn sm p" data-a="imp-again">${ic('upload')}Import another</button></div>
-        <div class="twrap screen"><table><thead><tr><th>Sheet</th><th>Created</th><th>Updated</th><th>Unchanged</th><th>Skipped</th><th>Parents created</th></tr></thead><tbody>
+        <div class="twrap screen"><table><thead><tr><th>Sheet</th><th>Created</th><th>Updated</th><th>Unchanged</th><th>Skipped</th><th>New values created</th></tr></thead><tbody>
         ${st.summary.map(x=>`<tr><td><b>${esc(x.label)}</b></td><td>${UI.tag(x.sum.created,'ok')}</td><td>${UI.tag(x.sum.updated,'info')}</td><td>${x.sum.unchanged}</td><td>${x.sum.skipped?UI.tag(x.sum.skipped,'dng'):0}</td><td>${x.sum.parents?UI.tag(x.sum.parents,'pur'):0}</td></tr>`).join('')}
         </tbody></table></div></section>`;
     }
@@ -243,10 +309,11 @@
     root.querySelectorAll('[data-imp-map]').forEach(s=>s.onchange=()=>{const sh=st.sheets[+s.dataset.impMap];sh.map[+s.dataset.j]=s.value||null;App.render();});
     root.querySelectorAll('[data-imp-sheetreg]').forEach(s=>s.onchange=()=>{const sh=st.sheets[+s.dataset.impSheetreg];sh.regKey=s.value;sh.map=IO.matchHeaders(sh.headers,sh.regKey);App.render();});
     const ish=root.querySelector('[data-impsheet]');
-    if(ish){Sheet.activeGetter=()=>st.sheets[st.tab].G;Sheet.bind(ish,()=>st.sheets[st.tab].G,()=>App.render());}
+    if(ish){Sheet.activeGetter=()=>st.sheets[st.tab].G;st.sheets.forEach(x=>{x.G.onChange=()=>IO.refreshTotals(root);x.G.skipErrors=!!st.skipErrors;});Sheet.bind(ish,()=>st.sheets[st.tab].G,()=>App.render());}
   };
   Object.assign(A,{
-    'imp-tpl'(el){IO.template(IO.state.target,el.dataset.f);},
+    'imp-tpl'(el){IO.template(IO.state.target,el.dataset.f,el.dataset.sp);},
+    'imp-skip'(el){IO.state.skipErrors=el.checked;App.render();},
     'imp-export-wb'(){IO.workbookTemplate('xlsx',true);},
     'imp-paste'(){Sheet.openEntry(IO.state.target,null,[{}]);},
     'imp-back'(){const st=IO.state;st.step=Math.max(1,st.step-1);App.render();},
@@ -255,7 +322,7 @@
     'imp-commit'(){IO.commitAll();},
     'imp-report'(){const st=IO.state;const aoa=[['Sheet','Row','Result','Issues']];
       st.sheets.forEach((x,i)=>{const r=REG.validate(x.regKey,x.G.rows,{createParents:x.G.createParents,pending:IO.pendingBefore(i)});const reg=REG.R[x.regKey];
-        r.forEach((y,j)=>{if(y.status==='empty')return;aoa.push([reg.label,j+2,{create:'New',update:'Update',unchanged:'Unchanged',error:'Error'}[y.status],Object.entries(y.issues).map(([k,v])=>(reg.cols.find(c=>c.k===k)||{label:k}).label+': '+v[1]).join(' · ')]);});});
+        r.forEach((y,j)=>{if(y.status==='empty')return;aoa.push([reg.label,j+2,{create:'New',update:'Update',unchanged:'Unchanged',error:'Error'}[y.status],Object.entries(y.issues).map(([k,v])=>(reg.cols.find(c=>c.k===k)||{label:k}).label+': '+v[1]).join(' · ')].map(safeCell));});});
       UI.download('mesha-import-dry-run.csv',IO.toCSV(aoa));},
     'imp-undo'(){const st=IO.state;S.undoTo(st.snapN);st.sheets.forEach((s,i)=>{if(st.lastRows)s.G.rows=st.lastRows[i];});st.step=3;App.render();UI.toast('Import undone');},
     'imp-again'(){IO.start(IO.state.target);}

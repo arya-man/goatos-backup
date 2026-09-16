@@ -7,7 +7,7 @@
   Sheet.make=function(regKey,rowVals,opts){
     opts=opts||{};
     return {regKey,rows:rowVals.map(v=>({id:rid(),v:Object.assign({},v.v||v),recId:v.recId||null})),sel:new Set(),view:'all',
-      createParents:opts.createParents!==false,active:{r:0,c:0},pending:opts.pending||null,summary:null,title:opts.title,mode:opts.mode||'entry'};
+      createParents:!!opts.createParents,skipErrors:false,active:{r:0,c:0},pending:opts.pending||null,summary:null,title:opts.title,mode:opts.mode||'entry'};
   };
 
   /* open an entry grid page for a register */
@@ -18,6 +18,7 @@
     else rows=(vals&&vals.length?vals:[{}]);
     Sheet.cur=Sheet.make(regKey,rows,{title:ids&&ids.length?'Edit '+reg.label.toLowerCase():'Add '+reg.label.toLowerCase()});
     Sheet.cur.back=location.hash;
+    App._allow=true;
     location.hash='#/configuration/items/sheet/'+regKey;
     App.render();
   };
@@ -26,16 +27,34 @@
     const pend=G.pending?G.pending():{};
     return REG.validate(G.regKey,G.rows,{createParents:G.createParents,pending:pend});
   };
+  Sheet.counts=function(res){
+    const cnt={all:0,error:0,warn:0,create:0,update:0,unchanged:0,newv:0,unresolved:0};const nv=new Set();
+    res.forEach(r=>{if(r.status==='empty')return;cnt.all++;cnt[r.status]++;if(Object.values(r.issues).some(i=>i[0]==='warn'||i[0]==='info'))cnt.warn++;
+      (r.creates||[]).forEach(c=>nv.add(c.toLowerCase()));cnt.unresolved+=(r.unresolved||[]).length;});
+    cnt.newv=nv.size; return cnt;
+  };
+  /* commit is blocked while any row has an error, unless the person explicitly chose to skip those rows */
+  Sheet.canSave=(G,cnt)=>cnt.create+cnt.update>0&&(!cnt.error||G.skipErrors);
+  Sheet.saveLabel=(G,cnt)=>{const n=cnt.create+cnt.update;return cnt.error&&!G.skipErrors?'Fix '+cnt.error+' row'+(cnt.error===1?'':'s')+' to save':'Save '+n+' row'+(n===1?'':'s');};
+  const ISSUE_W=280, RN_W=60;
+  Sheet.issuesHtml=function(G,ri,r){
+    const reg=REG.R[G.regKey];
+    const ents=Object.entries(r.issues).sort((a,b)=>({err:0,warn:1,info:2}[a[1][0]])-({err:0,warn:1,info:2}[b[1][0]]));
+    if(!ents.length)return r.status==='empty'?'':`<span class="muted">${ic('check','',12)} OK</span>`;
+    return ents.map(([k,i])=>{const ci=reg.cols.findIndex(x=>x.k===k),c=reg.cols[ci];const tone=i[0]==='err'?'dng':i[0]==='warn'?'warn':'info';
+      const x=i[2];
+      return `<div class="iss" style="display:flex;flex-wrap:wrap;align-items:center;gap:4px;padding:3px 0;white-space:normal">${UI.tag(i[0]==='err'?'Error':i[0]==='warn'?'Warning':'Info',tone)}<span>${esc((c?c.label+': ':'')+i[1])}</span>
+        ${x&&x.create?`<button class="btn sm" data-a="sh-create" data-r="${ri}" data-c="${ci}" data-t="${esc(x.text)}">${ic('plus','',12)}${x.archived?'Restore':'Create'} “${esc(x.text)}”</button><button class="btn sm gh" data-a="sh-pick" data-r="${ri}" data-c="${ci}">Pick existing</button>`:''}</div>`;}).join('');
+  };
 
   const STAT={create:['New','ok'],update:['Update','info'],unchanged:['Unchanged','mut'],error:['Error','dng'],empty:['','mut']};
 
   Sheet.html=function(G,opts){
     opts=opts||{};
     const reg=REG.R[G.regKey]; const res=Sheet.results(G); G._res=res;
-    const cnt={all:0,error:0,warn:0,create:0,update:0,unchanged:0};
-    res.forEach(r=>{if(r.status==='empty')return;cnt.all++;cnt[r.status]++;if(Object.values(r.issues).some(i=>i[0]==='warn'))cnt.warn++;});
-    const saveN=cnt.create+cnt.update;
+    const cnt=Sheet.counts(res);
     const chips=[['all','All'],['error','Errors'],['warn','Warnings'],['create','New'],['update','Updates'],['unchanged','Unchanged']];
+    const stick=(left,w)=>`position:sticky;left:${left}px;min-width:${w}px;max-width:${w}px;width:${w}px;background:var(--panel-2);background-clip:padding-box;`;
     return `<div class="card screen" data-sheet>
       ${G.summary?Sheet.summaryHtml(G.summary):''}
       <div class="sheetbar">
@@ -44,18 +63,19 @@
         <button class="btn sm" data-a="sh-fill">${ic('arrow-down')}Fill down</button>
         <button class="btn sm" data-a="sh-delrows" ${G.sel.size?'':'disabled'}>${ic('trash')}Delete rows</button>
         <span class="sp"></span>
-        <div class="chips">${chips.map(([k,l])=>`<button class="chip ${G.view===k?'on':''}" data-a="sh-view" data-v="${k}">${l} ${cnt[k]}</button>`).join('')}</div>
+        <div class="chips">${chips.map(([k,l])=>`<button class="chip ${G.view===k?'on':''}" data-a="sh-view" data-v="${k}">${l}&nbsp;<span data-cnt="${k}">${cnt[k]}</span></button>`).join('')}</div>
       </div>
       <div class="sheetbar">
-        <label class="row small" style="font-weight:650"><input type="checkbox" data-a="sh-parents" ${G.createParents?'checked':''}>Create new values</label>
+        <label class="row small" style="font-weight:650" title="Off: unknown values stay errors until you create or pick each one"><input type="checkbox" data-a="sh-parents" ${G.createParents?'checked':''}>Create all new values <span class="muted" data-cnt="unresolved">${cnt.unresolved?'('+cnt.unresolved+' unknown)':''}</span></label>
+        ${opts.noFoot?'':`<label class="row small" style="font-weight:650" data-skipwrap ${cnt.error?'':'hidden'}><input type="checkbox" data-a="sh-skip" ${G.skipErrors?'checked':''}>Skip <span data-cnt="error">${cnt.error}</span>&nbsp;rows with errors</label>`}
         <span class="sp"></span>
         ${cnt.error?`<button class="btn sm" data-a="sh-errors">${ic('download')}Rows with errors</button>`:''}
         ${opts.noFoot?'':`<button class="btn sm" data-a="sh-cancel">Close</button>
-        <button class="btn sm p" data-a="sh-save" ${saveN?'':'disabled'}>${ic('check')}Save ${saveN} row${saveN===1?'':'s'}</button>`}
+        <button class="btn sm p" data-a="sh-save" ${Sheet.canSave(G,cnt)?'':'disabled'}>${ic('check')}${Sheet.saveLabel(G,cnt)}</button>`}
       </div>
       <div class="sheet" data-grid>
-        <table><thead><tr><th class="rn"><input type="checkbox" data-a="sh-selall" aria-label="Select all"></th><th>Status</th>
-          ${reg.cols.map(c=>`<th class="${c.req?'req':''}">${esc(c.label)}</th>`).join('')}<th>Issues</th></tr></thead>
+        <table><thead><tr><th class="rn" style="${stick(0,RN_W)}z-index:4"><input type="checkbox" data-a="sh-selall" aria-label="Select all"></th><th style="${stick(RN_W,ISSUE_W)}z-index:4;border-right:1px solid var(--line);box-shadow:4px 0 6px -4px rgba(0,0,0,.45)">Issues</th><th>Status</th>
+          ${reg.cols.map(c=>`<th class="${c.req?'req':''}">${esc(c.label)}</th>`).join('')}</tr></thead>
         <tbody>${G.rows.map((row,ri)=>Sheet.rowHtml(G,row,ri,res[ri])).join('')}</tbody></table>
       </div></div>`;
   };
@@ -63,12 +83,12 @@
   Sheet.rowHtml=function(G,row,ri,r){
     const reg=REG.R[G.regKey]; const st=STAT[r.status]||STAT.empty;
     const hid=Sheet.hidden(G,r);
-    const msgs=Object.entries(r.issues).map(([k,i])=>{const c=reg.cols.find(x=>x.k===k);return (c?c.label+': ':'')+i[1];});
     return `<tr data-r="${ri}" class="${G.sel.has(row.id)?'selr':''} ${hid?'hid':''}">
-      <td class="rn"><label><input type="checkbox" data-a="sh-sel" data-id="${row.id}" ${G.sel.has(row.id)?'checked':''}>${ri+1}</label></td>
+      <td class="rn" style="left:0;z-index:3;min-width:${RN_W}px;max-width:${RN_W}px"><label><input type="checkbox" data-a="sh-sel" data-id="${row.id}" ${G.sel.has(row.id)?'checked':''}>${ri+1}</label></td>
+      <td class="msg" data-issues style="position:sticky;left:${RN_W}px;z-index:3;min-width:${ISSUE_W}px;max-width:${ISSUE_W}px;white-space:normal;padding:2px 8px;background:var(--panel);background-clip:padding-box;border-right:1px solid var(--line);box-shadow:4px 0 6px -4px rgba(0,0,0,.45)">${Sheet.issuesHtml(G,ri,r)}</td>
       <td class="st">${st[0]?UI.tag(st[0],st[1]):''}</td>
-      ${reg.cols.map((c,ci)=>{const iss=r.issues[c.k];return `<td class="w-${c.w||''} ${iss?(iss[0]==='err'?'err':'warn'):''}" title="${iss?esc(iss[1]):''}"><input class="cell" data-r="${ri}" data-c="${ci}" value="${esc(row.v[c.k]==null?'':row.v[c.k])}" autocomplete="off" aria-label="${esc(c.label)} row ${ri+1}"></td>`;}).join('')}
-      <td class="msg" title="${esc(msgs.join(' · '))}">${esc(msgs.join(' · '))}</td></tr>`;
+      ${reg.cols.map((c,ci)=>{const iss=r.issues[c.k];return `<td class="w-${c.w||''} ${iss?(iss[0]==='err'?'err':iss[0]==='warn'?'warn':'info'):''}" title="${iss?esc(iss[1]):''}"><input class="cell" data-r="${ri}" data-c="${ci}" value="${esc(row.v[c.k]==null?'':row.v[c.k])}" autocomplete="off" aria-label="${esc(c.label)} row ${ri+1}"></td>`;}).join('')}
+    </tr>`;
   };
 
   Sheet.hidden=function(G,r){
@@ -81,7 +101,7 @@
   Sheet.summaryHtml=function(s){
     return `<div class="sheetbar" style="background:var(--brand-soft)">
       <b>${ic('check','',15)} Saved</b><span class="tag t-ok">${s.created} created</span><span class="tag t-info">${s.updated} updated</span>
-      <span class="tag t-mut">${s.unchanged} unchanged</span>${s.skipped?`<span class="tag t-dng">${s.skipped} skipped</span>`:''}${s.parents?`<span class="tag t-pur">${s.parents} parents created</span>`:''}
+      <span class="tag t-mut">${s.unchanged} unchanged</span>${s.skipped?`<span class="tag t-dng">${s.skipped} skipped</span>`:''}${s.parents?`<span class="tag t-pur">${s.parents} new values created</span>`:''}
       <span class="sp"></span><button class="btn sm" data-a="sh-undo">${ic('undo')}Undo</button></div>`;
   };
 
@@ -90,18 +110,28 @@
     const res=Sheet.results(G); G._res=res; const reg=REG.R[G.regKey];
     root.querySelectorAll('tbody tr[data-r]').forEach(tr=>{
       const ri=+tr.dataset.r, r=res[ri]; if(!r)return; const st=STAT[r.status]||STAT.empty;
-      tr.children[1].innerHTML=st[0]?UI.tag(st[0],st[1]):'';
-      reg.cols.forEach((c,ci)=>{const td=tr.children[ci+2],iss=r.issues[c.k];td.classList.toggle('err',!!iss&&iss[0]==='err');td.classList.toggle('warn',!!iss&&iss[0]==='warn');td.title=iss?iss[1]:'';});
-      const msgs=Object.entries(r.issues).map(([k,i])=>{const c=reg.cols.find(x=>x.k===k);return (c?c.label+': ':'')+i[1];}).join(' · ');
-      const m=tr.lastElementChild; m.textContent=msgs; m.title=msgs;
+      tr.querySelector('td.st').innerHTML=st[0]?UI.tag(st[0],st[1]):'';
+      reg.cols.forEach((c,ci)=>{const inp=tr.querySelector(`input.cell[data-c="${ci}"]`);if(!inp)return;const td=inp.parentElement,iss=r.issues[c.k];
+        td.classList.toggle('err',!!iss&&iss[0]==='err');td.classList.toggle('warn',!!iss&&iss[0]==='warn');td.classList.toggle('info',!!iss&&iss[0]==='info');td.title=iss?iss[1]:'';});
+      tr.querySelector('[data-issues]').innerHTML=Sheet.issuesHtml(G,ri,r);
     });
-    const cnt={all:0,error:0,warn:0,create:0,update:0,unchanged:0};
-    res.forEach(r=>{if(r.status==='empty')return;cnt.all++;cnt[r.status]++;if(Object.values(r.issues).some(i=>i[0]==='warn'))cnt.warn++;});
-    root.querySelectorAll('[data-a="sh-view"]').forEach(b=>{b.textContent=b.textContent.replace(/\d+$/,cnt[b.dataset.v]);});
-    const sv=root.querySelector('[data-a="sh-save"]'); const n=cnt.create+cnt.update;
-    if(sv){sv.disabled=!n;sv.innerHTML=ic('check')+'Save '+n+' row'+(n===1?'':'s');}
-    if(G.onChange)G.onChange(cnt);
+    const cnt=Sheet.counts(res);
+    root.querySelectorAll('[data-cnt]').forEach(el=>{const k=el.dataset.cnt;el.textContent=k==='unresolved'?(cnt.unresolved?'('+cnt.unresolved+' unknown)':''):cnt[k];});
+    const sk=root.querySelector('[data-skipwrap]'); if(sk)sk.hidden=!cnt.error;
+    const sv=root.querySelector('[data-a="sh-save"]');
+    if(sv){sv.disabled=!Sheet.canSave(G,cnt);sv.innerHTML=ic('check')+Sheet.saveLabel(G,cnt);}
+    if(G.onChange)G.onChange(cnt,res);
   };
+
+  /* changing a parent location clears children that do not belong to it (never re-creates them under the new parent) */
+  Sheet.cascade=function(G,row,k){
+    const reg=REG.R[G.regKey]; const cleared=[];
+    const kids=reg.cols.filter(c=>c.scope&&c.scope.col===k&&(c.ref==='pens'||c.ref==='partitions'));
+    kids.forEach(c=>{const raw=String(row.v[c.k]||'').trim();if(!raw)return;
+      const f=REG.findRef(G.regKey,c,raw,row.v);if(!f.rec){row.v[c.k]='';cleared.push(c.k);cleared.push(...Sheet.cascade(G,row,c.k));}});
+    return cleared;
+  };
+  const syncInputs=(root,G,ri,keys)=>{const reg=REG.R[G.regKey];keys.forEach(k=>{const ci=reg.cols.findIndex(c=>c.k===k);const el=root.querySelector(`input.cell[data-r="${ri}"][data-c="${ci}"]`);if(el)el.value=G.rows[ri].v[k]||'';});};
 
   /* binding: a sheet lives in a root element; G resolved through getter */
   Sheet.bind=function(root,getG,rerender){
@@ -119,6 +149,8 @@
       const g=G(); g.active={r:+inp.dataset.r,c:+inp.dataset.c};
       const c=REG.R[g.regKey].cols[g.active.c]; if(isPick(c))openPop(inp); else UI.closePop();
     });
+    root.addEventListener('change',e=>{const inp=e.target.closest('input.cell');if(!inp)return;const g=G(),c=REG.R[g.regKey].cols[+inp.dataset.c],ri=+inp.dataset.r;
+      const cl=Sheet.cascade(g,g.rows[ri],c.k);if(cl.length){syncInputs(root,g,ri,cl);Sheet.repaint(g,root);}});
     root.addEventListener('focusout',e=>{const inp=e.target.closest('input.cell');if(inp)setTimeout(()=>{if(UI._popCfg&&UI._popCfg.input===inp&&document.activeElement!==inp)UI.closePop();},150);});
     root.addEventListener('keydown',e=>{
       const inp=e.target.closest('input.cell');
@@ -144,7 +176,7 @@
     function isPick(c){return ['ref','path','enum','multi','multienum'].includes(c.type);}
     function openPop(inp){
       const g=G(),regKey=g.regKey,reg=REG.R[regKey],c=reg.cols[+inp.dataset.c],row=g.rows[+inp.dataset.r];
-      UI.pop(inp,UI.pickerCfg(regKey,c,row.v,inp,()=>{row.v[c.k]=inp.value;Sheet.repaint(g,root);},null));
+      UI.pop(inp,UI.pickerCfg(regKey,c,row.v,inp,()=>{row.v[c.k]=inp.value;syncInputs(root,g,+inp.dataset.r,Sheet.cascade(g,row,c.k));Sheet.repaint(g,root);},null));
     }
   };
 
@@ -179,7 +211,7 @@
     const reg=REG.R[G.regKey],c=reg.cols[G.active.c],src=G.rows[G.active.r]; if(!c||!src)return 0;
     const val=src.v[c.k]||''; let n=0;
     const targets=G.sel.size?G.rows.filter(r=>G.sel.has(r.id)&&r!==src):G.rows.slice(G.active.r+1);
-    targets.forEach(r=>{r.v[c.k]=val;n++;});
+    targets.forEach(r=>{r.v[c.k]=val;Sheet.cascade(G,r,c.k);n++;});
     return n;
   };
 
@@ -188,7 +220,8 @@
     const res=Sheet.results(G);
     G.lastRows=JSON.parse(JSON.stringify(G.rows));
     G.snapN=S.snap('Saved '+reg.label.toLowerCase());
-    const sum=REG.commit(G.regKey,G.rows,{createParents:G.createParents,pending:G.pending?G.pending():{}});
+    const sum=REG.commit(G.regKey,G.rows,{createParents:G.createParents,pending:G.pending?G.pending():{},strict:!G.skipErrors});
+    if(sum.blocked){S.undoTo(G.snapN);UI.toast('Fix or skip rows with errors first');return sum;}
     S.save();
     // keep only rows that failed
     G.rows=G.rows.filter((r,i)=>res[i].status==='error');
@@ -203,6 +236,16 @@
     'sh-addrow'(){const g=Sheet.active();g.rows.push({id:rid(),v:{}});Sheet.rerender();},
     'sh-view'(el){const g=Sheet.active();g.view=el.dataset.v;Sheet.rerender();},
     'sh-parents'(el){const g=Sheet.active();g.createParents=el.checked;Sheet.rerender();},
+    'sh-skip'(el){const g=Sheet.active();g.skipErrors=el.checked;Sheet.rerender();},
+    /* one-click resolve of an unknown value: create it (choosing a parent when needed) */
+    'sh-create'(el){const g=Sheet.active(),reg=REG.R[g.regKey],c=reg.cols[+el.dataset.c],row=g.rows[+el.dataset.r];if(!c||!row)return;
+      const cc=c.type==='multi'?Object.assign({},c,{type:'ref'}):c;
+      const ch=REG.createChoices(g.regKey,cc,row.v,el.dataset.t);
+      const doIt=x=>{const n=S.snap('Created '+el.dataset.t);x.run();S.save();Sheet.rerender();UI.toast('Created “'+el.dataset.t+'”',()=>{S.undoTo(n);Sheet.rerender();});};
+      if(!ch.length)return UI.toast('Set '+(c.scope?reg.cols.find(x=>x.k===c.scope.col).label:'the value')+' first');
+      if(ch.length===1)doIt(ch[0]);else UI.menu(el,ch.map(x=>({label:x.label,icon:'plus',run:()=>doIt(x)})));},
+    'sh-pick'(el){const inp=document.querySelector(`[data-sheet] input.cell[data-r="${el.dataset.r}"][data-c="${el.dataset.c}"]`);if(!inp)return;
+      inp.focus();inp.select();setTimeout(()=>{if(UI._popCfg&&UI._popCfg.input===inp){UI._popCfg.cfg.query=()=>'';UI._popRender();}},0);},
     'sh-sel'(el){const g=Sheet.active();el.checked?g.sel.add(el.dataset.id):g.sel.delete(el.dataset.id);Sheet.rerender();},
     'sh-selall'(el){const g=Sheet.active();g.rows.forEach(r=>el.checked?g.sel.add(r.id):g.sel.delete(r.id));Sheet.rerender();},
     'sh-delrows'(){const g=Sheet.active();g.rows=g.rows.filter(r=>!g.sel.has(r.id));if(!g.rows.length)g.rows=[{id:rid(),v:{}}];g.sel.clear();Sheet.rerender();},

@@ -56,25 +56,34 @@
   };
   UI.dupRow=function(regKey,rec){
     const reg=REG.R[regKey]; const v=REG.toRow(regKey,rec);
-    reg.cols.forEach(c=>{if(c.unique)v[c.k]='';});
+    reg.cols.forEach(c=>{if(c.unique||c.idTag)v[c.k]='';});
     const kc=reg.keyCol||(reg.cols.filter(c=>c.req&&c.type==='text').pop()||{}).k;
-    if(kc&&v[kc]&&!reg.cols.find(c=>c.k===kc).unique)v[kc]=v[kc]+' copy';
+    const kcol=kc&&reg.cols.find(c=>c.k===kc);
+    if(kc&&v[kc]&&!kcol.unique&&!kcol.idTag)v[kc]=v[kc]+' copy';
     return v;
   };
 
-  /* ---------- combobox popup ---------- */
+  /* ---------- combobox popup ----------
+     Existing values always come first (exact, starts-with, contains, alias).
+     Enter picks the highlighted EXISTING value only. "+ Create" needs a click,
+     or Ctrl/Cmd+Enter while it is highlighted. Nothing matching = nothing highlighted. */
   UI.pop=function(input,cfg){
-    UI._popCfg={input,cfg,hi:0};
-    let p=$('#cbpop'); if(!p){p=document.createElement('div');p.id='cbpop';p.className='cbpop';document.body.appendChild(p);
-      p.addEventListener('mousedown',e=>{e.preventDefault();const o=e.target.closest('[data-oi]');if(o)UI._popChoose(+o.dataset.oi);});}
+    UI._popCfg={input,cfg,hi:-1,touched:false};
+    let p=$('#cbpop'); if(!p){p=document.createElement('div');p.id='cbpop';p.className='cbpop';p.setAttribute('role','listbox');document.body.appendChild(p);
+      p.addEventListener('mousedown',e=>{e.preventDefault();const o=e.target.closest('[data-oi]');if(o)UI._popChoose(+o.dataset.oi,true);});}
     UI._popRender();
   };
   UI._popItems=function(){
     const {input,cfg}=UI._popCfg; const q=(cfg.query?cfg.query():input.value).trim(); const nq=REG.norm(q);
-    let opts=cfg.options(q)||[];
-    const exact=opts.some(o=>REG.norm(o.label)===nq);
-    if(nq)opts=opts.filter(o=>REG.norm(o.label+' '+(o.sub||'')).includes(nq)).concat(opts.filter(o=>!REG.norm(o.label+' '+(o.sub||'')).includes(nq)&&(o.alias||[]).some(a=>REG.norm(a)===nq)));
+    const all=cfg.options(q)||[];
+    const hay=o=>REG.norm(o.label+' '+(o.sub||''));
+    let opts=all;
+    if(nq){
+      const rank=o=>{const l=REG.norm(o.label);if(l===nq)return 0;if(l.startsWith(nq))return 1;if(hay(o).split(/[\s·>\-]+/).some(w=>w.startsWith(nq)))return 2;if(hay(o).includes(nq))return 3;if((o.alias||[]).some(a=>REG.norm(a)===nq))return 4;return 9;};
+      opts=all.map(o=>[rank(o),o]).filter(x=>x[0]<9).sort((a,b)=>a[0]-b[0]).map(x=>x[1]);
+    }
     opts=opts.slice(0,60);
+    const exact=nq&&all.some(o=>REG.norm(o.label)===nq);
     if(nq&&!exact){
       if(cfg.creates)opts=opts.concat(cfg.creates(q).map(c=>({create:true,label:c.label,run:c.run})));
       else if(cfg.onCreate)opts=opts.concat([{create:true,label:'Create “'+q+'”',text:q}]);
@@ -83,18 +92,25 @@
   };
   UI._popRender=function(){
     const c=UI._popCfg; if(!c)return; const p=$('#cbpop'); if(!p)return;
-    const items=UI._popItems(); c.items=items; if(c.hi>=items.length)c.hi=0;
-    p.innerHTML=items.length?items.map((o,i)=>o.create?`<div class="o new ${i===c.hi?'hi':''}" data-oi="${i}">${ic('plus','',14)}${esc(o.label)}</div>`
-      :`<div class="o ${i===c.hi?'hi':''}" data-oi="${i}">${esc(o.label)}${o.sub?`<small>${esc(o.sub)}</small>`:''}</div>`).join(''):'<div class="none">No matches</div>';
+    const items=UI._popItems(); c.items=items;
+    const firstExisting=items.findIndex(o=>!o.create);
+    const q=(c.cfg.query?c.cfg.query():c.input.value).trim();
+    if(!c.touched)c.hi=q?firstExisting:-1;
+    if(c.hi>=items.length)c.hi=items.length-1;
+    const hasExisting=firstExisting>=0;
+    p.innerHTML=(items.length?items.map((o,i)=>o.create?`<div class="o new ${i===c.hi?'hi':''}" data-oi="${i}" role="option">${ic('plus','',14)}${esc(o.label)}${i===c.hi?'<small>Click or Ctrl+Enter</small>':''}</div>`
+      :`<div class="o ${i===c.hi?'hi':''}" data-oi="${i}" role="option" aria-selected="${i===c.hi}">${esc(o.label)}${o.sub?`<small>${esc(o.sub)}</small>`:''}</div>`).join(''):'')
+      +(!hasExisting&&q?'<div class="none">No existing match</div>':'')+(!items.length&&!q?'<div class="none">No values yet</div>':'');
     const r=c.input.getBoundingClientRect();
     p.style.minWidth=Math.max(200,r.width)+'px';
     p.style.display='block';
     const ph=p.offsetHeight; let top=r.bottom+3; if(top+ph>window.innerHeight-6)top=Math.max(6,r.top-ph-3);
     p.style.left=Math.max(6,Math.min(r.left,window.innerWidth-p.offsetWidth-6))+'px'; p.style.top=top+'px';
   };
-  UI._popChoose=function(i){
+  UI._popChoose=function(i,explicit){
     const c=UI._popCfg; if(!c)return; const o=c.items[i]; if(!o)return;
     if(o.create){
+      if(!explicit)return;
       const text=(c.cfg.query?c.cfg.query():c.input.value).trim(); let res;
       if(o.run){S.snap('Created');const id=o.run();S.save();res={id,label:text};UI.toast('Created “'+text+'”');if(c.cfg.onCreated)c.cfg.onCreated(res);}
       else res=c.cfg.onCreate(o.text);
@@ -106,9 +122,14 @@
   };
   UI.popKey=function(e){
     const c=UI._popCfg; if(!c||!$('#cbpop')||$('#cbpop').style.display==='none')return false;
-    if(e.key==='ArrowDown'){c.hi=Math.min(c.items.length-1,c.hi+1);UI._popRender();e.preventDefault();return true;}
-    if(e.key==='ArrowUp'){c.hi=Math.max(0,c.hi-1);UI._popRender();e.preventDefault();return true;}
-    if(e.key==='Enter'&&c.items.length){UI._popChoose(c.hi);e.preventDefault();return true;}
+    if(e.key==='ArrowDown'){c.touched=true;c.hi=Math.min(c.items.length-1,c.hi+1);UI._popRender();e.preventDefault();return true;}
+    if(e.key==='ArrowUp'){c.touched=true;c.hi=Math.max(0,c.hi-1);UI._popRender();e.preventDefault();return true;}
+    if(e.key==='Enter'){
+      const o=c.items[c.hi];
+      if(!o)return false;
+      if(o.create){if(e.ctrlKey||e.metaKey){UI._popChoose(c.hi,true);e.preventDefault();return true;}e.preventDefault();return true;}
+      UI._popChoose(c.hi);e.preventDefault();return true;
+    }
     if(e.key==='Escape'){UI.closePop();return true;}
     return false;
   };
@@ -116,7 +137,7 @@
 
   /* ref options for a register column in the context of a row */
   UI.refOptions=function(regKey,col,row){
-    if(col.type==='enum'||col.type==='multienum')return col.opts.filter(Boolean).map(o=>({id:o,label:o}));
+    if(col.type==='enum'||col.type==='multienum')return col.opts.filter(Boolean).map(o=>({id:o,label:REG.enumLabel(o)}));
     if(col.type==='path')return S.active('categories').map(c=>({id:c.id,label:REG.catPath(c.id)}));
     const list=col.scope&&!String(row[col.scope.col]||'').trim()?S.active(col.ref):REG.candidates(regKey,Object.assign({},col,{type:'ref'}),row);
     return list.map(x=>({id:x.id,label:REG.label(col.ref,x),sub:subFor(col.ref,x),alias:x.aliases}));
@@ -137,24 +158,24 @@
     if(!rec)reg.cols.forEach(c=>{if(row.v[c.k]===undefined)row.v[c.k]='';});
     const baseline=JSON.stringify(S.state); let created=false, saved=false, shown=false;
     const body=()=>{
-      const res=REG.validate(regKey,[row],{createParents:true})[0];
-      const st=reg.statuses.length>2||rec?`<div class="fld"><label>Status</label><select data-fstatus>${reg.statuses.map(x=>`<option value="${x}" ${(row.v.status||'active')===x?'selected':''}>${x[0].toUpperCase()+x.slice(1)}</option>`).join('')}</select></div>`:'';
+      const res=REG.validate(regKey,[row],{})[0];
+      const st=reg.statuses.length>2||rec?`<div class="fld"><label>Status</label><select data-fstatus>${reg.statuses.map(x=>`<option value="${x}" ${(row.v.status||'active')===x?'selected':''}>${REG.enumLabel(x)}</option>`).join('')}</select></div>`:'';
       return `<div class="fgrid">${reg.cols.filter(c=>!c.virtual||c.scope||reg.cols.some(x=>x.scope&&x.scope.col===c.k)).map(c=>{
         const iss=shown&&res.issues[c.k]; const full=c.w==='wide'||c.type==='multi'||c.type==='multienum';
         const input=(c.type==='ref'||c.type==='path'||c.type==='enum'||c.type==='multi')
           ?`<input data-ff="${c.k}" value="${esc(row.v[c.k]||'')}" placeholder="${c.blankLabel?esc(c.blankLabel):'Search or create'}" autocomplete="off" aria-label="${esc(c.label)}">`
-          :(c.type==='multienum'?`<div class="chkrow">${c.opts.map(o=>`<label><input type="checkbox" data-fm="${c.k}" value="${esc(o)}" ${String(row.v[c.k]||'').split(/;\s*/).includes(o)?'checked':''}>${esc(o)}</label>`).join('')}</div>`
+          :(c.type==='multienum'?`<div class="chkrow">${c.opts.map(o=>`<label><input type="checkbox" data-fm="${c.k}" value="${esc(REG.enumLabel(o))}" ${String(row.v[c.k]||'').split(/;\s*/).map(REG.norm).includes(REG.norm(REG.enumLabel(o)))?'checked':''}>${esc(REG.enumLabel(o))}</label>`).join('')}</div>`
           :`<input data-ff="${c.k}" value="${esc(row.v[c.k]||'')}" ${c.type==='num'?'inputmode="decimal"':''} ${c.type==='date'?'placeholder="DD/MM/YYYY"':''} aria-label="${esc(c.label)}">`);
-        return `<div class="fld ${full?'full':''}"><label>${esc(c.label)}${c.req?' *':''}</label>${input}${iss?`<div class="ferr ${iss[0]==='err'?'':'w'}">${esc(iss[1])}</div>`:''}</div>`;
+        return `<div class="fld ${full?'full':''}"><label>${esc(c.label)}${c.req?' *':''}</label>${input}${iss?`<div class="ferr ${iss[0]==='err'?'':'w'}">${esc(iss[1])}${iss[2]&&iss[2].create?` <button type="button" class="btn sm" data-rf-create="${c.k}">${ic('plus','',12)}Create “${esc(iss[2].text)}”</button>`:''}</div>`:''}</div>`;
       }).join('')}${st}</div>`;
     };
     const save=()=>{
       shown=true;
-      const res=REG.validate(regKey,[row],{createParents:true})[0];
+      const res=REG.validate(regKey,[row],{})[0];
       if(res.status==='error'){UI.redrawDrawer({body:body()});return;}
       if(res.status==='empty'){UI.closeDrawer();return;}
       const n=S.snap((rec&&!dup?'Saved ':'Added ')+reg.one.toLowerCase());
-      REG.commit(regKey,[row],{createParents:true}); S.save(); saved=true;
+      REG.commit(regKey,[row],{}); S.save(); saved=true;
       UI.closeDrawer(); App.render();
       UI.toast((rec&&!dup?'Saved':'Added')+' '+reg.one.toLowerCase(),()=>{S.undoTo(n);App.render();});
     };
@@ -163,6 +184,9 @@
       onClose(){if(!saved&&created){S.state=JSON.parse(baseline);S.save();App.render();}},
       mount(dr){
         dr.querySelector('[data-rf-save]').onclick=save;
+        dr.querySelectorAll('[data-rf-create]').forEach(b=>b.onclick=e=>{const c=reg.cols.find(x=>x.k===b.dataset.rfCreate);const ch=REG.createChoices(regKey,c.type==='multi'?Object.assign({},c,{type:'ref'}):c,row.v,(REG.validate(regKey,[row],{})[0].issues[c.k][2]||{}).text);
+          const doIt=x=>{S.snap('Created');x.run();created=true;S.save();UI.redrawDrawer({body:body()});};
+          if(ch.length===1)doIt(ch[0]);else UI.menu(b,ch.map(x=>({label:x.label,icon:'plus',run:()=>doIt(x)})));});
         const stSel=dr.querySelector('[data-fstatus]'); if(stSel)stSel.onchange=()=>{row.v.status=stSel.value;};
         dr.querySelectorAll('[data-fm]').forEach(cb=>cb.onchange=()=>{const k=cb.dataset.fm;row.v[k]=Array.from(dr.querySelectorAll(`[data-fm="${k}"]:checked`)).map(x=>x.value).join('; ');});
         dr.querySelectorAll('[data-ff]').forEach(inp=>{

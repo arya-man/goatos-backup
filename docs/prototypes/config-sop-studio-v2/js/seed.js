@@ -33,7 +33,9 @@
       if(q.only_if){const nn=f.nodes.find(x=>x.id===id); nn.onlyIf={q:byKey[q.only_if.question_id],v:q.only_if.value};}
     };
     src.load.forEach(q=>addQ(Object.assign({},q,{id:'load_'+q.id}),'Load details'));
-    src.pages.forEach(p=>p.questions.forEach(q=>addQ(q,p.title)));
+    /* goatos-stg published procurement.animal_purchase v7 = 7 load + 40 animal questions; v7 added Breed and Stage (identity page). */
+    const v7=[{id:'b',kind:'text',title:'Breed of animal',required:true},{id:'s',kind:'text',title:'Stage of animal',required:true}];
+    src.pages.forEach(p=>{const qs=p.key==='identity'?p.questions.concat(v7.filter(x=>!p.questions.some(y=>y.id===x.id))):p.questions;qs.forEach(q=>addQ(q,p.title));});
     const nd=k=>f.nodes.find(x=>x.id===byKey[k]);
     nd('well_fed').reject={op:'=',value:'no',reason:'Visibly empty or weak'};
     nd('teeth').reject={op:'cannot',value:'',reason:"Mouth can't be opened"};
@@ -61,35 +63,49 @@
     return f.nodes;
   }
 
-  /* Source: Health DB sheet, "Adults SOP" / "Kids SOP" tabs, rows C2:J18 (Day, Session, Record type, Medicine, Dosage, Denominator, Route). */
+  /* Lump-sum weighing: backed on main by weighing capture.lump_sum {video_min,video_max<=5}
+     (admin-web features/sops/weighing-model.ts, backend weighing ErrLumpSumVideoCount). Head count is the
+     server census snapshot (docs/decisions/weighing-lump-sum-census-count.md), never typed by the operator. */
+  function lumpSumWeighingFlow(){
+    const f=flow();
+    const s=f.add('start',{label:'Open assigned lump-sum shed'});
+    const pen=f.add('question',{label:'Shed / pen',answer:'ref',refColl:'pens',required:true,page:'Shed'});
+    const w=f.add('question',{label:'Total weight of the shed',answer:'number',unit:'kg',min:0,max:20000,required:true,page:'Weight'});
+    const v=f.add('evidence',{label:'Lump-sum pen video',media:['video'],min:1,max:5,page:'Weight'});
+    const a=f.add('approval',{label:'Verifier reviews lump-sum video and total weight',roleId:'role_verifier',outcomes:['Verified','Rework']});
+    const ok=f.add('end',{label:'Verified',outcome:'done'});
+    const re=f.add('end',{label:'Rework — re-weigh and re-film',outcome:'rejected'});
+    f.link(s,pen); f.link(pen,w); f.link(w,v); f.link(v,a); f.link(a,ok,'Verified'); f.link(a,re,'Rework');
+    return f.nodes;
+  }
+
+  /* Sick-animal report. Mirrors Android feature-health ObservationFormScreen (4 steps: vitals, head, body, final;
+     no disease names, no medicines on the operator form). The operator records findings only; the server proposes an
+     assessment and the Health Director approves it. Treatment comes from the versioned Health protocol, never from here. */
   function healthFlow(){
-    const f=flow(); const ids=[];
-    const s=f.add('start',{label:'Fever case opened'});
-    let prev=s;
-    [1,2,3].forEach(day=>{
-      const pg='Day '+day+' · Morning';
-      const t=f.add('question',{label:'Rectal temperature',answer:'number',unit:'°C',min:30,max:45,required:true,page:pg});
-      f.link(prev,t);
-      let after=t;
-      if(day===1){
-        const eat=f.add('question',{label:'Is the animal eating?',answer:'choice',options:[{v:'yes',l:'Yes'},{v:'no',l:'No'}],required:true,page:pg});
-        const d=f.add('decision',{label:'Not eating?',q:eat,op:'=',value:'no',page:pg});
-        const mv=f.add('action',{label:'Move to Sumathi 2 · Part 7 (kids: Yashoda 2; bucks stay)',page:pg});
-        const ch=f.add('action',{label:'Follow Not Eating SOP (Health DB)',page:pg});
-        const inj=f.add('action',{label:'Chocolate injection',itemId:'itm_choc',dose:'0.033',per:'kg',route:'SQ',page:pg});
-        f.link(t,eat); f.link(eat,d); f.link(d,mv,'Yes'); f.link(mv,ch); f.link(ch,inj); f.link(d,inj,'No');
-        after=inj;
-      }
-      const ty=f.add('action',{label:'Tylosin',itemId:'itm_tylosin',dose:'0.1',per:'kg',route:'IM',page:pg});
-      const me=f.add('action',{label:'Meloxicam-Paracetamol',itemId:'itm_melox',dose:'0.1',per:'kg',route:'IM',page:pg});
-      const ev=f.add('evidence',{label:'Treatment video',media:['video'],min:1,max:1,page:pg});
-      f.link(after,ty); f.link(ty,me); f.link(me,ev);
-      prev=ev;
-      if(day<3){const w=f.add('wait',{label:'Next morning session',amount:1,unit:'days'}); f.link(ev,w); prev=w;}
-    });
-    const ap=f.add('approval',{label:'Course outcome',roleId:'role_health',outcomes:['Recovered','Extend course','Refer']});
-    const e=f.add('end',{label:'Course closed',outcome:'done'});
-    f.link(prev,ap); f.link(ap,e);
+    const f=flow();
+    const yn=[{v:'no',l:'No'},{v:'yes',l:'Yes'}];
+    const q=(label,page,p)=>f.add('question',Object.assign({label,answer:'choice',options:yn,required:true,page},p||{}));
+    const s=f.add('start',{label:'Sick animal reported'});
+    const ids=[s,
+      f.add('question',{label:'RFID or goat tag',answer:'scan',required:true,page:'Animal'}),
+      f.add('question',{label:'Rectal temperature',answer:'number',unit:'°F',min:90,max:112,required:true,page:'Vitals'}),
+      q('Skin tent','Vitals'),q('Sunken flank','Vitals'),
+      f.add('question',{label:'Eyes',answer:'multi',options:[{v:'normal',l:'Normal'},{v:'pale',l:'Pale'},{v:'yellow',l:'Yellow'}],required:true,page:'Vitals'}),
+      f.add('question',{label:'Mouth',answer:'multi',options:[{v:'normal',l:'Normal'},{v:'scabs',l:'Scabs'},{v:'froth',l:'Froth'},{v:'cannot_open',l:'Cannot open'}],required:true,page:'Head'}),
+      q('Breathing difficulty','Head'),q('Runny nose','Head'),
+      q('Left side swollen','Body'),q('Rumen movement absent','Body'),q('Loose motion','Body'),q('Not eating','Body'),
+      f.add('question',{label:'Skin & coat',answer:'multi',options:[{v:'normal',l:'Normal'},{v:'ticks',l:'Ticks'},{v:'hair_loss',l:'Hair loss'}],required:true,page:'Body'}),
+      q('Wounds','Body'),q('Lumps','Body'),q('Rashes','Body'),
+      f.add('question',{label:'Maggots and ear tag',answer:'multi',options:[{v:'normal',l:'Normal'},{v:'body',l:'On the body'},{v:'tag',l:'At the ear tag'},{v:'torn',l:'Ear tag torn'}],required:true,page:'Body'}),
+      q('Cannot stand normally','Final'),q('Legs or feet problem','Final'),q('Nervous signs','Final'),
+      f.add('evidence',{label:'Animal photo',media:['photo'],min:1,max:3,page:'Final'})];
+    f.chain(ids);
+    const ap=f.add('approval',{label:'Director approves assessment',roleId:'role_health',outcomes:['Treat in pen','Move to ICU','Check again']});
+    const tr=f.add('action',{label:'Treat per Health protocol',link:'#/health/config',linkLabel:'Health protocol'});
+    const mv=f.add('child',{label:'Shift to ICU (Health)',sopId:'sop_shift',reason:'health'});
+    const e=f.add('end',{label:'Case handed to Health protocol',outcome:'done'});
+    f.link(ids[ids.length-1],ap); f.link(ap,tr,'Treat in pen'); f.link(ap,mv,'Move to ICU'); const re=f.add('end',{label:'Re-check requested',outcome:'rejected'}); f.link(ap,re,'Check again'); f.link(mv,tr); f.link(tr,e);
     return f.nodes;
   }
 
@@ -152,11 +168,14 @@
         P('Mandela 1',seq('Part ',10)),P('Mandela 2',seq('Part ',8)),P('Sumathi 1',seq('Part ',8)),P('Sumathi 2',seq('Part ',8)),P('Yashoda',seq('',10))],
       park_cpt:[P('Castro',seq('',2)),P('Gandhi',seq('',3)),P('Godel 1',seq('Part ',8)),P('Godel 2',seq('Part ',8)),
         P('Mandela 1',seq('Part ',10)),P('Mandela 2',seq('Part ',10)),P('Old Yashoda',seq('',5)),P('Yashoda',seq('',4))]};
+    /* stg shed_profiles: sex blank, has_icu false and lifecycle status null on every row; stage set on these sheds. */
+    const stgProfile={'cpt|Gandhi':'NP','cpt|Godel 1':'NP','cpt|Godel 2':'NP'};
     st.pens=[]; st.partitions=[];
     const penId={};
     Object.keys(sheds).forEach(pk=>sheds[pk].forEach(([name,parts])=>{
       const id='pen_'+pk.slice(5)+'_'+name.toLowerCase().replace(/\s+/g,'_'); penId[pk.slice(5)+'|'+name]=id;
-      st.pens.push({id,parkId:pk,name,capacity:'',stageId:'',sex:'',status:'active'});
+      const prof=(stgProfile[pk.slice(5)+'|'+name]||'');
+      st.pens.push({id,parkId:pk,name,capacity:'',stageId:prof?stg('sp_goat',prof):'',sex:'',hasIcu:false,lifecycleStatus:'',status:'active'});
       parts.forEach(pt=>st.partitions.push({id:id+'_p'+pt.replace(/\D/g,''),penId:id,name:pt,capacity:'',status:'active'}));
     }));
 
@@ -214,8 +233,9 @@
     st.approvers=[
       ['Procurement','Animal selection','role_ceo'],['Procurement','Final boarding list','role_ceo'],['Procurement','Transit shortage','role_procdir'],['Procurement','Warm-up release','role_ceo'],
       ['Weighing','Weight and video','role_verifier'],['Feed','Distribution proof','role_verifier'],['Counts','Birth','role_parkhead'],['Counts','Death','role_parkhead'],['Counts','Shifting','role_parkhead'],
-      ['Health','Course outcome','role_health'],['People','Leave','role_hr']].map((a,i)=>({id:'apr_'+i,dept:a[0],step:a[1],roleId:a[2],status:'active'}));
+      ['Health','Assessment approval','role_health'],['People','Leave','role_hr']].map((a,i)=>({id:'apr_'+i,dept:a[0],step:a[1],roleId:a[2],status:'active'}));
 
+    /* Read-only mirror of the Procurement vendor register (prod /procurement/vendors) for SOP pickers. */
     st.vendors=[
       {id:'ven_1',name:'Anantapur Livestock Traders',supplies:'Animals',farmId:'farm_cpt',city:'Anantapur',phone:'',status:'active'},
       {id:'ven_2',name:'Sirohi Goat Suppliers',supplies:'Animals',farmId:'farm_cbe',city:'Sirohi',phone:'',status:'active'},
@@ -225,7 +245,7 @@
 
     const set=(id,dept,name,value,unit,type)=>({id,dept,name,value,unit,type:type||'number',status:'active'});
     st.settings=[
-      set('set_sale_min','Sales','Sale-ready minimum weight',35,'kg'),set('set_sale_tol','Sales','Weight tolerance',200,'g'),
+      set('set_sale_min','Sales','Sale-ready minimum weight',35,'kg'),Object.assign(set('set_sale_tol','Sales','Weight tolerance',200,'g'),{meta:{codeDefault:0,max:1000,source:'weighing/domain/shed_weights.go (default 0 g, max 1000 g); 200 g is the requirement example'}}),
       set('set_report_w','Sales','Reporting weight threshold',30,'kg'),set('set_val_fat','Sales','Valuation rate · fattening',450,'INR/kg'),
       set('set_val_af','Sales','Valuation rate · adult female',600,'INR/kg'),set('set_w_af','Sales','Assumed weight · adult female',40,'kg'),
       set('set_val_am','Sales','Valuation rate · adult male',500,'INR/kg'),set('set_w_am','Sales','Assumed weight · adult male',60,'kg'),
@@ -248,8 +268,7 @@
       ['start',{label:'Animals approved at seller'}],
       ['question',{label:'Scan RFID of approved animal',answer:'scan',required:true,page:'Tag'}],
       ['question',{label:'Vendor tag matches approved list?',answer:'choice',options:[{v:'yes',l:'Yes'},{v:'no',l:'No'}],required:true,page:'Tag',reject:{op:'=',value:'no',reason:'Not on approved list'}}],
-      ['action',{label:'Vaccinate per Vaccination plan',link:'#/vaccination/plan',linkLabel:'Vaccination plan',page:'Vaccinate'}],
-      ['evidence',{label:'Vaccination video',media:['video'],min:1,max:1,page:'Vaccinate'}],
+      ['action',{label:'Vaccinate in the Vaccination module (scan per animal, video per plan)',link:'#/vaccination/plan',linkLabel:'Vaccination plan',page:'Vaccinate'}],
       ['question',{label:'Holding start date',answer:'date',required:true,page:'Hold'}],
       ['wait',{label:'Hold at seller',amount:15,unit:'days',setting:'set_seller_hold'}],
       ['end',{label:'Ready for reinspection',outcome:'done'}]]);
@@ -267,7 +286,7 @@
     const warmup=linear([
       ['start',{label:'Arrived at destination'}],
       ['question',{label:'Animals received into shed',answer:'number',unit:'animals',min:0,required:true,page:'Arrival'}],
-      ['action',{label:'Mix carried feed with farm feed',itemId:'itm_conc',page:'Arrival'}],
+      ['action',{label:'Feed transition per Feed config',link:'#/feed/config',linkLabel:'Feed config',page:'Arrival'}],
       ['repeat',{label:'Daily warm-up check',every:24,everyUnit:'hours',forAmount:14,forUnit:'days',forSetting:'set_warmup',media:['photo']}],
       ['approval',{label:'Release to herd',roleId:'role_ceo',outcomes:['Release','Extend warm-up']}],
       ['end',{label:'Released',outcome:'done'}]]);
@@ -324,7 +343,10 @@
     const k0=linear([
       ['start',{label:'Kid born · K0 - Newborn'}],
       ['question',{label:'Scan kid RFID',answer:'scan',required:true,page:'Kid'}],
-      ['repeat',{label:'Colostrum session · 07:00, 11:00, 15:00, 18:30, 22:00',every:1,everyUnit:'days',forAmount:48,forUnit:'hours',media:['video']}],
+      ['action',{label:'1st colostrum feed (right after birth)',page:'Kid'}],
+      ['evidence',{label:'1st colostrum video',media:['video'],min:1,max:1,page:'Kid'}],
+      /* tasks/domain/templates.go colostrumSessionTimes: 5 IST slots; birth day gets slots not yet started, next day all 5 (up to 10). */
+      ['repeat',{label:'Scheduled colostrum feed',times:['07:00','11:00','15:00','18:30','22:00'],every:1,everyUnit:'days',forAmount:2,forUnit:'days',slotCount:10,notifySetting:'set_colostrum_notify',media:['video']}],
       ['child',{label:'Shift to K1 (Growth)',sopId:'sop_shift'}],
       ['end',{label:'Moved to K1',outcome:'done'}]]);
     const k1=linear([
@@ -337,28 +359,29 @@
     const k2=linear([
       ['start',{label:'Kid in K2 - Milk Drinking'}],
       ['action',{label:'Milk freely from feeding system',page:'Milk'}],
-      ['wait',{label:'Until day 78',amount:68,unit:'days'}],
+      ['wait',{label:'Until the kid is 78 days old (K3)',until:'age',amount:78,unit:'days of age',stageId:'stg_g_k3'}],
       ['child',{label:'Shift to K3 (Growth)',sopId:'sop_shift'}],
       ['end',{label:'Moved to K3',outcome:'done'}]]);
     const k3=linear([
       ['start',{label:'Kid in K3 - Weaning'}],
       ['action',{label:'Cut milk ration; offer hay, concentrate and water',page:'Weaning'}],
-      ['wait',{label:'Until day 85',amount:7,unit:'days'}],
+      ['wait',{label:'Until the kid is 85 days old (Fattening)',until:'age',amount:85,unit:'days of age'}],
       ['child',{label:'Shift to Fattening (Growth)',sopId:'sop_shift'}],
       ['end',{label:'Moved to Fattening',outcome:'done'}]]);
     st.sops=[
-      sop('sop_inspect','Procurement','Animal purchase inspection',inspectionFlow(),5,6,'event'),
+      sop('sop_inspect','Procurement','Animal purchase inspection',inspectionFlow(),7,6,'event'),
       sop('sop_taghold','Procurement','Tag, vaccinate and hold',tagHold,1,2),
       sop('sop_reinspect','Procurement','Reinspect and board',reinspect,1,1),
       sop('sop_transit','Procurement','Transit',transitFlow(),1,1),
       sop('sop_destprep','Procurement','Destination shed preparation',destPrepFlow(),1,0),
       sop('sop_warmup','Procurement','Warm-up and feed transition',warmup,1,1),
       sop('sop_weigh','Weighing','Individual weighing',weighingFlow(),2,14),
+      sop('sop_weigh_lump','Weighing','Lump-sum weighing',lumpSumWeighingFlow(),1,3),
       sop('sop_removal','Weighing','Feed and water removal',removal,1,3),
       sop('sop_feeddist','Feed','Feed distribution',feedDist,3,22,'commodity'),
       sop('sop_feedpack','Feed','Feed packing',feedPack,1,9,'commodity'),
       sop('sop_feedtrans','Feed','Feed transport',feedTrans,1,9,'commodity'),
-      Object.assign(sop('sop_fever','Health','Fever treatment course',healthFlow(),1,4,'problem'),{source:'Health DB sheet · Adults SOP / Kids SOP'}),
+      Object.assign(sop('sop_fever','Health','Sick animal report',healthFlow(),1,4,'problem'),{source:'Android health observation form · Health protocol'}),
       sop('sop_k0','Milk','K0 colostrum and newborn care',k0,1,0,'event'),
       sop('sop_k1','Milk','K1 milk training',k1,1,0,'action'),
       sop('sop_k2','Milk','K2 milk drinking',k2,1,0,'action'),

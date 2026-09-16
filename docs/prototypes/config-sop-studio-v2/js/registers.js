@@ -6,6 +6,12 @@
   const txt=(k,label,extra)=>Object.assign({k,label,type:'text',attr:k},extra||{});
   const num=(k,label,extra)=>Object.assign({k,label,type:'num',attr:k,w:'num'},extra||{});
   const en=(k,label,opts,extra)=>Object.assign({k,label,type:'enum',opts,attr:k},extra||{});
+  /* enum values are stored as codes; people see and may type human-case labels */
+  const ENUM_WORDS={any:'Any',cxo:'CXO',assistant_manager:'Assistant manager',yes_no:'Yes / no',multiselect:'Multi-select',growth_cohort:'Growth cohort'};
+  const enumLabel=o=>{o=String(o==null?'':o);if(!o)return '';if(ENUM_WORDS[o])return ENUM_WORDS[o];if(o!==o.toLowerCase())return o;const t=o.replace(/_/g,' ');return t[0].toUpperCase()+t.slice(1);};
+  const enumValue=(c,raw)=>{const n=norm(raw);return c.opts.find(o=>norm(o)===n||norm(enumLabel(o))===n);};
+  /* animal identifiers compare ignoring case and spaces */
+  const idNorm=s=>String(s==null?'':s).toLowerCase().replace(/\s+/g,'');
 
   const R={
     farms:{label:'Farms',one:'Farm',coll:'farms',icon:'map-pin',
@@ -35,20 +41,20 @@
         num('fromD','From (days)',{min:0}),num('toD','To (days)',{min:0}),en('sex','Sex',['any','female','male'])],
       key:v=>norm(v.species)+'|'+norm(v.code),
       check:(v,iss)=>{if(v.fromD!==''&&v.toD!==''&&v.fromD!=null&&v.toD!=null&&!isNaN(v.fromD)&&!isNaN(v.toD)&&Number(v.toD)<Number(v.fromD))iss('toD','err','Before From');}},
-    tags:{label:'Tags & groups',one:'Tag',coll:'tags',
+    tags:{label:'Shed tags',one:'Shed tag',coll:'tags',
       cols:[ref('species','Species','species','speciesId',{blankLabel:'All species'}),txt('name','Name',{req:1}),en('kind','Kind',['tag','group'])],
       key:v=>norm(v.species)+'|'+norm(v.name)+'|'+norm(v.kind||'tag')},
     healthStates:{label:'Health states',one:'Health state',coll:'healthStates',
       cols:[txt('name','Name',{req:1,w:'wide'}),en('group','Group',['Milk Kids','Fattening Kids','Adults']),num('fromD','From (days)'),num('toD','To (days)')],key:v=>norm(v.name)},
     animals:{label:'Animals',one:'Animal',coll:'animals',icon:'list-checks',
-      cols:[txt('rfid','RFID',{req:1,w:'wide',unique:1}),txt('tag2','Second tag',{unique:1}),
+      cols:[txt('rfid','RFID',{req:1,w:'wide',idTag:1}),txt('tag2','Second tag',{idTag:1}),
         ref('species','Species','species','speciesId',{req:1}),ref('breed','Breed','breeds','breedId',{scope:{col:'species',attr:'speciesId'}}),
         ref('sex','Sex','sexes','sexId',{req:1,scope:{col:'species',attr:'speciesId'}}),ref('stage','Stage','stages','stageId',{scope:{col:'species',attr:'speciesId'}}),
         Object.assign(txt('dob','Date of birth'),{type:'date'}),num('weight','Weight (kg)',{min:0}),
-        ref('park','Park','parks','parkId'),ref('pen','Pen','pens','penId',{scope:{col:'park',attr:'parkId'}}),
+        ref('park','Park','parks','parkId',{req:1}),ref('pen','Pen','pens','penId',{req:1,scope:{col:'park',attr:'parkId'}}),
         ref('partition','Partition','partitions','partitionId',{scope:{col:'pen',attr:'penId'}}),
         Object.assign(ref('tags','Tags','tags','tagIds',{scope:{col:'species',attr:'speciesId',allowBlank:true}}),{type:'multi'})],
-      key:v=>norm(v.rfid),keyCol:'rfid'},
+      key:v=>idNorm(v.rfid),keyCol:'rfid'},
     categories:{label:'Categories',one:'Category',coll:'categories',
       cols:[{k:'path',label:'Category path',type:'path',req:1,w:'wide'}],key:v=>norm(v.path)},
     items:{label:'Items',one:'Item',coll:'items',icon:'folder',
@@ -63,12 +69,7 @@
     approvers:{label:'Approvers',one:'Approver',coll:'approvers',
       cols:[en('dept','Department',DEPTS,{req:1}),txt('step','Approval step',{req:1,w:'wide'}),ref('role','Approver role','roles','roleId',{req:1})],
       key:v=>norm(v.dept)+'|'+norm(v.step)},
-    vendors:{label:'Vendors',one:'Vendor',coll:'vendors',icon:'truck',
-      cols:[txt('name','Vendor',{req:1,w:'wide'}),en('supplies','Supplies',['Animals','Feed','Transport','Medicines','Other']),ref('farm','Farm','farms','farmId'),txt('city','City'),txt('phone','Phone')],
-      key:v=>norm(v.name)},
-    trucks:{label:'Trucks',one:'Truck',coll:'trucks',icon:'truck',
-      cols:[txt('number','Vehicle number',{req:1,w:'wide',unique:1}),ref('vendor','Vendor','vendors','vendorId'),num('capacity','Capacity (animals)',{min:0})],
-      key:v=>norm(v.number)},
+    /* Vendors & trucks are owned by Procurement (prod admin-web /procurement/vendors); not a register here. */
     statusDefs:{label:'Status definitions',one:'Status',coll:'statusDefs',
       cols:[en('axis','Axis',['lifecycle','reproductive','health','growth_cohort','management'],{req:1}),txt('code','Code',{req:1,w:'num'}),txt('name','Status',{req:1}),num('days','Expected days',{min:0})],
       key:v=>norm(v.axis)+'|'+norm(v.code)},
@@ -78,11 +79,8 @@
     weightBands:{label:'Weight bands',one:'Weight band',coll:'weightBands',
       cols:[ref('species','Species','species','speciesId',{blankLabel:'All species'}),txt('name','Band',{req:1}),num('fromKg','From (kg)',{min:0}),num('toKg','To (kg)',{min:0})],
       key:v=>norm(v.species)+'|'+norm(v.name)},
-    rationGroups:{label:'Ration groups',one:'Ration group',coll:'rationGroups',
-      cols:[txt('name','Ration group',{req:1,w:'wide'}),Object.assign(ref('breeds','Breeds','breeds','breedIds'),{type:'multi'})],key:v=>norm(v.name)},
-    diseases:{label:'Diseases',one:'Disease',coll:'diseases',cols:[txt('name','Disease',{req:1,w:'wide'}),en('ageBand','Age band',['','adult','kid'])],key:v=>norm(v.name)+'|'+norm(v.ageBand)},
-    symptoms:{label:'Symptoms',one:'Symptom',coll:'symptoms',cols:[txt('code','Code',{req:1,w:'num'}),txt('name','Symptom',{req:1,w:'wide'})],key:v=>norm(v.code)},
-    deathCauses:{label:'Death causes',one:'Death cause',coll:'deathCauses',cols:[txt('name','Death cause',{req:1,w:'wide'}),ref('disease','Disease','diseases','diseaseId')],key:v=>norm(v.name)},
+    /* Diseases, symptoms and ration groups are owned by Health Config (#/health/config) and Feed Config (#/feed/config); not registers here. */
+    deathCauses:{label:'Death causes',one:'Death cause',coll:'deathCauses',cols:[txt('name','Death cause',{req:1,w:'wide'})],key:v=>norm(v.name)},
     marketCities:{label:'Market cities',one:'Market city',coll:'marketCities',cols:[txt('name','City',{req:1,w:'wide'}),txt('state','State')],key:v=>norm(v.name)},
     sopCategories:{label:'SOP categories',one:'SOP category',coll:'sopCategories',cols:[txt('code','Key',{req:1,w:'num'}),txt('name','Category',{req:1,w:'wide'})],key:v=>norm(v.code)},
     taskTypes:{label:'Task types',one:'Task type',coll:'taskTypes',cols:[txt('code','Key',{req:1,w:'wide'}),txt('name','Task type',{req:1,w:'wide'}),en('answer','Answer',['none','yes_no','select','multiselect','number','text'])],key:v=>norm(v.code)},
@@ -114,7 +112,8 @@
     if(col.type==='ref')return labelById(col.ref,v);
     if(col.type==='multi')return (v||[]).map(id=>labelById(col.ref,id)).filter(Boolean).join('; ');
     if(col.type==='path')return reg.coll==='categories'?catPath(rec.id):(v?catPath(v):'');
-    if(col.type==='multienum')return (v||[]).join('; ');
+    if(col.type==='multienum')return (v||[]).map(enumLabel).join('; ');
+    if(col.type==='enum')return enumLabel(v);
     if(col.type==='date'&&v&&/^\d{4}-\d{2}-\d{2}$/.test(v))return v.slice(8,10)+'/'+v.slice(5,7)+'/'+v.slice(0,4);
     return v==null?'':String(v);
   }
@@ -178,13 +177,11 @@
     const c=col.ref;
     const arch=matches(col,S.all(c).filter(x=>x.status==='archived'&&(!col.scope||!attrs[col.scope.attr]||x[col.scope.attr]===attrs[col.scope.attr])),norm(text));
     if(arch.length===1){arch[0].status='active';return arch[0].id;}
-    if(c==='trucks')attrs.number=text;
-    else if(c==='stages'){attrs.code=text.replace(/\s+/g,'').toUpperCase().slice(0,10);attrs.name=text;attrs.sex='any';attrs.fromD='';attrs.toD='';}
+    if(c==='stages'){attrs.code=text.replace(/\s+/g,'').toUpperCase().slice(0,10);attrs.name=text;attrs.sex='any';attrs.fromD='';attrs.toD='';}
     else if(c==='farms'){attrs.code=text.replace(/\s+/g,'').toUpperCase().slice(0,4);attrs.name=text;}
     else if(c==='parks'){attrs.name=text;attrs.code='';}
     else if(c==='tags'){attrs.name=text;attrs.kind='tag';attrs.speciesId=attrs.speciesId||'';}
     else if(c==='roles'){attrs.name=text;attrs.grade='';}
-    else if(c==='vendors'){attrs.name=text;attrs.supplies='Other';}
     else attrs.name=text;
     return S.add(c,attrs).id;
   }
@@ -223,6 +220,24 @@
     return out;
   }
 
+  function activeUsage(coll,id){
+    const out=[];
+    Object.keys(R).forEach(k=>{const reg=R[k];reg.cols.forEach(c=>{
+      if(c.virtual||!c.attr||c.ref!==coll||!(c.type==='ref'||c.type==='multi'))return;
+      const n=S.active(reg.coll).filter(x=>{const v=x[c.attr];return Array.isArray(v)?v.includes(id):v===id;}).length;if(n)out.push({label:reg.label,n});
+    });});
+    return out;
+  }
+  const usageText=u=>u.map(x=>x.n+' '+x.label.toLowerCase()).join(', ');
+  /* archive guard: returns a sentence when the record is still used by active records */
+  function archiveBlock(coll,id){const u=activeUsage(coll,id);return u.length?'In use by '+usageText(u):'';}
+  function keyOf(reg,v){
+    const o=Object.assign({},v);
+    reg.cols.forEach(c=>{if(c.type==='enum'&&o[c.k]!=null&&String(o[c.k]).trim()!==''){const x=enumValue(c,o[c.k]);if(x!==undefined)o[c.k]=enumLabel(x);}});
+    return reg.key(o);
+  }
+  const SPECIES_SCOPED=['breeds','stages','sexes','tags'];
+
   /* validation of grid rows. undefined cell = column not provided (keep); '' = clear */
   function isBlankRow(reg,v){return reg.cols.every(c=>!String(v[c.k]==null?'':v[c.k]).trim());}
   function parseDate(raw){
@@ -233,54 +248,89 @@
     return y+'-'+String(mo).padStart(2,'0')+'-'+String(d).padStart(2,'0');
   }
   function validate(regKey,rows,opts){
-    const reg=R[regKey]; opts=opts||{}; const create=opts.createParents!==false; const pending=opts.pending||{};
-    const out=[]; const keyCount={}; const uniq={};
+    const reg=R[regKey]; opts=opts||{}; const create=!!opts.createParents; const pending=opts.pending||{}; const chosen=opts.chosen||{};
+    const out=[]; const keyCount={}; const uniq={}; const ids={};
     const keyCol=reg.keyCol||(reg.cols.filter(c=>c.req&&c.type==='text').pop()||reg.cols.find(c=>c.req)||reg.cols[0]).k;
-    rows.forEach(r=>{if(!isBlankRow(reg,r.v)){const k=reg.key(r.v);keyCount[k]=(keyCount[k]||0)+1;reg.cols.filter(c=>c.unique).forEach(c=>{const x=norm(r.v[c.k]);if(x){uniq[c.k+'|'+x]=(uniq[c.k+'|'+x]||0)+1;}});}});
+    rows.forEach(r=>{if(!isBlankRow(reg,r.v)){const k=keyOf(reg,r.v);keyCount[k]=(keyCount[k]||0)+1;
+      reg.cols.filter(c=>c.unique).forEach(c=>{const x=norm(r.v[c.k]);if(x){uniq[c.k+'|'+x]=(uniq[c.k+'|'+x]||0)+1;}});
+      new Set(reg.cols.filter(c=>c.idTag).map(c=>idNorm(r.v[c.k])).filter(Boolean)).forEach(x=>{ids[x]=(ids[x]||0)+1;});}});
     const penLoad={};
     rows.forEach((r,idx)=>{
-      const v=r.v; const res={id:r.id,status:'create',issues:{},creates:[],match:null};
+      const v=r.v; const res={id:r.id,status:'create',issues:{},creates:[],unresolved:[],match:null};
       if(isBlankRow(reg,v)){res.status='empty';out.push(res);return;}
-      const iss=(k,l,m)=>{if(!res.issues[k]||res.issues[k][0]!=='err')res.issues[k]=[l,m];};
-      const key=reg.key(v);
+      const RANK={err:3,warn:2,info:1};
+      const iss=(k,l,m,extra)=>{const cur=res.issues[k];if(!cur||RANK[l]>RANK[cur[0]])res.issues[k]=[l,m,extra||null];};
+      const key=keyOf(reg,v);
       const byId=r.recId?S.get(reg.coll,r.recId):null;
-      const byKey=S.all(reg.coll).filter(x=>reg.key(toRow(regKey,x))===key);
+      const byKey=S.all(reg.coll).filter(x=>keyOf(reg,toRow(regKey,x))===key);
       const existing=byId||byKey[0]||null;
       reg.cols.forEach(c=>{
         if(v[c.k]===undefined&&existing)return;
         const raw=String(v[c.k]==null?'':v[c.k]).trim();
         if(!raw){if(c.req)iss(c.k,'err','Required');return;}
+        if(/^=/.test(raw)){iss(c.k,'err','Formulas are not allowed');return;}
         if(c.type==='num'){if(isNaN(Number(raw)))iss(c.k,'err','Not a number');else if(c.min!=null&&Number(raw)<c.min)iss(c.k,'err','Min '+c.min);}
         if(c.type==='date'&&!parseDate(raw))iss(c.k,'err','DD/MM/YYYY');
-        if(c.type==='enum'&&!c.opts.some(o=>norm(o)===norm(raw)))iss(c.k,'err',c.opts.filter(Boolean).join(' · '));
-        if(c.type==='multienum'){const bad=raw.split(/[;,]/).map(s=>s.trim()).filter(s=>s&&!c.opts.some(o=>norm(o)===norm(s)));if(bad.length)iss(c.k,'err','Unknown: '+bad.join(', '));}
+        if(c.type==='enum'&&enumValue(c,raw)===undefined)iss(c.k,'err','Use '+c.opts.filter(Boolean).map(enumLabel).join(' · '));
+        if(c.type==='multienum'){const bad=raw.split(/[;,]/).map(s=>s.trim()).filter(s=>s&&enumValue(c,s)===undefined);if(bad.length)iss(c.k,'err','Unknown: '+bad.join(', '));}
         if(c.unique){const x=norm(raw);if(uniq[c.k+'|'+x]>1)iss(c.k,'err','Duplicate in sheet');const other=S.all(reg.coll).find(y=>norm(y[c.attr])===x&&(!existing||y.id!==existing.id));if(other)iss(c.k,'err','Already used');}
+        if(c.idTag){
+          const x=idNorm(raw);
+          if(/^\d+(\.\d+)?e\+?\d+$/i.test(raw))iss(c.k,'err','Excel turned this tag into a number · format the column as Text');
+          if(ids[x]>1)iss(c.k,'err','Tag repeated in sheet');
+          const other=S.all(reg.coll).find(y=>(!existing||y.id!==existing.id)&&reg.cols.some(cc=>cc.idTag&&idNorm(y[cc.attr])===x));
+          if(other)iss(c.k,'err','Tag already on animal '+(other.rfid||''));
+        }
         if(c.type==='ref'||c.type==='path'){
           const f=findRef(regKey,c,raw,v);
           if(f.ambiguous)iss(c.k,'err',f.ambiguous+' matches'+(c.scope?' · set '+R[regKey].cols.find(x=>x.k===c.scope.col).label:''));
-          else if(!f.rec){
+          else if(f.rec){
+            const lab=c.type==='path'?catPath(f.rec.id):label(c.ref,f.rec);
+            if(norm(lab)!==norm(raw)&&norm(fullLabel(c.ref,f.rec))!==norm(raw)&&norm(f.rec.code)!==norm(raw))iss(c.k,'info',raw+' → '+lab);
+          }
+          else{
             const pend=pending[c.ref]&&pending[c.ref].has(norm(raw));
+            const wrong=!pend&&c.scope&&c.scope.attr==='speciesId'?matches(c,S.active(c.ref),norm(raw)).filter(x=>x.speciesId):[];
             if(pend){}
-            else if(f.archived){if(create){iss(c.k,'warn','Archived · will restore');res.creates.push(c.label+': '+raw);}else iss(c.k,'err','Archived');}
+            else if(wrong.length){iss(c.k,'err',raw+' belongs to '+wrong.map(x=>labelById('species',x.speciesId)).join(', ')+', not '+String(v[c.scope.col]||'').trim());}
+            else if(f.archived){if(create||chosen[c.k+'|'+norm(raw)]){iss(c.k,'warn','Archived · will restore');res.creates.push(c.label+': '+raw);}else{iss(c.k,'err','Archived · restore or pick another',{create:true,text:raw,archived:true});res.unresolved.push(c.k);}}
             else if(create){iss(c.k,'warn','New');res.creates.push(c.label+': '+raw);}
-            else iss(c.k,'err','Not found');
+            else{iss(c.k,'err','Not found',{create:true,text:raw});res.unresolved.push(c.k);}
           }
         }
         if(c.type==='multi'){
           raw.split(/[;,]/).map(s=>s.trim()).filter(Boolean).forEach(t=>{
-            const f=findRef(regKey,Object.assign({},c,{type:'ref'}),t,v);
+            const cc=Object.assign({},c,{type:'ref'});
+            const f=findRef(regKey,cc,t,v);
             if(f.ambiguous)iss(c.k,'err',t+': '+f.ambiguous+' matches');
-            else if(!f.rec){if(create){iss(c.k,'warn','New: '+t);res.creates.push(c.label+': '+t);}else iss(c.k,'err','Not found: '+t);}
+            else if(!f.rec){
+              const wrong=c.scope&&c.scope.attr==='speciesId'?matches(cc,S.active(c.ref),norm(t)).filter(x=>x.speciesId):[];
+              if(wrong.length)iss(c.k,'err',t+' belongs to '+wrong.map(x=>labelById('species',x.speciesId)).join(', '));
+              else if(create){iss(c.k,'warn','New: '+t);res.creates.push(c.label+': '+t);}
+              else{iss(c.k,'err','Not found: '+t,{create:true,text:t});res.unresolved.push(c.k);}
+            }
           });
         }
       });
+      if(regKey==='animals'){
+        const a=idNorm(v.rfid),b=idNorm(v.tag2);
+        if(a&&b&&a===b)iss('tag2','err','Must differ from RFID');
+      }
       if(keyCount[key]>1)iss(keyCol,'err','Duplicate in sheet');
       if(byId&&byKey.some(x=>x.id!==byId.id))iss(keyCol,'err','Already exists');
       if(existing){
         res.match=existing;
         const cur=toRow(regKey,existing);
-        const changed=reg.cols.some(c=>{if(c.virtual||v[c.k]===undefined)return false;const raw=String(v[c.k]==null?'':v[c.k]).trim();return norm(raw)!==norm(cur[c.k]);});
-        res.status=changed||existing.status==='archived'?'update':'unchanged';
+        const same=(c,raw)=>c.type==='enum'?enumValue(c,raw)===existing[c.attr]||norm(raw)===norm(cur[c.k]):norm(raw)===norm(cur[c.k]);
+        const changed=reg.cols.some(c=>{if(c.virtual||v[c.k]===undefined)return false;const raw=String(v[c.k]==null?'':v[c.k]).trim();return !same(c,raw);});
+        const newStatus=v.status!==undefined?norm(v.status):null;
+        res.status=changed||existing.status==='archived'&&newStatus!=='archived'||newStatus&&newStatus!==(existing.status||'active')?'update':'unchanged';
+        /* species-scoped values cannot move species or be archived while animals or shed tags use them */
+        if(SPECIES_SCOPED.includes(reg.coll)&&v.species!==undefined){
+          const sp=findRef(regKey,reg.cols.find(c=>c.k==='species'),v.species,v).rec;
+          if((sp?sp.id:'')!==(existing.speciesId||'')){const b=archiveBlock(reg.coll,existing.id);if(b)iss('species','err','Cannot change species · '+b);}
+        }
+        if(newStatus==='archived'&&existing.status!=='archived'){const b=archiveBlock(reg.coll,existing.id);if(b)iss(keyCol,'err','Cannot archive · '+b);}
       }
       if(reg.check)reg.check(v,iss,existing);
       if(regKey==='animals'){
@@ -292,7 +342,7 @@
         }
         const st=findRef('animals',reg.cols.find(c=>c.k==='stage'),v.stage,v).rec;
         const sx=norm(v.sex);
-        if(st&&st.sex&&st.sex!=='any'&&(sx==='female'||sx==='male')&&sx!==st.sex)iss('stage','warn',st.name+' · '+st.sex+' only');
+        if(st&&st.sex&&st.sex!=='any'&&(sx==='female'||sx==='male')&&sx!==st.sex)iss('stage','warn',st.name+' · '+enumLabel(st.sex)+' only');
       }
       if(Object.values(res.issues).some(i=>i[0]==='err'))res.status='error';
       out.push(res);
@@ -304,6 +354,7 @@
   function commit(regKey,rows,opts){
     const reg=R[regKey]; opts=opts||{};
     const results=validate(regKey,rows,opts);
+    if(opts.strict&&results.some(r=>r.status==='error'))return {created:0,updated:0,unchanged:0,skipped:results.filter(r=>r.status==='error').length,parents:0,blocked:true};
     const sum={created:0,updated:0,unchanged:0,skipped:0,parents:0};
     const before={}; Object.keys(R).forEach(k=>before[R[k].coll]=S.all(R[k].coll).length);
     results.forEach((res,i)=>{
@@ -319,11 +370,12 @@
         const raw=String(v[c.k]==null?'':v[c.k]).trim();
         if(!raw){attrs[c.attr]=(c.type==='multi'||c.type==='multienum')?[]:'';return;}
         if(c.type==='num')attrs[c.attr]=Number(raw);
-        else if(c.type==='enum')attrs[c.attr]=c.opts.find(o=>norm(o)===norm(raw));
-        else if(c.type==='multienum')attrs[c.attr]=raw.split(/[;,]/).map(s=>s.trim()).filter(Boolean).map(s=>c.opts.find(o=>norm(o)===norm(s)));
+        else if(c.type==='enum')attrs[c.attr]=enumValue(c,raw);
+        else if(c.type==='multienum')attrs[c.attr]=raw.split(/[;,]/).map(s=>s.trim()).filter(Boolean).map(s=>enumValue(c,s));
         else if(c.type==='ref'||c.type==='path'){const f=findRef(regKey,c,raw,v);attrs[c.attr]=f.rec?f.rec.id:createRef(regKey,c,raw,v);}
         else if(c.type==='multi')attrs[c.attr]=raw.split(/[;,]/).map(s=>s.trim()).filter(Boolean).map(t=>{const cc=Object.assign({},c,{type:'ref'});const f=findRef(regKey,cc,t,v);return f.rec?f.rec.id:createRef(regKey,cc,t,v);});
         else if(c.type==='date')attrs[c.attr]=parseDate(raw)||raw;
+        else if(c.idTag)attrs[c.attr]=raw.replace(/\s+/g,'');
         else attrs[c.attr]=raw;
       });
       if(regKey==='settings'&&attrs.value!==undefined&&attrs.value!==''&&!isNaN(Number(attrs.value)))attrs.value=Number(attrs.value);
@@ -335,5 +387,5 @@
     return sum;
   }
 
-  window.REG={R,norm,label,fullLabel,labelById,catPath,toRow,cellValue,candidates,findRef,createRef,createChoices,usage,validate,commit,ensurePath,isBlankRow,parseDate};
+  window.REG={R,norm,idNorm,enumLabel,enumValue,activeUsage,archiveBlock,usageText,label,fullLabel,labelById,catPath,toRow,cellValue,candidates,findRef,createRef,createChoices,usage,validate,commit,ensurePath,isBlankRow,parseDate};
 })();

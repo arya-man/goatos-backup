@@ -3,16 +3,16 @@
   const P={};
   const SECTIONS=[
     ['Farm places',[['parks','Parks'],['pens','Pens'],['partitions','Partitions'],['farms','Farms']]],
-    ['Animal types',[['species','Species'],['breeds','Breeds'],['sexes','Sexes'],['stages','Lifecycle stages'],['groups','Tags & groups'],['healthStates','Health states']]],
+    ['Animal types',[['species','Species'],['breeds','Breeds'],['sexes','Sexes'],['stages','Lifecycle stages'],['groups','Shed tags'],['healthStates','Health states']]],
     ['Animals',[['animals','Animals']]],
     ['Catalogue',[['items','Items & categories']]],
     ['People & approvers',[['people','People'],['roles','Roles'],['approvers','Approvers']]],
-    ['Vendors & trucks',[['vendors','Vendors'],['trucks','Trucks']]],
-    ['Reference lists',[['statusDefs','Status definitions'],['exitReasons','Exit reasons'],['purposes','Animal purposes'],['movementReasons','Movement reasons'],['weightBands','Weight bands'],['rationGroups','Ration groups'],['diseases','Diseases'],['symptoms','Symptoms'],['deathCauses','Death causes'],['marketCities','Market cities'],['sopCategories','SOP categories'],['taskTypes','Task types']]],
+    ['Reference lists',[['statusDefs','Status definitions'],['exitReasons','Exit reasons'],['purposes','Animal purposes'],['movementReasons','Movement reasons'],['weightBands','Weight bands'],['deathCauses','Death causes'],['marketCities','Market cities'],['sopCategories','SOP categories'],['taskTypes','Task types']]],
     ['Business settings',[['settings','Business settings']]]
   ];
+  const LINKS=[['Vendors &amp; trucks','#/procurement/vendors'],['Diseases','#/health/config'],['Ration groups','#/feed/config'],['Vaccination plan','#/vaccination/plan']];
   const regOf=k=>k==='shed-tags'||k==='groups'?'tags':k;
-  const count=k=>{if(k==='groups')return S.active('tags').length;return S.active(REG.R[regOf(k)].coll).length;};
+  const count=k=>{if(k==='groups')return S.active('tags').length;const r=REG.R[regOf(k)];return r?S.active(r.coll).length:0;};
   const penDisplay=a=>{const pen=S.get('pens',a.penId),pt=S.get('partitions',a.partitionId);return pen?pen.name+(pt?' - '+pt.name:''):'';};
   const num=v=>`<span class="num">${esc(v)}</span>`;
 
@@ -23,10 +23,10 @@
   function rail(active){
     const sec=SECTIONS.find(s=>s[1].some(x=>x[0]===active));
     return `<nav class="cfgrail card" aria-label="Registers">${SECTIONS.map(([t,items])=>`<div class="rsec"><div class="eyebrow">${esc(t)}</div>${items.map(([k,l])=>
-        `<a class="ritem ${k===active?'on':''}" href="#/configuration/items/${k}"><span>${esc(l)}</span><span class="rct">${count(k)}</span></a>`).join('')}</div>`).join('')}</nav>
-      <select class="fsel cfgrail-m" data-railsel aria-label="Register">${SECTIONS.map(([t,items])=>`<optgroup label="${esc(t)}">${items.map(([k,l])=>`<option value="${k}" ${k===active?'selected':''}>${esc(l)} (${count(k)})</option>`).join('')}</optgroup>`).join('')}</select>`;
+        `<a class="ritem ${k===active?'on':''}" href="#/configuration/items/${k}"><span>${esc(l)}</span><span class="rct">${count(k)}</span></a>`).join('')}</div>`).join('')}<div class="rsec"><div class="eyebrow">Other modules</div>${LINKS.map(([l,h])=>`<a class="ritem" href="${h}"><span>${l}</span><span class="rct">${ic('chevron-right','',12)}</span></a>`).join('')}</div></nav>
+      <select class="fsel cfgrail-m" data-railsel aria-label="Register">${SECTIONS.map(([t,items])=>`<optgroup label="${esc(t)}">${items.map(([k,l])=>`<option value="${k}" ${k===active?'selected':''}>${esc(l)} (${count(k)})</option>`).join('')}</optgroup>`).join('')}<optgroup label="Other modules">${LINKS.map(([l,h])=>`<option value="${h}">${l}</option>`).join('')}</optgroup></select>`;
   }
-  document.addEventListener('change',e=>{if(e.target.matches&&e.target.matches('[data-railsel]'))location.hash='#/configuration/items/'+e.target.value;});
+  document.addEventListener('change',e=>{if(e.target.matches&&e.target.matches('[data-railsel]'))location.hash=e.target.value.startsWith('#')?e.target.value:'#/configuration/items/'+e.target.value;});
 
   function list(regKey,opts){opts=opts||{};List.opts[regKey]=opts;return List.html(regKey,opts);}
 
@@ -38,11 +38,11 @@
     pens:()=>list('pens',{eyebrow:'Farm places',filters:['park','stage','sex'],
       columns:[{label:'Pen',html:r=>`<b>${esc(r.name)}</b>`},{label:'Park',html:r=>esc(REG.labelById('parks',r.parkId))},{label:'Partitions',w:100,num:1,html:r=>S.active('partitions').filter(p=>p.penId===r.id).length},
         {label:'Animals',w:90,num:1,html:r=>S.active('animals').filter(a=>a.penId===r.id).length},{label:'Capacity',w:90,num:1,html:r=>{const n=S.active('animals').filter(a=>a.penId===r.id).length;return (r.capacity===''||r.capacity==null?'—':esc(r.capacity))+(r.capacity&&n>r.capacity?' '+UI.tag('Over','dng'):'');}},
-        {label:'Stage',html:r=>esc(REG.labelById('stages',r.stageId))},{label:'Sex',w:90,html:r=>esc(r.sex||'')}]}),
+        {label:'Stage',html:r=>esc(REG.labelById('stages',r.stageId))},{label:'Sex',w:90,html:r=>esc(REG.enumLabel(r.sex))}]}),
     partitions:()=>list('partitions',{eyebrow:'Farm places',filters:['park','pen'],
       columns:[{label:'Partition',html:r=>`<b>${esc(REG.fullLabel('partitions',r))}</b>`},{label:'Park',html:r=>{const p=S.get('pens',r.penId);return esc(p?REG.labelById('parks',p.parkId):'');}},
         {label:'Capacity',w:100,num:1,html:r=>esc(r.capacity===''||r.capacity==null?'—':r.capacity)},{label:'Animals',w:90,num:1,html:r=>S.active('animals').filter(a=>a.partitionId===r.id).length}]}),
-    farms:()=>list('farms',{eyebrow:'Farm places',columns:[{label:'Code',w:90,html:r=>`<b class="mono">${esc(r.code)}</b>`},{label:'Farm',html:r=>esc(r.name)},{label:'Type',w:110,html:r=>esc(r.kind||'')},{label:'Parks',w:80,num:1,html:r=>S.active('parks').filter(p=>p.farmId===r.id).length}]}),
+    farms:()=>list('farms',{eyebrow:'Farm places',columns:[{label:'Code',w:90,html:r=>`<b class="mono">${esc(r.code)}</b>`},{label:'Farm',html:r=>esc(r.name)},{label:'Type',w:110,html:r=>esc(REG.enumLabel(r.kind))},{label:'Parks',w:80,num:1,html:r=>S.active('parks').filter(p=>p.farmId===r.id).length}]}),
     species:()=>list('species',{eyebrow:'Animal types',onOpen:id=>location.hash='#/configuration/items/animal-types/'+id,onNew:()=>location.hash='#/configuration/items/animal-types/new',addLabel:'New animal types',
       extraBtns:`<a class="btn sm" href="#/configuration/items/animal-types/all">${ic('edit-3')}Edit together</a>`,
       columns:[{label:'Species',html:r=>`<b>${esc(r.name)}</b>`},{label:'Code',w:90,html:r=>`<span class="mono">${esc(r.code||'')}</span>`},
@@ -52,9 +52,9 @@
     sexes:()=>list('sexes',{eyebrow:'Animal types',filters:['species']}),
     stages:()=>list('stages',{eyebrow:'Animal types',filters:['species','sex'],columns:[
       {label:'Stage',html:r=>`<b>${esc(r.name)}</b>`},{label:'Code',w:100,html:r=>`<span class="mono">${esc(r.code)}</span>`},{label:'Species',w:110,html:r=>esc(REG.labelById('species',r.speciesId))},
-      {label:'From (days)',w:110,num:1,html:r=>esc(r.fromD===''||r.fromD==null?'—':r.fromD)},{label:'To (days)',w:100,num:1,html:r=>esc(r.toD===''||r.toD==null?'—':r.toD)},{label:'Sex',w:90,html:r=>esc(r.sex)}]}),
+      {label:'From (days)',w:110,num:1,html:r=>esc(r.fromD===''||r.fromD==null?'—':r.fromD)},{label:'To (days)',w:100,num:1,html:r=>esc(r.toD===''||r.toD==null?'—':r.toD)},{label:'Sex',w:90,html:r=>esc(REG.enumLabel(r.sex))}]}),
     'shed-tags':()=>list('tags',{eyebrow:'Animal types',title:'Shed tags',filters:['species'],where:r=>r.kind!=='group',defaults:()=>({kind:'tag'}),addLabel:'Add shed tag'}),
-    groups:()=>list('tags',{eyebrow:'Animal types',title:'Tags & groups',filters:['species','kind'],addLabel:'Add tag or group'}),
+    groups:()=>list('tags',{eyebrow:'Animal types',title:'Shed tags',filters:['species','kind'],addLabel:'Add shed tag'}),
     healthStates:()=>list('healthStates',{eyebrow:'Animal types',filters:['group']}),
     animals:()=>list('animals',{eyebrow:'Animals',filters:['species','park','pen','stage','sex'],addLabel:'Add animals',onNew:()=>Sheet.openEntry('animals',null,[{}]),
       extraBtns:`<button class="btn sm" data-a="rec-one" data-reg="animals">${ic('plus')}Add one</button>`,
@@ -67,15 +67,13 @@
       {label:'Parks',html:r=>(r.parkIds||[]).length?(r.parkIds||[]).map(id=>UI.tag(REG.labelById('parks',id),'mut')).join(' '):'<span class="muted">All parks</span>'},{label:'Email',html:r=>esc(r.email||'')},{label:'Phone',html:r=>esc(r.phone||'')}]}),
     roles:()=>list('roles',{eyebrow:'People & approvers',columns:[{label:'Role',html:r=>`<b>${esc(r.name)}</b>`},{label:'Grade',w:140,html:r=>esc(r.grade||'')},{label:'People',w:90,num:1,html:r=>S.active('people').filter(p=>p.roleId===r.id).length},{label:'Approves',w:100,num:1,html:r=>S.active('approvers').filter(p=>p.roleId===r.id).length}]}),
     approvers:()=>list('approvers',{eyebrow:'People & approvers',filters:['dept','role'],columns:[{label:'Department',w:160,html:r=>UI.tag(r.dept,'teal')},{label:'Approval step',html:r=>`<b>${esc(r.step)}</b>`},{label:'Approver role',html:r=>esc(REG.labelById('roles',r.roleId))}]}),
-    vendors:()=>list('vendors',{eyebrow:'Vendors & trucks',filters:['supplies','farm'],columns:[{label:'Vendor',html:r=>`<b>${esc(r.name)}</b>`},{label:'Supplies',w:120,html:r=>UI.tag(r.supplies||'','mut')},{label:'Farm',html:r=>esc(REG.labelById('farms',r.farmId))},{label:'City',html:r=>esc(r.city||'')},{label:'Trucks',w:80,num:1,html:r=>S.active('trucks').filter(t=>t.vendorId===r.id).length}]}),
-    trucks:()=>list('trucks',{eyebrow:'Vendors & trucks',filters:['vendor'],columns:[{label:'Vehicle number',html:r=>`<b class="mono">${esc(r.number)}</b>`},{label:'Vendor',html:r=>esc(REG.labelById('vendors',r.vendorId))},{label:'Capacity',w:110,num:1,html:r=>esc(r.capacity===''||r.capacity==null?'':r.capacity)}]}),
     settings:()=>list('settings',{eyebrow:'Business settings',filters:['dept'],
       columns:[{label:'Setting',html:r=>`<b>${esc(r.name)}</b>`},{label:'Department',w:160,html:r=>UI.tag(r.dept,'teal')},
         {label:'Value',w:200,html:r=>`<div class="valcell"><input class="inl num" data-setval="${r.id}" value="${esc(r.value)}" aria-label="${esc(r.name)}" ${r.type==='time'?'':'inputmode="decimal"'}><span class="u">${esc(r.unit||'')}</span></div>`}]})
       +`<section class="card mt"><div class="hd"><h3>Module configuration</h3></div>${[['Vaccination plan','#/vaccination/plan','Preventive Care'],['Feed Config','#/feed/config','Feed'],['Health Config','#/health/config','Health'],['Sales Config','#/sales/config','Sales']]
         .map(([l,h,dp])=>`<a class="linkrow" href="${h}"><b>${l}</b><span class="tag t-teal">${dp}</span><span class="sp"></span>${ic('chevron-right')}</a>`).join('')}</section>`
   };
-  ['statusDefs','exitReasons','purposes','movementReasons','weightBands','rationGroups','diseases','symptoms','deathCauses','marketCities','sopCategories','taskTypes']
+  ['statusDefs','exitReasons','purposes','movementReasons','weightBands','deathCauses','marketCities','sopCategories','taskTypes'].filter(k=>REG.R[k])
     .forEach(k=>PANELS[k]=()=>list(k,{eyebrow:'Reference lists',filters:REG.R[k].cols.filter(c=>c.type==='enum'||c.type==='ref').map(c=>c.k).slice(0,2)}));
 
   document.addEventListener('change',e=>{
@@ -138,21 +136,28 @@
 
   /* ---------- park page with pens grid ---------- */
   let PD=null;
+  /* stage names repeat across species; pens pick by name (species-agnostic) */
+  const stageByName=name=>S.active('stages').filter(x=>REG.norm(x.name)===REG.norm(name)||REG.norm(x.code)===REG.norm(name));
+  function parseTSV(t){return t.replace(/\r/g,'').replace(/\n$/,'').split('\n').map(l=>l.split('\t'));}
   function parkDraft(id){
     if(PD&&PD.id===id)return PD;
     const p=id!=='new'?S.get('parks',id):null;
-    PD={id,snap:JSON.stringify(S.state),created:false,dirty:false,name:p?p.name:'',code:p?p.code:'',farm:p?REG.labelById('farms',p.farmId):'',
-      pens:p?S.all('pens').filter(x=>x.parkId===p.id&&x.status!=='archived').map(x=>({id:x.id,name:x.name,capacity:x.capacity==null?'':x.capacity,parts:S.active('partitions').filter(t=>t.penId===x.id).length,stage:REG.labelById('stages',x.stageId),stageId:x.stageId||'',sex:x.sex||'mixed'})):[],
+    PD={id,snap:JSON.stringify(S.state),created:false,dirty:false,name:p?p.name:'',code:p?p.code:'',farm:p?REG.labelById('farms',p.farmId):'',farmAsk:'',
+      pens:p?S.all('pens').filter(x=>x.parkId===p.id&&x.status!=='archived').map(x=>({id:x.id,name:x.name,capacity:x.capacity==null?'':x.capacity,
+        parts:S.active('partitions').filter(t=>t.penId===x.id).map(t=>({id:t.id,name:t.name,capacity:t.capacity==null?'':t.capacity})),
+        stage:REG.labelById('stages',x.stageId),sex:x.sex||'mixed'})):[],
       gen:{n:4,cap:40,prefix:'Pen',start:1,parts:0},removed:[],err:{}};
     return PD;
   }
   function parkPage(id){
     const d=parkDraft(id); const e=d.err;
     const errTxt=k=>e[k]?`<div class="ferr">${esc(e[k])}</div>`:'';
+    const cols=`<colgroup><col><col style="width:100px"><col style="width:120px"><col><col style="width:110px"><col style="width:80px"><col style="width:40px"></colgroup>`;
     return `<div class="phead"><div><div class="crumb">Configuration / <a href="#/configuration/items/parks">Items and settings</a> / <b>${id==='new'?'New park':esc(d.name)}</b></div><h1>${id==='new'?'New park':esc(d.name)}</h1></div><div class="sp"></div>
       <button class="btn" data-a="pd-cancel">Cancel</button><button class="btn p" data-a="park-save">${ic('check')}Save park</button></div>
       <section class="card mb"><div class="bd"><div class="fgrid fg3">
-        <div class="fld"><label>Farm</label><input data-pd="farm" value="${esc(d.farm)}" placeholder="Search or create" autocomplete="off">${errTxt('farm')}</div>
+        <div class="fld"><label>Farm</label><input data-pd="farm" value="${esc(d.farm)}" placeholder="Search or create" autocomplete="off">
+          ${d.farmAsk?`<div class="ferr w" data-farmask>“${esc(d.farmAsk)}” is new <button class="btn sm out" data-a="pd-farmcreate">${ic('plus')}Create farm</button></div>`:''}</div>
         <div class="fld"><label>Park name *</label><input data-pd="name" value="${esc(d.name)}">${errTxt('name')}</div>
         <div class="fld"><label>Code</label><input data-pd="code" value="${esc(d.code)}"></div>
       </div></div></section>
@@ -166,78 +171,105 @@
           <label class="gl">Partitions per pen<input class="inl num" data-pg="parts" value="${esc(d.gen.parts)}" inputmode="numeric"></label>
           <button class="btn sm out" data-a="pd-gen">${ic('layers')}Generate</button>
         </div>
-        <div class="twrap"><table class="mini" style="min-width:680px"><thead><tr><th>Pen *</th><th style="width:100px">Capacity</th><th style="width:100px">Partitions</th><th>Stage</th><th style="width:110px">Sex</th><th style="width:80px">Animals</th><th style="width:40px"></th></tr></thead><tbody>
+        <div class="twrap"><table class="mini" style="min-width:720px">${cols}<thead><tr><th>Pen *</th><th>Capacity</th><th>Partitions</th><th>Stage</th><th>Sex</th><th>Animals</th><th></th></tr></thead><tbody>
         ${d.pens.length?d.pens.map((p,i)=>`<tr>
           <td><input data-pp="${i}" data-k="name" value="${esc(p.name)}" aria-label="Pen name" class="${e['pen'+i]?'bad':''}">${e['pen'+i]?`<div class="ferr">${esc(e['pen'+i])}</div>`:''}</td>
           <td><input data-pp="${i}" data-k="capacity" value="${esc(p.capacity)}" inputmode="numeric" aria-label="Capacity" class="${e['cap'+i]?'bad':''}"></td>
-          <td><input data-pp="${i}" data-k="parts" value="${esc(p.parts)}" inputmode="numeric" aria-label="Partitions"></td>
-          <td><input data-pp="${i}" data-k="stage" value="${esc(p.stage)}" placeholder="Search or create" autocomplete="off" aria-label="Stage" class="${e['stg'+i]?'bad':''}">${e['stg'+i]?`<div class="ferr">${esc(e['stg'+i])}</div>`:''}</td>
-          <td><select data-pp="${i}" data-k="sex" aria-label="Sex">${['mixed','female','male'].map(s=>`<option ${p.sex===s?'selected':''}>${s}</option>`).join('')}</select></td>
+          <td><button class="btn sm" data-a="pd-addpart" data-i="${i}" aria-label="Add partition">${ic('plus','',13)}${p.parts.length}</button></td>
+          <td><input data-pp="${i}" data-k="stage" value="${esc(p.stage)}" placeholder="Any stage" autocomplete="off" aria-label="Stage" class="${e['stg'+i]?'bad':''}">${e['stg'+i]?`<div class="ferr">${esc(e['stg'+i])}</div>`:''}</td>
+          <td><select data-pp="${i}" data-k="sex" aria-label="Sex">${['mixed','female','male'].map(x=>`<option ${p.sex===x?'selected':''}>${x}</option>`).join('')}</select></td>
           <td class="num muted">${p.id?S.active('animals').filter(a=>a.penId===p.id).length:'—'}</td>
-          <td class="x"><button class="btn icon gh" data-a="pd-delpen" data-i="${i}" aria-label="Remove pen">${ic('x')}</button></td></tr>`).join('')
+          <td class="x"><button class="btn icon gh" data-a="pd-delpen" data-i="${i}" aria-label="Remove pen">${ic('x')}</button></td></tr>
+          ${p.parts.length?`<tr class="subr"><td colspan="7" style="padding:0 4px 8px 24px"><div style="display:flex;flex-wrap:wrap;gap:6px">${p.parts.map((t,j)=>`<span style="display:inline-flex;gap:4px;align-items:center">
+            <input style="width:110px" data-pt="${i}" data-j="${j}" data-k="name" value="${esc(t.name)}" aria-label="Partition name" class="${e['pt'+i+'.'+j]?'bad':''}">
+            <input style="width:64px" data-pt="${i}" data-j="${j}" data-k="capacity" value="${esc(t.capacity)}" placeholder="Cap" inputmode="numeric" aria-label="Partition capacity">
+            <button class="btn icon gh" data-a="pd-delpart" data-i="${i}" data-j="${j}" aria-label="Remove partition">${ic('x','',13)}</button></span>`).join('')}</div>
+            ${Object.keys(e).some(k=>k.startsWith('pt'+i+'.'))?`<div class="ferr">${esc(e[Object.keys(e).find(k=>k.startsWith('pt'+i+'.'))])}</div>`:''}</td></tr>`:''}`).join('')
           :`<tr><td colspan="7" class="empty">No pens</td></tr>`}
         </tbody></table></div></section>`;
   }
-  function stageCreates(text,after){
-    return S.active('species').map(sp=>({label:'Create “'+text+'” · '+sp.name,run:()=>{const id=S.add('stages',{speciesId:sp.id,code:text.replace(/\s+/g,'').toUpperCase().slice(0,10),name:text,fromD:'',toD:'',sex:'any'}).id;PD.created=true;if(after)after(id);return id;}}));
+  function stageCreates(text){
+    return [{label:'Create stage “'+text+'”',run:()=>{S.active('species').forEach(sp=>{if(!S.active('stages').some(x=>x.speciesId===sp.id&&REG.norm(x.name)===REG.norm(text)))S.add('stages',{speciesId:sp.id,code:text.replace(/\s+/g,'').toUpperCase().slice(0,10),name:text,fromD:'',toD:'',sex:'any'});});PD.created=true;return text;}}];
+  }
+  const PEN_COLS=['name','capacity','parts','stage','sex'];
+  function penPaste(d,startRow,startKey,text){
+    const rows=parseTSV(text); const c0=PEN_COLS.indexOf(startKey);
+    rows.forEach((r,ri)=>{let p=d.pens[startRow+ri];if(!p){p={name:'',capacity:'',parts:[],stage:'',sex:'mixed'};d.pens.push(p);}
+      r.forEach((v,ci)=>{const k=PEN_COLS[c0+ci];v=v.trim();if(!k)return;
+        if(k==='parts'){const n=Math.max(0,parseInt(v)||0);while(p.parts.length<n)p.parts.push({name:'Part '+(p.parts.length+1),capacity:''});}
+        else if(k==='sex')p.sex=['female','male'].includes(v.toLowerCase())?v.toLowerCase():'mixed';
+        else p[k]=v;});});
+    d.dirty=true;App.render();UI.toast(rows.length+' rows pasted');
   }
   function parkMount(root){
     const d=PD; if(!d)return;
     root.querySelectorAll('[data-pd]').forEach(inp=>{
-      inp.oninput=()=>{d[inp.dataset.pd]=inp.value;d.dirty=true;if(inp.dataset.pd==='farm')pop();};
+      inp.oninput=()=>{d[inp.dataset.pd]=inp.value;d.dirty=true;if(inp.dataset.pd==='farm'){if(d.farmAsk){d.farmAsk='';const a=root.querySelector('[data-farmask]');if(a)a.remove();}pop();}};
       if(inp.dataset.pd==='farm'){inp.onfocus=pop;inp.onkeydown=e=>UI.popKey(e);inp.onblur=()=>setTimeout(()=>{if(UI._popCfg&&UI._popCfg.input===inp)UI.closePop();},150);}
       function pop(){UI.pop(inp,{options:()=>S.active('farms').map(f=>({id:f.id,label:f.name,sub:f.code})),onPick(o){d.farm=inp.value;},
         creates:t=>[{label:'Create farm “'+t+'”',run:()=>{d.created=true;return REG.createRef('parks',REG.R.parks.cols.find(c=>c.k==='farm'),t,{});}}]});}
     });
     root.querySelectorAll('[data-pg]').forEach(inp=>inp.oninput=()=>{d.gen[inp.dataset.pg]=inp.value;});
     root.querySelectorAll('[data-pp]').forEach(inp=>{
-      const p=d.pens[+inp.dataset.pp],k=inp.dataset.k;
-      inp.oninput=inp.onchange=()=>{p[k]=inp.value;d.dirty=true;if(k==='stage'){p.stageId='';pop();}};
+      const i=+inp.dataset.pp,p=d.pens[i],k=inp.dataset.k;
+      inp.oninput=inp.onchange=()=>{p[k]=inp.value;d.dirty=true;if(k==='stage')pop();};
+      inp.onpaste=e=>{const t=(e.clipboardData||window.clipboardData).getData('text');if(/[\t\n]/.test(t.replace(/\n$/,''))){e.preventDefault();penPaste(d,i,k,t);}};
       if(k==='stage'){inp.onfocus=pop;inp.onkeydown=e=>UI.popKey(e);inp.onblur=()=>setTimeout(()=>{if(UI._popCfg&&UI._popCfg.input===inp)UI.closePop();},150);}
-      function pop(){UI.pop(inp,{options:()=>S.active('stages').map(s=>({id:s.id,label:s.name,sub:s.code+' · '+REG.labelById('species',s.speciesId)})),
-        onPick(o){p.stage=inp.value;p.stageId=o.id||'';},creates:t=>stageCreates(t,id=>{p.stageId=id;})});}
+      function pop(){const seen=new Map();S.active('stages').forEach(s=>{const key=REG.norm(s.name);if(!seen.has(key))seen.set(key,{id:s.name,label:s.name,sub:[]});seen.get(key).sub.push(REG.labelById('species',s.speciesId));});
+        UI.pop(inp,{options:()=>[...seen.values()].map(o=>({id:o.id,label:o.label,sub:o.sub.join(' · ')})),onPick(o){p.stage=inp.value;},creates:t=>stageCreates(t)});}
     });
+    root.querySelectorAll('[data-pt]').forEach(inp=>{inp.oninput=()=>{d.pens[+inp.dataset.pt].parts[+inp.dataset.j][inp.dataset.k]=inp.value;d.dirty=true;};});
+  }
+  function saveFarm(d){const col=REG.R.parks.cols.find(c=>c.k==='farm');return d.farm.trim()?REG.findRef('parks',col,d.farm,{}):{rec:null};}
+  function savePark(target){
+    const d=PD; d.err={};
+    if(!d.name.trim())d.err.name='Required';
+    const farm=saveFarm(d);
+    if(d.farm.trim()&&!farm.rec){d.farmAsk=d.farm.trim();App.render();const b=document.querySelector('[data-a="pd-farmcreate"]');if(b)b.focus();return false;}
+    const farmId=farm.rec?farm.rec.id:'';
+    if(d.name.trim()&&S.all('parks').some(x=>x.id!==d.id&&(x.farmId||'')===farmId&&REG.norm(x.name)===REG.norm(d.name)))d.err.name='Already exists';
+    const seen={};
+    d.pens.forEach((p,i)=>{const nm=REG.norm(p.name);if(!nm)d.err['pen'+i]='Required';else if(seen[nm]!=null)d.err['pen'+i]='Duplicate';seen[nm]=i;
+      if(p.capacity!==''&&(isNaN(Number(p.capacity))||Number(p.capacity)<0))d.err['cap'+i]='0 or more';
+      if(String(p.stage).trim()&&!stageByName(p.stage).length)d.err['stg'+i]='Not found';
+      const ps={};p.parts.forEach((t,j)=>{const n=REG.norm(t.name);if(!n)d.err['pt'+i+'.'+j]='Partition name required';else if(ps[n])d.err['pt'+i+'.'+j]='Duplicate partition';ps[n]=1;
+        if(t.capacity!==''&&(isNaN(Number(t.capacity))||Number(t.capacity)<0))d.err['pt'+i+'.'+j]='Partition capacity: 0 or more';});});
+    if(Object.keys(d.err).length){App.render();UI.toast('Fix highlighted fields');return false;}
+    const n=S.snap('Saved park');
+    let park=d.id!=='new'?S.get('parks',d.id):null;
+    if(park)Object.assign(park,{name:d.name.trim(),code:d.code.trim(),farmId});
+    else park=S.add('parks',{name:d.name.trim(),code:d.code.trim(),farmId});
+    d.removed.forEach(id=>{const p=S.get('pens',id);if(p)p.status='archived';});
+    d.pens.forEach(p=>{
+      let pen=p.id?S.get('pens',p.id):null;
+      const hits=String(p.stage).trim()?stageByName(p.stage):[];
+      const attrs={parkId:park.id,name:String(p.name).trim(),capacity:p.capacity===''?'':Number(p.capacity),stageId:hits.length?hits[0].id:'',stageName:hits.length?hits[0].name:'',sex:p.sex};
+      if(pen)Object.assign(pen,attrs); else pen=S.add('pens',attrs);
+      const keep=new Set();
+      p.parts.forEach(t=>{const a={penId:pen.id,name:String(t.name).trim(),capacity:t.capacity===''?'':Number(t.capacity)};
+        let rec=t.id?S.get('partitions',t.id):null; if(rec)Object.assign(rec,a,{status:'active'}); else rec=S.add('partitions',a); keep.add(rec.id);});
+      S.active('partitions').filter(t=>t.penId===pen.id&&!keep.has(t.id)).forEach(t=>t.status='archived');
+    });
+    S.save(); PD=null;
+    App.leave(target||'#/configuration/items/parks',true);
+    UI.toast('Saved '+park.name,()=>{S.undoTo(n);App.render();});
+    return true;
   }
   Object.assign(A,{
-    'pd-addpen'(){PD.pens.push({name:'',capacity:'',parts:0,stage:'',stageId:'',sex:'mixed'});PD.dirty=true;App.render();},
+    'pd-addpen'(){PD.pens.push({name:'',capacity:'',parts:[],stage:'',sex:'mixed'});PD.dirty=true;App.render();},
     'pd-delpen'(el){const p=PD.pens.splice(+el.dataset.i,1)[0];if(p&&p.id)PD.removed.push(p.id);PD.dirty=true;App.render();},
+    'pd-addpart'(el){const p=PD.pens[+el.dataset.i];p.parts.push({name:'Part '+(p.parts.length+1),capacity:''});PD.dirty=true;App.render();
+      const ins=document.querySelectorAll(`[data-pt="${el.dataset.i}"][data-k="name"]`);if(ins.length){ins[ins.length-1].focus();ins[ins.length-1].select();}},
+    'pd-delpart'(el){PD.pens[+el.dataset.i].parts.splice(+el.dataset.j,1);PD.dirty=true;App.render();},
+    'pd-farmcreate'(){const d=PD;const t=d.farmAsk||d.farm.trim();if(!t)return;REG.createRef('parks',REG.R.parks.cols.find(c=>c.k==='farm'),t,{});d.created=true;d.farm=t;d.farmAsk='';App.render();UI.toast('Farm “'+t+'” created');},
     'pd-gen'(){const g=PD.gen;const n=Math.min(200,Math.max(0,parseInt(g.n)||0));const st=parseInt(g.start)||1;const cap=parseInt(g.cap);
       if(isNaN(cap)||cap<0){UI.toast('Capacity: 0 or more');return;}
-      const names=new Set(PD.pens.map(p=>REG.norm(p.name)));let made=0,i=st;
-      while(made<n&&i<st+1000){const nm=(g.prefix||'Pen')+' '+i;i++;if(names.has(REG.norm(nm)))continue;PD.pens.push({name:nm,capacity:cap,parts:Math.max(0,parseInt(g.parts)||0),stage:'',stageId:'',sex:'mixed'});made++;}
+      const names=new Set(PD.pens.map(p=>REG.norm(p.name)));let made=0,i=st;const np=Math.max(0,parseInt(g.parts)||0);
+      while(made<n&&i<st+1000){const nm=(g.prefix||'Pen')+' '+i;i++;if(names.has(REG.norm(nm)))continue;
+        PD.pens.push({name:nm,capacity:cap,parts:Array.from({length:np},(_,k)=>({name:'Part '+(k+1),capacity:''})),stage:'',sex:'mixed'});made++;}
       PD.dirty=true;App.render();UI.toast(made+' pens added');},
     'pd-cancel'(){App.leave('#/configuration/items/parks');},
-    'park-save'(){
-      const d=PD; d.err={};
-      if(!d.name.trim())d.err.name='Required';
-      const farmCol=REG.R.parks.cols.find(c=>c.k==='farm');
-      const farm=d.farm.trim()?REG.findRef('parks',farmCol,d.farm,{}):{rec:null};
-      if(d.farm.trim()&&!farm.rec)d.err.farm='Not found';
-      const farmId=farm.rec?farm.rec.id:'';
-      if(d.name.trim()&&S.all('parks').some(x=>x.id!==d.id&&(x.farmId||'')===farmId&&REG.norm(x.name)===REG.norm(d.name)))d.err.name='Already exists';
-      const seen={};
-      d.pens.forEach((p,i)=>{const nm=REG.norm(p.name);if(!nm)d.err['pen'+i]='Required';else if(seen[nm]!=null)d.err['pen'+i]='Duplicate';seen[nm]=i;
-        if(p.capacity!==''&&(isNaN(Number(p.capacity))||Number(p.capacity)<0))d.err['cap'+i]='0 or more';
-        if(String(p.stage).trim()&&!p.stageId){const hits=S.active('stages').filter(x=>REG.norm(x.name)===REG.norm(p.stage)||REG.norm(x.code)===REG.norm(p.stage));if(hits.length===1)p.stageId=hits[0].id;else d.err['stg'+i]=hits.length?'Pick species variant':'Not found';}});
-      if(Object.keys(d.err).length){App.render();UI.toast('Fix highlighted fields');return;}
-      const n=S.snap('Saved park');
-      let park=d.id!=='new'?S.get('parks',d.id):null;
-      if(park)Object.assign(park,{name:d.name.trim(),code:d.code.trim(),farmId});
-      else park=S.add('parks',{name:d.name.trim(),code:d.code.trim(),farmId});
-      d.removed.forEach(id=>{const p=S.get('pens',id);if(p)p.status='archived';});
-      d.pens.forEach(p=>{
-        let pen=p.id?S.get('pens',p.id):null;
-        const attrs={parkId:park.id,name:String(p.name).trim(),capacity:p.capacity===''?'':Number(p.capacity),stageId:String(p.stage).trim()?p.stageId:'',sex:p.sex};
-        if(pen)Object.assign(pen,attrs); else pen=S.add('pens',attrs);
-        const want=Math.max(0,parseInt(p.parts)||0);
-        const have=S.active('partitions').filter(t=>t.penId===pen.id);
-        for(let k=have.length+1;k<=want;k++)S.add('partitions',{penId:pen.id,name:'Part '+k,capacity:''});
-        have.slice(want).forEach(t=>t.status='archived');
-      });
-      S.save(); PD=null;
-      App.leave('#/configuration/items/parks',true);
-      UI.toast('Saved '+park.name,()=>{S.undoTo(n);App.render();});
-    }
+    'park-save'(){savePark();}
   });
 
   /* ---------- animal types editor (many species together) ---------- */
@@ -255,7 +287,7 @@
     if(ids==='new')blocks=[blank()];
     else if(ids==='all')blocks=S.active('species').map(blockFrom);
     else blocks=ids.split(',').map(id=>S.get('species',id)).filter(Boolean).map(blockFrom);
-    ED={key:ids,blocks,removed:[],err:{},dirty:false};
+    ED={key:ids,blocks,removed:[],err:{},dirty:false,pending:{}};
     return ED;
   }
   function chipField(bi,field,items,ph,tone){
@@ -288,17 +320,33 @@
         </div></div></section>`).join('')}
         <button class="btn out" data-a="ed-addsp">${ic('plus')}Add species</button></div>`;
   }
+  const STAGE_COLS=['code','name','fromD','toD','sex'];
   function editorMount(root){
     const d=ED; if(!d)return;
     root.querySelectorAll('[data-ed]').forEach(i=>i.oninput=()=>{d.blocks[+i.dataset.ed][i.dataset.k]=i.value;d.dirty=true;});
-    root.querySelectorAll('[data-es]').forEach(i=>i.oninput=i.onchange=()=>{d.blocks[+i.dataset.es].stages[+i.dataset.s][i.dataset.k]=i.value;d.dirty=true;});
+    root.querySelectorAll('[data-es]').forEach(i=>{
+      i.oninput=i.onchange=()=>{d.blocks[+i.dataset.es].stages[+i.dataset.s][i.dataset.k]=i.value;d.dirty=true;};
+      i.onpaste=e=>{const t=(e.clipboardData||window.clipboardData).getData('text');if(!/[\t\n]/.test(t.replace(/\n$/,'')))return;e.preventDefault();
+        const b=d.blocks[+i.dataset.es],r0=+i.dataset.s,c0=STAGE_COLS.indexOf(i.dataset.k),rows=parseTSV(t);
+        rows.forEach((r,ri)=>{let st=b.stages[r0+ri];if(!st){st={code:'',name:'',fromD:'',toD:'',sex:'any'};b.stages.push(st);}
+          r.forEach((v,ci)=>{const k=STAGE_COLS[c0+ci];v=v.trim();if(!k)return;st[k]=k==='sex'?(['female','male'].includes(v.toLowerCase())?v.toLowerCase():'any'):v;});});
+        d.dirty=true;App.render();UI.toast(rows.length+' stages pasted');};
+    });
+    /* chip inputs: split on separators as text arrives; the remainder stays typed; focus is restored synchronously so no keystroke is lost */
     root.querySelectorAll('[data-chipin]').forEach(i=>{
-      const refocus=()=>setTimeout(()=>{const n=document.querySelector(`[data-chipin="${i.dataset.chipin}"][data-f="${i.dataset.f}"]`);if(n)n.focus();},0);
-      const add=()=>{const vals=i.value.split(/[,;\n\t]/).map(s=>s.trim()).filter(Boolean);if(!vals.length)return;const b=d.blocks[+i.dataset.chipin],f=i.dataset.f;
-        vals.forEach(v=>{if(!b[f].some(x=>REG.norm(x.name)===REG.norm(v)))b[f].push({name:v});});d.dirty=true;App.render();refocus();};
-      i.onkeydown=e=>{if(e.key==='Enter'||e.key===','){e.preventDefault();add();}else if(e.key==='Backspace'&&!i.value){d.blocks[+i.dataset.chipin][i.dataset.f].pop();App.render();refocus();}};
-      i.onpaste=e=>{const t=(e.clipboardData||window.clipboardData).getData('text');if(/[\n,;\t]/.test(t)){e.preventDefault();i.value=t;add();}};
-      i.onblur=()=>{if(i.value.trim())add();};
+      const bi=+i.dataset.chipin,f=i.dataset.f,pk=bi+'.'+f;
+      if(d.pending[pk]){i.value=d.pending[pk];}
+      const commit=(vals,rest)=>{const b=d.blocks[bi];let added=0;
+        vals.map(v=>v.trim()).filter(Boolean).forEach(v=>{if(!b[f].some(x=>REG.norm(x.name)===REG.norm(v))){b[f].push({name:v});added++;}});
+        d.pending[pk]=rest;d.dirty=true;
+        const caret=rest.length;App.render();
+        const n=document.querySelector(`[data-chipin="${bi}"][data-f="${f}"]`);if(n){n.focus();n.setSelectionRange(caret,caret);}
+        return added;};
+      i.oninput=()=>{if(/^\s/.test(i.value))i.value=i.value.replace(/^\s+/,'');const v=i.value;d.pending[pk]=v;if(v.trim())d.dirty=true;
+        if(/[,;\n\t]/.test(v)){const parts=v.split(/[,;\n\t]/);const rest=parts.pop().replace(/^\s+/,'');commit(parts,rest);}};
+      i.onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();if(i.value.trim())commit([i.value],'');}
+        else if(e.key==='Backspace'&&!i.value&&d.blocks[bi][f].length){d.blocks[bi][f].pop();d.dirty=true;commit([],'');}};
+      /* half-typed text stays in d.pending and is added on save */
     });
   }
   Object.assign(A,{
@@ -313,8 +361,11 @@
       UI.menu(el,srcs.length?srcs.map(x=>({label:x.b.name,icon:'copy',run(){const t=ED.blocks[bi];
         x.b.stages.forEach(s=>{if(!t.stages.some(y=>REG.norm(y.code)===REG.norm(s.code)))t.stages.push({code:s.code,name:s.name,fromD:s.fromD,toD:s.toD,sex:s.sex});});
         x.b.sexes.forEach(s=>{if(!t.sexes.some(y=>REG.norm(y.name)===REG.norm(s.name)))t.sexes.push({name:s.name});});ED.dirty=true;App.render();}})):[{label:'No stages to copy',run(){}}]);},
-    'ed-save'(){
+    'ed-save'(){saveEditor();}
+  });
+  function saveEditor(target){
       const d=ED; d.err={};
+      Object.entries(d.pending).forEach(([pk,v])=>{v=(v||'').trim();if(!v)return;const [bi,f]=pk.split('.');const b=d.blocks[+bi];if(b&&!b[f].some(x=>REG.norm(x.name)===REG.norm(v)))b[f].push({name:v});d.pending[pk]='';});
       const ids=new Set(d.blocks.map(b=>b.id).filter(Boolean));
       d.blocks.forEach((b,bi)=>{
         const nm=REG.norm(b.name);
@@ -326,7 +377,7 @@
           if(s.fromD!==''&&s.toD!==''&&!isNaN(s.fromD)&&!isNaN(s.toD)&&Number(s.toD)<Number(s.fromD)){d.err[bi+'.r'+si]=1;d.err[bi+'.stages']='To is before From';}
           if((s.fromD!==''&&(isNaN(s.fromD)||Number(s.fromD)<0))||(s.toD!==''&&(isNaN(s.toD)||Number(s.toD)<0))){d.err[bi+'.r'+si]=1;d.err[bi+'.stages']='Days must be 0 or more';}});
       });
-      if(Object.keys(d.err).length){App.render();UI.toast('Fix highlighted fields');return;}
+      if(Object.keys(d.err).length){App.render();UI.toast('Fix highlighted fields');return false;}
       const n=S.snap('Saved animal types');
       d.removed.forEach(id=>{const s=S.get('species',id);if(s)s.status='archived';});
       d.blocks.forEach(b=>{
@@ -347,10 +398,10 @@
         sync('tags',b.groups,it=>({name:it.name,kind:'group'}),x=>x.kind==='group');
         sync('stages',b.stages,it=>({code:(it.code||it.name).trim().toUpperCase(),name:(it.name||it.code).trim(),fromD:it.fromD===''?'':Number(it.fromD),toD:it.toD===''?'':Number(it.toD),sex:it.sex||'any'}));
       });
-      S.save(); ED=null; App.leave('#/configuration/items/species',true);
+      S.save(); ED=null; App.leave(target||'#/configuration/items/species',true);
       UI.toast('Saved '+d.blocks.length+' species',()=>{S.undoTo(n);App.render();});
-    }
-  });
+      return true;
+  }
 
   /* ---------- workbook menu ---------- */
   A['wb-menu']=el=>UI.menu(el,[
@@ -360,8 +411,8 @@
 
   /* unsaved-draft guard for park page and animal types editor */
   P.dirty=function(){
-    if(PD&&(PD.dirty||PD.created))return {discard(){if(PD.created){S.state=JSON.parse(PD.snap);S.save();}PD=null;}};
-    if(ED&&ED.dirty)return {discard(){ED=null;}};
+    if(PD&&(PD.dirty||PD.created))return {discard(){if(PD.created){S.state=JSON.parse(PD.snap);S.save();}PD=null;},save:t=>savePark(t)};
+    if(ED&&(ED.dirty||Object.values(ED.pending).some(v=>v&&v.trim())))return {discard(){ED=null;},save:t=>saveEditor(t)};
     const g=Sheet.cur; if(g&&location.hash.includes('/sheet/')&&g.rows.some(r=>!REG.isBlankRow(REG.R[g.regKey],r.v))&&!g.summary)return {discard(){Sheet.cur=null;}};
     return null;
   };
@@ -369,7 +420,7 @@
   /* ---------- router entry ---------- */
   P.render=function(parts){
     let key=parts[0]||'parks';
-    const legacy={places:parts[1]||'parks','animal-types':parts[1]&&!['edit'].includes(parts[1])?parts[1]:'species',animals:'animals',items:'items',people:parts[1]||'people',vendors:parts[1]||'vendors',settings:'settings'};
+    const legacy={places:parts[1]||'parks','animal-types':parts[1]&&!['edit'].includes(parts[1])?parts[1]:'species',animals:'animals',items:'items',people:parts[1]||'people',settings:'settings'};
     Sheet.activeGetter=null;
     if(key==='import')return {html:IO.page(),mount:IO.mount};
     if(key==='sheet'){
@@ -380,6 +431,7 @@
         <button class="btn sm" data-a="io-menu" data-reg="${k}">${ic('sheet')}Import / export</button></div>${Sheet.html(g)}`,
         mount:root=>{const el=root.querySelector('[data-sheet]');if(el)Sheet.bind(el,()=>Sheet.cur,()=>App.render());}};
     }
+    if(key==='vendors'||key==='trucks'){location.replace('#/procurement/vendors');return {html:''};}
     if(key==='park'||(key==='places'&&parts[1]==='park'))return {html:parkPage((key==='park'?parts[1]:parts[2])||'new'),mount:parkMount};
     if(key==='animal-types'&&parts[1]&&(parts[1]==='new'||parts[1]==='all'||parts[1]==='edit'||S.get('species',parts[1].split(',')[0]))){const ids=parts[1]==='edit'?(parts[2]||'new'):parts[1];return {html:editorPage(ids),mount:editorMount};}
     if(legacy[key]&&!PANELS[key])key=legacy[key];

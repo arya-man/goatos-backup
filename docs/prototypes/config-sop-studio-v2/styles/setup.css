@@ -3,12 +3,12 @@
 .cfgrail{padding:8px;position:sticky;top:0;max-height:calc(100dvh - 90px);overflow:auto}
 .cfgrail .rsec{padding:6px 0 4px}
 .cfgrail .rsec+.rsec{border-top:1px solid var(--line2)}
-.cfgrail .eyebrow{padding:6px 10px 4px;font-size:10.5px}
+.cfgrail .eyebrow{padding:6px 10px 4px;font-size:12px}
 .ritem{display:flex;align-items:center;gap:8px;padding:7px 10px;border-radius:8px;font-size:13.5px;font-weight:550;color:var(--ink)}
 .ritem:hover{background:var(--panel-2)}
 .ritem.on{background:var(--brand-soft);color:var(--brand-d);font-weight:650;box-shadow:inset 2px 0 0 var(--brand)}
 .ritem span:first-child{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.rct{font-size:11.5px;font-weight:700;color:var(--muted);font-variant-numeric:tabular-nums}
+.rct{font-size:12px;font-weight:700;color:var(--muted);font-variant-numeric:tabular-nums}
 .ritem.on .rct{color:var(--brand-d)}
 .cfgrail-m{display:none!important}
 .cfgpanel{min-width:0}
@@ -23,7 +23,7 @@
 .lhd h3 .cnt{margin-left:4px}
 .ltable table.ltbl,table.ltbl{width:100%;table-layout:fixed;border-collapse:collapse}
 .screen table.ltbl th,.screen table.ltbl td{padding:12px 16px;font-size:14px;overflow:hidden;text-overflow:ellipsis}
-.screen table.ltbl th{font-size:11px;letter-spacing:.4px;padding-top:10px;padding-bottom:10px;white-space:nowrap}
+.screen table.ltbl th{font-size:12px;letter-spacing:.4px;padding-top:10px;padding-bottom:10px;white-space:nowrap}
 .screen table.ltbl td{white-space:nowrap}
 .screen table.ltbl td .tag{vertical-align:middle}
 .screen table.ltbl th.ck,.screen table.ltbl td.ck{padding-left:16px;padding-right:0}
@@ -58,9 +58,38 @@ input.bad,.inl.bad,.mini input.bad{border-color:var(--danger)!important}
 .lstep.sel{box-shadow:0 0 0 2px var(--brand)}
 .lnum{width:28px;height:28px;border-radius:50%;display:grid;place-items:center;background:var(--bg);border:1px solid var(--line);font-weight:700;font-size:12px;flex:none;font-variant-numeric:tabular-nums}
 .lbody{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
-.ltype{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:800;letter-spacing:.3px;text-transform:uppercase;color:var(--k,var(--muted));flex:none}
+.ltype{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:800;letter-spacing:.3px;text-transform:uppercase;color:var(--k,var(--muted));flex:none}
 .lttl{font-size:14px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .k-question{--k:var(--info)} .k-evidence{--k:var(--teal)} .k-decision{--k:var(--amber)} .k-approval{--k:var(--purple)}
 .k-wait,.k-repeat{--k:var(--warn)} .k-child{--k:var(--brand-d)} .k-parallel,.k-join{--k:var(--info)} .k-start{--k:var(--brand)} .k-end{--k:var(--muted)}
 .vtbl td{white-space:normal!important}
 @media(max-width:860px){.screen table.ltbl td{white-space:normal;word-break:normal}}
+
+/* Horizontal scroll cue: edges fade only while there is more to scroll (scroll-driven; no-op when not scrollable) */
+@property --scl{syntax:'<length>';inherits:false;initial-value:0px}
+@property --scr{syntax:'<length>';inherits:false;initial-value:0px}
+@keyframes scrollcue{from{--scl:0px;--scr:32px}to{--scl:32px;--scr:0px}}
+@keyframes scrollcue-r{from{--scr:32px}to{--scr:0px}}
+@supports (animation-timeline:scroll()){
+  .twrap,.ltable{mask-image:linear-gradient(to right,rgba(0,0,0,.15) 0,#000 var(--scl),#000 calc(100% - var(--scr)),rgba(0,0,0,.15) 100%);animation:scrollcue linear both;animation-timeline:scroll(self inline)}
+  /* grid keeps sticky left columns crisp: right-edge cue only */
+  .sheet{mask-image:linear-gradient(to right,#000 calc(100% - var(--scr)),rgba(0,0,0,.15) 100%);animation:scrollcue-r linear both;animation-timeline:scroll(self inline)}
+}
+.twrap,.ltable,.sheet{box-shadow:inset -1px 0 0 var(--line2)}
+
+/* Phone: list tables become stacked cards (cells carry data-label) */
+@media(max-width:560px){
+  table.ltbl:has(td[data-label]){min-width:0!important;width:100%!important;table-layout:auto}
+  table.ltbl:has(td[data-label]) colgroup,table.ltbl:has(td[data-label]) thead{display:none}
+  table.ltbl:has(td[data-label]),table.ltbl:has(td[data-label]) tbody,table.ltbl:has(td[data-label]) tr{display:block}
+  table.ltbl:has(td[data-label]) tr{position:relative;border:1px solid var(--line);border-radius:12px;margin:0 0 10px;padding:8px 12px;background:var(--panel)}
+  .screen table.ltbl:has(td[data-label]) td,table.ltbl:has(td[data-label]) td{display:flex;align-items:baseline;justify-content:space-between;gap:12px;
+    padding:5px 0!important;border:0!important;white-space:normal!important;overflow:visible;text-overflow:clip;text-align:right;word-break:break-word;min-width:0}
+  table.ltbl:has(td[data-label]) td[data-label]::before{content:attr(data-label);flex:none;max-width:45%;text-align:left;color:var(--muted);font-size:12px;font-weight:650}
+  table.ltbl:has(td[data-label]) td:not([data-label]){justify-content:flex-start;text-align:left}
+  table.ltbl:has(td[data-label]) td.ck{position:absolute!important;left:auto!important;right:10px;top:8px;width:auto;padding:0!important;background:none}
+  table.ltbl:has(td[data-label]) tr:has(td.ck){padding-right:40px}
+  table.ltbl:has(td[data-label]) td.act{justify-content:flex-end}
+  table.ltbl:has(td[data-label]) td:empty{display:none}
+  .twrap:has(table.ltbl td[data-label]),.ltable:has(table.ltbl td[data-label]){overflow:visible;mask-image:none;animation:none;box-shadow:none}
+}

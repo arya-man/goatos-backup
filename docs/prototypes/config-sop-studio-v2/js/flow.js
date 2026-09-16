@@ -9,7 +9,7 @@
   F.TYPES=TYPES;
   const ANSWERS={text:'Text',number:'Number',choice:'Single choice',multi:'Multiple choice',scan:'RFID scan',date:'Date',ref:'Pick from list'};
   F.ANSWERS=ANSWERS;
-  const REFS={pens:'Pens',vendors:'Vendors',trucks:'Trucks',parks:'Parks',items:'Items',people:'People'};
+  const REFS={pens:'Pens',partitions:'Partitions',vendors:'Vendors',trucks:'Trucks',parks:'Parks',items:'Items',people:'People'};
   F.REFS=REFS;
 
   F.byId=nodes=>{const m={};nodes.forEach(n=>m[n.id]=n);return m;};
@@ -18,7 +18,7 @@
   F.nid=nodes=>{let i=nodes.length+1;const ids=new Set(nodes.map(n=>n.id));while(ids.has('n'+i))i++;return 'n'+i;};
 
   /* ---------- geometry constants ---------- */
-  const NW=264, GRID=20, RH=48, CW=320;
+  const NW=264, GRID=20, RH=72, CW=320;
   const PILL=t=>t==='start'||t==='end'||t==='join';
   const estH=n=>PILL(n.type)?60:100;
   const snap=v=>Math.round(v/GRID)*GRID;
@@ -102,6 +102,7 @@
   F.validate=function(sop){
     const nodes=sop.nodes,m=F.byId(nodes),iss=[];
     const start=nodes.find(n=>n.type==='start'); if(!start)iss.push({msg:'No start step'});
+    if(!F.stepCount(nodes))iss.push({id:(start||{}).id,msg:'Add at least one step'});
     const seen=new Set(); const st=start?[start.id]:[];
     while(st.length){const id=st.pop();if(seen.has(id)||!m[id])continue;seen.add(id);(m[id].next||[]).forEach(e=>st.push(e.to));}
     nodes.forEach(n=>{
@@ -112,32 +113,57 @@
       if(n.type==='question'&&(n.answer==='choice'||n.answer==='multi')&&!(n.options||[]).length)iss.push({id:n.id,msg:L+': no options'});
       if(n.type==='decision'&&n.op!=='duplicate'&&(!n.q||!m[n.q]))iss.push({id:n.id,msg:L+': choose a question'});
       if(n.type==='decision'&&(n.next||[]).length<2)iss.push({id:n.id,msg:L+': needs Yes and No'});
-      if(n.type==='approval'&&!S.get('roles',n.roleId))iss.push({id:n.id,msg:L+': choose approver role'});
+      if(n.type==='approval'&&!(n.roleId&&S.get('roles',n.roleId)))iss.push({id:n.id,msg:L+': choose approver role'});
       if(n.type==='child'&&!S.get('sops',n.sopId))iss.push({id:n.id,msg:L+': choose child SOP'});
       if(n.type==='child'&&n.sopId===sop.id)iss.push({id:n.id,msg:L+': cannot follow itself'});
+      else if(n.type==='child'&&n.sopId&&F.childLoop(n.sopId,sop.id))iss.push({id:n.id,msg:L+': loops back to this SOP'});
     });
     if(!nodes.some(n=>n.type==='end'))iss.push({msg:'No end step'});
     return iss;
   };
-  F.changed=function(sop){const v=sop.versions[sop.versions.length-1];return !v||JSON.stringify(v.nodes)!==JSON.stringify(sop.nodes);};
+  /* true when SOP `fromId` (via child steps, any depth) reaches `targetId`; target omitted = any cycle below fromId */
+  F.childLoop=function(fromId,targetId){
+    const seen=new Set(),stack=new Set();
+    const walk=id=>{if(id===targetId)return true;if(stack.has(id))return !targetId;if(seen.has(id))return false;seen.add(id);stack.add(id);
+      const s=S.get('sops',id);const hit=!!s&&(s.nodes||[]).some(n=>n.type==='child'&&n.sopId&&walk(n.sopId));stack.delete(id);return hit;};
+    const s=S.get('sops',fromId); if(!s)return false; seen.add(fromId); stack.add(fromId);
+    return (s.nodes||[]).some(n=>n.type==='child'&&n.sopId&&(n.sopId===fromId?!targetId:walk(n.sopId)));
+  };
+  F.META=['title','dept','category'];
+  F.changed=function(sop){const v=sop.versions[sop.versions.length-1];if(!v)return true;
+    F.META.forEach(k=>{if(v[k]===undefined)v[k]=sop[k];});
+    return JSON.stringify(v.nodes)!==JSON.stringify(sop.nodes)||F.META.some(k=>v[k]!==sop[k]);};
+  /* step-level diff vs a version: [{kind:'added'|'removed'|'changed', label}] plus SOP detail changes */
+  F.diff=function(sop,v){if(!v)return sop.nodes.filter(n=>!['start','end'].includes(n.type)).map(n=>({kind:'added',label:n.label||F.TYPES[n.type].label,type:n.type}));
+    const out=[];const old=F.byId(v.nodes),cur=F.byId(sop.nodes);
+    F.META.forEach(k=>{if(v[k]!==undefined&&v[k]!==sop[k])out.push({kind:'changed',label:(k==='dept'?'Department':k[0].toUpperCase()+k.slice(1))+': '+v[k]+' → '+sop[k],type:'meta'});});
+    sop.nodes.forEach(n=>{const o=old[n.id];if(!o)out.push({kind:'added',label:n.label||F.TYPES[n.type].label,type:n.type});else if(JSON.stringify(o)!==JSON.stringify(n))out.push({kind:'changed',label:n.label||F.TYPES[n.type].label,type:n.type});});
+    v.nodes.forEach(o=>{if(!cur[o.id])out.push({kind:'removed',label:o.label||F.TYPES[o.type].label,type:o.type});});
+    return out;};
   F.latest=sop=>sop.versions[sop.versions.length-1];
 
-  function badges(n,sop){
-    const b=[]; const t=(x,tone)=>b.push(UI.tag(x,tone));
-    const m=F.byId(sop.nodes);
-    if(n.type==='question'){t(ANSWERS[n.answer]||n.answer,'mut');if(n.unit)t(n.unit,'mut');if(n.required)t('Required','mut');
-      if(n.onlyIf&&m[n.onlyIf.q]){const q=m[n.onlyIf.q];const o=(q.options||[]).find(o=>o.v===n.onlyIf.v);t('If '+(o?o.l:n.onlyIf.v),'info');}
-      if(n.reject)t('Reject: '+(n.reject.op==='cannot'?"can't answer":(((n.options||[]).find(o=>o.v===n.reject.value)||{}).l||n.reject.op+' '+n.reject.value)),'dng');}
-    if(n.type==='evidence'){t((n.media||[]).map(x=>x[0].toUpperCase()+x.slice(1)).join('/'),'teal');t((n.min||0)+'–'+(n.max||1),'mut');}
-    if(n.type==='approval')t(REG.labelById('roles',n.roleId)||'No role','pur');
-    if(n.type==='wait'){const s=S.get('settings',n.setting);t((s?s.value:n.amount)+' '+(s?s.unit:n.unit),'warn');if(s)t('Setting','mut');}
-    if(n.type==='repeat'){const e=S.get('settings',n.everySetting),f=S.get('settings',n.forSetting);t('Every '+(e?e.value:n.every)+' '+(n.everyUnit==='hours'?'h':n.everyUnit),'warn');t((f?f.value:n.forAmount)+' '+(n.forUnit||'days'),'warn');}
-    if(n.type==='child'){const c=S.get('sops',n.sopId);c?t(F.stepCount(c.nodes)+' steps','ok'):t('Not set','warn');}
-    if(n.type==='action'){const it=S.get('items',n.itemId);if(it)t(it.name,'teal');if(n.dose)t(n.dose+(it&&it.unit?' '+it.unit:'')+(n.per?'/'+n.per:'')+(n.route?' · '+n.route:''),'mut');}
-    if(n.type==='decision'){const q=m[n.q];t(n.op==='duplicate'?'Duplicate scan':(q?'':'No question')+(n.op+' '+(String(n.value).startsWith('@')?(m[n.value.slice(1)]||{}).label:(((q&&q.options)||[]).find(o=>o.v===n.value)||{}).l||n.value)),'warn');}
-    if(n.type==='end'&&n.outcome==='rejected')t('Rejected','dng');
-    return b.join('');
-  }
+  /* one plain line under the title */
+  F.summary=function(n,sop){
+    const m=F.byId(sop.nodes); const setv=(id,v,u)=>{const s=S.get('settings',id);return (s?s.value:v)+' '+(s?s.unit:u||'');};
+    switch(n.type){
+      case 'start':return 'Operator starts';
+      case 'question':{const a=ANSWERS[n.answer]||'Text';const o=(n.options||[]).map(o=>o.l);
+        return [a==='Single choice'||a==='Multiple choice'?(o.slice(0,3).join(' / ')+(o.length>3?' …':'')||a):a,n.unit,n.required?'required':'',n.reject?'can reject':''].filter(Boolean).join(' · ');}
+      case 'evidence':return (n.media||['photo']).join(' or ')+' · '+(n.min||0)+(n.max&&n.max!==n.min?'–'+n.max:'')+' file'+((n.max||1)>1?'s':'');
+      case 'decision':{const q=m[n.q];if(n.op==='duplicate')return 'Already scanned?';if(!q)return 'Choose a question';
+        const val=String(n.value).startsWith('@')?(m[n.value.slice(1)]||{}).label:(((q.options||[]).find(o=>o.v===n.value)||{}).l||n.value);return 'If answer '+n.op+' '+val;}
+      case 'approval':return n.roleId&&S.get('roles',n.roleId)?REG.labelById('roles',n.roleId)+' signs off':'Choose approver role';
+      case 'wait':return n.until==='age'?'Until '+n.amount+' days old':'Wait '+setv(n.setting,n.amount,n.unit);
+      case 'repeat':if((n.times||[]).length)return n.times.length+'×/day ('+n.times[0]+'–'+n.times[n.times.length-1]+') · '+(n.slotCount||n.times.length*(n.forAmount||1))+' checks';
+        return 'Every '+setv(n.everySetting,n.every,n.everyUnit)+' for '+setv(n.forSetting,n.forAmount,n.forUnit||'days');
+      case 'child':{const c=S.get('sops',n.sopId);return c?'Runs '+F.stepCount(c.nodes)+' steps':'Choose SOP';}
+      case 'action':{if(n.link)return 'Opens '+(n.linkLabel||'linked module');const it=S.get('items',n.itemId);return it?it.name+(n.dose?' · '+n.dose+(it.unit?' '+it.unit:''):''):'Operator ticks when done';}
+      case 'parallel':return (n.next||[]).length+' lanes at once';
+      case 'join':return 'All lanes done';
+      case 'end':return n.outcome==='rejected'?'Rejected':'Completed';
+    }
+    return '';
+  };
   function childLabel(n){if(n.type!=='child')return n.label;const c=S.get('sops',n.sopId);return c?c.title:n.label;}
 
   /* ---------- stylesheet (owned by this module) ---------- */
@@ -145,11 +171,11 @@
 
   /* ---------- rendering ---------- */
   const PALETTE=['question','evidence','decision','approval','wait','repeat','child','action','parallel','end'];
-  const HINT={question:'Ask the operator',evidence:'Photo or video proof',decision:'Branch Yes / No',approval:'Role signs off',wait:'Pause for time',repeat:'Periodic check',child:'Run another SOP',action:'Do a task',parallel:'Split into lanes',end:'Finish the flow'};
   F._h={};
   const hOf=(sop,n)=>((F._h[sop.id]||{})[n.id])||estH(n);
 
-  function view(sop){return F.view[sop.id]||(F.view[sop.id]={x:60,y:40,k:1,fresh:true});}
+  function view(sop){return F.view[sop.id]||(F.view[sop.id]={x:60,y:40,k:1,fresh:true,auto:true});}
+  F.miniOff=true; F._focus={};
 
   function outPorts(n,sop){
     const nx=n.next||[];
@@ -165,6 +191,8 @@
     if(ty>sy+24){
       const my=sy+Math.max(18,Math.min(40,(ty-sy)/2));
       d=ortho([[sx,sy],[sx,my],[tx,my],[tx,ty]]); lx=sx; ly=sy+14;
+      if(ty-my>=40)return {d,lx,ly,px:tx,py:(my+ty)/2};
+      return {d,lx,ly,px:(sx+tx)/2,py:my};
     }else{
       const side=b.x>=a.x?1:-1; const hb=hOf(sop,m[e.to]);
       const outX=side>0?Math.max(a.x,b.x)+NW+40:Math.min(a.x,b.x)-40;
@@ -194,28 +222,34 @@
     }));
     return `<defs><marker id="fxah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,1 L10,5 L0,9 z" class="fx-ah"/></marker><marker id="fxahs" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,1 L10,5 L0,9 z" class="fx-ah sel"/></marker></defs>`+out;
   }
+  function plusHtml(sop,pos){
+    let out='';
+    sop.nodes.forEach(n=>(n.next||[]).forEach((e,i)=>{const g=edgeGeom(sop,pos,n,e,i);if(!g||g.px==null)return;
+      out+=`<button class="fx-plus" data-plus="${n.id}:${i}" style="left:${g.px}px;top:${g.py}px" aria-label="Insert step here">+</button>`;}));
+    return out;
+  }
   function groupsHtml(sop,pos){
     const groups={};
     sop.nodes.forEach(n=>{const g=n.page?'p:'+n.page:(n.lane?'l:'+n.lane:null);if(!g||!pos[n.id])return;(groups[g]=groups[g]||[]).push(n);});
     return Object.entries(groups).map(([g,ns])=>{
-      const x0=Math.min(...ns.map(n=>pos[n.id].x))-20,y0=Math.min(...ns.map(n=>pos[n.id].y))-50,
+      const x0=Math.min(...ns.map(n=>pos[n.id].x))-20,y0=Math.min(...ns.map(n=>pos[n.id].y))-58,
         x1=Math.max(...ns.map(n=>pos[n.id].x+NW))+20,y1=Math.max(...ns.map(n=>pos[n.id].y+hOf(sop,n)))+20;
       return `<div class="fx-group ${g[0]==='p'?'page':'lane'}" style="left:${x0}px;top:${y0}px;width:${x1-x0}px;height:${y1-y0}px">
-        <div class="fx-group-head" data-group="${esc(g)}" title="Drag to move the whole ${g[0]==='p'?'page':'lane'}">${ic(g[0]==='p'?'smartphone':'split','',12)}<b>${esc(g.slice(2))}</b><span>${g[0]==='p'?'Page':'Lane'} · ${ns.length}</span></div></div>`;
+        <div class="fx-group-head" data-group="${esc(g)}" title="Drag to move the whole ${g[0]==='p'?'page':'lane'}">${ic(g[0]==='p'?'smartphone':'split','',12)}<b>${esc(g.slice(2))}</b></div></div>`;
     }).join('');
   }
   function nodeHtml(sop,n,p,st,run){
     const ty=TYPES[n.type]||TYPES.action; const rs=run&&run[n.id];
     const isSel=st.sel===n.id||st.multi.has(n.id);
-    const cls=`fx-node k-${n.type} ${PILL(n.type)?'pill':''} ${isSel?'sel':''} ${n.type==='end'&&n.outcome==='rejected'?'rej':''} ${rs?'run-'+rs:''}`;
+    const cls=`fx-node k-${n.type} ${n.link?'linked':''} ${PILL(n.type)?'pill':''} ${isSel?'sel':''} ${n.type==='end'&&n.outcome==='rejected'?'rej':''} ${rs?'run-'+rs:''}`;
     const ports=outPorts(n,sop).map(pt=>`<button class="fx-port out" data-port="${pt.i}" style="left:${pt.x}px" aria-label="Connect from ${esc(n.label||ty.label)}">${pt.label?`<span>${esc(pt.label)}</span>`:''}</button>`).join('');
     const runTag=rs?UI.tag(rs==='done'?'Done':rs==='blocked'?'Blocked':rs==='cur'?'Now':'Pending',rs==='done'?'ok':rs==='blocked'?'dng':rs==='cur'?'info':'mut'):'';
-    const chips=PILL(n.type)?'':badges(n,sop);
+    const sum=F.summary(n,sop);
     return `<div class="${cls}" data-node="${n.id}" style="transform:translate(${p.x}px,${p.y}px)">
       ${n.type!=='start'?'<i class="fx-port in"></i>':''}
-      <div class="fx-eyebrow">${ic(ty.icon,'',13)}<span>${ty.label}</span>${n.page?`<em>${esc(n.page)}</em>`:''}${runTag}</div>
+      <div class="fx-eyebrow">${ic(n.link?'workflow':ty.icon,'',13)}<span>${n.link?'Linked module':ty.label}</span>${runTag}</div>
       <div class="fx-title">${esc(childLabel(n)||'Untitled')}</div>
-      ${chips?`<div class="fx-chips">${chips}</div>`:''}
+      ${sum&&!PILL(n.type)?`<div class="fx-sum">${n.link?`<a href="${esc(n.link)}" class="fx-link">${esc(sum)} ›</a>`:esc(sum)}</div>`:''}
       ${ports}</div>`;
   }
 
@@ -226,25 +260,33 @@
     F._run=F._run||{}; F._run[sop.id]=run;
     schedule(sop.id);
     return `<div class="fx-root" data-flow="${sop.id}" tabindex="0" style="${bgStyle(v)}">
-      <div class="fx-world" style="transform:translate(${v.x}px,${v.y}px) scale(${v.k})">
+      <div class="fx-clip"><div class="fx-world" style="transform:translate(${v.x}px,${v.y}px) scale(${v.k})">
         <div class="fx-groups">${groupsHtml(sop,pos)}</div>
         <svg class="fx-edges" width="1" height="1">${edgesSvg(sop,pos,st)}</svg>
+        <div class="fx-pluses">${plusHtml(sop,pos)}</div>
         <div class="fx-nodes">${sop.nodes.map(n=>nodeHtml(sop,n,pos[n.id],st,run)).join('')}</div>
         <svg class="fx-preview" width="1" height="1"><path d=""/></svg>
-      </div>
+      </div></div>
       <div class="fx-palette" aria-label="Add step"><div class="fx-palette-h">Add step</div>
-        ${PALETTE.map(t=>`<button class="fx-pal k-${t}" data-pal="${t}" title="Click to add after the selected step, or drag onto the canvas"><i class="fx-pal-ic">${ic(TYPES[t].icon,'',16)}</i><span><b>${TYPES[t].label}</b><small>${HINT[t]}</small></span></button>`).join('')}
+        ${PALETTE.map(t=>`<button class="fx-pal k-${t}" data-pal="${t}" aria-label="Add ${TYPES[t].label}"><i class="fx-pal-ic">${ic(TYPES[t].icon,'',16)}</i><b>${TYPES[t].label}</b></button>`).join('')}
       </div>
       <div class="fx-tools">
+        <button class="fx-tb" data-fx="undo" aria-label="Undo" title="Undo ⌘Z" ${hist(sop).undo.length?'':'disabled'}>${ic('undo','',16)}</button>
+        <button class="fx-tb" data-fx="redo" aria-label="Redo" title="Redo ⇧⌘Z" ${hist(sop).redo.length?'':'disabled'}><span class="fx-flip">${ic('undo','',16)}</span></button>
+        <i class="fx-sep"></i>
+        ${F.pages(sop.nodes).length>1?`<select class="fx-jump" data-fxjump aria-label="Jump to page"><option value="">Jump to page</option>${F.pages(sop.nodes).map(p=>`<option>${esc(p)}</option>`).join('')}</select>`:''}
+        <button class="fx-tb txt fx-val ${F.validate(sop).length?'bad':'ok'}" data-fx="validate">${ic(F.validate(sop).length?'reject':'check','',15)}Validate${F.validate(sop).length?` <b>${F.validate(sop).length}</b>`:''}</button>
+        <i class="fx-sep"></i>
         <button class="fx-tb" data-fx="out" aria-label="Zoom out">${ic('zoomout','',16)}</button>
-        <span class="fx-zoom">${Math.round(v.k*100)}%</span>
         <button class="fx-tb" data-fx="in" aria-label="Zoom in">${ic('zoomin','',16)}</button>
         <button class="fx-tb txt" data-fx="fit">Fit</button>
         <button class="fx-tb txt" data-fx="tidy" title="Auto-arrange every step">Tidy</button>
         <button class="fx-tb ${F.miniOff?'':'on'}" data-fx="mini" aria-label="Toggle minimap">${ic('layers','',16)}</button>
+        <button class="fx-tb txt" data-fx="help" aria-label="Shortcuts" aria-expanded="false">?</button>
       </div>
+      <div class="fx-help" hidden><div><kbd>Drag</kbd>Pan</div><div><kbd>⌘ scroll</kbd>Zoom</div><div><kbd>Dot ↓</kbd>Connect</div><div><kbd>+</kbd>Insert step</div><div><kbd>Shift click</kbd>Multi-select</div><div><kbd>Del</kbd>Delete</div><div><kbd>⌘D</kbd>Duplicate</div><div><kbd>⌘Z</kbd>Undo</div><div><kbd>⇧⌘Z</kbd>Redo</div><div><kbd>⌘0</kbd>Fit</div></div>
+      <div class="fx-issues" hidden></div>
       <div class="fx-mini ${F.miniOff?'hidden':''}"><svg></svg></div>
-      <div class="fx-hint">Drag or scroll to pan · Pinch or ⌘-scroll to zoom · Drag the dot under a step to connect · Shift-click to multi-select · Del to delete · ⌘D duplicate</div>
     </div>`;
   };
   function multiSet(sop){return F.multi[sop.id]||(F.multi[sop.id]=new Set());}
@@ -255,11 +297,29 @@
   function schedule(id){pending.add(id);const run=()=>{if(!pending.size)return;pending.forEach(sid=>mount(sid));pending.clear();};requestAnimationFrame(run);setTimeout(run,60);}
   function rootOf(id){return document.querySelector(`.fx-root[data-flow="${id}"]`);}
   function sopOf(id){return S.get('sops',id);}
+  /* per-SOP undo/redo: snapshot of editable SOP state, recorded after every render; quick successive edits coalesce */
+  F.hist={};
+  function hist(sop){return F.hist[sop.id]||(F.hist[sop.id]={undo:[],redo:[],cur:null,t:0});}
+  const snapOf=sop=>JSON.stringify({nodes:sop.nodes,layout:sop.layout||null,title:sop.title,dept:sop.dept,category:sop.category});
+  function record(sop){const h=hist(sop),now=snapOf(sop);
+    if(h.cur===null){h.cur=now;return;} if(now===h.cur)return;
+    if(!(h.t&&Date.now()-h.t<700)){h.undo.push(h.cur);if(h.undo.length>60)h.undo.shift();}
+    h.redo=[];h.cur=now;h.t=Date.now();}
+  function histStep(sop,dir){const h=hist(sop);const from=dir<0?h.undo:h.redo,to=dir<0?h.redo:h.undo;if(!from.length)return;
+    to.push(snapOf(sop));const x=JSON.parse(from.pop());sop.nodes=x.nodes;if(x.layout)sop.layout=x.layout;else delete sop.layout;sop.title=x.title;sop.dept=x.dept;sop.category=x.category;
+    h.cur=snapOf(sop);h.t=0;S.save();if(window.Work&&!sop.nodes.some(n=>n.id===Work.sel[sop.id]))Work.sel[sop.id]=null;App.render();refocus(sop.id);}
+  F.undo=id=>{const s=sopOf(id);if(s)histStep(s,-1);}; F.redo=id=>{const s=sopOf(id);if(s)histStep(s,1);};
+  F.record=id=>{const s=sopOf(id);if(s)record(s);};
   function mount(id){
     const root=rootOf(id),sop=sopOf(id); if(!root||!sop)return;
+    const hb=hist(sop).undo.length,hr=hist(sop).redo.length; record(sop);
+    if(hist(sop).undo.length!==hb||hist(sop).redo.length!==hr){const u=root.querySelector('[data-fx=undo]'),r=root.querySelector('[data-fx=redo]');if(u)u.disabled=!hist(sop).undo.length;if(r)r.disabled=!hist(sop).redo.length;}
     measure(root,sop);
     const v=view(sop); if(v.fresh){v.fresh=false;fit(root,sop,true);}
     redraw(root,sop);
+    const f=F._focus[sop.id]; if(f){delete F._focus[sop.id];focusNode(root,sop,f.id||f,!!f.center);}
+    if(!root._ro&&window.ResizeObserver){let w=root.clientWidth,h=root.clientHeight;root._ro=new ResizeObserver(()=>{if(!root.isConnected){root._ro.disconnect();return;}
+      if(Math.abs(root.clientWidth-w)<2&&Math.abs(root.clientHeight-h)<2)return;w=root.clientWidth;h=root.clientHeight;if(view(sop).auto)fit(root,sop,true);else minimap(root,sop);});root._ro.observe(root);}
   }
   function measure(root,sop){const h=F._h[sop.id]=F._h[sop.id]||{};root.querySelectorAll('.fx-node').forEach(el=>{h[el.dataset.node]=el.offsetHeight;});}
   function redraw(root,sop,pos){
@@ -267,6 +327,7 @@
     const st={sel:(window.Work&&Work.sel[sop.id])||null,multi:multiSet(sop),edge:F._edgeSel&&F._edgeSel.sop===sop.id?F._edgeSel.key:null};
     root.querySelector('.fx-edges').innerHTML=edgesSvg(sop,pos,st);
     root.querySelector('.fx-groups').innerHTML=groupsHtml(sop,pos);
+    root.querySelector('.fx-pluses').innerHTML=plusHtml(sop,pos);
     minimap(root,sop,pos);
   }
   function applyView(root,sop){
@@ -276,17 +337,37 @@
     const z=root.querySelector('.fx-zoom'); if(z)z.textContent=Math.round(v.k*100)+'%';
     minimap(root,sop);
   }
+  /* fit whole flow into the free area (left of minimap, beside or above the palette); tall flows start at the top */
   function fit(root,sop,initial){
     const pos=F.positions(sop); const b=bounds(pos,F.byId(sop.nodes),F._h[sop.id]); const v=view(sop);
-    const r=root.getBoundingClientRect(); const padL=root.querySelector('.fx-palette').offsetWidth+40, pad=48;
-    const aw=Math.max(200,r.width-padL-pad), ah=Math.max(200,r.height-pad*2-20);
-    let k=Math.min(aw/(b.x1-b.x0),ah/(b.y1-b.y0),1.1); k=Math.max(initial?.85:.2,k);
-    v.k=k; v.x=padL+(aw-(b.x1-b.x0)*k)/2-b.x0*k; v.y=pad+Math.max(0,(ah-(b.y1-b.y0)*k)/2)-b.y0*k;
-    if((b.y1-b.y0)*k>ah)v.y=pad-b.y0*k;
+    const r=root.getBoundingClientRect(); if(r.width<50||r.height<50)return;
+    const pal=root.querySelector('.fx-palette'); const bottomPal=pal.offsetWidth>r.width*.6;
+    const narrow=r.width<600, pad=narrow?16:40;
+    const padL=bottomPal?pad:pal.offsetWidth+24+pad, padT=topInset(root)+(narrow?12:20), padB=(bottomPal?pal.offsetHeight+20:0)+pad;
+    const padR=pad+(F.miniOff||narrow?0:196);
+    const aw=Math.max(120,r.width-padL-padR), ah=Math.max(120,r.height-padT-padB);
+    const bw=b.x1-b.x0+40, bh=b.y1-b.y0+60;
+    let k=Math.min(aw/bw,ah/bh,1); k=Math.max(initial?(narrow?Math.min(1,aw/(NW+40)):.8):.2,k);
+    v.k=k; v.x=padL+(aw-(b.x1-b.x0)*k)/2-b.x0*k;
+    if((b.x1-b.x0)*k>aw){const s=sop.nodes.find(n=>n.type==='start');const sp=s&&pos[s.id];v.x=sp?padL+aw/2-(sp.x+NW/2)*k:padL-b.x0*k;}
+    v.y=(bh*k>ah)?padT+60*k-b.y0*k:padT+(ah-bh*k)/2+60*k-b.y0*k;
     applyView(root,sop);
   }
+  /* bring a node into view (keep zoom) when it is off-screen */
+  function topInset(root){const t=root.querySelector('.fx-tools');return t?t.offsetTop+t.offsetHeight:48;}
+  function focusNode(root,sop,id,center){
+    const p=F.positions(sop)[id]; if(!p)return; const v=view(sop); const r=root.getBoundingClientRect();
+    const h=hOf(sop,{id,type:(sop.nodes.find(n=>n.id===id)||{}).type});
+    const sx=p.x*v.k+v.x, sy=p.y*v.k+v.y, ex=sx+NW*v.k, ey=sy+h*v.k;
+    const pal=root.querySelector('.fx-palette'); const bottomPal=pal&&pal.offsetWidth>r.width*.6;
+    const left=bottomPal?8:(pal?pal.offsetWidth+24:8), bottom=r.height-(bottomPal?pal.offsetHeight+20:12);
+    if(center&&v.k<.8){v.k=.85;}
+    const top=topInset(root)+8;
+    if(!center&&sx>=left&&ex<=r.width-8&&sy>=top&&ey<=bottom)return;
+    v.auto=false; v.x=left+(r.width-left)/2-(p.x+NW/2)*v.k; v.y=top+(bottom-top)/2-(p.y+h/2)*v.k; applyView(root,sop);
+  }
   function zoomAt(root,sop,k,cx,cy){
-    const v=view(sop); k=Math.max(.2,Math.min(2.5,k));
+    const v=view(sop); v.auto=false; k=Math.max(.2,Math.min(2.5,k));
     const wx=(cx-v.x)/v.k, wy=(cy-v.y)/v.k; v.k=k; v.x=cx-wx*k; v.y=cy-wy*k; applyView(root,sop);
   }
   function minimap(root,sop,pos){
@@ -335,16 +416,18 @@
     pos[n.id]={x:snap(x-NW/2),y:snap(y-30)}; persist(sop,pos);
     return n;
   }
-  function insertAfterSel(sop,type,afterId){
+  function insertAfterSel(sop,type,afterId,edge){
     const a=sop.nodes.find(x=>x.id===afterId); if(!a||a.type==='end')return null;
     const pos=F.positions(sop); persist(sop,pos);
     S.snap('Add step');
     const before=new Set(sop.nodes.map(n=>n.id));
-    const n=F.insertAfter(sop,afterId,type); if(!n){S.undo();return null;}
+    const n=F.insertAfter(sop,afterId,type,edge); if(!n){S.undo();return null;}
     // push everything below the anchor down to make room, place new nodes under the anchor
     const added=sop.nodes.filter(x=>!before.has(x.id));
-    const ap=pos[afterId]; const baseY=ap.y+estH(a)+RH; const need=added.length>1?(estH(n)+RH)*3:estH(n)+RH;
-    Object.keys(pos).forEach(id=>{if(id!==afterId&&pos[id].y>=baseY-10&&Math.abs(pos[id].x-ap.x)<CW*3)pos[id].y+=need;});
+    const branchTo=edge!=null&&(a.type==='decision'||a.type==='parallel')?pos[((n.next||[])[0]||{}).to]:null;
+    const ap={x:branchTo?branchTo.x:pos[afterId].x,y:pos[afterId].y}; const baseY=ap.y+hOf(sop,a)+RH;
+    const need=added.length>1?(estH(n)+RH)*3:estH(n)+RH;
+    Object.keys(pos).forEach(id=>{if(id!==afterId&&!added.some(x=>x.id===id)&&pos[id].y>=baseY-10&&Math.abs(pos[id].x-ap.x)<CW*3)pos[id].y+=need;});
     if(type==='parallel'){const lanes=added.filter(x=>x.lane),join=added.find(x=>x.type==='join');
       pos[n.id]={x:ap.x,y:baseY};lanes.forEach((l,i)=>pos[l.id]={x:ap.x+(i-(lanes.length-1)/2)*CW,y:snap(baseY+estH(n)+RH)});
       if(join)pos[join.id]={x:ap.x,y:snap(baseY+estH(n)+RH+estH(lanes[0]||n)+RH)};}
@@ -366,7 +449,7 @@
   document.addEventListener('pointerdown',e=>{
     const root=e.target.closest&&e.target.closest('.fx-root'); if(!root)return;
     const sop=sopOf(root.dataset.flow); if(!sop)return;
-    if(e.target.closest('.fx-tools,.fx-hint'))return;
+    if(e.target.closest('.fx-tools,.fx-help,.fx-issues,.fx-plus,.fx-link'))return;
     if(e.button===2)return;
     root.focus({preventScroll:true});
     const mini=e.target.closest('.fx-mini');
@@ -406,7 +489,7 @@
 
   document.addEventListener('pointermove',e=>{
     if(!drag)return; const {root,sop}=drag;
-    if(drag.kind==='pan'){const v=view(sop);if(Math.abs(e.clientX-drag.sx)+Math.abs(e.clientY-drag.sy)>3)drag.moved=true;v.x=drag.vx+e.clientX-drag.sx;v.y=drag.vy+e.clientY-drag.sy;applyView(root,sop);return;}
+    if(drag.kind==='pan'){const v=view(sop);v.auto=false;if(Math.abs(e.clientX-drag.sx)+Math.abs(e.clientY-drag.sy)>3)drag.moved=true;v.x=drag.vx+e.clientX-drag.sx;v.y=drag.vy+e.clientY-drag.sy;applyView(root,sop);return;}
     if(drag.kind==='mini'){miniJump(root,sop,e);return;}
     if(drag.kind==='wire'){wireMove(e);return;}
     if(drag.kind==='pal'){
@@ -460,7 +543,7 @@
         let n;
         if(a&&a.type!=='end')n=insertAfterSel(sop,d.type,after);
         else{const r=root.getBoundingClientRect(),v=view(sop);n=addAt(sop,d.type,(r.width/2-v.x)/v.k,(r.height/2-v.y)/v.k);UI.toast('Added — drag its dot to connect it');}
-        if(n){S.save();multiSet(sop).clear();Work.sel[sop.id]=n.id;App.render();refocus(sop.id);}
+        if(n){S.save();multiSet(sop).clear();Work.sel[sop.id]=n.id;F._focus[sop.id]=n.id;App.render();refocus(sop.id);}
         return;
       }
       const rr=root.getBoundingClientRect(); if(e.clientX<rr.left||e.clientX>rr.right||e.clientY<rr.top||e.clientY>rr.bottom)return;
@@ -469,7 +552,7 @@
       let n;
       if(t&&root.contains(t))n=insertAfterSel(sop,d.type,t.dataset.node);
       if(!n){const w=world(root,sop,e);n=addAt(sop,d.type,w.x,w.y);}
-      S.save();multiSet(sop).clear();Work.sel[sop.id]=n.id;App.render();refocus(sop.id);return;
+      S.save();multiSet(sop).clear();Work.sel[sop.id]=n.id;F._focus[sop.id]=n.id;App.render();refocus(sop.id);return;
     }
     if(d.kind==='node'){
       if(d.moved){persist(sop,d.pos);measure(root,sop);redraw(root,sop,d.pos);root.querySelectorAll('.fx-node.lift').forEach(x=>x.classList.remove('lift'));
@@ -487,11 +570,31 @@
     const v=view(sop);
     const m=e.deltaMode===1?16:1; const dx=e.deltaX*m, dy=e.deltaY*m;
     if(e.ctrlKey||e.metaKey){const p=local(root,e);zoomAt(root,sop,v.k*Math.exp(-dy*(e.ctrlKey?0.01:0.0022)),p.x,p.y);return;}
+    v.auto=false;
     if(e.shiftKey&&!dx){v.x-=dy;}else{v.x-=dx;v.y-=dy;}
     applyView(root,sop);
   },{passive:false});
 
+  document.addEventListener('change',e=>{
+    const j=e.target.closest&&e.target.closest('.fx-root [data-fxjump]'); if(!j||!j.value)return;
+    const root=j.closest('.fx-root'),sop=sopOf(root.dataset.flow); if(!sop)return;
+    const pos=F.positions(sop); const first=sop.nodes.filter(n=>n.page===j.value&&pos[n.id]).sort((a,b)=>pos[a.id].y-pos[b.id].y)[0];
+    if(first){const v=view(sop),r=root.getBoundingClientRect();if(v.k<.8)v.k=.85;v.auto=false;const pal=root.querySelector('.fx-palette');const left=pal.offsetWidth>r.width*.6?0:pal.offsetWidth+24;
+      v.x=left+(r.width-left)/2-(pos[first.id].x+NW/2)*v.k; v.y=topInset(root)+24-(pos[first.id].y-66)*v.k; applyView(root,sop);}
+    j.value='';
+  });
   document.addEventListener('click',e=>{
+    const iss=e.target.closest&&e.target.closest('.fx-root [data-fxissue]');
+    if(iss){const root=iss.closest('.fx-root'),sop=sopOf(root.dataset.flow);const id=iss.dataset.fxissue;
+      if(id&&sop.nodes.some(n=>n.id===id)){multiSet(sop).clear();Work.sel[sop.id]=id;F._focus[sop.id]={id,center:true};App.render();refocus(sop.id);}
+      else root.querySelector('.fx-issues').hidden=true;
+      return;}
+    const plus=e.target.closest&&e.target.closest('.fx-root [data-plus]');
+    if(plus){e.stopPropagation();const root=plus.closest('.fx-root'),sop=sopOf(root.dataset.flow);if(!sop)return;
+      const [from,i]=plus.dataset.plus.split(':');
+      setTimeout(()=>UI.menu(plus,PALETTE.filter(t=>t!=='end').map(t=>({label:TYPES[t].label,icon:TYPES[t].icon,run(){
+        const n=insertAfterSel(sop,t,from,+i); if(!n)return; S.save(); multiSet(sop).clear(); Work.sel[sop.id]=n.id; F._focus[sop.id]=n.id; App.render(); refocus(sop.id);}}))),0);
+      return;}
     const b=e.target.closest&&e.target.closest('.fx-root [data-fx]'); if(!b)return;
     const root=b.closest('.fx-root'),sop=sopOf(root.dataset.flow); if(!sop)return;
     const r=root.getBoundingClientRect(),v=view(sop),fx=b.dataset.fx;
@@ -499,6 +602,13 @@
     if(fx==='out')zoomAt(root,sop,v.k/1.2,r.width/2,r.height/2);
     if(fx==='fit')fit(root,sop);
     if(fx==='tidy'){S.snap('Tidy layout');delete sop.layout;S.save();view(sop).fresh=true;App.render();UI.toast('Steps re-arranged',()=>{S.undo();App.render();});}
+    if(fx==='undo')F.undo(sop.id);
+    if(fx==='redo')F.redo(sop.id);
+    if(fx==='validate'){const box=root.querySelector('.fx-issues');const iss=F.validate(sop);
+      if(!box.hidden){box.hidden=true;return;}
+      box.innerHTML=iss.length?`<div class="fx-issues-h">${iss.length} issue${iss.length>1?'s':''}</div>`+iss.map(i=>`<button data-fxissue="${esc(i.id||'')}">${ic('reject','',14)}<span>${esc(i.msg)}</span></button>`).join(''):`<div class="fx-issues-ok">${ic('check','',15)}Ready to publish</div>`;
+      box.hidden=false;}
+    if(fx==='help'){const h=root.querySelector('.fx-help');h.hidden=!h.hidden;b.setAttribute('aria-expanded',String(!h.hidden));b.classList.toggle('on',!h.hidden);}
     if(fx==='mini'){F.miniOff=!F.miniOff;root.querySelector('.fx-mini').classList.toggle('hidden',F.miniOff);b.classList.toggle('on',!F.miniOff);minimap(root,sop);}
   });
 
@@ -507,6 +617,8 @@
     if(e.code==='Space'&&!typing(e.target)&&document.querySelector('.fx-root')){if(!spaceDown){spaceDown=true;document.querySelectorAll('.fx-root').forEach(r=>r.classList.add('space'));}if(e.target.closest&&e.target.closest('.fx-root'))e.preventDefault();return;}
     const root=e.target.closest&&e.target.closest('.fx-root'); if(!root)return;
     const sop=sopOf(root.dataset.flow); if(!sop)return;
+    if((e.metaKey||e.ctrlKey)&&(e.key==='z'||e.key==='Z')&&!typing(e.target)){e.preventDefault();e.shiftKey?F.redo(sop.id):F.undo(sop.id);return;}
+    if((e.metaKey||e.ctrlKey)&&(e.key==='y')&&!typing(e.target)){e.preventDefault();F.redo(sop.id);return;}
     const ids=selectedIds(sop);
     if(e.key==='Delete'||e.key==='Backspace'){
       e.preventDefault();
@@ -537,7 +649,7 @@
     if(type==='question')Object.assign(base,{label:'New question',answer:'choice',required:true,options:[{v:'yes',l:'Yes'},{v:'no',l:'No'}]});
     if(type==='evidence')Object.assign(base,{label:'Photo proof',media:['photo'],min:1,max:1});
     if(type==='decision')Object.assign(base,{label:'Check answer',q:'',op:'=',value:''});
-    if(type==='approval')Object.assign(base,{label:'Approval',roleId:'role_verifier',outcomes:['Approve','Send back']});
+    if(type==='approval')Object.assign(base,{label:'Approval',roleId:'',outcomes:['Approve','Send back']});
     if(type==='wait')Object.assign(base,{label:'Wait',amount:1,unit:'days'});
     if(type==='repeat')Object.assign(base,{label:'Repeat check',every:3,everyUnit:'hours',forAmount:1,forUnit:'days',media:['photo']});
     if(type==='child')Object.assign(base,{label:'Follow SOP',sopId:''});
@@ -546,9 +658,9 @@
     if(type==='parallel')Object.assign(base,{label:'In parallel'});
     return base;
   };
-  F.insertAfter=function(sop,afterId,type){
+  F.insertAfter=function(sop,afterId,type,edge){
     const nodes=sop.nodes, a=nodes.find(n=>n.id===afterId); if(!a||a.type==='end')return null;
-    const oldTo=(a.next[0]||{}).to;
+    const ei=edge!=null&&a.next[edge]?edge:0; const oldTo=(a.next[ei]||{}).to;
     const mk=t=>{const n=Object.assign({id:F.nid(nodes)},F.defaults(t,sop));if(a.page&&['question','evidence','action','decision'].includes(t))n.page=a.page;nodes.push(n);return n;};
     const n=mk(type);
     if(type==='decision'){
@@ -562,7 +674,7 @@
       n.next=[{to:l1.id,when:'Lane A'},{to:l2.id,when:'Lane B'}];l1.next=[{to:j.id}];l2.next=[{to:j.id}];j.next=oldTo?[{to:oldTo}]:[];
     }else if(type==='end'){n.next=[];}
     else n.next=oldTo?[{to:oldTo}]:[];
-    if(a.next.length)a.next[0].to=n.id; else a.next=[{to:n.id}];
+    if(a.next.length)a.next[ei].to=n.id; else a.next=[{to:n.id}];
     return n;
   };
   F.remove=function(sop,id){

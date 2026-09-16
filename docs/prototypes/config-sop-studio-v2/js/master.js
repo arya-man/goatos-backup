@@ -22,11 +22,12 @@
       if(!s.label)iss.push(s.label+'Stage without a name');
       if(labels.indexOf(REG.norm(s.label))!==labels.lastIndexOf(REG.norm(s.label)))iss.push(s.label+': duplicate name');
       if(!S.get('sops',s.sopId))iss.push(s.label+': choose a child SOP');
-      s.deps.forEach(d=>{const t=by[d.stage];if(!t)iss.push(s.label+': missing prerequisite');else if(d.state==='approved'&&!t.approvalRoleId)iss.push(s.label+': '+t.label+' has no approval');});
+      else if(Flow.childLoop&&Flow.childLoop(s.sopId))iss.push(s.label+': child SOP loops back into itself');
+      s.deps.forEach(d=>{const t=by[d.stage];if(d.stage===s.id)iss.push(s.label+': cannot wait on itself');else if(!t)iss.push(s.label+': missing prerequisite');else if(d.state==='approved'&&!t.approvalRoleId)iss.push(s.label+': '+t.label+' has no approval');});
     });
-    const vis={},stack={};let cyc=false;
-    const dfs=id=>{if(stack[id]){cyc=true;return;}if(vis[id])return;vis[id]=stack[id]=1;(by[id]?by[id].deps:[]).forEach(d=>dfs(d.stage));stack[id]=0;};
-    m.stages.forEach(s=>dfs(s.id)); if(cyc)iss.push('Prerequisites form a loop');
+    const vis={},stack=[];const loops=new Set();
+    const dfs=id=>{const k=stack.indexOf(id);if(k>=0){loops.add(stack.slice(k).map(x=>(by[x]||{}).label).join(' → ')+' → '+(by[id]||{}).label);return;}if(vis[id])return;vis[id]=1;stack.push(id);(by[id]?by[id].deps:[]).forEach(d=>d.stage!==id&&dfs(d.stage));stack.pop();};
+    m.stages.forEach(s=>dfs(s.id)); loops.forEach(l=>iss.push('Prerequisites loop: '+l));
     return iss;
   }
   const tr=id=>M.try[id]||(M.try[id]={st:{},cohort:null});
@@ -64,7 +65,7 @@
     const head=`<div class="phead"><div><div class="crumb">Configuration / <a href="#/configuration/work-instructions">Work instructions</a> / <b>${esc(m.dept)}</b></div><h1>${esc(m.title)}</h1>
       <div class="vstrip" style="margin-top:6px">${v?UI.tag('v'+v.v+' published','ok'):''}${v&&v.running?UI.tag(v.running+' running','info'):''}${UI.tag(m.stages.length+' stages','mut')}${iss.length?UI.tag(iss.length+' issues','dng'):''}</div></div><div class="sp"></div>
       <div class="seg"><a class="${view!=='try'?'on':''}" href="${base}${id}">${ic('layers')}Stages</a><a class="${view==='try'?'on':''}" href="${base}${id}/try">${ic('play')}Try</a></div>
-      <button class="btn p" data-a="mst-publish" data-id="${id}">${ic('check')}Publish v${v?v.v+1:1}</button></div>`;
+      <button class="btn p" data-a="mst-publish" data-id="${id}" ${iss.length?'disabled':''}>${ic('check')}Publish v${v?v.v+1:1}</button></div>`;
     const side=view==='try'?trySide(m,T):inspector(m,iss);
     return head+`<div class="editor"><section class="card"><div class="canvasbar"><div class="legend"><span><i></i>Completed</span><span><i class="a"></i>Approved</span><span><i class="s"></i>Started (parallel)</span></div><span class="sp"></span>
       ${view!=='try'?`<button class="btn sm" data-a="stage-add">${ic('plus')}Stage</button>`:''}</div>${canvas}</section><section class="card insp">${side}</section></div>`;
@@ -107,7 +108,7 @@
       return `<tr><td class="muted small">${i+1}</td><td><b>${esc(s.label)}</b>${blocked?`<div class="small muted">Needs ${esc(blocked)}</div>`:''}${x.checks?`<div class="small muted">${x.checks} checks</div>`:''}</td><td>${UI.tag(l,t)}</td><td><div class="row" style="justify-content:flex-end">${b.join('')}</div></td></tr>`;}).join('');
     const c=T.cohort;
     return `<div class="hd"><h3>Try run</h3><span class="sp"></span><button class="btn sm" data-a="try-reset">${ic('rotate')}Reset</button></div>
-      <div class="sheetbar">${['offered','selected','boarded','received'].map(k=>`<label class="small" style="font-weight:650">${k[0].toUpperCase()+k.slice(1)} <input class="inl num" style="width:64px" data-coh="${k}" value="${esc(c[k])}" inputmode="numeric"></label>`).join('')}</div>
+      <div class="trycoh">${['offered','selected','boarded','received'].map(k=>`<label>${k[0].toUpperCase()+k.slice(1)}<input class="inl num" data-coh="${k}" value="${esc(c[k])}" inputmode="numeric"></label>`).join('')}</div>
       <div class="twrap screen trylist"><table><tbody>${rows}</tbody></table></div>`;
   }
 

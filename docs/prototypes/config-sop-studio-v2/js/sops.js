@@ -73,10 +73,7 @@
     if(view==='operator')return head+'<div data-meshaop></div>';
     if(view==='list')return head+`<div class="editor"><section class="card">${listView(s,W.sel[s.id])}</section><section class="card insp">${inspector(s,W.sel[s.id],iss)}</section></div>`;
     const sel=W.sel[s.id]; const run=window.MeshaOperator&&MeshaOperator.runMap?MeshaOperator.runMap(s):null;
-    return head+`<div class="editor"><section class="card"><div class="canvasbar">
-        <span class="sp"></span>
-        <div class="legend">${['question','evidence','decision','approval','wait','repeat','child','parallel'].map(t=>`<span class="k-${t}" style="color:var(--k)">${ic(Flow.TYPES[t].icon,'',13)} ${Flow.TYPES[t].label}</span>`).join('')}</div>
-      </div><div class="canvas" data-canvas>${Flow.canvasHtml(s,sel,run)}</div></section>
+    return head+`<div class="editor"><section class="card"><div class="canvas" data-canvas>${Flow.canvasHtml(s,sel,run)}</div></section>
       <section class="card insp">${inspector(s,sel,iss)}</section></div>`;
   };
 
@@ -91,11 +88,11 @@
       const T=Flow.TYPES[n.type]||Flow.TYPES.action; const step=['start','end','join','parallel'].includes(n.type)?'':++i;
       const sub=[n.type==='question'?(Flow.ANSWERS[n.answer]||'')+(n.unit?' · '+n.unit:''):'',n.required?'Required':'',n.reject?'Reject rule':'',n.onlyIf?'Conditional':'',
         n.type==='approval'?REG.labelById('roles',n.roleId):'',n.type==='evidence'?(n.media||[]).join('/')+' '+(n.min||0)+'–'+(n.max||1):'',
-        n.type==='child'?((S.get('sops',n.sopId)||{}).title||'Not set'):''].filter(Boolean).join(' · ');
+        n.type==='child'?((S.get('sops',n.sopId)||{}).title||'Not set'):'',n.link?'Opens '+(n.linkLabel||'linked module'):''].filter(Boolean).join(' · ');
       return head+`<div class="lstep k-${n.type} ${sel===n.id?'sel':''}" data-a="node-sel" data-id="${n.id}">
         <span class="lnum">${step}</span><div class="lbody"><div class="row nw"><span class="ltype">${ic(T.icon,'',13)}${T.label}</span><b class="lttl">${esc(n.type==='child'&&S.get('sops',n.sopId)?S.get('sops',n.sopId).title:n.label||T.label)}</b></div>
         ${sub?`<div class="small muted">${esc(sub)}</div>`:''}${(n.next||[]).length?`<div class="small muted">${esc(nextTxt(n))}</div>`:''}</div>
-        ${n.type!=='end'?`<button class="btn sm" data-a="list-ins" data-id="${n.id}">${ic('plus')}Insert</button>`:''}</div>`;
+        ${n.type!=='end'?`<button class="btn sm" data-a="list-ins" data-id="${n.id}" aria-label="Insert step after">${ic('plus')}<span class="ins-t">Insert</span></button>`:''}</div>`;
     }).join('');
     return `<div class="hd"><h3>Steps <span class="cnt">${Flow.stepCount(s.nodes)}</span></h3></div><div class="lsteps">${rows}</div>`;
   }
@@ -123,7 +120,7 @@
       f=lab+`<div class="fgrid">${fld('Answer',`<select data-np="answer">${Object.entries(Flow.ANSWERS).map(([k,v])=>`<option value="${k}" ${n.answer===k?'selected':''}>${v}</option>`).join('')}</select>`)}
         ${fld('Required',`<select data-np="required" data-bool><option value="1" ${n.required?'selected':''}>Yes</option><option value="" ${n.required?'':'selected'}>No</option></select>`)}
         ${n.answer==='number'?fld('Unit',`<input data-np="unit" value="${esc(n.unit||'')}">`)+fld('Min – max',`<div class="row nw"><input class="inl" style="width:50%" data-np="min" value="${esc(n.min==null?'':n.min)}"><input class="inl" style="width:50%" data-np="max" value="${esc(n.max==null?'':n.max)}"></div>`):''}
-        ${n.answer==='ref'?fld('List',`<select data-np="refColl">${Object.entries(Flow.REFS).map(([k,v])=>`<option value="${k}" ${n.refColl===k?'selected':''}>${v}</option>`).join('')}</select>`):''}
+        ${n.answer==='ref'?fld('List',`<select data-np="refColl">${Object.entries(Flow.REFS).map(([k,v])=>`<option value="${k}" ${n.refColl===k?'selected':''}>${v}</option>`).join('')}</select>`+(n.refColl==='vendors'||n.refColl==='trucks'?`<a class="hint" href="#/procurement/vendors">Managed in Procurement → Vendors</a>`:'')):''}
         ${pageF}</div>
         ${(n.answer==='choice'||n.answer==='multi')?`<div class="eyebrow">Options</div><table class="mini opts"><tbody>${(n.options||[]).map((o,i)=>`<tr><td><input data-opt="${i}" data-k="l" value="${esc(o.l)}" aria-label="Option label"></td><td class="x"><button class="btn icon gh" data-a="opt-del" data-i="${i}" aria-label="Remove option">${ic('x')}</button></td></tr>`).join('')}</tbody></table>
           <div class="row mt"><button class="btn sm" data-a="opt-add">${ic('plus')}Option</button><label class="row small"><input type="checkbox" data-np="allowOther" data-check ${n.allowOther?'checked':''}>Other with detail</label></div>`:''}
@@ -151,12 +148,14 @@
     }
     if(n.type==='wait'){
       const st=S.get('settings',n.setting);
-      f=lab+`<div class="fgrid">${fld('From setting',`<select data-np="setting">${settingOpts(n.setting,['days','hours','min'])}</select>`,1)}
+      if(n.until==='age')f=lab+`<div class="fgrid">${fld('Until age (days)',`<input data-np="amount" data-num value="${esc(n.amount)}" inputmode="numeric">`)}</div>`+next;
+      else f=lab+`<div class="fgrid">${fld('From setting',`<select data-np="setting">${settingOpts(n.setting,['days','hours','min'])}</select>`,1)}
         ${fld('Amount',`<input data-np="amount" data-num value="${esc(st?st.value:n.amount)}" ${st?'disabled':''}>`)}${fld('Unit',`<select data-np="unit" ${st?'disabled':''}>${['hours','days'].map(u=>`<option ${(st?st.unit:n.unit)===u?'selected':''}>${u}</option>`).join('')}</select>`)}</div>`+next;
     }
     if(n.type==='repeat'){
       const e=S.get('settings',n.everySetting),fs=S.get('settings',n.forSetting);
-      f=lab+`<div class="fgrid">${fld('Every',`<input data-np="every" data-num value="${esc(e?e.value:n.every)}" ${e?'disabled':''}>`)}${fld('Unit',`<select data-np="everyUnit">${['hours','days'].map(u=>`<option ${n.everyUnit===u?'selected':''}>${u}</option>`).join('')}</select>`)}
+      if((n.times||[]).length)f=lab+`<div class="fgrid">${fld('Times each day',`<input data-np="times" data-list value="${esc(n.times.join(', '))}">`,1)}${fld('For',`<input data-np="forAmount" data-num value="${esc(n.forAmount)}">`)}${fld('Unit',`<select data-np="forUnit">${['days'].map(u=>`<option>${u}</option>`).join('')}</select>`)}</div>`+next;
+      else f=lab+`<div class="fgrid">${fld('Every',`<input data-np="every" data-num value="${esc(e?e.value:n.every)}" ${e?'disabled':''}>`)}${fld('Unit',`<select data-np="everyUnit">${['hours','days'].map(u=>`<option ${n.everyUnit===u?'selected':''}>${u}</option>`).join('')}</select>`)}
         ${fld('Every · from setting',`<select data-np="everySetting">${settingOpts(n.everySetting,['hours','days'])}</select>`,1)}
         ${fld('For',`<input data-np="forAmount" data-num value="${esc(fs?fs.value:n.forAmount)}" ${fs?'disabled':''}>`)}${fld('Unit',`<select data-np="forUnit">${['hours','days'].map(u=>`<option ${n.forUnit===u?'selected':''}>${u}</option>`).join('')}</select>`)}
         ${fld('For · from setting',`<select data-np="forSetting">${settingOpts(n.forSetting,['hours','days'])}</select>`,1)}
@@ -166,7 +165,9 @@
       f=lab+fld('SOP',`<select data-np="sopId"><option value="">—</option>${S.active('sops').filter(x=>x.id!==s.id).map(x=>`<option value="${x.id}" ${n.sopId===x.id?'selected':''}>${esc(x.dept)} · ${esc(x.title)}</option>`).join('')}</select>`)
         +(S.get('sops',n.sopId)?`<a class="btn sm" href="${base}/${n.sopId}">${ic('workflow')}Open child SOP</a>`:'')+`<div class="mt"></div>`+next;
     }
-    if(n.type==='action'){
+    if(n.type==='action'&&n.link){
+      f=lab+`<div class="fgrid">${fld('Linked module',`<a class="btn sm" href="${esc(n.link)}">${ic('workflow')}${esc(n.linkLabel||'Open')}</a>`,1)}${pageF}</div>`+next;
+    }else if(n.type==='action'){
       const it=S.get('items',n.itemId);
       f=lab+`<div class="fgrid">${fld('Item',`<input data-item value="${esc(it?it.name:'')}" placeholder="Search or create" autocomplete="off">`,1)}
         ${fld('Dose / qty',`<input data-np="dose" value="${esc(n.dose||'')}">`)}${fld('Per',`<select data-np="per"><option value="">—</option>${['kg','animal','pen'].map(u=>`<option ${n.per===u?'selected':''}>${u}</option>`).join('')}</select>`)}
@@ -178,9 +179,7 @@
     }
     if(n.type==='start'||n.type==='join')f=lab+next;
     if(n.type==='end')f=lab+fld('Outcome',`<select data-np="outcome"><option value="done" ${n.outcome!=='rejected'?'selected':''}>Completed</option><option value="rejected" ${n.outcome==='rejected'?'selected':''}>Rejected</option></select>`);
-    const addTypes=['question','evidence','decision','approval','wait','repeat','child','action','parallel','end'];
     return `<div class="hd">${ic(T.icon)}<h3>${T.label}</h3><span class="sp"></span><button class="btn sm gh" data-a="node-sel" data-id="">${ic('x')}</button></div><div class="bd">${f}
-      ${n.type!=='end'?`<div class="eyebrow mt">Add after</div><div class="addgrid mt">${addTypes.map(t=>`<button class="btn sm" data-a="node-add" data-t="${t}">${ic(Flow.TYPES[t].icon)}${Flow.TYPES[t].label}</button>`).join('')}</div>`:''}
       ${n.type!=='start'?`<button class="btn sm dngo mt" data-a="node-del">${ic('trash')}Delete step</button>`:''}</div>`;
   }
 
@@ -221,7 +220,6 @@
 
   Object.assign(A,{
     'node-sel'(el){const id=App.route.params.id;W.sel[id]=el.dataset.id||null;App.render();},
-    'node-add'(el){const s=S.get('sops',App.route.params.id);S.snap('Add step');const n=Flow.insertAfter(s,W.sel[s.id],el.dataset.t);S.save();if(n)W.sel[s.id]=n.id;App.render();},
     'node-del'(){const s=S.get('sops',App.route.params.id);const id=W.sel[s.id];S.snap('Delete step');if(!Flow.remove(s,id)){S.undo();UI.toast('This step cannot be deleted');return;}S.save();W.sel[s.id]=null;App.render();UI.toast('Step deleted',()=>{S.undo();App.render();});},
     'opt-add'(){const s=S.get('sops',App.route.params.id);const n=s.nodes.find(x=>x.id===W.sel[s.id]);n.options=n.options||[];n.options.push({v:'opt'+(n.options.length+1),l:'Option '+(n.options.length+1)});S.save();App.render();},
     'opt-del'(el){const s=S.get('sops',App.route.params.id);const n=s.nodes.find(x=>x.id===W.sel[s.id]);n.options.splice(+el.dataset.i,1);S.save();App.render();},
@@ -235,18 +233,24 @@
     'sop-publish'(el){
       const s=S.get('sops',el.dataset.id); const iss=Flow.validate(s); const prev=Flow.latest(s);
       const n=t=>s.nodes.filter(x=>x.type===t).length;
-      const rows=[['Steps',Flow.stepCount(s.nodes)],['Pages',Flow.pages(s.nodes).length],['Approvals',n('approval')],['Proofs',n('evidence')],['Department',s.dept]].concat(prev?[['Running on v'+prev.v,prev.running||0]]:[]);
-      UI.drawer({title:'Publish v'+((prev?prev.v:0)+1),sub:s.title,
-        body:`<div class="card"><div class="twrap screen"><table class="ltbl"><tbody>${rows.map(r=>`<tr><td>${esc(r[0])}</td><td class="num"><b>${esc(r[1])}</b></td></tr>`).join('')}</tbody></table></div></div>
+      const pn=(ns,t)=>ns.filter(x=>x.type===t).length;
+      const cnt=(ns,lab)=>[['Steps',Flow.stepCount(ns)],['Questions',pn(ns,'question')],['Proofs',pn(ns,'evidence')],['Approvals',pn(ns,'approval')],['Screens',Flow.pages(ns).length]];
+      const now=cnt(s.nodes),was=prev?cnt(prev.nodes):null; const diff=Flow.diff(s,prev);
+      const KT={added:['Added','ok'],changed:['Changed','warn'],removed:['Removed','dng']};
+      UI.drawer({title:'Review and publish',sub:s.title,
+        body:`<div class="card"><div class="bd"><div class="pubver">${prev?UI.tag('v'+prev.v,'mut')+'<span class="muted">→</span>':''}${UI.tag('v'+((prev?prev.v:0)+1),'ok')}<span class="sp"></span>${esc(s.dept)}</div></div>
+          <div class="twrap screen"><table class="ltbl"><thead><tr><th></th>${prev?`<th class="num">v${prev.v}</th>`:''}<th class="num">v${(prev?prev.v:0)+1}</th></tr></thead><tbody>${now.map((r,i)=>`<tr><td>${r[0]}</td>${was?`<td class="num muted">${was[i][1]}</td>`:''}<td class="num"><b>${r[1]}</b></td></tr>`).join('')}
+          ${prev&&prev.running?`<tr><td>Running on v${prev.v}</td><td class="num muted">${prev.running}</td><td class="num muted">stay on v${prev.v}</td></tr>`:''}</tbody></table></div></div>
+          <div class="card"><div class="hd"><h3>Changes <span class="cnt">${diff.length}</span></h3></div><div class="bd stack" style="gap:6px">${diff.length?diff.map(d=>`<div class="row nw" style="align-items:flex-start">${UI.tag(KT[d.kind][0],KT[d.kind][1])}<span style="overflow-wrap:anywhere">${esc(d.label)}</span></div>`).join(''):'<span class="muted">No changes</span>'}</div></div>
           ${iss.length?`<div class="card"><div class="hd"><h3>Issues <span class="cnt">${iss.length}</span></h3></div><div class="bd stack" style="gap:6px">${iss.map(i=>`<button class="btn sm dngo" style="justify-content:flex-start;white-space:normal;text-align:left" data-pubissue="${i.id||''}">${ic('reject')}${esc(i.msg)}</button>`).join('')}</div></div>`:''}`,
-        foot:`<button class="btn" data-a="drawer-close">Cancel</button><span class="sp"></span><button class="btn p" data-pubgo ${iss.length?'disabled':''}>${ic('check')}Publish</button>`,
+        foot:`<button class="btn" data-a="drawer-close">Cancel</button><span class="sp"></span><button class="btn p" data-pubgo ${iss.length||!Flow.changed(s)?'disabled':''}>${ic('check')}Publish v${(prev?prev.v:0)+1}</button>`,
         mount(dr){
           dr.querySelectorAll('[data-pubissue]').forEach(b=>b.onclick=()=>{UI.closeDrawer();W.sel[s.id]=b.dataset.pubissue||null;App.render();});
           const go=dr.querySelector('[data-pubgo]'); if(go)go.onclick=()=>{
             UI.closeDrawer();
             const snapN=S.snap('Publish');
             const pins=[];s.nodes.forEach(nd=>['setting','everySetting','forSetting'].forEach(k=>{const st=S.get('settings',nd[k]);if(st)pins.push({id:st.id,name:st.name,value:st.value,unit:st.unit});}));
-            s.versions.push({v:(prev?prev.v:0)+1,at:new Date().toISOString(),by:'Ravi Teja',nodes:JSON.parse(JSON.stringify(s.nodes)),running:0,pins});
+            s.versions.push({v:(prev?prev.v:0)+1,at:new Date().toISOString(),by:'Ravi Teja',nodes:JSON.parse(JSON.stringify(s.nodes)),title:s.title,dept:s.dept,category:s.category,running:0,pins});
             S.save(); App.render();
             UI.toast('Published v'+(prev?prev.v+1:1)+(prev&&prev.running?' · '+prev.running+' running stay on v'+prev.v:''),()=>{S.undoTo(snapN);App.render();});
           };
@@ -256,12 +260,14 @@
       UI.menu(el,['question','evidence','decision','approval','wait','repeat','child','action','parallel','end'].map(t=>({label:Flow.TYPES[t].label,icon:Flow.TYPES[t].icon,run(){const snapN=S.snap('Insert');const n=Flow.insertAfter(s,id,t);S.save();if(n)W.sel[s.id]=n.id;App.render();UI.toast('Inserted '+Flow.TYPES[t].label.toLowerCase(),()=>{S.undoTo(snapN);App.render();});}})));},
     'sop-versions'(el){
       const s=S.get('sops',el.dataset.id); const ch=Flow.changed(s);
-      const rows=[...s.versions].reverse();
-      UI.drawer({title:'Versions',sub:s.title,wide:true,body:`<div class="card"><div class="twrap screen"><table class="ltbl vtbl"><colgroup><col style="width:110px"><col><col style="width:80px"><col style="width:130px"><col style="width:120px"></colgroup><thead><tr><th>Version</th><th>Published</th><th class="num">Steps</th><th>Running</th><th></th></tr></thead><tbody>
-        ${ch?`<tr><td><b>Draft</b></td><td class="muted">—</td><td>${Flow.stepCount(s.nodes)}</td><td>${UI.tag('Unpublished','warn')}</td><td></td></tr>`:''}
-        ${rows.map((v,i)=>`<tr><td><b>v${v.v}</b> ${i===0?UI.tag('Current','ok'):''}</td><td class="small">${UI.fmtDateTime(v.at)}<div class="muted">${esc(v.by||'')}</div></td><td>${Flow.stepCount(v.nodes)}</td>
+      const rows=[...s.versions].sort((a,b)=>b.v-a.v); const cur=rows[0];
+      const oldest=rows.length?rows[rows.length-1].v:1;
+      UI.drawer({title:'Versions',sub:s.title,wide:true,body:`<div class="card"><div class="twrap screen"><table class="ltbl vtbl"><thead><tr><th>Version</th><th>Published</th><th class="num">Steps</th><th>Running</th><th></th></tr></thead><tbody>
+        ${ch?`<tr><td><b>Draft</b></td><td class="muted">—</td><td class="num">${Flow.stepCount(s.nodes)}</td><td>${UI.tag('Unpublished','warn')}</td><td></td></tr>`:''}
+        ${rows.map(v=>`<tr><td><b>v${v.v}</b> ${v===cur?UI.tag('Current','ok'):''}</td><td class="small">${UI.fmtDateTime(v.at)}<div class="muted">${esc(v.by||'')}</div></td><td class="num">${Flow.stepCount(v.nodes)}</td>
           <td>${v.running?UI.tag(v.running+' running','info'):'<span class="muted">0</span>'}${(v.pins||[]).length?`<div class="small muted">${v.pins.map(p=>esc(p.name+' '+p.value+' '+p.unit)).join(' · ')}</div>`:''}</td>
-          <td><button class="btn sm" data-restore="${v.v}">${ic('rotate')}Restore</button></td></tr>`).join('')||'<tr><td colspan="5" class="empty">Not published yet</td></tr>'}
+          <td>${v===cur&&!ch?'':`<button class="btn sm" data-restore="${v.v}">${ic('rotate')}Restore</button>`}</td></tr>`).join('')||'<tr><td colspan="5" class="empty">Not published yet</td></tr>'}
+        ${oldest>1?`<tr><td class="muted"><b>v1${oldest>2?'–v'+(oldest-1):''}</b></td><td colspan="4" class="small muted">Not in this prototype's data</td></tr>`:''}
         </tbody></table></div></div>`,
         mount(dr){dr.querySelectorAll('[data-restore]').forEach(b=>b.onclick=()=>{const v=s.versions.find(x=>x.v===+b.dataset.restore);UI.closeDrawer();UI.undoable('Draft set to v'+v.v,()=>{s.nodes=JSON.parse(JSON.stringify(v.nodes));W.sel[s.id]=null;App.render();});});}});
     }

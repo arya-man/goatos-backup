@@ -1,6 +1,6 @@
 /* State store: localStorage, versioned key, snapshots for undo */
 (function(){
-  const KEY='mesha.config-sop-studio.v2.state@4';
+  const KEY='mesha.config-sop-studio.v2.state@5';
   let seq=Date.now()%100000;
   const S={
     KEY, state:null, undoStack:[],
