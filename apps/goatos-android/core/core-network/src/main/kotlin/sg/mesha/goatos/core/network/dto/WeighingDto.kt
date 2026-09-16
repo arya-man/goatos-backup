@@ -621,6 +621,10 @@ data class WeighingAcceptedObservationDto(
      */
     @SerialName("verification_status") val verificationStatus: String? = null,
     @SerialName("rework_reason") val reworkReason: String? = null,
+    /** The stored per-animal {slot key: proof ref} map and answers (2026-09-16); empty pre-slots. */
+    @SerialName("proofs") val proofs: Map<String, String> = emptyMap(),
+    @SerialName("answers") val answers: JsonObject? = null,
+    @SerialName("proof_kinds") val proofKinds: Map<String, String> = emptyMap(),
 )
 
 @Serializable
