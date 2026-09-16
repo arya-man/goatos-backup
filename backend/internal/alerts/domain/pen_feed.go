@@ -41,8 +41,7 @@ type PenMovement struct {
 	DestinationShedID         string
 	DestinationPartitionLabel string
 	HeadCount                 int64
-	// Status is the shifting register's event_status, kept so the detail can say whether
-	// the movement that explains a change is still awaiting approval.
+	// Status is the shifting register's event_status; carried for the note only.
 	Status string
 }
 
@@ -59,16 +58,16 @@ type PenFeedChangeInput struct {
 	MinHeadChange int64
 }
 
-// DetectPenFeedChanges compares the two sheets pen by pen and raises one alert per pen
-// whose change the recorded shiftings do not explain.
+// DetectPenFeedChanges compares the two sheets pen by pen and raises one alert per pen whose
+// feed did not follow its head count.
 //
-// The rule (maintainer request 2026-09-16): a change in a pen's quantity against yesterday
-// is expected only when animals moved. So a head-count change is checked against the net
-// shifting delta for that pen; a match is silent, no movement is critical, a partial match
-// is a warning naming how much is accounted for. A kg change with the SAME head count has
-// no movement to explain it at all, so it always fires (a ration or config edit). Cells
-// newly blocked since yesterday fire too: a pen that was fed yesterday and has no ration
-// today is off, whatever moved.
+// The rule (maintainer clarification 2026-09-16): a change in count SHOULD move the feed, and a
+// change in feed SHOULD come from a change in count. So count and kg moving together is silent
+// -- whatever the shifting register says about it. Count moved with the kg unchanged is
+// critical: animals are being fed for yesterday's number. Kg moved with the same animals is a
+// warning: a ration or config edit nobody's count explains. The shifting register is a
+// secondary note on the critical row, never the trigger. Cells newly blocked since yesterday
+// fire too: a pen fed yesterday with no ration today is off, whatever moved.
 func DetectPenFeedChanges(in PenFeedChangeInput) []Alert {
 	if len(in.Yesterday) == 0 && len(in.Today) == 0 {
 		return nil
@@ -88,23 +87,19 @@ func DetectPenFeedChanges(in PenFeedChangeInput) []Alert {
 	for _, p := range in.Yesterday {
 		yesterday[p.penKey()] = p
 	}
-	// Net recorded movement per pen: +animals arriving, -animals leaving.
+	// Net recorded movement per pen, for the note only: +animals arriving, -animals leaving.
 	net := map[string]int64{}
-	pending := map[string]bool{}
+	hasMove := map[string]bool{}
 	for _, m := range in.Movements {
 		if m.DestinationShedID != "" {
 			k := m.DestinationShedID + "|" + oploc.NormalizePartition(m.DestinationPartitionLabel)
 			net[k] += m.HeadCount
-			if m.Status == "pending" || m.Status == "authorized" {
-				pending[k] = true
-			}
+			hasMove[k] = true
 		}
 		if m.SourceShedID != "" {
 			k := m.SourceShedID + "|" + oploc.NormalizePartition(m.SourcePartitionLabel)
 			net[k] -= m.HeadCount
-			if m.Status == "pending" || m.Status == "authorized" {
-				pending[k] = true
-			}
+			hasMove[k] = true
 		}
 	}
 	keys := map[string]struct{}{}
@@ -119,29 +114,24 @@ func DetectPenFeedChanges(in PenFeedChangeInput) []Alert {
 	for k := range keys {
 		t, hasT := today[k]
 		y, hasY := yesterday[k]
-		ref := t
-		if !hasT {
-			ref = y
+		if !hasT || !hasY {
+			// A pen that appeared on or dropped off the sheet moved count AND kg together
+			// (from or to zero): the sheet followed the animals. Nothing to raise.
+			continue
 		}
-		var todayHead, yestHead int64
-		var todayKg, yestKg float64
-		if hasT {
-			todayHead, todayKg = t.HeadCount, t.QuantityKg
-		}
-		if hasY {
-			yestHead, yestKg = y.HeadCount, y.QuantityKg
-		}
-		dHead := todayHead - yestHead
-		dKg := todayKg - yestKg
+		dHead := t.HeadCount - y.HeadCount
+		dKg := t.QuantityKg - y.QuantityKg
+		kgMoved := math.Abs(dKg) >= 0.05
+		countMoved := abs64(dHead) >= minChange
 		base := Alert{
 			RuleKey:                    rule.Key,
 			RuleLabel:                  rule.Label,
-			ParkID:                     ref.ParkID,
-			ParkLabel:                  ref.ParkLabel,
-			ShedID:                     ref.ShedID,
-			ShedName:                   ref.ShedName,
-			PartitionLabel:             partitionForWire(ref.PartitionLabel),
-			OperationalLocationDisplay: ref.location().Display(),
+			ParkID:                     t.ParkID,
+			ParkLabel:                  t.ParkLabel,
+			ShedID:                     t.ShedID,
+			ShedName:                   t.ShedName,
+			PartitionLabel:             partitionForWire(t.PartitionLabel),
+			OperationalLocationDisplay: t.location().Display(),
 			BusinessDate:               in.BusinessDate,
 			Href:                       "/feed/direction",
 		}
@@ -150,47 +140,43 @@ func DetectPenFeedChanges(in PenFeedChangeInput) []Alert {
 			pen = "this pen"
 		}
 		switch {
-		case abs64(dHead) >= minChange:
-			explained := net[k]
-			if explained == dHead {
-				// Every animal that arrived or left is on the shifting register: nothing off.
-				break
-			}
+		case countMoved && kgMoved:
+			// Count and feed moved together: the sheet followed the animals. Silent.
+		case countMoved && !kgMoved:
 			a := base
 			a.Key = fmt.Sprintf("%s:%s:%s:head", rule.Key, in.BusinessDate, k)
-			a.Title = fmt.Sprintf("%s: %d → %d animals on the feed sheet", pen, yestHead, todayHead)
-			switch {
-			case explained == 0:
-				a.Severity = SeverityCritical
-				a.Detail = fmt.Sprintf("Head count moved by %s and feed by %s kg, with no shifting recorded for this pen. Check the herd register and raise the movement, or correct the pen.", signed(dHead), signedKg(dKg))
-			default:
-				a.Severity = SeverityWarning
-				qualifier := ""
-				if pending[k] {
-					qualifier = " (some still awaiting approval)"
-				}
-				a.Detail = fmt.Sprintf("Head count moved by %s, but the recorded shiftings account for %s%s. Feed moved by %s kg.", signed(dHead), signed(explained), qualifier, signedKg(dKg))
+			a.Severity = SeverityCritical
+			a.Title = fmt.Sprintf("%s: %d → %d animals, feed unchanged at %.1f kg", pen, y.HeadCount, t.HeadCount, t.QuantityKg)
+			note := "No shifting is recorded for this pen either."
+			if hasMove[k] {
+				note = fmt.Sprintf("The shifting register shows %s for this pen.", signed(net[k]))
 			}
+			a.Detail = fmt.Sprintf("Head count moved by %s but the feed sheet did not follow. %s Check the pen's ration and head count on the sheet.", signed(dHead), note)
 			out = append(out, a)
-		case dHead == 0 && hasT && hasY && math.Abs(dKg) >= 0.05:
+		case !countMoved && kgMoved && dHead == 0:
 			a := base
 			a.Key = fmt.Sprintf("%s:%s:%s:kg", rule.Key, in.BusinessDate, k)
 			a.Severity = SeverityWarning
-			a.Title = fmt.Sprintf("%s: feed %.1f → %.1f kg with the same %d animals", pen, yestKg, todayKg, todayHead)
-			a.Detail = "Nothing moved in or out, so the change is a ration or feed-config edit. Confirm it was intended."
+			a.Title = fmt.Sprintf("%s: feed %.1f → %.1f kg with the same %d animals", pen, y.QuantityKg, t.QuantityKg, t.HeadCount)
+			a.Detail = "The head count did not change, so the feed change is a ration or feed-config edit. Confirm it was intended."
 			out = append(out, a)
 		}
-		if hasT && t.BlockedCells > 0 && (!hasY || y.BlockedCells == 0) {
+		if t.BlockedCells > 0 && y.BlockedCells == 0 {
 			a := base
 			a.Key = fmt.Sprintf("%s:%s:%s:blocked", rule.Key, in.BusinessDate, k)
 			a.Severity = SeverityCritical
 			a.Title = fmt.Sprintf("%s: %d feed line(s) have no ration today", pen, t.BlockedCells)
-			a.Detail = "The sheet was fed yesterday and has cells with no authored ration today. Check Feed Config for this pen's tag and breed."
+			a.Detail = "The pen was fed yesterday and has cells with no authored ration today. Check Feed Config for this pen's tag and breed."
 			out = append(out, a)
 		}
 	}
 	SortAlerts(out)
 	return out
+}
+
+// penDisplay composes the pen label through oploc, the one composition every surface shares.
+func penDisplay(shedName, partition string) string {
+	return oploc.OperationalLocation{ShedName: shedName, PartitionLabel: partition}.Display()
 }
 
 // partitionForWire keeps the matching sentinel ('whole') off the wire: an undivided pen carries

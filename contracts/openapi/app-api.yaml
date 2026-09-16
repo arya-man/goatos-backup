@@ -9126,6 +9126,111 @@ paths:
           $ref: "#/components/responses/UnprocessableEntity"
         "500":
           $ref: "#/components/responses/ServerError"
+  /alerts/config/events:
+    post:
+      tags:
+        - Alerts
+      operationId: createAlertEventRule
+      summary: Compose a new alert from the event catalog.
+      description: >-
+        User-defined event alerts (maintainer request 2026-09-16): "tell me when <kind> happens",
+        with the farm's own label and a severity. `kind` must be one of `event_kinds` on
+        GET /alerts/config; anything else is refused (422). Idempotent on the `Idempotency-Key`
+        header -- a retried create makes ONE rule. Gated on alerts.configure.
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AlertEventRuleRequest"
+      responses:
+        "201":
+          description: The stored rule.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AlertEventRule"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /alerts/config/events/{rule_id}:
+    put:
+      tags:
+        - Alerts
+      operationId: updateAlertEventRule
+      summary: Change a composed alert's label, event, severity or switch.
+      description: The whole row is sent every time; a blank is never "keep the old value". Gated on alerts.configure.
+      parameters:
+        - name: rule_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AlertEventRuleRequest"
+      responses:
+        "200":
+          description: The stored rule after the write.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AlertEventRule"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "500":
+          $ref: "#/components/responses/ServerError"
+    delete:
+      tags:
+        - Alerts
+      operationId: deleteAlertEventRule
+      summary: Remove a composed alert.
+      parameters:
+        - name: rule_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "204":
+          description: Removed.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "500":
+          $ref: "#/components/responses/ServerError"
   /toxin/review:
     get:
       tags:
@@ -19263,11 +19368,47 @@ components:
         stored: { type: boolean, description: True when someone has set this rule; false means the catalog default is in force. }
     AlertRuleConfigList:
       type: object
-      required: [rules]
+      required: [rules, event_rules, event_kinds]
       properties:
         rules:
           type: array
           items: { $ref: "#/components/schemas/AlertRuleConfig" }
+        event_rules:
+          type: array
+          description: The farm's composed event alerts.
+          items: { $ref: "#/components/schemas/AlertEventRule" }
+        event_kinds:
+          type: array
+          description: The catalog of events an alert can be composed from, in drawer order.
+          items: { $ref: "#/components/schemas/AlertEventKind" }
+    AlertEventKind:
+      type: object
+      required: [key, label, description]
+      properties:
+        key: { type: string, description: Config vocabulary; submitted on the write path, never rendered. }
+        label: { type: string }
+        description: { type: string }
+    AlertEventRule:
+      type: object
+      required: [id, label, kind, kind_label, severity, enabled]
+      properties:
+        id: { type: string, format: uuid }
+        label: { type: string, description: The farm's own name for the alert, rendered verbatim. }
+        kind: { type: string }
+        kind_label: { type: string }
+        severity: { $ref: "#/components/schemas/AlertSeverity" }
+        enabled: { type: boolean }
+        created_by: { type: string, description: Name, never an id. }
+        updated_by: { type: string, description: Name, never an id. }
+        updated_at: { type: string, description: Farm-readable Asia/Kolkata label. }
+    AlertEventRuleRequest:
+      type: object
+      required: [label, kind, severity, enabled]
+      properties:
+        label: { type: string, maxLength: 80 }
+        kind: { type: string, description: "One of the event_kinds keys on GET /alerts/config." }
+        severity: { $ref: "#/components/schemas/AlertSeverity" }
+        enabled: { type: boolean }
     SetAlertRuleConfigRequest:
       type: object
       required: [enabled, threshold]

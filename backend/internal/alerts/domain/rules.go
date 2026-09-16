@@ -13,13 +13,12 @@ import (
 type RuleKey string
 
 const (
-	// RulePenFeedQuantityChange fires when a pen's feed sheet for the business day differs
-	// from the previous day's -- head count or total kg -- and the recorded shiftings do
-	// not account for the head-count move. "Anything off, shed-wise" (maintainer request
-	// 2026-09-16): a pen whose feed moved for no recorded reason is the first thing to
-	// look at in the morning. Threshold: the minimum head-count change that counts; a
-	// same-count change in kg (a ration edit) always fires, because nothing moved to
-	// explain it.
+	// RulePenFeedQuantityChange fires when a pen's feed sheet for the business day did NOT
+	// follow its head count against the previous day (maintainer clarification 2026-09-16):
+	// the count moved but the kg stayed, or the kg moved but the count stayed. Count and kg
+	// moving together is the sheet doing its job and is silent -- whether a shifting was
+	// recorded for the move is secondary and appears only as a note. Threshold: the minimum
+	// head-count change that counts.
 	RulePenFeedQuantityChange RuleKey = "pen_feed_quantity_change"
 	// RuleFeedLowStock fires for every (farm, feed) whose stock lasts fewer than the
 	// configured days at its recent daily draw. Threshold: days. The default is the Stock
@@ -57,8 +56,8 @@ func Rules() []Rule {
 	return []Rule{
 		{
 			Key:              RulePenFeedQuantityChange,
-			Label:            "Pen feed changed with no movement",
-			Description:      "A pen's feed sheet moved against yesterday -- head count or quantity -- and the shiftings recorded for that pen do not explain it.",
+			Label:            "Pen feed did not follow the head count",
+			Description:      "Against yesterday's sheet, a pen's head count moved but its feed did not, or its feed moved while the head count stayed. Count and feed moving together is normal and stays quiet.",
 			ThresholdLabel:   "Minimum head-count change",
 			ThresholdUnit:    "animals",
 			DefaultThreshold: 1,
@@ -215,6 +214,10 @@ func SortAlerts(rows []Alert) {
 		}
 		if a.ParkLabel != b.ParkLabel {
 			return a.ParkLabel < b.ParkLabel
+		}
+		// Pen rows before farm-grain rows (and before an event rule's "N more" summary).
+		if (a.OperationalLocationDisplay == "") != (b.OperationalLocationDisplay == "") {
+			return a.OperationalLocationDisplay != ""
 		}
 		if a.OperationalLocationDisplay != b.OperationalLocationDisplay {
 			return a.OperationalLocationDisplay < b.OperationalLocationDisplay

@@ -5276,3 +5276,6 @@ input[type=date],input[type=datetime-local],input[type=time],input[type=month],i
 :root.light .alerts-rule input[type=number]{color-scheme:light}
 .alerts-rule input[type=number]:focus{border-color:var(--brand);box-shadow:var(--ring)}
 .alerts-rule input[type=number]:disabled{opacity:.6}
+.alerts-cfg-h{font-size:12px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin:14px 0 8px}
+.alerts-rule input[type=text],.alerts-rule select{min-width:0;padding:7px 10px;border:1px solid var(--line);border-radius:9px;font:inherit;font-size:13px;background:var(--bg);outline:0;color:var(--ink)}
+.alerts-rule input[type=text]:focus,.alerts-rule select:focus{border-color:var(--brand);box-shadow:var(--ring)}

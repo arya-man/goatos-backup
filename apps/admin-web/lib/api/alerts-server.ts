@@ -64,3 +64,47 @@ export async function setAlertRuleConfig(
     }),
   );
 }
+
+export type AlertEventRule = AppApiComponents["schemas"]["AlertEventRule"];
+export type AlertEventKind = AppApiComponents["schemas"]["AlertEventKind"];
+export type AlertEventRuleRequest = AppApiComponents["schemas"]["AlertEventRuleRequest"];
+
+/** Compose a new alert from the event catalog (POST /alerts/config/events). */
+export async function createAlertEventRule(body: AlertEventRuleRequest, idempotencyKey: string): Promise<ApiResult<AlertEventRule>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<AlertEventRule>("/alerts/config/events", {
+      method: "POST",
+      cache: "no-store",
+      headers: { "Idempotency-Key": idempotencyKey },
+      body,
+    }),
+  );
+}
+
+/** Change one composed alert (PUT /alerts/config/events/{rule_id}); the whole row is sent. */
+export async function updateAlertEventRule(ruleId: string, body: AlertEventRuleRequest, idempotencyKey: string): Promise<ApiResult<AlertEventRule>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  const path = `/alerts/config/events/${encodeURIComponent(ruleId)}` as keyof AppApiPaths & string;
+  return request(() =>
+    client.request<AlertEventRule>(path, {
+      method: "PUT",
+      cache: "no-store",
+      headers: { "Idempotency-Key": idempotencyKey },
+      body,
+    }),
+  );
+}
+
+/** Remove one composed alert (DELETE /alerts/config/events/{rule_id}). */
+export async function deleteAlertEventRule(ruleId: string): Promise<ApiResult<void>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  const path = `/alerts/config/events/${encodeURIComponent(ruleId)}` as keyof AppApiPaths & string;
+  return request(() => client.request<void>(path, { method: "DELETE", cache: "no-store" }));
+}

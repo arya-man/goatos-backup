@@ -244,6 +244,8 @@ export async function AlertsPage({ searchParams, pageContract }: { searchParams?
         <AlertsConfigure
           pageContract={pageContract}
           rules={config?.ok ? config.data.rules : null}
+          eventRules={config?.ok ? config.data.event_rules : []}
+          eventKinds={config?.ok ? config.data.event_kinds : []}
           initialOpen={one(sp, PARAM_CONFIGURE) === "1"}
           closeHref={closeHref}
         />

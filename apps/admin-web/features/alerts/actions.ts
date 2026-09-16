@@ -3,7 +3,15 @@
 // The Configure drawer's one write: switch a rule on or off and set its threshold. Runs as a
 // Server Action (authenticated through the server config, never a client fetch) and returns the
 // backend's answer to the drawer, which re-renders the row from what the server read back.
-import { setAlertRuleConfig, type AlertRuleConfig } from "@/lib/api/alerts-server";
+import {
+  createAlertEventRule,
+  deleteAlertEventRule,
+  setAlertRuleConfig,
+  updateAlertEventRule,
+  type AlertEventRule,
+  type AlertEventRuleRequest,
+  type AlertRuleConfig,
+} from "@/lib/api/alerts-server";
 
 export type SaveAlertRuleResult = { ok: true; rule: AlertRuleConfig } | { ok: false; code: string };
 
@@ -39,4 +47,41 @@ export async function saveAlertRuleAction(input: { ruleKey: string; enabled: boo
   // the server's answer below; the alerts behind the drawer follow on the next page load, which
   // is what the drawer's intro copy says.
   return { ok: true, rule: result.data };
+}
+
+export type SaveEventRuleResult = { ok: true; rule: AlertEventRule } | { ok: false; code: string };
+export type DeleteEventRuleResult = { ok: true } | { ok: false; code: string };
+
+function eventRuleErrorCode(code: string | undefined): string {
+  switch (code) {
+    case "unknown_event_kind":
+      return "config_unknown_event";
+    case "invalid_event_rule":
+      return "config_invalid_event";
+    case "event_rule_not_found":
+      return "config_event_missing";
+    case "idempotency_conflict":
+      return "config_conflict";
+    default:
+      return "config_failed";
+  }
+}
+
+// Compose or change one event alert. The key is derived from the row edited from (its
+// last-changed label, or the create nonce the drawer minted when the form opened) plus the
+// values, so a double-click is one write and a genuine second change is a new key.
+export async function saveAlertEventRuleAction(input: { id?: string; label: string; kind: string; severity: string; enabled: boolean; editedFrom: string }): Promise<SaveEventRuleResult> {
+  const label = input.label.trim();
+  if (!label) return { ok: false, code: "config_invalid_event" };
+  const body = { label, kind: input.kind.trim(), severity: input.severity as AlertEventRuleRequest["severity"], enabled: input.enabled };
+  const idempotencyKey = `alert-event:${input.id ?? "new"}:from:${input.editedFrom || "default"}:${body.kind}:${body.severity}:${body.enabled ? "on" : "off"}:${label}`;
+  const result = input.id ? await updateAlertEventRule(input.id, body, idempotencyKey) : await createAlertEventRule(body, idempotencyKey);
+  if (!result.ok) return { ok: false, code: eventRuleErrorCode(result.error.code) };
+  return { ok: true, rule: result.data };
+}
+
+export async function deleteAlertEventRuleAction(input: { id: string }): Promise<DeleteEventRuleResult> {
+  const result = await deleteAlertEventRule(input.id);
+  if (!result.ok) return { ok: false, code: eventRuleErrorCode(result.error.code) };
+  return { ok: true };
 }

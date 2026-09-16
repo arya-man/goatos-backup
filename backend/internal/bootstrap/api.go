@@ -843,7 +843,11 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// the feed sheet, the shifting register -- and the stock rule reuses the feed module's
 	// own low-stock read so the page, the Stock tab and the daily push agree.
 	alertsRepo := alertspg.NewRepository(pool, cfg.Postgres.QueryTimeout)
-	alertsService := alertsapp.NewService(alertsRepo, alertsRepo, alertsRepo, alertspg.NewLowStockReader(feedDirectionRepo), alertsRepo, log)
+	alertsService := alertsapp.NewService(alertsRepo, alertsRepo, alertsRepo, alertspg.NewLowStockReader(feedDirectionRepo), alertsRepo, log).
+		// Composed event alerts (maintainer request 2026-09-16): the farm adds "tell me when a
+		// birth / death / sale / shifting / feed purchase happens" from the drawer; the readers
+		// are per catalog kind over the owning module's tables.
+		WithEvents(alertsRepo, alertsRepo)
 	alertsHandler := alertshttp.NewHandler(alertsService, log)
 	// Pen visits (maintainer decisions 2026-09-07 and 2026-09-14): the Tasks module's "For me"
 	// tab -- the work the system owes this person; pen visits are its first card type. The
