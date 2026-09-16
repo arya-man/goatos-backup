@@ -28,16 +28,28 @@ type FeedDirectionLifecycleStage struct {
 }
 
 func NewFeedDirectionLifecycleStage(deps Deps, tenantID string) *FeedDirectionLifecycleStage {
+	service := NewFeedDirectionLifecycleService(deps, "kernel-worker:feed-direction-lifecycle")
+	return &FeedDirectionLifecycleStage{service: service, tenantID: tenantID, now: time.Now}
+}
+
+// NewFeedDirectionLifecycleService is the ONE composition of the scheduled sheet lifecycle (issue,
+// the 14:00 correction, lock), shared by this stage and the feed-direction-issue Cloud Run job so the
+// two cannot drift again. It wires:
+//   - the issue store and dispatch clock the three operations run on;
+//   - the published feed SOP cards, so an issued sheet pins the card in force (FEED SOP,
+//     2026-09-16) -- the same source the API's freeze-on-read uses;
+//   - the PACKING store, through which the correction reopens every packed session of a pen whose
+//     head count moved (maintainer decision 2026-08-10). Without it AmendDirection skips the reopen
+//     silently; both scheduled roots shipped that way until 2026-09-17.
+func NewFeedDirectionLifecycleService(deps Deps, generatedBy string) *feeddirectionapp.Service {
 	repo := feeddirectionpg.NewRepository(deps.Pool, deps.PgCfg.QueryTimeout)
 	countsService := countsapp.NewService(countspg.NewRepository(deps.Pool, deps.PgCfg.QueryTimeout))
-	service := feeddirectionapp.NewService(repo, feeddirectioncounts.NewReader(countsService)).
+	return feeddirectionapp.NewService(repo, feeddirectioncounts.NewReader(countsService)).
 		WithIssueStore(repo).
 		WithScheduleReader(repo).
-		// The worker's issue pins the sheet to the same published cards the API's freeze-on-read
-		// would (FEED SOP, 2026-09-16); without this seam the two would pin different versions.
+		WithPackingStore(repo).
 		WithSOPRules(feedsoppg.NewRulesSource(deps.Pool, deps.PgCfg.QueryTimeout)).
-		WithGeneratedBy("kernel-worker:feed-direction-lifecycle")
-	return &FeedDirectionLifecycleStage{service: service, tenantID: tenantID, now: time.Now}
+		WithGeneratedBy(generatedBy)
 }
 
 func (s *FeedDirectionLifecycleStage) Name() string { return "feed-direction-lifecycle" }
