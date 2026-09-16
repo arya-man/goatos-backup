@@ -71,6 +71,8 @@ type WorkflowInstance struct {
 	// submitted and stamped at open; it leads the verifier bundle. Empty for every workflow
 	// opened without one (birth tracks, reconcile, pre-feature rows).
 	CaptureEvidence authored.Evidence
+	// BirthEventID is the litter a birth track belongs to (workflow_instances.birth_event_id).
+	BirthEventID *string
 }
 
 // WorkflowAction mirrors one workflow_actions row.
@@ -436,6 +438,10 @@ func ApplyComplete(a WorkflowAction, cmd CompleteActionCommand) (WorkflowAction,
 	if !a.ProofSatisfied() {
 		return a, false, ErrProofRequired
 	}
+	// A capture re-shoot of an `either` proof carries no kind minimum but is still a capture.
+	if a.HasHook(EngineHookReshootReport) && len(a.AllProofRefs()) == 0 {
+		return a, false, ErrProofRequired
+	}
 	at := cmd.CompletedAt
 	key := cmd.IdempotencyKey
 	fp := cmd.RequestFingerprint
@@ -651,6 +657,10 @@ func StepRecorded(templateKey string, a WorkflowAction) bool {
 // bundle-reviewed workflow is returned untouched. Pure, so the fakes and the adapter agree.
 func HoldStepForReview(templateKey string, a WorkflowAction) WorkflowAction {
 	if !ReviewedPerStep(templateKey) || a.Status != ActionStatusCompleted || len(a.AllProofRefs()) == 0 {
+		return a
+	}
+	// A capture re-shoot is reviewed as the REPORT's item (birth_capture), not as a birth step.
+	if a.HasHook(EngineHookReshootReport) {
 		return a
 	}
 	a.Status = ActionStatusInReview

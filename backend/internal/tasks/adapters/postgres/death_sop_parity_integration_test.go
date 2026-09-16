@@ -226,3 +226,53 @@ func TestBounceDeathForReworkClearsProofRefsAndSetsReasonPg(t *testing.T) {
 		t.Fatalf("unknown goat err = %v", err)
 	}
 }
+
+func TestDeathCaptureReworkAppendsReshootAndRecordingReplacesTheProofPg(t *testing.T) {
+	repo, _, ctx := newWorkflowRepo(t)
+	capture := authored.Evidence{Media: []authored.EvidenceMedia{{Ref: "old-tag", Kind: "photo", Label: "Animal with tag"}}}
+	if _, err := repo.OpenWorkflow(ctx, ports.OpenWorkflowCommand{TenantID: wfTenant, TemplateKey: domain.TemplateKeyDeath, SubjectGoatID: wfDead, EventAt: wfEventAt, CaptureEvidence: capture}); err != nil {
+		t.Fatal(err)
+	}
+	workflowID := findWorkflowID(t, repo, ctx, domain.TemplateKeyDeath, wfDead)
+	completeDeathVideosPg(t, repo, ctx, workflowID, "r1")
+	if !prepareDeathApproval(t, repo, ctx) {
+		t.Fatal("approval must proceed")
+	}
+	rework := ports.DeathVerdictCommand{TenantID: wfTenant, WorkflowID: workflowID, Reason: "tag not visible", RecordingKey: "item-key-1", VerdictAt: wfEventAt}
+	for i := 0; i < 2; i++ {
+		if err := repo.BounceDeathVideosForRework(ctx, rework); err != nil {
+			t.Fatalf("rework #%d: %v", i, err)
+		}
+	}
+	detail, _ := repo.GetWorkflow(ctx, wfTenant, workflowID, wfEventAt)
+	var step domain.WorkflowAction
+	n := 0
+	for _, a := range detail.Actions {
+		if a.HasHook(domain.EngineHookReshootReport) {
+			step = a
+			n++
+		}
+	}
+	if n != 1 || step.Status != domain.ActionStatusRework || step.ProofMinPhotos != 1 || step.ReworkReason == nil {
+		t.Fatalf("re-shoot steps = %d step=%+v", n, step)
+	}
+	if detail.Card.ActionsTotal != 3 {
+		t.Fatalf("card total = %d, want the appended step counted", detail.Card.ActionsTotal)
+	}
+	completeDeathVideosPg(t, repo, ctx, workflowID, "r2")
+	res, err := repo.CompleteAction(ctx, domain.CompleteActionCommand{
+		TenantID: wfTenant, WorkflowID: workflowID, ActionID: step.ActionID,
+		Proofs: []domain.ProofItem{{Ref: "new-tag", Kind: domain.ProofKindPhoto}}, CompletedBy: wfCustodian,
+		CompletedAt: wfEventAt.UTC(), IdempotencyKey: "reshoot", RequestFingerprint: "fp-reshoot",
+	})
+	if err != nil {
+		t.Fatalf("record re-shoot: %v", err)
+	}
+	if !res.NeedsVerificationEnqueue || !reflect.DeepEqual(res.DeathProofRefs, []string{"new-tag", "proof-death_video", "proof-post_mortem_video"}) {
+		t.Fatalf("result = %+v", res)
+	}
+	review, err := repo.DeathEvidenceForVerification(ctx, wfTenant, wfDead)
+	if err != nil || review.Workflow.CaptureEvidence.Media[0].Ref != "new-tag" {
+		t.Fatalf("persisted capture = %+v err=%v", review.Workflow.CaptureEvidence, err)
+	}
+}

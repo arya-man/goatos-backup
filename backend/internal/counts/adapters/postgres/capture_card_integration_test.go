@@ -18,6 +18,7 @@ import (
 	identityports "github.com/vgoats/goatos/backend/internal/identity/ports"
 	outboxapp "github.com/vgoats/goatos/backend/internal/outbox/app"
 	"github.com/vgoats/goatos/backend/internal/sop/authored"
+	tasksdomain "github.com/vgoats/goatos/backend/internal/tasks/domain"
 )
 
 func sampleCapture() *domain.ApprovalCapture {
@@ -244,5 +245,43 @@ func TestPenReconciliationDebtListCarriesTheFullProofSetPg(t *testing.T) {
 	d := debts[0]
 	if !reflect.DeepEqual(d.ProofRefs, []string{"v-return", "p-tag"}) || !reflect.DeepEqual(d.MediaMeta, meta) || !reflect.DeepEqual(d.ContextRows, rows) {
 		t.Fatalf("debt = %+v", d)
+	}
+}
+
+func TestReplaceCaptureProofSwapsTheRejectedProofPg(t *testing.T) {
+	ctx := context.Background()
+	pool := setupCountsDB(t, ctx)
+	repo := newApprovalRepo(t, pool, &fakeIdentityTx{})
+	goatID := "00000000-0000-4000-8000-00000000c323"
+	seedApprovalGoat(t, ctx, pool, goatID, countsShedA)
+	capture := &domain.ApprovalCapture{Proofs: authored.ProofRefs{"tag_photo": "old"},
+		Evidence: authored.Evidence{Media: []authored.EvidenceMedia{{Ref: "old", Kind: "photo", Label: "Tag"}}}}
+	req, _, err := repo.CreateApprovalRequest(ctx, domain.ApprovalRequestSubmission{
+		TenantID: countsTenant, RequestType: domain.ApprovalRequestTypeDeath,
+		Payload:       json.RawMessage(`{"goat_id":"` + goatID + `","lifecycle_status":"dead","exit_reason":"died"}`),
+		SubjectGoatID: &goatID, RaisedByUserID: countsOperator, RaisedAt: time.Now(),
+		IdempotencyKey: "replace-capture", RequestFingerprint: "replace-capture-fp", Capture: capture,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.SetCaptureReviewStatus(ctx, countsTenant, req.ApprovalRequestID, domain.CaptureReviewRework, "blurry"); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 2; i++ {
+		got, err := repo.ReplaceCaptureProof(ctx, countsTenant, req.ApprovalRequestID, 0, tasksdomain.ProofItem{Ref: "new", Kind: "photo"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.Capture.Media[0].Ref != "new" || got.CaptureReviewStatus == nil || *got.CaptureReviewStatus != "pending" || got.CaptureReviewReason != nil {
+			t.Fatalf("#%d = %+v status=%v reason=%v", i, got.Capture, got.CaptureReviewStatus, got.CaptureReviewReason)
+		}
+	}
+	var proofs string
+	if err := pool.QueryRow(ctx, `SELECT capture_proofs::text FROM counts_approval_requests WHERE approval_request_id=$1::uuid`, req.ApprovalRequestID).Scan(&proofs); err != nil {
+		t.Fatal(err)
+	}
+	if proofs != `{"tag_photo": "new"}` {
+		t.Fatalf("capture_proofs = %s", proofs)
 	}
 }

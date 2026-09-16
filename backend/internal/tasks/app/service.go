@@ -89,6 +89,7 @@ type Service struct {
 	repo            ports.Repository
 	enqueuer        DeathVerificationEnqueuer
 	proofKinds      ProofKindResolver
+	reshootListener CaptureReshootListener
 	now             func() time.Time
 	log             *slog.Logger
 	completionHooks map[string]WorkflowCompletionHook
@@ -365,6 +366,9 @@ func (s *Service) CompleteAction(ctx context.Context, in CompleteActionInput) (d
 	}
 
 	if err := s.enqueueDeathIfReady(ctx, in.TenantID, strings.TrimSpace(in.CompletedBy), result); err != nil {
+		return domain.ActionWriteResult{}, err
+	}
+	if err := s.notifyCaptureReshoot(ctx, in.TenantID, result); err != nil {
 		return domain.ActionWriteResult{}, err
 	}
 	return result, nil

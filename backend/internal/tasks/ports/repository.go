@@ -46,8 +46,11 @@ type GoatWorkflowFacts struct {
 
 // DeathVerdictCommand applies a verifier's approve/rework verdict to a death workflow's sign-off.
 type DeathVerdictCommand struct {
-	TenantID   string
-	WorkflowID string
+	// RecordingKey is the verdict's item key; a rework appends capture re-shoot steps keyed on it
+	// so a redelivered verdict inserts nothing.
+	RecordingKey string
+	TenantID     string
+	WorkflowID   string
 	VerifiedBy string
 	Reason     string
 	VerdictAt  time.Time
@@ -148,6 +151,15 @@ type Repository interface {
 	// lands its verdict. Nothing enqueues that shape any more.
 	ApplyBirthSignoffApproved(ctx context.Context, cmd DeathVerdictCommand) error
 	BounceBirthVideoForRework(ctx context.Context, cmd DeathVerdictCommand) error
+
+	// AppendCaptureReshootSteps appends one "Re-shoot report proof" step per capture proof to the
+	// workflow (domain.CaptureReshootSteps), idempotent on the workflow_actions natural key, and
+	// recomputes the card in the same transaction.
+	AppendCaptureReshootSteps(ctx context.Context, tenantID, workflowID string, capture authored.Evidence, recordingKey, reason string) error
+
+	// BirthWorkflowIDForEvent resolves the track a litter's report re-shoot is appended to: the
+	// mother track of the birth event, else its first kid track. domain.ErrNotFound when none.
+	BirthWorkflowIDForEvent(ctx context.Context, tenantID, birthEventID string) (string, error)
 
 	// FetchShedDetails fetches the shed name and partition label for operational location composition.
 	// Returns empty strings if the shed is not found or has no partition.

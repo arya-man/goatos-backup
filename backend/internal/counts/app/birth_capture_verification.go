@@ -12,6 +12,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/platform/eventbus"
 	"github.com/vgoats/goatos/backend/internal/sop/authored"
+	tasksdomain "github.com/vgoats/goatos/backend/internal/tasks/domain"
 )
 
 // BIRTH REPORT → VERIFIER (maintainer decisions 4-6, 2026-09-16). The Add birth form's own
@@ -22,8 +23,9 @@ import (
 // through the row's capture snapshot instead. The verdict lands on the approval row
 // (capture_review_status / reason) so the approver sees the report's proof state.
 //
-// Decision 5 (a rejection opens a "re-shoot report proof" step on the birth workflow) is NOT
-// wired here yet; the verdict is recorded and shown, the re-shoot step is follow-up work.
+// Decision 5: a REJECT also opens one "Re-shoot report proof" step per capture proof on the
+// litter's birth track (CaptureReshootEngine, the tasks engine); recording it swaps that proof in
+// the snapshot and queues a fresh report item (BirthCaptureReshootService).
 
 // CaptureMediaMeta / CaptureContextRow are what the enqueue request carries per proof / answer
 // (the bridge maps them onto verification's shared MediaMeta / ContextRow).
@@ -179,8 +181,25 @@ type captureReviewStore interface {
 // filters strictly on source.module=counts + ref_type=birth_capture, so birth STEP verdicts
 // (workflow_birth_action), death bundles and shifting pass through untouched.
 type BirthCaptureVerdictHandler struct {
-	store captureReviewStore
-	now   func() time.Time
+	store  captureReviewStore
+	engine CaptureReshootEngine
+	now    func() time.Time
+}
+
+// CaptureReshootEngine is the tasks-engine seam that appends the re-shoot steps.
+type CaptureReshootEngine interface {
+	OpenBirthCaptureReshoot(ctx context.Context, tenantID, birthEventID string, capture authored.Evidence, recordingKey, reason string) error
+}
+
+// captureReportReader reads the report whose proof was rejected.
+type captureReportReader interface {
+	GetApprovalRequest(ctx context.Context, tenantID, approvalRequestID string) (domain.ApprovalRequest, error)
+}
+
+// WithReshootEngine wires decision 5. Without it a rejection is recorded but opens no step.
+func (h *BirthCaptureVerdictHandler) WithReshootEngine(engine CaptureReshootEngine) *BirthCaptureVerdictHandler {
+	h.engine = engine
+	return h
 }
 
 // NewBirthCaptureVerdictHandler constructs the consumer.
@@ -221,5 +240,62 @@ func (h *BirthCaptureVerdictHandler) HandleEvent(ctx context.Context, e eventbus
 	if e.Type == EventVerificationVerdictRework {
 		status, reason = domain.CaptureReviewRework, strings.TrimSpace(p.Reason)
 	}
-	return h.store.SetCaptureReviewStatus(ctx, e.TenantID, refID, status, reason)
+	if err := h.store.SetCaptureReviewStatus(ctx, e.TenantID, refID, status, reason); err != nil {
+		return err
+	}
+	if e.Type != EventVerificationVerdictRework || h.engine == nil {
+		return nil
+	}
+	reader, ok := h.store.(captureReportReader)
+	if !ok {
+		return nil
+	}
+	report, err := reader.GetApprovalRequest(ctx, e.TenantID, refID)
+	if err != nil {
+		return err
+	}
+	return h.engine.OpenBirthCaptureReshoot(ctx, e.TenantID, refID, report.Capture, strings.TrimSpace(p.Source.RecordingKey), reason)
+}
+
+// BirthCaptureReshootService is the counts side of a recorded report re-shoot: swap the proof in
+// the approval row's snapshot (review back to pending) and queue a fresh report item.
+type BirthCaptureReshootService struct {
+	store    captureProofReplacer
+	enqueuer BirthCaptureVerificationEnqueuer
+}
+
+type captureProofReplacer interface {
+	ReplaceCaptureProof(ctx context.Context, tenantID, approvalRequestID string, index int, proof tasksdomain.ProofItem) (domain.ApprovalRequest, error)
+}
+
+// NewBirthCaptureReshootService constructs the listener.
+func NewBirthCaptureReshootService(store captureProofReplacer, enqueuer BirthCaptureVerificationEnqueuer) *BirthCaptureReshootService {
+	return &BirthCaptureReshootService{store: store, enqueuer: enqueuer}
+}
+
+// OnBirthCaptureReshot implements tasks/app.CaptureReshootListener. Idempotent: replacing with the
+// same proof writes the same snapshot and the refs-keyed item collapses.
+func (s *BirthCaptureReshootService) OnBirthCaptureReshot(ctx context.Context, tenantID, birthEventID string, index int, proof tasksdomain.ProofItem) error {
+	report, err := s.store.ReplaceCaptureProof(ctx, tenantID, birthEventID, index, proof)
+	if err != nil {
+		return err
+	}
+	if s.enqueuer == nil {
+		return ErrBirthCaptureEnqueuerNotWired
+	}
+	var form struct {
+		ParkID   string            `json:"park_id"`
+		ShedID   string            `json:"shed_id"`
+		Children []json.RawMessage `json:"children"`
+	}
+	_ = json.Unmarshal(report.Payload, &form)
+	kids := len(form.Children)
+	if kids == 0 {
+		kids = 1
+	}
+	req := BirthCaptureEnqueueRequest(tenantID, birthEventID, report.RaisedByUserID, form.ParkID, form.ShedID, kids, report.Capture, time.Time{}, time.Now())
+	if len(req.ProofRefs) == 0 {
+		return nil
+	}
+	return s.enqueuer.EnqueueBirthCaptureVerification(ctx, req)
 }

@@ -25,9 +25,10 @@ type penReconciliationVerdictPayload struct {
 	VerifiedBy string `json:"verified_by"`
 	Reason     string `json:"reason"`
 	Source     struct {
-		Module  string `json:"module"`
-		RefType string `json:"ref_type"`
-		RefID   string `json:"ref_id"`
+		Module       string `json:"module"`
+		RefType      string `json:"ref_type"`
+		RefID        string `json:"ref_id"`
+		RecordingKey string `json:"recording_key"`
 	} `json:"source"`
 }
 
