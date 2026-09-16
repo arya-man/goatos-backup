@@ -6,11 +6,13 @@ package sg.mesha.goatos.feature.counts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -230,10 +232,15 @@ private fun ActionButton(label: String, enabled: Boolean, onClick: () -> Unit, m
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        if (loading) {
-            CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = MeshaColors.Muted)
-        } else {
-            Icon(MeshaIcons.Video, contentDescription = null, tint = if (enabled) MeshaColors.BrandD else MeshaColors.Faint, modifier = Modifier.size(18.dp))
+        // The leading glyph keeps one fixed 18dp box whether it shows the icon or the spinner, so a
+        // capture starting never nudges the label; state changes colour only.
+        val iconTint = if (enabled) MeshaColors.BrandD else MeshaColors.Faint
+        Box(modifier = Modifier.size(18.dp), contentAlignment = Alignment.Center) {
+            if (loading) {
+                CircularProgressIndicator(modifier = Modifier.fillMaxSize(), strokeWidth = 2.dp, color = MeshaColors.Muted)
+            } else {
+                Icon(MeshaIcons.Video, contentDescription = null, tint = iconTint, modifier = Modifier.fillMaxSize())
+            }
         }
         Text(label, color = if (enabled || loading) MeshaColors.Ink else MeshaColors.Faint, style = MeshaType.cta)
     }
