@@ -1,7 +1,7 @@
 /* Item-first presentation. Existing stable IDs, access rules and save impact checks remain authoritative. */
 function genericItemAccess(item, sources=state.dataSources||[]) {
   const grants=new Map(),add=(module,reason)=>{if(!module||module==='Common')return;grants.set(module,[...(grants.get(module)||[]),reason]);};
-  if(item.module!=='Common')add(item.module,'Owning business area');
+  if(item.module!=='Common')add(item.module,'Owner module');
   const category=(state.itemCategories||[]).find(c=>c.id===item.categoryId),sub=(state.itemCategories||[]).find(c=>c.id===item.subcategoryId);
   (category?.shares||[]).forEach(m=>add(m,'Category: '+category.name));
   (sub?.shares||[]).forEach(m=>add(m,'Subcategory: '+sub.name));
@@ -10,7 +10,7 @@ function genericItemAccess(item, sources=state.dataSources||[]) {
   return [...grants].map(([module,reasons])=>({module,selectable:!!item.active,reason:[...new Set(reasons)].join(' · ')}));
 }
 const genericBaseItems=renderItems;
-renderItems=function(){genericBaseItems();const heading=$('.items-heading p');if(heading)heading.textContent='Add an item or setting once. Choose which departments can use it in their work instructions.';};
+renderItems=function(){genericBaseItems();const heading=$('.items-heading p');if(heading)heading.textContent='Reusable records and settings.';};
 const genericBaseItemModal=itemModal;
 itemModal=function(id){
   genericBaseItemModal(id);const form=$('#itemform');if(!form)return;
@@ -24,8 +24,8 @@ itemModal=function(id){
   const name=$('#iname').closest('label'),owner=$('#imodule').closest('label'),unit=$('#iunit').closest('label'),ownerRow=owner.parentElement;
   const shares=$('#itemshares');
   // Replace static sharing copy with the live effective-access preview.
-  [...form.children].filter(el=>(el.tagName==='SPAN'&&el.textContent==='Share with other departments')||(el.tagName==='P'&&el.textContent.startsWith('The owning business area'))||(el.classList.contains('notice')&&el.textContent.startsWith('Additional access through shared sources:'))).forEach(el=>el.remove());
-  const access=document.createElement('section');access.className='generic-access';access.innerHTML='<h3>Where can this item be used?</h3><p class="muted">'+(isGeneric?'Choose the departments that need this item or setting. Each selected team can use it in their work instructions.':'Tick the departments whose SOPs should be able to choose this item.')+'</p>';access.appendChild(shares);name.after(access);
+  [...form.children].filter(el=>(el.tagName==='SPAN'&&el.textContent==='Share with other modules')||(el.tagName==='P'&&el.textContent.startsWith('The owner module'))||(el.classList.contains('notice')&&el.textContent.startsWith('Additional access through shared sources:'))).forEach(el=>el.remove());
+  const access=document.createElement('section');access.className='generic-access';access.innerHTML='<h3>Where can this item be used?</h3><p class="muted">'+(isGeneric?'Choose modules that can reference this item or setting.':'Tick modules whose SOPs should be able to choose this item.')+'</p>';access.appendChild(shares);name.after(access);
   const basics=document.createElement('div');basics.className='inputrow';basics.appendChild(name);basics.appendChild(unit);form.prepend(basics);
   owner.querySelector('span').textContent=isGeneric?'Catalogue':'Owned by';ownerRow.classList.add('generic-maintenance');
 
@@ -39,7 +39,7 @@ function genericRefreshPreview(){
  const draft={id:id||'new',name:$('#iname').value.trim()||'This item',module:$('#imodule').value,categoryId:$('#icategory').value,subcategoryId:$('#isubcategory').value,active:$('#iactive').value==='true',shares:[...document.querySelectorAll('[data-item-share]:checked')].map(el=>el.dataset.itemShare)};
  const box=$('#generic-access-preview');if(!box)return;
  const access=genericItemAccess(draft);
- box.innerHTML='<h4>Where this can be used</h4><p class="muted">Select the business areas that can use it.</p><div class="item-access-pills">'+access.map(a=>'<span class="badge '+(a.reason==='Owning business area'?'':'blue')+'">'+esc(a.module)+(a.reason==='Owning business area'?' · owner':'')+'</span>').join('')+'</div>'+(draft.active?'':'<p class="muted">Archived items stay in old published SOPs but cannot be chosen for new work.</p>');
+ box.innerHTML='<h4>Where this can be used</h4><p class="muted">Select modules that can use it.</p><div class="item-access-pills">'+access.map(a=>'<span class="badge '+(a.reason==='Owner module'?'':'blue')+'">'+esc(a.module)+(a.reason==='Owner module'?' · owner':'')+'</span>').join('')+'</div>'+(draft.active?'':'<p class="muted">Archived items stay in old published SOPs but cannot be chosen for new work.</p>');
 }
 function genericCreateCategory(isSub){
  if(!canEdit())return;const input=$(isSub?'#generic-subcategory-name':'#generic-category-name'),feedback=$('#generic-category-feedback'),name=input.value.trim(),module=$('#imodule').value,parentId=isSub?$('#icategory').value:null;
@@ -54,7 +54,7 @@ const genericBaseSaveItem=saveItem;
 saveItem=function(id){
  if(!canEdit())return;
  const draft={module:$('#imodule').value,categoryId:$('#icategory').value,subcategoryId:$('#isubcategory').value,active:$('#iactive').value==='true',shares:[...document.querySelectorAll('[data-item-share]:checked')].map(e=>e.dataset.itemShare)};
- if((!itemById(id)||draft.active)&&!genericItemAccess(draft).length){$('#itemerror').textContent='Link at least one department on this item, its category or subcategory.';return;}
+ if((!itemById(id)||draft.active)&&!genericItemAccess(draft).length){$('#itemerror').textContent='Link at least one module on this item, its category or subcategory.';return;}
  genericBaseSaveItem(id);
 };
 
@@ -72,14 +72,14 @@ renderHierarchyEditor=function(){
  host.insertAdjacentHTML('afterbegin','<p class="muted">Category access also applies to its items. Item links can add more areas.</p>');
  state.itemCategories.filter(c=>c.module===$('#hmodule').value).forEach(c=>{
   const row=$('#rename-'+c.id)?.closest('.inputrow');if(!row)return;
-  row.insertAdjacentHTML('afterend',`<details class="hierarchy-module-links" data-hierarchy-id="${c.id}"><summary>${esc(c.name)} · departments (${(c.shares||[]).length})</summary><div class="item-share-grid">${modules.map(m=>`<label class="checkrow"><input type="checkbox" ${c.shares?.includes(m)?'checked':''} ${canEdit()?'':'disabled'} onchange="genericSetHierarchyLink('${c.id}','${m}',this.checked)">${m}</label>`).join('')}</div></details>`);
+  row.insertAdjacentHTML('afterend',`<details class="hierarchy-module-links" data-hierarchy-id="${c.id}"><summary>${esc(c.name)} · modules (${(c.shares||[]).length})</summary><div class="item-share-grid">${modules.map(m=>`<label class="checkrow"><input type="checkbox" ${c.shares?.includes(m)?'checked':''} ${canEdit()?'':'disabled'} onchange="genericSetHierarchyLink('${c.id}','${m}',this.checked)">${m}</label>`).join('')}</div></details>`);
  });
 };
 function genericSetHierarchyLink(id,module,on,acknowledged=false){
  if(!canEdit())return;const group=itemCategory(id);if(!group)return;
  const affected=state.items.filter(i=>i.categoryId===id||i.subcategoryId===id);
  const references=!on?affected.flatMap(i=>itemUsages(i.id).map(u=>({...u,item:i.name}))):[];
- if(references.length&&!acknowledged){modal('Review department access',`<p>Remove ${esc(module)} from ${esc(group.name)}?</p><p>${references.length} work instruction steps use items in this group.</p><div class="actions"><button onclick="categoryModal()">Cancel</button><button class="primary" onclick="genericSetHierarchyLink('${id}','${module}',false,true);categoryModal()">Apply</button></div>`);return;}
+ if(references.length&&!acknowledged){modal('Review module access',`<p>Remove ${esc(module)} from ${esc(group.name)}?</p><p>${references.length} work instruction steps use items in this group.</p><div class="actions"><button onclick="categoryModal()">Cancel</button><button class="primary" onclick="genericSetHierarchyLink('${id}','${module}',false,true);categoryModal()">Apply</button></div>`);return;}
  group.shares=(group.shares||[]).filter(m=>m!==module);if(on)group.shares.push(module);record('Updated category module links: '+group.name);genericUpdateHierarchyCaption(group);
 }
 function genericMovedSourceReferences(old,item){
@@ -107,5 +107,5 @@ function genericCommitInheritedItem(){if(!canEdit()||!window.pendingHierarchyIte
 
 function genericUpdateHierarchyCaption(group){
  const panel=[...document.querySelectorAll('[data-hierarchy-id]')].find(el=>el.dataset.hierarchyId===group.id);
- if(panel){const summary=panel.querySelector('summary');if(summary)summary.textContent=group.name+' · departments ('+(group.shares||[]).length+')';}
+ if(panel){const summary=panel.querySelector('summary');if(summary)summary.textContent=group.name+' · modules ('+(group.shares||[]).length+')';}
 }

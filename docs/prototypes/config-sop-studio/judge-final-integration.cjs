@@ -10,7 +10,7 @@ run(`ensureSources();ensureTypedConfig();state.itemCategories.push({id:'judge-ca
 assert.equal(run("window.pinned.items['judge-item'].name"),'Judge item');
 for(const module of ['Health','Preventive Care','Procurement'])assert.equal(run(`availableItems('${module}').some(i=>i.id==='judge-item')`),true);
 assert.equal(run("availableItems('Sales').some(i=>i.id==='judge-item')"),false);
-run("genericSetHierarchyLink('judge-cat','Health',false)");assert.equal(run("itemCategory('judge-cat').shares.includes('Health')"),true);assert.match(element('#overlay').innerHTML,/Review department access/);
+run("genericSetHierarchyLink('judge-cat','Health',false)");assert.equal(run("itemCategory('judge-cat').shares.includes('Health')"),true);assert.match(element('#overlay').innerHTML,/Review module access/);
 run("genericSetHierarchyLink('judge-cat','Health',false,true)");assert.throws(()=>run('compileWorkflow(sop())'),/not shared/);assert.equal(run("window.pinned.items['judge-item'].name"),'Judge item');
 assert.equal(run("availableItems('Preventive Care').some(i=>i.id==='judge-item')"),true);
 run("genericSetHierarchyLink('judge-cat','Health',true);sop().nodes[1].answer='Catalogue';sop().nodes[1].catalogueSourceId='source-judge-cat';sop().nodes[2].op='=';sop().nodes[2].value='judge-item';window.cataloguePinned=compileWorkflow(sop());genericSetHierarchyLink('judge-cat','Health',false,true)");

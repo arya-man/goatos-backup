@@ -1179,3 +1179,22 @@ SOP editor E2E passed desktop/mobile; all four screenshots visually checked.
 The final-SHA CI/browser/API/phone receipts still require reruns. Continued live
 status is recorded outside the source tree in tmp/pr273-274-release-progress.md.
 No merge/deploy has occurred.
+
+## 2026-09-17 02:18 IST — PR 287 Config/SOP Studio prototype refinement
+
+Scope: refine the local Config/SOP Studio mock so business setup is understandable for CEO review. Keep modules such as Sales, Feed, Procurement, Health, Vaccination and Weighing as consumers/owners, not catalogue categories. Preserve existing specialist module screens; expose only missing common farm/animal CRUD and concise catalogue examples.
+
+Done:
+- Removed module names from catalogue category examples; categories are now business records such as Animals, Animal species, Breed names, Lifecycle stages, Shed tags, Feed items, Medicines and Business partners.
+- Kept K0/K1/K2/K3/warm-up as goat/sheep example records only; used Fattening instead of F2.
+- Reworked the configuration workspace into a compact setup hub with tab pills, short register tiles, selected detail below, no nested side rail, no redundant farm setup button and no long “modules fit” lecture block.
+- Updated item/group wording from department/business-area language to owner/used-by module language where it affects the prototype.
+
+Proof:
+- `node --check docs/prototypes/config-sop-studio/farm-setup.js`
+- `node --check docs/prototypes/config-sop-studio/items.js`
+- `node --check docs/prototypes/config-sop-studio/generic-items.js`
+- `sh docs/prototypes/config-sop-studio/run-checks.sh`
+- Browser visual smoke on `http://127.0.0.1:4322/?check=entities-refine-final2-...#/configuration/items`: verified redundant farm setup button hidden, no internal config rail, no module-usage lecture card, 9 compact register tiles visible.
+
+Pending: no staging deploy; prototype PR only.
