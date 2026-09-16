@@ -28,4 +28,4 @@ No performance claim or backend modification. Prototype saves in browser local s
 
 ## Pending
 
-Local proof green. Pending commit/push PR branch and fresh exact-commit review. Current base SHA `0b259fc871117a21cf931c70a78e3fe0b8a9b69b`; no new commit/push yet. Deployment: none.
+Pushed functional commit `90b20b97a0e4e20611873d65ad6c017e2bf450c8` to PR287; GitHub head verified. Fresh CRUD review clean. Fresh Excel review found asynchronous file A/B preview race; corrected with generation guards on selection/type/open/cancel/commit and immediate old-preview removal. Out-of-order completion regression and all31 judges pass; correction ready to push. Deployment: none; main untouched. Final local receipt: `/tmp/pr287-validation/FINAL-RECEIPT.md`.

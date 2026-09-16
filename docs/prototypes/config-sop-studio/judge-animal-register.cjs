@@ -31,3 +31,17 @@ run("var noPlaces=EntityRegistryModel.seed();noPlaces.records.parks=[];var creat
 const dom=new Map();c.$=key=>{if(!dom.has(key))dom.set(key,{value:'',innerHTML:'',textContent:''});return dom.get(key);};c.state={entityRegistry:run('EntityRegistryModel.seed()')};c.entityRegistryData=()=>c.state.entityRegistry;c.persist=()=>{};c.canEdit=()=>true;c.toast=()=>{};c.esc=String;
 c.$('#animal-tag1').value='UNSAVED-RFID';c.$('#animal-form-new-pen').value='Inline pen';c.$('#animal-form-location-park').value='practice-cbe';run("animalCreateLocation('form','pens')");assert.equal(c.$('#animal-tag1').value,'UNSAVED-RFID');assert.equal(c.state.entityRegistry.records.pens[0].name,'Inline pen');assert(c.$('#animal-pen').innerHTML.includes('Inline pen'));assert.equal(c.$('#animal-form-location-error').textContent,'');
 console.log('PASS inline park/pen creation uses registry guards and preserves unsaved animal fields');
+
+(async()=>{
+ c.renderAnimalImport=()=>{};c.renderAnimalRegister=()=>{};
+ run("animalImportSpecies='species-goat'");
+ const fileText=label=>run("model.csv([model.columns,model.columns.map(k=>({...raw,animal_name:'"+label+"',animal_identifier_1:'"+label+"',animal_identifier_2:''})[k])])");
+ let release;const pending=new Promise(r=>release=r);c.firstFile={name:'first.csv',size:100,text:()=>pending};c.secondFile={name:'second.csv',size:100,text:async()=>fileText('SECOND')};
+ run('animalImportPreview=model.preview(data,csv,species);renderAnimalImportPreview()');assert(c.$('#animal-import-preview').innerHTML.includes('Import 1 animal'));
+ const first=run('animalReadFile(firstFile)');assert.equal(c.$('#animal-import-preview').innerHTML,'');await run('animalReadFile(secondFile)');release(fileText('FIRST'));await first;assert.equal(run('animalImportPreview.rows[0].raw.animal_name'),'SECOND');
+ for(const invalidate of ["animalImportType('species-goat')","animalOpenImport()","animalCancelImport()","animalReadFile(null)"]){
+  run("animalImportSpecies='species-goat'");let done;const wait=new Promise(r=>done=r);c.pendingFile={name:'pending.csv',size:100,text:()=>wait};const task=run('animalReadFile(pendingFile)');run(invalidate);done(fileText('STALE'));await task;assert.equal(run('animalImportPreview'),null);assert.equal(run('animalImportText'),'');
+ }
+ let rejectOld;const oldError=new Promise((resolve,reject)=>rejectOld=reject);c.oldErrorFile={name:'old.csv',size:100,text:()=>oldError};run("animalImportSpecies='species-goat'");const failedRead=run('animalReadFile(oldErrorFile)');await run('animalReadFile(secondFile)');rejectOld(Error('Stale failure'));await failedRead;assert.equal(c.$('#animal-import-error').textContent,'');assert.equal(run('animalImportPreview.rows[0].raw.animal_name'),'SECOND');
+ console.log('PASS importer async ordering: stale read cannot replace newer file, type/open/cancel/empty-file invalidation');
+})().catch(error=>{console.error(error);process.exitCode=1;});
