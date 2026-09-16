@@ -61,7 +61,6 @@ const (
 	SlotShiftingFeedingVideo = "shifting_feeding_video"
 )
 
-
 // ShiftingCard is one section: what the operator is told, captures and answers.
 type ShiftingCard struct {
 	Instruction string               `json:"instruction,omitempty"`
