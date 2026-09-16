@@ -20,6 +20,6 @@
   "weights_pages": {
     "default_from_mode": "fixed_date",
     "default_from_date": "2026-08-03",
-    "earliest_date": "2026-07-05"
+    "earliest_date": "2026-08-01"
   }
 }

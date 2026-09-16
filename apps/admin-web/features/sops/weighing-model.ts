@@ -65,15 +65,14 @@ export type WeighingRows = {
   weightsFromMode: WeightsFromMode;
   weightsFromDate: string;
   weightsFromDays: string;
-  weightsFromWeeks: string;
   weightsEarliestDate: string;
 };
 
-export type WeightsFromMode = "fixed_date" | "rolling_days" | "rolling_weeks";
+export type WeightsFromMode = "fixed_date" | "rolling_days";
 
 // The seeded window, which is what the pages hardcoded before the block existed.
 export const SEEDED_WEIGHTS_FROM_DATE = "2026-08-03";
-export const SEEDED_WEIGHTS_EARLIEST_DATE = "2026-07-05";
+export const SEEDED_WEIGHTS_EARLIEST_DATE = "2026-08-01";
 const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
 
 // The proof policy's ceiling (weighing/domain.MaxShedProofArtifacts); the backend refuses more.
@@ -150,7 +149,7 @@ export function parseWeighing(formDsl: unknown): WeighingRows | null {
   const lumpSum = obj(capture["lump_sum"]) ?? {};
   // Absent on a document published before the block: the seed, as the backend reads it.
   const weights = obj(w["weights_pages"]) ?? {};
-  const weightsFromMode: WeightsFromMode = weights["default_from_mode"] === "rolling_weeks" ? "rolling_weeks" : weights["default_from_mode"] === "rolling_days" ? "rolling_days" : "fixed_date";
+  const weightsFromMode: WeightsFromMode = weights["default_from_mode"] === "rolling_days" ? "rolling_days" : "fixed_date";
   const modes = Array.isArray(planning["modes"]) ? planning["modes"].filter((m): m is WeighingMode => m === "individual_animal" || m === "per_shed_partition") : [];
   const proofsRaw = Array.isArray(removal["proofs"]) ? removal["proofs"] : [];
   const proofs: RemovalProofRow[] = proofsRaw.flatMap((raw) => {
@@ -182,7 +181,6 @@ export function parseWeighing(formDsl: unknown): WeighingRows | null {
     weightsFromMode,
     weightsFromDate: str(weights["default_from_date"], SEEDED_WEIGHTS_FROM_DATE) || SEEDED_WEIGHTS_FROM_DATE,
     weightsFromDays: num(weights["default_from_days"]) || "60",
-    weightsFromWeeks: num(weights["default_from_weeks"]) || "6",
     weightsEarliestDate: str(weights["earliest_date"], SEEDED_WEIGHTS_EARLIEST_DATE) || SEEDED_WEIGHTS_EARLIEST_DATE,
   };
 }
@@ -225,9 +223,7 @@ export function emitWeighing(rows: WeighingRows): Record<string, unknown> {
       lump_sum: { video_min: Number(rows.lumpSumVideoMin), video_max: Number(rows.lumpSumVideoMax) },
     },
     weights_pages:
-      rows.weightsFromMode === "rolling_weeks"
-        ? { default_from_mode: "rolling_weeks", default_from_weeks: Number(rows.weightsFromWeeks), earliest_date: rows.weightsEarliestDate.trim() }
-        : rows.weightsFromMode === "rolling_days"
+      rows.weightsFromMode === "rolling_days"
         ? { default_from_mode: "rolling_days", default_from_days: Number(rows.weightsFromDays), earliest_date: rows.weightsEarliestDate.trim() }
         : { default_from_mode: "fixed_date", default_from_date: rows.weightsFromDate.trim(), earliest_date: rows.weightsEarliestDate.trim() },
   };
@@ -285,10 +281,7 @@ export function weighingProblems(rows: WeighingRows): string[] {
   if (!Number.isInteger(max) || max < 1 || max > LUMP_SUM_VIDEO_CEILING) problems.push(`Whole-pen videos: at most ${LUMP_SUM_VIDEO_CEILING}`);
   if (Number.isInteger(min) && Number.isInteger(max) && min > max) problems.push("Whole-pen minimum videos must not exceed the maximum");
   if (!ISO_DAY.test(rows.weightsEarliestDate.trim())) problems.push("Weights pages: pick the earliest day the calendar offers");
-  if (rows.weightsFromMode === "rolling_weeks") {
-    const weeks = Number(rows.weightsFromWeeks);
-    if (!Number.isInteger(weeks) || weeks < 1 || weeks > 520) problems.push("Weights pages: open from 1 to 520 weeks before today");
-  } else if (rows.weightsFromMode === "rolling_days") {
+  if (rows.weightsFromMode === "rolling_days") {
     const days = Number(rows.weightsFromDays);
     if (!Number.isInteger(days) || days < 1 || days > 3650) problems.push("Weights pages: open on the last 1 to 3650 days");
   } else {

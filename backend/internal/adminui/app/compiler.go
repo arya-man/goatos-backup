@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	weighingdomain "github.com/vgoats/goatos/backend/internal/weighing/domain"
 	"sort"
 	"strconv"
 	"strings"
@@ -52,11 +51,10 @@ type ReferenceFamilies struct {
 	SOPTaskTypes           []ReferenceOption
 	SOPTaskTypeAnswerKinds []ReferenceOption
 	UIConfig               []ConfigEntry
-	// WeighingWeightsPages is the published weighing.session SOP's weights_pages block, read
-	// by the adminui repository (adminui is not weighing, so it may name sop_versions) and
-	// compiled into the Weights / ADG Analytics page contracts' copy as the window the pages
-	// open on and the earliest calendar day. Nil = no published version = the seeded values.
-	WeighingWeightsPages *weighingdomain.WeightsPagesRules
+	// WeighingWeightsPages is the tenant's weighing_calendar_config row, compiled
+	// into both page contracts. SQL edits bump the admin-ui family revision.
+	// Nil (new tenant without an authored row) uses the documented initial defaults.
+	WeighingWeightsPages *WeighingCalendarConfig
 	RevisionInputs       map[string]string
 }
 
@@ -926,8 +924,8 @@ func compilePages(pages []domain.PageContract, families ReferenceFamilies, input
 			// the group empty; the parks themselves are tenant rows and must never be
 			// constants in contract code.
 			out[i].OptionGroups = replaceOptionGroup(out[i].OptionGroups, "weighing_parks", optionsFromReferences(families.Parks, "info"))
-			// WEIGHING SOP weights_pages (maintainer request 2026-09-16): the window the two
-			// pages open on and the earliest calendar day come from the PUBLISHED document, not
+			// Tenant DB calendar configuration (maintainer request 2026-09-16): the window the two
+			// pages open on and the earliest calendar day come from the database row, not
 			// a client constant. Served as copy keys the pages read verbatim.
 			out[i].Copy = withWeightsWindowCopy(out[i].Copy, families.WeighingWeightsPages)
 			if out[i].RouteID == "weighing-analytics" {
@@ -2235,16 +2233,14 @@ func hashString(value string) string {
 }
 
 // withWeightsWindowCopy writes the Weights pages' window onto a page contract's copy.
-// Absent rules (no published version, or a source error) fall back to the seeded document,
-// which is exactly what the pages hardcoded before the block existed.
-func withWeightsWindowCopy(copyMap map[string]string, rules *weighingdomain.WeightsPagesRules) map[string]string {
+// A tenant without a configuration row uses the documented initial calendar values.
+func withWeightsWindowCopy(copyMap map[string]string, rules *WeighingCalendarConfig) map[string]string {
 	out := make(map[string]string, len(copyMap)+5)
 	for k, v := range copyMap {
 		out[k] = v
 	}
 	if rules == nil {
-		seeded := weighingdomain.SeededRules().WeightsPages
-		rules = seeded
+		rules = &WeighingCalendarConfig{DefaultFromMode: "fixed_date", DefaultFromDate: "2026-08-03", EarliestDate: "2026-07-05"}
 	}
 	out["weights.window.default_from_mode"] = rules.DefaultFromMode
 	out["weights.window.default_from_date"] = rules.DefaultFromDate
@@ -2252,4 +2248,13 @@ func withWeightsWindowCopy(copyMap map[string]string, rules *weighingdomain.Weig
 	out["weights.window.default_from_weeks"] = strconv.Itoa(rules.DefaultFromWeeks)
 	out["weights.window.earliest_date"] = rules.EarliestDate
 	return out
+}
+
+// WeighingCalendarConfig is tenant database configuration, not an authored SOP rule.
+type WeighingCalendarConfig struct {
+	DefaultFromMode  string
+	DefaultFromDate  string
+	DefaultFromDays  int
+	DefaultFromWeeks int
+	EarliestDate     string
 }

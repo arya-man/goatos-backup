@@ -3,15 +3,13 @@ package postgres
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/jackc/pgx/v5"
-	weighingdomain "github.com/vgoats/goatos/backend/internal/weighing/domain"
 	"os"
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/vgoats/goatos/backend/internal/adminui/app"
@@ -397,36 +395,20 @@ func (r *Repository) listSOPTaskTypes(ctx context.Context, tenantID string) ([]a
 	return types, kinds, rev.String(), nil
 }
 
-// loadWeighingWeightsPages reads the PUBLISHED weighing.session SOP's weights_pages block --
-// the window the admin-web Weights / ADG Analytics pages open on and the earliest calendar
-// day (maintainer request 2026-09-16). No published version, or a document without the block,
-// reads as nil, which the compiler renders as the seeded values.
-const sqlPublishedWeighingSOPDocument = `
-SELECT v.version, v.form_dsl
-FROM sop_versions v
-JOIN sop_definitions d ON d.tenant_id = v.tenant_id AND d.sop_id = v.sop_id
-WHERE v.tenant_id = $1::uuid AND d.code = $2 AND v.status = 'published'
-ORDER BY v.version DESC
-LIMIT 1`
-
-func (r *Repository) loadWeighingWeightsPages(ctx context.Context, tenantID string) (*weighingdomain.WeightsPagesRules, string, error) {
-	var version int
-	var formDSL []byte
-	err := r.pool.QueryRow(ctx, sqlPublishedWeighingSOPDocument, tenantID, weighingdomain.SOPCodeWeighingSession).Scan(&version, &formDSL)
+// loadWeighingWeightsPages reads tenant DB configuration. SOP publication is not a
+// calendar write path. The revision trigger invalidates bootstrap after SQL updates.
+func (r *Repository) loadWeighingWeightsPages(ctx context.Context, tenantID string) (*app.WeighingCalendarConfig, string, error) {
+	var rules app.WeighingCalendarConfig
+	err := r.pool.QueryRow(ctx, `
+SELECT default_from_mode, COALESCE(default_from_date::text, ''),
+       COALESCE(default_from_days, 0), COALESCE(default_from_weeks, 0), earliest_date::text
+FROM public.weighing_calendar_config WHERE tenant_id = $1::uuid
+`, tenantID).Scan(&rules.DefaultFromMode, &rules.DefaultFromDate, &rules.DefaultFromDays, &rules.DefaultFromWeeks, &rules.EarliestDate)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, "", nil
 	}
 	if err != nil {
-		return nil, "", fmt.Errorf("adminui: load weighing weights pages: %w", err)
+		return nil, "", fmt.Errorf("adminui: load weighing calendar config: %w", err)
 	}
-	var doc map[string]any
-	if err := json.Unmarshal(formDSL, &doc); err != nil {
-		return nil, "", fmt.Errorf("adminui: weighing sop document: %w", err)
-	}
-	dsl, err := weighingdomain.ParseWeighingSOP(doc)
-	if err != nil {
-		// exception:exempt a document the weighing service refuses too (the SOP save contract never stores one; only a hand-edited row reaches here) keeps the Weights pages on the seeded window rather than failing every family loaded after this one and taking option groups off the whole console.
-		return nil, "", nil
-	}
-	return dsl.WeightsPages, fmt.Sprintf("v%d:%+v", version, dsl.WeightsPages), nil
+	return &rules, fmt.Sprintf("%+v", rules), nil
 }

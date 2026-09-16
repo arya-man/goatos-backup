@@ -60,7 +60,7 @@ test("invalid rolling week values cannot create an invalid page date", () => {
   }
 });
 
-test("published fixed date and earliest date overrides remain independent", () => {
+test("database fixed date and earliest date overrides remain independent", () => {
   assert.deepEqual(weightsWindowSettings({
     "weights.window.default_from_mode": "fixed_date",
     "weights.window.default_from_date": "2026-07-20",

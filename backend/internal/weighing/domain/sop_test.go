@@ -327,8 +327,8 @@ func TestUnknownWeighingSOPKeysAreNamedByPath(t *testing.T) {
 // for a document published before the block existed.
 func TestWeightsPagesRulesAreValidatedAndDefaulted(t *testing.T) {
 	seed := SeededRules()
-	if seed.WeightsPages == nil || seed.WeightsPages.DefaultFromMode != WeightsFromFixedDate || seed.WeightsPages.DefaultFromDate != "2026-08-03" || seed.WeightsPages.EarliestDate != "2026-07-05" {
-		t.Fatalf("seed weights pages = %+v, want fixed 2026-08-03 / earliest 2026-07-05", seed.WeightsPages)
+	if seed.WeightsPages == nil || seed.WeightsPages.DefaultFromMode != WeightsFromFixedDate || seed.WeightsPages.DefaultFromDate != "2026-08-03" || seed.WeightsPages.EarliestDate != "2026-08-01" {
+		t.Fatalf("seed weights pages = %+v, want fixed 2026-08-03 / earliest 2026-08-01 (today's constants)", seed.WeightsPages)
 	}
 	var old map[string]any
 	if err := json.Unmarshal(SeededWeighingSOPJSON(), &old); err != nil {
@@ -349,8 +349,6 @@ func TestWeightsPagesRulesAreValidatedAndDefaulted(t *testing.T) {
 	cases := map[string]func(w *WeightsPagesRules){
 		"mode":          func(w *WeightsPagesRules) { w.DefaultFromMode = "sometimes" },
 		"date":          func(w *WeightsPagesRules) { w.DefaultFromDate = "3 Aug" },
-		"weeks_low":     func(w *WeightsPagesRules) { w.DefaultFromMode = WeightsFromRollingWeeks; w.DefaultFromWeeks = 0 },
-		"weeks_high":    func(w *WeightsPagesRules) { w.DefaultFromMode = WeightsFromRollingWeeks; w.DefaultFromWeeks = 521 },
 		"days_low":      func(w *WeightsPagesRules) { w.DefaultFromMode = WeightsFromRollingDays; w.DefaultFromDays = 0 },
 		"days_high":     func(w *WeightsPagesRules) { w.DefaultFromMode = WeightsFromRollingDays; w.DefaultFromDays = 4000 },
 		"earliest":      func(w *WeightsPagesRules) { w.EarliestDate = "" },
@@ -365,12 +363,6 @@ func TestWeightsPagesRulesAreValidatedAndDefaulted(t *testing.T) {
 	rolling.WeightsPages = &WeightsPagesRules{DefaultFromMode: WeightsFromRollingDays, DefaultFromDays: 60, EarliestDate: "2026-08-01"}
 	if problems := ValidateWeighingSOP(rolling); len(problems) != 0 {
 		t.Fatalf("rolling 60 days: %v", problems)
-	}
-	for _, weeks := range []int{1, 6, 520} {
-		rolling.WeightsPages = &WeightsPagesRules{DefaultFromMode: WeightsFromRollingWeeks, DefaultFromWeeks: weeks, EarliestDate: "2026-07-05"}
-		if problems := ValidateWeighingSOP(rolling); len(problems) != 0 {
-			t.Fatalf("rolling %d weeks: %v", weeks, problems)
-		}
 	}
 }
 
@@ -422,31 +414,5 @@ func TestWeighingOtherExplanationOnlySupportsPickOne(t *testing.T) {
 		if kind != SOPQuestionChoice && len(problems) == 0 {
 			t.Fatalf("unsupported %s accepted Other explanation", kind)
 		}
-	}
-}
-
-func TestWeightsPagesRollingWeeksRoundTrip(t *testing.T) {
-	var doc map[string]any
-	if err := json.Unmarshal(SeededWeighingSOPJSON(), &doc); err != nil {
-		t.Fatal(err)
-	}
-	doc["weights_pages"] = map[string]any{"default_from_mode": "rolling_weeks", "default_from_weeks": 6, "earliest_date": "2026-07-05"}
-	form := map[string]any{"weighing": doc}
-	if keys := UnknownWeighingSOPKeys(form); len(keys) != 0 {
-		t.Fatalf("weeks field rejected: %v", keys)
-	}
-	parsed, err := ParseWeighingSOP(form)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if parsed.WeightsPages.DefaultFromWeeks != 6 {
-		t.Fatalf("weeks lost: %+v", parsed.WeightsPages)
-	}
-	if problems := ValidateWeighingSOP(parsed); len(problems) != 0 {
-		t.Fatalf("weeks invalid: %v", problems)
-	}
-	doc["weights_pages"].(map[string]any)["default_from_weeks"] = 6.5
-	if _, err := ParseWeighingSOP(form); err == nil {
-		t.Fatal("fractional weeks must be rejected")
 	}
 }

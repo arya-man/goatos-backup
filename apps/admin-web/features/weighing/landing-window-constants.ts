@@ -12,7 +12,7 @@ export const DEFAULT_WINDOW_FROM = "2026-08-03";
 
 /**
  * Seeded earliest selectable weighing history, including the sparse July checks.
- * Published SOP settings can change this independently of the landing period.
+ * The tenant database row can change this independently of the landing period.
  */
 export const WINDOW_MIN_DATE = "2026-07-05";
 
@@ -20,9 +20,9 @@ export const LATEST_LUMP_LOOKBACK_DAYS = 400;
 export const BUSINESS_DAY = /^\d{4}-\d{2}-\d{2}$/;
 
 /**
- * The Weights pages' window settings, authored on the Weighing SOP (`weights_pages`, maintainer
- * request 2026-09-16) and served on both pages' contract copy by the backend. The constants are
- * the fallback for a contract that carries none (an older backend), which is the seeded document.
+ * The Weights pages' window settings are read from weighing_calendar_config and served on
+ * both pages' contract copy by the backend. The constants only support an older contract
+ * without the settings. These values are configured directly in the database.
  */
 export type WeightsWindowSettings = {
   /** The day the pages open from. */
@@ -49,7 +49,7 @@ export function weightsWindowSettings(copyMap: Record<string, string> | undefine
     const fixed = get("weights.window.default_from_date");
     if (BUSINESS_DAY.test(fixed)) defaultFrom = fixed;
   }
-  // The window never starts before the earliest offerable day, whatever the document says.
+  // The window never starts before the earliest offerable day, whatever the database configuration says.
   if (defaultFrom < earliestDate) defaultFrom = earliestDate;
   return { defaultFrom, earliestDate };
 }

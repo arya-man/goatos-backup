@@ -364,16 +364,10 @@ export function WeighingEditor({ pageContract: pc, basePath, sopId, sopName, sop
                 <span className="numlbl">{copy(pc, "wsop.weights.from_mode")}</span>
                 <select value={rows.weightsFromMode} onChange={(e) => setRows((r) => ({ ...r, weightsFromMode: e.target.value as WeightsFromMode }))}>
                   <option value="fixed_date">{copy(pc, "wsop.weights.from_mode.fixed_date")}</option>
-                  <option value="rolling_weeks">{copy(pc, "wsop.weights.from_mode.rolling_weeks")}</option>
                   <option value="rolling_days">{copy(pc, "wsop.weights.from_mode.rolling_days")}</option>
                 </select>
               </label>
-              {rows.weightsFromMode === "rolling_weeks" ? (
-                <label className="numfield">
-                  <span className="numlbl">{copy(pc, "wsop.weights.from_weeks")}</span>
-                  <input type="number" min={1} max={520} step={1} inputMode="numeric" value={rows.weightsFromWeeks} onChange={(e) => setRows((r) => ({ ...r, weightsFromWeeks: e.target.value }))} />
-                </label>
-              ) : rows.weightsFromMode === "rolling_days" ? (
+              {rows.weightsFromMode === "rolling_days" ? (
                 <label className="numfield">
                   <span className="numlbl">{copy(pc, "wsop.weights.from_days")}</span>
                   <input inputMode="numeric" value={rows.weightsFromDays} onChange={(e) => setRows((r) => ({ ...r, weightsFromDays: e.target.value }))} />

@@ -13844,14 +13844,13 @@ export interface components {
                     video_max: number;
                 };
             };
-            /** @description The admin-web Weights / ADG Analytics pages' window (maintainer request 2026-09-16): the period the pages open on (a fixed date, or N days or weeks back from the current IST day) and the earliest day their calendars offer. Page settings from the PUBLISHED version; not pinned per task. Absent on a document published before the block existed, which the server reads as the seeded values. */
+            /** @description The admin-web Weights / ADG Analytics pages' window (maintainer request 2026-09-16): the period the pages open on (a fixed date, or N days back from today) and the earliest day their calendars offer. Page settings from the PUBLISHED version; not pinned per task. Absent on a document published before the block existed, which the server reads as the seeded values. */
             weights_pages?: {
                 /** @enum {string} */
-                default_from_mode: "fixed_date" | "rolling_days" | "rolling_weeks";
+                default_from_mode: "fixed_date" | "rolling_days";
                 /** Format: date */
                 default_from_date?: string;
                 default_from_days?: number;
-                default_from_weeks?: number;
                 /** Format: date */
                 earliest_date: string;
             };

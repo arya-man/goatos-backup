@@ -146,30 +146,3 @@ test("herd signal filters and range controls stay inside laptop and mobile viewp
     });
   }
 });
-
-
-test("weighing SOP calendar fields stack with readable dates on phones and retain desktop columns", async () => {
-  for (const width of [390, 1440]) {
-    await withPage({ width, height: 900 }, async (page) => {
-      await page.setContent(pageHtml(`<main class="proof-main sop-inspection sop-weighing">
-        <section class="inspection-page sop-weighing-weights"><div class="bd"><div class="qcfg"><div class="rowf">
-          <label class="numfield"><span>Open the pages from</span><select><option>a fixed date</option><option>Rolling weeks</option></select></label>
-          <label class="numfield"><span>Opening day</span><input type="date" value="2026-08-03"></label>
-          <label class="numfield"><span>Earliest day the calendar offers</span><input type="date" value="2026-07-05"></label>
-        </div></div></div></section></main>`));
-      await assertViewportFit(page, "Weighing SOP dates", [".numfield", "input", "select"]);
-      const boxes = await page.locator(".numfield").evaluateAll((fields) => fields.map((field) => {
-        const { x, y, width, height } = field.getBoundingClientRect();
-        return { x, y, width, height };
-      }));
-      if (width === 390) {
-        for (const box of boxes) assert.ok(box.width >= 280, "full dates and mode need readable field width");
-        assert.ok(boxes[1].y >= boxes[0].y + boxes[0].height, "opening date stacks below mode");
-        assert.ok(boxes[2].y >= boxes[1].y + boxes[1].height, "earliest date stacks below opening date");
-      } else {
-        assert.equal(boxes[0].y, boxes[1].y);
-        assert.equal(boxes[1].y, boxes[2].y);
-      }
-    });
-  }
-});

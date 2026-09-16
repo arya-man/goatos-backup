@@ -41,7 +41,7 @@ test("the period control is a calendar, not a fixed-window select", () => {
   assert.doesNotMatch(contract, /"filter\.period\.12w"/);
 });
 
-test("the page lands on the SOP's default start (seed: 2026-08-03) through the latest weighing when no period is selected", () => {
+test("the page lands on the database-configured default start (seed: 2026-08-03) through the latest weighing when no period is selected", () => {
   assert.match(landingConstantsSource, /export const DEFAULT_WINDOW_FROM = "2026-08-03";/);
   assert.match(landingConstantsSource, /export const LATEST_LUMP_LOOKBACK_DAYS = 400;/);
   assert.match(landingConstantsSource, /export const WINDOW_MIN_DATE = "2026-07-05";/);
@@ -51,7 +51,7 @@ test("the page lands on the SOP's default start (seed: 2026-08-03) through the l
   assert.match(landingSource, /origin: originFilter \|\| undefined,/);
   assert.match(landingSource, /weighing_category: weighingCategoryFilter \|\| undefined,/);
   assert.doesNotMatch(landingSource, /dates\[dates\.length - 2\]/);
-  // WEIGHING SOP weights_pages (2026-09-16): the start is the SERVED setting, the constant its fallback.
+  // The database calendar row supplies the SERVED setting; the constant is its fallback.
   assert.match(landingSource, /const from = settings\?\.defaultFrom \?\? DEFAULT_WINDOW_FROM;/);
   assert.match(landingSource, /return windowThroughLatest\(today, result\.data\.latest_weighing_date \?\? "", settings\);/);
   // THE END IS NOT A LUMP DATE. On 25 Aug 2026 the farm scanned 199 kids across 17 sheds and weighed
@@ -478,8 +478,8 @@ test("lump marker proxy reads a calendar window independently of the report rang
 });
 
 test("both Weights pages and the export drawer take the window from the page contract, never the constants", () => {
-  // WEIGHING SOP weights_pages (maintainer request 2026-09-16): the default start and the earliest
-  // calendar day are authored on /weighing/sops and served on the page contract's copy.
+  // Database-only calendar configuration supplies the default start and earliest day
+  // through the existing page contract's copy; no settings UI is added or changed.
   for (const src of [source, analyticsSource]) {
     assert.match(src, /const windowSettings = weightsWindowSettings\(pageContract\.copy, today\);/);
     assert.match(src, /minDate: windowSettings\.earliestDate,/);

@@ -17,9 +17,7 @@ func TestMigrationEmbedsTheSeededWeighingSOP(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Historical migration stays immutable; 000318 widens only the seeded calendar floor.
-	legacySeed := strings.ReplaceAll(string(SeededWeighingSOPJSON()), `"earliest_date": "2026-07-05"`, `"earliest_date": "2026-08-01"`)
-	want := "$seed$" + strings.TrimSpace(legacySeed) + "$seed$"
+	want := "$seed$" + strings.TrimSpace(string(SeededWeighingSOPJSON())) + "$seed$"
 	if got := strings.Count(string(sql), want); got != 2 {
 		t.Fatalf("migration embeds the seeded weighing sop verbatim %d time(s), want 2", got)
 	}
