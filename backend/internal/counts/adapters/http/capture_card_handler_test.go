@@ -185,8 +185,8 @@ func TestApprovalListCarriesCaptureRowsAndMedia(t *testing.T) {
 		ApprovalRequestID: "11111111-1111-4111-8111-111111111112", RequestType: domain.ApprovalRequestTypeBirth, Status: domain.ApprovalStatusPending,
 		RaisedByUserID: testActorID, RaisedAt: time.Date(2026, 9, 16, 9, 0, 0, 0, time.UTC), Summary: json.RawMessage(`{"litter_size":1}`),
 		Capture: authored.Evidence{VersionLabel: "v2",
-			Media: []authored.EvidenceMedia{{Ref: "ref-photo", Kind: "photo", Label: "Newborns with the mother"}},
-			Rows:  []authored.EvidenceRow{{Label: "How was the delivery?", Value: "Assisted", Group: "At report"}},
+			Media:       []authored.EvidenceMedia{{Ref: "ref-photo", Kind: "photo", Label: "Newborns with the mother"}},
+			Rows:        []authored.EvidenceRow{{Label: "How was the delivery?", Value: "Assisted", Group: "At report"}},
 			MissingNote: "Pen video"},
 		CaptureReviewStatus: &status, CaptureReviewReason: &reason,
 	}, {
@@ -219,9 +219,7 @@ func TestApprovalListCarriesCaptureRowsAndMedia(t *testing.T) {
 			Label   string `json:"label"`
 			Kind    string `json:"kind"`
 		} `json:"media"`
-		MissingNote  string `json:"missing_note"`
-		ReviewStatus string `json:"review_status"`
-		ReviewReason string `json:"review_reason"`
+		MissingNote string `json:"missing_note"`
 	}
 	if err := json.Unmarshal(page.Items[0]["capture"], &capture); err != nil {
 		t.Fatalf("capture: %v (%s)", err, page.Items[0]["capture"])
@@ -232,8 +230,8 @@ func TestApprovalListCarriesCaptureRowsAndMedia(t *testing.T) {
 	if len(capture.Media) != 1 || capture.Media[0].ProofID != "ref-photo" || capture.Media[0].Kind != "photo" || capture.Media[0].Label != "Newborns with the mother" {
 		t.Fatalf("media = %+v", capture.Media)
 	}
-	if capture.MissingNote != "Pen video" || capture.ReviewStatus != "rework" || capture.ReviewReason != reason {
-		t.Fatalf("note/review = %+v", capture)
+	if capture.MissingNote != "Pen video" || string(page.Items[0]["capture_review_status"]) != `"rework"` || string(page.Items[0]["capture_review_reason"]) != `"`+reason+`"` {
+		t.Fatalf("note/review = %+v status=%s reason=%s", capture, page.Items[0]["capture_review_status"], page.Items[0]["capture_review_reason"])
 	}
 	if _, present := page.Items[1]["capture"]; present {
 		t.Fatalf("a row with no capture must omit the field: %s", page.Items[1]["capture"])

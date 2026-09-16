@@ -131,11 +131,15 @@ type appApprovalListItem struct {
 	// Capture is the SOP capture card's snapshot (CountsApprovalCapture): the report's own
 	// proofs under their titles, its answers in farm words, the older-app note, and the verifier's
 	// verdict on it. Shifting rows may carry the same shape inside their raise summary.
-	Capture         *appApprovalCapture `json:"capture,omitempty"`
-	Summary         json.RawMessage     `json:"summary"`
-	DecidedByUserID *string             `json:"decided_by_user_id,omitempty"`
-	DecidedAt       *time.Time          `json:"decided_at,omitempty"`
-	DecisionReason  *string             `json:"decision_reason,omitempty"`
+	// CaptureReviewStatus / CaptureReviewReason are the verifier's verdict on the report's own
+	// proof (pending / approved / rework + the verifier's words). Absent when nothing to review.
+	CaptureReviewStatus *string             `json:"capture_review_status,omitempty"`
+	CaptureReviewReason *string             `json:"capture_review_reason,omitempty"`
+	Capture             *appApprovalCapture `json:"capture,omitempty"`
+	Summary             json.RawMessage     `json:"summary"`
+	DecidedByUserID     *string             `json:"decided_by_user_id,omitempty"`
+	DecidedAt           *time.Time          `json:"decided_at,omitempty"`
+	DecisionReason      *string             `json:"decision_reason,omitempty"`
 }
 
 // ListApprovals returns one keyset page of requests the caller may decide.
@@ -210,6 +214,8 @@ func (h *AppWriteHandler) ListApprovals(w http.ResponseWriter, r *http.Request) 
 		if row.Capture == nil {
 			row.Capture = shiftingCaptureFromSummary(item.RequestType, item.Summary)
 		}
+		row.CaptureReviewStatus = item.CaptureReviewStatus
+		row.CaptureReviewReason = item.CaptureReviewReason
 		items = append(items, row)
 	}
 	httpresponse.WriteJSON(w, http.StatusOK, appApprovalListResponse{Items: items, NextCursor: page.NextCursor})

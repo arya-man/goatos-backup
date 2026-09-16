@@ -5351,6 +5351,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/app/counts/capture-cards/{kind}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The SOP capture card the Add birth / Add death form renders beside its fixed fields.
+         * @description Serves the PUBLISHED capture card of counts.birth (kind=birth) or counts.death (kind=death): authored proof slots (video / photo / either, compulsory or not) and questions, from the version's form_dsl.capture_card section (maintainer decision 2026-09-16). An absent section is the EMPTY card - the plain form. The phone caches it (Room) and refreshes it on open, so a publish changes the form with no app update; the phone echoes sop_version_id back in sop_capture so the report is judged by the card it was captured on.
+         */
+        get: operations["getAppCountsCaptureCard"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/app/counts/goats/{goat_id}/promote-identifier": {
         parameters: {
             query?: never;
@@ -17682,6 +17702,7 @@ export interface components {
         };
         /** @description The goat-creation request for a newborn. origin_type is pinned to 'birth' by the endpoint: it may be omitted, but if present it must be 'birth'. For this birth route the server ignores child identifiers from the app and generates one provisional identifier per child from the canonical park code (`CBE-` or `CPT-`) plus five deterministic digits. One request fans out according to litter_size, so Twins creates two distinct canonical goats and Triplets creates three. The app never scans a child RFID at birth (docs/decisions/birth-death-workflows.md); the kid is promoted to its permanent RFID later through the "Tag the kid" step / Awaiting RFID flow. */
         RecordBirthEventRequest: {
+            sop_capture?: components["schemas"]["CountsSopCaptureSubmission"];
             /** @description The permanent RFID. Provide this OR temporary_identifier, never both. */
             animal_identifier_1?: string | null;
             /** @description A provisional tag for a newborn not yet permanently tagged. Provide this OR animal_identifier_1, never both. Stored as a temporary_tag identifier; the kid still reads as untagged until promoted to a permanent RFID. */
@@ -17756,6 +17777,7 @@ export interface components {
         };
         /** @description The guardrailed critical-death exit. lifecycle_status and exit_reason are constants: the dead+died pairing is the guardrail, and any other combination is rejected. */
         RecordDeathEventRequest: {
+            sop_capture?: components["schemas"]["CountsSopCaptureSubmission"];
             /**
              * Format: uuid
              * @description The animal that died. Carried in the body because this route is not addressed per-animal.
@@ -17868,6 +17890,14 @@ export interface components {
             subject_goat_id?: string;
             /** @description Present only for a death request whose animal resolves to a real park/shed - the animal's CURRENT operational location ("park, shed" or "park, shed partition"), already resolved to names by the backend and already folded into summary_line. A death is terminal and never moves the animal's shed, so this is read from the animal's live location, not snapshotted at raise time. BACKEND-OWNED DISPLAY COPY: clients render it verbatim; absent when the animal's location cannot be resolved. */
             subject_animal_location?: string;
+            capture?: components["schemas"]["CountsApprovalCapture"];
+            /**
+             * @description The verifier's verdict on the report's own proof (the capture card's media): pending while the item is queued, approved, or rework (a re-shoot was asked for). Absent when the report carried no proof to review.
+             * @enum {string}
+             */
+            capture_review_status?: "pending" | "approved" | "rework";
+            /** @description The verifier's words on a rework, rendered verbatim. */
+            capture_review_reason?: string;
             /** @description The submitted payload, for rendering the row without a second fetch. */
             summary: {
                 [key: string]: unknown;
@@ -17877,7 +17907,61 @@ export interface components {
             /** Format: date-time */
             decided_at?: string;
             decision_reason?: string;
-            capture?: components["schemas"]["CountsApprovalCapture"];
+        };
+        /** @description The Add birth / Add death form's SOP capture card extras. Sent by an app that renders the card; ABSENT from an older app, which is accepted and noted rather than refused. When present it is judged strictly against the echoed version: 422 capture_proof_slot_invalid or capture_answer_invalid naming the slot / question (field_errors[0].field), 409 capture_sop_version_unknown for a version that is neither published nor retired. It is part of the idempotency fingerprint only when sent. */
+        CountsSopCaptureSubmission: {
+            /** @description The card version the form was rendered from (absent = the published one). */
+            sop_version_id?: string;
+            /** @description {slot key: proof artifact id} for the card's proof slots. */
+            proofs?: {
+                [key: string]: string;
+            };
+            /** @description {question id: answer} (choice = option value, "other" text under "<id>_other"; multi = array of values; number = JSON number; text = string). */
+            answers?: {
+                [key: string]: unknown;
+            };
+        };
+        CountsCaptureProofSlot: {
+            key: string;
+            title: string;
+            hint?: string;
+            /** @enum {string} */
+            kind: "video" | "photo" | "either";
+            required: boolean;
+        };
+        CountsCaptureQuestion: {
+            id: string;
+            /** @enum {string} */
+            kind: "choice" | "multi" | "text" | "number";
+            title: string;
+            hint?: string;
+            required: boolean;
+            options?: {
+                value: string;
+                label: string;
+            }[];
+            allow_other?: boolean;
+            min?: number;
+            max?: number;
+            unit?: string;
+            only_if?: {
+                question_id: string;
+                value: string;
+            };
+        };
+        CountsCaptureCard: {
+            schema_version: string;
+            instruction?: string;
+            proofs?: components["schemas"]["CountsCaptureProofSlot"][];
+            questions?: components["schemas"]["CountsCaptureQuestion"][];
+        };
+        CountsCaptureCardResponse: {
+            /** @enum {string} */
+            kind: "birth" | "death";
+            sop_code?: string;
+            sop_version_id?: string;
+            version_label?: string;
+            card: components["schemas"]["CountsCaptureCard"];
         };
         CountsApprovalListResponse: {
             items: components["schemas"]["CountsApprovalListItem"][];
@@ -28352,6 +28436,32 @@ export interface operations {
             404: components["responses"]["NotFoundOrNotAllowed"];
             409: components["responses"]["WriteConflict"];
             422: components["responses"]["UnprocessableEntity"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    getAppCountsCaptureCard: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                kind: "birth" | "death";
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The published card (possibly empty). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CountsCaptureCardResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
             500: components["responses"]["ServerError"];
         };
     };
