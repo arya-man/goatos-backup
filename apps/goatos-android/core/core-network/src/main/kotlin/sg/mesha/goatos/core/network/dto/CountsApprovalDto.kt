@@ -62,6 +62,13 @@ data class CountsApprovalListItemDto(
      * of parsing [summaryLine].
      */
     @SerialName("subject_animal_location") val subjectAnimalLocation: String? = null,
+    /**
+     * The raise's SOP capture form as the approver sees it (shared CountsApprovalCapture shape,
+     * program decision 2026-09-16): version label, answers in farm words (grouped), captures under
+     * their slot titles with a kind, and a note naming what an older app did not send.
+     * BACKEND-OWNED; render verbatim. Absent for a request raised without one.
+     */
+    @SerialName("capture") val capture: CountsApprovalCaptureDto? = null,
     @SerialName("summary") val summary: JsonElement? = null,
     @SerialName("decided_by_user_id") val decidedByUserId: String? = null,
     @SerialName("decided_at") val decidedAt: String? = null,
@@ -106,4 +113,27 @@ data class CountsApprovalDecisionResponseDto(
     @SerialName("decision_reason") val decisionReason: String? = null,
     @SerialName("applied_result_type") val appliedResultType: String? = null,
     @SerialName("idempotent_replay") val idempotentReplay: Boolean = false,
+)
+
+/** Shared CountsApprovalCapture (OpenAPI): what a raise captured, as the approver reads it. */
+@Serializable
+data class CountsApprovalCaptureDto(
+    @SerialName("version_label") val versionLabel: String = "",
+    @SerialName("rows") val rows: List<CountsApprovalCaptureRowDto> = emptyList(),
+    @SerialName("media") val media: List<CountsApprovalCaptureMediaDto> = emptyList(),
+    @SerialName("missing_note") val missingNote: String? = null,
+)
+
+@Serializable
+data class CountsApprovalCaptureRowDto(
+    @SerialName("label") val label: String = "",
+    @SerialName("value") val value: String = "",
+    @SerialName("group") val group: String? = null,
+)
+
+@Serializable
+data class CountsApprovalCaptureMediaDto(
+    @SerialName("proof_id") val proofId: String = "",
+    @SerialName("label") val label: String = "",
+    @SerialName("kind") val kind: String = "",
 )
