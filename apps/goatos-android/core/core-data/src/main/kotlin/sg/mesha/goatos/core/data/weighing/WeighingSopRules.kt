@@ -30,9 +30,18 @@ data class WeighingSopRules(
     // come from the served rules; an older server sends none and the seeded slots apply.
     val individualProofs: List<WeighingRemovalProofSlot> = Seeded.individualProofs,
     val individualQuestions: List<WeighingSopQuestionDto> = emptyList(),
-    val lumpSumProofs: List<WeighingCountedProofSlot> = listOf(WeighingCountedProofSlot.seededPenVideo(lumpSumVideoMin, lumpSumVideoMax)),
+    /** The AUTHORED whole-pen slots; null = a document without slots (read through [lumpSumProofs]). */
+    val lumpSumSlots: List<WeighingCountedProofSlot>? = null,
     val lumpSumQuestions: List<WeighingSopQuestionDto> = emptyList(),
 ) {
+    /**
+     * The whole-pen slot list: the authored slots, else the seeded pen_video slot carrying THIS
+     * document's own video window -- the backend's Rules.LumpSumProofs accessor, so a document
+     * published with only video_min / video_max keeps the window it published.
+     */
+    val lumpSumProofs: List<WeighingCountedProofSlot>
+        get() = lumpSumSlots ?: listOf(WeighingCountedProofSlot.seededPenVideo(lumpSumVideoMin, lumpSumVideoMax))
+
     /** Every task carries the evening-before removal (the 2026-09-03 rule). */
     val removalRequired: Boolean get() = removalMode == REMOVAL_REQUIRED
 
@@ -89,7 +98,7 @@ data class WeighingSopRules(
             lumpSumVideoMax = 5,
             individualProofs = SeededIndividualProofs,
             individualQuestions = emptyList(),
-            lumpSumProofs = listOf(WeighingCountedProofSlot.seededPenVideo(1, 5)),
+            lumpSumSlots = null,
             lumpSumQuestions = emptyList(),
         )
     }
@@ -134,8 +143,8 @@ fun WeighingSopRulesDto.toRules(): WeighingSopRules = WeighingSopRules(
         .map { WeighingRemovalProofSlot(it.key, it.title, it.hint, it.kind, it.required) }
         .ifEmpty { WeighingSopRules.SeededIndividualProofs },
     individualQuestions = capture.individual.questions,
-    lumpSumProofs = capture.lumpSum.proofs
+    lumpSumSlots = capture.lumpSum.proofs
         .map { WeighingCountedProofSlot(it.key, it.title, it.hint, it.kind, it.min.coerceAtLeast(0), it.max.coerceAtLeast(1)) }
-        .ifEmpty { listOf(WeighingCountedProofSlot.seededPenVideo(capture.lumpSum.videoMin, capture.lumpSum.videoMax)) },
+        .takeIf { it.isNotEmpty() },
     lumpSumQuestions = capture.lumpSum.questions,
 )

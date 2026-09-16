@@ -107,7 +107,7 @@ import sg.mesha.goatos.feature.scan.ScanUiState
  * denominator of a "N / 5" figure. It only gates the "Add another video" action and colours the
  * summary once the shed can hold no more.
  */
-private const val SHED_PROOF_VIDEO_LIMIT = 5
+internal const val SHED_PROOF_VIDEO_LIMIT = 5
 
 // telemetry:exempt stateless renderer; weighing proof preview/action events are routed to the
 // ViewModel through callbacks so analytics payloads include task/shed/proof identity.
@@ -183,6 +183,8 @@ data class WeighingUiState(
      * the first emission, so this is folded into [state] the same way showSubmitConfirmation is.
      */
     val isReadOnly: Boolean = false,
+    /** The pinned weighing SOP's authored capture sections (2026-09-16); empty = the seed. */
+    val captureSop: WeighingCaptureSopUi = WeighingCaptureSopUi(),
 ) {
     val isShedPartition: Boolean get() = category.trim().equals("per_shed_partition", ignoreCase = true)
     val individualCompleted: Int get() = individualDrafts.count { it.readyToSubmit }
@@ -191,7 +193,8 @@ data class WeighingUiState(
         visibleRows.isNotEmpty() &&
             visibleRows.all { row ->
                 row.weightSaved &&
-                    row.proofUploadStatus == ProofUploadStatus.SYNCED
+                    row.proofUploadStatus == ProofUploadStatus.SYNCED &&
+                    row.capturesMissing.isEmpty()
         }
     val individualResolved: Int get() = maxOf(
         individualCompleted,
@@ -218,7 +221,8 @@ data class WeighingUiState(
     val canRecordShedPartition: Boolean get() =
         hasScope && !isReadOnly && isShedPartition && !actionInFlight &&
             weightInput.toDoubleOrNull()?.let { it > 0.0 } == true &&
-            shedProofs.any { it.status == ProofUploadStatus.SYNCED }
+            shedProofs.any { it.status == ProofUploadStatus.SYNCED } &&
+            captureSop.penCapturesMissing.isEmpty()
 
     /**
      * Why Submit cannot be pressed yet, in farm language — or null when it can.
@@ -237,6 +241,8 @@ data class WeighingUiState(
         actionInFlight -> R.string.weighing_blocked_saving
         weightInput.toDoubleOrNull()?.let { it > 0.0 } != true -> R.string.weighing_blocked_need_weight
         shedProofs.isEmpty() -> R.string.weighing_blocked_need_video
+        shedProofs.any { it.status == ProofUploadStatus.SYNCED } && captureSop.penCapturesMissing.isNotEmpty() ->
+            R.string.weighing_blocked_need_captures
         shedProofs.any { it.status == ProofUploadStatus.SYNCED } -> null
         shedProofs.any { it.status == ProofUploadStatus.UPLOADING } -> R.string.weighing_blocked_video_uploading
         shedProofs.all { it.status == ProofUploadStatus.FAILED } -> R.string.weighing_blocked_video_failed
@@ -250,6 +256,8 @@ data class WeighingUiState(
             R.string.weighing_blocked_video_uploading
         visibleRows.any { it.proofUploadStatus == ProofUploadStatus.FAILED } ->
             R.string.weighing_blocked_video_failed
+        visibleRows.all { it.proofUploadStatus == ProofUploadStatus.SYNCED } &&
+            visibleRows.any { it.capturesMissing.isNotEmpty() } -> R.string.weighing_blocked_need_captures
         visibleRows.all { it.proofUploadStatus == ProofUploadStatus.SYNCED } -> null
         else -> R.string.weighing_blocked_need_video
     }
@@ -294,6 +302,12 @@ data class WeighingRosterUiRow(
      * silently discarded and the operator must re-capture this animal to retry.
      */
     val weightSyncConflict: Boolean = false,
+    /** Per-animal authored slots beyond the primary video: {slot key: upload status}. */
+    val extraSlotStatuses: Map<String, ProofUploadStatus> = emptyMap(),
+    /** This animal's answers to the per-animal questions. */
+    val answers: Map<String, WeighingCaptureAnswerUi> = emptyMap(),
+    /** Farm-worded titles of what this animal still owes (slots, required questions). */
+    val capturesMissing: List<String> = emptyList(),
 ) {
     val isResolved: Boolean
         get() = status.equals("weighed", ignoreCase = true) ||
@@ -445,6 +459,7 @@ fun WeighingScreen(
     onDismissSubmitConfirmation: () -> Unit = {},
     onRecordShedPartition: () -> Unit = {},
     onCaptureShedVideo: () -> Unit = {},
+    onCaptureSopEvent: (WeighingCaptureSopEvent) -> Unit = {},
     onRetryShedVideo: (String) -> Unit = {},
     onReplaceShedVideo: (String) -> Unit = {},
     onRemoveShedVideo: (String) -> Unit = {},
@@ -512,6 +527,7 @@ fun WeighingScreen(
             onDismissSubmitConfirmation = onDismissSubmitConfirmation,
             onRecordShedPartition = onRecordShedPartition,
             onCaptureShedVideo = onCaptureShedVideo,
+            onCaptureSopEvent = onCaptureSopEvent,
             onRetryShedVideo = onRetryShedVideo,
             onReplaceShedVideo = onReplaceShedVideo,
             onRemoveShedVideo = onRemoveShedVideo,
@@ -573,6 +589,7 @@ fun WeighingScreen(
                             onRecordIndividual = onRecordIndividual,
                             onRecordShedPartition = onRecordShedPartition,
                             onCaptureShedVideo = onCaptureShedVideo,
+                            onCaptureSopEvent = onCaptureSopEvent,
                             onShedVideoPreviewAction = onShedVideoPreviewAction,
                             onOpenRoster = { rosterSheetOpen = true },
                         )
@@ -1107,6 +1124,7 @@ private fun WeighingCapturePanel(
     onRecordIndividual: () -> Unit,
     onRecordShedPartition: () -> Unit,
     onCaptureShedVideo: () -> Unit,
+    onCaptureSopEvent: (WeighingCaptureSopEvent) -> Unit,
     onShedVideoPreviewAction: (String, String) -> Unit,
     onOpenRoster: () -> Unit,
 ) {
@@ -1352,6 +1370,7 @@ private fun WeighingExecutionScanScreen(
     onDismissSubmitConfirmation: () -> Unit,
     onRecordShedPartition: () -> Unit,
     onCaptureShedVideo: () -> Unit,
+    onCaptureSopEvent: (WeighingCaptureSopEvent) -> Unit,
     onRetryShedVideo: (String) -> Unit,
     onReplaceShedVideo: (String) -> Unit,
     onRemoveShedVideo: (String) -> Unit,
@@ -1526,6 +1545,9 @@ private fun WeighingExecutionScanScreen(
                             },
                             onRetryVideo = { onRetryVideo(row.animalId) },
                             onReuploadVideo = { onReuploadVideo(row.animalId) },
+                            captureSop = state.captureSop,
+                            locked = state.isReadOnly,
+                            onCaptureSopEvent = onCaptureSopEvent,
                         )
                     }
                 }
@@ -1536,6 +1558,7 @@ private fun WeighingExecutionScanScreen(
                         onWeightChange = onWeightChange,
                         onWeightEntryActive = onWeightEntryActive,
                         onCaptureShedVideo = onCaptureShedVideo,
+                        onCaptureSopEvent = onCaptureSopEvent,
                         onRetryShedVideo = onRetryShedVideo,
                         onReplaceShedVideo = onReplaceShedVideo,
                         onRemoveShedVideo = onRemoveShedVideo,
@@ -1634,6 +1657,9 @@ private fun WeighingFreeFlowFeedRow(
     onSaveWeight: (String) -> Unit,
     onRetryVideo: () -> Unit,
     onReuploadVideo: () -> Unit,
+    captureSop: WeighingCaptureSopUi = WeighingCaptureSopUi(),
+    locked: Boolean = false,
+    onCaptureSopEvent: (WeighingCaptureSopEvent) -> Unit = {},
 ) {
     val focusManager = LocalFocusManager.current
     val weightKeyboard = LocalSoftwareKeyboardController.current
@@ -1906,6 +1932,16 @@ private fun WeighingFreeFlowFeedRow(
             )
             else -> Unit
         }
+        // PER-ANIMAL section of the pinned weighing SOP (2026-09-16): extra captures + questions.
+        WeighingAnimalCaptureExtras(
+            row = row,
+            sop = captureSop,
+            locked = locked,
+            onCaptureSlot = { slot, photo -> onCaptureSopEvent(WeighingCaptureSopEvent.CaptureAnimalSlot(row.animalId, slot, photo)) },
+            onAnswer = { q, v -> onCaptureSopEvent(WeighingCaptureSopEvent.AnimalAnswer(row.animalId, q, v)) },
+            onToggleAnswer = { q, v -> onCaptureSopEvent(WeighingCaptureSopEvent.ToggleAnimalAnswer(row.animalId, q, v)) },
+            onOtherText = { q, t -> onCaptureSopEvent(WeighingCaptureSopEvent.AnimalOtherText(row.animalId, q, t)) },
+        )
     }
 }
 
@@ -1915,6 +1951,7 @@ private fun WeighingLumpSumCapture(
     onWeightChange: (String) -> Unit,
     onWeightEntryActive: (Boolean) -> Unit,
     onCaptureShedVideo: () -> Unit,
+    onCaptureSopEvent: (WeighingCaptureSopEvent) -> Unit,
     onRetryShedVideo: (String) -> Unit,
     onReplaceShedVideo: (String) -> Unit,
     onRemoveShedVideo: (String) -> Unit,
@@ -1954,11 +1991,11 @@ private fun WeighingLumpSumCapture(
         // it counted a video that had merely been ADDED as "uploaded" while it was still in flight.
         Text(
             text = shedVideoSummary(state.shedProofs),
-            color = if (state.shedProofs.size >= SHED_PROOF_VIDEO_LIMIT) MeshaColors.Warn else MeshaColors.Muted,
+            color = if (state.shedProofs.size >= state.captureSop.primaryPenSlotMax) MeshaColors.Warn else MeshaColors.Muted,
             style = MeshaType.bodyStrong,
             modifier = Modifier.fillMaxWidth(),
         )
-        if (state.shedProofs.size >= SHED_PROOF_VIDEO_LIMIT) {
+        if (state.shedProofs.size >= state.captureSop.primaryPenSlotMax) {
             Text(
                 text = stringResource(R.string.weighing_videos_limit_reached),
                 color = MeshaColors.Warn,
@@ -2059,13 +2096,22 @@ private fun WeighingLumpSumCapture(
             } else {
                 stringResource(R.string.weighing_add_another_video)
             },
-            enabled = !state.actionInFlight && state.shedProofs.size < SHED_PROOF_VIDEO_LIMIT,
+            enabled = !state.actionInFlight && state.shedProofs.size < state.captureSop.primaryPenSlotMax,
             onClick = {
                 dismissKeyboard()
                 onCaptureShedVideo()
             },
             modifier = Modifier.fillMaxWidth(),
             primary = false,
+        )
+        // WHOLE-PEN section of the pinned weighing SOP (2026-09-16): extra slots + questions.
+        WeighingPenCaptureExtras(
+            sop = state.captureSop,
+            locked = state.isReadOnly || state.actionInFlight,
+            onCaptureSlot = { slot, photo -> onCaptureSopEvent(WeighingCaptureSopEvent.CapturePenSlot(slot, photo)) },
+            onAnswer = { q, v -> onCaptureSopEvent(WeighingCaptureSopEvent.PenAnswer(q, v)) },
+            onToggleAnswer = { q, v -> onCaptureSopEvent(WeighingCaptureSopEvent.TogglePenAnswer(q, v)) },
+            onOtherText = { q, t -> onCaptureSopEvent(WeighingCaptureSopEvent.PenOtherText(q, t)) },
         )
     }
 }

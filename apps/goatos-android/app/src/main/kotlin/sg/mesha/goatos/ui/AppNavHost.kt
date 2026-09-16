@@ -2286,6 +2286,8 @@ fun AppNavHost(
             }
             CaptureAccessGate {
                 BindVideoCaptureSource(rememberDelegatingProofCaptureSource())
+                // An authored weighing capture slot may be a PHOTO (2026-09-16).
+                BindPhotoCaptureSource(rememberDelegatingPhotoCaptureSource())
                 WeighingScreen(
                     state = state,
                     onScanInputChange = vm::onScanInputChange,
@@ -2311,6 +2313,7 @@ fun AppNavHost(
                         vm.recordShedPartition { navController.popBackStack() }
                     },
                     onCaptureShedVideo = vm::captureShedVideo,
+                    onCaptureSopEvent = vm::onCaptureSopEvent,
                     onRetryShedVideo = vm::retryShedVideo,
                     onReplaceShedVideo = vm::replaceShedVideo,
                     onRemoveShedVideo = vm::removeShedVideo,
