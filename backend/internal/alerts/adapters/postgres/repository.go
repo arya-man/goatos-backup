@@ -122,10 +122,11 @@ DO UPDATE SET enabled = EXCLUDED.enabled, threshold = EXCLUDED.threshold, update
 // feed_day) per workflow, and every feed_direction_issue_rows cell under it (the whole
 // generated scope, never a page); group_key=(shed_id, partition_key) -- the pen -- with
 // head count taken as the MAX over sessions of the SUM over the pen's ration grains
-// (grains partition a pen's animals; sessions feed the same animals), so neither a
-// two-grain pen nor a two-session day doubles the count; join_cardinality=issue -> rows is
+// (grains partition a pen's animals, sessions feed the same animals), so neither a
+// two-grain pen nor a two-session day doubles the count, and the whole park-day is one row per pen; join_cardinality=issue -> rows is
 // 1:N by design and is fully aggregated before the pen row is emitted, nothing else is
-// joined; pagination=none, one park-day is the scope.
+// joined; pagination=none, the whole park-day is read; scope=tenant plus the caller's park id
+// and feed day, both bound.
 func (r *Repository) PenFeedDay(ctx context.Context, tenantID, parkID, feedDay string) ([]domain.PenFeedDay, string, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
@@ -195,7 +196,8 @@ ORDER BY min(shed_label), partition_key`, tenantID, parkID, feedDay)
 // park is the given park, not rejected/canceled, with any lifecycle stamp inside the window;
 // group_key=shifting_event_id; join_cardinality=shifting_event_impacts is 1:N per event and
 // is SUMMED in a pre-aggregated subquery before the join, so an event with two impact grains
-// is one row with one head count; pagination=none, bounded by the park and a one-day window.
+// is one row with one head count; pagination=none, the whole window is read; scope=tenant plus
+// the park (as source or destination) and the two sheets' issue instants.
 func (r *Repository) PenMovements(ctx context.Context, tenantID, parkID, fromInstant, toInstant string) ([]domain.PenMovement, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
