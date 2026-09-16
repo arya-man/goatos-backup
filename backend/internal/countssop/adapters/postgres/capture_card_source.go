@@ -16,6 +16,7 @@ import (
 
 	countsapp "github.com/vgoats/goatos/backend/internal/counts/app"
 	countsdomain "github.com/vgoats/goatos/backend/internal/counts/domain"
+	uuidutil "github.com/vgoats/goatos/backend/internal/platform/uuidutil"
 )
 
 // CaptureCardSource is the Postgres counts/app.CaptureCardSource. One indexed lookup per call
@@ -63,6 +64,10 @@ func (s *CaptureCardSource) PublishedCaptureCard(ctx context.Context, tenantID, 
 
 // CaptureCardVersion is the exact card a NEW app echoed as its pin: published or retired.
 func (s *CaptureCardSource) CaptureCardVersion(ctx context.Context, tenantID, sopCode, versionID string) (countsapp.CaptureCardVersion, error) {
+	if !uuidutil.IsUUIDString(versionID) {
+		// Names no version: refresh the card (409), never a 500 from the uuid cast.
+		return countsapp.CaptureCardVersion{}, countsapp.ErrCaptureSOPVersionUnknown
+	}
 	out, found, err := s.read(ctx, sqlCaptureCardVersion, tenantID, sopCode, versionID)
 	if err != nil {
 		return countsapp.CaptureCardVersion{}, err

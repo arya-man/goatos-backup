@@ -158,3 +158,40 @@ func TestMilkProofStepFromCanonicalFieldKey(t *testing.T) {
 		t.Fatalf("prep-flow field_key must not satisfy a feeding step")
 	}
 }
+
+// uuidStrictRepoStub fails a non-UUID id exactly as the Postgres proof repository does
+// ("proof ids: cannot parse UUID").
+type uuidStrictRepoStub struct {
+	proofports.Repository
+	artifacts map[string]proofdomain.Artifact
+}
+
+func (r *uuidStrictRepoStub) GetProofsByIDs(_ context.Context, _ string, ids []string) (map[string]proofdomain.Artifact, error) {
+	out := map[string]proofdomain.Artifact{}
+	for _, id := range ids {
+		if len(id) != 36 {
+			return nil, errors.New("proof: proof ids: cannot parse UUID " + id)
+		}
+		if a, ok := r.artifacts[id]; ok {
+			out[id] = a
+		}
+	}
+	return out, nil
+}
+
+// TestProofKindsTreatsAMalformedRefAsAbsent: a capture ref that is not a proof id at all (a
+// corrupted outbox row, a hand-built request) is a capture the register does not hold -- refused
+// by slot (422), never a 500 from the register's UUID parse. Found live by the herd-ops E2E.
+func TestProofKindsTreatsAMalformedRefAsAbsent(t *testing.T) {
+	good := "11111111-1111-4111-8111-111111111111"
+	validator := NewValidator(&uuidStrictRepoStub{artifacts: map[string]proofdomain.Artifact{
+		good: {ProofID: good, TenantID: "tenant-1", UploadState: "completed", ProofType: "video"},
+	}})
+	kinds, err := validator.ProofKinds(context.Background(), "tenant-1", []string{"not-a-uuid", good})
+	if err != nil {
+		t.Fatalf("a malformed ref must read as absent, not fail the read: %v", err)
+	}
+	if kinds[good] != "video" || len(kinds) != 1 {
+		t.Fatalf("kinds = %v", kinds)
+	}
+}
