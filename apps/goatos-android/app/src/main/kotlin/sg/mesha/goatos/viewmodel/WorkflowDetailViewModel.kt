@@ -48,6 +48,7 @@ import sg.mesha.goatos.feature.counts.WorkflowActionSection
 import sg.mesha.goatos.feature.counts.WorkflowActionUi
 import sg.mesha.goatos.feature.counts.WorkflowAnswerOptionUi
 import sg.mesha.goatos.feature.counts.WorkflowDetailEvent
+import sg.mesha.goatos.feature.counts.WorkflowProofSavedKind
 import sg.mesha.goatos.feature.counts.WorkflowDetailUiState
 import sg.mesha.goatos.feature.counts.WorkflowProofUi
 import sg.mesha.goatos.feature.counts.WorkflowStatusTone
@@ -499,7 +500,7 @@ class WorkflowDetailViewModel @Inject constructor(
             return
         }
         val goatId = current.subjectGoatId
-        _state.update { it.copy(isCapturingVideo = true, message = null) }
+        _state.update { it.copy(isCapturingVideo = true, message = null, proofSaved = null) }
         viewModelScope.launch {
             val captured: Pair<String, Triple<String, Long, Long>>? = try {
                 if (kind == PROOF_KIND_PHOTO) {
@@ -612,7 +613,8 @@ class WorkflowDetailViewModel @Inject constructor(
                         analytics.track(AnalyticsEvents.WORKFLOW_ACTION_COMPLETED)
                     }
                     clearPendingAction(actionId)
-                    _state.update { it.copy(isCapturingVideo = false, message = VIDEO_QUEUED_MESSAGE, isErrorMessage = false) }
+                    val savedKind = workflowProofSavedKind(proofs.map { it.kind })
+                    _state.update { it.copy(isCapturingVideo = false, message = null, proofSaved = savedKind, isErrorMessage = false) }
                 }
                 is AppResult.Err -> {
                     submittedMultiProofKeys.remove(submittedKey)
@@ -635,7 +637,7 @@ class WorkflowDetailViewModel @Inject constructor(
         val action = current.actions.firstOrNull { it.actionId == actionId }
         val goatId = current.subjectGoatId
         val prompt = workflowCapturePrompt(current.isDeath, action)
-        _state.update { it.copy(isCapturingVideo = true, message = null) }
+        _state.update { it.copy(isCapturingVideo = true, message = null, proofSaved = null) }
         viewModelScope.launch {
             val captured = try {
                 proofCaptureSource.captureVideo(
@@ -753,7 +755,7 @@ class WorkflowDetailViewModel @Inject constructor(
                         analytics.track(AnalyticsEvents.WORKFLOW_ACTION_COMPLETED)
                     }
                     _state.update {
-                        it.copy(isCapturingVideo = false, message = VIDEO_QUEUED_MESSAGE, isErrorMessage = false)
+                        it.copy(isCapturingVideo = false, message = null, proofSaved = WorkflowProofSavedKind.VIDEO, isErrorMessage = false)
                     }
                 }
                 is AppResult.Err -> {
@@ -772,7 +774,7 @@ class WorkflowDetailViewModel @Inject constructor(
     private fun captureDeathDraft(action: WorkflowActionUi, kind: String) {
         val current = _state.value
         val goatId = current.subjectGoatId
-        _state.update { it.copy(isCapturingVideo = true, message = null) }
+        _state.update { it.copy(isCapturingVideo = true, message = null, proofSaved = null) }
         viewModelScope.launch {
             val captured: WorkflowVideoDraft? = try {
                 if (kind == PROOF_KIND_PHOTO) {
@@ -834,7 +836,7 @@ class WorkflowDetailViewModel @Inject constructor(
     private fun submitDeath() {
         val current = _state.value
         if (!current.deathSubmissionEnabled) return
-        _state.update { it.copy(isSubmittingDeath = true, message = null) }
+        _state.update { it.copy(isSubmittingDeath = true, message = null, proofSaved = null) }
         viewModelScope.launch {
             val drafts = repo.listVideoDrafts(workflowId)
             val answers = repo.observeStepDraftAnswers(workflowId).first()
@@ -1270,9 +1272,14 @@ class WorkflowDetailViewModel @Inject constructor(
         private const val SUBMITTED_MESSAGE = "Submitted. The recorded proofs are saved."
         private const val QUEUED_MESSAGE = "Saved on this phone. It will sync automatically."
         private const val ACTION_FAILED_MESSAGE = "This action did not go through. Review it and try again."
-        private const val VIDEO_QUEUED_MESSAGE =
-            "Video saved on this phone. It will upload and submit automatically."
     }
+}
+
+/** Names what a queued step carried: all photos, all videos, or a mix of both. */
+internal fun workflowProofSavedKind(kinds: Collection<String>): WorkflowProofSavedKind = when {
+    kinds.isNotEmpty() && kinds.all { it == "photo" } -> WorkflowProofSavedKind.PHOTO
+    kinds.any { it == "photo" } -> WorkflowProofSavedKind.PHOTOS_AND_VIDEOS
+    else -> WorkflowProofSavedKind.VIDEO
 }
 
 /** The videos a step asks for: a `requires_video` step with no authored count asks for one. */

@@ -272,6 +272,9 @@
     <string name="counts_workflow_rerecord_video">Re-record video</string>
     <string name="counts_workflow_weight_kg">Weight (kg)</string>
     <string name="counts_workflow_weight_continue">Continue to record video</string>
+    <string name="counts_workflow_video_saved">Video saved on this phone. It will upload and submit automatically.</string>
+    <string name="counts_workflow_photo_saved">Photo saved on this phone. It will upload and submit automatically.</string>
+    <string name="counts_workflow_proofs_saved">Photos and videos saved on this phone. They will upload and submit automatically.</string>
     <string name="counts_shifting_videos_label">Videos recorded</string>
     <string name="counts_group_cause_of_death">Cause of death</string>
     <string name="counts_death_cause_normal">Normal</string>

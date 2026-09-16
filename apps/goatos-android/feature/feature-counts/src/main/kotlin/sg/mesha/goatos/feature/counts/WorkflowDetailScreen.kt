@@ -164,6 +164,11 @@ data class WorkflowDetailUiState(
     val deathUploadFailed: Boolean = false,
     /** Transient action-write feedback (queued offline / failure), rendered verbatim. */
     val message: String? = null,
+    /**
+     * What the operator just saved for upload, when that is the latest feedback: the banner names
+     * a photo as a photo and a video as a video. Shown only while [message] is empty.
+     */
+    val proofSaved: WorkflowProofSavedKind? = null,
     val isErrorMessage: Boolean = false,
     /** The subject goat id, threaded to the promote route by `tag_the_kid`. */
     val subjectGoatId: String = "",
@@ -191,6 +196,9 @@ data class WorkflowDetailUiState(
         get() = deathSubmissionLabel == WorkflowDeathSubmissionLabel.SUBMIT &&
             deathStepsReady && !isCapturingVideo && !isSubmittingDeath
 }
+
+/** The proofs a just-queued step carried, for the saved-on-this-phone banner. */
+enum class WorkflowProofSavedKind { VIDEO, PHOTO, PHOTOS_AND_VIDEOS }
 
 sealed interface WorkflowDetailEvent {
     data object Back : WorkflowDetailEvent
@@ -248,13 +256,19 @@ fun WorkflowDetailScreen(
             )
             return@Column
         }
+        val bannerMessage = state.message ?: when (state.proofSaved) {
+            WorkflowProofSavedKind.VIDEO -> stringResource(R.string.counts_workflow_video_saved)
+            WorkflowProofSavedKind.PHOTO -> stringResource(R.string.counts_workflow_photo_saved)
+            WorkflowProofSavedKind.PHOTOS_AND_VIDEOS -> stringResource(R.string.counts_workflow_proofs_saved)
+            null -> null
+        }
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             item(key = "context") { WorkflowContextCard(state) }
-            state.message?.let { message ->
+            bannerMessage?.let { message ->
                 item(key = "message") {
                     Text(
                         text = message,

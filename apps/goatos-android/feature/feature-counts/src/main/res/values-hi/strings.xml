@@ -248,6 +248,9 @@
     <string name="counts_workflow_rerecord_video">वीडियो फिर रिकॉर्ड करें</string>
     <string name="counts_workflow_weight_kg">वजन (किग्रा)</string>
     <string name="counts_workflow_weight_continue">वीडियो रिकॉर्ड करने के लिए आगे बढ़ें</string>
+    <string name="counts_workflow_video_saved">वीडियो इस फ़ोन में सेव हो गया। यह अपने आप अपलोड और जमा हो जाएगा।</string>
+    <string name="counts_workflow_photo_saved">फ़ोटो इस फ़ोन में सेव हो गई। यह अपने आप अपलोड और जमा हो जाएगी।</string>
+    <string name="counts_workflow_proofs_saved">फ़ोटो और वीडियो इस फ़ोन में सेव हो गए। ये अपने आप अपलोड और जमा हो जाएंगे।</string>
     <string name="counts_shifting_videos_label">रिकॉर्ड किए गए वीडियो</string>
     <string name="counts_group_cause_of_death">मौत का कारण</string>
     <string name="counts_death_cause_normal">सामान्य</string>
