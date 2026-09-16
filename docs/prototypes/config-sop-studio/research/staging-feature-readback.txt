@@ -1,9 +1,9 @@
- current_database | current_setting |              now              
+ current_database | current_setting |              now
 ------------------+-----------------+-------------------------------
  goatos           | on              | 2026-09-16 14:25:38.322909+00
 (1 row)
 
-               feature               | count 
+               feature               | count
 -------------------------------------+-------
  animal_purchase_candidates          |    62
  animal_purchase_loads               |     2
@@ -18,23 +18,23 @@
  health_protocol_steps               |  1012
 (11 rows)
 
- decision | count 
+ decision | count
 ----------+-------
  pending  |     2
  accepted |    60
 (2 rows)
 
-   selection_state    |    current_state     | count 
+   selection_state    |    current_state     | count
 ----------------------+----------------------+-------
  accepted_herd_intake | accepted_herd_intake |   348
 (1 row)
 
-  status   | versions | diseases 
+  status   | versions | diseases
 -----------+----------+----------
  published |       54 |       27
 (1 row)
 
-        code        | version |  status   
+        code        | version |  status
 --------------------+---------+-----------
  vaccination.matrix |       1 | retired
  vaccination.matrix |       2 | retired
@@ -48,7 +48,7 @@
  vaccination.matrix |      10 | draft
 (10 rows)
 
-            code             |            name            | version |  status   
+            code             |            name            | version |  status
 -----------------------------+----------------------------+---------+-----------
  counts.birth                | Birth Recording            |       1 | published
  counts.death                | Death Recording            |       1 | published
@@ -63,5 +63,3 @@
  vaccination.drive           | Vaccination Session        |       1 | published
  weighing.session            | Weighing Session           |       1 | published
 (12 rows)
-
-

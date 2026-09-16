@@ -1,9 +1,9 @@
- current_database | current_setting |              now              
+ current_database | current_setting |              now
 ------------------+-----------------+-------------------------------
  goatos           | on              | 2026-09-16 14:24:43.891824+00
 (1 row)
 
-                        table_name                        | estimated_rows 
+                        table_name                        | estimated_rows
 ----------------------------------------------------------+----------------
  admin_ui_config_entries                                  |             -1
  admin_ui_config_family_change_queue                      |              0
@@ -304,7 +304,7 @@
  workforce_roster_assignments                             |             -1
 (297 rows)
 
-                        table_name                        |                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             columns                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              
+                        table_name                        |                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             columns
 ----------------------------------------------------------+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  admin_ui_config_entries                                  | tenant_id:uuid, locale:text, route_id:text, config_key:text, config_value:text, value_kind:text, status:text, metadata:jsonb, row_version:integer, created_at:timestamp with time zone, updated_at:timestamp with time zone
  admin_ui_config_family_change_queue                      | transaction_id:bigint, tenant_id:uuid, family_key:text, changed_by:uuid, source:text, metadata:jsonb, change_count:integer, queued_at:timestamp with time zone, updated_at:timestamp with time zone
@@ -609,7 +609,7 @@
  workforce_roster_assignments                             | roster_assignment_id:uuid, tenant_id:uuid, workforce_member_id:uuid, team_id:uuid, scope_type:text, scope_id:uuid, shift_date:date, shift_start_at:timestamp with time zone, shift_end_at:timestamp with time zone, task_type:text, status:text, escalation_owner_user_id:uuid, created_by:uuid, created_at:timestamp with time zone, updated_at:timestamp with time zone, row_version:integer
 (301 rows)
 
-                       version                       |          applied_at           
+                       version                       |          applied_at
 -----------------------------------------------------+-------------------------------
  000317_verification_items_media_meta                | 2026-09-16 01:50:09.48376+00
  000316_weighing_removal_proof_slots                 | 2026-09-16 01:50:09.27033+00
@@ -620,5 +620,3 @@
  000311_pen_reconciliation_sop_workflow              | 2026-09-14 19:26:58.25392+00
  000310_obligation_instances_due_target_protocol_idx | 2026-09-14 19:26:58.249845+00
 (8 rows)
-
-

@@ -1,9 +1,9 @@
- current_database | current_setting |              now              
+ current_database | current_setting |              now
 ------------------+-----------------+-------------------------------
  goatos           | on              | 2026-09-16 14:44:51.600104+00
 (1 row)
 
-               table_name                |                      constraint_name                      |                                                                                                                                                  definition                                                                                                                                                  
+               table_name                |                      constraint_name                      |                                                                                                                                                  definition
 -----------------------------------------+-----------------------------------------------------------+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  admin_ui_config_entries                 | admin_ui_config_entries_key_check                         | CHECK ((btrim(config_key) <> ''::text))
  admin_ui_config_entries                 | admin_ui_config_entries_kind_check                        | CHECK ((value_kind = ANY (ARRAY['text'::text, 'label'::text, 'title'::text, 'copy'::text, 'tone'::text, 'disabled_reason'::text])))
@@ -388,7 +388,7 @@
  workforce_roster_assignments            | workforce_roster_assignments_status_check                 | CHECK ((status = ANY (ARRAY['scheduled'::text, 'active'::text, 'completed'::text, 'missed'::text, 'canceled'::text])))
 (381 rows)
 
-                  table_name                  |           column_name            |           column_default           
+                  table_name                  |           column_name            |           column_default
 ----------------------------------------------+----------------------------------+------------------------------------
  admin_ui_config_entries                      | locale                           | 'default'::text
  admin_ui_config_entries                      | value_kind                       | 'text'::text
@@ -672,5 +672,3 @@
  workforce_positions                          | valid_from                       | now()
  workforce_roster_assignments                 | status                           | 'scheduled'::text
 (281 rows)
-
-
