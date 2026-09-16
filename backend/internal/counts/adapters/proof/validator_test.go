@@ -7,6 +7,7 @@ import (
 
 	countsdomain "github.com/vgoats/goatos/backend/internal/counts/domain"
 	countsports "github.com/vgoats/goatos/backend/internal/counts/ports"
+	"github.com/vgoats/goatos/backend/internal/platform/uuidutil"
 	proofdomain "github.com/vgoats/goatos/backend/internal/proof/domain"
 	proofports "github.com/vgoats/goatos/backend/internal/proof/ports"
 )
@@ -159,24 +160,22 @@ func TestMilkProofStepFromCanonicalFieldKey(t *testing.T) {
 	}
 }
 
-// uuidStrictRepoStub fails a non-UUID id exactly as the Postgres proof repository does
-// ("proof ids: cannot parse UUID").
-type uuidStrictRepoStub struct {
+// strictIDRepoStub mirrors the Postgres register: GetProofsByIDs casts every id to uuid and FAILS
+// the whole read on one that is not (pgconv.UUIDs -> "cannot parse UUID").
+type strictIDRepoStub struct {
 	proofports.Repository
 	artifacts map[string]proofdomain.Artifact
+	asked     []string
 }
 
-func (r *uuidStrictRepoStub) GetProofsByIDs(_ context.Context, _ string, ids []string) (map[string]proofdomain.Artifact, error) {
-	out := map[string]proofdomain.Artifact{}
+func (r *strictIDRepoStub) GetProofsByIDs(_ context.Context, _ string, ids []string) (map[string]proofdomain.Artifact, error) {
+	r.asked = append(r.asked, ids...)
 	for _, id := range ids {
-		if len(id) != 36 {
+		if !uuidutil.IsUUIDString(id) {
 			return nil, errors.New("proof: proof ids: cannot parse UUID " + id)
 		}
-		if a, ok := r.artifacts[id]; ok {
-			out[id] = a
-		}
 	}
-	return out, nil
+	return r.artifacts, nil
 }
 
 // TestProofKindsTreatsAMalformedRefAsAbsent: a capture ref that is not a proof id at all (a
@@ -184,14 +183,49 @@ func (r *uuidStrictRepoStub) GetProofsByIDs(_ context.Context, _ string, ids []s
 // by slot (422), never a 500 from the register's UUID parse. Found live by the herd-ops E2E.
 func TestProofKindsTreatsAMalformedRefAsAbsent(t *testing.T) {
 	good := "11111111-1111-4111-8111-111111111111"
-	validator := NewValidator(&uuidStrictRepoStub{artifacts: map[string]proofdomain.Artifact{
+	repo := &strictIDRepoStub{artifacts: map[string]proofdomain.Artifact{
 		good: {ProofID: good, TenantID: "tenant-1", UploadState: "completed", ProofType: "video"},
-	}})
+	}}
+	validator := NewValidator(repo)
 	kinds, err := validator.ProofKinds(context.Background(), "tenant-1", []string{"not-a-uuid", good})
 	if err != nil {
 		t.Fatalf("a malformed ref must read as absent, not fail the read: %v", err)
 	}
 	if kinds[good] != "video" || len(kinds) != 1 {
 		t.Fatalf("kinds = %v", kinds)
+	}
+	for _, id := range repo.asked {
+		if !uuidutil.IsUUIDString(id) {
+			t.Fatalf("the register was asked for %q", id)
+		}
+	}
+}
+
+// E2E 2026-09-17: an older phone's completion carrying a proof_ref that is not a register id
+// ("not-a-uuid") answered 500 internal_error, because the one batched register read failed on the
+// uuid cast. A ref the register cannot hold is simply not a capture of the slot: the judge refuses
+// it BY SLOT (422), and the kind lookup reports it absent.
+func TestShiftingProofMediaRefusesANonRegisterRefBySlotNotAsAServerError(t *testing.T) {
+	good := "11111111-1111-4111-8111-111111111111"
+	repo := &strictIDRepoStub{artifacts: map[string]proofdomain.Artifact{good: {
+		ProofID: good, TenantID: "tenant-1", UploadState: "completed", ProofType: "video", MimeType: "video/mp4",
+	}}}
+	v := NewValidator(repo)
+	onAbsent := errors.New("slot shifting_shifting_video refused")
+	err := v.ValidateShiftingProofMedia(context.Background(), "tenant-1", []countsports.ExpectedShiftingProofMedia{
+		{ProofID: good, Kind: "video"},
+		{ProofID: "not-a-uuid", Kind: "video", OnAbsent: onAbsent},
+	})
+	if !errors.Is(err, onAbsent) {
+		t.Fatalf("err = %v, want the slot's own refusal", err)
+	}
+	kinds, err := v.DescribeShiftingProofMedia(context.Background(), "tenant-1", []string{good, "not-a-uuid"})
+	if err != nil || kinds[good] != "video" || len(kinds) != 1 {
+		t.Fatalf("describe = %v, %v", kinds, err)
+	}
+	for _, id := range repo.asked {
+		if !uuidutil.IsUUIDString(id) {
+			t.Fatalf("the register was asked for %q", id)
+		}
 	}
 }

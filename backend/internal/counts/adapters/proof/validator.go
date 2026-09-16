@@ -8,7 +8,7 @@ import (
 	countsapp "github.com/vgoats/goatos/backend/internal/counts/app"
 	countsdomain "github.com/vgoats/goatos/backend/internal/counts/domain"
 	countsports "github.com/vgoats/goatos/backend/internal/counts/ports"
-	uuidutil "github.com/vgoats/goatos/backend/internal/platform/uuidutil"
+	"github.com/vgoats/goatos/backend/internal/platform/uuidutil"
 	proofports "github.com/vgoats/goatos/backend/internal/proof/ports"
 )
 
@@ -140,7 +140,7 @@ func (v *Validator) ValidateShiftingProofMedia(ctx context.Context, tenantID str
 	for _, exp := range expected {
 		ids = append(ids, exp.ProofID)
 	}
-	found, err := v.repo.GetProofsByIDs(ctx, tenantID, ids)
+	found, err := v.repo.GetProofsByIDs(ctx, tenantID, registerIDs(ids))
 	if err != nil {
 		return err
 	}
@@ -165,7 +165,7 @@ func (v *Validator) DescribeShiftingProofMedia(ctx context.Context, tenantID str
 	if len(proofIDs) == 0 {
 		return out, nil
 	}
-	found, err := v.repo.GetProofsByIDs(ctx, tenantID, proofIDs)
+	found, err := v.repo.GetProofsByIDs(ctx, tenantID, registerIDs(proofIDs))
 	if err != nil {
 		return nil, err
 	}
@@ -176,6 +176,19 @@ func (v *Validator) DescribeShiftingProofMedia(ctx context.Context, tenantID str
 		}
 	}
 	return out, nil
+}
+
+// registerIDs keeps only the refs the register could hold. A client ref that is not a uuid is not
+// a capture at all; asking the register for it failed the whole batched read (a 500 instead of the
+// slot's own 422), so it is dropped here and reads as absent.
+func registerIDs(refs []string) []string {
+	out := make([]string, 0, len(refs))
+	for _, ref := range refs {
+		if uuidutil.IsUUIDString(strings.TrimSpace(ref)) {
+			out = append(out, strings.TrimSpace(ref))
+		}
+	}
+	return out
 }
 
 // shiftingKindMatches: the declared proof_type and the stored mime prefix must BOTH agree with the
