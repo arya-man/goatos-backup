@@ -24,6 +24,41 @@ type fakeService struct {
 	stored []domain.StoredRuleConfig
 	lastIn domain.SetRuleConfig
 	rows   map[string][]domain.Alert
+	events []domain.EventRule
+}
+
+func (f *fakeService) EventRules(_ context.Context, _ string) ([]domain.EventRule, error) {
+	return append([]domain.EventRule{}, f.events...), nil
+}
+
+func (f *fakeService) SetEventRule(_ context.Context, in domain.SetEventRule) (domain.EventRule, error) {
+	if err := in.Validate(); err != nil {
+		return domain.EventRule{}, err
+	}
+	info, _ := domain.EventKindByKey(in.Kind)
+	rule := domain.EventRule{ID: in.ID, Label: in.Label, Kind: in.Kind, KindLabel: info.Label, Severity: in.Severity, Enabled: in.Enabled}
+	if rule.ID == "" {
+		rule.ID = "00000000-0000-4000-8000-0000000000e1"
+		f.events = append(f.events, rule)
+		return rule, nil
+	}
+	for i := range f.events {
+		if f.events[i].ID == rule.ID {
+			f.events[i] = rule
+			return rule, nil
+		}
+	}
+	return domain.EventRule{}, domain.ErrEventRuleNotFound
+}
+
+func (f *fakeService) DeleteEventRule(_ context.Context, _ string, ruleID string) error {
+	for i := range f.events {
+		if f.events[i].ID == ruleID {
+			f.events = append(f.events[:i], f.events[i+1:]...)
+			return nil
+		}
+	}
+	return domain.ErrEventRuleNotFound
 }
 
 func (f *fakeService) List(_ context.Context, _ string, parkID, businessDate string) (app.Page, error) {
@@ -136,5 +171,40 @@ func TestSetConfigRefusesBlankIdempotencyOutOfRangeAndUnknownRule(t *testing.T) 
 	rules := out["rules"].([]any)
 	if rec.Code != http.StatusOK || len(rules) != len(domain.Rules()) {
 		t.Fatalf("config lists exactly the catalog, got %d %v", rec.Code, out)
+	}
+}
+
+func TestEventRulesAreComposedFromTheCatalogAndRefuseTheUnknown(t *testing.T) {
+	svc := &fakeService{}
+	h := NewHandler(svc, nil)
+	idem := map[string]string{"Idempotency-Key": "ev1"}
+	rec, out := do(t, h, http.MethodPost, "/alerts/config/events", `{"label":"Kid born","kind":"birth_recorded","severity":"warning","enabled":true}`, ceo(), idem)
+	if rec.Code != http.StatusCreated || out["kind_label"] != "Birth recorded" || out["id"] == "" {
+		t.Fatalf("composing a birth alert from the catalog must create it, got %d %v", rec.Code, out)
+	}
+	id := out["id"].(string)
+	rec, out = do(t, h, http.MethodPost, "/alerts/config/events", `{"label":"Nope","kind":"meteor_strike","severity":"warning","enabled":true}`, ceo(), idem)
+	if rec.Code != http.StatusUnprocessableEntity || out["error"] != "unknown_event_kind" {
+		t.Fatalf("a kind outside the catalog must be refused, got %d %v", rec.Code, out)
+	}
+	rec, out = do(t, h, http.MethodPost, "/alerts/config/events", `{"label":"","kind":"birth_recorded","severity":"warning","enabled":true}`, ceo(), idem)
+	if rec.Code != http.StatusUnprocessableEntity || out["error"] != "invalid_event_rule" {
+		t.Fatalf("a blank label must be refused, got %d %v", rec.Code, out)
+	}
+	rec, out = do(t, h, http.MethodPut, "/alerts/config/events/"+id, `{"label":"Kid born","kind":"birth_recorded","severity":"critical","enabled":false}`, ceo(), idem)
+	if rec.Code != http.StatusOK || out["severity"] != "critical" || out["enabled"] != false {
+		t.Fatalf("update must return the stored row, got %d %v", rec.Code, out)
+	}
+	rec, out = do(t, h, http.MethodGet, "/alerts/config", "", ceo(), nil)
+	if rec.Code != http.StatusOK || len(out["event_rules"].([]any)) != 1 || len(out["event_kinds"].([]any)) != len(domain.EventKinds()) {
+		t.Fatalf("config lists the composed rules and the whole catalog, got %d %v", rec.Code, out)
+	}
+	rec, _ = do(t, h, http.MethodDelete, "/alerts/config/events/"+id, "", ceo(), nil)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("delete = %d", rec.Code)
+	}
+	rec, out = do(t, h, http.MethodDelete, "/alerts/config/events/"+id, "", ceo(), nil)
+	if rec.Code != http.StatusNotFound || out["error"] != "event_rule_not_found" {
+		t.Fatalf("second delete must be not found, got %d %v", rec.Code, out)
 	}
 }

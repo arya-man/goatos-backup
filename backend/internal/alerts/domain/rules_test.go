@@ -2,6 +2,8 @@ package domain
 
 import (
 	"errors"
+	"fmt"
+	"strings"
 	"testing"
 )
 
@@ -52,5 +54,33 @@ func TestLowStockAlertsNameFarmFeedAndDays(t *testing.T) {
 	}
 	if out[0].Title != "Channapatna: Mesha Adult Concentrate lasts 1 more day(s)" {
 		t.Fatalf("title must name park, feed and days: %q", out[0].Title)
+	}
+}
+
+func TestSetEventRuleValidateAndDetectEventsCap(t *testing.T) {
+	if err := (SetEventRule{Label: "x", Kind: "nope", Severity: SeverityWarning}).Validate(); !errors.Is(err, ErrUnknownEventKind) {
+		t.Fatalf("unknown kind must be refused, got %v", err)
+	}
+	if err := (SetEventRule{Label: "  ", Kind: EventBirthRecorded, Severity: SeverityWarning}).Validate(); !errors.Is(err, ErrInvalidEventRule) {
+		t.Fatalf("blank label must be refused, got %v", err)
+	}
+	if err := (SetEventRule{Label: "Kid born", Kind: EventBirthRecorded, Severity: "loud"}).Validate(); !errors.Is(err, ErrInvalidEventRule) {
+		t.Fatalf("unknown severity must be refused, got %v", err)
+	}
+	rule := EventRule{ID: "r1", Label: "Kid born", Kind: EventBirthRecorded, Severity: SeverityWarning, Enabled: true}
+	events := make([]Event, 0, 30)
+	for i := 0; i < 30; i++ {
+		events = append(events, Event{Key: fmt.Sprintf("g%d", i), ParkID: "p1", ShedName: "Yashoda 2", Subject: fmt.Sprintf("tag %d", i), Detail: "Litter of 1."})
+	}
+	out := DetectEvents("2026-09-16", "Coimbatore", rule, events)
+	if len(out) != MaxEventRowsPerRule+1 {
+		t.Fatalf("a bulk day caps at %d rows plus one 'more' row, got %d", MaxEventRowsPerRule, len(out))
+	}
+	first := out[0]
+	if first.Title != "Kid born: tag 0" || first.OperationalLocationDisplay != "Yashoda 2" || first.RuleKey != "event:r1" || first.ParkLabel != "Coimbatore" {
+		t.Fatalf("row copy/keys: %+v", first)
+	}
+	if last := out[len(out)-1]; !strings.Contains(last.Title, "5 more today") {
+		t.Fatalf("summary row must count the overflow: %+v", last)
 	}
 }

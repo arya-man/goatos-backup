@@ -400,6 +400,9 @@ var protectedRoutes = []Route{
 	{OperationID: "listAlerts", Method: "GET", Pattern: "/alerts/rows", Permissions: []string{AlertsRead}},
 	{OperationID: "getAlertRuleConfig", Method: "GET", Pattern: "/alerts/config", Permissions: []string{AlertsConfigure}},
 	{OperationID: "setAlertRuleConfig", Method: "PUT", Pattern: "/alerts/config/{rule_key}", Permissions: []string{AlertsConfigure}},
+	{OperationID: "createAlertEventRule", Method: "POST", Pattern: "/alerts/config/events", Permissions: []string{AlertsConfigure}},
+	{OperationID: "updateAlertEventRule", Method: "PUT", Pattern: "/alerts/config/events/{rule_id}", Permissions: []string{AlertsConfigure}},
+	{OperationID: "deleteAlertEventRule", Method: "DELETE", Pattern: "/alerts/config/events/{rule_id}", Permissions: []string{AlertsConfigure}},
 
 	// LEADERSHIP TASKS (maintainer decisions 2026-09-04 and 2026-09-08): manual asks between
 	// leadership and active app-backed workers.

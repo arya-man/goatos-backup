@@ -15,13 +15,15 @@ import (
 
 // Service is the one entry point the transport calls.
 type Service struct {
-	config    ports.ConfigStore
-	sheets    ports.FeedSheetReader
-	movements ports.MovementReader
-	stock     ports.LowStockReader
-	parks     ports.ParkNameReader
-	log       *slog.Logger
-	now       func() time.Time
+	config     ports.ConfigStore
+	sheets     ports.FeedSheetReader
+	movements  ports.MovementReader
+	stock      ports.LowStockReader
+	parks      ports.ParkNameReader
+	eventRules ports.EventRuleStore
+	events     ports.EventReader
+	log        *slog.Logger
+	now        func() time.Time
 }
 
 // NewService wires the readers. Any reader may be nil; its rule then reports "could not
@@ -31,6 +33,12 @@ func NewService(config ports.ConfigStore, sheets ports.FeedSheetReader, movement
 		log = slog.Default()
 	}
 	return &Service{config: config, sheets: sheets, movements: movements, stock: stock, parks: parks, log: log, now: time.Now}
+}
+
+// WithEvents wires the user-defined event alerts: the rule store and the per-kind readers.
+func (s *Service) WithEvents(rules ports.EventRuleStore, reader ports.EventReader) *Service {
+	s.eventRules, s.events = rules, reader
+	return s
 }
 
 // WithClock pins the clock for tests.
@@ -70,6 +78,37 @@ func (s *Service) SetConfig(ctx context.Context, in domain.SetRuleConfig) (domai
 	return domain.RuleConfig{}, domain.ErrUnknownRule
 }
 
+// EventRules lists the tenant's composed alerts. An unwired store yields none.
+func (s *Service) EventRules(ctx context.Context, tenantID string) ([]domain.EventRule, error) {
+	if s.eventRules == nil {
+		return []domain.EventRule{}, nil
+	}
+	rules, err := s.eventRules.ListEventRules(ctx, tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("alerts: list event rules: %w", err)
+	}
+	return rules, nil
+}
+
+// SetEventRule validates and creates or updates one composed alert.
+func (s *Service) SetEventRule(ctx context.Context, in domain.SetEventRule) (domain.EventRule, error) {
+	if err := in.Validate(); err != nil {
+		return domain.EventRule{}, err
+	}
+	if s.eventRules == nil {
+		return domain.EventRule{}, fmt.Errorf("alerts: event rules not wired")
+	}
+	return s.eventRules.UpsertEventRule(ctx, in)
+}
+
+// DeleteEventRule removes one composed alert.
+func (s *Service) DeleteEventRule(ctx context.Context, tenantID, ruleID string) error {
+	if s.eventRules == nil {
+		return fmt.Errorf("alerts: event rules not wired")
+	}
+	return s.eventRules.DeleteEventRule(ctx, tenantID, ruleID)
+}
+
 // Page is one park's alerts for one business day.
 type Page struct {
 	Rows []domain.Alert
@@ -77,7 +116,8 @@ type Page struct {
 	// the client shows those as "couldn't load" rather than an empty page that reads as
 	// "all clear".
 	Degraded []domain.RuleKey
-	// RulesRun is every enabled rule, so the page can say what it checked.
+	// RulesRun is every enabled rule, so the page can say what it checked. A composed event
+	// rule runs as "event:<id>".
 	RulesRun []domain.RuleKey
 }
 
@@ -119,6 +159,29 @@ func (s *Service) List(ctx context.Context, tenantID, parkID, businessDate strin
 			}
 		}
 		page.Rows = append(page.Rows, rows...)
+	}
+	// The composed event alerts, each its own rule.
+	eventRules, err := s.EventRules(ctx, tenantID)
+	if err != nil {
+		return Page{}, err
+	}
+	for _, rule := range eventRules {
+		if !rule.Enabled {
+			continue
+		}
+		key := domain.RuleKey("event:" + rule.ID)
+		page.RulesRun = append(page.RulesRun, key)
+		if s.events == nil {
+			page.Degraded = append(page.Degraded, key)
+			continue
+		}
+		events, err := s.events.Events(ctx, tenantID, parkID, rule.Kind, businessDate)
+		if err != nil {
+			s.log.WarnContext(ctx, "alerts_event_rule_read_failed", "rule", rule.ID, "kind", rule.Kind, "park_id", parkID, "business_date", businessDate, "error", err)
+			page.Degraded = append(page.Degraded, key)
+			continue
+		}
+		page.Rows = append(page.Rows, domain.DetectEvents(businessDate, parkName, rule, events)...)
 	}
 	domain.SortAlerts(page.Rows)
 	return page, nil

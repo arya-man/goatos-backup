@@ -39,3 +39,16 @@ type LowStockReader interface {
 type ParkNameReader interface {
 	ParkNames(ctx context.Context, tenantID string, parkIDs []string) (map[string]string, error)
 }
+
+// EventRuleStore holds the per-tenant user-defined event rules.
+type EventRuleStore interface {
+	ListEventRules(ctx context.Context, tenantID string) ([]domain.EventRule, error)
+	// UpsertEventRule creates (blank ID) or updates one rule and returns it as stored.
+	UpsertEventRule(ctx context.Context, in domain.SetEventRule) (domain.EventRule, error)
+	DeleteEventRule(ctx context.Context, tenantID, ruleID string) error
+}
+
+// EventReader lists one kind's durable events for a park and Asia/Kolkata business day.
+type EventReader interface {
+	Events(ctx context.Context, tenantID, parkID string, kind domain.EventKind, businessDate string) ([]domain.Event, error)
+}

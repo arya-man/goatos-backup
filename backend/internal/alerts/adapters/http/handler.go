@@ -27,6 +27,9 @@ type Service interface {
 	List(ctx context.Context, tenantID, parkID, businessDate string) (app.Page, error)
 	Config(ctx context.Context, tenantID string) ([]domain.RuleConfig, error)
 	SetConfig(ctx context.Context, in domain.SetRuleConfig) (domain.RuleConfig, error)
+	EventRules(ctx context.Context, tenantID string) ([]domain.EventRule, error)
+	SetEventRule(ctx context.Context, in domain.SetEventRule) (domain.EventRule, error)
+	DeleteEventRule(ctx context.Context, tenantID, ruleID string) error
 }
 
 // Handler serves the three routes.
@@ -49,6 +52,9 @@ func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("GET /alerts/rows", h.Rows)
 	mux.HandleFunc("GET /alerts/config", h.GetConfig)
 	mux.HandleFunc("PUT /alerts/config/{rule_key}", h.SetConfig)
+	mux.HandleFunc("POST /alerts/config/events", h.CreateEventRule)
+	mux.HandleFunc("PUT /alerts/config/events/{rule_id}", h.UpdateEventRule)
+	mux.HandleFunc("DELETE /alerts/config/events/{rule_id}", h.DeleteEventRule)
 }
 
 // rowsPayload is one park-day of alerts.
@@ -65,6 +71,9 @@ type rowsPayload struct {
 
 type configPayload struct {
 	Rules []domain.RuleConfig `json:"rules"`
+	// EventRules are the farm's composed alerts; EventKinds the catalog they compose from.
+	EventRules []domain.EventRule     `json:"event_rules"`
+	EventKinds []domain.EventKindInfo `json:"event_kinds"`
 }
 
 // Rows serves GET /alerts/rows?park=&business_date=.
@@ -127,7 +136,109 @@ func (h *Handler) GetConfig(w http.ResponseWriter, r *http.Request) {
 		h.writeErr(w, r, http.StatusInternalServerError, "alerts_config_unavailable", "Alert rules could not be read right now.")
 		return
 	}
-	httpresponse.WriteJSON(w, http.StatusOK, configPayload{Rules: rules})
+	eventRules, err := h.service.EventRules(r.Context(), tenantID)
+	if err != nil {
+		h.writeErr(w, r, http.StatusInternalServerError, "alerts_config_unavailable", "Alert rules could not be read right now.")
+		return
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, configPayload{Rules: rules, EventRules: eventRules, EventKinds: domain.EventKinds()})
+}
+
+type eventRuleRequest struct {
+	Label    *string `json:"label"`
+	Kind     *string `json:"kind"`
+	Severity *string `json:"severity"`
+	Enabled  *bool   `json:"enabled"`
+}
+
+// CreateEventRule serves POST /alerts/config/events.
+func (h *Handler) CreateEventRule(w http.ResponseWriter, r *http.Request) {
+	h.writeEventRule(w, r, "")
+}
+
+// UpdateEventRule serves PUT /alerts/config/events/{rule_id}.
+func (h *Handler) UpdateEventRule(w http.ResponseWriter, r *http.Request) {
+	id := strings.TrimSpace(r.PathValue("rule_id"))
+	if !uuidutil.IsUUIDString(id) {
+		h.writeErr(w, r, http.StatusNotFound, "event_rule_not_found", "That alert does not exist.")
+		return
+	}
+	h.writeEventRule(w, r, id)
+}
+
+// writeEventRule is the create/update body: every field required, the drawer sends the whole
+// row it shows (a blank is not "keep the old value").
+func (h *Handler) writeEventRule(w http.ResponseWriter, r *http.Request, id string) {
+	ctx := r.Context()
+	tenantID := strings.TrimSpace(httpmiddleware.TenantIDFromContext(ctx))
+	body, err := io.ReadAll(io.LimitReader(r.Body, 8<<10))
+	if err != nil {
+		h.writeErr(w, r, http.StatusBadRequest, "invalid_body", "That request could not be read.")
+		return
+	}
+	var req eventRuleRequest
+	if err := json.Unmarshal(body, &req); err != nil || req.Label == nil || req.Kind == nil || req.Severity == nil || req.Enabled == nil {
+		h.writeErr(w, r, http.StatusBadRequest, "invalid_body", "Send the alert's name, what it watches, its severity and whether it is on.")
+		return
+	}
+	idem := strings.TrimSpace(r.Header.Get("Idempotency-Key"))
+	if idem == "" {
+		h.writeErr(w, r, http.StatusBadRequest, "idempotency_key_required", "An Idempotency-Key header is required.")
+		return
+	}
+	rule, err := h.service.SetEventRule(ctx, domain.SetEventRule{
+		TenantID:       tenantID,
+		ActorID:        strings.TrimSpace(httpmiddleware.ActorIDFromContext(ctx)),
+		ID:             id,
+		Label:          *req.Label,
+		Kind:           domain.EventKind(strings.TrimSpace(*req.Kind)),
+		Severity:       domain.Severity(strings.TrimSpace(*req.Severity)),
+		Enabled:        *req.Enabled,
+		IdempotencyKey: idem,
+	})
+	switch {
+	case errors.Is(err, domain.ErrUnknownEventKind):
+		h.writeErr(w, r, http.StatusUnprocessableEntity, "unknown_event_kind", "That is not something alerts can watch yet.")
+		return
+	case errors.Is(err, domain.ErrInvalidEventRule):
+		h.writeErr(w, r, http.StatusUnprocessableEntity, "invalid_event_rule", "Give the alert a name of up to 80 characters and a severity.")
+		return
+	case errors.Is(err, domain.ErrEventRuleNotFound):
+		h.writeErr(w, r, http.StatusNotFound, "event_rule_not_found", "That alert does not exist.")
+		return
+	case errors.Is(err, ports.ErrIdempotencyConflict):
+		h.writeErr(w, r, http.StatusConflict, "idempotency_conflict", "That change was already sent with different values.")
+		return
+	case err != nil:
+		h.writeErr(w, r, http.StatusInternalServerError, "alerts_config_write_failed", "The alert could not be saved right now.")
+		return
+	}
+	status := http.StatusOK
+	if id == "" {
+		status = http.StatusCreated
+	}
+	httpresponse.WriteJSON(w, status, rule)
+}
+
+// DeleteEventRule serves DELETE /alerts/config/events/{rule_id}.
+func (h *Handler) DeleteEventRule(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	tenantID := strings.TrimSpace(httpmiddleware.TenantIDFromContext(ctx))
+	id := strings.TrimSpace(r.PathValue("rule_id"))
+	if !uuidutil.IsUUIDString(id) {
+		h.writeErr(w, r, http.StatusNotFound, "event_rule_not_found", "That alert does not exist.")
+		return
+	}
+	err := h.service.DeleteEventRule(ctx, tenantID, id)
+	switch {
+	case errors.Is(err, domain.ErrEventRuleNotFound):
+		h.writeErr(w, r, http.StatusNotFound, "event_rule_not_found", "That alert does not exist.")
+		return
+	case err != nil:
+		h.writeErr(w, r, http.StatusInternalServerError, "alerts_config_write_failed", "The alert could not be removed right now.")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 type setConfigRequest struct {

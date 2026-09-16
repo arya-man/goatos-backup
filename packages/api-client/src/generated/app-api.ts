@@ -3496,6 +3496,47 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/alerts/config/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Compose a new alert from the event catalog.
+         * @description User-defined event alerts (maintainer request 2026-09-16): "tell me when <kind> happens", with the farm's own label and a severity. `kind` must be one of `event_kinds` on GET /alerts/config; anything else is refused (422). Idempotent on the `Idempotency-Key` header -- a retried create makes ONE rule. Gated on alerts.configure.
+         */
+        post: operations["createAlertEventRule"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/alerts/config/events/{rule_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Change a composed alert's label, event, severity or switch.
+         * @description The whole row is sent every time; a blank is never "keep the old value". Gated on alerts.configure.
+         */
+        put: operations["updateAlertEventRule"];
+        post?: never;
+        /** Remove a composed alert. */
+        delete: operations["deleteAlertEventRule"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/toxin/review": {
         parameters: {
             query?: never;
@@ -8161,6 +8202,39 @@ export interface components {
         };
         AlertRuleConfigList: {
             rules: components["schemas"]["AlertRuleConfig"][];
+            /** @description The farm's composed event alerts. */
+            event_rules: components["schemas"]["AlertEventRule"][];
+            /** @description The catalog of events an alert can be composed from, in drawer order. */
+            event_kinds: components["schemas"]["AlertEventKind"][];
+        };
+        AlertEventKind: {
+            /** @description Config vocabulary; submitted on the write path */
+            key: string;
+            label: string;
+            description: string;
+        };
+        AlertEventRule: {
+            /** Format: uuid */
+            id: string;
+            /** @description The farm's own name for the alert */
+            label: string;
+            kind: string;
+            kind_label: string;
+            severity: components["schemas"]["AlertSeverity"];
+            enabled: boolean;
+            /** @description Name */
+            created_by?: string;
+            /** @description Name */
+            updated_by?: string;
+            /** @description Farm-readable Asia/Kolkata label. */
+            updated_at?: string;
+        };
+        AlertEventRuleRequest: {
+            label: string;
+            /** @description One of the event_kinds keys on GET /alerts/config. */
+            kind: string;
+            severity: components["schemas"]["AlertSeverity"];
+            enabled: boolean;
         };
         SetAlertRuleConfigRequest: {
             enabled: boolean;
@@ -24595,6 +24669,97 @@ export interface operations {
             404: components["responses"]["NotFoundOrNotAllowed"];
             409: components["responses"]["WriteConflict"];
             422: components["responses"]["UnprocessableEntity"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    createAlertEventRule: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AlertEventRuleRequest"];
+            };
+        };
+        responses: {
+            /** @description The stored rule. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AlertEventRule"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["WriteConflict"];
+            422: components["responses"]["UnprocessableEntity"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    updateAlertEventRule: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                rule_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AlertEventRuleRequest"];
+            };
+        };
+        responses: {
+            /** @description The stored rule after the write. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AlertEventRule"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
+            422: components["responses"]["UnprocessableEntity"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    deleteAlertEventRule: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                rule_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Removed. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
             500: components["responses"]["ServerError"];
         };
     };
