@@ -14,7 +14,7 @@ import type { AdminWebApprovalItem } from "@/lib/api/server";
 import { fmtDateTime } from "@/lib/format";
 import type { RouteSearchParams } from "@/lib/search-params";
 import { APPROVALS_COPY as COPY } from "./copy";
-import { approveApprovalAction, rejectApprovalAction } from "./actions";
+import { approveApprovalAction, rejectApprovalAction, resolveApprovalCaptureMediaUrl } from "./actions";
 import { ApprovalsActionTelemetry } from "./approvals-telemetry";
 
 const PATHNAME = "/approvals";
@@ -263,6 +263,8 @@ function ApprovalsDrawerPanel({
           </div>
         </section>
 
+        <CaptureSection item={item} />
+
         {/* One decision block: the prominent green Approve action on top, then the reject reason and
             a red (destructive) Reject action, separated by an "or" rule. Both are full-width so the
             two choices read as equal-weight, mutually-exclusive decisions rather than two stray
@@ -361,4 +363,92 @@ function hrefWithRow(params: RouteSearchParams, requestId: string): string {
   }
   next.set("ap_row", requestId);
   return `${PATHNAME}?${next.toString()}`;
+}
+
+// CaptureSection renders the report's SOP capture card snapshot verbatim: answers grouped by their
+// section, every proof under its authored title with click-to-open, the older-app note and the
+// verifier's verdict on the report proof. Nothing is composed here.
+function CaptureSection({ item }: { item: AdminWebApprovalItem }) {
+  const capture = item.capture;
+  if (!capture) return null;
+  const groups = new Map<string, { label: string; value: string }[]>();
+  for (const row of capture.rows ?? []) {
+    const key = row.group ?? "";
+    groups.set(key, [...(groups.get(key) ?? []), { label: row.label, value: row.value }]);
+  }
+  return (
+    <section className="card" style={{ marginTop: 14 }}>
+      <div className="hd">
+        <h3>{COPY.capture.title}</h3>
+        {capture.version_label ? <span className="muted small">{COPY.capture.version}: {capture.version_label}</span> : null}
+      </div>
+      <div className="bd">
+        {item.capture_review_status ? (
+          <div className="note" role="status">
+            {COPY.capture.review[item.capture_review_status] ?? item.capture_review_status}
+            {item.capture_review_reason ? ` — ${item.capture_review_reason}` : ""}
+          </div>
+        ) : null}
+        {[...groups.entries()].map(([group, rows]) => (
+          <div key={group || "rows"} style={{ marginTop: 8 }}>
+            {group ? <div className="muted small b700">{group}</div> : null}
+            <div className="metagrid">
+              {rows.map((row, i) => (
+                <Meta key={`${row.label}-${i}`} label={row.label}>
+                  {row.value}
+                </Meta>
+              ))}
+            </div>
+          </div>
+        ))}
+        {capture.missing_note ? (
+          <div className="metagrid" style={{ marginTop: 8 }}>
+            <Meta label={COPY.capture.missing}>{capture.missing_note}</Meta>
+          </div>
+        ) : null}
+        {capture.media?.length ? (
+          <div style={{ marginTop: 10 }}>
+            <div className="muted small b700">{COPY.capture.media}</div>
+            <div className="htl">
+              {capture.media.map((m) => (
+                <CaptureMediaRow key={m.proof_id} proofId={m.proof_id} label={m.label} kind={m.kind} />
+              ))}
+            </div>
+          </div>
+        ) : null}
+      </div>
+    </section>
+  );
+}
+
+function CaptureMediaRow({ proofId, label, kind }: { proofId: string; label: string; kind: string }) {
+  const [state, setState] = useState<"idle" | "opening" | "failed">("idle");
+  const open = async () => {
+    setState("opening");
+    // A tab is opened synchronously in the click so the browser does not treat it as a popup.
+    const tab = window.open("about:blank", "_blank");
+    const url = await resolveApprovalCaptureMediaUrl(proofId).catch(() => null);
+    if (!url) {
+      tab?.close();
+      setState("failed");
+      return;
+    }
+    if (tab) tab.location.href = url;
+    else window.location.assign(url);
+    setState("idle");
+  };
+  return (
+    <div className="hrow">
+      <div className="htx">
+        <b>{label}</b>
+        <div className="hmeta muted small">
+          {COPY.capture.kind[kind] ?? ""}
+          {state === "failed" ? ` · ${COPY.capture.unavailable}` : ""}
+        </div>
+      </div>
+      <button type="button" className="btn sm" onClick={open} disabled={state === "opening"}>
+        {state === "opening" ? COPY.capture.opening : COPY.capture.open}
+      </button>
+    </div>
+  );
 }

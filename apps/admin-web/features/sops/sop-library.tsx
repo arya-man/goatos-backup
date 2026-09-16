@@ -30,6 +30,8 @@ import { FollowUpStepsSummary } from "./followup-summary";
 import { InspectionSummary } from "./inspection-summary";
 import { WeighingSummary } from "./weighing-summary";
 import { FeedSummary } from "./feed-summary";
+import { CaptureCardSummary } from "./capture-summary";
+import { isCaptureCardCode } from "./capture-model";
 import { copy, tablePageSizes, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 
 // The New SOP builder is a dedicated full-page surface at <module SOP page>?compose=1 — the same
@@ -98,6 +100,7 @@ export function SopLibrary({ sops, error, authRequired, pageContract, basePath, 
   // nothing opened".
   const [editorPending, startEditorNav] = useTransition();
   const openEditor = (sopId: string) => startEditorNav(() => router.push(`${builderHref}&edit=${sopId}`));
+  const openCaptureEditor = (sopId: string) => startEditorNav(() => router.push(`${builderHref}&edit=${sopId}&part=capture`));
   const [requestedPage, setRequestedPage] = useState(1);
 	  const pageSizeOptions = tablePageSizes(pageContract, "sop-library");
 	  const [pageSize, setPageSize] = useState<number>(pageSizeOptions.includes(10) ? 10 : (pageSizeOptions[0] ?? 10));
@@ -296,13 +299,14 @@ export function SopLibrary({ sops, error, authRequired, pageContract, basePath, 
           onClose={() => setDetail(null)}
           editPending={editorPending}
           onEdit={() => openEditor(detail.sopId)}
+          onEditCapture={() => openCaptureEditor(detail.sopId)}
         />
       ) : null}
     </div>
   );
 }
 
-function SopDetailModal({ view, pageContract, onClose, onEdit, editPending = false }: { view: SopCardView; pageContract: AdminUiPageContract; onClose: () => void; onEdit: () => void; editPending?: boolean }) {
+function SopDetailModal({ view, pageContract, onClose, onEdit, onEditCapture, editPending = false }: { view: SopCardView; pageContract: AdminUiPageContract; onClose: () => void; onEdit: () => void; onEditCapture?: () => void; editPending?: boolean }) {
   // Overlay close contract: Escape must close the modal, alongside the X button and backdrop click.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -413,6 +417,7 @@ function SopDetailModal({ view, pageContract, onClose, onEdit, editPending = fal
           {view.inspectionFormDsl ? <InspectionSummary pageContract={pageContract} formDsl={view.inspectionFormDsl} /> : null}
           {view.weighingFormDsl ? <WeighingSummary pageContract={pageContract} formDsl={view.weighingFormDsl} /> : null}
           {view.feedFormDsl ? <FeedSummary pageContract={pageContract} sopCode={view.code} formDsl={view.feedFormDsl} /> : null}
+          {isCaptureCardCode(view.code) && view.hasVersion ? <CaptureCardSummary pageContract={pageContract} sopCode={view.code} formDsl={view.followUpFormDsl} /> : null}
         </div>
 
         <div className="cfgmf">
@@ -420,6 +425,11 @@ function SopDetailModal({ view, pageContract, onClose, onEdit, editPending = fal
             {copy(pageContract, "action.close")}
           </button>
           <div className="sp" style={{ flex: 1 }} />
+          {isCaptureCardCode(view.code) && view.hasVersion && onEditCapture ? (
+            <button type="button" className="btn" onClick={onEditCapture} disabled={editPending} aria-busy={editPending}>
+              <NotebookPen className="ic" /> {copy(pageContract, "action.edit_capture_form")}
+            </button>
+          ) : null}
           <button type="button" className="btn p" onClick={onEdit} disabled={editPending} aria-busy={editPending}>
             <NotebookPen className="ic" />{" "}
             {editPending

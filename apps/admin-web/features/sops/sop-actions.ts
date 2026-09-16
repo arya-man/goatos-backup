@@ -342,3 +342,44 @@ export async function publishFeedVersion(sopId: string, feed: Record<string, unk
   for (const path of SOP_PAGE_PATHS) revalidatePath(path);
   return { ...saved, ok: true, message: `Published v${saved.versionNumber ?? ""}. Sheets issued from now on run on this card.` };
 }
+
+// HERD OPERATIONS CAPTURE CARD (maintainer decision 4, 2026-09-16): the capture editor saves a new
+// version = the published version's form_dsl (operator steps, fields, rules: unchanged) + the
+// emitted `capture_card`. The backend validates the card (countssop) and refuses one the phone
+// could not render, naming the field; publishing makes it the card reports raised from then on are
+// judged by -- a report already raised keeps the card it was captured on.
+export async function saveCaptureCardVersion(sopId: string, captureCard: Record<string, unknown>, label?: string): Promise<FeedSaveResult> {
+  if (!sopId) return { ok: false, message: "SOP id is required" };
+  const detail = await getSop(sopId);
+  if (!detail.ok) return { ok: false, message: detail.error.message ?? "SOP could not be read", code: detail.error.code };
+  const base = detail.data.published_version ?? detail.data.latest_version;
+  if (!base) return { ok: false, message: "This SOP has no version to build on." };
+  const formDsl = { ...(base.form_dsl as Record<string, unknown>), capture_card: captureCard };
+  const version = await createSopVersion(sopId, {
+    version_label: (label ?? "").trim() || `${detail.data.sop.name} · capture form`,
+    form_dsl: formDsl,
+    proof_policy: base.proof_policy as CreateSOPVersionRequest["proof_policy"],
+    compatibility: (base.compatibility ?? undefined) as CreateSOPVersionRequest["compatibility"],
+  });
+  if (!version.ok) return { ok: false, message: version.error.message ?? "create SOP version failed", code: version.error.code };
+  for (const path of SOP_PAGE_PATHS) revalidatePath(path);
+  const report = version.data.version.validation_report;
+  return {
+    ok: true,
+    message: report?.valid ? "Capture form saved as a draft version." : "Saved — backend flagged validation issues (see report).",
+    versionId: version.data.version.sop_version_id,
+    rowVersion: version.data.version.row_version,
+    versionNumber: version.data.version.version,
+    report,
+  };
+}
+
+export async function publishCaptureCardVersion(sopId: string, captureCard: Record<string, unknown>, label?: string): Promise<FeedSaveResult> {
+  const saved = await saveCaptureCardVersion(sopId, captureCard, label);
+  if (!saved.ok || !saved.versionId || saved.rowVersion === undefined) return saved;
+  if (saved.report && !saved.report.valid) return { ...saved, ok: false, message: saved.report.errors?.[0]?.message ?? "The capture form has validation issues; fix it and publish again." };
+  const res = await publishSopVersion(sopId, saved.versionId, saved.rowVersion);
+  if (!res.ok) return { ok: false, message: res.error.message ?? "publish failed", code: res.error.code };
+  for (const path of SOP_PAGE_PATHS) revalidatePath(path);
+  return { ...saved, ok: true, message: `Published v${saved.versionNumber ?? ""}. Reports raised from now on use this capture form.` };
+}

@@ -59,6 +59,21 @@ export const APPROVALS_COPY = {
     summaryEmpty: "No additional detail on this request.",
     note: "Approving applies the request's effect atomically (a birth/death lifecycle change, or authorizing a shifting movement). Rejecting applies nothing and requires a reason the field operator will see.",
   },
+  capture: {
+    title: "Recorded on the form",
+    version: "Form version",
+    media: "Photos and videos",
+    open: "Open",
+    opening: "Opening…",
+    unavailable: "This proof could not be opened.",
+    kind: { video: "Video", photo: "Photo" } as Record<string, string>,
+    missing: "Not captured (older app)",
+    review: {
+      pending: "Report proof awaiting the verifier",
+      approved: "Report proof approved by the verifier",
+      rework: "Report proof sent back for a re-shoot",
+    } as Record<string, string>,
+  },
   decision: {
     title: "Decision",
     or: "or",

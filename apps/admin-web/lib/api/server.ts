@@ -5729,10 +5729,23 @@ export type AdminWebApprovalItem = {
   // absent means the animal's location could not be resolved, in which case drop the row rather
   // than falling back to an id.
   subject_animal_location?: string;
+  // capture: the SOP capture card snapshot (CountsApprovalCapture, 2026-09-16) -- the report's own
+  // proofs under their authored titles and its answers in farm words. BACKEND-OWNED COPY: render
+  // rows and labels verbatim; absent when the form asked nothing.
+  capture?: AdminWebApprovalCapture;
+  capture_review_status?: "pending" | "approved" | "rework";
+  capture_review_reason?: string;
   summary: unknown;
   decided_by_user_id?: string;
   decided_at?: string;
   decision_reason?: string;
+};
+
+export type AdminWebApprovalCapture = {
+  version_label?: string;
+  rows: { label: string; value: string; group?: string }[];
+  media: { proof_id: string; label: string; kind: string }[];
+  missing_note?: string;
 };
 
 export type AdminWebApprovalListResponse = {

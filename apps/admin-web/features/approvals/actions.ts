@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { decideAdminWebApproval } from "@/lib/api/server";
+import { decideAdminWebApproval, getProofDownloadUrl } from "@/lib/api/server";
 
 const PATHNAME = "/approvals";
 
@@ -74,4 +74,13 @@ export async function rejectApprovalAction(formData: FormData): Promise<void> {
     redirect(withFeedback(url, "error", result.error.code ?? result.error.kind));
   }
   redirect(withFeedback(url, "success", "rejected"));
+}
+
+// Explicit media open for the approver: the drawer carries only proof IDs from the list response;
+// one browser-usable signed URL is resolved only after the approver clicks a proof (the same
+// click-to-open bridge the verify drawer uses; nothing is proxied through the page).
+export async function resolveApprovalCaptureMediaUrl(proofRef: string): Promise<string | null> {
+  const trimmed = proofRef.trim();
+  if (!trimmed) return null;
+  return getProofDownloadUrl(trimmed);
 }
