@@ -35,6 +35,34 @@ func milkStepFromMetadata(metadata map[string]any, legacyKey, fieldPrefix string
 
 var _ countsapp.MilkPreparationProofValidator = (*Validator)(nil)
 var _ countsapp.MilkFeedingProofValidator = (*Validator)(nil)
+var _ countsapp.CaptureProofKinds = (*Validator)(nil)
+
+// ProofKinds answers ref -> video | photo from the register for the SOP capture card
+// (counts/app.CaptureProofKinds). ONE batched read; a ref that is missing, of another tenant,
+// not yet uploaded, or of a kind a card never asks for (attachment, audio) is absent from the
+// map, so the caller refuses it by slot rather than guessing.
+func (v *Validator) ProofKinds(ctx context.Context, tenantID string, refs []string) (map[string]string, error) {
+	out := make(map[string]string, len(refs))
+	if len(refs) == 0 {
+		return out, nil
+	}
+	found, err := v.repo.GetProofsByIDs(ctx, tenantID, refs)
+	if err != nil {
+		return nil, err
+	}
+	for ref, artifact := range found {
+		if artifact.TenantID != tenantID || artifact.UploadState != "completed" {
+			continue
+		}
+		switch strings.ToLower(strings.TrimSpace(artifact.ProofType)) {
+		case "video":
+			out[ref] = "video"
+		case "photo", "image":
+			out[ref] = "photo"
+		}
+	}
+	return out, nil
+}
 
 // ValidateMilkPreparationProofs binds each distinct video to the exact farm and preparation step.
 // This prevents one upload from being relabelled client-side to satisfy multiple process controls.

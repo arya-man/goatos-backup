@@ -44,6 +44,12 @@ const (
 	VerificationModulePenReconciliation   = "counts"
 	VerificationCategoryPenReconciliation = "pen_reconciliation"
 	VerificationRefTypePenReconciliation  = "pen_reconciliation_card"
+
+	// Birth report proofs (SOP capture card, 2026-09-16): reviewed under the tasks module's
+	// birth_evidence category as ONE item per litter, ref_type birth_capture / ref_id the
+	// birth_event_id (= the approval request id).
+	VerificationModuleCounts       = "counts"
+	VerificationRefTypeBirthCapture = "birth_capture"
 )
 
 // Reconcile tab status buckets. "all" is every card; the rest are disjoint at the card grain
