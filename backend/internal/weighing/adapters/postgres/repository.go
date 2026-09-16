@@ -4464,6 +4464,22 @@ func (r *Repository) idempotencyResourceAllowMismatch(ctx context.Context, tx pg
 }
 
 func (r *Repository) idempotencyResourceLookup(ctx context.Context, tx pgx.Tx, tenantID, eventType, idem string, fingerprints ...string) (id string, resourceType string, snapshot []byte, ok bool, matched bool, err error) {
+	// SAME KEY IN FLIGHT TWICE (Phase A E2E, 2026-09-17). A phone's outbox retries a write whose
+	// first attempt timed out on the client while it was still running here, so one key can be
+	// inside two transactions at once. Neither saw the other's record, the loser reached the
+	// domain gate the winner had just closed, and answered 409 invalid_state /
+	// fasting_already_submitted / weighing_shed_already_scheduled -- terminal on Android for a
+	// write the server ACCEPTED. The transaction-scoped advisory lock serializes one
+	// (tenant, event, key): the second copy waits for the first to commit, and its lookup (a new
+	// READ COMMITTED statement) then sees the record and replays the original result. Re-entrant
+	// within the transaction, so the later lookups (recordIdempotency) never wait on themselves;
+	// every write path looks the key up as its first statement, so the lock is always taken
+	// before any row lock. Pinned by same_key_race_integration_test.go.
+	if strings.TrimSpace(idem) != "" {
+		if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1::text || ':' || $2::text || ':' || $3::text, 0))`, tenantID, eventType, idem); err != nil {
+			return "", "", nil, false, false, err
+		}
+	}
 	var storedFingerprint string
 	var snapshotText string
 	err = tx.QueryRow(ctx, `
