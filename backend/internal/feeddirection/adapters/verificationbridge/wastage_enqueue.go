@@ -39,6 +39,7 @@ var _ feeddirectionapp.WastageVerificationRelabeler = (*WastageEnqueuer)(nil)
 // single wastage video travels on ONE item. CreateItem is idempotent on (tenant, idempotency_key),
 // so a retry after a prior failure heals rather than duplicates.
 func (e *WastageEnqueuer) EnqueueFeedWastageVerification(ctx context.Context, in feeddirectionapp.FeedWastageVerificationEnqueueRequest) error {
+	refs, meta := cardMedia(in.MediaRefs, in.MediaMeta, in.WastageProofRef)
 	// The subject names the PEN — "Castro - 2". No session prefix: a pen owes exactly one wastage
 	// video per feed day, so the pen alone identifies the card. Once the verifier records a
 	// measurement, the measurement service restates this label with the value.
@@ -69,8 +70,8 @@ func (e *WastageEnqueuer) EnqueueFeedWastageVerification(ctx context.Context, in
 		// than "not known".
 		ContextRows: append(wastageContextRows(in.ExperimentArm, in.HeadCountSummary), answerRows(in.AnswerRows)...),
 		// One media ref: the wastage video.
-		MediaRefs:  wastageMediaRefs(in),
-		MediaMeta:  mediaMeta(in.MediaMeta),
+		MediaRefs:  refs,
+		MediaMeta:  meta,
 		OperatorID: ptrIfSet(in.OperatorID),
 		ShedID:     ptrIfSet(in.ShedID),
 		// The PEN as its own field, not only folded into the label, so filtering/grouping by pen
@@ -112,13 +113,4 @@ func wastageContextRows(experimentArm, headCountSummary string) []verificationdo
 		rows = append(rows, verificationdomain.ContextRow{Label: "Animals in this pen", Value: headCountSummary})
 	}
 	return rows
-}
-
-// wastageMediaRefs prefers the card-ordered list (FEED SOP, 2026-09-16); a request without one keeps
-// the single video.
-func wastageMediaRefs(in feeddirectionapp.FeedWastageVerificationEnqueueRequest) []string {
-	if len(in.MediaRefs) > 0 {
-		return mediaRefs(in.MediaRefs...)
-	}
-	return mediaRefs(in.WastageProofRef)
 }

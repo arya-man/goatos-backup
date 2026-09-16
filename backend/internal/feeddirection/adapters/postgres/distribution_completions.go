@@ -138,6 +138,7 @@ func (r *Repository) CompleteDistribution(ctx context.Context, p ports.CompleteD
 		canonicalDistProof       = distProof
 		canonicalWaterProof      = waterProof
 		canonicalSOPProofs       = authored.ProofRefs{}
+		canonicalSOPAnswers      = authored.Answers{}
 	)
 	err = tx.QueryRow(ctx, `
 INSERT INTO feed_distribution_completions (
@@ -150,22 +151,22 @@ INSERT INTO feed_distribution_completions (
   $13::jsonb, $14::jsonb
 )
 ON CONFLICT (tenant_id, park_id, shed_id, partition_key, session_no, target_date, workflow) DO NOTHING
-RETURNING completion_id::text, row_version, coalesce(feed_weight_proof_ref, ''), coalesce(distribution_proof_ref, ''), coalesce(water_proof_ref, ''), sop_proofs`,
+RETURNING completion_id::text, row_version, coalesce(feed_weight_proof_ref, ''), coalesce(distribution_proof_ref, ''), coalesce(water_proof_ref, ''), sop_proofs, sop_answers`,
 		p.TenantID, p.ParkID, p.ShedID, p.PartitionLabel, p.SessionNo, targetDate, p.Workflow,
 		weightProof, distProof, waterProof, p.CompletedBy, p.IdempotencyKey, sopProofsJSON, sopAnswersJSON).
-		Scan(&completionID, &rowVersion, &canonicalFeedWeightProof, &canonicalDistProof, &canonicalWaterProof, &canonicalSOPProofs)
+		Scan(&completionID, &rowVersion, &canonicalFeedWeightProof, &canonicalDistProof, &canonicalWaterProof, &canonicalSOPProofs, &canonicalSOPAnswers)
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
 		// Natural-key conflict: a row for this shed-session already exists. Its state decides the outcome.
 		var existingStatus string
 		if err := tx.QueryRow(ctx, `
-SELECT completion_id::text, status, row_version, coalesce(feed_weight_proof_ref, ''), coalesce(distribution_proof_ref, ''), coalesce(water_proof_ref, ''), sop_proofs
+SELECT completion_id::text, status, row_version, coalesce(feed_weight_proof_ref, ''), coalesce(distribution_proof_ref, ''), coalesce(water_proof_ref, ''), sop_proofs, sop_answers
 FROM feed_distribution_completions
 WHERE tenant_id = $1::uuid AND park_id = $2::uuid AND shed_id = $3::uuid
   AND partition_key = $7 AND session_no = $4 AND target_date = $5::date AND workflow = $6`,
 			p.TenantID, p.ParkID, p.ShedID, p.SessionNo, targetDate, p.Workflow,
 			partitionColumnKey(p.PartitionLabel)).
-			Scan(&completionID, &existingStatus, &rowVersion, &canonicalFeedWeightProof, &canonicalDistProof, &canonicalWaterProof, &canonicalSOPProofs); err != nil {
+			Scan(&completionID, &existingStatus, &rowVersion, &canonicalFeedWeightProof, &canonicalDistProof, &canonicalWaterProof, &canonicalSOPProofs, &canonicalSOPAnswers); err != nil {
 			return ports.CompleteDistributionResult{}, fmt.Errorf("feeddirection: read existing distribution completion: %w", err)
 		}
 		switch existingStatus {
@@ -185,9 +186,9 @@ SET status = 'pending_verification',
     updated_at = now(),
     row_version = row_version + 1
 WHERE tenant_id = $1::uuid AND completion_id = $2::uuid AND status = 'rework'
-RETURNING row_version, coalesce(feed_weight_proof_ref, ''), coalesce(distribution_proof_ref, ''), coalesce(water_proof_ref, ''), sop_proofs`,
+RETURNING row_version, coalesce(feed_weight_proof_ref, ''), coalesce(distribution_proof_ref, ''), coalesce(water_proof_ref, ''), sop_proofs, sop_answers`,
 				p.TenantID, completionID, weightProof, distProof, waterProof, sopProofsJSON, sopAnswersJSON).
-				Scan(&rowVersion, &canonicalFeedWeightProof, &canonicalDistProof, &canonicalWaterProof, &canonicalSOPProofs); err != nil {
+				Scan(&rowVersion, &canonicalFeedWeightProof, &canonicalDistProof, &canonicalWaterProof, &canonicalSOPProofs, &canonicalSOPAnswers); err != nil {
 				return ports.CompleteDistributionResult{}, fmt.Errorf("feeddirection: resubmit distribution for verification: %w", err)
 			}
 			status = domain.DistributionStatusPendingVerification
@@ -236,6 +237,7 @@ RETURNING row_version, coalesce(feed_weight_proof_ref, ''), coalesce(distributio
 		DistributionProofRef: canonicalDistProof,
 		WaterProofRef:        canonicalWaterProof,
 		SOPProofs:            canonicalSOPProofs,
+		SOPAnswers:           canonicalSOPAnswers,
 		NewlyPending:         newlyPending,
 	}, nil
 }
@@ -248,10 +250,10 @@ func (r *Repository) readDistributionByID(ctx context.Context, tx pgx.Tx, tenant
 	}
 	var out ports.CompleteDistributionResult
 	err := tx.QueryRow(ctx, `
-SELECT completion_id::text, status, row_version, coalesce(feed_weight_proof_ref, ''), coalesce(distribution_proof_ref, ''), coalesce(water_proof_ref, ''), sop_proofs
+SELECT completion_id::text, status, row_version, coalesce(feed_weight_proof_ref, ''), coalesce(distribution_proof_ref, ''), coalesce(water_proof_ref, ''), sop_proofs, sop_answers
 FROM feed_distribution_completions
 WHERE tenant_id = $1::uuid AND completion_id = $2::uuid`, tenantID, completionID).
-		Scan(&out.CompletionID, &out.Status, &out.RowVersion, &out.FeedWeightProofRef, &out.DistributionProofRef, &out.WaterProofRef, &out.SOPProofs)
+		Scan(&out.CompletionID, &out.Status, &out.RowVersion, &out.FeedWeightProofRef, &out.DistributionProofRef, &out.WaterProofRef, &out.SOPProofs, &out.SOPAnswers)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ports.CompleteDistributionResult{}, nil
 	}

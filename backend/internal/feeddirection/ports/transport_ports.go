@@ -82,6 +82,11 @@ type SubmitTransportResult struct {
 	ShedName, PartitionLabel          string
 	AttemptNo                         int32
 	NewlyPending                      bool
+	// SOPProofs / SOPAnswers are what the ATTEMPT ROW stores. The submit fingerprint does not cover
+	// the card's captures, so an idempotent replay may carry different ones; the verifier item is
+	// always built from the row, like distribution's.
+	SOPProofs  authored.ProofRefs
+	SOPAnswers authored.Answers
 }
 
 type ApplyTransportParams struct{ TenantID, AttemptID, VerifiedBy, TraceID string }

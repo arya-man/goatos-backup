@@ -31,6 +31,7 @@ var _ feeddirectionapp.FeedPackingVerificationEnqueuer = (*PackingEnqueuer)(nil)
 // packing video travels on ONE item. CreateItem is idempotent on (tenant, idempotency_key), so a retry
 // after a prior failure heals rather than duplicates.
 func (e *PackingEnqueuer) EnqueueFeedPackingVerification(ctx context.Context, in feeddirectionapp.FeedPackingVerificationEnqueueRequest) error {
+	refs, meta := cardMedia(in.MediaRefs, in.MediaMeta, in.PackingProofRef)
 	// The subject names the SESSION and the PEN -- "Session 1 · Castro - 2" (maintainer decision
 	// 2026-08-11, reverting the 2026-08-10 pen-only label). A pen produces two packing videos a day
 	// and a verifier holding two cards for Castro - 2 must be able to tell which bag each one proves;
@@ -77,8 +78,8 @@ func (e *PackingEnqueuer) EnqueueFeedPackingVerification(ctx context.Context, in
 		// verification service treats as a judge-the-video approve rather than stranding the item.
 		MeasurementFields: packingMeasurementFields(in.MeasurementFields),
 		// The card's captures in slot order (one packing video under the seed).
-		MediaRefs:   packingMediaRefs(in),
-		MediaMeta:   mediaMeta(in.MediaMeta),
+		MediaRefs:   refs,
+		MediaMeta:   meta,
 		ContextRows: answerRows(in.ContextRows),
 		OperatorID:  ptrIfSet(in.OperatorID),
 		ShedID:      ptrIfSet(in.ShedID),
@@ -105,13 +106,4 @@ func packingMeasurementFields(fields []feeddirectionapp.PackingMeasurementField)
 		out = append(out, verificationdomain.MeasurementField{Key: field.Key, Label: field.Label})
 	}
 	return out
-}
-
-// packingMediaRefs prefers the card-ordered list (FEED SOP, 2026-09-16); a request without one keeps
-// the single video.
-func packingMediaRefs(in feeddirectionapp.FeedPackingVerificationEnqueueRequest) []string {
-	if len(in.MediaRefs) > 0 {
-		return mediaRefs(in.MediaRefs...)
-	}
-	return mediaRefs(in.PackingProofRef)
 }

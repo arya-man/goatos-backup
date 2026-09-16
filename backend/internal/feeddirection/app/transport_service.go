@@ -159,8 +159,10 @@ func (s *Service) SubmitTransport(ctx context.Context, in SubmitTransportInput) 
 	}
 	// Queue creation is idempotent. Re-enqueue an exact submit replay while the attempt is still
 	// verification_due so a transient failure between the task commit and queue creation self-heals.
+	// Media and answers come from the ATTEMPT ROW (res), never the replay request: the submit
+	// fingerprint does not cover the card's captures.
 	if res.Status == "verification_due" {
-		err = s.transportEnqueuer.EnqueueFeedTransportVerification(ctx, FeedTransportVerificationEnqueueRequest{TenantID: in.TenantID, AttemptID: res.AttemptID, ParkID: res.ParkID, ShedID: res.ShedID, ShedName: res.ShedName, PartitionLabel: res.PartitionLabel, ProofRef: in.ProofRef, MediaRefs: orderedRefs(judged), MediaMeta: proofMeta(judged), AnswerRows: authored.AnswerRows(rules.Questions, storedAnswers), OperatorID: in.OperatorID, CapturedAt: s.now().UTC(), IdempotencyKey: "feed-transport-verification:" + res.AttemptID + ":" + strconv.Itoa(int(res.AttemptNo))})
+		err = s.transportEnqueuer.EnqueueFeedTransportVerification(ctx, FeedTransportVerificationEnqueueRequest{TenantID: in.TenantID, AttemptID: res.AttemptID, ParkID: res.ParkID, ShedID: res.ShedID, ShedName: res.ShedName, PartitionLabel: res.PartitionLabel, ProofRef: in.ProofRef, MediaRefs: canonicalOrderedRefs(rules, res.SOPProofs, judged), MediaMeta: canonicalProofMeta(rules, res.SOPProofs, judged), AnswerRows: authored.AnswerRows(rules.Questions, answersForEnqueue(res.SOPAnswers, storedAnswers)), OperatorID: in.OperatorID, CapturedAt: s.now().UTC(), IdempotencyKey: "feed-transport-verification:" + res.AttemptID + ":" + strconv.Itoa(int(res.AttemptNo))})
 	}
 	return res, err
 }

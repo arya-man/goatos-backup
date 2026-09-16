@@ -8,6 +8,7 @@ import (
 	"fmt"
 	feeddirectionports "github.com/vgoats/goatos/backend/internal/feeddirection/ports"
 	"github.com/vgoats/goatos/backend/internal/sop/authored"
+	"strings"
 
 	feeddirectionapp "github.com/vgoats/goatos/backend/internal/feeddirection/app"
 	feeddirectiondomain "github.com/vgoats/goatos/backend/internal/feeddirection/domain"
@@ -40,6 +41,7 @@ var _ feeddirectionapp.FeedDistributionVerificationEnqueuer = (*Enqueuer)(nil)
 // duplicates.
 func (e *Enqueuer) EnqueueFeedDistributionVerification(ctx context.Context, in feeddirectionapp.FeedDistributionVerificationEnqueueRequest) error {
 	subjectLabel := feedDistributionSubjectLabel(in.SessionNo)
+	refs, meta := cardMedia(in.MediaRefs, in.MediaMeta, in.FeedWeightProofRef, in.DistributionProofRef, in.WaterProofRef)
 	_, err := e.verification.CreateItem(ctx, verificationdomain.CreateItem{
 		TenantID:     in.TenantID,
 		Vertical:     feeddirectiondomain.VerificationVerticalFeed,
@@ -58,8 +60,8 @@ func (e *Enqueuer) EnqueueFeedDistributionVerification(ctx context.Context, in f
 		// A blank weight ref is DROPPED rather than sent as an empty entry: a grandfathered row
 		// (migration 000151) re-enqueued after a rework verdict genuinely has no weight photo, and an
 		// empty string would reach the verifier as a media slot that can never load.
-		MediaRefs:      distributionMediaRefs(in),
-		MediaMeta:      mediaMeta(in.MediaMeta),
+		MediaRefs:      refs,
+		MediaMeta:      meta,
 		ContextRows:    answerRows(in.ContextRows),
 		OperatorID:     ptrIfSet(in.OperatorID),
 		ShedID:         ptrIfSet(in.ShedID),
@@ -106,25 +108,28 @@ func ptrIfSet(s string) *string {
 	return &s
 }
 
-// distributionMediaRefs prefers the card-ordered list the service composed (FEED SOP, 2026-09-16);
-// a request without one -- the legacy import, an old fake -- keeps the fixed capture order.
-func distributionMediaRefs(in feeddirectionapp.FeedDistributionVerificationEnqueueRequest) []string {
-	if len(in.MediaRefs) > 0 {
-		return mediaRefs(in.MediaRefs...)
+// cardMedia is the ONE mapping every feed stage uses from a card's captures to the verifier item's
+// media: refs in slot order with their titles and kinds POSITIONALLY (verificationdomain.
+// BuildMediaMeta). A blank ref is dropped TOGETHER with its meta entry -- dropping the ref alone
+// would shift every later title onto the wrong proof. A request with no card list (the legacy
+// import, an older fake) keeps its fixed refs and carries no meta, so the queue falls back to the
+// category registry exactly as before cards existed.
+func cardMedia(refs []string, meta []feeddirectionports.ProofMeta, legacy ...string) ([]string, []verificationdomain.MediaMeta) {
+	if len(refs) == 0 {
+		return mediaRefs(legacy...), nil
 	}
-	return mediaRefs(in.FeedWeightProofRef, in.DistributionProofRef, in.WaterProofRef)
-}
-
-// mediaMeta maps the producer's per-proof {label, kind} onto the verification module's MediaMeta.
-func mediaMeta(in []feeddirectionports.ProofMeta) []verificationdomain.MediaMeta {
-	if len(in) == 0 {
-		return nil
+	kept := make([]string, 0, len(refs))
+	captures := make([]verificationdomain.ProofCapture, 0, len(meta))
+	for i, ref := range refs {
+		if strings.TrimSpace(ref) == "" {
+			continue
+		}
+		kept = append(kept, ref)
+		if i < len(meta) && len(captures) == len(kept)-1 {
+			captures = append(captures, verificationdomain.ProofCapture{Title: meta[i].Label, Kind: meta[i].Kind})
+		}
 	}
-	out := make([]verificationdomain.MediaMeta, 0, len(in))
-	for _, m := range in {
-		out = append(out, verificationdomain.MediaMeta{Label: m.Label, Kind: m.Kind})
-	}
-	return out
+	return kept, verificationdomain.BuildMediaMeta(captures)
 }
 
 // answerRows renders the crew's answers as the item's context rows.

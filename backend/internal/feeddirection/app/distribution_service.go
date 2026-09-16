@@ -206,9 +206,10 @@ func (s *Service) CompleteDistribution(ctx context.Context, in CompleteDistribut
 			WaterProofRef:        result.WaterProofRef,
 			// In SLOT ORDER from the CANONICAL map the store returned (not the request), so a
 			// repair retry queues exactly the row's media; each named by the card's own title.
-			MediaRefs:   canonicalOrderedRefs(rules, result.SOPProofs, judged),
-			MediaMeta:   canonicalProofMeta(rules, result.SOPProofs, judged),
-			ContextRows: authored.AnswerRows(rules.Questions, storedAnswers),
+			MediaRefs: canonicalOrderedRefs(rules, result.SOPProofs, judged),
+			MediaMeta: canonicalProofMeta(rules, result.SOPProofs, judged),
+			// The answers the ROW stores, for the same reason as the refs above.
+			ContextRows: authored.AnswerRows(rules.Questions, answersForEnqueue(result.SOPAnswers, storedAnswers)),
 			OperatorID:  strings.TrimSpace(in.CompletedBy),
 			CapturedAt:  s.now().UTC(),
 			// Keyed to the completion + its row_version so a rework re-submit (row_version bumped) enqueues a

@@ -275,10 +275,10 @@ func (r *Repository) SubmitTransportAttempt(ctx context.Context, p ports.SubmitT
 		// rule, so a replay returns the identical location the original submit returned.
 		err = tx.QueryRow(ctx, `SELECT a.attempt_id::text,a.status,a.attempt_no,t.park_id::text,t.shed_id::text,
        coalesce((SELECT l.name FROM locations l WHERE l.tenant_id=t.tenant_id AND l.location_id=t.shed_id), ''),
-       coalesce(t.partition_label, '')
+       coalesce(t.partition_label, ''), a.sop_proofs, a.sop_answers
 FROM feed_transport_attempts a
 JOIN feed_transport_tasks t ON t.tenant_id=a.tenant_id AND t.task_id=a.task_id
-WHERE a.tenant_id=$1::uuid AND a.attempt_id=$2::uuid`, p.TenantID, reservation.resultID).Scan(&res.AttemptID, &res.Status, &res.AttemptNo, &res.ParkID, &res.ShedID, &res.ShedName, &res.PartitionLabel)
+WHERE a.tenant_id=$1::uuid AND a.attempt_id=$2::uuid`, p.TenantID, reservation.resultID).Scan(&res.AttemptID, &res.Status, &res.AttemptNo, &res.ParkID, &res.ShedID, &res.ShedName, &res.PartitionLabel, &res.SOPProofs, &res.SOPAnswers)
 		if err != nil {
 			return res, err
 		}
@@ -314,7 +314,7 @@ WHERE t.tenant_id=$1::uuid AND t.task_id=$2::uuid FOR UPDATE`, p.TenantID, p.Tas
 INSERT INTO feed_transport_attempts(tenant_id,task_id,attempt_no,proof_ref,operator_id,idempotency_key,sop_proofs,sop_answers)
 SELECT $1::uuid,$2::uuid,coalesce(max(attempt_no),0)+1,$3,$4::uuid,$5,$6::jsonb,$7::jsonb
 FROM feed_transport_attempts WHERE tenant_id=$1::uuid AND task_id=$2::uuid
-RETURNING attempt_id::text,status,attempt_no`, p.TenantID, p.TaskID, strings.TrimSpace(p.ProofRef), p.OperatorID, p.IdempotencyKey, transportSOPProofsJSON(p), transportSOPAnswersJSON(p)).Scan(&res.AttemptID, &res.Status, &res.AttemptNo)
+RETURNING attempt_id::text,status,attempt_no,sop_proofs,sop_answers`, p.TenantID, p.TaskID, strings.TrimSpace(p.ProofRef), p.OperatorID, p.IdempotencyKey, transportSOPProofsJSON(p), transportSOPAnswersJSON(p)).Scan(&res.AttemptID, &res.Status, &res.AttemptNo, &res.SOPProofs, &res.SOPAnswers)
 	if err != nil {
 		return res, fmt.Errorf("feeddirection: insert transport attempt: %w", err)
 	}

@@ -179,12 +179,35 @@ func orderedRefs(judged []judgedProof) []string {
 
 // proofMeta is the per-proof {label, kind} the verifier item carries beside the refs, so the queue
 // names each capture by the card's own title and plays it as the kind it is.
+//
+// A kind nobody judged -- an `either` slot the register could not describe -- is left BLANK, never
+// guessed as a video: the verifier queue answers a blank kind from the proof register at read time.
 func proofMeta(judged []judgedProof) []ports.ProofMeta {
 	out := make([]ports.ProofMeta, 0, len(judged))
 	for _, j := range judged {
-		out = append(out, ports.ProofMeta{Label: j.Slot.Title, Kind: j.Kind})
+		out = append(out, ports.ProofMeta{Label: j.Slot.Title, Kind: concreteKind(j.Kind)})
 	}
 	return out
+}
+
+// concreteKind is a capture kind the verifier can play without asking: video or photo, else "".
+func concreteKind(kind string) string {
+	switch kind {
+	case authored.KindVideo, authored.KindPhoto:
+		return kind
+	default:
+		return ""
+	}
+}
+
+// answersForEnqueue prefers the answers the STORE returned for the row over the ones this request
+// judged: an already-pending repair retry must queue what the crew stored. A store that returns
+// none (a fake, a pre-card caller) keeps the judged answers.
+func answersForEnqueue(fromRow, judged authored.Answers) authored.Answers {
+	if fromRow != nil {
+		return fromRow
+	}
+	return judged
 }
 
 // SOPProofSlotError / SOPAnswerError unwrap the slot key / question id for the HTTP layer.
@@ -223,7 +246,9 @@ func canonicalOrderedRefs(rules domain.Rules, stored authored.ProofRefs, judged 
 }
 
 // canonicalProofMeta pairs each stored capture with its slot title and the kind the register judged
-// it to be (falling back to the slot's own kind for a ref this request did not judge).
+// it to be (falling back to the slot's own kind for a ref this request did not judge). An `either`
+// slot nobody judged stays blank -- unknown, answered by the proof register at read time -- and is
+// never guessed as a video.
 func canonicalProofMeta(rules domain.Rules, stored authored.ProofRefs, judged []judgedProof) []ports.ProofMeta {
 	if len(stored) == 0 {
 		return proofMeta(judged)
@@ -238,12 +263,9 @@ func canonicalProofMeta(rules domain.Rules, stored authored.ProofRefs, judged []
 		if ref == "" {
 			continue
 		}
-		kind := kindOf[ref]
-		if kind == "" || kind == authored.KindEither {
-			kind = p.Kind
-			if kind == authored.KindEither {
-				kind = authored.KindVideo
-			}
+		kind := concreteKind(kindOf[ref])
+		if kind == "" {
+			kind = concreteKind(p.Kind)
 		}
 		out = append(out, ports.ProofMeta{Label: p.Title, Kind: kind})
 	}
