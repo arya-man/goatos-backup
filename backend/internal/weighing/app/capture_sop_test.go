@@ -383,3 +383,56 @@ func TestAnimalAndPenVerifierItemsAreToldApart(t *testing.T) {
 		t.Fatal("source ref types must differ")
 	}
 }
+
+type leadershipEvidenceRepo struct {
+	fakeRepo
+	result domain.LeadershipShedVideos
+}
+
+func (r *leadershipEvidenceRepo) GetLeadershipShedVideos(context.Context, string, string, string, string, int, ports.CampaignAccess) (domain.LeadershipShedVideos, error) {
+	return r.result, nil
+}
+
+// Leadership's "N of M" and the capture titles come from the task's PINNED rules, not the fixed
+// proof-policy 5 / the registry's numbered video.
+func TestLeadershipEvidenceUsesThePinnedWholePenCeilingAndTitles(t *testing.T) {
+	director := domain.Actor{TenantID: testTenant, UserID: testActor, Roles: []string{permissions.RoleGrowthDirector}}
+	repo := &leadershipEvidenceRepo{result: domain.LeadershipShedVideos{
+		CampaignID: captureCampaign, CampaignShedID: captureBucket, WeighingCategory: domain.CategoryPerShedPartition, SOPVersion: 5, MaxShedVideos: 5,
+		LumpSum: &domain.Observation{ObservationID: "o", ProofArtifactID: proofOne, ProofArtifactIDs: []string{proofOne, proofTwo, proofSix},
+			ProofSlots: domain.LumpSumProofRefs{"pen_video": {proofOne, proofTwo}, "scale_photo": {proofSix}}, ProofKinds: map[string]string{proofOne: "video", proofTwo: "video", proofSix: "photo"}},
+	}}
+	service := NewService(repo).WithSOPRules(lumpRules(5), pinnedVersion(5))
+	got, err := service.GetLeadershipShedVideos(context.Background(), director, captureCampaign, captureBucket, "", 10)
+	if err != nil {
+		t.Fatalf("err = %v", err)
+	}
+	if got.MaxShedVideos != 4 { // pen_video max 3 + scale_photo max 1
+		t.Fatalf("MaxShedVideos = %d, want the pinned Σmax 4", got.MaxShedVideos)
+	}
+	m := got.LumpSum.Media
+	if len(m) != 3 || m[0].Label != "Weighing video 1 of 2" || m[1].Label != "Weighing video 2 of 2" || m[2].Label != "Scale display photo" || m[2].MimeType != "image/jpeg" {
+		t.Fatalf("media = %+v", m)
+	}
+	// A pre-slot row (no slot map) reads as the seeded slot, numbered, under the seed.
+	repo.result.SOPVersion = 0
+	repo.result.LumpSum = &domain.Observation{ObservationID: "o", ProofArtifactID: proofOne, ProofArtifactIDs: []string{proofOne, proofTwo}}
+	got, err = service.GetLeadershipShedVideos(context.Background(), director, captureCampaign, captureBucket, "", 10)
+	if err != nil {
+		t.Fatalf("err = %v", err)
+	}
+	if got.MaxShedVideos != 5 || got.LumpSum.Media[1].Label != "Weighing video 2 of 2" {
+		t.Fatalf("seed: max=%d media=%+v", got.MaxShedVideos, got.LumpSum.Media)
+	}
+	// Per animal: primary first, titled by slot.
+	repo.result = domain.LeadershipShedVideos{CampaignID: captureCampaign, WeighingCategory: domain.CategoryIndividualAnimal, SOPVersion: 2,
+		Individual: []domain.Observation{{ObservationID: "a", ProofArtifactID: proofOne, ProofArtifactIDs: []string{proofOne, proofTwo}, Proofs: domain.IndividualProofRefs{"animal_video": proofOne, "scale_photo": proofTwo}, ProofKinds: map[string]string{proofTwo: "photo"}}}}
+	service = NewService(repo).WithSOPRules(twoSlotIndividualRules(2), pinnedVersion(2))
+	got, err = service.GetLeadershipShedVideos(context.Background(), director, captureCampaign, captureBucket, "", 10)
+	if err != nil {
+		t.Fatalf("err = %v", err)
+	}
+	if im := got.Individual[0].Media; len(im) != 2 || im[0].Label != "Weighing video" || im[1].Label != "Scale display" || im[1].MimeType != "image/jpeg" {
+		t.Fatalf("individual media = %+v", im)
+	}
+}

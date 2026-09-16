@@ -676,9 +676,12 @@ type LeadershipShedVideos struct {
 	EstimatedAnimalCount int `json:"estimated_animal_count"`
 	// MaxShedVideos is the lump-sum group-video allowance, so "N of MaxShedVideos"
 	// reads off the same policy the write path enforces.
-	MaxShedVideos int           `json:"max_shed_videos"`
-	Individual    []Observation `json:"individual"`
-	LumpSum       *Observation  `json:"lump_sum,omitempty"`
+	MaxShedVideos int `json:"max_shed_videos"`
+	// SOPVersion is the task's pinned weighing SOP version (0 = seed); internal, the service
+	// resolves MaxShedVideos (the pinned whole-pen Σmax) and the capture labels from it.
+	SOPVersion int           `json:"-"`
+	Individual []Observation `json:"individual"`
+	LumpSum    *Observation  `json:"lump_sum,omitempty"`
 	// NextIndividualCursor pages Individual on a keyset of
 	// (accepted_at, observation_id) scoped to this bucket. Empty means the last
 	// page. LumpSum is a single latest-row read and is never paged: a per-shed

@@ -1,7 +1,11 @@
 package app
 
 import (
+	"context"
+	"errors"
+
 	"github.com/vgoats/goatos/backend/internal/weighing/domain"
+	"github.com/vgoats/goatos/backend/internal/weighing/ports"
 )
 
 // THE WEIGH CAPTURES ARE AUTHORED (maintainer decision 2026-09-16): what the VERIFIER reads on
@@ -81,6 +85,116 @@ func captureContextRows(kind string, answers []domain.AnswerRow, notCaptured []d
 	}
 	for _, r := range notCaptured {
 		out = append(out, VerificationContextRow{Label: r.Label, Value: r.Value, Group: captureGroupNotCaptured})
+	}
+	return out
+}
+
+// --- Leadership evidence: the pinned rules label what the director sees -----------------------
+
+// decorateLeadershipEvidence resolves each bucket's PINNED rules once per distinct version
+// (bounded by the page size) and stamps: MaxShedVideos = the pinned whole-pen Σmax (the "N of
+// M" denominator, no longer the fixed proof-policy 5), and each capture's SOP title + kind on
+// the Media list, in slot order, so leadership reads "Scale display photo" over an image
+// rather than a numbered video. A bucket pinned to a version the farm never published renders
+// under the seeded copy, as the removal card does.
+func (s *Service) decorateLeadershipEvidence(ctx context.Context, tenantID string, items []*domain.LeadershipShedVideos) error {
+	byVersion := map[int]domain.Rules{}
+	for _, item := range items {
+		if item == nil {
+			continue
+		}
+		rules, ok := byVersion[item.SOPVersion]
+		if !ok {
+			resolved, err := s.rulesForVersion(ctx, tenantID, item.SOPVersion)
+			if errors.Is(err, ports.ErrSOPVersionUnknown) {
+				resolved, err = domain.SeededRules(), nil
+			}
+			if err != nil {
+				return err
+			}
+			rules = resolved
+			byVersion[item.SOPVersion] = rules
+		}
+		item.MaxShedVideos = rules.LumpSumProofsTotalMax()
+		for i := range item.Individual {
+			item.Individual[i].Media = individualMedia(rules, item.Individual[i])
+		}
+		if item.LumpSum != nil {
+			item.LumpSum.Media = lumpSumMedia(rules, *item.LumpSum)
+		}
+	}
+	return nil
+}
+
+func mimeForKind(kind string) string {
+	switch kind {
+	case domain.RemovalProofKindVideo:
+		return "video/mp4"
+	case domain.RemovalProofKindPhoto:
+		return "image/jpeg"
+	}
+	return ""
+}
+
+// individualMedia lists a per-animal row's captures primary-first with their slot titles. A row
+// written before slots existed (no slot map) is the seeded slot's single video.
+func individualMedia(rules domain.Rules, obs domain.Observation) []domain.ProofMedia {
+	slots := rules.IndividualProofs()
+	titleByRef := map[string]string{}
+	for _, slot := range slots {
+		if ref := obs.Proofs[slot.Key]; ref != "" {
+			titleByRef[ref] = slot.Title
+		}
+	}
+	if len(obs.Proofs) == 0 && obs.ProofArtifactID != "" && len(slots) > 0 {
+		titleByRef[obs.ProofArtifactID] = slots[0].Title
+	}
+	ids := obs.ProofArtifactIDs
+	if len(ids) == 0 && obs.ProofArtifactID != "" {
+		ids = []string{obs.ProofArtifactID}
+	}
+	out := make([]domain.ProofMedia, 0, len(ids))
+	for _, id := range ids {
+		if id == "" {
+			continue
+		}
+		out = append(out, domain.ProofMedia{ProofID: id, Label: titleByRef[id], MimeType: mimeForKind(obs.ProofKinds[id])})
+	}
+	return out
+}
+
+// lumpSumMedia lists a whole-pen row's captures in stored order, titled "Title k of N" within
+// each slot. A row written before slots existed is the seeded pen_video slot, numbered.
+func lumpSumMedia(rules domain.Rules, obs domain.Observation) []domain.ProofMedia {
+	slots := rules.LumpSumProofs()
+	titles := map[string]string{}
+	for _, slot := range slots {
+		titles[slot.Key] = slot.Title
+	}
+	ids := obs.ProofArtifactIDs
+	if len(ids) == 0 && obs.ProofArtifactID != "" {
+		ids = []string{obs.ProofArtifactID}
+	}
+	proofSlots := obs.ProofSlots
+	if len(proofSlots) == 0 && len(slots) > 0 {
+		proofSlots = domain.LumpSumProofRefs{slots[0].Key: ids}
+	}
+	labelByRef := map[string]string{}
+	for key, refs := range proofSlots {
+		title := titles[key]
+		if title == "" {
+			title = key
+		}
+		for i, ref := range refs {
+			labelByRef[ref] = domain.CaptureMediaLabel(title, i+1, len(refs))
+		}
+	}
+	out := make([]domain.ProofMedia, 0, len(ids))
+	for _, id := range ids {
+		if id == "" {
+			continue
+		}
+		out = append(out, domain.ProofMedia{ProofID: id, Label: labelByRef[id], MimeType: mimeForKind(obs.ProofKinds[id])})
 	}
 	return out
 }

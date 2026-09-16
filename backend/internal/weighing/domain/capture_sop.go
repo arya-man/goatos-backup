@@ -191,6 +191,13 @@ func (r Rules) ServedRules() Rules {
 	return out
 }
 
+// LegacyVideoWindow is the window an OLDER phone (pre-slots) renders and is judged on: the
+// derived mirror over the whole-pen slots. The ONLY sanctioned read of the legacy window
+// outside this package (weighing-sop-guard, lump-sum-window-literal).
+func (r Rules) LegacyVideoWindow() (int, int) {
+	return legacyVideoWindow(r.LumpSumProofs())
+}
+
 // legacyVideoWindow derives the older clients' window from the whole-pen slots.
 func legacyVideoWindow(slots []CountedProofSlot) (int, int) {
 	lo, hi := 0, 0

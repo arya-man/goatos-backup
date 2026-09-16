@@ -468,31 +468,36 @@ GROUP BY wso.average_weight_kg`, repoTenant, obs.ObservationID).Scan(&average, &
 	}
 }
 
-func TestRecordShedObservationRejectsMoreThanFiveProofs(t *testing.T) {
+// THE WEIGH CAPTURES ARE AUTHORED (2026-09-16): the STORE's ceiling is ten captures per pen
+// (migration 000328 -- up to four counted slots of at most five each). Five stays the ceiling of
+// ONE slot and of an older app's flat list, both enforced by the service
+// (app.applyLumpSumCaptureRules), not by the store. This used to pin six as the store's refusal.
+func TestRecordShedObservationRejectsMoreThanTenProofs(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
 	pool := pgtest.StartPostgres(t, ctx)
 	defer pool.Close()
 	seedWeighingObservationFixture(t, ctx, pool)
-	for _, proofID := range []string{repoShedProofTwo, repoShedProofThree, repoShedProofFour, repoShedProofFive, repoShedProofSix} {
+	extra := []string{repoShedProofTwo, repoShedProofThree, repoShedProofFour, repoShedProofFive, repoShedProofSix}
+	for i := 7; i <= 11; i++ {
+		extra = append(extra, "00000000-0000-4000-8000-0000000097"+string(rune('0'+i/10))+string(rune('0'+i%10)))
+	}
+	for _, proofID := range extra {
 		insertProof(t, ctx, pool, proofID, "video", "completed", "shed", repoPerShed, "shed", repoPerShed)
 	}
 	repo := NewRepository(pool, 5*time.Second)
 
 	_, err := repo.RecordShedObservation(ctx, domain.RecordShedObservation{
-		TenantID:        repoTenant,
-		CampaignID:      repoCampaign,
-		CampaignShedID:  repoShedScope,
-		AverageWeightKg: 13.375,
-		ProofArtifactIDs: []string{
-			repoShedProof, repoShedProofTwo, repoShedProofThree,
-			repoShedProofFour, repoShedProofFive, repoShedProofSix,
-		},
-		IdempotencyKey: "shed:six-proof-bundle",
-		RecordedBy:     repoOperator,
+		TenantID:         repoTenant,
+		CampaignID:       repoCampaign,
+		CampaignShedID:   repoShedScope,
+		WeightKg:         402,
+		ProofArtifactIDs: append([]string{repoShedProof}, extra...),
+		IdempotencyKey:   "shed:eleven-proof-bundle",
+		RecordedBy:       repoOperator,
 	})
 	if !errors.Is(err, ports.ErrInvalidArgument) {
-		t.Fatalf("six-proof error=%v, want invalid argument", err)
+		t.Fatalf("eleven-proof error=%v, want invalid argument", err)
 	}
 }
 
