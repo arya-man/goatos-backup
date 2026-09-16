@@ -20,6 +20,7 @@ import {
   Gavel,
   SquareKanban,
   HeartPulse,
+  ListChecks,
   Menu,
   MapPin,
   Milk,
@@ -73,6 +74,9 @@ const iconByToken: Record<string, ElementType> = {
   "edit-3": Edit3,
   gavel: Gavel,
   "heart-pulse": HeartPulse,
+  // Routines' declared icon in the backend nav contract (2026-09-16). Registered for the same
+  // reason as `milk`, `scale` and `wheat`: an unregistered token falls back to the Control Tower icon.
+  "list-checks": ListChecks,
   // Milk is its own vertical in the backend nav contract; without this token the group would
   // silently fall back to the Control Tower icon (the same defect `wheat` hit below).
   milk: Milk,
