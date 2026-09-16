@@ -548,3 +548,107 @@ func mustListColostrum(t *testing.T, repo *Repository, ctx context.Context, date
 	}
 	return page
 }
+
+// PER-STEP REVIEW (2026-09-16). A feed the operator recorded is in_review until the verifier's
+// verdict lands, and the day lens must read it as DONE -- not as the next feed owed -- on every
+// axis the lens is proved on: OneToMany feeds per kid still one card, the PageBoundary keeps the
+// chips whole, the ScheduledDate split keeps each date's own in_review feeds, and the
+// StatusBuckets of the chips still partition the day. Two kids: kid A has its birth-day feeds
+// in_review / completed / pending; kid B has every birth-day feed in_review (nothing owed, so
+// the DAY reads completed for the operator while the verdicts are outstanding).
+func TestColostrumDayInReviewFeedIsDoneAcrossOneToManyPageBoundaryScheduledDateAndStatusBuckets(t *testing.T) {
+	repo, pool, ctx := newWorkflowRepo(t)
+	kidA := openWorkflow(t, repo, ctx, domain.TemplateKeyBirthKid, wfKid)
+	kidB := openSecondKidWorkflow(t, repo, pool, ctx)
+
+	setFeeds := func(workflowID, date string, statuses []string) []string {
+		t.Helper()
+		rows, err := pool.Query(ctx, `
+SELECT action_id::text, action_key FROM workflow_actions
+WHERE workflow_id = $1::uuid
+  AND (section = 'colostrum_session' OR action_key = 'first_colostrum')
+  AND (due_at AT TIME ZONE 'Asia/Kolkata')::date = $2::date
+ORDER BY seq`, workflowID, date)
+		if err != nil {
+			t.Fatalf("load feeds: %v", err)
+		}
+		defer rows.Close()
+		var keys []string
+		i := 0
+		for rows.Next() {
+			var id, key string
+			if err := rows.Scan(&id, &key); err != nil {
+				t.Fatalf("scan: %v", err)
+			}
+			if i < len(statuses) {
+				if _, err := pool.Exec(ctx, `UPDATE workflow_actions SET status = $2 WHERE action_id = $1::uuid`, id, statuses[i]); err != nil {
+					t.Fatalf("set status: %v", err)
+				}
+			}
+			keys = append(keys, key)
+			i++
+		}
+		return keys
+	}
+	// Kid A, birth day: recorded, approved, recorded, then two still owed.
+	keysA := setFeeds(kidA, colostrumBirthDate, []string{"in_review", "completed", "in_review", "pending", "pending"})
+	// Kid A, next day: the first feed already recorded -- the ScheduledDate split must not let the
+	// birth day borrow it, nor the next day borrow the birth day's owed feeds.
+	setFeeds(kidA, colostrumNextDate, []string{"in_review"})
+	// Kid B, birth day: every feed recorded, all verdicts outstanding.
+	setFeeds(kidB, colostrumBirthDate, []string{"in_review", "in_review", "in_review", "in_review", "in_review"})
+
+	at := time.Date(2026, 7, 27, 23, 0, 0, 0, biztime.DefaultLocation())
+	page := mustListColostrum(t, repo, ctx, colostrumBirthDate, at)
+
+	// OneToMany: many feeds, still one card per kid.
+	if page.Chips.All != 2 || len(page.Items) != 2 {
+		t.Fatalf("chips.all=%d items=%d, want 2 kids (one card each, never one per feed)", page.Chips.All, len(page.Items))
+	}
+	cardA := colostrumCard(t, page, kidA)
+	if cardA.ActionsTotal != 5 || cardA.ActionsDone != 3 {
+		t.Fatalf("kid A = %d/%d, want 3/5: in_review + completed + in_review are the operator's work done", cardA.ActionsDone, cardA.ActionsTotal)
+	}
+	if cardA.NextAction == nil || cardA.NextAction.Key != keysA[3] {
+		t.Fatalf("kid A next = %v, want %q: the first feed still OWED, never the in_review one", cardA.NextAction, keysA[3])
+	}
+	cardB := colostrumCard(t, page, kidB)
+	if cardB.ActionsDone != 5 || cardB.NextAction != nil || cardB.State != domain.WorkflowStateCompleted {
+		t.Fatalf("kid B = %+v, want 5/5 done, no next, day completed for the operator while verdicts are outstanding", cardB)
+	}
+	if cardB.AwaitingVerification {
+		t.Fatal("the colostrum day card is not the review grain and never reads awaiting_verification")
+	}
+
+	// StatusBuckets: chips still partition the day with in_review present; kid B is completed.
+	if page.Chips.All != page.Chips.Overdue+page.Chips.Due+page.Chips.Completed {
+		t.Fatalf("chips stopped partitioning under in_review: %+v", page.Chips)
+	}
+	if page.Chips.Completed != 1 {
+		t.Fatalf("completed chip = %d, want 1 (kid B, every feed recorded)", page.Chips.Completed)
+	}
+
+	// PageBoundary: a one-card page keeps the whole-day chips and the same per-card counters.
+	small := colostrumQuery(colostrumBirthDate, "", at)
+	small.PageSize = 1
+	smallPage, err := repo.ListColostrumDay(ctx, small)
+	if err != nil {
+		t.Fatalf("small page: %v", err)
+	}
+	if smallPage.Chips != page.Chips || len(smallPage.Items) != 1 {
+		t.Fatalf("page size changed the chips or the row count: %+v / %d", smallPage.Chips, len(smallPage.Items))
+	}
+	for _, card := range smallPage.Items {
+		full := colostrumCard(t, page, card.WorkflowID)
+		if card.ActionsDone != full.ActionsDone || card.ActionsTotal != full.ActionsTotal {
+			t.Fatalf("paging changed a card's counters: %+v vs %+v", card, full)
+		}
+	}
+
+	// ScheduledDate: the next day counts only its own feeds -- one recorded, four owed.
+	next := mustListColostrum(t, repo, ctx, colostrumNextDate, at.Add(24*time.Hour))
+	nextA := colostrumCard(t, next, kidA)
+	if nextA.ActionsTotal != 5 || nextA.ActionsDone != 1 {
+		t.Fatalf("kid A next day = %d/%d, want 1/5 (only that date's in_review feed is done there)", nextA.ActionsDone, nextA.ActionsTotal)
+	}
+}
