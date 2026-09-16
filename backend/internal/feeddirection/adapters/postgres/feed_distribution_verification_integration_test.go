@@ -310,9 +310,6 @@ WHERE tenant_id = $1::uuid AND completion_id = $2::uuid`, fdTenant, pending.Comp
 	// a fresh verification item.
 	resubmit := distributionParams()
 	resubmit.IdempotencyKey = "feed-distribution-key-0002"
-	// Every capture is re-shot: a capture the session was sent back with is refused on the
-	// resubmit (feed_proof_reuse.go, 2026-09-17), the weight photo included.
-	resubmit.FeedWeightProofRef = "proof-feed-weight-photo-0002"
 	resubmit.DistributionProofRef = "proof-distribution-0002"
 	resubmit.WaterProofRef = "proof-water-0002"
 	res, err := repo.CompleteDistribution(ctx, resubmit)

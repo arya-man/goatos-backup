@@ -112,6 +112,10 @@ type ApplyWastageParams struct {
 	// item's first media ref). When set, the verdict applies only while the row still holds that
 	// capture: a re-delivered or late verdict for a submission the crew has since re-shot is stale.
 	EvidenceID string
+	// ItemID is the verification item the verdict was cast on. When set, the verdict applies only
+	// while no NEWER item exists for the completion -- the round fence that still holds when a
+	// resubmit names the same captures again.
+	ItemID string
 }
 
 // BounceWastageParams flips a wastage completion whose video a verifier REJECTED
@@ -125,6 +129,10 @@ type BounceWastageParams struct {
 	// item's first media ref). When set, the verdict applies only while the row still holds that
 	// capture: a re-delivered or late verdict for a submission the crew has since re-shot is stale.
 	EvidenceID string
+	// ItemID is the verification item the verdict was cast on. When set, the verdict applies only
+	// while no NEWER item exists for the completion -- the round fence that still holds when a
+	// resubmit names the same captures again.
+	ItemID string
 }
 
 // RecordWastageMeasurementParams is the VERIFIER'S measurement: the leftover weight she read off

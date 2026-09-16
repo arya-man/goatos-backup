@@ -30,7 +30,9 @@ const (
 type feedDistributionVerdictPayload struct {
 	VerifiedBy string `json:"verified_by"`
 	Reason     string `json:"reason"`
-	Source     struct {
+	// ItemID is the verification item the verdict was cast on (the round fence).
+	ItemID string `json:"item_id"`
+	Source struct {
 		Module  string `json:"module"`
 		RefType string `json:"ref_type"`
 		RefID   string `json:"ref_id"`
@@ -86,6 +88,7 @@ func (h *FeedDistributionVerificationHandler) HandleEvent(ctx context.Context, e
 			TenantID:     e.TenantID,
 			CompletionID: completionID,
 			EvidenceID:   strings.TrimSpace(p.Source.EvidenceID),
+			ItemID:       strings.TrimSpace(p.ItemID),
 			VerifiedBy:   strings.TrimSpace(p.VerifiedBy),
 			// Thread the verification event id as the completion's trace id so the feed.distribution.completed
 			// outbox envelope carries a non-empty trace_id.
@@ -97,6 +100,7 @@ func (h *FeedDistributionVerificationHandler) HandleEvent(ctx context.Context, e
 			TenantID:     e.TenantID,
 			CompletionID: completionID,
 			EvidenceID:   strings.TrimSpace(p.Source.EvidenceID),
+			ItemID:       strings.TrimSpace(p.ItemID),
 			Reason:       strings.TrimSpace(p.Reason),
 			TraceID:      e.ID,
 		})

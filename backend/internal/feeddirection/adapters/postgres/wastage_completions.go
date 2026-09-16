@@ -181,14 +181,6 @@ WHERE tenant_id = $1::uuid AND park_id = $2::uuid AND shed_id = $3::uuid
 			// A verifier rejected the prior video; the operator re-recorded. Move the row back to
 			// pending_verification with the NEW video, bump row_version, clear the rework reason.
 			// This is a fresh pending transition, so it enqueues a fresh verification item.
-			//
-			// NEW captures only (feed_proof_reuse.go).
-			if err := refuseSentBackProofs(sopProofs, existingSOP); err != nil {
-				return ports.CompleteWastageResult{}, err
-			}
-			if err := refuseProofsUsedElsewhere(ctx, tx, p.TenantID, p.ParkID, targetDate, completionID, sopProofs); err != nil {
-				return ports.CompleteWastageResult{}, err
-			}
 			if err := tx.QueryRow(ctx, `
 UPDATE feed_wastage_completions
 SET status = 'pending_verification',
@@ -224,11 +216,7 @@ RETURNING row_version`,
 	case err != nil:
 		return ports.CompleteWastageResult{}, fmt.Errorf("feeddirection: insert wastage completion: %w", err)
 	default:
-		// Fresh insert: a brand-new pending_verification row -- unless a capture already proves
-		// another piece of feed work (the insert rolls back with the refusal).
-		if err := refuseProofsUsedElsewhere(ctx, tx, p.TenantID, p.ParkID, targetDate, completionID, sopProofs); err != nil {
-			return ports.CompleteWastageResult{}, err
-		}
+		// Fresh insert: a brand-new pending_verification row.
 		newlyPending = true
 		if err := writeWastageAudit(ctx, tx, p, completionID, feedWastagePendingAction); err != nil {
 			return ports.CompleteWastageResult{}, err
@@ -322,7 +310,7 @@ func (r *Repository) ApplyVerifiedWastage(ctx context.Context, p ports.ApplyWast
 		}
 	}()
 
-	var holdsEvidence bool
+	var holdsEvidence, itemCurrent bool
 	var (
 		status     string
 		parkID     string
@@ -331,10 +319,10 @@ func (r *Repository) ApplyVerifiedWastage(ctx context.Context, p ports.ApplyWast
 		wastageKg  *float64
 	)
 	err = tx.QueryRow(ctx, `
-SELECT status, park_id::text, shed_id::text, target_date, wastage_kg::float8, ($3::text = '' OR EXISTS (SELECT 1 FROM jsonb_each_text(sop_proofs) e WHERE e.value = $3::text))
+SELECT status, park_id::text, shed_id::text, target_date, wastage_kg::float8, `+verdictEvidenceHeldSQL(3)+`, `+verdictItemCurrentSQL(4, "feed_wastage_completions", "feed_wastage_completion")+`
 FROM feed_wastage_completions
 WHERE tenant_id = $1::uuid AND completion_id = $2::uuid
-FOR UPDATE`, p.TenantID, p.CompletionID, strings.TrimSpace(p.EvidenceID)).Scan(&status, &parkID, &shedID, &targetDate, &wastageKg, &holdsEvidence)
+FOR UPDATE`, p.TenantID, p.CompletionID, strings.TrimSpace(p.EvidenceID), strings.TrimSpace(p.ItemID)).Scan(&status, &parkID, &shedID, &targetDate, &wastageKg, &holdsEvidence, &itemCurrent)
 	if errors.Is(err, pgx.ErrNoRows) {
 		if commitErr := r.commitAndInvalidateReadCache(ctx, tx); commitErr != nil {
 			return false, commitErr
@@ -347,7 +335,7 @@ FOR UPDATE`, p.TenantID, p.CompletionID, strings.TrimSpace(p.EvidenceID)).Scan(&
 	}
 	// A verdict for a capture the row no longer holds judged an EARLIER submission (a
 	// re-delivered or late event after the crew re-shot): stale, exactly like a moved-on status.
-	if status != domain.WastageStatusPendingVerification || !holdsEvidence {
+	if status != domain.WastageStatusPendingVerification || !holdsEvidence || !itemCurrent {
 		if commitErr := r.commitAndInvalidateReadCache(ctx, tx); commitErr != nil {
 			return false, commitErr
 		}
@@ -414,8 +402,9 @@ SET status = 'rework',
     updated_at = now(),
     row_version = row_version + 1
 WHERE tenant_id = $1::uuid AND completion_id = $2::uuid AND status = 'pending_verification'
-  AND ($4::text = '' OR EXISTS (SELECT 1 FROM jsonb_each_text(sop_proofs) e WHERE e.value = $4::text))`,
-		p.TenantID, p.CompletionID, strings.TrimSpace(p.Reason), strings.TrimSpace(p.EvidenceID))
+  AND `+verdictEvidenceHeldSQL(4)+`
+  AND `+verdictItemCurrentSQL(5, "feed_wastage_completions", "feed_wastage_completion"),
+		p.TenantID, p.CompletionID, strings.TrimSpace(p.Reason), strings.TrimSpace(p.EvidenceID), strings.TrimSpace(p.ItemID))
 	if err != nil {
 		return false, fmt.Errorf("feeddirection: bounce wastage for rework: %w", err)
 	}

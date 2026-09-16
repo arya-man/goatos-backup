@@ -52,7 +52,7 @@ func (s *evidenceWastageStore) BounceWastageForRework(_ context.Context, p ports
 func verdictEvent(t *testing.T, eventType, refType string) eventbus.Event {
 	t.Helper()
 	payload, _ := json.Marshal(map[string]any{
-		"reason": "blurry", "verified_by": "v-1",
+		"reason": "blurry", "verified_by": "v-1", "item_id": "item-judged",
 		"source": map[string]any{"module": domain.VerificationModuleFeed, "ref_type": refType, "ref_id": "c-1", "evidence_id": "proof-judged"},
 	})
 	return eventbus.Event{ID: "e-1", Type: eventType, TenantID: testTenant, Payload: payload}
@@ -68,6 +68,9 @@ func TestFeedVerdictHandlersThreadTheJudgedEvidence(t *testing.T) {
 	if err := h.HandleEvent(ctx, verdictEvent(t, eventVerificationVerdictRework, domain.VerificationRefTypePacking)); err != nil {
 		t.Fatal(err)
 	}
+	if packing.apply.ItemID != "item-judged" || packing.bounce.ItemID != "item-judged" || false {
+		t.Fatalf("packing verdict item = apply %q / bounce %q, want item-judged (the round fence)", packing.apply.ItemID, packing.bounce.ItemID)
+	}
 	if packing.apply.EvidenceID != "proof-judged" || packing.bounce.EvidenceID != "proof-judged" {
 		t.Fatalf("packing verdict evidence = apply %q / bounce %q, want proof-judged", packing.apply.EvidenceID, packing.bounce.EvidenceID)
 	}
@@ -75,14 +78,14 @@ func TestFeedVerdictHandlersThreadTheJudgedEvidence(t *testing.T) {
 	if err := NewFeedDistributionVerificationHandler(dist, nil).HandleEvent(ctx, verdictEvent(t, eventVerificationVerdictApproved, domain.VerificationRefTypeFeed)); err != nil {
 		t.Fatal(err)
 	}
-	if dist.apply.EvidenceID != "proof-judged" {
+	if dist.apply.EvidenceID != "proof-judged" || dist.apply.ItemID != "item-judged" {
 		t.Fatalf("distribution approve evidence = %q", dist.apply.EvidenceID)
 	}
 	wastage := &evidenceWastageStore{}
 	if err := NewFeedWastageVerificationHandler(wastage, nil).HandleEvent(ctx, verdictEvent(t, eventVerificationVerdictRework, domain.VerificationRefTypeWastage)); err != nil {
 		t.Fatal(err)
 	}
-	if wastage.bounce.EvidenceID != "proof-judged" {
+	if wastage.bounce.EvidenceID != "proof-judged" || wastage.bounce.ItemID != "item-judged" {
 		t.Fatalf("wastage rework evidence = %q", wastage.bounce.EvidenceID)
 	}
 }
