@@ -25,6 +25,8 @@ type DeathVerificationEnqueueRequest struct {
 	OperatorID string
 	ParkID     string
 	ShedID     string
+	// PartitionLabel is the animal's pen inside ShedID (blank when undivided or unknown).
+	PartitionLabel string
 	// ProofRefs is the whole bundle in order (capture form first, then steps in seq order; for
 	// the seeded document: death video, post mortem video). MediaMeta is positional against it
 	// (step title + register kind) and ContextRows carries every answer in farm words grouped by
@@ -56,7 +58,9 @@ type BirthStepVerificationEnqueueRequest struct {
 	Proofs                                                                   []domain.ProofItem
 	ProofLabel                                                               string
 	TenantID, WorkflowID, ActionID, OperatorID, ParkID, ShedID, SubjectLabel string
-	ProofRefs                                                                []string
+	// PartitionLabel is the animal's pen inside ShedID (blank when undivided or unknown).
+	PartitionLabel string
+	ProofRefs      []string
 	// MediaMeta names each ProofRefs entry (step title, numbered only when the step itself holds
 	// several of a kind; register-resolved kind) and ContextRows carries the step's answer in
 	// farm words. Proofs/ProofLabel are kept for older readers; the bridge renders MediaMeta.
@@ -290,6 +294,9 @@ func (s *Service) deathEvidenceRequest(ctx context.Context, tenantID string, w d
 	bundle := domain.DeathEvidenceBundle(w.CaptureEvidence, actions)
 	shedID := derefOr(w.ShedID)
 	shedName, partitionLabel, _ := s.repo.FetchShedDetails(ctx, tenantID, shedID)
+	if pen := s.animalPen(ctx, tenantID, w); pen != "" {
+		partitionLabel = pen
+	}
 	if capturedAt.IsZero() {
 		capturedAt = s.now().UTC()
 	}
@@ -299,6 +306,7 @@ func (s *Service) deathEvidenceRequest(ctx context.Context, tenantID string, w d
 		OperatorID:     strings.TrimSpace(operatorID),
 		ParkID:         derefOr(w.ParkID),
 		ShedID:         shedID,
+		PartitionLabel: partitionLabel,
 		ProofRefs:      bundle.Refs,
 		MediaMeta:      bundle.Meta,
 		ContextRows:    bundle.Rows,
@@ -394,10 +402,14 @@ func (s *Service) enqueueBirthStepIfRecorded(ctx context.Context, tenantID strin
 	// The animal's display id names WHICH kid when a litter has twins recording the same step on
 	// the same day in the same pen; a lookup failure degrades to the role alone rather than
 	// blocking the enqueue.
-	if facts, err := s.repo.GoatWorkflowFacts(ctx, tenantID, w.SubjectGoatID); err == nil && strings.TrimSpace(facts.DisplayID) != "" {
-		subject += " " + strings.TrimSpace(facts.DisplayID)
-	}
 	shedID := derefOr(w.ShedID)
+	partitionLabel := ""
+	if facts, err := s.repo.GoatWorkflowFacts(ctx, tenantID, w.SubjectGoatID); err == nil {
+		if strings.TrimSpace(facts.DisplayID) != "" {
+			subject += " " + strings.TrimSpace(facts.DisplayID)
+		}
+		partitionLabel = penInShed(facts, shedID)
+	}
 	capturedAt := s.now().UTC()
 	if step.CompletedAt != nil {
 		capturedAt = step.CompletedAt.UTC()
@@ -423,8 +435,9 @@ func (s *Service) enqueueBirthStepIfRecorded(ctx context.Context, tenantID strin
 	return s.enqueuer.EnqueueBirthStepVerification(ctx, BirthStepVerificationEnqueueRequest{
 		TenantID: tenantID, WorkflowID: w.WorkflowID, ActionID: step.ActionID,
 		OperatorID: derefOr(step.CompletedBy), ParkID: derefOr(w.ParkID), ShedID: shedID,
-		ProofRefs: step.AllProofRefs(),
-		Proofs:    step.ProofRefs, ProofLabel: step.Title,
+		PartitionLabel: partitionLabel,
+		ProofRefs:      step.AllProofRefs(),
+		Proofs:         step.ProofRefs, ProofLabel: step.Title,
 		MediaMeta: domain.StepMediaMeta(step), ContextRows: rows,
 		SubjectLabel:   step.Title + " · " + subject + " · " + w.EventDate,
 		CapturedAt:     capturedAt,
@@ -659,6 +672,24 @@ func birthMoment(dob *time.Time, rowTime *string, payloadTime string, occurredAt
 		}
 	}
 	return time.Date(day.Year(), day.Month(), day.Day(), hour, minute, 0, 0, loc)
+}
+
+// animalPen is the subject animal's pen inside the workflow's shed ("" when unknown).
+func (s *Service) animalPen(ctx context.Context, tenantID string, w domain.WorkflowInstance) string {
+	facts, err := s.repo.GoatWorkflowFacts(ctx, tenantID, w.SubjectGoatID)
+	if err != nil {
+		return ""
+	}
+	return penInShed(facts, derefOr(w.ShedID))
+}
+
+// penInShed names the animal's partition only while the animal stands in that shed: a verifier
+// item scoped to shed A must never carry a pen of shed B (E2E 2026-09-17).
+func penInShed(facts ports.GoatWorkflowFacts, shedID string) string {
+	if shedID == "" || facts.ShedID == nil || strings.TrimSpace(*facts.ShedID) != shedID {
+		return ""
+	}
+	return strings.TrimSpace(facts.PartitionLabel)
 }
 
 // composeOperationalLocation composes a location display string from shed name and partition label.

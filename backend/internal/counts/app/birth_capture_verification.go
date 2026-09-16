@@ -48,11 +48,13 @@ type BirthCaptureVerificationEnqueueRequest struct {
 	OperatorID   string
 	ParkID       string
 	ShedID       string
-	ProofRefs    []string
-	MediaMeta    []CaptureMediaMeta
-	ContextRows  []CaptureContextRow
-	SubjectLabel string
-	CapturedAt   time.Time
+	// PartitionLabel is the pen inside ShedID the report named (blank = undivided shed).
+	PartitionLabel string
+	ProofRefs      []string
+	MediaMeta      []CaptureMediaMeta
+	ContextRows    []CaptureContextRow
+	SubjectLabel   string
+	CapturedAt     time.Time
 	// IdempotencyKey is domain.BirthCaptureKey: "counts-birth-capture:<event>:<slot>:<ref>". A
 	// replayed event collapses (CreateItem is ON CONFLICT DO NOTHING) while a re-shoot (new ref)
 	// mints a fresh item and the rejected one stays history.
@@ -69,6 +71,7 @@ type birthReportedPayload struct {
 	BirthEventID      string            `json:"birth_event_id"`
 	ParkID            string            `json:"park_id"`
 	ShedID            string            `json:"shed_id"`
+	PartitionLabel    string            `json:"partition_label"`
 	GoatIDs           []string          `json:"goat_ids"`
 	RaisedByUserID    string            `json:"raised_by_user_id"`
 	CaptureEvidence   authored.Evidence `json:"capture_evidence"`
@@ -116,7 +119,7 @@ func (h *BirthReportedVerificationHandler) HandleEvent(ctx context.Context, e ev
 	if birthEventID == "" || strings.TrimSpace(e.TenantID) == "" {
 		return nil
 	}
-	reqs := BirthCaptureEnqueueRequests(e.TenantID, birthEventID, p.OperatorID(), p.ParkID, p.ShedID, p.CaptureEvidence, e.OccurredAt, h.now())
+	reqs := withPen(BirthCaptureEnqueueRequests(e.TenantID, birthEventID, p.OperatorID(), p.ParkID, p.ShedID, p.CaptureEvidence, e.OccurredAt, h.now()), p.PartitionLabel)
 	if len(reqs) == 0 {
 		return nil
 	}
@@ -177,6 +180,19 @@ func BirthCaptureEnqueueRequests(tenantID, birthEventID, operatorID, parkID, she
 		})
 	}
 	return out
+}
+
+// withPen stamps the pen the report named on every item: the verifier reads "Castro 1", never the
+// bare shed (E2E 2026-09-17). 'whole' is a matching key, never a pen.
+func withPen(reqs []BirthCaptureVerificationEnqueueRequest, partitionLabel string) []BirthCaptureVerificationEnqueueRequest {
+	label := strings.TrimSpace(partitionLabel)
+	if strings.EqualFold(label, "whole") {
+		label = ""
+	}
+	for i := range reqs {
+		reqs[i].PartitionLabel = label
+	}
+	return reqs
 }
 
 // ErrBirthCaptureEnqueuerNotWired is a composition bug surfaced loudly (the event retries).
@@ -296,8 +312,9 @@ func (s *BirthCaptureReshootService) OnBirthCaptureReshot(ctx context.Context, t
 		return ErrBirthCaptureEnqueuerNotWired
 	}
 	var form struct {
-		ParkID string `json:"park_id"`
-		ShedID string `json:"shed_id"`
+		ParkID         string `json:"park_id"`
+		ShedID         string `json:"shed_id"`
+		PartitionLabel string `json:"partition_label"`
 	}
 	if len(report.Payload) > 0 {
 		if err := json.Unmarshal(report.Payload, &form); err != nil {
@@ -311,7 +328,7 @@ func (s *BirthCaptureReshootService) OnBirthCaptureReshot(ctx context.Context, t
 	// built from that single slot (nothing when its ref or key is blank).
 	one := report.Capture
 	one.Media = []authored.EvidenceMedia{report.Capture.Media[index]}
-	reqs := BirthCaptureEnqueueRequests(tenantID, birthEventID, report.RaisedByUserID, form.ParkID, form.ShedID, one, time.Time{}, time.Now())
+	reqs := withPen(BirthCaptureEnqueueRequests(tenantID, birthEventID, report.RaisedByUserID, form.ParkID, form.ShedID, one, time.Time{}, time.Now()), form.PartitionLabel)
 	if len(reqs) == 0 {
 		return nil
 	}
