@@ -41,14 +41,46 @@ func TestBuildMediaMetaIsPositionalAndTrimmed(t *testing.T) {
 func TestComposeMediaLabelsNumbersRepeatedTitlesKOfN(t *testing.T) {
 	in := []string{"Iodine dipping", "Water", "Iodine dipping", "", "Iodine dipping", " "}
 	want := []string{"Iodine dipping 1 of 3", "Water", "Iodine dipping 2 of 3", "", "Iodine dipping 3 of 3", " "}
-	got := ComposeMediaLabels(in)
+	got := ComposeMediaLabels(in, nil)
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("ComposeMediaLabels = %q, want %q", got, want)
 	}
-	if again := ComposeMediaLabels(got); !reflect.DeepEqual(again, want) {
+	if again := ComposeMediaLabels(got, nil); !reflect.DeepEqual(again, want) {
 		t.Fatalf("ComposeMediaLabels is not idempotent: %q", again)
 	}
-	if got := ComposeMediaLabels([]string{"Video", "Video"}); got[0] != "Video 1 of 2" {
+	if got := ComposeMediaLabels([]string{"Video", "Video"}, nil); got[0] != "Video 1 of 2" {
 		t.Fatalf("repeat = %q", got)
+	}
+}
+
+// A step with one video and one photo under the SAME title reads "Title · video" / "Title · photo"
+// rather than "1 of 2 / 2 of 2", which named two different kinds of proof as if they were a series.
+// "k of N" stays for repeats of the same kind, and a kind nobody resolved keeps plain numbering.
+func TestComposeMediaLabelsSplitsARepeatedTitleByKind(t *testing.T) {
+	cases := []struct {
+		name          string
+		labels, kinds []string
+		want          []string
+	}{
+		{"video and photo", []string{"Gate latched", "Gate latched"}, []string{"video", "image/jpeg"},
+			[]string{"Gate latched · video", "Gate latched · photo"}},
+		{"two videos one photo", []string{"Kid", "Kid", "Kid", "Water"}, []string{"video/mp4", "photo", "video", "video"},
+			[]string{"Kid · video 1 of 2", "Kid · photo", "Kid · video 2 of 2", "Water"}},
+		{"same kind stays k of N", []string{"Kid", "Kid"}, []string{"video", "video/mp4"},
+			[]string{"Kid 1 of 2", "Kid 2 of 2"}},
+		{"unknown kinds stay k of N", []string{"Kid", "Kid"}, []string{"", "application/octet-stream"},
+			[]string{"Kid 1 of 2", "Kid 2 of 2"}},
+		{"short kinds slice", []string{"Kid", "Kid"}, []string{"video"},
+			[]string{"Kid 1 of 2", "Kid 2 of 2"}},
+		{"single proof untouched", []string{"Weighing video"}, []string{"video"}, []string{"Weighing video"}},
+	}
+	for _, tc := range cases {
+		got := ComposeMediaLabels(tc.labels, tc.kinds)
+		if !reflect.DeepEqual(got, tc.want) {
+			t.Errorf("%s: ComposeMediaLabels = %q, want %q", tc.name, got, tc.want)
+		}
+		if again := ComposeMediaLabels(got, tc.kinds); !reflect.DeepEqual(again, tc.want) {
+			t.Errorf("%s: not idempotent: %q", tc.name, again)
+		}
 	}
 }

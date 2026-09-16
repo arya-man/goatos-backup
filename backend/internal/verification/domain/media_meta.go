@@ -59,19 +59,40 @@ func BuildMediaMeta(captures []ProofCapture) []MediaMeta {
 	return out
 }
 
-// ComposeMediaLabels tells apart proofs a producer titled identically: every non-blank title that
-// appears more than once across ONE item becomes "Title k of N" in item order. Distinct titles
-// and blanks are returned untouched (a blank is filled later from the category registry, whose own
-// numbering stays "Video 2"). Composing an already-composed list changes nothing, because the
-// numbered titles are no longer repeats.
-func ComposeMediaLabels(labels []string) []string {
+// ComposeMediaLabels tells apart proofs a producer titled identically across ONE item, in item order.
+// kinds is positional against labels and may be a kind ("video", "photo") or a mime ("video/mp4",
+// "image/jpeg"); a missing or unrecognised entry is an unknown kind.
+//
+//   - A title repeated with the SAME kind (or with kinds nobody resolved) reads "Title k of N".
+//   - A title repeated with DIFFERENT known kinds -- one step with a video and a photo -- reads
+//     "Title · video" / "Title · photo", keeping "k of N" only among repeats of the same kind
+//     ("Title · video 1 of 2"). Numbering a video and a photo as one series named two different
+//     proofs as if they were the same thing twice.
+//
+// Distinct titles and blanks are returned untouched (a blank is filled later from the category
+// registry, whose own numbering stays "Video 2"). Composing an already-composed list changes
+// nothing, because the composed titles are no longer repeats.
+func ComposeMediaLabels(labels []string, kinds []string) []string {
 	out := make([]string, len(labels))
 	copy(out, labels)
-	counts := make(map[string]int, len(labels))
-	for _, label := range labels {
-		if key := strings.TrimSpace(label); key != "" {
-			counts[key]++
+	kindAt := func(i int) string {
+		if i >= len(kinds) {
+			return ""
 		}
+		return mediaKindOf(kinds[i])
+	}
+	counts := make(map[string]int, len(labels))
+	kindCounts := make(map[string]map[string]int, len(labels))
+	for i, label := range labels {
+		key := strings.TrimSpace(label)
+		if key == "" {
+			continue
+		}
+		counts[key]++
+		if kindCounts[key] == nil {
+			kindCounts[key] = map[string]int{}
+		}
+		kindCounts[key][kindAt(i)]++
 	}
 	seen := make(map[string]int, len(counts))
 	for i, label := range labels {
@@ -79,8 +100,43 @@ func ComposeMediaLabels(labels []string) []string {
 		if key == "" || counts[key] < 2 {
 			continue
 		}
-		seen[key]++
-		out[i] = key + " " + strconv.Itoa(seen[key]) + " of " + strconv.Itoa(counts[key])
+		byKind := kindCounts[key]
+		known := 0
+		for kind := range byKind {
+			if kind != "" {
+				known++
+			}
+		}
+		if known < 2 {
+			seen[key]++
+			out[i] = key + " " + strconv.Itoa(seen[key]) + " of " + strconv.Itoa(counts[key])
+			continue
+		}
+		kind := kindAt(i)
+		title := key
+		if kind != "" {
+			title = key + " · " + kind
+		}
+		if byKind[kind] < 2 {
+			out[i] = title
+			continue
+		}
+		seenKey := key + "\x00" + kind
+		seen[seenKey]++
+		out[i] = title + " " + strconv.Itoa(seen[seenKey]) + " of " + strconv.Itoa(byKind[kind])
 	}
 	return out
+}
+
+// mediaKindOf reads a kind or a mime as video / photo / "" (unknown).
+func mediaKindOf(kindOrMime string) string {
+	v := strings.ToLower(strings.TrimSpace(kindOrMime))
+	switch {
+	case strings.HasPrefix(v, "video/"):
+		return MediaKindVideo
+	case strings.HasPrefix(v, "image/"):
+		return MediaKindPhoto
+	default:
+		return NormalizeMediaKind(v)
+	}
 }

@@ -175,13 +175,15 @@ func (s *Service) decorateVideoLogRow(row *domain.VideoLogRow, nav map[string]mo
 		mediaCount = len(def.ExpectedMedia)
 	}
 	labels := make([]string, len(row.Proofs))
+	kinds := make([]string, len(row.Proofs))
 	for i := range row.Proofs {
+		kinds[i] = row.Proofs[i].MediaKind
 		labels[i] = strings.TrimSpace(row.Proofs[i].MetaLabel)
 		if labels[i] == "" {
 			labels[i] = strings.TrimSpace(row.Proofs[i].Label)
 		}
 	}
-	for i, label := range domain.ComposeMediaLabels(labels) {
+	for i, label := range domain.ComposeMediaLabels(labels, kinds) {
 		row.Proofs[i].Label = label
 		if label != "" || !known {
 			continue

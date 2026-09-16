@@ -215,7 +215,8 @@ func TestListQueueNumbersRepeatedProducerLabels(t *testing.T) {
 	for _, m := range result.Items[0].Media {
 		labels = append(labels, m.Label)
 	}
-	if strings.Join(labels, "|") != "Iodine dipping 1 of 2|Iodine dipping 2 of 2|Proof 3" {
+	// A video and a photo under one title are told apart by kind, not numbered as one series.
+	if strings.Join(labels, "|") != "Iodine dipping · video|Iodine dipping · photo|Proof 3" {
 		t.Fatalf("labels = %q", labels)
 	}
 }
