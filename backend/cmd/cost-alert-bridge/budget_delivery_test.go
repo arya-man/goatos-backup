@@ -249,3 +249,30 @@ func TestBudgetEnvelopeRetainsStableIdentity(t *testing.T) {
 		t.Fatal("billing accounts share suppression")
 	}
 }
+
+type conflictingBudgetStore struct{ loads, saves int }
+
+func (s *conflictingBudgetStore) Load(context.Context, string) (budgetState, int64, error) {
+	s.loads++
+	return budgetState{}, 0, nil
+}
+func (s *conflictingBudgetStore) Save(context.Context, string, int64, budgetState) (int64, error) {
+	s.saves++
+	return 0, errStateConflict
+}
+
+func TestBudgetContentionHasBoundedRetries(t *testing.T) {
+	store := &conflictingBudgetStore{}
+	s := &server{budgetStore: store, now: time.Now}
+	b, err := decodeBudgetNotification([]byte(repeatedBudget))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sent, err := s.deliverBudget(context.Background(), b)
+	if sent || !errors.Is(err, errStateConflict) {
+		t.Fatalf("contention sent=%v err=%v", sent, err)
+	}
+	if store.loads != 5 || store.saves != 5 {
+		t.Fatalf("unbounded contention: loads=%d saves=%d", store.loads, store.saves)
+	}
+}

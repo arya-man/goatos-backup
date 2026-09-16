@@ -43,3 +43,12 @@ live revision/config/readback remain separate from this source landing.
 During/after landing, mutable SHA, CI result and push state are recorded in the
 worktree git directory's `cost-alert-landing-progress.md` and standard CI receipts,
 so recording the push does not itself invalidate the certified source SHA.
+
+Final preflight on fresh main: focused race suite PASS (3.166s). First landing
+attempt identified scale-guard's row-fanout heuristic on single-budget CAS retries.
+Four narrowly scoped annotations now document the five-attempt retry bound and
+one completion write; TestBudgetContentionHasBoundedRetries proves exhaustion
+with exactly five loads/saves and no delivery. Scale guard PASS, focused race
+suite PASS (6.530s), and independent final-delta counter-review PASS. The complete
+landing gate must run again for this final revision; no receipt reuse from the
+failed initial attempt.

@@ -113,6 +113,7 @@ func (s *server) deliverBudget(ctx context.Context, b budgetNotification) (bool,
 	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
 	for attempt := 0; attempt < 5; attempt++ {
+		// scale-guard:ignore: single-budget CAS retry, at most five attempts; no row iteration
 		state, generation, err := s.budgetStore.Load(ctx, key)
 		if err != nil {
 			return false, fmt.Errorf("load budget state: %w", err)
@@ -135,6 +136,7 @@ func (s *server) deliverBudget(ctx context.Context, b budgetNotification) (bool,
 				return false, nil
 			}
 			state.LatestPublishedAt = b.PublishedAt
+			// scale-guard:ignore: same-object CAS update, at most five conflict attempts
 			_, err = s.budgetStore.Save(ctx, key, generation, state)
 			if errors.Is(err, errStateConflict) {
 				continue
@@ -143,6 +145,7 @@ func (s *server) deliverBudget(ctx context.Context, b budgetNotification) (bool,
 		}
 		claimed := state
 		claimed.LeaseUntil = now.Add(2 * time.Minute)
+		// scale-guard:ignore: same-object lease claim, at most five conflict attempts
 		generation, err = s.budgetStore.Save(ctx, key, generation, claimed)
 		if errors.Is(err, errStateConflict) {
 			continue
@@ -162,6 +165,7 @@ func (s *server) deliverBudget(ctx context.Context, b budgetNotification) (bool,
 			state.Actual = max(state.Actual, actual)
 		}
 		state.LeaseUntil = time.Time{}
+		// scale-guard:ignore: one fenced completion per delivery; returns immediately afterward
 		_, saveErr := s.budgetStore.Save(finishCtx, key, generation, state)
 		finishCancel()
 		if sendErr != nil || saveErr != nil {
