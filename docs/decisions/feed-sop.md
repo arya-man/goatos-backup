@@ -122,6 +122,49 @@ whatever we update here they should see, it should not be again a new deployment
 5. Packing, wastage and transport worklists and tasks carry their pinned cards (transport tasks
    materialized with `sop_version = 1`).
 
+## Second sweep, same day (edge cases, maintainer ask "play with everything")
+
+Run on the combined QA tree (feed SOP + feed-config dispatch fixes), same clone and phone.
+
+- **Editor validation** (22 malformed cards via the API, each refused by path): >8 slots, no
+  compulsory slot, duplicate / blank / badly-formed keys, unknown kind, blank title, question
+  without id, pick-one without choices, min > max, `only_if` on an unknown or LATER question,
+  `allow_other` without an `other` option, unknown fields, wrong schema version. Long titles are
+  accepted (no cap) -- the phone wraps them.
+- **Questions on the phone**: choice / conditional number with unit / multi / text; the
+  conditional appears only on its trigger value; a required question blocks Submit with its own
+  sentence; typed answers land (`3.5`, `["water","sick"]`) and the verifier drawer shows the
+  labels ("Leftover from last feed · 3.5 kg", "No water, Sick animal seen"). Authored through the
+  real editor too (the wastage question) -- id derived from the title, default Yes/No.
+- **Remove / re-add**: a removed slot and its questions leave the screen on Sync; the orphaned
+  upload stays in the register and comes back as "Proof ready" if the slot is authored again.
+- **Pin by clock, per park**: the same publish between two parks' experiment clocks left CBE on
+  v20 and CPT on v21; the running day never moved.
+- **Offline**: the screen renders from Room with no network at all; a capture taken offline
+  queues and uploads on reconnect without a tap; process kill and cold start restore the slots.
+- **Multi-operator**: same proof set from a second operator replays; a different set is 409;
+  unknown slot / wrong medium / one proof for two slots are 422 naming the slot.
+- **Packing v2** (video + required photo) and **transport v2** (`either` slot + number question,
+  out-of-range answer refused by the server's sentence, corrected resubmit lands) on the phone.
+- **The 14:00 correction on a "Part N" pen** (real lifecycle path): a goat moved into Godel 1 -
+  Part 1 after both bags were packed -> both bags `rework` with the old-vs-new sentence, both
+  verifier items withdrawn.
+
+Defects found and fixed by the sweep (each with a red-then-green test):
+
+1. **Pre-existing on main -- partition key mismatch.** `domain.PartitionMatchKey` ("part_3") was
+   bound against the generated `partition_key` column ("part 3") in the three completion
+   conflict re-reads and the packing reopen. A second operator's submit on any "Part N" pen
+   answered 500 forever; the afternoon correction never reopened such a pen.
+   `adapters/postgres/partition_key.go` is now the one definition.
+2. The photo camera was bound only on the distribution route; a photo slot on packing, wastage
+   or transport failed instantly.
+3. A corrected resubmit after a server 422 queued behind its own dead-lettered predecessor (the
+   outbox lane rule) and never drained; the ViewModels retire that one rejected row.
+4. Completion writes accepted a distribution for a feed day not yet reached and a packing for a
+   day with no sheet -> `422 feed_day_not_reached` / `409 feed_sheet_not_issued`.
+5. Copy: `feedconfig:` / `feeddirection:` package prefixes reached the screen.
+
 ## Not done here / follow-ups
 
 - The phone's optional-slot capture and the `either` photo path were unit-tested but not driven on
