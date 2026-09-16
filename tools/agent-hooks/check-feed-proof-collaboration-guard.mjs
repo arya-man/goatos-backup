@@ -9,10 +9,13 @@
 // wording — do not resurrect it).
 //
 // Failure modes:
-//   1. sequential-slot-gating — a FeedDistributionUiState slot-enabled getter references
-//      ANOTHER slot's captured/status flag (e.g. waterVideoCaptureEnabled depending on
-//      videoCaptured). Slots may depend only on their own in-flight capture state and the
-//      session-level submitted/lock state.
+//   1. sequential-slot-gating — the card is a LIST of slots since FEED SOP (2026-09-16), so the
+//      per-slot enablement is FeedDistributionSlotUi.captureEnabled. Its getter may read only
+//      the slot's OWN fields (isCapturing/captured/status/required) — never the list, the
+//      session state or a sibling. FeedDistributionUiState must not grow named per-slot fields
+//      again (feedWeightPhotoCaptured / waterVideoCaptureEnabled ...), which is how a
+//      "step unlocks next step" chain re-enters. The ViewModel's capture gate must read
+//      `slot.captureEnabled`, not a sibling or the whole list.
 //   2. mime-blind-backstop — CaptureRepository's Gate-3 backstop calls validateVideoFile on
 //      the capture path without an image/-mime branch. The video duration probe on a JPEG
 //      silently pushed every valid photo to the raw-original fallback THREE times
@@ -34,13 +37,54 @@ import { dirname, join } from 'node:path';
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const failures = [];
 
+
+// Mode 1 detectors (shared by the self-test and the real run).
+const SLOT_OWN_FIELDS = new Set(['isCapturing', 'captured', 'status', 'required', 'isQueuedForSubmit', 'FeedDistributionProofStatus', 'EMPTY', 'QUEUED', 'UPLOADING', 'SYNCED', 'FAILED']);
+function slotGetterBody(src) {
+  const m = src.match(/val captureEnabled: Boolean\s*\n\s*get\(\) = ([^\n]*(?:\n\s{8,}[^\n]*)*)/);
+  return m ? m[1] : null;
+}
+function slotGetterForeignTokens(src) {
+  const body = slotGetterBody(src);
+  if (body == null) return ['<getter not found>'];
+  const idents = body.match(/[A-Za-z_][A-Za-z0-9_]*/g) || [];
+  return idents.filter((t) => !SLOT_OWN_FIELDS.has(t));
+}
+function perSlotFieldsInState(src) {
+  const m = src.match(/data class FeedDistributionUiState\([\s\S]*?\n\}/);
+  if (!m) return ['<FeedDistributionUiState not found>'];
+  return (m[0].match(/\b(?:feedWeightPhoto|waterVideo|video|feedVideo)[A-Za-z]*(?:Captured|Status|CaptureEnabled|Capturing)\b/g) || []);
+}
+function captureGateReadsSiblings(src) {
+  const m = src.match(/private fun captureSlot\([\s\S]*?\n\s*if \(([^\n]*)\) return/);
+  if (!m) return true; // no gate at all is a finding too
+  const gate = m[1];
+  return !/\bslot\.captureEnabled\b/.test(gate) || /\bslots\b/.test(gate) || /\.(any|all|none)\s*\{/.test(gate);
+}
+
 // --self-test: prove the detectors fire on seeded violations before trusting a green run.
 if (process.argv.includes('--self-test')) {
-  const badGetter = `val waterVideoCaptureEnabled: Boolean
-        get() = !isCapturingWaterVideo && videoCaptured && !isFinalSubmitted`;
-  const gm = badGetter.match(/val waterVideoCaptureEnabled: Boolean\s*\n\s*get\(\) = ([^\n]*)/);
-  if (!gm || !/\bvideoCaptured\b/.test(gm[1])) {
-    console.error('self-test FAILED: sequential-slot-gating detector missed seeded violation');
+  const badGetter = `val captureEnabled: Boolean
+        get() = !isCapturing && siblingCaptured && !isFinalSubmitted`;
+  if (slotGetterForeignTokens(badGetter).length === 0) {
+    console.error('self-test FAILED: sequential-slot-gating detector missed seeded violation (foreign token)');
+    process.exit(1);
+  }
+  const badState = `data class FeedDistributionUiState(
+    val slots: List<FeedDistributionSlotUi> = emptyList(),
+    val waterVideoCaptured: Boolean = false,
+) {
+    val videoCaptureEnabled: Boolean
+        get() = feedWeightPhotoCaptured`;
+  if (perSlotFieldsInState(badState).length === 0) {
+    console.error('self-test FAILED: sequential-slot-gating detector missed seeded per-slot state field');
+    process.exit(1);
+  }
+  const badGate = `private fun captureSlot(slotKey: String, requestedKind: String?) {
+        val slot = _state.value.slot(slotKey) ?: return
+        if (!slot.captureEnabled || _state.value.slots.any { it.isCapturing } || shedId.isBlank()) return`;
+  if (!captureGateReadsSiblings(badGate)) {
+    console.error('self-test FAILED: sequential-slot-gating detector missed seeded ViewModel gate on the slot list');
     process.exit(1);
   }
   const badGate3 = `// Gate 3: Backstop validation
@@ -72,27 +116,27 @@ const uiState = read(uiStatePath);
 if (uiState == null) {
   failures.push(`missing-file: ${uiStatePath}`);
 } else {
-  // Extract each slot-enabled getter body and assert it never names another slot's flags.
-  const slots = [
-    { name: 'feedWeightPhotoCaptureEnabled', foreign: [/videoCaptured/, /waterVideo/i, /\bvideoStatus\b/] },
-    { name: 'videoCaptureEnabled', foreign: [/feedWeightPhoto/i, /waterVideo/i] },
-    { name: 'waterVideoCaptureEnabled', foreign: [/feedWeightPhoto/i, /\bvideoCaptured\b/, /\bvideoStatus\b/] },
-  ];
-  for (const slot of slots) {
-    const m = uiState.match(new RegExp(`val ${slot.name}: Boolean\\s*\\n\\s*get\\(\\) = ([^\\n]*(?:\\n\\s{8,}[^\\n]*)*)`));
-    if (!m) {
-      failures.push(`sequential-slot-gating: getter ${slot.name} not found in FeedDistributionUiState`);
-      continue;
-    }
-    const body = m[1];
-    for (const re of slot.foreign) {
-      if (re.test(body)) {
-        failures.push(
-          `sequential-slot-gating: ${slot.name} references another slot (${re}) — slots must be independent/parallel`,
-        );
-      }
+  const slotUi = uiState.match(/data class FeedDistributionSlotUi\([\s\S]*?\n\}/);
+  if (!slotUi) {
+    failures.push('sequential-slot-gating: FeedDistributionSlotUi not found');
+  } else {
+    for (const tok of slotGetterForeignTokens(slotUi[0])) {
+      failures.push(
+        `sequential-slot-gating: FeedDistributionSlotUi.captureEnabled reads \`${tok}\` — a slot is enabled by its own state only, never a sibling or the session`,
+      );
     }
   }
+  for (const f of perSlotFieldsInState(uiState)) {
+    failures.push(`sequential-slot-gating: FeedDistributionUiState names a per-slot field \`${f}\` — slots are a card-driven list, not fixed fields`);
+  }
+}
+const distVmPath =
+  'apps/goatos-android/app/src/main/kotlin/sg/mesha/goatos/viewmodel/FeedDistributionCompleteViewModel.kt';
+const distVm = read(distVmPath);
+if (distVm == null) {
+  failures.push(`missing-file: ${distVmPath}`);
+} else if (captureGateReadsSiblings(distVm)) {
+  failures.push('sequential-slot-gating: FeedDistributionCompleteViewModel.captureSlot gates on something other than slot.captureEnabled (a sibling or the slot list)');
 }
 
 // --- Modes 2+3: capture backstop + processed validation must be mime-aware ---------------

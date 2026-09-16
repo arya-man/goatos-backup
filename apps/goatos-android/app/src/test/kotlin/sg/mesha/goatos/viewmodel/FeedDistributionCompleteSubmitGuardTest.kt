@@ -67,9 +67,9 @@ class FeedDistributionCompleteSubmitGuardTest {
                 "lifecycle_status" to "open",
             ),
         )
-        val feedWeightPhotoProofItemId = DraftOutboxItemId(saved, "feedDistribution.feedWeightPhotoProofItemId")
-        val videoProofItemId = DraftOutboxItemId(saved, "feedDistribution.videoProofItemId")
-        val waterVideoProofItemId = DraftOutboxItemId(saved, "feedDistribution.waterVideoProofItemId")
+        val feedWeightPhotoProofItemId = DraftOutboxItemId(saved, "feedDistribution.slot.feed_distribution_feed_weight_photo.proofItemId")
+        val videoProofItemId = DraftOutboxItemId(saved, "feedDistribution.slot.feed_distribution_video.proofItemId")
+        val waterVideoProofItemId = DraftOutboxItemId(saved, "feedDistribution.slot.feed_distribution_water_video.proofItemId")
 
         // Pre-set all three proof IDs so canComplete can derive as true
         feedWeightPhotoProofItemId.value = "proof-photo-1"
@@ -129,9 +129,9 @@ class FeedDistributionCompleteSubmitGuardTest {
                 "lifecycle_status" to "open",
             ),
         )
-        val feedWeightPhotoProofItemId = DraftOutboxItemId(saved, "feedDistribution.feedWeightPhotoProofItemId")
-        val videoProofItemId = DraftOutboxItemId(saved, "feedDistribution.videoProofItemId")
-        val waterVideoProofItemId = DraftOutboxItemId(saved, "feedDistribution.waterVideoProofItemId")
+        val feedWeightPhotoProofItemId = DraftOutboxItemId(saved, "feedDistribution.slot.feed_distribution_feed_weight_photo.proofItemId")
+        val videoProofItemId = DraftOutboxItemId(saved, "feedDistribution.slot.feed_distribution_video.proofItemId")
+        val waterVideoProofItemId = DraftOutboxItemId(saved, "feedDistribution.slot.feed_distribution_water_video.proofItemId")
 
         // Pre-set all three proof IDs
         feedWeightPhotoProofItemId.value = "proof-photo-1"
@@ -224,6 +224,8 @@ private class CountingFeedDistributionCompleteSyncRepository : SyncRepository {
         feedWeightProofRef: String?,
         distributionProofRef: String?,
         waterProofRef: String?,
+        slotProofs: Map<String, sg.mesha.goatos.core.data.sync.FeedSlotProofSourcePayload>,
+        answers: kotlinx.serialization.json.JsonObject,
     ): AppResult<String> {
         pendingGate?.let { gate -> pendingGate = null; gate.await() }
         markDoneEnqueueCalls += 1

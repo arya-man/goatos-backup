@@ -86,4 +86,11 @@
     <string name="proof_video_pen_visit_header">ಪೆನ್ ಭೇಟಿ</string>
     <string name="pen_visits_msg_capture_not_saved">ಅದು ಉಳಿಯಲಿಲ್ಲ. ಮತ್ತೆ ರೆಕಾರ್ಡ್ ಮಾಡಿ.</string>
     <string name="pen_visits_msg_not_sent">ಉಳಿಸಲಾಗಿದೆ, ಆದರೆ ಕಳುಹಿಸಲಾಗಲಿಲ್ಲ. ರಿಫ್ರೆಶ್ ಮಾಡಿ ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ.</string>
+    <string name="feed_seed_distribution_instruction">ತೂಕ ಮಾಡಿದ ಮೇವಿನ ಫೋಟೋ ತೆಗೆದು, ನಂತರ ಮೇವು ಮತ್ತು ನೀರು ಕೊಡುವುದನ್ನು ವೀಡಿಯೊ ಮಾಡಿ.</string>
+    <string name="feed_seed_slot_weight_photo">ಮೇವು ತೂಕದ ಫೋಟೋ</string>
+    <string name="feed_seed_slot_weight_photo_hint">ಕೊಡುವ ಮೊದಲು ತಕ್ಕಡಿಯ ಮೇಲೆ ತೂಕ ಮಾಡಿದ ಮೇವು.</string>
+    <string name="feed_seed_slot_feed_video">ಮೇವು ಹಂಚಿಕೆ ವೀಡಿಯೊ</string>
+    <string name="feed_seed_slot_feed_video_hint">ತೊಟ್ಟಿಗೆ ಮೇವು ಹಾಕುವುದು.</string>
+    <string name="feed_seed_slot_water_video">ನೀರು ಹಂಚಿಕೆ ವೀಡಿಯೊ</string>
+    <string name="feed_seed_slot_water_video_hint">ಪೆನ್‌ನಲ್ಲಿ ನೀರು ಕೊಡುವುದು.</string>
 </resources>

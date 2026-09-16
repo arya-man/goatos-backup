@@ -16,6 +16,10 @@ import kotlinx.serialization.Serializable
  */
 @Serializable
 data class FeedDistributionCapturesDto(
+    /** FEED SOP (2026-09-16): the card THIS pen-session is proven against -- its slots and
+     *  questions, rendered verbatim by every phone on the session. Null from an older backend,
+     *  which the screen reads as the seeded card. */
+    @SerialName("sop") val sop: FeedSopCardDto? = null,
     @SerialName("items") val items: List<FeedDistributionCapturedSlotDto> = emptyList(),
     /**
      * The pen-session's completion status ("pending_verification", "completed", "rework"),

@@ -1,6 +1,7 @@
 package sg.mesha.goatos.core.data.sync
 
 import kotlinx.coroutines.CancellationException
+import kotlinx.serialization.json.JsonObject
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -497,6 +498,11 @@ interface SyncRepository {
         feedWeightProofRef: String? = null,
         distributionProofRef: String? = null,
         waterProofRef: String? = null,
+        // FEED SOP (2026-09-16): the card's captures, {slot key: source}, and the answers to its
+        // questions. When present the dispatcher sends the card-shaped request; the fixed trio
+        // above is then only the seeded slots' mirror.
+        slotProofs: Map<String, FeedSlotProofSourcePayload> = emptyMap(),
+        answers: JsonObject = JsonObject(emptyMap()),
     ): AppResult<String> = AppResult.Err("feed distribution completion sync is not configured")
 
     /**
@@ -1574,6 +1580,8 @@ class DefaultSyncRepository(
         feedWeightProofRef: String?,
         distributionProofRef: String?,
         waterProofRef: String?,
+        slotProofs: Map<String, FeedSlotProofSourcePayload>,
+        answers: JsonObject,
     ): AppResult<String> = enqueue(
         opType = OutboxOpType.FEED_DISTRIBUTION_COMPLETE,
         groupKey = groupKey,
@@ -1592,6 +1600,8 @@ class DefaultSyncRepository(
                 feedWeightProofRef = feedWeightProofRef?.trim()?.ifBlank { null },
                 distributionProofRef = distributionProofRef?.trim()?.ifBlank { null },
                 waterProofRef = waterProofRef?.trim()?.ifBlank { null },
+                slotProofs = slotProofs,
+                answers = answers,
             ),
         ),
     )

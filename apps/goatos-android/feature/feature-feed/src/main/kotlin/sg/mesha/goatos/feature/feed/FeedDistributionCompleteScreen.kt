@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -47,9 +48,13 @@ import sg.mesha.goatos.core.ui.SyncIconButton
 
 /**
  * Feed-DISTRIBUTION completion detail (L2), reached by tapping a shed-session row on Feed DIRECTION.
- * The operator records a feed weight photo, feed-distribution video, and water-distribution video
- * in any order. Each saved proof shows a preview and can be replaced before final submit. The
- * final verifier-gated completion becomes available only after all three proof uploads sync.
+ *
+ * FEED SOP (maintainer decision 2026-09-16): the captures this screen asks for are the CARD the
+ * sheet was issued under -- served by the backend as [FeedDistributionSlotUi] rows in card order
+ * (today: feed weight photo, feed video, water video; tomorrow whatever the farm publishes). The
+ * screen holds no slot list of its own. Slots stay INDEPENDENT and PARALLEL: any operator on the
+ * park records any slot in any order, a slot's enablement depends only on its own state, and
+ * submit is session-level once every COMPULSORY slot is filled -- by any mix of phones.
  *
  * This is separate from the packing-proof flow.
  */
@@ -62,6 +67,65 @@ fun FeedDistributionProofStatus.isQueuedForSubmit(): Boolean =
         this == FeedDistributionProofStatus.UPLOADING ||
         this == FeedDistributionProofStatus.SYNCED
 
+/** What a slot accepts, from the card: video | photo | either. */
+object FeedSlotCaptureKind {
+    const val VIDEO = "video"
+    const val PHOTO = "photo"
+    const val EITHER = "either"
+}
+
+/**
+ * One capture slot of the card, with this phone's view of it. Backend-owned words (title, hint,
+ * kind, required) come from the card; the rest is capture/upload state.
+ */
+@androidx.compose.runtime.Immutable
+data class FeedDistributionSlotUi(
+    /** The card's slot key = the proof register field_key stamped on the upload. */
+    val slotKey: String,
+    val title: String,
+    val hint: String = "",
+    /** video | photo | either -- what the slot accepts, from the card. */
+    val captureKind: String = FeedSlotCaptureKind.VIDEO,
+    /** False for an optional capture the crew may leave empty. */
+    val required: Boolean = true,
+    /** What was actually captured here (an `either` slot records the pick). */
+    val capturedKind: String = FeedSlotCaptureKind.VIDEO,
+    val isCapturing: Boolean = false,
+    val captured: Boolean = false,
+    val status: FeedDistributionProofStatus = FeedDistributionProofStatus.EMPTY,
+    val message: String? = null,
+    val previewPath: String? = null,
+    val previewIdentity: String = "feed-distribution:$slotKey",
+    val remoteUrl: String? = null,
+) {
+    /**
+     * A slot is enabled by ITS OWN state alone -- never by a sibling's. That independence is the
+     * collaboration contract (docs/product/feed-proof-collaboration.md) and is machine-checked.
+     */
+    val captureEnabled: Boolean
+        get() = !isCapturing
+
+    /** Ready to be named on the submit: captured and durable, or still uploading (the outbox waits). */
+    val readyForSubmit: Boolean
+        get() = captured && status.isQueuedForSubmit()
+}
+
+/** One authored question of the card, rendered verbatim; the answer is the operator's. */
+@androidx.compose.runtime.Immutable
+data class FeedDistributionQuestionUi(
+    val id: String,
+    val kind: String,
+    val title: String,
+    val hint: String = "",
+    val required: Boolean = false,
+    val options: List<Pair<String, String>> = emptyList(),
+    val allowOther: Boolean = false,
+    val unit: String = "",
+    /** Hidden unless an earlier pick-one holds this value. */
+    val onlyIfQuestion: String = "",
+    val onlyIfValue: String = "",
+)
+
 @androidx.compose.runtime.Immutable
 data class FeedDistributionResultUi(val status: FeedDistributionStatus, val message: String)
 
@@ -70,27 +134,13 @@ data class FeedDistributionUiState(
     val shedLabel: String = "",
     val sessionLabel: String = "",
     val workflowLabel: String = "",
-    val isCapturingFeedWeightPhoto: Boolean = false,
-    val feedWeightPhotoCaptured: Boolean = false,
-    val feedWeightPhotoMessage: String? = null,
-    val feedWeightPhotoPreviewPath: String? = null,
-    val feedWeightPhotoPreviewIdentity: String = "feed-distribution:feed-weight-photo",
-    val feedWeightPhotoStatus: FeedDistributionProofStatus = FeedDistributionProofStatus.EMPTY,
-    val feedWeightPhotoRemoteUrl: String? = null,
-    val isCapturingVideo: Boolean = false,
-    val videoCaptured: Boolean = false,
-    val videoMessage: String? = null,
-    val videoPreviewPath: String? = null,
-    val videoPreviewIdentity: String = "feed-distribution:feed-video",
-    val videoStatus: FeedDistributionProofStatus = FeedDistributionProofStatus.EMPTY,
-    val videoRemoteUrl: String? = null,
-    val isCapturingWaterVideo: Boolean = false,
-    val waterVideoCaptured: Boolean = false,
-    val waterVideoMessage: String? = null,
-    val waterVideoPreviewPath: String? = null,
-    val waterVideoPreviewIdentity: String = "feed-distribution:water-video",
-    val waterVideoStatus: FeedDistributionProofStatus = FeedDistributionProofStatus.EMPTY,
-    val waterVideoRemoteUrl: String? = null,
+    /** The card's instruction, verbatim; blank before the card arrives. */
+    val instruction: String = "",
+    /** The card's slots in card order. Empty only before the card (or the seeded fallback) is known. */
+    val slots: List<FeedDistributionSlotUi> = emptyList(),
+    val questions: List<FeedDistributionQuestionUi> = emptyList(),
+    /** {question id: answer} as the operator typed / picked it (multi = comma-joined values). */
+    val answers: Map<String, String> = emptyMap(),
     val canComplete: Boolean = false,
     val isSyncing: Boolean = false,
     val result: FeedDistributionResultUi? = null,
@@ -103,39 +153,48 @@ data class FeedDistributionUiState(
      */
     val alreadySubmitted: Boolean = false,
 ) {
-    val feedWeightPhotoCaptureEnabled: Boolean
-        get() = !isCapturingFeedWeightPhoto && !isFinalSubmitted
-
-    val waterVideoCaptureEnabled: Boolean
-        get() = !isCapturingWaterVideo && !isFinalSubmitted
-
-    val videoCaptureEnabled: Boolean
-        get() = !isCapturingVideo && !isFinalSubmitted
-
     val isFinalSubmitted: Boolean
         get() = alreadySubmitted ||
             result?.status == FeedDistributionStatus.SYNCED || result?.status == FeedDistributionStatus.QUEUED
 
+    val anyCaptured: Boolean
+        get() = slots.any { it.captured }
+
+    val anyCapturing: Boolean
+        get() = slots.any { it.isCapturing }
+
+    /** Every compulsory slot is captured (any phone). Optional slots never gate the submit. */
+    val compulsorySlotsFilled: Boolean
+        get() = slots.isNotEmpty() && slots.filter { it.required }.all { it.captured }
+
+    /** Every applicable required question has an answer. */
+    val requiredAnswersGiven: Boolean
+        get() = questions.filter { it.required && appliesTo(it) }.all { !answers[it.id].isNullOrBlank() }
+
+    fun appliesTo(q: FeedDistributionQuestionUi): Boolean =
+        q.onlyIfQuestion.isBlank() || answers[q.onlyIfQuestion] == q.onlyIfValue
+
     /** Proof uploads may still be queued; the completion outbox resolves them before syncing. */
     val submitEnabled: Boolean
         get() = canComplete &&
-            feedWeightPhotoStatus.isQueuedForSubmit() &&
-            videoStatus.isQueuedForSubmit() &&
-            waterVideoStatus.isQueuedForSubmit() &&
+            slots.isNotEmpty() &&
+            slots.filter { it.required }.all { it.readyForSubmit } &&
+            slots.filter { it.captured }.all { it.status.isQueuedForSubmit() } &&
+            requiredAnswersGiven &&
             !isFinalSubmitted
+
+    fun slot(slotKey: String): FeedDistributionSlotUi? = slots.firstOrNull { it.slotKey == slotKey }
 }
 
 sealed interface FeedDistributionEvent {
-    /** Record the feed video with the LIVE in-app camera. */
-    data object RecordFeedVideo : FeedDistributionEvent
-
-    data object TakeFeedWeightPhoto : FeedDistributionEvent
-    data object RecordWaterVideo : FeedDistributionEvent
+    /** Capture one slot with the LIVE in-app camera; [kind] picks video or photo for an `either`
+     *  slot, null = the slot's own kind. */
+    data class CaptureSlot(val slotKey: String, val kind: String? = null) : FeedDistributionEvent
+    data class Answer(val questionId: String, val value: String) : FeedDistributionEvent
     data object MarkDone : FeedDistributionEvent
     data object SyncNow : FeedDistributionEvent
     data object Back : FeedDistributionEvent
-    data object FeedVideoPlaybackFailed : FeedDistributionEvent
-    data object WaterVideoPlaybackFailed : FeedDistributionEvent
+    data class SlotPlaybackFailed(val slotKey: String) : FeedDistributionEvent
     data class ProofPreviewAction(val fieldKey: String, val action: String) : FeedDistributionEvent
 }
 
@@ -146,7 +205,7 @@ fun FeedDistributionCompleteScreen(
 ) {
     val committed = state.result?.status == FeedDistributionStatus.SYNCED ||
         state.result?.status == FeedDistributionStatus.QUEUED
-    val captureInProgress = state.isCapturingFeedWeightPhoto || state.isCapturingVideo || state.isCapturingWaterVideo
+    val captureInProgress = state.anyCapturing
     val subtitle = listOf(state.sessionLabel, state.workflowLabel)
         .filter { it.isNotBlank() }
         .joinToString(" · ")
@@ -194,85 +253,61 @@ fun FeedDistributionCompleteScreen(
                     )
                 }
             }
-            item {
+            // THE CARD'S SLOTS, in card order, one row each. Words are the card's; the verbs are
+            // the app's. An `either` slot offers both verbs.
+            items(state.slots, key = { it.slotKey }) { slot ->
+                val isPhoto = slot.captureKind == FeedSlotCaptureKind.PHOTO ||
+                    (slot.captureKind == FeedSlotCaptureKind.EITHER && slot.capturedKind == FeedSlotCaptureKind.PHOTO && slot.captured)
+                val captureVerb = when (slot.captureKind) {
+                    FeedSlotCaptureKind.PHOTO -> stringResource(R.string.feed_slot_take_photo)
+                    FeedSlotCaptureKind.EITHER -> stringResource(R.string.feed_slot_record_video)
+                    else -> stringResource(R.string.feed_slot_record_video)
+                }
+                val slotEnabled = slot.captureEnabled && !state.isFinalSubmitted
                 FeedDistProofAction(
-                    title = stringResource(R.string.feed_dist_take_feed_weight_photo),
-                    subtitle = stringResource(R.string.feed_dist_feed_weight_title),
-                    icon = MeshaIcons.Plus,
-                    captured = state.feedWeightPhotoCaptured,
-                    status = state.feedWeightPhotoStatus,
-                    previewPath = state.feedWeightPhotoPreviewPath,
-                    previewIdentity = state.feedWeightPhotoPreviewIdentity,
-                    previewKind = FeedDistPreviewKind.Photo,
-                    capturedLabel = proofLabel(state.feedWeightPhotoStatus, stringResource(R.string.feed_dist_feed_weight_photo_captured)),
-                    loading = state.isCapturingFeedWeightPhoto,
-                    loadingLabel = stringResource(R.string.feed_dist_water_uploading),
-                    retryLabel = stringResource(R.string.feed_dist_retry_feed_weight_photo),
-                    replaceLabel = stringResource(R.string.feed_proof_recapture),
-                    enabled = state.feedWeightPhotoCaptureEnabled,
-                    message = state.feedWeightPhotoMessage,
-                    onClick = { onEvent(FeedDistributionEvent.TakeFeedWeightPhoto) },
-                    remotePreviewUrl = state.feedWeightPhotoRemoteUrl,
-                    playbackEnabled = !captureInProgress,
-                    showAction = !state.alreadySubmitted,
-                    onPreviewAction = { action ->
-                        onEvent(FeedDistributionEvent.ProofPreviewAction("feed_distribution_feed_weight_photo", action))
-                    },
-                )
-            }
-            item {
-                FeedDistProofAction(
-                    title = stringResource(R.string.feed_dist_record_video),
-                    subtitle = stringResource(R.string.feed_dist_video_title),
-                    icon = MeshaIcons.Video,
-                    captured = state.videoCaptured,
-                    status = state.videoStatus,
-                    previewPath = state.videoPreviewPath,
-                    previewIdentity = state.videoPreviewIdentity,
-                    previewKind = FeedDistPreviewKind.Video,
-                    capturedLabel = proofLabel(state.videoStatus, stringResource(R.string.feed_dist_video_recorded)),
-                    loading = state.isCapturingVideo,
+                    title = captureVerb + " · " + slot.title,
+                    subtitle = listOf(
+                        slot.hint,
+                        if (slot.required) stringResource(R.string.feed_slot_required) else stringResource(R.string.feed_slot_optional),
+                    ).filter { it.isNotBlank() }.joinToString(" · "),
+                    icon = if (isPhoto) MeshaIcons.Plus else MeshaIcons.Video,
+                    captured = slot.captured,
+                    status = slot.status,
+                    previewPath = slot.previewPath,
+                    previewIdentity = slot.previewIdentity,
+                    previewKind = if (isPhoto) FeedDistPreviewKind.Photo else FeedDistPreviewKind.Video,
+                    capturedLabel = proofLabel(slot.status, slot.title),
+                    loading = slot.isCapturing,
                     loadingLabel = stringResource(R.string.feed_dist_video_uploading),
-                    retryLabel = stringResource(R.string.feed_dist_retry_feed_video),
-                    replaceLabel = stringResource(R.string.feed_proof_rerecord),
-                    enabled = !state.isCapturingVideo && !committed && !state.isFinalSubmitted,
-                    message = state.videoMessage,
-                    onClick = { onEvent(FeedDistributionEvent.RecordFeedVideo) },
-                    remotePreviewUrl = state.videoRemoteUrl,
+                    retryLabel = stringResource(R.string.feed_slot_retry, slot.title),
+                    replaceLabel = if (isPhoto) stringResource(R.string.feed_proof_recapture) else stringResource(R.string.feed_proof_rerecord),
+                    enabled = slotEnabled,
+                    message = slot.message,
+                    onClick = { onEvent(FeedDistributionEvent.CaptureSlot(slot.slotKey)) },
+                    remotePreviewUrl = slot.remoteUrl,
                     playbackEnabled = !captureInProgress,
-                    onPlaybackFailure = { onEvent(FeedDistributionEvent.FeedVideoPlaybackFailed) },
+                    onPlaybackFailure = { onEvent(FeedDistributionEvent.SlotPlaybackFailed(slot.slotKey)) },
                     showAction = !state.alreadySubmitted,
+                    secondaryLabel = if (slot.captureKind == FeedSlotCaptureKind.EITHER && !state.alreadySubmitted) stringResource(R.string.feed_slot_take_photo) else null,
+                    onSecondaryClick = { onEvent(FeedDistributionEvent.CaptureSlot(slot.slotKey, FeedSlotCaptureKind.PHOTO)) },
                     onPreviewAction = { action ->
-                        onEvent(FeedDistributionEvent.ProofPreviewAction("feed_distribution_video", action))
+                        onEvent(FeedDistributionEvent.ProofPreviewAction(slot.slotKey, action))
                     },
                 )
             }
-            item {
-                FeedDistProofAction(
-                    title = stringResource(R.string.feed_dist_record_water_video),
-                    subtitle = stringResource(R.string.feed_dist_water_hint),
-                    icon = MeshaIcons.Video,
-                    captured = state.waterVideoCaptured,
-                    status = state.waterVideoStatus,
-                    previewPath = state.waterVideoPreviewPath,
-                    previewIdentity = state.waterVideoPreviewIdentity,
-                    previewKind = FeedDistPreviewKind.Video,
-                    capturedLabel = proofLabel(state.waterVideoStatus, stringResource(R.string.feed_dist_water_video_captured)),
-                    loading = state.isCapturingWaterVideo,
-                    loadingLabel = stringResource(R.string.feed_dist_water_uploading),
-                    retryLabel = stringResource(R.string.feed_dist_retry_water_video),
-                    replaceLabel = stringResource(R.string.feed_proof_rerecord),
-                    enabled = state.waterVideoCaptureEnabled,
-                    message = state.waterVideoMessage,
-                    onClick = { onEvent(FeedDistributionEvent.RecordWaterVideo) },
-                    remotePreviewUrl = state.waterVideoRemoteUrl,
-                    playbackEnabled = !captureInProgress,
-                    onPlaybackFailure = { onEvent(FeedDistributionEvent.WaterVideoPlaybackFailed) },
-                    showAction = !state.alreadySubmitted,
-                    onPreviewAction = { action ->
-                        onEvent(FeedDistributionEvent.ProofPreviewAction("feed_distribution_water_video", action))
-                    },
-                )
+            // THE CARD'S QUESTIONS, answered once per pen-session.
+            val visibleQuestions = state.questions.filter { state.appliesTo(it) }
+            if (visibleQuestions.isNotEmpty()) {
+                items(visibleQuestions, key = { "q:" + it.id }) { q ->
+                    FeedSopQuestionCard(
+                        question = q,
+                        answer = state.answers[q.id].orEmpty(),
+                        otherText = state.answers[q.id + "_other"].orEmpty(),
+                        enabled = !state.isFinalSubmitted,
+                        onAnswer = { v -> onEvent(FeedDistributionEvent.Answer(q.id, v)) },
+                        onOther = { v -> onEvent(FeedDistributionEvent.Answer(q.id + "_other", v)) },
+                    )
+                }
             }
         }
     }
@@ -289,13 +324,14 @@ private fun FeedDistStatusCard(
         committed -> stringResource(R.string.feed_dist_submitted)
         completionFailed -> state.result.message
         state.submitEnabled -> stringResource(R.string.feed_dist_ready_to_submit)
-        state.feedWeightPhotoCaptured || state.videoCaptured || state.waterVideoCaptured -> stringResource(R.string.feed_dist_waiting_sync)
-        else -> stringResource(R.string.feed_dist_need_both)
+        state.compulsorySlotsFilled && !state.requiredAnswersGiven -> stringResource(R.string.feed_slot_answer_questions)
+        state.anyCaptured -> stringResource(R.string.feed_dist_waiting_sync)
+        else -> stringResource(R.string.feed_slot_need_all)
     }
     val tone = when {
         committed -> MeshaColors.Ok
         completionFailed -> MeshaColors.Danger
-        state.feedWeightPhotoCaptured && state.videoCaptured && state.waterVideoCaptured -> MeshaColors.BrandD
+        state.compulsorySlotsFilled -> MeshaColors.BrandD
         else -> MeshaColors.Muted
     }
     Column(
@@ -307,7 +343,9 @@ private fun FeedDistStatusCard(
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        Text(text = stringResource(R.string.feed_dist_caption), color = MeshaColors.Muted, style = MeshaType.body)
+        // The card's own instruction leads; the app's generic caption is the fallback before the
+        // card is known (backend-owned words, never a slot list of the app's own).
+        Text(text = state.instruction.ifBlank { stringResource(R.string.feed_dist_caption) }, color = MeshaColors.Muted, style = MeshaType.body)
         Text(text = statusText, color = tone, style = MeshaType.caption)
         if (state.submitEnabled) {
             FeedDistRetryButton(label = stringResource(R.string.feed_dist_submit), onClick = onRetrySubmit)
@@ -350,6 +388,9 @@ internal fun FeedDistProofAction(
     playbackEnabled: Boolean = true,
     onPlaybackFailure: () -> Unit = {},
     showAction: Boolean = true,
+    /** A second verb for an `either` slot ("Take photo" beside "Record video"). */
+    secondaryLabel: String? = null,
+    onSecondaryClick: () -> Unit = {},
     onPreviewAction: (String) -> Unit = {},
 ) {
     val failed = status == FeedDistributionProofStatus.FAILED
@@ -429,6 +470,9 @@ internal fun FeedDistProofAction(
             } else if (!uploading && showAction) {
                 FeedDistRetryButton(label = if (captured || failed) replaceLabel else title, enabled = enabled, onClick = onClick)
             }
+            if (secondaryLabel != null && !uploading && showAction) {
+                FeedDistRetryButton(label = secondaryLabel, enabled = enabled, onClick = onSecondaryClick)
+            }
             if (!message.isNullOrBlank()) {
                 Text(text = message, color = MeshaColors.Faint, style = MeshaType.caption)
             }
@@ -470,4 +514,89 @@ internal fun FeedDistRetryButton(label: String, enabled: Boolean = true, onClick
             .clickable(enabled = enabled, onClick = onClick)
             .padding(horizontal = 12.dp, vertical = 13.dp),
     )
+}
+
+
+/**
+ * One authored question of the card. Pick-one renders its choices as tappable chips; pick-many
+ * toggles; number and text are a single field. Words are the card's, verbatim.
+ */
+@Composable
+internal fun FeedSopQuestionCard(
+    question: FeedDistributionQuestionUi,
+    answer: String,
+    otherText: String,
+    enabled: Boolean,
+    onAnswer: (String) -> Unit,
+    onOther: (String) -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(18.dp))
+            .background(MeshaColors.Surf)
+            .border(1.dp, MeshaColors.Hair, RoundedCornerShape(18.dp))
+            .padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text(
+            text = question.title + if (question.required) " *" else "",
+            color = MeshaColors.Ink,
+            style = MeshaType.cardTitle,
+        )
+        if (question.hint.isNotBlank()) {
+            Text(text = question.hint, color = MeshaColors.Muted, style = MeshaType.cardSubtitle)
+        }
+        when (question.kind) {
+            "choice", "multi" -> {
+                val picked = if (question.kind == "multi") answer.split(",").filter { it.isNotBlank() }.toSet() else setOf(answer)
+                androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    question.options.forEach { (value, label) ->
+                        val on = value in picked
+                        Text(
+                            text = label,
+                            color = if (on) MeshaColors.OnBrand else MeshaColors.Ink,
+                            style = MeshaType.cta,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(14.dp))
+                                .background(if (on) MeshaColors.Brand else MeshaColors.Surf2)
+                                .clickable(enabled = enabled) {
+                                    if (question.kind == "multi") {
+                                        val next = if (on) picked - value else picked + value
+                                        onAnswer(question.options.map { it.first }.filter { it in next }.joinToString(","))
+                                    } else {
+                                        onAnswer(if (on) "" else value)
+                                    }
+                                }
+                                .padding(horizontal = 12.dp, vertical = 10.dp),
+                        )
+                    }
+                }
+                if (question.kind == "choice" && question.allowOther && answer == "other") {
+                    androidx.compose.material3.OutlinedTextField(
+                        value = otherText,
+                        onValueChange = onOther,
+                        enabled = enabled,
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            }
+            "number" -> androidx.compose.material3.OutlinedTextField(
+                value = answer,
+                onValueChange = { v -> if (v.isEmpty() || v.matches(Regex("^-?\\d*(\\.\\d*)?$"))) onAnswer(v) },
+                enabled = enabled,
+                singleLine = true,
+                suffix = if (question.unit.isNotBlank()) ({ Text(question.unit) }) else null,
+                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Decimal),
+                modifier = Modifier.fillMaxWidth(),
+            )
+            else -> androidx.compose.material3.OutlinedTextField(
+                value = answer,
+                onValueChange = onAnswer,
+                enabled = enabled,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+    }
 }

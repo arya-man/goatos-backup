@@ -91,6 +91,13 @@
     <string name="feed_dist_proof_uploading">ಪುರಾವೆ ಅಪ್‌ಲೋಡ್ ಆಗುತ್ತಿದೆ</string>
     <string name="feed_dist_proof_synced">ಪುರಾವೆ ಸಿದ್ಧ</string>
     <string name="feed_dist_proof_failed">ಅಪ್‌ಲೋಡ್ ವಿಫಲ. ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ</string>
+    <string name="feed_slot_record_video">ವೀಡಿಯೊ ರೆಕಾರ್ಡ್ ಮಾಡಿ</string>
+    <string name="feed_slot_take_photo">ಫೋಟೋ ತೆಗೆಯಿರಿ</string>
+    <string name="feed_slot_required">ಅಗತ್ಯ</string>
+    <string name="feed_slot_optional">ಐಚ್ಛಿಕ</string>
+    <string name="feed_slot_retry">ಮತ್ತೆ · %1$s</string>
+    <string name="feed_slot_need_all">ಸಲ್ಲಿಸಲು ಪ್ರತಿ ಅಗತ್ಯ ಕ್ಯಾಪ್ಚರ್ ರೆಕಾರ್ಡ್ ಮಾಡಿ.</string>
+    <string name="feed_slot_answer_questions">ಸಲ್ಲಿಸಲು ಈ ಕಾರ್ಡ್‌ನ ಪ್ರಶ್ನೆಗಳಿಗೆ ಉತ್ತರಿಸಿ.</string>
     <string name="feed_dist_play_preview">ಪ್ಲೇ</string>
     <string name="feed_dist_pause_preview">ವಿರಾಮ</string>
     <string name="feed_transport_title">ಮೇವು ಸಾಗಣೆ</string>

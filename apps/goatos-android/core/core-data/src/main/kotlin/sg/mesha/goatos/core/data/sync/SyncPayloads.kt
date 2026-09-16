@@ -6,6 +6,7 @@ import kotlinx.serialization.SerialName
 import sg.mesha.goatos.core.network.dto.HealthObservationContextDto
 import sg.mesha.goatos.core.network.dto.HealthObservationFindingsDto
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.Json
 import sg.mesha.goatos.core.network.dto.ClockPunchRequestDto
 import sg.mesha.goatos.core.network.dto.LeaveDecisionRequestDto
@@ -374,6 +375,21 @@ data class FeedDistributionCompletePayload(
     @SerialName("feed_weight_proof_ref") val feedWeightProofRef: String? = null,
     @SerialName("distribution_proof_ref") val distributionProofRef: String? = null,
     @SerialName("water_proof_ref") val waterProofRef: String? = null,
+    /**
+     * FEED SOP (maintainer decision 2026-09-16): the card's captures, {slot key: source}. Each
+     * source is this phone's PROOF_UPLOAD outbox row OR a teammate's server proof id. A row queued
+     * by a build that predates the card carries none and resolves through the three fixed fields
+     * above, which are the seeded slots. Answers are the crew's answers to the card's questions.
+     */
+    @SerialName("slot_proofs") val slotProofs: Map<String, FeedSlotProofSourcePayload> = emptyMap(),
+    @SerialName("answers") val answers: JsonObject = JsonObject(emptyMap()),
+)
+
+/** One capture of a feed card: by this phone's outbox row, or by a teammate's server proof id. */
+@Serializable
+data class FeedSlotProofSourcePayload(
+    @SerialName("outbox_item_id") val outboxItemId: String? = null,
+    @SerialName("proof_ref") val proofRef: String? = null,
 )
 
 /**
