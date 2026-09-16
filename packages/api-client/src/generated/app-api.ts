@@ -6294,6 +6294,86 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/app/pen-routines": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * One page of the caller's own routine checks (the Routines module).
+         * @description Pen routines (maintainer instruction 2026-09-16, docs/decisions/pen-routines.md): the configurable recurring pen checks. The kernel raises one task per pen per occurrence of every routine the caller is assigned to; the caller lists, opens, checks in and submits them here. Only the routines assigned to the caller are listed, newest due first, keyset-paged. `filters` are whole-list counts over the same assignee predicate, never page sums. Every visible word is backend-owned and rendered verbatim; the pen label is the operational location display.
+         */
+        get: operations["listPenRoutineTasks"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/pen-routines/{task_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * One routine check the caller is assigned to.
+         * @description A task assigned to someone else reads as 404, exactly like one that does not exist.
+         */
+        get: operations["getPenRoutineTask"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/pen-routines/{task_id}/presence": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Check in to (or out of) the pen on this task.
+         * @description The maintainer's "clock-in and clock-out stating some person entered the pen". An `enter` is refused while the caller is already in the pen, a `leave` while they are not; both are refused once the task is submitted. Presence is evidence, never a geofence: the location and integrity blocks are recorded for the verifier and nothing is refused by distance. Idempotent on the Idempotency-Key header.
+         */
+        post: operations["recordPenRoutinePresence"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/pen-routines/{task_id}/submit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Submit the answers and captures of a routine check.
+         * @description Answers are validated against the task's PINNED form (every required question answered, every answer of the right shape); photo and video counts must sit inside the routine's min/max; every proof must be a FINISHED upload in this tenant captured by the in-app camera whose declared type matches the kind claimed for it (a gallery pick is refused); when the routine asks for presence the submitter must have checked in to this pen on this task first, and the submit records the leave. Only an assignee may submit, only while the check is still owed, and only on the row_version the screen loaded with (0 skips the fence). A routine reviewed by the verifier locks the row pending; one with no review completes it here. Idempotent on the Idempotency-Key header.
+         */
+        post: operations["submitPenRoutineTask"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -18224,6 +18304,204 @@ export interface components {
             };
             trace_id: string;
         };
+        PenRoutineOption: {
+            value: string;
+            label: string;
+        };
+        /** @description One authored question, the same widget shape the weighing SOP and the procurement inspection render. */
+        PenRoutineQuestion: {
+            id: string;
+            /** @enum {string} */
+            kind: "yes_no" | "choice" | "multi_choice" | "number" | "text";
+            title: string;
+            hint?: string;
+            required: boolean;
+            options?: components["schemas"]["PenRoutineOption"][];
+            min?: number | null;
+            max?: number | null;
+            unit?: string;
+        };
+        PenRoutineProofRule: {
+            min: number;
+            max: number;
+        };
+        /** @description What the routine expects from the assignee -- the PINNED version's form on a task. */
+        PenRoutineEvidence: {
+            questions: components["schemas"]["PenRoutineQuestion"][];
+            photo: components["schemas"]["PenRoutineProofRule"];
+            video: components["schemas"]["PenRoutineProofRule"];
+            /**
+             * @description Whether the submitter must check in to the pen first.
+             * @enum {string}
+             */
+            presence: "required" | "off";
+        };
+        PenRoutineProofItem: {
+            /**
+             * Format: uuid
+             * @description A finished in-app-camera proof.
+             */
+            ref: string;
+            /** @enum {string} */
+            kind: "photo" | "video";
+        };
+        PenRoutineAnswerRow: {
+            question_id: string;
+            title: string;
+            /** @description The rendered answer (option labels */
+            value: string;
+        };
+        /** @description One routine check in one pen, as every surface renders it (maintainer instruction 2026-09-16, docs/decisions/pen-routines.md): the phone card and detail, the web Today table and the Work Board subtask. Every string is backend-composed; the client maps state_tone to a colour and renders the rest verbatim. status is the gate (open -> pending_verification -> completed | rework for a verifier-reviewed routine; open -> completed on submit for review none) and work_state the kernel clock (scheduled -> delayed -> completed | canceled). form is the PINNED version's evidence: the questions and capture rules this task was raised with. */
+        PenRoutineStep: {
+            /** Format: uuid */
+            task_id: string;
+            /** Format: uuid */
+            routine_id: string;
+            routine_version: number;
+            routine_name: string;
+            /** @description Backend-composed card title, e.g. "Pen cleaning · Castro 2 · Coimbatore". */
+            title: string;
+            /** Format: uuid */
+            park_id: string;
+            park_name: string;
+            /** Format: uuid */
+            shed_id: string;
+            shed_name: string;
+            /** @description The pen label; empty for an undivided shed. */
+            partition_label: string;
+            /** @description The canonical pen display ("Castro 2", "Godel 1 - Part 3"). */
+            operational_location_display: string;
+            /** @description For an after_work routine, which work raised this task; empty for a calendar cadence. */
+            trigger_kinds: ("vaccination" | "deworming" | "anti_protozoan" | "ticks_removal" | "hoof_trimming" | "hair_trimming" | "weighing" | "feed_distribution" | "shifting")[];
+            /** @description Backend-composed, e.g. "Every day" or "After deworming yesterday". */
+            reason_line: string;
+            /**
+             * Format: date
+             * @description The IST day that raised the task.
+             */
+            source_business_date: string;
+            /**
+             * Format: date
+             * @description Immutable; the day the check was first owed.
+             */
+            planned_business_date: string;
+            /**
+             * Format: date
+             * @description Rolls forward only
+             */
+            due_business_date: string;
+            /** @enum {string} */
+            work_state: "scheduled" | "delayed" | "completed" | "canceled";
+            /** @enum {string} */
+            status: "open" | "pending_verification" | "completed" | "rework";
+            /** @description Backend-composed, e.g. "Due today", "Delayed since 14/09/2026", "In review", "Sent back", "Done", "Verified". */
+            state_chip: string;
+            /** @enum {string} */
+            state_tone: "info" | "review" | "danger" | "success" | "muted";
+            /** @description The detail screen's sentence of what to do */
+            instruction: string;
+            /** @description e.g. "2 questions · 1 photo · check in to pen". */
+            evidence_line: string;
+            /** @enum {string} */
+            review_kind: "verifier" | "none";
+            form: components["schemas"]["PenRoutineEvidence"];
+            /** @description The stored answers keyed by question id (null when none). */
+            answers: {
+                [key: string]: unknown;
+            } | null;
+            answer_rows: components["schemas"]["PenRoutineAnswerRow"][];
+            proofs: components["schemas"]["PenRoutineProofItem"][];
+            presence_required: boolean;
+            /** @description e.g. "Check in to the pen to start", "In pen since 9:12 am"; empty when presence is off. */
+            presence_line: string;
+            /** @description THIS caller has checked in and not left. */
+            in_pen: boolean;
+            /** @description THIS caller may check in now. */
+            can_check_in: boolean;
+            /** Format: date-time */
+            entered_at: string | null;
+            /** Format: date-time */
+            left_at: string | null;
+            /** @description THIS caller is an assignee and work is still owed (open or sent back). */
+            can_submit: boolean;
+            /** @description The gate closed -- verifier approved */
+            verified: boolean;
+            /** @description Empty until submitted. */
+            done_line: string;
+            /** @description The verifier's words when the check was sent back; empty otherwise. */
+            rework_reason?: string;
+            /** Format: date-time */
+            submitted_at: string | null;
+            /** Format: date-time */
+            verified_at: string | null;
+            row_version: number;
+        };
+        PenRoutineDetail: {
+            task: components["schemas"]["PenRoutineStep"];
+            trace_id: string;
+        };
+        PenRoutineFilter: {
+            /** @enum {string} */
+            key: "todo" | "done";
+            label: string;
+            /** @description Whole-list count over the routines the caller is assigned to */
+            count: number;
+            selected: boolean;
+            empty_message: string;
+        };
+        PenRoutinePage: {
+            /** @description The L0 header title; mirrors the nav label ("Routines"). */
+            title: string;
+            rows: components["schemas"]["PenRoutineStep"][];
+            next_cursor?: string | null;
+            filters: components["schemas"]["PenRoutineFilter"][];
+            /** @description Checks still to do on the routines the caller is assigned to. */
+            open_count: number;
+            trace_id: string;
+        };
+        /** @description What the phone captured when the punch was made; every field optional and recorded as given (nothing is refused by distance). */
+        PenRoutinePresenceLocation: {
+            latitude?: number | null;
+            longitude?: number | null;
+            accuracy_m?: number | null;
+            /** @description captured | permission_missing | unavailable */
+            status?: string;
+            address?: string;
+        };
+        /** @description The honest-capture block the workforce clock also records. */
+        PenRoutinePresenceIntegrity: {
+            mock_location?: boolean | null;
+            device_id?: string;
+            app_version?: string;
+            device_model?: string;
+            offline?: boolean | null;
+        };
+        PenRoutinePresenceRequest: {
+            /** @enum {string} */
+            event_type: "enter" | "leave";
+            /** Format: date-time */
+            captured_at: string;
+            /** @description The version the screen loaded with; 0 skips the fence. */
+            row_version?: number;
+            location?: components["schemas"]["PenRoutinePresenceLocation"];
+            integrity?: components["schemas"]["PenRoutinePresenceIntegrity"];
+        };
+        PenRoutineSubmitRequest: {
+            /** @description Raw answers keyed by question id -- a string for yes_no/choice/text, a string array for multi_choice, a number for number. Validated against the task's PINNED form. */
+            answers: {
+                [key: string]: unknown;
+            };
+            proof_refs: components["schemas"]["PenRoutineProofItem"][];
+            /** @description The version the screen loaded with; 0 skips the fence. */
+            row_version?: number;
+            /**
+             * Format: date-time
+             * @description The submit instant on the phone; recorded as the leave when the submitter is still checked in.
+             */
+            captured_at?: string;
+            location?: components["schemas"]["PenRoutinePresenceLocation"];
+            integrity?: components["schemas"]["PenRoutinePresenceIntegrity"];
+        };
     };
     responses: {
         /** @description Validation error. */
@@ -29641,6 +29919,131 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFoundOrNotAllowed"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    listPenRoutineTasks: {
+        parameters: {
+            query?: {
+                /** @description The chip KEY. Absent or unknown resolves to `todo` (scheduled + delayed). */
+                filter?: "todo" | "done";
+                limit?: number;
+                /** @description Keyset cursor from a previous page's next_cursor. */
+                cursor?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page plus whole-list chip counts and the open count. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PenRoutinePage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    getPenRoutineTask: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The task. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PenRoutineDetail"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    recordPenRoutinePresence: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PenRoutinePresenceRequest"];
+            };
+        };
+        responses: {
+            /** @description The task with its presence stamps. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PenRoutineDetail"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    submitPenRoutineTask: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PenRoutineSubmitRequest"];
+            };
+        };
+        responses: {
+            /** @description The submitted task. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PenRoutineDetail"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
+            422: components["responses"]["UnprocessableEntity"];
             500: components["responses"]["ServerError"];
         };
     };

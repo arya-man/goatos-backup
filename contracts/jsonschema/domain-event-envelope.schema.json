@@ -133,6 +133,9 @@
         "pen_visit.created",
         "pen_visit.submitted",
         "pen_visit.verified",
+        "pen_routine.created",
+        "pen_routine.submitted",
+        "pen_routine.verified",
         "procurement.animal_purchase.decided"
       ]
     },
@@ -179,6 +182,7 @@
         "leadership_task",
         "sales_deal",
         "pen_visit_task",
+        "pen_routine_task",
         "leave_request",
         "animal_purchase_candidate"
       ]
@@ -215,6 +219,7 @@
         "leadership_task",
         "sales_deal",
         "pen_visit_task",
+        "pen_routine_task",
         "leave_request",
         "animal_purchase_candidate"
       ]

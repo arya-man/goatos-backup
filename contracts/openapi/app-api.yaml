@@ -16140,6 +16140,169 @@ paths:
           $ref: "#/components/responses/NotFoundOrNotAllowed"
         "500":
           $ref: "#/components/responses/ServerError"
+  /app/pen-routines:
+    get:
+      tags:
+        - Pen Routines
+      operationId: listPenRoutineTasks
+      summary: One page of the caller's own routine checks (the Routines module).
+      description: >-
+        Pen routines (maintainer instruction 2026-09-16, docs/decisions/pen-routines.md): the
+        configurable recurring pen checks. The kernel raises one task per pen per occurrence of every
+        routine the caller is assigned to; the caller lists, opens, checks in and submits them here.
+        Only the routines assigned to the caller are listed, newest due first, keyset-paged.
+        `filters` are whole-list counts over the same assignee predicate, never page sums. Every
+        visible word is backend-owned and rendered verbatim; the pen label is the operational
+        location display.
+      parameters:
+        - name: filter
+          in: query
+          required: false
+          schema: { type: string, enum: [todo, done], default: todo }
+          description: The chip KEY. Absent or unknown resolves to `todo` (scheduled + delayed).
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 50, default: 20 }
+        - name: cursor
+          in: query
+          required: false
+          schema: { type: string }
+          description: Keyset cursor from a previous page's next_cursor.
+      responses:
+        "200":
+          description: One page plus whole-list chip counts and the open count.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PenRoutinePage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /app/pen-routines/{task_id}:
+    get:
+      tags:
+        - Pen Routines
+      operationId: getPenRoutineTask
+      summary: One routine check the caller is assigned to.
+      description: A task assigned to someone else reads as 404, exactly like one that does not exist.
+      parameters:
+        - name: task_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: The task.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PenRoutineDetail"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /app/pen-routines/{task_id}/presence:
+    post:
+      tags:
+        - Pen Routines
+      operationId: recordPenRoutinePresence
+      summary: Check in to (or out of) the pen on this task.
+      description: >-
+        The maintainer's "clock-in and clock-out stating some person entered the pen". An `enter`
+        is refused while the caller is already in the pen, a `leave` while they are not; both are
+        refused once the task is submitted. Presence is evidence, never a geofence: the location and
+        integrity blocks are recorded for the verifier and nothing is refused by distance. Idempotent
+        on the Idempotency-Key header.
+      parameters:
+        - name: task_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PenRoutinePresenceRequest"
+      responses:
+        "200":
+          description: The task with its presence stamps.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PenRoutineDetail"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /app/pen-routines/{task_id}/submit:
+    post:
+      tags:
+        - Pen Routines
+      operationId: submitPenRoutineTask
+      summary: Submit the answers and captures of a routine check.
+      description: >-
+        Answers are validated against the task's PINNED form (every required question answered,
+        every answer of the right shape); photo and video counts must sit inside the routine's
+        min/max; every proof must be a FINISHED upload in this tenant captured by the in-app camera
+        whose declared type matches the kind claimed for it (a gallery pick is refused); when the
+        routine asks for presence the submitter must have checked in to this pen on this task first,
+        and the submit records the leave. Only an assignee may submit, only while the check is still
+        owed, and only on the row_version the screen loaded with (0 skips the fence). A routine
+        reviewed by the verifier locks the row pending; one with no review completes it here.
+        Idempotent on the Idempotency-Key header.
+      parameters:
+        - name: task_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PenRoutineSubmitRequest"
+      responses:
+        "200":
+          description: The submitted task.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PenRoutineDetail"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "500":
+          $ref: "#/components/responses/ServerError"
 components:
   securitySchemes:
     bearerAuth:
@@ -42179,3 +42342,212 @@ components:
             type: string
         trace_id:
           type: string
+    PenRoutineOption:
+      type: object
+      required: [value, label]
+      properties:
+        value: { type: string }
+        label: { type: string }
+    PenRoutineQuestion:
+      type: object
+      description: One authored question, the same widget shape the weighing SOP and the procurement inspection render.
+      required: [id, kind, title, required]
+      properties:
+        id: { type: string }
+        kind: { type: string, enum: [yes_no, choice, multi_choice, number, text] }
+        title: { type: string }
+        hint: { type: string }
+        required: { type: boolean }
+        options:
+          type: array
+          items:
+            $ref: "#/components/schemas/PenRoutineOption"
+        min: { type: number, nullable: true }
+        max: { type: number, nullable: true }
+        unit: { type: string }
+    PenRoutineProofRule:
+      type: object
+      required: [min, max]
+      properties:
+        min: { type: integer }
+        max: { type: integer }
+    PenRoutineEvidence:
+      type: object
+      description: What the routine expects from the assignee -- the PINNED version's form on a task.
+      required: [questions, photo, video, presence]
+      properties:
+        questions:
+          type: array
+          items:
+            $ref: "#/components/schemas/PenRoutineQuestion"
+        photo:
+          $ref: "#/components/schemas/PenRoutineProofRule"
+        video:
+          $ref: "#/components/schemas/PenRoutineProofRule"
+        presence: { type: string, enum: [required, off], description: Whether the submitter must check in to the pen first. }
+    PenRoutineProofItem:
+      type: object
+      required: [ref, kind]
+      properties:
+        ref: { type: string, format: uuid, description: A finished in-app-camera proof. }
+        kind: { type: string, enum: [photo, video] }
+    PenRoutineAnswerRow:
+      type: object
+      required: [question_id, title, value]
+      properties:
+        question_id: { type: string }
+        title: { type: string }
+        value: { type: string, description: The rendered answer (option labels, numbers with unit, text verbatim). }
+    PenRoutineStep:
+      type: object
+      description: >-
+        One routine check in one pen, as every surface renders it (maintainer instruction 2026-09-16,
+        docs/decisions/pen-routines.md): the phone card and detail, the web Today table and the Work
+        Board subtask. Every string is backend-composed; the client maps state_tone to a colour and
+        renders the rest verbatim. status is the gate (open -> pending_verification -> completed | rework
+        for a verifier-reviewed routine; open -> completed on submit for review none) and work_state the
+        kernel clock (scheduled -> delayed -> completed | canceled). form is the PINNED version's evidence:
+        the questions and capture rules this task was raised with.
+      required: [task_id, routine_id, routine_version, routine_name, title, park_id, park_name, shed_id, shed_name, partition_label, operational_location_display, trigger_kinds, reason_line, source_business_date, planned_business_date, due_business_date, work_state, status, state_chip, state_tone, instruction, evidence_line, review_kind, form, answers, answer_rows, proofs, presence_required, presence_line, in_pen, can_check_in, entered_at, left_at, can_submit, verified, done_line, submitted_at, verified_at, row_version]
+      properties:
+        task_id: { type: string, format: uuid }
+        routine_id: { type: string, format: uuid }
+        routine_version: { type: integer }
+        routine_name: { type: string }
+        title:
+          type: string
+          description: 'Backend-composed card title, e.g. "Pen cleaning · Castro 2 · Coimbatore".'
+        park_id: { type: string, format: uuid }
+        park_name: { type: string }
+        shed_id: { type: string, format: uuid }
+        shed_name: { type: string }
+        partition_label: { type: string, description: The pen label; empty for an undivided shed. }
+        operational_location_display:
+          type: string
+          description: 'The canonical pen display ("Castro 2", "Godel 1 - Part 3").'
+        trigger_kinds:
+          type: array
+          description: For an after_work routine, which work raised this task; empty for a calendar cadence.
+          items: { type: string, enum: [vaccination, deworming, anti_protozoan, ticks_removal, hoof_trimming, hair_trimming, weighing, feed_distribution, shifting] }
+        reason_line:
+          type: string
+          description: 'Backend-composed, e.g. "Every day" or "After deworming yesterday".'
+        source_business_date: { type: string, format: date, description: The IST day that raised the task. }
+        planned_business_date: { type: string, format: date, description: Immutable; the day the check was first owed. }
+        due_business_date: { type: string, format: date, description: Rolls forward only, as the check is carried. }
+        work_state: { type: string, enum: [scheduled, delayed, completed, canceled] }
+        status: { type: string, enum: [open, pending_verification, completed, rework] }
+        state_chip:
+          type: string
+          description: 'Backend-composed, e.g. "Due today", "Delayed since 14/09/2026", "In review", "Sent back", "Done", "Verified".'
+        state_tone: { type: string, enum: [info, review, danger, success, muted] }
+        instruction: { type: string, description: The detail screen's sentence of what to do, from the routine's own words. }
+        evidence_line: { type: string, description: 'e.g. "2 questions · 1 photo · check in to pen".' }
+        review_kind: { type: string, enum: [verifier, none] }
+        form:
+          $ref: "#/components/schemas/PenRoutineEvidence"
+        answers:
+          type: object
+          nullable: true
+          additionalProperties: true
+          description: The stored answers keyed by question id (null when none).
+        answer_rows:
+          type: array
+          items:
+            $ref: "#/components/schemas/PenRoutineAnswerRow"
+        proofs:
+          type: array
+          items:
+            $ref: "#/components/schemas/PenRoutineProofItem"
+        presence_required: { type: boolean }
+        presence_line: { type: string, description: 'e.g. "Check in to the pen to start", "In pen since 9:12 am"; empty when presence is off.' }
+        in_pen: { type: boolean, description: THIS caller has checked in and not left. }
+        can_check_in: { type: boolean, description: THIS caller may check in now. }
+        entered_at: { type: string, format: date-time, nullable: true }
+        left_at: { type: string, format: date-time, nullable: true }
+        can_submit: { type: boolean, description: THIS caller is an assignee and work is still owed (open or sent back). }
+        verified: { type: boolean, description: The gate closed -- verifier approved, or review none submitted. }
+        done_line: { type: string, description: Empty until submitted. }
+        rework_reason: { type: string, description: The verifier's words when the check was sent back; empty otherwise. }
+        submitted_at: { type: string, format: date-time, nullable: true }
+        verified_at: { type: string, format: date-time, nullable: true }
+        row_version: { type: integer }
+    PenRoutineDetail:
+      type: object
+      required: [task, trace_id]
+      properties:
+        task:
+          $ref: "#/components/schemas/PenRoutineStep"
+        trace_id: { type: string }
+    PenRoutineFilter:
+      type: object
+      required: [key, label, count, selected, empty_message]
+      properties:
+        key: { type: string, enum: [todo, done] }
+        label: { type: string }
+        count: { type: integer, description: Whole-list count over the routines the caller is assigned to, never a page sum. }
+        selected: { type: boolean }
+        empty_message: { type: string }
+    PenRoutinePage:
+      type: object
+      required: [title, rows, filters, open_count, trace_id]
+      properties:
+        title: { type: string, description: The L0 header title; mirrors the nav label ("Routines"). }
+        rows:
+          type: array
+          items:
+            $ref: "#/components/schemas/PenRoutineStep"
+        next_cursor: { type: string, nullable: true }
+        filters:
+          type: array
+          items:
+            $ref: "#/components/schemas/PenRoutineFilter"
+        open_count: { type: integer, description: Checks still to do on the routines the caller is assigned to. }
+        trace_id: { type: string }
+    PenRoutinePresenceLocation:
+      type: object
+      description: What the phone captured when the punch was made; every field optional and recorded as given (nothing is refused by distance).
+      properties:
+        latitude: { type: number, nullable: true }
+        longitude: { type: number, nullable: true }
+        accuracy_m: { type: number, nullable: true }
+        status: { type: string, description: captured | permission_missing | unavailable }
+        address: { type: string }
+    PenRoutinePresenceIntegrity:
+      type: object
+      description: The honest-capture block the workforce clock also records.
+      properties:
+        mock_location: { type: boolean, nullable: true }
+        device_id: { type: string }
+        app_version: { type: string }
+        device_model: { type: string }
+        offline: { type: boolean, nullable: true }
+    PenRoutinePresenceRequest:
+      type: object
+      required: [event_type, captured_at]
+      properties:
+        event_type: { type: string, enum: [enter, leave] }
+        captured_at: { type: string, format: date-time }
+        row_version: { type: integer, description: The version the screen loaded with; 0 skips the fence. }
+        location:
+          $ref: "#/components/schemas/PenRoutinePresenceLocation"
+        integrity:
+          $ref: "#/components/schemas/PenRoutinePresenceIntegrity"
+    PenRoutineSubmitRequest:
+      type: object
+      required: [answers, proof_refs]
+      properties:
+        answers:
+          type: object
+          additionalProperties: true
+          description: Raw answers keyed by question id -- a string for yes_no/choice/text, a string array for multi_choice, a number for number. Validated against the task's PINNED form.
+        proof_refs:
+          type: array
+          items:
+            $ref: "#/components/schemas/PenRoutineProofItem"
+        row_version: { type: integer, description: The version the screen loaded with; 0 skips the fence. }
+        captured_at: { type: string, format: date-time, description: The submit instant on the phone; recorded as the leave when the submitter is still checked in. }
+        location:
+          $ref: "#/components/schemas/PenRoutinePresenceLocation"
+        integrity:
+          $ref: "#/components/schemas/PenRoutinePresenceIntegrity"
