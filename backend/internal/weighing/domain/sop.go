@@ -806,7 +806,7 @@ func validateSOPAnswers(questions []SOPQuestion, a SOPAnswers, unknownMessage st
 				return answerInvalid(q.ID, "Pick one of the offered answers for: "+q.Title)
 			}
 			if v == "other" && q.AllowOther && strings.TrimSpace(a.text(q.ID+"_other")) == "" {
-				return answerInvalid(q.ID, "Say which, for: "+q.Title)
+				return answerInvalid(q.ID, "Write the other answer for: "+q.Title)
 			}
 		case SOPQuestionMulti:
 			vals, ok := a.multi(q.ID)
@@ -841,7 +841,7 @@ func validateSOPAnswers(questions []SOPQuestion, a SOPAnswers, unknownMessage st
 				return answerInvalid(q.ID, "Enter: "+q.Title)
 			}
 			if len(t) > maxSOPTextLength {
-				return answerInvalid(q.ID, "Too long: "+q.Title)
+				return answerInvalid(q.ID, "Write a shorter answer for: "+q.Title)
 			}
 		}
 	}

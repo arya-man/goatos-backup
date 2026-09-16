@@ -287,7 +287,7 @@ func (c Catalog) ValidateAnswers(a Answers, media MediaRefs) error {
 				return invalid(q.ID, "Enter: "+q.Title)
 			}
 			if len(t) > maxTextLength {
-				return invalid(q.ID, "Too long: "+q.Title)
+				return invalid(q.ID, "Write a shorter answer for: "+q.Title)
 			}
 		}
 	}

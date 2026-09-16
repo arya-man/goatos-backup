@@ -253,7 +253,7 @@ data class SopAnswerProblem(
             SopAnswerProblemKind.PICK_ONLY_OFFERED -> "Pick only the offered answers for: $title"
             SopAnswerProblemKind.ENTER -> "Enter: $title"
             SopAnswerProblemKind.ENTER_NUMBER -> "Enter a number for: $title"
-            SopAnswerProblemKind.TOO_LONG -> "Too long: $title"
+            SopAnswerProblemKind.TOO_LONG -> "Write a shorter answer for: $title"
             SopAnswerProblemKind.OUT_OF_RANGE -> when {
                 min != null && max != null -> "Enter a value between ${plain(min)} and ${plain(max)} for: $title"
                 min != null -> "Enter a value of at least ${plain(min)} for: $title"
