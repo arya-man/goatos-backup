@@ -14,11 +14,14 @@
 
 - Live browser proof requires an admin-web server at `GOATOS_ADMIN_WEB_BASE_URL` or `http://127.0.0.1:3300`.
 - No merge, main landing, or staging deploy has been performed.
+- Current review follow-up only updates this progress receipt to match the pushed PR head.
 
 ## Tests / E2E Performed
 
 - Passed: `node --test --experimental-strip-types apps/admin-web/features/procurement/sales-format.test.mjs apps/admin-web/scripts/smoke-visual-route-coverage.test.mjs`.
 - Passed: package-script readback confirms `responsive:guard` runs `smoke-visual-live.mjs` and then `check-sales-tolerance-layout.mjs`, and `smoke:sales-tolerance-layout:live` points at the new checker.
+- Passed in the review worktree at `78df56445a23c2e165a37a8958e8ff9223deb34c`: `node --check apps/admin-web/scripts/check-sales-tolerance-layout.mjs`.
+- Passed in the review worktree at `78df56445a23c2e165a37a8958e8ff9223deb34c`: `git diff --check origin/main...HEAD`.
 
 ## Known Failures
 
@@ -30,11 +33,11 @@
 
 ## Judge Status
 
-- Review finding fixed in source; focused verification passed; push pending.
+- Review finding fixed in source; focused verification passed; receipt updated for PR head.
 
 ## Current SHA
 
-- Before fix: `1a04ebca01aad3e1da3bfe5dfaa09cc70948b8d6`.
+- PR head under review: `78df56445a23c2e165a37a8958e8ff9223deb34c`.
 
 ## Deployment State
 
