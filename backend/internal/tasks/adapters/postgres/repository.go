@@ -917,6 +917,8 @@ func (r *Repository) CompleteAction(ctx context.Context, cmd domain.CompleteActi
 					return nil, false, domain.ErrPermanentIdentifierRequired
 				}
 			}
+			// Evidence rework does not repeat the business operation or restart its dependents.
+			reshootingBirthStep := domain.ReviewedPerStep(w.TemplateKey) && actions[idx].Status == domain.ActionStatusRework
 			updated, isReplay, err := domain.ApplyComplete(actions[idx], cmd)
 			if err != nil {
 				return nil, false, err
@@ -931,7 +933,7 @@ func (r *Repository) CompleteAction(ctx context.Context, cmd domain.CompleteActi
 				return nil, true, nil
 			}
 			changed := []domain.WorkflowAction{updated}
-			if updated.CompletedAt != nil {
+			if updated.CompletedAt != nil && !reshootingBirthStep {
 				// Dependency-timed steps: any sibling whose schedule waits on THIS step gets its
 				// due time now (the ORS round 2 shape, authored in the SOP; legacy rows carry the
 				// backfilled after_action_key).
@@ -1080,6 +1082,12 @@ LIMIT 1`, tenantID, goatID, domain.TemplateKeyBirthKid).Scan(&id)
 			}
 			for i := range actions {
 				if !actions[i].HasHook(domain.EngineHookTagKid) {
+					continue
+				}
+				// A delayed identifier event must not change the version of a recording already
+				// submitted for review. Its verdict is fenced by that exact version. Only
+				// unfinished operator work needs the identifier prerequisite stamped here.
+				if actions[i].Status != domain.ActionStatusPending && actions[i].Status != domain.ActionStatusRework {
 					continue
 				}
 				if actions[i].AnswerValue != nil && *actions[i].AnswerValue == identifier {

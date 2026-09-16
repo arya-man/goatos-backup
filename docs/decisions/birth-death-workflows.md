@@ -446,3 +446,8 @@ Missing or stale keys do not change the step, including a delayed rejection afte
 with identical proof references. Legacy whole-track verdicts keep their existing consumer.
 Each step also sends positional `media_meta` with its SOP title and each proof's actual kind,
 so photo and mixed-media steps retain the correct verifier player.
+
+Evidence rework preserves already-established dependent deadlines: re-shooting ORS round one
+does not restart round two's 50-minute clock. Delayed identifier events only update pending or
+rework tagging actions, never the row version of a submitted recording. PostgreSQL regressions
+in `birth_recording_regression_test.go` pin both event-ordering boundaries.
