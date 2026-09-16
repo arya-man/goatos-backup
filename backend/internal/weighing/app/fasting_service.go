@@ -77,37 +77,51 @@ func (s *Service) SubmitFastingShed(ctx context.Context, actor domain.Actor, cmd
 	if err != nil {
 		return domain.FastingShedCard{}, err
 	}
-	// An older phone sends the legacy pair; it maps onto the seeded slots. A document that
-	// renamed or dropped those slots refuses it by name below -- that phone must update.
+	// An OLDER phone sends the legacy feed + water pair and no answers. It is never forced to update
+	// (program decision 7): each clip lands on its seeded slot when the pinned card still takes a
+	// video there, else under the reserved older-app key; what it could not send is reported to the
+	// verifier as not captured rather than refused. A NEW phone (slot map present) is judged strictly.
 	cmd.Proofs = domain.NormalizeRemovalProofRefs(cmd.Proofs)
-	if len(cmd.Proofs) == 0 {
+	legacyShape := len(cmd.Proofs) == 0
+	if legacyShape {
 		if strings.TrimSpace(cmd.FeedProofRef) == "" || strings.TrimSpace(cmd.WaterProofRef) == "" {
 			return domain.FastingShedCard{}, ports.ErrFastingProofRequired
 		}
-		cmd.Proofs = domain.RemovalProofRefs{domain.RemovalProofFeed: strings.TrimSpace(cmd.FeedProofRef), domain.RemovalProofWater: strings.TrimSpace(cmd.WaterProofRef)}
+		cmd.FeedProofRef, cmd.WaterProofRef = strings.TrimSpace(cmd.FeedProofRef), strings.TrimSpace(cmd.WaterProofRef)
+		cmd.Proofs = domain.LegacyRemovalRefs(rules, cmd.FeedProofRef, cmd.WaterProofRef)
 	}
 	for _, ref := range cmd.Proofs {
 		if !uuidutil.IsUUIDString(ref) {
 			return domain.FastingShedCard{}, ports.ErrInvalidArgument
 		}
 	}
-	ordered, err := rules.ValidateRemovalProofRefs(cmd.Proofs)
+	var ordered []string
+	if legacyShape {
+		ordered, err = rules.LegacyRemovalOrdered(cmd.Proofs)
+	} else {
+		ordered, err = rules.ValidateRemovalProofRefs(cmd.Proofs)
+	}
 	if err != nil {
 		return domain.FastingShedCard{}, err
 	}
 	cmd.OrderedRefs = ordered
-	cmd.SlotKinds = map[string]string{}
+	cmd.SlotKinds = map[string]string{domain.OlderAppVideoKeyN(1): domain.RemovalProofKindVideo, domain.OlderAppVideoKeyN(2): domain.RemovalProofKindVideo}
 	for _, slot := range rules.RemovalProofs() {
 		cmd.SlotKinds[slot.Key] = slot.Kind
 	}
-	// The legacy columns mirror the seeded slots for older readers.
-	cmd.FeedProofRef = cmd.Proofs[domain.RemovalProofFeed]
-	cmd.WaterProofRef = cmd.Proofs[domain.RemovalProofWater]
+	if !legacyShape {
+		// The legacy columns mirror the seeded slots for older readers; an older phone's pair is
+		// kept exactly as it sent it.
+		cmd.FeedProofRef = cmd.Proofs[domain.RemovalProofFeed]
+		cmd.WaterProofRef = cmd.Proofs[domain.RemovalProofWater]
+	}
 	if cmd.Answers == nil {
 		cmd.Answers = domain.SOPAnswers{}
 	}
-	if err := rules.ValidateRemovalAnswers(cmd.Answers); err != nil {
-		return domain.FastingShedCard{}, err
+	if !legacyShape {
+		if err := rules.ValidateRemovalAnswers(cmd.Answers); err != nil {
+			return domain.FastingShedCard{}, err
+		}
 	}
 	cmd.Answers = rules.NormalizeRemovalAnswers(cmd.Answers)
 	result, err := s.fasting.SubmitFastingShed(ctx, cmd)
@@ -186,7 +200,8 @@ func mediaMetaFor(rules domain.Rules, shed domain.FastingShedProof, refs []strin
 		return nil
 	}
 	slotByRef := map[string]domain.RemovalProofSlot{}
-	for _, slot := range rules.RemovalProofs() {
+	slots := append(append([]domain.RemovalProofSlot(nil), rules.RemovalProofs()...), domain.OlderAppVideoSlot(domain.OlderAppVideoKeyN(1)), domain.OlderAppVideoSlot(domain.OlderAppVideoKeyN(2)))
+	for _, slot := range slots {
 		if ref := shed.Proofs[slot.Key]; ref != "" {
 			slotByRef[ref] = slot
 		}
@@ -211,12 +226,20 @@ func mediaMetaFor(rules domain.Rules, shed domain.FastingShedProof, refs []strin
 // re-raise the item carries the same rows the first enqueue did.
 func answerRowsFor(rules domain.Rules, shed domain.FastingShedProof) []VerificationContextRow {
 	rows := rules.RemovalAnswerRows(shed.Answers)
-	if len(rows) == 0 {
+	var notCaptured []domain.AnswerRow
+	if len(shed.Proofs) > 0 {
+		// Empty for a new app's strict submit; an older app's gaps read "Not captured (older app)".
+		notCaptured = rules.RemovalNotCapturedRows(shed.Proofs, shed.Answers)
+	}
+	if len(rows) == 0 && len(notCaptured) == 0 {
 		return nil
 	}
-	out := make([]VerificationContextRow, 0, len(rows))
+	out := make([]VerificationContextRow, 0, len(rows)+len(notCaptured))
 	for _, r := range rows {
 		out = append(out, VerificationContextRow{Label: r.Label, Value: r.Value})
+	}
+	for _, r := range notCaptured {
+		out = append(out, VerificationContextRow{Label: r.Label, Value: r.Value, Group: captureGroupNotCaptured})
 	}
 	return out
 }
