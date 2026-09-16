@@ -22,6 +22,8 @@ GOATOS_CANONICAL_DASHBOARD_HOST="${GOATOS_CANONICAL_DASHBOARD_HOST:-dashboard.me
 GOATOS_API_BASE_URL="${GOATOS_API_BASE_URL:-https://api.goatos.mesha.sg/}"
 GOATOS_STG_ZERO_DOWNTIME_DEPLOY="${CLOUD_DEPLOY_customTarget_zeroDowntimeDeploy:-${GOATOS_STG_ZERO_DOWNTIME_DEPLOY:-true}}"
 
+OBSERVABILITY_ONLY="${CLOUD_DEPLOY_customTarget_observabilityOnly:-false}"
+ALLOY_IMAGE="${CLOUD_DEPLOY_customTarget_alloyImage:-}"
 GRAFANA_DOMAIN_ONLY="${CLOUD_DEPLOY_customTarget_grafanaDomainOnly:-false}"
 GRAFANA_SSO_ONLY="${CLOUD_DEPLOY_customTarget_grafanaSsoOnly:-false}"
 COMMIT_SHA="${CLOUD_DEPLOY_customTarget_commitSha:-}"
@@ -44,7 +46,17 @@ require_release_inputs() {
   require_param "customTarget/commitSha" "$COMMIT_SHA"
   [[ "$GRAFANA_DOMAIN_ONLY" == "true" || "$GRAFANA_DOMAIN_ONLY" == "false" ]] || die "customTarget/grafanaDomainOnly must be true or false"
   [[ "$GRAFANA_SSO_ONLY" == "true" || "$GRAFANA_SSO_ONLY" == "false" ]] || die "customTarget/grafanaSsoOnly must be true or false"
-  [[ "$GRAFANA_DOMAIN_ONLY" != "true" || "$GRAFANA_SSO_ONLY" != "true" ]] || die "Grafana-only modes are mutually exclusive"
+  [[ "$OBSERVABILITY_ONLY" == "true" || "$OBSERVABILITY_ONLY" == "false" ]] || die "observabilityOnly must be true or false"
+  local mode_count=0
+  for mode in "$GRAFANA_DOMAIN_ONLY" "$GRAFANA_SSO_ONLY" "$OBSERVABILITY_ONLY"; do
+    if [[ "$mode" == "true" ]]; then mode_count=$((mode_count + 1)); fi
+  done
+  [[ "$mode_count" -le 1 ]] || die "Grafana-only modes are mutually exclusive"
+  if [[ "$OBSERVABILITY_ONLY" == "true" ]]; then
+    [[ "$COMMIT_SHA" =~ ^[0-9a-f]{12,40}$ ]] || die "Observability requires a commit SHA"
+    require_param "customTarget/alloyImage" "$ALLOY_IMAGE"
+    return 0
+  fi
   if [[ "$GRAFANA_DOMAIN_ONLY" == "true" || "$GRAFANA_SSO_ONLY" == "true" ]]; then
     [[ "$COMMIT_SHA" =~ ^[0-9a-f]{12,40}$ ]] || die "Grafana cutover requires a commit SHA"
     return 0
@@ -342,6 +354,64 @@ PY
     die "public /app/analytics/events smoke did not land on $ANALYTICS_EVENTS_SERVICE (status=$code traceparent=$traceparent)"
 }
 
+observability_helper() {
+  local helper="$(dirname "${BASH_SOURCE[0]}")/stg-observability.py"
+  local assets="$(dirname "${BASH_SOURCE[0]}")/../../infra/grafana"
+  if [[ ! -f "$helper" ]]; then
+    helper=/usr/local/bin/goatos-stg-observability.py
+    assets=/opt/goatos/infra/grafana
+  fi
+  python3 "$helper" "$1" --assets "$assets" --alloy-image "$ALLOY_IMAGE" --log-metrics "$assets/../observability/faro-log-metrics.json"
+}
+
+observability_render() {
+  local output_path="${CLOUD_DEPLOY_OUTPUT_GCS_PATH:-}"
+  [[ -n "$output_path" ]] || die "CLOUD_DEPLOY_OUTPUT_GCS_PATH is required for render"
+  observability_helper plan > goatos-stg-observability.json
+  assert_image "Alloy" "$ALLOY_IMAGE"
+  run gcloud storage cp goatos-stg-observability.json "$output_path/goatos-stg-observability.json"
+  write_results "SUCCEEDED" "$output_path/goatos-stg-observability.json"
+}
+
+observability_apply_and_smoke() {
+  assert_image "Alloy" "$ALLOY_IMAGE"
+  observability_helper deploy
+  grafana_domain_auth_boundary
+  local smoke="$(dirname "${BASH_SOURCE[0]}")/smoke-stg-grafana-dashboards.mjs"
+  [[ -f "$smoke" ]] || smoke=/opt/goatos/tools/deploy/smoke-stg-grafana-dashboards.mjs
+  local receipt="$(dirname "${BASH_SOURCE[0]}")/../../infra/observability/firebase-initial-export.json"
+  [[ -f "$receipt" ]] || receipt=/opt/goatos/infra/observability/firebase-initial-export.json
+  [[ -f "$receipt" ]] || die "Firebase initial-export readiness receipt missing from runner"
+  node "$smoke" --url https://grafana.mesha.sg --no-proxy --query-validity-only --firebase-initial-export-receipt "$receipt"
+  echo "Observability deployment/query validation passed; full-data certification remains pending real traffic and source readiness."
+}
+
+observability_deploy() {
+  observability_apply_and_smoke
+  write_results "SUCCEEDED"
+}
+
+assert_analytics_worker_iam() {
+  local account policy
+  account="$(gcloud run services describe "$KERNEL_WORKER_SERVICE" --project="$PROJECT_ID" --region="$REGION" --format='value(spec.template.spec.serviceAccountName)')"
+  [[ -n "$account" ]] || die "Kernel worker runtime service account missing"
+  policy="$(gcloud run jobs get-iam-policy goatos-stg-analytics-rollup --project="$PROJECT_ID" --region="$REGION" --format=json)"
+  printf '%s' "$policy" | python3 -c 'import json,sys
+policy=json.load(sys.stdin)
+member="serviceAccount:"+sys.argv[1]
+required={"roles/run.jobsExecutorWithOverrides","roles/run.viewer"}
+actual={b["role"] for b in policy.get("bindings",[]) if member in b.get("members",[]) and not b.get("condition")}
+assert required <= actual, "Kernel worker requires job-scoped execution and reconciliation IAM before deployment"' "$account"
+}
+
+normal_observability_deploy() {
+  [[ -n "$ALLOY_IMAGE" ]] || return 0
+  [[ "$(job_image goatos-stg-analytics-rollup)" == "$BACKEND_IMAGE" ]] || die "analytics-rollup must use the verified backend image"
+  run gcloud run jobs execute goatos-stg-analytics-rollup --project="$PROJECT_ID" --region="$REGION" \
+    --args="-timeout=25m,-source=app_events,-lookback-days=7" --wait --quiet
+  observability_apply_and_smoke
+}
+
 grafana_sso_helper() {
   local helper="$(dirname "${BASH_SOURCE[0]}")/stg-grafana-sso.py"
   [[ -f "$helper" ]] || helper=/usr/local/bin/goatos-stg-grafana-sso.py
@@ -449,6 +519,10 @@ PY
 render() {
   assert_target
   require_release_inputs
+  if [[ "$OBSERVABILITY_ONLY" == "true" ]]; then
+    observability_render
+    return
+  fi
   if [[ "$GRAFANA_SSO_ONLY" == "true" ]]; then
     grafana_sso_render
     return
@@ -460,6 +534,10 @@ render() {
   assert_image "backend" "$BACKEND_IMAGE"
   assert_image "migration" "$MIGRATION_IMAGE"
   assert_image "admin-web" "$ADMIN_WEB_IMAGE"
+  if [[ -n "$ALLOY_IMAGE" ]]; then
+    observability_helper plan >/dev/null
+    assert_image "Alloy" "$ALLOY_IMAGE"
+  fi
 
   local output_path="${CLOUD_DEPLOY_OUTPUT_GCS_PATH:-}"
   [[ -n "$output_path" ]] || die "CLOUD_DEPLOY_OUTPUT_GCS_PATH is required for render"
@@ -489,6 +567,10 @@ EOF
 deploy() {
   assert_target
   require_release_inputs
+  if [[ "$OBSERVABILITY_ONLY" == "true" ]]; then
+    observability_deploy
+    return
+  fi
   if [[ "$GRAFANA_SSO_ONLY" == "true" ]]; then
     grafana_sso_deploy
     return
@@ -500,6 +582,12 @@ deploy() {
   assert_image "backend" "$BACKEND_IMAGE"
   assert_image "migration" "$MIGRATION_IMAGE"
   assert_image "admin-web" "$ADMIN_WEB_IMAGE"
+  if [[ -n "$ALLOY_IMAGE" ]]; then
+    observability_helper plan >/dev/null
+    assert_image "Alloy" "$ALLOY_IMAGE"
+  fi
+
+  assert_analytics_worker_iam
 
   local backend_prefix="${REGION}-docker.pkg.dev/${PROJECT_ID}/${ARTIFACT_REPOSITORY}/backend:"
   local updated_jobs=()
@@ -673,7 +761,7 @@ deploy() {
     --min-instances=2 \
     --max-instances=2 \
     --no-cpu-throttling \
-    --update-env-vars="GOATOS_WORKER_STAGES_ENABLED=true" \
+    --update-env-vars="GOATOS_WORKER_STAGES_ENABLED=true,GOATOS_ANALYTICS_ROLLUP_JOB=projects/${PROJECT_ID}/locations/${REGION}/jobs/goatos-stg-analytics-rollup" \
     --update-labels="commit_sha=${COMMIT_SHA},deployed_by=cloud-deploy" \
     --quiet
   wait_service_ready "$KERNEL_WORKER_SERVICE" "post-migration restore"
@@ -726,6 +814,10 @@ deploy() {
         --image="$BACKEND_IMAGE" \
         --update-labels="commit_sha=${COMMIT_SHA},deployed_by=cloud-deploy" \
         --quiet
+      if [[ "$job" == "goatos-stg-analytics-rollup" ]]; then
+        run gcloud run jobs update "$job" --project="$PROJECT_ID" --region="$REGION" \
+          --args="-timeout=25m,-source=app_events,-lookback-days=3" --quiet
+      fi
       updated_jobs+=("$job")
     else
       echo "skip non-backend-image job $job ($current_image)"
@@ -782,6 +874,8 @@ deploy() {
   smoke_http "$mcp_url/livez" "200"
   smoke_http "$mcp_url/readyz" "200"
   curl -fsSIL "$STG_DASHBOARD_URL/login" >/dev/null
+
+  normal_observability_deploy
 
   printf 'cloud-deploy-stg-ok commit=%s backend_jobs=%s api=%s mcp=%s worker=%s admin=%s\n' \
     "$COMMIT_SHA" "${#updated_jobs[@]}" "$BACKEND_IMAGE" "$BACKEND_IMAGE" "$BACKEND_IMAGE" "$ADMIN_WEB_IMAGE"

@@ -32,7 +32,7 @@ datasources:
     type: prometheus
     access: proxy
     url: http://localhost:9090
-    isDefault: true
+    isDefault: false
     jsonData:
       httpMethod: GET
       timeInterval: 30s
@@ -104,6 +104,7 @@ datasources:
   # roles/monitoring.viewer already granted.
   - name: Google Cloud Monitoring
     uid: cloud-monitoring
+    isDefault: true
     type: stackdriver
     access: proxy
     jsonData:

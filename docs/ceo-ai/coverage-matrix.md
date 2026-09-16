@@ -1617,3 +1617,13 @@ weighing answers still come from `GET /weighing/campaigns` and `GET /weighing/pr
 | Surface | Decision | Reason |
 | --- | --- | --- |
 | table:weighing_calendar_config | EXCLUDED | Tenant-scoped presentation configuration for the earliest selectable date and default reporting window. The admin UI bootstrap reader publishes it on the Weights and ADG Analytics page contracts; it adds no animal observation, aggregate, or leadership fact. SQL edits invalidate the existing configuration revision. Reporting answers continue to use the existing authorized weighing APIs and explicit date filters. See `docs/runbooks/weighing-calendar-settings.md`. |
+## Application observability summaries (2026-09-16)
+
+| Surface | Decision | Reason |
+| --- | --- | --- |
+| app_crash_daily | EXCLUDED | App-wide Firebase Crashlytics/session-export health summary read by Grafana, not a tenant leadership fact. Counts observed installations and sessions; it must not be exposed as authenticated-user or livestock business metrics through the CEO assistant. |
+| app_network_daily | EXCLUDED | App-wide Firebase Performance exported network-sample percentiles and sample counts read by Grafana. Daily sampled application diagnostics, not tenant business KPIs or a complete census of operator requests. |
+| func:RecordSweeperTasksCreated | EXCLUDED | Internal operational telemetry records exact newly committed SOP task creation counts; replay does not increment it. Existing canonical task APIs remain the leadership reporting source, not this monitoring counter. |
+
+| rollup_dispatch | EXCLUDED | Internal durable dispatch lease for the existing analytics Cloud Run job. No business fact; final job status remains rollup_run and the lease must not be interpreted as completion. |
+| func:NewAnalyticsRollupStage | EXCLUDED | Shared kernel-worker cadence adapter for operational diagnostics refresh, not a leadership read API. |

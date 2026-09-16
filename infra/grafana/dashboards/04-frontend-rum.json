@@ -1,7 +1,7 @@
 {
   "uid": "goatos-stg-frontend-rum",
-  "title": "Goat OS — Frontend RUM (admin-web)",
-  "description": "Browser RUM dashboard. Current live status: admin-web code contains FaroProvider and traceparent propagation, but the deployed goatos-admin-web-stg revision does not set NEXT_PUBLIC_FARO_COLLECTOR_URL, and goatos-stg-grafana-alloy has no request_count series in the last 24h. Cloud Run/Grafana health panels remain useful once traffic arrives; RUM web-vitals/error panels stay as explicit gaps until the build env and Cloud Trace/Logging visualization path are completed.",
+  "title": "Goat OS \u2014 Frontend RUM (admin-web)",
+  "description": "Real browser Faro measurements exported to Cloud Logging and log-based Cloud Monitoring metrics. Receiver HTTP traffic alone is only connectivity evidence. Empty telemetry is not synthesized into zero or healthy sessions.",
   "schemaVersion": 39,
   "version": 1,
   "editable": true,
@@ -21,7 +21,7 @@
   "panels": [
     {
       "id": 100,
-      "title": "RUM ingestion pipeline health (pending browser traffic)",
+      "title": "Browser collection and receiver health",
       "type": "row",
       "gridPos": {
         "h": 1,
@@ -35,7 +35,7 @@
     {
       "id": 1,
       "title": "Grafana Alloy (faro.receiver) request rate by status class",
-      "description": "run.googleapis.com/request_count on the goatos-stg-grafana-alloy Cloud Run service, grouped by response_code_class — confirms the RUM receiver endpoint itself is reachable and healthy before trusting any Faro-derived panel. Metric type + grouping verified live against this Grafana instance (using the sibling goatos-stg-grafana service as a known-good reference, since Alloy has not received any Faro traffic yet).",
+      "description": "Alloy receiver HTTP traffic, including connectivity probes. A healthy receiver does not prove browser telemetry; the browser measurement/event panels below must contain real traffic.",
       "type": "timeseries",
       "gridPos": {
         "h": 8,
@@ -90,7 +90,7 @@
     {
       "id": 2,
       "title": "Grafana Alloy request latency p50 / p99",
-      "description": "run.googleapis.com/request_latencies (a DELTA/DISTRIBUTION metric) on goatos-stg-grafana-alloy. GCP Cloud Monitoring's percentile aligner supports only p50/p95/p99 (ALIGN_PERCENTILE_90 is rejected by the API, verified live) — p99 shown here, p95 would stand in for p90 if needed.",
+      "description": "run.googleapis.com/request_latencies (a DELTA/DISTRIBUTION metric) on goatos-stg-grafana-alloy. GCP Cloud Monitoring's percentile aligner supports only p50/p95/p99 (ALIGN_PERCENTILE_90 is rejected by the API, verified live) \u2014 p99 shown here, p95 would stand in for p90 if needed.",
       "type": "timeseries",
       "gridPos": {
         "h": 8,
@@ -152,7 +152,7 @@
     },
     {
       "id": 101,
-      "title": "Web Vitals + JS errors + traces (pending Faro wiring + Cloud Trace/Logging datasources)",
+      "title": "Observed browser measurements and events",
       "type": "row",
       "gridPos": {
         "h": 1,
@@ -165,8 +165,8 @@
     },
     {
       "id": 3,
-      "title": "Web Vitals (LCP / CLS / INP / TTFB) — pending RUM metrics pipeline",
-      "type": "text",
+      "title": "Browser Web Vitals p95 \u2014 LCP / INP / TTFB",
+      "type": "timeseries",
       "gridPos": {
         "h": 6,
         "w": 12,
@@ -174,14 +174,74 @@
         "y": 10
       },
       "options": {
-        "mode": "markdown",
-        "content": "**Pending RUM metrics pipeline.** Code has `FaroProvider`, but the deployed `goatos-admin-web-stg` revision currently lacks `NEXT_PUBLIC_FARO_COLLECTOR_URL`, so browser sessions cannot POST to Alloy. After rebuilding admin-web with that URL, verify `run.googleapis.com/request_count` for `goatos-stg-grafana-alloy` and Cloud Trace browser root spans before treating Web Vitals as live. Web Vitals arrive as Faro/OTel telemetry, not as the Cloud Run request metrics used for receiver health."
-      }
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "datasource": "Google Cloud Monitoring",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": "Google Cloud Monitoring",
+          "queryType": "timeSeriesList",
+          "timeSeriesList": {
+            "projectName": "goatos-stg",
+            "view": "FULL",
+            "filters": ["metric.type", "=", "logging.googleapis.com/user/goatos_rum_lcp_ms"],
+            "groupBys": [],
+            "perSeriesAligner": "ALIGN_PERCENTILE_95",
+            "crossSeriesReducer": "REDUCE_NONE",
+            "alignmentPeriod": "300s"
+          },
+          "aliasBy": "LCP"
+        },
+        {
+          "refId": "B",
+          "datasource": "Google Cloud Monitoring",
+          "queryType": "timeSeriesList",
+          "timeSeriesList": {
+            "projectName": "goatos-stg",
+            "view": "FULL",
+            "filters": ["metric.type", "=", "logging.googleapis.com/user/goatos_rum_inp_ms"],
+            "groupBys": [],
+            "perSeriesAligner": "ALIGN_PERCENTILE_95",
+            "crossSeriesReducer": "REDUCE_NONE",
+            "alignmentPeriod": "300s"
+          },
+          "aliasBy": "INP"
+        },
+        {
+          "refId": "C",
+          "datasource": "Google Cloud Monitoring",
+          "queryType": "timeSeriesList",
+          "timeSeriesList": {
+            "projectName": "goatos-stg",
+            "view": "FULL",
+            "filters": ["metric.type", "=", "logging.googleapis.com/user/goatos_rum_ttfb_ms"],
+            "groupBys": [],
+            "perSeriesAligner": "ALIGN_PERCENTILE_95",
+            "crossSeriesReducer": "REDUCE_NONE",
+            "alignmentPeriod": "300s"
+          },
+          "aliasBy": "TTFB"
+        }
+      ],
+      "description": "p95 of observed browser web-vital samples in each five-minute interval. INP requires a qualifying user interaction; no INP sample is not a zero. Log distributions represent actual Faro measurements, not receiver request latency."
     },
     {
       "id": 4,
-      "title": "JS error rate — pending RUM metrics pipeline",
-      "type": "text",
+      "title": "Browser cumulative layout shift p95",
+      "type": "timeseries",
       "gridPos": {
         "h": 6,
         "w": 12,
@@ -189,14 +249,43 @@
         "y": 10
       },
       "options": {
-        "mode": "markdown",
-        "content": "**Pending RUM metrics pipeline.** Same deployment gap as Web Vitals: no live Faro collector URL in admin-web, and no Alloy request_count series in the last 24h. Once Faro traffic arrives, use Cloud Trace/Logging-backed panels or a derived metric for JS error rate."
-      }
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "datasource": "Google Cloud Monitoring",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": "Google Cloud Monitoring",
+          "queryType": "timeSeriesList",
+          "timeSeriesList": {
+            "projectName": "goatos-stg",
+            "view": "FULL",
+            "filters": ["metric.type", "=", "logging.googleapis.com/user/goatos_rum_cls"],
+            "groupBys": [],
+            "perSeriesAligner": "ALIGN_PERCENTILE_95",
+            "crossSeriesReducer": "REDUCE_NONE",
+            "alignmentPeriod": "300s"
+          }
+        }
+      ],
+      "description": "Unitless CLS from actual Faro web-vitals measurements. Missing browser samples remain missing."
     },
     {
       "id": 5,
-      "title": "Slow browser -> API traces (p99 span duration) — pending Cloud Trace datasource",
-      "type": "text",
+      "title": "Browser JavaScript exceptions",
+      "type": "timeseries",
       "gridPos": {
         "h": 6,
         "w": 12,
@@ -204,14 +293,45 @@
         "y": 16
       },
       "options": {
-        "mode": "markdown",
-        "content": "**Pending Cloud Trace datasource.** admin-web's API client (`packages/api-client`, fetch wrapper) already injects/propagates a W3C `traceparent` per OBSERVABILITY_DESIGN.md section 2.4, so once Faro tracing + a `googlecloud-trace-datasource` are both provisioned, this panel should filter `service.name=\"goatos-admin-web-stg\"` and surface the browser span linked to its backend span on one trace — letting an operator jump from a slow page load straight to the backend API/DB spans that caused it."
-      }
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "datasource": "Google Cloud Monitoring",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": "Google Cloud Monitoring",
+          "queryType": "promQL",
+          "timeSeriesList": {},
+          "promQLQuery": {
+            "projectName": "goatos-stg",
+            "expr": "sum(increase(logging_googleapis_com:user_goatos_rum_exceptions[5m]))",
+            "step": "300s"
+          },
+          "goatosDataCondition": {
+            "kind": "event-conditional",
+            "event": "Browser reported a JavaScript exception",
+            "source": "infra/observability/alloy-config.alloy"
+          }
+        }
+      ],
+      "description": "Observed exception log entries per five-minute interval, not a session error percentage. No samples can mean no reported exceptions; collection coverage is verified separately."
     },
     {
       "id": 6,
-      "title": "RUM session count (24h) — pending RUM metrics pipeline",
-      "type": "text",
+      "title": "Browser session-start events",
+      "type": "timeseries",
       "gridPos": {
         "h": 6,
         "w": 12,
@@ -219,14 +339,40 @@
         "y": 16
       },
       "options": {
-        "mode": "markdown",
-        "content": "**Pending RUM metrics pipeline.** Once live: Cloud Logging filter `jsonPayload.kind=\"session\"`, count distinct session id over 24h."
-      }
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "datasource": "Google Cloud Monitoring",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": "Google Cloud Monitoring",
+          "queryType": "promQL",
+          "timeSeriesList": {},
+          "promQLQuery": {
+            "projectName": "goatos-stg",
+            "expr": "sum(increase(logging_googleapis_com:user_goatos_rum_session_starts[5m]))",
+            "step": "300s"
+          }
+        }
+      ],
+      "description": "Reported session-start events per five-minute interval. This is not a distinct-session cardinality calculation; retries or client lifecycle behavior can affect event counts."
     },
     {
       "id": 7,
-      "title": "Route changes (SPA navigation, 24h) — pending RUM metrics pipeline",
-      "type": "text",
+      "title": "SPA route-view events",
+      "type": "timeseries",
       "gridPos": {
         "h": 6,
         "w": 12,
@@ -234,14 +380,40 @@
         "y": 22
       },
       "options": {
-        "mode": "markdown",
-        "content": "**Pending RUM metrics pipeline.** Once live: Cloud Logging filter `jsonPayload.kind=\"event\" jsonPayload.name=\"routeChange\"`, rate/5m by `jsonPayload.attributes.toUrl` (bounded to route templates, not raw query strings)."
-      }
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "datasource": "Google Cloud Monitoring",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": "Google Cloud Monitoring",
+          "queryType": "promQL",
+          "timeSeriesList": {},
+          "promQLQuery": {
+            "projectName": "goatos-stg",
+            "expr": "sum(increase(logging_googleapis_com:user_goatos_rum_route_views[5m]))",
+            "step": "300s"
+          }
+        }
+      ],
+      "description": "Actual admin_route_view browser events, including client-side navigation. Counts are observations rather than distinct users."
     },
     {
       "id": 8,
-      "title": "Sessions by geo (best-effort, 24h) — pending enrichment",
-      "type": "text",
+      "title": "Session-start events by browser",
+      "type": "timeseries",
       "gridPos": {
         "h": 6,
         "w": 12,
@@ -249,9 +421,36 @@
         "y": 22
       },
       "options": {
-        "mode": "markdown",
-        "content": "**Pending both the RUM metrics pipeline AND a geoip enrichment step.** Faro does not resolve client geo natively — this needs a `resourcedetection`/geoip processor added to the Alloy/Collector pipeline (not yet in `infra/envs/stg/observability.tf`) in addition to Faro + Cloud Logging being live."
-      }
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "datasource": "Google Cloud Monitoring",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": "Google Cloud Monitoring",
+          "queryType": "promQL",
+          "timeSeriesList": {},
+          "aliasBy": "{{browser}}",
+          "promQLQuery": {
+            "projectName": "goatos-stg",
+            "expr": "sum by (browser)(increase(logging_googleapis_com:user_goatos_rum_session_starts[5m]))",
+            "step": "300s"
+          }
+        }
+      ],
+      "description": "Observed session-start events grouped by bounded browser-family label. This is browser event distribution, not geolocation or distinct users."
     }
   ]
 }

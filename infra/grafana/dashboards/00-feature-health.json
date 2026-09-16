@@ -457,7 +457,7 @@
       "title": "Weights: request rate by route",
       "type": "timeseries",
       "gridPos": {
-        "x": 0,
+        "x": 12,
         "y": 15,
         "w": 12,
         "h": 7
@@ -472,6 +472,75 @@
           "timeSeriesList": {
             "projectName": "goatos-stg",
             "filters": ["metric.type", "=", "prometheus.googleapis.com/http_server_requests_total/counter", "AND", "resource.type", "=", "prometheus_target", "AND", "metric.label.route", "=~", ".*weighing.*|.*growth-director.*"],
+            "view": "FULL",
+            "groupBys": [
+              "metric.label.route",
+              "metric.label.status_class"
+            ],
+            "perSeriesAligner": "ALIGN_RATE",
+            "crossSeriesReducer": "REDUCE_SUM",
+            "alignmentPeriod": "300s"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.5
+              },
+              {
+                "color": "red",
+                "value": 1.5
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 102,
+      "title": "Vaccination / PC: request rate by route",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 12,
+        "y": 15,
+        "w": 12,
+        "h": 7
+      },
+      "datasource": "Google Cloud Monitoring",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": "Google Cloud Monitoring",
+          "aliasBy": "{{metric.label.route}}",
+          "queryType": "timeSeriesList",
+          "timeSeriesList": {
+            "projectName": "goatos-stg",
+            "filters": ["metric.type", "=", "prometheus.googleapis.com/http_server_requests_total/counter", "AND", "resource.type", "=", "prometheus_target", "AND", "metric.label.route", "=~", ".*vaccination.*|.*preventive.*|.*protocol-adherence.*|.*action-center.*"],
             "view": "FULL",
             "groupBys": [
               "metric.label.route",
@@ -587,83 +656,15 @@
           "mode": "multi",
           "sort": "desc"
         }
-      }
-    },
-    {
-      "id": 102,
-      "title": "Vaccination / PC: request rate by route",
-      "type": "timeseries",
-      "gridPos": {
-        "x": 12,
-        "y": 15,
-        "w": 12,
-        "h": 7
       },
-      "datasource": "Google Cloud Monitoring",
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": "Google Cloud Monitoring",
-          "aliasBy": "{{metric.label.route}}",
-          "queryType": "timeSeriesList",
-          "timeSeriesList": {
-            "projectName": "goatos-stg",
-            "filters": ["metric.type", "=", "prometheus.googleapis.com/http_server_requests_total/counter", "AND", "resource.type", "=", "prometheus_target", "AND", "metric.label.route", "=~", ".*vaccination.*|.*preventive.*|.*protocol-adherence.*|.*action-center.*"],
-            "view": "FULL",
-            "groupBys": [
-              "metric.label.route",
-              "metric.label.status_class"
-            ],
-            "perSeriesAligner": "ALIGN_RATE",
-            "crossSeriesReducer": "REDUCE_SUM",
-            "alignmentPeriod": "300s"
-          }
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "reqps",
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "orange",
-                "value": 0.5
-              },
-              {
-                "color": "red",
-                "value": 1.5
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "displayMode": "table",
-          "placement": "bottom",
-          "calcs": [
-            "lastNotNull",
-            "max"
-          ]
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      }
+      "description": " Percentiles are histogram estimates. Historical samples collected before explicit seconds buckets were deployed use coarse 0\u20135s buckets; a repeated 4.75s p95 is interpolation, not a measured request duration. Use a post-rollout time window for precise latency assessment."
     },
     {
       "id": 103,
       "title": "Vaccination / PC: p95 latency by route",
       "type": "timeseries",
       "gridPos": {
-        "x": 12,
+        "x": 0,
         "y": 22,
         "w": 12,
         "h": 7
@@ -724,14 +725,15 @@
           "mode": "multi",
           "sort": "desc"
         }
-      }
+      },
+      "description": " Percentiles are histogram estimates. Historical samples collected before explicit seconds buckets were deployed use coarse 0\u20135s buckets; a repeated 4.75s p95 is interpolation, not a measured request duration. Use a post-rollout time window for precise latency assessment."
     },
     {
       "id": 104,
       "title": "Work Board / Tasks: request rate by route",
       "type": "timeseries",
       "gridPos": {
-        "x": 0,
+        "x": 12,
         "y": 29,
         "w": 12,
         "h": 7
@@ -746,6 +748,75 @@
           "timeSeriesList": {
             "projectName": "goatos-stg",
             "filters": ["metric.type", "=", "prometheus.googleapis.com/http_server_requests_total/counter", "AND", "resource.type", "=", "prometheus_target", "AND", "metric.label.route", "=~", ".*work-board.*|.*workflows.*|.*tasks.*|.*approvals.*|.*verify.*"],
+            "view": "FULL",
+            "groupBys": [
+              "metric.label.route",
+              "metric.label.status_class"
+            ],
+            "perSeriesAligner": "ALIGN_RATE",
+            "crossSeriesReducer": "REDUCE_SUM",
+            "alignmentPeriod": "300s"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.5
+              },
+              {
+                "color": "red",
+                "value": 1.5
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 106,
+      "title": "Feed: request rate by route",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 12,
+        "y": 29,
+        "w": 12,
+        "h": 7
+      },
+      "datasource": "Google Cloud Monitoring",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": "Google Cloud Monitoring",
+          "aliasBy": "{{metric.label.route}}",
+          "queryType": "timeSeriesList",
+          "timeSeriesList": {
+            "projectName": "goatos-stg",
+            "filters": ["metric.type", "=", "prometheus.googleapis.com/http_server_requests_total/counter", "AND", "resource.type", "=", "prometheus_target", "AND", "metric.label.route", "=~", ".*feed.*"],
             "view": "FULL",
             "groupBys": [
               "metric.label.route",
@@ -861,83 +932,15 @@
           "mode": "multi",
           "sort": "desc"
         }
-      }
-    },
-    {
-      "id": 106,
-      "title": "Feed: request rate by route",
-      "type": "timeseries",
-      "gridPos": {
-        "x": 12,
-        "y": 29,
-        "w": 12,
-        "h": 7
       },
-      "datasource": "Google Cloud Monitoring",
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": "Google Cloud Monitoring",
-          "aliasBy": "{{metric.label.route}}",
-          "queryType": "timeSeriesList",
-          "timeSeriesList": {
-            "projectName": "goatos-stg",
-            "filters": ["metric.type", "=", "prometheus.googleapis.com/http_server_requests_total/counter", "AND", "resource.type", "=", "prometheus_target", "AND", "metric.label.route", "=~", ".*feed.*"],
-            "view": "FULL",
-            "groupBys": [
-              "metric.label.route",
-              "metric.label.status_class"
-            ],
-            "perSeriesAligner": "ALIGN_RATE",
-            "crossSeriesReducer": "REDUCE_SUM",
-            "alignmentPeriod": "300s"
-          }
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "reqps",
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "orange",
-                "value": 0.5
-              },
-              {
-                "color": "red",
-                "value": 1.5
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "displayMode": "table",
-          "placement": "bottom",
-          "calcs": [
-            "lastNotNull",
-            "max"
-          ]
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      }
+      "description": " Percentiles are histogram estimates. Historical samples collected before explicit seconds buckets were deployed use coarse 0\u20135s buckets; a repeated 4.75s p95 is interpolation, not a measured request duration. Use a post-rollout time window for precise latency assessment."
     },
     {
       "id": 107,
       "title": "Feed: p95 latency by route",
       "type": "timeseries",
       "gridPos": {
-        "x": 12,
+        "x": 0,
         "y": 36,
         "w": 12,
         "h": 7
@@ -998,14 +1001,15 @@
           "mode": "multi",
           "sort": "desc"
         }
-      }
+      },
+      "description": " Percentiles are histogram estimates. Historical samples collected before explicit seconds buckets were deployed use coarse 0\u20135s buckets; a repeated 4.75s p95 is interpolation, not a measured request duration. Use a post-rollout time window for precise latency assessment."
     },
     {
       "id": 108,
       "title": "Sales: request rate by route",
       "type": "timeseries",
       "gridPos": {
-        "x": 0,
+        "x": 12,
         "y": 43,
         "w": 12,
         "h": 7
@@ -1020,6 +1024,75 @@
           "timeSeriesList": {
             "projectName": "goatos-stg",
             "filters": ["metric.type", "=", "prometheus.googleapis.com/http_server_requests_total/counter", "AND", "resource.type", "=", "prometheus_target", "AND", "metric.label.route", "=~", ".*sales.*"],
+            "view": "FULL",
+            "groupBys": [
+              "metric.label.route",
+              "metric.label.status_class"
+            ],
+            "perSeriesAligner": "ALIGN_RATE",
+            "crossSeriesReducer": "REDUCE_SUM",
+            "alignmentPeriod": "300s"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.5
+              },
+              {
+                "color": "red",
+                "value": 1.5
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 110,
+      "title": "Procurement: request rate by route",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 12,
+        "y": 43,
+        "w": 12,
+        "h": 7
+      },
+      "datasource": "Google Cloud Monitoring",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": "Google Cloud Monitoring",
+          "aliasBy": "{{metric.label.route}}",
+          "queryType": "timeSeriesList",
+          "timeSeriesList": {
+            "projectName": "goatos-stg",
+            "filters": ["metric.type", "=", "prometheus.googleapis.com/http_server_requests_total/counter", "AND", "resource.type", "=", "prometheus_target", "AND", "metric.label.route", "=~", ".*procurement.*"],
             "view": "FULL",
             "groupBys": [
               "metric.label.route",
@@ -1135,83 +1208,15 @@
           "mode": "multi",
           "sort": "desc"
         }
-      }
-    },
-    {
-      "id": 110,
-      "title": "Procurement: request rate by route",
-      "type": "timeseries",
-      "gridPos": {
-        "x": 12,
-        "y": 43,
-        "w": 12,
-        "h": 7
       },
-      "datasource": "Google Cloud Monitoring",
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": "Google Cloud Monitoring",
-          "aliasBy": "{{metric.label.route}}",
-          "queryType": "timeSeriesList",
-          "timeSeriesList": {
-            "projectName": "goatos-stg",
-            "filters": ["metric.type", "=", "prometheus.googleapis.com/http_server_requests_total/counter", "AND", "resource.type", "=", "prometheus_target", "AND", "metric.label.route", "=~", ".*procurement.*"],
-            "view": "FULL",
-            "groupBys": [
-              "metric.label.route",
-              "metric.label.status_class"
-            ],
-            "perSeriesAligner": "ALIGN_RATE",
-            "crossSeriesReducer": "REDUCE_SUM",
-            "alignmentPeriod": "300s"
-          }
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "reqps",
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "orange",
-                "value": 0.5
-              },
-              {
-                "color": "red",
-                "value": 1.5
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "displayMode": "table",
-          "placement": "bottom",
-          "calcs": [
-            "lastNotNull",
-            "max"
-          ]
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      }
+      "description": " Percentiles are histogram estimates. Historical samples collected before explicit seconds buckets were deployed use coarse 0\u20135s buckets; a repeated 4.75s p95 is interpolation, not a measured request duration. Use a post-rollout time window for precise latency assessment."
     },
     {
       "id": 111,
       "title": "Procurement: p95 latency by route",
       "type": "timeseries",
       "gridPos": {
-        "x": 12,
+        "x": 0,
         "y": 50,
         "w": 12,
         "h": 7
@@ -1272,14 +1277,15 @@
           "mode": "multi",
           "sort": "desc"
         }
-      }
+      },
+      "description": " Percentiles are histogram estimates. Historical samples collected before explicit seconds buckets were deployed use coarse 0\u20135s buckets; a repeated 4.75s p95 is interpolation, not a measured request duration. Use a post-rollout time window for precise latency assessment."
     },
     {
       "id": 112,
       "title": "Counts / Milk: request rate by route",
       "type": "timeseries",
       "gridPos": {
-        "x": 0,
+        "x": 12,
         "y": 57,
         "w": 12,
         "h": 7
@@ -1294,6 +1300,75 @@
           "timeSeriesList": {
             "projectName": "goatos-stg",
             "filters": ["metric.type", "=", "prometheus.googleapis.com/http_server_requests_total/counter", "AND", "resource.type", "=", "prometheus_target", "AND", "metric.label.route", "=~", ".*counts.*|.*milk.*"],
+            "view": "FULL",
+            "groupBys": [
+              "metric.label.route",
+              "metric.label.status_class"
+            ],
+            "perSeriesAligner": "ALIGN_RATE",
+            "crossSeriesReducer": "REDUCE_SUM",
+            "alignmentPeriod": "300s"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.5
+              },
+              {
+                "color": "red",
+                "value": 1.5
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 114,
+      "title": "Health / Herd Signals: request rate by route",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 12,
+        "y": 57,
+        "w": 12,
+        "h": 7
+      },
+      "datasource": "Google Cloud Monitoring",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": "Google Cloud Monitoring",
+          "aliasBy": "{{metric.label.route}}",
+          "queryType": "timeSeriesList",
+          "timeSeriesList": {
+            "projectName": "goatos-stg",
+            "filters": ["metric.type", "=", "prometheus.googleapis.com/http_server_requests_total/counter", "AND", "resource.type", "=", "prometheus_target", "AND", "metric.label.route", "=~", ".*health.*|.*herd-signals.*"],
             "view": "FULL",
             "groupBys": [
               "metric.label.route",
@@ -1409,83 +1484,15 @@
           "mode": "multi",
           "sort": "desc"
         }
-      }
-    },
-    {
-      "id": 114,
-      "title": "Health / Herd Signals: request rate by route",
-      "type": "timeseries",
-      "gridPos": {
-        "x": 12,
-        "y": 57,
-        "w": 12,
-        "h": 7
       },
-      "datasource": "Google Cloud Monitoring",
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": "Google Cloud Monitoring",
-          "aliasBy": "{{metric.label.route}}",
-          "queryType": "timeSeriesList",
-          "timeSeriesList": {
-            "projectName": "goatos-stg",
-            "filters": ["metric.type", "=", "prometheus.googleapis.com/http_server_requests_total/counter", "AND", "resource.type", "=", "prometheus_target", "AND", "metric.label.route", "=~", ".*health.*|.*herd-signals.*"],
-            "view": "FULL",
-            "groupBys": [
-              "metric.label.route",
-              "metric.label.status_class"
-            ],
-            "perSeriesAligner": "ALIGN_RATE",
-            "crossSeriesReducer": "REDUCE_SUM",
-            "alignmentPeriod": "300s"
-          }
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "reqps",
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "orange",
-                "value": 0.5
-              },
-              {
-                "color": "red",
-                "value": 1.5
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "displayMode": "table",
-          "placement": "bottom",
-          "calcs": [
-            "lastNotNull",
-            "max"
-          ]
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      }
+      "description": " Percentiles are histogram estimates. Historical samples collected before explicit seconds buckets were deployed use coarse 0\u20135s buckets; a repeated 4.75s p95 is interpolation, not a measured request duration. Use a post-rollout time window for precise latency assessment."
     },
     {
       "id": 115,
       "title": "Health / Herd Signals: p95 latency by route",
       "type": "timeseries",
       "gridPos": {
-        "x": 12,
+        "x": 0,
         "y": 64,
         "w": 12,
         "h": 7
@@ -1546,7 +1553,8 @@
           "mode": "multi",
           "sort": "desc"
         }
-      }
+      },
+      "description": " Percentiles are histogram estimates. Historical samples collected before explicit seconds buckets were deployed use coarse 0\u20135s buckets; a repeated 4.75s p95 is interpolation, not a measured request duration. Use a post-rollout time window for precise latency assessment."
     },
     {
       "id": 116,
@@ -1586,7 +1594,7 @@
   },
   "timepicker": {},
   "timezone": "browser",
-  "title": "Goat OS — Feature health",
+  "title": "Goat OS \u2014 Feature health",
   "uid": "goatos-feature-health",
   "version": 2,
   "weekStart": ""

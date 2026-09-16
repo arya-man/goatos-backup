@@ -1,7 +1,7 @@
 # Grafana Alloy Docker image for Goat OS Faro RUM receiver.
 # Exports browser RUM (traces + logs) directly to Google Cloud.
 
-FROM grafana/alloy:latest
+FROM grafana/alloy:v1.19.2
 
 # Copy the Alloy configuration into the container.
 COPY alloy-config.alloy /etc/alloy/config.alloy

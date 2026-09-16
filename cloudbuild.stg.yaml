@@ -6,6 +6,7 @@ serviceAccount: projects/goatos-stg/serviceAccounts/goatos-github-deploy-stg@goa
 
 substitutions:
   _COMMIT_SHA: ""
+  _ALLOY_IMAGE: ""
   _SLACK_WEBHOOK_SECRET: goatos-stg-deploy-slack-webhook-url
   _DEPLOY_STG: "true"
   _DEPLOY_MOBILE: "false"
@@ -172,6 +173,7 @@ steps:
       - DELIVERY_PIPELINE=goatos-stg
       - TARGET_ID=goatos-stg
       - GOATOS_STG_RELEASE_WAIT=1
+      - GOATOS_ALLOY_IMAGE=${_ALLOY_IMAGE}
       - GOATOS_SKIP_IMAGE_BUILD=1
       - GOATOS_STG_ZERO_DOWNTIME_DEPLOY=${_GOATOS_STG_ZERO_DOWNTIME_DEPLOY}
       - SLACK_WEBHOOK_SECRET=${_SLACK_WEBHOOK_SECRET}

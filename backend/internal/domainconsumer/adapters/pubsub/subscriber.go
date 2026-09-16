@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/vgoats/goatos/backend/internal/platform/kmetrics"
+	"time"
 
 	cloudpubsub "cloud.google.com/go/pubsub"
 
@@ -41,16 +43,7 @@ func (s *GCPSubscriber) Receive(ctx context.Context, subscriptionID string, hand
 	}
 	subscription := s.client.Subscription(subscriptionID)
 	return subscription.Receive(ctx, func(ctx context.Context, message *cloudpubsub.Message) {
-		deliveryAttempt := 0
-		if message.DeliveryAttempt != nil {
-			deliveryAttempt = *message.DeliveryAttempt
-		}
-		err := handler(ctx, consumerapp.Message{
-			ID:              message.ID,
-			Data:            message.Data,
-			Attributes:      message.Attributes,
-			DeliveryAttempt: deliveryAttempt,
-		})
+		err := dispatchMessage(ctx, message, handler)
 		if err != nil {
 			// A permanent dispatch failure (a deterministic domain rejection, e.g. "vaccination:
 			// stock gate blocked" on a completion with no reservation to consume) can NEVER succeed
@@ -69,4 +62,18 @@ func (s *GCPSubscriber) Receive(ctx context.Context, subscriptionID string, hand
 		}
 		message.Ack()
 	})
+}
+
+// Pub/Sub provides a server publish timestamp. Envelope occurred_at can be
+// offline business time and is not a publish-to-handle lag source.
+func dispatchMessage(ctx context.Context, message *cloudpubsub.Message, handler consumerapp.Handler) error {
+	now := time.Now()
+	if !message.PublishTime.IsZero() && !message.PublishTime.After(now) {
+		kmetrics.RecordConsumerLag(ctx, now.Sub(message.PublishTime).Seconds())
+	}
+	deliveryAttempt := 0
+	if message.DeliveryAttempt != nil {
+		deliveryAttempt = *message.DeliveryAttempt
+	}
+	return handler(ctx, consumerapp.Message{ID: message.ID, Data: message.Data, Attributes: message.Attributes, DeliveryAttempt: deliveryAttempt})
 }

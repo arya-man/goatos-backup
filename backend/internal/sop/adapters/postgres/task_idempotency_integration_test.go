@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 	"testing"
 	"time"
 
@@ -75,6 +76,7 @@ func TestCreateTasksForBatchesIsSetBasedAndReplaySafe(t *testing.T) {
 		{BatchID: firstBatch, TaskType: "vaccination", Title: "First drive", ScopeType: "tenant", ScopeID: tenantID},
 		{BatchID: secondBatch, TaskType: "vaccination", Title: "Second drive", ScopeType: "tenant", ScopeID: tenantID},
 	}
+	beforeMetric := committedBatchTaskCount(t)
 	first, err := repo.CreateTasksForBatches(ctx, tenantID, sopVersion, actorID, tasks)
 	if err != nil {
 		t.Fatalf("CreateTasksForBatches first: %v", err)
@@ -82,12 +84,18 @@ func TestCreateTasksForBatchesIsSetBasedAndReplaySafe(t *testing.T) {
 	if len(first) != 2 || first[firstBatch] == "" || first[secondBatch] == "" {
 		t.Fatalf("first mapping = %#v, want both batches", first)
 	}
+	if got := committedBatchTaskCount(t) - beforeMetric; got != 2 {
+		t.Fatalf("actualcreated metric=%d", got)
+	}
 	replay, err := repo.CreateTasksForBatches(ctx, tenantID, sopVersion, actorID, tasks)
 	if err != nil {
 		t.Fatalf("CreateTasksForBatches replay: %v", err)
 	}
 	if replay[firstBatch] != first[firstBatch] || replay[secondBatch] != first[secondBatch] {
 		t.Fatalf("replay mapping = %#v, want stable %#v", replay, first)
+	}
+	if got := committedBatchTaskCount(t) - beforeMetric; got != 2 {
+		t.Fatalf("replay inflated metric=%d", got)
 	}
 	var taskCount, auditCount int
 	if err := pool.QueryRow(ctx, `SELECT COUNT(*)::int FROM sop_tasks WHERE tenant_id=$1::uuid AND context->>'obligation_batch_id'=ANY($2::text[])`, tenantID, []string{firstBatch, secondBatch}).Scan(&taskCount); err != nil {
@@ -99,4 +107,23 @@ func TestCreateTasksForBatchesIsSetBasedAndReplaySafe(t *testing.T) {
 	if taskCount != 2 || auditCount != 2 {
 		t.Fatalf("task/audit rows = %d/%d, want exactly 2/2 after replay", taskCount, auditCount)
 	}
+}
+
+func committedBatchTaskCount(t *testing.T) int64 {
+	t.Helper()
+	var data metricdata.ResourceMetrics
+	if err := stageMetricReader.Collect(context.Background(), &data); err != nil {
+		t.Fatal(err)
+	}
+	var total int64
+	for _, scope := range data.ScopeMetrics {
+		for _, m := range scope.Metrics {
+			if m.Name == "kernel.sweeper.tasks_created" {
+				for _, p := range m.Data.(metricdata.Sum[int64]).DataPoints {
+					total += p.Value
+				}
+			}
+		}
+	}
+	return total
 }

@@ -1,6 +1,6 @@
 {
   "uid": "goatos-stg-db",
-  "title": "Goat OS — Database APM",
+  "title": "Goat OS \u2014 Database APM",
   "description": "Database health dashboard. The first row uses live Cloud SQL native metrics (CPU, memory, disk, active backends, disk IO) that are visible today. App pgx pool/query-duration panels remain below and require backend OTEL/GMP DB instrumentation; those are useful for table-level choke points once emitted.",
   "schemaVersion": 39,
   "version": 1,
@@ -34,7 +34,7 @@
     {
       "id": 1,
       "title": "Pool saturation: in-use / idle / max / pending",
-      "description": "db.client.connections.usage/idle/max/pending from pgxpool.Stat(), registered once per pool by postgres.RegisterPoolMetrics. 'pending' is the closest pgxpool gauge to acquire-wait pressure (connections currently being constructed) — pgxpool only exposes cumulative counters for actual wait events, not a live waiter gauge.",
+      "description": "db.client.connections.usage/idle/max/pending from pgxpool.Stat(), registered once per pool by postgres.RegisterPoolMetrics. 'pending' is the closest pgxpool gauge to acquire-wait pressure (connections currently being constructed) \u2014 pgxpool only exposes cumulative counters for actual wait events, not a live waiter gauge.",
       "type": "timeseries",
       "gridPos": {
         "h": 9,
@@ -174,7 +174,7 @@
     {
       "id": 2,
       "title": "Pool utilization % (in-use / max)",
-      "description": "MQL ratio: 100 * db_client_connections_usage / db_client_connections_max. Amber at 70%, red at 90% — the same shape of headroom check used for Cloud SQL CPU (80%) below.",
+      "description": "MQL ratio: 100 * db_client_connections_usage / db_client_connections_max. Amber at 70%, red at 90% \u2014 the same shape of headroom check used for Cloud SQL CPU (80%) below.",
       "type": "stat",
       "gridPos": {
         "h": 9,
@@ -231,7 +231,7 @@
     },
     {
       "id": 101,
-      "title": "Query duration (pending pgx tracer — section 2.2)",
+      "title": "Query duration (pending pgx tracer \u2014 section 2.2)",
       "type": "row",
       "gridPos": {
         "h": 1,
@@ -372,17 +372,10 @@
           "refId": "A",
           "datasource": "Google Cloud Monitoring",
           "aliasBy": "{{metric.label.pgx_operation_type}}",
-          "queryType": "timeSeriesList",
-          "timeSeriesList": {
+          "queryType": "timeSeriesQuery",
+          "timeSeriesQuery": {
             "projectName": "goatos-stg",
-            "view": "FULL",
-            "groupBys": [
-              "metric.label.pgx_operation_type"
-            ],
-            "perSeriesAligner": "ALIGN_RATE",
-            "crossSeriesReducer": "REDUCE_NONE",
-            "alignmentPeriod": "300s",
-            "filters": ["metric.type", "=", "prometheus.googleapis.com/db_client_operation_duration_seconds/histogram", "AND", "resource.type", "=", "prometheus_target"]
+            "query": "fetch prometheus_target :: 'prometheus.googleapis.com/db_client_operation_duration_seconds/histogram' | value [value: count_from(val())] | align rate(5m) | every 5m | group_by [metric.pgx_operation_type], [value: sum(val())]"
           }
         }
       ]
@@ -586,7 +579,7 @@
     {
       "id": 8,
       "title": "Cloud SQL disk utilization",
-      "description": "cloudsql.googleapis.com/database/disk/utilization — not previously charted; added so storage pressure is visible alongside CPU/memory rather than discovered only via an outage.",
+      "description": "cloudsql.googleapis.com/database/disk/utilization \u2014 not previously charted; added so storage pressure is visible alongside CPU/memory rather than discovered only via an outage.",
       "type": "timeseries",
       "gridPos": {
         "h": 7,
@@ -653,7 +646,7 @@
     {
       "id": 9,
       "title": "Cloud SQL active connections (server-side)",
-      "description": "cloudsql.googleapis.com/database/postgresql/num_backends — the DB server's own view of connection count, useful cross-check against the app-side pgxpool gauges above (a mismatch usually means another client, e.g. the Cloud SQL Auth Proxy for local dev, is also connected).",
+      "description": "cloudsql.googleapis.com/database/postgresql/num_backends \u2014 the DB server's own view of connection count, useful cross-check against the app-side pgxpool gauges above (a mismatch usually means another client, e.g. the Cloud SQL Auth Proxy for local dev, is also connected).",
       "type": "timeseries",
       "gridPos": {
         "h": 7,
@@ -701,7 +694,7 @@
     {
       "id": 10,
       "title": "Cloud SQL disk I/O (read + write ops/s)",
-      "description": "cloudsql.googleapis.com/database/disk/read_ops_count and .../write_ops_count — surfaces disk-bound query pressure that CPU/memory alone would miss.",
+      "description": "cloudsql.googleapis.com/database/disk/read_ops_count and .../write_ops_count \u2014 surfaces disk-bound query pressure that CPU/memory alone would miss.",
       "type": "timeseries",
       "gridPos": {
         "h": 8,
@@ -773,7 +766,7 @@
       },
       "options": {
         "mode": "markdown",
-        "content": "Cloud SQL Query Insights (top queries, execution plans, lock waits) is a **console-only** surface — Cloud Monitoring exports aggregate CPU/memory/disk/connections but not per-query plan detail, so it cannot be a Grafana panel. Open it directly: https://console.cloud.google.com/sql/instances/goatos-stg-core-db/insights?project=goatos-stg. `insights_config` is enabled by `infra/envs/stg/cloud_sql.tf`."
+        "content": "Cloud SQL Query Insights (top queries, execution plans, lock waits) is a **console-only** surface \u2014 Cloud Monitoring exports aggregate CPU/memory/disk/connections but not per-query plan detail, so it cannot be a Grafana panel. Open it directly: https://console.cloud.google.com/sql/instances/goatos-stg-core-db/insights?project=goatos-stg. `insights_config` is enabled by `infra/envs/stg/cloud_sql.tf`."
       }
     }
   ]
