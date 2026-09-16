@@ -88,15 +88,31 @@ Security boundary for public `grafana.mesha.sg`:
    password, reviewed Grafana service accounts/tokens, no public dashboard
    snapshots, and no anonymous API access.
 
-Either model must also update Grafana's public root URL before cutover:
+Either model must update Grafana's public root URL and restrict ingress using
+Cloud Deploy; direct Cloud Run mutations are not the deployment authority.
+After the certificate is ACTIVE and the local receipt is green:
+
+1. Build the small runner with `tools/deploy/stg-clouddeploy-runner-build.sh`.
+2. Pin its returned digest in both tasks in
+   `deploy/clouddeploy/stg/clouddeploy.yaml`; run the local receipt after the
+   final digest edit, commit/land, then apply that Cloud Deploy configuration.
+3. Create the bounded release from the certified clean main checkout:
 
 ```bash
-gcloud run services update goatos-stg-grafana \
-  --project=goatos-stg \
-  --region=asia-south1 \
-  --ingress=internal-and-cloud-load-balancing \
-  --update-env-vars=GF_SERVER_ROOT_URL=https://grafana.mesha.sg/
+gcloud deploy apply --file=deploy/clouddeploy/stg/clouddeploy.yaml \
+  --project=goatos-stg --region=asia-south1
+gcloud deploy releases create "grafana-domain-$(git rev-parse --short=12 HEAD)" \
+  --project=goatos-stg --region=asia-south1 \
+  --delivery-pipeline=goatos-stg \
+  --source=. --skaffold-file=deploy/clouddeploy/stg/skaffold.yaml \
+  --deploy-parameters="customTarget/commitSha=$(git rev-parse HEAD),customTarget/grafanaDomainOnly=true"
 ```
+
+The domain-only mode checks certificate and authentication prerequisites, changes
+only Grafana ingress/root URL, preserves container images, waits for revision
+readiness before traffic, and verifies custom-domain login, anonymous API denial,
+and raw Cloud Run URL denial. It does not migrate or update application services.
+The regular deployment smoke uses `https://grafana.mesha.sg` after cutover.
 
 Add the LB pieces, matching the existing admin-web/API/MCP naming pattern:
 
@@ -111,8 +127,7 @@ gcloud compute backend-services create goatos-stg-grafana-backend \
   --project=goatos-stg \
   --global \
   --load-balancing-scheme=EXTERNAL_MANAGED \
-  --protocol=HTTP \
-  --timeout=30s
+  --protocol=HTTP
 
 gcloud compute backend-services add-backend goatos-stg-grafana-backend \
   --project=goatos-stg \

@@ -22,6 +22,7 @@ GOATOS_CANONICAL_DASHBOARD_HOST="${GOATOS_CANONICAL_DASHBOARD_HOST:-dashboard.me
 GOATOS_API_BASE_URL="${GOATOS_API_BASE_URL:-https://api.goatos.mesha.sg/}"
 GOATOS_STG_ZERO_DOWNTIME_DEPLOY="${CLOUD_DEPLOY_customTarget_zeroDowntimeDeploy:-${GOATOS_STG_ZERO_DOWNTIME_DEPLOY:-true}}"
 
+GRAFANA_DOMAIN_ONLY="${CLOUD_DEPLOY_customTarget_grafanaDomainOnly:-false}"
 COMMIT_SHA="${CLOUD_DEPLOY_customTarget_commitSha:-}"
 BACKEND_IMAGE="${CLOUD_DEPLOY_customTarget_backendImage:-}"
 MIGRATION_IMAGE="${CLOUD_DEPLOY_customTarget_migrationImage:-}"
@@ -40,6 +41,11 @@ require_param() {
 
 require_release_inputs() {
   require_param "customTarget/commitSha" "$COMMIT_SHA"
+  [[ "$GRAFANA_DOMAIN_ONLY" == "true" || "$GRAFANA_DOMAIN_ONLY" == "false" ]] || die "customTarget/grafanaDomainOnly must be true or false"
+  if [[ "$GRAFANA_DOMAIN_ONLY" == "true" ]]; then
+    [[ "$COMMIT_SHA" =~ ^[0-9a-f]{12,40}$ ]] || die "Grafana cutover requires a commit SHA"
+    return 0
+  fi
   require_param "customTarget/backendImage" "$BACKEND_IMAGE"
   require_param "customTarget/migrationImage" "$MIGRATION_IMAGE"
   require_param "customTarget/adminWebImage" "$ADMIN_WEB_IMAGE"
@@ -333,9 +339,79 @@ PY
     die "public /app/analytics/events smoke did not land on $ANALYTICS_EVENTS_SERVICE (status=$code traceparent=$traceparent)"
 }
 
+grafana_domain_render() {
+  local output_path="${CLOUD_DEPLOY_OUTPUT_GCS_PATH:-}"
+  [[ -n "$output_path" ]] || die "CLOUD_DEPLOY_OUTPUT_GCS_PATH is required for render"
+  printf 'commit_sha=%s\nmode=grafana-domain-only\nservice=goatos-stg-grafana\nroot_url=https://grafana.mesha.sg/\ningress=internal-and-cloud-load-balancing\n' "$COMMIT_SHA" > goatos-stg-grafana-domain.txt
+  run gcloud storage cp goatos-stg-grafana-domain.txt "$output_path/goatos-stg-grafana-domain.txt"
+  write_results "SUCCEEDED" "$output_path/goatos-stg-grafana-domain.txt"
+}
+
+grafana_domain_auth_boundary() {
+  local code
+  code="$(curl -sS --max-time 60 -o /dev/null -w '%{http_code}' https://grafana.mesha.sg/login)"
+  [[ "$code" == "200" ]] || die "Grafana custom-domain login returned $code"
+  code="$(curl -sS --max-time 60 -o /dev/null -w '%{http_code}' https://grafana.mesha.sg/api/search)"
+  [[ "$code" == "401" ]] || die "Grafana anonymous API must return 401, got $code"
+}
+
+grafana_domain_deploy() {
+  local certificate raw_url revision code
+  certificate="$(gcloud compute ssl-certificates describe goatos-grafana-cert --global --project="$PROJECT_ID" --format='value(managed.status)')"
+  [[ "$certificate" == "ACTIVE" ]] || die "Grafana certificate must be ACTIVE before cutover"
+  gcloud run services describe goatos-stg-grafana --project="$PROJECT_ID" --region="$REGION" --format=json > grafana-before.json
+  python3 - grafana-before.json <<'PY'
+import json, sys
+s = json.load(open(sys.argv[1]))
+containers = s['spec']['template']['spec']['containers']
+named = [c for c in containers if c.get('name') == 'grafana']
+assert len(named) == 1 or (len(containers) == 1 and not containers[0].get('name')), 'Cannot identify Grafana container'
+c = named[0] if named else containers[0]
+e = {v['name']: v for v in c.get('env', [])}
+assert e.get('GF_AUTH_ANONYMOUS_ENABLED', {}).get('value') == 'false', 'Grafana anonymous access must be disabled'
+assert e.get('GF_USERS_ALLOW_SIGN_UP', {}).get('value') == 'false', 'Grafana sign-up must be disabled'
+assert e.get('GF_SECURITY_ADMIN_PASSWORD', {}).get('valueFrom', {}).get('secretKeyRef'), 'Grafana admin password must remain Secret Manager-backed'
+PY
+  raw_url="$(service_uri goatos-stg-grafana)"
+  grafana_domain_auth_boundary
+  run gcloud run services update goatos-stg-grafana \
+    --project="$PROJECT_ID" --region="$REGION" \
+    --ingress=internal-and-cloud-load-balancing \
+    --update-env-vars=GF_SERVER_ROOT_URL=https://grafana.mesha.sg/ \
+    --update-labels="commit_sha=${COMMIT_SHA},deployed_by=cloud-deploy" \
+    --no-traffic --quiet
+  revision="$(gcloud run services describe goatos-stg-grafana --project="$PROJECT_ID" --region="$REGION" --format='value(status.latestCreatedRevisionName)')"
+  [[ -n "$revision" ]] || die "Grafana update did not create a revision"
+  wait_revision_ready "$revision" "Grafana domain pre-traffic"
+  run gcloud run services update-traffic goatos-stg-grafana --project="$PROJECT_ID" --region="$REGION" --to-latest --quiet
+  gcloud run services describe goatos-stg-grafana --project="$PROJECT_ID" --region="$REGION" --format=json > grafana-after.json
+  python3 - grafana-before.json grafana-after.json <<'PY'
+import json, sys
+before, after = [json.load(open(p)) for p in sys.argv[1:]]
+assert after['metadata']['annotations']['run.googleapis.com/ingress'] == 'internal-and-cloud-load-balancing'
+bc = before['spec']['template']['spec']['containers']
+ac = after['spec']['template']['spec']['containers']
+assert [(c.get('name'), c['image']) for c in bc] == [(c.get('name'), c['image']) for c in ac], 'Grafana images changed during domain-only cutover'
+named = [c for c in ac if c.get('name') == 'grafana']
+assert len(named) == 1 or (len(ac) == 1 and not ac[0].get('name')), 'Cannot identify Grafana container'
+c = named[0] if named else ac[0]
+env = {v['name']: v for v in c.get('env', [])}
+assert env['GF_SERVER_ROOT_URL']['value'] == 'https://grafana.mesha.sg/'
+PY
+  grafana_domain_auth_boundary
+  code="$(curl -sS --max-time 60 -o /dev/null -w '%{http_code}' "$raw_url/login")"
+  [[ "$code" == "403" || "$code" == "404" ]] || die "Grafana raw URL still reachable: HTTP $code"
+  printf 'cloud-deploy-grafana-domain-ok commit=%s revision=%s\n' "$COMMIT_SHA" "$revision"
+  write_results "SUCCEEDED"
+}
+
 render() {
   assert_target
   require_release_inputs
+  if [[ "$GRAFANA_DOMAIN_ONLY" == "true" ]]; then
+    grafana_domain_render
+    return
+  fi
   assert_image "backend" "$BACKEND_IMAGE"
   assert_image "migration" "$MIGRATION_IMAGE"
   assert_image "admin-web" "$ADMIN_WEB_IMAGE"
@@ -368,6 +444,10 @@ EOF
 deploy() {
   assert_target
   require_release_inputs
+  if [[ "$GRAFANA_DOMAIN_ONLY" == "true" ]]; then
+    grafana_domain_deploy
+    return
+  fi
   assert_image "backend" "$BACKEND_IMAGE"
   assert_image "migration" "$MIGRATION_IMAGE"
   assert_image "admin-web" "$ADMIN_WEB_IMAGE"

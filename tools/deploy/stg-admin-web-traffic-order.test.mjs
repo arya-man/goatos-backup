@@ -36,7 +36,7 @@ function indexOfOrThrowAfter(needle, start) {
 
 test("admin-web deploy waits for the created revision before switching traffic", () => {
   const deploy = indexOfOrThrow('run gcloud run services update "$ADMIN_WEB_SERVICE"');
-  const noTraffic = indexOfOrThrow("    --no-traffic");
+  const noTraffic = indexOfOrThrowAfter("    --no-traffic", deploy);
   const captureCreated = indexOfOrThrow("admin_web_revision=\"$(gcloud run services describe \"$ADMIN_WEB_SERVICE\"");
   const waitCreated = indexOfOrThrow('wait_revision_ready "$admin_web_revision" "admin-web pre-traffic"');
   const switchTraffic = indexOfOrThrow('run gcloud run services update-traffic "$ADMIN_WEB_SERVICE"');

@@ -220,7 +220,7 @@ resource "google_cloud_run_v2_service" "grafana" {
   name                = "goatos-stg-grafana"
   location            = var.region
   deletion_protection = false
-  ingress             = "INGRESS_TRAFFIC_INTERNAL_ONLY"
+  ingress             = "INGRESS_TRAFFIC_INTERNAL_LOAD_BALANCER"
   labels              = local.labels
 
   template {
@@ -276,8 +276,18 @@ resource "google_cloud_run_v2_service" "grafana" {
       }
 
       env {
+        name  = "GF_AUTH_ANONYMOUS_ENABLED"
+        value = "false"
+      }
+
+      env {
+        name  = "GF_USERS_ALLOW_SIGN_UP"
+        value = "false"
+      }
+
+      env {
         name  = "GF_SERVER_ROOT_URL"
-        value = "%(protocol)s://%(domain)s:%(http_port)s/"
+        value = "https://grafana.mesha.sg/"
       }
 
       env {
@@ -371,6 +381,17 @@ resource "google_cloud_run_v2_service_iam_member" "grafana_operator_invoker" {
   name     = google_cloud_run_v2_service.grafana.name
   role     = "roles/run.invoker"
   member   = each.value
+}
+
+# The external LB reaches Grafana without a Cloud Run identity. LB-only ingress
+# blocks the raw run.app path; Grafana login (anonymous/sign-up disabled) gates
+# dashboards and APIs. Keep this aligned with GRAFANA_ACCESS.md.
+resource "google_cloud_run_v2_service_iam_member" "grafana_load_balancer_invoker" {
+  project  = var.project_id
+  location = var.region
+  name     = google_cloud_run_v2_service.grafana.name
+  role     = "roles/run.invoker"
+  member   = "allUsers"
 }
 
 resource "google_cloud_run_v2_service_iam_member" "grafana_deploy_smoke_invoker" {

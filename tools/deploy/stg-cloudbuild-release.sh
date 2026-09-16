@@ -241,8 +241,8 @@ smoke_grafana_dashboards() {
     --project "$PROJECT_ID" \
     --region "$REGION" \
     --service goatos-stg-grafana \
-    --iam-service-account "goatos-github-deploy-stg@${PROJECT_ID}.iam.gserviceaccount.com" \
-    --direct-iam; then
+    --url https://grafana.mesha.sg \
+    --no-proxy; then
     return 0
   fi
   echo "ERROR: Grafana dashboard smoke failed; refusing to report backend/web deploy success with missing or empty live dashboards." >&2
