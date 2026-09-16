@@ -15,6 +15,16 @@ import (
 var (
 	// ErrSOPVersionUnknown: a sheet or task is pinned to a version the farm never published.
 	ErrSOPVersionUnknown = errors.New("feeddirection: sop version unknown")
+	// ErrSheetNotIssued: a completion names a park/feed day/workflow for which no sheet was ever
+	// issued. There is no pen-session to complete and no pinned card to judge against; a write
+	// here would invent work the crew was never directed to do (a packing for a day with no
+	// sheet, a distribution for a pen nobody was asked to feed).
+	ErrSheetNotIssued = errors.New("feeddirection: no feed sheet has been issued for this day")
+	// ErrFeedDayNotReached: a distribution or wastage completion for a feed day AFTER today's
+	// business date. The sheet exists from the day before (it is issued at 07:00 for tomorrow),
+	// but the feeding it proves has not happened yet; the phone never offers it (today only) and
+	// the write path refuses it too, so a wrong device clock cannot record tomorrow's feeding.
+	ErrFeedDayNotReached = errors.New("feeddirection: this feed day has not started yet")
 	// ErrSOPProofSlotInvalid wraps an authored.ProofError: a compulsory capture missing, a capture
 	// outside the card, one capture proving two slots, or a capture of the wrong kind. 422.
 	ErrSOPProofSlotInvalid = errors.New("feeddirection: sop proof slot invalid")

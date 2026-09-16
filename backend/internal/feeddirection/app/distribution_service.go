@@ -143,7 +143,7 @@ func (s *Service) CompleteDistribution(ctx context.Context, in CompleteDistribut
 	// or not, and which questions. An older phone's three fixed refs map onto the seeded slots and
 	// are judged by the same card. Nothing is written until every compulsory slot has a completed,
 	// tenant-owned upload of the right kind and every required question is answered.
-	rules, err := s.sheetRules(ctx, in.TenantID, in.ParkID, biztime.BusinessDate(in.TargetDate), in.Workflow, domain.StageDistribution)
+	rules, err := s.sheetRulesForWrite(ctx, in.TenantID, in.ParkID, biztime.BusinessDate(in.TargetDate), in.Workflow, domain.StageDistribution)
 	if err != nil {
 		return ports.CompleteDistributionResult{}, err
 	}

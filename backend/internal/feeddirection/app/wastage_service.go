@@ -139,7 +139,7 @@ func (s *Service) CompleteWastage(ctx context.Context, in CompleteWastageInput) 
 	// THE CARD (FEED SOP, 2026-09-16): the experiment sheet's pinned wastage card decides which
 	// captures this pen-day owes and which questions. Nothing is written until every compulsory
 	// slot has a completed, tenant-owned upload of the right kind.
-	rules, err := s.sheetRules(ctx, in.TenantID, in.ParkID, biztime.BusinessDate(in.TargetDate), domain.WorkflowExperiment, domain.StageWastage)
+	rules, err := s.sheetRulesForWrite(ctx, in.TenantID, in.ParkID, biztime.BusinessDate(in.TargetDate), domain.WorkflowExperiment, domain.StageWastage)
 	if err != nil {
 		return ports.CompleteWastageResult{}, err
 	}

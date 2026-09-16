@@ -770,6 +770,12 @@ func (h *Handler) writeServiceError(w http.ResponseWriter, r *http.Request, op s
 	case errors.Is(err, ports.ErrSOPVersionUnknown):
 		httpresponse.WriteError(w, r, h.log, http.StatusConflict,
 			codedError{Code: "feed_sop_version_unknown", Message: "this sheet was issued under a feed SOP version the farm never published; republish the SOP or reissue the sheet"}, nil)
+	case errors.Is(err, ports.ErrSheetNotIssued):
+		httpresponse.WriteError(w, r, h.log, http.StatusConflict,
+			codedError{Code: "feed_sheet_not_issued", Message: "No feed sheet has been issued for this day yet."}, nil)
+	case errors.Is(err, ports.ErrFeedDayNotReached):
+		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity,
+			codedError{Code: "feed_day_not_reached", Message: "This feeding day has not started yet. Record it on the day."}, nil)
 	case errors.Is(err, ports.ErrFeedWeightProofRequired),
 		errors.Is(err, ports.ErrDistributionProofRequired),
 		errors.Is(err, ports.ErrWaterProofRequired):

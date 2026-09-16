@@ -162,7 +162,7 @@ func (s *Service) CompletePacking(ctx context.Context, in CompletePackingInput) 
 	// THE CARD (FEED SOP, 2026-09-16): the sheet's pinned packing card decides which captures, of
 	// which kind, this bag owes, and which questions. Nothing is written until every compulsory
 	// slot has a completed, tenant-owned upload of the right kind.
-	rules, err := s.sheetRules(ctx, in.TenantID, in.ParkID, biztime.BusinessDate(in.TargetDate), in.Workflow, domain.StagePacking)
+	rules, err := s.sheetRulesForWrite(ctx, in.TenantID, in.ParkID, biztime.BusinessDate(in.TargetDate), in.Workflow, domain.StagePacking)
 	if err != nil {
 		return ports.CompletePackingResult{}, err
 	}

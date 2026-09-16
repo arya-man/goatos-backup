@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"strings"
+	"time"
 
 	"github.com/vgoats/goatos/backend/internal/feeddirection/domain"
 	"github.com/vgoats/goatos/backend/internal/feeddirection/ports"
@@ -51,6 +53,29 @@ func (s *Service) sheetRules(ctx context.Context, tenantID, parkID, feedDay, wor
 		}
 	}
 	return s.pinnedRules(ctx, tenantID, stage, version)
+}
+
+// sheetRulesForWrite is sheetRules for a COMPLETION write: the sheet must exist (when the issue
+// store is wired -- an unwired service, as in the store-only tests, judges the seeded card as
+// before), and a distribution or wastage day must have been reached. Packing is exempt from the
+// day check because a bag is packed the day BEFORE its feed day.
+func (s *Service) sheetRulesForWrite(ctx context.Context, tenantID, parkID, feedDay, workflow, stage string) (domain.Rules, error) {
+	if s.issues != nil {
+		headers, err := s.issues.LoadIssueHeaders(ctx, tenantID, parkID, feedDay, workflow)
+		if err != nil {
+			return domain.Rules{}, err
+		}
+		if len(headers) == 0 {
+			return domain.Rules{}, ports.ErrSheetNotIssued
+		}
+	}
+	if stage != domain.StagePacking {
+		day, err := time.ParseInLocation("2006-01-02", feedDay, biztime.DefaultLocation())
+		if err == nil && day.After(biztime.BusinessDayStart(s.now())) {
+			return domain.Rules{}, ports.ErrFeedDayNotReached
+		}
+	}
+	return s.sheetRules(ctx, tenantID, parkID, feedDay, workflow, stage)
 }
 
 // judgedProof is one accepted capture: the slot it proves, its ref and the kind the register says
