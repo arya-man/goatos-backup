@@ -13,27 +13,31 @@ import (
 	"github.com/vgoats/goatos/backend/internal/platform/observability"
 )
 
-// projection-review: membership=collection-enabled Firebase session starts and same-day fatal events; group_key=app business-day version session/install identity; join_cardinality=fatal side distinct session before left join and distinct session/install counts; pagination=entire bounded daily export across all iterator pages; scope=explicit source app and matching export project without tenant attribution
+// projection-review: membership=collection-enabled Firebase session starts and matching fatal events observed through the query snapshot; group_key=app business-day version session/install identity; join_cardinality=session-ID left join with distinct session/install counts despite repeated fatal events; pagination=entire bounded daily export across all iterator pages; scope=explicit source app and matching export project without tenant attribution
 // Schema: https://firebase.google.com/docs/crashlytics/bigquery-dataset-schema
-// App-wide daily observed sessions, with fatal events in the same bounded day.
+// App-wide session-start cohorts. Midnight does not end a Firebase session:
+// join its fatal events through a fixed observation instant, not the start-day end.
+// Both scans remain timestamp-bounded and subject to MaxBytesBilled.
 // Installation IDs are users here, not authenticated people or tenant IDs.
 const appCrashSQL = `WITH sessions AS (
- SELECT DISTINCT instance_id, session_id, COALESCE(application.display_version, '') app_version
+ SELECT DISTINCT instance_id, session_id, COALESCE(application.display_version, '') app_version, event_timestamp session_started_at
  FROM %s
  WHERE event_timestamp >= @start AND event_timestamp < @end
+ AND event_timestamp < @observed_through
  AND event_type = 'SESSION_START' AND crashlytics_data_collection_enabled = TRUE
  AND instance_id IS NOT NULL AND instance_id != '' AND session_id IS NOT NULL AND session_id != ''
 ), fatal AS (
- SELECT DISTINCT firebase_session_id
+ SELECT DISTINCT firebase_session_id, event_timestamp
  FROM %s
- WHERE event_timestamp >= @start AND event_timestamp < @end
+ WHERE event_timestamp >= @start AND event_timestamp < @observed_through
  AND error_type = 'FATAL' AND firebase_session_id IS NOT NULL
 )
 SELECT s.app_version, COUNT(DISTINCT s.instance_id) total_users,
  COUNT(DISTINCT s.session_id) total_sessions,
- COUNT(DISTINCT IF(f.firebase_session_id IS NOT NULL, s.instance_id, NULL)) crashed_users,
+ COUNT(DISTINCT CASE WHEN f.firebase_session_id IS NOT NULL THEN s.instance_id END) crashed_users,
  COUNT(DISTINCT f.firebase_session_id) crashed_sessions
 FROM sessions s LEFT JOIN fatal f ON s.session_id = f.firebase_session_id
+ AND f.event_timestamp >= s.session_started_at
 GROUP BY s.app_version`
 
 var qualifiedCrashTable = regexp.MustCompile(`^[a-zA-Z0-9_-]+\.[a-zA-Z0-9_]+\.[a-zA-Z0-9_]+$`)
@@ -90,7 +94,8 @@ func runOptionalCrashSessions(ctx context.Context, pool *pgxpool.Pool, cfg confi
 	defer client.Close()
 	sql := fmt.Sprintf(appCrashSQL, "`"+cfg.CrashlyticsSessionsTable+"`", "`"+cfg.CrashlyticsTable+"`")
 	it, billed, err := runAggregationQuery(ctx, client, cfg.BQLocation, cfg.MaxBytesBilled, sql,
-		bigquery.QueryParameter{Name: "start", Value: cfg.SourceDate}, bigquery.QueryParameter{Name: "end", Value: cfg.SourceDate.AddDate(0, 0, 1)})
+		bigquery.QueryParameter{Name: "start", Value: cfg.SourceDate}, bigquery.QueryParameter{Name: "end", Value: cfg.SourceDate.AddDate(0, 0, 1)},
+		bigquery.QueryParameter{Name: "observed_through", Value: time.Now().UTC()})
 	if err != nil {
 		return 0, billed, err
 	}

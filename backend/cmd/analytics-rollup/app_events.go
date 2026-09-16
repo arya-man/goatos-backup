@@ -11,7 +11,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/platform/kmetrics"
 )
 
-// projection-review: membership=tenant app_events deduplicated client-event identity; group_key=tenant business-day flow actor/device/journey and proof/request/group identity; join_cardinality=one earliest ordered event per cohort step with lateral limit1 and distinct users/sessions; pagination=whole bounded daily population before any display paging; scope=tenant and IST day with explicit next-day completion window
+// projection-review: membership=tenant app_events deduplicated client-event identity; group_key=tenant business-day flow actor/device/journey and proof/capture-request/group identity; join_cardinality=one earliest ordered event per cohort step with lateral limit1 and distinct users/sessions; pagination=whole bounded daily population before any display paging; scope=tenant and IST day with explicit next-day completion window
 // A conversion is one ordered cohort (proof, camera request or business group),
 // not an event count. Sessions are authenticated actor/device/journey tuples.
 // journey_id is Android's login-to-logout work session, not a GA4 auto-session.
@@ -25,7 +25,8 @@ type appFlow struct {
 func appEventFlows() []appFlow {
 	flows := []appFlow{
 		{"proof_delivery", "proof_id", []string{"proof_capture_completed", "proof_processing_completed", "proof_upload_started", "proof_upload_completed"}, []string{"capture", "processed", "upload_started", "synced"}},
-		{"camera_capture", "request_token", []string{"proof_camera_requested", "proof_camera_finalized"}, []string{"requested", "finalized"}},
+		// Legacy request_token counters collide across launchers; never fall back to them.
+		{"camera_capture", "capture_request_id", []string{"proof_camera_requested", "proof_camera_finalized"}, []string{"requested", "finalized"}},
 		{"login_to_bootstrap", "", []string{"login_success", "bootstrap_loaded"}, []string{"login", "bootstrap"}},
 	}
 	for _, feature := range []string{"feed_distribution", "feed_packing", "feed_wastage", "feed_transport"} {
@@ -119,7 +120,7 @@ WITH RECURSIVE starts AS (
 SELECT * FROM sequence;
 `
 
-// projection-review: membership=tenant app_events deduplicated client-event identity; group_key=tenant business-day flow actor/device/journey and proof/request/group identity; join_cardinality=one earliest ordered event per cohort step with lateral limit1 and distinct users/sessions; pagination=whole bounded daily population before any display paging; scope=tenant and IST day with explicit next-day completion window
+// projection-review: membership=tenant app_events deduplicated client-event identity; group_key=tenant business-day flow actor/device/journey and proof/capture-request/group identity; join_cardinality=one earliest ordered event per cohort step with lateral limit1 and distinct users/sessions; pagination=whole bounded daily population before any display paging; scope=tenant and IST day with explicit next-day completion window
 const appFunnelInsertSQL = `
 INSERT INTO analytics.funnel_daily(tenant_id,event_date,funnel_key,step_key,step_index,users,sessions,conversions)
 SELECT $1,$2,f.flow,f.step_key,f.step,count(DISTINCT s.actor),count(DISTINCT s.session),count(s.cohort)
