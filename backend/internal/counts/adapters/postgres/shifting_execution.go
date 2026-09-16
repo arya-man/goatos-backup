@@ -1056,8 +1056,14 @@ func shiftingOutstandingActionSQL() string {
 // queue. Completion already fails closed when a named animal is no longer at the approved source;
 // the list must use the same source truth so refresh/back does not keep advertising an impossible
 // card as active.
+//
+// An APPLIED movement is exempt: its animals already walked, so they stand in the DESTINATION by
+// definition, and the only outstanding work on it is an evidence re-shoot after a verifier reject.
+// Applying the source check there hid every rework from the operator's queue and its count
+// (E2E 2026-09-17, TestRejectedAppliedMovementStaysInTheReworkQueue).
 func shiftingExecutableSourceCurrentSQL(tenantParam string) string {
 	return `(NOT ` + shiftingOutstandingActionSQL() + `
+	         OR se.event_status = 'applied'
 	         OR EXISTS (
 	             SELECT 1
 	             FROM counts_approval_requests ar

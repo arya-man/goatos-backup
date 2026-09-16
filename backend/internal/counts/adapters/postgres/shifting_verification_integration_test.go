@@ -500,3 +500,64 @@ SELECT count(*) FROM goat_identity_events WHERE tenant_id = $1::uuid AND event_t
 		t.Fatalf("event_status=%q after evidence re-submit, want applied", got)
 	}
 }
+
+// E2E 2026-09-17: a verifier REJECT of an applied movement's evidence is operator work -- the
+// re-shoot -- yet the Actions queue hid it from every tab (rework, all) and from the rework count.
+// The stale-source filter (animals must still stand in the approved SOURCE pen) was applied to every
+// outstanding row, and an applied move's animals are, by definition, in the DESTINATION. The filter
+// belongs to a movement not yet walked; a rework of one already applied must stay reachable.
+func TestRejectedAppliedMovementStaysInTheReworkQueue(t *testing.T) {
+	ctx := context.Background()
+	pool := setupCountsDB(t, ctx)
+	repo := newRealIdentityApprovalRepo(t, pool)
+
+	goatA := "00000000-0000-4000-8000-00000000d041"
+	goatIDs := []string{goatA}
+	seedApprovalGoat(t, ctx, pool, goatA, countsShedA)
+	seedShedProfile(t, ctx, pool, countsShedB, "adult")
+
+	shiftingEventID, approvalRequestID := submitShiftingApproval(t, ctx, repo, "rework-queue", goatIDs)
+	if _, _, err := approveShifting(repo, ctx, "rework-queue", approvalRequestID, shiftingEventID, goatIDs); err != nil {
+		t.Fatalf("approve shifting: %v", err)
+	}
+	if _, _, err := submitShiftingForVerification(repo, ctx, "rework-queue", shiftingEventID, ""); err != nil {
+		t.Fatalf("submit for verification: %v", err)
+	}
+	if err := repo.BounceShiftingEventForRework(ctx, domain.ShiftingReworkCommand{
+		TenantID: countsTenant, ShiftingEventID: shiftingEventID, VerifiedBy: countsApprover,
+		Reason: "video does not show the animals entering the destination pen",
+	}); err != nil {
+		t.Fatalf("bounce for rework: %v", err)
+	}
+	if got := goatShed(t, ctx, pool, goatA); got != countsShedB {
+		t.Fatalf("goat shed=%s, want the destination (the move is applied)", got)
+	}
+
+	now := time.Now()
+	// The shared fixture raises the movement two business days ago (past the Actions lead time).
+	day := biztime.BusinessDayStart(now).AddDate(0, 0, -2)
+	next := day.AddDate(0, 0, 1)
+	for _, status := range []string{"rework", "all"} {
+		page, err := repo.ListShiftingEventsPendingExecution(ctx, domain.ShiftingExecutionQuery{
+			TenantID: countsTenant, Status: status, PageSize: 20, RaisedFrom: &day, RaisedBefore: &next, Now: now,
+		})
+		if err != nil {
+			t.Fatalf("list %s: %v", status, err)
+		}
+		found := false
+		for _, it := range page.Items {
+			if it.ShiftingEventID == shiftingEventID {
+				found = true
+				if it.PrimaryActionKey != "execute" {
+					t.Fatalf("%s: primary_action_key=%q, want execute (a re-shoot is owed)", status, it.PrimaryActionKey)
+				}
+			}
+		}
+		if !found {
+			t.Fatalf("%s tab does not list the rejected applied movement (items=%+v)", status, page.Items)
+		}
+		if page.StatusCounts.Rework != 1 {
+			t.Fatalf("%s: rework count=%d, want 1", status, page.StatusCounts.Rework)
+		}
+	}
+}
