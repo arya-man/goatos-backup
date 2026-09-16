@@ -72,3 +72,52 @@ test('before/after certification rejects lost rows and distinguishes invalid bas
   before.results.CBE.page[0].valid = false;
   assert.match(compareBoardReports(before, after).incomparable.join(), /row parity unproven/);
 });
+
+function versionedBoardReports() {
+  const data = board();
+  data.summary.by_module = {weighing: 4};
+  const sample = captureSample({ms:100}, data.summary, data.lanes);
+  const before = {parks:{CBE:'park'},iterations:1,results:{CBE:{legacy:[sample],page:[structuredClone(sample)]}}};
+  const after = structuredClone(before);
+  for (const kind of ['legacy','page']) after.results.CBE[kind][0].snapshot.counts.by_module_lane = {weighing: {todo:1,in_progress:1,in_review:1,done:1}};
+  return {before,after};
+}
+test('before/after accepts additive module-lane matrix only with exact existing work and consistent totals', () => {
+  const {before,after} = versionedBoardReports();
+  assert.equal(compareBoardReports(before,after).passed,true);
+  assert.match(parityFailures(before.results.CBE.page[0].snapshot,after.results.CBE.page[0].snapshot).join(),/counts mismatch/);
+  assert.equal(before.results.CBE.page[0].snapshot.counts.by_module_lane,undefined);
+});
+test('additive matrix cannot hide changed counts, rows, cursors or degradation', () => {
+  for (const mutate of [
+    s=>s.counts.by_module_lane.weighing.todo=2,
+    s=>delete s.counts.by_module_lane.weighing.done,
+    s=>s.counts.by_module_lane.extra={todo:0,in_progress:0,in_review:0,done:0},
+    s=>s.counts.by_module_lane.weighing.todo=-1,
+    s=>s.counts.total=5,
+    s=>s.row_ids.todo=['lost'],
+    s=>s.has_next_cursor.todo=true,
+    s=>s.degraded=['vaccination'],
+  ]) {
+    const {before,after}=versionedBoardReports();mutate(after.results.CBE.page[0].snapshot);
+    assert.equal(compareBoardReports(before,after).passed,false);
+  }
+});
+test('both-version matrices must match exactly and removal is never allowed', () => {
+  const {after}=versionedBoardReports();const before=structuredClone(after);
+  assert.equal(compareBoardReports(before,after).passed,true);
+  delete after.results.CBE.page[0].snapshot.counts.by_module_lane;
+  assert.equal(compareBoardReports(before,after).passed,false);
+});
+test('existing matrices cannot change even when every aggregate total stays equal', () => {
+  const {after:before}=versionedBoardReports();
+  for (const kind of ['legacy','page']) {
+    const counts=before.results.CBE[kind][0].snapshot.counts;
+    counts.by_module={weighing:2,feed:2};
+    counts.by_module_lane={weighing:{todo:1,in_progress:1,in_review:0,done:0},feed:{todo:0,in_progress:0,in_review:1,done:1}};
+  }
+  const after=structuredClone(before);
+  const matrix=after.results.CBE.page[0].snapshot.counts.by_module_lane;
+  [matrix.weighing,matrix.feed]=[matrix.feed,matrix.weighing];
+  assert.match(compareBoardReports(before,after).failures.join(),/counts mismatch/);
+});

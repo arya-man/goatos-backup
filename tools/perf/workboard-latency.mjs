@@ -36,11 +36,49 @@ export function compareBoardReports(before, after) {
           incomparable.push(`${park} ${kind} sample ${i}: invalid/missing response; row parity unproven`);
           continue;
         }
-        failures.push(...parityFailures(prior[i].snapshot, current[i].snapshot).map((message) => `${park} ${kind} sample ${i}: ${message}`));
+        failures.push(...versionParityFailures(prior[i].snapshot, current[i].snapshot).map((message) => `${park} ${kind} sample ${i}: ${message}`));
       }
     }
   }
   return { passed: failures.length === 0 && incomparable.length === 0, failures, incomparable };
+}
+
+// Only cross-version comparisons allow this known additive contract field. The
+// within-build legacy/page comparator stays byte-for-byte strict on all counts.
+function versionParityFailures(before, after) {
+  const failures = [];
+  const matrix = after.counts?.by_module_lane;
+  let comparableAfter = after;
+  if (matrix !== undefined) {
+    const modules = after.counts?.by_module;
+    const validCount = value => Number.isInteger(value) && value >= 0;
+    const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
+    let valid = object(matrix) && object(modules)
+      && canonical(Object.keys(matrix).sort()) === canonical(Object.keys(modules).sort());
+    if (valid) {
+      for (const [module, lanes] of Object.entries(matrix)) {
+        if (!object(lanes) || canonical(Object.keys(lanes).sort()) !== canonical([...LANES].sort())
+          || !validCount(modules[module]) || LANES.some(lane => !validCount(lanes[lane]))
+          || LANES.reduce((total, lane) => total + lanes[lane], 0) !== modules[module]) valid = false;
+      }
+    }
+    if (valid) {
+      for (const lane of LANES) {
+        if (!validCount(after.counts.by_lane?.[lane]) || Object.values(matrix).reduce((total, lanes) => total + lanes[lane], 0) !== after.counts.by_lane[lane]) valid = false;
+      }
+      if (!validCount(after.counts.total) || Object.values(modules).reduce((sum, n) => sum + n, 0) !== after.counts.total) valid = false;
+    }
+    if (!valid) failures.push('candidate by_module_lane matrix inconsistent with module/lane totals');
+    if (before.counts?.by_module_lane === undefined) {
+      const {by_module_lane, ...counts} = after.counts;
+      comparableAfter = {...after, counts};
+    }
+  }
+  failures.push(...parityFailures(before, comparableAfter));
+  for (const key of ['row_counts', 'degraded']) {
+    if (canonical(before[key]) !== canonical(after[key])) failures.push(`before/after ${key} mismatch`);
+  }
+  return failures;
 }
 
 export function boardSnapshot(summary, lanes, envelope = {}) {
