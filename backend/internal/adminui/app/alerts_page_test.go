@@ -80,3 +80,31 @@ func TestAlertsNavSitsDirectlyBelowWorkBoard(t *testing.T) {
 	}
 	t.Fatalf("work-board primary item not found: %#v", items)
 }
+
+// TestAlertsConfigureControlFollowsThePersonTick pins the per-person half: once /people ticks
+// alerts -> configure for a director, the served control turns on for THAT person even though
+// their job title never carried it; untick it and it turns off again. Role grants are absent
+// from the bootstrap input on purpose, so only the person lens can decide.
+func TestAlertsConfigureControlFollowsThePersonTick(t *testing.T) {
+	const tenant = "00000000-0000-4000-8000-000000000001"
+	resp := NewService(fakeFamilies{}).Bootstrap(context.Background(), BootstrapInput{
+		TenantID: tenant,
+		ActorID:  "00000000-0000-4000-8000-000000000099",
+	})
+	access := permissions.PageAccess{
+		Pages:   map[string]struct{}{"alerts": {}},
+		Modules: map[string]struct{}{"alerts": {}},
+	}
+
+	viewOnly := applyPersonPageLens(resp, access, []string{permissions.AlertsRead}, true)
+	page := pageByRouteID(t, viewOnly.Pages, "alerts")
+	if control := controlByID(t, page.Controls, "configure_alerts"); control.Enabled || control.DisabledReason != page.Copy["configure.disabled_no_access"] {
+		t.Fatalf("a person ticked view only must see Configure disabled with the backend reason: %+v", control)
+	}
+
+	configure := applyPersonPageLens(resp, access, []string{permissions.AlertsRead, permissions.AlertsConfigure}, true)
+	page = pageByRouteID(t, configure.Pages, "alerts")
+	if control := controlByID(t, page.Controls, "configure_alerts"); !control.Enabled || control.DisabledReason != "" {
+		t.Fatalf("a person ticked configure must see Configure enabled: %+v", control)
+	}
+}

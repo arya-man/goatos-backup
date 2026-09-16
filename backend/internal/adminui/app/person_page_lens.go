@@ -179,7 +179,17 @@ func applyPersonPageLens(resp domain.BootstrapResponse, access permissions.PageA
 }
 
 func applyPersonPageControlLens(page domain.PageContract, personPerms []string, personPermsResolved bool) domain.PageContract {
-	if page.RouteID != "sales-buyer-analytics" {
+	switch page.RouteID {
+	case "alerts":
+		// The Configure button follows the person's OWN alerts.configure -- the "configure"
+		// tick on /people (maintainer decision 2026-09-16) -- not the job title the role path
+		// compiled from. Without this a director ticked Configure by HRMS would hold the
+		// route (person rows decide there) and still see the button disabled.
+		allowed := personPermsResolved && personPermissionsAuthorize(personPerms, permissions.AlertsConfigure)
+		page.Controls = upsertControl(page.Controls, alertsConfigureControl(allowed, page.Copy))
+		return page
+	case "sales-buyer-analytics":
+	default:
 		return page
 	}
 	allowed := personPermsResolved && personPermissionsAuthorize(personPerms, permissions.VendorRead)

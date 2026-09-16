@@ -5270,3 +5270,9 @@ input[type=date],input[type=datetime-local],input[type=time],input[type=month],i
 .alerts-page .empty{display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;color:var(--muted);gap:6px}
 .alerts-page .phead .btn .ic{width:14px;height:14px}
 .alerts-page .tbl td{vertical-align:top}
+/* The Configure drawer's threshold field takes the mock's .fld input shape (mesha-theme .fld
+   input), narrowed to the number's width; without it a bare number input renders as plain text. */
+.alerts-rule input[type=number]{width:96px;min-width:0;padding:7px 10px;border:1px solid var(--line);border-radius:9px;font:inherit;font-size:13px;background:var(--bg);outline:0;color:var(--ink);color-scheme:dark}
+:root.light .alerts-rule input[type=number]{color-scheme:light}
+.alerts-rule input[type=number]:focus{border-color:var(--brand);box-shadow:var(--ring)}
+.alerts-rule input[type=number]:disabled{opacity:.6}

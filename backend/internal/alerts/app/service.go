@@ -93,6 +93,15 @@ func (s *Service) List(ctx context.Context, tenantID, parkID, businessDate strin
 		return Page{}, err
 	}
 	page := Page{Rows: []domain.Alert{}}
+	// One park name for every row on the page, whatever table the rule read it from: the feed
+	// sheet freezes the park's short code while the stock ledger carries the farm label, and a
+	// page whose rows disagree about what the park is called reads as two parks.
+	parkName := ""
+	if s.parks != nil {
+		if names, err := s.parks.ParkNames(ctx, tenantID, []string{parkID}); err == nil {
+			parkName = names[parkID]
+		}
+	}
 	for _, cfg := range cfgs {
 		if !cfg.Enabled {
 			continue
@@ -103,6 +112,11 @@ func (s *Service) List(ctx context.Context, tenantID, parkID, businessDate strin
 			s.log.WarnContext(ctx, "alerts_rule_read_failed", "rule", cfg.Key, "park_id", parkID, "business_date", businessDate, "error", err)
 			page.Degraded = append(page.Degraded, cfg.Key)
 			continue
+		}
+		for i := range rows {
+			if parkName != "" {
+				rows[i].ParkLabel = parkName
+			}
 		}
 		page.Rows = append(page.Rows, rows...)
 	}
