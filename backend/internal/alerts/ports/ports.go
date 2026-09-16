@@ -50,5 +50,5 @@ type EventRuleStore interface {
 
 // EventReader lists one kind's durable events for a park and Asia/Kolkata business day.
 type EventReader interface {
-	Events(ctx context.Context, tenantID, parkID string, kind domain.EventKind, businessDate string) ([]domain.Event, error)
+	Events(ctx context.Context, tenantID, parkID string, kind domain.EventKind, businessDate string) (domain.EventPage, error)
 }

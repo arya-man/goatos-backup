@@ -198,21 +198,32 @@ func (s *Service) List(ctx context.Context, tenantID, parkID, businessDate strin
 			return s.run(ctx, cfg, tenantID, parkID, businessDate)
 		}})
 	}
+	type sharedEvents struct {
+		once sync.Once
+		page domain.EventPage
+		err  error
+	}
+	eventReads := map[domain.EventKind]*sharedEvents{}
 	for _, rule := range eventRules {
 		if !rule.Enabled {
 			continue
 		}
 		rule := rule
+		read := eventReads[rule.Kind]
+		if read == nil {
+			read = &sharedEvents{}
+			eventReads[rule.Kind] = read
+		}
 		key := domain.RuleKey("event:" + rule.ID)
 		jobs = append(jobs, job{key: key, run: func(ctx context.Context) ([]domain.Alert, error) {
 			if s.events == nil {
 				return nil, fmt.Errorf("alerts: event reader not wired")
 			}
-			events, err := s.events.Events(ctx, tenantID, parkID, rule.Kind, businessDate)
-			if err != nil {
-				return nil, err
+			read.once.Do(func() { read.page, read.err = s.events.Events(ctx, tenantID, parkID, rule.Kind, businessDate) })
+			if read.err != nil {
+				return nil, read.err
 			}
-			return domain.DetectEvents(businessDate, parkName, rule, events), nil
+			return domain.DetectEvents(businessDate, parkName, rule, read.page), nil
 		}})
 	}
 

@@ -124,29 +124,24 @@ type Event struct {
 	Href string
 }
 
+// EventPage carries a bounded preview and the full matching count from one read.
+type EventPage struct {
+	Rows  []Event
+	Total int
+}
+
 // MaxEventRowsPerRule bounds one rule's rows per park-day; beyond it one summary row says how
 // many more there were, so a bulk day (35 animals sold) cannot bury every other alert.
 const MaxEventRowsPerRule = 25
 
 // DetectEvents turns one rule's park-day events into alert rows.
-func DetectEvents(businessDate string, parkLabel string, rule EventRule, events []Event) []Alert {
+func DetectEvents(businessDate string, parkLabel string, rule EventRule, page EventPage) []Alert {
+	events := page.Rows
+	if len(events) > MaxEventRowsPerRule {
+		events = events[:MaxEventRowsPerRule]
+	}
 	out := make([]Alert, 0, len(events)+1)
-	for i, e := range events {
-		if i >= MaxEventRowsPerRule {
-			out = append(out, Alert{
-				Key:          fmt.Sprintf("event:%s:%s:%s:more", rule.ID, businessDate, e.ParkID),
-				RuleKey:      RuleKey("event:" + rule.ID),
-				RuleLabel:    rule.Label,
-				Severity:     rule.Severity,
-				Title:        fmt.Sprintf("%s: %d more today", rule.Label, len(events)-MaxEventRowsPerRule),
-				Detail:       fmt.Sprintf("Only the first %d are listed. Open the module for the full day.", MaxEventRowsPerRule),
-				ParkID:       e.ParkID,
-				ParkLabel:    parkLabel,
-				BusinessDate: businessDate,
-				Href:         e.Href,
-			})
-			break
-		}
+	for _, e := range events {
 		loc := ""
 		if e.ShedName != "" {
 			loc = penDisplay(e.ShedName, e.PartitionLabel)
@@ -166,6 +161,21 @@ func DetectEvents(businessDate string, parkLabel string, rule EventRule, events 
 			OperationalLocationDisplay: loc,
 			BusinessDate:               businessDate,
 			Href:                       e.Href,
+		})
+	}
+	if page.Total > len(events) && len(events) > 0 {
+		e := events[len(events)-1]
+		out = append(out, Alert{
+			Key:          fmt.Sprintf("event:%s:%s:%s:more", rule.ID, businessDate, e.ParkID),
+			RuleKey:      RuleKey("event:" + rule.ID),
+			RuleLabel:    rule.Label,
+			Severity:     rule.Severity,
+			Title:        fmt.Sprintf("%s: %d more today", rule.Label, page.Total-len(events)),
+			Detail:       fmt.Sprintf("Only the first %d are listed. Open the module for the full day.", MaxEventRowsPerRule),
+			ParkID:       e.ParkID,
+			ParkLabel:    parkLabel,
+			BusinessDate: businessDate,
+			Href:         e.Href,
 		})
 	}
 	return out
