@@ -28719,9 +28719,9 @@ export interface operations {
                 "application/json": {
                     /** @description LEGACY FIELD (phones predating the SOP fields): the proof_artifact id of the shifting video. Mapped onto the seeded `shifting_shifting_video` slot. A request that carries neither `proofs` nor `answers` MUST carry it (422 proof_required). */
                     proof_ref?: string;
-                    /** @description LEGACY FIELD, high priority only. Mapped onto the seeded `shifting_packing_video` slot. */
+                    /** @description LEGACY FIELD, high priority only. Mapped onto the seeded `shifting_packing_video` slot. A request carrying neither `proofs` nor `answers` for a high-priority movement MUST carry both feed clips (422 feed_proofs_required), exactly as before the SOP card. */
                     feed_packing_proof_ref?: string;
-                    /** @description LEGACY FIELD, high priority only. Mapped onto the seeded `shifting_feeding_video` slot. */
+                    /** @description LEGACY FIELD, high priority only. Mapped onto the seeded `shifting_feeding_video` slot. A request carrying neither `proofs` nor `answers` for a high-priority movement MUST carry both feed clips (422 feed_proofs_required), exactly as before the SOP card. */
                     feed_given_proof_ref?: string;
                     proofs?: components["schemas"]["ShiftingSOPProofRefs"];
                     answers?: components["schemas"]["ShiftingSOPAnswers"];
