@@ -553,6 +553,10 @@ func (h *AppWriteHandler) writeShiftingExecutionError(w http.ResponseWriter, r *
 		// (maintainer decision, 2026-07-26). Actionable input error.
 		h.writeError(w, r, http.StatusUnprocessableEntity, "proof_required",
 			"a video proof (proof_ref) is required to complete a shifting movement", err)
+	case errors.Is(err, ports.ErrShiftingFeedProofsRequired):
+		// An older app's high-priority completion without both feed clips (deploy-day parity).
+		h.writeError(w, r, http.StatusUnprocessableEntity, "feed_proofs_required",
+			"high-priority shifting requires live feed-packing and feeding videos", err)
 	// SHIFTING SOP (2026-09-16): the judge names the slot / question the phone must point at; the
 	// message is the card's own farm sentence.
 	case errors.Is(err, ports.ErrShiftingProofSlotInvalid):

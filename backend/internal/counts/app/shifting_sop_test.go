@@ -479,14 +479,58 @@ func TestExplicitSeededKeyNotOnPinnedCardIsRefusedNotRetargeted(t *testing.T) {
 		t.Fatal("a refused completion wrote")
 	}
 	// An OLDER app's legacy packing field on the same card still lands on the authored feed slot.
+	// (The older app always sends BOTH feed clips on a high movement; the second has no free slot
+	// on this card and is dropped.)
+	svc, _ = sopService(t, repo, sopRules(), &sopProofMedia{kinds: map[string]string{"v1": "video", "p1": "video", "f1": "video"}})
 	legacy := baseInput()
 	legacy.LegacyShape = true
-	legacy.ProofRef, legacy.FeedPackingProofRef = "v1", "p1"
+	legacy.ProofRef, legacy.FeedPackingProofRef, legacy.FeedGivenProofRef = "v1", "p1", "f1"
 	if _, _, err := svc.Complete(context.Background(), legacy); err != nil {
 		t.Fatalf("older app refused: %v", err)
 	}
 	if repo.last.SOPProofs["feed_clip"] != "p1" {
 		t.Fatalf("legacy packing ref not re-targeted onto the authored slot: %v", repo.last.SOPProofs)
+	}
+}
+
+// DEPLOY-DAY PARITY (E2E 2026-09-17): before the SOP card an older app's high-priority completion
+// that omitted either feed clip was refused `feed_proofs_required` -- the old phone always had
+// both to send, so the refusal forced no update. The lenient older-app mapping must not turn that
+// into an accepted high-priority move with no feed evidence (live repro: proof_ref + fingerprint
+// alone applied the move and queued "Not captured (older app)" rows). Nothing is written or queued.
+func TestLegacyHighPriorityCompletionWithoutFeedClipsIsRefusedAsBefore(t *testing.T) {
+	for name, set := range map[string]func(*CompleteShiftingInput){
+		"no feed clips":   func(in *CompleteShiftingInput) {},
+		"no feeding clip": func(in *CompleteShiftingInput) { in.FeedPackingProofRef = "p1" },
+		"no packing clip": func(in *CompleteShiftingInput) { in.FeedGivenProofRef = "f1" },
+	} {
+		t.Run(name, func(t *testing.T) {
+			for _, version := range []*int{nil, intp(1)} {
+				repo := &sopShiftingRepo{pin: approvedPin(version, "high"), result: lowResult()}
+				media := &sopProofMedia{kinds: map[string]string{"v1": "video", "p1": "video", "f1": "video"}}
+				svc, enq := sopService(t, repo, &ports.StaticShiftingSOPRules{ByVersion: map[int]domain.ShiftingRules{1: pinnedRules()}}, media)
+				in := baseInput()
+				in.LegacyShape = true
+				in.ProofRef, in.FeedConfigFingerprint = "v1", "fp"
+				set(&in)
+				_, _, err := svc.Complete(context.Background(), in)
+				if !errors.Is(err, ports.ErrShiftingFeedProofsRequired) {
+					t.Fatalf("version %v: err = %v, want ErrShiftingFeedProofsRequired", version, err)
+				}
+				if repo.calls != 0 || enq.request.ShiftingEventID != "" {
+					t.Fatalf("version %v: wrote %d completions / queued %+v on a refused completion", version, repo.calls, enq.request)
+				}
+			}
+		})
+	}
+	// A LOW movement from the same older app never needed feed clips.
+	repo := &sopShiftingRepo{pin: approvedPin(nil, "low"), result: lowResult()}
+	svc, _ := sopService(t, repo, &ports.StaticShiftingSOPRules{}, &sopProofMedia{kinds: map[string]string{"v1": "video"}})
+	in := baseInput()
+	in.LegacyShape = true
+	in.ProofRef = "v1"
+	if _, _, err := svc.Complete(context.Background(), in); err != nil {
+		t.Fatalf("low legacy completion refused: %v", err)
 	}
 }
 

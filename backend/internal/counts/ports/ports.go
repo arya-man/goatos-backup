@@ -60,6 +60,11 @@ var (
 	// verifier approves that video, so a completion with no video has nothing to verify and is
 	// rejected before any state changes.
 	ErrShiftingProofRequired = errors.New("counts: shifting completion requires a video proof")
+	// ErrShiftingFeedProofsRequired is returned when an OLDER app's (legacy-shaped) high-priority
+	// completion omits either embedded feed clip. The pre-SOP phone always had both to send, so the
+	// refusal it always got forces no update (deploy-day parity, E2E 2026-09-17); a NEW app is
+	// judged by the pinned high-priority card's slots instead.
+	ErrShiftingFeedProofsRequired = errors.New("counts: high-priority shifting requires feed-packing and feeding video proofs")
 	// ErrShiftingFeedConfigBlocked means active destination feed config cannot resolve an exact ration.
 	ErrShiftingFeedConfigBlocked = errors.New("counts: high-priority shifting feed configuration is blocked")
 	// ErrShiftingFeedConfigChanged means the config no longer matches what the operator saw.

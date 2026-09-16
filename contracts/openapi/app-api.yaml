@@ -14408,11 +14408,17 @@ paths:
                 feed_packing_proof_ref:
                   type: string
                   minLength: 1
-                  description: LEGACY FIELD, high priority only. Mapped onto the seeded `shifting_packing_video` slot.
+                  description: >-
+                    LEGACY FIELD, high priority only. Mapped onto the seeded `shifting_packing_video` slot. A request
+                    carrying neither `proofs` nor `answers` for a high-priority movement MUST carry both feed
+                    clips (422 feed_proofs_required), exactly as before the SOP card.
                 feed_given_proof_ref:
                   type: string
                   minLength: 1
-                  description: LEGACY FIELD, high priority only. Mapped onto the seeded `shifting_feeding_video` slot.
+                  description: >-
+                    LEGACY FIELD, high priority only. Mapped onto the seeded `shifting_feeding_video` slot. A request
+                    carrying neither `proofs` nor `answers` for a high-priority movement MUST carry both feed
+                    clips (422 feed_proofs_required), exactly as before the SOP card.
                 proofs:
                   $ref: "#/components/schemas/ShiftingSOPProofRefs"
                 answers:
