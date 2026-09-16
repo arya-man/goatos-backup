@@ -4624,8 +4624,9 @@ fun AppNavHost(
             val vm: ApprovalViewModel = hiltViewModel()
             val state by vm.state.collectAsStateWithLifecycle()
             val approvalContext = LocalContext.current
+            val captureViewerUnavailableMessage = stringResource(R.string.counts_approval_capture_viewer_unavailable)
             // SHIFTING SOP: a tapped raise capture opens in the phone's own viewer via its signed URL.
-            LaunchedEffect(vm) {
+            LaunchedEffect(vm, captureViewerUnavailableMessage) {
                 vm.openMedia.collect { media ->
                     val intent = Intent(Intent.ACTION_VIEW)
                         .setDataAndType(android.net.Uri.parse(media.url), if (media.kind == "photo") "image/*" else "video/*")
@@ -4633,7 +4634,9 @@ fun AppNavHost(
                     try {
                         approvalContext.startActivity(intent)
                     } catch (err: ActivityNotFoundException) {
+                        // No app on this phone plays that capture; say so rather than doing nothing.
                         Log.w("GoatOSNav", "No viewer found for approval capture", err)
+                        Toast.makeText(approvalContext, captureViewerUnavailableMessage, Toast.LENGTH_SHORT).show()
                     }
                 }
             }
