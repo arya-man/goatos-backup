@@ -331,6 +331,18 @@ type MediaResolver interface {
 	ResolveMedia(ctx context.Context, tenantID string, proofIDs []string) ([]domain.MediaItem, error)
 }
 
+// ProofMediaKindReader answers WHICH player a proof needs when its item did not say: proof id ->
+// declared mime ("image/jpeg", "video/mp4", or "" when the register cannot tell). It is an optional
+// capability of the MediaResolver, detected by type assertion.
+//
+// It is a queue-path read and therefore bounded exactly like one: ONE batched primary-key read per
+// page, only for the refs lacking a kind, and it NEVER signs a URL or stats stored bytes (the
+// verdict-time EvidenceAvailabilityChecker is the only byte check). A failure is non-fatal to the
+// caller: media keep their links and a blank mime.
+type ProofMediaKindReader interface {
+	ProofMediaKinds(ctx context.Context, tenantID string, proofIDs []string) (map[string]string, error)
+}
+
 // ErrEvidenceMissing means the item's proof rows resolve but at least one stored object is gone.
 // It is terminal: retrying the same approve can never succeed.
 var ErrEvidenceMissing = errors.New("verification: proof evidence object is missing")
