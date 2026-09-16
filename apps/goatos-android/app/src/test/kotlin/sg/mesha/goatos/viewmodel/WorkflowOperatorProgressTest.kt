@@ -125,7 +125,7 @@ class WorkflowOperatorProgressTest {
             actionsDone = 2,
             actionsTotal = 2,
             deathBackendActionsDone = 0,
-            deathDraftCount = 2,
+            deathStepsReady = true,
         )
 
         assertEquals(WorkflowDeathSubmissionLabel.SUBMIT, state.deathSubmissionLabel)
@@ -138,7 +138,7 @@ class WorkflowOperatorProgressTest {
             isDeath = true,
             actionsDone = 0,
             actionsTotal = 2,
-            deathDraftCount = 2,
+            deathStepsReady = true,
         )
 
         assertTrue(state.showDeathSubmissionButton)
@@ -152,7 +152,7 @@ class WorkflowOperatorProgressTest {
             isDeath = true,
             actionsDone = 0,
             actionsTotal = 2,
-            deathDraftCount = 2,
+            deathStepsReady = true,
             deathDraftsSubmitting = true,
         )
 
@@ -166,7 +166,7 @@ class WorkflowOperatorProgressTest {
             isDeath = true,
             actionsDone = 0,
             actionsTotal = 2,
-            deathDraftCount = 2,
+            deathStepsReady = true,
             deathDraftsSubmitting = true,
             deathUploadFailed = true,
         )

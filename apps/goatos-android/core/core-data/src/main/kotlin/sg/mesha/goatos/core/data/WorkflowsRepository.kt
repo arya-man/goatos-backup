@@ -12,6 +12,7 @@ import androidx.room.withTransaction
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
@@ -64,7 +65,19 @@ data class WorkflowVideoDraft(
     val endedAtMs: Long,
     val captureSource: String,
     val syncStatus: String = WORKFLOW_DRAFT_STATUS,
-)
+    /**
+     * Which proof of the step this draft is: the step's first video keeps the bare action id (the
+     * shape every draft had before a death SOP could ask for more), any further proof is
+     * `<action id>|<video|photo>|<n>` -- see [workflowDeathDraftFieldKey].
+     */
+    val fieldKey: String = actionId,
+) {
+    val isPhoto: Boolean get() = mimeType.startsWith("image/")
+}
+
+/** The draft slot of a death step's [n]th proof of [kind] (1-based). */
+fun workflowDeathDraftFieldKey(actionId: String, kind: String, n: Int): String =
+    if (kind == "video" && n == 1) actionId else "$actionId|$kind|$n"
 
 /**
  * The Birth/Death follow-up workflow read models (docs/decisions/birth-death-workflows.md):
@@ -108,8 +121,13 @@ interface WorkflowsRepository {
 
     suspend fun clearVideoDrafts(workflowId: String)
 
-    /** Locks both durable drafts after Submit while their proof+completion outbox group drains. */
+    /** Locks the durable drafts after Submit while their proof+completion outbox group drains. */
     suspend fun markVideoDraftsSubmitting(workflowId: String)
+
+    /** A death step's answer held on the phone until Submit, by action id. */
+    fun observeStepDraftAnswers(workflowId: String): Flow<Map<String, String>> = flowOf(emptyMap())
+    suspend fun putStepDraftAnswer(workflowId: String, actionId: String, value: String) = Unit
+    suspend fun clearStepDraftAnswers(workflowId: String) = Unit
 
     /** Fetches the detail and upserts Room (which re-emits). Failure leaves the cache visible.
      *  [lens]/[date] fetch and cache the narrowed view instead of the full action list. */
@@ -236,6 +254,24 @@ class DefaultWorkflowsRepository(
 
     override suspend fun markVideoDraftsSubmitting(workflowId: String) =
         database.proofCaptureDao().markWorkflowDeathDraftsSubmitting(workflowId)
+
+    override fun observeStepDraftAnswers(workflowId: String): Flow<Map<String, String>> =
+        database.workflowStepDraftAnswerDao().observe(workflowId)
+            .map { rows -> rows.associate { it.actionId to it.answerValue } }
+            .flowOn(Dispatchers.Default)
+
+    override suspend fun putStepDraftAnswer(workflowId: String, actionId: String, value: String) =
+        database.workflowStepDraftAnswerDao().upsert(
+            sg.mesha.goatos.core.data.cache.WorkflowStepDraftAnswerEntity(
+                workflowId = workflowId,
+                actionId = actionId,
+                answerValue = value,
+                updatedAt = clock(),
+            ),
+        )
+
+    override suspend fun clearStepDraftAnswers(workflowId: String) =
+        database.workflowStepDraftAnswerDao().clear(workflowId)
 
     override suspend fun refreshDetail(workflowId: String, lens: String, date: String): Result<Unit> = runCatching {
         // Sample on both sides of the request. If a command finishes while GET is in flight, the
@@ -414,7 +450,7 @@ private const val WORKFLOW_DRAFT_STATUS = "WORKFLOW_DRAFT"
 private fun WorkflowVideoDraft.toEntity() = ProofCaptureEntity(
     id = id,
     taskId = workflowId,
-    fieldKey = actionId,
+    fieldKey = fieldKey,
     proofSubject = WORKFLOW_DEATH_DRAFT_SUBJECT,
     subjectId = subjectGoatId,
     localUri = localUri,
@@ -423,14 +459,14 @@ private fun WorkflowVideoDraft.toEntity() = ProofCaptureEntity(
     capturedStartMs = startedAtMs,
     capturedEndMs = endedAtMs,
     syncStatus = WORKFLOW_DRAFT_STATUS,
-    idempotencyKey = "workflow-draft:$workflowId:$actionId:$startedAtMs",
+    idempotencyKey = "workflow-draft:$workflowId:$fieldKey:$startedAtMs",
     captureSource = captureSource,
 )
 
 private fun ProofCaptureEntity.toWorkflowVideoDraft() = WorkflowVideoDraft(
     id = id,
     workflowId = taskId,
-    actionId = fieldKey,
+    actionId = fieldKey.substringBefore('|'),
     subjectGoatId = subjectId.orEmpty(),
     localUri = localUri,
     mimeType = mimeType,
@@ -438,6 +474,7 @@ private fun ProofCaptureEntity.toWorkflowVideoDraft() = WorkflowVideoDraft(
     endedAtMs = capturedEndMs,
     captureSource = captureSource,
     syncStatus = syncStatus,
+    fieldKey = fieldKey,
 )
 
 /** Copies the optimistic detail's operator-grain progress into every cached outer card. Approval
