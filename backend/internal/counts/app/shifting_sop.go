@@ -60,9 +60,9 @@ func (s *ShiftingExecutionService) pinnedRules(ctx context.Context, tenantID str
 	return s.sopRules.RulesVersion(ctx, tenantID, *version)
 }
 
-// PublishedRaiseCard is the raise form's extras a phone renders now (served on the destinations
+// CurrentRaiseCard (a read, not a publish) is the raise form's extras a phone renders now (served on the destinations
 // read), with the version a raise from that form will pin.
-func (s *ShiftingExecutionService) PublishedRaiseCard(ctx context.Context, tenantID string) (domain.ShiftingCardRules, error) {
+func (s *ShiftingExecutionService) CurrentRaiseCard(ctx context.Context, tenantID string) (domain.ShiftingCardRules, error) {
 	rules, err := s.publishedRules(ctx, tenantID)
 	if err != nil {
 		return domain.ShiftingCardRules{}, err

@@ -178,7 +178,7 @@ func (h *AppWriteHandler) ListShiftingDestinations(w http.ResponseWriter, r *htt
 
 	response := appShiftingDestinationsResponse{Parks: parks, ManagementStages: nonNilStrings(catalog.ManagementStages)}
 	if h.execution != nil {
-		card, err := h.execution.PublishedRaiseCard(r.Context(), tenantID)
+		card, err := h.execution.CurrentRaiseCard(r.Context(), tenantID)
 		if err != nil {
 			h.writeShiftingExecutionError(w, r, err)
 			return
