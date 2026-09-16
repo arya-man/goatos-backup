@@ -2238,7 +2238,7 @@ func hashString(value string) string {
 // Absent rules (no published version, or a source error) fall back to the seeded document,
 // which is exactly what the pages hardcoded before the block existed.
 func withWeightsWindowCopy(copyMap map[string]string, rules *weighingdomain.WeightsPagesRules) map[string]string {
-	out := make(map[string]string, len(copyMap)+4)
+	out := make(map[string]string, len(copyMap)+5)
 	for k, v := range copyMap {
 		out[k] = v
 	}
@@ -2249,6 +2249,7 @@ func withWeightsWindowCopy(copyMap map[string]string, rules *weighingdomain.Weig
 	out["weights.window.default_from_mode"] = rules.DefaultFromMode
 	out["weights.window.default_from_date"] = rules.DefaultFromDate
 	out["weights.window.default_from_days"] = strconv.Itoa(rules.DefaultFromDays)
+	out["weights.window.default_from_weeks"] = strconv.Itoa(rules.DefaultFromWeeks)
 	out["weights.window.earliest_date"] = rules.EarliestDate
 	return out
 }

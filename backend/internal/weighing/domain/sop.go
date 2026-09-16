@@ -97,22 +97,26 @@ type WeighingSOP struct {
 	WeightsPages *WeightsPagesRules `json:"weights_pages,omitempty"`
 }
 
-// The two ways the Weights pages' default period may start.
+// The supported ways the Weights pages' default period may start.
 const (
 	// WeightsFromFixedDate: the pages open from an authored calendar date.
 	WeightsFromFixedDate = "fixed_date"
 	// WeightsFromRollingDays: the pages open from N days before today, moving every day.
 	WeightsFromRollingDays = "rolling_days"
+	// WeightsFromRollingWeeks opens N calendar weeks before the current IST day.
+	WeightsFromRollingWeeks = "rolling_weeks"
 )
 
 // WeightsPagesRules is form_dsl.weighing.weights_pages.
 type WeightsPagesRules struct {
-	// DefaultFromMode is WeightsFromFixedDate or WeightsFromRollingDays.
+	// DefaultFromMode is WeightsFromFixedDate, WeightsFromRollingDays or WeightsFromRollingWeeks.
 	DefaultFromMode string `json:"default_from_mode"`
 	// DefaultFromDate is the day the pages open from under fixed_date ("YYYY-MM-DD").
 	DefaultFromDate string `json:"default_from_date,omitempty"`
 	// DefaultFromDays is how many days back the pages open from under rolling_days (1..3650).
 	DefaultFromDays int `json:"default_from_days,omitempty"`
+	// DefaultFromWeeks is the number of weeks before today under rolling_weeks (1..520).
+	DefaultFromWeeks int `json:"default_from_weeks,omitempty"`
 	// EarliestDate is the first day the calendars offer; earlier days are disabled.
 	EarliestDate string `json:"earliest_date"`
 }
@@ -320,7 +324,7 @@ func UnknownWeighingSOPKeys(formDSL map[string]any) []string {
 		}
 	}
 	walk("", raw, map[string]bool{"schema_version": true, "planning": true, "feed_water_removal": true, "capture": true, "weights_pages": true})
-	walk("weights_pages.", raw["weights_pages"], map[string]bool{"default_from_mode": true, "default_from_date": true, "default_from_days": true, "earliest_date": true})
+	walk("weights_pages.", raw["weights_pages"], map[string]bool{"default_from_mode": true, "default_from_date": true, "default_from_days": true, "default_from_weeks": true, "earliest_date": true})
 	walk("planning.", raw["planning"], map[string]bool{"modes": true, "default_cap_per_day": true})
 	walk("feed_water_removal.", raw["feed_water_removal"], map[string]bool{"mode": true, "cutoff_time": true, "instruction": true, "proofs": true, "questions": true})
 	if fwr, ok := raw["feed_water_removal"].(map[string]any); ok {
@@ -453,8 +457,12 @@ func ValidateWeighingSOP(dsl WeighingSOP) []string {
 			if wp.DefaultFromDays < 1 || wp.DefaultFromDays > 3650 {
 				add("weighing.weights_pages.default_from_days: 1..3650")
 			}
+		case WeightsFromRollingWeeks:
+			if wp.DefaultFromWeeks < 1 || wp.DefaultFromWeeks > 520 {
+				add("weighing.weights_pages.default_from_weeks: 1..520")
+			}
 		default:
-			add("weighing.weights_pages.default_from_mode: %q is not fixed_date / rolling_days", wp.DefaultFromMode)
+			add("weighing.weights_pages.default_from_mode: %q is not fixed_date / rolling_days / rolling_weeks", wp.DefaultFromMode)
 		}
 		if _, err := time.Parse("2006-01-02", wp.EarliestDate); err != nil {
 			add("weighing.weights_pages.earliest_date: %q is not YYYY-MM-DD", wp.EarliestDate)

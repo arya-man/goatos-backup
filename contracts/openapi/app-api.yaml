@@ -32469,7 +32469,7 @@ components:
           type: object
           description: >-
             The admin-web Weights / ADG Analytics pages' window (maintainer request 2026-09-16):
-            the period the pages open on (a fixed date, or N days back from today) and the
+            the period the pages open on (a fixed date, or N days or weeks back from the current IST day) and the
             earliest day their calendars offer. Page settings from the PUBLISHED version; not
             pinned per task. Absent on a document published before the block existed, which the
             server reads as the seeded values.
@@ -32480,7 +32480,7 @@ components:
           properties:
             default_from_mode:
               type: string
-              enum: [fixed_date, rolling_days]
+              enum: [fixed_date, rolling_days, rolling_weeks]
             default_from_date:
               type: string
               format: date
@@ -32488,6 +32488,10 @@ components:
               type: integer
               minimum: 1
               maximum: 3650
+            default_from_weeks:
+              type: integer
+              minimum: 1
+              maximum: 520
             earliest_date:
               type: string
               format: date

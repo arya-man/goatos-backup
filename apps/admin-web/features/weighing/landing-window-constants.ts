@@ -11,11 +11,10 @@ export const WINDOW_TO_PARAM = "wt_to";
 export const DEFAULT_WINDOW_FROM = "2026-08-03";
 
 /**
- * Earliest day the Weights calendars allow picking. Weighing history in the product starts
- * August 2026; earlier days would only ever return an empty span, so the calendar
- * disables them rather than offering a request that answers nothing.
+ * Seeded earliest selectable weighing history, including the sparse July checks.
+ * Published SOP settings can change this independently of the landing period.
  */
-export const WINDOW_MIN_DATE = "2026-08-01";
+export const WINDOW_MIN_DATE = "2026-07-05";
 
 export const LATEST_LUMP_LOOKBACK_DAYS = 400;
 export const BUSINESS_DAY = /^\d{4}-\d{2}-\d{2}$/;
@@ -41,6 +40,11 @@ export function weightsWindowSettings(copyMap: Record<string, string> | undefine
   if (mode === "rolling_days") {
     const days = Number.parseInt(get("weights.window.default_from_days"), 10);
     if (Number.isFinite(days) && days >= 1) defaultFrom = shiftIsoDay(today, -(days - 1));
+  } else if (mode === "rolling_weeks") {
+    const weeks = Number(get("weights.window.default_from_weeks"));
+    // Calendar weeks back from the current IST day, not the latest weighing day.
+    // Six weeks before 2026-09-16 is 2026-08-05 (both endpoints are selectable).
+    if (Number.isInteger(weeks) && weeks >= 1 && weeks <= 520) defaultFrom = shiftIsoDay(today, -weeks * 7);
   } else if (mode === "fixed_date") {
     const fixed = get("weights.window.default_from_date");
     if (BUSINESS_DAY.test(fixed)) defaultFrom = fixed;

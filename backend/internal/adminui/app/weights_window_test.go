@@ -45,7 +45,7 @@ func TestWeightsPagesWindowComesFromThePublishedWeighingSOP(t *testing.T) {
 	}
 	seeded := weightsPagesOf(t, NewService(weightsWindowFamilies{}).Bootstrap(context.Background(), input))
 	for id, page := range seeded {
-		if page.Copy["weights.window.default_from_mode"] != "fixed_date" || page.Copy["weights.window.default_from_date"] != "2026-08-03" || page.Copy["weights.window.earliest_date"] != "2026-08-01" {
+		if page.Copy["weights.window.default_from_mode"] != "fixed_date" || page.Copy["weights.window.default_from_date"] != "2026-08-03" || page.Copy["weights.window.earliest_date"] != "2026-07-05" {
 			t.Fatalf("%s without a published version: copy = %v, want the seeded window", id, page.Copy)
 		}
 	}
@@ -54,5 +54,13 @@ func TestWeightsPagesWindowComesFromThePublishedWeighingSOP(t *testing.T) {
 		if page.Copy["weights.window.default_from_mode"] != "rolling_days" || page.Copy["weights.window.default_from_days"] != "45" || page.Copy["weights.window.earliest_date"] != "2026-08-10" {
 			t.Fatalf("%s: copy = %v, want the published rolling window", id, page.Copy)
 		}
+	}
+}
+
+func TestWeightsPagesRollingWeeksCopy(t *testing.T) {
+	rules := &weighingdomain.WeightsPagesRules{DefaultFromMode: weighingdomain.WeightsFromRollingWeeks, DefaultFromWeeks: 6, EarliestDate: "2026-07-05"}
+	copy := withWeightsWindowCopy(nil, rules)
+	if copy["weights.window.default_from_mode"] != "rolling_weeks" || copy["weights.window.default_from_weeks"] != "6" {
+		t.Fatalf("rolling weeks copy = %v", copy)
 	}
 }

@@ -145,20 +145,20 @@ test("the Weights pages' window: fixed date or rolling days, never before the ea
   const rows = parseWeighing({ weighing: seed });
   assert.equal(rows.weightsFromMode, "fixed_date");
   assert.equal(rows.weightsFromDate, "2026-08-03");
-  assert.equal(rows.weightsEarliestDate, "2026-08-01");
-  assert.deepEqual(emitWeighing(rows).weights_pages, { default_from_mode: "fixed_date", default_from_date: "2026-08-03", earliest_date: "2026-08-01" });
+  assert.equal(rows.weightsEarliestDate, "2026-07-05");
+  assert.deepEqual(emitWeighing(rows).weights_pages, { default_from_mode: "fixed_date", default_from_date: "2026-08-03", earliest_date: "2026-07-05" });
 
   // A document published before the block existed reads as the seed, exactly as the backend does.
   const { weights_pages: _dropped, ...older } = seed;
   const olderRows = parseWeighing({ weighing: older });
   assert.equal(olderRows.weightsFromDate, "2026-08-03");
-  assert.equal(olderRows.weightsEarliestDate, "2026-08-01");
+  assert.equal(olderRows.weightsEarliestDate, "2026-07-05");
 
   const rolling = { ...rows, weightsFromMode: "rolling_days", weightsFromDays: "45" };
   assert.deepEqual(weighingProblems(rolling), []);
-  assert.deepEqual(emitWeighing(rolling).weights_pages, { default_from_mode: "rolling_days", default_from_days: 45, earliest_date: "2026-08-01" });
+  assert.deepEqual(emitWeighing(rolling).weights_pages, { default_from_mode: "rolling_days", default_from_days: 45, earliest_date: "2026-07-05" });
   assert.ok(weighingProblems({ ...rolling, weightsFromDays: "0" }).some((p) => p.includes("1 to 3650")));
-  assert.ok(weighingProblems({ ...rows, weightsFromDate: "2026-07-20" }).some((p) => p.includes("cannot be before the earliest day")));
+  assert.ok(weighingProblems({ ...rows, weightsFromDate: "2026-07-04" }).some((p) => p.includes("cannot be before the earliest day")));
   assert.ok(weighingProblems({ ...rows, weightsEarliestDate: "" }).some((p) => p.includes("earliest day the calendar offers")));
   assert.ok(weighingProblems({ ...rows, weightsFromDate: "3 Aug" }).some((p) => p.includes("pick the day the pages open from")));
 });
@@ -172,4 +172,24 @@ test("Other explanation is only publishable for pick-one questions", () => {
     q.kind = kind;
     assert.ok(weighingProblems(rows).some(p=>p.includes("only supported for pick-one")),kind);
   }
+});
+
+
+test("rolling weeks round-trip and validate whole weeks without changing legacy rolling days", () => {
+  const seed = JSON.parse(readFileSync(seedPath, "utf8"));
+  const rows = parseWeighing({ weighing: seed });
+  assert.equal(rows.weightsFromWeeks, "6");
+  for (const weeks of [1, 6, 12, 520]) {
+    const config = { default_from_mode: "rolling_weeks", default_from_weeks: weeks, earliest_date: "2026-07-05" };
+    const parsed = parseWeighing({ weighing: { ...seed, weights_pages: config } });
+    assert.equal(parsed.weightsFromMode, "rolling_weeks");
+    assert.equal(parsed.weightsFromWeeks, String(weeks));
+    assert.deepEqual(weighingProblems(parsed), []);
+    assert.deepEqual(emitWeighing(parsed).weights_pages, config);
+  }
+  for (const invalid of ["", "0", "-1", "1.5", "521", "NaN", "Infinity"]) {
+    assert.ok(weighingProblems({ ...rows, weightsFromMode: "rolling_weeks", weightsFromWeeks: invalid }).some((p) => p.includes("1 to 520 weeks")), invalid);
+  }
+  const legacy = { default_from_mode: "rolling_days", default_from_days: 45, earliest_date: "2026-08-01" };
+  assert.deepEqual(emitWeighing(parseWeighing({ weighing: { ...seed, weights_pages: legacy } })).weights_pages, legacy);
 });

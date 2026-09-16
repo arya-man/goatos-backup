@@ -44,7 +44,7 @@ test("the period control is a calendar, not a fixed-window select", () => {
 test("the page lands on the SOP's default start (seed: 2026-08-03) through the latest weighing when no period is selected", () => {
   assert.match(landingConstantsSource, /export const DEFAULT_WINDOW_FROM = "2026-08-03";/);
   assert.match(landingConstantsSource, /export const LATEST_LUMP_LOOKBACK_DAYS = 400;/);
-  assert.match(landingConstantsSource, /export const WINDOW_MIN_DATE = "2026-08-01";/);
+  assert.match(landingConstantsSource, /export const WINDOW_MIN_DATE = "2026-07-05";/);
   assert.match(landingSource, /export async function landingWindow/);
   assert.match(landingSource, /getWeighingDates\(\{\s*\n\s*park_id: parkID \|\| undefined,\s*\n\s*\.\.\.lookback,/);
   assert.match(landingSource, /sex: sexFilter \|\| undefined,/);

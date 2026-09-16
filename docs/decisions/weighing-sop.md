@@ -80,8 +80,8 @@ author typed, not a built-in.
 - `form_dsl.weighing` (`schema_version: goatos.sop-weighing.v1`) = `planning {modes[],
   default_cap_per_day}`, `feed_water_removal {mode, cutoff_time, instruction,
   proofs[{key,title,hint,kind,required}], questions[]}`, `capture {individual {video_required},
-  lump_sum {video_min, video_max}}`, `weights_pages {default_from_mode fixed_date|rolling_days,
-  default_from_date, default_from_days, earliest_date}` (absent on an older document = the
+  lump_sum {video_min, video_max}}`, `weights_pages {default_from_mode fixed_date|rolling_days|rolling_weeks,
+  default_from_date, default_from_days, default_from_weeks, earliest_date}` (absent on an older document = the
   seed). A
   question carries the same fields the procurement inspection's questions do (`id`, `kind`
   choice / multi / text / number, `title`, `hint`, `required`, `options` + `allow_other`,
@@ -352,3 +352,7 @@ Regression coverage: `pr274_review_repro_test.go` and
   create/update/removal identities, database replay, and changed-request refusal;
   `review274_export_window_test.go` covers the served report range and timeout
   propagation.
+
+## Configurable report calendar
+
+The default calendar minimum is July 5, 2026; the fixed landing start remains August 3. `rolling_weeks` permits 1..520 whole weeks before the current IST day, while legacy `rolling_days` retains inclusive-day semantics. These report settings are authored and published through the existing SOP, independently of pinned task execution rules. See [Weighing calendar settings](../runbooks/weighing-calendar-settings.md) for operator steps, examples, freshness, storage, and validation.

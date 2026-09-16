@@ -65,7 +65,9 @@ export function WeighingSummary({ pageContract: pc, formDsl }: { pageContract: A
           <div className="htx">
             <b>{copy(pc, "wsop.section.weights")}</b>
             <div className="hmeta muted small">
-              {rows.weightsFromMode === "rolling_days"
+              {rows.weightsFromMode === "rolling_weeks"
+                ? fill(copy(pc, "wsop.summary.weights_rolling_weeks"), { weeks: rows.weightsFromWeeks })
+                : rows.weightsFromMode === "rolling_days"
                 ? fill(copy(pc, "wsop.summary.weights_rolling"), { days: rows.weightsFromDays })
                 : fill(copy(pc, "wsop.summary.weights_fixed"), { date: rows.weightsFromDate })}
               {" · "}
