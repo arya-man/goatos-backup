@@ -181,6 +181,9 @@ func (h *Handler) SetConfig(w http.ResponseWriter, r *http.Request) {
 	httpresponse.WriteJSON(w, http.StatusOK, cfg)
 }
 
+// writeErr carries the code under BOTH keys: admin-web's envelope parser reads `code` (and
+// drops the envelope without it, so the drawer would show the generic failure instead of the
+// range refusal), while the older `error` key is what the log and other clients read.
 func (h *Handler) writeErr(w http.ResponseWriter, r *http.Request, status int, code, message string) {
-	httpresponse.WriteError(w, r, h.log, status, map[string]any{"error": code, "message": message}, errors.New(code))
+	httpresponse.WriteError(w, r, h.log, status, map[string]any{"code": code, "error": code, "message": message}, errors.New(code))
 }

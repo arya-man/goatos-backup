@@ -1,14 +1,13 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useMemo, useState, useTransition } from "react";
 import { Settings2 } from "lucide-react";
 
 import { LocalOverlayDrawer } from "@/components/local-overlay-drawer";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { AlertRuleConfig } from "@/lib/api/alerts-server";
 import { saveAlertRuleAction } from "./actions";
-
-export const PARAM_CONFIGURE = "configure";
+import { PARAM_CONFIGURE } from "./alerts-model";
 
 /**
  * The Configure drawer: one row per catalog rule -- on/off, the threshold with its backend-named
@@ -20,28 +19,36 @@ export const PARAM_CONFIGURE = "configure";
  */
 export function AlertsConfigure({ pageContract, rules, initialOpen, closeHref }: { pageContract: AdminUiPageContract; rules: AlertRuleConfig[] | null; initialOpen: boolean; closeHref: string }) {
   const t = (key: string) => copy(pageContract, key);
-  const item = {
-    id: "1",
-    eyebrow: t("crumb"),
-    title: t("configure.title"),
-    icon: <Settings2 className="ic" aria-hidden="true" />,
-    body: rules ? (
-      <div data-testid="alerts-configure-drawer">
-        <p className="small muted" style={{ marginTop: 0 }}>
-          {t("configure.intro")}
-        </p>
-        {rules.map((rule) => (
-          <RuleRow key={rule.key} rule={rule} pageContract={pageContract} />
-        ))}
-        <p className="small muted" style={{ marginTop: 14 }}>
-          {t("configure.more_rules")}
-        </p>
-      </div>
-    ) : (
-      <div className="small muted">{t("configure.unavailable")}</div>
-    ),
-  };
-  return <LocalOverlayDrawer items={[item]} selectionKey={PARAM_CONFIGURE} initialSelectedId={initialOpen ? "1" : undefined} closeHref={closeHref} ariaLabel={t("configure.title")} closeLabel={t("configure.close")} />;
+  // Memoised: the overlay hook re-syncs from the URL whenever `items` changes identity, so an
+  // inline array rebuilt every render would re-open the drawer on each state change inside it.
+  const items = useMemo(
+    () => [
+      {
+        id: "1",
+        eyebrow: t("crumb"),
+        title: t("configure.title"),
+        icon: <Settings2 className="ic" aria-hidden="true" />,
+        body: rules ? (
+          <div data-testid="alerts-configure-drawer">
+            <p className="small muted" style={{ marginTop: 0 }}>
+              {t("configure.intro")}
+            </p>
+            {rules.map((rule) => (
+              <RuleRow key={rule.key} rule={rule} pageContract={pageContract} />
+            ))}
+            <p className="small muted" style={{ marginTop: 14 }}>
+              {t("configure.more_rules")}
+            </p>
+          </div>
+        ) : (
+          <div className="small muted">{t("configure.unavailable")}</div>
+        ),
+      },
+    ],
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- t is derived from pageContract
+    [pageContract, rules],
+  );
+  return <LocalOverlayDrawer items={items} selectionKey={PARAM_CONFIGURE} initialSelectedId={initialOpen ? "1" : undefined} closeHref={closeHref} ariaLabel={t("configure.title")} closeLabel={t("configure.close")} />;
 }
 
 function RuleRow({ rule: initial, pageContract }: { rule: AlertRuleConfig; pageContract: AdminUiPageContract }) {
@@ -57,7 +64,7 @@ function RuleRow({ rule: initial, pageContract }: { rule: AlertRuleConfig; pageC
   const onSave = () => {
     setMessage(null);
     startTransition(async () => {
-      const result = await saveAlertRuleAction({ ruleKey: rule.key, enabled, threshold });
+      const result = await saveAlertRuleAction({ ruleKey: rule.key, enabled, threshold, editedFrom: rule.updated_at ?? "" });
       if (result.ok) {
         setRule(result.rule);
         setEnabled(result.rule.enabled);
@@ -70,7 +77,7 @@ function RuleRow({ rule: initial, pageContract }: { rule: AlertRuleConfig; pageC
   };
 
   return (
-    <div className="card" style={{ marginBottom: 10 }} data-testid="alerts-rule-row" data-rule={rule.key}>
+    <div className="card alerts-rule" style={{ marginBottom: 10 }} data-testid="alerts-rule-row" data-rule={rule.key}>
       <div className="bd" style={{ display: "grid", gap: 8 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <label className="small" style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 700 }}>
@@ -87,7 +94,6 @@ function RuleRow({ rule: initial, pageContract }: { rule: AlertRuleConfig; pageC
           </label>
           <input
             id={inputId}
-            className="inp"
             type="number"
             inputMode="numeric"
             min={rule.min_threshold}
@@ -96,7 +102,6 @@ function RuleRow({ rule: initial, pageContract }: { rule: AlertRuleConfig; pageC
             value={threshold}
             disabled={pending}
             onChange={(event) => setThreshold(event.target.value)}
-            style={{ width: 96 }}
             data-testid="alerts-rule-threshold"
           />
           <span className="small muted">{rule.threshold_unit}</span>

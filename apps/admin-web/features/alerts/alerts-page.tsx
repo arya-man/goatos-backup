@@ -10,9 +10,9 @@ import { firstAuthRequiredError, type ApiResult } from "@/lib/api/server";
 import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
 import { istDayPlus, todayIso } from "@/lib/format";
 import { hrefWithParams, one, type RouteSearchParams } from "@/lib/search-params";
-import { AlertsConfigure, PARAM_CONFIGURE } from "./alerts-configure";
+import { AlertsConfigure } from "./alerts-configure";
+import { ALERTS_PATH, PARAM_CONFIGURE } from "./alerts-model";
 
-export const ALERTS_PATH = "/alerts";
 const PARAM_PARK = "park";
 const PARAM_DATE = "date";
 const PARAM_SEVERITY = "severity";
@@ -84,7 +84,11 @@ export async function AlertsPage({ searchParams, pageContract }: { searchParams?
   const degraded = new Set(pages.flatMap((page) => page.degraded ?? []));
   const allFailed = reads.length > 0 && okReads.length === 0;
   const partial = !allFailed && (failedParks.length > 0 || degraded.size > 0);
-  const ruleLabels = config?.ok ? Object.fromEntries(config.data.rules.map((rule) => [rule.key, rule.label])) : {};
+  // Rule names for the KPI and the degraded note: from the config read when the caller may make
+  // it, otherwise from the rows themselves, which carry their rule's label. A viewer never fires
+  // the config read, and the rule keys are config vocabulary that must not be shown in their place.
+  const ruleLabels: Record<string, string> = Object.fromEntries(allRows.map((row) => [row.rule_key, row.rule_label]));
+  if (config?.ok) for (const rule of config.data.rules) ruleLabels[rule.key] = rule.label;
   const alertsTable = table(pageContract, "alerts");
   const labels = tableLabels(pageContract, "alerts");
   const isToday = businessDate === todayIso();
@@ -182,7 +186,7 @@ export async function AlertsPage({ searchParams, pageContract }: { searchParams?
 
         {partial ? (
           <div className="alert" style={{ margin: 12 }} role="status">
-            {t("state.partial")} {[...failedParks, ...Array.from(degraded).map((key) => ruleLabels[key] ?? key)].join(", ")}. <Link href={href({})}>{t("action.retry")}</Link>
+            {t("state.partial")} {[...failedParks, ...Array.from(degraded).map((key) => ruleLabels[key] ?? "")].filter(Boolean).join(", ")}. <Link href={href({})}>{t("action.retry")}</Link>
           </div>
         ) : null}
 

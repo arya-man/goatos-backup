@@ -1097,18 +1097,25 @@ func compileWorkBoardControls(controls []domain.Control, input BootstrapInput, c
 // holds. Both halves of the capability lock: this control, and GET/PUT /alerts/config.
 func compileAlertsControls(controls []domain.Control, input BootstrapInput, copy map[string]string) []domain.Control {
 	allowed := len(input.Grants) == 0 || grantsAuthorize(input.Grants, input.TenantID, []string{permissions.AlertsConfigure})
+	return upsertControl(controls, alertsConfigureControl(allowed, copy))
+}
+
+// alertsConfigureControl is the one control shape, built here for the role path and again by
+// the person page lens once the person's stored /people ticks are known -- the tick is what the
+// maintainer asked the button to follow, so the per-person answer overrides the role answer.
+func alertsConfigureControl(allowed bool, copy map[string]string) domain.Control {
 	reason := ""
 	if !allowed {
 		reason = controlCopy(copy, "configure.disabled_no_access", "Changing alert rules is limited to the people HRMS names for it.")
 	}
-	return upsertControl(controls, domain.Control{
+	return domain.Control{
 		ID:             "configure_alerts",
 		Label:          controlCopy(copy, "configure.title", "Configure alerts"),
 		Kind:           "action",
 		Enabled:        allowed,
 		DisabledReason: reason,
 		Action:         "GET /alerts/config",
-	})
+	}
 }
 
 func compileWeightsAnalyticsControls(controls []domain.Control, input BootstrapInput, copy map[string]string) []domain.Control {
