@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
+	"github.com/vgoats/goatos/backend/internal/sop/authored"
 	"github.com/vgoats/goatos/backend/internal/tasks/domain"
 	"github.com/vgoats/goatos/backend/internal/tasks/ports"
 )
@@ -61,10 +62,11 @@ func (f *fakeRepo) OpenWorkflow(_ context.Context, cmd ports.OpenWorkflowCommand
 		DamGoatID:     cmd.DamGoatID,
 		EventAt:       cmd.EventAt,
 		EventDate:     biztime.BusinessDate(cmd.EventAt),
-		ParkID:        cmd.ParkID,
-		ShedID:        cmd.ShedID,
-		State:         domain.WorkflowStateOpen,
-		RowVersion:    1,
+		ParkID:          cmd.ParkID,
+		ShedID:          cmd.ShedID,
+		State:           domain.WorkflowStateOpen,
+		RowVersion:      1,
+		CaptureEvidence: cmd.CaptureEvidence,
 	}
 	var actions []domain.WorkflowAction
 	for _, at := range template.Actions {
@@ -162,6 +164,9 @@ func (f *fakeRepo) AnswerAction(_ context.Context, cmd domain.AnswerActionComman
 				}
 				actions[i] = updated
 				target = updated
+				if !isReplay && f.goats[w.SubjectGoatID].LifecycleStatus == "dead" && w.TemplateKey == domain.TemplateKeyDeath && domain.DeathStepsComplete(actions) {
+					w.AwaitingVerification = true
+				}
 				return isReplay, nil
 			}
 			return false, domain.ErrNotFound
@@ -192,7 +197,7 @@ func (f *fakeRepo) CompleteAction(_ context.Context, cmd domain.CompleteActionCo
 				if isReplay {
 					return true, nil
 				}
-				if f.goats[w.SubjectGoatID].LifecycleStatus == "dead" && w.TemplateKey == domain.TemplateKeyDeath && updated.RequiresVideo && domain.DeathVideosComplete(actions) {
+				if f.goats[w.SubjectGoatID].LifecycleStatus == "dead" && w.TemplateKey == domain.TemplateKeyDeath && domain.DeathStepsComplete(actions) {
 					w.AwaitingVerification = true
 				}
 				return false, nil
@@ -236,22 +241,15 @@ func (f *fakeRepo) DeathEvidenceForVerification(_ context.Context, tenantID, goa
 		if w.TenantID != tenantID || w.SubjectGoatID != goatID || w.TemplateKey != domain.TemplateKeyDeath {
 			continue
 		}
-		var review ports.DeathEvidenceReview
-		if !w.AwaitingVerification {
+		if !w.AwaitingVerification || !domain.DeathStepsComplete(f.actions[workflowID]) {
 			return ports.DeathEvidenceReview{}, domain.ErrNotFound
 		}
-		review.WorkflowID, review.EventDate = workflowID, w.EventDate
-		review.Round = w.RowVersion
-		review.ParkID, review.ShedID = derefOr(w.ParkID), derefOr(w.ShedID)
+		review := ports.DeathEvidenceReview{Workflow: w, Actions: append([]domain.WorkflowAction(nil), f.actions[workflowID]...)}
 		for _, a := range f.actions[workflowID] {
-			switch a.ActionKey {
-			case domain.ActionKeyDeathVideo, domain.ActionKeyPostMortemVideo:
-				if a.Status != domain.ActionStatusCompleted || a.ProofRef == nil {
-					return ports.DeathEvidenceReview{}, domain.ErrNotFound
-				}
+			if a.CompletedBy != nil && len(a.AllProofRefs()) > 0 {
+				review.OperatorID = *a.CompletedBy
 			}
 		}
-		review.ProofRefs = domain.DeathProofRefs(f.actions[workflowID])
 		return review, nil
 	}
 	return ports.DeathEvidenceReview{}, domain.ErrNotFound
@@ -288,20 +286,9 @@ func (f *fakeRepo) ApplyDeathSignoffApproved(_ context.Context, cmd ports.DeathV
 func (f *fakeRepo) BounceDeathVideosForRework(_ context.Context, cmd ports.DeathVerdictCommand) error {
 	_, _, _, err := f.mutate(cmd.TenantID, cmd.WorkflowID,
 		func(w *domain.WorkflowInstance, actions []domain.WorkflowAction) (bool, error) {
-			changed := false
 			w.AwaitingVerification = false
-			for i := range actions {
-				switch actions[i].ActionKey {
-				case domain.ActionKeyDeathVideo, domain.ActionKeyPostMortemVideo:
-					if actions[i].Status == domain.ActionStatusCompleted {
-						actions[i].Status = domain.ActionStatusRework
-						actions[i].ProofRef = nil
-						actions[i].CompletedAt = nil
-						changed = true
-					}
-				}
-			}
-			return !changed, nil
+			changed := domain.ReopenDeathProofSteps(actions, cmd.Reason)
+			return len(changed) == 0, nil
 		})
 	// Propagates ErrNotFound like the real repository (see the approve twin).
 	return err
@@ -509,7 +496,7 @@ func TestReportedDeathOpensUploadWorkflowBeforeApproval(t *testing.T) {
 	repo.goats[testGoat] = ports.GoatWorkflowFacts{GoatID: testGoat, LifecycleStatus: "alive"}
 	svc := NewService(repo, nil)
 	if err := svc.OpenReportedDeathWorkflow(context.Background(), testTenant, testGoat,
-		time.Date(2026, 7, 28, 9, 0, 0, 0, biztime.DefaultLocation())); err != nil {
+		time.Date(2026, 7, 28, 9, 0, 0, 0, biztime.DefaultLocation()), authored.Evidence{}); err != nil {
 		t.Fatalf("open reported death: %v", err)
 	}
 	if len(repo.workflows) != 1 {
@@ -786,7 +773,7 @@ func applyAdminDeathApproval(t *testing.T, repo *fakeRepo, workflowID string) {
 	repo.goats[w.SubjectGoatID] = facts
 	_, _, _, err := repo.mutate(w.TenantID, workflowID,
 		func(w *domain.WorkflowInstance, actions []domain.WorkflowAction) (bool, error) {
-			if !domain.DeathVideosComplete(actions) {
+			if !domain.DeathStepsComplete(actions) {
 				return false, errors.New("death evidence incomplete")
 			}
 			w.AwaitingVerification = true

@@ -16,6 +16,7 @@ import (
 
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/platform/oploc"
+	"github.com/vgoats/goatos/backend/internal/sop/authored"
 	"github.com/vgoats/goatos/backend/internal/tasks/domain"
 	"github.com/vgoats/goatos/backend/internal/tasks/ports"
 )
@@ -181,17 +182,20 @@ WHERE tenant_id=$1::uuid AND child_goat_id=$2::uuid`, cmd.TenantID, childID).Sca
 INSERT INTO workflow_instances (
   tenant_id, template_key, module, subject_goat_id, dam_goat_id,
   birth_event_id, event_at, event_date, park_id, shed_id, state,
-  actions_total, actions_done, next_action_key, next_action_title, next_due_at, sop_version_id, subject_ref_id
+  actions_total, actions_done, next_action_key, next_action_title, next_due_at, sop_version_id, subject_ref_id,
+  capture_evidence
 ) VALUES (
   $1::uuid, $2, $3, $4::uuid, nullif($5::text,'')::uuid,
   nullif($6::text,'')::uuid, $7::timestamptz, $8::date, nullif($9::text,'')::uuid, nullif($10::text,'')::uuid, 'open',
-  $11, 0, $12, $13, $14::timestamptz, nullif($15::text,'')::uuid, nullif($16::text,'')::uuid
+  $11, 0, $12, $13, $14::timestamptz, nullif($15::text,'')::uuid, nullif($16::text,'')::uuid,
+  $17::jsonb
 )
 ON CONFLICT DO NOTHING
 RETURNING workflow_id::text`,
 		cmd.TenantID, cmd.TemplateKey, template.Module, cmd.SubjectGoatID, deref(cmd.DamGoatID),
 		deref(birthEventID), cmd.EventAt.UTC(), biztime.BusinessDate(cmd.EventAt), deref(cmd.ParkID), deref(cmd.ShedID),
 		template.OperatorActionCount(), nextKey, nextTitle, nextDue, sopVersionID, deref(cmd.SubjectRefID),
+		mustCaptureJSON(cmd.CaptureEvidence),
 	).Scan(&workflowID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		// Natural-key conflict: the workflow already exists. Do not touch its actions.
@@ -819,29 +823,56 @@ WHERE tenant_id = $1::uuid AND workflow_id = $2::uuid`,
 	return recomputed, actions, false, nil
 }
 
-func lockInstance(ctx context.Context, tx pgx.Tx, tenantID, workflowID string) (domain.WorkflowInstance, error) {
-	var w domain.WorkflowInstance
-	err := tx.QueryRow(ctx, `
+const instanceSelectColumns = `
 SELECT workflow_id::text, tenant_id::text, template_key, module, subject_goat_id::text,
        dam_goat_id::text, event_at, event_date::text, park_id::text, shed_id::text, state,
        actions_total, actions_done, next_action_key, next_action_title, next_due_at,
-       awaiting_verification, row_version
+       awaiting_verification, row_version, COALESCE(capture_evidence, '{}'::jsonb)
 FROM workflow_instances
-WHERE tenant_id = $1::uuid AND workflow_id = $2::uuid
-FOR UPDATE`, tenantID, workflowID).Scan(
+WHERE tenant_id = $1::uuid AND workflow_id = $2::uuid`
+
+func scanInstance(row pgx.Row) (domain.WorkflowInstance, error) {
+	var w domain.WorkflowInstance
+	var capture []byte
+	err := row.Scan(
 		&w.WorkflowID, &w.TenantID, &w.TemplateKey, &w.Module, &w.SubjectGoatID,
 		&w.DamGoatID, &w.EventAt, &w.EventDate, &w.ParkID, &w.ShedID, &w.State,
 		&w.ActionsTotal, &w.ActionsDone, &w.NextActionKey, &w.NextActionTitle, &w.NextDueAt,
-		&w.AwaitingVerification, &w.RowVersion,
+		&w.AwaitingVerification, &w.RowVersion, &capture,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.WorkflowInstance{}, domain.ErrNotFound
 	}
-	return w, err
+	if err != nil {
+		return domain.WorkflowInstance{}, err
+	}
+	if len(capture) > 0 {
+		if err := json.Unmarshal(capture, &w.CaptureEvidence); err != nil {
+			return domain.WorkflowInstance{}, err
+		}
+	}
+	return w, nil
+}
+
+func lockInstance(ctx context.Context, tx pgx.Tx, tenantID, workflowID string) (domain.WorkflowInstance, error) {
+	return scanInstance(tx.QueryRow(ctx, instanceSelectColumns+` FOR UPDATE`, tenantID, workflowID))
+}
+
+// mustCaptureJSON encodes the capture snapshot for the jsonb column ('{}' when empty).
+func mustCaptureJSON(e authored.Evidence) string {
+	raw, err := json.Marshal(e)
+	if err != nil || len(raw) == 0 {
+		return "{}"
+	}
+	return string(raw)
 }
 
 // AnswerAction answers a question / question_select step under the idempotency contract.
 func (r *Repository) AnswerAction(ctx context.Context, cmd domain.AnswerActionCommand) (domain.ActionWriteResult, error) {
+	deathApplied, err := r.deathAlreadyApplied(ctx, cmd.TenantID, cmd.WorkflowID)
+	if err != nil {
+		return domain.ActionWriteResult{}, err
+	}
 	var target domain.WorkflowAction
 	w, actions, replay, err := r.workflowMutation(ctx, cmd.TenantID, cmd.WorkflowID,
 		func(tx pgx.Tx, w *domain.WorkflowInstance, actions []domain.WorkflowAction) ([]domain.WorkflowAction, bool, error) {
@@ -876,6 +907,12 @@ func (r *Repository) AnswerAction(ctx context.Context, cmd domain.AnswerActionCo
 				if err := r.applyRecordedNewbornPen(ctx, tx, w, updated, cmd); err != nil {
 					return nil, false, err
 				}
+			}
+			// An answer that finishes the LAST reopened step of an applied death (a re-answered
+			// photo question after a rework) reopens the verification gate exactly as a video
+			// completion does; the initial round still waits for the admin approval transaction.
+			if deathApplied && w.TemplateKey == domain.TemplateKeyDeath && domain.DeathStepsComplete(actions) {
+				w.AwaitingVerification = true
 			}
 			return []domain.WorkflowAction{updated}, false, nil
 		})
@@ -954,7 +991,7 @@ func (r *Repository) CompleteAction(ctx context.Context, cmd domain.CompleteActi
 			}
 			// Only re-shoots after an already-applied death return directly to Verify. The initial
 			// upload pair waits for the separate admin approval transaction.
-			if deathApplied && w.TemplateKey == domain.TemplateKeyDeath && updated.RequiresVideo && domain.DeathVideosComplete(actions) {
+			if deathApplied && w.TemplateKey == domain.TemplateKeyDeath && domain.DeathStepsComplete(actions) {
 				w.AwaitingVerification = true
 			}
 			return changed, false, nil
@@ -995,8 +1032,10 @@ WHERE wi.tenant_id = $1::uuid AND wi.workflow_id = $2::uuid`, tenantID, workflow
 }
 
 // PrepareDeathEvidenceForApprovalInTx is the counts approval adapter's transaction-scoped seam.
-// It proves both mandatory videos exist and atomically opens the workflow verification gate inside
-// the SAME transaction that applies the goat exit and approval status.
+// It proves EVERY authored operator step of the death SOP is completed with its proof
+// (domain.DeathStepsComplete -- the exactly-two-videos lock is retired, 2026-09-16) and atomically
+// opens the workflow verification gate inside the SAME transaction that applies the goat exit
+// and approval status.
 // Returning ready=false keeps the approval pending and the live count unchanged.
 func (r *Repository) PrepareDeathEvidenceForApprovalInTx(
 	ctx context.Context, tx pgx.Tx, tenantID, goatID string,
@@ -1022,7 +1061,7 @@ FOR UPDATE`, tenantID, goatID, domain.TemplateKeyDeath).Scan(&workflowID)
 	if err != nil {
 		return false, err
 	}
-	if !domain.DeathVideosComplete(actions) || len(domain.DeathProofRefs(actions)) != 2 {
+	if !domain.DeathStepsComplete(actions) {
 		return false, nil
 	}
 
@@ -1115,46 +1154,48 @@ ORDER BY valid_from DESC LIMIT 1`, tenantID, goatID).Scan(&identifier)
 	return identifier, err
 }
 
-// DeathEvidenceForVerification returns the approved/in-review evidence bundle addressed by the
-// goat.exited event. The workflow and its actions are bounded by the natural key and template
-// size; no history or tenant-wide scan is involved.
+// DeathEvidenceForVerification returns the approved/in-review death workflow addressed by the
+// goat.exited event: the instance (capture snapshot, review round) and EVERY step, so the app
+// service composes the bundle through the same builder the completion path uses -- not two
+// hardcoded action keys and the legacy single proof_ref column (bug 2, 2026-09-16). Bounded by
+// the natural key and template size; no history or tenant-wide scan is involved.
 func (r *Repository) DeathEvidenceForVerification(ctx context.Context, tenantID, goatID string) (ports.DeathEvidenceReview, error) {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
 
-	var (
-		out                   ports.DeathEvidenceReview
-		parkID, shedID        *string
-		deathProof, postProof string
-		operatorID            *string
-	)
+	var workflowID string
 	err := r.pool.QueryRow(ctx, `
-SELECT wi.workflow_id::text, wi.event_date::text, wi.park_id::text, wi.shed_id::text,
-       death.proof_ref, postmortem.proof_ref,
-       COALESCE(postmortem.completed_by, death.completed_by)::text,
-       wi.row_version
-FROM workflow_instances wi
-JOIN workflow_actions death
-  ON death.workflow_id = wi.workflow_id AND death.action_key = $3 AND death.status = 'completed'
-JOIN workflow_actions postmortem
-  ON postmortem.workflow_id = wi.workflow_id AND postmortem.action_key = $4 AND postmortem.status = 'completed'
-WHERE wi.tenant_id = $1::uuid AND wi.subject_goat_id = $2::uuid AND wi.template_key = $5
-  AND wi.awaiting_verification = true`,
-		tenantID, goatID, domain.ActionKeyDeathVideo, domain.ActionKeyPostMortemVideo,
-		domain.TemplateKeyDeath).Scan(
-		&out.WorkflowID, &out.EventDate, &parkID, &shedID, &deathProof, &postProof,
-		&operatorID, &out.Round,
-	)
+SELECT workflow_id::text
+FROM workflow_instances
+WHERE tenant_id = $1::uuid AND subject_goat_id = $2::uuid AND template_key = $3
+  AND awaiting_verification = true`, tenantID, goatID, domain.TemplateKeyDeath).Scan(&workflowID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ports.DeathEvidenceReview{}, domain.ErrNotFound
 	}
 	if err != nil {
 		return ports.DeathEvidenceReview{}, err
 	}
-	out.ParkID = deref(parkID)
-	out.ShedID = deref(shedID)
-	out.OperatorID = deref(operatorID)
-	out.ProofRefs = []string{deathProof, postProof}
+	w, err := scanInstance(r.pool.QueryRow(ctx, instanceSelectColumns, tenantID, workflowID))
+	if err != nil {
+		return ports.DeathEvidenceReview{}, err
+	}
+	actions, err := r.listActions(ctx, r.pool, tenantID, workflowID, false)
+	if err != nil {
+		return ports.DeathEvidenceReview{}, err
+	}
+	if !domain.DeathStepsComplete(actions) {
+		return ports.DeathEvidenceReview{}, domain.ErrNotFound
+	}
+	out := ports.DeathEvidenceReview{Workflow: w, Actions: actions}
+	// The operator is whoever completed the LAST proof-bearing step (seq order), as before.
+	for _, a := range actions {
+		if a.ActionType == domain.ActionTypeApproval || a.Status != domain.ActionStatusCompleted || len(a.AllProofRefs()) == 0 {
+			continue
+		}
+		if a.CompletedBy != nil && *a.CompletedBy != "" {
+			out.OperatorID = *a.CompletedBy
+		}
+	}
 	return out, nil
 }
 
@@ -1220,29 +1261,18 @@ func (r *Repository) ApplyDeathSignoffApproved(ctx context.Context, cmd ports.De
 	return err
 }
 
-// BounceDeathVideosForRework resets both video actions to 'rework' (clearing their proofs, so a
-// re-shoot is mandatory) and closes the current workflow verification gate. Idempotent on replay.
+// BounceDeathVideosForRework sends every proof-bearing step back to 'rework' (proofs cleared so
+// a re-shoot is mandatory, the verifier's words kept, answer-only steps untouched --
+// domain.ReopenDeathProofSteps) and closes the current workflow verification gate. Idempotent
+// on replay.
 func (r *Repository) BounceDeathVideosForRework(ctx context.Context, cmd ports.DeathVerdictCommand) error {
 	_, _, _, err := r.workflowMutation(ctx, cmd.TenantID, cmd.WorkflowID,
 		func(tx pgx.Tx, w *domain.WorkflowInstance, actions []domain.WorkflowAction) ([]domain.WorkflowAction, bool, error) {
 			if w.TemplateKey != domain.TemplateKeyDeath {
 				return nil, false, domain.ErrNotFound
 			}
-			var changed []domain.WorkflowAction
 			w.AwaitingVerification = false
-			for i := range actions {
-				switch actions[i].ActionKey {
-				case domain.ActionKeyDeathVideo, domain.ActionKeyPostMortemVideo:
-					if actions[i].Status == domain.ActionStatusCompleted || actions[i].Status == domain.ActionStatusInReview {
-						actions[i].Status = domain.ActionStatusRework
-						actions[i].ProofRef = nil
-						actions[i].CompletedAt = nil
-						actions[i].CompletedBy = nil
-						actions[i].RowVersion++
-						changed = append(changed, actions[i])
-					}
-				}
-			}
+			changed := domain.ReopenDeathProofSteps(actions, cmd.Reason)
 			if len(changed) == 0 {
 				return nil, true, nil
 			}
