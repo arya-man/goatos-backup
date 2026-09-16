@@ -95,6 +95,28 @@ class ApprovalViewModelCaptureRowsTest {
         assertNull(viewModel.state.value.openedMediaUrls["missing"])
         assertEquals(setOf("missing"), viewModel.state.value.failedMediaIds)
     }
+
+    @Test
+    fun `a preview action on an opened capture proof is tracked with its proof and action`() = runTest(dispatcher) {
+        val analytics = RecordingCaptureAnalytics()
+        val viewModel = ApprovalViewModel(MediaApprovalRepository(urls = emptyMap()), MediaSyncRepository(), analytics, NoopCaptureCrashReporter(), SavedStateHandle())
+
+        viewModel.onEvent(ApprovalEvent.CapturePreviewAction("proof-1", "play"))
+
+        assertEquals(
+            listOf("counts_approval_capture_preview_action" to mapOf("proof_id" to "proof-1", "action" to "play")),
+            analytics.events.filter { it.first == "counts_approval_capture_preview_action" },
+        )
+    }
+}
+
+private class RecordingCaptureAnalytics : AnalyticsPort {
+    val events = mutableListOf<Pair<String, Map<String, String>>>()
+    override fun track(event: String, props: Map<String, String>) {
+        events += event to props
+    }
+    override fun setUserProperty(name: String, value: String?) = Unit
+    override fun setUserId(id: String?) = Unit
 }
 
 private class MediaApprovalRepository(private val urls: Map<String, String>) : CountsApprovalRepository {

@@ -110,6 +110,8 @@ object AnalyticsEvents {
     const val COUNTS_CAPTURE_FAILURE = "counts_capture_failure"
     /** Approvals: the approver opened one of a report's capture proofs. */
     const val COUNTS_APPROVAL_CAPTURE_MEDIA_OPENED = "counts_approval_capture_media_opened"
+    /** Approvals: a play/pause/fullscreen/share/failure action on an opened capture proof preview. */
+    const val COUNTS_APPROVAL_CAPTURE_PREVIEW_ACTION = "counts_approval_capture_preview_action"
     /** Death follows the SOP: an authored answer step's draft answer was saved before Submit. */
     const val WORKFLOW_DEATH_DRAFT_ANSWERED = "workflow_death_draft_answered"
 
