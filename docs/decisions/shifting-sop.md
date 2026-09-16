@@ -100,8 +100,17 @@ fingerprint is byte-identical to the pre-SOP handler's (goldens pinned in
   `backend/internal/shiftingsop/adapters/postgres/rules_source.go`; save-time contract:
   `backend/internal/shiftingsop/app/sop_contract.go`.
 - Web editor: `apps/admin-web/features/sops/shifting-{model,editor,summary}.ts[x]`.
-- Phone: `ShiftingExecuteViewModel` runs two slot controllers (completion, high priority) from the
-  pending item's cards; the raise form runs one from the destinations read's `sop`.
+- Phone: `ShiftingExecuteViewModel` runs two `FeedSopSlotController`s (completion, high priority)
+  from the pending item's pinned cards. Durable drafts: the completion card under the movement id,
+  the high-priority card under `<movement>:high` (one answers row per entity), and one-shot reset
+  markers (rework cutoff, Feed Config fingerprint) under `CaptureFlow.SHIFTING_MARKERS` so they never
+  count as captures on the Actions list. A reset is applied ONCE and is cutoff-based: re-opening a
+  movement mid-rework keeps a clip recorded after the reset, and Room never re-fills a slot with a
+  rejected take. Clips an older build stored under `shifting` / `packing` / `feeding` fill their seeded
+  slots. A cached row without `sop` runs `ShiftingSopSeed.kt`, which `make shifting-sop-guard` pins to
+  the backend seed JSON. The Actions list's "captures done / required" counts the pinned cards'
+  compulsory slots. The raise form runs one controller from the destinations read's `sop`; the
+  approvals queue renders the backend `capture`.
 
 ## Proof
 

@@ -21,7 +21,6 @@ import (
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/platform/oploc"
 	platformoutbox "github.com/vgoats/goatos/backend/internal/platform/outbox"
-	"github.com/vgoats/goatos/backend/internal/sop/authored"
 )
 
 const defaultQueryTimeout = 3 * time.Second
@@ -1728,6 +1727,10 @@ func insertShiftingEvent(ctx context.Context, tx pgx.Tx, in domain.ShiftingEvent
 	if id, found, err := maybeExistingShiftingByLogicalKey(ctx, tx, in); err != nil || found {
 		return id, found, err
 	}
+	raiseProofs, raiseAnswers, raiseCapture, encodeErr := encodeRaiseSOP(in)
+	if encodeErr != nil {
+		return "", false, encodeErr
+	}
 	var id string
 	err := tx.QueryRow(ctx, `
 INSERT INTO shifting_events (
@@ -1772,7 +1775,7 @@ RETURNING shifting_event_id::text`,
 		in.PayloadHash, in.IdempotencyKey, in.RequestFingerprint,
 		in.ManagementStageMode, in.TargetManagementStage, in.RaiseComment,
 		ptrValue(in.SourcePartitionLabel), ptrValue(in.DestinationPartitionLabel), in.AdoptPenTag,
-		in.SOPVersion, nullableJSONMap(in.RaiseSOPProofs), nullableJSONAnswers(in.RaiseSOPAnswers), nullableRawJSON(in.RaiseCaptureEvidence)).Scan(&id)
+		in.SOPVersion, raiseProofs, raiseAnswers, raiseCapture).Scan(&id)
 	if err == nil {
 		return id, false, nil
 	}
@@ -1786,35 +1789,28 @@ RETURNING shifting_event_id::text`,
 	return "", false, fmt.Errorf("counts: insert shifting event: %w", err)
 }
 
-// nullableJSONMap / nullableJSONAnswers / nullableRawJSON render an absent raise capture as NULL
-// (a row raised by a phone that sent none, or before the section existed) rather than '{}'.
-func nullableJSONMap(m authored.ProofRefs) any {
-	if m == nil {
-		return nil
+// encodeRaiseSOP renders the raise card's captures / answers / approver snapshot for the insert. An
+// absent value (a row raised by a phone that sent none, or before the section existed) is NULL rather
+// than '{}'; a value that cannot be encoded fails the insert rather than silently storing NULL.
+func encodeRaiseSOP(in domain.ShiftingEvent) (proofs, answers, capture any, err error) {
+	if in.RaiseSOPProofs != nil {
+		b, merr := json.Marshal(in.RaiseSOPProofs)
+		if merr != nil {
+			return nil, nil, nil, fmt.Errorf("counts: encode raise sop proofs: %w", merr)
+		}
+		proofs = b
 	}
-	b, err := json.Marshal(m)
-	if err != nil {
-		return nil
+	if in.RaiseSOPAnswers != nil {
+		b, merr := json.Marshal(in.RaiseSOPAnswers)
+		if merr != nil {
+			return nil, nil, nil, fmt.Errorf("counts: encode raise sop answers: %w", merr)
+		}
+		answers = b
 	}
-	return b
-}
-
-func nullableJSONAnswers(a authored.Answers) any {
-	if a == nil {
-		return nil
+	if len(in.RaiseCaptureEvidence) > 0 {
+		capture = []byte(in.RaiseCaptureEvidence)
 	}
-	b, err := json.Marshal(a)
-	if err != nil {
-		return nil
-	}
-	return b
-}
-
-func nullableRawJSON(raw json.RawMessage) any {
-	if len(raw) == 0 {
-		return nil
-	}
-	return []byte(raw)
+	return proofs, answers, capture, nil
 }
 
 func maybeExistingShiftingByIdempotency(ctx context.Context, tx pgx.Tx, in domain.ShiftingEvent) (string, bool, error) {
