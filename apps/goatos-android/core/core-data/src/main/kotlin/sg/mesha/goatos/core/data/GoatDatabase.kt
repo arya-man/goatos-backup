@@ -440,7 +440,9 @@ import sg.mesha.goatos.core.data.weighing.WeighingShedObservationEntity
     // v65 (see [MIGRATION_64_65]) adds the three Pen routines read-model tables (maintainer
     // instruction 2026-09-16, docs/decisions/pen-routines.md): the paged Routines rows + their
     // per-filter remote keys and the task-detail JSON blob cache — the pen-visit trio shape.
-    version = 65,
+    // v66 (see [MIGRATION_65_66]) adds the authored capture slot map + answers columns to the two
+    // weighing evidence tables (THE WEIGH CAPTURES ARE AUTHORED, maintainer decision 2026-09-16).
+    version = 66,
     // exportSchema=true writes schemas/<db-fqcn>/<version>.json (see build.gradle.kts
     // room.schemaLocation). The committed schema JSON is the golden schema
     // MigrationTestHelper validates each migration against, and it makes every schema

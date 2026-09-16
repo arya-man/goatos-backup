@@ -1859,3 +1859,18 @@ val MIGRATION_64_65: Migration = object : Migration(64, 65) {
         )
     }
 }
+
+/**
+ * v65 -> v66 (THE WEIGH CAPTURES ARE AUTHORED, maintainer decision 2026-09-16): the per-animal and
+ * whole-pen weighing rows keep the authored slot map and answers beside the legacy primary proof
+ * columns. Purely additive: four NOT NULL DEFAULT '{}' columns, no data moves, so an installed
+ * v65 database opens with every capture intact and every row reading as the seeded shape.
+ */
+val MIGRATION_65_66: Migration = object : Migration(65, 66) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `weighing_observation` ADD COLUMN `slotProofsJson` TEXT NOT NULL DEFAULT '{}'")
+        db.execSQL("ALTER TABLE `weighing_observation` ADD COLUMN `answersJson` TEXT NOT NULL DEFAULT '{}'")
+        db.execSQL("ALTER TABLE `weighing_shed_observation` ADD COLUMN `slotProofsJson` TEXT NOT NULL DEFAULT '{}'")
+        db.execSQL("ALTER TABLE `weighing_shed_observation` ADD COLUMN `answersJson` TEXT NOT NULL DEFAULT '{}'")
+    }
+}
