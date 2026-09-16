@@ -37514,6 +37514,12 @@ components:
         value:
           type: string
           description: The expectation itself, e.g. "Maize 12.5 kg · Soya 4 kg".
+        group:
+          type: string
+          description: >-
+            Optional backend-composed section header, e.g. "Crew answers". Rows keep the producer's
+            order; a client starts a new titled block whenever group changes between consecutive
+            rows and renders it verbatim. Omitted for a row that belongs to no section.
     VerificationItemStatus:
       type: string
       enum:
@@ -37560,7 +37566,11 @@ components:
           description: Backend-authored task title displayed as the header for this evidence item.
         answer:
           type: string
-          description: Backend-rendered operator response recorded for this task, omitted for action-only tasks.
+          deprecated: true
+          description: >-
+            Deprecated. Backend-rendered operator response recorded for this task, omitted for
+            action-only tasks. Answers now ride the item's grouped context_rows; clients must not
+            add new renderers for this field.
         download_url:
           type: string
           format: uri
