@@ -10,6 +10,8 @@ import { publishedFromSearch } from "./published-href";
 import { parseInspection } from "./inspection-model";
 import { WeighingEditor } from "./weighing-editor";
 import { parseWeighing } from "./weighing-model";
+import { FeedEditor } from "./feed-editor";
+import { parseFeed } from "./feed-model";
 
 // Shared server renderer for the per-module SOP pages (SOP split, maintainer decision 2026-08-18):
 // /vaccination/sops, /counts/sops, and /feed/sops each mount this with their own page-contract key,
@@ -71,6 +73,24 @@ export async function renderSopModulePage(
               sopCode={detail.data.sop.code}
               versionLabel={`${version.version_label} · ${version.status}`}
               initial={inspection}
+            />
+          );
+        }
+        // FEED SOP (maintainer decision 2026-09-16): a feed.* SOP carrying a `feed` cards section
+        // is edited through the feed cards editor; the capture form it also carries is passed
+        // through verbatim on save.
+        const feed = parseFeed(detail.data.sop.code, version.form_dsl);
+        if (feed) {
+          const pageContract = await pageContractPromise;
+          return (
+            <FeedEditor
+              pageContract={pageContract}
+              basePath={basePath}
+              sopId={editId}
+              sopName={detail.data.sop.name}
+              sopCode={detail.data.sop.code}
+              versionLabel={`${version.version_label} · ${version.status}`}
+              initial={feed}
             />
           );
         }

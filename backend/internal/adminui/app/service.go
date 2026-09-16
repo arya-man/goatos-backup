@@ -7246,6 +7246,9 @@ func pageSpecificCopy(id string) map[string]string {
 			m["modal.builder.eyebrow"] = "SOP · FEED"
 			m["empty.title"] = "No feed SOPs yet"
 			m["empty.body"] = "Publish a distribution, packing or transport SOP for the feed chain."
+			for k, v := range feedSOPEditorCopy() {
+				m[k] = v
+			}
 		case "procurement-sops":
 			m["crumb"] = "Procurement"
 			m["filter.domain.current"] = "This page shows Procurement SOPs (animal purchase inspection)"
@@ -8075,8 +8078,14 @@ func pageOptionGroups(id string) []domain.OptionGroup {
 		return withGenericOptionGroups(configOptionGroups())
 	// Vaccination is deliberately absent: its SOP page is gone, and its content lives on
 	// the vaccination plan console. milk and weighing arrived on main meanwhile and stay.
-	case "counts-sops", "feed-sops", "milk-sops", "weighing-sops":
+	case "counts-sops", "milk-sops":
 		return withGenericOptionGroups(sopOptionGroupsFor(id))
+	case "feed-sops":
+		// FEED SOP (2026-09-16): the feed cards editor reuses the weighing card's question and
+		// capture-kind vocabularies -- one meaning of "photo / video / either" on every card.
+		return withGenericOptionGroups(append(sopOptionGroupsFor(id), weighingSOPOptionGroups()...))
+	case "weighing-sops":
+		return withGenericOptionGroups(append(sopOptionGroupsFor(id), weighingSOPOptionGroups()...))
 	case "procurement-sops":
 		return withGenericOptionGroups(append(sopOptionGroupsFor(id), inspectionOptionGroups()...))
 	case "action-center":
@@ -9974,6 +9983,52 @@ func inspectionEditorCopy() map[string]string {
 // decision 2026-09-15): the rules a weighing task is planned on and runs under. The question
 // card reuses the inspection editor's question keys (kind / choices / range / ask-only-when),
 // which is why that map is merged first.
+// feedSOPEditorCopy is the copy of the feed cards editor and its drawer summary (FEED SOP,
+// maintainer decision 2026-09-16). It reuses the weighing editor's question-card and capture-kind
+// copy so the two editors read the same way.
+func feedSOPEditorCopy() map[string]string {
+	m := map[string]string{}
+	for k, v := range weighingSOPEditorCopy() {
+		m[k] = v
+	}
+	for k, v := range map[string]string{
+		"action.edit_feed":             "Change SOP",
+		"fsop.title":                   "Feed SOP — what the crew captures",
+		"fsop.subtitle":                "Each card lists the captures the crew must record and the questions they answer. Add a photo beside a video, replace a video with a photo, drop a capture or add a step: the phone renders whatever is published here.",
+		"fsop.notice.pinned":           "A sheet issued today keeps the card it was issued with; publishing changes the next sheet, and every phone on that sheet renders the new card.",
+		"fsop.drawer.title":            "What the crew captures",
+		"fsop.drawer.subtitle":         "Published card, per stage",
+		"fsop.stage.distribution":      "Feed distribution",
+		"fsop.stage.distribution.sub":  "One pen per session, shared by every operator of the park. Any operator may record any capture; the pen is submitted once every compulsory capture is in.",
+		"fsop.stage.wastage":           "Leftover feed (experiment pens)",
+		"fsop.stage.wastage.sub":       "One card per experiment pen per day. The verifier reads the leftover weight off the clip.",
+		"fsop.stage.packing":           "Feed packing",
+		"fsop.stage.packing.sub":       "One card per bag: one pen and one session. Morning and evening are two bags.",
+		"fsop.stage.transport":         "Feed transport",
+		"fsop.stage.transport.sub":     "One card per physical location per day: the packed feed loaded and staged outside it, one trip.",
+		"fsop.instruction":             "Instruction shown on the card",
+		"fsop.proofs":                  "Captures",
+		"fsop.proofs.subtitle":         "In the order the phone shows them. Compulsory captures gate the submit; optional ones may be skipped.",
+		"fsop.proof.title":             "Capture name",
+		"fsop.proof.hint":              "Hint for the operator",
+		"fsop.proof.add":               "Add a capture",
+		"fsop.proof.remove":            "Remove this capture",
+		"fsop.questions":               "Questions",
+		"fsop.questions.subtitle":      "Answered once per card, beside the captures. The answers reach the verifier.",
+		"fsop.questions.empty":         "No questions on this card.",
+		"fsop.footer.ready":            "Ready to publish. The next sheet issued runs on this card.",
+		"fsop.summary.compulsory":      "compulsory",
+		"fsop.summary.optional":        "optional",
+		"fsop.summary.questions_one":   "1 question",
+		"fsop.summary.questions_many":  "{n} questions",
+		"fsop.summary.legacy_key_note": "Capture keys are what the phones stamp on uploads; changing a key makes it a new capture.",
+		"fsop.locked":                  "Not authorable here: the shared session (any operator may record any capture, slots are independent), the per-bag packing grain, the one-trip transport grain, verifier review before completion.",
+	} {
+		m[k] = v
+	}
+	return m
+}
+
 func weighingSOPEditorCopy() map[string]string {
 	m := map[string]string{}
 	for k, v := range inspectionEditorCopy() {

@@ -373,7 +373,7 @@ export function WeighingEditor({ pageContract: pc, basePath, sopId, sopName, sop
   );
 }
 
-function QuestionCard({
+export function QuestionCard({
   pc, index, count, q, kinds, earlier, takenKeys, onChange, onOptionRenamed, onMove, onRemove,
 }: {
   pc: AdminUiPageContract;
