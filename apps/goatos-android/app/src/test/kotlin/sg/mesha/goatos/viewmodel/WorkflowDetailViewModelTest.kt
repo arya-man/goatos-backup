@@ -726,6 +726,73 @@ class WorkflowDetailViewModelTest {
         assertEquals(true, viewModel.state.value.actions.single().canTakePhoto)
     }
 
+    /**
+     * Realme E2E 2026-09-17 (reconcile rework round). The operator re-shot Gate OK; the server took it
+     * and the screen read 2 / 3 done, but Return to pen showed no Record video / Take photo and the
+     * banner "already saved on this phone with different details" stayed until the card was
+     * reopened.
+     *
+     * The step-write rows the rework rule anchors on come from the sync status WINDOW, which
+     * reorders as the re-shoot drains: round 1's Return-to-pen write fell out while an older write
+     * for the same step was bumped back in. Recovery re-ran on that emission, judged round 1's
+     * Return-to-pen video + photo to be this round's, filled the step's proofs (hiding both capture
+     * buttons) and re-sent them under round 1's key, which the phone already held with different
+     * details. Recovery exists for a process death before the step write; within one screen's life a
+     * capture is tracked by the capture itself, so a step is judged once, when it is first seen.
+     */
+    @Test
+    fun `rework round unlocks the next step live after the re-shot step lands, with no stale re-send`() = runTest(dispatcher) {
+        val repo = FakeWorkflowDetailRepository(reconcileReworkDetail())
+        val sync = FakeWorkflowDetailSyncRepository()
+        val retRoundOne = roundOneKey("wf-complete", "ret", "stale-outbox-ret-video-1", "stale-outbox-ret-photo-1")
+        sync.conflictingKeys += retRoundOne
+        val olderRetWrite = heldStepWrite("wf-complete:ret:early", createdAt = 5L, opType = "WORKFLOW_ACTION_COMPLETE")
+        sync.holdOutboxItems(
+            heldStepWrite(roundOneKey("wf-answer", "gate", "stale-outbox-gate-photo-1"), createdAt = 15L),
+            heldStepWrite(retRoundOne, createdAt = 30L, opType = "WORKFLOW_ACTION_COMPLETE"),
+        )
+        val proofs = FakeProofCaptureRepository().apply {
+            seedProofs(staleRow("gate", "photo", 1, 10L), staleRow("ret", "video", 1, 20L), staleRow("ret", "photo", 1, 21L))
+        }
+        val viewModel = buildViewModel(repo, sync, proofs, FakeProofCaptureSource(mutableListOf()), photoSource(100L))
+        backgroundScope.launch { viewModel.state.collect {} }
+        advanceUntilIdle()
+
+        viewModel.onEvent(WorkflowDetailEvent.TakePhoto("gate"))
+        advanceUntilIdle()
+        assertEquals("one fresh answer write for the re-shot gate", 1, sync.answerCalls.size)
+
+        // The write lands: the server read now holds Gate OK done and Return to pen open, and the
+        // status window has moved -- round 1's Return-to-pen row is out, an older one is back in.
+        repo.serverDetail(
+            reconcileReworkDetail().let { d ->
+                d.copy(
+                    actions = d.actions.map {
+                        when (it.actionId) {
+                            "gate" -> it.copy(status = "completed")
+                            "ret" -> it.copy(blocked = false, blockedReason = "")
+                            else -> it
+                        }
+                    },
+                )
+            },
+        )
+        sync.holdOutboxItems(
+            olderRetWrite,
+            heldStepWrite(sync.answerCalls.single().idempotencyKey, createdAt = 110L),
+        )
+        advanceUntilIdle()
+
+        val state = viewModel.state.value
+        assertEquals("2 of 3 steps done", 2, state.actionsDone)
+        val ret = state.actions.first { it.actionId == "ret" }
+        assertEquals("Return to pen offers Record video without reopening", true, ret.canRecordVideo)
+        assertEquals("Return to pen offers Take photo without reopening", true, ret.canTakePhoto)
+        assertEquals("no rejected round's proof counts toward the new round", 0, ret.proofVideosCaptured + ret.proofPhotosCaptured)
+        assertEquals("round 1's proofs are never re-sent", emptyList<Any>(), sync.completeCalls.map { it.idempotencyKey })
+        assertEquals("no stale banner on screen", null, state.message)
+    }
+
     @Test
     fun `terminal complete failure rolls optimistic action back to pending`() = runTest(dispatcher) {
         val workflowsRepository = FakeWorkflowDetailRepository(
@@ -842,6 +909,11 @@ private class FakeWorkflowDetailRepository(initialDetail: WorkflowDetailResponse
         }
     }
 
+    /** Installs a fresh server read, as refreshDetail's reconcile would. */
+    fun serverDetail(detail: WorkflowDetailResponseDto) {
+        detailFlow.value = detail
+    }
+
     fun actionStatus(actionId: String): String? =
         detailFlow.value?.actions?.firstOrNull { it.actionId == actionId }?.status
 
@@ -888,6 +960,8 @@ private class FakeWorkflowDetailSyncRepository : SyncRepository {
     }
 
     val completeCalls = mutableListOf<CompleteCall>()
+    /** Keys already held on this phone by a write with different details (a local fingerprint conflict). */
+    val conflictingKeys = mutableSetOf<String>()
     /** Production's enqueue suspends on Room I/O; true models that suspension. */
     var suspendOnEnqueue = false
     val answerCalls = mutableListOf<AnswerCall>()
@@ -939,6 +1013,9 @@ private class FakeWorkflowDetailSyncRepository : SyncRepository {
     ): AppResult<String> {
         if (suspendOnEnqueue) repeat(20) { kotlinx.coroutines.yield() }
         completeCalls += CompleteCall(groupKey, idempotencyKey, workflowId, actionId, proofOutboxItemId, proofOutboxItems)
+        if (idempotencyKey in conflictingKeys) {
+            return AppResult.Err("This was already saved on this phone with different details. Open Sync status to review it.")
+        }
         val id = outboxItemIdByKey.getOrPut(idempotencyKey) { "wf-outbox-${nextOutboxId++}" }
         return AppResult.Ok(id)
     }

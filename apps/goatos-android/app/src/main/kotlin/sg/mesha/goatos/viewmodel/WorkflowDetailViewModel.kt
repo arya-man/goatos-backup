@@ -109,6 +109,19 @@ class WorkflowDetailViewModel @Inject constructor(
     private val pendingAnswers = readPendingAnswers().toMutableMap()
     private val submittedMultiProofKeys = mutableSetOf<String>()
 
+    /**
+     * Steps the durable-capture recovery has already judged in this screen's life.
+     *
+     * Recovery exists for a process death between a capture and its step write; a capture made
+     * while this ViewModel lives is tracked by [captureProof] itself. So a step is judged ONCE, the
+     * first time it is seen unfinished. Re-judging it on every emission let a later, reordered sync
+     * status window re-admit a REJECTED round's proofs: on a reconcile rework round the Return-to-pen
+     * step filled with round 1's video + photo the moment Gate OK landed, hid both capture buttons,
+     * and re-sent them under round 1's key, which raised "already saved on this phone with different
+     * details" until the card was reopened (Realme E2E 2026-09-17).
+     */
+    private val recoveryJudgedActionIds = mutableSetOf<String>()
+
     private val workflowId: String = savedStateHandle[ARG_WORKFLOW_ID] ?: ""
 
     private fun readPendingProofs(): Map<String, List<WorkflowProofOutboxRef>> =
@@ -286,7 +299,9 @@ class WorkflowDetailViewModel @Inject constructor(
                     // process death between capture and write, never for a capture in flight.
                     if (_state.value.isCapturingVideo) return@collect
                     val actions = detail?.actions.orEmpty()
-                    val recovered = recoverMultiProofRefs(actions, proofs, outboxItems)
+                    val unjudged = actions.filterNot { it.actionId in recoveryJudgedActionIds }
+                    val recovered = recoverMultiProofRefs(unjudged, proofs, outboxItems)
+                    recoveryJudgedActionIds += unjudged.filter(::isRecoveryCandidate).map { it.actionId }
                     if (recovered.isNotEmpty()) {
                         val merged = pendingProofs.value + recovered
                         if (merged != pendingProofs.value) rememberPendingProofs(merged)
@@ -310,14 +325,16 @@ class WorkflowDetailViewModel @Inject constructor(
         }
     }
 
+    private fun isRecoveryCandidate(action: WorkflowActionDto): Boolean =
+        (action.proofMinPhotos > 0 || action.proofMinVideos > 1) && !operatorFinishedWorkflowStatus(action.status)
+
     private fun recoverMultiProofRefs(
         actions: List<WorkflowActionDto>,
         proofs: List<ProofCaptureRow>,
         outboxItems: List<SyncQueueItem>,
     ): Map<String, List<WorkflowProofOutboxRef>> =
         actions
-            .filter { it.proofMinPhotos > 0 || it.proofMinVideos > 1 }
-            .filterNot { operatorFinishedWorkflowStatus(it.status) }
+            .filter(::isRecoveryCandidate)
             .associate { action ->
                 val prefix = workflowProofFieldKey(action.actionId) + "_"
                 val backendProofRefs = action.proofRefs.mapNotNull { it.ref.takeIf(String::isNotBlank) }.toSet()
