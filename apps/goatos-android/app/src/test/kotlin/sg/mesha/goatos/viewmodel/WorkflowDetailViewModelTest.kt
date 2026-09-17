@@ -390,6 +390,87 @@ class WorkflowDetailViewModelTest {
         assertEquals("the photo banner replaces the old video sentence", null, viewModel.state.value.message)
     }
 
+    /**
+     * Realme E2E 2026-09-17 (P0): ONE photo on a photo-only step enqueued TWO completions -- the
+     * durable-capture recovery picked the new row up while the capture was still returning, and the
+     * capture then appended the SAME outbox item again, so the second op carried it twice under a
+     * different key. The server refused it 409 action_already_completed and the dead row held the
+     * workflow's lane. One capture must give one proof entry and one write.
+     */
+    @Test
+    fun `one photo on a photo step enqueues exactly one completion carrying it once`() = runTest(dispatcher) {
+        val action = WorkflowActionDto(
+            actionId = "action-1",
+            actionKey = "pen_gate_photo",
+            seq = 1,
+            actionType = "action",
+            taskType = "photo_record",
+            title = "Photo of the pen gate",
+            status = "pending",
+            proofMinPhotos = 1,
+        )
+        val workflowsRepository = FakeWorkflowDetailRepository(requiresVideoDetail().copy(actions = listOf(action)))
+        val syncRepository = FakeWorkflowDetailSyncRepository().apply { suspendOnEnqueue = true }
+        val fakeProofs = FakeProofCaptureRepository()
+        // Production's capture returns only after its Room + outbox writes, so the row (already
+        // carrying its upload outbox id) is observable BEFORE the capture call hands it back.
+        val proofs = object : ProofCaptureRepository by fakeProofs {
+            override suspend fun captureReplacingLatest(
+                slot: sg.mesha.goatos.core.data.capture.EvidenceSlot,
+                subject: ProofSubject,
+                subjectId: String?,
+                localUri: String,
+                mimeType: String,
+                caption: String?,
+                rfidTag: String?,
+                scopeType: String,
+                scopeId: String,
+                capturedStartMs: Long,
+                capturedEndMs: Long,
+                capturedByPrincipalId: String?,
+                proofPolicy: sg.mesha.goatos.core.data.forms.ProofPolicy,
+                awaitUploadEnqueue: Boolean,
+                uploadGroupKey: String?,
+            ): AppResult<ProofCaptureRow> {
+                val result = fakeProofs.captureReplacingLatest(
+                    slot, subject, subjectId, localUri, mimeType, caption, rfidTag, scopeType, scopeId,
+                    capturedStartMs, capturedEndMs, capturedByPrincipalId, proofPolicy, awaitUploadEnqueue, uploadGroupKey,
+                )
+                repeat(3) { kotlinx.coroutines.yield() }
+                return result
+            }
+        }
+        val photos = object : sg.mesha.goatos.capture.PhotoCaptureSource {
+            override suspend fun capturePhoto(context: sg.mesha.goatos.capture.PhotoCaptureContext) =
+                sg.mesha.goatos.capture.CapturedPhoto(localUri = "file:///gate.jpg", capturedAtMs = 5L)
+        }
+        val viewModel = WorkflowDetailViewModel(
+            repo = workflowsRepository,
+            syncRepository = syncRepository,
+            proofCaptureSource = FakeProofCaptureSource(mutableListOf()),
+            proofCaptureRepository = proofs,
+            analytics = FakeAnalyticsPort(),
+            crashReporter = NoopCrashReporter(),
+            savedStateHandle = SavedStateHandle(mapOf(WorkflowDetailViewModel.ARG_WORKFLOW_ID to "wf-1")),
+            photoCaptureSource = photos,
+            countsRepository = FakeAddCountsRepository(),
+        )
+        backgroundScope.launch { viewModel.state.collect {} }
+        advanceUntilIdle()
+
+        viewModel.onEvent(WorkflowDetailEvent.TakePhoto("action-1"))
+        advanceUntilIdle()
+
+        assertEquals(
+            "one photo must enqueue one completion, got keys ${syncRepository.completeCalls.map { it.idempotencyKey }}",
+            1,
+            syncRepository.completeCalls.size,
+        )
+        val refs = syncRepository.completeCalls.single().proofOutboxItems.map { it.outboxItemId }
+        assertEquals("the photo rides the completion exactly once", refs.distinct(), refs)
+        assertEquals(1, refs.size)
+    }
+
     /** Realme E2E 2026-09-17: after "Answer kept" the proof step did not show which answer was kept. */
     @Test
     fun `a proof step shows the kept answer as chosen while its photo is still owed`() = runTest(dispatcher) {
@@ -569,6 +650,8 @@ private class FakeWorkflowDetailSyncRepository : SyncRepository {
     data class AnswerCall(val groupKey: String, val idempotencyKey: String, val workflowId: String, val actionId: String, val answerValue: String, val proofOutboxItemId: String?)
 
     val completeCalls = mutableListOf<CompleteCall>()
+    /** Production's enqueue suspends on Room I/O; true models that suspension. */
+    var suspendOnEnqueue = false
     val answerCalls = mutableListOf<AnswerCall>()
     // key -> the single outbox item id ever minted for it (idempotent collapse).
     private val outboxItemIdByKey = mutableMapOf<String, String>()
@@ -616,6 +699,7 @@ private class FakeWorkflowDetailSyncRepository : SyncRepository {
         proofOutboxItemId: String?,
         proofOutboxItems: List<WorkflowProofOutboxRef>,
     ): AppResult<String> {
+        if (suspendOnEnqueue) repeat(20) { kotlinx.coroutines.yield() }
         completeCalls += CompleteCall(groupKey, idempotencyKey, workflowId, actionId, proofOutboxItemId, proofOutboxItems)
         val id = outboxItemIdByKey.getOrPut(idempotencyKey) { "wf-outbox-${nextOutboxId++}" }
         return AppResult.Ok(id)
