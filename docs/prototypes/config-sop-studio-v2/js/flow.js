@@ -228,7 +228,7 @@
 
 
   /* ---------- stylesheet (owned by this module) ---------- */
-  (function(){if(document.querySelector('link[data-flow-css]'))return;const l=document.createElement('link');l.rel='stylesheet';l.href='styles/flow.css?v=20260917v';l.dataset.flowCss='1';l.onload=()=>document.querySelectorAll('.fx-root').forEach(r=>syncChrome(r));document.head.appendChild(l);})();
+  (function(){if(document.querySelector('link[data-flow-css]'))return;const l=document.createElement('link');l.rel='stylesheet';l.href='styles/flow.css?v=20260917z3';l.dataset.flowCss='1';l.onload=()=>document.querySelectorAll('.fx-root').forEach(r=>syncChrome(r));document.head.appendChild(l);})();
 
   /* =====================================================================
      Shared canvas engine. Every flowchart (SOP steps, master SOP stages) is
@@ -293,10 +293,10 @@
       }
       e.pts=pts;e.d=ortho(pts);});
     /* labels: pill on the longest free stretch; never over a node or another pill */
-    const f=Math.max(1,1/(k||1));const pills=[];
+    const f=Math.max(1,Math.min(1.15,1/(k||1)));const pills=[];
     const fits=r=>!rects.some(o=>inter(r,{x:o.x-4,y:o.y-4,w:o.w+8,h:o.h+8}))&&!pills.some(p=>inter(r,{x:p.x-4,y:p.y-4,w:p.w+8,h:p.h+8}));
     const segsOf=e=>e.pts.slice(1).map((p,i)=>({a:e.pts[i],b:p,len:Math.hypot(p[0]-e.pts[i][0],p[1]-e.pts[i][1])})).sort((x,y)=>y.len-x.len);
-    es.forEach(e=>{if(!e.label)return;const w=(String(e.label).length*6.7+18)*f,h=20*f;let best=null;
+    es.forEach(e=>{if(!e.label)return;if((k||1)<.6&&segsOf(e)[0]&&segsOf(e)[0].len*(k||1)<60)return;const w=(String(e.label).length*6.7+18)*f,h=20*f;let best=null;
       for(const s of segsOf(e)){if(s.len<22)continue;for(const t of [.5,.35,.65,.2,.8]){const cx=s.a[0]+(s.b[0]-s.a[0])*t,cy=s.a[1]+(s.b[1]-s.a[1])*t;
         const r={x:cx-w/2,y:cy-h/2,w,h};if(fits(r)){best={cx,cy,r};break;}}if(best)break;}
       if(!best){/* no free stretch (e.g. short hop between side-by-side cards): nearest clear spot beside the line's midpoint */
@@ -306,7 +306,7 @@
         for(const [dx,dy] of cands){const cx=mx+dx,cy=my+dy,r={x:cx-w/2,y:cy-h/2,w,h};if(fits(r)){best={cx,cy,r};break;}}
         if(!best)best={cx:mx,cy:my,r:{x:mx-w/2,y:my-h/2,w,h}};}
       pills.push(best.r);e.lp=best;});
-    es.forEach(e=>{const s=segsOf(e)[0];if(!s||s.len<76)return;
+    es.forEach(e=>{const s=segsOf(e)[0];if(!s||s.len*Math.min(1,k||1)<76)return;
       for(const t of [.5,.25,.75]){const cx=s.a[0]+(s.b[0]-s.a[0])*t,cy=s.a[1]+(s.b[1]-s.a[1])*t;if(!pills.some(p=>inter({x:cx-14,y:cy-14,w:28,h:28},p))){e.pp=[cx,cy];break;}}});
     return es;
   }
@@ -326,7 +326,7 @@
     const sel=edgeSelKey(K,d);let wires='',labels='',handles='';
     es.forEach(e=>{const on=sel===e.key;
       wires+=`<g class="fx-eg ${on?'sel':''} ${e.cls||''}" data-eg="${esc(e.key)}"><path class="fx-wire ${e.cls||''}" d="${e.d}" marker-end="url(#fxah${on?'s':''})"/><path class="fx-wire-hit" data-edge="${esc(e.key)}" d="${e.d}"/></g>`;
-      if(e.lp){const r=e.lp.r;labels+=`<g class="fx-elabel ${on?'sel':''} ${e.cls||''}" data-edge="${esc(e.key)}"><rect x="${r.x}" y="${r.y}" width="${r.w}" height="${r.h}" rx="${r.h/2}"/><text x="${e.lp.cx}" y="${e.lp.cy}" dominant-baseline="central">${esc(e.label)}</text></g>`;}
+      if(e.lp){const r=e.lp.r;labels+=`<g class="fx-elabel ${on?'sel':''} ${e.cls||''}" data-edge="${esc(e.key)}"><rect x="${r.x}" y="${r.y}" width="${r.w}" height="${r.h}" rx="${r.h/2}"/><text x="${e.lp.cx}" y="${e.lp.cy}" dominant-baseline="central">${esc(e.label)}</text><circle class="fx-edot" cx="${e.lp.cx}" cy="${e.lp.cy}" r="6"><title>${esc(e.label)}</title></circle></g>`;}
       handles+=`<g class="fx-ehs ${on?'on':''}" data-ehs="${esc(e.key)}"><circle class="fx-ehit" data-eh="s" data-edge="${esc(e.key)}" cx="${e.sp[0]}" cy="${e.sp[1]}" r="12"/><circle class="fx-ehit" data-eh="t" data-edge="${esc(e.key)}" cx="${e.tp[0]}" cy="${e.tp[1]}" r="12"/><circle class="fx-eh" data-eh="s" data-edge="${esc(e.key)}" cx="${e.sp[0]}" cy="${e.sp[1]}" r="6"/><circle class="fx-eh" data-eh="t" data-edge="${esc(e.key)}" cx="${e.tp[0]}" cy="${e.tp[1]}" r="6"/></g>`;});
     return {edges:`<defs><marker id="fxah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,1 L10,5 L0,9 z" class="fx-ah"/></marker><marker id="fxahs" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,1 L10,5 L0,9 z" class="fx-ah sel"/></marker></defs>`+wires+labels,handles};
   }
@@ -395,7 +395,16 @@
       <div class="fx-title">${esc(childLabel(n)||'Untitled')}</div>
       ${sum&&!PILL(n.type)?`<div class="fx-sum" title="${esc(sum)}">${n.link?`<a href="${esc(n.link)}" class="fx-link">${esc(sum)} ›</a>`:esc(sum)}</div>`:''}
       ${PILL(n.type)?'':F.settingChips(n,F.latest(sop))}`;},
-    connect(sop,from,to){const n=nfind(sop,from),t=nfind(sop,to);
+    /* single-exit source that already has a next step: ask Insert between / Replace link */
+    askReplace(sop,from,to){const n=nfind(sop,from),t=nfind(sop,to);if(!n||!t||from===to||MULTI(n.type)||n.type==='end'||t.type==='start')return null;
+      if(!(n.next||[]).length||n.next.some(e=>e.to===to))return null;
+      return {insert:t.type!=='end'&&(!(t.next||[]).length||MULTI(t.type))&&n.next[0].to!==to};},
+    unconnected(sop){const st=sop.nodes.find(x=>x.type==='start');if(!st)return 0;const seen=new Set([st.id]),q=[st];
+      while(q.length){const x=q.shift();(x.next||[]).forEach(e=>{if(!seen.has(e.to)){seen.add(e.to);const y=nfind(sop,e.to);if(y)q.push(y);}});}
+      return sop.nodes.filter(x=>!seen.has(x.id)).length;},
+    connect(sop,from,to,opt){const n=nfind(sop,from),t=nfind(sop,to);
+      if(opt&&opt.mode==='insert'&&n&&t&&(n.next||[]).length){const old=n.next[0].to;n.next=[{to}];t.next=t.next||[];
+        t.next.push(Object.assign({to:old},MULTI(t.type)&&sopBranchLabel(t)?{when:sopBranchLabel(t)}:{}));return true;}
       if(!n||!t)return 'Cannot connect';if(from===to)return 'A step cannot lead to itself';
       if(n.type==='end')return 'An End step has no next step';if(t.type==='start')return 'Nothing can lead into Start';
       n.next=n.next||[];
@@ -451,7 +460,7 @@
     const es=route(K,d,pos,v.k);const iss=K.validate(d);
     schedule(key);
     const pages=K.pages?K.pages(d):[];
-    return `<div class="fx-root ${F.palOpen?'pal-open':''} tool-${F.tool} ${v.k<.9?'zoomed-out':''} ${v.k<.2?'zoomed-far':''}" data-flow="${esc(d.id)}" data-kind="${kind}" tabindex="0" style="${bgStyle(v)};--fxk:${v.k}">
+    return `<div class="fx-root ${F.palOpen?'pal-open':''} tool-${F.tool} ${v.k<.9?'zoomed-out':''} ${v.k<.6?'zoomed-mid':''} ${v.k<.5?'zoomed-lo':''} ${v.k<.2?'zoomed-far':''}" data-flow="${esc(d.id)}" data-kind="${kind}" tabindex="0" style="${bgStyle(v)};--fxk:${v.k}">
       <div class="fx-clip"><div class="fx-world" style="transform:translate(${v.x}px,${v.y}px) scale(${v.k})">
         <div class="fx-groups">${K.groups?K.groups(d,pos):''}</div>
         <svg class="fx-edges" width="1" height="1">${edgesSvg(K,d,es).edges}</svg>
@@ -542,7 +551,7 @@
     const key=dkey(K,d);const v=view(key);
     root.querySelector('.fx-world').style.transform=`translate(${v.x}px,${v.y}px) scale(${v.k})`;
     root.style.backgroundSize=`${GRID*v.k}px ${GRID*v.k}px`; root.style.backgroundPosition=`${v.x}px ${v.y}px`;
-    if(root._k!==v.k){const was=root._k;root._k=v.k;root.style.setProperty('--fxk',v.k);root.classList.toggle('zoomed-out',v.k<.9);root.classList.toggle('zoomed-far',v.k<.2);
+    if(root._k!==v.k){const was=root._k;root._k=v.k;root.style.setProperty('--fxk',v.k);root.classList.toggle('zoomed-out',v.k<.9);root.classList.toggle('zoomed-mid',v.k<.6);root.classList.toggle('zoomed-lo',v.k<.5);root.classList.toggle('zoomed-far',v.k<.2);
       if(was!=null){cancelAnimationFrame(root._kr);root._kr=requestAnimationFrame(()=>{measure(root,K,d);redraw(root,K,d);});}}
     const z=root.querySelector('.fx-zoom'); if(z)z.textContent=Math.round(v.k*100)+'%';
     minimap(root,K,d);
@@ -560,12 +569,19 @@
     const padR=pad+(F.miniOff||narrow?0:196);
     const aw=Math.max(120,r.width-padL-padR), ah=Math.max(120,r.height-padT-padB);
     const bw=b.x1-b.x0+40, bh=b.y1-b.y0+40;
-    /* manual Fit: always show the whole flow (tall SOPs need <.35) */
-    const floor=!auto?.04:window.innerWidth>=1280?1:narrow?Math.max(.75,Math.min(1,aw/(NW+40))):.75;
+    /* manual Fit floors at 35% (scroll or the minimap for the rest); first open floors at 75% */
+    const floor=!auto?.35:narrow?Math.max(.75,Math.min(1,aw/(NW+40))):.75;
     let k=Math.min(aw/bw,ah/bh,1); k=Math.max(floor,k);
     v.k=k; v.x=padL+(aw-(b.x1-b.x0)*k)/2-b.x0*k;
     if((b.x1-b.x0)*k>aw){const s=(K.starts?K.starts(d):[])[0];const sp=s&&pos[s];v.x=Math.min(padL-b.x0*k,sp?padL+aw/2-(sp.x+NW/2)*k:1e9);}
     v.y=(bh*k>ah)?padT-b.y0*k:padT+(ah-bh*k)/2-b.y0*k;
+    /* bottom palette (phones): never leave a card half under it; shrink a little, else push that card fully below */
+    if(bottomPal&&bh*k>ah){const line=pal.offsetTop;
+      const cut=K.nodes(d).filter(n=>pos[n.id]).map(n=>({t:pos[n.id].y,b:pos[n.id].y+hOf(K,d,n)})).filter(o=>o.t*k+v.y<line+6&&o.b*k+v.y>line-10).sort((x,y)=>x.t-y.t)[0];
+      if(cut){const k2=(line-12-padT)/(cut.b-b.y0);
+        if(k2>=Math.max(.6,k*.8)){k=k2;v.k=k;v.x=padL+(aw-(b.x1-b.x0)*k)/2-b.x0*k;if((b.x1-b.x0)*k>aw){const s0=(K.starts?K.starts(d):[])[0];const sp=s0&&pos[s0];v.x=Math.min(padL-b.x0*k,sp?padL+aw/2-(sp.x+NW/2)*k:1e9);}v.y=padT-b.y0*k;}
+        else{const rows=K.nodes(d).filter(n=>pos[n.id]).map(n=>[pos[n.id].y*k,(pos[n.id].y+hOf(K,d,n))*k]);const y0=v.y;
+          for(let dy=2;dy<400;dy+=2){const ok=o=>!rows.some(([t,bb])=>t+o<line+6&&bb+o>line-10);if(ok(y0+dy)){v.y=y0+dy;break;}if(y0-dy+b.y0*k>padT-200&&ok(y0-dy)){v.y=y0-dy;break;}}}}}
     applyView(root,K,d);
   }
   function topInset(root){const t=root.querySelector('.fx-tools');return t?t.offsetTop+t.offsetHeight:48;}
@@ -633,7 +649,7 @@
   function rerenderKey(key){const r=rootOfKey(key);if(r)rerender(r);}
   F.undoKey=key=>{const r=rootOfKey(key);const c=r&&ctxOf(r);if(c)histStep(c.K,c.d,-1);};
   function menuAt(x,y,items){setTimeout(()=>{const a=document.createElement('div');a.style.cssText=`position:fixed;left:${x}px;top:${y}px;width:0;height:0`;document.body.appendChild(a);
-    UI.menu(a,items);a.remove();const m=document.getElementById('menu');if(m){m.style.left=Math.max(8,Math.min(x,innerWidth-m.offsetWidth-8))+'px';const t=y+4;m.style.top=(t+m.offsetHeight>innerHeight-8?Math.max(8,y-m.offsetHeight-4):t)+'px';}},0);}
+    UI.menu(a,items);a.remove();const m=document.getElementById('menu');if(m){m.style.left=Math.max(8,Math.min(x,innerWidth-m.offsetWidth-8))+'px';const t=y+4;m.style.top=Math.max(8,Math.min(t+m.offsetHeight>innerHeight-8?y-m.offsetHeight-4:t,innerHeight-m.offsetHeight-8))+'px';}},0);}
   const typeItems=(K,run)=>K.palette.map(t=>({label:K.typeLabel(t),icon:K.typeIcon(t),run:()=>run(t)}));
 
   /* ---------- interactions (delegated) ---------- */
@@ -778,6 +794,12 @@
   }
   function doConnect(K,d,from,to,cx,cy){
     if(K.askEdge){K.askEdge(d,from,to,cx,cy,opt=>{S.snap('Connect');commit(K,d,K.connect(d,from,to,opt));});rerenderKey(dkey(K,d));return;}
+    const ask=K.askReplace&&K.askReplace(d,from,to);
+    if(ask){const run=mode=>{S.snap('Connect');const r=K.connect(d,from,to,{mode});
+        const u=K.unconnected?K.unconnected(d):0;
+        commit(K,d,r===true||r==='moved'?true:r,(mode==='insert'?'Step inserted':'Link replaced')+(u?' · '+u+' step'+(u===1?'':'s')+' unconnected':''));};
+      const items=(ask.insert?[{label:'Insert between',icon:'plus',run:()=>run('insert')}]:[]).concat([{label:'Replace link',icon:'split',run:()=>run('replace')}]);
+      rerenderKey(dkey(K,d));menuAt(cx,cy,items);return;}
     S.snap('Connect');commit(K,d,K.connect(d,from,to));
   }
   document.addEventListener('pointerup',e=>{

@@ -81,12 +81,18 @@
 
   function listView(s,sel){
     const L=Flow.layout(s.nodes); const m=Flow.byId(s.nodes);
-    const order=[...s.nodes].sort((a,b)=>((L.rank[a.id]||0)-(L.rank[b.id]||0))||(L.order.indexOf(a.id)-L.order.indexOf(b.id)));
+    let order=[...s.nodes].sort((a,b)=>((L.rank[a.id]||0)-(L.rank[b.id]||0))||(L.order.indexOf(a.id)-L.order.indexOf(b.id)));
+    /* branch ends sit right after the decision/approval that leads to them */
+    const preds=id=>s.nodes.filter(x=>(x.next||[]).some(e=>e.to===id));
+    const tail=order.filter(n=>{if(n.type!=='end')return false;const ps=preds(n.id);return ps.length===1&&['decision','approval','parallel'].includes(ps[0].type)&&(ps[0].next||[]).length>1;});
+    order=order.filter(n=>!tail.includes(n));
+    tail.forEach(n=>{const d=preds(n.id)[0];let i=order.indexOf(d);while(i+1<order.length&&tail.includes(order[i+1]))i++;order.splice(i+1,0,n);});
     let lastGroup=null,i=0;
     const nextTxt=n=>(n.next||[]).map(e=>(e.when?e.when+' → ':'→ ')+((m[e.to]||{}).label||'—')).join(' · ');
     const rows=order.map(n=>{
       const g=n.page||n.lane||''; let head='';
-      if(g!==lastGroup){head=g?`<div class="lgroup eyebrow">${esc(g)}</div>`:'';lastGroup=g;}
+      if(!g&&['end','start'].includes(n.type)&&lastGroup){}
+      else if(g!==lastGroup){head=g?`<div class="lgroup eyebrow">${esc(g)}</div>`:'';lastGroup=g;}
       const T=Flow.TYPES[n.type]||Flow.TYPES.action; const step=['start','end','join','parallel'].includes(n.type)?'':++i;
       const sub=[n.type==='question'?(Flow.ANSWERS[n.answer]||'')+(n.answer==='ref'?' · '+(n.refColl==='items'&&n.refCat?REG.catPath(n.refCat):(Flow.REFS[n.refColl]||'')):'')+(n.unit?' · '+n.unit:''):'',n.required?'Required':'',n.reject?'Reject rule':'',n.onlyIf?'Conditional':'',
         n.type==='approval'?REG.labelById('roles',n.roleId):'',n.type==='evidence'?(n.media||[]).join('/')+' '+(n.min||0)+'–'+(n.max||1):'',

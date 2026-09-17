@@ -1,6 +1,6 @@
 /* State store: localStorage, versioned key, snapshots for undo */
 (function(){
-  const KEY='mesha.config-sop-studio.v2.state@12';
+  const KEY='mesha.config-sop-studio.v2.state@13';
   window.GLOBAL_SEXES=()=>[{id:'sx_female',code:'female',key:'female',name:'Female',aliases:['F'],status:'active'},{id:'sx_male',code:'male',key:'male',name:'Male',aliases:['M'],status:'active'}];
   let seq=Date.now()%100000;
   const S={

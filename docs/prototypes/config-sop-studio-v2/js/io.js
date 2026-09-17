@@ -301,7 +301,7 @@
       const t=IO.totals(); const totals=t.rows;
       const saveN=t.create+t.update, errN=t.err;
       const cell=(n,tone)=>n?UI.tag(n,tone):0;
-      body=`<section class="card mb"><div class="hd"><h3>Preview</h3><span class="sp"></span>${errN?`<button class="btn sm" data-a="imp-report">${ic('download')}Download errors</button>`:''}</div>
+      body=`<section class="card mb"><div class="hd"><h3>Preview</h3></div>
         <div class="twrap screen"><table class="ltbl"><thead><tr><th>Sheet</th>${TOT_COLS.map(([k,l])=>`<th class="num" data-totk="${k}" style="${totHide(totals,k)?'display:none':''}">${l}</th>`).join('')}</tr></thead><tbody>
         ${totals.map((x,i)=>`<tr class="clk" data-a="imp-tab" data-i="${i}" data-tot="${i}"><td data-label="Sheet"><b>${esc(x.label)}</b></td><td class="num" data-label="New" data-k="create" style="${totHide(totals,'create')?'display:none':''}">${cell(x.create,'ok')}</td><td class="num" data-label="Updates" data-k="update" style="${totHide(totals,'update')?'display:none':''}">${cell(x.update,'info')}</td><td class="num" data-label="Unchanged" data-k="same" style="${totHide(totals,'same')?'display:none':''}">${x.same}</td><td class="num" data-label="Errors" data-k="err" style="${totHide(totals,'err')?'display:none':''}">${cell(x.err,'dng')}</td><td class="num" data-label="New values" data-k="newv" style="${totHide(totals,'newv')?'display:none':''}">${cell(x.newv+x.unk,x.unk?'warn':'pur')}</td></tr>`).join('')}
         </tbody></table></div></section>

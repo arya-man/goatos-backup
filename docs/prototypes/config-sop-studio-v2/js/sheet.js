@@ -45,7 +45,7 @@
   Sheet.canSave=(G,cnt)=>cnt.create+cnt.update>0&&(!cnt.error||G.skipErrors);
   Sheet.saveLabel=(G,cnt)=>{const n=cnt.create+cnt.update;return cnt.error&&!G.skipErrors?'Fix '+cnt.error+' row'+(cnt.error===1?'':'s')+' to save':n?'Save '+n+' row'+(n===1?'':'s'):'No changes';};
   Sheet.skipText=n=>'Skip '+n+' row'+(n===1?'':'s')+' with errors';
-  const ISSUE_W=280, RN_W=60;
+  let ISSUE_W=280; const RN_W=60;
   Sheet.issuesHtml=function(G,ri,r){
     const reg=REG.R[G.regKey];
     const ents=Object.entries(r.issues).sort((a,b)=>({err:0,warn:1,info:2}[a[1][0]])-({err:0,warn:1,info:2}[b[1][0]]));
@@ -66,6 +66,7 @@
     const reg=REG.R[G.regKey]; const res=Sheet.results(G); G._res=res;
     const cnt=Sheet.counts(res);
     const chips=[['all','All'],['error','Errors'],['warn','Warnings'],['info','Info'],['create','New'],['update','Updates'],['unchanged','Unchanged']];
+    ISSUE_W=window.innerWidth<=760?150:280;
     const stick=(left,w)=>`position:sticky;left:${left}px;min-width:${w}px;max-width:${w}px;width:${w}px;background:var(--panel-2);background-clip:padding-box;`;
     return `<div class="card screen" data-sheet>
       ${G.summary?Sheet.summaryHtml(G.summary):''}
@@ -87,10 +88,10 @@
         <button class="btn sm p" data-a="sh-save" ${Sheet.canSave(G,cnt)?'':'disabled'}>${ic('check')}${Sheet.saveLabel(G,cnt)}</button>`}
       </div>
       <style>[data-sheet] .rnst{display:none}
-        @media(max-width:760px){[data-sheet] .sheet td.msg,[data-sheet] .sheet th.iss{position:static!important;box-shadow:none!important;min-width:200px!important;max-width:200px!important}
-        [data-sheet] .sheet th.rn,[data-sheet] .sheet td.rn{min-width:88px!important;max-width:88px!important;width:88px!important;box-shadow:4px 0 6px -4px rgba(0,0,0,.45)}
-        [data-sheet] .sheet td.rn label{height:auto;min-height:34px;flex-wrap:wrap;gap:2px 6px;padding:3px 0}
-        [data-sheet] .rnst{display:block;width:100%}[data-sheet] .rnst .tag{font-size:10.5px;padding:1px 6px}
+        @media(max-width:760px){[data-sheet] .sheet td.msg,[data-sheet] .sheet th.iss{position:static!important;box-shadow:none!important;min-width:150px!important;max-width:150px!important}
+        [data-sheet] .sheet th.rn,[data-sheet] .sheet td.rn{min-width:64px!important;max-width:64px!important;width:64px!important;box-shadow:4px 0 6px -4px rgba(0,0,0,.45)}
+        [data-sheet] .sheet td.rn label{height:34px;flex-wrap:nowrap;gap:4px;padding:0}
+        [data-sheet] .rnst{display:inline-flex}[data-sheet] .rnst .tag{font-size:0;width:9px;height:9px;min-width:0;padding:0;border-radius:50%}
         [data-sheet] .sheet th.stc,[data-sheet] .sheet td.st{display:none}
         [data-sheet] .sheet{-webkit-mask-image:linear-gradient(to right,#000 calc(100% - 28px),transparent);mask-image:linear-gradient(to right,#000 calc(100% - 28px),transparent)}}</style>
       <div class="sheet" data-grid style="min-height:0">

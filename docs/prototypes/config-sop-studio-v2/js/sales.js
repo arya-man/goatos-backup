@@ -119,7 +119,7 @@
           <div class="kv"><div class="lab">Effective from</div><div class="val">${p.from?esc(fmt(p.from)):'<span class="muted">—</span>'}</div></div>
           <div class="kv wide"><div class="lab">Eligible stages</div><div class="chips">${stages.length?stages.map(s=>UI.tag(s.name+' · '+REG.labelById('species',s.speciesId),'teal')).join(''):'<span class="muted">None</span>'}</div></div>
         </div>
-        <div class="grid g3 slkpi">${kp('Eligible stages',`<span data-rc="eligible">${c.eligible}</span>`,c.ineligible+' in other stages')+kp('Sale-ready',`<span data-rc="ready">${c.ready}</span>`,marginNote(c.margin,p))+kp('Below sale weight',`<span data-rc="below">${c.below}</span>`,c.none?c.none+' not weighed or no minimum':'')}</div>
+        <div class="grid g3 slkpi">${kp('In eligible stages',`<span data-rc="eligible">${c.eligible}</span>`,c.ineligible+' in other stages')+kp('Sale-ready',`<span data-rc="ready">${c.ready}</span>`,marginNote(c.margin,p))+kp('Below sale weight',`<span data-rc="below">${c.below}</span>`,c.none?c.none+' not weighed or no minimum':'')}</div>
       </section>`
       +`<div class="mt">${list('saleMinWeights',{eyebrow:'Sale eligibility',title:'Minimum sale weight',filters:['species'],addLabel:'Add override',sort:sortScope('saleMinWeights'),
         noStatus:1,onNew:()=>ruleDrawer('saleMinWeights',null),onOpen:id=>ruleDrawer('saleMinWeights',id),extraBtns:histBtn('saleMinWeights')+gridBtn('saleMinWeights'),
@@ -188,13 +188,14 @@
       rows.slice().reverse().map(r=>`<tr><td>${r.from?esc(fmt(r.from)):'<span class="muted">—</span>'}</td>${coll==='salePolicy'?`<td class="num">${esc(r.toleranceG)} g</td><td class="num">${esc(r.reportKg)} kg</td><td>${(r.stageIds||[]).length}</td>`
         :f.map(x=>`<td>${x[2]==='enum'?esc(r[x[0]]==='per_kg'?'/kg live':'/animal'):esc(r[x[0]]===''||r[x[0]]==null?'—':r[x[0]])}</td>`).join('')}<td>${st[r.id]?stateTag(st[r.id]):''}</td></tr>`).join('')}</tbody></table></div>`;
   }
+  const DH=(icon,crumb,title)=>`<div class="ihead"><span class="ikic">${ic(icon,'',18)}</span><div class="ihead-t"><div class="icrumb">${esc(crumb)}</div><h2>${esc(title)}</h2></div></div>`;
+  const SEC=(title,inner,extra)=>`<section class="isec"><div class="isec-h"><h4>${esc(title)}</h4>${extra||''}</div><div class="isec-b">${inner}</div></section>`;
   function versionDrawer(coll,id){
     const r=S.get(coll,id);if(!r)return;const st=states(coll),s=st[r.id],f=FIELDS[coll];
     const v={from:toDMY(today())};f.forEach(x=>v[x[0]]=r[x[0]]==null?'':String(r[x[0]]));
-    UI.drawer({title:REG.R[coll].one,sub:scopeLine(coll,r),cls:'idr',wide:1,
-      body:`<div class="fgrid">${f.map(([k,l,t,o])=>`<div class="fld"><label>${esc(l)}</label>${t==='enum'?`<select data-vd="${k}">${o.map(x=>`<option value="${x}" ${v[k]===x?'selected':''}>${esc(REG.enumLabel(x))}</option>`).join('')}</select>`:`<input data-vd="${k}" value="${esc(v[k])}" ${t==='num'?'inputmode="decimal"':''}>`}</div>`).join('')}
-        <div class="fld"><label>Effective from</label><input data-vd="from" inputmode="numeric" placeholder="DD/MM/YYYY" value="${v.from}"></div></div>
-        <div class="eyebrow mt">History</div>${histTable(coll,s?s.versions:[r],st)}`,
+    UI.drawer({head:DH('banknote',REG.R[coll].label,scopeLine(coll,r)),cls:'idr',wide:1,
+      body:SEC(REG.R[coll].one,`<div class="fgrid">${f.map(([k,l,t,o])=>`<div class="fld"><label>${esc(l)}</label>${t==='enum'?`<select data-vd="${k}">${o.map(x=>`<option value="${x}" ${v[k]===x?'selected':''}>${esc(REG.enumLabel(x))}</option>`).join('')}</select>`:`<input data-vd="${k}" value="${esc(v[k])}" ${t==='num'?'inputmode="decimal"':''}>`}</div>`).join('')}
+        <div class="fld"><label>Effective from</label><input data-vd="from" inputmode="numeric" placeholder="DD/MM/YYYY" value="${v.from}"></div></div>`)+SEC('History',histTable(coll,s?s.versions:[r],st)),
       foot:`<button class="btn dngo" data-vdarch>${ic('archive')}Archive</button><span class="sp"></span><button class="btn" data-a="drawer-close">Cancel</button><button class="btn p" data-vdsave>Save version</button>`,
       mount(dr){
         dr.querySelectorAll('[data-vd]').forEach(i=>i.oninput=i.onchange=()=>{v[i.dataset.vd]=i.value;});
@@ -221,7 +222,7 @@
     const v=r?{speciesId:r.speciesId,breedId:r.breedId||'',sexId:r.sexId||'',stageId:r.stageId||'',price:r.price==null?'':String(r.price),basis:r.basis||'per_kg',minKg:r.minKg==null?'':String(r.minKg),from:toDMY(today()),newBreed:''}
       :{speciesId:(S.active('species')[0]||{}).id||'',breedId:'',sexId:'',stageId:'',price:'',basis:'per_kg',minKg:'',from:toDMY(today()),newBreed:''};
     const segs=(k,opts)=>`<div class="seg" data-rfseg="${k}">${opts.map(([val,l])=>`<button type="button" class="${v[k]===val?'on':''}" data-v="${val}">${esc(l)}</button>`).join('')}</div>`;
-    const body=()=>`<div class="fgrid">
+    const body=()=>SEC(isP?'Price rule':'Minimum sale weight',`<div class="fgrid">
         <div class="fld"><label>Species</label><select data-rf="speciesId">${S.active('species').map(x=>`<option value="${x.id}" ${x.id===v.speciesId?'selected':''}>${esc(x.name)}</option>`).join('')}</select></div>
         <div class="fld"><label>Breed</label><select data-rf="breedId"><option value="">Any breed</option>${S.active('breeds').filter(x=>x.speciesId===v.speciesId).map(x=>`<option value="${x.id}" ${x.id===v.breedId?'selected':''}>${esc(x.name)}</option>`).join('')}<option value="__new" ${v.breedId==='__new'?'selected':''}>+ New breed…</option></select>
           ${v.breedId==='__new'?`<input data-rf="newBreed" class="mt6" placeholder="Breed name" value="${esc(v.newBreed)}">`:''}</div>
@@ -230,9 +231,8 @@
         <div class="fld"><label>Price</label><div class="inpfx"><span>₹</span><input data-rf="price" inputmode="decimal" value="${esc(v.price)}" placeholder="0"></div></div>
         <div class="fld"><label>Unit</label>${segs('basis',[['per_kg','/kg live'],['per_animal','/animal']])}</div>`
         :`<div class="fld"><label>Minimum sale weight</label><div class="inpfx sfx"><input data-rf="minKg" inputmode="decimal" value="${esc(v.minKg)}" placeholder="35"><span>kg</span></div></div>`}
-        <div class="fld"><label>Effective from</label><input data-rf="from" inputmode="numeric" placeholder="DD/MM/YYYY" value="${esc(v.from)}"></div></div>
-        ${r?`<div class="eyebrow mt">History</div>${histTable(coll,s?s.versions:[r],st)}`:''}`;
-    UI.drawer({title:(r?'Edit ':'Add ')+(isP?'price rule':'minimum sale weight'),sub:r?ruleName(coll,r):isP?'Sale price rules':'Sale eligibility',cls:'idr',wide:1,body:body(),
+        <div class="fld"><label>Effective from</label><input data-rf="from" inputmode="numeric" placeholder="DD/MM/YYYY" value="${esc(v.from)}"></div></div>`)+(r?SEC('History',histTable(coll,s?s.versions:[r],st)):'');
+    UI.drawer({head:DH('banknote',isP?'Sale price rules':'Sale eligibility',r?ruleName(coll,r):(isP?'Add price rule':'Add minimum sale weight')),cls:'idr',wide:1,body:body(),
       foot:`${r?`<button class="btn dngo" data-rfarch>${ic('archive')}Archive</button>`:''}<span class="sp"></span><button class="btn" data-a="drawer-close">Cancel</button><button class="btn p" data-rfsave>${r?'Save version':'Add'}</button>`,
       mount(dr){
         const wire=()=>{
@@ -268,19 +268,17 @@
     const p=policy(),sel=new Set(p.stageIds||[]);const v={toleranceG:String(p.toleranceG),reportKg:String(p.reportKg),from:toDMY(today())};
     const grp=x=>/^K\d$/.test(x.code||'')?'Kids':/^FAT/.test(x.code||'')?'Fattening':'Adults';
     const groups=S.active('species').map(sp=>{const ss=S.active('stages').filter(x=>x.speciesId===sp.id);
-      return `<div class="stgrp"><div class="eyebrow">${esc(sp.name)} <span class="muted" data-pstn="${sp.id}">${ss.filter(x=>sel.has(x.id)).length} selected</span></div>${['Fattening','Adults','Kids'].map(g=>{const gs=ss.filter(x=>grp(x)===g);return gs.length?`<div class="stg"><div class="stgl">${g}</div><div class="chips">${gs.map(x=>
-        `<button type="button" class="chip ${sel.has(x.id)?'on':''}" data-pst="${x.id}" data-sp="${sp.id}" aria-pressed="${sel.has(x.id)}">${esc(x.name)}</button>`).join('')}</div></div>`:'';}).join('')}</div>`;}).join('');
-    UI.drawer({title:'Sale eligibility',sub:'Sales · Weighing',cls:'idr',wide:1,
-      body:`<div class="fgrid"><div class="fld"><label>Weight error margin (g)</label><input data-pd="toleranceG" inputmode="numeric" value="${esc(v.toleranceG)}"></div>
+      return SEC(sp.name,`<div class="fgrid">${['Fattening','Adults','Kids'].map(g=>{const gs=ss.filter(x=>grp(x)===g);return gs.length?`<div class="fld full"><label>${g}</label><div class="chips">${gs.map(x=>
+        `<button type="button" class="chip ${sel.has(x.id)?'on':''}" data-pst="${x.id}" data-sp="${sp.id}" aria-pressed="${sel.has(x.id)}">${esc(x.name)}</button>`).join('')}</div></div>`:'';}).join('')}</div>`,`<span class="cnt" data-pstn="${sp.id}">${ss.filter(x=>sel.has(x.id)).length}</span>`);}).join('');
+    UI.drawer({head:DH('banknote','Sales · Weighing','Sale eligibility'),cls:'idr',wide:1,
+      body:SEC('Weights',`<div class="fgrid"><div class="fld"><label>Weight error margin (g)</label><input data-pd="toleranceG" inputmode="numeric" value="${esc(v.toleranceG)}"></div>
         <div class="fld"><label>Reporting threshold (kg)</label><input data-pd="reportKg" inputmode="decimal" value="${esc(v.reportKg)}"></div>
-        <div class="fld"><label>Effective from</label><input data-pd="from" inputmode="numeric" placeholder="DD/MM/YYYY" value="${v.from}"></div><div class="fld"></div>
-        <div class="fld full"><label>Eligible stages</label>${groups}</div></div>
-        <div class="eyebrow mt">History</div>${histTable('salePolicy',states('salePolicy')[p.id]?states('salePolicy')[p.id].versions:[],states('salePolicy'))}`,
+        <div class="fld"><label>Effective from</label><input data-pd="from" inputmode="numeric" placeholder="DD/MM/YYYY" value="${v.from}"></div></div>`)+groups+SEC('History',histTable('salePolicy',states('salePolicy')[p.id]?states('salePolicy')[p.id].versions:[],states('salePolicy'))),
       foot:`<button class="btn" data-a="drawer-close">Cancel</button><span class="sp"></span><button class="btn p" data-pdsave>Save version</button>`,
       mount(dr){
         dr.querySelectorAll('[data-pd]').forEach(i=>i.oninput=i.onchange=()=>{v[i.dataset.pd]=i.value;});
         dr.querySelectorAll('[data-pst]').forEach(b=>b.onclick=()=>{const on=!sel.has(b.dataset.pst);on?sel.add(b.dataset.pst):sel.delete(b.dataset.pst);b.classList.toggle('on',on);b.setAttribute('aria-pressed',on);
-          const n=dr.querySelector(`[data-pstn="${b.dataset.sp}"]`);if(n)n.textContent=[...dr.querySelectorAll(`[data-pst][data-sp="${b.dataset.sp}"]`)].filter(x=>sel.has(x.dataset.pst)).length+' selected';});
+          const n=dr.querySelector(`[data-pstn="${b.dataset.sp}"]`);if(n)n.textContent=[...dr.querySelectorAll(`[data-pst][data-sp="${b.dataset.sp}"]`)].filter(x=>sel.has(x.dataset.pst)).length;});
         const err=(k,t)=>fieldErr(dr,k,t);
         dr.querySelector('[data-pdsave]').onclick=()=>{
           const tg=Number(v.toleranceG),rk=Number(v.reportKg),tr=String(v.toleranceG).trim();
@@ -297,7 +295,7 @@
   function historyDrawer(coll){
     const st=states(coll),rows=S.active(coll).slice().sort((a,b)=>(b.from||'').localeCompare(a.from||''));
     const label=coll==='salePolicy'?'Sale eligibility':REG.R[coll].label;
-    UI.drawer({title:'History',sub:label,wide:1,cls:'idr',
+    UI.drawer({head:DH('rotate',label,'History'),wide:1,cls:'idr',
       body:rows.length?`<div class="sltbl-wrap"><table class="sltbl"><thead><tr><th>Effective from</th><th>Scope</th><th>Value</th><th>Status</th></tr></thead><tbody>${rows.map(r=>`<tr>
         <td>${r.from?esc(fmt(r.from)):'<span class="muted">—</span>'}</td><td>${coll==='salePolicy'?'All':esc(scopeLine(coll,r))}</td>
         <td class="num">${coll==='salePrices'?inr(r.price)+(r.basis==='per_kg'?'/kg':'/animal'):coll==='saleMinWeights'?esc(r.minKg)+' kg':coll==='valuationRates'?inr(r.rate)+'/kg':esc(r.toleranceG)+' g · '+esc(r.reportKg)+' kg'}</td>
@@ -325,7 +323,7 @@
   X.weighingCard=function(){
     const {c,p,rows}=X.readiness(),cur=current('saleMinWeights'),mins=cur.filter(r=>!r.breedId&&!r.sexId),ov=cur.length-mins.length;
     return `<section class="card mt" data-salecard="weighing"><div class="hd lhd"><div class="ttl"><div class="eyebrow">Herd</div><h3>Sale readiness</h3></div><span class="sp"></span>${cfgLink('Sale eligibility','#/configuration/items/saleEligibility')}</div>
-      <div class="grid g3 slkpi" style="padding-top:14px">${kp('Eligible stages',`<span data-rc="eligible">${c.eligible}</span>`,c.ineligible+' in other stages')}${kp('Sale-ready',`<span data-rc="ready">${c.ready}</span>`,esc(mins.map(m=>REG.labelById('species',m.speciesId)+' ≥ '+m.minKg+' kg').join(' · ')+(ov?' · +'+ov+' override'+(ov===1?'':'s'):''))+' · '+esc(marginNote(c.margin,p)))}${kp('Below sale weight',`<span data-rc="below">${c.below}</span>`,c.none?c.none+' not weighed or no minimum':'')}</div>
+      <div class="grid g3 slkpi" style="padding-top:14px">${kp('In eligible stages',`<span data-rc="eligible">${c.eligible}</span>`,c.ineligible+' in other stages')}${kp('Sale-ready',`<span data-rc="ready">${c.ready}</span>`,esc(mins.map(m=>REG.labelById('species',m.speciesId)+' ≥ '+m.minKg+' kg').join(' · ')+(ov?' · +'+ov+' override'+(ov===1?'':'s'):''))+' · '+esc(marginNote(c.margin,p)))}${kp('Below sale weight',`<span data-rc="below">${c.below}</span>`,c.none?c.none+' not weighed or no minimum':'')}</div>
       <div class="twrap screen ltable"><table class="ltbl"><thead><tr><th>Species · stage</th><th class="num">Animals</th><th class="num">Sale-ready</th><th class="num">Within margin</th><th class="num">Below</th></tr></thead><tbody>${
         Object.entries(rows).sort().map(([k,g])=>`<tr><td data-label="Species · stage"><b>${esc(k.replace('|',' · '))}</b></td><td class="num" data-label="Animals">${g.n}</td><td class="num" data-label="Sale-ready">${g.ready}</td><td class="num" data-label="Within margin">${g.margin}</td><td class="num" data-label="Below">${g.below}</td></tr>`).join('')||'<tr><td colspan="5" class="muted">No animals in eligible stages</td></tr>'}</tbody></table></div></section>`;
   };

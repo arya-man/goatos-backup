@@ -1,6 +1,8 @@
 /* Shell (topbar + sidebar), hash router, global event delegation */
 (function(){
   const App={route:{path:'',parts:[],params:{}},ui:{open:{},park:'',rail:false}};
+  /* stg stage keys shown with farm names (display alias only) */
+  const STAGE_ALIAS={'F2-Male':'Fattening Male','F2-Female':'Fattening Female'};const STAGE_SHOW=k=>STAGE_ALIAS[k]||k;
   const NAV=[
     {label:'Approvals',href:'#/approvals',icon:'gavel'},
     {label:'Verify',href:'#/verify',icon:'clipboard-check'},
@@ -20,6 +22,18 @@
   const SOP_OF={counts:['Herd Operations SOP','#/counts/sops'],weighing:['Weighing SOP','#/weighing/sops'],feed:['Feed SOP','#/feed/sops'],vaccination:['Preventive Care SOP','#/preventive-care/sops'],procurement:['Procurement SOP','#/procurement/sops'],health:['Health SOP','#/health/sops'],milk:['Milk SOP','#/milk/sops']};
   const SOP_DEPT={'#/counts/sops':'Counts','#/weighing/sops':'Weighing','#/feed/sops':'Feed','#/procurement/sops':'Procurement','#/milk/sops':'Milk','#/health/sops':'Health','#/preventive-care/sops':'Preventive Care'};
 
+  /* prototype role switch: trims visible nav only */
+  const ROLES=[['ceo','CEO / CXO'],['park_head','Park Head'],['store','Store keeper'],['operator','Operator'],['verifier','Verifier'],['contractor','Contractor']];
+  const ROLE_NAV={
+    park_head:h=>!h.startsWith('#/sales'),
+    store:h=>/^#\/(procurement\/(vendors|feed-purchases)|feed\/config|configuration\/items)/.test(h),
+    operator:h=>/^#\/(tasks|configuration\/work-instructions)/.test(h),
+    verifier:h=>/^#\/(approvals|verify|tasks)$/.test(h),
+    contractor:h=>/^#\/(tasks|counts|weighing|feed|vaccination|preventive-care|milk|configuration)/.test(h)};
+  App.role=function(){let r='';try{r=localStorage.getItem('mesha.role')||'';}catch(e){}return ROLES.some(x=>x[0]===r)?r:'ceo';};
+  App.roleCan=h=>{const f=ROLE_NAV[App.role()];return !f||f(h);};
+  App.hideSales=()=>['store','operator','contractor','verifier'].includes(App.role());
+  function navFor(){return NAV.map(n=>n.group?Object.assign({},n,{leaves:n.leaves.filter(([,h])=>App.roleCan(h))}):n).filter(n=>n.group?n.leaves.length:App.roleCan(n.href));}
   function activeHref(){
     const h=location.hash||'#/configuration/items';
     let best='';NAV.forEach(n=>{(n.leaves||[[n.label,n.href]]).forEach(([,href])=>{if((h===href||h.startsWith(href+'/'))&&href.length>best.length)best=href;});});
@@ -27,7 +41,7 @@
   }
   function renderSide(){
     const act=activeHref();
-    const html=NAV.map(n=>{
+    const html=navFor().map(n=>{
       if(!n.group)return `<a class="nav ${act===n.href?'on':''}" href="${n.href}" title="${esc(n.label)}" aria-label="${esc(n.label)}">${ic(n.icon)}<span class="nl">${esc(n.label)}</span></a>`;
       const has=n.leaves.some(([,h])=>h===act); const open=App.ui.open[n.group]!=null?App.ui.open[n.group]:has;
       return `<div><div class="ggrp ${open?'open':''} ${has?'on':''}" role="button" tabindex="0" title="${esc(n.group)}" aria-label="${esc(n.group)}" aria-expanded="${open}" data-a="grp" data-g="${esc(n.group)}">${ic(n.icon)}<span class="nl">${esc(n.group)}</span>${ic('chevron-right','chev')}</div>
@@ -40,7 +54,7 @@
     const light=document.documentElement.classList.contains('light');
     document.getElementById('themebtn').innerHTML=ic(light?'moon':'sun');
     document.getElementById('bellbtn').innerHTML=ic('bell');
-    document.getElementById('mebtn').innerHTML=`<span class="av">RT</span><span><span class="nm">Ravi Teja</span><span class="rl">CEO / CXO</span></span>${ic('chevron-right','',14)}`;
+    document.getElementById('mebtn').title=(ROLES.find(x=>x[0]===App.role())||ROLES[0])[1];document.getElementById('mebtn').innerHTML=`<span class="av">RT</span><span><span class="nm">Ravi Teja</span><span class="rl">${esc((ROLES.find(x=>x[0]===App.role())||ROLES[0])[1])}</span></span>${ic('chevron-right','',14)}`;
     const park=S.get('parks',App.ui.park);
     document.getElementById('parksel').innerHTML=`<button class="pscope" data-a="park-open">${ic('map-pin','',14)}<b>${esc(park?park.name:'All parks')}</b>${ic('chevron-down','',12)}</button>
       <div class="parkmenu ${App.ui.parkOpen?'on':''}"><div class="pm-label">Park scope</div><div class="pm-list">
@@ -70,8 +84,8 @@
       '#/work-board':{k:[['Reconcile cards open',25],['Birth tracks open',1],['Shifting authorized',13,'2 pending'],['Feed removal assigned',1]]},
       '#/alerts':{k:[['Notifications, 7 days','35,183'],['Alert rules',0],['Pen visits delayed',13],['Milk feeds not submitted',162,'Last 30 days']]},
       '#/counts/analytics':{k:[['Live animals','1,521','CBE 805 · CPT 716'],['Goats',697,'578 F · 119 M'],['Sheep',824,'407 F · 417 M'],['Sold',145,'3 dead · 14 inactive']]},
-      '#/counts/breakdown':{k:[['Non-Pregnant',759],['F2-Male',465],['F2-Female',187],['Buck',38]],
-        t:['Animals by stage',[['Stage'],['Animals',1]],[['Non-Pregnant',759],['F2-Male',465],['F2-Female',187],['Buck',38],['K3',34],['ICU-Kid',24],['K2',8],['Mother',5],['K0',1]].map(([a,b])=>[`<b>${a}</b>`,b])]},
+      '#/counts/breakdown':{k:[['Non-Pregnant',759],['F2-Male',465],['F2-Female',187],['Buck',38]].map(([a,b])=>[STAGE_SHOW(a),b]),
+        t:['Animals by stage',[['Stage'],['Animals',1]],[['Non-Pregnant',759],['F2-Male',465],['F2-Female',187],['Buck',38],['K3',34],['ICU-Kid',24],['K2',8],['Mother',5],['K0',1]].map(([a,b])=>[`<b>${STAGE_SHOW(a)}</b>`,b])]},
       '#/weighing/analytics':{k:[['Animal weighs, 30 days','1,761'],['Pen weighs, 30 days',36],['Animals weighed, 60 days',580],['Tasks open',5,'1 in progress · 4 published']]},
       '#/sales/sold':{k:[['Closed deals',71],['Animals sold',691],['Sales value','₹88.5L'],['Failed deals',1,'46 animals']]},
       '#/sales/farm-value':{k:[['Live animals','1,521'],['Coimbatore',805],['Channapatna',716],['Parks',2]]},
@@ -143,6 +157,9 @@
     const h=location.hash||'#/configuration/items';
     const parts=h.replace(/^#\/?/,'').split('?')[0].split('/').filter(Boolean);
     App.route={path:h,parts,params:{}};
+    if(!App.roleCan(h)&&!/^#\/configuration\/work-instructions\//.test(h)){const f=navFor()[0];if(f){location.replace(f.href||f.leaves[0][1]);return;}}
+    if(App.hideSales()&&/^#\/configuration\/items\/(salePrices|saleEligibility|valuationRates)/.test(h)){location.replace('#/configuration/items');return;}
+    if(App.role()==='operator'&&parts[1]==='work-instructions'&&parts[2]&&parts[2]!=='master'&&parts[3]!=='operator'){location.replace('#/configuration/work-instructions/'+parts[2]+'/operator');return;}
     railMode(); renderTop(); renderSide();
     const wrap=document.getElementById('wrap'), main=document.getElementById('main');
     const keepScroll=App._lastPath===h?main.scrollTop:0;
@@ -212,9 +229,9 @@
     'theme'(){const r=document.documentElement;r.classList.toggle('light');r.classList.toggle('dark');try{localStorage.setItem('mesha.theme',r.classList.contains('light')?'light':'dark');}catch(e){}renderTop();},
     'park-open'(el,e){e.stopPropagation();App.ui.parkOpen=!App.ui.parkOpen;renderTop();},
     'park-pick'(el){App.ui.park=el.dataset.id;App.ui.parkOpen=false;renderTop();},
-    'user-menu'(el){UI.menu(el,[
+    'user-menu'(el){const cur=App.role();UI.menu(el,ROLES.map(([k,l])=>({label:l,icon:k===cur?'check':'user',run:()=>{try{localStorage.setItem('mesha.role',k);}catch(e){}if(!App.roleCan(location.hash.split('?')[0])){const f=navFor()[0];location.hash=f.href||f.leaves[0][1];}else App.render();}})).concat(['-',
       {label:'Theme',icon:'sun',run:()=>A.theme()},
-      {label:'Reset data',icon:'rotate',danger:true,run:()=>{S.reset();Object.keys(List.st).forEach(k=>delete List.st[k]);Sheet.cur=null;IO.state=null;if(window.MeshaOperator)S.all('sops').forEach(x=>MeshaOperator.reset(x.id));App._allow=true;App.render();UI.toast('Data reset');}}]);},
+      {label:'Reset data',icon:'rotate',danger:true,run:()=>{S.reset();Object.keys(List.st).forEach(k=>delete List.st[k]);Sheet.cur=null;IO.state=null;if(window.MeshaOperator)S.all('sops').forEach(x=>MeshaOperator.reset(x.id));App._allow=true;App.render();UI.toast('Data reset');}}]));},
     'drawer-close'(){UI.closeDrawer();},
     'nav-back'(el,e){e.preventDefault();const to=el.getAttribute('href');if(App._prevPath===to&&history.length>1)history.back();else location.hash=to;}
   });

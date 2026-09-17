@@ -112,3 +112,4 @@ a.op-btn{text-decoration:none;text-align:center;display:inline-flex;align-items:
 .op-err.soft{color:var(--mut);font-weight:500}
 .op-lims{margin-top:6px;flex-wrap:wrap;gap:4px}
 .op-none{padding:12px;color:var(--mut);font-size:14px}
+@media (min-width:431px){.op-phone{--oph:min(780px,max(560px,calc(100dvh - 232px)));height:var(--oph);max-height:none;aspect-ratio:auto;width:min(390px,100%,calc(var(--oph) / 2));margin-inline:auto}}

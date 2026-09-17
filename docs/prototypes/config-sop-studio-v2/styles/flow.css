@@ -335,3 +335,17 @@ textarea.mst-title{resize:vertical;min-height:52px;font:inherit;line-height:1.35
 .chip>span.muted{margin-left:6px}
 /* overview zoom: the 12px text floor would blow labels up past their boxes, so show shapes only */
 .fx-root.zoomed-far .fx-eyebrow,.fx-root.zoomed-far .fx-sum,.fx-root.zoomed-far .fx-title,.fx-root.zoomed-far .fx-group-head,.fx-root.zoomed-far .fx-elabel{visibility:hidden}
+/* r7: node hit area wins over unselected edge handles; handles scale with zoom and hide below 60% unless selected */
+.fx-ehs:not(.on) .fx-ehit,.fx-ehs:not(.on) .fx-eh{pointer-events:none}
+.fx-root:not(.zoomed-mid):not(.dragging):not(.connecting) .fx-ehs.hov .fx-ehit{pointer-events:all}
+.fx-root.zoomed-mid .fx-ehs:not(.on){display:none}
+.fx-ehs:not(.on) .fx-ehit{r:12px}.fx-ehs:not(.on) .fx-eh{r:6px}
+/* r7: zoomed-out text caps at 1.15x; group title sits above its box; labels become dots below 50% */
+.fx-eyebrow,.fx-sum,.fx-group-head,.fx-port.out span{font-size:calc(12.5px * max(1, min(1.15, 1 / var(--fxk,1))))}
+.fx-elabel text{font-size:calc(12px * max(1, min(1.15, 1 / var(--fxk,1))))}
+.fx-edot{display:none;fill:var(--panel-2);stroke:var(--muted);stroke-width:calc(1.5px / var(--fxk,1));r:calc(6px / var(--fxk,1))}
+.fx-root.zoomed-lo .fx-elabel rect,.fx-root.zoomed-lo .fx-elabel text{display:none}
+.fx-root.zoomed-lo .fx-edot{display:inline}
+.fx-root.zoomed-out .fx-group-head{top:4px;line-height:1.1;max-width:none;white-space:nowrap;align-items:center;font-size:min(calc(12px / var(--fxk,1)),35px);padding:1px calc(6px / var(--fxk,1));border-radius:calc(8px / var(--fxk,1))}
+.fx-root.zoomed-out .fx-group-head .ic{margin-top:0;width:min(calc(12px / var(--fxk,1)),35px);height:min(calc(12px / var(--fxk,1)),35px)}
+.fx-root.zoomed-out .fx-group-head b{white-space:nowrap;overflow:visible}

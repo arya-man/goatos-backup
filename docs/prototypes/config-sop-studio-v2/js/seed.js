@@ -1,6 +1,6 @@
 /* Seed data (staging-shaped). buildSeed() returns a fresh state. */
 (function(){
-  const DEPTS=['Counts','Weighing','Sales','Feed','Preventive Care','Procurement','Health','Milk','People'];
+  const DEPTS=['Counts','Weighing','Sales','Feed','Preventive Care','Procurement','Health','Milk','People','Verification'];
   window.DEPTS=DEPTS;
 
   function flow(){
@@ -305,6 +305,54 @@
     return f.nodes;
   }
 
+  /* backend/internal/pccare/domain (deworming, anti protozoan, ticks removal, hoof/hair trimming): scan free-flow,
+     live-camera videos per animal, verifier review, then the next-day pen visit (penvisits/domain). */
+  function pcCareFlow(name,slots,removal){
+    const f=flow(); const ids=[f.add('start',{label:name+' task planned for the pen'})];
+    if(removal){ids.push(f.add('evidence',{label:'Feed removal video',media:['video'],min:1,max:1,page:'Evening before',hint:'Show the feed being taken out of this pen'}));
+      ids.push(f.add('evidence',{label:'Water removal video',media:['video'],min:1,max:1,page:'Evening before',hint:'Show the water being taken out of this pen'}));}
+    ids.push(f.add('question',{label:'Scan animal RFID',answer:'scan',required:true,page:name}));
+    slots.forEach(x=>ids.push(f.add('evidence',{label:x[0],media:['video'],min:1,max:1,page:name,hint:x[1]})));
+    f.chain(ids);
+    const a=f.add('approval',{label:'Verifier reviews the videos',roleId:'role_verifier',outcomes:['Approve','Rework']});
+    const pv=f.add('child',{label:'Pen visit next day',sopId:'sop_penvisit'});
+    const ok=f.add('end',{label:'Care task closed',outcome:'done'});
+    const re=f.add('end',{label:'Rework: record again',outcome:'rejected'});
+    f.link(ids[ids.length-1],a); f.link(a,pv,'Approve'); f.link(a,re,'Rework'); f.chain([pv,ok]);
+    return f.nodes;
+  }
+  function penVisitFlow(){
+    const f=flow();
+    const ids=[f.add('start',{label:'Day after preventive care work submitted in the pen'}),
+      f.add('evidence',{label:'Pen visit video',media:['video'],min:1,max:1,page:'Pen visit',hint:'Any configured visitor for the park may record'})];
+    f.chain(ids); verifyEnd(f,ids[1],'Verifier reviews the visit video');
+    return f.nodes;
+  }
+  /* backend/internal/toxin/domain: SafetiX SHF 001-A strip, 7 steps, server-clock gates, CEO/CXO review */
+  function toxinFlow(){
+    const f=flow(), P='Toxin test';
+    const v=(l,h)=>f.add('evidence',{label:l,media:['video'],min:1,max:1,page:P,hint:h});
+    const ids=[f.add('start',{label:'Feed load recorded'}),
+      v('1. Take the sample','Take the feed sample out of this load on camera'),
+      v('2. Grind and weigh','Grind the sample and weigh out 5 g on camera'),
+      v('3. Mix and shake','Add the extraction solution and shake for 3 minutes on camera'),
+      f.add('wait',{label:'4. Let it sit',amount:60,unit:'minutes'}),
+      v('5. Dilute and fill the well','Dilute as the kit table directs and fill the microwell'),
+      f.add('wait',{label:'Well time',amount:3,unit:'minutes'}),
+      v('6. Place the strip','Place the test strip and let it develop'),
+      f.add('wait',{label:'Strip develops',amount:8,unit:'minutes'}),
+      f.add('evidence',{label:'7. Strip photo',media:['photo'],min:1,max:1,page:P,hint:'Read within 1 minute and photograph immediately'})];
+    const r=f.add('question',{label:'Strip reading',answer:'choice',options:[{v:'negative',l:'Negative'},{v:'positive',l:'Positive'},{v:'invalid',l:'Invalid'}],required:true,page:P});
+    ids.push(r); f.chain(ids);
+    const d=f.add('decision',{label:'Invalid strip?',q:r,op:'=',value:'invalid'});
+    const inv=f.add('end',{label:'Round cancelled: retest',outcome:'rejected'});
+    const a=f.add('approval',{label:'CEO / CXO reviews the round',roleId:'role_ceo_internal',outcomes:['Accept','Reject']});
+    const ok=f.add('end',{label:'Toxin test accepted',outcome:'done'});
+    const rj=f.add('end',{label:'Rejected: retest',outcome:'rejected'});
+    f.link(r,d); f.link(d,inv,'Yes'); f.link(d,a,'No'); f.link(a,ok,'Accept'); f.link(a,rj,'Reject');
+    return f.nodes;
+  }
+
   function sop(id,dept,title,nodes,v,category){
     const at='2026-09-'+String(2+((v*7)%13)).padStart(2,'0')+'T09:30:00Z';
     return {id,dept,title,category:category||'action',nodes,versions:v?[{v,at,by:'CEO / CXO',nodes:JSON.parse(JSON.stringify(nodes)),running:0}]:[],status:'active'};
@@ -440,6 +488,7 @@
       set('set_vac_shots','Preventive Care','Max vaccines per visit',3,'shots'),set('set_vac_ops','Preventive Care','Operators per day',3,'people'),
       set('set_health_max','Health','Max course duration',90,'days'),set('set_ble_inactive','Health','Herd signal · inactive after',180,'min'),
       set('set_ble_missing','Health','Herd signal · missing after',30,'min'),
+      set('set_vs_default','Verification','Verification sample · every other category',100,'%'),set('set_vs_vacc','Verification','Verification sample · vaccination proof',25,'%'),set('set_vs_feeddist','Verification','Verification sample · feed distribution',75,'%'),
       set('set_milk_sessions','Milk','Max milk feeding sessions',4,'sessions/day'),set('set_colostrum_notify','Milk','Colostrum pre-notify',15,'min')];
 
     /* Sales config. Sources: weighing/domain/shed_weights.go (30 kg reporting, 35 kg sale-ready, tolerance 0-1000 g, default 0; 500 g per requirement),
@@ -611,6 +660,13 @@
       Object.assign(sop('sop_death','Counts','Death recording',deathFlow(),1,'event'),{source:'goatos-stg counts.death v1'}),
       Object.assign(sop('sop_reconcile','Counts','Pen reconcile',reconcileFlow(),1,'problem'),{source:'goatos-stg counts.reconcile v1'}),
       Object.assign(sop('sop_milkprep','Milk','Milk preparation',milkPrepFlow(),1,'commodity'),{source:'goatos-stg milk.preparation v1'}),
+      Object.assign(draft('sop_deworm','Preventive Care','Deworming',pcCareFlow('Deworming',[['Deworming video','Show the dose being given to this animal']],true)),{source:'GoatOS backend pccare deworming · backend only, no stg SOP version'}),
+      Object.assign(draft('sop_antiproto','Preventive Care','Anti protozoan',pcCareFlow('Anti protozoan',[['Anti Protozoan video','Show the dose being given to this animal']])),{source:'GoatOS backend pccare anti_protozoan · backend only, no stg SOP version'}),
+      Object.assign(draft('sop_ticks','Preventive Care','Ticks removal',pcCareFlow('Ticks removal',[['Ticks removal video','Show the ticks being removed from this animal']])),{source:'GoatOS backend pccare ticks_removal · backend only, no stg SOP version'}),
+      Object.assign(draft('sop_hoof','Preventive Care','Hoof trimming',pcCareFlow('Hoof trimming',[['Before trimming',"Show the animal's hooves before the work"],['While trimming','Record the hooves being trimmed, about 10 s'],['After trimming','Show the trimmed hooves after the work']])),{source:'GoatOS backend pccare hoof_trimming · backend only, no stg SOP version'}),
+      Object.assign(draft('sop_hair','Preventive Care','Hair trimming',pcCareFlow('Hair trimming',[['Before trimming',"Show the animal's coat before the work"],['While trimming','Record the hair being trimmed, about 10 s'],['After trimming','Show the trimmed coat after the work']])),{source:'GoatOS backend pccare hair_trimming · backend only, no stg SOP version'}),
+      Object.assign(draft('sop_penvisit','Preventive Care','Pen visit (day after care)',penVisitFlow()),{source:'GoatOS backend penvisits · backend only, no stg SOP version'}),
+      Object.assign(draft('sop_toxin','Procurement','Feed toxin test',toxinFlow()),{source:'GoatOS backend toxin (7-step) · backend only, no stg SOP version'}),
       Object.assign(sop('sop_vacdrive','Preventive Care','Vaccination session',vaccinationDriveFlow(),1,'action'),{source:'goatos-stg vaccination.drive v1'})];
 
     st.masters=[{id:'mst_proc',dept:'Procurement',title:'Procurement: purchase → transit → warm-up',status:'active',

@@ -79,7 +79,7 @@
     /* count columns that are zero on every row say nothing: drop them */
     cols=cols.filter(c=>!c.num||!list.length||list.slice(0,500).some(r=>{const v=String(c.html(r)).replace(/<[^>]*>/g,'').trim();return v!==''&&v!=='0'&&v!=='—';}));
     if(!list.length){const scoped=S.all(reg.coll).filter(opts.where||(()=>true));
-      return scoped.length?`<div class="empty">No matches</div>`:`<div class="empty">No ${esc(reg.label.toLowerCase())} yet${regKey==='items'?`<div style="margin-top:10px"><button class="btn sm p" data-a="rec-new" data-reg="items">${ic('plus')}Add item</button></div>`:''}</div>`;}
+      return scoped.length?`<div class="empty">No matches</div>`:(opts.addLabel||regKey==='items'?`<div class="empty"><button class="btn sm p" data-a="rec-new" data-reg="${regKey}">${ic('plus')}${esc(opts.addLabel||'Add item')}</button></div>`:`<div class="empty">No ${esc(reg.label.toLowerCase())} yet</div>`);}
     const shown=list.slice(0,500);
     /* widths by content: tables scroll inside .twrap instead of truncating */
     const MINW={rfid:170,'second tag':130,stage:190,'lifecycle stage':190,park:140,pen:140,partition:150,breed:150,species:110,name:180};
@@ -90,7 +90,7 @@
       <thead><tr><th class="ck"><input type="checkbox" data-a="sel-all" data-reg="${regKey}" ${allSel?'checked':''} aria-label="Select all"></th>${cols.map(c=>`<th class="${c.num?'num':''} ${c.cls||''}">${esc(c.label)}</th>`).join('')}${opts.noStatus?'':'<th>Status</th>'}<th></th></tr></thead>
       <tbody>${shown.map((r,i)=>{const g=opts.groupBy&&opts.groupBy(r);const gh=g!=null&&(i===0||opts.groupBy(shown[i-1])!==g)?`<tr class="grow"><td colspan="${cols.length+(opts.noStatus?2:3)}">${esc(g)} <span class="muted">${shown.filter(x=>opts.groupBy(x)===g).length}</span></td></tr>`:'';return gh+`<tr class="clk ${r.status==='archived'?'arch':''}" data-a="row-open" data-reg="${regKey}" data-id="${r.id}">
         <td class="ck" data-label=""><input type="checkbox" data-a="sel-one" data-reg="${regKey}" data-id="${r.id}" ${s.sel.has(r.id)?'checked':''} aria-label="Select" title="Shift-click selects a range"></td>
-        ${cols.map(c=>{const h=c.html(r);return `<td class="${c.num?'num':''} ${c.cls||''}" data-label="${esc(c.label)}" ${c.wrap?'style="white-space:normal;overflow:visible"':`title="${esc(plain(h))}"`}>${h}</td>`;}).join('')}${opts.noStatus?'':`<td data-label="Status"${regKey==='items'?' style="white-space:normal"':''}>${UI.statusTag(r.status)}${regKey==='items'&&REG.itemMissing(r).length?' '+UI.tag('Incomplete','warn'):''}</td>`}
+        ${cols.map(c=>{const h=c.html(r);return `<td class="${c.num?'num':''} ${c.cls||''}" data-label="${esc(c.label)}" ${c.wrap?'style="white-space:normal;overflow:visible"':`title="${esc(plain(h))}"`}>${h}</td>`;}).join('')}${opts.noStatus?'':`<td data-label="Status"><span class="stwrap">${UI.statusTag(r.status)}${regKey==='items'&&REG.itemMissing(r).length?`<span class="idot" role="img" title="Incomplete: ${esc(REG.itemMissing(r).join(', '))}" aria-label="Incomplete"></span>`:''}</span></td>`}
         <td class="act" data-label=""><button class="btn icon gh" data-a="row-menu" data-reg="${regKey}" data-id="${r.id}" aria-label="Row actions">${ic('more')}</button></td></tr>`;}).join('')}</tbody></table>
       ${list.length>500?`<div class="empty">${shown.length} of ${list.length}</div>`:''}`;
   };

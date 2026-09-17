@@ -23,7 +23,7 @@
     if(o.mount)o.mount(dr);
   };
   UI.redrawDrawer=function(patch){if(!UI._drawer)return;const dc=$('#drawer .dc'),st=dc?dc.scrollTop:0;Object.assign(UI._drawer,patch||{});UI.drawer(UI._drawer);const n=$('#drawer .dc');if(n)n.scrollTop=st;};
-  UI.closeDrawer=function(){const dr=$('#drawer');dr.classList.remove('on');$('#scrim').classList.add('hidden');UI.closePop();const o=UI._drawer;UI._drawer=null;if(o&&o.onClose)o.onClose();};
+  UI.closeDrawer=function(){const dr=$('#drawer');dr.classList.remove('on');clearTimeout(UI._drT);UI._drT=setTimeout(()=>{if(!dr.classList.contains('on')&&!UI._drawer)dr.innerHTML='';},300);$('#scrim').classList.add('hidden');UI.closePop();const o=UI._drawer;UI._drawer=null;if(o&&o.onClose)o.onClose();};
 
   /* ---------- menu ---------- */
   UI.menu=function(anchor,items){
@@ -205,9 +205,10 @@
       onClose(){if(!saved&&created){S.state=JSON.parse(baseline);S.save();App.render();}},
       mount(dr){
         dr.querySelector('[data-rf-save]').onclick=save;
-        dr.querySelectorAll('[data-rf-create]').forEach(b=>b.onclick=e=>{const c=reg.cols.find(x=>x.k===b.dataset.rfCreate);const ch=REG.createChoices(regKey,c.type==='multi'?Object.assign({},c,{type:'ref'}):c,row.v,(REG.validate(regKey,[row],{})[0].issues[c.k][2]||{}).text);
+        dr.querySelectorAll('[data-rf-create]').forEach(b=>b.onclick=e=>{e.stopPropagation();const c=reg.cols.find(x=>x.k===b.dataset.rfCreate);const ch=REG.createChoices(regKey,c.type==='multi'?Object.assign({},c,{type:'ref'}):c,row.v,(REG.validate(regKey,[row],{})[0].issues[c.k][2]||{}).text);
           const doIt=x=>{S.snap('Created');x.run();created=true;S.save();UI.redrawDrawer({body:body()});};
-          if(ch.length===1)doIt(ch[0]);else UI.menu(b,ch.map(x=>({label:x.label,icon:'plus',run:()=>doIt(x)})));});
+          const sc=c.scope&&String(row.v[c.scope.col]||'').trim(); const one=sc&&ch.filter(x=>REG.norm(x.label).endsWith(REG.norm(' · '+sc)));
+          if(ch.length===1)doIt(ch[0]);else if(one&&one.length===1)doIt(one[0]);else UI.menu(b,ch.map(x=>({label:x.label,icon:'plus',run:()=>doIt(x)})));});
         const redraw=k=>{UI.redrawDrawer({body:body()});const n=$(`#drawer [data-steps-add="${k}"]`);if(n)n.focus();};
         dr.querySelectorAll('[data-step-rm]').forEach(b=>b.onclick=()=>{const k=b.dataset.stepRm,l=stepList(k);l.splice(+b.dataset.i,1);row.v[k]=l.join('; ');redraw(k);});
         dr.querySelectorAll('[data-step-up]').forEach(b=>b.onclick=()=>{const k=b.dataset.stepUp,l=stepList(k),i=+b.dataset.i;[l[i-1],l[i]]=[l[i],l[i-1]];row.v[k]=l.join('; ');redraw(k);});

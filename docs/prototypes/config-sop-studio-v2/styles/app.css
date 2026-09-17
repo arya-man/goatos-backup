@@ -282,3 +282,8 @@ td.act{width:40px;text-align:right}
 .itbl td[data-label="Tracking"]{overflow:hidden!important}
 .itbl td.act{text-overflow:clip!important;padding-left:4px!important;padding-right:4px!important}
 @media(max-width:560px){.catpick{flex-wrap:wrap}.catpick select{flex:1 1 100%}}
+@media(max-width:760px){
+  .sheet td.rn label{white-space:nowrap;gap:4px}
+  .sheet .rnst .tag{font-size:0;width:9px;height:9px;min-width:0;padding:0;border-radius:50%;display:inline-block;vertical-align:middle}
+  .sheet td.msg{font-size:12px}
+}

@@ -23,10 +23,10 @@
       <button class="btn out" data-a="wb-menu">${ic('sheet')}Farm setup workbook</button></div>`;
   }
   function rail(active){
-    const sec=SECTIONS.find(s=>s[1].some(x=>x[0]===active));
-    return `<nav class="cfgrail card" aria-label="Registers">${SECTIONS.map(([t,items])=>`<div class="rsec"><div class="eyebrow">${esc(t)}</div>${items.map(([k,l])=>
-        `<a class="ritem ${k===active?'on':''}" href="#/configuration/items/${k}"><span>${esc(l)}</span><span class="rct">${count(k)}</span></a>`).join('')}</div>`).join('')}<div class="rsec"><div class="eyebrow">Other modules</div>${LINKS.map(([l,h])=>`<a class="ritem" href="${h}"><span>${l}</span><span class="rct">${ic('chevron-right','',12)}</span></a>`).join('')}</div></nav>
-      <select class="fsel cfgrail-m" data-railsel aria-label="Register">${SECTIONS.map(([t,items])=>`<optgroup label="${esc(t)}">${items.map(([k,l])=>`<option value="${k}" ${k===active?'selected':''}>${esc(l)} (${count(k)})</option>`).join('')}</optgroup>`).join('')}<optgroup label="Other modules">${LINKS.map(([l,h])=>`<option value="${h}">${l}</option>`).join('')}</optgroup></select>`;
+    const SECS=SECTIONS.filter(x=>!(x[0]==='Sales'&&window.App&&App.hideSales()));const sec=SECS.find(s=>s[1].some(x=>x[0]===active));
+    return `<nav class="cfgrail card" aria-label="Registers">${SECS.map(([t,items])=>`<div class="rsec"><div class="eyebrow">${esc(t)}</div>${items.map(([k,l])=>
+        `<a class="ritem ${k===active?'on':''}" href="#/configuration/items/${k}"><span>${esc(l)}</span><span class="rct">${count(k)}</span></a>`).join('')}</div>`).join('')}<div class="rsec"><div class="eyebrow">Other modules</div>${LINKS.filter(([,h])=>!window.App||App.roleCan(h)).map(([l,h])=>`<a class="ritem" href="${h}"><span>${l}</span><span class="rct">${ic('chevron-right','',12)}</span></a>`).join('')}</div></nav>
+      <select class="fsel cfgrail-m" data-railsel aria-label="Register">${SECS.map(([t,items])=>`<optgroup label="${esc(t)}">${items.map(([k,l])=>`<option value="${k}" ${k===active?'selected':''}>${esc(l)} (${count(k)})</option>`).join('')}</optgroup>`).join('')}<optgroup label="Other modules">${LINKS.filter(([,h])=>!window.App||App.roleCan(h)).map(([l,h])=>`<option value="${h}">${l}</option>`).join('')}</optgroup></select>`;
   }
   document.addEventListener('change',e=>{if(e.target.matches&&e.target.matches('[data-railsel]'))location.hash=e.target.value.startsWith('#')?e.target.value:'#/configuration/items/'+e.target.value;});
 
@@ -211,7 +211,7 @@
           <td data-label="Lots">${r.lots.length?r.lots.length+' · '+esc([...new Set(r.lots.map(l=>REG.labelById('parks',l.parkId)))].join(', ')):'<span class="muted">No stock yet</span>'}</td>
           <td data-label="Nearest expiry">${r.exp?esc(fmtD(r.exp)):''}</td>
           <td data-label="Alerts">${[r.low?UI.tag(r.lots.length?'Low stock':'Out of stock','warn'):'',r.expiring?UI.tag(r.days<0?'Expired':'Expires in '+r.days+' d',r.days<0?'dng':'warn'):''].join(' ')}</td></tr>`).join('')}</tbody></table>`
-        :tracked.length&&(INV.q||INV.cat||INV.park||INV.flag)?`<div class="empty">No items match</div>`:`<div class="empty">No stock yet<div class="mt"><button class="btn p" data-a="inv-receive">${ic('plus')}Receive stock</button></div></div>`}</div></section>`;
+        :tracked.length&&(INV.q||INV.cat||INV.park||INV.flag)?`<div class="empty">No items match</div>`:`<div class="empty"><button class="btn p" data-a="inv-receive">${ic('plus')}Receive stock</button></div>`}</div></section>`;
   }
   document.addEventListener('change',e=>{const t=e.target;if(t.matches&&t.matches('select[data-inv]')){INV[t.dataset.inv]=t.value;App.render();}});
   document.addEventListener('input',e=>{const t=e.target;if(t.matches&&t.matches('[data-invq]')){INV.q=t.value;const p=t.selectionStart;App.render();const n=document.querySelector('[data-invq]');if(n){n.focus();n.setSelectionRange(p,p);}}});
@@ -219,11 +219,13 @@
     'inv-flag'(el){INV.flag=el.dataset.v;App.render();},
     'inv-open'(el){itemForm(el.dataset.id,{tab:'stock'});},
     'inv-io'(el){UI.menu(el,[{label:'Import stock receipts',icon:'upload',run:()=>IO.start('lots')},{label:'Stock receipts template (.xlsx)',icon:'download',run:()=>IO.template('lots','xlsx')},{label:'Stock receipts template (.csv)',icon:'download',run:()=>IO.template('lots','csv')}]);},
-    'inv-receive'(){const its=S.active('items').filter(i=>REG.on(i.trackStock));
+    'inv-receive'(){const its=S.active('items');let pick='';
+      const body=()=>{const it=S.get('items',pick);return `<section class="isec"><div class="isec-b" style="border:0"><div class="fld full"><label for="rcv_item">Item<i class="rq"></i></label><select id="rcv_item" data-rcv class="${pick?'':'ph'}"><option value="">Select item</option>${S.active('categories').filter(isRoot).map(c=>{const xs=its.filter(i=>{const r=REG.catRoot(i.categoryId);return r&&r.id===c.id;});return xs.length?`<optgroup label="${esc(c.name)}">${xs.map(i=>`<option value="${i.id}" ${pick===i.id?'selected':''}>${esc(i.name)}</option>`).join('')}</optgroup>`:'';}).join('')}</select></div>
+        ${it&&!REG.on(it.trackStock)?`<div class="fld full"><label>Track stock</label><label class="capsw"><input type="checkbox" role="switch" data-rcvtrack><span class="knob"></span><span>Off</span></label></div>`:''}</div></section>`;};
       UI.drawer({head:`<div class="ihead"><span class="ikic">${ic('package','',18)}</span><div class="ihead-t"><div class="icrumb">Inventory</div><h2>Receive stock</h2></div></div>`,cls:'idr',
-        body:`<section class="isec"><div class="isec-b" style="border:0"><div class="fld full"><label for="rcv_item">Item<i class="rq"></i></label><select id="rcv_item" data-rcv class="ph" ${its.length?'':'disabled'}><option value="">${its.length?'Select item':'No stock-tracked items'}</option>${S.active('categories').filter(isRoot).map(c=>{const xs=its.filter(i=>{const r=REG.catRoot(i.categoryId);return r&&r.id===c.id;});return xs.length?`<optgroup label="${esc(c.name)}">${xs.map(i=>`<option value="${i.id}">${esc(i.name)}</option>`).join('')}</optgroup>`:'';}).join('')}</select></div></div></section>`,
-        foot:`<button class="btn" data-a="drawer-close">Cancel</button><span class="sp"></span>`,
-        mount(dr){const sel=dr.querySelector('[data-rcv]');sel.onchange=e=>{if(e.target.value)itemForm(e.target.value,{tab:'stock',act:'receive'});};}});}
+        body:body(),foot:`<button class="btn" data-a="drawer-close">Cancel</button><span class="sp"></span>`,
+        mount(dr){const sel=dr.querySelector('[data-rcv]');sel.onchange=e=>{pick=e.target.value;const it=S.get('items',pick);if(it&&REG.on(it.trackStock))itemForm(pick,{tab:'stock',act:'receive'});else UI.redrawDrawer({body:body()});};
+          const tr=dr.querySelector('[data-rcvtrack]');if(tr)tr.onchange=()=>{if(!tr.checked)return;const it=S.get('items',pick);S.snap('Track stock');it.trackStock=true;S.save();itemForm(pick,{tab:'stock',act:'receive'});UI.toast('Stock tracking on for '+it.name);};}});}
   });
 
   /* item drawer: definition + policy only (stock lives in lots); owner department locked on fixed catalogues */
@@ -441,7 +443,7 @@
   function parkPage(id){
     const park=id!=='new'?S.get('parks',id):null;
     if(!park){setTimeout(()=>parkDrawer(null),0);
-      return `<div class="phead"><div><div class="crumb">Configuration / <a href="#/configuration/items/parks">Items and settings</a> / <b>New park</b></div><h1>New park</h1></div></div><section class="card"><div class="empty">Name the park to start adding pens<div class="mt"><button class="btn p" data-a="pk-edit" data-id="">${ic('plus')}New park</button></div></div></section>`;}
+      return `<div class="phead"><div><div class="crumb">Configuration / <a href="#/configuration/items/parks">Items and settings</a> / <b>New park</b></div><h1>New park</h1></div></div><section class="card"><div class="empty"><div><button class="btn p" data-a="pk-edit" data-id="">${ic('plus')}New park</button></div></div></section>`;}
     const pens=pensOf(park.id);const parts=S.active('partitions').filter(t=>pens.some(p=>p.id===t.penId));
     const animals=S.active('animals').filter(a=>a.parkId===park.id);
     const meta=[park.code,pens.length+' pen'+(pens.length===1?'':'s'),parts.length+' partition'+(parts.length===1?'':'s'),animals.length+' animal'+(animals.length===1?'':'s')].filter(Boolean).join(' · ');
@@ -472,7 +474,7 @@
   function parkDrawer(id){
     const park=id?S.get('parks',id):null;const f={farm:park?REG.labelById('farms',park.farmId):'',name:park?park.name:'',code:park?park.code||'':''};let err={};
     const body=()=>`<section class="isec"><div class="isec-b" style="border:0"><div class="fgrid">
-      ${fldH('Park name',`<input data-pk="name" value="${esc(f.name)}">`,1,1,err.name)}
+      ${fldH('Park name',`<input data-pk="name" value="${esc(f.name)}" placeholder="Park name">`,1,1,err.name)}
       ${fldH('Farm',`<input data-pk="farm" value="${esc(f.farm)}" list="pkfarms" placeholder="Search or type a new farm"><datalist id="pkfarms">${S.active('farms').map(x=>`<option value="${esc(x.name)}">`).join('')}</datalist>`,0,0,farmIsNew(f.farm)?'':'')}
       ${fldH('Code',`<input data-pk="code" value="${esc(f.code)}">`)}</div></div></section>`;
     UI.drawer({head:drawerHead('map-pin',park?park.name+' · Edit park':'Parks · New park',park?'Edit park':'New park'),cls:'idr',body:body(),

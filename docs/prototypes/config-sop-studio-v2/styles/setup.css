@@ -360,3 +360,6 @@ body:has(#drawer.on .df) .toast{bottom:84px}
 .slclash li>span{white-space:nowrap}
 .slclash li>span a{margin-left:6px}
 @media(max-width:560px){.slclash li{display:grid;grid-template-columns:1fr;gap:4px}.slclash li>span{white-space:normal;display:flex;justify-content:space-between;align-items:baseline;gap:8px}.slclash li>span:nth-child(2){display:none}}
+.stwrap{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+.idot{width:8px;height:8px;border-radius:50%;background:var(--warn,#f5a524);flex:none;box-shadow:0 0 0 3px color-mix(in srgb,var(--warn,#f5a524) 25%,transparent)}
+.twrap:has(.empty),.ltable:has(.empty){box-shadow:none;background:none;overflow:visible}
