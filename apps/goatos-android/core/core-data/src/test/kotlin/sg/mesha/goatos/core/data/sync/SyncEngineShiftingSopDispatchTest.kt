@@ -7,6 +7,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.jsonObject
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -16,6 +17,8 @@ import sg.mesha.goatos.core.common.AppResult
 import sg.mesha.goatos.core.common.DispatcherProvider
 import sg.mesha.goatos.core.network.AppApi
 import sg.mesha.goatos.core.network.FakeAppApi
+import sg.mesha.goatos.core.network.NetworkFactory
+import sg.mesha.goatos.core.network.dto.CountsShiftingCompleteRequestDto
 import sg.mesha.goatos.core.network.dto.CountsShiftingEventRequestDto
 import sg.mesha.goatos.core.network.dto.CountsShiftingEventResponseDto
 import sg.mesha.goatos.core.network.dto.CountsShiftingExecutionResponseDto
@@ -43,9 +46,13 @@ class SyncEngineShiftingSopDispatchTest {
     private class RecordingApi(delegate: AppApi = FakeAppApi()) : AppApi by delegate {
         var proofRef: String? = null
         var packingRef: String? = null
+        var givenRef: String? = null
+        var fingerprint: String? = null
         var proofs: Map<String, String>? = null
         var answers: JsonObject? = null
         var raise: CountsShiftingEventRequestDto? = null
+        /** The completion body exactly as the network layer serializes it (explicitNulls=false). */
+        var wireBody: JsonObject? = null
 
         override suspend fun completeCountsShiftingEvent(
             shiftingEventId: String,
@@ -58,8 +65,22 @@ class SyncEngineShiftingSopDispatchTest {
             proofs: Map<String, String>?,
             answers: JsonObject?,
         ): CountsShiftingExecutionResponseDto {
+            wireBody = NetworkFactory.json.encodeToJsonElement(
+                CountsShiftingCompleteRequestDto.serializer(),
+                CountsShiftingCompleteRequestDto(
+                    proofRef = proofRef,
+                    feedPackingProofRef = feedPackingProofRef,
+                    feedGivenProofRef = feedGivenProofRef,
+                    feedConfigFingerprint = feedConfigFingerprint,
+                    destinationTag = destinationTag,
+                    proofs = proofs,
+                    answers = answers,
+                ),
+            ).jsonObject
             this.proofRef = proofRef
             this.packingRef = feedPackingProofRef
+            this.givenRef = feedGivenProofRef
+            this.fingerprint = feedConfigFingerprint
             this.proofs = proofs
             this.answers = answers
             return CountsShiftingExecutionResponseDto(shiftingEventId = shiftingEventId, eventStatus = "applied")
@@ -118,6 +139,79 @@ class SyncEngineShiftingSopDispatchTest {
         assertEquals("fake-proof-counts-shifting-proof:move-1:walk", api.proofRef)
         // An authored card's feed capture is a slot, not the legacy packing column.
         assertNull(api.packingRef)
+        assertTrue("proofs" in api.wireBody!!.keys)
+        assertTrue("answers" in api.wireBody!!.keys)
+    }
+
+    /**
+     * ROLLOUT ORDER (maintainer rule): this APK can reach phones before the SOP backend. The
+     * pre-SOP backend decodes the completion strictly and refuses unknown keys with 400
+     * invalid_json, so a SEEDED card with no answers must put ONLY the legacy triple on the wire.
+     */
+    @Test
+    fun `a seeded low-priority completion sends only the legacy triple on the wire`() = runBlocking {
+        val api = RecordingApi()
+        val repo = repository(api)
+        val walk = repo.syncedProof("move-3", "walk")
+        repo.enqueueShiftingComplete(
+            groupKey = "move-3",
+            idempotencyKey = "counts-shifting-complete:move-3",
+            proofOutboxItemId = walk,
+            slotProofs = linkedMapOf("shifting_shifting_video" to FeedSlotProofSourcePayload(outboxItemId = walk)),
+            answers = JsonObject(emptyMap()),
+        )
+        val body = api.wireBody!!
+        assertEquals(setOf("proof_ref"), body.keys)
+        assertEquals("fake-proof-counts-shifting-proof:move-3:walk", api.proofRef)
+        assertNull(api.proofs)
+        assertNull(api.answers)
+    }
+
+    @Test
+    fun `a seeded high-priority completion sends only the legacy triple on the wire`() = runBlocking {
+        val api = RecordingApi()
+        val repo = repository(api)
+        val walk = repo.syncedProof("move-4", "walk")
+        val pack = repo.syncedProof("move-4", "pack")
+        val feed = repo.syncedProof("move-4", "feed")
+        repo.enqueueShiftingComplete(
+            groupKey = "move-4",
+            idempotencyKey = "counts-shifting-complete:move-4",
+            proofOutboxItemId = walk,
+            feedPackingProofOutboxItemId = pack,
+            feedGivenProofOutboxItemId = feed,
+            feedConfigFingerprint = "fp",
+            slotProofs = linkedMapOf(
+                "shifting_shifting_video" to FeedSlotProofSourcePayload(outboxItemId = walk),
+                "shifting_packing_video" to FeedSlotProofSourcePayload(outboxItemId = pack),
+                "shifting_feeding_video" to FeedSlotProofSourcePayload(outboxItemId = feed),
+            ),
+            answers = JsonObject(emptyMap()),
+        )
+        val body = api.wireBody!!
+        assertEquals(setOf("proof_ref", "feed_packing_proof_ref", "feed_given_proof_ref", "feed_config_fingerprint"), body.keys)
+        assertEquals("fake-proof-counts-shifting-proof:move-4:pack", api.packingRef)
+        assertEquals("fake-proof-counts-shifting-proof:move-4:feed", api.givenRef)
+        assertNull(api.proofs)
+        assertNull(api.answers)
+    }
+
+    @Test
+    fun `a seeded card that recorded an answer still sends proofs and answers`() = runBlocking {
+        val api = RecordingApi()
+        val repo = repository(api)
+        val walk = repo.syncedProof("move-5", "walk")
+        val answers = JsonObject(mapOf("calm" to JsonPrimitive("yes")))
+        repo.enqueueShiftingComplete(
+            groupKey = "move-5",
+            idempotencyKey = "counts-shifting-complete:move-5",
+            proofOutboxItemId = walk,
+            slotProofs = linkedMapOf("shifting_shifting_video" to FeedSlotProofSourcePayload(outboxItemId = walk)),
+            answers = answers,
+        )
+        val body = api.wireBody!!
+        assertTrue("proofs" in body.keys)
+        assertTrue("answers" in body.keys)
     }
 
     @Test
