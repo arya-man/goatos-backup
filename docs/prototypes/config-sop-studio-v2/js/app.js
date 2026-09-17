@@ -133,6 +133,7 @@
   }
 
   App.render=function(){
+    const keep=['.cfgrail','.side nav','.side .nav','#side'].map(q=>{const e=document.querySelector(q);return e?[q,e.scrollTop]:null;}).filter(Boolean);
     const h=location.hash||'#/configuration/items';
     const parts=h.replace(/^#\/?/,'').split('?')[0].split('/').filter(Boolean);
     App.route={path:h,parts,params:{}};
@@ -158,9 +159,11 @@
       else if(MODULE_PAGES[h])out={html:MODULE_PAGES[h]()};
       else out={html:placeholder()};
     }catch(e){console.error(e);out={html:`<div class="phead"><h1>Something went wrong</h1></div><section class="card pad"><pre class="mono" style="white-space:pre-wrap">${esc(e.stack||e)}</pre></section>`};}
+    const sameSection=(App._lastPath||'').split('/').slice(0,3).join('/')===h.split('/').slice(0,3).join('/');
     wrap.innerHTML=out.html;
     if(out.mount)out.mount(wrap);
-    if(App._lastPath===h)main.scrollTop=keepScroll; else main.scrollTop=0;
+    if(App._lastPath===h)main.scrollTop=keepScroll; else if(!sameSection)main.scrollTop=0;
+    keep.forEach(([q,t])=>{const e=document.querySelector(q);if(e)e.scrollTop=t;});
     App._lastPath=h;
   };
   App.renderCanvasOnly=function(){
