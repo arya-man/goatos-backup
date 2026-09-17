@@ -1432,6 +1432,14 @@ class SyncEngine(
             // id; `proofs` + `answers` are the submission, and the legacy columns ride along as the
             // seeded slots' mirrors (proof_ref falls back to the first capture, as the server does).
             val proofs = resolveSlotProofs(payload.slotProofs)
+            val answers = payload.answers?.takeIf { it.isNotEmpty() }
+            // ROLLOUT ORDER (maintainer rule): a SEEDED card with no answers is exactly the pre-SOP
+            // submission, so it goes on the wire as the legacy triple ALONE. A backend that predates
+            // the shifting SOP decodes strictly and refuses unknown `proofs`/`answers` keys; the SOP
+            // backend folds the seeded slots back onto the same triple, so both hash one completion.
+            val seededOnly = answers == null &&
+                SEEDED_SHIFTING_VIDEO_SLOT in proofs &&
+                proofs.keys.all { it in SEEDED_SHIFTING_SLOTS }
             val response = api.completeCountsShiftingEvent(
                 payload.shiftingEventId,
                 item.idempotencyKey,
@@ -1441,8 +1449,8 @@ class SyncEngine(
                 proofs[SEEDED_SHIFTING_PACKING_SLOT],
                 proofs[SEEDED_SHIFTING_FEEDING_SLOT],
                 payload.feedConfigFingerprint,
-                proofs,
-                payload.answers?.takeIf { it.isNotEmpty() },
+                proofs.takeUnless { seededOnly },
+                answers,
             )
             return syncJson.encodeToString(response)
         }
@@ -2434,3 +2442,4 @@ internal const val FEED_SLOT_TRANSPORT_VIDEO = "feed_transport_video"
 private const val SEEDED_SHIFTING_VIDEO_SLOT = "shifting_shifting_video"
 private const val SEEDED_SHIFTING_PACKING_SLOT = "shifting_packing_video"
 private const val SEEDED_SHIFTING_FEEDING_SLOT = "shifting_feeding_video"
+private val SEEDED_SHIFTING_SLOTS = setOf(SEEDED_SHIFTING_VIDEO_SLOT, SEEDED_SHIFTING_PACKING_SLOT, SEEDED_SHIFTING_FEEDING_SLOT)
