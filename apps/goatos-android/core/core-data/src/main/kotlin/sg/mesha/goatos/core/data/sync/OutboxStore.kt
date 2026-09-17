@@ -89,6 +89,13 @@ interface OutboxStore {
      *  retry and a concurrent drain can never silently clobber each other. */
     suspend fun markInFlight(id: String, now: Long): Boolean
     suspend fun markSucceeded(id: String, resultJson: String, now: Long): Boolean
+
+    /** Dead-letter (conflict) Birth/Death/Reconcile step writes, oldest first, bounded by [limit]. */
+    suspend fun findConflictedWorkflowActionWrites(limit: Int): List<OutboxEntity> = emptyList()
+
+    /** Settles a conflict FAILED row whose write the server already holds as SUCCEEDED. Returns
+     *  `false` when the row is no longer a FAILED conflict (a manual retry already moved it). */
+    suspend fun settleConflictAsSucceeded(id: String, resultJson: String, now: Long): Boolean = false
     suspend fun markFailed(id: String, attemptCount: Int, nextAttemptAt: Long, conflict: Boolean, lastError: String, lastErrorCode: String?, lastErrorField: String?, now: Long): Boolean
 
     /** Re-arms a terminal FAILED row for another attempt: resets [OutboxEntity.attemptCount] to
@@ -176,6 +183,12 @@ class RoomOutboxStore(private val dao: OutboxDao) : OutboxStore {
 
     override suspend fun markSucceeded(id: String, resultJson: String, now: Long): Boolean =
         dao.markSucceeded(id, resultJson, now) > 0
+
+    override suspend fun findConflictedWorkflowActionWrites(limit: Int): List<OutboxEntity> =
+        dao.findConflictedWorkflowActionWrites(limit)
+
+    override suspend fun settleConflictAsSucceeded(id: String, resultJson: String, now: Long): Boolean =
+        dao.settleConflictAsSucceeded(id, resultJson, now) > 0
 
     override suspend fun markFailed(
         id: String,
