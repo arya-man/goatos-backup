@@ -45,3 +45,9 @@ test("stacked series colours do not immediately repeat after the base token pale
   assert.match(source, /fill=\{seriesColorVar\(s\)\}/);
   assert.doesNotMatch(source, /fill=\{SERIES_VARS\[s % SERIES_VARS\.length\]\}/);
 });
+
+test("stacked columns use the empty state for all-zero bar series", () => {
+  assert.match(source, /const totals = days\.map\(\(d\) => d\.segments\.reduce\(\(a, b\) => a \+ b, 0\)\);/);
+  assert.match(source, /days\.length === 0 \|\| !totals\.some\(\(total\) => total > 0\)/);
+  assert.match(source, /const max = Math\.max\(1, \.\.\.totals\);/);
+});

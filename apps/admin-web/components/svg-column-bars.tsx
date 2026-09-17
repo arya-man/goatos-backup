@@ -46,7 +46,8 @@ export function SvgColumnBars({
   /** Resolved from the page contract by the caller. */
   emptyLabel: string;
 }) {
-  if (data.length === 0) {
+  const hasAnyValue = data.some((d) => d.value > 0 || (d.compareValue ?? 0) > 0);
+  if (data.length === 0 || !hasAnyValue) {
     return (
       <div className="muted small" style={{ padding: "12px 2px", textAlign: "center" }}>
         {emptyLabel}
@@ -93,8 +94,8 @@ export function SvgColumnBars({
               />
             )}
             <rect x={x} y={BASELINE - height} width={barWidth} height={height} rx={3} fill="var(--brand)" />
-            {/* One hit area per day spanning the full slot, so a day with zero verdicts still has a
-                tooltip -- a zero day is exactly the one a reader wants to interrogate. */}
+            {/* One hit area per active chart day spans the full slot, so a zero primary value can
+                still be interrogated when the comparison series gives the day visible context. */}
             <rect x={PAD_X + index * slot} y={PAD_TOP} width={slot} height={BASELINE - PAD_TOP} fill="transparent">
               <title>
                 {datum.label}: {datum.value} {valueNoun}

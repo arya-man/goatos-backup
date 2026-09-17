@@ -97,14 +97,14 @@ export function StackedColumns({
   chartLabel: string;
   emptyLabel: string;
 }) {
-  if (days.length === 0) {
+  const totals = days.map((d) => d.segments.reduce((a, b) => a + b, 0));
+  if (days.length === 0 || !totals.some((total) => total > 0)) {
     return (
       <div className="muted small" style={{ padding: "12px 2px", textAlign: "center" }}>
         {emptyLabel}
       </div>
     );
   }
-  const totals = days.map((d) => d.segments.reduce((a, b) => a + b, 0));
   const max = Math.max(1, ...totals);
   const padX = padForTicks(max);
   const slot = (VIEW_W - padX - PAD_X) / days.length;

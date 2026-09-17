@@ -107,7 +107,7 @@ export function GroupedColumns({
                     // Absent or zero: no bar and no figure. The tooltip still carries the display
                     // string, so "cost not recorded" and "0" stay distinguishable where it matters.
                     return (
-                      <span key={s.key} className="gcb">
+                      <span key={s.key} className="gcb gcempty" aria-hidden="true">
                         <span className="gcbar none" />
                       </span>
                     );
