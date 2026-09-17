@@ -224,7 +224,7 @@ func activeAnimalsSQL(tenantID string, scope knownParkScope, groupBy, text strin
 		where += " AND age_days < 365"
 	}
 	return fmt.Sprintf(
-		"SELECT 'Active animals' AS label, CAST(count(*) AS text) AS value, %s AS scope FROM ceo_ai.animal_current_scope WHERE %s GROUP BY %s ORDER BY count(*) DESC LIMIT 50",
+		"/* projection-review: membership=ceo_ai.animal_current_scope alive animal rows; group_key=requested species breed or shed label; join_cardinality=view already resolves animal scope one row per active animal; pagination=bounded top 50 after full grouped aggregate; scope=tenant plus explicit park filter */ SELECT 'Active animals' AS label, CAST(count(*) AS text) AS value, %s AS scope FROM ceo_ai.animal_current_scope WHERE %s GROUP BY %s ORDER BY count(*) DESC LIMIT 50",
 		groupCol,
 		where,
 		groupCol,
@@ -281,7 +281,8 @@ func healthIssueSQL(tenantID string, scope knownParkScope, hasScope bool) string
 		where += " AND air.park_location_id = " + sqlStringLiteral(scope.id)
 	}
 	return fmt.Sprintf(
-		`SELECT COALESCE(pt.display_name, loc.name, 'Unknown source') AS label,
+		`/* projection-review: membership=procurement_source_health_checks rows joined to one procurement load; group_key=load plus purchase date plus source label; join_cardinality=health checks are the counted many side and arrival_intake_reviews is scoped by load; pagination=bounded top 50 after full grouped aggregate; scope=tenant plus explicit park location filter */
+		SELECT COALESCE(pt.display_name, loc.name, 'Unknown source') AS label,
 		       CAST(COUNT(*) FILTER (WHERE h.health_state IN ('blocked','failed','sick','quarantine')) AS text) AS value,
 		       ('Load ' || left(l.load_id::text, 8) || COALESCE(' · ' || to_char(l.purchase_date, 'DD Mon'), '')) AS scope
 		FROM procurement_loads l

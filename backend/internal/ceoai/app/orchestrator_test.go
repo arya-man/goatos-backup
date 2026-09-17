@@ -495,7 +495,7 @@ func TestNaturalSQLQuestionRemembersScopedParkForFollowup(t *testing.T) {
 	}
 }
 
-func TestNaturalHealthQuestionScopesToKnownPark(t *testing.T) {
+func TestNaturalHealthOneToManyPageBoundaryDateShiftParkScope(t *testing.T) {
 	sqlFB := &fakeSQLFallback{result: domain.ToolResult{
 		Facts: []domain.Fact{{Label: "Vendor A", Value: "2", Scope: "Load 12345678"}},
 	}}

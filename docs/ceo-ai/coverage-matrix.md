@@ -1649,5 +1649,11 @@ reporting paths.
 | app_network_daily | EXCLUDED | App-wide Firebase Performance exported network-sample percentiles and sample counts read by Grafana. Daily sampled application diagnostics, not tenant business KPIs or a complete census of operator requests. |
 | func:RecordSweeperTasksCreated | EXCLUDED | Internal operational telemetry records exact newly committed SOP task creation counts; replay does not increment it. Existing canonical task APIs remain the leadership reporting source, not this monitoring counter. |
 
+## Ask Mesha live SQL/read-tool routing (2026-09-18)
+
+| Surface | Decision | Reason |
+| --- | --- | --- |
+| func:Spec, func:Execute, func:SetSalesDataReader, func:HasSQLFallback, func:ExecuteTrustedReadOnlyForTenant, func:ExecuteTrusted | COVERED | Ask Mesha leadership assistant live-read plumbing. `Spec`/`Execute` are the registered read-tool surfaces, `SetSalesDataReader` wires the covered Sales overview reader, and `HasSQLFallback`/`ExecuteTrustedReadOnlyForTenant`/`ExecuteTrusted` expose server-authored read-only SQL fallbacks only for governed natural-language questions. Coverage path is the existing leadership assistant read API plus the `ceo_ai.*` reporting views and registered readers used by those fallbacks; model-supplied SQL cannot select the trusted path. Tests cover sales routing, active animal park scope, breed follow-up memory, graph-by-pen, weighing, feed date filters, source-entry health scoped to park, and trusted-SQL rejection. |
+
 | rollup_dispatch | EXCLUDED | Internal durable dispatch lease for the existing analytics Cloud Run job. No business fact; final job status remains rollup_run and the lease must not be interpreted as completion. |
 | func:NewAnalyticsRollupStage | EXCLUDED | Shared kernel-worker cadence adapter for operational diagnostics refresh, not a leadership read API. |
