@@ -1010,7 +1010,7 @@ interface SyncRepository {
     suspend fun triggerDrain()
 }
 
-private class IdempotencyKeyConflict : Exception("Idempotency key already belongs to a different queued write.")
+private class IdempotencyKeyConflict : Exception("This was already saved on this phone with different details. Open Sync status to review it.")
 
 /** Mirrors the exact terminal guard in [sg.mesha.goatos.core.database.outbox.OutboxDao.reopenTerminalForRetry]:
  *  a FAILED row the drain loop will never touch again on its own — either a definitive server
@@ -2169,7 +2169,7 @@ class DefaultSyncRepository(
             // (a torn-down caller scope must see its own cancellation, not a fake failure).
             throw cancellation
         } catch (e: IdempotencyKeyConflict) {
-            AppResult.Err(e.message ?: "Idempotency key already belongs to a different queued write.")
+            AppResult.Err(e.message ?: "This was already saved on this phone with different details. Open Sync status to review it.")
         } catch (e: Throwable) {
             AppResult.Err("Couldn't queue the write: ${e.message}", e)
         }
@@ -2641,12 +2641,38 @@ internal fun canonicalOutboxFingerprintPayload(
     payloadJson: String,
     json: kotlinx.serialization.json.Json,
 ): String {
+    if (opType == OutboxOpType.WORKFLOW_ACTION_COMPLETE || opType == OutboxOpType.WORKFLOW_ACTION_ANSWER) {
+        return canonicalWorkflowStepFingerprintPayload(opType, payloadJson, json)
+    }
     if (opType != OutboxOpType.HEALTH_CASE_OPEN) return payloadJson
     return runCatching {
         val payload = json.decodeFromString<HealthCaseOpenPayload>(payloadJson)
         json.encodeToString(payload.copy(goatDisplayId = "", diseaseName = ""))
     }.getOrDefault(payloadJson)
 }
+
+/**
+ * A workflow step's proof is identified by its upload outbox id; the server proof id riding beside
+ * it is only a hint that lets a delayed write survive outbox pruning. A screen that re-sends the
+ * step after that proof synced carries the hint where the original write did not, and must still
+ * be the SAME write -- treating it as different refused the re-send with a conflict the operator
+ * saw on screen (Realme E2E 2026-09-17). A proof known ONLY by its server id keeps it.
+ */
+private fun canonicalWorkflowStepFingerprintPayload(
+    opType: OutboxOpType,
+    payloadJson: String,
+    json: kotlinx.serialization.json.Json,
+): String = runCatching {
+    fun List<WorkflowProofOutboxRef>.canonical() =
+        map { if (it.outboxItemId.isNotBlank()) it.copy(proofRef = "") else it }
+    if (opType == OutboxOpType.WORKFLOW_ACTION_COMPLETE) {
+        val payload = json.decodeFromString<WorkflowActionCompletePayload>(payloadJson)
+        json.encodeToString(payload.copy(proofOutboxItems = payload.proofOutboxItems.canonical()))
+    } else {
+        val payload = json.decodeFromString<WorkflowActionAnswerPayload>(payloadJson)
+        json.encodeToString(payload.copy(proofOutboxItems = payload.proofOutboxItems.canonical()))
+    }
+}.getOrDefault(payloadJson)
 
 /** Pure projection used by the production outbox-backed Health pending-report read path. */
 internal fun projectPendingHealthCaseOpens(
