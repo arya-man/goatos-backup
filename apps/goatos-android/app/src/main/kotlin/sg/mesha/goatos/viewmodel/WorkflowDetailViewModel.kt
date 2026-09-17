@@ -1049,7 +1049,7 @@ class WorkflowDetailViewModel @Inject constructor(
                     operatorFinishedWorkflowStatus(previous.status) || previous.actionId in draftedActionIds
                 }
                 val blocked = workflowBlockedForOperator(action, isDeathModule, predecessorsReady)
-                val ui = action.toActionUi(now, blocked, locallyRecorded, this.parkLabel)
+                val ui = action.toActionUi(now, blocked, locallyRecorded, this.parkLabel, module)
                 // A one-video step keeps its legacy control (a question records its video through
                 // Yes/No); a SOP step with photos or several videos captures each proof explicitly.
                 val multiProof = ui.proofMinPhotos > 0 || ui.proofMinVideos > 1
@@ -1100,6 +1100,7 @@ class WorkflowDetailViewModel @Inject constructor(
         blocked: Boolean,
         locallyRecorded: Boolean,
         parkLabelForPens: String = "",
+        moduleForCopy: String = WORKFLOW_MODULE_BIRTH,
     ): WorkflowActionUi {
         val due = dueAt?.let { runCatching { Instant.parse(it) }.getOrNull() }
         val numericAnswerUnit = workflowNumericAnswerUnit(this)
@@ -1212,7 +1213,7 @@ class WorkflowDetailViewModel @Inject constructor(
             // "Blocked" chip is a dead end for the person holding the phone.
             // A step sent back carries the verifier's reason so the operator knows what to re-shoot.
             footer = if (status == STATUS_REWORK && reworkReason.isNotBlank()) reworkReason
-            else completedByLabel.orEmpty().ifBlank { workflowBlockedNote(blocked, blockedReason) },
+            else completedByLabel.orEmpty().ifBlank { workflowBlockedNote(blocked, blockedReason, moduleForCopy) },
             answerValue = answerValue,
         )
     }
@@ -1445,10 +1446,13 @@ internal fun workflowAccessLabel(blockedReason: String?, due: Instant?, now: Ins
  * this line the operator sees "Blocked" with nothing to act on, taps anyway, and gets a rejection
  * (docs/decisions/colostrum-milk-module.md).
  */
-internal fun workflowBlockedNote(blocked: Boolean, blockedReason: String?): String {
+internal fun workflowBlockedNote(blocked: Boolean, blockedReason: String?, module: String = WORKFLOW_MODULE_BIRTH): String {
     if (!blocked) return ""
     return when (blockedReason) {
-        WORKFLOW_BLOCKED_PREVIOUS_ACTION -> "Finish the earlier birth steps for this kid first."
+        // Only a kid's Birth track has "birth steps"; a Death or Reconcile card said the same
+        // sentence about work that has nothing to do with a birth (Realme E2E 2026-09-17).
+        WORKFLOW_BLOCKED_PREVIOUS_ACTION ->
+            if (module == WORKFLOW_MODULE_BIRTH) "Finish the earlier birth steps for this kid first." else "Finish the earlier steps first."
         "signoff" -> "Waiting for the videos this step signs off."
         else -> ""
     }
@@ -1505,6 +1509,7 @@ private val WORKFLOW_IST: ZoneId = ZoneId.of("Asia/Kolkata")
 private val WORKFLOW_DATE_TIME_FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("dd/MM/yyyy · HH:mm")
 private const val WORKFLOW_SECTION_COLOSTRUM = "colostrum_session"
 internal const val WORKFLOW_BLOCKED_PREVIOUS_ACTION = "previous_action"
+private const val WORKFLOW_MODULE_BIRTH = "birth"
 private const val WORKFLOW_ACTION_KEY_FIRST_COLOSTRUM = "first_colostrum"
 private const val WORKFLOW_ACTION_KEY_TAG_THE_KID = "tag_the_kid"
 private const val KEY_PENDING_PROOFS = "workflow_detail.pending_proofs"
