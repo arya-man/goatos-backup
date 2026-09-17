@@ -3462,6 +3462,12 @@ select:disabled { opacity: .45; }
    set becomes a bottom SHEET instead of a squeezed bar. /tasks is opened inside the WhatsApp
    in-app webview at phone width, where a nine-control bar folded into a single column is a page
    of chrome above the first row.
+   ONE BREAKPOINT FOR THE WHOLE PAGE: 760px. This page previously switched at three widths (560px
+   for tap targets, 600px for the urgency column, 760px for the sheet), so 561-760px got the bottom
+   sheet with ~28px controls. 760px wins because it is the breakpoint the rest of this stylesheet
+   already uses for "narrow" (the sidebar/drawer, weights, herd-signals and sales blocks all switch
+   there); the 560px block is the app-wide TOUCH floor for every other page and is left alone, with
+   this page's own touch sizing restated inside the 760px query below.
    Every rule is scoped to `.lt-fsheet-host` so the live tracker's own `.lt-fbar` is untouched, and
    the compound selector is what lets these beat the generic phone `.lt-fbar` rule further down the
    sheet (specificity, not source order). Colours are var() / color-mix only -- no new palette. */
@@ -3482,7 +3488,10 @@ select:disabled { opacity: .45; }
   .lt-page .lt-fsheet-host .lt-fsearch{max-width:none}
   .lt-page .lt-fsheet-host .lt-fmore{display:inline-flex;flex:none}
   .lt-page .lt-fsheet-host .lt-fgroup{display:none}
-  .lt-page .lt-fsheet-host .lt-fgroup.open{display:grid;gap:11px;position:fixed;left:0;right:0;bottom:0;z-index:151;max-height:84vh;overflow-y:auto;padding:14px 16px calc(16px + env(safe-area-inset-bottom));background:var(--panel);border-top:1px solid var(--line);border-radius:16px 16px 0 0;box-shadow:var(--shadow)}
+  /* `vh` first as the fallback for engines without `dvh`, then `dvh`: the WhatsApp in-app browser
+     retracts its chrome, so a `vh` box is measured against a viewport that is not the one the
+     reader has and the bottom of the sheet becomes unreachable. */
+  .lt-page .lt-fsheet-host .lt-fgroup.open{display:grid;gap:11px;position:fixed;left:0;right:0;bottom:0;z-index:151;max-height:84vh;max-height:84dvh;overflow-y:auto;padding:14px 16px calc(16px + env(safe-area-inset-bottom));background:var(--panel);border-top:1px solid var(--line);border-radius:16px 16px 0 0;box-shadow:var(--shadow)}
   .lt-page .lt-fsheet-host .lt-fgroup.open .lt-fsheet-hd{display:flex;align-items:center;gap:9px;font-size:14px}
   .lt-page .lt-fsheet-host .lt-fgroup.open .lt-fsel{width:100%;justify-content:space-between;min-height:42px}
   .lt-page .lt-fsheet-host .lt-fgroup.open .lt-fsel select,.lt-page .lt-fsheet-host .lt-fgroup.open .lt-fsel input[type=date]{width:100%;max-width:100%;text-align:right}
@@ -3490,6 +3499,20 @@ select:disabled { opacity: .45; }
   .lt-page .lt-fsheet-host .lt-fgroup.open .lt-chips{gap:7px}
   .lt-page .lt-fsheet-host .lt-fnote{margin-left:0;white-space:normal}
   .lt-page .lt-fscrim{z-index:150}
+  /* TAP TARGETS, at the SAME breakpoint as the sheet (see the breakpoint note above).
+     The status chips are this page's primary filter affordance and are `<a class="achip">`
+     elements, which the app's generic phone touch block (`.main button,.btn,.btn.sm`) never
+     matched — they were ~23px boxes. Scoped to `.lt-fsheet-host`, so `.achip` on every other
+     page keeps its own size, and only inside this query, so the desktop bar is unchanged. */
+  .lt-page .lt-fsheet-host .lt-chips .achip,
+  .lt-page .lt-fsheet-host .achip.lt-fclear{min-height:40px;padding:4px 12px;font-size:12.5px}
+  .lt-page .lt-fsheet-host .achip.lt-fclear{justify-content:center}
+  .lt-page .lt-fsheet-host .btn,
+  .lt-page .lt-fsheet-host .btn.sm,
+  .lt-page .lt-fsheet-host button{min-height:40px}
+  .lt-page .lt-fsheet-host .lt-qclr{min-width:40px;min-height:40px;justify-content:center}
+  .lt-page .lt-fsheet-host .lt-fsearch,
+  .lt-page .lt-fsheet-host .lt-fsel{min-height:40px}
 }
 
 /* ---- What a write SAID. Nothing rendered the outcome of a status change, a note or an edit
@@ -3595,14 +3618,15 @@ select:disabled { opacity: .45; }
 .lt-page .lt-clock-compact .lt-clock-deadline{white-space:nowrap}
 .lt-page table.lt-task-table td.lt-days-col{min-width:0;white-space:nowrap}
 .lt-page .lt-clock-inline{display:none;margin-top:6px}
-@media(max-width:600px){.lt-page .lt-days-col{display:none}.lt-page .lt-clock-inline{display:block}}
+/* 760px, the same breakpoint as the filter sheet and the tap targets above. */
+@media(max-width:760px){.lt-page .lt-days-col{display:none}.lt-page .lt-clock-inline{display:block}}
 .lt-page .lt-note-box{margin:0 0 14px}
 .lt-page .lt-note-box b{display:block;margin-bottom:4px;line-height:1.2}
 .lt-page .lt-note-box p{margin:0;line-height:1.45;color:var(--ink)}
 .lt-page .lt-status-actions{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 14px}
 .lt-page .lt-comment-form{display:grid;gap:10px;margin:0 0 14px}
 .lt-page .lt-detail-feed{max-height:none;padding-top:2px}
-@media(max-width:560px){.lt-page .lt-detail-meta{grid-template-columns:1fr}.lt-page .lt-detail-meta > div{min-height:auto;gap:10px}}
+@media(max-width:760px){.lt-page .lt-detail-meta{grid-template-columns:1fr}.lt-page .lt-detail-meta > div{min-height:auto;gap:10px}}
 
 /* Live activity feed */
 .lt-page .lt-feedsummary{display:flex;gap:7px;flex-wrap:wrap;padding:10px 15px;border-top:1px solid var(--line);border-bottom:1px solid var(--line2);background:rgba(255,255,255,.02)}
@@ -5093,10 +5117,14 @@ select:disabled { opacity: .45; }
 
 /* Tasks: the "+ New task" modal (client-local; opened from the page header). */
 .lt-page .lt-modal-scrim{z-index:150}
-.lt-modal{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);width:min(520px,94vw);max-height:92vh;overflow:auto;background:var(--panel);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);z-index:151;display:flex;flex-direction:column}
-.lt-modal .lt-modal-hd{display:flex;align-items:center;gap:10px;padding:14px 18px;border-bottom:1px solid var(--line)}
+/* `vh` first, then `dvh`, for the same reason as the filter sheet: this page is opened inside the
+   WhatsApp in-app browser, whose chrome retracts, so `vh` is not the viewport the reader has.
+   The BOX no longer scrolls -- the body does. A scrolling box scrolled its own header (and the X)
+   out of reach on a short phone once the form grew. */
+.lt-modal{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);width:min(520px,94vw);max-height:92vh;max-height:92dvh;overflow:hidden;background:var(--panel);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);z-index:151;display:flex;flex-direction:column}
+.lt-modal .lt-modal-hd{display:flex;align-items:center;gap:10px;padding:14px 18px;border-bottom:1px solid var(--line);flex:0 0 auto;background:var(--panel)}
 .lt-modal .lt-modal-hd h3{margin:0;font-size:16px}
-.lt-modal .lt-modal-bd{display:grid;gap:12px;padding:16px 18px}
+.lt-modal .lt-modal-bd{display:grid;gap:12px;padding:16px 18px;flex:1 1 auto;min-height:0;overflow-y:auto}
 .lt-modal .fld{margin-bottom:0}
 .lt-modal .lt-counter{display:block;margin-top:4px;color:var(--muted);font-size:11px}
 .lt-modal .lt-pickers{display:grid;gap:8px;margin-top:6px}

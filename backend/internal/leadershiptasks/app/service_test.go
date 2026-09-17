@@ -25,9 +25,15 @@ type fakeRepo struct {
 	seen    int
 	getErr  error
 	unseenN int
+
+	mentionable []domain.MentionableUser
+	comments    []ports.CommentParams
 }
 
 func (f *fakeRepo) ListAssignees(context.Context, string) ([]ports.Assignee, error) { return nil, nil }
+func (f *fakeRepo) ListMentionableUsers(context.Context, string, string) ([]domain.MentionableUser, error) {
+	return f.mentionable, nil
+}
 func (f *fakeRepo) ListTasks(context.Context, ports.ListParams) (ports.Page, error) {
 	return ports.Page{}, nil
 }

@@ -106,6 +106,9 @@ type Task struct {
 	Attachments     []Attachment
 	AttachmentCount int
 	Notes           []Note
+	// ParticipantUserIDs are the people a mention pulled onto this task (migration 000346).
+	// They may OPEN the task; see IsParticipant / CanRead in mentions.go.
+	ParticipantUserIDs []string
 }
 
 // Attachment is one stored attachment of a task. ProofID points at the proof store row that
@@ -129,6 +132,9 @@ type Note struct {
 	AuthorName string
 	Body       string
 	CreatedAt  time.Time
+	// Mentions are the people this note named, resolved and stored at write time
+	// (mentions.go, migration 000346). The phone renders them as chips over the body.
+	Mentions []Mention
 }
 
 // AttachmentRef is what a raise/edit request names: the proof the phone already uploaded,

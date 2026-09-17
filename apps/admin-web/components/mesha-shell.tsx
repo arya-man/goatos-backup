@@ -7,7 +7,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   Banknote,
-  Bell,
   BarChart3,
   CalendarDays,
   Check,
@@ -36,6 +35,8 @@ import {
 } from "lucide-react";
 import { SignOutButton } from "@/components/auth/sign-out-button";
 import { CEOAIChat, type CEOAIChatCopy } from "@/components/ceo-ai-chat";
+import { NotificationBell } from "@/features/notifications";
+import { PushPermissionPrompt } from "@/components/push-permission-prompt";
 import { preloadFirebasePerformance, startFirebasePerformanceTrace } from "@/lib/firebase-performance";
 import { reportAdminPerformanceEvent } from "@/lib/performance-events";
 import { parkLabel, parseScope, scopeHref, type Park } from "@/lib/scope";
@@ -794,16 +795,18 @@ export function MeshaShell({
         >
           {isLight ? <Moon className="ic" /> : <Sun className="ic" />}
         </button>
-        <button
-          type="button"
-          className="iconbtn"
-          title={contract.top_bar.notifications.disabled_reason}
-          aria-label={contract.top_bar.notifications.disabled_reason}
-          disabled
-          style={{ opacity: 0.45, cursor: "not-allowed" }}
-        >
-          <Bell className="ic" />
-        </button>
+        {/* The in-app notification centre. The bell slot and its backend-owned label were already
+            here as a DISABLED button; the same slot, the same label key, now live. The component
+            owns its own popover, its own reads and its own failures: if the feed cannot be loaded
+            the bell stays quiet and every screen in the shell renders exactly as before. */}
+        {/* Browser (Chrome) web push rides the SAME bell rather than a second control: the
+            permission ask belongs where a person already goes to read their notifications, and it
+            is behind an explicit click inside the panel -- never a prompt on page load. */}
+        <NotificationBell
+          openLabel={contract.top_bar.notifications.disabled_reason}
+          contractCopy={contract.copy}
+          permissionSlot={<PushPermissionPrompt contractCopy={contract.copy} />}
+        />
         <div className="userpick" data-menu-root>
           <button
             type="button"

@@ -61,6 +61,15 @@ func HTTPError(err error) *Error {
 		return BadRequest("title_too_long", "Keep the title under 80 characters.")
 	case errors.Is(err, domain.ErrBodyTooLong):
 		return BadRequest("body_too_long", "Keep the brief under 4000 characters.")
+	case errors.Is(err, domain.ErrTooManyMentions):
+		return BadRequest("too_many_mentions", "Mention at most 20 people in one note.")
+	case errors.Is(err, domain.ErrInvalidMention):
+		return BadRequest("invalid_mention", "One of the people you mentioned is not on this farm's team. Pick them from the list.")
+	case errors.Is(err, domain.ErrMentionNotVisible):
+		// 403, not 404: the caller named a REAL person who simply cannot see this task. Saying
+		// so is what stops a leader retrying the same send, and it reveals nothing about the
+		// task -- the caller can already read it.
+		return Forbidden("mention_not_visible", "That person cannot see this task, so they cannot be mentioned on it.")
 	case errors.Is(err, domain.ErrCommentTooLong):
 		return BadRequest("comment_too_long", "Keep the comment under 2000 characters.")
 	case errors.Is(err, domain.ErrAssigneeRequired):

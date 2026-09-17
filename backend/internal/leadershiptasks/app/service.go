@@ -6,6 +6,7 @@ package app
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strconv"
 	"strings"
 	"time"
@@ -212,7 +213,10 @@ func parseRangeEnd(raw string, upper bool) (*time.Time, error) {
 	}
 	day, err := time.ParseInLocation("2006-01-02", raw, time.UTC)
 	if err != nil {
-		return nil, BadRequest("invalid_date_range", "That date is not valid.")
+		// The screen reads the code and the farm-worded message; the parse cause rides along
+		// for the request log, the way the repository surfaces a bad cursor.
+		return nil, fmt.Errorf("%w: %q is neither an RFC3339 instant nor a YYYY-MM-DD date: %v",
+			BadRequest("invalid_date_range", "That date is not valid."), raw, err)
 	}
 	if upper {
 		end := day.Add(24*time.Hour - time.Nanosecond)
@@ -231,7 +235,9 @@ func (s *Service) GetTask(ctx context.Context, tenantID string, actor domain.Act
 	if err != nil {
 		return domain.Task{}, err
 	}
-	if !task.IsRaiser(actor) && !task.IsAssignee(actor) && !task.CanMonitor(actor) {
+	// ONE visibility rule, domain.Task.CanRead: raiser, assignee, or a monitor. The mention
+	// check reads the same predicate, so a mention can never reach past the task itself.
+	if !task.CanRead(actor) {
 		return domain.Task{}, ports.ErrTaskNotFound
 	}
 	return task, nil
@@ -319,7 +325,35 @@ func (s *Service) SetComment(ctx context.Context, p ports.CommentParams) (domain
 	if err := domain.ValidateComment(p.Comment); err != nil {
 		return domain.Task{}, err
 	}
+	// The mention list is normalized here (trimmed, self-mention dropped, deduped, bounded)
+	// and MALFORMED ids are refused up front. Whether each id names someone who may see this
+	// task is decided in the repository, under the task's row lock, where the row is.
+	mentions, err := domain.NormalizeMentionTargets(p.MentionUserIDs, p.Actor.UserID)
+	if err != nil {
+		return domain.Task{}, err
+	}
+	for _, id := range mentions {
+		if !uuidutil.IsUUIDString(id) {
+			return domain.Task{}, domain.ErrInvalidMention
+		}
+	}
+	// A mention lives ON a note. A mention list with no words to attach it to is a client
+	// defect, and storing it would leave a notification pointing at nothing to read.
+	if len(mentions) > 0 && p.Comment == "" {
+		return domain.Task{}, BadRequest("mention_without_note", "Write the note before naming someone in it.")
+	}
+	p.MentionUserIDs = mentions
 	return s.repo.SetComment(ctx, p)
+}
+
+// ListMentionableUsers answers the `@` autocomplete for one task. The caller must be able to
+// read the task itself first (GetTask's rule), so the list cannot be used to enumerate the
+// leadership roster from a task nobody showed you.
+func (s *Service) ListMentionableUsers(ctx context.Context, tenantID string, actor domain.Actor, taskID string) ([]domain.MentionableUser, error) {
+	if _, err := s.GetTask(ctx, tenantID, actor, taskID); err != nil {
+		return nil, err
+	}
+	return s.repo.ListMentionableUsers(ctx, tenantID, strings.TrimSpace(taskID))
 }
 
 // MarkSeen stamps the task seen by its assignee. Anyone else opening it is a no-op that

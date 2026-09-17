@@ -52,6 +52,12 @@ type leadershipTaskEventPayload struct {
 	AttachmentCount     int    `json:"attachment_count"`
 	ChangedBy           string `json:"changed_by_user_id"`
 	OccurredAt          string `json:"occurred_at"`
+	// The three below ride leadership_task.commented only (see
+	// leadership_task_activity_notify_consumer.go). MentionedUserIDs is the list the WRITE PATH
+	// already validated against the task's visibility rule; this package never re-decides it.
+	NoteID           string   `json:"note_id"`
+	NoteExcerpt      string   `json:"note_excerpt"`
+	MentionedUserIDs []string `json:"mentioned_user_ids"`
 }
 
 // LeadershipTaskNotifyConsumer turns the two task events into one push each.

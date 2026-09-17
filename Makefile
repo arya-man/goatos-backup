@@ -13,6 +13,7 @@ export PATH := $(HOME)/.local/bin:$(PATH)
 .PHONY: mcp-full-e2e
 .PHONY: release-tag release-tag-contract-guard restore-stg-android-release-env stg-zero-downtime-migration-audit
 .PHONY: e2e-image-build e2e-parity e2e-smoke e2e-business-chain scale-cert
+.PHONY: org-boundary-guard
 setup-crg: ai-setup
 
 ai-setup:
@@ -195,6 +196,7 @@ guardrails:
 	$(MAKE) india-date-guard
 	$(MAKE) offline-first-guard
 	$(MAKE) local-single-db-guard
+	$(MAKE) org-boundary-guard
 	$(MAKE) room-migration-guard
 	$(MAKE) mobile-guard
 	$(MAKE) android-row-action-scope-guard
@@ -771,6 +773,10 @@ offline-first-guard:
 
 local-single-db-guard:
 	bash tools/agent-hooks/check-local-single-db.sh
+
+org-boundary-guard:
+	node tools/agent-hooks/check-org-boundary.mjs --self-test
+	node tools/agent-hooks/check-org-boundary.mjs
 
 # ci-local: run the SAME affected-component CI gates as .github/workflows/ci.yml.
 # Per AGENTS.md a GitHub Actions billing/platform failure is NEVER a closure

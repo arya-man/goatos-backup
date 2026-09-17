@@ -3681,6 +3681,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/app/leadership-tasks/{task_id}/mentionable-users": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The people who may be named in a note on this task.
+         * @description The `@` autocomplete for ONE task. It is deliberately NOT `/app/leadership-tasks/assignees`, which is narrowed to people a task may be raised FOR: this list answers who may be NAMED in a note on THIS task -- the task's own raiser and assignee, plus the leadership population (an active Tasks Oversee tick and one of the eight leadership grants). Requires `leadership_tasks.read`, and a task the caller cannot read answers 404, so the list cannot be used to enumerate the leadership team from a task nobody showed them.
+         */
+        get: operations["listLeadershipTaskMentionableUsers"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/app/leadership-tasks/{task_id}": {
         parameters: {
             query?: never;
@@ -8916,9 +8936,42 @@ export interface components {
             /** Format: uuid */
             author_user_id: string;
             author_name: string;
+            /** @description PLAIN TEXT, exactly as it was typed. There is no inline mention token format: an older app would render one raw to a reader, so the resolved targets ride `mentions` beside the words instead. */
             body: string;
             /** Format: date-time */
             created_at: string;
+            /** @description The people this note named, resolved and stored when it was written. The client overlays them on the body as chips. */
+            mentions: components["schemas"]["LeadershipTaskMention"][];
+        };
+        /** @description One stored, resolved mention on a note. */
+        LeadershipTaskMention: {
+            /** Format: uuid */
+            mention_id: string;
+            /** Format: uuid */
+            user_id: string;
+            /** @description The mentioned person's display name */
+            name: string;
+        };
+        /** @description One mention target the CLIENT sends alongside the note text. The server re-validates every id under the task's row lock, so this is a request and never an authority. */
+        LeadershipTaskMentionRef: {
+            /** Format: uuid */
+            user_id: string;
+        };
+        LeadershipTaskMentionableUser: {
+            /** Format: uuid */
+            user_id: string;
+            name: string;
+            /** @description The person's HRMS business title, falling back to their designation label. */
+            title: string;
+            /**
+             * @description Why this person may be named -- the picker groups by it.
+             * @enum {string}
+             */
+            relation: "raiser" | "assignee" | "leadership";
+        };
+        LeadershipTaskMentionableUsers: {
+            users: components["schemas"]["LeadershipTaskMentionableUser"][];
+            trace_id: string;
         };
         /** @description One leadership task as seen by THIS caller. The capability booleans and status_options are resolved per request from the caller's grants and their party to the task; the client renders controls from them and never from a role string. */
         LeadershipTask: {
@@ -9063,6 +9116,8 @@ export interface components {
         };
         LeadershipTaskCommentRequest: {
             comment: string;
+            /** @description EXPLICIT mention targets, sent alongside the text. The server does NOT parse "@Ravi" out of the body -- two active people can share a display name, and a regex over free text cannot tell a mention from a quoted handle. Pick the ids from `GET /app/leadership-tasks/{task_id}/mentionable-users`; every one is re-validated server-side under the task's row lock. Naming someone who cannot see the task is refused 403 `mention_not_visible`, an id that names nobody is 400 `invalid_mention`, more than 20 is 400 `too_many_mentions`, and mentions with an empty `comment` are 400 `mention_without_note`. A mention of the author is ignored. A stored mention also makes that person a PARTICIPANT of the task, which is what lets them open the task the notification points at; it does not add the task to any of their list tabs. */
+            mentions?: components["schemas"]["LeadershipTaskMentionRef"][];
         };
         LeadershipTaskStatusRequest: {
             /** @enum {string} */
@@ -25536,6 +25591,32 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    listLeadershipTaskMentionableUsers: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The people this task's notes may name. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeadershipTaskMentionableUsers"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
             500: components["responses"]["ServerError"];
         };
     };

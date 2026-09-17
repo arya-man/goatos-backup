@@ -344,6 +344,7 @@ export function LeadershipTasksPage({
                   pageContract={pageContract}
                   action={setLeadershipTaskCommentAction}
                   returnTo={returnTo}
+                  mentionCandidates={assignees}
                 />
               ) : null}
               {selected.attachmentRows.length ? (

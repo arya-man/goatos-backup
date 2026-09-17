@@ -189,6 +189,7 @@ func buildDomainBus(pool *pgxpool.Pool, pgCfg platformpg.Config, logger *slog.Lo
 	// per confirm with the pen-by-pen breakdown, pushes the pens and the feed day to reduce from.
 	notificationbridge.NewSaleFeedReduceNotifier(rosterService, calendarService, logger).WithAudience(leadershipAudience).WithFeedClocks(feeddirectionpg.NewRepository(pool, pgCfg.QueryTimeout)).Register(bus)
 	notificationbridge.NewLeadershipTaskNotifyConsumer(rosterService, calendarService, logger).WithAudience(leadershipAudience).Register(bus)
+	notificationbridge.NewLeadershipTaskActivityNotifyConsumer(rosterService, calendarService, logger).Register(bus)
 	notificationbridge.NewLeaveRequestNotifyConsumer(rosterService, calendarService, logger).WithAudience(leadershipAudience).Register(bus)
 	notificationbridge.NewAnimalPurchaseNotifyConsumer(rosterService, calendarService, logger).WithAudience(leadershipAudience).Register(bus)
 	// A missed obligation must reach people, not just open an escalation row: DOWN to the assigned

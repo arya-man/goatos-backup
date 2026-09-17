@@ -1,0 +1,218 @@
+"use client";
+
+import { useCallback, useEffect, useState } from "react";
+import { Bell, BellOff, BellRing, Loader2 } from "lucide-react";
+import {
+  detectWebPushSupport,
+  disableWebPush,
+  enableWebPush,
+  readNotificationPermission,
+  refreshWebPushRegistration,
+  resolveWebPushState,
+  type WebPushState,
+} from "@/lib/web-push";
+
+/**
+ * The "Enable notifications" control for browser push.
+ *
+ * IT IS BEHIND A CLICK, ALWAYS. Nothing in this component asks for notification permission on
+ * mount — Chrome treats a load-time permission request as abusive (auto-denies it and applies the
+ * quieter UI to the origin for good), and interrupting someone with a browser modal they did not
+ * ask for is a dark pattern regardless of what Chrome does about it.
+ *
+ * What DOES happen on mount is the silent half: if this browser already granted permission, the
+ * FCM token is re-read and re-registered, because Chrome rotates that token and invalidates the
+ * subscription on profile clear or a long idle stretch and tells the server nothing. A person who
+ * turned notifications on last month must not silently stop receiving them.
+ *
+ * MOUNTING: this is a self-contained control that needs no props and owns all its own state, so
+ * it can sit wherever the shell's notification affordance lives — today that is the top-bar bell
+ * in components/mesha-shell.tsx, which is rendered permanently disabled with a backend-supplied
+ * `contract.top_bar.notifications.disabled_reason`. That bell is being rebuilt as an in-app
+ * notification centre by a separate change, so this component deliberately does NOT edit it.
+ * Drop `<PushPermissionPrompt />` into that surface (inside the bell's panel, or beside it) once
+ * it exists. On its own it renders as a labelled button and is usable as-is.
+ */
+
+/**
+ * Visible copy, resolved from the backend bootstrap contract with a local fallback per key --
+ * the same shape as lib/admin-ui-contract.ts's COPY_FALLBACKS and the notification centre's
+ * NOTIFICATION_COPY_FALLBACKS, for the same reason: every visible string in admin-web is
+ * backend-owned, and none of these keys exists in the contract yet. The moment they do, the
+ * contract wins and this map can be deleted key by key.
+ */
+const PUSH_COPY_FALLBACKS: Record<string, string> = {
+  "push.checking": "Notifications",
+  "push.checking_label": "Checking notification support",
+  "push.enable": "Enable notifications",
+  "push.enable_hint": "Get notified in this browser",
+  "push.enabling": "Turning on",
+  "push.enabled": "Notifications on",
+  "push.disable_hint": "Turn off notifications in this browser",
+  "push.disabling": "Turning off",
+  "push.this_browser_only": "This browser only. Each browser and profile is enabled separately.",
+  "push.dismissed":
+    "No choice was made. Click again when you are ready.",
+  "push.blocked":
+    "Notifications are blocked for this site. Turn them back on in your browser's site settings (the icon beside the address bar), then reload this page.",
+};
+
+function pushCopy(contractCopy: Record<string, string> | undefined, key: string): string {
+  const fromContract = contractCopy?.[key];
+  if (typeof fromContract === "string" && fromContract.trim() !== "") return fromContract;
+  return PUSH_COPY_FALLBACKS[key] ?? "";
+}
+
+type Busy = "idle" | "enabling" | "disabling" | "refreshing";
+
+export function PushPermissionPrompt({
+  className,
+  contractCopy,
+}: {
+  className?: string;
+  /** The bootstrap contract's copy map. Backend keys win over the local fallbacks. */
+  contractCopy?: Record<string, string>;
+}) {
+  const copy = (key: string) => pushCopy(contractCopy, key);
+  // Start from a state that is TRUE ON THE SERVER: no browser APIs exist during SSR, so claiming
+  // "prompt" would flash an actionable button at a browser that cannot do it. `refreshing` renders
+  // as a quiet, disabled control and is replaced on the first client effect.
+  const [state, setState] = useState<WebPushState>({ status: "unsupported", reason: "" });
+  const [busy, setBusy] = useState<Busy>("refreshing");
+  const [message, setMessage] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    // One async pass, so no setState happens synchronously inside the effect body (which triggers
+    // a cascading render). The first await point is the honest pre-network paint.
+    void (async () => {
+      const support = detectWebPushSupport();
+      const permission = readNotificationPermission();
+
+      // Paint the honest pre-network state (supported? blocked? never asked?) so the control is
+      // never blank while the silent refresh runs.
+      const initial = resolveWebPushState({
+        supported: support.supported,
+        supportReason: support.reason,
+        // Configuration is a server fact and is not known yet; assume configured so a supported
+        // browser reads "prompt" rather than flashing "not configured" and then correcting itself.
+        configured: true,
+        permission,
+        hasRegistration: false,
+        browserInstallId: "",
+      });
+      if (cancelled) return;
+      setState(initial);
+
+      if (!support.supported || permission !== "granted") {
+        setBusy("idle");
+        return;
+      }
+
+      const next = await refreshWebPushRegistration();
+      if (cancelled) return;
+      setState(next);
+      setBusy("idle");
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const onEnable = useCallback(() => {
+    setBusy("enabling");
+    setMessage("");
+    void enableWebPush()
+      .then((next) => {
+        setState(next);
+        if (next.status === "dismissed") {
+          setMessage(pushCopy(contractCopy, "push.dismissed"));
+        }
+      })
+      .finally(() => setBusy("idle"));
+  }, [contractCopy]);
+
+  const onDisable = useCallback(() => {
+    setBusy("disabling");
+    setMessage("");
+    void disableWebPush()
+      .then((next) => setState(next))
+      .finally(() => setBusy("idle"));
+  }, []);
+
+  const pending = busy !== "idle";
+
+  if (state.status === "unsupported" && busy === "refreshing") {
+    // First paint, before the client effect has run.
+    return (
+      <div className={className} aria-live="polite">
+        <button type="button" className="btn sm" disabled aria-label={copy("push.checking_label")}>
+          <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+          <span>{copy("push.checking")}</span>
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className={className} aria-live="polite">
+      {state.status === "enabled" ? (
+        <button
+          type="button"
+          className="btn sm"
+          disabled={pending}
+          onClick={onDisable}
+          title={copy("push.disable_hint")}
+        >
+          {busy === "disabling" ? (
+            <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+          ) : (
+            <BellRing className="h-4 w-4" aria-hidden="true" />
+          )}
+          <span>{copy(busy === "disabling" ? "push.disabling" : "push.enabled")}</span>
+        </button>
+      ) : null}
+
+      {state.status === "prompt" || state.status === "dismissed" || state.status === "error" ? (
+        <button
+          type="button"
+          className="btn sm"
+          disabled={pending}
+          onClick={onEnable}
+          title={copy("push.enable_hint")}
+        >
+          {busy === "enabling" ? (
+            <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+          ) : (
+            <Bell className="h-4 w-4" aria-hidden="true" />
+          )}
+          <span>{copy(busy === "enabling" ? "push.enabling" : "push.enable")}</span>
+        </button>
+      ) : null}
+
+      {state.status === "blocked" ? (
+        // Permission is 'denied'. requestPermission() now resolves 'denied' without showing
+        // anything, so a button here would be a button that cannot work. The only true thing to
+        // say is where the person can undo it themselves.
+        <div className="flex items-center gap-2 text-sm">
+          <BellOff className="h-4 w-4" aria-hidden="true" />
+          <span>{copy("push.blocked")}</span>
+        </div>
+      ) : null}
+
+      {state.status === "unsupported" || state.status === "unconfigured" ? (
+        <div className="flex items-center gap-2 text-sm">
+          <BellOff className="h-4 w-4" aria-hidden="true" />
+          <span>{state.reason}</span>
+        </div>
+      ) : null}
+
+      {state.status === "error" ? <p className="mt-1 text-sm">{state.reason}</p> : null}
+      {message ? <p className="mt-1 text-sm">{message}</p> : null}
+      {state.status === "enabled" && !pending ? (
+        <p className="mt-1 text-xs opacity-70">{copy("push.this_browser_only")}</p>
+      ) : null}
+    </div>
+  );
+}

@@ -4,6 +4,7 @@ import { CalendarClock, FileText, Image, Mic, Plus, X } from "lucide-react";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 
 import type { LeadershipTaskAssignee } from "@/lib/api/server";
+import { useDialogShell } from "./use-dialog-shell";
 
 /**
  * The "+ New task" entry on the web Tasks desk. Same shape as the phone's New task screen
@@ -31,6 +32,7 @@ export function NewTaskModal({
   const chosen = assignees.find((a) => a.user_id === assigneeId);
   const openerRef = useRef<HTMLButtonElement>(null);
   const firstFieldRef = useRef<HTMLSelectElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
   const headingId = useId();
 
   const openModal = useCallback(() => {
@@ -47,15 +49,14 @@ export function NewTaskModal({
     openerRef.current?.focus();
   }, []);
 
+  // Escape, the body scroll lock and the focus trap all live in the shared hook, so the modal and
+  // the filter sheet cannot drift apart on a phone.
+  useDialogShell({ open, onClose: closeModal, containerRef: dialogRef });
+
   useEffect(() => {
     if (!open) return;
     firstFieldRef.current?.focus();
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") closeModal();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [open, closeModal]);
+  }, [open]);
 
   const pickers: Array<{
     key: string;
@@ -91,6 +92,7 @@ export function NewTaskModal({
             onClick={closeModal}
           />
           <div
+            ref={dialogRef}
             className="lt-modal"
             role="dialog"
             aria-modal="true"

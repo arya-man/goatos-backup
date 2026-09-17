@@ -195,3 +195,35 @@ make api-client-check
   `/vaccination/calendar`, or `/vaccination/workflows`.
 - No old cyan/slate/admin-primitives visual system.
 - No global Goat Passport search as the primary workflow.
+
+## Browser (Chrome) web push
+
+The CEOs work in Chrome, so browser push is a primary delivery channel for admin-web, not an
+extra. One environment variable turns it on:
+
+```bash
+# The PUBLIC VAPID key pair from Firebase console -> Project settings -> Cloud Messaging ->
+# Web Push certificates. Public by construction (the browser transmits it to the push service on
+# every subscribe); the matching private key never leaves the Firebase project and is never
+# handled by this repo. NEVER commit a service-account JSON for this -- FCM sending uses the
+# worker's own service account (see backend/cmd/notification-dispatcher).
+GOATOS_FIREBASE_WEB_PUSH_VAPID_KEY=
+```
+
+Read at RUNTIME by the `getWebPushVapidKey` server action in `lib/web-push-actions.ts`, not
+inlined as a `NEXT_PUBLIC_*` build arg, for the same reason `/api/auth/firebase-config` resolves
+the Firebase config at runtime: one image is deployed to more than one environment, and a key
+baked in at build time would be the wrong project's key in the other one.
+
+**Empty is safe and is the default.** The control reports "browser notifications are not
+configured for this environment yet" and offers nothing, rather than minting a token against a
+wrong key that FCM accepts and can never deliver to.
+
+Delivery also needs the backend's existing FCM config (`GOATOS_FCM_PROJECT_ID` plus the
+dispatcher's service-account credentials, already provisioned in
+`infra/envs/{dev,stg}/cloud_run_worker.tf`). Browser push reuses that send path verbatim: a
+Firebase-JS-SDK web registration token is the same opaque shape the `push_fcm` channel already
+addresses.
+
+Web push also requires a **secure context** (https, or localhost). On a plain-http host the
+control reports it and nothing subscribes.

@@ -5,6 +5,7 @@ import { useCallback, useEffect, useId, useRef, useState } from "react";
 
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { rfc3339ToFarmDeadlineLocal } from "./deadline";
+import { useDialogShell } from "./use-dialog-shell";
 import type { TaskRow } from "./task-row";
 
 /**
@@ -46,6 +47,7 @@ export function EditTaskModal({
   const [added, setAdded] = useState<Record<string, number>>({});
   const openerRef = useRef<HTMLButtonElement>(null);
   const firstFieldRef = useRef<HTMLInputElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
   const keyRef = useRef<HTMLInputElement>(null);
   const headingId = useId();
 
@@ -71,16 +73,15 @@ export function EditTaskModal({
     openerRef.current?.focus();
   }, []);
 
+  // Escape, the body scroll lock and the focus trap all live in the shared hook, so the modal and
+  // the filter sheet cannot drift apart on a phone.
+  useDialogShell({ open, onClose: closeModal, containerRef: dialogRef });
+
   useEffect(() => {
-    if (!open) return undefined;
+    if (!open) return;
     mintKey();
     firstFieldRef.current?.focus();
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") closeModal();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [open, closeModal, mintKey]);
+  }, [open, mintKey]);
 
   const pickers: Array<{ key: string; label: string; accept: string; icon: typeof Mic }> = [
     { key: "voice", label: copy(pageContract, "picker.voice"), accept: "audio/*", icon: Mic },
@@ -118,7 +119,7 @@ export function EditTaskModal({
             aria-label={copy(pageContract, "action.close")}
             onClick={closeModal}
           />
-          <div className="lt-modal" role="dialog" aria-modal="true" aria-labelledby={headingId}>
+          <div ref={dialogRef} className="lt-modal" role="dialog" aria-modal="true" aria-labelledby={headingId}>
             <div className="lt-modal-hd">
               <Pencil className="ic" style={{ color: "var(--brand)" }} aria-hidden="true" />
               <h3 id={headingId}>

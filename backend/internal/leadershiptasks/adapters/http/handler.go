@@ -26,6 +26,7 @@ import (
 // Service is the behaviour this transport depends on.
 type Service interface {
 	ListAssignees(ctx context.Context, tenantID string) ([]ports.Assignee, error)
+	ListMentionableUsers(ctx context.Context, tenantID string, actor domain.Actor, taskID string) ([]domain.MentionableUser, error)
 	ListTasks(ctx context.Context, req app.ListRequest) (ports.Page, error)
 	GetTask(ctx context.Context, tenantID string, actor domain.Actor, taskID string) (domain.Task, error)
 	Raise(ctx context.Context, p ports.RaiseParams) (domain.Task, error)
@@ -61,6 +62,7 @@ func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("GET /app/leadership-tasks", h.ListTasks)
 	mux.HandleFunc("GET /app/leadership-tasks/assignees", h.ListAssignees)
 	mux.HandleFunc("GET /app/leadership-tasks/{task_id}", h.GetTask)
+	mux.HandleFunc("GET /app/leadership-tasks/{task_id}/mentionable-users", h.ListMentionableUsers)
 	mux.HandleFunc("POST /app/leadership-tasks", h.Raise)
 	mux.HandleFunc("POST /app/leadership-tasks/{task_id}/edit", h.Edit)
 	mux.HandleFunc("POST /app/leadership-tasks/{task_id}/status", h.ChangeStatus)
@@ -146,6 +148,27 @@ func (h *Handler) ListAssignees(w http.ResponseWriter, r *http.Request) {
 		out = append(out, assigneePayload{UserID: a.UserID, Name: a.Name, Title: a.Title})
 	}
 	httpresponse.WriteJSON(w, http.StatusOK, assigneesPayload{Assignees: out, TraceID: traceID(r)})
+}
+
+// ListMentionableUsers serves GET /app/leadership-tasks/{task_id}/mentionable-users -- the `@`
+// autocomplete for ONE task.
+//
+// It is deliberately NOT /app/leadership-tasks/assignees: that picker is narrowed to people a
+// task may be raised FOR, whereas this list answers who may be NAMED in a note on this task.
+// The caller must be able to read the task itself, so the list cannot be used to enumerate the
+// leadership roster from a task nobody showed them.
+func (h *Handler) ListMentionableUsers(w http.ResponseWriter, r *http.Request) {
+	actor := actorFrom(r)
+	users, err := h.service.ListMentionableUsers(r.Context(), tenantID(r), actor, r.PathValue("task_id"))
+	if err != nil {
+		h.writeCause(w, r, err)
+		return
+	}
+	out := make([]mentionableUserPayload, 0, len(users))
+	for _, u := range users {
+		out = append(out, mentionableUserPayload{UserID: u.UserID, Name: u.Name, Title: u.Title, Relation: u.Relation})
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, mentionableUsersPayload{Users: out, TraceID: traceID(r)})
 }
 
 // GetTask serves GET /app/leadership-tasks/{task_id}.
@@ -269,6 +292,7 @@ func (h *Handler) SetComment(w http.ResponseWriter, r *http.Request) {
 		Actor:          actor,
 		TaskID:         r.PathValue("task_id"),
 		Comment:        body.Comment,
+		MentionUserIDs: toMentionUserIDs(body.Mentions),
 		IdempotencyKey: key,
 	})
 	if err != nil {

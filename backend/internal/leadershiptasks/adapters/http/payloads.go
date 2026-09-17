@@ -34,6 +34,37 @@ type notePayload struct {
 	AuthorName string `json:"author_name"`
 	Body       string `json:"body"`
 	CreatedAt  string `json:"created_at"`
+	// Mentions are the people this note named, resolved and stored at write time. The body
+	// stays PLAIN TEXT exactly as it was typed -- there is no inline token format, because an
+	// older phone would render one raw to a reader -- so the client overlays these as chips by
+	// matching the names it is given.
+	Mentions []mentionPayload `json:"mentions"`
+}
+
+type mentionPayload struct {
+	MentionID string `json:"mention_id"`
+	UserID    string `json:"user_id"`
+	Name      string `json:"name"`
+}
+
+type mentionableUserPayload struct {
+	UserID string `json:"user_id"`
+	Name   string `json:"name"`
+	Title  string `json:"title"`
+	// Relation is why this person may be named: "raiser", "assignee" or "leadership".
+	Relation string `json:"relation"`
+}
+
+type mentionableUsersPayload struct {
+	Users   []mentionableUserPayload `json:"users"`
+	TraceID string                   `json:"trace_id"`
+}
+
+// mentionRefPayload is what the client SENDS: the user id it resolved from its own picker.
+// The server re-validates every id under the task's row lock, so this is a request, never an
+// authority.
+type mentionRefPayload struct {
+	UserID string `json:"user_id"`
 }
 
 type taskPayload struct {
@@ -153,6 +184,10 @@ type editPayload struct {
 
 type commentPayload struct {
 	Comment string `json:"comment"`
+	// Mentions carries EXPLICIT targets alongside the text. The server does NOT parse "@Ravi"
+	// out of the body: two active people can share a display name, and a regex over free text
+	// cannot tell a mention from a quoted handle.
+	Mentions []mentionRefPayload `json:"mentions"`
 }
 
 type statusPayload struct {
@@ -184,12 +219,17 @@ func toTaskPayload(t domain.Task, actor domain.Actor, now time.Time) taskPayload
 	}
 	notes := make([]notePayload, 0, len(t.Notes))
 	for _, n := range t.Notes {
+		mentions := make([]mentionPayload, 0, len(n.Mentions))
+		for _, m := range n.Mentions {
+			mentions = append(mentions, mentionPayload{MentionID: m.MentionID, UserID: m.UserID, Name: m.Name})
+		}
 		notes = append(notes, notePayload{
 			NoteID:     n.NoteID,
 			AuthorID:   n.AuthorID,
 			AuthorName: n.AuthorName,
 			Body:       n.Body,
 			CreatedAt:  n.CreatedAt.UTC().Format(time.RFC3339),
+			Mentions:   mentions,
 		})
 	}
 	return taskPayload{
@@ -273,6 +313,14 @@ func daysLeftPtr(t domain.Task, now time.Time) *int {
 	}
 	days := domain.DaysLeft(t, now)
 	return &days
+}
+
+func toMentionUserIDs(in []mentionRefPayload) []string {
+	out := make([]string, 0, len(in))
+	for _, m := range in {
+		out = append(out, strings.TrimSpace(m.UserID))
+	}
+	return out
 }
 
 // parseDeadline reads an RFC3339 deadline off a request; blank means none was sent.

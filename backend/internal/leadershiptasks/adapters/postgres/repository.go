@@ -184,7 +184,7 @@ func (r *Repository) ListTasks(ctx context.Context, p ports.ListParams) (ports.P
 	if err := r.attachTo(ctx, r.pool, p.TenantID, tasks); err != nil {
 		return ports.Page{}, err
 	}
-	if err := r.notesTo(ctx, r.pool, p.TenantID, tasks); err != nil {
+	if err := r.notesToWithMentions(ctx, r.pool, p.TenantID, tasks); err != nil {
 		return ports.Page{}, err
 	}
 	page.Rows = tasks
@@ -440,6 +440,15 @@ func (r *Repository) attachTo(ctx context.Context, q querier, tenantID string, t
 	return rows.Err()
 }
 
+// notesToWithMentions loads the notes of a bounded task set and their mentions -- TWO
+// queries for the whole page, never one per task or one per note.
+func (r *Repository) notesToWithMentions(ctx context.Context, q querier, tenantID string, tasks []domain.Task) error {
+	if err := r.notesTo(ctx, q, tenantID, tasks); err != nil {
+		return err
+	}
+	return r.mentionsTo(ctx, q, tenantID, tasks)
+}
+
 // notesTo loads the chronological task notes of a bounded task set in one query.
 func (r *Repository) notesTo(ctx context.Context, q querier, tenantID string, tasks []domain.Task) error {
 	if len(tasks) == 0 {
@@ -573,6 +582,14 @@ func (r *Repository) getRow(ctx context.Context, q querier, tenantID, taskID str
 		return domain.Task{}, err
 	}
 	if err := r.notesTo(ctx, q, tenantID, tasks); err != nil {
+		return domain.Task{}, err
+	}
+	if err := r.mentionsTo(ctx, q, tenantID, tasks); err != nil {
+		return domain.Task{}, err
+	}
+	// The participants decide domain.Task.CanRead, so a detail read WITHOUT them would 404
+	// for a person a note legitimately pulled onto the task.
+	if err := r.participantsTo(ctx, q, tenantID, tasks); err != nil {
 		return domain.Task{}, err
 	}
 	return tasks[0], nil
@@ -749,6 +766,12 @@ func (r *Repository) Edit(ctx context.Context, p ports.EditParams) (domain.Task,
 	}); err != nil {
 		return domain.Task{}, fmt.Errorf("leadership task: audit edit: %w", err)
 	}
+	// The other party is owed the news that the brief, the deadline or the attachments moved
+	// (maintainer instruction 2026-09-18). Emitted INSIDE the write, like every other task
+	// event, so a rolled-back edit never announces itself.
+	if err := emitEvent(ctx, tx, EventTaskUpdated, after, "", p.ActorID, p.IdempotencyKey, now); err != nil {
+		return domain.Task{}, err
+	}
 	if err := completeIdempotency(ctx, tx, p.TenantID, idemScopeEdit, p.IdempotencyKey, resourceType, p.TaskID); err != nil {
 		return domain.Task{}, fmt.Errorf("leadership task: complete edit idempotency: %w", err)
 	}
@@ -843,7 +866,9 @@ func (r *Repository) SetComment(ctx context.Context, p ports.CommentParams) (dom
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	fingerprint := requestFingerprint(p.TaskID, p.Actor.UserID, p.Comment)
+	// The mention list is part of the request's identity: the same key with a different set of
+	// people named is a DIFFERENT note, and replaying it as the first one would drop mentions.
+	fingerprint := requestFingerprint(p.TaskID, p.Actor.UserID, p.Comment, strings.Join(p.MentionUserIDs, ","))
 	reservation, err := reserveIdempotency(ctx, tx, p.TenantID, idemScopeComment, p.IdempotencyKey, fingerprint)
 	if err != nil {
 		return domain.Task{}, err
@@ -872,9 +897,20 @@ func (r *Repository) SetComment(ctx context.Context, p ports.CommentParams) (dom
 	} else if _, err := tx.Exec(ctx, sqlTouchTask, p.TenantID, p.TaskID, now); err != nil {
 		return domain.Task{}, fmt.Errorf("leadership task: touch comment: %w", err)
 	}
+	// The mention targets are re-validated HERE, under the row lock taken above, against the
+	// same list the `@` autocomplete reads. An id from a stale or hostile client can therefore
+	// never reach someone who cannot already see this task.
+	mentions, err := r.resolveMentionTargets(ctx, tx, p.TenantID, p.TaskID, p.MentionUserIDs)
+	if err != nil {
+		return domain.Task{}, err
+	}
+	noteID := ""
 	if p.Comment != "" {
-		if _, err := tx.Exec(ctx, sqlInsertNote, p.TenantID, p.TaskID, p.Actor.UserID, p.Comment, now); err != nil {
+		if err := tx.QueryRow(ctx, sqlInsertNote, p.TenantID, p.TaskID, p.Actor.UserID, p.Comment, now).Scan(&noteID); err != nil {
 			return domain.Task{}, fmt.Errorf("leadership task: insert note: %w", err)
+		}
+		if err := insertMentions(ctx, tx, p.TenantID, p.TaskID, noteID, p.Actor.UserID, mentions, now); err != nil {
+			return domain.Task{}, err
 		}
 	}
 	after, err := r.getRow(ctx, tx, p.TenantID, p.TaskID, false)
@@ -894,11 +930,23 @@ func (r *Repository) SetComment(ctx context.Context, p ports.CommentParams) (dom
 			"domain":          "leadership_tasks",
 			"module":          "leadership_tasks",
 			"task_no":         after.TaskNo,
+			"mention_count":   len(mentions),
 			"idempotency_key": p.IdempotencyKey,
 			"operation_id":    p.IdempotencyKey,
 		},
 	}); err != nil {
 		return domain.Task{}, fmt.Errorf("leadership task: audit comment: %w", err)
+	}
+	// Only an actual NOTE is news. A comment call that wrote no note (an older phone clearing
+	// the assignee field) has nothing to tell anyone and emits nothing.
+	if noteID != "" {
+		if err := emitEventWith(ctx, tx, EventTaskCommented, after, "", p.Actor.UserID, p.IdempotencyKey, now, eventExtras{
+			NoteID:           noteID,
+			NoteExcerpt:      noteExcerpt(p.Comment),
+			MentionedUserIDs: mentions,
+		}); err != nil {
+			return domain.Task{}, err
+		}
 	}
 	if err := completeIdempotency(ctx, tx, p.TenantID, idemScopeComment, p.IdempotencyKey, resourceType, p.TaskID); err != nil {
 		return domain.Task{}, fmt.Errorf("leadership task: complete comment idempotency: %w", err)
@@ -1006,6 +1054,18 @@ func auditState(t domain.Task) map[string]any {
 
 // deadlineFingerprint is the deadline as one stable string for fingerprints and audit: the
 // RFC3339 UTC instant, or "" for none.
+// noteExcerpt is the short form of a note the push quotes. It keeps the copy specific -- a
+// reader must see WHAT was said, not just that something was -- while staying readable on a
+// lock screen.
+func noteExcerpt(body string) string {
+	body = strings.Join(strings.Fields(body), " ")
+	const max = 120
+	if len([]rune(body)) > max {
+		return string([]rune(body)[:max-1]) + "\u2026"
+	}
+	return body
+}
+
 func deadlineFingerprint(deadline *time.Time) string {
 	if deadline == nil {
 		return ""
@@ -1101,7 +1161,8 @@ WHERE tenant_id = $1 AND task_id = $2`
 
 const sqlInsertNote = `
 INSERT INTO public.leadership_task_notes (tenant_id, task_id, author_user_id, body, created_at)
-VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5)`
+VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5)
+RETURNING note_id::text`
 
 const sqlListNotes = `
 SELECT n.task_id::text, n.note_id::text, n.author_user_id::text, COALESCE(w.display_name, ''), n.body, n.created_at

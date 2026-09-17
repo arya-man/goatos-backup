@@ -18,6 +18,22 @@ import (
 	platformoutbox "github.com/vgoats/goatos/backend/internal/platform/outbox"
 )
 
+// retireInvalidBrowserRegistrationSQL is the browser half of SuppressInvalidRecipient's prune --
+// see the comment at its call site for why it may write `status` where the phone statement beside
+// it deliberately may not. Hoisted to a package-level const so a query-plan gate and the scale
+// guard can NAME it; it runs on the dispatcher's hot path, once per provider-confirmed dead
+// address, and is served by workforce_member_browser_push_registrations_token_idx (000347).
+// Params: $1 tenant, $2 the rejected recipient_ref (the token), $3 now, $4 reason.
+const retireInvalidBrowserRegistrationSQL = `
+UPDATE workforce_member_browser_push_registrations
+SET status = 'stale',
+    stale_at = $3::timestamptz,
+    stale_reason = $4::text,
+    row_version = row_version + 1
+WHERE tenant_id = $1::uuid
+  AND fcm_token = $2
+  AND status = 'active'`
+
 const (
 	defaultQueryTimeout                  = 3 * time.Second
 	notificationExhaustedEventType       = "notification.exhausted"
@@ -158,6 +174,28 @@ SET fcm_token = NULL,
 WHERE tenant_id = $1::uuid
   AND fcm_token = $2`, tenantID, recipientRef, now, reason); err != nil {
 		return 0, fmt.Errorf("notification: clear invalid fcm token: %w", err)
+	}
+	// THE SAME DEAD ADDRESS, ON THE BROWSER SIDE. A Chrome web push registration is an FCM
+	// registration token too (see migration 000347), so it arrives here through the identical
+	// recipient_ref and the identical provider verdict -- FCM does not distinguish the two when it
+	// says the address is gone. A browser subscription gives NO other expiry signal: Chrome
+	// invalidates it on profile clear, on a long idle stretch and whenever the person revokes the
+	// site's notification permission, and tells the server nothing. If this statement is absent
+	// that table only ever grows dead rows and every future push to that person burns the full
+	// retry schedule against an address that can never resolve.
+	//
+	// It writes `status`, unlike the phone statement above, and the P0 device-lockout reasoning is
+	// exactly why that is safe HERE and not there: `workforce_member_devices.status` is a phone's
+	// ability to AUTHENTICATE and bootstrap, whereas this table's status is only whether we may
+	// address it. A stale row grants nothing and blocks nothing -- the browser's next register
+	// upsert revives the same row to 'active' with its fresh token (ON CONFLICT ... DO UPDATE), so
+	// the self-heal path needs no unlock and no admin. The table's own stale CHECK requires
+	// stale_at to move with the status, which is why both are set in one statement.
+	//
+	// Idempotent: `status = 'active'` means an already-pruned row does not match, so a redelivered
+	// failure is a no-op rather than a second row_version bump.
+	if _, err := tx.Exec(ctx, retireInvalidBrowserRegistrationSQL, tenantID, recipientRef, now, reason); err != nil {
+		return 0, fmt.Errorf("notification: retire invalid browser push registration: %w", err)
 	}
 	tag, err := tx.Exec(ctx, `
 UPDATE notification_requests

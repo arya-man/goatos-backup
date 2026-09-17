@@ -9,6 +9,7 @@ import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { worklistFilterShownValue } from "@/lib/worklist-filter-value";
 import { TASK_PAGING_PARAMS, TASK_PARAM } from "./params";
 import { TASK_SORTS, type TaskSort } from "./task-url";
+import { useDialogShell } from "./use-dialog-shell";
 
 export type TaskPersonOption = { value: string; label: string };
 export type TaskStatusChip = {
@@ -91,6 +92,8 @@ export function LeadershipTasksFilters({
   const routerSearchParams = useSearchParams();
   const [isPending, startTransition] = useTransition();
   const [sheetOpen, setSheetOpen] = useState(false);
+  const sheetRef = useRef<HTMLDivElement>(null);
+  const moreRef = useRef<HTMLButtonElement>(null);
   const current = routerSearchParams?.toString() ?? "";
 
   /**
@@ -200,6 +203,25 @@ export function LeadershipTasksFilters({
   );
   const chipSelected = (key: string) => (selectedChipKey || "all") === key;
 
+  /**
+   * The sheet is a real overlay on a phone, so it owes the reader the same three things the
+   * modals do: Escape, a body scroll lock (a drag inside it was scrolling the LIST behind it) and
+   * a focus trap. `.lt-fmore` — the only way to open it — is `display:none` above the sheet
+   * breakpoint, so this state is unreachable on a desktop viewport and the lock cannot strand a
+   * wide page. Focus returns to the opener on close.
+   */
+  const closeSheet = useCallback(() => {
+    setSheetOpen(false);
+    moreRef.current?.focus();
+  }, []);
+  useDialogShell({ open: sheetOpen, onClose: closeSheet, containerRef: sheetRef });
+  useEffect(() => {
+    if (!sheetOpen) return;
+    const node = sheetRef.current;
+    const first = node?.querySelector<HTMLElement>("a[href],button:not([disabled])");
+    (first ?? node)?.focus();
+  }, [sheetOpen]);
+
   const searchLabel = copy(pageContract, "filter.search_label");
   const rangeNote = copy(pageContract, "filter.range_note");
 
@@ -240,9 +262,10 @@ export function LeadershipTasksFilters({
       {/* The phone affordance. Hidden on a wide viewport, where the same controls are the bar. */}
       <button
         type="button"
+        ref={moreRef}
         className="btn sm lt-fmore"
         aria-expanded={sheetOpen}
-        onClick={() => setSheetOpen((open) => !open)}
+        onClick={() => (sheetOpen ? closeSheet() : setSheetOpen(true))}
       >
         <SlidersHorizontal className="ic" aria-hidden="true" />
         {copy(pageContract, "action.filters")}
@@ -253,11 +276,11 @@ export function LeadershipTasksFilters({
           type="button"
           className="scrim on lt-fscrim"
           aria-label={copy(pageContract, "filter.close_label")}
-          onClick={() => setSheetOpen(false)}
+          onClick={closeSheet}
         />
       ) : null}
 
-      <div className={`lt-fgroup${sheetOpen ? " open" : ""}`}>
+      <div ref={sheetRef} className={`lt-fgroup${sheetOpen ? " open" : ""}`} tabIndex={-1}>
         <div className="lt-fsheet-hd">
           <ListFilter className="ic" style={{ color: "var(--brand)" }} aria-hidden="true" />
           <b>{copy(pageContract, "action.filters")}</b>
@@ -265,7 +288,7 @@ export function LeadershipTasksFilters({
           <button
             type="button"
             className="btn sm"
-            onClick={() => setSheetOpen(false)}
+            onClick={closeSheet}
             aria-label={copy(pageContract, "filter.close_label")}
           >
             <X className="ic" aria-hidden="true" />
@@ -388,7 +411,7 @@ export function LeadershipTasksFilters({
             type="button"
             className="btn sm p"
             onClick={() => {
-              setSheetOpen(false);
+              closeSheet();
               go(
                 paramsWith({
                   [TASK_PARAM.deadlineFrom]: dates.deadlineFrom,

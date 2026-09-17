@@ -115,6 +115,7 @@ func BuildDomainBus(pool *pgxpool.Pool, pgCfg platformpg.Config, logger *slog.Lo
 	// Leadership Tasks (maintainer decision 2026-09-04): a raised task pushes to the CXO it is
 	// addressed to; a task marked done pushes back to the director who asked.
 	notificationbridge.NewLeadershipTaskNotifyConsumer(rosterService, calendarService, logger).WithAudience(leadershipAudience).Register(bus)
+	notificationbridge.NewLeadershipTaskActivityNotifyConsumer(rosterService, calendarService, logger).Register(bus)
 	notificationbridge.NewLeaveRequestNotifyConsumer(rosterService, calendarService, logger).WithAudience(leadershipAudience).Register(bus)
 	notificationbridge.NewAnimalPurchaseNotifyConsumer(rosterService, calendarService, logger).WithAudience(leadershipAudience).Register(bus)
 	// A missed obligation must reach people, not just open an escalation row: DOWN to the assigned

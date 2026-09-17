@@ -165,18 +165,27 @@ type StatusParams struct {
 	IdempotencyKey string
 }
 
-// CommentParams sets the assignee's note on a task.
+// CommentParams appends one note to a task (and, for the assignee, overwrites the legacy
+// single-comment field).
 type CommentParams struct {
-	TenantID       string
-	Actor          domain.Actor
-	TaskID         string
-	Comment        string
+	TenantID string
+	Actor    domain.Actor
+	TaskID   string
+	Comment  string
+	// MentionUserIDs are the EXPLICIT mention targets the client sent alongside the text
+	// (domain/mentions.go). The app layer normalizes them; the repository re-validates every
+	// one under the task's row lock against domain.Task.CanRead before storing a row, so an id
+	// from a stale or hostile client can never reach someone who cannot see the task.
+	MentionUserIDs []string
 	IdempotencyKey string
 }
 
 // Repository persists tasks.
 type Repository interface {
 	ListAssignees(ctx context.Context, tenantID string) ([]Assignee, error)
+	// ListMentionableUsers answers the `@` autocomplete for ONE task: everyone who can already
+	// read that task. Not the same list as ListAssignees (see domain.MentionableUser).
+	ListMentionableUsers(ctx context.Context, tenantID, taskID string) ([]domain.MentionableUser, error)
 	ListTasks(ctx context.Context, p ListParams) (Page, error)
 	GetTask(ctx context.Context, tenantID, taskID string) (domain.Task, error)
 	Raise(ctx context.Context, p RaiseParams) (domain.Task, error)

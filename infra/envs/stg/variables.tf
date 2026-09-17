@@ -462,3 +462,21 @@ variable "trace_sample_ratio" {
     error_message = "trace_sample_ratio must be a number between 0 and 1."
   }
 }
+
+# The VAPID application server key admin-web hands to the Firebase JS SDK so a Chrome profile can
+# mint an FCM web registration token (browser web push, migration 000347).
+#
+# IT IS A PUBLIC KEY and is deliberately NOT a Secret Manager secret: the browser transmits it to
+# the push service on every subscribe, so it is public by construction. The matching PRIVATE key
+# never leaves the Firebase project and is never handled by this repo -- FCM signs with it on our
+# behalf, which is the whole reason this design uses FCM web rather than raw VAPID.
+#
+# Empty by default and empty is SAFE: admin-web reports "browser notifications are not configured
+# for this environment yet" and offers no control, rather than minting a token against a wrong key
+# that FCM would accept and never deliver to. Source it from Firebase console ->
+# Project settings -> Cloud Messaging -> Web Push certificates -> Key pair.
+variable "firebase_web_push_vapid_key" {
+  description = "Public VAPID key pair (Firebase Cloud Messaging web push certificate) for admin-web browser notifications. Public by design; empty disables browser push."
+  type        = string
+  default     = ""
+}

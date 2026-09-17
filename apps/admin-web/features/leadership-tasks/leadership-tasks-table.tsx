@@ -48,8 +48,11 @@ export function LeadershipTasksTable({
         <b>{task.number}</b>
         <span className="muted small">{task.title}</span>
       </Link>
-      {/* On a phone the table shows only its first column, so the same clock sits under the title
-          there (CSS shows one or the other, never both). */}
+      {/* At phone width the urgency column is dropped -- header AND body cells, via
+          `.lt-days-col{display:none}` at max-width:760px and the paired
+          `cellClassName`/`headerClassName` below. Every other column still renders, so the same
+          clock is repeated here, under the title, where the row has room for it. CSS shows one or
+          the other, never both. */}
       {task.deadlineTone ? (
         <div className="lt-clock-inline">
           <DeadlineClock task={task} compact />
@@ -65,17 +68,17 @@ export function LeadershipTasksTable({
     // Both spellings of the urgency column; see the note above.
     priority: {
       cell: clockCell,
-      meta: { cellClassName: "lt-days-col" },
+      meta: { cellClassName: "lt-days-col", headerClassName: "lt-days-col" },
       sortValue: (task) => task.daysLeft ?? undefined,
     },
     days_left: {
       cell: clockCell,
-      meta: { cellClassName: "lt-days-col" },
+      meta: { cellClassName: "lt-days-col", headerClassName: "lt-days-col" },
       sortValue: (task) => task.daysLeft ?? undefined,
     },
     deadline: {
       cell: clockCell,
-      meta: { cellClassName: "lt-days-col" },
+      meta: { cellClassName: "lt-days-col", headerClassName: "lt-days-col" },
       sortValue: (task) => task.daysLeft ?? undefined,
     },
     assignee: {

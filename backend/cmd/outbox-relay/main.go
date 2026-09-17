@@ -233,6 +233,7 @@ func buildPublisher(ctx context.Context, kind string, pool *pgxpool.Pool, pgCfg 
 		// per confirm with the pen-by-pen breakdown, pushes the pens and the feed day to reduce from.
 		notificationbridge.NewSaleFeedReduceNotifier(rosterService, calendarService, logger).WithAudience(leadershipAudience).WithFeedClocks(feeddirectionpg.NewRepository(pool, pgCfg.QueryTimeout)).Register(bus)
 		notificationbridge.NewLeadershipTaskNotifyConsumer(rosterService, calendarService, logger).WithAudience(leadershipAudience).Register(bus)
+		notificationbridge.NewLeadershipTaskActivityNotifyConsumer(rosterService, calendarService, logger).Register(bus)
 		notificationbridge.NewLeaveRequestNotifyConsumer(rosterService, calendarService, logger).WithAudience(leadershipAudience).Register(bus)
 		notificationbridge.NewAnimalPurchaseNotifyConsumer(rosterService, calendarService, logger).WithAudience(leadershipAudience).Register(bus)
 		countsapp.NewProjectionInputHandler(countsService).Register(bus)

@@ -142,6 +142,19 @@ export async function setLeadershipTaskCommentAction(
   const taskID = String(formData.get("task_id") ?? "").trim();
   const comment = String(formData.get("comment") ?? "").trim();
   const idempotencyKey = String(formData.get("idempotency_key") ?? "").trim();
+  /**
+   * The people the writer actually PICKED in the composer, as ids -- the server does not read
+   * "@Ravi" out of the prose, because two active people can share a display name. The field is a
+   * comma-separated hidden input, so this is the whole parse. Every id is re-validated
+   * server-side under the task's row lock (403 `mention_not_visible`, 400 `invalid_mention`,
+   * 400 `too_many_mentions`), so nothing here is an authority; an older page that posts no field
+   * at all sends no mentions, which is the behaviour before the composer existed.
+   */
+  const mentions = String(formData.get("mention_user_ids") ?? "")
+    .split(",")
+    .map((id) => id.trim())
+    .filter(Boolean)
+    .map((userID) => ({ user_id: userID }));
 
   if (!taskID || !comment) {
     redirect(withFeedback(url, "error", "missing_note"));
@@ -150,11 +163,18 @@ export async function setLeadershipTaskCommentAction(
     redirect(withFeedback(url, "error", "invalid_idempotency_key"));
   }
 
-  const result = await setLeadershipTaskComment(
-    taskID,
-    { comment },
-    idempotencyKey,
-  );
+  /**
+   * `mentions` is declared on `LeadershipTaskCommentRequest` in
+   * `contracts/openapi/app-api.yaml` and is present in the generated client, but
+   * `setLeadershipTaskComment`'s own body parameter in `lib/api/server.ts` still reads
+   * `{ comment: string }` -- that file is owned by another agent this round. A typed local is
+   * assignable to the narrower parameter and is serialised whole, so the field does reach the
+   * endpoint; widening that signature to the generated request type is the follow-up.
+   */
+  const body: { comment: string; mentions?: { user_id: string }[] } = mentions.length
+    ? { comment, mentions }
+    : { comment };
+  const result = await setLeadershipTaskComment(taskID, body, idempotencyKey);
   revalidatePath(PATHNAME);
   if (!result.ok) {
     redirect(

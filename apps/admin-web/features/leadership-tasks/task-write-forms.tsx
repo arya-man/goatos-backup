@@ -4,6 +4,11 @@ import { CheckCircle2, MessageSquareText } from "lucide-react";
 import { useRef } from "react";
 
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
+import {
+  MentionTextarea,
+  resolveMentionComposerCopy,
+  type MentionCandidate,
+} from "@/features/notifications";
 import type { TaskRow } from "./task-row";
 
 /**
@@ -89,11 +94,23 @@ export function TaskCommentForm({
   pageContract,
   action,
   returnTo,
+  mentionCandidates = [],
 }: {
   task: TaskRow;
   pageContract: AdminUiPageContract;
   action: (formData: FormData) => void | Promise<void>;
   returnTo: string;
+  /**
+   * Who an update may name with `@`. These are the leadership ASSIGNEES the page already loads
+   * (`GET /app/leadership-tasks/assignees`) -- the raise targets. The narrower, task-scoped
+   * `GET /app/leadership-tasks/{task_id}/mentionable-users` (the task's own parties plus the
+   * leadership roles) is the more correct source and has no reader in `lib/api/server.ts` yet;
+   * adding one belongs to that file's owner. The consequence of the substitute is a candidate
+   * LIST that is wider than the task's own parties -- never a wrong write, because the backend
+   * re-validates every id under the task's row lock and refuses one that cannot see the task
+   * (403 `mention_not_visible`).
+   */
+  mentionCandidates?: readonly MentionCandidate[];
 }) {
   const keyRef = useRef<HTMLInputElement>(null);
   return (
@@ -103,12 +120,20 @@ export function TaskCommentForm({
       <input type="hidden" name="task_id" value={task.id} />
       <label className="fld">
         <span>{copy(pageContract, "note.label")}</span>
-        <textarea
+        {/* The composer emits BOTH halves: the prose in `comment`, and the ids the writer
+            actually picked in `mention_user_ids`. The server does not parse "@Ravi" out of the
+            text -- two active people share a display name -- so the ids are the contract. It is a
+            real named textarea plus a hidden input, so this form stays uncontrolled and the text
+            still submits without JavaScript; only the picker needs it. */}
+        <MentionTextarea
           name="comment"
-          maxLength={2000}
+          mentionsName="mention_user_ids"
+          candidates={mentionCandidates}
+          composerCopy={resolveMentionComposerCopy(pageContract.copy)}
           rows={3}
-          placeholder={copy(pageContract, "note.placeholder")}
+          maxLength={2000}
           required
+          placeholder={copy(pageContract, "note.placeholder")}
         />
       </label>
       <button
